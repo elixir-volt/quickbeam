@@ -30,8 +30,7 @@ defmodule QuickBEAM.MixProject do
 
   defp deps do
     [
-      {:zigler, "~> 0.15.2", runtime: false},
-      {:jason, "~> 1.4"}
+      {:zigler, "~> 0.15.2", runtime: false}
     ]
   end
 end

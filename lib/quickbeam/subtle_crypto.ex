@@ -14,10 +14,9 @@ defmodule QuickBEAM.SubtleCrypto do
     "P-521" => :secp521r1
   }
 
-  def digest([algo, data]) when is_binary(algo) and is_list(data) do
+  def digest([algo, data]) when is_binary(algo) do
     hash_algo = Map.fetch!(@algo_map, algo)
-    bytes = :erlang.list_to_binary(data)
-    {:bytes, :crypto.hash(hash_algo, bytes)}
+    {:bytes, :crypto.hash(hash_algo, to_binary(data))}
   end
 
   def generate_key([algo]) when is_map(algo) do

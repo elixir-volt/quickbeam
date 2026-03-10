@@ -1,8 +1,8 @@
 defmodule QuickBEAM.Compression do
   @moduledoc false
 
-  def compress([format, data]) when is_list(data) do
-    bytes = :erlang.list_to_binary(data)
+  def compress([format, data]) do
+    bytes = to_binary(data)
 
     result =
       case format do
@@ -15,8 +15,8 @@ defmodule QuickBEAM.Compression do
     {:bytes, result}
   end
 
-  def decompress([format, data]) when is_list(data) do
-    bytes = :erlang.list_to_binary(data)
+  def decompress([format, data]) do
+    bytes = to_binary(data)
 
     result =
       case format do
@@ -28,6 +28,10 @@ defmodule QuickBEAM.Compression do
 
     {:bytes, result}
   end
+
+  defp to_binary(data) when is_binary(data), do: data
+  defp to_binary(data) when is_list(data), do: :erlang.list_to_binary(data)
+  defp to_binary(_), do: <<>>
 
   defp raw_deflate(data) do
     z = :zlib.open()

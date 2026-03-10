@@ -197,14 +197,48 @@ pub const WorkerState = struct {
         self.set_ok_term(val, result);
     }
 
-    pub fn do_call(self: *WorkerState, name: []const u8, args_json: []const u8, result: *types.Result) void {
-        const call_code = std.fmt.bufPrint(&self.buf, "(function() {{ return {s}.apply(null, {s}); }})()", .{ name, args_json }) catch {
+    pub fn do_call(self: *WorkerState, name: []const u8, args_env: ?*e.ErlNifEnv, args_term: e.ErlNifTerm, result: *types.Result) void {
+        defer if (args_env) |ae| beam.free_env(ae);
+
+        // Get the function by name
+        const name_z = gpa.dupeZ(u8, name) catch {
             result.ok = false;
-            result.json = "Call expression too long";
+            result.json = "Out of memory";
             return;
         };
+        defer gpa.free(name_z);
 
-        const val = qjs.JS_Eval(self.ctx, call_code.ptr, call_code.len, "<call>", qjs.JS_EVAL_TYPE_GLOBAL);
+        const global = qjs.JS_GetGlobalObject(self.ctx);
+        defer qjs.JS_FreeValue(self.ctx, global);
+        const func = qjs.JS_GetPropertyStr(self.ctx, global, name_z.ptr);
+        defer qjs.JS_FreeValue(self.ctx, func);
+
+        if (!qjs.JS_IsFunction(self.ctx, func)) {
+            result.ok = false;
+            result.json = "Not a function";
+            return;
+        }
+
+        // Convert BEAM args list to JS values
+        var js_args_buf: [64]qjs.JSValue = undefined;
+        var js_argc: usize = 0;
+
+        if (args_env) |ae| {
+            var current = args_term;
+            while (js_argc < js_args_buf.len) {
+                // SAFETY: head_term and tail_term immediately filled by enif_get_list_cell
+                var head_term: e.ErlNifTerm = undefined;
+                // SAFETY: see above
+                var tail_term: e.ErlNifTerm = undefined;
+                if (e.enif_get_list_cell(ae, current, &head_term, &tail_term) == 0) break;
+                js_args_buf[js_argc] = beam_to_js.convert(self.ctx, ae, head_term);
+                js_argc += 1;
+                current = tail_term;
+            }
+        }
+        defer for (js_args_buf[0..js_argc]) |v| qjs.JS_FreeValue(self.ctx, v);
+
+        const val = qjs.JS_Call(self.ctx, func, global, @intCast(js_argc), if (js_argc > 0) &js_args_buf else null);
         defer qjs.JS_FreeValue(self.ctx, val);
         self.drain_jobs();
 
@@ -416,7 +450,7 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                     p.done.set();
                 },
                 .call_fn => |p| {
-                    state.do_call(p.name, p.args_json, p.result);
+                    state.do_call(p.name, p.args_env, p.args_term, p.result);
                     p.done.set();
                 },
                 .load_module => |p| {
@@ -430,7 +464,7 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                 .resolve_call => |rc| state.resolve_pending(rc.id, rc.json),
                 .reject_call => |rc| state.reject_pending(rc.id, rc.json),
                 .resolve_call_term => |rc| state.resolve_pending_term(rc.env, rc.term, rc.id),
-                .send_message => |sm| gpa.free(sm.data),
+                .send_message => |sm| if (sm.env) |msg_env| beam.free_env(msg_env),
                 .memory_usage => |mu| {
                     // SAFETY: immediately filled by JS_ComputeMemoryUsage
                     var usage: qjs.JSMemoryUsage = undefined;

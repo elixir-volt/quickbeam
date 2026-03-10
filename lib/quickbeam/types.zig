@@ -47,7 +47,7 @@ pub const Message = union(enum) {
     resolve_call: CallResponse,
     reject_call: CallResponse,
     resolve_call_term: CallResponseTerm,
-    send_message: StringPayload,
+    send_message: MessagePayload,
     memory_usage: *MemoryUsageResult,
     stop,
 };
@@ -60,7 +60,8 @@ pub const RequestPayload = struct {
 
 pub const CallPayload = struct {
     name: []const u8,
-    args_json: []const u8,
+    args_env: ?*e.ErlNifEnv,
+    args_term: e.ErlNifTerm,
     result: *Result,
     done: *std.Thread.ResetEvent,
 };
@@ -84,8 +85,9 @@ pub const CallResponseTerm = struct {
     ok: bool,
 };
 
-pub const StringPayload = struct {
-    data: []const u8,
+pub const MessagePayload = struct {
+    env: ?*e.ErlNifEnv,
+    term: e.ErlNifTerm,
 };
 
 pub const Result = struct {

@@ -78,14 +78,19 @@ pub fn eval(resource: RuntimeResource, code: []const u8) beam.term {
     return make_result(&result);
 }
 
-pub fn call_function(resource: RuntimeResource, name: []const u8, args_json: []const u8) beam.term {
+pub fn call_function(resource: RuntimeResource, name: []const u8, args: beam.term) beam.term {
     var result = Result{};
     var done = std.Thread.ResetEvent{};
     const data = resource.unpack();
 
+    // Copy args to a private env so they outlive the NIF call
+    const args_env = beam.alloc_env();
+    const args_copy = e.enif_make_copy(args_env, args.v);
+
     enqueue(data, .{ .call_fn = .{
         .name = name,
-        .args_json = args_json,
+        .args_env = args_env,
+        .args_term = args_copy,
         .result = &result,
         .done = &done,
     } });
@@ -198,7 +203,24 @@ pub fn resolve_call_term(resource: RuntimeResource, call_id: u64, value: beam.te
 }
 
 pub fn reject_call_term(resource: RuntimeResource, call_id: u64, reason: []const u8) beam.term {
-    return reject_call(resource, call_id, reason);
+    const data = resource.unpack();
+
+    data.sync_slots_mutex.lock();
+    const slot = data.sync_slots.get(call_id);
+    data.sync_slots_mutex.unlock();
+
+    if (slot) |s| {
+        const term_env = beam.alloc_env();
+        s.result_env = term_env;
+        s.result_term = beam.make(reason, .{ .env = term_env }).v;
+        s.ok = false;
+        s.done.set();
+        return beam.make(.ok, .{});
+    }
+
+    const reason_copy = gpa.dupe(u8, reason) catch return beam.make(.ok, .{});
+    enqueue(data, .{ .reject_call = .{ .id = call_id, .json = reason_copy } });
+    return beam.make(.ok, .{});
 }
 
 pub fn memory_usage(resource: RuntimeResource) beam.term {
@@ -224,8 +246,9 @@ pub fn memory_usage(resource: RuntimeResource) beam.term {
     }, .{});
 }
 
-pub fn send_message(resource: RuntimeResource, json: []const u8) beam.term {
-    const json_copy = gpa.dupe(u8, json) catch return beam.make(.ok, .{});
-    enqueue(resource.unpack(), .{ .send_message = .{ .data = json_copy } });
+pub fn send_message(resource: RuntimeResource, message: beam.term) beam.term {
+    const msg_env = beam.alloc_env();
+    const copied = e.enif_make_copy(msg_env, message.v);
+    enqueue(resource.unpack(), .{ .send_message = .{ .env = msg_env, .term = copied } });
     return beam.make(.ok, .{});
 }

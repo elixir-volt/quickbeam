@@ -113,11 +113,10 @@ defmodule QuickBEAM.Runtime do
 
   def handle_call({:call, fn_name, args}, from, state) do
     resource = state.resource
-    args_json = Jason.encode!(args)
 
     Task.start(fn ->
       result =
-        case QuickBEAM.Native.call_function(resource, fn_name, args_json) do
+        case QuickBEAM.Native.call_function(resource, fn_name, args) do
           {:ok, value} -> {:ok, value}
           {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
         end
@@ -166,43 +165,28 @@ defmodule QuickBEAM.Runtime do
 
   @impl true
   def handle_cast({:send_message, message}, state) do
-    QuickBEAM.Native.send_message(state.resource, Jason.encode!(message))
+    QuickBEAM.Native.send_message(state.resource, message)
     {:noreply, state}
   end
 
   @impl true
-  def handle_info({:beam_call, call_id, handler_name, args_json}, state) do
+  def handle_info({:beam_call, call_id, handler_name, args}, state) do
     resource = state.resource
     handlers = state.handlers
-    builtin? = Map.has_key?(@builtin_handlers, handler_name)
-
-    args =
-      case Jason.decode(args_json) do
-        {:ok, decoded} -> decoded
-        _ -> []
-      end
 
     case Map.get(handlers, handler_name) do
       nil ->
-        QuickBEAM.Native.reject_call(resource, call_id, "Unknown handler: #{handler_name}")
+        QuickBEAM.Native.reject_call_term(resource, call_id, "Unknown handler: #{handler_name}")
 
       handler when is_function(handler) ->
         Task.start(fn ->
           try do
-            result =
-              case args do
-                args when is_list(args) -> handler.(args)
-                _ -> handler.([args])
-              end
-
-            if builtin? do
-              QuickBEAM.Native.resolve_call_term(resource, call_id, result)
-            else
-              QuickBEAM.Native.resolve_call(resource, call_id, Jason.encode!(result))
-            end
+            args = if is_list(args), do: args, else: [args]
+            result = handler.(args)
+            QuickBEAM.Native.resolve_call_term(resource, call_id, result)
           rescue
             e ->
-              QuickBEAM.Native.reject_call(resource, call_id, Exception.message(e))
+              QuickBEAM.Native.reject_call_term(resource, call_id, Exception.message(e))
           end
         end)
     end
