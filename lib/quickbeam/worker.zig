@@ -340,7 +340,14 @@ pub const WorkerState = struct {
 
     pub fn do_load_module(self: *WorkerState, name: []const u8, code: []const u8, result: *types.Result) void {
         _ = name;
-        const val = qjs.JS_Eval(self.ctx, code.ptr, code.len, "<module>", qjs.JS_EVAL_TYPE_MODULE | qjs.JS_EVAL_FLAG_COMPILE_ONLY);
+        const code_z = gpa.dupeZ(u8, code) catch {
+            result.ok = false;
+            result.json = "Out of memory";
+            return;
+        };
+        defer gpa.free(code_z);
+
+        const val = qjs.JS_Eval(self.ctx, code_z.ptr, code.len, "<module>", qjs.JS_EVAL_TYPE_MODULE | qjs.JS_EVAL_FLAG_COMPILE_ONLY);
         if (js.js_is_exception(val)) {
             self.set_error_term(result);
             return;

@@ -180,4 +180,62 @@ defmodule QuickBEAM do
   def send_message(runtime, message) do
     QuickBEAM.Runtime.send_message(runtime, message)
   end
+
+  @doc """
+  List all global names defined in the JS context.
+
+  Returns `{:ok, [name]}` — a sorted list of all `globalThis` property names.
+  """
+  @spec globals(runtime()) :: {:ok, [String.t()]} | {:error, QuickBEAM.JSError.t()}
+  def globals(runtime) do
+    eval(runtime, "Object.getOwnPropertyNames(globalThis).sort()")
+  end
+
+  @doc """
+  Inspect a JS global by name. Returns its type, value (for primitives),
+  and properties (for objects/functions).
+
+  ## Examples
+
+      QuickBEAM.inspect_global(rt, "myVar")
+      {:ok, %{name: "myVar", type: "number", value: 42}}
+
+      QuickBEAM.inspect_global(rt, "console")
+      {:ok, %{name: "console", type: "object", properties: ["log", "warn", "error"]}}
+  """
+  @spec inspect_global(runtime(), String.t()) :: {:ok, map()} | {:error, QuickBEAM.JSError.t()}
+  def inspect_global(runtime, name) when is_binary(name) do
+    case eval(runtime, inspect_global_js(name)) do
+      {:ok, result} when is_map(result) -> {:ok, atomize_keys(result)}
+      other -> other
+    end
+  end
+
+  defp inspect_global_js(name) do
+    """
+    (() => {
+      const name = #{inspect(name)};
+      const v = globalThis[name];
+      const t = typeof v;
+      const info = { name, type: t };
+      if (v === null) { info.type = "null"; info.value = null; }
+      else if (t === "undefined") { info.value = null; }
+      else if (t === "number" || t === "string" || t === "boolean" || t === "bigint") {
+        info.value = v;
+      } else if (t === "function") {
+        info.length = v.length;
+        const src = Function.prototype.toString.call(v);
+        if (/^class\\s/.test(src)) info.kind = "class";
+        else info.kind = "function";
+      } else if (t === "object" && v !== null) {
+        info.properties = Object.getOwnPropertyNames(v).sort();
+      }
+      return info;
+    })()
+    """
+  end
+
+  defp atomize_keys(map) when is_map(map) do
+    Map.new(map, fn {k, v} -> {String.to_atom(k), v} end)
+  end
 end

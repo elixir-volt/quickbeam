@@ -237,6 +237,83 @@ defmodule QuickBEAMTest do
     end
   end
 
+  describe "introspection" do
+    test "globals returns sorted list of all global names" do
+      {:ok, rt} = QuickBEAM.start()
+      {:ok, globals} = QuickBEAM.globals(rt)
+      assert is_list(globals)
+      assert "Object" in globals
+      assert "Array" in globals
+      assert "console" in globals
+      assert "beam" in globals
+      assert globals == Enum.sort(globals)
+      QuickBEAM.stop(rt)
+    end
+
+    test "globals includes user-defined names" do
+      {:ok, rt} = QuickBEAM.start()
+      QuickBEAM.eval(rt, "globalThis.myThing = 123")
+      {:ok, globals} = QuickBEAM.globals(rt)
+      assert "myThing" in globals
+      QuickBEAM.stop(rt)
+    end
+
+    test "inspect_global returns type and value for primitives" do
+      {:ok, rt} = QuickBEAM.start()
+      QuickBEAM.eval(rt, "globalThis.n = 42; globalThis.s = 'hello'; globalThis.b = true")
+
+      assert {:ok, %{name: "n", type: "number", value: 42}} =
+               QuickBEAM.inspect_global(rt, "n")
+
+      assert {:ok, %{name: "s", type: "string", value: "hello"}} =
+               QuickBEAM.inspect_global(rt, "s")
+
+      assert {:ok, %{name: "b", type: "boolean", value: true}} =
+               QuickBEAM.inspect_global(rt, "b")
+
+      QuickBEAM.stop(rt)
+    end
+
+    test "inspect_global returns properties for objects" do
+      {:ok, rt} = QuickBEAM.start()
+      QuickBEAM.eval(rt, "globalThis.obj = { x: 1, y: 2, z: 3 }")
+
+      assert {:ok, %{name: "obj", type: "object", properties: ["x", "y", "z"]}} =
+               QuickBEAM.inspect_global(rt, "obj")
+
+      QuickBEAM.stop(rt)
+    end
+
+    test "inspect_global returns kind and length for functions" do
+      {:ok, rt} = QuickBEAM.start()
+      QuickBEAM.eval(rt, "globalThis.fn = function(a, b, c) {}")
+
+      assert {:ok, %{name: "fn", type: "function", kind: "function", length: 3}} =
+               QuickBEAM.inspect_global(rt, "fn")
+
+      QuickBEAM.stop(rt)
+    end
+
+    test "inspect_global detects classes" do
+      {:ok, rt} = QuickBEAM.start()
+      QuickBEAM.eval(rt, "globalThis.MyClass = class { constructor(x) { this.x = x } }")
+
+      assert {:ok, %{name: "MyClass", type: "function", kind: "class", length: 1}} =
+               QuickBEAM.inspect_global(rt, "MyClass")
+
+      QuickBEAM.stop(rt)
+    end
+
+    test "inspect_global handles undefined" do
+      {:ok, rt} = QuickBEAM.start()
+
+      assert {:ok, %{name: "nonexistent", type: "undefined"}} =
+               QuickBEAM.inspect_global(rt, "nonexistent")
+
+      QuickBEAM.stop(rt)
+    end
+  end
+
   describe "bytecode" do
     test "compile returns binary" do
       {:ok, rt} = QuickBEAM.start()
