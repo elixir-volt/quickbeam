@@ -70,19 +70,28 @@ defmodule QuickBEAM.Runtime do
     "__crypto_decrypt" => &QuickBEAM.SubtleCrypto.decrypt/1,
     "__crypto_derive_bits" => &QuickBEAM.SubtleCrypto.derive_bits/1,
     "__compress" => &QuickBEAM.Compression.compress/1,
-    "__decompress" => &QuickBEAM.Compression.decompress/1
+    "__decompress" => &QuickBEAM.Compression.decompress/1,
+    "__fetch" => &QuickBEAM.Fetch.fetch/1,
+    # {:with_caller, fun/2} — receives [args, caller_pid] instead of [args]
+    "__broadcast_join" => {:with_caller, &QuickBEAM.BroadcastChannel.join/2},
+    "__broadcast_post" => {:with_caller, &QuickBEAM.BroadcastChannel.post/2},
+    "__broadcast_leave" => {:with_caller, &QuickBEAM.BroadcastChannel.leave/2}
   }
 
   @priv_js_dir Path.join([__DIR__, "../../priv/js"]) |> Path.expand()
-  @url_js_path Path.join(@priv_js_dir, "url.js")
-  @crypto_js_path Path.join(@priv_js_dir, "crypto-subtle.js")
-  @external_resource @url_js_path
-  @external_resource @crypto_js_path
-  @compression_js_path Path.join(@priv_js_dir, "compression.js")
-  @external_resource @compression_js_path
-  @url_js File.read!(@url_js_path)
-  @crypto_js File.read!(@crypto_js_path)
-  @compression_js File.read!(@compression_js_path)
+
+  @js_load_order ~w[
+    url
+    crypto-subtle
+    compression
+    web-apis
+  ]
+
+  @builtin_js (for name <- @js_load_order do
+                 path = Path.join(@priv_js_dir, "#{name}.js")
+                 @external_resource path
+                 File.read!(path)
+               end)
 
   @impl true
   def init(opts) do
@@ -120,9 +129,9 @@ defmodule QuickBEAM.Runtime do
   end
 
   defp install_builtins(state) do
-    QuickBEAM.Native.eval(state.resource, @url_js)
-    QuickBEAM.Native.eval(state.resource, @crypto_js)
-    QuickBEAM.Native.eval(state.resource, @compression_js)
+    for js <- @builtin_js do
+      QuickBEAM.Native.eval(state.resource, js)
+    end
   end
 
   @impl true
@@ -205,15 +214,23 @@ defmodule QuickBEAM.Runtime do
     resource = state.resource
     handlers = state.handlers
 
+    caller = self()
+
     case Map.get(handlers, handler_name) do
       nil ->
         QuickBEAM.Native.reject_call_term(resource, call_id, "Unknown handler: #{handler_name}")
 
-      handler when is_function(handler) ->
+      handler ->
         Task.start(fn ->
           try do
             args = if is_list(args), do: args, else: [args]
-            result = handler.(args)
+
+            result =
+              case handler do
+                {:with_caller, fun} -> fun.(args, caller)
+                fun -> fun.(args)
+              end
+
             QuickBEAM.Native.resolve_call_term(resource, call_id, result)
           rescue
             e ->
@@ -221,6 +238,16 @@ defmodule QuickBEAM.Runtime do
           end
         end)
     end
+
+    {:noreply, state}
+  end
+
+  def handle_info({:broadcast_message, channel, data}, state) do
+    resource = state.resource
+
+    Task.start(fn ->
+      QuickBEAM.Native.call_function(resource, "__qb_broadcast_dispatch", [channel, data])
+    end)
 
     {:noreply, state}
   end

@@ -11,13 +11,13 @@ defmodule QuickBEAM.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
-      dialyzer: [plt_add_apps: [:crypto]]
+      dialyzer: [plt_add_apps: [:crypto, :inets, :ssl, :public_key]]
     ]
   end
 
   def application do
     [
-      extra_applications: [:logger],
+      extra_applications: [:logger, :inets, :ssl, :public_key],
       mod: {QuickBEAM.Application, []}
     ]
   end

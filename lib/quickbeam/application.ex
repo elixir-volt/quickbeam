@@ -5,7 +5,13 @@ defmodule QuickBEAM.Application do
 
   @impl true
   def start(_type, _args) do
-    children = []
+    children = [
+      %{
+        id: :quickbeam_pg,
+        start: {:pg, :start_link, [QuickBEAM.BroadcastChannel]}
+      }
+    ]
+
     opts = [strategy: :one_for_one, name: QuickBEAM.Supervisor]
     Supervisor.start_link(children, opts)
   end

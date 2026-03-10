@@ -4,9 +4,20 @@ import path from "node:path";
 const srcDir = "priv/ts";
 const outDir = "priv/js";
 
+const bundledModules = new Set([
+  "event-target.ts",
+  "abort.ts",
+  "streams.ts",
+  "blob.ts",
+  "headers.ts",
+  "fetch.ts",
+  "broadcast-channel.ts",
+  "websocket.ts",
+]);
+
 const files = await readdir(srcDir);
 const entrypoints = files
-  .filter((f) => f.endsWith(".ts") && !f.endsWith(".d.ts"))
+  .filter((f) => f.endsWith(".ts") && !f.endsWith(".d.ts") && !bundledModules.has(f))
   .map((f) => path.join(srcDir, f));
 
 const result = await Bun.build({
