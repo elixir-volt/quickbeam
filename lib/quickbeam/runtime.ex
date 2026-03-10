@@ -1,6 +1,7 @@
 defmodule QuickBEAM.Runtime do
   @moduledoc false
   use GenServer
+  require Logger
 
   @enforce_keys [:resource]
   defstruct [:resource, handlers: %{}, monitors: %{}]
@@ -21,14 +22,17 @@ defmodule QuickBEAM.Runtime do
     GenServer.start_link(__MODULE__, opts, Keyword.take(opts, [:name]))
   end
 
-  @spec eval(GenServer.server(), String.t()) :: {:ok, term()} | {:error, String.t()}
-  def eval(server, code) when is_binary(code) do
-    GenServer.call(server, {:eval, code}, :infinity)
+  @spec eval(GenServer.server(), String.t(), keyword()) :: {:ok, term()} | {:error, String.t()}
+  def eval(server, code, opts \\ []) when is_binary(code) do
+    timeout_ms = Keyword.get(opts, :timeout, 0)
+    GenServer.call(server, {:eval, code, timeout_ms}, :infinity)
   end
 
-  @spec call(GenServer.server(), String.t(), list()) :: {:ok, term()} | {:error, String.t()}
-  def call(server, fn_name, args \\ []) when is_binary(fn_name) and is_list(args) do
-    GenServer.call(server, {:call, fn_name, args}, :infinity)
+  @spec call(GenServer.server(), String.t(), list(), keyword()) ::
+          {:ok, term()} | {:error, String.t()}
+  def call(server, fn_name, args \\ [], opts \\ []) when is_binary(fn_name) and is_list(args) do
+    timeout_ms = Keyword.get(opts, :timeout, 0)
+    GenServer.call(server, {:call, fn_name, args, timeout_ms}, :infinity)
   end
 
   @spec compile(GenServer.server(), String.t()) :: {:ok, binary()} | {:error, String.t()}
@@ -163,7 +167,7 @@ defmodule QuickBEAM.Runtime do
 
   defp eval_script(state, path) do
     with {:ok, code} <- File.read(path),
-         {:ok, _} <- QuickBEAM.Native.eval(state.resource, code) do
+         {:ok, _} <- QuickBEAM.Native.eval(state.resource, code, 0) do
       :ok
     else
       {:error, reason} when is_atom(reason) ->
@@ -182,10 +186,10 @@ defmodule QuickBEAM.Runtime do
 
   defp install_builtins(state) do
     for js <- @builtin_js do
-      QuickBEAM.Native.eval(state.resource, js)
+      QuickBEAM.Native.eval(state.resource, js, 0)
     end
 
-    QuickBEAM.Native.eval(state.resource, @snapshot_builtins_js)
+    QuickBEAM.Native.eval(state.resource, @snapshot_builtins_js, 0)
   end
 
   @impl true
@@ -200,12 +204,12 @@ defmodule QuickBEAM.Runtime do
   end
 
   @impl true
-  def handle_call({:eval, code}, from, state) do
+  def handle_call({:eval, code, timeout_ms}, from, state) do
     resource = state.resource
 
     Task.start(fn ->
       result =
-        case QuickBEAM.Native.eval(resource, code) do
+        case QuickBEAM.Native.eval(resource, code, timeout_ms) do
           {:ok, value} -> {:ok, value}
           {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
         end
@@ -249,12 +253,12 @@ defmodule QuickBEAM.Runtime do
     {:noreply, state}
   end
 
-  def handle_call({:call, fn_name, args}, from, state) do
+  def handle_call({:call, fn_name, args, timeout_ms}, from, state) do
     resource = state.resource
 
     Task.start(fn ->
       result =
-        case QuickBEAM.Native.call_function(resource, fn_name, args) do
+        case QuickBEAM.Native.call_function(resource, fn_name, args, timeout_ms) do
           {:ok, value} -> {:ok, value}
           {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
         end
@@ -338,6 +342,11 @@ defmodule QuickBEAM.Runtime do
   end
 
   @impl true
+  def handle_info({:console, level, message}, state) do
+    Logger.log(console_level(level), message)
+    {:noreply, state}
+  end
+
   def handle_info({:beam_call, call_id, "__process_monitor", [pid, callback_id]}, state) do
     ref = Process.monitor(pid)
     monitors = Map.put(state.monitors, ref, callback_id)
@@ -388,7 +397,7 @@ defmodule QuickBEAM.Runtime do
     resource = state.resource
 
     Task.start(fn ->
-      QuickBEAM.Native.call_function(resource, "__qb_broadcast_dispatch", [channel, data])
+      QuickBEAM.Native.call_function(resource, "__qb_broadcast_dispatch", [channel, data], 0)
     end)
 
     {:noreply, state}
@@ -417,4 +426,8 @@ defmodule QuickBEAM.Runtime do
   end
 
   def terminate(_reason, _state), do: :ok
+
+  defp console_level("error"), do: :error
+  defp console_level("warning"), do: :warning
+  defp console_level(_), do: :info
 end

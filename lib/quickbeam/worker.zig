@@ -525,11 +525,29 @@ pub const WorkerState = struct {
         };
     }
 
+    pub fn set_deadline(self: *WorkerState, timeout_ns: u64) void {
+        if (timeout_ns > 0) {
+            self.rd.deadline = std.time.nanoTimestamp() + @as(i128, timeout_ns);
+        }
+    }
+
+    pub fn clear_deadline(self: *WorkerState) void {
+        self.rd.deadline = null;
+    }
+
     pub fn install_globals(self: *WorkerState) void {
         qjs.JS_SetContextOpaque(self.ctx, @ptrCast(self));
         self.dom_data = globals.install_all(self.ctx);
     }
 };
+
+fn interrupt_handler(_: ?*qjs.JSRuntime, user_data: ?*anyopaque) callconv(.c) c_int {
+    const rd: *types.RuntimeData = @ptrCast(@alignCast(user_data));
+    if (rd.deadline) |deadline| {
+        if (std.time.nanoTimestamp() > deadline) return 1;
+    }
+    return 0;
+}
 
 pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
     const rt = qjs.JS_NewRuntime() orelse return;
@@ -538,6 +556,7 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
     qjs.JS_SetMemoryLimit(rt, rd.memory_limit);
     qjs.JS_SetMaxStackSize(rt, rd.max_stack_size);
     qjs.JS_UpdateStackTop(rt);
+    qjs.JS_SetInterruptHandler(rt, &interrupt_handler, @ptrCast(rd));
 
     const ctx = qjs.JS_NewContext(rt) orelse return;
 
@@ -564,7 +583,9 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
         if (msg) |m| {
             switch (m) {
                 .eval => |p| {
+                    state.set_deadline(p.timeout_ns);
                     state.do_eval(p.code, p.result);
+                    state.clear_deadline();
                     p.done.set();
                 },
                 .compile => |p| {
@@ -572,7 +593,9 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                     p.done.set();
                 },
                 .call_fn => |p| {
+                    state.set_deadline(p.timeout_ns);
                     state.do_call(p.name, p.args_env, p.args_term, p.result);
+                    state.clear_deadline();
                     p.done.set();
                 },
                 .load_module => |p| {

@@ -86,7 +86,7 @@ pub fn start_runtime(owner_pid: beam.pid, opts: beam.term) !RuntimeResource {
     return res;
 }
 
-pub fn eval(resource: RuntimeResource, code: []const u8) beam.term {
+pub fn eval(resource: RuntimeResource, code: []const u8, timeout_ms: u64) beam.term {
     var result = Result{};
     var done = std.Thread.ResetEvent{};
     const data = resource.unpack();
@@ -95,6 +95,7 @@ pub fn eval(resource: RuntimeResource, code: []const u8) beam.term {
         .code = code,
         .result = &result,
         .done = &done,
+        .timeout_ns = if (timeout_ms > 0) timeout_ms * 1_000_000 else 0,
     } });
 
     done.wait();
@@ -131,7 +132,7 @@ pub fn load_bytecode(resource: RuntimeResource, bytecode: []const u8) beam.term 
     return make_result(&result);
 }
 
-pub fn call_function(resource: RuntimeResource, name: []const u8, args: beam.term) beam.term {
+pub fn call_function(resource: RuntimeResource, name: []const u8, args: beam.term, timeout_ms: u64) beam.term {
     var result = Result{};
     var done = std.Thread.ResetEvent{};
     const data = resource.unpack();
@@ -146,6 +147,7 @@ pub fn call_function(resource: RuntimeResource, name: []const u8, args: beam.ter
         .args_term = args_copy,
         .result = &result,
         .done = &done,
+        .timeout_ns = if (timeout_ms > 0) timeout_ms * 1_000_000 else 0,
     } });
 
     done.wait();

@@ -86,10 +86,19 @@ defmodule QuickBEAM do
       {:ok, [1, 2]}
       iex> QuickBEAM.stop(rt)
       :ok
+
+  ## Options
+
+    * `:timeout` — maximum execution time in milliseconds (default: no limit).
+      If exceeded, the JS execution is interrupted and an error is returned.
+      The runtime remains usable after a timeout.
+
+          QuickBEAM.eval(rt, "while(true) {}", timeout: 1000)
+          # => {:error, %QuickBEAM.JSError{message: "interrupted", ...}}
   """
-  @spec eval(runtime(), String.t()) :: js_result()
-  def eval(runtime, code) do
-    QuickBEAM.Runtime.eval(runtime, code)
+  @spec eval(runtime(), String.t(), keyword()) :: js_result()
+  def eval(runtime, code, opts \\ []) do
+    QuickBEAM.Runtime.eval(runtime, code, opts)
   end
 
   @doc """
@@ -104,10 +113,14 @@ defmodule QuickBEAM do
       {:ok, 5}
       iex> QuickBEAM.stop(rt)
       :ok
+
+  ## Options
+
+    * `:timeout` — maximum execution time in milliseconds (default: no limit)
   """
-  @spec call(runtime(), String.t(), list()) :: js_result()
-  def call(runtime, fn_name, args \\ []) do
-    QuickBEAM.Runtime.call(runtime, fn_name, args)
+  @spec call(runtime(), String.t(), list(), keyword()) :: js_result()
+  def call(runtime, fn_name, args \\ [], opts \\ []) do
+    QuickBEAM.Runtime.call(runtime, fn_name, args, opts)
   end
 
   @doc """

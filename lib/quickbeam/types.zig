@@ -24,6 +24,7 @@ pub const RuntimeData = struct {
     max_stack_size: usize = 1024 * 1024,
     sync_slots_mutex: std.Thread.Mutex = .{},
     sync_slots: std.AutoHashMapUnmanaged(u64, *SyncCallSlot) = .{},
+    deadline: ?i128 = null,
 };
 
 pub const MemoryUsageResult = struct {
@@ -77,6 +78,7 @@ pub const RequestPayload = struct {
     code: []const u8,
     result: *Result,
     done: *std.Thread.ResetEvent,
+    timeout_ns: u64 = 0,
 };
 
 pub const CallPayload = struct {
@@ -85,6 +87,7 @@ pub const CallPayload = struct {
     args_term: e.ErlNifTerm,
     result: *Result,
     done: *std.Thread.ResetEvent,
+    timeout_ns: u64 = 0,
 };
 
 pub const ModulePayload = struct {
