@@ -246,6 +246,42 @@ pub fn memory_usage(resource: RuntimeResource) beam.term {
     }, .{});
 }
 
+pub fn dom_find(resource: RuntimeResource, selector: []const u8) beam.term {
+    return dom_op(resource, .find, selector, "");
+}
+
+pub fn dom_find_all(resource: RuntimeResource, selector: []const u8) beam.term {
+    return dom_op(resource, .find_all, selector, "");
+}
+
+pub fn dom_text(resource: RuntimeResource, selector: []const u8) beam.term {
+    return dom_op(resource, .text, selector, "");
+}
+
+pub fn dom_attr(resource: RuntimeResource, selector: []const u8, attr_name: []const u8) beam.term {
+    return dom_op(resource, .attr, selector, attr_name);
+}
+
+pub fn dom_html(resource: RuntimeResource) beam.term {
+    return dom_op(resource, .html, "", "");
+}
+
+fn dom_op(resource: RuntimeResource, op: types.DomOp, selector: []const u8, attr_name: []const u8) beam.term {
+    var result = Result{};
+    var done = std.Thread.ResetEvent{};
+    var payload = types.DomOpPayload{
+        .op = op,
+        .selector = selector,
+        .attr_name = attr_name,
+        .result = &result,
+        .done = &done,
+    };
+
+    enqueue(resource.unpack(), .{ .dom_op = &payload });
+    done.wait();
+    return make_result(&result);
+}
+
 pub fn send_message(resource: RuntimeResource, message: beam.term) beam.term {
     const msg_env = beam.alloc_env();
     const copied = e.enif_make_copy(msg_env, message.v);

@@ -153,4 +153,73 @@ defmodule QuickBEAM do
   def send_message(runtime, message) do
     QuickBEAM.Runtime.send_message(runtime, message)
   end
+
+  @doc """
+  Find the first element matching a CSS selector in the runtime's DOM.
+
+  Returns the element as a Floki-compatible `{tag, attrs, children}` tuple,
+  or `nil` if no match is found. This reads the live DOM tree directly from
+  the native layer — no JS execution or HTML re-parsing.
+
+      {:ok, rt} = QuickBEAM.start()
+      QuickBEAM.eval(rt, "document.body.innerHTML = '<p class=\"intro\">Hello</p>'")
+      {:ok, {"p", [{"class", "intro"}], ["Hello"]}} = QuickBEAM.dom_find(rt, "p.intro")
+  """
+  @spec dom_find(runtime(), String.t()) :: {:ok, tuple() | nil}
+  def dom_find(runtime, selector) do
+    QuickBEAM.Runtime.dom_find(runtime, selector)
+  end
+
+  @doc """
+  Find all elements matching a CSS selector in the runtime's DOM.
+
+  Returns a list of Floki-compatible `{tag, attrs, children}` tuples.
+
+      {:ok, rt} = QuickBEAM.start()
+      QuickBEAM.eval(rt, ~s[document.body.innerHTML = '<ul><li>a</li><li>b</li></ul>'])
+      {:ok, items} = QuickBEAM.dom_find_all(rt, "li")
+      length(items) # => 2
+  """
+  @spec dom_find_all(runtime(), String.t()) :: {:ok, list()}
+  def dom_find_all(runtime, selector) do
+    QuickBEAM.Runtime.dom_find_all(runtime, selector)
+  end
+
+  @doc """
+  Extract text content from the first element matching a CSS selector.
+
+      {:ok, rt} = QuickBEAM.start()
+      QuickBEAM.eval(rt, "document.body.innerHTML = '<h1>Title</h1>'")
+      {:ok, "Title"} = QuickBEAM.dom_text(rt, "h1")
+  """
+  @spec dom_text(runtime(), String.t()) :: {:ok, String.t()}
+  def dom_text(runtime, selector) do
+    QuickBEAM.Runtime.dom_text(runtime, selector)
+  end
+
+  @doc """
+  Get an attribute value from the first element matching a CSS selector.
+
+  Returns `nil` if the element or attribute is not found.
+
+      {:ok, rt} = QuickBEAM.start()
+      QuickBEAM.eval(rt, ~s[document.body.innerHTML = '<a href="/page">link</a>'])
+      {:ok, "/page"} = QuickBEAM.dom_attr(rt, "a", "href")
+  """
+  @spec dom_attr(runtime(), String.t(), String.t()) :: {:ok, String.t() | nil}
+  def dom_attr(runtime, selector, attr_name) do
+    QuickBEAM.Runtime.dom_attr(runtime, selector, attr_name)
+  end
+
+  @doc """
+  Serialize the entire DOM tree to an HTML string.
+
+      {:ok, rt} = QuickBEAM.start()
+      QuickBEAM.eval(rt, "document.body.innerHTML = '<p>Hello</p>'")
+      {:ok, html} = QuickBEAM.dom_html(rt)
+  """
+  @spec dom_html(runtime()) :: {:ok, String.t()}
+  def dom_html(runtime) do
+    QuickBEAM.Runtime.dom_html(runtime)
+  end
 end

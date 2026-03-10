@@ -12,6 +12,7 @@ typedef struct lxb_dom_document lxb_dom_document_t;
 typedef struct lxb_dom_node lxb_dom_node_t;
 typedef struct lxb_dom_element lxb_dom_element_t;
 typedef struct lxb_dom_text lxb_dom_text_t;
+typedef struct lxb_dom_attr lxb_dom_attr_t;
 typedef struct lxb_dom_collection lxb_dom_collection_t;
 typedef struct lxb_css_parser lxb_css_parser_t;
 typedef struct lxb_css_selector_list lxb_css_selector_list_t;
@@ -63,6 +64,11 @@ lxb_status_t qb_element_set_attribute(lxb_dom_element_t *elem,
 lxb_status_t qb_element_remove_attribute(lxb_dom_element_t *elem,
                                           const lxb_char_t *name, size_t name_len);
 
+lxb_dom_attr_t *qb_element_first_attr(lxb_dom_element_t *elem);
+lxb_dom_attr_t *qb_attr_next(lxb_dom_attr_t *attr);
+const lxb_char_t *qb_attr_name(lxb_dom_attr_t *attr, size_t *len);
+const lxb_char_t *qb_attr_value(lxb_dom_attr_t *attr, size_t *len);
+
 lxb_dom_collection_t *qb_collection_make(lxb_dom_document_t *doc, size_t cap);
 void qb_collection_destroy(lxb_dom_collection_t *col);
 size_t qb_collection_length(lxb_dom_collection_t *col);
@@ -91,7 +97,8 @@ void qb_selectors_destroy(lxb_selectors_t *sel);
 lxb_css_selector_list_t *qb_css_selectors_parse(lxb_css_parser_t *parser,
                                                   const lxb_char_t *sel, size_t len);
 lxb_status_t qb_css_parser_status(lxb_css_parser_t *parser);
-void qb_css_selector_list_destroy(lxb_css_selector_list_t *list);
+void qb_css_selector_list_destroy(lxb_css_parser_t *parser,
+                                   lxb_css_selector_list_t *list);
 lxb_status_t qb_selectors_find(lxb_selectors_t *sel,
                                 lxb_dom_node_t *root,
                                 lxb_css_selector_list_t *list,

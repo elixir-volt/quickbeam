@@ -57,6 +57,31 @@ defmodule QuickBEAM.Runtime do
     GenServer.cast(server, {:send_message, message})
   end
 
+  @spec dom_find(GenServer.server(), String.t()) :: {:ok, term()} | {:ok, nil}
+  def dom_find(server, selector) do
+    GenServer.call(server, {:dom_find, selector}, :infinity)
+  end
+
+  @spec dom_find_all(GenServer.server(), String.t()) :: {:ok, list()}
+  def dom_find_all(server, selector) do
+    GenServer.call(server, {:dom_find_all, selector}, :infinity)
+  end
+
+  @spec dom_text(GenServer.server(), String.t()) :: {:ok, String.t()}
+  def dom_text(server, selector) do
+    GenServer.call(server, {:dom_text, selector}, :infinity)
+  end
+
+  @spec dom_attr(GenServer.server(), String.t(), String.t()) :: {:ok, String.t() | nil}
+  def dom_attr(server, selector, attr_name) do
+    GenServer.call(server, {:dom_attr, selector, attr_name}, :infinity)
+  end
+
+  @spec dom_html(GenServer.server()) :: {:ok, String.t()}
+  def dom_html(server) do
+    GenServer.call(server, :dom_html, :infinity)
+  end
+
   @builtin_handlers %{
     "__url_parse" => &QuickBEAM.URL.parse/1,
     "__url_recompose" => &QuickBEAM.URL.recompose/1,
@@ -201,6 +226,36 @@ defmodule QuickBEAM.Runtime do
 
   def handle_call(:memory_usage, _from, state) do
     {:reply, QuickBEAM.Native.memory_usage(state.resource), state}
+  end
+
+  def handle_call({:dom_find, selector}, from, state) do
+    resource = state.resource
+    Task.start(fn -> GenServer.reply(from, QuickBEAM.Native.dom_find(resource, selector)) end)
+    {:noreply, state}
+  end
+
+  def handle_call({:dom_find_all, selector}, from, state) do
+    resource = state.resource
+    Task.start(fn -> GenServer.reply(from, QuickBEAM.Native.dom_find_all(resource, selector)) end)
+    {:noreply, state}
+  end
+
+  def handle_call({:dom_text, selector}, from, state) do
+    resource = state.resource
+    Task.start(fn -> GenServer.reply(from, QuickBEAM.Native.dom_text(resource, selector)) end)
+    {:noreply, state}
+  end
+
+  def handle_call({:dom_attr, selector, attr_name}, from, state) do
+    resource = state.resource
+    Task.start(fn -> GenServer.reply(from, QuickBEAM.Native.dom_attr(resource, selector, attr_name)) end)
+    {:noreply, state}
+  end
+
+  def handle_call(:dom_html, from, state) do
+    resource = state.resource
+    Task.start(fn -> GenServer.reply(from, QuickBEAM.Native.dom_html(resource)) end)
+    {:noreply, state}
   end
 
   @impl true

@@ -2,6 +2,7 @@
 #include "lexbor/html/serialize.h"
 #include "lexbor/html/interfaces/document.h"
 #include "lexbor/dom/interfaces/element.h"
+#include "lexbor/dom/interfaces/attr.h"
 #include "lexbor/dom/interfaces/text.h"
 #include "lexbor/dom/interfaces/document.h"
 #include "lexbor/dom/interfaces/node.h"
@@ -120,6 +121,22 @@ lxb_status_t qb_element_remove_attribute(lxb_dom_element_t *elem,
     return lxb_dom_element_remove_attribute(elem, name, name_len);
 }
 
+lxb_dom_attr_t *qb_element_first_attr(lxb_dom_element_t *elem) {
+    return elem->first_attr;
+}
+
+lxb_dom_attr_t *qb_attr_next(lxb_dom_attr_t *attr) {
+    return attr->next;
+}
+
+const lxb_char_t *qb_attr_name(lxb_dom_attr_t *attr, size_t *len) {
+    return lxb_dom_attr_qualified_name(attr, len);
+}
+
+const lxb_char_t *qb_attr_value(lxb_dom_attr_t *attr, size_t *len) {
+    return lxb_dom_attr_value(attr, len);
+}
+
 lxb_dom_collection_t *qb_collection_make(lxb_dom_document_t *doc, size_t cap) {
     return lxb_dom_collection_make(doc, cap);
 }
@@ -208,8 +225,10 @@ lxb_status_t qb_css_parser_status(lxb_css_parser_t *parser) {
     return parser->status;
 }
 
-void qb_css_selector_list_destroy(lxb_css_selector_list_t *list) {
+void qb_css_selector_list_destroy(lxb_css_parser_t *parser,
+                                   lxb_css_selector_list_t *list) {
     lxb_css_selector_list_destroy_memory(list);
+    parser->memory = NULL;
 }
 
 lxb_status_t qb_selectors_find(lxb_selectors_t *sel,

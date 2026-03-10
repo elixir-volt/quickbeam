@@ -49,7 +49,24 @@ pub const Message = union(enum) {
     resolve_call_term: CallResponseTerm,
     send_message: MessagePayload,
     memory_usage: *MemoryUsageResult,
+    dom_op: *DomOpPayload,
     stop,
+};
+
+pub const DomOpPayload = struct {
+    op: DomOp,
+    selector: []const u8 = "",
+    attr_name: []const u8 = "",
+    result: *Result,
+    done: *std.Thread.ResetEvent,
+};
+
+pub const DomOp = enum {
+    find,
+    find_all,
+    text,
+    attr,
+    html,
 };
 
 pub const RequestPayload = struct {

@@ -47,6 +47,11 @@ defmodule QuickBEAM.Native do
       resolve_call_term: [],
       reject_call_term: [],
       send_message: [],
-      memory_usage: [:dirty_io]
+      memory_usage: [:dirty_io],
+      dom_find: [:dirty_io],
+      dom_find_all: [:dirty_io],
+      dom_text: [:dirty_io],
+      dom_attr: [:dirty_io],
+      dom_html: [:dirty_io]
     ]
 end

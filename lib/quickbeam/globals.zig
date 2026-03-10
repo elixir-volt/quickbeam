@@ -8,7 +8,7 @@ const text_encoding = @import("text_encoding.zig");
 const web_apis = @import("web_apis.zig");
 const dom = @import("dom.zig");
 
-pub fn install_all(ctx: *qjs.JSContext) void {
+pub fn install_all(ctx: *qjs.JSContext) ?*dom.DocumentData {
     const global = qjs.JS_GetGlobalObject(ctx);
     defer qjs.JS_FreeValue(ctx, global);
 
@@ -17,5 +17,5 @@ pub fn install_all(ctx: *qjs.JSContext) void {
     console.install(ctx, global);
     text_encoding.install(ctx, global);
     web_apis.install(ctx, global);
-    dom.install(ctx, global);
+    return dom.install(ctx, global);
 }

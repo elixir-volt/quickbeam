@@ -3,6 +3,7 @@ const js = @import("js_helpers.zig");
 const globals = @import("globals.zig");
 const js_to_beam = @import("js_to_beam.zig");
 const beam_to_js = @import("beam_to_js.zig");
+const dom = @import("dom.zig");
 const std = types.std;
 const beam = types.beam;
 const e = types.e;
@@ -31,6 +32,7 @@ pub const WorkerState = struct {
     next_timer_id: u64 = 1,
     start_time: i128 = 0,
     message_handler: qjs.JSValue = js.JS_UNDEFINED,
+    dom_data: ?*dom.DocumentData = null,
     buf: [4096]u8 = @splat(0),
 
     pub fn deinit(self: *WorkerState) void {
@@ -438,9 +440,28 @@ pub const WorkerState = struct {
         result.env = term_env;
     }
 
+    pub fn do_dom_op(self: *WorkerState, payload: *types.DomOpPayload) void {
+        const dd = self.dom_data orelse {
+            payload.result.ok = false;
+            payload.result.json = "No DOM document";
+            return;
+        };
+
+        const env = beam.alloc_env();
+        payload.result.ok = true;
+        payload.result.env = env;
+        payload.result.term = switch (payload.op) {
+            .find => dom.do_dom_query(dd, payload.selector, env),
+            .find_all => dom.do_dom_query_all(dd, payload.selector, env),
+            .text => dom.do_dom_text(dd, payload.selector, env),
+            .attr => dom.do_dom_attr(dd, payload.selector, payload.attr_name, env),
+            .html => dom.do_dom_html(dd, env),
+        };
+    }
+
     pub fn install_globals(self: *WorkerState) void {
         qjs.JS_SetContextOpaque(self.ctx, @ptrCast(self));
-        globals.install_all(self.ctx);
+        self.dom_data = globals.install_all(self.ctx);
     }
 };
 
@@ -495,6 +516,10 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                 .reject_call => |rc| state.reject_pending(rc.id, rc.json),
                 .resolve_call_term => |rc| state.resolve_pending_term(rc.env, rc.term, rc.id),
                 .send_message => |sm| state.deliver_message(sm),
+                .dom_op => |p| {
+                    state.do_dom_op(p);
+                    p.done.set();
+                },
                 .memory_usage => |mu| {
                     // SAFETY: immediately filled by JS_ComputeMemoryUsage
                     var usage: qjs.JSMemoryUsage = undefined;

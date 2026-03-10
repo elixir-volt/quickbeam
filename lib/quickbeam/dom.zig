@@ -2,6 +2,8 @@ const types = @import("types.zig");
 const js = @import("js_helpers.zig");
 const std = types.std;
 const qjs = types.qjs;
+const beam = types.beam;
+const e = types.e;
 
 const lxb = @cImport(@cInclude("lexbor_bridge.h"));
 
@@ -13,7 +15,7 @@ var element_class_id: qjs.JSClassID = 0;
 
 // ──────────────────── Opaque data attached to JS objects ────────────────────
 
-const DocumentData = struct {
+pub const DocumentData = struct {
     doc: *lxb.lxb_html_document_t,
     css_parser: *lxb.lxb_css_parser_t,
     selectors: *lxb.lxb_selectors_t,
@@ -140,7 +142,7 @@ fn do_query_selector(ctx: ?*qjs.JSContext, root: *lxb.lxb_dom_node_t, dd: *Docum
     if (lxb.qb_css_parser_status(dd.css_parser) != 0 or list == null)
         return if (find_one) js.js_null() else qjs.JS_NewArray(ctx);
 
-    defer lxb.qb_css_selector_list_destroy(list);
+    defer lxb.qb_css_selector_list_destroy(dd.css_parser, list);
 
     var results = std.ArrayList(*lxb.lxb_dom_node_t){};
 
@@ -516,7 +518,7 @@ const element_class_def = qjs.JSClassDef{
 
 // ──────────────────── Public: install DOM globals ────────────────────
 
-pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue) void {
+pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue) ?*DocumentData {
     const rt = qjs.JS_GetRuntime(ctx);
 
     class_ids_mutex.lock();
@@ -527,29 +529,29 @@ pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue) void {
     _ = qjs.JS_NewClass(rt, document_class_id, &document_class_def);
     _ = qjs.JS_NewClass(rt, element_class_id, &element_class_def);
 
-    const doc = lxb.qb_document_create() orelse return;
+    const doc = lxb.qb_document_create() orelse return null;
     const html = "<!DOCTYPE html><html><head></head><body></body></html>";
     if (lxb.qb_document_parse(doc, html, html.len) != 0) {
         _ = lxb.qb_document_destroy(doc);
-        return;
+        return null;
     }
 
     const css_parser = lxb.qb_css_parser_create() orelse {
         _ = lxb.qb_document_destroy(doc);
-        return;
+        return null;
     };
 
     const selectors = lxb.qb_selectors_create() orelse {
         lxb.qb_css_parser_destroy(css_parser);
         _ = lxb.qb_document_destroy(doc);
-        return;
+        return null;
     };
 
-    const dd = types.gpa.create(DocumentData) catch return;
+    const dd = types.gpa.create(DocumentData) catch return null;
     dd.* = .{ .doc = doc, .css_parser = css_parser, .selectors = selectors };
 
     const doc_obj = qjs.JS_NewObjectClass(ctx, @intCast(document_class_id));
-    if (js.js_is_exception(doc_obj)) return;
+    if (js.js_is_exception(doc_obj)) return null;
     _ = qjs.JS_SetOpaque(doc_obj, @ptrCast(dd));
 
     _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "createElement", qjs.JS_NewCFunction(ctx, &doc_create_element, "createElement", 1));
@@ -563,4 +565,209 @@ pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue) void {
     define_getter(ctx, doc_obj, "documentElement", &doc_get_document_element);
 
     _ = qjs.JS_SetPropertyStr(ctx, global, "document", doc_obj);
+    return dd;
+}
+
+// ──────────────────── Elixir-facing DOM operations ────────────────────
+// These run on the worker thread with direct access to DocumentData,
+// bypassing QuickJS entirely. Results are returned as BEAM terms.
+
+pub fn do_dom_query(dd: *DocumentData, selector: []const u8, env: ?*e.ErlNifEnv) e.ErlNifTerm {
+    const root = lxb.qb_doc_as_node(dd.doc) orelse return beam.make_into_atom("nil", .{ .env = env }).v;
+    const list = lxb.qb_css_selectors_parse(dd.css_parser, to_lxb(selector), selector.len);
+    if (lxb.qb_css_parser_status(dd.css_parser) != 0 or list == null)
+        return beam.make_into_atom("nil", .{ .env = env }).v;
+    defer lxb.qb_css_selector_list_destroy(dd.css_parser, list);
+
+    var results = std.ArrayList(*lxb.lxb_dom_node_t){};
+    var sctx = SelectorCtx{ .results = &results, .find_one = true };
+    _ = lxb.qb_selectors_find(dd.selectors, root, list, selector_callback, @ptrCast(&sctx));
+
+    defer results.deinit(types.gpa);
+    if (results.items.len == 0) return beam.make_into_atom("nil", .{ .env = env }).v;
+
+    return node_to_floki_term(dd, results.items[0], env);
+}
+
+pub fn do_dom_query_all(dd: *DocumentData, selector: []const u8, env: ?*e.ErlNifEnv) e.ErlNifTerm {
+    const root = lxb.qb_doc_as_node(dd.doc) orelse return beam.make_empty_list(.{ .env = env }).v;
+    const list = lxb.qb_css_selectors_parse(dd.css_parser, to_lxb(selector), selector.len);
+    if (lxb.qb_css_parser_status(dd.css_parser) != 0 or list == null)
+        return beam.make_empty_list(.{ .env = env }).v;
+    defer lxb.qb_css_selector_list_destroy(dd.css_parser, list);
+
+    var results = std.ArrayList(*lxb.lxb_dom_node_t){};
+    var sctx = SelectorCtx{ .results = &results, .find_one = false };
+    _ = lxb.qb_selectors_find(dd.selectors, root, list, selector_callback, @ptrCast(&sctx));
+    defer results.deinit(types.gpa);
+
+    const opts = .{ .env = env };
+    var elixir_list = beam.make_empty_list(opts);
+    var i: usize = results.items.len;
+    while (i > 0) {
+        i -= 1;
+        const term = beam.term{ .v = node_to_floki_term(dd, results.items[i], env) };
+        elixir_list = beam.make_list_cell(term, elixir_list, opts);
+    }
+    return elixir_list.v;
+}
+
+pub fn do_dom_text(dd: *DocumentData, selector: []const u8, env: ?*e.ErlNifEnv) e.ErlNifTerm {
+    const opts = .{ .env = env };
+    const root = lxb.qb_doc_as_node(dd.doc) orelse return beam.make(@as([]const u8, ""), opts).v;
+    const list = lxb.qb_css_selectors_parse(dd.css_parser, to_lxb(selector), selector.len);
+    if (lxb.qb_css_parser_status(dd.css_parser) != 0 or list == null)
+        return beam.make(@as([]const u8, ""), opts).v;
+    defer lxb.qb_css_selector_list_destroy(dd.css_parser, list);
+
+    var results = std.ArrayList(*lxb.lxb_dom_node_t){};
+    var sctx = SelectorCtx{ .results = &results, .find_one = true };
+    _ = lxb.qb_selectors_find(dd.selectors, root, list, selector_callback, @ptrCast(&sctx));
+    defer results.deinit(types.gpa);
+
+    if (results.items.len == 0) return beam.make(@as([]const u8, ""), opts).v;
+
+    var len: usize = 0;
+    const text = lxb.qb_node_text_content(results.items[0], &len);
+    if (text == null) return beam.make(@as([]const u8, ""), opts).v;
+    defer lxb.qb_dom_document_destroy_text(lxb.qb_node_owner_document(results.items[0]), @constCast(text));
+    return beam.make(@as([*]const u8, @ptrCast(text))[0..len], opts).v;
+}
+
+pub fn do_dom_attr(dd: *DocumentData, selector: []const u8, attr_name: []const u8, env: ?*e.ErlNifEnv) e.ErlNifTerm {
+    const opts = .{ .env = env };
+    const root = lxb.qb_doc_as_node(dd.doc) orelse return beam.make_into_atom("nil", opts).v;
+    const list_sel = lxb.qb_css_selectors_parse(dd.css_parser, to_lxb(selector), selector.len);
+    if (lxb.qb_css_parser_status(dd.css_parser) != 0 or list_sel == null)
+        return beam.make_into_atom("nil", opts).v;
+    defer lxb.qb_css_selector_list_destroy(dd.css_parser, list_sel);
+
+    var results = std.ArrayList(*lxb.lxb_dom_node_t){};
+    var sctx = SelectorCtx{ .results = &results, .find_one = true };
+    _ = lxb.qb_selectors_find(dd.selectors, root, list_sel, selector_callback, @ptrCast(&sctx));
+    defer results.deinit(types.gpa);
+
+    if (results.items.len == 0) return beam.make_into_atom("nil", opts).v;
+    const elem = lxb.qb_node_as_element(results.items[0]) orelse return beam.make_into_atom("nil", opts).v;
+
+    var val_len: usize = 0;
+    const val = lxb.qb_element_get_attribute(elem, to_lxb(attr_name), attr_name.len, &val_len);
+    if (val == null) return beam.make_into_atom("nil", opts).v;
+    return beam.make(@as([*]const u8, @ptrCast(val))[0..val_len], opts).v;
+}
+
+pub fn do_dom_html(dd: *DocumentData, env: ?*e.ErlNifEnv) e.ErlNifTerm {
+    const opts = .{ .env = env };
+    const node = lxb.qb_doc_as_node(dd.doc) orelse return beam.make(@as([]const u8, ""), opts).v;
+    var buf = std.ArrayList(u8){};
+    defer buf.deinit(types.gpa);
+    _ = lxb.qb_serialize_tree(node, serialize_callback, @ptrCast(&buf));
+    return beam.make(buf.items, opts).v;
+}
+
+fn node_to_floki_term(dd: *DocumentData, node: *lxb.lxb_dom_node_t, env: ?*e.ErlNifEnv) e.ErlNifTerm {
+    const opts = .{ .env = env };
+    const node_type = lxb.qb_node_type(node);
+
+    if (node_type == lxb.QB_NODE_TYPE_TEXT) {
+        var len: usize = 0;
+        const text = lxb.qb_node_text_content(node, &len);
+        if (text == null) return beam.make(@as([]const u8, ""), opts).v;
+        defer lxb.qb_dom_document_destroy_text(lxb.qb_node_owner_document(node), @constCast(text));
+        return beam.make(@as([*]const u8, @ptrCast(text))[0..len], opts).v;
+    }
+
+    if (node_type != lxb.QB_NODE_TYPE_ELEMENT) return beam.make_into_atom("nil", opts).v;
+
+    const elem = lxb.qb_node_as_element(node) orelse return beam.make_into_atom("nil", opts).v;
+
+    // Tag name
+    var name_len: usize = 0;
+    const name_ptr = lxb.qb_element_qualified_name(elem, &name_len);
+    const tag_term = if (name_ptr != null)
+        beam.make(@as([*]const u8, @ptrCast(name_ptr))[0..name_len], opts)
+    else
+        beam.make(@as([]const u8, ""), opts);
+
+    // Attributes — list of {name, value} tuples
+    const attrs_term = node_attrs_to_list(dd, elem, env);
+
+    // Children — recursive
+    var children_list = beam.make_empty_list(opts);
+    var child_count: usize = 0;
+    var counter: ?*lxb.lxb_dom_node_t = lxb.qb_node_first_child(node);
+    while (counter) |c| {
+        child_count += 1;
+        counter = lxb.qb_node_next(c);
+    }
+
+    if (child_count > 0) {
+        const child_terms = types.gpa.alloc(e.ErlNifTerm, child_count) catch return beam.make_into_atom("nil", opts).v;
+        defer types.gpa.free(child_terms);
+
+        var idx: usize = 0;
+        var child: ?*lxb.lxb_dom_node_t = lxb.qb_node_first_child(node);
+        while (child) |c| {
+            child_terms[idx] = node_to_floki_term(dd, c, env);
+            idx += 1;
+            child = lxb.qb_node_next(c);
+        }
+
+        var i: usize = child_count;
+        while (i > 0) {
+            i -= 1;
+            children_list = beam.make_list_cell(beam.term{ .v = child_terms[i] }, children_list, opts);
+        }
+    }
+
+    // {tag_name, attrs, children}
+    return beam.make(.{ tag_term, beam.term{ .v = attrs_term }, children_list }, opts).v;
+}
+
+fn node_attrs_to_list(dd: *DocumentData, elem: *lxb.lxb_dom_element_t, env: ?*e.ErlNifEnv) e.ErlNifTerm {
+    _ = dd;
+    const opts = .{ .env = env };
+    // Use the bridge to iterate attributes
+    var attr_count: usize = 0;
+    var attr: ?*lxb.lxb_dom_attr_t = lxb.qb_element_first_attr(elem);
+    while (attr != null) {
+        attr_count += 1;
+        attr = lxb.qb_attr_next(attr);
+    }
+
+    if (attr_count == 0) return beam.make_empty_list(opts).v;
+
+    const terms = types.gpa.alloc(e.ErlNifTerm, attr_count) catch return beam.make_empty_list(opts).v;
+    defer types.gpa.free(terms);
+
+    var idx: usize = 0;
+    attr = lxb.qb_element_first_attr(elem);
+    while (attr) |a| {
+        var name_len: usize = 0;
+        var val_len: usize = 0;
+        const a_name = lxb.qb_attr_name(a, &name_len);
+        const a_val = lxb.qb_attr_value(a, &val_len);
+
+        const name_term = if (a_name != null)
+            beam.make(@as([*]const u8, @ptrCast(a_name))[0..name_len], opts)
+        else
+            beam.make(@as([]const u8, ""), opts);
+
+        const val_term = if (a_val != null)
+            beam.make(@as([*]const u8, @ptrCast(a_val))[0..val_len], opts)
+        else
+            beam.make(@as([]const u8, ""), opts);
+
+        terms[idx] = beam.make(.{ name_term, val_term }, opts).v;
+        idx += 1;
+        attr = lxb.qb_attr_next(a);
+    }
+
+    var result = beam.make_empty_list(opts);
+    var i: usize = attr_count;
+    while (i > 0) {
+        i -= 1;
+        result = beam.make_list_cell(beam.term{ .v = terms[i] }, result, opts);
+    }
+    return result.v;
 }
