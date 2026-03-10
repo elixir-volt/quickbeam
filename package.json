@@ -1,0 +1,16 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run build.ts",
+    "check": "oxlint -c oxlint.json --type-aware --type-check priv/ts/",
+    "format": "oxfmt --write priv/ts/",
+    "format:check": "oxfmt --check priv/ts/",
+    "lint": "oxlint -c oxlint.json --type-aware --type-check priv/ts/"
+  },
+  "devDependencies": {
+    "oxfmt": "^0.37.0",
+    "oxlint": "^1.52.0",
+    "oxlint-tsgolint": "^0.16.0"
+  }
+}

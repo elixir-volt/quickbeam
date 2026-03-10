@@ -23,7 +23,12 @@ defmodule QuickBEAM.MixProject do
 
   defp aliases do
     [
-      lint: ["format --check-formatted", "cmd zlint lib/quickbeam/*.zig"],
+      lint: [
+        "format --check-formatted",
+        "cmd zlint lib/quickbeam/*.zig",
+        "cmd bun run check"
+      ],
+      "js.build": "cmd bun run build",
       "fuzz.sanity": "cmd --cd fuzz zig build test"
     ]
   end

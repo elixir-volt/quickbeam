@@ -1,0 +1,48 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn"],
+  "env": {
+    "es2024": true
+  },
+  "rules": {
+    "no-unused-vars": "warn",
+    "no-console": "off",
+    "no-empty-function": "error",
+    "max-lines": ["warn", { "max": 350 }],
+    "complexity": ["error", { "max": 20 }],
+    "eqeqeq": ["error", "always"],
+    "no-var": "error",
+    "prefer-const": "error",
+
+    "typescript/no-explicit-any": "warn",
+    "typescript/no-non-null-assertion": "warn",
+    "typescript/consistent-type-imports": "error",
+    "typescript/no-unnecessary-condition": "error",
+    "typescript/no-unnecessary-type-assertion": "error",
+    "typescript/no-unnecessary-type-parameters": "error",
+    "typescript/no-unnecessary-boolean-literal-compare": "error",
+    "typescript/no-unnecessary-template-expression": "error",
+    "typescript/no-unnecessary-type-arguments": "error",
+    "typescript/prefer-optional-chain": "error",
+    "typescript/prefer-for-of": "error",
+
+    "unicorn/no-instanceof-array": "error",
+    "unicorn/no-typeof-undefined": "error",
+    "unicorn/no-nested-ternary": "error",
+    "unicorn/no-useless-fallback-in-spread": "error",
+    "unicorn/no-length-as-slice-end": "error",
+    "unicorn/no-unnecessary-await": "error",
+    "unicorn/prefer-string-starts-ends-with": "error",
+    "unicorn/consistent-existence-index-check": "error"
+  },
+  "overrides": [
+    {
+      "files": ["priv/ts/quickbeam.d.ts"],
+      "rules": {
+        "no-unused-vars": "off",
+        "typescript/no-explicit-any": "off"
+      }
+    }
+  ],
+  "ignorePatterns": ["node_modules", "_build", "deps", "priv/c_src", "priv/js"]
+}

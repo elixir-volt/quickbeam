@@ -1,33 +1,33 @@
 (() => {
-  function normalizeAlgo(algo) {
-    return typeof algo === 'string' ? { name: algo } : algo;
+  // priv/ts/crypto-subtle.ts
+  function normalizeCryptoAlgo(algo) {
+    return typeof algo === "string" ? { name: algo } : algo;
   }
-
-  function toUint8Array(data) {
-    if (data instanceof Uint8Array) return data;
-    if (data instanceof ArrayBuffer) return new Uint8Array(data);
-    if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-    if (Array.isArray(data)) return new Uint8Array(data);
+  function bufferSourceToBytes(data) {
+    if (data instanceof Uint8Array)
+      return data;
+    if (data instanceof ArrayBuffer)
+      return new Uint8Array(data);
+    if (ArrayBuffer.isView(data))
+      return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
     return new Uint8Array(0);
   }
-
-  function toArrayBuffer(result) {
-    if (result instanceof ArrayBuffer) return result;
-    if (result instanceof Uint8Array) return result.buffer;
+  function ensureArrayBuffer(result) {
+    if (result instanceof ArrayBuffer)
+      return result;
+    if (result instanceof Uint8Array)
+      return result.buffer;
     return new Uint8Array(result).buffer;
   }
-
-  const subtle = {
+  var subtle = {
     async digest(algorithm, data) {
-      const algo = normalizeAlgo(algorithm);
-      const result = beam.callSync('__crypto_digest', algo.name, toUint8Array(data));
-      return toArrayBuffer(result);
+      const algo = normalizeCryptoAlgo(algorithm);
+      return ensureArrayBuffer(beam.callSync("__crypto_digest", algo.name, bufferSourceToBytes(data)));
     },
-
     async generateKey(algorithm, extractable, keyUsages) {
-      const algo = normalizeAlgo(algorithm);
-      const result = beam.callSync('__crypto_generate_key', algo);
-      if (result.publicKey) {
+      const algo = normalizeCryptoAlgo(algorithm);
+      const result = beam.callSync("__crypto_generate_key", algo);
+      if ("publicKey" in result) {
         return {
           publicKey: { ...result.publicKey, extractable, usages: keyUsages },
           privateKey: { ...result.privateKey, extractable, usages: keyUsages }
@@ -35,76 +35,71 @@
       }
       return { ...result, extractable, usages: keyUsages };
     },
-
     async sign(algorithm, key, data) {
-      const algo = normalizeAlgo(algorithm);
-      const result = beam.callSync('__crypto_sign', algo, key, toUint8Array(data));
-      return toArrayBuffer(result);
+      const algo = normalizeCryptoAlgo(algorithm);
+      return ensureArrayBuffer(beam.callSync("__crypto_sign", algo, key, bufferSourceToBytes(data)));
     },
-
     async verify(algorithm, key, signature, data) {
-      const algo = normalizeAlgo(algorithm);
-      return beam.callSync('__crypto_verify', algo, key, toUint8Array(signature), toUint8Array(data));
+      const algo = normalizeCryptoAlgo(algorithm);
+      return beam.callSync("__crypto_verify", algo, key, bufferSourceToBytes(signature), bufferSourceToBytes(data));
     },
-
     async encrypt(algorithm, key, data) {
-      const algo = { ...normalizeAlgo(algorithm) };
-      if (algo.iv) algo.iv = toUint8Array(algo.iv);
-      if (algo.additionalData) algo.additionalData = toUint8Array(algo.additionalData);
-      const result = beam.callSync('__crypto_encrypt', algo, key, toUint8Array(data));
-      return toArrayBuffer(result);
+      const algo = { ...normalizeCryptoAlgo(algorithm) };
+      if (algo.iv)
+        algo.iv = bufferSourceToBytes(algo.iv);
+      if (algo.additionalData)
+        algo.additionalData = bufferSourceToBytes(algo.additionalData);
+      return ensureArrayBuffer(beam.callSync("__crypto_encrypt", algo, key, bufferSourceToBytes(data)));
     },
-
     async decrypt(algorithm, key, data) {
-      const algo = { ...normalizeAlgo(algorithm) };
-      if (algo.iv) algo.iv = toUint8Array(algo.iv);
-      if (algo.additionalData) algo.additionalData = toUint8Array(algo.additionalData);
-      const result = beam.callSync('__crypto_decrypt', algo, key, toUint8Array(data));
-      return toArrayBuffer(result);
+      const algo = { ...normalizeCryptoAlgo(algorithm) };
+      if (algo.iv)
+        algo.iv = bufferSourceToBytes(algo.iv);
+      if (algo.additionalData)
+        algo.additionalData = bufferSourceToBytes(algo.additionalData);
+      return ensureArrayBuffer(beam.callSync("__crypto_decrypt", algo, key, bufferSourceToBytes(data)));
     },
-
     async deriveBits(algorithm, baseKey, length) {
-      const algo = { ...normalizeAlgo(algorithm) };
-      if (algo.salt) algo.salt = toUint8Array(algo.salt);
-      if (algo.public) algo.public = baseKey._ecdhPublic || algo.public;
-      return toArrayBuffer(
-        beam.callSync('__crypto_derive_bits', algo, baseKey, length)
-      );
+      const algo = { ...normalizeCryptoAlgo(algorithm) };
+      if (algo.salt)
+        algo.salt = bufferSourceToBytes(algo.salt);
+      if (algo.public)
+        algo.public = baseKey._ecdhPublic ?? algo.public;
+      return ensureArrayBuffer(beam.callSync("__crypto_derive_bits", algo, baseKey, length));
     },
-
-    async deriveKey(algorithm, baseKey, derivedKeyAlgorithm, extractable, keyUsages) {
-      const algo = { ...normalizeAlgo(algorithm) };
-      if (algo.salt) algo.salt = toUint8Array(algo.salt);
-      const dkAlgo = normalizeAlgo(derivedKeyAlgorithm);
-      const bits = dkAlgo.length || 256;
+    async deriveKey(algorithm, baseKey, derivedKeyType, extractable, keyUsages) {
+      const algo = { ...normalizeCryptoAlgo(algorithm) };
+      if (algo.salt)
+        algo.salt = bufferSourceToBytes(algo.salt);
+      const dkAlgo = normalizeCryptoAlgo(derivedKeyType);
+      const bits = dkAlgo.length ?? 256;
       const derived = await this.deriveBits(algo, baseKey, bits);
       return {
-        type: 'secret',
+        type: "secret",
         algorithm: dkAlgo.name,
         data: new Uint8Array(derived),
         extractable,
         usages: keyUsages
       };
     },
-
     async importKey(format, keyData, algorithm, extractable, keyUsages) {
-      const algo = normalizeAlgo(algorithm);
+      const algo = normalizeCryptoAlgo(algorithm);
       let data;
-      if (format === 'raw') {
-        data = toUint8Array(keyData);
-      } else if (format === 'jwk') {
-        if (keyData.k) {
-          const b64 = keyData.k.replace(/-/g, '+').replace(/_/g, '/');
-          data = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      if (format === "raw") {
+        data = bufferSourceToBytes(keyData);
+      } else if (format === "jwk") {
+        const jwk = keyData;
+        if (jwk.k) {
+          const b64 = jwk.k.replace(/-/g, "+").replace(/_/g, "/");
+          data = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
         } else {
           data = new Uint8Array(0);
         }
       } else {
-        throw new DOMException(`Unsupported format: ${format}`, 'NotSupportedError');
+        throw new DOMException(`Unsupported format: ${format}`, "NotSupportedError");
       }
-
       return {
-        type: keyUsages.includes('sign') || keyUsages.includes('encrypt') ? 'secret' : 'public',
+        type: keyUsages.includes("sign") || keyUsages.includes("encrypt") ? "secret" : "public",
         algorithm: algo.name,
         hash: algo.hash,
         data,
@@ -112,16 +107,12 @@
         usages: keyUsages
       };
     },
-
     async exportKey(format, key) {
-      if (format === 'raw') {
-        return toArrayBuffer(key.data);
+      if (format === "raw") {
+        return ensureArrayBuffer(key.data);
       }
-      throw new DOMException(`Unsupported format: ${format}`, 'NotSupportedError');
+      throw new DOMException(`Unsupported format: ${format}`, "NotSupportedError");
     }
   };
-
-  if (!crypto.subtle) {
-    Object.defineProperty(crypto, 'subtle', { value: subtle, writable: false });
-  }
+  Object.defineProperty(crypto, "subtle", { value: subtle, writable: false });
 })();
