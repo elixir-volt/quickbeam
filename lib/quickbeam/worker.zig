@@ -448,8 +448,9 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
     const rt = qjs.JS_NewRuntime() orelse return;
     defer qjs.JS_FreeRuntime(rt);
 
-    qjs.JS_SetMemoryLimit(rt, 256 * 1024 * 1024);
-    qjs.JS_SetMaxStackSize(rt, 1024 * 1024);
+    qjs.JS_SetMemoryLimit(rt, rd.memory_limit);
+    qjs.JS_SetMaxStackSize(rt, rd.max_stack_size);
+    qjs.JS_UpdateStackTop(rt);
 
     const ctx = qjs.JS_NewContext(rt) orelse return;
 

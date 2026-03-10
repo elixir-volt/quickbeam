@@ -236,4 +236,27 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt2)
     end
   end
+
+  describe "resource limits" do
+    test "max_stack_size allows deeper recursion" do
+      code = "function deep(n) { return n <= 0 ? 0 : deep(n - 1) }; deep(500)"
+
+      {:ok, rt_small} = QuickBEAM.start(max_stack_size: 256 * 1024)
+      {:error, %QuickBEAM.JSError{name: "RangeError"}} = QuickBEAM.eval(rt_small, code)
+      QuickBEAM.stop(rt_small)
+
+      {:ok, rt_large} = QuickBEAM.start(max_stack_size: 64 * 1024 * 1024)
+      assert {:ok, 0} = QuickBEAM.eval(rt_large, code)
+      QuickBEAM.stop(rt_large)
+    end
+
+    test "memory_limit caps allocation" do
+      {:ok, rt} = QuickBEAM.start(memory_limit: 1024 * 1024)
+
+      {:error, %QuickBEAM.JSError{}} =
+        QuickBEAM.eval(rt, "new Array(100000).fill('x'.repeat(100))")
+
+      QuickBEAM.stop(rt)
+    end
+  end
 end

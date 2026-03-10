@@ -37,6 +37,8 @@ defmodule QuickBEAM do
     * `:id` — child spec ID (defaults to `:name`, then module)
     * `:handlers` — map of handler name → function for `beam.call`/`beam.callSync`
     * `:script` — path to a JS file evaluated on startup
+    * `:memory_limit` — maximum JS heap in bytes (default: 256 MB)
+    * `:max_stack_size` — maximum JS call stack in bytes (default: 1 MB)
   """
 
   @type runtime :: GenServer.server()
@@ -57,6 +59,8 @@ defmodule QuickBEAM do
     * `:name` — register the GenServer under this name
     * `:handlers` — `%{String.t() => function}` map for `beam.call`/`beam.callSync`
     * `:script` — path to a JS file to evaluate on startup
+    * `:memory_limit` — maximum JS heap in bytes (default: 256 MB)
+    * `:max_stack_size` — maximum JS call stack in bytes (default: 1 MB)
   """
   @spec start(keyword()) :: GenServer.on_start()
   def start(opts \\ []) do

@@ -102,7 +102,12 @@ defmodule QuickBEAM.Runtime do
     handlers = Keyword.get(opts, :handlers, %{})
     merged_handlers = Map.merge(@builtin_handlers, handlers)
 
-    resource = QuickBEAM.Native.start_runtime(self())
+    nif_opts =
+      opts
+      |> Keyword.take([:memory_limit, :max_stack_size])
+      |> Map.new()
+
+    resource = QuickBEAM.Native.start_runtime(self(), nif_opts)
     state = %__MODULE__{resource: resource, handlers: merged_handlers}
     install_builtins(state)
 

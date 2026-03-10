@@ -42,7 +42,20 @@ fn make_result(result: *Result) beam.term {
 
 // ──────────────────── NIF entry points ────────────────────
 
-pub fn start_runtime(owner_pid: beam.pid) !RuntimeResource {
+fn get_map_uint(env: *e.ErlNifEnv, map: e.ErlNifTerm, key: [:0]const u8) ?usize {
+    // SAFETY: out-param written by enif_make_existing_atom_len before use
+    var key_atom: e.ErlNifTerm = undefined;
+    if (e.enif_make_existing_atom_len(env, key.ptr, key.len, &key_atom, e.ERL_NIF_LATIN1) == 0) return null;
+    // SAFETY: out-param written by enif_get_map_value before use
+    var val: e.ErlNifTerm = undefined;
+    if (e.enif_get_map_value(env, map, key_atom, &val) == 0) return null;
+    // SAFETY: out-param written by enif_get_uint64 before use
+    var result: u64 = undefined;
+    if (e.enif_get_uint64(env, val, &result) == 0) return null;
+    return @intCast(result);
+}
+
+pub fn start_runtime(owner_pid: beam.pid, opts: beam.term) !RuntimeResource {
     const data = try gpa.create(RuntimeData);
     data.* = .{
         .mutex = .{},
@@ -53,9 +66,19 @@ pub fn start_runtime(owner_pid: beam.pid) !RuntimeResource {
         .thread = null,
     };
 
+    const env = beam.context.env orelse return error.NoEnv;
+    if (get_map_uint(env, opts.v, "memory_limit")) |v| {
+        data.memory_limit = v;
+    }
+    if (get_map_uint(env, opts.v, "max_stack_size")) |v| {
+        data.max_stack_size = v;
+    }
+
     const res = try RuntimeResource.create(data, .{});
 
-    data.thread = std.Thread.spawn(.{}, worker.worker_main, .{ data, owner_pid }) catch {
+    const min_thread_stack = 2 * 1024 * 1024;
+    const thread_stack = @max(data.max_stack_size + min_thread_stack, min_thread_stack);
+    data.thread = std.Thread.spawn(.{ .stack_size = thread_stack }, worker.worker_main, .{ data, owner_pid }) catch {
         gpa.destroy(data);
         return error.ThreadSpawn;
     };
