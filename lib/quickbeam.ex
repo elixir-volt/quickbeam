@@ -4,6 +4,10 @@ defmodule QuickBEAM do
   @type runtime :: GenServer.server()
   @type js_result :: {:ok, term()} | {:error, QuickBEAM.JSError.t()}
 
+  def child_spec(opts) do
+    QuickBEAM.Runtime.child_spec(opts)
+  end
+
   @spec start(keyword()) :: GenServer.on_start()
   def start(opts \\ []) do
     QuickBEAM.Runtime.start_link(opts)

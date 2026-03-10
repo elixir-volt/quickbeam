@@ -7,6 +7,15 @@ defmodule QuickBEAM.Runtime do
 
   @type t :: %__MODULE__{resource: reference(), handlers: map()}
 
+  def child_spec(opts) do
+    id = Keyword.get(opts, :id, Keyword.get(opts, :name, __MODULE__))
+
+    %{
+      id: id,
+      start: {__MODULE__, :start_link, [opts]}
+    }
+  end
+
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, Keyword.take(opts, [:name]))
@@ -83,7 +92,31 @@ defmodule QuickBEAM.Runtime do
     resource = QuickBEAM.Native.start_runtime(self())
     state = %__MODULE__{resource: resource, handlers: merged_handlers}
     install_builtins(state)
-    {:ok, state}
+
+    case load_script(state, opts) do
+      :ok -> {:ok, state}
+      {:error, reason} -> {:stop, reason}
+    end
+  end
+
+  defp load_script(state, opts) do
+    case Keyword.fetch(opts, :script) do
+      :error -> :ok
+      {:ok, path} -> eval_script(state, path)
+    end
+  end
+
+  defp eval_script(state, path) do
+    with {:ok, code} <- File.read(path),
+         {:ok, _} <- QuickBEAM.Native.eval(state.resource, code) do
+      :ok
+    else
+      {:error, reason} when is_atom(reason) ->
+        {:error, {:script_not_found, path, reason}}
+
+      {:error, value} ->
+        {:error, {:script_error, path, QuickBEAM.JSError.from_js_value(value)}}
+    end
   end
 
   defp install_builtins(state) do
