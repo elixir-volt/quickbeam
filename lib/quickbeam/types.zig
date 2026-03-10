@@ -73,6 +73,9 @@ pub const StringPayload = struct {
 pub const Result = struct {
     ok: bool = false,
     json: []const u8 = "",
+    // New: direct BEAM term result (bypasses JSON)
+    env: ?*e.ErlNifEnv = null,
+    term: ?e.ErlNifTerm = null,
 };
 
 pub const MessageNode = struct {

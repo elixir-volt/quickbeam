@@ -2,6 +2,7 @@ const types = @import("types.zig");
 const worker = @import("worker.zig");
 const std = types.std;
 const beam = @import("beam");
+const e = types.e;
 const gpa = types.gpa;
 const RuntimeData = types.RuntimeData;
 const Result = types.Result;
@@ -19,6 +20,25 @@ pub const RuntimeResource = beam.Resource(*RuntimeData, @import("root"), .{
         }
     },
 });
+
+// ──────────────────── Result helper ────────────────────
+
+fn make_result(result: *Result) beam.term {
+    if (result.term) |t| {
+        const copied = beam.term{ .v = e.enif_make_copy(beam.context.env, t) };
+        beam.free_env(result.env.?);
+        if (result.ok) {
+            return beam.make(.{ .ok, copied }, .{});
+        } else {
+            return beam.make(.{ .@"error", copied }, .{});
+        }
+    }
+    if (result.ok) {
+        return beam.make(.{ .ok, result.json }, .{});
+    } else {
+        return beam.make(.{ .@"error", result.json }, .{});
+    }
+}
 
 // ──────────────────── NIF entry points ────────────────────
 
@@ -55,12 +75,7 @@ pub fn eval(resource: RuntimeResource, code: []const u8) beam.term {
     } });
 
     done.wait();
-
-    if (result.ok) {
-        return beam.make(.{ .ok, result.json }, .{});
-    } else {
-        return beam.make(.{ .@"error", result.json }, .{});
-    }
+    return make_result(&result);
 }
 
 pub fn call_function(resource: RuntimeResource, name: []const u8, args_json: []const u8) beam.term {
@@ -76,12 +91,7 @@ pub fn call_function(resource: RuntimeResource, name: []const u8, args_json: []c
     } });
 
     done.wait();
-
-    if (result.ok) {
-        return beam.make(.{ .ok, result.json }, .{});
-    } else {
-        return beam.make(.{ .@"error", result.json }, .{});
-    }
+    return make_result(&result);
 }
 
 pub fn load_module(resource: RuntimeResource, name: []const u8, code: []const u8) beam.term {
@@ -97,12 +107,7 @@ pub fn load_module(resource: RuntimeResource, name: []const u8, code: []const u8
     } });
 
     done.wait();
-
-    if (result.ok) {
-        return beam.make(.{ .ok, result.json }, .{});
-    } else {
-        return beam.make(.{ .@"error", result.json }, .{});
-    }
+    return make_result(&result);
 }
 
 pub fn reset_runtime(resource: RuntimeResource) beam.term {
@@ -117,12 +122,7 @@ pub fn reset_runtime(resource: RuntimeResource) beam.term {
     } });
 
     done.wait();
-
-    if (result.ok) {
-        return beam.make(.{ .ok, result.json }, .{});
-    } else {
-        return beam.make(.{ .@"error", result.json }, .{});
-    }
+    return make_result(&result);
 }
 
 pub fn stop_runtime(resource: RuntimeResource) beam.term {

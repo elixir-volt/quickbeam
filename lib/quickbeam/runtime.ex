@@ -67,7 +67,7 @@ defmodule QuickBEAM.Runtime do
     Task.start(fn ->
       result =
         case QuickBEAM.Native.eval(resource, code) do
-          {:ok, json} -> decode_result(json)
+          {:ok, value} -> {:ok, value}
           {:error, msg} -> {:error, msg}
         end
 
@@ -84,7 +84,7 @@ defmodule QuickBEAM.Runtime do
     Task.start(fn ->
       result =
         case QuickBEAM.Native.call_function(resource, fn_name, args_json) do
-          {:ok, json} -> decode_result(json)
+          {:ok, value} -> {:ok, value}
           {:error, msg} -> {:error, msg}
         end
 
@@ -186,11 +186,4 @@ defmodule QuickBEAM.Runtime do
   end
 
   def terminate(_reason, _state), do: :ok
-
-  defp decode_result(json) do
-    case Jason.decode(json) do
-      {:ok, value} -> {:ok, value}
-      {:error, _} -> {:ok, json}
-    end
-  end
 end

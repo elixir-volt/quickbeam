@@ -3,6 +3,7 @@ const js = @import("js_helpers.zig");
 const globals = @import("globals.zig");
 const text_encoding = @import("text_encoding.zig");
 const web_apis = @import("web_apis.zig");
+const js_to_beam = @import("js_to_beam.zig");
 const std = types.std;
 const beam = types.beam;
 const qjs = types.qjs;
@@ -168,8 +169,7 @@ pub const WorkerState = struct {
             return;
         }
 
-        result.ok = true;
-        result.json = js.js_to_json(self.ctx, val);
+        self.set_ok_term(val, result);
     }
 
     pub fn do_call(self: *WorkerState, name: []const u8, args_json: []const u8, result: *types.Result) void {
@@ -194,8 +194,7 @@ pub const WorkerState = struct {
             return;
         }
 
-        result.ok = true;
-        result.json = js.js_to_json(self.ctx, val);
+        self.set_ok_term(val, result);
     }
 
     pub fn do_load_module(self: *WorkerState, name: []const u8, code: []const u8, result: *types.Result) void {
@@ -290,11 +289,9 @@ pub const WorkerState = struct {
                 if (unwrap_async and qjs.JS_IsObject(v)) {
                     const inner = qjs.JS_GetPropertyStr(self.ctx, v, "value");
                     defer qjs.JS_FreeValue(self.ctx, inner);
-                    result.ok = true;
-                    result.json = js.js_to_json(self.ctx, inner);
+                    self.set_ok_term(inner, result);
                 } else {
-                    result.ok = true;
-                    result.json = js.js_to_json(self.ctx, v);
+                    self.set_ok_term(v, result);
                 }
                 js.cleanup_globals(self.ctx, global, status_key, value_key);
                 return;
@@ -322,6 +319,13 @@ pub const WorkerState = struct {
 
         result.ok = false;
         result.json = "Promise resolution timeout";
+    }
+
+    fn set_ok_term(self: *WorkerState, val: qjs.JSValue, result: *types.Result) void {
+        const term_env = beam.alloc_env();
+        result.ok = true;
+        result.term = js_to_beam.convert(self.ctx, val, term_env);
+        result.env = term_env;
     }
 
     fn get_exception_message(self: *WorkerState) []const u8 {
