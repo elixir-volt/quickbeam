@@ -145,25 +145,8 @@ fn beam_call_sync_impl(
 fn send_beam_call(self: *worker.WorkerState, call_id: u64, name: []const u8, args_json: []const u8) void {
     const send_env = beam.alloc_env();
     var pid = self.owner_pid;
-    var tuple_elems = [_]e.ErlNifTerm{
-        make_atom(send_env, "beam_call"),
-        e.enif_make_uint64(send_env, call_id),
-        make_binary_term(send_env, name),
-        make_binary_term(send_env, args_json),
-    };
-    const msg_term = e.enif_make_tuple_from_array(send_env, &tuple_elems, 4);
-    _ = e.enif_send(null, &pid, send_env, msg_term);
+    const opts = .{ .env = send_env };
+    const msg_term = beam.make(.{ .beam_call, call_id, name, args_json }, opts);
+    _ = e.enif_send(null, &pid, send_env, msg_term.v);
     beam.free_env(send_env);
-}
-
-fn make_atom(env: ?*e.ErlNifEnv, name: []const u8) e.ErlNifTerm {
-    return e.enif_make_atom_len(env, name.ptr, name.len);
-}
-
-fn make_binary_term(env: ?*e.ErlNifEnv, data: []const u8) e.ErlNifTerm {
-    // SAFETY: immediately initialized by enif_alloc_binary
-    var bin: e.ErlNifBinary = undefined;
-    _ = e.enif_alloc_binary(data.len, &bin);
-    @memcpy(bin.data[0..data.len], data);
-    return e.enif_make_binary(env, &bin);
 }

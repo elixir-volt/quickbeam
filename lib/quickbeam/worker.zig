@@ -334,12 +334,6 @@ pub const WorkerState = struct {
         result.env = term_env;
     }
 
-    fn get_exception_message(self: *WorkerState) []const u8 {
-        const exc = qjs.JS_GetException(self.ctx);
-        defer qjs.JS_FreeValue(self.ctx, exc);
-        return js.get_error_message(self.ctx, exc);
-    }
-
     pub fn install_globals(self: *WorkerState) void {
         qjs.JS_SetContextOpaque(self.ctx, @ptrCast(self));
         globals.install_all(self.ctx);

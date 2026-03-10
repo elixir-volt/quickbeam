@@ -106,6 +106,22 @@ defmodule QuickBEAM.SerializationTest do
       assert {:ok, %{"items" => [1, 2, 3]}} = QuickBEAM.eval(rt, "({items: [1, 2, 3]})")
     end
 
+    test "Symbol → atom", %{rt: rt} do
+      assert {:ok, :hello} = QuickBEAM.eval(rt, "Symbol('hello')")
+    end
+
+    test "Symbol.for → atom", %{rt: rt} do
+      assert {:ok, :global_sym} = QuickBEAM.eval(rt, "Symbol.for('global_sym')")
+    end
+
+    test "well-known Symbol → atom", %{rt: rt} do
+      assert {:ok, :"Symbol.iterator"} = QuickBEAM.eval(rt, "Symbol.iterator")
+    end
+
+    test "Symbol without description", %{rt: rt} do
+      assert {:ok, :symbol} = QuickBEAM.eval(rt, "Symbol()")
+    end
+
     test "TextEncoder returns binary", %{rt: rt} do
       assert {:ok, bin} = QuickBEAM.eval(rt, "new TextEncoder().encode('hello')")
       assert bin == "hello"

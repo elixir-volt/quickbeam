@@ -102,17 +102,6 @@ pub fn js_to_string(ctx: *qjs.JSContext, val: qjs.JSValue) []const u8 {
     return copy;
 }
 
-pub fn get_error_message(ctx: *qjs.JSContext, val: qjs.JSValue) []const u8 {
-    if (qjs.JS_IsString(val)) return js_to_string(ctx, val);
-
-    const msg_prop = qjs.JS_GetPropertyStr(ctx, val, "message");
-    defer qjs.JS_FreeValue(ctx, msg_prop);
-
-    if (qjs.JS_IsString(msg_prop)) return js_to_string(ctx, msg_prop);
-
-    return js_to_string(ctx, val);
-}
-
 pub fn is_promise(ctx: *qjs.JSContext, val: qjs.JSValue) bool {
     if (!qjs.JS_IsObject(val)) return false;
     const then_prop = qjs.JS_GetPropertyStr(ctx, val, "then");

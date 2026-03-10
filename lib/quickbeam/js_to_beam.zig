@@ -1,14 +1,17 @@
 const types = @import("types.zig");
 const js = @import("js_helpers.zig");
 const std = types.std;
+const beam = types.beam;
 const e = types.e;
 const qjs = types.qjs;
 const gpa = types.gpa;
 
 const MAX_DEPTH = 32;
 
+const Env = struct { env: ?*e.ErlNifEnv };
+
 pub fn convert(ctx: *qjs.JSContext, val: qjs.JSValue, env: ?*e.ErlNifEnv) e.ErlNifTerm {
-    return convert_recursive(ctx, val, env, 0);
+    return convert_recursive(ctx, val, Env{ .env = env }, 0);
 }
 
 pub fn convert_error(ctx: *qjs.JSContext, val: qjs.JSValue, env: ?*e.ErlNifEnv) e.ErlNifTerm {
@@ -17,7 +20,6 @@ pub fn convert_error(ctx: *qjs.JSContext, val: qjs.JSValue, env: ?*e.ErlNifEnv) 
     const msg_val = qjs.JS_GetPropertyStr(ctx, val, "message");
     defer qjs.JS_FreeValue(ctx, msg_val);
 
-    // If there's no "message" property, this isn't an Error-like object
     if (qjs.JS_IsUndefined(msg_val)) return convert(ctx, val, env);
 
     const name_val = qjs.JS_GetPropertyStr(ctx, val, "name");
@@ -25,155 +27,149 @@ pub fn convert_error(ctx: *qjs.JSContext, val: qjs.JSValue, env: ?*e.ErlNifEnv) 
     const stack_val = qjs.JS_GetPropertyStr(ctx, val, "stack");
     defer qjs.JS_FreeValue(ctx, stack_val);
 
-    var keys = [_]e.ErlNifTerm{
-        e.enif_make_atom_len(env, "message", 7),
-        e.enif_make_atom_len(env, "name", 4),
-        e.enif_make_atom_len(env, "stack", 5),
-    };
-    var vals = [_]e.ErlNifTerm{
-        convert(ctx, msg_val, env),
-        convert(ctx, name_val, env),
-        convert(ctx, stack_val, env),
-    };
-
-    // SAFETY: immediately filled by enif_make_map_from_arrays
-    var map: e.ErlNifTerm = undefined;
-    _ = e.enif_make_map_from_arrays(env, &keys, &vals, 3, &map);
-    return map;
+    const opts = Env{ .env = env };
+    return beam.make(.{
+        .message = beam.term{ .v = convert_recursive(ctx, msg_val, opts, 0) },
+        .name = beam.term{ .v = convert_recursive(ctx, name_val, opts, 0) },
+        .stack = beam.term{ .v = convert_recursive(ctx, stack_val, opts, 0) },
+    }, opts).v;
 }
 
-fn convert_recursive(ctx: *qjs.JSContext, val: qjs.JSValue, env: ?*e.ErlNifEnv, depth: u32) e.ErlNifTerm {
-    if (depth > MAX_DEPTH) return make_atom(env, "nil");
+fn convert_recursive(ctx: *qjs.JSContext, val: qjs.JSValue, opts: Env, depth: u32) e.ErlNifTerm {
+    if (depth > MAX_DEPTH) return beam.make_into_atom("nil", opts).v;
 
-    // undefined / null → nil
     if (qjs.JS_IsUndefined(val) or qjs.JS_IsNull(val)) {
-        return make_atom(env, "nil");
+        return beam.make_into_atom("nil", opts).v;
     }
 
-    // boolean
     if (qjs.JS_IsBool(val)) {
         const b = qjs.JS_ToBool(ctx, val);
-        return if (b != 0) make_atom(env, "true") else make_atom(env, "false");
+        return if (b != 0) beam.make_into_atom("true", opts).v else beam.make_into_atom("false", opts).v;
     }
 
-    // number
     if (qjs.JS_IsNumber(val)) {
-        // Try integer first
-        if (val.tag == qjs.JS_TAG_INT) {
-            var i: i32 = 0;
-            _ = qjs.JS_ToInt32(ctx, &i, val);
-            return e.enif_make_int(env, i);
-        }
-        var d: f64 = 0;
-        _ = qjs.JS_ToFloat64(ctx, &d, val);
-        if (!std.math.isFinite(d)) {
-            if (std.math.isNan(d)) return make_atom(env, "NaN");
-            if (d > 0) return make_atom(env, "Infinity");
-            return make_atom(env, "-Infinity");
-        }
-        // If it's a whole number that fits in i64, return as integer
-        if (d == @trunc(d) and d >= -9007199254740991 and d <= 9007199254740991) {
-            return e.enif_make_int64(env, @intFromFloat(d));
-        }
-        return e.enif_make_double(env, d);
+        return convert_number(ctx, val, opts);
     }
 
-    // BigInt → integer (as string, let Elixir parse)
     if (qjs.JS_IsBigInt(val)) {
         const ptr = qjs.JS_ToCString(ctx, val);
         if (ptr != null) {
             defer qjs.JS_FreeCString(ctx, ptr);
-            const s = std.mem.span(ptr);
-            return make_binary_term(env, s);
+            return beam.make(std.mem.span(ptr), opts).v;
         }
-        return make_atom(env, "nil");
+        return beam.make_into_atom("nil", opts).v;
     }
 
-    // string
+    if (qjs.JS_IsSymbol(val)) {
+        return convert_symbol(ctx, val, opts);
+    }
+
     if (qjs.JS_IsString(val)) {
         var len: usize = 0;
         const ptr = qjs.JS_ToCStringLen(ctx, &len, val);
-        if (ptr == null) return make_binary_term(env, "");
+        if (ptr == null) return beam.make(@as([]const u8, ""), opts).v;
         defer qjs.JS_FreeCString(ctx, ptr);
-        return make_binary_term(env, @as([*]const u8, @ptrCast(ptr))[0..len]);
+        return beam.make(@as([*]const u8, @ptrCast(ptr))[0..len], opts).v;
     }
 
-    // ArrayBuffer → raw binary
     if (qjs.JS_IsArrayBuffer(val)) {
         var buf_size: usize = 0;
         const ptr = qjs.JS_GetArrayBuffer(ctx, &buf_size, val);
-        if (ptr == null) return make_binary_term(env, "");
-        return make_binary_term(env, ptr[0..buf_size]);
+        if (ptr == null) return beam.make(@as([]const u8, ""), opts).v;
+        return beam.make(ptr[0..buf_size], opts).v;
     }
 
-    // TypedArray (Uint8Array, etc.) → raw binary
     if (is_typed_array(ctx, val)) {
-        var byte_offset: usize = 0;
-        var byte_len: usize = 0;
-        var bytes_per_element: usize = 0;
-        const ab = qjs.JS_GetTypedArrayBuffer(ctx, val, &byte_offset, &byte_len, &bytes_per_element);
-        if (!js.js_is_exception(ab)) {
-            defer qjs.JS_FreeValue(ctx, ab);
-            var buf_size: usize = 0;
-            const ptr = qjs.JS_GetArrayBuffer(ctx, &buf_size, ab);
-            if (ptr != null) {
-                return make_binary_term(env, ptr[byte_offset .. byte_offset + byte_len]);
-            }
-        }
-        return make_binary_term(env, "");
+        return convert_typed_array(ctx, val, opts);
     }
 
-    // Array → list
     if (qjs.JS_IsArray(val)) {
-        const len_val = qjs.JS_GetPropertyStr(ctx, val, "length");
-        defer qjs.JS_FreeValue(ctx, len_val);
-
-        var len: i64 = 0;
-        _ = qjs.JS_ToInt64(ctx, &len, len_val);
-        if (len < 0) len = 0;
-        const ulen: usize = @intCast(len);
-
-        // Build list in reverse using enif_make_list_cell
-        var list = e.enif_make_list_from_array(env, null, 0);
-        var i: usize = ulen;
-        while (i > 0) {
-            i -= 1;
-            const elem = qjs.JS_GetPropertyUint32(ctx, val, @intCast(i));
-            defer qjs.JS_FreeValue(ctx, elem);
-            const term = convert_recursive(ctx, elem, env, depth + 1);
-            list = e.enif_make_list_cell(env, term, list);
-        }
-        return list;
+        return convert_array(ctx, val, opts, depth);
     }
 
-    // Object → map
     if (qjs.JS_IsObject(val)) {
-        return convert_object_to_map(ctx, val, env, depth);
+        return convert_object_to_map(ctx, val, opts, depth);
     }
 
-    return make_atom(env, "nil");
+    return beam.make_into_atom("nil", opts).v;
 }
 
-fn convert_object_to_map(ctx: *qjs.JSContext, val: qjs.JSValue, env: ?*e.ErlNifEnv, depth: u32) e.ErlNifTerm {
+fn convert_number(ctx: *qjs.JSContext, val: qjs.JSValue, opts: Env) e.ErlNifTerm {
+    if (val.tag == qjs.JS_TAG_INT) {
+        var i: i32 = 0;
+        _ = qjs.JS_ToInt32(ctx, &i, val);
+        return beam.make(i, opts).v;
+    }
+    var d: f64 = 0;
+    _ = qjs.JS_ToFloat64(ctx, &d, val);
+    if (!std.math.isFinite(d)) {
+        if (std.math.isNan(d)) return beam.make_into_atom("NaN", opts).v;
+        if (d > 0) return beam.make_into_atom("Infinity", opts).v;
+        return beam.make_into_atom("-Infinity", opts).v;
+    }
+    if (d == @trunc(d) and d >= -9007199254740991 and d <= 9007199254740991) {
+        return beam.make(@as(i64, @intFromFloat(d)), opts).v;
+    }
+    return beam.make(d, opts).v;
+}
+
+fn convert_typed_array(ctx: *qjs.JSContext, val: qjs.JSValue, opts: Env) e.ErlNifTerm {
+    var byte_offset: usize = 0;
+    var byte_len: usize = 0;
+    var bytes_per_element: usize = 0;
+    const ab = qjs.JS_GetTypedArrayBuffer(ctx, val, &byte_offset, &byte_len, &bytes_per_element);
+    if (!js.js_is_exception(ab)) {
+        defer qjs.JS_FreeValue(ctx, ab);
+        var buf_size: usize = 0;
+        const ptr = qjs.JS_GetArrayBuffer(ctx, &buf_size, ab);
+        if (ptr != null) {
+            return beam.make(ptr[byte_offset .. byte_offset + byte_len], opts).v;
+        }
+    }
+    return beam.make(@as([]const u8, ""), opts).v;
+}
+
+fn convert_array(ctx: *qjs.JSContext, val: qjs.JSValue, opts: Env, depth: u32) e.ErlNifTerm {
+    const len_val = qjs.JS_GetPropertyStr(ctx, val, "length");
+    defer qjs.JS_FreeValue(ctx, len_val);
+
+    var len: i64 = 0;
+    _ = qjs.JS_ToInt64(ctx, &len, len_val);
+    if (len < 0) len = 0;
+    const ulen: usize = @intCast(len);
+
+    var list = beam.make_empty_list(opts);
+    var i: usize = ulen;
+    while (i > 0) {
+        i -= 1;
+        const elem = qjs.JS_GetPropertyUint32(ctx, val, @intCast(i));
+        defer qjs.JS_FreeValue(ctx, elem);
+        const term = beam.term{ .v = convert_recursive(ctx, elem, opts, depth + 1) };
+        list = beam.make_list_cell(term, list, opts);
+    }
+    return list.v;
+}
+
+fn convert_object_to_map(ctx: *qjs.JSContext, val: qjs.JSValue, opts: Env, depth: u32) e.ErlNifTerm {
     var ptab: ?*qjs.JSPropertyEnum = null;
     var plen: u32 = 0;
 
     if (qjs.JS_GetOwnPropertyNames(ctx, &ptab, &plen, val, qjs.JS_GPN_STRING_MASK | qjs.JS_GPN_ENUM_ONLY) != 0) {
-        return make_empty_map(env);
+        return empty_map(opts);
     }
 
     if (plen == 0) {
         if (ptab) |p| qjs.js_free(ctx, p);
-        return make_empty_map(env);
+        return empty_map(opts);
     }
 
-    const tab_single = ptab orelse return make_empty_map(env);
+    const tab_single = ptab orelse return empty_map(opts);
     defer qjs.js_free(ctx, tab_single);
     const tab: [*]qjs.JSPropertyEnum = @ptrCast(tab_single);
 
-    const keys = gpa.alloc(e.ErlNifTerm, plen) catch return make_empty_map(env);
+    const keys = gpa.alloc(e.ErlNifTerm, plen) catch return empty_map(opts);
     defer gpa.free(keys);
-    const vals = gpa.alloc(e.ErlNifTerm, plen) catch return make_empty_map(env);
+    const vals = gpa.alloc(e.ErlNifTerm, plen) catch return empty_map(opts);
     defer gpa.free(vals);
 
     for (0..plen) |i| {
@@ -184,28 +180,48 @@ fn convert_object_to_map(ctx: *qjs.JSContext, val: qjs.JSValue, env: ?*e.ErlNifE
         var key_len: usize = 0;
         const key_ptr = qjs.JS_ToCStringLen(ctx, &key_len, key_val);
         if (key_ptr != null) {
-            keys[i] = make_binary_term(env, @as([*]const u8, @ptrCast(key_ptr))[0..key_len]);
+            keys[i] = beam.make(@as([*]const u8, @ptrCast(key_ptr))[0..key_len], opts).v;
             qjs.JS_FreeCString(ctx, key_ptr);
         } else {
-            keys[i] = make_binary_term(env, "");
+            keys[i] = beam.make(@as([]const u8, ""), opts).v;
         }
 
         const prop = qjs.JS_GetProperty(ctx, val, atom);
         defer qjs.JS_FreeValue(ctx, prop);
-        vals[i] = convert_recursive(ctx, prop, env, depth + 1);
+        vals[i] = convert_recursive(ctx, prop, opts, depth + 1);
     }
 
-    // Free atoms
     for (0..plen) |i| {
         qjs.JS_FreeAtom(ctx, tab[i].atom);
     }
 
     // SAFETY: immediately filled by enif_make_map_from_arrays
     var result: e.ErlNifTerm = undefined;
-    if (e.enif_make_map_from_arrays(env, keys.ptr, vals.ptr, plen, &result) != 0) {
+    if (e.enif_make_map_from_arrays(opts.env, keys.ptr, vals.ptr, plen, &result) != 0) {
         return result;
     }
-    return make_empty_map(env);
+    return empty_map(opts);
+}
+
+fn empty_map(opts: Env) e.ErlNifTerm {
+    // SAFETY: immediately filled by enif_make_map_from_arrays
+    var result: e.ErlNifTerm = undefined;
+    _ = e.enif_make_map_from_arrays(opts.env, null, null, 0, &result);
+    return result;
+}
+
+fn convert_symbol(ctx: *qjs.JSContext, val: qjs.JSValue, opts: Env) e.ErlNifTerm {
+    const desc_val = qjs.JS_GetPropertyStr(ctx, val, "description");
+    defer qjs.JS_FreeValue(ctx, desc_val);
+
+    if (qjs.JS_IsString(desc_val)) {
+        const ptr = qjs.JS_ToCString(ctx, desc_val);
+        if (ptr != null) {
+            defer qjs.JS_FreeCString(ctx, ptr);
+            return beam.make_into_atom(std.mem.span(ptr), opts).v;
+        }
+    }
+    return beam.make_into_atom("symbol", opts).v;
 }
 
 fn is_typed_array(ctx: *qjs.JSContext, val: qjs.JSValue) bool {
@@ -221,25 +237,4 @@ fn is_typed_array(ctx: *qjs.JSContext, val: qjs.JSValue) bool {
     }
     qjs.JS_FreeValue(ctx, ab);
     return true;
-}
-
-fn make_empty_map(env: ?*e.ErlNifEnv) e.ErlNifTerm {
-    // SAFETY: immediately filled by enif_make_map_from_arrays
-    var result: e.ErlNifTerm = undefined;
-    _ = e.enif_make_map_from_arrays(env, null, null, 0, &result);
-    return result;
-}
-
-fn make_atom(env: ?*e.ErlNifEnv, name: []const u8) e.ErlNifTerm {
-    return e.enif_make_atom_len(env, name.ptr, name.len);
-}
-
-fn make_binary_term(env: ?*e.ErlNifEnv, data: []const u8) e.ErlNifTerm {
-    // SAFETY: immediately filled by enif_inspect_binary or enif_alloc_binary
-    var bin: e.ErlNifBinary = undefined;
-    _ = e.enif_alloc_binary(data.len, &bin);
-    if (data.len > 0) {
-        @memcpy(bin.data[0..data.len], data);
-    }
-    return e.enif_make_binary(env, &bin);
 }
