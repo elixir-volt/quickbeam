@@ -68,58 +68,48 @@ defmodule QuickBEAM.URL do
 
   defp parse_absolute(input) do
     case :uri_string.parse(input) do
-      %{scheme: scheme} = parsed ->
-        host = Map.get(parsed, :host, "")
-        port = Map.get(parsed, :port, :undefined)
-        path = Map.get(parsed, :path, "")
-        query = Map.get(parsed, :query, :undefined)
-        fragment = Map.get(parsed, :fragment, :undefined)
-        userinfo = Map.get(parsed, :userinfo, "")
-
-        {username, password} = split_userinfo(userinfo)
-
-        scheme_lower = String.downcase(scheme)
-
-        port_str =
-          cond do
-            port == :undefined -> ""
-            is_default_port?(scheme_lower, port) -> ""
-            true -> Integer.to_string(port)
-          end
-
-        actual_port =
-          cond do
-            port != :undefined -> port
-            true -> Map.get(@default_ports, scheme_lower)
-          end
-
-        path =
-          if host != "" and path == "" do
-            "/"
-          else
-            path
-          end
-
-        {:ok,
-         %{
-           "protocol" => scheme_lower <> ":",
-           "hostname" => String.downcase(host),
-           "port" => port_str,
-           "pathname" => path,
-           "search" => if(query != :undefined and query != "", do: "?" <> query, else: ""),
-           "hash" => if(fragment != :undefined and fragment != "", do: "#" <> fragment, else: ""),
-           "username" => username,
-           "password" => password,
-           "origin" => build_origin(scheme_lower, host, port_str),
-           "href" =>
-             build_href(scheme_lower, username, password, host, port_str, path, query, fragment),
-           "_port" => actual_port
-         }}
-
-      %{} ->
-        {:error, "Invalid URL"}
+      %{scheme: scheme} = parsed -> {:ok, build_components(parsed, scheme)}
+      %{} -> {:error, "Invalid URL"}
     end
   end
+
+  defp build_components(parsed, scheme) do
+    host = Map.get(parsed, :host, "")
+    port = Map.get(parsed, :port, :undefined)
+    path = Map.get(parsed, :path, "")
+    query = Map.get(parsed, :query, :undefined)
+    fragment = Map.get(parsed, :fragment, :undefined)
+    {username, password} = split_userinfo(Map.get(parsed, :userinfo, ""))
+
+    scheme_lower = String.downcase(scheme)
+    port_str = format_port(port, scheme_lower)
+    path = if(host != "" and path == "", do: "/", else: path)
+
+    %{
+      "protocol" => scheme_lower <> ":",
+      "hostname" => String.downcase(host),
+      "port" => port_str,
+      "pathname" => path,
+      "search" => prefix_if_present("?", query),
+      "hash" => prefix_if_present("#", fragment),
+      "username" => username,
+      "password" => password,
+      "origin" => build_origin(scheme_lower, host, port_str),
+      "href" =>
+        build_href(scheme_lower, username, password, host, port_str, path, query, fragment),
+      "_port" => if(port != :undefined, do: port, else: Map.get(@default_ports, scheme_lower))
+    }
+  end
+
+  defp format_port(:undefined, _scheme), do: ""
+
+  defp format_port(port, scheme) when is_integer(port) do
+    if default_port?(scheme, port), do: "", else: Integer.to_string(port)
+  end
+
+  defp prefix_if_present(_prefix, :undefined), do: ""
+  defp prefix_if_present(_prefix, ""), do: ""
+  defp prefix_if_present(prefix, value), do: prefix <> value
 
   defp split_userinfo(""), do: {"", ""}
 
@@ -130,7 +120,7 @@ defmodule QuickBEAM.URL do
     end
   end
 
-  defp is_default_port?(scheme, port) do
+  defp default_port?(scheme, port) do
     Map.get(@default_ports, scheme) == port
   end
 
@@ -147,97 +137,46 @@ defmodule QuickBEAM.URL do
   defp build_origin(_scheme, _host, _port_str), do: "null"
 
   defp build_href(scheme, username, password, host, port_str, path, query, fragment) do
-    result = scheme <> "://"
-
-    result =
-      if username != "" do
-        if password != "" do
-          result <> username <> ":" <> password <> "@"
-        else
-          result <> username <> "@"
-        end
-      else
-        result
-      end
-
-    result = result <> String.downcase(host)
-
-    result =
-      if port_str != "" do
-        result <> ":" <> port_str
-      else
-        result
-      end
-
-    result = result <> path
-
-    result =
-      if query != :undefined and query != "" do
-        result <> "?" <> query
-      else
-        result
-      end
-
-    if fragment != :undefined and fragment != "" do
-      result <> "#" <> fragment
-    else
-      result
-    end
+    [
+      scheme,
+      "://",
+      build_userinfo_prefix(username, password),
+      String.downcase(host),
+      if(port_str != "", do: ":" <> port_str, else: ""),
+      path,
+      prefix_if_present("?", query),
+      prefix_if_present("#", fragment)
+    ]
+    |> IO.iodata_to_binary()
   end
+
+  defp build_userinfo_prefix("", _), do: ""
+  defp build_userinfo_prefix(username, ""), do: username <> "@"
+  defp build_userinfo_prefix(username, password), do: username <> ":" <> password <> "@"
 
   defp do_recompose(c) do
-    scheme = String.trim_trailing(c["protocol"] || "", ":")
-    host = c["hostname"] || ""
-    port = c["port"] || ""
-    path = c["pathname"] || "/"
-    search = c["search"] || ""
-    hash = c["hash"] || ""
-    username = c["username"] || ""
-    password = c["password"] || ""
-
-    query =
-      if String.starts_with?(search, "?"), do: String.slice(search, 1..-1//1), else: search
-
-    fragment =
-      if String.starts_with?(hash, "#"), do: String.slice(hash, 1..-1//1), else: hash
-
-    parts = %{scheme: scheme, host: host, path: path}
-
-    parts =
-      if port != "" do
-        Map.put(parts, :port, String.to_integer(port))
-      else
-        parts
-      end
-
-    parts =
-      if query != "" do
-        Map.put(parts, :query, query)
-      else
-        parts
-      end
-
-    parts =
-      if fragment != "" do
-        Map.put(parts, :fragment, fragment)
-      else
-        parts
-      end
-
-    userinfo =
-      cond do
-        username != "" and password != "" -> username <> ":" <> password
-        username != "" -> username
-        true -> ""
-      end
-
-    parts =
-      if userinfo != "" do
-        Map.put(parts, :userinfo, userinfo)
-      else
-        parts
-      end
-
-    :uri_string.recompose(parts)
+    %{
+      scheme: String.trim_trailing(c["protocol"] || "", ":"),
+      host: c["hostname"] || "",
+      path: c["pathname"] || "/"
+    }
+    |> put_unless_empty(:port, c["port"], &String.to_integer/1)
+    |> put_unless_empty(:query, strip_prefix("?", c["search"] || ""))
+    |> put_unless_empty(:fragment, strip_prefix("#", c["hash"] || ""))
+    |> put_unless_empty(:userinfo, build_userinfo(c["username"] || "", c["password"] || ""))
+    |> :uri_string.recompose()
   end
+
+  defp put_unless_empty(map, _key, "", _transform), do: map
+  defp put_unless_empty(map, key, value, transform), do: Map.put(map, key, transform.(value))
+  defp put_unless_empty(map, _key, ""), do: map
+  defp put_unless_empty(map, key, value), do: Map.put(map, key, value)
+
+  defp strip_prefix(prefix, value) do
+    if String.starts_with?(value, prefix), do: String.slice(value, 1..-1//1), else: value
+  end
+
+  defp build_userinfo("", _), do: ""
+  defp build_userinfo(username, ""), do: username
+  defp build_userinfo(username, password), do: username <> ":" <> password
 end

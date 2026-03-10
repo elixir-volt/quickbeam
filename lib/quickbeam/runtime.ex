@@ -1,4 +1,5 @@
 defmodule QuickBEAM.Runtime do
+  @moduledoc false
   use GenServer
 
   @enforce_keys [:resource]
@@ -79,15 +80,10 @@ defmodule QuickBEAM.Runtime do
     handlers = Keyword.get(opts, :handlers, %{})
     merged_handlers = Map.merge(@builtin_handlers, handlers)
 
-    case QuickBEAM.Native.start_runtime(self()) do
-      resource when is_reference(resource) ->
-        state = %__MODULE__{resource: resource, handlers: merged_handlers}
-        install_builtins(state)
-        {:ok, state}
-
-      {:error, reason} ->
-        {:stop, reason}
-    end
+    resource = QuickBEAM.Native.start_runtime(self())
+    state = %__MODULE__{resource: resource, handlers: merged_handlers}
+    install_builtins(state)
+    {:ok, state}
   end
 
   defp install_builtins(state) do

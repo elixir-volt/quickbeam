@@ -1,4 +1,6 @@
 defmodule QuickBEAM do
+  @moduledoc "QuickJS-NG JavaScript engine for the BEAM."
+
   @type runtime :: GenServer.server()
   @type js_result :: {:ok, term()} | {:error, QuickBEAM.JSError.t()}
 

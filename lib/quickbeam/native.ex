@@ -1,4 +1,5 @@
 defmodule QuickBEAM.Native do
+  @moduledoc false
   use Zig,
     otp_app: :quickbeam,
     zig_code_path: "quickbeam.zig",

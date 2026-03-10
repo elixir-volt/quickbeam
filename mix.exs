@@ -10,7 +10,8 @@ defmodule QuickBEAM.MixProject do
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      aliases: aliases()
+      aliases: aliases(),
+      dialyzer: [plt_add_apps: [:crypto]]
     ]
   end
 
@@ -25,6 +26,8 @@ defmodule QuickBEAM.MixProject do
     [
       lint: [
         "format --check-formatted",
+        "credo --strict",
+        "ex_dna",
         "cmd zlint lib/quickbeam/*.zig",
         "cmd bun run check"
       ],
@@ -35,7 +38,11 @@ defmodule QuickBEAM.MixProject do
 
   defp deps do
     [
-      {:zigler, "~> 0.15.2", runtime: false}
+      {:zigler, "~> 0.15.2", runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:ex_dna, "~> 1.1", only: [:dev, :test], runtime: false},
+      {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false}
     ]
   end
 end
