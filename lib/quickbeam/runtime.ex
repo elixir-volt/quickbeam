@@ -68,7 +68,7 @@ defmodule QuickBEAM.Runtime do
       result =
         case QuickBEAM.Native.eval(resource, code) do
           {:ok, value} -> {:ok, value}
-          {:error, msg} -> {:error, msg}
+          {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
         end
 
       GenServer.reply(from, result)
@@ -85,7 +85,7 @@ defmodule QuickBEAM.Runtime do
       result =
         case QuickBEAM.Native.call_function(resource, fn_name, args_json) do
           {:ok, value} -> {:ok, value}
-          {:error, msg} -> {:error, msg}
+          {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
         end
 
       GenServer.reply(from, result)
@@ -101,7 +101,7 @@ defmodule QuickBEAM.Runtime do
       result =
         case QuickBEAM.Native.load_module(resource, name, code) do
           {:ok, _} -> :ok
-          {:error, msg} -> {:error, msg}
+          {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
         end
 
       GenServer.reply(from, result)

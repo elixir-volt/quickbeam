@@ -11,6 +11,37 @@ pub fn convert(ctx: *qjs.JSContext, val: qjs.JSValue, env: ?*e.ErlNifEnv) e.ErlN
     return convert_recursive(ctx, val, env, 0);
 }
 
+pub fn convert_error(ctx: *qjs.JSContext, val: qjs.JSValue, env: ?*e.ErlNifEnv) e.ErlNifTerm {
+    if (!qjs.JS_IsObject(val)) return convert(ctx, val, env);
+
+    const msg_val = qjs.JS_GetPropertyStr(ctx, val, "message");
+    defer qjs.JS_FreeValue(ctx, msg_val);
+
+    // If there's no "message" property, this isn't an Error-like object
+    if (qjs.JS_IsUndefined(msg_val)) return convert(ctx, val, env);
+
+    const name_val = qjs.JS_GetPropertyStr(ctx, val, "name");
+    defer qjs.JS_FreeValue(ctx, name_val);
+    const stack_val = qjs.JS_GetPropertyStr(ctx, val, "stack");
+    defer qjs.JS_FreeValue(ctx, stack_val);
+
+    var keys = [_]e.ErlNifTerm{
+        e.enif_make_atom_len(env, "message", 7),
+        e.enif_make_atom_len(env, "name", 4),
+        e.enif_make_atom_len(env, "stack", 5),
+    };
+    var vals = [_]e.ErlNifTerm{
+        convert(ctx, msg_val, env),
+        convert(ctx, name_val, env),
+        convert(ctx, stack_val, env),
+    };
+
+    // SAFETY: immediately filled by enif_make_map_from_arrays
+    var map: e.ErlNifTerm = undefined;
+    _ = e.enif_make_map_from_arrays(env, &keys, &vals, 3, &map);
+    return map;
+}
+
 fn convert_recursive(ctx: *qjs.JSContext, val: qjs.JSValue, env: ?*e.ErlNifEnv, depth: u32) e.ErlNifTerm {
     if (depth > MAX_DEPTH) return make_atom(env, "nil");
 

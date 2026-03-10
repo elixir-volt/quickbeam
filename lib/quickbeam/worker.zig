@@ -1,8 +1,6 @@
 const types = @import("types.zig");
 const js = @import("js_helpers.zig");
 const globals = @import("globals.zig");
-const text_encoding = @import("text_encoding.zig");
-const web_apis = @import("web_apis.zig");
 const js_to_beam = @import("js_to_beam.zig");
 const std = types.std;
 const beam = types.beam;
@@ -159,8 +157,7 @@ pub const WorkerState = struct {
         self.drain_jobs();
 
         if (js.js_is_exception(val)) {
-            result.ok = false;
-            result.json = self.get_exception_message();
+            self.set_error_term(result);
             return;
         }
 
@@ -184,8 +181,7 @@ pub const WorkerState = struct {
         self.drain_jobs();
 
         if (js.js_is_exception(val)) {
-            result.ok = false;
-            result.json = self.get_exception_message();
+            self.set_error_term(result);
             return;
         }
 
@@ -201,8 +197,7 @@ pub const WorkerState = struct {
         _ = name;
         const val = qjs.JS_Eval(self.ctx, code.ptr, code.len, "<module>", qjs.JS_EVAL_TYPE_MODULE | qjs.JS_EVAL_FLAG_COMPILE_ONLY);
         if (js.js_is_exception(val)) {
-            result.ok = false;
-            result.json = self.get_exception_message();
+            self.set_error_term(result);
             return;
         }
 
@@ -211,8 +206,7 @@ pub const WorkerState = struct {
         self.drain_jobs();
 
         if (js.js_is_exception(eval_result)) {
-            result.ok = false;
-            result.json = self.get_exception_message();
+            self.set_error_term(result);
             return;
         }
 
@@ -298,8 +292,10 @@ pub const WorkerState = struct {
             } else if (std.mem.eql(u8, status_str, "err")) {
                 const v = qjs.JS_GetPropertyStr(self.ctx, global, value_key.ptr);
                 defer qjs.JS_FreeValue(self.ctx, v);
+                const term_env = beam.alloc_env();
                 result.ok = false;
-                result.json = js.get_error_message(self.ctx, v);
+                result.term = js_to_beam.convert_error(self.ctx, v, term_env);
+                result.env = term_env;
                 js.cleanup_globals(self.ctx, global, status_key, value_key);
                 return;
             }
@@ -328,6 +324,16 @@ pub const WorkerState = struct {
         result.env = term_env;
     }
 
+    fn set_error_term(self: *WorkerState, result: *types.Result) void {
+        const exc = qjs.JS_GetException(self.ctx);
+        defer qjs.JS_FreeValue(self.ctx, exc);
+
+        const term_env = beam.alloc_env();
+        result.ok = false;
+        result.term = js_to_beam.convert_error(self.ctx, exc, term_env);
+        result.env = term_env;
+    }
+
     fn get_exception_message(self: *WorkerState) []const u8 {
         const exc = qjs.JS_GetException(self.ctx);
         defer qjs.JS_FreeValue(self.ctx, exc);
@@ -335,16 +341,8 @@ pub const WorkerState = struct {
     }
 
     pub fn install_globals(self: *WorkerState) void {
-        const global = qjs.JS_GetGlobalObject(self.ctx);
-        defer qjs.JS_FreeValue(self.ctx, global);
-
         qjs.JS_SetContextOpaque(self.ctx, @ptrCast(self));
-
-        globals.install_beam_object(self.ctx, global);
-        globals.install_timers(self.ctx, global);
-        globals.install_console(self.ctx, global);
-        text_encoding.install(self.ctx, global);
-        web_apis.install(self.ctx, global, self.start_time);
+        globals.install_all(self.ctx);
     }
 };
 

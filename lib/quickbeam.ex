@@ -1,6 +1,6 @@
 defmodule QuickBEAM do
   @type runtime :: GenServer.server()
-  @type js_result :: {:ok, term()} | {:error, String.t()}
+  @type js_result :: {:ok, term()} | {:error, QuickBEAM.JSError.t()}
 
   @spec start(keyword()) :: GenServer.on_start()
   def start(opts \\ []) do

@@ -61,17 +61,39 @@ defmodule QuickBEAMTest do
   end
 
   describe "errors" do
-    test "thrown errors", %{rt: rt} do
-      assert {:error, "boom"} = QuickBEAM.eval(rt, ~s[throw new Error("boom")])
+    test "thrown errors return JSError", %{rt: rt} do
+      assert {:error, %QuickBEAM.JSError{message: "boom", name: "Error"}} =
+               QuickBEAM.eval(rt, ~s[throw new Error("boom")])
     end
 
     test "reference errors", %{rt: rt} do
-      assert {:error, msg} = QuickBEAM.eval(rt, "undeclaredVar")
-      assert msg =~ "is not defined"
+      assert {:error, %QuickBEAM.JSError{name: "ReferenceError"} = err} =
+               QuickBEAM.eval(rt, "undeclaredVar")
+
+      assert err.message =~ "is not defined"
     end
 
     test "syntax errors", %{rt: rt} do
-      assert {:error, _} = QuickBEAM.eval(rt, "if (")
+      assert {:error, %QuickBEAM.JSError{name: "SyntaxError"}} =
+               QuickBEAM.eval(rt, "if (")
+    end
+
+    test "error has stack trace", %{rt: rt} do
+      assert {:error, %QuickBEAM.JSError{stack: stack}} =
+               QuickBEAM.eval(rt, ~s[throw new Error("test")])
+
+      assert is_binary(stack)
+      assert stack =~ "<eval>"
+    end
+
+    test "thrown non-Error values", %{rt: rt} do
+      assert {:error, %QuickBEAM.JSError{message: "just a string"}} =
+               QuickBEAM.eval(rt, ~s[throw "just a string"])
+    end
+
+    test "TypeError", %{rt: rt} do
+      assert {:error, %QuickBEAM.JSError{name: "TypeError"}} =
+               QuickBEAM.eval(rt, "null.foo")
     end
   end
 
@@ -81,7 +103,8 @@ defmodule QuickBEAMTest do
     end
 
     test "Promise.reject", %{rt: rt} do
-      assert {:error, _} = QuickBEAM.eval(rt, "Promise.reject(new Error('nope'))")
+      assert {:error, %QuickBEAM.JSError{message: "nope"}} =
+               QuickBEAM.eval(rt, "Promise.reject(new Error('nope'))")
     end
 
     test "async/await", %{rt: rt} do

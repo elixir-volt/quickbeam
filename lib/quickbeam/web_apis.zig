@@ -1,11 +1,12 @@
 const types = @import("types.zig");
+const worker = @import("worker.zig");
 const js = @import("js_helpers.zig");
 const std = types.std;
 const qjs = types.qjs;
 
-pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue, start_time: i128) void {
+pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue) void {
     install_crypto(ctx, global);
-    install_performance(ctx, global, start_time);
+    install_performance(ctx, global);
     install_queue_microtask(ctx, global);
     install_structured_clone(ctx, global);
 }
@@ -51,11 +52,7 @@ fn get_random_values(
 
 // ──────────────────── performance.now ────────────────────
 
-var runtime_start_time: i128 = 0;
-
-fn install_performance(ctx: *qjs.JSContext, global: qjs.JSValue, start_time: i128) void {
-    runtime_start_time = start_time;
-
+fn install_performance(ctx: *qjs.JSContext, global: qjs.JSValue) void {
     const perf = qjs.JS_NewObject(ctx);
     _ = qjs.JS_SetPropertyStr(ctx, perf, "now", qjs.JS_NewCFunction(ctx, &performance_now, "now", 0));
     _ = qjs.JS_SetPropertyStr(ctx, global, "performance", perf);
@@ -67,8 +64,9 @@ fn performance_now(
     _: c_int,
     _: [*c]qjs.JSValue,
 ) callconv(.c) qjs.JSValue {
+    const self: *worker.WorkerState = @ptrCast(@alignCast(qjs.JS_GetContextOpaque(ctx)));
     const now = std.time.nanoTimestamp();
-    const elapsed_ns = now - runtime_start_time;
+    const elapsed_ns = now - self.start_time;
     const ms: f64 = @as(f64, @floatFromInt(elapsed_ns)) / 1_000_000.0;
     return qjs.JS_NewFloat64(ctx, ms);
 }
@@ -102,7 +100,6 @@ fn microtask_trampoline(
     defer qjs.JS_FreeValue(ctx, global);
     const result = qjs.JS_Call(ctx, argv[0], global, 0, null);
     if (js.js_is_exception(result)) {
-        // Per spec: microtask errors are reported but don't propagate
         const exc = qjs.JS_GetException(ctx);
         qjs.JS_FreeValue(ctx, exc);
         return js.js_undefined();
