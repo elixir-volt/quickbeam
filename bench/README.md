@@ -72,7 +72,20 @@ JS calls an Elixir handler and gets a result back. QuickJSEx cannot do this.
 
 **~600 μs per runtime.** Fast enough for per-request isolation if needed.
 
-### 5. Concurrent throughput
+### 5. Shared context — preloaded function calls
+
+The typical pattern: load JS once, call functions repeatedly. Same context persists across calls.
+
+| | QuickBEAM | QuickJSEx | Speedup |
+|---|---|---|---|
+| `call(fn)` — no args | 12.0 μs | 31.2 μs | **2.6x** |
+| `call(fn, scalar)` | 11.1 μs | 29.6 μs | **2.6x** |
+| `call(fn, 50 objects)` | 97.0 μs | 301.8 μs | **3.1x** |
+
+Even with zero data, QuickBEAM's `call` path is 2.6x faster — QuickJSEx
+JSON-encodes the function name and args.
+
+### 6. Concurrent throughput
 
 N runtimes each computing `fib(25)` in parallel via Task.async.
 
