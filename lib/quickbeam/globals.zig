@@ -6,6 +6,7 @@ const timers = @import("timers.zig");
 const console = @import("console.zig");
 const text_encoding = @import("text_encoding.zig");
 const web_apis = @import("web_apis.zig");
+const dom = @import("dom.zig");
 
 pub fn install_all(ctx: *qjs.JSContext) void {
     const global = qjs.JS_GetGlobalObject(ctx);
@@ -16,4 +17,5 @@ pub fn install_all(ctx: *qjs.JSContext) void {
     console.install(ctx, global);
     text_encoding.install(ctx, global);
     web_apis.install(ctx, global);
+    dom.install(ctx, global);
 }

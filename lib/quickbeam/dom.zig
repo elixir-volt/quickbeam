@@ -1,0 +1,566 @@
+const types = @import("types.zig");
+const js = @import("js_helpers.zig");
+const std = types.std;
+const qjs = types.qjs;
+
+const lxb = @cImport(@cInclude("lexbor_bridge.h"));
+
+// ──────────────────── JS class IDs ────────────────────
+
+var class_ids_mutex: std.Thread.Mutex = .{};
+var document_class_id: qjs.JSClassID = 0;
+var element_class_id: qjs.JSClassID = 0;
+
+// ──────────────────── Opaque data attached to JS objects ────────────────────
+
+const DocumentData = struct {
+    doc: *lxb.lxb_html_document_t,
+    css_parser: *lxb.lxb_css_parser_t,
+    selectors: *lxb.lxb_selectors_t,
+};
+
+// ──────────────────── Helpers ────────────────────
+
+fn get_document_data(ctx: *qjs.JSContext) ?*DocumentData {
+    const global = qjs.JS_GetGlobalObject(ctx);
+    defer qjs.JS_FreeValue(ctx, global);
+    const doc_val = qjs.JS_GetPropertyStr(ctx, global, "document");
+    defer qjs.JS_FreeValue(ctx, doc_val);
+    if (!qjs.JS_IsObject(doc_val)) return null;
+    const ptr = qjs.JS_GetOpaque(doc_val, document_class_id);
+    if (ptr == null) return null;
+    return @ptrCast(@alignCast(ptr));
+}
+
+fn node_to_js(ctx: *qjs.JSContext, node: *lxb.lxb_dom_node_t) qjs.JSValue {
+    const obj = qjs.JS_NewObjectClass(ctx, @intCast(element_class_id));
+    if (js.js_is_exception(obj)) return obj;
+    _ = qjs.JS_SetOpaque(obj, @ptrCast(node));
+    install_element_proto(ctx, obj);
+    return obj;
+}
+
+fn js_to_node(val: qjs.JSValue) ?*lxb.lxb_dom_node_t {
+    const ptr = qjs.JS_GetOpaque(val, element_class_id);
+    if (ptr == null) return null;
+    return @ptrCast(@alignCast(ptr));
+}
+
+fn to_lxb(s: []const u8) [*c]const lxb.lxb_char_t {
+    return @ptrCast(s.ptr);
+}
+
+fn str_arg(ctx: ?*qjs.JSContext, argv: [*c]qjs.JSValue, idx: usize) ?[]const u8 {
+    var len: usize = 0;
+    const ptr = qjs.JS_ToCStringLen(ctx, &len, argv[idx]);
+    if (ptr == null) return null;
+    return ptr[0..len];
+}
+
+fn free_str(ctx: ?*qjs.JSContext, ptr: [*c]const u8) void {
+    qjs.JS_FreeCString(ctx, ptr);
+}
+
+// ──────────────────── Serialization callback ────────────────────
+
+fn serialize_callback(data: [*c]const u8, len: usize, ctx: ?*anyopaque) callconv(.c) lxb.lxb_status_t {
+    const list: *std.ArrayList(u8) = @ptrCast(@alignCast(ctx.?));
+    list.appendSlice(types.gpa, data[0..len]) catch return 1;
+    return 0;
+}
+
+// ──────────────────── document methods ────────────────────
+
+fn doc_create_element(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    _ = this;
+    if (argc < 1) return qjs.JS_ThrowTypeError(ctx, "createElement requires a tag name");
+    const dd = get_document_data(ctx.?) orelse return qjs.JS_ThrowTypeError(ctx, "No document");
+    const tag = str_arg(ctx, argv, 0) orelse return qjs.JS_ThrowTypeError(ctx, "Invalid tag name");
+    defer free_str(ctx, tag.ptr);
+
+    const dom_doc = lxb.qb_dom_document(dd.doc);
+    const elem = lxb.qb_create_element(dom_doc, to_lxb(tag), tag.len) orelse
+        return qjs.JS_ThrowTypeError(ctx, "Failed to create element");
+
+    return node_to_js(ctx.?, lxb.qb_element_as_node(elem).?);
+}
+
+fn doc_create_text_node(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    _ = this;
+    if (argc < 1) return qjs.JS_ThrowTypeError(ctx, "createTextNode requires text");
+    const dd = get_document_data(ctx.?) orelse return qjs.JS_ThrowTypeError(ctx, "No document");
+    const text = str_arg(ctx, argv, 0) orelse return qjs.JS_ThrowTypeError(ctx, "Invalid text");
+    defer free_str(ctx, text.ptr);
+
+    const dom_doc = lxb.qb_dom_document(dd.doc);
+    const text_node = lxb.qb_create_text_node(dom_doc, to_lxb(text), text.len) orelse
+        return qjs.JS_ThrowTypeError(ctx, "Failed to create text node");
+
+    return node_to_js(ctx.?, lxb.qb_text_as_node(text_node).?);
+}
+
+fn doc_get_element_by_id(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    _ = this;
+    if (argc < 1) return qjs.JS_ThrowTypeError(ctx, "getElementById requires an id");
+    const dd = get_document_data(ctx.?) orelse return qjs.JS_ThrowTypeError(ctx, "No document");
+    const id = str_arg(ctx, argv, 0) orelse return qjs.JS_ThrowTypeError(ctx, "Invalid id");
+    defer free_str(ctx, id.ptr);
+
+    const body_node = lxb.qb_body(dd.doc) orelse return js.js_null();
+    const body_elem = lxb.qb_node_as_element(body_node) orelse return js.js_null();
+    const dom_doc = lxb.qb_dom_document(dd.doc);
+    const collection = lxb.qb_collection_make(dom_doc, 1) orelse return js.js_null();
+    defer lxb.qb_collection_destroy(collection);
+
+    const status = lxb.qb_elements_by_attr(body_elem, collection, to_lxb("id"), 2, to_lxb(id), id.len);
+    if (status != 0 or lxb.qb_collection_length(collection) == 0)
+        return js.js_null();
+
+    const elem = lxb.qb_collection_element(collection, 0);
+    return node_to_js(ctx.?, lxb.qb_element_as_node(elem.?).?);
+}
+
+// ──────────────────── querySelector / querySelectorAll ────────────────────
+
+const SelectorCtx = struct {
+    results: *std.ArrayList(*lxb.lxb_dom_node_t),
+    find_one: bool,
+};
+
+fn selector_callback(node_ptr: ?*anyopaque, _: c_uint, ctx_ptr: ?*anyopaque) callconv(.c) lxb.lxb_status_t {
+    const sctx: *SelectorCtx = @ptrCast(@alignCast(ctx_ptr.?));
+    const node: *lxb.lxb_dom_node_t = @ptrCast(@alignCast(node_ptr.?));
+    sctx.results.append(types.gpa, node) catch return 1;
+    if (sctx.find_one) return 1;
+    return 0;
+}
+
+fn do_query_selector(ctx: ?*qjs.JSContext, root: *lxb.lxb_dom_node_t, dd: *DocumentData, selector: []const u8, find_one: bool) qjs.JSValue {
+    const list = lxb.qb_css_selectors_parse(dd.css_parser, to_lxb(selector), selector.len);
+    if (lxb.qb_css_parser_status(dd.css_parser) != 0 or list == null)
+        return if (find_one) js.js_null() else qjs.JS_NewArray(ctx);
+
+    defer lxb.qb_css_selector_list_destroy(list);
+
+    var results = std.ArrayList(*lxb.lxb_dom_node_t){};
+
+    var sctx = SelectorCtx{ .results = &results, .find_one = find_one };
+    _ = lxb.qb_selectors_find(dd.selectors, root, list, selector_callback, @ptrCast(&sctx));
+
+    if (find_one) {
+        defer results.deinit(types.gpa);
+        if (results.items.len == 0) return js.js_null();
+        return node_to_js(ctx.?, results.items[0]);
+    }
+
+    return make_owned_node_list(ctx.?, results);
+}
+
+fn make_owned_node_list(ctx: *qjs.JSContext, nodes: std.ArrayList(*lxb.lxb_dom_node_t)) qjs.JSValue {
+    const arr = qjs.JS_NewArray(ctx);
+    if (js.js_is_exception(arr)) {
+        var mut_nodes = nodes;
+        mut_nodes.deinit(types.gpa);
+        return arr;
+    }
+    for (nodes.items, 0..) |node, i| {
+        const elem_js = node_to_js(ctx, node);
+        _ = qjs.JS_SetPropertyUint32(ctx, arr, @intCast(i), elem_js);
+    }
+    var mut_nodes = nodes;
+    mut_nodes.deinit(types.gpa);
+    return arr;
+}
+
+fn query_selector(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    if (argc < 1) return qjs.JS_ThrowTypeError(ctx, "querySelector requires a selector");
+
+    const selector = str_arg(ctx, argv, 0) orelse return qjs.JS_ThrowTypeError(ctx, "Invalid selector");
+    defer free_str(ctx, selector.ptr);
+
+    const dd = get_document_data(ctx.?) orelse return qjs.JS_ThrowTypeError(ctx, "No document");
+    const root = js_to_node(this) orelse (lxb.qb_doc_as_node(dd.doc) orelse return js.js_null());
+    return do_query_selector(ctx, root, dd, selector, true);
+}
+
+fn query_selector_all(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    if (argc < 1) return qjs.JS_ThrowTypeError(ctx, "querySelectorAll requires a selector");
+
+    const selector = str_arg(ctx, argv, 0) orelse return qjs.JS_ThrowTypeError(ctx, "Invalid selector");
+    defer free_str(ctx, selector.ptr);
+
+    const dd = get_document_data(ctx.?) orelse return qjs.JS_ThrowTypeError(ctx, "No document");
+    const root = js_to_node(this) orelse (lxb.qb_doc_as_node(dd.doc) orelse return qjs.JS_NewArray(ctx));
+    return do_query_selector(ctx, root, dd, selector, false);
+}
+
+// ──────────────────── Element property accessors ────────────────────
+
+fn el_get_tag_name(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const node = js_to_node(this) orelse return js.js_undefined();
+    if (lxb.qb_node_type(node) != lxb.QB_NODE_TYPE_ELEMENT) return js.js_undefined();
+    const elem = lxb.qb_node_as_element(node) orelse return js.js_undefined();
+    var len: usize = 0;
+    const name = lxb.qb_element_qualified_name(elem, &len);
+    if (name == null) return js.js_undefined();
+    return qjs.JS_NewStringLen(ctx, @ptrCast(name), len);
+}
+
+fn el_get_id(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const node = js_to_node(this) orelse return js.js_undefined();
+    const elem = lxb.qb_node_as_element(node) orelse return js.js_undefined();
+    var len: usize = 0;
+    const val = lxb.qb_element_get_attribute(elem, to_lxb("id"), 2, &len);
+    if (val == null) return qjs.JS_NewStringLen(ctx, "", 0);
+    return qjs.JS_NewStringLen(ctx, @ptrCast(val), len);
+}
+
+fn el_set_id(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const node = js_to_node(this) orelse return js.js_undefined();
+    const elem = lxb.qb_node_as_element(node) orelse return js.js_undefined();
+    const val = str_arg(ctx, argv, 0) orelse return js.js_undefined();
+    defer free_str(ctx, val.ptr);
+    _ = lxb.qb_element_set_attribute(elem, to_lxb("id"), 2, to_lxb(val), val.len);
+    return js.js_undefined();
+}
+
+fn el_get_class_name(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const node = js_to_node(this) orelse return js.js_undefined();
+    const elem = lxb.qb_node_as_element(node) orelse return js.js_undefined();
+    var len: usize = 0;
+    const val = lxb.qb_element_get_attribute(elem, to_lxb("class"), 5, &len);
+    if (val == null) return qjs.JS_NewStringLen(ctx, "", 0);
+    return qjs.JS_NewStringLen(ctx, @ptrCast(val), len);
+}
+
+fn el_get_attribute(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    if (argc < 1) return qjs.JS_ThrowTypeError(ctx, "getAttribute requires a name");
+    const node = js_to_node(this) orelse return js.js_undefined();
+    const elem = lxb.qb_node_as_element(node) orelse return js.js_undefined();
+    const name = str_arg(ctx, argv, 0) orelse return js.js_undefined();
+    defer free_str(ctx, name.ptr);
+
+    var len: usize = 0;
+    const val = lxb.qb_element_get_attribute(elem, to_lxb(name), name.len, &len);
+    if (val == null) return js.js_null();
+    return qjs.JS_NewStringLen(ctx, @ptrCast(val), len);
+}
+
+fn el_set_attribute(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    if (argc < 2) return qjs.JS_ThrowTypeError(ctx, "setAttribute requires name and value");
+    const node = js_to_node(this) orelse return js.js_undefined();
+    const elem = lxb.qb_node_as_element(node) orelse return js.js_undefined();
+    const name = str_arg(ctx, argv, 0) orelse return js.js_undefined();
+    defer free_str(ctx, name.ptr);
+    const val = str_arg(ctx, argv, 1) orelse return js.js_undefined();
+    defer free_str(ctx, val.ptr);
+    _ = lxb.qb_element_set_attribute(elem, to_lxb(name), name.len, to_lxb(val), val.len);
+    return js.js_undefined();
+}
+
+fn el_remove_attribute(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    if (argc < 1) return qjs.JS_ThrowTypeError(ctx, "removeAttribute requires a name");
+    const node = js_to_node(this) orelse return js.js_undefined();
+    const elem = lxb.qb_node_as_element(node) orelse return js.js_undefined();
+    const name = str_arg(ctx, argv, 0) orelse return js.js_undefined();
+    defer free_str(ctx, name.ptr);
+    _ = lxb.qb_element_remove_attribute(elem, to_lxb(name), name.len);
+    return js.js_undefined();
+}
+
+fn el_has_attribute(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    if (argc < 1) return qjs.JS_ThrowTypeError(ctx, "hasAttribute requires a name");
+    const node = js_to_node(this) orelse return js.js_undefined();
+    const elem = lxb.qb_node_as_element(node) orelse return js.js_undefined();
+    const name = str_arg(ctx, argv, 0) orelse return js.js_undefined();
+    defer free_str(ctx, name.ptr);
+    var len: usize = 0;
+    const val = lxb.qb_element_get_attribute(elem, to_lxb(name), name.len, &len);
+    return if (val != null) js.js_true() else js.js_false();
+}
+
+// ──────────────────── Tree manipulation ────────────────────
+
+fn el_append_child(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    if (argc < 1) return qjs.JS_ThrowTypeError(ctx, "appendChild requires a node");
+    const parent = js_to_node(this) orelse return qjs.JS_ThrowTypeError(ctx, "Invalid parent");
+    const child = js_to_node(argv[0]) orelse return qjs.JS_ThrowTypeError(ctx, "Invalid child");
+    if (lxb.qb_node_parent(child) != null) lxb.qb_node_remove(child);
+    lxb.qb_node_insert_child(parent, child);
+    return qjs.JS_DupValue(ctx, argv[0]);
+}
+
+fn el_remove_child(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    _ = this;
+    if (argc < 1) return qjs.JS_ThrowTypeError(ctx, "removeChild requires a node");
+    const child = js_to_node(argv[0]) orelse return qjs.JS_ThrowTypeError(ctx, "Invalid child");
+    lxb.qb_node_remove(child);
+    return qjs.JS_DupValue(ctx, argv[0]);
+}
+
+fn el_get_inner_html(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const node = js_to_node(this) orelse return js.js_undefined();
+    var buf = std.ArrayList(u8){};
+    defer buf.deinit(types.gpa);
+
+    var child: ?*lxb.lxb_dom_node_t = lxb.qb_node_first_child(node);
+    while (child) |c| {
+        _ = lxb.qb_serialize_tree(c, serialize_callback, @ptrCast(&buf));
+        child = lxb.qb_node_next(c);
+    }
+
+    return qjs.JS_NewStringLen(ctx, @ptrCast(buf.items.ptr), buf.items.len);
+}
+
+fn el_set_inner_html(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const node = js_to_node(this) orelse return js.js_undefined();
+    const dd = get_document_data(ctx.?) orelse return js.js_undefined();
+    const html_str = str_arg(ctx, argv, 0) orelse return js.js_undefined();
+    defer free_str(ctx, html_str.ptr);
+
+    // Remove existing children
+    while (lxb.qb_node_first_child(node) != null) {
+        lxb.qb_node_remove(lxb.qb_node_first_child(node).?);
+    }
+
+    // Parse fragment
+    const elem = lxb.qb_node_as_element(node) orelse return js.js_undefined();
+    const frag_node = lxb.qb_parse_fragment(dd.doc, elem, to_lxb(html_str), html_str.len) orelse return js.js_undefined();
+
+    // Move children from fragment to node
+    var child: ?*lxb.lxb_dom_node_t = lxb.qb_node_first_child(frag_node);
+    while (child) |c| {
+        const next = lxb.qb_node_next(c);
+        lxb.qb_node_insert_child(node, c);
+        child = next;
+    }
+
+    return js.js_undefined();
+}
+
+fn el_get_outer_html(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const node = js_to_node(this) orelse return js.js_undefined();
+    var buf = std.ArrayList(u8){};
+    defer buf.deinit(types.gpa);
+    _ = lxb.qb_serialize_tree(node, serialize_callback, @ptrCast(&buf));
+    return qjs.JS_NewStringLen(ctx, @ptrCast(buf.items.ptr), buf.items.len);
+}
+
+fn el_get_text_content(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const node = js_to_node(this) orelse return js.js_undefined();
+    var len: usize = 0;
+    const text = lxb.qb_node_text_content(node, &len);
+    if (text == null) return qjs.JS_NewStringLen(ctx, "", 0);
+    defer lxb.qb_dom_document_destroy_text(lxb.qb_node_owner_document(node), @constCast(text));
+    return qjs.JS_NewStringLen(ctx, @ptrCast(text), len);
+}
+
+fn el_set_text_content(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const node = js_to_node(this) orelse return js.js_undefined();
+    const text = str_arg(ctx, argv, 0) orelse return js.js_undefined();
+    defer free_str(ctx, text.ptr);
+    _ = lxb.qb_node_text_content_set(node, to_lxb(text), text.len);
+    return js.js_undefined();
+}
+
+// ──────────────────── Tree navigation ────────────────────
+
+fn el_get_parent_node(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const node = js_to_node(this) orelse return js.js_null();
+    const parent = lxb.qb_node_parent(node) orelse return js.js_null();
+    return node_to_js(ctx.?, parent);
+}
+
+fn el_get_children(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const node = js_to_node(this) orelse return qjs.JS_NewArray(ctx);
+    const arr = qjs.JS_NewArray(ctx);
+    var idx: u32 = 0;
+    var child: ?*lxb.lxb_dom_node_t = lxb.qb_node_first_child(node);
+    while (child) |c| {
+        if (lxb.qb_node_type(c) == lxb.QB_NODE_TYPE_ELEMENT) {
+            _ = qjs.JS_SetPropertyUint32(ctx, arr, idx, node_to_js(ctx.?, c));
+            idx += 1;
+        }
+        child = lxb.qb_node_next(c);
+    }
+    return arr;
+}
+
+fn el_get_child_nodes(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const node = js_to_node(this) orelse return qjs.JS_NewArray(ctx);
+    const arr = qjs.JS_NewArray(ctx);
+    var idx: u32 = 0;
+    var child: ?*lxb.lxb_dom_node_t = lxb.qb_node_first_child(node);
+    while (child) |c| {
+        _ = qjs.JS_SetPropertyUint32(ctx, arr, idx, node_to_js(ctx.?, c));
+        idx += 1;
+        child = lxb.qb_node_next(c);
+    }
+    return arr;
+}
+
+fn el_get_first_child(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const node = js_to_node(this) orelse return js.js_null();
+    const first = lxb.qb_node_first_child(node) orelse return js.js_null();
+    return node_to_js(ctx.?, first);
+}
+
+fn el_get_next_sibling(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const node = js_to_node(this) orelse return js.js_null();
+    const next = lxb.qb_node_next(node) orelse return js.js_null();
+    return node_to_js(ctx.?, next);
+}
+
+// ──────────────────── document.body / document.head / document.documentElement ────────────────────
+
+fn doc_get_body(ctx: ?*qjs.JSContext, _: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const dd = get_document_data(ctx.?) orelse return js.js_null();
+    const body = lxb.qb_body(dd.doc) orelse return js.js_null();
+    return node_to_js(ctx.?, body);
+}
+
+fn doc_get_head(ctx: ?*qjs.JSContext, _: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const dd = get_document_data(ctx.?) orelse return js.js_null();
+    const head = lxb.qb_head(dd.doc) orelse return js.js_null();
+    return node_to_js(ctx.?, head);
+}
+
+fn doc_get_document_element(ctx: ?*qjs.JSContext, _: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const dd = get_document_data(ctx.?) orelse return js.js_null();
+    const root = lxb.qb_document_element(dd.doc) orelse return js.js_null();
+    return node_to_js(ctx.?, root);
+}
+
+// ──────────────────── Install element prototype methods ────────────────────
+
+fn define_getter(ctx: *qjs.JSContext, obj: qjs.JSValue, name: [*:0]const u8, getter: *const qjs.JSCFunction) void {
+    const atom = qjs.JS_NewAtom(ctx, name);
+    defer qjs.JS_FreeAtom(ctx, atom);
+    _ = qjs.JS_DefinePropertyGetSet(
+        ctx,
+        obj,
+        atom,
+        qjs.JS_NewCFunction(ctx, getter, name, 0),
+        js.js_undefined(),
+        qjs.JS_PROP_HAS_GET | qjs.JS_PROP_CONFIGURABLE,
+    );
+}
+
+fn define_getter_setter(ctx: *qjs.JSContext, obj: qjs.JSValue, name: [*:0]const u8, getter: *const qjs.JSCFunction, setter: *const qjs.JSCFunction) void {
+    const atom = qjs.JS_NewAtom(ctx, name);
+    defer qjs.JS_FreeAtom(ctx, atom);
+    _ = qjs.JS_DefinePropertyGetSet(
+        ctx,
+        obj,
+        atom,
+        qjs.JS_NewCFunction(ctx, getter, name, 0),
+        qjs.JS_NewCFunction(ctx, setter, name, 1),
+        qjs.JS_PROP_HAS_GET | qjs.JS_PROP_HAS_SET | qjs.JS_PROP_CONFIGURABLE,
+    );
+}
+
+fn install_element_proto(ctx: *qjs.JSContext, obj: qjs.JSValue) void {
+    // Methods
+    _ = qjs.JS_SetPropertyStr(ctx, obj, "querySelector", qjs.JS_NewCFunction(ctx, &query_selector, "querySelector", 1));
+    _ = qjs.JS_SetPropertyStr(ctx, obj, "querySelectorAll", qjs.JS_NewCFunction(ctx, &query_selector_all, "querySelectorAll", 1));
+    _ = qjs.JS_SetPropertyStr(ctx, obj, "getAttribute", qjs.JS_NewCFunction(ctx, &el_get_attribute, "getAttribute", 1));
+    _ = qjs.JS_SetPropertyStr(ctx, obj, "setAttribute", qjs.JS_NewCFunction(ctx, &el_set_attribute, "setAttribute", 2));
+    _ = qjs.JS_SetPropertyStr(ctx, obj, "removeAttribute", qjs.JS_NewCFunction(ctx, &el_remove_attribute, "removeAttribute", 1));
+    _ = qjs.JS_SetPropertyStr(ctx, obj, "hasAttribute", qjs.JS_NewCFunction(ctx, &el_has_attribute, "hasAttribute", 1));
+    _ = qjs.JS_SetPropertyStr(ctx, obj, "appendChild", qjs.JS_NewCFunction(ctx, &el_append_child, "appendChild", 1));
+    _ = qjs.JS_SetPropertyStr(ctx, obj, "removeChild", qjs.JS_NewCFunction(ctx, &el_remove_child, "removeChild", 1));
+
+    // Read-only properties
+    define_getter(ctx, obj, "tagName", &el_get_tag_name);
+    define_getter(ctx, obj, "className", &el_get_class_name);
+    define_getter(ctx, obj, "outerHTML", &el_get_outer_html);
+    define_getter(ctx, obj, "parentNode", &el_get_parent_node);
+    define_getter(ctx, obj, "children", &el_get_children);
+    define_getter(ctx, obj, "childNodes", &el_get_child_nodes);
+    define_getter(ctx, obj, "firstChild", &el_get_first_child);
+    define_getter(ctx, obj, "nextSibling", &el_get_next_sibling);
+
+    // Read-write properties
+    define_getter_setter(ctx, obj, "id", &el_get_id, &el_set_id);
+    define_getter_setter(ctx, obj, "innerHTML", &el_get_inner_html, &el_set_inner_html);
+    define_getter_setter(ctx, obj, "textContent", &el_get_text_content, &el_set_text_content);
+}
+
+// ──────────────────── Class finalizers ────────────────────
+
+fn document_finalizer(_: ?*qjs.JSRuntime, val: qjs.JSValue) callconv(.c) void {
+    const ptr = qjs.JS_GetOpaque(val, document_class_id);
+    if (ptr == null) return;
+    const dd: *DocumentData = @ptrCast(@alignCast(ptr));
+    lxb.qb_selectors_destroy(dd.selectors);
+    lxb.qb_css_parser_destroy(dd.css_parser);
+    _ = lxb.qb_document_destroy(dd.doc);
+    types.gpa.destroy(dd);
+}
+
+const document_class_def = qjs.JSClassDef{
+    .class_name = "Document",
+    .finalizer = &document_finalizer,
+    .gc_mark = null,
+    .call = null,
+    .exotic = null,
+};
+
+const element_class_def = qjs.JSClassDef{
+    .class_name = "Element",
+    .finalizer = null,
+    .gc_mark = null,
+    .call = null,
+    .exotic = null,
+};
+
+// ──────────────────── Public: install DOM globals ────────────────────
+
+pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue) void {
+    const rt = qjs.JS_GetRuntime(ctx);
+
+    class_ids_mutex.lock();
+    _ = qjs.JS_NewClassID(rt, &document_class_id);
+    _ = qjs.JS_NewClassID(rt, &element_class_id);
+    class_ids_mutex.unlock();
+
+    _ = qjs.JS_NewClass(rt, document_class_id, &document_class_def);
+    _ = qjs.JS_NewClass(rt, element_class_id, &element_class_def);
+
+    const doc = lxb.qb_document_create() orelse return;
+    const html = "<!DOCTYPE html><html><head></head><body></body></html>";
+    if (lxb.qb_document_parse(doc, html, html.len) != 0) {
+        _ = lxb.qb_document_destroy(doc);
+        return;
+    }
+
+    const css_parser = lxb.qb_css_parser_create() orelse {
+        _ = lxb.qb_document_destroy(doc);
+        return;
+    };
+
+    const selectors = lxb.qb_selectors_create() orelse {
+        lxb.qb_css_parser_destroy(css_parser);
+        _ = lxb.qb_document_destroy(doc);
+        return;
+    };
+
+    const dd = types.gpa.create(DocumentData) catch return;
+    dd.* = .{ .doc = doc, .css_parser = css_parser, .selectors = selectors };
+
+    const doc_obj = qjs.JS_NewObjectClass(ctx, @intCast(document_class_id));
+    if (js.js_is_exception(doc_obj)) return;
+    _ = qjs.JS_SetOpaque(doc_obj, @ptrCast(dd));
+
+    _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "createElement", qjs.JS_NewCFunction(ctx, &doc_create_element, "createElement", 1));
+    _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "createTextNode", qjs.JS_NewCFunction(ctx, &doc_create_text_node, "createTextNode", 1));
+    _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "getElementById", qjs.JS_NewCFunction(ctx, &doc_get_element_by_id, "getElementById", 1));
+    _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "querySelector", qjs.JS_NewCFunction(ctx, &query_selector, "querySelector", 1));
+    _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "querySelectorAll", qjs.JS_NewCFunction(ctx, &query_selector_all, "querySelectorAll", 1));
+
+    define_getter(ctx, doc_obj, "body", &doc_get_body);
+    define_getter(ctx, doc_obj, "head", &doc_get_head);
+    define_getter(ctx, doc_obj, "documentElement", &doc_get_document_element);
+
+    _ = qjs.JS_SetPropertyStr(ctx, global, "document", doc_obj);
+}
