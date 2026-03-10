@@ -1,6 +1,8 @@
 defmodule QuickBEAMTest do
   use ExUnit.Case, async: true
 
+  doctest QuickBEAM
+
   setup do
     {:ok, rt} = QuickBEAM.start()
 

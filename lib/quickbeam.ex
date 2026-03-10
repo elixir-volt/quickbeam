@@ -5,19 +5,22 @@ defmodule QuickBEAM do
   Each runtime is a GenServer holding a persistent JS context.
   State, functions, and variables survive across `eval/2` and `call/3` calls.
 
-      {:ok, rt} = QuickBEAM.start()
-      {:ok, 3} = QuickBEAM.eval(rt, "1 + 2")
-      QuickBEAM.stop(rt)
+      iex> {:ok, rt} = QuickBEAM.start()
+      iex> {:ok, 3} = QuickBEAM.eval(rt, "1 + 2")
+      iex> QuickBEAM.stop(rt)
+      :ok
 
   ## Handlers
 
   JS code can call Elixir functions via `beam.call` and `beam.callSync`:
 
-      {:ok, rt} = QuickBEAM.start(handlers: %{
-        "greet" => fn [name] -> "Hello, \#{name}!" end
-      })
-
-      {:ok, "Hello, world!"} = QuickBEAM.eval(rt, ~s[await beam.call("greet", "world")])
+      iex> {:ok, rt} = QuickBEAM.start(handlers: %{
+      ...>   "greet" => fn [name] -> "Hello, \#{name}!" end
+      ...> })
+      iex> QuickBEAM.eval(rt, ~s[beam.callSync("greet", "world")])
+      {:ok, "Hello, world!"}
+      iex> QuickBEAM.stop(rt)
+      :ok
 
   ## Supervision
 
@@ -65,9 +68,13 @@ defmodule QuickBEAM do
 
   Top-level `await` is supported.
 
-      {:ok, rt} = QuickBEAM.start()
-      {:ok, 42} = QuickBEAM.eval(rt, "40 + 2")
-      {:ok, [1, 2]} = QuickBEAM.eval(rt, "await Promise.all([1, 2].map(x => Promise.resolve(x)))")
+      iex> {:ok, rt} = QuickBEAM.start()
+      iex> QuickBEAM.eval(rt, "40 + 2")
+      {:ok, 42}
+      iex> QuickBEAM.eval(rt, "await Promise.all([1, 2].map(x => Promise.resolve(x)))")
+      {:ok, [1, 2]}
+      iex> QuickBEAM.stop(rt)
+      :ok
   """
   @spec eval(runtime(), String.t()) :: js_result()
   def eval(runtime, code) do
@@ -80,8 +87,12 @@ defmodule QuickBEAM do
   Arguments are converted to JS values; the return value is converted back.
   Promise-returning functions are automatically awaited.
 
-      QuickBEAM.eval(rt, "function add(a, b) { return a + b }")
-      {:ok, 5} = QuickBEAM.call(rt, "add", [2, 3])
+      iex> {:ok, rt} = QuickBEAM.start()
+      iex> QuickBEAM.eval(rt, "function add(a, b) { return a + b }")
+      iex> QuickBEAM.call(rt, "add", [2, 3])
+      {:ok, 5}
+      iex> QuickBEAM.stop(rt)
+      :ok
   """
   @spec call(runtime(), String.t(), list()) :: js_result()
   def call(runtime, fn_name, args \\ []) do
@@ -89,17 +100,32 @@ defmodule QuickBEAM do
   end
 
   @doc """
-  Load an ES module. Named exports are promoted to `globalThis`.
+  Load an ES module into the runtime.
 
-      :ok = QuickBEAM.load_module(rt, "math", "export function add(a, b) { return a + b; }")
-      {:ok, 5} = QuickBEAM.call(rt, "add", [2, 3])
+      iex> {:ok, rt} = QuickBEAM.start()
+      iex> code = "export function add(a, b) { return a + b; }"
+      iex> QuickBEAM.load_module(rt, "math", code)
+      :ok
+      iex> QuickBEAM.stop(rt)
+      :ok
   """
   @spec load_module(runtime(), String.t(), String.t()) :: :ok | {:error, String.t()}
   def load_module(runtime, name, code) do
     QuickBEAM.Runtime.load_module(runtime, name, code)
   end
 
-  @doc "Reset the runtime to a fresh JS context. Clears all state and functions."
+  @doc """
+  Reset the runtime to a fresh JS context. Clears all state and functions.
+
+      iex> {:ok, rt} = QuickBEAM.start()
+      iex> QuickBEAM.eval(rt, "globalThis.x = 42")
+      iex> QuickBEAM.reset(rt)
+      :ok
+      iex> QuickBEAM.eval(rt, "typeof x")
+      {:ok, "undefined"}
+      iex> QuickBEAM.stop(rt)
+      :ok
+  """
   @spec reset(runtime()) :: :ok | {:error, String.t()}
   def reset(runtime) do
     QuickBEAM.Runtime.reset(runtime)
