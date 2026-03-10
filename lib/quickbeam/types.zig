@@ -7,6 +7,8 @@ pub const gpa = std.heap.c_allocator;
 
 pub const SyncCallSlot = struct {
     result_json: []const u8 = "",
+    result_env: ?*e.ErlNifEnv = null,
+    result_term: ?e.ErlNifTerm = null,
     ok: bool = false,
     done: std.Thread.ResetEvent = .{},
 };
@@ -44,6 +46,7 @@ pub const Message = union(enum) {
     reset: RequestPayload,
     resolve_call: CallResponse,
     reject_call: CallResponse,
+    resolve_call_term: CallResponseTerm,
     send_message: StringPayload,
     memory_usage: *MemoryUsageResult,
     stop,
@@ -72,6 +75,13 @@ pub const ModulePayload = struct {
 pub const CallResponse = struct {
     id: u64,
     json: []const u8,
+};
+
+pub const CallResponseTerm = struct {
+    id: u64,
+    env: ?*e.ErlNifEnv,
+    term: e.ErlNifTerm,
+    ok: bool,
 };
 
 pub const StringPayload = struct {

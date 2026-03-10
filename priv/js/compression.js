@@ -13,7 +13,7 @@
         throw new TypeError(`Unsupported format: ${format}`);
       }
       const result = beam.callSync('__compress', format, toByteArray(data));
-      return new Uint8Array(result);
+      return result instanceof Uint8Array ? result : new Uint8Array(result);
     },
 
     decompress(format, data) {
@@ -21,7 +21,7 @@
         throw new TypeError(`Unsupported format: ${format}`);
       }
       const result = beam.callSync('__decompress', format, toByteArray(data));
-      return new Uint8Array(result);
+      return result instanceof Uint8Array ? result : new Uint8Array(result);
     }
   };
 

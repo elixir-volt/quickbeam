@@ -12,7 +12,7 @@ defmodule QuickBEAM.Compression do
         _ -> raise "Unsupported format: #{format}"
       end
 
-    :erlang.binary_to_list(result)
+    {:bytes, result}
   end
 
   def decompress([format, data]) when is_list(data) do
@@ -26,7 +26,7 @@ defmodule QuickBEAM.Compression do
         _ -> raise "Unsupported format: #{format}"
       end
 
-    :erlang.binary_to_list(result)
+    {:bytes, result}
   end
 
   defp raw_deflate(data) do

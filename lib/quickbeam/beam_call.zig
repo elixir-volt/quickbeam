@@ -1,6 +1,7 @@
 const types = @import("types.zig");
 const worker = @import("worker.zig");
 const js = @import("js_helpers.zig");
+const beam_to_js = @import("beam_to_js.zig");
 const std = types.std;
 const beam = types.beam;
 const e = types.e;
@@ -121,6 +122,16 @@ fn beam_call_sync_impl(
     self.rd.sync_slots_mutex.lock();
     _ = self.rd.sync_slots.remove(call_id);
     self.rd.sync_slots_mutex.unlock();
+
+    // Prefer native term result over JSON
+    if (slot.result_env) |result_env| {
+        defer beam.free_env(result_env);
+        if (slot.ok) {
+            return beam_to_js.convert(ctx.?, result_env, slot.result_term.?);
+        } else {
+            return qjs.JS_ThrowInternalError(ctx, "beam.callSync failed");
+        }
+    }
 
     defer if (slot.result_json.len > 0) gpa.free(slot.result_json);
 

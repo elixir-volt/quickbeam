@@ -19,8 +19,8 @@ fn convert_recursive(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm
     if (atom_len > 0) {
         const name = atom_buf[0..@intCast(atom_len - 1)]; // exclude null terminator
         if (std.mem.eql(u8, name, "nil") or std.mem.eql(u8, name, "undefined")) return js.js_null();
-        if (std.mem.eql(u8, name, "true")) return qjs.JS_NewBool(ctx, 1);
-        if (std.mem.eql(u8, name, "false")) return qjs.JS_NewBool(ctx, 0);
+        if (std.mem.eql(u8, name, "true")) return js.js_true();
+        if (std.mem.eql(u8, name, "false")) return js.js_false();
         return qjs.JS_NewStringLen(ctx, name.ptr, name.len);
     }
 
@@ -47,20 +47,35 @@ fn convert_recursive(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm
     }
 
     // List → Array
-    if (e.enif_is_list(env, term)) {
+    // List check: try to get list length
+    var list_len: c_uint = 0;
+    if (e.enif_get_list_length(env, term, &list_len) != 0) {
         return convert_list(ctx, env, term, depth);
     }
 
     // Map → Object
-    if (e.enif_is_map(env, term)) {
+    if (e.enif_is_map(env, term) != 0) {
         return convert_map(ctx, env, term, depth);
     }
 
-    // Tuple → Array
+    // Tuple
     var tuple_arity: c_int = 0;
     // SAFETY: immediately filled by enif_get_tuple
     var tuple_elems: [*c]const e.ErlNifTerm = undefined;
     if (e.enif_get_tuple(env, term, &tuple_arity, &tuple_elems) != 0) {
+        // {:bytes, binary} → Uint8Array
+        if (tuple_arity == 2) {
+            var tag_buf: [16]u8 = undefined;
+            const tag_len = e.enif_get_atom(env, tuple_elems[0], &tag_buf, tag_buf.len, e.ERL_NIF_LATIN1);
+            if (tag_len > 0 and std.mem.eql(u8, tag_buf[0..@intCast(tag_len - 1)], "bytes")) {
+                // SAFETY: immediately filled by enif_inspect_binary
+                var bbin: e.ErlNifBinary = undefined;
+                if (e.enif_inspect_binary(env, tuple_elems[1], &bbin) != 0) {
+                    return make_uint8array(ctx, bbin.data, bbin.size);
+                }
+            }
+        }
+        // Generic tuple → Array
         const arr = qjs.JS_NewArray(ctx);
         for (0..@intCast(tuple_arity)) |idx| {
             const elem = convert_recursive(ctx, env, tuple_elems[idx], depth + 1);
@@ -70,6 +85,21 @@ fn convert_recursive(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm
     }
 
     return js.js_null();
+}
+
+fn make_uint8array(ctx: *qjs.JSContext, data: [*c]u8, size: usize) qjs.JSValue {
+    const ab = qjs.JS_NewArrayBufferCopy(ctx, data, size);
+    if (js.js_is_exception(ab)) return js.js_exception();
+
+    const g = qjs.JS_GetGlobalObject(ctx);
+    defer qjs.JS_FreeValue(ctx, g);
+    const ctor = qjs.JS_GetPropertyStr(ctx, g, "Uint8Array");
+    defer qjs.JS_FreeValue(ctx, ctor);
+
+    var args = [_]qjs.JSValue{ab};
+    const result = qjs.JS_CallConstructor(ctx, ctor, 1, &args);
+    qjs.JS_FreeValue(ctx, ab);
+    return result;
 }
 
 fn convert_list(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm, depth: u32) qjs.JSValue {
@@ -129,7 +159,8 @@ fn convert_map(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm, dept
             }
         }
 
-        if (key_len > 0) {
+        if (key_len > 0 and key_len < key_str.len) {
+            key_str[key_len] = 0;
             const js_val = convert_recursive(ctx, env, val, depth + 1);
             _ = qjs.JS_SetPropertyStr(ctx, obj, @ptrCast(key_str[0..key_len :0].ptr), js_val);
         }

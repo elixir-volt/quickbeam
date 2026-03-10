@@ -2,8 +2,10 @@ const types = @import("types.zig");
 const js = @import("js_helpers.zig");
 const globals = @import("globals.zig");
 const js_to_beam = @import("js_to_beam.zig");
+const beam_to_js = @import("beam_to_js.zig");
 const std = types.std;
 const beam = types.beam;
+const e = types.e;
 const qjs = types.qjs;
 const gpa = types.gpa;
 
@@ -123,6 +125,26 @@ pub const WorkerState = struct {
 
         const val = js.json_parse(self.ctx, value_json);
         defer qjs.JS_FreeValue(self.ctx, val);
+
+        var args = [_]qjs.JSValue{val};
+        const ret = qjs.JS_Call(self.ctx, pc.resolve, js.js_undefined(), 1, &args);
+        qjs.JS_FreeValue(self.ctx, ret);
+        self.drain_jobs();
+    }
+
+    pub fn resolve_pending_term(self: *WorkerState, term_env: ?*e.ErlNifEnv, term: e.ErlNifTerm, id: u64) void {
+        const env = term_env orelse return;
+        const kv = self.pending_calls.fetchRemove(id) orelse {
+            beam.free_env(env);
+            return;
+        };
+        const pc = kv.value;
+        defer qjs.JS_FreeValue(self.ctx, pc.resolve);
+        defer qjs.JS_FreeValue(self.ctx, pc.reject);
+
+        const val = beam_to_js.convert(self.ctx, env, term);
+        defer qjs.JS_FreeValue(self.ctx, val);
+        beam.free_env(env);
 
         var args = [_]qjs.JSValue{val};
         const ret = qjs.JS_Call(self.ctx, pc.resolve, js.js_undefined(), 1, &args);
@@ -311,6 +333,7 @@ pub const WorkerState = struct {
                 switch (msg) {
                     .resolve_call => |rc| self.resolve_pending(rc.id, rc.json),
                     .reject_call => |rc| self.reject_pending(rc.id, rc.json),
+                    .resolve_call_term => |rc| self.resolve_pending_term(rc.env, rc.term, rc.id),
                     .stop => {
                         result.ok = false;
                         result.json = "Runtime stopped";
@@ -406,6 +429,7 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                 },
                 .resolve_call => |rc| state.resolve_pending(rc.id, rc.json),
                 .reject_call => |rc| state.reject_pending(rc.id, rc.json),
+                .resolve_call_term => |rc| state.resolve_pending_term(rc.env, rc.term, rc.id),
                 .send_message => |sm| gpa.free(sm.data),
                 .memory_usage => |mu| {
                     // SAFETY: immediately filled by JS_ComputeMemoryUsage

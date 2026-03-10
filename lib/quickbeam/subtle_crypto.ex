@@ -17,8 +17,7 @@ defmodule QuickBEAM.SubtleCrypto do
   def digest([algo, data]) when is_binary(algo) and is_list(data) do
     hash_algo = Map.fetch!(@algo_map, algo)
     bytes = :erlang.list_to_binary(data)
-    hash = :crypto.hash(hash_algo, bytes)
-    :erlang.binary_to_list(hash)
+    {:bytes, :crypto.hash(hash_algo, bytes)}
   end
 
   def generate_key([algo]) when is_map(algo) do
@@ -32,16 +31,16 @@ defmodule QuickBEAM.SubtleCrypto do
           "type" => "secret",
           "algorithm" => "HMAC",
           "hash" => hash_name,
-          "data" => :erlang.binary_to_list(key)
+          "data" => {:bytes, key}
         }
 
       %{"name" => "AES-GCM", "length" => length} ->
         key = :crypto.strong_rand_bytes(div(length, 8))
-        %{"type" => "secret", "algorithm" => "AES-GCM", "data" => :erlang.binary_to_list(key)}
+        %{"type" => "secret", "algorithm" => "AES-GCM", "data" => {:bytes, key}}
 
       %{"name" => "AES-CBC", "length" => length} ->
         key = :crypto.strong_rand_bytes(div(length, 8))
-        %{"type" => "secret", "algorithm" => "AES-CBC", "data" => :erlang.binary_to_list(key)}
+        %{"type" => "secret", "algorithm" => "AES-CBC", "data" => {:bytes, key}}
 
       %{"name" => "ECDSA", "namedCurve" => curve_name} ->
         generate_ec_keypair(curve_name, "ECDSA")
@@ -62,14 +61,14 @@ defmodule QuickBEAM.SubtleCrypto do
         hash_algo = Map.fetch!(@algo_map, key_data["hash"])
         key = to_binary(key_data["data"])
         mac = :crypto.mac(:hmac, hash_algo, key, bytes)
-        :erlang.binary_to_list(mac)
+        {:bytes, mac}
 
       %{"name" => "ECDSA", "hash" => hash_name} ->
         hash_algo = Map.fetch!(@algo_map, hash_name)
         curve = Map.fetch!(@ec_curves, key_data["namedCurve"])
         priv_key = to_binary(key_data["data"])
         sig = :crypto.sign(:ecdsa, hash_algo, bytes, [priv_key, curve])
-        :erlang.binary_to_list(sig)
+        {:bytes, sig}
 
       _ ->
         raise "Unsupported sign algorithm: #{inspect(algo)}"
@@ -119,14 +118,14 @@ defmodule QuickBEAM.SubtleCrypto do
             true
           )
 
-        :erlang.binary_to_list(ct <> tag)
+        {:bytes, ct <> tag}
 
       %{"name" => "AES-CBC", "iv" => iv_list} ->
         key = to_binary(key_data["data"])
         iv = to_binary(iv_list)
         padded = pkcs7_pad(bytes, 16)
         ct = :crypto.crypto_one_time(aes_cbc_algo(key), key, iv, padded, true)
-        :erlang.binary_to_list(ct)
+        {:bytes, ct}
 
       _ ->
         raise "Unsupported encrypt algorithm: #{inspect(algo)}"
@@ -147,14 +146,14 @@ defmodule QuickBEAM.SubtleCrypto do
 
         case :crypto.crypto_one_time_aead(aes_gcm_algo(key), key, iv, ct, aad, tag, false) do
           :error -> raise "Decryption failed"
-          plaintext -> :erlang.binary_to_list(plaintext)
+          plaintext -> {:bytes, plaintext}
         end
 
       %{"name" => "AES-CBC", "iv" => iv_list} ->
         key = to_binary(key_data["data"])
         iv = to_binary(iv_list)
         padded = :crypto.crypto_one_time(aes_cbc_algo(key), key, iv, bytes, false)
-        :erlang.binary_to_list(pkcs7_unpad(padded))
+        {:bytes, pkcs7_unpad(padded)}
 
       _ ->
         raise "Unsupported decrypt algorithm: #{inspect(algo)}"
@@ -168,7 +167,7 @@ defmodule QuickBEAM.SubtleCrypto do
         password = to_binary(key_data["data"])
         salt = to_binary(salt_list)
         derived = :crypto.pbkdf2_hmac(hash_algo, password, salt, iterations, div(length, 8))
-        :erlang.binary_to_list(derived)
+        {:bytes, derived}
 
       %{"name" => "ECDH", "public" => pub_key_data} ->
         curve = Map.fetch!(@ec_curves, key_data["namedCurve"])
@@ -176,7 +175,7 @@ defmodule QuickBEAM.SubtleCrypto do
         pub_key = to_binary(pub_key_data["data"])
         shared = :crypto.compute_key(:ecdh, pub_key, priv_key, curve)
         bits = div(length, 8)
-        :erlang.binary_to_list(binary_part(shared, 0, min(bits, byte_size(shared))))
+        {:bytes, binary_part(shared, 0, min(bits, byte_size(shared)))}
 
       _ ->
         raise "Unsupported deriveBits algorithm: #{inspect(algo)}"
@@ -192,13 +191,13 @@ defmodule QuickBEAM.SubtleCrypto do
         "type" => "public",
         "algorithm" => algo_name,
         "namedCurve" => curve_name,
-        "data" => :erlang.binary_to_list(pub)
+        "data" => {:bytes, pub}
       },
       "privateKey" => %{
         "type" => "private",
         "algorithm" => algo_name,
         "namedCurve" => curve_name,
-        "data" => :erlang.binary_to_list(priv)
+        "data" => {:bytes, priv}
       }
     }
   end

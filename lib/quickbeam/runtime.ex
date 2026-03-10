@@ -174,6 +174,7 @@ defmodule QuickBEAM.Runtime do
   def handle_info({:beam_call, call_id, handler_name, args_json}, state) do
     resource = state.resource
     handlers = state.handlers
+    builtin? = Map.has_key?(@builtin_handlers, handler_name)
 
     args =
       case Jason.decode(args_json) do
@@ -194,7 +195,11 @@ defmodule QuickBEAM.Runtime do
                 _ -> handler.([args])
               end
 
-            QuickBEAM.Native.resolve_call(resource, call_id, Jason.encode!(result))
+            if builtin? do
+              QuickBEAM.Native.resolve_call_term(resource, call_id, result)
+            else
+              QuickBEAM.Native.resolve_call(resource, call_id, Jason.encode!(result))
+            end
           rescue
             e ->
               QuickBEAM.Native.reject_call(resource, call_id, Exception.message(e))

@@ -175,6 +175,32 @@ pub fn reject_call(resource: RuntimeResource, call_id: u64, reason: []const u8) 
     return beam.make(.ok, .{});
 }
 
+pub fn resolve_call_term(resource: RuntimeResource, call_id: u64, value: beam.term) beam.term {
+    const data = resource.unpack();
+
+    data.sync_slots_mutex.lock();
+    const slot = data.sync_slots.get(call_id);
+    data.sync_slots_mutex.unlock();
+
+    if (slot) |s| {
+        const term_env = beam.alloc_env();
+        s.result_env = term_env;
+        s.result_term = e.enif_make_copy(term_env, value.v);
+        s.ok = true;
+        s.done.set();
+        return beam.make(.ok, .{});
+    }
+
+    const msg_env = beam.alloc_env();
+    const copied = e.enif_make_copy(msg_env, value.v);
+    enqueue(data, .{ .resolve_call_term = .{ .id = call_id, .env = msg_env, .term = copied, .ok = true } });
+    return beam.make(.ok, .{});
+}
+
+pub fn reject_call_term(resource: RuntimeResource, call_id: u64, reason: []const u8) beam.term {
+    return reject_call(resource, call_id, reason);
+}
+
 pub fn memory_usage(resource: RuntimeResource) beam.term {
     var result = types.MemoryUsageResult{};
     var done = std.Thread.ResetEvent{};
