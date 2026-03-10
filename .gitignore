@@ -21,3 +21,9 @@ quickbeam-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Zigler-generated files
+lib/**/.Elixir.*.zig
+
+# Compiled NIF libraries
+priv/lib/
