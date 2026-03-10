@@ -5,6 +5,12 @@ pub const qjs = @cImport(@cInclude("quickjs.h"));
 
 pub const gpa = std.heap.c_allocator;
 
+pub const SyncCallSlot = struct {
+    result_json: []const u8 = "",
+    ok: bool = false,
+    done: std.Thread.ResetEvent = .{},
+};
+
 pub const RuntimeData = struct {
     mutex: std.Thread.Mutex,
     cond: std.Thread.Condition,
@@ -12,6 +18,8 @@ pub const RuntimeData = struct {
     queue_tail: ?*MessageNode,
     stopped: bool,
     thread: ?std.Thread,
+    sync_slots_mutex: std.Thread.Mutex = .{},
+    sync_slots: std.AutoHashMapUnmanaged(u64, *SyncCallSlot) = .{},
 };
 
 pub const MemoryUsageResult = struct {

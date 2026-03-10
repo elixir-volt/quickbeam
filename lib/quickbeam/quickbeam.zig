@@ -136,14 +136,42 @@ pub fn stop_runtime(resource: RuntimeResource) beam.term {
 }
 
 pub fn resolve_call(resource: RuntimeResource, call_id: u64, value_json: []const u8) beam.term {
+    const data = resource.unpack();
+
+    // Check for sync call slot first
+    data.sync_slots_mutex.lock();
+    const slot = data.sync_slots.get(call_id);
+    data.sync_slots_mutex.unlock();
+
+    if (slot) |s| {
+        s.result_json = gpa.dupe(u8, value_json) catch "";
+        s.ok = true;
+        s.done.set();
+        return beam.make(.ok, .{});
+    }
+
     const json_copy = gpa.dupe(u8, value_json) catch return beam.make(.ok, .{});
-    enqueue(resource.unpack(), .{ .resolve_call = .{ .id = call_id, .json = json_copy } });
+    enqueue(data, .{ .resolve_call = .{ .id = call_id, .json = json_copy } });
     return beam.make(.ok, .{});
 }
 
 pub fn reject_call(resource: RuntimeResource, call_id: u64, reason: []const u8) beam.term {
+    const data = resource.unpack();
+
+    // Check for sync call slot first
+    data.sync_slots_mutex.lock();
+    const slot = data.sync_slots.get(call_id);
+    data.sync_slots_mutex.unlock();
+
+    if (slot) |s| {
+        s.result_json = gpa.dupe(u8, reason) catch "";
+        s.ok = false;
+        s.done.set();
+        return beam.make(.ok, .{});
+    }
+
     const reason_copy = gpa.dupe(u8, reason) catch return beam.make(.ok, .{});
-    enqueue(resource.unpack(), .{ .reject_call = .{ .id = call_id, .json = reason_copy } });
+    enqueue(data, .{ .reject_call = .{ .id = call_id, .json = reason_copy } });
     return beam.make(.ok, .{});
 }
 

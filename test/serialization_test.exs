@@ -148,4 +148,96 @@ defmodule QuickBEAM.SerializationTest do
                QuickBEAM.eval(rt, "await beam.call('echo', {a: 1})")
     end
   end
+
+  describe "beam.callSync" do
+    setup do
+      handlers = %{
+        "echo" => fn [val] -> val end,
+        "double" => fn [n] -> n * 2 end,
+        "greet" => fn [name] -> "Hello, #{name}!" end,
+        "failing" => fn _ -> raise "boom" end
+      }
+
+      {:ok, rt} = QuickBEAM.start(handlers: handlers)
+      %{rt: rt}
+    end
+
+    test "returns value synchronously (no await)", %{rt: rt} do
+      assert {:ok, 42} = QuickBEAM.eval(rt, "beam.callSync('echo', 42)")
+    end
+
+    test "string roundtrip", %{rt: rt} do
+      assert {:ok, "hello"} = QuickBEAM.eval(rt, "beam.callSync('echo', 'hello')")
+    end
+
+    test "object roundtrip", %{rt: rt} do
+      assert {:ok, %{"a" => 1}} = QuickBEAM.eval(rt, "beam.callSync('echo', {a: 1})")
+    end
+
+    test "multiple args", %{rt: rt} do
+      assert {:ok, 84} = QuickBEAM.eval(rt, "beam.callSync('double', 42)")
+    end
+
+    test "use in expressions (no await needed)", %{rt: rt} do
+      assert {:ok, "Hello, world!"} =
+               QuickBEAM.eval(rt, "beam.callSync('greet', 'world')")
+    end
+
+    test "use in loops", %{rt: rt} do
+      code = """
+      let sum = 0;
+      for (let i = 1; i <= 5; i++) {
+        sum += beam.callSync('double', i);
+      }
+      sum
+      """
+
+      assert {:ok, 30} = QuickBEAM.eval(rt, code)
+    end
+
+    test "error handling with try/catch", %{rt: rt} do
+      code = """
+      try {
+        beam.callSync('failing');
+        'no error';
+      } catch (e) {
+        'caught: ' + e.message;
+      }
+      """
+
+      {:ok, result} = QuickBEAM.eval(rt, code)
+      assert result =~ "caught:"
+    end
+
+    test "unknown handler throws", %{rt: rt} do
+      code = """
+      try {
+        beam.callSync('nonexistent', 1);
+        'no error';
+      } catch (e) {
+        'caught';
+      }
+      """
+
+      assert {:ok, "caught"} = QuickBEAM.eval(rt, code)
+    end
+
+    test "mixed sync and async calls", %{rt: rt} do
+      code = """
+      const syncResult = beam.callSync('echo', 10);
+      const asyncResult = await beam.call('echo', 20);
+      syncResult + asyncResult;
+      """
+
+      assert {:ok, 30} = QuickBEAM.eval(rt, code)
+    end
+
+    test "null roundtrip", %{rt: rt} do
+      assert {:ok, nil} = QuickBEAM.eval(rt, "beam.callSync('echo', null)")
+    end
+
+    test "array roundtrip", %{rt: rt} do
+      assert {:ok, [1, 2, 3]} = QuickBEAM.eval(rt, "beam.callSync('echo', [1, 2, 3])")
+    end
+  end
 end
