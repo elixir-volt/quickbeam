@@ -86,21 +86,27 @@ pub const WorkerState = struct {
 
         for (expired_buf[0..expired_count]) |id| {
             if (self.timers.getPtr(id)) |entry| {
-                const callback = entry.callback;
+                // Dup callback before calling — the callback may clearInterval(id)
+                // which removes the entry and frees the original callback.
+                const callback = qjs.JS_DupValue(self.ctx, entry.callback);
                 const interval = entry.interval_ns;
 
                 const ret = qjs.JS_Call(self.ctx, callback, js.js_undefined(), 0, null);
-                defer qjs.JS_FreeValue(self.ctx, ret);
+                qjs.JS_FreeValue(self.ctx, ret);
                 if (js.js_is_exception(ret)) {
                     const exc = qjs.JS_GetException(self.ctx);
                     qjs.JS_FreeValue(self.ctx, exc);
                 }
+                qjs.JS_FreeValue(self.ctx, callback);
 
-                if (interval) |iv| {
-                    entry.deadline = std.time.nanoTimestamp() + @as(i128, iv);
-                } else {
-                    qjs.JS_FreeValue(self.ctx, callback);
-                    _ = self.timers.remove(id);
+                // Re-check: callback may have removed this timer via clearInterval
+                if (self.timers.getPtr(id)) |live_entry| {
+                    if (interval) |iv| {
+                        live_entry.deadline = std.time.nanoTimestamp() + @as(i128, iv);
+                    } else {
+                        qjs.JS_FreeValue(self.ctx, live_entry.callback);
+                        _ = self.timers.remove(id);
+                    }
                 }
 
                 self.drain_jobs();
@@ -300,17 +306,28 @@ pub const WorkerState = struct {
                 return;
             }
 
+            // Process incoming messages (resolve/reject from beam.call)
             if (types.dequeue(self.rd)) |msg| {
                 switch (msg) {
                     .resolve_call => |rc| self.resolve_pending(rc.id, rc.json),
                     .reject_call => |rc| self.reject_pending(rc.id, rc.json),
+                    .stop => {
+                        result.ok = false;
+                        result.json = "Runtime stopped";
+                        return;
+                    },
                     else => {},
                 }
-            } else {
-                std.Thread.yield() catch |err| std.debug.print("yield error: {}\n", .{err});
             }
 
+            // Fire expired timers (setTimeout/setInterval callbacks)
+            self.fire_expired_timers();
             self.drain_jobs();
+
+            // Sleep until next timer or a short polling interval
+            const timer_ns = self.next_timer_timeout_ns();
+            const sleep_ns: u64 = if (timer_ns) |t| @min(t, 1_000_000) else 1_000_000;
+            std.Thread.sleep(sleep_ns);
         }
 
         result.ok = false;

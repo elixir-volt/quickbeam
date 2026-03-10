@@ -183,11 +183,10 @@ fn text_decoder_ctor(
     argc: c_int,
     argv: [*c]qjs.JSValue,
 ) callconv(.c) qjs.JSValue {
-    var encoding: []const u8 = "utf-8";
     if (argc >= 1 and !qjs.JS_IsUndefined(argv[0])) {
         const ptr = qjs.JS_ToCString(ctx, argv[0]) orelse
             return qjs.JS_ThrowTypeError(ctx, "Invalid encoding label");
-        encoding = std.mem.span(ptr);
+        const encoding = std.mem.span(ptr);
 
         const supported = is_supported_encoding(encoding);
         qjs.JS_FreeCString(ctx, ptr);
@@ -196,11 +195,19 @@ fn text_decoder_ctor(
         }
     }
 
+    var fatal = false;
+    if (argc >= 2 and qjs.JS_IsObject(argv[1])) {
+        const fatal_val = qjs.JS_GetPropertyStr(ctx, argv[1], "fatal");
+        defer qjs.JS_FreeValue(ctx, fatal_val);
+        fatal = qjs.JS_ToBool(ctx, fatal_val) != 0;
+    }
+
     const proto = qjs.JS_GetPropertyStr(ctx, new_target, "prototype");
     defer qjs.JS_FreeValue(ctx, proto);
 
     const obj = qjs.JS_NewObjectProtoClass(ctx, proto, 0);
     _ = qjs.JS_SetPropertyStr(ctx, obj, "encoding", qjs.JS_NewString(ctx, "utf-8"));
+    _ = qjs.JS_SetPropertyStr(ctx, obj, "fatal", if (fatal) js.js_true() else js.js_false());
     return obj;
 }
 
@@ -231,33 +238,194 @@ fn text_decoder_decode(
     argc: c_int,
     argv: [*c]qjs.JSValue,
 ) callconv(.c) qjs.JSValue {
-    _ = this;
     if (argc < 1 or qjs.JS_IsUndefined(argv[0])) {
         return qjs.JS_NewString(ctx, "");
     }
 
+    const fatal_val = qjs.JS_GetPropertyStr(ctx, this, "fatal");
+    defer qjs.JS_FreeValue(ctx, fatal_val);
+    const fatal = qjs.JS_ToBool(ctx, fatal_val) != 0;
+
     const input = argv[0];
+    var data: []const u8 = &.{};
 
     if (qjs.JS_IsArrayBuffer(input)) {
         var len: usize = 0;
         const ptr = qjs.JS_GetArrayBuffer(ctx, &len, input) orelse
             return qjs.JS_NewString(ctx, "");
-        return qjs.JS_NewStringLen(ctx, ptr, len);
+        data = @as([*]const u8, @ptrCast(ptr))[0..len];
+    } else {
+        var byte_offset: usize = 0;
+        var byte_len: usize = 0;
+        var total_size: usize = 0;
+        const ab = qjs.JS_GetTypedArrayBuffer(ctx, input, &byte_offset, &byte_len, &total_size);
+        if (js.js_is_exception(ab)) {
+            return qjs.JS_ThrowTypeError(ctx, "argument must be a BufferSource");
+        }
+        defer qjs.JS_FreeValue(ctx, ab);
+
+        var ab_size: usize = 0;
+        const buf_ptr = qjs.JS_GetArrayBuffer(ctx, &ab_size, ab) orelse
+            return qjs.JS_NewString(ctx, "");
+        data = @as([*]const u8, @ptrCast(buf_ptr + byte_offset))[0..byte_len];
     }
 
-    var byte_offset: usize = 0;
-    var byte_len: usize = 0;
-    var total_size: usize = 0;
-    const ab = qjs.JS_GetTypedArrayBuffer(ctx, input, &byte_offset, &byte_len, &total_size);
-    if (js.js_is_exception(ab)) {
-        return qjs.JS_ThrowTypeError(ctx, "argument must be a BufferSource");
+    // Strip UTF-8 BOM (EF BB BF)
+    if (data.len >= 3 and data[0] == 0xEF and data[1] == 0xBB and data[2] == 0xBF) {
+        data = data[3..];
     }
-    defer qjs.JS_FreeValue(ctx, ab);
 
-    var ab_size: usize = 0;
-    const buf_ptr = qjs.JS_GetArrayBuffer(ctx, &ab_size, ab) orelse
-        return qjs.JS_NewString(ctx, "");
-    return qjs.JS_NewStringLen(ctx, buf_ptr + byte_offset, byte_len);
+    if (fatal) {
+        if (!validate_utf8(data)) {
+            return qjs.JS_ThrowTypeError(ctx, "The encoded data was not valid UTF-8");
+        }
+    } else {
+        if (replace_invalid_utf8(data)) |r| {
+            defer gpa.free(r);
+            return qjs.JS_NewStringLen(ctx, r.ptr, r.len);
+        }
+    }
+
+    return qjs.JS_NewStringLen(ctx, data.ptr, data.len);
+}
+
+fn validate_utf8(data: []const u8) bool {
+    var i: usize = 0;
+    while (i < data.len) {
+        const b = data[i];
+        if (b < 0x80) {
+            i += 1;
+            continue;
+        }
+
+        const seq_len: usize = if (b & 0xE0 == 0xC0) 2 else if (b & 0xF0 == 0xE0) 3 else if (b & 0xF8 == 0xF0) 4 else return false;
+
+        if (i + seq_len > data.len) return false;
+
+        // Validate continuation bytes
+        for (1..seq_len) |j| {
+            if (data[i + j] & 0xC0 != 0x80) return false;
+        }
+
+        // Decode and check for overlong / surrogate / out-of-range
+        const cp: u32 = switch (seq_len) {
+            2 => (@as(u32, b & 0x1F) << 6) | @as(u32, data[i + 1] & 0x3F),
+            3 => (@as(u32, b & 0x0F) << 12) | (@as(u32, data[i + 1] & 0x3F) << 6) | @as(u32, data[i + 2] & 0x3F),
+            4 => (@as(u32, b & 0x07) << 18) | (@as(u32, data[i + 1] & 0x3F) << 12) | (@as(u32, data[i + 2] & 0x3F) << 6) | @as(u32, data[i + 3] & 0x3F),
+            else => return false,
+        };
+
+        // Overlong check
+        if (seq_len == 2 and cp < 0x80) return false;
+        if (seq_len == 3 and cp < 0x800) return false;
+        if (seq_len == 4 and cp < 0x10000) return false;
+
+        // Surrogate range
+        if (cp >= 0xD800 and cp <= 0xDFFF) return false;
+
+        // Out of Unicode range
+        if (cp > 0x10FFFF) return false;
+
+        i += seq_len;
+    }
+    return true;
+}
+
+fn replace_invalid_utf8(data: []const u8) ?[]u8 {
+    // First pass: check if any replacements needed
+    var needs_replace = false;
+    var i: usize = 0;
+    while (i < data.len) {
+        const b = data[i];
+        if (b < 0x80) {
+            i += 1;
+            continue;
+        }
+        const sl: usize = if (b & 0xE0 == 0xC0) 2 else if (b & 0xF0 == 0xE0) 3 else if (b & 0xF8 == 0xF0) 4 else {
+            needs_replace = true;
+            i += 1;
+            continue;
+        };
+        if (i + sl > data.len or !validate_continuation(data[i + 1 .. @min(i + sl, data.len)])) {
+            needs_replace = true;
+            i += 1;
+            continue;
+        }
+        const cp = decode_codepoint(data[i..], sl);
+        if (is_overlong(cp, sl) or (cp >= 0xD800 and cp <= 0xDFFF) or cp > 0x10FFFF) {
+            needs_replace = true;
+        }
+        i += sl;
+    }
+
+    if (!needs_replace) return null;
+
+    // Worst case: every byte becomes U+FFFD (3 bytes)
+    const buf = gpa.alloc(u8, @max(data.len * 3, 1)) catch return null;
+    const replacement = [_]u8{ 0xEF, 0xBF, 0xBD }; // U+FFFD in UTF-8
+    var oi: usize = 0;
+
+    i = 0;
+    while (i < data.len) {
+        const b = data[i];
+        if (b < 0x80) {
+            buf[oi] = b;
+            oi += 1;
+            i += 1;
+            continue;
+        }
+        const sl: usize = if (b & 0xE0 == 0xC0) 2 else if (b & 0xF0 == 0xE0) 3 else if (b & 0xF8 == 0xF0) 4 else {
+            @memcpy(buf[oi .. oi + 3], &replacement);
+            oi += 3;
+            i += 1;
+            continue;
+        };
+        if (i + sl > data.len or !validate_continuation(data[i + 1 .. @min(i + sl, data.len)])) {
+            @memcpy(buf[oi .. oi + 3], &replacement);
+            oi += 3;
+            i += 1;
+            continue;
+        }
+        const cp = decode_codepoint(data[i..], sl);
+        if (is_overlong(cp, sl) or (cp >= 0xD800 and cp <= 0xDFFF) or cp > 0x10FFFF) {
+            @memcpy(buf[oi .. oi + 3], &replacement);
+            oi += 3;
+            i += sl;
+            continue;
+        }
+        @memcpy(buf[oi .. oi + sl], data[i .. i + sl]);
+        oi += sl;
+        i += sl;
+    }
+
+    if (oi < buf.len) {
+        const result = gpa.realloc(buf, oi) catch {
+            gpa.free(buf);
+            return null;
+        };
+        return result;
+    }
+    return buf;
+}
+
+fn validate_continuation(bytes: []const u8) bool {
+    for (bytes) |b| {
+        if (b & 0xC0 != 0x80) return false;
+    }
+    return true;
+}
+
+fn decode_codepoint(data: []const u8, sl: usize) u32 {
+    return switch (sl) {
+        2 => (@as(u32, data[0] & 0x1F) << 6) | @as(u32, data[1] & 0x3F),
+        3 => (@as(u32, data[0] & 0x0F) << 12) | (@as(u32, data[1] & 0x3F) << 6) | @as(u32, data[2] & 0x3F),
+        4 => (@as(u32, data[0] & 0x07) << 18) | (@as(u32, data[1] & 0x3F) << 12) | (@as(u32, data[2] & 0x3F) << 6) | @as(u32, data[3] & 0x3F),
+        else => 0xFFFD,
+    };
+}
+
+fn is_overlong(cp: u32, sl: usize) bool {
+    return (sl == 2 and cp < 0x80) or (sl == 3 and cp < 0x800) or (sl == 4 and cp < 0x10000);
 }
 
 // ──────────────────── atob / btoa ────────────────────
@@ -393,7 +561,10 @@ fn atob_impl(
         clean_len += 1;
     }
 
-    // Add padding if missing
+    // Per spec: after removing whitespace, length % 4 == 1 is always invalid
+    if (clean_len % 4 == 1) return throw_invalid_char_error(ctx);
+
+    // Add padding if missing (length % 4 == 2 or 3 are valid without padding)
     const padded_len = ((clean_len + 3) / 4) * 4;
     if (padded_len > clean.len) {
         gpa.free(clean);
@@ -409,8 +580,6 @@ fn atob_impl(
         clean[clean_len] = '=';
         clean_len += 1;
     }
-
-    if (clean_len % 4 != 0) return throw_invalid_char_error(ctx);
 
     const out_max = (clean_len / 4) * 3;
     const out = gpa.alloc(u8, out_max) catch return qjs.JS_ThrowOutOfMemory(ctx);

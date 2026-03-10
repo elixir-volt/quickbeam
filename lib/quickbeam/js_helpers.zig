@@ -11,6 +11,14 @@ pub fn js_null() qjs.JSValue {
     return qjs.JSValue{ .tag = qjs.JS_TAG_NULL, .u = .{ .int32 = 0 } };
 }
 
+pub fn js_true() qjs.JSValue {
+    return qjs.JSValue{ .tag = qjs.JS_TAG_BOOL, .u = .{ .int32 = 1 } };
+}
+
+pub fn js_false() qjs.JSValue {
+    return qjs.JSValue{ .tag = qjs.JS_TAG_BOOL, .u = .{ .int32 = 0 } };
+}
+
 pub fn js_exception() qjs.JSValue {
     return qjs.JSValue{ .tag = qjs.JS_TAG_EXCEPTION, .u = .{ .int32 = 0 } };
 }

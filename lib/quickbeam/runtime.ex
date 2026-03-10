@@ -47,17 +47,33 @@ defmodule QuickBEAM.Runtime do
     GenServer.cast(server, {:send_message, message})
   end
 
+  @builtin_handlers %{
+    "__url_parse" => &QuickBEAM.URL.parse/1,
+    "__url_recompose" => &QuickBEAM.URL.recompose/1
+  }
+
+  @url_js_path Path.join([__DIR__, "../../priv/js/url.js"]) |> Path.expand()
+  @external_resource @url_js_path
+  @url_js File.read!(@url_js_path)
+
   @impl true
   def init(opts) do
     handlers = Keyword.get(opts, :handlers, %{})
+    merged_handlers = Map.merge(@builtin_handlers, handlers)
 
     case QuickBEAM.Native.start_runtime(self()) do
       resource when is_reference(resource) ->
-        {:ok, %__MODULE__{resource: resource, handlers: handlers}}
+        state = %__MODULE__{resource: resource, handlers: merged_handlers}
+        install_builtins(state)
+        {:ok, state}
 
       {:error, reason} ->
         {:stop, reason}
     end
+  end
+
+  defp install_builtins(state) do
+    QuickBEAM.Native.eval(state.resource, @url_js)
   end
 
   @impl true
