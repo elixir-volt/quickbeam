@@ -42,7 +42,9 @@ defmodule QuickBEAM.MixProject do
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_dna, "~> 1.1", only: [:dev, :test], runtime: false},
-      {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false}
+      {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false},
+      {:benchee, "~> 1.3", only: :bench, runtime: false},
+      {:quickjs_ex, "~> 0.3.1", only: :bench, runtime: false}
     ]
   end
 end

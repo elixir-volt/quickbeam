@@ -3,6 +3,7 @@ defmodule QuickBEAM.Native do
   use Zig,
     otp_app: :quickbeam,
     zig_code_path: "quickbeam.zig",
+    optimize: :env,
     c: [
       include_dirs: {:priv, "c_src"},
       src: [
