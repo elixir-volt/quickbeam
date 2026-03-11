@@ -92,8 +92,6 @@ jobs:
         with:
           version: 0.15.2
 
-      - uses: oven-sh/setup-bun@v2
-
       - name: Cache OTP ASAN build
         id: otp-cache
         uses: actions/cache@v4
@@ -167,7 +165,6 @@ jobs:
           restore-keys: ${{ runner.os }}-asan-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
 
       - run: mix deps.get
-      - run: bun install
       - run: mix compile
 
       - name: Run tests under ASAN
