@@ -9,6 +9,7 @@
 - Lazy proxy objects for BEAM→JS map conversion — maps with >4 entries are wrapped in a `BeamMapProxy` backed by the original BEAM term, converting properties only on access
 - Zero-copy string optimizations — map key conversion uses `JS_NewAtomLen`/`JS_AtomToCStringLen` directly, removing intermediate allocations, stack buffer copies, and the 256-byte key length limit
 - Worker `postMessage` uses direct `beam.send` instead of routing through `beam.call` handlers
+- Free dirty schedulers: NIFs return immediately with a ref, results delivered asynchronously via `enif_send` — no more blocking dirty IO scheduler per operation
 
 ### Fixes
 
