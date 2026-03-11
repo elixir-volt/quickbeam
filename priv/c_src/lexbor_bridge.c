@@ -58,6 +58,19 @@ lxb_dom_text_t *qb_create_text_node(lxb_dom_document_t *doc,
     return lxb_dom_document_create_text_node(doc, text, len);
 }
 
+lxb_dom_node_t *qb_create_document_fragment(lxb_dom_document_t *doc) {
+    lxb_dom_document_fragment_t *frag = lxb_dom_document_create_document_fragment(doc);
+    if (!frag) return NULL;
+    return lxb_dom_interface_node(frag);
+}
+
+lxb_dom_node_t *qb_create_comment(lxb_dom_document_t *doc,
+                                   const lxb_char_t *data, size_t len) {
+    lxb_dom_comment_t *comment = lxb_dom_document_create_comment(doc, data, len);
+    if (!comment) return NULL;
+    return lxb_dom_interface_node(comment);
+}
+
 lxb_dom_node_t *qb_element_as_node(lxb_dom_element_t *elem) {
     return lxb_dom_interface_node(elem);
 }
@@ -94,8 +107,37 @@ lxb_dom_node_t *qb_node_parent(lxb_dom_node_t *node) {
     return node->parent;
 }
 
+lxb_dom_node_t *qb_node_last_child(lxb_dom_node_t *node) {
+    return node->last_child;
+}
+
+lxb_dom_node_t *qb_node_prev(lxb_dom_node_t *node) {
+    return node->prev;
+}
+
 lxb_dom_document_t *qb_node_owner_document(lxb_dom_node_t *node) {
     return node->owner_document;
+}
+
+lxb_dom_node_t *qb_node_clone(lxb_dom_node_t *node, int deep) {
+    return lxb_dom_node_clone(node, deep != 0);
+}
+
+void qb_node_insert_before(lxb_dom_node_t *to, lxb_dom_node_t *node) {
+    lxb_dom_node_insert_before(to, node);
+}
+
+void qb_node_insert_after(lxb_dom_node_t *to, lxb_dom_node_t *node) {
+    lxb_dom_node_insert_after(to, node);
+}
+
+lxb_dom_node_t *qb_node_replace_child(lxb_dom_node_t *parent,
+                                       lxb_dom_node_t *node,
+                                       lxb_dom_node_t *child) {
+    lxb_dom_node_insert_before(child, node);
+    lxb_dom_node_remove(child);
+    (void)parent;
+    return child;
 }
 
 const lxb_char_t *qb_element_qualified_name(lxb_dom_element_t *elem, size_t *len) {
@@ -119,6 +161,11 @@ lxb_status_t qb_element_set_attribute(lxb_dom_element_t *elem,
 lxb_status_t qb_element_remove_attribute(lxb_dom_element_t *elem,
                                           const lxb_char_t *name, size_t name_len) {
     return lxb_dom_element_remove_attribute(elem, name, name_len);
+}
+
+int qb_element_has_attribute(lxb_dom_element_t *elem,
+                              const lxb_char_t *name, size_t name_len) {
+    return lxb_dom_element_has_attribute(elem, name, name_len) ? 1 : 0;
 }
 
 lxb_dom_attr_t *qb_element_first_attr(lxb_dom_element_t *elem) {
@@ -159,6 +206,18 @@ lxb_status_t qb_elements_by_attr(lxb_dom_element_t *root,
                                   const lxb_char_t *value, size_t value_len) {
     return lxb_dom_elements_by_attr(root, col, name, name_len,
                                     value, value_len, true);
+}
+
+lxb_status_t qb_elements_by_class_name(lxb_dom_element_t *root,
+                                        lxb_dom_collection_t *col,
+                                        const lxb_char_t *name, size_t name_len) {
+    return lxb_dom_elements_by_class_name(root, col, name, name_len);
+}
+
+lxb_status_t qb_elements_by_tag_name(lxb_dom_element_t *root,
+                                      lxb_dom_collection_t *col,
+                                      const lxb_char_t *name, size_t name_len) {
+    return lxb_dom_elements_by_tag_name(root, col, name, name_len);
 }
 
 const lxb_char_t *qb_node_text_content(lxb_dom_node_t *node, size_t *len) {
