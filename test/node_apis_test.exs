@@ -3,7 +3,7 @@ defmodule QuickBEAM.NodeAPIsTest do
 
   setup do
     {:ok, rt} = QuickBEAM.start(apis: [:node])
-    on_exit(fn -> catch_exit(QuickBEAM.stop(rt)) end)
+    on_exit(fn -> try do QuickBEAM.stop(rt) catch :exit, _ -> :ok end end)
     %{rt: rt}
   end
 

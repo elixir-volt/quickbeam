@@ -19,7 +19,7 @@ defmodule QuickBEAM.DOMElixirTest do
       ].join('');
     """)
 
-    on_exit(fn -> catch_exit(QuickBEAM.stop(runtime)) end)
+    on_exit(fn -> try do QuickBEAM.stop(runtime) catch :exit, _ -> :ok end end)
 
     %{runtime: runtime}
   end

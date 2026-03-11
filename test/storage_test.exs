@@ -6,7 +6,7 @@ defmodule QuickBEAM.StorageTest do
     QuickBEAM.Storage.clear([])
     {:ok, rt} = QuickBEAM.start()
 
-    on_exit(fn -> catch_exit(QuickBEAM.stop(rt)) end)
+    on_exit(fn -> try do QuickBEAM.stop(rt) catch :exit, _ -> :ok end end)
 
     {:ok, rt: rt}
   end
