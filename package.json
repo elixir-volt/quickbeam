@@ -2,7 +2,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun run build.ts",
     "lint": "oxlint -c oxlint.json --type-aware --type-check priv/ts/",
     "format": "oxfmt --write priv/ts/",
     "format:check": "oxfmt --check priv/ts/"

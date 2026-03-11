@@ -135,22 +135,54 @@ defmodule QuickBEAM.Runtime do
     "__eventsource_close" => &QuickBEAM.EventSource.close/1
   }
 
-  @priv_js_dir Path.join([__DIR__, "../../priv/js"]) |> Path.expand()
+  @ts_dir Path.join([__DIR__, "../../priv/ts"]) |> Path.expand()
 
-  @js_load_order ~w[
-    url
-    crypto-subtle
-    compression
-    buffer
-    process
-    web-apis
-  ]
+  # Standalone modules — each is a self-contained TS file, transformed individually
+  @standalone_modules ~w[url crypto-subtle compression buffer process]
 
-  @builtin_js (for name <- @js_load_order do
-                 path = Path.join(@priv_js_dir, "#{name}.js")
-                 @external_resource path
-                 File.read!(path)
-               end)
+  # Web-APIs bundle — barrel file that imports from 16+ internal modules
+  @web_apis_barrel "web-apis.ts"
+
+  @builtin_js (
+                # Register @external_resource for all TS source files
+                for ts <- Path.wildcard(Path.join(@ts_dir, "*.ts")),
+                    not String.ends_with?(ts, ".d.ts") do
+                  @external_resource ts
+                end
+
+                # 1. Transform standalone modules (single-file, no imports)
+                standalone =
+                  for name <- @standalone_modules do
+                    path = Path.join(@ts_dir, "#{name}.ts")
+                    source = File.read!(path)
+
+                    OXC.transform!(source, Path.basename(path))
+                    |> then(&"(() => {\n#{&1}\n})();\n")
+                  end
+
+                # 2. Bundle web-apis (resolves imports, topo-sorts, wraps in IIFE)
+                barrel_source = File.read!(Path.join(@ts_dir, @web_apis_barrel))
+
+                bundled_names =
+                  Regex.scan(~r/from '\.\/([\w-]+)'/, barrel_source)
+                  |> Enum.map(fn [_, name] -> name end)
+
+                side_effect_names =
+                  Regex.scan(~r/^import '\.\/([\w-]+)'/m, barrel_source)
+                  |> Enum.map(fn [_, name] -> name end)
+
+                all_bundle_names = Enum.uniq(["web-apis" | bundled_names ++ side_effect_names])
+
+                bundle_files =
+                  for name <- all_bundle_names do
+                    path = Path.join(@ts_dir, "#{name}.ts")
+                    {"#{name}.ts", File.read!(path)}
+                  end
+
+                web_apis_js = OXC.bundle!(bundle_files)
+
+                standalone ++ [web_apis_js]
+              )
 
   @impl true
   def init(opts) do
