@@ -75,14 +75,3 @@ pub fn is_promise(ctx: *qjs.JSContext, val: qjs.JSValue) bool {
     qjs.JS_FreeValue(ctx, then_prop);
     return result;
 }
-
-pub fn cleanup_globals(ctx: *qjs.JSContext, global: qjs.JSValue, status_key: []const u8, value_key: []const u8) void {
-    const undef = js_undefined();
-    const s_atom = qjs.JS_NewAtomLen(ctx, status_key.ptr, status_key.len);
-    _ = qjs.JS_SetProperty(ctx, global, s_atom, undef);
-    qjs.JS_FreeAtom(ctx, s_atom);
-
-    const v_atom = qjs.JS_NewAtomLen(ctx, value_key.ptr, value_key.len);
-    _ = qjs.JS_SetProperty(ctx, global, v_atom, undef);
-    qjs.JS_FreeAtom(ctx, v_atom);
-}

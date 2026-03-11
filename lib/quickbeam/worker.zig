@@ -399,44 +399,11 @@ pub const WorkerState = struct {
     }
 
     fn await_promise(self: *WorkerState, promise: qjs.JSValue, result: *types.Result, unwrap_async: bool) void {
-        const then_code =
-            \\(function(p, id) {
-            \\  globalThis['__qb_' + id + '_s'] = 'pending';
-            \\  p.then(
-            \\    function(v) { globalThis['__qb_' + id + '_s'] = 'ok'; globalThis['__qb_' + id + '_v'] = v; },
-            \\    function(e) { globalThis['__qb_' + id + '_s'] = 'err'; globalThis['__qb_' + id + '_v'] = e; }
-            \\  );
-            \\})
-        ;
-        const check_fn = qjs.JS_Eval(self.ctx, then_code, then_code.len, "<await>", qjs.JS_EVAL_TYPE_GLOBAL);
-        defer qjs.JS_FreeValue(self.ctx, check_fn);
-
-        const check_id = self.next_call_id;
-        self.next_call_id += 1;
-        const id_val = qjs.JS_NewInt64(self.ctx, @intCast(check_id));
-        defer qjs.JS_FreeValue(self.ctx, id_val);
-
-        var call_args = [_]qjs.JSValue{ promise, id_val };
-        const apply_ret = qjs.JS_Call(self.ctx, check_fn, js.js_undefined(), 2, &call_args);
-        qjs.JS_FreeValue(self.ctx, apply_ret);
-        self.drain_jobs();
-
-        const id_str = std.fmt.bufPrint(&self.buf, "{d}", .{check_id}) catch "0";
-        var status_key_buf: [64]u8 = undefined;
-        var value_key_buf: [64]u8 = undefined;
-        const status_key = std.fmt.bufPrintZ(&status_key_buf, "__qb_{s}_s", .{id_str}) catch return;
-        const value_key = std.fmt.bufPrintZ(&value_key_buf, "__qb_{s}_v", .{id_str}) catch return;
-
         for (0..10000) |_| {
-            const global = qjs.JS_GetGlobalObject(self.ctx);
-            defer qjs.JS_FreeValue(self.ctx, global);
+            const state = qjs.JS_PromiseState(self.ctx, promise);
 
-            const status_val = qjs.JS_GetPropertyStr(self.ctx, global, status_key.ptr);
-            defer qjs.JS_FreeValue(self.ctx, status_val);
-            const status_str = js.js_to_string(self.ctx, status_val);
-
-            if (std.mem.eql(u8, status_str, "ok")) {
-                const v = qjs.JS_GetPropertyStr(self.ctx, global, value_key.ptr);
+            if (state == qjs.JS_PROMISE_FULFILLED) {
+                const v = qjs.JS_PromiseResult(self.ctx, promise);
                 defer qjs.JS_FreeValue(self.ctx, v);
 
                 if (unwrap_async and qjs.JS_IsObject(v)) {
@@ -446,20 +413,20 @@ pub const WorkerState = struct {
                 } else {
                     self.set_ok_term(v, result);
                 }
-                js.cleanup_globals(self.ctx, global, status_key, value_key);
                 return;
-            } else if (std.mem.eql(u8, status_str, "err")) {
-                const v = qjs.JS_GetPropertyStr(self.ctx, global, value_key.ptr);
+            }
+
+            if (state == qjs.JS_PROMISE_REJECTED) {
+                const v = qjs.JS_PromiseResult(self.ctx, promise);
                 defer qjs.JS_FreeValue(self.ctx, v);
                 const term_env = beam.alloc_env();
                 result.ok = false;
                 result.term = js_to_beam.convert_error(self.ctx, v, term_env);
                 result.env = term_env;
-                js.cleanup_globals(self.ctx, global, status_key, value_key);
                 return;
             }
 
-            // Process incoming messages (resolve/reject from beam.call, BEAM→JS messages)
+            // Still pending — process messages that might resolve it
             if (types.dequeue(self.rd)) |msg| {
                 switch (msg) {
                     .resolve_call => |rc| self.resolve_pending(rc.id, rc.json),
@@ -475,11 +442,9 @@ pub const WorkerState = struct {
                 }
             }
 
-            // Fire expired timers (setTimeout/setInterval callbacks)
             self.fire_expired_timers();
             self.drain_jobs();
 
-            // Sleep until next timer or a short polling interval
             const timer_ns = self.next_timer_timeout_ns();
             const sleep_ns: u64 = if (timer_ns) |t| @min(t, 1_000_000) else 1_000_000;
             std.Thread.sleep(sleep_ns);
