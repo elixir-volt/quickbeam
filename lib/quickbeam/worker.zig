@@ -4,6 +4,7 @@ const globals = @import("globals.zig");
 const js_to_beam = @import("js_to_beam.zig");
 const beam_to_js = @import("beam_to_js.zig");
 const dom = @import("dom.zig");
+pub const atom_cache = @import("atom_cache.zig");
 const std = types.std;
 const beam = types.beam;
 const e = types.e;
@@ -32,6 +33,7 @@ pub const WorkerState = struct {
     next_timer_id: u64 = 1,
     start_time: i128 = 0,
     message_handler: qjs.JSValue = js.JS_UNDEFINED,
+    atoms: atom_cache.AtomCache = .{},
     dom_data: ?*dom.DocumentData = null,
     buf: [4096]u8 = @splat(0),
 
@@ -53,6 +55,7 @@ pub const WorkerState = struct {
             qjs.JS_FreeValue(self.ctx, self.message_handler);
         }
 
+        self.atoms.deinit(self.ctx);
         qjs.JS_FreeContext(self.ctx);
     }
 
@@ -387,6 +390,7 @@ pub const WorkerState = struct {
             self.message_handler = js.JS_UNDEFINED;
         }
 
+        self.atoms.deinit(self.ctx);
         qjs.JS_FreeContext(self.ctx);
         self.ctx = qjs.JS_NewContext(self.rt) orelse {
             result.ok = false;
@@ -537,6 +541,7 @@ pub const WorkerState = struct {
 
     pub fn install_globals(self: *WorkerState) void {
         qjs.JS_SetContextOpaque(self.ctx, @ptrCast(self));
+        self.atoms = atom_cache.AtomCache.init(self.ctx);
         self.dom_data = globals.install_all(self.ctx);
     }
 };

@@ -1,5 +1,6 @@
 const types = @import("types.zig");
 const js = @import("js_helpers.zig");
+const worker = @import("worker.zig");
 const std = types.std;
 const e = types.e;
 const qjs = types.qjs;
@@ -18,9 +19,14 @@ fn convert_recursive(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm
     const atom_len = e.enif_get_atom(env, term, &atom_buf, atom_buf.len, e.ERL_NIF_LATIN1);
     if (atom_len > 0) {
         const name = atom_buf[0..@intCast(atom_len - 1)]; // exclude null terminator
-        if (std.mem.eql(u8, name, "nil") or std.mem.eql(u8, name, "undefined")) return js.js_null();
-        if (std.mem.eql(u8, name, "true")) return js.js_true();
-        if (std.mem.eql(u8, name, "false")) return js.js_false();
+        const state: ?*worker.WorkerState = @ptrCast(@alignCast(qjs.JS_GetContextOpaque(ctx)));
+        if (state) |s| {
+            if (s.atoms.atomToJS(ctx, name)) |cached| return cached;
+        } else {
+            if (std.mem.eql(u8, name, "nil") or std.mem.eql(u8, name, "undefined")) return js.js_null();
+            if (std.mem.eql(u8, name, "true")) return js.js_true();
+            if (std.mem.eql(u8, name, "false")) return js.js_false();
+        }
         return qjs.JS_NewStringLen(ctx, name.ptr, name.len);
     }
 
