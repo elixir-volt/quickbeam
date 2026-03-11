@@ -167,16 +167,16 @@ defmodule QuickBEAM.Runtime do
 
                 # 2. Bundle web-apis (resolves imports, topo-sorts, wraps in IIFE)
                 barrel_source = File.read!(Path.join(@ts_dir, @web_apis_barrel))
+                {:ok, barrel_ast} = OXC.parse(barrel_source, @web_apis_barrel)
 
-                bundled_names =
-                  Regex.scan(~r/from '\.\/([\w-]+)'/, barrel_source)
-                  |> Enum.map(fn [_, name] -> name end)
+                import_names =
+                  barrel_ast.body
+                  |> Enum.filter(&(&1.type == "ImportDeclaration"))
+                  |> Enum.map(& &1.source.value)
+                  |> Enum.filter(&String.starts_with?(&1, "./"))
+                  |> Enum.map(&String.trim_leading(&1, "./"))
 
-                side_effect_names =
-                  Regex.scan(~r/^import '\.\/([\w-]+)'/m, barrel_source)
-                  |> Enum.map(fn [_, name] -> name end)
-
-                all_bundle_names = Enum.uniq(["web-apis" | bundled_names ++ side_effect_names])
+                all_bundle_names = Enum.uniq(["web-apis" | import_names])
 
                 bundle_files =
                   for name <- all_bundle_names do
