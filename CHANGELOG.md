@@ -10,6 +10,32 @@
   - `:node` — Node.js compat
   - `[:browser, :node]` — both
   - `false` — bare QuickJS, no polyfills
+- **Extended DOM API** backed by lexbor C library:
+  - `document.createDocumentFragment()`, `document.createComment()`
+  - `document.createElementNS()` for SVG/MathML/namespaced elements
+  - `document.getElementsByClassName()`, `document.getElementsByTagName()`
+  - `element.insertBefore()`, `element.replaceChild()`, `element.cloneNode()`
+  - `element.contains()`, `element.remove()`, `element.before()`, `element.after()`
+  - `element.prepend()`, `element.append()`, `element.replaceWith()`
+  - `element.matches()`, `element.closest()`
+  - `element.getElementsByClassName()`, `element.getElementsByTagName()`
+  - `element.lastChild`, `element.previousSibling`, `element.nodeType`, `element.nodeName`, `element.nodeValue`, `element.parentElement`
+  - `element.className` is now read-write
+  - `DocumentFragment` correctly moves children in `appendChild`/`insertBefore`
+- **`element.classList`** — full `DOMTokenList` implementation (`add`, `remove`, `toggle`, `contains`, `replace`, `forEach`, `item`, `length`, `value`, `Symbol.iterator`)
+- **`element.style`** — `CSSStyleDeclaration` backed by lexbor CSS parser (`getPropertyValue`, `setProperty`, `removeProperty`, `getPropertyPriority`, `cssText`, `length`, `item`, camelCase property access via Proxy)
+- **`getComputedStyle()`** — returns inline style declaration (no cascade/layout)
+- **`addEventListener`/`removeEventListener`/`dispatchEvent`** on elements and `document`, with `once`, `stopImmediatePropagation`, `handleEvent` object listeners
+- **`CustomEvent`** with `detail` property
+
+### Fixed
+
+- CI cache keys now hash Zig sources, fixing stale native builds
+- ASAN CI job correctly finds beam binary path
+
+### Infrastructure
+
+- `clang-tidy` static analysis for `lexbor_bridge.c` in CI (`clang-analyzer-*`, `bugprone-*`, `portability-*`)
 
 ## 0.2.0
 
