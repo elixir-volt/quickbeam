@@ -47,7 +47,7 @@ class LockManager {
       throw new DOMException('The operation was aborted.', 'AbortError')
     }
 
-    const result = await beam.call('__locks_request', name, mode, ifAvailable)
+    const result = await Beam.call('__locks_request', name, mode, ifAvailable)
 
     if (result === 'not_available') {
       return await callback(null)
@@ -62,12 +62,12 @@ class LockManager {
     try {
       return await callback(lock)
     } finally {
-      await beam.call('__locks_release', name)
+      await Beam.call('__locks_release', name)
     }
   }
 
   async query(): Promise<LockManagerSnapshot> {
-    return (await beam.call('__locks_query')) as LockManagerSnapshot
+    return (await Beam.call('__locks_query')) as LockManagerSnapshot
   }
 }
 

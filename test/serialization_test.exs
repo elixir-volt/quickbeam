@@ -138,7 +138,7 @@ defmodule QuickBEAM.SerializationTest do
     end
   end
 
-  describe "beam.call roundtrip" do
+  describe "Beam.call roundtrip" do
     setup do
       handlers = %{
         "echo" => fn [val] -> val end,
@@ -151,21 +151,21 @@ defmodule QuickBEAM.SerializationTest do
 
     test "string roundtrip through beam.call", %{rt: rt} do
       assert {:ok, "hello"} =
-               QuickBEAM.eval(rt, "await beam.call('echo', 'hello')")
+               QuickBEAM.eval(rt, "await Beam.call('echo', 'hello')")
     end
 
     test "number roundtrip through beam.call", %{rt: rt} do
       assert {:ok, 84} =
-               QuickBEAM.eval(rt, "await beam.call('double', 42)")
+               QuickBEAM.eval(rt, "await Beam.call('double', 42)")
     end
 
     test "object roundtrip through beam.call", %{rt: rt} do
       assert {:ok, %{"a" => 1}} =
-               QuickBEAM.eval(rt, "await beam.call('echo', {a: 1})")
+               QuickBEAM.eval(rt, "await Beam.call('echo', {a: 1})")
     end
   end
 
-  describe "beam.callSync" do
+  describe "Beam.callSync" do
     setup do
       handlers = %{
         "echo" => fn [val] -> val end,
@@ -179,31 +179,31 @@ defmodule QuickBEAM.SerializationTest do
     end
 
     test "returns value synchronously (no await)", %{rt: rt} do
-      assert {:ok, 42} = QuickBEAM.eval(rt, "beam.callSync('echo', 42)")
+      assert {:ok, 42} = QuickBEAM.eval(rt, "Beam.callSync('echo', 42)")
     end
 
     test "string roundtrip", %{rt: rt} do
-      assert {:ok, "hello"} = QuickBEAM.eval(rt, "beam.callSync('echo', 'hello')")
+      assert {:ok, "hello"} = QuickBEAM.eval(rt, "Beam.callSync('echo', 'hello')")
     end
 
     test "object roundtrip", %{rt: rt} do
-      assert {:ok, %{"a" => 1}} = QuickBEAM.eval(rt, "beam.callSync('echo', {a: 1})")
+      assert {:ok, %{"a" => 1}} = QuickBEAM.eval(rt, "Beam.callSync('echo', {a: 1})")
     end
 
     test "multiple args", %{rt: rt} do
-      assert {:ok, 84} = QuickBEAM.eval(rt, "beam.callSync('double', 42)")
+      assert {:ok, 84} = QuickBEAM.eval(rt, "Beam.callSync('double', 42)")
     end
 
     test "use in expressions (no await needed)", %{rt: rt} do
       assert {:ok, "Hello, world!"} =
-               QuickBEAM.eval(rt, "beam.callSync('greet', 'world')")
+               QuickBEAM.eval(rt, "Beam.callSync('greet', 'world')")
     end
 
     test "use in loops", %{rt: rt} do
       code = """
       let sum = 0;
       for (let i = 1; i <= 5; i++) {
-        sum += beam.callSync('double', i);
+        sum += Beam.callSync('double', i);
       }
       sum
       """
@@ -214,7 +214,7 @@ defmodule QuickBEAM.SerializationTest do
     test "error handling with try/catch", %{rt: rt} do
       code = """
       try {
-        beam.callSync('failing');
+        Beam.callSync('failing');
         'no error';
       } catch (e) {
         'caught: ' + e.message;
@@ -228,7 +228,7 @@ defmodule QuickBEAM.SerializationTest do
     test "unknown handler throws", %{rt: rt} do
       code = """
       try {
-        beam.callSync('nonexistent', 1);
+        Beam.callSync('nonexistent', 1);
         'no error';
       } catch (e) {
         'caught';
@@ -240,8 +240,8 @@ defmodule QuickBEAM.SerializationTest do
 
     test "mixed sync and async calls", %{rt: rt} do
       code = """
-      const syncResult = beam.callSync('echo', 10);
-      const asyncResult = await beam.call('echo', 20);
+      const syncResult = Beam.callSync('echo', 10);
+      const asyncResult = await Beam.call('echo', 20);
       syncResult + asyncResult;
       """
 
@@ -249,11 +249,11 @@ defmodule QuickBEAM.SerializationTest do
     end
 
     test "null roundtrip", %{rt: rt} do
-      assert {:ok, nil} = QuickBEAM.eval(rt, "beam.callSync('echo', null)")
+      assert {:ok, nil} = QuickBEAM.eval(rt, "Beam.callSync('echo', null)")
     end
 
     test "array roundtrip", %{rt: rt} do
-      assert {:ok, [1, 2, 3]} = QuickBEAM.eval(rt, "beam.callSync('echo', [1, 2, 3])")
+      assert {:ok, [1, 2, 3]} = QuickBEAM.eval(rt, "Beam.callSync('echo', [1, 2, 3])")
     end
   end
 end

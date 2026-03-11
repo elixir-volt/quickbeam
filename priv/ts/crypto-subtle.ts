@@ -49,7 +49,7 @@ function cipher(
   const algo: CryptoAlgoParams = { ...normalizeCryptoAlgo(algorithm) }
   if (algo.iv) algo.iv = bufferSourceToBytes(algo.iv)
   if (algo.additionalData) algo.additionalData = bufferSourceToBytes(algo.additionalData)
-  return ensureArrayBuffer(beam.callSync(handler, algo, key, bufferSourceToBytes(data)))
+  return ensureArrayBuffer(Beam.callSync(handler, algo, key, bufferSourceToBytes(data)))
 }
 
 function ensureArrayBuffer(result: unknown): ArrayBuffer {
@@ -61,7 +61,7 @@ function ensureArrayBuffer(result: unknown): ArrayBuffer {
 const subtle = {
   async digest(algorithm: AlgorithmIdentifier, data: BufferSource): Promise<ArrayBuffer> {
     const algo = normalizeCryptoAlgo(algorithm)
-    return ensureArrayBuffer(beam.callSync('__crypto_digest', algo.name, bufferSourceToBytes(data)))
+    return ensureArrayBuffer(Beam.callSync('__crypto_digest', algo.name, bufferSourceToBytes(data)))
   },
 
   async generateKey(
@@ -70,7 +70,7 @@ const subtle = {
     keyUsages: KeyUsage[]
   ): Promise<CryptoKeyInternal | CryptoKeyPairInternal> {
     const algo = normalizeCryptoAlgo(algorithm)
-    const result = beam.callSync('__crypto_generate_key', algo) as
+    const result = Beam.callSync('__crypto_generate_key', algo) as
       | CryptoKeyInternal
       | CryptoKeyPairInternal
     if ('publicKey' in result) {
@@ -88,7 +88,7 @@ const subtle = {
     data: BufferSource
   ): Promise<ArrayBuffer> {
     const algo = normalizeCryptoAlgo(algorithm)
-    return ensureArrayBuffer(beam.callSync('__crypto_sign', algo, key, bufferSourceToBytes(data)))
+    return ensureArrayBuffer(Beam.callSync('__crypto_sign', algo, key, bufferSourceToBytes(data)))
   },
 
   async verify(
@@ -98,7 +98,7 @@ const subtle = {
     data: BufferSource
   ): Promise<boolean> {
     const algo = normalizeCryptoAlgo(algorithm)
-    return beam.callSync(
+    return Beam.callSync(
       '__crypto_verify',
       algo,
       key,
@@ -131,7 +131,7 @@ const subtle = {
     const algo: CryptoAlgoParams = { ...normalizeCryptoAlgo(algorithm) }
     if (algo.salt) algo.salt = bufferSourceToBytes(algo.salt)
     if (algo.public) algo.public = baseKey._ecdhPublic ?? algo.public
-    return ensureArrayBuffer(beam.callSync('__crypto_derive_bits', algo, baseKey, length))
+    return ensureArrayBuffer(Beam.callSync('__crypto_derive_bits', algo, baseKey, length))
   },
 
   async deriveKey(

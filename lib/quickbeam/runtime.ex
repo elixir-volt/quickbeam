@@ -217,15 +217,49 @@ defmodule QuickBEAM.Runtime do
   end
 
   defp eval_script(state, path) do
-    with {:ok, code} <- File.read(path),
+    with {:ok, code} <- read_script(path),
          {:ok, _} <- sync_eval(state.resource, code) do
       :ok
     else
       {:error, reason} when is_atom(reason) ->
         {:error, {:script_not_found, path, reason}}
 
-      {:error, value} ->
+      {:error, {:file_read_error, _, reason}} ->
+        {:error, {:script_not_found, path, reason}}
+
+      {:error, value} when is_map(value) ->
         {:error, {:script_error, path, QuickBEAM.JSError.from_js_value(value)}}
+
+      {:error, reason} ->
+        {:error, {:script_error, path, reason}}
+    end
+  end
+
+  defp read_script(path) do
+    case File.read(path) do
+      {:ok, source} ->
+        cond do
+          has_imports?(source, path) ->
+            QuickBEAM.JS.Bundler.bundle_file(path)
+
+          typescript?(path) ->
+            OXC.transform(source, Path.basename(path))
+
+          true ->
+            {:ok, source}
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp typescript?(path), do: String.ends_with?(path, ".ts") or String.ends_with?(path, ".tsx")
+
+  defp has_imports?(source, path) do
+    case OXC.parse(source, Path.basename(path)) do
+      {:ok, ast} -> Enum.any?(ast.body, &(&1.type == "ImportDeclaration"))
+      {:error, _} -> false
     end
   end
 

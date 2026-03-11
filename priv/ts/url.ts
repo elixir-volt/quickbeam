@@ -26,7 +26,7 @@ class QBURLSearchParams {
     if (typeof init === 'string') {
       const qs = init.startsWith('?') ? init.slice(1) : init
       this.#entries =
-        qs === '' ? [] : (beam.callSync('__url_dissect_query', qs) as [string, string][])
+        qs === '' ? [] : (Beam.callSync('__url_dissect_query', qs) as [string, string][])
     } else if (Array.isArray(init)) {
       this.#entries = init.map((pair) => {
         if (pair.length !== 2) {
@@ -93,7 +93,7 @@ class QBURLSearchParams {
 
   toString(): string {
     if (this.#entries.length === 0) return ''
-    return beam.callSync('__url_compose_query', this.#entries) as string
+    return Beam.callSync('__url_compose_query', this.#entries) as string
   }
 
   forEach(
@@ -133,7 +133,7 @@ class QBURL {
 
   constructor(url: string, base?: string) {
     const args = base !== undefined ? [String(url), String(base)] : [String(url)]
-    const result = beam.callSync('__url_parse', ...args) as URLParseResult
+    const result = Beam.callSync('__url_parse', ...args) as URLParseResult
     if (!result.ok) throw new TypeError(`Invalid URL: '${url}'`)
     this.#components = result.components
     this.#searchParams = new QBURLSearchParams(this.#components.search)
@@ -144,7 +144,7 @@ class QBURL {
     return this.#components.href
   }
   set href(v: string) {
-    const result = beam.callSync('__url_parse', String(v)) as URLParseResult
+    const result = Beam.callSync('__url_parse', String(v)) as URLParseResult
     if (!result.ok) throw new TypeError(`Invalid URL: '${v}'`)
     this.#components = result.components
     this.#searchParams = new QBURLSearchParams(this.#components.search)
@@ -258,7 +258,7 @@ class QBURL {
   }
 
   #recompose(): void {
-    const href = beam.callSync('__url_recompose', this.#components) as string
+    const href = Beam.callSync('__url_recompose', this.#components) as string
     this.#components.href = href
     this.#components.origin = this.#buildOrigin()
   }

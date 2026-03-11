@@ -164,7 +164,7 @@ defmodule QuickBEAMTest do
     end
   end
 
-  describe "beam.call" do
+  describe "Beam.call" do
     test "simple handler" do
       {:ok, rt} =
         QuickBEAM.start(
@@ -173,7 +173,7 @@ defmodule QuickBEAMTest do
           }
         )
 
-      assert {:ok, 42} = QuickBEAM.eval(rt, ~s[beam.call("double", 21)])
+      assert {:ok, 42} = QuickBEAM.eval(rt, ~s[Beam.call("double", 21)])
       QuickBEAM.stop(rt)
     end
 
@@ -185,7 +185,7 @@ defmodule QuickBEAMTest do
           }
         )
 
-      assert {:ok, "Hello, world!"} = QuickBEAM.eval(rt, ~s[beam.call("greet", "world")])
+      assert {:ok, "Hello, world!"} = QuickBEAM.eval(rt, ~s[Beam.call("greet", "world")])
       QuickBEAM.stop(rt)
     end
 
@@ -197,7 +197,7 @@ defmodule QuickBEAMTest do
           }
         )
 
-      assert {:ok, [1, "two", 3]} = QuickBEAM.eval(rt, ~s[beam.call("echo", 1, "two", 3)])
+      assert {:ok, [1, "two", 3]} = QuickBEAM.eval(rt, ~s[Beam.call("echo", 1, "two", 3)])
       QuickBEAM.stop(rt)
     end
 
@@ -212,8 +212,8 @@ defmodule QuickBEAMTest do
 
       assert {:ok, 14} =
                QuickBEAM.eval(rt, """
-               const sum = await beam.call("add", 3, 4);
-               const product = await beam.call("mul", sum, 2);
+               const sum = await Beam.call("add", 3, 4);
+               const product = await Beam.call("mul", sum, 2);
                product
                """)
 
@@ -245,7 +245,7 @@ defmodule QuickBEAMTest do
       assert "Object" in globals
       assert "Array" in globals
       assert "console" in globals
-      assert "beam" in globals
+      assert "Beam" in globals
       assert globals == Enum.sort(globals)
       QuickBEAM.stop(rt)
     end

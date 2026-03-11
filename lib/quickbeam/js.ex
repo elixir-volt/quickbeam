@@ -103,6 +103,26 @@ defmodule QuickBEAM.JS do
   defdelegate bundle!(files, opts \\ []), to: OXC
 
   @doc """
+  Bundle an entry file from disk with all its dependencies.
+
+  Recursively resolves imports — both relative paths (`./utils`) and
+  bare specifiers (`lodash-es`) via `node_modules/`. Reads all sources,
+  then bundles them with `OXC.bundle/2`.
+
+      {:ok, js} = QuickBEAM.JS.bundle_file("src/main.ts")
+
+  The `node_modules/` directory is found by walking up from the entry file.
+  Override with the `:node_modules` option.
+
+  Accepts all options from `bundle/2` plus:
+
+    * `:node_modules` — explicit path to `node_modules/` directory
+  """
+  @spec bundle_file(String.t(), keyword()) ::
+          {:ok, String.t() | map()} | {:error, term()}
+  defdelegate bundle_file(path, opts \\ []), to: QuickBEAM.JS.Bundler
+
+  @doc """
   Walk an AST tree, calling `fun` on every node.
 
   See `OXC.walk/2` for details.

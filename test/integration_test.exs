@@ -2,7 +2,7 @@ defmodule QuickBEAM.IntegrationTest do
   use ExUnit.Case
 
   describe "TCP echo server — JS protocol logic, BEAM I/O" do
-    test "JS handles TCP data via Process.onMessage" do
+    test "JS handles TCP data via Beam.onMessage" do
       sockets = %{}
       sockets_agent = Agent.start_link(fn -> sockets end) |> elem(1)
 
@@ -18,10 +18,10 @@ defmodule QuickBEAM.IntegrationTest do
 
       # JS protocol handler: uppercase echo
       QuickBEAM.eval(rt, """
-      Process.onMessage((msg) => {
+      Beam.onMessage((msg) => {
         if (msg.type === "tcp_data") {
           const response = msg.data.toUpperCase() + "\\n";
-          beam.callSync("tcp.send", msg.socket_id, response);
+          Beam.callSync("tcp.send", msg.socket_id, response);
         }
       });
       """)
@@ -76,7 +76,7 @@ defmodule QuickBEAM.IntegrationTest do
       # Consumer collects messages
       QuickBEAM.eval(:consumer, """
       globalThis.inbox = [];
-      Process.onMessage((msg) => {
+      Beam.onMessage((msg) => {
         globalThis.inbox.push(msg);
       });
       """)
@@ -86,7 +86,7 @@ defmodule QuickBEAM.IntegrationTest do
 
       QuickBEAM.eval(:producer, """
       globalThis.sendTo = null;
-      Process.onMessage((pid) => {
+      Beam.onMessage((pid) => {
         globalThis.sendTo = pid;
       });
       """)
@@ -96,7 +96,7 @@ defmodule QuickBEAM.IntegrationTest do
 
       QuickBEAM.eval(:producer, """
       for (let i = 0; i < 5; i++) {
-        beam.send(globalThis.sendTo, {seq: i, from: "producer"});
+        Beam.send(globalThis.sendTo, {seq: i, from: "producer"});
       }
       """)
 
@@ -136,7 +136,7 @@ defmodule QuickBEAM.IntegrationTest do
       # JS uses BEAM atomics through handlers
       {:ok, result} =
         QuickBEAM.eval(:lifecycle_rt, """
-        const val = await beam.call("counter.increment", 10);
+        const val = await Beam.call("counter.increment", 10);
         val;
         """)
 
@@ -144,9 +144,9 @@ defmodule QuickBEAM.IntegrationTest do
 
       # JS receives messages and calls back into BEAM
       QuickBEAM.eval(:lifecycle_rt, """
-      Process.onMessage(async (msg) => {
+      Beam.onMessage(async (msg) => {
         if (msg.action === "increment") {
-          await beam.call("counter.increment", msg.amount);
+          await Beam.call("counter.increment", msg.amount);
         }
       });
       """)
@@ -154,7 +154,7 @@ defmodule QuickBEAM.IntegrationTest do
       QuickBEAM.send_message(:lifecycle_rt, %{action: "increment", amount: 5})
       Process.sleep(50)
 
-      {:ok, count} = QuickBEAM.eval(:lifecycle_rt, "await beam.call('counter.get')")
+      {:ok, count} = QuickBEAM.eval(:lifecycle_rt, "await Beam.call('counter.get')")
       assert count == 15
 
       # Kill the runtime — supervisor restarts it
@@ -166,7 +166,7 @@ defmodule QuickBEAM.IntegrationTest do
       assert pid_after != pid_before
 
       # State is fresh, but the BEAM counter survives (it's outside JS)
-      {:ok, count} = QuickBEAM.eval(:lifecycle_rt, "await beam.call('counter.get')")
+      {:ok, count} = QuickBEAM.eval(:lifecycle_rt, "await Beam.call('counter.get')")
       assert count == 15
 
       Supervisor.stop(sup)
@@ -192,13 +192,13 @@ defmodule QuickBEAM.IntegrationTest do
       globalThis.buffer = [];
       globalThis.windowSize = 3;
 
-      Process.onMessage((msg) => {
+      Beam.onMessage((msg) => {
         if (msg.type === "data_point") {
           globalThis.buffer.push(msg.value);
 
           if (globalThis.buffer.length >= globalThis.windowSize) {
             const avg = globalThis.buffer.reduce((a, b) => a + b, 0) / globalThis.buffer.length;
-            beam.callSync("emit", {
+            Beam.callSync("emit", {
               type: "window_avg",
               avg: avg,
               count: globalThis.buffer.length

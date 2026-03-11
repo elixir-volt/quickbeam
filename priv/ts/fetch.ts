@@ -228,7 +228,7 @@ async function fetchImpl(input: string | Request, init?: RequestInit): Promise<R
     redirect: request.redirect
   }
 
-  const resultPromise = beam.call('__fetch', payload) as Promise<FetchResult>
+  const resultPromise = Beam.call('__fetch', payload) as Promise<FetchResult>
 
   const abortPromise = new Promise<never>((_, reject) => {
     if (request.signal.aborted) {

@@ -3,12 +3,12 @@ defmodule QuickBEAM.WorkerAPI do
 
   @worker_bootstrap """
   globalThis.self = globalThis;
-  const __parentPid = beam.callSync("__worker_parent");
+  const __parentPid = Beam.callSync("__worker_parent");
   self.postMessage = function(data) {
-    beam.send(__parentPid, ["__worker_msg", beam.self(), data]);
+    Beam.send(__parentPid, ["__worker_msg", Beam.self(), data]);
   };
   Object.defineProperty(self, "onmessage", {
-    set(handler) { Process.onMessage(msg => {
+    set(handler) { Beam.onMessage(msg => {
       if (Array.isArray(msg) && msg[0] === "__worker_msg") {
         handler({ data: msg[1] });
       }

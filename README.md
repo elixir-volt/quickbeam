@@ -42,7 +42,7 @@ JS can call Elixir functions and access OTP libraries:
 })
 
 {:ok, rows} = QuickBEAM.eval(rt, """
-  const rows = await beam.call("db.query", "SELECT * FROM users LIMIT 5");
+  const rows = await Beam.call("db.query", "SELECT * FROM users LIMIT 5");
   rows.map(r => r.name);
 """)
 ```
@@ -51,21 +51,21 @@ JS can also send messages to any BEAM process:
 
 ```javascript
 // Get the runtime's own PID
-const self = beam.self();
+const self = Beam.self();
 
 // Send to any PID
-beam.send(somePid, {type: "update", data: result});
+Beam.send(somePid, {type: "update", data: result});
 
 // Receive BEAM messages
-Process.onMessage((msg) => {
+Beam.onMessage((msg) => {
   console.log("got:", msg);
 });
 
 // Monitor BEAM processes
-const ref = Process.monitor(pid, (reason) => {
+const ref = Beam.monitor(pid, (reason) => {
   console.log("process died:", reason);
 });
-Process.demonitor(ref);
+Beam.demonitor(ref);
 ```
 
 ## Supervision
@@ -211,7 +211,7 @@ Type definitions for the BEAM-specific JS API:
 }
 ```
 
-The `.d.ts` file covers `beam`, `Process`, `BeamPid`, and `compression`.
+The `.d.ts` file covers `Beam`, `BeamPid`, and `compression`.
 Standard Web APIs are typed by TypeScript's `lib.dom.d.ts`.
 
 ## TypeScript toolchain
@@ -237,6 +237,40 @@ files = [
 {:ok, bundle} = QuickBEAM.JS.bundle(files)
 ```
 
+## npm packages
+
+QuickBEAM ships with a built-in npm client — no Node.js required.
+
+```sh
+mix npm.install sanitize-html
+```
+
+The `:script` option auto-resolves imports. Point it at a TypeScript file
+that imports npm packages, and QuickBEAM bundles everything at startup:
+
+```elixir
+# priv/js/app.ts
+import sanitize from 'sanitize-html'
+
+Beam.onMessage((html: string) => {
+  Beam.callSync("done", sanitize(html))
+})
+```
+
+```elixir
+{QuickBEAM, name: :sanitizer, script: "priv/js/app.ts", handlers: %{...}}
+```
+
+No build step, no webpack, no esbuild. TypeScript is stripped, imports
+are resolved from `node_modules/`, and everything is bundled into a
+single script via OXC — all at runtime startup.
+
+You can also bundle from disk programmatically:
+
+```elixir
+{:ok, js} = QuickBEAM.JS.bundle_file("src/main.ts")
+```
+
 ## Performance
 
 vs QuickJSEx 0.3.1 (Rust/Rustler, JSON serialization):
@@ -246,7 +280,7 @@ vs QuickJSEx 0.3.1 (Rust/Rustler, JSON serialization):
 | Function call — small map | **2.5x faster** |
 | Function call — large data | **4.1x faster** |
 | Concurrent JS execution | **1.35x faster** |
-| `beam.callSync` (JS→BEAM) | 5 μs overhead (unique to QuickBEAM) |
+| `Beam.callSync` (JS→BEAM) | 5 μs overhead (unique to QuickBEAM) |
 | Startup | ~600 μs (parity) |
 
 See [`bench/`](bench/README.md) for details.

@@ -30,7 +30,7 @@ mix test
 
 ## How it works
 
-Each `.js` file receives messages via `Process.onMessage` and forwards to the next stage via `beam.callSync("forward", "next_stage", data)`. The Elixir supervisor wires them together:
+Each `.js` file receives messages via `Beam.onMessage` and forwards to the next stage via `Beam.callSync("forward", "next_stage", data)`. The Elixir supervisor wires them together:
 
 ```elixir
 children = [

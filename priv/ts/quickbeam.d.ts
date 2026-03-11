@@ -31,7 +31,7 @@ type BeamTerm = BeamPid | BeamRef | BeamPort
 
 // --- BEAM bridge ---
 
-interface Beam {
+interface BeamAPI {
   /** Call a named BEAM handler (async). Returns a Promise with the result. */
   call(handler: string, ...args: unknown[]): Promise<unknown>
 
@@ -43,30 +43,18 @@ interface Beam {
 
   /** Get the PID of the owning GenServer process. */
   self(): BeamPid
-}
 
-declare const beam: Beam
-
-// --- Process ---
-
-interface BeamProcess {
   /** Register a callback for incoming BEAM messages. */
   onMessage(callback: (message: unknown) => void): void
 
   /** Monitor a BEAM process. Callback fires with exit reason when it dies. */
   monitor(pid: BeamPid, callback: (reason: unknown) => void): BeamRef
 
-  /** Cancel a monitor previously set with `Process.monitor`. */
+  /** Cancel a monitor previously set with `Beam.monitor`. */
   demonitor(ref: BeamRef): void
-
-  /** Alias for beam.send. */
-  send(pid: BeamPid, message: unknown): void
-
-  /** Alias for beam.self. */
-  self(): BeamPid
 }
 
-declare const Process: BeamProcess
+declare const Beam: BeamAPI
 
 // --- Compression (QuickBEAM-specific, not a standard Web API) ---
 

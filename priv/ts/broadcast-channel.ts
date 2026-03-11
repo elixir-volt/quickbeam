@@ -22,12 +22,12 @@ class BroadcastChannel extends EventTarget {
       channelRegistry.set(name, set)
     }
     set.add(this)
-    beam.callSync('__broadcast_join', name)
+    Beam.callSync('__broadcast_join', name)
   }
 
   postMessage(message: unknown): void {
     if (this.#closed) throw new DOMException('BroadcastChannel is closed', 'InvalidStateError')
-    void beam.call('__broadcast_post', this.name, structuredClone(message))
+    void Beam.call('__broadcast_post', this.name, structuredClone(message))
   }
 
   close(): void {
@@ -38,7 +38,7 @@ class BroadcastChannel extends EventTarget {
       set.delete(this)
       if (set.size === 0) channelRegistry.delete(this.name)
     }
-    beam.callSync('__broadcast_leave', this.name)
+    Beam.callSync('__broadcast_leave', this.name)
   }
 
   [SYM_RECEIVE](data: unknown): void {

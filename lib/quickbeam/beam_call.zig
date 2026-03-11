@@ -15,13 +15,8 @@ pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue) void {
     _ = qjs.JS_SetPropertyStr(ctx, beam_obj, "callSync", qjs.JS_NewCFunction(ctx, &beam_call_sync_impl, "callSync", 1));
     _ = qjs.JS_SetPropertyStr(ctx, beam_obj, "send", qjs.JS_NewCFunction(ctx, &beam_send_impl, "send", 2));
     _ = qjs.JS_SetPropertyStr(ctx, beam_obj, "self", qjs.JS_NewCFunction(ctx, &beam_self_impl, "self", 0));
-    _ = qjs.JS_SetPropertyStr(ctx, global, "beam", beam_obj);
-
-    const process_obj = qjs.JS_NewObject(ctx);
-    _ = qjs.JS_SetPropertyStr(ctx, process_obj, "onMessage", qjs.JS_NewCFunction(ctx, &process_on_message_impl, "onMessage", 1));
-    _ = qjs.JS_SetPropertyStr(ctx, process_obj, "send", qjs.JS_NewCFunction(ctx, &beam_send_impl, "send", 2));
-    _ = qjs.JS_SetPropertyStr(ctx, process_obj, "self", qjs.JS_NewCFunction(ctx, &beam_self_impl, "self", 0));
-    _ = qjs.JS_SetPropertyStr(ctx, global, "Process", process_obj);
+    _ = qjs.JS_SetPropertyStr(ctx, beam_obj, "onMessage", qjs.JS_NewCFunction(ctx, &process_on_message_impl, "onMessage", 1));
+    _ = qjs.JS_SetPropertyStr(ctx, global, "Beam", beam_obj);
 }
 
 fn beam_call_impl(
@@ -32,10 +27,10 @@ fn beam_call_impl(
 ) callconv(.c) qjs.JSValue {
     const self: *worker.WorkerState = @ptrCast(@alignCast(qjs.JS_GetContextOpaque(ctx)));
 
-    if (argc < 1) return qjs.JS_ThrowTypeError(ctx, "beam.call requires a handler name");
+    if (argc < 1) return qjs.JS_ThrowTypeError(ctx, "Beam.call requires a handler name");
 
     const name_ptr = qjs.JS_ToCString(ctx, argv[0]) orelse
-        return qjs.JS_ThrowTypeError(ctx, "beam.call: first argument must be a string");
+        return qjs.JS_ThrowTypeError(ctx, "Beam.call: first argument must be a string");
     const name = std.mem.span(name_ptr);
 
     // SAFETY: resolve_funcs immediately filled by JS_NewPromiseCapability
@@ -74,10 +69,10 @@ fn beam_call_sync_impl(
 ) callconv(.c) qjs.JSValue {
     const self: *worker.WorkerState = @ptrCast(@alignCast(qjs.JS_GetContextOpaque(ctx)));
 
-    if (argc < 1) return qjs.JS_ThrowTypeError(ctx, "beam.callSync requires a handler name");
+    if (argc < 1) return qjs.JS_ThrowTypeError(ctx, "Beam.callSync requires a handler name");
 
     const name_ptr = qjs.JS_ToCString(ctx, argv[0]) orelse
-        return qjs.JS_ThrowTypeError(ctx, "beam.callSync: first argument must be a string");
+        return qjs.JS_ThrowTypeError(ctx, "Beam.callSync: first argument must be a string");
     const name = std.mem.span(name_ptr);
 
     const call_id = self.next_call_id;
@@ -132,15 +127,15 @@ fn beam_call_sync_impl(
             var bin: e.ErlNifBinary = undefined;
             if (e.enif_inspect_binary(result_env, slot.result_term.?, &bin) != 0 and bin.size > 0) {
                 const msg = gpa.dupeZ(u8, bin.data[0..bin.size]) catch
-                    return qjs.JS_ThrowInternalError(ctx, "beam.callSync failed");
+                    return qjs.JS_ThrowInternalError(ctx, "Beam.callSync failed");
                 defer gpa.free(msg);
                 return qjs.JS_ThrowInternalError(ctx, msg.ptr);
             }
-            return qjs.JS_ThrowInternalError(ctx, "beam.callSync failed");
+            return qjs.JS_ThrowInternalError(ctx, "Beam.callSync failed");
         }
     }
 
-    return qjs.JS_ThrowInternalError(ctx, "beam.callSync: no result received");
+    return qjs.JS_ThrowInternalError(ctx, "Beam.callSync: no result received");
 }
 
 fn beam_send_impl(
@@ -149,7 +144,7 @@ fn beam_send_impl(
     argc: c_int,
     argv: [*c]qjs.JSValue,
 ) callconv(.c) qjs.JSValue {
-    if (argc < 2) return qjs.JS_ThrowTypeError(ctx, "beam.send requires a pid and a message");
+    if (argc < 2) return qjs.JS_ThrowTypeError(ctx, "Beam.send requires a pid and a message");
 
     // First arg must be a PID (passed as an opaque atom/term from beam.self or received via message)
     const send_env = beam.alloc_env();
@@ -160,7 +155,7 @@ fn beam_send_impl(
     var pid: beam.pid = undefined;
     if (e.enif_get_local_pid(send_env, pid_term, &pid) == 0) {
         beam.free_env(send_env);
-        return qjs.JS_ThrowTypeError(ctx, "beam.send: first argument must be a PID");
+        return qjs.JS_ThrowTypeError(ctx, "Beam.send: first argument must be a PID");
     }
 
     _ = e.enif_send(null, &pid, send_env, msg_term);
@@ -192,7 +187,7 @@ fn process_on_message_impl(
     const self: *worker.WorkerState = @ptrCast(@alignCast(qjs.JS_GetContextOpaque(ctx)));
 
     if (argc < 1 or !qjs.JS_IsFunction(ctx, argv[0]))
-        return qjs.JS_ThrowTypeError(ctx, "Process.onMessage requires a function argument");
+        return qjs.JS_ThrowTypeError(ctx, "Beam.onMessage requires a function argument");
 
     if (!js.is_undefined(self.message_handler)) {
         qjs.JS_FreeValue(ctx, self.message_handler);

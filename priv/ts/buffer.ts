@@ -56,7 +56,7 @@ function encodeString(str: string, encoding: Encoding): Uint8Array {
       return bytes
     }
     default:
-      return beam.callSync('__buffer_decode', str, encoding) as Uint8Array
+      return Beam.callSync('__buffer_decode', str, encoding) as Uint8Array
   }
 }
 
@@ -75,7 +75,7 @@ function decodeBytes(bytes: Uint8Array, encoding: Encoding): string {
       return chars.join('')
     }
     default:
-      return beam.callSync('__buffer_encode', bytes, encoding) as string
+      return Beam.callSync('__buffer_encode', bytes, encoding) as string
   }
 }
 
@@ -144,7 +144,7 @@ class QBBuffer extends Uint8Array {
 
   static byteLength(string: string, encoding?: string): number {
     const enc = normalizeEncoding(encoding)
-    if (BEAM_ENCODINGS.has(enc)) return beam.callSync('__buffer_byte_length', string, enc) as number
+    if (BEAM_ENCODINGS.has(enc)) return Beam.callSync('__buffer_byte_length', string, enc) as number
     return encodeString(string, enc).length
   }
 

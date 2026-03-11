@@ -2,25 +2,25 @@ const monitorCallbacks = new Map<number, (reason: unknown) => void>()
 let monitorIdCounter = 0
 let userMessageHandler: ((msg: unknown) => void) | null = null
 
-const originalOnMessage = Process.onMessage.bind(Process)
+const originalOnMessage = Beam.onMessage.bind(Beam)
 
-Process.monitor = (pid: BeamPid, callback: (reason: unknown) => void): BeamRef => {
+Beam.monitor = (pid: BeamPid, callback: (reason: unknown) => void): BeamRef => {
   const id = ++monitorIdCounter
   monitorCallbacks.set(id, callback)
-  const ref = beam.callSync('__process_monitor', pid, id) as BeamRef
+  const ref = Beam.callSync('__process_monitor', pid, id) as BeamRef
   return ref
 }
 
-Process.demonitor = (ref: BeamRef): void => {
-  const id = beam.callSync('__process_demonitor', ref) as number
+Beam.demonitor = (ref: BeamRef): void => {
+  const id = Beam.callSync('__process_demonitor', ref) as number
   if (typeof id === 'number') {
     monitorCallbacks.delete(id)
   }
 }
 
-Process.onMessage = (handler: (msg: unknown) => void): void => {
+Beam.onMessage = (handler: (msg: unknown) => void): void => {
   if (typeof handler !== 'function') {
-    throw new TypeError('Process.onMessage requires a function argument')
+    throw new TypeError('Beam.onMessage requires a function argument')
   }
   userMessageHandler = handler
 }

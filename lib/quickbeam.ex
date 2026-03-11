@@ -12,12 +12,12 @@ defmodule QuickBEAM do
 
   ## Handlers
 
-  JS code can call Elixir functions via `beam.call` and `beam.callSync`:
+  JS code can call Elixir functions via `Beam.call` and `Beam.callSync`:
 
       iex> {:ok, rt} = QuickBEAM.start(handlers: %{
       ...>   "greet" => fn [name] -> "Hello, \#{name}!" end
       ...> })
-      iex> QuickBEAM.eval(rt, ~s[beam.callSync("greet", "world")])
+      iex> QuickBEAM.eval(rt, ~s[Beam.callSync("greet", "world")])
       {:ok, "Hello, world!"}
       iex> QuickBEAM.stop(rt)
       :ok
@@ -35,8 +35,11 @@ defmodule QuickBEAM do
 
     * `:name` — GenServer name registration
     * `:id` — child spec ID (defaults to `:name`, then module)
-    * `:handlers` — map of handler name → function for `beam.call`/`beam.callSync`
-    * `:script` — path to a JS file evaluated on startup
+    * `:handlers` — map of handler name → function for `Beam.call`/`Beam.callSync`
+    * `:script` — path to a JS/TS file evaluated on startup. TypeScript files
+      are automatically transformed. Files with `import` statements are
+      automatically bundled — imports are resolved from the filesystem and
+      `node_modules/`, then compiled into a single script via OXC.
     * `:memory_limit` — maximum JS heap in bytes (default: 256 MB)
     * `:max_stack_size` — maximum JS call stack in bytes (default: 1 MB)
 
@@ -64,7 +67,7 @@ defmodule QuickBEAM do
   ## Options
 
     * `:name` — register the GenServer under this name
-    * `:handlers` — `%{String.t() => function}` map for `beam.call`/`beam.callSync`
+    * `:handlers` — `%{String.t() => function}` map for `Beam.call`/`Beam.callSync`
     * `:script` — path to a JS file to evaluate on startup
     * `:memory_limit` — maximum JS heap in bytes (default: 256 MB)
     * `:max_stack_size` — maximum JS call stack in bytes (default: 1 MB)
@@ -214,7 +217,7 @@ defmodule QuickBEAM do
   @doc """
   Send a message to the runtime's JS handler.
 
-  The message is delivered to the callback registered via `Process.onMessage`
+  The message is delivered to the callback registered via `Beam.onMessage`
   in JS. If no handler is registered, the message is silently discarded.
   """
   @spec send_message(runtime(), term()) :: :ok

@@ -31,7 +31,7 @@ class EventSource extends EventTarget {
     this.url = url
     this.#id = String(Math.random()).slice(2)
     eventSourceRegistry.set(this.#id, this)
-    this.#taskPid = beam.callSync('__eventsource_open', url, this.#id)
+    this.#taskPid = Beam.callSync('__eventsource_open', url, this.#id)
   }
 
   get lastEventId(): string {
@@ -43,7 +43,7 @@ class EventSource extends EventTarget {
     this.readyState = 2
     eventSourceRegistry.delete(this.#id)
     if (this.#taskPid) {
-      void beam.call('__eventsource_close', this.#taskPid)
+      void Beam.call('__eventsource_close', this.#taskPid)
     }
   }
 

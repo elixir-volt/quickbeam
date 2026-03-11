@@ -3,14 +3,14 @@ const SPAM_PATTERNS = [
   /viagra/i, /\$\$\$/i, /act now/i,
 ];
 
-Process.onMessage((post) => {
+Beam.onMessage((post) => {
   const text = post.title + " " + post.body;
   const spam_score = SPAM_PATTERNS.reduce(
     (score, pat) => score + (pat.test(text) ? 1 : 0),
     0,
   );
 
-  beam.callSync("forward", "enricher", {
+  Beam.callSync("forward", "enricher", {
     ...post,
     spam_score,
     is_spam: spam_score >= 2,

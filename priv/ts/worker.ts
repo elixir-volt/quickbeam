@@ -16,7 +16,7 @@ class Worker extends EventTarget {
 
   constructor(script: string) {
     super()
-    this.#pid = beam.callSync('__worker_spawn', script)
+    this.#pid = Beam.callSync('__worker_spawn', script)
     const pidKey = JSON.stringify(this.#pid)
     workerRegistry.set(pidKey, this)
   }
@@ -37,7 +37,7 @@ class Worker extends EventTarget {
 
   postMessage(data: unknown): void {
     if (this.#terminated) throw new DOMException('Worker has been terminated', 'InvalidStateError')
-    beam.send(this.#pid, ['__worker_msg', data])
+    Beam.send(this.#pid, ['__worker_msg', data])
   }
 
   terminate(): void {
@@ -45,7 +45,7 @@ class Worker extends EventTarget {
     this.#terminated = true
     const pidKey = JSON.stringify(this.#pid)
     workerRegistry.delete(pidKey)
-    void beam.call('__worker_terminate', this.#pid)
+    void Beam.call('__worker_terminate', this.#pid)
   }
 
   _dispatch(data: unknown): void {

@@ -12,14 +12,14 @@ const compressionImpl: CompressionAPI = {
     if (!FORMATS.includes(format)) {
       throw new TypeError(`Unsupported format: ${format}`)
     }
-    return beam.callSync('__compress', format, toUint8Array(data)) as Uint8Array
+    return Beam.callSync('__compress', format, toUint8Array(data)) as Uint8Array
   },
 
   decompress(format: CompressionFormat, data: Uint8Array): Uint8Array {
     if (!FORMATS.includes(format)) {
       throw new TypeError(`Unsupported format: ${format}`)
     }
-    return beam.callSync('__decompress', format, toUint8Array(data)) as Uint8Array
+    return Beam.callSync('__decompress', format, toUint8Array(data)) as Uint8Array
   }
 }
 

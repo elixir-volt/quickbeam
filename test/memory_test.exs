@@ -163,17 +163,17 @@ defmodule QuickBEAM.MemoryTest do
       QuickBEAM.stop(rt)
     end
 
-    test "beam.call cycle does not leak" do
+    test "Beam.call cycle does not leak" do
       {:ok, rt} = QuickBEAM.start(handlers: %{"test" => fn args -> {:ok, args} end})
 
-      for _ <- 1..10, do: QuickBEAM.eval(rt, "await beam.call('test', 42)")
+      for _ <- 1..10, do: QuickBEAM.eval(rt, "await Beam.call('test', 42)")
       :erlang.garbage_collect()
       Process.sleep(50)
 
       mem_before = :erlang.memory(:total)
 
       for _ <- 1..1000 do
-        QuickBEAM.eval(rt, "await beam.call('test', 'hello')")
+        QuickBEAM.eval(rt, "await Beam.call('test', 'hello')")
       end
 
       :erlang.garbage_collect()

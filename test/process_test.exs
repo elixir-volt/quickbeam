@@ -7,19 +7,19 @@ defmodule QuickBEAM.ProcessTest do
     %{rt: rt}
   end
 
-  describe "beam.self()" do
+  describe "Beam.self()" do
     test "returns the owner GenServer PID", %{rt: rt} do
-      {:ok, result} = QuickBEAM.eval(rt, "beam.self()")
+      {:ok, result} = QuickBEAM.eval(rt, "Beam.self()")
       assert is_pid(result)
       assert result == rt
     end
   end
 
-  describe "Process.onMessage" do
+  describe "Beam.onMessage" do
     test "receives messages from Elixir", %{rt: rt} do
       QuickBEAM.eval(rt, """
       globalThis.messages = [];
-      Process.onMessage((msg) => {
+      Beam.onMessage((msg) => {
         globalThis.messages.push(msg);
       });
       """)
@@ -36,14 +36,14 @@ defmodule QuickBEAM.ProcessTest do
     test "replaces previous handler", %{rt: rt} do
       QuickBEAM.eval(rt, """
       globalThis.result = [];
-      Process.onMessage((msg) => { globalThis.result.push("first:" + msg); });
+      Beam.onMessage((msg) => { globalThis.result.push("first:" + msg); });
       """)
 
       QuickBEAM.send_message(rt, "a")
       Process.sleep(30)
 
       QuickBEAM.eval(rt, """
-      Process.onMessage((msg) => { globalThis.result.push("second:" + msg); });
+      Beam.onMessage((msg) => { globalThis.result.push("second:" + msg); });
       """)
 
       QuickBEAM.send_message(rt, "b")
@@ -66,7 +66,7 @@ defmodule QuickBEAM.ProcessTest do
 
       QuickBEAM.eval(rt, """
       globalThis.received = [];
-      Process.onMessage((msg) => {
+      Beam.onMessage((msg) => {
         globalThis.received.push(msg);
       });
       """)
@@ -74,7 +74,7 @@ defmodule QuickBEAM.ProcessTest do
       task =
         Task.async(fn ->
           QuickBEAM.eval(rt, """
-          const result = await beam.call("slow_call");
+          const result = await Beam.call("slow_call");
           result;
           """)
         end)
@@ -99,7 +99,7 @@ defmodule QuickBEAM.ProcessTest do
 
     test "handler errors don't crash the runtime", %{rt: rt} do
       QuickBEAM.eval(rt, """
-      Process.onMessage((msg) => {
+      Beam.onMessage((msg) => {
         throw new Error("handler error");
       });
       """)
@@ -112,16 +112,16 @@ defmodule QuickBEAM.ProcessTest do
     end
 
     test "requires a function argument", %{rt: rt} do
-      {:error, error} = QuickBEAM.eval(rt, "Process.onMessage('not a function')")
+      {:error, error} = QuickBEAM.eval(rt, "Beam.onMessage('not a function')")
       assert error.message =~ "function"
     end
   end
 
-  describe "beam.send" do
+  describe "Beam.send" do
     test "sends a message to a BEAM process", %{rt: rt} do
       QuickBEAM.eval(rt, """
       globalThis.targetPid = null;
-      Process.onMessage((msg) => {
+      Beam.onMessage((msg) => {
         globalThis.targetPid = msg;
       });
       """)
@@ -131,15 +131,15 @@ defmodule QuickBEAM.ProcessTest do
       Process.sleep(30)
 
       # Now JS sends a message back to us
-      QuickBEAM.eval(rt, "beam.send(globalThis.targetPid, {from: 'js', value: 42})")
+      QuickBEAM.eval(rt, "Beam.send(globalThis.targetPid, {from: 'js', value: 42})")
 
       assert_receive %{"from" => "js", "value" => 42}, 1000
     end
 
     test "sends complex data types", %{rt: rt} do
       QuickBEAM.eval(rt, """
-      Process.onMessage((pid) => {
-        beam.send(pid, [1, "hello", true, null, {nested: "value"}]);
+      Beam.onMessage((pid) => {
+        Beam.send(pid, [1, "hello", true, null, {nested: "value"}]);
       });
       """)
 
@@ -148,12 +148,12 @@ defmodule QuickBEAM.ProcessTest do
     end
 
     test "requires pid and message arguments", %{rt: rt} do
-      {:error, error} = QuickBEAM.eval(rt, "beam.send()")
+      {:error, error} = QuickBEAM.eval(rt, "Beam.send()")
       assert error.message =~ "pid and a message"
     end
 
     test "throws on invalid PID", %{rt: rt} do
-      {:error, error} = QuickBEAM.eval(rt, "beam.send('not_a_pid', 'hello')")
+      {:error, error} = QuickBEAM.eval(rt, "Beam.send('not_a_pid', 'hello')")
       assert error.message =~ "PID"
     end
   end
@@ -165,9 +165,9 @@ defmodule QuickBEAM.ProcessTest do
       QuickBEAM.eval(rt, """
         globalThis.downFired = false;
         globalThis.downReason = null;
-        Process.onMessage((msg) => {
+        Beam.onMessage((msg) => {
           if (msg.action === "monitor") {
-            Process.monitor(msg.pid, (reason) => {
+            Beam.monitor(msg.pid, (reason) => {
               globalThis.downFired = true;
               globalThis.downReason = reason;
             });
@@ -191,8 +191,8 @@ defmodule QuickBEAM.ProcessTest do
 
       QuickBEAM.eval(rt, """
         globalThis.downReason = null;
-        Process.onMessage((msg) => {
-          Process.monitor(msg, (reason) => {
+        Beam.onMessage((msg) => {
+          Beam.monitor(msg, (reason) => {
             globalThis.downReason = reason;
           });
         });
@@ -209,8 +209,8 @@ defmodule QuickBEAM.ProcessTest do
 
       QuickBEAM.eval(rt, """
         globalThis.monRef = null;
-        Process.onMessage((pid) => {
-          globalThis.monRef = Process.monitor(pid, () => {});
+        Beam.onMessage((pid) => {
+          globalThis.monRef = Beam.monitor(pid, () => {});
         });
       """)
 
@@ -227,11 +227,11 @@ defmodule QuickBEAM.ProcessTest do
 
       QuickBEAM.eval(rt, """
         globalThis.downFired = false;
-        Process.onMessage((pid) => {
-          const ref = Process.monitor(pid, () => {
+        Beam.onMessage((pid) => {
+          const ref = Beam.monitor(pid, () => {
             globalThis.downFired = true;
           });
-          Process.demonitor(ref);
+          Beam.demonitor(ref);
         });
       """)
 
@@ -247,8 +247,8 @@ defmodule QuickBEAM.ProcessTest do
 
       QuickBEAM.eval(rt, """
         globalThis.downs = [];
-        Process.onMessage((msg) => {
-          Process.monitor(msg.pid, (reason) => {
+        Beam.onMessage((msg) => {
+          Beam.monitor(msg.pid, (reason) => {
             globalThis.downs.push(msg.name);
           });
         });
@@ -263,17 +263,17 @@ defmodule QuickBEAM.ProcessTest do
       assert "second" in downs
     end
 
-    test "Process.onMessage still works alongside monitors", %{rt: rt} do
+    test "Beam.onMessage still works alongside monitors", %{rt: rt} do
       pid = spawn(fn -> Process.sleep(50) end)
 
       QuickBEAM.eval(rt, """
         globalThis.regularMessages = [];
         globalThis.downFired = false;
-        Process.onMessage((msg) => {
+        Beam.onMessage((msg) => {
           if (typeof msg === "string") {
             globalThis.regularMessages.push(msg);
           } else {
-            Process.monitor(msg, () => { globalThis.downFired = true; });
+            Beam.monitor(msg, () => { globalThis.downFired = true; });
           }
         });
       """)
@@ -301,7 +301,7 @@ defmodule QuickBEAM.ProcessTest do
 
       QuickBEAM.eval(rt, """
       globalThis.storedPid = null;
-      Process.onMessage((msg) => {
+      Beam.onMessage((msg) => {
         globalThis.storedPid = msg;
       });
       """)

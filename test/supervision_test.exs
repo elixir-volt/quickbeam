@@ -87,7 +87,7 @@ defmodule QuickBEAM.SupervisionTest do
 
       {:ok, sup} = Supervisor.start_link(children, strategy: :one_for_one)
 
-      assert {:ok, 7} = QuickBEAM.eval(:handler_rt, "await beam.call('add', 3, 4)")
+      assert {:ok, 7} = QuickBEAM.eval(:handler_rt, "await Beam.call('add', 3, 4)")
 
       Supervisor.stop(sup)
     end

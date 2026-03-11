@@ -35,7 +35,7 @@ class WebSocket extends EventTarget {
     let protoArray: string[] = []
     if (typeof protocols === 'string') protoArray = [protocols]
     else if (protocols) protoArray = protocols
-    this.#id = beam.callSync('__ws_connect', url, protoArray) as string
+    this.#id = Beam.callSync('__ws_connect', url, protoArray) as string
   }
 
   get readyState(): number {
@@ -76,7 +76,7 @@ class WebSocket extends EventTarget {
       payload = JSON.stringify(data)
     }
 
-    void beam.call('__ws_send', this.#id, payload)
+    void Beam.call('__ws_send', this.#id, payload)
   }
 
   close(code?: number, reason?: string): void {
@@ -90,7 +90,7 @@ class WebSocket extends EventTarget {
     }
 
     this.#readyState = WebSocket.CLOSING
-    void beam.call('__ws_close', this.#id, code ?? 1000, reason ?? '')
+    void Beam.call('__ws_close', this.#id, code ?? 1000, reason ?? '')
   }
 
   [SYM_HANDLE_EVENT](
