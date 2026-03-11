@@ -17,6 +17,7 @@ typedef struct lxb_dom_collection lxb_dom_collection_t;
 typedef struct lxb_css_parser lxb_css_parser_t;
 typedef struct lxb_css_selector_list lxb_css_selector_list_t;
 typedef struct lxb_selectors lxb_selectors_t;
+typedef struct lxb_css_rule_declaration_list lxb_css_rule_declaration_list_t;
 #endif
 
 typedef lxb_status_t
@@ -126,6 +127,25 @@ lxb_status_t qb_selectors_find(lxb_selectors_t *sel,
                                 lxb_dom_node_t *root,
                                 lxb_css_selector_list_t *list,
                                 qb_selector_cb_f cb, void *ctx);
+
+lxb_css_rule_declaration_list_t *qb_css_parse_declarations(lxb_css_parser_t *parser,
+                                                            const lxb_char_t *data,
+                                                            size_t length);
+
+char *qb_css_declarations_serialize(lxb_css_rule_declaration_list_t *list,
+                                     size_t *out_len);
+
+char *qb_css_declaration_get_property(lxb_css_rule_declaration_list_t *list,
+                                       const lxb_char_t *name, size_t name_len,
+                                       size_t *out_len);
+
+char *qb_css_declaration_get_priority(lxb_css_rule_declaration_list_t *list,
+                                       const lxb_char_t *name, size_t name_len,
+                                       size_t *out_len);
+
+void qb_css_declarations_destroy(lxb_css_rule_declaration_list_t *list);
+
+void qb_css_free_string(char *str);
 
 #define QB_NODE_TYPE_ELEMENT            1
 #define QB_NODE_TYPE_TEXT               3

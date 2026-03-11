@@ -7,6 +7,131 @@ defmodule QuickBEAM.DOMExtendedTest do
     %{runtime: runtime}
   end
 
+  describe "element.style" do
+    test "setProperty and getPropertyValue", %{runtime: rt} do
+      assert {:ok, "red"} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          el.style.setProperty('color', 'red');
+          return el.style.getPropertyValue('color');
+        })()
+      """)
+    end
+
+    test "camelCase property access", %{runtime: rt} do
+      assert {:ok, result} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          el.style.backgroundColor = 'blue';
+          return {
+            get: el.style.backgroundColor,
+            attr: el.getAttribute('style')
+          };
+        })()
+      """)
+      assert result["get"] == "blue"
+      assert result["attr"] =~ "background-color"
+      assert result["attr"] =~ "blue"
+    end
+
+    test "cssText getter roundtrips", %{runtime: rt} do
+      assert {:ok, css} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          el.setAttribute('style', 'color: red; display: flex');
+          return el.style.cssText;
+        })()
+      """)
+      assert css =~ "color"
+      assert css =~ "red"
+      assert css =~ "display"
+      assert css =~ "flex"
+    end
+
+    test "cssText setter", %{runtime: rt} do
+      assert {:ok, "green"} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          el.style.cssText = 'color: green';
+          return el.style.getPropertyValue('color');
+        })()
+      """)
+    end
+
+    test "removeProperty", %{runtime: rt} do
+      assert {:ok, result} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          el.style.setProperty('color', 'red');
+          el.style.setProperty('display', 'flex');
+          const old = el.style.removeProperty('color');
+          return { old, remaining: el.getAttribute('style') };
+        })()
+      """)
+      assert result["old"] == "red"
+      refute result["remaining"] =~ "color"
+      assert result["remaining"] =~ "display"
+    end
+
+    test "getPropertyPriority", %{runtime: rt} do
+      assert {:ok, "important"} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          el.style.setProperty('color', 'red', 'important');
+          return el.style.getPropertyPriority('color');
+        })()
+      """)
+    end
+
+    test "length and item", %{runtime: rt} do
+      assert {:ok, result} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          el.setAttribute('style', 'color: red; display: flex');
+          return { len: el.style.length, first: el.style.item(0) };
+        })()
+      """)
+      assert result["len"] == 2
+      assert result["first"] in ["color", "display"]
+    end
+
+    test "style persists on DOM element", %{runtime: rt} do
+      assert {:ok, "red"} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          el.style.color = 'red';
+          document.body.appendChild(el);
+          return document.body.firstChild.style.getPropertyValue('color');
+        })()
+      """)
+    end
+
+    test "empty style returns empty string", %{runtime: rt} do
+      assert {:ok, ""} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          return el.style.getPropertyValue('color');
+        })()
+      """)
+    end
+  end
+
+  describe "getComputedStyle" do
+    test "returns style declaration", %{runtime: rt} do
+      assert {:ok, "red"} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          el.style.color = 'red';
+          return getComputedStyle(el).getPropertyValue('color');
+        })()
+      """)
+    end
+
+    test "exists as global function", %{runtime: rt} do
+      assert {:ok, "function"} = QuickBEAM.eval(rt, "typeof getComputedStyle")
+    end
+  end
+
   describe "createElementNS" do
     test "creates SVG element", %{runtime: rt} do
       assert {:ok, "svg"} = QuickBEAM.eval(rt, """
