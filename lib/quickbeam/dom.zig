@@ -858,6 +858,73 @@ fn el_set_class_name(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, argv: [*
     return js.js_undefined();
 }
 
+// ──────────────────── CSS style helpers (called from JS CSSStyleDeclaration) ────────────────────
+
+fn css_get_property(ctx: ?*qjs.JSContext, _: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    if (argc < 2) return qjs.JS_NewStringLen(ctx, "", 0);
+    const dd = get_document_data(ctx.?) orelse return qjs.JS_NewStringLen(ctx, "", 0);
+    const style_str = str_arg(ctx, argv, 0) orelse return qjs.JS_NewStringLen(ctx, "", 0);
+    defer free_str(ctx, style_str.ptr);
+    const prop_name = str_arg(ctx, argv, 1) orelse return qjs.JS_NewStringLen(ctx, "", 0);
+    defer free_str(ctx, prop_name.ptr);
+
+    const decls = lxb.qb_css_parse_declarations(dd.css_parser, to_lxb(style_str), style_str.len);
+    if (decls == null) return qjs.JS_NewStringLen(ctx, "", 0);
+    defer lxb.qb_css_declarations_destroy(decls);
+
+    var out_len: usize = 0;
+    const result = lxb.qb_css_declaration_get_property(decls, to_lxb(prop_name), prop_name.len, &out_len);
+    if (result == null) return qjs.JS_NewStringLen(ctx, "", 0);
+    defer lxb.qb_css_free_string(result);
+    return qjs.JS_NewStringLen(ctx, result, out_len);
+}
+
+fn css_get_priority(ctx: ?*qjs.JSContext, _: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    if (argc < 2) return qjs.JS_NewStringLen(ctx, "", 0);
+    const dd = get_document_data(ctx.?) orelse return qjs.JS_NewStringLen(ctx, "", 0);
+    const style_str = str_arg(ctx, argv, 0) orelse return qjs.JS_NewStringLen(ctx, "", 0);
+    defer free_str(ctx, style_str.ptr);
+    const prop_name = str_arg(ctx, argv, 1) orelse return qjs.JS_NewStringLen(ctx, "", 0);
+    defer free_str(ctx, prop_name.ptr);
+
+    const decls = lxb.qb_css_parse_declarations(dd.css_parser, to_lxb(style_str), style_str.len);
+    if (decls == null) return qjs.JS_NewStringLen(ctx, "", 0);
+    defer lxb.qb_css_declarations_destroy(decls);
+
+    var out_len: usize = 0;
+    const result = lxb.qb_css_declaration_get_priority(decls, to_lxb(prop_name), prop_name.len, &out_len);
+    if (result == null) return qjs.JS_NewStringLen(ctx, "", 0);
+    defer lxb.qb_css_free_string(result);
+    return qjs.JS_NewStringLen(ctx, result, out_len);
+}
+
+fn css_serialize_declarations(ctx: ?*qjs.JSContext, _: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    if (argc < 1) return qjs.JS_NewStringLen(ctx, "", 0);
+    const dd = get_document_data(ctx.?) orelse return qjs.JS_NewStringLen(ctx, "", 0);
+    const style_str = str_arg(ctx, argv, 0) orelse return qjs.JS_NewStringLen(ctx, "", 0);
+    defer free_str(ctx, style_str.ptr);
+
+    const decls = lxb.qb_css_parse_declarations(dd.css_parser, to_lxb(style_str), style_str.len);
+    if (decls == null) return qjs.JS_NewStringLen(ctx, "", 0);
+    defer lxb.qb_css_declarations_destroy(decls);
+
+    var out_len: usize = 0;
+    const result = lxb.qb_css_declarations_serialize(decls, &out_len);
+    if (result == null) return qjs.JS_NewStringLen(ctx, "", 0);
+    defer lxb.qb_css_free_string(result);
+    return qjs.JS_NewStringLen(ctx, result, out_len);
+}
+
+fn el_get_style(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    const global = qjs.JS_GetGlobalObject(ctx);
+    defer qjs.JS_FreeValue(ctx, global);
+    const helper = qjs.JS_GetPropertyStr(ctx, global, "__qb_get_style");
+    defer qjs.JS_FreeValue(ctx, helper);
+    if (!qjs.JS_IsFunction(ctx, helper)) return qjs.JS_NewObject(ctx);
+    var args = [_]qjs.JSValue{this};
+    return qjs.JS_Call(ctx, helper, global, 1, &args);
+}
+
 fn el_get_class_list(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
     const global = qjs.JS_GetGlobalObject(ctx);
     defer qjs.JS_FreeValue(ctx, global);
@@ -962,6 +1029,9 @@ fn install_element_proto(ctx: *qjs.JSContext, obj: qjs.JSValue) void {
     // classList — delegates to JS-side DOMTokenList via __qb_get_class_list
     define_getter(ctx, obj, "classList", &el_get_class_list);
 
+    // style — delegates to JS-side CSSStyleDeclaration via __qb_get_style
+    define_getter(ctx, obj, "style", &el_get_style);
+
     // Read-only properties
     define_getter(ctx, obj, "tagName", &el_get_tag_name);
     define_getter(ctx, obj, "nodeName", &el_get_node_name);
@@ -1062,6 +1132,12 @@ pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue) ?*DocumentData {
     define_getter(ctx, doc_obj, "documentElement", &doc_get_document_element);
 
     _ = qjs.JS_SetPropertyStr(ctx, global, "document", doc_obj);
+
+    // CSS style helpers (called from CSSStyleDeclaration in style.ts)
+    _ = qjs.JS_SetPropertyStr(ctx, global, "__qb_css_get_property", qjs.JS_NewCFunction(ctx, &css_get_property, "__qb_css_get_property", 2));
+    _ = qjs.JS_SetPropertyStr(ctx, global, "__qb_css_get_priority", qjs.JS_NewCFunction(ctx, &css_get_priority, "__qb_css_get_priority", 2));
+    _ = qjs.JS_SetPropertyStr(ctx, global, "__qb_css_serialize", qjs.JS_NewCFunction(ctx, &css_serialize_declarations, "__qb_css_serialize", 1));
+
     return dd;
 }
 

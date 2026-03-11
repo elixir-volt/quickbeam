@@ -1,3 +1,6 @@
+#include <stdlib.h>
+#include <string.h>
+
 #include "lexbor/html/parser.h"
 #include "lexbor/html/serialize.h"
 #include "lexbor/html/interfaces/document.h"
@@ -8,6 +11,7 @@
 #include "lexbor/dom/interfaces/node.h"
 #include "lexbor/dom/collection.h"
 #include "lexbor/css/css.h"
+#include "lexbor/css/declaration.h"
 #include "lexbor/selectors/selectors.h"
 
 #include "lexbor_bridge.h"
@@ -305,4 +309,142 @@ lxb_status_t qb_selectors_find(lxb_selectors_t *sel,
                                 qb_selector_cb_f cb, void *ctx) {
     return lxb_selectors_find(sel, root, list,
                               (lxb_selectors_cb_f)cb, ctx);
+}
+
+typedef struct {
+    char   *data;
+    size_t len;
+    size_t cap;
+} qb_strbuf_t;
+
+static lxb_status_t qb_strbuf_cb(const lxb_char_t *data, size_t len, void *ctx) {
+    qb_strbuf_t *buf = (qb_strbuf_t *)ctx;
+    size_t need = buf->len + len;
+    if (need >= buf->cap) {
+        size_t new_cap = (need + 1) * 2;
+        char *new_data = realloc(buf->data, new_cap);
+        if (!new_data) return LXB_STATUS_ERROR_MEMORY_ALLOCATION;
+        buf->data = new_data;
+        buf->cap = new_cap;
+    }
+    memcpy(buf->data + buf->len, data, len);
+    buf->len += len;
+    buf->data[buf->len] = '\0';
+    return LXB_STATUS_OK;
+}
+
+lxb_css_rule_declaration_list_t *qb_css_parse_declarations(lxb_css_parser_t *parser,
+                                                            const lxb_char_t *data,
+                                                            size_t length) {
+    if (parser->memory == NULL) {
+        parser->memory = lxb_css_memory_create();
+        if (parser->memory == NULL) return NULL;
+        if (lxb_css_memory_init(parser->memory, 128) != LXB_STATUS_OK) {
+            (void)lxb_css_memory_destroy(parser->memory, true);
+            parser->memory = NULL;
+            return NULL;
+        }
+    }
+    return lxb_css_declaration_list_parse(parser, data, length);
+}
+
+char *qb_css_declarations_serialize(lxb_css_rule_declaration_list_t *list,
+                                     size_t *out_len) {
+    qb_strbuf_t buf = {NULL, 0, 0};
+    buf.data = malloc(64);
+    if (!buf.data) return NULL;
+    buf.cap = 64;
+    buf.data[0] = '\0';
+
+    lxb_status_t status = lxb_css_rule_declaration_list_serialize(list,
+                                                                   qb_strbuf_cb, &buf);
+    if (status != LXB_STATUS_OK) {
+        free(buf.data);
+        return NULL;
+    }
+    if (out_len) *out_len = buf.len;
+    return buf.data;
+}
+
+static lxb_css_rule_declaration_t *
+qb_find_declaration(lxb_css_rule_declaration_list_t *list,
+                     const lxb_char_t *name, size_t name_len) {
+    const lxb_css_entry_data_t *entry = lxb_css_property_by_name(name, name_len);
+    lxb_css_rule_t *rule = list->first;
+
+    if (entry) {
+        while (rule) {
+            if (rule->type == LXB_CSS_RULE_DECLARATION) {
+                lxb_css_rule_declaration_t *decl = lxb_css_rule_declaration(rule);
+                if (decl->type == entry->unique) return decl;
+            }
+            rule = rule->next;
+        }
+    } else {
+        while (rule) {
+            if (rule->type == LXB_CSS_RULE_DECLARATION) {
+                lxb_css_rule_declaration_t *decl = lxb_css_rule_declaration(rule);
+                if (decl->type == LXB_CSS_PROPERTY__CUSTOM) {
+                    lxb_css_property__custom_t *custom = decl->u.custom;
+                    if (custom && custom->name.length == name_len &&
+                        memcmp(custom->name.data, name, name_len) == 0) {
+                        return decl;
+                    }
+                }
+            }
+            rule = rule->next;
+        }
+    }
+    return NULL;
+}
+
+char *qb_css_declaration_get_property(lxb_css_rule_declaration_list_t *list,
+                                       const lxb_char_t *name, size_t name_len,
+                                       size_t *out_len) {
+    lxb_css_rule_declaration_t *decl = qb_find_declaration(list, name, name_len);
+    if (!decl) {
+        if (out_len) *out_len = 0;
+        return NULL;
+    }
+
+    qb_strbuf_t buf = {NULL, 0, 0};
+    buf.data = malloc(64);
+    if (!buf.data) return NULL;
+    buf.cap = 64;
+    buf.data[0] = '\0';
+
+    lxb_status_t status = lxb_css_property_serialize(decl->u.user, decl->type,
+                                                      qb_strbuf_cb, &buf);
+    if (status != LXB_STATUS_OK) {
+        free(buf.data);
+        return NULL;
+    }
+    if (out_len) *out_len = buf.len;
+    return buf.data;
+}
+
+char *qb_css_declaration_get_priority(lxb_css_rule_declaration_list_t *list,
+                                       const lxb_char_t *name, size_t name_len,
+                                       size_t *out_len) {
+    lxb_css_rule_declaration_t *decl = qb_find_declaration(list, name, name_len);
+    if (decl && decl->important) {
+        const char *imp = "important";
+        size_t len = 9;
+        char *s = malloc(len + 1);
+        if (!s) return NULL;
+        memcpy(s, imp, len);
+        s[len] = '\0';
+        if (out_len) *out_len = len;
+        return s;
+    }
+    if (out_len) *out_len = 0;
+    return NULL;
+}
+
+void qb_css_declarations_destroy(lxb_css_rule_declaration_list_t *list) {
+    lxb_css_rule_declaration_list_destroy(list, true);
+}
+
+void qb_css_free_string(char *str) {
+    free(str);
 }
