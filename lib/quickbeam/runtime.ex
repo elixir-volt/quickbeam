@@ -103,7 +103,7 @@ defmodule QuickBEAM.Runtime do
     GenServer.call(server, :dom_html, :infinity)
   end
 
-  @builtin_handlers %{
+  @browser_handlers %{
     "__url_parse" => &QuickBEAM.URL.parse/1,
     "__url_recompose" => &QuickBEAM.URL.recompose/1,
     "__url_dissect_query" => &QuickBEAM.URL.dissect_query/1,
@@ -121,7 +121,6 @@ defmodule QuickBEAM.Runtime do
     "__buffer_encode" => &QuickBEAM.Buffer.encode/1,
     "__buffer_decode" => &QuickBEAM.Buffer.decode/1,
     "__buffer_byte_length" => &QuickBEAM.Buffer.byte_length/1,
-    # {:with_caller, fun/2} — receives [args, caller_pid] instead of [args]
     "__broadcast_join" => {:with_caller, &QuickBEAM.BroadcastChannel.join/2},
     "__broadcast_post" => {:with_caller, &QuickBEAM.BroadcastChannel.post/2},
     "__broadcast_leave" => {:with_caller, &QuickBEAM.BroadcastChannel.leave/2},
@@ -140,59 +139,109 @@ defmodule QuickBEAM.Runtime do
     "__eventsource_close" => &QuickBEAM.EventSource.close/1
   }
 
+  @node_handlers %{
+    "__process_env_get" => &QuickBEAM.NodeProcess.env_get/1,
+    "__process_env_set" => &QuickBEAM.NodeProcess.env_set/1,
+    "__process_env_delete" => &QuickBEAM.NodeProcess.env_delete/1,
+    "__process_env_keys" => &QuickBEAM.NodeProcess.env_keys/1,
+    "__process_platform" => &QuickBEAM.NodeProcess.platform/1,
+    "__process_arch" => &QuickBEAM.NodeProcess.arch/1,
+    "__process_pid" => &QuickBEAM.NodeProcess.pid/1,
+    "__process_cwd" => &QuickBEAM.NodeProcess.cwd/1,
+    "__console_write" => &QuickBEAM.NodeProcess.console_write/1,
+    "__fs_read_file" => &QuickBEAM.NodeFS.read_file/1,
+    "__fs_write_file" => &QuickBEAM.NodeFS.write_file/1,
+    "__fs_append_file" => &QuickBEAM.NodeFS.append_file/1,
+    "__fs_exists" => &QuickBEAM.NodeFS.exists/1,
+    "__fs_mkdir" => &QuickBEAM.NodeFS.mkdir/1,
+    "__fs_readdir" => &QuickBEAM.NodeFS.readdir/1,
+    "__fs_stat" => &QuickBEAM.NodeFS.stat/1,
+    "__fs_lstat" => &QuickBEAM.NodeFS.lstat/1,
+    "__fs_unlink" => &QuickBEAM.NodeFS.unlink/1,
+    "__fs_rename" => &QuickBEAM.NodeFS.rename/1,
+    "__fs_rm" => &QuickBEAM.NodeFS.rm/1,
+    "__fs_copy_file" => &QuickBEAM.NodeFS.copy_file/1,
+    "__fs_realpath" => &QuickBEAM.NodeFS.realpath/1,
+    "__os_platform" => &QuickBEAM.NodeOS.platform/1,
+    "__os_arch" => &QuickBEAM.NodeOS.arch/1,
+    "__os_hostname" => &QuickBEAM.NodeOS.hostname/1,
+    "__os_release" => &QuickBEAM.NodeOS.release/1,
+    "__os_homedir" => &QuickBEAM.NodeOS.homedir/1,
+    "__os_tmpdir" => &QuickBEAM.NodeOS.tmpdir/1,
+    "__os_cpu_count" => &QuickBEAM.NodeOS.cpu_count/1,
+    "__os_totalmem" => &QuickBEAM.NodeOS.totalmem/1,
+    "__os_freemem" => &QuickBEAM.NodeOS.freemem/1,
+    "__os_uptime" => &QuickBEAM.NodeOS.uptime/1
+  }
+
   @ts_dir Path.join([__DIR__, "../../priv/ts"]) |> Path.expand()
 
-  # Standalone modules — each is a self-contained TS file, transformed individually
-  @standalone_modules ~w[url crypto-subtle compression buffer process]
+  # Register @external_resource for all TS source files
+  for ts <- Path.wildcard(Path.join(@ts_dir, "*.ts")),
+      not String.ends_with?(ts, ".d.ts") do
+    @external_resource ts
+  end
 
-  # Web-APIs bundle — barrel file that imports from 16+ internal modules
-  @web_apis_barrel "web-apis.ts"
+  defmodule Compiler do
+    @moduledoc false
 
-  @builtin_js (
-                # Register @external_resource for all TS source files
-                for ts <- Path.wildcard(Path.join(@ts_dir, "*.ts")),
-                    not String.ends_with?(ts, ".d.ts") do
-                  @external_resource ts
-                end
+    def standalone(ts_dir, names) do
+      for name <- names do
+        path = Path.join(ts_dir, "#{name}.ts")
+        source = File.read!(path)
 
-                # 1. Transform standalone modules (single-file, no imports)
-                standalone =
-                  for name <- @standalone_modules do
-                    path = Path.join(@ts_dir, "#{name}.ts")
-                    source = File.read!(path)
+        OXC.transform!(source, Path.basename(path))
+        |> then(&"(() => {\n#{&1}\n})();\n")
+      end
+    end
 
-                    OXC.transform!(source, Path.basename(path))
-                    |> then(&"(() => {\n#{&1}\n})();\n")
-                  end
+    def bundle(ts_dir, barrel) do
+      barrel_source = File.read!(Path.join(ts_dir, barrel))
 
-                # 2. Bundle web-apis (resolves imports, topo-sorts, wraps in IIFE)
-                barrel_source = File.read!(Path.join(@ts_dir, @web_apis_barrel))
+      bundled_names =
+        Regex.scan(~r/from '\.\/([\w-]+)'/, barrel_source)
+        |> Enum.map(fn [_, name] -> name end)
 
-                bundled_names =
-                  Regex.scan(~r/from '\.\/([\w-]+)'/, barrel_source)
-                  |> Enum.map(fn [_, name] -> name end)
+      side_effect_names =
+        Regex.scan(~r/^import '\.\/([\w-]+)'/m, barrel_source)
+        |> Enum.map(fn [_, name] -> name end)
 
-                side_effect_names =
-                  Regex.scan(~r/^import '\.\/([\w-]+)'/m, barrel_source)
-                  |> Enum.map(fn [_, name] -> name end)
+      all_names = Enum.uniq([Path.rootname(barrel) | bundled_names ++ side_effect_names])
 
-                all_bundle_names = Enum.uniq(["web-apis" | bundled_names ++ side_effect_names])
+      files =
+        for name <- all_names do
+          path = Path.join(ts_dir, "#{name}.ts")
+          {"#{name}.ts", File.read!(path)}
+        end
 
-                bundle_files =
-                  for name <- all_bundle_names do
-                    path = Path.join(@ts_dir, "#{name}.ts")
-                    {"#{name}.ts", File.read!(path)}
-                  end
+      OXC.bundle!(files)
+    end
+  end
 
-                web_apis_js = OXC.bundle!(bundle_files)
+  @browser_js Compiler.standalone(@ts_dir, ~w[url crypto-subtle compression buffer process]) ++
+                [Compiler.bundle(@ts_dir, "web-apis.ts")]
 
-                standalone ++ [web_apis_js]
-              )
+  @node_js Compiler.standalone(@ts_dir, ~w[node-process node-path node-fs node-os])
 
   @impl true
   def init(opts) do
-    handlers = Keyword.get(opts, :handlers, %{})
-    merged_handlers = Map.merge(@builtin_handlers, handlers)
+    apis =
+      case Keyword.get(opts, :apis, [:browser]) do
+        false -> []
+        nil -> []
+        api when is_atom(api) -> [api]
+        list when is_list(list) -> list
+      end
+    user_handlers = Keyword.get(opts, :handlers, %{})
+
+    builtin_handlers =
+      Enum.reduce(apis, %{}, fn
+        :browser, acc -> Map.merge(acc, @browser_handlers)
+        :node, acc -> Map.merge(acc, @node_handlers)
+        _, acc -> acc
+      end)
+
+    merged_handlers = builtin_handlers |> Map.merge(user_handlers)
 
     nif_opts =
       opts
@@ -201,7 +250,7 @@ defmodule QuickBEAM.Runtime do
 
     resource = QuickBEAM.Native.start_runtime(self(), nif_opts)
     state = %__MODULE__{resource: resource, handlers: merged_handlers}
-    install_builtins(state)
+    install_builtins(state, apis)
 
     case load_script(state, opts) do
       :ok -> {:ok, state}
@@ -269,9 +318,13 @@ defmodule QuickBEAM.Runtime do
     globalThis.__qb_builtins[k] = true;
   """
 
-  defp install_builtins(state) do
-    for js <- @builtin_js do
-      sync_eval(state.resource, js)
+  defp install_builtins(state, apis) do
+    if :browser in apis do
+      for js <- @browser_js, do: sync_eval(state.resource, js)
+    end
+
+    if :node in apis do
+      for js <- @node_js, do: sync_eval(state.resource, js)
     end
 
     sync_eval(state.resource, @snapshot_builtins_js)
