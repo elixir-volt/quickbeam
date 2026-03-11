@@ -249,7 +249,8 @@ defmodule QuickBEAM.Runtime do
   end
 
   @browser_js Compiler.standalone(@ts_dir, ~w[url crypto-subtle compression buffer process class-list style]) ++
-                [Compiler.bundle(@ts_dir, "web-apis.ts")]
+                [Compiler.bundle(@ts_dir, "web-apis.ts")] ++
+                Compiler.standalone(@ts_dir, ~w[dom-events])
 
   @node_js Compiler.standalone(@ts_dir, ~w[node-process node-path node-fs node-os])
 
