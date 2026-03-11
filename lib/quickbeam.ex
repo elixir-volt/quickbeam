@@ -68,7 +68,12 @@ defmodule QuickBEAM do
 
     * `:name` — register the GenServer under this name
     * `:handlers` — `%{String.t() => function}` map for `Beam.call`/`Beam.callSync`
-    * `:script` — path to a JS file to evaluate on startup
+    * `:script` — path to a JS/TS file to evaluate on startup (auto-bundles imports)
+    * `:apis` — which API surfaces to load (default: `[:browser]`)
+      * `:browser` — Web APIs (fetch, DOM, WebSocket, crypto, streams, …)
+      * `:node` — Node.js compat (process, path, fs, os)
+      * `[:browser, :node]` — both
+      * `false` — bare QuickJS engine, no polyfills
     * `:memory_limit` — maximum JS heap in bytes (default: 256 MB)
     * `:max_stack_size` — maximum JS call stack in bytes (default: 1 MB)
   """

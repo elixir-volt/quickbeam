@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Node.js compatibility APIs** — `process`, `path`, `fs`, `os` backed by OTP
+- **`:apis` option** for `QuickBEAM.start/1` — controls which API surface to load:
+  - `:browser` — Web APIs (default, same as before)
+  - `:node` — Node.js compat
+  - `[:browser, :node]` — both
+  - `false` — bare QuickJS, no polyfills
+
 ## 0.2.0
 
 ### Breaking

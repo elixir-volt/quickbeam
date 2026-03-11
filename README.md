@@ -92,6 +92,49 @@ Supervisor.start_link(children, strategy: :one_for_one)
 The `:script` option loads a JS file at startup. If the runtime crashes,
 the supervisor restarts it with a fresh context and re-evaluates the script.
 
+## API surfaces
+
+QuickBEAM can load browser APIs, Node.js APIs, or both:
+
+```elixir
+# Browser APIs only (default)
+QuickBEAM.start(apis: [:browser])
+
+# Node.js compatibility
+QuickBEAM.start(apis: [:node])
+
+# Both
+QuickBEAM.start(apis: [:browser, :node])
+
+# Bare QuickJS engine — no polyfills
+QuickBEAM.start(apis: false)
+```
+
+## Node.js compatibility
+
+Like Bun, QuickBEAM implements core Node.js APIs. BEAM-specific
+extensions live in the `Beam` namespace.
+
+```elixir
+{:ok, rt} = QuickBEAM.start(apis: [:node])
+
+QuickBEAM.eval(rt, """
+  const data = fs.readFileSync('/etc/hosts', 'utf8');
+  const lines = data.split('\\n').length;
+  lines
+""")
+# => {:ok, 12}
+```
+
+| Module | Coverage |
+|---|---|
+| `process` | `env`, `cwd()`, `platform`, `arch`, `pid`, `argv`, `version`, `nextTick`, `hrtime`, `stdout`, `stderr` |
+| `path` | `join`, `resolve`, `basename`, `dirname`, `extname`, `parse`, `format`, `relative`, `normalize`, `isAbsolute`, `sep`, `delimiter` |
+| `fs` | `readFileSync`, `writeFileSync`, `appendFileSync`, `existsSync`, `mkdirSync`, `readdirSync`, `statSync`, `lstatSync`, `unlinkSync`, `renameSync`, `rmSync`, `copyFileSync`, `realpathSync`, `readFile`, `writeFile` |
+| `os` | `platform()`, `arch()`, `type()`, `hostname()`, `homedir()`, `tmpdir()`, `cpus()`, `totalmem()`, `freemem()`, `uptime()`, `EOL`, `endianness()` |
+
+`process.env` is a live Proxy — reads and writes go to `System.get_env` / `System.put_env`.
+
 ## Resource limits
 
 ```elixir

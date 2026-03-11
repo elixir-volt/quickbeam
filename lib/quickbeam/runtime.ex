@@ -197,16 +197,16 @@ defmodule QuickBEAM.Runtime do
 
     def bundle(ts_dir, barrel) do
       barrel_source = File.read!(Path.join(ts_dir, barrel))
+      {:ok, ast} = OXC.parse(barrel_source, barrel)
 
-      bundled_names =
-        Regex.scan(~r/from '\.\/([\w-]+)'/, barrel_source)
-        |> Enum.map(fn [_, name] -> name end)
+      import_names =
+        ast.body
+        |> Enum.filter(&(&1.type == "ImportDeclaration"))
+        |> Enum.map(& &1.source.value)
+        |> Enum.filter(&String.starts_with?(&1, "./"))
+        |> Enum.map(&String.trim_leading(&1, "./"))
 
-      side_effect_names =
-        Regex.scan(~r/^import '\.\/([\w-]+)'/m, barrel_source)
-        |> Enum.map(fn [_, name] -> name end)
-
-      all_names = Enum.uniq([Path.rootname(barrel) | bundled_names ++ side_effect_names])
+      all_names = Enum.uniq([Path.rootname(barrel) | import_names])
 
       files =
         for name <- all_names do
