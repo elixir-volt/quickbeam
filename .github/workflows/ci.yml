@@ -27,8 +27,6 @@ jobs:
         with:
           version: 0.15.2
 
-      - uses: oven-sh/setup-bun@v2
-
       - name: Cache deps
         uses: actions/cache@v4
         with:
@@ -39,9 +37,8 @@ jobs:
           restore-keys: ${{ runner.os }}-mix-${{ matrix.otp }}-${{ matrix.elixir }}-
 
       - run: mix deps.get
-      - run: bun install
       - run: mix compile --warnings-as-errors
-      - run: mix test
+      - run: mix test --no-start
 
   ubsan:
     name: UBSan + Zig Debug
@@ -62,8 +59,6 @@ jobs:
         with:
           version: 0.15.2
 
-      - uses: oven-sh/setup-bun@v2
-
       - name: Cache deps
         uses: actions/cache@v4
         with:
@@ -74,9 +69,8 @@ jobs:
           restore-keys: ${{ runner.os }}-ubsan-27.0-1.18-
 
       - run: mix deps.get
-      - run: bun install
       - run: mix compile
-      - run: mix test
+      - run: mix test --no-start
 
   asan:
     name: AddressSanitizer
@@ -97,7 +91,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/otp-asan
-          key: otp-asan-${{ env.OTP_VERSION }}-v2
+          key: otp-asan-${{ env.OTP_VERSION }}-v3
 
       - name: Build OTP with ASAN emulator
         if: steps.otp-cache.outputs.cache-hit != 'true'
@@ -172,7 +166,7 @@ jobs:
           mkdir -p /tmp/asan_logs
           export ASAN_OPTIONS="log_path=/tmp/asan_logs/asan:halt_on_error=0:detect_leaks=0"
           export ERL_AFLAGS="-emu_type asan"
-          mix test || true
+          mix test --no-start || true
 
       - name: Report ASAN results
         if: always()
