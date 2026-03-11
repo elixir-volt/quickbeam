@@ -63,6 +63,13 @@ defmodule QuickBEAM.WPT.BlobTest do
                  QuickBEAM.eval(rt, "new Blob([], {type: #{input}}).type")
       end
     end
+
+    test "invalid type characters produce empty type", %{rt: rt} do
+      for type <- ["'\\u00E5'", "'\\t'", "'\\x7f'", "'\\0'"] do
+        assert {:ok, ""} =
+                 QuickBEAM.eval(rt, "new Blob([], {type: #{type}}).type")
+      end
+    end
   end
 
   # ── Blob.slice (Blob-slice.any.js) ──
@@ -119,6 +126,13 @@ defmodule QuickBEAM.WPT.BlobTest do
     test "undefined type becomes empty", %{rt: rt} do
       assert {:ok, ""} =
                QuickBEAM.eval(rt, "new Blob().slice(0, 0, undefined).type")
+    end
+
+    test "invalid slice type produces empty type", %{rt: rt} do
+      for type <- ["'\\xFF'", "'te\\x09xt/plain'", "'te\\x00xt/plain'"] do
+        assert {:ok, ""} =
+                 QuickBEAM.eval(rt, "new Blob(['PASS']).slice(0, 4, #{type}).type")
+      end
     end
   end
 

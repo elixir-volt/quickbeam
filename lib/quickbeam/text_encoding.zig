@@ -94,6 +94,11 @@ fn text_encoder_encode_into(
 
     const src = @as([*]const u8, @ptrCast(src_ptr))[0..src_len];
 
+    // Per spec, destination must be a Uint8Array
+    if (!is_uint8_array(ctx, argv[1])) {
+        return qjs.JS_ThrowTypeError(ctx, "Second argument must be a Uint8Array");
+    }
+
     var dst_size: usize = 0;
     var dst_offset: usize = 0;
     const dst_buf = get_typed_array_buffer(ctx, argv[1], &dst_offset, &dst_size) orelse
@@ -102,6 +107,7 @@ fn text_encoder_encode_into(
     var read: usize = 0;
     var written: usize = 0;
     var src_idx: usize = 0;
+    const replacement = [_]u8{ 0xEF, 0xBF, 0xBD }; // U+FFFD
 
     while (src_idx < src.len and written < dst_size) {
         const byte = src[src_idx];
@@ -111,6 +117,17 @@ fn text_encoder_encode_into(
             continue;
         }
         if (src_idx + seq_len > src.len) break;
+
+        // Detect lone surrogates encoded as CESU-8 (ED A0..BF xx or ED B0..BF xx)
+        if (seq_len == 3 and byte == 0xED and src_idx + 1 < src.len and src[src_idx + 1] >= 0xA0) {
+            if (written + 3 > dst_size) break;
+            @memcpy(dst_buf[dst_offset + written .. dst_offset + written + 3], &replacement);
+            written += 3;
+            src_idx += seq_len;
+            read += 1;
+            continue;
+        }
+
         if (written + seq_len > dst_size) break;
 
         @memcpy(dst_buf[dst_offset + written .. dst_offset + written + seq_len], src[src_idx .. src_idx + seq_len]);
@@ -161,6 +178,18 @@ fn get_typed_array_buffer(
     return ptr;
 }
 
+fn is_uint8_array(ctx: ?*qjs.JSContext, val: qjs.JSValue) bool {
+    if (!qjs.JS_IsObject(val)) return false;
+    const ctor = qjs.JS_GetPropertyStr(ctx, val, "constructor");
+    defer qjs.JS_FreeValue(ctx, ctor);
+    if (!qjs.JS_IsFunction(ctx, ctor)) return false;
+    const name_val = qjs.JS_GetPropertyStr(ctx, ctor, "name");
+    defer qjs.JS_FreeValue(ctx, name_val);
+    const name_ptr = qjs.JS_ToCString(ctx, name_val) orelse return false;
+    defer qjs.JS_FreeCString(ctx, name_ptr);
+    return std.mem.eql(u8, std.mem.span(name_ptr), "Uint8Array");
+}
+
 // ──────────────────── TextDecoder ────────────────────
 
 fn install_text_decoder(ctx: *qjs.JSContext, global: qjs.JSValue) void {
@@ -196,10 +225,15 @@ fn text_decoder_ctor(
     }
 
     var fatal = false;
+    var ignore_bom = false;
     if (argc >= 2 and qjs.JS_IsObject(argv[1])) {
         const fatal_val = qjs.JS_GetPropertyStr(ctx, argv[1], "fatal");
         defer qjs.JS_FreeValue(ctx, fatal_val);
         fatal = qjs.JS_ToBool(ctx, fatal_val) != 0;
+
+        const bom_val = qjs.JS_GetPropertyStr(ctx, argv[1], "ignoreBOM");
+        defer qjs.JS_FreeValue(ctx, bom_val);
+        ignore_bom = qjs.JS_ToBool(ctx, bom_val) != 0;
     }
 
     const proto = qjs.JS_GetPropertyStr(ctx, new_target, "prototype");
@@ -208,6 +242,7 @@ fn text_decoder_ctor(
     const obj = qjs.JS_NewObjectProtoClass(ctx, proto, 0);
     _ = qjs.JS_SetPropertyStr(ctx, obj, "encoding", qjs.JS_NewString(ctx, "utf-8"));
     _ = qjs.JS_SetPropertyStr(ctx, obj, "fatal", if (fatal) js.js_true() else js.js_false());
+    _ = qjs.JS_SetPropertyStr(ctx, obj, "ignoreBOM", if (ignore_bom) js.js_true() else js.js_false());
     return obj;
 }
 
@@ -246,6 +281,10 @@ fn text_decoder_decode(
     defer qjs.JS_FreeValue(ctx, fatal_val);
     const fatal = qjs.JS_ToBool(ctx, fatal_val) != 0;
 
+    const ignore_bom_val = qjs.JS_GetPropertyStr(ctx, this, "ignoreBOM");
+    defer qjs.JS_FreeValue(ctx, ignore_bom_val);
+    const ignore_bom = qjs.JS_ToBool(ctx, ignore_bom_val) != 0;
+
     const input = argv[0];
     var data: []const u8 = &.{};
 
@@ -270,8 +309,8 @@ fn text_decoder_decode(
         data = @as([*]const u8, @ptrCast(buf_ptr + byte_offset))[0..byte_len];
     }
 
-    // Strip UTF-8 BOM (EF BB BF)
-    if (data.len >= 3 and data[0] == 0xEF and data[1] == 0xBB and data[2] == 0xBF) {
+    // Strip UTF-8 BOM (EF BB BF) unless ignoreBOM is set
+    if (!ignore_bom and data.len >= 3 and data[0] == 0xEF and data[1] == 0xBB and data[2] == 0xBF) {
         data = data[3..];
     }
 
@@ -520,12 +559,24 @@ fn btoa_impl(
 }
 
 fn throw_invalid_char_error(ctx: ?*qjs.JSContext) qjs.JSValue {
-    // Throw DOMException with name "InvalidCharacterError"
-    // For now, throw a simple error — DOMException support can come later
-    const err = qjs.JS_NewError(ctx);
-    _ = qjs.JS_SetPropertyStr(ctx, err, "message", qjs.JS_NewString(ctx, "The string to be encoded contains characters outside of the Latin1 range."));
-    _ = qjs.JS_SetPropertyStr(ctx, err, "name", qjs.JS_NewString(ctx, "InvalidCharacterError"));
-    return qjs.JS_Throw(ctx, err);
+    const global = qjs.JS_GetGlobalObject(ctx);
+    defer qjs.JS_FreeValue(ctx, global);
+    const ctor = qjs.JS_GetPropertyStr(ctx, global, "DOMException");
+    defer qjs.JS_FreeValue(ctx, ctor);
+
+    if (qjs.JS_IsFunction(ctx, ctor)) {
+        var args = [_]qjs.JSValue{
+            qjs.JS_NewString(ctx, "The string to be encoded contains characters outside of the Latin1 range."),
+            qjs.JS_NewString(ctx, "InvalidCharacterError"),
+        };
+        const exc = qjs.JS_CallConstructor(ctx, ctor, 2, &args);
+        qjs.JS_FreeValue(ctx, args[0]);
+        qjs.JS_FreeValue(ctx, args[1]);
+        if (!js.js_is_exception(exc)) return qjs.JS_Throw(ctx, exc);
+    }
+
+    // Fallback if DOMException is not available
+    return qjs.JS_ThrowTypeError(ctx, "The string to be encoded contains characters outside of the Latin1 range.");
 }
 
 const b64_decode_table = blk: {

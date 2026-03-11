@@ -76,13 +76,33 @@ defmodule QuickBEAM.WPT.EncodingTest do
     end
   end
 
-  # ── TextDecoder BOM handling (textdecoder-byte-order-marks.any.js, textdecoder-ignorebom.any.js) ──
+  # ── TextDecoder ignoreBOM (textdecoder-ignorebom.any.js) ──
 
-  describe "TextDecoder BOM handling" do
+  describe "TextDecoder ignoreBOM" do
+    test "ignoreBOM attribute defaults to false", %{rt: rt} do
+      assert {:ok, false} =
+               QuickBEAM.eval(rt, "new TextDecoder().ignoreBOM")
+    end
+
+    test "ignoreBOM can be set to true", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, "new TextDecoder('utf-8', {ignoreBOM: true}).ignoreBOM")
+    end
+
     test "UTF-8 BOM stripped by default", %{rt: rt} do
       assert {:ok, "abc"} =
                QuickBEAM.eval(rt, """
                new TextDecoder('utf-8').decode(new Uint8Array([0xEF, 0xBB, 0xBF, 0x61, 0x62, 0x63]))
+               """)
+    end
+
+    test "UTF-8 BOM preserved when ignoreBOM=true", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               const result = new TextDecoder('utf-8', {ignoreBOM: true}).decode(
+                 new Uint8Array([0xEF, 0xBB, 0xBF, 0x61, 0x62, 0x63])
+               );
+               result === '\\uFEFF' + 'abc'
                """)
     end
 
@@ -103,6 +123,9 @@ defmodule QuickBEAM.WPT.EncodingTest do
     {"single ASCII char", "A", 10, 1, [0x41]},
     {"4-byte char", "\\u{1D306}", 4, 2, [0xF0, 0x9D, 0x8C, 0x86]},
     {"4-byte char won't fit in 3", "\\u{1D306}A", 3, 0, []},
+    {"lone surrogates replaced", "\\uD834A\\uDF06A\\u00A5Hi", 10, 5,
+     [0xEF, 0xBF, 0xBD, 0x41, 0xEF, 0xBF, 0xBD, 0x41, 0xC2, 0xA5]},
+    {"A + lone trail surrogate", "A\\uDF06", 4, 2, [0x41, 0xEF, 0xBF, 0xBD]},
     {"two yen signs", "\\u00A5\\u00A5", 4, 2, [0xC2, 0xA5, 0xC2, 0xA5]}
   ]
 
@@ -129,6 +152,18 @@ defmodule QuickBEAM.WPT.EncodingTest do
       end
     end
 
+    test "invalid destination types throw TypeError", %{rt: rt} do
+      for type <- ["Int8Array", "Int16Array", "Int32Array", "Uint16Array", "Uint32Array", "Float32Array", "Float64Array"] do
+        assert {:ok, true} =
+                 QuickBEAM.eval(rt, """
+                 try {
+                   new TextEncoder().encodeInto('', new #{type}(0));
+                   false;
+                 } catch (e) { e instanceof TypeError; }
+                 """)
+      end
+    end
+
     test "encodeInto with subarray offset", %{rt: rt} do
       assert {:ok, true} =
                QuickBEAM.eval(rt, """
@@ -146,14 +181,28 @@ defmodule QuickBEAM.WPT.EncodingTest do
 
   # ── TextEncoder surrogate handling (textencoder-utf16-surrogates.any.js) ──
 
+  @surrogate_cases [
+    {"lone surrogate lead", "\\uD800", "\\uFFFD"},
+    {"lone surrogate trail", "\\uDC00", "\\uFFFD"},
+    {"unmatched surrogate lead", "\\uD800\\u0000", "\\uFFFD\\u0000"},
+    {"unmatched surrogate trail", "\\uDC00\\u0000", "\\uFFFD\\u0000"},
+    {"swapped surrogate pair", "\\uDC00\\uD800", "\\uFFFD\\uFFFD"},
+    {"properly encoded MUSICAL SYMBOL G CLEF", "\\uD834\\uDD1E", "\\uD834\\uDD1E"}
+  ]
+
   describe "TextEncoder surrogate handling" do
-    test "properly encoded MUSICAL SYMBOL G CLEF", %{rt: rt} do
-      assert {:ok, true} =
-               QuickBEAM.eval(rt, """
-               const encoded = new TextEncoder().encode("\\uD834\\uDD1E");
-               const decoded = new TextDecoder().decode(encoded);
-               decoded === "\\uD834\\uDD1E"
-               """)
+    for {name, input, expected} <- @surrogate_cases do
+      @tag_input input
+      @tag_expected expected
+
+      test "#{name}", %{rt: rt} do
+        assert {:ok, true} =
+                 QuickBEAM.eval(rt, """
+                 const encoded = new TextEncoder().encode("#{@tag_input}");
+                 const decoded = new TextDecoder().decode(encoded);
+                 decoded === "#{@tag_expected}"
+                 """)
+      end
     end
 
     test "encode default is empty", %{rt: rt} do

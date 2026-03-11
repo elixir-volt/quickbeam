@@ -698,7 +698,8 @@
     #parts;
     #type;
     constructor(parts, options) {
-      this.#type = (options?.type ?? "").toLowerCase();
+      const raw = options?.type ?? "";
+      this.#type = /^[\x20-\x7E]*$/.test(raw) ? raw.toLowerCase() : "";
       this.#parts = (parts ?? []).map(normalizeQBBlobPart);
     }
     get size() {
@@ -723,8 +724,9 @@
       const bytes = this[SYM_BYTES]();
       const s = clampIndex(start ?? 0, bytes.length);
       const e = clampIndex(end ?? bytes.length, bytes.length);
+      const raw = contentType ?? "";
       return new QBBlob([bytes.slice(s, Math.max(s, e))], {
-        type: contentType ?? ""
+        type: /^[\x20-\x7E]*$/.test(raw) ? raw : ""
       });
     }
     stream() {

@@ -95,8 +95,11 @@ defmodule QuickBEAM.WPT.URLTest do
   # ── URL constructor edge cases ──
 
   describe "WPT URL constructor edge cases" do
-    test "invalid URL throws", %{rt: rt} do
-      assert {:error, _} = QuickBEAM.eval(rt, "new URL('not a url')")
+    test "invalid URL throws TypeError", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               try { new URL('not a url'); false; } catch (e) { e instanceof TypeError; }
+               """)
     end
 
     test "relative URL with base", %{rt: rt} do

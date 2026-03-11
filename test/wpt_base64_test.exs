@@ -43,9 +43,16 @@ defmodule QuickBEAM.WPT.Base64Test do
                """)
     end
 
-    test "non-Latin-1 throws", %{rt: rt} do
-      assert {:error, _} = QuickBEAM.eval(rt, "btoa('\\u05D0')")
-      assert {:error, _} = QuickBEAM.eval(rt, "btoa(String.fromCharCode(10000))")
+    test "non-Latin-1 throws DOMException", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               try { btoa('\\u05D0'); false; } catch (e) { e instanceof DOMException; }
+               """)
+
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               try { btoa(String.fromCharCode(10000)); false; } catch (e) { e instanceof DOMException; }
+               """)
     end
 
     test "WebIDL coercion: undefined", %{rt: rt} do
@@ -91,6 +98,13 @@ defmodule QuickBEAM.WPT.Base64Test do
                """)
     end
 
+    test "undefined throws DOMException", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               try { atob(undefined); false; } catch (e) { e instanceof DOMException; }
+               """)
+    end
+
     test "null decodes to bytes", %{rt: rt} do
       assert {:ok, true} =
                QuickBEAM.eval(rt, """
@@ -131,8 +145,32 @@ defmodule QuickBEAM.WPT.Base64Test do
                """)
     end
 
-    test "truly invalid base64 throws", %{rt: rt} do
-      assert {:error, _} = QuickBEAM.eval(rt, "atob('!@#$')")
+    test "false throws DOMException", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               try { atob(false); false; } catch (e) { e instanceof DOMException; }
+               """)
+    end
+
+    test "-Infinity throws DOMException", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               try { atob(-Infinity); false; } catch (e) { e instanceof DOMException; }
+               """)
+    end
+
+    test "0 throws DOMException", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               try { atob(0); false; } catch (e) { e instanceof DOMException; }
+               """)
+    end
+
+    test "truly invalid base64 throws DOMException", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               try { atob('!@#$'); false; } catch (e) { e instanceof DOMException; }
+               """)
     end
 
     test "without padding", %{rt: rt} do

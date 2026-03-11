@@ -36,11 +36,29 @@ defmodule QuickBEAM.WPT.CryptoTest do
     end
   end
 
+  describe "getRandomValues float arrays throw TypeMismatchError" do
+    for type <- ~w[Float32Array Float64Array] do
+      @tag_type type
+      test "#{type} throws DOMException", %{rt: rt} do
+        assert {:ok, true} =
+                 QuickBEAM.eval(rt, """
+                 try {
+                   crypto.getRandomValues(new #{@tag_type}(6));
+                   false;
+                 } catch (e) { e instanceof DOMException && e.name === 'TypeMismatchError'; }
+                 """)
+      end
+    end
+  end
+
   describe "getRandomValues DataView throws" do
-    test "DataView throws", %{rt: rt} do
-      assert {:error, _} =
+    test "DataView throws DOMException", %{rt: rt} do
+      assert {:ok, true} =
                QuickBEAM.eval(rt, """
-               crypto.getRandomValues(new DataView(new ArrayBuffer(6)))
+               try {
+                 crypto.getRandomValues(new DataView(new ArrayBuffer(6)));
+                 false;
+               } catch (e) { e instanceof DOMException && e.name === 'TypeMismatchError'; }
                """)
     end
   end

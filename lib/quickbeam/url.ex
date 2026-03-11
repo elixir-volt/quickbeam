@@ -70,6 +70,7 @@ defmodule QuickBEAM.URL do
     case :uri_string.parse(input) do
       %{scheme: scheme} = parsed -> {:ok, build_components(parsed, scheme)}
       %{} -> {:error, "Invalid URL"}
+      {:error, _, _} -> {:error, "Invalid URL"}
     end
   end
 

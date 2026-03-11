@@ -27,12 +27,17 @@ fn get_random_values(
 ) callconv(.c) qjs.JSValue {
     if (argc < 1) return qjs.JS_ThrowTypeError(ctx, "crypto.getRandomValues requires 1 argument");
 
+    // Reject non-integer typed arrays per spec
+    if (!is_integer_typed_array(ctx, argv[0])) {
+        return throw_dom_exception(ctx, "The provided ArrayBufferView is not an integer array type", "TypeMismatchError");
+    }
+
     var byte_offset: usize = 0;
     var byte_len: usize = 0;
     var total_size: usize = 0;
     const ab = qjs.JS_GetTypedArrayBuffer(ctx, argv[0], &byte_offset, &byte_len, &total_size);
     if (js.js_is_exception(ab)) {
-        return qjs.JS_ThrowTypeError(ctx, "Argument must be a TypedArray");
+        return throw_dom_exception(ctx, "The provided ArrayBufferView is not an integer array type", "TypeMismatchError");
     }
     defer qjs.JS_FreeValue(ctx, ab);
 
@@ -48,6 +53,51 @@ fn get_random_values(
     std.crypto.random.bytes(slice);
 
     return qjs.JS_DupValue(ctx, argv[0]);
+}
+
+fn is_integer_typed_array(ctx: ?*qjs.JSContext, val: qjs.JSValue) bool {
+    if (!qjs.JS_IsObject(val)) return false;
+
+    const ctor = qjs.JS_GetPropertyStr(ctx, val, "constructor");
+    defer qjs.JS_FreeValue(ctx, ctor);
+    if (!qjs.JS_IsFunction(ctx, ctor)) return false;
+
+    const name_val = qjs.JS_GetPropertyStr(ctx, ctor, "name");
+    defer qjs.JS_FreeValue(ctx, name_val);
+
+    const name_ptr = qjs.JS_ToCString(ctx, name_val) orelse return false;
+    defer qjs.JS_FreeCString(ctx, name_ptr);
+    const name = std.mem.span(name_ptr);
+
+    const allowed = [_][]const u8{
+        "Int8Array",    "Uint8Array",        "Uint8ClampedArray",
+        "Int16Array",   "Uint16Array",       "Int32Array",
+        "Uint32Array",
+    };
+    for (allowed) |a| {
+        if (std.mem.eql(u8, name, a)) return true;
+    }
+    return false;
+}
+
+fn throw_dom_exception(ctx: ?*qjs.JSContext, message: [*:0]const u8, name: [*:0]const u8) qjs.JSValue {
+    const global = qjs.JS_GetGlobalObject(ctx);
+    defer qjs.JS_FreeValue(ctx, global);
+    const ctor = qjs.JS_GetPropertyStr(ctx, global, "DOMException");
+    defer qjs.JS_FreeValue(ctx, ctor);
+
+    if (qjs.JS_IsFunction(ctx, ctor)) {
+        var args = [_]qjs.JSValue{
+            qjs.JS_NewString(ctx, message),
+            qjs.JS_NewString(ctx, name),
+        };
+        const exc = qjs.JS_CallConstructor(ctx, ctor, 2, &args);
+        qjs.JS_FreeValue(ctx, args[0]);
+        qjs.JS_FreeValue(ctx, args[1]);
+        if (!js.js_is_exception(exc)) return qjs.JS_Throw(ctx, exc);
+    }
+
+    return qjs.JS_ThrowTypeError(ctx, message);
 }
 
 // ──────────────────── performance.now ────────────────────
