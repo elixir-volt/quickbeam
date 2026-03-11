@@ -4,7 +4,7 @@ defmodule QuickBEAM.DOMTest do
   setup do
     {:ok, runtime} = QuickBEAM.start()
 
-    on_exit(fn -> catch_exit(QuickBEAM.stop(runtime)) end)
+    on_exit(fn -> try do QuickBEAM.stop(runtime) catch :exit, _ -> :ok end end)
 
     %{runtime: runtime}
   end
@@ -494,8 +494,8 @@ defmodule QuickBEAM.DOMTest do
       {:ok, rt2} = QuickBEAM.start()
 
       on_exit(fn ->
-        catch_exit(QuickBEAM.stop(rt1))
-        catch_exit(QuickBEAM.stop(rt2))
+        try do QuickBEAM.stop(rt1) catch :exit, _ -> :ok end
+        try do QuickBEAM.stop(rt2) catch :exit, _ -> :ok end
       end)
 
       QuickBEAM.eval(rt1, """
