@@ -19,9 +19,7 @@ defmodule QuickBEAM.DOMElixirTest do
       ].join('');
     """)
 
-    on_exit(fn ->
-      if Process.alive?(runtime), do: QuickBEAM.stop(runtime)
-    end)
+    on_exit(fn -> catch_exit(QuickBEAM.stop(runtime)) end)
 
     %{runtime: runtime}
   end

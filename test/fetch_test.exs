@@ -69,7 +69,7 @@ defmodule QuickBEAM.FetchTest do
 
   setup do
     {:ok, rt} = QuickBEAM.start()
-    on_exit(fn -> if Process.alive?(rt), do: QuickBEAM.stop(rt) end)
+    on_exit(fn -> catch_exit(QuickBEAM.stop(rt)) end)
     %{rt: rt}
   end
 

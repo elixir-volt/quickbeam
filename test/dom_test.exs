@@ -4,9 +4,7 @@ defmodule QuickBEAM.DOMTest do
   setup do
     {:ok, runtime} = QuickBEAM.start()
 
-    on_exit(fn ->
-      if Process.alive?(runtime), do: QuickBEAM.stop(runtime)
-    end)
+    on_exit(fn -> catch_exit(QuickBEAM.stop(runtime)) end)
 
     %{runtime: runtime}
   end
@@ -496,8 +494,8 @@ defmodule QuickBEAM.DOMTest do
       {:ok, rt2} = QuickBEAM.start()
 
       on_exit(fn ->
-        if Process.alive?(rt1), do: QuickBEAM.stop(rt1)
-        if Process.alive?(rt2), do: QuickBEAM.stop(rt2)
+        catch_exit(QuickBEAM.stop(rt1))
+        catch_exit(QuickBEAM.stop(rt2))
       end)
 
       QuickBEAM.eval(rt1, """

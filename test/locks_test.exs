@@ -5,9 +5,7 @@ defmodule QuickBEAM.LocksTest do
     start_supervised!(QuickBEAM.LockManager)
     {:ok, rt} = QuickBEAM.start()
 
-    on_exit(fn ->
-      if Process.alive?(rt), do: QuickBEAM.stop(rt)
-    end)
+    on_exit(fn -> catch_exit(QuickBEAM.stop(rt)) end)
 
     {:ok, rt: rt}
   end
@@ -85,9 +83,7 @@ defmodule QuickBEAM.LocksTest do
     test "exclusive lock blocks second runtime", context do
       {:ok, rt2} = QuickBEAM.start()
 
-      on_exit(fn ->
-        if Process.alive?(rt2), do: QuickBEAM.stop(rt2)
-      end)
+      on_exit(fn -> catch_exit(QuickBEAM.stop(rt2)) end)
 
       rt1 = context.rt
 
