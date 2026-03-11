@@ -11,7 +11,7 @@ leaving the BEAM.
 
 ```elixir
 def deps do
-  [{:quickbeam, "~> 0.1.0"}]
+  [{:quickbeam, "~> 0.2.0"}]
 end
 ```
 
@@ -211,7 +211,8 @@ Type definitions for the BEAM-specific JS API:
 }
 ```
 
-The `.d.ts` file covers `Beam`, `BeamPid`, and `compression`.
+The `.d.ts` file covers the `Beam` bridge API, opaque BEAM terms
+(`BeamPid`, `BeamRef`, `BeamPort`), and the `compression` helper.
 Standard Web APIs are typed by TypeScript's `lib.dom.d.ts`.
 
 ## TypeScript toolchain
