@@ -42,3 +42,38 @@ jobs:
       - run: bun install
       - run: mix compile --warnings-as-errors
       - run: mix test
+
+  sanitizer:
+    name: UBSan + Zig Debug
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+      QUICKBEAM_UBSAN: "1"
+      ZIGLER_RELEASE_MODE: debug
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27.0'
+          elixir-version: '1.18'
+
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-ubsan-27.0-1.18-${{ hashFiles('mix.lock') }}
+          restore-keys: ${{ runner.os }}-ubsan-27.0-1.18-
+
+      - run: mix deps.get
+      - run: bun install
+      - run: mix compile
+      - run: mix test

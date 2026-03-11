@@ -16,7 +16,9 @@ defmodule QuickBEAM.Native do
                {:priv, String.replace_prefix(path, "priv/", ""), @lexbor_cflags}
              end)
 
-  @quickjs_cflags ["-std=c11", "-D_GNU_SOURCE"]
+  @quickjs_cflags if System.get_env("QUICKBEAM_UBSAN") == "1",
+                    do: ["-std=c11", "-D_GNU_SOURCE", "-fsanitize=undefined", "-fsanitize-trap=undefined"],
+                    else: ["-std=c11", "-D_GNU_SOURCE"]
 
   use Zig,
     otp_app: :quickbeam,
