@@ -34,15 +34,18 @@ Open `_site/index.html` in a browser.
 
 ## How it works
 
-**`priv/ts/build.ts`** — TypeScript with a real npm import:
+**`priv/ts/build.ts`** — TypeScript with real npm imports and Node APIs:
 
 ```typescript
 import { marked } from "marked"
+import fs from "node:fs"
+import path from "node:path"
 
 const files = fs.readdirSync(contentDir).filter(f => f.endsWith(".md"))
 for (const file of files) {
   const html = marked.parse(body)
   fs.writeFileSync(path.join(outputDir, `${slug}.html`), page)
+  console.log(`  ${slug}.html → ${meta.title}`)
 }
 ```
 
@@ -52,13 +55,8 @@ for (const file of files) {
 {:ok, rt} = QuickBEAM.start(
   script: "priv/ts/build.ts",
   apis: [:browser, :node],
-  handlers: %{
-    "log" => fn [%{"slug" => slug, "title" => title}] ->
-      IO.puts("  #{slug}.html → #{title}")
-    end
-  }
+  define: %{"contentDir" => "priv/content", "outputDir" => "_site"}
 )
-QuickBEAM.send_message(rt, %{contentDir: "priv/content", outputDir: "_site"})
 ```
 
 ## What replaces what

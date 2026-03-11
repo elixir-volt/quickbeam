@@ -37,20 +37,22 @@ defmodule QuickBEAM.JS.Bundler do
   end
 
   defp collect_modules(entry_path, node_modules) do
-    case do_collect(entry_path, node_modules, [], MapSet.new()) do
+    basename = Path.basename(entry_path)
+
+    case do_collect(entry_path, basename, node_modules, [], MapSet.new()) do
       {:ok, files, _seen} -> {:ok, Enum.reverse(files)}
       {:error, _} = error -> error
     end
   end
 
-  defp do_collect(abs_path, node_modules, files, seen) do
+  defp do_collect(abs_path, label, node_modules, files, seen) do
     if MapSet.member?(seen, abs_path) do
       {:ok, files, seen}
     else
       case File.read(abs_path) do
         {:ok, source} ->
           seen = MapSet.put(seen, abs_path)
-          files = [{abs_path, source} | files]
+          files = [{label, source} | files]
 
           case extract_imports(source, abs_path) do
             {:ok, specifiers} ->
@@ -92,7 +94,9 @@ defmodule QuickBEAM.JS.Bundler do
         collect_imports(rest, importer, node_modules, files, seen)
 
       {:ok, resolved_path} ->
-        case do_collect(resolved_path, node_modules, files, seen) do
+        label = if relative?(specifier), do: Path.basename(resolved_path), else: specifier
+
+        case do_collect(resolved_path, label, node_modules, files, seen) do
           {:ok, files, seen} ->
             collect_imports(rest, importer, node_modules, files, seen)
 

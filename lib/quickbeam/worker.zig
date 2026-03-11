@@ -134,6 +134,18 @@ pub const WorkerState = struct {
         }
     }
 
+    pub fn define_global_property(self: *WorkerState, sg: types.SetGlobalPayload) void {
+        const env = sg.env orelse return;
+        defer beam.free_env(env);
+        defer types.gpa.free(sg.name);
+
+        const val = beam_to_js.convert(self.ctx, env, sg.term);
+
+        const global = qjs.JS_GetGlobalObject(self.ctx);
+        defer qjs.JS_FreeValue(self.ctx, global);
+        _ = qjs.JS_SetPropertyStr(self.ctx, global, sg.name.ptr, val);
+    }
+
     pub fn deliver_message(self: *WorkerState, sm: types.MessagePayload) void {
         const env = sm.env orelse return;
         defer beam.free_env(env);
@@ -445,6 +457,7 @@ pub const WorkerState = struct {
                     .reject_call => |rc| self.reject_pending(rc.id, rc.json),
                     .resolve_call_term => |rc| self.resolve_pending_term(rc.env, rc.term, rc.id),
                     .send_message => |sm| self.deliver_message(sm),
+                    .define_global => |sg| self.define_global_property(sg),
                     .stop => {
                         result.ok = false;
                         result.json = "Runtime stopped";
@@ -613,6 +626,7 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                 .reject_call => |rc| state.reject_pending(rc.id, rc.json),
                 .resolve_call_term => |rc| state.resolve_pending_term(rc.env, rc.term, rc.id),
                 .send_message => |sm| state.deliver_message(sm),
+                .define_global => |sg| state.define_global_property(sg),
                 .dom_op => |p| {
                     var result = Result{};
                     state.do_dom_op_result(p.op, p.selector, p.attr_name, &result);

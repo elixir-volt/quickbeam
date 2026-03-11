@@ -1,0 +1,19 @@
+{
+  "name": "quickbeam-types",
+  "version": "0.2.0",
+  "description": "TypeScript type definitions for the QuickBEAM runtime",
+  "types": "index.d.ts",
+  "files": [
+    "index.d.ts"
+  ],
+  "peerDependencies": {
+    "@types/node": ">=18"
+  },
+  "keywords": ["quickbeam", "beam", "erlang", "elixir", "quickjs", "types", "typescript"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dannote/quickbeam",
+    "directory": "npm/quickbeam-types"
+  }
+}

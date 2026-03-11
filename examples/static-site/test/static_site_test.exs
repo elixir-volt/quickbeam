@@ -15,13 +15,10 @@ defmodule StaticSiteTest do
       QuickBEAM.start(
         script: Path.join(__DIR__, "../priv/ts/build.ts") |> Path.expand(),
         apis: [:browser, :node],
-        handlers: %{
-          "log" => fn _ -> :ok end
-        }
+        define: %{"contentDir" => @content_dir, "outputDir" => output_dir}
       )
 
-    QuickBEAM.send_message(rt, %{contentDir: @content_dir, outputDir: output_dir})
-    Process.sleep(2000)
+    Process.sleep(500)
 
     assert File.exists?(Path.join(output_dir, "index.html"))
     assert File.exists?(Path.join(output_dir, "hello-world.html"))
@@ -37,5 +34,7 @@ defmodule StaticSiteTest do
     assert index =~ "hello-world.html"
     assert index =~ "beam-vs-node.html"
     refute index =~ "draft-post"
+
+    QuickBEAM.stop(rt)
   end
 end

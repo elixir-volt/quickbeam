@@ -1,12 +1,10 @@
+/// <reference types="quickbeam-types" />
 import { marked } from "marked"
+import fs from "node:fs"
+import path from "node:path"
 
-const { fs, path } = globalThis as any
-
-declare const Beam: {
-  call(name: string, data?: unknown): void
-  callSync(name: string, data?: unknown): any
-  onMessage(handler: (msg: any) => void): void
-}
+declare const contentDir: string
+declare const outputDir: string
 
 interface FrontMatter {
   title: string
@@ -84,30 +82,26 @@ function renderIndex(posts: { slug: string; title: string; date: string }[]): st
 </html>`
 }
 
-Beam.onMessage((config: { contentDir: string; outputDir: string }) => {
-  const { contentDir, outputDir } = config
+fs.mkdirSync(outputDir, { recursive: true })
 
-  fs.mkdirSync(outputDir, { recursive: true })
+const files = fs.readdirSync(contentDir).filter((f: string) => f.endsWith(".md"))
+const posts: { slug: string; title: string; date: string }[] = []
 
-  const files = fs.readdirSync(contentDir).filter((f: string) => f.endsWith(".md"))
-  const posts: { slug: string; title: string; date: string }[] = []
+for (const file of files) {
+  const source = fs.readFileSync(path.join(contentDir, file), "utf-8")
+  const { meta, body } = parseFrontMatter(source)
 
-  for (const file of files) {
-    const source = fs.readFileSync(path.join(contentDir, file), "utf-8")
-    const { meta, body } = parseFrontMatter(source)
+  if (String(meta.draft) === "true") continue
 
-    if (meta.draft === "true" || meta.draft === true) continue
+  const slug = path.basename(file, ".md")
+  const html = marked.parse(body) as string
+  const page = renderPage(meta.title, html)
 
-    const slug = path.basename(file, ".md")
-    const html = marked.parse(body) as string
-    const page = renderPage(meta.title, html)
+  fs.writeFileSync(path.join(outputDir, `${slug}.html`), page)
+  posts.push({ slug, title: meta.title, date: meta.date || "undated" })
 
-    fs.writeFileSync(path.join(outputDir, `${slug}.html`), page)
-    posts.push({ slug, title: meta.title, date: meta.date || "undated" })
+  console.log(`  ${slug}.html → ${meta.title}`)
+}
 
-    Beam.call("log", { slug, title: meta.title })
-  }
-
-  fs.writeFileSync(path.join(outputDir, "index.html"), renderIndex(posts))
-  Beam.call("log", { slug: "index", title: `Index (${posts.length} posts)` })
-})
+fs.writeFileSync(path.join(outputDir, "index.html"), renderIndex(posts))
+console.log(`  index.html → Index (${posts.length} posts)`)

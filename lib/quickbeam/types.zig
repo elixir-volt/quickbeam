@@ -41,6 +41,7 @@ pub const Message = union(enum) {
     reject_call: CallResponse,
     resolve_call_term: CallResponseTerm,
     send_message: MessagePayload,
+    define_global: SetGlobalPayload,
     memory_usage: AsyncMemoryPayload,
     dom_op: AsyncDomPayload,
     stop,
@@ -108,6 +109,12 @@ pub const CallResponseTerm = struct {
 };
 
 pub const MessagePayload = struct {
+    env: ?*e.ErlNifEnv,
+    term: e.ErlNifTerm,
+};
+
+pub const SetGlobalPayload = struct {
+    name: []const u8,
     env: ?*e.ErlNifEnv,
     term: e.ErlNifTerm,
 };
