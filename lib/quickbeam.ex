@@ -74,6 +74,11 @@ defmodule QuickBEAM do
       * `:node` — Node.js compat (process, path, fs, os)
       * `[:browser, :node]` — both
       * `false` — bare QuickJS engine, no polyfills
+    * `:define` — `%{String.t() => term()}` of globals to inject before the script runs.
+      Values are JSON-encoded. Useful for passing config without `Beam.callSync`.
+
+          QuickBEAM.start(script: "build.ts", define: %{"outputDir" => "/tmp/site"})
+
     * `:memory_limit` — maximum JS heap in bytes (default: 256 MB)
     * `:max_stack_size` — maximum JS call stack in bytes (default: 1 MB)
   """

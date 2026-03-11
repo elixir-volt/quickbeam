@@ -53,6 +53,7 @@ defmodule QuickBEAM.Native do
       resolve_call_term: [],
       reject_call_term: [],
       send_message: [],
+      define_global: [],
       memory_usage: [],
       dom_find: [],
       dom_find_all: [],

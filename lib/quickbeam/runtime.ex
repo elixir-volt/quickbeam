@@ -25,7 +25,37 @@ defmodule QuickBEAM.Runtime do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, Keyword.take(opts, [:name]))
+    caller = self()
+    opts = Keyword.put(opts, :__caller__, caller)
+    ref = make_ref()
+    opts = Keyword.put(opts, :__ref__, ref)
+
+    case GenServer.start_link(__MODULE__, opts, Keyword.take(opts, [:name])) do
+      {:ok, pid} ->
+        if Keyword.has_key?(opts, :script) do
+          mon = Process.monitor(pid)
+
+          receive do
+            {^ref, :script_loaded} ->
+              Process.demonitor(mon, [:flush])
+              {:ok, pid}
+
+            {^ref, {:script_error, reason}} ->
+              Process.demonitor(mon, [:flush])
+              {:error, reason}
+
+            {:DOWN, ^mon, :process, ^pid, reason} ->
+              {:error, reason}
+          after
+            30_000 -> {:error, :script_timeout}
+          end
+        else
+          {:ok, pid}
+        end
+
+      error ->
+        error
+    end
   end
 
   @spec eval(GenServer.server(), String.t(), keyword()) :: {:ok, term()} | {:error, String.t()}
@@ -251,38 +281,75 @@ defmodule QuickBEAM.Runtime do
     resource = QuickBEAM.Native.start_runtime(self(), nif_opts)
     state = %__MODULE__{resource: resource, handlers: merged_handlers}
     install_builtins(state, apis)
+    install_defines(state, Keyword.get(opts, :define, %{}))
 
-    case load_script(state, opts) do
-      :ok -> {:ok, state}
-      {:error, reason} -> {:stop, reason}
-    end
-  end
-
-  defp load_script(state, opts) do
     case Keyword.fetch(opts, :script) do
-      :error -> :ok
-      {:ok, path} -> eval_script(state, path)
+      :error ->
+        {:ok, state}
+
+      {:ok, _} ->
+        caller = Keyword.fetch!(opts, :__caller__)
+        ref = Keyword.fetch!(opts, :__ref__)
+        {:ok, state, {:continue, {:load_script, opts, caller, ref}}}
     end
   end
 
-  defp eval_script(state, path) do
-    with {:ok, code} <- read_script(path),
-         {:ok, _} <- sync_eval(state.resource, code) do
-      :ok
+  @impl true
+  def handle_continue({:load_script, opts, caller, ref}, state) do
+    case load_script_async(state, opts) do
+      {:ok, state} ->
+        send(caller, {ref, :script_loaded})
+        {:noreply, state}
+
+      {:error, reason, state} ->
+        send(caller, {ref, {:script_error, reason}})
+        {:stop, :normal, state}
+    end
+  end
+
+  defp load_script_async(state, opts) do
+    case Keyword.fetch(opts, :script) do
+      :error -> {:ok, state}
+      {:ok, path} -> eval_script_async(state, path)
+    end
+  end
+
+  defp eval_script_async(state, path) do
+    with {:ok, code} <- read_script(path) do
+      ref = QuickBEAM.Native.eval(state.resource, code, 0)
+      await_ref_with_callbacks(ref, state, path)
     else
       {:error, reason} when is_atom(reason) ->
-        {:error, {:script_not_found, path, reason}}
+        {:error, {:script_not_found, path, reason}, state}
 
       {:error, {:file_read_error, _, reason}} ->
-        {:error, {:script_not_found, path, reason}}
-
-      {:error, value} when is_map(value) ->
-        {:error, {:script_error, path, QuickBEAM.JSError.from_js_value(value)}}
+        {:error, {:script_not_found, path, reason}, state}
 
       {:error, reason} ->
-        {:error, {:script_error, path, reason}}
+        {:error, {:script_error, path, reason}, state}
     end
   end
+
+  defp await_ref_with_callbacks(ref, state, path) do
+    receive do
+      {^ref, {:ok, _}} ->
+        {:ok, state}
+
+      {^ref, {:error, value}} when is_map(value) ->
+        {:error, {:script_error, path, QuickBEAM.JSError.from_js_value(value)}, state}
+
+      {^ref, {:error, reason}} ->
+        {:error, {:script_error, path, reason}, state}
+
+      {:beam_call, _call_id, _handler, _args} = msg ->
+        {:noreply, state} = handle_info(msg, state)
+        await_ref_with_callbacks(ref, state, path)
+    after
+      30_000 -> {:error, {:script_error, path, "script timeout"}, state}
+    end
+  end
+
+
 
   defp read_script(path) do
     case File.read(path) do
@@ -317,6 +384,14 @@ defmodule QuickBEAM.Runtime do
   for (const k of Object.getOwnPropertyNames(globalThis))
     globalThis.__qb_builtins[k] = true;
   """
+
+  defp install_defines(_state, defines) when map_size(defines) == 0, do: :ok
+
+  defp install_defines(state, defines) do
+    Enum.each(defines, fn {name, value} ->
+      QuickBEAM.Native.define_global(state.resource, name, value)
+    end)
+  end
 
   defp install_builtins(state, apis) do
     if :browser in apis do

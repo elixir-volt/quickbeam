@@ -2,5 +2,9 @@
   "private": true,
   "dependencies": {
     "marked": "^15.0.0"
+  },
+  "devDependencies": {
+    "quickbeam-types": "file:../../npm/quickbeam-types",
+    "@types/node": "^22.0.0"
   }
 }
