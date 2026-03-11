@@ -915,6 +915,29 @@ fn css_serialize_declarations(ctx: ?*qjs.JSContext, _: qjs.JSValue, argc: c_int,
     return qjs.JS_NewStringLen(ctx, result, out_len);
 }
 
+// ──────────────────── EventTarget methods (delegate to JS helpers) ────────────────────
+
+fn call_global_helper(ctx: ?*qjs.JSContext, this: qjs.JSValue, name: [*:0]const u8, argc: c_int, argv: [*c]qjs.JSValue) qjs.JSValue {
+    const global = qjs.JS_GetGlobalObject(ctx);
+    defer qjs.JS_FreeValue(ctx, global);
+    const helper = qjs.JS_GetPropertyStr(ctx, global, name);
+    defer qjs.JS_FreeValue(ctx, helper);
+    if (!qjs.JS_IsFunction(ctx, helper)) return js.js_undefined();
+    return qjs.JS_Call(ctx, helper, this, argc, argv);
+}
+
+fn el_add_event_listener(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    return call_global_helper(ctx, this, "__qb_addEventListener", argc, argv);
+}
+
+fn el_remove_event_listener(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    return call_global_helper(ctx, this, "__qb_removeEventListener", argc, argv);
+}
+
+fn el_dispatch_event(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    return call_global_helper(ctx, this, "__qb_dispatchEvent", argc, argv);
+}
+
 fn el_get_style(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
     const global = qjs.JS_GetGlobalObject(ctx);
     defer qjs.JS_FreeValue(ctx, global);
@@ -1026,6 +1049,11 @@ fn install_element_proto(ctx: *qjs.JSContext, obj: qjs.JSValue) void {
     _ = qjs.JS_SetPropertyStr(ctx, obj, "append", qjs.JS_NewCFunction(ctx, &el_append, "append", 1));
     _ = qjs.JS_SetPropertyStr(ctx, obj, "replaceWith", qjs.JS_NewCFunction(ctx, &el_replace_with, "replaceWith", 1));
 
+    // EventTarget
+    _ = qjs.JS_SetPropertyStr(ctx, obj, "addEventListener", qjs.JS_NewCFunction(ctx, &el_add_event_listener, "addEventListener", 2));
+    _ = qjs.JS_SetPropertyStr(ctx, obj, "removeEventListener", qjs.JS_NewCFunction(ctx, &el_remove_event_listener, "removeEventListener", 2));
+    _ = qjs.JS_SetPropertyStr(ctx, obj, "dispatchEvent", qjs.JS_NewCFunction(ctx, &el_dispatch_event, "dispatchEvent", 1));
+
     // classList — delegates to JS-side DOMTokenList via __qb_get_class_list
     define_getter(ctx, obj, "classList", &el_get_class_list);
 
@@ -1126,6 +1154,9 @@ pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue) ?*DocumentData {
     _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "getElementsByTagName", qjs.JS_NewCFunction(ctx, &doc_get_elements_by_tag_name, "getElementsByTagName", 1));
     _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "querySelector", qjs.JS_NewCFunction(ctx, &query_selector, "querySelector", 1));
     _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "querySelectorAll", qjs.JS_NewCFunction(ctx, &query_selector_all, "querySelectorAll", 1));
+    _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "addEventListener", qjs.JS_NewCFunction(ctx, &el_add_event_listener, "addEventListener", 2));
+    _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "removeEventListener", qjs.JS_NewCFunction(ctx, &el_remove_event_listener, "removeEventListener", 2));
+    _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "dispatchEvent", qjs.JS_NewCFunction(ctx, &el_dispatch_event, "dispatchEvent", 1));
 
     define_getter(ctx, doc_obj, "body", &doc_get_body);
     define_getter(ctx, doc_obj, "head", &doc_get_head);

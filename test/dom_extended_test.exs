@@ -132,6 +132,147 @@ defmodule QuickBEAM.DOMExtendedTest do
     end
   end
 
+  describe "addEventListener / dispatchEvent" do
+    test "basic listener fires", %{runtime: rt} do
+      assert {:ok, "clicked"} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          let result = '';
+          el.addEventListener('click', () => { result = 'clicked'; });
+          el.dispatchEvent(new Event('click'));
+          return result;
+        })()
+      """)
+    end
+
+    test "multiple listeners fire in order", %{runtime: rt} do
+      assert {:ok, "ab"} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          let result = '';
+          el.addEventListener('x', () => { result += 'a'; });
+          el.addEventListener('x', () => { result += 'b'; });
+          el.dispatchEvent(new Event('x'));
+          return result;
+        })()
+      """)
+    end
+
+    test "removeEventListener", %{runtime: rt} do
+      assert {:ok, ""} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          let result = '';
+          const fn = () => { result = 'fired'; };
+          el.addEventListener('x', fn);
+          el.removeEventListener('x', fn);
+          el.dispatchEvent(new Event('x'));
+          return result;
+        })()
+      """)
+    end
+
+    test "once option", %{runtime: rt} do
+      assert {:ok, 1} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          let count = 0;
+          el.addEventListener('x', () => { count++; }, { once: true });
+          el.dispatchEvent(new Event('x'));
+          el.dispatchEvent(new Event('x'));
+          return count;
+        })()
+      """)
+    end
+
+    test "duplicate listener ignored", %{runtime: rt} do
+      assert {:ok, 1} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          let count = 0;
+          const fn = () => { count++; };
+          el.addEventListener('x', fn);
+          el.addEventListener('x', fn);
+          el.dispatchEvent(new Event('x'));
+          return count;
+        })()
+      """)
+    end
+
+    test "event.target and event.type", %{runtime: rt} do
+      assert {:ok, result} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          let target = null, type = '';
+          el.addEventListener('foo', (e) => { target = e.target; type = e.type; });
+          el.dispatchEvent(new Event('foo'));
+          return { same: target === el, type };
+        })()
+      """)
+      assert result["same"] == true
+      assert result["type"] == "foo"
+    end
+
+    test "preventDefault and return value", %{runtime: rt} do
+      assert {:ok, false} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          el.addEventListener('x', (e) => { e.preventDefault(); });
+          return el.dispatchEvent(new Event('x', { cancelable: true }));
+        })()
+      """)
+    end
+
+    test "stopImmediatePropagation", %{runtime: rt} do
+      assert {:ok, "a"} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          let result = '';
+          el.addEventListener('x', (e) => { result += 'a'; e.stopImmediatePropagation(); });
+          el.addEventListener('x', () => { result += 'b'; });
+          el.dispatchEvent(new Event('x'));
+          return result;
+        })()
+      """)
+    end
+
+    test "document.addEventListener", %{runtime: rt} do
+      assert {:ok, "doc"} = QuickBEAM.eval(rt, """
+        (() => {
+          let result = '';
+          document.addEventListener('custom', () => { result = 'doc'; });
+          document.dispatchEvent(new Event('custom'));
+          return result;
+        })()
+      """)
+    end
+
+    test "CustomEvent with detail", %{runtime: rt} do
+      assert {:ok, 42} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          let detail = null;
+          el.addEventListener('msg', (e) => { detail = e.detail; });
+          el.dispatchEvent(new CustomEvent('msg', { detail: 42 }));
+          return detail;
+        })()
+      """)
+    end
+
+    test "handleEvent object listener", %{runtime: rt} do
+      assert {:ok, "handled"} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElement('div');
+          let result = '';
+          const obj = { handleEvent() { result = 'handled'; } };
+          el.addEventListener('x', obj);
+          el.dispatchEvent(new Event('x'));
+          return result;
+        })()
+      """)
+    end
+  end
+
   describe "createElementNS" do
     test "creates SVG element", %{runtime: rt} do
       assert {:ok, "svg"} = QuickBEAM.eval(rt, """
