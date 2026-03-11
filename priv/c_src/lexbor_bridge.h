@@ -40,6 +40,9 @@ lxb_dom_element_t *qb_create_element(lxb_dom_document_t *doc,
                                       const lxb_char_t *tag, size_t len);
 lxb_dom_text_t *qb_create_text_node(lxb_dom_document_t *doc,
                                      const lxb_char_t *text, size_t len);
+lxb_dom_node_t *qb_create_document_fragment(lxb_dom_document_t *doc);
+lxb_dom_node_t *qb_create_comment(lxb_dom_document_t *doc,
+                                   const lxb_char_t *data, size_t len);
 
 lxb_dom_node_t *qb_element_as_node(lxb_dom_element_t *elem);
 lxb_dom_node_t *qb_text_as_node(lxb_dom_text_t *text);
@@ -52,7 +55,15 @@ lxb_dom_node_type_t qb_node_type(lxb_dom_node_t *node);
 lxb_dom_node_t *qb_node_first_child(lxb_dom_node_t *node);
 lxb_dom_node_t *qb_node_next(lxb_dom_node_t *node);
 lxb_dom_node_t *qb_node_parent(lxb_dom_node_t *node);
+lxb_dom_node_t *qb_node_last_child(lxb_dom_node_t *node);
+lxb_dom_node_t *qb_node_prev(lxb_dom_node_t *node);
 lxb_dom_document_t *qb_node_owner_document(lxb_dom_node_t *node);
+lxb_dom_node_t *qb_node_clone(lxb_dom_node_t *node, int deep);
+void qb_node_insert_before(lxb_dom_node_t *to, lxb_dom_node_t *node);
+void qb_node_insert_after(lxb_dom_node_t *to, lxb_dom_node_t *node);
+lxb_dom_node_t *qb_node_replace_child(lxb_dom_node_t *parent,
+                                       lxb_dom_node_t *node,
+                                       lxb_dom_node_t *child);
 
 const lxb_char_t *qb_element_qualified_name(lxb_dom_element_t *elem, size_t *len);
 const lxb_char_t *qb_element_get_attribute(lxb_dom_element_t *elem,
@@ -63,6 +74,8 @@ lxb_status_t qb_element_set_attribute(lxb_dom_element_t *elem,
                                        const lxb_char_t *value, size_t value_len);
 lxb_status_t qb_element_remove_attribute(lxb_dom_element_t *elem,
                                           const lxb_char_t *name, size_t name_len);
+int qb_element_has_attribute(lxb_dom_element_t *elem,
+                              const lxb_char_t *name, size_t name_len);
 
 lxb_dom_attr_t *qb_element_first_attr(lxb_dom_element_t *elem);
 lxb_dom_attr_t *qb_attr_next(lxb_dom_attr_t *attr);
@@ -77,6 +90,12 @@ lxb_status_t qb_elements_by_attr(lxb_dom_element_t *root,
                                   lxb_dom_collection_t *col,
                                   const lxb_char_t *name, size_t name_len,
                                   const lxb_char_t *value, size_t value_len);
+lxb_status_t qb_elements_by_class_name(lxb_dom_element_t *root,
+                                        lxb_dom_collection_t *col,
+                                        const lxb_char_t *name, size_t name_len);
+lxb_status_t qb_elements_by_tag_name(lxb_dom_element_t *root,
+                                      lxb_dom_collection_t *col,
+                                      const lxb_char_t *name, size_t name_len);
 
 const lxb_char_t *qb_node_text_content(lxb_dom_node_t *node, size_t *len);
 lxb_status_t qb_node_text_content_set(lxb_dom_node_t *node,
@@ -104,8 +123,10 @@ lxb_status_t qb_selectors_find(lxb_selectors_t *sel,
                                 lxb_css_selector_list_t *list,
                                 qb_selector_cb_f cb, void *ctx);
 
-#define QB_NODE_TYPE_ELEMENT    1
-#define QB_NODE_TYPE_TEXT       3
-#define QB_NODE_TYPE_DOCUMENT   9
+#define QB_NODE_TYPE_ELEMENT            1
+#define QB_NODE_TYPE_TEXT               3
+#define QB_NODE_TYPE_COMMENT            8
+#define QB_NODE_TYPE_DOCUMENT           9
+#define QB_NODE_TYPE_DOCUMENT_FRAGMENT  11
 
 #endif
