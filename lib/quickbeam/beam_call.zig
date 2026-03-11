@@ -92,14 +92,35 @@ fn beam_call_sync_impl(
     };
     self.rd.sync_slots_mutex.unlock();
 
+    if (self.rd.shutting_down.load(.acquire)) {
+        self.rd.sync_slots_mutex.lock();
+        _ = self.rd.sync_slots.remove(call_id);
+        self.rd.sync_slots_mutex.unlock();
+        qjs.JS_FreeCString(ctx, name_ptr);
+        return qjs.JS_ThrowInternalError(ctx, "runtime shutting down");
+    }
+
     send_beam_call_term(self, call_id, name, ctx.?, argc, argv);
     qjs.JS_FreeCString(ctx, name_ptr);
 
-    slot.done.wait();
+    while (!slot.done.isSet()) {
+        if (self.rd.shutting_down.load(.acquire)) {
+            self.rd.sync_slots_mutex.lock();
+            _ = self.rd.sync_slots.remove(call_id);
+            self.rd.sync_slots_mutex.unlock();
+            return qjs.JS_ThrowInternalError(ctx, "runtime shutting down");
+        }
+        slot.done.timedWait(10_000_000) catch {};
+    }
 
     self.rd.sync_slots_mutex.lock();
     _ = self.rd.sync_slots.remove(call_id);
     self.rd.sync_slots_mutex.unlock();
+
+    if (self.rd.shutting_down.load(.acquire)) {
+        if (slot.result_env) |env| beam.free_env(env);
+        return qjs.JS_ThrowInternalError(ctx, "runtime shutting down");
+    }
 
     if (slot.result_env) |result_env| {
         defer beam.free_env(result_env);

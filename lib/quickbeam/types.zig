@@ -5,6 +5,8 @@ pub const qjs = @cImport(@cInclude("quickjs.h"));
 
 pub const gpa = std.heap.c_allocator;
 
+pub var class_ids_mutex: std.Thread.Mutex = .{};
+
 pub const SyncCallSlot = struct {
     result_json: []const u8 = "",
     result_env: ?*e.ErlNifEnv = null,
@@ -25,6 +27,7 @@ pub const RuntimeData = struct {
     sync_slots_mutex: std.Thread.Mutex = .{},
     sync_slots: std.AutoHashMapUnmanaged(u64, *SyncCallSlot) = .{},
     deadline: ?i128 = null,
+    shutting_down: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 };
 
 pub const Message = union(enum) {

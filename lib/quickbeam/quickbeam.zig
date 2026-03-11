@@ -1,5 +1,6 @@
 const types = @import("types.zig");
 const worker = @import("worker.zig");
+
 const std = types.std;
 const beam = @import("beam");
 const e = types.e;
@@ -13,6 +14,17 @@ pub const RuntimeResource = beam.Resource(*RuntimeData, @import("root"), .{
     .Callbacks = struct {
         pub fn dtor(ptr: **RuntimeData) void {
             const data = ptr.*;
+            data.shutting_down.store(true, .release);
+
+            data.sync_slots_mutex.lock();
+            var it = data.sync_slots.valueIterator();
+            while (it.next()) |slot| {
+                slot.*.ok = false;
+                slot.*.result_json = "runtime shutting down";
+                slot.*.done.set();
+            }
+            data.sync_slots_mutex.unlock();
+
             enqueue(data, .{ .stop = {} });
             if (data.thread) |t_| t_.join();
             gpa.destroy(data);
@@ -198,6 +210,18 @@ pub fn reset_runtime(resource: RuntimeResource) beam.term {
 
 pub fn stop_runtime(resource: RuntimeResource) beam.term {
     const data = resource.unpack();
+
+    data.shutting_down.store(true, .release);
+
+    data.sync_slots_mutex.lock();
+    var it = data.sync_slots.valueIterator();
+    while (it.next()) |slot| {
+        slot.*.ok = false;
+        slot.*.result_json = "runtime shutting down";
+        slot.*.done.set();
+    }
+    data.sync_slots_mutex.unlock();
+
     enqueue(data, .{ .stop = {} });
     if (data.thread) |th| {
         th.join();

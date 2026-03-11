@@ -223,11 +223,10 @@ fn convertValue(ctx: *qjs.JSContext, env: *e.ErlNifEnv, term: e.ErlNifTerm) qjs.
 
 fn finalizer(rt: ?*qjs.JSRuntime, val: qjs.JSValue) callconv(.c) void {
     const data = @as(?*BeamProxyData, @ptrCast(@alignCast(qjs.JS_GetOpaque(val, class_id)))) orelse return;
-    beam.free_env(data.env);
     if (qjs.JS_IsObject(data.overrides)) {
-        // JS_FreeValueRT to free during GC/finalization
         qjs.JS_FreeValueRT(rt, data.overrides);
     }
+    beam.free_env(data.env);
     qjs.js_free_rt(rt, data);
 }
 
@@ -257,7 +256,7 @@ var class_def = qjs.JSClassDef{
 };
 
 pub fn initRuntime(rt: *qjs.JSRuntime) void {
-    _ = qjs.JS_NewClassID(rt, &class_id);
+    // class_id allocated under shared types.class_ids_mutex in worker.zig
     _ = qjs.JS_NewClass(rt, class_id, &class_def);
 }
 

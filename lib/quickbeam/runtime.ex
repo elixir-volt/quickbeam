@@ -512,12 +512,45 @@ defmodule QuickBEAM.Runtime do
   end
 
   @impl true
-  def terminate(_reason, %{resource: resource}) do
+  def terminate(_reason, %{resource: resource} = state) do
+    drain_beam_calls(resource, state.handlers)
     QuickBEAM.Native.stop_runtime(resource)
     :ok
   end
 
   def terminate(_reason, _state), do: :ok
+
+  defp drain_beam_calls(resource, handlers) do
+    receive do
+      {:beam_call, call_id, handler_name, args} ->
+        handle_beam_call_sync(resource, handlers, call_id, handler_name, args)
+        drain_beam_calls(resource, handlers)
+    after
+      0 -> :ok
+    end
+  end
+
+  defp handle_beam_call_sync(resource, handlers, call_id, handler_name, args) do
+    case Map.get(handlers, handler_name) do
+      nil ->
+        QuickBEAM.Native.reject_call_term(resource, call_id, "Unknown handler: #{handler_name}")
+
+      handler ->
+        try do
+          args = if is_list(args), do: args, else: [args]
+
+          result =
+            case handler do
+              {:with_caller, fun} -> fun.(args, self())
+              fun -> fun.(args)
+            end
+
+          QuickBEAM.Native.resolve_call_term(resource, call_id, result)
+        rescue
+          e -> QuickBEAM.Native.reject_call_term(resource, call_id, Exception.message(e))
+        end
+    end
+  end
 
   defp put_pending(state, ref, from, transform \\ nil) do
     %{state | pending: Map.put(state.pending, ref, {from, transform})}

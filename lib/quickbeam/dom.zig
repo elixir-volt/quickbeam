@@ -9,9 +9,9 @@ const lxb = @cImport(@cInclude("lexbor_bridge.h"));
 
 // ──────────────────── JS class IDs ────────────────────
 
-var class_ids_mutex: std.Thread.Mutex = .{};
-var document_class_id: qjs.JSClassID = 0;
-var element_class_id: qjs.JSClassID = 0;
+
+pub var document_class_id: qjs.JSClassID = 0;
+pub var element_class_id: qjs.JSClassID = 0;
 
 // ──────────────────── Opaque data attached to JS objects ────────────────────
 
@@ -521,11 +521,7 @@ const element_class_def = qjs.JSClassDef{
 pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue) ?*DocumentData {
     const rt = qjs.JS_GetRuntime(ctx);
 
-    class_ids_mutex.lock();
-    _ = qjs.JS_NewClassID(rt, &document_class_id);
-    _ = qjs.JS_NewClassID(rt, &element_class_id);
-    class_ids_mutex.unlock();
-
+    // class IDs allocated under shared types.class_ids_mutex in worker.zig
     _ = qjs.JS_NewClass(rt, document_class_id, &document_class_def);
     _ = qjs.JS_NewClass(rt, element_class_id, &element_class_def);
 
