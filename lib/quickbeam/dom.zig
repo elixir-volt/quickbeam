@@ -101,6 +101,49 @@ fn doc_create_text_node(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, ar
     return node_to_js(ctx.?, lxb.qb_text_as_node(text_node).?);
 }
 
+fn doc_create_element_ns(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, argv: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    _ = this;
+    if (argc < 2) return qjs.JS_ThrowTypeError(ctx, "createElementNS requires a namespace and a qualified name");
+    const dd = get_document_data(ctx.?) orelse return qjs.JS_ThrowTypeError(ctx, "No document");
+    const dom_doc = lxb.qb_dom_document(dd.doc);
+
+    // First arg: namespace URI (may be null)
+    var ns: ?[]const u8 = null;
+    if (!qjs.JS_IsNull(argv[0])) {
+        ns = str_arg(ctx, argv, 0);
+    }
+    defer if (ns) |s| free_str(ctx, s.ptr);
+
+    // Second arg: qualified name (e.g. "svg" or "xlink:href")
+    const qname = str_arg(ctx, argv, 1) orelse return qjs.JS_ThrowTypeError(ctx, "Invalid qualified name");
+    defer free_str(ctx, qname.ptr);
+
+    // Split qualified name into prefix:localName
+    var prefix: ?[]const u8 = null;
+    var local_name = qname;
+    if (std.mem.indexOfScalar(u8, qname, ':')) |colon| {
+        prefix = qname[0..colon];
+        local_name = qname[colon + 1 ..];
+    }
+
+    const ns_ptr = if (ns) |s| to_lxb(s) else null;
+    const ns_len = if (ns) |s| s.len else 0;
+    const prefix_ptr = if (prefix) |p| to_lxb(p) else null;
+    const prefix_len = if (prefix) |p| p.len else 0;
+
+    const elem = lxb.qb_create_element_ns(
+        dom_doc,
+        to_lxb(local_name),
+        local_name.len,
+        ns_ptr,
+        ns_len,
+        prefix_ptr,
+        prefix_len,
+    ) orelse return qjs.JS_ThrowTypeError(ctx, "Failed to create element");
+
+    return node_to_js(ctx.?, lxb.qb_element_as_node(elem).?);
+}
+
 fn doc_create_document_fragment(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
     _ = this;
     const dd = get_document_data(ctx.?) orelse return qjs.JS_ThrowTypeError(ctx, "No document");
@@ -1004,6 +1047,7 @@ pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue) ?*DocumentData {
     _ = qjs.JS_SetOpaque(doc_obj, @ptrCast(dd));
 
     _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "createElement", qjs.JS_NewCFunction(ctx, &doc_create_element, "createElement", 1));
+    _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "createElementNS", qjs.JS_NewCFunction(ctx, &doc_create_element_ns, "createElementNS", 2));
     _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "createTextNode", qjs.JS_NewCFunction(ctx, &doc_create_text_node, "createTextNode", 1));
     _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "createDocumentFragment", qjs.JS_NewCFunction(ctx, &doc_create_document_fragment, "createDocumentFragment", 0));
     _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "createComment", qjs.JS_NewCFunction(ctx, &doc_create_comment, "createComment", 1));
