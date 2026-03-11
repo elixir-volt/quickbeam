@@ -17,7 +17,7 @@ defmodule QuickBEAM.Native do
              end)
 
   @quickjs_cflags if System.get_env("QUICKBEAM_UBSAN") == "1",
-                    do: ["-std=c11", "-D_GNU_SOURCE", "-fsanitize=undefined", "-fsanitize-trap=undefined"],
+                    do: ["-std=c11", "-D_GNU_SOURCE", "-fsanitize=undefined", "-fno-sanitize=function,unsigned-integer-overflow", "-fsanitize-trap=undefined"],
                     else: ["-std=c11", "-D_GNU_SOURCE"]
 
   use Zig,
