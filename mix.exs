@@ -53,6 +53,7 @@ defmodule QuickBEAM.MixProject do
       {:ex_dna, "~> 1.1", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false},
       {:oxc, "~> 0.2.2"},
+      {:npm, "~> 0.3.1"},
       {:nimble_pool, "~> 1.1"},
       {:bandit, "~> 1.0", only: :test},
       {:benchee, "~> 1.3", only: :bench, runtime: false},

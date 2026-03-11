@@ -36,7 +36,10 @@ defmodule QuickBEAM do
     * `:name` — GenServer name registration
     * `:id` — child spec ID (defaults to `:name`, then module)
     * `:handlers` — map of handler name → function for `beam.call`/`beam.callSync`
-    * `:script` — path to a JS file evaluated on startup
+    * `:script` — path to a JS/TS file evaluated on startup. TypeScript files
+      are automatically transformed. Files with `import` statements are
+      automatically bundled — imports are resolved from the filesystem and
+      `node_modules/`, then compiled into a single script via OXC.
     * `:memory_limit` — maximum JS heap in bytes (default: 256 MB)
     * `:max_stack_size` — maximum JS call stack in bytes (default: 1 MB)
 

@@ -237,6 +237,40 @@ files = [
 {:ok, bundle} = QuickBEAM.JS.bundle(files)
 ```
 
+## npm packages
+
+QuickBEAM ships with a built-in npm client — no Node.js required.
+
+```sh
+mix npm.install sanitize-html
+```
+
+The `:script` option auto-resolves imports. Point it at a TypeScript file
+that imports npm packages, and QuickBEAM bundles everything at startup:
+
+```elixir
+# priv/js/app.ts
+import sanitize from 'sanitize-html'
+
+Process.onMessage((html: string) => {
+  beam.callSync("done", sanitize(html))
+})
+```
+
+```elixir
+{QuickBEAM, name: :sanitizer, script: "priv/js/app.ts", handlers: %{...}}
+```
+
+No build step, no webpack, no esbuild. TypeScript is stripped, imports
+are resolved from `node_modules/`, and everything is bundled into a
+single script via OXC — all at runtime startup.
+
+You can also bundle from disk programmatically:
+
+```elixir
+{:ok, js} = QuickBEAM.JS.bundle_file("src/main.ts")
+```
+
 ## Performance
 
 vs QuickJSEx 0.3.1 (Rust/Rustler, JSON serialization):
