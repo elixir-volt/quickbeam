@@ -7,6 +7,48 @@ defmodule QuickBEAM.DOMExtendedTest do
     %{runtime: runtime}
   end
 
+  describe "createElementNS" do
+    test "creates SVG element", %{runtime: rt} do
+      assert {:ok, "svg"} = QuickBEAM.eval(rt, """
+        document.createElementNS('http://www.w3.org/2000/svg', 'svg').tagName;
+      """)
+    end
+
+    test "creates element with prefix", %{runtime: rt} do
+      assert {:ok, result} = QuickBEAM.eval(rt, """
+        (() => {
+          const el = document.createElementNS('http://www.w3.org/1999/xlink', 'xlink:href');
+          return { tag: el.tagName, nodeType: el.nodeType };
+        })()
+      """)
+      assert result["nodeType"] == 1
+    end
+
+    test "null namespace creates element like createElement", %{runtime: rt} do
+      assert {:ok, "div"} = QuickBEAM.eval(rt, """
+        document.createElementNS(null, 'div').tagName;
+      """)
+    end
+
+    test "element can be appended to DOM", %{runtime: rt} do
+      assert {:ok, html} = QuickBEAM.eval(rt, """
+        (() => {
+          const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          svg.appendChild(rect);
+          document.body.appendChild(svg);
+          return document.body.innerHTML;
+        })()
+      """)
+      assert html =~ "svg"
+      assert html =~ "rect"
+    end
+
+    test "throws without required arguments", %{runtime: rt} do
+      assert {:error, _} = QuickBEAM.eval(rt, "document.createElementNS('http://www.w3.org/2000/svg')")
+    end
+  end
+
   describe "createDocumentFragment" do
     test "creates a fragment that can hold children", %{runtime: rt} do
       assert {:ok, 2} = QuickBEAM.eval(rt, """

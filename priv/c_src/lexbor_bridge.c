@@ -58,6 +58,15 @@ lxb_dom_text_t *qb_create_text_node(lxb_dom_document_t *doc,
     return lxb_dom_document_create_text_node(doc, text, len);
 }
 
+lxb_dom_element_t *qb_create_element_ns(lxb_dom_document_t *doc,
+                                         const lxb_char_t *local_name, size_t lname_len,
+                                         const lxb_char_t *ns, size_t ns_len,
+                                         const lxb_char_t *prefix, size_t prefix_len) {
+    return lxb_dom_element_create(doc, local_name, lname_len,
+                                   ns, ns_len, prefix, prefix_len,
+                                   NULL, 0, false);
+}
+
 lxb_dom_node_t *qb_create_document_fragment(lxb_dom_document_t *doc) {
     lxb_dom_document_fragment_t *frag = lxb_dom_document_create_document_fragment(doc);
     if (!frag) return NULL;
