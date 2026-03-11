@@ -7,6 +7,18 @@ on:
     branches: [master]
 
 jobs:
+  clang-tidy:
+    name: C static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          clang-tidy priv/c_src/lexbor_bridge.c \
+            -checks='-*,clang-analyzer-*,bugprone-*,portability-*,-bugprone-easily-swappable-parameters' \
+            -warnings-as-errors='*' \
+            -- -std=c99 -DLEXBOR_STATIC \
+            -Ipriv/c_src -Ipriv/c_src/lexbor/ports/posix
+
   test:
     runs-on: ubuntu-latest
     strategy:
