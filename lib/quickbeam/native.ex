@@ -16,6 +16,8 @@ defmodule QuickBEAM.Native do
                {:priv, String.replace_prefix(path, "priv/", ""), @lexbor_cflags}
              end)
 
+  @quickjs_cflags ["-std=c11", "-D_GNU_SOURCE"]
+
   use Zig,
     otp_app: :quickbeam,
     zig_code_path: "quickbeam.zig",
@@ -27,10 +29,10 @@ defmodule QuickBEAM.Native do
       ],
       src:
         [
-          {:priv, "c_src/quickjs.c", ["-std=c11"]},
-          {:priv, "c_src/libregexp.c", ["-std=c11"]},
-          {:priv, "c_src/libunicode.c", ["-std=c11"]},
-          {:priv, "c_src/dtoa.c", ["-std=c11"]},
+          {:priv, "c_src/quickjs.c", @quickjs_cflags},
+          {:priv, "c_src/libregexp.c", @quickjs_cflags},
+          {:priv, "c_src/libunicode.c", @quickjs_cflags},
+          {:priv, "c_src/dtoa.c", @quickjs_cflags},
           {:priv, "c_src/lexbor_bridge.c", @lexbor_cflags}
         ] ++ @lexbor_src
     ],
