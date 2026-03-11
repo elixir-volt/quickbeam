@@ -3,6 +3,7 @@ const js = @import("js_helpers.zig");
 const globals = @import("globals.zig");
 const js_to_beam = @import("js_to_beam.zig");
 const beam_to_js = @import("beam_to_js.zig");
+const beam_proxy = @import("beam_proxy.zig");
 const dom = @import("dom.zig");
 pub const atom_cache = @import("atom_cache.zig");
 const std = types.std;
@@ -506,6 +507,7 @@ pub const WorkerState = struct {
 
     pub fn install_globals(self: *WorkerState) void {
         qjs.JS_SetContextOpaque(self.ctx, @ptrCast(self));
+        beam_proxy.initContext(self.ctx);
         self.atoms = atom_cache.AtomCache.init(self.ctx);
         self.dom_data = globals.install_all(self.ctx);
     }
@@ -527,6 +529,7 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
     qjs.JS_SetMaxStackSize(rt, rd.max_stack_size);
     qjs.JS_UpdateStackTop(rt);
     qjs.JS_SetInterruptHandler(rt, &interrupt_handler, @ptrCast(rd));
+    beam_proxy.initRuntime(rt);
 
     const ctx = qjs.JS_NewContext(rt) orelse return;
 

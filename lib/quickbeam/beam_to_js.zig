@@ -1,6 +1,7 @@
 const types = @import("types.zig");
 const js = @import("js_helpers.zig");
 const worker = @import("worker.zig");
+const beam_proxy = @import("beam_proxy.zig");
 const std = types.std;
 const e = types.e;
 const qjs = types.qjs;
@@ -159,6 +160,13 @@ fn convert_list(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm, dep
 }
 
 fn convert_map(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm, depth: u32) qjs.JSValue {
+    if (beam_proxy.class_id != 0) {
+        var map_size: usize = 0;
+        if (e.enif_get_map_size(env, term, &map_size) != 0 and map_size > 4) {
+            return beam_proxy.create(ctx, env, term);
+        }
+    }
+
     const obj = qjs.JS_NewObject(ctx);
 
     // SAFETY: immediately filled by enif_map_iterator_create
