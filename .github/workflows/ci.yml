@@ -33,7 +33,7 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-${{ matrix.otp }}-${{ matrix.elixir }}-${{ hashFiles('mix.lock') }}
+          key: ${{ runner.os }}-mix-${{ matrix.otp }}-${{ matrix.elixir }}-${{ hashFiles('mix.lock') }}-${{ hashFiles('lib/quickbeam/*.zig') }}
           restore-keys: ${{ runner.os }}-mix-${{ matrix.otp }}-${{ matrix.elixir }}-
 
       - run: mix deps.get
@@ -65,7 +65,7 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-ubsan-27.0-1.18-${{ hashFiles('mix.lock') }}
+          key: ${{ runner.os }}-ubsan-27.0-1.18-${{ hashFiles('mix.lock') }}-${{ hashFiles('lib/quickbeam/*.zig') }}
           restore-keys: ${{ runner.os }}-ubsan-27.0-1.18-
 
       - run: mix deps.get
@@ -116,8 +116,9 @@ jobs:
 
           # Install ASAN beam binary alongside the standard one
           ERTS_DIR=$(ls -d /tmp/otp-asan/lib/erlang/erts-*)
-          find bin/ -name 'beam.asan.smp' -exec cp {} ${ERTS_DIR}/bin/ \;
-          find bin/ -name 'erl_child_setup.asan' -exec cp {} ${ERTS_DIR}/bin/ \;
+          find . -name 'beam.asan.smp' -exec cp {} ${ERTS_DIR}/bin/ \;
+          find . -name 'erl_child_setup.asan' -exec cp {} ${ERTS_DIR}/bin/ \; 2>/dev/null || true
+          ls -la ${ERTS_DIR}/bin/beam.asan.smp
 
       - name: Cache Elixir build
         id: elixir-cache
@@ -155,7 +156,7 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-asan-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('mix.lock') }}
+          key: ${{ runner.os }}-asan-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('mix.lock') }}-${{ hashFiles('lib/quickbeam/*.zig') }}
           restore-keys: ${{ runner.os }}-asan-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
 
       - run: mix deps.get
