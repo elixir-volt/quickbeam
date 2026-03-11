@@ -43,7 +43,7 @@ jobs:
       - run: mix compile --warnings-as-errors
       - run: mix test
 
-  sanitizer:
+  ubsan:
     name: UBSan + Zig Debug
     runs-on: ubuntu-latest
     env:
@@ -77,3 +77,125 @@ jobs:
       - run: bun install
       - run: mix compile
       - run: mix test
+
+  asan:
+    name: AddressSanitizer
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+      OTP_VERSION: "27.0"
+      ELIXIR_VERSION: "1.18.3"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Cache OTP ASAN build
+        id: otp-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/otp-asan
+          key: otp-asan-${{ env.OTP_VERSION }}-v2
+
+      - name: Build OTP with ASAN emulator
+        if: steps.otp-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf libncurses-dev libssl-dev
+
+          cd /tmp
+          curl -fSL "https://github.com/erlang/otp/releases/download/OTP-${OTP_VERSION}/otp_src_${OTP_VERSION}.tar.gz" | tar xz
+          cd otp_src_${OTP_VERSION}
+          export ERL_TOP=$(pwd)
+
+          ./configure --prefix=/tmp/otp-asan --disable-jit \
+            --without-javac --without-wx --without-odbc \
+            --without-debugger --without-observer --without-et
+          make -j$(nproc)
+          make install
+
+          # Build ASAN emulator on top of the standard build
+          (cd erts/emulator && make TYPE=asan -j$(nproc))
+          (cd erts/lib_src && make TYPE=asan -j$(nproc))
+
+          # Install ASAN beam binary alongside the standard one
+          ERTS_DIR=$(ls -d /tmp/otp-asan/lib/erlang/erts-*)
+          find bin/ -name 'beam.asan.smp' -exec cp {} ${ERTS_DIR}/bin/ \;
+          find bin/ -name 'erl_child_setup.asan' -exec cp {} ${ERTS_DIR}/bin/ \;
+
+      - name: Cache Elixir build
+        id: elixir-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/elixir
+          key: elixir-asan-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-v1
+
+      - name: Build Elixir
+        if: steps.elixir-cache.outputs.cache-hit != 'true'
+        run: |
+          export PATH="/tmp/otp-asan/bin:$PATH"
+          curl -fSL "https://github.com/elixir-lang/elixir/archive/refs/tags/v${ELIXIR_VERSION}.tar.gz" | tar xz -C /tmp
+          cd /tmp/elixir-${ELIXIR_VERSION}
+          make -j$(nproc)
+          make install PREFIX=/tmp/elixir
+
+      - name: Set PATH
+        run: |
+          echo "/tmp/elixir/bin" >> $GITHUB_PATH
+          echo "/tmp/otp-asan/bin" >> $GITHUB_PATH
+
+      - name: Verify ASAN emulator
+        run: |
+          erl -emu_type asan -noshell -eval 'io:format("ASAN emulator OK~n"), halt().'
+
+      - name: Install Hex and Rebar
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-asan-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('mix.lock') }}
+          restore-keys: ${{ runner.os }}-asan-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+
+      - run: mix deps.get
+      - run: bun install
+      - run: mix compile
+
+      - name: Run tests under ASAN
+        run: |
+          mkdir -p /tmp/asan_logs
+          export ASAN_OPTIONS="log_path=/tmp/asan_logs/asan:halt_on_error=0:detect_leaks=0"
+          export ERL_AFLAGS="-emu_type asan"
+          mix test || true
+
+      - name: Report ASAN results
+        if: always()
+        run: |
+          if ls /tmp/asan_logs/asan.* 1>/dev/null 2>&1; then
+            echo "## ASAN Issues Found" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            for f in /tmp/asan_logs/asan.*; do
+              head -20 "$f"
+              echo "---"
+            done | head -200 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## No ASAN issues detected ✅" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload ASAN logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asan-logs
+          path: /tmp/asan_logs/
+          if-no-files-found: ignore
