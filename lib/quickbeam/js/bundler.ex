@@ -88,6 +88,9 @@ defmodule QuickBEAM.JS.Bundler do
 
   defp collect_imports([specifier | rest], importer, node_modules, files, seen) do
     case resolve_specifier(specifier, importer, node_modules) do
+      :skip ->
+        collect_imports(rest, importer, node_modules, files, seen)
+
       {:ok, resolved_path} ->
         case do_collect(resolved_path, node_modules, files, seen) do
           {:ok, files, seen} ->
@@ -103,12 +106,14 @@ defmodule QuickBEAM.JS.Bundler do
   end
 
   defp resolve_specifier(specifier, importer, node_modules) do
-    if relative?(specifier) do
-      resolve_relative(specifier, importer)
-    else
-      resolve_bare(specifier, node_modules)
+    cond do
+      node_builtin?(specifier) -> :skip
+      relative?(specifier) -> resolve_relative(specifier, importer)
+      true -> resolve_bare(specifier, node_modules)
     end
   end
+
+  defp node_builtin?(specifier), do: String.starts_with?(specifier, "node:")
 
   defp relative?(specifier),
     do: String.starts_with?(specifier, "./") or String.starts_with?(specifier, "../")
@@ -167,10 +172,19 @@ defmodule QuickBEAM.JS.Bundler do
   defp resolve_exports_field(%{"exports" => %{"." => entry}}) when is_binary(entry), do: entry
 
   defp resolve_exports_field(%{"exports" => %{"." => conditions}}) when is_map(conditions) do
-    conditions["import"] || conditions["default"] || conditions["require"]
+    resolve_condition(conditions)
   end
 
   defp resolve_exports_field(_), do: nil
+
+  defp resolve_condition(value) when is_binary(value), do: value
+
+  defp resolve_condition(value) when is_map(value) do
+    (value["import"] || value["default"] || value["require"])
+    |> resolve_condition()
+  end
+
+  defp resolve_condition(_), do: nil
 
   defp try_resolve(base) do
     Enum.find_value(@extensions, fn ext ->
