@@ -1,4 +1,0 @@
-[workspace]
-resolver = "2"
-
-members = ["native/oxc_ex_nif"]
