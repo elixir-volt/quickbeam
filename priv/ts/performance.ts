@@ -1,6 +1,6 @@
 const perf = globalThis.performance as Record<string, unknown>
 
-const timeOrigin = Date.now() - perf.now!()
+const timeOrigin = Date.now() - (perf.now as () => number)()
 
 class PerformanceEntry {
   readonly name: string
@@ -164,4 +164,4 @@ perf.toJSON = function toJSON() {
   return { timeOrigin }
 }
 
-Object.assign(globalThis, { PerformanceEntry, PerformanceMark, PerformanceMeasure })
+
