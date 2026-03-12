@@ -187,7 +187,7 @@ Loaded by default. These are Web platform APIs backed by OTP.
 
 | API | Backed by |
 |---|---|
-| `navigator.locks.request(name, cb)` | `QuickBEAM.LockManager` GenServer |
+| `navigator.locks.request(name, cb)` | GenServer with monitors |
 | `navigator.locks.request(name, opts, cb)` | Supports `mode`, `ifAvailable`, `signal` |
 | `navigator.locks.query()` | — |
 
