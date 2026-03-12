@@ -114,7 +114,7 @@ pub const MessagePayload = struct {
 };
 
 pub const SetGlobalPayload = struct {
-    name: []const u8,
+    name: [:0]const u8,
     env: ?*e.ErlNifEnv,
     term: e.ErlNifTerm,
 };

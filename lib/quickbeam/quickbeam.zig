@@ -383,7 +383,7 @@ pub fn send_message(resource: RuntimeResource, message: beam.term) beam.term {
 pub fn define_global(resource: RuntimeResource, name: []const u8, value: beam.term) beam.term {
     const val_env = beam.alloc_env();
     const copied = e.enif_make_copy(val_env, value.v);
-    const name_copy = types.gpa.dupe(u8, name) catch return beam.make(.{ .@"error", "enomem" }, .{});
+    const name_copy = types.gpa.dupeZ(u8, name) catch return beam.make(.{ .@"error", "enomem" }, .{});
     enqueue(resource.unpack(), .{ .define_global = .{ .name = name_copy, .env = val_env, .term = copied } });
     return beam.make(.ok, .{});
 }
