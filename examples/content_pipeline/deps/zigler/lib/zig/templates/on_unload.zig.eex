@@ -1,0 +1,13 @@
+// TODO: deprecate this content being an elixir template and provide it entirely
+// using Zig comptime logic.
+fn unload(env: beam.env, priv_data: ?*anyopaque) callconv(.c) void {
+    beam.context.env = env;
+    beam.context.mode = .callback;
+    beam.context.allocator = beam.allocator;
+<%= case @on_unload do %>
+  <% %{name: name, arity: 1} -> %>
+    nif.<%= name %>(@ptrCast(@alignCast(priv_data)));
+  <% %{name: name, arity: 2} -> %>
+    nif.<%= name %>(env, priv_data);
+<% end %>
+}

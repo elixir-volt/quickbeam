@@ -1,0 +1,1 @@
+/Users/dannote/Development/quickbeam/examples/plugin_sandbox/deps/oxc/target/release/liboxc_ex_nif.dylib: /Users/dannote/Development/quickbeam/examples/plugin_sandbox/deps/oxc/native/oxc_ex_nif/src/lib.rs

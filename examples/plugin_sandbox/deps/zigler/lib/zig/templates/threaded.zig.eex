@@ -1,0 +1,77 @@
+const @"Thread-<%= @name %>" = beam.Thread(nif.<%= @alias || @name %>);
+pub const @"ThreadResource-<%= @name %>" = beam.Resource(*@"Thread-<%= @name %>", @This(), .{
+  .Callbacks = beam.ThreadedCallbacks(@"Thread-<%= @name %>")
+});
+
+<% needs_make? = @params |> Map.values |> Enum.any?(&Type.needs_make?(&1.type)) %>
+
+fn @"<%= @name %>-launch"(env: beam.env, argc: c_int, args: [*c] const e.ErlNifTerm) callconv(.c) e.ErlNifTerm {
+
+    <%= cond do %>
+    <% allocator = @allocator -> %>
+    const allocator = nif.<%= allocator %>();
+    <% @leak_check -> %>
+    var gpa = beam.make_debug_allocator_instance();
+    const allocator = gpa.allocator();
+    <% :else -> %>
+    const allocator = beam.allocator;
+    <% end %>
+
+    // set context due to reentry
+    beam.context = .{
+        .env = env,
+        // TODO: make this configurable
+        .mode = .synchronous,
+        .allocator = allocator
+    };
+
+    <%= if needs_make? do %>
+    var error_info = beam.make_empty_list(.{});
+    <% end %>
+
+    const payload_opts = .{
+        <%= for {index, param} <- @params do %>
+        .{
+            <%= Parameter.render_payload_options(param, index) %>
+        },
+        <% end %>
+    };
+
+    const result = @"Thread-<%= @name %>".launch(@"ThreadResource-<%= @name %>", argc, args, payload_opts) catch {
+        @panic("error launching thread");
+    };
+
+    return result.v;
+}
+
+fn @"<%= @name %>-join"(env: beam.env, argc: c_int, args: [*c] const e.ErlNifTerm) callconv(.c) e.ErlNifTerm {
+    // argc must be 1.
+    _ = argc;
+
+    const thread_rsrc = beam.get(@"ThreadResource-<%= @name %>", .{.v = args[0]}, .{}) catch {
+        @panic("error getting thread resource");
+    };
+    const thread = @"ThreadResource-<%= @name %>".unpack(thread_rsrc);
+
+    // set context due to reentry
+    beam.context = .{
+        .env = env,
+        .mode = .threaded,
+        .allocator = beam.allocator, //thread.allocator
+    };
+
+    const result = thread.join() catch {
+        // TODO: fix this
+        @panic("error joining thread");
+    };
+
+    if (comptime @"Thread-<%= @name %>".makes_error_result()) {
+        const result_term = switch(result) {
+            .ok => |ok_result| beam.make(ok_result, .{}),
+            .error_return_trace => |error_result| beam.raise_exception(beam.copy(env, error_result), .{}),
+        };
+        return result_term.v;
+    } else {
+        return beam.make(result, .{}).v;
+    }
+}

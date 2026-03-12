@@ -1,0 +1,25 @@
+// TODO: deprecate this content being an elixir template and provide it entirely
+// using Zig comptime logic.
+<% on_load_fn = @sema.callbacks[:on_load]%>
+beam.context.env = env;
+beam.context.mode = .callback;
+beam.context.allocator = beam.allocator;
+<%= if on_load_fn.arity == 2 do %>
+  // following type is guaranteed to exist as per semantic analysis.
+  const Payload = @typeInfo(@TypeOf(nif.<%= on_load_fn.name%>)).@"fn".params[1].type.?;
+  const payload = beam.get(Payload, .{.v = load_info}, .{}) catch return -1;
+  <%= case on_load_fn.return do %>
+    <% %Zig.Type.Integer{} -> %>
+      return @intCast(nif.<%= on_load_fn.name %>(@ptrCast(priv_data), payload)); 
+    <% %Zig.Type.Enum{} -> %>
+      return @intFromEnum(nif.<%= on_load_fn.name %>(@ptrCast(priv_data), payload)); 
+    <% :void -> %>
+      nif.<%= on_load_fn.name %>(@ptrCast(priv_data), payload); 
+      return 0;
+    <% %Zig.Type.Error{child: :void} -> %>
+      nif.<%= on_load_fn.name %>(@ptrCast(priv_data), payload) catch |err| return @intFromError(err);
+      return 0;
+  <% end %>
+<% else %>
+  return nif.<%= on_load_fn.name %>(env, @ptrCast(priv_data), load_info);
+<% end %>

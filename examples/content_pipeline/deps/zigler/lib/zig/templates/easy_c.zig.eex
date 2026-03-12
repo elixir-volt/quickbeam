@@ -1,0 +1,10 @@
+const easy_c = @cImport({
+    @cInclude("<%= @easy_c %>");
+    <% # TODO: cDefines %>
+});
+
+<%= for nif <- @nifs  do %>
+  <%= unless nif.alias do %>
+pub const <%= nif.name %> = easy_c.<%= nif.name %>;
+  <% end %>
+<% end %>

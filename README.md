@@ -333,12 +333,12 @@ See [`bench/`](bench/README.md) for details.
 
 - [`examples/ssr/`](examples/ssr/) — Preact SSR with a pool of runtimes
   and native DOM. Elixir reads the DOM directly — no `renderToString`.
-- [`examples/content_pipeline/`](examples/content_pipeline/) — markdown
-  processing pipeline: marked (npm) → native DOM analysis → spam detection.
-  Three supervised runtimes communicating via message passing.
-- [`examples/plugin_sandbox/`](examples/plugin_sandbox/) — multi-tenant
-  plugin execution with memory limits, timeouts, and capability-based
-  handler permissions.
+- [`examples/rule_engine/`](examples/rule_engine/) — user-defined business
+  rules (pricing, validation, transforms) in sandboxed JS runtimes with
+  `apis: false`, memory limits, timeouts, and hot reload.
+- [`examples/live_dashboard/`](examples/live_dashboard/) — Workers (BEAM
+  processes) compute metrics in parallel and broadcast results via
+  BroadcastChannel (`:pg`). Crash recovery via OTP supervisor.
 
 ## License
 
