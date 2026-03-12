@@ -3,31 +3,78 @@ defmodule ContentPipelineTest do
 
   setup do
     js_dir = Path.join(File.cwd!(), "priv/js")
-    {:ok, sup} = ContentPipeline.start_link(collector: self(), js_dir: js_dir)
-    Process.unlink(sup)
-    on_exit(fn -> Supervisor.stop(sup) end)
+    start_supervised!({ContentPipeline, collector: self(), js_dir: js_dir})
     :ok
   end
 
-  test "strips HTML tags" do
+  test "parses markdown to HTML" do
+    ContentPipeline.submit(%{id: 1, title: "Test", body: "**bold** and _italic_"})
+
+    assert_receive {:done, result}, 2000
+    assert result["html"] =~ "<strong>bold</strong>"
+    assert result["html"] =~ "<em>italic</em>"
+  end
+
+  test "extracts headings from markdown" do
     ContentPipeline.submit(%{
-      id: 1,
-      title: "<b>Bold</b> and <i>italic</i>",
-      body: "<p>A <a href='#'>link</a> here.</p>",
-      author: "alice"
+      id: 2,
+      title: "Headings",
+      body: "## First\n\nText\n\n### Second\n\nMore text"
     })
 
     assert_receive {:done, result}, 2000
-    assert result["title"] == "Bold and italic"
-    assert result["body"] == "A link here."
+    headings = result["headings"]
+    assert length(headings) == 2
+    assert Enum.at(headings, 0)["text"] == "First"
+    assert Enum.at(headings, 0)["level"] == 2
+    assert Enum.at(headings, 1)["text"] == "Second"
+    assert Enum.at(headings, 1)["level"] == 3
+  end
+
+  test "extracts links" do
+    ContentPipeline.submit(%{
+      id: 3,
+      title: "Links",
+      body: "Visit [Elixir](https://elixir-lang.org) and [Erlang](https://erlang.org)."
+    })
+
+    assert_receive {:done, result}, 2000
+    links = result["links"]
+    assert length(links) == 2
+    hrefs = Enum.map(links, & &1["href"])
+    assert "https://elixir-lang.org" in hrefs
+    assert "https://erlang.org" in hrefs
+  end
+
+  test "extracts code blocks with language" do
+    ContentPipeline.submit(%{
+      id: 4,
+      title: "Code",
+      body: "```elixir\nIO.puts(\"hello\")\nIO.puts(\"world\")\n```"
+    })
+
+    assert_receive {:done, result}, 2000
+    blocks = result["code_blocks"]
+    assert length(blocks) == 1
+    assert Enum.at(blocks, 0)["lang"] == "elixir"
+    assert Enum.at(blocks, 0)["lines"] >= 2
+  end
+
+  test "counts words and reading time" do
+    words = String.duplicate("word ", 400) |> String.trim()
+
+    ContentPipeline.submit(%{id: 5, title: "Long", body: words})
+
+    assert_receive {:done, result}, 2000
+    assert result["word_count"] == 400
+    assert result["reading_time"] == 2
   end
 
   test "detects spam" do
     ContentPipeline.submit(%{
-      id: 2,
+      id: 6,
       title: "Buy Now! Free Money!!!",
-      body: "Click here for $$$ — act now!",
-      author: "spammer"
+      body: "Click here for $$$ — act now!"
     })
 
     assert_receive {:done, result}, 2000
@@ -35,47 +82,25 @@ defmodule ContentPipelineTest do
     assert result["spam_score"] >= 2
   end
 
-  test "passes clean posts through" do
-    ContentPipeline.submit(%{
-      id: 3,
-      title: "QuickBEAM Release",
-      body: "JS runtimes as BEAM processes.",
-      author: "bob"
-    })
+  test "passes clean content" do
+    ContentPipeline.submit(%{id: 7, title: "Clean Post", body: "Just a normal post."})
 
     assert_receive {:done, result}, 2000
     assert result["is_spam"] == false
     assert result["spam_score"] == 0
   end
 
-  test "counts words" do
-    ContentPipeline.submit(%{
-      id: 4,
-      title: "Test",
-      body: "one two three four five",
-      author: "alice"
-    })
-
-    assert_receive {:done, result}, 2000
-    assert result["word_count"] == 5
-  end
-
   test "adds processing timestamp" do
-    ContentPipeline.submit(%{id: 5, title: "T", body: "B", author: "a"})
+    ContentPipeline.submit(%{id: 8, title: "T", body: "B"})
 
     assert_receive {:done, result}, 2000
     assert is_binary(result["processed_at"])
     assert {:ok, _, _} = DateTime.from_iso8601(result["processed_at"])
   end
 
-  test "processes multiple posts" do
+  test "processes multiple posts concurrently" do
     for i <- 1..10 do
-      ContentPipeline.submit(%{
-        id: i,
-        title: "Post #{i}",
-        body: "Content of post #{i}",
-        author: "user_#{i}"
-      })
+      ContentPipeline.submit(%{id: i, title: "Post #{i}", body: "Content #{i}"})
     end
 
     results =
@@ -88,16 +113,16 @@ defmodule ContentPipelineTest do
     assert ids == Enum.to_list(1..10)
   end
 
-  test "classifier crash doesn't kill other stages" do
-    ContentPipeline.submit(%{id: 0, title: "before", body: "test", author: "a"})
+  test "supervisor restarts crashed stage" do
+    ContentPipeline.submit(%{id: 0, title: "before", body: "test"})
     assert_receive {:done, _}, 2000
 
-    classifier_pid = Process.whereis(:classifier)
-    Process.exit(classifier_pid, :kill)
-    Process.sleep(100)
+    analyzer_pid = Process.whereis(:analyzer)
+    Process.exit(analyzer_pid, :kill)
+    Process.sleep(200)
 
-    assert Process.whereis(:classifier) != classifier_pid
-    assert Process.whereis(:sanitizer) != nil
+    assert Process.whereis(:analyzer) != analyzer_pid
+    assert Process.whereis(:parser) != nil
     assert Process.whereis(:enricher) != nil
   end
 end

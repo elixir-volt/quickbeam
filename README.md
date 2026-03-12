@@ -331,8 +331,14 @@ See [`bench/`](bench/README.md) for details.
 
 ## Examples
 
-- [`examples/content_pipeline/`](examples/content_pipeline/) — three
-  supervised JS runtimes forming a content moderation pipeline, with tests.
+- [`examples/ssr/`](examples/ssr/) — Preact SSR with a pool of runtimes
+  and native DOM. Elixir reads the DOM directly — no `renderToString`.
+- [`examples/content_pipeline/`](examples/content_pipeline/) — markdown
+  processing pipeline: marked (npm) → native DOM analysis → spam detection.
+  Three supervised runtimes communicating via message passing.
+- [`examples/plugin_sandbox/`](examples/plugin_sandbox/) — multi-tenant
+  plugin execution with memory limits, timeouts, and capability-based
+  handler permissions.
 
 ## License
 

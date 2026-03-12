@@ -1,44 +1,56 @@
-# Content moderation pipeline
+# Content pipeline
 
-Three JS runtimes as supervised BEAM processes, communicating via message passing.
+Three supervised JS runtimes forming a markdown processing pipeline.
 
 ```
-post → [sanitizer] → [classifier] → [enricher] → result
-          strip HTML     spam detection    word count
+post → [parser] ──→ [analyzer] ──→ [enricher] ──→ result
+        marked        native DOM      spam check
+        (npm)         querySelectorAll  timestamps
 ```
 
-Each stage is isolated. Kill any one — the supervisor restarts it, the others keep running.
+## What's happening
+
+1. **Parser** — converts markdown to HTML using [marked](https://marked.js.org) (npm package, bundled by OXC)
+2. **Analyzer** — renders HTML into the native DOM (lexbor), then uses `querySelectorAll` to extract headings, links, and code blocks with their languages
+3. **Enricher** — runs spam detection and adds metadata
+
+Each stage is a supervised BEAM process. Kill any one — the supervisor restarts it, the others keep running.
 
 ## Run
 
 ```sh
-elixir pipeline.exs
+mix deps.get
+mix npm.install marked
+mix run run.exs
 ```
 
 ```
-1 | Hello World (6 words)
-2 [SPAM] | Buy Now! Free Money!!! (7 words)
-3 | QuickBEAM Release (5 words)
+1 | Getting Started with QuickBEAM
+  33 words · 1 min read
+  headings: ["Installation", "Quick start"]
+  links: 2 · code blocks: 2
+
+2 [SPAM] | Buy Now! Free Money!!!
+  12 words · 1 min read
+  headings: []
+  links: 0 · code blocks: 0
+
+3 | BEAM vs Node.js
+  15 words · 1 min read
+  headings: []
+  links: 0 · code blocks: 0
 ```
 
 ## Test
 
 ```sh
-mix deps.get
 mix test
 ```
 
-## How it works
+## Key features demonstrated
 
-Each `.js` file receives messages via `Beam.onMessage` and forwards to the next stage via `Beam.callSync("forward", "next_stage", data)`. The Elixir supervisor wires them together:
-
-```elixir
-children = [
-  {QuickBEAM, name: :sanitizer,  script: "sanitizer.js",  handlers: %{"forward" => forward}},
-  {QuickBEAM, name: :classifier, script: "classifier.js", handlers: %{"forward" => forward}},
-  {QuickBEAM, name: :enricher,   script: "enricher.js",   handlers: %{"done" => collect}},
-]
-Supervisor.start_link(children, strategy: :one_for_one)
-```
-
-JS runtimes don't know about each other. They send messages to named atoms via a shared `forward` handler — the BEAM routes them.
+- **npm packages** — `mix npm.install marked`, auto-bundled by OXC at startup
+- **Native DOM** — the analyzer renders HTML into lexbor and queries it with `querySelectorAll`, not regex
+- **Supervised pipeline** — three runtimes as OTP children, message passing via `Beam.callSync`
+- **Crash isolation** — kill a stage, supervisor restarts it, others keep running
+- **BEAM message routing** — JS runtimes don't know about each other; a shared `forward` handler routes by atom name
