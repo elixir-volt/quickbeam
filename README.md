@@ -11,7 +11,7 @@ leaving the BEAM.
 
 ```elixir
 def deps do
-  [{:quickbeam, "~> 0.2.0"}]
+  [{:quickbeam, "~> 0.3.0"}]
 end
 ```
 
@@ -327,16 +327,16 @@ vs QuickJSEx 0.3.1 (Rust/Rustler, JSON serialization):
 | `Beam.callSync` (JS→BEAM) | 5 μs overhead (unique to QuickBEAM) |
 | Startup | ~600 μs (parity) |
 
-See [`bench/`](bench/README.md) for details.
+See [`bench/`](https://github.com/dannote/quickbeam/tree/master/bench) for details.
 
 ## Examples
 
-- [`examples/ssr/`](examples/ssr/) — Preact SSR with a pool of runtimes
+- [`examples/ssr/`](https://github.com/dannote/quickbeam/tree/master/examples/ssr) — Preact SSR with a pool of runtimes
   and native DOM. Elixir reads the DOM directly — no `renderToString`.
-- [`examples/rule_engine/`](examples/rule_engine/) — user-defined business
+- [`examples/rule_engine/`](https://github.com/dannote/quickbeam/tree/master/examples/rule_engine) — user-defined business
   rules (pricing, validation, transforms) in sandboxed JS runtimes with
   `apis: false`, memory limits, timeouts, and hot reload.
-- [`examples/live_dashboard/`](examples/live_dashboard/) — Workers (BEAM
+- [`examples/live_dashboard/`](https://github.com/dannote/quickbeam/tree/master/examples/live_dashboard) — Workers (BEAM
   processes) compute metrics in parallel and broadcast results via
   BroadcastChannel (`:pg`). Crash recovery via OTP supervisor.
 
