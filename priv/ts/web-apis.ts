@@ -19,6 +19,7 @@ import { WebSocket } from './websocket'
 import { Worker } from './worker'
 import './console-ext'
 import './locks'
+import './performance'
 import './storage'
 
 Object.assign(globalThis, {
