@@ -78,6 +78,117 @@ defmodule QuickBEAM.WPT.BlobTest do
                  QuickBEAM.eval(rt, "new Blob([], {type: #{type}}).type")
       end
     end
+
+    test "empty array produces size 0", %{rt: rt} do
+      assert {:ok, 0} =
+               QuickBEAM.eval(rt, "new Blob([]).size")
+    end
+
+    test "Blob from another Blob preserves data", %{rt: rt} do
+      assert {:ok, "hello"} =
+               QuickBEAM.eval(rt, """
+               const a = new Blob(['hello']);
+               const b = new Blob([a]);
+               await b.text()
+               """)
+    end
+
+    test "DataView as blob part", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               const buf = new ArrayBuffer(4);
+               new Uint8Array(buf).set([0x50, 0x41, 0x53, 0x53]);
+               const dv = new DataView(buf);
+               await new Blob([dv]).text() === 'PASS'
+               """)
+    end
+
+    test "Int8Array as blob part", %{rt: rt} do
+      assert {:ok, 4} =
+               QuickBEAM.eval(rt, """
+               new Blob([new Int8Array([1, 2, 3, 4])]).size
+               """)
+    end
+
+    test "Float32Array as blob part", %{rt: rt} do
+      assert {:ok, 8} =
+               QuickBEAM.eval(rt, """
+               new Blob([new Float32Array([1.0, 2.0])]).size
+               """)
+    end
+
+    test "Float64Array as blob part", %{rt: rt} do
+      assert {:ok, 16} =
+               QuickBEAM.eval(rt, """
+               new Blob([new Float64Array([1.0, 2.0])]).size
+               """)
+    end
+
+    test "Int16Array as blob part", %{rt: rt} do
+      assert {:ok, 4} =
+               QuickBEAM.eval(rt, """
+               new Blob([new Int16Array([1, 2])]).size
+               """)
+    end
+
+    test "Uint16Array as blob part", %{rt: rt} do
+      assert {:ok, 4} =
+               QuickBEAM.eval(rt, """
+               new Blob([new Uint16Array([1, 2])]).size
+               """)
+    end
+
+    test "Int32Array as blob part", %{rt: rt} do
+      assert {:ok, 8} =
+               QuickBEAM.eval(rt, """
+               new Blob([new Int32Array([1, 2])]).size
+               """)
+    end
+
+    test "Uint32Array as blob part", %{rt: rt} do
+      assert {:ok, 4} =
+               QuickBEAM.eval(rt, """
+               new Blob([new Uint32Array([1])]).size
+               """)
+    end
+
+    test "ArrayBuffer with byteOffset via typed array view", %{rt: rt} do
+      assert {:ok, "SS"} =
+               QuickBEAM.eval(rt, """
+               const buf = new ArrayBuffer(4);
+               new Uint8Array(buf).set([0x50, 0x41, 0x53, 0x53]);
+               const view = new Uint8Array(buf, 2);
+               await new Blob([view]).text()
+               """)
+    end
+
+    test "boolean/number parts call toString", %{rt: rt} do
+      assert {:ok, "12"} =
+               QuickBEAM.eval(rt, "await new Blob([12]).text()")
+    end
+
+    test "boolean part calls toString", %{rt: rt} do
+      assert {:ok, "true"} =
+               QuickBEAM.eval(rt, "await new Blob([true]).text()")
+    end
+
+    test "object part calls toString", %{rt: rt} do
+      assert {:ok, "[object Object]"} =
+               QuickBEAM.eval(rt, "await new Blob([{}]).text()")
+    end
+
+    test "null part calls toString", %{rt: rt} do
+      assert {:ok, "null"} =
+               QuickBEAM.eval(rt, "await new Blob([null]).text()")
+    end
+
+    test "endings: 'native' option", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               const b = new Blob(['a\\nb'], {endings: 'native'});
+               b.size >= 3
+               """)
+    end
   end
 
   # ── Blob.slice (Blob-slice.any.js) ──
@@ -141,6 +252,43 @@ defmodule QuickBEAM.WPT.BlobTest do
         assert {:ok, ""} =
                  QuickBEAM.eval(rt, "new Blob(['PASS']).slice(0, 4, #{type}).type")
       end
+    end
+
+    test "NaN start treated as 0", %{rt: rt} do
+      assert {:ok, "hel"} =
+               QuickBEAM.eval(rt, "await new Blob(['hello']).slice(NaN, 3).text()")
+    end
+
+    test "Infinity end", %{rt: rt} do
+      assert {:ok, "hello"} =
+               QuickBEAM.eval(rt, "await new Blob(['hello']).slice(0, Infinity).text()")
+    end
+
+    test "-Infinity start", %{rt: rt} do
+      assert {:ok, "hello"} =
+               QuickBEAM.eval(rt, "await new Blob(['hello']).slice(-Infinity).text()")
+    end
+
+    test "float values truncated", %{rt: rt} do
+      assert {:ok, "el"} =
+               QuickBEAM.eval(rt, "await new Blob(['hello']).slice(1.7, 3.2).text()")
+    end
+
+    test "slice of a slice", %{rt: rt} do
+      assert {:ok, "ll"} =
+               QuickBEAM.eval(rt, """
+               const b = new Blob(['hello world']);
+               await b.slice(2, 7).slice(0, 2).text()
+               """)
+    end
+
+    test "slice returns a new Blob", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               const b = new Blob(['hello']);
+               const s = b.slice();
+               s !== b && s instanceof Blob
+               """)
     end
   end
 
@@ -226,6 +374,25 @@ defmodule QuickBEAM.WPT.BlobTest do
                  blob.bytes(), blob.bytes(), blob.bytes()
                ]);
                results.filter(u => u instanceof Uint8Array).length
+               """)
+    end
+
+    test "bytes returns independent copy", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               const blob = new Blob([new Uint8Array([1, 2, 3])]);
+               const bytes = await blob.bytes();
+               bytes[0] = 99;
+               const bytes2 = await blob.bytes();
+               bytes2[0] === 1
+               """)
+    end
+
+    test "bytes on empty blob returns empty Uint8Array", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               const bytes = await new Blob([]).bytes();
+               bytes instanceof Uint8Array && bytes.length === 0
                """)
     end
   end

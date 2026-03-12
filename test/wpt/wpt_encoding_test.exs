@@ -82,6 +82,94 @@ defmodule QuickBEAM.WPT.EncodingTest do
                decoder.decode(new Uint8Array([0xE2, 0x99, 0xA5]))
                """)
     end
+
+    test "isolated continuation byte 0x80 is fatal", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               try {
+                 new TextDecoder('utf-8', {fatal: true}).decode(new Uint8Array([0x80]));
+                 false;
+               } catch (e) { e instanceof TypeError; }
+               """)
+    end
+
+    test "isolated continuation byte 0xBF is fatal", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               try {
+                 new TextDecoder('utf-8', {fatal: true}).decode(new Uint8Array([0xBF]));
+                 false;
+               } catch (e) { e instanceof TypeError; }
+               """)
+    end
+
+    test "5-byte overlong sequence is fatal", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               try {
+                 new TextDecoder('utf-8', {fatal: true}).decode(
+                   new Uint8Array([0xF8, 0x80, 0x80, 0x80, 0x80])
+                 );
+                 false;
+               } catch (e) { e instanceof TypeError; }
+               """)
+    end
+
+    test "6-byte overlong sequence is fatal", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               try {
+                 new TextDecoder('utf-8', {fatal: true}).decode(
+                   new Uint8Array([0xFC, 0x80, 0x80, 0x80, 0x80, 0x80])
+                 );
+                 false;
+               } catch (e) { e instanceof TypeError; }
+               """)
+    end
+  end
+
+  describe "TextDecoder non-fatal replacement" do
+    test "isolated continuation byte produces U+FFFD", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               const result = new TextDecoder('utf-8').decode(new Uint8Array([0x80]));
+               result === '\\uFFFD'
+               """)
+    end
+
+    test "invalid code 0xFF produces U+FFFD", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               const result = new TextDecoder('utf-8').decode(new Uint8Array([0xFF]));
+               result === '\\uFFFD'
+               """)
+    end
+
+    test "overlong U+0000 (2-byte) produces U+FFFD", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               const result = new TextDecoder('utf-8').decode(new Uint8Array([0xC0, 0x80]));
+               result === '\\uFFFD'
+               """)
+    end
+
+    test "surrogate in UTF-8 produces U+FFFD", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               const result = new TextDecoder('utf-8').decode(new Uint8Array([0xED, 0xA0, 0x80]));
+               result === '\\uFFFD'
+               """)
+    end
+
+    test "valid bytes around invalid produce correct output", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               const result = new TextDecoder('utf-8').decode(
+                 new Uint8Array([0x41, 0xFF, 0x42])
+               );
+               result === 'A\\uFFFDB'
+               """)
+    end
   end
 
   # ── TextDecoder ignoreBOM (textdecoder-ignorebom.any.js) ──
@@ -120,6 +208,33 @@ defmodule QuickBEAM.WPT.EncodingTest do
                const decoder = new TextDecoder('utf-8');
                const bytes = new Uint8Array([0xEF, 0xBB, 0xBF, 0x61, 0x62, 0x63]);
                decoder.decode(bytes) === 'abc' && decoder.decode(bytes) === 'abc'
+               """)
+    end
+
+    test "BOM in middle of text is never stripped", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               const bytes = new Uint8Array([0x61, 0xEF, 0xBB, 0xBF, 0x62]);
+               const result = new TextDecoder('utf-8').decode(bytes);
+               result === 'a\\uFEFFb'
+               """)
+    end
+
+    test "BOM in middle preserved with ignoreBOM=true", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               const bytes = new Uint8Array([0x61, 0xEF, 0xBB, 0xBF, 0x62]);
+               const result = new TextDecoder('utf-8', {ignoreBOM: true}).decode(bytes);
+               result === 'a\\uFEFFb'
+               """)
+    end
+
+    test "ignoreBOM=false strips leading BOM (explicit)", %{rt: rt} do
+      assert {:ok, "abc"} =
+               QuickBEAM.eval(rt, """
+               new TextDecoder('utf-8', {ignoreBOM: false}).decode(
+                 new Uint8Array([0xEF, 0xBB, 0xBF, 0x61, 0x62, 0x63])
+               )
                """)
     end
   end

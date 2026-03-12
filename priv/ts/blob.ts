@@ -2,7 +2,7 @@ import { ReadableStream } from './streams'
 
 import type { ReadableStreamController } from './streams'
 
-export type BlobPart = Uint8Array | ArrayBuffer | DataView | Blob | string
+export type BlobPart = BufferSource | Blob | string
 
 export interface BlobPropertyBag {
   type?: string
@@ -11,13 +11,17 @@ export interface BlobPropertyBag {
 
 export const SYM_BYTES = Symbol('bytes')
 
+function isArrayBufferView(v: unknown): v is ArrayBufferView {
+  return ArrayBuffer.isView(v)
+}
+
 function normalizePart(part: BlobPart): Uint8Array {
-  if (part instanceof Uint8Array) return part
-  if (part instanceof ArrayBuffer) return new Uint8Array(part)
-  if (part instanceof DataView) return new Uint8Array(part.buffer, part.byteOffset, part.byteLength)
   if (part instanceof Blob) return part[SYM_BYTES]()
-  if (typeof part === 'string') return new TextEncoder().encode(part)
-  return new Uint8Array(0)
+  if (part instanceof ArrayBuffer) return new Uint8Array(part)
+  if (isArrayBufferView(part)) {
+    return new Uint8Array(part.buffer, part.byteOffset, part.byteLength)
+  }
+  return new TextEncoder().encode(String(part))
 }
 
 function concatBytes(parts: Uint8Array[]): Uint8Array {
@@ -37,8 +41,9 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
 }
 
 function clampIndex(idx: number, size: number): number {
-  if (idx < 0) return Math.max(size + idx, 0)
-  return Math.min(idx, size)
+  const i = Math.trunc(idx) || 0
+  if (i < 0) return Math.max(size + i, 0)
+  return Math.min(i, size)
 }
 
 function normalizeType(raw: string): string {
@@ -73,7 +78,7 @@ export class Blob {
   }
 
   async bytes(): Promise<Uint8Array> {
-    return this[SYM_BYTES]()
+    return this[SYM_BYTES]().slice()
   }
 
   slice(start?: number, end?: number, contentType?: string): Blob {
