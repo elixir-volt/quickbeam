@@ -185,6 +185,26 @@ defmodule QuickBEAM.Core.ContextPoolTest do
     QuickBEAM.Context.stop(ctx)
   end
 
+  test "DOM operations on context" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 1)
+    {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool)
+
+    {:ok, _} =
+      QuickBEAM.Context.eval(ctx, """
+      document.body.innerHTML = '<div class="app"><h1>Title</h1><p>Content</p></div>'
+      """)
+
+    assert {:ok, {"h1", [], ["Title"]}} = QuickBEAM.Context.dom_find(ctx, "h1")
+    assert {:ok, "Title"} = QuickBEAM.Context.dom_text(ctx, "h1")
+    {:ok, html} = QuickBEAM.Context.dom_html(ctx)
+    assert html =~ "<h1>Title</h1>"
+
+    {:ok, items} = QuickBEAM.Context.dom_find_all(ctx, "div.app > *")
+    assert length(items) == 2
+
+    QuickBEAM.Context.stop(ctx)
+  end
+
   test "send_message to context" do
     {:ok, pool} = QuickBEAM.ContextPool.start_link()
     {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool)

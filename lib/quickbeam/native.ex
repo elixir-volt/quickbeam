@@ -81,6 +81,10 @@ defmodule QuickBEAM.Native do
       pool_send_message: 3,
       pool_define_global: 4,
       pool_resolve_call_term: 4,
-      pool_reject_call_term: 4
+      pool_reject_call_term: 4,
+      pool_dom_find: 3,
+      pool_dom_find_all: 3,
+      pool_dom_text: 3,
+      pool_dom_html: 2
     ]
 end

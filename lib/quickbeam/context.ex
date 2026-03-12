@@ -89,6 +89,26 @@ defmodule QuickBEAM.Context do
     GenServer.cast(server, {:send_message, message})
   end
 
+  @spec dom_find(GenServer.server(), String.t()) :: {:ok, tuple() | nil}
+  def dom_find(server, selector) do
+    GenServer.call(server, {:dom_find, selector}, :infinity)
+  end
+
+  @spec dom_find_all(GenServer.server(), String.t()) :: {:ok, list()}
+  def dom_find_all(server, selector) do
+    GenServer.call(server, {:dom_find_all, selector}, :infinity)
+  end
+
+  @spec dom_text(GenServer.server(), String.t()) :: {:ok, String.t()}
+  def dom_text(server, selector) do
+    GenServer.call(server, {:dom_text, selector}, :infinity)
+  end
+
+  @spec dom_html(GenServer.server()) :: {:ok, String.t()}
+  def dom_html(server) do
+    GenServer.call(server, :dom_html, :infinity)
+  end
+
   @browser_js QuickBEAM.JS.browser_js()
   @beam_js QuickBEAM.JS.beam_js()
   @node_js QuickBEAM.JS.node_js()
@@ -220,6 +240,26 @@ defmodule QuickBEAM.Context do
     end
 
     {:noreply, put_pending(state, ref, from, transform)}
+  end
+
+  def handle_call({:dom_find, selector}, from, state) do
+    ref = QuickBEAM.Native.pool_dom_find(state.pool_resource, state.context_id, selector)
+    {:noreply, put_pending(state, ref, from, nil)}
+  end
+
+  def handle_call({:dom_find_all, selector}, from, state) do
+    ref = QuickBEAM.Native.pool_dom_find_all(state.pool_resource, state.context_id, selector)
+    {:noreply, put_pending(state, ref, from, nil)}
+  end
+
+  def handle_call({:dom_text, selector}, from, state) do
+    ref = QuickBEAM.Native.pool_dom_text(state.pool_resource, state.context_id, selector)
+    {:noreply, put_pending(state, ref, from, nil)}
+  end
+
+  def handle_call(:dom_html, from, state) do
+    ref = QuickBEAM.Native.pool_dom_html(state.pool_resource, state.context_id)
+    {:noreply, put_pending(state, ref, from, nil)}
   end
 
   def handle_call(:reset, from, state) do

@@ -571,6 +571,50 @@ pub fn pool_define_global(resource: PoolResource, context_id: u64, name: []const
     return beam.make(.ok, .{});
 }
 
+pub fn pool_dom_find(resource: PoolResource, context_id: u64, selector: []const u8) beam.term {
+    return pool_dom_op(resource, context_id, .find, selector, "");
+}
+
+pub fn pool_dom_find_all(resource: PoolResource, context_id: u64, selector: []const u8) beam.term {
+    return pool_dom_op(resource, context_id, .find_all, selector, "");
+}
+
+pub fn pool_dom_text(resource: PoolResource, context_id: u64, selector: []const u8) beam.term {
+    return pool_dom_op(resource, context_id, .text, selector, "");
+}
+
+pub fn pool_dom_html(resource: PoolResource, context_id: u64) beam.term {
+    return pool_dom_op(resource, context_id, .html, "", "");
+}
+
+fn pool_dom_op(resource: PoolResource, context_id: u64, op: types.DomOp, selector: []const u8, attr_name: []const u8) beam.term {
+    const data = resource.unpack();
+    const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
+
+    var caller_pid: beam.pid = undefined;
+    _ = e.enif_self(env, &caller_pid);
+    const ref_env = beam.alloc_env();
+    const ref_term = e.enif_make_ref(ref_env);
+
+    const sel_copy = gpa.dupe(u8, selector) catch return beam.make(.{ .@"error", "OOM" }, .{});
+    const attr_copy = gpa.dupe(u8, attr_name) catch {
+        gpa.free(sel_copy);
+        return beam.make(.{ .@"error", "OOM" }, .{});
+    };
+
+    pool_enqueue(data, .{ .ctx_dom_op = .{
+        .context_id = context_id,
+        .op = op,
+        .selector = sel_copy,
+        .attr_name = attr_copy,
+        .caller_pid = caller_pid,
+        .ref_env = ref_env,
+        .ref_term = ref_term,
+    } });
+
+    return beam.term{ .v = e.enif_make_copy(env, ref_term) };
+}
+
 fn pool_lookup_sync_slot(data: *ct.PoolData, context_id: u64, call_id: u64) ?*types.SyncCallSlot {
     data.rd_map_mutex.lock();
     const rd = data.rd_map.get(context_id);
