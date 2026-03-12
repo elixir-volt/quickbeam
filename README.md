@@ -70,7 +70,7 @@ Beam.demonitor(ref);
 
 ## Supervision
 
-Runtimes are OTP children with crash recovery:
+Runtimes and context pools are OTP children with crash recovery:
 
 ```elixir
 children = [
@@ -82,6 +82,9 @@ children = [
      "db.query" => fn [sql, params] -> Repo.query!(sql, params).rows end,
    }},
   {QuickBEAM, name: :worker, id: :worker},
+
+  # Context pool for high-concurrency use cases
+  {QuickBEAM.ContextPool, name: MyApp.JSPool, size: 4},
 ]
 
 Supervisor.start_link(children, strategy: :one_for_one)
@@ -91,6 +94,47 @@ Supervisor.start_link(children, strategy: :one_for_one)
 
 The `:script` option loads a JS file at startup. If the runtime crashes,
 the supervisor restarts it with a fresh context and re-evaluates the script.
+
+Individual `Context` processes are typically started dynamically (e.g.
+from a LiveView `mount`) and linked to the connection process.
+
+## Context Pool
+
+For high-concurrency scenarios (thousands of connections), use
+`ContextPool` instead of individual runtimes. Many lightweight JS
+contexts (~50KB each) share a small number of runtime threads:
+
+```elixir
+# Start a pool with N runtime threads (defaults to scheduler count)
+{:ok, pool} = QuickBEAM.ContextPool.start_link(name: MyApp.JSPool, size: 4)
+
+# Each context is a GenServer with its own JS global scope
+{:ok, ctx} = QuickBEAM.Context.start_link(pool: MyApp.JSPool)
+{:ok, 3} = QuickBEAM.Context.eval(ctx, "1 + 2")
+{:ok, "HELLO"} = QuickBEAM.Context.eval(ctx, "'hello'.toUpperCase()")
+QuickBEAM.Context.stop(ctx)
+```
+
+Contexts support the full API — `eval`, `call`, `Beam.call`/`callSync`,
+DOM, messaging, browser/node APIs, handlers, and supervision:
+
+```elixir
+# In a Phoenix LiveView
+def mount(_params, _session, socket) do
+  {:ok, ctx} = QuickBEAM.Context.start_link(
+    pool: MyApp.JSPool,
+    handlers: %{"db.query" => &MyApp.query/1}
+  )
+  {:ok, assign(socket, js: ctx)}
+end
+
+def terminate(_reason, socket) do
+  QuickBEAM.Context.stop(socket.assigns.js)
+end
+```
+
+10K connections: ~500MB and 4 OS threads, instead of ~25GB and 10K
+threads with individual runtimes.
 
 ## API surfaces
 
@@ -327,7 +371,24 @@ vs QuickJSEx 0.3.1 (Rust/Rustler, JSON serialization):
 | `Beam.callSync` (JS→BEAM) | 5 μs overhead (unique to QuickBEAM) |
 | Startup | ~600 μs (parity) |
 
+Context pool vs individual runtimes at scale:
+
+| | Runtime (1:1 thread) | Context (pooled) |
+|---|---|---|
+| Memory per instance | ~2 MB | ~50 KB |
+| OS threads at 10K | 10,000 | 4 (configurable) |
+| Total RAM at 10K | ~25 GB | ~500 MB |
+
 See [`bench/`](https://github.com/elixir-volt/quickbeam/tree/master/bench) for details.
+
+## When to use what
+
+| Use case | Module | Why |
+|---|---|---|
+| One-off eval, scripting | `QuickBEAM` (Runtime) | Simple, full isolation |
+| SSR request pool | `QuickBEAM.Pool` | Checkout/checkin with reset |
+| Per-connection state (LiveView) | `QuickBEAM.Context` | Lightweight, thousands concurrent |
+| Sandboxed user code | `QuickBEAM` with `apis: false` | Memory limits, timeouts |
 
 ## Examples
 

@@ -199,6 +199,75 @@ Each checkout gets a runtime, each checkin resets it and re-runs the
 init function. This gives a clean JS context per request while
 amortizing startup cost.
 
+## Context Pool
+
+`QuickBEAM.ContextPool` is a different approach to concurrency —
+lightweight JS contexts that share runtime threads, rather than
+whole runtimes in a checkout pool.
+
+### The problem
+
+A full `QuickBEAM.Runtime` dedicates an OS thread and `JSRuntime` per
+GenServer (~2MB+ each). At 10K concurrent connections (e.g. Phoenix
+LiveView), that's 10K threads and ~25GB of memory.
+
+### The solution
+
+QuickJS natively supports multiple `JSContext` instances per
+`JSRuntime`. Each context has its own global object, prototypes, and
+execution state, but shares the runtime's GC heap and parser. A
+`ContextPool` exploits this:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  ContextPool (GenServer)                             │
+│  Round-robin assignment: context → thread            │
+├──────────┬──────────┬──────────┬───────────────────┐│
+│ Thread 0 │ Thread 1 │ Thread 2 │ Thread N-1        ││
+│ JSRuntime│ JSRuntime│ JSRuntime│ JSRuntime          ││
+│ ┌──────┐ │ ┌──────┐ │ ┌──────┐ │ ┌──────┐          ││
+│ │Ctx 1 │ │ │Ctx 2 │ │ │Ctx 3 │ │ │Ctx N │          ││
+│ │Ctx 5 │ │ │Ctx 6 │ │ │Ctx 7 │ │ │Ctx ..│          ││
+│ │Ctx 9 │ │ │...   │ │ │...   │ │ │      │          ││
+│ └──────┘ │ └──────┘ │ └──────┘ │ └──────┘          ││
+└──────────┴──────────┴──────────┴───────────────────┘│
+└─────────────────────────────────────────────────────┘
+```
+
+Each context is ~50KB (vs ~2MB+ for a full runtime). 10K contexts on a
+4-thread pool: ~500MB and 4 OS threads, instead of 25GB and 10K threads.
+
+### How it works
+
+Each pool thread has a lock-free message queue and a `HashMap` of
+`ContextId → ContextEntry` (QuickJS context + `RuntimeData`). The
+worker loop dequeues messages, looks up the target context by ID,
+and dispatches operations (eval, call, reset, destroy, DOM queries,
+message delivery, resolve/reject for `Beam.call`).
+
+`Beam.callSync` uses per-context `SyncCallSlot`s stored in a
+`RuntimeData` referenced by both the JS thread and NIF layer. The
+NIF writes the result and signals the slot directly — no round-trip
+through the pool queue — so the blocked JS thread wakes immediately.
+
+`Beam.call` (async) works through a drain callback: when the JS
+thread is in `await_promise` waiting for a Promise to resolve, it
+periodically calls `drain_fn` which pulls messages from the pool queue
+and routes resolve/reject messages to the correct context.
+
+### Context lifecycle
+
+Each `QuickBEAM.Context` is a lightweight GenServer that:
+1. On `init`: asks the pool to create a `JSContext` on one of its
+   threads, installs polyfills (browser/node/beam), snapshots builtins
+2. On `eval`/`call`: enqueues work to the pool thread via NIF,
+   receives the result as a message
+3. On `terminate`: sends a destroy command to free the `JSContext`
+
+Contexts are isolated — separate globals, separate prototypes — but
+share the runtime's GC and parser. Prototype pollution in one context
+does not affect another.
+
 ## Supervision
 
 Runtimes are GenServers — they fit naturally into OTP supervision
