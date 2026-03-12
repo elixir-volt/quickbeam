@@ -175,6 +175,26 @@ defmodule QuickBEAM.Runtime do
     "__eventsource_close" => &QuickBEAM.EventSource.close/1
   }
 
+  @beam_handlers %{
+    "__beam_version" => &QuickBEAM.BeamAPI.version/1,
+    "__beam_sleep_sync" => &QuickBEAM.BeamAPI.sleep_sync/1,
+    "__beam_hash" => &QuickBEAM.BeamAPI.hash/1,
+    "__beam_escape_html" => &QuickBEAM.BeamAPI.escape_html/1,
+    "__beam_which" => &QuickBEAM.BeamAPI.which/1,
+    "__beam_random_uuid_v7" => &QuickBEAM.BeamAPI.random_uuid_v7/1,
+    "__beam_semver_satisfies" => &QuickBEAM.BeamAPI.semver_satisfies/1,
+    "__beam_semver_order" => &QuickBEAM.BeamAPI.semver_order/1,
+    "__beam_nodes" => &QuickBEAM.BeamAPI.nodes/1,
+    "__beam_rpc" => {:with_caller, &QuickBEAM.BeamAPI.rpc/2},
+    "__beam_spawn" => {:with_caller, &QuickBEAM.BeamAPI.spawn_runtime/2},
+    "__beam_register" => {:with_caller, &QuickBEAM.BeamAPI.register_name/2},
+    "__beam_whereis" => &QuickBEAM.BeamAPI.whereis/1,
+    "__beam_link" => {:with_caller, &QuickBEAM.BeamAPI.link_process/2},
+    "__beam_unlink" => {:with_caller, &QuickBEAM.BeamAPI.unlink_process/2},
+    "__beam_system_info" => &QuickBEAM.BeamAPI.system_info/1,
+    "__beam_process_info" => {:with_caller, &QuickBEAM.BeamAPI.process_info/2}
+  }
+
   @node_handlers %{
     "__process_env_get" => &QuickBEAM.NodeProcess.env_get/1,
     "__process_env_set" => &QuickBEAM.NodeProcess.env_set/1,
@@ -253,11 +273,19 @@ defmodule QuickBEAM.Runtime do
     end
   end
 
-  @browser_js Compiler.standalone(@ts_dir, ~w[url crypto-subtle compression buffer process class-list style]) ++
+  @browser_js Compiler.standalone(
+                @ts_dir,
+                ~w[url crypto-subtle compression buffer process class-list style]
+              ) ++
                 [Compiler.bundle(@ts_dir, "web-apis.ts")] ++
                 Compiler.standalone(@ts_dir, ~w[dom-events performance])
 
-  @node_js Compiler.standalone(@ts_dir, ~w[node-process node-path node-fs node-os node-child-process])
+  @beam_js Compiler.standalone(@ts_dir, ~w[beam-api])
+
+  @node_js Compiler.standalone(
+             @ts_dir,
+             ~w[node-process node-path node-fs node-os node-child-process]
+           )
 
   @impl true
   def init(opts) do
@@ -268,10 +296,11 @@ defmodule QuickBEAM.Runtime do
         api when is_atom(api) -> [api]
         list when is_list(list) -> list
       end
+
     user_handlers = Keyword.get(opts, :handlers, %{})
 
     builtin_handlers =
-      Enum.reduce(apis, %{}, fn
+      Enum.reduce(apis, @beam_handlers, fn
         :browser, acc -> Map.merge(acc, @browser_handlers)
         :node, acc -> Map.merge(acc, @node_handlers)
         _, acc -> acc
@@ -355,8 +384,6 @@ defmodule QuickBEAM.Runtime do
     end
   end
 
-
-
   defp read_script(path) do
     case File.read(path) do
       {:ok, source} ->
@@ -406,6 +433,10 @@ defmodule QuickBEAM.Runtime do
 
     if :node in apis do
       for js <- @node_js, do: sync_eval(state.resource, js)
+    end
+
+    if apis != [] do
+      for js <- @beam_js, do: sync_eval(state.resource, js)
     end
 
     sync_eval(state.resource, @snapshot_builtins_js)
@@ -530,7 +561,12 @@ defmodule QuickBEAM.Runtime do
 
   def handle_call(:memory_usage, from, state) do
     ref = QuickBEAM.Native.memory_usage(state.resource)
-    {:noreply, put_pending(state, ref, from, fn {:ok, v} -> v; other -> other end)}
+
+    {:noreply,
+     put_pending(state, ref, from, fn
+       {:ok, v} -> v
+       other -> other
+     end)}
   end
 
   def handle_call({:dom_find, selector}, from, state) do
