@@ -466,6 +466,11 @@ defmodule QuickBEAM.Runtime do
     {:noreply, put_pending(state, ref, from, transform)}
   end
 
+  def handle_call({:set_global, name, value}, _from, state) do
+    QuickBEAM.Native.define_global(state.resource, name, value)
+    {:reply, :ok, state}
+  end
+
   def handle_call({:compile, code}, from, state) do
     ref = QuickBEAM.Native.compile(state.resource, code)
 

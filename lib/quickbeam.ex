@@ -302,6 +302,24 @@ defmodule QuickBEAM do
   end
 
   @doc """
+  Set a JS global variable from Elixir.
+
+  The value is converted using the standard BEAM→JS conversion (no JSON).
+
+  ## Examples
+
+      QuickBEAM.set_global(rt, "config", %{"theme" => "dark", "limit" => 100})
+      {:ok, "dark"} = QuickBEAM.eval(rt, "config.theme")
+
+      QuickBEAM.set_global(rt, "items", [1, 2, 3])
+      {:ok, 3} = QuickBEAM.eval(rt, "items.length")
+  """
+  @spec set_global(runtime(), String.t(), term()) :: :ok
+  def set_global(runtime, name, value) when is_binary(name) do
+    GenServer.call(runtime, {:set_global, name, value}, :infinity)
+  end
+
+  @doc """
   Return runtime diagnostics: registered handlers, memory stats, and JS global count.
   """
   @spec info(runtime()) :: map()
