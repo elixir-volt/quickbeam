@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+### Added
+
+- **`eval/3` `:vars` option** — pass variables into JS code as temporary globals, cleaned up automatically via `try`/`finally` (even on errors or timeouts)
+- **`set_global/3`** — set JS globals from Elixir using native BEAM→JS conversion, counterpart to `get_global/2`
+
 ## 0.3.0
 
 ### Changed
