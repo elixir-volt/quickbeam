@@ -350,6 +350,63 @@ defmodule QuickBEAM.Core.BeamAPITest do
     end
   end
 
+  describe "Beam.password" do
+    test "hash returns a PHC-format string", %{rt: rt} do
+      {:ok, hash} = QuickBEAM.eval(rt, "await Beam.password.hash('my-password')")
+      assert is_binary(hash)
+      assert String.starts_with?(hash, "$pbkdf2-sha256$")
+    end
+
+    test "verify returns true for correct password", %{rt: rt} do
+      {:ok, result} =
+        QuickBEAM.eval(rt, """
+        const hash = await Beam.password.hash('my-password');
+        await Beam.password.verify('my-password', hash)
+        """)
+
+      assert result == true
+    end
+
+    test "verify returns false for wrong password", %{rt: rt} do
+      {:ok, result} =
+        QuickBEAM.eval(rt, """
+        const hash = await Beam.password.hash('my-password');
+        await Beam.password.verify('wrong', hash)
+        """)
+
+      assert result == false
+    end
+
+    test "different passwords produce different hashes", %{rt: rt} do
+      {:ok, [h1, h2]} =
+        QuickBEAM.eval(rt, """
+        const h1 = await Beam.password.hash('password-a');
+        const h2 = await Beam.password.hash('password-b');
+        [h1, h2]
+        """)
+
+      assert h1 != h2
+    end
+
+    test "same password produces different hashes (random salt)", %{rt: rt} do
+      {:ok, [h1, h2]} =
+        QuickBEAM.eval(rt, """
+        const h1 = await Beam.password.hash('same-password');
+        const h2 = await Beam.password.hash('same-password');
+        [h1, h2]
+        """)
+
+      assert h1 != h2
+    end
+
+    test "custom iterations option changes the hash format", %{rt: rt} do
+      {:ok, hash} =
+        QuickBEAM.eval(rt, "await Beam.password.hash('my-password', { iterations: 100000 })")
+
+      assert hash =~ "$pbkdf2-sha256$100000$"
+    end
+  end
+
   describe "Beam.processInfo" do
     test "returns process information", %{rt: rt} do
       {:ok, info} = QuickBEAM.eval(rt, "Beam.processInfo()")

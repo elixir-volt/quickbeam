@@ -192,7 +192,9 @@ defmodule QuickBEAM.Runtime do
     "__beam_link" => {:with_caller, &QuickBEAM.BeamAPI.link_process/2},
     "__beam_unlink" => {:with_caller, &QuickBEAM.BeamAPI.unlink_process/2},
     "__beam_system_info" => &QuickBEAM.BeamAPI.system_info/1,
-    "__beam_process_info" => {:with_caller, &QuickBEAM.BeamAPI.process_info/2}
+    "__beam_process_info" => {:with_caller, &QuickBEAM.BeamAPI.process_info/2},
+    "__beam_password_hash" => &QuickBEAM.BeamAPI.password_hash/1,
+    "__beam_password_verify" => &QuickBEAM.BeamAPI.password_verify/1
   }
 
   @node_handlers %{

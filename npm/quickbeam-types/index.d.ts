@@ -48,6 +48,13 @@ interface BeamPeek {
   status(promise: unknown): 'fulfilled' | 'rejected' | 'pending'
 }
 
+interface BeamPassword {
+  /** Hash a password using PBKDF2-SHA256. Returns a PHC-format string. */
+  hash(password: string, options?: { iterations?: number }): Promise<string>
+  /** Verify a password against a PBKDF2-SHA256 hash. Uses constant-time comparison. */
+  verify(password: string, hash: string): Promise<boolean>
+}
+
 interface BeamAPI {
   /** Call a named BEAM handler (async). Returns a Promise with the result. */
   call(handler: string, ...args: unknown[]): Promise<unknown>
@@ -130,6 +137,9 @@ interface BeamAPI {
 
   /** Info about the owning GenServer process: memory, reductions, message queue, status. */
   processInfo(): Record<string, unknown> | null
+
+  /** Password hashing and verification via PBKDF2-SHA256. */
+  password: BeamPassword
 }
 
 declare const Beam: BeamAPI
