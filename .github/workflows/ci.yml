@@ -27,6 +27,7 @@ jobs:
         elixir: ['1.18']
     env:
       MIX_ENV: test
+      QUICKBEAM_BUILD: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -57,6 +58,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MIX_ENV: test
+      QUICKBEAM_BUILD: "1"
       QUICKBEAM_UBSAN: "1"
       ZIGLER_RELEASE_MODE: debug
     steps:
@@ -89,6 +91,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MIX_ENV: test
+      QUICKBEAM_BUILD: "1"
       OTP_VERSION: "27.0"
       ELIXIR_VERSION: "1.18.3"
     steps:
