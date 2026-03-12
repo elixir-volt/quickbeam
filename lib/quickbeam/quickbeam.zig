@@ -571,10 +571,35 @@ pub fn pool_define_global(resource: PoolResource, context_id: u64, name: []const
     return beam.make(.ok, .{});
 }
 
+fn pool_lookup_sync_slot(data: *ct.PoolData, context_id: u64, call_id: u64) ?*types.SyncCallSlot {
+    data.rd_map_mutex.lock();
+    const rd = data.rd_map.get(context_id);
+    data.rd_map_mutex.unlock();
+
+    if (rd) |r| {
+        r.sync_slots_mutex.lock();
+        const slot = r.sync_slots.get(call_id);
+        r.sync_slots_mutex.unlock();
+        return slot;
+    }
+    return null;
+}
+
 pub fn pool_resolve_call_term(resource: PoolResource, context_id: u64, call_id: u64, value: beam.term) beam.term {
+    const data = resource.unpack();
+
+    if (pool_lookup_sync_slot(data, context_id, call_id)) |s| {
+        const term_env = beam.alloc_env();
+        s.result_env = term_env;
+        s.result_term = e.enif_make_copy(term_env, value.v);
+        s.ok = true;
+        s.done.set();
+        return beam.make(.ok, .{});
+    }
+
     const msg_env = beam.alloc_env();
     const copied = e.enif_make_copy(msg_env, value.v);
-    pool_enqueue(resource.unpack(), .{ .ctx_resolve_call_term = .{
+    pool_enqueue(data, .{ .ctx_resolve_call_term = .{
         .context_id = context_id,
         .id = call_id,
         .env = msg_env,
@@ -585,8 +610,19 @@ pub fn pool_resolve_call_term(resource: PoolResource, context_id: u64, call_id: 
 }
 
 pub fn pool_reject_call_term(resource: PoolResource, context_id: u64, call_id: u64, reason: []const u8) beam.term {
+    const data = resource.unpack();
+
+    if (pool_lookup_sync_slot(data, context_id, call_id)) |s| {
+        const term_env = beam.alloc_env();
+        s.result_env = term_env;
+        s.result_term = beam.make(reason, .{ .env = term_env }).v;
+        s.ok = false;
+        s.done.set();
+        return beam.make(.ok, .{});
+    }
+
     const reason_copy = gpa.dupe(u8, reason) catch return beam.make(.ok, .{});
-    pool_enqueue(resource.unpack(), .{ .ctx_reject_call = .{
+    pool_enqueue(data, .{ .ctx_reject_call = .{
         .context_id = context_id,
         .id = call_id,
         .json = reason_copy,
