@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 ### Changed
 
@@ -36,8 +36,13 @@
 - **`addEventListener`/`removeEventListener`/`dispatchEvent`** on elements and `document`, with `once`, `stopImmediatePropagation`, `handleEvent` object listeners
 - **`CustomEvent`** with `detail` property
 
+### Improved
+
+- Import extraction uses `OXC.imports/2` NIF instead of full AST parsing — faster bundling and script loading
+
 ### Fixed
 
+- Locks tests failing due to redundant `LockManager` start (already started by application supervisor)
 - CI cache keys now hash Zig sources, fixing stale native builds
 - ASAN CI job correctly finds beam binary path
 
