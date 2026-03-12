@@ -227,12 +227,10 @@ defmodule QuickBEAM.Runtime do
 
     def bundle(ts_dir, barrel) do
       barrel_source = File.read!(Path.join(ts_dir, barrel))
-      {:ok, ast} = OXC.parse(barrel_source, barrel)
+      {:ok, specifiers} = OXC.imports(barrel_source, barrel)
 
       import_names =
-        ast.body
-        |> Enum.filter(&(&1.type == "ImportDeclaration"))
-        |> Enum.map(& &1.source.value)
+        specifiers
         |> Enum.filter(&String.starts_with?(&1, "./"))
         |> Enum.map(&String.trim_leading(&1, "./"))
 
@@ -374,9 +372,9 @@ defmodule QuickBEAM.Runtime do
   defp typescript?(path), do: String.ends_with?(path, ".ts") or String.ends_with?(path, ".tsx")
 
   defp has_imports?(source, path) do
-    case OXC.parse(source, Path.basename(path)) do
-      {:ok, ast} -> Enum.any?(ast.body, &(&1.type == "ImportDeclaration"))
-      {:error, _} -> false
+    case OXC.imports(source, Path.basename(path)) do
+      {:ok, [_ | _]} -> true
+      _ -> false
     end
   end
 

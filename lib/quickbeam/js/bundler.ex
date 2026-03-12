@@ -69,18 +69,9 @@ defmodule QuickBEAM.JS.Bundler do
   end
 
   defp extract_imports(source, filename) do
-    case OXC.parse(source, Path.basename(filename)) do
-      {:ok, ast} ->
-        imports =
-          OXC.collect(ast, fn
-            %{type: "ImportDeclaration", source: %{value: specifier}} -> {:keep, specifier}
-            _ -> :skip
-          end)
-
-        {:ok, imports}
-
-      {:error, errors} ->
-        {:error, {:parse_error, filename, errors}}
+    case OXC.imports(source, Path.basename(filename)) do
+      {:ok, specifiers} -> {:ok, specifiers}
+      {:error, errors} -> {:error, {:parse_error, filename, errors}}
     end
   end
 
