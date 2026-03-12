@@ -1,5 +1,7 @@
 const types = @import("types.zig");
 const worker = @import("worker.zig");
+const ct = @import("context_types.zig");
+const context_worker = @import("context_worker.zig");
 
 const std = types.std;
 const beam = @import("beam");
@@ -7,6 +9,7 @@ const e = types.e;
 const gpa = types.gpa;
 const RuntimeData = types.RuntimeData;
 const enqueue = types.enqueue;
+const pool_enqueue = ct.pool_enqueue;
 
 // ──────────────────── Resource ────────────────────
 
@@ -391,5 +394,202 @@ pub fn define_global(resource: RuntimeResource, name: []const u8, value: beam.te
     const copied = e.enif_make_copy(val_env, value.v);
     const name_copy = types.gpa.dupeZ(u8, name) catch return beam.make(.{ .@"error", "enomem" }, .{});
     enqueue(resource.unpack(), .{ .define_global = .{ .name = name_copy, .env = val_env, .term = copied } });
+    return beam.make(.ok, .{});
+}
+
+// ──────────────────── Context Pool ────────────────────
+
+pub const PoolResource = beam.Resource(*ct.PoolData, @import("root"), .{
+    .Callbacks = struct {
+        pub fn dtor(ptr: **ct.PoolData) void {
+            const data = ptr.*;
+            data.shutting_down.store(true, .release);
+            pool_enqueue(data, .{ .stop = {} });
+            if (data.thread) |t_| t_.join();
+            gpa.destroy(data);
+        }
+    },
+});
+
+pub fn pool_start(opts: beam.term) !PoolResource {
+    const data = try gpa.create(ct.PoolData);
+    data.* = .{
+        .mutex = .{},
+        .cond = .{},
+        .queue_head = null,
+        .queue_tail = null,
+        .stopped = false,
+        .thread = null,
+    };
+
+    const env = beam.context.env orelse return error.NoEnv;
+    if (get_map_uint(env, opts.v, "memory_limit")) |v| {
+        data.memory_limit = v;
+    }
+    if (get_map_uint(env, opts.v, "max_stack_size")) |v| {
+        data.max_stack_size = v;
+    }
+
+    const res = try PoolResource.create(data, .{});
+
+    const min_thread_stack = 2 * 1024 * 1024;
+    const thread_stack = @max(data.max_stack_size + min_thread_stack, min_thread_stack);
+    data.thread = std.Thread.spawn(.{ .stack_size = thread_stack }, context_worker.pool_worker_main, .{data}) catch {
+        gpa.destroy(data);
+        return error.ThreadSpawn;
+    };
+
+    return res;
+}
+
+pub fn pool_stop(resource: PoolResource) beam.term {
+    const data = resource.unpack();
+    data.shutting_down.store(true, .release);
+    pool_enqueue(data, .{ .stop = {} });
+    if (data.thread) |th| {
+        th.join();
+        data.thread = null;
+    }
+    return beam.make(.ok, .{});
+}
+
+pub fn pool_create_context(resource: PoolResource, context_id: u64, owner_pid: beam.pid) beam.term {
+    const data = resource.unpack();
+    const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
+
+    var caller_pid: beam.pid = undefined;
+    _ = e.enif_self(env, &caller_pid);
+    const ref_env = beam.alloc_env();
+    const ref_term = e.enif_make_ref(ref_env);
+
+    pool_enqueue(data, .{ .create_context = .{
+        .context_id = context_id,
+        .owner_pid = owner_pid,
+        .caller_pid = caller_pid,
+        .ref_env = ref_env,
+        .ref_term = ref_term,
+    } });
+
+    return beam.term{ .v = e.enif_make_copy(env, ref_term) };
+}
+
+pub fn pool_destroy_context(resource: PoolResource, context_id: u64) beam.term {
+    pool_enqueue(resource.unpack(), .{ .destroy_context = .{ .context_id = context_id } });
+    return beam.make(.ok, .{});
+}
+
+pub fn pool_eval(resource: PoolResource, context_id: u64, code: []const u8, timeout_ms: u64) beam.term {
+    const data = resource.unpack();
+    const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
+
+    var caller_pid: beam.pid = undefined;
+    _ = e.enif_self(env, &caller_pid);
+    const ref_env = beam.alloc_env();
+    const ref_term = e.enif_make_ref(ref_env);
+
+    const code_copy = gpa.dupe(u8, code) catch return beam.make(.{ .@"error", "OOM" }, .{});
+
+    pool_enqueue(data, .{ .ctx_eval = .{
+        .context_id = context_id,
+        .code = code_copy,
+        .caller_pid = caller_pid,
+        .ref_env = ref_env,
+        .ref_term = ref_term,
+        .timeout_ns = if (timeout_ms > 0) timeout_ms * 1_000_000 else 0,
+    } });
+
+    return beam.term{ .v = e.enif_make_copy(env, ref_term) };
+}
+
+pub fn pool_call_function(resource: PoolResource, context_id: u64, name: []const u8, args: beam.term, timeout_ms: u64) beam.term {
+    const data = resource.unpack();
+    const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
+
+    var caller_pid: beam.pid = undefined;
+    _ = e.enif_self(env, &caller_pid);
+    const ref_env = beam.alloc_env();
+    const ref_term = e.enif_make_ref(ref_env);
+
+    const args_env = beam.alloc_env();
+    const args_copy = e.enif_make_copy(args_env, args.v);
+    const name_copy = gpa.dupe(u8, name) catch return beam.make(.{ .@"error", "OOM" }, .{});
+
+    pool_enqueue(data, .{ .ctx_call_fn = .{
+        .context_id = context_id,
+        .name = name_copy,
+        .args_env = args_env,
+        .args_term = args_copy,
+        .caller_pid = caller_pid,
+        .ref_env = ref_env,
+        .ref_term = ref_term,
+        .timeout_ns = if (timeout_ms > 0) timeout_ms * 1_000_000 else 0,
+    } });
+
+    return beam.term{ .v = e.enif_make_copy(env, ref_term) };
+}
+
+pub fn pool_reset_context(resource: PoolResource, context_id: u64) beam.term {
+    const data = resource.unpack();
+    const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
+
+    var caller_pid: beam.pid = undefined;
+    _ = e.enif_self(env, &caller_pid);
+    const ref_env = beam.alloc_env();
+    const ref_term = e.enif_make_ref(ref_env);
+
+    pool_enqueue(data, .{ .ctx_reset = .{
+        .context_id = context_id,
+        .caller_pid = caller_pid,
+        .ref_env = ref_env,
+        .ref_term = ref_term,
+    } });
+
+    return beam.term{ .v = e.enif_make_copy(env, ref_term) };
+}
+
+pub fn pool_send_message(resource: PoolResource, context_id: u64, message: beam.term) beam.term {
+    const msg_env = beam.alloc_env();
+    const copied = e.enif_make_copy(msg_env, message.v);
+    pool_enqueue(resource.unpack(), .{ .ctx_send_message = .{
+        .context_id = context_id,
+        .env = msg_env,
+        .term = copied,
+    } });
+    return beam.make(.ok, .{});
+}
+
+pub fn pool_define_global(resource: PoolResource, context_id: u64, name: []const u8, value: beam.term) beam.term {
+    const val_env = beam.alloc_env();
+    const copied = e.enif_make_copy(val_env, value.v);
+    const name_copy = gpa.dupeZ(u8, name) catch return beam.make(.{ .@"error", "OOM" }, .{});
+    pool_enqueue(resource.unpack(), .{ .ctx_define_global = .{
+        .context_id = context_id,
+        .name = name_copy,
+        .env = val_env,
+        .term = copied,
+    } });
+    return beam.make(.ok, .{});
+}
+
+pub fn pool_resolve_call_term(resource: PoolResource, context_id: u64, call_id: u64, value: beam.term) beam.term {
+    const msg_env = beam.alloc_env();
+    const copied = e.enif_make_copy(msg_env, value.v);
+    pool_enqueue(resource.unpack(), .{ .ctx_resolve_call_term = .{
+        .context_id = context_id,
+        .id = call_id,
+        .env = msg_env,
+        .term = copied,
+        .ok = true,
+    } });
+    return beam.make(.ok, .{});
+}
+
+pub fn pool_reject_call_term(resource: PoolResource, context_id: u64, call_id: u64, reason: []const u8) beam.term {
+    const reason_copy = gpa.dupe(u8, reason) catch return beam.make(.ok, .{});
+    pool_enqueue(resource.unpack(), .{ .ctx_reject_call = .{
+        .context_id = context_id,
+        .id = call_id,
+        .json = reason_copy,
+    } });
     return beam.make(.ok, .{});
 }

@@ -233,61 +233,13 @@ defmodule QuickBEAM.Runtime do
     "__child_process_exec_sync" => &QuickBEAM.NodeChildProcess.exec_sync/1
   }
 
-  @ts_dir Path.join([__DIR__, "../../priv/ts"]) |> Path.expand()
+  @browser_js QuickBEAM.JS.browser_js()
+  @beam_js QuickBEAM.JS.beam_js()
+  @node_js QuickBEAM.JS.node_js()
 
-  # Register @external_resource for all TS source files
-  for ts <- Path.wildcard(Path.join(@ts_dir, "*.ts")),
-      not String.ends_with?(ts, ".d.ts") do
-    @external_resource ts
-  end
-
-  defmodule Compiler do
-    @moduledoc false
-
-    def standalone(ts_dir, names) do
-      for name <- names do
-        path = Path.join(ts_dir, "#{name}.ts")
-        source = File.read!(path)
-
-        OXC.transform!(source, Path.basename(path))
-        |> then(&"(() => {\n#{&1}\n})();\n")
-      end
-    end
-
-    def bundle(ts_dir, barrel) do
-      barrel_source = File.read!(Path.join(ts_dir, barrel))
-      {:ok, specifiers} = OXC.imports(barrel_source, barrel)
-
-      import_names =
-        specifiers
-        |> Enum.filter(&String.starts_with?(&1, "./"))
-        |> Enum.map(&String.trim_leading(&1, "./"))
-
-      all_names = Enum.uniq([Path.rootname(barrel) | import_names])
-
-      files =
-        for name <- all_names do
-          path = Path.join(ts_dir, "#{name}.ts")
-          {"#{name}.ts", File.read!(path)}
-        end
-
-      OXC.bundle!(files)
-    end
-  end
-
-  @browser_js Compiler.standalone(
-                @ts_dir,
-                ~w[url crypto-subtle compression buffer process class-list style]
-              ) ++
-                [Compiler.bundle(@ts_dir, "web-apis.ts")] ++
-                Compiler.standalone(@ts_dir, ~w[dom-events performance])
-
-  @beam_js Compiler.standalone(@ts_dir, ~w[beam-api])
-
-  @node_js Compiler.standalone(
-             @ts_dir,
-             ~w[node-process node-path node-fs node-os node-child-process]
-           )
+  def browser_handlers, do: @browser_handlers
+  def beam_handlers, do: @beam_handlers
+  def node_handlers, do: @node_handlers
 
   @impl true
   def init(opts) do
@@ -414,11 +366,7 @@ defmodule QuickBEAM.Runtime do
     end
   end
 
-  @snapshot_builtins_js """
-  globalThis.__qb_builtins = Object.create(null);
-  for (const k of Object.getOwnPropertyNames(globalThis))
-    globalThis.__qb_builtins[k] = true;
-  """
+  @snapshot_builtins_js QuickBEAM.JS.snapshot_builtins_js()
 
   defp install_defines(_state, defines) when map_size(defines) == 0, do: :ok
 

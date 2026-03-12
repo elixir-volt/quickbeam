@@ -30,6 +30,8 @@ pub const TimerEntry = struct {
     interval_ns: ?u64,
 };
 
+pub const DrainFn = *const fn (*WorkerState) void;
+
 pub const WorkerState = struct {
     ctx: *qjs.JSContext,
     rt: *qjs.JSRuntime,
@@ -44,6 +46,7 @@ pub const WorkerState = struct {
     atoms: atom_cache.AtomCache = .{},
     dom_data: ?*dom.DocumentData = null,
     buf: [4096]u8 = @splat(0),
+    drain_fn: ?DrainFn = null,
 
     pub fn deinit(self: *WorkerState) void {
         var call_it = self.pending_calls.valueIterator();
@@ -451,7 +454,9 @@ pub const WorkerState = struct {
             }
 
             // Still pending — process messages that might resolve it
-            if (types.dequeue(self.rd)) |msg| {
+            if (self.drain_fn) |dfn| {
+                dfn(self);
+            } else if (types.dequeue(self.rd)) |msg| {
                 switch (msg) {
                     .resolve_call => |rc| self.resolve_pending(rc.id, rc.json),
                     .reject_call => |rc| self.reject_pending(rc.id, rc.json),
