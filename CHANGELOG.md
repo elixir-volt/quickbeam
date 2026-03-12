@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed
+
+- **OXC upgraded to 0.5.0** — adds `jsx_factory`, `jsx_fragment`, and `import_source` options for JSX transform and bundle
+- **Replaced examples** — removed `content_pipeline` and `plugin_sandbox`, added:
+  - `rule_engine` — user-defined business rules in sandboxed runtimes (`apis: false`, memory limits, timeouts, hot reload, handlers as controlled API)
+  - `live_dashboard` — Workers (BEAM processes) + BroadcastChannel (`:pg`) for parallel metrics computation with crash recovery
+  - `ssr` now uses JSX syntax via OXC classic mode
+
 ### Added
 
 - **Node.js compatibility APIs** — `process`, `path`, `fs`, `os` backed by OTP
