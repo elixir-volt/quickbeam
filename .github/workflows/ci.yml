@@ -106,7 +106,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/otp-asan
-          key: otp-asan-${{ env.OTP_VERSION }}-v3
+          key: otp-asan-${{ env.OTP_VERSION }}-v4
 
       - name: Build OTP with ASAN emulator
         if: steps.otp-cache.outputs.cache-hit != 'true'
@@ -126,8 +126,8 @@ jobs:
           make install
 
           # Build ASAN emulator on top of the standard build
-          (cd erts/emulator && make TYPE=asan -j$(nproc))
-          (cd erts/lib_src && make TYPE=asan -j$(nproc))
+          make -C erts/emulator TYPE=asan -j$(nproc)
+          make -C erts/lib_src TYPE=asan -j$(nproc)
 
           # Install ASAN beam binary alongside the standard one
           ERTS_DIR=$(ls -d /tmp/otp-asan/lib/erlang/erts-*)
