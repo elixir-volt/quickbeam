@@ -154,6 +154,34 @@ defmodule QuickBEAM.BeamAPI do
     }
   end
 
+  @pbkdf2_salt_length 16
+  @pbkdf2_key_length 32
+
+  def password_hash([password, iterations])
+      when is_binary(password) and is_integer(iterations) and iterations > 0 do
+    salt = :crypto.strong_rand_bytes(@pbkdf2_salt_length)
+    hash = :crypto.pbkdf2_hmac(:sha256, password, salt, iterations, @pbkdf2_key_length)
+    "$pbkdf2-sha256$#{iterations}$#{Base.encode64(salt)}$#{Base.encode64(hash)}"
+  end
+
+  def password_verify([password, hash_string])
+      when is_binary(password) and is_binary(hash_string) do
+    case String.split(hash_string, "$", trim: true) do
+      ["pbkdf2-sha256", iterations_str, salt_b64, hash_b64] ->
+        with {iterations, ""} <- Integer.parse(iterations_str),
+             {:ok, salt} <- Base.decode64(salt_b64),
+             {:ok, expected} <- Base.decode64(hash_b64) do
+          derived = :crypto.pbkdf2_hmac(:sha256, password, salt, iterations, byte_size(expected))
+          :crypto.hash_equals(derived, expected)
+        else
+          _ -> false
+        end
+
+      _ ->
+        false
+    end
+  end
+
   def process_info([], caller) do
     case Process.info(caller, [
            :memory,

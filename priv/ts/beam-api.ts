@@ -111,3 +111,10 @@ Beam.systemInfo = (): Record<string, unknown> =>
 
 Beam.processInfo = (): Record<string, unknown> | null =>
   Beam.callSync('__beam_process_info') as Record<string, unknown> | null
+
+Beam.password = {
+  hash: (password: string, options?: { iterations?: number }): Promise<string> =>
+    Beam.call('__beam_password_hash', password, options?.iterations ?? 600000) as Promise<string>,
+  verify: (password: string, hash: string): Promise<boolean> =>
+    Beam.call('__beam_password_verify', password, hash) as Promise<boolean>,
+}
