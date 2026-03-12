@@ -207,7 +207,8 @@ defmodule QuickBEAM.Runtime do
     "__os_cpu_count" => &QuickBEAM.NodeOS.cpu_count/1,
     "__os_totalmem" => &QuickBEAM.NodeOS.totalmem/1,
     "__os_freemem" => &QuickBEAM.NodeOS.freemem/1,
-    "__os_uptime" => &QuickBEAM.NodeOS.uptime/1
+    "__os_uptime" => &QuickBEAM.NodeOS.uptime/1,
+    "__child_process_exec_sync" => &QuickBEAM.NodeChildProcess.exec_sync/1
   }
 
   @ts_dir Path.join([__DIR__, "../../priv/ts"]) |> Path.expand()
@@ -256,7 +257,7 @@ defmodule QuickBEAM.Runtime do
                 [Compiler.bundle(@ts_dir, "web-apis.ts")] ++
                 Compiler.standalone(@ts_dir, ~w[dom-events])
 
-  @node_js Compiler.standalone(@ts_dir, ~w[node-process node-path node-fs node-os])
+  @node_js Compiler.standalone(@ts_dir, ~w[node-process node-path node-fs node-os node-child-process])
 
   @impl true
   def init(opts) do
