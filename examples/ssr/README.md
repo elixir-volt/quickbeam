@@ -6,7 +6,7 @@ and QuickBEAM's native DOM — no Node.js, no `renderToString`.
 ## What's happening
 
 1. `mix npm.install preact` fetches Preact into `node_modules/`
-2. OXC bundles `app.js` + Preact into a single script at startup
+2. OXC transforms JSX and bundles `app.jsx` + Preact into a single script at startup
 3. A `QuickBEAM.Pool` of 4 runtimes is initialized with the bundle
 4. On each request, a runtime is checked out from the pool
 5. Preact's `render()` writes into the native DOM (lexbor, a C library)

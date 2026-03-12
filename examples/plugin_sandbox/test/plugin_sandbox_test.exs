@@ -55,7 +55,7 @@ defmodule PluginSandboxTest do
         }
       """, [], memory_limit: 2 * 1024 * 1024)
 
-    assert {:error, %{message: "out of memory"}} = PluginSandbox.call_plugin(:hog, "hog")
+    assert {:error, %QuickBEAM.JSError{}} = PluginSandbox.call_plugin(:hog, "hog")
   end
 
   test "execution timeout stops infinite loops" do

@@ -2,12 +2,13 @@ defmodule SSRTest do
   use ExUnit.Case
 
   setup_all do
-    script = Path.join(File.cwd!(), "priv/js/app.js") |> Path.expand()
-    {:ok, code} = QuickBEAM.JS.Bundler.bundle_file(script)
+    script = Path.join(File.cwd!(), "priv/js/app.jsx") |> Path.expand()
+    {:ok, code} = QuickBEAM.JS.Bundler.bundle_file(script, jsx: :classic, jsx_factory: "createElement")
 
     {:ok, pool} =
       QuickBEAM.Pool.start_link(
         size: 2,
+        max_stack_size: 2 * 1024 * 1024,
         init: fn rt -> QuickBEAM.eval(rt, code) end
       )
 
