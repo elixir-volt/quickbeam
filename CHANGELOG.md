@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- **MessageChannel / MessagePort** — paired ports with `structuredClone` + `queueMicrotask` async delivery, `onmessage` auto-start per spec
+- **FormData** — full CRUD + iteration, Blob→File wrapping, multipart/form-data encoding in `fetch`
+- **Performance Timeline** — `performance.mark()`, `performance.measure()`, `getEntries()`, `getEntriesByType()`, `getEntriesByName()`, `clearMarks()`, `clearMeasures()`, `toJSON()`, `timeOrigin`
+- **`child_process.execSync`** — backed by `System.cmd`, with `cwd`, `env`, `timeout`, `maxBuffer` options
+- **`child_process.exec`** — async callback variant
+- **`Beam.peek(promise)`** — read a promise's value synchronously via native `JS_PromiseState`. Returns the promise itself if pending. `Beam.peek.status(promise)` returns `'fulfilled'`, `'rejected'`, or `'pending'`
+- **`Beam.password.hash/verify`** — PBKDF2-SHA256 password hashing with PHC-format output, constant-time comparison
+- **Beam utility extensions** — `Beam.sleep()`, `Beam.sleepSync()`, `Beam.hash()`, `Beam.escapeHTML()`, `Beam.which()`, `Beam.randomUUIDv7()`, `Beam.deepEquals()`, `Beam.version`, `Beam.semver.satisfies()`, `Beam.semver.order()`
+- **Beam OTP extensions** — `Beam.nodes()`, `Beam.rpc()`, `Beam.spawn()`, `Beam.register()`, `Beam.whereis()`, `Beam.link()`, `Beam.unlink()`, `Beam.systemInfo()`, `Beam.processInfo()`
+- **Precompiled NIF support** via `zigler_precompiled` — end users don't need Zig installed
+- **JavaScript API reference** and **Architecture overview** on HexDocs
+
+### Fixed
+
+- **`set_global`/`eval` with `:vars` silently failing on Linux** — `JS_SetPropertyStr` requires null-terminated C strings but `gpa.dupe` produced non-null-terminated Zig slices. Fixed with `gpa.dupeZ` + `[:0]const u8`
+- **Worker init hang** — exposing PerformanceEntry/Mark/Measure on `globalThis` exceeded QuickJS internal threshold (~126 globals). Classes are now returned from API methods only
+
+### Improved
+
+- Expanded WPT test coverage for Blob, TextDecoder, and URL
+- Test suite reorganized into `core/`, `web_apis/`, `dom/`, `node/`, `toolchain/`, `wpt/` subdirectories
+- CI: all four jobs passing (test, UBSan, ASAN, clang-tidy)
+
 ## 0.3.1
 
 ### Added

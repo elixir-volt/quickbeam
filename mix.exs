@@ -1,7 +1,7 @@
 defmodule QuickBEAM.MixProject do
   use Mix.Project
 
-  @version "0.3.1"
+  @version "0.4.0"
 
   @source_url "https://github.com/dannote/quickbeam"
 
@@ -71,7 +71,6 @@ defmodule QuickBEAM.MixProject do
       },
       files: ~w[
         lib priv/c_src priv/ts
-        checksum-*.exs
         mix.exs README.md LICENSE CHANGELOG.md
         .formatter.exs
       ]
