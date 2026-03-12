@@ -4,7 +4,15 @@ defmodule QuickBEAM.WPT.EncodingTest do
 
   setup do
     {:ok, rt} = QuickBEAM.start()
-    on_exit(fn -> try do QuickBEAM.stop(rt) catch :exit, _ -> :ok end end)
+
+    on_exit(fn ->
+      try do
+        QuickBEAM.stop(rt)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+
     %{rt: rt}
   end
 
@@ -153,7 +161,15 @@ defmodule QuickBEAM.WPT.EncodingTest do
     end
 
     test "invalid destination types throw TypeError", %{rt: rt} do
-      for type <- ["Int8Array", "Int16Array", "Int32Array", "Uint16Array", "Uint32Array", "Float32Array", "Float64Array"] do
+      for type <- [
+            "Int8Array",
+            "Int16Array",
+            "Int32Array",
+            "Uint16Array",
+            "Uint32Array",
+            "Float32Array",
+            "Float64Array"
+          ] do
         assert {:ok, true} =
                  QuickBEAM.eval(rt, """
                  try {

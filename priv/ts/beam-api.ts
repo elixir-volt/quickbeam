@@ -27,34 +27,6 @@ Beam.escapeHTML = (str: string): string => {
 Beam.which = (bin: string): string | null =>
   Beam.callSync('__beam_which', bin) as string | null
 
-const PEEK_PENDING = Symbol('peek_pending')
-
-Beam.peek = Object.assign(
-  (promise: unknown): unknown => {
-    if (!(promise instanceof Promise)) return promise
-    let value: unknown = PEEK_PENDING
-    let error: unknown = PEEK_PENDING
-    // Attach handlers — they'll resolve during the same job drain if already settled
-    promise.then(v => { value = v }, r => { error = r })
-    // Force a microtask flush by awaiting an already-resolved promise
-    // This only works within QuickBEAM's eval loop which drains jobs
-    if (value !== PEEK_PENDING) return value
-    if (error !== PEEK_PENDING) return error
-    return promise
-  },
-  {
-    status(promise: unknown): 'fulfilled' | 'rejected' | 'pending' {
-      if (!(promise instanceof Promise)) return 'fulfilled'
-      let value: unknown = PEEK_PENDING
-      let error: unknown = PEEK_PENDING
-      promise.then(() => { value = true }, () => { error = true })
-      if (value !== PEEK_PENDING) return 'fulfilled'
-      if (error !== PEEK_PENDING) return 'rejected'
-      return 'pending'
-    },
-  }
-)
-
 Beam.randomUUIDv7 = (): string =>
   Beam.callSync('__beam_random_uuid_v7') as string
 

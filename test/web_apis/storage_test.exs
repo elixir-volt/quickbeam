@@ -6,7 +6,13 @@ defmodule QuickBEAM.WebAPIs.StorageTest do
     QuickBEAM.Storage.clear([])
     {:ok, rt} = QuickBEAM.start()
 
-    on_exit(fn -> try do QuickBEAM.stop(rt) catch :exit, _ -> :ok end end)
+    on_exit(fn ->
+      try do
+        QuickBEAM.stop(rt)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
 
     {:ok, rt: rt}
   end

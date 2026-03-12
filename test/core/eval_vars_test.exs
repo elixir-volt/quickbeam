@@ -3,7 +3,15 @@ defmodule QuickBEAM.Core.EvalVarsTest do
 
   setup do
     {:ok, rt} = QuickBEAM.start()
-    on_exit(fn -> try do QuickBEAM.stop(rt) catch :exit, _ -> :ok end end)
+
+    on_exit(fn ->
+      try do
+        QuickBEAM.stop(rt)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+
     %{rt: rt}
   end
 
@@ -30,14 +38,18 @@ defmodule QuickBEAM.Core.EvalVarsTest do
 
     test "object variable", %{rt: rt} do
       assert {:ok, "Alice"} =
-               QuickBEAM.eval(rt, "user.name", vars: %{"user" => %{"name" => "Alice", "age" => 30}})
+               QuickBEAM.eval(rt, "user.name",
+                 vars: %{"user" => %{"name" => "Alice", "age" => 30}}
+               )
     end
 
     test "nested object", %{rt: rt} do
       data = %{"order" => %{"items" => [%{"sku" => "A"}, %{"sku" => "B"}]}}
 
       assert {:ok, "A,B"} =
-               QuickBEAM.eval(rt, "data.order.items.map(i => i.sku).join(',')", vars: %{"data" => data})
+               QuickBEAM.eval(rt, "data.order.items.map(i => i.sku).join(',')",
+                 vars: %{"data" => data}
+               )
     end
 
     test "multiple vars", %{rt: rt} do

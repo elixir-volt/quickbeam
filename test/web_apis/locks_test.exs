@@ -5,7 +5,13 @@ defmodule QuickBEAM.WebAPIs.LocksTest do
     start_supervised!(QuickBEAM.LockManager)
     {:ok, rt} = QuickBEAM.start()
 
-    on_exit(fn -> try do QuickBEAM.stop(rt) catch :exit, _ -> :ok end end)
+    on_exit(fn ->
+      try do
+        QuickBEAM.stop(rt)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
 
     {:ok, rt: rt}
   end
@@ -83,7 +89,13 @@ defmodule QuickBEAM.WebAPIs.LocksTest do
     test "exclusive lock blocks second runtime", context do
       {:ok, rt2} = QuickBEAM.start()
 
-      on_exit(fn -> try do QuickBEAM.stop(rt2) catch :exit, _ -> :ok end end)
+      on_exit(fn ->
+        try do
+          QuickBEAM.stop(rt2)
+        catch
+          :exit, _ -> :ok
+        end
+      end)
 
       rt1 = context.rt
 

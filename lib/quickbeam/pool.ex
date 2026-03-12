@@ -61,9 +61,14 @@ defmodule QuickBEAM.Pool do
   @spec run(GenServer.server(), (QuickBEAM.runtime() -> result), timeout()) :: result
         when result: var
   def run(pool, fun, timeout \\ 5000) do
-    NimblePool.checkout!(pool, :checkout, fn _from, rt ->
-      {fun.(rt), rt}
-    end, timeout)
+    NimblePool.checkout!(
+      pool,
+      :checkout,
+      fn _from, rt ->
+        {fun.(rt), rt}
+      end,
+      timeout
+    )
   end
 
   @impl NimblePool

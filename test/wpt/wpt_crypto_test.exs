@@ -4,12 +4,21 @@ defmodule QuickBEAM.WPT.CryptoTest do
 
   setup do
     {:ok, rt} = QuickBEAM.start()
-    on_exit(fn -> try do QuickBEAM.stop(rt) catch :exit, _ -> :ok end end)
+
+    on_exit(fn ->
+      try do
+        QuickBEAM.stop(rt)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+
     %{rt: rt}
   end
 
   describe "getRandomValues integer arrays" do
-    for type <- ~w[Int8Array Int16Array Int32Array Uint8Array Uint8ClampedArray Uint16Array Uint32Array] do
+    for type <-
+          ~w[Int8Array Int16Array Int32Array Uint8Array Uint8ClampedArray Uint16Array Uint32Array] do
       @tag_type type
       test "#{type} returns same object", %{rt: rt} do
         assert {:ok, true} =

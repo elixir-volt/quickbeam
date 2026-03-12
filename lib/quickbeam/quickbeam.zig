@@ -176,7 +176,10 @@ pub fn load_module(resource: RuntimeResource, name: []const u8, code: []const u8
     const ref_term = e.enif_make_ref(ref_env);
 
     const name_copy = gpa.dupe(u8, name) catch return beam.make(.{ .@"error", "OOM" }, .{});
-    const code_copy = gpa.dupe(u8, code) catch { gpa.free(name_copy); return beam.make(.{ .@"error", "OOM" }, .{}); };
+    const code_copy = gpa.dupe(u8, code) catch {
+        gpa.free(name_copy);
+        return beam.make(.{ .@"error", "OOM" }, .{});
+    };
 
     enqueue(data, .{ .load_module = .{
         .name = name_copy,
@@ -359,7 +362,10 @@ fn dom_op(resource: RuntimeResource, op: types.DomOp, selector: []const u8, attr
     const ref_term = e.enif_make_ref(ref_env);
 
     const sel_copy = gpa.dupe(u8, selector) catch return beam.make(.{ .@"error", "OOM" }, .{});
-    const attr_copy = gpa.dupe(u8, attr_name) catch { gpa.free(sel_copy); return beam.make(.{ .@"error", "OOM" }, .{}); };
+    const attr_copy = gpa.dupe(u8, attr_name) catch {
+        gpa.free(sel_copy);
+        return beam.make(.{ .@"error", "OOM" }, .{});
+    };
 
     enqueue(data, .{ .dom_op = .{
         .op = op,

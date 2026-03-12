@@ -3,7 +3,15 @@ defmodule QuickBEAM.Node.NodeAPIsTest do
 
   setup do
     {:ok, rt} = QuickBEAM.start(apis: [:node])
-    on_exit(fn -> try do QuickBEAM.stop(rt) catch :exit, _ -> :ok end end)
+
+    on_exit(fn ->
+      try do
+        QuickBEAM.stop(rt)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+
     %{rt: rt}
   end
 
@@ -56,12 +64,14 @@ defmodule QuickBEAM.Node.NodeAPIsTest do
     end
 
     test "process.nextTick", %{rt: rt} do
-      {:ok, result} = QuickBEAM.eval(rt, """
-        let x = 0;
-        process.nextTick(() => { x = 42 });
-        await new Promise(r => setTimeout(r, 10));
-        x
-      """)
+      {:ok, result} =
+        QuickBEAM.eval(rt, """
+          let x = 0;
+          process.nextTick(() => { x = 42 });
+          await new Promise(r => setTimeout(r, 10));
+          x
+        """)
+
       assert result == 42
     end
 
@@ -71,18 +81,22 @@ defmodule QuickBEAM.Node.NodeAPIsTest do
     end
 
     test "process.hrtime()", %{rt: rt} do
-      {:ok, result} = QuickBEAM.eval(rt, """
-        const t = process.hrtime();
-        [typeof t[0], typeof t[1], t[0] >= 0, t[1] >= 0]
-      """)
+      {:ok, result} =
+        QuickBEAM.eval(rt, """
+          const t = process.hrtime();
+          [typeof t[0], typeof t[1], t[0] >= 0, t[1] >= 0]
+        """)
+
       assert result == ["number", "number", true, true]
     end
 
     test "process.hrtime.bigint()", %{rt: rt} do
-      {:ok, result} = QuickBEAM.eval(rt, """
-        const t = process.hrtime.bigint();
-        typeof t === 'bigint' && t > 0n
-      """)
+      {:ok, result} =
+        QuickBEAM.eval(rt, """
+          const t = process.hrtime.bigint();
+          typeof t === 'bigint' && t > 0n
+        """)
+
       assert result == true
     end
   end
@@ -145,7 +159,9 @@ defmodule QuickBEAM.Node.NodeAPIsTest do
     end
 
     test "path.relative", %{rt: rt} do
-      {:ok, result} = QuickBEAM.eval(rt, "path.relative('/data/orandea/test/aaa', '/data/orandea/impl/bbb')")
+      {:ok, result} =
+        QuickBEAM.eval(rt, "path.relative('/data/orandea/test/aaa', '/data/orandea/impl/bbb')")
+
       assert result == "../../impl/bbb"
     end
 
@@ -223,10 +239,12 @@ defmodule QuickBEAM.Node.NodeAPIsTest do
       file = Path.join(dir, "stat.txt")
       File.write!(file, "hello")
 
-      {:ok, stat} = QuickBEAM.eval(rt, """
-        const s = fs.statSync(#{inspect(file)});
-        ({ isFile: s.isFile(), isDir: s.isDirectory(), size: s.size })
-      """)
+      {:ok, stat} =
+        QuickBEAM.eval(rt, """
+          const s = fs.statSync(#{inspect(file)});
+          ({ isFile: s.isFile(), isDir: s.isDirectory(), size: s.size })
+        """)
+
       assert stat["isFile"] == true
       assert stat["isDir"] == false
       assert stat["size"] == 5

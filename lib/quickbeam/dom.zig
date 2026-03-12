@@ -9,7 +9,6 @@ const lxb = @cImport(@cInclude("lexbor_bridge.h"));
 
 // ──────────────────── JS class IDs ────────────────────
 
-
 pub var document_class_id: qjs.JSClassID = 0;
 pub var element_class_id: qjs.JSClassID = 0;
 

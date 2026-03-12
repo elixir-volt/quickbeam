@@ -16,6 +16,11 @@ pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue) void {
     _ = qjs.JS_SetPropertyStr(ctx, beam_obj, "send", qjs.JS_NewCFunction(ctx, &beam_send_impl, "send", 2));
     _ = qjs.JS_SetPropertyStr(ctx, beam_obj, "self", qjs.JS_NewCFunction(ctx, &beam_self_impl, "self", 0));
     _ = qjs.JS_SetPropertyStr(ctx, beam_obj, "onMessage", qjs.JS_NewCFunction(ctx, &process_on_message_impl, "onMessage", 1));
+
+    const peek_fn = qjs.JS_NewCFunction(ctx, &beam_peek_impl, "peek", 1);
+    _ = qjs.JS_SetPropertyStr(ctx, peek_fn, "status", qjs.JS_NewCFunction(ctx, &beam_peek_status_impl, "status", 1));
+    _ = qjs.JS_SetPropertyStr(ctx, beam_obj, "peek", peek_fn);
+
     _ = qjs.JS_SetPropertyStr(ctx, global, "Beam", beam_obj);
 }
 
@@ -195,6 +200,42 @@ fn process_on_message_impl(
 
     self.message_handler = qjs.JS_DupValue(ctx, argv[0]);
     return js.js_undefined();
+}
+
+fn beam_peek_impl(
+    ctx: ?*qjs.JSContext,
+    _: qjs.JSValue,
+    argc: c_int,
+    argv: [*c]qjs.JSValue,
+) callconv(.c) qjs.JSValue {
+    if (argc < 1) return js.js_undefined();
+
+    const val = argv[0];
+    const state = qjs.JS_PromiseState(ctx, val);
+
+    return switch (state) {
+        qjs.JS_PROMISE_FULFILLED, qjs.JS_PROMISE_REJECTED => qjs.JS_DupValue(ctx, qjs.JS_PromiseResult(ctx, val)),
+        qjs.JS_PROMISE_PENDING => qjs.JS_DupValue(ctx, val),
+        else => qjs.JS_DupValue(ctx, val),
+    };
+}
+
+fn beam_peek_status_impl(
+    ctx: ?*qjs.JSContext,
+    _: qjs.JSValue,
+    argc: c_int,
+    argv: [*c]qjs.JSValue,
+) callconv(.c) qjs.JSValue {
+    if (argc < 1) return qjs.JS_NewString(ctx, "fulfilled");
+
+    const state = qjs.JS_PromiseState(ctx, argv[0]);
+
+    return switch (state) {
+        qjs.JS_PROMISE_FULFILLED => qjs.JS_NewString(ctx, "fulfilled"),
+        qjs.JS_PROMISE_REJECTED => qjs.JS_NewString(ctx, "rejected"),
+        qjs.JS_PROMISE_PENDING => qjs.JS_NewString(ctx, "pending"),
+        else => qjs.JS_NewString(ctx, "fulfilled"),
+    };
 }
 
 fn send_beam_call_term(self: *worker.WorkerState, call_id: u64, name: []const u8, ctx: *qjs.JSContext, argc: c_int, argv: [*c]qjs.JSValue) void {

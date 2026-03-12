@@ -127,7 +127,12 @@ defmodule QuickBEAM.Core.BeamAPITest do
   end
 
   describe "Beam.peek" do
-    test "returns the promise if still pending", %{rt: rt} do
+    test "returns resolved value synchronously", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, "Beam.peek(Promise.resolve(42))")
+      assert result == 42
+    end
+
+    test "returns the promise itself if still pending", %{rt: rt} do
       {:ok, result} =
         QuickBEAM.eval(rt, """
         const p = new Promise(() => {});
@@ -140,6 +145,23 @@ defmodule QuickBEAM.Core.BeamAPITest do
     test "returns non-promise values as-is", %{rt: rt} do
       {:ok, result} = QuickBEAM.eval(rt, "Beam.peek(42)")
       assert result == 42
+    end
+
+    test "peek.status returns fulfilled for resolved promise", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, "Beam.peek.status(Promise.resolve(1))")
+      assert result == "fulfilled"
+    end
+
+    test "peek.status returns rejected for rejected promise", %{rt: rt} do
+      {:ok, result} =
+        QuickBEAM.eval(rt, """
+        const p = Promise.reject(new Error('x'));
+        const s = Beam.peek.status(p);
+        p.catch(() => {});
+        s
+        """)
+
+      assert result == "rejected"
     end
 
     test "peek.status returns pending for unresolved", %{rt: rt} do

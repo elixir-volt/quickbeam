@@ -39,12 +39,9 @@ interface BeamSemver {
 }
 
 interface BeamPeek {
-  /**
-   * Read a promise's result without `await`. Returns the promise itself if still pending.
-   * Note: settled detection requires a microtask drain (separate eval call).
-   */
+  /** Read a promise's result without `await`. Returns the promise itself if still pending. */
   (promise: unknown): unknown
-  /** Read a promise's status. Pending detection is synchronous; settled detection requires a microtask drain. */
+  /** Read a promise's status synchronously. */
   status(promise: unknown): 'fulfilled' | 'rejected' | 'pending'
 }
 

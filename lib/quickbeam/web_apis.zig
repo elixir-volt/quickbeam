@@ -70,8 +70,8 @@ fn is_integer_typed_array(ctx: ?*qjs.JSContext, val: qjs.JSValue) bool {
     const name = std.mem.span(name_ptr);
 
     const allowed = [_][]const u8{
-        "Int8Array",    "Uint8Array",        "Uint8ClampedArray",
-        "Int16Array",   "Uint16Array",       "Int32Array",
+        "Int8Array",   "Uint8Array",  "Uint8ClampedArray",
+        "Int16Array",  "Uint16Array", "Int32Array",
         "Uint32Array",
     };
     for (allowed) |a| {

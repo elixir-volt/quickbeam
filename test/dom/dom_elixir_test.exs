@@ -19,7 +19,13 @@ defmodule QuickBEAM.DOM.DOMElixirTest do
       ].join('');
     """)
 
-    on_exit(fn -> try do QuickBEAM.stop(runtime) catch :exit, _ -> :ok end end)
+    on_exit(fn ->
+      try do
+        QuickBEAM.stop(runtime)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
 
     %{runtime: runtime}
   end
@@ -68,10 +74,13 @@ defmodule QuickBEAM.DOM.DOMElixirTest do
 
     test "returns attributes for each element", %{runtime: rt} do
       {:ok, items} = QuickBEAM.dom_find_all(rt, "li.item")
-      indices = Enum.map(items, fn {_, attrs, _} ->
-        {_, idx} = List.keyfind(attrs, "data-index", 0)
-        idx
-      end)
+
+      indices =
+        Enum.map(items, fn {_, attrs, _} ->
+          {_, idx} = List.keyfind(attrs, "data-index", 0)
+          idx
+        end)
+
       assert indices == ["0", "1", "2"]
     end
   end

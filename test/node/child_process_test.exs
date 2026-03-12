@@ -3,7 +3,15 @@ defmodule QuickBEAM.Node.ChildProcessTest do
 
   setup do
     {:ok, rt} = QuickBEAM.start(apis: [:browser, :node])
-    on_exit(fn -> try do QuickBEAM.stop(rt) catch :exit, _ -> :ok end end)
+
+    on_exit(fn ->
+      try do
+        QuickBEAM.stop(rt)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+
     %{rt: rt}
   end
 
@@ -44,26 +52,30 @@ defmodule QuickBEAM.Node.ChildProcessTest do
 
   describe "exec" do
     test "calls callback with stdout", %{rt: rt} do
-      {:ok, result} = QuickBEAM.eval(rt, """
-        await new Promise((resolve) => {
-          child_process.exec('echo hello', (err, stdout, stderr) => {
-            resolve({ err, stdout: stdout.trim(), stderr })
+      {:ok, result} =
+        QuickBEAM.eval(rt, """
+          await new Promise((resolve) => {
+            child_process.exec('echo hello', (err, stdout, stderr) => {
+              resolve({ err, stdout: stdout.trim(), stderr })
+            })
           })
-        })
-      """)
+        """)
+
       assert result["err"] == nil
       assert result["stdout"] == "hello"
       assert result["stderr"] == ""
     end
 
     test "calls callback with error on failure", %{rt: rt} do
-      {:ok, result} = QuickBEAM.eval(rt, """
-        await new Promise((resolve) => {
-          child_process.exec('exit 1', (err, stdout, stderr) => {
-            resolve({ hasErr: err !== null, errMsg: err?.message })
+      {:ok, result} =
+        QuickBEAM.eval(rt, """
+          await new Promise((resolve) => {
+            child_process.exec('exit 1', (err, stdout, stderr) => {
+              resolve({ hasErr: err !== null, errMsg: err?.message })
+            })
           })
-        })
-      """)
+        """)
+
       assert result["hasErr"] == true
       assert result["errMsg"] =~ "Command failed"
     end

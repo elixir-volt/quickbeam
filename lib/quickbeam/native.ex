@@ -12,14 +12,20 @@ defmodule QuickBEAM.Native do
   ]
 
   @lexbor_src Path.wildcard("priv/c_src/lexbor/{core,dom,html,tag,ns,css,selectors}/**/*.c")
-             |> Enum.concat(Path.wildcard("priv/c_src/lexbor/ports/posix/**/*.c"))
-             |> Enum.sort()
-             |> Enum.map(fn path ->
-               {:priv, String.replace_prefix(path, "priv/", ""), @lexbor_cflags}
-             end)
+              |> Enum.concat(Path.wildcard("priv/c_src/lexbor/ports/posix/**/*.c"))
+              |> Enum.sort()
+              |> Enum.map(fn path ->
+                {:priv, String.replace_prefix(path, "priv/", ""), @lexbor_cflags}
+              end)
 
   @quickjs_cflags if System.get_env("QUICKBEAM_UBSAN") == "1",
-                    do: ["-std=c11", "-D_GNU_SOURCE", "-fsanitize=undefined", "-fno-sanitize=function,unsigned-integer-overflow", "-fsanitize-trap=undefined"],
+                    do: [
+                      "-std=c11",
+                      "-D_GNU_SOURCE",
+                      "-fsanitize=undefined",
+                      "-fno-sanitize=function,unsigned-integer-overflow",
+                      "-fsanitize-trap=undefined"
+                    ],
                     else: ["-std=c11", "-D_GNU_SOURCE"]
 
   use ZiglerPrecompiled,

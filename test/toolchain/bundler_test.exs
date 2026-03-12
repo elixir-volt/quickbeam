@@ -13,6 +13,7 @@ defmodule QuickBEAM.Toolchain.BundlerTest do
     @tag :tmp_dir
     test "resolves relative imports", %{tmp_dir: dir} do
       write!(dir, "utils.js", "export function add(a, b) { return a + b; }")
+
       write!(dir, "main.js", """
       import { add } from './utils.js'
       const result = add(1, 2);
@@ -27,6 +28,7 @@ defmodule QuickBEAM.Toolchain.BundlerTest do
     @tag :tmp_dir
     test "resolves relative imports without extension", %{tmp_dir: dir} do
       write!(dir, "math.ts", "export const PI: number = 3.14;")
+
       write!(dir, "main.ts", """
       import { PI } from './math'
       console.log(PI);
@@ -40,6 +42,7 @@ defmodule QuickBEAM.Toolchain.BundlerTest do
     test "resolves index files from directories", %{tmp_dir: dir} do
       File.mkdir_p!(Path.join(dir, "lib"))
       write!(dir, "lib/index.ts", "export const VERSION: string = '1.0';")
+
       write!(dir, "main.ts", """
       import { VERSION } from './lib'
       console.log(VERSION);
@@ -101,10 +104,12 @@ defmodule QuickBEAM.Toolchain.BundlerTest do
     @tag :tmp_dir
     test "handles transitive dependencies", %{tmp_dir: dir} do
       write!(dir, "a.js", "export const A = 'a';")
+
       write!(dir, "b.js", """
       import { A } from './a.js'
       export const B = A + 'b';
       """)
+
       write!(dir, "main.js", """
       import { B } from './b.js'
       console.log(B);
@@ -121,10 +126,12 @@ defmodule QuickBEAM.Toolchain.BundlerTest do
       import { B } from './b.js'
       export const A = 'a';
       """)
+
       write!(dir, "b.js", """
       import { A } from './a.js'
       export const B = 'b';
       """)
+
       write!(dir, "main.js", """
       import { A } from './a.js'
       import { B } from './b.js'
@@ -141,6 +148,7 @@ defmodule QuickBEAM.Toolchain.BundlerTest do
       import { greet } from './helper'
       const result: string = greet('world');
       """)
+
       write!(dir, "helper.ts", """
       export function greet(name: string): string { return 'hi ' + name; }
       """)
@@ -183,6 +191,7 @@ defmodule QuickBEAM.Toolchain.BundlerTest do
     @tag :tmp_dir
     test "script option bundles imports automatically", %{tmp_dir: dir} do
       write!(dir, "utils.js", "export function double(n) { return n * 2; }")
+
       write!(dir, "app.js", """
       import { double } from './utils.js'
       globalThis.result = double(21);
@@ -207,6 +216,7 @@ defmodule QuickBEAM.Toolchain.BundlerTest do
       write!(dir, "math.ts", """
       export function add(a: number, b: number): number { return a + b; }
       """)
+
       write!(dir, "app.ts", """
       import { add } from './math'
       globalThis.sum = add(19, 23);

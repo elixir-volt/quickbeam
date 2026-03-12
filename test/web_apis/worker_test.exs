@@ -4,7 +4,13 @@ defmodule QuickBEAM.WebAPIs.WorkerTest do
   setup do
     {:ok, rt} = QuickBEAM.start()
 
-    on_exit(fn -> try do QuickBEAM.stop(rt) catch :exit, _ -> :ok end end)
+    on_exit(fn ->
+      try do
+        QuickBEAM.stop(rt)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
 
     {:ok, rt: rt}
   end
