@@ -3,7 +3,7 @@ defmodule QuickBEAM.MixProject do
 
   @version "0.4.0"
 
-  @source_url "https://github.com/dannote/quickbeam"
+  @source_url "https://github.com/elixir-volt/quickbeam"
 
   def project do
     [
