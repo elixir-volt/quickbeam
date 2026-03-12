@@ -6,6 +6,7 @@ import { Event, MessageEvent, CloseEvent, ErrorEvent } from './event'
 import { EventSource } from './event-source'
 import { EventTarget } from './event-target'
 import { Request, Response, fetch } from './fetch'
+import { FormData } from './form-data'
 import { Headers } from './headers'
 import {
   ReadableStream,
@@ -39,6 +40,7 @@ Object.assign(globalThis, {
   TextDecoderStream,
   Blob,
   File,
+  FormData,
   Headers,
   Request,
   Response,
