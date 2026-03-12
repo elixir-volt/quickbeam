@@ -1,2 +1,4 @@
-_build/
-deps/
+/_build/
+/deps/
+/node_modules/
+erl_crash.dump
