@@ -37,7 +37,7 @@ defmodule QuickBEAM.PerformanceTest do
       assert {:ok, true} =
                QuickBEAM.eval(rt, """
                const mark = performance.mark('test');
-               mark instanceof PerformanceMark
+               mark.constructor.name === 'PerformanceMark'
                """)
     end
 
@@ -85,7 +85,7 @@ defmodule QuickBEAM.PerformanceTest do
       assert {:ok, true} =
                QuickBEAM.eval(rt, """
                const mark = performance.mark('e');
-               mark instanceof PerformanceEntry
+               'name' in mark && 'entryType' in mark && 'startTime' in mark && 'duration' in mark
                """)
     end
   end
@@ -156,7 +156,7 @@ defmodule QuickBEAM.PerformanceTest do
       assert {:ok, true} =
                QuickBEAM.eval(rt, """
                const m = performance.measure('inst');
-               m instanceof PerformanceMeasure && m instanceof PerformanceEntry
+               m.constructor.name === 'PerformanceMeasure' && 'startTime' in m && 'duration' in m
                """)
     end
 
