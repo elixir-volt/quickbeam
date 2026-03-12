@@ -81,7 +81,15 @@ defmodule QuickBEAM.MixProject do
   defp docs do
     [
       main: "QuickBEAM",
-      extras: ["README.md", "CHANGELOG.md"],
+      extras: [
+        "README.md",
+        "docs/javascript-api.md",
+        "docs/architecture.md",
+        "CHANGELOG.md"
+      ],
+      groups_for_extras: [
+        Guides: ["docs/javascript-api.md", "docs/architecture.md"]
+      ],
       source_ref: "v#{@version}"
     ]
   end
