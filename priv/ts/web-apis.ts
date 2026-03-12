@@ -16,6 +16,7 @@ import {
 } from './streams'
 import { TextDecoderStream, TextEncoderStream } from './text-streams'
 import { WebSocket } from './websocket'
+import { MessageChannel, MessagePort } from './message-channel'
 import { Worker } from './worker'
 import './console-ext'
 import './locks'
@@ -44,6 +45,8 @@ Object.assign(globalThis, {
   Response,
   fetch,
   BroadcastChannel,
+  MessageChannel,
+  MessagePort,
   WebSocket,
   Worker,
   EventSource
