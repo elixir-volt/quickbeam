@@ -130,6 +130,61 @@ defmodule QuickBEAM.Core.ContextPoolTest do
     QuickBEAM.Context.stop(ctx2)
   end
 
+  test "multi-thread pool distributes contexts across threads" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 4)
+
+    # Create contexts that will be distributed across 4 threads
+    contexts =
+      for i <- 1..20 do
+        {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool)
+        {:ok, _} = QuickBEAM.Context.eval(ctx, "globalThis.id = #{i}")
+        ctx
+      end
+
+    # All contexts work independently
+    tasks =
+      for {ctx, i} <- Enum.with_index(contexts, 1) do
+        Task.async(fn ->
+          {:ok, val} = QuickBEAM.Context.eval(ctx, "id")
+          assert val == i
+          val
+        end)
+      end
+
+    results = Task.await_many(tasks)
+    assert results == Enum.to_list(1..20)
+
+    for ctx <- contexts, do: QuickBEAM.Context.stop(ctx)
+  end
+
+  test "browser APIs available in context" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 1)
+    {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool)
+
+    # URL parsing (browser API backed by Beam handler)
+    assert {:ok, "example.com"} =
+             QuickBEAM.Context.eval(ctx, "new URL('https://example.com/path').hostname")
+
+    # crypto.getRandomValues (native Zig)
+    assert {:ok, 16} =
+             QuickBEAM.Context.eval(ctx, "crypto.getRandomValues(new Uint8Array(16)).length")
+
+    # performance.now (native Zig)
+    {:ok, ms} = QuickBEAM.Context.eval(ctx, "performance.now()")
+    assert is_float(ms) and ms >= 0
+
+    # console (logs to Logger)
+    assert {:ok, nil} = QuickBEAM.Context.eval(ctx, "console.log('from context')")
+
+    # setTimeout
+    assert {:ok, "done"} =
+             QuickBEAM.Context.eval(ctx, """
+             await new Promise(resolve => setTimeout(() => resolve('done'), 10))
+             """)
+
+    QuickBEAM.Context.stop(ctx)
+  end
+
   test "send_message to context" do
     {:ok, pool} = QuickBEAM.ContextPool.start_link()
     {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool)

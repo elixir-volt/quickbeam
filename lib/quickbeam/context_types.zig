@@ -129,10 +129,11 @@ pub const PoolData = struct {
     thread: ?std.Thread,
     memory_limit: usize = 256 * 1024 * 1024,
     max_stack_size: usize = 1024 * 1024,
-    sync_slots_mutex: std.Thread.Mutex = .{},
-    sync_slots: std.AutoHashMapUnmanaged(u64, *types.SyncCallSlot) = .{},
     shutting_down: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     deadline: ?i128 = null,
+    // Maps context_id → pointer to context's RuntimeData (for sync call resolution)
+    rd_map_mutex: std.Thread.Mutex = .{},
+    rd_map: std.AutoHashMapUnmanaged(ContextId, *types.RuntimeData) = .{},
 };
 
 pub fn pool_enqueue(pd: *PoolData, msg: PoolMessage) void {

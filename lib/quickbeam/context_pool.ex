@@ -8,8 +8,8 @@ defmodule QuickBEAM.ContextPool do
 
   ## Example
 
-      # Start a pool (one runtime thread by default)
-      {:ok, pool} = QuickBEAM.ContextPool.start_link(name: MyApp.JSPool)
+      # Start a pool with 4 runtime threads
+      {:ok, pool} = QuickBEAM.ContextPool.start_link(name: MyApp.JSPool, size: 4)
 
       # Create lightweight contexts on it
       {:ok, ctx} = QuickBEAM.Context.start_link(pool: MyApp.JSPool)
@@ -18,12 +18,13 @@ defmodule QuickBEAM.ContextPool do
   ## Options
 
     * `:name` — registered name for the pool
-    * `:memory_limit` — maximum JS heap in bytes (default: 256 MB)
+    * `:size` — number of runtime threads (default: `System.schedulers_online()`)
+    * `:memory_limit` — maximum JS heap per thread in bytes (default: 256 MB)
     * `:max_stack_size` — maximum JS call stack in bytes (default: 1 MB)
   """
   use GenServer
 
-  defstruct [:resource, next_id: 1]
+  defstruct [:threads, next_id: 1, next_thread: 0]
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -38,23 +39,34 @@ defmodule QuickBEAM.ContextPool do
 
   @impl true
   def init(opts) do
+    size = Keyword.get(opts, :size, System.schedulers_online())
+
     nif_opts =
       opts
       |> Keyword.take([:memory_limit, :max_stack_size])
       |> Map.new()
 
-    resource = QuickBEAM.Native.pool_start(nif_opts)
-    {:ok, %__MODULE__{resource: resource}}
+    threads =
+      for _ <- 1..size do
+        QuickBEAM.Native.pool_start(nif_opts)
+      end
+      |> List.to_tuple()
+
+    {:ok, %__MODULE__{threads: threads}}
   end
 
   @impl true
   def handle_call({:create_context, owner_pid}, _from, state) do
     context_id = state.next_id
-    ref = QuickBEAM.Native.pool_create_context(state.resource, context_id, owner_pid)
+    thread_idx = rem(state.next_thread, tuple_size(state.threads))
+    resource = elem(state.threads, thread_idx)
+
+    ref = QuickBEAM.Native.pool_create_context(resource, context_id, owner_pid)
 
     receive do
       {^ref, {:ok, ^context_id}} ->
-        {:reply, {state.resource, context_id}, %{state | next_id: context_id + 1}}
+        new_state = %{state | next_id: context_id + 1, next_thread: thread_idx + 1}
+        {:reply, {resource, context_id}, new_state}
 
       {^ref, {:error, reason}} ->
         {:reply, {:error, reason}, state}
@@ -65,7 +77,10 @@ defmodule QuickBEAM.ContextPool do
 
   @impl true
   def terminate(_reason, state) do
-    QuickBEAM.Native.pool_stop(state.resource)
+    for i <- 0..(tuple_size(state.threads) - 1) do
+      QuickBEAM.Native.pool_stop(elem(state.threads, i))
+    end
+
     :ok
   end
 end

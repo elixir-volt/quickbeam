@@ -132,7 +132,7 @@ pub fn pool_worker_main(pd: *ct.PoolData) void {
         if (msg) |m| {
             switch (m) {
                 .create_context => |p| handle_create_context(rt, &contexts, pd, p),
-                .destroy_context => |p| handle_destroy_context(&contexts, p),
+                .destroy_context => |p| handle_destroy_context(&contexts, pd, p),
                 .ctx_eval => |p| handle_ctx_eval(&contexts, pd, p),
                 .ctx_call_fn => |p| handle_ctx_call(&contexts, pd, p),
                 .ctx_reset => |p| handle_ctx_reset(&contexts, p),
@@ -177,7 +177,7 @@ fn fire_all_timers(contexts: *std.AutoHashMap(ct.ContextId, *ct.ContextEntry)) v
 fn handle_create_context(
     rt: *qjs.JSRuntime,
     contexts: *std.AutoHashMap(ct.ContextId, *ct.ContextEntry),
-    _: *ct.PoolData,
+    pd: *ct.PoolData,
     p: ct.CreateContextPayload,
 ) void {
     const ctx = qjs.JS_NewContext(rt) orelse {
@@ -217,6 +217,11 @@ fn handle_create_context(
 
     entry.state.install_globals();
 
+    // Register rd pointer so NIFs can find it for sync call resolution
+    pd.rd_map_mutex.lock();
+    pd.rd_map.put(gpa, p.context_id, &entry.rd) catch {};
+    pd.rd_map_mutex.unlock();
+
     contexts.put(p.context_id, entry) catch {
         entry.state.deinit();
         gpa.destroy(entry);
@@ -231,8 +236,13 @@ fn handle_create_context(
 
 fn handle_destroy_context(
     contexts: *std.AutoHashMap(ct.ContextId, *ct.ContextEntry),
+    pd: *ct.PoolData,
     p: ct.DestroyContextPayload,
 ) void {
+    pd.rd_map_mutex.lock();
+    _ = pd.rd_map.remove(p.context_id);
+    pd.rd_map_mutex.unlock();
+
     if (contexts.fetchRemove(p.context_id)) |kv| {
         var entry = kv.value;
         entry.state.deinit();
