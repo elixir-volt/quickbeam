@@ -6,7 +6,7 @@ defmodule ContentPipeline do
   end
 
   def submit(post) do
-    QuickBEAM.send_message(:sanitizer, post)
+    QuickBEAM.send_message(:parser, post)
   end
 
   @impl true
@@ -20,14 +20,14 @@ defmodule ContentPipeline do
 
     children = [
       {QuickBEAM,
-       name: :sanitizer,
-       id: :sanitizer,
-       script: Path.join(js_dir, "sanitizer.js"),
+       name: :parser,
+       id: :parser,
+       script: Path.join(js_dir, "parser.js"),
        handlers: %{"forward" => forward}},
       {QuickBEAM,
-       name: :classifier,
-       id: :classifier,
-       script: Path.join(js_dir, "classifier.js"),
+       name: :analyzer,
+       id: :analyzer,
+       script: Path.join(js_dir, "analyzer.js"),
        handlers: %{"forward" => forward}},
       {QuickBEAM,
        name: :enricher,
