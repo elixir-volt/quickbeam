@@ -108,6 +108,18 @@ defmodule QuickBEAM do
 
           QuickBEAM.eval(rt, "while(true) {}", timeout: 1000)
           # => {:error, %QuickBEAM.JSError{message: "interrupted", ...}}
+
+    * `:vars` — a map of variable names to values, available in the code as
+      globals. Values are converted using the standard BEAM→JS conversion.
+      Variables are automatically cleaned up after evaluation, even if the
+      code throws an error.
+
+          QuickBEAM.eval(rt, "name.toUpperCase()", vars: %{"name" => "quickbeam"})
+          # => {:ok, "QUICKBEAM"}
+
+          QuickBEAM.eval(rt, "items.map(i => i.price * i.qty).reduce((a, b) => a + b, 0)",
+            vars: %{"items" => [%{"price" => 10, "qty" => 3}, %{"price" => 5, "qty" => 2}]})
+          # => {:ok, 40}
   """
   @spec eval(runtime(), String.t(), keyword()) :: js_result()
   def eval(runtime, code, opts \\ []) do

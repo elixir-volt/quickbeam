@@ -61,7 +61,13 @@ defmodule QuickBEAM.Runtime do
   @spec eval(GenServer.server(), String.t(), keyword()) :: {:ok, term()} | {:error, String.t()}
   def eval(server, code, opts \\ []) when is_binary(code) do
     timeout_ms = Keyword.get(opts, :timeout, 0)
-    GenServer.call(server, {:eval, code, timeout_ms}, :infinity)
+    vars = Keyword.get(opts, :vars)
+
+    if vars && vars != %{} do
+      GenServer.call(server, {:eval_with_vars, code, timeout_ms, vars}, :infinity)
+    else
+      GenServer.call(server, {:eval, code, timeout_ms}, :infinity)
+    end
   end
 
   @spec call(GenServer.server(), String.t(), list(), keyword()) ::
@@ -431,6 +437,26 @@ defmodule QuickBEAM.Runtime do
   @impl true
   def handle_call({:eval, code, timeout_ms}, from, state) do
     ref = QuickBEAM.Native.eval(state.resource, code, timeout_ms)
+
+    transform = fn
+      {:ok, value} -> {:ok, value}
+      {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
+    end
+
+    {:noreply, put_pending(state, ref, from, transform)}
+  end
+
+  def handle_call({:eval_with_vars, code, timeout_ms, vars}, from, state) do
+    names = Map.keys(vars)
+
+    Enum.each(vars, fn {name, value} ->
+      QuickBEAM.Native.define_global(state.resource, name, value)
+    end)
+
+    deletes = Enum.map_join(names, "; ", fn n -> "delete globalThis[#{inspect(n)}]" end)
+    wrapped = "try { #{code}\n } finally { #{deletes} }"
+
+    ref = QuickBEAM.Native.eval(state.resource, wrapped, timeout_ms)
 
     transform = fn
       {:ok, value} -> {:ok, value}
