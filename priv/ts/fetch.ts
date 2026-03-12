@@ -1,11 +1,12 @@
 import { AbortSignal } from './abort'
-import { Blob, SYM_BYTES } from './blob'
+import { Blob, File, SYM_BYTES } from './blob'
+import { FormData } from './form-data'
 import { Headers } from './headers'
 import { ReadableStream } from './streams'
 
 import type { HeadersInit } from './headers'
 
-type BodyInit = string | Uint8Array | ArrayBuffer | Blob | URLSearchParams | ReadableStream
+type BodyInit = string | Uint8Array | ArrayBuffer | Blob | URLSearchParams | ReadableStream | FormData
 
 interface RequestInit {
   method?: string
@@ -13,6 +14,47 @@ interface RequestInit {
   body?: BodyInit | null
   signal?: AbortSignal
   redirect?: RequestRedirect
+}
+
+function formDataToBytes(body: FormData): {
+  bytes: Uint8Array
+  contentType: string
+} {
+  const boundary = '----QuickBEAMFormBoundary' + Math.random().toString(36).slice(2)
+  const encoder = new TextEncoder()
+  const chunks: Uint8Array[] = []
+
+  for (const [name, value] of body) {
+    chunks.push(encoder.encode(`--${boundary}\r\n`))
+    if (typeof value === 'string') {
+      chunks.push(encoder.encode(`Content-Disposition: form-data; name="${name}"\r\n\r\n`))
+      chunks.push(encoder.encode(value))
+    } else {
+      const filename = (value as File).name
+      const type = value.type || 'application/octet-stream'
+      chunks.push(
+        encoder.encode(
+          `Content-Disposition: form-data; name="${name}"; filename="${filename}"\r\n` +
+            `Content-Type: ${type}\r\n\r\n`
+        )
+      )
+      chunks.push(value[SYM_BYTES]())
+    }
+    chunks.push(encoder.encode('\r\n'))
+  }
+
+  chunks.push(encoder.encode(`--${boundary}--\r\n`))
+
+  let total = 0
+  for (const c of chunks) total += c.length
+  const result = new Uint8Array(total)
+  let offset = 0
+  for (const c of chunks) {
+    result.set(c, offset)
+    offset += c.length
+  }
+
+  return { bytes: result, contentType: `multipart/form-data; boundary=${boundary}` }
 }
 
 async function bodyToBytes(body: BodyInit): Promise<{
@@ -30,6 +72,9 @@ async function bodyToBytes(body: BodyInit): Promise<{
   }
   if (body instanceof Blob) {
     return { bytes: body[SYM_BYTES](), contentType: body.type || null }
+  }
+  if (body instanceof FormData) {
+    return formDataToBytes(body)
   }
   if (body instanceof URLSearchParams) {
     return {
