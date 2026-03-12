@@ -126,7 +126,8 @@ jobs:
           make install
 
           # Build ASAN emulator on top of the standard build
-          make -j$(nproc) FLAVOR=asan
+          make -j$(nproc) -C erts/emulator asan
+          make -j$(nproc) -C erts/lib_src asan
 
           # Install ASAN beam binary alongside the standard one
           ERTS_DIR=$(ls -d /tmp/otp-asan/lib/erlang/erts-*)
