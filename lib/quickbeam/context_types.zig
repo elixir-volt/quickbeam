@@ -144,6 +144,7 @@ pub const PoolData = struct {
     // Maps context_id → pointer to context's RuntimeData (for sync call resolution)
     rd_map_mutex: std.Thread.Mutex = .{},
     rd_map: std.AutoHashMapUnmanaged(ContextId, *types.RuntimeData) = .{},
+
 };
 
 pub fn pool_enqueue(pd: *PoolData, msg: PoolMessage) void {
