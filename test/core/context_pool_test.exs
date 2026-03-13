@@ -315,4 +315,57 @@ defmodule QuickBEAM.Core.ContextPoolTest do
 
     QuickBEAM.Context.stop(ctx)
   end
+
+  test "memory_limit rejects large allocations" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link()
+    {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool, apis: false, memory_limit: 200_000)
+
+    assert {:error, _} =
+             QuickBEAM.Context.eval(ctx, "new Array(100000).fill('hello world')")
+
+    QuickBEAM.Context.stop(ctx)
+  end
+
+  test "max_reductions interrupts long loops" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link()
+
+    {:ok, ctx} =
+      QuickBEAM.Context.start_link(pool: pool, apis: false, max_reductions: 100_000)
+
+    assert {:error, %QuickBEAM.JSError{message: "reduction limit exceeded"}} =
+             QuickBEAM.Context.eval(
+               ctx,
+               "(() => { let s = 0; for(let i = 0; i < 10000000; i++) s += i; return s })()"
+             )
+
+    QuickBEAM.Context.stop(ctx)
+  end
+
+  test "context recovers after hitting reduction limit" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link()
+
+    {:ok, ctx} =
+      QuickBEAM.Context.start_link(pool: pool, apis: false, max_reductions: 100_000)
+
+    assert {:error, _} =
+             QuickBEAM.Context.eval(
+               ctx,
+               "(() => { let s = 0; for(let i = 0; i < 10000000; i++) s += i; return s })()"
+             )
+
+    assert {:ok, 42} = QuickBEAM.Context.eval(ctx, "42")
+
+    QuickBEAM.Context.stop(ctx)
+  end
+
+  test "memory_usage includes context_malloc_size" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link()
+    {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool, apis: false)
+
+    {:ok, mem} = QuickBEAM.Context.memory_usage(ctx)
+    assert is_integer(mem.context_malloc_size)
+    assert mem.context_malloc_size > 0
+
+    QuickBEAM.Context.stop(ctx)
+  end
 end

@@ -3,8 +3,9 @@ defmodule QuickBEAM.ContextPool do
   A pool of JS runtime threads that host lightweight contexts.
 
   Each pool thread runs a single `JSRuntime` that can hold many
-  `JSContext` instances. Contexts are ~50KB each (no dedicated OS thread),
-  making it practical to run thousands concurrently.
+  `JSContext` instances. Contexts are ~58 KB to ~429 KB each depending
+  on API surface (no dedicated OS thread), making it practical to run
+  thousands concurrently.
 
   ## Example
 

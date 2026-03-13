@@ -4,8 +4,9 @@ defmodule QuickBEAM.Context do
 
   Unlike `QuickBEAM.Runtime`, a context does not spawn a dedicated OS thread.
   Many contexts share a single `JSRuntime` thread managed by a
-  `QuickBEAM.ContextPool`. This makes each context ~50KB vs ~2MB+
-  for a full runtime — ideal for per-connection state in Phoenix LiveView.
+  `QuickBEAM.ContextPool`. This makes each context ~58 KB (bare) to
+  ~429 KB (full browser APIs) vs ~2 MB+ for a full runtime — ideal for
+  per-connection state in Phoenix LiveView.
 
   ## Example
 
@@ -36,7 +37,15 @@ defmodule QuickBEAM.Context do
   use GenServer
 
   @enforce_keys [:pool_resource, :context_id]
-  defstruct [:pool_resource, :context_id, :pool, handlers: %{}, pending: %{}, workers: %{}]
+  defstruct [
+    :pool_resource,
+    :context_id,
+    :pool,
+    handlers: %{},
+    pending: %{},
+    workers: %{},
+    next_worker_id: 1
+  ]
 
   @type t :: %__MODULE__{
           pool_resource: reference(),
@@ -44,7 +53,8 @@ defmodule QuickBEAM.Context do
           pool: GenServer.server() | nil,
           handlers: map(),
           pending: map(),
-          workers: map()
+          workers: map(),
+          next_worker_id: pos_integer()
         }
 
   def child_spec(opts) do
@@ -145,8 +155,16 @@ defmodule QuickBEAM.Context do
     has_browser_apis = Enum.any?(apis, &(&1 not in [:beam, :node]))
 
     builtin_handlers = QuickBEAM.Runtime.beam_handlers()
-    builtin_handlers = if has_browser_apis, do: Map.merge(builtin_handlers, QuickBEAM.Runtime.browser_handlers()), else: builtin_handlers
-    builtin_handlers = if :node in apis, do: Map.merge(builtin_handlers, QuickBEAM.Runtime.node_handlers()), else: builtin_handlers
+
+    builtin_handlers =
+      if has_browser_apis,
+        do: Map.merge(builtin_handlers, QuickBEAM.Runtime.browser_handlers()),
+        else: builtin_handlers
+
+    builtin_handlers =
+      if :node in apis,
+        do: Map.merge(builtin_handlers, QuickBEAM.Runtime.node_handlers()),
+        else: builtin_handlers
 
     worker_handlers =
       if has_browser_apis do
@@ -468,11 +486,7 @@ defmodule QuickBEAM.Context do
   @impl true
   def terminate(_reason, state) do
     for {_ref, {pid, _id}} <- state.workers do
-      try do
-        QuickBEAM.Context.stop(pid)
-      catch
-        :exit, _ -> :ok
-      end
+      Process.exit(pid, :shutdown)
     end
 
     QuickBEAM.Native.pool_destroy_context(state.pool_resource, state.context_id)
@@ -500,7 +514,7 @@ defmodule QuickBEAM.Context do
     resource = state.pool_resource
     pool = state.pool
 
-    worker_id = map_size(state.workers) + 1
+    worker_id = state.next_worker_id
 
     Task.start(fn ->
       {:ok, child} =
@@ -526,7 +540,7 @@ defmodule QuickBEAM.Context do
     end)
 
     QuickBEAM.Native.pool_resolve_call_term(resource, state.context_id, call_id, worker_id)
-    {:noreply, state}
+    {:noreply, %{state | next_worker_id: worker_id + 1}}
   end
 
   defp handle_worker_call(:terminate, args, call_id, state) do
