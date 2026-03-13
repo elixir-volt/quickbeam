@@ -93,7 +93,7 @@ fn pool_drain_callback(state: *worker.WorkerState) void {
             }
         },
         // Re-enqueue messages that can't be processed during a promise wait
-        .ctx_eval, .ctx_call_fn, .ctx_reset, .ctx_memory_usage, .ctx_dom_op => {
+        .ctx_eval, .ctx_load_bytecode, .ctx_call_fn, .ctx_reset, .ctx_memory_usage, .ctx_dom_op => {
             ct.pool_enqueue(pd, msg);
         },
         .create_context, .destroy_context, .stop => {
@@ -141,6 +141,7 @@ pub fn pool_worker_main(pd: *ct.PoolData) void {
                 .create_context => |p| handle_create_context(rt, &contexts, pd, p),
                 .destroy_context => |p| handle_destroy_context(&contexts, pd, p),
                 .ctx_eval => |p| handle_ctx_eval(&contexts, pd, p),
+                .ctx_load_bytecode => |p| handle_ctx_load_bytecode(&contexts, pd, p),
                 .ctx_call_fn => |p| handle_ctx_call(&contexts, pd, p),
                 .ctx_reset => |p| handle_ctx_reset(&contexts, p),
                 .ctx_send_message => |p| handle_ctx_message(&contexts, p),
@@ -283,6 +284,27 @@ fn handle_ctx_eval(
     uninstall_pump(entry);
 
     pd.deadline = null;
+    types.send_reply(p.caller_pid, p.ref_env, p.ref_term, result.ok, result.env, result.term, result.json);
+}
+
+fn handle_ctx_load_bytecode(
+    contexts: *std.AutoHashMap(ct.ContextId, *ct.ContextEntry),
+    pd: *ct.PoolData,
+    p: ct.CtxEvalPayload,
+) void {
+    defer gpa.free(p.code);
+
+    const entry_ptr = contexts.getPtr(p.context_id) orelse {
+        types.send_reply(p.caller_pid, p.ref_env, p.ref_term, false, null, null, "Context not found");
+        return;
+    };
+    const entry = entry_ptr.*;
+
+    install_pump(pd, contexts, p.context_id, entry);
+    var result = worker.Result{};
+    entry.state.do_load_bytecode(p.code, &result);
+    uninstall_pump(entry);
+
     types.send_reply(p.caller_pid, p.ref_env, p.ref_term, result.ok, result.env, result.term, result.json);
 }
 
