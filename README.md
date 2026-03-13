@@ -70,7 +70,7 @@ Beam.demonitor(ref);
 
 ## Supervision
 
-Runtimes are OTP children with crash recovery:
+Runtimes and context pools are OTP children with crash recovery:
 
 ```elixir
 children = [
@@ -82,6 +82,9 @@ children = [
      "db.query" => fn [sql, params] -> Repo.query!(sql, params).rows end,
    }},
   {QuickBEAM, name: :worker, id: :worker},
+
+  # Context pool for high-concurrency use cases
+  {QuickBEAM.ContextPool, name: MyApp.JSPool, size: 4},
 ]
 
 Supervisor.start_link(children, strategy: :one_for_one)
@@ -91,6 +94,77 @@ Supervisor.start_link(children, strategy: :one_for_one)
 
 The `:script` option loads a JS file at startup. If the runtime crashes,
 the supervisor restarts it with a fresh context and re-evaluates the script.
+
+Individual `Context` processes are typically started dynamically (e.g.
+from a LiveView `mount`) and linked to the connection process.
+
+## Context Pool
+
+For high-concurrency scenarios (thousands of connections), use
+`ContextPool` instead of individual runtimes. Many lightweight JS
+contexts share a small number of runtime threads:
+
+```elixir
+# Start a pool with N runtime threads (defaults to scheduler count)
+{:ok, pool} = QuickBEAM.ContextPool.start_link(name: MyApp.JSPool, size: 4)
+
+# Each context is a GenServer with its own JS global scope
+{:ok, ctx} = QuickBEAM.Context.start_link(pool: MyApp.JSPool)
+{:ok, 3} = QuickBEAM.Context.eval(ctx, "1 + 2")
+{:ok, "HELLO"} = QuickBEAM.Context.eval(ctx, "'hello'.toUpperCase()")
+QuickBEAM.Context.stop(ctx)
+```
+
+Contexts support the full API — `eval`, `call`, `Beam.call`/`callSync`,
+DOM, messaging, browser/node APIs, handlers, and supervision:
+
+```elixir
+# In a Phoenix LiveView
+def mount(_params, _session, socket) do
+  {:ok, ctx} = QuickBEAM.Context.start_link(
+    pool: MyApp.JSPool,
+    handlers: %{"db.query" => &MyApp.query/1}
+  )
+  {:ok, assign(socket, js: ctx)}
+end
+
+```
+
+The context is linked to the LiveView process — it terminates and
+cleans up automatically when the connection closes. No explicit
+`terminate` callback needed.
+
+### Granular API groups
+
+Contexts can load individual API groups instead of the full browser bundle:
+
+```elixir
+QuickBEAM.Context.start_link(pool: pool, apis: [:beam, :fetch])  # 231 KB
+QuickBEAM.Context.start_link(pool: pool, apis: [:beam, :url])    # 108 KB
+QuickBEAM.Context.start_link(pool: pool, apis: false)            #  58 KB
+QuickBEAM.Context.start_link(pool: pool)                         # 429 KB (all browser APIs)
+```
+
+Available groups: `:fetch`, `:websocket`, `:worker`, `:channel`,
+`:eventsource`, `:url`, `:crypto`, `:compression`, `:buffer`, `:dom`,
+`:console`, `:storage`, `:locks`. Dependencies auto-resolve.
+
+### Per-context resource limits
+
+```elixir
+{:ok, ctx} = QuickBEAM.Context.start_link(
+  pool: pool,
+  memory_limit: 512_000,      # per-context allocation limit (bytes)
+  max_reductions: 100_000      # opcode budget per eval/call
+)
+
+# Track per-context memory
+{:ok, %{context_malloc_size: 92_000}} = QuickBEAM.Context.memory_usage(ctx)
+```
+
+Exceeding `memory_limit` triggers OOM. Exceeding `max_reductions`
+interrupts the current eval but keeps the context usable for
+subsequent calls.
 
 ## API surfaces
 
@@ -327,7 +401,25 @@ vs QuickJSEx 0.3.1 (Rust/Rustler, JSON serialization):
 | `Beam.callSync` (JS→BEAM) | 5 μs overhead (unique to QuickBEAM) |
 | Startup | ~600 μs (parity) |
 
+Context pool vs individual runtimes at scale:
+
+| | Runtime (1:1 thread) | Context (pooled) |
+|---|---|---|
+| JS heap per instance | ~530 KB | ~429 KB (full) / ~58 KB (bare) |
+| OS thread stack | ~2.5 MB each | shared (4 threads total) |
+| OS threads at 10K | 10,000 | 4 (configurable) |
+| Total RAM at 10K | ~30 GB | ~4.2 GB (full) / ~570 MB (bare) |
+
 See [`bench/`](https://github.com/elixir-volt/quickbeam/tree/master/bench) for details.
+
+## When to use what
+
+| Use case | Module | Why |
+|---|---|---|
+| One-off eval, scripting | `QuickBEAM` (Runtime) | Simple, full isolation |
+| SSR request pool | `QuickBEAM.Pool` | Checkout/checkin with reset |
+| Per-connection state (LiveView) | `QuickBEAM.Context` | Lightweight, thousands concurrent |
+| Sandboxed user code | `QuickBEAM` or `Context` with `apis: false` | Memory limits, reduction limits, timeouts |
 
 ## Examples
 

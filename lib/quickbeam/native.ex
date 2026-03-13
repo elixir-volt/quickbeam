@@ -49,7 +49,7 @@ defmodule QuickBEAM.Native do
           {:priv, "c_src/lexbor_bridge.c", @lexbor_cflags}
         ] ++ @lexbor_src
     ],
-    resources: [:RuntimeResource],
+    resources: [:RuntimeResource, :PoolResource],
     nifs: [
       eval: 3,
       compile: 2,
@@ -65,11 +65,33 @@ defmodule QuickBEAM.Native do
       reject_call_term: 3,
       send_message: 2,
       define_global: 3,
+      get_global: 2,
+      delete_globals: 2,
+      snapshot_globals: 1,
+      list_globals: 2,
       memory_usage: 1,
       dom_find: 2,
       dom_find_all: 2,
       dom_text: 2,
       dom_attr: 3,
-      dom_html: 1
+      dom_html: 1,
+      pool_start: 1,
+      pool_stop: 1,
+      pool_create_context: 5,
+      pool_destroy_context: 2,
+      pool_eval: 4,
+      pool_call_function: 5,
+      pool_reset_context: 2,
+      pool_send_message: 3,
+      pool_define_global: 4,
+      pool_load_bytecode: 3,
+      pool_get_global: 3,
+      pool_memory_usage: 2,
+      pool_resolve_call_term: 4,
+      pool_reject_call_term: 4,
+      pool_dom_find: 3,
+      pool_dom_find_all: 3,
+      pool_dom_text: 3,
+      pool_dom_html: 2
     ]
 end

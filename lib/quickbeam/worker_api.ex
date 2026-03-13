@@ -3,44 +3,51 @@ defmodule QuickBEAM.WorkerAPI do
 
   @worker_bootstrap """
   globalThis.self = globalThis;
-  const __parentPid = Beam.callSync("__worker_parent");
   self.postMessage = function(data) {
-    Beam.send(__parentPid, ["__worker_msg", Beam.self(), data]);
+    Beam.call("__worker_post", data);
   };
   Object.defineProperty(self, "onmessage", {
-    set(handler) { Beam.onMessage(msg => {
-      if (Array.isArray(msg) && msg[0] === "__worker_msg") {
-        handler({ data: msg[1] });
-      }
-    }); },
+    set(handler) {
+      Beam.onMessage(msg => handler({ data: msg }));
+    },
     configurable: true,
   });
   """
 
   def spawn_worker([script], parent_pid) do
+    worker_id = System.unique_integer([:positive])
+
     {:ok, child} =
       QuickBEAM.start(
         handlers: %{
-          "__worker_parent" => fn [] -> parent_pid end
+          "__worker_post" => fn [data] ->
+            send(parent_pid, {:worker_msg, worker_id, data})
+            nil
+          end
         }
       )
 
-    send(parent_pid, {:worker_monitor, child})
+    send(parent_pid, {:worker_register, worker_id, child})
 
     QuickBEAM.eval(child, @worker_bootstrap)
 
     Task.start(fn ->
       case QuickBEAM.eval(child, script) do
         {:ok, _} -> :ok
-        {:error, err} -> send(parent_pid, {:worker_error_from_child, child, err})
+        {:error, err} -> send(parent_pid, {:worker_error, worker_id, err})
       end
     end)
 
-    child
+    worker_id
   end
 
-  def terminate_worker([worker_pid]) do
-    Task.start(fn -> QuickBEAM.stop(worker_pid) end)
+  def post_to_child([worker_id, data], parent_pid) do
+    send(parent_pid, {:worker_post_to_child, worker_id, data})
+    nil
+  end
+
+  def terminate_worker([worker_id], parent_pid) do
+    send(parent_pid, {:worker_terminate, worker_id})
     nil
   end
 end

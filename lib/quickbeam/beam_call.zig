@@ -110,7 +110,10 @@ fn beam_call_sync_impl(
             self.rd.sync_slots_mutex.unlock();
             return qjs.JS_ThrowInternalError(ctx, "runtime shutting down");
         }
-        slot.done.timedWait(10_000_000) catch {};
+        if (self.drain_fn) |drain| {
+            drain(self);
+        }
+        slot.done.timedWait(1_000_000) catch {};
     }
 
     self.rd.sync_slots_mutex.lock();
