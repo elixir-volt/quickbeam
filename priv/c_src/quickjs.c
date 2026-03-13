@@ -529,6 +529,10 @@ struct JSContext {
     size_t malloc_size;
     size_t malloc_limit; /* 0 = unlimited */
 
+    /* per-context reduction counting */
+    int64_t reduction_count;
+    int64_t reduction_limit; /* 0 = unlimited */
+
     struct list_head loaded_modules; /* list of JSModuleDef.link */
 
     /* if NULL, RegExp compilation is not supported */
@@ -2136,6 +2140,22 @@ size_t JS_GetContextMallocSize(JSContext *ctx)
     return ctx->malloc_size;
 }
 
+void JS_SetContextReductionLimit(JSContext *ctx, int64_t limit)
+{
+    ctx->reduction_limit = limit;
+    ctx->reduction_count = 0;
+}
+
+int64_t JS_GetContextReductionCount(JSContext *ctx)
+{
+    return ctx->reduction_count;
+}
+
+void JS_ResetContextReductionCount(JSContext *ctx)
+{
+    ctx->reduction_count = 0;
+}
+
 void JS_SetDumpFlags(JSRuntime *rt, uint64_t flags)
 {
 #ifdef ENABLE_DUMPS
@@ -2554,6 +2574,8 @@ JSContext *JS_NewContextRaw(JSRuntime *rt)
     ctx->error_stack_trace_limit = js_int32(10);
     ctx->malloc_size = 0;
     ctx->malloc_limit = 0;
+    ctx->reduction_count = 0;
+    ctx->reduction_limit = 0;
     init_list_head(&ctx->loaded_modules);
 
     JS_AddIntrinsicBasicObjects(ctx);
@@ -8197,6 +8219,17 @@ static no_inline __exception int __js_poll_interrupts(JSContext *ctx)
 {
     JSRuntime *rt = ctx->rt;
     ctx->interrupt_counter = JS_INTERRUPT_COUNTER_INIT;
+
+    /* per-context reduction counting */
+    if (ctx->reduction_limit > 0) {
+        ctx->reduction_count += JS_INTERRUPT_COUNTER_INIT;
+        if (ctx->reduction_count >= ctx->reduction_limit) {
+            JS_ThrowInternalError(ctx, "reduction limit exceeded");
+            JS_SetUncatchableError(ctx, rt->current_exception);
+            return -1;
+        }
+    }
+
     if (rt->interrupt_handler) {
         if (rt->interrupt_handler(rt, rt->interrupt_opaque)) {
             JS_ThrowInterrupted(ctx);

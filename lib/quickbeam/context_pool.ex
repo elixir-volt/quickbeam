@@ -61,8 +61,9 @@ defmodule QuickBEAM.ContextPool do
     thread_idx = rem(state.next_thread, tuple_size(state.threads))
     resource = elem(state.threads, thread_idx)
     memory_limit = Keyword.get(opts, :memory_limit, 0)
+    max_reductions = Keyword.get(opts, :max_reductions, 0)
 
-    ref = QuickBEAM.Native.pool_create_context(resource, context_id, owner_pid, memory_limit)
+    ref = QuickBEAM.Native.pool_create_context(resource, context_id, owner_pid, memory_limit, max_reductions)
 
     receive do
       {^ref, {:ok, ^context_id}} ->
