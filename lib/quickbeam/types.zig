@@ -42,6 +42,10 @@ pub const Message = union(enum) {
     resolve_call_term: CallResponseTerm,
     send_message: MessagePayload,
     define_global: SetGlobalPayload,
+    get_global: GetGlobalPayload,
+    delete_globals: DeleteGlobalsPayload,
+    snapshot_globals: SnapshotGlobalsPayload,
+    list_globals: ListGlobalsPayload,
     memory_usage: AsyncMemoryPayload,
     dom_op: AsyncDomPayload,
     stop,
@@ -117,6 +121,26 @@ pub const SetGlobalPayload = struct {
     name: [:0]const u8,
     env: ?*e.ErlNifEnv,
     term: e.ErlNifTerm,
+};
+
+pub const GetGlobalPayload = struct {
+    name: [:0]const u8,
+    caller_pid: beam.pid,
+    ref_env: ?*e.ErlNifEnv,
+    ref_term: e.ErlNifTerm,
+};
+
+pub const DeleteGlobalsPayload = struct {
+    names: []const [:0]const u8,
+};
+
+pub const SnapshotGlobalsPayload = struct {};
+
+pub const ListGlobalsPayload = struct {
+    user_only: bool,
+    caller_pid: beam.pid,
+    ref_env: ?*e.ErlNifEnv,
+    ref_term: e.ErlNifTerm,
 };
 
 pub const MessageNode = struct {

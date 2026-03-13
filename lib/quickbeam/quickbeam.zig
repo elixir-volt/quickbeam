@@ -397,6 +397,50 @@ pub fn define_global(resource: RuntimeResource, name: []const u8, value: beam.te
     return beam.make(.ok, .{});
 }
 
+pub fn snapshot_globals(resource: RuntimeResource) beam.term {
+    enqueue(resource.unpack(), .{ .snapshot_globals = .{} });
+    return beam.make(.ok, .{});
+}
+
+pub fn list_globals(resource: RuntimeResource, user_only: u8) beam.term {
+    const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
+    const ref_env = beam.alloc_env();
+    const ref_term = e.enif_make_ref(ref_env);
+    var caller_pid: beam.pid = undefined;
+    _ = e.enif_self(env, &caller_pid);
+    enqueue(resource.unpack(), .{ .list_globals = .{ .user_only = user_only != 0, .caller_pid = caller_pid, .ref_env = ref_env, .ref_term = ref_term } });
+    return beam.term{ .v = e.enif_make_copy(env, ref_term) };
+}
+
+pub fn delete_globals(resource: RuntimeResource, names: []const beam.term) beam.term {
+    var name_slices = types.gpa.alloc([:0]const u8, names.len) catch return beam.make(.{ .@"error", "OOM" }, .{});
+    for (names, 0..) |name_term, i| {
+        const name_str = beam.get([]const u8, name_term, .{}) catch {
+            for (0..i) |j| types.gpa.free(name_slices[j]);
+            types.gpa.free(name_slices);
+            return beam.make(.{ .@"error", "bad_name" }, .{});
+        };
+        name_slices[i] = types.gpa.dupeZ(u8, name_str) catch {
+            for (0..i) |j| types.gpa.free(name_slices[j]);
+            types.gpa.free(name_slices);
+            return beam.make(.{ .@"error", "OOM" }, .{});
+        };
+    }
+    enqueue(resource.unpack(), .{ .delete_globals = .{ .names = name_slices } });
+    return beam.make(.ok, .{});
+}
+
+pub fn get_global(resource: RuntimeResource, name: []const u8) beam.term {
+    const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
+    const name_copy = types.gpa.dupeZ(u8, name) catch return beam.make(.{ .@"error", "enomem" }, .{});
+    const ref_env = beam.alloc_env();
+    const ref_term = e.enif_make_ref(ref_env);
+    var caller_pid: beam.pid = undefined;
+    _ = e.enif_self(env, &caller_pid);
+    enqueue(resource.unpack(), .{ .get_global = .{ .name = name_copy, .caller_pid = caller_pid, .ref_env = ref_env, .ref_term = ref_term } });
+    return beam.term{ .v = e.enif_make_copy(env, ref_term) };
+}
+
 // ──────────────────── Context Pool ────────────────────
 
 pub const PoolResource = beam.Resource(*ct.PoolData, @import("root"), .{
@@ -569,6 +613,23 @@ pub fn pool_define_global(resource: PoolResource, context_id: u64, name: []const
         .term = copied,
     } });
     return beam.make(.ok, .{});
+}
+
+pub fn pool_get_global(resource: PoolResource, context_id: u64, name: []const u8) beam.term {
+    const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
+    const name_copy = gpa.dupeZ(u8, name) catch return beam.make(.{ .@"error", "OOM" }, .{});
+    const ref_env = beam.alloc_env();
+    const ref_term = e.enif_make_ref(ref_env);
+    var caller_pid: beam.pid = undefined;
+    _ = e.enif_self(env, &caller_pid);
+    pool_enqueue(resource.unpack(), .{ .ctx_get_global = .{
+        .context_id = context_id,
+        .name = name_copy,
+        .caller_pid = caller_pid,
+        .ref_env = ref_env,
+        .ref_term = ref_term,
+    } });
+    return beam.term{ .v = e.enif_make_copy(env, ref_term) };
 }
 
 pub fn pool_dom_find(resource: PoolResource, context_id: u64, selector: []const u8) beam.term {

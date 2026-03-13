@@ -85,6 +85,13 @@ fn pool_drain_callback(state: *worker.WorkerState) void {
                 handle_ctx_define_global(contexts, p);
             }
         },
+        .ctx_get_global => |p| {
+            if (p.context_id == active_id) {
+                state.get_global_property(.{ .name = p.name, .caller_pid = p.caller_pid, .ref_env = p.ref_env, .ref_term = p.ref_term });
+            } else {
+                handle_ctx_get_global(contexts, p);
+            }
+        },
         // Re-enqueue messages that can't be processed during a promise wait
         .ctx_eval, .ctx_call_fn, .ctx_reset, .ctx_memory_usage, .ctx_dom_op => {
             ct.pool_enqueue(pd, msg);
@@ -138,6 +145,7 @@ pub fn pool_worker_main(pd: *ct.PoolData) void {
                 .ctx_reset => |p| handle_ctx_reset(&contexts, p),
                 .ctx_send_message => |p| handle_ctx_message(&contexts, p),
                 .ctx_define_global => |p| handle_ctx_define_global(&contexts, p),
+                .ctx_get_global => |p| handle_ctx_get_global(&contexts, p),
                 .ctx_memory_usage => |p| handle_ctx_memory_usage(&contexts, p),
                 .ctx_dom_op => |p| handle_ctx_dom_op(&contexts, p),
                 .ctx_resolve_call => |p| handle_ctx_resolve_call(&contexts, p),
@@ -344,6 +352,19 @@ fn handle_ctx_define_global(
     };
     const entry = entry_ptr.*;
     entry.state.define_global_property(.{ .name = p.name, .env = p.env, .term = p.term });
+}
+
+fn handle_ctx_get_global(
+    contexts: *std.AutoHashMap(ct.ContextId, *ct.ContextEntry),
+    p: ct.CtxGetGlobalPayload,
+) void {
+    const entry_ptr = contexts.getPtr(p.context_id) orelse {
+        gpa.free(p.name);
+        if (p.ref_env) |env| beam.free_env(env);
+        return;
+    };
+    const entry = entry_ptr.*;
+    entry.state.get_global_property(.{ .name = p.name, .caller_pid = p.caller_pid, .ref_env = p.ref_env, .ref_term = p.ref_term });
 }
 
 fn handle_ctx_memory_usage(

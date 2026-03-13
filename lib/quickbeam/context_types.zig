@@ -24,6 +24,7 @@ pub const PoolMessage = union(enum) {
     ctx_reset: CtxResetPayload,
     ctx_send_message: CtxMessagePayload,
     ctx_define_global: CtxDefineGlobalPayload,
+    ctx_get_global: CtxGetGlobalPayload,
     ctx_memory_usage: CtxMemoryPayload,
     ctx_dom_op: CtxDomPayload,
     ctx_resolve_call: CtxCallResponse,
@@ -82,6 +83,14 @@ pub const CtxDefineGlobalPayload = struct {
     name: [:0]const u8,
     env: ?*e.ErlNifEnv,
     term: e.ErlNifTerm,
+};
+
+pub const CtxGetGlobalPayload = struct {
+    context_id: ContextId,
+    name: [:0]const u8,
+    caller_pid: beam.pid,
+    ref_env: ?*e.ErlNifEnv,
+    ref_term: e.ErlNifTerm,
 };
 
 pub const CtxMemoryPayload = struct {
