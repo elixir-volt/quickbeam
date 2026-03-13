@@ -199,6 +199,129 @@ Each checkout gets a runtime, each checkin resets it and re-runs the
 init function. This gives a clean JS context per request while
 amortizing startup cost.
 
+## Context Pool
+
+`QuickBEAM.ContextPool` is a different approach to concurrency —
+lightweight JS contexts that share runtime threads, rather than
+whole runtimes in a checkout pool.
+
+### The problem
+
+A full `QuickBEAM.Runtime` dedicates an OS thread and `JSRuntime` per
+GenServer (~2MB+ each). At 10K concurrent connections (e.g. Phoenix
+LiveView), that's 10K threads and ~25GB of memory.
+
+### The solution
+
+QuickJS natively supports multiple `JSContext` instances per
+`JSRuntime`. Each context has its own global object, prototypes, and
+execution state, but shares the runtime's GC heap and parser. A
+`ContextPool` exploits this:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  ContextPool (GenServer)                             │
+│  Round-robin assignment: context → thread            │
+├──────────┬──────────┬──────────┬───────────────────┐│
+│ Thread 0 │ Thread 1 │ Thread 2 │ Thread N-1        ││
+│ JSRuntime│ JSRuntime│ JSRuntime│ JSRuntime          ││
+│ ┌──────┐ │ ┌──────┐ │ ┌──────┐ │ ┌──────┐          ││
+│ │Ctx 1 │ │ │Ctx 2 │ │ │Ctx 3 │ │ │Ctx N │          ││
+│ │Ctx 5 │ │ │Ctx 6 │ │ │Ctx 7 │ │ │Ctx ..│          ││
+│ │Ctx 9 │ │ │...   │ │ │...   │ │ │      │          ││
+│ └──────┘ │ └──────┘ │ └──────┘ │ └──────┘          ││
+└──────────┴──────────┴──────────┴───────────────────┘│
+└─────────────────────────────────────────────────────┘
+```
+
+Marginal memory per context depends on API surface: ~58 KB bare,
+~71 KB with Beam API, ~108 KB beam+url, ~231 KB beam+fetch,
+~429 KB with full browser APIs. Individual runtimes cost ~530 KB
+JS heap plus a ~2.5 MB OS thread stack each.
+
+### How it works
+
+Each pool thread has a lock-free message queue and a `HashMap` of
+`ContextId → ContextEntry` (QuickJS context + `RuntimeData`). The
+worker loop dequeues messages, looks up the target context by ID,
+and dispatches operations (eval, call, reset, destroy, DOM queries,
+message delivery, resolve/reject for `Beam.call`).
+
+`Beam.callSync` uses per-context `SyncCallSlot`s stored in a
+`RuntimeData` referenced by both the JS thread and NIF layer. The
+NIF writes the result and signals the slot directly — no round-trip
+through the pool queue — so the blocked JS thread wakes immediately.
+
+`Beam.call` (async) works through a drain callback: when the JS
+thread is in `await_promise` waiting for a Promise to resolve, it
+periodically calls `drain_fn` which pulls messages from the pool queue
+and routes resolve/reject messages to the correct context.
+
+### Context lifecycle
+
+Each `QuickBEAM.Context` is a lightweight GenServer that:
+1. On `init`: asks the pool to create a `JSContext` on one of its
+   threads, installs polyfills (browser/node/beam), snapshots builtins
+2. On `eval`/`call`: enqueues work to the pool thread via NIF,
+   receives the result as a message
+3. On `terminate`: sends a destroy command to free the `JSContext`
+
+Contexts are isolated — separate globals, separate prototypes — but
+share the runtime's GC and parser. Prototype pollution in one context
+does not affect another.
+
+### Granular API groups
+
+Instead of loading all browser APIs, contexts can request individual
+groups to minimize memory:
+
+```elixir
+QuickBEAM.Context.start_link(pool: pool, apis: [:beam, :fetch])  # 231 KB
+QuickBEAM.Context.start_link(pool: pool, apis: [:beam, :url])    # 108 KB
+```
+
+Available groups: `:fetch`, `:websocket`, `:worker`, `:channel`,
+`:eventsource`, `:url`, `:crypto`, `:compression`, `:buffer`, `:dom`,
+`:console`, `:storage`, `:locks`. Dependencies auto-resolve (e.g.
+`:fetch` includes EventTarget/AbortController, `:websocket` includes
+the message dispatcher).
+
+The `:browser` atom expands to all groups but uses a monolithic bundle
+for better code sharing.
+
+### Precompiled bytecode
+
+Polyfill JS is compiled to QuickJS bytecode once (on first use) and
+cached in `persistent_term`. New contexts load bytecodes via
+`JS_ReadObject` + `JS_EvalFunction` instead of parsing JS text —
+~3.2x faster context creation.
+
+### QuickJS patches
+
+QuickBEAM patches QuickJS-NG with per-context resource controls:
+
+**Per-context memory tracking** — All context-level allocators
+(`js_malloc`, `js_calloc`, `js_realloc`, `js_free`) track a
+`malloc_size` counter on the `JSContext`. When `malloc_limit` is set,
+allocations exceeding the limit trigger OOM. The runtime-level memory
+tracking remains unchanged (cumulative across all contexts).
+
+```elixir
+{:ok, ctx} = QuickBEAM.Context.start_link(pool: pool, memory_limit: 512_000)
+{:ok, %{context_malloc_size: 92_000}} = QuickBEAM.Context.memory_usage(ctx)
+```
+
+**Per-context reduction limits** — Each interrupt check (~10K opcodes)
+increments a `reduction_count` on the `JSContext`. When it exceeds
+`reduction_limit`, an uncatchable error terminates the current eval.
+The count resets before each eval/call, so the limit is per-operation.
+The context remains usable after hitting the limit.
+
+```elixir
+{:ok, ctx} = QuickBEAM.Context.start_link(pool: pool, max_reductions: 100_000)
+# A 10M-iteration loop gets interrupted; next eval works fine
+```
+
 ## Supervision
 
 Runtimes are GenServers — they fit naturally into OTP supervision

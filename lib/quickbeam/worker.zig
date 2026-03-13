@@ -30,6 +30,8 @@ pub const TimerEntry = struct {
     interval_ns: ?u64,
 };
 
+pub const DrainFn = *const fn (*WorkerState) void;
+
 pub const WorkerState = struct {
     ctx: *qjs.JSContext,
     rt: *qjs.JSRuntime,
@@ -43,7 +45,9 @@ pub const WorkerState = struct {
     message_handler: qjs.JSValue = js.JS_UNDEFINED,
     atoms: atom_cache.AtomCache = .{},
     dom_data: ?*dom.DocumentData = null,
+    builtin_snapshot: ?std.StringHashMap(void) = null,
     buf: [4096]u8 = @splat(0),
+    drain_fn: ?DrainFn = null,
 
     pub fn deinit(self: *WorkerState) void {
         var call_it = self.pending_calls.valueIterator();
@@ -61,6 +65,12 @@ pub const WorkerState = struct {
 
         if (!js.is_undefined(self.message_handler)) {
             qjs.JS_FreeValue(self.ctx, self.message_handler);
+        }
+
+        if (self.builtin_snapshot) |*snap| {
+            var kit = snap.keyIterator();
+            while (kit.next()) |k| types.gpa.free(k.*);
+            snap.deinit();
         }
 
         self.atoms.deinit(self.ctx);
@@ -144,6 +154,118 @@ pub const WorkerState = struct {
         const global = qjs.JS_GetGlobalObject(self.ctx);
         defer qjs.JS_FreeValue(self.ctx, global);
         _ = qjs.JS_SetPropertyStr(self.ctx, global, sg.name.ptr, val);
+    }
+
+    pub fn get_global_property(self: *WorkerState, gg: types.GetGlobalPayload) void {
+        defer types.gpa.free(gg.name);
+
+        const global = qjs.JS_GetGlobalObject(self.ctx);
+        defer qjs.JS_FreeValue(self.ctx, global);
+        const val = qjs.JS_GetPropertyStr(self.ctx, global, gg.name.ptr);
+        defer qjs.JS_FreeValue(self.ctx, val);
+
+        const result_env = beam.alloc_env();
+        const result_term = js_to_beam.convert(self.ctx, val, result_env);
+
+        types.send_reply(gg.caller_pid, gg.ref_env, gg.ref_term, true, result_env, result_term, "");
+    }
+
+    pub fn snapshot_globals(self: *WorkerState) void {
+        if (self.builtin_snapshot) |*old| {
+            var kit = old.keyIterator();
+            while (kit.next()) |k| types.gpa.free(k.*);
+            old.deinit();
+        }
+
+        var snap = std.StringHashMap(void).init(types.gpa);
+        const global = qjs.JS_GetGlobalObject(self.ctx);
+        defer qjs.JS_FreeValue(self.ctx, global);
+
+        var ptab: [*c]qjs.JSPropertyEnum = null;
+        var plen: u32 = 0;
+        if (qjs.JS_GetOwnPropertyNames(self.ctx, &ptab, &plen, global, qjs.JS_GPN_STRING_MASK) < 0) return;
+        defer {
+            for (0..plen) |i| qjs.JS_FreeAtom(self.ctx, ptab[i].atom);
+            qjs.js_free(self.ctx, ptab);
+        }
+
+        for (0..plen) |i| {
+            const cstr = qjs.JS_AtomToCString(self.ctx, ptab[i].atom);
+            if (cstr == null) continue;
+            defer qjs.JS_FreeCString(self.ctx, cstr);
+            const name = std.mem.span(cstr);
+            const duped = types.gpa.dupe(u8, name) catch continue;
+            snap.put(duped, {}) catch {
+                types.gpa.free(duped);
+            };
+        }
+
+        self.builtin_snapshot = snap;
+    }
+
+    pub fn list_globals(self: *WorkerState, lg: types.ListGlobalsPayload) void {
+        const global = qjs.JS_GetGlobalObject(self.ctx);
+        defer qjs.JS_FreeValue(self.ctx, global);
+
+        var ptab: [*c]qjs.JSPropertyEnum = null;
+        var plen: u32 = 0;
+        if (qjs.JS_GetOwnPropertyNames(self.ctx, &ptab, &plen, global, qjs.JS_GPN_STRING_MASK) < 0) {
+            const renv = e.enif_alloc_env();
+            const empty = e.enif_make_list(renv, 0);
+            types.send_reply(lg.caller_pid, lg.ref_env, lg.ref_term, true, renv, empty, "");
+            return;
+        }
+
+        const result_env = e.enif_alloc_env();
+        var list = e.enif_make_list(result_env, 0);
+
+        var i: usize = plen;
+        while (i > 0) {
+            i -= 1;
+            const cstr = qjs.JS_AtomToCString(self.ctx, ptab[i].atom);
+            if (cstr == null) continue;
+            const name_slice = std.mem.span(cstr);
+            const name_len = name_slice.len;
+
+            var skip = false;
+            if (lg.user_only) {
+                if (name_len >= 5 and std.mem.eql(u8, name_slice[0..5], "__qb_")) skip = true;
+                if (!skip) {
+                    if (self.builtin_snapshot) |snap| {
+                        if (snap.contains(name_slice)) skip = true;
+                    }
+                }
+            }
+
+            if (!skip) {
+                var bin: e.ErlNifBinary = undefined;
+                if (e.enif_alloc_binary(name_len, &bin) != 0) {
+                    @memcpy(bin.data[0..name_len], name_slice[0..name_len]);
+                    const name_term = e.enif_make_binary(result_env, &bin);
+                    list = e.enif_make_list_cell(result_env, name_term, list);
+                }
+            }
+
+            qjs.JS_FreeCString(self.ctx, cstr);
+        }
+
+        for (0..plen) |j| qjs.JS_FreeAtom(self.ctx, ptab[j].atom);
+        qjs.js_free(self.ctx, ptab);
+
+        types.send_reply(lg.caller_pid, lg.ref_env, lg.ref_term, true, result_env, list, "");
+    }
+
+    pub fn delete_global_names(self: *WorkerState, dg: types.DeleteGlobalsPayload) void {
+        const global = qjs.JS_GetGlobalObject(self.ctx);
+        defer qjs.JS_FreeValue(self.ctx, global);
+
+        for (dg.names) |name| {
+            const atom = qjs.JS_NewAtomLen(self.ctx, name.ptr, name.len);
+            defer qjs.JS_FreeAtom(self.ctx, atom);
+            _ = qjs.JS_DeleteProperty(self.ctx, global, atom, 0);
+            types.gpa.free(name);
+        }
+        types.gpa.free(dg.names);
     }
 
     pub fn deliver_message(self: *WorkerState, sm: types.MessagePayload) void {
@@ -451,13 +573,19 @@ pub const WorkerState = struct {
             }
 
             // Still pending — process messages that might resolve it
-            if (types.dequeue(self.rd)) |msg| {
+            if (self.drain_fn) |dfn| {
+                dfn(self);
+            } else if (types.dequeue(self.rd)) |msg| {
                 switch (msg) {
                     .resolve_call => |rc| self.resolve_pending(rc.id, rc.json),
                     .reject_call => |rc| self.reject_pending(rc.id, rc.json),
                     .resolve_call_term => |rc| self.resolve_pending_term(rc.env, rc.term, rc.id),
                     .send_message => |sm| self.deliver_message(sm),
                     .define_global => |sg| self.define_global_property(sg),
+                    .get_global => |gg| self.get_global_property(gg),
+                    .delete_globals => |dg| self.delete_global_names(dg),
+                    .snapshot_globals => self.snapshot_globals(),
+                    .list_globals => |lg| self.list_globals(lg),
                     .stop => {
                         result.ok = false;
                         result.json = "Runtime stopped";
@@ -627,6 +755,10 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                 .resolve_call_term => |rc| state.resolve_pending_term(rc.env, rc.term, rc.id),
                 .send_message => |sm| state.deliver_message(sm),
                 .define_global => |sg| state.define_global_property(sg),
+                .get_global => |gg| state.get_global_property(gg),
+                .delete_globals => |dg| state.delete_global_names(dg),
+                .snapshot_globals => state.snapshot_globals(),
+                .list_globals => |lg| state.list_globals(lg),
                 .dom_op => |p| {
                     var result = Result{};
                     state.do_dom_op_result(p.op, p.selector, p.attr_name, &result);

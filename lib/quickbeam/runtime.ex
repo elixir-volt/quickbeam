@@ -161,7 +161,8 @@ defmodule QuickBEAM.Runtime do
     "__broadcast_post" => {:with_caller, &QuickBEAM.BroadcastChannel.post/2},
     "__broadcast_leave" => {:with_caller, &QuickBEAM.BroadcastChannel.leave/2},
     "__worker_spawn" => {:with_caller, &QuickBEAM.WorkerAPI.spawn_worker/2},
-    "__worker_terminate" => &QuickBEAM.WorkerAPI.terminate_worker/1,
+    "__worker_terminate" => {:with_caller, &QuickBEAM.WorkerAPI.terminate_worker/2},
+    "__worker_post_to_child" => {:with_caller, &QuickBEAM.WorkerAPI.post_to_child/2},
     "__locks_request" => {:with_caller, &QuickBEAM.LocksAPI.request_lock/2},
     "__locks_release" => {:with_caller, &QuickBEAM.LocksAPI.release_lock/2},
     "__locks_query" => &QuickBEAM.LocksAPI.query_locks/1,
@@ -233,61 +234,13 @@ defmodule QuickBEAM.Runtime do
     "__child_process_exec_sync" => &QuickBEAM.NodeChildProcess.exec_sync/1
   }
 
-  @ts_dir Path.join([__DIR__, "../../priv/ts"]) |> Path.expand()
+  @browser_js QuickBEAM.JS.browser_js()
+  @beam_js QuickBEAM.JS.beam_js()
+  @node_js QuickBEAM.JS.node_js()
 
-  # Register @external_resource for all TS source files
-  for ts <- Path.wildcard(Path.join(@ts_dir, "*.ts")),
-      not String.ends_with?(ts, ".d.ts") do
-    @external_resource ts
-  end
-
-  defmodule Compiler do
-    @moduledoc false
-
-    def standalone(ts_dir, names) do
-      for name <- names do
-        path = Path.join(ts_dir, "#{name}.ts")
-        source = File.read!(path)
-
-        OXC.transform!(source, Path.basename(path))
-        |> then(&"(() => {\n#{&1}\n})();\n")
-      end
-    end
-
-    def bundle(ts_dir, barrel) do
-      barrel_source = File.read!(Path.join(ts_dir, barrel))
-      {:ok, specifiers} = OXC.imports(barrel_source, barrel)
-
-      import_names =
-        specifiers
-        |> Enum.filter(&String.starts_with?(&1, "./"))
-        |> Enum.map(&String.trim_leading(&1, "./"))
-
-      all_names = Enum.uniq([Path.rootname(barrel) | import_names])
-
-      files =
-        for name <- all_names do
-          path = Path.join(ts_dir, "#{name}.ts")
-          {"#{name}.ts", File.read!(path)}
-        end
-
-      OXC.bundle!(files)
-    end
-  end
-
-  @browser_js Compiler.standalone(
-                @ts_dir,
-                ~w[url crypto-subtle compression buffer process class-list style]
-              ) ++
-                [Compiler.bundle(@ts_dir, "web-apis.ts")] ++
-                Compiler.standalone(@ts_dir, ~w[dom-events performance])
-
-  @beam_js Compiler.standalone(@ts_dir, ~w[beam-api])
-
-  @node_js Compiler.standalone(
-             @ts_dir,
-             ~w[node-process node-path node-fs node-os node-child-process]
-           )
+  def browser_handlers, do: @browser_handlers
+  def beam_handlers, do: @beam_handlers
+  def node_handlers, do: @node_handlers
 
   @impl true
   def init(opts) do
@@ -414,12 +367,6 @@ defmodule QuickBEAM.Runtime do
     end
   end
 
-  @snapshot_builtins_js """
-  globalThis.__qb_builtins = Object.create(null);
-  for (const k of Object.getOwnPropertyNames(globalThis))
-    globalThis.__qb_builtins[k] = true;
-  """
-
   defp install_defines(_state, defines) when map_size(defines) == 0, do: :ok
 
   defp install_defines(state, defines) do
@@ -441,7 +388,7 @@ defmodule QuickBEAM.Runtime do
       for js <- @beam_js, do: sync_eval(state.resource, js)
     end
 
-    sync_eval(state.resource, @snapshot_builtins_js)
+    QuickBEAM.Native.snapshot_globals(state.resource)
   end
 
   defp sync_eval(resource, code) do
@@ -487,14 +434,15 @@ defmodule QuickBEAM.Runtime do
       QuickBEAM.Native.define_global(state.resource, name, value)
     end)
 
-    deletes = Enum.map_join(names, "; ", fn n -> "delete globalThis[#{inspect(n)}]" end)
-    wrapped = "try { #{code}\n } finally { #{deletes} }"
+    ref = QuickBEAM.Native.eval(state.resource, code, timeout_ms)
 
-    ref = QuickBEAM.Native.eval(state.resource, wrapped, timeout_ms)
+    transform = fn result ->
+      QuickBEAM.Native.delete_globals(state.resource, names)
 
-    transform = fn
-      {:ok, value} -> {:ok, value}
-      {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
+      case result do
+        {:ok, value} -> {:ok, value}
+        {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
+      end
     end
 
     {:noreply, put_pending(state, ref, from, transform)}
@@ -503,6 +451,28 @@ defmodule QuickBEAM.Runtime do
   def handle_call({:set_global, name, value}, _from, state) do
     QuickBEAM.Native.define_global(state.resource, name, value)
     {:reply, :ok, state}
+  end
+
+  def handle_call({:get_global, name}, from, state) do
+    ref = QuickBEAM.Native.get_global(state.resource, name)
+
+    transform = fn
+      {:ok, value} -> {:ok, value}
+      {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
+    end
+
+    {:noreply, %{state | pending: Map.put(state.pending, ref, {from, transform})}}
+  end
+
+  def handle_call({:list_globals, user_only}, from, state) do
+    ref = QuickBEAM.Native.list_globals(state.resource, if(user_only, do: 1, else: 0))
+
+    transform = fn
+      {:ok, names} -> {:ok, names}
+      other -> other
+    end
+
+    {:noreply, %{state | pending: Map.put(state.pending, ref, {from, transform})}}
   end
 
   def handle_call({:compile, code}, from, state) do
@@ -654,18 +624,44 @@ defmodule QuickBEAM.Runtime do
     {:noreply, state}
   end
 
-  def handle_info({:worker_monitor, child_pid}, state) do
+  def handle_info({:worker_register, worker_id, child_pid}, state) do
     ref = Process.monitor(child_pid)
-    workers = Map.put(state.workers, ref, child_pid)
+    workers = Map.put(state.workers, worker_id, {child_pid, ref})
     {:noreply, %{state | workers: workers}}
   end
 
-  def handle_info({:worker_error_from_child, child_pid, error}, state) do
+  def handle_info({:worker_msg, worker_id, data}, state) do
+    QuickBEAM.Native.send_message(state.resource, ["__worker_msg", worker_id, data])
+    {:noreply, state}
+  end
+
+  def handle_info({:worker_error, worker_id, error}, state) do
     message =
       if is_struct(error), do: Map.get(error, :message, "Worker error"), else: "Worker error"
 
-    QuickBEAM.Native.send_message(state.resource, ["__worker_err", child_pid, message])
+    QuickBEAM.Native.send_message(state.resource, ["__worker_err", worker_id, message])
     {:noreply, state}
+  end
+
+  def handle_info({:worker_post_to_child, worker_id, data}, state) do
+    case Map.get(state.workers, worker_id) do
+      {child_pid, _ref} -> QuickBEAM.send_message(child_pid, data)
+      nil -> :ok
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_info({:worker_terminate, worker_id}, state) do
+    case Map.pop(state.workers, worker_id) do
+      {nil, _} ->
+        {:noreply, state}
+
+      {{child_pid, ref}, workers} ->
+        Process.demonitor(ref, [:flush])
+        Task.start(fn -> QuickBEAM.stop(child_pid) end)
+        {:noreply, %{state | workers: workers}}
+    end
   end
 
   def handle_info({:eventsource_open, id}, state) do
@@ -701,8 +697,18 @@ defmodule QuickBEAM.Runtime do
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    case Map.pop(state.workers, ref) do
-      {nil, _} ->
+    case find_worker_by_ref(state.workers, ref) do
+      {worker_id, _child_pid} ->
+        workers = Map.delete(state.workers, worker_id)
+
+        unless reason == :normal do
+          message = inspect(reason)
+          QuickBEAM.Native.send_message(state.resource, ["__worker_err", worker_id, message])
+        end
+
+        {:noreply, %{state | workers: workers}}
+
+      nil ->
         case Map.pop(state.monitors, ref) do
           {nil, _} ->
             {:noreply, state}
@@ -711,14 +717,6 @@ defmodule QuickBEAM.Runtime do
             QuickBEAM.Native.send_message(state.resource, ["__qb_down", callback_id, reason])
             {:noreply, %{state | monitors: monitors}}
         end
-
-      {child_pid, workers} ->
-        unless reason == :normal do
-          message = inspect(reason)
-          QuickBEAM.Native.send_message(state.resource, ["__worker_err", child_pid, message])
-        end
-
-        {:noreply, %{state | workers: workers}}
     end
   end
 
@@ -740,6 +738,12 @@ defmodule QuickBEAM.Runtime do
   def handle_info(msg, state) do
     QuickBEAM.Native.send_message(state.resource, msg)
     {:noreply, state}
+  end
+
+  defp find_worker_by_ref(workers, ref) do
+    Enum.find_value(workers, fn {worker_id, {pid, worker_ref}} ->
+      if worker_ref == ref, do: {worker_id, pid}
+    end)
   end
 
   @impl true

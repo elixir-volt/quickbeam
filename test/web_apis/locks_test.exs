@@ -2,7 +2,6 @@ defmodule QuickBEAM.WebAPIs.LocksTest do
   use ExUnit.Case, async: false
 
   setup do
-    start_supervised!(QuickBEAM.LockManager)
     {:ok, rt} = QuickBEAM.start()
 
     on_exit(fn ->
