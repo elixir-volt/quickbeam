@@ -2,7 +2,7 @@ defmodule QuickBEAM.Context do
   @moduledoc """
   A lightweight JS execution context on a shared runtime thread.
 
-  Unlike `QuickBEAM.Runtime`, a context does not spawn a dedicated OS thread.
+  Unlike a full runtime, a context does not spawn a dedicated OS thread.
   Many contexts share a single `JSRuntime` thread managed by a
   `QuickBEAM.ContextPool`. This makes each context ~58 KB (bare) to
   ~429 KB (full browser APIs) vs ~2 MB+ for a full runtime — ideal for
