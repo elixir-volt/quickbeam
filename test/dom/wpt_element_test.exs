@@ -3,10 +3,6 @@ defmodule QuickBEAM.DOM.WPT.ElementTest do
   Tests ported from Web Platform Tests (WPT) dom/nodes/ suite.
   Element-level APIs: closest, matches, attributes, classList, children.
   https://github.com/web-platform-tests/wpt/tree/master/dom/nodes
-
-  Known QuickBEAM DOM differences:
-  - tagName returns lowercase (spec says uppercase for HTML)
-  - No JS object identity for nodes
   """
   use ExUnit.Case, async: true
 

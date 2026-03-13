@@ -2,12 +2,6 @@ defmodule QuickBEAM.DOM.WPT.NodeTest do
   @moduledoc """
   Tests ported from Web Platform Tests (WPT) dom/nodes/ suite.
   https://github.com/web-platform-tests/wpt/tree/master/dom/nodes
-
-  Known QuickBEAM DOM differences from spec:
-  - tagName/nodeName return lowercase (spec says uppercase for HTML)
-  - No JS object identity for nodes (each access creates a new wrapper)
-  - document has no nodeType/nodeName getters
-  - textContent = "" creates an empty text node instead of removing all children
   """
   use ExUnit.Case, async: true
 
