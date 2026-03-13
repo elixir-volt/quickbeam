@@ -525,6 +525,10 @@ struct JSContext {
     /* when the counter reaches zero, JSRutime.interrupt_handler is called */
     int interrupt_counter;
 
+    /* per-context memory tracking */
+    size_t malloc_size;
+    size_t malloc_limit; /* 0 = unlimited */
+
     struct list_head loaded_modules; /* list of JSModuleDef.link */
 
     /* if NULL, RegExp compilation is not supported */
@@ -1693,11 +1697,19 @@ void *js_mallocz_rt(JSRuntime *rt, size_t size)
 void *js_calloc(JSContext *ctx, size_t count, size_t size)
 {
     void *ptr;
+    size_t total = count * size;
+    if (ctx->malloc_limit > 0 &&
+        ctx->malloc_size + total > ctx->malloc_limit)
+    {
+        JS_ThrowOutOfMemory(ctx);
+        return NULL;
+    }
     ptr = js_calloc_rt(ctx->rt, count, size);
     if (unlikely(!ptr)) {
         JS_ThrowOutOfMemory(ctx);
         return NULL;
     }
+    ctx->malloc_size += ctx->rt->mf.js_malloc_usable_size(ptr) + MALLOC_OVERHEAD;
     return ptr;
 }
 
@@ -1705,11 +1717,18 @@ void *js_calloc(JSContext *ctx, size_t count, size_t size)
 void *js_malloc(JSContext *ctx, size_t size)
 {
     void *ptr;
+    if (ctx->malloc_limit > 0 &&
+        ctx->malloc_size + size > ctx->malloc_limit)
+    {
+        JS_ThrowOutOfMemory(ctx);
+        return NULL;
+    }
     ptr = js_malloc_rt(ctx->rt, size);
     if (unlikely(!ptr)) {
         JS_ThrowOutOfMemory(ctx);
         return NULL;
     }
+    ctx->malloc_size += ctx->rt->mf.js_malloc_usable_size(ptr) + MALLOC_OVERHEAD;
     return ptr;
 }
 
@@ -1717,16 +1736,30 @@ void *js_malloc(JSContext *ctx, size_t size)
 void *js_mallocz(JSContext *ctx, size_t size)
 {
     void *ptr;
+    if (ctx->malloc_limit > 0 &&
+        ctx->malloc_size + size > ctx->malloc_limit)
+    {
+        JS_ThrowOutOfMemory(ctx);
+        return NULL;
+    }
     ptr = js_mallocz_rt(ctx->rt, size);
     if (unlikely(!ptr)) {
         JS_ThrowOutOfMemory(ctx);
         return NULL;
     }
+    ctx->malloc_size += ctx->rt->mf.js_malloc_usable_size(ptr) + MALLOC_OVERHEAD;
     return ptr;
 }
 
 void js_free(JSContext *ctx, void *ptr)
 {
+    if (ptr) {
+        size_t free_size = ctx->rt->mf.js_malloc_usable_size(ptr) + MALLOC_OVERHEAD;
+        if (free_size <= ctx->malloc_size)
+            ctx->malloc_size -= free_size;
+        else
+            ctx->malloc_size = 0;
+    }
     js_free_rt(ctx->rt, ptr);
 }
 
@@ -1734,10 +1767,28 @@ void js_free(JSContext *ctx, void *ptr)
 void *js_realloc(JSContext *ctx, void *ptr, size_t size)
 {
     void *ret;
+    size_t old_size = ptr ? ctx->rt->mf.js_malloc_usable_size(ptr) : 0;
+    size_t delta = size > old_size ? size - old_size : 0;
+    if (ctx->malloc_limit > 0 && delta > 0 &&
+        ctx->malloc_size + delta > ctx->malloc_limit)
+    {
+        JS_ThrowOutOfMemory(ctx);
+        return NULL;
+    }
     ret = js_realloc_rt(ctx->rt, ptr, size);
     if (unlikely(!ret && size != 0)) {
         JS_ThrowOutOfMemory(ctx);
         return NULL;
+    }
+    if (ret) {
+        size_t new_size = ctx->rt->mf.js_malloc_usable_size(ret) + MALLOC_OVERHEAD;
+        size_t old_tracked = old_size + MALLOC_OVERHEAD;
+        if (new_size >= old_tracked)
+            ctx->malloc_size += new_size - old_tracked;
+        else if (old_tracked - new_size <= ctx->malloc_size)
+            ctx->malloc_size -= old_tracked - new_size;
+        else
+            ctx->malloc_size = 0;
     }
     return ret;
 }
@@ -1746,10 +1797,28 @@ void *js_realloc(JSContext *ctx, void *ptr, size_t size)
 void *js_realloc2(JSContext *ctx, void *ptr, size_t size, size_t *pslack)
 {
     void *ret;
+    size_t old_size = ptr ? ctx->rt->mf.js_malloc_usable_size(ptr) : 0;
+    size_t delta = size > old_size ? size - old_size : 0;
+    if (ctx->malloc_limit > 0 && delta > 0 &&
+        ctx->malloc_size + delta > ctx->malloc_limit)
+    {
+        JS_ThrowOutOfMemory(ctx);
+        return NULL;
+    }
     ret = js_realloc_rt(ctx->rt, ptr, size);
     if (unlikely(!ret && size != 0)) {
         JS_ThrowOutOfMemory(ctx);
         return NULL;
+    }
+    if (ret) {
+        size_t new_size = ctx->rt->mf.js_malloc_usable_size(ret) + MALLOC_OVERHEAD;
+        size_t old_tracked = old_size + MALLOC_OVERHEAD;
+        if (new_size >= old_tracked)
+            ctx->malloc_size += new_size - old_tracked;
+        else if (old_tracked - new_size <= ctx->malloc_size)
+            ctx->malloc_size -= old_tracked - new_size;
+        else
+            ctx->malloc_size = 0;
     }
     if (pslack) {
         size_t new_size = js_malloc_usable_size_rt(ctx->rt, ret);
@@ -2055,6 +2124,16 @@ JSRuntime *JS_NewRuntime(void)
 void JS_SetMemoryLimit(JSRuntime *rt, size_t limit)
 {
     rt->malloc_state.malloc_limit = limit;
+}
+
+void JS_SetContextMemoryLimit(JSContext *ctx, size_t limit)
+{
+    ctx->malloc_limit = limit;
+}
+
+size_t JS_GetContextMallocSize(JSContext *ctx)
+{
+    return ctx->malloc_size;
 }
 
 void JS_SetDumpFlags(JSRuntime *rt, uint64_t flags)
@@ -2473,6 +2552,8 @@ JSContext *JS_NewContextRaw(JSRuntime *rt)
     ctx->error_back_trace = JS_UNDEFINED;
     ctx->error_prepare_stack = JS_UNDEFINED;
     ctx->error_stack_trace_limit = js_int32(10);
+    ctx->malloc_size = 0;
+    ctx->malloc_limit = 0;
     init_list_head(&ctx->loaded_modules);
 
     JS_AddIntrinsicBasicObjects(ctx);

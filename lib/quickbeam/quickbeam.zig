@@ -497,7 +497,7 @@ pub fn pool_stop(resource: PoolResource) beam.term {
     return beam.make(.ok, .{});
 }
 
-pub fn pool_create_context(resource: PoolResource, context_id: u64, owner_pid: beam.pid) beam.term {
+pub fn pool_create_context(resource: PoolResource, context_id: u64, owner_pid: beam.pid, memory_limit: u64) beam.term {
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
@@ -512,6 +512,7 @@ pub fn pool_create_context(resource: PoolResource, context_id: u64, owner_pid: b
         .caller_pid = caller_pid,
         .ref_env = ref_env,
         .ref_term = ref_term,
+        .memory_limit = memory_limit,
     } });
 
     return beam.term{ .v = e.enif_make_copy(env, ref_term) };

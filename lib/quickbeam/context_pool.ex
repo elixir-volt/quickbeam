@@ -32,9 +32,9 @@ defmodule QuickBEAM.ContextPool do
   end
 
   @doc false
-  @spec create_context(GenServer.server(), pid()) :: {reference(), pos_integer()}
-  def create_context(pool, owner_pid) do
-    GenServer.call(pool, {:create_context, owner_pid}, :infinity)
+  @spec create_context(GenServer.server(), pid(), keyword()) :: {reference(), pos_integer()}
+  def create_context(pool, owner_pid, opts \\ []) do
+    GenServer.call(pool, {:create_context, owner_pid, opts}, :infinity)
   end
 
   @impl true
@@ -56,12 +56,13 @@ defmodule QuickBEAM.ContextPool do
   end
 
   @impl true
-  def handle_call({:create_context, owner_pid}, _from, state) do
+  def handle_call({:create_context, owner_pid, opts}, _from, state) do
     context_id = state.next_id
     thread_idx = rem(state.next_thread, tuple_size(state.threads))
     resource = elem(state.threads, thread_idx)
+    memory_limit = Keyword.get(opts, :memory_limit, 0)
 
-    ref = QuickBEAM.Native.pool_create_context(resource, context_id, owner_pid)
+    ref = QuickBEAM.Native.pool_create_context(resource, context_id, owner_pid, memory_limit)
 
     receive do
       {^ref, {:ok, ^context_id}} ->

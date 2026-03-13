@@ -40,6 +40,7 @@ pub const CreateContextPayload = struct {
     caller_pid: beam.pid,
     ref_env: ?*e.ErlNifEnv,
     ref_term: e.ErlNifTerm,
+    memory_limit: usize = 0,
 };
 
 pub const DestroyContextPayload = struct {

@@ -161,8 +161,10 @@ defmodule QuickBEAM.Context do
 
     merged_handlers = builtin_handlers |> Map.merge(worker_handlers) |> Map.merge(user_handlers)
 
+    memory_limit = Keyword.get(opts, :memory_limit, 0)
+
     {pool_resource, context_id} =
-      QuickBEAM.ContextPool.create_context(pool, self())
+      QuickBEAM.ContextPool.create_context(pool, self(), memory_limit: memory_limit)
 
     state = %__MODULE__{
       pool_resource: pool_resource,

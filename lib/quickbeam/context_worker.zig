@@ -226,6 +226,10 @@ fn handle_create_context(
 
     entry.state.install_globals();
 
+    if (p.memory_limit > 0) {
+        qjs.JS_SetContextMemoryLimit(ctx, p.memory_limit);
+    }
+
     // Register rd pointer so NIFs can find it for sync call resolution
     pd.rd_map_mutex.lock();
     pd.rd_map.put(gpa, p.context_id, &entry.rd) catch {};
@@ -414,6 +418,7 @@ fn handle_ctx_memory_usage(
         .js_func_count = usage.js_func_count,
         .c_func_count = usage.c_func_count,
         .array_count = usage.array_count,
+        .context_malloc_size = qjs.JS_GetContextMallocSize(entry.state.ctx),
     }, .{ .env = renv });
     types.send_reply(p.caller_pid, p.ref_env, p.ref_term, true, renv, result_term.v, "");
 }

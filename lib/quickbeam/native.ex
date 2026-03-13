@@ -77,7 +77,7 @@ defmodule QuickBEAM.Native do
       dom_html: 1,
       pool_start: 1,
       pool_stop: 1,
-      pool_create_context: 3,
+      pool_create_context: 4,
       pool_destroy_context: 2,
       pool_eval: 4,
       pool_call_function: 5,
