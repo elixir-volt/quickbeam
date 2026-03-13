@@ -149,9 +149,8 @@ defmodule QuickBEAM.DOM.WPT.DocumentTest do
       assert 0 == eval!(rt, "document.createDocumentFragment().childNodes.length")
     end
 
-    @tag :skip
+    @tag skip: "lexbor doesn't clear fragment children after appendChild"
     test "appending fragment empties the fragment", %{rt: rt} do
-      # Known issue: lexbor doesn't clear fragment children after appendChild
       assert true ==
                eval!(rt, """
                const df = document.createDocumentFragment()

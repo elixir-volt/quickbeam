@@ -14,7 +14,6 @@ pub var element_class_id: qjs.JSClassID = 0;
 
 // ──────────────────── Opaque data attached to JS objects ────────────────────
 
-const NodePtr = *lxb.lxb_dom_node_t;
 const NodeMap = std.AutoHashMapUnmanaged(usize, qjs.JSValue);
 
 pub const DocumentData = struct {
@@ -62,8 +61,12 @@ fn node_to_js(ctx: *qjs.JSContext, node: *lxb.lxb_dom_node_t) qjs.JSValue {
     install_element_proto(ctx, obj);
     set_node_prototype(ctx, obj, node);
 
-    // Cache with owned reference — freed in document_finalizer
-    dd.node_map.put(types.gpa, key, qjs.JS_DupValue(ctx, obj)) catch {};
+    // Cache with owned reference — prevents GC while node is in the map.
+    // Freed by evict_subtree (innerHTML/textContent) or document_finalizer.
+    const dup = qjs.JS_DupValue(ctx, obj);
+    dd.node_map.put(types.gpa, key, dup) catch {
+        qjs.JS_FreeValue(ctx, dup);
+    };
 
     return obj;
 }
@@ -496,7 +499,8 @@ fn element_tag_name(ctx: *qjs.JSContext, elem: *lxb.lxb_dom_element_t) qjs.JSVal
     var len: usize = 0;
     const name = lxb.qb_element_qualified_name(elem, &len);
     if (name == null) return js.js_undefined();
-    if (lxb.qb_element_namespace(elem) == lxb.QB_NS_HTML or lxb.qb_element_namespace(elem) == 0) {
+    const ns = lxb.qb_element_namespace(elem);
+    if (ns == lxb.QB_NS_HTML or ns == 0) {
         var buf: [256]u8 = undefined;
         const src: [*]const u8 = @ptrCast(name);
         if (len <= buf.len) {
@@ -873,10 +877,7 @@ fn el_set_inner_html(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, argv: [*
     const html_str = str_arg(ctx, argv, 0) orelse return js.js_undefined();
     defer free_str(ctx, html_str.ptr);
 
-    // Remove existing children
-    while (lxb.qb_node_first_child(node) != null) {
-        lxb.qb_node_remove(lxb.qb_node_first_child(node).?);
-    }
+    remove_all_children(ctx.?, node);
 
     // Parse fragment
     const elem = lxb.qb_node_as_element(node) orelse return js.js_undefined();
@@ -914,17 +915,29 @@ fn el_set_text_content(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, argv: 
     const node = js_to_node(this) orelse return js.js_undefined();
     const text = str_arg(ctx, argv, 0) orelse return js.js_undefined();
     defer free_str(ctx, text.ptr);
-    // Per spec: remove all children, then if text is non-empty create a Text node
-    remove_all_children(node);
+    remove_all_children(ctx.?, node);
     if (text.len > 0) {
         _ = lxb.qb_node_text_content_set(node, to_lxb(text), text.len);
     }
     return js.js_undefined();
 }
 
-fn remove_all_children(node: *lxb.lxb_dom_node_t) void {
+fn remove_all_children(ctx: *qjs.JSContext, node: *lxb.lxb_dom_node_t) void {
+    const dd = get_document_data(ctx);
     while (lxb.qb_node_first_child(node)) |child| {
+        if (dd) |d| evict_subtree(ctx, d, child);
         lxb.qb_node_remove(child);
+    }
+}
+
+fn evict_subtree(ctx: *qjs.JSContext, dd: *DocumentData, node: *lxb.lxb_dom_node_t) void {
+    var child: ?*lxb.lxb_dom_node_t = lxb.qb_node_first_child(node);
+    while (child) |c| {
+        evict_subtree(ctx, dd, c);
+        child = lxb.qb_node_next(c);
+    }
+    if (dd.node_map.fetchRemove(@intFromPtr(node))) |kv| {
+        qjs.JS_FreeValue(ctx, kv.value);
     }
 }
 
@@ -1265,7 +1278,6 @@ fn document_finalizer(rt: ?*qjs.JSRuntime, val: qjs.JSValue) callconv(.c) void {
     const ptr = qjs.JS_GetOpaque(val, document_class_id);
     if (ptr == null) return;
     const dd: *DocumentData = @ptrCast(@alignCast(ptr));
-    // Release all owned JS wrapper references
     var it = dd.node_map.iterator();
     while (it.next()) |entry| {
         qjs.JS_FreeValueRT(rt, entry.value_ptr.*);
@@ -1297,16 +1309,11 @@ fn document_gc_mark(rt: ?*qjs.JSRuntime, val: qjs.JSValue, mark_func: ?*const qj
 
 const element_class_def = qjs.JSClassDef{
     .class_name = "Element",
-    .finalizer = &element_finalizer,
+    .finalizer = null,
     .gc_mark = null,
     .call = null,
     .exotic = null,
 };
-
-fn element_finalizer(_: ?*qjs.JSRuntime, _: qjs.JSValue) callconv(.c) void {
-    // Node map entries are cleaned up by document_finalizer.
-    // Element finalizer is intentionally empty — we don't own the lxb node.
-}
 
 // ──────────────────── Public: install DOM globals ────────────────────
 

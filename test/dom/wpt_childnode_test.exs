@@ -4,10 +4,6 @@ defmodule QuickBEAM.DOM.WPT.ChildNodeTest do
   ChildNode interface: before, after, remove, replaceWith.
   ParentNode interface: prepend, append.
   https://github.com/web-platform-tests/wpt/tree/master/dom/nodes
-
-  Known QuickBEAM differences:
-  - No JS object identity for nodes
-  - tagName returns lowercase
   """
   use ExUnit.Case, async: true
 
