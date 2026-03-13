@@ -102,7 +102,7 @@ from a LiveView `mount`) and linked to the connection process.
 
 For high-concurrency scenarios (thousands of connections), use
 `ContextPool` instead of individual runtimes. Many lightweight JS
-contexts (~50KB each) share a small number of runtime threads:
+contexts share a small number of runtime threads:
 
 ```elixir
 # Start a pool with N runtime threads (defaults to scheduler count)
@@ -128,13 +128,15 @@ def mount(_params, _session, socket) do
   {:ok, assign(socket, js: ctx)}
 end
 
-def terminate(_reason, socket) do
-  QuickBEAM.Context.stop(socket.assigns.js)
-end
 ```
 
-10K connections: ~500MB and 4 OS threads, instead of ~25GB and 10K
-threads with individual runtimes.
+The context is linked to the LiveView process — it terminates and
+cleans up automatically when the connection closes. No explicit
+`terminate` callback needed.
+
+Memory per context depends on which APIs are loaded: ~55 KB bare,
+~65 KB with Beam API, ~375 KB with full browser APIs. All share
+a small fixed number of OS threads instead of one per runtime.
 
 ## API surfaces
 
@@ -375,9 +377,10 @@ Context pool vs individual runtimes at scale:
 
 | | Runtime (1:1 thread) | Context (pooled) |
 |---|---|---|
-| Memory per instance | ~2 MB | ~50 KB |
+| JS heap per instance | ~530 KB | ~375 KB (full) / ~55 KB (bare) |
+| OS thread stack | ~2.5 MB each | shared (4 threads total) |
 | OS threads at 10K | 10,000 | 4 (configurable) |
-| Total RAM at 10K | ~25 GB | ~500 MB |
+| Total RAM at 10K | ~30 GB | ~3.7 GB (full) / ~540 MB (bare) |
 
 See [`bench/`](https://github.com/elixir-volt/quickbeam/tree/master/bench) for details.
 

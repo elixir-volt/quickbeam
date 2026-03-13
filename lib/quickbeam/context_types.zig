@@ -20,6 +20,7 @@ pub const PoolMessage = union(enum) {
     create_context: CreateContextPayload,
     destroy_context: DestroyContextPayload,
     ctx_eval: CtxEvalPayload,
+    ctx_load_bytecode: CtxEvalPayload,
     ctx_call_fn: CtxCallPayload,
     ctx_reset: CtxResetPayload,
     ctx_send_message: CtxMessagePayload,

@@ -29,9 +29,9 @@ defmodule QuickBEAM.Context do
         {:noreply, push_event(socket, "update", %{html: html})}
       end
 
-      def terminate(_reason, socket) do
-        QuickBEAM.Context.stop(socket.assigns.js)
-      end
+  `start_link/1` links the context to the calling process, so it
+  automatically terminates (and cleans up its JS context) when the
+  LiveView process exits. No explicit `terminate` callback needed.
   """
   use GenServer
 
@@ -121,6 +121,11 @@ defmodule QuickBEAM.Context do
     GenServer.call(server, :dom_html, :infinity)
   end
 
+  @spec memory_usage(GenServer.server()) :: {:ok, map()}
+  def memory_usage(server) do
+    GenServer.call(server, :memory_usage, :infinity)
+  end
+
   @browser_js QuickBEAM.JS.browser_js()
   @beam_js QuickBEAM.JS.beam_js()
   @node_js QuickBEAM.JS.node_js()
@@ -184,20 +189,59 @@ defmodule QuickBEAM.Context do
 
   defp install_builtins(state, apis) do
     if :browser in apis do
-      for js <- @browser_js, do: sync_eval(state, js)
+      for bc <- get_bytecode(:browser), do: sync_load_bytecode(state, bc)
     end
 
     if :node in apis do
-      for js <- @node_js, do: sync_eval(state, js)
+      for bc <- get_bytecode(:node), do: sync_load_bytecode(state, bc)
     end
 
     if apis != [] do
-      for js <- @beam_js, do: sync_eval(state, js)
+      for bc <- get_bytecode(:beam), do: sync_load_bytecode(state, bc)
     end
   end
 
-  defp sync_eval(state, code) do
-    ref = QuickBEAM.Native.pool_eval(state.pool_resource, state.context_id, code, 0)
+  defp get_bytecode(group) do
+    key = {__MODULE__, :bytecode, group}
+
+    case :persistent_term.get(key, nil) do
+      nil ->
+        source =
+          case group do
+            :browser -> @browser_js
+            :node -> @node_js
+            :beam -> @beam_js
+          end
+
+        bytecodes = compile_to_bytecode(source)
+        :persistent_term.put(key, bytecodes)
+        bytecodes
+
+      cached ->
+        cached
+    end
+  end
+
+  defp compile_to_bytecode(source_list) do
+    {:ok, rt} = QuickBEAM.start(apis: false)
+
+    bytecodes =
+      Enum.map(source_list, fn js ->
+        {:ok, bc} = QuickBEAM.compile(rt, js)
+        bc
+      end)
+
+    QuickBEAM.stop(rt)
+    bytecodes
+  end
+
+  defp sync_load_bytecode(state, bytecode) do
+    ref =
+      QuickBEAM.Native.pool_load_bytecode(
+        state.pool_resource,
+        state.context_id,
+        bytecode
+      )
 
     receive do
       {^ref, result} -> result
@@ -280,6 +324,11 @@ defmodule QuickBEAM.Context do
 
   def handle_call(:dom_html, from, state) do
     ref = QuickBEAM.Native.pool_dom_html(state.pool_resource, state.context_id)
+    {:noreply, put_pending(state, ref, from, nil)}
+  end
+
+  def handle_call(:memory_usage, from, state) do
+    ref = QuickBEAM.Native.pool_memory_usage(state.pool_resource, state.context_id)
     {:noreply, put_pending(state, ref, from, nil)}
   end
 

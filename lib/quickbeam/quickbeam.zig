@@ -632,6 +632,44 @@ pub fn pool_get_global(resource: PoolResource, context_id: u64, name: []const u8
     return beam.term{ .v = e.enif_make_copy(env, ref_term) };
 }
 
+pub fn pool_load_bytecode(resource: PoolResource, context_id: u64, bytecode: []const u8) beam.term {
+    const data = resource.unpack();
+    const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
+
+    var caller_pid: beam.pid = undefined;
+    _ = e.enif_self(env, &caller_pid);
+    const ref_env = beam.alloc_env();
+    const ref_term = e.enif_make_ref(ref_env);
+
+    const code_copy = gpa.dupe(u8, bytecode) catch return beam.make(.{ .@"error", "OOM" }, .{});
+
+    pool_enqueue(data, .{ .ctx_load_bytecode = .{
+        .context_id = context_id,
+        .code = code_copy,
+        .caller_pid = caller_pid,
+        .ref_env = ref_env,
+        .ref_term = ref_term,
+        .timeout_ns = 0,
+    } });
+
+    return beam.term{ .v = e.enif_make_copy(env, ref_term) };
+}
+
+pub fn pool_memory_usage(resource: PoolResource, context_id: u64) beam.term {
+    const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
+    const ref_env = beam.alloc_env();
+    const ref_term = e.enif_make_ref(ref_env);
+    var caller_pid: beam.pid = undefined;
+    _ = e.enif_self(env, &caller_pid);
+    pool_enqueue(resource.unpack(), .{ .ctx_memory_usage = .{
+        .context_id = context_id,
+        .caller_pid = caller_pid,
+        .ref_env = ref_env,
+        .ref_term = ref_term,
+    } });
+    return beam.term{ .v = e.enif_make_copy(env, ref_term) };
+}
+
 pub fn pool_dom_find(resource: PoolResource, context_id: u64, selector: []const u8) beam.term {
     return pool_dom_op(resource, context_id, .find, selector, "");
 }

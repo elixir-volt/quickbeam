@@ -234,8 +234,9 @@ execution state, but shares the runtime's GC heap and parser. A
 └─────────────────────────────────────────────────────┘
 ```
 
-Each context is ~50KB (vs ~2MB+ for a full runtime). 10K contexts on a
-4-thread pool: ~500MB and 4 OS threads, instead of 25GB and 10K threads.
+Marginal memory per context depends on API surface: ~55 KB bare,
+~65 KB with Beam API, ~375 KB with full browser APIs. Individual
+runtimes cost ~530 KB JS heap plus a ~2.5 MB OS thread stack each.
 
 ### How it works
 
