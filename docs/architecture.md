@@ -207,7 +207,7 @@ whole runtimes in a checkout pool.
 
 ### The problem
 
-A full `QuickBEAM.Runtime` dedicates an OS thread and `JSRuntime` per
+A full runtime dedicates an OS thread and `JSRuntime` per
 GenServer (~2MB+ each). At 10K concurrent connections (e.g. Phoenix
 LiveView), that's 10K threads and ~25GB of memory.
 
