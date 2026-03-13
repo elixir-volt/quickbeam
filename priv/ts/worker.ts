@@ -5,10 +5,10 @@ import { EventTarget } from './event-target'
 type MessageHandler = ((event: { data: unknown }) => void) | null
 type ErrorHandler = ((event: { message: string; error: unknown }) => void) | null
 
-const workerRegistry = new Map<string, Worker>()
+const workerRegistry = new Map<number, Worker>()
 
 class Worker extends EventTarget {
-  #pid: unknown
+  #id: number
   #terminated = false
   #earlyMessages: unknown[] = []
   #onmessage: MessageHandler = null
@@ -16,9 +16,8 @@ class Worker extends EventTarget {
 
   constructor(script: string) {
     super()
-    this.#pid = Beam.callSync('__worker_spawn', script)
-    const pidKey = JSON.stringify(this.#pid)
-    workerRegistry.set(pidKey, this)
+    this.#id = Beam.callSync('__worker_spawn', script) as number
+    workerRegistry.set(this.#id, this)
   }
 
   get onmessage(): MessageHandler {
@@ -37,15 +36,14 @@ class Worker extends EventTarget {
 
   postMessage(data: unknown): void {
     if (this.#terminated) throw new DOMException('Worker has been terminated', 'InvalidStateError')
-    Beam.send(this.#pid, ['__worker_msg', data])
+    Beam.callSync('__worker_post_to_child', this.#id, data)
   }
 
   terminate(): void {
     if (this.#terminated) return
     this.#terminated = true
-    const pidKey = JSON.stringify(this.#pid)
-    workerRegistry.delete(pidKey)
-    void Beam.call('__worker_terminate', this.#pid)
+    workerRegistry.delete(this.#id)
+    void Beam.call('__worker_terminate', this.#id)
   }
 
   _dispatch(data: unknown): void {
@@ -69,12 +67,12 @@ declare const __qb_register_dispatcher: (fn: (msg: unknown) => boolean) => void
 
 __qb_register_dispatcher((msg: unknown): boolean => {
   if (!Array.isArray(msg) || msg.length < 3) return false
-  const [type, pid, payload] = msg
+  const [type, id, payload] = msg
 
   if (type !== '__worker_msg' && type !== '__worker_err') return false
+  if (typeof id !== 'number') return false
 
-  const pidKey = JSON.stringify(pid)
-  const worker = workerRegistry.get(pidKey)
+  const worker = workerRegistry.get(id)
   if (!worker) return false
 
   if (type === '__worker_msg') {

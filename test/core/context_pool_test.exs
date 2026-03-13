@@ -222,4 +222,97 @@ defmodule QuickBEAM.Core.ContextPoolTest do
 
     QuickBEAM.Context.stop(ctx)
   end
+
+  test "Worker on context pool sends message back to parent" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 2)
+    {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool)
+
+    assert {:ok, "hello from worker"} =
+             QuickBEAM.Context.eval(ctx, """
+             await new Promise((resolve) => {
+               const w = new Worker(`self.postMessage("hello from worker")`);
+               w.onmessage = (e) => resolve(e.data);
+             })
+             """)
+
+    QuickBEAM.Context.stop(ctx)
+  end
+
+  test "Worker on context pool receives message from parent" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 2)
+    {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool)
+
+    assert {:ok, "pong: ping"} =
+             QuickBEAM.Context.eval(ctx, """
+             await new Promise((resolve) => {
+               const w = new Worker(`
+                 self.onmessage = (e) => {
+                   self.postMessage("pong: " + e.data);
+                 };
+               `);
+               setTimeout(() => {
+                 w.onmessage = (e) => resolve(e.data);
+                 w.postMessage("ping");
+               }, 50);
+             })
+             """)
+
+    QuickBEAM.Context.stop(ctx)
+  end
+
+  test "multiple Workers on context pool run concurrently" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 4)
+    {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool)
+
+    assert {:ok, [1, 2, 3]} =
+             QuickBEAM.Context.eval(
+               ctx,
+               """
+               await new Promise((resolve) => {
+                 const results = [];
+                 let count = 0;
+                 for (let i = 1; i <= 3; i++) {
+                   const w = new Worker(`self.postMessage(${i})`);
+                   w.onmessage = (e) => {
+                     results.push(e.data);
+                     count++;
+                     if (count === 3) resolve(results.sort());
+                   };
+                 }
+               })
+               """,
+               timeout: 10_000
+             )
+
+    QuickBEAM.Context.stop(ctx)
+  end
+
+  test "Worker can be terminated on context pool" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 2)
+    {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool)
+
+    assert {:ok, "terminated"} =
+             QuickBEAM.Context.eval(ctx, """
+             const w = new Worker(`
+               setTimeout(() => self.postMessage("should not arrive"), 500);
+             `);
+             w.terminate();
+             "terminated"
+             """)
+
+    QuickBEAM.Context.stop(ctx)
+  end
+
+  test "get_global and set_global on context" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 1)
+    {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool)
+
+    :ok = QuickBEAM.Context.set_global(ctx, "myVal", 42)
+    assert {:ok, 42} = QuickBEAM.Context.get_global(ctx, "myVal")
+
+    :ok = QuickBEAM.Context.set_global(ctx, "myObj", %{"a" => 1})
+    assert {:ok, %{"a" => 1}} = QuickBEAM.Context.get_global(ctx, "myObj")
+
+    QuickBEAM.Context.stop(ctx)
+  end
 end

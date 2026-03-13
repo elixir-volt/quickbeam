@@ -56,14 +56,7 @@ defmodule QuickBEAM.JS do
              ~w[node-process node-path node-fs node-os node-child-process]
            )
 
-  @snapshot_builtins_js """
-  globalThis.__qb_builtins = Object.create(null);
-  for (const k of Object.getOwnPropertyNames(globalThis))
-    globalThis.__qb_builtins[k] = true;
-  """
-
   def browser_js, do: @browser_js
   def beam_js, do: @beam_js
   def node_js, do: @node_js
-  def snapshot_builtins_js, do: @snapshot_builtins_js
 end

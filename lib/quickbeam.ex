@@ -247,13 +247,6 @@ defmodule QuickBEAM do
     QuickBEAM.Runtime.send_message(runtime, message)
   end
 
-  @user_globals_js """
-  (() => {
-    const names = Object.getOwnPropertyNames(globalThis).sort();
-    return names.filter(k => !k.startsWith("__qb_") && !(k in globalThis.__qb_builtins));
-  })()
-  """
-
   @doc """
   List global names defined in the JS context.
 
@@ -271,10 +264,10 @@ defmodule QuickBEAM do
   """
   @spec globals(runtime(), keyword()) :: {:ok, [String.t()]} | {:error, QuickBEAM.JSError.t()}
   def globals(runtime, opts \\ []) do
-    if Keyword.get(opts, :user_only, false) do
-      eval(runtime, @user_globals_js)
-    else
-      eval(runtime, "Object.getOwnPropertyNames(globalThis).sort()")
+    user_only = Keyword.get(opts, :user_only, false)
+
+    with {:ok, names} <- GenServer.call(runtime, {:list_globals, user_only}, :infinity) do
+      {:ok, Enum.sort(names)}
     end
   end
 
@@ -298,7 +291,7 @@ defmodule QuickBEAM do
   """
   @spec get_global(runtime(), String.t()) :: js_result()
   def get_global(runtime, name) when is_binary(name) do
-    eval(runtime, "globalThis[#{inspect(name)}]")
+    GenServer.call(runtime, {:get_global, name}, :infinity)
   end
 
   @doc """
