@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.5.0
+
+### Added
+
+- **`QuickBEAM.ContextPool`** — pool of N runtime threads (default: `System.schedulers_online()`) with round-robin context distribution
+- **`QuickBEAM.Context`** — lightweight GenServer owning a single `JSContext` on a shared pool thread. Full API: eval, call, Beam.call/callSync, DOM, messaging, handlers, supervision. Linked to the calling process for automatic cleanup (ideal for LiveView `mount`)
+- **Granular API groups** — contexts can load individual API groups (`:fetch`, `:websocket`, `:worker`, `:channel`, `:eventsource`, `:url`, `:crypto`, `:compression`, `:buffer`, `:dom`, `:console`, `:storage`, `:locks`) instead of the full `:browser` bundle. Dependencies auto-resolve
+- **Per-context memory tracking** (QuickJS patch) — `js_malloc`/`js_free`/`js_realloc` track `ctx->malloc_size`. `Context.memory_usage/1` returns `:context_malloc_size`
+- **Per-context memory limits** (QuickJS patch) — `Context.start_link(memory_limit: 512_000)` enforces per-context allocation limit via `ctx->malloc_limit`
+- **Per-context reduction limits** (QuickJS patch) — `Context.start_link(max_reductions: 100_000)` interrupts long-running evals after an opcode budget. Count resets per-operation; context stays usable
+- **Precompiled bytecodes** — polyfill JS compiled to QuickJS bytecodes once, cached in `persistent_term`. Context creation ~3.2x faster via `JS_EvalFunction`
+- **NIF operations for globals** — `get_global`, `list_globals`, `snapshot_globals`, `delete_globals` use `JS_GetPropertyStr`/`JS_GetOwnPropertyNames`/`JS_DeleteProperty` instead of eval round-trips
+- **`QuickBEAM.JS` module** — shared polyfill compilation with granular API group system, compile-time barrel bundles, OXC toolchain delegations (`imports`, `postwalk`, `patch_string`)
+- 39 new tests (17 functional + 22 stress): 1K-context scale, 200-task thundering herd, memory leak checks, isolation, error recovery, handler contention, burst messaging, resource limits
+
+### Changed
+
+- Worker protocol uses integer IDs instead of PIDs, with `Beam.call`/`callSync` handlers instead of `Beam.send` with tagged arrays
+- `eval_with_vars` uses `delete_globals` NIF instead of `try/finally/delete` JS hack
+- `globals/2` and `get_global/2` use NIF operations instead of eval
+- `Beam.callSync` drain interval reduced from 10ms to 1ms with drain callback for context pool promise resolution
+
+### Fixed
+
+- `LocksTest` — removed redundant `start_supervised!(QuickBEAM.LockManager)` (already started by application supervisor)
+- Worker spawn/terminate race conditions with integer ID-based tracking
+
+### Performance
+
+| | Runtime (1:1 thread) | Context (pooled) |
+|---|---|---|
+| Per instance | ~530 KB heap + 2.5 MB stack | 58–429 KB (no thread) |
+| OS threads at 10K | 10,000 | 4 (configurable) |
+| Total RAM at 10K | ~30 GB | 570 MB–4.2 GB |
+
+Per-context memory by API surface: bare 58 KB, beam 71 KB, beam+url 108 KB, beam+fetch 231 KB, full browser 429 KB.
+
 ## 0.4.0
 
 ### Added

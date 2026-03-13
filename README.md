@@ -11,7 +11,7 @@ leaving the BEAM.
 
 ```elixir
 def deps do
-  [{:quickbeam, "~> 0.4.0"}]
+  [{:quickbeam, "~> 0.5.0"}]
 end
 ```
 
