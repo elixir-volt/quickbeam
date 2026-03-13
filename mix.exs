@@ -72,6 +72,7 @@ defmodule QuickBEAM.MixProject do
       files: ~w[
         lib priv/c_src priv/ts
         mix.exs README.md LICENSE CHANGELOG.md
+        checksum-QuickBEAM.Native.exs
         .formatter.exs
       ]
     ]
