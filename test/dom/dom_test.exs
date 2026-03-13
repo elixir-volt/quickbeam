@@ -35,7 +35,7 @@ defmodule QuickBEAM.DOM.DOMTest do
 
   describe "createElement" do
     test "creates element with correct tagName", %{runtime: rt} do
-      assert {:ok, "div"} =
+      assert {:ok, "DIV"} =
                QuickBEAM.eval(rt, """
                  const el = document.createElement('div');
                  el.tagName;
@@ -103,7 +103,7 @@ defmodule QuickBEAM.DOM.DOMTest do
 
   describe "tree manipulation" do
     test "appendChild", %{runtime: rt} do
-      assert {:ok, "span"} =
+      assert {:ok, "SPAN"} =
                QuickBEAM.eval(rt, """
                  const parent = document.createElement('div');
                  const child = document.createElement('span');
@@ -143,7 +143,7 @@ defmodule QuickBEAM.DOM.DOMTest do
     end
 
     test "innerHTML setter", %{runtime: rt} do
-      assert {:ok, "p"} =
+      assert {:ok, "P"} =
                QuickBEAM.eval(rt, """
                  const div = document.createElement('div');
                  div.innerHTML = '<p>Hello</p>';
@@ -168,7 +168,7 @@ defmodule QuickBEAM.DOM.DOMTest do
 
   describe "getElementById" do
     test "finds element by id", %{runtime: rt} do
-      assert {:ok, "div"} =
+      assert {:ok, "DIV"} =
                QuickBEAM.eval(rt, """
                  const div = document.createElement('div');
                  div.id = 'test';
@@ -185,7 +185,7 @@ defmodule QuickBEAM.DOM.DOMTest do
 
   describe "querySelector" do
     test "finds element by class", %{runtime: rt} do
-      assert {:ok, "span"} =
+      assert {:ok, "SPAN"} =
                QuickBEAM.eval(rt, """
                  const div = document.createElement('div');
                  const span = document.createElement('span');
@@ -230,7 +230,7 @@ defmodule QuickBEAM.DOM.DOMTest do
 
   describe "tree navigation" do
     test "parentNode", %{runtime: rt} do
-      assert {:ok, "div"} =
+      assert {:ok, "DIV"} =
                QuickBEAM.eval(rt, """
                  const div = document.createElement('div');
                  const span = document.createElement('span');
@@ -264,7 +264,7 @@ defmodule QuickBEAM.DOM.DOMTest do
     end
 
     test "nextSibling", %{runtime: rt} do
-      assert {:ok, "b"} =
+      assert {:ok, "B"} =
                QuickBEAM.eval(rt, """
                  const div = document.createElement('div');
                  const a = document.createElement('a');
@@ -479,7 +479,7 @@ defmodule QuickBEAM.DOM.DOMTest do
 
   describe "multiple children ordering" do
     test "appendChild preserves insertion order", %{runtime: rt} do
-      assert {:ok, "a,b,c"} =
+      assert {:ok, "A,B,C"} =
                QuickBEAM.eval(rt, """
                  const div = document.createElement('div');
                  ['a', 'b', 'c'].forEach(tag => {
@@ -491,7 +491,7 @@ defmodule QuickBEAM.DOM.DOMTest do
     end
 
     test "removeChild from middle preserves order of remaining", %{runtime: rt} do
-      assert {:ok, "a,c"} =
+      assert {:ok, "A,C"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const div = document.createElement('div');
@@ -562,13 +562,13 @@ defmodule QuickBEAM.DOM.DOMTest do
       """)
 
       assert {:ok, nil} = QuickBEAM.eval(rt2, "document.getElementById('only-in-rt1')")
-      assert {:ok, "div"} = QuickBEAM.eval(rt1, "document.getElementById('only-in-rt1').tagName")
+      assert {:ok, "DIV"} = QuickBEAM.eval(rt1, "document.getElementById('only-in-rt1').tagName")
     end
   end
 
   describe "removed node access" do
     test "removed node is still accessible", %{runtime: rt} do
-      assert {:ok, "span"} =
+      assert {:ok, "SPAN"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const div = document.createElement('div');
@@ -611,7 +611,7 @@ defmodule QuickBEAM.DOM.DOMTest do
 
   describe "re-attachment" do
     test "removed node can be re-appended", %{runtime: rt} do
-      assert {:ok, "span"} =
+      assert {:ok, "SPAN"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const div = document.createElement('div');

@@ -328,7 +328,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
     end
 
     test "null namespace creates element like createElement", %{runtime: rt} do
-      assert {:ok, "div"} =
+      assert {:ok, "DIV"} =
                QuickBEAM.eval(rt, """
                  document.createElementNS(null, 'div').tagName;
                """)
@@ -370,7 +370,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
     end
 
     test "appending fragment moves its children to parent", %{runtime: rt} do
-      assert {:ok, "a,b"} =
+      assert {:ok, "A,B"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const frag = document.createDocumentFragment();
@@ -482,7 +482,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
 
   describe "insertBefore" do
     test "inserts before reference node", %{runtime: rt} do
-      assert {:ok, "a,c,b"} =
+      assert {:ok, "A,C,B"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const div = document.createElement('div');
@@ -498,7 +498,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
     end
 
     test "inserts at end when reference is null", %{runtime: rt} do
-      assert {:ok, "a,b"} =
+      assert {:ok, "A,B"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const div = document.createElement('div');
@@ -514,7 +514,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
 
   describe "replaceChild" do
     test "replaces old child with new", %{runtime: rt} do
-      assert {:ok, "a,c"} =
+      assert {:ok, "A,C"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const div = document.createElement('div');
@@ -530,7 +530,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
     end
 
     test "returns the replaced node", %{runtime: rt} do
-      assert {:ok, "a"} =
+      assert {:ok, "A"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const div = document.createElement('div');
@@ -557,7 +557,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
                  })()
                """)
 
-      assert result["tag"] == "div"
+      assert result["tag"] == "DIV"
       assert result["cls"] == "test"
       assert result["children"] == 0
     end
@@ -641,7 +641,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
 
   describe "before/after" do
     test "before inserts sibling before", %{runtime: rt} do
-      assert {:ok, "a,b"} =
+      assert {:ok, "A,B"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const div = document.createElement('div');
@@ -655,7 +655,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
     end
 
     test "after inserts sibling after", %{runtime: rt} do
-      assert {:ok, "a,b"} =
+      assert {:ok, "A,B"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const div = document.createElement('div');
@@ -671,7 +671,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
 
   describe "prepend/append" do
     test "prepend adds to beginning", %{runtime: rt} do
-      assert {:ok, "a,b"} =
+      assert {:ok, "A,B"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const div = document.createElement('div');
@@ -685,7 +685,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
     end
 
     test "append adds to end", %{runtime: rt} do
-      assert {:ok, "a,b"} =
+      assert {:ok, "A,B"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const div = document.createElement('div');
@@ -701,7 +701,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
 
   describe "replaceWith" do
     test "replaces self with another node", %{runtime: rt} do
-      assert {:ok, "b"} =
+      assert {:ok, "B"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const div = document.createElement('div');
@@ -743,7 +743,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
 
   describe "closest" do
     test "finds closest ancestor matching selector", %{runtime: rt} do
-      assert {:ok, "section"} =
+      assert {:ok, "SECTION"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const section = document.createElement('section');
@@ -770,7 +770,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
     end
 
     test "can match self", %{runtime: rt} do
-      assert {:ok, "div"} =
+      assert {:ok, "DIV"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const div = document.createElement('div');
@@ -784,7 +784,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
 
   describe "lastChild" do
     test "returns last child node", %{runtime: rt} do
-      assert {:ok, "b"} =
+      assert {:ok, "B"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const div = document.createElement('div');
@@ -805,7 +805,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
 
   describe "previousSibling" do
     test "returns previous sibling", %{runtime: rt} do
-      assert {:ok, "a"} =
+      assert {:ok, "A"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const div = document.createElement('div');
@@ -851,7 +851,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
 
   describe "nodeName" do
     test "element nodeName is tag name", %{runtime: rt} do
-      assert {:ok, "div"} = QuickBEAM.eval(rt, "document.createElement('div').nodeName")
+      assert {:ok, "DIV"} = QuickBEAM.eval(rt, "document.createElement('div').nodeName")
     end
 
     test "text nodeName is #text", %{runtime: rt} do
@@ -865,7 +865,7 @@ defmodule QuickBEAM.DOM.DOMExtendedTest do
 
   describe "parentElement" do
     test "returns parent element", %{runtime: rt} do
-      assert {:ok, "div"} =
+      assert {:ok, "DIV"} =
                QuickBEAM.eval(rt, """
                  (() => {
                    const div = document.createElement('div');

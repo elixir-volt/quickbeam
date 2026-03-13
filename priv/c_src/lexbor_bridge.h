@@ -159,4 +159,7 @@ void qb_css_free_string(char *str);
 
 unsigned int qb_element_namespace(lxb_dom_element_t *elem);
 
+void  qb_node_set_user(lxb_dom_node_t *node, void *user);
+void *qb_node_get_user(lxb_dom_node_t *node);
+
 #endif

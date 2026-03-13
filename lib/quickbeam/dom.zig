@@ -14,10 +14,14 @@ pub var element_class_id: qjs.JSClassID = 0;
 
 // ──────────────────── Opaque data attached to JS objects ────────────────────
 
+const NodePtr = *lxb.lxb_dom_node_t;
+const NodeMap = std.AutoHashMapUnmanaged(usize, qjs.JSValue);
+
 pub const DocumentData = struct {
     doc: *lxb.lxb_html_document_t,
     css_parser: *lxb.lxb_css_parser_t,
     selectors: *lxb.lxb_selectors_t,
+    node_map: NodeMap,
 };
 
 fn get_ctor_proto(ctx: *qjs.JSContext, name: [*:0]const u8) qjs.JSValue {
@@ -44,11 +48,23 @@ fn get_document_data(ctx: *qjs.JSContext) ?*DocumentData {
 }
 
 fn node_to_js(ctx: *qjs.JSContext, node: *lxb.lxb_dom_node_t) qjs.JSValue {
+    const dd = get_document_data(ctx) orelse return js.js_undefined();
+    const key = @intFromPtr(node);
+
+    // Return existing JS wrapper if one exists (object identity)
+    if (dd.node_map.get(key)) |cached| {
+        return qjs.JS_DupValue(ctx, cached);
+    }
+
     const obj = qjs.JS_NewObjectClass(ctx, @intCast(element_class_id));
     if (js.js_is_exception(obj)) return obj;
     _ = qjs.JS_SetOpaque(obj, @ptrCast(node));
     install_element_proto(ctx, obj);
     set_node_prototype(ctx, obj, node);
+
+    // Cache with owned reference — freed in document_finalizer
+    dd.node_map.put(types.gpa, key, qjs.JS_DupValue(ctx, obj)) catch {};
+
     return obj;
 }
 
@@ -473,9 +489,24 @@ fn el_get_tag_name(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qjs
     const node = js_to_node(this) orelse return js.js_undefined();
     if (lxb.qb_node_type(node) != lxb.QB_NODE_TYPE_ELEMENT) return js.js_undefined();
     const elem = lxb.qb_node_as_element(node) orelse return js.js_undefined();
+    return element_tag_name(ctx.?, elem);
+}
+
+fn element_tag_name(ctx: *qjs.JSContext, elem: *lxb.lxb_dom_element_t) qjs.JSValue {
     var len: usize = 0;
     const name = lxb.qb_element_qualified_name(elem, &len);
     if (name == null) return js.js_undefined();
+    if (lxb.qb_element_namespace(elem) == lxb.QB_NS_HTML or lxb.qb_element_namespace(elem) == 0) {
+        var buf: [256]u8 = undefined;
+        const src: [*]const u8 = @ptrCast(name);
+        if (len <= buf.len) {
+            for (0..len) |i| {
+                const c = src[i];
+                buf[i] = if (c >= 'a' and c <= 'z') c - 32 else c;
+            }
+            return qjs.JS_NewStringLen(ctx, &buf, len);
+        }
+    }
     return qjs.JS_NewStringLen(ctx, @ptrCast(name), len);
 }
 
@@ -883,8 +914,18 @@ fn el_set_text_content(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, argv: 
     const node = js_to_node(this) orelse return js.js_undefined();
     const text = str_arg(ctx, argv, 0) orelse return js.js_undefined();
     defer free_str(ctx, text.ptr);
-    _ = lxb.qb_node_text_content_set(node, to_lxb(text), text.len);
+    // Per spec: remove all children, then if text is non-empty create a Text node
+    remove_all_children(node);
+    if (text.len > 0) {
+        _ = lxb.qb_node_text_content_set(node, to_lxb(text), text.len);
+    }
     return js.js_undefined();
+}
+
+fn remove_all_children(node: *lxb.lxb_dom_node_t) void {
+    while (lxb.qb_node_first_child(node)) |child| {
+        lxb.qb_node_remove(child);
+    }
 }
 
 // ──────────────────── Tree navigation ────────────────────
@@ -957,10 +998,7 @@ fn el_get_node_name(ctx: ?*qjs.JSContext, this: qjs.JSValue, _: c_int, _: [*c]qj
     const nt = lxb.qb_node_type(node);
     if (nt == lxb.QB_NODE_TYPE_ELEMENT) {
         const elem = lxb.qb_node_as_element(node) orelse return js.js_undefined();
-        var len: usize = 0;
-        const name = lxb.qb_element_qualified_name(elem, &len);
-        if (name == null) return js.js_undefined();
-        return qjs.JS_NewStringLen(ctx, @ptrCast(name), len);
+        return element_tag_name(ctx.?, elem);
     } else if (nt == lxb.QB_NODE_TYPE_TEXT) {
         return qjs.JS_NewString(ctx, "#text");
     } else if (nt == lxb.QB_NODE_TYPE_COMMENT) {
@@ -1123,6 +1161,14 @@ fn doc_get_document_element(ctx: ?*qjs.JSContext, _: qjs.JSValue, _: c_int, _: [
     return node_to_js(ctx.?, root);
 }
 
+fn doc_get_node_type(ctx: ?*qjs.JSContext, _: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    return qjs.JS_NewInt32(ctx, 9);
+}
+
+fn doc_get_node_name(ctx: ?*qjs.JSContext, _: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    return qjs.JS_NewString(ctx, "#document");
+}
+
 // ──────────────────── Install element prototype methods ────────────────────
 
 fn define_getter(ctx: *qjs.JSContext, obj: qjs.JSValue, name: [*:0]const u8, getter: *const qjs.JSCFunction) void {
@@ -1215,10 +1261,16 @@ fn install_element_proto(ctx: *qjs.JSContext, obj: qjs.JSValue) void {
 
 // ──────────────────── Class finalizers ────────────────────
 
-fn document_finalizer(_: ?*qjs.JSRuntime, val: qjs.JSValue) callconv(.c) void {
+fn document_finalizer(rt: ?*qjs.JSRuntime, val: qjs.JSValue) callconv(.c) void {
     const ptr = qjs.JS_GetOpaque(val, document_class_id);
     if (ptr == null) return;
     const dd: *DocumentData = @ptrCast(@alignCast(ptr));
+    // Release all owned JS wrapper references
+    var it = dd.node_map.iterator();
+    while (it.next()) |entry| {
+        qjs.JS_FreeValueRT(rt, entry.value_ptr.*);
+    }
+    dd.node_map.deinit(types.gpa);
     lxb.qb_selectors_destroy(dd.selectors);
     lxb.qb_css_parser_destroy(dd.css_parser);
     _ = lxb.qb_document_destroy(dd.doc);
@@ -1228,18 +1280,33 @@ fn document_finalizer(_: ?*qjs.JSRuntime, val: qjs.JSValue) callconv(.c) void {
 const document_class_def = qjs.JSClassDef{
     .class_name = "Document",
     .finalizer = &document_finalizer,
+    .gc_mark = &document_gc_mark,
+    .call = null,
+    .exotic = null,
+};
+
+fn document_gc_mark(rt: ?*qjs.JSRuntime, val: qjs.JSValue, mark_func: ?*const qjs.JS_MarkFunc) callconv(.c) void {
+    const ptr = qjs.JS_GetOpaque(val, document_class_id);
+    if (ptr == null) return;
+    const dd: *DocumentData = @ptrCast(@alignCast(ptr));
+    var it = dd.node_map.iterator();
+    while (it.next()) |entry| {
+        qjs.JS_MarkValue(rt, entry.value_ptr.*, mark_func);
+    }
+}
+
+const element_class_def = qjs.JSClassDef{
+    .class_name = "Element",
+    .finalizer = &element_finalizer,
     .gc_mark = null,
     .call = null,
     .exotic = null,
 };
 
-const element_class_def = qjs.JSClassDef{
-    .class_name = "Element",
-    .finalizer = null,
-    .gc_mark = null,
-    .call = null,
-    .exotic = null,
-};
+fn element_finalizer(_: ?*qjs.JSRuntime, _: qjs.JSValue) callconv(.c) void {
+    // Node map entries are cleaned up by document_finalizer.
+    // Element finalizer is intentionally empty — we don't own the lxb node.
+}
 
 // ──────────────────── Public: install DOM globals ────────────────────
 
@@ -1309,7 +1376,7 @@ pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue) ?*DocumentData {
     };
 
     const dd = types.gpa.create(DocumentData) catch return null;
-    dd.* = .{ .doc = doc, .css_parser = css_parser, .selectors = selectors };
+    dd.* = .{ .doc = doc, .css_parser = css_parser, .selectors = selectors, .node_map = .{} };
 
     const doc_obj = qjs.JS_NewObjectClass(ctx, @intCast(document_class_id));
     if (js.js_is_exception(doc_obj)) return null;
@@ -1339,6 +1406,8 @@ pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue) ?*DocumentData {
     define_getter(ctx, doc_obj, "body", &doc_get_body);
     define_getter(ctx, doc_obj, "head", &doc_get_head);
     define_getter(ctx, doc_obj, "documentElement", &doc_get_document_element);
+    define_getter(ctx, doc_obj, "nodeType", &doc_get_node_type);
+    define_getter(ctx, doc_obj, "nodeName", &doc_get_node_name);
 
     _ = qjs.JS_SetPropertyStr(ctx, global, "document", doc_obj);
 
