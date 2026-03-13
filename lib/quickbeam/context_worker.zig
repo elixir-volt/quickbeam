@@ -229,6 +229,9 @@ fn handle_create_context(
     if (p.memory_limit > 0) {
         qjs.JS_SetContextMemoryLimit(ctx, p.memory_limit);
     }
+    if (p.max_reductions > 0) {
+        qjs.JS_SetContextReductionLimit(ctx, p.max_reductions);
+    }
 
     // Register rd pointer so NIFs can find it for sync call resolution
     pd.rd_map_mutex.lock();
@@ -283,6 +286,7 @@ fn handle_ctx_eval(
     // Pump resolve/reject messages from the pool queue into the context's rd queue
     // so that await_promise (which drains rd) can pick them up.
     install_pump(pd, contexts, p.context_id, entry);
+    qjs.JS_ResetContextReductionCount(entry.state.ctx);
     var result = worker.Result{};
     entry.state.do_eval(p.code, &result);
     uninstall_pump(entry);
@@ -331,6 +335,7 @@ fn handle_ctx_call(
     }
 
     install_pump(pd, contexts, p.context_id, entry);
+    qjs.JS_ResetContextReductionCount(entry.state.ctx);
     var result = worker.Result{};
     entry.state.do_call(p.name, p.args_env, p.args_term, &result);
     uninstall_pump(entry);
