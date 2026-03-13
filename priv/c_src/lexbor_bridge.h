@@ -153,4 +153,10 @@ void qb_css_free_string(char *str);
 #define QB_NODE_TYPE_DOCUMENT           9
 #define QB_NODE_TYPE_DOCUMENT_FRAGMENT  11
 
+#define QB_NS_HTML   0x02
+#define QB_NS_MATHML 0x03
+#define QB_NS_SVG    0x04
+
+unsigned int qb_element_namespace(lxb_dom_element_t *elem);
+
 #endif

@@ -448,3 +448,7 @@ void qb_css_declarations_destroy(lxb_css_rule_declaration_list_t *list) {
 void qb_css_free_string(char *str) {
     free(str);
 }
+
+unsigned int qb_element_namespace(lxb_dom_element_t *elem) {
+    return (unsigned int)lxb_dom_element_ns_id(elem);
+}

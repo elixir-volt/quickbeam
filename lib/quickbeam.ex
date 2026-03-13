@@ -41,7 +41,7 @@ defmodule QuickBEAM do
       automatically bundled — imports are resolved from the filesystem and
       `node_modules/`, then compiled into a single script via OXC.
     * `:memory_limit` — maximum JS heap in bytes (default: 256 MB)
-    * `:max_stack_size` — maximum JS call stack in bytes (default: 1 MB)
+    * `:max_stack_size` — maximum JS call stack in bytes (default: 4 MB)
 
   ## DOM
 
@@ -80,7 +80,7 @@ defmodule QuickBEAM do
           QuickBEAM.start(script: "build.ts", define: %{"outputDir" => "/tmp/site"})
 
     * `:memory_limit` — maximum JS heap in bytes (default: 256 MB)
-    * `:max_stack_size` — maximum JS call stack in bytes (default: 1 MB)
+    * `:max_stack_size` — maximum JS call stack in bytes (default: 4 MB)
   """
   @spec start(keyword()) :: GenServer.on_start()
   def start(opts \\ []) do

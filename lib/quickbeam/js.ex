@@ -147,7 +147,7 @@ defmodule QuickBEAM.JS do
     crypto: Compiler.standalone(@ts_dir, ~w[crypto-subtle]),
     compression: Compiler.standalone(@ts_dir, ~w[compression]),
     buffer: Compiler.standalone(@ts_dir, ~w[buffer]),
-    dom: Compiler.standalone(@ts_dir, ~w[class-list style dom-events performance]),
+    dom: Compiler.standalone(@ts_dir, ~w[class-list style dom-events performance mutation-observer]),
     console: [Compiler.bundle_modules(
       @ts_dir,
       ~w[console-ext],
@@ -172,7 +172,7 @@ defmodule QuickBEAM.JS do
                 ~w[url crypto-subtle compression buffer process class-list style]
               ) ++
                 [Compiler.bundle(@ts_dir, "web-apis.ts")] ++
-                Compiler.standalone(@ts_dir, ~w[dom-events performance])
+                Compiler.standalone(@ts_dir, ~w[dom-events performance mutation-observer])
 
   @beam_js Compiler.standalone(@ts_dir, ~w[beam-api])
 

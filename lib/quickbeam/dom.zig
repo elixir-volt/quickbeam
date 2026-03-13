@@ -20,6 +20,16 @@ pub const DocumentData = struct {
     selectors: *lxb.lxb_selectors_t,
 };
 
+fn get_ctor_proto(ctx: *qjs.JSContext, name: [*:0]const u8) qjs.JSValue {
+    const global = qjs.JS_GetGlobalObject(ctx);
+    defer qjs.JS_FreeValue(ctx, global);
+    const ctor = qjs.JS_GetPropertyStr(ctx, global, name);
+    defer qjs.JS_FreeValue(ctx, ctor);
+    if (js.js_is_exception(ctor) or js.is_undefined(ctor)) return js.JS_UNDEFINED;
+    const proto = qjs.JS_GetPropertyStr(ctx, ctor, "prototype");
+    return proto;
+}
+
 // ──────────────────── Helpers ────────────────────
 
 fn get_document_data(ctx: *qjs.JSContext) ?*DocumentData {
@@ -38,7 +48,129 @@ fn node_to_js(ctx: *qjs.JSContext, node: *lxb.lxb_dom_node_t) qjs.JSValue {
     if (js.js_is_exception(obj)) return obj;
     _ = qjs.JS_SetOpaque(obj, @ptrCast(node));
     install_element_proto(ctx, obj);
+    set_node_prototype(ctx, obj, node);
     return obj;
+}
+
+fn set_node_prototype(ctx: *qjs.JSContext, obj: qjs.JSValue, node: *lxb.lxb_dom_node_t) void {
+    const node_type = lxb.qb_node_type(node);
+
+    const proto_name: ?[*:0]const u8 = switch (node_type) {
+        lxb.QB_NODE_TYPE_ELEMENT => blk: {
+            const elem = lxb.qb_node_as_element(node) orelse break :blk "Element";
+            const ns = lxb.qb_element_namespace(elem);
+            if (ns == lxb.QB_NS_SVG)
+                break :blk "SVGElement"
+            else if (ns == lxb.QB_NS_MATHML)
+                break :blk "MathMLElement"
+            else
+                break :blk "HTMLElement";
+        },
+        lxb.QB_NODE_TYPE_TEXT => "Text",
+        lxb.QB_NODE_TYPE_COMMENT => "Comment",
+        lxb.QB_NODE_TYPE_DOCUMENT_FRAGMENT => "DocumentFragment",
+        else => null,
+    };
+
+    if (proto_name) |name| {
+        const proto = get_ctor_proto(ctx, name);
+        defer qjs.JS_FreeValue(ctx, proto);
+        if (!js.is_undefined(proto)) {
+            _ = qjs.JS_SetPrototype(ctx, obj, proto);
+        }
+    }
+
+    // Set per-instance Symbol.toStringTag for HTML elements (HTMLDivElement, etc.)
+    if (node_type == lxb.QB_NODE_TYPE_ELEMENT) {
+        if (lxb.qb_node_as_element(node)) |elem| {
+            if (lxb.qb_element_namespace(elem) != lxb.QB_NS_SVG and
+                lxb.qb_element_namespace(elem) != lxb.QB_NS_MATHML)
+            {
+                var len: usize = 0;
+                const name = lxb.qb_element_qualified_name(elem, &len);
+                if (name != null and len > 0) {
+                    const tag_str = html_element_tostring_tag(@ptrCast(name[0..len]));
+                    set_tostring_tag(ctx, obj, tag_str);
+                }
+            }
+        }
+    }
+}
+
+fn set_tostring_tag(ctx: *qjs.JSContext, obj: qjs.JSValue, tag: []const u8) void {
+    const global = qjs.JS_GetGlobalObject(ctx);
+    defer qjs.JS_FreeValue(ctx, global);
+    const sym = qjs.JS_GetPropertyStr(ctx, global, "Symbol");
+    defer qjs.JS_FreeValue(ctx, sym);
+    const to_string_tag = qjs.JS_GetPropertyStr(ctx, sym, "toStringTag");
+    defer qjs.JS_FreeValue(ctx, to_string_tag);
+    const tag_val = qjs.JS_NewStringLen(ctx, tag.ptr, tag.len);
+    const atom = qjs.JS_ValueToAtom(ctx, to_string_tag);
+    defer qjs.JS_FreeAtom(ctx, atom);
+    _ = qjs.JS_DefinePropertyValue(ctx, obj, atom, tag_val, 0);
+}
+
+fn html_element_tostring_tag(tag_lower: []const u8) []const u8 {
+    // Map common tag names to their spec HTMLXxxElement names
+    if (eqlI(tag_lower, "div")) return "HTMLDivElement";
+    if (eqlI(tag_lower, "span")) return "HTMLSpanElement";
+    if (eqlI(tag_lower, "a")) return "HTMLAnchorElement";
+    if (eqlI(tag_lower, "p")) return "HTMLParagraphElement";
+    if (eqlI(tag_lower, "img")) return "HTMLImageElement";
+    if (eqlI(tag_lower, "input")) return "HTMLInputElement";
+    if (eqlI(tag_lower, "button")) return "HTMLButtonElement";
+    if (eqlI(tag_lower, "form")) return "HTMLFormElement";
+    if (eqlI(tag_lower, "table")) return "HTMLTableElement";
+    if (eqlI(tag_lower, "tr")) return "HTMLTableRowElement";
+    if (eqlI(tag_lower, "td")) return "HTMLTableCellElement";
+    if (eqlI(tag_lower, "th")) return "HTMLTableCellElement";
+    if (eqlI(tag_lower, "ul")) return "HTMLUListElement";
+    if (eqlI(tag_lower, "ol")) return "HTMLOListElement";
+    if (eqlI(tag_lower, "li")) return "HTMLLIElement";
+    if (eqlI(tag_lower, "select")) return "HTMLSelectElement";
+    if (eqlI(tag_lower, "option")) return "HTMLOptionElement";
+    if (eqlI(tag_lower, "textarea")) return "HTMLTextAreaElement";
+    if (eqlI(tag_lower, "label")) return "HTMLLabelElement";
+    if (eqlI(tag_lower, "h1")) return "HTMLHeadingElement";
+    if (eqlI(tag_lower, "h2")) return "HTMLHeadingElement";
+    if (eqlI(tag_lower, "h3")) return "HTMLHeadingElement";
+    if (eqlI(tag_lower, "h4")) return "HTMLHeadingElement";
+    if (eqlI(tag_lower, "h5")) return "HTMLHeadingElement";
+    if (eqlI(tag_lower, "h6")) return "HTMLHeadingElement";
+    if (eqlI(tag_lower, "script")) return "HTMLScriptElement";
+    if (eqlI(tag_lower, "style")) return "HTMLStyleElement";
+    if (eqlI(tag_lower, "link")) return "HTMLLinkElement";
+    if (eqlI(tag_lower, "meta")) return "HTMLMetaElement";
+    if (eqlI(tag_lower, "title")) return "HTMLTitleElement";
+    if (eqlI(tag_lower, "body")) return "HTMLBodyElement";
+    if (eqlI(tag_lower, "head")) return "HTMLHeadElement";
+    if (eqlI(tag_lower, "html")) return "HTMLHtmlElement";
+    if (eqlI(tag_lower, "br")) return "HTMLBRElement";
+    if (eqlI(tag_lower, "hr")) return "HTMLHRElement";
+    if (eqlI(tag_lower, "pre")) return "HTMLPreElement";
+    if (eqlI(tag_lower, "iframe")) return "HTMLIFrameElement";
+    if (eqlI(tag_lower, "canvas")) return "HTMLCanvasElement";
+    if (eqlI(tag_lower, "video")) return "HTMLVideoElement";
+    if (eqlI(tag_lower, "audio")) return "HTMLAudioElement";
+    if (eqlI(tag_lower, "source")) return "HTMLSourceElement";
+    if (eqlI(tag_lower, "nav")) return "HTMLElement";
+    if (eqlI(tag_lower, "header")) return "HTMLElement";
+    if (eqlI(tag_lower, "footer")) return "HTMLElement";
+    if (eqlI(tag_lower, "main")) return "HTMLElement";
+    if (eqlI(tag_lower, "section")) return "HTMLElement";
+    if (eqlI(tag_lower, "article")) return "HTMLElement";
+    if (eqlI(tag_lower, "aside")) return "HTMLElement";
+    return "HTMLUnknownElement";
+}
+
+fn eqlI(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |ca, cb| {
+        const la: u8 = if (ca >= 'A' and ca <= 'Z') ca + 32 else ca;
+        const lb: u8 = if (cb >= 'A' and cb <= 'Z') cb + 32 else cb;
+        if (la != lb) return false;
+    }
+    return true;
 }
 
 fn js_to_node(val: qjs.JSValue) ?*lxb.lxb_dom_node_t {
@@ -1111,12 +1243,52 @@ const element_class_def = qjs.JSClassDef{
 
 // ──────────────────── Public: install DOM globals ────────────────────
 
+fn dom_constructor_stub(_: ?*qjs.JSContext, _: qjs.JSValue, _: c_int, _: [*c]qjs.JSValue) callconv(.c) qjs.JSValue {
+    return js.JS_UNDEFINED;
+}
+
+fn make_dom_ctor(ctx: *qjs.JSContext, global: qjs.JSValue, name: [*:0]const u8, parent_proto: qjs.JSValue) qjs.JSValue {
+    const proto = qjs.JS_NewObject(ctx);
+    if (!js.is_undefined(parent_proto)) {
+        _ = qjs.JS_SetPrototype(ctx, proto, parent_proto);
+    }
+    set_tostring_tag(ctx, proto, std.mem.span(name));
+    const ctor = qjs.JS_NewCFunction2(ctx, &dom_constructor_stub, name, 0, qjs.JS_CFUNC_constructor, 0);
+    _ = qjs.JS_SetPropertyStr(ctx, ctor, "prototype", qjs.JS_DupValue(ctx, proto));
+    _ = qjs.JS_SetPropertyStr(ctx, proto, "constructor", qjs.JS_DupValue(ctx, ctor));
+    _ = qjs.JS_SetPropertyStr(ctx, global, name, ctor);
+    return proto;
+}
+
+fn install_dom_constructors(ctx: *qjs.JSContext, global: qjs.JSValue) void {
+    const node_p = make_dom_ctor(ctx, global, "Node", js.JS_UNDEFINED);
+    defer qjs.JS_FreeValue(ctx, node_p);
+    const element_p = make_dom_ctor(ctx, global, "Element", node_p);
+    defer qjs.JS_FreeValue(ctx, element_p);
+    const html_p = make_dom_ctor(ctx, global, "HTMLElement", element_p);
+    qjs.JS_FreeValue(ctx, html_p);
+    const svg_p = make_dom_ctor(ctx, global, "SVGElement", element_p);
+    qjs.JS_FreeValue(ctx, svg_p);
+    const mathml_p = make_dom_ctor(ctx, global, "MathMLElement", element_p);
+    qjs.JS_FreeValue(ctx, mathml_p);
+    const doc_p = make_dom_ctor(ctx, global, "Document", node_p);
+    qjs.JS_FreeValue(ctx, doc_p);
+    const frag_p = make_dom_ctor(ctx, global, "DocumentFragment", node_p);
+    qjs.JS_FreeValue(ctx, frag_p);
+    const text_p = make_dom_ctor(ctx, global, "Text", node_p);
+    qjs.JS_FreeValue(ctx, text_p);
+    const comment_p = make_dom_ctor(ctx, global, "Comment", node_p);
+    qjs.JS_FreeValue(ctx, comment_p);
+}
+
 pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue) ?*DocumentData {
     const rt = qjs.JS_GetRuntime(ctx);
 
     // class IDs allocated under shared types.class_ids_mutex in worker.zig
     _ = qjs.JS_NewClass(rt, document_class_id, &document_class_def);
     _ = qjs.JS_NewClass(rt, element_class_id, &element_class_def);
+
+    install_dom_constructors(ctx, global);
 
     const doc = lxb.qb_document_create() orelse return null;
     const html = "<!DOCTYPE html><html><head></head><body></body></html>";
@@ -1142,6 +1314,13 @@ pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue) ?*DocumentData {
     const doc_obj = qjs.JS_NewObjectClass(ctx, @intCast(document_class_id));
     if (js.js_is_exception(doc_obj)) return null;
     _ = qjs.JS_SetOpaque(doc_obj, @ptrCast(dd));
+    {
+        const doc_proto = get_ctor_proto(ctx, "Document");
+        defer qjs.JS_FreeValue(ctx, doc_proto);
+        if (!js.is_undefined(doc_proto)) {
+            _ = qjs.JS_SetPrototype(ctx, doc_obj, doc_proto);
+        }
+    }
 
     _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "createElement", qjs.JS_NewCFunction(ctx, &doc_create_element, "createElement", 1));
     _ = qjs.JS_SetPropertyStr(ctx, doc_obj, "createElementNS", qjs.JS_NewCFunction(ctx, &doc_create_element_ns, "createElementNS", 2));

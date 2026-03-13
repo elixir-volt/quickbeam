@@ -261,6 +261,11 @@ defmodule QuickBEAM.Runtime do
         _, acc -> acc
       end)
 
+    builtin_handlers =
+      if Enum.any?(apis, &(&1 not in [:beam, :node, :browser])),
+        do: Map.merge(builtin_handlers, @browser_handlers),
+        else: builtin_handlers
+
     merged_handlers = builtin_handlers |> Map.merge(user_handlers)
 
     nif_opts =
@@ -378,6 +383,8 @@ defmodule QuickBEAM.Runtime do
   defp install_builtins(state, apis) do
     if :browser in apis do
       for js <- @browser_js, do: sync_eval(state.resource, js)
+    else
+      for js <- QuickBEAM.JS.js_for_apis(apis -- [:beam, :node]), do: sync_eval(state.resource, js)
     end
 
     if :node in apis do
