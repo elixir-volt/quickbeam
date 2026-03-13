@@ -140,7 +140,7 @@ pub const PoolData = struct {
     stopped: bool,
     thread: ?std.Thread,
     memory_limit: usize = 256 * 1024 * 1024,
-    max_stack_size: usize = 1024 * 1024,
+    max_stack_size: usize = 4 * 1024 * 1024,
     shutting_down: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     deadline: ?i128 = null,
     // Maps context_id → pointer to context's RuntimeData (for sync call resolution)

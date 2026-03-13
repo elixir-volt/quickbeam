@@ -21,7 +21,7 @@ defmodule QuickBEAM.ContextPool do
     * `:name` — registered name for the pool
     * `:size` — number of runtime threads (default: `System.schedulers_online()`)
     * `:memory_limit` — maximum JS heap per thread in bytes (default: 256 MB)
-    * `:max_stack_size` — maximum JS call stack in bytes (default: 1 MB)
+    * `:max_stack_size` — maximum JS call stack in bytes (default: 4 MB)
   """
   use GenServer
 
