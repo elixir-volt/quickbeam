@@ -11,14 +11,12 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - { target: aarch64-linux-gnu,      os: ubuntu-latest }
-          - { target: aarch64-linux-musl,     os: ubuntu-latest }
-          - { target: aarch64-macos-none,     os: macos-latest }
           - { target: x86_64-linux-gnu,       os: ubuntu-latest }
-          - { target: x86_64-linux-musl,      os: ubuntu-latest }
-          - { target: x86_64-macos-none,      os: macos-latest }
+          - { target: aarch64-macos-none,     os: macos-latest }
+          - { target: x86_64-macos-none,      os: macos-13 }
 
     steps:
       - uses: actions/checkout@v4
@@ -37,31 +35,32 @@ jobs:
           mix local.hex --force
           mix local.rebar --force
           mix deps.get
-          QUICKBEAM_BUILD=1 ZIGLER_PRECOMPILING=${{ matrix.target }} mix compile
+          QUICKBEAM_BUILD=1 mix compile
 
       - name: Package artifact
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           BASENAME="Elixir.QuickBEAM.Native"
 
-          if [[ "${{ matrix.target }}" == *windows* ]]; then
-            EXT=".dll"
-          else
-            EXT=".so"
-          fi
+          # Find the built library (could be .so or .dylib)
+          LIB_FILE=$(find priv/lib -name "*${BASENAME}.*" \
+            \( -name "*.so" -o -name "*.dylib" \) \
+            -not -name "*.[0-9]*" | sort | head -1)
 
-          LIB_FILE=$(find _build -name "${BASENAME}${EXT}" -type f | head -1)
           if [ -z "$LIB_FILE" ]; then
             echo "ERROR: Could not find built library"
-            find _build -name "*.so" -o -name "*.dll" | head -20
+            find priv/lib -type f | head -20
             exit 1
           fi
 
+          echo "Found: ${LIB_FILE}"
+
+          # ZiglerPrecompiled expects: Elixir.QuickBEAM.Native-v0.5.0-target.so.tar.gz
+          # The .so extension is always used in the tar name, even for .dylib
           mkdir -p artifacts
-          ARTIFACT_NAME="${BASENAME}-v${VERSION}-${{ matrix.target }}${EXT}.tar.gz"
+          ARTIFACT_NAME="${BASENAME}-v${VERSION}-${{ matrix.target }}.so.tar.gz"
           tar czf "artifacts/${ARTIFACT_NAME}" -C "$(dirname "$LIB_FILE")" "$(basename "$LIB_FILE")"
-          echo "Built: ${ARTIFACT_NAME}"
-          ls -la artifacts/
+          echo "Packaged: ${ARTIFACT_NAME}"
 
       - name: Upload to release
         uses: softprops/action-gh-release@v1
