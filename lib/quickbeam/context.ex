@@ -126,7 +126,6 @@ defmodule QuickBEAM.Context do
     GenServer.call(server, :memory_usage, :infinity)
   end
 
-  @browser_js QuickBEAM.JS.browser_js()
   @beam_js QuickBEAM.JS.beam_js()
   @node_js QuickBEAM.JS.node_js()
 
@@ -143,15 +142,14 @@ defmodule QuickBEAM.Context do
         list when is_list(list) -> list
       end
 
-    builtin_handlers =
-      Enum.reduce(apis, QuickBEAM.Runtime.beam_handlers(), fn
-        :browser, acc -> Map.merge(acc, QuickBEAM.Runtime.browser_handlers())
-        :node, acc -> Map.merge(acc, QuickBEAM.Runtime.node_handlers())
-        _, acc -> acc
-      end)
+    has_browser_apis = Enum.any?(apis, &(&1 not in [:beam, :node]))
+
+    builtin_handlers = QuickBEAM.Runtime.beam_handlers()
+    builtin_handlers = if has_browser_apis, do: Map.merge(builtin_handlers, QuickBEAM.Runtime.browser_handlers()), else: builtin_handlers
+    builtin_handlers = if :node in apis, do: Map.merge(builtin_handlers, QuickBEAM.Runtime.node_handlers()), else: builtin_handlers
 
     worker_handlers =
-      if :browser in apis do
+      if has_browser_apis do
         %{
           "__worker_spawn" => {:context_worker, :spawn},
           "__worker_terminate" => {:context_worker, :terminate},
@@ -188,31 +186,38 @@ defmodule QuickBEAM.Context do
   end
 
   defp install_builtins(state, apis) do
-    if :browser in apis do
-      for bc <- get_bytecode(:browser), do: sync_load_bytecode(state, bc)
-    end
+    js_sources = QuickBEAM.JS.js_for_apis(apis)
+
+    for bc <- get_bytecode(apis, js_sources), do: sync_load_bytecode(state, bc)
 
     if :node in apis do
-      for bc <- get_bytecode(:node), do: sync_load_bytecode(state, bc)
+      for bc <- get_bytecode_for(:node, @node_js), do: sync_load_bytecode(state, bc)
     end
 
     if apis != [] do
-      for bc <- get_bytecode(:beam), do: sync_load_bytecode(state, bc)
+      for bc <- get_bytecode_for(:beam, @beam_js), do: sync_load_bytecode(state, bc)
     end
   end
 
-  defp get_bytecode(group) do
+  defp get_bytecode(apis, js_sources) do
+    key = {__MODULE__, :bytecode, :crypto.hash(:md5, :erlang.term_to_binary(apis))}
+
+    case :persistent_term.get(key, nil) do
+      nil ->
+        bytecodes = compile_to_bytecode(js_sources)
+        :persistent_term.put(key, bytecodes)
+        bytecodes
+
+      cached ->
+        cached
+    end
+  end
+
+  defp get_bytecode_for(group, source) do
     key = {__MODULE__, :bytecode, group}
 
     case :persistent_term.get(key, nil) do
       nil ->
-        source =
-          case group do
-            :browser -> @browser_js
-            :node -> @node_js
-            :beam -> @beam_js
-          end
-
         bytecodes = compile_to_bytecode(source)
         :persistent_term.put(key, bytecodes)
         bytecodes
