@@ -30,7 +30,7 @@ defmodule QuickBEAM.Native do
 
   use ZiglerPrecompiled,
     otp_app: :quickbeam,
-    base_url: "https://github.com/dannote/quickbeam/releases/download/v#{@version}",
+    base_url: "https://github.com/elixir-volt/quickbeam/releases/download/v#{@version}",
     version: @version,
     force_build: System.get_env("QUICKBEAM_BUILD") in ["1", "true"],
     zig_code_path: "quickbeam.zig",

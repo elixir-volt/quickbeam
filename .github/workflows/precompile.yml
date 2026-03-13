@@ -1,0 +1,69 @@
+name: Build precompiled NIFs
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - { target: aarch64-linux-gnu,      os: ubuntu-latest }
+          - { target: aarch64-linux-musl,     os: ubuntu-latest }
+          - { target: aarch64-macos-none,     os: macos-latest }
+          - { target: x86_64-linux-gnu,       os: ubuntu-latest }
+          - { target: x86_64-linux-musl,      os: ubuntu-latest }
+          - { target: x86_64-macos-none,      os: macos-latest }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27'
+          elixir-version: '1.18'
+
+      - name: Build NIF
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          QUICKBEAM_BUILD=1 ZIGLER_PRECOMPILING=${{ matrix.target }} mix compile
+
+      - name: Package artifact
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          BASENAME="Elixir.QuickBEAM.Native"
+
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            EXT=".dll"
+          else
+            EXT=".so"
+          fi
+
+          LIB_FILE=$(find _build -name "${BASENAME}${EXT}" -type f | head -1)
+          if [ -z "$LIB_FILE" ]; then
+            echo "ERROR: Could not find built library"
+            find _build -name "*.so" -o -name "*.dll" | head -20
+            exit 1
+          fi
+
+          mkdir -p artifacts
+          ARTIFACT_NAME="${BASENAME}-v${VERSION}-${{ matrix.target }}${EXT}.tar.gz"
+          tar czf "artifacts/${ARTIFACT_NAME}" -C "$(dirname "$LIB_FILE")" "$(basename "$LIB_FILE")"
+          echo "Built: ${ARTIFACT_NAME}"
+          ls -la artifacts/
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/*.tar.gz
