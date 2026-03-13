@@ -134,9 +134,37 @@ The context is linked to the LiveView process — it terminates and
 cleans up automatically when the connection closes. No explicit
 `terminate` callback needed.
 
-Memory per context depends on which APIs are loaded: ~55 KB bare,
-~65 KB with Beam API, ~375 KB with full browser APIs. All share
-a small fixed number of OS threads instead of one per runtime.
+### Granular API groups
+
+Contexts can load individual API groups instead of the full browser bundle:
+
+```elixir
+QuickBEAM.Context.start_link(pool: pool, apis: [:beam, :fetch])  # 231 KB
+QuickBEAM.Context.start_link(pool: pool, apis: [:beam, :url])    # 108 KB
+QuickBEAM.Context.start_link(pool: pool, apis: false)            #  58 KB
+QuickBEAM.Context.start_link(pool: pool)                         # 429 KB (all browser APIs)
+```
+
+Available groups: `:fetch`, `:websocket`, `:worker`, `:channel`,
+`:eventsource`, `:url`, `:crypto`, `:compression`, `:buffer`, `:dom`,
+`:console`, `:storage`, `:locks`. Dependencies auto-resolve.
+
+### Per-context resource limits
+
+```elixir
+{:ok, ctx} = QuickBEAM.Context.start_link(
+  pool: pool,
+  memory_limit: 512_000,      # per-context allocation limit (bytes)
+  max_reductions: 100_000      # opcode budget per eval/call
+)
+
+# Track per-context memory
+{:ok, %{context_malloc_size: 92_000}} = QuickBEAM.Context.memory_usage(ctx)
+```
+
+Exceeding `memory_limit` triggers OOM. Exceeding `max_reductions`
+interrupts the current eval but keeps the context usable for
+subsequent calls.
 
 ## API surfaces
 
@@ -377,10 +405,10 @@ Context pool vs individual runtimes at scale:
 
 | | Runtime (1:1 thread) | Context (pooled) |
 |---|---|---|
-| JS heap per instance | ~530 KB | ~375 KB (full) / ~55 KB (bare) |
+| JS heap per instance | ~530 KB | ~429 KB (full) / ~58 KB (bare) |
 | OS thread stack | ~2.5 MB each | shared (4 threads total) |
 | OS threads at 10K | 10,000 | 4 (configurable) |
-| Total RAM at 10K | ~30 GB | ~3.7 GB (full) / ~540 MB (bare) |
+| Total RAM at 10K | ~30 GB | ~4.2 GB (full) / ~570 MB (bare) |
 
 See [`bench/`](https://github.com/elixir-volt/quickbeam/tree/master/bench) for details.
 
@@ -391,7 +419,7 @@ See [`bench/`](https://github.com/elixir-volt/quickbeam/tree/master/bench) for d
 | One-off eval, scripting | `QuickBEAM` (Runtime) | Simple, full isolation |
 | SSR request pool | `QuickBEAM.Pool` | Checkout/checkin with reset |
 | Per-connection state (LiveView) | `QuickBEAM.Context` | Lightweight, thousands concurrent |
-| Sandboxed user code | `QuickBEAM` with `apis: false` | Memory limits, timeouts |
+| Sandboxed user code | `QuickBEAM` or `Context` with `apis: false` | Memory limits, reduction limits, timeouts |
 
 ## Examples
 

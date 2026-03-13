@@ -234,9 +234,10 @@ execution state, but shares the runtime's GC heap and parser. A
 └─────────────────────────────────────────────────────┘
 ```
 
-Marginal memory per context depends on API surface: ~55 KB bare,
-~65 KB with Beam API, ~375 KB with full browser APIs. Individual
-runtimes cost ~530 KB JS heap plus a ~2.5 MB OS thread stack each.
+Marginal memory per context depends on API surface: ~58 KB bare,
+~71 KB with Beam API, ~108 KB beam+url, ~231 KB beam+fetch,
+~429 KB with full browser APIs. Individual runtimes cost ~530 KB
+JS heap plus a ~2.5 MB OS thread stack each.
 
 ### How it works
 
@@ -268,6 +269,58 @@ Each `QuickBEAM.Context` is a lightweight GenServer that:
 Contexts are isolated — separate globals, separate prototypes — but
 share the runtime's GC and parser. Prototype pollution in one context
 does not affect another.
+
+### Granular API groups
+
+Instead of loading all browser APIs, contexts can request individual
+groups to minimize memory:
+
+```elixir
+QuickBEAM.Context.start_link(pool: pool, apis: [:beam, :fetch])  # 231 KB
+QuickBEAM.Context.start_link(pool: pool, apis: [:beam, :url])    # 108 KB
+```
+
+Available groups: `:fetch`, `:websocket`, `:worker`, `:channel`,
+`:eventsource`, `:url`, `:crypto`, `:compression`, `:buffer`, `:dom`,
+`:console`, `:storage`, `:locks`. Dependencies auto-resolve (e.g.
+`:fetch` includes EventTarget/AbortController, `:websocket` includes
+the message dispatcher).
+
+The `:browser` atom expands to all groups but uses a monolithic bundle
+for better code sharing.
+
+### Precompiled bytecode
+
+Polyfill JS is compiled to QuickJS bytecode once (on first use) and
+cached in `persistent_term`. New contexts load bytecodes via
+`JS_ReadObject` + `JS_EvalFunction` instead of parsing JS text —
+~3.2x faster context creation.
+
+### QuickJS patches
+
+QuickBEAM patches QuickJS-NG with per-context resource controls:
+
+**Per-context memory tracking** — All context-level allocators
+(`js_malloc`, `js_calloc`, `js_realloc`, `js_free`) track a
+`malloc_size` counter on the `JSContext`. When `malloc_limit` is set,
+allocations exceeding the limit trigger OOM. The runtime-level memory
+tracking remains unchanged (cumulative across all contexts).
+
+```elixir
+{:ok, ctx} = QuickBEAM.Context.start_link(pool: pool, memory_limit: 512_000)
+{:ok, %{context_malloc_size: 92_000}} = QuickBEAM.Context.memory_usage(ctx)
+```
+
+**Per-context reduction limits** — Each interrupt check (~10K opcodes)
+increments a `reduction_count` on the `JSContext`. When it exceeds
+`reduction_limit`, an uncatchable error terminates the current eval.
+The count resets before each eval/call, so the limit is per-operation.
+The context remains usable after hitting the limit.
+
+```elixir
+{:ok, ctx} = QuickBEAM.Context.start_link(pool: pool, max_reductions: 100_000)
+# A 10M-iteration loop gets interrupted; next eval works fine
+```
 
 ## Supervision
 
