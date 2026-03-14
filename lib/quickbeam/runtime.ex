@@ -1,6 +1,7 @@
 defmodule QuickBEAM.Runtime do
   @moduledoc false
   use GenServer
+  use QuickBEAM.Server
   require Logger
 
   @enforce_keys [:resource]
@@ -68,13 +69,6 @@ defmodule QuickBEAM.Runtime do
     else
       GenServer.call(server, {:eval, code, timeout_ms}, :infinity)
     end
-  end
-
-  @spec call(GenServer.server(), String.t(), list(), keyword()) ::
-          {:ok, term()} | {:error, String.t()}
-  def call(server, fn_name, args \\ [], opts \\ []) when is_binary(fn_name) and is_list(args) do
-    timeout_ms = Keyword.get(opts, :timeout, 0)
-    GenServer.call(server, {:call, fn_name, args, timeout_ms}, :infinity)
   end
 
   @spec compile(GenServer.server(), String.t()) :: {:ok, binary()} | {:error, String.t()}
@@ -728,18 +722,7 @@ defmodule QuickBEAM.Runtime do
   end
 
   def handle_info({ref, result}, state) when is_reference(ref) do
-    case Map.pop(state.pending, ref) do
-      {nil, _} ->
-        {:noreply, state}
-
-      {{from, nil}, pending} ->
-        GenServer.reply(from, result)
-        {:noreply, %{state | pending: pending}}
-
-      {{from, transform}, pending} ->
-        GenServer.reply(from, transform.(result))
-        {:noreply, %{state | pending: pending}}
-    end
+    handle_pending_ref(ref, result, state)
   end
 
   def handle_info(msg, state) do
@@ -792,10 +775,6 @@ defmodule QuickBEAM.Runtime do
           e -> QuickBEAM.Native.reject_call_term(resource, call_id, Exception.message(e))
         end
     end
-  end
-
-  defp put_pending(state, ref, from, transform \\ nil) do
-    %{state | pending: Map.put(state.pending, ref, {from, transform})}
   end
 
   defp console_level("error"), do: :error
