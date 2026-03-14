@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+### Changed
+
+- Bump `npm` dependency to `~> 0.4.2`
+
 ## 0.6.0
 
 ### Added
