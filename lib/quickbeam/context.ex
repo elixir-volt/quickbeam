@@ -35,6 +35,7 @@ defmodule QuickBEAM.Context do
   LiveView process exits. No explicit `terminate` callback needed.
   """
   use GenServer
+  use QuickBEAM.Server
 
   @enforce_keys [:pool_resource, :context_id]
   defstruct [
@@ -77,13 +78,6 @@ defmodule QuickBEAM.Context do
   def eval(server, code, opts \\ []) when is_binary(code) do
     timeout_ms = Keyword.get(opts, :timeout, 0)
     GenServer.call(server, {:eval, code, timeout_ms}, :infinity)
-  end
-
-  @spec call(GenServer.server(), String.t(), list(), keyword()) ::
-          {:ok, term()} | {:error, String.t()}
-  def call(server, fn_name, args \\ [], opts \\ []) when is_binary(fn_name) and is_list(args) do
-    timeout_ms = Keyword.get(opts, :timeout, 0)
-    GenServer.call(server, {:call, fn_name, args, timeout_ms}, :infinity)
   end
 
   @spec reset(GenServer.server()) :: :ok | {:error, String.t()}
@@ -465,18 +459,7 @@ defmodule QuickBEAM.Context do
   end
 
   def handle_info({ref, result}, state) when is_reference(ref) do
-    case Map.pop(state.pending, ref) do
-      {nil, _} ->
-        {:noreply, state}
-
-      {{from, nil}, pending} ->
-        GenServer.reply(from, result)
-        {:noreply, %{state | pending: pending}}
-
-      {{from, transform}, pending} ->
-        GenServer.reply(from, transform.(result))
-        {:noreply, %{state | pending: pending}}
-    end
+    handle_pending_ref(ref, result, state)
   end
 
   def handle_info(_msg, state) do
@@ -608,7 +591,4 @@ defmodule QuickBEAM.Context do
     end)
   end
 
-  defp put_pending(state, ref, from, transform) do
-    %{state | pending: Map.put(state.pending, ref, {from, transform})}
-  end
 end
