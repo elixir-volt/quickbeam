@@ -175,6 +175,48 @@ etc. — these go through the NIF queue and return Floki-compatible
 This is the key SSR primitive: JS renders into the DOM, Elixir reads
 it out as a tree.
 
+### Prototype chain
+
+DOM nodes have a spec-compliant prototype hierarchy:
+
+```
+Node → Element → HTMLElement (for HTML namespace)
+                  SVGElement  (for SVG namespace)
+                  MathMLElement (for MathML namespace)
+Node → Document
+Node → DocumentFragment
+Node → Text
+Node → Comment
+```
+
+Constructor globals (`Node`, `Element`, `HTMLElement`, `SVGElement`,
+`MathMLElement`, `Document`, `DocumentFragment`, `Text`, `Comment`)
+are on `globalThis`, so `instanceof` works. `Symbol.toStringTag` is
+set per element type — `Object.prototype.toString.call(div)` returns
+`[object HTMLDivElement]` with mappings for 40+ HTML tags.
+
+### Node identity
+
+The same underlying lexbor node always returns the same JS wrapper
+object, so `===` comparisons work:
+
+```js
+document.body === document.body         // true
+child.parentNode === parent             // true
+el.firstChild === el.firstChild         // true
+```
+
+This is implemented via a `node_map` (`AutoHashMapUnmanaged`) on
+`DocumentData` that caches `JSValue` wrappers keyed by node pointer.
+The map owns a `JS_DupValue` reference to prevent GC while the entry
+exists. The document's `gc_mark` callback marks all cached values so
+the GC knows about the ownership chain.
+
+When `innerHTML` or `textContent` replaces children, `evict_subtree`
+recursively removes affected entries and frees the owned refs. The
+`document_finalizer` frees all remaining entries before destroying the
+lexbor document.
+
 ## TypeScript toolchain
 
 OXC (Rust NIFs via `rustler_precompiled`) provides:

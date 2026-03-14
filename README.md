@@ -235,12 +235,15 @@ QuickBEAM.info(rt)
 ## DOM
 
 Every runtime has a live DOM tree backed by [lexbor](https://github.com/lexbor/lexbor) (the C library
-behind PHP 8.4's DOM extension and Elixir's `fast_html`). JS gets a full `document` global:
+behind PHP 8.4's DOM extension and Elixir's `fast_html`). JS gets a full `document` global
+with spec-compliant prototype chains (`instanceof HTMLElement` works), node identity
+(`el.parentNode === el.parentNode`), and uppercase `tagName` for HTML elements:
 
 ```javascript
 document.body.innerHTML = '<ul><li class="item">One</li><li class="item">Two</li></ul>';
 const items = document.querySelectorAll("li.item");
 items[0].textContent; // "One"
+items[0] instanceof HTMLElement; // true
 ```
 
 Elixir can read the DOM directly — no JS execution, no re-parsing:
