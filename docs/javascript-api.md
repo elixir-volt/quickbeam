@@ -338,6 +338,8 @@ without JS execution.
 | `document.body` | Getter. |
 | `document.head` | Getter. |
 | `document.documentElement` | Getter. |
+| `document.nodeType` | Returns `9` (DOCUMENT_NODE). |
+| `document.nodeName` | Returns `"#document"`. |
 
 ### Element
 
@@ -368,6 +370,38 @@ plus direct property access (`el.style.color = 'red'`).
 `add(token)`, `remove(token)`, `toggle(token)`, `contains(token)`,
 `replace(old, new)`, `item(index)`, `length`, `value`,
 `forEach(callback)`, `entries()`, `keys()`, `values()`.
+
+### MutationObserver
+
+No-op stub for SSR compatibility. `observe()`, `disconnect()`, and
+`takeRecords()` are defined but do nothing.
+
+### Prototype chain and instanceof
+
+DOM nodes have a spec-compliant prototype hierarchy. Constructor
+globals (`Node`, `Element`, `HTMLElement`, `SVGElement`,
+`MathMLElement`, `Document`, `DocumentFragment`, `Text`, `Comment`)
+are on `globalThis`:
+
+```js
+document.createElement('div') instanceof HTMLElement  // true
+document.createElement('div') instanceof Element      // true
+document.createElement('div') instanceof Node         // true
+document.createElementNS('http://www.w3.org/2000/svg', 'svg') instanceof SVGElement  // true
+```
+
+`Object.prototype.toString.call(el)` returns type-specific tags like
+`[object HTMLDivElement]`, `[object HTMLAnchorElement]`, etc.
+
+### Node identity
+
+The same DOM node always returns the same JS wrapper, so `===` works:
+
+```js
+document.body === document.body       // true
+child.parentNode === parent           // true
+el.firstChild === el.firstChild       // true
+```
 
 ### getComputedStyle(el)
 
