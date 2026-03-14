@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.6.0
+
+### Added
+
+- **DOM prototype chain** — full hierarchy: `Node` → `Element` → `HTMLElement`/`SVGElement`/`MathMLElement`, plus `Document`, `DocumentFragment`, `Text`, `Comment`. Constructor globals on `globalThis` enable `instanceof` checks
+- **`Symbol.toStringTag`** — `Object.prototype.toString.call(el)` returns `[object HTMLDivElement]` with 40+ HTML tag mappings
+- **`MutationObserver` no-op stub** — `observe()`, `disconnect()`, `takeRecords()` for SSR compatibility
+- **`document.nodeType`** (returns 9) and **`document.nodeName`** (returns `"#document"`) getters
+- **Node object identity** — same DOM node always returns the same JS wrapper (`el.parentNode === el.parentNode`, `document.body === document.body`). Uses `DocumentData.node_map` with `gc_mark` to prevent premature collection
+- **163 WPT-ported tests** — `Node`, `Element`, `ChildNode`, `Document` APIs adapted from Web Platform Tests
+
+### Changed
+
+- **`tagName`/`nodeName` return uppercase** for HTML elements (spec compliant). SVG/MathML elements preserve original case
+- **`textContent = ""`** removes all children instead of creating an empty text node
+- **Default `max_stack_size` bumped to 4 MB** (from 1 MB) — Vue mount path needs ~2 MB+
+- `innerHTML` setter uses shared `remove_all_children` path with node map eviction
+
+### Fixed
+
+- **Node identity cache leak** — `innerHTML=` and `textContent=` now recursively evict replaced subtrees from the node map, preventing stale pointers and unbounded map growth
+- **`JS_DupValue` leak on OOM** — map put failure now frees the duplicated ref
+- Removed unused `qb_node_set_user`/`qb_node_get_user` C bridge functions, `NodePtr` type alias, and empty `element_finalizer`
+
 ## 0.5.0
 
 ### Added
