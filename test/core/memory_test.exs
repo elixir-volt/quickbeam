@@ -1,8 +1,8 @@
 defmodule QuickBEAM.Core.MemoryTest do
   use ExUnit.Case
 
-  @tag :memory
   describe "QuickJS memory usage" do
+    @describetag :memory
     test "memory_usage returns QuickJS internals", %{} do
       {:ok, rt} = QuickBEAM.start()
       usage = QuickBEAM.memory_usage(rt)
