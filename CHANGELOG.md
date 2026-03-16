@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Bytecode disassembly** — `QuickBEAM.disasm/1` and `QuickBEAM.disasm/2` decode QuickJS bytecode into structured `%QuickBEAM.Bytecode{}` terms (the QuickJS equivalent of `:beam_disasm`). Returns function metadata, decoded opcode stream with byte offsets, constant pool with recursive nested functions, local/closure variable definitions, and source text. `disasm/1` works standalone without a runtime; `disasm/2` compiles source first.
+
 ## 0.6.1
 
 ### Changed

@@ -232,6 +232,43 @@ QuickBEAM.info(rt)
 # %{handlers: ["db.query"], memory: %{...}, global_count: 87}
 ```
 
+### Bytecode disassembly
+
+Disassemble QuickJS bytecode into structured Elixir terms — like
+`:beam_disasm` for the BEAM:
+
+```elixir
+{:ok, bc} = QuickBEAM.disasm(rt, "function fib(n) { if (n <= 1) return n; return fib(n-1) + fib(n-2) }")
+fib = hd(bc.cpool)
+
+fib.name       # "fib"
+fib.args       # ["n"]
+fib.stack_size # 4
+fib.opcodes
+# [
+#   {0, "get_arg0", 0},
+#   {1, "push_1", 1},
+#   {2, "lte"},
+#   {3, "if_false8", 7},
+#   {5, "get_arg0", 0},
+#   {6, "return"},
+#   {7, "get_var", "fib"},
+#   {12, "get_arg0", 0},
+#   {13, "push_1", 1},
+#   {14, "sub"},
+#   {15, "call1", 1},
+#   ...
+# ]
+```
+
+`disasm/1` works on precompiled bytecode binaries without a runtime:
+
+```elixir
+{:ok, bytecode} = QuickBEAM.compile(rt, source)
+# later, even on a different node:
+{:ok, %QuickBEAM.Bytecode{}} = QuickBEAM.disasm(bytecode)
+```
+
 ## DOM
 
 Every runtime has a live DOM tree backed by [lexbor](https://github.com/lexbor/lexbor) (the C library
