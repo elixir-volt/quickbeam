@@ -246,17 +246,17 @@ fib.args       # ["n"]
 fib.stack_size # 4
 fib.opcodes
 # [
-#   {0, "get_arg0", 0},
-#   {1, "push_1", 1},
-#   {2, "lte"},
-#   {3, "if_false8", 7},
-#   {5, "get_arg0", 0},
-#   {6, "return"},
-#   {7, "get_var", "fib"},
-#   {12, "get_arg0", 0},
-#   {13, "push_1", 1},
-#   {14, "sub"},
-#   {15, "call1", 1},
+#   {0, :get_arg0, 0},
+#   {1, :push_1, 1},
+#   {2, :lte},
+#   {3, :if_false8, 7},
+#   {5, :get_arg0, 0},
+#   {6, :return},
+#   {7, :get_var, "fib"},
+#   {12, :get_arg0, 0},
+#   {13, :push_1, 1},
+#   {14, :sub},
+#   {15, :call1, 1},
 #   ...
 # ]
 ```

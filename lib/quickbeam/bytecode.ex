@@ -10,10 +10,10 @@ defmodule QuickBEAM.Bytecode do
 
   Each opcode is a tuple of `{offset, name, ...operands}`:
 
-      {0, "push_i32", 40}
-      {5, "push_i32", 2}
-      {10, "add"}
-      {11, "return"}
+      {0, :push_i32, 40}
+      {5, :push_i32, 2}
+      {10, :add}
+      {11, :return}
 
   Labels in branch instructions are resolved to absolute byte offsets.
   Local/arg/closure-var operands use numeric indices matching the
@@ -99,8 +99,11 @@ defmodule QuickBEAM.Bytecode do
 
   defp build_opcodes(ops) do
     Enum.map(ops, fn
-      [offset, name | operands] -> List.to_tuple([offset, name | operands])
-      other -> other
+      [offset, name | operands] ->
+        List.to_tuple([offset, String.to_atom(name) | operands])
+
+      other ->
+        other
     end)
   end
 

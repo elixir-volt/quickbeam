@@ -387,8 +387,8 @@ defmodule QuickBEAMTest do
       assert add_fn.name == "add"
       assert add_fn.args == ["a", "b"]
       assert add_fn.arg_count == 2
-      assert Enum.any?(add_fn.opcodes, fn op -> elem(op, 1) == "add" end)
-      assert Enum.any?(add_fn.opcodes, fn op -> elem(op, 1) == "return" end)
+      assert Enum.any?(add_fn.opcodes, fn op -> elem(op, 1) == :add end)
+      assert Enum.any?(add_fn.opcodes, fn op -> elem(op, 1) == :return end)
       QuickBEAM.stop(rt)
     end
 
@@ -438,7 +438,7 @@ defmodule QuickBEAMTest do
 
       Enum.each(bc.opcodes, fn op ->
         assert is_integer(elem(op, 0))
-        assert is_binary(elem(op, 1))
+        assert is_atom(elem(op, 1))
       end)
 
       QuickBEAM.stop(rt)
