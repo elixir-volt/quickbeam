@@ -149,6 +149,40 @@ defmodule QuickBEAM do
   end
 
   @doc """
+  Disassemble precompiled bytecode into a `%QuickBEAM.Bytecode{}` struct.
+
+  Does not require a running runtime — creates a temporary QuickJS context
+  internally to parse the binary format.
+
+      {:ok, bytecode} = QuickBEAM.compile(rt, "function add(a, b) { return a + b }")
+      {:ok, %QuickBEAM.Bytecode{}} = QuickBEAM.disasm(bytecode)
+
+  Also accepts JavaScript source code and a runtime, compiling it first:
+
+      {:ok, %QuickBEAM.Bytecode{}} = QuickBEAM.disasm(rt, "function add(a, b) { return a + b }")
+  """
+  @spec disasm(binary()) :: {:ok, QuickBEAM.Bytecode.t()} | {:error, String.t()}
+  def disasm(bytecode) when is_binary(bytecode) do
+    case QuickBEAM.Native.disasm_bytecode(bytecode) do
+      {:ok, map} -> {:ok, QuickBEAM.Bytecode.from_map(map)}
+      {:error, _} = error -> error
+    end
+  end
+
+  @doc """
+  Compile JavaScript source and disassemble the resulting bytecode.
+
+      {:ok, %QuickBEAM.Bytecode{cpool: [%QuickBEAM.Bytecode{name: "add"}]}} =
+        QuickBEAM.disasm(rt, "function add(a, b) { return a + b }")
+  """
+  @spec disasm(runtime(), String.t()) :: {:ok, QuickBEAM.Bytecode.t()} | {:error, term()}
+  def disasm(runtime, code) when is_binary(code) do
+    with {:ok, bytecode} <- compile(runtime, code) do
+      disasm(bytecode)
+    end
+  end
+
+  @doc """
   Compile JavaScript source to bytecode without executing it.
 
   Returns `{:ok, bytecode}` where `bytecode` is a binary that can be loaded

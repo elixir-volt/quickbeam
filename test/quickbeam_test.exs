@@ -365,6 +365,86 @@ defmodule QuickBEAMTest do
     end
   end
 
+  describe "disasm" do
+    test "disasm/1 decodes bytecode without a runtime" do
+      {:ok, rt} = QuickBEAM.start(apis: false)
+      {:ok, bytecode} = QuickBEAM.compile(rt, "1 + 2")
+      QuickBEAM.stop(rt)
+
+      {:ok, %QuickBEAM.Bytecode{} = bc} = QuickBEAM.disasm(bytecode)
+      assert bc.name == "<eval>"
+      assert bc.stack_size > 0
+      assert length(bc.opcodes) > 0
+    end
+
+    test "disasm/2 compiles and disassembles in one call" do
+      {:ok, rt} = QuickBEAM.start(apis: false)
+
+      {:ok, %QuickBEAM.Bytecode{} = bc} =
+        QuickBEAM.disasm(rt, "function add(a, b) { return a + b }")
+
+      [%QuickBEAM.Bytecode{} = add_fn] = bc.cpool
+      assert add_fn.name == "add"
+      assert add_fn.args == ["a", "b"]
+      assert add_fn.arg_count == 2
+      assert Enum.any?(add_fn.opcodes, fn op -> elem(op, 1) == "add" end)
+      assert Enum.any?(add_fn.opcodes, fn op -> elem(op, 1) == "return" end)
+      QuickBEAM.stop(rt)
+    end
+
+    test "nested functions in constant pool" do
+      {:ok, rt} = QuickBEAM.start(apis: false)
+
+      {:ok, bc} =
+        QuickBEAM.disasm(rt, "function outer() { return function inner() { return 42 } }")
+
+      outer = hd(bc.cpool)
+      assert outer.name == "outer"
+      inner = hd(outer.cpool)
+      assert inner.name == "inner"
+      QuickBEAM.stop(rt)
+    end
+
+    test "closure variables are reported" do
+      {:ok, rt} = QuickBEAM.start(apis: false)
+
+      {:ok, bc} =
+        QuickBEAM.disasm(rt, "function counter() { let n = 0; return () => ++n }")
+
+      counter = hd(bc.cpool)
+      arrow = hd(counter.cpool)
+      assert [%{"name" => "n", "kind" => "let", "type" => "local"} | _] = arrow.closure_vars
+      QuickBEAM.stop(rt)
+    end
+
+    test "error on invalid bytecode" do
+      assert {:error, _} = QuickBEAM.disasm("garbage")
+      assert {:error, _} = QuickBEAM.disasm(<<>>)
+    end
+
+    test "source text included when available" do
+      {:ok, rt} = QuickBEAM.start(apis: false)
+
+      {:ok, bc} = QuickBEAM.disasm(rt, "function hello() { return 'world' }")
+
+      fn_bc = hd(bc.cpool)
+      assert fn_bc.source =~ "hello"
+      QuickBEAM.stop(rt)
+    end
+
+    test "opcodes include byte offsets" do
+      {:ok, rt} = QuickBEAM.start(apis: false)
+      {:ok, bc} = QuickBEAM.disasm(rt, "1 + 2")
+
+      Enum.each(bc.opcodes, fn op ->
+        assert is_integer(elem(op, 0))
+        assert is_binary(elem(op, 1))
+      end)
+
+      QuickBEAM.stop(rt)
+    end
+  end
+
   describe "resource limits" do
     test "max_stack_size allows deeper recursion" do
       code = "function deep(n) { return n <= 0 ? 0 : deep(n - 1) }; deep(500)"

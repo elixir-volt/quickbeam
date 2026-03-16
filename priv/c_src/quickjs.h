@@ -1238,6 +1238,10 @@ JS_EXTERN uint8_t *JS_WriteObject2(JSContext *ctx, size_t *psize, JSValueConst o
 JS_EXTERN JSValue JS_ReadObject(JSContext *ctx, const uint8_t *buf, size_t buf_len, int flags);
 JS_EXTERN JSValue JS_ReadObject2(JSContext *ctx, const uint8_t *buf, size_t buf_len,
                                  int flags, JSSABTab *psab_tab);
+/* Disassemble bytecode into a JS object tree describing functions,
+   opcodes, constant pools, and metadata. The bytecode must have been
+   produced by JS_WriteObject with JS_WRITE_OBJ_BYTECODE. */
+JS_EXTERN JSValue JS_DisasmBytecode(JSContext *ctx, const uint8_t *buf, size_t buf_len);
 /* instantiate and evaluate a bytecode function. Only used when
    reading a script or module with JS_ReadObject() */
 JS_EXTERN JSValue JS_EvalFunction(JSContext *ctx, JSValue fun_obj);
