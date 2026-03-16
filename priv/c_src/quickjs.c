@@ -32078,6 +32078,329 @@ static __maybe_unused void js_dump_function_bytecode(JSContext *ctx, JSFunctionB
 }
 #endif
 
+/* ──────────────────── Bytecode disassembly to JSValue ──────────────────── */
+
+static JSValue js_disasm_atom(JSContext *ctx, JSAtom atom)
+{
+    const char *str = JS_AtomToCString(ctx, atom);
+    if (!str)
+        return JS_UNDEFINED;
+    JSValue val = JS_NewString(ctx, str);
+    JS_FreeCString(ctx, str);
+    return val;
+}
+
+static const char *js_var_kind_str(int var_kind)
+{
+    switch (var_kind) {
+    case JS_VAR_NORMAL: return "var";
+    case JS_VAR_FUNCTION_DECL: return "function";
+    case JS_VAR_NEW_FUNCTION_DECL: return "function";
+    case JS_VAR_CATCH: return "catch";
+    case JS_VAR_FUNCTION_NAME: return "function_name";
+    case JS_VAR_PRIVATE_FIELD: return "private_field";
+    case JS_VAR_PRIVATE_METHOD: return "private_method";
+    case JS_VAR_PRIVATE_GETTER: return "private_getter";
+    case JS_VAR_PRIVATE_SETTER: return "private_setter";
+    case JS_VAR_PRIVATE_GETTER_SETTER: return "private_getter_setter";
+    default: return "unknown";
+    }
+}
+
+static const char *js_closure_type_str(int closure_type)
+{
+    switch (closure_type) {
+    case JS_CLOSURE_LOCAL: return "local";
+    case JS_CLOSURE_ARG: return "arg";
+    case JS_CLOSURE_REF: return "ref";
+    case JS_CLOSURE_GLOBAL_REF: return "global_ref";
+    case JS_CLOSURE_GLOBAL_DECL: return "global_decl";
+    case JS_CLOSURE_GLOBAL: return "global";
+    case JS_CLOSURE_MODULE_DECL: return "module_decl";
+    case JS_CLOSURE_MODULE_IMPORT: return "module_import";
+    default: return "unknown";
+    }
+}
+
+static JSValue js_disasm_cpool_item(JSContext *ctx, JSValue val);
+
+static JSValue js_disasm_bytecode_func(JSContext *ctx, JSFunctionBytecode *b)
+{
+    JSValue obj = JS_NewObject(ctx);
+    int i;
+
+    /* function metadata */
+    JS_SetPropertyStr(ctx, obj, "name", js_disasm_atom(ctx, b->func_name));
+    if (b->filename != JS_ATOM_NULL)
+        JS_SetPropertyStr(ctx, obj, "filename", js_disasm_atom(ctx, b->filename));
+    JS_SetPropertyStr(ctx, obj, "line", JS_NewInt32(ctx, b->line_num));
+    JS_SetPropertyStr(ctx, obj, "column", JS_NewInt32(ctx, b->col_num));
+    JS_SetPropertyStr(ctx, obj, "is_strict", JS_NewBool(ctx, b->is_strict_mode));
+
+    const char *kind_str;
+    switch (b->func_kind) {
+    case JS_FUNC_GENERATOR: kind_str = "generator"; break;
+    case JS_FUNC_ASYNC: kind_str = "async"; break;
+    case JS_FUNC_ASYNC_GENERATOR: kind_str = "async_generator"; break;
+    default: kind_str = "normal"; break;
+    }
+    JS_SetPropertyStr(ctx, obj, "kind", JS_NewString(ctx, kind_str));
+
+    JS_SetPropertyStr(ctx, obj, "arg_count", JS_NewInt32(ctx, b->arg_count));
+    JS_SetPropertyStr(ctx, obj, "defined_arg_count", JS_NewInt32(ctx, b->defined_arg_count));
+    JS_SetPropertyStr(ctx, obj, "var_count", JS_NewInt32(ctx, b->var_count));
+    JS_SetPropertyStr(ctx, obj, "stack_size", JS_NewInt32(ctx, b->stack_size));
+    JS_SetPropertyStr(ctx, obj, "byte_code_len", JS_NewInt32(ctx, b->byte_code_len));
+
+    /* args */
+    if (b->arg_count && b->vardefs) {
+        JSValue args = JS_NewArray(ctx);
+        for (i = 0; i < b->arg_count; i++) {
+            JS_SetPropertyUint32(ctx, args, i, js_disasm_atom(ctx, b->vardefs[i].var_name));
+        }
+        JS_SetPropertyStr(ctx, obj, "args", args);
+    }
+
+    /* locals */
+    if (b->var_count && b->vardefs) {
+        JSValue locals = JS_NewArray(ctx);
+        for (i = 0; i < b->var_count; i++) {
+            JSVarDef *vd = &b->vardefs[b->arg_count + i];
+            JSValue local = JS_NewObject(ctx);
+            JS_SetPropertyStr(ctx, local, "name", js_disasm_atom(ctx, vd->var_name));
+            if (vd->is_const)
+                JS_SetPropertyStr(ctx, local, "kind", JS_NewString(ctx, "const"));
+            else if (vd->is_lexical)
+                JS_SetPropertyStr(ctx, local, "kind", JS_NewString(ctx, "let"));
+            else
+                JS_SetPropertyStr(ctx, local, "kind", JS_NewString(ctx, js_var_kind_str(vd->var_kind)));
+            JS_SetPropertyUint32(ctx, locals, i, local);
+        }
+        JS_SetPropertyStr(ctx, obj, "locals", locals);
+    }
+
+    /* closure vars */
+    if (b->closure_var_count) {
+        JSValue cvars = JS_NewArray(ctx);
+        for (i = 0; i < b->closure_var_count; i++) {
+            JSClosureVar *cv = &b->closure_var[i];
+            JSValue cvar = JS_NewObject(ctx);
+            JS_SetPropertyStr(ctx, cvar, "name", js_disasm_atom(ctx, cv->var_name));
+            if (cv->is_const)
+                JS_SetPropertyStr(ctx, cvar, "kind", JS_NewString(ctx, "const"));
+            else if (cv->is_lexical)
+                JS_SetPropertyStr(ctx, cvar, "kind", JS_NewString(ctx, "let"));
+            else
+                JS_SetPropertyStr(ctx, cvar, "kind", JS_NewString(ctx, "var"));
+            JS_SetPropertyStr(ctx, cvar, "type", JS_NewString(ctx, js_closure_type_str(cv->closure_type)));
+            JS_SetPropertyStr(ctx, cvar, "index", JS_NewInt32(ctx, cv->var_idx));
+            JS_SetPropertyUint32(ctx, cvars, i, cvar);
+        }
+        JS_SetPropertyStr(ctx, obj, "closure_vars", cvars);
+    }
+
+    /* opcodes */
+    {
+        JSValue opcodes = JS_NewArray(ctx);
+        const uint8_t *tab = b->byte_code_buf;
+        int len = b->byte_code_len;
+        int pos = 0;
+        int opcode_idx = 0;
+        bool use_short = true;
+
+        while (pos < len) {
+            int op = tab[pos];
+            const JSOpCode *oi;
+            if (use_short)
+                oi = &short_opcode_info(op);
+            else
+                oi = &opcode_info[op];
+
+            if (pos + oi->size > len)
+                break;
+
+            JSValue insn = JS_NewArray(ctx);
+            int arr_idx = 0;
+
+            /* opcode name */
+            JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, pos));
+            JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewString(ctx, oi->name));
+
+            int opos = pos + 1;
+
+            switch (oi->fmt) {
+            case OP_FMT_none:
+                break;
+            case OP_FMT_none_int:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, op - OP_push_0));
+                break;
+            case OP_FMT_npopx:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, op - OP_call0));
+                break;
+            case OP_FMT_u8:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, get_u8(tab + opos)));
+                break;
+            case OP_FMT_i8:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, get_i8(tab + opos)));
+                break;
+            case OP_FMT_u16:
+            case OP_FMT_npop:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, get_u16(tab + opos)));
+                break;
+            case OP_FMT_npop_u16:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, get_u16(tab + opos)));
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, get_u16(tab + opos + 2)));
+                break;
+            case OP_FMT_i16:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, get_i16(tab + opos)));
+                break;
+            case OP_FMT_i32:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, get_i32(tab + opos)));
+                break;
+            case OP_FMT_u32:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewUint32(ctx, get_u32(tab + opos)));
+                break;
+            case OP_FMT_u32x2:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewUint32(ctx, get_u32(tab + opos)));
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewUint32(ctx, get_u32(tab + opos + 4)));
+                break;
+            case OP_FMT_label8:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, (int)(get_i8(tab + opos)) + opos));
+                break;
+            case OP_FMT_label16:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, (int)(get_i16(tab + opos)) + opos));
+                break;
+            case OP_FMT_label:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, (int)get_u32(tab + opos) + opos));
+                break;
+            case OP_FMT_label_u16:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, (int)get_u32(tab + opos) + opos));
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, get_u16(tab + opos + 4)));
+                break;
+            case OP_FMT_const8: {
+                int idx = get_u8(tab + opos);
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, idx));
+                break;
+            }
+            case OP_FMT_const: {
+                int idx = get_u32(tab + opos);
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, idx));
+                break;
+            }
+            case OP_FMT_atom:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, js_disasm_atom(ctx, get_u32(tab + opos)));
+                break;
+            case OP_FMT_atom_u8:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, js_disasm_atom(ctx, get_u32(tab + opos)));
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, get_u8(tab + opos + 4)));
+                break;
+            case OP_FMT_atom_u16:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, js_disasm_atom(ctx, get_u32(tab + opos)));
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, get_u16(tab + opos + 4)));
+                break;
+            case OP_FMT_atom_label_u8:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, js_disasm_atom(ctx, get_u32(tab + opos)));
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, (int)get_u32(tab + opos + 4) + opos + 4));
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, get_u8(tab + opos + 8)));
+                break;
+            case OP_FMT_atom_label_u16:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, js_disasm_atom(ctx, get_u32(tab + opos)));
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, (int)get_u32(tab + opos + 4) + opos + 4));
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, get_u16(tab + opos + 8)));
+                break;
+            case OP_FMT_none_loc: {
+                if (op == OP_get_loc0_loc1) {
+                    JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, 0));
+                    JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, 1));
+                } else {
+                    int idx = (op - OP_get_loc0) % 4;
+                    JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, idx));
+                }
+                break;
+            }
+            case OP_FMT_loc8:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, get_u8(tab + opos)));
+                break;
+            case OP_FMT_loc:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, get_u16(tab + opos)));
+                break;
+            case OP_FMT_none_arg: {
+                int idx = (op - OP_get_arg0) % 4;
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, idx));
+                break;
+            }
+            case OP_FMT_arg:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, get_u16(tab + opos)));
+                break;
+            case OP_FMT_none_var_ref: {
+                int idx = (op - OP_get_var_ref0) % 4;
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, idx));
+                break;
+            }
+            case OP_FMT_var_ref:
+                JS_SetPropertyUint32(ctx, insn, arr_idx++, JS_NewInt32(ctx, get_u16(tab + opos)));
+                break;
+            default:
+                break;
+            }
+
+            JS_SetPropertyUint32(ctx, opcodes, opcode_idx++, insn);
+            pos += oi->size;
+        }
+        JS_SetPropertyStr(ctx, obj, "opcodes", opcodes);
+    }
+
+    /* constant pool — recurse for nested functions */
+    if (b->cpool_count > 0) {
+        JSValue pool = JS_NewArray(ctx);
+        for (i = 0; i < b->cpool_count; i++) {
+            JS_SetPropertyUint32(ctx, pool, i, js_disasm_cpool_item(ctx, b->cpool[i]));
+        }
+        JS_SetPropertyStr(ctx, obj, "cpool", pool);
+    }
+
+    /* source text if available */
+    if (b->source && b->source_len > 0) {
+        JS_SetPropertyStr(ctx, obj, "source", JS_NewStringLen(ctx, b->source, b->source_len));
+    }
+
+    return obj;
+}
+
+static JSValue js_disasm_cpool_item(JSContext *ctx, JSValue val)
+{
+    if (JS_VALUE_GET_TAG(val) == JS_TAG_FUNCTION_BYTECODE) {
+        JSFunctionBytecode *b = JS_VALUE_GET_PTR(val);
+        JSValue wrapper = JS_NewObject(ctx);
+        JS_SetPropertyStr(ctx, wrapper, "__type", JS_NewString(ctx, "function"));
+        JS_SetPropertyStr(ctx, wrapper, "value", js_disasm_bytecode_func(ctx, b));
+        return wrapper;
+    }
+    return JS_DupValue(ctx, val);
+}
+
+JS_EXTERN JSValue JS_DisasmBytecode(JSContext *ctx, const uint8_t *buf, size_t buf_len)
+{
+    JSValue func = JS_ReadObject(ctx, buf, buf_len, JS_READ_OBJ_BYTECODE);
+    if (JS_IsException(func))
+        return JS_EXCEPTION;
+
+    JSValue result;
+    if (JS_VALUE_GET_TAG(func) == JS_TAG_FUNCTION_BYTECODE) {
+        JSFunctionBytecode *b = JS_VALUE_GET_PTR(func);
+        result = js_disasm_bytecode_func(ctx, b);
+    } else {
+        JSFunctionBytecode *b = JS_GetFunctionBytecode(func);
+        if (b) {
+            result = js_disasm_bytecode_func(ctx, b);
+        } else {
+            result = JS_ThrowTypeError(ctx, "not a function bytecode");
+        }
+    }
+    JS_FreeValue(ctx, func);
+    return result;
+}
+
 #ifndef QJS_DISABLE_PARSER
 
 static int add_closure_var(JSContext *ctx, JSFunctionDef *s,

@@ -6,6 +6,7 @@ const context_worker = @import("context_worker.zig");
 const std = types.std;
 const beam = @import("beam");
 const e = types.e;
+const qjs = types.qjs;
 const gpa = types.gpa;
 const RuntimeData = types.RuntimeData;
 const enqueue = types.enqueue;
@@ -773,4 +774,39 @@ pub fn pool_reject_call_term(resource: PoolResource, context_id: u64, call_id: u
         .json = reason_copy,
     } });
     return beam.make(.ok, .{});
+}
+
+// ──────────────────── Bytecode disassembly ────────────────────
+
+const js_to_beam = @import("js_to_beam.zig");
+
+pub fn disasm_bytecode(bytecode: []const u8) beam.term {
+    const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
+
+    const rt = qjs.JS_NewRuntime() orelse return beam.make(.{ .@"error", "failed to create runtime" }, .{});
+    defer qjs.JS_FreeRuntime(rt);
+
+    const ctx = qjs.JS_NewContext(rt) orelse return beam.make(.{ .@"error", "failed to create context" }, .{});
+    defer qjs.JS_FreeContext(ctx);
+
+    const result = qjs.JS_DisasmBytecode(ctx, bytecode.ptr, bytecode.len);
+    defer qjs.JS_FreeValue(ctx, result);
+
+    if (qjs.JS_IsException(result)) {
+        const exc = qjs.JS_GetException(ctx);
+        defer qjs.JS_FreeValue(ctx, exc);
+        const msg_val = qjs.JS_GetPropertyStr(ctx, exc, "message");
+        defer qjs.JS_FreeValue(ctx, msg_val);
+        var len: usize = 0;
+        const ptr = qjs.JS_ToCStringLen(ctx, &len, msg_val);
+        if (ptr != null) {
+            defer qjs.JS_FreeCString(ctx, ptr);
+            const slice = @as([*]const u8, @ptrCast(ptr))[0..len];
+            return beam.make(.{ .@"error", beam.term{ .v = beam.make(slice, .{}).v } }, .{});
+        }
+        return beam.make(.{ .@"error", "disassembly failed" }, .{});
+    }
+
+    const term = js_to_beam.convert(ctx, result, env);
+    return beam.make(.{ .ok, beam.term{ .v = term } }, .{});
 }
