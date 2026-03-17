@@ -499,6 +499,12 @@ See [`bench/`](https://github.com/elixir-volt/quickbeam/tree/master/bench) for d
 
 ## Examples
 
+- [`examples/chat_room/`](https://github.com/elixir-volt/quickbeam/tree/master/examples/chat_room) — real-time chat
+  with Phoenix Channels. Each room is a supervised QuickBEAM runtime; JS
+  broadcasts become PubSub pushes to WebSocket clients.
+- [`examples/ai_agent/`](https://github.com/elixir-volt/quickbeam/tree/master/examples/ai_agent) — conversational
+  AI agent with streaming, tool use, and pluggable LLM backends. JS
+  orchestrates the conversation loop; Elixir provides the I/O.
 - [`examples/ssr/`](https://github.com/elixir-volt/quickbeam/tree/master/examples/ssr) — Preact SSR with a pool of runtimes
   and native DOM. Elixir reads the DOM directly — no `renderToString`.
 - [`examples/rule_engine/`](https://github.com/elixir-volt/quickbeam/tree/master/examples/rule_engine) — user-defined business
