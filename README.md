@@ -505,6 +505,9 @@ See [`bench/`](https://github.com/elixir-volt/quickbeam/tree/master/bench) for d
 - [`examples/ai_agent/`](https://github.com/elixir-volt/quickbeam/tree/master/examples/ai_agent) — conversational
   AI agent with streaming, tool use, and pluggable LLM backends. JS
   orchestrates the conversation loop; Elixir provides the I/O.
+- [`examples/counter_live/`](https://github.com/elixir-volt/quickbeam/tree/master/examples/counter_live) — LiveView
+  counter where each session gets a ~58 KB JS context from a shared pool.
+  The simplest QuickBEAM + Phoenix integration.
 - [`examples/ssr/`](https://github.com/elixir-volt/quickbeam/tree/master/examples/ssr) — Preact SSR with a pool of runtimes
   and native DOM. Elixir reads the DOM directly — no `renderToString`.
 - [`examples/rule_engine/`](https://github.com/elixir-volt/quickbeam/tree/master/examples/rule_engine) — user-defined business
