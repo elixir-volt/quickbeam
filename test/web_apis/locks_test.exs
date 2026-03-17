@@ -1,6 +1,14 @@
 defmodule QuickBEAM.WebAPIs.LocksTest do
   use ExUnit.Case, async: false
 
+  setup_all do
+    unless Process.whereis(QuickBEAM.LockManager) do
+      QuickBEAM.LockManager.start_link([])
+    end
+
+    :ok
+  end
+
   setup do
     {:ok, rt} = QuickBEAM.start()
 
