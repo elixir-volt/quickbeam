@@ -429,6 +429,127 @@ defmodule QuickBEAM.Core.BeamAPITest do
     end
   end
 
+  describe "Beam.nanoseconds" do
+    test "returns a number", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, "Beam.nanoseconds()")
+      assert is_integer(result)
+    end
+
+    test "is monotonically increasing", %{rt: rt} do
+      {:ok, result} =
+        QuickBEAM.eval(rt, """
+        const a = Beam.nanoseconds();
+        const b = Beam.nanoseconds();
+        b > a
+        """)
+
+      assert result == true
+    end
+  end
+
+  describe "Beam.uniqueInteger" do
+    test "returns an integer", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, "Beam.uniqueInteger()")
+      assert is_integer(result)
+      assert result > 0
+    end
+
+    test "is monotonically increasing", %{rt: rt} do
+      {:ok, result} =
+        QuickBEAM.eval(rt, """
+        const a = Beam.uniqueInteger();
+        const b = Beam.uniqueInteger();
+        b > a
+        """)
+
+      assert result == true
+    end
+
+    test "generates unique values", %{rt: rt} do
+      {:ok, ids} =
+        QuickBEAM.eval(rt, """
+        [Beam.uniqueInteger(), Beam.uniqueInteger(), Beam.uniqueInteger()]
+        """)
+
+      assert length(Enum.uniq(ids)) == 3
+    end
+  end
+
+  describe "Beam.makeRef" do
+    test "returns a BeamRef", %{rt: rt} do
+      {:ok, ref} = QuickBEAM.eval(rt, "Beam.makeRef()")
+      assert is_reference(ref)
+    end
+
+    test "generates unique refs", %{rt: rt} do
+      {:ok, result} =
+        QuickBEAM.eval(rt, """
+        const a = Beam.makeRef();
+        const b = Beam.makeRef();
+        a !== b
+        """)
+
+      assert result == true
+    end
+
+    test "round-trips through Beam.call", %{rt: rt} do
+      {:ok, rt2} =
+        QuickBEAM.start(
+          handlers: %{
+            "echo" => fn [ref] -> ref end
+          }
+        )
+
+      {:ok, result} =
+        QuickBEAM.eval(rt2, """
+        const ref = Beam.makeRef();
+        const echoed = await Beam.call("echo", ref);
+        echoed.__beam_type__ === "ref"
+        """)
+
+      assert result == true
+      QuickBEAM.stop(rt2)
+    end
+  end
+
+  describe "Beam.inspect" do
+    test "inspects a number", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, "Beam.inspect(42)")
+      assert result == "42"
+    end
+
+    test "inspects a string", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, "Beam.inspect('hello')")
+      assert result == "\"hello\""
+    end
+
+    test "inspects an object", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, "Beam.inspect({a: 1, b: 2})")
+      assert result =~ "a"
+      assert result =~ "b"
+    end
+
+    test "inspects a PID", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, "Beam.inspect(Beam.self())")
+      assert result =~ "#PID<"
+    end
+
+    test "inspects a Ref", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, "Beam.inspect(Beam.makeRef())")
+      assert result =~ "#Reference<"
+    end
+
+    test "inspects null", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, "Beam.inspect(null)")
+      assert result == "nil"
+    end
+
+    test "inspects an array", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, "Beam.inspect([1, 2, 3])")
+      assert result == "[1, 2, 3]"
+    end
+  end
+
   describe "Beam.processInfo" do
     test "returns process information", %{rt: rt} do
       {:ok, info} = QuickBEAM.eval(rt, "Beam.processInfo()")

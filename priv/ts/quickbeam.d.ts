@@ -74,6 +74,20 @@ interface BeamAPI {
   /** Cancel a monitor previously set with `Beam.monitor`. */
   demonitor(ref: BeamRef): void
 
+  // --- BEAM-native primitives ---
+
+  /** Monotonic high-resolution timer in nanoseconds via `:erlang.monotonic_time`. */
+  nanoseconds(): number
+
+  /** Monotonically increasing unique integer via `:erlang.unique_integer`. */
+  uniqueInteger(): number
+
+  /** Create a unique BEAM reference via `make_ref()`. Useful for request/reply correlation. */
+  makeRef(): BeamRef
+
+  /** Pretty-print any value via `Kernel.inspect`. Especially useful for opaque BeamPid/BeamRef. */
+  inspect(value: unknown): string
+
   // --- Bun-parity utilities ---
 
   /** QuickBEAM version string. */

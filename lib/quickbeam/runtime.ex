@@ -189,7 +189,11 @@ defmodule QuickBEAM.Runtime do
     "__beam_system_info" => &QuickBEAM.BeamAPI.system_info/1,
     "__beam_process_info" => {:with_caller, &QuickBEAM.BeamAPI.process_info/2},
     "__beam_password_hash" => &QuickBEAM.BeamAPI.password_hash/1,
-    "__beam_password_verify" => &QuickBEAM.BeamAPI.password_verify/1
+    "__beam_password_verify" => &QuickBEAM.BeamAPI.password_verify/1,
+    "__beam_nanoseconds" => &QuickBEAM.BeamAPI.nanoseconds/1,
+    "__beam_unique_integer" => &QuickBEAM.BeamAPI.unique_integer/1,
+    "__beam_make_ref" => &QuickBEAM.BeamAPI.make_ref/1,
+    "__beam_inspect" => &QuickBEAM.BeamAPI.inspect_value/1
   }
 
   @node_handlers %{
