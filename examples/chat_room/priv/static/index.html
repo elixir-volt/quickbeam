@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>QuickBEAM Chat</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; height: 100vh; display: flex; flex-direction: column; }
+    .header { padding: 16px 24px; border-bottom: 1px solid #1e293b; display: flex; gap: 12px; align-items: center; }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .header input { background: #1e293b; border: 1px solid #334155; color: #e2e8f0; padding: 6px 12px; border-radius: 6px; font-size: 14px; width: 140px; }
+    .header label { font-size: 13px; color: #94a3b8; }
+    .messages { flex: 1; overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 8px; }
+    .message { background: #1e293b; padding: 10px 14px; border-radius: 8px; max-width: 70%; }
+    .message .sender { font-size: 12px; font-weight: 600; color: #38bdf8; margin-bottom: 2px; }
+    .message .text { font-size: 14px; line-height: 1.5; }
+    .message .time { font-size: 11px; color: #64748b; margin-top: 4px; }
+    .empty { color: #64748b; text-align: center; margin-top: 40px; }
+    .input-area { padding: 16px 24px; border-top: 1px solid #1e293b; display: flex; gap: 8px; }
+    .input-area input { flex: 1; background: #1e293b; border: 1px solid #334155; color: #e2e8f0; padding: 10px 14px; border-radius: 8px; font-size: 14px; outline: none; }
+    .input-area input:focus { border-color: #38bdf8; }
+    .input-area button { background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; cursor: pointer; }
+    .input-area button:hover { background: #1d4ed8; }
+    .input-area button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status { font-size: 12px; padding: 4px 10px; border-radius: 4px; }
+    .status.connected { color: #4ade80; }
+    .status.disconnected { color: #f87171; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>💬 QuickBEAM Chat</h1>
+    <label>Room</label>
+    <input id="room" value="general" />
+    <label>Name</label>
+    <input id="username" value="" />
+    <span id="status" class="status disconnected">disconnected</span>
+  </div>
+  <div id="messages" class="messages">
+    <div class="empty">Connecting...</div>
+  </div>
+  <div class="input-area">
+    <input id="input" placeholder="Type a message..." disabled />
+    <button id="send" disabled>Send</button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/phoenix@1.7.20/priv/static/phoenix.min.js"></script>
+  <script>
+    const roomInput = document.getElementById('room')
+    const usernameInput = document.getElementById('username')
+    const messagesDiv = document.getElementById('messages')
+    const input = document.getElementById('input')
+    const sendBtn = document.getElementById('send')
+    const statusEl = document.getElementById('status')
+
+    usernameInput.value = 'User' + Math.floor(Math.random() * 1000)
+
+    let channel = null
+
+    function connect() {
+      if (channel) channel.leave()
+
+      const socket = new Phoenix.Socket('/socket')
+      socket.connect()
+
+      const roomId = roomInput.value.trim() || 'general'
+      channel = socket.channel('room:' + roomId)
+
+      channel.join()
+        .receive('ok', (resp) => {
+          statusEl.textContent = 'connected'
+          statusEl.className = 'status connected'
+          input.disabled = false
+          sendBtn.disabled = false
+          renderMessages(resp.messages || [])
+        })
+        .receive('error', (resp) => {
+          statusEl.textContent = 'error: ' + (resp.reason || 'unknown')
+          statusEl.className = 'status disconnected'
+        })
+
+      channel.on('new_message', (message) => {
+        appendMessage(message)
+      })
+    }
+
+    function renderMessages(messages) {
+      if (messages.length === 0) {
+        messagesDiv.innerHTML = '<div class="empty">No messages yet. Start the conversation!</div>'
+        return
+      }
+      messagesDiv.innerHTML = ''
+      messages.forEach(appendMessage)
+    }
+
+    function appendMessage(msg) {
+      const empty = messagesDiv.querySelector('.empty')
+      if (empty) empty.remove()
+
+      const el = document.createElement('div')
+      el.className = 'message'
+      el.innerHTML = [
+        '<div class="sender">' + escapeHTML(msg.sender) + '</div>',
+        '<div class="text">' + escapeHTML(msg.text) + '</div>',
+        '<div class="time">' + new Date(msg.timestamp).toLocaleTimeString() + '</div>',
+      ].join('')
+      messagesDiv.appendChild(el)
+      messagesDiv.scrollTop = messagesDiv.scrollHeight
+    }
+
+    function escapeHTML(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    }
+
+    function sendMessage() {
+      const text = input.value.trim()
+      if (!text || !channel) return
+      channel.push('send_message', { sender: usernameInput.value, text })
+      input.value = ''
+    }
+
+    sendBtn.addEventListener('click', sendMessage)
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage() })
+    roomInput.addEventListener('change', connect)
+
+    connect()
+  </script>
+</body>
+</html>
