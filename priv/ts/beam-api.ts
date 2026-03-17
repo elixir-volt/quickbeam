@@ -85,6 +85,18 @@ Beam.semver = {
   },
 }
 
+Beam.nanoseconds = (): number =>
+  Beam.callSync('__beam_nanoseconds') as number
+
+Beam.uniqueInteger = (): number =>
+  Beam.callSync('__beam_unique_integer') as number
+
+Beam.makeRef = (): BeamRef =>
+  Beam.callSync('__beam_make_ref') as BeamRef
+
+Beam.inspect = (value: unknown): string =>
+  Beam.callSync('__beam_inspect', value) as string
+
 Beam.nodes = (): string[] =>
   Beam.callSync('__beam_nodes') as string[]
 

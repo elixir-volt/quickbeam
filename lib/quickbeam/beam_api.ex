@@ -157,6 +157,22 @@ defmodule QuickBEAM.BeamAPI do
   @pbkdf2_salt_length 16
   @pbkdf2_key_length 32
 
+  def nanoseconds([]) do
+    :erlang.monotonic_time(:nanosecond)
+  end
+
+  def unique_integer([]) do
+    :erlang.unique_integer([:monotonic, :positive])
+  end
+
+  def make_ref([]) do
+    Kernel.make_ref()
+  end
+
+  def inspect_value([value]) do
+    Kernel.inspect(value, pretty: true, width: 80)
+  end
+
   def password_hash([password, iterations])
       when is_binary(password) and is_integer(iterations) and iterations > 0 do
     salt = :crypto.strong_rand_bytes(@pbkdf2_salt_length)

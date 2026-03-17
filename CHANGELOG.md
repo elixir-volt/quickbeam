@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`Beam.nanoseconds()`** — monotonic high-resolution timer via `:erlang.monotonic_time(:nanosecond)`
+- **`Beam.uniqueInteger()`** — monotonically increasing unique integer via `:erlang.unique_integer`
+- **`Beam.makeRef()`** — create a unique BEAM reference, useful for request/reply correlation
+- **`Beam.inspect(value)`** — pretty-print any value via `Kernel.inspect`, especially useful for opaque `BeamPid`/`BeamRef` terms
+
 ## 0.7.1
 
 ### Fixed
