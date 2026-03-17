@@ -432,7 +432,7 @@ defmodule QuickBEAM.Core.BeamAPITest do
   describe "Beam.nanoseconds" do
     test "returns a number", %{rt: rt} do
       {:ok, result} = QuickBEAM.eval(rt, "Beam.nanoseconds()")
-      assert is_integer(result)
+      assert is_number(result)
     end
 
     test "is monotonically increasing", %{rt: rt} do

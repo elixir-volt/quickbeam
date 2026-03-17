@@ -274,7 +274,7 @@ defmodule QuickBEAM.Context do
   end
 
   defp load_script(state, path) do
-    case File.read(path) do
+    case QuickBEAM.Script.read(path) do
       {:ok, code} ->
         ref = QuickBEAM.Native.pool_eval(state.pool_resource, state.context_id, code, 0)
         await_eval_ref(ref, state)
