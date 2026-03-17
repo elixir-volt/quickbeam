@@ -68,6 +68,42 @@ const ref = Beam.monitor(pid, (reason) => {
 Beam.demonitor(ref);
 ```
 
+### `Beam` API reference
+
+| Category | API | Description |
+|---|---|---|
+| **Bridge** | `Beam.call(name, ...args)` | Call an Elixir handler (async) |
+| | `Beam.callSync(name, ...args)` | Call an Elixir handler (sync) |
+| | `Beam.send(pid, message)` | Send a message to a BEAM process |
+| | `Beam.onMessage(callback)` | Receive BEAM messages |
+| **Process** | `Beam.self()` | PID of the owning GenServer |
+| | `Beam.spawn(script)` | Spawn a new JS runtime as a BEAM process |
+| | `Beam.register(name)` | Register the runtime under a name |
+| | `Beam.whereis(name)` | Look up a registered runtime |
+| | `Beam.monitor(pid, callback)` | Monitor a process for exit |
+| | `Beam.demonitor(ref)` | Cancel a monitor |
+| | `Beam.link(pid)` / `Beam.unlink(pid)` | Bidirectional crash propagation |
+| **Distribution** | `Beam.nodes()` | List connected BEAM nodes |
+| | `Beam.rpc(node, runtime, fn, ...args)` | Remote call to another node |
+| **Utilities** | `Beam.sleep(ms)` / `Beam.sleepSync(ms)` | Async/sync sleep |
+| | `Beam.hash(data, range?)` | Non-cryptographic hash (`:erlang.phash2`) |
+| | `Beam.escapeHTML(str)` | Escape `& < > " '` |
+| | `Beam.which(bin)` | Find executable on PATH |
+| | `Beam.peek(promise)` / `Beam.peek.status(promise)` | Read promise result without await |
+| | `Beam.randomUUIDv7()` | Monotonic sortable UUID |
+| | `Beam.deepEquals(a, b)` | Deep structural equality |
+| | `Beam.nanoseconds()` | Monotonic high-res timer |
+| | `Beam.uniqueInteger()` | Monotonically increasing unique integer |
+| | `Beam.makeRef()` | Create a unique BEAM reference |
+| | `Beam.inspect(value)` | Pretty-print any value (including PIDs/refs) |
+| **Semver** | `Beam.semver.satisfies(version, range)` | Check version against Elixir requirement |
+| | `Beam.semver.order(a, b)` | Compare two semver strings |
+| **Password** | `Beam.password.hash(password, opts?)` | PBKDF2-SHA256 hash |
+| | `Beam.password.verify(password, hash)` | Constant-time verification |
+| **Introspection** | `Beam.version` | QuickBEAM version string |
+| | `Beam.systemInfo()` | Schedulers, memory, atoms, OTP release |
+| | `Beam.processInfo()` | Memory, reductions, message queue |
+
 ## Supervision
 
 Runtimes and context pools are OTP children with crash recovery:

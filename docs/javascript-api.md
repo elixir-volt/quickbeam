@@ -44,6 +44,10 @@ The bridge between JavaScript and the BEAM.
 | `Beam.processInfo()` | Info about the owning GenServer: memory, reductions, message queue, status. |
 | `Beam.password.hash(pw, opts?)` | Hash a password with PBKDF2-SHA256. Returns PHC-format string. Default 600k iterations. |
 | `Beam.password.verify(pw, hash)` | Verify a password against a hash. Constant-time comparison. |
+| `Beam.nanoseconds()` | Monotonic high-resolution timer via `:erlang.monotonic_time(:nanosecond)`. |
+| `Beam.uniqueInteger()` | Monotonically increasing unique integer via `:erlang.unique_integer([:monotonic, :positive])`. |
+| `Beam.makeRef()` | Create a unique BEAM reference. Useful for request/reply correlation. |
+| `Beam.inspect(value)` | Pretty-print any value via `Kernel.inspect`. Especially useful for opaque `BeamPid`/`BeamRef`. |
 
 ### Timers
 
