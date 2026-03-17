@@ -9,6 +9,10 @@
 - **`Beam.makeRef()`** — create a unique BEAM reference, useful for request/reply correlation
 - **`Beam.inspect(value)`** — pretty-print any value via `Kernel.inspect`, especially useful for opaque `BeamPid`/`BeamRef` terms
 
+### Fixed
+
+- **TypeScript support in Context** — `QuickBEAM.Context` now auto-transforms `.ts`/`.tsx` scripts via OXC and auto-bundles scripts with `import` statements, matching `QuickBEAM.Runtime` behavior. Previously, Context loaded scripts as raw JS.
+
 ## 0.7.1
 
 ### Fixed
