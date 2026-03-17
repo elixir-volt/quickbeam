@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **JS→BEAM conversion hang on cyclic/deep object graphs** — `eval` and `call` could hang indefinitely when the return value contained circular references or deeply nested structures (e.g. Vue reactive proxies from `createApp().mount()`). The converter now tracks visited objects to detect cycles and enforces a total node budget to prevent combinatorial explosion.
+
+### Added
+
+- **Configurable conversion limits** — new `:max_convert_depth` (default: 32) and `:max_convert_nodes` (default: 10,000) options for `QuickBEAM.start/1` and `ContextPool.start_link/1` control how deeply the JS→BEAM value serializer recurses. Values beyond the limits are replaced with `nil`.
+
 ## 0.7.0
 
 ### Added

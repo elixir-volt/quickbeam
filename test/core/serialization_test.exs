@@ -128,6 +128,58 @@ defmodule QuickBEAM.Core.SerializationTest do
     end
   end
 
+  describe "circular and deep object graphs" do
+    test "circular reference returns nil for cycle", %{rt: rt} do
+      assert {:ok, %{"x" => 1, "self" => nil}} =
+               QuickBEAM.eval(rt, "var o = {x: 1}; o.self = o; o")
+    end
+
+    test "circular array returns nil for cycle", %{rt: rt} do
+      assert {:ok, [1, nil]} =
+               QuickBEAM.eval(rt, "var a = [1]; a.push(a); a")
+    end
+
+    test "mutual references return nil for cycles", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, "var a = {}; var b = {a}; a.b = b; a")
+      assert result["b"]["a"] == nil
+    end
+
+    test "deeply nested object truncates at max depth", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, """
+        var o = {v: 1}; for(var i=0; i<50; i++) o = {n: o}; o
+      """)
+      assert is_map(result)
+    end
+
+    test "shared references are not confused with cycles", %{rt: rt} do
+      assert {:ok, %{"a" => %{"x" => 1}, "b" => %{"x" => 1}}} =
+               QuickBEAM.eval(rt, "var shared = {x: 1}; ({a: shared, b: shared})")
+    end
+  end
+
+  describe "configurable convert limits" do
+    test "max_convert_depth limits nesting", _context do
+      {:ok, rt} = QuickBEAM.start(max_convert_depth: 2)
+      assert {:ok, %{"a" => %{"b" => %{"c" => nil}}}} =
+               QuickBEAM.eval(rt, "({a: {b: {c: {d: 42}}}})")
+    end
+
+    test "max_convert_nodes limits total nodes", _context do
+      {:ok, rt} = QuickBEAM.start(max_convert_nodes: 5)
+      {:ok, result} = QuickBEAM.eval(rt, """
+        ({a: 1, b: 2, c: 3, d: {e: {f: 42}}})
+      """)
+      assert is_map(result)
+      deep = get_in(result, ["d", "e", "f"])
+      assert deep == nil
+    end
+
+    test "defaults handle normal objects fine", %{rt: rt} do
+      assert {:ok, %{"a" => %{"b" => %{"c" => 42}}}} =
+               QuickBEAM.eval(rt, "({a: {b: {c: 42}}})")
+    end
+  end
+
   describe "large binaries" do
     test "1MB Uint8Array", %{rt: rt} do
       assert {:ok, bin} =

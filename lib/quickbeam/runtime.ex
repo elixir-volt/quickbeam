@@ -264,7 +264,7 @@ defmodule QuickBEAM.Runtime do
 
     nif_opts =
       opts
-      |> Keyword.take([:memory_limit, :max_stack_size])
+      |> Keyword.take([:memory_limit, :max_stack_size, :max_convert_depth, :max_convert_nodes])
       |> Map.new()
 
     resource = QuickBEAM.Native.start_runtime(self(), nif_opts)

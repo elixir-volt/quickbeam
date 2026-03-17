@@ -165,7 +165,7 @@ pub const WorkerState = struct {
         defer qjs.JS_FreeValue(self.ctx, val);
 
         const result_env = beam.alloc_env();
-        const result_term = js_to_beam.convert(self.ctx, val, result_env);
+        const result_term = js_to_beam.convert_with_limits(self.ctx, val, result_env, self.convert_limits());
 
         types.send_reply(gg.caller_pid, gg.ref_env, gg.ref_term, true, result_env, result_term, "");
     }
@@ -567,7 +567,7 @@ pub const WorkerState = struct {
                 defer qjs.JS_FreeValue(self.ctx, v);
                 const term_env = beam.alloc_env();
                 result.ok = false;
-                result.term = js_to_beam.convert_error(self.ctx, v, term_env);
+                result.term = js_to_beam.convert_error_with_limits(self.ctx, v, term_env, self.convert_limits());
                 result.env = term_env;
                 return;
             }
@@ -610,7 +610,7 @@ pub const WorkerState = struct {
     fn set_ok_term(self: *WorkerState, val: qjs.JSValue, result: *Result) void {
         const term_env = beam.alloc_env();
         result.ok = true;
-        result.term = js_to_beam.convert(self.ctx, val, term_env);
+        result.term = js_to_beam.convert_with_limits(self.ctx, val, term_env, self.convert_limits());
         result.env = term_env;
     }
 
@@ -620,8 +620,15 @@ pub const WorkerState = struct {
 
         const term_env = beam.alloc_env();
         result.ok = false;
-        result.term = js_to_beam.convert_error(self.ctx, exc, term_env);
+        result.term = js_to_beam.convert_error_with_limits(self.ctx, exc, term_env, self.convert_limits());
         result.env = term_env;
+    }
+
+    fn convert_limits(self: *WorkerState) js_to_beam.ConvertLimits {
+        return .{
+            .max_depth = self.rd.max_convert_depth,
+            .max_nodes = self.rd.max_convert_nodes,
+        };
     }
 
     pub fn do_dom_op_result(self: *WorkerState, op: types.DomOp, selector: []const u8, attr_name: []const u8, result: *Result) void {

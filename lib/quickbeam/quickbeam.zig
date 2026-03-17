@@ -66,6 +66,12 @@ pub fn start_runtime(owner_pid: beam.pid, opts: beam.term) !RuntimeResource {
     if (get_map_uint(env, opts.v, "max_stack_size")) |v| {
         data.max_stack_size = v;
     }
+    if (get_map_uint(env, opts.v, "max_convert_depth")) |v| {
+        data.max_convert_depth = @intCast(v);
+    }
+    if (get_map_uint(env, opts.v, "max_convert_nodes")) |v| {
+        data.max_convert_nodes = @intCast(v);
+    }
 
     const res = try RuntimeResource.create(data, .{});
 
@@ -473,6 +479,12 @@ pub fn pool_start(opts: beam.term) !PoolResource {
     }
     if (get_map_uint(env, opts.v, "max_stack_size")) |v| {
         data.max_stack_size = v;
+    }
+    if (get_map_uint(env, opts.v, "max_convert_depth")) |v| {
+        data.max_convert_depth = @intCast(v);
+    }
+    if (get_map_uint(env, opts.v, "max_convert_nodes")) |v| {
+        data.max_convert_nodes = @intCast(v);
     }
 
     const res = try PoolResource.create(data, .{});

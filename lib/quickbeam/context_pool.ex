@@ -22,6 +22,8 @@ defmodule QuickBEAM.ContextPool do
     * `:size` — number of runtime threads (default: `System.schedulers_online()`)
     * `:memory_limit` — maximum JS heap per thread in bytes (default: 256 MB)
     * `:max_stack_size` — maximum JS call stack in bytes (default: 4 MB)
+    * `:max_convert_depth` — maximum nesting depth for JS→BEAM value conversion (default: 32)
+    * `:max_convert_nodes` — maximum total nodes for JS→BEAM value conversion (default: 10,000)
   """
   use GenServer
 
@@ -44,7 +46,7 @@ defmodule QuickBEAM.ContextPool do
 
     nif_opts =
       opts
-      |> Keyword.take([:memory_limit, :max_stack_size])
+      |> Keyword.take([:memory_limit, :max_stack_size, :max_convert_depth, :max_convert_nodes])
       |> Map.new()
 
     threads =

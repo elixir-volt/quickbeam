@@ -208,6 +208,8 @@ fn handle_create_context(
             .queue_tail = null,
             .stopped = false,
             .thread = null,
+            .max_convert_depth = pd.max_convert_depth,
+            .max_convert_nodes = pd.max_convert_nodes,
         },
         .state = undefined,
         .owner_pid = p.owner_pid,
