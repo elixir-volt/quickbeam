@@ -249,6 +249,7 @@ fn convert_object_to_map(ctx: *qjs.JSContext, val: qjs.JSValue, state: *ConvertS
         const key_ptr = qjs.JS_AtomToCStringLen(ctx, &key_len, atom);
         if (key_ptr != null) {
             const src = @as([*]const u8, @ptrCast(key_ptr))[0..key_len];
+            // SAFETY: enif_make_new_binary initializes bin_term before it is read.
             var bin_term: e.ErlNifTerm = undefined;
             const bin_ptr = e.enif_make_new_binary(state.opts.env, key_len, &bin_term);
             if (bin_ptr != null) {
@@ -271,6 +272,7 @@ fn convert_object_to_map(ctx: *qjs.JSContext, val: qjs.JSValue, state: *ConvertS
         qjs.JS_FreeAtom(ctx, tab[i].atom);
     }
 
+    // SAFETY: enif_make_map_from_arrays initializes result on success before it is read.
     var result: e.ErlNifTerm = undefined;
     if (e.enif_make_map_from_arrays(state.opts.env, keys.ptr, vals.ptr, plen, &result) != 0) {
         return result;
@@ -284,6 +286,7 @@ fn obj_identity(val: qjs.JSValue) ?*anyopaque {
 }
 
 fn empty_map(opts: Env) e.ErlNifTerm {
+    // SAFETY: enif_make_map_from_arrays initializes result before it is returned.
     var result: e.ErlNifTerm = undefined;
     _ = e.enif_make_map_from_arrays(opts.env, null, null, 0, &result);
     return result;
@@ -319,6 +322,7 @@ fn decode_beam_term(ctx: *qjs.JSContext, data_val: qjs.JSValue, opts: Env) e.Erl
     const ptr = qjs.JS_GetArrayBuffer(ctx, &buf_size, ab);
     if (ptr == null) return beam.make_into_atom("nil", opts).v;
 
+    // SAFETY: enif_binary_to_term initializes result on success before it is read.
     var result: e.ErlNifTerm = undefined;
     if (e.enif_binary_to_term(opts.env, ptr + byte_offset, byte_len, &result, 0) == 0) {
         return beam.make_into_atom("nil", opts).v;

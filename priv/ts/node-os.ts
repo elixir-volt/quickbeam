@@ -1,16 +1,16 @@
-let _platform: string | undefined
-let _arch: string | undefined
-let _hostname: string | undefined
+let qbOsPlatform: string | undefined
+let qbOsArch: string | undefined
+let qbOsHostname: string | undefined
 
 const os = {
   EOL: '\n' as const,
 
   platform(): string {
-    return (_platform ??= Beam.callSync('__os_platform') as string)
+    return (qbOsPlatform ??= Beam.callSync('__os_platform') as string)
   },
 
   arch(): string {
-    return (_arch ??= Beam.callSync('__os_arch') as string)
+    return (qbOsArch ??= Beam.callSync('__os_arch') as string)
   },
 
   type(): string {
@@ -20,7 +20,7 @@ const os = {
       case 'linux': return 'Linux'
       case 'win32': return 'Windows_NT'
       case 'freebsd': return 'FreeBSD'
-      default: return _platform
+      default: return p
     }
   },
 
@@ -29,7 +29,7 @@ const os = {
   },
 
   hostname(): string {
-    return (_hostname ??= Beam.callSync('__os_hostname') as string)
+    return (qbOsHostname ??= Beam.callSync('__os_hostname') as string)
   },
 
   homedir(): string {

@@ -1,0 +1,1 @@
+declare const Beam: BeamAPI

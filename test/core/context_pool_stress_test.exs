@@ -226,8 +226,7 @@ defmodule QuickBEAM.Core.ContextPoolStressTest do
       next_id = 51
 
       {_, next_id} =
-        Enum.reduce_while(Stream.iterate(1, &(&1 + 1)), {1, next_id}, fn destroy_id,
-                                                                         {_, nid} ->
+        Enum.reduce_while(Stream.iterate(1, &(&1 + 1)), {1, next_id}, fn destroy_id, {_, nid} ->
           if System.monotonic_time(:millisecond) >= deadline do
             {:halt, {destroy_id, nid}}
           else

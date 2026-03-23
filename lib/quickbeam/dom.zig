@@ -739,7 +739,7 @@ fn el_prepend(ctx: ?*qjs.JSContext, this: qjs.JSValue, argc: c_int, argv: [*c]qj
     const parent = js_to_node(this) orelse return js.js_undefined();
     const first = lxb.qb_node_first_child(parent);
 
-    var i: usize = @as(usize, @intCast(argc));
+    var i: usize = @intCast(argc);
     while (i > 0) {
         i -= 1;
         const new_node = js_to_node(argv[i]) orelse {

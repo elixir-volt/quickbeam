@@ -374,7 +374,7 @@ defmodule QuickBEAMTest do
       {:ok, %QuickBEAM.Bytecode{} = bc} = QuickBEAM.disasm(bytecode)
       assert bc.name == "<eval>"
       assert bc.stack_size > 0
-      assert length(bc.opcodes) > 0
+      assert bc.opcodes != []
     end
 
     test "disasm/2 compiles and disassembles in one call" do

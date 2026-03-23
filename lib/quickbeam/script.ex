@@ -1,12 +1,14 @@
 defmodule QuickBEAM.Script do
   @moduledoc false
 
+  alias QuickBEAM.JS.Bundler
+
   def read(path) do
     case File.read(path) do
       {:ok, source} ->
         cond do
           has_imports?(source, path) ->
-            QuickBEAM.JS.Bundler.bundle_file(path)
+            Bundler.bundle_file(path)
 
           typescript?(path) ->
             OXC.transform(source, Path.basename(path))

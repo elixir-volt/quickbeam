@@ -113,7 +113,9 @@ fn beam_call_sync_impl(
         if (self.drain_fn) |drain| {
             drain(self);
         }
-        slot.done.timedWait(1_000_000) catch {};
+        slot.done.timedWait(1_000_000) catch |err| switch (err) {
+            error.Timeout => {},
+        };
     }
 
     self.rd.sync_slots_mutex.lock();

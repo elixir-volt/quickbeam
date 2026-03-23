@@ -6,7 +6,6 @@ const dom = @import("dom.zig");
 
 const std = ct.std;
 const beam = ct.beam;
-const e = ct.e;
 const qjs = ct.qjs;
 const gpa = ct.gpa;
 
@@ -211,6 +210,7 @@ fn handle_create_context(
             .max_convert_depth = pd.max_convert_depth,
             .max_convert_nodes = pd.max_convert_nodes,
         },
+        // SAFETY: entry.state is assigned immediately below before any use.
         .state = undefined,
         .owner_pid = p.owner_pid,
         .id = p.context_id,
@@ -237,7 +237,14 @@ fn handle_create_context(
 
     // Register rd pointer so NIFs can find it for sync call resolution
     pd.rd_map_mutex.lock();
-    pd.rd_map.put(gpa, p.context_id, &entry.rd) catch {};
+    pd.rd_map.put(gpa, p.context_id, &entry.rd) catch |err| {
+        pd.rd_map_mutex.unlock();
+        entry.state.deinit();
+        gpa.destroy(entry);
+        const reason = @errorName(err);
+        types.send_reply(p.caller_pid, p.ref_env, p.ref_term, false, null, null, reason);
+        return;
+    };
     pd.rd_map_mutex.unlock();
 
     contexts.put(p.context_id, entry) catch {
@@ -410,6 +417,7 @@ fn handle_ctx_memory_usage(
     };
     const entry = entry_ptr.*;
 
+    // SAFETY: JS_ComputeMemoryUsage fully initializes usage before it is read.
     var usage: qjs.JSMemoryUsage = undefined;
     qjs.JS_ComputeMemoryUsage(entry.state.rt, &usage);
     const renv = beam.alloc_env();

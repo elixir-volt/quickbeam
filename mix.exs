@@ -31,6 +31,10 @@ defmodule QuickBEAM.MixProject do
     ]
   end
 
+  def cli do
+    [preferred_envs: [ci: :test]]
+  end
+
   defp aliases do
     [
       lint: [
@@ -40,6 +44,17 @@ defmodule QuickBEAM.MixProject do
         "cmd zlint lib/quickbeam/*.zig",
         "cmd bun run lint",
         "cmd bunx jscpd lib/quickbeam/*.zig priv/ts/*.ts --min-tokens 50 --threshold 0"
+      ],
+      ci: [
+        "compile --warnings-as-errors",
+        "format --check-formatted",
+        "credo --strict",
+        "dialyzer",
+        "ex_dna",
+        "cmd zlint lib/quickbeam/*.zig",
+        "cmd bun run lint",
+        "cmd bunx jscpd lib/quickbeam/*.zig priv/ts/*.ts --min-tokens 50 --threshold 0",
+        "test --no-start"
       ],
       "fuzz.sanity": "cmd --cd fuzz zig build test"
     ]

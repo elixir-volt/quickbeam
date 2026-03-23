@@ -1,13 +1,20 @@
-class MutationObserver {
-  #callback: MutationCallback;
-
-  constructor(callback: MutationCallback) {
-    this.#callback = callback;
+class QBMutationObserver {
+  constructor(_callback: MutationCallback) {
+    void _callback
   }
 
-  observe(_target: any, _options?: MutationObserverInit): void {}
-  disconnect(): void {}
-  takeRecords(): MutationRecord[] { return []; }
+  observe(_target: unknown, _options?: MutationObserverInit): void {
+    void _target
+    void _options
+  }
+
+  disconnect(): void {
+    return
+  }
+
+  takeRecords(): MutationRecord[] {
+    return []
+  }
 }
 
-Object.assign(globalThis, { MutationObserver });
+Object.assign(globalThis, { MutationObserver: QBMutationObserver });

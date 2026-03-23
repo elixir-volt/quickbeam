@@ -33,7 +33,7 @@ function dispatchEvent(this: object, event: Event): boolean {
   return getTarget(this).dispatchEvent(event)
 }
 
-class CustomEvent extends Event {
+class QBCustomEvent extends Event {
   readonly detail: unknown
 
   constructor(type: string, init?: CustomEventInit) {
@@ -42,7 +42,7 @@ class CustomEvent extends Event {
   }
 }
 
-;(globalThis as Record<string, unknown>).CustomEvent = CustomEvent
+;(globalThis as Record<string, unknown>).CustomEvent = QBCustomEvent
 ;(globalThis as Record<string, unknown>).__qb_addEventListener = addEventListener
 ;(globalThis as Record<string, unknown>).__qb_removeEventListener = removeEventListener
 ;(globalThis as Record<string, unknown>).__qb_dispatchEvent = dispatchEvent

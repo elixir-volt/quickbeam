@@ -85,16 +85,11 @@ defmodule QuickBEAM.NodeFS do
   end
 
   def realpath([path]) when is_binary(path) do
-    case :file.read_link_info(String.to_charlist(path)) do
-      {:ok, _} ->
-        path
-        |> Path.expand()
-        |> then(fn expanded ->
-          if File.exists?(expanded), do: expanded, else: nil
-        end)
+    expanded = Path.expand(path)
 
-      {:error, _} ->
-        nil
+    case :file.read_link_info(String.to_charlist(path)) do
+      {:ok, _} -> if File.exists?(expanded), do: expanded, else: nil
+      _ -> nil
     end
   end
 

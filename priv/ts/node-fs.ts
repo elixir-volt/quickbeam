@@ -36,15 +36,15 @@ function makeStats(raw: Record<string, unknown>): Stats {
   }
 }
 
-type Encoding = 'utf8' | 'utf-8' | 'binary' | 'latin1' | 'base64' | 'hex' | null
+type QBNodeEncoding = 'utf8' | 'utf-8' | 'binary' | 'latin1' | 'base64' | 'hex' | null
 
 interface ReadOptions {
-  encoding?: Encoding
+  encoding?: QBNodeEncoding
   flag?: string
 }
 
 interface WriteOptions {
-  encoding?: Encoding
+  encoding?: QBNodeEncoding
   mode?: number
   flag?: string
 }
@@ -60,11 +60,11 @@ interface RmOptions {
 }
 
 interface ReaddirOptions {
-  encoding?: Encoding
+  encoding?: QBNodeEncoding
   withFileTypes?: boolean
 }
 
-function readFileSync(path: string, options?: Encoding | ReadOptions): string | Uint8Array {
+function readFileSync(path: string, options?: QBNodeEncoding | ReadOptions): string | Uint8Array {
   const encoding = typeof options === 'string' ? options : options?.encoding
   const result = Beam.callSync('__fs_read_file', path) as Uint8Array | null
   if (result === null) throw new Error(`ENOENT: no such file or directory, open '${path}'`)
@@ -72,15 +72,15 @@ function readFileSync(path: string, options?: Encoding | ReadOptions): string | 
   return result
 }
 
-function writeFileSync(path: string, data: string | Uint8Array, options?: Encoding | WriteOptions): void {
-  const encoding = typeof options === 'string' ? options : options?.encoding
+function writeFileSync(path: string, data: string | Uint8Array, options?: QBNodeEncoding | WriteOptions): void {
+  void options
   const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data
   const ok = Beam.callSync('__fs_write_file', path, bytes) as boolean
   if (!ok) throw new Error(`EACCES: permission denied, open '${path}'`)
 }
 
-function appendFileSync(path: string, data: string | Uint8Array, options?: Encoding | WriteOptions): void {
-  const encoding = typeof options === 'string' ? options : options?.encoding
+function appendFileSync(path: string, data: string | Uint8Array, options?: QBNodeEncoding | WriteOptions): void {
+  void options
   const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data
   const ok = Beam.callSync('__fs_append_file', path, bytes) as boolean
   if (!ok) throw new Error(`EACCES: permission denied, open '${path}'`)
@@ -140,14 +140,14 @@ function realpathSync(path: string): string {
 }
 
 // Async wrappers
-function readFile(path: string, options: Encoding | ReadOptions, callback: (err: Error | null, data?: string | Uint8Array) => void): void
+function readFile(path: string, options: QBNodeEncoding | ReadOptions, callback: (err: Error | null, data?: string | Uint8Array) => void): void
 function readFile(path: string, callback: (err: Error | null, data?: Uint8Array) => void): void
 function readFile(path: string, optionsOrCb: unknown, callback?: unknown): void {
   const cb = (typeof optionsOrCb === 'function' ? optionsOrCb : callback) as (err: Error | null, data?: unknown) => void
   const opts = typeof optionsOrCb === 'function' ? undefined : optionsOrCb
   queueMicrotask(() => {
     try {
-      const result = readFileSync(path, opts as Encoding | ReadOptions)
+      const result = readFileSync(path, opts as QBNodeEncoding | ReadOptions)
       cb(null, result)
     } catch (err) {
       cb(err as Error)
@@ -155,14 +155,14 @@ function readFile(path: string, optionsOrCb: unknown, callback?: unknown): void 
   })
 }
 
-function writeFile(path: string, data: string | Uint8Array, options: Encoding | WriteOptions, callback: (err: Error | null) => void): void
+function writeFile(path: string, data: string | Uint8Array, options: QBNodeEncoding | WriteOptions, callback: (err: Error | null) => void): void
 function writeFile(path: string, data: string | Uint8Array, callback: (err: Error | null) => void): void
 function writeFile(path: string, data: string | Uint8Array, optionsOrCb: unknown, callback?: unknown): void {
   const cb = (typeof optionsOrCb === 'function' ? optionsOrCb : callback) as (err: Error | null) => void
   const opts = typeof optionsOrCb === 'function' ? undefined : optionsOrCb
   queueMicrotask(() => {
     try {
-      writeFileSync(path, data, opts as Encoding | WriteOptions)
+      writeFileSync(path, data, opts as QBNodeEncoding | WriteOptions)
       cb(null)
     } catch (err) {
       cb(err as Error)

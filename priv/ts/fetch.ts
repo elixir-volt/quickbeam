@@ -1,5 +1,5 @@
 import { AbortSignal } from './abort'
-import { Blob, File, SYM_BYTES } from './blob'
+import { Blob, SYM_BYTES } from './blob'
 import { FormData } from './form-data'
 import { Headers } from './headers'
 import { ReadableStream } from './streams'
@@ -16,6 +16,20 @@ interface RequestInit {
   redirect?: RequestRedirect
 }
 
+function concatChunks(chunks: Uint8Array[]): Uint8Array {
+  let total = 0
+  for (const chunk of chunks) total += chunk.length
+
+  const result = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    result.set(chunk, offset)
+    offset += chunk.length
+  }
+
+  return result
+}
+
 function formDataToBytes(body: FormData): {
   bytes: Uint8Array
   contentType: string
@@ -30,7 +44,7 @@ function formDataToBytes(body: FormData): {
       chunks.push(encoder.encode(`Content-Disposition: form-data; name="${name}"\r\n\r\n`))
       chunks.push(encoder.encode(value))
     } else {
-      const filename = (value as File).name
+      const filename = value.name
       const type = value.type || 'application/octet-stream'
       chunks.push(
         encoder.encode(
@@ -45,16 +59,7 @@ function formDataToBytes(body: FormData): {
 
   chunks.push(encoder.encode(`--${boundary}--\r\n`))
 
-  let total = 0
-  for (const c of chunks) total += c.length
-  const result = new Uint8Array(total)
-  let offset = 0
-  for (const c of chunks) {
-    result.set(c, offset)
-    offset += c.length
-  }
-
-  return { bytes: result, contentType: `multipart/form-data; boundary=${boundary}` }
+  return { bytes: concatChunks(chunks), contentType: `multipart/form-data; boundary=${boundary}` }
 }
 
 async function bodyToBytes(body: BodyInit): Promise<{
@@ -90,15 +95,7 @@ async function bodyToBytes(body: BodyInit): Promise<{
       if (done) break
       chunks.push(value instanceof Uint8Array ? value : new Uint8Array(value as ArrayBuffer))
     }
-    let total = 0
-    for (const c of chunks) total += c.length
-    const result = new Uint8Array(total)
-    let offset = 0
-    for (const c of chunks) {
-      result.set(c, offset)
-      offset += c.length
-    }
-    return { bytes: result, contentType: null }
+    return { bytes: concatChunks(chunks), contentType: null }
   }
   return { bytes: null, contentType: null }
 }
@@ -200,7 +197,7 @@ class Response {
 
   async blob(): Promise<Blob> {
     const bytes = this.#consumeBody()
-    return new Blob([bytes], { type: this.headers.get('content-type') ?? '' })
+    return new Blob([bytes.slice()], { type: this.headers.get('content-type') ?? '' })
   }
 
   clone(): Response {

@@ -8,6 +8,21 @@ export interface UnderlyingSource<R = unknown> {
   cancel?: (reason?: unknown) => void | Promise<void>
 }
 
+function handleControllerStart<C>(
+  start: ((controller: C) => void | Promise<void>) | undefined,
+  controller: C,
+  onError: (error: unknown) => void,
+): void {
+  try {
+    const result = start?.(controller)
+    if (result instanceof Promise) {
+      void result.catch((error: unknown) => onError(error))
+    }
+  } catch (error) {
+    onError(error)
+  }
+}
+
 export interface ReadableStreamController<R = unknown> {
   readonly desiredSize: number | null
   enqueue(chunk: R): void
@@ -75,14 +90,7 @@ export class ReadableStream<R = unknown> {
 
     this.#controller = controller
 
-    try {
-      const result = source?.start?.(controller)
-      if (result instanceof Promise) {
-        void result.catch((e: unknown) => controller.error(e))
-      }
-    } catch (e) {
-      controller.error(e)
-    }
+    handleControllerStart(source?.start, controller, (error) => controller.error(error))
   }
 
   get locked(): boolean {
@@ -309,14 +317,7 @@ export class WritableStream<W = unknown> {
     }
     this.#controller = controller
 
-    try {
-      const result = sink?.start?.(controller)
-      if (result instanceof Promise) {
-        void result.catch((e: unknown) => controller.error(e))
-      }
-    } catch (e) {
-      controller.error(e)
-    }
+    handleControllerStart(sink?.start, controller, (error) => controller.error(error))
   }
 
   get locked(): boolean {

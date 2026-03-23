@@ -136,43 +136,56 @@ defmodule QuickBEAM.Context do
   @impl true
   def init(opts) do
     pool = Keyword.fetch!(opts, :pool)
-    user_handlers = Keyword.get(opts, :handlers, %{})
+    apis = normalize_apis(Keyword.get(opts, :apis, [:browser]))
+    handlers = build_handlers(apis, Keyword.get(opts, :handlers, %{}))
+    state = build_state(pool, handlers, opts)
 
-    apis =
-      case Keyword.get(opts, :apis, [:browser]) do
-        false -> []
-        nil -> []
-        api when is_atom(api) -> [api]
-        list when is_list(list) -> list
-      end
+    install_builtins(state, apis)
+    maybe_load_script(state, Keyword.fetch(opts, :script))
+  end
 
-    has_browser_apis = Enum.any?(apis, &(&1 not in [:beam, :node]))
+  defp normalize_apis(false), do: []
+  defp normalize_apis(nil), do: []
+  defp normalize_apis(api) when is_atom(api), do: [api]
+  defp normalize_apis(apis) when is_list(apis), do: apis
 
-    builtin_handlers = QuickBEAM.Runtime.beam_handlers()
+  defp build_handlers(apis, user_handlers) do
+    QuickBEAM.Runtime.beam_handlers()
+    |> maybe_add_browser_handlers(apis)
+    |> maybe_add_node_handlers(apis)
+    |> Map.merge(worker_handlers(apis))
+    |> Map.merge(user_handlers)
+  end
 
-    builtin_handlers =
-      if has_browser_apis,
-        do: Map.merge(builtin_handlers, QuickBEAM.Runtime.browser_handlers()),
-        else: builtin_handlers
+  defp maybe_add_browser_handlers(handlers, apis) do
+    if Enum.any?(apis, &(&1 not in [:beam, :node])) do
+      Map.merge(handlers, QuickBEAM.Runtime.browser_handlers())
+    else
+      handlers
+    end
+  end
 
-    builtin_handlers =
-      if :node in apis,
-        do: Map.merge(builtin_handlers, QuickBEAM.Runtime.node_handlers()),
-        else: builtin_handlers
+  defp maybe_add_node_handlers(handlers, apis) do
+    if :node in apis do
+      Map.merge(handlers, QuickBEAM.Runtime.node_handlers())
+    else
+      handlers
+    end
+  end
 
-    worker_handlers =
-      if has_browser_apis do
-        %{
-          "__worker_spawn" => {:context_worker, :spawn},
-          "__worker_terminate" => {:context_worker, :terminate},
-          "__worker_post_to_child" => {:context_worker, :post_to_child}
-        }
-      else
-        %{}
-      end
+  defp worker_handlers(apis) do
+    if Enum.any?(apis, &(&1 not in [:beam, :node])) do
+      %{
+        "__worker_spawn" => {:context_worker, :spawn},
+        "__worker_terminate" => {:context_worker, :terminate},
+        "__worker_post_to_child" => {:context_worker, :post_to_child}
+      }
+    else
+      %{}
+    end
+  end
 
-    merged_handlers = builtin_handlers |> Map.merge(worker_handlers) |> Map.merge(user_handlers)
-
+  defp build_state(pool, handlers, opts) do
     memory_limit = Keyword.get(opts, :memory_limit, 0)
     max_reductions = Keyword.get(opts, :max_reductions, 0)
 
@@ -182,24 +195,20 @@ defmodule QuickBEAM.Context do
         max_reductions: max_reductions
       )
 
-    state = %__MODULE__{
+    %__MODULE__{
       pool_resource: pool_resource,
       context_id: context_id,
       pool: pool,
-      handlers: merged_handlers
+      handlers: handlers
     }
+  end
 
-    install_builtins(state, apis)
+  defp maybe_load_script(state, :error), do: {:ok, state}
 
-    case Keyword.fetch(opts, :script) do
-      :error ->
-        {:ok, state}
-
-      {:ok, path} ->
-        case load_script(state, path) do
-          {:ok, state} -> {:ok, state}
-          {:error, reason} -> {:stop, reason}
-        end
+  defp maybe_load_script(state, {:ok, path}) do
+    case load_script(state, path) do
+      {:ok, next_state} -> {:ok, next_state}
+      {:error, reason} -> {:stop, reason}
     end
   end
 
@@ -590,5 +599,4 @@ defmodule QuickBEAM.Context do
       if id == worker_id, do: {ref, pid}
     end)
   end
-
 end

@@ -39,10 +39,13 @@ pub const RuntimeResource = beam.Resource(*RuntimeData, @import("root"), .{
 // ──────────────────── NIF entry points ────────────────────
 
 fn get_map_uint(env: *e.ErlNifEnv, map: e.ErlNifTerm, key: [:0]const u8) ?usize {
+    // SAFETY: enif_make_existing_atom_len initializes key_atom on success before use.
     var key_atom: e.ErlNifTerm = undefined;
     if (e.enif_make_existing_atom_len(env, key.ptr, key.len, &key_atom, e.ERL_NIF_LATIN1) == 0) return null;
+    // SAFETY: enif_get_map_value initializes val on success before use.
     var val: e.ErlNifTerm = undefined;
     if (e.enif_get_map_value(env, map, key_atom, &val) == 0) return null;
+    // SAFETY: enif_get_uint64 initializes result on success before use.
     var result: u64 = undefined;
     if (e.enif_get_uint64(env, val, &result) == 0) return null;
     return @intCast(result);
@@ -89,6 +92,7 @@ pub fn eval(resource: RuntimeResource, code: []const u8, timeout_ms: u64) beam.t
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     const ref_env = beam.alloc_env();
@@ -111,6 +115,7 @@ pub fn compile(resource: RuntimeResource, code: []const u8) beam.term {
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     const ref_env = beam.alloc_env();
@@ -132,6 +137,7 @@ pub fn load_bytecode(resource: RuntimeResource, bytecode: []const u8) beam.term 
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     const ref_env = beam.alloc_env();
@@ -153,6 +159,7 @@ pub fn call_function(resource: RuntimeResource, name: []const u8, args: beam.ter
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     const ref_env = beam.alloc_env();
@@ -180,6 +187,7 @@ pub fn load_module(resource: RuntimeResource, name: []const u8, code: []const u8
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     const ref_env = beam.alloc_env();
@@ -206,6 +214,7 @@ pub fn reset_runtime(resource: RuntimeResource) beam.term {
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     const ref_env = beam.alloc_env();
@@ -328,6 +337,7 @@ pub fn memory_usage(resource: RuntimeResource) beam.term {
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     const ref_env = beam.alloc_env();
@@ -366,6 +376,7 @@ fn dom_op(resource: RuntimeResource, op: types.DomOp, selector: []const u8, attr
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     const ref_env = beam.alloc_env();
@@ -413,6 +424,7 @@ pub fn list_globals(resource: RuntimeResource, user_only: u8) beam.term {
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
     const ref_env = beam.alloc_env();
     const ref_term = e.enif_make_ref(ref_env);
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     enqueue(resource.unpack(), .{ .list_globals = .{ .user_only = user_only != 0, .caller_pid = caller_pid, .ref_env = ref_env, .ref_term = ref_term } });
@@ -442,6 +454,7 @@ pub fn get_global(resource: RuntimeResource, name: []const u8) beam.term {
     const name_copy = types.gpa.dupeZ(u8, name) catch return beam.make(.{ .@"error", "enomem" }, .{});
     const ref_env = beam.alloc_env();
     const ref_term = e.enif_make_ref(ref_env);
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     enqueue(resource.unpack(), .{ .get_global = .{ .name = name_copy, .caller_pid = caller_pid, .ref_env = ref_env, .ref_term = ref_term } });
@@ -514,6 +527,7 @@ pub fn pool_create_context(resource: PoolResource, context_id: u64, owner_pid: b
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     const ref_env = beam.alloc_env();
@@ -541,6 +555,7 @@ pub fn pool_eval(resource: PoolResource, context_id: u64, code: []const u8, time
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     const ref_env = beam.alloc_env();
@@ -564,6 +579,7 @@ pub fn pool_call_function(resource: PoolResource, context_id: u64, name: []const
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     const ref_env = beam.alloc_env();
@@ -591,6 +607,7 @@ pub fn pool_reset_context(resource: PoolResource, context_id: u64) beam.term {
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     const ref_env = beam.alloc_env();
@@ -635,6 +652,7 @@ pub fn pool_get_global(resource: PoolResource, context_id: u64, name: []const u8
     const name_copy = gpa.dupeZ(u8, name) catch return beam.make(.{ .@"error", "OOM" }, .{});
     const ref_env = beam.alloc_env();
     const ref_term = e.enif_make_ref(ref_env);
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     pool_enqueue(resource.unpack(), .{ .ctx_get_global = .{
@@ -651,6 +669,7 @@ pub fn pool_load_bytecode(resource: PoolResource, context_id: u64, bytecode: []c
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     const ref_env = beam.alloc_env();
@@ -674,6 +693,7 @@ pub fn pool_memory_usage(resource: PoolResource, context_id: u64) beam.term {
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
     const ref_env = beam.alloc_env();
     const ref_term = e.enif_make_ref(ref_env);
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     pool_enqueue(resource.unpack(), .{ .ctx_memory_usage = .{
@@ -705,6 +725,7 @@ fn pool_dom_op(resource: PoolResource, context_id: u64, op: types.DomOp, selecto
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
+    // SAFETY: enif_self initializes caller_pid before it is used.
     var caller_pid: beam.pid = undefined;
     _ = e.enif_self(env, &caller_pid);
     const ref_env = beam.alloc_env();

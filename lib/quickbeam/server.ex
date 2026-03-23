@@ -4,7 +4,7 @@ defmodule QuickBEAM.Server do
   defmacro __using__(_opts) do
     quote do
       @spec call(GenServer.server(), String.t(), list(), keyword()) ::
-              {:ok, term()} | {:error, String.t()}
+              QuickBEAM.js_result()
       def call(server, fn_name, args \\ [], opts \\ [])
           when is_binary(fn_name) and is_list(args) do
         timeout_ms = Keyword.get(opts, :timeout, 0)

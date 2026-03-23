@@ -281,7 +281,7 @@ defmodule QuickBEAM.Core.BeamAPITest do
     test "returns a list with at least the local node", %{rt: rt} do
       {:ok, nodes} = QuickBEAM.eval(rt, "Beam.nodes()")
       assert is_list(nodes)
-      assert length(nodes) >= 1
+      refute Enum.empty?(nodes)
       assert Enum.all?(nodes, &is_binary/1)
     end
   end

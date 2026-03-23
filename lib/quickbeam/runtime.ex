@@ -59,7 +59,7 @@ defmodule QuickBEAM.Runtime do
     end
   end
 
-  @spec eval(GenServer.server(), String.t(), keyword()) :: {:ok, term()} | {:error, String.t()}
+  @spec eval(GenServer.server(), String.t(), keyword()) :: QuickBEAM.js_result()
   def eval(server, code, opts \\ []) when is_binary(code) do
     timeout_ms = Keyword.get(opts, :timeout, 0)
     vars = Keyword.get(opts, :vars)
@@ -308,10 +308,11 @@ defmodule QuickBEAM.Runtime do
   end
 
   defp eval_script_async(state, path) do
-    with {:ok, code} <- read_script(path) do
-      ref = QuickBEAM.Native.eval(state.resource, code, 0)
-      await_ref_with_callbacks(ref, state, path)
-    else
+    case read_script(path) do
+      {:ok, code} ->
+        ref = QuickBEAM.Native.eval(state.resource, code, 0)
+        await_ref_with_callbacks(ref, state, path)
+
       {:error, reason} when is_atom(reason) ->
         {:error, {:script_not_found, path, reason}, state}
 
@@ -356,7 +357,8 @@ defmodule QuickBEAM.Runtime do
     if :browser in apis do
       for js <- @browser_js, do: sync_eval(state.resource, js)
     else
-      for js <- QuickBEAM.JS.js_for_apis(apis -- [:beam, :node]), do: sync_eval(state.resource, js)
+      for js <- QuickBEAM.JS.js_for_apis(apis -- [:beam, :node]),
+          do: sync_eval(state.resource, js)
     end
 
     if :node in apis do

@@ -1,8 +1,8 @@
-const perf = globalThis.performance as Record<string, unknown>
+const perf = globalThis.performance as unknown as Record<string, unknown>
 
 const timeOrigin = Date.now() - (perf.now as () => number)()
 
-class PerformanceEntry {
+class QBPerformanceEntry {
   readonly name: string
   readonly entryType: string
   readonly startTime: number
@@ -25,7 +25,7 @@ class PerformanceEntry {
   }
 }
 
-class PerformanceMark extends PerformanceEntry {
+class QBPerformanceMark extends QBPerformanceEntry {
   readonly detail: unknown
 
   constructor(name: string, options?: { startTime?: number; detail?: unknown }) {
@@ -34,17 +34,25 @@ class PerformanceMark extends PerformanceEntry {
     this.detail = options?.detail ?? null
   }
 
+  static get name(): string {
+    return 'PerformanceMark'
+  }
+
   toJSON() {
     return { ...super.toJSON(), detail: this.detail }
   }
 }
 
-class PerformanceMeasure extends PerformanceEntry {
+class QBPerformanceMeasure extends QBPerformanceEntry {
   readonly detail: unknown
 
   constructor(name: string, startTime: number, duration: number, detail?: unknown) {
     super(name, 'measure', startTime, duration)
     this.detail = detail ?? null
+  }
+
+  static get name(): string {
+    return 'PerformanceMeasure'
   }
 
   toJSON() {
@@ -54,10 +62,10 @@ class PerformanceMeasure extends PerformanceEntry {
 
 const entries: PerformanceEntry[] = []
 
-function findMark(name: string): PerformanceMark {
+function findMark(name: string): QBPerformanceMark {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i]
-    if (e.entryType === 'mark' && e.name === name) return e as PerformanceMark
+    if (e.entryType === 'mark' && e.name === name) return e as QBPerformanceMark
   }
   throw new DOMException(
     `Failed to execute 'measure' on 'Performance': The mark '${name}' does not exist.`,
@@ -68,7 +76,7 @@ function findMark(name: string): PerformanceMark {
 perf.timeOrigin = timeOrigin
 
 perf.mark = function mark(name: string, options?: { startTime?: number; detail?: unknown }) {
-  const mark = new PerformanceMark(name, options)
+  const mark = new QBPerformanceMark(name, options)
   entries.push(mark)
   return mark
 }
@@ -82,7 +90,7 @@ perf.measure = function measure(
   let duration: number
   let detail: unknown
 
-  if (startOrOptions != null && typeof startOrOptions === 'object') {
+  if (typeof startOrOptions === 'object') {
     const opts = startOrOptions
     detail = opts.detail
 
@@ -127,7 +135,7 @@ perf.measure = function measure(
     duration = (perf.now as () => number)()
   }
 
-  const measure = new PerformanceMeasure(name, startTime, duration, detail)
+  const measure = new QBPerformanceMeasure(name, startTime, duration, detail)
   entries.push(measure)
   return measure
 }

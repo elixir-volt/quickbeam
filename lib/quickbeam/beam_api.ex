@@ -107,7 +107,7 @@ defmodule QuickBEAM.BeamAPI do
 
     :erpc.call(target, QuickBEAM, :call, [name, fn_name, args])
   rescue
-    e -> raise "RPC failed: #{Exception.message(e)}"
+    e -> reraise RuntimeError, [message: "RPC failed: #{Exception.message(e)}"], __STACKTRACE__
   end
 
   def register_name([name], caller) when is_binary(name) do
@@ -119,10 +119,7 @@ defmodule QuickBEAM.BeamAPI do
   end
 
   def whereis([name]) when is_binary(name) do
-    case Process.whereis(String.to_existing_atom(name)) do
-      nil -> nil
-      pid -> pid
-    end
+    Process.whereis(String.to_existing_atom(name))
   rescue
     ArgumentError -> nil
   end

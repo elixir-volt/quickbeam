@@ -1,4 +1,4 @@
-class DOMTokenList {
+class QBDOMTokenList {
   #element: Element
 
   constructor(element: Element) {
@@ -83,7 +83,7 @@ class DOMTokenList {
     return true
   }
 
-  forEach(callback: (value: string, index: number, list: DOMTokenList) => void): void {
+  forEach(callback: (value: string, index: number, list: QBDOMTokenList) => void): void {
     this.#getClasses().forEach((value, index) => callback(value, index, this))
   }
 
@@ -96,15 +96,14 @@ class DOMTokenList {
   }
 }
 
-;(globalThis as Record<string, unknown>).DOMTokenList = DOMTokenList
+;(globalThis as Record<string, unknown>).DOMTokenList = QBDOMTokenList
 
-const origCreateElement = document.createElement.bind(document)
-const elementCache = new WeakMap<Element, DOMTokenList>()
+const elementCache = new WeakMap<Element, QBDOMTokenList>()
 
-function getClassList(el: Element): DOMTokenList {
+function getClassList(el: Element): QBDOMTokenList {
   let list = elementCache.get(el)
   if (!list) {
-    list = new DOMTokenList(el)
+    list = new QBDOMTokenList(el)
     elementCache.set(el, list)
   }
   return list

@@ -12,23 +12,23 @@ const env = new Proxy({} as Record<string, string | undefined>, {
     return true
   },
   has(_target, prop: string) {
-    return Beam.callSync('__process_env_get', prop) != null
+    return Beam.callSync('__process_env_get', prop) !== null
   },
   ownKeys() {
     return Beam.callSync('__process_env_keys') as string[]
   },
   getOwnPropertyDescriptor(_target, prop: string) {
     const val = Beam.callSync('__process_env_get', prop) as string | undefined
-    if (val === undefined || val === null) return undefined
+    if (val === undefined) return undefined
     return { value: val, writable: true, enumerable: true, configurable: true }
   },
 })
 
-let _platform: string | undefined
-let _arch: string | undefined
-let _pid: number | undefined
+let qbProcessPlatform: string | undefined
+let qbProcessArch: string | undefined
+let qbProcessPid: number | undefined
 
-const process = {
+const qbProcess = {
   env,
   argv: ['beam', 'quickbeam'],
   version: 'v22.0.0',
@@ -37,13 +37,13 @@ const process = {
     quickbeam: '0.2.0',
   },
   get platform() {
-    return (_platform ??= Beam.callSync('__process_platform') as string)
+    return (qbProcessPlatform ??= Beam.callSync('__process_platform') as string)
   },
   get arch() {
-    return (_arch ??= Beam.callSync('__process_arch') as string)
+    return (qbProcessArch ??= Beam.callSync('__process_arch') as string)
   },
   get pid() {
-    return (_pid ??= Beam.callSync('__process_pid') as number)
+    return (qbProcessPid ??= Beam.callSync('__process_pid') as number)
   },
   cwd() {
     return Beam.callSync('__process_cwd') as string
@@ -87,4 +87,4 @@ const process = {
   },
 };
 
-(globalThis as Record<string, unknown>).process = process
+;(globalThis as Record<string, unknown>).process = qbProcess

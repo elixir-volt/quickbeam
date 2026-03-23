@@ -34,45 +34,46 @@ Beam.deepEquals = (a: unknown, b: unknown): boolean => {
   return structuredClone(a) !== undefined && deepEqualsImpl(a, b)
 }
 
+function equalBytes(a: ArrayBufferView | ArrayBuffer, b: ArrayBufferView | ArrayBuffer): boolean {
+  const left = a instanceof ArrayBuffer ? new Uint8Array(a) : new Uint8Array(a.buffer, a.byteOffset, a.byteLength)
+  const right = b instanceof ArrayBuffer ? new Uint8Array(b) : new Uint8Array(b.buffer, b.byteOffset, b.byteLength)
+
+  if (left.length !== right.length) return false
+  for (let i = 0; i < left.length; i++) if (left[i] !== right[i]) return false
+  return true
+}
+
+function equalArrays(a: unknown[], b: unknown[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (!deepEqualsImpl(a[i], b[i])) return false
+  return true
+}
+
+function equalObjects(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const ka = Object.keys(a).sort()
+  const kb = Object.keys(b).sort()
+
+  if (ka.length !== kb.length) return false
+  for (let i = 0; i < ka.length; i++) {
+    if (ka[i] !== kb[i]) return false
+    if (!deepEqualsImpl(a[ka[i]], b[kb[i]])) return false
+  }
+
+  return true
+}
+
 function deepEqualsImpl(a: unknown, b: unknown): boolean {
   if (a === b) return true
   if (a === null || b === null) return false
   if (typeof a !== typeof b) return false
-
   if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime()
   if (a instanceof RegExp && b instanceof RegExp) return a.toString() === b.toString()
-
-  if (a instanceof ArrayBuffer && b instanceof ArrayBuffer) {
-    if (a.byteLength !== b.byteLength) return false
-    const va = new Uint8Array(a), vb = new Uint8Array(b)
-    for (let i = 0; i < va.length; i++) if (va[i] !== vb[i]) return false
-    return true
-  }
-
-  if (ArrayBuffer.isView(a) && ArrayBuffer.isView(b)) {
-    const ta = a as Uint8Array, tb = b as Uint8Array
-    if (ta.length !== tb.length) return false
-    for (let i = 0; i < ta.length; i++) if (ta[i] !== tb[i]) return false
-    return true
-  }
-
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false
-    for (let i = 0; i < a.length; i++) if (!deepEqualsImpl(a[i], b[i])) return false
-    return true
-  }
-
+  if (a instanceof ArrayBuffer && b instanceof ArrayBuffer) return equalBytes(a, b)
+  if (ArrayBuffer.isView(a) && ArrayBuffer.isView(b)) return equalBytes(a, b)
+  if (Array.isArray(a) && Array.isArray(b)) return equalArrays(a, b)
   if (typeof a === 'object' && typeof b === 'object') {
-    const ka = Object.keys(a as object).sort()
-    const kb = Object.keys(b as object).sort()
-    if (ka.length !== kb.length) return false
-    for (let i = 0; i < ka.length; i++) {
-      if (ka[i] !== kb[i]) return false
-      if (!deepEqualsImpl((a as Record<string, unknown>)[ka[i]], (b as Record<string, unknown>)[kb[i]])) return false
-    }
-    return true
+    return equalObjects(a as Record<string, unknown>, b as Record<string, unknown>)
   }
-
   return false
 }
 
@@ -103,8 +104,8 @@ Beam.nodes = (): string[] =>
 Beam.rpc = (node: string, runtimeName: string, fnName: string, ...args: unknown[]): Promise<unknown> =>
   Beam.call('__beam_rpc', node, runtimeName, fnName, ...args)
 
-Beam.spawn = (script: string): unknown =>
-  Beam.callSync('__beam_spawn', script)
+Beam.spawn = (script: string): BeamPid =>
+  Beam.callSync('__beam_spawn', script) as BeamPid
 
 Beam.register = (name: string): boolean =>
   Beam.callSync('__beam_register', name) as boolean

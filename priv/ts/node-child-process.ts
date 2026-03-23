@@ -16,16 +16,16 @@ function execSync(command: string, options?: ExecSyncOptions): string | Uint8Arr
 
   if (result.error === 'ETIMEDOUT') {
     const err = new Error(`Command timed out: "${command}"`)
-    ;(err as Record<string, unknown>).killed = true
-    ;(err as Record<string, unknown>).code = 'ETIMEDOUT'
+    ;(err as unknown as Record<string, unknown>).killed = true
+    ;(err as unknown as Record<string, unknown>).code = 'ETIMEDOUT'
     throw err
   }
 
   if (result.status !== 0) {
     const err = new Error(`Command failed: ${command}\n${result.stdout}`)
-    ;(err as Record<string, unknown>).status = result.status
-    ;(err as Record<string, unknown>).stdout = result.stdout
-    ;(err as Record<string, unknown>).stderr = ''
+    ;(err as unknown as Record<string, unknown>).status = result.status
+    ;(err as unknown as Record<string, unknown>).stdout = result.stdout
+    ;(err as unknown as Record<string, unknown>).stderr = ''
     throw err
   }
 

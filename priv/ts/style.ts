@@ -3,7 +3,6 @@ declare function __qb_css_get_priority(style: string, name: string): string
 declare function __qb_css_serialize(style: string): string
 
 const CAMEL_RE = /[A-Z]/g
-const KEBAB_RE = /-([a-z])/g
 
 function toKebab(name: string): string {
   if (name.startsWith('--')) return name
@@ -61,7 +60,7 @@ function createStyleProxy(element: Element): Record<string, unknown> {
 
     setProperty(name: string, value: string | null, priority?: string): void {
       const kebab = toKebab(name)
-      if (value === null || value === undefined || value === '') {
+      if (value === null || value === '') {
         decl.removeProperty(name)
         return
       }

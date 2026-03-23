@@ -79,6 +79,22 @@ function decodeBytes(bytes: Uint8Array, encoding: Encoding): string {
   }
 }
 
+function writeUint32(target: Uint8Array, value: number, offset: number, littleEndian: boolean): number {
+  if (littleEndian) {
+    target[offset] = value & 0xff
+    target[offset + 1] = (value >>> 8) & 0xff
+    target[offset + 2] = (value >>> 16) & 0xff
+    target[offset + 3] = (value >>> 24) & 0xff
+  } else {
+    target[offset] = (value >>> 24) & 0xff
+    target[offset + 1] = (value >>> 16) & 0xff
+    target[offset + 2] = (value >>> 8) & 0xff
+    target[offset + 3] = value & 0xff
+  }
+
+  return offset + 4
+}
+
 function wrapBuffer(arr: Uint8Array): QBBuffer {
   return new QBBuffer(arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength)
 }
@@ -453,18 +469,10 @@ class QBBuffer extends Uint8Array {
     return offset + 2
   }
   writeUInt32BE(value: number, offset = 0): number {
-    this[offset] = (value >>> 24) & 0xff
-    this[offset + 1] = (value >>> 16) & 0xff
-    this[offset + 2] = (value >>> 8) & 0xff
-    this[offset + 3] = value & 0xff
-    return offset + 4
+    return writeUint32(this, value, offset, false)
   }
   writeUInt32LE(value: number, offset = 0): number {
-    this[offset] = value & 0xff
-    this[offset + 1] = (value >>> 8) & 0xff
-    this[offset + 2] = (value >>> 16) & 0xff
-    this[offset + 3] = (value >>> 24) & 0xff
-    return offset + 4
+    return writeUint32(this, value, offset, true)
   }
   writeInt8(value: number, offset = 0): number {
     this[offset] = value & 0xff
@@ -481,18 +489,10 @@ class QBBuffer extends Uint8Array {
     return offset + 2
   }
   writeInt32BE(value: number, offset = 0): number {
-    this[offset] = (value >>> 24) & 0xff
-    this[offset + 1] = (value >>> 16) & 0xff
-    this[offset + 2] = (value >>> 8) & 0xff
-    this[offset + 3] = value & 0xff
-    return offset + 4
+    return writeUint32(this, value, offset, false)
   }
   writeInt32LE(value: number, offset = 0): number {
-    this[offset] = value & 0xff
-    this[offset + 1] = (value >>> 8) & 0xff
-    this[offset + 2] = (value >>> 16) & 0xff
-    this[offset + 3] = (value >>> 24) & 0xff
-    return offset + 4
+    return writeUint32(this, value, offset, true)
   }
   writeFloatBE(value: number, offset = 0): number {
     this.dv().setFloat32(offset, value, false)

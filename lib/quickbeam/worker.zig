@@ -238,6 +238,7 @@ pub const WorkerState = struct {
             }
 
             if (!skip) {
+                // SAFETY: enif_alloc_binary initializes bin on success before it is read.
                 var bin: e.ErlNifBinary = undefined;
                 if (e.enif_alloc_binary(name_len, &bin) != 0) {
                     @memcpy(bin.data[0..name_len], name_slice[0..name_len]);
@@ -774,6 +775,7 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                     types.send_reply(p.caller_pid, p.ref_env, p.ref_term, result.ok, result.env, result.term, result.json);
                 },
                 .memory_usage => |mu| {
+                    // SAFETY: JS_ComputeMemoryUsage fully initializes usage before it is read.
                     var usage: qjs.JSMemoryUsage = undefined;
                     qjs.JS_ComputeMemoryUsage(state.rt, &usage);
                     const renv = beam.alloc_env();

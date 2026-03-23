@@ -8,7 +8,15 @@ defmodule QuickBEAM.DOM.WPT.ElementTest do
 
   setup do
     {:ok, rt} = QuickBEAM.start()
-    on_exit(fn -> try do QuickBEAM.stop(rt) catch :exit, _ -> :ok end end)
+
+    on_exit(fn ->
+      try do
+        QuickBEAM.stop(rt)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+
     %{rt: rt}
   end
 
@@ -181,13 +189,13 @@ defmodule QuickBEAM.DOM.WPT.ElementTest do
 
     test "removeAttribute removes the attribute", %{rt: rt} do
       refute eval!(rt, """
-            (() => {
-              const el = document.createElement('div')
-              el.setAttribute('foo', 'bar')
-              el.removeAttribute('foo')
-              return el.hasAttribute('foo')
-            })()
-            """)
+             (() => {
+               const el = document.createElement('div')
+               el.setAttribute('foo', 'bar')
+               el.removeAttribute('foo')
+               return el.hasAttribute('foo')
+             })()
+             """)
     end
 
     test "setAttribute overwrites existing value", %{rt: rt} do
@@ -251,13 +259,13 @@ defmodule QuickBEAM.DOM.WPT.ElementTest do
 
     test "remove a class", %{rt: rt} do
       refute eval!(rt, """
-            (() => {
-              const el = document.createElement('div')
-              el.classList.add('foo')
-              el.classList.remove('foo')
-              return el.classList.contains('foo')
-            })()
-            """)
+             (() => {
+               const el = document.createElement('div')
+               el.classList.add('foo')
+               el.classList.remove('foo')
+               return el.classList.contains('foo')
+             })()
+             """)
     end
 
     test "toggle adds when absent", %{rt: rt} do
@@ -272,13 +280,13 @@ defmodule QuickBEAM.DOM.WPT.ElementTest do
 
     test "toggle removes when present", %{rt: rt} do
       refute eval!(rt, """
-            (() => {
-              const el = document.createElement('div')
-              el.classList.add('foo')
-              el.classList.toggle('foo')
-              return el.classList.contains('foo')
-            })()
-            """)
+             (() => {
+               const el = document.createElement('div')
+               el.classList.add('foo')
+               el.classList.toggle('foo')
+               return el.classList.contains('foo')
+             })()
+             """)
     end
 
     test "classList reflects on className", %{rt: rt} do

@@ -49,21 +49,17 @@ defmodule QuickBEAM.JS.Bundler do
     if MapSet.member?(seen, abs_path) do
       {:ok, files, seen}
     else
-      case File.read(abs_path) do
-        {:ok, source} ->
-          seen = MapSet.put(seen, abs_path)
-          files = [{label, source} | files]
-
-          case extract_imports(source, abs_path) do
-            {:ok, specifiers} ->
-              collect_imports(specifiers, abs_path, node_modules, files, seen)
-
-            {:error, _} = error ->
-              error
-          end
-
-        {:error, reason} ->
+      with {:ok, source} <- File.read(abs_path),
+           {:ok, specifiers} <- extract_imports(source, abs_path) do
+        seen = MapSet.put(seen, abs_path)
+        files = [{label, source} | files]
+        collect_imports(specifiers, abs_path, node_modules, files, seen)
+      else
+        {:error, reason} when is_atom(reason) ->
           {:error, {:file_read_error, abs_path, reason}}
+
+        {:error, _} = error ->
+          error
       end
     end
   end

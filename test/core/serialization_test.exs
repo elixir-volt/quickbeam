@@ -145,9 +145,11 @@ defmodule QuickBEAM.Core.SerializationTest do
     end
 
     test "deeply nested object truncates at max depth", %{rt: rt} do
-      {:ok, result} = QuickBEAM.eval(rt, """
-        var o = {v: 1}; for(var i=0; i<50; i++) o = {n: o}; o
-      """)
+      {:ok, result} =
+        QuickBEAM.eval(rt, """
+          var o = {v: 1}; for(var i=0; i<50; i++) o = {n: o}; o
+        """)
+
       assert is_map(result)
     end
 
@@ -160,15 +162,19 @@ defmodule QuickBEAM.Core.SerializationTest do
   describe "configurable convert limits" do
     test "max_convert_depth limits nesting", _context do
       {:ok, rt} = QuickBEAM.start(max_convert_depth: 2)
+
       assert {:ok, %{"a" => %{"b" => %{"c" => nil}}}} =
                QuickBEAM.eval(rt, "({a: {b: {c: {d: 42}}}})")
     end
 
     test "max_convert_nodes limits total nodes", _context do
       {:ok, rt} = QuickBEAM.start(max_convert_nodes: 5)
-      {:ok, result} = QuickBEAM.eval(rt, """
-        ({a: 1, b: 2, c: 3, d: {e: {f: 42}}})
-      """)
+
+      {:ok, result} =
+        QuickBEAM.eval(rt, """
+          ({a: 1, b: 2, c: 3, d: {e: {f: 42}}})
+        """)
+
       assert is_map(result)
       deep = get_in(result, ["d", "e", "f"])
       assert deep == nil

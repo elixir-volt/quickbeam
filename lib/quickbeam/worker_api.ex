@@ -32,9 +32,14 @@ defmodule QuickBEAM.WorkerAPI do
     QuickBEAM.eval(child, @worker_bootstrap)
 
     Task.start(fn ->
-      case QuickBEAM.eval(child, script) do
-        {:ok, _} -> :ok
-        {:error, err} -> send(parent_pid, {:worker_error, worker_id, err})
+      try do
+        case QuickBEAM.eval(child, script) do
+          {:ok, _} -> :ok
+          {:error, err} -> send(parent_pid, {:worker_error, worker_id, err})
+        end
+      catch
+        :exit, {:normal, _} -> :ok
+        :exit, :normal -> :ok
       end
     end)
 

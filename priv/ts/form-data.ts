@@ -1,4 +1,6 @@
-import { Blob, File, SYM_BYTES } from './blob'
+import { File, SYM_BYTES } from './blob'
+
+import type { Blob } from './blob'
 
 type FormDataEntryValue = string | File
 
@@ -11,10 +13,10 @@ function normalizeValue(value: string | Blob, filename?: string): FormDataEntryV
   if (typeof value === 'string') return value
   if (value instanceof File) {
     return filename !== undefined
-      ? new File([value[SYM_BYTES]()], filename, { type: value.type, lastModified: value.lastModified })
+      ? new File([value[SYM_BYTES]().slice()], filename, { type: value.type, lastModified: value.lastModified })
       : value
   }
-  return new File([value[SYM_BYTES]()], filename ?? 'blob', { type: value.type })
+  return new File([value[SYM_BYTES]().slice()], filename ?? 'blob', { type: value.type })
 }
 
 export class FormData {

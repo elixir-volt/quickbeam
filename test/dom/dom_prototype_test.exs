@@ -23,7 +23,10 @@ defmodule QuickBEAM.DOM.DOMPrototypeTest do
 
     test "HTMLSpanElement", %{runtime: rt} do
       assert {:ok, "[object HTMLSpanElement]"} =
-               QuickBEAM.eval(rt, "Object.prototype.toString.call(document.createElement('span'))")
+               QuickBEAM.eval(
+                 rt,
+                 "Object.prototype.toString.call(document.createElement('span'))"
+               )
     end
 
     test "HTMLAnchorElement", %{runtime: rt} do
@@ -38,12 +41,18 @@ defmodule QuickBEAM.DOM.DOMPrototypeTest do
 
     test "HTMLInputElement", %{runtime: rt} do
       assert {:ok, "[object HTMLInputElement]"} =
-               QuickBEAM.eval(rt, "Object.prototype.toString.call(document.createElement('input'))")
+               QuickBEAM.eval(
+                 rt,
+                 "Object.prototype.toString.call(document.createElement('input'))"
+               )
     end
 
     test "HTMLUnknownElement for custom tags", %{runtime: rt} do
       assert {:ok, "[object HTMLUnknownElement]"} =
-               QuickBEAM.eval(rt, "Object.prototype.toString.call(document.createElement('my-component'))")
+               QuickBEAM.eval(
+                 rt,
+                 "Object.prototype.toString.call(document.createElement('my-component'))"
+               )
     end
 
     test "generic HTMLElement for semantic tags", %{runtime: rt} do
@@ -63,7 +72,10 @@ defmodule QuickBEAM.DOM.DOMPrototypeTest do
 
     test "DocumentFragment", %{runtime: rt} do
       assert {:ok, "[object DocumentFragment]"} =
-               QuickBEAM.eval(rt, "Object.prototype.toString.call(document.createDocumentFragment())")
+               QuickBEAM.eval(
+                 rt,
+                 "Object.prototype.toString.call(document.createDocumentFragment())"
+               )
     end
 
     test "Document", %{runtime: rt} do

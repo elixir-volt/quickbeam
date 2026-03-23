@@ -69,20 +69,22 @@ defmodule QuickBEAM.JS do
   # auto-included when any group that needs them is requested.
   # Each group's barrel assigns its exports to globalThis.
 
-  @core_js [Compiler.bundle_modules(
-    @ts_dir,
-    ~w[event dom-exception event-target abort],
-    """
-    import { AbortSignal, AbortController } from './abort'
-    import { DOMException } from './dom-exception'
-    import { Event, MessageEvent, CloseEvent, ErrorEvent } from './event'
-    import { EventTarget } from './event-target'
-    Object.assign(globalThis, {
-      DOMException, Event, MessageEvent, CloseEvent, ErrorEvent,
-      EventTarget, AbortSignal, AbortController
-    })
-    """
-  )]
+  @core_js [
+    Compiler.bundle_modules(
+      @ts_dir,
+      ~w[event dom-exception event-target abort],
+      """
+      import { AbortSignal, AbortController } from './abort'
+      import { DOMException } from './dom-exception'
+      import { Event, MessageEvent, CloseEvent, ErrorEvent } from './event'
+      import { EventTarget } from './event-target'
+      Object.assign(globalThis, {
+        DOMException, Event, MessageEvent, CloseEvent, ErrorEvent,
+        EventTarget, AbortSignal, AbortController
+      })
+      """
+    )
+  ]
 
   @process_js Compiler.standalone(@ts_dir, ~w[process])
 
@@ -92,77 +94,94 @@ defmodule QuickBEAM.JS do
   @needs_process ~w[worker websocket eventsource]a
 
   @api_groups %{
-    fetch: [Compiler.bundle_modules(
-      @ts_dir,
-      ~w[event dom-exception event-target abort headers blob streams form-data fetch text-streams],
-      """
-      import { Blob, File } from './blob'
-      import { Request, Response, fetch } from './fetch'
-      import { FormData } from './form-data'
-      import { Headers } from './headers'
-      import { ReadableStream, ReadableStreamDefaultReader, WritableStream, WritableStreamDefaultWriter, TransformStream } from './streams'
-      import { TextDecoderStream, TextEncoderStream } from './text-streams'
-      Object.assign(globalThis, {
-        ReadableStream, ReadableStreamDefaultReader,
-        WritableStream, WritableStreamDefaultWriter, TransformStream,
-        TextEncoderStream, TextDecoderStream, Blob, File, FormData, Headers,
-        Request, Response, fetch
-      })
-      """
-    )],
-    websocket: [Compiler.bundle_modules(
-      @ts_dir,
-      ~w[event dom-exception event-target abort blob streams websocket],
-      """
-      import { WebSocket } from './websocket'
-      globalThis.WebSocket = WebSocket
-      """
-    )],
-    worker: [Compiler.bundle_modules(
-      @ts_dir,
-      ~w[event dom-exception event-target worker],
-      """
-      import { Worker } from './worker'
-      globalThis.Worker = Worker
-      """
-    )],
-    channel: [Compiler.bundle_modules(
-      @ts_dir,
-      ~w[event dom-exception event-target broadcast-channel message-channel],
-      """
-      import { BroadcastChannel } from './broadcast-channel'
-      import { MessageChannel, MessagePort } from './message-channel'
-      Object.assign(globalThis, { BroadcastChannel, MessageChannel, MessagePort })
-      """
-    )],
-    eventsource: [Compiler.bundle_modules(
-      @ts_dir,
-      ~w[event dom-exception event-target event-source],
-      """
-      import { EventSource } from './event-source'
-      globalThis.EventSource = EventSource
-      """
-    )],
+    fetch: [
+      Compiler.bundle_modules(
+        @ts_dir,
+        ~w[event dom-exception event-target abort headers blob streams form-data fetch text-streams],
+        """
+        import { Blob, File } from './blob'
+        import { Request, Response, fetch } from './fetch'
+        import { FormData } from './form-data'
+        import { Headers } from './headers'
+        import { ReadableStream, ReadableStreamDefaultReader, WritableStream, WritableStreamDefaultWriter, TransformStream } from './streams'
+        import { TextDecoderStream, TextEncoderStream } from './text-streams'
+        Object.assign(globalThis, {
+          ReadableStream, ReadableStreamDefaultReader,
+          WritableStream, WritableStreamDefaultWriter, TransformStream,
+          TextEncoderStream, TextDecoderStream, Blob, File, FormData, Headers,
+          Request, Response, fetch
+        })
+        """
+      )
+    ],
+    websocket: [
+      Compiler.bundle_modules(
+        @ts_dir,
+        ~w[event dom-exception event-target abort blob streams websocket],
+        """
+        import { WebSocket } from './websocket'
+        globalThis.WebSocket = WebSocket
+        """
+      )
+    ],
+    worker: [
+      Compiler.bundle_modules(
+        @ts_dir,
+        ~w[event dom-exception event-target worker],
+        """
+        import { Worker } from './worker'
+        globalThis.Worker = Worker
+        """
+      )
+    ],
+    channel: [
+      Compiler.bundle_modules(
+        @ts_dir,
+        ~w[event dom-exception event-target broadcast-channel message-channel],
+        """
+        import { BroadcastChannel } from './broadcast-channel'
+        import { MessageChannel, MessagePort } from './message-channel'
+        Object.assign(globalThis, { BroadcastChannel, MessageChannel, MessagePort })
+        """
+      )
+    ],
+    eventsource: [
+      Compiler.bundle_modules(
+        @ts_dir,
+        ~w[event dom-exception event-target event-source],
+        """
+        import { EventSource } from './event-source'
+        globalThis.EventSource = EventSource
+        """
+      )
+    ],
     url: Compiler.standalone(@ts_dir, ~w[url]),
     crypto: Compiler.standalone(@ts_dir, ~w[crypto-subtle]),
     compression: Compiler.standalone(@ts_dir, ~w[compression]),
     buffer: Compiler.standalone(@ts_dir, ~w[buffer]),
-    dom: Compiler.standalone(@ts_dir, ~w[class-list style dom-events performance mutation-observer]),
-    console: [Compiler.bundle_modules(
-      @ts_dir,
-      ~w[console-ext],
-      "import './console-ext'"
-    )],
-    storage: [Compiler.bundle_modules(
-      @ts_dir,
-      ~w[storage],
-      "import './storage'"
-    )],
-    locks: [Compiler.bundle_modules(
-      @ts_dir,
-      ~w[event dom-exception event-target locks],
-      "import './locks'"
-    )],
+    dom:
+      Compiler.standalone(@ts_dir, ~w[class-list style dom-events performance mutation-observer]),
+    console: [
+      Compiler.bundle_modules(
+        @ts_dir,
+        ~w[console-ext],
+        "import './console-ext'"
+      )
+    ],
+    storage: [
+      Compiler.bundle_modules(
+        @ts_dir,
+        ~w[storage],
+        "import './storage'"
+      )
+    ],
+    locks: [
+      Compiler.bundle_modules(
+        @ts_dir,
+        ~w[event dom-exception event-target locks],
+        "import './locks'"
+      )
+    ]
   }
 
   @browser_groups ~w[fetch websocket worker channel eventsource url crypto compression buffer dom console storage locks]a
@@ -181,24 +200,16 @@ defmodule QuickBEAM.JS do
              ~w[node-process node-path node-fs node-os node-child-process]
            )
 
-  @doc false
   def browser_js, do: @browser_js
-  @doc false
   def beam_js, do: @beam_js
-  @doc false
   def node_js, do: @node_js
-  @doc false
-  def core_js, do: @core_js
-  @doc false
-  def process_js, do: @process_js
-  @doc false
-  def api_group(name), do: Map.fetch!(@api_groups, name)
-  @doc false
-  def browser_groups, do: @browser_groups
-  @doc false
-  def needs_core, do: @needs_core
-  @doc false
-  def needs_process, do: @needs_process
+
+  defp core_js, do: @core_js
+  defp process_js, do: @process_js
+  defp api_group(name), do: Map.fetch!(@api_groups, name)
+  defp browser_groups, do: @browser_groups
+  defp needs_core, do: @needs_core
+  defp needs_process, do: @needs_process
 
   @doc false
   def js_for_apis(apis) do
@@ -206,22 +217,19 @@ defmodule QuickBEAM.JS do
       @browser_js
     else
       groups = expand_apis(apis)
-      needs_core? = Enum.any?(groups, &(&1 in @needs_core))
-      needs_process? = Enum.any?(groups, &(&1 in @needs_process))
+      needs_core? = Enum.any?(groups, &(&1 in needs_core()))
+      needs_process? = Enum.any?(groups, &(&1 in needs_process()))
 
-      js = if needs_core?, do: @core_js, else: []
-      js = if needs_process?, do: js ++ @process_js, else: js
+      js = if needs_core?, do: core_js(), else: []
+      js = if needs_process?, do: js ++ process_js(), else: js
 
-      js ++
-        Enum.flat_map(groups, fn group ->
-          Map.fetch!(@api_groups, group)
-        end)
+      js ++ Enum.flat_map(groups, &api_group/1)
     end
   end
 
   defp expand_apis(apis) do
     Enum.flat_map(apis, fn
-      :browser -> @browser_groups
+      :browser -> browser_groups()
       :beam -> []
       :node -> []
       group when is_atom(group) -> [group]

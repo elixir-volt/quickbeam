@@ -1,7 +1,6 @@
 const types = @import("types.zig");
 const js = @import("js_helpers.zig");
 const beam_to_js = @import("beam_to_js.zig");
-const std = types.std;
 const beam = types.beam;
 const e = types.e;
 const qjs = types.qjs;
@@ -19,6 +18,7 @@ fn lookupKey(data: *BeamProxyData, key: []const u8, result: *e.ErlNifTerm) bool 
     // Use a scratch env so we don't mutate the proxy's env heap.
     const scratch = beam.alloc_env() orelse return false;
     defer beam.free_env(scratch);
+    // SAFETY: enif_make_new_binary initializes bin_term before it is read.
     var bin_term: e.ErlNifTerm = undefined;
     const bin_ptr = e.enif_make_new_binary(scratch, key.len, &bin_term);
     if (bin_ptr != null) {
@@ -32,6 +32,7 @@ fn lookupKey(data: *BeamProxyData, key: []const u8, result: *e.ErlNifTerm) bool 
     }
 
     // Try atom key
+    // SAFETY: enif_make_existing_atom_len initializes atom_key on success before use.
     var atom_key: e.ErlNifTerm = undefined;
     if (e.enif_make_existing_atom_len(data.env, key.ptr, key.len, &atom_key, e.ERL_NIF_LATIN1) != 0) {
         if (e.enif_get_map_value(data.env, data.term, atom_key, result) != 0) {
@@ -67,6 +68,7 @@ fn get_own_property(ctx: ?*qjs.JSContext, desc: ?*qjs.JSPropertyDescriptor, obj:
     if (key_ptr == null) return 0;
     defer qjs.JS_FreeCString(ctx, key_ptr);
 
+    // SAFETY: lookupKey writes result before any successful read.
     var result: e.ErlNifTerm = undefined;
     if (!lookupKey(data, key_ptr[0..len], &result)) return 0;
 
@@ -100,6 +102,7 @@ fn get_own_property_names(ctx: ?*qjs.JSContext, ptab: [*c][*c]qjs.JSPropertyEnum
     const raw = qjs.js_malloc(ctx, byte_size) orelse return -1;
     const tab: [*]qjs.JSPropertyEnum = @ptrCast(@alignCast(raw));
 
+    // SAFETY: enif_map_iterator_create initializes iter on success before use.
     var iter: e.ErlNifMapIterator = undefined;
     if (e.enif_map_iterator_create(data.env, data.term, &iter, e.ERL_NIF_MAP_ITERATOR_FIRST) == 0) {
         qjs.js_free(ctx, raw);
@@ -107,7 +110,9 @@ fn get_own_property_names(ctx: ?*qjs.JSContext, ptab: [*c][*c]qjs.JSPropertyEnum
     }
     defer e.enif_map_iterator_destroy(data.env, &iter);
 
+    // SAFETY: enif_map_iterator_get_pair initializes key and val before use.
     var key: e.ErlNifTerm = undefined;
+    // SAFETY: enif_map_iterator_get_pair initializes val before use.
     var val: e.ErlNifTerm = undefined;
     var idx: u32 = 0;
 
@@ -117,6 +122,7 @@ fn get_own_property_names(ctx: ?*qjs.JSContext, ptab: [*c][*c]qjs.JSPropertyEnum
         var key_str: [256]u8 = undefined;
         var key_len: usize = 0;
 
+        // SAFETY: enif_inspect_binary initializes bin on success before use.
         var bin: e.ErlNifBinary = undefined;
         if (e.enif_inspect_binary(data.env, key, &bin) != 0) {
             const copy_len = @min(bin.size, key_str.len);
@@ -148,6 +154,7 @@ fn get_own_property_names(ctx: ?*qjs.JSContext, ptab: [*c][*c]qjs.JSPropertyEnum
             const okey = qjs.JS_AtomToCStringLen(ctx, &olen, otab[i].atom);
             if (okey != null) {
                 defer qjs.JS_FreeCString(ctx, okey);
+                // SAFETY: lookupKey writes dummy before any successful read.
                 var dummy: e.ErlNifTerm = undefined;
                 if (!lookupKey(data, okey[0..olen], &dummy)) {
                     if (idx < total) {
@@ -195,6 +202,7 @@ fn has_property(ctx: ?*qjs.JSContext, obj: qjs.JSValue, atom: qjs.JSAtom) callco
     if (key_ptr == null) return 0;
     defer qjs.JS_FreeCString(ctx, key_ptr);
 
+    // SAFETY: lookupKey writes result before any successful read.
     var result: e.ErlNifTerm = undefined;
     return if (lookupKey(data, key_ptr[0..len], &result)) 1 else 0;
 }

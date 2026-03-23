@@ -81,21 +81,23 @@ defmodule QuickBEAM.Bytecode do
       filename: map["filename"],
       line: map["line"],
       column: map["column"],
-      is_strict: map["is_strict"] || false,
-      kind: map["kind"] || "normal",
-      arg_count: map["arg_count"] || 0,
-      defined_arg_count: map["defined_arg_count"] || 0,
-      var_count: map["var_count"] || 0,
-      stack_size: map["stack_size"] || 0,
-      byte_code_len: map["byte_code_len"] || 0,
+      is_strict: fetch(map, "is_strict", false),
+      kind: fetch(map, "kind", "normal"),
+      arg_count: fetch(map, "arg_count", 0),
+      defined_arg_count: fetch(map, "defined_arg_count", 0),
+      var_count: fetch(map, "var_count", 0),
+      stack_size: fetch(map, "stack_size", 0),
+      byte_code_len: fetch(map, "byte_code_len", 0),
       source: map["source"],
-      args: map["args"] || [],
-      locals: map["locals"] || [],
-      closure_vars: map["closure_vars"] || [],
-      opcodes: build_opcodes(map["opcodes"] || []),
-      cpool: build_cpool(map["cpool"] || [])
+      args: fetch(map, "args", []),
+      locals: fetch(map, "locals", []),
+      closure_vars: fetch(map, "closure_vars", []),
+      opcodes: map |> fetch("opcodes", []) |> build_opcodes(),
+      cpool: map |> fetch("cpool", []) |> build_cpool()
     }
   end
+
+  defp fetch(map, key, default), do: Map.get(map, key, default)
 
   defp build_opcodes(ops) do
     Enum.map(ops, fn
