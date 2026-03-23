@@ -5,6 +5,7 @@ const js_to_beam = @import("js_to_beam.zig");
 const beam_to_js = @import("beam_to_js.zig");
 const beam_proxy = @import("beam_proxy.zig");
 const dom = @import("dom.zig");
+const napi_mod = @import("napi.zig");
 pub const atom_cache = @import("atom_cache.zig");
 const std = types.std;
 const beam = types.beam;
@@ -693,6 +694,7 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
     types.class_ids_mutex.unlock();
 
     beam_proxy.initRuntime(rt);
+    napi_mod.initRuntime(rt);
 
     const ctx = qjs.JS_NewContext(rt) orelse return;
 

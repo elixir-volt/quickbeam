@@ -330,7 +330,7 @@ pub const ThreadSafeFunction = struct {
     finalize_cb: napi_finalize = null,
     finalize_data: ?*anyopaque = null,
     thread_count: std.atomic.Value(i64) = std.atomic.Value(i64).init(0),
-    queue: std.ArrayList(?*anyopaque) = std.ArrayList(?*anyopaque).init(gpa),
+    queue: std.ArrayListUnmanaged(?*anyopaque) = .{},
     max_queue_size: usize = 0,
     lock: std.Thread.Mutex = .{},
     condvar: std.Thread.Condition = .{},
@@ -340,7 +340,7 @@ pub const ThreadSafeFunction = struct {
         if (self.callback) |cb| {
             qjs.JS_FreeValue(self.env.ctx, cb);
         }
-        self.queue.deinit();
+        self.queue.deinit(gpa);
         gpa.destroy(self);
     }
 };
