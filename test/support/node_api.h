@@ -13,24 +13,37 @@ typedef struct napi_callback_info__* napi_callback_info;
 typedef struct napi_deferred__* napi_deferred;
 
 typedef unsigned int napi_status;
+typedef unsigned int napi_valuetype;
+
+enum {
+    napi_undefined = 0,
+    napi_null = 1,
+    napi_boolean = 2,
+    napi_number = 3,
+    napi_string = 4,
+    napi_symbol = 5,
+    napi_object = 6,
+    napi_function = 7,
+    napi_external = 8,
+    napi_bigint = 9,
+};
 
 #define napi_ok 0
-
 typedef napi_value (*napi_callback)(napi_env env, napi_callback_info info);
-typedef void (*napi_finalize)(napi_env env, void* finalize_data, void* finalize_hint);
-
 #define NAPI_AUTO_LENGTH ((size_t)-1)
 
-napi_status napi_create_string_utf8(napi_env env, const char* str, size_t length, napi_value* result);
-napi_status napi_create_function(napi_env env, const char* utf8name, size_t length,
-                                  napi_callback cb, void* data, napi_value* result);
-napi_status napi_set_named_property(napi_env env, napi_value object,
-                                     const char* utf8name, napi_value value);
-napi_status napi_get_cb_info(napi_env env, napi_callback_info cbinfo,
-                              size_t* argc, napi_value* argv,
-                              napi_value* this_arg, void** data);
-napi_status napi_get_value_double(napi_env env, napi_value value, double* result);
-napi_status napi_create_double(napi_env env, double value, napi_value* result);
+napi_status napi_create_string_utf8(napi_env, const char*, size_t, napi_value*);
+napi_status napi_create_function(napi_env, const char*, size_t, napi_callback, void*, napi_value*);
+napi_status napi_set_named_property(napi_env, napi_value, const char*, napi_value);
+napi_status napi_get_cb_info(napi_env, napi_callback_info, size_t*, napi_value*, napi_value*, void**);
+napi_status napi_get_value_double(napi_env, napi_value, double*);
+napi_status napi_create_double(napi_env, double, napi_value*);
+napi_status napi_create_int32(napi_env, int32_t, napi_value*);
+napi_status napi_create_object(napi_env, napi_value*);
+napi_status napi_create_array(napi_env, napi_value*);
+napi_status napi_set_element(napi_env, napi_value, uint32_t, napi_value);
+napi_status napi_typeof(napi_env, napi_value, napi_valuetype*);
+napi_status napi_get_value_string_utf8(napi_env, napi_value, char*, size_t, size_t*);
 
 #ifdef __cplusplus
 #define NAPI_MODULE_EXPORT extern "C" __attribute__((visibility("default")))

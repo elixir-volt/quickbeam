@@ -6,6 +6,7 @@ const beam_to_js = @import("beam_to_js.zig");
 const beam_proxy = @import("beam_proxy.zig");
 const dom = @import("dom.zig");
 const napi_mod = @import("napi.zig");
+const nt = @import("napi_types.zig");
 pub const atom_cache = @import("atom_cache.zig");
 const std = types.std;
 const beam = types.beam;
@@ -595,6 +596,15 @@ pub const WorkerState = struct {
                     .delete_globals => |dg| self.delete_global_names(dg),
                     .snapshot_globals => self.snapshot_globals(),
                     .list_globals => |lg| self.list_globals(lg),
+                    .napi_async_complete => |p| {
+                        if (p.work.complete) |complete| {
+                            const ns: nt.napi_status = if (p.work.status.load(.seq_cst) == .cancelled)
+                                @intFromEnum(nt.Status.cancelled)
+                            else
+                                @intFromEnum(nt.Status.ok);
+                            complete(p.work.env, ns, p.work.data);
+                        }
+                    },
                     .stop => {
                         result.ok = false;
                         result.json = "Runtime stopped";
@@ -643,7 +653,7 @@ pub const WorkerState = struct {
     pub fn do_load_addon(self: *WorkerState, path: [:0]const u8, result: *Result) void {
         // Create or reuse the NapiEnv for this worker
         if (self.napi_env == null) {
-            self.napi_env = napi_mod.createEnv(self.ctx, self.rt);
+            self.napi_env = napi_mod.createEnvWithRd(self.ctx, self.rt, self.rd);
         }
         const env = self.napi_env.?;
 
@@ -875,6 +885,16 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                         .array_count = usage.array_count,
                     }, .{ .env = renv });
                     types.send_reply(mu.caller_pid, mu.ref_env, mu.ref_term, true, renv, result_term.v, "");
+                },
+                .napi_async_complete => |p| {
+                    const work = p.work;
+                    if (work.complete) |complete| {
+                        const napi_status: nt.napi_status = if (work.status.load(.seq_cst) == .cancelled)
+                            @intFromEnum(nt.Status.cancelled)
+                        else
+                            @intFromEnum(nt.Status.ok);
+                        complete(work.env, napi_status, work.data);
+                    }
                 },
                 .load_addon => |p| {
                     var result = Result{};

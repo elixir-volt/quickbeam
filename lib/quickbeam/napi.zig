@@ -1449,6 +1449,7 @@ pub export fn napi_create_async_work(
         .execute = execute,
         .complete = if (complete) |c| c else null,
         .data = data,
+        .rd = env.runtime_data,
     };
     r.* = work;
     return env.ok();
@@ -1465,6 +1466,9 @@ pub export fn napi_queue_async_work(env_: napi_env, work_: napi_async_work) call
     const env = env_ orelse return @intFromEnum(Status.invalid_arg);
     const work: *AsyncWork = work_ orelse return env.invalidArg();
 
+    // The work needs access to RuntimeData to enqueue the completion message
+    if (work.rd == null) return env.genericFailure();
+
     work.thread = std.Thread.spawn(.{}, asyncWorkRunner, .{work}) catch return env.genericFailure();
     return env.ok();
 }
@@ -1472,10 +1476,16 @@ pub export fn napi_queue_async_work(env_: napi_env, work_: napi_async_work) call
 fn asyncWorkRunner(work: *AsyncWork) void {
     work.status.store(.started, .release);
     work.execute(work.env, work.data);
-    work.status.store(.completed, .release);
 
-    if (work.complete) |complete| {
-        complete(work.env, @intFromEnum(Status.ok), work.data);
+    const final_status: AsyncWork.AsyncStatus = if (work.status.cmpxchgStrong(.started, .completed, .seq_cst, .seq_cst) == null)
+        .completed
+    else
+        .cancelled;
+    _ = final_status;
+
+    // Dispatch completion back to the worker thread
+    if (work.rd) |rd| {
+        types.enqueue(rd, .{ .napi_async_complete = .{ .work = work } });
     }
 }
 
@@ -1775,6 +1785,269 @@ pub export fn napi_new_instance(env_: napi_env, constructor: napi_value, argc: u
     return env.ok();
 }
 
+// ──────────────────── Define Class ────────────────────
+
+pub export fn napi_define_class(
+    env_: napi_env,
+    utf8name: [*c]const u8,
+    length: usize,
+    constructor_cb: napi_callback,
+    cb_data: ?*anyopaque,
+    property_count: usize,
+    properties: [*c]const napi_property_descriptor,
+    result: ?*napi_value,
+) callconv(.c) napi_status {
+    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
+    const r = result orelse return env.invalidArg();
+    const ctor_fn = constructor_cb orelse return env.invalidArg();
+    _ = length;
+
+    // Create the constructor function
+    const cbd = gpa.create(FunctionCallbackData) catch return env.genericFailure();
+    cbd.* = .{ .cb = ctor_fn, .data = cb_data, .env = env };
+    const ptr_as_int: i64 = @bitCast(@intFromPtr(cbd));
+    var func_data = [_]qjs.JSValue{qjs.JS_NewInt64(env.ctx, ptr_as_int)};
+    const ctor = qjs.JS_NewCFunctionData(env.ctx, &napiCallbackTrampoline, 0, 0, 1, &func_data);
+    if (js.js_is_exception(ctor)) {
+        gpa.destroy(cbd);
+        return env.genericFailure();
+    }
+
+    // Mark as constructor
+    _ = qjs.JS_SetConstructorBit(env.ctx, ctor, true);
+
+    if (utf8name != null) {
+        const name_val = qjs.JS_NewString(env.ctx, utf8name);
+        _ = qjs.JS_DefinePropertyValueStr(env.ctx, ctor, "name", name_val, 0);
+    }
+
+    // Create prototype object
+    const proto = qjs.JS_NewObject(env.ctx);
+
+    // Set constructor.prototype = proto, proto.constructor = constructor
+    _ = qjs.JS_SetPropertyStr(env.ctx, ctor, "prototype", qjs.JS_DupValue(env.ctx, proto));
+    _ = qjs.JS_SetPropertyStr(env.ctx, proto, "constructor", qjs.JS_DupValue(env.ctx, ctor));
+
+    // Add properties — static ones go on the constructor, instance ones on the prototype
+    for (0..property_count) |i| {
+        const prop = properties[i];
+        const target = if (prop.attributes & nt.NAPI_STATIC != 0) ctor else proto;
+
+        const name_atom: qjs.JSAtom = if (prop.utf8name != null)
+            qjs.JS_NewAtom(env.ctx, prop.utf8name)
+        else if (prop.name) |n|
+            qjs.JS_ValueToAtom(env.ctx, n.*)
+        else
+            continue;
+        defer qjs.JS_FreeAtom(env.ctx, name_atom);
+
+        var flags: c_int = 0;
+        if (prop.attributes & nt.NAPI_WRITABLE != 0) flags |= qjs.JS_PROP_WRITABLE;
+        if (prop.attributes & nt.NAPI_ENUMERABLE != 0) flags |= qjs.JS_PROP_ENUMERABLE;
+        if (prop.attributes & nt.NAPI_CONFIGURABLE != 0) flags |= qjs.JS_PROP_CONFIGURABLE;
+
+        if (prop.method) |method| {
+            const mcbd = gpa.create(FunctionCallbackData) catch continue;
+            mcbd.* = .{ .cb = method, .data = prop.data, .env = env };
+            const mptr: i64 = @bitCast(@intFromPtr(mcbd));
+            var mfunc_data = [_]qjs.JSValue{qjs.JS_NewInt64(env.ctx, mptr)};
+            const func = qjs.JS_NewCFunctionData(env.ctx, &napiCallbackTrampoline, 0, 0, 1, &mfunc_data);
+            _ = qjs.JS_DefinePropertyValue(env.ctx, target, name_atom, func, flags | qjs.JS_PROP_HAS_VALUE);
+        } else if (prop.getter != null or prop.setter != null) {
+            var getter_val = js.js_undefined();
+            var setter_val = js.js_undefined();
+
+            if (prop.getter) |getter| {
+                const gcbd = gpa.create(FunctionCallbackData) catch continue;
+                gcbd.* = .{ .cb = getter, .data = prop.data, .env = env };
+                const gptr: i64 = @bitCast(@intFromPtr(gcbd));
+                var gfunc_data = [_]qjs.JSValue{qjs.JS_NewInt64(env.ctx, gptr)};
+                getter_val = qjs.JS_NewCFunctionData(env.ctx, &napiCallbackTrampoline, 0, 0, 1, &gfunc_data);
+            }
+            if (prop.setter) |setter| {
+                const scbd = gpa.create(FunctionCallbackData) catch continue;
+                scbd.* = .{ .cb = setter, .data = prop.data, .env = env };
+                const sptr: i64 = @bitCast(@intFromPtr(scbd));
+                var sfunc_data = [_]qjs.JSValue{qjs.JS_NewInt64(env.ctx, sptr)};
+                setter_val = qjs.JS_NewCFunctionData(env.ctx, &napiCallbackTrampoline, 0, 0, 1, &sfunc_data);
+            }
+
+            _ = qjs.JS_DefinePropertyGetSet(env.ctx, target, name_atom, getter_val, setter_val, flags | qjs.JS_PROP_HAS_GET | qjs.JS_PROP_HAS_SET);
+        } else if (prop.value) |v| {
+            _ = qjs.JS_DefinePropertyValue(env.ctx, target, name_atom, qjs.JS_DupValue(env.ctx, v.*), flags | qjs.JS_PROP_HAS_VALUE);
+        }
+    }
+
+    qjs.JS_FreeValue(env.ctx, proto);
+
+    r.* = env.createNapiValue(ctor);
+    qjs.JS_FreeValue(env.ctx, ctor);
+    return env.ok();
+}
+
+// ──────────────────── TypedArray ────────────────────
+
+pub export fn napi_create_typedarray(
+    env_: napi_env,
+    array_type: napi_typedarray_type,
+    length: usize,
+    arraybuffer: napi_value,
+    byte_offset: usize,
+    result: ?*napi_value,
+) callconv(.c) napi_status {
+    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
+    const r = result orelse return env.invalidArg();
+    const ab = toVal(arraybuffer);
+
+    // Get the TypedArray constructor name
+    const ctor_name: [*:0]const u8 = switch (array_type) {
+        .int8_array => "Int8Array",
+        .uint8_array => "Uint8Array",
+        .uint8_clamped_array => "Uint8ClampedArray",
+        .int16_array => "Int16Array",
+        .uint16_array => "Uint16Array",
+        .int32_array => "Int32Array",
+        .uint32_array => "Uint32Array",
+        .float32_array => "Float32Array",
+        .float64_array => "Float64Array",
+        .bigint64_array => "BigInt64Array",
+        .biguint64_array => "BigUint64Array",
+    };
+
+    // Get the constructor from global
+    const global = qjs.JS_GetGlobalObject(env.ctx);
+    defer qjs.JS_FreeValue(env.ctx, global);
+    const ctor = qjs.JS_GetPropertyStr(env.ctx, global, ctor_name);
+    defer qjs.JS_FreeValue(env.ctx, ctor);
+
+    // new TypedArray(buffer, byteOffset, length)
+    var args = [_]qjs.JSValue{
+        ab,
+        qjs.JS_NewUint32(env.ctx, @intCast(byte_offset)),
+        qjs.JS_NewUint32(env.ctx, @intCast(length)),
+    };
+    const ta = qjs.JS_CallConstructor(env.ctx, ctor, 3, &args);
+    if (js.js_is_exception(ta)) return env.setLastError(.pending_exception);
+
+    r.* = env.createNapiValue(ta);
+    qjs.JS_FreeValue(env.ctx, ta);
+    return env.ok();
+}
+
+pub export fn napi_get_typedarray_info(
+    env_: napi_env,
+    typedarray: napi_value,
+    maybe_type: ?*napi_typedarray_type,
+    maybe_length: ?*usize,
+    maybe_data: ?*?[*]u8,
+    maybe_arraybuffer: ?*napi_value,
+    maybe_byte_offset: ?*usize,
+) callconv(.c) napi_status {
+    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
+    const val = toVal(typedarray);
+
+    var poffset: usize = 0;
+    var psize: usize = 0;
+    const ab = qjs.JS_GetTypedArrayBuffer(env.ctx, val, &poffset, &psize, null);
+    if (js.js_is_exception(ab)) return env.genericFailure();
+    defer qjs.JS_FreeValue(env.ctx, ab);
+
+    if (maybe_arraybuffer) |mab| {
+        mab.* = env.createNapiValue(ab);
+    }
+    if (maybe_byte_offset) |bo| bo.* = poffset;
+
+    // Get buffer data pointer
+    if (maybe_data) |md| {
+        var ab_size: usize = 0;
+        const ptr = qjs.JS_GetArrayBuffer(env.ctx, &ab_size, ab);
+        if (ptr != null) {
+            md.* = ptr + poffset;
+        } else {
+            md.* = null;
+        }
+    }
+
+    // Get element count from JS length property
+    if (maybe_length) |ml| {
+        const len_val = qjs.JS_GetPropertyStr(env.ctx, val, "length");
+        defer qjs.JS_FreeValue(env.ctx, len_val);
+        var len: u32 = 0;
+        _ = qjs.JS_ToUint32(env.ctx, &len, len_val);
+        ml.* = len;
+    }
+
+    // Determine typed array type from constructor name
+    if (maybe_type) |mt| {
+        const ctor = qjs.JS_GetPropertyStr(env.ctx, val, "constructor");
+        defer qjs.JS_FreeValue(env.ctx, ctor);
+        const name = qjs.JS_GetPropertyStr(env.ctx, ctor, "name");
+        defer qjs.JS_FreeValue(env.ctx, name);
+        if (qjs.JS_IsString(name)) {
+            var slen: usize = 0;
+            const cstr = qjs.JS_ToCStringLen(env.ctx, &slen, name);
+            if (cstr != null) {
+                defer qjs.JS_FreeCString(env.ctx, cstr);
+                const s = cstr[0..slen];
+                mt.* = if (std.mem.eql(u8, s, "Int8Array")) .int8_array
+                    else if (std.mem.eql(u8, s, "Uint8Array")) .uint8_array
+                    else if (std.mem.eql(u8, s, "Uint8ClampedArray")) .uint8_clamped_array
+                    else if (std.mem.eql(u8, s, "Int16Array")) .int16_array
+                    else if (std.mem.eql(u8, s, "Uint16Array")) .uint16_array
+                    else if (std.mem.eql(u8, s, "Int32Array")) .int32_array
+                    else if (std.mem.eql(u8, s, "Uint32Array")) .uint32_array
+                    else if (std.mem.eql(u8, s, "Float32Array")) .float32_array
+                    else if (std.mem.eql(u8, s, "Float64Array")) .float64_array
+                    else if (std.mem.eql(u8, s, "BigInt64Array")) .bigint64_array
+                    else if (std.mem.eql(u8, s, "BigUint64Array")) .biguint64_array
+                    else .uint8_array;
+            }
+        }
+    }
+    return env.ok();
+}
+
+pub export fn napi_create_external_arraybuffer(
+    env_: napi_env,
+    external_data: ?*anyopaque,
+    byte_length: usize,
+    finalize_cb: napi_finalize,
+    finalize_hint: ?*anyopaque,
+    result: ?*napi_value,
+) callconv(.c) napi_status {
+    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
+    const r = result orelse return env.invalidArg();
+
+    // Wrap the finalize callback in a free function
+    const wrap = gpa.create(ExternalAbData) catch return env.genericFailure();
+    wrap.* = .{ .env = env, .finalize_cb = finalize_cb, .finalize_hint = finalize_hint };
+
+    const ptr: [*]u8 = if (external_data) |ed| @ptrCast(ed) else @ptrFromInt(1);
+    const ab = qjs.JS_NewArrayBuffer(env.ctx, ptr, byte_length, &externalAbFree, @ptrCast(wrap), false);
+    if (js.js_is_exception(ab)) {
+        gpa.destroy(wrap);
+        return env.genericFailure();
+    }
+
+    r.* = env.createNapiValue(ab);
+    qjs.JS_FreeValue(env.ctx, ab);
+    return env.ok();
+}
+
+const ExternalAbData = struct {
+    env: *NapiEnv,
+    finalize_cb: napi_finalize,
+    finalize_hint: ?*anyopaque,
+};
+
+fn externalAbFree(_: ?*qjs.JSRuntime, user_data: ?*anyopaque, ptr: ?*anyopaque) callconv(.c) void {
+    const wrap: *ExternalAbData = @ptrCast(@alignCast(user_data orelse return));
+    if (wrap.finalize_cb) |cb| {
+        cb(wrap.env, ptr, wrap.finalize_hint);
+    }
+    gpa.destroy(wrap);
+}
+
 // ──────────────────── Event Loop Stub ────────────────────
 
 pub export fn napi_get_uv_event_loop(env_: napi_env, _: ?*?*anyopaque) callconv(.c) napi_status {
@@ -2057,6 +2330,10 @@ pub const napi_symbol_table = [_]*const anyopaque{
     @ptrCast(&napi_get_threadsafe_function_context),
     @ptrCast(&napi_detach_arraybuffer),
     @ptrCast(&napi_is_detached_arraybuffer),
+    @ptrCast(&napi_define_class),
+    @ptrCast(&napi_create_typedarray),
+    @ptrCast(&napi_get_typedarray_info),
+    @ptrCast(&napi_create_external_arraybuffer),
 };
 
 pub fn initRuntime(rt: *qjs.JSRuntime) void {
@@ -2075,6 +2352,16 @@ pub fn createEnv(ctx: *qjs.JSContext, rt: *qjs.JSRuntime) *NapiEnv {
     env.* = .{
         .ctx = ctx,
         .rt = rt,
+    };
+    return env;
+}
+
+pub fn createEnvWithRd(ctx: *qjs.JSContext, rt: *qjs.JSRuntime, rd: *types.RuntimeData) *NapiEnv {
+    const env = gpa.create(NapiEnv) catch @panic("OOM");
+    env.* = .{
+        .ctx = ctx,
+        .rt = rt,
+        .runtime_data = rd,
     };
     return env;
 }

@@ -51,6 +51,7 @@ pub const Message = union(enum) {
     memory_usage: AsyncMemoryPayload,
     dom_op: AsyncDomPayload,
     load_addon: AsyncAddonPayload,
+    napi_async_complete: NapiAsyncCompletePayload,
     stop,
 };
 
@@ -131,6 +132,10 @@ pub const GetGlobalPayload = struct {
     caller_pid: beam.pid,
     ref_env: ?*e.ErlNifEnv,
     ref_term: e.ErlNifTerm,
+};
+
+pub const NapiAsyncCompletePayload = struct {
+    work: *@import("napi_types.zig").AsyncWork,
 };
 
 pub const AsyncAddonPayload = struct {

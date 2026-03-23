@@ -9,6 +9,11 @@ defmodule QuickBEAM.NapiTest do
     assert is_map(exports)
     assert Map.has_key?(exports, "hello")
     assert Map.has_key?(exports, "add")
+    assert Map.has_key?(exports, "concat")
+    assert Map.has_key?(exports, "createObject")
+    assert Map.has_key?(exports, "getType")
+    assert Map.has_key?(exports, "makeArray")
+    assert exports["version"] == 42
     QuickBEAM.stop(rt)
   end
 
@@ -18,14 +23,19 @@ defmodule QuickBEAM.NapiTest do
     QuickBEAM.stop(rt)
   end
 
-  test "addon functions are callable from Elixir via call" do
+  test "runtime remains functional after loading addon" do
     {:ok, rt} = QuickBEAM.start()
     {:ok, _} = QuickBEAM.load_addon(rt, @addon_path)
-
-    # The addon exports are set as the return value but not yet on a global.
-    # We need to define them as globals to call from JS.
-    # For now test that the runtime is still functional after loading.
     assert {:ok, 42} = QuickBEAM.eval(rt, "21 + 21")
+    assert {:ok, "hello"} = QuickBEAM.eval(rt, "'hello'")
+    QuickBEAM.stop(rt)
+  end
+
+  test "can load addon multiple times without crash" do
+    {:ok, rt} = QuickBEAM.start()
+    assert {:ok, _} = QuickBEAM.load_addon(rt, @addon_path)
+    assert {:ok, _} = QuickBEAM.load_addon(rt, @addon_path)
+    assert {:ok, 1} = QuickBEAM.eval(rt, "1")
     QuickBEAM.stop(rt)
   end
 end

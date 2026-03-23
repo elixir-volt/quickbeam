@@ -140,6 +140,7 @@ pub const napi_env = ?*NapiEnv;
 pub const NapiEnv = struct {
     ctx: *qjs.JSContext,
     rt: *qjs.JSRuntime,
+    runtime_data: ?*types.RuntimeData = null,
     last_error: napi_extended_error_info = .{
         .error_message = null,
         .engine_reserved = null,
@@ -311,6 +312,7 @@ pub const AsyncWork = struct {
     complete: ?napi_async_complete_callback,
     data: ?*anyopaque = null,
     thread: ?std.Thread = null,
+    rd: ?*types.RuntimeData = null,
     status: std.atomic.Value(AsyncStatus) = std.atomic.Value(AsyncStatus).init(.pending),
 
     pub const AsyncStatus = enum(u32) {
