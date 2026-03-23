@@ -492,7 +492,7 @@ defmodule QuickBEAM.Core.BeamAPITest do
       assert result == true
     end
 
-    test "round-trips through Beam.call", %{rt: rt} do
+    test "round-trips through Beam.call", _context do
       {:ok, rt2} =
         QuickBEAM.start(
           handlers: %{
