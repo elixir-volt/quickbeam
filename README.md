@@ -17,15 +17,6 @@ end
 
 Requires Zig 0.15+ (installed automatically by Zigler, or use system Zig).
 
-## Development
-
-```sh
-mix ci
-```
-
-Runs the full project quality gate: formatting, Credo, Dialyzer, Zig lint,
-TypeScript lint, duplicate-code checks, and tests.
-
 ## Quick start
 
 ```elixir
@@ -505,6 +496,15 @@ See [`bench/`](https://github.com/elixir-volt/quickbeam/tree/master/bench) for d
 | SSR request pool | `QuickBEAM.Pool` | Checkout/checkin with reset |
 | Per-connection state (LiveView) | `QuickBEAM.Context` | Lightweight, thousands concurrent |
 | Sandboxed user code | `QuickBEAM` or `Context` with `apis: false` | Memory limits, reduction limits, timeouts |
+
+## Development
+
+```sh
+mix ci
+```
+
+Runs the full project quality gate: formatting, Credo, Dialyzer, Zig lint,
+TypeScript lint, duplicate-code checks, and tests.
 
 ## Examples
 
