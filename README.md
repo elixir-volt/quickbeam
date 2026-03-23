@@ -17,6 +17,15 @@ end
 
 Requires Zig 0.15+ (installed automatically by Zigler, or use system Zig).
 
+## Development
+
+```sh
+mix ci
+```
+
+Runs the full project quality gate: formatting, Credo, Dialyzer, Zig lint,
+TypeScript lint, duplicate-code checks, and tests.
+
 ## Quick start
 
 ```elixir
