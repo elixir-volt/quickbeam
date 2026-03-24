@@ -1220,7 +1220,7 @@ pub export fn napi_wrap(env_: napi_env, js_object: napi_value, native_object: ?*
     defer qjs.JS_FreeAtom(env.ctx, key);
 
     const ptr_int: i64 = @bitCast(@intFromPtr(native_object));
-    _ = qjs.JS_SetProperty(env.ctx, obj, key, qjs.JS_NewInt64(env.ctx, ptr_int));
+    _ = qjs.JS_DefinePropertyValue(env.ctx, obj, key, qjs.JS_NewInt64(env.ctx, ptr_int), qjs.JS_PROP_CONFIGURABLE);
 
     _ = finalize_cb;
 

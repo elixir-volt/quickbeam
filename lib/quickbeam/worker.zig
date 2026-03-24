@@ -76,13 +76,14 @@ pub const WorkerState = struct {
             snap.deinit();
         }
 
-        // Release JS value refs while context is still alive
+        // Release napi JS refs, then free context, then free napi Zig memory
         if (self.napi_env) |nenv| nenv.releaseValues();
-
         self.atoms.deinit(self.ctx);
+
+        // Run GC before freeing context to collect cycles
+        qjs.JS_RunGC(self.rt);
         qjs.JS_FreeContext(self.ctx);
 
-        // Free non-JS napi resources after context is gone
         if (self.napi_env) |nenv| {
             nenv.deinit();
             gpa.destroy(nenv);

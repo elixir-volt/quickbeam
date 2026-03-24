@@ -202,9 +202,9 @@ pub const NapiEnv = struct {
         }
         const slot = gpa.create(qjs.JSValue) catch return null;
         slot.* = val;
-        // During callbacks (addon functions called from JS), values are
-        // short-lived and managed by the JS engine. During init, we track
-        // them for cleanup on shutdown.
+        // During callbacks (addon functions called from JS), values live on
+        // the JS stack and are managed by the engine. Only during addon init
+        // do we track values for cleanup on shutdown.
         if (!self.in_callback) {
             self.persistent_slots.append(gpa, slot) catch {
                 gpa.destroy(slot);
@@ -222,7 +222,8 @@ pub const NapiEnv = struct {
             gpa.destroy(scope);
         }
         self.scope_stack.deinit(gpa);
-        // Delete addon globals so class cycles become unreachable
+
+        // 1. Delete addon globals so exports become unreachable
         const global = qjs.JS_GetGlobalObject(self.ctx);
         for (self.addon_globals.items) |atom| {
             _ = qjs.JS_DeleteProperty(self.ctx, global, atom, 0);
@@ -230,19 +231,21 @@ pub const NapiEnv = struct {
         }
         qjs.JS_FreeValue(self.ctx, global);
         self.addon_globals.deinit(gpa);
-        // Free persistent slot references, then run GC to break cycles
-        for (self.persistent_slots.items) |slot| {
-            qjs.JS_FreeValue(self.ctx, slot.*);
-            gpa.destroy(slot);
-        }
-        self.persistent_slots.deinit(gpa);
-        qjs.JS_RunGC(self.rt);
-        // References hold DupValue'd values
+
+        // 2. Release napi references (may hold class constructors)
         for (self.refs.items) |r| {
             if (r.ref_count > 0) qjs.JS_FreeValue(self.ctx, r.value);
             gpa.destroy(r);
         }
         self.refs.deinit(gpa);
+
+        // 3. Release persistent slots (values from addon init)
+        for (self.persistent_slots.items) |slot| {
+            qjs.JS_FreeValue(self.ctx, slot.*);
+            gpa.destroy(slot);
+        }
+        self.persistent_slots.deinit(gpa);
+
     }
 
     /// Free non-JS resources. Call after JS_FreeContext.

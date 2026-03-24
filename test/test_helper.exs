@@ -20,4 +20,4 @@ unless File.exists?(test_addon_out) and
   {_, 0} = System.cmd("cc", args, stderr_to_stdout: true)
 end
 
-ExUnit.start(exclude: [:napi_sqlite])
+ExUnit.start()
