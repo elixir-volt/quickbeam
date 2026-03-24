@@ -906,17 +906,41 @@ fn napiCallbackTrampoline(
     _ = qjs.JS_ToInt64(ctx, &ptr_int, func_data[0]);
     const cbd: *FunctionCallbackData = @ptrFromInt(@as(usize, @bitCast(ptr_int)));
 
+    // Detect constructor call: if this_val is a function (new.target),
+    // create a proper instance with the prototype chain.
+    var effective_this = this_val;
+    var is_constructor_call = false;
+    if (qjs.JS_IsFunction(ctx, this_val)) {
+        // this_val is new.target — create instance from its prototype
+        const proto = qjs.JS_GetPropertyStr(ctx, this_val, "prototype");
+        if (qjs.JS_IsObject(proto)) {
+            effective_this = qjs.JS_NewObjectProtoClass(ctx, proto, 0);
+            is_constructor_call = true;
+        }
+        qjs.JS_FreeValue(ctx, proto);
+    }
+
     var info = CallbackInfo{
-        .this = this_val,
+        .this = effective_this,
         .args = argv,
         .argc = argc,
         .data = cbd.data,
+        .new_target = if (is_constructor_call) this_val else js.js_undefined(),
     };
 
     const was_in_callback = cbd.env.in_callback;
     cbd.env.in_callback = true;
     const napi_result = cbd.cb(cbd.env, &info);
     cbd.env.in_callback = was_in_callback;
+
+    // For constructor calls, return the instance (not the napi_value)
+    if (is_constructor_call) {
+        if (napi_result) |_| {
+            // Addon returned a value — for constructors this is typically undefined
+            // in N-API; the instance is the `this` object
+        }
+        return effective_this;
+    }
     return toVal(napi_result);
 }
 
@@ -1771,12 +1795,9 @@ pub export fn napi_define_class(
         _ = qjs.JS_DefinePropertyValueStr(env.ctx, ctor, "name", name_val, 0);
     }
 
-    // Create prototype object
+    // Create prototype object and wire up ctor <-> proto
     const proto = qjs.JS_NewObject(env.ctx);
-
-    // Set constructor.prototype = proto, proto.constructor = constructor
-    _ = qjs.JS_SetPropertyStr(env.ctx, ctor, "prototype", qjs.JS_DupValue(env.ctx, proto));
-    _ = qjs.JS_SetPropertyStr(env.ctx, proto, "constructor", qjs.JS_DupValue(env.ctx, ctor));
+    qjs.JS_SetConstructor(env.ctx, ctor, proto);
 
     // Add properties — static ones go on the constructor, instance ones on the prototype
     for (0..property_count) |i| {

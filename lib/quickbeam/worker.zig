@@ -736,6 +736,9 @@ pub const WorkerState = struct {
             const g = qjs.JS_GetGlobalObject(self.ctx);
             defer qjs.JS_FreeValue(self.ctx, g);
             _ = qjs.JS_SetPropertyStr(self.ctx, g, gn.ptr, qjs.JS_DupValue(self.ctx, final_exports));
+            // Track the atom so we can delete it during cleanup
+            const atom = qjs.JS_NewAtom(self.ctx, gn.ptr);
+            env.addon_globals.append(gpa, atom) catch {};
         }
 
         const result_env = beam.alloc_env();

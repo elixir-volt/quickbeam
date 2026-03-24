@@ -113,6 +113,13 @@ defmodule QuickBEAM.NapiTest do
 
   defp addon_available?(name), do: File.exists?(addon_path(name))
 
+  defp sqlite_napi_path do
+    arch = if :erlang.system_info(:system_architecture) |> to_string() |> String.contains?("aarch64"),
+      do: "darwin-arm64",
+      else: "darwin-x64"
+    Path.join([@napi_addons, "sqlite-napi", "sqlite-napi.#{arch}.node"])
+  end
+
   describe "@node-rs/crc32" do
     @describetag :napi_addon
 
@@ -230,6 +237,73 @@ defmodule QuickBEAM.NapiTest do
       {:ok, salt} = QuickBEAM.eval(rt, "bcrypt.genSaltSync(4)")
       assert is_binary(salt)
       assert String.starts_with?(salt, "$2b$04$")
+      QuickBEAM.stop(rt)
+    end
+  end
+
+  describe "sqlite-napi" do
+    @describetag :napi_sqlite
+
+    setup do
+      if File.exists?(sqlite_napi_path()), do: :ok, else: :skip
+    end
+
+    test "load and export classes" do
+      {:ok, rt} = QuickBEAM.start()
+      {:ok, exports} = QuickBEAM.load_addon(rt, sqlite_napi_path(), as: "sqlite")
+      assert Map.has_key?(exports, "Database")
+      QuickBEAM.stop(rt)
+    end
+
+    test "create in-memory database and execute DDL" do
+      {:ok, rt} = QuickBEAM.start()
+      {:ok, _} = QuickBEAM.load_addon(rt, sqlite_napi_path(), as: "sqlite")
+
+      assert {:ok, _} = QuickBEAM.eval(rt, """
+        const db = new sqlite.Database(":memory:");
+        db.exec("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)");
+        "ok"
+      """)
+
+      QuickBEAM.stop(rt)
+    end
+
+    test "insert and query data" do
+      {:ok, rt} = QuickBEAM.start()
+      {:ok, _} = QuickBEAM.load_addon(rt, sqlite_napi_path(), as: "sqlite")
+
+      {:ok, result} = QuickBEAM.eval(rt, """
+        const db = new sqlite.Database(":memory:");
+        db.exec("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)");
+        db.exec("INSERT INTO test VALUES (1, 'hello')");
+        db.exec("INSERT INTO test VALUES (2, 'world')");
+        JSON.stringify(db.query("SELECT * FROM test ORDER BY id"));
+      """)
+
+      assert is_binary(result)
+      parsed = Jason.decode!(result)
+      assert length(parsed) == 2
+      assert hd(parsed)["name"] == "hello"
+
+      QuickBEAM.stop(rt)
+    end
+
+    test "parameterized queries" do
+      {:ok, rt} = QuickBEAM.start()
+      {:ok, _} = QuickBEAM.load_addon(rt, sqlite_napi_path(), as: "sqlite")
+
+      {:ok, result} = QuickBEAM.eval(rt, """
+        const db = new sqlite.Database(":memory:");
+        db.exec("CREATE TABLE kv (key TEXT PRIMARY KEY, val TEXT)");
+        db.run("INSERT INTO kv VALUES (?, ?)", "greeting", "hello");
+        db.run("INSERT INTO kv VALUES (?, ?)", "target", "world");
+        JSON.stringify(db.query("SELECT * FROM kv WHERE key = ?", "greeting"));
+      """)
+
+      parsed = Jason.decode!(result)
+      assert length(parsed) == 1
+      assert hd(parsed)["val"] == "hello"
+
       QuickBEAM.stop(rt)
     end
   end

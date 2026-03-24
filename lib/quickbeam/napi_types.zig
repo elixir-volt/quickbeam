@@ -154,6 +154,7 @@ pub const NapiEnv = struct {
     instance_data_hint: ?*anyopaque = null,
     scope_stack: std.ArrayListUnmanaged(*HandleScope) = .{},
     persistent_slots: std.ArrayListUnmanaged(*qjs.JSValue) = .{},
+    addon_globals: std.ArrayListUnmanaged(qjs.JSAtom) = .{},
     in_callback: bool = false,
     refs: std.ArrayListUnmanaged(*NapiReference) = .{},
     callback_data: std.ArrayListUnmanaged(*FunctionCallbackData) = .{},
@@ -221,19 +222,27 @@ pub const NapiEnv = struct {
             gpa.destroy(scope);
         }
         self.scope_stack.deinit(gpa);
-        // Persistent slots own a refcount from the original creation
+        // Delete addon globals so class cycles become unreachable
+        const global = qjs.JS_GetGlobalObject(self.ctx);
+        for (self.addon_globals.items) |atom| {
+            _ = qjs.JS_DeleteProperty(self.ctx, global, atom, 0);
+            qjs.JS_FreeAtom(self.ctx, atom);
+        }
+        qjs.JS_FreeValue(self.ctx, global);
+        self.addon_globals.deinit(gpa);
+        // Free persistent slot references, then run GC to break cycles
         for (self.persistent_slots.items) |slot| {
             qjs.JS_FreeValue(self.ctx, slot.*);
             gpa.destroy(slot);
         }
         self.persistent_slots.deinit(gpa);
+        qjs.JS_RunGC(self.rt);
         // References hold DupValue'd values
         for (self.refs.items) |r| {
             if (r.ref_count > 0) qjs.JS_FreeValue(self.ctx, r.value);
             gpa.destroy(r);
         }
         self.refs.deinit(gpa);
-        qjs.JS_RunGC(self.rt);
     }
 
     /// Free non-JS resources. Call after JS_FreeContext.

@@ -13,6 +13,7 @@
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",
     "@node-rs/bcrypt": "^1.10.7",
-    "@node-rs/crc32": "^1.10.6"
+    "@node-rs/crc32": "^1.10.6",
+    "sqlite-napi": "^1.0.1"
   }
 }

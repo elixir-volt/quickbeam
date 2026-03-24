@@ -1,2 +1,2 @@
 Application.ensure_all_started(:telemetry)
-ExUnit.start()
+ExUnit.start(exclude: [:napi_sqlite])
