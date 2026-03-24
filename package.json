@@ -13,6 +13,7 @@
   },
   "private": true,
   "scripts": {
+    "postinstall": "chmod +x node_modules/@oxlint-tsgolint/*/tsgolint 2>/dev/null || true",
     "format": "oxfmt --write priv/ts/",
     "format:check": "oxfmt --check priv/ts/",
     "lint": "oxlint -c oxlint.json --type-aware --type-check priv/ts/"
