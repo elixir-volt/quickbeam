@@ -1,0 +1,18 @@
+{
+  "name": "napi_addons",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@node-rs/argon2": "^2.0.2",
+    "@node-rs/bcrypt": "^1.10.7",
+    "@node-rs/crc32": "^1.10.6"
+  }
+}

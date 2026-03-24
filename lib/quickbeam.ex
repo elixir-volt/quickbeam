@@ -231,11 +231,20 @@ defmodule QuickBEAM do
   `napi_module_register`) entry point is called. Returns the addon's exports
   as an Elixir term.
 
+  ## Options
+
+    * `:as` - set the addon's exports as a global JS variable with this name,
+      making the functions callable from `eval/3` and `call/3`
+
+  ## Examples
+
       QuickBEAM.load_addon(rt, "/path/to/addon.node")
+      QuickBEAM.load_addon(rt, "/path/to/crc32.node", as: "crc32")
+      QuickBEAM.eval(rt, "crc32.crc32('hello')")
   """
-  @spec load_addon(runtime(), String.t()) :: {:ok, term()} | {:error, term()}
-  def load_addon(runtime, path) do
-    QuickBEAM.Runtime.load_addon(runtime, path)
+  @spec load_addon(runtime(), String.t(), keyword()) :: {:ok, term()} | {:error, term()}
+  def load_addon(runtime, path, opts \\ []) do
+    QuickBEAM.Runtime.load_addon(runtime, path, opts)
   end
 
   @doc """

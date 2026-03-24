@@ -36,3 +36,4 @@ node_modules/
 bun.lock
 # Git worktrees for parallel agent work
 .worktrees/
+test/support/napi_addons/node_modules

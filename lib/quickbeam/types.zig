@@ -146,6 +146,7 @@ pub const NapiTsfnCallPayload = struct {
 
 pub const AsyncAddonPayload = struct {
     path: [:0]const u8,
+    global_name: ?[:0]const u8 = null,
     caller_pid: beam.pid,
     ref_env: ?*e.ErlNifEnv,
     ref_term: e.ErlNifTerm,

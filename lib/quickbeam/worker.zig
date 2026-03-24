@@ -76,14 +76,18 @@ pub const WorkerState = struct {
             snap.deinit();
         }
 
+        // Release JS value refs while context is still alive
+        if (self.napi_env) |nenv| nenv.releaseValues();
+
+        self.atoms.deinit(self.ctx);
+        qjs.JS_FreeContext(self.ctx);
+
+        // Free non-JS napi resources after context is gone
         if (self.napi_env) |nenv| {
             nenv.deinit();
             gpa.destroy(nenv);
             self.napi_env = null;
         }
-
-        self.atoms.deinit(self.ctx);
-        qjs.JS_FreeContext(self.ctx);
     }
 
     pub fn drain_jobs(self: *WorkerState) void {
@@ -542,6 +546,12 @@ pub const WorkerState = struct {
             self.message_handler = js.JS_UNDEFINED;
         }
 
+        if (self.napi_env) |nenv| {
+            nenv.releaseValues();
+            nenv.deinit();
+            gpa.destroy(nenv);
+            self.napi_env = null;
+        }
         self.atoms.deinit(self.ctx);
         qjs.JS_FreeContext(self.ctx);
         self.ctx = qjs.JS_NewContext(self.rt) orelse {
@@ -664,7 +674,7 @@ pub const WorkerState = struct {
         };
     }
 
-    pub fn do_load_addon(self: *WorkerState, path: [:0]const u8, result: *Result) void {
+    pub fn do_load_addon(self: *WorkerState, path: [:0]const u8, global_name: ?[:0]const u8, result: *Result) void {
         // Create or reuse the NapiEnv for this worker
         if (self.napi_env == null) {
             self.napi_env = napi_mod.createEnvWithRd(self.ctx, self.rt, self.rd);
@@ -721,18 +731,23 @@ pub const WorkerState = struct {
             }
         }
 
+        // Set exports as a global JS variable if a name was provided
+        if (global_name) |gn| {
+            const g = qjs.JS_GetGlobalObject(self.ctx);
+            defer qjs.JS_FreeValue(self.ctx, g);
+            _ = qjs.JS_SetPropertyStr(self.ctx, g, gn.ptr, qjs.JS_DupValue(self.ctx, final_exports));
+        }
+
         const result_env = beam.alloc_env();
         result.ok = true;
         result.term = js_to_beam.convert_with_limits(self.ctx, final_exports, result_env, self.convert_limits());
         result.env = result_env;
 
-        // Free exports — the convert_with_limits already read all the data
+        // Free our reference to exports
         qjs.JS_FreeValue(self.ctx, exports);
         if (final_exports.tag != exports.tag or qjs.JS_VALUE_GET_PTR(final_exports) != qjs.JS_VALUE_GET_PTR(exports)) {
             qjs.JS_FreeValue(self.ctx, final_exports);
         }
-
-        // Drain any leaked napi_value slots created during init (no scope was open)
         // These are standalone DupValue'd slots that need cleanup
         env.clearPendingException();
     }
@@ -926,8 +941,9 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                 },
                 .load_addon => |p| {
                     var result = Result{};
-                    state.do_load_addon(p.path, &result);
+                    state.do_load_addon(p.path, p.global_name, &result);
                     gpa.free(p.path);
+                    if (p.global_name) |gn| gpa.free(gn);
                     types.send_reply(p.caller_pid, p.ref_env, p.ref_term, result.ok, result.env, result.term, result.json);
                 },
                 .stop => break,

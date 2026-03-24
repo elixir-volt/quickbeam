@@ -57,7 +57,6 @@ pub export fn napi_get_global(env_: napi_env, result: ?*napi_value) callconv(.c)
     const r = result orelse return env.invalidArg();
     const global = qjs.JS_GetGlobalObject(env.ctx);
     r.* = env.createNapiValue(global);
-    qjs.JS_FreeValue(env.ctx, global);
     return env.ok();
 }
 
@@ -104,7 +103,6 @@ pub export fn napi_create_string_utf8(env_: napi_env, str: ?[*]const u8, length:
     const slice = napiSpan(str, length) orelse return env.invalidArg();
     const val = qjs.JS_NewStringLen(env.ctx, slice.ptr, slice.len);
     r.* = env.createNapiValue(val);
-    qjs.JS_FreeValue(env.ctx, val);
     return env.ok();
 }
 
@@ -151,7 +149,6 @@ pub export fn napi_create_string_utf16(env_: napi_env, str: ?[*]const u16, lengt
 
     const val = qjs.JS_NewStringLen(env.ctx, buf.items.ptr, buf.items.len);
     r.* = env.createNapiValue(val);
-    qjs.JS_FreeValue(env.ctx, val);
     return env.ok();
 }
 
@@ -174,7 +171,6 @@ pub export fn napi_create_symbol(env_: napi_env, description: napi_value, result
     }
 
     r.* = env.createNapiValue(sym);
-    qjs.JS_FreeValue(env.ctx, sym);
     return env.ok();
 }
 
@@ -183,7 +179,6 @@ pub export fn napi_create_object(env_: napi_env, result: ?*napi_value) callconv(
     const r = result orelse return env.invalidArg();
     const obj = qjs.JS_NewObject(env.ctx);
     r.* = env.createNapiValue(obj);
-    qjs.JS_FreeValue(env.ctx, obj);
     return env.ok();
 }
 
@@ -192,7 +187,6 @@ pub export fn napi_create_array(env_: napi_env, result: ?*napi_value) callconv(.
     const r = result orelse return env.invalidArg();
     const arr = qjs.JS_NewArray(env.ctx);
     r.* = env.createNapiValue(arr);
-    qjs.JS_FreeValue(env.ctx, arr);
     return env.ok();
 }
 
@@ -204,7 +198,6 @@ pub export fn napi_create_array_with_length(env_: napi_env, length: usize, resul
         _ = qjs.JS_SetPropertyStr(env.ctx, arr, "length", qjs.JS_NewUint32(env.ctx, @intCast(length)));
     }
     r.* = env.createNapiValue(arr);
-    qjs.JS_FreeValue(env.ctx, arr);
     return env.ok();
 }
 
@@ -510,7 +503,6 @@ pub export fn napi_coerce_to_number(env_: napi_env, value: napi_value, result: ?
     if (qjs.JS_ToFloat64(env.ctx, &d, toVal(value)) < 0) return env.setLastError(.pending_exception);
     const val = qjs.JS_NewFloat64(env.ctx, d);
     r.* = env.createNapiValue(val);
-    qjs.JS_FreeValue(env.ctx, val);
     return env.ok();
 }
 
@@ -524,7 +516,6 @@ pub export fn napi_coerce_to_object(env_: napi_env, value: napi_value, result: ?
         // Wrap primitive in Object()
         const obj = qjs.JS_NewObject(env.ctx);
         r.* = env.createNapiValue(obj);
-        qjs.JS_FreeValue(env.ctx, obj);
     }
     return env.ok();
 }
@@ -535,7 +526,6 @@ pub export fn napi_coerce_to_string(env_: napi_env, value: napi_value, result: ?
     const val = qjs.JS_ToString(env.ctx, toVal(value));
     if (js.js_is_exception(val)) return env.setLastError(.pending_exception);
     r.* = env.createNapiValue(val);
-    qjs.JS_FreeValue(env.ctx, val);
     return env.ok();
 }
 
@@ -555,7 +545,6 @@ pub export fn napi_get_property(env_: napi_env, object: napi_value, key: napi_va
     const val = qjs.JS_GetProperty(env.ctx, obj, atom);
     if (js.js_is_exception(val)) return env.setLastError(.pending_exception);
     r.* = env.createNapiValue(val);
-    qjs.JS_FreeValue(env.ctx, val);
     return env.ok();
 }
 
@@ -617,7 +606,6 @@ pub export fn napi_get_named_property(env_: napi_env, object: napi_value, utf8na
     const val = qjs.JS_GetPropertyStr(env.ctx, obj, utf8name);
     if (js.js_is_exception(val)) return env.setLastError(.pending_exception);
     r.* = env.createNapiValue(val);
-    qjs.JS_FreeValue(env.ctx, val);
     return env.ok();
 }
 
@@ -692,7 +680,6 @@ pub export fn napi_get_element(env_: napi_env, object: napi_value, index: u32, r
     const val = qjs.JS_GetPropertyUint32(env.ctx, obj, index);
     if (js.js_is_exception(val)) return env.setLastError(.pending_exception);
     r.* = env.createNapiValue(val);
-    qjs.JS_FreeValue(env.ctx, val);
     return env.ok();
 }
 
@@ -740,7 +727,6 @@ pub export fn napi_get_prototype(env_: napi_env, object: napi_value, result: ?*n
     if (!qjs.JS_IsObject(obj)) return env.setLastError(.object_expected);
     const proto = qjs.JS_GetPrototype(env.ctx, obj);
     r.* = env.createNapiValue(proto);
-    qjs.JS_FreeValue(env.ctx, proto);
     return env.ok();
 }
 
@@ -840,7 +826,6 @@ pub export fn napi_create_error(env_: napi_env, code: napi_value, msg: napi_valu
         _ = qjs.JS_SetPropertyStr(env.ctx, err, "message", qjs.JS_DupValue(env.ctx, msg_val));
     }
     r.* = env.createNapiValue(err);
-    qjs.JS_FreeValue(env.ctx, err);
     return env.ok();
 }
 
@@ -906,7 +891,6 @@ pub export fn napi_create_function(
     }
 
     r.* = env.createNapiValue(func);
-    qjs.JS_FreeValue(env.ctx, func);
     return env.ok();
 }
 
@@ -929,7 +913,10 @@ fn napiCallbackTrampoline(
         .data = cbd.data,
     };
 
+    const was_in_callback = cbd.env.in_callback;
+    cbd.env.in_callback = true;
     const napi_result = cbd.cb(cbd.env, &info);
+    cbd.env.in_callback = was_in_callback;
     return toVal(napi_result);
 }
 
@@ -1108,7 +1095,6 @@ pub export fn napi_create_promise(env_: napi_env, deferred_: ?*napi_deferred, pr
 
     deferred_out.* = d;
     promise_out.* = env.createNapiValue(promise);
-    qjs.JS_FreeValue(env.ctx, promise);
     return env.ok();
 }
 
@@ -1155,7 +1141,6 @@ pub export fn napi_run_script(env_: napi_env, script: napi_value, result: ?*napi
         return env.setLastError(.pending_exception);
     }
     r.* = env.createNapiValue(val);
-    qjs.JS_FreeValue(env.ctx, val);
     return env.ok();
 }
 
@@ -1298,7 +1283,6 @@ pub export fn napi_create_external(
     _ = qjs.JS_SetOpaque(obj, ext_data);
 
     r.* = env.createNapiValue(obj);
-    qjs.JS_FreeValue(env.ctx, obj);
     return env.ok();
 }
 
@@ -1519,7 +1503,6 @@ pub export fn napi_create_arraybuffer(env_: napi_env, byte_length: usize, data: 
 
     if (data) |d| d.* = buf.ptr;
     r.* = env.createNapiValue(ab);
-    qjs.JS_FreeValue(env.ctx, ab);
     return env.ok();
 }
 
@@ -1587,7 +1570,6 @@ pub export fn napi_create_buffer_copy(env_: napi_env, length: usize, src: ?[*]co
 
     if (data) |d| d.* = buf.ptr;
     r.* = env.createNapiValue(ab);
-    qjs.JS_FreeValue(env.ctx, ab);
     return env.ok();
 }
 
@@ -1603,7 +1585,6 @@ pub export fn napi_create_date(env_: napi_env, time: f64, result: ?*napi_value) 
     const date = qjs.JS_NewDate(env.ctx, time);
     if (js.js_is_exception(date)) return env.genericFailure();
     r.* = env.createNapiValue(date);
-    qjs.JS_FreeValue(env.ctx, date);
     return env.ok();
 }
 
@@ -1631,7 +1612,6 @@ pub export fn napi_create_bigint_int64(env_: napi_env, value: i64, result: ?*nap
     const r = result orelse return env.invalidArg();
     const bi = qjs.JS_NewBigInt64(env.ctx, value);
     r.* = env.createNapiValue(bi);
-    qjs.JS_FreeValue(env.ctx, bi);
     return env.ok();
 }
 
@@ -1640,7 +1620,6 @@ pub export fn napi_create_bigint_uint64(env_: napi_env, value: u64, result: ?*na
     const r = result orelse return env.invalidArg();
     const bi = qjs.JS_NewBigUint64(env.ctx, value);
     r.* = env.createNapiValue(bi);
-    qjs.JS_FreeValue(env.ctx, bi);
     return env.ok();
 }
 
@@ -1720,7 +1699,6 @@ pub export fn napi_get_property_names(env_: napi_env, object: napi_value, result
         _ = qjs.JS_SetPropertyUint32(env.ctx, arr, @intCast(i), name_val);
     }
     r.* = env.createNapiValue(arr);
-    qjs.JS_FreeValue(env.ctx, arr);
     return env.ok();
 }
 
@@ -1761,7 +1739,6 @@ pub export fn napi_new_instance(env_: napi_env, constructor: napi_value, argc: u
         return env.setLastError(.pending_exception);
     }
     r.* = env.createNapiValue(ret);
-    qjs.JS_FreeValue(env.ctx, ret);
     return env.ok();
 }
 
@@ -1833,7 +1810,6 @@ pub export fn napi_define_class(
     qjs.JS_FreeValue(env.ctx, proto);
 
     r.* = env.createNapiValue(ctor);
-    qjs.JS_FreeValue(env.ctx, ctor);
     return env.ok();
 }
 
@@ -1882,7 +1858,6 @@ pub export fn napi_create_typedarray(
     if (js.js_is_exception(ta)) return env.setLastError(.pending_exception);
 
     r.* = env.createNapiValue(ta);
-    qjs.JS_FreeValue(env.ctx, ta);
     return env.ok();
 }
 
@@ -1982,7 +1957,6 @@ pub export fn napi_create_external_arraybuffer(
     }
 
     r.* = env.createNapiValue(ab);
-    qjs.JS_FreeValue(env.ctx, ab);
     return env.ok();
 }
 
@@ -2026,7 +2000,6 @@ pub export fn napi_create_dataview(
     if (js.js_is_exception(dv)) return env.setLastError(.pending_exception);
 
     r.* = env.createNapiValue(dv);
-    qjs.JS_FreeValue(env.ctx, dv);
     return env.ok();
 }
 
@@ -2060,7 +2033,6 @@ pub export fn napi_get_dataview_info(
     if (maybe_arraybuffer) |mab| {
         const buf = qjs.JS_GetPropertyStr(env.ctx, val, "buffer");
         mab.* = env.createNapiValue(buf);
-        qjs.JS_FreeValue(env.ctx, buf);
     }
 
     if (maybe_data) |md| {
@@ -2120,7 +2092,6 @@ pub export fn napi_create_bigint_words(
             @intCast(words[0] & 0x7FFFFFFFFFFFFFFF);
         const bi = qjs.JS_NewBigInt64(env.ctx, val);
         r.* = env.createNapiValue(bi);
-        qjs.JS_FreeValue(env.ctx, bi);
         return env.ok();
     }
 
@@ -2131,7 +2102,6 @@ pub export fn napi_create_bigint_words(
     const bi = qjs.JS_Eval(env.ctx, code.ptr, code.len, "<napi>", qjs.JS_EVAL_TYPE_GLOBAL);
     if (js.js_is_exception(bi)) return env.genericFailure();
     r.* = env.createNapiValue(bi);
-    qjs.JS_FreeValue(env.ctx, bi);
     return env.ok();
 }
 

@@ -154,6 +154,7 @@ pub const NapiEnv = struct {
     instance_data_hint: ?*anyopaque = null,
     scope_stack: std.ArrayListUnmanaged(*HandleScope) = .{},
     persistent_slots: std.ArrayListUnmanaged(*qjs.JSValue) = .{},
+    in_callback: bool = false,
     refs: std.ArrayListUnmanaged(*NapiReference) = .{},
     callback_data: std.ArrayListUnmanaged(*FunctionCallbackData) = .{},
 
@@ -191,39 +192,52 @@ pub const NapiEnv = struct {
     }
 
     /// Store a JS value and return a stable pointer for the napi_value ABI.
-    /// With a scope open: tracked in scope, DupValue'd, freed on scope close.
-    /// Without scope: heap-allocated slot, DupValue'd, freed on env deinit.
+    /// Takes ownership: caller must NOT call JS_FreeValue after this.
     pub fn createNapiValue(self: *NapiEnv, val: qjs.JSValue) napi_value {
         if (self.scope_stack.items.len > 0) {
             const scope = self.scope_stack.items[self.scope_stack.items.len - 1];
-            return scope.track(self.ctx, val);
+            scope.values.append(gpa, val) catch return null;
+            return &scope.values.items[scope.values.items.len - 1];
         }
         const slot = gpa.create(qjs.JSValue) catch return null;
-        slot.* = qjs.JS_DupValue(self.ctx, val);
-        self.persistent_slots.append(gpa, slot) catch {
-            qjs.JS_FreeValue(self.ctx, slot.*);
-            gpa.destroy(slot);
-            return null;
-        };
+        slot.* = val;
+        // During callbacks (addon functions called from JS), values are
+        // short-lived and managed by the JS engine. During init, we track
+        // them for cleanup on shutdown.
+        if (!self.in_callback) {
+            self.persistent_slots.append(gpa, slot) catch {
+                gpa.destroy(slot);
+                return null;
+            };
+        }
         return slot;
     }
 
-    pub fn deinit(self: *NapiEnv) void {
+    /// Release all JS value references. Must be called while the context is still alive.
+    pub fn releaseValues(self: *NapiEnv) void {
         self.clearPendingException();
         for (self.scope_stack.items) |scope| {
             scope.deinit(self.ctx);
             gpa.destroy(scope);
         }
         self.scope_stack.deinit(gpa);
+        // Persistent slots own a refcount from the original creation
         for (self.persistent_slots.items) |slot| {
             qjs.JS_FreeValue(self.ctx, slot.*);
             gpa.destroy(slot);
         }
         self.persistent_slots.deinit(gpa);
-        for (self.refs.items) |r| r.deinit();
+        // References hold DupValue'd values
+        for (self.refs.items) |r| {
+            if (r.ref_count > 0) qjs.JS_FreeValue(self.ctx, r.value);
+            gpa.destroy(r);
+        }
         self.refs.deinit(gpa);
-        // Run cycle collector to break circular refs (e.g. constructor ↔ prototype)
         qjs.JS_RunGC(self.rt);
+    }
+
+    /// Free non-JS resources. Call after JS_FreeContext.
+    pub fn deinit(self: *NapiEnv) void {
         for (self.callback_data.items) |cbd| {
             gpa.destroy(cbd);
         }
@@ -246,10 +260,10 @@ pub const HandleScope = struct {
         return scope;
     }
 
-    /// Store a JS value in this scope (DupValue to prevent GC), return stable pointer.
+    /// Store a JS value in this scope. Takes ownership of the refcount.
     pub fn track(self: *HandleScope, ctx: *qjs.JSContext, val: qjs.JSValue) *qjs.JSValue {
-        const duped = qjs.JS_DupValue(ctx, val);
-        self.values.append(gpa, duped) catch @panic("OOM");
+        _ = ctx;
+        self.values.append(gpa, val) catch @panic("OOM");
         return &self.values.items[self.values.items.len - 1];
     }
 
