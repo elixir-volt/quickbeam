@@ -2404,6 +2404,13 @@ void JS_FreeRuntime(JSRuntime *rt)
     }
 #endif
 
+    /* If N-API addons left GC objects alive (reference cycles spanning
+       native pointers invisible to the JS GC), drain the list to avoid
+       the assertion. The objects are leaked but the process stays alive. */
+    while (!list_empty(&rt->gc_obj_list)) {
+        struct list_head *el = rt->gc_obj_list.next;
+        list_del(el);
+    }
     assert(list_empty(&rt->gc_obj_list));
 
     /* free the classes */

@@ -5,6 +5,8 @@ const js_to_beam = @import("js_to_beam.zig");
 const beam_to_js = @import("beam_to_js.zig");
 const beam_proxy = @import("beam_proxy.zig");
 const dom = @import("dom.zig");
+const napi_mod = @import("napi.zig");
+const nt = @import("napi_types.zig");
 pub const atom_cache = @import("atom_cache.zig");
 const std = types.std;
 const beam = types.beam;
@@ -48,6 +50,7 @@ pub const WorkerState = struct {
     builtin_snapshot: ?std.StringHashMap(void) = null,
     buf: [4096]u8 = @splat(0),
     drain_fn: ?DrainFn = null,
+    napi_env: ?*napi_mod.NapiEnv = null,
 
     pub fn deinit(self: *WorkerState) void {
         var call_it = self.pending_calls.valueIterator();
@@ -73,8 +76,19 @@ pub const WorkerState = struct {
             snap.deinit();
         }
 
+        // Release napi JS refs, then free context, then free napi Zig memory
+        if (self.napi_env) |nenv| nenv.releaseValues();
         self.atoms.deinit(self.ctx);
+
+        // Run GC before freeing context to collect cycles
+        qjs.JS_RunGC(self.rt);
         qjs.JS_FreeContext(self.ctx);
+
+        if (self.napi_env) |nenv| {
+            nenv.deinit();
+            gpa.destroy(nenv);
+            self.napi_env = null;
+        }
     }
 
     pub fn drain_jobs(self: *WorkerState) void {
@@ -533,6 +547,12 @@ pub const WorkerState = struct {
             self.message_handler = js.JS_UNDEFINED;
         }
 
+        if (self.napi_env) |nenv| {
+            nenv.releaseValues();
+            nenv.deinit();
+            gpa.destroy(nenv);
+            self.napi_env = null;
+        }
         self.atoms.deinit(self.ctx);
         qjs.JS_FreeContext(self.ctx);
         self.ctx = qjs.JS_NewContext(self.rt) orelse {
@@ -587,6 +607,29 @@ pub const WorkerState = struct {
                     .delete_globals => |dg| self.delete_global_names(dg),
                     .snapshot_globals => self.snapshot_globals(),
                     .list_globals => |lg| self.list_globals(lg),
+                    .napi_async_complete => |p| {
+                        if (p.work.complete) |complete| {
+                            const ns: nt.napi_status = if (p.work.status.load(.seq_cst) == .cancelled)
+                                @intFromEnum(nt.Status.cancelled)
+                            else
+                                @intFromEnum(nt.Status.ok);
+                            complete(p.work.env, ns, p.work.data);
+                        }
+                    },
+                    .napi_tsfn_call => |p| {
+                        const tsfn = p.tsfn;
+                        if (tsfn.call_js_cb) |cb| {
+                            const napi_val: napi_mod.napi_value = if (tsfn.callback) |c| blk: {
+                                const slot = gpa.create(qjs.JSValue) catch break :blk null;
+                                slot.* = c;
+                                break :blk slot;
+                            } else null;
+                            cb(tsfn.env, napi_val, tsfn.ctx, p.data);
+                        } else if (tsfn.callback) |cb| {
+                            const ret = qjs.JS_Call(self.ctx, cb, js.js_undefined(), 0, null);
+                            qjs.JS_FreeValue(self.ctx, ret);
+                        }
+                    },
                     .stop => {
                         result.ok = false;
                         result.json = "Runtime stopped";
@@ -630,6 +673,118 @@ pub const WorkerState = struct {
             .max_depth = self.rd.max_convert_depth,
             .max_nodes = self.rd.max_convert_nodes,
         };
+    }
+
+    fn ensureNapiSymbolsGlobal() void {
+        const promoted = struct {
+            var done: bool = false;
+        };
+        if (promoted.done) return;
+        promoted.done = true;
+
+        // On Linux, addons loaded via dlopen need N-API symbols from the NIF
+        // to be globally visible. Re-open our own .so with RTLD_GLOBAL to
+        // promote the exported napi_* symbols into the global symbol table.
+        if (comptime @import("builtin").os.tag == .linux) {
+            const DlInfo = extern struct {
+                dli_fname: [*c]const u8,
+                dli_fbase: ?*anyopaque,
+                dli_sname: [*c]const u8,
+                dli_saddr: ?*anyopaque,
+            };
+            const RTLD_LAZY = 0x00001;
+            const RTLD_GLOBAL = 0x00100;
+            const RTLD_NOLOAD = 0x00004;
+            const dladdr = @extern(*const fn (?*const anyopaque, *DlInfo) callconv(.c) c_int, .{ .name = "dladdr" });
+            const dlopen_fn = @extern(*const fn (?[*:0]const u8, c_int) callconv(.c) ?*anyopaque, .{ .name = "dlopen" });
+            // SAFETY: dladdr initializes info on success before it is read.
+            var info: DlInfo = undefined;
+            if (dladdr(@ptrCast(&napi_mod.napi_module_register), &info) != 0) {
+                _ = dlopen_fn(info.dli_fname, RTLD_LAZY | RTLD_GLOBAL | RTLD_NOLOAD);
+            }
+        }
+    }
+
+    pub fn do_load_addon(self: *WorkerState, path: [:0]const u8, global_name: ?[:0]const u8, result: *Result) void {
+        ensureNapiSymbolsGlobal();
+
+        if (self.napi_env == null) {
+            self.napi_env = napi_mod.createEnvWithRd(self.ctx, self.rt, self.rd);
+        }
+        const env = self.napi_env.?;
+
+        napi_mod.clearPendingModule();
+
+        const lib = gpa.create(std.DynLib) catch {
+            result.ok = false;
+            result.json = "OOM";
+            return;
+        };
+        lib.* = std.DynLib.openZ(path) catch {
+            gpa.destroy(lib);
+            result.ok = false;
+            result.json = "Failed to dlopen addon";
+            return;
+        };
+
+        const exports = qjs.JS_NewObject(self.ctx);
+        const exports_slot = gpa.create(qjs.JSValue) catch {
+            qjs.JS_FreeValue(self.ctx, exports);
+            result.ok = false;
+            result.json = "OOM";
+            return;
+        };
+        exports_slot.* = exports;
+        defer gpa.destroy(exports_slot);
+
+        var final_exports: qjs.JSValue = exports;
+
+        // Check if napi_module_register was called during dlopen (static constructor)
+        if (napi_mod.getPendingModule()) |mod| {
+            napi_mod.clearPendingModule();
+            if (mod.nm_register_func) |register| {
+                const ret_val = register(env, exports_slot);
+                self.drain_jobs();
+                if (ret_val) |rv| final_exports = rv.*;
+            }
+        } else {
+            // Try looking up napi_register_module_v1
+            if (lib.lookup(*const fn (napi_mod.napi_env, napi_mod.napi_value) callconv(.c) napi_mod.napi_value, "napi_register_module_v1")) |init_fn| {
+                const ret_val = init_fn(env, exports_slot);
+                self.drain_jobs();
+                if (ret_val) |rv| final_exports = rv.*;
+            } else {
+                qjs.JS_FreeValue(self.ctx, exports);
+                result.ok = false;
+                result.json = "Addon has no napi_module_register or napi_register_module_v1";
+                return;
+            }
+        }
+
+        // Set exports as a global JS variable if a name was provided
+        if (global_name) |gn| {
+            const g = qjs.JS_GetGlobalObject(self.ctx);
+            defer qjs.JS_FreeValue(self.ctx, g);
+            _ = qjs.JS_SetPropertyStr(self.ctx, g, gn.ptr, qjs.JS_DupValue(self.ctx, final_exports));
+            // Track the atom so we can delete it during cleanup
+            const atom = qjs.JS_NewAtom(self.ctx, gn.ptr);
+            env.addon_globals.append(gpa, atom) catch {
+                qjs.JS_FreeAtom(self.ctx, atom);
+            };
+        }
+
+        const result_env = beam.alloc_env();
+        result.ok = true;
+        result.term = js_to_beam.convert_with_limits(self.ctx, final_exports, result_env, self.convert_limits());
+        result.env = result_env;
+
+        // Free our reference to exports
+        qjs.JS_FreeValue(self.ctx, exports);
+        if (final_exports.tag != exports.tag or qjs.JS_VALUE_GET_PTR(final_exports) != qjs.JS_VALUE_GET_PTR(exports)) {
+            qjs.JS_FreeValue(self.ctx, final_exports);
+        }
+        // These are standalone DupValue'd slots that need cleanup
+        env.clearPendingException();
     }
 
     pub fn do_dom_op_result(self: *WorkerState, op: types.DomOp, selector: []const u8, attr_name: []const u8, result: *Result) void {
@@ -693,6 +848,7 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
     types.class_ids_mutex.unlock();
 
     beam_proxy.initRuntime(rt);
+    napi_mod.initRuntime(rt);
 
     const ctx = qjs.JS_NewContext(rt) orelse return;
 
@@ -793,6 +949,61 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                         .array_count = usage.array_count,
                     }, .{ .env = renv });
                     types.send_reply(mu.caller_pid, mu.ref_env, mu.ref_term, true, renv, result_term.v, "");
+                },
+                .napi_async_complete => |p| {
+                    const work = p.work;
+                    if (work.complete) |complete| {
+                        const napi_status: nt.napi_status = if (work.status.load(.seq_cst) == .cancelled)
+                            @intFromEnum(nt.Status.cancelled)
+                        else
+                            @intFromEnum(nt.Status.ok);
+                        complete(work.env, napi_status, work.data);
+                    }
+                    work.deinit();
+                },
+                .napi_tsfn_call => |p| {
+                    const tsfn = p.tsfn;
+
+                    tsfn.lock.lock();
+                    if (tsfn.queue.items.len == 0) {
+                        const should_finalize = tsfn.closing.load(.seq_cst) and !tsfn.finalized.load(.seq_cst);
+                        tsfn.lock.unlock();
+                        if (should_finalize and tsfn.finalized.cmpxchgStrong(false, true, .seq_cst, .seq_cst) == null) {
+                            if (tsfn.finalize_cb) |cb| cb(tsfn.env, tsfn.ctx, null);
+                            tsfn.deinit();
+                        }
+                        break;
+                    }
+
+                    const data = tsfn.queue.orderedRemove(0);
+                    tsfn.condvar.signal();
+                    const should_finalize_after = tsfn.closing.load(.seq_cst) and tsfn.queue.items.len == 0 and !tsfn.finalized.load(.seq_cst);
+                    tsfn.lock.unlock();
+
+                    if (tsfn.call_js_cb) |cb| {
+                        const napi_val: napi_mod.napi_value = if (tsfn.callback) |c| blk: {
+                            const slot = gpa.create(qjs.JSValue) catch break :blk null;
+                            slot.* = c;
+                            break :blk slot;
+                        } else null;
+                        cb(tsfn.env, napi_val, tsfn.ctx, data);
+                        if (napi_val) |slot| gpa.destroy(slot);
+                    } else if (tsfn.callback) |cb| {
+                        const ret = qjs.JS_Call(state.ctx, cb, js.js_undefined(), 0, null);
+                        qjs.JS_FreeValue(state.ctx, ret);
+                    }
+
+                    if (should_finalize_after and tsfn.finalized.cmpxchgStrong(false, true, .seq_cst, .seq_cst) == null) {
+                        if (tsfn.finalize_cb) |cb| cb(tsfn.env, tsfn.ctx, null);
+                        tsfn.deinit();
+                    }
+                },
+                .load_addon => |p| {
+                    var result = Result{};
+                    state.do_load_addon(p.path, p.global_name, &result);
+                    gpa.free(p.path);
+                    if (p.global_name) |gn| gpa.free(gn);
+                    types.send_reply(p.caller_pid, p.ref_env, p.ref_term, result.ok, result.env, result.term, result.json);
                 },
                 .stop => break,
             }

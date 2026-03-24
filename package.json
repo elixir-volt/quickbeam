@@ -1,15 +1,22 @@
 {
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "lint": "oxlint -c oxlint.json --type-aware --type-check priv/ts/",
-    "format": "oxfmt --write priv/ts/",
-    "format:check": "oxfmt --check priv/ts/"
+  "dependencies": {
+    "@node-rs/argon2": "^2.0.2",
+    "@node-rs/bcrypt": "^1.10.7",
+    "@node-rs/crc32": "^1.10.6",
+    "sqlite-napi": "^1.0.1"
   },
   "devDependencies": {
     "jscpd": "^4.0.8",
     "oxfmt": "^0.37.0",
     "oxlint": "^1.52.0",
     "oxlint-tsgolint": "^0.16.0"
-  }
+  },
+  "private": true,
+  "scripts": {
+    "postinstall": "chmod +x node_modules/@oxlint-tsgolint/*/tsgolint 2>/dev/null || true",
+    "format": "oxfmt --write priv/ts/",
+    "format:check": "oxfmt --check priv/ts/",
+    "lint": "oxlint -c oxlint.json --type-aware --type-check priv/ts/"
+  },
+  "type": "module"
 }

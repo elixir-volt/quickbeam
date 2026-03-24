@@ -2,6 +2,7 @@ const types = @import("types.zig");
 const worker = @import("worker.zig");
 const ct = @import("context_types.zig");
 const context_worker = @import("context_worker.zig");
+pub const napi = @import("napi.zig");
 
 const std = types.std;
 const beam = @import("beam");
@@ -222,6 +223,36 @@ pub fn reset_runtime(resource: RuntimeResource) beam.term {
 
     enqueue(data, .{ .reset = .{
         .code = "",
+        .caller_pid = caller_pid,
+        .ref_env = ref_env,
+        .ref_term = ref_term,
+    } });
+
+    return beam.term{ .v = e.enif_make_copy(env, ref_term) };
+}
+
+pub fn load_addon(resource: RuntimeResource, path: []const u8, global_name: []const u8) beam.term {
+    const data = resource.unpack();
+    const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
+
+    // SAFETY: enif_self initializes caller_pid before it is used.
+    var caller_pid: beam.pid = undefined;
+    _ = e.enif_self(env, &caller_pid);
+    const ref_env = beam.alloc_env();
+    const ref_term = e.enif_make_ref(ref_env);
+
+    const path_copy = gpa.dupeZ(u8, path) catch return beam.make(.{ .@"error", "OOM" }, .{});
+    const name_copy: ?[:0]const u8 = if (global_name.len > 0)
+        gpa.dupeZ(u8, global_name) catch {
+            gpa.free(path_copy);
+            return beam.make(.{ .@"error", "OOM" }, .{});
+        }
+    else
+        null;
+
+    enqueue(data, .{ .load_addon = .{
+        .path = path_copy,
+        .global_name = name_copy,
         .caller_pid = caller_pid,
         .ref_env = ref_env,
         .ref_term = ref_term,

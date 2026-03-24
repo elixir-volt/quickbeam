@@ -94,6 +94,7 @@ defmodule QuickBEAM.Native do
       pool_dom_find_all: 3,
       pool_dom_text: 3,
       pool_dom_html: 2,
-      disasm_bytecode: 1
+      disasm_bytecode: 1,
+      load_addon: 3
     ]
 end
