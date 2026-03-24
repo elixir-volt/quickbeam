@@ -113,7 +113,10 @@ defmodule QuickBEAM.NapiTest do
       {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
       assert {:ok, "Uint8Array"} = QuickBEAM.eval(rt, "addon.bufferKind()")
       assert {:ok, [10, 20, 30, 40]} = QuickBEAM.eval(rt, "addon.bufferInfo()")
-      assert {:ok, %{"isBuffer" => true, "isTypedArray" => true}} = QuickBEAM.eval(rt, "addon.typedarrayChecks()")
+
+      assert {:ok, %{"isBuffer" => true, "isTypedArray" => true}} =
+               QuickBEAM.eval(rt, "addon.typedarrayChecks()")
+
       QuickBEAM.stop(rt)
     end
 
@@ -142,14 +145,18 @@ defmodule QuickBEAM.NapiTest do
 
       assert {:ok, 1234} = QuickBEAM.eval(rt, "addon.wrapAndUnwrap()")
       assert {:ok, 1} = QuickBEAM.eval(rt, "addon.clearWrapKeepalive()")
+
       assert {:ok, [7, 8, 9, 10]} =
                QuickBEAM.eval(rt, "Array.from(addon.addExternalBufferFinalizer())")
+
       assert {:ok, 1} = QuickBEAM.eval(rt, "addon.clearExternalBufferKeepalive()")
 
       assert :ok = QuickBEAM.reset(rt)
       {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+
       assert {:ok, %{"wraps" => _wraps_after, "externalBuffers" => _buffers_after}} =
                QuickBEAM.eval(rt, "addon.finalizedCounts()")
+
       QuickBEAM.stop(rt)
     end
   end
@@ -309,13 +316,14 @@ defmodule QuickBEAM.NapiTest do
       {:ok, rt} = QuickBEAM.start()
       {:ok, _} = QuickBEAM.load_addon(rt, path, as: "sqlite")
 
-      assert {:ok, "ok"} = QuickBEAM.eval(rt, """
-        const db = new sqlite.Database(":memory:");
-        db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)");
-        db.exec("INSERT INTO t VALUES (1, 'hello')");
-        db.exec("INSERT INTO t VALUES (2, 'world')");
-        "ok"
-      """)
+      assert {:ok, "ok"} =
+               QuickBEAM.eval(rt, """
+                 const db = new sqlite.Database(":memory:");
+                 db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)");
+                 db.exec("INSERT INTO t VALUES (1, 'hello')");
+                 db.exec("INSERT INTO t VALUES (2, 'world')");
+                 "ok"
+               """)
 
       QuickBEAM.stop(rt)
     end
@@ -327,13 +335,14 @@ defmodule QuickBEAM.NapiTest do
       {:ok, rt} = QuickBEAM.start()
       {:ok, _} = QuickBEAM.load_addon(rt, path, as: "sqlite")
 
-      assert {:ok, "ok"} = QuickBEAM.eval(rt, """
-        const db = new sqlite.Database(":memory:");
-        db.exec("CREATE TABLE kv (key TEXT, val TEXT)");
-        db.run("INSERT INTO kv VALUES (?, ?)", "greeting", "hello");
-        db.run("INSERT INTO kv VALUES (?, ?)", "target", "world");
-        "ok"
-      """)
+      assert {:ok, "ok"} =
+               QuickBEAM.eval(rt, """
+                 const db = new sqlite.Database(":memory:");
+                 db.exec("CREATE TABLE kv (key TEXT, val TEXT)");
+                 db.run("INSERT INTO kv VALUES (?, ?)", "greeting", "hello");
+                 db.run("INSERT INTO kv VALUES (?, ?)", "target", "world");
+                 "ok"
+               """)
 
       QuickBEAM.stop(rt)
     end
