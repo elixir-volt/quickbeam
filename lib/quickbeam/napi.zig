@@ -341,8 +341,8 @@ pub export fn napi_typeof(env_: napi_env, value: napi_value, result: ?*napi_valu
 
     const tag = qjs.JS_VALUE_GET_TAG(val);
     r.* = switch (tag) {
-        qjs.JS_TAG_UNDEFINED => .@"undefined",
-        qjs.JS_TAG_NULL => .@"null",
+        qjs.JS_TAG_UNDEFINED => .undefined,
+        qjs.JS_TAG_NULL => .null,
         qjs.JS_TAG_BOOL => .boolean,
         qjs.JS_TAG_INT, qjs.JS_TAG_FLOAT64 => .number,
         qjs.JS_TAG_STRING => .string,
@@ -353,7 +353,7 @@ pub export fn napi_typeof(env_: napi_env, value: napi_value, result: ?*napi_valu
             if (nt.external_class_id != 0 and qjs.JS_GetClassID(val) == nt.external_class_id) break :blk .external;
             break :blk .object;
         },
-        else => .@"undefined",
+        else => .undefined,
     };
     return env.ok();
 }
@@ -400,8 +400,6 @@ pub export fn napi_is_promise(env_: napi_env, value: napi_value, result: ?*bool)
     r.* = js.is_promise(env.ctx, toVal(value));
     return env.ok();
 }
-
-
 
 pub export fn napi_is_dataview(env_: napi_env, value: napi_value, result: ?*bool) callconv(.c) napi_status {
     const env = env_ orelse return @intFromEnum(Status.invalid_arg);
@@ -1193,9 +1191,6 @@ pub export fn napi_get_instance_data(env_: napi_env, data: ?*?*anyopaque) callco
 
 // ──────────────────── Wrap / Unwrap ────────────────────
 
-
-
-
 // ──────────────────── External ────────────────────
 
 pub export fn napi_create_external(
@@ -1312,7 +1307,6 @@ pub export fn napi_remove_async_cleanup_hook(_: ?*anyopaque) callconv(.c) napi_s
     return @intFromEnum(Status.ok);
 }
 
-
 pub export fn napi_type_tag_object(_: napi_env, _: napi_value, _: [*c]const nt.napi_type_tag) callconv(.c) napi_status {
     return @intFromEnum(Status.ok);
 }
@@ -1351,9 +1345,6 @@ pub fn clearPendingModule() void {
 
 // ──────────────────── Async Work ────────────────────
 
-
-
-
 fn asyncWorkRunner(work: *AsyncWork) void {
     work.status.store(.started, .release);
     work.execute(work.env, work.data);
@@ -1369,7 +1360,6 @@ fn asyncWorkRunner(work: *AsyncWork) void {
         types.enqueue(rd, .{ .napi_async_complete = .{ .work = work } });
     }
 }
-
 
 // ──────────────────── ArrayBuffer ────────────────────
 
@@ -1422,9 +1412,6 @@ pub export fn napi_is_detached_arraybuffer(env_: napi_env, value: napi_value, re
 }
 
 // ──────────────────── Buffer (Node.js Buffer ≈ Uint8Array) ────────────────────
-
-
-
 
 // ──────────────────── Date ────────────────────
 
@@ -1762,18 +1749,7 @@ pub export fn napi_get_typedarray_info(
             if (cstr != null) {
                 defer qjs.JS_FreeCString(env.ctx, cstr);
                 const s = cstr[0..slen];
-                mt.* = if (std.mem.eql(u8, s, "Int8Array")) .int8_array
-                    else if (std.mem.eql(u8, s, "Uint8Array")) .uint8_array
-                    else if (std.mem.eql(u8, s, "Uint8ClampedArray")) .uint8_clamped_array
-                    else if (std.mem.eql(u8, s, "Int16Array")) .int16_array
-                    else if (std.mem.eql(u8, s, "Uint16Array")) .uint16_array
-                    else if (std.mem.eql(u8, s, "Int32Array")) .int32_array
-                    else if (std.mem.eql(u8, s, "Uint32Array")) .uint32_array
-                    else if (std.mem.eql(u8, s, "Float32Array")) .float32_array
-                    else if (std.mem.eql(u8, s, "Float64Array")) .float64_array
-                    else if (std.mem.eql(u8, s, "BigInt64Array")) .bigint64_array
-                    else if (std.mem.eql(u8, s, "BigUint64Array")) .biguint64_array
-                    else .uint8_array;
+                mt.* = if (std.mem.eql(u8, s, "Int8Array")) .int8_array else if (std.mem.eql(u8, s, "Uint8Array")) .uint8_array else if (std.mem.eql(u8, s, "Uint8ClampedArray")) .uint8_clamped_array else if (std.mem.eql(u8, s, "Int16Array")) .int16_array else if (std.mem.eql(u8, s, "Uint16Array")) .uint16_array else if (std.mem.eql(u8, s, "Int32Array")) .int32_array else if (std.mem.eql(u8, s, "Uint32Array")) .uint32_array else if (std.mem.eql(u8, s, "Float32Array")) .float32_array else if (std.mem.eql(u8, s, "Float64Array")) .float64_array else if (std.mem.eql(u8, s, "BigInt64Array")) .bigint64_array else if (std.mem.eql(u8, s, "BigUint64Array")) .biguint64_array else .uint8_array;
             }
         }
     }
@@ -1994,13 +1970,6 @@ pub export fn napi_get_uv_event_loop(env_: napi_env, _: ?*?*anyopaque) callconv(
 }
 
 // ──────────────────── Threadsafe Functions ────────────────────
-
-
-
-
-
-
-
 
 // ──────────────────── Helpers ────────────────────
 

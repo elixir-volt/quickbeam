@@ -14,7 +14,8 @@ unless File.exists?(test_addon_out) and
     end
 
   args =
-    ["-shared", "-fvisibility=hidden"] ++ extra ++
+    ["-shared", "-fvisibility=hidden"] ++
+      extra ++
       ["-o", test_addon_out, "-I", test_addon_hdr, test_addon_src]
 
   {_, 0} = System.cmd("cc", args, stderr_to_stdout: true)

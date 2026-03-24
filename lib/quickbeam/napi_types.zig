@@ -32,8 +32,8 @@ pub const Status = enum(c_uint) {
 };
 
 pub const napi_valuetype = enum(c_uint) {
-    @"undefined" = 0,
-    @"null" = 1,
+    undefined = 0,
+    null = 1,
     boolean = 2,
     number = 3,
     string = 4,
@@ -245,7 +245,6 @@ pub const NapiEnv = struct {
             gpa.destroy(slot);
         }
         self.persistent_slots.deinit(gpa);
-
     }
 
     /// Free non-JS resources. Call after JS_FreeContext.
