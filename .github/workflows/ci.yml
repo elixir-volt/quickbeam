@@ -49,7 +49,12 @@ jobs:
           key: ${{ runner.os }}-mix-${{ matrix.otp }}-${{ matrix.elixir }}-${{ hashFiles('mix.lock') }}-${{ hashFiles('lib/quickbeam/*.zig') }}
           restore-keys: ${{ runner.os }}-mix-${{ matrix.otp }}-${{ matrix.elixir }}-
 
+      - name: Install zlint
+        run: curl -fsSL https://raw.githubusercontent.com/DonIsaac/zlint/refs/heads/main/tasks/install.sh | bash
+
       - run: mix deps.get
+      - run: mix npm.get
+      - run: npm install
       - run: mix ci
 
   ubsan:
@@ -82,8 +87,9 @@ jobs:
           restore-keys: ${{ runner.os }}-ubsan-27.0-1.18-
 
       - run: mix deps.get
+      - run: mix npm.get
       - run: mix compile
-      - run: mix test --no-start
+      - run: mix test --no-start --exclude napi_addon --exclude napi_sqlite
 
   asan:
     name: AddressSanitizer

@@ -41,9 +41,9 @@ defmodule QuickBEAM.MixProject do
         "format --check-formatted",
         "credo --strict",
         "ex_dna",
-        "cmd zlint lib/quickbeam/*.zig",
-        "cmd bun run lint",
-        "cmd bunx jscpd lib/quickbeam/*.zig priv/ts/*.ts --min-tokens 50 --threshold 0"
+        "cmd zlint lib/quickbeam/*.zig lib/quickbeam/napi/*.zig",
+        "cmd npx oxlint -c oxlint.json --type-aware --type-check priv/ts/",
+        "cmd npx jscpd lib/quickbeam/*.zig priv/ts/*.ts --min-tokens 50 --threshold 0"
       ],
       ci: [
         "compile --warnings-as-errors",
@@ -51,10 +51,10 @@ defmodule QuickBEAM.MixProject do
         "credo --strict",
         "dialyzer",
         "ex_dna",
-        "cmd zlint lib/quickbeam/*.zig",
-        "cmd bun run lint",
-        "cmd bunx jscpd lib/quickbeam/*.zig priv/ts/*.ts --min-tokens 50 --threshold 0",
-        "test --no-start"
+        "cmd zlint lib/quickbeam/*.zig lib/quickbeam/napi/*.zig",
+        "cmd npx oxlint -c oxlint.json --type-aware --type-check priv/ts/",
+        "cmd npx jscpd lib/quickbeam/*.zig priv/ts/*.ts --min-tokens 50 --threshold 0",
+        "test --no-start --exclude napi_addon --exclude napi_sqlite"
       ],
       "fuzz.sanity": "cmd --cd fuzz zig build test"
     ]
@@ -69,7 +69,7 @@ defmodule QuickBEAM.MixProject do
       {:ex_dna, "~> 1.1", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false},
       {:oxc, "~> 0.5.0"},
-      {:npm, "~> 0.4.2"},
+      {:npm, "~> 0.5.1"},
       {:nimble_pool, "~> 1.1"},
       {:bandit, "~> 1.0", only: :test},
       {:benchee, "~> 1.3", only: :bench, runtime: false},

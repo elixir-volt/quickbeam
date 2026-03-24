@@ -50,6 +50,9 @@ pub const Message = union(enum) {
     list_globals: ListGlobalsPayload,
     memory_usage: AsyncMemoryPayload,
     dom_op: AsyncDomPayload,
+    load_addon: AsyncAddonPayload,
+    napi_async_complete: NapiAsyncCompletePayload,
+    napi_tsfn_call: NapiTsfnCallPayload,
     stop,
 };
 
@@ -127,6 +130,23 @@ pub const SetGlobalPayload = struct {
 
 pub const GetGlobalPayload = struct {
     name: [:0]const u8,
+    caller_pid: beam.pid,
+    ref_env: ?*e.ErlNifEnv,
+    ref_term: e.ErlNifTerm,
+};
+
+pub const NapiAsyncCompletePayload = struct {
+    work: *@import("napi_types.zig").AsyncWork,
+};
+
+pub const NapiTsfnCallPayload = struct {
+    tsfn: *@import("napi_types.zig").ThreadSafeFunction,
+    data: ?*anyopaque,
+};
+
+pub const AsyncAddonPayload = struct {
+    path: [:0]const u8,
+    global_name: ?[:0]const u8 = null,
     caller_pid: beam.pid,
     ref_env: ?*e.ErlNifEnv,
     ref_term: e.ErlNifTerm,
