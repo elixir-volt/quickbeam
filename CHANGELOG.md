@@ -14,7 +14,7 @@
 
 ### Changed
 
-- **TypeScript support in Context** — `QuickBEAM.Context` now auto-transforms `.ts`/`.tsx` scripts via OXC and auto-bundles scripts with `import` statements, matching `QuickBEAM.Runtime` behavior. Previously, Context loaded scripts as raw JS.
+- **TypeScript support in Context** — `QuickBEAM.Context` now auto-transforms `.ts`/`.tsx` scripts via OXC and auto-bundles scripts with `import` statements, matching Runtime behavior. Previously, Context loaded scripts as raw JS.
 - **Repo-wide quality gate** — added `mix ci` with test env defaults and brought the full quality pipeline to green: Elixir linting, Dialyzer, Zig lint, TypeScript type-aware linting, duplicate-code checks, and tests now pass together.
 - **TypeScript polyfill quality** — resolved DOM/global type collisions in `priv/ts` by moving implementation classes to QB-prefixed names while preserving web-facing globals. Also removed TS lint/type errors and TS clone findings.
 - **N-API implementation cleanup** — aligned buffer APIs with QuickBEAM's `Uint8Array` byte representation, tightened wrap and async cleanup behavior, and split `napi.zig` into focused Zig modules.
