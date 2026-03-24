@@ -4,16 +4,20 @@
 
 ### Added
 
+- **N-API addon support** — `QuickBEAM.load_addon/3` loads native `.node` addons into a runtime and optionally exposes their exports as a global.
+- **Node-API surface for native addons** — adds the N-API implementation needed to run real addons, including constructors, typed arrays, external buffers, async work, and threadsafe functions.
+- **Real addon integration coverage** — adds tests for a C test addon plus `@node-rs/crc32`, `@node-rs/argon2`, `@node-rs/bcrypt`, and `sqlite-napi`.
 - **`Beam.nanoseconds()`** — monotonic high-resolution timer via `:erlang.monotonic_time(:nanosecond)`
 - **`Beam.uniqueInteger()`** — monotonically increasing unique integer via `:erlang.unique_integer`
 - **`Beam.makeRef()`** — create a unique BEAM reference, useful for request/reply correlation
 - **`Beam.inspect(value)`** — pretty-print any value via `Kernel.inspect`, especially useful for opaque `BeamPid`/`BeamRef` terms
 
-### Fixed
+### Changed
 
 - **TypeScript support in Context** — `QuickBEAM.Context` now auto-transforms `.ts`/`.tsx` scripts via OXC and auto-bundles scripts with `import` statements, matching `QuickBEAM.Runtime` behavior. Previously, Context loaded scripts as raw JS.
 - **Repo-wide quality gate** — added `mix ci` with test env defaults and brought the full quality pipeline to green: Elixir linting, Dialyzer, Zig lint, TypeScript type-aware linting, duplicate-code checks, and tests now pass together.
 - **TypeScript polyfill quality** — resolved DOM/global type collisions in `priv/ts` by moving implementation classes to QB-prefixed names while preserving web-facing globals. Also removed TS lint/type errors and TS clone findings.
+- **N-API implementation cleanup** — aligned buffer APIs with QuickBEAM's `Uint8Array` byte representation, tightened wrap and async cleanup behavior, and split `napi.zig` into focused Zig modules.
 - **Zig lint hygiene** — added missing `SAFETY:` notes for intentional `undefined` initialization, replaced suppressed error handling with explicit handling, removed unused declarations, and fixed style warnings so `zlint` runs clean.
 
 ## 0.7.1
