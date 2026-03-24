@@ -365,6 +365,10 @@ pub const AsyncWork = struct {
     };
 
     pub fn deinit(self: *AsyncWork) void {
+        if (self.thread) |thread| {
+            thread.join();
+            self.thread = null;
+        }
         gpa.destroy(self);
     }
 };
@@ -384,6 +388,7 @@ pub const ThreadSafeFunction = struct {
     lock: std.Thread.Mutex = .{},
     condvar: std.Thread.Condition = .{},
     closing: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    finalized: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 
     pub fn deinit(self: *ThreadSafeFunction) void {
         if (self.callback) |cb| {

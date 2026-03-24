@@ -5,6 +5,11 @@ const qjs = types.qjs;
 const gpa = types.gpa;
 
 const nt = @import("napi_types.zig");
+const common = @import("napi/common.zig");
+const buffers = @import("napi/buffers.zig");
+const wrap_mod = @import("napi/wrap.zig");
+const async_work = @import("napi/async_work.zig");
+const tsfn = @import("napi/tsfn.zig");
 pub const Status = nt.Status;
 pub const napi_status = nt.napi_status;
 pub const napi_env = nt.napi_env;
@@ -33,7 +38,7 @@ pub const napi_threadsafe_function = nt.napi_threadsafe_function;
 pub const NAPI_AUTO_LENGTH = nt.NAPI_AUTO_LENGTH;
 
 fn toVal(v: napi_value) qjs.JSValue {
-    if (v) |ptr| return ptr.* else return js.js_undefined();
+    return common.toVal(v);
 }
 
 // ──────────────────── Globals / Version ────────────────────
@@ -396,25 +401,7 @@ pub export fn napi_is_promise(env_: napi_env, value: napi_value, result: ?*bool)
     return env.ok();
 }
 
-pub export fn napi_is_typedarray(env_: napi_env, value: napi_value, result: ?*bool) callconv(.c) napi_status {
-    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
-    const r = result orelse return env.invalidArg();
-    const val = toVal(value);
-    // QuickJS: check if it has a buffer property and byteLength (duck-typing typed arrays)
-    if (!qjs.JS_IsObject(val)) {
-        r.* = false;
-        return env.ok();
-    }
-    const byte_length = qjs.JS_GetPropertyStr(env.ctx, val, "byteLength");
-    defer qjs.JS_FreeValue(env.ctx, byte_length);
-    r.* = !qjs.JS_IsUndefined(byte_length) and !qjs.JS_IsArrayBuffer(val);
-    return env.ok();
-}
 
-pub export fn napi_is_buffer(env_: napi_env, value: napi_value, result: ?*bool) callconv(.c) napi_status {
-    // In Node.js, Buffer is a Uint8Array subclass. In QuickJS, treat ArrayBuffer as buffer.
-    return napi_is_arraybuffer(env_, value, result);
-}
 
 pub export fn napi_is_dataview(env_: napi_env, value: napi_value, result: ?*bool) callconv(.c) napi_status {
     const env = env_ orelse return @intFromEnum(Status.invalid_arg);
@@ -510,13 +497,9 @@ pub export fn napi_coerce_to_object(env_: napi_env, value: napi_value, result: ?
     const env = env_ orelse return @intFromEnum(Status.invalid_arg);
     const r = result orelse return env.invalidArg();
     const val = toVal(value);
-    if (qjs.JS_IsObject(val)) {
-        r.* = env.createNapiValue(val);
-    } else {
-        // Wrap primitive in Object()
-        const obj = qjs.JS_NewObject(env.ctx);
-        r.* = env.createNapiValue(obj);
-    }
+    const obj = qjs.JS_ToObject(env.ctx, val);
+    if (js.js_is_exception(obj)) return env.setLastError(.pending_exception);
+    r.* = env.createNapiValue(obj);
     return env.ok();
 }
 
@@ -1210,78 +1193,8 @@ pub export fn napi_get_instance_data(env_: napi_env, data: ?*?*anyopaque) callco
 
 // ──────────────────── Wrap / Unwrap ────────────────────
 
-pub export fn napi_wrap(env_: napi_env, js_object: napi_value, native_object: ?*anyopaque, finalize_cb: napi_finalize, _: ?*anyopaque, result: ?*napi_ref) callconv(.c) napi_status {
-    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
-    const obj = toVal(js_object);
-    if (!qjs.JS_IsObject(obj)) return env.setLastError(.object_expected);
 
-    // Store native pointer as an opaque int property
-    const key = qjs.JS_NewAtom(env.ctx, "__napi_wrap");
-    defer qjs.JS_FreeAtom(env.ctx, key);
 
-    const ptr_int: i64 = @bitCast(@intFromPtr(native_object));
-    _ = qjs.JS_DefinePropertyValue(env.ctx, obj, key, qjs.JS_NewInt64(env.ctx, ptr_int), qjs.JS_PROP_CONFIGURABLE);
-
-    _ = finalize_cb;
-
-    if (result) |r| {
-        const ref_obj = gpa.create(NapiReference) catch return env.genericFailure();
-        ref_obj.* = .{
-            .value = qjs.JS_DupValue(env.ctx, obj),
-            .ref_count = 1,
-            .ctx = env.ctx,
-        };
-        r.* = ref_obj;
-    }
-    return env.ok();
-}
-
-pub export fn napi_unwrap(env_: napi_env, js_object: napi_value, result: ?*?*anyopaque) callconv(.c) napi_status {
-    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
-    const r = result orelse return env.invalidArg();
-    const obj = toVal(js_object);
-    if (!qjs.JS_IsObject(obj)) return env.setLastError(.object_expected);
-
-    const key = qjs.JS_NewAtom(env.ctx, "__napi_wrap");
-    defer qjs.JS_FreeAtom(env.ctx, key);
-
-    const val = qjs.JS_GetProperty(env.ctx, obj, key);
-    defer qjs.JS_FreeValue(env.ctx, val);
-
-    if (qjs.JS_IsUndefined(val)) return env.invalidArg();
-    var ptr_int: i64 = 0;
-    if (qjs.JS_ToInt64(env.ctx, &ptr_int, val) < 0) return env.genericFailure();
-    r.* = @ptrFromInt(@as(usize, @bitCast(ptr_int)));
-    return env.ok();
-}
-
-pub export fn napi_remove_wrap(env_: napi_env, js_object: napi_value, result: ?*?*anyopaque) callconv(.c) napi_status {
-    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
-    const obj = toVal(js_object);
-    if (!qjs.JS_IsObject(obj)) return env.setLastError(.object_expected);
-
-    const key = qjs.JS_NewAtom(env.ctx, "__napi_wrap");
-    defer qjs.JS_FreeAtom(env.ctx, key);
-
-    const val = qjs.JS_GetProperty(env.ctx, obj, key);
-    defer qjs.JS_FreeValue(env.ctx, val);
-
-    if (result) |r| {
-        if (qjs.JS_IsUndefined(val)) {
-            r.* = null;
-        } else {
-            var ptr_int: i64 = 0;
-            if (qjs.JS_ToInt64(env.ctx, &ptr_int, val) < 0) {
-                r.* = null;
-            } else {
-                r.* = @ptrFromInt(@as(usize, @bitCast(ptr_int)));
-            }
-        }
-    }
-
-    _ = qjs.JS_DeleteProperty(env.ctx, obj, key, 0);
-    return env.ok();
-}
 
 // ──────────────────── External ────────────────────
 
@@ -1399,10 +1312,6 @@ pub export fn napi_remove_async_cleanup_hook(_: ?*anyopaque) callconv(.c) napi_s
     return @intFromEnum(Status.ok);
 }
 
-pub export fn napi_add_finalizer(env_: napi_env, js_object: napi_value, native_object: ?*anyopaque, cb: napi_finalize, hint: ?*anyopaque, result: ?*napi_ref) callconv(.c) napi_status {
-    // For now, treat as wrap
-    return napi_wrap(env_, js_object, native_object, cb, hint, result);
-}
 
 pub export fn napi_type_tag_object(_: napi_env, _: napi_value, _: [*c]const nt.napi_type_tag) callconv(.c) napi_status {
     return @intFromEnum(Status.ok);
@@ -1442,48 +1351,8 @@ pub fn clearPendingModule() void {
 
 // ──────────────────── Async Work ────────────────────
 
-pub export fn napi_create_async_work(
-    env_: napi_env,
-    _: napi_value,
-    _: napi_value,
-    execute_: ?nt.napi_async_execute_callback,
-    complete: ?nt.napi_async_complete_callback,
-    data: ?*anyopaque,
-    result: ?*napi_async_work,
-) callconv(.c) napi_status {
-    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
-    const r = result orelse return env.invalidArg();
-    const execute = execute_ orelse return env.invalidArg();
 
-    const work = gpa.create(AsyncWork) catch return env.genericFailure();
-    work.* = .{
-        .env = env,
-        .execute = execute,
-        .complete = if (complete) |c| c else null,
-        .data = data,
-        .rd = env.runtime_data,
-    };
-    r.* = work;
-    return env.ok();
-}
 
-pub export fn napi_delete_async_work(env_: napi_env, work_: napi_async_work) callconv(.c) napi_status {
-    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
-    const work: *AsyncWork = work_ orelse return env.invalidArg();
-    work.deinit();
-    return env.ok();
-}
-
-pub export fn napi_queue_async_work(env_: napi_env, work_: napi_async_work) callconv(.c) napi_status {
-    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
-    const work: *AsyncWork = work_ orelse return env.invalidArg();
-
-    // The work needs access to RuntimeData to enqueue the completion message
-    if (work.rd == null) return env.genericFailure();
-
-    work.thread = std.Thread.spawn(.{}, asyncWorkRunner, .{work}) catch return env.genericFailure();
-    return env.ok();
-}
 
 fn asyncWorkRunner(work: *AsyncWork) void {
     work.status.store(.started, .release);
@@ -1501,14 +1370,6 @@ fn asyncWorkRunner(work: *AsyncWork) void {
     }
 }
 
-pub export fn napi_cancel_async_work(env_: napi_env, work_: napi_async_work) callconv(.c) napi_status {
-    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
-    const work: *AsyncWork = work_ orelse return env.invalidArg();
-    if (work.status.cmpxchgStrong(.pending, .cancelled, .seq_cst, .seq_cst) == null) {
-        return env.ok();
-    }
-    return env.genericFailure();
-}
 
 // ──────────────────── ArrayBuffer ────────────────────
 
@@ -1519,7 +1380,7 @@ pub export fn napi_create_arraybuffer(env_: napi_env, byte_length: usize, data: 
     const buf = gpa.alloc(u8, byte_length) catch return env.genericFailure();
     @memset(buf, 0);
 
-    const ab = qjs.JS_NewArrayBuffer(env.ctx, buf.ptr, byte_length, &arrayBufferFree, @ptrFromInt(byte_length), false);
+    const ab = qjs.JS_NewArrayBuffer(env.ctx, buf.ptr, byte_length, &buffers.arrayBufferFree, @ptrFromInt(byte_length), false);
     if (js.js_is_exception(ab)) {
         gpa.free(buf);
         return env.genericFailure();
@@ -1528,15 +1389,6 @@ pub export fn napi_create_arraybuffer(env_: napi_env, byte_length: usize, data: 
     if (data) |d| d.* = buf.ptr;
     r.* = env.createNapiValue(ab);
     return env.ok();
-}
-
-fn arrayBufferFree(rt: ?*qjs.JSRuntime, user_data: ?*anyopaque, ptr: ?*anyopaque) callconv(.c) void {
-    _ = rt;
-    const len = @intFromPtr(user_data);
-    if (ptr) |p| {
-        const slice: [*]u8 = @ptrCast(p);
-        gpa.free(slice[0..len]);
-    }
 }
 
 pub export fn napi_get_arraybuffer_info(env_: napi_env, arraybuffer: napi_value, data: ?*?[*]u8, byte_length: ?*usize) callconv(.c) napi_status {
@@ -1571,35 +1423,8 @@ pub export fn napi_is_detached_arraybuffer(env_: napi_env, value: napi_value, re
 
 // ──────────────────── Buffer (Node.js Buffer ≈ Uint8Array) ────────────────────
 
-pub export fn napi_create_buffer(env_: napi_env, length: usize, data: ?*?[*]u8, result: ?*napi_value) callconv(.c) napi_status {
-    return napi_create_arraybuffer(env_, length, data, result);
-}
 
-pub export fn napi_create_buffer_copy(env_: napi_env, length: usize, src: ?[*]const u8, data: ?*?[*]u8, result: ?*napi_value) callconv(.c) napi_status {
-    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
-    const r = result orelse return env.invalidArg();
 
-    const buf = gpa.alloc(u8, length) catch return env.genericFailure();
-    if (src) |s| {
-        @memcpy(buf, s[0..length]);
-    } else {
-        @memset(buf, 0);
-    }
-
-    const ab = qjs.JS_NewArrayBuffer(env.ctx, buf.ptr, length, &arrayBufferFree, @ptrFromInt(length), false);
-    if (js.js_is_exception(ab)) {
-        gpa.free(buf);
-        return env.genericFailure();
-    }
-
-    if (data) |d| d.* = buf.ptr;
-    r.* = env.createNapiValue(ab);
-    return env.ok();
-}
-
-pub export fn napi_get_buffer_info(env_: napi_env, value: napi_value, data: ?*?[*]u8, length: ?*usize) callconv(.c) napi_status {
-    return napi_get_arraybuffer_info(env_, value, data, length);
-}
 
 // ──────────────────── Date ────────────────────
 
@@ -1966,14 +1791,13 @@ pub export fn napi_create_external_arraybuffer(
     const env = env_ orelse return @intFromEnum(Status.invalid_arg);
     const r = result orelse return env.invalidArg();
 
-    // Wrap the finalize callback in a free function
-    const wrap = gpa.create(ExternalAbData) catch return env.genericFailure();
-    wrap.* = .{ .env = env, .finalize_cb = finalize_cb, .finalize_hint = finalize_hint };
+    const ext_wrap = gpa.create(ExternalAbData) catch return env.genericFailure();
+    ext_wrap.* = .{ .env = env, .finalize_cb = finalize_cb, .finalize_hint = finalize_hint };
 
     const ptr: [*]u8 = if (external_data) |ed| @ptrCast(ed) else @ptrFromInt(1);
-    const ab = qjs.JS_NewArrayBuffer(env.ctx, ptr, byte_length, &externalAbFree, @ptrCast(wrap), false);
+    const ab = qjs.JS_NewArrayBuffer(env.ctx, ptr, byte_length, &externalAbFree, @ptrCast(ext_wrap), false);
     if (js.js_is_exception(ab)) {
-        gpa.destroy(wrap);
+        gpa.destroy(ext_wrap);
         return env.genericFailure();
     }
 
@@ -1988,11 +1812,11 @@ const ExternalAbData = struct {
 };
 
 fn externalAbFree(_: ?*qjs.JSRuntime, user_data: ?*anyopaque, ptr: ?*anyopaque) callconv(.c) void {
-    const wrap: *ExternalAbData = @ptrCast(@alignCast(user_data orelse return));
-    if (wrap.finalize_cb) |cb| {
-        cb(wrap.env, ptr, wrap.finalize_hint);
+    const ext_wrap: *ExternalAbData = @ptrCast(@alignCast(user_data orelse return));
+    if (ext_wrap.finalize_cb) |cb| {
+        cb(ext_wrap.env, ptr, ext_wrap.finalize_hint);
     }
-    gpa.destroy(wrap);
+    gpa.destroy(ext_wrap);
 }
 
 // ──────────────────── DataView ────────────────────
@@ -2087,8 +1911,20 @@ pub export fn napi_create_external_buffer(
     finalize_hint: ?*anyopaque,
     result: ?*napi_value,
 ) callconv(.c) napi_status {
-    // External buffer is the same as external arraybuffer in our implementation
-    return napi_create_external_arraybuffer(env_, data, length, finalize_cb, finalize_hint, result);
+    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
+    const r = result orelse return env.invalidArg();
+
+    const ext_wrap = gpa.create(ExternalAbData) catch return env.genericFailure();
+    ext_wrap.* = .{ .env = env, .finalize_cb = finalize_cb, .finalize_hint = finalize_hint };
+
+    const ptr: [*]u8 = if (data) |ed| @ptrCast(ed) else @ptrFromInt(1);
+    const ta = buffers.createUint8ArrayFromBuffer(env, ptr, length, &externalAbFree, @ptrCast(ext_wrap)) catch {
+        gpa.destroy(ext_wrap);
+        return env.genericFailure();
+    };
+
+    r.* = env.createNapiValue(ta);
+    return env.ok();
 }
 
 // ──────────────────── BigInt Words ────────────────────
@@ -2159,104 +1995,12 @@ pub export fn napi_get_uv_event_loop(env_: napi_env, _: ?*?*anyopaque) callconv(
 
 // ──────────────────── Threadsafe Functions ────────────────────
 
-pub export fn napi_create_threadsafe_function(
-    env_: napi_env,
-    func: napi_value,
-    _: napi_value,
-    _: napi_value,
-    max_queue_size: usize,
-    initial_thread_count: usize,
-    _: ?*anyopaque,
-    finalize_cb: napi_finalize,
-    context: ?*anyopaque,
-    call_js_cb: ?nt.napi_threadsafe_function_call_js,
-    result: ?*napi_threadsafe_function,
-) callconv(.c) napi_status {
-    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
-    const r = result orelse return env.invalidArg();
 
-    const tsfn = gpa.create(ThreadSafeFunction) catch return env.genericFailure();
-    const func_val = toVal(func);
-    tsfn.* = .{
-        .env = env,
-        .callback = if (qjs.JS_IsFunction(env.ctx, func_val)) qjs.JS_DupValue(env.ctx, func_val) else null,
-        .call_js_cb = call_js_cb,
-        .ctx = context,
-        .finalize_cb = finalize_cb,
-        .max_queue_size = max_queue_size,
-        .thread_count = std.atomic.Value(i64).init(@intCast(initial_thread_count)),
-    };
-    r.* = tsfn;
-    return env.ok();
-}
 
-pub export fn napi_call_threadsafe_function(func_: napi_threadsafe_function, data: ?*anyopaque, is_blocking: nt.napi_threadsafe_function_call_mode) callconv(.c) napi_status {
-    const func: *ThreadSafeFunction = func_ orelse return @intFromEnum(Status.invalid_arg);
-    func.lock.lock();
 
-    if (func.closing.load(.seq_cst)) {
-        func.lock.unlock();
-        return @intFromEnum(Status.closing);
-    }
 
-    if (is_blocking == nt.napi_tsfn_blocking) {
-        while (func.max_queue_size > 0 and func.queue.items.len >= func.max_queue_size) {
-            func.condvar.wait(&func.lock);
-        }
-    } else {
-        if (func.max_queue_size > 0 and func.queue.items.len >= func.max_queue_size) {
-            func.lock.unlock();
-            return @intFromEnum(Status.queue_full);
-        }
-    }
 
-    func.queue.append(gpa, data) catch {
-        func.lock.unlock();
-        return @intFromEnum(Status.generic_failure);
-    };
-    func.lock.unlock();
 
-    // Dispatch to the worker thread via the message queue
-    if (func.env.runtime_data) |rd| {
-        types.enqueue(rd, .{ .napi_tsfn_call = .{ .tsfn = func, .data = data } });
-    }
-
-    return @intFromEnum(Status.ok);
-}
-
-pub export fn napi_acquire_threadsafe_function(func_: napi_threadsafe_function) callconv(.c) napi_status {
-    const func: *ThreadSafeFunction = func_ orelse return @intFromEnum(Status.invalid_arg);
-    _ = func.thread_count.fetchAdd(1, .seq_cst);
-    return @intFromEnum(Status.ok);
-}
-
-pub export fn napi_release_threadsafe_function(func_: napi_threadsafe_function, mode: nt.napi_threadsafe_function_release_mode) callconv(.c) napi_status {
-    const func: *ThreadSafeFunction = func_ orelse return @intFromEnum(Status.invalid_arg);
-    const prev = func.thread_count.fetchSub(1, .seq_cst);
-    if (mode == .abort or prev == 1) {
-        func.closing.store(true, .seq_cst);
-        func.condvar.signal();
-        if (func.finalize_cb) |cb| {
-            cb(func.env, func.ctx, null);
-        }
-    }
-    return @intFromEnum(Status.ok);
-}
-
-pub export fn napi_ref_threadsafe_function(_: napi_env, _: napi_threadsafe_function) callconv(.c) napi_status {
-    return @intFromEnum(Status.ok);
-}
-
-pub export fn napi_unref_threadsafe_function(_: napi_env, _: napi_threadsafe_function) callconv(.c) napi_status {
-    return @intFromEnum(Status.ok);
-}
-
-pub export fn napi_get_threadsafe_function_context(func_: napi_threadsafe_function, result: ?*?*anyopaque) callconv(.c) napi_status {
-    const func: *ThreadSafeFunction = func_ orelse return @intFromEnum(Status.invalid_arg);
-    const r = result orelse return @intFromEnum(Status.invalid_arg);
-    r.* = func.ctx;
-    return @intFromEnum(Status.ok);
-}
 
 // ──────────────────── Helpers ────────────────────
 
@@ -2341,8 +2085,8 @@ pub const napi_symbol_table = [_]*const anyopaque{
     @ptrCast(&napi_is_date),
     @ptrCast(&napi_is_error),
     @ptrCast(&napi_is_promise),
-    @ptrCast(&napi_is_typedarray),
-    @ptrCast(&napi_is_buffer),
+    @ptrCast(&buffers.napi_is_typedarray),
+    @ptrCast(&buffers.napi_is_buffer),
     @ptrCast(&napi_is_dataview),
     @ptrCast(&napi_strict_equals),
     @ptrCast(&napi_coerce_to_bool),
@@ -2396,9 +2140,9 @@ pub const napi_symbol_table = [_]*const anyopaque{
     @ptrCast(&napi_get_node_version),
     @ptrCast(&napi_set_instance_data),
     @ptrCast(&napi_get_instance_data),
-    @ptrCast(&napi_wrap),
-    @ptrCast(&napi_unwrap),
-    @ptrCast(&napi_remove_wrap),
+    @ptrCast(&wrap_mod.napi_wrap),
+    @ptrCast(&wrap_mod.napi_unwrap),
+    @ptrCast(&wrap_mod.napi_remove_wrap),
     @ptrCast(&napi_create_external),
     @ptrCast(&napi_get_value_external),
     @ptrCast(&napi_async_init),
@@ -2413,16 +2157,16 @@ pub const napi_symbol_table = [_]*const anyopaque{
     @ptrCast(&napi_remove_env_cleanup_hook),
     @ptrCast(&napi_add_async_cleanup_hook),
     @ptrCast(&napi_remove_async_cleanup_hook),
-    @ptrCast(&napi_add_finalizer),
+    @ptrCast(&wrap_mod.napi_add_finalizer),
     @ptrCast(&napi_type_tag_object),
     @ptrCast(&napi_check_object_type_tag),
     @ptrCast(&napi_fatal_error),
     @ptrCast(&napi_fatal_exception),
     @ptrCast(&napi_module_register),
-    @ptrCast(&napi_create_async_work),
-    @ptrCast(&napi_delete_async_work),
-    @ptrCast(&napi_queue_async_work),
-    @ptrCast(&napi_cancel_async_work),
+    @ptrCast(&async_work.napi_create_async_work),
+    @ptrCast(&async_work.napi_delete_async_work),
+    @ptrCast(&async_work.napi_queue_async_work),
+    @ptrCast(&async_work.napi_cancel_async_work),
     @ptrCast(&napi_create_arraybuffer),
     @ptrCast(&napi_get_arraybuffer_info),
     @ptrCast(&napi_define_properties),
@@ -2433,19 +2177,19 @@ pub const napi_symbol_table = [_]*const anyopaque{
     @ptrCast(&napi_create_bigint_uint64),
     @ptrCast(&napi_get_value_bigint_int64),
     @ptrCast(&napi_get_value_bigint_uint64),
-    @ptrCast(&napi_create_buffer),
-    @ptrCast(&napi_create_buffer_copy),
-    @ptrCast(&napi_get_buffer_info),
+    @ptrCast(&buffers.napi_create_buffer),
+    @ptrCast(&buffers.napi_create_buffer_copy),
+    @ptrCast(&buffers.napi_get_buffer_info),
     @ptrCast(&napi_new_instance),
     @ptrCast(&napi_get_property_names),
     @ptrCast(&napi_get_uv_event_loop),
-    @ptrCast(&napi_create_threadsafe_function),
-    @ptrCast(&napi_call_threadsafe_function),
-    @ptrCast(&napi_acquire_threadsafe_function),
-    @ptrCast(&napi_release_threadsafe_function),
-    @ptrCast(&napi_ref_threadsafe_function),
-    @ptrCast(&napi_unref_threadsafe_function),
-    @ptrCast(&napi_get_threadsafe_function_context),
+    @ptrCast(&tsfn.napi_create_threadsafe_function),
+    @ptrCast(&tsfn.napi_call_threadsafe_function),
+    @ptrCast(&tsfn.napi_acquire_threadsafe_function),
+    @ptrCast(&tsfn.napi_release_threadsafe_function),
+    @ptrCast(&tsfn.napi_ref_threadsafe_function),
+    @ptrCast(&tsfn.napi_unref_threadsafe_function),
+    @ptrCast(&tsfn.napi_get_threadsafe_function_context),
     @ptrCast(&napi_detach_arraybuffer),
     @ptrCast(&napi_is_detached_arraybuffer),
     @ptrCast(&napi_define_class),
@@ -2460,9 +2204,14 @@ pub const napi_symbol_table = [_]*const anyopaque{
 };
 
 pub fn initRuntime(rt: *qjs.JSRuntime) void {
-    _ = qjs.JS_NewClassID(rt, &nt.external_class_id);
-    _ = qjs.JS_NewClass(rt, nt.external_class_id, &external_class_def);
-    // Reference the symbol table to prevent DCE
+    if (nt.external_class_id == 0) {
+        _ = qjs.JS_NewClassID(rt, &nt.external_class_id);
+        _ = qjs.JS_NewClass(rt, nt.external_class_id, &external_class_def);
+    }
+    if (wrap_mod.wrap_class_id == 0) {
+        _ = qjs.JS_NewClassID(rt, &wrap_mod.wrap_class_id);
+        _ = qjs.JS_NewClass(rt, wrap_mod.wrap_class_id, &wrap_mod.wrap_class_def);
+    }
     std.mem.doNotOptimizeAway(&napi_symbol_table);
 }
 

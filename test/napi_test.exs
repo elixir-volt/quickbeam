@@ -107,6 +107,51 @@ defmodule QuickBEAM.NapiTest do
       assert {:ok, 42} = QuickBEAM.eval(rt, "addon.version")
       QuickBEAM.stop(rt)
     end
+
+    test "buffers are exposed as Uint8Array and buffer info reads bytes" do
+      {:ok, rt} = QuickBEAM.start()
+      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      assert {:ok, "Uint8Array"} = QuickBEAM.eval(rt, "addon.bufferKind()")
+      assert {:ok, [10, 20, 30, 40]} = QuickBEAM.eval(rt, "addon.bufferInfo()")
+      assert {:ok, %{"isBuffer" => true, "isTypedArray" => true}} = QuickBEAM.eval(rt, "addon.typedarrayChecks()")
+      QuickBEAM.stop(rt)
+    end
+
+    test "coerce to object preserves JS wrapper semantics" do
+      {:ok, rt} = QuickBEAM.start()
+      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      assert {:ok, "String"} = QuickBEAM.eval(rt, ~s[addon.coerceObjectType("hello")])
+      assert {:ok, "Number"} = QuickBEAM.eval(rt, "addon.coerceObjectType(123)")
+      QuickBEAM.stop(rt)
+    end
+
+    test "wrap and unwrap round-trip native pointer" do
+      {:ok, rt} = QuickBEAM.start()
+      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      assert {:ok, 1234} = QuickBEAM.eval(rt, "addon.wrapAndUnwrap()")
+      assert {:ok, 5678} = QuickBEAM.eval(rt, "addon.removeWrapValue()")
+      QuickBEAM.stop(rt)
+    end
+
+    test "reset remains stable after wrapped objects and external buffers" do
+      {:ok, rt} = QuickBEAM.start()
+      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+
+      assert {:ok, %{"wraps" => _wraps_before, "externalBuffers" => _buffers_before}} =
+               QuickBEAM.eval(rt, "addon.finalizedCounts()")
+
+      assert {:ok, 1234} = QuickBEAM.eval(rt, "addon.wrapAndUnwrap()")
+      assert {:ok, 1} = QuickBEAM.eval(rt, "addon.clearWrapKeepalive()")
+      assert {:ok, [7, 8, 9, 10]} =
+               QuickBEAM.eval(rt, "Array.from(addon.addExternalBufferFinalizer())")
+      assert {:ok, 1} = QuickBEAM.eval(rt, "addon.clearExternalBufferKeepalive()")
+
+      assert :ok = QuickBEAM.reset(rt)
+      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      assert {:ok, %{"wraps" => _wraps_after, "externalBuffers" => _buffers_after}} =
+               QuickBEAM.eval(rt, "addon.finalizedCounts()")
+      QuickBEAM.stop(rt)
+    end
   end
 
   describe "error handling" do

@@ -30,11 +30,14 @@ enum {
 
 #define napi_ok 0
 typedef napi_value (*napi_callback)(napi_env env, napi_callback_info info);
+typedef void (*napi_finalize)(napi_env env, void* finalize_data, void* finalize_hint);
 #define NAPI_AUTO_LENGTH ((size_t)-1)
 
 napi_status napi_create_string_utf8(napi_env, const char*, size_t, napi_value*);
 napi_status napi_create_function(napi_env, const char*, size_t, napi_callback, void*, napi_value*);
 napi_status napi_set_named_property(napi_env, napi_value, const char*, napi_value);
+napi_status napi_get_named_property(napi_env, napi_value, const char*, napi_value*);
+napi_status napi_get_boolean(napi_env, bool, napi_value*);
 napi_status napi_get_cb_info(napi_env, napi_callback_info, size_t*, napi_value*, napi_value*, void**);
 napi_status napi_get_value_double(napi_env, napi_value, double*);
 napi_status napi_create_double(napi_env, double, napi_value*);
@@ -44,6 +47,15 @@ napi_status napi_create_array(napi_env, napi_value*);
 napi_status napi_set_element(napi_env, napi_value, uint32_t, napi_value);
 napi_status napi_typeof(napi_env, napi_value, napi_valuetype*);
 napi_status napi_get_value_string_utf8(napi_env, napi_value, char*, size_t, size_t*);
+napi_status napi_create_buffer(napi_env, size_t, void**, napi_value*);
+napi_status napi_get_buffer_info(napi_env, napi_value, void**, size_t*);
+napi_status napi_is_buffer(napi_env, napi_value, bool*);
+napi_status napi_is_typedarray(napi_env, napi_value, bool*);
+napi_status napi_coerce_to_object(napi_env, napi_value, napi_value*);
+napi_status napi_wrap(napi_env, napi_value, void*, napi_finalize, void*, napi_ref*);
+napi_status napi_unwrap(napi_env, napi_value, void**);
+napi_status napi_remove_wrap(napi_env, napi_value, void**);
+napi_status napi_create_external_buffer(napi_env, size_t, void*, napi_finalize, void*, napi_value*);
 
 #ifdef __cplusplus
 #define NAPI_MODULE_EXPORT extern "C" __attribute__((visibility("default")))

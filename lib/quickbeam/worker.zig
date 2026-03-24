@@ -928,19 +928,43 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                             @intFromEnum(nt.Status.ok);
                         complete(work.env, napi_status, work.data);
                     }
+                    work.deinit();
                 },
                 .napi_tsfn_call => |p| {
                     const tsfn = p.tsfn;
+
+                    tsfn.lock.lock();
+                    if (tsfn.queue.items.len == 0) {
+                        const should_finalize = tsfn.closing.load(.seq_cst) and !tsfn.finalized.load(.seq_cst);
+                        tsfn.lock.unlock();
+                        if (should_finalize and tsfn.finalized.cmpxchgStrong(false, true, .seq_cst, .seq_cst) == null) {
+                            if (tsfn.finalize_cb) |cb| cb(tsfn.env, tsfn.ctx, null);
+                            tsfn.deinit();
+                        }
+                        break;
+                    }
+
+                    const data = tsfn.queue.orderedRemove(0);
+                    tsfn.condvar.signal();
+                    const should_finalize_after = tsfn.closing.load(.seq_cst) and tsfn.queue.items.len == 0 and !tsfn.finalized.load(.seq_cst);
+                    tsfn.lock.unlock();
+
                     if (tsfn.call_js_cb) |cb| {
                         const napi_val: napi_mod.napi_value = if (tsfn.callback) |c| blk: {
                             const slot = gpa.create(qjs.JSValue) catch break :blk null;
                             slot.* = c;
                             break :blk slot;
                         } else null;
-                        cb(tsfn.env, napi_val, tsfn.ctx, p.data);
+                        cb(tsfn.env, napi_val, tsfn.ctx, data);
+                        if (napi_val) |slot| gpa.destroy(slot);
                     } else if (tsfn.callback) |cb| {
                         const ret = qjs.JS_Call(state.ctx, cb, js.js_undefined(), 0, null);
                         qjs.JS_FreeValue(state.ctx, ret);
+                    }
+
+                    if (should_finalize_after and tsfn.finalized.cmpxchgStrong(false, true, .seq_cst, .seq_cst) == null) {
+                        if (tsfn.finalize_cb) |cb| cb(tsfn.env, tsfn.ctx, null);
+                        tsfn.deinit();
                     }
                 },
                 .load_addon => |p| {
