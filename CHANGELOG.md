@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1
+
+### Fixed
+
+- Fix precompiled NIF checksum mismatch from v0.8.0 release
+
 ## 0.8.0
 
 ### Added
