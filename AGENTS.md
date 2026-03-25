@@ -47,4 +47,11 @@ Elixir → GenServer (`Runtime`/`Context`) → Zig NIFs (`quickbeam.zig`) → Qu
    ```
 8. Update `checksum-QuickBEAM.Native.exs` with real hashes
 9. Commit and push: `git commit -am "Update precompiled NIF checksums for vX.Y.Z" && git push`
-10. Publish: `mix hex.publish`
+10. Build docs locally to verify: `QUICKBEAM_BUILD=1 mix compile && mix docs`
+    (must build NIF from source — precompiled NIF causes OOM during doc generation)
+11. Publish: `mix hex.publish` (requires interactive terminal for auth)
+
+**Never force-push a release tag.** The precompile workflow runs on tag push.
+Force-pushing re-triggers it, producing new artifacts with different checksums
+than what was already published to Hex. If you need to fix a release, publish
+a patch version instead.
