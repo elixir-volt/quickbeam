@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`load_module/3` now propagates top-level module evaluation errors** — runtime exceptions thrown while evaluating module code are returned as `{:error, %QuickBEAM.JSError{}}` instead of incorrectly succeeding with `:ok`.
+
 ## 0.8.1
 
 ### Fixed

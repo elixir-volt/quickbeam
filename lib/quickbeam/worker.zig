@@ -524,6 +524,11 @@ pub const WorkerState = struct {
             return;
         }
 
+        if (js.is_promise(self.ctx, eval_result)) {
+            self.await_promise(eval_result, result, false);
+            if (!result.ok) return;
+        }
+
         result.ok = true;
         result.json = "ok";
     }

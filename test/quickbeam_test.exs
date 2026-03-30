@@ -151,6 +151,13 @@ defmodule QuickBEAMTest do
     end
   end
 
+  describe "load_module" do
+    test "returns a JS error when top-level module evaluation throws", %{rt: rt} do
+      assert {:error, %QuickBEAM.JSError{name: "Error", message: "boom"}} =
+               QuickBEAM.load_module(rt, "broken", ~s[throw new Error("boom")])
+    end
+  end
+
   describe "reset" do
     test "clears global state", %{rt: rt} do
       QuickBEAM.eval(rt, "globalThis.x = 42")
