@@ -18,6 +18,93 @@ defmodule QuickBEAM.Native do
                 {:priv, String.replace_prefix(path, "priv/", ""), @lexbor_cflags}
               end)
 
+  @wamr_cflags [
+    "-std=c11",
+    "-D_GNU_SOURCE",
+    "-DWASM_ENABLE_INTERP=1",
+    "-DWASM_ENABLE_AOT=0",
+    "-DWASM_ENABLE_FAST_INTERP=0",
+    "-DWASM_ENABLE_LIBC_BUILTIN=0",
+    "-DWASM_ENABLE_LIBC_WASI=0",
+    "-DWASM_ENABLE_MULTI_MODULE=0",
+    "-DWASM_ENABLE_BULK_MEMORY=1",
+    "-DWASM_ENABLE_REF_TYPES=1",
+    "-DWASM_ENABLE_SIMD=0",
+    "-DWASM_ENABLE_TAIL_CALL=1",
+    "-DWASM_ENABLE_MEMORY64=0",
+    "-DWASM_ENABLE_GC=0",
+    "-DWASM_ENABLE_THREAD_MGR=0",
+    "-DWASM_ENABLE_SHARED_MEMORY=0",
+    "-DWASM_ENABLE_EXCE_HANDLING=0",
+    "-DWASM_ENABLE_MINI_LOADER=0",
+    "-DWASM_ENABLE_WAMR_COMPILER=0",
+    "-DWASM_ENABLE_JIT=0",
+    "-DWASM_ENABLE_FAST_JIT=0",
+    "-DWASM_ENABLE_DEBUG_INTERP=0",
+    "-DWASM_ENABLE_DUMP_CALL_STACK=0",
+    "-DWASM_ENABLE_PERF_PROFILING=0",
+    "-DWASM_ENABLE_LOAD_CUSTOM_SECTION=0",
+    "-DWASM_ENABLE_CUSTOM_NAME_SECTION=1",
+    "-DWASM_ENABLE_GLOBAL_HEAP_POOL=0",
+    "-DWASM_ENABLE_SPEC_TEST=0",
+    "-DWASM_ENABLE_LABELS_AS_VALUES=1",
+    "-DWASM_ENABLE_WASM_CACHE=0",
+    "-DWASM_ENABLE_STRINGREF=0",
+    "-DWASM_MEM_ALLOC_WITH_SYSTEM_ALLOCATOR=1",
+    "-DWASM_RUNTIME_API_EXTERN=",
+    "-DBH_MALLOC=wasm_runtime_malloc",
+    "-DBH_FREE=wasm_runtime_free",
+
+    "-I#{@c_src_dir}",
+    "-I#{@c_src_dir}/wamr/include",
+    "-I#{@c_src_dir}/wamr/interpreter",
+    "-I#{@c_src_dir}/wamr/common",
+    "-I#{@c_src_dir}/wamr/shared/utils",
+    "-I#{@c_src_dir}/wamr/shared/platform/include",
+    "-I#{@c_src_dir}/wamr/shared/mem-alloc",
+    "-I#{@c_src_dir}/wamr/shared/platform/#{if(:os.type() == {:unix, :darwin}, do: "darwin", else: "linux")}"
+  ]
+
+  @wamr_src (Path.wildcard("priv/c_src/wamr/interpreter/wasm_loader.c") ++
+               Path.wildcard("priv/c_src/wamr/interpreter/wasm_interp_classic.c") ++
+               Path.wildcard("priv/c_src/wamr/interpreter/wasm_runtime.c") ++
+               Path.wildcard("priv/c_src/wamr/common/wasm_runtime_common.c") ++
+               Path.wildcard("priv/c_src/wamr/common/wasm_exec_env.c") ++
+               Path.wildcard("priv/c_src/wamr/common/wasm_memory.c") ++
+               Path.wildcard("priv/c_src/wamr/common/wasm_native.c") ++
+               Path.wildcard("priv/c_src/wamr/common/wasm_application.c") ++
+               Path.wildcard("priv/c_src/wamr/common/wasm_loader_common.c") ++
+               Path.wildcard("priv/c_src/wamr/common/wasm_blocking_op.c") ++
+               Path.wildcard("priv/c_src/wamr/common/wasm_c_api.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/utils/bh_assert.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/utils/bh_common.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/utils/bh_hashmap.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/utils/bh_leb128.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/utils/bh_list.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/utils/bh_log.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/utils/bh_queue.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/utils/bh_vector.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/utils/bh_bitmap.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/utils/runtime_timer.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/mem-alloc/mem_alloc.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/mem-alloc/ems/*.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/platform/common/posix/posix_malloc.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/platform/common/posix/posix_memmap.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/platform/common/posix/posix_thread.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/platform/common/posix/posix_time.c") ++
+               Path.wildcard("priv/c_src/wamr/shared/platform/common/posix/posix_blocking_op.c") ++
+               [if(:os.type() == {:unix, :darwin},
+                 do: "priv/c_src/wamr/shared/platform/darwin/platform_init.c",
+                 else: "priv/c_src/wamr/shared/platform/linux/platform_init.c"
+               )] ++
+               ["priv/c_src/wamr/common/arch/invokeNative_general.c"] ++
+               ["priv/c_src/wamr/shared/platform/common/memory/mremap.c"] ++
+               ["priv/c_src/wamr_bridge.c"])
+            |> Enum.sort()
+            |> Enum.map(fn path ->
+              {:priv, String.replace_prefix(path, "priv/", ""), @wamr_cflags}
+            end)
+
   @quickjs_cflags if System.get_env("QUICKBEAM_UBSAN") == "1",
                     do: [
                       "-std=c11",
@@ -39,7 +126,13 @@ defmodule QuickBEAM.Native do
     c: [
       include_dirs: [
         {:priv, "c_src"},
-        {:priv, "c_src/lexbor/ports/posix"}
+        {:priv, "c_src/lexbor/ports/posix"},
+        {:priv, "c_src/wamr/include"},
+        {:priv, "c_src/wamr/interpreter"},
+        {:priv, "c_src/wamr/common"},
+        {:priv, "c_src/wamr/shared/utils"},
+        {:priv, "c_src/wamr/shared/platform/include"},
+        {:priv, "c_src/wamr/shared/mem-alloc"}
       ],
       src:
         [
@@ -48,9 +141,9 @@ defmodule QuickBEAM.Native do
           {:priv, "c_src/libunicode.c", @quickjs_cflags},
           {:priv, "c_src/dtoa.c", @quickjs_cflags},
           {:priv, "c_src/lexbor_bridge.c", @lexbor_cflags}
-        ] ++ @lexbor_src
+        ] ++ @lexbor_src ++ @wamr_src
     ],
-    resources: [:RuntimeResource, :PoolResource],
+    resources: [:RuntimeResource, :PoolResource, :WasmModuleResource, :WasmInstanceResource],
     nifs: [
       eval: 3,
       compile: 2,
@@ -95,6 +188,14 @@ defmodule QuickBEAM.Native do
       pool_dom_text: 3,
       pool_dom_html: 2,
       disasm_bytecode: 1,
-      load_addon: 3
+      load_addon: 3,
+      wasm_compile: 1,
+      wasm_start: 3,
+      wasm_stop: 1,
+      wasm_call: 3,
+      wasm_memory_size: 1,
+      wasm_memory_grow: 2,
+      wasm_read_memory: 3,
+      wasm_write_memory: 3
     ]
 end
