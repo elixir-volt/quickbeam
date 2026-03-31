@@ -14,6 +14,7 @@ defmodule QuickBEAM.Application do
     ]
 
     QuickBEAM.Storage.init()
+    QuickBEAM.WasmAPI.init()
 
     opts = [strategy: :one_for_one, name: QuickBEAM.Supervisor]
     Supervisor.start_link(children, opts)

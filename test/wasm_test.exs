@@ -291,6 +291,87 @@ defmodule QuickBEAM.WASMTest do
     end
   end
 
+  describe "JS WebAssembly API" do
+    setup do
+      {:ok, rt} = QuickBEAM.start()
+      %{rt: rt}
+    end
+
+    @wasm_js_bytes """
+    new Uint8Array([
+      0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+      0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f,
+      0x03, 0x02, 0x01, 0x00,
+      0x07, 0x07, 0x01, 0x03, 0x61, 0x64, 0x64, 0x00, 0x00,
+      0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a, 0x0b
+    ])
+    """
+
+    test "WebAssembly.instantiate with buffer", %{rt: rt} do
+      {:ok, 42} = QuickBEAM.eval(rt, """
+        const bytes = #{@wasm_js_bytes};
+        const {instance} = await WebAssembly.instantiate(bytes);
+        instance.exports.add(40, 2);
+      """)
+    end
+
+    test "WebAssembly.compile + instantiate", %{rt: rt} do
+      {:ok, 300} = QuickBEAM.eval(rt, """
+        const bytes = #{@wasm_js_bytes};
+        const mod = await WebAssembly.compile(bytes);
+        const inst = await WebAssembly.instantiate(mod);
+        inst.exports.add(100, 200);
+      """)
+    end
+
+    test "WebAssembly.validate", %{rt: rt} do
+      {:ok, true} = QuickBEAM.eval(rt, """
+        WebAssembly.validate(#{@wasm_js_bytes});
+      """)
+
+      {:ok, false} = QuickBEAM.eval(rt, """
+        WebAssembly.validate(new Uint8Array([0, 0, 0, 0]));
+      """)
+    end
+
+    test "WebAssembly.Module.exports", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, """
+        const mod = new WebAssembly.Module(#{@wasm_js_bytes});
+        WebAssembly.Module.exports(mod);
+      """)
+
+      assert [%{"kind" => "function", "name" => "add"}] = result
+    end
+
+    test "new WebAssembly.Module + Instance", %{rt: rt} do
+      {:ok, 7} = QuickBEAM.eval(rt, """
+        const mod = new WebAssembly.Module(#{@wasm_js_bytes});
+        const inst = new WebAssembly.Instance(mod);
+        inst.exports.add(3, 4);
+      """)
+    end
+
+    test "WebAssembly.CompileError on invalid bytes", %{rt: rt} do
+      {:error, err} = QuickBEAM.eval(rt, """
+        await WebAssembly.compile(new Uint8Array([0, 0, 0, 0]));
+      """)
+
+      assert err.name == "CompileError"
+    end
+
+    test "multiple instances from same module", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, """
+        const bytes = #{@wasm_js_bytes};
+        const mod = await WebAssembly.compile(bytes);
+        const i1 = await WebAssembly.instantiate(mod);
+        const i2 = await WebAssembly.instantiate(mod);
+        [i1.exports.add(1, 2), i2.exports.add(10, 20)];
+      """)
+
+      assert result == [3, 30]
+    end
+  end
+
   describe "edge cases" do
     test "empty module" do
       wasm = <<0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00>>

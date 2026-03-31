@@ -177,7 +177,13 @@ defmodule QuickBEAM.Runtime do
     "__eventsource_close" => &QuickBEAM.EventSource.close/1,
     "__ws_connect" => {:with_caller, &QuickBEAM.WebSocket.connect/2},
     "__ws_send" => &QuickBEAM.WebSocket.send_frame/1,
-    "__ws_close" => &QuickBEAM.WebSocket.close/1
+    "__ws_close" => &QuickBEAM.WebSocket.close/1,
+    "__wasm_compile" => &QuickBEAM.WasmAPI.compile/1,
+    "__wasm_validate" => &QuickBEAM.WasmAPI.validate/1,
+    "__wasm_start" => &QuickBEAM.WasmAPI.start/1,
+    "__wasm_call" => &QuickBEAM.WasmAPI.call/1,
+    "__wasm_module_exports" => &QuickBEAM.WasmAPI.module_exports/1,
+    "__wasm_module_imports" => &QuickBEAM.WasmAPI.module_imports/1
   }
 
   @beam_handlers %{
