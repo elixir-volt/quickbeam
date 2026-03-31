@@ -14,22 +14,30 @@ defmodule QuickBEAM.WasmAPI do
   def compile([bytes]) when is_binary(bytes) do
     init()
 
-    case QuickBEAM.WASM.compile(bytes) do
+    case QuickBEAM.Native.wasm_compile(bytes) do
       {:ok, mod_ref} ->
         id = System.unique_integer([:positive])
-        exports = case QuickBEAM.WASM.disasm(bytes) do
-          {:ok, mod} -> Enum.map(mod.exports, fn exp ->
-            kind = case exp.kind do
-              :func -> "function"
-              :memory -> "memory"
-              :table -> "table"
-              :global -> "global"
-              other -> to_string(other)
-            end
-            %{"name" => exp.name, "kind" => kind}
-          end)
-          _ -> []
-        end
+
+        exports =
+          case QuickBEAM.WASM.disasm(bytes) do
+            {:ok, mod} ->
+              Enum.map(mod.exports, fn exp ->
+                kind =
+                  case exp.kind do
+                    :func -> "function"
+                    :memory -> "memory"
+                    :table -> "table"
+                    :global -> "global"
+                    other -> to_string(other)
+                  end
+
+                %{"name" => exp.name, "kind" => kind}
+              end)
+
+            _ ->
+              []
+          end
+
         :ets.insert(@table, {id, :module, mod_ref, exports})
         %{"ok" => id}
 
@@ -41,7 +49,7 @@ defmodule QuickBEAM.WasmAPI do
   def validate([bytes]) when is_binary(bytes) do
     init()
 
-    case QuickBEAM.WASM.compile(bytes) do
+    case QuickBEAM.Native.wasm_compile(bytes) do
       {:ok, _} -> true
       {:error, _} -> false
     end
@@ -50,7 +58,7 @@ defmodule QuickBEAM.WasmAPI do
   def start([mod_id]) when is_integer(mod_id) do
     case :ets.lookup(@table, mod_id) do
       [{^mod_id, :module, mod_ref, _exports}] ->
-        case QuickBEAM.WASM.start(mod_ref) do
+        case QuickBEAM.Native.wasm_start(mod_ref, 65_536, 65_536) do
           {:ok, inst_ref} ->
             id = System.unique_integer([:positive])
             :ets.insert(@table, {id, :instance, inst_ref})
@@ -69,7 +77,7 @@ defmodule QuickBEAM.WasmAPI do
       when is_integer(inst_id) and is_binary(func_name) and is_list(params) do
     case :ets.lookup(@table, inst_id) do
       [{^inst_id, :instance, inst_ref}] ->
-        case QuickBEAM.WASM.call(inst_ref, func_name, Enum.map(params, &trunc/1)) do
+        case QuickBEAM.Native.wasm_call(inst_ref, func_name, Enum.map(params, &trunc/1)) do
           {:ok, result} -> %{"ok" => result}
           {:error, msg} -> %{"error" => msg}
         end

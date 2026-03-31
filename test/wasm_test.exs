@@ -225,69 +225,76 @@ defmodule QuickBEAM.WASMTest do
     end
   end
 
-  describe "compile + start + call" do
-    test "compile and call add function" do
-      {:ok, mod} = WASM.compile(@add_wasm)
-      {:ok, inst} = WASM.start(mod)
-      {:ok, 42} = WASM.call(inst, "add", [40, 2])
-      WASM.stop(inst)
+  describe "start + call + stop" do
+    test "start and call add function" do
+      {:ok, pid} = WASM.start(module: @add_wasm)
+      {:ok, 42} = WASM.call(pid, "add", [40, 2])
+      WASM.stop(pid)
     end
 
-    test "compile returns error for invalid binary" do
-      {:error, _} = WASM.compile("not wasm")
+    test "start returns error for invalid binary" do
+      Process.flag(:trap_exit, true)
+      assert {:error, _} = WASM.start(module: "not wasm")
     end
 
     test "call returns error for missing function" do
-      {:ok, mod} = WASM.compile(@add_wasm)
-      {:ok, inst} = WASM.start(mod)
-      {:error, msg} = WASM.call(inst, "nonexistent", [])
+      {:ok, pid} = WASM.start(module: @add_wasm)
+      {:error, msg} = WASM.call(pid, "nonexistent", [])
       assert msg =~ "not found"
-      WASM.stop(inst)
+      WASM.stop(pid)
     end
 
     test "multiple calls on same instance" do
-      {:ok, mod} = WASM.compile(@add_wasm)
-      {:ok, inst} = WASM.start(mod)
-      {:ok, 3} = WASM.call(inst, "add", [1, 2])
-      {:ok, 100} = WASM.call(inst, "add", [75, 25])
-      {:ok, 0} = WASM.call(inst, "add", [0, 0])
-      WASM.stop(inst)
+      {:ok, pid} = WASM.start(module: @add_wasm)
+      {:ok, 3} = WASM.call(pid, "add", [1, 2])
+      {:ok, 100} = WASM.call(pid, "add", [75, 25])
+      {:ok, 0} = WASM.call(pid, "add", [0, 0])
+      WASM.stop(pid)
     end
 
-    test "multiple instances from same module" do
-      {:ok, mod} = WASM.compile(@add_wasm)
-      {:ok, inst1} = WASM.start(mod)
-      {:ok, inst2} = WASM.start(mod)
-      {:ok, 10} = WASM.call(inst1, "add", [3, 7])
-      {:ok, 20} = WASM.call(inst2, "add", [8, 12])
-      WASM.stop(inst1)
-      WASM.stop(inst2)
+    test "named instance" do
+      {:ok, _} = WASM.start(module: @add_wasm, name: :wasm_add_test)
+      {:ok, 42} = WASM.call(:wasm_add_test, "add", [40, 2])
+      WASM.stop(:wasm_add_test)
     end
   end
 
   describe "memory" do
-    # Module with memory and a data segment "Hello" at offset 0
     test "write_memory and read back" do
-      {:ok, mod} = WASM.compile(@memory_func_wasm)
-      {:ok, inst} = WASM.start(mod)
-      :ok = WASM.write_memory(inst, 100, "world")
-      {:ok, "world"} = WASM.read_memory(inst, 100, 5)
-      WASM.stop(inst)
+      {:ok, pid} = WASM.start(module: @memory_func_wasm)
+      :ok = WASM.write_memory(pid, 100, "world")
+      {:ok, "world"} = WASM.read_memory(pid, 100, 5)
+      WASM.stop(pid)
     end
 
     test "memory_size returns bytes" do
-      {:ok, mod} = WASM.compile(@memory_func_wasm)
-      {:ok, inst} = WASM.start(mod)
-      {:ok, size} = WASM.memory_size(inst)
+      {:ok, pid} = WASM.start(module: @memory_func_wasm)
+      {:ok, size} = WASM.memory_size(pid)
       assert size == 65536
-      WASM.stop(inst)
+      WASM.stop(pid)
     end
 
     test "read out of bounds returns error" do
-      {:ok, mod} = WASM.compile(@memory_func_wasm)
-      {:ok, inst} = WASM.start(mod)
-      {:error, _} = WASM.read_memory(inst, 65530, 100)
-      WASM.stop(inst)
+      {:ok, pid} = WASM.start(module: @memory_func_wasm)
+      {:error, _} = WASM.read_memory(pid, 65530, 100)
+      WASM.stop(pid)
+    end
+  end
+
+  describe "supervision" do
+    test "child_spec works" do
+      spec = QuickBEAM.WASM.child_spec(name: :test_wasm, module: @add_wasm)
+      assert spec.id == :test_wasm
+    end
+
+    test "works in a supervisor" do
+      children = [
+        {QuickBEAM.WASM, name: :supervised_add, module: @add_wasm, id: :supervised_add}
+      ]
+
+      {:ok, sup} = Supervisor.start_link(children, strategy: :one_for_one)
+      {:ok, 42} = WASM.call(:supervised_add, "add", [40, 2])
+      Supervisor.stop(sup)
     end
   end
 
