@@ -99,6 +99,19 @@ pub const WorkerState = struct {
         }
     }
 
+    fn drain_jobs_or_set_error(self: *WorkerState, result: *Result) bool {
+        var pctx: ?*qjs.JSContext = null;
+        while (true) {
+            const ret = qjs.JS_ExecutePendingJob(self.rt, &pctx);
+            if (ret > 0) continue;
+            if (ret < 0) {
+                self.set_error_term_from_ctx(pctx orelse self.ctx, result);
+                return false;
+            }
+            return true;
+        }
+    }
+
     pub fn next_timer_timeout_ns(self: *WorkerState) ?u64 {
         var min_deadline: ?i128 = null;
         var it = self.timers.valueIterator();
@@ -427,7 +440,10 @@ pub const WorkerState = struct {
 
         const val = qjs.JS_EvalFunction(self.ctx, func);
         defer qjs.JS_FreeValue(self.ctx, val);
-        self.drain_jobs();
+
+        if (!self.drain_jobs_or_set_error(result)) {
+            return;
+        }
 
         if (js.js_is_exception(val)) {
             self.set_error_term(result);
@@ -517,7 +533,10 @@ pub const WorkerState = struct {
 
         const eval_result = qjs.JS_EvalFunction(self.ctx, val);
         defer qjs.JS_FreeValue(self.ctx, eval_result);
-        self.drain_jobs();
+
+        if (!self.drain_jobs_or_set_error(result)) {
+            return;
+        }
 
         if (js.js_is_exception(eval_result)) {
             self.set_error_term(result);
@@ -664,12 +683,16 @@ pub const WorkerState = struct {
     }
 
     fn set_error_term(self: *WorkerState, result: *Result) void {
-        const exc = qjs.JS_GetException(self.ctx);
-        defer qjs.JS_FreeValue(self.ctx, exc);
+        self.set_error_term_from_ctx(self.ctx, result);
+    }
+
+    fn set_error_term_from_ctx(self: *WorkerState, ctx: *qjs.JSContext, result: *Result) void {
+        const exc = qjs.JS_GetException(ctx);
+        defer qjs.JS_FreeValue(ctx, exc);
 
         const term_env = beam.alloc_env();
         result.ok = false;
-        result.term = js_to_beam.convert_error_with_limits(self.ctx, exc, term_env, self.convert_limits());
+        result.term = js_to_beam.convert_error_with_limits(ctx, exc, term_env, self.convert_limits());
         result.env = term_env;
     }
 
