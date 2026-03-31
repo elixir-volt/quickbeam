@@ -177,7 +177,7 @@ Loaded by default. These are Web platform APIs backed by OTP.
 |---|---|
 | `BroadcastChannel` | `:pg` (distributed process groups) |
 | `MessageChannel` / `MessagePort` | — |
-| `WebSocket` | `:gun` |
+| `WebSocket` | `Mint.WebSocket` |
 | `EventSource` | `:httpc` streaming |
 | `Worker` | Spawns a separate BEAM GenServer with its own JS runtime |
 
