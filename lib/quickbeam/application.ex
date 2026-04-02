@@ -10,7 +10,8 @@ defmodule QuickBEAM.Application do
         id: :quickbeam_pg,
         start: {:pg, :start_link, [QuickBEAM.BroadcastChannel]}
       },
-      QuickBEAM.LockManager
+      QuickBEAM.LockManager,
+      QuickBEAM.WasmAPI
     ]
 
     QuickBEAM.Storage.init()

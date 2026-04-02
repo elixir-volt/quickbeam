@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- **`load_module/3` now propagates top-level module evaluation errors** — runtime exceptions thrown while evaluating module code are returned as `{:error, %QuickBEAM.JSError{}}` instead of incorrectly succeeding with `:ok`.
+- **Propagate runtime errors from pending job execution** — `load_module/3`, `eval/3`, `call/3`, and `load_bytecode/2` now detect and return errors thrown during QuickJS job draining instead of silently swallowing them.
 
 ## 0.8.1
 

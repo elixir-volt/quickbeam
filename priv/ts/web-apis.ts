@@ -22,6 +22,7 @@ import { Worker } from './worker'
 import './console-ext'
 import './locks'
 import './storage'
+import './webassembly'
 
 Object.assign(globalThis, {
   DOMException,

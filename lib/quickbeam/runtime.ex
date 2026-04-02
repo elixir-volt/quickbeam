@@ -173,7 +173,20 @@ defmodule QuickBEAM.Runtime do
     "__storage_key" => &QuickBEAM.Storage.key/1,
     "__storage_length" => &QuickBEAM.Storage.length/1,
     "__eventsource_open" => {:with_caller, &QuickBEAM.EventSource.open/2},
-    "__eventsource_close" => &QuickBEAM.EventSource.close/1
+    "__eventsource_close" => &QuickBEAM.EventSource.close/1,
+    "__wasm_compile" => &QuickBEAM.WasmAPI.compile/1,
+    "__wasm_validate" => &QuickBEAM.WasmAPI.validate/1,
+    "__wasm_start" => &QuickBEAM.WasmAPI.start/1,
+    "__wasm_call" => &QuickBEAM.WasmAPI.call/1,
+    "__wasm_module_exports" => &QuickBEAM.WasmAPI.module_exports/1,
+    "__wasm_module_imports" => &QuickBEAM.WasmAPI.module_imports/1,
+    "__wasm_module_custom_sections" => &QuickBEAM.WasmAPI.module_custom_sections/1,
+    "__wasm_memory_size" => &QuickBEAM.WasmAPI.memory_size/1,
+    "__wasm_memory_grow" => &QuickBEAM.WasmAPI.memory_grow/1,
+    "__wasm_read_memory" => &QuickBEAM.WasmAPI.read_memory/1,
+    "__wasm_write_memory" => &QuickBEAM.WasmAPI.write_memory/1,
+    "__wasm_read_global" => &QuickBEAM.WasmAPI.read_global/1,
+    "__wasm_write_global" => &QuickBEAM.WasmAPI.write_global/1
   }
 
   @beam_handlers %{
