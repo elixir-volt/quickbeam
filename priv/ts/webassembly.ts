@@ -78,6 +78,7 @@ class WasmModule {
 interface PreparedImports {
   payload: Record<string, unknown>[]
   boundMemories: Array<{ index: number; memory: WasmMemory }>
+  boundGlobals: Array<{ index: number; global: WasmGlobal }>
 }
 
 class WasmInstance {
@@ -216,12 +217,14 @@ class WasmGlobal {
 }
 
 function prepareImports(imports: ImportInfo[], importObject?: ImportObject): PreparedImports {
-  if (imports.length === 0) return { payload: [], boundMemories: [] }
+  if (imports.length === 0) return { payload: [], boundMemories: [], boundGlobals: [] }
   if (!importObject || typeof importObject !== 'object') throw new WebAssembly.LinkError('importObject is required for this module')
 
   const payload: Record<string, unknown>[] = []
   const boundMemories: Array<{ index: number; memory: WasmMemory }> = []
+  const boundGlobals: Array<{ index: number; global: WasmGlobal }> = []
   let memoryIndex = 0
+  let globalIndex = 0
 
   for (const imp of imports) {
     const value = lookupImportValue(importObject, imp)
@@ -237,14 +240,17 @@ function prepareImports(imports: ImportInfo[], importObject?: ImportObject): Pre
     }
 
     if (imp.kind === 'global') {
-      payload.push(prepareGlobalImport(imp, value))
+      const global = prepareGlobalImport(imp, value)
+      payload.push(global.payload)
+      boundGlobals.push({ index: globalIndex, global: global.global })
+      globalIndex += 1
       continue
     }
 
     throw new WebAssembly.LinkError(`unsupported import kind ${imp.kind}`)
   }
 
-  return { payload, boundMemories }
+  return { payload, boundMemories, boundGlobals }
 }
 
 function lookupImportValue(importObject: ImportObject, imp: ImportInfo) {
@@ -296,12 +302,15 @@ function prepareGlobalImport(imp: ImportInfo, value: Function | WasmMemory | Was
   }
 
   return {
-    module: imp.module,
-    name: imp.name,
-    kind: imp.kind,
-    type: value._type,
-    mutable: value._mutable,
-    value: encodeScalar(value.value, value._type)
+    global: value,
+    payload: {
+      module: imp.module,
+      name: imp.name,
+      kind: imp.kind,
+      type: value._type,
+      mutable: value._mutable,
+      value: encodeScalar(value.value, value._type)
+    }
   }
 }
 
@@ -331,12 +340,21 @@ function buildExports(
     }
 
     if (exp.kind === 'global') {
-      exports[exp.name] = new WasmGlobal(
+      const importedGlobal = preparedImports?.boundGlobals.find((binding) => binding.index === exp.index)
+      if (importedGlobal) {
+        importedGlobal.global._handle = instHandle
+        importedGlobal.global._name = exp.name
+        exports[exp.name] = importedGlobal.global
+        continue
+      }
+
+      const global = new WasmGlobal(
         { value: exp.type ?? 'i32', mutable: exp.mutable ?? false },
         0,
         instHandle,
         exp.name
       )
+      exports[exp.name] = global
       continue
     }
 
