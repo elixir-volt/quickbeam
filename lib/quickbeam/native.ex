@@ -196,6 +196,8 @@ defmodule QuickBEAM.Native do
       wasm_memory_size: 1,
       wasm_memory_grow: 2,
       wasm_read_memory: 3,
-      wasm_write_memory: 3
+      wasm_write_memory: 3,
+      wasm_read_global: 2,
+      wasm_write_global: 3
     ]
 end
