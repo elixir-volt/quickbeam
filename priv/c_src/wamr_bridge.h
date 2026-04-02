@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "wamr/include/wasm_export.h"
 
 typedef struct WamrModule WamrModule;
 typedef struct WamrInstance WamrInstance;
@@ -37,14 +38,23 @@ WamrInstance *wamr_bridge_start(WamrModule *mod,
 /* Destroy an instance. */
 void wamr_bridge_stop(WamrInstance *inst);
 
-/* Call an exported function by name.
- * params/results are arrays of uint64_t (wasm values packed).
- * Returns false on error (check err_buf). */
-bool wamr_bridge_call(WamrInstance *inst,
-                       const char *func_name,
-                       uint32_t *params, uint32_t param_count,
-                       uint32_t *results, uint32_t result_count,
-                       char *err_buf, uint32_t err_buf_size);
+/* Get the signature of an exported function by name. */
+bool wamr_bridge_function_signature(WamrInstance *inst,
+                                     const char *func_name,
+                                     uint32_t *param_count,
+                                     wasm_valkind_t *param_types,
+                                     uint32_t *result_count,
+                                     wasm_valkind_t *result_types,
+                                     char *err_buf, uint32_t err_buf_size);
+
+/* Call an exported function by name with typed values. */
+bool wamr_bridge_call_typed(WamrInstance *inst,
+                             const char *func_name,
+                             const wasm_val_t *params,
+                             uint32_t param_count,
+                             wasm_val_t *results,
+                             uint32_t result_count,
+                             char *err_buf, uint32_t err_buf_size);
 
 /* Get the number of exports. */
 int32_t wamr_bridge_export_count(WamrModule *mod);
@@ -68,5 +78,13 @@ bool wamr_bridge_read_memory(WamrInstance *inst, uint32_t offset,
                               uint8_t *buf, uint32_t len);
 bool wamr_bridge_write_memory(WamrInstance *inst, uint32_t offset,
                                const uint8_t *buf, uint32_t len);
+
+bool wamr_bridge_read_global(WamrInstance *inst, const char *name,
+                              wasm_val_t *value,
+                              char *err_buf, uint32_t err_buf_size);
+
+bool wamr_bridge_write_global(WamrInstance *inst, const char *name,
+                               const wasm_val_t *value,
+                               char *err_buf, uint32_t err_buf_size);
 
 #endif /* _WAMR_BRIDGE_H_ */

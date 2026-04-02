@@ -164,49 +164,69 @@ wamr_bridge_stop(WamrInstance *inst)
 }
 
 bool
-wamr_bridge_call(WamrInstance *inst,
-                 const char *func_name,
-                 uint32_t *params, uint32_t param_count,
-                 uint32_t *results, uint32_t result_count,
-                 char *err_buf, uint32_t err_buf_size)
+wamr_bridge_function_signature(WamrInstance *inst,
+                               const char *func_name,
+                               uint32_t *param_count,
+                               wasm_valkind_t *param_types,
+                               uint32_t *result_count,
+                               wasm_valkind_t *result_types,
+                               char *err_buf, uint32_t err_buf_size)
 {
     if (!inst || !inst->inst) {
         snprintf(err_buf, err_buf_size, "null instance");
         return false;
     }
 
-    wasm_function_inst_t func =
-        wasm_runtime_lookup_function(inst->inst, func_name);
+    wasm_function_inst_t func = wasm_runtime_lookup_function(inst->inst, func_name);
     if (!func) {
         snprintf(err_buf, err_buf_size, "function '%s' not found", func_name);
         return false;
     }
 
-    uint32_t argv_count = param_count > result_count ? param_count : result_count;
-    if (argv_count == 0) argv_count = 1;
+    uint32_t params_len = wasm_func_get_param_count(func, inst->inst);
+    uint32_t results_len = wasm_func_get_result_count(func, inst->inst);
 
-    uint32_t *argv = malloc(sizeof(uint32_t) * argv_count);
-    if (!argv) {
-        snprintf(err_buf, err_buf_size, "out of memory");
+    if (param_count)
+        *param_count = params_len;
+    if (result_count)
+        *result_count = results_len;
+    if (param_types && params_len > 0)
+        wasm_func_get_param_types(func, inst->inst, param_types);
+    if (result_types && results_len > 0)
+        wasm_func_get_result_types(func, inst->inst, result_types);
+
+    return true;
+}
+
+bool
+wamr_bridge_call_typed(WamrInstance *inst,
+                       const char *func_name,
+                       const wasm_val_t *params,
+                       uint32_t param_count,
+                       wasm_val_t *results,
+                       uint32_t result_count,
+                       char *err_buf, uint32_t err_buf_size)
+{
+    if (!inst || !inst->inst) {
+        snprintf(err_buf, err_buf_size, "null instance");
         return false;
     }
 
-    if (param_count > 0)
-        memcpy(argv, params, sizeof(uint32_t) * param_count);
+    wasm_function_inst_t func = wasm_runtime_lookup_function(inst->inst, func_name);
+    if (!func) {
+        snprintf(err_buf, err_buf_size, "function '%s' not found", func_name);
+        return false;
+    }
 
-    if (!wasm_runtime_call_wasm(inst->exec_env, func, param_count, argv)) {
+    if (!wasm_runtime_call_wasm_a(inst->exec_env, func, result_count, results,
+                                  param_count, (wasm_val_t *)params)) {
         const char *exception = wasm_runtime_get_exception(inst->inst);
         snprintf(err_buf, err_buf_size, "%s",
                  exception ? exception : "unknown error");
         wasm_runtime_clear_exception(inst->inst);
-        free(argv);
         return false;
     }
 
-    if (result_count > 0)
-        memcpy(results, argv, sizeof(uint32_t) * result_count);
-
-    free(argv);
     return true;
 }
 
@@ -316,4 +336,87 @@ wamr_bridge_write_memory(WamrInstance *inst, uint32_t offset,
 
     memcpy(native, buf, len);
     return true;
+}
+
+bool
+wamr_bridge_read_global(WamrInstance *inst, const char *name,
+                        wasm_val_t *value,
+                        char *err_buf, uint32_t err_buf_size)
+{
+    wasm_global_inst_t global;
+
+    if (!inst || !inst->inst) {
+        snprintf(err_buf, err_buf_size, "null instance");
+        return false;
+    }
+
+    if (!wasm_runtime_get_export_global_inst(inst->inst, name, &global)) {
+        snprintf(err_buf, err_buf_size, "global '%s' not found", name);
+        return false;
+    }
+
+    value->kind = global.kind;
+    switch (global.kind) {
+        case WASM_I32:
+            value->of.i32 = *(int32_t *)global.global_data;
+            return true;
+        case WASM_I64:
+            value->of.i64 = *(int64_t *)global.global_data;
+            return true;
+        case WASM_F32:
+            value->of.f32 = *(float *)global.global_data;
+            return true;
+        case WASM_F64:
+            value->of.f64 = *(double *)global.global_data;
+            return true;
+        default:
+            snprintf(err_buf, err_buf_size, "unsupported global type");
+            return false;
+    }
+}
+
+bool
+wamr_bridge_write_global(WamrInstance *inst, const char *name,
+                         const wasm_val_t *value,
+                         char *err_buf, uint32_t err_buf_size)
+{
+    wasm_global_inst_t global;
+
+    if (!inst || !inst->inst) {
+        snprintf(err_buf, err_buf_size, "null instance");
+        return false;
+    }
+
+    if (!wasm_runtime_get_export_global_inst(inst->inst, name, &global)) {
+        snprintf(err_buf, err_buf_size, "global '%s' not found", name);
+        return false;
+    }
+
+    if (!global.is_mutable) {
+        snprintf(err_buf, err_buf_size, "global '%s' is immutable", name);
+        return false;
+    }
+
+    if (global.kind != value->kind) {
+        snprintf(err_buf, err_buf_size, "global '%s' type mismatch", name);
+        return false;
+    }
+
+    switch (global.kind) {
+        case WASM_I32:
+            *(int32_t *)global.global_data = value->of.i32;
+            return true;
+        case WASM_I64:
+            *(int64_t *)global.global_data = value->of.i64;
+            return true;
+        case WASM_F32:
+            *(float *)global.global_data = value->of.f32;
+            return true;
+        case WASM_F64:
+            *(double *)global.global_data = value->of.f64;
+            return true;
+        default:
+            snprintf(err_buf, err_buf_size, "unsupported global type");
+            return false;
+    }
 }

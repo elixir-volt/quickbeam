@@ -72,7 +72,8 @@ defmodule QuickBEAM.WASM do
 
       {:ok, 42} = QuickBEAM.WASM.call(pid, "add", [40, 2])
   """
-  @spec call(instance(), String.t(), [integer()]) :: {:ok, integer()} | {:error, String.t()}
+  @spec call(instance(), String.t(), [number() | integer()]) ::
+          {:ok, term()} | {:error, String.t()}
   def call(instance, func_name, params \\ []) do
     GenServer.call(instance, {:call, func_name, params}, :infinity)
   end
@@ -117,9 +118,6 @@ defmodule QuickBEAM.WASM do
     GenServer.call(instance, {:write_memory, offset, data}, :infinity)
   end
 
-  @doc """
-  Compile a `.wasm` binary. Returns a NIF resource for internal use.
-  """
   @doc false
   @spec compile(binary()) :: {:ok, reference()} | {:error, String.t()}
   def compile(wasm_bytes) when is_binary(wasm_bytes) do

@@ -162,7 +162,10 @@ defmodule QuickBEAM.WASM.Parser do
       |> Map.delete(:_code_bodies)
       |> Map.delete(:_data_count)
 
-    %{mod | functions: functions}
+    imports = Enum.map(mod.imports, &enrich_import(&1, mod.types))
+    exports = Enum.map(mod.exports, &enrich_export(&1, mod, func_type_indices))
+
+    %{mod | functions: functions, imports: imports, exports: exports}
   end
 
   defp extract_names(custom_sections) do
@@ -192,13 +195,60 @@ defmodule QuickBEAM.WASM.Parser do
   end
 
   defp parse_name_map(data) do
-    {entries, _} = decode_vec(data, fn bin ->
-      {idx, bin} = decode_u32(bin)
-      {name, bin} = decode_name(bin)
-      {{idx, name}, bin}
-    end)
+    {entries, _} =
+      decode_vec(data, fn bin ->
+        {idx, bin} = decode_u32(bin)
+        {name, bin} = decode_name(bin)
+        {{idx, name}, bin}
+      end)
 
     Map.new(entries)
+  end
+
+  defp enrich_import(%{kind: :func, type_idx: type_idx} = import, types) do
+    type = Enum.at(types, type_idx, %{params: [], results: []})
+    Map.merge(import, %{params: type.params, results: type.results})
+  end
+
+  defp enrich_import(import, _types), do: import
+
+  defp enrich_export(%{kind: :func, index: index} = export, mod, func_type_indices) do
+    type_idx = function_type_idx(mod.imports, func_type_indices, index)
+    type = Enum.at(mod.types, type_idx || -1, %{params: [], results: []})
+    Map.merge(export, %{params: type.params, results: type.results})
+  end
+
+  defp enrich_export(%{kind: :memory, index: index} = export, mod, _func_type_indices) do
+    Map.merge(export, Enum.at(mod.memories, index, %{}))
+  end
+
+  defp enrich_export(%{kind: :table, index: index} = export, mod, _func_type_indices) do
+    Map.merge(export, Enum.at(mod.tables, index, %{}))
+  end
+
+  defp enrich_export(%{kind: :global, index: index} = export, mod, _func_type_indices) do
+    global = mod.globals |> Enum.at(index, %{}) |> Map.drop([:init])
+    Map.merge(export, global)
+  end
+
+  defp enrich_export(export, _mod, _func_type_indices), do: export
+
+  defp function_type_idx(imports, func_type_indices, index) do
+    import_type_indices =
+      imports
+      |> Enum.filter(&(&1.kind == :func))
+      |> Enum.map(& &1.type_idx)
+
+    if index < length(import_type_indices) do
+      Enum.at(import_type_indices, index)
+    else
+      local_idx = index - length(import_type_indices)
+
+      case Enum.at(func_type_indices, local_idx) do
+        {_, type_idx} -> type_idx
+        _ -> nil
+      end
+    end
   end
 
   # ── Type decoders ──────────────────────────────────────
@@ -361,11 +411,12 @@ defmodule QuickBEAM.WASM.Parser do
   end
 
   defp decode_locals(data) do
-    {groups, data} = decode_vec(data, fn bin ->
-      {count, bin} = decode_u32(bin)
-      {type, bin} = decode_valtype(bin)
-      {{count, type}, bin}
-    end)
+    {groups, data} =
+      decode_vec(data, fn bin ->
+        {count, bin} = decode_u32(bin)
+        {type, bin} = decode_valtype(bin)
+        {{count, type}, bin}
+      end)
 
     locals = Enum.flat_map(groups, fn {count, type} -> List.duplicate(type, count) end)
     {locals, data}
@@ -673,10 +724,18 @@ defmodule QuickBEAM.WASM.Parser do
   defp decode_one_instruction(<<0xB9, rest::binary>>, off), do: {{off, :f64_convert_i64_s}, rest}
   defp decode_one_instruction(<<0xBA, rest::binary>>, off), do: {{off, :f64_convert_i64_u}, rest}
   defp decode_one_instruction(<<0xBB, rest::binary>>, off), do: {{off, :f64_promote_f32}, rest}
-  defp decode_one_instruction(<<0xBC, rest::binary>>, off), do: {{off, :i32_reinterpret_f32}, rest}
-  defp decode_one_instruction(<<0xBD, rest::binary>>, off), do: {{off, :i64_reinterpret_f64}, rest}
-  defp decode_one_instruction(<<0xBE, rest::binary>>, off), do: {{off, :f32_reinterpret_i32}, rest}
-  defp decode_one_instruction(<<0xBF, rest::binary>>, off), do: {{off, :f64_reinterpret_i64}, rest}
+
+  defp decode_one_instruction(<<0xBC, rest::binary>>, off),
+    do: {{off, :i32_reinterpret_f32}, rest}
+
+  defp decode_one_instruction(<<0xBD, rest::binary>>, off),
+    do: {{off, :i64_reinterpret_f64}, rest}
+
+  defp decode_one_instruction(<<0xBE, rest::binary>>, off),
+    do: {{off, :f32_reinterpret_i32}, rest}
+
+  defp decode_one_instruction(<<0xBF, rest::binary>>, off),
+    do: {{off, :f64_reinterpret_i64}, rest}
 
   # Sign extension
   defp decode_one_instruction(<<0xC0, rest::binary>>, off), do: {{off, :i32_extend8_s}, rest}
@@ -790,12 +849,28 @@ defmodule QuickBEAM.WASM.Parser do
   # ── Memory op name lookup ──────────────────────────────
 
   @memory_ops %{
-    0x28 => :i32_load, 0x29 => :i64_load, 0x2A => :f32_load, 0x2B => :f64_load,
-    0x2C => :i32_load8_s, 0x2D => :i32_load8_u, 0x2E => :i32_load16_s, 0x2F => :i32_load16_u,
-    0x30 => :i64_load8_s, 0x31 => :i64_load8_u, 0x32 => :i64_load16_s, 0x33 => :i64_load16_u,
-    0x34 => :i64_load32_s, 0x35 => :i64_load32_u,
-    0x36 => :i32_store, 0x37 => :i64_store, 0x38 => :f32_store, 0x39 => :f64_store,
-    0x3A => :i32_store8, 0x3B => :i32_store16, 0x3C => :i64_store8, 0x3D => :i64_store16,
+    0x28 => :i32_load,
+    0x29 => :i64_load,
+    0x2A => :f32_load,
+    0x2B => :f64_load,
+    0x2C => :i32_load8_s,
+    0x2D => :i32_load8_u,
+    0x2E => :i32_load16_s,
+    0x2F => :i32_load16_u,
+    0x30 => :i64_load8_s,
+    0x31 => :i64_load8_u,
+    0x32 => :i64_load16_s,
+    0x33 => :i64_load16_u,
+    0x34 => :i64_load32_s,
+    0x35 => :i64_load32_u,
+    0x36 => :i32_store,
+    0x37 => :i64_store,
+    0x38 => :f32_store,
+    0x39 => :f64_store,
+    0x3A => :i32_store8,
+    0x3B => :i32_store16,
+    0x3C => :i64_store8,
+    0x3D => :i64_store16,
     0x3E => :i64_store32
   }
 

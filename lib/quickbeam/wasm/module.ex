@@ -44,19 +44,9 @@ defmodule QuickBEAM.WASM.Module do
     custom_sections: []
   ]
 
-  @type import_desc :: %{
-          module: String.t(),
-          name: String.t(),
-          kind: :func | :table | :memory | :global | :tag,
-          type_idx: non_neg_integer() | nil,
-          type: term()
-        }
+  @type import_desc :: map()
 
-  @type export_desc :: %{
-          name: String.t(),
-          kind: :func | :table | :memory | :global | :tag,
-          index: non_neg_integer()
-        }
+  @type export_desc :: map()
 
   @type t :: %__MODULE__{
           version: non_neg_integer(),

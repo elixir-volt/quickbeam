@@ -14,6 +14,8 @@ pub const wasm_memory_size = wasm_nif.wasm_memory_size;
 pub const wasm_memory_grow = wasm_nif.wasm_memory_grow;
 pub const wasm_read_memory = wasm_nif.wasm_read_memory;
 pub const wasm_write_memory = wasm_nif.wasm_write_memory;
+pub const wasm_read_global = wasm_nif.wasm_read_global;
+pub const wasm_write_global = wasm_nif.wasm_write_global;
 
 const std = types.std;
 const beam = @import("beam");

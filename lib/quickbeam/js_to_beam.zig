@@ -103,7 +103,12 @@ fn convert_recursive(ctx: *qjs.JSContext, val: qjs.JSValue, state: *ConvertState
         const ptr = qjs.JS_ToCString(ctx, val);
         if (ptr != null) {
             defer qjs.JS_FreeCString(ctx, ptr);
-            return beam.make(std.mem.span(ptr), state.opts).v;
+            const value = std.mem.span(ptr);
+            if (std.fmt.parseInt(i64, value, 10)) |parsed| {
+              return beam.make(parsed, state.opts).v;
+            } else |_| {
+              return beam.make(value, state.opts).v;
+            }
         }
         return beam.make_into_atom("nil", state.opts).v;
     }
