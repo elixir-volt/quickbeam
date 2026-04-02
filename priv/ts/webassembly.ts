@@ -1,3 +1,5 @@
+/* eslint-disable max-lines */
+
 class WasmCompileError extends Error {
   constructor(message?: string) {
     super(message)
