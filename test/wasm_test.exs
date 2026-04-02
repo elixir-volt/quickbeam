@@ -270,6 +270,42 @@ defmodule QuickBEAM.WASMTest do
     0x00
   >>
 
+  @import_mutable_global_wasm <<
+    0x00,
+    0x61,
+    0x73,
+    0x6D,
+    0x01,
+    0x00,
+    0x00,
+    0x00,
+    0x02,
+    0x0D,
+    0x01,
+    0x03,
+    0x65,
+    0x6E,
+    0x76,
+    0x04,
+    0x62,
+    0x61,
+    0x73,
+    0x65,
+    0x03,
+    0x7F,
+    0x01,
+    0x07,
+    0x08,
+    0x01,
+    0x04,
+    0x62,
+    0x61,
+    0x73,
+    0x65,
+    0x03,
+    0x00
+  >>
+
   @import_memory_wasm <<
     0x00,
     0x61,
@@ -750,13 +786,28 @@ defmodule QuickBEAM.WASMTest do
     end
 
     test "WebAssembly.instantiate imports immutable globals", %{rt: rt} do
-      {:ok, 42} =
+      {:ok, result} =
         QuickBEAM.eval(rt, """
           const bytes = new Uint8Array([#{Enum.join(:binary.bin_to_list(@import_global_wasm), ", ")}]);
           const global = new WebAssembly.Global({value: 'i32'}, 42);
           const {instance} = await WebAssembly.instantiate(bytes, {env: {base: global}});
-          instance.exports.base.value;
+          [instance.exports.base === global, instance.exports.base.value];
         """)
+
+      assert result == [true, 42]
+    end
+
+    test "WebAssembly.instantiate binds mutable imported globals", %{rt: rt} do
+      {:ok, result} =
+        QuickBEAM.eval(rt, """
+          const bytes = new Uint8Array([#{Enum.join(:binary.bin_to_list(@import_mutable_global_wasm), ", ")}]);
+          const global = new WebAssembly.Global({value: 'i32', mutable: true}, 42);
+          const {instance} = await WebAssembly.instantiate(bytes, {env: {base: global}});
+          global.value = 7;
+          [instance.exports.base === global, instance.exports.base.value, global.value];
+        """)
+
+      assert result == [true, 7, 7]
     end
 
     test "WebAssembly.instantiate imports memories", %{rt: rt} do

@@ -338,6 +338,64 @@ wamr_bridge_write_memory(WamrInstance *inst, uint32_t offset,
     return true;
 }
 
+static bool
+read_global_value(const wasm_global_inst_t *global, wasm_val_t *value,
+                  char *err_buf, uint32_t err_buf_size)
+{
+    value->kind = global->kind;
+    switch (global->kind) {
+        case WASM_I32:
+            value->of.i32 = *(int32_t *)global->global_data;
+            return true;
+        case WASM_I64:
+            value->of.i64 = *(int64_t *)global->global_data;
+            return true;
+        case WASM_F32:
+            value->of.f32 = *(float *)global->global_data;
+            return true;
+        case WASM_F64:
+            value->of.f64 = *(double *)global->global_data;
+            return true;
+        default:
+            snprintf(err_buf, err_buf_size, "unsupported global type");
+            return false;
+    }
+}
+
+static bool
+write_global_value(wasm_global_inst_t *global, const wasm_val_t *value,
+                   char *err_buf, uint32_t err_buf_size)
+{
+    if (!global->is_mutable) {
+        snprintf(err_buf, err_buf_size, "global is immutable");
+        return false;
+    }
+
+    if (global->kind != value->kind) {
+        snprintf(err_buf, err_buf_size, "global type mismatch");
+        return false;
+    }
+
+    switch (global->kind) {
+        case WASM_I32:
+            *(int32_t *)global->global_data = value->of.i32;
+            return true;
+        case WASM_I64:
+            *(int64_t *)global->global_data = value->of.i64;
+            return true;
+        case WASM_F32:
+            *(float *)global->global_data = value->of.f32;
+            return true;
+        case WASM_F64:
+            *(double *)global->global_data = value->of.f64;
+            return true;
+        default:
+            snprintf(err_buf, err_buf_size, "unsupported global type");
+            return false;
+    }
+}
+
+
 bool
 wamr_bridge_read_global(WamrInstance *inst, const char *name,
                         wasm_val_t *value,
@@ -355,24 +413,7 @@ wamr_bridge_read_global(WamrInstance *inst, const char *name,
         return false;
     }
 
-    value->kind = global.kind;
-    switch (global.kind) {
-        case WASM_I32:
-            value->of.i32 = *(int32_t *)global.global_data;
-            return true;
-        case WASM_I64:
-            value->of.i64 = *(int64_t *)global.global_data;
-            return true;
-        case WASM_F32:
-            value->of.f32 = *(float *)global.global_data;
-            return true;
-        case WASM_F64:
-            value->of.f64 = *(double *)global.global_data;
-            return true;
-        default:
-            snprintf(err_buf, err_buf_size, "unsupported global type");
-            return false;
-    }
+    return read_global_value(&global, value, err_buf, err_buf_size);
 }
 
 bool
@@ -392,31 +433,5 @@ wamr_bridge_write_global(WamrInstance *inst, const char *name,
         return false;
     }
 
-    if (!global.is_mutable) {
-        snprintf(err_buf, err_buf_size, "global '%s' is immutable", name);
-        return false;
-    }
-
-    if (global.kind != value->kind) {
-        snprintf(err_buf, err_buf_size, "global '%s' type mismatch", name);
-        return false;
-    }
-
-    switch (global.kind) {
-        case WASM_I32:
-            *(int32_t *)global.global_data = value->of.i32;
-            return true;
-        case WASM_I64:
-            *(int64_t *)global.global_data = value->of.i64;
-            return true;
-        case WASM_F32:
-            *(float *)global.global_data = value->of.f32;
-            return true;
-        case WASM_F64:
-            *(double *)global.global_data = value->of.f64;
-            return true;
-        default:
-            snprintf(err_buf, err_buf_size, "unsupported global type");
-            return false;
-    }
+    return write_global_value(&global, value, err_buf, err_buf_size);
 }
