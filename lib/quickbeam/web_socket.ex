@@ -199,12 +199,14 @@ defmodule QuickBEAM.WebSocket do
     {:ok, %{state | upgrade_headers: headers}}
   end
 
-  defp handle_response(%{upgrade_status: nil} = state, {:done, ref}) when ref == state.request_ref do
+  defp handle_response(%{upgrade_status: nil} = state, {:done, ref})
+       when ref == state.request_ref do
     reason = ArgumentError.exception("missing WebSocket upgrade status")
     {:stop, emit_error_and_close(state, reason)}
   end
 
-  defp handle_response(%{upgrade_status: 101} = state, {:done, ref}) when ref == state.request_ref do
+  defp handle_response(%{upgrade_status: 101} = state, {:done, ref})
+       when ref == state.request_ref do
     case Mint.WebSocket.new(state.conn, ref, 101, state.upgrade_headers) do
       {:ok, conn, websocket} ->
         handle_upgrade_success(state, conn, websocket)
