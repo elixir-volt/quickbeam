@@ -199,8 +199,13 @@ defmodule QuickBEAM.WebSocket do
     {:ok, %{state | upgrade_headers: headers}}
   end
 
-  defp handle_response(state, {:done, ref}) when ref == state.request_ref do
-    case Mint.WebSocket.new(state.conn, ref, state.upgrade_status, state.upgrade_headers) do
+  defp handle_response(%{upgrade_status: nil} = state, {:done, ref}) when ref == state.request_ref do
+    reason = ArgumentError.exception("missing WebSocket upgrade status")
+    {:stop, emit_error_and_close(state, reason)}
+  end
+
+  defp handle_response(%{upgrade_status: 101} = state, {:done, ref}) when ref == state.request_ref do
+    case Mint.WebSocket.new(state.conn, ref, 101, state.upgrade_headers) do
       {:ok, conn, websocket} ->
         handle_upgrade_success(state, conn, websocket)
 
@@ -208,6 +213,15 @@ defmodule QuickBEAM.WebSocket do
         state = %{state | conn: conn}
         {:stop, emit_error_and_close(state, reason)}
     end
+  end
+
+  defp handle_response(state, {:done, ref}) when ref == state.request_ref do
+    reason = %Mint.WebSocket.UpgradeFailureError{
+      status_code: state.upgrade_status,
+      headers: [state.upgrade_headers]
+    }
+
+    {:stop, emit_error_and_close(state, reason)}
   end
 
   defp handle_response(state, {:data, ref, data})
@@ -327,15 +341,22 @@ defmodule QuickBEAM.WebSocket do
   end
 
   defp stream_frame(state, frame) do
-    with {:ok, websocket, data} <- Mint.WebSocket.encode(state.websocket, frame),
-         {:ok, conn} <- Mint.WebSocket.stream_request_body(state.conn, state.request_ref, data) do
-      {:ok, %{state | conn: conn, websocket: websocket}}
-    else
-      {:error, websocket, reason} when is_struct(websocket, Mint.WebSocket) ->
+    case Mint.WebSocket.encode(state.websocket, frame) do
+      {:ok, websocket, data} ->
+        stream_encoded_frame(state, websocket, data)
+
+      {:error, websocket, reason} ->
         {:error, %{state | websocket: websocket}, reason}
+    end
+  end
+
+  defp stream_encoded_frame(state, websocket, data) do
+    case Mint.WebSocket.stream_request_body(state.conn, state.request_ref, data) do
+      {:ok, conn} ->
+        {:ok, %{state | conn: conn, websocket: websocket}}
 
       {:error, conn, reason} ->
-        {:error, %{state | conn: conn}, reason}
+        {:error, %{state | conn: conn, websocket: websocket}, reason}
     end
   end
 
