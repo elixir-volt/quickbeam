@@ -4,9 +4,7 @@ defmodule QuickBEAM.WebSocket do
 
   alias Mint.HTTP
   alias Mint.WebSocket, as: MintWebSocket
-  alias Mint.WebSocket.Extension
   alias Mint.WebSocket.UpgradeFailureError
-  alias Mint.WebSocket.Utils
 
   defstruct [
     :id,
@@ -181,6 +179,7 @@ defmodule QuickBEAM.WebSocket do
     end)
   end
 
+  @dialyzer {:nowarn_function, handle_response: 2}
   defp handle_response(state, {:status, ref, status}) when ref == state.request_ref do
     {:ok, %{state | upgrade_status: status}}
   end
@@ -198,7 +197,7 @@ defmodule QuickBEAM.WebSocket do
 
   defp handle_response(%{upgrade_status: 101} = state, {:done, ref})
        when ref == state.request_ref do
-    case build_websocket(state.conn, ref, state.upgrade_headers) do
+    case MintWebSocket.new(state.conn, ref, 101, state.upgrade_headers) do
       {:ok, conn, websocket} ->
         handle_upgrade_success(state, conn, websocket)
 
@@ -239,6 +238,7 @@ defmodule QuickBEAM.WebSocket do
     end)
   end
 
+  @dialyzer {:nowarn_function, handle_upgrade_success: 3}
   defp handle_upgrade_success(state, conn, websocket) do
     protocol = response_header(state.upgrade_headers, "sec-websocket-protocol") || ""
 
@@ -250,28 +250,10 @@ defmodule QuickBEAM.WebSocket do
     maybe_close_pending(state)
   end
 
-  @dialyzer {:no_opaque, build_websocket: 3}
-  defp build_websocket(conn, request_ref, response_headers) do
-    client_extensions = HTTP.get_private(conn, :extensions, [])
-    request_nonce = HTTP.get_private(conn, :sec_websocket_key)
-    websockets = [request_ref | HTTP.get_private(conn, :websockets, [])]
-
-    with :ok <- Utils.check_accept_nonce(request_nonce, response_headers),
-         {:ok, extensions} <- Extension.accept_extensions(client_extensions, response_headers) do
-      conn =
-        conn
-        |> HTTP.put_private(:websockets, websockets)
-        |> HTTP.put_private(:mode, :active)
-
-      {:ok, conn, %MintWebSocket{extensions: extensions}}
-    else
-      {:error, reason} -> {:error, conn, reason}
-    end
-  end
-
   defp maybe_close_pending(%{pending_close: nil} = state), do: {:ok, state}
 
   @dialyzer {:no_opaque, maybe_close_pending: 1}
+  @dialyzer {:nowarn_function, maybe_close_pending: 1}
   defp maybe_close_pending(
          %{
            pending_close: {code, reason},
@@ -459,6 +441,7 @@ defmodule QuickBEAM.WebSocket do
   defp default_port("ws"), do: 80
   defp default_port("wss"), do: 443
 
+  @dialyzer {:nowarn_function, response_header: 2}
   defp response_header(headers, name) do
     Enum.find_value(headers, fn
       {key, value} when is_binary(key) -> if String.downcase(key) == name, do: value
@@ -466,6 +449,7 @@ defmodule QuickBEAM.WebSocket do
     end)
   end
 
+  @dialyzer {:nowarn_function, notify_open: 1}
   defp notify_open(state) do
     send(state.owner, {:websocket_event, ["__ws_open", state.id, state.protocol]})
     state
