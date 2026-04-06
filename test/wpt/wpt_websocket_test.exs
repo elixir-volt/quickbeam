@@ -427,6 +427,165 @@ defmodule QuickBEAM.WPT.WebSocketTest do
     end
   end
 
+  describe "concurrency and stress" do
+    test "5 parallel WebSockets from one runtime", %{rt: rt, ws_echo_url: ws_echo_url} do
+      assert {:ok, results} =
+               QuickBEAM.eval(
+                 rt,
+                 """
+                 await Promise.all(
+                   Array.from({length: 5}, (_, i) =>
+                     new Promise((resolve, reject) => {
+                       const ws = new WebSocket(#{inspect(ws_echo_url)});
+                       ws.onopen = () => ws.send('msg' + i);
+                       ws.onmessage = (e) => { ws.close(); resolve(e.data); };
+                       ws.onerror = () => reject(new Error('ws ' + i + ' error'));
+                     })
+                   )
+                 )
+                 """,
+                 timeout: 10_000
+               )
+
+      assert length(results) == 5
+    end
+
+    test "rapid open-send-close cycles", %{rt: rt, ws_echo_url: ws_echo_url} do
+      assert {:ok, 10} =
+               QuickBEAM.eval(
+                 rt,
+                 """
+                 let count = 0;
+                 for (let i = 0; i < 10; i++) {
+                   await new Promise((resolve, reject) => {
+                     const ws = new WebSocket(#{inspect(ws_echo_url)});
+                     ws.onopen = () => ws.send('ping');
+                     ws.onmessage = () => { count++; ws.close(); };
+                     ws.onclose = () => resolve();
+                     ws.onerror = () => reject(new Error('cycle ' + i + ' error'));
+                   });
+                 }
+                 count;
+                 """,
+                 timeout: 15_000
+               )
+    end
+
+    test "multiple runtimes each with their own WebSocket", %{ws_echo_url: ws_echo_url} do
+      tasks =
+        for _i <- 1..5 do
+          Task.async(fn ->
+            {:ok, rt} = QuickBEAM.start()
+
+            {:ok, result} =
+              QuickBEAM.eval(
+                rt,
+                """
+                await new Promise((resolve, reject) => {
+                  const ws = new WebSocket(#{inspect(ws_echo_url)});
+                  ws.onopen = () => ws.send('hello');
+                  ws.onmessage = (e) => { ws.close(); resolve(e.data); };
+                  ws.onerror = () => reject(new Error('error'));
+                });
+                """,
+                timeout: 5000
+              )
+
+            QuickBEAM.stop(rt)
+            result
+          end)
+        end
+
+      results = Task.await_many(tasks, 15_000)
+      assert Enum.all?(results, &(&1 == "hello"))
+    end
+
+    test "binary round-trip with large payloads", %{rt: rt, ws_echo_url: ws_echo_url} do
+      assert {:ok, true} =
+               QuickBEAM.eval(
+                 rt,
+                 """
+                 await new Promise((resolve, reject) => {
+                   const ws = new WebSocket(#{inspect(ws_echo_url)});
+                   ws.binaryType = 'arraybuffer';
+                   ws.onopen = () => {
+                     const buf = new Uint8Array(64 * 1024);
+                     for (let i = 0; i < buf.length; i++) buf[i] = i & 0xff;
+                     ws.send(buf);
+                   };
+                   ws.onmessage = (e) => {
+                     const arr = new Uint8Array(e.data);
+                     let ok = arr.length === 64 * 1024;
+                     for (let i = 0; ok && i < arr.length; i++) {
+                       if (arr[i] !== (i & 0xff)) ok = false;
+                     }
+                     ws.close();
+                     resolve(ok);
+                   };
+                   ws.onerror = () => reject(new Error('error'));
+                 });
+                 """,
+                 timeout: 10_000
+               )
+    end
+
+    test "close during CONNECTING state", %{rt: rt, ws_echo_url: ws_echo_url} do
+      assert {:ok, true} =
+               QuickBEAM.eval(
+                 rt,
+                 """
+                 await new Promise((resolve) => {
+                   const ws = new WebSocket(#{inspect(ws_echo_url)});
+                   ws.close();
+                   ws.onclose = () => resolve(true);
+                 });
+                 """,
+                 timeout: 5000
+               )
+    end
+
+    test "runtime stop kills WebSocket cleanly", %{ws_echo_url: ws_echo_url} do
+      {:ok, rt} = QuickBEAM.start()
+
+      QuickBEAM.eval(
+        rt,
+        """
+        globalThis.ws = new WebSocket(#{inspect(ws_echo_url)});
+        await new Promise((resolve) => {
+          globalThis.ws.onopen = resolve;
+        });
+        """,
+        timeout: 5000
+      )
+
+      QuickBEAM.stop(rt)
+    end
+
+    test "multiple messages on single connection", %{rt: rt, ws_echo_url: ws_echo_url} do
+      assert {:ok, messages} =
+               QuickBEAM.eval(
+                 rt,
+                 """
+                 await new Promise((resolve, reject) => {
+                   const ws = new WebSocket(#{inspect(ws_echo_url)});
+                   const received = [];
+                   ws.onopen = () => {
+                     for (let i = 0; i < 20; i++) ws.send('m' + i);
+                   };
+                   ws.onmessage = (e) => {
+                     received.push(e.data);
+                     if (received.length === 20) { ws.close(); resolve(received); }
+                   };
+                   ws.onerror = () => reject(new Error('error'));
+                 });
+                 """,
+                 timeout: 10_000
+               )
+
+      assert length(messages) == 20
+    end
+  end
+
   defp negotiated_protocol(header) do
     header
     |> String.split(",")
