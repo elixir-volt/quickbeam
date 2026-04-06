@@ -706,30 +706,10 @@ defmodule QuickBEAM.Runtime do
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     case find_worker_by_ref(state.workers, ref) do
       {worker_id, _child_pid} ->
-        workers = Map.delete(state.workers, worker_id)
-
-        unless reason == :normal do
-          message = inspect(reason)
-          QuickBEAM.Native.send_message(state.resource, ["__worker_err", worker_id, message])
-        end
-
-        {:noreply, %{state | workers: workers}}
+        handle_worker_down(worker_id, reason, state)
 
       nil ->
-        case Map.pop(state.websockets, ref) do
-          {nil, websockets} ->
-            case Map.pop(state.monitors, ref) do
-              {nil, _} ->
-                {:noreply, %{state | websockets: websockets}}
-
-              {callback_id, monitors} ->
-                QuickBEAM.Native.send_message(state.resource, ["__qb_down", callback_id, reason])
-                {:noreply, %{state | monitors: monitors, websockets: websockets}}
-            end
-
-          {_socket, websockets} ->
-            {:noreply, %{state | websockets: websockets}}
-        end
+        handle_non_worker_down(ref, reason, state)
     end
   end
 
@@ -746,6 +726,38 @@ defmodule QuickBEAM.Runtime do
     Enum.find_value(workers, fn {worker_id, {pid, worker_ref}} ->
       if worker_ref == ref, do: {worker_id, pid}
     end)
+  end
+
+  defp handle_worker_down(worker_id, reason, state) do
+    workers = Map.delete(state.workers, worker_id)
+
+    unless reason == :normal do
+      message = inspect(reason)
+      QuickBEAM.Native.send_message(state.resource, ["__worker_err", worker_id, message])
+    end
+
+    {:noreply, %{state | workers: workers}}
+  end
+
+  defp handle_non_worker_down(ref, reason, state) do
+    case Map.pop(state.websockets, ref) do
+      {{_pid, _socket_id}, websockets} ->
+        {:noreply, %{state | websockets: websockets}}
+
+      {nil, websockets} ->
+        handle_monitored_down(ref, reason, %{state | websockets: websockets})
+    end
+  end
+
+  defp handle_monitored_down(ref, reason, state) do
+    case Map.pop(state.monitors, ref) do
+      {nil, _} ->
+        {:noreply, state}
+
+      {callback_id, monitors} ->
+        QuickBEAM.Native.send_message(state.resource, ["__qb_down", callback_id, reason])
+        {:noreply, %{state | monitors: monitors}}
+    end
   end
 
   @impl true

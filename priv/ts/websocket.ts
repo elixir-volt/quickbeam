@@ -49,10 +49,6 @@ function normalizeProtocols(protocols?: string | string[]): string[] {
   return values
 }
 
-function isArrayBufferView(value: unknown): value is ArrayBufferView {
-  return ArrayBuffer.isView(value)
-}
-
 function arrayBufferFrom(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
 }
@@ -137,7 +133,7 @@ class WebSocket extends EventTarget {
       const bytes = new Uint8Array(data)
       payload = ['binary', bytes]
       size = bytes.byteLength
-    } else if (isArrayBufferView(data)) {
+    } else if (ArrayBuffer.isView(data)) {
       const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
       payload = ['binary', bytes]
       size = bytes.byteLength
