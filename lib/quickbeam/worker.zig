@@ -101,15 +101,23 @@ pub const WorkerState = struct {
 
     fn drain_jobs_or_set_error(self: *WorkerState, result: *Result) bool {
         var pctx: ?*qjs.JSContext = null;
+        var had_error = false;
         while (true) {
             const ret = qjs.JS_ExecutePendingJob(self.rt, &pctx);
             if (ret > 0) continue;
             if (ret < 0) {
-                self.set_error_term_from_ctx(pctx orelse self.ctx, result);
-                return false;
+                if (!had_error) {
+                    self.set_error_term_from_ctx(pctx orelse self.ctx, result);
+                    had_error = true;
+                } else {
+                    const exc = qjs.JS_GetException(pctx orelse self.ctx);
+                    qjs.JS_FreeValue(pctx orelse self.ctx, exc);
+                }
+                continue;
             }
-            return true;
+            break;
         }
+        return !had_error;
     }
 
     pub fn next_timer_timeout_ns(self: *WorkerState) ?u64 {
