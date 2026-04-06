@@ -100,9 +100,7 @@ class WebSocket extends EventTarget {
   }
 
   set binaryType(value: BinaryType) {
-    if (value === 'blob' || value === 'arraybuffer') {
-      this.#binaryType = value
-    }
+    this.#binaryType = value
   }
 
   get bufferedAmount(): number {
@@ -193,7 +191,9 @@ class WebSocket extends EventTarget {
 
     if (data instanceof Uint8Array) {
       messageData =
-        this.#binaryType === 'arraybuffer' ? arrayBufferFrom(data) : new Blob([data])
+        this.#binaryType === 'arraybuffer'
+          ? arrayBufferFrom(data)
+          : new Blob([arrayBufferFrom(data)])
     }
 
     const event = new MessageEvent('message', { data: messageData })
@@ -229,7 +229,7 @@ __qb_register_dispatcher((msg: unknown): boolean => {
 
   switch (type) {
     case '__ws_open':
-      websocket._onOpen((rest[0] as string) ?? '')
+      websocket._onOpen(rest[0] as string)
       return true
 
     case '__ws_message':
