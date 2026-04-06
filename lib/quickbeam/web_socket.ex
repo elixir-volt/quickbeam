@@ -159,7 +159,14 @@ defmodule QuickBEAM.WebSocket do
 
   @impl true
   def terminate(_reason, %{conn: conn}) do
-    if conn, do: HTTP.close(conn)
+    if conn do
+      try do
+        HTTP.close(conn)
+      catch
+        _, _ -> :ok
+      end
+    end
+
     :ok
   end
 
