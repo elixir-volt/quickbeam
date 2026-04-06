@@ -3,8 +3,14 @@ defmodule QuickBEAM.WebSocket do
   use GenServer
 
   alias Mint.HTTP
-  alias Mint.WebSocket, as: MintWebSocket
-  alias Mint.WebSocket.UpgradeFailureError
+  # Mint.WebSocket.t() is @opaque — Dialyzer can't prove that new/4 returns
+  # {:ok, _, _} so it thinks handle_upgrade_success and its callees are dead code.
+  @dialyzer {:nowarn_function,
+             handle_response: 2,
+             handle_upgrade_success: 3,
+             maybe_close_pending: 1,
+             response_header: 2,
+             notify_open: 1}
 
   defstruct [
     :id,
@@ -92,16 +98,12 @@ defmodule QuickBEAM.WebSocket do
     {:stop, :normal, state}
   end
 
-  def handle_info(message, %{conn: nil} = state) do
-    if message == :connect do
-      {:noreply, state}
-    else
-      {:noreply, state}
-    end
+  def handle_info(_message, %{conn: nil} = state) do
+    {:noreply, state}
   end
 
   def handle_info(message, state) do
-    case MintWebSocket.stream(state.conn, message) do
+    case Mint.WebSocket.stream(state.conn, message) do
       {:ok, conn, responses} ->
         state = %{state | conn: conn}
         handle_responses(state, responses)
@@ -145,12 +147,10 @@ defmodule QuickBEAM.WebSocket do
   end
 
   def handle_cast({:close, code, reason}, %{websocket: nil} = state) do
-    {:noreply, %{state | pending_close: normalize_close(code, reason)}}
+    {:noreply, %{state | pending_close: {code, reason}}}
   end
 
   def handle_cast({:close, code, reason}, state) do
-    {code, reason} = normalize_close(code, reason)
-
     case do_close(state, code, reason) do
       {:ok, state} -> {:noreply, state}
       {:error, state, error} -> {:stop, error, emit_error_and_close(state, error)}
@@ -179,7 +179,11 @@ defmodule QuickBEAM.WebSocket do
     end)
   end
 
+  # Mint.WebSocket.t() is @opaque so Dialyzer can't prove that new/4 ever
+  # returns {:ok, _, _} when called with status 101. Suppressing here keeps
+  # the cascade (handle_upgrade_success, maybe_close_pending, etc.) visible.
   @dialyzer {:nowarn_function, handle_response: 2}
+
   defp handle_response(state, {:status, ref, status}) when ref == state.request_ref do
     {:ok, %{state | upgrade_status: status}}
   end
@@ -189,15 +193,8 @@ defmodule QuickBEAM.WebSocket do
     {:ok, %{state | upgrade_headers: headers}}
   end
 
-  defp handle_response(%{upgrade_status: nil} = state, {:done, ref})
-       when ref == state.request_ref do
-    reason = ArgumentError.exception("missing WebSocket upgrade status")
-    {:stop, emit_error_and_close(state, reason)}
-  end
-
-  defp handle_response(%{upgrade_status: 101} = state, {:done, ref})
-       when ref == state.request_ref do
-    case MintWebSocket.new(state.conn, ref, 101, state.upgrade_headers) do
+  defp handle_response(state, {:done, ref}) when ref == state.request_ref do
+    case Mint.WebSocket.new(state.conn, ref, state.upgrade_status, state.upgrade_headers) do
       {:ok, conn, websocket} ->
         handle_upgrade_success(state, conn, websocket)
 
@@ -207,18 +204,9 @@ defmodule QuickBEAM.WebSocket do
     end
   end
 
-  defp handle_response(state, {:done, ref}) when ref == state.request_ref do
-    reason = %UpgradeFailureError{
-      status_code: state.upgrade_status,
-      headers: [state.upgrade_headers]
-    }
-
-    {:stop, emit_error_and_close(state, reason)}
-  end
-
   defp handle_response(state, {:data, ref, data})
        when ref == state.request_ref and not is_nil(state.websocket) do
-    case MintWebSocket.decode(state.websocket, data) do
+    case Mint.WebSocket.decode(state.websocket, data) do
       {:ok, websocket, frames} ->
         handle_frames(%{state | websocket: websocket}, frames)
 
@@ -238,7 +226,6 @@ defmodule QuickBEAM.WebSocket do
     end)
   end
 
-  @dialyzer {:nowarn_function, handle_upgrade_success: 3}
   defp handle_upgrade_success(state, conn, websocket) do
     protocol = response_header(state.upgrade_headers, "sec-websocket-protocol") || ""
 
@@ -252,25 +239,12 @@ defmodule QuickBEAM.WebSocket do
 
   defp maybe_close_pending(%{pending_close: nil} = state), do: {:ok, state}
 
-  @dialyzer {:no_opaque, maybe_close_pending: 1}
-  @dialyzer {:nowarn_function, maybe_close_pending: 1}
-  defp maybe_close_pending(
-         %{
-           pending_close: {code, reason},
-           conn: conn,
-           request_ref: request_ref,
-           websocket: websocket
-         } =
-           state
-       ) do
+  defp maybe_close_pending(%{pending_close: {code, reason}} = state) do
     state = %{state | pending_close: nil}
 
-    case stream_close_frame(conn, request_ref, websocket, code, reason) do
-      {:ok, conn, websocket} ->
-        {:ok, %{state | conn: conn, websocket: websocket, close_sent?: true}}
-
-      {:error, conn, websocket, error} ->
-        {:stop, emit_error_and_close(%{state | conn: conn, websocket: websocket}, error)}
+    case do_close(state, code, reason) do
+      {:ok, state} -> {:ok, state}
+      {:error, state, error} -> {:stop, emit_error_and_close(state, error)}
     end
   end
 
@@ -313,7 +287,7 @@ defmodule QuickBEAM.WebSocket do
            parse_url(state.url),
          {:ok, conn} <- HTTP.connect(http_scheme(scheme), host, port, connect_opts(info)),
          {:ok, conn, ref} <-
-           MintWebSocket.upgrade(
+           Mint.WebSocket.upgrade(
              websocket_scheme(scheme),
              conn,
              path,
@@ -334,7 +308,11 @@ defmodule QuickBEAM.WebSocket do
   end
 
   defp do_close(state, code, reason) do
-    frame = close_frame(code, reason)
+    frame =
+      case {code, reason} do
+        {1000, ""} -> :close
+        _ -> {:close, code, reason}
+      end
 
     case stream_frame(state, frame) do
       {:ok, state} -> {:ok, %{state | close_sent?: true}}
@@ -342,50 +320,19 @@ defmodule QuickBEAM.WebSocket do
     end
   end
 
-  defp close_frame(1000, ""), do: :close
-  defp close_frame(code, reason), do: {:close, code, reason}
-
-  defp normalize_close(code, reason) when is_integer(code) and is_binary(reason),
-    do: {code, reason}
-
-  defp normalize_close(code, _reason) when is_integer(code), do: {code, ""}
-  defp normalize_close(_code, reason) when is_binary(reason), do: {1000, reason}
-  defp normalize_close(_code, _reason), do: {1000, ""}
-
   defp stream_frame(state, frame) do
-    case MintWebSocket.encode(state.websocket, frame) do
+    case Mint.WebSocket.encode(state.websocket, frame) do
       {:ok, websocket, data} ->
-        stream_encoded_frame(state, websocket, data)
+        case Mint.WebSocket.stream_request_body(state.conn, state.request_ref, data) do
+          {:ok, conn} ->
+            {:ok, %{state | conn: conn, websocket: websocket}}
+
+          {:error, conn, reason} ->
+            {:error, %{state | conn: conn, websocket: websocket}, reason}
+        end
 
       {:error, websocket, reason} ->
         {:error, %{state | websocket: websocket}, reason}
-    end
-  end
-
-  defp stream_encoded_frame(state, websocket, data) do
-    case MintWebSocket.stream_request_body(state.conn, state.request_ref, data) do
-      {:ok, conn} ->
-        {:ok, %{state | conn: conn, websocket: websocket}}
-
-      {:error, conn, reason} ->
-        {:error, %{state | conn: conn, websocket: websocket}, reason}
-    end
-  end
-
-  @dialyzer {:no_opaque, stream_close_frame: 5}
-  @dialyzer {:nowarn_function, stream_close_frame: 5}
-  defp stream_close_frame(conn, request_ref, websocket, code, reason) do
-    frame = close_frame(code, reason)
-
-    with {:ok, websocket, data} <- MintWebSocket.encode(websocket, frame),
-         {:ok, conn} <- MintWebSocket.stream_request_body(conn, request_ref, data) do
-      {:ok, conn, websocket}
-    else
-      {:error, websocket, reason} when is_struct(websocket, MintWebSocket) ->
-        {:error, conn, websocket, reason}
-
-      {:error, conn, reason} ->
-        {:error, conn, websocket, reason}
     end
   end
 
@@ -441,7 +388,6 @@ defmodule QuickBEAM.WebSocket do
   defp default_port("ws"), do: 80
   defp default_port("wss"), do: 443
 
-  @dialyzer {:nowarn_function, response_header: 2}
   defp response_header(headers, name) do
     Enum.find_value(headers, fn
       {key, value} when is_binary(key) -> if String.downcase(key) == name, do: value
@@ -449,7 +395,6 @@ defmodule QuickBEAM.WebSocket do
     end)
   end
 
-  @dialyzer {:nowarn_function, notify_open: 1}
   defp notify_open(state) do
     send(state.owner, {:websocket_event, ["__ws_open", state.id, state.protocol]})
     state
