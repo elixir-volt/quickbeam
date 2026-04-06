@@ -99,8 +99,10 @@ class WebSocket extends EventTarget {
     return this.#binaryType
   }
 
-  set binaryType(value: BinaryType) {
-    this.#binaryType = value
+  set binaryType(value: string) {
+    if (value === 'blob' || value === 'arraybuffer') {
+      this.#binaryType = value
+    }
   }
 
   get bufferedAmount(): number {
@@ -219,10 +221,13 @@ class WebSocket extends EventTarget {
 declare const __qb_register_dispatcher: (fn: (msg: unknown) => boolean) => void
 
 __qb_register_dispatcher((msg: unknown): boolean => {
-  if (!Array.isArray(msg) || msg.length < 3) return false
+  if (!Array.isArray(msg)) return false
 
-  const [type, id, ...rest] = msg
-  if (typeof id !== 'string') return false
+  const type = msg[0]
+  const id = msg[1]
+  const rest = msg.slice(2)
+
+  if (msg.length < 3 || typeof id !== 'string') return false
 
   const websocket = websocketRegistry.get(id)
   if (!websocket) return false
