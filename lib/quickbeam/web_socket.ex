@@ -2,6 +2,12 @@ defmodule QuickBEAM.WebSocket do
   @moduledoc false
   use GenServer
 
+  alias Mint.HTTP
+  alias Mint.WebSocket, as: MintWebSocket
+  alias Mint.WebSocket.Extension
+  alias Mint.WebSocket.UpgradeFailureError
+  alias Mint.WebSocket.Utils
+
   defstruct [
     :id,
     :owner,
@@ -97,7 +103,7 @@ defmodule QuickBEAM.WebSocket do
   end
 
   def handle_info(message, state) do
-    case Mint.WebSocket.stream(state.conn, message) do
+    case MintWebSocket.stream(state.conn, message) do
       {:ok, conn, responses} ->
         state = %{state | conn: conn}
         handle_responses(state, responses)
@@ -155,7 +161,7 @@ defmodule QuickBEAM.WebSocket do
 
   @impl true
   def terminate(_reason, %{conn: conn}) do
-    if conn, do: Mint.HTTP.close(conn)
+    if conn, do: HTTP.close(conn)
     :ok
   end
 
@@ -203,7 +209,7 @@ defmodule QuickBEAM.WebSocket do
   end
 
   defp handle_response(state, {:done, ref}) when ref == state.request_ref do
-    reason = %Mint.WebSocket.UpgradeFailureError{
+    reason = %UpgradeFailureError{
       status_code: state.upgrade_status,
       headers: [state.upgrade_headers]
     }
@@ -213,7 +219,7 @@ defmodule QuickBEAM.WebSocket do
 
   defp handle_response(state, {:data, ref, data})
        when ref == state.request_ref and not is_nil(state.websocket) do
-    case Mint.WebSocket.decode(state.websocket, data) do
+    case MintWebSocket.decode(state.websocket, data) do
       {:ok, websocket, frames} ->
         handle_frames(%{state | websocket: websocket}, frames)
 
@@ -246,19 +252,18 @@ defmodule QuickBEAM.WebSocket do
 
   @dialyzer {:no_opaque, build_websocket: 3}
   defp build_websocket(conn, request_ref, response_headers) do
-    client_extensions = Mint.HTTP.get_private(conn, :extensions, [])
-    request_nonce = Mint.HTTP.get_private(conn, :sec_websocket_key)
-    websockets = [request_ref | Mint.HTTP.get_private(conn, :websockets, [])]
+    client_extensions = HTTP.get_private(conn, :extensions, [])
+    request_nonce = HTTP.get_private(conn, :sec_websocket_key)
+    websockets = [request_ref | HTTP.get_private(conn, :websockets, [])]
 
-    with :ok <- Mint.WebSocket.Utils.check_accept_nonce(request_nonce, response_headers),
-         {:ok, extensions} <-
-           Mint.WebSocket.Extension.accept_extensions(client_extensions, response_headers) do
+    with :ok <- Utils.check_accept_nonce(request_nonce, response_headers),
+         {:ok, extensions} <- Extension.accept_extensions(client_extensions, response_headers) do
       conn =
         conn
-        |> Mint.HTTP.put_private(:websockets, websockets)
-        |> Mint.HTTP.put_private(:mode, :active)
+        |> HTTP.put_private(:websockets, websockets)
+        |> HTTP.put_private(:mode, :active)
 
-      {:ok, conn, %Mint.WebSocket{extensions: extensions}}
+      {:ok, conn, %MintWebSocket{extensions: extensions}}
     else
       {:error, reason} -> {:error, conn, reason}
     end
@@ -324,9 +329,9 @@ defmodule QuickBEAM.WebSocket do
   defp open_connection(state) do
     with {:ok, %{scheme: scheme, host: host, port: port, path: path} = info} <-
            parse_url(state.url),
-         {:ok, conn} <- Mint.HTTP.connect(http_scheme(scheme), host, port, connect_opts(info)),
+         {:ok, conn} <- HTTP.connect(http_scheme(scheme), host, port, connect_opts(info)),
          {:ok, conn, ref} <-
-           Mint.WebSocket.upgrade(
+           MintWebSocket.upgrade(
              websocket_scheme(scheme),
              conn,
              path,
@@ -366,7 +371,7 @@ defmodule QuickBEAM.WebSocket do
   defp normalize_close(_code, _reason), do: {1000, ""}
 
   defp stream_frame(state, frame) do
-    case Mint.WebSocket.encode(state.websocket, frame) do
+    case MintWebSocket.encode(state.websocket, frame) do
       {:ok, websocket, data} ->
         stream_encoded_frame(state, websocket, data)
 
@@ -376,7 +381,7 @@ defmodule QuickBEAM.WebSocket do
   end
 
   defp stream_encoded_frame(state, websocket, data) do
-    case Mint.WebSocket.stream_request_body(state.conn, state.request_ref, data) do
+    case MintWebSocket.stream_request_body(state.conn, state.request_ref, data) do
       {:ok, conn} ->
         {:ok, %{state | conn: conn, websocket: websocket}}
 
@@ -390,11 +395,11 @@ defmodule QuickBEAM.WebSocket do
   defp stream_close_frame(conn, request_ref, websocket, code, reason) do
     frame = close_frame(code, reason)
 
-    with {:ok, websocket, data} <- Mint.WebSocket.encode(websocket, frame),
-         {:ok, conn} <- Mint.WebSocket.stream_request_body(conn, request_ref, data) do
+    with {:ok, websocket, data} <- MintWebSocket.encode(websocket, frame),
+         {:ok, conn} <- MintWebSocket.stream_request_body(conn, request_ref, data) do
       {:ok, conn, websocket}
     else
-      {:error, websocket, reason} when is_struct(websocket, Mint.WebSocket) ->
+      {:error, websocket, reason} when is_struct(websocket, MintWebSocket) ->
         {:error, conn, websocket, reason}
 
       {:error, conn, reason} ->
