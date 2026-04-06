@@ -202,23 +202,7 @@ defmodule QuickBEAM.WebSocket do
   defp handle_response(state, {:done, ref}) when ref == state.request_ref do
     case Mint.WebSocket.new(state.conn, ref, state.upgrade_status, state.upgrade_headers) do
       {:ok, conn, websocket} ->
-        protocol = response_header(state.upgrade_headers, "sec-websocket-protocol") || ""
-
-        state =
-          %{state | conn: conn, websocket: websocket, protocol: protocol, upgrade_status: nil}
-          |> Map.put(:upgrade_headers, [])
-          |> notify_open()
-
-        case state.pending_close do
-          {code, reason} ->
-            case do_close(%{state | pending_close: nil}, code, reason) do
-              {:ok, state} -> {:ok, state}
-              {:error, state, error} -> {:stop, emit_error_and_close(state, error)}
-            end
-
-          nil ->
-            {:ok, state}
-        end
+        handle_upgrade_success(state, conn, websocket)
 
       {:error, conn, reason} ->
         state = %{state | conn: conn}
@@ -246,6 +230,28 @@ defmodule QuickBEAM.WebSocket do
         {:stop, state} -> {:halt, {:stop, state}}
       end
     end)
+  end
+
+  defp handle_upgrade_success(state, conn, websocket) do
+    protocol = response_header(state.upgrade_headers, "sec-websocket-protocol") || ""
+
+    state =
+      %{state | conn: conn, websocket: websocket, protocol: protocol, upgrade_status: nil}
+      |> Map.put(:upgrade_headers, [])
+      |> notify_open()
+
+    maybe_close_pending(state)
+  end
+
+  defp maybe_close_pending(%{pending_close: nil} = state), do: {:ok, state}
+
+  defp maybe_close_pending(%{pending_close: {code, reason}} = state) do
+    state = %{state | pending_close: nil}
+
+    case do_close(state, code, reason) do
+      {:ok, state} -> {:ok, state}
+      {:error, state, error} -> {:stop, emit_error_and_close(state, error)}
+    end
   end
 
   defp handle_frame(state, {:text, text}) do
