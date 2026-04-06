@@ -207,7 +207,7 @@ defmodule QuickBEAM.WebAPIs.ProcessTest do
       """)
 
       QuickBEAM.send_message(rt, pid)
-      Process.sleep(200)
+      Process.sleep(500)
 
       assert {:ok, "kaboom"} = QuickBEAM.eval(rt, "downReason")
     end
