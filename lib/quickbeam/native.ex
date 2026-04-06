@@ -41,6 +41,7 @@ defmodule QuickBEAM.Native do
     "-DWASM_ENABLE_JIT=0",
     "-DWASM_ENABLE_FAST_JIT=0",
     "-DWASM_ENABLE_DEBUG_INTERP=0",
+    "-DWASM_ENABLE_INSTRUCTION_METERING=1",
     "-DWASM_ENABLE_DUMP_CALL_STACK=0",
     "-DWASM_ENABLE_PERF_PROFILING=0",
     "-DWASM_ENABLE_LOAD_CUSTOM_SECTION=0",
@@ -93,10 +94,12 @@ defmodule QuickBEAM.Native do
                Path.wildcard("priv/c_src/wamr/shared/platform/common/posix/posix_thread.c") ++
                Path.wildcard("priv/c_src/wamr/shared/platform/common/posix/posix_time.c") ++
                Path.wildcard("priv/c_src/wamr/shared/platform/common/posix/posix_blocking_op.c") ++
-               [if(:os.type() == {:unix, :darwin},
-                 do: "priv/c_src/wamr/shared/platform/darwin/platform_init.c",
-                 else: "priv/c_src/wamr/shared/platform/linux/platform_init.c"
-               )] ++
+               [
+                 if(:os.type() == {:unix, :darwin},
+                   do: "priv/c_src/wamr/shared/platform/darwin/platform_init.c",
+                   else: "priv/c_src/wamr/shared/platform/linux/platform_init.c"
+                 )
+               ] ++
                ["priv/c_src/wamr/common/arch/invokeNative_general.c"] ++
                ["priv/c_src/wamr/shared/platform/common/memory/mremap.c"] ++
                ["priv/c_src/wamr_bridge.c"])
@@ -191,6 +194,7 @@ defmodule QuickBEAM.Native do
       load_addon: 3,
       wasm_compile: 1,
       wasm_start: 3,
+      wasm_start_with_imports: 5,
       wasm_stop: 1,
       wasm_call: 3,
       wasm_memory_size: 1,

@@ -46,17 +46,58 @@ interface ImportInfo extends ExportInfo {
   module: string
 }
 
+interface PreparedModule {
+  bytes: Uint8Array
+  memoryInitializers: Uint8Array[]
+  functionImports: Array<Record<string, unknown>>
+}
+
+declare function __qb_wasm_start(
+  bytes: Uint8Array,
+  functionImports?: Array<Record<string, unknown>>,
+  memoryInitializers?: Uint8Array[]
+): number
+
+declare function __qb_wasm_call(
+  instanceHandle: number,
+  exportName: string,
+  args: unknown[]
+): unknown
+
+declare function __qb_wasm_memory_size(instanceHandle: number): number
+
+declare function __qb_wasm_memory_grow(instanceHandle: number, delta: number): number
+
+declare function __qb_wasm_read_memory(
+  instanceHandle: number,
+  offset: number,
+  length: number
+): BufferSource
+
+declare function __qb_wasm_read_global(instanceHandle: number, name: string): unknown
+
+declare function __qb_wasm_write_global(
+  instanceHandle: number,
+  name: string,
+  value: unknown
+): unknown
+
+let wasmImportCallbackSeq = 0
+
 class WasmModule {
   _handle: WasmModuleHandle
+  _bytes: Uint8Array
 
   constructor(bufferSource: BufferSource) {
     const bytes = wasmToUint8Array(bufferSource)
-    const result = Beam.callSync('__wasm_compile', bytes) as {
+    const stableBytes = bytes.slice()
+    const result = Beam.callSync('__wasm_compile', stableBytes) as {
       ok: WasmModuleHandle
       error?: string
     }
     if (result.error) throw new WebAssembly.CompileError(result.error)
     this._handle = result.ok
+    this._bytes = stableBytes
   }
 
   static exports(module: WasmModule): ExportInfo[] {
@@ -90,13 +131,17 @@ class WasmInstance {
   constructor(module: WasmModule, importObject?: ImportObject) {
     const imports = WasmModule.imports(module)
     const prepared = prepareImports(imports, importObject)
+    const preparedModule = prepareModule(module._bytes, imports, prepared.payload)
 
-    const result = Beam.callSync('__wasm_start', module._handle, prepared.payload) as {
-      ok: WasmInstanceHandle
-      error?: string
+    try {
+      this._handle = __qb_wasm_start(
+        preparedModule.bytes,
+        preparedModule.functionImports,
+        preparedModule.memoryInitializers
+      )
+    } catch (error) {
+      throw new WebAssembly.LinkError(errorMessage(error, 'failed to instantiate module'))
     }
-    if (result.error) throw new WebAssembly.LinkError(result.error)
-    this._handle = result.ok
 
     for (const binding of prepared.boundMemories) {
       if (binding.memory._handle === null) {
@@ -133,8 +178,12 @@ class WasmMemory {
       return this._buffer
     }
 
-    const size = wasmCall('__wasm_memory_size', this._handle) as number
-    const bytes = wasmCall('__wasm_read_memory', this._handle, 0, size) as BufferSource
+    const handle = this._handle
+    const size = qbWasmCall(() => __qb_wasm_memory_size(handle), 'memory size failed') as number
+    const bytes = qbWasmCall(
+      () => __qb_wasm_read_memory(handle, 0, size),
+      'memory read failed'
+    ) as BufferSource
     return wasmToUint8Array(bytes).slice().buffer
   }
 
@@ -148,7 +197,11 @@ class WasmMemory {
       return oldPages
     }
 
-    return wasmCall('__wasm_memory_grow', this._handle, delta) as number
+    const handle = this._handle
+    return qbWasmCall(
+      () => __qb_wasm_memory_grow(handle, delta),
+      'memory grow failed'
+    ) as number
   }
 }
 
@@ -199,7 +252,12 @@ class WasmGlobal {
 
   get value(): number | bigint {
     if (this._handle === null || this._name === null) return this._value
-    return decodeNumericScalar(wasmCall('__wasm_read_global', this._handle, this._name), this._type)
+    const handle = this._handle
+    const name = this._name
+    return decodeNumericScalar(
+      qbWasmCall(() => __qb_wasm_read_global(handle, name), 'global read failed'),
+      this._type
+    )
   }
 
   set value(v: number | bigint) {
@@ -211,8 +269,10 @@ class WasmGlobal {
     }
 
     const encoded = encodeScalar(v, this._type)
+    const handle = this._handle
+    const name = this._name
     this._value = decodeNumericScalar(
-      wasmCall('__wasm_write_global', this._handle, this._name, encoded),
+      qbWasmCall(() => __qb_wasm_write_global(handle, name, encoded), 'global write failed'),
       this._type
     )
   }
@@ -230,7 +290,11 @@ function prepareImports(imports: ImportInfo[], importObject?: ImportObject): Pre
 
   for (const imp of imports) {
     const value = lookupImportValue(importObject, imp)
-    if (imp.kind === 'function') throw new WebAssembly.LinkError(`function imports are not supported yet (${imp.module}.${imp.name})`)
+    if (imp.kind === 'function') {
+      payload.push(prepareFunctionImport(imp, value))
+      continue
+    }
+
     if (imp.kind === 'table') throw new WebAssembly.LinkError(`table imports are not supported yet (${imp.module}.${imp.name})`)
 
     if (imp.kind === 'memory') {
@@ -262,6 +326,17 @@ function lookupImportValue(importObject: ImportObject, imp: ImportInfo) {
   const value = (namespace as Record<string, Function | WasmMemory | WasmTable | WasmGlobal | undefined>)[imp.name]
   if (value === undefined) throw new WebAssembly.LinkError(`missing import ${imp.module}.${imp.name}`)
   return value
+}
+
+function prepareFunctionImport(imp: ImportInfo, value: Function | WasmMemory | WasmTable | WasmGlobal) {
+  if (typeof value !== 'function') throw new TypeError(`import ${imp.module}.${imp.name} must be a function`)
+
+  return {
+    module: imp.module,
+    name: imp.name,
+    kind: imp.kind,
+    callback_name: registerHostImportCallback(value)
+  }
 }
 
 function prepareMemoryImport(imp: ImportInfo, value: Function | WasmMemory | WasmTable | WasmGlobal) {
@@ -316,6 +391,17 @@ function prepareGlobalImport(imp: ImportInfo, value: Function | WasmMemory | Was
   }
 }
 
+function registerHostImportCallback(value: Function) {
+  const callbackName = `__qb_wasm_import_${++wasmImportCallbackSeq}`
+  Object.defineProperty(globalThis, callbackName, {
+    configurable: true,
+    enumerable: false,
+    writable: true,
+    value
+  })
+  return callbackName
+}
+
 function buildExports(
   instHandle: WasmInstanceHandle,
   exportList: ExportInfo[],
@@ -327,7 +413,10 @@ function buildExports(
     if (exp.kind === 'function') {
       exports[exp.name] = (...args: unknown[]) => {
         const encodedArgs = encodeArgs(args, exp.params ?? [])
-        const result = wasmCall('__wasm_call', instHandle, exp.name, encodedArgs)
+        const result = qbWasmCall(
+          () => __qb_wasm_call(instHandle, exp.name, encodedArgs),
+          `call to ${exp.name} failed`
+        )
         return decodeResult(result, exp.results ?? [])
       }
       continue
@@ -430,10 +519,49 @@ function toInteger(value: unknown, type: string): number {
   throw new TypeError(`Expected integer-compatible value for ${type}`)
 }
 
-function wasmCall(handler: string, ...args: unknown[]): unknown {
-  const result = Beam.callSync(handler, ...args) as { ok: unknown; error?: string }
-  if (result.error) throw new WebAssembly.RuntimeError(result.error)
-  return result.ok
+function prepareModule(
+  bytes: Uint8Array,
+  imports: ImportInfo[],
+  payload: Record<string, unknown>[]
+): PreparedModule {
+  if (imports.length === 0 && payload.length === 0) {
+    return { bytes, memoryInitializers: [], functionImports: [] }
+  }
+
+  const result = Beam.callSync('__wasm_prepare_module', bytes, payload) as {
+    ok?: {
+      bytes: BufferSource
+      memory_initializers: BufferSource[]
+      function_imports: Array<Record<string, unknown>>
+    }
+    error?: string
+  }
+
+  if (result.error || !result.ok) {
+    throw new WebAssembly.LinkError(result.error ?? 'failed to prepare module')
+  }
+
+  return {
+    bytes: wasmToUint8Array(result.ok.bytes),
+    memoryInitializers: result.ok.memory_initializers.map((value) => wasmToUint8Array(value)),
+    functionImports: result.ok.function_imports
+  }
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+    return error.message
+  }
+  if (typeof error === 'string') return error
+  return fallback
+}
+
+function qbWasmCall(fn: () => unknown, fallback: string): unknown {
+  try {
+    return fn()
+  } catch (error) {
+    throw new WebAssembly.RuntimeError(errorMessage(error, fallback))
+  }
 }
 
 function wasmToUint8Array(source: BufferSource): Uint8Array {

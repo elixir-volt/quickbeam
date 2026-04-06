@@ -60,6 +60,11 @@ defmodule QuickBEAM.Runtime do
     end
   end
 
+  @spec resource(GenServer.server()) :: reference()
+  def resource(server) do
+    GenServer.call(server, :resource, :infinity)
+  end
+
   @spec eval(GenServer.server(), String.t(), keyword()) :: QuickBEAM.js_result()
   def eval(server, code, opts \\ []) when is_binary(code) do
     timeout_ms = Keyword.get(opts, :timeout, 0)
@@ -180,7 +185,8 @@ defmodule QuickBEAM.Runtime do
     "__ws_close" => &QuickBEAM.WebSocket.close/1,
     "__wasm_compile" => &QuickBEAM.WasmAPI.compile/1,
     "__wasm_validate" => &QuickBEAM.WasmAPI.validate/1,
-    "__wasm_start" => &QuickBEAM.WasmAPI.start/1,
+    "__wasm_prepare_module" => &QuickBEAM.WasmAPI.prepare/1,
+    "__wasm_start" => {:with_caller, &QuickBEAM.WasmAPI.start/2},
     "__wasm_call" => &QuickBEAM.WasmAPI.call/1,
     "__wasm_module_exports" => &QuickBEAM.WasmAPI.module_exports/1,
     "__wasm_module_imports" => &QuickBEAM.WasmAPI.module_imports/1,
@@ -406,6 +412,11 @@ defmodule QuickBEAM.Runtime do
     after
       30_000 -> {:error, "NIF timeout"}
     end
+  end
+
+  @impl true
+  def handle_call(:resource, _from, state) do
+    {:reply, state.resource, state}
   end
 
   @impl true

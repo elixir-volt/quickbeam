@@ -13,6 +13,12 @@
 typedef struct WamrModule WamrModule;
 typedef struct WamrInstance WamrInstance;
 
+typedef struct WamrNativeModule {
+    const char *module_name;
+    NativeSymbol *symbols;
+    uint32_t symbol_count;
+} WamrNativeModule;
+
 /* Initialize the WAMR runtime. Call once at NIF load. */
 bool wamr_bridge_init(void);
 
@@ -35,6 +41,17 @@ WamrInstance *wamr_bridge_start(WamrModule *mod,
                                 uint32_t heap_size,
                                 char *err_buf, uint32_t err_buf_size);
 
+WamrInstance *wamr_bridge_start_with_native_modules(
+    WamrModule *mod,
+    uint32_t stack_size,
+    uint32_t heap_size,
+    const WamrNativeModule *modules,
+    uint32_t module_count,
+    char *err_buf, uint32_t err_buf_size);
+
+void wamr_bridge_unregister_native_modules(const WamrNativeModule *modules,
+                                           uint32_t module_count);
+
 /* Destroy an instance. */
 void wamr_bridge_stop(WamrInstance *inst);
 
@@ -55,6 +72,8 @@ bool wamr_bridge_call_typed(WamrInstance *inst,
                              wasm_val_t *results,
                              uint32_t result_count,
                              char *err_buf, uint32_t err_buf_size);
+
+void wamr_bridge_set_instruction_limit(WamrInstance *inst, int instruction_count);
 
 /* Get the number of exports. */
 int32_t wamr_bridge_export_count(WamrModule *mod);
