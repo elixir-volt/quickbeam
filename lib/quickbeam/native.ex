@@ -55,7 +55,6 @@ defmodule QuickBEAM.Native do
     "-DWASM_RUNTIME_API_EXTERN=",
     "-DBH_MALLOC=wasm_runtime_malloc",
     "-DBH_FREE=wasm_runtime_free",
-
     "-I#{@c_src_dir}",
     "-I#{@c_src_dir}/wamr/include",
     "-I#{@c_src_dir}/wamr/interpreter",
@@ -117,6 +116,13 @@ defmodule QuickBEAM.Native do
                       "-fsanitize-trap=undefined"
                     ],
                     else: ["-std=c11", "-D_GNU_SOURCE"]
+
+  if System.get_env("QUICKBEAM_BUILD") in ["1", "true"] and
+       is_nil(System.get_env("ZIG_LOCAL_CACHE_DIR")) do
+    zig_local_cache_dir = Path.expand(Path.join(Mix.Project.build_path(), "zig-cache"))
+    File.mkdir_p!(zig_local_cache_dir)
+    System.put_env("ZIG_LOCAL_CACHE_DIR", zig_local_cache_dir)
+  end
 
   use ZiglerPrecompiled,
     otp_app: :quickbeam,
