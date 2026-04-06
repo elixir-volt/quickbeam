@@ -82,17 +82,17 @@ fn convert_recursive(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm
 
     // Tuple
     var tuple_arity: c_int = 0;
-    // SAFETY: immediately filled by enif_get_tuple
-    var tuple_elems: [*c]const e.ErlNifTerm = undefined;
-    if (e.enif_get_tuple(env, term, &tuple_arity, &tuple_elems) != 0) {
+    var tuple_elems: ?[*]const e.ErlNifTerm = null;
+    if (e.enif_get_tuple(env, term, &tuple_arity, @ptrCast(&tuple_elems)) != 0) {
+        const elems = tuple_elems orelse return js.js_null();
         // {:bytes, binary} → Uint8Array
         if (tuple_arity == 2) {
             var tag_buf: [16]u8 = undefined;
-            const tag_len = e.enif_get_atom(env, tuple_elems[0], &tag_buf, tag_buf.len, e.ERL_NIF_LATIN1);
+            const tag_len = e.enif_get_atom(env, elems[0], &tag_buf, tag_buf.len, e.ERL_NIF_LATIN1);
             if (tag_len > 0 and std.mem.eql(u8, tag_buf[0..@intCast(tag_len - 1)], "bytes")) {
                 // SAFETY: immediately filled by enif_inspect_binary
                 var bbin: e.ErlNifBinary = undefined;
-                if (e.enif_inspect_binary(env, tuple_elems[1], &bbin) != 0) {
+                if (e.enif_inspect_binary(env, elems[1], &bbin) != 0) {
                     return make_uint8array(ctx, bbin.data, bbin.size);
                 }
             }
@@ -100,7 +100,7 @@ fn convert_recursive(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm
         // Generic tuple → Array
         const arr = qjs.JS_NewArray(ctx);
         for (0..@intCast(tuple_arity)) |idx| {
-            const elem = convert_recursive(ctx, env, tuple_elems[idx], depth + 1);
+            const elem = convert_recursive(ctx, env, elems[idx], depth + 1);
             _ = qjs.JS_SetPropertyUint32(ctx, arr, @intCast(idx), elem);
         }
         return arr;
@@ -159,10 +159,17 @@ fn convert_list(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm, dep
     return arr;
 }
 
+fn map_iterator_first() e.ErlNifMapIteratorEntry {
+    return switch (@typeInfo(e.ErlNifMapIteratorEntry)) {
+        .@"enum" => @as(e.ErlNifMapIteratorEntry, @enumFromInt(1)),
+        else => std.mem.zeroes(e.ErlNifMapIteratorEntry),
+    };
+}
+
 fn convert_map(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm, depth: u32) qjs.JSValue {
     if (beam_proxy.class_id != 0) {
         var map_size: usize = 0;
-        if (e.enif_get_map_size(env, term, &map_size) != 0 and map_size > 4) {
+        if (e.enif_get_map_size(env, term, &map_size) != 0 and map_size > 0) {
             return beam_proxy.create(ctx, env, term);
         }
     }
@@ -171,7 +178,7 @@ fn convert_map(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm, dept
 
     // SAFETY: immediately filled by enif_map_iterator_create
     var iter: e.ErlNifMapIterator = undefined;
-    if (e.enif_map_iterator_create(env, term, &iter, e.ERL_NIF_MAP_ITERATOR_FIRST) == 0) {
+    if (e.enif_map_iterator_create(env, term, &iter, map_iterator_first()) == 0) {
         return obj;
     }
     defer e.enif_map_iterator_destroy(env, &iter);

@@ -105,9 +105,9 @@ fn convert_recursive(ctx: *qjs.JSContext, val: qjs.JSValue, state: *ConvertState
             defer qjs.JS_FreeCString(ctx, ptr);
             const value = std.mem.span(ptr);
             if (std.fmt.parseInt(i64, value, 10)) |parsed| {
-              return beam.make(parsed, state.opts).v;
+                return e.enif_make_int64(state.opts.env, @bitCast(parsed));
             } else |_| {
-              return beam.make(value, state.opts).v;
+                return beam.make(value, state.opts).v;
             }
         }
         return beam.make_into_atom("nil", state.opts).v;
@@ -161,7 +161,8 @@ fn convert_number(ctx: *qjs.JSContext, val: qjs.JSValue, opts: Env) e.ErlNifTerm
         return beam.make_into_atom("-Infinity", opts).v;
     }
     if (d == @trunc(d) and d >= -9007199254740991 and d <= 9007199254740991) {
-        return beam.make(@as(i64, @intFromFloat(d)), opts).v;
+        const value: i64 = @intFromFloat(d);
+        return e.enif_make_int64(opts.env, @bitCast(value));
     }
     return beam.make(d, opts).v;
 }

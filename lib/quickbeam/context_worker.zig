@@ -224,6 +224,7 @@ fn handle_create_context(
         .pending_calls = std.AutoHashMap(u64, worker.PendingCall).init(gpa),
         .timers = std.AutoHashMap(u64, worker.TimerEntry).init(gpa),
         .start_time = std.time.nanoTimestamp(),
+        .max_reductions = p.max_reductions,
     };
 
     entry.state.install_globals();

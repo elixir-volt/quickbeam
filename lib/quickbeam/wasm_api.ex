@@ -58,16 +58,40 @@ defmodule QuickBEAM.WasmAPI do
     end
   end
 
-  def start([mod_id]) when is_integer(mod_id), do: start([mod_id, []])
+  def prepare([bytes, import_payload]) when is_binary(bytes) and is_list(import_payload) do
+    ensure_started()
 
-  def start([mod_id, import_payload]) when is_integer(mod_id) and is_list(import_payload) do
+    {_exports, imports, _custom_sections} = module_metadata(bytes)
+
+    case ImportRewriter.rewrite(bytes, imports, import_payload) do
+      {:ok, rewritten_bytes, memory_initializers, function_imports} ->
+        %{
+          "ok" => %{
+            "bytes" => {:bytes, rewritten_bytes},
+            "memory_initializers" => Enum.map(memory_initializers, &{:bytes, &1}),
+            "function_imports" => Enum.map(function_imports, &normalize_desc/1)
+          }
+        }
+
+      {:error, msg} ->
+        %{"error" => msg}
+    end
+  end
+
+  def start([mod_id]) when is_integer(mod_id), do: start([mod_id, []], nil)
+
+  def start([mod_id, import_payload], caller)
+      when is_integer(mod_id) and is_list(import_payload) do
     ensure_started()
 
     case :ets.lookup(@table, mod_id) do
       [{^mod_id, :module, mod_ref, bytes, exports, imports, custom_sections}] ->
-        with {:ok, compiled_mod_ref, memory_initializers} <-
+        runtime_resource = runtime_resource(caller)
+
+        with {:ok, compiled_mod_ref, memory_initializers, function_imports} <-
                prepare_module(mod_ref, bytes, imports, import_payload),
-             {:ok, inst_ref} <- QuickBEAM.Native.wasm_start(compiled_mod_ref, 65_536, 65_536),
+             {:ok, inst_ref} <-
+               start_instance(compiled_mod_ref, runtime_resource, function_imports),
              :ok <- initialize_imported_memories(inst_ref, memory_initializers) do
           id = System.unique_integer([:positive])
 
@@ -196,14 +220,18 @@ defmodule QuickBEAM.WasmAPI do
     end
   end
 
-  defp prepare_module(mod_ref, _bytes, [], []), do: {:ok, mod_ref, []}
+  defp prepare_module(mod_ref, _bytes, [], []), do: {:ok, mod_ref, [], []}
 
   defp prepare_module(_mod_ref, bytes, imports, import_payload) do
     case ImportRewriter.rewrite(bytes, imports, import_payload) do
-      {:ok, rewritten_bytes, memory_initializers} ->
+      {:ok, rewritten_bytes, memory_initializers, function_imports} ->
         case QuickBEAM.Native.wasm_compile(rewritten_bytes) do
-          {:ok, rewritten_mod_ref} -> {:ok, rewritten_mod_ref, memory_initializers}
-          {:error, msg} -> {:error, msg}
+          {:ok, rewritten_mod_ref} ->
+            {:ok, rewritten_mod_ref, memory_initializers,
+             atomize_function_imports(function_imports)}
+
+          {:error, msg} ->
+            {:error, msg}
         end
 
       {:error, msg} ->
@@ -222,6 +250,38 @@ defmodule QuickBEAM.WasmAPI do
 
   defp initialize_imported_memories(_inst_ref, _many),
     do: {:error, "multiple memory imports are not supported yet"}
+
+  defp start_instance(mod_ref, nil, []), do: QuickBEAM.Native.wasm_start(mod_ref, 65_536, 65_536)
+
+  defp start_instance(mod_ref, _runtime_resource, []),
+    do: QuickBEAM.Native.wasm_start(mod_ref, 65_536, 65_536)
+
+  defp start_instance(_mod_ref, nil, [_ | _]),
+    do: {:error, "runtime resource not available for function imports"}
+
+  defp start_instance(mod_ref, runtime_resource, function_imports) do
+    QuickBEAM.Native.wasm_start_with_imports(
+      mod_ref,
+      runtime_resource,
+      function_imports,
+      65_536,
+      65_536
+    )
+  end
+
+  defp runtime_resource(nil), do: nil
+  defp runtime_resource(caller) when is_pid(caller), do: QuickBEAM.Runtime.resource(caller)
+
+  defp atomize_function_imports(function_imports) do
+    Enum.map(function_imports, fn import ->
+      %{
+        module_name: import.module_name,
+        symbol: import.symbol,
+        signature: import.signature,
+        callback_name: import.callback_name
+      }
+    end)
+  end
 
   defp fetch_instance(inst_id) do
     case :ets.lookup(@table, inst_id) do

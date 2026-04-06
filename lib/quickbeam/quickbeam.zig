@@ -8,6 +8,9 @@ pub const WasmModuleResource = wasm_nif.WasmModuleResource;
 pub const WasmInstanceResource = wasm_nif.WasmInstanceResource;
 pub const wasm_compile = wasm_nif.wasm_compile;
 pub const wasm_start = wasm_nif.wasm_start;
+pub fn wasm_start_with_imports(mod_res: WasmModuleResource, runtime_res: RuntimeResource, imports: beam.term, stack_size: u32, heap_size: u32) beam.term {
+    return wasm_nif.wasm_start_with_imports_internal(mod_res, runtime_res.unpack(), imports, stack_size, heap_size);
+}
 pub const wasm_stop = wasm_nif.wasm_stop;
 pub const wasm_call = wasm_nif.wasm_call;
 pub const wasm_memory_size = wasm_nif.wasm_memory_size;
@@ -16,6 +19,10 @@ pub const wasm_read_memory = wasm_nif.wasm_read_memory;
 pub const wasm_write_memory = wasm_nif.wasm_write_memory;
 pub const wasm_read_global = wasm_nif.wasm_read_global;
 pub const wasm_write_global = wasm_nif.wasm_write_global;
+
+export fn quickbeam_wasm_host_invoke_js(runtime_data: ?*anyopaque, callback_name_z: [*:0]const u8, signature_z: [*:0]const u8, raw_args: [*]u64, err_buf: [*]u8, err_buf_size: u32) bool {
+    return worker.quickbeam_wasm_host_invoke_js_impl(runtime_data, callback_name_z, signature_z, raw_args, err_buf, err_buf_size);
+}
 
 const std = types.std;
 const beam = @import("beam");

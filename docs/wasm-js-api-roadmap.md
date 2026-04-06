@@ -32,13 +32,13 @@ Bring QuickBEAM's `WebAssembly` polyfill closer to the WebAssembly JavaScript In
 - `WebAssembly.Module.customSections()`
 - `WebAssembly.compileStreaming()`
 - `WebAssembly.instantiateStreaming()`
-- `importObject` validation for memory/global imports
+- `importObject` validation for function/memory/global imports
+- JS-owned function imports executed inline on the owning QuickJS worker / ContextPool thread
 - snapshot-style memory/global imports for instantiation
 - exported imported memory reuses the original `WebAssembly.Memory` wrapper
 
 ### Not yet standard-complete
 
-- function imports
 - runtime-backed `Memory.buffer` semantics
 - runtime-backed tables
 - full global import/export parity
@@ -53,7 +53,7 @@ Bring QuickBEAM's `WebAssembly` polyfill closer to the WebAssembly JavaScript In
 
 ### Phase 1 — Instantiation and linking
 
-1. implement function imports
+1. harden function imports around shared budget / instruction limits
 2. implement memory imports
 3. implement table imports
 4. implement global imports

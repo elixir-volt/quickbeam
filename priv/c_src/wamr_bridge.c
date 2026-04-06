@@ -7,10 +7,12 @@
 #include <string.h>
 #include "wamr_bridge.h"
 #include "wamr/include/wasm_export.h"
+#include "wamr/interpreter/wasm.h"
 
 struct WamrModule {
     wasm_module_t module;
     uint8_t *wasm_buf;
+    uint8_t *source_buf;
     uint32_t wasm_len;
 };
 
@@ -18,6 +20,8 @@ struct WamrInstance {
     wasm_module_inst_t inst;
     wasm_exec_env_t exec_env;
     WamrModule *mod;
+    wasm_module_t loaded_module;
+    uint8_t *loaded_wasm_buf;
 };
 
 static bool g_initialized = false;
@@ -55,15 +59,20 @@ wamr_bridge_compile(const uint8_t *bytes, uint32_t len,
     }
 
     uint8_t *buf = malloc(len);
-    if (!buf) {
+    uint8_t *source_buf = malloc(len);
+    if (!buf || !source_buf) {
+        free(buf);
+        free(source_buf);
         snprintf(err_buf, err_buf_size, "out of memory");
         return NULL;
     }
     memcpy(buf, bytes, len);
+    memcpy(source_buf, bytes, len);
 
     wasm_module_t module = wasm_runtime_load(buf, len, err_buf, err_buf_size);
     if (!module) {
         free(buf);
+        free(source_buf);
         return NULL;
     }
 
@@ -71,12 +80,14 @@ wamr_bridge_compile(const uint8_t *bytes, uint32_t len,
     if (!mod) {
         wasm_runtime_unload(module);
         free(buf);
+        free(source_buf);
         snprintf(err_buf, err_buf_size, "out of memory");
         return NULL;
     }
 
     mod->module = module;
     mod->wasm_buf = buf;
+    mod->source_buf = source_buf;
     mod->wasm_len = len;
     return mod;
 }
@@ -89,6 +100,7 @@ wamr_bridge_free_module(WamrModule *mod)
     if (mod->module)
         wasm_runtime_unload(mod->module);
     free(mod->wasm_buf);
+    free(mod->source_buf);
     free(mod);
 }
 
@@ -114,33 +126,116 @@ wamr_bridge_validate(const uint8_t *bytes, uint32_t len)
     return true;
 }
 
-WamrInstance *
-wamr_bridge_start(WamrModule *mod,
-                  uint32_t stack_size,
-                  uint32_t heap_size,
-                  char *err_buf, uint32_t err_buf_size)
+static void
+unregister_native_modules(const WamrNativeModule *modules,
+                          uint32_t module_count)
 {
+    uint32_t i;
+
+    if (!modules)
+        return;
+
+    for (i = 0; i < module_count; i++) {
+        if (modules[i].module_name && modules[i].symbols) {
+            wasm_runtime_unregister_natives(modules[i].module_name,
+                                            modules[i].symbols);
+        }
+    }
+}
+
+static bool
+register_native_modules(const WamrNativeModule *modules,
+                        uint32_t module_count,
+                        char *err_buf, uint32_t err_buf_size)
+{
+    uint32_t i;
+
+    if (module_count == 0)
+        return true;
+
+    for (i = 0; i < module_count; i++) {
+        if (!wasm_runtime_register_natives_raw(modules[i].module_name,
+                                               modules[i].symbols,
+                                               modules[i].symbol_count)) {
+            snprintf(err_buf, err_buf_size, "failed to register host imports");
+            unregister_native_modules(modules, i);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static WamrInstance *
+start_instance(WamrModule *mod,
+               uint32_t stack_size,
+               uint32_t heap_size,
+               const WamrNativeModule *modules,
+               uint32_t module_count,
+               char *err_buf, uint32_t err_buf_size)
+{
+    uint8_t *loaded_wasm_buf = NULL;
+    wasm_module_t loaded_module = NULL;
+    wasm_module_inst_t inst;
+    wasm_exec_env_t exec_env;
+    WamrInstance *wi;
+
     if (!mod || !mod->module) {
         snprintf(err_buf, err_buf_size, "null module");
         return NULL;
     }
 
-    wasm_module_inst_t inst = wasm_runtime_instantiate(
-        mod->module, stack_size, heap_size, err_buf, err_buf_size);
-    if (!inst)
+    if (!register_native_modules(modules, module_count, err_buf, err_buf_size)) {
         return NULL;
+    }
 
-    wasm_exec_env_t exec_env = wasm_runtime_create_exec_env(inst, stack_size);
+    if (module_count > 0) {
+        loaded_wasm_buf = malloc(mod->wasm_len);
+        if (!loaded_wasm_buf) {
+            unregister_native_modules(modules, module_count);
+            snprintf(err_buf, err_buf_size, "out of memory");
+            return NULL;
+        }
+        memcpy(loaded_wasm_buf, mod->source_buf, mod->wasm_len);
+        loaded_module = wasm_runtime_load(loaded_wasm_buf, mod->wasm_len,
+                                          err_buf, err_buf_size);
+        if (!loaded_module) {
+            free(loaded_wasm_buf);
+            unregister_native_modules(modules, module_count);
+            return NULL;
+        }
+    }
+
+    inst = wasm_runtime_instantiate(loaded_module ? loaded_module : mod->module,
+                                    stack_size, heap_size, err_buf,
+                                    err_buf_size);
+    if (!inst) {
+        if (loaded_module)
+            wasm_runtime_unload(loaded_module);
+        free(loaded_wasm_buf);
+        unregister_native_modules(modules, module_count);
+        return NULL;
+    }
+
+    exec_env = wasm_runtime_create_exec_env(inst, stack_size);
     if (!exec_env) {
         wasm_runtime_deinstantiate(inst);
+        if (loaded_module)
+            wasm_runtime_unload(loaded_module);
+        free(loaded_wasm_buf);
+        unregister_native_modules(modules, module_count);
         snprintf(err_buf, err_buf_size, "failed to create exec env");
         return NULL;
     }
 
-    WamrInstance *wi = malloc(sizeof(WamrInstance));
+    wi = calloc(1, sizeof(WamrInstance));
     if (!wi) {
         wasm_runtime_destroy_exec_env(exec_env);
         wasm_runtime_deinstantiate(inst);
+        if (loaded_module)
+            wasm_runtime_unload(loaded_module);
+        free(loaded_wasm_buf);
+        unregister_native_modules(modules, module_count);
         snprintf(err_buf, err_buf_size, "out of memory");
         return NULL;
     }
@@ -148,7 +243,38 @@ wamr_bridge_start(WamrModule *mod,
     wi->inst = inst;
     wi->exec_env = exec_env;
     wi->mod = mod;
+    wi->loaded_module = loaded_module;
+    wi->loaded_wasm_buf = loaded_wasm_buf;
     return wi;
+}
+
+WamrInstance *
+wamr_bridge_start(WamrModule *mod,
+                  uint32_t stack_size,
+                  uint32_t heap_size,
+                  char *err_buf, uint32_t err_buf_size)
+{
+    return start_instance(mod, stack_size, heap_size, NULL, 0, err_buf,
+                          err_buf_size);
+}
+
+WamrInstance *
+wamr_bridge_start_with_native_modules(WamrModule *mod,
+                                      uint32_t stack_size,
+                                      uint32_t heap_size,
+                                      const WamrNativeModule *modules,
+                                      uint32_t module_count,
+                                      char *err_buf, uint32_t err_buf_size)
+{
+    return start_instance(mod, stack_size, heap_size, modules, module_count,
+                          err_buf, err_buf_size);
+}
+
+void
+wamr_bridge_unregister_native_modules(const WamrNativeModule *modules,
+                                      uint32_t module_count)
+{
+    unregister_native_modules(modules, module_count);
 }
 
 void
@@ -160,6 +286,9 @@ wamr_bridge_stop(WamrInstance *inst)
         wasm_runtime_destroy_exec_env(inst->exec_env);
     if (inst->inst)
         wasm_runtime_deinstantiate(inst->inst);
+    if (inst->loaded_module)
+        wasm_runtime_unload(inst->loaded_module);
+    free(inst->loaded_wasm_buf);
     free(inst);
 }
 
@@ -196,6 +325,14 @@ wamr_bridge_function_signature(WamrInstance *inst,
         wasm_func_get_result_types(func, inst->inst, result_types);
 
     return true;
+}
+
+void
+wamr_bridge_set_instruction_limit(WamrInstance *inst, int instruction_count)
+{
+    if (!inst || !inst->exec_env)
+        return;
+    wasm_runtime_set_instruction_count_limit(inst->exec_env, instruction_count);
 }
 
 bool
@@ -394,7 +531,6 @@ write_global_value(wasm_global_inst_t *global, const wasm_val_t *value,
             return false;
     }
 }
-
 
 bool
 wamr_bridge_read_global(WamrInstance *inst, const char *name,

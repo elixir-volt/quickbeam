@@ -234,6 +234,61 @@ defmodule QuickBEAM.WASMTest do
     0x0B
   >>
 
+  @import_func_wasm <<
+    0x00,
+    0x61,
+    0x73,
+    0x6D,
+    0x01,
+    0x00,
+    0x00,
+    0x00,
+    0x01,
+    0x06,
+    0x01,
+    0x60,
+    0x01,
+    0x7F,
+    0x01,
+    0x7F,
+    0x02,
+    0x0B,
+    0x01,
+    0x03,
+    0x65,
+    0x6E,
+    0x76,
+    0x03,
+    0x6C,
+    0x6F,
+    0x67,
+    0x00,
+    0x00,
+    0x03,
+    0x02,
+    0x01,
+    0x00,
+    0x07,
+    0x07,
+    0x01,
+    0x03,
+    0x72,
+    0x75,
+    0x6E,
+    0x00,
+    0x01,
+    0x0A,
+    0x08,
+    0x01,
+    0x06,
+    0x00,
+    0x20,
+    0x00,
+    0x10,
+    0x00,
+    0x0B
+  >>
+
   @import_global_wasm <<
     0x00,
     0x61,
@@ -810,6 +865,24 @@ defmodule QuickBEAM.WASMTest do
       assert result == [true, 7, 7]
     end
 
+    test "WebAssembly.instantiate imports functions", %{rt: rt} do
+      {:ok, 42} =
+        QuickBEAM.eval(rt, """
+          const bytes = new Uint8Array([#{Enum.join(:binary.bin_to_list(@import_func_wasm), ", ")}]);
+          const {instance} = await WebAssembly.instantiate(bytes, {env: {log(value) { return value + 1 }}});
+          instance.exports.run(41);
+        """)
+    end
+
+    test "WebAssembly.instantiate imports async functions", %{rt: rt} do
+      {:ok, 42} =
+        QuickBEAM.eval(rt, """
+          const bytes = new Uint8Array([#{Enum.join(:binary.bin_to_list(@import_func_wasm), ", ")}]);
+          const {instance} = await WebAssembly.instantiate(bytes, {env: {async log(value) { return value + 1 }}});
+          instance.exports.run(41);
+        """)
+    end
+
     test "WebAssembly.instantiate imports memories", %{rt: rt} do
       {:ok, result} =
         QuickBEAM.eval(rt, """
@@ -823,7 +896,7 @@ defmodule QuickBEAM.WASMTest do
       assert result == [true, 65]
     end
 
-    test "WebAssembly.instantiate rejects imported function modules", %{rt: rt} do
+    test "WebAssembly.instantiate rejects non-function imports", %{rt: rt} do
       {:error, err} =
         QuickBEAM.eval(rt, """
           const bytes = new Uint8Array([
@@ -834,10 +907,10 @@ defmodule QuickBEAM.WASMTest do
             0x07, 0x07, 0x01, 0x03, 0x72, 0x75, 0x6e, 0x00, 0x01,
             0x0a, 0x08, 0x01, 0x06, 0x00, 0x20, 0x00, 0x10, 0x00, 0x0b
           ]);
-          await WebAssembly.instantiate(bytes, {env: {log() {}}});
+          await WebAssembly.instantiate(bytes, {env: {log: {}}});
         """)
 
-      assert err.name == "LinkError"
+      assert err.name == "TypeError"
     end
 
     test "WebAssembly.Module.customSections", %{rt: rt} do

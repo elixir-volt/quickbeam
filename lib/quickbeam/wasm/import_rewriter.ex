@@ -9,25 +9,29 @@ defmodule QuickBEAM.WASM.ImportRewriter do
   @section_memory 5
   @section_global 6
 
-  def rewrite(bytes, [], []), do: {:ok, bytes, []}
+  def rewrite(bytes, [], []), do: {:ok, bytes, [], []}
 
   def rewrite(bytes, expected_imports, provided_imports)
       when is_binary(bytes) and is_list(expected_imports) and is_list(provided_imports) do
     with {:ok, sections} <- split_sections(bytes),
          {:ok, validated} <- validate_imports(expected_imports, provided_imports) do
+      function_imports = build_function_imports(validated)
+
       sections = remove_import_section(sections)
+      sections = prepend_function_imports(sections, function_imports)
       sections = prepend_memory_imports(sections, validated)
       sections = prepend_global_imports(sections, validated)
+
       memory_initializers = Enum.map(memory_imports(validated), &Map.fetch!(&1, "bytes"))
-      {:ok, rebuild(sections), memory_initializers}
+      {:ok, rebuild(sections), memory_initializers, function_imports}
     end
   end
 
   defp validate_imports(expected_imports, provided_imports) do
     expected_imports
-    |> Enum.reduce_while({provided_imports, []}, fn import, {remaining, acc} ->
-      case validate_import(import, remaining) do
-        {:ok, payload, rest} -> {:cont, {rest, [payload | acc]}}
+    |> Enum.reduce_while({provided_imports, []}, fn expected, {remaining, acc} ->
+      case validate_import(expected, remaining) do
+        {:ok, merged, rest} -> {:cont, {rest, [merged | acc]}}
         {:error, _} = error -> {:halt, error}
       end
     end)
@@ -38,19 +42,11 @@ defmodule QuickBEAM.WASM.ImportRewriter do
     end
   end
 
-  defp validate_import(%{"kind" => "function", "module" => mod, "name" => name}, _remaining) do
-    {:error, "function imports are not supported yet (#{mod}.#{name})"}
-  end
-
-  defp validate_import(%{"kind" => "table", "module" => mod, "name" => name}, _remaining) do
-    {:error, "table imports are not supported yet (#{mod}.#{name})"}
-  end
-
   defp validate_import(expected, [provided | rest]) do
     with :ok <- validate_name_match(expected, provided),
          :ok <- validate_kind_match(expected, provided),
          :ok <- validate_import_value(expected, provided) do
-      {:ok, provided, rest}
+      {:ok, Map.merge(expected, provided), rest}
     end
   end
 
@@ -68,6 +64,19 @@ defmodule QuickBEAM.WASM.ImportRewriter do
 
   defp validate_kind_match(%{"kind" => kind}, %{"kind" => kind}), do: :ok
   defp validate_kind_match(_expected, _provided), do: {:error, "import kind mismatch"}
+
+  defp validate_import_value(%{"kind" => "function"}, %{"callback_name" => callback_name})
+       when is_binary(callback_name) do
+    :ok
+  end
+
+  defp validate_import_value(%{"kind" => "function", "module" => mod, "name" => name}, _provided) do
+    {:error, "function import #{mod}.#{name} requires a callback_name"}
+  end
+
+  defp validate_import_value(%{"kind" => "table", "module" => mod, "name" => name}, _provided) do
+    {:error, "table imports are not supported yet (#{mod}.#{name})"}
+  end
 
   defp validate_import_value(%{"kind" => "memory", "min" => min, "max" => max}, provided) do
     bytes = Map.get(provided, "bytes", <<>>)
@@ -117,6 +126,52 @@ defmodule QuickBEAM.WASM.ImportRewriter do
 
   defp memory_imports(validated), do: Enum.filter(validated, &(&1["kind"] == "memory"))
   defp global_imports(validated), do: Enum.filter(validated, &(&1["kind"] == "global"))
+
+  defp build_function_imports(validated) do
+    validated
+    |> Enum.filter(&(&1["kind"] == "function"))
+    |> Enum.map(fn import ->
+      unique_id = System.unique_integer([:positive])
+
+      %{
+        module_name: import["module"],
+        symbol: "__qb_wasm_import_#{unique_id}",
+        signature: encode_function_signature(import["params"] || [], import["results"] || []),
+        callback_name: import["callback_name"],
+        type_idx: import["type_idx"]
+      }
+    end)
+  end
+
+  defp encode_function_signature(params, []),
+    do: [?(, Enum.map(params, &encode_signature_type/1), ?)] |> IO.iodata_to_binary()
+
+  defp encode_function_signature(params, [result]) do
+    [?(, Enum.map(params, &encode_signature_type/1), ?), encode_signature_type(result)]
+    |> IO.iodata_to_binary()
+  end
+
+  defp encode_function_signature(_params, _results),
+    do: raise(ArgumentError, "multi-value host function imports are not supported yet")
+
+  defp encode_signature_type("i32"), do: ?i
+  defp encode_signature_type("i64"), do: ?I
+  defp encode_signature_type("f32"), do: ?f
+  defp encode_signature_type("f64"), do: ?F
+
+  defp encode_signature_type(other),
+    do: raise(ArgumentError, "unsupported host function import type: #{inspect(other)}")
+
+  defp prepend_function_imports(sections, []), do: sections
+
+  defp prepend_function_imports(sections, function_imports) do
+    payload =
+      function_imports
+      |> Enum.map(&encode_function_import/1)
+      |> encode_vec_raw()
+
+    insert_section(sections, {@section_import, payload})
+  end
 
   defp prepend_memory_imports(sections, validated) do
     imports = memory_imports(validated)
@@ -169,6 +224,15 @@ defmodule QuickBEAM.WASM.ImportRewriter do
 
   defp remove_import_section(sections) do
     Enum.reject(sections, fn {id, _payload} -> id == @section_import end)
+  end
+
+  defp encode_function_import(import) do
+    encode_name(import.module_name) <>
+      encode_name(import.symbol) <> <<0x00>> <> encode_u32(import.type_idx)
+  end
+
+  defp encode_name(name) do
+    encode_u32(byte_size(name)) <> name
   end
 
   defp split_sections(@magic <> rest), do: parse_sections(rest, [])
