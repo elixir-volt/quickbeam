@@ -15,9 +15,15 @@ defmodule QuickBEAM.JS.Bundler do
   def bundle_file(entry_path, opts \\ []) do
     entry_path = Path.expand(entry_path)
     node_modules = opts |> Keyword.get(:node_modules) |> resolve_node_modules(entry_path)
-    bundle_opts = Keyword.drop(opts, [:node_modules])
+    project_root = project_root(entry_path, node_modules)
+    entry_label = relative_label(entry_path, project_root)
 
-    case collect_modules(entry_path, node_modules) do
+    bundle_opts =
+      opts
+      |> Keyword.drop([:node_modules])
+      |> Keyword.put_new(:entry, entry_label)
+
+    case collect_modules(entry_path, project_root, node_modules) do
       {:ok, files} -> OXC.bundle(files, bundle_opts)
       {:error, _} = error -> error
     end
@@ -36,24 +42,42 @@ defmodule QuickBEAM.JS.Bundler do
     end
   end
 
-  defp collect_modules(entry_path, node_modules) do
-    basename = Path.basename(entry_path)
+  defp project_root(entry_path, nil), do: Path.dirname(entry_path)
 
-    case do_collect(entry_path, basename, node_modules, [], MapSet.new()) do
+  defp project_root(entry_path, node_modules) do
+    [entry_path, node_modules]
+    |> Enum.map(&Path.split/1)
+    |> shared_segments()
+    |> Path.join()
+  end
+
+  defp shared_segments([first | rest]) do
+    first
+    |> Enum.with_index()
+    |> Enum.take_while(fn {segment, index} ->
+      Enum.all?(rest, &(Enum.at(&1, index) == segment))
+    end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  defp collect_modules(entry_path, project_root, node_modules) do
+    case do_collect(entry_path, project_root, node_modules, [], MapSet.new()) do
       {:ok, files, _seen} -> {:ok, Enum.reverse(files)}
       {:error, _} = error -> error
     end
   end
 
-  defp do_collect(abs_path, label, node_modules, files, seen) do
+  defp do_collect(abs_path, project_root, node_modules, files, seen) do
     if MapSet.member?(seen, abs_path) do
       {:ok, files, seen}
     else
       with {:ok, source} <- File.read(abs_path),
-           {:ok, specifiers} <- extract_imports(source, abs_path) do
+           {:ok, specifiers} <- extract_imports(source, abs_path),
+           {:ok, rewritten_source, resolved_paths} <-
+             rewrite_bare_imports(source, specifiers, abs_path, project_root, node_modules) do
         seen = MapSet.put(seen, abs_path)
-        files = [{label, source} | files]
-        collect_imports(specifiers, abs_path, node_modules, files, seen)
+        files = [{relative_label(abs_path, project_root), rewritten_source} | files]
+        collect_imports(resolved_paths, project_root, node_modules, files, seen)
       else
         {:error, reason} when is_atom(reason) ->
           {:error, {:file_read_error, abs_path, reason}}
@@ -71,28 +95,12 @@ defmodule QuickBEAM.JS.Bundler do
     end
   end
 
-  defp collect_imports([], _importer, _node_modules, files, seen) do
-    {:ok, files, seen}
-  end
+  defp collect_imports([], _project_root, _node_modules, files, seen), do: {:ok, files, seen}
 
-  defp collect_imports([specifier | rest], importer, node_modules, files, seen) do
-    case resolve_specifier(specifier, importer, node_modules) do
-      :skip ->
-        collect_imports(rest, importer, node_modules, files, seen)
-
-      {:ok, resolved_path} ->
-        label = if relative?(specifier), do: Path.basename(resolved_path), else: specifier
-
-        case do_collect(resolved_path, label, node_modules, files, seen) do
-          {:ok, files, seen} ->
-            collect_imports(rest, importer, node_modules, files, seen)
-
-          {:error, _} = error ->
-            error
-        end
-
-      {:error, _} = error ->
-        error
+  defp collect_imports([resolved_path | rest], project_root, node_modules, files, seen) do
+    case do_collect(resolved_path, project_root, node_modules, files, seen) do
+      {:ok, files, seen} -> collect_imports(rest, project_root, node_modules, files, seen)
+      {:error, _} = error -> error
     end
   end
 
@@ -187,5 +195,86 @@ defmodule QuickBEAM.JS.Bundler do
         if File.regular?(path), do: {:ok, path}
       end) ||
       {:error, {:module_not_found, base, "file not found"}}
+  end
+
+  defp rewrite_bare_imports(source, _specifiers, importer, project_root, node_modules) do
+    with {:ok, ast} <- OXC.parse(source, Path.basename(importer)),
+         {:ok, patches, resolved_paths} <-
+           collect_import_patches(ast, importer, project_root, node_modules) do
+      {:ok, OXC.patch_string(source, patches), resolved_paths}
+    else
+      {:error, errors} when is_list(errors) -> {:error, {:parse_error, importer, errors}}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp collect_import_patches(ast, importer, project_root, node_modules) do
+    {_ast, {patches, resolved_paths}} =
+      OXC.postwalk(ast, {[], []}, fn
+        %{type: type, source: %{value: specifier, start: start_pos, end: end_pos}},
+        {patches, paths}
+        when type in ["ImportDeclaration", "ExportAllDeclaration", "ExportNamedDeclaration"] ->
+          case resolve_ast_specifier(specifier, importer, project_root, node_modules) do
+            {:ok, nil, nil} ->
+              {nil, {patches, paths}}
+
+            {:ok, nil, resolved_path} ->
+              {nil, {patches, [resolved_path | paths]}}
+
+            {:ok, replacement, resolved_path} ->
+              patch = %{start: start_pos, end: end_pos, change: inspect(replacement)}
+              {nil, {[patch | patches], [resolved_path | paths]}}
+
+            {:error, _} = error ->
+              throw(error)
+          end
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    {:ok, Enum.reverse(patches), Enum.reverse(resolved_paths)}
+  catch
+    {:error, _} = error -> error
+  end
+
+  defp resolve_ast_specifier(specifier, importer, project_root, node_modules) do
+    case resolve_specifier(specifier, importer, node_modules) do
+      :skip ->
+        {:ok, nil, nil}
+
+      {:ok, resolved_path} ->
+        if relative?(specifier) do
+          {:ok, nil, resolved_path}
+        else
+          replacement = relative_import_path(importer, resolved_path, project_root)
+          {:ok, replacement, resolved_path}
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp relative_import_path(importer, resolved_path, project_root) do
+    importer_dir = importer |> relative_label(project_root) |> Path.dirname()
+    resolved_label = relative_label(resolved_path, project_root)
+
+    Path.relative_to(resolved_label, importer_dir)
+    |> ensure_relative_prefix()
+    |> String.replace("\\", "/")
+  end
+
+  defp ensure_relative_prefix(path) do
+    if String.starts_with?(path, ["./", "../"]) do
+      path
+    else
+      "./" <> path
+    end
+  end
+
+  defp relative_label(path, project_root) do
+    Path.relative_to(path, project_root)
+    |> String.replace("\\", "/")
   end
 end
