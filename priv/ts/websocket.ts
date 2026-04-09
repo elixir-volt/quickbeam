@@ -15,6 +15,10 @@ function normalizeWebSocketURL(input: string): string {
     throw new DOMException('The URL is invalid.', 'SyntaxError')
   }
 
+  if (parsed.username !== '' || parsed.password !== '') {
+    throw new DOMException('The URL contains credentials.', 'SyntaxError')
+  }
+
   if (parsed.hash !== '') {
     throw new DOMException('The URL contains a fragment identifier.', 'SyntaxError')
   }
@@ -38,12 +42,11 @@ function normalizeProtocols(protocols?: string | string[]): string[] {
       throw new DOMException('The subprotocol is invalid.', 'SyntaxError')
     }
 
-    const lower = protocol.toLowerCase()
-    if (seen.has(lower)) {
+    if (seen.has(protocol)) {
       throw new DOMException('The subprotocol list contains duplicates.', 'SyntaxError')
     }
 
-    seen.add(lower)
+    seen.add(protocol)
   }
 
   return values

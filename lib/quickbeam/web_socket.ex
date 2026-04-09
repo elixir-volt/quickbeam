@@ -6,11 +6,7 @@ defmodule QuickBEAM.WebSocket do
   # Mint.WebSocket.t() is @opaque — Dialyzer can't prove that new/4 returns
   # {:ok, _, _} so it thinks handle_upgrade_success and its callees are dead code.
   @dialyzer {:nowarn_function,
-             handle_response: 2,
-             handle_upgrade_success: 3,
-             maybe_close_pending: 1,
-             response_header: 2,
-             notify_open: 1}
+             handle_response: 2, handle_upgrade_success: 3, response_header: 2, notify_open: 1}
 
   defstruct [
     :id,
@@ -188,7 +184,7 @@ defmodule QuickBEAM.WebSocket do
 
   # Mint.WebSocket.t() is @opaque so Dialyzer can't prove that new/4 ever
   # returns {:ok, _, _} when called with status 101. Suppressing here keeps
-  # the cascade (handle_upgrade_success, maybe_close_pending, etc.) visible.
+  # the cascade (handle_upgrade_success, etc.) visible.
   @dialyzer {:nowarn_function, handle_response: 2}
 
   defp handle_response(state, {:status, ref, status}) when ref == state.request_ref do
@@ -234,24 +230,20 @@ defmodule QuickBEAM.WebSocket do
   end
 
   defp handle_upgrade_success(state, conn, websocket) do
-    protocol = response_header(state.upgrade_headers, "sec-websocket-protocol") || ""
+    state = %{state | conn: conn, websocket: websocket, upgrade_status: nil}
 
-    state =
-      %{state | conn: conn, websocket: websocket, protocol: protocol, upgrade_status: nil}
-      |> Map.put(:upgrade_headers, [])
-      |> notify_open()
+    if state.pending_close do
+      state = %{state | pending_close: nil, upgrade_headers: []}
+      {:stop, emit_close(state, 1006, "", false)}
+    else
+      protocol = response_header(state.upgrade_headers, "sec-websocket-protocol") || ""
 
-    maybe_close_pending(state)
-  end
+      state =
+        %{state | protocol: protocol}
+        |> Map.put(:upgrade_headers, [])
+        |> notify_open()
 
-  defp maybe_close_pending(%{pending_close: nil} = state), do: {:ok, state}
-
-  defp maybe_close_pending(%{pending_close: {code, reason}} = state) do
-    state = %{state | pending_close: nil}
-
-    case do_close(state, code, reason) do
-      {:ok, state} -> {:ok, state}
-      {:error, state, error} -> {:stop, emit_error_and_close(state, error)}
+      {:ok, state}
     end
   end
 
