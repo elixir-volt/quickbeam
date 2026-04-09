@@ -1,6 +1,7 @@
 const ct = @import("context_types.zig");
 const types = @import("types.zig");
 const worker = @import("worker.zig");
+const js = @import("js_helpers.zig");
 const beam_proxy = @import("beam_proxy.zig");
 const dom = @import("dom.zig");
 
@@ -199,23 +200,18 @@ fn handle_create_context(
         return;
     };
 
-    entry.* = .{
-        .rd = .{
-            .mutex = .{},
-            .cond = .{},
-            .queue_head = null,
-            .queue_tail = null,
-            .stopped = false,
-            .thread = null,
-            .max_convert_depth = pd.max_convert_depth,
-            .max_convert_nodes = pd.max_convert_nodes,
-        },
-        // SAFETY: entry.state is assigned immediately below before any use.
-        .state = undefined,
-        .owner_pid = p.owner_pid,
-        .id = p.context_id,
+    entry.rd = .{
+        .mutex = .{},
+        .cond = .{},
+        .queue_head = null,
+        .queue_tail = null,
+        .stopped = false,
+        .thread = null,
+        .max_convert_depth = pd.max_convert_depth,
+        .max_convert_nodes = pd.max_convert_nodes,
     };
-
+    entry.owner_pid = p.owner_pid;
+    entry.id = p.context_id;
     entry.state = .{
         .ctx = ctx,
         .rt = rt,
@@ -224,6 +220,7 @@ fn handle_create_context(
         .pending_calls = std.AutoHashMap(u64, worker.PendingCall).init(gpa),
         .timers = std.AutoHashMap(u64, worker.TimerEntry).init(gpa),
         .start_time = std.time.nanoTimestamp(),
+        .max_reductions = p.max_reductions,
     };
 
     entry.state.install_globals();
@@ -417,9 +414,7 @@ fn handle_ctx_memory_usage(
     };
     const entry = entry_ptr.*;
 
-    // SAFETY: JS_ComputeMemoryUsage fully initializes usage before it is read.
-    var usage: qjs.JSMemoryUsage = undefined;
-    qjs.JS_ComputeMemoryUsage(entry.state.rt, &usage);
+    const usage = js.memory_usage(entry.state.rt);
     const renv = beam.alloc_env();
     const result_term = beam.make(.{
         .malloc_size = usage.malloc_size,

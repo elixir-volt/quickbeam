@@ -36,6 +36,7 @@ pub const Message = union(enum) {
     eval: AsyncRequestPayload,
     compile: AsyncRequestPayload,
     call_fn: AsyncCallPayload,
+    call_fn_sync: SyncCallPayload,
     load_module: AsyncModulePayload,
     load_bytecode: AsyncRequestPayload,
     reset: AsyncRequestPayload,
@@ -71,6 +72,14 @@ pub const AsyncCallPayload = struct {
     caller_pid: beam.pid,
     ref_env: ?*e.ErlNifEnv,
     ref_term: e.ErlNifTerm,
+    timeout_ns: u64 = 0,
+};
+
+pub const SyncCallPayload = struct {
+    id: u64,
+    name: []const u8,
+    args_env: ?*e.ErlNifEnv,
+    args_term: e.ErlNifTerm,
     timeout_ns: u64 = 0,
 };
 
@@ -183,8 +192,10 @@ pub fn send_reply(caller_pid: beam.pid, ref_env: ?*e.ErlNifEnv, ref_term: e.ErlN
     } else beam.make(result_json, .{ .env = msg_env }).v;
 
     const tag = if (ok) beam.make_into_atom("ok", .{ .env = msg_env }).v else beam.make_into_atom("error", .{ .env = msg_env }).v;
-    const inner = e.enif_make_tuple2(msg_env, tag, result_val);
-    const msg = e.enif_make_tuple2(msg_env, ref_copy, inner);
+    const inner_items = [_]e.ErlNifTerm{ tag, result_val };
+    const inner = e.enif_make_tuple_from_array(msg_env, &inner_items, inner_items.len);
+    const msg_items = [_]e.ErlNifTerm{ ref_copy, inner };
+    const msg = e.enif_make_tuple_from_array(msg_env, &msg_items, msg_items.len);
 
     var pid = caller_pid;
     _ = e.enif_send(null, &pid, msg_env, msg);

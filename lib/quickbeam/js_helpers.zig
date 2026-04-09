@@ -75,3 +75,9 @@ pub fn is_promise(ctx: *qjs.JSContext, val: qjs.JSValue) bool {
     qjs.JS_FreeValue(ctx, then_prop);
     return result;
 }
+
+pub fn memory_usage(rt: *qjs.JSRuntime) qjs.JSMemoryUsage {
+    var usage = std.mem.zeroes(qjs.JSMemoryUsage);
+    qjs.JS_ComputeMemoryUsage(rt, &usage);
+    return usage;
+}

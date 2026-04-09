@@ -3,6 +3,9 @@ const worker = @import("worker.zig");
 const js = @import("js_helpers.zig");
 const beam_to_js = @import("beam_to_js.zig");
 const js_to_beam = @import("js_to_beam.zig");
+const beam_helpers = @import("beam_helpers.zig");
+const get_local_pid = beam_helpers.get_local_pid;
+const inspect_binary = beam_helpers.inspect_binary;
 const std = types.std;
 const beam = types.beam;
 const e = types.e;
@@ -38,8 +41,7 @@ fn beam_call_impl(
         return qjs.JS_ThrowTypeError(ctx, "Beam.call: first argument must be a string");
     const name = std.mem.span(name_ptr);
 
-    // SAFETY: resolve_funcs immediately filled by JS_NewPromiseCapability
-    var resolve_funcs: [2]qjs.JSValue = undefined;
+    var resolve_funcs = std.mem.zeroes([2]qjs.JSValue);
     const promise = qjs.JS_NewPromiseCapability(ctx, &resolve_funcs);
     if (js.js_is_exception(promise)) {
         qjs.JS_FreeCString(ctx, name_ptr);
@@ -133,13 +135,13 @@ fn beam_call_sync_impl(
             return beam_to_js.convert(ctx.?, result_env, slot.result_term.?);
         } else {
             // Extract error reason string from the term
-            // SAFETY: immediately filled by enif_inspect_binary
-            var bin: e.ErlNifBinary = undefined;
-            if (e.enif_inspect_binary(result_env, slot.result_term.?, &bin) != 0 and bin.size > 0) {
-                const msg = gpa.dupeZ(u8, bin.data[0..bin.size]) catch
-                    return qjs.JS_ThrowInternalError(ctx, "Beam.callSync failed");
-                defer gpa.free(msg);
-                return qjs.JS_ThrowInternalError(ctx, msg.ptr);
+            if (inspect_binary(result_env, slot.result_term.?)) |bin| {
+                if (bin.size > 0) {
+                    const msg = gpa.dupeZ(u8, bin.data[0..bin.size]) catch
+                        return qjs.JS_ThrowInternalError(ctx, "Beam.callSync failed");
+                    defer gpa.free(msg);
+                    return qjs.JS_ThrowInternalError(ctx, msg.ptr);
+                }
             }
             return qjs.JS_ThrowInternalError(ctx, "Beam.callSync failed");
         }
@@ -161,14 +163,13 @@ fn beam_send_impl(
     const pid_term = js_to_beam.convert(ctx.?, argv[0], send_env);
     const msg_term = js_to_beam.convert(ctx.?, argv[1], send_env);
 
-    // SAFETY: pid immediately filled by enif_get_local_pid
-    var pid: beam.pid = undefined;
-    if (e.enif_get_local_pid(send_env, pid_term, &pid) == 0) {
+    const pid = get_local_pid(send_env, pid_term) orelse {
         beam.free_env(send_env);
         return qjs.JS_ThrowTypeError(ctx, "Beam.send: first argument must be a PID");
-    }
+    };
 
-    _ = e.enif_send(null, &pid, send_env, msg_term);
+    var send_pid = pid;
+    _ = e.enif_send(null, &send_pid, send_env, msg_term);
     beam.free_env(send_env);
     return js.js_true();
 }
