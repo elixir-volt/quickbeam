@@ -16,7 +16,7 @@ defmodule QuickBEAM.JS.Bundler do
     entry_path = Path.expand(entry_path)
     node_modules = opts |> Keyword.get(:node_modules) |> resolve_node_modules(entry_path)
     project_root = project_root(entry_path, node_modules)
-    entry_label = relative_label(entry_path, project_root)
+    entry_label = Path.relative_to(entry_path, project_root, separator: "/")
 
     bundle_opts =
       opts
@@ -76,7 +76,11 @@ defmodule QuickBEAM.JS.Bundler do
            {:ok, rewritten_source, resolved_paths} <-
              rewrite_bare_imports(source, specifiers, abs_path, project_root, node_modules) do
         seen = MapSet.put(seen, abs_path)
-        files = [{relative_label(abs_path, project_root), rewritten_source} | files]
+
+        files = [
+          {Path.relative_to(abs_path, project_root, separator: "/"), rewritten_source} | files
+        ]
+
         collect_imports(resolved_paths, project_root, node_modules, files, seen)
       else
         {:error, reason} when is_atom(reason) ->
@@ -257,12 +261,11 @@ defmodule QuickBEAM.JS.Bundler do
   end
 
   defp relative_import_path(importer, resolved_path, project_root) do
-    importer_dir = importer |> relative_label(project_root) |> Path.dirname()
-    resolved_label = relative_label(resolved_path, project_root)
+    importer_dir = importer |> Path.relative_to(project_root, separator: "/") |> Path.dirname()
+    resolved_label = Path.relative_to(resolved_path, project_root, separator: "/")
 
-    Path.relative_to(resolved_label, importer_dir)
+    Path.relative_to(resolved_label, importer_dir, separator: "/")
     |> ensure_relative_prefix()
-    |> String.replace("\\", "/")
   end
 
   defp ensure_relative_prefix(path) do
@@ -271,10 +274,5 @@ defmodule QuickBEAM.JS.Bundler do
     else
       "./" <> path
     end
-  end
-
-  defp relative_label(path, project_root) do
-    Path.relative_to(path, project_root)
-    |> String.replace("\\", "/")
   end
 end
