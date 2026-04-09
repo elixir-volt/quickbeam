@@ -29,6 +29,31 @@ defmodule QuickBEAM.Server do
       defp put_pending(state, ref, from, transform \\ nil) do
         %{state | pending: Map.put(state.pending, ref, {from, transform})}
       end
+
+      defp handle_websocket_started(socket_id, pid, state) do
+        ref = Process.monitor(pid)
+        websockets = Map.put(state.websockets, ref, {pid, socket_id})
+        {:noreply, %{state | websockets: websockets}}
+      end
+
+      defp pop_websocket(state, ref) do
+        case Map.pop(state.websockets, ref) do
+          {{_pid, _socket_id}, websockets} -> {true, %{state | websockets: websockets}}
+          {nil, _} -> {false, state}
+        end
+      end
+
+      defp shutdown_websockets(state) do
+        for {ref, {pid, _id}} <- state.websockets do
+          Process.exit(pid, :shutdown)
+
+          receive do
+            {:DOWN, ^ref, :process, ^pid, _} -> :ok
+          after
+            5_000 -> :ok
+          end
+        end
+      end
     end
   end
 end

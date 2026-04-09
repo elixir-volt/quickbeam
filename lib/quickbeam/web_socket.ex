@@ -3,8 +3,9 @@ defmodule QuickBEAM.WebSocket do
   use GenServer
 
   alias Mint.HTTP
+
   # Mint.WebSocket.t() is @opaque — Dialyzer can't prove that new/4 returns
-  # {:ok, _, _} so it thinks handle_upgrade_success and its callees are dead code.
+  # {:ok, _, _} so it considers handle_upgrade_success and its callees dead.
   @dialyzer {:nowarn_function,
              handle_response: 2, handle_upgrade_success: 3, response_header: 2, notify_open: 1}
 
@@ -18,36 +19,37 @@ defmodule QuickBEAM.WebSocket do
     :request_ref,
     :websocket,
     :upgrade_status,
-    :upgrade_headers,
-    :protocol,
     :pending_close,
+    upgrade_headers: [],
+    protocol: "",
     closed?: false,
     close_sent?: false
   ]
 
-  @spec connect([String.t() | [String.t()]], pid()) :: String.t()
+  # Handler callbacks receive args as a list from the JS bridge.
+  # :global is used for pid lookup by socket ID string since handlers
+  # don't have access to the owning Runtime/Context pid.
+
+  @spec connect(args :: [String.t()], owner :: pid()) :: String.t()
   def connect([url, protocols], owner_pid) do
     id = Integer.to_string(System.unique_integer([:positive]))
 
     {:ok, pid} =
-      GenServer.start_link(
-        __MODULE__,
-        %{
-          id: id,
-          owner: owner_pid,
-          url: url,
-          protocols: List.wrap(protocols)
-        },
-        name: {:global, registry_name(id)}
-      )
+      GenServer.start_link(__MODULE__, %{
+        id: id,
+        owner: owner_pid,
+        url: url,
+        protocols: List.wrap(protocols)
+      })
 
+    :global.register_name({__MODULE__, id}, pid)
     send(owner_pid, {:websocket_started, id, pid})
     id
   end
 
-  @spec send_frame([String.t() | [String.t() | binary()]]) :: nil
+  @spec send_frame(args :: [term()]) :: nil
   def send_frame([id, [kind, payload]]) do
-    case :global.whereis_name(registry_name(id)) do
+    case :global.whereis_name({__MODULE__, id}) do
       pid when is_pid(pid) -> GenServer.cast(pid, {:send, kind, payload})
       _ -> :ok
     end
@@ -55,15 +57,17 @@ defmodule QuickBEAM.WebSocket do
     nil
   end
 
-  @spec close([String.t() | non_neg_integer() | String.t()]) :: nil
+  @spec close(args :: [term()]) :: nil
   def close([id, code, reason]) do
-    case :global.whereis_name(registry_name(id)) do
+    case :global.whereis_name({__MODULE__, id}) do
       pid when is_pid(pid) -> GenServer.cast(pid, {:close, code, reason})
       _ -> :ok
     end
 
     nil
   end
+
+  # -- GenServer --
 
   @impl true
   def init(%{id: id, owner: owner, url: url, protocols: protocols}) do
@@ -76,9 +80,7 @@ defmodule QuickBEAM.WebSocket do
        owner: owner,
        owner_ref: owner_ref,
        url: url,
-       protocols: protocols,
-       upgrade_headers: [],
-       protocol: ""
+       protocols: protocols
      }}
   end
 
@@ -154,10 +156,12 @@ defmodule QuickBEAM.WebSocket do
   end
 
   @impl true
-  def terminate(_reason, %{conn: conn}) do
-    if conn do
+  def terminate(_reason, state) do
+    :global.unregister_name({__MODULE__, state.id})
+
+    if state.conn do
       try do
-        HTTP.close(conn)
+        HTTP.close(state.conn)
       catch
         _, _ -> :ok
       end
@@ -165,6 +169,8 @@ defmodule QuickBEAM.WebSocket do
 
     :ok
   end
+
+  # -- HTTP upgrade response handling --
 
   defp handle_responses(state, responses) do
     case handle_response_list(state, responses) do
@@ -182,18 +188,12 @@ defmodule QuickBEAM.WebSocket do
     end)
   end
 
-  # Mint.WebSocket.t() is @opaque so Dialyzer can't prove that new/4 ever
-  # returns {:ok, _, _} when called with status 101. Suppressing here keeps
-  # the cascade (handle_upgrade_success, etc.) visible.
-  @dialyzer {:nowarn_function, handle_response: 2}
-
   defp handle_response(state, {:status, ref, status}) when ref == state.request_ref do
     {:ok, %{state | upgrade_status: status}}
   end
 
   defp handle_response(state, {:headers, ref, headers}) when ref == state.request_ref do
-    headers = state.upgrade_headers ++ headers
-    {:ok, %{state | upgrade_headers: headers}}
+    {:ok, %{state | upgrade_headers: state.upgrade_headers ++ headers}}
   end
 
   defp handle_response(state, {:done, ref}) when ref == state.request_ref do
@@ -202,8 +202,7 @@ defmodule QuickBEAM.WebSocket do
         handle_upgrade_success(state, conn, websocket)
 
       {:error, conn, reason} ->
-        state = %{state | conn: conn}
-        {:stop, emit_error_and_close(state, reason)}
+        {:stop, emit_error_and_close(%{state | conn: conn}, reason)}
     end
   end
 
@@ -233,37 +232,29 @@ defmodule QuickBEAM.WebSocket do
     state = %{state | conn: conn, websocket: websocket, upgrade_status: nil}
 
     if state.pending_close do
-      state = %{state | pending_close: nil, upgrade_headers: []}
-      {:stop, emit_close(state, 1006, "", false)}
+      {:stop, emit_close(%{state | pending_close: nil, upgrade_headers: []}, 1006, "", false)}
     else
       protocol = response_header(state.upgrade_headers, "sec-websocket-protocol") || ""
 
       state =
-        %{state | protocol: protocol}
-        |> Map.put(:upgrade_headers, [])
+        %{state | protocol: protocol, upgrade_headers: []}
         |> notify_open()
 
       {:ok, state}
     end
   end
 
-  defp handle_frame(state, {:text, text}) do
-    {:ok, notify_text_message(state, text)}
-  end
+  # -- Frame handling --
 
-  defp handle_frame(state, {:binary, data}) do
-    {:ok, notify_binary_message(state, data)}
-  end
+  defp handle_frame(state, {:text, text}), do: {:ok, notify_text_message(state, text)}
+  defp handle_frame(state, {:binary, data}), do: {:ok, notify_binary_message(state, data)}
+  defp handle_frame(state, {:pong, _data}), do: {:ok, state}
 
   defp handle_frame(state, {:ping, data}) do
     case stream_frame(state, {:pong, data}) do
       {:ok, state} -> {:ok, state}
       {:error, state, error} -> {:stop, emit_error_and_close(state, error)}
     end
-  end
-
-  defp handle_frame(state, {:pong, _data}) do
-    {:ok, state}
   end
 
   defp handle_frame(state, {:close, code, reason}) do
@@ -277,9 +268,10 @@ defmodule QuickBEAM.WebSocket do
         end
       end
 
-    state = emit_close(%{state | close_sent?: true}, code || 1005, reason || "", true)
-    {:stop, state}
+    {:stop, emit_close(%{state | close_sent?: true}, code || 1005, reason || "", true)}
   end
+
+  # -- Connection setup --
 
   defp open_connection(state) do
     with {:ok, %{scheme: scheme, host: host, port: port, path: path} = info} <-
@@ -302,16 +294,12 @@ defmodule QuickBEAM.WebSocket do
     end
   end
 
-  defp do_close(%{websocket: nil} = state, _code, _reason) do
-    {:ok, state}
-  end
+  # -- Close / send --
+
+  defp do_close(%{websocket: nil} = state, _code, _reason), do: {:ok, state}
 
   defp do_close(state, code, reason) do
-    frame =
-      case {code, reason} do
-        {1000, ""} -> :close
-        _ -> {:close, code, reason}
-      end
+    frame = if code == 1000 and reason == "", do: :close, else: {:close, code, reason}
 
     case stream_frame(state, frame) do
       {:ok, state} -> {:ok, %{state | close_sent?: true}}
@@ -334,6 +322,8 @@ defmodule QuickBEAM.WebSocket do
         {:error, %{state | websocket: websocket}, reason}
     end
   end
+
+  # -- URL parsing --
 
   defp parse_url(url) do
     uri = URI.parse(url)
@@ -387,6 +377,8 @@ defmodule QuickBEAM.WebSocket do
   defp default_port("ws"), do: 80
   defp default_port("wss"), do: 443
 
+  # -- Event notifications --
+
   defp response_header(headers, name) do
     Enum.find_value(headers, fn
       {key, value} when is_binary(key) -> if String.downcase(key) == name, do: value
@@ -426,6 +418,4 @@ defmodule QuickBEAM.WebSocket do
     send(state.owner, {:websocket_event, ["__ws_close", state.id, code, reason, was_clean]})
     %{state | closed?: true}
   end
-
-  defp registry_name(id), do: {__MODULE__, id}
 end
