@@ -2,9 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- **WebSocket support** — adds a Mint-backed `WebSocket` implementation with connection lifecycle events, frame send/receive support, close handling, and WPT coverage.
+- **WebAssembly support** — adds a WAMR-backed `WebAssembly` implementation with module compilation, instantiation, imports/exports handling, and JS API compatibility coverage.
+
+### Changed
+
+- **Toolchain upgraded to `oxc` 0.6** — updates bundling integration for the new entry requirement and switches bare-specifier rewriting to AST-based source patching.
+
 ### Fixed
 
 - **`load_module/3` now propagates top-level module evaluation errors** — runtime exceptions thrown while evaluating module code are returned as `{:error, %QuickBEAM.JSError{}}` instead of incorrectly succeeding with `:ok`.
+- **WebSocket runtime cleanup** — runtime shutdown now drains pending jobs correctly, waits for WebSocket processes to terminate, and avoids GitHub Actions-only teardown failures after successful test runs.
+- **WebSocket spec compliance** — fixes `close()` during `CONNECTING`, rejects credentialed WebSocket URLs, and allows case-distinct subprotocols.
+- **N-API wrap cleanup on `remove_wrap`** — detached wraps are destroyed safely instead of relying on later finalizer cleanup, avoiding shutdown-time crashes in addon wrap tests.
+- **N-API excluded test coverage** — tags the C test addon suite so `--exclude napi_addon` behaves as intended.
 
 ## 0.8.1
 
