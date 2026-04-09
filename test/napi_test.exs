@@ -33,6 +33,7 @@ defmodule QuickBEAM.NapiTest do
   end
 
   describe "test addon" do
+    @describetag :napi_addon
     test "load and inspect exports" do
       {:ok, rt} = QuickBEAM.start()
       {:ok, exports} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")

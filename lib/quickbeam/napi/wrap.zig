@@ -21,7 +21,7 @@ pub const WrapData = struct {
 };
 
 pub const WrappedPointerHolder = struct {
-    wrap: *WrapData,
+    wrap: ?*WrapData,
 };
 
 pub var wrap_class_id: qjs.JSClassID = 0;
@@ -34,18 +34,33 @@ pub var wrap_class_def = qjs.JSClassDef{
     .exotic = null,
 };
 
-pub fn wrapFinalizer(_: ?*qjs.JSRuntime, val: qjs.JSValue) callconv(.c) void {
-    const holder: ?*WrappedPointerHolder = @ptrCast(@alignCast(qjs.JS_GetOpaque(val, wrap_class_id)));
-    if (holder) |h| {
-        const wrap = h.wrap;
-        if (!wrap.removed) {
-            if (wrap.finalize_cb) |cb| {
-                cb(wrap.env, wrap.native_object, wrap.finalize_hint);
-            }
+fn getWrappedPointerHolder(value: qjs.JSValue) ?*WrappedPointerHolder {
+    return @ptrCast(@alignCast(qjs.JS_GetOpaque(value, wrap_class_id)));
+}
+
+fn finalizeWrap(wrap: *WrapData) void {
+    if (!wrap.removed) {
+        if (wrap.finalize_cb) |cb| {
+            cb(wrap.env, wrap.native_object, wrap.finalize_hint);
         }
-        gpa.destroy(h);
-        gpa.destroy(wrap);
     }
+}
+
+fn destroyWrappedPointerHolder(holder: *WrappedPointerHolder, should_finalize: bool) void {
+    if (holder.wrap) |wrap| {
+        if (should_finalize) {
+            finalizeWrap(wrap);
+        }
+        gpa.destroy(wrap);
+        holder.wrap = null;
+    }
+
+    gpa.destroy(holder);
+}
+
+pub fn wrapFinalizer(_: ?*qjs.JSRuntime, val: qjs.JSValue) callconv(.c) void {
+    const holder = getWrappedPointerHolder(val) orelse return;
+    destroyWrappedPointerHolder(holder, true);
 }
 
 pub fn wrapAtom(env: *NapiEnv) qjs.JSAtom {
@@ -83,9 +98,8 @@ pub fn getWrapData(env: *NapiEnv, obj: qjs.JSValue) ?*WrapData {
     defer qjs.JS_FreeValue(env.ctx, val);
 
     if (!qjs.JS_IsObject(val)) return null;
-    const holder: ?*WrappedPointerHolder = @ptrCast(@alignCast(qjs.JS_GetOpaque(val, wrap_class_id)));
-    if (holder) |h| return h.wrap;
-    return null;
+    const holder = getWrappedPointerHolder(val) orelse return null;
+    return holder.wrap;
 }
 
 pub export fn napi_wrap(env_: napi_env, js_object: napi_value, native_object: ?*anyopaque, finalize_cb: napi_finalize, finalize_hint: ?*anyopaque, result: ?*napi_ref) callconv(.c) napi_status {
@@ -134,12 +148,31 @@ pub export fn napi_remove_wrap(env_: napi_env, js_object: napi_value, result: ?*
     const obj = c.toVal(js_object);
     if (!qjs.JS_IsObject(obj)) return env.setLastError(.object_expected);
 
-    const wrap = getWrapData(env, obj);
-    if (result) |r| r.* = if (wrap) |w| w.native_object else null;
-    if (wrap) |w| w.removed = true;
-
     const key = wrapAtom(env);
     defer qjs.JS_FreeAtom(env.ctx, key);
+
+    const wrapper = qjs.JS_GetProperty(env.ctx, obj, key);
+    defer qjs.JS_FreeValue(env.ctx, wrapper);
+
+    if (!qjs.JS_IsObject(wrapper)) {
+        if (result) |r| r.* = null;
+        return env.ok();
+    }
+
+    const holder = getWrappedPointerHolder(wrapper);
+    const wrap = if (holder) |h| h.wrap else null;
+
+    if (result) |r| r.* = if (wrap) |w| w.native_object else null;
+
+    if (wrap) |w| {
+        w.removed = true;
+    }
+
+    if (holder) |h| {
+        _ = qjs.JS_SetOpaque(wrapper, null);
+        destroyWrappedPointerHolder(h, false);
+    }
+
     _ = qjs.JS_DeleteProperty(env.ctx, obj, key, 0);
     return env.ok();
 }

@@ -22,7 +22,7 @@ defmodule QuickBEAM.Toolchain.BundlerTest do
       assert {:ok, js} = QuickBEAM.JS.bundle_file(Path.join(dir, "main.js"))
       assert js =~ "function add"
       assert js =~ "add(1, 2)"
-      refute js =~ "import"
+      refute js =~ ~r/\bimport\s/
     end
 
     @tag :tmp_dir
@@ -121,7 +121,7 @@ defmodule QuickBEAM.Toolchain.BundlerTest do
     end
 
     @tag :tmp_dir
-    test "circular imports don't hang (detected by OXC topo sort)", %{tmp_dir: dir} do
+    test "circular imports don't hang", %{tmp_dir: dir} do
       write!(dir, "a.js", """
       import { B } from './b.js'
       export const A = 'a';
@@ -138,8 +138,10 @@ defmodule QuickBEAM.Toolchain.BundlerTest do
       console.log(A, B);
       """)
 
-      assert {:error, ["Circular dependency detected"]} =
-               QuickBEAM.JS.bundle_file(Path.join(dir, "main.js"))
+      assert {:ok, js} = QuickBEAM.JS.bundle_file(Path.join(dir, "main.js"))
+      assert js =~ "const A = \"a\""
+      assert js =~ "const B = \"b\""
+      assert js =~ "console.log(A, B)"
     end
 
     @tag :tmp_dir

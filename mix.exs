@@ -68,7 +68,7 @@ defmodule QuickBEAM.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_dna, "~> 1.1", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false},
-      {:oxc, "~> 0.5.0"},
+      {:oxc, "~> 0.6.0"},
       {:npm, "~> 0.5.1"},
       {:mint_web_socket, "~> 1.0"},
       {:nimble_pool, "~> 1.1"},
