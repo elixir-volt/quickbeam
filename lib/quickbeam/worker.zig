@@ -3,6 +3,10 @@ const js = @import("js_helpers.zig");
 const globals = @import("globals.zig");
 const js_to_beam = @import("js_to_beam.zig");
 const beam_to_js = @import("beam_to_js.zig");
+const beam_helpers = @import("beam_helpers.zig");
+const alloc_binary = beam_helpers.alloc_binary;
+const inspect_binary = beam_helpers.inspect_binary;
+const get_list_cell = beam_helpers.get_list_cell;
 const beam_proxy = @import("beam_proxy.zig");
 const dom = @import("dom.zig");
 const wasm_js = @import("wasm_js.zig");
@@ -277,11 +281,10 @@ pub const WorkerState = struct {
             }
 
             if (!skip) {
-                // SAFETY: enif_alloc_binary initializes bin on success before it is read.
-                var bin: e.ErlNifBinary = undefined;
-                if (e.enif_alloc_binary(name_len, &bin) != 0) {
-                    @memcpy(bin.data[0..name_len], name_slice[0..name_len]);
-                    const name_term = e.enif_make_binary(result_env, &bin);
+                if (alloc_binary(name_len)) |bin| {
+                    var owned_bin = bin;
+                    @memcpy(owned_bin.data[0..name_len], name_slice[0..name_len]);
+                    const name_term = e.enif_make_binary(result_env, &owned_bin);
                     list = e.enif_make_list_cell(result_env, name_term, list);
                 }
             }
@@ -434,9 +437,12 @@ pub const WorkerState = struct {
         defer qjs.js_free(self.ctx, buf);
 
         const env = beam.alloc_env();
-        // SAFETY: out-param written by enif_alloc_binary before use
-        var bin: e.ErlNifBinary = undefined;
-        _ = e.enif_alloc_binary(out_len, &bin);
+        var bin = alloc_binary(out_len) orelse {
+            result.ok = false;
+            result.json = "Out of memory";
+            beam.free_env(env);
+            return;
+        };
         @memcpy(bin.data[0..out_len], buf[0..out_len]);
         result.env = env;
         result.term = e.enif_make_tuple2(env, beam.make_into_atom("bytes", .{ .env = env }).v, e.enif_make_binary(env, &bin));
@@ -499,14 +505,10 @@ pub const WorkerState = struct {
         if (args_env) |ae| {
             var current = args_term;
             while (js_argc < js_args_buf.len) {
-                // SAFETY: head_term and tail_term immediately filled by enif_get_list_cell
-                var head_term: e.ErlNifTerm = undefined;
-                // SAFETY: see above
-                var tail_term: e.ErlNifTerm = undefined;
-                if (e.enif_get_list_cell(ae, current, &head_term, &tail_term) == 0) break;
-                js_args_buf[js_argc] = beam_to_js.convert(self.ctx, ae, head_term);
+                const cell = get_list_cell(ae, current) orelse break;
+                js_args_buf[js_argc] = beam_to_js.convert(self.ctx, ae, cell.head);
                 js_argc += 1;
-                current = tail_term;
+                current = cell.tail;
             }
         }
         defer for (js_args_buf[0..js_argc]) |v| qjs.JS_FreeValue(self.ctx, v);
@@ -763,8 +765,7 @@ pub const WorkerState = struct {
             const RTLD_NOLOAD = 0x00004;
             const dladdr = @extern(*const fn (?*const anyopaque, *DlInfo) callconv(.c) c_int, .{ .name = "dladdr" });
             const dlopen_fn = @extern(*const fn (?[*:0]const u8, c_int) callconv(.c) ?*anyopaque, .{ .name = "dlopen" });
-            // SAFETY: dladdr initializes info on success before it is read.
-            var info: DlInfo = undefined;
+            var info = std.mem.zeroes(DlInfo);
             if (dladdr(@ptrCast(&napi_mod.napi_module_register), &info) != 0) {
                 _ = dlopen_fn(info.dli_fname, RTLD_LAZY | RTLD_GLOBAL | RTLD_NOLOAD);
             }
@@ -1010,9 +1011,7 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                     types.send_reply(p.caller_pid, p.ref_env, p.ref_term, result.ok, result.env, result.term, result.json);
                 },
                 .memory_usage => |mu| {
-                    // SAFETY: JS_ComputeMemoryUsage fully initializes usage before it is read.
-                    var usage: qjs.JSMemoryUsage = undefined;
-                    qjs.JS_ComputeMemoryUsage(state.rt, &usage);
+                    const usage = js.memory_usage(state.rt);
                     const renv = beam.alloc_env();
                     const result_term = beam.make(.{
                         .malloc_size = usage.malloc_size,
@@ -1203,11 +1202,11 @@ pub fn quickbeam_wasm_host_invoke_js_impl(runtime_data: ?*anyopaque, callback_na
         if (result.env) |result_env| {
             defer beam.free_env(result_env);
             if (result.term) |term| {
-                // SAFETY: `enif_inspect_binary` initializes `bin` on success before it is read.
-                var bin: e.ErlNifBinary = undefined;
-                if (e.enif_inspect_binary(result_env, term, &bin) != 0 and bin.size > 0) {
-                    copy_error_buf(err_buf, err_buf_size, bin.data[0..bin.size]);
-                    return false;
+                if (inspect_binary(result_env, term)) |bin| {
+                    if (bin.size > 0) {
+                        copy_error_buf(err_buf, err_buf_size, bin.data[0..bin.size]);
+                        return false;
+                    }
                 }
             }
         }
