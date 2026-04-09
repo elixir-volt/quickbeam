@@ -48,7 +48,7 @@ defmodule QuickBEAM.JS do
           {"#{name}.ts", File.read!(path)}
         end
 
-      OXC.bundle!(files)
+      OXC.bundle!(files, entry: barrel)
     end
 
     def bundle_modules(ts_dir, modules, exports_barrel) do
@@ -59,7 +59,7 @@ defmodule QuickBEAM.JS do
         end
 
       barrel = {"_barrel.ts", exports_barrel}
-      OXC.bundle!([barrel | files])
+      OXC.bundle!([barrel | files], entry: "_barrel.ts")
     end
   end
 
