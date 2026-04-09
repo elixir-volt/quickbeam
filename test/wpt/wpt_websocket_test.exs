@@ -529,19 +529,58 @@ defmodule QuickBEAM.WPT.WebSocketTest do
                )
     end
 
-    test "close during CONNECTING state", %{rt: rt, ws_echo_url: ws_echo_url} do
-      assert {:ok, true} =
+    test "close during CONNECTING does not fire open, reports unclean close", %{
+      rt: rt,
+      ws_echo_url: ws_echo_url
+    } do
+      assert {:ok, result} =
                QuickBEAM.eval(
                  rt,
                  """
                  await new Promise((resolve) => {
+                   const events = [];
                    const ws = new WebSocket(#{inspect(ws_echo_url)});
+                   ws.onopen = () => events.push('open');
+                   ws.onerror = () => events.push('error');
+                   ws.onclose = (e) => {
+                     events.push('close');
+                     resolve({ events, wasClean: e.wasClean, code: e.code });
+                   };
                    ws.close();
-                   ws.onclose = () => resolve(true);
                  });
                  """,
                  timeout: 5000
                )
+
+      refute "open" in result["events"]
+      assert "close" in result["events"]
+      assert result["wasClean"] == false
+    end
+
+    test "URLs with credentials throw SyntaxError", %{rt: rt} do
+      assert {:ok, [true, true, true]} =
+               QuickBEAM.eval(rt, """
+               ['ws://user:pass@example.com/', 'ws://user@example.com/', 'ws://:pass@example.com/'].map(url => {
+                 try { new WebSocket(url); return false; }
+                 catch (e) { return e instanceof DOMException && e.name === 'SyntaxError'; }
+               });
+               """)
+    end
+
+    test "case-sensitive subprotocol dedup allows Chat and chat", %{
+      rt: rt,
+      ws_echo_url: ws_echo_url
+    } do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+               try {
+                 const ws = new WebSocket(#{inspect(ws_echo_url)}, ['chat', 'Chat']);
+                 ws.close();
+                 true;
+               } catch (e) {
+                 false;
+               }
+               """)
     end
 
     test "runtime stop kills WebSocket cleanly", %{ws_echo_url: ws_echo_url} do
