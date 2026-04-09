@@ -661,9 +661,7 @@ defmodule QuickBEAM.Runtime do
   end
 
   def handle_info({:websocket_started, socket_id, pid}, state) do
-    ref = Process.monitor(pid)
-    websockets = Map.put(state.websockets, ref, {pid, socket_id})
-    {:noreply, %{state | websockets: websockets}}
+    handle_websocket_started(socket_id, pid, state)
   end
 
   def handle_info({:websocket_event, message}, state) do
@@ -740,12 +738,9 @@ defmodule QuickBEAM.Runtime do
   end
 
   defp handle_non_worker_down(ref, reason, state) do
-    case Map.pop(state.websockets, ref) do
-      {{_pid, _socket_id}, websockets} ->
-        {:noreply, %{state | websockets: websockets}}
-
-      {nil, websockets} ->
-        handle_monitored_down(ref, reason, %{state | websockets: websockets})
+    case pop_websocket(state, ref) do
+      {true, state} -> {:noreply, state}
+      {false, state} -> handle_monitored_down(ref, reason, state)
     end
   end
 
@@ -762,15 +757,7 @@ defmodule QuickBEAM.Runtime do
 
   @impl true
   def terminate(_reason, %{resource: resource} = state) do
-    for {ref, {pid, _id}} <- state.websockets do
-      Process.exit(pid, :shutdown)
-
-      receive do
-        {:DOWN, ^ref, :process, ^pid, _} -> :ok
-      after
-        5_000 -> :ok
-      end
-    end
+    shutdown_websockets(state)
 
     drain_beam_calls(resource, state.handlers)
     QuickBEAM.Native.stop_runtime(resource)

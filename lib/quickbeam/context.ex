@@ -487,9 +487,7 @@ defmodule QuickBEAM.Context do
   end
 
   def handle_info({:websocket_started, socket_id, pid}, state) do
-    ref = Process.monitor(pid)
-    websockets = Map.put(state.websockets, ref, {pid, socket_id})
-    {:noreply, %{state | websockets: websockets}}
+    handle_websocket_started(socket_id, pid, state)
   end
 
   def handle_info({:websocket_event, message}, state) do
@@ -500,8 +498,8 @@ defmodule QuickBEAM.Context do
   def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
     case Map.pop(state.workers, ref) do
       {nil, workers} ->
-        {_socket, websockets} = Map.pop(state.websockets, ref)
-        {:noreply, %{state | workers: workers, websockets: websockets}}
+        {_, state} = pop_websocket(%{state | workers: workers}, ref)
+        {:noreply, state}
 
       {_worker_id, workers} ->
         {:noreply, %{state | workers: workers}}
@@ -522,9 +520,7 @@ defmodule QuickBEAM.Context do
       Process.exit(pid, :shutdown)
     end
 
-    for {_ref, {pid, _id}} <- state.websockets do
-      Process.exit(pid, :shutdown)
-    end
+    shutdown_websockets(state)
 
     QuickBEAM.Native.pool_destroy_context(state.pool_resource, state.context_id)
     :ok
