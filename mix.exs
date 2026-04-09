@@ -45,16 +45,6 @@ defmodule QuickBEAM.MixProject do
         "cmd npx oxlint -c oxlint.json --type-aware --type-check priv/ts/",
         "cmd npx jscpd lib/quickbeam/*.zig priv/ts/*.ts --min-tokens 50 --threshold 0"
       ],
-      "ci.lint": [
-        "compile --warnings-as-errors",
-        "format --check-formatted",
-        "credo --strict",
-        "dialyzer",
-        "ex_dna",
-        "cmd zlint lib/quickbeam/*.zig lib/quickbeam/napi/*.zig",
-        "cmd npx oxlint -c oxlint.json --type-aware --type-check priv/ts/",
-        "cmd npx jscpd lib/quickbeam/*.zig priv/ts/*.ts --min-tokens 50 --threshold 0"
-      ],
       ci: [
         "compile --warnings-as-errors",
         "format --check-formatted",
