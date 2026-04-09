@@ -35,7 +35,16 @@ defmodule QuickBEAM.Core.MemoryTest do
     test "memory stabilizes across reset cycles", %{} do
       {:ok, rt} = QuickBEAM.start()
 
-      # First cycle establishes the pool size
+      # First reset can under-report because some runtime structures are only
+      # allocated on the first evaluation after a fresh context is installed.
+      # Establish the baseline after one full warm reset cycle.
+      QuickBEAM.eval(rt, """
+      globalThis.data = [];
+      for (let i = 0; i < 5000; i++) data.push({x: i});
+      """)
+
+      QuickBEAM.reset(rt)
+
       QuickBEAM.eval(rt, """
       globalThis.data = [];
       for (let i = 0; i < 5000; i++) data.push({x: i});

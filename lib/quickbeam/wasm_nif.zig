@@ -28,6 +28,7 @@ const HostImportSpec = wasm_host_imports.ImportSpec;
 
 fn get_map_binary(env: *e.ErlNifEnv, map: e.ErlNifTerm, key: [:0]const u8) ![]const u8 {
     const key_term = beam.make_into_atom(key, .{ .env = env });
+    // SAFETY: `enif_get_map_value` initializes `value_term` before it is read.
     var value_term: e.ErlNifTerm = undefined;
     if (e.enif_get_map_value(env, map, key_term.v, &value_term) == 0) return error.BadArg;
     return beam.get([]const u8, .{ .v = value_term }, .{ .env = env });
@@ -43,7 +44,9 @@ fn parse_host_imports(env: *e.ErlNifEnv, imports: beam.term) ![]HostImportSpec {
     var list = imports.v;
     var index: usize = 0;
     while (index < result.len) : (index += 1) {
+        // SAFETY: `enif_get_list_cell` initializes `head` and `tail` on success before use.
         var head: e.ErlNifTerm = undefined;
+        // SAFETY: `enif_get_list_cell` initializes `head` and `tail` on success before use.
         var tail: e.ErlNifTerm = undefined;
         if (e.enif_get_list_cell(env, list, &head, &tail) == 0) return error.BadArg;
 
@@ -67,6 +70,7 @@ fn next_host_call_id() u64 {
 }
 
 fn extract_error_message(env: *e.ErlNifEnv, term: e.ErlNifTerm, fallback: []const u8) []const u8 {
+    // SAFETY: `enif_inspect_binary` initializes `bin` on success before it is read.
     var bin: e.ErlNifBinary = undefined;
     if (e.enif_inspect_binary(env, term, &bin) != 0 and bin.size > 0) {
         return bin.data[0..bin.size];
@@ -256,6 +260,7 @@ fn parse_f64_term(env: *e.ErlNifEnv, term: beam.term) !f64 {
 }
 
 fn term_to_wasm_val(env: *e.ErlNifEnv, term: beam.term, kind: wamr.wasm_valkind_t) !wamr.wasm_val_t {
+    // SAFETY: `value` is fully populated in the kind-specific branch before it is returned.
     var value: wamr.wasm_val_t = undefined;
     value.kind = kind;
     value._paddings = [_]u8{0} ** 7;
@@ -509,6 +514,7 @@ pub fn wasm_memory_grow(inst_res: WasmInstanceResource, delta: u32) beam.term {
 
 pub fn wasm_read_memory(inst_res: WasmInstanceResource, offset: u32, length: u32) beam.term {
     const env = beam.context.env orelse return make_error("no env");
+    // SAFETY: `enif_alloc_binary` initializes `bin` on success before it is passed on.
     var bin: e.ErlNifBinary = undefined;
     if (e.enif_alloc_binary(length, &bin) == 0) return make_error("out of memory");
 
@@ -538,6 +544,7 @@ pub fn wasm_read_global(inst_res: WasmInstanceResource, name: []const u8) beam.t
     defer std.heap.c_allocator.free(name_z);
 
     var err_buf: [256]u8 = undefined;
+    // SAFETY: WAMR initializes `value` on successful global reads before it is used.
     var value: wamr.wasm_val_t = undefined;
 
     if (!wamr.wamr_bridge_read_global(inst, name_z.ptr, &value, &err_buf, err_buf.len)) {
@@ -557,6 +564,7 @@ pub fn wasm_write_global(inst_res: WasmInstanceResource, name: []const u8, value
     defer std.heap.c_allocator.free(name_z);
 
     var err_buf: [256]u8 = undefined;
+    // SAFETY: WAMR initializes `current` on successful global reads before it is inspected.
     var current: wamr.wasm_val_t = undefined;
 
     if (!wamr.wamr_bridge_read_global(inst, name_z.ptr, &current, &err_buf, err_buf.len)) {

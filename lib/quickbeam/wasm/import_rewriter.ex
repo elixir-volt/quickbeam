@@ -81,30 +81,9 @@ defmodule QuickBEAM.WASM.ImportRewriter do
   defp validate_import_value(%{"kind" => "memory", "min" => min, "max" => max}, provided) do
     bytes = Map.get(provided, "bytes", <<>>)
 
-    cond do
-      not is_binary(bytes) ->
-        {:error, "memory import bytes must be a binary"}
-
-      rem(byte_size(bytes), 65_536) != 0 ->
-        {:error, "memory import size must be page-aligned"}
-
-      true ->
-        actual_min = div(byte_size(bytes), 65_536)
-        actual_max = Map.get(provided, "max")
-
-        cond do
-          actual_min < min ->
-            {:error, "memory import minimum too small"}
-
-          max != nil and actual_min > max ->
-            {:error, "memory import current size exceeds declared maximum"}
-
-          max != nil and (is_nil(actual_max) or actual_max > max) ->
-            {:error, "memory import maximum too large"}
-
-          true ->
-            :ok
-        end
+    case validate_memory_bytes(bytes) do
+      :ok -> validate_memory_limits(min, max, bytes, Map.get(provided, "max"))
+      error -> error
     end
   end
 
@@ -117,6 +96,32 @@ defmodule QuickBEAM.WASM.ImportRewriter do
 
   defp validate_import_value(%{"kind" => "global"}, _provided),
     do: {:error, "global import type mismatch"}
+
+  defp validate_memory_bytes(bytes) when not is_binary(bytes),
+    do: {:error, "memory import bytes must be a binary"}
+
+  defp validate_memory_bytes(bytes) when rem(byte_size(bytes), 65_536) != 0,
+    do: {:error, "memory import size must be page-aligned"}
+
+  defp validate_memory_bytes(_bytes), do: :ok
+
+  defp validate_memory_limits(min, max, bytes, actual_max) do
+    actual_min = div(byte_size(bytes), 65_536)
+
+    cond do
+      actual_min < min ->
+        {:error, "memory import minimum too small"}
+
+      max != nil and actual_min > max ->
+        {:error, "memory import current size exceeds declared maximum"}
+
+      max != nil and (is_nil(actual_max) or actual_max > max) ->
+        {:error, "memory import maximum too large"}
+
+      true ->
+        :ok
+    end
+  end
 
   defp validate_global_value("i32", value) when is_integer(value), do: :ok
   defp validate_global_value("i64", value) when is_integer(value) or is_binary(value), do: :ok

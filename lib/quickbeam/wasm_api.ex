@@ -242,10 +242,7 @@ defmodule QuickBEAM.WasmAPI do
   defp initialize_imported_memories(_inst_ref, []), do: :ok
 
   defp initialize_imported_memories(inst_ref, [bytes]) do
-    case QuickBEAM.Native.wasm_write_memory(inst_ref, 0, bytes) do
-      :ok -> :ok
-      {:error, msg} -> {:error, msg}
-    end
+    QuickBEAM.Native.wasm_write_memory(inst_ref, 0, bytes)
   end
 
   defp initialize_imported_memories(_inst_ref, _many),

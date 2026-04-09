@@ -1,7 +1,7 @@
 defmodule QuickBEAM.WASM.Parser do
   @moduledoc false
 
-  alias QuickBEAM.WASM.{Module, Function}
+  alias QuickBEAM.WASM.{Function, Module}
 
   @wasm_magic <<0x00, 0x61, 0x73, 0x6D>>
   @wasm_version_1 <<0x01, 0x00, 0x00, 0x00>>

@@ -51,9 +51,11 @@ defmodule QuickBEAM.WASM do
       {:ok, pid} = QuickBEAM.WASM.start(module: wasm_bytes)
       {:ok, 42} = QuickBEAM.WASM.call(pid, "add", [40, 2])
   """
+  alias QuickBEAM.WASM.Server
+
   @spec start(keyword()) :: GenServer.on_start()
   def start(opts) do
-    QuickBEAM.WASM.Server.start_link(opts)
+    Server.start_link(opts)
   end
 
   @doc """
@@ -64,7 +66,7 @@ defmodule QuickBEAM.WASM do
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
-    QuickBEAM.WASM.Server.start_link(opts)
+    Server.start_link(opts)
   end
 
   @doc """
