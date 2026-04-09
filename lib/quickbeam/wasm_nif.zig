@@ -2,6 +2,11 @@ const std = @import("std");
 const beam = @import("beam");
 const e = @import("erl_nif");
 const types = @import("types.zig");
+const beam_helpers = @import("beam_helpers.zig");
+const alloc_binary = beam_helpers.alloc_binary;
+const get_list_cell = beam_helpers.get_list_cell;
+const inspect_binary = beam_helpers.inspect_binary;
+const map_value = beam_helpers.map_value;
 const wasm_host_imports = @import("wasm_host_imports.zig");
 const wasm_common = @import("wasm_common.zig");
 
@@ -28,9 +33,7 @@ const HostImportSpec = wasm_host_imports.ImportSpec;
 
 fn get_map_binary(env: *e.ErlNifEnv, map: e.ErlNifTerm, key: [:0]const u8) ![]const u8 {
     const key_term = beam.make_into_atom(key, .{ .env = env });
-    // SAFETY: `enif_get_map_value` initializes `value_term` before it is read.
-    var value_term: e.ErlNifTerm = undefined;
-    if (e.enif_get_map_value(env, map, key_term.v, &value_term) == 0) return error.BadArg;
+    const value_term = map_value(env, map, key_term.v) orelse return error.BadArg;
     return beam.get([]const u8, .{ .v = value_term }, .{ .env = env });
 }
 
@@ -44,20 +47,16 @@ fn parse_host_imports(env: *e.ErlNifEnv, imports: beam.term) ![]HostImportSpec {
     var list = imports.v;
     var index: usize = 0;
     while (index < result.len) : (index += 1) {
-        // SAFETY: `enif_get_list_cell` initializes `head` and `tail` on success before use.
-        var head: e.ErlNifTerm = undefined;
-        // SAFETY: `enif_get_list_cell` initializes `head` and `tail` on success before use.
-        var tail: e.ErlNifTerm = undefined;
-        if (e.enif_get_list_cell(env, list, &head, &tail) == 0) return error.BadArg;
+        const cell = get_list_cell(env, list) orelse return error.BadArg;
 
         result[index] = .{
-            .module_name = try get_map_binary(env, head, "module_name"),
-            .symbol = try get_map_binary(env, head, "symbol"),
-            .signature = try get_map_binary(env, head, "signature"),
-            .callback_name = try get_map_binary(env, head, "callback_name"),
+            .module_name = try get_map_binary(env, cell.head, "module_name"),
+            .symbol = try get_map_binary(env, cell.head, "symbol"),
+            .signature = try get_map_binary(env, cell.head, "signature"),
+            .callback_name = try get_map_binary(env, cell.head, "callback_name"),
         };
 
-        list = tail;
+        list = cell.tail;
     }
 
     return result;
@@ -70,10 +69,10 @@ fn next_host_call_id() u64 {
 }
 
 fn extract_error_message(env: *e.ErlNifEnv, term: e.ErlNifTerm, fallback: []const u8) []const u8 {
-    // SAFETY: `enif_inspect_binary` initializes `bin` on success before it is read.
-    var bin: e.ErlNifBinary = undefined;
-    if (e.enif_inspect_binary(env, term, &bin) != 0 and bin.size > 0) {
-        return bin.data[0..bin.size];
+    if (inspect_binary(env, term)) |bin| {
+        if (bin.size > 0) {
+            return bin.data[0..bin.size];
+        }
     }
     return fallback;
 }
@@ -260,10 +259,8 @@ fn parse_f64_term(env: *e.ErlNifEnv, term: beam.term) !f64 {
 }
 
 fn term_to_wasm_val(env: *e.ErlNifEnv, term: beam.term, kind: wamr.wasm_valkind_t) !wamr.wasm_val_t {
-    // SAFETY: `value` is fully populated in the kind-specific branch before it is returned.
-    var value: wamr.wasm_val_t = undefined;
+    var value = std.mem.zeroes(wamr.wasm_val_t);
     value.kind = kind;
-    value._paddings = [_]u8{0} ** 7;
 
     switch (kind) {
         wamr.WASM_I32 => {
@@ -514,9 +511,7 @@ pub fn wasm_memory_grow(inst_res: WasmInstanceResource, delta: u32) beam.term {
 
 pub fn wasm_read_memory(inst_res: WasmInstanceResource, offset: u32, length: u32) beam.term {
     const env = beam.context.env orelse return make_error("no env");
-    // SAFETY: `enif_alloc_binary` initializes `bin` on success before it is passed on.
-    var bin: e.ErlNifBinary = undefined;
-    if (e.enif_alloc_binary(length, &bin) == 0) return make_error("out of memory");
+    var bin = alloc_binary(length) orelse return make_error("out of memory");
 
     const managed = inst_res.unpack() orelse return make_error("instance stopped");
     if (!wamr.wamr_bridge_read_memory(managed.inst, offset, bin.data, length)) {
@@ -544,8 +539,7 @@ pub fn wasm_read_global(inst_res: WasmInstanceResource, name: []const u8) beam.t
     defer std.heap.c_allocator.free(name_z);
 
     var err_buf: [256]u8 = undefined;
-    // SAFETY: WAMR initializes `value` on successful global reads before it is used.
-    var value: wamr.wasm_val_t = undefined;
+    var value = std.mem.zeroes(wamr.wasm_val_t);
 
     if (!wamr.wamr_bridge_read_global(inst, name_z.ptr, &value, &err_buf, err_buf.len)) {
         const err_msg = std.mem.sliceTo(&err_buf, 0);
@@ -564,8 +558,7 @@ pub fn wasm_write_global(inst_res: WasmInstanceResource, name: []const u8, value
     defer std.heap.c_allocator.free(name_z);
 
     var err_buf: [256]u8 = undefined;
-    // SAFETY: WAMR initializes `current` on successful global reads before it is inspected.
-    var current: wamr.wasm_val_t = undefined;
+    var current = std.mem.zeroes(wamr.wasm_val_t);
 
     if (!wamr.wamr_bridge_read_global(inst, name_z.ptr, &current, &err_buf, err_buf.len)) {
         const err_msg = std.mem.sliceTo(&err_buf, 0);

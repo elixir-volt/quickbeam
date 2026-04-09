@@ -237,10 +237,8 @@ fn instruction_limit(ctx: *qjs.JSContext, state: *ContextState) c_int {
 }
 
 fn js_value_to_wasm(ctx: *qjs.JSContext, value: qjs.JSValue, kind: wamr.wasm_valkind_t) !wamr.wasm_val_t {
-    // SAFETY: `result` is fully assigned in the kind-specific branch before it is returned.
-    var result: wamr.wasm_val_t = undefined;
+    var result = std.mem.zeroes(wamr.wasm_val_t);
     result.kind = kind;
-    result._paddings = [_]u8{0} ** 7;
 
     switch (kind) {
         wamr.WASM_I32 => {
@@ -491,8 +489,7 @@ fn wasm_read_global_impl(
     defer qjs.JS_FreeCString(ctx, name_ptr);
 
     var err_buf: [256]u8 = undefined;
-    // SAFETY: WAMR initializes `value` on successful global reads before it is used.
-    var value: wamr.wasm_val_t = undefined;
+    var value = std.mem.zeroes(wamr.wasm_val_t);
     if (!wamr.wamr_bridge_read_global(entry.managed.inst, name_ptr, &value, &err_buf, err_buf.len)) {
         return throw_error(ctx, std.mem.sliceTo(&err_buf, 0));
     }
@@ -517,8 +514,7 @@ fn wasm_write_global_impl(
     defer qjs.JS_FreeCString(ctx, name_ptr);
 
     var err_buf: [256]u8 = undefined;
-    // SAFETY: WAMR initializes `current` on successful global reads before it is inspected.
-    var current: wamr.wasm_val_t = undefined;
+    var current = std.mem.zeroes(wamr.wasm_val_t);
     if (!wamr.wamr_bridge_read_global(entry.managed.inst, name_ptr, &current, &err_buf, err_buf.len)) {
         return throw_error(ctx, std.mem.sliceTo(&err_buf, 0));
     }
