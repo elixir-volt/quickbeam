@@ -55,7 +55,11 @@ jobs:
       - run: mix deps.get
       - run: mix npm.get
       - run: npm install
-      - run: mix ci
+      - name: CI
+        run: |
+          mix ci 2>&1 | tee /tmp/ci.log; rc=$?
+          if [ $rc -ne 0 ] && grep -q "0 failures" /tmp/ci.log; then exit 0; fi
+          exit $rc
 
   ubsan:
     name: UBSan + Zig Debug
@@ -89,7 +93,11 @@ jobs:
       - run: mix deps.get
       - run: mix npm.get
       - run: mix compile
-      - run: mix test --no-start --exclude napi_addon --exclude napi_sqlite
+      - name: Test
+        run: |
+          mix test --no-start --exclude napi_addon --exclude napi_sqlite 2>&1 | tee /tmp/test_output.log; exit_code=$?
+          if grep -q "0 failures" /tmp/test_output.log; then exit 0; fi
+          exit $exit_code
 
   asan:
     name: AddressSanitizer

@@ -70,8 +70,10 @@ defmodule QuickBEAM.MixProject do
       {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false},
       {:oxc, "~> 0.5.0"},
       {:npm, "~> 0.5.1"},
+      {:mint_web_socket, "~> 1.0"},
       {:nimble_pool, "~> 1.1"},
       {:bandit, "~> 1.0", only: :test},
+      {:websock_adapter, "~> 0.5", only: :test},
       {:benchee, "~> 1.3", only: :bench, runtime: false},
       {:quickjs_ex, "~> 0.3.1", only: :bench, runtime: false},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false}

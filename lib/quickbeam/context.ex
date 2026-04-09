@@ -45,6 +45,7 @@ defmodule QuickBEAM.Context do
     handlers: %{},
     pending: %{},
     workers: %{},
+    websockets: %{},
     next_worker_id: 1
   ]
 
@@ -55,6 +56,7 @@ defmodule QuickBEAM.Context do
           handlers: map(),
           pending: map(),
           workers: map(),
+          websockets: map(),
           next_worker_id: pos_integer()
         }
 
@@ -411,6 +413,28 @@ defmodule QuickBEAM.Context do
       {:context_worker, action} ->
         handle_worker_call(action, args, call_id, state)
 
+      {:with_caller, fun} ->
+        caller = self()
+
+        Task.start(fn ->
+          try do
+            args = if is_list(args), do: args, else: [args]
+            result = fun.(args, caller)
+
+            QuickBEAM.Native.pool_resolve_call_term(resource, context_id, call_id, result)
+          rescue
+            e ->
+              QuickBEAM.Native.pool_reject_call_term(
+                resource,
+                context_id,
+                call_id,
+                Exception.message(e)
+              )
+          end
+        end)
+
+        {:noreply, state}
+
       handler ->
         Task.start(fn ->
           try do
@@ -462,9 +486,24 @@ defmodule QuickBEAM.Context do
     {:noreply, state}
   end
 
+  def handle_info({:websocket_started, socket_id, pid}, state) do
+    handle_websocket_started(socket_id, pid, state)
+  end
+
+  def handle_info({:websocket_event, message}, state) do
+    QuickBEAM.Native.pool_send_message(state.pool_resource, state.context_id, message)
+    {:noreply, state}
+  end
+
   def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
-    {_worker_id, workers} = Map.pop(state.workers, ref)
-    {:noreply, %{state | workers: workers}}
+    case Map.pop(state.workers, ref) do
+      {nil, workers} ->
+        {_, state} = pop_websocket(%{state | workers: workers}, ref)
+        {:noreply, state}
+
+      {_worker_id, workers} ->
+        {:noreply, %{state | workers: workers}}
+    end
   end
 
   def handle_info({ref, result}, state) when is_reference(ref) do
@@ -480,6 +519,8 @@ defmodule QuickBEAM.Context do
     for {_ref, {pid, _id}} <- state.workers do
       Process.exit(pid, :shutdown)
     end
+
+    shutdown_websockets(state)
 
     QuickBEAM.Native.pool_destroy_context(state.pool_resource, state.context_id)
     :ok

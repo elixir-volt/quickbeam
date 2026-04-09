@@ -33,12 +33,16 @@ defmodule QuickBEAM.WebAPIs.WorkerTest do
                  self.onmessage = (e) => {
                    self.postMessage("pong: " + e.data);
                  };
+
+                 self.postMessage("__ready__");
                `);
-               // Give the worker a moment to set up its onmessage handler
-               setTimeout(() => {
-                 w.onmessage = (e) => resolve(e.data);
-                 w.postMessage("ping");
-               }, 50);
+
+               w.onmessage = (e) => {
+                 if (e.data === "__ready__") {
+                   w.onmessage = (reply) => resolve(reply.data);
+                   w.postMessage("ping");
+                 }
+               };
              })
              """)
   end

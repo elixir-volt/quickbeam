@@ -349,7 +349,7 @@ Standard browser APIs backed by BEAM primitives, not JS polyfills:
 | `document`, `querySelector`, `createElement` | lexbor (native C DOM) |
 | `URL`, `URLSearchParams` | `:uri_string` |
 | `EventSource` (SSE) | `:httpc` streaming |
-| `WebSocket` | `:gun` |
+| `WebSocket` | `Mint.WebSocket` |
 | `Worker` | BEAM process per worker |
 | `BroadcastChannel` | `:pg` (distributed) |
 | `navigator.locks` | GenServer + monitors |

@@ -105,7 +105,7 @@ original BEAM term.
 The runtime loads different polyfill sets based on the `:apis` option:
 
 - **`:browser`** (default) — Web APIs backed by OTP: fetch (`:httpc`),
-  URL (`:uri_string`), crypto.subtle (`:crypto`), WebSocket (`:gun`),
+  URL (`:uri_string`), crypto.subtle (`:crypto`), WebSocket (`Mint.WebSocket`),
   Worker (BEAM processes), BroadcastChannel (`:pg`), localStorage (ETS),
   navigator.locks (GenServer), DOM (lexbor), streams, events, etc.
 

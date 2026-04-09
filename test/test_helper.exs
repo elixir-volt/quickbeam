@@ -22,3 +22,10 @@ unless File.exists?(test_addon_out) and
 end
 
 ExUnit.start()
+
+# Force garbage collection before BEAM exits to prevent NIF finalizer crashes.
+# On OTP 27.0.x, the BEAM shutdown races with QuickJS worker thread cleanup.
+System.at_exit(fn _ ->
+  :erlang.garbage_collect()
+  Process.sleep(200)
+end)
