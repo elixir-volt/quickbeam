@@ -762,8 +762,14 @@ defmodule QuickBEAM.Runtime do
 
   @impl true
   def terminate(_reason, %{resource: resource} = state) do
-    for {_ref, {pid, _id}} <- state.websockets do
+    for {ref, {pid, _id}} <- state.websockets do
       Process.exit(pid, :shutdown)
+
+      receive do
+        {:DOWN, ^ref, :process, ^pid, _} -> :ok
+      after
+        5_000 -> :ok
+      end
     end
 
     drain_beam_calls(resource, state.handlers)
