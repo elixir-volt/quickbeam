@@ -591,6 +591,7 @@ pub const WorkerState = struct {
         }
         self.atoms.deinit(self.ctx);
         wasm_js.destroy_context(self.ctx);
+        qjs.JS_RunGC(self.rt);
         qjs.JS_FreeContext(self.ctx);
         self.ctx = qjs.JS_NewContext(self.rt) orelse {
             result.ok = false;
@@ -1202,6 +1203,7 @@ pub fn quickbeam_wasm_host_invoke_js_impl(runtime_data: ?*anyopaque, callback_na
         if (result.env) |result_env| {
             defer beam.free_env(result_env);
             if (result.term) |term| {
+                // SAFETY: `enif_inspect_binary` initializes `bin` on success before it is read.
                 var bin: e.ErlNifBinary = undefined;
                 if (e.enif_inspect_binary(result_env, term, &bin) != 0 and bin.size > 0) {
                     copy_error_buf(err_buf, err_buf_size, bin.data[0..bin.size]);

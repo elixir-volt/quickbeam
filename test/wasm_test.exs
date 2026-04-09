@@ -2,7 +2,7 @@ defmodule QuickBEAM.WASMTest do
   use ExUnit.Case, async: false
 
   alias QuickBEAM.WASM
-  alias QuickBEAM.WASM.{Module, Function}
+  alias QuickBEAM.WASM.{Function, Module}
 
   # Minimal "add" module in WAT:
   #   (module
@@ -643,13 +643,13 @@ defmodule QuickBEAM.WASMTest do
     test "memory_size returns bytes" do
       {:ok, pid} = WASM.start(module: @memory_func_wasm)
       {:ok, size} = WASM.memory_size(pid)
-      assert size == 65536
+      assert size == 65_536
       WASM.stop(pid)
     end
 
     test "read out of bounds returns error" do
       {:ok, pid} = WASM.start(module: @memory_func_wasm)
-      {:error, _} = WASM.read_memory(pid, 65530, 100)
+      {:error, _} = WASM.read_memory(pid, 65_530, 100)
       WASM.stop(pid)
     end
   end
