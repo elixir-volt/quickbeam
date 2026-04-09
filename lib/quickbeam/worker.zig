@@ -3,8 +3,13 @@ const js = @import("js_helpers.zig");
 const globals = @import("globals.zig");
 const js_to_beam = @import("js_to_beam.zig");
 const beam_to_js = @import("beam_to_js.zig");
+const beam_helpers = @import("beam_helpers.zig");
+const alloc_binary = beam_helpers.alloc_binary;
+const inspect_binary = beam_helpers.inspect_binary;
+const get_list_cell = beam_helpers.get_list_cell;
 const beam_proxy = @import("beam_proxy.zig");
 const dom = @import("dom.zig");
+const wasm_js = @import("wasm_js.zig");
 const napi_mod = @import("napi.zig");
 const nt = @import("napi_types.zig");
 pub const atom_cache = @import("atom_cache.zig");
@@ -51,6 +56,7 @@ pub const WorkerState = struct {
     buf: [4096]u8 = @splat(0),
     drain_fn: ?DrainFn = null,
     napi_env: ?*napi_mod.NapiEnv = null,
+    max_reductions: i64 = 0,
 
     pub fn deinit(self: *WorkerState) void {
         var call_it = self.pending_calls.valueIterator();
@@ -79,6 +85,8 @@ pub const WorkerState = struct {
         // Release napi JS refs, then free context, then free napi Zig memory
         if (self.napi_env) |nenv| nenv.releaseValues();
         self.atoms.deinit(self.ctx);
+
+        wasm_js.destroy_context(self.ctx);
 
         // Run GC before freeing context to collect cycles
         qjs.JS_RunGC(self.rt);
@@ -246,13 +254,13 @@ pub const WorkerState = struct {
         var plen: u32 = 0;
         if (qjs.JS_GetOwnPropertyNames(self.ctx, &ptab, &plen, global, qjs.JS_GPN_STRING_MASK) < 0) {
             const renv = e.enif_alloc_env();
-            const empty = e.enif_make_list(renv, 0);
+            const empty = beam.make_empty_list(.{ .env = renv }).v;
             types.send_reply(lg.caller_pid, lg.ref_env, lg.ref_term, true, renv, empty, "");
             return;
         }
 
         const result_env = e.enif_alloc_env();
-        var list = e.enif_make_list(result_env, 0);
+        var list = beam.make_empty_list(.{ .env = result_env }).v;
 
         var i: usize = plen;
         while (i > 0) {
@@ -273,11 +281,10 @@ pub const WorkerState = struct {
             }
 
             if (!skip) {
-                // SAFETY: enif_alloc_binary initializes bin on success before it is read.
-                var bin: e.ErlNifBinary = undefined;
-                if (e.enif_alloc_binary(name_len, &bin) != 0) {
-                    @memcpy(bin.data[0..name_len], name_slice[0..name_len]);
-                    const name_term = e.enif_make_binary(result_env, &bin);
+                if (alloc_binary(name_len)) |bin| {
+                    var owned_bin = bin;
+                    @memcpy(owned_bin.data[0..name_len], name_slice[0..name_len]);
+                    const name_term = e.enif_make_binary(result_env, &owned_bin);
                     list = e.enif_make_list_cell(result_env, name_term, list);
                 }
             }
@@ -430,9 +437,12 @@ pub const WorkerState = struct {
         defer qjs.js_free(self.ctx, buf);
 
         const env = beam.alloc_env();
-        // SAFETY: out-param written by enif_alloc_binary before use
-        var bin: e.ErlNifBinary = undefined;
-        _ = e.enif_alloc_binary(out_len, &bin);
+        var bin = alloc_binary(out_len) orelse {
+            result.ok = false;
+            result.json = "Out of memory";
+            beam.free_env(env);
+            return;
+        };
         @memcpy(bin.data[0..out_len], buf[0..out_len]);
         result.env = env;
         result.term = e.enif_make_tuple2(env, beam.make_into_atom("bytes", .{ .env = env }).v, e.enif_make_binary(env, &bin));
@@ -495,14 +505,10 @@ pub const WorkerState = struct {
         if (args_env) |ae| {
             var current = args_term;
             while (js_argc < js_args_buf.len) {
-                // SAFETY: head_term and tail_term immediately filled by enif_get_list_cell
-                var head_term: e.ErlNifTerm = undefined;
-                // SAFETY: see above
-                var tail_term: e.ErlNifTerm = undefined;
-                if (e.enif_get_list_cell(ae, current, &head_term, &tail_term) == 0) break;
-                js_args_buf[js_argc] = beam_to_js.convert(self.ctx, ae, head_term);
+                const cell = get_list_cell(ae, current) orelse break;
+                js_args_buf[js_argc] = beam_to_js.convert(self.ctx, ae, cell.head);
                 js_argc += 1;
-                current = tail_term;
+                current = cell.tail;
             }
         }
         defer for (js_args_buf[0..js_argc]) |v| qjs.JS_FreeValue(self.ctx, v);
@@ -586,6 +592,8 @@ pub const WorkerState = struct {
             self.napi_env = null;
         }
         self.atoms.deinit(self.ctx);
+        wasm_js.destroy_context(self.ctx);
+        qjs.JS_RunGC(self.rt);
         qjs.JS_FreeContext(self.ctx);
         self.ctx = qjs.JS_NewContext(self.rt) orelse {
             result.ok = false;
@@ -633,6 +641,14 @@ pub const WorkerState = struct {
                     .resolve_call => |rc| self.resolve_pending(rc.id, rc.json),
                     .reject_call => |rc| self.reject_pending(rc.id, rc.json),
                     .resolve_call_term => |rc| self.resolve_pending_term(rc.env, rc.term, rc.id),
+                    .call_fn_sync => |p| {
+                        var nested_result: Result = .{};
+                        self.set_deadline(p.timeout_ns);
+                        self.do_call(p.name, p.args_env, p.args_term, &nested_result);
+                        self.clear_deadline();
+                        self.complete_sync_call(p.id, &nested_result);
+                        gpa.free(p.name);
+                    },
                     .send_message => |sm| self.deliver_message(sm),
                     .define_global => |sg| self.define_global_property(sg),
                     .get_global => |gg| self.get_global_property(gg),
@@ -694,6 +710,22 @@ pub const WorkerState = struct {
         self.set_error_term_from_ctx(self.ctx, result);
     }
 
+    fn complete_sync_call(self: *WorkerState, id: u64, result: *Result) void {
+        self.rd.sync_slots_mutex.lock();
+        const slot = self.rd.sync_slots.get(id);
+        self.rd.sync_slots_mutex.unlock();
+
+        if (slot) |sync_slot| {
+            sync_slot.ok = result.ok;
+            sync_slot.result_json = result.json;
+            sync_slot.result_env = result.env;
+            sync_slot.result_term = if (result.env != null) result.term else null;
+            sync_slot.done.set();
+        } else if (result.env) |term_env| {
+            beam.free_env(term_env);
+        }
+    }
+
     fn set_error_term_from_ctx(self: *WorkerState, ctx: *qjs.JSContext, result: *Result) void {
         const exc = qjs.JS_GetException(ctx);
         defer qjs.JS_FreeValue(ctx, exc);
@@ -733,8 +765,7 @@ pub const WorkerState = struct {
             const RTLD_NOLOAD = 0x00004;
             const dladdr = @extern(*const fn (?*const anyopaque, *DlInfo) callconv(.c) c_int, .{ .name = "dladdr" });
             const dlopen_fn = @extern(*const fn (?[*:0]const u8, c_int) callconv(.c) ?*anyopaque, .{ .name = "dlopen" });
-            // SAFETY: dladdr initializes info on success before it is read.
-            var info: DlInfo = undefined;
+            var info = std.mem.zeroes(DlInfo);
             if (dladdr(@ptrCast(&napi_mod.napi_module_register), &info) != 0) {
                 _ = dlopen_fn(info.dli_fname, RTLD_LAZY | RTLD_GLOBAL | RTLD_NOLOAD);
             }
@@ -857,6 +888,10 @@ pub const WorkerState = struct {
         beam_proxy.initContext(self.ctx);
         self.atoms = atom_cache.AtomCache.init(self.ctx);
         self.dom_data = globals.install_all(self.ctx);
+
+        const global = qjs.JS_GetGlobalObject(self.ctx);
+        defer qjs.JS_FreeValue(self.ctx, global);
+        wasm_js.install(self.ctx, global, self.max_reductions);
     }
 };
 
@@ -896,6 +931,7 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
         .pending_calls = std.AutoHashMap(u64, PendingCall).init(gpa),
         .timers = std.AutoHashMap(u64, TimerEntry).init(gpa),
         .start_time = std.time.nanoTimestamp(),
+        .max_reductions = 0,
     };
     defer state.deinit();
 
@@ -932,6 +968,14 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                     gpa.free(p.name);
                     types.send_reply(p.caller_pid, p.ref_env, p.ref_term, result.ok, result.env, result.term, result.json);
                 },
+                .call_fn_sync => |p| {
+                    var result = Result{};
+                    state.set_deadline(p.timeout_ns);
+                    state.do_call(p.name, p.args_env, p.args_term, &result);
+                    state.clear_deadline();
+                    state.complete_sync_call(p.id, &result);
+                    gpa.free(p.name);
+                },
                 .load_module => |p| {
                     var result = Result{};
                     state.do_load_module(p.name, p.code, &result);
@@ -967,9 +1011,7 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                     types.send_reply(p.caller_pid, p.ref_env, p.ref_term, result.ok, result.env, result.term, result.json);
                 },
                 .memory_usage => |mu| {
-                    // SAFETY: JS_ComputeMemoryUsage fully initializes usage before it is read.
-                    var usage: qjs.JSMemoryUsage = undefined;
-                    qjs.JS_ComputeMemoryUsage(state.rt, &usage);
+                    const usage = js.memory_usage(state.rt);
                     const renv = beam.alloc_env();
                     const result_term = beam.make(.{
                         .malloc_size = usage.malloc_size,
@@ -1052,4 +1094,142 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
     rd.mutex.lock();
     rd.stopped = true;
     rd.mutex.unlock();
+}
+
+fn parse_i64_term(env: *e.ErlNifEnv, term: beam.term) !i64 {
+    var value: i64 = 0;
+    if (e.enif_get_int64(env, term.v, &value) != 0) {
+        return value;
+    }
+
+    const value_str = beam.get([]const u8, term, .{}) catch return error.BadArg;
+    return std.fmt.parseInt(i64, value_str, 10) catch error.BadArg;
+}
+
+fn parse_f64_term(env: *e.ErlNifEnv, term: beam.term) !f64 {
+    var value: f64 = 0;
+    if (e.enif_get_double(env, term.v, &value) != 0) {
+        return value;
+    }
+
+    const int_value = try parse_i64_term(env, term);
+    return @floatFromInt(int_value);
+}
+
+fn build_host_args_term(env: *e.ErlNifEnv, signature: []const u8, raw_args: [*]u64) !e.ErlNifTerm {
+    const close_idx = std.mem.indexOfScalar(u8, signature, ')') orelse return error.BadArg;
+
+    var list = beam.make_empty_list(.{ .env = env }).v;
+    var i = close_idx;
+    while (i > 1) {
+        i -= 1;
+        const sig = signature[i];
+        const raw = raw_args[i - 1];
+        const term = switch (sig) {
+            'i' => beam.make(@as(i32, @bitCast(@as(u32, @truncate(raw)))), .{ .env = env }).v,
+            'I' => blk: {
+                var buf: [32]u8 = undefined;
+                const rendered = std.fmt.bufPrint(&buf, "{d}", .{@as(i64, @bitCast(raw))}) catch return error.BadArg;
+                break :blk beam.make(rendered, .{ .env = env }).v;
+            },
+            'f' => beam.make(@as(f64, @floatCast(@as(f32, @bitCast(@as(u32, @truncate(raw)))))), .{ .env = env }).v,
+            'F' => beam.make(@as(f64, @bitCast(raw)), .{ .env = env }).v,
+            else => return error.UnsupportedType,
+        };
+        list = beam.make_list_cell(beam.term{ .v = term }, beam.term{ .v = list }, .{ .env = env }).v;
+    }
+
+    return list;
+}
+
+fn write_host_result(env: *e.ErlNifEnv, term: e.ErlNifTerm, signature: []const u8, raw_args: [*]u64) !void {
+    const close_idx = std.mem.indexOfScalar(u8, signature, ')') orelse return error.BadArg;
+    if (close_idx + 1 >= signature.len) return;
+
+    switch (signature[close_idx + 1]) {
+        'i' => {
+            const value = try parse_i64_term(env, .{ .v = term });
+            raw_args[0] = @as(u64, @as(u32, @bitCast(@as(i32, @intCast(value)))));
+        },
+        'I' => {
+            const value = try parse_i64_term(env, .{ .v = term });
+            raw_args[0] = @bitCast(value);
+        },
+        'f' => {
+            const value = try parse_f64_term(env, .{ .v = term });
+            raw_args[0] = @as(u64, @as(u32, @bitCast(@as(f32, @floatCast(value)))));
+        },
+        'F' => {
+            const value = try parse_f64_term(env, .{ .v = term });
+            raw_args[0] = @bitCast(value);
+        },
+        else => return error.UnsupportedType,
+    }
+}
+
+fn copy_error_buf(err_buf: [*]u8, err_buf_size: u32, msg: []const u8) void {
+    if (err_buf_size == 0) return;
+    const copy_len = @min(msg.len, err_buf_size - 1);
+    std.mem.copyForwards(u8, err_buf[0..copy_len], msg[0..copy_len]);
+    err_buf[copy_len] = 0;
+}
+
+pub fn quickbeam_wasm_host_invoke_js_impl(runtime_data: ?*anyopaque, callback_name_z: [*:0]const u8, signature_z: [*:0]const u8, raw_args: [*]u64, err_buf: [*]u8, err_buf_size: u32) bool {
+    const ctx_ptr = runtime_data orelse {
+        copy_error_buf(err_buf, err_buf_size, "context not available");
+        return false;
+    };
+
+    const ctx: *qjs.JSContext = @ptrCast(@alignCast(ctx_ptr));
+    const self: *WorkerState = @ptrCast(@alignCast(qjs.JS_GetContextOpaque(ctx)));
+    const callback_name = std.mem.span(callback_name_z);
+    const signature = std.mem.span(signature_z);
+
+    const args_env = beam.alloc_env() orelse {
+        copy_error_buf(err_buf, err_buf_size, "out of memory");
+        return false;
+    };
+    const args_term = build_host_args_term(args_env, signature, raw_args) catch {
+        beam.free_env(args_env);
+        copy_error_buf(err_buf, err_buf_size, "invalid host import args");
+        return false;
+    };
+
+    var result: Result = .{};
+    self.do_call(callback_name, args_env, args_term, &result);
+
+    if (!result.ok) {
+        if (result.env) |result_env| {
+            defer beam.free_env(result_env);
+            if (result.term) |term| {
+                if (inspect_binary(result_env, term)) |bin| {
+                    if (bin.size > 0) {
+                        copy_error_buf(err_buf, err_buf_size, bin.data[0..bin.size]);
+                        return false;
+                    }
+                }
+            }
+        }
+
+        if (result.json.len > 0) {
+            copy_error_buf(err_buf, err_buf_size, result.json);
+        } else {
+            copy_error_buf(err_buf, err_buf_size, "host import callback failed");
+        }
+        return false;
+    }
+
+    if (result.env) |result_env| {
+        defer beam.free_env(result_env);
+        if (result.term) |term| {
+            write_host_result(result_env, term, signature, raw_args) catch {
+                copy_error_buf(err_buf, err_buf_size, "invalid host import return value");
+                return false;
+            };
+            return true;
+        }
+    }
+
+    copy_error_buf(err_buf, err_buf_size, "host import callback returned no result");
+    return false;
 }

@@ -2,6 +2,12 @@ const types = @import("types.zig");
 const js = @import("js_helpers.zig");
 const worker = @import("worker.zig");
 const beam_proxy = @import("beam_proxy.zig");
+const beam_helpers = @import("beam_helpers.zig");
+const inspect_binary = beam_helpers.inspect_binary;
+const term_to_binary = beam_helpers.term_to_binary;
+const get_list_cell = beam_helpers.get_list_cell;
+const map_iterator_create = beam_helpers.map_iterator_create;
+const map_iterator_get_pair = beam_helpers.map_iterator_get_pair;
 const std = types.std;
 const e = types.e;
 const qjs = types.qjs;
@@ -47,9 +53,7 @@ fn convert_recursive(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm
     }
 
     // Binary → string (UTF-8 text)
-    // SAFETY: immediately filled by enif_inspect_binary or enif_alloc_binary
-    var bin: e.ErlNifBinary = undefined;
-    if (e.enif_inspect_binary(env, term, &bin) != 0) {
+    if (inspect_binary(env, term)) |bin| {
         return qjs.JS_NewStringLen(ctx, bin.data, bin.size);
     }
 
@@ -82,17 +86,15 @@ fn convert_recursive(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm
 
     // Tuple
     var tuple_arity: c_int = 0;
-    // SAFETY: immediately filled by enif_get_tuple
-    var tuple_elems: [*c]const e.ErlNifTerm = undefined;
-    if (e.enif_get_tuple(env, term, &tuple_arity, &tuple_elems) != 0) {
+    var tuple_elems: ?[*]const e.ErlNifTerm = null;
+    if (e.enif_get_tuple(env, term, &tuple_arity, @ptrCast(&tuple_elems)) != 0) {
+        const elems = tuple_elems orelse return js.js_null();
         // {:bytes, binary} → Uint8Array
         if (tuple_arity == 2) {
             var tag_buf: [16]u8 = undefined;
-            const tag_len = e.enif_get_atom(env, tuple_elems[0], &tag_buf, tag_buf.len, e.ERL_NIF_LATIN1);
+            const tag_len = e.enif_get_atom(env, elems[0], &tag_buf, tag_buf.len, e.ERL_NIF_LATIN1);
             if (tag_len > 0 and std.mem.eql(u8, tag_buf[0..@intCast(tag_len - 1)], "bytes")) {
-                // SAFETY: immediately filled by enif_inspect_binary
-                var bbin: e.ErlNifBinary = undefined;
-                if (e.enif_inspect_binary(env, tuple_elems[1], &bbin) != 0) {
+                if (inspect_binary(env, elems[1])) |bbin| {
                     return make_uint8array(ctx, bbin.data, bbin.size);
                 }
             }
@@ -100,7 +102,7 @@ fn convert_recursive(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm
         // Generic tuple → Array
         const arr = qjs.JS_NewArray(ctx);
         for (0..@intCast(tuple_arity)) |idx| {
-            const elem = convert_recursive(ctx, env, tuple_elems[idx], depth + 1);
+            const elem = convert_recursive(ctx, env, elems[idx], depth + 1);
             _ = qjs.JS_SetPropertyUint32(ctx, arr, @intCast(idx), elem);
         }
         return arr;
@@ -110,9 +112,7 @@ fn convert_recursive(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm
 }
 
 fn make_beam_term(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm, type_name: [*c]const u8) qjs.JSValue {
-    // SAFETY: immediately filled by enif_term_to_binary
-    var bin: e.ErlNifBinary = undefined;
-    if (e.enif_term_to_binary(env, term, &bin) == 0) return js.js_null();
+    var bin = term_to_binary(env, term) orelse return js.js_null();
     defer e.enif_release_binary(&bin);
 
     const obj = qjs.JS_NewObject(ctx);
@@ -144,55 +144,49 @@ fn convert_list(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm, dep
     var idx: u32 = 0;
 
     while (true) {
-        // SAFETY: head and tail immediately filled by enif_get_list_cell
-        var head: e.ErlNifTerm = undefined;
-        // SAFETY: see above
-        var tail: e.ErlNifTerm = undefined;
-        if (e.enif_get_list_cell(env, current, &head, &tail) == 0) break;
+        const cell = get_list_cell(env, current) orelse break;
 
-        const elem = convert_recursive(ctx, env, head, depth + 1);
+        const elem = convert_recursive(ctx, env, cell.head, depth + 1);
         _ = qjs.JS_SetPropertyUint32(ctx, arr, idx, elem);
         idx += 1;
-        current = tail;
+        current = cell.tail;
     }
 
     return arr;
 }
 
+fn map_iterator_first() e.ErlNifMapIteratorEntry {
+    return switch (@typeInfo(e.ErlNifMapIteratorEntry)) {
+        .@"enum" => @as(e.ErlNifMapIteratorEntry, @enumFromInt(1)),
+        else => std.mem.zeroes(e.ErlNifMapIteratorEntry),
+    };
+}
+
 fn convert_map(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm, depth: u32) qjs.JSValue {
     if (beam_proxy.class_id != 0) {
         var map_size: usize = 0;
-        if (e.enif_get_map_size(env, term, &map_size) != 0 and map_size > 4) {
+        if (e.enif_get_map_size(env, term, &map_size) != 0 and map_size > 0) {
             return beam_proxy.create(ctx, env, term);
         }
     }
 
     const obj = qjs.JS_NewObject(ctx);
 
-    // SAFETY: immediately filled by enif_map_iterator_create
-    var iter: e.ErlNifMapIterator = undefined;
-    if (e.enif_map_iterator_create(env, term, &iter, e.ERL_NIF_MAP_ITERATOR_FIRST) == 0) {
+    var iter = map_iterator_create(env, term, map_iterator_first()) orelse {
         return obj;
-    }
+    };
     defer e.enif_map_iterator_destroy(env, &iter);
 
-    // SAFETY: key and val immediately filled by enif_map_iterator_get_pair
-    var key: e.ErlNifTerm = undefined;
-    // SAFETY: see above
-    var val: e.ErlNifTerm = undefined;
-
-    while (e.enif_map_iterator_get_pair(env, &iter, &key, &val) != 0) {
+    while (map_iterator_get_pair(env, &iter)) |pair| {
         var atom: qjs.JSAtom = qjs.JS_ATOM_NULL;
 
-        // SAFETY: immediately filled by enif_inspect_binary
-        var bin: e.ErlNifBinary = undefined;
-        if (e.enif_inspect_binary(env, key, &bin) != 0) {
+        if (inspect_binary(env, pair.key)) |bin| {
             if (bin.size > 0) {
                 atom = qjs.JS_NewAtomLen(ctx, bin.data, bin.size);
             }
         } else {
             var atom_buf: [256]u8 = undefined;
-            const alen = e.enif_get_atom(env, key, &atom_buf, atom_buf.len, e.ERL_NIF_LATIN1);
+            const alen = e.enif_get_atom(env, pair.key, &atom_buf, atom_buf.len, e.ERL_NIF_LATIN1);
             if (alen > 0) {
                 const name_len: usize = @intCast(alen - 1);
                 atom = qjs.JS_NewAtomLen(ctx, &atom_buf, name_len);
@@ -200,7 +194,7 @@ fn convert_map(ctx: *qjs.JSContext, env: ?*e.ErlNifEnv, term: e.ErlNifTerm, dept
         }
 
         if (atom != qjs.JS_ATOM_NULL) {
-            const js_val = convert_recursive(ctx, env, val, depth + 1);
+            const js_val = convert_recursive(ctx, env, pair.value, depth + 1);
             _ = qjs.JS_SetProperty(ctx, obj, atom, js_val);
             qjs.JS_FreeAtom(ctx, atom);
         }

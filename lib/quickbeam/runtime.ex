@@ -60,6 +60,11 @@ defmodule QuickBEAM.Runtime do
     end
   end
 
+  @spec resource(GenServer.server()) :: reference()
+  def resource(server) do
+    GenServer.call(server, :resource, :infinity)
+  end
+
   @spec eval(GenServer.server(), String.t(), keyword()) :: QuickBEAM.js_result()
   def eval(server, code, opts \\ []) when is_binary(code) do
     timeout_ms = Keyword.get(opts, :timeout, 0)
@@ -177,7 +182,21 @@ defmodule QuickBEAM.Runtime do
     "__eventsource_close" => &QuickBEAM.EventSource.close/1,
     "__ws_connect" => {:with_caller, &QuickBEAM.WebSocket.connect/2},
     "__ws_send" => &QuickBEAM.WebSocket.send_frame/1,
-    "__ws_close" => &QuickBEAM.WebSocket.close/1
+    "__ws_close" => &QuickBEAM.WebSocket.close/1,
+    "__wasm_compile" => &QuickBEAM.WasmAPI.compile/1,
+    "__wasm_validate" => &QuickBEAM.WasmAPI.validate/1,
+    "__wasm_prepare_module" => &QuickBEAM.WasmAPI.prepare/1,
+    "__wasm_start" => {:with_caller, &QuickBEAM.WasmAPI.start/2},
+    "__wasm_call" => &QuickBEAM.WasmAPI.call/1,
+    "__wasm_module_exports" => &QuickBEAM.WasmAPI.module_exports/1,
+    "__wasm_module_imports" => &QuickBEAM.WasmAPI.module_imports/1,
+    "__wasm_module_custom_sections" => &QuickBEAM.WasmAPI.module_custom_sections/1,
+    "__wasm_memory_size" => &QuickBEAM.WasmAPI.memory_size/1,
+    "__wasm_memory_grow" => &QuickBEAM.WasmAPI.memory_grow/1,
+    "__wasm_read_memory" => &QuickBEAM.WasmAPI.read_memory/1,
+    "__wasm_write_memory" => &QuickBEAM.WasmAPI.write_memory/1,
+    "__wasm_read_global" => &QuickBEAM.WasmAPI.read_global/1,
+    "__wasm_write_global" => &QuickBEAM.WasmAPI.write_global/1
   }
 
   @beam_handlers %{
@@ -393,6 +412,11 @@ defmodule QuickBEAM.Runtime do
     after
       30_000 -> {:error, "NIF timeout"}
     end
+  end
+
+  @impl true
+  def handle_call(:resource, _from, state) do
+    {:reply, state.resource, state}
   end
 
   @impl true

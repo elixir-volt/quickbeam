@@ -627,8 +627,7 @@ pub export fn napi_has_own_property(env_: napi_env, object: napi_value, key: nap
     if (atom == 0) return env.invalidArg();
     defer qjs.JS_FreeAtom(env.ctx, atom);
 
-    // SAFETY: JS_GetOwnProperty initializes desc on success before it is read.
-    var desc: qjs.JSPropertyDescriptor = undefined;
+    var desc = std.mem.zeroes(qjs.JSPropertyDescriptor);
     const ret = qjs.JS_GetOwnProperty(env.ctx, &desc, obj, atom);
     if (ret > 0) {
         qjs.JS_FreeValue(env.ctx, desc.value);
