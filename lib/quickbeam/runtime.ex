@@ -5,13 +5,14 @@ defmodule QuickBEAM.Runtime do
   require Logger
 
   @enforce_keys [:resource]
-  defstruct [:resource, handlers: %{}, monitors: %{}, workers: %{}, pending: %{}]
+  defstruct [:resource, handlers: %{}, monitors: %{}, workers: %{}, websockets: %{}, pending: %{}]
 
   @type t :: %__MODULE__{
           resource: reference(),
           handlers: map(),
           monitors: map(),
           workers: map(),
+          websockets: map(),
           pending: map()
         }
 
@@ -173,7 +174,10 @@ defmodule QuickBEAM.Runtime do
     "__storage_key" => &QuickBEAM.Storage.key/1,
     "__storage_length" => &QuickBEAM.Storage.length/1,
     "__eventsource_open" => {:with_caller, &QuickBEAM.EventSource.open/2},
-    "__eventsource_close" => &QuickBEAM.EventSource.close/1
+    "__eventsource_close" => &QuickBEAM.EventSource.close/1,
+    "__ws_connect" => {:with_caller, &QuickBEAM.WebSocket.connect/2},
+    "__ws_send" => &QuickBEAM.WebSocket.send_frame/1,
+    "__ws_close" => &QuickBEAM.WebSocket.close/1
   }
 
   @beam_handlers %{
@@ -656,6 +660,15 @@ defmodule QuickBEAM.Runtime do
     end
   end
 
+  def handle_info({:websocket_started, socket_id, pid}, state) do
+    handle_websocket_started(socket_id, pid, state)
+  end
+
+  def handle_info({:websocket_event, message}, state) do
+    QuickBEAM.Native.send_message(state.resource, message)
+    {:noreply, state}
+  end
+
   def handle_info({:eventsource_open, id}, state) do
     QuickBEAM.Native.send_message(state.resource, ["__eventsource_open", id])
     {:noreply, state}
@@ -691,24 +704,10 @@ defmodule QuickBEAM.Runtime do
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     case find_worker_by_ref(state.workers, ref) do
       {worker_id, _child_pid} ->
-        workers = Map.delete(state.workers, worker_id)
-
-        unless reason == :normal do
-          message = inspect(reason)
-          QuickBEAM.Native.send_message(state.resource, ["__worker_err", worker_id, message])
-        end
-
-        {:noreply, %{state | workers: workers}}
+        handle_worker_down(worker_id, reason, state)
 
       nil ->
-        case Map.pop(state.monitors, ref) do
-          {nil, _} ->
-            {:noreply, state}
-
-          {callback_id, monitors} ->
-            QuickBEAM.Native.send_message(state.resource, ["__qb_down", callback_id, reason])
-            {:noreply, %{state | monitors: monitors}}
-        end
+        handle_non_worker_down(ref, reason, state)
     end
   end
 
@@ -727,8 +726,39 @@ defmodule QuickBEAM.Runtime do
     end)
   end
 
+  defp handle_worker_down(worker_id, reason, state) do
+    workers = Map.delete(state.workers, worker_id)
+
+    unless reason == :normal do
+      message = inspect(reason)
+      QuickBEAM.Native.send_message(state.resource, ["__worker_err", worker_id, message])
+    end
+
+    {:noreply, %{state | workers: workers}}
+  end
+
+  defp handle_non_worker_down(ref, reason, state) do
+    case pop_websocket(state, ref) do
+      {true, state} -> {:noreply, state}
+      {false, state} -> handle_monitored_down(ref, reason, state)
+    end
+  end
+
+  defp handle_monitored_down(ref, reason, state) do
+    case Map.pop(state.monitors, ref) do
+      {nil, _} ->
+        {:noreply, state}
+
+      {callback_id, monitors} ->
+        QuickBEAM.Native.send_message(state.resource, ["__qb_down", callback_id, reason])
+        {:noreply, %{state | monitors: monitors}}
+    end
+  end
+
   @impl true
   def terminate(_reason, %{resource: resource} = state) do
+    shutdown_websockets(state)
+
     drain_beam_calls(resource, state.handlers)
     QuickBEAM.Native.stop_runtime(resource)
     :ok
