@@ -14,11 +14,13 @@ defmodule QuickBEAM.SubtleCrypto do
     "P-521" => :secp521r1
   }
 
+  @spec digest(list()) :: {:bytes, binary()}
   def digest([algo, data]) when is_binary(algo) do
     hash_algo = Map.fetch!(@algo_map, algo)
     {:bytes, :crypto.hash(hash_algo, to_binary(data))}
   end
 
+  @spec generate_key([map()]) :: map()
   def generate_key([algo]) when is_map(algo) do
     case algo do
       %{"name" => "HMAC", "hash" => hash_name} ->
@@ -52,6 +54,7 @@ defmodule QuickBEAM.SubtleCrypto do
     end
   end
 
+  @spec sign(list()) :: {:bytes, binary()}
   def sign([algo, key_data, data]) do
     bytes = to_binary(data)
 
@@ -74,6 +77,7 @@ defmodule QuickBEAM.SubtleCrypto do
     end
   end
 
+  @spec verify(list()) :: boolean()
   def verify([algo, key_data, signature, data]) do
     bytes = to_binary(data)
     sig_bytes = to_binary(signature)
@@ -96,6 +100,7 @@ defmodule QuickBEAM.SubtleCrypto do
     end
   end
 
+  @spec encrypt(list()) :: {:bytes, binary()}
   def encrypt([algo, key_data, data]) do
     bytes = to_binary(data)
 
@@ -131,6 +136,7 @@ defmodule QuickBEAM.SubtleCrypto do
     end
   end
 
+  @spec decrypt(list()) :: {:bytes, binary()}
   def decrypt([algo, key_data, data]) do
     bytes = to_binary(data)
 
@@ -159,6 +165,7 @@ defmodule QuickBEAM.SubtleCrypto do
     end
   end
 
+  @spec derive_bits(list()) :: {:bytes, binary()}
   def derive_bits([algo, key_data, length]) do
     case algo do
       %{"name" => "PBKDF2", "hash" => hash_name, "salt" => salt_list, "iterations" => iterations} ->

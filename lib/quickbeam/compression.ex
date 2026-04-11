@@ -1,6 +1,7 @@
 defmodule QuickBEAM.Compression do
   @moduledoc false
 
+  @spec compress(list()) :: {:bytes, binary()}
   def compress([format, data]) do
     bytes = to_binary(data)
 
@@ -15,6 +16,7 @@ defmodule QuickBEAM.Compression do
     {:bytes, result}
   end
 
+  @spec decompress(list()) :: {:bytes, binary()}
   def decompress([format, data]) do
     bytes = to_binary(data)
 

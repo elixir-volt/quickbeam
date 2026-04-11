@@ -1,18 +1,22 @@
 defmodule QuickBEAM.Buffer do
   @moduledoc false
 
+  @spec encode(list()) :: String.t()
   def encode([{:bytes, binary}, encoding]) when is_binary(binary) do
     do_encode(binary, encoding)
   end
 
+  @spec encode(list()) :: String.t()
   def encode([binary, encoding]) when is_binary(binary) do
     do_encode(binary, encoding)
   end
 
+  @spec decode(list()) :: {:bytes, binary()}
   def decode([string, encoding]) when is_binary(string) do
     {:bytes, do_decode(string, encoding)}
   end
 
+  @spec byte_length(list()) :: non_neg_integer()
   def byte_length([string, encoding]) when is_binary(string) do
     byte_size(do_decode(string, encoding))
   end

@@ -7,6 +7,7 @@ defmodule QuickBEAM.WasmAPI do
 
   @table :quickbeam_wasm_handles
 
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, :ok, Keyword.put_new(opts, :name, __MODULE__))
   end
@@ -30,6 +31,7 @@ defmodule QuickBEAM.WasmAPI do
     {:ok, %{}}
   end
 
+  @spec compile([binary()]) :: map()
   def compile([bytes]) when is_binary(bytes) do
     ensure_started()
 
@@ -45,6 +47,7 @@ defmodule QuickBEAM.WasmAPI do
     end
   end
 
+  @spec validate([binary()]) :: boolean()
   def validate([bytes]) when is_binary(bytes) do
     ensure_started()
 
@@ -58,6 +61,7 @@ defmodule QuickBEAM.WasmAPI do
     end
   end
 
+  @spec prepare(list()) :: map()
   def prepare([bytes, import_payload]) when is_binary(bytes) and is_list(import_payload) do
     ensure_started()
 
@@ -78,6 +82,7 @@ defmodule QuickBEAM.WasmAPI do
     end
   end
 
+  @spec start(list(), pid() | nil) :: map()
   def start([mod_id]) when is_integer(mod_id), do: start([mod_id, []], nil)
 
   def start([mod_id, import_payload], caller)
@@ -110,6 +115,7 @@ defmodule QuickBEAM.WasmAPI do
     end
   end
 
+  @spec call(list()) :: map()
   def call([inst_id, func_name, params])
       when is_integer(inst_id) and is_binary(func_name) and is_list(params) do
     ensure_started()
@@ -128,6 +134,7 @@ defmodule QuickBEAM.WasmAPI do
     end
   end
 
+  @spec module_exports([integer()]) :: [map()]
   def module_exports([mod_id]) when is_integer(mod_id) do
     ensure_started()
 
@@ -137,6 +144,7 @@ defmodule QuickBEAM.WasmAPI do
     end
   end
 
+  @spec module_imports([integer()]) :: [map()]
   def module_imports([mod_id]) when is_integer(mod_id) do
     ensure_started()
 
@@ -146,6 +154,7 @@ defmodule QuickBEAM.WasmAPI do
     end
   end
 
+  @spec memory_size([integer()]) :: map()
   def memory_size([inst_id]) when is_integer(inst_id) do
     ensure_started()
 
@@ -157,6 +166,7 @@ defmodule QuickBEAM.WasmAPI do
     end
   end
 
+  @spec memory_grow(list()) :: map()
   def memory_grow([inst_id, delta])
       when is_integer(inst_id) and is_integer(delta) and delta >= 0 do
     ensure_started()
@@ -169,6 +179,7 @@ defmodule QuickBEAM.WasmAPI do
     end
   end
 
+  @spec read_memory(list()) :: map()
   def read_memory([inst_id, offset, length])
       when is_integer(inst_id) and is_integer(offset) and is_integer(length) and offset >= 0 and
              length >= 0 do
@@ -182,6 +193,7 @@ defmodule QuickBEAM.WasmAPI do
     end
   end
 
+  @spec write_memory(list()) :: map()
   def write_memory([inst_id, offset, data])
       when is_integer(inst_id) and is_integer(offset) and offset >= 0 and is_binary(data) do
     ensure_started()
@@ -194,6 +206,7 @@ defmodule QuickBEAM.WasmAPI do
     end
   end
 
+  @spec read_global(list()) :: map()
   def read_global([inst_id, name]) when is_integer(inst_id) and is_binary(name) do
     ensure_started()
 
@@ -207,6 +220,7 @@ defmodule QuickBEAM.WasmAPI do
     end
   end
 
+  @spec write_global(list()) :: map()
   def write_global([inst_id, name, value]) when is_integer(inst_id) and is_binary(name) do
     ensure_started()
 
@@ -290,6 +304,7 @@ defmodule QuickBEAM.WasmAPI do
     end
   end
 
+  @spec module_custom_sections(list()) :: [{:bytes, binary()}]
   def module_custom_sections([mod_id, section_name])
       when is_integer(mod_id) and is_binary(section_name) do
     ensure_started()

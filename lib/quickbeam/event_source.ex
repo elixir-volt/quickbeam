@@ -1,6 +1,7 @@
 defmodule QuickBEAM.EventSource do
   @moduledoc false
 
+  @spec open(list(), pid()) :: pid()
   def open([url, id], caller_pid) do
     parent = caller_pid
 
@@ -27,6 +28,7 @@ defmodule QuickBEAM.EventSource do
     task_pid
   end
 
+  @spec close([pid()]) :: nil
   def close([task_pid]) do
     Process.exit(task_pid, :normal)
     nil

@@ -14,6 +14,7 @@ defmodule QuickBEAM.WorkerAPI do
   });
   """
 
+  @spec spawn_worker([String.t()], pid()) :: integer()
   def spawn_worker([script], parent_pid) do
     worker_id = System.unique_integer([:positive])
 
@@ -46,11 +47,13 @@ defmodule QuickBEAM.WorkerAPI do
     worker_id
   end
 
+  @spec post_to_child(list(), pid()) :: nil
   def post_to_child([worker_id, data], parent_pid) do
     send(parent_pid, {:worker_post_to_child, worker_id, data})
     nil
   end
 
+  @spec terminate_worker([integer()], pid()) :: nil
   def terminate_worker([worker_id], parent_pid) do
     send(parent_pid, {:worker_terminate, worker_id})
     nil

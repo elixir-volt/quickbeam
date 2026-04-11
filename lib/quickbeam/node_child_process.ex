@@ -3,6 +3,7 @@ defmodule QuickBEAM.NodeChildProcess do
 
   @default_max_buffer 1_048_576
 
+  @spec exec_sync(list()) :: map()
   def exec_sync([command, opts]) when is_binary(command) do
     opts = if is_map(opts), do: opts, else: %{}
     cwd = Map.get(opts, "cwd")
@@ -38,6 +39,7 @@ defmodule QuickBEAM.NodeChildProcess do
     end
   end
 
+  @spec exec_sync([String.t()]) :: map()
   def exec_sync([command]) when is_binary(command) do
     exec_sync([command, %{}])
   end

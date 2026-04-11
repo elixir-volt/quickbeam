@@ -4,31 +4,38 @@ defmodule QuickBEAM.BeamAPI do
 
   @version Mix.Project.config()[:version]
 
+  @spec version([]) :: String.t()
   def version([]) do
     @version
   end
 
+  @spec sleep_sync([number()]) :: nil
   def sleep_sync([ms]) when is_number(ms) do
     Process.sleep(trunc(ms))
     nil
   end
 
+  @spec hash([term()]) :: non_neg_integer()
   def hash([data]) do
     :erlang.phash2(data)
   end
 
+  @spec hash(list()) :: non_neg_integer()
   def hash([data, range]) when is_integer(range) and range > 0 do
     :erlang.phash2(data, range)
   end
 
+  @spec escape_html([String.t()]) :: String.t()
   def escape_html([str]) when is_binary(str) do
     escape_html_binary(str, <<>>)
   end
 
+  @spec which([String.t()]) :: String.t() | nil
   def which([bin]) when is_binary(bin) do
     System.find_executable(bin)
   end
 
+  @spec random_uuid_v7([]) :: String.t()
   def random_uuid_v7([]) do
     {counter, last_ms} = uuid_atomics()
     ms = System.system_time(:millisecond)
@@ -70,6 +77,7 @@ defmodule QuickBEAM.BeamAPI do
     end
   end
 
+  @spec semver_satisfies(list()) :: boolean()
   def semver_satisfies([version, requirement]) do
     case {Version.parse(version), Version.parse_requirement(requirement)} do
       {{:ok, v}, {:ok, r}} -> Version.match?(v, r)
@@ -77,6 +85,7 @@ defmodule QuickBEAM.BeamAPI do
     end
   end
 
+  @spec semver_order(list()) :: -1 | 0 | 1 | nil
   def semver_order([a, b]) do
     case {Version.parse(a), Version.parse(b)} do
       {{:ok, va}, {:ok, vb}} ->
@@ -91,16 +100,19 @@ defmodule QuickBEAM.BeamAPI do
     end
   end
 
+  @spec nodes([]) :: [String.t()]
   def nodes([]) do
     [node() | Node.list()] |> Enum.map(&Atom.to_string/1)
   end
 
+  @spec spawn_runtime([String.t()], pid()) :: pid()
   def spawn_runtime([script], _caller) do
     {:ok, pid} = QuickBEAM.start()
     QuickBEAM.eval(pid, script)
     pid
   end
 
+  @spec rpc(list(), pid()) :: term()
   def rpc([node_name, runtime_name, fn_name | args], _caller) when is_binary(node_name) do
     target = String.to_existing_atom(node_name)
     name = String.to_existing_atom(runtime_name)
@@ -110,6 +122,7 @@ defmodule QuickBEAM.BeamAPI do
     e -> reraise RuntimeError, [message: "RPC failed: #{Exception.message(e)}"], __STACKTRACE__
   end
 
+  @spec register_name([String.t()], pid()) :: boolean()
   def register_name([name], caller) when is_binary(name) do
     atom = String.to_atom(name)
     Process.register(caller, atom)
@@ -118,12 +131,14 @@ defmodule QuickBEAM.BeamAPI do
     _ -> false
   end
 
+  @spec whereis([String.t()]) :: pid() | nil
   def whereis([name]) when is_binary(name) do
     Process.whereis(String.to_existing_atom(name))
   rescue
     ArgumentError -> nil
   end
 
+  @spec link_process([pid()], pid()) :: boolean()
   def link_process([pid], _caller) when is_pid(pid) do
     Process.link(pid)
     true
@@ -131,11 +146,13 @@ defmodule QuickBEAM.BeamAPI do
     _ -> false
   end
 
+  @spec unlink_process([pid()], pid()) :: boolean()
   def unlink_process([pid], _caller) when is_pid(pid) do
     Process.unlink(pid)
     true
   end
 
+  @spec system_info([]) :: map()
   def system_info([]) do
     %{
       schedulers: :erlang.system_info(:schedulers),
@@ -154,22 +171,27 @@ defmodule QuickBEAM.BeamAPI do
   @pbkdf2_salt_length 16
   @pbkdf2_key_length 32
 
+  @spec nanoseconds([]) :: integer()
   def nanoseconds([]) do
     :erlang.monotonic_time(:nanosecond)
   end
 
+  @spec unique_integer([]) :: integer()
   def unique_integer([]) do
     :erlang.unique_integer([:monotonic, :positive])
   end
 
+  @spec make_ref([]) :: reference()
   def make_ref([]) do
     Kernel.make_ref()
   end
 
+  @spec inspect_value([term()]) :: String.t()
   def inspect_value([value]) do
     Kernel.inspect(value, pretty: true, width: 80)
   end
 
+  @spec password_hash(list()) :: String.t()
   def password_hash([password, iterations])
       when is_binary(password) and is_integer(iterations) and iterations > 0 do
     salt = :crypto.strong_rand_bytes(@pbkdf2_salt_length)
@@ -177,6 +199,7 @@ defmodule QuickBEAM.BeamAPI do
     "$pbkdf2-sha256$#{iterations}$#{Base.encode64(salt)}$#{Base.encode64(hash)}"
   end
 
+  @spec password_verify(list()) :: boolean()
   def password_verify([password, hash_string])
       when is_binary(password) and is_binary(hash_string) do
     case String.split(hash_string, "$", trim: true) do
@@ -195,6 +218,7 @@ defmodule QuickBEAM.BeamAPI do
     end
   end
 
+  @spec process_info([], pid()) :: map() | nil
   def process_info([], caller) do
     case Process.info(caller, [
            :memory,

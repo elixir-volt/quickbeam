@@ -11,6 +11,7 @@ defmodule QuickBEAM.URL do
 
   @special_schemes ~w(http https ftp ws wss file)
 
+  @spec parse(term()) :: map()
   def parse(args) do
     [input | rest] = args
     base = List.first(rest)
@@ -26,11 +27,13 @@ defmodule QuickBEAM.URL do
     end
   end
 
+  @spec recompose(term()) :: String.t()
   def recompose(args) do
     [components] = args
     do_recompose(components)
   end
 
+  @spec dissect_query([String.t()]) :: [[String.t()]]
   def dissect_query([qs]) when is_binary(qs) do
     qs
     |> :uri_string.dissect_query()
@@ -40,6 +43,7 @@ defmodule QuickBEAM.URL do
     end)
   end
 
+  @spec compose_query([list()]) :: String.t()
   def compose_query([entries]) when is_list(entries) do
     entries
     |> Enum.map(fn [k, v] -> {k, v} end)

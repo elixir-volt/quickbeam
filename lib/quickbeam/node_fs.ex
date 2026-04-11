@@ -1,6 +1,7 @@
 defmodule QuickBEAM.NodeFS do
   @moduledoc false
 
+  @spec read_file([String.t()]) :: {:bytes, binary()} | nil
   def read_file([path]) when is_binary(path) do
     case File.read(path) do
       {:ok, data} -> {:bytes, data}
@@ -8,6 +9,7 @@ defmodule QuickBEAM.NodeFS do
     end
   end
 
+  @spec write_file(list()) :: boolean()
   def write_file([path, data]) when is_binary(path) do
     case File.write(path, data) do
       :ok -> true
@@ -15,6 +17,7 @@ defmodule QuickBEAM.NodeFS do
     end
   end
 
+  @spec append_file(list()) :: boolean()
   def append_file([path, data]) when is_binary(path) do
     case File.write(path, data, [:append]) do
       :ok -> true
@@ -22,10 +25,12 @@ defmodule QuickBEAM.NodeFS do
     end
   end
 
+  @spec exists([String.t()]) :: boolean()
   def exists([path]) when is_binary(path) do
     File.exists?(path)
   end
 
+  @spec mkdir(list()) :: boolean()
   def mkdir([path, recursive]) when is_binary(path) do
     result = if recursive, do: File.mkdir_p(path), else: File.mkdir(path)
 
@@ -36,6 +41,7 @@ defmodule QuickBEAM.NodeFS do
     end
   end
 
+  @spec readdir([String.t()]) :: [String.t()] | nil
   def readdir([path]) when is_binary(path) do
     case File.ls(path) do
       {:ok, entries} -> Enum.sort(entries)
@@ -43,14 +49,17 @@ defmodule QuickBEAM.NodeFS do
     end
   end
 
+  @spec stat([String.t()]) :: map() | nil
   def stat([path]) when is_binary(path) do
     file_stat(path, false)
   end
 
+  @spec lstat([String.t()]) :: map() | nil
   def lstat([path]) when is_binary(path) do
     file_stat(path, true)
   end
 
+  @spec unlink([String.t()]) :: boolean()
   def unlink([path]) when is_binary(path) do
     case File.rm(path) do
       :ok -> true
@@ -58,6 +67,7 @@ defmodule QuickBEAM.NodeFS do
     end
   end
 
+  @spec rename(list()) :: boolean()
   def rename([old_path, new_path]) when is_binary(old_path) and is_binary(new_path) do
     case File.rename(old_path, new_path) do
       :ok -> true
@@ -65,6 +75,7 @@ defmodule QuickBEAM.NodeFS do
     end
   end
 
+  @spec rm(list()) :: boolean()
   def rm([path, recursive, force]) when is_binary(path) do
     result = if recursive, do: File.rm_rf(path), else: File.rm(path)
 
@@ -77,6 +88,7 @@ defmodule QuickBEAM.NodeFS do
     end
   end
 
+  @spec copy_file(list()) :: boolean()
   def copy_file([src, dest]) when is_binary(src) and is_binary(dest) do
     case File.cp(src, dest) do
       :ok -> true
@@ -84,6 +96,7 @@ defmodule QuickBEAM.NodeFS do
     end
   end
 
+  @spec realpath([String.t()]) :: String.t() | nil
   def realpath([path]) when is_binary(path) do
     expanded = Path.expand(path)
 
