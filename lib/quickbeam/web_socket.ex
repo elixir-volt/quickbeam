@@ -26,9 +26,6 @@ defmodule QuickBEAM.WebSocket do
     close_sent?: false
   ]
 
-  # Handler callbacks receive args as a list from the JS bridge.
-  # :global is used for pid lookup by socket ID string since handlers
-  # don't have access to the owning Runtime/Context pid.
 
   @spec connect(args :: [String.t()], owner :: pid()) :: String.t()
   def connect([url, protocols], owner_pid) do
@@ -42,28 +39,19 @@ defmodule QuickBEAM.WebSocket do
         protocols: List.wrap(protocols)
       })
 
-    :global.register_name({__MODULE__, id}, pid)
     send(owner_pid, {:websocket_started, id, pid})
     id
   end
 
-  @spec send_frame(args :: [term()]) :: nil
-  def send_frame([id, [kind, payload]]) do
-    case :global.whereis_name({__MODULE__, id}) do
-      pid when is_pid(pid) -> GenServer.cast(pid, {:send, kind, payload})
-      _ -> :ok
-    end
-
+  @spec send_frame(args :: [term()], owner :: pid()) :: nil
+  def send_frame([id, [kind, payload]], owner_pid) do
+    send(owner_pid, {:ws_send, id, kind, payload})
     nil
   end
 
-  @spec close(args :: [term()]) :: nil
-  def close([id, code, reason]) do
-    case :global.whereis_name({__MODULE__, id}) do
-      pid when is_pid(pid) -> GenServer.cast(pid, {:close, code, reason})
-      _ -> :ok
-    end
-
+  @spec close(args :: [term()], owner :: pid()) :: nil
+  def close([id, code, reason], owner_pid) do
+    send(owner_pid, {:ws_close, id, code, reason})
     nil
   end
 
@@ -157,8 +145,6 @@ defmodule QuickBEAM.WebSocket do
 
   @impl true
   def terminate(_reason, state) do
-    :global.unregister_name({__MODULE__, state.id})
-
     if state.conn do
       try do
         HTTP.close(state.conn)

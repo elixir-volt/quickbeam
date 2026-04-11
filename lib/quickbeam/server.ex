@@ -32,19 +32,22 @@ defmodule QuickBEAM.Server do
 
       defp handle_websocket_started(socket_id, pid, state) do
         ref = Process.monitor(pid)
-        websockets = Map.put(state.websockets, ref, {pid, socket_id})
+        websockets = Map.put(state.websockets, socket_id, {pid, ref})
         {:noreply, %{state | websockets: websockets}}
       end
 
       defp pop_websocket(state, ref) do
-        case Map.pop(state.websockets, ref) do
-          {{_pid, _socket_id}, websockets} -> {true, %{state | websockets: websockets}}
-          {nil, _} -> {false, state}
+        case Enum.find(state.websockets, fn {_socket_id, {_pid, monitor_ref}} -> monitor_ref == ref end) do
+          {socket_id, {_pid, _monitor_ref}} ->
+            {true, %{state | websockets: Map.delete(state.websockets, socket_id)}}
+
+          nil ->
+            {false, state}
         end
       end
 
       defp shutdown_websockets(state) do
-        for {ref, {pid, _id}} <- state.websockets do
+        for {_socket_id, {pid, ref}} <- state.websockets do
           Process.exit(pid, :shutdown)
 
           receive do

@@ -182,8 +182,8 @@ defmodule QuickBEAM.Runtime do
     "__eventsource_open" => {:with_caller, &QuickBEAM.EventSource.open/2},
     "__eventsource_close" => &QuickBEAM.EventSource.close/1,
     "__ws_connect" => {:with_caller, &QuickBEAM.WebSocket.connect/2},
-    "__ws_send" => &QuickBEAM.WebSocket.send_frame/1,
-    "__ws_close" => &QuickBEAM.WebSocket.close/1,
+    "__ws_send" => {:with_caller, &QuickBEAM.WebSocket.send_frame/2},
+    "__ws_close" => {:with_caller, &QuickBEAM.WebSocket.close/2},
     "__wasm_compile" => &QuickBEAM.WasmAPI.compile/1,
     "__wasm_validate" => &QuickBEAM.WasmAPI.validate/1,
     "__wasm_prepare_module" => &QuickBEAM.WasmAPI.prepare/1,
@@ -687,6 +687,24 @@ defmodule QuickBEAM.Runtime do
 
   def handle_info({:websocket_started, socket_id, pid}, state) do
     handle_websocket_started(socket_id, pid, state)
+  end
+
+  def handle_info({:ws_send, socket_id, kind, payload}, state) do
+    case Map.get(state.websockets, socket_id) do
+      {pid, _ref} -> GenServer.cast(pid, {:send, kind, payload})
+      nil -> :ok
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_info({:ws_close, socket_id, code, reason}, state) do
+    case Map.get(state.websockets, socket_id) do
+      {pid, _ref} -> GenServer.cast(pid, {:close, code, reason})
+      nil -> :ok
+    end
+
+    {:noreply, state}
   end
 
   def handle_info({:websocket_event, message}, state) do
