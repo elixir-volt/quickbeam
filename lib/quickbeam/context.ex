@@ -311,87 +311,24 @@ defmodule QuickBEAM.Context do
     end
   end
 
-  @impl true
-  def handle_call({:eval, code, timeout_ms}, from, state) do
-    ref = QuickBEAM.Native.pool_eval(state.pool_resource, state.context_id, code, timeout_ms)
-
-    transform = fn
-      {:ok, value} -> {:ok, value}
-      {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
-    end
-
-    {:noreply, put_pending(state, ref, from, transform)}
-  end
-
-  def handle_call({:call, fn_name, args, timeout_ms}, from, state) do
-    ref =
-      QuickBEAM.Native.pool_call_function(
-        state.pool_resource,
-        state.context_id,
-        fn_name,
-        args,
-        timeout_ms
-      )
-
-    transform = fn
-      {:ok, value} -> {:ok, value}
-      {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
-    end
-
-    {:noreply, put_pending(state, ref, from, transform)}
-  end
-
-  def handle_call({:dom_find, selector}, from, state) do
-    ref = QuickBEAM.Native.pool_dom_find(state.pool_resource, state.context_id, selector)
-    {:noreply, put_pending(state, ref, from, nil)}
-  end
-
-  def handle_call({:dom_find_all, selector}, from, state) do
-    ref = QuickBEAM.Native.pool_dom_find_all(state.pool_resource, state.context_id, selector)
-    {:noreply, put_pending(state, ref, from, nil)}
-  end
-
-  def handle_call({:dom_text, selector}, from, state) do
-    ref = QuickBEAM.Native.pool_dom_text(state.pool_resource, state.context_id, selector)
-    {:noreply, put_pending(state, ref, from, nil)}
-  end
-
-  def handle_call(:dom_html, from, state) do
-    ref = QuickBEAM.Native.pool_dom_html(state.pool_resource, state.context_id)
-    {:noreply, put_pending(state, ref, from, nil)}
-  end
-
   def handle_call(:memory_usage, from, state) do
     ref = QuickBEAM.Native.pool_memory_usage(state.pool_resource, state.context_id)
-    {:noreply, put_pending(state, ref, from, nil)}
+    {:noreply, put_pending(state, ref, from)}
   end
 
-  def handle_call(:reset, from, state) do
-    ref = QuickBEAM.Native.pool_reset_context(state.pool_resource, state.context_id)
+  # ── NIF dispatch callbacks ──
 
-    transform = fn
-      {:ok, _} -> :ok
-      {:error, msg} -> {:error, msg}
-    end
-
-    {:noreply, put_pending(state, ref, from, transform)}
-  end
-
-  def handle_call({:get_global, name}, from, state) do
-    ref = QuickBEAM.Native.pool_get_global(state.pool_resource, state.context_id, name)
-    {:noreply, put_pending(state, ref, from, nil)}
-  end
-
-  def handle_call({:set_global, name, value}, _from, state) do
-    QuickBEAM.Native.pool_define_global(state.pool_resource, state.context_id, name, value)
-    {:reply, :ok, state}
-  end
-
-  @impl true
-  def handle_cast({:send_message, message}, state) do
-    QuickBEAM.Native.pool_send_message(state.pool_resource, state.context_id, message)
-    {:noreply, state}
-  end
+  defp nif_eval(state, code, timeout), do: QuickBEAM.Native.pool_eval(state.pool_resource, state.context_id, code, timeout)
+  defp nif_call(state, fn_name, args, timeout), do: QuickBEAM.Native.pool_call_function(state.pool_resource, state.context_id, fn_name, args, timeout)
+  defp nif_dom_find(state, selector), do: QuickBEAM.Native.pool_dom_find(state.pool_resource, state.context_id, selector)
+  defp nif_dom_find_all(state, selector), do: QuickBEAM.Native.pool_dom_find_all(state.pool_resource, state.context_id, selector)
+  defp nif_dom_text(state, selector), do: QuickBEAM.Native.pool_dom_text(state.pool_resource, state.context_id, selector)
+  defp nif_dom_html(state), do: QuickBEAM.Native.pool_dom_html(state.pool_resource, state.context_id)
+  defp nif_memory_usage(state), do: QuickBEAM.Native.pool_memory_usage(state.pool_resource, state.context_id)
+  defp nif_reset(state), do: QuickBEAM.Native.pool_reset_context(state.pool_resource, state.context_id)
+  defp nif_get_global(state, name), do: QuickBEAM.Native.pool_get_global(state.pool_resource, state.context_id, name)
+  defp nif_set_global(state, name, value), do: QuickBEAM.Native.pool_define_global(state.pool_resource, state.context_id, name, value)
+  defp nif_send_message(state, message), do: QuickBEAM.Native.pool_send_message(state.pool_resource, state.context_id, message)
 
   @impl true
   def handle_info({:beam_call, call_id, handler_name, args}, state) do

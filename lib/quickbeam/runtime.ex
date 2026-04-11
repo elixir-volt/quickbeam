@@ -432,17 +432,6 @@ defmodule QuickBEAM.Runtime do
   end
 
   @impl true
-  def handle_call({:eval, code, timeout_ms}, from, state) do
-    ref = QuickBEAM.Native.eval(state.resource, code, timeout_ms)
-
-    transform = fn
-      {:ok, value} -> {:ok, value}
-      {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
-    end
-
-    {:noreply, put_pending(state, ref, from, transform)}
-  end
-
   def handle_call({:eval_with_vars, code, timeout_ms, vars}, from, state) do
     names = Map.keys(vars)
 
@@ -462,22 +451,6 @@ defmodule QuickBEAM.Runtime do
     end
 
     {:noreply, put_pending(state, ref, from, transform)}
-  end
-
-  def handle_call({:set_global, name, value}, _from, state) do
-    QuickBEAM.Native.define_global(state.resource, name, value)
-    {:reply, :ok, state}
-  end
-
-  def handle_call({:get_global, name}, from, state) do
-    ref = QuickBEAM.Native.get_global(state.resource, name)
-
-    transform = fn
-      {:ok, value} -> {:ok, value}
-      {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
-    end
-
-    {:noreply, %{state | pending: Map.put(state.pending, ref, {from, transform})}}
   end
 
   def handle_call({:list_globals, user_only}, from, state) do
@@ -514,17 +487,6 @@ defmodule QuickBEAM.Runtime do
     {:noreply, put_pending(state, ref, from, transform)}
   end
 
-  def handle_call({:call, fn_name, args, timeout_ms}, from, state) do
-    ref = QuickBEAM.Native.call_function(state.resource, fn_name, args, timeout_ms)
-
-    transform = fn
-      {:ok, value} -> {:ok, value}
-      {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
-    end
-
-    {:noreply, put_pending(state, ref, from, transform)}
-  end
-
   def handle_call({:load_addon, path, global_name}, from, state) do
     ref = QuickBEAM.Native.load_addon(state.resource, path, global_name)
     {:noreply, put_pending(state, ref, from)}
@@ -541,15 +503,9 @@ defmodule QuickBEAM.Runtime do
     {:noreply, put_pending(state, ref, from, transform)}
   end
 
-  def handle_call(:reset, from, state) do
-    ref = QuickBEAM.Native.reset_runtime(state.resource)
-
-    transform = fn
-      {:ok, _} -> :ok
-      {:error, msg} -> {:error, msg}
-    end
-
-    {:noreply, put_pending(state, ref, from, transform)}
+  def handle_call({:dom_attr, selector, attr_name}, from, state) do
+    ref = QuickBEAM.Native.dom_attr(state.resource, selector, attr_name)
+    {:noreply, put_pending(state, ref, from)}
   end
 
   def handle_call(:memory_usage, from, state) do
@@ -562,38 +518,20 @@ defmodule QuickBEAM.Runtime do
      end)}
   end
 
-  def handle_call({:dom_find, selector}, from, state) do
-    ref = QuickBEAM.Native.dom_find(state.resource, selector)
-    {:noreply, put_pending(state, ref, from)}
-  end
+  # ── NIF dispatch callbacks ──
 
-  def handle_call({:dom_find_all, selector}, from, state) do
-    ref = QuickBEAM.Native.dom_find_all(state.resource, selector)
-    {:noreply, put_pending(state, ref, from)}
-  end
+  defp nif_eval(state, code, timeout), do: QuickBEAM.Native.eval(state.resource, code, timeout)
+  defp nif_call(state, fn_name, args, timeout), do: QuickBEAM.Native.call_function(state.resource, fn_name, args, timeout)
+  defp nif_dom_find(state, selector), do: QuickBEAM.Native.dom_find(state.resource, selector)
+  defp nif_dom_find_all(state, selector), do: QuickBEAM.Native.dom_find_all(state.resource, selector)
+  defp nif_dom_text(state, selector), do: QuickBEAM.Native.dom_text(state.resource, selector)
+  defp nif_dom_html(state), do: QuickBEAM.Native.dom_html(state.resource)
+  defp nif_memory_usage(state), do: QuickBEAM.Native.memory_usage(state.resource)
+  defp nif_reset(state), do: QuickBEAM.Native.reset_runtime(state.resource)
+  defp nif_get_global(state, name), do: QuickBEAM.Native.get_global(state.resource, name)
+  defp nif_set_global(state, name, value), do: QuickBEAM.Native.define_global(state.resource, name, value)
+  defp nif_send_message(state, message), do: QuickBEAM.Native.send_message(state.resource, message)
 
-  def handle_call({:dom_text, selector}, from, state) do
-    ref = QuickBEAM.Native.dom_text(state.resource, selector)
-    {:noreply, put_pending(state, ref, from)}
-  end
-
-  def handle_call({:dom_attr, selector, attr_name}, from, state) do
-    ref = QuickBEAM.Native.dom_attr(state.resource, selector, attr_name)
-    {:noreply, put_pending(state, ref, from)}
-  end
-
-  def handle_call(:dom_html, from, state) do
-    ref = QuickBEAM.Native.dom_html(state.resource)
-    {:noreply, put_pending(state, ref, from)}
-  end
-
-  @impl true
-  def handle_cast({:send_message, message}, state) do
-    QuickBEAM.Native.send_message(state.resource, message)
-    {:noreply, state}
-  end
-
-  @impl true
   def handle_info({:console, level, message}, state) do
     Logger.log(console_level(level), message)
     {:noreply, state}
