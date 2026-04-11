@@ -5,13 +5,20 @@ defmodule QuickBEAM.WasmAPI do
 
   alias QuickBEAM.WASM.ImportRewriter
 
-  @table :quickbeam_wasm_handles
+  @type module_handle :: {reference(), binary(), [map()], [map()], list()}
+  @type instance_handle :: {reference(), reference(), [map()], [map()], list()}
+  @type state :: %{
+          next_id: pos_integer(),
+          modules: %{integer() => module_handle()},
+          instances: %{integer() => instance_handle()}
+        }
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, :ok, Keyword.put_new(opts, :name, __MODULE__))
   end
 
+  @doc false
   def ensure_started do
     case Process.whereis(__MODULE__) do
       nil ->
@@ -27,30 +34,17 @@ defmodule QuickBEAM.WasmAPI do
 
   @impl true
   def init(:ok) do
-    :ets.new(@table, [:named_table, :public, :set])
-    {:ok, %{}}
+    {:ok, %{next_id: 1, modules: %{}, instances: %{}}}
   end
 
   @spec compile([binary()]) :: map()
   def compile([bytes]) when is_binary(bytes) do
     ensure_started()
-
-    case QuickBEAM.Native.wasm_compile(bytes) do
-      {:ok, mod_ref} ->
-        id = System.unique_integer([:positive])
-        {exports, imports, custom_sections} = module_metadata(bytes)
-        :ets.insert(@table, {id, :module, mod_ref, bytes, exports, imports, custom_sections})
-        %{"ok" => id}
-
-      {:error, msg} ->
-        %{"error" => msg}
-    end
+    GenServer.call(__MODULE__, {:compile, bytes}, :infinity)
   end
 
   @spec validate([binary()]) :: boolean()
   def validate([bytes]) when is_binary(bytes) do
-    ensure_started()
-
     case QuickBEAM.Native.wasm_compile(bytes) do
       {:ok, mod_ref} ->
         _ = mod_ref
@@ -63,11 +57,7 @@ defmodule QuickBEAM.WasmAPI do
 
   @spec prepare(list()) :: map()
   def prepare([bytes, import_payload]) when is_binary(bytes) and is_list(import_payload) do
-    ensure_started()
-
-    {_exports, imports, _custom_sections} = module_metadata(bytes)
-
-    case ImportRewriter.rewrite(bytes, imports, import_payload) do
+    case prepare_bytes(bytes, import_payload) do
       {:ok, rewritten_bytes, memory_initializers, function_imports} ->
         %{
           "ok" => %{
@@ -88,95 +78,39 @@ defmodule QuickBEAM.WasmAPI do
   def start([mod_id, import_payload], caller)
       when is_integer(mod_id) and is_list(import_payload) do
     ensure_started()
-
-    case :ets.lookup(@table, mod_id) do
-      [{^mod_id, :module, mod_ref, bytes, exports, imports, custom_sections}] ->
-        runtime_resource = runtime_resource(caller)
-
-        with {:ok, compiled_mod_ref, memory_initializers, function_imports} <-
-               prepare_module(mod_ref, bytes, imports, import_payload),
-             {:ok, inst_ref} <-
-               start_instance(compiled_mod_ref, runtime_resource, function_imports),
-             :ok <- initialize_imported_memories(inst_ref, memory_initializers) do
-          id = System.unique_integer([:positive])
-
-          :ets.insert(
-            @table,
-            {id, :instance, inst_ref, compiled_mod_ref, exports, imports, custom_sections}
-          )
-
-          %{"ok" => id}
-        else
-          {:error, msg} -> %{"error" => msg}
-        end
-
-      _ ->
-        %{"error" => "module not found"}
-    end
+    GenServer.call(__MODULE__, {:start, mod_id, import_payload, runtime_resource(caller)}, :infinity)
   end
 
   @spec call(list()) :: map()
   def call([inst_id, func_name, params])
       when is_integer(inst_id) and is_binary(func_name) and is_list(params) do
     ensure_started()
-
-    case :ets.lookup(@table, inst_id) do
-      [{^inst_id, :instance, inst_ref, _mod_ref, exports, _imports, _custom_sections}] ->
-        export = find_export(exports, func_name)
-
-        case QuickBEAM.Native.wasm_call(inst_ref, func_name, params) do
-          {:ok, result} -> %{"ok" => encode_result(result, Map.get(export || %{}, "results", []))}
-          {:error, msg} -> %{"error" => msg}
-        end
-
-      _ ->
-        %{"error" => "instance not found"}
-    end
+    GenServer.call(__MODULE__, {:call, inst_id, func_name, params}, :infinity)
   end
 
   @spec module_exports([integer()]) :: [map()]
   def module_exports([mod_id]) when is_integer(mod_id) do
     ensure_started()
-
-    case :ets.lookup(@table, mod_id) do
-      [{^mod_id, :module, _mod_ref, _bytes, exports, _imports, _custom_sections}] -> exports
-      _ -> []
-    end
+    GenServer.call(__MODULE__, {:module_exports, mod_id}, :infinity)
   end
 
   @spec module_imports([integer()]) :: [map()]
   def module_imports([mod_id]) when is_integer(mod_id) do
     ensure_started()
-
-    case :ets.lookup(@table, mod_id) do
-      [{^mod_id, :module, _mod_ref, _bytes, _exports, imports, _custom_sections}] -> imports
-      _ -> []
-    end
+    GenServer.call(__MODULE__, {:module_imports, mod_id}, :infinity)
   end
 
   @spec memory_size([integer()]) :: map()
   def memory_size([inst_id]) when is_integer(inst_id) do
     ensure_started()
-
-    with {:ok, inst_ref, _exports} <- fetch_instance(inst_id),
-         {:ok, size} <- QuickBEAM.Native.wasm_memory_size(inst_ref) do
-      %{"ok" => size}
-    else
-      {:error, msg} -> %{"error" => msg}
-    end
+    GenServer.call(__MODULE__, {:memory_size, inst_id}, :infinity)
   end
 
   @spec memory_grow(list()) :: map()
   def memory_grow([inst_id, delta])
       when is_integer(inst_id) and is_integer(delta) and delta >= 0 do
     ensure_started()
-
-    with {:ok, inst_ref, _exports} <- fetch_instance(inst_id),
-         {:ok, pages} <- QuickBEAM.Native.wasm_memory_grow(inst_ref, delta) do
-      %{"ok" => pages}
-    else
-      {:error, msg} -> %{"error" => msg}
-    end
+    GenServer.call(__MODULE__, {:memory_grow, inst_id, delta}, :infinity)
   end
 
   @spec read_memory(list()) :: map()
@@ -184,53 +118,227 @@ defmodule QuickBEAM.WasmAPI do
       when is_integer(inst_id) and is_integer(offset) and is_integer(length) and offset >= 0 and
              length >= 0 do
     ensure_started()
-
-    with {:ok, inst_ref, _exports} <- fetch_instance(inst_id),
-         {:ok, bytes} <- QuickBEAM.Native.wasm_read_memory(inst_ref, offset, length) do
-      %{"ok" => {:bytes, bytes}}
-    else
-      {:error, msg} -> %{"error" => msg}
-    end
+    GenServer.call(__MODULE__, {:read_memory, inst_id, offset, length}, :infinity)
   end
 
   @spec write_memory(list()) :: map()
   def write_memory([inst_id, offset, data])
       when is_integer(inst_id) and is_integer(offset) and offset >= 0 and is_binary(data) do
     ensure_started()
-
-    with {:ok, inst_ref, _exports} <- fetch_instance(inst_id),
-         :ok <- QuickBEAM.Native.wasm_write_memory(inst_ref, offset, data) do
-      %{"ok" => true}
-    else
-      {:error, msg} -> %{"error" => msg}
-    end
+    GenServer.call(__MODULE__, {:write_memory, inst_id, offset, data}, :infinity)
   end
 
   @spec read_global(list()) :: map()
   def read_global([inst_id, name]) when is_integer(inst_id) and is_binary(name) do
     ensure_started()
-
-    with {:ok, inst_ref, exports} <- fetch_instance(inst_id),
-         export when not is_nil(export) <- find_global_export(exports, name),
-         {:ok, value} <- QuickBEAM.Native.wasm_read_global(inst_ref, name) do
-      %{"ok" => encode_scalar(value, export["type"])}
-    else
-      nil -> %{"error" => "global not found"}
-      {:error, msg} -> %{"error" => msg}
-    end
+    GenServer.call(__MODULE__, {:read_global, inst_id, name}, :infinity)
   end
 
   @spec write_global(list()) :: map()
   def write_global([inst_id, name, value]) when is_integer(inst_id) and is_binary(name) do
     ensure_started()
+    GenServer.call(__MODULE__, {:write_global, inst_id, name, value}, :infinity)
+  end
 
-    with {:ok, inst_ref, exports} <- fetch_instance(inst_id),
-         export when not is_nil(export) <- find_global_export(exports, name),
-         :ok <- QuickBEAM.Native.wasm_write_global(inst_ref, name, value) do
-      %{"ok" => encode_scalar(value, export["type"])}
-    else
-      nil -> %{"error" => "global not found"}
-      {:error, msg} -> %{"error" => msg}
+  @spec module_custom_sections(list()) :: [{:bytes, binary()}]
+  def module_custom_sections([mod_id, section_name])
+      when is_integer(mod_id) and is_binary(section_name) do
+    ensure_started()
+    GenServer.call(__MODULE__, {:module_custom_sections, mod_id, section_name}, :infinity)
+  end
+
+  @impl true
+  def handle_call({:compile, bytes}, _from, state) do
+    case QuickBEAM.Native.wasm_compile(bytes) do
+      {:ok, mod_ref} ->
+        {exports, imports, custom_sections} = module_metadata(bytes)
+        {id, next_state} = put_module(state, {mod_ref, bytes, exports, imports, custom_sections})
+        {:reply, %{"ok" => id}, next_state}
+
+      {:error, msg} ->
+        {:reply, %{"error" => msg}, state}
+    end
+  end
+
+  def handle_call({:start, mod_id, import_payload, runtime_resource}, _from, state) do
+    case Map.fetch(state.modules, mod_id) do
+      {:ok, {mod_ref, bytes, exports, imports, custom_sections}} ->
+        with {:ok, compiled_mod_ref, memory_initializers, function_imports} <-
+               prepare_module(mod_ref, bytes, imports, import_payload),
+             {:ok, inst_ref} <-
+               start_instance(compiled_mod_ref, runtime_resource, function_imports),
+             :ok <- initialize_imported_memories(inst_ref, memory_initializers) do
+          instance = {inst_ref, compiled_mod_ref, exports, imports, custom_sections}
+          {id, next_state} = put_instance(state, instance)
+          {:reply, %{"ok" => id}, next_state}
+        else
+          {:error, msg} -> {:reply, %{"error" => msg}, state}
+        end
+
+      :error ->
+        {:reply, %{"error" => "module not found"}, state}
+    end
+  end
+
+  def handle_call({:call, inst_id, func_name, params}, _from, state) do
+    case fetch_instance(state, inst_id) do
+      {:ok, inst_ref, exports} ->
+        export = find_export(exports, func_name)
+
+        reply =
+          case QuickBEAM.Native.wasm_call(inst_ref, func_name, params) do
+            {:ok, result} -> %{"ok" => encode_result(result, Map.get(export || %{}, "results", []))}
+            {:error, msg} -> %{"error" => msg}
+          end
+
+        {:reply, reply, state}
+
+      {:error, msg} ->
+        {:reply, %{"error" => msg}, state}
+    end
+  end
+
+  def handle_call({:module_exports, mod_id}, _from, state) do
+    exports =
+      case Map.fetch(state.modules, mod_id) do
+        {:ok, {_mod_ref, _bytes, exports, _imports, _custom_sections}} -> exports
+        :error -> []
+      end
+
+    {:reply, exports, state}
+  end
+
+  def handle_call({:module_imports, mod_id}, _from, state) do
+    imports =
+      case Map.fetch(state.modules, mod_id) do
+        {:ok, {_mod_ref, _bytes, _exports, imports, _custom_sections}} -> imports
+        :error -> []
+      end
+
+    {:reply, imports, state}
+  end
+
+  def handle_call({:memory_size, inst_id}, _from, state) do
+    reply =
+      with {:ok, inst_ref, _exports} <- fetch_instance(state, inst_id),
+           {:ok, size} <- QuickBEAM.Native.wasm_memory_size(inst_ref) do
+        %{"ok" => size}
+      else
+        {:error, msg} -> %{"error" => msg}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:memory_grow, inst_id, delta}, _from, state) do
+    reply =
+      with {:ok, inst_ref, _exports} <- fetch_instance(state, inst_id),
+           {:ok, pages} <- QuickBEAM.Native.wasm_memory_grow(inst_ref, delta) do
+        %{"ok" => pages}
+      else
+        {:error, msg} -> %{"error" => msg}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:read_memory, inst_id, offset, length}, _from, state) do
+    reply =
+      with {:ok, inst_ref, _exports} <- fetch_instance(state, inst_id),
+           {:ok, bytes} <- QuickBEAM.Native.wasm_read_memory(inst_ref, offset, length) do
+        %{"ok" => {:bytes, bytes}}
+      else
+        {:error, msg} -> %{"error" => msg}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:write_memory, inst_id, offset, data}, _from, state) do
+    reply =
+      with {:ok, inst_ref, _exports} <- fetch_instance(state, inst_id),
+           :ok <- QuickBEAM.Native.wasm_write_memory(inst_ref, offset, data) do
+        %{"ok" => true}
+      else
+        {:error, msg} -> %{"error" => msg}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:read_global, inst_id, name}, _from, state) do
+    reply =
+      with {:ok, inst_ref, exports} <- fetch_instance(state, inst_id),
+           export when not is_nil(export) <- find_global_export(exports, name),
+           {:ok, value} <- QuickBEAM.Native.wasm_read_global(inst_ref, name) do
+        %{"ok" => encode_scalar(value, export["type"])}
+      else
+        nil -> %{"error" => "global not found"}
+        {:error, msg} -> %{"error" => msg}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:write_global, inst_id, name, value}, _from, state) do
+    reply =
+      with {:ok, inst_ref, exports} <- fetch_instance(state, inst_id),
+           export when not is_nil(export) <- find_global_export(exports, name),
+           :ok <- QuickBEAM.Native.wasm_write_global(inst_ref, name, value) do
+        %{"ok" => encode_scalar(value, export["type"])}
+      else
+        nil -> %{"error" => "global not found"}
+        {:error, msg} -> %{"error" => msg}
+      end
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:module_custom_sections, mod_id, section_name}, _from, state) do
+    sections =
+      case Map.fetch(state.modules, mod_id) do
+        {:ok, {_mod_ref, _bytes, _exports, _imports, custom_sections}} ->
+          custom_sections
+          |> Enum.filter(&(&1.name == section_name))
+          |> Enum.map(&{:bytes, &1.data})
+
+        :error ->
+          []
+      end
+
+    {:reply, sections, state}
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    Enum.each(state.instances, fn {_id, {inst_ref, _mod_ref, _exports, _imports, _custom_sections}} ->
+      QuickBEAM.Native.wasm_stop(inst_ref)
+    end)
+
+    :ok
+  end
+
+  defp put_module(state, module_handle) do
+    id = state.next_id
+    next_state = %{state | next_id: id + 1, modules: Map.put(state.modules, id, module_handle)}
+    {id, next_state}
+  end
+
+  defp put_instance(state, instance_handle) do
+    id = state.next_id
+    next_state = %{state | next_id: id + 1, instances: Map.put(state.instances, id, instance_handle)}
+    {id, next_state}
+  end
+
+  defp prepare_bytes(bytes, import_payload) do
+    {_exports, imports, _custom_sections} = module_metadata(bytes)
+
+    case ImportRewriter.rewrite(bytes, imports, import_payload) do
+      {:ok, rewritten_bytes, memory_initializers, function_imports} ->
+        {:ok, rewritten_bytes, memory_initializers, function_imports}
+
+      {:error, msg} ->
+        {:error, msg}
     end
   end
 
@@ -294,29 +402,13 @@ defmodule QuickBEAM.WasmAPI do
     end)
   end
 
-  defp fetch_instance(inst_id) do
-    case :ets.lookup(@table, inst_id) do
-      [{^inst_id, :instance, inst_ref, _mod_ref, exports, _imports, _custom_sections}] ->
+  defp fetch_instance(state, inst_id) do
+    case Map.fetch(state.instances, inst_id) do
+      {:ok, {inst_ref, _mod_ref, exports, _imports, _custom_sections}} ->
         {:ok, inst_ref, exports}
 
-      _ ->
+      :error ->
         {:error, "instance not found"}
-    end
-  end
-
-  @spec module_custom_sections(list()) :: [{:bytes, binary()}]
-  def module_custom_sections([mod_id, section_name])
-      when is_integer(mod_id) and is_binary(section_name) do
-    ensure_started()
-
-    case :ets.lookup(@table, mod_id) do
-      [{^mod_id, :module, _mod_ref, _bytes, _exports, _imports, custom_sections}] ->
-        custom_sections
-        |> Enum.filter(&(&1.name == section_name))
-        |> Enum.map(&{:bytes, &1.data})
-
-      _ ->
-        []
     end
   end
 
