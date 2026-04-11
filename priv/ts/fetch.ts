@@ -262,12 +262,15 @@ async function fetchImpl(input: string | Request, init?: RequestInit): Promise<R
     request.headers.set('content-type', bodyContentType)
   }
 
+  const fetchId = Date.now()
+
   const payload = {
     url: request.url,
     method: request.method,
     headers: [...request.headers.entries()] as [string, string][],
     body: resolvedBody,
-    redirect: request.redirect
+    redirect: request.redirect,
+    fetchId
   }
 
   const resultPromise = Beam.call('__fetch', payload) as Promise<FetchResult>
@@ -277,7 +280,10 @@ async function fetchImpl(input: string | Request, init?: RequestInit): Promise<R
       reject(request.signal.reason)
       return
     }
-    request.signal.addEventListener('abort', () => reject(request.signal.reason), { once: true })
+    request.signal.addEventListener('abort', () => {
+      Beam.callSync('__fetch_cancel', fetchId)
+      reject(request.signal.reason)
+    }, { once: true })
   })
 
   const result = await Promise.race([resultPromise, abortPromise])

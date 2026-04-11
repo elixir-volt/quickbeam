@@ -11,10 +11,14 @@ defmodule QuickBEAM.Fetch do
     "OPTIONS" => :options
   }
 
+  @table :quickbeam_fetch_requests
+
   @spec fetch([map()]) :: map()
   def fetch([%{"url" => url, "method" => method, "headers" => headers} = opts]) do
     :ok = ensure_httpc_started()
+    :ok = ensure_table()
 
+    fetch_id = opts["fetchId"] || System.unique_integer([:positive])
     body = opts["body"]
     redirect = opts["redirect"] || "follow"
 
@@ -38,21 +42,56 @@ defmodule QuickBEAM.Fetch do
            atomize_method(method),
            request,
            http_opts,
-           [body_format: :binary],
+           [sync: false, body_format: :binary],
            :quickbeam
          ) do
-      {:ok, {{_, status, reason}, resp_headers, resp_body}} ->
-        %{
-          "status" => status,
-          "statusText" => List.to_string(reason),
-          "headers" => Enum.map(resp_headers, fn {k, v} -> [to_string(k), to_string(v)] end),
-          "body" => {:bytes, IO.iodata_to_binary(resp_body)},
-          "url" => url,
-          "redirected" => false
-        }
+      {:ok, request_id} ->
+        :ets.insert(@table, {fetch_id, request_id})
+
+        result =
+          receive do
+            {:http, {^request_id, {{_, status, reason}, resp_headers, resp_body}}} ->
+              %{
+                "status" => status,
+                "statusText" => List.to_string(reason),
+                "headers" =>
+                  Enum.map(resp_headers, fn {k, v} -> [to_string(k), to_string(v)] end),
+                "body" => {:bytes, IO.iodata_to_binary(resp_body)},
+                "url" => url,
+                "redirected" => false
+              }
+
+            {:http, {^request_id, {:error, reason}}} ->
+              raise "fetch failed: #{inspect(reason)}"
+          after
+            30_000 ->
+              cancel_httpc(request_id)
+              raise "fetch timed out"
+          end
+
+        :ets.delete(@table, fetch_id)
+        result
 
       {:error, reason} ->
         raise "fetch failed: #{inspect(reason)}"
+    end
+  end
+
+  @spec cancel([integer()]) :: nil
+  def cancel([fetch_id]) when is_integer(fetch_id) do
+    case :ets.take(@table, fetch_id) do
+      [{^fetch_id, request_id}] -> cancel_httpc(request_id)
+      [] -> :ok
+    end
+
+    nil
+  end
+
+  defp cancel_httpc(request_id) do
+    try do
+      :httpc.cancel_request(request_id, :quickbeam)
+    catch
+      :error, :badarg -> :ok
     end
   end
 
@@ -88,6 +127,18 @@ defmodule QuickBEAM.Fetch do
         match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
       ]
     ]
+  end
+
+  @doc false
+  def init do
+    ensure_table()
+  end
+
+  defp ensure_table do
+    if :ets.whereis(@table) == :undefined do
+      :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
+    end
+    :ok
   end
 
   defp ensure_httpc_started do

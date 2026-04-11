@@ -12,6 +12,11 @@ defmodule QuickBEAM.WebAPIs.FetchTest do
     send_resp(conn, 200, "Hello!")
   end
 
+  get "/slow" do
+    Process.sleep(10_000)
+    send_resp(conn, 200, "finally!")
+  end
+
   get "/json" do
     conn
     |> put_resp_content_type("application/json")
@@ -274,6 +279,74 @@ defmodule QuickBEAM.WebAPIs.FetchTest do
         """)
 
       assert error.message =~ "fetch failed"
+      QuickBEAM.stop(rt)
+    end
+  end
+
+  describe "abort" do
+    test "pre-aborted signal rejects immediately" do
+      {:ok, rt} = QuickBEAM.start()
+
+      {:error, error} =
+        QuickBEAM.eval(rt, """
+          const controller = new AbortController();
+          controller.abort();
+          await fetch("http://127.0.0.1:1/", { signal: controller.signal })
+        """)
+
+      assert error.name == "AbortError"
+      QuickBEAM.stop(rt)
+    end
+
+    test "AbortSignal.abort() rejects fetch" do
+      {:ok, rt} = QuickBEAM.start()
+
+      {:error, error} =
+        QuickBEAM.eval(rt, """
+          await fetch("http://127.0.0.1:1/", { signal: AbortSignal.abort() })
+        """)
+
+      assert error.name == "AbortError"
+      QuickBEAM.stop(rt)
+    end
+
+    test "abort during in-flight request cancels and rejects", %{base: base} do
+      {:ok, rt} = QuickBEAM.start()
+
+      {:error, error} =
+        QuickBEAM.eval(rt, """
+          const controller = new AbortController();
+          setTimeout(() => controller.abort(), 50);
+          await fetch("#{base}/slow", { signal: controller.signal })
+        """)
+
+      assert error.name == "AbortError"
+      QuickBEAM.stop(rt)
+    end
+
+    test "AbortSignal.timeout() rejects slow request", %{base: base} do
+      {:ok, rt} = QuickBEAM.start()
+
+      {:error, error} =
+        QuickBEAM.eval(rt, """
+          await fetch("#{base}/slow", { signal: AbortSignal.timeout(50) })
+        """)
+
+      assert error.name == "TimeoutError"
+      QuickBEAM.stop(rt)
+    end
+
+    test "fetch succeeds when abort signal is not triggered", %{base: base} do
+      {:ok, rt} = QuickBEAM.start()
+
+      {:ok, result} =
+        QuickBEAM.eval(rt, """
+          const controller = new AbortController();
+          const r = await fetch("#{base}/hello", { signal: controller.signal });
+          ({ status: r.status, body: await r.text() })
+        """)
+
+      assert result == %{"status" => 200, "body" => "Hello!"}
       QuickBEAM.stop(rt)
     end
   end

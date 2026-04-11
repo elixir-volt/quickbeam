@@ -160,6 +160,7 @@ defmodule QuickBEAM.Runtime do
     "__compress" => &QuickBEAM.Compression.compress/1,
     "__decompress" => &QuickBEAM.Compression.decompress/1,
     "__fetch" => &QuickBEAM.Fetch.fetch/1,
+    "__fetch_cancel" => &QuickBEAM.Fetch.cancel/1,
     "__buffer_encode" => &QuickBEAM.Buffer.encode/1,
     "__buffer_decode" => &QuickBEAM.Buffer.decode/1,
     "__buffer_byte_length" => &QuickBEAM.Buffer.byte_length/1,
