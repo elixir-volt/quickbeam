@@ -387,7 +387,7 @@ defmodule QuickBEAM.Runtime do
     if :browser in apis do
       for js <- @browser_js, do: sync_eval(state.resource, js)
     else
-      for js <- QuickBEAM.JS.js_for_apis(apis -- [:beam, :node]),
+      for js <- QuickBEAM.JS.polyfills_for(apis -- [:beam, :node]),
           do: sync_eval(state.resource, js)
     end
 

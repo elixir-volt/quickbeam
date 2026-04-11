@@ -212,7 +212,7 @@ defmodule QuickBEAM.JS do
   defp needs_process, do: @needs_process
 
   @doc false
-  def js_for_apis(apis) do
+  def polyfills_for(apis) do
     if :browser in apis do
       @browser_js
     else

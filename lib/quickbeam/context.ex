@@ -215,7 +215,7 @@ defmodule QuickBEAM.Context do
   end
 
   defp install_builtins(state, apis) do
-    js_sources = QuickBEAM.JS.js_for_apis(apis)
+    js_sources = QuickBEAM.JS.polyfills_for(apis)
 
     for bc <- get_bytecode(apis, js_sources), do: sync_load_bytecode(state, bc)
 
