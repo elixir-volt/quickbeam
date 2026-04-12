@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **JS line coverage** — `QuickBEAM.Cover` integrates with `mix test --cover` to report line-level coverage for all JS/TS code executed through QuickBEAM runtimes. Patches QuickJS to track execution via a per-function hit bitmap with near-zero overhead when disabled. Outputs LCOV and Istanbul JSON. Also works as a sidecar for excoveralls users.
+
 ## 0.9.0
 
 ### Added
