@@ -54,6 +54,9 @@ pub const Message = union(enum) {
     load_addon: AsyncAddonPayload,
     napi_async_complete: NapiAsyncCompletePayload,
     napi_tsfn_call: NapiTsfnCallPayload,
+    enable_coverage: AsyncMemoryPayload,
+    get_coverage: AsyncMemoryPayload,
+    reset_coverage: AsyncMemoryPayload,
     stop,
 };
 

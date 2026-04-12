@@ -1028,6 +1028,25 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                     }, .{ .env = renv });
                     types.send_reply(mu.caller_pid, mu.ref_env, mu.ref_term, true, renv, result_term.v, "");
                 },
+                .enable_coverage => |p| {
+                    qjs.JS_EnableCoverage(state.rt);
+                    types.send_reply(p.caller_pid, p.ref_env, p.ref_term, true, null, 0, "true");
+                },
+                .get_coverage => |p| {
+                    const cov_val = qjs.JS_GetCoverage(state.ctx);
+                    defer qjs.JS_FreeValue(state.ctx, cov_val);
+                    var result = Result{};
+                    if (js.js_is_exception(cov_val)) {
+                        state.set_error_term(&result);
+                    } else {
+                        state.set_ok_term(cov_val, &result);
+                    }
+                    types.send_reply(p.caller_pid, p.ref_env, p.ref_term, result.ok, result.env, result.term, result.json);
+                },
+                .reset_coverage => |p| {
+                    qjs.JS_ResetCoverage(state.rt);
+                    types.send_reply(p.caller_pid, p.ref_env, p.ref_term, true, null, 0, "true");
+                },
                 .napi_async_complete => |p| {
                     const work = p.work;
                     if (work.complete) |complete| {

@@ -341,6 +341,7 @@ struct JSRuntime {
 
     bool can_block; /* true if Atomics.wait can block */
     uint32_t dump_flags : 24;
+    bool coverage_enabled;
 
     /* Shape hash table */
     int shape_hash_bits;
@@ -808,6 +809,10 @@ typedef struct JSFunctionBytecode {
     int pc2line_len;
     uint8_t *pc2line_buf;
     char *source;
+    uint16_t *pc_to_line;
+    int line_base;
+    int line_count;
+    uint8_t *line_coverage;
 } JSFunctionBytecode;
 
 typedef struct JSBoundFunction {
@@ -2190,6 +2195,84 @@ void JS_SetInterruptHandler(JSRuntime *rt, JSInterruptHandler *cb, void *opaque)
 {
     rt->interrupt_handler = cb;
     rt->interrupt_opaque = opaque;
+}
+
+void JS_EnableCoverage(JSRuntime *rt)
+{
+    rt->coverage_enabled = true;
+}
+
+void JS_ResetCoverage(JSRuntime *rt)
+{
+    struct list_head *el;
+    JSGCObjectHeader *gp;
+
+    list_for_each(el, &rt->gc_obj_list) {
+        gp = list_entry(el, JSGCObjectHeader, link);
+        if (gp->gc_obj_type == JS_GC_OBJ_TYPE_FUNCTION_BYTECODE) {
+            JSFunctionBytecode *b = (JSFunctionBytecode *)gp;
+            if (b->line_coverage && b->line_count > 0)
+                memset(b->line_coverage, 0, b->line_count);
+        }
+    }
+}
+
+JSValue JS_GetCoverage(JSContext *ctx)
+{
+    JSRuntime *rt = ctx->rt;
+    JSValue result = JS_NewObject(ctx);
+    if (JS_IsException(result))
+        return result;
+
+    struct list_head *el;
+    JSGCObjectHeader *gp;
+
+    list_for_each(el, &rt->gc_obj_list) {
+        gp = list_entry(el, JSGCObjectHeader, link);
+        if (gp->gc_obj_type != JS_GC_OBJ_TYPE_FUNCTION_BYTECODE)
+            continue;
+        JSFunctionBytecode *b = (JSFunctionBytecode *)gp;
+        if (!b->line_coverage || b->line_count <= 0 || b->filename == JS_ATOM_NULL)
+            continue;
+
+        const char *filename = JS_AtomToCString(ctx, b->filename);
+        if (!filename)
+            continue;
+
+        JSValue file_obj = JS_GetPropertyStr(ctx, result, filename);
+        if (JS_IsUndefined(file_obj)) {
+            file_obj = JS_NewObject(ctx);
+            if (JS_IsException(file_obj)) {
+                JS_FreeCString(ctx, filename);
+                continue;
+            }
+            JS_SetPropertyStr(ctx, result, filename,
+                              JS_DupValue(ctx, file_obj));
+        }
+
+        for (int i = 0; i < b->line_count; i++) {
+            int line = b->line_base + i;
+            JSAtom line_atom = JS_NewAtomUInt32(ctx, line);
+            JSValue existing = JS_GetProperty(ctx, file_obj, line_atom);
+            int prev = 0;
+            if (JS_VALUE_GET_TAG(existing) == JS_TAG_INT)
+                prev = JS_VALUE_GET_INT(existing);
+            JS_FreeValue(ctx, existing);
+            if (b->line_coverage[i])
+                JS_SetProperty(ctx, file_obj, line_atom,
+                               JS_NewInt32(ctx, prev + 1));
+            else if (prev == 0)
+                JS_SetProperty(ctx, file_obj, line_atom,
+                               JS_NewInt32(ctx, 0));
+            else
+                JS_FreeAtom(ctx, line_atom);
+        }
+
+        JS_FreeValue(ctx, file_obj);
+        JS_FreeCString(ctx, filename);
+    }
+
+    return result;
 }
 
 void JS_SetCanBlock(JSRuntime *rt, bool can_block)
@@ -17423,8 +17506,16 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
 #define DUMP_BYTECODE_OR_DONT(pc)
 #endif
 
+#define COVERAGE_HIT(pc) \
+    if (unlikely(b->pc_to_line != NULL)) { \
+        uint32_t _cov_off = (uint32_t)((pc) - b->byte_code_buf); \
+        uint16_t _cov_ln = b->pc_to_line[_cov_off]; \
+        if (_cov_ln != 0xFFFF) \
+            b->line_coverage[_cov_ln] = 1; \
+    }
+
 #if !DIRECT_DISPATCH
-#define SWITCH(pc)      DUMP_BYTECODE_OR_DONT(pc) switch (opcode = *pc++)
+#define SWITCH(pc)      COVERAGE_HIT(pc) DUMP_BYTECODE_OR_DONT(pc) switch (opcode = *pc++)
 #define CASE(op)        case op
 #define DEFAULT         default
 #define BREAK           break
@@ -17435,7 +17526,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
 #include "quickjs-opcode.h"
         [ OP_COUNT ... 255 ] = &&case_default
     };
-#define SWITCH(pc)      DUMP_BYTECODE_OR_DONT(pc) __extension__ ({ goto *dispatch_table[opcode = *pc++]; });
+#define SWITCH(pc)      COVERAGE_HIT(pc) DUMP_BYTECODE_OR_DONT(pc) __extension__ ({ goto *dispatch_table[opcode = *pc++]; });
 #define CASE(op)        case_ ## op
 #define DEFAULT         case_default
 #define BREAK           SWITCH(pc)
@@ -35851,6 +35942,106 @@ static JSValue js_create_function(JSContext *ctx, JSFunctionDef *fd)
     b->source = fd->source;
     b->source_len = fd->source_len;
 
+    b->pc_to_line = NULL;
+    b->line_coverage = NULL;
+    b->line_base = 0;
+    b->line_count = 0;
+
+    if (ctx->rt->coverage_enabled && b->pc2line_buf && b->pc2line_len > 0) {
+        int min_line = b->line_num;
+        int max_line = b->line_num;
+        {
+            const uint8_t *p = b->pc2line_buf;
+            const uint8_t *p_end = p + b->pc2line_len;
+            int cur_line = b->line_num;
+            while (p < p_end) {
+                unsigned int op = *p++;
+                int new_line, v, ret;
+                if (op == 0) {
+                    uint32_t val;
+                    ret = get_leb128(&val, p, p_end);
+                    if (ret < 0) break;
+                    p += ret;
+                    ret = get_sleb128(&v, p, p_end);
+                    if (ret < 0) break;
+                    p += ret;
+                    new_line = cur_line + v;
+                } else {
+                    op -= PC2LINE_OP_FIRST;
+                    new_line = cur_line + (op % PC2LINE_RANGE) + PC2LINE_BASE;
+                }
+                ret = get_sleb128(&v, p, p_end);
+                if (ret < 0) break;
+                p += ret;
+                cur_line = new_line;
+                if (cur_line < min_line) min_line = cur_line;
+                if (cur_line > max_line) max_line = cur_line;
+            }
+        }
+
+        if (max_line >= min_line && max_line - min_line < 100000) {
+            int lc = max_line - min_line + 1;
+            uint16_t *ptl = js_malloc(ctx, sizeof(uint16_t) * b->byte_code_len);
+            uint8_t *lcov = js_mallocz(ctx, lc);
+            if (ptl && lcov) {
+                memset(ptl, 0xFF, sizeof(uint16_t) * b->byte_code_len);
+                b->line_base = min_line;
+                b->line_count = lc;
+                b->pc_to_line = ptl;
+                b->line_coverage = lcov;
+
+                /* Fill pc_to_line for all bytecode offsets */
+                {
+                    const uint8_t *p = b->pc2line_buf;
+                    const uint8_t *p_end = p + b->pc2line_len;
+                    int cur_line = b->line_num;
+                    uint32_t prev_pc = 0;
+                    uint16_t cur_idx = (cur_line >= min_line && cur_line <= max_line)
+                        ? (uint16_t)(cur_line - min_line) : 0xFFFF;
+
+                    while (p < p_end) {
+                        unsigned int op = *p++;
+                        int new_line, v, ret;
+                        uint32_t pc_delta;
+                        if (op == 0) {
+                            uint32_t val;
+                            ret = get_leb128(&val, p, p_end);
+                            if (ret < 0) break;
+                            p += ret;
+                            pc_delta = val;
+                            ret = get_sleb128(&v, p, p_end);
+                            if (ret < 0) break;
+                            p += ret;
+                            new_line = cur_line + v;
+                        } else {
+                            op -= PC2LINE_OP_FIRST;
+                            pc_delta = op / PC2LINE_RANGE;
+                            new_line = cur_line + (op % PC2LINE_RANGE) + PC2LINE_BASE;
+                        }
+                        ret = get_sleb128(&v, p, p_end);
+                        if (ret < 0) break;
+                        p += ret;
+                        uint32_t next_pc = prev_pc + pc_delta;
+                        if (next_pc > (uint32_t)b->byte_code_len)
+                            next_pc = b->byte_code_len;
+                        for (uint32_t j = prev_pc; j < next_pc && j < (uint32_t)b->byte_code_len; j++)
+                            ptl[j] = cur_idx;
+                        prev_pc = next_pc;
+                        cur_line = new_line;
+                        cur_idx = (cur_line >= min_line && cur_line <= max_line)
+                            ? (uint16_t)(cur_line - min_line) : 0xFFFF;
+                    }
+                    /* Fill remaining PCs with last known line */
+                    for (uint32_t j = prev_pc; j < (uint32_t)b->byte_code_len; j++)
+                        ptl[j] = cur_idx;
+                }
+            } else {
+                js_free(ctx, ptl);
+                js_free(ctx, lcov);
+            }
+        }
+    }
+
     if (fd->scopes != fd->def_scope_array)
         js_free(ctx, fd->scopes);
 
@@ -35922,6 +36113,8 @@ static void free_function_bytecode(JSRuntime *rt, JSFunctionBytecode *b)
     JS_FreeAtomRT(rt, b->func_name);
     JS_FreeAtomRT(rt, b->filename);
     js_free_rt(rt, b->pc2line_buf);
+    js_free_rt(rt, b->pc_to_line);
+    js_free_rt(rt, b->line_coverage);
     js_free_rt(rt, b->source);
 
     remove_gc_object(&b->header);

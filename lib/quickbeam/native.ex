@@ -208,6 +208,9 @@ defmodule QuickBEAM.Native do
       wasm_read_memory: 3,
       wasm_write_memory: 3,
       wasm_read_global: 2,
-      wasm_write_global: 3
+      wasm_write_global: 3,
+      enable_coverage: 1,
+      get_coverage: 1,
+      reset_coverage: 1
     ]
 end

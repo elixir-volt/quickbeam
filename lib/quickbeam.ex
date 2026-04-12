@@ -271,6 +271,17 @@ defmodule QuickBEAM do
   end
 
   @doc """
+  Get current JS coverage data for a runtime.
+
+  Returns `{:ok, %{filename => %{line => hit_count}}}`.
+  Coverage must be enabled via `QuickBEAM.Cover`.
+  """
+  @spec coverage(runtime()) :: {:ok, map()} | {:error, term()}
+  def coverage(runtime) do
+    GenServer.call(runtime, :get_coverage, :infinity)
+  end
+
+  @doc """
   Evaluate TypeScript code by transforming it to JavaScript first.
 
   Equivalent to `OXC.transform!/2` followed by `eval/3`, but in a single call.

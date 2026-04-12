@@ -1150,6 +1150,9 @@ JS_EXTERN void JS_SetHostPromiseRejectionTracker(JSRuntime *rt, JSHostPromiseRej
 /* return != 0 if the JS code needs to be interrupted */
 typedef int JSInterruptHandler(JSRuntime *rt, void *opaque);
 JS_EXTERN void JS_SetInterruptHandler(JSRuntime *rt, JSInterruptHandler *cb, void *opaque);
+JS_EXTERN void JS_EnableCoverage(JSRuntime *rt);
+JS_EXTERN JSValue JS_GetCoverage(JSContext *ctx);
+JS_EXTERN void JS_ResetCoverage(JSRuntime *rt);
 /* if can_block is true, Atomics.wait() can be used */
 JS_EXTERN void JS_SetCanBlock(JSRuntime *rt, bool can_block);
 /* set the [IsHTMLDDA] internal slot */

@@ -382,6 +382,57 @@ pub fn memory_usage(resource: RuntimeResource) beam.term {
     return beam.term{ .v = e.enif_make_copy(env, ref_term) };
 }
 
+pub fn enable_coverage(resource: RuntimeResource) beam.term {
+    const data = resource.unpack();
+    const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
+
+    const caller_pid = get_caller_pid(env);
+    const ref_env = beam.alloc_env();
+    const ref_term = e.enif_make_ref(ref_env);
+
+    enqueue(data, .{ .enable_coverage = .{
+        .caller_pid = caller_pid,
+        .ref_env = ref_env,
+        .ref_term = ref_term,
+    } });
+
+    return beam.term{ .v = e.enif_make_copy(env, ref_term) };
+}
+
+pub fn get_coverage(resource: RuntimeResource) beam.term {
+    const data = resource.unpack();
+    const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
+
+    const caller_pid = get_caller_pid(env);
+    const ref_env = beam.alloc_env();
+    const ref_term = e.enif_make_ref(ref_env);
+
+    enqueue(data, .{ .get_coverage = .{
+        .caller_pid = caller_pid,
+        .ref_env = ref_env,
+        .ref_term = ref_term,
+    } });
+
+    return beam.term{ .v = e.enif_make_copy(env, ref_term) };
+}
+
+pub fn reset_coverage(resource: RuntimeResource) beam.term {
+    const data = resource.unpack();
+    const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
+
+    const caller_pid = get_caller_pid(env);
+    const ref_env = beam.alloc_env();
+    const ref_term = e.enif_make_ref(ref_env);
+
+    enqueue(data, .{ .reset_coverage = .{
+        .caller_pid = caller_pid,
+        .ref_env = ref_env,
+        .ref_term = ref_term,
+    } });
+
+    return beam.term{ .v = e.enif_make_copy(env, ref_term) };
+}
+
 pub fn dom_find(resource: RuntimeResource, selector: []const u8) beam.term {
     return dom_op(resource, .find, selector, "");
 }

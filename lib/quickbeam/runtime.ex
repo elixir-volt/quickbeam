@@ -303,6 +303,7 @@ defmodule QuickBEAM.Runtime do
 
     resource = QuickBEAM.Native.start_runtime(self(), nif_opts)
     state = %__MODULE__{resource: resource, handlers: merged_handlers}
+    if QuickBEAM.Cover.enabled?(), do: sync_enable_coverage(resource)
     install_builtins(state, apis)
     install_defines(state, Keyword.get(opts, :define, %{}))
 
@@ -407,12 +408,23 @@ defmodule QuickBEAM.Runtime do
     await_ref(ref)
   end
 
+  defp sync_enable_coverage(resource) do
+    ref = QuickBEAM.Native.enable_coverage(resource)
+    await_ref(ref)
+  end
+
   defp await_ref(ref) do
     receive do
       {^ref, result} -> result
     after
       30_000 -> {:error, "NIF timeout"}
     end
+  end
+
+  @impl true
+  def handle_call(:get_coverage, from, state) do
+    ref = QuickBEAM.Native.get_coverage(state.resource)
+    {:noreply, put_pending(state, ref, from)}
   end
 
   @impl true
@@ -521,16 +533,26 @@ defmodule QuickBEAM.Runtime do
   # ── NIF dispatch callbacks ──
 
   defp nif_eval(state, code, timeout), do: QuickBEAM.Native.eval(state.resource, code, timeout)
-  defp nif_call(state, fn_name, args, timeout), do: QuickBEAM.Native.call_function(state.resource, fn_name, args, timeout)
+
+  defp nif_call(state, fn_name, args, timeout),
+    do: QuickBEAM.Native.call_function(state.resource, fn_name, args, timeout)
+
   defp nif_dom_find(state, selector), do: QuickBEAM.Native.dom_find(state.resource, selector)
-  defp nif_dom_find_all(state, selector), do: QuickBEAM.Native.dom_find_all(state.resource, selector)
+
+  defp nif_dom_find_all(state, selector),
+    do: QuickBEAM.Native.dom_find_all(state.resource, selector)
+
   defp nif_dom_text(state, selector), do: QuickBEAM.Native.dom_text(state.resource, selector)
   defp nif_dom_html(state), do: QuickBEAM.Native.dom_html(state.resource)
   defp nif_memory_usage(state), do: QuickBEAM.Native.memory_usage(state.resource)
   defp nif_reset(state), do: QuickBEAM.Native.reset_runtime(state.resource)
   defp nif_get_global(state, name), do: QuickBEAM.Native.get_global(state.resource, name)
-  defp nif_set_global(state, name, value), do: QuickBEAM.Native.define_global(state.resource, name, value)
-  defp nif_send_message(state, message), do: QuickBEAM.Native.send_message(state.resource, message)
+
+  defp nif_set_global(state, name, value),
+    do: QuickBEAM.Native.define_global(state.resource, name, value)
+
+  defp nif_send_message(state, message),
+    do: QuickBEAM.Native.send_message(state.resource, message)
 
   def handle_info({:console, level, message}, state) do
     Logger.log(console_level(level), message)
@@ -741,6 +763,7 @@ defmodule QuickBEAM.Runtime do
     shutdown_websockets(state)
 
     drain_beam_calls(resource, state.handlers)
+    drain_coverage(resource)
     QuickBEAM.Native.stop_runtime(resource)
     :ok
   end
@@ -754,6 +777,19 @@ defmodule QuickBEAM.Runtime do
         drain_beam_calls(resource, handlers)
     after
       0 -> :ok
+    end
+  end
+
+  defp drain_coverage(resource) do
+    if QuickBEAM.Cover.enabled?() do
+      ref = QuickBEAM.Native.get_coverage(resource)
+
+      receive do
+        {^ref, {:ok, data}} when is_map(data) -> QuickBEAM.Cover.record(data)
+        {^ref, _} -> :ok
+      after
+        5_000 -> :ok
+      end
     end
   end
 
