@@ -223,7 +223,8 @@ defmodule QuickBEAM.Runtime do
     "__beam_nanoseconds" => &QuickBEAM.BeamAPI.nanoseconds/1,
     "__beam_unique_integer" => &QuickBEAM.BeamAPI.unique_integer/1,
     "__beam_make_ref" => &QuickBEAM.BeamAPI.make_ref/1,
-    "__beam_inspect" => &QuickBEAM.BeamAPI.inspect_value/1
+    "__beam_inspect" => &QuickBEAM.BeamAPI.inspect_value/1,
+    "__beam_xml_parse" => &QuickBEAM.BeamAPI.xml_parse/1
   }
 
   @node_handlers %{
@@ -424,7 +425,13 @@ defmodule QuickBEAM.Runtime do
   @impl true
   def handle_call(:get_coverage, from, state) do
     ref = QuickBEAM.Native.get_coverage(state.resource)
-    {:noreply, put_pending(state, ref, from)}
+
+    transform = fn
+      {:ok, json} when is_binary(json) -> {:ok, :json.decode(json)}
+      other -> other
+    end
+
+    {:noreply, put_pending(state, ref, from, transform)}
   end
 
   @impl true
@@ -544,7 +551,6 @@ defmodule QuickBEAM.Runtime do
 
   defp nif_dom_text(state, selector), do: QuickBEAM.Native.dom_text(state.resource, selector)
   defp nif_dom_html(state), do: QuickBEAM.Native.dom_html(state.resource)
-  defp nif_memory_usage(state), do: QuickBEAM.Native.memory_usage(state.resource)
   defp nif_reset(state), do: QuickBEAM.Native.reset_runtime(state.resource)
   defp nif_get_global(state, name), do: QuickBEAM.Native.get_global(state.resource, name)
 
@@ -554,6 +560,7 @@ defmodule QuickBEAM.Runtime do
   defp nif_send_message(state, message),
     do: QuickBEAM.Native.send_message(state.resource, message)
 
+  @impl true
   def handle_info({:console, level, message}, state) do
     Logger.log(console_level(level), message)
     {:noreply, state}
@@ -785,8 +792,11 @@ defmodule QuickBEAM.Runtime do
       ref = QuickBEAM.Native.get_coverage(resource)
 
       receive do
-        {^ref, {:ok, data}} when is_map(data) -> QuickBEAM.Cover.record(data)
-        {^ref, _} -> :ok
+        {^ref, {:ok, json}} when is_binary(json) ->
+          QuickBEAM.Cover.record(:json.decode(json))
+
+        {^ref, _} ->
+          :ok
       after
         5_000 -> :ok
       end

@@ -51,6 +51,8 @@ defmodule QuickBEAM.Cover do
     start()
 
     fn ->
+      if erlang_callback, do: erlang_callback.()
+
       js_opts = Keyword.get(opts, :js, [])
       output = Keyword.get(opts, :output, "cover")
       summary_opts = Keyword.get(opts, :summary, threshold: 90)
@@ -69,8 +71,6 @@ defmodule QuickBEAM.Cover do
 
         print_summary(data, threshold)
       end
-
-      if erlang_callback, do: erlang_callback.()
     end
   end
 

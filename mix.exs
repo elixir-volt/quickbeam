@@ -20,13 +20,14 @@ defmodule QuickBEAM.MixProject do
       source_url: @source_url,
       homepage_url: @source_url,
       package: package(),
-      docs: docs()
+      docs: docs(),
+      test_coverage: [tool: QuickBEAM.Cover],
     ]
   end
 
   def application do
     [
-      extra_applications: [:logger, :inets, :ssl, :public_key],
+      extra_applications: [:logger, :inets, :ssl, :public_key, :xmerl],
       mod: {QuickBEAM.Application, []}
     ]
   end

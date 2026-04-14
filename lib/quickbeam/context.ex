@@ -324,7 +324,6 @@ defmodule QuickBEAM.Context do
   defp nif_dom_find_all(state, selector), do: QuickBEAM.Native.pool_dom_find_all(state.pool_resource, state.context_id, selector)
   defp nif_dom_text(state, selector), do: QuickBEAM.Native.pool_dom_text(state.pool_resource, state.context_id, selector)
   defp nif_dom_html(state), do: QuickBEAM.Native.pool_dom_html(state.pool_resource, state.context_id)
-  defp nif_memory_usage(state), do: QuickBEAM.Native.pool_memory_usage(state.pool_resource, state.context_id)
   defp nif_reset(state), do: QuickBEAM.Native.pool_reset_context(state.pool_resource, state.context_id)
   defp nif_get_global(state, name), do: QuickBEAM.Native.pool_get_global(state.pool_resource, state.context_id, name)
   defp nif_set_global(state, name, value), do: QuickBEAM.Native.pool_define_global(state.pool_resource, state.context_id, name, value)

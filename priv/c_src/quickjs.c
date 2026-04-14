@@ -2217,15 +2217,20 @@ void JS_ResetCoverage(JSRuntime *rt)
     }
 }
 
+static const char *JS_AtomGetStrRT(JSRuntime *rt, char *buf, int buf_size, JSAtom atom);
 JSValue JS_GetCoverage(JSContext *ctx)
 {
     JSRuntime *rt = ctx->rt;
-    JSValue result = JS_NewObject(ctx);
-    if (JS_IsException(result))
-        return result;
-
     struct list_head *el;
     JSGCObjectHeader *gp;
+    DynBuf dbuf;
+
+    /* Collect all coverage entries into a flat array first (no JS alloc) */
+    typedef struct { const char *filename; int line; int hit; } CovEntry;
+    int cap = 256, count = 0;
+    CovEntry *entries = js_malloc_rt(rt, sizeof(CovEntry) * cap);
+    if (!entries)
+        return JS_EXCEPTION;
 
     list_for_each(el, &rt->gc_obj_list) {
         gp = list_entry(el, JSGCObjectHeader, link);
@@ -2235,43 +2240,84 @@ JSValue JS_GetCoverage(JSContext *ctx)
         if (!b->line_coverage || b->line_count <= 0 || b->filename == JS_ATOM_NULL)
             continue;
 
-        const char *filename = JS_AtomToCString(ctx, b->filename);
-        if (!filename)
-            continue;
-
-        JSValue file_obj = JS_GetPropertyStr(ctx, result, filename);
-        if (JS_IsUndefined(file_obj)) {
-            file_obj = JS_NewObject(ctx);
-            if (JS_IsException(file_obj)) {
-                JS_FreeCString(ctx, filename);
-                continue;
-            }
-            JS_SetPropertyStr(ctx, result, filename,
-                              JS_DupValue(ctx, file_obj));
-        }
+        char buf[256];
+        const char *filename = JS_AtomGetStrRT(rt, buf, sizeof(buf), b->filename);
 
         for (int i = 0; i < b->line_count; i++) {
-            int line = b->line_base + i;
-            JSAtom line_atom = JS_NewAtomUInt32(ctx, line);
-            JSValue existing = JS_GetProperty(ctx, file_obj, line_atom);
-            int prev = 0;
-            if (JS_VALUE_GET_TAG(existing) == JS_TAG_INT)
-                prev = JS_VALUE_GET_INT(existing);
-            JS_FreeValue(ctx, existing);
-            if (b->line_coverage[i])
-                JS_SetProperty(ctx, file_obj, line_atom,
-                               JS_NewInt32(ctx, prev + 1));
-            else if (prev == 0)
-                JS_SetProperty(ctx, file_obj, line_atom,
-                               JS_NewInt32(ctx, 0));
-            else
-                JS_FreeAtom(ctx, line_atom);
+            if (count >= cap) {
+                cap *= 2;
+                CovEntry *new_entries = js_realloc_rt(rt, entries, sizeof(CovEntry) * cap);
+                if (!new_entries) {
+                    js_free_rt(rt, entries);
+                    return JS_EXCEPTION;
+                }
+                entries = new_entries;
+            }
+            entries[count].filename = filename;
+            entries[count].line = b->line_base + i;
+            entries[count].hit = b->line_coverage[i] ? 1 : 0;
+            count++;
         }
-
-        JS_FreeValue(ctx, file_obj);
-        JS_FreeCString(ctx, filename);
     }
 
+    /* Build JSON from collected entries — merge duplicates by taking max hit */
+    js_dbuf_init(ctx, &dbuf);
+    dbuf_putc(&dbuf, '{');
+
+    bool first_file = true;
+    for (int i = 0; i < count; i++) {
+        /* Skip if we already processed this filename */
+        bool already_seen = false;
+        for (int j = 0; j < i; j++) {
+            if (strcmp(entries[j].filename, entries[i].filename) == 0) {
+                already_seen = true;
+                break;
+            }
+        }
+        if (already_seen) continue;
+
+        if (!first_file) dbuf_putc(&dbuf, ',');
+        first_file = false;
+        dbuf_printf(&dbuf, "\"%s\":{", entries[i].filename);
+
+        bool first_line = true;
+        for (int j = i; j < count; j++) {
+            if (strcmp(entries[j].filename, entries[i].filename) != 0)
+                continue;
+            /* Check if this line was already emitted for this file */
+            bool line_seen = false;
+            for (int k = i; k < j; k++) {
+                if (strcmp(entries[k].filename, entries[i].filename) == 0 &&
+                    entries[k].line == entries[j].line) {
+                    line_seen = true;
+                    break;
+                }
+            }
+            if (line_seen) continue;
+
+            /* Merge: take max hit across all functions for this file+line */
+            int max_hit = entries[j].hit;
+            for (int k = j + 1; k < count; k++) {
+                if (strcmp(entries[k].filename, entries[i].filename) == 0 &&
+                    entries[k].line == entries[j].line &&
+                    entries[k].hit > max_hit)
+                    max_hit = entries[k].hit;
+            }
+
+            if (!first_line) dbuf_putc(&dbuf, ',');
+            first_line = false;
+            dbuf_printf(&dbuf, "\"%d\":%d", entries[j].line, max_hit);
+        }
+        dbuf_putc(&dbuf, '}');
+    }
+
+    dbuf_putc(&dbuf, '}');
+
+    js_free_rt(rt, entries);
+
+    /* Single JS allocation after loop is done */
+    JSValue result = JS_NewStringLen(ctx, (const char *)dbuf.buf, dbuf.size);
+    dbuf_free(&dbuf);
     return result;
 }
 
@@ -17509,9 +17555,11 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
 #define COVERAGE_HIT(pc) \
     if (unlikely(b->pc_to_line != NULL)) { \
         uint32_t _cov_off = (uint32_t)((pc) - b->byte_code_buf); \
-        uint16_t _cov_ln = b->pc_to_line[_cov_off]; \
-        if (_cov_ln != 0xFFFF) \
-            b->line_coverage[_cov_ln] = 1; \
+        if (likely(_cov_off < (uint32_t)b->byte_code_len)) { \
+            uint16_t _cov_ln = b->pc_to_line[_cov_off]; \
+            if (_cov_ln != 0xFFFF) \
+                b->line_coverage[_cov_ln] = 1; \
+        } \
     }
 
 #if !DIRECT_DISPATCH
