@@ -5,7 +5,11 @@ defmodule QuickBEAM.BeamAPI do
 
   Record.defrecord(:xml_element, Record.extract(:xmlElement, from_lib: "xmerl/include/xmerl.hrl"))
   Record.defrecord(:xml_text, Record.extract(:xmlText, from_lib: "xmerl/include/xmerl.hrl"))
-  Record.defrecord(:xml_attribute, Record.extract(:xmlAttribute, from_lib: "xmerl/include/xmerl.hrl"))
+
+  Record.defrecord(
+    :xml_attribute,
+    Record.extract(:xmlAttribute, from_lib: "xmerl/include/xmerl.hrl")
+  )
 
   @version Mix.Project.config()[:version]
 
@@ -279,6 +283,8 @@ defmodule QuickBEAM.BeamAPI do
       |> xml_element(:content)
       |> Enum.reduce(%{text: [], elements: %{}}, &reduce_xml_content/2)
 
+    children = %{children | elements: finalize_children(children.elements)}
+
     text =
       children.text
       |> Enum.reverse()
@@ -297,33 +303,48 @@ defmodule QuickBEAM.BeamAPI do
     end
   end
 
-  defp reduce_xml_content(content, acc) do
-    cond do
-      match?({:xmlText, _, _, _, _, _}, content) ->
+  defp reduce_xml_content(content, acc) when is_tuple(content) do
+    case elem(content, 0) do
+      :xmlText ->
         case text_value(content) do
           "" -> acc
           value -> %{acc | text: [value | acc.text]}
         end
 
-      match?({:xmlElement, _, _, _, _, _, _, _, _, _, _, _}, content) ->
+      :xmlElement ->
         name = element_name(content)
         value = convert_element(content)
-        %{acc | elements: Map.update(acc.elements, name, value, &merge_xml_children(&1, value))}
+        %{acc | elements: Map.update(acc.elements, name, value, &prepend_child(&1, value))}
 
-      true ->
+      _ ->
         acc
     end
   end
 
-  defp merge_xml_children(existing, value) when is_list(existing), do: existing ++ [value]
-  defp merge_xml_children(existing, value), do: [existing, value]
+  defp reduce_xml_content(_content, acc), do: acc
+
+  defp finalize_children(elements) do
+    Map.new(elements, fn
+      {key, [_ | _] = list} -> {key, Enum.reverse(list)}
+      pair -> pair
+    end)
+  end
+
+  defp prepend_child(existing, value) when is_list(existing), do: [value | existing]
+  defp prepend_child(existing, value), do: [value, existing]
 
   defp element_name(element) do
-    element |> xml_element(:name) |> Atom.to_string()
+    case xml_element(element, :nsinfo) do
+      {prefix, local} -> "#{prefix}:#{local}"
+      _ -> xml_element(element, :name) |> Atom.to_string()
+    end
   end
 
   defp attribute_name(attribute) do
-    attribute |> xml_attribute(:name) |> Atom.to_string()
+    case xml_attribute(attribute, :nsinfo) do
+      {prefix, local} -> "#{prefix}:#{local}"
+      _ -> xml_attribute(attribute, :name) |> Atom.to_string()
+    end
   end
 
   defp attribute_value(attribute) do

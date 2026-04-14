@@ -538,6 +538,35 @@ defmodule QuickBEAM.Core.BeamAPITest do
       assert result == %{"root" => %{"empty" => ""}}
     end
 
+    test "preserves namespace prefixes", %{rt: rt} do
+      xml =
+        ~s[<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><msg>hi</msg></soap:Body></soap:Envelope>]
+
+      {:ok, result} = QuickBEAM.eval(rt, "Beam.XML.parse(#{inspect(xml)})")
+
+      assert result == %{
+               "soap:Envelope" => %{
+                 "@xmlns:soap" => "http://schemas.xmlsoap.org/soap/envelope/",
+                 "soap:Body" => %{"msg" => "hi"}
+               }
+             }
+    end
+
+    test "handles many repeated children in order", %{rt: rt} do
+      items = Enum.map_join(1..100, "", &"<i>#{&1}</i>")
+      xml = "<r>#{items}</r>"
+      {:ok, result} = QuickBEAM.eval(rt, "Beam.XML.parse(#{inspect(xml)})")
+      assert length(result["r"]["i"]) == 100
+      assert hd(result["r"]["i"]) == "1"
+      assert List.last(result["r"]["i"]) == "100"
+    end
+
+    test "handles CDATA sections", %{rt: rt} do
+      xml = "<root><![CDATA[<not>xml</not>]]></root>"
+      {:ok, result} = QuickBEAM.eval(rt, "Beam.XML.parse(#{inspect(xml)})")
+      assert result == %{"root" => "<not>xml</not>"}
+    end
+
     test "rejects malformed XML", %{rt: rt} do
       assert {:error, %QuickBEAM.JSError{message: message}} =
                QuickBEAM.eval(rt, ~s[Beam.XML.parse("<root><broken></root>")])
