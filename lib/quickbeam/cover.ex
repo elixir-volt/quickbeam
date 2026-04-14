@@ -46,6 +46,7 @@ defmodule QuickBEAM.Cover do
 
   @table __MODULE__
 
+  @dialyzer {:nowarn_function, start: 2}
   @doc "Mix test coverage callback. Called by ExUnit when `test_coverage: [tool: QuickBEAM.Cover]` is set."
   def start(compile_path, opts) when is_binary(compile_path) do
     erlang_callback =
