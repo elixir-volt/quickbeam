@@ -11,11 +11,6 @@
 
 - **Toolchain upgraded to `oxc` 0.7 and `npm` 0.5.3** — bundler rewritten to use `OXC.rewrite_specifiers/3` and `NPM.PackageResolver`, removing ~150 lines of duplicated resolution logic.
 
-### Fixed
-
-- **JS coverage reporting under `mix test --cover`** — fixed callback ordering so the JS coverage summary prints alongside Elixir coverage, and prevented the cover test suite from destroying accumulated coverage data.
-- **N-API `remove_wrap` use-after-free** — detached wraps are now destroyed immediately instead of deferring to the QuickJS finalizer, preventing shutdown-time segfaults.
-
 ## 0.9.0
 
 ### Added
