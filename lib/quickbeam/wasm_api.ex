@@ -78,7 +78,12 @@ defmodule QuickBEAM.WasmAPI do
   def start([mod_id, import_payload], caller)
       when is_integer(mod_id) and is_list(import_payload) do
     ensure_started()
-    GenServer.call(__MODULE__, {:start, mod_id, import_payload, runtime_resource(caller)}, :infinity)
+
+    GenServer.call(
+      __MODULE__,
+      {:start, mod_id, import_payload, runtime_resource(caller)},
+      :infinity
+    )
   end
 
   @spec call(list()) :: map()
@@ -187,8 +192,11 @@ defmodule QuickBEAM.WasmAPI do
 
         reply =
           case QuickBEAM.Native.wasm_call(inst_ref, func_name, params) do
-            {:ok, result} -> %{"ok" => encode_result(result, Map.get(export || %{}, "results", []))}
-            {:error, msg} -> %{"error" => msg}
+            {:ok, result} ->
+              %{"ok" => encode_result(result, Map.get(export || %{}, "results", []))}
+
+            {:error, msg} ->
+              %{"error" => msg}
           end
 
         {:reply, reply, state}
@@ -311,7 +319,8 @@ defmodule QuickBEAM.WasmAPI do
 
   @impl true
   def terminate(_reason, state) do
-    Enum.each(state.instances, fn {_id, {inst_ref, _mod_ref, _exports, _imports, _custom_sections}} ->
+    Enum.each(state.instances, fn {_id,
+                                   {inst_ref, _mod_ref, _exports, _imports, _custom_sections}} ->
       QuickBEAM.Native.wasm_stop(inst_ref)
     end)
 
@@ -326,20 +335,20 @@ defmodule QuickBEAM.WasmAPI do
 
   defp put_instance(state, instance_handle) do
     id = state.next_id
-    next_state = %{state | next_id: id + 1, instances: Map.put(state.instances, id, instance_handle)}
+
+    next_state = %{
+      state
+      | next_id: id + 1,
+        instances: Map.put(state.instances, id, instance_handle)
+    }
+
     {id, next_state}
   end
 
   defp prepare_bytes(bytes, import_payload) do
     {_exports, imports, _custom_sections} = module_metadata(bytes)
 
-    case ImportRewriter.rewrite(bytes, imports, import_payload) do
-      {:ok, rewritten_bytes, memory_initializers, function_imports} ->
-        {:ok, rewritten_bytes, memory_initializers, function_imports}
-
-      {:error, msg} ->
-        {:error, msg}
-    end
+    ImportRewriter.rewrite(bytes, imports, import_payload)
   end
 
   defp prepare_module(mod_ref, _bytes, [], []), do: {:ok, mod_ref, [], []}

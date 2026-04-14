@@ -26,7 +26,6 @@ defmodule QuickBEAM.WebSocket do
     close_sent?: false
   ]
 
-
   @spec connect(args :: [String.t()], owner :: pid()) :: String.t()
   def connect([url, protocols], owner_pid) do
     id = Integer.to_string(System.unique_integer([:positive]))

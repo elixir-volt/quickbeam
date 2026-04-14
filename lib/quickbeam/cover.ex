@@ -42,35 +42,40 @@ defmodule QuickBEAM.Cover do
   JS coverage is written to `cover/js_lcov.info`.
   """
 
+  alias Mix.Tasks.Test.Coverage
+
   @table __MODULE__
 
-  @doc false
+  @doc "Mix test coverage callback. Called by ExUnit when `test_coverage: [tool: QuickBEAM.Cover]` is set."
   def start(compile_path, opts) when is_binary(compile_path) do
-    erlang_callback = Mix.Tasks.Test.Coverage.start(compile_path, opts)
+    erlang_callback = Coverage.start(compile_path, opts)
 
     start()
 
     fn ->
       if erlang_callback, do: erlang_callback.()
+      finish_coverage(opts)
+    end
+  end
 
-      js_opts = Keyword.get(opts, :js, [])
-      output = Keyword.get(opts, :output, "cover")
-      summary_opts = Keyword.get(opts, :summary, threshold: 90)
+  defp finish_coverage(opts) do
+    js_opts = Keyword.get(opts, :js, [])
+    output = Keyword.get(opts, :output, "cover")
+    summary_opts = Keyword.get(opts, :summary, threshold: 90)
 
-      data =
-        stop(
-          output: output,
-          ignore: Keyword.get(js_opts, :ignore, ["node_modules/**"])
-        )
+    data =
+      stop(
+        output: output,
+        ignore: Keyword.get(js_opts, :ignore, ["node_modules/**"])
+      )
 
-      if summary_opts != false do
-        threshold =
-          if is_list(summary_opts),
-            do: Keyword.get(summary_opts, :threshold, 90),
-            else: 90
+    if summary_opts != false do
+      threshold =
+        if is_list(summary_opts),
+          do: Keyword.get(summary_opts, :threshold, 90),
+          else: 90
 
-        print_summary(data, threshold)
-      end
+      print_summary(data, threshold)
     end
   end
 
@@ -111,20 +116,22 @@ defmodule QuickBEAM.Cover do
     :persistent_term.get({__MODULE__, :enabled}, false)
   end
 
-  @doc false
+  @doc "Record JS coverage data collected from a runtime."
   @spec record(map()) :: :ok
   def record(coverage_map) when is_map(coverage_map) do
     if :ets.info(@table) != :undefined do
-      Enum.each(coverage_map, fn {filename, lines} when is_map(lines) ->
-        Enum.each(lines, fn {line, count} ->
-          line = if is_binary(line), do: String.to_integer(line), else: line
-          count = if is_integer(count), do: max(count, 0), else: 0
-          :ets.update_counter(@table, {filename, line}, {2, count}, {{filename, line}, 0})
-        end)
-      end)
+      Enum.each(coverage_map, &record_file/1)
     end
 
     :ok
+  end
+
+  defp record_file({filename, lines}) when is_map(lines) do
+    Enum.each(lines, fn {line, count} ->
+      line = if is_binary(line), do: String.to_integer(line), else: line
+      count = if is_integer(count), do: max(count, 0), else: 0
+      :ets.update_counter(@table, {filename, line}, {2, count}, {{filename, line}, 0})
+    end)
   end
 
   @spec results(keyword()) :: map()

@@ -52,8 +52,8 @@ defmodule QuickBEAM.CoverTest do
 
     hit_lines = Enum.filter(lines, fn {_, c} -> c > 0 end)
     miss_lines = Enum.filter(lines, fn {_, c} -> c == 0 end)
-    assert length(hit_lines) > 0, "some lines should be covered"
-    assert length(miss_lines) > 0, "some lines should not be covered"
+    assert hit_lines != [], "some lines should be covered"
+    assert miss_lines != [], "some lines should not be covered"
 
     QuickBEAM.stop(rt)
   end

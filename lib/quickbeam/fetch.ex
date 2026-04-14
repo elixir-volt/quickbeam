@@ -88,11 +88,9 @@ defmodule QuickBEAM.Fetch do
   end
 
   defp cancel_httpc(request_id) do
-    try do
-      :httpc.cancel_request(request_id, :quickbeam)
-    catch
-      :error, :badarg -> :ok
-    end
+    :httpc.cancel_request(request_id, :quickbeam)
+  catch
+    :error, :badarg -> :ok
   end
 
   defp build_request(url, headers, method, body)
@@ -138,6 +136,7 @@ defmodule QuickBEAM.Fetch do
     if :ets.whereis(@table) == :undefined do
       :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
     end
+
     :ok
   end
 

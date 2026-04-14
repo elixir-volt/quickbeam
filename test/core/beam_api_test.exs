@@ -542,7 +542,6 @@ defmodule QuickBEAM.Core.BeamAPITest do
       assert {:error, %QuickBEAM.JSError{message: message}} =
                QuickBEAM.eval(rt, ~s[Beam.XML.parse("<root><broken></root>")])
 
-
       assert message =~ "invalid XML"
     end
   end
