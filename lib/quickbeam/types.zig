@@ -23,7 +23,7 @@ pub const RuntimeData = struct {
     stopped: bool,
     thread: ?std.Thread,
     memory_limit: usize = 256 * 1024 * 1024,
-    max_stack_size: usize = 4 * 1024 * 1024,
+    max_stack_size: usize = 8 * 1024 * 1024,
     max_convert_depth: u32 = 32,
     max_convert_nodes: u32 = 10_000,
     sync_slots_mutex: std.Thread.Mutex = .{},

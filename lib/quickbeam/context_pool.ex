@@ -21,7 +21,7 @@ defmodule QuickBEAM.ContextPool do
     * `:name` — registered name for the pool
     * `:size` — number of runtime threads (default: `System.schedulers_online()`)
     * `:memory_limit` — maximum JS heap per thread in bytes (default: 256 MB)
-    * `:max_stack_size` — maximum JS call stack in bytes (default: 4 MB)
+    * `:max_stack_size` — maximum JS call stack in bytes (default: 8 MB)
     * `:max_convert_depth` — maximum nesting depth for JS→BEAM value conversion (default: 32)
     * `:max_convert_nodes` — maximum total nodes for JS→BEAM value conversion (default: 10,000)
   """
