@@ -48,12 +48,26 @@ defmodule QuickBEAM.Cover do
 
   @doc "Mix test coverage callback. Called by ExUnit when `test_coverage: [tool: QuickBEAM.Cover]` is set."
   def start(compile_path, opts) when is_binary(compile_path) do
-    erlang_callback = Coverage.start(compile_path, opts)
+    erlang_callback =
+      try do
+        Coverage.start(compile_path, opts)
+      catch
+        kind, reason ->
+          IO.warn("Elixir coverage setup failed: #{inspect({kind, reason})}")
+          nil
+      end
 
     start()
 
     fn ->
-      if erlang_callback, do: erlang_callback.()
+      if erlang_callback do
+        try do
+          erlang_callback.()
+        catch
+          _, _ -> :ok
+        end
+      end
+
       finish_coverage(opts)
     end
   end

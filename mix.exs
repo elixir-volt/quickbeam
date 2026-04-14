@@ -21,7 +21,7 @@ defmodule QuickBEAM.MixProject do
       homepage_url: @source_url,
       package: package(),
       docs: docs(),
-      test_coverage: [tool: QuickBEAM.Cover],
+      test_coverage: [tool: QuickBEAM.Cover, ignore_modules: [QuickBEAM.Native.Manifest]]
     ]
   end
 
