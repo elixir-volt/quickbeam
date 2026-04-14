@@ -52,6 +52,11 @@ interface BeamPassword {
   verify(password: string, hash: string): Promise<boolean>
 }
 
+interface BeamXML {
+  /** Parse XML using OTP's xmerl and return a JS-friendly object tree. */
+  parse(xml: string): unknown
+}
+
 interface BeamAPI {
   /** Call a named BEAM handler (async). Returns a Promise with the result. */
   call(handler: string, ...args: unknown[]): Promise<unknown>
@@ -151,6 +156,9 @@ interface BeamAPI {
 
   /** Password hashing and verification via PBKDF2-SHA256. */
   password: BeamPassword
+
+  /** XML parsing backed by OTP's xmerl. */
+  XML: BeamXML
 }
 
 declare const Beam: BeamAPI

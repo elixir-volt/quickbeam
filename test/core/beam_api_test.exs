@@ -512,6 +512,41 @@ defmodule QuickBEAM.Core.BeamAPITest do
     end
   end
 
+  describe "Beam.XML" do
+    test "parses text-only elements", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, ~s[Beam.XML.parse("<root><name>Dan</name></root>")])
+      assert result == %{"root" => %{"name" => "Dan"}}
+    end
+
+    test "parses attributes and repeated children", %{rt: rt} do
+      xml = ~s[<root version="1.0"><item id="1">hello</item><item id="2">world</item></root>]
+      {:ok, result} = QuickBEAM.eval(rt, "Beam.XML.parse(#{inspect(xml)})")
+
+      assert result == %{
+               "root" => %{
+                 "@version" => "1.0",
+                 "item" => [
+                   %{"@id" => "1", "#text" => "hello"},
+                   %{"@id" => "2", "#text" => "world"}
+                 ]
+               }
+             }
+    end
+
+    test "parses empty elements as empty strings", %{rt: rt} do
+      {:ok, result} = QuickBEAM.eval(rt, ~s[Beam.XML.parse("<root><empty /></root>")])
+      assert result == %{"root" => %{"empty" => ""}}
+    end
+
+    test "rejects malformed XML", %{rt: rt} do
+      assert {:error, %QuickBEAM.JSError{message: message}} =
+               QuickBEAM.eval(rt, ~s[Beam.XML.parse("<root><broken></root>")])
+
+
+      assert message =~ "invalid XML"
+    end
+  end
+
   describe "Beam.inspect" do
     test "inspects a number", %{rt: rt} do
       {:ok, result} = QuickBEAM.eval(rt, "Beam.inspect(42)")

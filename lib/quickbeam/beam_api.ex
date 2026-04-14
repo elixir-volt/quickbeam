@@ -1,6 +1,11 @@
 defmodule QuickBEAM.BeamAPI do
   @moduledoc false
   import Bitwise
+  require Record
+
+  Record.defrecord(:xml_element, Record.extract(:xmlElement, from_lib: "xmerl/include/xmerl.hrl"))
+  Record.defrecord(:xml_text, Record.extract(:xmlText, from_lib: "xmerl/include/xmerl.hrl"))
+  Record.defrecord(:xml_attribute, Record.extract(:xmlAttribute, from_lib: "xmerl/include/xmerl.hrl"))
 
   @version Mix.Project.config()[:version]
 
@@ -191,6 +196,15 @@ defmodule QuickBEAM.BeamAPI do
     Kernel.inspect(value, pretty: true, width: 80)
   end
 
+  @spec xml_parse([String.t()]) :: map()
+  def xml_parse([xml]) when is_binary(xml) do
+    {document, _rest} = :xmerl_scan.string(String.to_charlist(xml), quiet: true)
+    %{element_name(document) => convert_element(document)}
+  catch
+    :exit, reason ->
+      raise ArgumentError, "invalid XML: #{Exception.format_exit(reason)}"
+  end
+
   @spec password_hash(list()) :: String.t()
   def password_hash([password, iterations])
       when is_binary(password) and is_integer(iterations) and iterations > 0 do
@@ -250,6 +264,78 @@ defmodule QuickBEAM.BeamAPI do
             end
         }
     end
+  end
+
+  defp convert_element(element) do
+    attributes =
+      element
+      |> xml_element(:attributes)
+      |> Enum.reduce(%{}, fn attribute, acc ->
+        Map.put(acc, "@#{attribute_name(attribute)}", attribute_value(attribute))
+      end)
+
+    children =
+      element
+      |> xml_element(:content)
+      |> Enum.reduce(%{text: [], elements: %{}}, &reduce_xml_content/2)
+
+    text =
+      children.text
+      |> Enum.reverse()
+      |> Enum.join(" ")
+      |> String.trim()
+
+    cond do
+      map_size(attributes) == 0 and map_size(children.elements) == 0 ->
+        text
+
+      text == "" ->
+        Map.merge(attributes, children.elements)
+
+      true ->
+        Map.merge(attributes, Map.put(children.elements, "#text", text))
+    end
+  end
+
+  defp reduce_xml_content(content, acc) do
+    cond do
+      match?({:xmlText, _, _, _, _, _}, content) ->
+        case text_value(content) do
+          "" -> acc
+          value -> %{acc | text: [value | acc.text]}
+        end
+
+      match?({:xmlElement, _, _, _, _, _, _, _, _, _, _, _}, content) ->
+        name = element_name(content)
+        value = convert_element(content)
+        %{acc | elements: Map.update(acc.elements, name, value, &merge_xml_children(&1, value))}
+
+      true ->
+        acc
+    end
+  end
+
+  defp merge_xml_children(existing, value) when is_list(existing), do: existing ++ [value]
+  defp merge_xml_children(existing, value), do: [existing, value]
+
+  defp element_name(element) do
+    element |> xml_element(:name) |> Atom.to_string()
+  end
+
+  defp attribute_name(attribute) do
+    attribute |> xml_attribute(:name) |> Atom.to_string()
+  end
+
+  defp attribute_value(attribute) do
+    attribute |> xml_attribute(:value) |> to_string()
+  end
+
+  defp text_value(text) do
+    text
+    |> xml_text(:value)
+    |> to_string()
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
   end
 
   defp escape_html_binary(<<>>, acc), do: acc

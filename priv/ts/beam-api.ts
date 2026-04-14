@@ -131,3 +131,9 @@ Beam.password = {
   verify: (password: string, hash: string): Promise<boolean> =>
     Beam.call('__beam_password_verify', password, hash) as Promise<boolean>,
 }
+
+Beam.XML = {
+  parse(xml: string): unknown {
+    return Beam.callSync('__beam_xml_parse', xml)
+  },
+}
