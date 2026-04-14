@@ -10,6 +10,7 @@
 ### Changed
 
 - **Toolchain upgraded to `oxc` 0.7 and `npm` 0.5.3** — bundler rewritten to use `OXC.rewrite_specifiers/3` and `NPM.PackageResolver`, removing ~150 lines of duplicated resolution logic.
+- **Default `max_stack_size` increased from 4 MB to 8 MB** — QuickJS's interpreter uses ~150 KB of C stack per JS call frame, limiting recursion to ~27 frames with the old default. The new default supports ~55 frames, covering all typical real-world patterns.
 
 ## 0.9.0
 
