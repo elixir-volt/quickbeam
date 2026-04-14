@@ -294,7 +294,7 @@ fn handle_ctx_eval(
     install_pump(pd, contexts, p.context_id, entry);
     qjs.JS_ResetContextReductionCount(entry.state.ctx);
     var result = worker.Result{};
-    entry.state.do_eval(p.code, &result);
+    entry.state.do_eval(p.code, "", &result);
     uninstall_pump(entry);
 
     pd.deadline = null;

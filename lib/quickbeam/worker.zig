@@ -382,7 +382,7 @@ pub const WorkerState = struct {
         self.drain_jobs();
     }
 
-    pub fn do_eval(self: *WorkerState, code: []const u8, result: *Result) void {
+    pub fn do_eval(self: *WorkerState, code: []const u8, filename: []const u8, result: *Result) void {
         const code_z = gpa.dupeZ(u8, code) catch {
             result.ok = false;
             result.json = "Out of memory";
@@ -390,11 +390,19 @@ pub const WorkerState = struct {
         };
         defer gpa.free(code_z);
 
+        const fname = if (filename.len > 0) filename else "<eval>";
+        const fname_z = gpa.dupeZ(u8, fname) catch {
+            result.ok = false;
+            result.json = "Out of memory";
+            return;
+        };
+        defer gpa.free(fname_z);
+
         var flags: c_int = qjs.JS_EVAL_TYPE_GLOBAL;
         if (std.mem.indexOf(u8, code, "await") != null) {
             flags |= qjs.JS_EVAL_FLAG_ASYNC;
         }
-        const val = qjs.JS_Eval(self.ctx, code_z.ptr, code.len, "<eval>", flags);
+        const val = qjs.JS_Eval(self.ctx, code_z.ptr, code.len, fname_z.ptr, flags);
         defer qjs.JS_FreeValue(self.ctx, val);
         self.drain_jobs();
 
@@ -949,9 +957,10 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                 .eval => |p| {
                     var result = Result{};
                     state.set_deadline(p.timeout_ns);
-                    state.do_eval(p.code, &result);
+                    state.do_eval(p.code, p.filename, &result);
                     state.clear_deadline();
                     gpa.free(p.code);
+                    if (p.filename.len > 0) gpa.free(p.filename);
                     types.send_reply(p.caller_pid, p.ref_env, p.ref_term, result.ok, result.env, result.term, result.json);
                 },
                 .compile => |p| {

@@ -104,7 +104,7 @@ pub fn start_runtime(owner_pid: beam.pid, opts: beam.term) !RuntimeResource {
     return res;
 }
 
-pub fn eval(resource: RuntimeResource, code: []const u8, timeout_ms: u64) beam.term {
+pub fn eval(resource: RuntimeResource, code: []const u8, timeout_ms: u64, filename: []const u8) beam.term {
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
@@ -113,6 +113,10 @@ pub fn eval(resource: RuntimeResource, code: []const u8, timeout_ms: u64) beam.t
     const ref_term = e.enif_make_ref(ref_env);
 
     const code_copy = gpa.dupe(u8, code) catch return beam.make(.{ .@"error", "OOM" }, .{});
+    const fname_copy = if (filename.len > 0) gpa.dupe(u8, filename) catch {
+        gpa.free(code_copy);
+        return beam.make(.{ .@"error", "OOM" }, .{});
+    } else &[_]u8{};
 
     enqueue(data, .{ .eval = .{
         .code = code_copy,
@@ -120,6 +124,7 @@ pub fn eval(resource: RuntimeResource, code: []const u8, timeout_ms: u64) beam.t
         .ref_env = ref_env,
         .ref_term = ref_term,
         .timeout_ns = if (timeout_ms > 0) timeout_ms * 1_000_000 else 0,
+        .filename = fname_copy,
     } });
 
     return beam.term{ .v = e.enif_make_copy(env, ref_term) };

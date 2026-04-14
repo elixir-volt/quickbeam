@@ -154,7 +154,7 @@ defmodule QuickBEAM.Native do
     ],
     resources: [:RuntimeResource, :PoolResource, :WasmModuleResource, :WasmInstanceResource],
     nifs: [
-      eval: 3,
+      eval: 4,
       compile: 2,
       call_function: 4,
       load_module: 3,

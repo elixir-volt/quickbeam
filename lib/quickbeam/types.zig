@@ -66,6 +66,7 @@ pub const AsyncRequestPayload = struct {
     ref_env: ?*e.ErlNifEnv,
     ref_term: e.ErlNifTerm,
     timeout_ns: u64 = 0,
+    filename: []const u8 = "",
 };
 
 pub const AsyncCallPayload = struct {

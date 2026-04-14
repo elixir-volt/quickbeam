@@ -342,7 +342,7 @@ defmodule QuickBEAM.Runtime do
   defp eval_script_async(state, path) do
     case read_script(path) do
       {:ok, code} ->
-        ref = QuickBEAM.Native.eval(state.resource, code, 0)
+        ref = QuickBEAM.Native.eval(state.resource, code, 0, path)
         await_ref_with_callbacks(ref, state, path)
 
       {:error, reason} when is_atom(reason) ->
@@ -405,7 +405,7 @@ defmodule QuickBEAM.Runtime do
   end
 
   defp sync_eval(resource, code) do
-    ref = QuickBEAM.Native.eval(resource, code, 0)
+    ref = QuickBEAM.Native.eval(resource, code, 0, "")
     await_ref(ref)
   end
 
@@ -458,7 +458,7 @@ defmodule QuickBEAM.Runtime do
       QuickBEAM.Native.define_global(state.resource, name, value)
     end)
 
-    ref = QuickBEAM.Native.eval(state.resource, code, timeout_ms)
+    ref = QuickBEAM.Native.eval(state.resource, code, timeout_ms, "")
 
     transform = fn result ->
       QuickBEAM.Native.delete_globals(state.resource, names)
@@ -539,7 +539,7 @@ defmodule QuickBEAM.Runtime do
 
   # ── NIF dispatch callbacks ──
 
-  defp nif_eval(state, code, timeout), do: QuickBEAM.Native.eval(state.resource, code, timeout)
+  defp nif_eval(state, code, timeout), do: QuickBEAM.Native.eval(state.resource, code, timeout, "")
 
   defp nif_call(state, fn_name, args, timeout),
     do: QuickBEAM.Native.call_function(state.resource, fn_name, args, timeout)
