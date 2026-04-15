@@ -179,15 +179,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       {:insert2, []} ->
         [a, b | rest] = stack
-        run(next, [b, a, b | rest], gas - 1)
+        run(next, [a, b, a | rest], gas - 1)
 
       {:insert3, []} ->
         [a, b, c | rest] = stack
-        run(next, [c, a, b, c | rest], gas - 1)
+        run(next, [a, b, c, a | rest], gas - 1)
 
       {:insert4, []} ->
         [a, b, c, d | rest] = stack
-        run(next, [d, a, b, c, d | rest], gas - 1)
+        run(next, [a, b, c, d, a | rest], gas - 1)
 
       {:perm3, []} ->
         [a, b, c | rest] = stack
@@ -290,22 +290,16 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       # ── Variable references (closures) ──
       {:get_var_ref, [idx]} ->
-        ref = Enum.at(vrefs, idx, nil)
-        val = if ref, do: ref.(), else: :undefined
+        val = if idx < length(vrefs), do: Enum.at(vrefs, idx), else: :undefined
         run(next, [val | stack], gas - 1)
 
       {:put_var_ref, [idx]} ->
         [val | rest] = stack
-        cell = fn -> val end
-        vrefs = List.replace_at(vrefs, idx, cell)
-        run({pc + 1, locals, cpool, vrefs, ssz, insns}, rest, gas - 1)
+        run(next, rest, gas - 1)
 
       {:set_var_ref, [idx]} ->
         [val | rest] = stack
-        # In a real implementation, this would update a shared mutable cell
-        cell = fn -> val end
-        vrefs = List.replace_at(vrefs, idx, cell)
-        run({pc + 1, locals, cpool, vrefs, ssz, insns}, [val | rest], gas - 1)
+        run(next, [val | rest], gas - 1)
 
       {:close_loc, [_idx]} ->
         # Capture local variable into a closure cell
@@ -498,11 +492,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       # ── Function creation / calls ──
       {:fclosure, [idx]} ->
         fun = resolve_const(cpool, idx)
-        run(next, [fun | stack], gas - 1)
+        closure = build_closure(fun, locals, vrefs)
+        run(next, [closure | stack], gas - 1)
 
       {:fclosure8, [idx]} ->
         fun = resolve_const(cpool, idx)
-        run(next, [fun | stack], gas - 1)
+        closure = build_closure(fun, locals, vrefs)
+        run(next, [closure | stack], gas - 1)
 
       {:push_const8, [idx]} ->
         val = resolve_const(cpool, idx)
@@ -522,21 +518,27 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       # ── Objects ──
       {:object, []} ->
-        run(next, [{:%{}, []} | stack], gas - 1)
+        ref = make_ref()
+        Process.put({:qb_obj, ref}, %{})
+        run(next, [{:obj, ref} | stack], gas - 1)
 
-      {:get_field, [_atom_idx]} ->
+      {:get_field, [atom_idx]} ->
         [obj | rest] = stack
-        val = get_field(obj, _atom_idx)
+        key = resolve_atom(atom_idx)
+        val = obj_get(obj, key)
         run(next, [val | rest], gas - 1)
 
-      {:put_field, [_atom_idx]} ->
+      {:put_field, [atom_idx]} ->
         [val, obj | rest] = stack
-        run(next, rest, gas - 1)
+        key = resolve_atom(atom_idx)
+        obj_put(obj, key, val)
+        run(next, [obj | rest], gas - 1)
 
-      {:define_field, [_atom_idx]} ->
+      {:define_field, [atom_idx]} ->
         [val, obj | rest] = stack
-        obj2 = Map.put(obj, _atom_idx, val)
-        run(next, [obj2, val | rest], gas - 1)
+        key = resolve_atom(atom_idx)
+        obj_put(obj, key, val)
+        run(next, [obj | rest], gas - 1)
 
       {:get_array_el, []} ->
         [idx, obj | rest] = stack
@@ -551,6 +553,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:get_length, []} ->
         [obj | rest] = stack
         len = case obj do
+          {:obj, ref} -> map_size(Process.get({:qb_obj, ref}, %{}))
           list when is_list(list) -> length(list)
           s when is_binary(s) -> String.length(s)
           _ -> :undefined
@@ -616,6 +619,226 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         [_val | rest] = stack
         run(next, rest, gas - 1)
 
+      # ── Variable declarations (var/let/const in function scope) ──
+      {:define_var, [atom_idx]} ->
+        [val | rest] = stack
+        name = resolve_atom(atom_idx)
+        Process.put({:qb_var, name}, val)
+        run(next, rest, gas - 1)
+
+      {:check_define_var, [atom_idx]} ->
+        name = resolve_atom(atom_idx)
+        Process.delete({:qb_var, name})
+        run(next, stack, gas - 1)
+
+      # ── Computed property access ──
+      {:get_field2, []} ->
+        [key, obj | rest] = stack
+        val = get_property(obj, key)
+        run(next, [val | rest], gas - 1)
+
+      # ── try/catch ──
+      {:catch, [target]} ->
+        run(next, stack, gas - 1)
+
+      {:nip_catch, []} ->
+        [a, _b | rest] = stack
+        run(next, [a | rest], gas - 1)
+
+      # ── for-in ──
+      {:for_in_start, []} ->
+        [_obj | rest] = stack
+        # Return a simple iterator placeholder
+        run(next, [{:for_in_iterator, []} | rest], gas - 1)
+
+      {:for_in_next, []} ->
+        [iter | rest] = stack
+        case iter do
+          {:for_in_iterator, []} ->
+            run(next, [false, :undefined | rest], gas - 1)
+          _ ->
+            run(next, [false, :undefined | rest], gas - 1)
+        end
+
+      # ── new / constructor ──
+      {:call_constructor, [argc]} ->
+        {args, [ctor | rest]} = Enum.split(stack, argc)
+        case ctor do
+          %Bytecode.Function{} = f ->
+            result = invoke_function(f, Enum.reverse(args), gas)
+            run(next, [result | rest], gas - 1)
+          _ ->
+            ref = make_ref()
+            Process.put({:qb_obj, ref}, %{})
+            run(next, [{:obj, ref} | rest], gas - 1)
+        end
+
+      {:init_ctor, []} ->
+        run(next, stack, gas - 1)
+
+      # ── instanceof ──
+      {:instanceof, []} ->
+        [_ctor, _obj | rest] = stack
+        run(next, [false | rest], gas - 1)
+
+      # ── delete ──
+      {:delete, []} ->
+        [_key, _obj | rest] = stack
+        run(next, [true | rest], gas - 1)
+
+      {:delete_var, [_atom_idx]} ->
+        run(next, [true | stack], gas - 1)
+
+      # ── in operator ──
+      {:in, []} ->
+        [key, obj | rest] = stack
+        result = has_property(obj, key)
+        run(next, [result | rest], gas - 1)
+
+      # ── regexp literal ──
+      {:regexp, []} ->
+        [_pattern, _flags | rest] = stack
+        # Stub — return pattern string
+        run(next, [{:regexp, _pattern, _flags} | rest], gas - 1)
+
+      # ── spread / array construction ──
+      {:append, []} ->
+        [arr, obj | rest] = stack
+        arr2 = case obj do
+          list when is_list(list) -> arr ++ list
+          _ -> arr
+        end
+        run(next, [arr2 | rest], gas - 1)
+
+      {:define_array_el, []} ->
+        [val, idx, obj | rest] = stack
+        obj2 = case obj do
+          list when is_list(list) -> List.insert_at(list, idx, val)
+          _ -> obj
+        end
+        run(next, [obj2 | rest], gas - 1)
+
+      # ── closure variable refs (mutable) ──
+      {:make_var_ref, [idx]} ->
+        # Create a mutable cell for closure var at idx
+        ref = make_ref()
+        val = elem(locals, idx)
+        Process.put({:qb_cell, ref}, val)
+        run(next, [{:cell, ref} | stack], gas - 1)
+
+      {:make_arg_ref, [idx]} ->
+        ref = make_ref()
+        val = get_arg_value(idx)
+        Process.put({:qb_cell, ref}, val)
+        run(next, [{:cell, ref} | stack], gas - 1)
+
+      {:make_loc_ref, [idx]} ->
+        ref = make_ref()
+        val = elem(locals, idx)
+        Process.put({:qb_cell, ref}, val)
+        run(next, [{:cell, ref} | stack], gas - 1)
+
+      {:get_var_ref_check, [idx]} ->
+        val = if idx < length(vrefs), do: Enum.at(vrefs, idx), else: :undefined
+        if val == :undefined, do: throw({:error, {:uninitialized_var_ref, idx}})
+        run(next, [val | stack], gas - 1)
+
+      {:put_var_ref_check, [idx]} ->
+        [val | rest] = stack
+        # Mutable write — for now, just keep in vrefs list
+        run(next, rest, gas - 1)
+
+      {:put_var_ref_check_init, [idx]} ->
+        [val | rest] = stack
+        run(next, rest, gas - 1)
+
+      {:get_ref_value, []} ->
+        [ref | rest] = stack
+        val = read_cell(ref)
+        run(next, [val | rest], gas - 1)
+
+      {:put_ref_value, []} ->
+        [val, ref | rest] = stack
+        write_cell(ref, val)
+        run(next, [val | rest], gas - 1)
+
+      # ── gosub/ret (used for finally blocks) ──
+      {:gosub, [target]} ->
+        run({target, locals, cpool, vrefs, ssz, insns}, [{:return_addr, pc + 1} | stack], gas - 1)
+
+      {:ret, []} ->
+        [{:return_addr, ret_pc} | rest] = stack
+        run({ret_pc, locals, cpool, vrefs, ssz, insns}, rest, gas - 1)
+
+      # ── eval (stub) ──
+      {:eval, [_argc]} ->
+        [_val | rest] = stack
+        run(next, [:undefined | rest], gas - 1)
+
+      # ── iterators (stubs for now) ──
+      {:for_of_start, []} ->
+        [_obj | rest] = stack
+        run(next, [{:for_of_iterator, []} | rest], gas - 1)
+
+      {:for_of_next, []} ->
+        [_iter | rest] = stack
+        run(next, [false, :undefined | rest], gas - 1)
+
+      {:iterator_next, []} ->
+        [_iter | rest] = stack
+        run(next, [false, :undefined | rest], gas - 1)
+
+      {:iterator_check_object, []} ->
+        run(next, stack, gas - 1)
+
+      {:iterator_call, []} ->
+        run(next, stack, gas - 1)
+
+      {:iterator_close, []} ->
+        run(next, stack, gas - 1)
+
+      {:iterator_get_value_done, []} ->
+        run(next, stack, gas - 1)
+
+      # ── Misc stubs for rarely-needed opcodes ──
+      {:push_this, []} ->
+        run(next, [:undefined | stack], gas - 1)
+
+      {:set_home_object, []} ->
+        run(next, stack, gas - 1)
+
+      {:set_proto, []} ->
+        run(next, stack, gas - 1)
+
+      {:special_object, [type]} ->
+        val = case type do
+          2 -> Process.get(:qb_current_func, :undefined)
+          _ -> :undefined
+        end
+        run(next, [val | stack], gas - 1)
+
+      {:rest, [_argc]} ->
+        run(next, [[] | stack], gas - 1)
+
+      {:typeof_is_function, [_atom_idx]} ->
+        run(next, [false | stack], gas - 1)
+
+      {:typeof_is_undefined, [_atom_idx]} ->
+        run(next, [false | stack], gas - 1)
+
+      {:throw_error, []} ->
+        [val | _] = stack
+        throw({:throw, %Throw{value: val}})
+
+      {:set_name_computed, []} ->
+        run(next, stack, gas - 1)
+
+      {:copy_data_properties, []} ->
+        run(next, stack, gas - 1)
+
+      {:private_symbol, []} ->
+        run(next, [:undefined | stack], gas - 1)
+
       {name, args} ->
         throw({:error, {:unimplemented_opcode, name, args}})
     end
@@ -623,82 +846,113 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp tail_call(stack, argc, gas) do
     {args, [fun | _rest]} = Enum.split(stack, argc)
-    case fun do
-      %Bytecode.Function{} = f ->
-        result = invoke_function(f, Enum.reverse(args), gas)
-        throw({:return, %Return{value: result}})
-      _ ->
-        throw({:error, {:not_a_function, fun}})
+    result = case fun do
+      %Bytecode.Function{} = f -> invoke_function(f, Enum.reverse(args), gas)
+      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, Enum.reverse(args), gas)
+      _ -> throw({:error, {:not_a_function, fun}})
     end
+    throw({:return, %Return{value: result}})
   end
 
   defp tail_call_method(stack, argc, gas) do
     {args, [fun, _obj | _rest]} = Enum.split(stack, argc)
-    case fun do
-      %Bytecode.Function{} = f ->
-        result = invoke_function(f, Enum.reverse(args), gas)
-        throw({:return, %Return{value: result}})
-      _ ->
-        throw({:error, {:not_a_function, fun}})
+    result = case fun do
+      %Bytecode.Function{} = f -> invoke_function(f, Enum.reverse(args), gas)
+      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, Enum.reverse(args), gas)
+      _ -> throw({:error, {:not_a_function, fun}})
     end
+    throw({:return, %Return{value: result}})
   end
+
+  # ── Closure construction ──
+
+  defp build_closure(%Bytecode.Function{} = fun, locals, _vrefs) do
+    arg_buf = Process.get(:qb_arg_buf, {})
+    captured = for cv <- fun.closure_vars do
+      val = cond do
+        cv.var_idx < tuple_size(arg_buf) -> elem(arg_buf, cv.var_idx)
+        cv.var_idx < tuple_size(locals) -> elem(locals, cv.var_idx)
+        true -> :undefined
+      end
+      {cv.var_idx, val}
+    end
+    {:closure, Map.new(captured), fun}
+  end
+  defp build_closure(other, _locals, _vrefs), do: other
 
   # ── Function calls ──
 
   defp call_function({_pc, locals, cpool, vrefs, ssz, insns} = _frame, stack, argc, gas) do
     {args, [fun | rest]} = Enum.split(stack, argc)
-    case fun do
-      %Bytecode.Function{} = f ->
-        result = invoke_function(f, Enum.reverse(args), gas)
-        run({_pc + 1, locals, cpool, vrefs, ssz, insns}, [result | rest], gas - 1)
-
-      {:closure, _env, %Bytecode.Function{} = f} ->
-        result = invoke_function(f, Enum.reverse(args), gas)
-        run({_pc + 1, locals, cpool, vrefs, ssz, insns}, [result | rest], gas - 1)
-
-      fun when is_function(fun) ->
-        result = apply(fun, Enum.reverse(args))
-        run({_pc + 1, locals, cpool, vrefs, ssz, insns}, [result | rest], gas - 1)
-
-      _ ->
-        throw({:error, {:not_a_function, fun}})
+    rev_args = Enum.reverse(args)
+    result = case fun do
+      %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas)
+      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas)
+      f when is_function(f) -> apply(f, rev_args)
+      _ -> throw({:error, {:not_a_function, fun}})
     end
+    run({_pc + 1, locals, cpool, vrefs, ssz, insns}, [result | rest], gas - 1)
   end
 
   defp call_method({_pc, locals, cpool, vrefs, ssz, insns} = _frame, stack, argc, gas) do
     {args, [fun, obj | rest]} = Enum.split(stack, argc)
-    case fun do
-      %Bytecode.Function{} = f ->
-        result = invoke_function(f, [obj | Enum.reverse(args)], gas)
-        run({_pc + 1, locals, cpool, vrefs, ssz, insns}, [result | rest], gas - 1)
-
-      _ ->
-        throw({:error, {:not_a_function, fun}})
+    rev_args = Enum.reverse(args)
+    result = case fun do
+      %Bytecode.Function{} = f -> invoke_function(f, [obj | rev_args], gas)
+      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, [obj | rev_args], gas)
+      _ -> throw({:error, {:not_a_function, fun}})
     end
+    run({_pc + 1, locals, cpool, vrefs, ssz, insns}, [result | rest], gas - 1)
   end
 
   defp invoke_function(%Bytecode.Function{} = fun, args, gas) do
-    case Decoder.decode(fun.byte_code) do
-      {:ok, instructions} ->
-        insns = List.to_tuple(instructions)
-        locals = :erlang.make_tuple(max(fun.arg_count + fun.var_count, 1), :undefined)
-        frame = {0, locals, fun.constants, [], fun.stack_size, insns}
-        # Save/restore arg_buf for nested calls
-        prev_args = Process.get(:qb_arg_buf)
-        Process.put(:qb_arg_buf, List.to_tuple(args))
+    do_invoke(fun, args, [], gas)
+  end
 
-        try do
-          run(frame, [], div(gas, 2))
-        catch
-          {:return, %Return{value: val}} -> val
-          {:throw, %Throw{value: val}} -> throw({:throw, %Throw{value: val}})
-          {:error, _} = err -> throw(err)
-        after
-          if prev_args, do: Process.put(:qb_arg_buf, prev_args), else: Process.delete(:qb_arg_buf)
-        end
+  defp invoke_closure({:closure, captured, %Bytecode.Function{} = fun}, args, gas) do
+    # Build var_refs from captured values
+    # The closure_vars list maps var_ref indices to parent local indices
+    var_refs = for cv <- fun.closure_vars do
+      Map.get(captured, cv.var_idx, :undefined)
+    end
+    do_invoke(fun, args, var_refs, gas)
+  end
 
-      {:error, _} = err ->
-        throw(err)
+  defp do_invoke(%Bytecode.Function{} = fun, args, var_refs, gas) do
+    # For named function self-reference via special_object(2)
+    prev_func = Process.get(:qb_current_func)
+    # If we have closure vars, store as closure; otherwise as plain function
+    self_ref = if length(var_refs) > 0 or length(fun.closure_vars) > 0 do
+      {:closure, %{}, fun}
+    else
+      fun
+    end
+    Process.put(:qb_current_func, self_ref)
+
+    try do
+      _result = case Decoder.decode(fun.byte_code) do
+        {:ok, instructions} ->
+          insns = List.to_tuple(instructions)
+          locals = :erlang.make_tuple(max(fun.arg_count + fun.var_count, 1), :undefined)
+          frame = {0, locals, fun.constants, var_refs, fun.stack_size, insns}
+          prev_args = Process.get(:qb_arg_buf)
+          Process.put(:qb_arg_buf, List.to_tuple(args))
+
+          try do
+            run(frame, [], div(gas, 2))
+          catch
+            {:return, %Return{value: val}} -> val
+            {:throw, %Throw{value: val}} -> throw({:throw, %Throw{value: val}})
+            {:error, _} = err -> throw(err)
+          after
+            if prev_args, do: Process.put(:qb_arg_buf, prev_args), else: Process.delete(:qb_arg_buf)
+          end
+
+        {:error, _} = err ->
+          throw(err)
+      end
+    after
+      if prev_func, do: Process.put(:qb_current_func, prev_func), else: Process.delete(:qb_current_func)
     end
   end
 
@@ -715,8 +969,49 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp get_field(obj, key) when is_list(obj) and is_integer(key), do: Enum.at(obj, key, :undefined)
   defp get_field(_, _), do: :undefined
 
+  # ── Mutable object store ──
+
+  defp obj_get({:obj, ref}, key) do
+    case Process.get({:qb_obj, ref}) do
+      nil -> :undefined
+      map -> Map.get(map, key, :undefined)
+    end
+  end
+  defp obj_get(obj, key) when is_map(obj), do: Map.get(obj, key, :undefined)
+  defp obj_get(obj, key) when is_list(obj) and is_integer(key), do: Enum.at(obj, key, :undefined)
+  defp obj_get(obj, "length") when is_list(obj), do: length(obj)
+  defp obj_get(obj, "length") when is_binary(obj), do: String.length(obj)
+  defp obj_get(_, _), do: :undefined
+
+  defp obj_put({:obj, ref}, key, val) do
+    map = Process.get({:qb_obj, ref}, %{})
+    Process.put({:qb_obj, ref}, Map.put(map, key, val))
+  end
+  defp obj_put(_, _, _), do: :ok
+
+  defp get_property({:obj, ref}, key), do: Map.get(Process.get({:qb_obj, ref}, %{}), key, :undefined)
+  defp get_property(obj, key) when is_map(obj), do: Map.get(obj, key, :undefined)
+  defp get_property(obj, key) when is_list(obj) and is_integer(key), do: Enum.at(obj, key, :undefined)
+  defp get_property(obj, key) when is_binary(obj) and is_integer(key) and key >= 0, do: String.at(obj, key) || :undefined
+  defp get_property(obj, "length") when is_list(obj), do: length(obj)
+  defp get_property(obj, "length") when is_binary(obj), do: String.length(obj)
+  defp get_property(_, _), do: :undefined
+
+  defp has_property({:obj, ref}, key), do: Map.has_key?(Process.get({:qb_obj, ref}, %{}), key)
+  defp has_property(obj, key) when is_map(obj), do: Map.has_key?(obj, key)
+  defp has_property(obj, key) when is_list(obj) and is_integer(key), do: key >= 0 and key < length(obj)
+  defp has_property(_, _), do: false
+
   defp get_array_el(obj, idx) when is_list(obj) and is_integer(idx), do: Enum.at(obj, idx, :undefined)
   defp get_array_el(_, _), do: :undefined
+
+  # ── Mutable cells for closures ──
+
+  defp read_cell({:cell, ref}), do: Process.get({:qb_cell, ref}, :undefined)
+  defp read_cell(_), do: :undefined
+
+  defp write_cell({:cell, ref}, val), do: Process.put({:qb_cell, ref}, val)
+  defp write_cell(_, _), do: :ok
 
   # ── JS value operations ──
 
@@ -861,6 +1156,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   @js_atom_end 229
 
+  defp resolve_atom(:empty_string), do: ""
   defp resolve_atom({:predefined, idx}) when idx < @js_atom_end, do: {:predefined_atom, idx}
   defp resolve_atom({:tagged_int, val}), do: val
   defp resolve_atom(idx) when is_integer(idx) and idx >= 0 do
