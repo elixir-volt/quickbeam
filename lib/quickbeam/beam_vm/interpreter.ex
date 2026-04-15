@@ -33,7 +33,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     defstruct [:value]
   end
 
-  @default_gas 10_000_000
+  @default_gas 100_000_000
 
   @spec eval(Bytecode.Function.t()) :: {:ok, term()} | {:error, term()}
   def eval(%Bytecode.Function{} = fun) do
@@ -224,6 +224,23 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:rot5l, []} ->
         [a, b, c, d, e | rest] = stack
         run(next, [b, c, d, e, a | rest], gas - 1)
+
+      # ── Args (separate from locals in QuickJS) ──
+      {:get_arg, [idx]} ->
+        val = get_arg_value(idx)
+        run(next, [val | stack], gas - 1)
+
+      {:get_arg0, []} ->
+        run(next, [get_arg_value(0) | stack], gas - 1)
+
+      {:get_arg1, []} ->
+        run(next, [get_arg_value(1) | stack], gas - 1)
+
+      {:get_arg2, []} ->
+        run(next, [get_arg_value(2) | stack], gas - 1)
+
+      {:get_arg3, []} ->
+        run(next, [get_arg_value(3) | stack], gas - 1)
 
       # ── Locals ──
       {:get_loc, [idx]} ->
@@ -445,11 +462,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       {:post_inc, []} ->
         [a | rest] = stack
-        run(next, [a, js_add(a, 1) | rest], gas - 1)
+        run(next, [js_add(a, 1), a | rest], gas - 1)
 
       {:post_dec, []} ->
         [a | rest] = stack
-        run(next, [a, js_sub(a, 1) | rest], gas - 1)
+        run(next, [js_sub(a, 1), a | rest], gas - 1)
 
       {:inc_loc, [idx]} ->
         val = elem(locals, idx)
@@ -665,27 +682,24 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:ok, instructions} ->
         insns = List.to_tuple(instructions)
         locals = :erlang.make_tuple(max(fun.arg_count + fun.var_count, 1), :undefined)
-        # Copy args into locals
-        locals = args_to_locals(locals, args)
         frame = {0, locals, fun.constants, [], fun.stack_size, insns}
+        # Save/restore arg_buf for nested calls
+        prev_args = Process.get(:qb_arg_buf)
+        Process.put(:qb_arg_buf, List.to_tuple(args))
 
         try do
-          run(frame, args, div(gas, 2))
+          run(frame, [], div(gas, 2))
         catch
           {:return, %Return{value: val}} -> val
           {:throw, %Throw{value: val}} -> throw({:throw, %Throw{value: val}})
           {:error, _} = err -> throw(err)
+        after
+          if prev_args, do: Process.put(:qb_arg_buf, prev_args), else: Process.delete(:qb_arg_buf)
         end
 
       {:error, _} = err ->
         throw(err)
     end
-  end
-
-  defp args_to_locals(locals, args) do
-    args
-    |> Enum.with_index()
-    |> Enum.reduce(locals, fn {arg, idx}, acc -> put_elem(acc, idx, arg) end)
   end
 
   # ── Constant pool resolution ──
@@ -837,6 +851,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp js_to_string(n) when is_float(n), do: Float.to_string(n)
   defp js_to_string(s) when is_binary(s), do: s
   defp js_to_string(_), do: "[object]"
+
+  defp get_arg_value(idx) do
+    arg_buf = Process.get(:qb_arg_buf, {})
+    if idx < tuple_size(arg_buf), do: elem(arg_buf, idx), else: :undefined
+  end
 
   # ── Atom resolution ──
 
