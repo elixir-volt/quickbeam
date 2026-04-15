@@ -247,15 +247,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       # ── Locals ──
       {:get_loc, [idx]} ->
-        val = elem(locals, idx)
+        val = read_captured_local(idx, locals, vrefs)
         run(next, [val | stack], gas - 1)
 
       {:put_loc, [idx]} ->
         [val | rest] = stack
+        write_captured_local(idx, val, locals, vrefs)
         run({pc + 1, put_elem(locals, idx, val), cpool, vrefs, ssz, insns}, rest, gas - 1)
 
       {:set_loc, [idx]} ->
         [val | rest] = stack
+        write_captured_local(idx, val, locals, vrefs)
         run({pc + 1, put_elem(locals, idx, val), cpool, vrefs, ssz, insns}, [val | rest], gas - 1)
 
       {:set_loc_uninitialized, [idx]} ->
@@ -293,15 +295,26 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       # ── Variable references (closures) ──
       {:get_var_ref, [idx]} ->
-        val = if idx < length(vrefs), do: Enum.at(vrefs, idx), else: :undefined
+        val = case Enum.at(vrefs, idx, :undefined) do
+          {:cell, _} = cell -> read_cell(cell)
+          other -> other
+        end
         run(next, [val | stack], gas - 1)
 
       {:put_var_ref, [idx]} ->
         [val | rest] = stack
+        case Enum.at(vrefs, idx) do
+          {:cell, _} = cell -> write_cell(cell, val)
+          _ -> :ok
+        end
         run(next, rest, gas - 1)
 
       {:set_var_ref, [idx]} ->
         [val | rest] = stack
+        case Enum.at(vrefs, idx) do
+          {:cell, _} = cell -> write_cell(cell, val)
+          _ -> :ok
+        end
         run(next, [val | rest], gas - 1)
 
       {:close_loc, [_idx]} ->
@@ -763,17 +776,26 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         run(next, [{:cell, ref} | stack], gas - 1)
 
       {:get_var_ref_check, [idx]} ->
-        val = if idx < length(vrefs), do: Enum.at(vrefs, idx), else: :undefined
-        if val == :undefined, do: throw({:error, {:uninitialized_var_ref, idx}})
-        run(next, [val | stack], gas - 1)
+        case Enum.at(vrefs, idx, :undefined) do
+          :undefined -> throw({:error, {:uninitialized_var_ref, idx}})
+          {:cell, _} = cell -> run(next, [read_cell(cell) | stack], gas - 1)
+          val -> run(next, [val | stack], gas - 1)
+        end
 
       {:put_var_ref_check, [idx]} ->
         [val | rest] = stack
-        # Mutable write — for now, just keep in vrefs list
+        case Enum.at(vrefs, idx) do
+          {:cell, _} = cell -> write_cell(cell, val)
+          _ -> :ok
+        end
         run(next, rest, gas - 1)
 
       {:put_var_ref_check_init, [idx]} ->
         [val | rest] = stack
+        case Enum.at(vrefs, idx) do
+          {:cell, _} = cell -> write_cell(cell, val)
+          _ -> :ok
+        end
         run(next, rest, gas - 1)
 
       {:get_ref_value, []} ->
@@ -898,15 +920,32 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Closure construction ──
 
-  defp build_closure(%Bytecode.Function{} = fun, locals, _vrefs) do
+  defp build_closure(%Bytecode.Function{} = fun, locals, vrefs) do
     arg_buf = Process.get(:qb_arg_buf, {})
     captured = for cv <- fun.closure_vars do
-      val = cond do
-        cv.var_idx < tuple_size(arg_buf) -> elem(arg_buf, cv.var_idx)
-        cv.var_idx < tuple_size(locals) -> elem(locals, cv.var_idx)
-        true -> :undefined
+      # Look up the cell from parent's vrefs using local→vref mapping
+      cell = case Process.get({:qb_local_to_vref, cv.var_idx}) do
+        nil ->
+          # No cell yet — create one
+          val = cond do
+            cv.var_idx < tuple_size(arg_buf) -> elem(arg_buf, cv.var_idx)
+            cv.var_idx < tuple_size(locals) -> elem(locals, cv.var_idx)
+            true -> :undefined
+          end
+          ref = make_ref()
+          Process.put({:qb_cell, ref}, val)
+          {:cell, ref}
+        vref_idx when vref_idx < length(vrefs) ->
+          case Enum.at(vrefs, vref_idx) do
+            {:cell, _} = existing -> existing
+            _ ->
+              val = elem(locals, cv.var_idx)
+              ref = make_ref()
+              Process.put({:qb_cell, ref}, val)
+              {:cell, ref}
+          end
       end
-      {cv.var_idx, val}
+      {cv.var_idx, cell}
     end
     {:closure, Map.new(captured), fun}
   end
@@ -971,6 +1010,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         {:ok, instructions} ->
           insns = List.to_tuple(instructions)
           locals = :erlang.make_tuple(max(fun.arg_count + fun.var_count, 1), :undefined)
+
+          # Create cells for captured locals
+          {locals, var_refs} = setup_captured_locals(fun, locals, var_refs, args)
+
           frame = {0, locals, fun.constants, var_refs, fun.stack_size, insns}
           prev_args = Process.get(:qb_arg_buf)
           Process.put(:qb_arg_buf, List.to_tuple(args))
@@ -1063,6 +1106,54 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
   defp put_array_el(_, _, _), do: :ok
+
+  # ── Captured local setup ──
+
+  defp setup_captured_locals(fun, locals, var_refs, args) do
+    arg_buf = List.to_tuple(args)
+    for {vd, local_idx} <- Enum.with_index(fun.locals), vd.is_captured, reduce: {locals, var_refs} do
+      {acc_locals, acc_vrefs} ->
+        val = cond do
+          local_idx < tuple_size(arg_buf) -> elem(arg_buf, local_idx)
+          true -> elem(acc_locals, local_idx)
+        end
+        acc_locals = put_elem(acc_locals, local_idx, val)
+        ref = make_ref()
+        Process.put({:qb_cell, ref}, val)
+        Process.put({:qb_local_to_vref, local_idx}, vd.var_ref_idx)
+        acc_vrefs = ensure_vref_size(acc_vrefs, vd.var_ref_idx, {:cell, ref})
+        {acc_locals, acc_vrefs}
+    end
+  end
+
+  defp ensure_vref_size(vrefs, idx, val) do
+    vrefs = if idx >= length(vrefs), do: vrefs ++ List.duplicate(:undefined, idx + 1 - length(vrefs)), else: vrefs
+    List.replace_at(vrefs, idx, val)
+  end
+
+  defp read_captured_local(idx, locals, vrefs) do
+    case Process.get({:qb_local_to_vref, idx}) do
+      nil -> elem(locals, idx)
+      vref_idx when vref_idx < length(vrefs) ->
+        case Enum.at(vrefs, vref_idx) do
+          {:cell, _} = cell -> read_cell(cell)
+          other -> other
+        end
+      _ -> elem(locals, idx)
+    end
+  end
+
+  defp write_captured_local(idx, val, _locals, vrefs) do
+    case Process.get({:qb_local_to_vref, idx}) do
+      nil -> :ok
+      vref_idx when vref_idx < length(vrefs) ->
+        case Enum.at(vrefs, vref_idx) do
+          {:cell, _} = cell -> write_cell(cell, val)
+          _ -> :ok
+        end
+      _ -> :ok
+    end
+  end
 
   # ── Mutable cells for closures ──
 
