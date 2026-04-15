@@ -548,8 +548,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       {:put_array_el, []} ->
         [val, idx, obj | rest] = stack
-        # Simplified — real impl needs mutation
-        run(next, rest, gas - 1)
+        put_array_el(obj, idx, val)
+        run(next, [obj | rest], gas - 1)
 
       {:get_length, []} ->
         [obj | rest] = stack
@@ -596,7 +596,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       {:throw, []} ->
         [val | _] = stack
-        throw({:throw, %Throw{value: val}})
+        case Process.get(:qb_catch_stack, []) do
+          [{target, catch_stack} | rest_catch] ->
+            Process.put(:qb_catch_stack, rest_catch)
+            frame = {target, locals, cpool, vrefs, ssz, insns}
+            run(frame, [val | catch_stack], gas - 1)
+          [] ->
+            throw({:throw, %Throw{value: val}})
+        end
 
       {:is_undefined, []} ->
         [a | rest] = stack
@@ -651,10 +658,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       # ── try/catch ──
       {:catch, [target]} ->
-        run(next, stack, gas - 1)
+        catch_stack = Process.get(:qb_catch_stack, [])
+        Process.put(:qb_catch_stack, [{target, stack} | catch_stack])
+        # Push catch offset marker (gets popped by nip_catch or replaced on throw)
+        run(next, [target | stack], gas - 1)
 
       {:nip_catch, []} ->
-        [a, _b | rest] = stack
+        [_ | rest_catch] = Process.get(:qb_catch_stack, [])
+        Process.put(:qb_catch_stack, rest_catch)
+        [a, _catch_offset | rest] = stack
         run(next, [a | rest], gas - 1)
 
       # ── for-in ──
@@ -1035,6 +1047,22 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
   defp get_array_el(obj, idx) when is_list(obj) and is_integer(idx), do: Enum.at(obj, idx, :undefined)
   defp get_array_el(_, _), do: :undefined
+
+  defp put_array_el({:obj, ref}, key, val) do
+    case Process.get({:qb_obj, ref}) do
+      list when is_list(list) ->
+        case key do
+          i when is_integer(i) and i >= 0 and i < length(list) ->
+            Process.put({:qb_obj, ref}, List.replace_at(list, i, val))
+          _ -> :ok
+        end
+      map when is_map(map) ->
+        Process.put({:qb_obj, ref}, Map.put(map, to_string(key), val))
+      nil ->
+        :ok
+    end
+  end
+  defp put_array_el(_, _, _), do: :ok
 
   # ── Mutable cells for closures ──
 

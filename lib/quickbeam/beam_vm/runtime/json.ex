@@ -29,7 +29,7 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
 
   defp stringify([val | _]) do
     try do
-      :json.encode(to_json(val))
+      :json.encode(to_json(val)) |> IO.iodata_to_binary()
     rescue
       ArgumentError -> :undefined
     end
