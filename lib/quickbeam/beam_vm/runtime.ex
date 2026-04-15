@@ -526,10 +526,14 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
 
   defp json_parse(s) when is_binary(s) do
-    json_to_js(:json.decode(s))
-  rescue
-    _ -> throw({:js_throw, "SyntaxError: JSON.parse"})
+    try do
+      json_to_js(:json.decode(s))
+    rescue
+      ArgumentError -> throw({:js_throw, "SyntaxError: JSON.parse"})
+    end
   end
+
+  defp json_parse(_), do: throw({:js_throw, "SyntaxError: JSON.parse"})
 
   defp json_to_js(nil), do: nil
   defp json_to_js(val) when is_map(val) do
@@ -542,9 +546,11 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp json_to_js(val), do: val
 
   defp json_stringify([val | _]) do
-    IO.iodata_to_binary(:json.encode(js_to_json(val)))
-  rescue
-    _ -> :undefined
+    try do
+      :json.encode(js_to_json(val))
+    rescue
+      ArgumentError -> :undefined
+    end
   end
 
   defp js_to_json({:obj, ref}) do

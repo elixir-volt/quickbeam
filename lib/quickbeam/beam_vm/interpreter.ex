@@ -33,7 +33,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     defstruct [:value]
   end
 
-  @default_gas 100_000_000
+  @default_gas 1_000_000_000
 
   @spec eval(Bytecode.Function.t()) :: {:ok, term()} | {:error, term()}
   def eval(%Bytecode.Function{} = fun) do
@@ -466,19 +466,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         run(next, [js_sub(a, 1), a | rest], gas - 1)
 
       {:inc_loc, [idx]} ->
-        val = elem(locals, idx)
-        frame = {pc + 1, put_elem(locals, idx, js_add(val, 1)), cpool, vrefs, ssz, insns}
-        run(next, stack, gas - 1)
+        new_locals = put_elem(locals, idx, js_add(elem(locals, idx), 1))
+        run({pc + 1, new_locals, cpool, vrefs, ssz, insns}, stack, gas - 1)
 
       {:dec_loc, [idx]} ->
-        val = elem(locals, idx)
-        frame = {pc + 1, put_elem(locals, idx, js_sub(val, 1)), cpool, vrefs, ssz, insns}
-        run(next, stack, gas - 1)
+        new_locals = put_elem(locals, idx, js_sub(elem(locals, idx), 1))
+        run({pc + 1, new_locals, cpool, vrefs, ssz, insns}, stack, gas - 1)
 
       {:add_loc, [idx]} ->
         [val | rest] = stack
-        frame = {pc + 1, put_elem(locals, idx, js_add(elem(locals, idx), val)), cpool, vrefs, ssz, insns}
-        run(next, rest, gas - 1)
+        new_locals = put_elem(locals, idx, js_add(elem(locals, idx), val))
+        run({pc + 1, new_locals, cpool, vrefs, ssz, insns}, rest, gas - 1)
 
       {:not, []} ->
         [a | rest] = stack
@@ -637,10 +635,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         run(next, stack, gas - 1)
 
       # ── Computed property access ──
-      {:get_field2, []} ->
-        [key, obj | rest] = stack
+      {:get_field2, [atom_idx]} ->
+        [obj | rest] = stack
+        key = resolve_atom(atom_idx)
         val = Runtime.get_property(obj, key)
-        run(next, [val | rest], gas - 1)
+        # get_field2 pops 1, pushes 2: keeps obj AND pushes property value
+        run(next, [val, obj | rest], gas - 1)
 
       # ── try/catch ──
       {:catch, [target]} ->

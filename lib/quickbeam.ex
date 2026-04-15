@@ -127,8 +127,45 @@ defmodule QuickBEAM do
   """
   @spec eval(runtime(), String.t(), keyword()) :: js_result()
   def eval(runtime, code, opts \\ []) do
-    QuickBEAM.Runtime.eval(runtime, code, opts)
+    if Keyword.get(opts, :mode) == :beam do
+      eval_beam(runtime, code, opts)
+    else
+      QuickBEAM.Runtime.eval(runtime, code, opts)
+    end
   end
+
+  defp eval_beam(runtime, code, _opts) do
+    alias QuickBEAM.BeamVM.{Bytecode, Interpreter}
+    case QuickBEAM.Runtime.compile(runtime, code) do
+      {:ok, bc} ->
+        case Bytecode.decode(bc) do
+          {:ok, parsed} ->
+            result = Interpreter.eval(parsed.value, [], %{gas: 1_000_000_000}, parsed.atoms)
+            convert_beam_result(result)
+          {:error, _} = err -> err
+        end
+      {:error, _} = err -> err
+    end
+  end
+
+  defp convert_beam_result({:ok, {:obj, ref}}) do
+    map = Process.get({:qb_obj, ref}, %{})
+    {:ok, map}
+  end
+  defp convert_beam_result({:ok, {:array, list}}) do
+    {:ok, Enum.map(list, &convert_beam_value/1)}
+  end
+  defp convert_beam_result({:ok, val}), do: {:ok, convert_beam_value(val)}
+  defp convert_beam_result({:error, {:js_throw, val}}), do: {:error, val}
+  defp convert_beam_result({:error, _} = err), do: err
+
+  defp convert_beam_value(:undefined), do: nil
+  defp convert_beam_value({:obj, ref}) do
+    map = Process.get({:qb_obj, ref}, %{})
+    Map.new(map, fn {k, v} -> {k, convert_beam_value(v)} end)
+  end
+  defp convert_beam_value({:array, list}), do: Enum.map(list, &convert_beam_value/1)
+  defp convert_beam_value(v), do: v
 
   @doc """
   Call a global JavaScript function by name.
