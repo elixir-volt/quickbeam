@@ -173,9 +173,6 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
   def to_number(_), do: :nan
 
-  def norm_idx(idx, len) when idx < 0, do: max(len + idx, 0)
-  def norm_idx(idx, len), do: min(idx, len)
-
   def normalize_index(idx, len) when idx < 0, do: max(len + idx, 0)
   def normalize_index(idx, len), do: min(idx, len)
 end

@@ -87,8 +87,8 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
   defp slice(s, args) when is_binary(s) do
     len = String.length(s)
     {start_idx, end_idx} = case args do
-      [st, en] -> {Runtime.norm_idx(st, len), Runtime.norm_idx(en, len)}
-      [st] -> {Runtime.norm_idx(st, len), len}
+      [st, en] -> {Runtime.normalize_index(st, len), Runtime.normalize_index(en, len)}
+      [st] -> {Runtime.normalize_index(st, len), len}
       [] -> {0, len}
     end
     if start_idx < end_idx, do: String.slice(s, start_idx, end_idx - start_idx), else: ""

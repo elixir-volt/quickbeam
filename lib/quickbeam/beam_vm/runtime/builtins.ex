@@ -5,12 +5,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
 
   # ── Number.prototype ──
 
-  def number_proto_property("toString"), do: {:builtin, "toString", fn args, this -> number_toString(this, args) end}
-  def number_proto_property("toFixed"), do: {:builtin, "toFixed", fn args, this -> number_toFixed(this, args) end}
+  def number_proto_property("toString"), do: {:builtin, "toString", fn args, this -> number_to_string(this, args) end}
+  def number_proto_property("toFixed"), do: {:builtin, "toFixed", fn args, this -> number_to_fixed(this, args) end}
   def number_proto_property("valueOf"), do: {:builtin, "valueOf", fn _args, this -> this end}
   def number_proto_property(_), do: :undefined
 
-  defp number_toString(n, [radix | _]) when is_number(n) do
+  defp number_to_string(n, [radix | _]) when is_number(n) do
     case Runtime.to_int(radix) do
       10 -> Float.to_string(n * 1.0) |> String.trim_trailing(".0")
       16 -> Integer.to_string(trunc(n), 16)
@@ -19,12 +19,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
       _ -> Runtime.js_to_string(n)
     end
   end
-  defp number_toString(n, _), do: Runtime.js_to_string(n)
+  defp number_to_string(n, _), do: Runtime.js_to_string(n)
 
-  defp number_toFixed(n, [digits | _]) when is_number(n) do
+  defp number_to_fixed(n, [digits | _]) when is_number(n) do
     :erlang.float_to_binary(n * 1.0, [decimals: Runtime.to_int(digits), compact: false])
   end
-  defp number_toFixed(n, _), do: Runtime.js_to_string(n)
+  defp number_to_fixed(n, _), do: Runtime.js_to_string(n)
 
   # ── Boolean.prototype ──
 
