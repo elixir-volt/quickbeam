@@ -10,6 +10,22 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   def number_proto_property("valueOf"), do: {:builtin, "valueOf", fn _args, this -> this end}
   def number_proto_property(_), do: :undefined
 
+  # ── Number static ──
+
+  def number_static_property("isNaN"), do: {:builtin, "isNaN", fn [a | _] -> a == :nan end}
+  def number_static_property("isFinite"), do: {:builtin, "isFinite", fn [a | _] -> a != :nan and a != :infinity and a != :neg_infinity end}
+  def number_static_property("isInteger"), do: {:builtin, "isInteger", fn [a | _] -> is_integer(a) or (is_float(a) and a == Float.floor(a)) end}
+  def number_static_property("parseInt"), do: {:builtin, "parseInt", fn args -> Builtins.parse_int(args) end}
+  def number_static_property("parseFloat"), do: {:builtin, "parseFloat", fn args -> Builtins.parse_float(args) end}
+  def number_static_property("NaN"), do: :nan
+  def number_static_property("POSITIVE_INFINITY"), do: :infinity
+  def number_static_property("NEGATIVE_INFINITY"), do: :neg_infinity
+  def number_static_property("MAX_SAFE_INTEGER"), do: 9007199254740991
+  def number_static_property("MIN_SAFE_INTEGER"), do: -9007199254740991
+  def number_static_property(_), do: :undefined
+
+  def string_static_property(_), do: :undefined
+
   defp number_to_string(n, [radix | _]) when is_number(n) do
     case Runtime.to_int(radix) do
       10 -> Float.to_string(n * 1.0) |> String.trim_trailing(".0")
@@ -22,7 +38,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   defp number_to_string(n, _), do: Runtime.js_to_string(n)
 
   defp number_to_fixed(n, [digits | _]) when is_number(n) do
-    :erlang.float_to_binary(n * 1.0, [decimals: Runtime.to_int(digits), compact: false])
+    :erlang.float_to_binary(n / 1, [:compact, {:decimals, max(0, Runtime.to_int(digits))}])
   end
   defp number_to_fixed(n, _), do: Runtime.js_to_string(n)
 

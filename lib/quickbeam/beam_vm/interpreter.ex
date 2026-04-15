@@ -628,19 +628,26 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         throw({:error, :invalid_opcode})
 
       {:get_var_undef, [atom_idx]} ->
-        val = resolve_global(atom_idx)
+        val = case resolve_global(atom_idx) do
+          {:found, v} -> v
+          :not_found -> :undefined
+        end
         run(next, [val | stack], gas - 1)
 
       {:get_var, [atom_idx]} ->
-        val = resolve_global(atom_idx)
-        run(next, [val | stack], gas - 1)
+        case resolve_global(atom_idx) do
+          {:found, val} -> run(next, [val | stack], gas - 1)
+          :not_found -> throw({:throw, %Throw{value: %{"message" => "#{resolve_atom(atom_idx)} is not defined", "name" => "ReferenceError"}}})
+        end
 
-      {:put_var, [_atom_idx]} ->
-        [_val | rest] = stack
+      {:put_var, [atom_idx]} ->
+        [val | rest] = stack
+        set_global(atom_idx, val)
         run(next, rest, gas - 1)
 
-      {:put_var_init, [_atom_idx]} ->
-        [_val | rest] = stack
+      {:put_var_init, [atom_idx]} ->
+        [val | rest] = stack
+        set_global(atom_idx, val)
         run(next, rest, gas - 1)
 
       # ── Variable declarations (var/let/const in function scope) ──
@@ -694,15 +701,28 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       # ── new / constructor ──
       {:call_constructor, [argc]} ->
         {args, [ctor | rest]} = Enum.split(stack, argc)
-        case ctor do
-          %Bytecode.Function{} = f ->
-            result = invoke_function(f, Enum.reverse(args), gas)
-            run(next, [result | rest], gas - 1)
+        rev_args = Enum.reverse(args)
+        result = case ctor do
+          %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas)
+          {:builtin, name, cb} when is_function(cb, 1) ->
+            obj = cb.(rev_args)
+            # Add name property for Error constructors
+            case obj do
+              {:obj, ref} ->
+                existing = Process.get({:qb_obj, ref}, %{})
+                unless Map.has_key?(existing, "name") do
+                  Process.put({:qb_obj, ref}, Map.put(existing, "name", name))
+                end
+              _ -> :ok
+            end
+            obj
+          {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas)
           _ ->
             ref = make_ref()
             Process.put({:qb_obj, ref}, %{})
-            run(next, [{:obj, ref} | rest], gas - 1)
+            {:obj, ref}
         end
+        run(next, [result | rest], gas - 1)
 
       {:init_ctor, []} ->
         run(next, stack, gas - 1)
@@ -734,12 +754,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       # ── spread / array construction ──
       {:append, []} ->
-        [arr, obj | rest] = stack
-        arr2 = case obj do
-          list when is_list(list) -> arr ++ list
-          _ -> arr
+        # Stack: [obj, idx, arr] → [idx+len, arr']
+        # Appends obj's elements to arr, returns updated idx and arr
+        [obj, idx, arr | rest] = stack
+        {arr2, new_idx} = case obj do
+          list when is_list(list) -> {arr ++ list, idx + length(list)}
+          {:obj, ref} ->
+            stored = Process.get({:qb_obj, ref}, [])
+            {arr ++ stored, idx + length(stored)}
+          _ -> {arr, idx}
         end
-        run(next, [arr2 | rest], gas - 1)
+        run(next, [arr2, new_idx | rest], gas - 1)
 
       {:define_array_el, []} ->
         [val, idx, obj | rest] = stack
@@ -878,6 +903,172 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       {:private_symbol, []} ->
         run(next, [:undefined | stack], gas - 1)
+
+      # ── Argument mutation ──
+      {:set_arg, [idx]} ->
+        [val | rest] = stack
+        arg_buf = Process.get(:qb_arg_buf, {})
+        if idx < tuple_size(arg_buf) do
+          Process.put(:qb_arg_buf, put_elem(arg_buf, idx, val))
+        end
+        run(next, [val | rest], gas - 1)
+
+      {:set_arg0, []} ->
+        [val | rest] = stack
+        arg_buf = Process.get(:qb_arg_buf, {})
+        Process.put(:qb_arg_buf, put_elem(arg_buf, 0, val))
+        run(next, [val | rest], gas - 1)
+
+      {:set_arg1, []} ->
+        [val | rest] = stack
+        arg_buf = Process.get(:qb_arg_buf, {})
+        if tuple_size(arg_buf) > 1 do
+          Process.put(:qb_arg_buf, put_elem(arg_buf, 1, val))
+        end
+        run(next, [val | rest], gas - 1)
+
+      {:set_arg2, []} ->
+        [val | rest] = stack
+        arg_buf = Process.get(:qb_arg_buf, {})
+        if tuple_size(arg_buf) > 2 do
+          Process.put(:qb_arg_buf, put_elem(arg_buf, 2, val))
+        end
+        run(next, [val | rest], gas - 1)
+
+      {:set_arg3, []} ->
+        [val | rest] = stack
+        arg_buf = Process.get(:qb_arg_buf, {})
+        if tuple_size(arg_buf) > 3 do
+          Process.put(:qb_arg_buf, put_elem(arg_buf, 3, val))
+        end
+        run(next, [val | rest], gas - 1)
+
+      # ── Array element access (2-element push) ──
+      {:get_array_el2, []} ->
+        [idx, obj | rest] = stack
+        val = Runtime.get_property(obj, idx)
+        run(next, [val, obj | rest], gas - 1)
+
+      # ── Spread/rest via apply ──
+      {:apply, [_magic]} ->
+        # Stack: [arg_array, this_arg, func] → result
+        # Like Function.prototype.apply(func, this_arg, arg_array)
+        [arg_array, this_obj, fun | rest] = stack
+        args = case arg_array do
+          list when is_list(list) -> list
+          {:obj, ref} ->
+            stored = Process.get({:qb_obj, ref}, [])
+            if is_list(stored), do: stored, else: []
+          _ -> []
+        end
+        result = case fun do
+          %Bytecode.Function{} = f -> invoke_function(f, args, gas)
+          {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, args, gas)
+          {:builtin, _name, cb} when is_function(cb, 2) -> cb.(args, this_obj)
+          {:builtin, _name, cb} when is_function(cb, 3) -> cb.(args, this_obj, self())
+          {:builtin, _name, cb} when is_function(cb, 1) -> cb.(args)
+          f when is_function(f) -> apply(f, [this_obj | args])
+          _ -> throw({:error, {:not_a_function, fun}})
+        end
+        run(next, [result | rest], gas - 1)
+
+      # ── Object spread ──
+      {:copy_data_properties, [_flags]} ->
+        # Stack: [src, dst] → copies properties from src to dst
+        [src, dst | rest] = stack
+        src_props = case src do
+          {:obj, ref} -> Process.get({:qb_obj, ref}, %{})
+          map when is_map(map) -> map
+          _ -> %{}
+        end
+        dst = case dst do
+          {:obj, ref} ->
+            existing = Process.get({:qb_obj, ref}, %{})
+            merged = Map.merge(existing, src_props)
+            Process.put({:qb_obj, ref}, merged)
+            {:obj, ref}
+          map when is_map(map) ->
+            Map.merge(map, src_props)
+          other -> other
+        end
+        run(next, [dst | rest], gas - 1)
+
+      # ── for...of iterator ──
+      {:for_of_next, [_idx]} ->
+        # Stack: [iter_obj] → pushes [value, iter_obj, done_flag]
+        case stack do
+          [{:iterator, items, pos} | rest] when is_list(items) ->
+            if pos < length(items) do
+              val = Enum.at(items, pos)
+              run(next, [val, {:iterator, items, pos + 1}, false | rest], gas - 1)
+            else
+              run(next, [:undefined, {:iterator, items, pos}, true | rest], gas - 1)
+            end
+          [iterable | rest] ->
+            # Convert to iterator on first call
+            items = case iterable do
+              list when is_list(list) -> list
+              _ -> []
+            end
+            if length(items) > 0 do
+              val = hd(items)
+              run(next, [val, {:iterator, items, 1}, false | rest], gas - 1)
+            else
+              run(next, [:undefined, {:iterator, [], 0}, true | rest], gas - 1)
+            end
+        end
+
+      # ── Class definitions ──
+      {:define_class, [atom_idx, _flags]} ->
+        # Stack: [parent_ctor, ctor] → creates class with prototype chain
+        [parent_ctor, ctor | rest] = stack
+        name = resolve_atom(atom_idx)
+        # Create prototype object
+        proto = case ctor do
+          %Bytecode.Function{} = f ->
+            proto = %{"constructor" => {:closure, %{}, f}}
+            ref = make_ref()
+            Process.put({:qb_obj, ref}, proto)
+            # If parent is a function, set up inheritance
+            case parent_ctor do
+              {:closure, _, %Bytecode.Function{}} -> :ok
+              %Bytecode.Function{} -> :ok
+              _ -> :ok
+            end
+            {:obj, ref}
+          closure ->
+            proto = %{"constructor" => closure}
+            ref = make_ref()
+            Process.put({:qb_obj, ref}, proto)
+            {:obj, ref}
+        end
+        run(next, [ctor, proto | rest], gas - 1)
+
+      {:define_method, [atom_idx, _flags]} ->
+        # Stack: [home_obj, target_obj, method_closure]
+        # Defines method on target_obj, pushes home_obj back
+        [method_closure, target | rest] = stack
+        name = resolve_atom(atom_idx)
+        case target do
+          {:obj, ref} ->
+            proto = Process.get({:qb_obj, ref}, %{})
+            Process.put({:qb_obj, ref}, Map.put(proto, name, method_closure))
+          map when is_map(map) -> :ok  # can't mutate a plain map
+          _ -> :ok
+        end
+        # Pop method and target, keep rest
+        run(next, rest, gas - 1)
+
+      {:define_method_computed, [_flags]} ->
+        # Stack: [home_obj, field_name, target_obj, method_closure]
+        [method_closure, target, field_name | rest] = stack
+        case target do
+          {:obj, ref} ->
+            proto = Process.get({:qb_obj, ref}, %{})
+            Process.put({:qb_obj, ref}, Map.put(proto, field_name, method_closure))
+          _ -> :ok
+        end
+        run(next, rest, gas - 1)
 
       {name, args} ->
         throw({:error, {:unimplemented_opcode, name, args}})
@@ -1289,10 +1480,16 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp resolve_global(atom_idx) do
     name = resolve_atom(atom_idx)
     globals = Process.get(:qb_globals, %{})
-    case Map.get(globals, name) do
-      nil -> :undefined
-      val -> val
+    case Map.fetch(globals, name) do
+      {:ok, val} -> {:found, val}
+      :error -> :not_found
     end
+  end
+
+  defp set_global(atom_idx, val) do
+    name = resolve_atom(atom_idx)
+    globals = Process.get(:qb_globals, %{})
+    Process.put(:qb_globals, Map.put(globals, name, val))
   end
 
   # ── Atom resolution ──

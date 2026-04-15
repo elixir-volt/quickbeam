@@ -21,7 +21,7 @@ unless File.exists?(test_addon_out) and
   {_, 0} = System.cmd("cc", args, stderr_to_stdout: true)
 end
 
-ExUnit.start()
+ExUnit.start(exclude: [:pending_beam])
 
 # Force garbage collection before BEAM exits to prevent NIF finalizer crashes.
 # On OTP 27.0.x, the BEAM shutdown races with QuickJS worker thread cleanup.

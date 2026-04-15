@@ -102,6 +102,8 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_prototype_property({:builtin, "Error", _}, key), do: Builtins.error_static_property(key)
   defp get_prototype_property({:builtin, "Array", _}, key), do: Array.static_property(key)
   defp get_prototype_property({:builtin, "Object", _}, key), do: Object.static_property(key)
+  defp get_prototype_property({:builtin, "Number", _}, key), do: Builtins.number_static_property(key)
+  defp get_prototype_property({:builtin, "String", _}, key), do: Builtins.string_static_property(key)
   defp get_prototype_property(_, _), do: :undefined
 
   # ── Callback dispatch (used by higher-order array methods) ──
