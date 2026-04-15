@@ -16,7 +16,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     - array: {:array, list(), reference()}
   """
 
-  alias QuickBEAM.BeamVM.{Bytecode, Decoder}
+  alias QuickBEAM.BeamVM.{Bytecode, Decoder, Runtime, PredefinedAtoms}
   import Bitwise
 
   defmodule Error do
@@ -49,6 +49,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   def eval(%Bytecode.Function{} = fun, args, opts, atoms) do
     gas = Map.get(opts, :gas, @default_gas)
     Process.put(:qb_atoms, atoms)
+    unless Process.get(:qb_globals) do
+      Process.put(:qb_globals, Runtime.global_bindings())
+    end
 
     case Decoder.decode(fun.byte_code) do
       {:ok, instructions} ->
@@ -525,7 +528,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:get_field, [atom_idx]} ->
         [obj | rest] = stack
         key = resolve_atom(atom_idx)
-        val = obj_get(obj, key)
+        val = Runtime.get_property(obj, key)
         run(next, [val | rest], gas - 1)
 
       {:put_field, [atom_idx]} ->
@@ -605,11 +608,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:invalid, []} ->
         throw({:error, :invalid_opcode})
 
-      {:get_var_undef, [_atom_idx]} ->
-        run(next, [:undefined | stack], gas - 1)
+      {:get_var_undef, [atom_idx]} ->
+        val = resolve_global(atom_idx)
+        run(next, [val | stack], gas - 1)
 
-      {:get_var, [_atom_idx]} ->
-        run(next, [:undefined | stack], gas - 1)
+      {:get_var, [atom_idx]} ->
+        val = resolve_global(atom_idx)
+        run(next, [val | stack], gas - 1)
 
       {:put_var, [_atom_idx]} ->
         [_val | rest] = stack
@@ -634,7 +639,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       # ── Computed property access ──
       {:get_field2, []} ->
         [key, obj | rest] = stack
-        val = get_property(obj, key)
+        val = Runtime.get_property(obj, key)
         run(next, [val | rest], gas - 1)
 
       # ── try/catch ──
@@ -888,6 +893,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     result = case fun do
       %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas)
       {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas)
+      {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
       f when is_function(f) -> apply(f, rev_args)
       _ -> throw({:error, {:not_a_function, fun}})
     end
@@ -900,6 +906,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     result = case fun do
       %Bytecode.Function{} = f -> invoke_function(f, [obj | rev_args], gas)
       {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, [obj | rev_args], gas)
+      {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, obj)
+      {:builtin, _name, cb} when is_function(cb, 3) -> cb.(rev_args, obj, :no_interp)
+      {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
+      f when is_function(f) -> apply(f, [obj | rev_args])
       _ -> throw({:error, {:not_a_function, fun}})
     end
     run({_pc + 1, locals, cpool, vrefs, ssz, insns}, [result | rest], gas - 1)
@@ -1152,12 +1162,28 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     if idx < tuple_size(arg_buf), do: elem(arg_buf, idx), else: :undefined
   end
 
+  # ── Global variable resolution ──
+
+  defp resolve_global(atom_idx) do
+    name = resolve_atom(atom_idx)
+    globals = Process.get(:qb_globals, %{})
+    case Map.get(globals, name) do
+      nil -> :undefined
+      val -> val
+    end
+  end
+
   # ── Atom resolution ──
 
   @js_atom_end 229
 
   defp resolve_atom(:empty_string), do: ""
-  defp resolve_atom({:predefined, idx}) when idx < @js_atom_end, do: {:predefined_atom, idx}
+  defp resolve_atom({:predefined, idx}) when idx < @js_atom_end do
+    case PredefinedAtoms.lookup(idx) do
+      nil -> {:predefined_atom, idx}
+      name -> name
+    end
+  end
   defp resolve_atom({:tagged_int, val}), do: val
   defp resolve_atom(idx) when is_integer(idx) and idx >= 0 do
     atoms = Process.get(:qb_atoms, {})
