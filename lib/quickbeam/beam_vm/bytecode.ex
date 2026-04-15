@@ -332,7 +332,8 @@ defmodule QuickBEAM.BeamVM.Bytecode do
       super_call_allowed: band(bsr(v16, 7), 1) == 1,
       super_allowed: band(bsr(v16, 8), 1) == 1,
       arguments_allowed: band(bsr(v16, 9), 1) == 1,
-      has_debug_info: band(bsr(v16, 10), 1) == 1
+      backtrace_barrier: band(bsr(v16, 10), 1) == 1,
+      has_debug_info: band(bsr(v16, 11), 1) == 1
     }
   end
 
@@ -420,10 +421,22 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   defp skip_debug_info(data, false, _atoms), do: data
   defp skip_debug_info(data, true, atoms) do
     with {:ok, _filename, rest} <- read_atom_ref(data, atoms),
-         {:ok, _line_num, rest} <- LEB128.read_signed(rest) do
+         {:ok, _line_num, rest} <- LEB128.read_signed(rest),
+         {:ok, _col_num, rest} <- LEB128.read_signed(rest),
+         {:ok, pc2line_len, rest} <- LEB128.read_signed(rest),
+         {:ok, rest} <- skip_bytes(rest, pc2line_len),
+         {:ok, source_len, rest} <- LEB128.read_signed(rest),
+         {:ok, rest} <- skip_bytes(rest, source_len) do
       rest
     else
       {:error, _} -> data
     end
   end
+
+  defp skip_bytes(data, 0), do: {:ok, data}
+  defp skip_bytes(data, n) when byte_size(data) >= n do
+    <<_::binary-size(n), rest::binary>> = data
+    {:ok, rest}
+  end
+  defp skip_bytes(_, _), do: {:error, :unexpected_end}
 end
