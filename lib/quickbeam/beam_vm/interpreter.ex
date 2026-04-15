@@ -434,11 +434,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       {:strict_eq, []} ->
         [b, a | rest] = stack
-        run(next, [a === b | rest], gas - 1)
+        run(next, [js_strict_eq(a, b) | rest], gas - 1)
 
       {:strict_neq, []} ->
         [b, a | rest] = stack
-        run(next, [a !== b | rest], gas - 1)
+        run(next, [not js_strict_eq(a, b) | rest], gas - 1)
 
       # ── Unary ──
       {:neg, []} ->
@@ -554,7 +554,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:get_length, []} ->
         [obj | rest] = stack
         len = case obj do
-          {:obj, ref} -> map_size(Process.get({:qb_obj, ref}, %{}))
+          {:obj, ref} ->
+            case Process.get({:qb_obj, ref}) do
+              list when is_list(list) -> length(list)
+              map -> map_size(map)
+            end
           list when is_list(list) -> length(list)
           s when is_binary(s) -> String.length(s)
           _ -> :undefined
@@ -563,7 +567,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       {:array_from, [argc]} ->
         {elems, rest} = Enum.split(stack, argc)
-        run(next, [Enum.reverse(elems) | rest], gas - 1)
+        arr = Enum.reverse(elems)
+        ref = System.unique_integer([:positive])
+        Process.put({:qb_obj, ref}, arr)
+        run(next, [{:obj, ref} | rest], gas - 1)
 
       # ── Misc ──
       {:nop, []} ->
@@ -851,19 +858,27 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp tail_call(stack, argc, gas) do
     {args, [fun | _rest]} = Enum.split(stack, argc)
+    rev_args = Enum.reverse(args)
     result = case fun do
-      %Bytecode.Function{} = f -> invoke_function(f, Enum.reverse(args), gas)
-      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, Enum.reverse(args), gas)
+      %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas)
+      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas)
+      {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
+      f when is_function(f) -> apply(f, rev_args)
       _ -> throw({:error, {:not_a_function, fun}})
     end
     throw({:return, %Return{value: result}})
   end
 
   defp tail_call_method(stack, argc, gas) do
-    {args, [fun, _obj | _rest]} = Enum.split(stack, argc)
+    {args, [fun, obj | _rest]} = Enum.split(stack, argc)
+    rev_args = Enum.reverse(args)
     result = case fun do
-      %Bytecode.Function{} = f -> invoke_function(f, Enum.reverse(args), gas)
-      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, Enum.reverse(args), gas)
+      %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas)
+      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas)
+      {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, obj)
+      {:builtin, _name, cb} when is_function(cb, 3) -> cb.(rev_args, obj, :no_interp)
+      {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
+      f when is_function(f) -> apply(f, [obj | rev_args])
       _ -> throw({:error, {:not_a_function, fun}})
     end
     throw({:return, %Return{value: result}})
@@ -915,11 +930,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run({_pc + 1, locals, cpool, vrefs, ssz, insns}, [result | rest], gas - 1)
   end
 
-  defp invoke_function(%Bytecode.Function{} = fun, args, gas) do
+  def invoke_function(%Bytecode.Function{} = fun, args, gas) do
     do_invoke(fun, args, [], gas)
   end
 
-  defp invoke_closure({:closure, captured, %Bytecode.Function{} = fun}, args, gas) do
+  def invoke_closure({:closure, captured, %Bytecode.Function{} = fun}, args, gas) do
     # Build var_refs from captured values
     # The closure_vars list maps var_ref indices to parent local indices
     var_refs = for cv <- fun.closure_vars do
@@ -1012,6 +1027,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp has_property(obj, key) when is_list(obj) and is_integer(key), do: key >= 0 and key < length(obj)
   defp has_property(_, _), do: false
 
+  defp get_array_el({:obj, ref}, idx) when is_integer(idx) do
+    case Process.get({:qb_obj, ref}) do
+      list when is_list(list) -> Enum.at(list, idx, :undefined)
+      _ -> :undefined
+    end
+  end
   defp get_array_el(obj, idx) when is_list(obj) and is_integer(idx), do: Enum.at(obj, idx, :undefined)
   defp get_array_el(_, _), do: :undefined
 
@@ -1055,6 +1076,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp js_to_int32(_), do: 0
 
   defp js_typeof(:undefined), do: "undefined"
+  defp js_typeof(:nan), do: "number"
+  defp js_typeof(:infinity), do: "number"
   defp js_typeof(nil), do: "object"
   defp js_typeof(true), do: "boolean"
   defp js_typeof(false), do: "boolean"
@@ -1062,7 +1085,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp js_typeof(val) when is_binary(val), do: "string"
   defp js_typeof(%Bytecode.Function{}), do: "function"
   defp js_typeof({:closure, _, %Bytecode.Function{}}), do: "function"
+  defp js_typeof({:builtin, _, _}), do: "function"
   defp js_typeof(_), do: "object"
+
+  defp js_strict_eq(:nan, :nan), do: false
+  defp js_strict_eq(a, b), do: a === b
 
   # ── Arithmetic (numeric only — string concat handled separately) ──
 

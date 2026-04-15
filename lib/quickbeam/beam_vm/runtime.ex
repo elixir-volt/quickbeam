@@ -34,6 +34,9 @@ defmodule QuickBEAM.BeamVM.Runtime do
       "isFinite" => {:builtin, "isFinite", fn args -> builtin_isFinite(args) end},
       "NaN" => :nan,
       "Infinity" => :infinity,
+      "console" => console_object(),
+      "NaN" => :nan,
+      "Infinity" => :infinity,
       "undefined" => :undefined,
       "console" => console_object(),
       "Symbol" => {:builtin, "Symbol", symbol_constructor()},
@@ -54,6 +57,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property({:obj, ref}, key) do
     case Process.get({:qb_obj, ref}) do
       nil -> :undefined
+      list when is_list(list) -> get_own_property(list, key)
       map -> Map.get(map, key, :undefined)
     end
   end
@@ -69,10 +73,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
   defp get_own_property(s, "length") when is_binary(s), do: String.length(s)
   defp get_own_property(s, key) when is_binary(s) do
-    case String.prototype_method(key) do
-      nil -> :undefined
-      fun -> {:builtin, key, fun}
-    end
+    string_proto_property(key)
   end
   defp get_own_property(n, _) when is_number(n), do: :undefined
   defp get_own_property(true, _), do: :undefined
@@ -85,6 +86,12 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property({:regexp, _, _}, key), do: regexp_proto_property(key)
   defp get_own_property(_, _), do: :undefined
 
+  defp get_prototype_property({:obj, ref}, key) do
+    case Process.get({:qb_obj, ref}) do
+      list when is_list(list) -> array_proto_property(key)
+      _ -> :undefined
+    end
+  end
   defp get_prototype_property(list, key) when is_list(list), do: array_proto_property(key)
   defp get_prototype_property(s, key) when is_binary(s), do: string_proto_property(key)
   defp get_prototype_property(n, key) when is_number(n), do: number_proto_property(key)
@@ -121,43 +128,52 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp array_proto_property("toString"), do: {:builtin, "toString", fn _args, this -> array_join(this, [","]) end}
   defp array_proto_property(_), do: :undefined
 
-  defp array_push(list, args) when is_list(list) do
+  defp array_push({:obj, ref}, args) do
+    list = Process.get({:qb_obj, ref}, [])
     new_list = list ++ args
-    put_back_array(list, new_list)
+    Process.put({:qb_obj, ref}, new_list)
     length(new_list)
   end
-  defp array_push({:obj, ref}, args) do
-    map = Process.get({:qb_obj, ref}, %{})
-    len = Map.get(map, "length", 0)
-    new_map = Enum.reduce(Enum.with_index(args), map, fn {val, i}, acc ->
-      Map.put(acc, Integer.to_string(len + i), val)
-    end) |> Map.put("length", len + length(args))
-    Process.put({:qb_obj, ref}, new_map)
-    len + length(args)
-  end
-  defp array_push(_, _), do: 0
+  defp array_push(list, args) when is_list(list), do: length(list ++ args)
 
+  defp array_pop({:obj, ref}, _) do
+    list = Process.get({:qb_obj, ref}, [])
+    case List.pop_at(list, -1) do
+      {nil, _} -> :undefined
+      {last, rest} -> Process.put({:qb_obj, ref}, rest); last
+    end
+  end
   defp array_pop(list, _) when is_list(list) and length(list) > 0 do
-    [last | rest] = Enum.reverse(list)
-    put_back_array(list, Enum.reverse(rest))
-    last
+    List.last(list)
   end
   defp array_pop(_, _), do: :undefined
 
-  defp array_shift(list, _) when is_list(list) and length(list) > 0 do
-    [first | rest] = list
-    put_back_array(list, rest)
-    first
+  defp array_shift({:obj, ref}, _) do
+    list = Process.get({:qb_obj, ref}, [])
+    case list do
+      [first | rest] -> Process.put({:qb_obj, ref}, rest); first
+      _ -> :undefined
+    end
   end
   defp array_shift(_, _), do: :undefined
 
-  defp array_unshift(list, args) when is_list(list) do
+  defp array_unshift({:obj, ref}, args) do
+    list = Process.get({:qb_obj, ref}, [])
     new_list = args ++ list
-    put_back_array(list, new_list)
+    Process.put({:qb_obj, ref}, new_list)
     length(new_list)
   end
   defp array_unshift(_, _), do: 0
 
+  defp array_map({:obj, ref}, [fun | _], interp) do
+    list = Process.get({:qb_obj, ref}, [])
+    result = Enum.map(Enum.with_index(list), fn {val, idx} ->
+      call_builtin_callback(fun, [val, idx, list], interp)
+    end)
+    new_ref = System.unique_integer([:positive])
+    Process.put({:qb_obj, new_ref}, result)
+    {:obj, new_ref}
+  end
   defp array_map(list, [fun | _], interp) when is_list(list) and length(list) > 0 do
     Enum.map(Enum.with_index(list), fn {val, idx} ->
       call_builtin_callback(fun, [val, idx, list], interp)
@@ -165,6 +181,15 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
   defp array_map(list, _, _), do: list
 
+  defp array_filter({:obj, ref}, [fun | _], interp) do
+    list = Process.get({:qb_obj, ref}, [])
+    result = Enum.filter(Enum.with_index(list), fn {val, idx} ->
+      js_truthy(call_builtin_callback(fun, [val, idx, list], interp))
+    end) |> Enum.map(fn {val, _} -> val end)
+    new_ref = System.unique_integer([:positive])
+    Process.put({:qb_obj, new_ref}, result)
+    {:obj, new_ref}
+  end
   defp array_filter(list, [fun | _], interp) when is_list(list) do
     Enum.filter(Enum.with_index(list), fn {val, idx} ->
       js_truthy(call_builtin_callback(fun, [val, idx, list], interp))
@@ -184,6 +209,13 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp array_reduce([], [_, init | _], _), do: init
   defp array_reduce([val], _, _), do: val
 
+  defp array_forEach({:obj, ref}, [fun | _], interp) do
+    list = Process.get({:qb_obj, ref}, [])
+    Enum.each(Enum.with_index(list), fn {val, idx} ->
+      call_builtin_callback(fun, [val, idx, list], interp)
+    end)
+    :undefined
+  end
   defp array_forEach(list, [fun | _], interp) when is_list(list) do
     Enum.each(Enum.with_index(list), fn {val, idx} ->
       call_builtin_callback(fun, [val, idx, list], interp)
@@ -192,6 +224,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
   defp array_forEach(_, _, _), do: :undefined
 
+  defp array_indexOf({:obj, ref}, args), do: array_indexOf(Process.get({:qb_obj, ref}, []), args)
   defp array_indexOf(list, [val | rest]) when is_list(list) do
     from = case rest do [f] when is_integer(f) and f >= 0 -> f; _ -> 0 end
     list |> Enum.drop(from) |> Enum.find_index(&js_strict_eq(&1, val)) |> then(fn
@@ -201,12 +234,14 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
   defp array_indexOf(_, _), do: -1
 
+  defp array_includes({:obj, ref}, args), do: array_includes(Process.get({:qb_obj, ref}, []), args)
   defp array_includes(list, [val | rest]) when is_list(list) do
     from = case rest do [f] when is_integer(f) and f >= 0 -> f; _ -> 0 end
     list |> Enum.drop(from) |> Enum.any?(&js_strict_eq(&1, val))
   end
   defp array_includes(_, _), do: false
 
+  defp array_slice({:obj, ref}, args), do: array_slice(Process.get({:qb_obj, ref}, []), args)
   defp array_slice(list, args) when is_list(list) do
     {start_idx, end_idx} = slice_args(list, args)
     list |> Enum.slice(start_idx, max(end_idx - start_idx, 0))
@@ -227,6 +262,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
   defp array_splice(list, _), do: list
 
+  defp array_join({:obj, ref}, args), do: array_join(Process.get({:qb_obj, ref}, []), args)
   defp array_join(list, [sep | _]) when is_list(list), do: array_join_with(list, sep)
   defp array_join(list, []) when is_list(list), do: array_join_with(list, ",")
   defp array_join(_, _), do: ""
@@ -235,20 +271,38 @@ defmodule QuickBEAM.BeamVM.Runtime do
     list |> Enum.map(&js_to_string/1) |> Enum.join(to_string(sep))
   end
 
+  defp array_concat({:obj, ref}, args) do
+    list = Process.get({:qb_obj, ref}, [])
+    result = Enum.reduce(args, list, &concat_item(&1, &2))
+    new_ref = System.unique_integer([:positive])
+    Process.put({:qb_obj, new_ref}, result)
+    {:obj, new_ref}
+  end
   defp array_concat(list, args) when is_list(list) do
-    reducer = Enum.reduce(args, fn list -> list end, fn
-      a when is_list(a) -> fn acc -> acc ++ a end
-      val -> fn acc -> acc ++ [val] end
-    end)
-    reducer.(list)
+    Enum.reduce(args, list, &concat_item(&1, &2))
   end
 
+  defp concat_item({:obj, r}, acc), do: acc ++ Process.get({:qb_obj, r}, [])
+  defp concat_item(a, acc) when is_list(a), do: acc ++ a
+  defp concat_item(val, acc), do: acc ++ [val]
+
+  defp array_reverse({:obj, ref}, _) do
+    list = Process.get({:qb_obj, ref}, [])
+    Process.put({:qb_obj, ref}, Enum.reverse(list))
+    {:obj, ref}
+  end
   defp array_reverse(list, _) when is_list(list), do: Enum.reverse(list)
   defp array_reverse(_, _), do: []
 
+  defp array_sort({:obj, ref}, _) do
+    list = Process.get({:qb_obj, ref}, [])
+    Process.put({:qb_obj, ref}, Enum.sort(list, fn a, b -> js_to_string(a) < js_to_string(b) end))
+    {:obj, ref}
+  end
   defp array_sort(list, _) when is_list(list), do: Enum.sort(list)
-  defp array_sort(_, _), do: []
 
+  defp array_flat({:obj, ref}, args), do: array_flat(Process.get({:qb_obj, ref}, []), args)
+  defp array_flat({:obj, ref}, args), do: array_flat(Process.get({:qb_obj, ref}, []), args)
   defp array_flat(list, _) when is_list(list) do
     Enum.flat_map(list, fn
       a when is_list(a) -> a
@@ -257,6 +311,8 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
   defp array_flat(_, _), do: []
 
+  defp array_find({:obj, ref}, args, interp), do: array_find(Process.get({:qb_obj, ref}, []), args, interp)
+  defp array_find({:obj, ref}, args, interp), do: array_find(Process.get({:qb_obj, ref}, []), args, interp)
   defp array_find(list, [fun | _], interp) when is_list(list) do
     Enum.find_value(Enum.with_index(list), :undefined, fn {val, idx} ->
       if js_truthy(call_builtin_callback(fun, [val, idx, list], interp)), do: val
@@ -264,6 +320,8 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
   defp array_find(_, _, _), do: :undefined
 
+  defp array_findIndex({:obj, ref}, args, interp), do: array_findIndex(Process.get({:qb_obj, ref}, []), args, interp)
+  defp array_findIndex({:obj, ref}, args, interp), do: array_findIndex(Process.get({:qb_obj, ref}, []), args, interp)
   defp array_findIndex(list, [fun | _], interp) when is_list(list) do
     Enum.find_value(Enum.with_index(list), -1, fn {val, idx} ->
       if js_truthy(call_builtin_callback(fun, [val, idx, list], interp)), do: idx
@@ -271,6 +329,8 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
   defp array_findIndex(_, _, _), do: -1
 
+  defp array_every({:obj, ref}, args, interp), do: array_every(Process.get({:qb_obj, ref}, []), args, interp)
+  defp array_every({:obj, ref}, args, interp), do: array_every(Process.get({:qb_obj, ref}, []), args, interp)
   defp array_every(list, [fun | _], interp) when is_list(list) do
     Enum.all?(Enum.with_index(list), fn {val, idx} ->
       js_truthy(call_builtin_callback(fun, [val, idx, list], interp))
@@ -278,6 +338,8 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
   defp array_every(_, _, _), do: true
 
+  defp array_some({:obj, ref}, args, interp), do: array_some(Process.get({:qb_obj, ref}, []), args, interp)
+  defp array_some({:obj, ref}, args, interp), do: array_some(Process.get({:qb_obj, ref}, []), args, interp)
   defp array_some(list, [fun | _], interp) when is_list(list) do
     Enum.any?(Enum.with_index(list), fn {val, idx} ->
       js_truthy(call_builtin_callback(fun, [val, idx, list], interp))
@@ -347,8 +409,8 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   defp str_indexOf(s, [sub | rest]) when is_binary(s) and is_binary(sub) do
     from = case rest do [f | _] when is_integer(f) and f >= 0 -> f; _ -> 0 end
-    case :binary.match(s, sub, scope: {:start, from}) do
-      {pos, _} -> pos
+    case :binary.match(s, sub) do
+      {pos, _} -> if pos >= from, do: pos, else: (case :binary.match(s, sub, [{:scope, {from, byte_size(s) - from}}]) do {pos2, _} -> pos2; :nomatch -> -1 end)
       :nomatch -> -1
     end
   end
@@ -490,8 +552,8 @@ defmodule QuickBEAM.BeamVM.Runtime do
       "ceil" => {:builtin, "ceil", fn [a | _] -> ceil(to_float(a)) end},
       "round" => {:builtin, "round", fn [a | _] -> round(to_float(a)) end},
       "abs" => {:builtin, "abs", fn [a | _] -> abs(a) end},
-      "max" => {:builtin, "max", fn args -> Enum.max(Enum.map(args, &to_float/1)) end},
-      "min" => {:builtin, "min", fn args -> Enum.min(Enum.map(args, &to_float/1)) end},
+      "max" => {:builtin, "max", fn args -> Enum.max(args) end},
+      "min" => {:builtin, "min", fn args -> Enum.min(args) end},
       "sqrt" => {:builtin, "sqrt", fn [a | _] -> :math.sqrt(to_float(a)) end},
       "pow" => {:builtin, "pow", fn [a, b | _] -> :math.pow(to_float(a), to_float(b)) end},
       "random" => {:builtin, "random", fn _ -> :rand.uniform() end},
@@ -547,7 +609,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   defp json_stringify([val | _]) do
     try do
-      :json.encode(js_to_json(val))
+      :json.encode(js_to_json(val)) |> IO.iodata_to_binary()
     rescue
       ArgumentError -> :undefined
     end

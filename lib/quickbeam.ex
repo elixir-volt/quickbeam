@@ -149,11 +149,7 @@ defmodule QuickBEAM do
   end
 
   defp convert_beam_result({:ok, {:obj, ref}}) do
-    map = Process.get({:qb_obj, ref}, %{})
-    {:ok, map}
-  end
-  defp convert_beam_result({:ok, {:array, list}}) do
-    {:ok, Enum.map(list, &convert_beam_value/1)}
+    {:ok, convert_beam_value({:obj, ref})}
   end
   defp convert_beam_result({:ok, val}), do: {:ok, convert_beam_value(val)}
   defp convert_beam_result({:error, {:js_throw, val}}), do: {:error, val}
@@ -161,10 +157,12 @@ defmodule QuickBEAM do
 
   defp convert_beam_value(:undefined), do: nil
   defp convert_beam_value({:obj, ref}) do
-    map = Process.get({:qb_obj, ref}, %{})
-    Map.new(map, fn {k, v} -> {k, convert_beam_value(v)} end)
+    case Process.get({:qb_obj, ref}) do
+      nil -> nil
+      list when is_list(list) -> Enum.map(list, &convert_beam_value/1)
+      map when is_map(map) -> Map.new(map, fn {k, v} -> {k, convert_beam_value(v)} end)
+    end
   end
-  defp convert_beam_value({:array, list}), do: Enum.map(list, &convert_beam_value/1)
   defp convert_beam_value(v), do: v
 
   @doc """
