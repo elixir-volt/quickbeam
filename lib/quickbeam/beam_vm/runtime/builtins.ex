@@ -1,0 +1,193 @@
+defmodule QuickBEAM.BeamVM.Runtime.Builtins do
+  @moduledoc "Math, Number, Boolean, Console, constructors, and global functions."
+
+  alias QuickBEAM.BeamVM.Runtime
+
+  # ── Number.prototype ──
+
+  def number_proto_property("toString"), do: {:builtin, "toString", fn args, this -> number_toString(this, args) end}
+  def number_proto_property("toFixed"), do: {:builtin, "toFixed", fn args, this -> number_toFixed(this, args) end}
+  def number_proto_property("valueOf"), do: {:builtin, "valueOf", fn _args, this -> this end}
+  def number_proto_property(_), do: :undefined
+
+  defp number_toString(n, [radix | _]) when is_number(n) do
+    case Runtime.to_int(radix) do
+      10 -> Float.to_string(n * 1.0) |> String.trim_trailing(".0")
+      16 -> Integer.to_string(trunc(n), 16)
+      2 -> Integer.to_string(trunc(n), 2)
+      8 -> Integer.to_string(trunc(n), 8)
+      _ -> Runtime.js_to_string(n)
+    end
+  end
+  defp number_toString(n, _), do: Runtime.js_to_string(n)
+
+  defp number_toFixed(n, [digits | _]) when is_number(n) do
+    :erlang.float_to_binary(n * 1.0, [decimals: Runtime.to_int(digits), compact: false])
+  end
+  defp number_toFixed(n, _), do: Runtime.js_to_string(n)
+
+  # ── Boolean.prototype ──
+
+  def boolean_proto_property("toString"), do: {:builtin, "toString", fn _args, this -> Atom.to_string(this) end}
+  def boolean_proto_property("valueOf"), do: {:builtin, "valueOf", fn _args, this -> this end}
+  def boolean_proto_property(_), do: :undefined
+
+  # ── Math ──
+
+  def math_object do
+    {:builtin, "Math", %{
+      "floor" => {:builtin, "floor", fn [a | _] -> floor(Runtime.to_float(a)) end},
+      "ceil" => {:builtin, "ceil", fn [a | _] -> ceil(Runtime.to_float(a)) end},
+      "round" => {:builtin, "round", fn [a | _] -> round(Runtime.to_float(a)) end},
+      "abs" => {:builtin, "abs", fn [a | _] -> abs(a) end},
+      "max" => {:builtin, "max", fn args -> Enum.max(args) end},
+      "min" => {:builtin, "min", fn args -> Enum.min(args) end},
+      "sqrt" => {:builtin, "sqrt", fn [a | _] -> :math.sqrt(Runtime.to_float(a)) end},
+      "pow" => {:builtin, "pow", fn [a, b | _] -> :math.pow(Runtime.to_float(a), Runtime.to_float(b)) end},
+      "random" => {:builtin, "random", fn _ -> :rand.uniform() end},
+      "trunc" => {:builtin, "trunc", fn [a | _] -> trunc(Runtime.to_float(a)) end},
+      "sign" => {:builtin, "sign", fn [a | _] -> if a > 0, do: 1, else: if a < 0, do: -1, else: 0 end},
+      "log" => {:builtin, "log", fn [a | _] -> :math.log(Runtime.to_float(a)) end},
+      "log2" => {:builtin, "log2", fn [a | _] -> :math.log2(Runtime.to_float(a)) end},
+      "log10" => {:builtin, "log10", fn [a | _] -> :math.log10(Runtime.to_float(a)) end},
+      "sin" => {:builtin, "sin", fn [a | _] -> :math.sin(Runtime.to_float(a)) end},
+      "cos" => {:builtin, "cos", fn [a | _] -> :math.cos(Runtime.to_float(a)) end},
+      "tan" => {:builtin, "tan", fn [a | _] -> :math.tan(Runtime.to_float(a)) end},
+      "PI" => :math.pi(),
+      "E" => :math.exp(1),
+      "LN2" => :math.log(2),
+      "LN10" => :math.log(10),
+      "LOG2E" => :math.log2(:math.exp(1)),
+      "LOG10E" => :math.log10(:math.exp(1)),
+      "SQRT2" => :math.sqrt(2),
+      "SQRT1_2" => :math.sqrt(2) / 2,
+      "MAX_SAFE_INTEGER" => 9007199254740991,
+      "MIN_SAFE_INTEGER" => -9007199254740991,
+    }}
+  end
+
+  # ── Console ──
+
+  def console_object do
+    ref = make_ref()
+    Process.put({:qb_obj, ref}, %{
+      "log" => {:builtin, "log", fn args ->
+        IO.puts(Enum.map(args, &Runtime.js_to_string/1) |> Enum.join(" "))
+        :undefined
+      end},
+      "warn" => {:builtin, "warn", fn args ->
+        IO.warn(Enum.map(args, &Runtime.js_to_string/1) |> Enum.join(" "))
+        :undefined
+      end},
+      "error" => {:builtin, "error", fn args ->
+        IO.puts(:stderr, Enum.map(args, &Runtime.js_to_string/1) |> Enum.join(" "))
+        :undefined
+      end},
+      "info" => {:builtin, "info", fn args ->
+        IO.puts(Enum.map(args, &Runtime.js_to_string/1) |> Enum.join(" "))
+        :undefined
+      end},
+      "debug" => {:builtin, "debug", fn args ->
+        IO.puts(Enum.map(args, &Runtime.js_to_string/1) |> Enum.join(" "))
+        :undefined
+      end},
+    })
+    {:obj, ref}
+  end
+
+  # ── Constructors ──
+
+  def object_constructor, do: fn _args -> Runtime.obj_new() end
+  def array_constructor do
+    fn
+      [n] when is_integer(n) and n >= 0 -> List.duplicate(:undefined, n)
+      args -> args
+    end
+  end
+  def string_constructor, do: fn args -> Runtime.js_to_string(List.first(args, "")) end
+  def number_constructor, do: fn args -> Runtime.to_number(List.first(args, 0)) end
+  def boolean_constructor, do: fn args -> Runtime.js_truthy(List.first(args, false)) end
+  def function_constructor, do: fn _args -> :undefined end
+
+  def error_constructor do
+    fn args ->
+      msg = List.first(args, "")
+      ref = make_ref()
+      Process.put({:qb_obj, ref}, %{"message" => Runtime.js_to_string(msg)})
+      {:obj, ref}
+    end
+  end
+
+  def date_constructor do
+    fn args ->
+      ms = case args do
+        [] -> System.system_time(:millisecond)
+        [n | _] when is_number(n) -> n
+        [s | _] when is_binary(s) ->
+          case DateTime.from_iso8601(s) do
+            {:ok, dt, _} -> DateTime.to_unix(dt, :millisecond)
+            _ -> :nan
+          end
+        _ -> :nan
+      end
+      ref = make_ref()
+      Process.put({:qb_obj, ref}, %{"valueOf" => ms})
+      {:obj, ref}
+    end
+  end
+
+  def promise_constructor, do: fn _args -> {:builtin, "Promise", %{}} end
+  def regexp_constructor do
+    fn [pattern | rest] ->
+      flags = case rest do [f | _] when is_binary(f) -> f; _ -> "" end
+      pat = case pattern do
+        {:regexp, p, _} -> p
+        s when is_binary(s) -> s
+        _ -> ""
+      end
+      {:regexp, pat, flags}
+    end
+  end
+  def map_constructor, do: fn _args -> Runtime.obj_new() end
+  def set_constructor, do: fn _args -> Runtime.obj_new() end
+  def symbol_constructor, do: fn args -> {:symbol, List.first(args, "")} end
+
+  # ── Global functions ──
+
+  def parse_int([s | _]) when is_binary(s) do
+    s = String.trim_leading(s)
+    case Integer.parse(s) do
+      {n, _} -> n
+      :error -> :nan
+    end
+  end
+  def parse_int([n | _]) when is_number(n), do: trunc(n)
+  def parse_int(_), do: :nan
+
+  def parse_float([s | _]) when is_binary(s) do
+    case Float.parse(String.trim(s)) do
+      {f, ""} -> f
+      {f, _} -> f
+      :error -> :nan
+    end
+  end
+  def parse_float([n | _]) when is_number(n), do: n * 1.0
+  def parse_float(_), do: :nan
+
+  def is_nan([:nan | _]), do: true
+  def is_nan([n | _]) when is_number(n), do: false
+  def is_nan([s | _]) when is_binary(s) do
+    case Float.parse(s) do
+      :error -> true
+      _ -> false
+    end
+  end
+  def is_nan(_), do: true
+
+  def is_finite([n | _]) when is_number(n) and n != :infinity and n != :neg_infinity and n != :nan, do: true
+  def is_finite(_), do: false
+
+  # ── Error static ──
+
+  def error_static_property(_), do: :undefined
+end
