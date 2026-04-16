@@ -28,7 +28,6 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   def proto_property("findIndex"), do: {:builtin, "findIndex", fn args, this, interp -> find_index(this, args, interp) end}
   def proto_property("every"), do: {:builtin, "every", fn args, this, interp -> every(this, args, interp) end}
   def proto_property("some"), do: {:builtin, "some", fn args, this, interp -> some(this, args, interp) end}
-  def proto_property("toString"), do: {:builtin, "toString", fn _args, this -> join(this, [","]) end}
   def proto_property(_), do: :undefined
 
   # ── Array static dispatch ──

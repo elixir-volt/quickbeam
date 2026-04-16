@@ -7,7 +7,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def truthy?(:undefined), do: false
   def truthy?(false), do: false
   def truthy?(0), do: false
-  def truthy?(0.0), do: false
+  def truthy?(+0.0), do: false
   def truthy?(""), do: false
   def truthy?(_), do: true
 
