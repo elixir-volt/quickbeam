@@ -334,4 +334,61 @@ defmodule QuickBEAM.BeamVM.DualModeTest do
       end
     end
   end
+# ══════════════════════════════════════════════════════════════════════
+  # Serialization edge cases (from core/serialization_test.exs)
+  # ══════════════════════════════════════════════════════════════════════
+
+  @serialization_tests [
+    "1.0",
+    "1000000",
+"[1, [2, 3], 4]",
+    "[1, 'two', true, null]",
+    "({})",
+    "({a: {b: 1}})",
+    "({items: [1, 2, 3]})",
+    "({a: {b: {c: 42}}})",
+    "({a: {b: {c: {d: 42}}}})",
+  ]
+
+  describe "serialization" do
+    for code <- @serialization_tests do
+      @tag_code code
+      test "#{String.slice(code, 0, 72)}", %{rt: rt} do
+        assert_same(rt, @tag_code)
+      end
+    end
+  end
+
+  # ══════════════════════════════════════════════════════════════════════
+  # Recursive & complex (from quickbeam_test.exs patterns)
+  # ══════════════════════════════════════════════════════════════════════
+
+  @complex_tests [
+    "(function f(n){ return n<=1?n:f(n-1)+f(n-2) })(15)",
+    "(function f(n){ return n<=1?1:n*f(n-1) })(10)",
+    "[1,2,3,4,5].filter(function(x){return x%2===0}).map(function(x){return x*x}).reduce(function(a,b){return a+b},0)",
+    "(function(){var n=0; function inc(){n++} inc();inc();inc(); return n})()",
+    "(function(){var s=0; [1,2,3,4,5].forEach(function(x){s+=x}); return s})()",
+    ~s|(function(){var o={a:{b:{c:42}}}; return o.a.b.c})()|,
+    ~s|(function(){ return "  Hello World  ".trim().toLowerCase().split(" ").join("-") })()|,
+    "(function(){var a=[5,3,8,1,2]; a.sort(function(a,b){return a-b}); return a})()",
+    ~s|(function(){var a=[1,2,3]; a.reverse(); return a.join(",")})()|,
+    ~s|JSON.parse(JSON.stringify({x:[1,2],y:"z"})).y|,
+    ~s|JSON.parse(JSON.stringify([1,"two",true,null]))|,
+    "[[1,2],[3,4],[5,6]][1][1]",
+    ~s|"hello world".split(" ").map(function(w){return w.charAt(0).toUpperCase()+w.slice(1)}).join(" ")|,
+    ~s|(function(){var o={}; for(var i=0;i<3;i++) o["k"+i]=i; return o.k0+o.k1+o.k2})()|,
+    "(function(x){return x>10?'big':x>5?'medium':'small'})(7)",
+    "(function(){var x=null; x=x||42; return x})()",
+    "(function(){var x=5; x=x||42; return x})()",
+  ]
+
+  describe "complex expressions" do
+    for code <- @complex_tests do
+      @tag_code code
+      test "#{String.slice(code, 0, 72)}", %{rt: rt} do
+        assert_same(rt, @tag_code)
+      end
+    end
+  end
 end
