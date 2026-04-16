@@ -41,6 +41,16 @@ defmodule QuickBEAM.BeamVM.Opcodes do
   def bc_tag_function_bytecode, do: @bc_tag_function_bytecode
   def bc_tag_module, do: @bc_tag_module
   def bc_tag_regexp, do: @bc_tag_regexp
+  def bc_tag_template_object, do: @bc_tag_template_object
+  def bc_tag_typed_array, do: @bc_tag_typed_array
+  def bc_tag_array_buffer, do: @bc_tag_array_buffer
+  def bc_tag_shared_array_buffer, do: @bc_tag_shared_array_buffer
+  def bc_tag_date, do: @bc_tag_date
+  def bc_tag_object_value, do: @bc_tag_object_value
+  def bc_tag_object_reference, do: @bc_tag_object_reference
+  def bc_tag_map, do: @bc_tag_map
+  def bc_tag_set, do: @bc_tag_set
+  def bc_tag_symbol, do: @bc_tag_symbol
 
   @bc_version 24
   def bc_version, do: @bc_version
