@@ -186,14 +186,6 @@ defmodule QuickBEAM.BeamVM.Decoder do
       v >= @js_atom_end -> v - @js_atom_end
       true -> {:predefined, v}
     end
-  end
 
-  defp get_atom_idx(bc, pos) do
-    v = get_u32(bc, pos)
-    if band(v, 1) == 1 do
-      {:tagged_int, bsr(v, 1)}
-    else
-      v
-    end
   end
 end

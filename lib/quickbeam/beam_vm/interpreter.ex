@@ -81,7 +81,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   # Each iteration: fetch instruction at pc, dispatch to opcode handler,
   # recurse with updated state. Gas counter prevents infinite loops.
 
-  defp run({_pc, _locals, _cpool, _vrefs, _ssz, _insns} = frame, stack, gas) when gas <= 0 do
+  defp run({_pc, _locals, _cpool, _vrefs, _ssz, _insns} = _frame, _stack, gas) when gas <= 0 do
     throw({:error, {:out_of_gas, gas}})
   end
 
@@ -1111,10 +1111,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         run(next, stack, gas - 1)
 
       # ── Class definitions ──
-      {:define_class, [atom_idx, _flags]} ->
-        # Stack: [parent_ctor, ctor] → creates class with prototype chain
+      {:define_class, [_atom_idx, _flags]} ->
         [parent_ctor, ctor | rest] = stack
-        name = resolve_atom(atom_idx)
         # Create prototype object
         proto = case ctor do
           %Bytecode.Function{} = f ->

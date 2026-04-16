@@ -148,7 +148,7 @@ defmodule QuickBEAM do
     end
   end
 
-  defp convert_beam_result({:error, {:js_throw, {:obj, ref} = obj}}) do
+  defp convert_beam_result({:error, {:js_throw, {:obj, _ref} = obj}}) do
     # Convert thrown Error objects to maps
     val = convert_beam_value(obj)
     {:error, val}

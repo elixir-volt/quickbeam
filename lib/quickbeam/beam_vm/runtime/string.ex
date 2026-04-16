@@ -57,7 +57,7 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
     else
       case :binary.match(s, sub) do
         {pos, _} when pos >= from -> pos
-        {pos, _} ->
+        {_pos, _} ->
           case :binary.match(s, sub, [{:scope, {from, byte_size(s) - from}}]) do
             {pos2, _} -> pos2
             :nomatch -> -1

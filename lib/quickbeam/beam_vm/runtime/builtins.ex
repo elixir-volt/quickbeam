@@ -15,8 +15,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   def number_static_property("isNaN"), do: {:builtin, "isNaN", fn [a | _] -> a == :nan end}
   def number_static_property("isFinite"), do: {:builtin, "isFinite", fn [a | _] -> a != :nan and a != :infinity and a != :neg_infinity end}
   def number_static_property("isInteger"), do: {:builtin, "isInteger", fn [a | _] -> is_integer(a) or (is_float(a) and a == Float.floor(a)) end}
-  def number_static_property("parseInt"), do: {:builtin, "parseInt", fn args -> Builtins.parse_int(args) end}
-  def number_static_property("parseFloat"), do: {:builtin, "parseFloat", fn args -> Builtins.parse_float(args) end}
+  def number_static_property("parseInt"), do: {:builtin, "parseInt", fn args -> __MODULE__.parse_int(args) end}
+  def number_static_property("parseFloat"), do: {:builtin, "parseFloat", fn args -> __MODULE__.parse_float(args) end}
   def number_static_property("NaN"), do: :nan
   def number_static_property("POSITIVE_INFINITY"), do: :infinity
   def number_static_property("NEGATIVE_INFINITY"), do: :neg_infinity
@@ -62,7 +62,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
       "pow" => {:builtin, "pow", fn [a, b | _] -> :math.pow(Runtime.to_float(a), Runtime.to_float(b)) end},
       "random" => {:builtin, "random", fn _ -> :rand.uniform() end},
       "trunc" => {:builtin, "trunc", fn [a | _] -> trunc(Runtime.to_float(a)) end},
-      "sign" => {:builtin, "sign", fn [a | _] -> if a > 0, do: 1, else: if a < 0, do: -1, else: 0 end},
+      "sign" => {:builtin, "sign", fn [a | _] -> if(a > 0, do: 1, else: if(a < 0, do: -1, else: 0)) end},
       "log" => {:builtin, "log", fn [a | _] -> :math.log(Runtime.to_float(a)) end},
       "log2" => {:builtin, "log2", fn [a | _] -> :math.log2(Runtime.to_float(a)) end},
       "log10" => {:builtin, "log10", fn [a | _] -> :math.log10(Runtime.to_float(a)) end},
