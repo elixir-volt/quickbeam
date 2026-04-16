@@ -1162,14 +1162,20 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp tail_call_method(stack, argc, gas) do
     {args, [fun, obj | _rest]} = Enum.split(stack, argc)
     rev_args = Enum.reverse(args)
-    result = case fun do
-      %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas)
-      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas)
-      {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, obj)
-      {:builtin, _name, cb} when is_function(cb, 3) -> cb.(rev_args, obj, :no_interp)
-      {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
-      f when is_function(f) -> apply(f, [obj | rev_args])
-      _ -> throw({:error, {:not_a_function, fun}})
+    prev_this = Process.get(:qb_this)
+    Process.put(:qb_this, obj)
+    result = try do
+      case fun do
+        %Bytecode.Function{} = f -> invoke_function(f, [obj | rev_args], gas)
+        {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, [obj | rev_args], gas)
+        {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, obj)
+        {:builtin, _name, cb} when is_function(cb, 3) -> cb.(rev_args, obj, :no_interp)
+        {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
+        f when is_function(f) -> apply(f, [obj | rev_args])
+        _ -> throw({:error, {:not_a_function, fun}})
+      end
+    after
+      if prev_this, do: Process.put(:qb_this, prev_this), else: Process.delete(:qb_this)
     end
     throw({:return, %Return{value: result}})
   end
@@ -1226,14 +1232,20 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp call_method({pc, locals, cpool, vrefs, ssz, insns} = _frame, stack, argc, gas) do
     {args, [fun, obj | rest]} = Enum.split(stack, argc)
     rev_args = Enum.reverse(args)
-    result = case fun do
-      %Bytecode.Function{} = f -> invoke_function(f, [obj | rev_args], gas)
-      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, [obj | rev_args], gas)
-      {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, obj)
-      {:builtin, _name, cb} when is_function(cb, 3) -> cb.(rev_args, obj, :no_interp)
-      {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
-      f when is_function(f) -> apply(f, [obj | rev_args])
-      _ -> throw({:error, {:not_a_function, fun}})
+    prev_this = Process.get(:qb_this)
+    Process.put(:qb_this, obj)
+    result = try do
+      case fun do
+        %Bytecode.Function{} = f -> invoke_function(f, [obj | rev_args], gas)
+        {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, [obj | rev_args], gas)
+        {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, obj)
+        {:builtin, _name, cb} when is_function(cb, 3) -> cb.(rev_args, obj, :no_interp)
+        {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
+        f when is_function(f) -> apply(f, [obj | rev_args])
+        _ -> throw({:error, {:not_a_function, fun}})
+      end
+    after
+      if prev_this, do: Process.put(:qb_this, prev_this), else: Process.delete(:qb_this)
     end
     run({pc + 1, locals, cpool, vrefs, ssz, insns}, [result | rest], gas - 1)
   end
@@ -1315,13 +1327,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp has_property(obj, key) when is_list(obj) and is_integer(key), do: key >= 0 and key < length(obj)
   defp has_property(_, _), do: false
 
-  defp get_array_el({:obj, ref}, idx) when is_integer(idx) do
+  defp get_array_el({:obj, ref}, idx) do
     case Process.get({:qb_obj, ref}) do
-      list when is_list(list) -> Enum.at(list, idx, :undefined)
+      list when is_list(list) and is_integer(idx) -> Enum.at(list, idx, :undefined)
+      map when is_map(map) ->
+        key = if is_integer(idx), do: Integer.to_string(idx), else: idx
+        Map.get(map, key, Map.get(map, idx, :undefined))
       _ -> :undefined
     end
   end
   defp get_array_el(obj, idx) when is_list(obj) and is_integer(idx), do: Enum.at(obj, idx, :undefined)
+  defp get_array_el(obj, idx) when is_map(obj), do: Map.get(obj, idx, :undefined)
   defp get_array_el(_, _), do: :undefined
 
   defp put_array_el({:obj, ref}, key, val) do
