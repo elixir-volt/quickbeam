@@ -1307,7 +1307,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           Process.put(:qb_arg_buf, List.to_tuple(args))
 
           try do
-            run(frame, [], div(gas, 2))
+            run(frame, [], gas)
           catch
             {:return, %Return{value: val}} -> val
             {:throw, %Throw{value: val}} -> throw({:throw, %Throw{value: val}})
