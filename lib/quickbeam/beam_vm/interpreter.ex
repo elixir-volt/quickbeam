@@ -54,11 +54,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         }
 
         try do
-          result = run(frame, args, gas, ctx)
-          {:ok, result}
+          {:ok, run(frame, args, gas, ctx)}
         catch
           {:js_throw, val} -> {:error, {:js_throw, val}}
-          {:js_return, val} -> {:ok, val}
           {:error, _} = err -> err
         end
 
@@ -240,11 +238,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(jump(frame, target), stack, gas - 1, ctx)
   end
 
-  defp run({:return, []}, _frame, [val | _], _gas, _ctx), do: throw({:js_return, val})
+  defp run({:return, []}, _frame, [val | _], _gas, _ctx), do: val
 
-  defp run({:return_undef, []}, _frame, _stack, _gas, _ctx) do
-    throw({:js_return, :undefined})
-  end
+  defp run({:return_undef, []}, _frame, _stack, _gas, _ctx), do: :undefined
 
   # ── Arithmetic ──
 
@@ -935,21 +931,20 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp tail_call(stack, argc, gas, ctx) do
     {args, [fun | _rest]} = Enum.split(stack, argc)
     rev_args = Enum.reverse(args)
-    result = case fun do
+    case fun do
       %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, ctx)
       {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, ctx)
       {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
       f when is_function(f) -> apply(f, rev_args)
       _ -> throw({:error, {:not_a_function, fun}})
     end
-    throw({:js_return, result})
   end
 
   defp tail_call_method(stack, argc, gas, ctx) do
     {args, [fun, obj | _rest]} = Enum.split(stack, argc)
     rev_args = Enum.reverse(args)
     method_ctx = %{ctx | this: obj}
-    result = case fun do
+    case fun do
       %Bytecode.Function{} = f -> invoke_function(f, [obj | rev_args], gas, method_ctx)
       {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, [obj | rev_args], gas, method_ctx)
       {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, obj)
@@ -958,7 +953,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       f when is_function(f) -> apply(f, [obj | rev_args])
       _ -> throw({:error, {:not_a_function, fun}})
     end
-    throw({:js_return, result})
   end
 
   # ── Closure construction ──
@@ -1072,14 +1066,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           catch_stack: []
         }
         Process.put(:qb_ctx, inner_ctx)
-
-        try do
-          run(frame, [], gas, inner_ctx)
-        catch
-          {:js_return, val} -> val
-          {:js_throw, val} -> throw({:js_throw, val})
-          {:error, _} = err -> throw(err)
-        end
+        run(frame, [], gas, inner_ctx)
 
       {:error, _} = err ->
         throw(err)
