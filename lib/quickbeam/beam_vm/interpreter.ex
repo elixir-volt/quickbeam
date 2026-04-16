@@ -712,7 +712,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       # ── new / constructor ──
       {:call_constructor, [argc]} ->
-        {args, [ctor | rest]} = Enum.split(stack, argc)
+        # Stack: [args..., new_target, func_obj, ...]
+        {args, [_new_target, ctor | rest]} = Enum.split(stack, argc)
         rev_args = Enum.reverse(args)
         # Create new object for constructor's this
         this_ref = make_ref()
@@ -755,7 +756,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
                 end
               end
               obj
-            _ -> this_obj
+
           end
         after
           if prev_this, do: Process.put(:qb_this, prev_this), else: Process.delete(:qb_this)
