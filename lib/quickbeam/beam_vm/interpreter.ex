@@ -1,9 +1,10 @@
 defmodule QuickBEAM.BeamVM.Interpreter do
   @moduledoc """
-  Executes decoded QuickJS bytecode using flat function argument dispatch.
+  Executes decoded QuickJS bytecode via multi-clause function dispatch.
 
   The interpreter pre-decodes bytecode into instruction tuples for O(1) indexed
-  access, then runs a tail-recursive dispatch loop. One `defp` per opcode.
+  access, then runs a tail-recursive dispatch loop with one `defp run/4` clause
+  per opcode family.
 
   ## JS value representation
     - number: Elixir integer or float
@@ -16,34 +17,23 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     - array: {:array, list(), reference()}
   """
 
-  alias QuickBEAM.BeamVM.{Bytecode, Decoder, Runtime, PredefinedAtoms}
-  import Bitwise
+  alias QuickBEAM.BeamVM.{Bytecode, Decoder, Runtime}
+  alias __MODULE__.Frame
 
-  defmodule Error do
-    defexception [:message, :stack]
-  end
-
-  defmodule Return do
-    @moduledoc "Signal for function return"
-    defstruct [:value]
-  end
-
-  defmodule Throw do
-    @moduledoc "Signal for JS throw"
-    defstruct [:value]
-  end
+  alias __MODULE__.{Values, Objects, Closures, Scope}
+  import Values, except: [div: 2, band: 2, bor: 2, bxor: 2]
+  import Objects, except: [put: 3]
+  import Closures
+  import Scope
+  import Bitwise, only: [bnot: 1, &&&: 2]
 
   @default_gas 1_000_000_000
 
   @spec eval(Bytecode.Function.t()) :: {:ok, term()} | {:error, term()}
-  def eval(%Bytecode.Function{} = fun) do
-    eval(fun, [], %{})
-  end
+  def eval(%Bytecode.Function{} = fun), do: eval(fun, [], %{})
 
   @spec eval(Bytecode.Function.t(), [term()], map()) :: {:ok, term()} | {:error, term()}
-  def eval(%Bytecode.Function{} = fun, args, opts) do
-    eval(fun, args, opts, {})
-  end
+  def eval(%Bytecode.Function{} = fun, args, opts), do: eval(fun, args, opts, {})
 
   @spec eval(Bytecode.Function.t(), [term()], map(), tuple()) :: {:ok, term()} | {:error, term()}
   def eval(%Bytecode.Function{} = fun, args, opts, atoms) do
@@ -56,19 +46,23 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     case Decoder.decode(fun.byte_code) do
       {:ok, instructions} ->
         instructions = List.to_tuple(instructions)
-
-        # Build initial stack: push arguments
-        stack = args
-        # Frame: {pc, locals, constants, var_refs, stack_size, instructions}
         locals = :erlang.make_tuple(max(fun.arg_count + fun.var_count, 1), :undefined)
-        frame = {0, locals, fun.constants, [], fun.stack_size, instructions}
+
+        frame = %Frame{
+          pc: 0,
+          locals: locals,
+          constants: fun.constants,
+          var_refs: {},
+          stack_size: fun.stack_size,
+          instructions: instructions
+        }
 
         try do
-          result = run(frame, stack, gas)
+          result = run(frame, args, gas)
           {:ok, result}
         catch
-          {:throw, %Throw{value: val}} -> {:error, {:js_throw, val}}
-          {:return, %Return{value: val}} -> {:ok, val}
+          {:js_throw, val} -> {:error, {:js_throw, val}}
+          {:js_return, val} -> {:ok, val}
           {:error, _} = err -> err
         end
 
@@ -77,1136 +71,901 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
-  # ── Main dispatch loop ──
-  # Each iteration: fetch instruction at pc, dispatch to opcode handler,
-  # recurse with updated state. Gas counter prevents infinite loops.
+  # ── Helpers ──
 
-  defp run({_pc, _locals, _cpool, _vrefs, _ssz, _insns} = _frame, _stack, gas) when gas <= 0 do
+  defp advance(%Frame{pc: pc} = f), do: %{f | pc: pc + 1}
+  defp jump(%Frame{} = f, target), do: %{f | pc: target}
+  defp put_local(%Frame{locals: locals} = f, idx, val), do: %{f | locals: put_elem(locals, idx, val)}
+
+  # ── Main dispatch loop ──
+
+  defp run(_frame, _stack, gas) when gas <= 0 do
     throw({:error, {:out_of_gas, gas}})
   end
 
-  defp run({pc, locals, cpool, vrefs, ssz, insns} = frame, stack, gas) do
-    next = {pc + 1, locals, cpool, vrefs, ssz, insns}
-    case elem(insns, pc) do
-      # ── Push constants ──
-      {:push_i32, [val]} ->
-        run(next, [val | stack], gas - 1)
-
-      {:push_i8, [val]} ->
-        run(next, [val | stack], gas - 1)
-
-      {:push_i16, [val]} ->
-        run(next, [val | stack], gas - 1)
-
-      {:push_minus1, _} ->
-        run(next, [-1 | stack], gas - 1)
-
-      {:push_0, _} ->
-        run(next, [0 | stack], gas - 1)
-
-      {:push_1, _} ->
-        run(next, [1 | stack], gas - 1)
-
-      {:push_2, _} ->
-        run(next, [2 | stack], gas - 1)
-
-      {:push_3, _} ->
-        run(next, [3 | stack], gas - 1)
-
-      {:push_4, _} ->
-        run(next, [4 | stack], gas - 1)
-
-      {:push_5, _} ->
-        run(next, [5 | stack], gas - 1)
-
-      {:push_6, _} ->
-        run(next, [6 | stack], gas - 1)
-
-      {:push_7, _} ->
-        run(next, [7 | stack], gas - 1)
-
-      {:push_const, [idx]} ->
-        val = resolve_const(cpool, idx)
-        run(next, [val | stack], gas - 1)
-
-      {:push_atom_value, [atom_idx]} ->
-        val = resolve_atom(atom_idx)
-        run(next, [val | stack], gas - 1)
-
-      {:undefined, []} ->
-        run(next, [:undefined | stack], gas - 1)
-
-      {:null, []} ->
-        run(next, [nil | stack], gas - 1)
-
-      {:push_false, []} ->
-        run(next, [false | stack], gas - 1)
-
-      {:push_true, []} ->
-        run(next, [true | stack], gas - 1)
-
-      {:push_empty_string, []} ->
-        run(next, ["" | stack], gas - 1)
-
-      {:push_bigint_i32, [val]} ->
-        run(next, [{:bigint, val} | stack], gas - 1)
-
-      # ── Stack manipulation ──
-      {:drop, []} ->
-        [_ | rest] = stack
-        run(next, rest, gas - 1)
-
-      {:nip, []} ->
-        [a, _b | rest] = stack
-        run(next, [a | rest], gas - 1)
-
-      {:nip1, []} ->
-        [a, b, _c | rest] = stack
-        run(next, [a, b | rest], gas - 1)
-
-      {:dup, []} ->
-        [a | _] = stack
-        run(next, [a | stack], gas - 1)
-
-      {:dup1, []} ->
-        [a, b | _] = stack
-        run(next, [a, b | stack], gas - 1)
-
-      {:dup2, []} ->
-        [a, b | _] = stack
-        run(next, [a, b, a, b | stack], gas - 1)
-
-      {:dup3, []} ->
-        [a, b, c | _] = stack
-        run(next, [a, b, c, a, b, c | stack], gas - 1)
-
-      {:insert2, []} ->
-        [a, b | rest] = stack
-        run(next, [a, b, a | rest], gas - 1)
-
-      {:insert3, []} ->
-        [a, b, c | rest] = stack
-        run(next, [a, b, c, a | rest], gas - 1)
-
-      {:insert4, []} ->
-        [a, b, c, d | rest] = stack
-        run(next, [a, b, c, d, a | rest], gas - 1)
-
-      {:perm3, []} ->
-        [a, b, c | rest] = stack
-        run(next, [c, a, b | rest], gas - 1)
-
-      {:perm4, []} ->
-        [a, b, c, d | rest] = stack
-        run(next, [d, a, b, c | rest], gas - 1)
-
-      {:perm5, []} ->
-        [a, b, c, d, e | rest] = stack
-        run(next, [e, a, b, c, d | rest], gas - 1)
-
-      {:swap, []} ->
-        [a, b | rest] = stack
-        run(next, [b, a | rest], gas - 1)
-
-      {:swap2, []} ->
-        [a, b, c, d | rest] = stack
-        run(next, [c, d, a, b | rest], gas - 1)
-
-      {:rot3l, []} ->
-        [a, b, c | rest] = stack
-        run(next, [b, c, a | rest], gas - 1)
-
-      {:rot3r, []} ->
-        [a, b, c | rest] = stack
-        run(next, [c, a, b | rest], gas - 1)
-
-      {:rot4l, []} ->
-        [a, b, c, d | rest] = stack
-        run(next, [b, c, d, a | rest], gas - 1)
-
-      {:rot5l, []} ->
-        [a, b, c, d, e | rest] = stack
-        run(next, [b, c, d, e, a | rest], gas - 1)
-
-      # ── Args (separate from locals in QuickJS) ──
-      {:get_arg, [idx]} ->
-        val = get_arg_value(idx)
-        run(next, [val | stack], gas - 1)
-
-      {:get_arg0, []} ->
-        run(next, [get_arg_value(0) | stack], gas - 1)
-
-      {:get_arg1, []} ->
-        run(next, [get_arg_value(1) | stack], gas - 1)
-
-      {:get_arg2, []} ->
-        run(next, [get_arg_value(2) | stack], gas - 1)
-
-      {:get_arg3, []} ->
-        run(next, [get_arg_value(3) | stack], gas - 1)
-
-      # ── Locals ──
-      {:get_loc, [idx]} ->
-        val = read_captured_local(idx, locals, vrefs)
-        run(next, [val | stack], gas - 1)
-
-      {:put_loc, [idx]} ->
-        [val | rest] = stack
-        write_captured_local(idx, val, locals, vrefs)
-        run({pc + 1, put_elem(locals, idx, val), cpool, vrefs, ssz, insns}, rest, gas - 1)
-
-      {:set_loc, [idx]} ->
-        [val | rest] = stack
-        write_captured_local(idx, val, locals, vrefs)
-        run({pc + 1, put_elem(locals, idx, val), cpool, vrefs, ssz, insns}, [val | rest], gas - 1)
-
-      {:set_loc_uninitialized, [idx]} ->
-        run({pc + 1, put_elem(locals, idx, :undefined), cpool, vrefs, ssz, insns}, stack, gas - 1)
-
-      {:get_loc_check, [idx]} ->
-        val = elem(locals, idx)
-        if val == :undefined, do: throw({:error, {:uninitialized_local, idx}})
-        run(next, [val | stack], gas - 1)
-
-      {:put_loc_check, [idx]} ->
-        [val | rest] = stack
-        if val == :undefined, do: throw({:error, {:uninitialized_local, idx}})
-        run({pc + 1, put_elem(locals, idx, val), cpool, vrefs, ssz, insns}, rest, gas - 1)
-
-      {:put_loc_check_init, [idx]} ->
-        [val | rest] = stack
-        run({pc + 1, put_elem(locals, idx, val), cpool, vrefs, ssz, insns}, rest, gas - 1)
-
-      {:get_loc0_loc1, []} ->
-        run(next, [elem(locals, 1), elem(locals, 0) | stack], gas - 1)
-
-      # ── Variable references (closures) ──
-      {:get_var_ref, [idx]} ->
-        val = case Enum.at(vrefs, idx, :undefined) do
-          {:cell, _} = cell -> read_cell(cell)
-          other -> other
-        end
-        run(next, [val | stack], gas - 1)
-
-      {:put_var_ref, [idx]} ->
-        [val | rest] = stack
-        case Enum.at(vrefs, idx, :undefined) do
-          {:cell, ref} -> write_cell({:cell, ref}, val)
-          _ -> :ok
-        end
-        run(next, rest, gas - 1)
-
-      {:set_var_ref, [idx]} ->
-        [val | rest] = stack
-        case Enum.at(vrefs, idx, :undefined) do
-          {:cell, ref} -> write_cell({:cell, ref}, val)
-          _ -> :ok
-        end
-        run(next, [val | rest], gas - 1)
-
-      {:close_loc, [_idx]} ->
-        # Capture local variable into a closure cell
-        run(next, stack, gas - 1)
-
-      # ── Control flow ──
-      {:if_false, [target]} ->
-        [val | rest] = stack
-        if js_falsy(val) do
-          run({target, locals, cpool, vrefs, ssz, insns}, rest, gas - 1)
-        else
-          run(next, rest, gas - 1)
-        end
-
-      {:if_false8, [target]} ->
-        [val | rest] = stack
-        if js_falsy(val) do
-          run({target, locals, cpool, vrefs, ssz, insns}, rest, gas - 1)
-        else
-          run(next, rest, gas - 1)
-        end
-
-      {:if_true, [target]} ->
-        [val | rest] = stack
-        if js_truthy(val) do
-          run({target, locals, cpool, vrefs, ssz, insns}, rest, gas - 1)
-        else
-          run(next, rest, gas - 1)
-        end
-
-      {:if_true8, [target]} ->
-        [val | rest] = stack
-        if js_truthy(val) do
-          run({target, locals, cpool, vrefs, ssz, insns}, rest, gas - 1)
-        else
-          run(next, rest, gas - 1)
-        end
-
-      {:goto, [target]} ->
-        run({target, locals, cpool, vrefs, ssz, insns}, stack, gas - 1)
-
-      {:goto8, [target]} ->
-        run({target, locals, cpool, vrefs, ssz, insns}, stack, gas - 1)
-
-      {:goto16, [target]} ->
-        run({target, locals, cpool, vrefs, ssz, insns}, stack, gas - 1)
-
-      {:return, []} ->
-        [val | _] = stack
-        throw({:return, %Return{value: val}})
-
-      {:return_undef, []} ->
-        this = Process.get(:qb_this, :undefined)
-        throw({:return, %Return{value: this}})
-
-      # ── Arithmetic ──
-      {:add, []} ->
-        [b, a | rest] = stack
-        run(next, [js_add(a, b) | rest], gas - 1)
-
-      {:sub, []} ->
-        [b, a | rest] = stack
-        run(next, [js_sub(a, b) | rest], gas - 1)
-
-      {:mul, []} ->
-        [b, a | rest] = stack
-        run(next, [js_mul(a, b) | rest], gas - 1)
-
-      {:div, []} ->
-        [b, a | rest] = stack
-        run(next, [js_div(a, b) | rest], gas - 1)
-
-      {:mod, []} ->
-        [b, a | rest] = stack
-        run(next, [js_mod(a, b) | rest], gas - 1)
-
-      {:pow, []} ->
-        [b, a | rest] = stack
-        run(next, [js_pow(a, b) | rest], gas - 1)
-
-      # ── Bitwise ──
-      {:band, []} ->
-        [b, a | rest] = stack
-        run(next, [js_band(a, b) | rest], gas - 1)
-
-      {:bor, []} ->
-        [b, a | rest] = stack
-        run(next, [js_bor(a, b) | rest], gas - 1)
-
-      {:bxor, []} ->
-        [b, a | rest] = stack
-        run(next, [js_bxor(a, b) | rest], gas - 1)
-
-      {:shl, []} ->
-        [b, a | rest] = stack
-        run(next, [js_shl(a, b) | rest], gas - 1)
-
-      {:sar, []} ->
-        [b, a | rest] = stack
-        run(next, [js_sar(a, b) | rest], gas - 1)
-
-      {:shr, []} ->
-        [b, a | rest] = stack
-        run(next, [js_shr(a, b) | rest], gas - 1)
-
-      # ── Comparison ──
-      {:lt, []} ->
-        [b, a | rest] = stack
-        run(next, [js_lt(a, b) | rest], gas - 1)
-
-      {:lte, []} ->
-        [b, a | rest] = stack
-        run(next, [js_lte(a, b) | rest], gas - 1)
-
-      {:gt, []} ->
-        [b, a | rest] = stack
-        run(next, [js_gt(a, b) | rest], gas - 1)
-
-      {:gte, []} ->
-        [b, a | rest] = stack
-        run(next, [js_gte(a, b) | rest], gas - 1)
-
-      {:eq, []} ->
-        [b, a | rest] = stack
-        run(next, [js_eq(a, b) | rest], gas - 1)
-
-      {:neq, []} ->
-        [b, a | rest] = stack
-        run(next, [js_neq(a, b) | rest], gas - 1)
-
-      {:strict_eq, []} ->
-        [b, a | rest] = stack
-        run(next, [js_strict_eq(a, b) | rest], gas - 1)
-
-      {:strict_neq, []} ->
-        [b, a | rest] = stack
-        run(next, [not js_strict_eq(a, b) | rest], gas - 1)
-
-      # ── Unary ──
-      {:neg, []} ->
-        [a | rest] = stack
-        run(next, [js_neg(a) | rest], gas - 1)
-
-      {:plus, []} ->
-        [a | rest] = stack
-        run(next, [js_to_number(a) | rest], gas - 1)
-
-      {:inc, []} ->
-        [a | rest] = stack
-        run(next, [js_add(a, 1) | rest], gas - 1)
-
-      {:dec, []} ->
-        [a | rest] = stack
-        run(next, [js_sub(a, 1) | rest], gas - 1)
-
-      {:post_inc, []} ->
-        [a | rest] = stack
-        run(next, [js_add(a, 1), a | rest], gas - 1)
-
-      {:post_dec, []} ->
-        [a | rest] = stack
-        run(next, [js_sub(a, 1), a | rest], gas - 1)
-
-      {:inc_loc, [idx]} ->
-        new_val = js_add(elem(locals, idx), 1)
-        new_locals = put_elem(locals, idx, new_val)
-        write_captured_local(idx, new_val, locals, vrefs)
-        run({pc + 1, new_locals, cpool, vrefs, ssz, insns}, stack, gas - 1)
-
-      {:dec_loc, [idx]} ->
-        new_val = js_sub(elem(locals, idx), 1)
-        new_locals = put_elem(locals, idx, new_val)
-        write_captured_local(idx, new_val, locals, vrefs)
-        run({pc + 1, new_locals, cpool, vrefs, ssz, insns}, stack, gas - 1)
-
-      {:add_loc, [idx]} ->
-        [val | rest] = stack
-        new_val = js_add(elem(locals, idx), val)
-        new_locals = put_elem(locals, idx, new_val)
-        write_captured_local(idx, new_val, locals, vrefs)
-        run({pc + 1, new_locals, cpool, vrefs, ssz, insns}, rest, gas - 1)
-
-      {:not, []} ->
-        [a | rest] = stack
-        run(next, [Bitwise.bnot(js_to_int32(a)) | rest], gas - 1)
-
-      {:lnot, []} ->
-        [a | rest] = stack
-        run(next, [not js_truthy(a) | rest], gas - 1)
-
-      {:typeof, []} ->
-        [a | rest] = stack
-        run(next, [js_typeof(a) | rest], gas - 1)
-
-      # ── Function creation / calls ──
-      {:fclosure, [idx]} ->
-        fun = resolve_const(cpool, idx)
-        closure = build_closure(fun, locals, vrefs)
-        run(next, [closure | stack], gas - 1)
-
-      {:fclosure8, [idx]} ->
-        fun = resolve_const(cpool, idx)
-        closure = build_closure(fun, locals, vrefs)
-        run(next, [closure | stack], gas - 1)
-
-      {:push_const8, [idx]} ->
-        val = resolve_const(cpool, idx)
-        run(next, [val | stack], gas - 1)
-
-      {:call, [argc]} ->
-        call_function(frame, stack, argc, gas)
-
-      {:tail_call, [argc]} ->
-        tail_call(stack, argc, gas)
-
-      {:call_method, [argc]} ->
-        call_method(frame, stack, argc, gas)
-
-      {:tail_call_method, [argc]} ->
-        tail_call_method(stack, argc, gas)
-
-      # ── Objects ──
-      {:object, []} ->
-        ref = make_ref()
-        Process.put({:qb_obj, ref}, %{})
-        run(next, [{:obj, ref} | stack], gas - 1)
-
-      {:get_field, [atom_idx]} ->
-        [obj | rest] = stack
-        key = resolve_atom(atom_idx)
-        val = Runtime.get_property(obj, key)
-        run(next, [val | rest], gas - 1)
-
-      {:put_field, [atom_idx]} ->
-        [val, obj | rest] = stack
-        key = resolve_atom(atom_idx)
-        obj_put(obj, key, val)
-        run(next, [obj | rest], gas - 1)
-
-      {:define_field, [atom_idx]} ->
-        [val, obj | rest] = stack
-        key = resolve_atom(atom_idx)
-        obj_put(obj, key, val)
-        run(next, [obj | rest], gas - 1)
-
-      {:get_array_el, []} ->
-        [idx, obj | rest] = stack
-        val = get_array_el(obj, idx)
-        run(next, [val | rest], gas - 1)
-
-      {:put_array_el, []} ->
-        [val, idx, obj | rest] = stack
-        put_array_el(obj, idx, val)
-        run(next, [obj | rest], gas - 1)
-
-      {:get_length, []} ->
-        [obj | rest] = stack
-        len = case obj do
-          {:obj, ref} ->
-            case Process.get({:qb_obj, ref}) do
-              list when is_list(list) -> length(list)
-              map when is_map(map) -> map_size(map)
-              _ -> 0
-            end
+  defp run(%Frame{pc: pc, instructions: insns} = frame, stack, gas) do
+    run(elem(insns, pc), frame, stack, gas)
+  end
+
+  # ── Push constants ──
+
+  defp run({:push_i32, [val]}, frame, stack, gas), do: run(advance(frame), [val | stack], gas - 1)
+  defp run({:push_i8, [val]}, frame, stack, gas), do: run(advance(frame), [val | stack], gas - 1)
+  defp run({:push_i16, [val]}, frame, stack, gas), do: run(advance(frame), [val | stack], gas - 1)
+  defp run({:push_minus1, _}, frame, stack, gas), do: run(advance(frame), [-1 | stack], gas - 1)
+  defp run({:push_0, _}, frame, stack, gas), do: run(advance(frame), [0 | stack], gas - 1)
+  defp run({:push_1, _}, frame, stack, gas), do: run(advance(frame), [1 | stack], gas - 1)
+  defp run({:push_2, _}, frame, stack, gas), do: run(advance(frame), [2 | stack], gas - 1)
+  defp run({:push_3, _}, frame, stack, gas), do: run(advance(frame), [3 | stack], gas - 1)
+  defp run({:push_4, _}, frame, stack, gas), do: run(advance(frame), [4 | stack], gas - 1)
+  defp run({:push_5, _}, frame, stack, gas), do: run(advance(frame), [5 | stack], gas - 1)
+  defp run({:push_6, _}, frame, stack, gas), do: run(advance(frame), [6 | stack], gas - 1)
+  defp run({:push_7, _}, frame, stack, gas), do: run(advance(frame), [7 | stack], gas - 1)
+
+  defp run({:push_const, [idx]}, %Frame{constants: cpool} = frame, stack, gas) do
+    run(advance(frame), [resolve_const(cpool, idx) | stack], gas - 1)
+  end
+
+  defp run({:push_const8, [idx]}, %Frame{constants: cpool} = frame, stack, gas) do
+    run(advance(frame), [resolve_const(cpool, idx) | stack], gas - 1)
+  end
+
+  defp run({:push_atom_value, [atom_idx]}, frame, stack, gas) do
+    run(advance(frame), [resolve_atom(atom_idx) | stack], gas - 1)
+  end
+
+  defp run({:undefined, []}, frame, stack, gas), do: run(advance(frame), [:undefined | stack], gas - 1)
+  defp run({:null, []}, frame, stack, gas), do: run(advance(frame), [nil | stack], gas - 1)
+  defp run({:push_false, []}, frame, stack, gas), do: run(advance(frame), [false | stack], gas - 1)
+  defp run({:push_true, []}, frame, stack, gas), do: run(advance(frame), [true | stack], gas - 1)
+  defp run({:push_empty_string, []}, frame, stack, gas), do: run(advance(frame), ["" | stack], gas - 1)
+  defp run({:push_bigint_i32, [val]}, frame, stack, gas), do: run(advance(frame), [{:bigint, val} | stack], gas - 1)
+
+  # ── Stack manipulation ──
+
+  defp run({:drop, []}, frame, [_ | rest], gas), do: run(advance(frame), rest, gas - 1)
+  defp run({:nip, []}, frame, [a, _b | rest], gas), do: run(advance(frame), [a | rest], gas - 1)
+  defp run({:nip1, []}, frame, [a, b, _c | rest], gas), do: run(advance(frame), [a, b | rest], gas - 1)
+  defp run({:dup, []}, frame, [a | _] = stack, gas), do: run(advance(frame), [a | stack], gas - 1)
+
+  defp run({:dup1, []}, frame, [a, b | _] = stack, gas) do
+    run(advance(frame), [a, b | stack], gas - 1)
+  end
+
+  defp run({:dup2, []}, frame, [a, b | _] = stack, gas) do
+    run(advance(frame), [a, b, a, b | stack], gas - 1)
+  end
+
+  defp run({:dup3, []}, frame, [a, b, c | _] = stack, gas) do
+    run(advance(frame), [a, b, c, a, b, c | stack], gas - 1)
+  end
+
+  defp run({:insert2, []}, frame, [a, b | rest], gas), do: run(advance(frame), [a, b, a | rest], gas - 1)
+  defp run({:insert3, []}, frame, [a, b, c | rest], gas), do: run(advance(frame), [a, b, c, a | rest], gas - 1)
+  defp run({:insert4, []}, frame, [a, b, c, d | rest], gas), do: run(advance(frame), [a, b, c, d, a | rest], gas - 1)
+  defp run({:perm3, []}, frame, [a, b, c | rest], gas), do: run(advance(frame), [c, a, b | rest], gas - 1)
+  defp run({:perm4, []}, frame, [a, b, c, d | rest], gas), do: run(advance(frame), [d, a, b, c | rest], gas - 1)
+  defp run({:perm5, []}, frame, [a, b, c, d, e | rest], gas), do: run(advance(frame), [e, a, b, c, d | rest], gas - 1)
+  defp run({:swap, []}, frame, [a, b | rest], gas), do: run(advance(frame), [b, a | rest], gas - 1)
+  defp run({:swap2, []}, frame, [a, b, c, d | rest], gas), do: run(advance(frame), [c, d, a, b | rest], gas - 1)
+  defp run({:rot3l, []}, frame, [a, b, c | rest], gas), do: run(advance(frame), [b, c, a | rest], gas - 1)
+  defp run({:rot3r, []}, frame, [a, b, c | rest], gas), do: run(advance(frame), [c, a, b | rest], gas - 1)
+  defp run({:rot4l, []}, frame, [a, b, c, d | rest], gas), do: run(advance(frame), [b, c, d, a | rest], gas - 1)
+  defp run({:rot5l, []}, frame, [a, b, c, d, e | rest], gas), do: run(advance(frame), [b, c, d, e, a | rest], gas - 1)
+
+  # ── Args ──
+
+  defp run({:get_arg, [idx]}, frame, stack, gas), do: run(advance(frame), [get_arg_value(idx) | stack], gas - 1)
+  defp run({:get_arg0, []}, frame, stack, gas), do: run(advance(frame), [get_arg_value(0) | stack], gas - 1)
+  defp run({:get_arg1, []}, frame, stack, gas), do: run(advance(frame), [get_arg_value(1) | stack], gas - 1)
+  defp run({:get_arg2, []}, frame, stack, gas), do: run(advance(frame), [get_arg_value(2) | stack], gas - 1)
+  defp run({:get_arg3, []}, frame, stack, gas), do: run(advance(frame), [get_arg_value(3) | stack], gas - 1)
+
+  # ── Locals ──
+
+  defp run({:get_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs} = frame, stack, gas) do
+    run(advance(frame), [read_captured_local(idx, locals, vrefs) | stack], gas - 1)
+  end
+
+  defp run({:put_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs} = frame, [val | rest], gas) do
+    write_captured_local(idx, val, locals, vrefs)
+    run(advance(put_local(frame, idx, val)), rest, gas - 1)
+  end
+
+  defp run({:set_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs} = frame, [val | rest], gas) do
+    write_captured_local(idx, val, locals, vrefs)
+    run(advance(put_local(frame, idx, val)), [val | rest], gas - 1)
+  end
+
+  defp run({:set_loc_uninitialized, [idx]}, frame, stack, gas) do
+    run(advance(put_local(frame, idx, :undefined)), stack, gas - 1)
+  end
+
+  defp run({:get_loc_check, [idx]}, %Frame{locals: locals} = frame, stack, gas) do
+    val = elem(locals, idx)
+    if val == :undefined, do: throw({:error, {:uninitialized_local, idx}})
+    run(advance(frame), [val | stack], gas - 1)
+  end
+
+  defp run({:put_loc_check, [idx]}, frame, [val | rest], gas) do
+    if val == :undefined, do: throw({:error, {:uninitialized_local, idx}})
+    run(advance(put_local(frame, idx, val)), rest, gas - 1)
+  end
+
+  defp run({:put_loc_check_init, [idx]}, frame, [val | rest], gas) do
+    run(advance(put_local(frame, idx, val)), rest, gas - 1)
+  end
+
+  defp run({:get_loc0_loc1, []}, %Frame{locals: locals} = frame, stack, gas) do
+    run(advance(frame), [elem(locals, 1), elem(locals, 0) | stack], gas - 1)
+  end
+
+  # ── Variable references (closures) ──
+
+  defp run({:get_var_ref, [idx]}, %Frame{var_refs: vrefs} = frame, stack, gas) do
+    val = case elem(vrefs, idx) do
+      {:cell, _} = cell -> read_cell(cell)
+      other -> other
+    end
+    run(advance(frame), [val | stack], gas - 1)
+  end
+
+  defp run({:put_var_ref, [idx]}, %Frame{var_refs: vrefs} = frame, [val | rest], gas) do
+    case elem(vrefs, idx) do
+      {:cell, ref} -> write_cell({:cell, ref}, val)
+      _ -> :ok
+    end
+    run(advance(frame), rest, gas - 1)
+  end
+
+  defp run({:set_var_ref, [idx]}, %Frame{var_refs: vrefs} = frame, [val | rest], gas) do
+    case elem(vrefs, idx) do
+      {:cell, ref} -> write_cell({:cell, ref}, val)
+      _ -> :ok
+    end
+    run(advance(frame), [val | rest], gas - 1)
+  end
+
+  defp run({:close_loc, [_idx]}, frame, stack, gas), do: run(advance(frame), stack, gas - 1)
+
+  # ── Control flow ──
+
+  defp run({:if_false, [target]}, frame, [val | rest], gas) do
+    if falsy?(val),
+      do: run(jump(frame, target), rest, gas - 1),
+      else: run(advance(frame), rest, gas - 1)
+  end
+
+  defp run({:if_false8, [target]}, frame, [val | rest], gas) do
+    if falsy?(val),
+      do: run(jump(frame, target), rest, gas - 1),
+      else: run(advance(frame), rest, gas - 1)
+  end
+
+  defp run({:if_true, [target]}, frame, [val | rest], gas) do
+    if truthy?(val),
+      do: run(jump(frame, target), rest, gas - 1),
+      else: run(advance(frame), rest, gas - 1)
+  end
+
+  defp run({:if_true8, [target]}, frame, [val | rest], gas) do
+    if truthy?(val),
+      do: run(jump(frame, target), rest, gas - 1),
+      else: run(advance(frame), rest, gas - 1)
+  end
+
+  defp run({:goto, [target]}, frame, stack, gas), do: run(jump(frame, target), stack, gas - 1)
+  defp run({:goto8, [target]}, frame, stack, gas), do: run(jump(frame, target), stack, gas - 1)
+  defp run({:goto16, [target]}, frame, stack, gas), do: run(jump(frame, target), stack, gas - 1)
+
+  defp run({:return, []}, _frame, [val | _], _gas), do: throw({:js_return, val})
+
+  defp run({:return_undef, []}, _frame, _stack, _gas) do
+    throw({:js_return, Process.get(:qb_this, :undefined)})
+  end
+
+  # ── Arithmetic ──
+
+  defp run({:add, []}, frame, [b, a | rest], gas), do: run(advance(frame), [add(a, b) | rest], gas - 1)
+  defp run({:sub, []}, frame, [b, a | rest], gas), do: run(advance(frame), [sub(a, b) | rest], gas - 1)
+  defp run({:mul, []}, frame, [b, a | rest], gas), do: run(advance(frame), [mul(a, b) | rest], gas - 1)
+  defp run({:div, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.div(a, b) | rest], gas - 1)
+  defp run({:mod, []}, frame, [b, a | rest], gas), do: run(advance(frame), [mod(a, b) | rest], gas - 1)
+  defp run({:pow, []}, frame, [b, a | rest], gas), do: run(advance(frame), [pow(a, b) | rest], gas - 1)
+
+  # ── Bitwise ──
+
+  defp run({:band, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.band(a, b) | rest], gas - 1)
+  defp run({:bor, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.bor(a, b) | rest], gas - 1)
+  defp run({:bxor, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.bxor(a, b) | rest], gas - 1)
+  defp run({:shl, []}, frame, [b, a | rest], gas), do: run(advance(frame), [shl(a, b) | rest], gas - 1)
+  defp run({:sar, []}, frame, [b, a | rest], gas), do: run(advance(frame), [sar(a, b) | rest], gas - 1)
+  defp run({:shr, []}, frame, [b, a | rest], gas), do: run(advance(frame), [shr(a, b) | rest], gas - 1)
+
+  # ── Comparison ──
+
+  defp run({:lt, []}, frame, [b, a | rest], gas), do: run(advance(frame), [lt(a, b) | rest], gas - 1)
+  defp run({:lte, []}, frame, [b, a | rest], gas), do: run(advance(frame), [lte(a, b) | rest], gas - 1)
+  defp run({:gt, []}, frame, [b, a | rest], gas), do: run(advance(frame), [gt(a, b) | rest], gas - 1)
+  defp run({:gte, []}, frame, [b, a | rest], gas), do: run(advance(frame), [gte(a, b) | rest], gas - 1)
+  defp run({:eq, []}, frame, [b, a | rest], gas), do: run(advance(frame), [eq(a, b) | rest], gas - 1)
+  defp run({:neq, []}, frame, [b, a | rest], gas), do: run(advance(frame), [neq(a, b) | rest], gas - 1)
+  defp run({:strict_eq, []}, frame, [b, a | rest], gas), do: run(advance(frame), [strict_eq(a, b) | rest], gas - 1)
+  defp run({:strict_neq, []}, frame, [b, a | rest], gas), do: run(advance(frame), [not strict_eq(a, b) | rest], gas - 1)
+
+  # ── Unary ──
+
+  defp run({:neg, []}, frame, [a | rest], gas), do: run(advance(frame), [neg(a) | rest], gas - 1)
+  defp run({:plus, []}, frame, [a | rest], gas), do: run(advance(frame), [to_number(a) | rest], gas - 1)
+  defp run({:inc, []}, frame, [a | rest], gas), do: run(advance(frame), [add(a, 1) | rest], gas - 1)
+  defp run({:dec, []}, frame, [a | rest], gas), do: run(advance(frame), [sub(a, 1) | rest], gas - 1)
+  defp run({:post_inc, []}, frame, [a | rest], gas), do: run(advance(frame), [add(a, 1), a | rest], gas - 1)
+  defp run({:post_dec, []}, frame, [a | rest], gas), do: run(advance(frame), [sub(a, 1), a | rest], gas - 1)
+
+  defp run({:inc_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs} = frame, stack, gas) do
+    new_val = add(elem(locals, idx), 1)
+    write_captured_local(idx, new_val, locals, vrefs)
+    run(advance(put_local(frame, idx, new_val)), stack, gas - 1)
+  end
+
+  defp run({:dec_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs} = frame, stack, gas) do
+    new_val = sub(elem(locals, idx), 1)
+    write_captured_local(idx, new_val, locals, vrefs)
+    run(advance(put_local(frame, idx, new_val)), stack, gas - 1)
+  end
+
+  defp run({:add_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs} = frame, [val | rest], gas) do
+    new_val = add(elem(locals, idx), val)
+    write_captured_local(idx, new_val, locals, vrefs)
+    run(advance(put_local(frame, idx, new_val)), rest, gas - 1)
+  end
+
+  defp run({:not, []}, frame, [a | rest], gas), do: run(advance(frame), [bnot(to_int32(a)) | rest], gas - 1)
+  defp run({:lnot, []}, frame, [a | rest], gas), do: run(advance(frame), [not truthy?(a) | rest], gas - 1)
+  defp run({:typeof, []}, frame, [a | rest], gas), do: run(advance(frame), [typeof(a) | rest], gas - 1)
+
+  # ── Function creation / calls ──
+
+  defp run({:fclosure, [idx]}, %Frame{constants: cpool, locals: locals, var_refs: vrefs} = frame, stack, gas) do
+    closure = build_closure(resolve_const(cpool, idx), locals, vrefs)
+    run(advance(frame), [closure | stack], gas - 1)
+  end
+
+  defp run({:fclosure8, [idx]}, %Frame{constants: cpool, locals: locals, var_refs: vrefs} = frame, stack, gas) do
+    closure = build_closure(resolve_const(cpool, idx), locals, vrefs)
+    run(advance(frame), [closure | stack], gas - 1)
+  end
+
+  defp run({:call, [argc]}, frame, stack, gas), do: call_function(frame, stack, argc, gas)
+  defp run({:tail_call, [argc]}, _frame, stack, gas), do: tail_call(stack, argc, gas)
+  defp run({:call_method, [argc]}, frame, stack, gas), do: call_method(frame, stack, argc, gas)
+  defp run({:tail_call_method, [argc]}, _frame, stack, gas), do: tail_call_method(stack, argc, gas)
+
+  # ── Objects ──
+
+  defp run({:object, []}, frame, stack, gas) do
+    ref = make_ref()
+    Process.put({:qb_obj, ref}, %{})
+    run(advance(frame), [{:obj, ref} | stack], gas - 1)
+  end
+
+  defp run({:get_field, [atom_idx]}, frame, [obj | rest], gas) do
+    run(advance(frame), [Runtime.get_property(obj, resolve_atom(atom_idx)) | rest], gas - 1)
+  end
+
+  defp run({:put_field, [atom_idx]}, frame, [val, obj | rest], gas) do
+    Objects.put(obj, resolve_atom(atom_idx), val)
+    run(advance(frame), [obj | rest], gas - 1)
+  end
+
+  defp run({:define_field, [atom_idx]}, frame, [val, obj | rest], gas) do
+    Objects.put(obj, resolve_atom(atom_idx), val)
+    run(advance(frame), [obj | rest], gas - 1)
+  end
+
+  defp run({:get_array_el, []}, frame, [idx, obj | rest], gas) do
+    run(advance(frame), [get_array_el(obj, idx) | rest], gas - 1)
+  end
+
+  defp run({:put_array_el, []}, frame, [val, idx, obj | rest], gas) do
+    put_array_el(obj, idx, val)
+    run(advance(frame), [obj | rest], gas - 1)
+  end
+
+  defp run({:get_length, []}, frame, [obj | rest], gas) do
+    len = case obj do
+      {:obj, ref} ->
+        case Process.get({:qb_obj, ref}) do
           list when is_list(list) -> length(list)
-          s when is_binary(s) -> Runtime.js_string_length(s)
-          _ -> :undefined
+          map when is_map(map) -> map_size(map)
+          _ -> 0
         end
-        run(next, [len | rest], gas - 1)
+      list when is_list(list) -> length(list)
+      s when is_binary(s) -> Runtime.js_string_length(s)
+      _ -> :undefined
+    end
+    run(advance(frame), [len | rest], gas - 1)
+  end
 
-      {:array_from, [argc]} ->
-        {elems, rest} = Enum.split(stack, argc)
-        arr = Enum.reverse(elems)
-        ref = System.unique_integer([:positive])
-        Process.put({:qb_obj, ref}, arr)
-        run(next, [{:obj, ref} | rest], gas - 1)
+  defp run({:array_from, [argc]}, frame, stack, gas) do
+    {elems, rest} = Enum.split(stack, argc)
+    ref = System.unique_integer([:positive])
+    Process.put({:qb_obj, ref}, Enum.reverse(elems))
+    run(advance(frame), [{:obj, ref} | rest], gas - 1)
+  end
 
-      # ── Misc ──
-      {:nop, []} ->
-        run(next, stack, gas - 1)
+  # ── Misc / no-op ──
 
-      {:to_object, []} ->
-        run(next, stack, gas - 1)
+  defp run({:nop, []}, frame, stack, gas), do: run(advance(frame), stack, gas - 1)
+  defp run({:to_object, []}, frame, stack, gas), do: run(advance(frame), stack, gas - 1)
+  defp run({:to_propkey, []}, frame, stack, gas), do: run(advance(frame), stack, gas - 1)
+  defp run({:to_propkey2, []}, frame, stack, gas), do: run(advance(frame), stack, gas - 1)
+  defp run({:check_ctor, []}, frame, stack, gas), do: run(advance(frame), stack, gas - 1)
 
-      {:to_propkey, []} ->
-        run(next, stack, gas - 1)
+  defp run({:check_ctor_return, []}, frame, [val | rest], gas) do
+    result = case val do
+      {:obj, _} = obj -> obj
+      _ -> Process.get(:qb_this, :undefined)
+    end
+    run(advance(frame), [result | rest], gas - 1)
+  end
 
-      {:to_propkey2, []} ->
-        run(next, stack, gas - 1)
+  defp run({:set_name, [_atom_idx]}, frame, stack, gas), do: run(advance(frame), stack, gas - 1)
 
-      {:check_ctor, []} ->
-        run(next, stack, gas - 1)
-
-      {:check_ctor_return, []} ->
-        [val | rest] = stack
-        result = case val do
-          {:obj, _} = obj -> obj
-          _ -> Process.get(:qb_this, :undefined)
-        end
-        run(next, [result | rest], gas - 1)
-
-      {:set_name, [_atom_idx]} ->
-        run(next, stack, gas - 1)
-
-      {:throw, []} ->
-        [val | _] = stack
-        case Process.get(:qb_catch_stack, []) do
-          [{target, catch_stack} | rest_catch] ->
-            Process.put(:qb_catch_stack, rest_catch)
-            frame = {target, locals, cpool, vrefs, ssz, insns}
-            run(frame, [val | catch_stack], gas - 1)
-          [] ->
-            throw({:throw, %Throw{value: val}})
-        end
-
-      {:is_undefined, []} ->
-        [a | rest] = stack
-        run(next, [a == :undefined | rest], gas - 1)
-
-      {:is_null, []} ->
-        [a | rest] = stack
-        run(next, [a == nil | rest], gas - 1)
-
-      {:is_undefined_or_null, []} ->
-        [a | rest] = stack
-        run(next, [a == :undefined or a == nil | rest], gas - 1)
-
-      {:invalid, []} ->
-        throw({:error, :invalid_opcode})
-
-      {:get_var_undef, [atom_idx]} ->
-        val = case resolve_global(atom_idx) do
-          {:found, v} -> v
-          :not_found -> :undefined
-        end
-        run(next, [val | stack], gas - 1)
-
-      {:get_var, [atom_idx]} ->
-        case resolve_global(atom_idx) do
-          {:found, val} -> run(next, [val | stack], gas - 1)
-          :not_found -> throw({:throw, %Throw{value: %{"message" => "#{resolve_atom(atom_idx)} is not defined", "name" => "ReferenceError"}}})
-        end
-
-      {:put_var, [atom_idx]} ->
-        [val | rest] = stack
-        set_global(atom_idx, val)
-        run(next, rest, gas - 1)
-
-      {:put_var_init, [atom_idx]} ->
-        [val | rest] = stack
-        set_global(atom_idx, val)
-        run(next, rest, gas - 1)
-
-      # ── Variable declarations (var/let/const in function scope) ──
-      {:define_var, [atom_idx, _scope]} ->
-        [val | rest] = stack
-        name = resolve_atom(atom_idx)
-        Process.put({:qb_var, name}, val)
-        run(next, rest, gas - 1)
-
-      {:check_define_var, [atom_idx, _scope]} ->
-        name = resolve_atom(atom_idx)
-        Process.delete({:qb_var, name})
-        run(next, stack, gas - 1)
-
-      # ── Computed property access ──
-      {:get_field2, [atom_idx]} ->
-        [obj | rest] = stack
-        key = resolve_atom(atom_idx)
-        val = Runtime.get_property(obj, key)
-        # get_field2 pops 1, pushes 2: keeps obj AND pushes property value
-        run(next, [val, obj | rest], gas - 1)
-
-      # ── try/catch ──
-      {:catch, [target]} ->
-        catch_stack = Process.get(:qb_catch_stack, [])
-        Process.put(:qb_catch_stack, [{target, stack} | catch_stack])
-        # Push catch offset marker (gets popped by nip_catch or replaced on throw)
-        run(next, [target | stack], gas - 1)
-
-      {:nip_catch, []} ->
-        [_ | rest_catch] = Process.get(:qb_catch_stack, [])
+  defp run({:throw, []}, %Frame{locals: locals, constants: cpool, var_refs: vrefs, stack_size: ssz, instructions: insns}, [val | _], gas) do
+    case Process.get(:qb_catch_stack, []) do
+      [{target, catch_stack} | rest_catch] ->
         Process.put(:qb_catch_stack, rest_catch)
-        [a, _catch_offset | rest] = stack
-        run(next, [a | rest], gas - 1)
-
-      # ── for-in ──
-      {:for_in_start, []} ->
-        [obj | rest] = stack
-        keys = case obj do
-          {:obj, ref} -> Map.keys(Process.get({:qb_obj, ref}, %{}))
-          map when is_map(map) -> Map.keys(map)
-          _ -> []
-        end
-        run(next, [{:for_in_iterator, keys} | rest], gas - 1)
-
-      {:for_in_next, []} ->
-        [iter | rest] = stack
-        case iter do
-          {:for_in_iterator, [key | rest_keys]} ->
-            run(next, [false, key, {:for_in_iterator, rest_keys} | rest], gas - 1)
-          {:for_in_iterator, []} ->
-            run(next, [true, :undefined, iter | rest], gas - 1)
-          _ ->
-            run(next, [true, :undefined, iter | rest], gas - 1)
-        end
-
-      # ── new / constructor ──
-      {:call_constructor, [argc]} ->
-        # Stack: [args..., new_target, func_obj, ...]
-        {args, [_new_target, ctor | rest]} = Enum.split(stack, argc)
-        rev_args = Enum.reverse(args)
-        # Create new object for constructor's this
-        this_ref = make_ref()
-        proto = Process.get({:qb_class_proto, :erlang.phash2(ctor)})
-        init = if proto, do: %{"__proto__" => proto}, else: %{}
-        Process.put({:qb_obj, this_ref}, init)
-        this_obj = {:obj, this_ref}
-        prev_this = Process.get(:qb_this)
-        Process.put(:qb_this, this_obj)
-        result = try do
-          case ctor do
-            %Bytecode.Function{} = f ->
-              cell_ref = make_ref()
-              Process.put({:qb_cell, cell_ref}, false)
-              do_invoke(f, rev_args, [{:cell, cell_ref}], gas)
-            {:closure, captured, %Bytecode.Function{} = f} ->
-              # For class constructors, pass this as var_ref 0
-              cell_ref = make_ref()
-              Process.put({:qb_cell, cell_ref}, false)
-              var_refs = for cv <- f.closure_vars do
-                Map.get(captured, cv.var_idx, {:cell, cell_ref})
-              end
-              # Ensure at least one var_ref if the function expects it
-              var_refs = if var_refs == [] do
-                [{:cell, cell_ref}]
-              else
-                var_refs
-              end
-              do_invoke(f, rev_args, var_refs, gas)
-            {:builtin, name, cb} when is_function(cb, 1) ->
-              obj = cb.(rev_args)
-              if name in ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError) do
-                case obj do
-                  {:obj, ref} ->
-                    existing = Process.get({:qb_obj, ref}, %{})
-                    if is_map(existing) and not Map.has_key?(existing, "name") do
-                      Process.put({:qb_obj, ref}, Map.put(existing, "name", name))
-                    end
-                  _ -> :ok
-                end
-              end
-              obj
-            _ -> this_obj
-          end
-        after
-          if prev_this, do: Process.put(:qb_this, prev_this), else: Process.delete(:qb_this)
-        end
-        result = case result do
-          {:obj, _} = obj -> obj
-          _ -> this_obj
-        end
-        # Ensure prototype chain is set on the result
-        case {result, Process.get({:qb_class_proto, :erlang.phash2(ctor)})} do
-          {{:obj, rref}, {:obj, _} = proto} ->
-            rmap = Process.get({:qb_obj, rref}, %{})
-            unless Map.has_key?(rmap, "__proto__") do
-              Process.put({:qb_obj, rref}, Map.put(rmap, "__proto__", proto))
-            end
-          _ -> :ok
-        end
-        run(next, [result | rest], gas - 1)
-
-      {:init_ctor, []} ->
-        run(next, stack, gas - 1)
-
-      # ── instanceof ──
-      {:instanceof, []} ->
-        [_ctor, _obj | rest] = stack
-        run(next, [false | rest], gas - 1)
-
-      # ── delete ──
-      {:delete, []} ->
-        [key, obj | rest] = stack
-        case obj do
-          {:obj, ref} ->
-            map = Process.get({:qb_obj, ref}, %{})
-            if is_map(map), do: Process.put({:qb_obj, ref}, Map.delete(map, key))
-          _ -> :ok
-        end
-        run(next, [true | rest], gas - 1)
-
-      {:delete_var, [_atom_idx]} ->
-        run(next, [true | stack], gas - 1)
-
-      # ── in operator ──
-      {:in, []} ->
-        [obj, key | rest] = stack
-        run(next, [has_property(obj, key) | rest], gas - 1)
-
-      # ── regexp literal ──
-      {:regexp, []} ->
-        [pattern, flags | rest] = stack
-        # Stub — return pattern string
-        run(next, [{:regexp, pattern, flags} | rest], gas - 1)
-
-      # ── spread / array construction ──
-      {:append, []} ->
-        # Stack: [enumobj, pos, arr] → [pos', arr']
-        [obj, idx, arr | rest] = stack
-        src_list = case obj do
-          list when is_list(list) -> list
-          {:obj, ref} -> Process.get({:qb_obj, ref}, [])
-          _ -> []
-        end
-        arr_list = case arr do
-          list when is_list(list) -> list
-          {:obj, ref} -> Process.get({:qb_obj, ref}, [])
-          _ -> []
-        end
-        merged = arr_list ++ src_list
-        new_idx = (if is_integer(idx), do: idx, else: Runtime.to_int(idx)) + length(src_list)
-        merged_obj = case arr do
-          {:obj, ref} ->
-            Process.put({:qb_obj, ref}, merged)
-            {:obj, ref}
-          _ -> merged
-        end
-        run(next, [new_idx, merged_obj | rest], gas - 1)
-
-      {:define_array_el, []} ->
-        # Stack: [val, idx, arr] → [idx, arr']  (pops val only)
-        [val, idx, obj | rest] = stack
-        obj2 = case obj do
-          list when is_list(list) ->
-            i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
-            if i >= 0 and i < length(list) do
-              List.replace_at(list, i, val)
-            else
-              list ++ List.duplicate(:undefined, max(0, i - length(list))) ++ [val]
-            end
-          {:obj, ref} ->
-            stored = Process.get({:qb_obj, ref}, [])
-            cond do
-              is_list(stored) ->
-                i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
-                new_stored = if i >= 0 and i < length(stored) do
-                  List.replace_at(stored, i, val)
-                else
-                  stored ++ List.duplicate(:undefined, max(0, i - length(stored))) ++ [val]
-                end
-                Process.put({:qb_obj, ref}, new_stored)
-              is_map(stored) ->
-                key = if is_integer(idx), do: Integer.to_string(idx), else: to_string(idx)
-                Process.put({:qb_obj, ref}, Map.put(stored, key, val))
-              true -> :ok
-            end
-            {:obj, ref}
-          _ -> obj
-        end
-        run(next, [idx, obj2 | rest], gas - 1)
-
-      # ── closure variable refs (mutable) ──
-      {:make_var_ref, [idx]} ->
-        # Create a mutable cell for closure var at idx
-        ref = make_ref()
-        val = elem(locals, idx)
-        Process.put({:qb_cell, ref}, val)
-        run(next, [{:cell, ref} | stack], gas - 1)
-
-      {:make_arg_ref, [idx]} ->
-        ref = make_ref()
-        val = get_arg_value(idx)
-        Process.put({:qb_cell, ref}, val)
-        run(next, [{:cell, ref} | stack], gas - 1)
-
-      {:make_loc_ref, [idx]} ->
-        ref = make_ref()
-        val = elem(locals, idx)
-        Process.put({:qb_cell, ref}, val)
-        run(next, [{:cell, ref} | stack], gas - 1)
-
-      {:get_var_ref_check, [idx]} ->
-        val = Enum.at(vrefs, idx, :undefined)
-        case val do
-          :undefined -> throw({:error, {:uninitialized_var_ref, idx}})
-          {:cell, _} = cell -> run(next, [read_cell(cell) | stack], gas - 1)
-          val -> run(next, [val | stack], gas - 1)
-        end
-
-      {:put_var_ref_check, [idx]} ->
-        [val | rest] = stack
-        case Enum.at(vrefs, idx, :undefined) do
-          {:cell, ref} -> write_cell({:cell, ref}, val)
-          _ -> :ok
-        end
-        run(next, rest, gas - 1)
-
-      {:put_var_ref_check_init, [idx]} ->
-        [val | rest] = stack
-        case Enum.at(vrefs, idx, :undefined) do
-          {:cell, ref} -> write_cell({:cell, ref}, val)
-          _ -> :ok
-        end
-        run(next, rest, gas - 1)
-
-      {:get_ref_value, []} ->
-        [ref | rest] = stack
-        val = read_cell(ref)
-        run(next, [val | rest], gas - 1)
-
-      {:put_ref_value, []} ->
-        [val, ref | rest] = stack
-        write_cell(ref, val)
-        run(next, [val | rest], gas - 1)
-
-      # ── gosub/ret (used for finally blocks) ──
-      {:gosub, [target]} ->
-        run({target, locals, cpool, vrefs, ssz, insns}, [{:return_addr, pc + 1} | stack], gas - 1)
-
-      {:ret, []} ->
-        [{:return_addr, ret_pc} | rest] = stack
-        run({ret_pc, locals, cpool, vrefs, ssz, insns}, rest, gas - 1)
-
-      # ── eval (stub) ──
-      {:eval, [_argc]} ->
-        [_val | rest] = stack
-        run(next, [:undefined | rest], gas - 1)
-
-      # ── iterators (stubs for now) ──
-      {:for_of_start, []} ->
-        [obj | rest] = stack
-        items = case obj do
-          list when is_list(list) -> list
-          {:obj, ref} ->
-            stored = Process.get({:qb_obj, ref}, [])
-            if is_list(stored), do: stored, else: []
-          _ -> []
-        end
-        run(next, [{:for_of_iterator, items, 0} | rest], gas - 1)
-
-      {:for_of_next, [_idx]} ->
-        # Stack: [iter] → [done_flag, value, iter]
-        # done_flag on top for if_false check
-        [iter | rest] = stack
-        case iter do
-          {:for_of_iterator, items, pos} when is_list(items) ->
-            if pos < length(items) do
-              run(next, [false, Enum.at(items, pos), {:for_of_iterator, items, pos + 1} | rest], gas - 1)
-            else
-              run(next, [true, :undefined, iter | rest], gas - 1)
-            end
-          _ ->
-            run(next, [true, :undefined, iter | rest], gas - 1)
-        end
-
-      {:iterator_next, []} ->
-        [iter | rest] = stack
-        case iter do
-          {:for_of_iterator, items, pos} when is_list(items) ->
-            if pos < length(items) do
-              run(next, [false, Enum.at(items, pos), {:for_of_iterator, items, pos + 1} | rest], gas - 1)
-            else
-              run(next, [true, :undefined, iter | rest], gas - 1)
-            end
-          _ ->
-            run(next, [true, :undefined, iter | rest], gas - 1)
-        end
-
-      {:iterator_close, []} ->
-        [_iter | rest] = stack
-        run(next, rest, gas - 1)
-
-      {:iterator_check_object, []} ->
-        run(next, stack, gas - 1)
-
-      {:iterator_call, []} ->
-        run(next, stack, gas - 1)
-
-      {:iterator_get_value_done, []} ->
-        run(next, stack, gas - 1)
-
-      # ── Misc stubs for rarely-needed opcodes ──
-      {:put_arg, [idx]} ->
-        [val | rest] = stack
-        arg_buf = Process.get(:qb_arg_buf, {})
-        padded = Tuple.to_list(arg_buf)
-        padded = if idx < length(padded), do: padded, else: padded ++ List.duplicate(:undefined, idx + 1 - length(padded))
-        Process.put(:qb_arg_buf, List.to_tuple(List.replace_at(padded, idx, val)))
-        run(next, rest, gas - 1)
-
-
-      {:set_home_object, []} ->
-        run(next, stack, gas - 1)
-
-      {:set_proto, []} ->
-        run(next, stack, gas - 1)
-
-      {:special_object, [type]} ->
-        val = case type do
-          1 ->
-            # arguments object
-            arg_buf = Process.get(:qb_arg_buf, {})
-            args_list = Tuple.to_list(arg_buf)
-            ref = System.unique_integer([:positive])
-            Process.put({:qb_obj, ref}, args_list)
-            {:obj, ref}
-          2 -> Process.get(:qb_current_func, :undefined)
-          3 -> Process.get(:qb_current_func, :undefined)
-          _ -> :undefined
-        end
-        run(next, [val | stack], gas - 1)
-
-      {:rest, [start_idx]} ->
-        arg_buf = Process.get(:qb_arg_buf, {})
-        rest_args = if start_idx < tuple_size(arg_buf) do
-          Tuple.to_list(arg_buf) |> Enum.drop(start_idx)
-        else
-          []
-        end
-        ref = System.unique_integer([:positive])
-        Process.put({:qb_obj, ref}, rest_args)
-        run(next, [{:obj, ref} | stack], gas - 1)
-
-      {:typeof_is_function, [_atom_idx]} ->
-        run(next, [false | stack], gas - 1)
-
-      {:typeof_is_undefined, [_atom_idx]} ->
-        run(next, [false | stack], gas - 1)
-
-      {:throw_error, []} ->
-        [val | _] = stack
-        throw({:throw, %Throw{value: val}})
-
-      {:set_name_computed, []} ->
-        run(next, stack, gas - 1)
-
-      {:copy_data_properties, []} ->
-        run(next, stack, gas - 1)
-
-      {:get_super, []} ->
-        [func | rest] = stack
-        # Unwrap closure to get raw function for hash lookup
-        raw = case func do
-          {:closure, _, %Bytecode.Function{} = f} -> f
-          %Bytecode.Function{} = f -> f
-          _ -> func
-        end
-        parent = Process.get({:qb_parent_ctor, :erlang.phash2(raw)})
-        run(next, [(parent || :undefined) | rest], gas - 1)
-
-      {:push_this, []} ->
-        this = Process.get(:qb_this, :undefined)
-        run(next, [this | stack], gas - 1)
-
-      {:private_symbol, []} ->
-        run(next, [:undefined | stack], gas - 1)
-
-      # ── Argument mutation ──
-      {:set_arg, [idx]} ->
-        [val | rest] = stack
-        arg_buf = Process.get(:qb_arg_buf, {})
-        list = Tuple.to_list(arg_buf)
-        padded = if idx < length(list), do: list, else: list ++ List.duplicate(:undefined, idx + 1 - length(list))
-        Process.put(:qb_arg_buf, List.to_tuple(List.replace_at(padded, idx, val)))
-        run(next, [val | rest], gas - 1)
-
-      {:set_arg0, []} ->
-        [val | rest] = stack
-        arg_buf = Process.get(:qb_arg_buf, {})
-        Process.put(:qb_arg_buf, put_elem(arg_buf, 0, val))
-        run(next, [val | rest], gas - 1)
-
-      {:set_arg1, []} ->
-        [val | rest] = stack
-        arg_buf = Process.get(:qb_arg_buf, {})
-        if tuple_size(arg_buf) > 1 do
-          Process.put(:qb_arg_buf, put_elem(arg_buf, 1, val))
-        end
-        run(next, [val | rest], gas - 1)
-
-      {:set_arg2, []} ->
-        [val | rest] = stack
-        arg_buf = Process.get(:qb_arg_buf, {})
-        if tuple_size(arg_buf) > 2 do
-          Process.put(:qb_arg_buf, put_elem(arg_buf, 2, val))
-        end
-        run(next, [val | rest], gas - 1)
-
-      {:set_arg3, []} ->
-        [val | rest] = stack
-        arg_buf = Process.get(:qb_arg_buf, {})
-        if tuple_size(arg_buf) > 3 do
-          Process.put(:qb_arg_buf, put_elem(arg_buf, 3, val))
-        end
-        run(next, [val | rest], gas - 1)
-
-      # ── Array element access (2-element push) ──
-      {:get_array_el2, []} ->
-        [idx, obj | rest] = stack
-        val = Runtime.get_property(obj, idx)
-        run(next, [val, obj | rest], gas - 1)
-
-      # ── Spread/rest via apply ──
-      {:apply, [_magic]} ->
-        # Stack: [arg_array, this_arg, func] → result
-        # Like Function.prototype.apply(func, this_arg, arg_array)
-        [arg_array, this_obj, fun | rest] = stack
-        args = case arg_array do
-          list when is_list(list) -> list
-          {:obj, ref} ->
-            stored = Process.get({:qb_obj, ref}, [])
-            if is_list(stored), do: stored, else: []
-          _ -> []
-        end
-        result = case fun do
-          %Bytecode.Function{} = f -> invoke_function(f, args, gas)
-          {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, args, gas)
-          {:builtin, _name, cb} when is_function(cb, 2) -> cb.(args, this_obj)
-          {:builtin, _name, cb} when is_function(cb, 3) -> cb.(args, this_obj, self())
-          {:builtin, _name, cb} when is_function(cb, 1) -> cb.(args)
-          f when is_function(f) -> apply(f, [this_obj | args])
-          _ -> throw({:error, {:not_a_function, fun}})
-        end
-        run(next, [result | rest], gas - 1)
-
-      # ── Object spread ──
-      {:copy_data_properties, [mask]} ->
-        # mask encodes stack offsets from top (0-based from top)
-        # target:  sp[-1 - (mask & 3)]
-        # source:  sp[-1 - ((mask >> 2) & 7)]
-        # exclude: sp[-1 - ((mask >> 5) & 7)]
-        # Stack is NOT modified — target is mutated in place
-        target_idx = mask &&& 3
-        source_idx = Bitwise.bsr(mask, 2) &&& 7
-        target = Enum.at(stack, target_idx)
-        source = Enum.at(stack, source_idx)
-        src_props = case source do
-          {:obj, ref} -> Process.get({:qb_obj, ref}, %{})
-          map when is_map(map) -> map
-          _ -> %{}
-        end
-        case target do
-          {:obj, ref} ->
-            existing = Process.get({:qb_obj, ref}, %{})
-            Process.put({:qb_obj, ref}, Map.merge(existing, src_props))
-          map when is_map(map) -> :ok
-          _ -> :ok
-        end
-        run(next, stack, gas - 1)
-
-      # ── Class definitions ──
-      {:define_class, [_atom_idx, _flags]} ->
-        [ctor, parent_ctor | rest] = stack
-        proto_ref = make_ref()
-        proto_map = case ctor do
-          %Bytecode.Function{} = f -> %{"constructor" => {:closure, %{}, f}}
-          closure -> %{"constructor" => closure}
-        end
-        # If parent class exists, set up prototype chain
-        parent_proto = Process.get({:qb_class_proto, :erlang.phash2(parent_ctor)})
-        if parent_proto do
-          proto_map = Map.put(proto_map, "__proto__", parent_proto)
-          Process.put({:qb_obj, proto_ref}, proto_map)
-        else
-          Process.put({:qb_obj, proto_ref}, proto_map)
-        end
-        proto = {:obj, proto_ref}
-        Process.put({:qb_class_proto, :erlang.phash2(ctor)}, proto)
-        # Also store parent ctor for get_super
-        if parent_ctor != :undefined do
-          Process.put({:qb_parent_ctor, :erlang.phash2(ctor)}, parent_ctor)
-        end
-        run(next, [proto, ctor | rest], gas - 1)
-
-      {:define_method, [atom_idx, _flags]} ->
-        # Stack: [method, obj] → [obj] (pops method, keeps obj)
-        [method_closure, target | rest] = stack
-        name = resolve_atom(atom_idx)
-        case target do
-          {:obj, ref} ->
-            existing = Process.get({:qb_obj, ref}, %{})
-            if is_map(existing) do
-              Process.put({:qb_obj, ref}, Map.put(existing, name, method_closure))
-            end
-          _ -> :ok
-        end
-        run(next, [target | rest], gas - 1)
-
-      {:define_method_computed, [_flags]} ->
-        # Stack: [home_obj, field_name, target_obj, method_closure]
-        [method_closure, target, field_name | rest] = stack
-        case target do
-          {:obj, ref} ->
-            proto = Process.get({:qb_obj, ref}, %{})
-            Process.put({:qb_obj, ref}, Map.put(proto, field_name, method_closure))
-          _ -> :ok
-        end
-        run(next, rest, gas - 1)
-
-      {name, args} ->
-        throw({:error, {:unimplemented_opcode, name, args}})
+        frame = %Frame{pc: target, locals: locals, constants: cpool, var_refs: vrefs, stack_size: ssz, instructions: insns}
+        run(frame, [val | catch_stack], gas - 1)
+      [] ->
+        throw({:js_throw, val})
     end
   end
+
+  defp run({:is_undefined, []}, frame, [a | rest], gas), do: run(advance(frame), [a == :undefined | rest], gas - 1)
+  defp run({:is_null, []}, frame, [a | rest], gas), do: run(advance(frame), [a == nil | rest], gas - 1)
+  defp run({:is_undefined_or_null, []}, frame, [a | rest], gas), do: run(advance(frame), [a == :undefined or a == nil | rest], gas - 1)
+  defp run({:invalid, []}, _frame, _stack, _gas), do: throw({:error, :invalid_opcode})
+
+  defp run({:get_var_undef, [atom_idx]}, frame, stack, gas) do
+    val = case resolve_global(atom_idx) do
+      {:found, v} -> v
+      :not_found -> :undefined
+    end
+    run(advance(frame), [val | stack], gas - 1)
+  end
+
+  defp run({:get_var, [atom_idx]}, frame, stack, gas) do
+    case resolve_global(atom_idx) do
+      {:found, val} ->
+        run(advance(frame), [val | stack], gas - 1)
+      :not_found ->
+        throw({:js_throw, %{"message" => "#{resolve_atom(atom_idx)} is not defined", "name" => "ReferenceError"}})
+    end
+  end
+
+  defp run({:put_var, [atom_idx]}, frame, [val | rest], gas) do
+    set_global(atom_idx, val)
+    run(advance(frame), rest, gas - 1)
+  end
+
+  defp run({:put_var_init, [atom_idx]}, frame, [val | rest], gas) do
+    set_global(atom_idx, val)
+    run(advance(frame), rest, gas - 1)
+  end
+
+  defp run({:define_var, [atom_idx, _scope]}, frame, [val | rest], gas) do
+    Process.put({:qb_var, resolve_atom(atom_idx)}, val)
+    run(advance(frame), rest, gas - 1)
+  end
+
+  defp run({:check_define_var, [atom_idx, _scope]}, frame, stack, gas) do
+    Process.delete({:qb_var, resolve_atom(atom_idx)})
+    run(advance(frame), stack, gas - 1)
+  end
+
+  defp run({:get_field2, [atom_idx]}, frame, [obj | rest], gas) do
+    val = Runtime.get_property(obj, resolve_atom(atom_idx))
+    run(advance(frame), [val, obj | rest], gas - 1)
+  end
+
+  # ── try/catch ──
+
+  defp run({:catch, [target]}, frame, stack, gas) do
+    catch_stack = Process.get(:qb_catch_stack, [])
+    Process.put(:qb_catch_stack, [{target, stack} | catch_stack])
+    run(advance(frame), [target | stack], gas - 1)
+  end
+
+  defp run({:nip_catch, []}, frame, [a, _catch_offset | rest], gas) do
+    [_ | rest_catch] = Process.get(:qb_catch_stack, [])
+    Process.put(:qb_catch_stack, rest_catch)
+    run(advance(frame), [a | rest], gas - 1)
+  end
+
+  # ── for-in ──
+
+  defp run({:for_in_start, []}, frame, [obj | rest], gas) do
+    keys = case obj do
+      {:obj, ref} -> Map.keys(Process.get({:qb_obj, ref}, %{}))
+      map when is_map(map) -> Map.keys(map)
+      _ -> []
+    end
+    run(advance(frame), [{:for_in_iterator, keys} | rest], gas - 1)
+  end
+
+  defp run({:for_in_next, []}, frame, [{:for_in_iterator, [key | rest_keys]} | rest], gas) do
+    run(advance(frame), [false, key, {:for_in_iterator, rest_keys} | rest], gas - 1)
+  end
+
+  defp run({:for_in_next, []}, frame, [iter | rest], gas) do
+    run(advance(frame), [true, :undefined, iter | rest], gas - 1)
+  end
+
+  # ── new / constructor ──
+
+  defp run({:call_constructor, [argc]}, frame, stack, gas) do
+    {args, [_new_target, ctor | rest]} = Enum.split(stack, argc)
+    rev_args = Enum.reverse(args)
+
+    this_ref = make_ref()
+    proto = Process.get({:qb_class_proto, :erlang.phash2(ctor)})
+    init = if proto, do: %{"__proto__" => proto}, else: %{}
+    Process.put({:qb_obj, this_ref}, init)
+    this_obj = {:obj, this_ref}
+    prev_this = Process.get(:qb_this)
+    Process.put(:qb_this, this_obj)
+
+    result = try do
+      case ctor do
+        %Bytecode.Function{} = f ->
+          cell_ref = make_ref()
+          Process.put({:qb_cell, cell_ref}, false)
+          do_invoke(f, rev_args, [{:cell, cell_ref}], gas)
+
+        {:closure, captured, %Bytecode.Function{} = f} ->
+          cell_ref = make_ref()
+          Process.put({:qb_cell, cell_ref}, false)
+          var_refs = for cv <- f.closure_vars do
+            Map.get(captured, cv.var_idx, {:cell, cell_ref})
+          end
+          var_refs = if var_refs == [], do: [{:cell, cell_ref}], else: var_refs
+          do_invoke(f, rev_args, var_refs, gas)
+
+        {:builtin, name, cb} when is_function(cb, 1) ->
+          obj = cb.(rev_args)
+          if name in ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError) do
+            case obj do
+              {:obj, ref} ->
+                existing = Process.get({:qb_obj, ref}, %{})
+                if is_map(existing) and not Map.has_key?(existing, "name") do
+                  Process.put({:qb_obj, ref}, Map.put(existing, "name", name))
+                end
+              _ -> :ok
+            end
+          end
+          obj
+
+        _ -> this_obj
+      end
+    after
+      if prev_this, do: Process.put(:qb_this, prev_this), else: Process.delete(:qb_this)
+    end
+
+    result = case result do
+      {:obj, _} = obj -> obj
+      _ -> this_obj
+    end
+
+    case {result, Process.get({:qb_class_proto, :erlang.phash2(ctor)})} do
+      {{:obj, rref}, {:obj, _} = proto} ->
+        rmap = Process.get({:qb_obj, rref}, %{})
+        unless Map.has_key?(rmap, "__proto__") do
+          Process.put({:qb_obj, rref}, Map.put(rmap, "__proto__", proto))
+        end
+      _ -> :ok
+    end
+
+    run(advance(frame), [result | rest], gas - 1)
+  end
+
+  defp run({:init_ctor, []}, frame, stack, gas) do
+    this = Process.get(:qb_this, :undefined)
+    run(advance(frame), [this | stack], gas - 1)
+  end
+
+  # ── instanceof ──
+
+  defp run({:instanceof, []}, frame, [_ctor, _obj | rest], gas) do
+    run(advance(frame), [false | rest], gas - 1)
+  end
+
+  # ── delete ──
+
+  defp run({:delete, []}, frame, [key, obj | rest], gas) do
+    case obj do
+      {:obj, ref} ->
+        map = Process.get({:qb_obj, ref}, %{})
+        if is_map(map), do: Process.put({:qb_obj, ref}, Map.delete(map, key))
+      _ -> :ok
+    end
+    run(advance(frame), [true | rest], gas - 1)
+  end
+
+  defp run({:delete_var, [_atom_idx]}, frame, stack, gas), do: run(advance(frame), [true | stack], gas - 1)
+
+  # ── in operator ──
+
+  defp run({:in, []}, frame, [obj, key | rest], gas) do
+    run(advance(frame), [has_property(obj, key) | rest], gas - 1)
+  end
+
+  # ── regexp literal ──
+
+  defp run({:regexp, []}, frame, [pattern, flags | rest], gas) do
+    run(advance(frame), [{:regexp, pattern, flags} | rest], gas - 1)
+  end
+
+  # ── spread / array construction ──
+
+  defp run({:append, []}, frame, [obj, idx, arr | rest], gas) do
+    src_list = case obj do
+      list when is_list(list) -> list
+      {:obj, ref} -> Process.get({:qb_obj, ref}, [])
+      _ -> []
+    end
+    arr_list = case arr do
+      list when is_list(list) -> list
+      {:obj, ref} -> Process.get({:qb_obj, ref}, [])
+      _ -> []
+    end
+    merged = arr_list ++ src_list
+    new_idx = (if is_integer(idx), do: idx, else: Runtime.to_int(idx)) + length(src_list)
+    merged_obj = case arr do
+      {:obj, ref} ->
+        Process.put({:qb_obj, ref}, merged)
+        {:obj, ref}
+      _ -> merged
+    end
+    run(advance(frame), [new_idx, merged_obj | rest], gas - 1)
+  end
+
+  defp run({:define_array_el, []}, frame, [val, idx, obj | rest], gas) do
+    obj2 = case obj do
+      list when is_list(list) ->
+        i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
+        if i >= 0 and i < length(list) do
+          List.replace_at(list, i, val)
+        else
+          list ++ List.duplicate(:undefined, max(0, i - length(list))) ++ [val]
+        end
+      {:obj, ref} ->
+        stored = Process.get({:qb_obj, ref}, [])
+        cond do
+          is_list(stored) ->
+            i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
+            new_stored = if i >= 0 and i < length(stored) do
+              List.replace_at(stored, i, val)
+            else
+              stored ++ List.duplicate(:undefined, max(0, i - length(stored))) ++ [val]
+            end
+            Process.put({:qb_obj, ref}, new_stored)
+          is_map(stored) ->
+            key = if is_integer(idx), do: Integer.to_string(idx), else: Kernel.to_string(idx)
+            Process.put({:qb_obj, ref}, Map.put(stored, key, val))
+          true -> :ok
+        end
+        {:obj, ref}
+      _ -> obj
+    end
+    run(advance(frame), [idx, obj2 | rest], gas - 1)
+  end
+
+  # ── Closure variable refs (mutable) ──
+
+  defp run({:make_var_ref, [idx]}, %Frame{locals: locals} = frame, stack, gas) do
+    ref = make_ref()
+    Process.put({:qb_cell, ref}, elem(locals, idx))
+    run(advance(frame), [{:cell, ref} | stack], gas - 1)
+  end
+
+  defp run({:make_arg_ref, [idx]}, frame, stack, gas) do
+    ref = make_ref()
+    Process.put({:qb_cell, ref}, get_arg_value(idx))
+    run(advance(frame), [{:cell, ref} | stack], gas - 1)
+  end
+
+  defp run({:make_loc_ref, [idx]}, %Frame{locals: locals} = frame, stack, gas) do
+    ref = make_ref()
+    Process.put({:qb_cell, ref}, elem(locals, idx))
+    run(advance(frame), [{:cell, ref} | stack], gas - 1)
+  end
+
+  defp run({:get_var_ref_check, [idx]}, %Frame{var_refs: vrefs} = frame, stack, gas) do
+    case elem(vrefs, idx) do
+      :undefined -> throw({:error, {:uninitialized_var_ref, idx}})
+      {:cell, _} = cell -> run(advance(frame), [read_cell(cell) | stack], gas - 1)
+      val -> run(advance(frame), [val | stack], gas - 1)
+    end
+  end
+
+  defp run({:put_var_ref_check, [idx]}, %Frame{var_refs: vrefs} = frame, [val | rest], gas) do
+    case elem(vrefs, idx) do
+      {:cell, ref} -> write_cell({:cell, ref}, val)
+      _ -> :ok
+    end
+    run(advance(frame), rest, gas - 1)
+  end
+
+  defp run({:put_var_ref_check_init, [idx]}, %Frame{var_refs: vrefs} = frame, [val | rest], gas) do
+    case elem(vrefs, idx) do
+      {:cell, ref} -> write_cell({:cell, ref}, val)
+      _ -> :ok
+    end
+    run(advance(frame), rest, gas - 1)
+  end
+
+  defp run({:get_ref_value, []}, frame, [ref | rest], gas) do
+    run(advance(frame), [read_cell(ref) | rest], gas - 1)
+  end
+
+  defp run({:put_ref_value, []}, frame, [val, ref | rest], gas) do
+    write_cell(ref, val)
+    run(advance(frame), [val | rest], gas - 1)
+  end
+
+  # ── gosub/ret (finally blocks) ──
+
+  defp run({:gosub, [target]}, %Frame{pc: pc} = frame, stack, gas) do
+    run(jump(frame, target), [{:return_addr, pc + 1} | stack], gas - 1)
+  end
+
+  defp run({:ret, []}, frame, [{:return_addr, ret_pc} | rest], gas) do
+    run(jump(frame, ret_pc), rest, gas - 1)
+  end
+
+  # ── eval (stub) ──
+
+  defp run({:eval, [_argc]}, frame, [_val | rest], gas) do
+    run(advance(frame), [:undefined | rest], gas - 1)
+  end
+
+  # ── Iterators ──
+
+  defp run({:for_of_start, []}, frame, [obj | rest], gas) do
+    items = case obj do
+      list when is_list(list) -> list
+      {:obj, ref} ->
+        stored = Process.get({:qb_obj, ref}, [])
+        if is_list(stored), do: stored, else: []
+      _ -> []
+    end
+    run(advance(frame), [{:for_of_iterator, items, 0} | rest], gas - 1)
+  end
+
+  defp run({:for_of_next, [_idx]}, frame, [{:for_of_iterator, items, pos} | rest], gas) when is_list(items) do
+    if pos < length(items) do
+      run(advance(frame), [false, Enum.at(items, pos), {:for_of_iterator, items, pos + 1} | rest], gas - 1)
+    else
+      run(advance(frame), [true, :undefined, {:for_of_iterator, items, pos} | rest], gas - 1)
+    end
+  end
+
+  defp run({:for_of_next, [_idx]}, frame, [iter | rest], gas) do
+    run(advance(frame), [true, :undefined, iter | rest], gas - 1)
+  end
+
+  defp run({:iterator_next, []}, frame, [{:for_of_iterator, items, pos} | rest], gas) when is_list(items) do
+    if pos < length(items) do
+      run(advance(frame), [false, Enum.at(items, pos), {:for_of_iterator, items, pos + 1} | rest], gas - 1)
+    else
+      run(advance(frame), [true, :undefined, {:for_of_iterator, items, pos} | rest], gas - 1)
+    end
+  end
+
+  defp run({:iterator_next, []}, frame, [iter | rest], gas) do
+    run(advance(frame), [true, :undefined, iter | rest], gas - 1)
+  end
+
+  defp run({:iterator_close, []}, frame, [_iter | rest], gas), do: run(advance(frame), rest, gas - 1)
+  defp run({:iterator_check_object, []}, frame, stack, gas), do: run(advance(frame), stack, gas - 1)
+  defp run({:iterator_call, []}, frame, stack, gas), do: run(advance(frame), stack, gas - 1)
+  defp run({:iterator_get_value_done, []}, frame, stack, gas), do: run(advance(frame), stack, gas - 1)
+
+  # ── Misc stubs ──
+
+  defp run({:put_arg, [idx]}, frame, [val | rest], gas) do
+    arg_buf = Process.get(:qb_arg_buf, {})
+    padded = Tuple.to_list(arg_buf)
+    padded = if idx < length(padded), do: padded, else: padded ++ List.duplicate(:undefined, idx + 1 - length(padded))
+    Process.put(:qb_arg_buf, List.to_tuple(List.replace_at(padded, idx, val)))
+    run(advance(frame), rest, gas - 1)
+  end
+
+  defp run({:set_home_object, []}, frame, stack, gas), do: run(advance(frame), stack, gas - 1)
+  defp run({:set_proto, []}, frame, stack, gas), do: run(advance(frame), stack, gas - 1)
+
+  defp run({:special_object, [type]}, frame, stack, gas) do
+    val = case type do
+      1 ->
+        arg_buf = Process.get(:qb_arg_buf, {})
+        args_list = Tuple.to_list(arg_buf)
+        ref = System.unique_integer([:positive])
+        Process.put({:qb_obj, ref}, args_list)
+        {:obj, ref}
+      2 -> Process.get(:qb_current_func, :undefined)
+      3 -> Process.get(:qb_current_func, :undefined)
+      _ -> :undefined
+    end
+    run(advance(frame), [val | stack], gas - 1)
+  end
+
+  defp run({:rest, [start_idx]}, frame, stack, gas) do
+    arg_buf = Process.get(:qb_arg_buf, {})
+    rest_args = if start_idx < tuple_size(arg_buf) do
+      Tuple.to_list(arg_buf) |> Enum.drop(start_idx)
+    else
+      []
+    end
+    ref = System.unique_integer([:positive])
+    Process.put({:qb_obj, ref}, rest_args)
+    run(advance(frame), [{:obj, ref} | stack], gas - 1)
+  end
+
+  defp run({:typeof_is_function, [_atom_idx]}, frame, stack, gas), do: run(advance(frame), [false | stack], gas - 1)
+  defp run({:typeof_is_undefined, [_atom_idx]}, frame, stack, gas), do: run(advance(frame), [false | stack], gas - 1)
+
+  defp run({:throw_error, []}, _frame, [val | _], _gas), do: throw({:js_throw, val})
+  defp run({:set_name_computed, []}, frame, stack, gas), do: run(advance(frame), stack, gas - 1)
+
+  defp run({:copy_data_properties, []}, frame, stack, gas), do: run(advance(frame), stack, gas - 1)
+
+  defp run({:get_super, []}, frame, [func | rest], gas) do
+    raw = case func do
+      {:closure, _, %Bytecode.Function{} = f} -> f
+      %Bytecode.Function{} = f -> f
+      _ -> func
+    end
+    parent = Process.get({:qb_parent_ctor, :erlang.phash2(raw)})
+    run(advance(frame), [(parent || :undefined) | rest], gas - 1)
+  end
+
+  defp run({:push_this, []}, frame, stack, gas) do
+    run(advance(frame), [Process.get(:qb_this, :undefined) | stack], gas - 1)
+  end
+
+  defp run({:private_symbol, []}, frame, stack, gas), do: run(advance(frame), [:undefined | stack], gas - 1)
+
+  # ── Argument mutation ──
+
+  defp run({:set_arg, [idx]}, frame, [val | rest], gas) do
+    arg_buf = Process.get(:qb_arg_buf, {})
+    list = Tuple.to_list(arg_buf)
+    padded = if idx < length(list), do: list, else: list ++ List.duplicate(:undefined, idx + 1 - length(list))
+    Process.put(:qb_arg_buf, List.to_tuple(List.replace_at(padded, idx, val)))
+    run(advance(frame), [val | rest], gas - 1)
+  end
+
+  defp run({:set_arg0, []}, frame, [val | rest], gas) do
+    Process.put(:qb_arg_buf, put_elem(Process.get(:qb_arg_buf, {}), 0, val))
+    run(advance(frame), [val | rest], gas - 1)
+  end
+
+  defp run({:set_arg1, []}, frame, [val | rest], gas) do
+    arg_buf = Process.get(:qb_arg_buf, {})
+    if tuple_size(arg_buf) > 1, do: Process.put(:qb_arg_buf, put_elem(arg_buf, 1, val))
+    run(advance(frame), [val | rest], gas - 1)
+  end
+
+  defp run({:set_arg2, []}, frame, [val | rest], gas) do
+    arg_buf = Process.get(:qb_arg_buf, {})
+    if tuple_size(arg_buf) > 2, do: Process.put(:qb_arg_buf, put_elem(arg_buf, 2, val))
+    run(advance(frame), [val | rest], gas - 1)
+  end
+
+  defp run({:set_arg3, []}, frame, [val | rest], gas) do
+    arg_buf = Process.get(:qb_arg_buf, {})
+    if tuple_size(arg_buf) > 3, do: Process.put(:qb_arg_buf, put_elem(arg_buf, 3, val))
+    run(advance(frame), [val | rest], gas - 1)
+  end
+
+  # ── Array element access (2-element push) ──
+
+  defp run({:get_array_el2, []}, frame, [idx, obj | rest], gas) do
+    run(advance(frame), [Runtime.get_property(obj, idx), obj | rest], gas - 1)
+  end
+
+  # ── Spread/rest via apply ──
+
+  defp run({:apply, [_magic]}, frame, [arg_array, this_obj, fun | rest], gas) do
+    args = case arg_array do
+      list when is_list(list) -> list
+      {:obj, ref} ->
+        stored = Process.get({:qb_obj, ref}, [])
+        if is_list(stored), do: stored, else: []
+      _ -> []
+    end
+    result = case fun do
+      %Bytecode.Function{} = f -> invoke_function(f, args, gas)
+      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, args, gas)
+      {:builtin, _name, cb} when is_function(cb, 2) -> cb.(args, this_obj)
+      {:builtin, _name, cb} when is_function(cb, 3) -> cb.(args, this_obj, self())
+      {:builtin, _name, cb} when is_function(cb, 1) -> cb.(args)
+      f when is_function(f) -> apply(f, [this_obj | args])
+      _ -> throw({:error, {:not_a_function, fun}})
+    end
+    run(advance(frame), [result | rest], gas - 1)
+  end
+
+  # ── Object spread (copy_data_properties with mask) ──
+
+  defp run({:copy_data_properties, [mask]}, frame, stack, gas) do
+    target_idx = mask &&& 3
+    source_idx = Bitwise.bsr(mask, 2) &&& 7
+    target = Enum.at(stack, target_idx)
+    source = Enum.at(stack, source_idx)
+    src_props = case source do
+      {:obj, ref} -> Process.get({:qb_obj, ref}, %{})
+      map when is_map(map) -> map
+      _ -> %{}
+    end
+    case target do
+      {:obj, ref} ->
+        existing = Process.get({:qb_obj, ref}, %{})
+        Process.put({:qb_obj, ref}, Map.merge(existing, src_props))
+      _ -> :ok
+    end
+    run(advance(frame), stack, gas - 1)
+  end
+
+  # ── Class definitions ──
+
+  defp run({:define_class, [_atom_idx, _flags]}, frame, [ctor, parent_ctor | rest], gas) do
+    proto_ref = make_ref()
+    proto_map = case ctor do
+      %Bytecode.Function{} = f -> %{"constructor" => {:closure, %{}, f}}
+      closure -> %{"constructor" => closure}
+    end
+    parent_proto = Process.get({:qb_class_proto, :erlang.phash2(parent_ctor)})
+    proto_map = if parent_proto, do: Map.put(proto_map, "__proto__", parent_proto), else: proto_map
+    Process.put({:qb_obj, proto_ref}, proto_map)
+    proto = {:obj, proto_ref}
+    Process.put({:qb_class_proto, :erlang.phash2(ctor)}, proto)
+    if parent_ctor != :undefined do
+      Process.put({:qb_parent_ctor, :erlang.phash2(ctor)}, parent_ctor)
+    end
+    run(advance(frame), [proto, ctor | rest], gas - 1)
+  end
+
+  defp run({:define_method, [atom_idx, _flags]}, frame, [method_closure, target | rest], gas) do
+    name = resolve_atom(atom_idx)
+    case target do
+      {:obj, ref} ->
+        existing = Process.get({:qb_obj, ref}, %{})
+        if is_map(existing), do: Process.put({:qb_obj, ref}, Map.put(existing, name, method_closure))
+      _ -> :ok
+    end
+    run(advance(frame), [target | rest], gas - 1)
+  end
+
+  defp run({:define_method_computed, [_flags]}, frame, [method_closure, target, field_name | rest], gas) do
+    case target do
+      {:obj, ref} ->
+        proto = Process.get({:qb_obj, ref}, %{})
+        Process.put({:qb_obj, ref}, Map.put(proto, field_name, method_closure))
+      _ -> :ok
+    end
+    run(advance(frame), rest, gas - 1)
+  end
+
+  # ── Catch-all for unimplemented opcodes ──
+
+  defp run({name, args}, _frame, _stack, _gas) do
+    throw({:error, {:unimplemented_opcode, name, args}})
+  end
+
+  # ── Tail calls ──
 
   defp tail_call(stack, argc, gas) do
     {args, [fun | _rest]} = Enum.split(stack, argc)
@@ -1218,7 +977,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       f when is_function(f) -> apply(f, rev_args)
       _ -> throw({:error, {:not_a_function, fun}})
     end
-    throw({:return, %Return{value: result}})
+    throw({:js_return, result})
   end
 
   defp tail_call_method(stack, argc, gas) do
@@ -1239,7 +998,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     after
       if prev_this, do: Process.put(:qb_this, prev_this), else: Process.delete(:qb_this)
     end
-    throw({:return, %Return{value: result}})
+    throw({:js_return, result})
   end
 
   # ── Closure construction ──
@@ -1248,10 +1007,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     arg_buf = Process.get(:qb_arg_buf, {})
     l2v = Process.get(:qb_local_to_vref, %{})
     captured = for cv <- fun.closure_vars do
-      # Look up the cell from parent's vrefs using local→vref mapping
       cell = case Map.get(l2v, cv.var_idx) do
         nil ->
-          # No cell yet — create one
           val = cond do
             cv.var_idx < tuple_size(arg_buf) -> elem(arg_buf, cv.var_idx)
             cv.var_idx < tuple_size(locals) -> elem(locals, cv.var_idx)
@@ -1261,7 +1018,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           Process.put({:qb_cell, ref}, val)
           {:cell, ref}
         vref_idx ->
-          case Enum.at(vrefs, vref_idx, :undefined) do
+          case elem(vrefs, vref_idx) do
             {:cell, _} = existing -> existing
             _ ->
               val = elem(locals, cv.var_idx)
@@ -1278,7 +1035,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Function calls ──
 
-  defp call_function({pc, locals, cpool, vrefs, ssz, insns} = _frame, stack, argc, gas) do
+  defp call_function(frame, stack, argc, gas) do
     {args, [fun | rest]} = Enum.split(stack, argc)
     rev_args = Enum.reverse(args)
     result = case fun do
@@ -1288,10 +1045,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       f when is_function(f) -> apply(f, rev_args)
       _ -> throw({:error, {:not_a_function, fun}})
     end
-    run({pc + 1, locals, cpool, vrefs, ssz, insns}, [result | rest], gas - 1)
+    run(advance(frame), [result | rest], gas - 1)
   end
 
-  defp call_method({pc, locals, cpool, vrefs, ssz, insns} = _frame, stack, argc, gas) do
+  defp call_method(frame, stack, argc, gas) do
     {args, [fun, obj | rest]} = Enum.split(stack, argc)
     rev_args = Enum.reverse(args)
     prev_this = Process.get(:qb_this)
@@ -1309,7 +1066,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     after
       if prev_this, do: Process.put(:qb_this, prev_this), else: Process.delete(:qb_this)
     end
-    run({pc + 1, locals, cpool, vrefs, ssz, insns}, [result | rest], gas - 1)
+    run(advance(frame), [result | rest], gas - 1)
   end
 
   def invoke_function(%Bytecode.Function{} = fun, args, gas) do
@@ -1317,8 +1074,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   def invoke_closure({:closure, captured, %Bytecode.Function{} = fun}, args, gas) do
-    # Build var_refs from captured values
-    # The closure_vars list maps var_ref indices to parent local indices
     var_refs = for cv <- fun.closure_vars do
       Map.get(captured, cv.var_idx, :undefined)
     end
@@ -1337,22 +1092,29 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     Process.put(:qb_current_func, self_ref)
 
     try do
-      _result = case Decoder.decode(fun.byte_code) do
+      case Decoder.decode(fun.byte_code) do
         {:ok, instructions} ->
           insns = List.to_tuple(instructions)
           locals = :erlang.make_tuple(max(fun.arg_count + fun.var_count, 1), :undefined)
+          {locals, var_refs_tuple} = setup_captured_locals(fun, locals, var_refs, args)
 
-          # Create cells for captured locals, convert vrefs to tuple
-          {locals, var_refs} = setup_captured_locals(fun, locals, var_refs, args)
-          frame = {0, locals, fun.constants, var_refs, fun.stack_size, insns}
+          frame = %Frame{
+            pc: 0,
+            locals: locals,
+            constants: fun.constants,
+            var_refs: var_refs_tuple,
+            stack_size: fun.stack_size,
+            instructions: insns
+          }
+
           prev_args = Process.get(:qb_arg_buf)
           Process.put(:qb_arg_buf, List.to_tuple(args))
 
           try do
             run(frame, [], gas)
           catch
-            {:return, %Return{value: val}} -> val
-            {:throw, %Throw{value: val}} -> throw({:throw, %Throw{value: val}})
+            {:js_return, val} -> val
+            {:js_throw, val} -> throw({:js_throw, val})
             {:error, _} = err -> throw(err)
           after
             if prev_args, do: Process.put(:qb_arg_buf, prev_args), else: Process.delete(:qb_arg_buf)
@@ -1367,342 +1129,4 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       if prev_catch, do: Process.put(:qb_catch_stack, prev_catch), else: Process.delete(:qb_catch_stack)
     end
   end
-
-  # ── Constant pool resolution ──
-
-  defp resolve_const(cpool, idx) when is_list(cpool) and idx < length(cpool) do
-    Enum.at(cpool, idx)
-  end
-  defp resolve_const(_cpool, idx), do: {:const_ref, idx}
-
-
-  defp obj_put({:obj, ref}, key, val) do
-    map = Process.get({:qb_obj, ref}, %{})
-    Process.put({:qb_obj, ref}, Map.put(map, key, val))
-  end
-  defp obj_put(_, _, _), do: :ok
-
-
-  defp has_property({:obj, ref}, key), do: Map.has_key?(Process.get({:qb_obj, ref}, %{}), key)
-  defp has_property(obj, key) when is_map(obj), do: Map.has_key?(obj, key)
-  defp has_property(obj, key) when is_list(obj) and is_integer(key), do: key >= 0 and key < length(obj)
-  defp has_property(_, _), do: false
-
-  defp get_array_el({:obj, ref}, idx) do
-    case Process.get({:qb_obj, ref}) do
-      list when is_list(list) and is_integer(idx) -> Enum.at(list, idx, :undefined)
-      map when is_map(map) ->
-        key = if is_integer(idx), do: Integer.to_string(idx), else: idx
-        Map.get(map, key, Map.get(map, idx, :undefined))
-      _ -> :undefined
-    end
-  end
-  defp get_array_el(obj, idx) when is_list(obj) and is_integer(idx), do: Enum.at(obj, idx, :undefined)
-  defp get_array_el(obj, idx) when is_map(obj), do: Map.get(obj, idx, :undefined)
-  defp get_array_el(s, idx) when is_binary(s) and is_integer(idx) and idx >= 0, do: String.at(s, idx) || :undefined
-  defp get_array_el(_, _), do: :undefined
-
-  defp put_array_el({:obj, ref}, key, val) do
-    case Process.get({:qb_obj, ref}) do
-      list when is_list(list) ->
-        case key do
-          i when is_integer(i) and i >= 0 and i < length(list) ->
-            Process.put({:qb_obj, ref}, List.replace_at(list, i, val))
-          _ -> :ok
-        end
-      map when is_map(map) ->
-        Process.put({:qb_obj, ref}, Map.put(map, to_string(key), val))
-      nil ->
-        :ok
-    end
-  end
-  defp put_array_el(_, _, _), do: :ok
-
-  # ── Captured locals & mutable cells ──
-
-  defp setup_captured_locals(fun, locals, var_refs, args) do
-    arg_buf = List.to_tuple(args)
-    vrefs = if is_tuple(var_refs), do: Tuple.to_list(var_refs), else: var_refs
-    l2v = Process.get(:qb_local_to_vref, %{})
-    {locals, vrefs, l2v} = for {vd, local_idx} <- Enum.with_index(fun.locals), vd.is_captured, reduce: {locals, vrefs, l2v} do
-      {acc_locals, acc_vrefs, acc_l2v} ->
-        val = cond do
-          local_idx < tuple_size(arg_buf) -> elem(arg_buf, local_idx)
-          true -> elem(acc_locals, local_idx)
-        end
-        acc_locals = put_elem(acc_locals, local_idx, val)
-        ref = make_ref()
-        Process.put({:qb_cell, ref}, val)
-        acc_vrefs = ensure_vref_size(acc_vrefs, vd.var_ref_idx, {:cell, ref})
-        acc_l2v = Map.put(acc_l2v, local_idx, vd.var_ref_idx)
-        {acc_locals, acc_vrefs, acc_l2v}
-    end
-    Process.put(:qb_local_to_vref, l2v)
-    {locals, vrefs}
-  end
-
-  defp ensure_vref_size(vrefs, idx, val) do
-    vrefs = if idx >= length(vrefs), do: vrefs ++ List.duplicate(:undefined, idx + 1 - length(vrefs)), else: vrefs
-    List.replace_at(vrefs, idx, val)
-  end
-
-  # ── Cell read/write ──
-
-  defp read_cell({:cell, ref}), do: Process.get({:qb_cell, ref}, :undefined)
-  defp read_cell(_), do: :undefined
-
-  defp write_cell({:cell, ref}, val), do: Process.put({:qb_cell, ref}, val)
-  defp write_cell(_, _), do: :ok
-
-  defp read_captured_local(idx, locals, vrefs) do
-    l2v = Process.get(:qb_local_to_vref, %{})
-    case Map.get(l2v, idx) do
-      nil -> elem(locals, idx)
-      vref_idx ->
-        case Enum.at(vrefs, vref_idx, :undefined) do
-          {:cell, ref} -> Process.get({:qb_cell, ref}, :undefined)
-          val -> val
-        end
-    end
-  end
-
-  defp write_captured_local(idx, val, _locals, vrefs) do
-    l2v = Process.get(:qb_local_to_vref, %{})
-    case Map.get(l2v, idx) do
-      nil -> :ok
-      vref_idx ->
-        case Enum.at(vrefs, vref_idx, :undefined) do
-          {:cell, ref} -> Process.put({:qb_cell, ref}, val)
-          _ -> :ok
-        end
-    end
-  end
-
-
-  # ── JS value operations ──
-
-  defp js_truthy(nil), do: false
-  defp js_truthy(:undefined), do: false
-  defp js_truthy(false), do: false
-  defp js_truthy(0), do: false
-  defp js_truthy(0.0), do: false
-  defp js_truthy(""), do: false
-  defp js_truthy(_), do: true
-
-  defp js_falsy(val), do: not js_truthy(val)
-
-  defp js_to_number(val) when is_number(val), do: val
-  defp js_to_number(true), do: 1
-  defp js_to_number(false), do: 0
-  defp js_to_number(nil), do: 0
-  defp js_to_number(:undefined), do: :nan
-  defp js_to_number(:infinity), do: :infinity
-  defp js_to_number(:neg_infinity), do: :neg_infinity
-  defp js_to_number(:nan), do: :nan
-  defp js_to_number(s) when is_binary(s) do
-    case Float.parse(s) do
-      {f, ""} -> f
-      {f, _rest} when trunc(f) == f -> trunc(f)
-      {f, _} -> f
-      :error -> :nan
-    end
-  end
-  defp js_to_number(_), do: :nan
-
-  defp js_to_int32(val) when is_integer(val), do: val
-  defp js_to_int32(val) when is_float(val), do: trunc(val)
-  defp js_to_int32(_), do: 0
-
-  defp js_typeof(:undefined), do: "undefined"
-  defp js_typeof(:nan), do: "number"
-  defp js_typeof(:infinity), do: "number"
-  defp js_typeof(nil), do: "object"
-  defp js_typeof(true), do: "boolean"
-  defp js_typeof(false), do: "boolean"
-  defp js_typeof(val) when is_number(val), do: "number"
-  defp js_typeof(val) when is_binary(val), do: "string"
-  defp js_typeof(%Bytecode.Function{}), do: "function"
-  defp js_typeof({:closure, _, %Bytecode.Function{}}), do: "function"
-  defp js_typeof({:builtin, _, _}), do: "function"
-  defp js_typeof(_), do: "object"
-
-  defp js_strict_eq(:nan, :nan), do: false
-  defp js_strict_eq(:infinity, :infinity), do: true
-  defp js_strict_eq(:neg_infinity, :neg_infinity), do: true
-  defp js_strict_eq(a, b), do: a === b
-
-  # ── Arithmetic (numeric only — string concat handled separately) ──
-
-  defp js_add(a, b) when is_binary(a) or is_binary(b) do
-    js_to_string(a) <> js_to_string(b)
-  end
-  defp js_add(a, b) when is_number(a) and is_number(b), do: a + b
-  defp js_add(a, b) do
-    na = js_to_number(a)
-    nb = js_to_number(b)
-    js_numeric_add(na, nb)
-  end
-
-  defp js_numeric_add(a, b) when is_number(a) and is_number(b), do: a + b
-  defp js_numeric_add(:nan, _), do: :nan
-  defp js_numeric_add(_, :nan), do: :nan
-  defp js_numeric_add(:infinity, :neg_infinity), do: :nan
-  defp js_numeric_add(:neg_infinity, :infinity), do: :nan
-  defp js_numeric_add(:infinity, _), do: :infinity
-  defp js_numeric_add(:neg_infinity, _), do: :neg_infinity
-  defp js_numeric_add(_, :infinity), do: :infinity
-  defp js_numeric_add(_, :neg_infinity), do: :neg_infinity
-  defp js_numeric_add(_, _), do: :nan
-
-  defp js_sub(a, b) when is_number(a) and is_number(b), do: a - b
-  defp js_sub(a, b), do: js_numeric_add(js_to_number(a), js_neg(js_to_number(b)))
-
-  defp js_mul(a, b) when is_number(a) and is_number(b), do: a * b
-  defp js_mul(a, b) do
-    na = js_to_number(a)
-    nb = js_to_number(b)
-    cond do
-      na == :nan or nb == :nan -> :nan
-      (na in [:infinity, :neg_infinity]) or (nb in [:infinity, :neg_infinity]) ->
-        cond do
-          (na == 0 or nb == 0) -> :nan
-          true ->
-            sa = if na in [:neg_infinity] or (is_number(na) and na < 0), do: -1, else: 1
-            sb = if nb in [:neg_infinity] or (is_number(nb) and nb < 0), do: -1, else: 1
-            if sa * sb > 0, do: :infinity, else: :neg_infinity
-        end
-      is_number(na) and is_number(nb) -> na * nb
-      true -> :nan
-    end
-  end
-
-  defp js_div(a, b) when is_number(a) and is_number(b) do
-    cond do
-      b == 0 and neg_zero?(b) ->
-        if a > 0, do: :neg_infinity, else: if(a < 0, do: :infinity, else: :nan)
-      b == 0 -> js_inf_or_nan(a)
-      true -> a / b
-    end
-  end
-  defp js_div(a, b), do: js_to_number(a) / js_to_number(b)
-
-  defp js_mod(a, b) when is_number(a) and is_number(b), do: if(b == 0, do: :nan, else: rem(trunc(a), trunc(b)))
-  defp js_mod(_, _), do: :nan
-
-  defp js_pow(a, b) when is_number(a) and is_number(b), do: :math.pow(a, b)
-  defp js_pow(_, _), do: :nan
-
-  defp js_neg(0), do: -0.0
-  defp js_neg(:infinity), do: :neg_infinity
-  defp js_neg(:neg_infinity), do: :infinity
-  defp js_neg(:nan), do: :nan
-  defp js_neg(a) when is_number(a), do: -a
-  defp js_neg(a), do: js_neg(js_to_number(a))
-
-  defp neg_zero?(b), do: is_float(b) and b == 0.0 and hd(:erlang.float_to_list(b)) == ?-
-
-  defp js_inf_or_nan(a) when a > 0, do: :infinity
-  defp js_inf_or_nan(a) when a < 0, do: :neg_infinity
-  defp js_inf_or_nan(_), do: :nan
-
-  # ── Bitwise ──
-
-  defp js_band(a, b), do: band(js_to_int32(a), js_to_int32(b))
-  defp js_bor(a, b), do: bor(js_to_int32(a), js_to_int32(b))
-  defp js_bxor(a, b), do: bxor(js_to_int32(a), js_to_int32(b))
-  defp js_shl(a, b), do: bsl(js_to_int32(a), band(js_to_int32(b), 31))
-  defp js_sar(a, b), do: bsr(js_to_int32(a), band(js_to_int32(b), 31))
-
-  defp js_shr(a, b) do
-    ua = js_to_int32(a) &&& 0xFFFFFFFF
-    bsr(ua, band(js_to_int32(b), 31))
-  end
-
-  # ── Comparison ──
-
-  defp js_lt(a, b) when is_number(a) and is_number(b), do: a < b
-  defp js_lt(a, b) when is_binary(a) and is_binary(b), do: a < b
-  defp js_lt(a, b), do: js_to_number(a) < js_to_number(b)
-
-  defp js_lte(a, b) when is_number(a) and is_number(b), do: a <= b
-  defp js_lte(a, b) when is_binary(a) and is_binary(b), do: a <= b
-  defp js_lte(a, b), do: js_to_number(a) <= js_to_number(b)
-
-  defp js_gt(a, b) when is_number(a) and is_number(b), do: a > b
-  defp js_gt(a, b) when is_binary(a) and is_binary(b), do: a > b
-  defp js_gt(a, b), do: js_to_number(a) > js_to_number(b)
-
-  defp js_gte(a, b) when is_number(a) and is_number(b), do: a >= b
-  defp js_gte(a, b) when is_binary(a) and is_binary(b), do: a >= b
-  defp js_gte(a, b), do: js_to_number(a) >= js_to_number(b)
-
-  defp js_eq(a, b), do: js_abstract_eq(a, b)
-  defp js_neq(a, b), do: not js_abstract_eq(a, b)
-
-  # Abstract equality (==)
-  defp js_abstract_eq(nil, nil), do: true
-  defp js_abstract_eq(nil, :undefined), do: true
-  defp js_abstract_eq(:undefined, nil), do: true
-  defp js_abstract_eq(:undefined, :undefined), do: true
-  defp js_abstract_eq(a, b) when is_number(a) and is_number(b), do: a == b
-  defp js_abstract_eq(a, b) when is_binary(a) and is_binary(b), do: a == b
-  defp js_abstract_eq(a, b) when is_boolean(a) and is_boolean(b), do: a == b
-  defp js_abstract_eq(true, b), do: js_abstract_eq(1, b)
-  defp js_abstract_eq(a, true), do: js_abstract_eq(a, 1)
-  defp js_abstract_eq(false, b), do: js_abstract_eq(0, b)
-  defp js_abstract_eq(a, false), do: js_abstract_eq(a, 0)
-  defp js_abstract_eq(a, b) when is_number(a) and is_binary(b), do: a == js_to_number(b)
-  defp js_abstract_eq(a, b) when is_binary(a) and is_number(b), do: js_to_number(a) == b
-  defp js_abstract_eq(_, _), do: false
-
-  # ── String conversion ──
-
-  defp js_to_string(:undefined), do: "undefined"
-  defp js_to_string(nil), do: "null"
-  defp js_to_string(true), do: "true"
-  defp js_to_string(false), do: "false"
-  defp js_to_string(n) when is_integer(n), do: Integer.to_string(n)
-  defp js_to_string(n) when is_float(n), do: Float.to_string(n)
-  defp js_to_string(s) when is_binary(s), do: s
-  defp js_to_string(_), do: "[object]"
-
-  defp get_arg_value(idx) do
-    arg_buf = Process.get(:qb_arg_buf, {})
-    if idx < tuple_size(arg_buf), do: elem(arg_buf, idx), else: :undefined
-  end
-
-  # ── Global variable resolution ──
-
-  defp resolve_global(atom_idx) do
-    name = resolve_atom(atom_idx)
-    globals = Process.get(:qb_globals, %{})
-    case Map.fetch(globals, name) do
-      {:ok, val} -> {:found, val}
-      :error -> :not_found
-    end
-  end
-
-  defp set_global(atom_idx, val) do
-    name = resolve_atom(atom_idx)
-    globals = Process.get(:qb_globals, %{})
-    Process.put(:qb_globals, Map.put(globals, name, val))
-  end
-
-  # ── Atom resolution ──
-
-  @js_atom_end 229
-
-  defp resolve_atom(:empty_string), do: ""
-  defp resolve_atom({:predefined, idx}) when idx < @js_atom_end do
-    case PredefinedAtoms.lookup(idx) do
-      nil -> {:predefined_atom, idx}
-      name -> name
-    end
-  end
-  defp resolve_atom({:tagged_int, val}), do: val
-  defp resolve_atom(idx) when is_integer(idx) and idx >= 0 do
-    atoms = Process.get(:qb_atoms, {})
-    if idx < tuple_size(atoms), do: elem(atoms, idx), else: {:atom, idx}
-  end
-  defp resolve_atom(other), do: other
 end
