@@ -490,18 +490,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
     result = case ctor do
       %Bytecode.Function{} = f ->
-        cell_ref = make_ref()
-        Heap.put_cell(cell_ref, false)
-        do_invoke(f, rev_args, [{:cell, cell_ref}], gas, ctor_ctx)
+        do_invoke(f, rev_args, ctor_var_refs(f), gas, ctor_ctx)
 
       {:closure, captured, %Bytecode.Function{} = f} ->
-        cell_ref = make_ref()
-        Heap.put_cell(cell_ref, false)
-        var_refs = for cv <- f.closure_vars do
-          Map.get(captured, cv.var_idx, {:cell, cell_ref})
-        end
-        var_refs = if var_refs == [], do: [{:cell, cell_ref}], else: var_refs
-        do_invoke(f, rev_args, var_refs, gas, ctor_ctx)
+        do_invoke(f, rev_args, ctor_var_refs(f, captured), gas, ctor_ctx)
 
       {:builtin, name, cb} when is_function(cb, 1) ->
         obj = cb.(rev_args)
@@ -546,11 +538,16 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     parent = Heap.get_parent_ctor(raw)
     args = Tuple.to_list(arg_buf)
     result = case parent do
-      nil -> ctx.this
-      %Bytecode.Function{} = f -> invoke_function(f, args, gas, ctx)
-      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, args, gas, ctx)
-      {:builtin, _name, cb} when is_function(cb, 1) -> cb.(args)
-      _ -> ctx.this
+      nil ->
+        ctx.this
+      %Bytecode.Function{} = f ->
+        do_invoke(f, args, ctor_var_refs(f), gas, ctx)
+      {:closure, captured, %Bytecode.Function{} = f} ->
+        do_invoke(f, args, ctor_var_refs(f, captured), gas, ctx)
+      {:builtin, _name, cb} when is_function(cb, 1) ->
+        cb.(args)
+      _ ->
+        ctx.this
     end
     result = case result do
       {:obj, _} = obj -> obj
@@ -994,20 +991,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
   defp build_closure(other, _locals, _vrefs, _l2v, _ctx), do: other
 
-  defp ensure_constructor_cell(%Bytecode.Function{new_target_allowed: true, closure_vars: cvs}, var_refs)
-       when cvs != [] do
-    if Enum.any?(var_refs, &match?({:cell, _}, &1)) do
-      var_refs
-    else
-      cell_ref = make_ref()
-      Heap.put_cell(cell_ref, false)
-      case var_refs do
-        [] -> [{:cell, cell_ref}]
-        [_ | rest] -> [{:cell, cell_ref} | rest]
-      end
+  defp ctor_var_refs(%Bytecode.Function{} = f, captured \\ %{}) do
+    cell_ref = make_ref()
+    Heap.put_cell(cell_ref, false)
+    case f.closure_vars do
+      [] -> [{:cell, cell_ref}]
+      cvs -> Enum.map(cvs, &Map.get(captured, &1.var_idx, {:cell, cell_ref}))
     end
   end
-  defp ensure_constructor_cell(_fun, var_refs), do: var_refs
 
   # ── Function calls ──
 
@@ -1053,7 +1044,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp do_invoke(%Bytecode.Function{} = fun, args, var_refs, gas, ctx) do
-    var_refs = ensure_constructor_cell(fun, var_refs)
     self_ref = if var_refs != [] or fun.closure_vars != [] do
       {:closure, %{}, fun}
     else
