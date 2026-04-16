@@ -726,7 +726,6 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
       ok(rt, "(function(){ class Point { constructor(x,y) { this.x = x; this.y = y } } var p = new Point(1,2); return p.x + p.y })()", 3)
     end
 
-    @tag :pending_class
     test "class method", %{rt: rt} do
       ok(rt, "(function(){ class Rect { constructor(w,h) { this.w = w; this.h = h } area() { return this.w * this.h } } return new Rect(3,4).area() })()", 12)
     end

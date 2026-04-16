@@ -280,7 +280,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:get_loc0_loc1, []} ->
         run(next, [elem(locals, 1), elem(locals, 0) | stack], gas - 1)
 
-
       # ── Variable references (closures) ──
       {:get_var_ref, [idx]} ->
         val = case Enum.at(vrefs, idx, :undefined) do
@@ -356,7 +355,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         throw({:return, %Return{value: val}})
 
       {:return_undef, []} ->
-        throw({:return, %Return{value: :undefined}})
+        this = Process.get(:qb_this, :undefined)
+        throw({:return, %Return{value: this}})
 
       # ── Arithmetic ──
       {:add, []} ->
@@ -597,7 +597,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         run(next, stack, gas - 1)
 
       {:check_ctor_return, []} ->
-        run(next, stack, gas - 1)
+        [val | rest] = stack
+        result = case val do
+          {:obj, _} = obj -> obj
+          _ -> Process.get(:qb_this, :undefined)
+        end
+        run(next, [result | rest], gas - 1)
 
       {:set_name, [_atom_idx]} ->
         run(next, stack, gas - 1)
@@ -711,7 +716,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         rev_args = Enum.reverse(args)
         # Create new object for constructor's this
         this_ref = make_ref()
-        Process.put({:qb_obj, this_ref}, %{})
+        proto = Process.get({:qb_class_proto, :erlang.phash2(ctor)})
+        init = if proto, do: %{"__proto__" => proto}, else: %{}
+        Process.put({:qb_obj, this_ref}, init)
         this_obj = {:obj, this_ref}
         prev_this = Process.get(:qb_this)
         Process.put(:qb_this, this_obj)
@@ -1024,32 +1031,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:copy_data_properties, []} ->
         run(next, stack, gas - 1)
 
-      {:put_arg, [idx]} ->
-        [val | rest] = stack
-        arg_buf = Process.get(:qb_arg_buf, {})
-        padded = Tuple.to_list(arg_buf)
-        padded = if idx < length(padded), do: padded, else: padded ++ List.duplicate(:undefined, idx + 1 - length(padded))
-        Process.put(:qb_arg_buf, List.to_tuple(List.replace_at(padded, idx, val)))
-        run(next, rest, gas - 1)
-
       {:push_this, []} ->
         this = Process.get(:qb_this, :undefined)
         run(next, [this | stack], gas - 1)
-
-      {:check_ctor, []} ->
-        run(next, stack, gas - 1)
-
-      {:check_ctor_return, []} ->
-        [val | rest] = stack
-        result = case val do
-          {:obj, _} = obj -> obj
-          _ -> Process.get(:qb_this, :undefined)
-        end
-        run(next, [result | rest], gas - 1)
-
-      {:return_undef, []} ->
-        this = Process.get(:qb_this, :undefined)
-        throw({:return, %Return{value: this}})
 
       {:private_symbol, []} ->
         run(next, [:undefined | stack], gas - 1)
@@ -1149,26 +1133,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       # ── Class definitions ──
       {:define_class, [_atom_idx, _flags]} ->
-        [ctor, parent_ctor | rest] = stack
-        # Create prototype object
-        proto = case ctor do
-          %Bytecode.Function{} = f ->
-            proto = %{"constructor" => {:closure, %{}, f}}
-            ref = make_ref()
-            Process.put({:qb_obj, ref}, proto)
-            # If parent is a function, set up inheritance
-            case parent_ctor do
-              {:closure, _, %Bytecode.Function{}} -> :ok
-              %Bytecode.Function{} -> :ok
-              _ -> :ok
-            end
-            {:obj, ref}
-          closure ->
-            proto = %{"constructor" => closure}
-            ref = make_ref()
-            Process.put({:qb_obj, ref}, proto)
-            {:obj, ref}
+        [ctor, _parent_ctor | rest] = stack
+        proto_ref = make_ref()
+        proto_map = case ctor do
+          %Bytecode.Function{} = f -> %{"constructor" => {:closure, %{}, f}}
+          closure -> %{"constructor" => closure}
         end
+        Process.put({:qb_obj, proto_ref}, proto_map)
+        proto = {:obj, proto_ref}
+        Process.put({:qb_class_proto, :erlang.phash2(ctor)}, proto)
         run(next, [proto, ctor | rest], gas - 1)
 
       {:define_method, [atom_idx, _flags]} ->
@@ -1593,7 +1566,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp js_neg(a) when is_number(a), do: -a
   defp js_neg(a), do: js_neg(js_to_number(a))
 
-  defp neg_zero?(b), do: is_float(b) and b == 0.0 and <<b::float>> == <<128, 0, 0, 0, 0, 0, 0, 0>>
+  defp neg_zero?(b), do: is_float(b) and b == 0.0 and hd(:erlang.float_to_list(b)) == ?-
 
   defp js_inf_or_nan(a) when a > 0, do: :infinity
   defp js_inf_or_nan(a) when a < 0, do: :neg_infinity

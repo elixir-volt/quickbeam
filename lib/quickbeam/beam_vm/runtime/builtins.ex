@@ -45,8 +45,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   end
   defp number_to_string(n, _), do: Runtime.js_to_string(n)
 
+  defp number_to_fixed(n, _) when n in [:nan, :infinity, :neg_infinity], do: "NaN"
   defp number_to_fixed(n, [digits | _]) when is_number(n) do
-    :erlang.float_to_binary(n / 1, [:compact, {:decimals, max(0, Runtime.to_int(digits))}])
+    :erlang.float_to_binary(n * 1.0, [{:decimals, max(0, Runtime.to_int(digits))}])
   end
   defp number_to_fixed(n, _), do: Runtime.js_to_string(n)
 

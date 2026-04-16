@@ -63,11 +63,15 @@ defmodule QuickBEAM.BeamVM.Runtime do
   def get_property(_, _), do: :undefined
 
   def js_string_length(s) do
-    s
-    |> String.to_charlist()
-    |> Enum.reduce(0, fn cp, acc ->
-      if cp > 0xFFFF, do: acc + 2, else: acc + 1
-    end)
+    len = String.length(s)
+    if len == byte_size(s) do
+      # ASCII-only fast path
+      len
+    else
+      s |> String.to_charlist() |> Enum.reduce(0, fn cp, acc ->
+        if cp > 0xFFFF, do: acc + 2, else: acc + 1
+      end)
+    end
   end
 
   defp get_own_property({:obj, ref}, key) do
@@ -108,6 +112,9 @@ defmodule QuickBEAM.BeamVM.Runtime do
         cond do
           Map.has_key?(map, "__map_data__") -> map_proto(key)
           Map.has_key?(map, "__set_data__") -> set_proto(key)
+          Map.has_key?(map, "__proto__") ->
+            # Walk prototype chain
+            get_property(Map.get(map, "__proto__"), key)
           true -> :undefined
         end
       _ -> :undefined
