@@ -756,7 +756,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
                 end
               end
               obj
-
+            _ -> this_obj
           end
         after
           if prev_this, do: Process.put(:qb_this, prev_this), else: Process.delete(:qb_this)
@@ -886,7 +886,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         run(next, [{:cell, ref} | stack], gas - 1)
 
       {:get_var_ref_check, [idx]} ->
-        case Enum.at(vrefs, idx, :undefined) do
+        val = Enum.at(vrefs, idx, :undefined)
+        case val do
           :undefined -> throw({:error, {:uninitialized_var_ref, idx}})
           {:cell, _} = cell -> run(next, [read_cell(cell) | stack], gas - 1)
           val -> run(next, [val | stack], gas - 1)
@@ -1343,7 +1344,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
           # Create cells for captured locals, convert vrefs to tuple
           {locals, var_refs} = setup_captured_locals(fun, locals, var_refs, args)
-
           frame = {0, locals, fun.constants, var_refs, fun.stack_size, insns}
           prev_args = Process.get(:qb_arg_buf)
           Process.put(:qb_arg_buf, List.to_tuple(args))
