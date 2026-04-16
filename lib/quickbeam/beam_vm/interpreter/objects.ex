@@ -42,5 +42,5 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   def put_array_el(_, _, _), do: :ok
 
   def list_set_at(list, i, val) when is_integer(i) and i >= 0 and i < length(list), do: List.replace_at(list, i, val)
-  def list_set_at(list, i, val) when is_integer(i) and i >= 0, do: list ++ List.duplicate(:undefined, i - length(list)) ++ [val]
+  def list_set_at(list, i, val) when is_integer(i) and i >= 0, do: list ++ List.duplicate(:undefined, max(0, i - length(list))) ++ [val]
 end

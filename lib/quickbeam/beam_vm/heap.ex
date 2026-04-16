@@ -2,9 +2,10 @@ defmodule QuickBEAM.BeamVM.Heap do
   @moduledoc """
   Mutable heap storage for JS runtime values.
 
-  Wraps process dictionary access for JS objects, closure cells,
-  class metadata, and variable bindings. Centralizes all heap
-  mutations so callers don't access the process dictionary directly.
+  All heap access goes through this module — callers never touch
+  the process dictionary directly. Current implementation uses the
+  process dictionary for single-process performance; the backing
+  store can be swapped to ETS for concurrent access.
 
   ## Storage keys
     - `{:qb_obj, ref}` — JS object/array properties

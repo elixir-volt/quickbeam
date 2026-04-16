@@ -36,11 +36,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   def eval(%Bytecode.Function{} = fun, args, opts, atoms) do
     gas = Map.get(opts, :gas, @default_gas)
 
-    globals = Runtime.global_bindings()
-    Process.put(:qb_atoms, atoms)
-    Process.put(:qb_globals, globals)
-
-    ctx = %Ctx{atoms: atoms, globals: globals}
+    ctx = %Ctx{atoms: atoms, globals: Runtime.global_bindings()}
+    Process.put(:qb_ctx, ctx)
 
     case Decoder.decode(fun.byte_code) do
       {:ok, instructions} ->
@@ -71,15 +68,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   @doc "Invoke a bytecode function or closure from external code."
-  def invoke(%Bytecode.Function{} = fun, args, gas), do: invoke_function(fun, args, gas, default_ctx())
-  def invoke({:closure, _, %Bytecode.Function{}} = c, args, gas), do: invoke_closure(c, args, gas, default_ctx())
+  def invoke(%Bytecode.Function{} = fun, args, gas), do: invoke_function(fun, args, gas, active_ctx())
+  def invoke({:closure, _, %Bytecode.Function{}} = c, args, gas), do: invoke_closure(c, args, gas, active_ctx())
 
-  defp default_ctx do
-    %Ctx{
-      atoms: Process.get(:qb_atoms, {}),
-      globals: Process.get(:qb_globals, %{})
-    }
-  end
+  defp active_ctx, do: Process.get(:qb_ctx, %Ctx{})
 
   # ── Helpers ──
 
@@ -1082,6 +1074,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           arg_buf: List.to_tuple(args),
           catch_stack: []
         }
+        Process.put(:qb_ctx, inner_ctx)
 
         try do
           run(frame, [], gas, inner_ctx)
