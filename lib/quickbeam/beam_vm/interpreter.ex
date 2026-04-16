@@ -764,6 +764,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           {:obj, _} = obj -> obj
           _ -> this_obj
         end
+        # Ensure prototype chain is set on the result
+        case {result, Process.get({:qb_class_proto, :erlang.phash2(ctor)})} do
+          {{:obj, rref}, {:obj, _} = proto} ->
+            rmap = Process.get({:qb_obj, rref}, %{})
+            unless Map.has_key?(rmap, "__proto__") do
+              Process.put({:qb_obj, rref}, Map.put(rmap, "__proto__", proto))
+            end
+          _ -> :ok
+        end
         run(next, [result | rest], gas - 1)
 
       {:init_ctor, []} ->
@@ -1000,6 +1009,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             Process.put({:qb_obj, ref}, args_list)
             {:obj, ref}
           2 -> Process.get(:qb_current_func, :undefined)
+          3 -> Process.get(:qb_current_func, :undefined)
           _ -> :undefined
         end
         run(next, [val | stack], gas - 1)
@@ -1030,6 +1040,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       {:copy_data_properties, []} ->
         run(next, stack, gas - 1)
+
+      {:get_super, []} ->
+        [func | rest] = stack
+        # Unwrap closure to get raw function for hash lookup
+        raw = case func do
+          {:closure, _, %Bytecode.Function{} = f} -> f
+          %Bytecode.Function{} = f -> f
+          _ -> func
+        end
+        parent = Process.get({:qb_parent_ctor, :erlang.phash2(raw)})
+        run(next, [(parent || :undefined) | rest], gas - 1)
 
       {:push_this, []} ->
         this = Process.get(:qb_this, :undefined)
@@ -1133,15 +1154,26 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       # ── Class definitions ──
       {:define_class, [_atom_idx, _flags]} ->
-        [ctor, _parent_ctor | rest] = stack
+        [ctor, parent_ctor | rest] = stack
         proto_ref = make_ref()
         proto_map = case ctor do
           %Bytecode.Function{} = f -> %{"constructor" => {:closure, %{}, f}}
           closure -> %{"constructor" => closure}
         end
-        Process.put({:qb_obj, proto_ref}, proto_map)
+        # If parent class exists, set up prototype chain
+        parent_proto = Process.get({:qb_class_proto, :erlang.phash2(parent_ctor)})
+        if parent_proto do
+          proto_map = Map.put(proto_map, "__proto__", parent_proto)
+          Process.put({:qb_obj, proto_ref}, proto_map)
+        else
+          Process.put({:qb_obj, proto_ref}, proto_map)
+        end
         proto = {:obj, proto_ref}
         Process.put({:qb_class_proto, :erlang.phash2(ctor)}, proto)
+        # Also store parent ctor for get_super
+        if parent_ctor != :undefined do
+          Process.put({:qb_parent_ctor, :erlang.phash2(ctor)}, parent_ctor)
+        end
         run(next, [proto, ctor | rest], gas - 1)
 
       {:define_method, [atom_idx, _flags]} ->
