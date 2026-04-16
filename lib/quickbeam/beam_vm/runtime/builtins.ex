@@ -115,9 +115,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
 
   def object_constructor, do: fn _args -> Runtime.obj_new() end
   def array_constructor do
-    fn
-      [n] when is_integer(n) and n >= 0 -> List.duplicate(:undefined, n)
-      args -> args
+    fn args ->
+      list = case args do
+        [n] when is_integer(n) and n >= 0 -> List.duplicate(:undefined, n)
+        _ -> args
+      end
+      ref = System.unique_integer([:positive])
+      Process.put({:qb_obj, ref}, list)
+      {:obj, ref}
     end
   end
   def string_constructor, do: fn args -> Runtime.js_to_string(List.first(args, "")) end

@@ -564,7 +564,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           {:obj, ref} ->
             case Process.get({:qb_obj, ref}) do
               list when is_list(list) -> length(list)
-              map -> map_size(map)
+              map when is_map(map) -> map_size(map)
+              _ -> 0
             end
           list when is_list(list) -> length(list)
           s when is_binary(s) -> Runtime.js_string_length(s)
@@ -720,13 +721,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas)
             {:builtin, name, cb} when is_function(cb, 1) ->
               obj = cb.(rev_args)
-              case obj do
-                {:obj, ref} ->
-                  existing = Process.get({:qb_obj, ref}, %{})
-                  unless Map.has_key?(existing, "name") do
-                    Process.put({:qb_obj, ref}, Map.put(existing, "name", name))
-                  end
-                _ -> :ok
+              if name in ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError) do
+                case obj do
+                  {:obj, ref} ->
+                    existing = Process.get({:qb_obj, ref}, %{})
+                    if is_map(existing) and not Map.has_key?(existing, "name") do
+                      Process.put({:qb_obj, ref}, Map.put(existing, "name", name))
+                    end
+                  _ -> :ok
+                end
               end
               obj
             _ -> this_obj
@@ -966,8 +969,16 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         end
         run(next, [val | stack], gas - 1)
 
-      {:rest, [_argc]} ->
-        run(next, [[] | stack], gas - 1)
+      {:rest, [start_idx]} ->
+        arg_buf = Process.get(:qb_arg_buf, {})
+        rest_args = if start_idx < tuple_size(arg_buf) do
+          Tuple.to_list(arg_buf) |> Enum.drop(start_idx)
+        else
+          []
+        end
+        ref = System.unique_integer([:positive])
+        Process.put({:qb_obj, ref}, rest_args)
+        run(next, [{:obj, ref} | stack], gas - 1)
 
       {:typeof_is_function, [_atom_idx]} ->
         run(next, [false | stack], gas - 1)
@@ -1355,6 +1366,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
   defp get_array_el(obj, idx) when is_list(obj) and is_integer(idx), do: Enum.at(obj, idx, :undefined)
   defp get_array_el(obj, idx) when is_map(obj), do: Map.get(obj, idx, :undefined)
+  defp get_array_el(s, idx) when is_binary(s) and is_integer(idx) and idx >= 0, do: String.at(s, idx) || :undefined
   defp get_array_el(_, _), do: :undefined
 
   defp put_array_el({:obj, ref}, key, val) do

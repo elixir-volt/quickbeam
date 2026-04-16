@@ -393,6 +393,18 @@ defmodule QuickBEAM.BeamVM.DualModeTest do
     "(function(){ var a=[2,5,8]; var m=Math.floor(1); return a[m] })()",
     # deep recursion (memoized fib)
     "(function(){ var m={}; function f(n){if(n in m)return m[n];if(n<=1)return n;m[n]=f(n-1)+f(n-2);return m[n]} return f(30) })()",
+    # rest params
+    "(function(...a){return a.length})(1,2,3)",
+    "(function(a,...b){return a+b.length})(10,20,30)",
+    # new Array
+    "new Array(3).length",
+    "new Array(1,2,3).length",
+    # string indexing
+    ~s|"hello"[1]|,
+    ~s|"hello"[0]|,
+    # obj method this
+    "(function(){var o={x:10,f:function(){return this.x}};return o.f()})()",
+    "(function(){var o={n:'world',greet:function(){return 'hello '+this.n}};return o.greet()})()",
   ]
 
   describe "complex expressions" do
