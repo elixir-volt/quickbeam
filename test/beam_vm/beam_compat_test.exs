@@ -730,7 +730,6 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
       ok(rt, "(function(){ class Rect { constructor(w,h) { this.w = w; this.h = h } area() { return this.w * this.h } } return new Rect(3,4).area() })()", 12)
     end
 
-    @tag :pending_class
     test "class inheritance", %{rt: rt} do
       ok(rt, "(function(){ class Animal { constructor(name) { this.name = name } speak() { return this.name + ' speaks' } } class Dog extends Animal { speak() { return this.name + ' barks' } } return new Dog('Rex').speak() })()", "Rex barks")
     end

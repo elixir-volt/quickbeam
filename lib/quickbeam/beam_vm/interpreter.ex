@@ -517,16 +517,19 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     prev_this = Process.get(:qb_this)
     Process.put(:qb_this, this_obj)
 
+    parent_ctor = Process.get({:qb_parent_ctor, :erlang.phash2(ctor)})
+    cell_value = parent_ctor || false
+
     result = try do
       case ctor do
         %Bytecode.Function{} = f ->
           cell_ref = make_ref()
-          Process.put({:qb_cell, cell_ref}, false)
+          Process.put({:qb_cell, cell_ref}, cell_value)
           do_invoke(f, rev_args, [{:cell, cell_ref}], gas)
 
         {:closure, captured, %Bytecode.Function{} = f} ->
           cell_ref = make_ref()
-          Process.put({:qb_cell, cell_ref}, false)
+          Process.put({:qb_cell, cell_ref}, cell_value)
           var_refs = for cv <- f.closure_vars do
             Map.get(captured, cv.var_idx, {:cell, cell_ref})
           end
@@ -1033,6 +1036,29 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
   defp build_closure(other, _locals, _vrefs), do: other
 
+  defp ensure_constructor_cell(%Bytecode.Function{new_target_allowed: true, closure_vars: cvs}, var_refs)
+       when cvs != [] do
+    if Enum.any?(var_refs, &match?({:cell, _}, &1)) do
+      var_refs
+    else
+      cell_ref = make_ref()
+      Process.put({:qb_cell, cell_ref}, false)
+      case var_refs do
+        [] -> [{:cell, cell_ref}]
+        [_ | rest] -> [{:cell, cell_ref} | rest]
+      end
+    end
+  end
+  defp ensure_constructor_cell(_fun, var_refs), do: var_refs
+
+  defp maybe_forward_ctor_args(%Bytecode.Function{new_target_allowed: true}, []) do
+    {Tuple.to_list(Process.get(:qb_arg_buf, {})), false}
+  end
+  defp maybe_forward_ctor_args({:closure, _, %Bytecode.Function{new_target_allowed: true}}, []) do
+    {Tuple.to_list(Process.get(:qb_arg_buf, {})), false}
+  end
+  defp maybe_forward_ctor_args(_fun, args), do: {args, true}
+
   # ── Function calls ──
 
   defp call_function(frame, stack, argc, gas) do
@@ -1051,12 +1077,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp call_method(frame, stack, argc, gas) do
     {args, [fun, obj | rest]} = Enum.split(stack, argc)
     rev_args = Enum.reverse(args)
+    {rev_args, prepend_obj?} = maybe_forward_ctor_args(fun, rev_args)
     prev_this = Process.get(:qb_this)
     Process.put(:qb_this, obj)
     result = try do
+      invoke_args = if prepend_obj?, do: [obj | rev_args], else: rev_args
       case fun do
-        %Bytecode.Function{} = f -> invoke_function(f, [obj | rev_args], gas)
-        {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, [obj | rev_args], gas)
+        %Bytecode.Function{} = f -> invoke_function(f, invoke_args, gas)
+        {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, invoke_args, gas)
         {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, obj)
         {:builtin, _name, cb} when is_function(cb, 3) -> cb.(rev_args, obj, :no_interp)
         {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
@@ -1084,7 +1112,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     prev_func = Process.get(:qb_current_func)
     prev_local_map = Process.get(:qb_local_to_vref)
     prev_catch = Process.get(:qb_catch_stack)
-    self_ref = if length(var_refs) > 0 or length(fun.closure_vars) > 0 do
+    var_refs = ensure_constructor_cell(fun, var_refs)
+    self_ref = if var_refs != [] or fun.closure_vars != [] do
       {:closure, %{}, fun}
     else
       fun
