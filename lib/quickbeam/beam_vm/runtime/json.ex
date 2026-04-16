@@ -38,7 +38,8 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
   defp to_json({:obj, ref}) do
     case Process.get({:qb_obj, ref}) do
       nil -> %{}
-      map -> Map.new(map, fn {k, v} -> {to_string(k), to_json(v)} end)
+      list when is_list(list) -> Enum.map(list, &to_json/1)
+      map when is_map(map) -> Map.new(map, fn {k, v} -> {to_string(k), to_json(v)} end)
     end
   end
   defp to_json(:undefined), do: nil

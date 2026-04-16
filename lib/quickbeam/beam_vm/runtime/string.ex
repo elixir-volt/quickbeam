@@ -52,14 +52,18 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
 
   defp index_of(s, [sub | rest]) when is_binary(s) and is_binary(sub) do
     from = case rest do [f | _] when is_integer(f) and f >= 0 -> f; _ -> 0 end
-    case :binary.match(s, sub) do
-      {pos, _} when pos >= from -> pos
-      {pos, _} ->
-        case :binary.match(s, sub, [{:scope, {from, byte_size(s) - from}}]) do
-          {pos2, _} -> pos2
-          :nomatch -> -1
-        end
-      :nomatch -> -1
+    if sub == "" do
+      min(from, String.length(s))
+    else
+      case :binary.match(s, sub) do
+        {pos, _} when pos >= from -> pos
+        {pos, _} ->
+          case :binary.match(s, sub, [{:scope, {from, byte_size(s) - from}}]) do
+            {pos2, _} -> pos2
+            :nomatch -> -1
+          end
+        :nomatch -> -1
+      end
     end
   end
   defp index_of(_, _), do: -1
