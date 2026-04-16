@@ -416,7 +416,6 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
       ok(rt, "(function(){ function apply(f, x) { return f(x) }; return apply(function(x){ return x+1 }, 5) })()", 6)
     end
 
-    @tag :pending_beam
     test "default parameter", %{rt: rt} do
       ok(rt, "(function(x, y = 10){ return x + y })(5)", 15)
       ok(rt, "(function(x, y = 10){ return x + y })(5, 20)", 25)
@@ -451,7 +450,6 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
       ok(rt, "(function(){ var s=0; for(var i=0;i<5;i++){s+=i} return s })()", 10)
     end
 
-    @tag :pending_beam
     test "for-in loop", %{rt: rt} do
       ok(rt, ~s|(function(){ var o = {a:1,b:2}; var keys = []; for(var k in o) keys.push(k); return keys })()|, ["a", "b"])
     end
@@ -495,7 +493,6 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
   # ── Destructuring ──
 
   describe "destructuring" do
-    @tag :pending_beam
     test "array destructuring", %{rt: rt} do
       ok(rt, "(function(){ var [a,b] = [1,2]; return a + b })()", 3)
     end
@@ -512,17 +509,14 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
   # ── Spread/rest ──
 
   describe "spread" do
-    @tag :pending_beam
     test "spread array", %{rt: rt} do
       ok(rt, "(function(){ var a = [1,2]; var b = [...a, 3]; return b })()", [1, 2, 3])
     end
 
-    @tag :pending_beam
     test "spread object", %{rt: rt} do
       ok(rt, "(function(){ var a = {x: 1}; var b = {...a, y: 2}; return b })()", %{"x" => 1, "y" => 2})
     end
 
-    @tag :pending_beam
     test "spread in function call", %{rt: rt} do
       ok(rt, "(function(){ function add(a,b,c){ return a+b+c } var args = [1,2,3]; return add(...args) })()", 6)
     end
@@ -728,17 +722,17 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
   # ── Class syntax ──
 
   describe "classes" do
-    @tag :pending_beam
+    @tag :pending_class
     test "basic class", %{rt: rt} do
       ok(rt, "(function(){ class Point { constructor(x,y) { this.x = x; this.y = y } } var p = new Point(1,2); return p.x + p.y })()", 3)
     end
 
-    @tag :pending_beam
+    @tag :pending_class
     test "class method", %{rt: rt} do
       ok(rt, "(function(){ class Rect { constructor(w,h) { this.w = w; this.h = h } area() { return this.w * this.h } } return new Rect(3,4).area() })()", 12)
     end
 
-    @tag :pending_beam
+    @tag :pending_class
     test "class inheritance", %{rt: rt} do
       ok(rt, "(function(){ class Animal { constructor(name) { this.name = name } speak() { return this.name + ' speaks' } } class Dog extends Animal { speak() { return this.name + ' barks' } } return new Dog('Rex').speak() })()", "Rex barks")
     end

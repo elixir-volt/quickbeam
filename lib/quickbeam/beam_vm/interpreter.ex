@@ -685,42 +685,58 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       # ── for-in ──
       {:for_in_start, []} ->
-        [_obj | rest] = stack
-        # Return a simple iterator placeholder
-        run(next, [{:for_in_iterator, []} | rest], gas - 1)
+        [obj | rest] = stack
+        keys = case obj do
+          {:obj, ref} -> Map.keys(Process.get({:qb_obj, ref}, %{}))
+          map when is_map(map) -> Map.keys(map)
+          _ -> []
+        end
+        run(next, [{:for_in_iterator, keys} | rest], gas - 1)
 
       {:for_in_next, []} ->
         [iter | rest] = stack
         case iter do
+          {:for_in_iterator, [key | rest_keys]} ->
+            run(next, [false, key, {:for_in_iterator, rest_keys} | rest], gas - 1)
           {:for_in_iterator, []} ->
-            run(next, [false, :undefined | rest], gas - 1)
+            run(next, [true, :undefined, iter | rest], gas - 1)
           _ ->
-            run(next, [false, :undefined | rest], gas - 1)
+            run(next, [true, :undefined, iter | rest], gas - 1)
         end
 
       # ── new / constructor ──
       {:call_constructor, [argc]} ->
         {args, [ctor | rest]} = Enum.split(stack, argc)
         rev_args = Enum.reverse(args)
-        result = case ctor do
-          %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas)
-          {:builtin, name, cb} when is_function(cb, 1) ->
-            obj = cb.(rev_args)
-            # Add name property for Error constructors
-            case obj do
-              {:obj, ref} ->
-                existing = Process.get({:qb_obj, ref}, %{})
-                unless Map.has_key?(existing, "name") do
-                  Process.put({:qb_obj, ref}, Map.put(existing, "name", name))
-                end
-              _ -> :ok
-            end
-            obj
-          {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas)
-          _ ->
-            ref = make_ref()
-            Process.put({:qb_obj, ref}, %{})
-            {:obj, ref}
+        # Create new object for constructor's this
+        this_ref = make_ref()
+        Process.put({:qb_obj, this_ref}, %{})
+        this_obj = {:obj, this_ref}
+        prev_this = Process.get(:qb_this)
+        Process.put(:qb_this, this_obj)
+        result = try do
+          case ctor do
+            %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas)
+            {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas)
+            {:builtin, name, cb} when is_function(cb, 1) ->
+              obj = cb.(rev_args)
+              case obj do
+                {:obj, ref} ->
+                  existing = Process.get({:qb_obj, ref}, %{})
+                  unless Map.has_key?(existing, "name") do
+                    Process.put({:qb_obj, ref}, Map.put(existing, "name", name))
+                  end
+                _ -> :ok
+              end
+              obj
+            _ -> this_obj
+          end
+        after
+          if prev_this, do: Process.put(:qb_this, prev_this), else: Process.delete(:qb_this)
+        end
+        result = case result do
+          {:obj, _} = obj -> obj
+          _ -> this_obj
         end
         run(next, [result | rest], gas - 1)
 
@@ -754,25 +770,54 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       # ── spread / array construction ──
       {:append, []} ->
-        # Stack: [obj, idx, arr] → [idx+len, arr']
-        # Appends obj's elements to arr, returns updated idx and arr
+        # Stack: [enumobj, pos, arr] → [pos', arr']
         [obj, idx, arr | rest] = stack
-        {arr2, new_idx} = case obj do
-          list when is_list(list) -> {arr ++ list, idx + length(list)}
-          {:obj, ref} ->
-            stored = Process.get({:qb_obj, ref}, [])
-            {arr ++ stored, idx + length(stored)}
-          _ -> {arr, idx}
+        src_list = case obj do
+          list when is_list(list) -> list
+          {:obj, ref} -> Process.get({:qb_obj, ref}, [])
+          _ -> []
         end
-        run(next, [arr2, new_idx | rest], gas - 1)
+        arr_list = case arr do
+          list when is_list(list) -> list
+          {:obj, ref} -> Process.get({:qb_obj, ref}, [])
+          _ -> []
+        end
+        merged = arr_list ++ src_list
+        new_idx = (if is_integer(idx), do: idx, else: Runtime.to_int(idx)) + length(src_list)
+        merged_obj = case arr do
+          {:obj, ref} ->
+            Process.put({:qb_obj, ref}, merged)
+            {:obj, ref}
+          _ -> merged
+        end
+        run(next, [new_idx, merged_obj | rest], gas - 1)
 
       {:define_array_el, []} ->
+        # Stack: [val, idx, arr] → [idx, arr']  (pops val only)
         [val, idx, obj | rest] = stack
         obj2 = case obj do
-          list when is_list(list) -> List.insert_at(list, idx, val)
+          list when is_list(list) ->
+            i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
+            if i >= 0 and i < length(list) do
+              List.replace_at(list, i, val)
+            else
+              list ++ List.duplicate(:undefined, max(0, i - length(list))) ++ [val]
+            end
+          {:obj, ref} ->
+            stored = Process.get({:qb_obj, ref}, [])
+            if is_list(stored) do
+              i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
+              new_stored = if i >= 0 and i < length(stored) do
+                List.replace_at(stored, i, val)
+              else
+                stored ++ List.duplicate(:undefined, max(0, i - length(stored))) ++ [val]
+              end
+              Process.put({:qb_obj, ref}, new_stored)
+            end
+            {:obj, ref}
           _ -> obj
         end
-        run(next, [obj2 | rest], gas - 1)
+        run(next, [idx, obj2 | rest], gas - 1)
 
       # ── closure variable refs (mutable) ──
       {:make_var_ref, [idx]} ->
@@ -842,24 +887,52 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       # ── iterators (stubs for now) ──
       {:for_of_start, []} ->
-        [_obj | rest] = stack
-        run(next, [{:for_of_iterator, []} | rest], gas - 1)
+        [obj | rest] = stack
+        items = case obj do
+          list when is_list(list) -> list
+          {:obj, ref} ->
+            stored = Process.get({:qb_obj, ref}, [])
+            if is_list(stored), do: stored, else: []
+          _ -> []
+        end
+        run(next, [{:for_of_iterator, items, 0} | rest], gas - 1)
 
-      {:for_of_next, []} ->
-        [_iter | rest] = stack
-        run(next, [false, :undefined | rest], gas - 1)
+      {:for_of_next, [_idx]} ->
+        # Stack: [iter] → [done_flag, value, iter]
+        # done_flag on top for if_false check
+        [iter | rest] = stack
+        case iter do
+          {:for_of_iterator, items, pos} when is_list(items) ->
+            if pos < length(items) do
+              run(next, [false, Enum.at(items, pos), {:for_of_iterator, items, pos + 1} | rest], gas - 1)
+            else
+              run(next, [true, :undefined, iter | rest], gas - 1)
+            end
+          _ ->
+            run(next, [true, :undefined, iter | rest], gas - 1)
+        end
 
       {:iterator_next, []} ->
+        [iter | rest] = stack
+        case iter do
+          {:for_of_iterator, items, pos} when is_list(items) ->
+            if pos < length(items) do
+              run(next, [false, Enum.at(items, pos), {:for_of_iterator, items, pos + 1} | rest], gas - 1)
+            else
+              run(next, [true, :undefined, iter | rest], gas - 1)
+            end
+          _ ->
+            run(next, [true, :undefined, iter | rest], gas - 1)
+        end
+
+      {:iterator_close, []} ->
         [_iter | rest] = stack
-        run(next, [false, :undefined | rest], gas - 1)
+        run(next, rest, gas - 1)
 
       {:iterator_check_object, []} ->
         run(next, stack, gas - 1)
 
       {:iterator_call, []} ->
-        run(next, stack, gas - 1)
-
-      {:iterator_close, []} ->
         run(next, stack, gas - 1)
 
       {:iterator_get_value_done, []} ->
@@ -901,6 +974,25 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:copy_data_properties, []} ->
         run(next, stack, gas - 1)
 
+      {:push_this, []} ->
+        this = Process.get(:qb_this, :undefined)
+        run(next, [this | stack], gas - 1)
+
+      {:check_ctor, []} ->
+        run(next, stack, gas - 1)
+
+      {:check_ctor_return, []} ->
+        [val | rest] = stack
+        result = case val do
+          {:obj, _} = obj -> obj
+          _ -> Process.get(:qb_this, :undefined)
+        end
+        run(next, [result | rest], gas - 1)
+
+      {:return_undef, []} ->
+        this = Process.get(:qb_this, :undefined)
+        throw({:return, %Return{value: this}})
+
       {:private_symbol, []} ->
         run(next, [:undefined | stack], gas - 1)
 
@@ -908,9 +1000,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:set_arg, [idx]} ->
         [val | rest] = stack
         arg_buf = Process.get(:qb_arg_buf, {})
-        if idx < tuple_size(arg_buf) do
-          Process.put(:qb_arg_buf, put_elem(arg_buf, idx, val))
-        end
+        list = Tuple.to_list(arg_buf)
+        padded = if idx < length(list), do: list, else: list ++ List.duplicate(:undefined, idx + 1 - length(list))
+        Process.put(:qb_arg_buf, List.to_tuple(List.replace_at(padded, idx, val)))
         run(next, [val | rest], gas - 1)
 
       {:set_arg0, []} ->
@@ -973,50 +1065,29 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         run(next, [result | rest], gas - 1)
 
       # ── Object spread ──
-      {:copy_data_properties, [_flags]} ->
-        # Stack: [src, dst] → copies properties from src to dst
-        [src, dst | rest] = stack
-        src_props = case src do
+      {:copy_data_properties, [mask]} ->
+        # mask encodes stack offsets from top (0-based from top)
+        # target:  sp[-1 - (mask & 3)]
+        # source:  sp[-1 - ((mask >> 2) & 7)]
+        # exclude: sp[-1 - ((mask >> 5) & 7)]
+        # Stack is NOT modified — target is mutated in place
+        target_idx = mask &&& 3
+        source_idx = Bitwise.bsr(mask, 2) &&& 7
+        target = Enum.at(stack, target_idx)
+        source = Enum.at(stack, source_idx)
+        src_props = case source do
           {:obj, ref} -> Process.get({:qb_obj, ref}, %{})
           map when is_map(map) -> map
           _ -> %{}
         end
-        dst = case dst do
+        case target do
           {:obj, ref} ->
             existing = Process.get({:qb_obj, ref}, %{})
-            merged = Map.merge(existing, src_props)
-            Process.put({:qb_obj, ref}, merged)
-            {:obj, ref}
-          map when is_map(map) ->
-            Map.merge(map, src_props)
-          other -> other
+            Process.put({:qb_obj, ref}, Map.merge(existing, src_props))
+          map when is_map(map) -> :ok
+          _ -> :ok
         end
-        run(next, [dst | rest], gas - 1)
-
-      # ── for...of iterator ──
-      {:for_of_next, [_idx]} ->
-        # Stack: [iter_obj] → pushes [value, iter_obj, done_flag]
-        case stack do
-          [{:iterator, items, pos} | rest] when is_list(items) ->
-            if pos < length(items) do
-              val = Enum.at(items, pos)
-              run(next, [val, {:iterator, items, pos + 1}, false | rest], gas - 1)
-            else
-              run(next, [:undefined, {:iterator, items, pos}, true | rest], gas - 1)
-            end
-          [iterable | rest] ->
-            # Convert to iterator on first call
-            items = case iterable do
-              list when is_list(list) -> list
-              _ -> []
-            end
-            if length(items) > 0 do
-              val = hd(items)
-              run(next, [val, {:iterator, items, 1}, false | rest], gas - 1)
-            else
-              run(next, [:undefined, {:iterator, [], 0}, true | rest], gas - 1)
-            end
-        end
+        run(next, stack, gas - 1)
 
       # ── Class definitions ──
       {:define_class, [atom_idx, _flags]} ->
