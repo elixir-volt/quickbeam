@@ -813,14 +813,19 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             end
           {:obj, ref} ->
             stored = Process.get({:qb_obj, ref}, [])
-            if is_list(stored) do
-              i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
-              new_stored = if i >= 0 and i < length(stored) do
-                List.replace_at(stored, i, val)
-              else
-                stored ++ List.duplicate(:undefined, max(0, i - length(stored))) ++ [val]
-              end
-              Process.put({:qb_obj, ref}, new_stored)
+            cond do
+              is_list(stored) ->
+                i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
+                new_stored = if i >= 0 and i < length(stored) do
+                  List.replace_at(stored, i, val)
+                else
+                  stored ++ List.duplicate(:undefined, max(0, i - length(stored))) ++ [val]
+                end
+                Process.put({:qb_obj, ref}, new_stored)
+              is_map(stored) ->
+                key = if is_integer(idx), do: Integer.to_string(idx), else: to_string(idx)
+                Process.put({:qb_obj, ref}, Map.put(stored, key, val))
+              true -> :ok
             end
             {:obj, ref}
           _ -> obj

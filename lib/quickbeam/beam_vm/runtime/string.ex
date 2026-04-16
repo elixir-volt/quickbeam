@@ -35,9 +35,11 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
   # ── Implementations ──
 
   defp char_at(s, [idx | _]) when is_binary(s) do
-    case String.at(s, Runtime.to_int(idx)) do
-      nil -> ""
-      ch -> ch
+    i = Runtime.to_int(idx)
+    if i < 0 or i >= String.length(s) do
+      ""
+    else
+      String.at(s, i)
     end
   end
   defp char_at(_, _), do: ""

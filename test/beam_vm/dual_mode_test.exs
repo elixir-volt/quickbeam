@@ -405,6 +405,19 @@ defmodule QuickBEAM.BeamVM.DualModeTest do
     # obj method this
     "(function(){var o={x:10,f:function(){return this.x}};return o.f()})()",
     "(function(){var o={n:'world',greet:function(){return 'hello '+this.n}};return o.greet()})()",
+    # computed property key
+    ~s|(function(){var k="a";return {[k]:1}})()|,
+    # rest params edge
+    "(function(a,...b){return b})(1,2,3)",
+    # lastIndexOf
+    "[1,2,3,2,1].lastIndexOf(2)",
+    # charAt edge
+    ~s|"abc".charAt(-1)|,
+    ~s|"abc".charAt(99)|,
+    # array toString
+    "[1,2,3].toString()",
+    # exponent
+    "2**10",
   ]
 
   describe "complex expressions" do

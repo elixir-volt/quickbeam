@@ -14,6 +14,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   def proto_property("reduce"), do: {:builtin, "reduce", fn args, this, interp -> reduce(this, args, interp) end}
   def proto_property("forEach"), do: {:builtin, "forEach", fn args, this, interp -> for_each(this, args, interp) end}
   def proto_property("indexOf"), do: {:builtin, "indexOf", fn args, this -> index_of(this, args) end}
+  def proto_property("lastIndexOf"), do: {:builtin, "lastIndexOf", fn args, this -> last_index_of(this, args) end}
+  def proto_property("toString"), do: {:builtin, "toString", fn _args, this -> join(this, [","]) end}
   def proto_property("includes"), do: {:builtin, "includes", fn args, this -> includes(this, args) end}
   def proto_property("slice"), do: {:builtin, "slice", fn args, this -> slice(this, args) end}
   def proto_property("splice"), do: {:builtin, "splice", fn args, this -> splice(this, args) end}
@@ -159,6 +161,15 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     end)
   end
   defp index_of(_, _), do: -1
+
+  defp last_index_of({:obj, ref}, args), do: last_index_of(Process.get({:qb_obj, ref}, []), args)
+  defp last_index_of(list, [val | _]) when is_list(list) do
+    list
+    |> Enum.with_index()
+    |> Enum.reverse()
+    |> Enum.find_value(-1, fn {el, i} -> if Runtime.js_strict_eq(el, val), do: i end)
+  end
+  defp last_index_of(_, _), do: -1
 
   defp includes({:obj, ref}, args), do: includes(Process.get({:qb_obj, ref}, []), args)
   defp includes(list, [val | rest]) when is_list(list) do
