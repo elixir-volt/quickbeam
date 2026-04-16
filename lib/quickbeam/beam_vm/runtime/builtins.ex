@@ -177,8 +177,6 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
       {:regexp, pat, flags}
     end
   end
-  def map_constructor, do: fn _args -> Runtime.obj_new() end
-  def set_constructor, do: fn _args -> Runtime.obj_new() end
   def symbol_constructor, do: fn args -> {:symbol, List.first(args, "")} end
 
   # ── Global functions ──

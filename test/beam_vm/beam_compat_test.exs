@@ -722,7 +722,6 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
   # ── Class syntax ──
 
   describe "classes" do
-    @tag :pending_class
     test "basic class", %{rt: rt} do
       ok(rt, "(function(){ class Point { constructor(x,y) { this.x = x; this.y = y } } var p = new Point(1,2); return p.x + p.y })()", 3)
     end

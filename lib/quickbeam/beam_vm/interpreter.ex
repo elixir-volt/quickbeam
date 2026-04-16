@@ -717,8 +717,24 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         Process.put(:qb_this, this_obj)
         result = try do
           case ctor do
-            %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas)
-            {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas)
+            %Bytecode.Function{} = f ->
+              cell_ref = make_ref()
+              Process.put({:qb_cell, cell_ref}, false)
+              do_invoke(f, rev_args, [{:cell, cell_ref}], gas)
+            {:closure, captured, %Bytecode.Function{} = f} ->
+              # For class constructors, pass this as var_ref 0
+              cell_ref = make_ref()
+              Process.put({:qb_cell, cell_ref}, false)
+              var_refs = for cv <- f.closure_vars do
+                Map.get(captured, cv.var_idx, {:cell, cell_ref})
+              end
+              # Ensure at least one var_ref if the function expects it
+              var_refs = if var_refs == [] do
+                [{:cell, cell_ref}]
+              else
+                var_refs
+              end
+              do_invoke(f, rev_args, var_refs, gas)
             {:builtin, name, cb} when is_function(cb, 1) ->
               obj = cb.(rev_args)
               if name in ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError) do
@@ -969,6 +985,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       {:special_object, [type]} ->
         val = case type do
+          1 ->
+            # arguments object
+            arg_buf = Process.get(:qb_arg_buf, {})
+            args_list = Tuple.to_list(arg_buf)
+            ref = System.unique_integer([:positive])
+            Process.put({:qb_obj, ref}, args_list)
+            {:obj, ref}
           2 -> Process.get(:qb_current_func, :undefined)
           _ -> :undefined
         end
@@ -1126,7 +1149,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       # ── Class definitions ──
       {:define_class, [_atom_idx, _flags]} ->
-        [parent_ctor, ctor | rest] = stack
+        [ctor, parent_ctor | rest] = stack
         # Create prototype object
         proto = case ctor do
           %Bytecode.Function{} = f ->
@@ -1146,7 +1169,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             Process.put({:qb_obj, ref}, proto)
             {:obj, ref}
         end
-        run(next, [ctor, proto | rest], gas - 1)
+        run(next, [proto, ctor | rest], gas - 1)
 
       {:define_method, [atom_idx, _flags]} ->
         # Stack: [method, obj] → [obj] (pops method, keeps obj)

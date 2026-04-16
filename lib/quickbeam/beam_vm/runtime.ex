@@ -33,8 +33,6 @@ defmodule QuickBEAM.BeamVM.Runtime do
       "Date" => {:builtin, "Date", Builtins.date_constructor()},
       "Promise" => {:builtin, "Promise", Builtins.promise_constructor()},
       "RegExp" => {:builtin, "RegExp", Builtins.regexp_constructor()},
-      "Map" => {:builtin, "Map", Builtins.map_constructor()},
-      "Set" => {:builtin, "Set", Builtins.set_constructor()},
       "Symbol" => {:builtin, "Symbol", Builtins.symbol_constructor()},
       "parseInt" => {:builtin, "parseInt", fn args -> Builtins.parse_int(args) end},
       "parseFloat" => {:builtin, "parseFloat", fn args -> Builtins.parse_float(args) end},
@@ -45,10 +43,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
       "undefined" => :undefined,
       "Map" => {:builtin, "Map", Builtins.map_constructor()},
       "Set" => {:builtin, "Set", Builtins.set_constructor()},
-      "WeakMap" => {:builtin, "WeakMap", fn _ -> Runtime.obj_new() end},
-      "WeakSet" => {:builtin, "WeakSet", fn _ -> Runtime.obj_new() end},
-      "WeakRef" => {:builtin, "WeakRef", fn _ -> Runtime.obj_new() end},
-      "Proxy" => {:builtin, "Proxy", fn _ -> Runtime.obj_new() end},
+      "WeakMap" => {:builtin, "WeakMap", fn _ -> __MODULE__.obj_new() end},
+      "WeakSet" => {:builtin, "WeakSet", fn _ -> __MODULE__.obj_new() end},
+      "WeakRef" => {:builtin, "WeakRef", fn _ -> __MODULE__.obj_new() end},
+      "Proxy" => {:builtin, "Proxy", fn _ -> __MODULE__.obj_new() end},
       "console" => Builtins.console_object(),
     }
   end
