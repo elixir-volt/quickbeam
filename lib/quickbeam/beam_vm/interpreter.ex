@@ -567,7 +567,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
               map -> map_size(map)
             end
           list when is_list(list) -> length(list)
-          s when is_binary(s) -> String.length(s)
+          s when is_binary(s) -> Runtime.js_string_length(s)
           _ -> :undefined
         end
         run(next, [len | rest], gas - 1)

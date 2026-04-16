@@ -75,8 +75,16 @@ defmodule QuickBEAM.BeamVM.Runtime do
       _ -> :undefined
     end
   end
-  defp get_own_property(s, "length") when is_binary(s), do: String.length(s)
+  defp get_own_property(s, "length") when is_binary(s), do: js_string_length(s)
   defp get_own_property(s, key) when is_binary(s), do: StringProto.proto_property(key)
+  def js_string_length(s) do
+    s
+    |> String.to_charlist()
+    |> Enum.reduce(0, fn cp, acc ->
+      if cp > 0xFFFF, do: acc + 2, else: acc + 1
+    end)
+  end
+
   defp get_own_property(n, _) when is_number(n), do: :undefined
   defp get_own_property(true, _), do: :undefined
   defp get_own_property(false, _), do: :undefined

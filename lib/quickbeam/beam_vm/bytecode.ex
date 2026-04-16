@@ -133,25 +133,41 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   defp read_string_raw(data) do
     with {:ok, len_encoded, rest} <- LEB128.read_unsigned(data) do
       is_wide = band(len_encoded, 1) == 1
-      len = bsr(len_encoded, 1)
+      char_len = bsr(len_encoded, 1)
+      byte_len = if is_wide, do: char_len * 2, else: char_len
 
-      if byte_size(rest) < len do
+      if byte_size(rest) < byte_len do
         {:error, :unexpected_end}
       else
-        <<str::binary-size(len), rest2::binary>> = rest
+        <<str::binary-size(byte_len), rest2::binary>> = rest
         if is_wide do
           {:ok, wide_to_utf8(str), rest2}
         else
-          {:ok, str, rest2}
+          {:ok, latin1_to_utf8(str), rest2}
         end
       end
     end
   end
 
+  defp latin1_to_utf8(data) do
+    for <<b <- data>>, into: <<>>, do: <<b::utf8>>
+  end
+
   defp wide_to_utf8(data) do
-    for <<c::little-unsigned-16 <- data>>, into: <<>> do
-      <<c::utf8>>
-    end
+    data
+    |> decode_utf16_le()
+    |> :unicode.characters_to_binary(:utf8)
+  end
+
+  defp decode_utf16_le(data, acc \\ [])
+  defp decode_utf16_le(<<>>, acc), do: Enum.reverse(acc)
+  defp decode_utf16_le(<<hi::little-16, lo::little-16, rest::binary>>, acc)
+       when hi >= 0xD800 and hi <= 0xDBFF and lo >= 0xDC00 and lo <= 0xDFFF do
+    cp = (hi - 0xD800) * 0x400 + (lo - 0xDC00) + 0x10000
+    decode_utf16_le(rest, [cp | acc])
+  end
+  defp decode_utf16_le(<<c::little-16, rest::binary>>, acc) do
+    decode_utf16_le(rest, [c | acc])
   end
 
   # ── Object deserialization ──

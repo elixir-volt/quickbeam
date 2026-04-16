@@ -340,6 +340,12 @@ defmodule QuickBEAM.BeamVM.DualModeTest do
 
   @serialization_tests [
     "1.0",
+    "'héllo'",
+    "'日本語'",
+    "'Ünïcödé'",
+    ~s|"emoji: 🎉"|,
+    ~s|"🎉".length|,
+    ~s|"日本語".length|,
     "1000000",
 "[1, [2, 3], 4]",
     "[1, 'two', true, null]",
