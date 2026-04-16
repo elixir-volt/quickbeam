@@ -31,7 +31,15 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   # ── Array static dispatch ──
 
-  def static_property("isArray"), do: {:builtin, "isArray", fn [val | _] -> is_list(val) end}
+  def static_property("isArray") do
+    {:builtin, "isArray", fn [val | _] ->
+      case val do
+        list when is_list(list) -> true
+        {:obj, ref} -> is_list(Process.get({:qb_obj, ref}))
+        _ -> false
+      end
+    end}
+  end
   def static_property("from"), do: {:builtin, "from", fn args -> from(args) end}
   def static_property("of"), do: {:builtin, "of", fn args -> args end}
   def static_property(_), do: :undefined
@@ -168,17 +176,29 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
   defp slice(_, _), do: []
 
-  defp splice(list, [start | rest]) when is_list(list) do
-    s = Runtime.normalize_index(start, length(list))
-    {delete_count, items} = case rest do
-      [] -> {length(list) - s, []}
-      [dc | items] -> {max(min(Runtime.to_int(dc), length(list) - s), 0), items}
-    end
-    {removed, _remaining} = Enum.split(list, s)
-    {removed_head, _} = Enum.split(removed, delete_count)
-    removed_head
+  defp splice({:obj, ref}, args) do
+    list = Process.get({:qb_obj, ref}, [])
+    {removed, new_list} = do_splice(list, args)
+    Process.put({:qb_obj, ref}, new_list)
+    removed
   end
-  defp splice(list, _), do: list
+  defp splice(list, args) when is_list(list) do
+    {removed, _} = do_splice(list, args)
+    removed
+  end
+  defp splice(_, _), do: []
+
+  defp do_splice(list, [start | rest]) do
+    s = Runtime.normalize_index(start, length(list))
+    {delete_count, insert} = case rest do
+      [] -> {length(list) - s, []}
+      [dc | ins] -> {max(min(Runtime.to_int(dc), length(list) - s), 0), ins}
+    end
+    {before, after_start} = Enum.split(list, s)
+    {removed, remaining} = Enum.split(after_start, delete_count)
+    {removed, before ++ insert ++ remaining}
+  end
+  defp do_splice(list, _), do: {[], list}
 
   # ── Transform ──
 
@@ -219,6 +239,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   defp flat(list, _) when is_list(list) do
     Enum.flat_map(list, fn
       a when is_list(a) -> a
+      {:obj, ref} = obj ->
+        case Process.get({:qb_obj, ref}) do
+          a when is_list(a) -> a
+          _ -> [obj]
+        end
       val -> [val]
     end)
   end

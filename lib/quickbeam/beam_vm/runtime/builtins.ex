@@ -170,11 +170,27 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
 
   # ── Global functions ──
 
-  def parse_int([s | _]) when is_binary(s) do
+  def parse_int([s, radix | _]) when is_binary(s) and is_number(radix) do
+    r = trunc(radix)
     s = String.trim_leading(s)
-    case Integer.parse(s) do
+    case Integer.parse(s, r) do
       {n, _} -> n
       :error -> :nan
+    end
+  end
+  def parse_int([s | _]) when is_binary(s) do
+    s = String.trim_leading(s)
+    cond do
+      String.starts_with?(s, "0x") or String.starts_with?(s, "0X") ->
+        case Integer.parse(String.slice(s, 2..-1//1), 16) do
+          {n, _} -> n
+          :error -> :nan
+        end
+      true ->
+        case Integer.parse(s) do
+          {n, _} -> n
+          :error -> :nan
+        end
     end
   end
   def parse_int([n | _]) when is_number(n), do: trunc(n)

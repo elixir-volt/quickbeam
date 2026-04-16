@@ -487,7 +487,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       {:not, []} ->
         [a | rest] = stack
-        run(next, [bsl(js_to_int32(a), 0) &&& (-1) | rest], gas - 1)
+        run(next, [Bitwise.bnot(js_to_int32(a)) | rest], gas - 1)
 
       {:lnot, []} ->
         [a | rest] = stack
@@ -750,7 +750,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       # ── delete ──
       {:delete, []} ->
-        [_key, _obj | rest] = stack
+        [key, obj | rest] = stack
+        case obj do
+          {:obj, ref} ->
+            map = Process.get({:qb_obj, ref}, %{})
+            if is_map(map), do: Process.put({:qb_obj, ref}, Map.delete(map, key))
+          _ -> :ok
+        end
         run(next, [true | rest], gas - 1)
 
       {:delete_var, [_atom_idx]} ->
@@ -758,9 +764,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       # ── in operator ──
       {:in, []} ->
-        [key, obj | rest] = stack
-        result = has_property(obj, key)
-        run(next, [result | rest], gas - 1)
+        [obj, key | rest] = stack
+        run(next, [has_property(obj, key) | rest], gas - 1)
 
       # ── regexp literal ──
       {:regexp, []} ->
@@ -939,6 +944,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         run(next, stack, gas - 1)
 
       # ── Misc stubs for rarely-needed opcodes ──
+      {:put_arg, [idx]} ->
+        [val | rest] = stack
+        arg_buf = Process.get(:qb_arg_buf, {})
+        padded = Tuple.to_list(arg_buf)
+        padded = if idx < length(padded), do: padded, else: padded ++ List.duplicate(:undefined, idx + 1 - length(padded))
+        Process.put(:qb_arg_buf, List.to_tuple(List.replace_at(padded, idx, val)))
+        run(next, rest, gas - 1)
+
       {:push_this, []} ->
         run(next, [:undefined | stack], gas - 1)
 
@@ -973,6 +986,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       {:copy_data_properties, []} ->
         run(next, stack, gas - 1)
+
+      {:put_arg, [idx]} ->
+        [val | rest] = stack
+        arg_buf = Process.get(:qb_arg_buf, {})
+        padded = Tuple.to_list(arg_buf)
+        padded = if idx < length(padded), do: padded, else: padded ++ List.duplicate(:undefined, idx + 1 - length(padded))
+        Process.put(:qb_arg_buf, List.to_tuple(List.replace_at(padded, idx, val)))
+        run(next, rest, gas - 1)
 
       {:push_this, []} ->
         this = Process.get(:qb_this, :undefined)

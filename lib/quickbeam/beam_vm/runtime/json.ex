@@ -18,6 +18,7 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
   defp parse(_), do: throw({:js_throw, "SyntaxError: JSON.parse"})
 
   defp to_js(nil), do: nil
+  defp to_js(:null), do: nil
   defp to_js(val) when is_map(val) do
     ref = make_ref()
     map = Map.new(val, fn {k, v} -> {k, to_js(v)} end)
@@ -42,9 +43,10 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
       map when is_map(map) -> Map.new(map, fn {k, v} -> {to_string(k), to_json(v)} end)
     end
   end
-  defp to_json(:undefined), do: nil
-  defp to_json(:nan), do: nil
-  defp to_json(:infinity), do: nil
+  defp to_json(nil), do: :null
+  defp to_json(:undefined), do: :null
+  defp to_json(:nan), do: :null
+  defp to_json(:infinity), do: :null
   defp to_json(list) when is_list(list), do: Enum.map(list, &to_json/1)
   defp to_json(val), do: val
 end
