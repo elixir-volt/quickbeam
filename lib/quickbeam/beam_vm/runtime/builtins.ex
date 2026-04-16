@@ -232,6 +232,40 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   def is_finite([n | _]) when is_number(n) and n != :infinity and n != :neg_infinity and n != :nan, do: true
   def is_finite(_), do: false
 
+  # ── Map/Set ──
+
+  def map_constructor do
+    fn args ->
+      ref = make_ref()
+      entries = case args do
+        [list] when is_list(list) -> Map.new(list, fn [k, v] -> {k, v} end)
+        [{:obj, r}] ->
+          stored = Process.get({:qb_obj, r}, [])
+          if is_list(stored), do: Map.new(stored, fn [k, v] -> {k, v} end), else: %{}
+        _ -> %{}
+      end
+      map_obj = %{"__map_data__" => entries, "size" => map_size(entries)}
+      Process.put({:qb_obj, ref}, map_obj)
+      {:obj, ref}
+    end
+  end
+
+  def set_constructor do
+    fn args ->
+      ref = make_ref()
+      items = case args do
+        [list] when is_list(list) -> Enum.uniq(list)
+        [{:obj, r}] ->
+          stored = Process.get({:qb_obj, r}, [])
+          if is_list(stored), do: Enum.uniq(stored), else: []
+        _ -> []
+      end
+      set_obj = %{"__set_data__" => items, "size" => length(items)}
+      Process.put({:qb_obj, ref}, set_obj)
+      {:obj, ref}
+    end
+  end
+
   # ── Error static ──
 
   def error_static_property(_), do: :undefined

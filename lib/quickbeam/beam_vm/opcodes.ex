@@ -411,9 +411,25 @@ defmodule QuickBEAM.BeamVM.Opcodes do
     get_loc0_loc1: {:get_loc0_loc1, []}
   }
 
+  @passthrough_aliases %{
+    get_loc8: :get_loc,
+    put_loc8: :put_loc,
+    set_loc8: :set_loc,
+    get_loc_check8: :get_loc_check,
+    put_loc_check8: :put_loc_check,
+    fclosure8: :fclosure8,
+    push_const8: :push_const8,
+    push_i8: :push_i8,
+    push_i16: :push_i16,
+  }
+
   def expand_short_form(name, args) do
     case Map.get(@short_forms, name) do
-      nil -> {name, args}
+      nil ->
+        case Map.get(@passthrough_aliases, name) do
+          nil -> {name, args}
+          canonical -> {canonical, args}
+        end
       {canonical, const_args} -> {canonical, const_args}
     end
   end

@@ -10,6 +10,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   def static_property("freeze"), do: {:builtin, "freeze", fn [obj | _] -> obj end}
   def static_property("is"), do: {:builtin, "is", fn [a, b | _] -> Runtime.js_strict_eq(a, b) end}
   def static_property("create"), do: {:builtin, "create", fn _ -> Runtime.obj_new() end}
+  def static_property("defineProperty"), do: {:builtin, "defineProperty", fn args -> define_property(args) end}
+  def static_property("getOwnPropertyNames"), do: {:builtin, "getOwnPropertyNames", fn args -> keys(args) end}
   def static_property(_), do: :undefined
 
   defp keys([{:obj, ref} | _]) do
@@ -49,4 +51,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
       _, acc -> acc
     end)
   end
+  defp define_property([{:obj, ref} = obj, key, {:obj, desc_ref} | _]) do
+    desc = Process.get({:qb_obj, desc_ref}, %{})
+    prop_name = if is_binary(key), do: key, else: to_string(key)
+    existing = Process.get({:qb_obj, ref}, %{})
+    val = Map.get(desc, "value", Map.get(existing, prop_name, :undefined))
+    Process.put({:qb_obj, ref}, Map.put(existing, prop_name, val))
+    obj
+  end
+  defp define_property([obj | _]), do: obj
 end

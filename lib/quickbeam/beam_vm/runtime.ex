@@ -43,6 +43,12 @@ defmodule QuickBEAM.BeamVM.Runtime do
       "NaN" => :nan,
       "Infinity" => :infinity,
       "undefined" => :undefined,
+      "Map" => {:builtin, "Map", Builtins.map_constructor()},
+      "Set" => {:builtin, "Set", Builtins.set_constructor()},
+      "WeakMap" => {:builtin, "WeakMap", fn _ -> Runtime.obj_new() end},
+      "WeakSet" => {:builtin, "WeakSet", fn _ -> Runtime.obj_new() end},
+      "WeakRef" => {:builtin, "WeakRef", fn _ -> Runtime.obj_new() end},
+      "Proxy" => {:builtin, "Proxy", fn _ -> Runtime.obj_new() end},
       "console" => Builtins.console_object(),
     }
   end
@@ -100,6 +106,12 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_prototype_property({:obj, ref}, key) do
     case Process.get({:qb_obj, ref}) do
       list when is_list(list) -> Array.proto_property(key)
+      map when is_map(map) ->
+        cond do
+          Map.has_key?(map, "__map_data__") -> map_proto(key)
+          Map.has_key?(map, "__set_data__") -> set_proto(key)
+          true -> :undefined
+        end
       _ -> :undefined
     end
   end
@@ -111,9 +123,62 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_prototype_property({:builtin, "Error", _}, key), do: Builtins.error_static_property(key)
   defp get_prototype_property({:builtin, "Array", _}, key), do: Array.static_property(key)
   defp get_prototype_property({:builtin, "Object", _}, key), do: Object.static_property(key)
+  defp get_prototype_property({:builtin, "Map", _}, _key), do: :undefined
+  defp get_prototype_property({:builtin, "Set", _}, _key), do: :undefined
   defp get_prototype_property({:builtin, "Number", _}, key), do: Builtins.number_static_property(key)
   defp get_prototype_property({:builtin, "String", _}, key), do: Builtins.string_static_property(key)
   defp get_prototype_property(_, _), do: :undefined
+
+  defp map_proto("get"), do: {:builtin, "get", fn [key | _], {:obj, ref} ->
+    data = Process.get({:qb_obj, ref}, %{}) |> Map.get("__map_data__", %{})
+    Map.get(data, key, :undefined)
+  end}
+  defp map_proto("set"), do: {:builtin, "set", fn [key, val | _], {:obj, ref} ->
+    obj = Process.get({:qb_obj, ref}, %{})
+    data = Map.get(obj, "__map_data__", %{})
+    new_data = Map.put(data, key, val)
+    Process.put({:qb_obj, ref}, %{obj | "__map_data__" => new_data, "size" => map_size(new_data)})
+    {:obj, ref}
+  end}
+  defp map_proto("has"), do: {:builtin, "has", fn [key | _], {:obj, ref} ->
+    data = Process.get({:qb_obj, ref}, %{}) |> Map.get("__map_data__", %{})
+    Map.has_key?(data, key)
+  end}
+  defp map_proto("delete"), do: {:builtin, "delete", fn [key | _], {:obj, ref} ->
+    obj = Process.get({:qb_obj, ref}, %{})
+    data = Map.get(obj, "__map_data__", %{})
+    new_data = Map.delete(data, key)
+    Process.put({:qb_obj, ref}, %{obj | "__map_data__" => new_data, "size" => map_size(new_data)})
+    true
+  end}
+  defp map_proto("forEach"), do: {:builtin, "forEach", fn [cb | _], {:obj, ref}, interp ->
+    data = Process.get({:qb_obj, ref}, %{}) |> Map.get("__map_data__", %{})
+    Enum.each(data, fn {k, v} -> call_builtin_callback(cb, [v, k, {:obj, ref}], interp) end)
+    :undefined
+  end}
+  defp map_proto(_), do: :undefined
+
+  defp set_proto("has"), do: {:builtin, "has", fn [val | _], {:obj, ref} ->
+    data = Process.get({:qb_obj, ref}, %{}) |> Map.get("__set_data__", [])
+    val in data
+  end}
+  defp set_proto("add"), do: {:builtin, "add", fn [val | _], {:obj, ref} ->
+    obj = Process.get({:qb_obj, ref}, %{})
+    data = Map.get(obj, "__set_data__", [])
+    unless val in data do
+      new_data = data ++ [val]
+      Process.put({:qb_obj, ref}, %{obj | "__set_data__" => new_data, "size" => length(new_data)})
+    end
+    {:obj, ref}
+  end}
+  defp set_proto("delete"), do: {:builtin, "delete", fn [val | _], {:obj, ref} ->
+    obj = Process.get({:qb_obj, ref}, %{})
+    data = Map.get(obj, "__set_data__", [])
+    new_data = List.delete(data, val)
+    Process.put({:qb_obj, ref}, %{obj | "__set_data__" => new_data, "size" => length(new_data)})
+    true
+  end}
+  defp set_proto(_), do: :undefined
 
   # ── Callback dispatch (used by higher-order array methods) ──
 

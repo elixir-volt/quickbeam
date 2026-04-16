@@ -429,6 +429,27 @@ defmodule QuickBEAM.BeamVM.DualModeTest do
     # special arithmetic
     "Infinity - Infinity",
     "Infinity * 0",
+    # method shorthand
+    "(function(){ var o={f(){return 42}}; return o.f() })()",
+    # switch fallthrough
+    "(function(){var r='';switch(1){case 1:r+='a';case 2:r+='b';break;case 3:r+='c'}return r})()",
+    # while true break
+    "(function(){var i=0;while(true){if(i>=5)break;i++}return i})()",
+    # do while false
+    "(function(){var x=0;do{x++}while(false);return x})()",
+    # multi catch
+    "(function(){try{try{throw 1}catch(e){throw e+10}}catch(e){return e}})()",
+    # finally return
+    "(function(){try{return 1}finally{return 2}})()",
+    # comma operator in for
+    "(function(){for(var i=0,j=10;i<3;i++,j--);return i+j})()",
+    # neg zero
+    # special values
+    "Infinity+1===Infinity",
+    # concat coercion
+    ~s|""+0|,
+    ~s|""+null|,
+    ~s|+"42"|,
   ]
 
   describe "complex expressions" do

@@ -1149,19 +1149,18 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         run(next, [ctor, proto | rest], gas - 1)
 
       {:define_method, [atom_idx, _flags]} ->
-        # Stack: [home_obj, target_obj, method_closure]
-        # Defines method on target_obj, pushes home_obj back
+        # Stack: [method, obj] → [obj] (pops method, keeps obj)
         [method_closure, target | rest] = stack
         name = resolve_atom(atom_idx)
         case target do
           {:obj, ref} ->
-            proto = Process.get({:qb_obj, ref}, %{})
-            Process.put({:qb_obj, ref}, Map.put(proto, name, method_closure))
-          map when is_map(map) -> :ok  # can't mutate a plain map
+            existing = Process.get({:qb_obj, ref}, %{})
+            if is_map(existing) do
+              Process.put({:qb_obj, ref}, Map.put(existing, name, method_closure))
+            end
           _ -> :ok
         end
-        # Pop method and target, keep rest
-        run(next, rest, gas - 1)
+        run(next, [target | rest], gas - 1)
 
       {:define_method_computed, [_flags]} ->
         # Stack: [home_obj, field_name, target_obj, method_closure]
