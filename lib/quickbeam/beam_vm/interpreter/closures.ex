@@ -5,8 +5,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Closures do
   def write_cell({:cell, ref}, val), do: Process.put({:qb_cell, ref}, val)
   def write_cell(_, _), do: :ok
 
-  def read_captured_local(idx, locals, var_refs) do
-    l2v = Process.get(:qb_local_to_vref, %{})
+  def read_captured_local(l2v, idx, locals, var_refs) do
     case Map.get(l2v, idx) do
       nil -> elem(locals, idx)
       vref_idx ->
@@ -17,8 +16,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Closures do
     end
   end
 
-  def write_captured_local(idx, val, _locals, var_refs) do
-    l2v = Process.get(:qb_local_to_vref, %{})
+  def write_captured_local(l2v, idx, val, _locals, var_refs) do
     case Map.get(l2v, idx) do
       nil -> :ok
       vref_idx ->
@@ -32,10 +30,9 @@ defmodule QuickBEAM.BeamVM.Interpreter.Closures do
   def setup_captured_locals(fun, locals, var_refs, args) do
     arg_buf = List.to_tuple(args)
     vrefs = if is_tuple(var_refs), do: Tuple.to_list(var_refs), else: var_refs
-    l2v = Process.get(:qb_local_to_vref, %{})
 
     {locals, vrefs, l2v} =
-      for {vd, local_idx} <- Enum.with_index(fun.locals), vd.is_captured, reduce: {locals, vrefs, l2v} do
+      for {vd, local_idx} <- Enum.with_index(fun.locals), vd.is_captured, reduce: {locals, vrefs, %{}} do
         {acc_locals, acc_vrefs, acc_l2v} ->
           val =
             if local_idx < tuple_size(arg_buf),
@@ -50,8 +47,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Closures do
           {acc_locals, acc_vrefs, acc_l2v}
       end
 
-    Process.put(:qb_local_to_vref, l2v)
-    {locals, List.to_tuple(vrefs)}
+    {locals, List.to_tuple(vrefs), l2v}
   end
 
   def ensure_vref_size(vrefs, idx, val) do
