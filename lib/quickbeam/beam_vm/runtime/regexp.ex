@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime.RegExp do
+  alias QuickBEAM.BeamVM.Heap
   @moduledoc "RegExp prototype methods."
 
   def proto_property("test"), do: {:builtin, "test", fn args, this -> test(this, args) end}
@@ -20,7 +21,7 @@ defmodule QuickBEAM.BeamVM.Runtime.RegExp do
       matches ->
         result = Enum.map(matches, fn {start, len} -> String.slice(s, start, len) end)
         ref = make_ref()
-        Process.put({:qb_obj, ref}, %{
+        Heap.put_obj(ref, %{
           "0" => hd(result),
           "index" => elem(hd(matches), 0),
           "input" => s,

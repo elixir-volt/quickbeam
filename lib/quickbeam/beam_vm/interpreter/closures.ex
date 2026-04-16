@@ -1,8 +1,10 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Closures do
-  def read_cell({:cell, ref}), do: Process.get({:qb_cell, ref}, :undefined)
+  alias QuickBEAM.BeamVM.Heap
+
+  def read_cell({:cell, ref}), do: Heap.get_cell(ref)
   def read_cell(_), do: :undefined
 
-  def write_cell({:cell, ref}, val), do: Process.put({:qb_cell, ref}, val)
+  def write_cell({:cell, ref}, val), do: Heap.put_cell(ref, val)
   def write_cell(_, _), do: :ok
 
   def read_captured_local(l2v, idx, locals, var_refs) do
@@ -10,7 +12,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Closures do
       nil -> elem(locals, idx)
       vref_idx ->
         case elem(var_refs, vref_idx) do
-          {:cell, ref} -> Process.get({:qb_cell, ref}, :undefined)
+          {:cell, ref} -> Heap.get_cell(ref)
           val -> val
         end
     end
@@ -21,7 +23,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Closures do
       nil -> :ok
       vref_idx ->
         case elem(var_refs, vref_idx) do
-          {:cell, ref} -> Process.put({:qb_cell, ref}, val)
+          {:cell, ref} -> Heap.put_cell(ref, val)
           _ -> :ok
         end
     end
@@ -41,7 +43,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Closures do
 
           acc_locals = put_elem(acc_locals, local_idx, val)
           ref = make_ref()
-          Process.put({:qb_cell, ref}, val)
+          Heap.put_cell(ref, val)
           acc_vrefs = ensure_vref_size(acc_vrefs, vd.var_ref_idx, {:cell, ref})
           acc_l2v = Map.put(acc_l2v, local_idx, vd.var_ref_idx)
           {acc_locals, acc_vrefs, acc_l2v}

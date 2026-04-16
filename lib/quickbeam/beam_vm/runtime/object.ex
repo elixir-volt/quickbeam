@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime.Object do
+  alias QuickBEAM.BeamVM.Heap
   @moduledoc "Object static methods."
 
   alias QuickBEAM.BeamVM.Runtime
@@ -15,21 +16,21 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   def static_property(_), do: :undefined
 
   defp keys([{:obj, ref} | _]) do
-    map = Process.get({:qb_obj, ref}, %{})
+    map = Heap.get_obj(ref, %{})
     Map.keys(map) |> Enum.reject(&String.starts_with?(&1, "__"))
   end
   defp keys([map | _]) when is_map(map), do: Map.keys(map)
   defp keys(_), do: []
 
   defp values([{:obj, ref} | _]) do
-    map = Process.get({:qb_obj, ref}, %{})
+    map = Heap.get_obj(ref, %{})
     Map.values(map)
   end
   defp values([map | _]) when is_map(map), do: Map.values(map)
   defp values(_), do: []
 
   defp entries([{:obj, ref} | _]) do
-    map = Process.get({:qb_obj, ref}, %{})
+    map = Heap.get_obj(ref, %{})
     Enum.map(Map.to_list(map), fn {k, v} -> [k, v] end)
   end
   defp entries([map | _]) when is_map(map) do
@@ -40,23 +41,23 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   defp assign([target | sources]) do
     Enum.reduce(sources, target, fn
       {:obj, ref}, {:obj, tref} ->
-        src_map = Process.get({:qb_obj, ref}, %{})
-        tgt_map = Process.get({:qb_obj, tref}, %{})
-        Process.put({:qb_obj, tref}, Map.merge(tgt_map, src_map))
+        src_map = Heap.get_obj(ref, %{})
+        tgt_map = Heap.get_obj(tref, %{})
+        Heap.put_obj(tref, Map.merge(tgt_map, src_map))
         {:obj, tref}
       map, {:obj, tref} when is_map(map) ->
-        tgt_map = Process.get({:qb_obj, tref}, %{})
-        Process.put({:qb_obj, tref}, Map.merge(tgt_map, map))
+        tgt_map = Heap.get_obj(tref, %{})
+        Heap.put_obj(tref, Map.merge(tgt_map, map))
         {:obj, tref}
       _, acc -> acc
     end)
   end
   defp define_property([{:obj, ref} = obj, key, {:obj, desc_ref} | _]) do
-    desc = Process.get({:qb_obj, desc_ref}, %{})
+    desc = Heap.get_obj(desc_ref, %{})
     prop_name = if is_binary(key), do: key, else: to_string(key)
-    existing = Process.get({:qb_obj, ref}, %{})
+    existing = Heap.get_obj(ref, %{})
     val = Map.get(desc, "value", Map.get(existing, prop_name, :undefined))
-    Process.put({:qb_obj, ref}, Map.put(existing, prop_name, val))
+    Heap.put_obj(ref, Map.put(existing, prop_name, val))
     obj
   end
   defp define_property([obj | _]), do: obj

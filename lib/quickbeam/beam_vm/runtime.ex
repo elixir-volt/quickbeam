@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime do
+  alias QuickBEAM.BeamVM.Heap
   @moduledoc """
   JS built-in runtime: property resolution, shared helpers, global bindings.
 
@@ -75,7 +76,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
 
   defp get_own_property({:obj, ref}, key) do
-    case Process.get({:qb_obj, ref}) do
+    case Heap.get_obj(ref) do
       nil -> :undefined
       list when is_list(list) -> get_own_property(list, key)
       map -> Map.get(map, key, :undefined)
@@ -106,7 +107,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property(_, _), do: :undefined
 
   defp get_prototype_property({:obj, ref}, key) do
-    case Process.get({:qb_obj, ref}) do
+    case Heap.get_obj(ref) do
       list when is_list(list) -> Array.proto_property(key)
       map when is_map(map) ->
         cond do
@@ -135,52 +136,52 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_prototype_property(_, _), do: :undefined
 
   defp map_proto("get"), do: {:builtin, "get", fn [key | _], {:obj, ref} ->
-    data = Process.get({:qb_obj, ref}, %{}) |> Map.get("__map_data__", %{})
+    data = Heap.get_obj(ref, %{}) |> Map.get("__map_data__", %{})
     Map.get(data, key, :undefined)
   end}
   defp map_proto("set"), do: {:builtin, "set", fn [key, val | _], {:obj, ref} ->
-    obj = Process.get({:qb_obj, ref}, %{})
+    obj = Heap.get_obj(ref, %{})
     data = Map.get(obj, "__map_data__", %{})
     new_data = Map.put(data, key, val)
-    Process.put({:qb_obj, ref}, %{obj | "__map_data__" => new_data, "size" => map_size(new_data)})
+    Heap.put_obj(ref, %{obj | "__map_data__" => new_data, "size" => map_size(new_data)})
     {:obj, ref}
   end}
   defp map_proto("has"), do: {:builtin, "has", fn [key | _], {:obj, ref} ->
-    data = Process.get({:qb_obj, ref}, %{}) |> Map.get("__map_data__", %{})
+    data = Heap.get_obj(ref, %{}) |> Map.get("__map_data__", %{})
     Map.has_key?(data, key)
   end}
   defp map_proto("delete"), do: {:builtin, "delete", fn [key | _], {:obj, ref} ->
-    obj = Process.get({:qb_obj, ref}, %{})
+    obj = Heap.get_obj(ref, %{})
     data = Map.get(obj, "__map_data__", %{})
     new_data = Map.delete(data, key)
-    Process.put({:qb_obj, ref}, %{obj | "__map_data__" => new_data, "size" => map_size(new_data)})
+    Heap.put_obj(ref, %{obj | "__map_data__" => new_data, "size" => map_size(new_data)})
     true
   end}
   defp map_proto("forEach"), do: {:builtin, "forEach", fn [cb | _], {:obj, ref}, interp ->
-    data = Process.get({:qb_obj, ref}, %{}) |> Map.get("__map_data__", %{})
+    data = Heap.get_obj(ref, %{}) |> Map.get("__map_data__", %{})
     Enum.each(data, fn {k, v} -> call_builtin_callback(cb, [v, k, {:obj, ref}], interp) end)
     :undefined
   end}
   defp map_proto(_), do: :undefined
 
   defp set_proto("has"), do: {:builtin, "has", fn [val | _], {:obj, ref} ->
-    data = Process.get({:qb_obj, ref}, %{}) |> Map.get("__set_data__", [])
+    data = Heap.get_obj(ref, %{}) |> Map.get("__set_data__", [])
     val in data
   end}
   defp set_proto("add"), do: {:builtin, "add", fn [val | _], {:obj, ref} ->
-    obj = Process.get({:qb_obj, ref}, %{})
+    obj = Heap.get_obj(ref, %{})
     data = Map.get(obj, "__set_data__", [])
     unless val in data do
       new_data = data ++ [val]
-      Process.put({:qb_obj, ref}, %{obj | "__set_data__" => new_data, "size" => length(new_data)})
+      Heap.put_obj(ref, %{obj | "__set_data__" => new_data, "size" => length(new_data)})
     end
     {:obj, ref}
   end}
   defp set_proto("delete"), do: {:builtin, "delete", fn [val | _], {:obj, ref} ->
-    obj = Process.get({:qb_obj, ref}, %{})
+    obj = Heap.get_obj(ref, %{})
     data = Map.get(obj, "__set_data__", [])
     new_data = List.delete(data, val)
-    Process.put({:qb_obj, ref}, %{obj | "__set_data__" => new_data, "size" => length(new_data)})
+    Heap.put_obj(ref, %{obj | "__set_data__" => new_data, "size" => length(new_data)})
     true
   end}
   defp set_proto(_), do: :undefined
@@ -205,7 +206,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   def obj_new do
     ref = make_ref()
-    Process.put({:qb_obj, ref}, %{})
+    Heap.put_obj(ref, %{})
     {:obj, ref}
   end
 

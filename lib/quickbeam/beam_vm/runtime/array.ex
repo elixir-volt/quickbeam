@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime.Array do
+  alias QuickBEAM.BeamVM.Heap
   @moduledoc "Array.prototype and Array static methods."
 
   alias QuickBEAM.BeamVM.Runtime
@@ -36,7 +37,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     {:builtin, "isArray", fn [val | _] ->
       case val do
         list when is_list(list) -> true
-        {:obj, ref} -> is_list(Process.get({:qb_obj, ref}))
+        {:obj, ref} -> is_list(Heap.get_obj(ref))
         _ -> false
       end
     end}
@@ -48,36 +49,36 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   # ── Mutation helpers ──
 
   defp push({:obj, ref}, args) do
-    list = Process.get({:qb_obj, ref}, [])
+    list = Heap.get_obj(ref, [])
     new_list = list ++ args
-    Process.put({:qb_obj, ref}, new_list)
+    Heap.put_obj(ref, new_list)
     length(new_list)
   end
   defp push(list, args) when is_list(list), do: length(list ++ args)
 
   defp pop({:obj, ref}, _) do
-    list = Process.get({:qb_obj, ref}, [])
+    list = Heap.get_obj(ref, [])
     case List.pop_at(list, -1) do
       {nil, _} -> :undefined
-      {last, rest} -> Process.put({:qb_obj, ref}, rest); last
+      {last, rest} -> Heap.put_obj(ref, rest); last
     end
   end
   defp pop(list, _) when is_list(list) and length(list) > 0, do: List.last(list)
   defp pop(_, _), do: :undefined
 
   defp shift({:obj, ref}, _) do
-    list = Process.get({:qb_obj, ref}, [])
+    list = Heap.get_obj(ref, [])
     case list do
-      [first | rest] -> Process.put({:qb_obj, ref}, rest); first
+      [first | rest] -> Heap.put_obj(ref, rest); first
       _ -> :undefined
     end
   end
   defp shift(_, _), do: :undefined
 
   defp unshift({:obj, ref}, args) do
-    list = Process.get({:qb_obj, ref}, [])
+    list = Heap.get_obj(ref, [])
     new_list = args ++ list
-    Process.put({:qb_obj, ref}, new_list)
+    Heap.put_obj(ref, new_list)
     length(new_list)
   end
   defp unshift(_, _), do: 0
@@ -85,12 +86,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   # ── Higher-order ──
 
   defp map({:obj, ref}, [fun | _], interp) do
-    list = Process.get({:qb_obj, ref}, [])
+    list = Heap.get_obj(ref, [])
     result = Enum.map(Enum.with_index(list), fn {val, idx} ->
       Runtime.call_builtin_callback(fun, [val, idx, list], interp)
     end)
     new_ref = System.unique_integer([:positive])
-    Process.put({:qb_obj, new_ref}, result)
+    Heap.put_obj(new_ref, result)
     {:obj, new_ref}
   end
   defp map(list, [fun | _], interp) when is_list(list) and length(list) > 0 do
@@ -101,12 +102,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   defp map(list, _, _), do: list
 
   defp filter({:obj, ref}, [fun | _], interp) do
-    list = Process.get({:qb_obj, ref}, [])
+    list = Heap.get_obj(ref, [])
     result = Enum.filter(Enum.with_index(list), fn {val, idx} ->
       Runtime.js_truthy(Runtime.call_builtin_callback(fun, [val, idx, list], interp))
     end) |> Enum.map(fn {val, _} -> val end)
     new_ref = System.unique_integer([:positive])
-    Process.put({:qb_obj, new_ref}, result)
+    Heap.put_obj(new_ref, result)
     {:obj, new_ref}
   end
   defp filter(list, [fun | _], interp) when is_list(list) do
@@ -117,7 +118,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   defp filter(list, _, _), do: list
 
   defp reduce({:obj, ref}, [fun | rest], interp) do
-    list = Process.get({:qb_obj, ref}, [])
+    list = Heap.get_obj(ref, [])
     reduce_impl(list, fun, rest, interp)
   end
   defp reduce(list, [fun | rest], interp) when is_list(list), do: reduce_impl(list, fun, rest, interp)
@@ -135,7 +136,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
 
   defp for_each({:obj, ref}, [fun | _], interp) do
-    list = Process.get({:qb_obj, ref}, [])
+    list = Heap.get_obj(ref, [])
     Enum.each(Enum.with_index(list), fn {val, idx} ->
       Runtime.call_builtin_callback(fun, [val, idx, list], interp)
     end)
@@ -151,7 +152,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   # ── Search ──
 
-  defp index_of({:obj, ref}, args), do: index_of(Process.get({:qb_obj, ref}, []), args)
+  defp index_of({:obj, ref}, args), do: index_of(Heap.get_obj(ref, []), args)
   defp index_of(list, [val | rest]) when is_list(list) do
     from = case rest do [f] when is_integer(f) and f >= 0 -> f; _ -> 0 end
     list |> Enum.drop(from) |> Enum.find_index(&Runtime.js_strict_eq(&1, val)) |> then(fn
@@ -161,7 +162,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
   defp index_of(_, _), do: -1
 
-  defp last_index_of({:obj, ref}, args), do: last_index_of(Process.get({:qb_obj, ref}, []), args)
+  defp last_index_of({:obj, ref}, args), do: last_index_of(Heap.get_obj(ref, []), args)
   defp last_index_of(list, [val | _]) when is_list(list) do
     list
     |> Enum.with_index()
@@ -170,7 +171,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
   defp last_index_of(_, _), do: -1
 
-  defp includes({:obj, ref}, args), do: includes(Process.get({:qb_obj, ref}, []), args)
+  defp includes({:obj, ref}, args), do: includes(Heap.get_obj(ref, []), args)
   defp includes(list, [val | rest]) when is_list(list) do
     from = case rest do [f] when is_integer(f) and f >= 0 -> f; _ -> 0 end
     list |> Enum.drop(from) |> Enum.any?(&Runtime.js_strict_eq(&1, val))
@@ -179,7 +180,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   # ── Slice / splice ──
 
-  defp slice({:obj, ref}, args), do: slice(Process.get({:qb_obj, ref}, []), args)
+  defp slice({:obj, ref}, args), do: slice(Heap.get_obj(ref, []), args)
   defp slice(list, args) when is_list(list) do
     {start_idx, end_idx} = slice_args(list, args)
     list |> Enum.slice(start_idx, max(end_idx - start_idx, 0))
@@ -187,9 +188,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   defp slice(_, _), do: []
 
   defp splice({:obj, ref}, args) do
-    list = Process.get({:qb_obj, ref}, [])
+    list = Heap.get_obj(ref, [])
     {removed, new_list} = do_splice(list, args)
-    Process.put({:qb_obj, ref}, new_list)
+    Heap.put_obj(ref, new_list)
     removed
   end
   defp splice(list, args) when is_list(list) do
@@ -212,45 +213,45 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   # ── Transform ──
 
-  defp join({:obj, ref}, args), do: join(Process.get({:qb_obj, ref}, []), args)
+  defp join({:obj, ref}, args), do: join(Heap.get_obj(ref, []), args)
   defp join(list, [sep | _]) when is_list(list), do: Enum.map_join(list, to_string(sep), &Runtime.js_to_string/1)
   defp join(list, []) when is_list(list), do: Enum.map_join(list, ",", &Runtime.js_to_string/1)
   defp join(_, _), do: ""
 
   defp concat({:obj, ref}, args) do
-    list = Process.get({:qb_obj, ref}, [])
+    list = Heap.get_obj(ref, [])
     result = Enum.reduce(args, list, &concat_item(&1, &2))
     new_ref = System.unique_integer([:positive])
-    Process.put({:qb_obj, new_ref}, result)
+    Heap.put_obj(new_ref, result)
     {:obj, new_ref}
   end
   defp concat(list, args) when is_list(list), do: Enum.reduce(args, list, &concat_item(&1, &2))
 
-  defp concat_item({:obj, r}, acc), do: acc ++ Process.get({:qb_obj, r}, [])
+  defp concat_item({:obj, r}, acc), do: acc ++ Heap.get_obj(r, [])
   defp concat_item(a, acc) when is_list(a), do: acc ++ a
   defp concat_item(val, acc), do: acc ++ [val]
 
   defp reverse({:obj, ref}, _) do
-    list = Process.get({:qb_obj, ref}, [])
-    Process.put({:qb_obj, ref}, Enum.reverse(list))
+    list = Heap.get_obj(ref, [])
+    Heap.put_obj(ref, Enum.reverse(list))
     {:obj, ref}
   end
   defp reverse(list, _) when is_list(list), do: Enum.reverse(list)
   defp reverse(_, _), do: []
 
   defp sort({:obj, ref}, _) do
-    list = Process.get({:qb_obj, ref}, [])
-    Process.put({:qb_obj, ref}, Enum.sort(list, fn a, b -> Runtime.js_to_string(a) < Runtime.js_to_string(b) end))
+    list = Heap.get_obj(ref, [])
+    Heap.put_obj(ref, Enum.sort(list, fn a, b -> Runtime.js_to_string(a) < Runtime.js_to_string(b) end))
     {:obj, ref}
   end
   defp sort(list, _) when is_list(list), do: Enum.sort(list)
 
-  defp flat({:obj, ref}, args), do: flat(Process.get({:qb_obj, ref}, []), args)
+  defp flat({:obj, ref}, args), do: flat(Heap.get_obj(ref, []), args)
   defp flat(list, _) when is_list(list) do
     Enum.flat_map(list, fn
       a when is_list(a) -> a
       {:obj, ref} = obj ->
-        case Process.get({:qb_obj, ref}) do
+        case Heap.get_obj(ref) do
           a when is_list(a) -> a
           _ -> [obj]
         end
@@ -261,7 +262,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   # ── Predicates ──
 
-  defp find({:obj, ref}, args, interp), do: find(Process.get({:qb_obj, ref}, []), args, interp)
+  defp find({:obj, ref}, args, interp), do: find(Heap.get_obj(ref, []), args, interp)
   defp find(list, [fun | _], interp) when is_list(list) do
     Enum.find_value(Enum.with_index(list), :undefined, fn {val, idx} ->
       if Runtime.js_truthy(Runtime.call_builtin_callback(fun, [val, idx, list], interp)), do: val
@@ -269,7 +270,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
   defp find(_, _, _), do: :undefined
 
-  defp find_index({:obj, ref}, args, interp), do: find_index(Process.get({:qb_obj, ref}, []), args, interp)
+  defp find_index({:obj, ref}, args, interp), do: find_index(Heap.get_obj(ref, []), args, interp)
   defp find_index(list, [fun | _], interp) when is_list(list) do
     Enum.find_value(Enum.with_index(list), -1, fn {val, idx} ->
       if Runtime.js_truthy(Runtime.call_builtin_callback(fun, [val, idx, list], interp)), do: idx
@@ -277,7 +278,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
   defp find_index(_, _, _), do: -1
 
-  defp every({:obj, ref}, args, interp), do: every(Process.get({:qb_obj, ref}, []), args, interp)
+  defp every({:obj, ref}, args, interp), do: every(Heap.get_obj(ref, []), args, interp)
   defp every(list, [fun | _], interp) when is_list(list) do
     Enum.all?(Enum.with_index(list), fn {val, idx} ->
       Runtime.js_truthy(Runtime.call_builtin_callback(fun, [val, idx, list], interp))
@@ -285,7 +286,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
   defp every(_, _, _), do: true
 
-  defp some({:obj, ref}, args, interp), do: some(Process.get({:qb_obj, ref}, []), args, interp)
+  defp some({:obj, ref}, args, interp), do: some(Heap.get_obj(ref, []), args, interp)
   defp some(list, [fun | _], interp) when is_list(list) do
     Enum.any?(Enum.with_index(list), fn {val, idx} ->
       Runtime.js_truthy(Runtime.call_builtin_callback(fun, [val, idx, list], interp))
@@ -296,7 +297,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   # ── Array.from ──
 
   defp from([{:obj, ref} | _]) do
-    map = Process.get({:qb_obj, ref}, %{})
+    map = Heap.get_obj(ref, %{})
     len = Map.get(map, "length", 0)
     for i <- 0..(len - 1), do: Map.get(map, Integer.to_string(i), :undefined)
   end

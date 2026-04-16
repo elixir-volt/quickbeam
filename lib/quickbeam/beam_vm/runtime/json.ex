@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime.JSON do
+  alias QuickBEAM.BeamVM.Heap
   @moduledoc "JSON.parse and JSON.stringify."
 
   def object do
@@ -22,7 +23,7 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
   defp to_js(val) when is_map(val) do
     ref = make_ref()
     map = Map.new(val, fn {k, v} -> {k, to_js(v)} end)
-    Process.put({:qb_obj, ref}, map)
+    Heap.put_obj(ref, map)
     {:obj, ref}
   end
   defp to_js(val) when is_list(val), do: Enum.map(val, &to_js/1)
@@ -42,7 +43,7 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
   defp stringify([]), do: :undefined
 
   defp to_json({:obj, ref}) do
-    case Process.get({:qb_obj, ref}) do
+    case Heap.get_obj(ref) do
       nil -> %{}
       list when is_list(list) -> Enum.map(list, &to_json/1)
       map when is_map(map) -> Map.new(map, fn {k, v} -> {to_string(k), to_json(v)} end)

@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime.Builtins do
+  alias QuickBEAM.BeamVM.Heap
   @moduledoc "Math, Number, Boolean, Console, constructors, and global functions."
 
   alias QuickBEAM.BeamVM.Runtime
@@ -95,7 +96,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
 
   def console_object do
     ref = make_ref()
-    Process.put({:qb_obj, ref}, %{
+    Heap.put_obj(ref, %{
       "log" => {:builtin, "log", fn args ->
         IO.puts(Enum.map(args, &Runtime.js_to_string/1) |> Enum.join(" "))
         :undefined
@@ -130,7 +131,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
         _ -> args
       end
       ref = System.unique_integer([:positive])
-      Process.put({:qb_obj, ref}, list)
+      Heap.put_obj(ref, list)
       {:obj, ref}
     end
   end
@@ -143,7 +144,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
     fn args ->
       msg = List.first(args, "")
       ref = make_ref()
-      Process.put({:qb_obj, ref}, %{"message" => Runtime.js_to_string(msg)})
+      Heap.put_obj(ref, %{"message" => Runtime.js_to_string(msg)})
       {:obj, ref}
     end
   end
@@ -161,7 +162,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
         _ -> :nan
       end
       ref = make_ref()
-      Process.put({:qb_obj, ref}, %{"valueOf" => ms})
+      Heap.put_obj(ref, %{"valueOf" => ms})
       {:obj, ref}
     end
   end
@@ -239,12 +240,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
       entries = case args do
         [list] when is_list(list) -> Map.new(list, fn [k, v] -> {k, v} end)
         [{:obj, r}] ->
-          stored = Process.get({:qb_obj, r}, [])
+          stored = Heap.get_obj(r, [])
           if is_list(stored), do: Map.new(stored, fn [k, v] -> {k, v} end), else: %{}
         _ -> %{}
       end
       map_obj = %{"__map_data__" => entries, "size" => map_size(entries)}
-      Process.put({:qb_obj, ref}, map_obj)
+      Heap.put_obj(ref, map_obj)
       {:obj, ref}
     end
   end
@@ -255,12 +256,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
       items = case args do
         [list] when is_list(list) -> Enum.uniq(list)
         [{:obj, r}] ->
-          stored = Process.get({:qb_obj, r}, [])
+          stored = Heap.get_obj(r, [])
           if is_list(stored), do: Enum.uniq(stored), else: []
         _ -> []
       end
       set_obj = %{"__set_data__" => items, "size" => length(items)}
-      Process.put({:qb_obj, ref}, set_obj)
+      Heap.put_obj(ref, set_obj)
       {:obj, ref}
     end
   end

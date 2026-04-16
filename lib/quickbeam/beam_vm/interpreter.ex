@@ -20,6 +20,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   alias QuickBEAM.BeamVM.{Bytecode, Decoder, Runtime}
   alias __MODULE__.{Frame, Ctx}
 
+  alias QuickBEAM.BeamVM.Heap
   alias __MODULE__.{Values, Objects, Closures, Scope}
   import Bitwise, only: [bnot: 1, &&&: 2]
 
@@ -330,7 +331,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:object, []}, frame, stack, gas, ctx) do
     ref = make_ref()
-    Process.put({:qb_obj, ref}, %{})
+    Heap.put_obj(ref, %{})
     run(advance(frame), [{:obj, ref} | stack], gas - 1, ctx)
   end
 
@@ -360,7 +361,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:get_length, []}, frame, [obj | rest], gas, ctx) do
     len = case obj do
       {:obj, ref} ->
-        case Process.get({:qb_obj, ref}) do
+        case Heap.get_obj(ref) do
           list when is_list(list) -> length(list)
           map when is_map(map) -> map_size(map)
           _ -> 0
@@ -375,7 +376,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:array_from, [argc]}, frame, stack, gas, ctx) do
     {elems, rest} = Enum.split(stack, argc)
     ref = System.unique_integer([:positive])
-    Process.put({:qb_obj, ref}, Enum.reverse(elems))
+    Heap.put_obj(ref, Enum.reverse(elems))
     run(advance(frame), [{:obj, ref} | rest], gas - 1, ctx)
   end
 
@@ -437,12 +438,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:define_var, [atom_idx, _scope]}, frame, [val | rest], gas, ctx) do
-    Process.put({:qb_var, Scope.resolve_atom(ctx, atom_idx)}, val)
+    Heap.put_var(Scope.resolve_atom(ctx, atom_idx), val)
     run(advance(frame), rest, gas - 1, ctx)
   end
 
   defp run({:check_define_var, [atom_idx, _scope]}, frame, stack, gas, ctx) do
-    Process.delete({:qb_var, Scope.resolve_atom(ctx, atom_idx)})
+    Heap.delete_var(Scope.resolve_atom(ctx, atom_idx))
     run(advance(frame), stack, gas - 1, ctx)
   end
 
@@ -466,7 +467,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:for_in_start, []}, frame, [obj | rest], gas, ctx) do
     keys = case obj do
-      {:obj, ref} -> Map.keys(Process.get({:qb_obj, ref}, %{}))
+      {:obj, ref} -> Map.keys(Heap.get_obj(ref, %{}))
       map when is_map(map) -> Map.keys(map)
       _ -> []
     end
@@ -488,24 +489,24 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     rev_args = Enum.reverse(args)
 
     this_ref = make_ref()
-    proto = Process.get({:qb_class_proto, :erlang.phash2(ctor)})
+    proto = Heap.get_class_proto(ctor)
     init = if proto, do: %{"__proto__" => proto}, else: %{}
-    Process.put({:qb_obj, this_ref}, init)
+    Heap.put_obj(this_ref, init)
     this_obj = {:obj, this_ref}
 
-    parent_ctor = Process.get({:qb_parent_ctor, :erlang.phash2(ctor)})
+    parent_ctor = Heap.get_parent_ctor(ctor)
     cell_value = parent_ctor || false
     ctor_ctx = %{ctx | this: this_obj}
 
     result = case ctor do
       %Bytecode.Function{} = f ->
         cell_ref = make_ref()
-        Process.put({:qb_cell, cell_ref}, cell_value)
+        Heap.put_cell(cell_ref, cell_value)
         do_invoke(f, rev_args, [{:cell, cell_ref}], gas, ctor_ctx)
 
       {:closure, captured, %Bytecode.Function{} = f} ->
         cell_ref = make_ref()
-        Process.put({:qb_cell, cell_ref}, cell_value)
+        Heap.put_cell(cell_ref, cell_value)
         var_refs = for cv <- f.closure_vars do
           Map.get(captured, cv.var_idx, {:cell, cell_ref})
         end
@@ -517,9 +518,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         if name in ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError) do
           case obj do
             {:obj, ref} ->
-              existing = Process.get({:qb_obj, ref}, %{})
+              existing = Heap.get_obj(ref, %{})
               if is_map(existing) and not Map.has_key?(existing, "name") do
-                Process.put({:qb_obj, ref}, Map.put(existing, "name", name))
+                Heap.put_obj(ref, Map.put(existing, "name", name))
               end
             _ -> :ok
           end
@@ -534,11 +535,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       _ -> this_obj
     end
 
-    case {result, Process.get({:qb_class_proto, :erlang.phash2(ctor)})} do
+    case {result, Heap.get_class_proto(ctor)} do
       {{:obj, rref}, {:obj, _} = proto2} ->
-        rmap = Process.get({:qb_obj, rref}, %{})
+        rmap = Heap.get_obj(rref, %{})
         unless Map.has_key?(rmap, "__proto__") do
-          Process.put({:qb_obj, rref}, Map.put(rmap, "__proto__", proto2))
+          Heap.put_obj(rref, Map.put(rmap, "__proto__", proto2))
         end
       _ -> :ok
     end
@@ -561,8 +562,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:delete, []}, frame, [key, obj | rest], gas, ctx) do
     case obj do
       {:obj, ref} ->
-        map = Process.get({:qb_obj, ref}, %{})
-        if is_map(map), do: Process.put({:qb_obj, ref}, Map.delete(map, key))
+        map = Heap.get_obj(ref, %{})
+        if is_map(map), do: Heap.put_obj(ref, Map.delete(map, key))
       _ -> :ok
     end
     run(advance(frame), [true | rest], gas - 1, ctx)
@@ -587,19 +588,19 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:append, []}, frame, [obj, idx, arr | rest], gas, ctx) do
     src_list = case obj do
       list when is_list(list) -> list
-      {:obj, ref} -> Process.get({:qb_obj, ref}, [])
+      {:obj, ref} -> Heap.get_obj(ref, [])
       _ -> []
     end
     arr_list = case arr do
       list when is_list(list) -> list
-      {:obj, ref} -> Process.get({:qb_obj, ref}, [])
+      {:obj, ref} -> Heap.get_obj(ref, [])
       _ -> []
     end
     merged = arr_list ++ src_list
     new_idx = (if is_integer(idx), do: idx, else: Runtime.to_int(idx)) + length(src_list)
     merged_obj = case arr do
       {:obj, ref} ->
-        Process.put({:qb_obj, ref}, merged)
+        Heap.put_obj(ref, merged)
         {:obj, ref}
       _ -> merged
     end
@@ -612,14 +613,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
         Objects.list_set_at(list, i, val)
       {:obj, ref} ->
-        stored = Process.get({:qb_obj, ref}, [])
+        stored = Heap.get_obj(ref, [])
         cond do
           is_list(stored) ->
             i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
-            Process.put({:qb_obj, ref}, Objects.list_set_at(stored, i, val))
+            Heap.put_obj(ref, Objects.list_set_at(stored, i, val))
           is_map(stored) ->
             key = if is_integer(idx), do: Integer.to_string(idx), else: Kernel.to_string(idx)
-            Process.put({:qb_obj, ref}, Map.put(stored, key, val))
+            Heap.put_obj(ref, Map.put(stored, key, val))
           true -> :ok
         end
         {:obj, ref}
@@ -632,19 +633,19 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:make_var_ref, [idx]}, %Frame{locals: locals} = frame, stack, gas, ctx) do
     ref = make_ref()
-    Process.put({:qb_cell, ref}, elem(locals, idx))
+    Heap.put_cell(ref, elem(locals, idx))
     run(advance(frame), [{:cell, ref} | stack], gas - 1, ctx)
   end
 
   defp run({:make_arg_ref, [idx]}, frame, stack, gas, ctx) do
     ref = make_ref()
-    Process.put({:qb_cell, ref}, Scope.get_arg_value(ctx, idx))
+    Heap.put_cell(ref, Scope.get_arg_value(ctx, idx))
     run(advance(frame), [{:cell, ref} | stack], gas - 1, ctx)
   end
 
   defp run({:make_loc_ref, [idx]}, %Frame{locals: locals} = frame, stack, gas, ctx) do
     ref = make_ref()
-    Process.put({:qb_cell, ref}, elem(locals, idx))
+    Heap.put_cell(ref, elem(locals, idx))
     run(advance(frame), [{:cell, ref} | stack], gas - 1, ctx)
   end
 
@@ -703,7 +704,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     items = case obj do
       list when is_list(list) -> list
       {:obj, ref} ->
-        stored = Process.get({:qb_obj, ref}, [])
+        stored = Heap.get_obj(ref, [])
         if is_list(stored), do: stored, else: []
       _ -> []
     end
@@ -756,7 +757,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       1 ->
         args_list = Tuple.to_list(arg_buf)
         ref = System.unique_integer([:positive])
-        Process.put({:qb_obj, ref}, args_list)
+        Heap.put_obj(ref, args_list)
         {:obj, ref}
       2 -> current_func
       3 -> current_func
@@ -772,7 +773,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       []
     end
     ref = System.unique_integer([:positive])
-    Process.put({:qb_obj, ref}, rest_args)
+    Heap.put_obj(ref, rest_args)
     run(advance(frame), [{:obj, ref} | stack], gas - 1, ctx)
   end
 
@@ -790,7 +791,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       %Bytecode.Function{} = f -> f
       _ -> func
     end
-    parent = Process.get({:qb_parent_ctor, :erlang.phash2(raw)})
+    parent = Heap.get_parent_ctor(raw)
     run(advance(frame), [(parent || :undefined) | rest], gas - 1, ctx)
   end
 
@@ -840,7 +841,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     args = case arg_array do
       list when is_list(list) -> list
       {:obj, ref} ->
-        stored = Process.get({:qb_obj, ref}, [])
+        stored = Heap.get_obj(ref, [])
         if is_list(stored), do: stored, else: []
       _ -> []
     end
@@ -865,14 +866,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     target = Enum.at(stack, target_idx)
     source = Enum.at(stack, source_idx)
     src_props = case source do
-      {:obj, ref} -> Process.get({:qb_obj, ref}, %{})
+      {:obj, ref} -> Heap.get_obj(ref, %{})
       map when is_map(map) -> map
       _ -> %{}
     end
     case target do
       {:obj, ref} ->
-        existing = Process.get({:qb_obj, ref}, %{})
-        Process.put({:qb_obj, ref}, Map.merge(existing, src_props))
+        existing = Heap.get_obj(ref, %{})
+        Heap.put_obj(ref, Map.merge(existing, src_props))
       _ -> :ok
     end
     run(advance(frame), stack, gas - 1, ctx)
@@ -886,13 +887,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       %Bytecode.Function{} = f -> %{"constructor" => {:closure, %{}, f}}
       closure -> %{"constructor" => closure}
     end
-    parent_proto = Process.get({:qb_class_proto, :erlang.phash2(parent_ctor)})
+    parent_proto = Heap.get_class_proto(parent_ctor)
     proto_map = if parent_proto, do: Map.put(proto_map, "__proto__", parent_proto), else: proto_map
-    Process.put({:qb_obj, proto_ref}, proto_map)
+    Heap.put_obj(proto_ref, proto_map)
     proto = {:obj, proto_ref}
-    Process.put({:qb_class_proto, :erlang.phash2(ctor)}, proto)
+    Heap.put_class_proto(ctor, proto)
     if parent_ctor != :undefined do
-      Process.put({:qb_parent_ctor, :erlang.phash2(ctor)}, parent_ctor)
+      Heap.put_parent_ctor(ctor, parent_ctor)
     end
     run(advance(frame), [proto, ctor | rest], gas - 1, ctx)
   end
@@ -901,8 +902,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     name = Scope.resolve_atom(ctx, atom_idx)
     case target do
       {:obj, ref} ->
-        existing = Process.get({:qb_obj, ref}, %{})
-        if is_map(existing), do: Process.put({:qb_obj, ref}, Map.put(existing, name, method_closure))
+        existing = Heap.get_obj(ref, %{})
+        if is_map(existing), do: Heap.put_obj(ref, Map.put(existing, name, method_closure))
       _ -> :ok
     end
     run(advance(frame), [target | rest], gas - 1, ctx)
@@ -911,8 +912,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:define_method_computed, [_flags]}, frame, [method_closure, target, field_name | rest], gas, ctx) do
     case target do
       {:obj, ref} ->
-        proto = Process.get({:qb_obj, ref}, %{})
-        Process.put({:qb_obj, ref}, Map.put(proto, field_name, method_closure))
+        proto = Heap.get_obj(ref, %{})
+        Heap.put_obj(ref, Map.put(proto, field_name, method_closure))
       _ -> :ok
     end
     run(advance(frame), rest, gas - 1, ctx)
@@ -967,7 +968,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             true -> :undefined
           end
           ref = make_ref()
-          Process.put({:qb_cell, ref}, val)
+          Heap.put_cell(ref, val)
           {:cell, ref}
         vref_idx ->
           case elem(vrefs, vref_idx) do
@@ -975,7 +976,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             _ ->
               val = elem(locals, cv.var_idx)
               ref = make_ref()
-              Process.put({:qb_cell, ref}, val)
+              Heap.put_cell(ref, val)
               {:cell, ref}
           end
       end
@@ -991,7 +992,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       var_refs
     else
       cell_ref = make_ref()
-      Process.put({:qb_cell, cell_ref}, false)
+      Heap.put_cell(cell_ref, false)
       case var_refs do
         [] -> [{:cell, cell_ref}]
         [_ | rest] -> [{:cell, cell_ref} | rest]
