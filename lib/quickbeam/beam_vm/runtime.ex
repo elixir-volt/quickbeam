@@ -193,9 +193,9 @@ defmodule QuickBEAM.BeamVM.Runtime do
       {:builtin, _, cb} when is_function(cb, 2) -> cb.(args, nil)
       {:builtin, _, cb} when is_function(cb, 3) -> cb.(args, nil, interp)
       %QuickBEAM.BeamVM.Bytecode.Function{} = f ->
-        QuickBEAM.BeamVM.Interpreter.invoke_function(f, args, 10_000_000)
+        QuickBEAM.BeamVM.Interpreter.invoke(f, args, 10_000_000)
       {:closure, _, %QuickBEAM.BeamVM.Bytecode.Function{}} = c ->
-        QuickBEAM.BeamVM.Interpreter.invoke_closure(c, args, 10_000_000)
+        QuickBEAM.BeamVM.Interpreter.invoke(c, args, 10_000_000)
       f when is_function(f) -> apply(f, args)
       _ -> :undefined
     end

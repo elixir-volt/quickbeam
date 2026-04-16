@@ -21,10 +21,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   alias __MODULE__.Frame
 
   alias __MODULE__.{Values, Objects, Closures, Scope}
-  import Values, except: [div: 2, band: 2, bor: 2, bxor: 2]
-  import Objects, except: [put: 3]
-  import Closures
-  import Scope
   import Bitwise, only: [bnot: 1, &&&: 2]
 
   @default_gas 1_000_000_000
@@ -71,6 +67,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
+  @doc "Invoke a bytecode function or closure from external code."
+  def invoke(%Bytecode.Function{} = fun, args, gas), do: invoke_function(fun, args, gas)
+  def invoke({:closure, _, %Bytecode.Function{}} = c, args, gas), do: invoke_closure(c, args, gas)
+
   # ── Helpers ──
 
   defp advance(%Frame{pc: pc} = f), do: %{f | pc: pc + 1}
@@ -102,16 +102,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:push_6, _}, frame, stack, gas), do: run(advance(frame), [6 | stack], gas - 1)
   defp run({:push_7, _}, frame, stack, gas), do: run(advance(frame), [7 | stack], gas - 1)
 
-  defp run({:push_const, [idx]}, %Frame{constants: cpool} = frame, stack, gas) do
-    run(advance(frame), [resolve_const(cpool, idx) | stack], gas - 1)
-  end
-
-  defp run({:push_const8, [idx]}, %Frame{constants: cpool} = frame, stack, gas) do
-    run(advance(frame), [resolve_const(cpool, idx) | stack], gas - 1)
+  defp run({op, [idx]}, %Frame{constants: cpool} = frame, stack, gas) when op in [:push_const, :push_const8] do
+    run(advance(frame), [Scope.resolve_const(cpool, idx) | stack], gas - 1)
   end
 
   defp run({:push_atom_value, [atom_idx]}, frame, stack, gas) do
-    run(advance(frame), [resolve_atom(atom_idx) | stack], gas - 1)
+    run(advance(frame), [Scope.resolve_atom(atom_idx) | stack], gas - 1)
   end
 
   defp run({:undefined, []}, frame, stack, gas), do: run(advance(frame), [:undefined | stack], gas - 1)
@@ -155,25 +151,25 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Args ──
 
-  defp run({:get_arg, [idx]}, frame, stack, gas), do: run(advance(frame), [get_arg_value(idx) | stack], gas - 1)
-  defp run({:get_arg0, []}, frame, stack, gas), do: run(advance(frame), [get_arg_value(0) | stack], gas - 1)
-  defp run({:get_arg1, []}, frame, stack, gas), do: run(advance(frame), [get_arg_value(1) | stack], gas - 1)
-  defp run({:get_arg2, []}, frame, stack, gas), do: run(advance(frame), [get_arg_value(2) | stack], gas - 1)
-  defp run({:get_arg3, []}, frame, stack, gas), do: run(advance(frame), [get_arg_value(3) | stack], gas - 1)
+  defp run({:get_arg, [idx]}, frame, stack, gas), do: run(advance(frame), [Scope.get_arg_value(idx) | stack], gas - 1)
+  defp run({:get_arg0, []}, frame, stack, gas), do: run(advance(frame), [Scope.get_arg_value(0) | stack], gas - 1)
+  defp run({:get_arg1, []}, frame, stack, gas), do: run(advance(frame), [Scope.get_arg_value(1) | stack], gas - 1)
+  defp run({:get_arg2, []}, frame, stack, gas), do: run(advance(frame), [Scope.get_arg_value(2) | stack], gas - 1)
+  defp run({:get_arg3, []}, frame, stack, gas), do: run(advance(frame), [Scope.get_arg_value(3) | stack], gas - 1)
 
   # ── Locals ──
 
   defp run({:get_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs} = frame, stack, gas) do
-    run(advance(frame), [read_captured_local(idx, locals, vrefs) | stack], gas - 1)
+    run(advance(frame), [Closures.read_captured_local(idx, locals, vrefs) | stack], gas - 1)
   end
 
   defp run({:put_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs} = frame, [val | rest], gas) do
-    write_captured_local(idx, val, locals, vrefs)
+    Closures.write_captured_local(idx, val, locals, vrefs)
     run(advance(put_local(frame, idx, val)), rest, gas - 1)
   end
 
   defp run({:set_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs} = frame, [val | rest], gas) do
-    write_captured_local(idx, val, locals, vrefs)
+    Closures.write_captured_local(idx, val, locals, vrefs)
     run(advance(put_local(frame, idx, val)), [val | rest], gas - 1)
   end
 
@@ -204,7 +200,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:get_var_ref, [idx]}, %Frame{var_refs: vrefs} = frame, stack, gas) do
     val = case elem(vrefs, idx) do
-      {:cell, _} = cell -> read_cell(cell)
+      {:cell, _} = cell -> Closures.read_cell(cell)
       other -> other
     end
     run(advance(frame), [val | stack], gas - 1)
@@ -212,7 +208,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:put_var_ref, [idx]}, %Frame{var_refs: vrefs} = frame, [val | rest], gas) do
     case elem(vrefs, idx) do
-      {:cell, ref} -> write_cell({:cell, ref}, val)
+      {:cell, ref} -> Closures.write_cell({:cell, ref}, val)
       _ -> :ok
     end
     run(advance(frame), rest, gas - 1)
@@ -220,7 +216,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:set_var_ref, [idx]}, %Frame{var_refs: vrefs} = frame, [val | rest], gas) do
     case elem(vrefs, idx) do
-      {:cell, ref} -> write_cell({:cell, ref}, val)
+      {:cell, ref} -> Closures.write_cell({:cell, ref}, val)
       _ -> :ok
     end
     run(advance(frame), [val | rest], gas - 1)
@@ -230,33 +226,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Control flow ──
 
-  defp run({:if_false, [target]}, frame, [val | rest], gas) do
-    if falsy?(val),
-      do: run(jump(frame, target), rest, gas - 1),
-      else: run(advance(frame), rest, gas - 1)
+  defp run({op, [target]}, frame, [val | rest], gas) when op in [:if_false, :if_false8] do
+    if Values.falsy?(val), do: run(jump(frame, target), rest, gas - 1), else: run(advance(frame), rest, gas - 1)
   end
 
-  defp run({:if_false8, [target]}, frame, [val | rest], gas) do
-    if falsy?(val),
-      do: run(jump(frame, target), rest, gas - 1),
-      else: run(advance(frame), rest, gas - 1)
+  defp run({op, [target]}, frame, [val | rest], gas) when op in [:if_true, :if_true8] do
+    if Values.truthy?(val), do: run(jump(frame, target), rest, gas - 1), else: run(advance(frame), rest, gas - 1)
   end
 
-  defp run({:if_true, [target]}, frame, [val | rest], gas) do
-    if truthy?(val),
-      do: run(jump(frame, target), rest, gas - 1),
-      else: run(advance(frame), rest, gas - 1)
+  defp run({op, [target]}, frame, stack, gas) when op in [:goto, :goto8, :goto16] do
+    run(jump(frame, target), stack, gas - 1)
   end
-
-  defp run({:if_true8, [target]}, frame, [val | rest], gas) do
-    if truthy?(val),
-      do: run(jump(frame, target), rest, gas - 1),
-      else: run(advance(frame), rest, gas - 1)
-  end
-
-  defp run({:goto, [target]}, frame, stack, gas), do: run(jump(frame, target), stack, gas - 1)
-  defp run({:goto8, [target]}, frame, stack, gas), do: run(jump(frame, target), stack, gas - 1)
-  defp run({:goto16, [target]}, frame, stack, gas), do: run(jump(frame, target), stack, gas - 1)
 
   defp run({:return, []}, _frame, [val | _], _gas), do: throw({:js_return, val})
 
@@ -266,73 +246,69 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Arithmetic ──
 
-  defp run({:add, []}, frame, [b, a | rest], gas), do: run(advance(frame), [add(a, b) | rest], gas - 1)
-  defp run({:sub, []}, frame, [b, a | rest], gas), do: run(advance(frame), [sub(a, b) | rest], gas - 1)
-  defp run({:mul, []}, frame, [b, a | rest], gas), do: run(advance(frame), [mul(a, b) | rest], gas - 1)
+  defp run({:add, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.add(a, b) | rest], gas - 1)
+  defp run({:sub, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.sub(a, b) | rest], gas - 1)
+  defp run({:mul, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.mul(a, b) | rest], gas - 1)
   defp run({:div, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.div(a, b) | rest], gas - 1)
-  defp run({:mod, []}, frame, [b, a | rest], gas), do: run(advance(frame), [mod(a, b) | rest], gas - 1)
-  defp run({:pow, []}, frame, [b, a | rest], gas), do: run(advance(frame), [pow(a, b) | rest], gas - 1)
+  defp run({:mod, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.mod(a, b) | rest], gas - 1)
+  defp run({:pow, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.pow(a, b) | rest], gas - 1)
 
   # ── Bitwise ──
 
   defp run({:band, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.band(a, b) | rest], gas - 1)
   defp run({:bor, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.bor(a, b) | rest], gas - 1)
   defp run({:bxor, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.bxor(a, b) | rest], gas - 1)
-  defp run({:shl, []}, frame, [b, a | rest], gas), do: run(advance(frame), [shl(a, b) | rest], gas - 1)
-  defp run({:sar, []}, frame, [b, a | rest], gas), do: run(advance(frame), [sar(a, b) | rest], gas - 1)
-  defp run({:shr, []}, frame, [b, a | rest], gas), do: run(advance(frame), [shr(a, b) | rest], gas - 1)
+  defp run({:shl, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.shl(a, b) | rest], gas - 1)
+  defp run({:sar, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.sar(a, b) | rest], gas - 1)
+  defp run({:shr, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.shr(a, b) | rest], gas - 1)
 
   # ── Comparison ──
 
-  defp run({:lt, []}, frame, [b, a | rest], gas), do: run(advance(frame), [lt(a, b) | rest], gas - 1)
-  defp run({:lte, []}, frame, [b, a | rest], gas), do: run(advance(frame), [lte(a, b) | rest], gas - 1)
-  defp run({:gt, []}, frame, [b, a | rest], gas), do: run(advance(frame), [gt(a, b) | rest], gas - 1)
-  defp run({:gte, []}, frame, [b, a | rest], gas), do: run(advance(frame), [gte(a, b) | rest], gas - 1)
-  defp run({:eq, []}, frame, [b, a | rest], gas), do: run(advance(frame), [eq(a, b) | rest], gas - 1)
-  defp run({:neq, []}, frame, [b, a | rest], gas), do: run(advance(frame), [neq(a, b) | rest], gas - 1)
-  defp run({:strict_eq, []}, frame, [b, a | rest], gas), do: run(advance(frame), [strict_eq(a, b) | rest], gas - 1)
-  defp run({:strict_neq, []}, frame, [b, a | rest], gas), do: run(advance(frame), [not strict_eq(a, b) | rest], gas - 1)
+  defp run({:lt, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.lt(a, b) | rest], gas - 1)
+  defp run({:lte, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.lte(a, b) | rest], gas - 1)
+  defp run({:gt, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.gt(a, b) | rest], gas - 1)
+  defp run({:gte, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.gte(a, b) | rest], gas - 1)
+  defp run({:eq, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.eq(a, b) | rest], gas - 1)
+  defp run({:neq, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.neq(a, b) | rest], gas - 1)
+  defp run({:strict_eq, []}, frame, [b, a | rest], gas), do: run(advance(frame), [Values.strict_eq(a, b) | rest], gas - 1)
+  defp run({:strict_neq, []}, frame, [b, a | rest], gas), do: run(advance(frame), [not Values.strict_eq(a, b) | rest], gas - 1)
 
   # ── Unary ──
 
-  defp run({:neg, []}, frame, [a | rest], gas), do: run(advance(frame), [neg(a) | rest], gas - 1)
-  defp run({:plus, []}, frame, [a | rest], gas), do: run(advance(frame), [to_number(a) | rest], gas - 1)
-  defp run({:inc, []}, frame, [a | rest], gas), do: run(advance(frame), [add(a, 1) | rest], gas - 1)
-  defp run({:dec, []}, frame, [a | rest], gas), do: run(advance(frame), [sub(a, 1) | rest], gas - 1)
-  defp run({:post_inc, []}, frame, [a | rest], gas), do: run(advance(frame), [add(a, 1), a | rest], gas - 1)
-  defp run({:post_dec, []}, frame, [a | rest], gas), do: run(advance(frame), [sub(a, 1), a | rest], gas - 1)
+  defp run({:neg, []}, frame, [a | rest], gas), do: run(advance(frame), [Values.neg(a) | rest], gas - 1)
+  defp run({:plus, []}, frame, [a | rest], gas), do: run(advance(frame), [Values.to_number(a) | rest], gas - 1)
+  defp run({:inc, []}, frame, [a | rest], gas), do: run(advance(frame), [Values.add(a, 1) | rest], gas - 1)
+  defp run({:dec, []}, frame, [a | rest], gas), do: run(advance(frame), [Values.sub(a, 1) | rest], gas - 1)
+  defp run({:post_inc, []}, frame, [a | rest], gas), do: run(advance(frame), [Values.add(a, 1), a | rest], gas - 1)
+  defp run({:post_dec, []}, frame, [a | rest], gas), do: run(advance(frame), [Values.sub(a, 1), a | rest], gas - 1)
 
   defp run({:inc_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs} = frame, stack, gas) do
-    new_val = add(elem(locals, idx), 1)
-    write_captured_local(idx, new_val, locals, vrefs)
+    new_val = Values.add(elem(locals, idx), 1)
+    Closures.write_captured_local(idx, new_val, locals, vrefs)
     run(advance(put_local(frame, idx, new_val)), stack, gas - 1)
   end
 
   defp run({:dec_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs} = frame, stack, gas) do
-    new_val = sub(elem(locals, idx), 1)
-    write_captured_local(idx, new_val, locals, vrefs)
+    new_val = Values.sub(elem(locals, idx), 1)
+    Closures.write_captured_local(idx, new_val, locals, vrefs)
     run(advance(put_local(frame, idx, new_val)), stack, gas - 1)
   end
 
   defp run({:add_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs} = frame, [val | rest], gas) do
-    new_val = add(elem(locals, idx), val)
-    write_captured_local(idx, new_val, locals, vrefs)
+    new_val = Values.add(elem(locals, idx), val)
+    Closures.write_captured_local(idx, new_val, locals, vrefs)
     run(advance(put_local(frame, idx, new_val)), rest, gas - 1)
   end
 
-  defp run({:not, []}, frame, [a | rest], gas), do: run(advance(frame), [bnot(to_int32(a)) | rest], gas - 1)
-  defp run({:lnot, []}, frame, [a | rest], gas), do: run(advance(frame), [not truthy?(a) | rest], gas - 1)
-  defp run({:typeof, []}, frame, [a | rest], gas), do: run(advance(frame), [typeof(a) | rest], gas - 1)
+  defp run({:not, []}, frame, [a | rest], gas), do: run(advance(frame), [bnot(Values.to_int32(a)) | rest], gas - 1)
+  defp run({:lnot, []}, frame, [a | rest], gas), do: run(advance(frame), [not Values.truthy?(a) | rest], gas - 1)
+  defp run({:typeof, []}, frame, [a | rest], gas), do: run(advance(frame), [Values.typeof(a) | rest], gas - 1)
 
   # ── Function creation / calls ──
 
-  defp run({:fclosure, [idx]}, %Frame{constants: cpool, locals: locals, var_refs: vrefs} = frame, stack, gas) do
-    closure = build_closure(resolve_const(cpool, idx), locals, vrefs)
-    run(advance(frame), [closure | stack], gas - 1)
-  end
-
-  defp run({:fclosure8, [idx]}, %Frame{constants: cpool, locals: locals, var_refs: vrefs} = frame, stack, gas) do
-    closure = build_closure(resolve_const(cpool, idx), locals, vrefs)
+  defp run({op, [idx]}, %Frame{constants: cpool, locals: locals, var_refs: vrefs} = frame, stack, gas) when op in [:fclosure, :fclosure8] do
+    fun = Scope.resolve_const(cpool, idx)
+    closure = build_closure(fun, locals, vrefs)
     run(advance(frame), [closure | stack], gas - 1)
   end
 
@@ -350,25 +326,25 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:get_field, [atom_idx]}, frame, [obj | rest], gas) do
-    run(advance(frame), [Runtime.get_property(obj, resolve_atom(atom_idx)) | rest], gas - 1)
+    run(advance(frame), [Runtime.get_property(obj, Scope.resolve_atom(atom_idx)) | rest], gas - 1)
   end
 
   defp run({:put_field, [atom_idx]}, frame, [val, obj | rest], gas) do
-    Objects.put(obj, resolve_atom(atom_idx), val)
+    Objects.put(obj, Scope.resolve_atom(atom_idx), val)
     run(advance(frame), [obj | rest], gas - 1)
   end
 
   defp run({:define_field, [atom_idx]}, frame, [val, obj | rest], gas) do
-    Objects.put(obj, resolve_atom(atom_idx), val)
+    Objects.put(obj, Scope.resolve_atom(atom_idx), val)
     run(advance(frame), [obj | rest], gas - 1)
   end
 
   defp run({:get_array_el, []}, frame, [idx, obj | rest], gas) do
-    run(advance(frame), [get_array_el(obj, idx) | rest], gas - 1)
+    run(advance(frame), [Objects.get_array_el(obj, idx) | rest], gas - 1)
   end
 
   defp run({:put_array_el, []}, frame, [val, idx, obj | rest], gas) do
-    put_array_el(obj, idx, val)
+    Objects.put_array_el(obj, idx, val)
     run(advance(frame), [obj | rest], gas - 1)
   end
 
@@ -412,12 +388,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:set_name, [_atom_idx]}, frame, stack, gas), do: run(advance(frame), stack, gas - 1)
 
-  defp run({:throw, []}, %Frame{locals: locals, constants: cpool, var_refs: vrefs, stack_size: ssz, instructions: insns}, [val | _], gas) do
+  defp run({:throw, []}, frame, [val | _], gas) do
     case Process.get(:qb_catch_stack, []) do
       [{target, catch_stack} | rest_catch] ->
         Process.put(:qb_catch_stack, rest_catch)
-        frame = %Frame{pc: target, locals: locals, constants: cpool, var_refs: vrefs, stack_size: ssz, instructions: insns}
-        run(frame, [val | catch_stack], gas - 1)
+        run(jump(frame, target), [val | catch_stack], gas - 1)
       [] ->
         throw({:js_throw, val})
     end
@@ -429,7 +404,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:invalid, []}, _frame, _stack, _gas), do: throw({:error, :invalid_opcode})
 
   defp run({:get_var_undef, [atom_idx]}, frame, stack, gas) do
-    val = case resolve_global(atom_idx) do
+    val = case Scope.resolve_global(atom_idx) do
       {:found, v} -> v
       :not_found -> :undefined
     end
@@ -437,36 +412,36 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:get_var, [atom_idx]}, frame, stack, gas) do
-    case resolve_global(atom_idx) do
+    case Scope.resolve_global(atom_idx) do
       {:found, val} ->
         run(advance(frame), [val | stack], gas - 1)
       :not_found ->
-        throw({:js_throw, %{"message" => "#{resolve_atom(atom_idx)} is not defined", "name" => "ReferenceError"}})
+        throw({:js_throw, %{"message" => "#{Scope.resolve_atom(atom_idx)} is not defined", "name" => "ReferenceError"}})
     end
   end
 
   defp run({:put_var, [atom_idx]}, frame, [val | rest], gas) do
-    set_global(atom_idx, val)
+    Scope.set_global(atom_idx, val)
     run(advance(frame), rest, gas - 1)
   end
 
   defp run({:put_var_init, [atom_idx]}, frame, [val | rest], gas) do
-    set_global(atom_idx, val)
+    Scope.set_global(atom_idx, val)
     run(advance(frame), rest, gas - 1)
   end
 
   defp run({:define_var, [atom_idx, _scope]}, frame, [val | rest], gas) do
-    Process.put({:qb_var, resolve_atom(atom_idx)}, val)
+    Process.put({:qb_var, Scope.resolve_atom(atom_idx)}, val)
     run(advance(frame), rest, gas - 1)
   end
 
   defp run({:check_define_var, [atom_idx, _scope]}, frame, stack, gas) do
-    Process.delete({:qb_var, resolve_atom(atom_idx)})
+    Process.delete({:qb_var, Scope.resolve_atom(atom_idx)})
     run(advance(frame), stack, gas - 1)
   end
 
   defp run({:get_field2, [atom_idx]}, frame, [obj | rest], gas) do
-    val = Runtime.get_property(obj, resolve_atom(atom_idx))
+    val = Runtime.get_property(obj, Scope.resolve_atom(atom_idx))
     run(advance(frame), [val, obj | rest], gas - 1)
   end
 
@@ -601,7 +576,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   # ── in operator ──
 
   defp run({:in, []}, frame, [obj, key | rest], gas) do
-    run(advance(frame), [has_property(obj, key) | rest], gas - 1)
+    run(advance(frame), [Objects.has_property(obj, key) | rest], gas - 1)
   end
 
   # ── regexp literal ──
@@ -638,22 +613,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     obj2 = case obj do
       list when is_list(list) ->
         i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
-        if i >= 0 and i < length(list) do
-          List.replace_at(list, i, val)
-        else
-          list ++ List.duplicate(:undefined, max(0, i - length(list))) ++ [val]
-        end
+        Objects.list_set_at(list, i, val)
       {:obj, ref} ->
         stored = Process.get({:qb_obj, ref}, [])
         cond do
           is_list(stored) ->
             i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
-            new_stored = if i >= 0 and i < length(stored) do
-              List.replace_at(stored, i, val)
-            else
-              stored ++ List.duplicate(:undefined, max(0, i - length(stored))) ++ [val]
-            end
-            Process.put({:qb_obj, ref}, new_stored)
+            Process.put({:qb_obj, ref}, Objects.list_set_at(stored, i, val))
           is_map(stored) ->
             key = if is_integer(idx), do: Integer.to_string(idx), else: Kernel.to_string(idx)
             Process.put({:qb_obj, ref}, Map.put(stored, key, val))
@@ -675,7 +641,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:make_arg_ref, [idx]}, frame, stack, gas) do
     ref = make_ref()
-    Process.put({:qb_cell, ref}, get_arg_value(idx))
+    Process.put({:qb_cell, ref}, Scope.get_arg_value(idx))
     run(advance(frame), [{:cell, ref} | stack], gas - 1)
   end
 
@@ -688,14 +654,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:get_var_ref_check, [idx]}, %Frame{var_refs: vrefs} = frame, stack, gas) do
     case elem(vrefs, idx) do
       :undefined -> throw({:error, {:uninitialized_var_ref, idx}})
-      {:cell, _} = cell -> run(advance(frame), [read_cell(cell) | stack], gas - 1)
+      {:cell, _} = cell -> run(advance(frame), [Closures.read_cell(cell) | stack], gas - 1)
       val -> run(advance(frame), [val | stack], gas - 1)
     end
   end
 
   defp run({:put_var_ref_check, [idx]}, %Frame{var_refs: vrefs} = frame, [val | rest], gas) do
     case elem(vrefs, idx) do
-      {:cell, ref} -> write_cell({:cell, ref}, val)
+      {:cell, ref} -> Closures.write_cell({:cell, ref}, val)
       _ -> :ok
     end
     run(advance(frame), rest, gas - 1)
@@ -703,18 +669,18 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:put_var_ref_check_init, [idx]}, %Frame{var_refs: vrefs} = frame, [val | rest], gas) do
     case elem(vrefs, idx) do
-      {:cell, ref} -> write_cell({:cell, ref}, val)
+      {:cell, ref} -> Closures.write_cell({:cell, ref}, val)
       _ -> :ok
     end
     run(advance(frame), rest, gas - 1)
   end
 
   defp run({:get_ref_value, []}, frame, [ref | rest], gas) do
-    run(advance(frame), [read_cell(ref) | rest], gas - 1)
+    run(advance(frame), [Closures.read_cell(ref) | rest], gas - 1)
   end
 
   defp run({:put_ref_value, []}, frame, [val, ref | rest], gas) do
-    write_cell(ref, val)
+    Closures.write_cell(ref, val)
     run(advance(frame), [val | rest], gas - 1)
   end
 
@@ -942,7 +908,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:define_method, [atom_idx, _flags]}, frame, [method_closure, target | rest], gas) do
-    name = resolve_atom(atom_idx)
+    name = Scope.resolve_atom(atom_idx)
     case target do
       {:obj, ref} ->
         existing = Process.get({:qb_obj, ref}, %{})
@@ -1097,11 +1063,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [result | rest], gas - 1)
   end
 
-  def invoke_function(%Bytecode.Function{} = fun, args, gas) do
+  defp invoke_function(%Bytecode.Function{} = fun, args, gas) do
     do_invoke(fun, args, [], gas)
   end
 
-  def invoke_closure({:closure, captured, %Bytecode.Function{} = fun}, args, gas) do
+  defp invoke_closure({:closure, captured, %Bytecode.Function{} = fun}, args, gas) do
     var_refs = for cv <- fun.closure_vars do
       Map.get(captured, cv.var_idx, :undefined)
     end
@@ -1125,7 +1091,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         {:ok, instructions} ->
           insns = List.to_tuple(instructions)
           locals = :erlang.make_tuple(max(fun.arg_count + fun.var_count, 1), :undefined)
-          {locals, var_refs_tuple} = setup_captured_locals(fun, locals, var_refs, args)
+          {locals, var_refs_tuple} = Closures.setup_captured_locals(fun, locals, var_refs, args)
 
           frame = %Frame{
             pc: 0,

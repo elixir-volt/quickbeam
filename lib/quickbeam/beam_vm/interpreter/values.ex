@@ -1,5 +1,4 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Values do
-  import Kernel, except: [to_string: 1]
   alias QuickBEAM.BeamVM.Bytecode
   import Bitwise
 
@@ -35,14 +34,14 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def to_int32(val) when is_float(val), do: trunc(val)
   def to_int32(_), do: 0
 
-  def to_string(:undefined), do: "undefined"
-  def to_string(nil), do: "null"
-  def to_string(true), do: "true"
-  def to_string(false), do: "false"
-  def to_string(n) when is_integer(n), do: Integer.to_string(n)
-  def to_string(n) when is_float(n), do: Float.to_string(n)
-  def to_string(s) when is_binary(s), do: s
-  def to_string(_), do: "[object]"
+  def to_js_string(:undefined), do: "undefined"
+  def to_js_string(nil), do: "null"
+  def to_js_string(true), do: "true"
+  def to_js_string(false), do: "false"
+  def to_js_string(n) when is_integer(n), do: Integer.to_string(n)
+  def to_js_string(n) when is_float(n), do: Float.to_string(n)
+  def to_js_string(s) when is_binary(s), do: s
+  def to_js_string(_), do: "[object]"
 
   def typeof(:undefined), do: "undefined"
   def typeof(:nan), do: "number"
@@ -62,7 +61,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def strict_eq(:neg_infinity, :neg_infinity), do: true
   def strict_eq(a, b), do: a === b
 
-  def add(a, b) when is_binary(a) or is_binary(b), do: to_string(a) <> to_string(b)
+  def add(a, b) when is_binary(a) or is_binary(b), do: to_js_string(a) <> to_js_string(b)
   def add(a, b) when is_number(a) and is_number(b), do: a + b
   def add(a, b), do: numeric_add(to_number(a), to_number(b))
 
