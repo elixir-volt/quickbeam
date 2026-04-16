@@ -278,7 +278,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         run({pc + 1, put_elem(locals, idx, val), cpool, vrefs, ssz, insns}, rest, gas - 1)
 
       {:get_loc0_loc1, []} ->
-        run(next, [elem(locals, 0), elem(locals, 1) | stack], gas - 1)
+        run(next, [elem(locals, 1), elem(locals, 0) | stack], gas - 1)
 
 
       # ── Variable references (closures) ──
@@ -952,8 +952,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         Process.put(:qb_arg_buf, List.to_tuple(List.replace_at(padded, idx, val)))
         run(next, rest, gas - 1)
 
-      {:push_this, []} ->
-        run(next, [:undefined | stack], gas - 1)
 
       {:set_home_object, []} ->
         run(next, stack, gas - 1)
