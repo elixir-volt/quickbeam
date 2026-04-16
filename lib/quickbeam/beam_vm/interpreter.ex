@@ -242,8 +242,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:return, []}, _frame, [val | _], _gas, _ctx), do: throw({:js_return, val})
 
-  defp run({:return_undef, []}, _frame, _stack, _gas, %Ctx{this: this}) do
-    throw({:js_return, this})
+  defp run({:return_undef, []}, _frame, _stack, _gas, _ctx) do
+    throw({:js_return, :undefined})
   end
 
   # ── Arithmetic ──
@@ -486,19 +486,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     Heap.put_obj(this_ref, init)
     this_obj = {:obj, this_ref}
 
-    parent_ctor = Heap.get_parent_ctor(ctor)
-    cell_value = parent_ctor || false
     ctor_ctx = %{ctx | this: this_obj}
 
     result = case ctor do
       %Bytecode.Function{} = f ->
         cell_ref = make_ref()
-        Heap.put_cell(cell_ref, cell_value)
+        Heap.put_cell(cell_ref, false)
         do_invoke(f, rev_args, [{:cell, cell_ref}], gas, ctor_ctx)
 
       {:closure, captured, %Bytecode.Function{} = f} ->
         cell_ref = make_ref()
-        Heap.put_cell(cell_ref, cell_value)
+        Heap.put_cell(cell_ref, false)
         var_refs = for cv <- f.closure_vars do
           Map.get(captured, cv.var_idx, {:cell, cell_ref})
         end
@@ -539,8 +537,26 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [result | rest], gas - 1, ctx)
   end
 
-  defp run({:init_ctor, []}, frame, stack, gas, %Ctx{this: this} = ctx) do
-    run(advance(frame), [this | stack], gas - 1, ctx)
+  defp run({:init_ctor, []}, frame, stack, gas, %Ctx{arg_buf: arg_buf} = ctx) do
+    raw = case ctx.current_func do
+      {:closure, _, %Bytecode.Function{} = f} -> f
+      %Bytecode.Function{} = f -> f
+      other -> other
+    end
+    parent = Heap.get_parent_ctor(raw)
+    args = Tuple.to_list(arg_buf)
+    result = case parent do
+      nil -> ctx.this
+      %Bytecode.Function{} = f -> invoke_function(f, args, gas, ctx)
+      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, args, gas, ctx)
+      {:builtin, _name, cb} when is_function(cb, 1) -> cb.(args)
+      _ -> ctx.this
+    end
+    result = case result do
+      {:obj, _} = obj -> obj
+      _ -> ctx.this
+    end
+    run(advance(frame), [result | stack], gas - 1, %{ctx | this: result})
   end
 
   # ── instanceof ──
@@ -993,14 +1009,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
   defp ensure_constructor_cell(_fun, var_refs), do: var_refs
 
-  defp maybe_forward_ctor_args(%Bytecode.Function{new_target_allowed: true}, [], %Ctx{arg_buf: arg_buf}) do
-    {Tuple.to_list(arg_buf), false}
-  end
-  defp maybe_forward_ctor_args({:closure, _, %Bytecode.Function{new_target_allowed: true}}, [], %Ctx{arg_buf: arg_buf}) do
-    {Tuple.to_list(arg_buf), false}
-  end
-  defp maybe_forward_ctor_args(_fun, args, _ctx), do: {args, true}
-
   # ── Function calls ──
 
   defp call_function(frame, stack, argc, gas, ctx) do
@@ -1019,9 +1027,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp call_method(frame, stack, argc, gas, ctx) do
     {args, [fun, obj | rest]} = Enum.split(stack, argc)
     rev_args = Enum.reverse(args)
-    {rev_args, prepend_obj?} = maybe_forward_ctor_args(fun, rev_args, ctx)
     method_ctx = %{ctx | this: obj}
-    invoke_args = if prepend_obj?, do: [obj | rev_args], else: rev_args
+    invoke_args = [obj | rev_args]
     result = case fun do
       %Bytecode.Function{} = f -> invoke_function(f, invoke_args, gas, method_ctx)
       {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, invoke_args, gas, method_ctx)

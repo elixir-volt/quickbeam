@@ -733,6 +733,18 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     test "class inheritance", %{rt: rt} do
       ok(rt, "(function(){ class Animal { constructor(name) { this.name = name } speak() { return this.name + ' speaks' } } class Dog extends Animal { speak() { return this.name + ' barks' } } return new Dog('Rex').speak() })()", "Rex barks")
     end
+
+    test "class explicit super()", %{rt: rt} do
+      ok(rt, "(function(){ class A { constructor(x) { this.x = x } } class B extends A { constructor(x) { super(x) } } return new B(42).x })()", 42)
+    end
+
+    test "class multi-level inheritance", %{rt: rt} do
+      ok(rt, "(function(){ class A { constructor(x) { this.x = x } } class B extends A {} class C extends B {} return new C(99).x })()", 99)
+    end
+
+    test "class super with method", %{rt: rt} do
+      ok(rt, "(function(){ class A { constructor(x) { this.val = x } get() { return this.val } } class B extends A { constructor(x) { super(x * 2) } } return new B(21).get() })()", 42)
+    end
   end
 
   # ── Generator functions ──
