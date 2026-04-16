@@ -418,6 +418,17 @@ defmodule QuickBEAM.BeamVM.DualModeTest do
     "[1,2,3].toString()",
     # exponent
     "2**10",
+    # String.fromCharCode
+    "String.fromCharCode(72,101,108,108,111)",
+    # JSON.stringify undefined
+    "JSON.stringify(undefined)",
+    # negative zero
+    "1/(-0)===-Infinity",
+    "-Infinity",
+    "Infinity + 1 === Infinity",
+    # special arithmetic
+    "Infinity - Infinity",
+    "Infinity * 0",
   ]
 
   describe "complex expressions" do

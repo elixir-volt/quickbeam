@@ -24,6 +24,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   def number_static_property("MIN_SAFE_INTEGER"), do: -9007199254740991
   def number_static_property(_), do: :undefined
 
+  def string_static_property("fromCharCode") do
+    {:builtin, "fromCharCode", fn args ->
+      Enum.map(args, fn n ->
+        cp = Runtime.to_int(n)
+        if cp >= 0 and cp <= 0x10FFFF, do: <<cp::utf8>>, else: ""
+      end) |> Enum.join()
+    end}
+  end
   def string_static_property(_), do: :undefined
 
   defp number_to_string(n, [radix | _]) when is_number(n) do

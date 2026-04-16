@@ -1468,6 +1468,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp js_to_number(false), do: 0
   defp js_to_number(nil), do: 0
   defp js_to_number(:undefined), do: :nan
+  defp js_to_number(:infinity), do: :infinity
+  defp js_to_number(:neg_infinity), do: :neg_infinity
+  defp js_to_number(:nan), do: :nan
   defp js_to_number(s) when is_binary(s) do
     case Float.parse(s) do
       {f, ""} -> f
@@ -1496,6 +1499,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp js_typeof(_), do: "object"
 
   defp js_strict_eq(:nan, :nan), do: false
+  defp js_strict_eq(:infinity, :infinity), do: true
+  defp js_strict_eq(:neg_infinity, :neg_infinity), do: true
   defp js_strict_eq(a, b), do: a === b
 
   # ── Arithmetic (numeric only — string concat handled separately) ──
@@ -1504,27 +1509,69 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     js_to_string(a) <> js_to_string(b)
   end
   defp js_add(a, b) when is_number(a) and is_number(b), do: a + b
-  defp js_add(a, b), do: js_to_number(a) + js_to_number(b)
+  defp js_add(a, b) do
+    na = js_to_number(a)
+    nb = js_to_number(b)
+    js_numeric_add(na, nb)
+  end
+
+  defp js_numeric_add(a, b) when is_number(a) and is_number(b), do: a + b
+  defp js_numeric_add(:nan, _), do: :nan
+  defp js_numeric_add(_, :nan), do: :nan
+  defp js_numeric_add(:infinity, :neg_infinity), do: :nan
+  defp js_numeric_add(:neg_infinity, :infinity), do: :nan
+  defp js_numeric_add(:infinity, _), do: :infinity
+  defp js_numeric_add(:neg_infinity, _), do: :neg_infinity
+  defp js_numeric_add(_, :infinity), do: :infinity
+  defp js_numeric_add(_, :neg_infinity), do: :neg_infinity
+  defp js_numeric_add(_, _), do: :nan
 
   defp js_sub(a, b) when is_number(a) and is_number(b), do: a - b
-  defp js_sub(a, b), do: js_to_number(a) - js_to_number(b)
+  defp js_sub(a, b), do: js_numeric_add(js_to_number(a), js_neg(js_to_number(b)))
 
   defp js_mul(a, b) when is_number(a) and is_number(b), do: a * b
-  defp js_mul(a, b), do: js_to_number(a) * js_to_number(b)
+  defp js_mul(a, b) do
+    na = js_to_number(a)
+    nb = js_to_number(b)
+    cond do
+      na == :nan or nb == :nan -> :nan
+      (na in [:infinity, :neg_infinity]) or (nb in [:infinity, :neg_infinity]) ->
+        cond do
+          (na == 0 or nb == 0) -> :nan
+          true ->
+            sa = if na in [:neg_infinity] or (is_number(na) and na < 0), do: -1, else: 1
+            sb = if nb in [:neg_infinity] or (is_number(nb) and nb < 0), do: -1, else: 1
+            if sa * sb > 0, do: :infinity, else: :neg_infinity
+        end
+      is_number(na) and is_number(nb) -> na * nb
+      true -> :nan
+    end
+  end
 
   defp js_div(a, b) when is_number(a) and is_number(b) do
-    if b == 0, do: js_inf_or_nan(a), else: a / b
+    cond do
+      b == 0 and neg_zero?(b) ->
+        if a > 0, do: :neg_infinity, else: if(a < 0, do: :infinity, else: :nan)
+      b == 0 -> js_inf_or_nan(a)
+      true -> a / b
+    end
   end
   defp js_div(a, b), do: js_to_number(a) / js_to_number(b)
 
-  defp js_mod(a, b) when is_number(a) and is_number(b), do: rem(trunc(a), trunc(b))
+  defp js_mod(a, b) when is_number(a) and is_number(b), do: if(b == 0, do: :nan, else: rem(trunc(a), trunc(b)))
   defp js_mod(_, _), do: :nan
 
   defp js_pow(a, b) when is_number(a) and is_number(b), do: :math.pow(a, b)
   defp js_pow(_, _), do: :nan
 
+  defp js_neg(0), do: -0.0
+  defp js_neg(:infinity), do: :neg_infinity
+  defp js_neg(:neg_infinity), do: :infinity
+  defp js_neg(:nan), do: :nan
   defp js_neg(a) when is_number(a), do: -a
-  defp js_neg(a), do: -js_to_number(a)
+  defp js_neg(a), do: js_neg(js_to_number(a))
+
+  defp neg_zero?(b), do: is_float(b) and b == 0.0 and <<b::float>> == <<128, 0, 0, 0, 0, 0, 0, 0>>
 
   defp js_inf_or_nan(a) when a > 0, do: :infinity
   defp js_inf_or_nan(a) when a < 0, do: :neg_infinity

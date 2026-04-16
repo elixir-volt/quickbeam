@@ -29,12 +29,17 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
   defp to_js(val), do: val
 
   defp stringify([val | _]) do
-    try do
-      :json.encode(to_json(val)) |> IO.iodata_to_binary()
-    rescue
-      ArgumentError -> :undefined
+    if val == :undefined do
+      :undefined
+    else
+      try do
+        :json.encode(to_json(val)) |> IO.iodata_to_binary()
+      rescue
+        ArgumentError -> :undefined
+      end
     end
   end
+  defp stringify([]), do: :undefined
 
   defp to_json({:obj, ref}) do
     case Process.get({:qb_obj, ref}) do
