@@ -1,5 +1,7 @@
 defmodule QuickBEAM.BeamVM.Interpreter do
-  @compile {:inline, advance: 1, jump: 2, put_local: 3, make_error_obj: 2}
+  @compile {:inline, advance: 1, jump: 2, put_local: 3, make_error_obj: 2,
+             active_ctx: 0, list_iterator_next: 1, call_iterator_next: 1,
+             with_has_property?: 2, check_prototype_chain: 2}
   @moduledoc """
   Executes decoded QuickJS bytecode via multi-clause function dispatch.
 
