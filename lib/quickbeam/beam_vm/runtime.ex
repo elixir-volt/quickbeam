@@ -14,6 +14,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   alias QuickBEAM.BeamVM.Bytecode
   alias QuickBEAM.BeamVM.Runtime.{Array, StringProto, JSON, Object, RegExp, Builtins}
+  alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
 
   # ── Global bindings ──
 
@@ -22,6 +23,11 @@ defmodule QuickBEAM.BeamVM.Runtime do
       Heap.put_ctor_static(symbol_builtin, k, v)
     end
     symbol_builtin
+  end
+
+  defp register_date_statics(date_builtin) do
+    Heap.put_ctor_static(date_builtin, "now", JSDate.static_now())
+    date_builtin
   end
 
   defp register_promise_statics(promise_builtin) do
@@ -46,7 +52,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
       "ReferenceError" => {:builtin, "ReferenceError", Builtins.error_constructor()},
       "Math" => Builtins.math_object(),
       "JSON" => JSON.object(),
-      "Date" => {:builtin, "Date", Builtins.date_constructor()},
+      "Date" => register_date_statics({:builtin, "Date", &JSDate.constructor/1}),
       "Promise" => register_promise_statics({:builtin, "Promise", Builtins.promise_constructor()}),
       "RegExp" => {:builtin, "RegExp", Builtins.regexp_constructor()},
       "Symbol" => register_symbol_statics({:builtin, "Symbol", Builtins.symbol_constructor()}),
@@ -88,6 +94,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
         _ -> __MODULE__.obj_new()
       end},
       "console" => Builtins.console_object(),
+      "eval" => {:builtin, "eval", fn _ -> :undefined end},
     }
   end
 
@@ -157,6 +164,9 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property({:builtin, _, _} = b, key) do
     Map.get(Heap.get_ctor_statics(b), key, :undefined)
   end
+  defp get_own_property({:regexp, bytecode, _source}, "flags"), do: extract_regexp_flags(bytecode)
+  defp get_own_property({:regexp, _bytecode, source}, "source") when is_binary(source), do: source
+
   defp get_own_property({:regexp, _, _}, key), do: RegExp.proto_property(key)
   defp get_own_property(%Bytecode.Function{} = f, key) do
     Map.get(Heap.get_ctor_statics(f), key, :undefined)
@@ -169,6 +179,19 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property({:symbol, desc}, "description"), do: desc
   defp get_own_property({:symbol, desc, _}, "description"), do: desc
   defp get_own_property(_, _), do: :undefined
+
+  defp extract_regexp_flags(<<flags_byte::8, _::binary>>) do
+    import Bitwise
+    flags = ""
+    flags = if band(flags_byte, 1) != 0, do: flags <> "g", else: flags
+    flags = if band(flags_byte, 2) != 0, do: flags <> "i", else: flags
+    flags = if band(flags_byte, 4) != 0, do: flags <> "m", else: flags
+    flags = if band(flags_byte, 8) != 0, do: flags <> "s", else: flags
+    flags = if band(flags_byte, 16) != 0, do: flags <> "u", else: flags
+    flags = if band(flags_byte, 32) != 0, do: flags <> "y", else: flags
+    flags
+  end
+  defp extract_regexp_flags(_), do: ""
 
   defp invoke_getter(fun, this_obj) do
     QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [], 10_000_000, this_obj)

@@ -8,12 +8,37 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   def static_property("values"), do: {:builtin, "values", fn args -> values(args) end}
   def static_property("entries"), do: {:builtin, "entries", fn args -> entries(args) end}
   def static_property("assign"), do: {:builtin, "assign", fn args -> assign(args) end}
-  def static_property("freeze"), do: {:builtin, "freeze", fn [obj | _] -> obj end}
+  def static_property("freeze"), do: {:builtin, "freeze", fn [obj | _] -> freeze(obj) end}
   def static_property("is"), do: {:builtin, "is", fn [a, b | _] -> Runtime.js_strict_eq(a, b) end}
-  def static_property("create"), do: {:builtin, "create", fn _ -> Runtime.obj_new() end}
+  def static_property("create"), do: {:builtin, "create", fn args -> create(args) end}
+  def static_property("getPrototypeOf"), do: {:builtin, "getPrototypeOf", fn args -> get_prototype_of(args) end}
   def static_property("defineProperty"), do: {:builtin, "defineProperty", fn args -> define_property(args) end}
   def static_property("getOwnPropertyNames"), do: {:builtin, "getOwnPropertyNames", fn args -> keys(args) end}
   def static_property(_), do: :undefined
+
+  defp create([proto | _]) do
+    ref = make_ref()
+    map = case proto do
+      nil -> %{}
+      _ -> %{"__proto__" => proto}
+    end
+    Heap.put_obj(ref, map)
+    {:obj, ref}
+  end
+  defp create(_), do: Runtime.obj_new()
+
+  defp get_prototype_of([{:obj, ref} | _]) do
+    map = Heap.get_obj(ref, %{})
+    Map.get(map, "__proto__", nil)
+  end
+  defp get_prototype_of(_), do: nil
+
+  defp freeze({:obj, ref} = obj) do
+    map = Heap.get_obj(ref, %{})
+    Heap.put_obj(ref, Map.put(map, "__frozen__", true))
+    obj
+  end
+  defp freeze(obj), do: obj
 
   defp keys([{:obj, ref} | _]) do
     map = Heap.get_obj(ref, %{})

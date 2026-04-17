@@ -12,11 +12,15 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
           put(target, key, val)
         end
       _ when is_map(map) ->
-        case Map.get(map, key) do
-          {:accessor, _getter, setter} when setter != nil ->
-            invoke_setter(setter, val, obj)
-          _ ->
-            Heap.put_obj(ref, Map.put(map, key, val))
+        if Map.get(map, "__frozen__") == true do
+          :ok
+        else
+          case Map.get(map, key) do
+            {:accessor, _getter, setter} when setter != nil ->
+              invoke_setter(setter, val, obj)
+            _ ->
+              Heap.put_obj(ref, Map.put(map, key, val))
+          end
         end
       _ -> :ok
     end

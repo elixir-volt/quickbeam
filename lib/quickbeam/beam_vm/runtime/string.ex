@@ -27,6 +27,8 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
   def proto_property("replace"), do: {:builtin, "replace", fn args, this -> replace(this, args) end}
   def proto_property("replaceAll"), do: {:builtin, "replaceAll", fn args, this -> replace_all(this, args) end}
   def proto_property("match"), do: {:builtin, "match", fn args, this -> match(this, args) end}
+  def proto_property("matchAll"), do: {:builtin, "matchAll", fn args, this -> match_all(this, args) end}
+  def proto_property("search"), do: {:builtin, "search", fn args, this -> search(this, args) end}
   def proto_property("normalize"), do: {:builtin, "normalize", fn _args, this -> this end}
   def proto_property("concat"), do: {:builtin, "concat", fn args, this -> this <> Enum.join(Enum.map(args, &Runtime.js_to_string/1)) end}
   def proto_property("toString"), do: {:builtin, "toString", fn _args, this -> this end}
@@ -132,7 +134,7 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
 
   defp replace(s, [pattern, replacement | _]) when is_binary(s) do
     case pattern do
-      {:regexp, pat, _flags} -> regex_replace(s, pat, replacement)
+      {:regexp, _pat, _flags} = r -> regex_replace(s, r, replacement)
       pat when is_binary(pat) -> String.replace(s, pat, Runtime.js_to_string(replacement), global: false)
       _ -> s
     end
@@ -141,7 +143,7 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
 
   defp replace_all(s, [pattern, replacement | _]) when is_binary(s) do
     case pattern do
-      {:regexp, pat, _flags} -> regex_replace(s, pat, replacement)
+      {:regexp, _pat, _flags} = r -> regex_replace(s, r, replacement)
       pat when is_binary(pat) -> String.replace(s, pat, Runtime.js_to_string(replacement))
       _ -> s
     end
@@ -163,7 +165,51 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
   end
   defp match(_, _), do: nil
 
-  defp regex_replace(s, pat, replacement) do
-    String.replace(s, Regex.compile!(pat), Runtime.js_to_string(replacement))
+  defp regex_replace(s, {:regexp, _flags, source}, replacement) when is_binary(source) do
+    case Regex.compile(source) do
+      {:ok, re} -> String.replace(s, re, Runtime.js_to_string(replacement))
+      _ -> s
+    end
+  end
+  defp regex_replace(s, _, _), do: s
+
+  defp search(s, [{:regexp, _bc, source} | _]) when is_binary(s) and is_binary(source) do
+    case Regex.compile(source) do
+      {:ok, re} ->
+        case Regex.run(re, s, return: :index) do
+          [{start, _} | _] -> start
+          _ -> -1
+        end
+      _ -> -1
+    end
+  end
+  defp search(s, [pattern | _]) when is_binary(s) and is_binary(pattern) do
+    case :binary.match(s, pattern) do
+      {pos, _} -> pos
+      :nomatch -> -1
+    end
+  end
+  defp search(_, _), do: -1
+
+  defp match_all(s, [{:regexp, _bc, source} | _]) when is_binary(s) and is_binary(source) do
+    case Regex.compile(source) do
+      {:ok, re} ->
+        matches = Regex.scan(re, s, return: :index)
+        results = Enum.map(matches, fn match_indices ->
+          Enum.map(match_indices, fn {start, len} -> String.slice(s, start, len) end)
+        end)
+        ref = System.unique_integer([:positive])
+        QuickBEAM.BeamVM.Heap.put_obj(ref, results)
+        {:obj, ref}
+      _ ->
+        ref = System.unique_integer([:positive])
+        QuickBEAM.BeamVM.Heap.put_obj(ref, [])
+        {:obj, ref}
+    end
+  end
+  defp match_all(_, _) do
+    ref = System.unique_integer([:positive])
+    QuickBEAM.BeamVM.Heap.put_obj(ref, [])
+    {:obj, ref}
   end
 end

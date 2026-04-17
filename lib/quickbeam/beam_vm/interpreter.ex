@@ -912,6 +912,16 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [true, :undefined, iter | rest], gas - 1, ctx)
   end
 
+  defp run({:iterator_get_value_done, []}, frame, [result | rest], gas, ctx) do
+    done = Runtime.get_property(result, "done")
+    value = Runtime.get_property(result, "value")
+    if done == true do
+      run(advance(frame), [true, :undefined | rest], gas - 1, ctx)
+    else
+      run(advance(frame), [false, value | rest], gas - 1, ctx)
+    end
+  end
+
   defp run({:iterator_close, []}, frame, [_iter | rest], gas, ctx), do: run(advance(frame), rest, gas - 1, ctx)
   defp run({:iterator_check_object, []}, frame, stack, gas, ctx), do: run(advance(frame), stack, gas - 1, ctx)
   defp run({:iterator_call, []}, frame, stack, gas, ctx), do: run(advance(frame), stack, gas - 1, ctx)
@@ -1182,6 +1192,37 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     else
       run(advance(frame), rest, gas - 1, ctx)
     end
+  end
+
+  defp run({:for_await_of_start, []}, frame, [obj | rest], gas, ctx) do
+    {iter_obj, next_fn} = case obj do
+      {:obj, ref} ->
+        stored = Heap.get_obj(ref, [])
+        cond do
+          is_list(stored) ->
+            pos_ref = make_ref()
+            Heap.put_obj(pos_ref, %{pos: 0, list: stored})
+            next = {:builtin, "next", fn _, _ ->
+              state = Heap.get_obj(pos_ref, %{pos: 0, list: []})
+              if state.pos < length(state.list) do
+                val = Enum.at(state.list, state.pos)
+                Heap.put_obj(pos_ref, %{state | pos: state.pos + 1})
+                r = make_ref(); Heap.put_obj(r, %{"value" => val, "done" => false}); {:obj, r}
+              else
+                r = make_ref(); Heap.put_obj(r, %{"value" => :undefined, "done" => true}); {:obj, r}
+              end
+            end}
+            iter_ref = make_ref()
+            Heap.put_obj(iter_ref, %{"next" => next})
+            {{:obj, iter_ref}, next}
+          is_map(stored) and Map.has_key?(stored, "next") ->
+            {obj, Runtime.get_property(obj, "next")}
+          true ->
+            {obj, :undefined}
+        end
+      _ -> {obj, :undefined}
+    end
+    run(advance(frame), [0, next_fn, iter_obj | rest], gas - 1, ctx)
   end
 
   # ── Catch-all for unimplemented opcodes ──

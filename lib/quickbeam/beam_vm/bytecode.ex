@@ -209,9 +209,9 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   end
 
   defp read_object(<<@tag_regexp, rest::binary>>, _atoms) do
-    with {:ok, _bytecode, rest2} <- read_string_raw(rest),
-         {:ok, _source, rest3} <- read_string_raw(rest2) do
-      {:ok, {:regexp, nil}, rest3}
+    with {:ok, bytecode, rest2} <- read_string_raw(rest),
+         {:ok, source, rest3} <- read_string_raw(rest2) do
+      {:ok, {:regexp, bytecode, source}, rest3}
     end
   end
 
