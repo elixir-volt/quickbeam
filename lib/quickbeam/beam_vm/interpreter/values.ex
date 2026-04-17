@@ -4,6 +4,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
 
   @compile {:inline, truthy?: 1, falsy?: 1, to_int32: 1, strict_eq: 2,
              add: 2, sub: 2, mul: 2, neg: 1, typeof: 1,
+             to_number: 1, to_js_string: 1,
              lt: 2, lte: 2, gt: 2, gte: 2, eq: 2, neq: 2,
              band: 2, bor: 2, bxor: 2, shl: 2, sar: 2, shr: 2,
              numeric_add: 2}

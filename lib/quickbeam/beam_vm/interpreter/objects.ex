@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Objects do
+  @compile {:inline, has_property: 2, get_array_el: 2, list_set_at: 3}
   alias QuickBEAM.BeamVM.{Heap, Bytecode}
 
   def put({:obj, ref} = obj, key, val) do
