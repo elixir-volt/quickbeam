@@ -27,6 +27,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   @default_gas 1_000_000_000
   @func_generator 1
   @func_async 2
+  @func_async_generator 3
 
   @spec eval(Bytecode.Function.t()) :: {:ok, term()} | {:error, term()}
   def eval(%Bytecode.Function{} = fun), do: eval(fun, [], %{})
@@ -145,6 +146,21 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
   defp resolve_awaited(val), do: val
+
+  defp list_iterator_next(pos_ref) do
+    state = Heap.get_obj(pos_ref, %{pos: 0, list: []})
+    if state.pos < length(state.list) do
+      val = Enum.at(state.list, state.pos)
+      Heap.put_obj(pos_ref, %{state | pos: state.pos + 1})
+      ref = make_ref()
+      Heap.put_obj(ref, %{"value" => val, "done" => false})
+      {:obj, ref}
+    else
+      ref = make_ref()
+      Heap.put_obj(ref, %{"value" => :undefined, "done" => true})
+      {:obj, ref}
+    end
+  end
 
   defp call_iterator_next(gen_obj) do
     next_fn = Runtime.get_property(gen_obj, "next")
@@ -1210,16 +1226,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           is_list(stored) ->
             pos_ref = make_ref()
             Heap.put_obj(pos_ref, %{pos: 0, list: stored})
-            next = {:builtin, "next", fn _, _ ->
-              state = Heap.get_obj(pos_ref, %{pos: 0, list: []})
-              if state.pos < length(state.list) do
-                val = Enum.at(state.list, state.pos)
-                Heap.put_obj(pos_ref, %{state | pos: state.pos + 1})
-                r = make_ref(); Heap.put_obj(r, %{"value" => val, "done" => false}); {:obj, r}
-              else
-                r = make_ref(); Heap.put_obj(r, %{"value" => :undefined, "done" => true}); {:obj, r}
-              end
-            end}
+            next = {:builtin, "next", fn _, _ -> list_iterator_next(pos_ref) end}
             iter_ref = make_ref()
             Heap.put_obj(iter_ref, %{"next" => next})
             {{:obj, iter_ref}, next}
@@ -1387,6 +1394,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           case fun.func_kind do
             @func_generator -> invoke_generator(frame, gas, inner_ctx)
             @func_async -> invoke_async(frame, gas, inner_ctx)
+            @func_async_generator -> invoke_async_generator(frame, gas, inner_ctx)
             _ -> run(frame, [], gas, inner_ctx)
           end
         after
@@ -1427,6 +1435,51 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       "return" => return_fn
     })
     {:obj, obj_ref}
+  end
+
+  defp invoke_async_generator(frame, gas, ctx) do
+    gen_ref = make_ref()
+    try do
+      run(frame, [], gas, ctx)
+    catch
+      {:generator_yield, _val, sf, ss, sg, sc} ->
+        Heap.put_obj(gen_ref, %{state: :suspended, frame: sf, stack: ss, gas: sg, ctx: sc})
+    end
+    next_fn = {:builtin, "next", fn
+      [arg | _], _this -> async_generator_next(gen_ref, arg)
+      [], _this -> async_generator_next(gen_ref, :undefined)
+    end}
+    return_fn = {:builtin, "return", fn
+      [val | _], _this -> make_resolved_promise(done_result(val))
+      [], _this -> make_resolved_promise(done_result(:undefined))
+    end}
+    obj_ref = make_ref()
+    Heap.put_obj(obj_ref, %{"next" => next_fn, "return" => return_fn})
+    {:obj, obj_ref}
+  end
+
+  defp async_generator_next(gen_ref, arg) do
+    case Heap.get_obj(gen_ref) do
+      %{state: :suspended, frame: frame, stack: stack, gas: gas, ctx: ctx} ->
+        Heap.put_ctx(ctx)
+        try do
+          result = run(frame, [false, arg | stack], gas, ctx)
+          Heap.put_obj(gen_ref, %{state: :completed})
+          make_resolved_promise(done_result(result))
+        catch
+          {:generator_yield, val, sf, ss, sg, sc} ->
+            Heap.put_obj(gen_ref, %{state: :suspended, frame: sf, stack: ss, gas: sg, ctx: sc})
+            make_resolved_promise(yield_result(val))
+          {:generator_return, val} ->
+            Heap.put_obj(gen_ref, %{state: :completed})
+            make_resolved_promise(done_result(val))
+          {:js_throw, _} = thrown ->
+            Heap.put_obj(gen_ref, %{state: :completed})
+            throw(thrown)
+        end
+      _ ->
+        make_resolved_promise(done_result(:undefined))
+    end
   end
 
   defp invoke_async(frame, gas, ctx) do

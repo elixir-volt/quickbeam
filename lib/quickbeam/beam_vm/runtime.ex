@@ -1,5 +1,6 @@
 defmodule QuickBEAM.BeamVM.Runtime do
   alias QuickBEAM.BeamVM.Heap
+  import Bitwise, only: [band: 2]
   @moduledoc """
   JS built-in runtime: property resolution, shared helpers, global bindings.
 
@@ -37,6 +38,16 @@ defmodule QuickBEAM.BeamVM.Runtime do
     promise_builtin
   end
 
+  defp register_error_builtin(name) do
+    builtin = {:builtin, name, Builtins.error_constructor()}
+    proto_ref = make_ref()
+    Heap.put_obj(proto_ref, %{"name" => name, "message" => "", "constructor" => builtin})
+    proto = {:obj, proto_ref}
+    Heap.put_class_proto(builtin, proto)
+    Heap.put_ctor_static(builtin, "prototype", proto)
+    builtin
+  end
+
   def global_bindings do
     %{
       "Object" => {:builtin, "Object", Builtins.object_constructor()},
@@ -45,11 +56,13 @@ defmodule QuickBEAM.BeamVM.Runtime do
       "Number" => {:builtin, "Number", Builtins.number_constructor()},
       "Boolean" => {:builtin, "Boolean", Builtins.boolean_constructor()},
       "Function" => {:builtin, "Function", Builtins.function_constructor()},
-      "Error" => {:builtin, "Error", Builtins.error_constructor()},
-      "TypeError" => {:builtin, "TypeError", Builtins.error_constructor()},
-      "RangeError" => {:builtin, "RangeError", Builtins.error_constructor()},
-      "SyntaxError" => {:builtin, "SyntaxError", Builtins.error_constructor()},
-      "ReferenceError" => {:builtin, "ReferenceError", Builtins.error_constructor()},
+      "Error" => register_error_builtin("Error"),
+      "TypeError" => register_error_builtin("TypeError"),
+      "RangeError" => register_error_builtin("RangeError"),
+      "SyntaxError" => register_error_builtin("SyntaxError"),
+      "ReferenceError" => register_error_builtin("ReferenceError"),
+      "URIError" => register_error_builtin("URIError"),
+      "EvalError" => register_error_builtin("EvalError"),
       "Math" => Builtins.math_object(),
       "JSON" => JSON.object(),
       "Date" => register_date_statics({:builtin, "Date", &JSDate.constructor/1}),
@@ -95,6 +108,9 @@ defmodule QuickBEAM.BeamVM.Runtime do
       end},
       "console" => Builtins.console_object(),
       "eval" => {:builtin, "eval", fn _ -> :undefined end},
+      "globalThis" => obj_new(),
+      "structuredClone" => {:builtin, "structuredClone", fn [val | _] -> val end},
+      "queueMicrotask" => {:builtin, "queueMicrotask", fn _ -> :undefined end},
     }
   end
 
@@ -132,6 +148,11 @@ defmodule QuickBEAM.BeamVM.Runtime do
           get_own_property(target, key)
         end
       list when is_list(list) -> get_own_property(list, key)
+      %{"__date_ms__" => _} = map ->
+        case Map.get(map, key) do
+          nil -> JSDate.proto_property(key)
+          val -> val
+        end
       map when is_map(map) ->
         case Map.get(map, key) do
           {:accessor, getter, _setter} when getter != nil -> invoke_getter(getter, {:obj, ref})
@@ -171,8 +192,11 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property(%Bytecode.Function{} = f, key) do
     Map.get(Heap.get_ctor_statics(f), key, :undefined)
   end
-  defp get_own_property({:closure, _, %Bytecode.Function{}} = c, key) do
-    Map.get(Heap.get_ctor_statics(c), key, :undefined)
+  defp get_own_property({:closure, _, %Bytecode.Function{} = f} = c, key) do
+    case Map.get(Heap.get_ctor_statics(c), key, :undefined) do
+      :undefined -> Map.get(Heap.get_ctor_statics(f), key, :undefined)
+      val -> val
+    end
   end
   defp get_own_property({:symbol, desc}, "toString"), do: {:builtin, "toString", fn _, _ -> "Symbol(#{desc})" end}
   defp get_own_property({:symbol, desc, _}, "toString"), do: {:builtin, "toString", fn _, _ -> "Symbol(#{desc})" end}
@@ -181,7 +205,6 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property(_, _), do: :undefined
 
   defp extract_regexp_flags(<<flags_byte::8, _::binary>>) do
-    import Bitwise
     flags = ""
     flags = if band(flags_byte, 1) != 0, do: flags <> "g", else: flags
     flags = if band(flags_byte, 2) != 0, do: flags <> "i", else: flags

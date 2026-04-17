@@ -138,7 +138,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   def string_constructor, do: fn args -> Runtime.js_to_string(List.first(args, "")) end
   def number_constructor, do: fn args -> Runtime.to_number(List.first(args, 0)) end
   def boolean_constructor, do: fn args -> Runtime.js_truthy(List.first(args, false)) end
-  def function_constructor, do: fn _args -> :undefined end
+  def function_constructor do
+    fn _args ->
+      throw({:js_throw, %{"message" => "Function constructor not supported in BEAM mode", "name" => "Error"}})
+    end
+  end
 
   def error_constructor do
     fn args ->
@@ -183,7 +187,53 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
       "reject" => {:builtin, "reject", fn [val | _] ->
         QuickBEAM.BeamVM.Interpreter.make_rejected_promise(val)
       end},
-      "all" => {:builtin, "all", fn _args -> QuickBEAM.BeamVM.Interpreter.make_resolved_promise([]) end}
+      "all" => {:builtin, "all", fn [arr | _] ->
+        items = case arr do
+          {:obj, ref} ->
+            case QuickBEAM.BeamVM.Heap.get_obj(ref, []) do
+              list when is_list(list) -> list
+              _ -> []
+            end
+          list when is_list(list) -> list
+          _ -> []
+        end
+        results = Enum.map(items, fn item ->
+          case item do
+            {:obj, r} ->
+              case QuickBEAM.BeamVM.Heap.get_obj(r, %{}) do
+                %{"__promise_state__" => :resolved, "__promise_value__" => val} -> val
+                _ -> item
+              end
+            _ -> item
+          end
+        end)
+        result_ref = System.unique_integer([:positive])
+        QuickBEAM.BeamVM.Heap.put_obj(result_ref, results)
+        QuickBEAM.BeamVM.Interpreter.make_resolved_promise({:obj, result_ref})
+      end},
+      "race" => {:builtin, "race", fn [arr | _] ->
+        items = case arr do
+          {:obj, ref} ->
+            case QuickBEAM.BeamVM.Heap.get_obj(ref, []) do
+              list when is_list(list) -> list
+              _ -> []
+            end
+          _ -> []
+        end
+        case items do
+          [first | _] ->
+            val = case first do
+              {:obj, r} ->
+                case QuickBEAM.BeamVM.Heap.get_obj(r, %{}) do
+                  %{"__promise_state__" => :resolved, "__promise_value__" => v} -> v
+                  _ -> first
+                end
+              _ -> first
+            end
+            QuickBEAM.BeamVM.Interpreter.make_resolved_promise(val)
+          [] -> QuickBEAM.BeamVM.Interpreter.make_resolved_promise(:undefined)
+        end
+      end}
     }
   end
   def regexp_constructor do

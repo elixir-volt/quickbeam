@@ -34,8 +34,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   defp get_prototype_of(_), do: nil
 
   defp freeze({:obj, ref} = obj) do
-    map = Heap.get_obj(ref, %{})
-    Heap.put_obj(ref, Map.put(map, "__frozen__", true))
+    Heap.freeze(ref)
     obj
   end
   defp freeze(obj), do: obj

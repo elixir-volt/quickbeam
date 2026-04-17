@@ -1,15 +1,12 @@
 defmodule QuickBEAM.BeamVM.Runtime.RegExp do
   alias QuickBEAM.BeamVM.Heap
-  @moduledoc "RegExp prototype methods."
 
   def proto_property("test"), do: {:builtin, "test", fn args, this -> test(this, args) end}
   def proto_property("exec"), do: {:builtin, "exec", fn args, this -> exec(this, args) end}
-  def proto_property("source"), do: {:builtin, "source", fn _args, this -> source(this) end}
-  def proto_property("flags"), do: {:builtin, "flags", fn _args, this -> flags(this) end}
   def proto_property("toString"), do: {:builtin, "toString", fn _args, this -> regexp_to_string(this) end}
   def proto_property(_), do: :undefined
 
-  defp test({:regexp, _flags, source}, [s | _]) when is_binary(source) and is_binary(s) do
+  defp test({:regexp, _bytecode, source}, [s | _]) when is_binary(source) and is_binary(s) do
     case Regex.compile(source) do
       {:ok, re} -> Regex.match?(re, s)
       _ -> false
@@ -17,15 +14,25 @@ defmodule QuickBEAM.BeamVM.Runtime.RegExp do
   end
   defp test(_, _), do: false
 
-  defp exec({:regexp, _flags, source}, [s | _]) when is_binary(source) and is_binary(s) do
+  defp exec({:regexp, _bytecode, source}, [s | _]) when is_binary(source) and is_binary(s) do
     case Regex.compile(source) do
       {:ok, re} ->
         case Regex.run(re, s, return: :index) do
           nil -> nil
           indices ->
-            result = Enum.map(indices, fn {start, len} -> String.slice(s, start, len) end)
+            strings = Enum.map(indices, fn {start, len} -> String.slice(s, start, len) end)
+            {match_start, _} = hd(indices)
             ref = make_ref()
-            Heap.put_obj(ref, result)
+            map = strings
+              |> Enum.with_index()
+              |> Enum.into(%{}, fn {v, i} -> {Integer.to_string(i), v} end)
+              |> Map.merge(%{
+                "index" => match_start,
+                "input" => s,
+                "groups" => :undefined,
+                "length" => length(strings)
+              })
+            Heap.put_obj(ref, map)
             {:obj, ref}
         end
       _ -> nil
@@ -33,9 +40,6 @@ defmodule QuickBEAM.BeamVM.Runtime.RegExp do
   end
   defp exec(_, _), do: nil
 
-  defp source({:regexp, _, src}), do: src
-  defp source(_), do: "(?:)"
-  defp flags({:regexp, f, _}), do: f || ""
-  defp flags(_), do: ""
-  defp regexp_to_string({:regexp, f, src}), do: "/#{src}/#{f || ""}"
+  defp regexp_to_string({:regexp, _bytecode, source}), do: "/#{source}/"
+  defp regexp_to_string(_), do: "/(?:)/"
 end
