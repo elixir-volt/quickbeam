@@ -780,15 +780,39 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   # ── Iterators ──
 
   defp run({:for_of_start, []}, frame, [obj | rest], gas, ctx) do
-    items = case obj do
-      list when is_list(list) -> list
+    iter = case obj do
+      list when is_list(list) -> {:for_of_iterator, list, 0}
       {:obj, ref} ->
         stored = Heap.get_obj(ref, [])
-        if is_list(stored), do: stored, else: []
-      s when is_binary(s) -> String.graphemes(s)
-      _ -> []
+        case stored do
+          list when is_list(list) -> {:for_of_iterator, list, 0}
+          map when is_map(map) ->
+            case Map.get(map, "next") do
+              nil -> {:for_of_iterator, [], 0}
+              _ -> {:for_of_generator, obj}
+            end
+          _ -> {:for_of_iterator, [], 0}
+        end
+      s when is_binary(s) -> {:for_of_iterator, String.graphemes(s), 0}
+      _ -> {:for_of_iterator, [], 0}
     end
-    run(advance(frame), [{:for_of_iterator, items, 0} | rest], gas - 1, ctx)
+    run(advance(frame), [iter | rest], gas - 1, ctx)
+  end
+
+  defp run({:for_of_next, [_idx]}, frame, [{:for_of_generator, gen_obj} | rest], gas, ctx) do
+    next_fn = Runtime.get_property(gen_obj, "next")
+    result = case next_fn do
+      {:builtin, _, cb} when is_function(cb, 2) -> cb.([], gen_obj)
+      {:builtin, _, cb} when is_function(cb, 1) -> cb.([])
+      _ -> done_result(:undefined)
+    end
+    done = Runtime.get_property(result, "done")
+    value = Runtime.get_property(result, "value")
+    if done == true do
+      run(advance(frame), [true, :undefined, {:for_of_generator, gen_obj} | rest], gas - 1, ctx)
+    else
+      run(advance(frame), [false, value, {:for_of_generator, gen_obj} | rest], gas - 1, ctx)
+    end
   end
 
   defp run({:for_of_next, [_idx]}, frame, [{:for_of_iterator, items, pos} | rest], gas, ctx) when is_list(items) do
@@ -801,6 +825,22 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:for_of_next, [_idx]}, frame, [iter | rest], gas, ctx) do
     run(advance(frame), [true, :undefined, iter | rest], gas - 1, ctx)
+  end
+
+  defp run({:iterator_next, []}, frame, [{:for_of_generator, gen_obj} | rest], gas, ctx) do
+    next_fn = Runtime.get_property(gen_obj, "next")
+    result = case next_fn do
+      {:builtin, _, cb} when is_function(cb, 2) -> cb.([], gen_obj)
+      {:builtin, _, cb} when is_function(cb, 1) -> cb.([])
+      _ -> done_result(:undefined)
+    end
+    done = Runtime.get_property(result, "done")
+    value = Runtime.get_property(result, "value")
+    if done == true do
+      run(advance(frame), [true, :undefined, {:for_of_generator, gen_obj} | rest], gas - 1, ctx)
+    else
+      run(advance(frame), [false, value, {:for_of_generator, gen_obj} | rest], gas - 1, ctx)
+    end
   end
 
   defp run({:iterator_next, []}, frame, [{:for_of_iterator, items, pos} | rest], gas, ctx) when is_list(items) do
@@ -1006,7 +1046,21 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), rest, gas - 1, ctx)
   end
 
-  # ── Catch-all for unimplemented opcodes ──
+  # ── Generators ──
+
+  defp run({:initial_yield, []}, frame, stack, gas, ctx) do
+    throw({:generator_yield, :undefined, advance(frame), stack, gas - 1, ctx})
+  end
+
+  defp run({:yield, []}, frame, [val | rest], gas, ctx) do
+    throw({:generator_yield, val, advance(frame), rest, gas - 1, ctx})
+  end
+
+  defp run({:return_async, []}, _frame, [val | _], _gas, _ctx) do
+    throw({:generator_return, val})
+  end
+
+    # ── Catch-all for unimplemented opcodes ──
 
   defp run({name, args}, _frame, _stack, _gas, _ctx) do
     throw({:error, {:unimplemented_opcode, name, args}})
@@ -1154,10 +1208,87 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           catch_stack: []
         }
         Heap.put_ctx(inner_ctx)
-        run(frame, [], gas, inner_ctx)
+
+        if fun.func_kind == 1 do
+          invoke_generator(frame, gas, inner_ctx)
+        else
+          run(frame, [], gas, inner_ctx)
+        end
 
       {:error, _} = err ->
         throw(err)
     end
+  end
+
+  defp invoke_generator(frame, gas, ctx) do
+    gen_ref = make_ref()
+    try do
+      run(frame, [], gas, ctx)
+    catch
+      {:generator_yield, _val, suspended_frame, suspended_stack, suspended_gas, suspended_ctx} ->
+        state = %{
+          state: :suspended,
+          frame: suspended_frame,
+          stack: suspended_stack,
+          gas: suspended_gas,
+          ctx: suspended_ctx
+        }
+        Heap.put_obj(gen_ref, state)
+    end
+    next_fn = {:builtin, "next", fn
+      [arg | _], _this -> generator_next(gen_ref, arg)
+      [], _this -> generator_next(gen_ref, :undefined)
+    end}
+    return_fn = {:builtin, "return", fn
+      [val | _], _this -> generator_return(gen_ref, val)
+      [], _this -> generator_return(gen_ref, :undefined)
+    end}
+    obj_ref = make_ref()
+    Heap.put_obj(obj_ref, %{
+      "next" => next_fn,
+      "return" => return_fn
+    })
+    {:obj, obj_ref}
+  end
+
+  defp generator_next(gen_ref, arg) do
+    case Heap.get_obj(gen_ref) do
+      %{state: :suspended, frame: frame, stack: stack, gas: gas, ctx: ctx} ->
+        Heap.put_ctx(ctx)
+        try do
+          result = run(frame, [false, arg | stack], gas, ctx)
+          Heap.put_obj(gen_ref, %{state: :completed})
+          done_result(result)
+        catch
+          {:generator_yield, val, sf, ss, sg, sc} ->
+            Heap.put_obj(gen_ref, %{state: :suspended, frame: sf, stack: ss, gas: sg, ctx: sc})
+            yield_result(val)
+          {:generator_return, val} ->
+            Heap.put_obj(gen_ref, %{state: :completed})
+            done_result(val)
+          {:js_throw, _} = thrown ->
+            Heap.put_obj(gen_ref, %{state: :completed})
+            throw(thrown)
+        end
+      _ ->
+        done_result(:undefined)
+    end
+  end
+
+  defp generator_return(gen_ref, val) do
+    Heap.put_obj(gen_ref, %{state: :completed})
+    done_result(val)
+  end
+
+  defp yield_result(val) do
+    ref = make_ref()
+    Heap.put_obj(ref, %{"value" => val, "done" => false})
+    {:obj, ref}
+  end
+
+  defp done_result(val) do
+    ref = make_ref()
+    Heap.put_obj(ref, %{"value" => val, "done" => true})
+    {:obj, ref}
   end
 end

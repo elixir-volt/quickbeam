@@ -863,13 +863,40 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
   # ── Generator functions ──
 
   describe "generators" do
-    test "basic generator", %{rt: rt} do
-      # Generators may not be supported — this tests the gap
-      result = ev(rt, "(function(){ function* gen() { yield 1; yield 2 } var g = gen(); return g.next().value + g.next().value })()")
-      case result do
-        {:ok, 3} -> :ok
-        {:error, _} -> :ok  # generators not yet supported — acceptable gap
-      end
+    test "generator next", %{rt: rt} do
+      ok(rt, "(function(){ function* g() { yield 1; yield 2; yield 3 } var i = g(); return i.next().value })()", 1)
+    end
+
+    test "generator sequence", %{rt: rt} do
+      ok(rt, "(function(){ function* g() { yield 1; yield 2 } var i = g(); i.next(); return i.next().value })()", 2)
+    end
+
+    test "generator done", %{rt: rt} do
+      ok(rt, "(function(){ function* g() { yield 1 } var i = g(); i.next(); return i.next().done })()", true)
+    end
+
+    test "generator return value", %{rt: rt} do
+      ok(rt, "(function(){ function* g() { yield 1; return 42 } var i = g(); i.next(); return i.next().value })()", 42)
+    end
+
+    test "generator for-of", %{rt: rt} do
+      ok(rt, "(function(){ function* g() { yield 1; yield 2; yield 3 } var sum = 0; for (var x of g()) sum += x; return sum })()", 6)
+    end
+
+    test "generator with args", %{rt: rt} do
+      ok(rt, "(function(){ function* range(s, e) { for (var i = s; i < e; i++) yield i } var r = []; for (var x of range(3, 6)) r.push(x); return r.join(',') })()", "3,4,5")
+    end
+
+    test "generator fibonacci", %{rt: rt} do
+      ok(rt, "(function(){ function* fib() { var a = 0, b = 1; while(true) { yield a; var t = a; a = b; b = t + b } } var i = fib(); var r = []; for(var j = 0; j < 8; j++) r.push(i.next().value); return r.join(',') })()", "0,1,1,2,3,5,8,13")
+    end
+
+    test "yield expression receives next() arg", %{rt: rt} do
+      ok(rt, "(function(){ function* g() { var x = yield 1; yield x + 10 } var i = g(); i.next(); return i.next(5).value })()", 15)
+    end
+
+    test "generator return() stops iteration", %{rt: rt} do
+      ok(rt, "(function(){ function* g() { yield 1; yield 2; yield 3 } var i = g(); i.next(); i.return(); return i.next().done })()", true)
     end
   end
 
