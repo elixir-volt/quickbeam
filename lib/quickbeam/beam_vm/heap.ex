@@ -4,8 +4,7 @@ defmodule QuickBEAM.BeamVM.Heap do
              get_ctx: 0, put_ctx: 1, frozen?: 1, freeze: 1,
              get_decoded: 1, put_decoded: 2,
              get_class_proto: 1, put_class_proto: 2,
-             get_parent_ctor: 1, put_parent_ctor: 2,
-             get_ctor_statics: 1}
+             get_parent_ctor: 1, put_parent_ctor: 2, get_ctor_statics: 1}
   @moduledoc """
   Mutable heap storage for JS runtime values.
 

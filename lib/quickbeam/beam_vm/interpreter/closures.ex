@@ -1,6 +1,6 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Closures do
-  @moduledoc false
   @compile {:inline, read_cell: 1, write_cell: 2, read_captured_local: 4, write_captured_local: 5}
+  @moduledoc false
 
   alias QuickBEAM.BeamVM.Heap
 
