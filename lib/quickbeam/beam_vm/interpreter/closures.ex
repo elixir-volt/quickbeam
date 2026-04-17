@@ -29,6 +29,11 @@ defmodule QuickBEAM.BeamVM.Interpreter.Closures do
     end
   end
 
+  def setup_captured_locals(%{locals: []}, locals, var_refs, _args) do
+    vrefs = if is_tuple(var_refs), do: var_refs, else: List.to_tuple(var_refs)
+    {locals, vrefs, %{}}
+  end
+
   def setup_captured_locals(fun, locals, var_refs, args) do
     arg_buf = List.to_tuple(args)
     vrefs = if is_tuple(var_refs), do: Tuple.to_list(var_refs), else: var_refs

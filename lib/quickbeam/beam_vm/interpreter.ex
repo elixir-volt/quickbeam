@@ -274,13 +274,25 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Locals ──
 
+  defp run({:get_loc, [idx]}, %Frame{locals: locals, local_to_vref: l2v} = frame, stack, gas, ctx) when l2v == %{} do
+    run(advance(frame), [elem(locals, idx) | stack], gas - 1, ctx)
+  end
+
   defp run({:get_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs, local_to_vref: l2v} = frame, stack, gas, ctx) do
     run(advance(frame), [Closures.read_captured_local(l2v, idx, locals, vrefs) | stack], gas - 1, ctx)
+  end
+
+  defp run({:put_loc, [idx]}, %Frame{local_to_vref: l2v} = frame, [val | rest], gas, ctx) when l2v == %{} do
+    run(advance(put_local(frame, idx, val)), rest, gas - 1, ctx)
   end
 
   defp run({:put_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs, local_to_vref: l2v} = frame, [val | rest], gas, ctx) do
     Closures.write_captured_local(l2v, idx, val, locals, vrefs)
     run(advance(put_local(frame, idx, val)), rest, gas - 1, ctx)
+  end
+
+  defp run({:set_loc, [idx]}, %Frame{local_to_vref: l2v} = frame, [val | rest], gas, ctx) when l2v == %{} do
+    run(advance(put_local(frame, idx, val)), [val | rest], gas - 1, ctx)
   end
 
   defp run({:set_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs, local_to_vref: l2v} = frame, [val | rest], gas, ctx) do
