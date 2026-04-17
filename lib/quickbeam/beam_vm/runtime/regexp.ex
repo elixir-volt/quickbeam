@@ -40,6 +40,9 @@ defmodule QuickBEAM.BeamVM.Runtime.RegExp do
   end
   defp exec(_, _), do: nil
 
-  defp regexp_to_string({:regexp, _bytecode, source}), do: "/#{source}/"
+  defp regexp_to_string({:regexp, bytecode, source}) do
+    flags = QuickBEAM.BeamVM.Runtime.extract_regexp_flags(bytecode)
+    "/#{source}/#{flags}"
+  end
   defp regexp_to_string(_), do: "/(?:)/"
 end

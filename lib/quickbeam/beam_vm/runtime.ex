@@ -204,7 +204,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property({:symbol, desc, _}, "description"), do: desc
   defp get_own_property(_, _), do: :undefined
 
-  defp extract_regexp_flags(<<flags_byte::8, _::binary>>) do
+  def extract_regexp_flags(<<flags_byte::8, _::binary>>) do
     flags = ""
     flags = if band(flags_byte, 1) != 0, do: flags <> "g", else: flags
     flags = if band(flags_byte, 2) != 0, do: flags <> "i", else: flags
@@ -214,7 +214,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     flags = if band(flags_byte, 32) != 0, do: flags <> "y", else: flags
     flags
   end
-  defp extract_regexp_flags(_), do: ""
+  def extract_regexp_flags(_), do: ""
 
   defp invoke_getter(fun, this_obj) do
     QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [], 10_000_000, this_obj)

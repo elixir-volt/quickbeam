@@ -12,7 +12,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
           put(target, key, val)
         end
       _ when is_map(map) ->
-        if Map.get(map, "__frozen__") == true do
+        if Heap.frozen?(ref) do
           :ok
         else
           case Map.get(map, key) do

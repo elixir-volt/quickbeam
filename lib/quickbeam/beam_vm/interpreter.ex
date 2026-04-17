@@ -1461,6 +1461,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp async_generator_next(gen_ref, arg) do
     case Heap.get_obj(gen_ref) do
       %{state: :suspended, frame: frame, stack: stack, gas: gas, ctx: ctx} ->
+        prev_ctx = Heap.get_ctx()
         Heap.put_ctx(ctx)
         try do
           result = run(frame, [false, arg | stack], gas, ctx)
@@ -1476,6 +1477,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           {:js_throw, _} = thrown ->
             Heap.put_obj(gen_ref, %{state: :completed})
             throw(thrown)
+        after
+          if prev_ctx, do: Heap.put_ctx(prev_ctx)
         end
       _ ->
         make_resolved_promise(done_result(:undefined))
