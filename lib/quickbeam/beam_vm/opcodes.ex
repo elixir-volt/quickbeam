@@ -427,10 +427,6 @@ defmodule QuickBEAM.BeamVM.Opcodes do
     set_loc8: :set_loc,
     get_loc_check8: :get_loc_check,
     put_loc_check8: :put_loc_check,
-    fclosure8: :fclosure8,
-    push_const8: :push_const8,
-    push_i8: :push_i8,
-    push_i16: :push_i16,
   }
 
   def expand_short_form(name, args) do

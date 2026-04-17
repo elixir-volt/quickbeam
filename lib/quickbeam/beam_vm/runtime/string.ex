@@ -134,7 +134,7 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
 
   defp replace(s, [pattern, replacement | _]) when is_binary(s) do
     case pattern do
-      {:regexp, _pat, _flags} = r -> regex_replace(s, r, replacement)
+      {:regexp, _bytecode, _source} = r -> regex_replace(s, r, replacement)
       pat when is_binary(pat) -> String.replace(s, pat, Runtime.js_to_string(replacement), global: false)
       _ -> s
     end
@@ -143,7 +143,7 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
 
   defp replace_all(s, [pattern, replacement | _]) when is_binary(s) do
     case pattern do
-      {:regexp, _pat, _flags} = r -> regex_replace(s, r, replacement)
+      {:regexp, _bytecode, _source} = r -> regex_replace(s, r, replacement)
       pat when is_binary(pat) -> String.replace(s, pat, Runtime.js_to_string(replacement))
       _ -> s
     end
@@ -165,7 +165,7 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
   end
   defp match(_, _), do: nil
 
-  defp regex_replace(s, {:regexp, _flags, source}, replacement) when is_binary(source) do
+  defp regex_replace(s, {:regexp, _bytecode, source}, replacement) when is_binary(source) do
     case Regex.compile(source) do
       {:ok, re} -> String.replace(s, re, Runtime.js_to_string(replacement))
       _ -> s
@@ -198,17 +198,17 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
         results = Enum.map(matches, fn match_indices ->
           Enum.map(match_indices, fn {start, len} -> String.slice(s, start, len) end)
         end)
-        ref = System.unique_integer([:positive])
+        ref = make_ref()
         QuickBEAM.BeamVM.Heap.put_obj(ref, results)
         {:obj, ref}
       _ ->
-        ref = System.unique_integer([:positive])
+        ref = make_ref()
         QuickBEAM.BeamVM.Heap.put_obj(ref, [])
         {:obj, ref}
     end
   end
   defp match_all(_, _) do
-    ref = System.unique_integer([:positive])
+    ref = make_ref()
     QuickBEAM.BeamVM.Heap.put_obj(ref, [])
     {:obj, ref}
   end

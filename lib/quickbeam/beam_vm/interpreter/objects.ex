@@ -7,6 +7,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
       %{"__proxy_target__" => target, "__proxy_handler__" => handler} ->
         set_trap = QuickBEAM.BeamVM.Runtime.get_property(handler, "set")
         if set_trap != :undefined do
+          # Proxy set trap return value ignored (non-strict mode behavior)
           QuickBEAM.BeamVM.Runtime.call_builtin_callback(set_trap, [target, key, val], :no_interp)
         else
           put(target, key, val)

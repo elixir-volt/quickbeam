@@ -1,6 +1,4 @@
 defmodule QuickBEAM.BeamVM.Runtime do
-  alias QuickBEAM.BeamVM.Heap
-  import Bitwise, only: [band: 2]
   @moduledoc """
   JS built-in runtime: property resolution, shared helpers, global bindings.
 
@@ -12,6 +10,9 @@ defmodule QuickBEAM.BeamVM.Runtime do
   - `Runtime.RegExp` — RegExp prototype + exec
   - `Runtime.Builtins` — Math, Number, Boolean, Console, constructors, global functions
   """
+
+  alias QuickBEAM.BeamVM.Heap
+  import Bitwise, only: [band: 2]
 
   alias QuickBEAM.BeamVM.Bytecode
   alias QuickBEAM.BeamVM.Runtime.{Array, StringProto, JSON, Object, RegExp, Builtins}
@@ -89,10 +90,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
           case obj do
             {:obj, ref} ->
               keys = Map.keys(Heap.get_obj(ref, %{}))
-              r = System.unique_integer([:positive])
+              r = make_ref()
               Heap.put_obj(r, keys)
               {:obj, r}
-            _ -> {:obj, (r = System.unique_integer([:positive]); Heap.put_obj(r, []); r)}
+            _ -> {:obj, (r = make_ref(); Heap.put_obj(r, []); r)}
           end
         end}
       }},
@@ -205,14 +206,8 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property(_, _), do: :undefined
 
   def extract_regexp_flags(<<flags_byte::8, _::binary>>) do
-    flags = ""
-    flags = if band(flags_byte, 1) != 0, do: flags <> "g", else: flags
-    flags = if band(flags_byte, 2) != 0, do: flags <> "i", else: flags
-    flags = if band(flags_byte, 4) != 0, do: flags <> "m", else: flags
-    flags = if band(flags_byte, 8) != 0, do: flags <> "s", else: flags
-    flags = if band(flags_byte, 16) != 0, do: flags <> "u", else: flags
-    flags = if band(flags_byte, 32) != 0, do: flags <> "y", else: flags
-    flags
+    [{1, "g"}, {2, "i"}, {4, "m"}, {8, "s"}, {16, "u"}, {32, "y"}]
+    |> Enum.reduce("", fn {bit, ch}, acc -> if band(flags_byte, bit) != 0, do: acc <> ch, else: acc end)
   end
   def extract_regexp_flags(_), do: ""
 

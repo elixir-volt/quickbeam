@@ -93,7 +93,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     result = Enum.map(Enum.with_index(list), fn {val, idx} ->
       Runtime.call_builtin_callback(fun, [val, idx, list], interp)
     end)
-    new_ref = System.unique_integer([:positive])
+    new_ref = make_ref()
     Heap.put_obj(new_ref, result)
     {:obj, new_ref}
   end
@@ -109,7 +109,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     result = Enum.filter(Enum.with_index(list), fn {val, idx} ->
       Runtime.js_truthy(Runtime.call_builtin_callback(fun, [val, idx, list], interp))
     end) |> Enum.map(fn {val, _} -> val end)
-    new_ref = System.unique_integer([:positive])
+    new_ref = make_ref()
     Heap.put_obj(new_ref, result)
     {:obj, new_ref}
   end
@@ -217,14 +217,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   # ── Transform ──
 
   defp join({:obj, ref}, args), do: join(Heap.get_obj(ref, []), args)
-  defp join(list, [sep | _]) when is_list(list), do: Enum.map_join(list, to_string(sep), &Runtime.js_to_string/1)
+  defp join(list, [sep | _]) when is_list(list), do: Enum.map_join(list, Runtime.js_to_string(sep), &Runtime.js_to_string/1)
   defp join(list, []) when is_list(list), do: Enum.map_join(list, ",", &Runtime.js_to_string/1)
   defp join(_, _), do: ""
 
   defp concat({:obj, ref}, args) do
     list = Heap.get_obj(ref, [])
     result = Enum.reduce(args, list, &concat_item(&1, &2))
-    new_ref = System.unique_integer([:positive])
+    new_ref = make_ref()
     Heap.put_obj(new_ref, result)
     {:obj, new_ref}
   end
@@ -277,7 +277,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
         _ -> [val]
       end
     end)
-    new_ref = System.unique_integer([:positive])
+    new_ref = make_ref()
     Heap.put_obj(new_ref, result)
     {:obj, new_ref}
   end

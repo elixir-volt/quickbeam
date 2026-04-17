@@ -80,6 +80,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   defp get_ms(_), do: :nan
 
   defp utc(this) do
-    :calendar.system_time_to_universal_time(get_ms(this), :millisecond)
+    case get_ms(this) do
+      ms when is_integer(ms) -> :calendar.system_time_to_universal_time(ms, :millisecond)
+      _ -> {{1970, 1, 1}, {0, 0, 0}}
+    end
   end
 end

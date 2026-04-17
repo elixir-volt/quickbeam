@@ -1,4 +1,6 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Closures do
+  @moduledoc false
+
   alias QuickBEAM.BeamVM.Heap
 
   def read_cell({:cell, ref}), do: Heap.get_cell(ref)

@@ -46,7 +46,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   end
   defp number_to_string(n, _), do: Runtime.js_to_string(n)
 
-  defp number_to_fixed(n, _) when n in [:nan, :infinity, :neg_infinity], do: "NaN"
+  defp number_to_fixed(:nan, _), do: "NaN"
+  defp number_to_fixed(:infinity, _), do: "Infinity"
+  defp number_to_fixed(:neg_infinity, _), do: "-Infinity"
   defp number_to_fixed(n, [digits | _]) when is_number(n) do
     :erlang.float_to_binary(n * 1.0, [{:decimals, max(0, Runtime.to_int(digits))}])
   end
@@ -130,7 +132,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
         [n] when is_integer(n) and n >= 0 -> List.duplicate(:undefined, n)
         _ -> args
       end
-      ref = System.unique_integer([:positive])
+      ref = make_ref()
       Heap.put_obj(ref, list)
       {:obj, ref}
     end
@@ -173,7 +175,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
 
   def promise_constructor do
     fn _args ->
-      ref = System.unique_integer([:positive])
+      ref = make_ref()
       Heap.put_obj(ref, %{})
       {:obj, ref}
     end
@@ -207,7 +209,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
             _ -> item
           end
         end)
-        result_ref = System.unique_integer([:positive])
+        result_ref = make_ref()
         QuickBEAM.BeamVM.Heap.put_obj(result_ref, results)
         QuickBEAM.BeamVM.Interpreter.make_resolved_promise({:obj, result_ref})
       end},

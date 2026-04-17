@@ -21,11 +21,14 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def to_number(:neg_infinity), do: :neg_infinity
   def to_number(:nan), do: :nan
   def to_number(s) when is_binary(s) do
-    case Float.parse(s) do
-      {f, ""} -> f
-      {f, _rest} when trunc(f) == f -> trunc(f)
-      {f, _} -> f
-      :error -> :nan
+    s = String.trim(s)
+    case Integer.parse(s) do
+      {i, ""} -> i
+      _ ->
+        case Float.parse(s) do
+          {f, ""} -> f
+          _ -> :nan
+        end
     end
   end
   def to_number({:obj, _} = obj) do
@@ -114,6 +117,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
           sb = if nb in [:neg_infinity] or (is_number(nb) and nb < 0), do: -1, else: 1
           if sa * sb > 0, do: :infinity, else: :neg_infinity
         end
+      # Reached when one or both args were non-numeric but to_number made them numeric (e.g. booleans)
       is_number(na) and is_number(nb) -> na * nb
       true -> :nan
     end
@@ -127,7 +131,18 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
       true -> a / b
     end
   end
-  def div(a, b), do: to_number(a) / to_number(b)
+  def div(a, b) do
+    na = to_number(a)
+    nb = to_number(b)
+    if is_number(na) and is_number(nb) do
+      cond do
+        nb == 0 -> inf_or_nan(na)
+        true -> na / nb
+      end
+    else
+      :nan
+    end
+  end
 
   def mod(a, b) when is_number(a) and is_number(b), do: if(b == 0, do: :nan, else: rem(trunc(a), trunc(b)))
   def mod(_, _), do: :nan

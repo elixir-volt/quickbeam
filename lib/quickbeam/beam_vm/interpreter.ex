@@ -52,7 +52,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           frame = %Frame{
             pc: 0,
             locals: locals,
-            constants: fun.constants,
+            constants: List.to_tuple(fun.constants),
             var_refs: {},
             stack_size: fun.stack_size,
             instructions: instructions
@@ -136,8 +136,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
   defp unwrap_promise(val, _depth), do: val
 
-  defp resolve_awaited({:promise, :resolved, val}), do: val
-  defp resolve_awaited({:promise, :rejected, val}), do: throw({:js_throw, val})
   defp resolve_awaited({:obj, ref} = obj) do
     case Heap.get_obj(ref, %{}) do
       %{"__promise_state__" => :resolved, "__promise_value__" => val} -> val
@@ -502,7 +500,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:array_from, [argc]}, frame, stack, gas, ctx) do
     {elems, rest} = Enum.split(stack, argc)
-    ref = System.unique_integer([:positive])
+    ref = make_ref()
     Heap.put_obj(ref, Enum.reverse(elems))
     run(advance(frame), [{:obj, ref} | rest], gas - 1, ctx)
   end
@@ -961,7 +959,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:iterator_close, []}, frame, [_iter | rest], gas, ctx), do: run(advance(frame), rest, gas - 1, ctx)
   defp run({:iterator_check_object, []}, frame, stack, gas, ctx), do: run(advance(frame), stack, gas - 1, ctx)
   defp run({:iterator_call, []}, frame, stack, gas, ctx), do: run(advance(frame), stack, gas - 1, ctx)
-  defp run({:iterator_get_value_done, []}, frame, stack, gas, ctx), do: run(advance(frame), stack, gas - 1, ctx)
 
   # ── Misc stubs ──
 
@@ -979,7 +976,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     val = case type do
       1 ->
         args_list = Tuple.to_list(arg_buf)
-        ref = System.unique_integer([:positive])
+        ref = make_ref()
         Heap.put_obj(ref, args_list)
         {:obj, ref}
       2 -> current_func
@@ -995,7 +992,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     else
       []
     end
-    ref = System.unique_integer([:positive])
+    ref = make_ref()
     Heap.put_obj(ref, rest_args)
     run(advance(frame), [{:obj, ref} | stack], gas - 1, ctx)
   end
@@ -1398,7 +1395,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         frame = %Frame{
           pc: 0,
           locals: locals,
-          constants: fun.constants,
+          constants: List.to_tuple(fun.constants),
           var_refs: var_refs_tuple,
           stack_size: fun.stack_size,
           instructions: insns,
