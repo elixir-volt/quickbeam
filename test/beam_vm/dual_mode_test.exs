@@ -3,11 +3,10 @@ defmodule QuickBEAM.BeamVM.DualModeTest do
   Runs JS expressions through both NIF and beam mode, asserting identical results.
   Catches semantic divergences between the QuickJS C engine and BEAM interpreter.
   """
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
-  setup do
+  setup_all do
     {:ok, rt} = QuickBEAM.start()
-    on_exit(fn -> try do QuickBEAM.stop(rt) catch :exit, _ -> :ok end end)
     %{rt: rt}
   end
 

@@ -1,9 +1,8 @@
 defmodule QuickBEAM.BeamModeTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
-  setup do
+  setup_all do
     {:ok, rt} = QuickBEAM.start()
-    on_exit(fn -> try do QuickBEAM.stop(rt) catch :exit, _ -> :ok end end)
     %{rt: rt}
   end
 

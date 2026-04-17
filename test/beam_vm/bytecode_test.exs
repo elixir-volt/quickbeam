@@ -1,5 +1,5 @@
 defmodule QuickBEAM.BeamVM.BytecodeTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias QuickBEAM.BeamVM.Bytecode
 

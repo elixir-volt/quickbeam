@@ -5,11 +5,10 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
   Only tests self-contained JS expressions (no cross-eval state, handlers,
   promises, timers, or vars — those need NIF integration).
   """
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
-  setup do
+  setup_all do
     {:ok, rt} = QuickBEAM.start()
-    on_exit(fn -> try do QuickBEAM.stop(rt) catch :exit, _ -> :ok end end)
     %{rt: rt}
   end
 
