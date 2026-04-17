@@ -54,7 +54,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         }
 
         try do
-          {:ok, run(frame, args, gas, ctx)}
+          {:ok, unwrap_promise(run(frame, args, gas, ctx))}
         catch
           {:js_throw, val} -> {:error, {:js_throw, val}}
           {:error, _} = err -> err
@@ -98,6 +98,25 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     Heap.put_obj(ref, %{"message" => message, "name" => name})
     {:obj, ref}
   end
+
+  defp unwrap_promise({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      %{"__promise_state__" => :resolved, "__promise_value__" => val} -> unwrap_promise(val)
+      _ -> {:obj, ref}
+    end
+  end
+  defp unwrap_promise(val), do: val
+
+  defp resolve_awaited({:promise, :resolved, val}), do: val
+  defp resolve_awaited({:promise, :rejected, val}), do: throw({:js_throw, val})
+  defp resolve_awaited({:obj, ref} = obj) do
+    case Heap.get_obj(ref, %{}) do
+      %{"__promise_state__" => :resolved, "__promise_value__" => val} -> val
+      %{"__promise_state__" => :rejected, "__promise_value__" => val} -> throw({:js_throw, val})
+      _ -> obj
+    end
+  end
+  defp resolve_awaited(val), do: val
 
   defp check_prototype_chain(_, :undefined), do: false
   defp check_prototype_chain(_, nil), do: false
@@ -1056,6 +1075,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     throw({:generator_yield, val, advance(frame), rest, gas - 1, ctx})
   end
 
+
+  defp run({:await, []}, frame, [val | rest], gas, ctx) do
+    resolved = resolve_awaited(val)
+    run(advance(frame), [resolved | rest], gas - 1, ctx)
+  end
+
   defp run({:return_async, []}, _frame, [val | _], _gas, _ctx) do
     throw({:generator_return, val})
   end
@@ -1209,10 +1234,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         }
         Heap.put_ctx(inner_ctx)
 
-        if fun.func_kind == 1 do
-          invoke_generator(frame, gas, inner_ctx)
-        else
-          run(frame, [], gas, inner_ctx)
+        case fun.func_kind do
+          1 -> invoke_generator(frame, gas, inner_ctx)
+          2 -> invoke_async(frame, gas, inner_ctx)
+          _ -> run(frame, [], gas, inner_ctx)
         end
 
       {:error, _} = err ->
@@ -1249,6 +1274,72 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       "return" => return_fn
     })
     {:obj, obj_ref}
+  end
+
+  defp invoke_async(frame, gas, ctx) do
+    try do
+      result = run(frame, [], gas, ctx)
+      make_resolved_promise(result)
+    catch
+      {:generator_return, val} -> make_resolved_promise(val)
+      {:js_throw, val} -> make_rejected_promise(val)
+    end
+  end
+
+  def make_resolved_promise(val) do
+    ref = make_ref()
+    then_fn = {:builtin, "then", fn
+      [on_resolved | _], _this ->
+        result = case on_resolved do
+          %Bytecode.Function{} = f -> invoke_function(f, [val], 10_000_000, active_ctx())
+          {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, [val], 10_000_000, active_ctx())
+          {:builtin, _, cb} when is_function(cb, 1) -> cb.([val])
+          _ -> val
+        end
+        make_resolved_promise(result)
+      [], _this -> make_resolved_promise(val)
+    end}
+    catch_fn = {:builtin, "catch", fn _args, _this -> make_resolved_promise(val) end}
+    Heap.put_obj(ref, %{
+      "__promise_state__" => :resolved,
+      "__promise_value__" => val,
+      "then" => then_fn,
+      "catch" => catch_fn
+    })
+    {:obj, ref}
+  end
+
+  def make_rejected_promise(val) do
+    ref = make_ref()
+    then_fn = {:builtin, "then", fn
+      [_, on_rejected | _], _this ->
+        result = case on_rejected do
+          %Bytecode.Function{} = f -> invoke_function(f, [val], 10_000_000, active_ctx())
+          {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, [val], 10_000_000, active_ctx())
+          {:builtin, _, cb} when is_function(cb, 1) -> cb.([val])
+          _ -> val
+        end
+        make_resolved_promise(result)
+      _, _this -> make_rejected_promise(val)
+    end}
+    catch_fn = {:builtin, "catch", fn
+      [handler | _], _this ->
+        result = case handler do
+          %Bytecode.Function{} = f -> invoke_function(f, [val], 10_000_000, active_ctx())
+          {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, [val], 10_000_000, active_ctx())
+          {:builtin, _, cb} when is_function(cb, 1) -> cb.([val])
+          _ -> val
+        end
+        make_resolved_promise(result)
+      [], _this -> make_rejected_promise(val)
+    end}
+    Heap.put_obj(ref, %{
+      "__promise_state__" => :rejected,
+      "__promise_value__" => val,
+      "then" => then_fn,
+      "catch" => catch_fn
+    })
+    {:obj, ref}
   end
 
   defp generator_next(gen_ref, arg) do

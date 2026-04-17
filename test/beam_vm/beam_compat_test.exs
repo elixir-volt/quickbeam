@@ -900,6 +900,40 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
   end
 
+  describe "async/await" do
+    test "async function returns resolved value", %{rt: rt} do
+      ok(rt, "(async function(){ return 42 })()", 42)
+    end
+
+    test "await plain value", %{rt: rt} do
+      ok(rt, "(async function(){ var x = await 42; return x })()", 42)
+    end
+
+    test "await Promise.resolve", %{rt: rt} do
+      ok(rt, "(async function(){ return await Promise.resolve(42) })()", 42)
+    end
+
+    test "await multiple values", %{rt: rt} do
+      ok(rt, "(async function(){ var a = await 10; var b = await 20; return a + b })()", 30)
+    end
+
+    test "async arrow function", %{rt: rt} do
+      ok(rt, "(async () => { return await 7 })()", 7)
+    end
+
+    test "async try/catch", %{rt: rt} do
+      ok(rt, "(async function(){ try { throw new Error('boom') } catch(e) { return e.message } })()", "boom")
+    end
+
+    test "chained await", %{rt: rt} do
+      ok(rt, "(async function(){ return await Promise.resolve(await Promise.resolve(42)) })()", 42)
+    end
+
+    test "Promise.resolve().then()", %{rt: rt} do
+      ok(rt, "(async function(){ return await Promise.resolve(1).then(function(v) { return v + 1 }) })()", 2)
+    end
+  end
+
   # ── Map/Set ──
 
   describe "Map/Set" do

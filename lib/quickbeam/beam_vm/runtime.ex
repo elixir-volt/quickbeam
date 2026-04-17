@@ -17,6 +17,13 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   # ── Global bindings ──
 
+  defp register_promise_statics(promise_builtin) do
+    for {k, v} <- Builtins.promise_statics() do
+      Heap.put_ctor_static(promise_builtin, k, v)
+    end
+    promise_builtin
+  end
+
   def global_bindings do
     %{
       "Object" => {:builtin, "Object", Builtins.object_constructor()},
@@ -33,7 +40,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
       "Math" => Builtins.math_object(),
       "JSON" => JSON.object(),
       "Date" => {:builtin, "Date", Builtins.date_constructor()},
-      "Promise" => {:builtin, "Promise", Builtins.promise_constructor()},
+      "Promise" => register_promise_statics({:builtin, "Promise", Builtins.promise_constructor()}),
       "RegExp" => {:builtin, "RegExp", Builtins.regexp_constructor()},
       "Symbol" => {:builtin, "Symbol", Builtins.symbol_constructor()},
       "parseInt" => {:builtin, "parseInt", fn args -> Builtins.parse_int(args) end},
@@ -108,6 +115,9 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property(:undefined, _), do: :undefined
   defp get_own_property({:builtin, _name, map}, key) when is_map(map) do
     Map.get(map, key, :undefined)
+  end
+  defp get_own_property({:builtin, _, _} = b, key) do
+    Map.get(Heap.get_ctor_statics(b), key, :undefined)
   end
   defp get_own_property({:regexp, _, _}, key), do: RegExp.proto_property(key)
   defp get_own_property(%Bytecode.Function{} = f, key) do

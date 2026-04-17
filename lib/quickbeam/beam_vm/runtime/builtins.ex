@@ -167,7 +167,25 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
     end
   end
 
-  def promise_constructor, do: fn _args -> {:builtin, "Promise", %{}} end
+  def promise_constructor do
+    fn _args ->
+      ref = System.unique_integer([:positive])
+      Heap.put_obj(ref, %{})
+      {:obj, ref}
+    end
+  end
+
+  def promise_statics do
+    %{
+      "resolve" => {:builtin, "resolve", fn [val | _] ->
+        QuickBEAM.BeamVM.Interpreter.make_resolved_promise(val)
+      end},
+      "reject" => {:builtin, "reject", fn [val | _] ->
+        QuickBEAM.BeamVM.Interpreter.make_rejected_promise(val)
+      end},
+      "all" => {:builtin, "all", fn _args -> QuickBEAM.BeamVM.Interpreter.make_resolved_promise([]) end}
+    }
+  end
   def regexp_constructor do
     fn [pattern | rest] ->
       flags = case rest do [f | _] when is_binary(f) -> f; _ -> "" end
