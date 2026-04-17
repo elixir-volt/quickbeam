@@ -27,6 +27,7 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
   def proto_property("replace"), do: {:builtin, "replace", fn args, this -> replace(this, args) end}
   def proto_property("replaceAll"), do: {:builtin, "replaceAll", fn args, this -> replace_all(this, args) end}
   def proto_property("match"), do: {:builtin, "match", fn args, this -> match(this, args) end}
+  def proto_property("normalize"), do: {:builtin, "normalize", fn _args, this -> this end}
   def proto_property("concat"), do: {:builtin, "concat", fn args, this -> this <> Enum.join(Enum.map(args, &Runtime.js_to_string/1)) end}
   def proto_property("toString"), do: {:builtin, "toString", fn _args, this -> this end}
   def proto_property("valueOf"), do: {:builtin, "valueOf", fn _args, this -> this end}
@@ -147,11 +148,18 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
   end
   defp replace_all(s, _), do: s
 
-  defp match(s, [{:regexp, pat, _flags} | _]) when is_binary(s) do
-    case Regex.run(Regex.compile!(pat), s, return: :index) do
-      nil -> nil
-      matches -> Enum.map(matches, fn {start, len} -> String.slice(s, start, len) end)
+  defp match(s, [{:regexp, _bytecode, source} | _]) when is_binary(s) do
+    case Regex.compile(source) do
+      {:ok, re} ->
+        case Regex.run(re, s, return: :index) do
+          nil -> nil
+          matches -> Enum.map(matches, fn {start, len} -> String.slice(s, start, len) end)
+        end
+      _ -> nil
     end
+  end
+  defp match(s, [pattern | _]) when is_binary(s) and is_binary(pattern) do
+    match(s, [{:regexp, Regex.escape(pattern), ""}])
   end
   defp match(_, _), do: nil
 

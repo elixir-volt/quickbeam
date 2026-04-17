@@ -24,6 +24,7 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   @tag_object Opcodes.bc_tag_object()
   @tag_array Opcodes.bc_tag_array()
   @tag_big_int Opcodes.bc_tag_big_int()
+  @tag_template_object Opcodes.bc_tag_template_object()
   @tag_regexp Opcodes.bc_tag_regexp()
 
   defmodule Function do
@@ -197,6 +198,14 @@ defmodule QuickBEAM.BeamVM.Bytecode do
 
   defp read_object(<<@tag_big_int, rest::binary>>, _atoms) do
     with {:ok, str, rest2} <- read_string_raw(rest), do: {:ok, {:bigint, str}, rest2}
+  end
+
+  defp read_object(<<@tag_template_object, rest::binary>>, atoms) do
+    with {:ok, count, rest2} <- LEB128.read_unsigned(rest),
+         {:ok, elems, rest3} <- read_array_elems(rest2, count, [], atoms),
+         {:ok, _raw, rest4} <- read_object(rest3, atoms) do
+      {:ok, elems, rest4}
+    end
   end
 
   defp read_object(<<@tag_regexp, rest::binary>>, _atoms) do

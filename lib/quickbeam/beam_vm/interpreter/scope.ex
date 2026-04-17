@@ -4,7 +4,15 @@ defmodule QuickBEAM.BeamVM.Interpreter.Scope do
 
   @js_atom_end 229
 
-  def resolve_const(cpool, idx) when is_list(cpool) and idx < length(cpool), do: Enum.at(cpool, idx)
+  def resolve_const(cpool, idx) when is_list(cpool) and idx < length(cpool) do
+    case Enum.at(cpool, idx) do
+      {:array, list} when is_list(list) ->
+        ref = System.unique_integer([:positive])
+        QuickBEAM.BeamVM.Heap.put_obj(ref, list)
+        {:obj, ref}
+      other -> other
+    end
+  end
   def resolve_const(_cpool, idx), do: {:const_ref, idx}
 
   def resolve_atom(%Ctx{atoms: atoms}, idx), do: resolve_atom(atoms, idx)

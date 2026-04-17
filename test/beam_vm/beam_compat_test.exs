@@ -841,6 +841,23 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     test "for-of string", %{rt: rt} do
       ok(rt, ~s[(function(){ var r = ""; for (var c of "abc") r += c; return r })()], "abc")
     end
+
+    test "tagged template literal", %{rt: rt} do
+      code = "(function(){ function tag(s, ...v) { return s[0] + v[0] + s[1]; } return tag" <> <<96>> <> "a${42}b" <> <<96>> <> "; })()"
+      ok(rt, code, "a42b")
+    end
+
+    test "WeakMap get/set", %{rt: rt} do
+      ok(rt, "(function(){ var w = new WeakMap(); var k = {}; w.set(k, 42); return w.get(k) })()", 42)
+    end
+
+    test "Array.copyWithin", %{rt: rt} do
+      ok(rt, "(function(){ return [1,2,3,4,5].copyWithin(0,3).join(',') })()", "4,5,3,4,5")
+    end
+
+    test "regexp match", %{rt: rt} do
+      ok(rt, "(function(){ return \"hello world\".match(/\\w+/)[0] })()", "hello")
+    end
   end
 
   # ── Generator functions ──

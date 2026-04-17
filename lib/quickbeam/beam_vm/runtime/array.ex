@@ -31,6 +31,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   def proto_property("some"), do: {:builtin, "some", fn args, this, interp -> some(this, args, interp) end}
   def proto_property("flatMap"), do: {:builtin, "flatMap", fn args, this, interp -> flat_map(this, args, interp) end}
   def proto_property("fill"), do: {:builtin, "fill", fn args, this -> fill(this, args) end}
+  def proto_property("copyWithin"), do: {:builtin, "copyWithin", fn args, this -> copy_within(this, args) end}
   def proto_property(_), do: :undefined
 
   # ── Array static dispatch ──
@@ -371,6 +372,32 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
       list
     end
   end
+
+  defp copy_within({:obj, ref}, args) do
+    list = Heap.get_obj(ref, [])
+    if is_list(list) do
+      len = length(list)
+      target = arr_normalize_index(Enum.at(args, 0, 0), len)
+      start_idx = arr_normalize_index(Enum.at(args, 1, 0), len)
+      end_idx = arr_normalize_index(Enum.at(args, 2) || len, len)
+      slice = Enum.slice(list, start_idx, end_idx - start_idx)
+      new_list = list
+        |> Enum.with_index()
+        |> Enum.map(fn {item, i} ->
+          offset = i - target
+          if i >= target and offset < length(slice), do: Enum.at(slice, offset), else: item
+        end)
+      Heap.put_obj(ref, new_list)
+      {:obj, ref}
+    else
+      {:obj, ref}
+    end
+  end
+  defp copy_within(_, _), do: :undefined
+
+  defp arr_normalize_index(i, len) when is_integer(i) and i < 0, do: max(0, len + i)
+  defp arr_normalize_index(i, len) when is_integer(i), do: min(i, len)
+  defp arr_normalize_index(_, _), do: 0
 
   # ── Internal ──
 
