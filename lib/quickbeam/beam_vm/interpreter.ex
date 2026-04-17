@@ -484,8 +484,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [val | rest], gas - 1, ctx)
   end
 
-  defp run({:put_super_value, []}, frame, [val, key, proto, _this_obj | rest], gas, ctx) do
-    Objects.put(proto, key, val)
+  defp run({:put_super_value, []}, frame, [val, key, _proto, this_obj | rest], gas, ctx) do
+    Objects.put(this_obj, key, val)
     run(advance(frame), rest, gas - 1, ctx)
   end
 
@@ -612,6 +612,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), rest, gas - 1, Scope.set_global(ctx, atom_idx, val))
   end
 
+  # define_func: global scope function hoisting (sloppy mode)
   defp run({:define_func, [atom_idx, _flags]}, frame, [fun | rest], gas, ctx) do
     ctx = Scope.set_global(ctx, atom_idx, fun)
     run(advance(frame), rest, gas - 1, ctx)
@@ -1007,6 +1008,23 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:iterator_close, []}, frame, [_iter | rest], gas, ctx), do: run(advance(frame), rest, gas - 1, ctx)
   defp run({:iterator_check_object, []}, frame, stack, gas, ctx), do: run(advance(frame), stack, gas - 1, ctx)
+  defp run({:iterator_call, [flags]}, frame, stack, gas, ctx) do
+    [_val, _catch_offset, _next_fn, iter_obj | _] = stack
+    method_name = if Bitwise.band(flags, 1) == 1, do: "throw", else: "return"
+    method = Runtime.get_property(iter_obj, method_name)
+    if method == :undefined or method == nil do
+      run(advance(frame), [true | stack], gas - 1, ctx)
+    else
+      result = if Bitwise.band(flags, 2) == 2 do
+        Runtime.call_builtin_callback(method, [], :no_interp)
+      else
+        [val | _] = stack
+        Runtime.call_builtin_callback(method, [val], :no_interp)
+      end
+      [_ | rest] = stack
+      run(advance(frame), [false, result | tl(rest)], gas - 1, ctx)
+    end
+  end
   defp run({:iterator_call, []}, frame, stack, gas, ctx), do: run(advance(frame), stack, gas - 1, ctx)
 
   # ── Misc stubs ──
@@ -1085,9 +1103,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     name = Scope.resolve_atom(ctx, atom_idx)
     run(advance(frame), [{:private_symbol, name, make_ref()} | stack], gas - 1, ctx)
   end
-  defp run({:private_symbol, []}, frame, stack, gas, ctx) do
-    run(advance(frame), [{:private_symbol, "", make_ref()} | stack], gas - 1, ctx)
-  end
+
 
   # ── Argument mutation ──
 
@@ -1208,8 +1224,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), rest, gas - 1, ctx)
   end
 
-  defp run({:check_brand, []}, frame, [_brand, _obj | _] = stack, gas, ctx) do
-    run(advance(frame), stack, gas - 1, ctx)
+  defp run({:check_brand, []}, frame, [_brand, obj | _] = stack, gas, ctx) do
+    # Permissive: verify obj is an object (skip full brand check for perf)
+    case obj do
+      {:obj, _} -> run(advance(frame), stack, gas - 1, ctx)
+      _ -> throw({:js_throw, make_error_obj("invalid brand on object", "TypeError")})
+    end
   end
 
   defp run({:define_class_computed, [atom_idx, flags]}, frame, [ctor, parent_ctor, _computed_name | rest], gas, ctx) do
