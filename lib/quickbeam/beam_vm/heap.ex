@@ -56,4 +56,9 @@ defmodule QuickBEAM.BeamVM.Heap do
 
   def get_ctx, do: Process.get(:qb_ctx)
   def put_ctx(ctx), do: Process.put(:qb_ctx, ctx)
+
+  # ── Symbol registry ──
+
+  def get_symbol(key), do: Process.get({:qb_symbol_registry, key})
+  def put_symbol(key, sym), do: Process.put({:qb_symbol_registry, key}, sym)
 end

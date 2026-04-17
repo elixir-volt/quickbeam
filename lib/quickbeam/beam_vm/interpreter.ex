@@ -39,31 +39,36 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     gas = Map.get(opts, :gas, @default_gas)
 
     ctx = %Ctx{atoms: atoms, globals: Runtime.global_bindings()}
+    prev_ctx = Heap.get_ctx()
     Heap.put_ctx(ctx)
 
-    case Decoder.decode(fun.byte_code) do
-      {:ok, instructions} ->
-        instructions = List.to_tuple(instructions)
-        locals = :erlang.make_tuple(max(fun.arg_count + fun.var_count, 1), :undefined)
+    try do
+      case Decoder.decode(fun.byte_code) do
+        {:ok, instructions} ->
+          instructions = List.to_tuple(instructions)
+          locals = :erlang.make_tuple(max(fun.arg_count + fun.var_count, 1), :undefined)
 
-        frame = %Frame{
-          pc: 0,
-          locals: locals,
-          constants: fun.constants,
-          var_refs: {},
-          stack_size: fun.stack_size,
-          instructions: instructions
-        }
+          frame = %Frame{
+            pc: 0,
+            locals: locals,
+            constants: fun.constants,
+            var_refs: {},
+            stack_size: fun.stack_size,
+            instructions: instructions
+          }
 
-        try do
-          {:ok, unwrap_promise(run(frame, args, gas, ctx))}
-        catch
-          {:js_throw, val} -> {:error, {:js_throw, val}}
-          {:error, _} = err -> err
-        end
+          try do
+            {:ok, unwrap_promise(run(frame, args, gas, ctx))}
+          catch
+            {:js_throw, val} -> {:error, {:js_throw, val}}
+            {:error, _} = err -> err
+          end
 
-      {:error, _} = err ->
-        err
+        {:error, _} = err ->
+          err
+      end
+    after
+      if prev_ctx, do: Heap.put_ctx(prev_ctx), else: Heap.put_ctx(nil)
     end
   end
 
@@ -165,11 +170,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
   defp check_prototype_chain(_, _), do: false
 
-  defp with_has_property?({:obj, ref}, key) do
-    case Heap.get_obj(ref, %{}) do
-      map when is_map(map) -> Map.has_key?(map, key)
-      _ -> false
-    end
+  defp with_has_property?({:obj, _} = obj, key) do
+    Runtime.get_property(obj, key) != :undefined
   end
   defp with_has_property?(_, _), do: false
 
@@ -757,7 +759,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
             Heap.put_obj(ref, Objects.list_set_at(stored, i, val))
           is_map(stored) ->
-            key = case idx do; i when is_integer(i) -> Integer.to_string(i); {:symbol, _} -> idx; {:symbol, _, _} -> idx; s when is_binary(s) -> s; other -> Kernel.to_string(other); end
+            key = case idx do
+              i when is_integer(i) -> Integer.to_string(i)
+              {:symbol, _} = sym -> sym
+              {:symbol, _, _} = sym -> sym
+              s when is_binary(s) -> s
+              other -> Kernel.to_string(other)
+            end
             Heap.put_obj(ref, Map.put(stored, key, val))
           true -> :ok
         end

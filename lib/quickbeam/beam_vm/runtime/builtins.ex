@@ -221,13 +221,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
       "search" => {:symbol, "Symbol.search"},
       "split" => {:symbol, "Symbol.split"},
       "for" => {:builtin, "for", fn [key | _] ->
-        existing = Process.get({:qb_symbol_registry, key})
-        if existing do
-          existing
-        else
-          sym = {:symbol, key}
-          Process.put({:qb_symbol_registry, key}, sym)
-          sym
+        case Heap.get_symbol(key) do
+          nil ->
+            sym = {:symbol, key}
+            Heap.put_symbol(key, sym)
+            sym
+          existing -> existing
         end
       end},
       "keyFor" => {:builtin, "keyFor", fn [sym | _] ->
