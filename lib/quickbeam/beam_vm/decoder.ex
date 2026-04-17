@@ -1,4 +1,6 @@
 defmodule QuickBEAM.BeamVM.Decoder do
+  @compile {:inline, get_u8: 2, get_i8: 2, get_u16: 2, get_i16: 2,
+             get_u32: 2, get_i32: 2, get_atom_u32: 2, resolve_label: 2}
   @moduledoc """
   Decodes raw QuickJS bytecode bytes into instruction tuples.
 

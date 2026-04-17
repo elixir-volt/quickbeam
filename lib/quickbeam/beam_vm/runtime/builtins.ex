@@ -50,7 +50,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   defp number_to_fixed(:infinity, _), do: "Infinity"
   defp number_to_fixed(:neg_infinity, _), do: "-Infinity"
   defp number_to_fixed(n, [digits | _]) when is_number(n) do
-    :erlang.float_to_binary(n * 1.0, [{:decimals, max(0, Runtime.to_int(digits))}])
+    d = max(0, Runtime.to_int(digits))
+    s = :erlang.float_to_binary(n * 1.0, [decimals: d])
+    if d > 0 do
+      s
+    else
+      String.trim_trailing(s, ".0")
+    end
   end
   defp number_to_fixed(n, _), do: Runtime.js_to_string(n)
 

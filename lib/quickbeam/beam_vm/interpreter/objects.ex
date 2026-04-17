@@ -14,7 +14,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
         end
       _ when is_map(map) ->
         if Heap.frozen?(ref) do
-          :ok
+          throw({:js_throw, %{"message" => "Cannot assign to read only property '#{key}' of object", "name" => "TypeError"}})
         else
           case Map.get(map, key) do
             {:accessor, _getter, setter} when setter != nil ->

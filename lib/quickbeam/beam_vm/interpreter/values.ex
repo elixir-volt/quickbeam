@@ -2,6 +2,12 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   alias QuickBEAM.BeamVM.Bytecode
   import Bitwise
 
+  @compile {:inline, truthy?: 1, falsy?: 1, to_int32: 1, strict_eq: 2,
+             add: 2, sub: 2, mul: 2, neg: 1, typeof: 1,
+             lt: 2, lte: 2, gt: 2, gte: 2, eq: 2, neq: 2,
+             band: 2, bor: 2, bxor: 2, shl: 2, sar: 2, shr: 2,
+             numeric_add: 2}
+
   def truthy?(nil), do: false
   def truthy?(:undefined), do: false
   def truthy?(false), do: false
@@ -134,15 +140,32 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def div(a, b) do
     na = to_number(a)
     nb = to_number(b)
-    if is_number(na) and is_number(nb) do
-      cond do
-        nb == 0 -> inf_or_nan(na)
-        true -> na / nb
-      end
-    else
-      :nan
+    cond do
+      na == :nan or nb == :nan -> :nan
+      na in [:infinity, :neg_infinity] or nb in [:infinity, :neg_infinity] ->
+        div_inf(na, nb)
+      is_number(na) and is_number(nb) ->
+        cond do
+          nb == 0 and neg_zero?(nb) ->
+            if na > 0, do: :neg_infinity, else: if(na < 0, do: :infinity, else: :nan)
+          nb == 0 -> inf_or_nan(na)
+          true -> na / nb
+        end
+      true -> :nan
     end
   end
+
+  defp div_inf(:infinity, :infinity), do: :nan
+  defp div_inf(:infinity, :neg_infinity), do: :nan
+  defp div_inf(:neg_infinity, :infinity), do: :nan
+  defp div_inf(:neg_infinity, :neg_infinity), do: :nan
+  defp div_inf(:infinity, n) when is_number(n) and n > 0, do: :infinity
+  defp div_inf(:infinity, n) when is_number(n) and n < 0, do: :neg_infinity
+  defp div_inf(:neg_infinity, n) when is_number(n) and n > 0, do: :neg_infinity
+  defp div_inf(:neg_infinity, n) when is_number(n) and n < 0, do: :infinity
+  defp div_inf(n, :infinity) when is_number(n), do: 0.0
+  defp div_inf(n, :neg_infinity) when is_number(n), do: -0.0
+  defp div_inf(_, _), do: :nan
 
   def mod(a, b) when is_number(a) and is_number(b), do: if(b == 0, do: :nan, else: rem(trunc(a), trunc(b)))
   def mod(_, _), do: :nan

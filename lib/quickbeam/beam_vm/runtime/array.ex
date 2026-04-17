@@ -242,12 +242,38 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   defp reverse(list, _) when is_list(list), do: Enum.reverse(list)
   defp reverse(_, _), do: []
 
-  defp sort({:obj, ref}, _) do
+  defp sort({:obj, ref}, [_compare_fn | _] = args) do
     list = Heap.get_obj(ref, [])
-    Heap.put_obj(ref, Enum.sort(list, fn a, b -> Runtime.js_to_string(a) < Runtime.js_to_string(b) end))
+    # Comparator fn returns negative (a<b), 0 (a==b), or positive (a>b)
+    # Fall back to string sort if comparator can't be invoked
+    sorted = try do
+      compare_fn = hd(args)
+      Enum.sort(list, fn a, b ->
+        result = Runtime.call_builtin_callback(compare_fn, [a, b], :no_interp)
+        case result do
+          n when is_number(n) -> n < 0
+          _ -> Runtime.js_to_string(a) < Runtime.js_to_string(b)
+        end
+      end)
+    catch
+      _ -> Enum.sort(list, fn a, b -> Runtime.js_to_string(a) < Runtime.js_to_string(b) end)
+    end
+    Heap.put_obj(ref, sorted)
     {:obj, ref}
   end
-  defp sort(list, _) when is_list(list), do: Enum.sort(list)
+  defp sort({:obj, ref}, []) do
+    list = Heap.get_obj(ref, [])
+    Heap.put_obj(ref, Enum.sort(list, fn a, b ->
+      Runtime.js_to_string(a) < Runtime.js_to_string(b)
+    end))
+    {:obj, ref}
+  end
+  defp sort(list, [_ | _]) when is_list(list) do
+    Enum.sort(list, fn a, b -> Runtime.js_to_string(a) < Runtime.js_to_string(b) end)
+  end
+  defp sort(list, []) when is_list(list), do: Enum.sort(list, fn a, b ->
+    Runtime.js_to_string(a) < Runtime.js_to_string(b)
+  end)
 
   defp flat({:obj, ref}, args), do: flat(Heap.get_obj(ref, []), args)
   defp flat(list, _) when is_list(list) do

@@ -1,4 +1,6 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Scope do
+  @compile {:inline, resolve_const: 2, resolve_atom: 2,
+             resolve_global: 2, set_global: 3, get_arg_value: 2}
   alias QuickBEAM.BeamVM.PredefinedAtoms
   alias QuickBEAM.BeamVM.Interpreter.Ctx
 
@@ -13,7 +15,6 @@ defmodule QuickBEAM.BeamVM.Interpreter.Scope do
       other -> other
     end
   end
-  def resolve_const(cpool, idx) when is_list(cpool), do: resolve_const(List.to_tuple(cpool), idx)
   def resolve_const(_cpool, idx), do: {:const_ref, idx}
 
   def resolve_atom(%Ctx{atoms: atoms}, idx), do: resolve_atom(atoms, idx)

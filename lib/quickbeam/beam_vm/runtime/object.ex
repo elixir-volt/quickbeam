@@ -41,7 +41,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
   defp keys([{:obj, ref} | _]) do
     map = Heap.get_obj(ref, %{})
-    Map.keys(map) |> Enum.reject(&String.starts_with?(&1, "__"))
+    Map.keys(map)
   end
   defp keys([map | _]) when is_map(map), do: Map.keys(map)
   defp keys(_), do: []

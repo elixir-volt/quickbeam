@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Interpreter do
+  @compile {:inline, advance: 1, jump: 2, put_local: 3, make_error_obj: 2}
   @moduledoc """
   Executes decoded QuickJS bytecode via multi-clause function dispatch.
 
@@ -127,6 +128,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     {:obj, ref}
   end
 
+  @compile {:inline, unwrap_promise: 2}
   defp unwrap_promise(val, depth \\ 0)
   defp unwrap_promise({:obj, ref}, depth) when depth < 10 do
     case Heap.get_obj(ref, %{}) do

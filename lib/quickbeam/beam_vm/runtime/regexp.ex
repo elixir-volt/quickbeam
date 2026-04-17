@@ -6,8 +6,23 @@ defmodule QuickBEAM.BeamVM.Runtime.RegExp do
   def proto_property("toString"), do: {:builtin, "toString", fn _args, this -> regexp_to_string(this) end}
   def proto_property(_), do: :undefined
 
+  def compile_pattern(source) when is_binary(source) do
+    case :persistent_term.get({__MODULE__, source}, nil) do
+      nil ->
+        case Regex.compile(source) do
+          {:ok, re} ->
+            :persistent_term.put({__MODULE__, source}, {:ok, re})
+            {:ok, re}
+          error ->
+            error
+        end
+      cached ->
+        cached
+    end
+  end
+
   defp test({:regexp, _bytecode, source}, [s | _]) when is_binary(source) and is_binary(s) do
-    case Regex.compile(source) do
+    case compile_pattern(source) do
       {:ok, re} -> Regex.match?(re, s)
       _ -> false
     end
@@ -15,7 +30,7 @@ defmodule QuickBEAM.BeamVM.Runtime.RegExp do
   defp test(_, _), do: false
 
   defp exec({:regexp, _bytecode, source}, [s | _]) when is_binary(source) and is_binary(s) do
-    case Regex.compile(source) do
+    case compile_pattern(source) do
       {:ok, re} ->
         case Regex.run(re, s, return: :index) do
           nil -> nil
