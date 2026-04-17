@@ -3,11 +3,22 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
 
   def put({:obj, ref} = obj, key, val) do
     map = Heap.get_obj(ref, %{})
-    case is_map(map) && Map.get(map, key) do
-      {:accessor, _getter, setter} when setter != nil ->
-        invoke_setter(setter, val, obj)
-      _ ->
-        Heap.put_obj(ref, Map.put(map, key, val))
+    case map do
+      %{"__proxy_target__" => target, "__proxy_handler__" => handler} ->
+        set_trap = QuickBEAM.BeamVM.Runtime.get_property(handler, "set")
+        if set_trap != :undefined do
+          QuickBEAM.BeamVM.Runtime.call_builtin_callback(set_trap, [target, key, val], :no_interp)
+        else
+          put(target, key, val)
+        end
+      _ when is_map(map) ->
+        case Map.get(map, key) do
+          {:accessor, _getter, setter} when setter != nil ->
+            invoke_setter(setter, val, obj)
+          _ ->
+            Heap.put_obj(ref, Map.put(map, key, val))
+        end
+      _ -> :ok
     end
   end
   def put(%Bytecode.Function{} = f, key, val), do: Heap.put_ctor_static(f, key, val)
@@ -48,7 +59,20 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
     end
   end
 
-  def has_property({:obj, ref}, key), do: Map.has_key?(Heap.get_obj(ref, %{}), key)
+  def has_property({:obj, ref}, key) do
+    map = Heap.get_obj(ref, %{})
+    case map do
+      %{"__proxy_target__" => target, "__proxy_handler__" => handler} ->
+        has_trap = QuickBEAM.BeamVM.Runtime.get_property(handler, "has")
+        if has_trap != :undefined do
+          QuickBEAM.BeamVM.Runtime.call_builtin_callback(has_trap, [target, key], :no_interp)
+        else
+          has_property(target, key)
+        end
+      _ when is_map(map) -> Map.has_key?(map, key)
+      _ -> false
+    end
+  end
   def has_property(obj, key) when is_map(obj), do: Map.has_key?(obj, key)
   def has_property(obj, key) when is_list(obj) and is_integer(key), do: key >= 0 and key < length(obj)
   def has_property(_, _), do: false

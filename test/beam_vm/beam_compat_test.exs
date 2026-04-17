@@ -1026,6 +1026,22 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
   end
 
+  # ── Proxy ──
+
+  describe "Proxy" do
+    test "get trap", %{rt: rt} do
+      ok(rt, "(function(){ var p = new Proxy({x: 1}, { get: function(t,k) { return t[k] * 2 } }); return p.x })()", 2)
+    end
+
+    test "set trap", %{rt: rt} do
+      ok(rt, "(function(){ var o = {x: 1}; var p = new Proxy(o, { set: function(t,k,v) { t[k] = v * 10; return true } }); p.x = 5; return o.x })()", 50)
+    end
+
+    test "no trap passthrough", %{rt: rt} do
+      ok(rt, "(function(){ var p = new Proxy({x: 42}, {}); return p.x })()", 42)
+    end
+  end
+
   # ── Edge cases ──
 
   describe "edge cases" do

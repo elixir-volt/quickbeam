@@ -55,7 +55,28 @@ defmodule QuickBEAM.BeamVM.Runtime do
       "WeakMap" => {:builtin, "WeakMap", Builtins.map_constructor()},
       "WeakSet" => {:builtin, "WeakSet", Builtins.set_constructor()},
       "WeakRef" => {:builtin, "WeakRef", fn _ -> __MODULE__.obj_new() end},
-      "Proxy" => {:builtin, "Proxy", fn _ -> __MODULE__.obj_new() end},
+      "Reflect" => {:builtin, "Reflect", %{
+        "get" => {:builtin, "get", fn [obj, key | _] -> get_property(obj, key) end},
+        "set" => {:builtin, "set", fn [obj, key, val | _] -> QuickBEAM.BeamVM.Interpreter.Objects.put(obj, key, val); true end},
+        "has" => {:builtin, "has", fn [obj, key | _] -> QuickBEAM.BeamVM.Interpreter.Objects.has_property(obj, key) end},
+        "ownKeys" => {:builtin, "ownKeys", fn [obj | _] ->
+          case obj do
+            {:obj, ref} ->
+              keys = Map.keys(Heap.get_obj(ref, %{}))
+              r = System.unique_integer([:positive])
+              Heap.put_obj(r, keys)
+              {:obj, r}
+            _ -> {:obj, (r = System.unique_integer([:positive]); Heap.put_obj(r, []); r)}
+          end
+        end}
+      }},
+      "Proxy" => {:builtin, "Proxy", fn
+        [target, handler | _] ->
+          ref = make_ref()
+          Heap.put_obj(ref, %{"__proxy_target__" => target, "__proxy_handler__" => handler})
+          {:obj, ref}
+        _ -> __MODULE__.obj_new()
+      end},
       "console" => Builtins.console_object(),
     }
   end
@@ -86,6 +107,13 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property({:obj, ref}, key) do
     case Heap.get_obj(ref) do
       nil -> :undefined
+      %{"__proxy_target__" => target, "__proxy_handler__" => handler} ->
+        get_trap = get_own_property(handler, "get")
+        if get_trap != :undefined do
+          call_builtin_callback(get_trap, [target, key], :no_interp)
+        else
+          get_own_property(target, key)
+        end
       list when is_list(list) -> get_own_property(list, key)
       map when is_map(map) ->
         case Map.get(map, key) do
