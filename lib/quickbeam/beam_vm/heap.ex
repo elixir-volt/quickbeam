@@ -57,6 +57,11 @@ defmodule QuickBEAM.BeamVM.Heap do
   def get_ctx, do: Process.get(:qb_ctx)
   def put_ctx(ctx), do: Process.put(:qb_ctx, ctx)
 
+  # ── Bytecode decode cache ──
+
+  def get_decoded(byte_code), do: Process.get({:qb_decoded, byte_code})
+  def put_decoded(byte_code, insns), do: Process.put({:qb_decoded, byte_code}, insns)
+
   # ── Frozen objects ──
 
   def frozen?(ref), do: Process.get({:qb_frozen, ref}, false)

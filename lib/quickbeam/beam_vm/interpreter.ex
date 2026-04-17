@@ -1366,9 +1366,20 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       fun
     end
 
-    case Decoder.decode(fun.byte_code) do
-      {:ok, instructions} ->
-        insns = List.to_tuple(instructions)
+    insns = case Heap.get_decoded(fun.byte_code) do
+      nil ->
+        case Decoder.decode(fun.byte_code) do
+          {:ok, instructions} ->
+            t = List.to_tuple(instructions)
+            Heap.put_decoded(fun.byte_code, t)
+            t
+          {:error, _} = err -> throw(err)
+        end
+      cached -> cached
+    end
+
+    case insns do
+      insns when is_tuple(insns) ->
         locals = :erlang.make_tuple(max(fun.arg_count + fun.var_count, 1), :undefined)
         {locals, var_refs_tuple, l2v} = Closures.setup_captured_locals(fun, locals, var_refs, args)
 
@@ -1401,8 +1412,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           if prev_ctx, do: Heap.put_ctx(prev_ctx)
         end
 
-      {:error, _} = err ->
-        throw(err)
     end
   end
 
