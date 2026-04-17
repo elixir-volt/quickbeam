@@ -51,4 +51,9 @@ defmodule QuickBEAM.BeamVM.Heap do
   def get_var(name), do: Process.get({:qb_var, name})
   def put_var(name, val), do: Process.put({:qb_var, name}, val)
   def delete_var(name), do: Process.delete({:qb_var, name})
+
+  # ── Active interpreter context ──
+
+  def get_ctx, do: Process.get(:qb_ctx)
+  def put_ctx(ctx), do: Process.put(:qb_ctx, ctx)
 end

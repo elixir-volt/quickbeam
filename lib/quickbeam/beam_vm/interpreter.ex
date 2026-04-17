@@ -37,7 +37,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     gas = Map.get(opts, :gas, @default_gas)
 
     ctx = %Ctx{atoms: atoms, globals: Runtime.global_bindings()}
-    Process.put(:qb_ctx, ctx)
+    Heap.put_ctx(ctx)
 
     case Decoder.decode(fun.byte_code) do
       {:ok, instructions} ->
@@ -69,7 +69,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   def invoke(%Bytecode.Function{} = fun, args, gas), do: invoke_function(fun, args, gas, active_ctx())
   def invoke({:closure, _, %Bytecode.Function{}} = c, args, gas), do: invoke_closure(c, args, gas, active_ctx())
 
-  defp active_ctx, do: Process.get(:qb_ctx, %Ctx{})
+  defp active_ctx, do: Heap.get_ctx() || %Ctx{}
 
   defp catch_js_throw(frame, rest, gas, ctx, fun) do
     try do
@@ -1123,7 +1123,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           arg_buf: List.to_tuple(args),
           catch_stack: []
         }
-        Process.put(:qb_ctx, inner_ctx)
+        Heap.put_ctx(inner_ctx)
         run(frame, [], gas, inner_ctx)
 
       {:error, _} = err ->
