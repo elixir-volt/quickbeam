@@ -70,6 +70,9 @@ defmodule QuickBEAM.BeamVM.Runtime do
           end
         end}
       }},
+      # TODO: Proxy only intercepts get/set/has traps. Missing: deleteProperty,
+      # ownKeys, getPrototypeOf, apply, construct. Prototype chain lookup
+      # (get_prototype_property) does not check for proxy handlers.
       "Proxy" => {:builtin, "Proxy", fn
         [target, handler | _] ->
           ref = make_ref()
@@ -157,15 +160,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property(_, _), do: :undefined
 
   defp invoke_getter(fun, this_obj) do
-    alias QuickBEAM.BeamVM.{Bytecode, Heap, Interpreter.Ctx}
-    ctx = Heap.get_ctx() || %Ctx{}
-    Heap.put_ctx(%{ctx | this: this_obj})
-    case fun do
-      %Bytecode.Function{} = f -> QuickBEAM.BeamVM.Interpreter.invoke(f, [], 10_000_000)
-      {:closure, _, %Bytecode.Function{}} = c -> QuickBEAM.BeamVM.Interpreter.invoke(c, [], 10_000_000)
-      cb when is_function(cb, 0) -> cb.()
-      _ -> :undefined
-    end
+    QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [], 10_000_000, this_obj)
   end
 
   defp get_prototype_property({:obj, ref}, key) do

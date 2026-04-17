@@ -25,6 +25,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   import Bitwise, only: [bnot: 1, &&&: 2]
 
   @default_gas 1_000_000_000
+  @func_generator 1
+  @func_async 2
 
   @spec eval(Bytecode.Function.t()) :: {:ok, term()} | {:error, term()}
   def eval(%Bytecode.Function{} = fun), do: eval(fun, [], %{})
@@ -69,7 +71,27 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   def invoke(%Bytecode.Function{} = fun, args, gas), do: invoke_function(fun, args, gas, active_ctx())
   def invoke({:closure, _, %Bytecode.Function{}} = c, args, gas), do: invoke_closure(c, args, gas, active_ctx())
 
+  @doc false
+  def invoke_with_receiver(fun, args, gas, this_obj) do
+    prev = Heap.get_ctx()
+    Heap.put_ctx(%{active_ctx() | this: this_obj})
+    try do
+      invoke(fun, args, gas)
+    after
+      if prev, do: Heap.put_ctx(prev)
+    end
+  end
+
   defp active_ctx, do: Heap.get_ctx() || %Ctx{}
+
+  defp invoke_callback(fun, args) do
+    case fun do
+      %Bytecode.Function{} = f -> invoke_function(f, args, 10_000_000, active_ctx())
+      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, args, 10_000_000, active_ctx())
+      {:builtin, _, cb} when is_function(cb, 1) -> cb.(args)
+      _ -> List.first(args, :undefined)
+    end
+  end
 
   defp catch_js_throw(frame, rest, gas, ctx, fun) do
     try do
@@ -99,13 +121,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     {:obj, ref}
   end
 
-  defp unwrap_promise({:obj, ref}) do
+  defp unwrap_promise(val, depth \\ 0)
+  defp unwrap_promise({:obj, ref}, depth) when depth < 10 do
     case Heap.get_obj(ref, %{}) do
-      %{"__promise_state__" => :resolved, "__promise_value__" => val} -> unwrap_promise(val)
+      %{"__promise_state__" => :resolved, "__promise_value__" => val} -> unwrap_promise(val, depth + 1)
       _ -> {:obj, ref}
     end
   end
-  defp unwrap_promise(val), do: val
+  defp unwrap_promise(val, _depth), do: val
 
   defp resolve_awaited({:promise, :resolved, val}), do: val
   defp resolve_awaited({:promise, :rejected, val}), do: throw({:js_throw, val})
@@ -1232,12 +1255,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           arg_buf: List.to_tuple(args),
           catch_stack: []
         }
+        prev_ctx = Heap.get_ctx()
         Heap.put_ctx(inner_ctx)
 
-        case fun.func_kind do
-          1 -> invoke_generator(frame, gas, inner_ctx)
-          2 -> invoke_async(frame, gas, inner_ctx)
-          _ -> run(frame, [], gas, inner_ctx)
+        try do
+          case fun.func_kind do
+            @func_generator -> invoke_generator(frame, gas, inner_ctx)
+            @func_async -> invoke_async(frame, gas, inner_ctx)
+            _ -> run(frame, [], gas, inner_ctx)
+          end
+        after
+          if prev_ctx, do: Heap.put_ctx(prev_ctx)
         end
 
       {:error, _} = err ->
@@ -1286,16 +1314,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
+  @doc false
   def make_resolved_promise(val) do
     ref = make_ref()
     then_fn = {:builtin, "then", fn
       [on_resolved | _], _this ->
-        result = case on_resolved do
-          %Bytecode.Function{} = f -> invoke_function(f, [val], 10_000_000, active_ctx())
-          {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, [val], 10_000_000, active_ctx())
-          {:builtin, _, cb} when is_function(cb, 1) -> cb.([val])
-          _ -> val
-        end
+        result = invoke_callback(on_resolved, [val])
         make_resolved_promise(result)
       [], _this -> make_resolved_promise(val)
     end}
@@ -1309,27 +1333,18 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     {:obj, ref}
   end
 
+  @doc false
   def make_rejected_promise(val) do
     ref = make_ref()
     then_fn = {:builtin, "then", fn
       [_, on_rejected | _], _this ->
-        result = case on_rejected do
-          %Bytecode.Function{} = f -> invoke_function(f, [val], 10_000_000, active_ctx())
-          {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, [val], 10_000_000, active_ctx())
-          {:builtin, _, cb} when is_function(cb, 1) -> cb.([val])
-          _ -> val
-        end
+        result = invoke_callback(on_rejected, [val])
         make_resolved_promise(result)
       _, _this -> make_rejected_promise(val)
     end}
     catch_fn = {:builtin, "catch", fn
       [handler | _], _this ->
-        result = case handler do
-          %Bytecode.Function{} = f -> invoke_function(f, [val], 10_000_000, active_ctx())
-          {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, [val], 10_000_000, active_ctx())
-          {:builtin, _, cb} when is_function(cb, 1) -> cb.([val])
-          _ -> val
-        end
+        result = invoke_callback(handler, [val])
         make_resolved_promise(result)
       [], _this -> make_rejected_promise(val)
     end}
@@ -1347,6 +1362,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       %{state: :suspended, frame: frame, stack: stack, gas: gas, ctx: ctx} ->
         Heap.put_ctx(ctx)
         try do
+          # QuickJS yield protocol: [is_return_or_throw, value | saved_stack]
           result = run(frame, [false, arg | stack], gas, ctx)
           Heap.put_obj(gen_ref, %{state: :completed})
           done_result(result)

@@ -48,15 +48,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   def put_setter(target, key, fun), do: Heap.put_ctor_static(target, key, {:accessor, nil, fun})
 
   defp invoke_setter(fun, val, this_obj) do
-    alias QuickBEAM.BeamVM.{Bytecode, Interpreter.Ctx}
-    ctx = Heap.get_ctx() || %Ctx{}
-    Heap.put_ctx(%{ctx | this: this_obj})
-    case fun do
-      %Bytecode.Function{} = f -> QuickBEAM.BeamVM.Interpreter.invoke(f, [val], 10_000_000)
-      {:closure, _, %Bytecode.Function{}} = c -> QuickBEAM.BeamVM.Interpreter.invoke(c, [val], 10_000_000)
-      cb when is_function(cb, 1) -> cb.(val)
-      _ -> :ok
-    end
+    QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [val], 10_000_000, this_obj)
   end
 
   def has_property({:obj, ref}, key) do

@@ -32,10 +32,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
     map = QuickBEAM.BeamVM.Heap.get_obj(elem(obj, 1), %{})
     case Map.get(map, "valueOf") do
       fun when fun != nil and fun != :undefined ->
-        ctx = QuickBEAM.BeamVM.Heap.get_ctx() || %QuickBEAM.BeamVM.Interpreter.Ctx{}
-        QuickBEAM.BeamVM.Heap.put_ctx(%{ctx | this: obj})
-        result = QuickBEAM.BeamVM.Interpreter.invoke(fun, [], 10_000_000)
-        to_number(result)
+        to_number(QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [], 10_000_000, obj))
       _ -> :nan
     end
   end
@@ -56,10 +53,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
     map = QuickBEAM.BeamVM.Heap.get_obj(elem(obj, 1), %{})
     case Map.get(map, "toString") do
       fun when fun != nil and fun != :undefined ->
-        ctx = QuickBEAM.BeamVM.Heap.get_ctx() || %QuickBEAM.BeamVM.Interpreter.Ctx{}
-        QuickBEAM.BeamVM.Heap.put_ctx(%{ctx | this: obj})
-        result = QuickBEAM.BeamVM.Interpreter.invoke(fun, [], 10_000_000)
-        to_js_string(result)
+        to_js_string(QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [], 10_000_000, obj))
       _ -> "[object Object]"
     end
   end
