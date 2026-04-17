@@ -165,6 +165,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
   defp check_prototype_chain(_, _), do: false
 
+  defp with_has_property?({:obj, ref}, key) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) -> Map.has_key?(map, key)
+      _ -> false
+    end
+  end
+  defp with_has_property?(_, _), do: false
+
 
   # ── Main dispatch loop ──
 
@@ -807,9 +815,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [Closures.read_cell(ref) | rest], gas - 1, ctx)
   end
 
-  defp run({:put_ref_value, []}, frame, [val, ref | rest], gas, ctx) do
+  defp run({:put_ref_value, []}, frame, [val, {:cell, _} = ref | rest], gas, ctx) do
     Closures.write_cell(ref, val)
     run(advance(frame), [val | rest], gas - 1, ctx)
+  end
+
+  defp run({:put_ref_value, []}, frame, [val, key, obj | rest], gas, ctx) when is_binary(key) do
+    Objects.put(obj, key, val)
+    run(advance(frame), rest, gas - 1, ctx)
   end
 
   # ── gosub/ret (finally blocks) ──
@@ -1110,7 +1123,68 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     throw({:generator_return, val})
   end
 
-    # ── Catch-all for unimplemented opcodes ──
+  # ── with statement ──
+
+  defp run({:with_get_var, [atom_idx, target, _is_with]}, frame, [obj | rest], gas, ctx) do
+    key = Scope.resolve_atom(ctx, atom_idx)
+    if with_has_property?(obj, key) do
+      run(jump(frame, target), [Runtime.get_property(obj, key) | rest], gas - 1, ctx)
+    else
+      run(advance(frame), rest, gas - 1, ctx)
+    end
+  end
+
+  defp run({:with_put_var, [atom_idx, target, _is_with]}, frame, [obj, val | rest], gas, ctx) do
+    key = Scope.resolve_atom(ctx, atom_idx)
+    if with_has_property?(obj, key) do
+      Objects.put(obj, key, val)
+      run(jump(frame, target), rest, gas - 1, ctx)
+    else
+      run(advance(frame), [val | rest], gas - 1, ctx)
+    end
+  end
+
+  defp run({:with_delete_var, [atom_idx, target, _is_with]}, frame, [obj | rest], gas, ctx) do
+    key = Scope.resolve_atom(ctx, atom_idx)
+    if with_has_property?(obj, key) do
+      case obj do
+        {:obj, ref} -> Heap.update_obj(ref, %{}, &Map.delete(&1, key))
+        _ -> :ok
+      end
+      run(jump(frame, target), [true | rest], gas - 1, ctx)
+    else
+      run(advance(frame), rest, gas - 1, ctx)
+    end
+  end
+
+  defp run({:with_make_ref, [atom_idx, target, _is_with]}, frame, [obj | rest], gas, ctx) do
+    key = Scope.resolve_atom(ctx, atom_idx)
+    if with_has_property?(obj, key) do
+      run(jump(frame, target), [key, obj | rest], gas - 1, ctx)
+    else
+      run(advance(frame), rest, gas - 1, ctx)
+    end
+  end
+
+  defp run({:with_get_ref, [atom_idx, target, _is_with]}, frame, [obj | rest], gas, ctx) do
+    key = Scope.resolve_atom(ctx, atom_idx)
+    if with_has_property?(obj, key) do
+      run(jump(frame, target), [Runtime.get_property(obj, key), obj | rest], gas - 1, ctx)
+    else
+      run(advance(frame), rest, gas - 1, ctx)
+    end
+  end
+
+  defp run({:with_get_ref_undef, [atom_idx, target, _is_with]}, frame, [obj | rest], gas, ctx) do
+    key = Scope.resolve_atom(ctx, atom_idx)
+    if with_has_property?(obj, key) do
+      run(jump(frame, target), [Runtime.get_property(obj, key), :undefined | rest], gas - 1, ctx)
+    else
+      run(advance(frame), rest, gas - 1, ctx)
+    end
+  end
+
+  # ── Catch-all for unimplemented opcodes ──
 
   defp run({name, args}, _frame, _stack, _gas, _ctx) do
     throw({:error, {:unimplemented_opcode, name, args}})

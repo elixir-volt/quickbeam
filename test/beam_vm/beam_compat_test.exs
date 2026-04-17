@@ -1026,6 +1026,26 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
   end
 
+  # ── with statement ──
+
+  describe "with statement" do
+    test "with get", %{rt: rt} do
+      ok(rt, "(function(){ var o = {x: 42, y: 10}; with(o) { return x + y } })()", 52)
+    end
+
+    test "with set", %{rt: rt} do
+      ok(rt, "(function(){ var o = {x: 1}; with(o) { x = 42 } return o.x })()", 42)
+    end
+
+    test "with fallback to outer scope", %{rt: rt} do
+      ok(rt, "(function(){ var z = 99; var o = {x: 1}; with(o) { return z } })()", 99)
+    end
+
+    test "with nested", %{rt: rt} do
+      ok(rt, "(function(){ var o = {x: 10}; var p = {y: 20}; with(o) { with(p) { return x + y } } })()", 30)
+    end
+  end
+
   # ── Symbol ──
 
   describe "Symbol" do
