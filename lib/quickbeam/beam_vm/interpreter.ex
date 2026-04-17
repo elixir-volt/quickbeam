@@ -22,6 +22,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   alias QuickBEAM.BeamVM.{Bytecode, Decoder, Runtime}
   alias __MODULE__.{Frame, Ctx}
+  require Frame
 
   alias QuickBEAM.BeamVM.Heap
   alias __MODULE__.{Values, Objects, Closures, Scope}
@@ -52,14 +53,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           instructions = List.to_tuple(instructions)
           locals = :erlang.make_tuple(max(fun.arg_count + fun.var_count, 1), :undefined)
 
-          frame = %Frame{
-            pc: 0,
-            locals: locals,
-            constants: List.to_tuple(fun.constants),
-            var_refs: {},
-            stack_size: fun.stack_size,
-            instructions: instructions
-          }
+          frame = Frame.new(0, locals, List.to_tuple(fun.constants), {}, fun.stack_size, instructions, %{})
 
           try do
             {:ok, unwrap_promise(run(frame, args, gas, ctx))}
@@ -119,9 +113,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Helpers ──
 
-  defp advance(%Frame{pc: pc} = f), do: %{f | pc: pc + 1}
-  defp jump(%Frame{} = f, target), do: %{f | pc: target}
-  defp put_local(%Frame{locals: locals} = f, idx, val), do: %{f | locals: put_elem(locals, idx, val)}
+  defp advance(f), do: put_elem(f, Frame.pc(), elem(f, Frame.pc()) + 1)
+  defp jump(f, target), do: put_elem(f, Frame.pc(), target)
+  defp put_local(f, idx, val), do: put_elem(f, Frame.locals(), put_elem(elem(f, Frame.locals()), idx, val))
 
 
   defp make_error_obj(message, name) do
@@ -200,8 +194,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     throw({:error, {:out_of_gas, gas}})
   end
 
-  defp run(%Frame{pc: pc, instructions: insns} = frame, stack, gas, ctx) do
-    run(elem(insns, pc), frame, stack, gas, ctx)
+  defp run(frame, stack, gas, ctx) do
+    run(elem(elem(frame, Frame.insns()), elem(frame, Frame.pc())), frame, stack, gas, ctx)
   end
 
   # ── Push constants ──
@@ -219,8 +213,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:push_6, _}, frame, stack, gas, ctx), do: run(advance(frame), [6 | stack], gas - 1, ctx)
   defp run({:push_7, _}, frame, stack, gas, ctx), do: run(advance(frame), [7 | stack], gas - 1, ctx)
 
-  defp run({op, [idx]}, %Frame{constants: cpool} = frame, stack, gas, ctx) when op in [:push_const, :push_const8] do
-    run(advance(frame), [Scope.resolve_const(cpool, idx) | stack], gas - 1, ctx)
+  defp run({op, [idx]}, frame, stack, gas, ctx) when op in [:push_const, :push_const8] do
+    run(advance(frame), [Scope.resolve_const(elem(frame, Frame.constants()), idx) | stack], gas - 1, ctx)
   end
 
   defp run({:push_atom_value, [atom_idx]}, frame, stack, gas, ctx) do
@@ -276,29 +270,29 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Locals ──
 
-  defp run({:get_loc, [idx]}, %Frame{locals: locals, local_to_vref: l2v} = frame, stack, gas, ctx) when l2v == %{} do
-    run(advance(frame), [elem(locals, idx) | stack], gas - 1, ctx)
+  defp run({:get_loc, [idx]}, frame, stack, gas, ctx) when elem(frame, Frame.l2v()) == %{} do
+    run(advance(frame), [elem(elem(frame, Frame.locals()), idx) | stack], gas - 1, ctx)
   end
 
-  defp run({:get_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs, local_to_vref: l2v} = frame, stack, gas, ctx) do
-    run(advance(frame), [Closures.read_captured_local(l2v, idx, locals, vrefs) | stack], gas - 1, ctx)
+  defp run({:get_loc, [idx]}, frame, stack, gas, ctx) do
+    run(advance(frame), [Closures.read_captured_local(elem(frame, Frame.l2v()), idx, elem(frame, Frame.locals()), elem(frame, Frame.var_refs())) | stack], gas - 1, ctx)
   end
 
-  defp run({:put_loc, [idx]}, %Frame{local_to_vref: l2v} = frame, [val | rest], gas, ctx) when l2v == %{} do
+  defp run({:put_loc, [idx]}, frame, [val | rest], gas, ctx) when elem(frame, Frame.l2v()) == %{} do
     run(advance(put_local(frame, idx, val)), rest, gas - 1, ctx)
   end
 
-  defp run({:put_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs, local_to_vref: l2v} = frame, [val | rest], gas, ctx) do
-    Closures.write_captured_local(l2v, idx, val, locals, vrefs)
+  defp run({:put_loc, [idx]}, frame, [val | rest], gas, ctx) do
+    Closures.write_captured_local(elem(frame, Frame.l2v()), idx, val, elem(frame, Frame.locals()), elem(frame, Frame.var_refs()))
     run(advance(put_local(frame, idx, val)), rest, gas - 1, ctx)
   end
 
-  defp run({:set_loc, [idx]}, %Frame{local_to_vref: l2v} = frame, [val | rest], gas, ctx) when l2v == %{} do
+  defp run({:set_loc, [idx]}, frame, [val | rest], gas, ctx) when elem(frame, Frame.l2v()) == %{} do
     run(advance(put_local(frame, idx, val)), [val | rest], gas - 1, ctx)
   end
 
-  defp run({:set_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs, local_to_vref: l2v} = frame, [val | rest], gas, ctx) do
-    Closures.write_captured_local(l2v, idx, val, locals, vrefs)
+  defp run({:set_loc, [idx]}, frame, [val | rest], gas, ctx) do
+    Closures.write_captured_local(elem(frame, Frame.l2v()), idx, val, elem(frame, Frame.locals()), elem(frame, Frame.var_refs()))
     run(advance(put_local(frame, idx, val)), [val | rest], gas - 1, ctx)
   end
 
@@ -306,8 +300,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(put_local(frame, idx, :undefined)), stack, gas - 1, ctx)
   end
 
-  defp run({:get_loc_check, [idx]}, %Frame{locals: locals} = frame, stack, gas, ctx) do
-    val = elem(locals, idx)
+  defp run({:get_loc_check, [idx]}, frame, stack, gas, ctx) do
+    val = elem(elem(frame, Frame.locals()), idx)
     if val == :undefined, do: throw({:error, {:uninitialized_local, idx}})
     run(advance(frame), [val | stack], gas - 1, ctx)
   end
@@ -321,30 +315,31 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(put_local(frame, idx, val)), rest, gas - 1, ctx)
   end
 
-  defp run({:get_loc0_loc1, []}, %Frame{locals: locals} = frame, stack, gas, ctx) do
+  defp run({:get_loc0_loc1, []}, frame, stack, gas, ctx) do
+    locals = elem(frame, Frame.locals())
     run(advance(frame), [elem(locals, 1), elem(locals, 0) | stack], gas - 1, ctx)
   end
 
   # ── Variable references (closures) ──
 
-  defp run({:get_var_ref, [idx]}, %Frame{var_refs: vrefs} = frame, stack, gas, ctx) do
-    val = case elem(vrefs, idx) do
+  defp run({:get_var_ref, [idx]}, frame, stack, gas, ctx) do
+    val = case elem(elem(frame, Frame.var_refs()), idx) do
       {:cell, _} = cell -> Closures.read_cell(cell)
       other -> other
     end
     run(advance(frame), [val | stack], gas - 1, ctx)
   end
 
-  defp run({:put_var_ref, [idx]}, %Frame{var_refs: vrefs} = frame, [val | rest], gas, ctx) do
-    case elem(vrefs, idx) do
+  defp run({:put_var_ref, [idx]}, frame, [val | rest], gas, ctx) do
+    case elem(elem(frame, Frame.var_refs()), idx) do
       {:cell, ref} -> Closures.write_cell({:cell, ref}, val)
       _ -> :ok
     end
     run(advance(frame), rest, gas - 1, ctx)
   end
 
-  defp run({:set_var_ref, [idx]}, %Frame{var_refs: vrefs} = frame, [val | rest], gas, ctx) do
-    case elem(vrefs, idx) do
+  defp run({:set_var_ref, [idx]}, frame, [val | rest], gas, ctx) do
+    case elem(elem(frame, Frame.var_refs()), idx) do
       {:cell, ref} -> Closures.write_cell({:cell, ref}, val)
       _ -> :ok
     end
@@ -409,19 +404,28 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:post_inc, []}, frame, [a | rest], gas, ctx), do: run(advance(frame), [Values.add(a, 1), a | rest], gas - 1, ctx)
   defp run({:post_dec, []}, frame, [a | rest], gas, ctx), do: run(advance(frame), [Values.sub(a, 1), a | rest], gas - 1, ctx)
 
-  defp run({:inc_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs, local_to_vref: l2v} = frame, stack, gas, ctx) do
+  defp run({:inc_loc, [idx]}, frame, stack, gas, ctx) do
+    locals = elem(frame, Frame.locals())
+    vrefs = elem(frame, Frame.var_refs())
+    l2v = elem(frame, Frame.l2v())
     new_val = Values.add(elem(locals, idx), 1)
     Closures.write_captured_local(l2v, idx, new_val, locals, vrefs)
     run(advance(put_local(frame, idx, new_val)), stack, gas - 1, ctx)
   end
 
-  defp run({:dec_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs, local_to_vref: l2v} = frame, stack, gas, ctx) do
+  defp run({:dec_loc, [idx]}, frame, stack, gas, ctx) do
+    locals = elem(frame, Frame.locals())
+    vrefs = elem(frame, Frame.var_refs())
+    l2v = elem(frame, Frame.l2v())
     new_val = Values.sub(elem(locals, idx), 1)
     Closures.write_captured_local(l2v, idx, new_val, locals, vrefs)
     run(advance(put_local(frame, idx, new_val)), stack, gas - 1, ctx)
   end
 
-  defp run({:add_loc, [idx]}, %Frame{locals: locals, var_refs: vrefs, local_to_vref: l2v} = frame, [val | rest], gas, ctx) do
+  defp run({:add_loc, [idx]}, frame, [val | rest], gas, ctx) do
+    locals = elem(frame, Frame.locals())
+    vrefs = elem(frame, Frame.var_refs())
+    l2v = elem(frame, Frame.l2v())
     new_val = Values.add(elem(locals, idx), val)
     Closures.write_captured_local(l2v, idx, new_val, locals, vrefs)
     run(advance(put_local(frame, idx, new_val)), rest, gas - 1, ctx)
@@ -433,9 +437,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Function creation / calls ──
 
-  defp run({op, [idx]}, %Frame{constants: cpool, locals: locals, var_refs: vrefs, local_to_vref: l2v} = frame, stack, gas, ctx) when op in [:fclosure, :fclosure8] do
-    fun = Scope.resolve_const(cpool, idx)
-    closure = build_closure(fun, locals, vrefs, l2v, ctx)
+  defp run({op, [idx]}, frame, stack, gas, ctx) when op in [:fclosure, :fclosure8] do
+    fun = Scope.resolve_const(elem(frame, Frame.constants()), idx)
+    closure = build_closure(fun, elem(frame, Frame.locals()), elem(frame, Frame.var_refs()), elem(frame, Frame.l2v()), ctx)
     run(advance(frame), [closure | stack], gas - 1, ctx)
   end
 
@@ -807,9 +811,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Closure variable refs (mutable) ──
 
-  defp run({:make_var_ref, [idx]}, %Frame{locals: locals} = frame, stack, gas, ctx) do
+  defp run({:make_var_ref, [idx]}, frame, stack, gas, ctx) do
     ref = make_ref()
-    Heap.put_cell(ref, elem(locals, idx))
+    Heap.put_cell(ref, elem(elem(frame, Frame.locals()), idx))
     run(advance(frame), [{:cell, ref} | stack], gas - 1, ctx)
   end
 
@@ -819,30 +823,30 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [{:cell, ref} | stack], gas - 1, ctx)
   end
 
-  defp run({:make_loc_ref, [idx]}, %Frame{locals: locals} = frame, stack, gas, ctx) do
+  defp run({:make_loc_ref, [idx]}, frame, stack, gas, ctx) do
     ref = make_ref()
-    Heap.put_cell(ref, elem(locals, idx))
+    Heap.put_cell(ref, elem(elem(frame, Frame.locals()), idx))
     run(advance(frame), [{:cell, ref} | stack], gas - 1, ctx)
   end
 
-  defp run({:get_var_ref_check, [idx]}, %Frame{var_refs: vrefs} = frame, stack, gas, ctx) do
-    case elem(vrefs, idx) do
+  defp run({:get_var_ref_check, [idx]}, frame, stack, gas, ctx) do
+    case elem(elem(frame, Frame.var_refs()), idx) do
       :undefined -> throw({:error, {:uninitialized_var_ref, idx}})
       {:cell, _} = cell -> run(advance(frame), [Closures.read_cell(cell) | stack], gas - 1, ctx)
       val -> run(advance(frame), [val | stack], gas - 1, ctx)
     end
   end
 
-  defp run({:put_var_ref_check, [idx]}, %Frame{var_refs: vrefs} = frame, [val | rest], gas, ctx) do
-    case elem(vrefs, idx) do
+  defp run({:put_var_ref_check, [idx]}, frame, [val | rest], gas, ctx) do
+    case elem(elem(frame, Frame.var_refs()), idx) do
       {:cell, ref} -> Closures.write_cell({:cell, ref}, val)
       _ -> :ok
     end
     run(advance(frame), rest, gas - 1, ctx)
   end
 
-  defp run({:put_var_ref_check_init, [idx]}, %Frame{var_refs: vrefs} = frame, [val | rest], gas, ctx) do
-    case elem(vrefs, idx) do
+  defp run({:put_var_ref_check_init, [idx]}, frame, [val | rest], gas, ctx) do
+    case elem(elem(frame, Frame.var_refs()), idx) do
       {:cell, ref} -> Closures.write_cell({:cell, ref}, val)
       _ -> :ok
     end
@@ -865,8 +869,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── gosub/ret (finally blocks) ──
 
-  defp run({:gosub, [target]}, %Frame{pc: pc} = frame, stack, gas, ctx) do
-    run(jump(frame, target), [{:return_addr, pc + 1} | stack], gas - 1, ctx)
+  defp run({:gosub, [target]}, frame, stack, gas, ctx) do
+    run(jump(frame, target), [{:return_addr, elem(frame, Frame.pc()) + 1} | stack], gas - 1, ctx)
   end
 
   defp run({:ret, []}, frame, [{:return_addr, ret_pc} | rest], gas, ctx) do
@@ -1105,7 +1109,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Class definitions ──
 
-  defp run({:define_class, [_atom_idx, _flags]}, %Frame{locals: locals, var_refs: vrefs, local_to_vref: l2v} = frame, [ctor, parent_ctor | rest], gas, ctx) do
+  defp run({:define_class, [_atom_idx, _flags]}, frame, [ctor, parent_ctor | rest], gas, ctx) do
+    locals = elem(frame, Frame.locals())
+    vrefs = elem(frame, Frame.var_refs())
+    l2v = elem(frame, Frame.l2v())
     ctor_closure = case ctor do
       %Bytecode.Function{} = f -> build_closure(f, locals, vrefs, l2v, ctx)
       already_closure -> already_closure
@@ -1396,15 +1403,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         locals = :erlang.make_tuple(max(fun.arg_count + fun.var_count, 1), :undefined)
         {locals, var_refs_tuple, l2v} = Closures.setup_captured_locals(fun, locals, var_refs, args)
 
-        frame = %Frame{
-          pc: 0,
-          locals: locals,
-          constants: List.to_tuple(fun.constants),
-          var_refs: var_refs_tuple,
-          stack_size: fun.stack_size,
-          instructions: insns,
-          local_to_vref: l2v
-        }
+        frame = Frame.new(0, locals, List.to_tuple(fun.constants), var_refs_tuple, fun.stack_size, insns, l2v)
 
         inner_ctx = %{ctx |
           current_func: self_ref,
