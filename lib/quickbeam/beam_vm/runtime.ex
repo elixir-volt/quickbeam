@@ -17,6 +17,13 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   # ── Global bindings ──
 
+  defp register_symbol_statics(symbol_builtin) do
+    for {k, v} <- Builtins.symbol_statics() do
+      Heap.put_ctor_static(symbol_builtin, k, v)
+    end
+    symbol_builtin
+  end
+
   defp register_promise_statics(promise_builtin) do
     for {k, v} <- Builtins.promise_statics() do
       Heap.put_ctor_static(promise_builtin, k, v)
@@ -42,7 +49,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
       "Date" => {:builtin, "Date", Builtins.date_constructor()},
       "Promise" => register_promise_statics({:builtin, "Promise", Builtins.promise_constructor()}),
       "RegExp" => {:builtin, "RegExp", Builtins.regexp_constructor()},
-      "Symbol" => {:builtin, "Symbol", Builtins.symbol_constructor()},
+      "Symbol" => register_symbol_statics({:builtin, "Symbol", Builtins.symbol_constructor()}),
       "parseInt" => {:builtin, "parseInt", fn args -> Builtins.parse_int(args) end},
       "parseFloat" => {:builtin, "parseFloat", fn args -> Builtins.parse_float(args) end},
       "isNaN" => {:builtin, "isNaN", fn args -> Builtins.is_nan(args) end},
@@ -157,6 +164,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property({:closure, _, %Bytecode.Function{}} = c, key) do
     Map.get(Heap.get_ctor_statics(c), key, :undefined)
   end
+  defp get_own_property({:symbol, desc}, "toString"), do: {:builtin, "toString", fn _, _ -> "Symbol(#{desc})" end}
+  defp get_own_property({:symbol, desc, _}, "toString"), do: {:builtin, "toString", fn _, _ -> "Symbol(#{desc})" end}
+  defp get_own_property({:symbol, desc}, "description"), do: desc
+  defp get_own_property({:symbol, desc, _}, "description"), do: desc
   defp get_own_property(_, _), do: :undefined
 
   defp invoke_getter(fun, this_obj) do

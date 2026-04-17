@@ -141,6 +141,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
   defp resolve_awaited(val), do: val
 
+  defp call_iterator_next(gen_obj) do
+    next_fn = Runtime.get_property(gen_obj, "next")
+    result = Runtime.call_builtin_callback(next_fn, [], :no_interp)
+    done = Runtime.get_property(result, "done")
+    value = Runtime.get_property(result, "value")
+    {done == true, value}
+  end
+
   defp check_prototype_chain(_, :undefined), do: false
   defp check_prototype_chain(_, nil), do: false
   defp check_prototype_chain({:obj, ref}, target) do
@@ -156,6 +164,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
   defp check_prototype_chain(_, _), do: false
+
 
   # ── Main dispatch loop ──
 
@@ -740,7 +749,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
             Heap.put_obj(ref, Objects.list_set_at(stored, i, val))
           is_map(stored) ->
-            key = if is_integer(idx), do: Integer.to_string(idx), else: Kernel.to_string(idx)
+            key = case idx do; i when is_integer(i) -> Integer.to_string(i); {:symbol, _} -> idx; {:symbol, _, _} -> idx; s when is_binary(s) -> s; other -> Kernel.to_string(other); end
             Heap.put_obj(ref, Map.put(stored, key, val))
           true -> :ok
         end
@@ -829,9 +838,16 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         case stored do
           list when is_list(list) -> {:for_of_iterator, list, 0}
           map when is_map(map) ->
-            case Map.get(map, "next") do
-              nil -> {:for_of_iterator, [], 0}
-              _ -> {:for_of_generator, obj}
+            sym_iter = {:symbol, "Symbol.iterator"}
+            cond do
+              Map.has_key?(map, sym_iter) ->
+                iter_fn = Map.get(map, sym_iter)
+                iter_obj = Runtime.call_builtin_callback(iter_fn, [], :no_interp)
+                {:for_of_generator, iter_obj}
+              Map.has_key?(map, "next") ->
+                {:for_of_generator, obj}
+              true ->
+                {:for_of_iterator, [], 0}
             end
           _ -> {:for_of_iterator, [], 0}
         end
@@ -842,15 +858,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:for_of_next, [_idx]}, frame, [{:for_of_generator, gen_obj} | rest], gas, ctx) do
-    next_fn = Runtime.get_property(gen_obj, "next")
-    result = case next_fn do
-      {:builtin, _, cb} when is_function(cb, 2) -> cb.([], gen_obj)
-      {:builtin, _, cb} when is_function(cb, 1) -> cb.([])
-      _ -> done_result(:undefined)
-    end
-    done = Runtime.get_property(result, "done")
-    value = Runtime.get_property(result, "value")
-    if done == true do
+    {done, value} = call_iterator_next(gen_obj)
+    if done do
       run(advance(frame), [true, :undefined, {:for_of_generator, gen_obj} | rest], gas - 1, ctx)
     else
       run(advance(frame), [false, value, {:for_of_generator, gen_obj} | rest], gas - 1, ctx)
@@ -870,15 +879,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:iterator_next, []}, frame, [{:for_of_generator, gen_obj} | rest], gas, ctx) do
-    next_fn = Runtime.get_property(gen_obj, "next")
-    result = case next_fn do
-      {:builtin, _, cb} when is_function(cb, 2) -> cb.([], gen_obj)
-      {:builtin, _, cb} when is_function(cb, 1) -> cb.([])
-      _ -> done_result(:undefined)
-    end
-    done = Runtime.get_property(result, "done")
-    value = Runtime.get_property(result, "value")
-    if done == true do
+    {done, value} = call_iterator_next(gen_obj)
+    if done do
       run(advance(frame), [true, :undefined, {:for_of_generator, gen_obj} | rest], gas - 1, ctx)
     else
       run(advance(frame), [false, value, {:for_of_generator, gen_obj} | rest], gas - 1, ctx)

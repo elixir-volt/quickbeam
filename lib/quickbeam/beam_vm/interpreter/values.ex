@@ -48,6 +48,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def to_js_string(false), do: "false"
   def to_js_string(n) when is_integer(n), do: Integer.to_string(n)
   def to_js_string(n) when is_float(n), do: Float.to_string(n)
+  def to_js_string({:symbol, desc}), do: "Symbol(#{desc})"
+  def to_js_string({:symbol, desc, _ref}), do: "Symbol(#{desc})"
   def to_js_string(s) when is_binary(s), do: s
   def to_js_string({:obj, _} = obj) do
     map = QuickBEAM.BeamVM.Heap.get_obj(elem(obj, 1), %{})
@@ -69,12 +71,15 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def typeof(val) when is_binary(val), do: "string"
   def typeof(%Bytecode.Function{}), do: "function"
   def typeof({:closure, _, %Bytecode.Function{}}), do: "function"
+  def typeof({:symbol, _}), do: "symbol"
+  def typeof({:symbol, _, _}), do: "symbol"
   def typeof({:builtin, _, _}), do: "function"
   def typeof(_), do: "object"
 
   def strict_eq(:nan, :nan), do: false
   def strict_eq(:infinity, :infinity), do: true
   def strict_eq(:neg_infinity, :neg_infinity), do: true
+  def strict_eq({:symbol, _, ref1}, {:symbol, _, ref2}), do: ref1 === ref2
   def strict_eq(a, b), do: a === b
 
   def add(a, b) when is_binary(a) or is_binary(b), do: to_js_string(a) <> to_js_string(b)

@@ -197,7 +197,48 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
       {:regexp, pat, flags}
     end
   end
-  def symbol_constructor, do: fn args -> {:symbol, List.first(args, "")} end
+  def symbol_constructor do
+    fn args ->
+      desc = case args do
+        [s | _] when is_binary(s) -> s
+        _ -> ""
+      end
+      {:symbol, desc, make_ref()}
+    end
+  end
+
+  def symbol_statics do
+    %{
+      "iterator" => {:symbol, "Symbol.iterator"},
+      "toPrimitive" => {:symbol, "Symbol.toPrimitive"},
+      "hasInstance" => {:symbol, "Symbol.hasInstance"},
+      "toStringTag" => {:symbol, "Symbol.toStringTag"},
+      "asyncIterator" => {:symbol, "Symbol.asyncIterator"},
+      "isConcatSpreadable" => {:symbol, "Symbol.isConcatSpreadable"},
+      "species" => {:symbol, "Symbol.species"},
+      "match" => {:symbol, "Symbol.match"},
+      "replace" => {:symbol, "Symbol.replace"},
+      "search" => {:symbol, "Symbol.search"},
+      "split" => {:symbol, "Symbol.split"},
+      "for" => {:builtin, "for", fn [key | _] ->
+        existing = Process.get({:qb_symbol_registry, key})
+        if existing do
+          existing
+        else
+          sym = {:symbol, key}
+          Process.put({:qb_symbol_registry, key}, sym)
+          sym
+        end
+      end},
+      "keyFor" => {:builtin, "keyFor", fn [sym | _] ->
+        case sym do
+          {:symbol, key} -> key
+          {:symbol, key, _ref} -> key
+          _ -> :undefined
+        end
+      end}
+    }
+  end
 
   # ── Global functions ──
 

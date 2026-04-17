@@ -92,7 +92,12 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
           _ -> :ok
         end
       map when is_map(map) ->
-        Heap.put_obj(ref, Map.put(map, Kernel.to_string(key), val))
+        str_key = case key do
+          {:symbol, _, _} -> key
+          {:symbol, _} -> key
+          _ -> Kernel.to_string(key)
+        end
+        Heap.put_obj(ref, Map.put(map, str_key, val))
       nil ->
         :ok
     end

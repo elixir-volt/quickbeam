@@ -1026,6 +1026,42 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
   end
 
+  # ── Symbol ──
+
+  describe "Symbol" do
+    test "typeof Symbol()", %{rt: rt} do
+      ok(rt, "(function(){ return typeof Symbol() })()", "symbol")
+    end
+
+    test "Symbol.toString()", %{rt: rt} do
+      ok(rt, "(function(){ return Symbol('foo').toString() })()", "Symbol(foo)")
+    end
+
+    test "Symbol uniqueness", %{rt: rt} do
+      ok(rt, "(function(){ return Symbol('a') === Symbol('a') })()", false)
+    end
+
+    test "Symbol same reference equality", %{rt: rt} do
+      ok(rt, "(function(){ var s = Symbol(); return s === s })()", true)
+    end
+
+    test "Symbol as object key", %{rt: rt} do
+      ok(rt, "(function(){ var s = Symbol('k'); var o = {}; o[s] = 42; return o[s] })()", 42)
+    end
+
+    test "Symbol.iterator type", %{rt: rt} do
+      ok(rt, "(function(){ return typeof Symbol.iterator })()", "symbol")
+    end
+
+    test "Symbol.for global registry", %{rt: rt} do
+      ok(rt, "(function(){ return Symbol.for('x') === Symbol.for('x') })()", true)
+    end
+
+    test "custom iterable with Symbol.iterator", %{rt: rt} do
+      ok(rt, "(function(){ var o = {}; o[Symbol.iterator] = function() { var i = 0; return { next: function() { return { value: i++, done: i > 3 } } } }; var r = []; for (var x of o) r.push(x); return r.join(',') })()", "0,1,2")
+    end
+  end
+
   # ── Proxy ──
 
   describe "Proxy" do
