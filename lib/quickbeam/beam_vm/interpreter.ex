@@ -499,7 +499,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [val | rest], gas - 1, ctx)
   end
 
-  defp run({:put_private_field, []}, frame, [val, key, obj | rest], gas, ctx) do
+  defp run({:put_private_field, []}, frame, [key, val, obj | rest], gas, ctx) do
     case obj do
       {:obj, ref} ->
         Heap.update_obj(ref, %{}, &Map.put(&1, {:private, key}, val))
@@ -517,7 +517,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [obj | rest], gas - 1, ctx)
   end
 
-  defp run({:private_in, []}, frame, [obj, key | rest], gas, ctx) do
+  defp run({:private_in, []}, frame, [key, obj | rest], gas, ctx) do
     result = case obj do
       {:obj, ref} ->
         map = Heap.get_obj(ref, %{})
@@ -1030,7 +1030,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         {:obj, ref}
       2 -> current_func
       3 -> current_func
-      4 -> current_func
+      4 ->
+        case ctx.this do
+          {:obj, ref} ->
+            case Heap.get_obj(ref, %{}) do
+              %{"__proto__" => proto} -> proto
+              _ -> :undefined
+            end
+          _ -> :undefined
+        end
       _ -> :undefined
     end
     run(advance(frame), [val | stack], gas - 1, ctx)
@@ -1353,7 +1361,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     case fun do
       %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, ctx)
       {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, ctx)
-      {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
+      {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, nil)
+        {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
       f when is_function(f) -> apply(f, rev_args)
       _ -> throw({:js_throw, make_error_obj("not a function", "TypeError")})
     end
@@ -1364,11 +1373,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     rev_args = Enum.reverse(args)
     method_ctx = %{ctx | this: obj}
     case fun do
-      %Bytecode.Function{} = f -> invoke_function(f, [obj | rev_args], gas, method_ctx)
-      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, [obj | rev_args], gas, method_ctx)
+      %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, method_ctx)
+      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, method_ctx)
       {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, obj)
       {:builtin, _name, cb} when is_function(cb, 3) -> cb.(rev_args, obj, :no_interp)
-      {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
+      {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, nil)
+        {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
       f when is_function(f) -> apply(f, [obj | rev_args])
       _ -> throw({:js_throw, make_error_obj("not a function", "TypeError")})
     end
@@ -1422,6 +1432,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       case fun do
         %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, ctx)
         {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, ctx)
+        {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, nil)
         {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
         f when is_function(f) -> apply(f, rev_args)
         _ -> throw({:js_throw, make_error_obj("not a function", "TypeError")})
@@ -1433,13 +1444,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     {args, [fun, obj | rest]} = Enum.split(stack, argc)
     rev_args = Enum.reverse(args)
     method_ctx = %{ctx | this: obj}
-    invoke_args = [obj | rev_args]
     catch_js_throw(frame, rest, gas, ctx, fn ->
       case fun do
-        %Bytecode.Function{} = f -> invoke_function(f, invoke_args, gas, method_ctx)
-        {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, invoke_args, gas, method_ctx)
+        %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, method_ctx)
+        {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, method_ctx)
         {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, obj)
         {:builtin, _name, cb} when is_function(cb, 3) -> cb.(rev_args, obj, :no_interp)
+        {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, nil)
         {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
         f when is_function(f) -> apply(f, [obj | rev_args])
         _ -> throw({:js_throw, make_error_obj("not a function", "TypeError")})

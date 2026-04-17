@@ -38,9 +38,17 @@ defmodule QuickBEAM.BeamVM.Heap do
 
   # ── Class metadata ──
 
+  def get_class_proto({:closure, _, raw} = ctor) do
+    Process.get({:qb_class_proto, :erlang.phash2(ctor)}) ||
+      Process.get({:qb_class_proto, :erlang.phash2(raw)})
+  end
   def get_class_proto(ctor), do: Process.get({:qb_class_proto, :erlang.phash2(ctor)})
   def put_class_proto(ctor, proto), do: Process.put({:qb_class_proto, :erlang.phash2(ctor)}, proto)
 
+  def get_parent_ctor({:closure, _, raw} = ctor) do
+    Process.get({:qb_parent_ctor, :erlang.phash2(ctor)}) ||
+      Process.get({:qb_parent_ctor, :erlang.phash2(raw)})
+  end
   def get_parent_ctor(ctor), do: Process.get({:qb_parent_ctor, :erlang.phash2(ctor)})
   def put_parent_ctor(ctor, parent), do: Process.put({:qb_parent_ctor, :erlang.phash2(ctor)}, parent)
 

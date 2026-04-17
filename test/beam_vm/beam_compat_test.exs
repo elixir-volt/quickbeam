@@ -1032,6 +1032,32 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     test "private field read", %{rt: rt} do
       ok(rt, "(function(){ class A { #x = 42; get() { return this.#x } } return new A().get() })()", 42)
     end
+
+    test "private field write", %{rt: rt} do
+      ok(rt, "(function(){ class A { #x = 0; set(v) { this.#x = v } get() { return this.#x } } var a = new A(); a.set(99); return a.get() })()", 99)
+    end
+
+    test "private field in constructor", %{rt: rt} do
+      ok(rt, "(function(){ class A { #x; constructor(v) { this.#x = v } get() { return this.#x } } return new A(42).get() })()", 42)
+    end
+
+    test "private in operator", %{rt: rt} do
+      ok(rt, "(function(){ class A { #x = 1; has() { return #x in this } } return new A().has() })()", true)
+    end
+  end
+
+  describe "super property access" do
+    test "super.method()", %{rt: rt} do
+      ok(rt, "(function(){ class A { greet() { return 'hello' } } class B extends A { test() { return super.greet() } } return new B().test() })()", "hello")
+    end
+
+    test "super with override", %{rt: rt} do
+      ok(rt, "(function(){ class A { val() { return 10 } } class B extends A { val() { return super.val() + 5 } } return new B().val() })()", 15)
+    end
+
+    test "inherited method without override", %{rt: rt} do
+      ok(rt, "(function(){ class A { greet() { return 'hello' } } class B extends A {} return new B().greet() })()", "hello")
+    end
   end
 
   describe "function hoisting" do
@@ -1047,6 +1073,10 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
 
     test "apply", %{rt: rt} do
       ok(rt, "(function(){ function f(a,b) { return a + b } return f.apply(null, [3, 4]) })()", 7)
+    end
+
+    test "bind", %{rt: rt} do
+      ok(rt, "(function(){ function f(x) { return this.v + x } var g = f.bind({v: 100}); return g(5) })()", 105)
     end
   end
 
