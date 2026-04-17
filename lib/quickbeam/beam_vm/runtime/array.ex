@@ -29,6 +29,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   def proto_property("findIndex"), do: {:builtin, "findIndex", fn args, this, interp -> find_index(this, args, interp) end}
   def proto_property("every"), do: {:builtin, "every", fn args, this, interp -> every(this, args, interp) end}
   def proto_property("some"), do: {:builtin, "some", fn args, this, interp -> some(this, args, interp) end}
+  def proto_property("flatMap"), do: {:builtin, "flatMap", fn args, this, interp -> flat_map(this, args, interp) end}
+  def proto_property("fill"), do: {:builtin, "fill", fn args, this -> fill(this, args) end}
   def proto_property(_), do: :undefined
 
   # ── Array static dispatch ──
@@ -42,7 +44,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
       end
     end}
   end
-  def static_property("from"), do: {:builtin, "from", fn args -> from(args) end}
+  def static_property("from"), do: {:builtin, "from", fn args, _this, interp -> from(args, interp) end}
   def static_property("of"), do: {:builtin, "of", fn args -> args end}
   def static_property(_), do: :undefined
 
@@ -260,6 +262,47 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
   defp flat(_, _), do: []
 
+  defp flat_map({:obj, ref}, args, interp), do: flat_map(Heap.get_obj(ref, []), args, interp)
+  defp flat_map(list, [cb | _], interp) when is_list(list) do
+    result = Enum.flat_map(Enum.with_index(list), fn {item, idx} ->
+      val = Runtime.call_builtin_callback(cb, [item, idx, list], interp)
+      case val do
+        {:obj, r} ->
+          case Heap.get_obj(r, []) do
+            l when is_list(l) -> l
+            _ -> [val]
+          end
+        l when is_list(l) -> l
+        _ -> [val]
+      end
+    end)
+    new_ref = System.unique_integer([:positive])
+    Heap.put_obj(new_ref, result)
+    {:obj, new_ref}
+  end
+  defp flat_map(_, _, _), do: :undefined
+
+  defp fill({:obj, ref}, args) do
+    list = Heap.get_obj(ref, [])
+    if is_list(list) do
+      val = Enum.at(args, 0, :undefined)
+      start_idx = Enum.at(args, 1) || 0
+      end_idx = Enum.at(args, 2) || length(list)
+      new_list = Enum.with_index(list, fn item, idx ->
+        if idx >= start_idx and idx < end_idx, do: val, else: item
+      end)
+      Heap.put_obj(ref, new_list)
+      {:obj, ref}
+    else
+      {:obj, ref}
+    end
+  end
+  defp fill(list, args) when is_list(list) do
+    val = Enum.at(args, 0, :undefined)
+    List.duplicate(val, length(list))
+  end
+  defp fill(_, _), do: :undefined
+
   # ── Predicates ──
 
   defp find({:obj, ref}, args, interp), do: find(Heap.get_obj(ref, []), args, interp)
@@ -296,23 +339,38 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   # ── Array.from ──
 
-  defp from([{:obj, ref} | _]) do
-    stored = Heap.get_obj(ref, %{})
-    case stored do
-      list when is_list(list) -> list
-      map when is_map(map) ->
-        len = Map.get(map, "length", 0)
-        if len > 0 do
-          for i <- 0..(len - 1), do: Map.get(map, Integer.to_string(i), :undefined)
-        else
-          []
+  defp from(args, interp) do
+    {source, map_fn} = case args do
+      [s, f | _] -> {s, f}
+      [s] -> {s, nil}
+      _ -> {nil, nil}
+    end
+    list = case source do
+      {:obj, ref} ->
+        stored = Heap.get_obj(ref, %{})
+        case stored do
+          l when is_list(l) -> l
+          map when is_map(map) ->
+            len = Map.get(map, "length", 0)
+            if len > 0 do
+              for i <- 0..(len - 1), do: Map.get(map, Integer.to_string(i), :undefined)
+            else
+              []
+            end
+          _ -> []
         end
+      l when is_list(l) -> l
+      s when is_binary(s) -> String.graphemes(s)
       _ -> []
     end
+    if map_fn do
+      Enum.map(Enum.with_index(list), fn {val, idx} ->
+        Runtime.call_builtin_callback(map_fn, [val, idx], interp)
+      end)
+    else
+      list
+    end
   end
-  defp from([list | _]) when is_list(list), do: list
-  defp from([s | _]) when is_binary(s), do: String.graphemes(s)
-  defp from(_), do: []
 
   # ── Internal ──
 

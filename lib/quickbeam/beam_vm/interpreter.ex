@@ -99,6 +99,22 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     {:obj, ref}
   end
 
+  defp check_prototype_chain(_, :undefined), do: false
+  defp check_prototype_chain(_, nil), do: false
+  defp check_prototype_chain({:obj, ref}, target) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        case Map.get(map, "__proto__") do
+          ^target -> true
+          nil -> false
+          :undefined -> false
+          proto -> check_prototype_chain(proto, target)
+        end
+      _ -> false
+    end
+  end
+  defp check_prototype_chain(_, _), do: false
+
   # ── Main dispatch loop ──
 
   defp run(_frame, _stack, gas, _ctx) when gas <= 0 do
@@ -610,8 +626,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── instanceof ──
 
-  defp run({:instanceof, []}, frame, [_ctor, _obj | rest], gas, ctx) do
-    run(advance(frame), [false | rest], gas - 1, ctx)
+  defp run({:instanceof, []}, frame, [ctor, obj | rest], gas, ctx) do
+    result = case obj do
+      {:obj, _} ->
+        ctor_proto = Runtime.get_property(ctor, "prototype")
+        check_prototype_chain(obj, ctor_proto)
+      _ -> false
+    end
+    run(advance(frame), [result | rest], gas - 1, ctx)
   end
 
   # ── delete ──
@@ -763,6 +785,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:obj, ref} ->
         stored = Heap.get_obj(ref, [])
         if is_list(stored), do: stored, else: []
+      s when is_binary(s) -> String.graphemes(s)
       _ -> []
     end
     run(advance(frame), [{:for_of_iterator, items, 0} | rest], gas - 1, ctx)
@@ -955,14 +978,21 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     Heap.put_obj(proto_ref, proto_map)
     proto = {:obj, proto_ref}
     Heap.put_class_proto(raw, proto)
+    Heap.put_ctor_static(ctor_closure, "prototype", proto)
     if parent_ctor != :undefined do
       Heap.put_parent_ctor(raw, parent_ctor)
     end
     run(advance(frame), [proto, ctor_closure | rest], gas - 1, ctx)
   end
 
-  defp run({:define_method, [atom_idx, _flags]}, frame, [method_closure, target | rest], gas, ctx) do
-    Objects.put(target, Scope.resolve_atom(ctx, atom_idx), method_closure)
+  defp run({:define_method, [atom_idx, flags]}, frame, [method_closure, target | rest], gas, ctx) do
+    name = Scope.resolve_atom(ctx, atom_idx)
+    method_type = Bitwise.band(flags, 3)
+    case method_type do
+      1 -> Objects.put_getter(target, name, method_closure)
+      2 -> Objects.put_setter(target, name, method_closure)
+      _ -> Objects.put(target, name, method_closure)
+    end
     run(advance(frame), [target | rest], gas - 1, ctx)
   end
 

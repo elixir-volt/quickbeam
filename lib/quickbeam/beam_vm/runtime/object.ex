@@ -52,12 +52,29 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
       _, acc -> acc
     end)
   end
+
   defp define_property([{:obj, ref} = obj, key, {:obj, desc_ref} | _]) do
     desc = Heap.get_obj(desc_ref, %{})
     prop_name = if is_binary(key), do: key, else: to_string(key)
     existing = Heap.get_obj(ref, %{})
-    val = Map.get(desc, "value", Map.get(existing, prop_name, :undefined))
-    Heap.put_obj(ref, Map.put(existing, prop_name, val))
+
+    getter = Map.get(desc, "get")
+    setter = Map.get(desc, "set")
+
+    if getter != nil or setter != nil do
+      existing_desc = Map.get(existing, prop_name)
+      {old_get, old_set} = case existing_desc do
+        {:accessor, g, s} -> {g, s}
+        _ -> {nil, nil}
+      end
+      new_get = if getter != nil, do: getter, else: old_get
+      new_set = if setter != nil, do: setter, else: old_set
+      Heap.put_obj(ref, Map.put(existing, prop_name, {:accessor, new_get, new_set}))
+    else
+      val = Map.get(desc, "value", Map.get(existing, prop_name, :undefined))
+      Heap.put_obj(ref, Map.put(existing, prop_name, val))
+    end
+
     obj
   end
   defp define_property([obj | _]), do: obj

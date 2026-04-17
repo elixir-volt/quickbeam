@@ -28,6 +28,17 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
       :error -> :nan
     end
   end
+  def to_number({:obj, _} = obj) do
+    map = QuickBEAM.BeamVM.Heap.get_obj(elem(obj, 1), %{})
+    case Map.get(map, "valueOf") do
+      fun when fun != nil and fun != :undefined ->
+        ctx = QuickBEAM.BeamVM.Heap.get_ctx() || %QuickBEAM.BeamVM.Interpreter.Ctx{}
+        QuickBEAM.BeamVM.Heap.put_ctx(%{ctx | this: obj})
+        result = QuickBEAM.BeamVM.Interpreter.invoke(fun, [], 10_000_000)
+        to_number(result)
+      _ -> :nan
+    end
+  end
   def to_number(_), do: :nan
 
   def to_int32(val) when is_integer(val), do: val
@@ -41,6 +52,17 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def to_js_string(n) when is_integer(n), do: Integer.to_string(n)
   def to_js_string(n) when is_float(n), do: Float.to_string(n)
   def to_js_string(s) when is_binary(s), do: s
+  def to_js_string({:obj, _} = obj) do
+    map = QuickBEAM.BeamVM.Heap.get_obj(elem(obj, 1), %{})
+    case Map.get(map, "toString") do
+      fun when fun != nil and fun != :undefined ->
+        ctx = QuickBEAM.BeamVM.Heap.get_ctx() || %QuickBEAM.BeamVM.Interpreter.Ctx{}
+        QuickBEAM.BeamVM.Heap.put_ctx(%{ctx | this: obj})
+        result = QuickBEAM.BeamVM.Interpreter.invoke(fun, [], 10_000_000)
+        to_js_string(result)
+      _ -> "[object Object]"
+    end
+  end
   def to_js_string(_), do: "[object]"
 
   def typeof(:undefined), do: "undefined"

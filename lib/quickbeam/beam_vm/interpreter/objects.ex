@@ -1,12 +1,52 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   alias QuickBEAM.BeamVM.{Heap, Bytecode}
 
-  def put({:obj, ref}, key, val) do
-    Heap.update_obj(ref, %{}, &Map.put(&1, key, val))
+  def put({:obj, ref} = obj, key, val) do
+    map = Heap.get_obj(ref, %{})
+    case is_map(map) && Map.get(map, key) do
+      {:accessor, _getter, setter} when setter != nil ->
+        invoke_setter(setter, val, obj)
+      _ ->
+        Heap.put_obj(ref, Map.put(map, key, val))
+    end
   end
   def put(%Bytecode.Function{} = f, key, val), do: Heap.put_ctor_static(f, key, val)
   def put({:closure, _, %Bytecode.Function{}} = c, key, val), do: Heap.put_ctor_static(c, key, val)
   def put(_, _, _), do: :ok
+
+  def put_getter({:obj, ref}, key, fun) do
+    Heap.update_obj(ref, %{}, fn map ->
+      desc = case Map.get(map, key) do
+        {:accessor, _get, set} -> {:accessor, fun, set}
+        _ -> {:accessor, fun, nil}
+      end
+      Map.put(map, key, desc)
+    end)
+  end
+  def put_getter(target, key, fun), do: Heap.put_ctor_static(target, key, {:accessor, fun, nil})
+
+  def put_setter({:obj, ref}, key, fun) do
+    Heap.update_obj(ref, %{}, fn map ->
+      desc = case Map.get(map, key) do
+        {:accessor, get, _set} -> {:accessor, get, fun}
+        _ -> {:accessor, nil, fun}
+      end
+      Map.put(map, key, desc)
+    end)
+  end
+  def put_setter(target, key, fun), do: Heap.put_ctor_static(target, key, {:accessor, nil, fun})
+
+  defp invoke_setter(fun, val, this_obj) do
+    alias QuickBEAM.BeamVM.{Bytecode, Interpreter.Ctx}
+    ctx = Heap.get_ctx() || %Ctx{}
+    Heap.put_ctx(%{ctx | this: this_obj})
+    case fun do
+      %Bytecode.Function{} = f -> QuickBEAM.BeamVM.Interpreter.invoke(f, [val], 10_000_000)
+      {:closure, _, %Bytecode.Function{}} = c -> QuickBEAM.BeamVM.Interpreter.invoke(c, [val], 10_000_000)
+      cb when is_function(cb, 1) -> cb.(val)
+      _ -> :ok
+    end
+  end
 
   def has_property({:obj, ref}, key), do: Map.has_key?(Heap.get_obj(ref, %{}), key)
   def has_property(obj, key) when is_map(obj), do: Map.has_key?(obj, key)

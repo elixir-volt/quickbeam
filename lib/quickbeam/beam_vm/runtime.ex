@@ -80,7 +80,12 @@ defmodule QuickBEAM.BeamVM.Runtime do
     case Heap.get_obj(ref) do
       nil -> :undefined
       list when is_list(list) -> get_own_property(list, key)
-      map -> Map.get(map, key, :undefined)
+      map when is_map(map) ->
+        case Map.get(map, key) do
+          {:accessor, getter, _setter} when getter != nil -> invoke_getter(getter, {:obj, ref})
+          nil -> :undefined
+          val -> val
+        end
     end
   end
   defp get_own_property(list, "length") when is_list(list), do: length(list)
@@ -112,6 +117,18 @@ defmodule QuickBEAM.BeamVM.Runtime do
     Map.get(Heap.get_ctor_statics(c), key, :undefined)
   end
   defp get_own_property(_, _), do: :undefined
+
+  defp invoke_getter(fun, this_obj) do
+    alias QuickBEAM.BeamVM.{Bytecode, Heap, Interpreter.Ctx}
+    ctx = Heap.get_ctx() || %Ctx{}
+    Heap.put_ctx(%{ctx | this: this_obj})
+    case fun do
+      %Bytecode.Function{} = f -> QuickBEAM.BeamVM.Interpreter.invoke(f, [], 10_000_000)
+      {:closure, _, %Bytecode.Function{}} = c -> QuickBEAM.BeamVM.Interpreter.invoke(c, [], 10_000_000)
+      cb when is_function(cb, 0) -> cb.()
+      _ -> :undefined
+    end
+  end
 
   defp get_prototype_property({:obj, ref}, key) do
     case Heap.get_obj(ref) do

@@ -786,6 +786,61 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     test "uncaught TypeError propagates through call stack", %{rt: rt} do
       ok(rt, "(function(){ function f() { null.x } try { f() } catch(e) { return e.name } })()", "TypeError")
     end
+
+  end
+
+  describe "instanceof" do
+    test "instanceof class", %{rt: rt} do
+      ok(rt, "(function(){ class A {} return new A() instanceof A })()", true)
+    end
+
+    test "instanceof with inheritance", %{rt: rt} do
+      ok(rt, "(function(){ class A {} class B extends A {} return new B() instanceof A })()", true)
+    end
+  end
+
+  describe "getters and setters" do
+    test "object literal getter", %{rt: rt} do
+      ok(rt, "(function(){ var o = { get x() { return 42 } }; return o.x })()", 42)
+    end
+
+    test "getter and setter", %{rt: rt} do
+      ok(rt, "(function(){ var o = { _v: 0, set v(x) { this._v = x }, get v() { return this._v } }; o.v = 7; return o.v })()", 7)
+    end
+
+    test "Object.defineProperty getter", %{rt: rt} do
+      ok(rt, "(function(){ var o = {}; Object.defineProperty(o, 'x', { get: function() { return 42 } }); return o.x })()", 42)
+    end
+  end
+
+  describe "coercion" do
+    test "valueOf for arithmetic", %{rt: rt} do
+      ok(rt, "(function(){ var o = { valueOf: function() { return 42 } }; return o + 1 })()", 43)
+    end
+
+    test "toString for concatenation", %{rt: rt} do
+      ok(rt, "(function(){ var o = { toString: function() { return 'hi' } }; return o + '!' })()", "hi!")
+    end
+  end
+
+  describe "array methods" do
+    test "flatMap", %{rt: rt} do
+      ok(rt, "(function(){ return [1,2,3].flatMap(function(x){return [x, x*2]}).join(',') })()", "1,2,2,4,3,6")
+    end
+
+    test "fill", %{rt: rt} do
+      ok(rt, "(function(){ return [1,2,3].fill(0).join(',') })()", "0,0,0")
+    end
+
+    test "Array.from with map callback", %{rt: rt} do
+      ok(rt, "(function(){ return Array.from([1,2,3], function(x){return x*2}).join(',') })()", "2,4,6")
+    end
+  end
+
+  describe "iteration" do
+    test "for-of string", %{rt: rt} do
+      ok(rt, ~s[(function(){ var r = ""; for (var c of "abc") r += c; return r })()], "abc")
+    end
   end
 
   # ── Generator functions ──
