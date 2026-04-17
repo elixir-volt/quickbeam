@@ -75,8 +75,10 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   def has_property(obj, key) when is_list(obj) and is_integer(key), do: key >= 0 and key < length(obj)
   def has_property(_, _), do: false
 
-  def get_array_el({:obj, ref}, idx) do
+  def get_array_el({:obj, ref} = obj, idx) do
     case Heap.get_obj(ref) do
+      %{"__typed_array__" => true} when is_integer(idx) ->
+        QuickBEAM.BeamVM.Runtime.TypedArray.get_element(obj, idx)
       list when is_list(list) and is_integer(idx) -> Enum.at(list, idx, :undefined)
       map when is_map(map) ->
         key = if is_integer(idx), do: Integer.to_string(idx), else: idx
@@ -89,8 +91,10 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   def get_array_el(s, idx) when is_binary(s) and is_integer(idx) and idx >= 0, do: String.at(s, idx) || :undefined
   def get_array_el(_, _), do: :undefined
 
-  def put_array_el({:obj, ref}, key, val) do
+  def put_array_el({:obj, ref} = obj, key, val) do
     case Heap.get_obj(ref) do
+      %{"__typed_array__" => true} when is_integer(key) ->
+        QuickBEAM.BeamVM.Runtime.TypedArray.set_element(obj, key, val)
       list when is_list(list) ->
         case key do
           i when is_integer(i) and i >= 0 and i < length(list) ->

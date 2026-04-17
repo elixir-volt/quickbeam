@@ -152,6 +152,19 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
     end
   end
 
+  def bigint_constructor do
+    fn
+      [n | _] when is_integer(n) -> {:bigint, n}
+      [s | _] when is_binary(s) ->
+        case Integer.parse(s) do
+          {n, ""} -> {:bigint, n}
+          _ -> throw({:js_throw, %{"message" => "Cannot convert to BigInt", "name" => "SyntaxError"}})
+        end
+      [{:bigint, n} | _] -> {:bigint, n}
+      _ -> throw({:js_throw, %{"message" => "Cannot convert to BigInt", "name" => "TypeError"}})
+    end
+  end
+
   def error_constructor do
     fn args ->
       msg = List.first(args, "")

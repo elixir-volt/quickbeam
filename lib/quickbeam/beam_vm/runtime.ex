@@ -15,7 +15,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   import Bitwise, only: [band: 2]
 
   alias QuickBEAM.BeamVM.Bytecode
-  alias QuickBEAM.BeamVM.Runtime.{Array, StringProto, JSON, Object, RegExp, Builtins}
+  alias QuickBEAM.BeamVM.Runtime.{Array, StringProto, JSON, Object, RegExp, Builtins, TypedArray}
   alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
 
   # ── Global bindings ──
@@ -55,6 +55,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
       "Array" => {:builtin, "Array", Builtins.array_constructor()},
       "String" => {:builtin, "String", Builtins.string_constructor()},
       "Number" => {:builtin, "Number", Builtins.number_constructor()},
+      "BigInt" => {:builtin, "BigInt", Builtins.bigint_constructor()},
       "Boolean" => {:builtin, "Boolean", Builtins.boolean_constructor()},
       "Function" => {:builtin, "Function", Builtins.function_constructor()},
       "Error" => register_error_builtin("Error"),
@@ -112,6 +113,17 @@ defmodule QuickBEAM.BeamVM.Runtime do
       "globalThis" => obj_new(),
       "structuredClone" => {:builtin, "structuredClone", fn [val | _] -> val end},
       "queueMicrotask" => {:builtin, "queueMicrotask", fn _ -> :undefined end},
+      "ArrayBuffer" => {:builtin, "ArrayBuffer", &TypedArray.array_buffer_constructor/1},
+      "Uint8Array" => {:builtin, "Uint8Array", TypedArray.typed_array_constructor(:uint8)},
+      "Int8Array" => {:builtin, "Int8Array", TypedArray.typed_array_constructor(:int8)},
+      "Uint8ClampedArray" => {:builtin, "Uint8ClampedArray", TypedArray.typed_array_constructor(:uint8_clamped)},
+      "Uint16Array" => {:builtin, "Uint16Array", TypedArray.typed_array_constructor(:uint16)},
+      "Int16Array" => {:builtin, "Int16Array", TypedArray.typed_array_constructor(:int16)},
+      "Uint32Array" => {:builtin, "Uint32Array", TypedArray.typed_array_constructor(:uint32)},
+      "Int32Array" => {:builtin, "Int32Array", TypedArray.typed_array_constructor(:int32)},
+      "Float32Array" => {:builtin, "Float32Array", TypedArray.typed_array_constructor(:float32)},
+      "Float64Array" => {:builtin, "Float64Array", TypedArray.typed_array_constructor(:float64)},
+      "DataView" => {:builtin, "DataView", fn _ -> obj_new() end},
     }
   end
 
@@ -415,6 +427,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   def js_strict_eq(a, b), do: a === b
 
+  def js_to_string({:bigint, n}), do: Integer.to_string(n)
   def js_to_string(:undefined), do: "undefined"
   def js_to_string(nil), do: "null"
   def js_to_string(true), do: "true"

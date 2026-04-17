@@ -1026,6 +1026,52 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
   end
 
+  # ── P1 features ──
+
+  describe "TypedArrays" do
+    test "ArrayBuffer", %{rt: rt} do
+      ok(rt, "(function(){ var buf = new ArrayBuffer(8); return buf.byteLength })()", 8)
+    end
+
+    test "Uint8Array set/get", %{rt: rt} do
+      ok(rt, "(function(){ var a = new Uint8Array(4); a[0] = 42; return a[0] })()", 42)
+    end
+
+    test "Uint8Array from array", %{rt: rt} do
+      ok(rt, "(function(){ var a = new Uint8Array([1,2,3]); return a.length })()", 3)
+    end
+
+    test "Int32Array signed", %{rt: rt} do
+      ok(rt, "(function(){ var a = new Int32Array(2); a[0] = -1; return a[0] })()", -1)
+    end
+
+    test "Float64Array", %{rt: rt} do
+      ok(rt, "(function(){ var a = new Float64Array([1.5, 2.5]); return a[0] + a[1] })()", 4.0)
+    end
+  end
+
+  describe "BigInt" do
+    test "typeof", %{rt: rt} do
+      ok(rt, "(function(){ return typeof 42n })()", "bigint")
+    end
+
+    test "addition", %{rt: rt} do
+      ok(rt, "(function(){ return Number(10n + 20n) })()", 30)
+    end
+
+    test "multiplication", %{rt: rt} do
+      ok(rt, "(function(){ return Number(3n * 4n) })()", 12)
+    end
+
+    test "comparison", %{rt: rt} do
+      ok(rt, "(function(){ return 10n > 5n })()", true)
+    end
+
+    test "exponentiation", %{rt: rt} do
+      ok(rt, "(function(){ return Number(2n ** 10n) })()", 1024)
+    end
+  end
+
   # ── P0 features ──
 
   describe "private fields" do

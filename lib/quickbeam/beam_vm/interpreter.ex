@@ -532,7 +532,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:obj, ref} ->
         case Heap.get_obj(ref) do
           list when is_list(list) -> length(list)
-          map when is_map(map) -> map_size(map)
+          map when is_map(map) -> Map.get(map, "length", map_size(map))
           _ -> 0
         end
       list when is_list(list) -> length(list)
