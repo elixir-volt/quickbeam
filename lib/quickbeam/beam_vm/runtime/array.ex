@@ -297,9 +297,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   # ── Array.from ──
 
   defp from([{:obj, ref} | _]) do
-    map = Heap.get_obj(ref, %{})
-    len = Map.get(map, "length", 0)
-    for i <- 0..(len - 1), do: Map.get(map, Integer.to_string(i), :undefined)
+    stored = Heap.get_obj(ref, %{})
+    case stored do
+      list when is_list(list) -> list
+      map when is_map(map) ->
+        len = Map.get(map, "length", 0)
+        if len > 0 do
+          for i <- 0..(len - 1), do: Map.get(map, Integer.to_string(i), :undefined)
+        else
+          []
+        end
+      _ -> []
+    end
   end
   defp from([list | _]) when is_list(list), do: list
   defp from([s | _]) when is_binary(s), do: String.graphemes(s)

@@ -1,9 +1,11 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Objects do
-  alias QuickBEAM.BeamVM.Heap
+  alias QuickBEAM.BeamVM.{Heap, Bytecode}
 
   def put({:obj, ref}, key, val) do
     Heap.update_obj(ref, %{}, &Map.put(&1, key, val))
   end
+  def put(%Bytecode.Function{} = f, key, val), do: Heap.put_ctor_static(f, key, val)
+  def put({:closure, _, %Bytecode.Function{}} = c, key, val), do: Heap.put_ctor_static(c, key, val)
   def put(_, _, _), do: :ok
 
   def has_property({:obj, ref}, key), do: Map.has_key?(Heap.get_obj(ref, %{}), key)

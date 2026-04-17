@@ -12,6 +12,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   - `Runtime.Builtins` — Math, Number, Boolean, Console, constructors, global functions
   """
 
+  alias QuickBEAM.BeamVM.Bytecode
   alias QuickBEAM.BeamVM.Runtime.{Array, StringProto, JSON, Object, RegExp, Builtins}
 
   # ── Global bindings ──
@@ -104,6 +105,12 @@ defmodule QuickBEAM.BeamVM.Runtime do
     Map.get(map, key, :undefined)
   end
   defp get_own_property({:regexp, _, _}, key), do: RegExp.proto_property(key)
+  defp get_own_property(%Bytecode.Function{} = f, key) do
+    Map.get(Heap.get_ctor_statics(f), key, :undefined)
+  end
+  defp get_own_property({:closure, _, %Bytecode.Function{}} = c, key) do
+    Map.get(Heap.get_ctor_statics(c), key, :undefined)
+  end
   defp get_own_property(_, _), do: :undefined
 
   defp get_prototype_property({:obj, ref}, key) do

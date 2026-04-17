@@ -745,6 +745,48 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     test "class super with method", %{rt: rt} do
       ok(rt, "(function(){ class A { constructor(x) { this.val = x } get() { return this.val } } class B extends A { constructor(x) { super(x * 2) } } return new B(21).get() })()", 42)
     end
+
+    test "class static methods", %{rt: rt} do
+      ok(rt, "(function(){ class A { static foo() { return 42 } } return A.foo() })()", 42)
+    end
+
+    test "class fields", %{rt: rt} do
+      ok(rt, "(function(){ class A { x = 42 } return new A().x })()", 42)
+    end
+
+    test "class static and instance methods", %{rt: rt} do
+      ok(rt, "(function(){ class A { static s() { return 1 } i() { return 2 } } return A.s() + new A().i() })()", 3)
+    end
+  end
+
+  describe "error handling" do
+    test "ReferenceError is catchable", %{rt: rt} do
+      ok(rt, "(function(){ try { undeclaredVar } catch(e) { return e.name } })()", "ReferenceError")
+    end
+
+    test "TypeError on null property access", %{rt: rt} do
+      ok(rt, "(function(){ try { null.foo } catch(e) { return e.name } })()", "TypeError")
+    end
+
+    test "TypeError on calling non-function", %{rt: rt} do
+      ok(rt, "(function(){ try { var x = 1; x() } catch(e) { return e.name } })()", "TypeError")
+    end
+
+    test "error.message accessible", %{rt: rt} do
+      ok(rt, "(function(){ try { undeclaredVar } catch(e) { return e.message } })()", "undeclaredVar is not defined")
+    end
+
+    test "typeof caught error is object", %{rt: rt} do
+      ok(rt, "(function(){ try { null.foo } catch(e) { return typeof e } })()", "object")
+    end
+
+    test "throw from called function is catchable", %{rt: rt} do
+      ok(rt, "(function(){ function f() { throw new Error('boom') } try { f() } catch(e) { return e.message } })()", "boom")
+    end
+
+    test "uncaught TypeError propagates through call stack", %{rt: rt} do
+      ok(rt, "(function(){ function f() { null.x } try { f() } catch(e) { return e.name } })()", "TypeError")
+    end
   end
 
   # ── Generator functions ──

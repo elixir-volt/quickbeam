@@ -71,11 +71,33 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp active_ctx, do: Process.get(:qb_ctx, %Ctx{})
 
+  defp catch_js_throw(frame, rest, gas, ctx, fun) do
+    try do
+      result = fun.()
+      run(advance(frame), [result | rest], gas - 1, ctx)
+    catch
+      {:js_throw, val} ->
+        case ctx.catch_stack do
+          [{target, saved_stack} | rest_catch] ->
+            run(jump(frame, target), [val | saved_stack], gas - 1, %{ctx | catch_stack: rest_catch})
+          [] ->
+            throw({:js_throw, val})
+        end
+    end
+  end
+
   # ── Helpers ──
 
   defp advance(%Frame{pc: pc} = f), do: %{f | pc: pc + 1}
   defp jump(%Frame{} = f, target), do: %{f | pc: target}
   defp put_local(%Frame{locals: locals} = f, idx, val), do: %{f | locals: put_elem(locals, idx, val)}
+
+
+  defp make_error_obj(message, name) do
+    ref = make_ref()
+    Heap.put_obj(ref, %{"message" => message, "name" => name})
+    {:obj, ref}
+  end
 
   # ── Main dispatch loop ──
 
@@ -323,6 +345,18 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [{:obj, ref} | stack], gas - 1, ctx)
   end
 
+  defp run({:get_field, [atom_idx]}, frame, [obj | _rest], gas, ctx) when obj == nil or obj == :undefined do
+    prop = Scope.resolve_atom(ctx, atom_idx)
+    nullish = if obj == nil, do: "null", else: "undefined"
+    error = make_error_obj("Cannot read properties of #{nullish} (reading '#{prop}')", "TypeError")
+    case ctx.catch_stack do
+      [{target, saved_stack} | rest_catch] ->
+        run(jump(frame, target), [error | saved_stack], gas - 1, %{ctx | catch_stack: rest_catch})
+      [] ->
+        throw({:js_throw, error})
+    end
+  end
+
   defp run({:get_field, [atom_idx]}, frame, [obj | rest], gas, ctx) do
     run(advance(frame), [Runtime.get_property(obj, Scope.resolve_atom(ctx, atom_idx)) | rest], gas - 1, ctx)
   end
@@ -413,7 +447,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:found, val} ->
         run(advance(frame), [val | stack], gas - 1, ctx)
       :not_found ->
-        throw({:js_throw, %{"message" => "#{Scope.resolve_atom(ctx, atom_idx)} is not defined", "name" => "ReferenceError"}})
+        error = make_error_obj("#{Scope.resolve_atom(ctx, atom_idx)} is not defined", "ReferenceError")
+        case ctx.catch_stack do
+          [{target, saved_stack} | rest_catch] ->
+            run(jump(frame, target), [error | saved_stack], gas - 1, %{ctx | catch_stack: rest_catch})
+          [] ->
+            throw({:js_throw, error})
+        end
     end
   end
 
@@ -433,6 +473,18 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:check_define_var, [atom_idx, _scope]}, frame, stack, gas, ctx) do
     Heap.delete_var(Scope.resolve_atom(ctx, atom_idx))
     run(advance(frame), stack, gas - 1, ctx)
+  end
+
+  defp run({:get_field2, [atom_idx]}, frame, [obj | _rest], gas, ctx) when obj == nil or obj == :undefined do
+    prop = Scope.resolve_atom(ctx, atom_idx)
+    nullish = if obj == nil, do: "null", else: "undefined"
+    error = make_error_obj("Cannot read properties of #{nullish} (reading '#{prop}')", "TypeError")
+    case ctx.catch_stack do
+      [{target, saved_stack} | rest_catch] ->
+        run(jump(frame, target), [error | saved_stack], gas - 1, %{ctx | catch_stack: rest_catch})
+      [] ->
+        throw({:js_throw, error})
+    end
   end
 
   defp run({:get_field2, [atom_idx]}, frame, [obj | rest], gas, ctx) do
@@ -476,8 +528,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     {args, [_new_target, ctor | rest]} = Enum.split(stack, argc)
     rev_args = Enum.reverse(args)
 
+    raw_ctor = case ctor do
+      {:closure, _, %Bytecode.Function{} = f} -> f
+      other -> other
+    end
     this_ref = make_ref()
-    proto = Heap.get_class_proto(ctor)
+    proto = Heap.get_class_proto(raw_ctor)
     init = if proto, do: %{"__proto__" => proto}, else: %{}
     Heap.put_obj(this_ref, init)
     this_obj = {:obj, this_ref}
@@ -513,7 +569,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       _ -> this_obj
     end
 
-    case {result, Heap.get_class_proto(ctor)} do
+    case {result, Heap.get_class_proto(raw_ctor)} do
       {{:obj, rref}, {:obj, _} = proto2} ->
         rmap = Heap.get_obj(rref, %{})
         unless Map.has_key?(rmap, "__proto__") do
@@ -854,7 +910,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:builtin, _name, cb} when is_function(cb, 3) -> cb.(args, this_obj, self())
       {:builtin, _name, cb} when is_function(cb, 1) -> cb.(args)
       f when is_function(f) -> apply(f, [this_obj | args])
-      _ -> throw({:error, {:not_a_function, fun}})
+      _ -> throw({:js_throw, make_error_obj("not a function", "TypeError")})
     end
     run(advance(frame), [result | rest], gas - 1, ctx)
   end
@@ -882,31 +938,31 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Class definitions ──
 
-  defp run({:define_class, [_atom_idx, _flags]}, frame, [ctor, parent_ctor | rest], gas, ctx) do
-    proto_ref = make_ref()
-    proto_map = case ctor do
-      %Bytecode.Function{} = f -> %{"constructor" => {:closure, %{}, f}}
-      closure -> %{"constructor" => closure}
+  defp run({:define_class, [_atom_idx, _flags]}, %Frame{locals: locals, var_refs: vrefs, local_to_vref: l2v} = frame, [ctor, parent_ctor | rest], gas, ctx) do
+    ctor_closure = case ctor do
+      %Bytecode.Function{} = f -> build_closure(f, locals, vrefs, l2v, ctx)
+      already_closure -> already_closure
     end
+    raw = case ctor_closure do
+      {:closure, _, %Bytecode.Function{} = f} -> f
+      %Bytecode.Function{} = f -> f
+      other -> other
+    end
+    proto_ref = make_ref()
+    proto_map = %{"constructor" => ctor_closure}
     parent_proto = Heap.get_class_proto(parent_ctor)
     proto_map = if parent_proto, do: Map.put(proto_map, "__proto__", parent_proto), else: proto_map
     Heap.put_obj(proto_ref, proto_map)
     proto = {:obj, proto_ref}
-    Heap.put_class_proto(ctor, proto)
+    Heap.put_class_proto(raw, proto)
     if parent_ctor != :undefined do
-      Heap.put_parent_ctor(ctor, parent_ctor)
+      Heap.put_parent_ctor(raw, parent_ctor)
     end
-    run(advance(frame), [proto, ctor | rest], gas - 1, ctx)
+    run(advance(frame), [proto, ctor_closure | rest], gas - 1, ctx)
   end
 
   defp run({:define_method, [atom_idx, _flags]}, frame, [method_closure, target | rest], gas, ctx) do
-    name = Scope.resolve_atom(ctx, atom_idx)
-    case target do
-      {:obj, ref} ->
-        existing = Heap.get_obj(ref, %{})
-        if is_map(existing), do: Heap.put_obj(ref, Map.put(existing, name, method_closure))
-      _ -> :ok
-    end
+    Objects.put(target, Scope.resolve_atom(ctx, atom_idx), method_closure)
     run(advance(frame), [target | rest], gas - 1, ctx)
   end
 
@@ -936,7 +992,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, ctx)
       {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
       f when is_function(f) -> apply(f, rev_args)
-      _ -> throw({:error, {:not_a_function, fun}})
+      _ -> throw({:js_throw, make_error_obj("not a function", "TypeError")})
     end
   end
 
@@ -951,7 +1007,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:builtin, _name, cb} when is_function(cb, 3) -> cb.(rev_args, obj, :no_interp)
       {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
       f when is_function(f) -> apply(f, [obj | rev_args])
-      _ -> throw({:error, {:not_a_function, fun}})
+      _ -> throw({:js_throw, make_error_obj("not a function", "TypeError")})
     end
   end
 
@@ -999,14 +1055,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp call_function(frame, stack, argc, gas, ctx) do
     {args, [fun | rest]} = Enum.split(stack, argc)
     rev_args = Enum.reverse(args)
-    result = case fun do
-      %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, ctx)
-      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, ctx)
-      {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
-      f when is_function(f) -> apply(f, rev_args)
-      _ -> throw({:error, {:not_a_function, fun}})
-    end
-    run(advance(frame), [result | rest], gas - 1, ctx)
+    catch_js_throw(frame, rest, gas, ctx, fn ->
+      case fun do
+        %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, ctx)
+        {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, ctx)
+        {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
+        f when is_function(f) -> apply(f, rev_args)
+        _ -> throw({:js_throw, make_error_obj("not a function", "TypeError")})
+      end
+    end)
   end
 
   defp call_method(frame, stack, argc, gas, ctx) do
@@ -1014,16 +1071,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     rev_args = Enum.reverse(args)
     method_ctx = %{ctx | this: obj}
     invoke_args = [obj | rev_args]
-    result = case fun do
-      %Bytecode.Function{} = f -> invoke_function(f, invoke_args, gas, method_ctx)
-      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, invoke_args, gas, method_ctx)
-      {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, obj)
-      {:builtin, _name, cb} when is_function(cb, 3) -> cb.(rev_args, obj, :no_interp)
-      {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
-      f when is_function(f) -> apply(f, [obj | rev_args])
-      _ -> throw({:error, {:not_a_function, fun}})
-    end
-    run(advance(frame), [result | rest], gas - 1, ctx)
+    catch_js_throw(frame, rest, gas, ctx, fn ->
+      case fun do
+        %Bytecode.Function{} = f -> invoke_function(f, invoke_args, gas, method_ctx)
+        {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, invoke_args, gas, method_ctx)
+        {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, obj)
+        {:builtin, _name, cb} when is_function(cb, 3) -> cb.(rev_args, obj, :no_interp)
+        {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
+        f when is_function(f) -> apply(f, [obj | rev_args])
+        _ -> throw({:js_throw, make_error_obj("not a function", "TypeError")})
+      end
+    end)
   end
 
   defp invoke_function(%Bytecode.Function{} = fun, args, gas, ctx) do

@@ -38,6 +38,14 @@ defmodule QuickBEAM.BeamVM.Heap do
   def get_parent_ctor(ctor), do: Process.get({:qb_parent_ctor, :erlang.phash2(ctor)})
   def put_parent_ctor(ctor, parent), do: Process.put({:qb_parent_ctor, :erlang.phash2(ctor)}, parent)
 
+  # ── Constructor statics ──
+
+  def get_ctor_statics(ctor), do: Process.get({:qb_ctor_statics, :erlang.phash2(ctor)}, %{})
+  def put_ctor_static(ctor, key, val) do
+    statics = get_ctor_statics(ctor)
+    Process.put({:qb_ctor_statics, :erlang.phash2(ctor)}, Map.put(statics, key, val))
+  end
+
   # ── Variable bindings ──
 
   def get_var(name), do: Process.get({:qb_var, name})
