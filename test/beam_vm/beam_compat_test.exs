@@ -1026,6 +1026,30 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
   end
 
+  # ── P0 features ──
+
+  describe "private fields" do
+    test "private field read", %{rt: rt} do
+      ok(rt, "(function(){ class A { #x = 42; get() { return this.#x } } return new A().get() })()", 42)
+    end
+  end
+
+  describe "function hoisting" do
+    test "hoisted function", %{rt: rt} do
+      ok(rt, "(function(){ return f(); function f() { return 42 } })()", 42)
+    end
+  end
+
+  describe "Function.prototype" do
+    test "call", %{rt: rt} do
+      ok(rt, "(function(){ function f(x) { return this.v + x } return f.call({v: 10}, 5) })()", 15)
+    end
+
+    test "apply", %{rt: rt} do
+      ok(rt, "(function(){ function f(a,b) { return a + b } return f.apply(null, [3, 4]) })()", 7)
+    end
+  end
+
   # ── with statement ──
 
   describe "with statement" do

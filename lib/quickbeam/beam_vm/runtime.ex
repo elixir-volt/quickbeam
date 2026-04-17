@@ -235,6 +235,8 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_prototype_property(n, key) when is_number(n), do: Builtins.number_proto_property(key)
   defp get_prototype_property(true, key), do: Builtins.boolean_proto_property(key)
   defp get_prototype_property(false, key), do: Builtins.boolean_proto_property(key)
+  defp get_prototype_property(%Bytecode.Function{} = f, key), do: function_proto_property(f, key)
+  defp get_prototype_property({:closure, _, %Bytecode.Function{}} = c, key), do: function_proto_property(c, key)
   defp get_prototype_property({:builtin, "Error", _}, key), do: Builtins.error_static_property(key)
   defp get_prototype_property({:builtin, "Array", _}, key), do: Array.static_property(key)
   defp get_prototype_property({:builtin, "Object", _}, key), do: Object.static_property(key)
@@ -242,7 +244,48 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_prototype_property({:builtin, "Set", _}, _key), do: :undefined
   defp get_prototype_property({:builtin, "Number", _}, key), do: Builtins.number_static_property(key)
   defp get_prototype_property({:builtin, "String", _}, key), do: Builtins.string_static_property(key)
+  defp get_prototype_property({:builtin, name, _} = fun, key) when is_binary(name), do: function_proto_property(fun, key)
   defp get_prototype_property(_, _), do: :undefined
+
+  defp invoke_fun(fun, args, this_arg) do
+    case fun do
+      {:builtin, _, cb} when is_function(cb, 2) -> cb.(args, this_arg)
+      {:builtin, _, cb} when is_function(cb, 3) -> cb.(args, this_arg, :no_interp)
+      {:builtin, _, cb} when is_function(cb, 1) -> cb.(args)
+      _ -> QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, args, 10_000_000, this_arg)
+    end
+  end
+
+  defp function_proto_property(fun, "call") do
+    {:builtin, "call", fn [this_arg | args], _this ->
+      invoke_fun(fun, args, this_arg)
+    end}
+  end
+  defp function_proto_property(fun, "apply") do
+    {:builtin, "apply", fn [this_arg | rest], _this ->
+      args_array = List.first(rest)
+      args = case args_array do
+        {:obj, ref} ->
+          case Heap.get_obj(ref, []) do
+            list when is_list(list) -> list
+            _ -> []
+          end
+        list when is_list(list) -> list
+        _ -> []
+      end
+      invoke_fun(fun, args, this_arg)
+    end}
+  end
+  defp function_proto_property(fun, "bind") do
+    {:builtin, "bind", fn [this_arg | bound_args], _this ->
+      {:builtin, "bound", fn args, _this2 ->
+        invoke_fun(fun, bound_args ++ args, this_arg)
+      end}
+    end}
+  end
+  defp function_proto_property(_fun, "length"), do: 0
+  defp function_proto_property(_fun, "name"), do: ""
+  defp function_proto_property(_fun, _), do: :undefined
 
   defp map_proto("get"), do: {:builtin, "get", fn [key | _], {:obj, ref} ->
     data = Heap.get_obj(ref, %{}) |> Map.get("__map_data__", %{})
@@ -265,6 +308,28 @@ defmodule QuickBEAM.BeamVM.Runtime do
     new_data = Map.delete(data, key)
     Heap.put_obj(ref, %{obj | "__map_data__" => new_data, "size" => map_size(new_data)})
     true
+  end}
+  defp map_proto("clear"), do: {:builtin, "clear", fn _, {:obj, ref} ->
+    obj = Heap.get_obj(ref, %{})
+    Heap.put_obj(ref, %{obj | "__map_data__" => %{}, "size" => 0})
+    :undefined
+  end}
+  defp map_proto("keys"), do: {:builtin, "keys", fn _, {:obj, ref} ->
+    data = Heap.get_obj(ref, %{}) |> Map.get("__map_data__", %{})
+    keys = Map.keys(data)
+    r = make_ref(); Heap.put_obj(r, keys); {:obj, r}
+  end}
+  defp map_proto("values"), do: {:builtin, "values", fn _, {:obj, ref} ->
+    data = Heap.get_obj(ref, %{}) |> Map.get("__map_data__", %{})
+    vals = Map.values(data)
+    r = make_ref(); Heap.put_obj(r, vals); {:obj, r}
+  end}
+  defp map_proto("entries"), do: {:builtin, "entries", fn _, {:obj, ref} ->
+    data = Heap.get_obj(ref, %{}) |> Map.get("__map_data__", %{})
+    entries = Enum.map(data, fn {k, v} ->
+      r = make_ref(); Heap.put_obj(r, [k, v]); {:obj, r}
+    end)
+    r = make_ref(); Heap.put_obj(r, entries); {:obj, r}
   end}
   defp map_proto("forEach"), do: {:builtin, "forEach", fn [cb | _], {:obj, ref}, interp ->
     data = Heap.get_obj(ref, %{}) |> Map.get("__map_data__", %{})
@@ -292,6 +357,28 @@ defmodule QuickBEAM.BeamVM.Runtime do
     new_data = List.delete(data, val)
     Heap.put_obj(ref, %{obj | "__set_data__" => new_data, "size" => length(new_data)})
     true
+  end}
+  defp set_proto("clear"), do: {:builtin, "clear", fn _, {:obj, ref} ->
+    obj = Heap.get_obj(ref, %{})
+    Heap.put_obj(ref, %{obj | "__set_data__" => [], "size" => 0})
+    :undefined
+  end}
+  defp set_proto("values"), do: {:builtin, "values", fn _, {:obj, ref} ->
+    data = Heap.get_obj(ref, %{}) |> Map.get("__set_data__", [])
+    r = make_ref(); Heap.put_obj(r, data); {:obj, r}
+  end}
+  defp set_proto("keys"), do: set_proto("values")
+  defp set_proto("entries"), do: {:builtin, "entries", fn _, {:obj, ref} ->
+    data = Heap.get_obj(ref, %{}) |> Map.get("__set_data__", [])
+    entries = Enum.map(data, fn v ->
+      r = make_ref(); Heap.put_obj(r, [v, v]); {:obj, r}
+    end)
+    r = make_ref(); Heap.put_obj(r, entries); {:obj, r}
+  end}
+  defp set_proto("forEach"), do: {:builtin, "forEach", fn [cb | _], {:obj, ref}, interp ->
+    data = Heap.get_obj(ref, %{}) |> Map.get("__set_data__", [])
+    Enum.each(data, fn v -> call_builtin_callback(cb, [v, v, {:obj, ref}], interp) end)
+    :undefined
   end}
   defp set_proto(_), do: :undefined
 

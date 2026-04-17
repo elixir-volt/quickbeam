@@ -479,6 +479,54 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [obj | rest], gas - 1, ctx)
   end
 
+  defp run({:get_super_value, []}, frame, [key, proto, _this_obj | rest], gas, ctx) do
+    val = Runtime.get_property(proto, key)
+    run(advance(frame), [val | rest], gas - 1, ctx)
+  end
+
+  defp run({:put_super_value, []}, frame, [val, key, proto, _this_obj | rest], gas, ctx) do
+    Objects.put(proto, key, val)
+    run(advance(frame), rest, gas - 1, ctx)
+  end
+
+  defp run({:get_private_field, []}, frame, [key, obj | rest], gas, ctx) do
+    val = case obj do
+      {:obj, ref} ->
+        map = Heap.get_obj(ref, %{})
+        Map.get(map, {:private, key}, :undefined)
+      _ -> :undefined
+    end
+    run(advance(frame), [val | rest], gas - 1, ctx)
+  end
+
+  defp run({:put_private_field, []}, frame, [val, key, obj | rest], gas, ctx) do
+    case obj do
+      {:obj, ref} ->
+        Heap.update_obj(ref, %{}, &Map.put(&1, {:private, key}, val))
+      _ -> :ok
+    end
+    run(advance(frame), rest, gas - 1, ctx)
+  end
+
+  defp run({:define_private_field, []}, frame, [val, key, obj | rest], gas, ctx) do
+    case obj do
+      {:obj, ref} ->
+        Heap.update_obj(ref, %{}, &Map.put(&1, {:private, key}, val))
+      _ -> :ok
+    end
+    run(advance(frame), [obj | rest], gas - 1, ctx)
+  end
+
+  defp run({:private_in, []}, frame, [obj, key | rest], gas, ctx) do
+    result = case obj do
+      {:obj, ref} ->
+        map = Heap.get_obj(ref, %{})
+        Map.has_key?(map, {:private, key})
+      _ -> false
+    end
+    run(advance(frame), [result | rest], gas - 1, ctx)
+  end
+
   defp run({:get_length, []}, frame, [obj | rest], gas, ctx) do
     len = case obj do
       {:obj, ref} ->
@@ -562,6 +610,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:put_var_init, [atom_idx]}, frame, [val | rest], gas, ctx) do
     run(advance(frame), rest, gas - 1, Scope.set_global(ctx, atom_idx, val))
+  end
+
+  defp run({:define_func, [atom_idx, _flags]}, frame, [fun | rest], gas, ctx) do
+    ctx = Scope.set_global(ctx, atom_idx, fun)
+    run(advance(frame), rest, gas - 1, ctx)
   end
 
   defp run({:define_var, [atom_idx, _scope]}, frame, [val | rest], gas, ctx) do
@@ -977,6 +1030,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         {:obj, ref}
       2 -> current_func
       3 -> current_func
+      4 -> current_func
       _ -> :undefined
     end
     run(advance(frame), [val | stack], gas - 1, ctx)
@@ -1002,20 +1056,30 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:copy_data_properties, []}, frame, stack, gas, ctx), do: run(advance(frame), stack, gas - 1, ctx)
 
   defp run({:get_super, []}, frame, [func | rest], gas, ctx) do
-    raw = case func do
-      {:closure, _, %Bytecode.Function{} = f} -> f
-      %Bytecode.Function{} = f -> f
-      _ -> func
+    parent = case func do
+      {:obj, ref} ->
+        case Heap.get_obj(ref, %{}) do
+          map when is_map(map) -> Map.get(map, "__proto__", :undefined)
+          _ -> :undefined
+        end
+      {:closure, _, %Bytecode.Function{} = f} -> Heap.get_parent_ctor(f) || :undefined
+      %Bytecode.Function{} = f -> Heap.get_parent_ctor(f) || :undefined
+      _ -> :undefined
     end
-    parent = Heap.get_parent_ctor(raw)
-    run(advance(frame), [(parent || :undefined) | rest], gas - 1, ctx)
+    run(advance(frame), [parent | rest], gas - 1, ctx)
   end
 
   defp run({:push_this, []}, frame, stack, gas, %Ctx{this: this} = ctx) do
     run(advance(frame), [this | stack], gas - 1, ctx)
   end
 
-  defp run({:private_symbol, []}, frame, stack, gas, ctx), do: run(advance(frame), [:undefined | stack], gas - 1, ctx)
+  defp run({:private_symbol, [atom_idx]}, frame, stack, gas, ctx) do
+    name = Scope.resolve_atom(ctx, atom_idx)
+    run(advance(frame), [{:private_symbol, name, make_ref()} | stack], gas - 1, ctx)
+  end
+  defp run({:private_symbol, []}, frame, stack, gas, ctx) do
+    run(advance(frame), [{:private_symbol, "", make_ref()} | stack], gas - 1, ctx)
+  end
 
   # ── Argument mutation ──
 
@@ -1124,6 +1188,26 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [proto, ctor_closure | rest], gas - 1, ctx)
   end
 
+  defp run({:add_brand, []}, frame, [obj, brand | rest], gas, ctx) do
+    case obj do
+      {:obj, ref} ->
+        Heap.update_obj(ref, %{}, fn map ->
+          brands = Map.get(map, :__brands__, [])
+          Map.put(map, :__brands__, [brand | brands])
+        end)
+      _ -> :ok
+    end
+    run(advance(frame), rest, gas - 1, ctx)
+  end
+
+  defp run({:check_brand, []}, frame, [_brand, _obj | _] = stack, gas, ctx) do
+    run(advance(frame), stack, gas - 1, ctx)
+  end
+
+  defp run({:define_class_computed, [atom_idx, flags]}, frame, [ctor, parent_ctor, _computed_name | rest], gas, ctx) do
+    run({:define_class, [atom_idx, flags]}, frame, [ctor, parent_ctor | rest], gas, ctx)
+  end
+
   defp run({:define_method, [atom_idx, flags]}, frame, [method_closure, target | rest], gas, ctx) do
     name = Scope.resolve_atom(ctx, atom_idx)
     method_type = Bitwise.band(flags, 3)
@@ -1155,6 +1239,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     throw({:generator_yield, val, advance(frame), rest, gas - 1, ctx})
   end
 
+  defp run({:yield_star, []}, frame, [val | rest], gas, ctx) do
+    throw({:generator_yield, val, advance(frame), rest, gas - 1, ctx})
+  end
+
+  defp run({:async_yield_star, []}, frame, [val | rest], gas, ctx) do
+    throw({:generator_yield, val, advance(frame), rest, gas - 1, ctx})
+  end
 
   defp run({:await, []}, frame, [val | rest], gas, ctx) do
     resolved = resolve_awaited(val)
