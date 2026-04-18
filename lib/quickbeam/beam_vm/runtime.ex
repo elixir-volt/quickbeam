@@ -194,9 +194,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
                 case obj do
                   {:obj, ref} ->
                     keys = Map.keys(Heap.get_obj(ref, %{}))
-                    r = make_ref()
-                    Heap.put_obj(r, keys)
-                    {:obj, r}
+                    Heap.wrap(keys)
 
                   _ ->
                     {:obj,
@@ -215,9 +213,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
         {:builtin, "Proxy",
          fn
            [target, handler | _] ->
-             ref = make_ref()
-             Heap.put_obj(ref, %{"__proxy_target__" => target, "__proxy_handler__" => handler})
-             {:obj, ref}
+             Heap.wrap(%{"__proxy_target__" => target, "__proxy_handler__" => handler})
 
            _ ->
              __MODULE__.obj_new()
@@ -660,9 +656,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
        fn _, {:obj, ref} ->
          data = Heap.get_obj(ref, %{}) |> Map.get("__map_data__", %{})
          keys = Map.keys(data)
-         r = make_ref()
-         Heap.put_obj(r, keys)
-         {:obj, r}
+         Heap.wrap(keys)
        end}
 
   defp map_proto("values"),
@@ -671,9 +665,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
        fn _, {:obj, ref} ->
          data = Heap.get_obj(ref, %{}) |> Map.get("__map_data__", %{})
          vals = Map.values(data)
-         r = make_ref()
-         Heap.put_obj(r, vals)
-         {:obj, r}
+         Heap.wrap(vals)
        end}
 
   defp map_proto("entries"),
@@ -684,14 +676,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
          entries =
            Enum.map(data, fn {k, v} ->
-             r = make_ref()
-             Heap.put_obj(r, [k, v])
-             {:obj, r}
+             Heap.wrap([k, v])
            end)
 
-         r = make_ref()
-         Heap.put_obj(r, entries)
-         {:obj, r}
+         Heap.wrap(entries)
        end}
 
   defp map_proto("forEach"),
@@ -753,9 +741,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
       {:builtin, "values",
        fn _, {:obj, ref} ->
          data = Heap.get_obj(ref, %{}) |> Map.get("__set_data__", [])
-         r = make_ref()
-         Heap.put_obj(r, data)
-         {:obj, r}
+         Heap.wrap(data)
        end}
 
   defp set_proto("keys"), do: set_proto("values")
@@ -768,14 +754,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
          entries =
            Enum.map(data, fn v ->
-             r = make_ref()
-             Heap.put_obj(r, [v, v])
-             {:obj, r}
+             Heap.wrap([v, v])
            end)
 
-         r = make_ref()
-         Heap.put_obj(r, entries)
-         {:obj, r}
+         Heap.wrap(entries)
        end}
 
   defp set_proto("forEach"),
@@ -822,9 +804,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   # ── Shared helpers (public for cross-module use) ──
 
   def obj_new do
-    ref = make_ref()
-    Heap.put_obj(ref, %{})
-    {:obj, ref}
+    Heap.wrap(%{})
   end
 
   def js_truthy(nil), do: false

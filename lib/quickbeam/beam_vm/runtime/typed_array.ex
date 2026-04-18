@@ -590,8 +590,6 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
   end
 
   defp make_buffer_ref(buffer) do
-    ref = make_ref()
-    Heap.put_obj(ref, %{"__buffer__" => buffer, "byteLength" => byte_size(buffer)})
-    {:obj, ref}
+    Heap.wrap(%{"__buffer__" => buffer, "byteLength" => byte_size(buffer)})
   end
 end

@@ -393,9 +393,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
           _ -> args
         end
 
-      ref = make_ref()
-      Heap.put_obj(ref, list)
-      {:obj, ref}
+      Heap.wrap(list)
     end
   end
 
@@ -439,9 +437,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   def error_constructor do
     fn args ->
       msg = List.first(args, "")
-      ref = make_ref()
-      Heap.put_obj(ref, %{"message" => Runtime.js_to_string(msg), "stack" => ""})
-      {:obj, ref}
+      Heap.wrap(%{"message" => Runtime.js_to_string(msg), "stack" => ""})
     end
   end
 
@@ -501,17 +497,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
             :nan
         end
 
-      ref = make_ref()
-      Heap.put_obj(ref, %{"valueOf" => ms})
-      {:obj, ref}
+      Heap.wrap(%{"valueOf" => ms})
     end
   end
 
   def promise_constructor do
     fn _args ->
-      ref = make_ref()
-      Heap.put_obj(ref, %{})
-      {:obj, ref}
+      Heap.wrap(%{})
     end
   end
 
@@ -929,14 +921,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
 
            pairs =
              Enum.map(data, fn v ->
-               r = make_ref()
-               Heap.put_obj(r, [v, v])
-               {:obj, r}
+               Heap.wrap([v, v])
              end)
 
-           r = make_ref()
-           Heap.put_obj(r, pairs)
-           {:obj, r}
+           Heap.wrap(pairs)
          end}
 
       delete_fn =

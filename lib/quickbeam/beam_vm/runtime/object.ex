@@ -124,25 +124,19 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     # Arrays are stored as lists
     if is_list(data) do
       keys = Enum.with_index(data) |> Enum.map(fn {_, i} -> Integer.to_string(i) end)
-      arr_ref = make_ref()
-      Heap.put_obj(arr_ref, keys)
-      {:obj, arr_ref}
+      Heap.wrap(keys)
     else
       keys_from_map(ref, data)
     end
   end
 
   defp keys(_) do
-    ref = make_ref()
-    Heap.put_obj(ref, [])
-    {:obj, ref}
+    Heap.wrap([])
   end
 
   defp keys_from_map(_ref, list) when is_list(list) do
     keys = Enum.with_index(list) |> Enum.map(fn {_, i} -> Integer.to_string(i) end)
-    result_ref = make_ref()
-    Heap.put_obj(result_ref, keys)
-    {:obj, result_ref}
+    Heap.wrap(keys)
   end
 
   defp keys_from_map(ref, map) when is_map(map) do
@@ -178,9 +172,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
           not match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
       end)
 
-    result_ref = make_ref()
-    Heap.put_obj(result_ref, filtered)
-    {:obj, result_ref}
+    Heap.wrap(filtered)
   end
 
   defp get_own_property_names([{:obj, ref} | _]) do
@@ -200,15 +192,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
           []
       end
 
-    result_ref = make_ref()
-    Heap.put_obj(result_ref, names)
-    {:obj, result_ref}
+    Heap.wrap(names)
   end
 
   defp get_own_property_names(_) do
-    ref = make_ref()
-    Heap.put_obj(ref, [])
-    {:obj, ref}
+    Heap.wrap([])
   end
 
   defp raw_keys({:obj, ref}) do
@@ -222,9 +210,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     ks = raw_keys(keys([{:obj, ref}]))
     map = Heap.get_obj(ref, %{})
     vals = Enum.map(ks, fn k -> Map.get(map, k) end)
-    result_ref = make_ref()
-    Heap.put_obj(result_ref, vals)
-    {:obj, result_ref}
+    Heap.wrap(vals)
   end
 
   defp values([map | _]) when is_map(map), do: Map.values(map)
@@ -236,14 +222,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
     pairs =
       Enum.map(ks, fn k ->
-        pair_ref = make_ref()
-        Heap.put_obj(pair_ref, [k, Map.get(map, k)])
-        {:obj, pair_ref}
+        Heap.wrap([k, Map.get(map, k)])
       end)
 
-    result_ref = make_ref()
-    Heap.put_obj(result_ref, pairs)
-    {:obj, result_ref}
+    Heap.wrap(pairs)
   end
 
   defp entries([map | _]) when is_map(map) do

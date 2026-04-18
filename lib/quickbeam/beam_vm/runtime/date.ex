@@ -21,9 +21,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
           System.system_time(:millisecond)
       end
 
-    ref = make_ref()
-    Heap.put_obj(ref, %{"__date_ms__" => ms})
-    {:obj, ref}
+    Heap.wrap(%{"__date_ms__" => ms})
   end
 
   def proto_property("getTime"), do: {:builtin, "getTime", fn _, this -> get_ms(this) end}

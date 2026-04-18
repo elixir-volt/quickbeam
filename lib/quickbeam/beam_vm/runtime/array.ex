@@ -166,9 +166,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
         Runtime.call_builtin_callback(fun, [val, idx, list], interp)
       end)
 
-    new_ref = make_ref()
-    Heap.put_obj(new_ref, result)
-    {:obj, new_ref}
+    Heap.wrap(result)
   end
 
   defp map(list, [fun | _], interp) when is_list(list) and length(list) > 0 do
@@ -188,9 +186,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
       end)
       |> Enum.map(fn {val, _} -> val end)
 
-    new_ref = make_ref()
-    Heap.put_obj(new_ref, result)
-    {:obj, new_ref}
+    Heap.wrap(result)
   end
 
   defp filter(list, [fun | _], interp) when is_list(list) do
@@ -346,9 +342,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   defp concat({:obj, ref}, args) do
     list = Heap.get_obj(ref, [])
     result = Enum.reduce(args, list, &concat_item(&1, &2))
-    new_ref = make_ref()
-    Heap.put_obj(new_ref, result)
-    {:obj, new_ref}
+    Heap.wrap(result)
   end
 
   defp concat(list, args) when is_list(list), do: Enum.reduce(args, list, &concat_item(&1, &2))
@@ -455,9 +449,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
         end
       end)
 
-    new_ref = make_ref()
-    Heap.put_obj(new_ref, result)
-    {:obj, new_ref}
+    Heap.wrap(result)
   end
 
   defp flat_map(_, _, _), do: :undefined
@@ -652,9 +644,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     list = Heap.get_obj(ref, [])
 
     if is_list(list) do
-      new_ref = make_ref()
-      Heap.put_obj(new_ref, Enum.reverse(list))
-      {:obj, new_ref}
+      Heap.wrap(Enum.reverse(list))
     else
       {:obj, ref}
     end

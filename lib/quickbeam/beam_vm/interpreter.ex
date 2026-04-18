@@ -242,13 +242,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     if state.pos < length(state.list) do
       val = Enum.at(state.list, state.pos)
       Heap.put_obj(pos_ref, %{state | pos: state.pos + 1})
-      ref = make_ref()
-      Heap.put_obj(ref, %{"value" => val, "done" => false})
-      {:obj, ref}
+      Heap.wrap(%{"value" => val, "done" => false})
     else
-      ref = make_ref()
-      Heap.put_obj(ref, %{"value" => :undefined, "done" => true})
-      {:obj, ref}
+      Heap.wrap(%{"value" => :undefined, "done" => true})
     end
   end
 
@@ -1833,9 +1829,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       case type do
         1 ->
           args_list = Tuple.to_list(arg_buf)
-          ref = make_ref()
-          Heap.put_obj(ref, args_list)
-          {:obj, ref}
+          Heap.wrap(args_list)
 
         2 ->
           current_func
@@ -2799,14 +2793,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp yield_result(val) do
-    ref = make_ref()
-    Heap.put_obj(ref, %{"value" => val, "done" => false})
-    {:obj, ref}
+    Heap.wrap(%{"value" => val, "done" => false})
   end
 
   defp done_result(val) do
-    ref = make_ref()
-    Heap.put_obj(ref, %{"value" => val, "done" => true})
-    {:obj, ref}
+    Heap.wrap(%{"value" => val, "done" => true})
   end
 end
