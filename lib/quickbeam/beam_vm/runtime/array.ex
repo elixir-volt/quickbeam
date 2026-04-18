@@ -68,6 +68,22 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   def proto_property("copyWithin"),
     do: {:builtin, "copyWithin", fn args, this -> copy_within(this, args) end}
 
+  def proto_property("at"), do: {:builtin, "at", fn args, this -> array_at(this, args) end}
+
+  def proto_property("findLast"),
+    do: {:builtin, "findLast", fn args, this, interp -> find_last(this, args, interp) end}
+
+  def proto_property("findLastIndex"),
+    do:
+      {:builtin, "findLastIndex",
+       fn args, this, interp -> find_last_index(this, args, interp) end}
+
+  def proto_property("toReversed"),
+    do: {:builtin, "toReversed", fn _args, this -> to_reversed(this) end}
+
+  def proto_property("toSorted"),
+    do: {:builtin, "toSorted", fn _args, this -> to_sorted(this) end}
+
   def proto_property(_), do: :undefined
 
   # ── Array static dispatch ──
@@ -551,7 +567,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
           l
 
         s when is_binary(s) ->
-          String.graphemes(s)
+          String.codepoints(s)
 
         _ ->
           []
@@ -592,6 +608,78 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
 
   defp copy_within(_, _), do: :undefined
+
+  defp array_at({:obj, ref}, [idx | _]) do
+    list = Heap.get_obj(ref, [])
+    array_at(list, [idx])
+  end
+
+  defp array_at(list, [idx | _]) when is_list(list) do
+    i = if is_number(idx), do: trunc(idx), else: 0
+    i = if i < 0, do: length(list) + i, else: i
+    if i >= 0 and i < length(list), do: Enum.at(list, i), else: :undefined
+  end
+
+  defp array_at(_, _), do: :undefined
+
+  defp find_last({:obj, ref}, args, interp), do: find_last(Heap.get_obj(ref, []), args, interp)
+
+  defp find_last(list, [cb | _], interp) when is_list(list) do
+    list
+    |> Enum.reverse()
+    |> Enum.find(:undefined, fn item ->
+      Runtime.call_builtin_callback(cb, [item], interp) |> Runtime.js_truthy()
+    end)
+  end
+
+  defp find_last(_, _, _), do: :undefined
+
+  defp find_last_index({:obj, ref}, args, interp),
+    do: find_last_index(Heap.get_obj(ref, []), args, interp)
+
+  defp find_last_index(list, [cb | _], interp) when is_list(list) do
+    list
+    |> Enum.with_index()
+    |> Enum.reverse()
+    |> Enum.find_value(-1, fn {item, idx} ->
+      if Runtime.call_builtin_callback(cb, [item, idx], interp) |> Runtime.js_truthy(), do: idx
+    end)
+  end
+
+  defp find_last_index(_, _, _), do: -1
+
+  defp to_reversed({:obj, ref}) do
+    list = Heap.get_obj(ref, [])
+
+    if is_list(list) do
+      new_ref = make_ref()
+      Heap.put_obj(new_ref, Enum.reverse(list))
+      {:obj, new_ref}
+    else
+      {:obj, ref}
+    end
+  end
+
+  defp to_reversed(_), do: :undefined
+
+  defp to_sorted({:obj, ref}) do
+    list = Heap.get_obj(ref, [])
+
+    if is_list(list) do
+      new_ref = make_ref()
+
+      Heap.put_obj(
+        new_ref,
+        Enum.sort(list, fn a, b -> Runtime.js_to_string(a) <= Runtime.js_to_string(b) end)
+      )
+
+      {:obj, new_ref}
+    else
+      {:obj, ref}
+    end
+  end
+
+  defp to_sorted(_), do: :undefined
 
   defp arr_normalize_index(i, len) when is_integer(i) and i < 0, do: max(0, len + i)
   defp arr_normalize_index(i, len) when is_integer(i), do: min(i, len)

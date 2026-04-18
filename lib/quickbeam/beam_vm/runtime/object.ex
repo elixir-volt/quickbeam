@@ -24,7 +24,67 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   def static_property("getOwnPropertyDescriptor"),
     do: {:builtin, "getOwnPropertyDescriptor", fn args -> get_own_property_descriptor(args) end}
 
+  def static_property("fromEntries"),
+    do: {:builtin, "fromEntries", fn args -> from_entries(args) end}
+
+  def static_property("hasOwn"),
+    do: {:builtin, "hasOwn", fn args -> has_own(args) end}
+
+  def static_property("setPrototypeOf"),
+    do: {:builtin, "setPrototypeOf", fn args -> set_prototype_of(args) end}
+
   def static_property(_), do: :undefined
+
+  defp from_entries([{:obj, ref} | _]) do
+    entries =
+      case Heap.get_obj(ref, []) do
+        list when is_list(list) -> list
+        _ -> []
+      end
+
+    result_ref = make_ref()
+
+    map =
+      Enum.reduce(entries, %{}, fn
+        {:obj, eref}, acc ->
+          case Heap.get_obj(eref, []) do
+            [k, v | _] -> Map.put(acc, Runtime.js_to_string(k), v)
+            _ -> acc
+          end
+
+        [k, v | _], acc ->
+          Map.put(acc, Runtime.js_to_string(k), v)
+
+        _, acc ->
+          acc
+      end)
+
+    Heap.put_obj(result_ref, map)
+    {:obj, result_ref}
+  end
+
+  defp from_entries(_), do: Runtime.obj_new()
+
+  defp has_own([{:obj, ref}, key | _]) do
+    prop_name = if is_binary(key), do: key, else: to_string(key)
+    map = Heap.get_obj(ref, %{})
+    is_map(map) and Map.has_key?(map, prop_name)
+  end
+
+  defp has_own(_), do: false
+
+  defp set_prototype_of([{:obj, ref} = obj, proto | _]) do
+    map = Heap.get_obj(ref, %{})
+
+    if is_map(map) do
+      Heap.put_obj(ref, Map.put(map, "__proto__", proto))
+    end
+
+    obj
+  end
+
+  defp set_prototype_of([obj | _]), do: obj
+  defp set_prototype_of(_), do: :undefined
 
   defp create([proto | _]) do
     ref = make_ref()

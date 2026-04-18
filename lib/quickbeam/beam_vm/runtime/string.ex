@@ -78,9 +78,19 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
 
   def proto_property("toString"), do: {:builtin, "toString", fn _args, this -> this end}
   def proto_property("valueOf"), do: {:builtin, "valueOf", fn _args, this -> this end}
+  def proto_property("at"), do: {:builtin, "at", fn args, this -> string_at(this, args) end}
   def proto_property(_), do: :undefined
 
   # ── Implementations ──
+
+  defp string_at(s, [idx | _]) when is_binary(s) do
+    i = if is_number(idx), do: trunc(idx), else: 0
+    len = String.length(s)
+    i = if i < 0, do: len + i, else: i
+    if i >= 0 and i < len, do: String.at(s, i) || :undefined, else: :undefined
+  end
+
+  defp string_at(_, _), do: :undefined
 
   defp char_at(s, [idx | _]) when is_binary(s) do
     i = Runtime.to_int(idx)
@@ -189,7 +199,7 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
   defp substr(s, _), do: s
 
   defp split(s, [sep | _]) when is_binary(s) and is_binary(sep) do
-    if sep == "", do: String.graphemes(s), else: String.split(s, sep)
+    if sep == "", do: String.codepoints(s), else: String.split(s, sep)
   end
 
   defp split(s, [nil | _]) when is_binary(s), do: [s]

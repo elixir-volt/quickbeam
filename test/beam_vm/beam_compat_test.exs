@@ -1599,6 +1599,60 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
   end
 
+  describe "yield* delegation" do
+    test "yield* forwards values", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ function* a() { yield 1; yield 2 } function* b() { yield* a(); yield 3 } var r = []; for (var x of b()) r.push(x); return r.join(',') })()",
+        "1,2,3"
+      )
+    end
+  end
+
+  describe "Array new methods" do
+    test "at", %{rt: rt} do
+      ok(rt, "(function(){ return [1,2,3].at(-1) })()", 3)
+    end
+
+    test "findLast", %{rt: rt} do
+      ok(rt, "(function(){ return [1,2,3,4].findLast(function(x){return x<3}) })()", 2)
+    end
+
+    test "toReversed", %{rt: rt} do
+      ok(rt, "(function(){ return [1,2,3].toReversed().join(',') })()", "3,2,1")
+    end
+  end
+
+  describe "String.at" do
+    test "positive index", %{rt: rt} do
+      ok(rt, "(function(){ return 'hello'.at(1) })()", "e")
+    end
+
+    test "negative index", %{rt: rt} do
+      ok(rt, "(function(){ return 'hello'.at(-1) })()", "o")
+    end
+  end
+
+  describe "Object new methods" do
+    test "fromEntries", %{rt: rt} do
+      ok(rt, "(function(){ return Object.fromEntries([['a',1],['b',2]]).a })()", 1)
+    end
+
+    test "hasOwn", %{rt: rt} do
+      ok(rt, "(function(){ return Object.hasOwn({x:1}, 'x') })()", true)
+    end
+  end
+
+  describe "Function properties" do
+    test "name", %{rt: rt} do
+      ok(rt, "(function(){ function foo() {} return foo.name })()", "foo")
+    end
+
+    test "length", %{rt: rt} do
+      ok(rt, "(function(){ function foo(a,b,c) {} return foo.length })()", 3)
+    end
+  end
+
   # ── Edge cases ──
 
   describe "edge cases" do

@@ -6,7 +6,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             make_error_obj: 2,
             active_ctx: 0,
             list_iterator_next: 1,
-            call_iterator_next: 1,
+            make_list_iterator: 1,
             with_has_property?: 2,
             check_prototype_chain: 2}
   @moduledoc """
@@ -145,7 +145,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp make_error_obj(message, name) do
     ref = make_ref()
-    Heap.put_obj(ref, %{"message" => message, "name" => name})
+    Heap.put_obj(ref, %{"message" => message, "name" => name, "stack" => ""})
     {:obj, ref}
   end
 
@@ -190,12 +190,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
-  defp call_iterator_next(gen_obj) do
-    next_fn = Runtime.get_property(gen_obj, "next")
-    result = Runtime.call_builtin_callback(next_fn, [], :no_interp)
-    done = Runtime.get_property(result, "done")
-    value = Runtime.get_property(result, "value")
-    {done == true, value}
+  defp make_list_iterator(items) do
+    pos_ref = make_ref()
+    Heap.put_obj(pos_ref, %{pos: 0, list: items})
+    next_fn = {:builtin, "next", fn _, _ -> list_iterator_next(pos_ref) end}
+    iter_ref = make_ref()
+    Heap.put_obj(iter_ref, %{"next" => next_fn})
+    {{:obj, iter_ref}, next_fn}
   end
 
   defp check_prototype_chain(_, :undefined), do: false
@@ -784,6 +785,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         s when is_binary(s) ->
           Runtime.js_string_length(s)
 
+        %Bytecode.Function{} = f ->
+          f.defined_arg_count
+
+        {:closure, _, %Bytecode.Function{} = f} ->
+          f.defined_arg_count
+
         _ ->
           :undefined
       end
@@ -1302,17 +1309,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   # ── Iterators ──
 
   defp run({:for_of_start, []}, frame, [obj | rest], gas, ctx) do
-    iter =
+    {iter_obj, next_fn} =
       case obj do
         list when is_list(list) ->
-          {:for_of_iterator, list, 0}
+          make_list_iterator(list)
 
         {:obj, ref} ->
           stored = Heap.get_obj(ref, [])
 
           case stored do
             list when is_list(list) ->
-              {:for_of_iterator, list, 0}
+              make_list_iterator(list)
 
             map when is_map(map) ->
               sym_iter = {:symbol, "Symbol.iterator"}
@@ -1321,83 +1328,55 @@ defmodule QuickBEAM.BeamVM.Interpreter do
                 Map.has_key?(map, sym_iter) ->
                   iter_fn = Map.get(map, sym_iter)
                   iter_obj = Runtime.call_builtin_callback(iter_fn, [], :no_interp)
-                  {:for_of_generator, iter_obj}
+                  {iter_obj, Runtime.get_property(iter_obj, "next")}
 
                 Map.has_key?(map, "next") ->
-                  {:for_of_generator, obj}
+                  {obj, Runtime.get_property(obj, "next")}
 
                 true ->
-                  {:for_of_iterator, [], 0}
+                  make_list_iterator([])
               end
 
             _ ->
-              {:for_of_iterator, [], 0}
+              make_list_iterator([])
           end
 
         s when is_binary(s) ->
-          {:for_of_iterator, String.graphemes(s), 0}
+          make_list_iterator(String.codepoints(s))
 
         _ ->
-          {:for_of_iterator, [], 0}
+          make_list_iterator([])
       end
 
-    run(advance(frame), [iter | rest], gas - 1, ctx)
+    run(advance(frame), [0, next_fn, iter_obj | rest], gas - 1, ctx)
   end
 
-  defp run({:for_of_next, [_idx]}, frame, [{:for_of_generator, gen_obj} | rest], gas, ctx) do
-    {done, value} = call_iterator_next(gen_obj)
+  defp run({:for_of_next, [idx]}, frame, stack, gas, ctx) do
+    offset = 3 + idx
+    iter_obj = Enum.at(stack, offset - 1)
+    next_fn = Enum.at(stack, offset - 2)
 
-    if done do
-      run(advance(frame), [true, :undefined, {:for_of_generator, gen_obj} | rest], gas - 1, ctx)
+    if iter_obj == :undefined do
+      run(advance(frame), [true, :undefined | stack], gas - 1, ctx)
     else
-      run(advance(frame), [false, value, {:for_of_generator, gen_obj} | rest], gas - 1, ctx)
+      result = Runtime.call_builtin_callback(next_fn, [], :no_interp)
+      done = Runtime.get_property(result, "done")
+      value = Runtime.get_property(result, "value")
+
+      if done == true do
+        cleared = List.replace_at(stack, offset - 1, :undefined)
+        run(advance(frame), [true, :undefined | cleared], gas - 1, ctx)
+      else
+        run(advance(frame), [false, value | stack], gas - 1, ctx)
+      end
     end
   end
 
-  defp run({:for_of_next, [_idx]}, frame, [{:for_of_iterator, items, pos} | rest], gas, ctx)
-       when is_list(items) do
-    if pos < length(items) do
-      run(
-        advance(frame),
-        [false, Enum.at(items, pos), {:for_of_iterator, items, pos + 1} | rest],
-        gas - 1,
-        ctx
-      )
-    else
-      run(advance(frame), [true, :undefined, {:for_of_iterator, items, pos} | rest], gas - 1, ctx)
-    end
-  end
-
-  defp run({:for_of_next, [_idx]}, frame, [iter | rest], gas, ctx) do
-    run(advance(frame), [true, :undefined, iter | rest], gas - 1, ctx)
-  end
-
-  defp run({:iterator_next, []}, frame, [{:for_of_generator, gen_obj} | rest], gas, ctx) do
-    {done, value} = call_iterator_next(gen_obj)
-
-    if done do
-      run(advance(frame), [true, :undefined, {:for_of_generator, gen_obj} | rest], gas - 1, ctx)
-    else
-      run(advance(frame), [false, value, {:for_of_generator, gen_obj} | rest], gas - 1, ctx)
-    end
-  end
-
-  defp run({:iterator_next, []}, frame, [{:for_of_iterator, items, pos} | rest], gas, ctx)
-       when is_list(items) do
-    if pos < length(items) do
-      run(
-        advance(frame),
-        [false, Enum.at(items, pos), {:for_of_iterator, items, pos + 1} | rest],
-        gas - 1,
-        ctx
-      )
-    else
-      run(advance(frame), [true, :undefined, {:for_of_iterator, items, pos} | rest], gas - 1, ctx)
-    end
-  end
-
-  defp run({:iterator_next, []}, frame, [iter | rest], gas, ctx) do
-    run(advance(frame), [true, :undefined, iter | rest], gas - 1, ctx)
+  # iterator_next: stack is [val, catch_offset, next_fn, iter_obj | rest]
+  # Calls next_fn(iter_obj, val), replaces val (top) with raw result object
+  defp run({:iterator_next, []}, frame, [val, catch_offset, next_fn, iter_obj | rest], gas, ctx) do
+    result = Runtime.call_builtin_callback(next_fn, [val], :no_interp)
+    run(advance(frame), [result, catch_offset, next_fn, iter_obj | rest], gas - 1, ctx)
   end
 
   defp run({:iterator_get_value_done, []}, frame, [result | rest], gas, ctx) do
@@ -1411,8 +1390,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
-  defp run({:iterator_close, []}, frame, [_iter | rest], gas, ctx),
-    do: run(advance(frame), rest, gas - 1, ctx)
+  defp run({:iterator_close, []}, frame, [_catch_offset, _next_fn, iter_obj | rest], gas, ctx) do
+    if iter_obj != :undefined do
+      return_fn = Runtime.get_property(iter_obj, "return")
+
+      if return_fn != :undefined and return_fn != nil do
+        Runtime.call_builtin_callback(return_fn, [], :no_interp)
+      end
+    end
+
+    run(advance(frame), rest, gas - 1, ctx)
+  end
 
   defp run({:iterator_check_object, []}, frame, stack, gas, ctx),
     do: run(advance(frame), stack, gas - 1, ctx)
@@ -1434,7 +1422,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         end
 
       [_ | rest] = stack
-      run(advance(frame), [false, result | tl(rest)], gas - 1, ctx)
+      run(advance(frame), [false, result | rest], gas - 1, ctx)
     end
   end
 
@@ -1771,11 +1759,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:yield_star, []}, frame, [val | rest], gas, ctx) do
-    throw({:generator_yield, val, advance(frame), rest, gas - 1, ctx})
+    throw({:generator_yield_star, val, advance(frame), rest, gas - 1, ctx})
   end
 
   defp run({:async_yield_star, []}, frame, [val | rest], gas, ctx) do
-    throw({:generator_yield, val, advance(frame), rest, gas - 1, ctx})
+    throw({:generator_yield_star, val, advance(frame), rest, gas - 1, ctx})
   end
 
   defp run({:await, []}, frame, [val | rest], gas, ctx) do
@@ -2089,6 +2077,18 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     try do
       run(frame, [], gas, ctx)
     catch
+      {:generator_yield_star, _val, suspended_frame, suspended_stack, suspended_gas,
+       suspended_ctx} ->
+        state = %{
+          state: :suspended,
+          frame: suspended_frame,
+          stack: suspended_stack,
+          gas: suspended_gas,
+          ctx: suspended_ctx
+        }
+
+        Heap.put_obj(gen_ref, state)
+
       {:generator_yield, _val, suspended_frame, suspended_stack, suspended_gas, suspended_ctx} ->
         state = %{
           state: :suspended,
@@ -2272,6 +2272,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           {:generator_yield, val, sf, ss, sg, sc} ->
             Heap.put_obj(gen_ref, %{state: :suspended, frame: sf, stack: ss, gas: sg, ctx: sc})
             yield_result(val)
+
+          {:generator_yield_star, val, sf, ss, sg, sc} ->
+            Heap.put_obj(gen_ref, %{state: :suspended, frame: sf, stack: ss, gas: sg, ctx: sc})
+            val
 
           {:generator_return, val} ->
             Heap.put_obj(gen_ref, %{state: :completed})

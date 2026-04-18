@@ -388,6 +388,15 @@ defmodule QuickBEAM.BeamVM.Runtime do
      end}
   end
 
+  defp function_proto_property(%Bytecode.Function{} = f, "name"), do: f.name || ""
+  defp function_proto_property(%Bytecode.Function{} = f, "length"), do: f.defined_arg_count
+
+  defp function_proto_property({:closure, _, %Bytecode.Function{} = f}, "name"),
+    do: f.name || ""
+
+  defp function_proto_property({:closure, _, %Bytecode.Function{} = f}, "length"),
+    do: f.defined_arg_count
+
   defp function_proto_property(_fun, "length"), do: 0
   defp function_proto_property(_fun, "name"), do: ""
   defp function_proto_property(_fun, _), do: :undefined

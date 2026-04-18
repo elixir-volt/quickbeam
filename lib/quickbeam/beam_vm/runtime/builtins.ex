@@ -238,7 +238,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
     fn args ->
       msg = List.first(args, "")
       ref = make_ref()
-      Heap.put_obj(ref, %{"message" => Runtime.js_to_string(msg)})
+      Heap.put_obj(ref, %{"message" => Runtime.js_to_string(msg), "stack" => ""})
       {:obj, ref}
     end
   end
