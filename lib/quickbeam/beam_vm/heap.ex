@@ -380,6 +380,12 @@ defmodule QuickBEAM.BeamVM.Heap do
   defp sweep_key(key, nil), do: Process.delete(key)
   defp sweep_key(key, marked), do: unless(MapSet.member?(marked, key), do: Process.delete(key))
 
+  # ── Promise waiters ──
+
+  def get_promise_waiters(ref), do: Process.get({:qb_promise_waiters, ref}, [])
+  def put_promise_waiters(ref, waiters), do: Process.put({:qb_promise_waiters, ref}, waiters)
+  def delete_promise_waiters(ref), do: Process.delete({:qb_promise_waiters, ref})
+
   # ── Symbol registry ──
 
   def get_symbol(key), do: Process.get({:qb_symbol_registry, key})

@@ -50,7 +50,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   def eval(%Bytecode.Function{} = fun, args, opts, atoms) do
     gas = Map.get(opts, :gas, @default_gas)
 
-    persistent = Process.get(:qb_persistent_globals, %{})
+    persistent = Heap.get_persistent_globals()
 
     ctx = %Ctx{
       atoms: atoms,
@@ -1122,20 +1122,20 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:put_var, [atom_idx]}, frame, [val | rest], gas, ctx) do
     new_ctx = Scope.set_global(ctx, atom_idx, val)
-    Process.put(:qb_persistent_globals, new_ctx.globals)
+    Heap.put_persistent_globals(new_ctx.globals)
     run(advance(frame), rest, gas - 1, new_ctx)
   end
 
   defp run({:put_var_init, [atom_idx]}, frame, [val | rest], gas, ctx) do
     new_ctx = Scope.set_global(ctx, atom_idx, val)
-    Process.put(:qb_persistent_globals, new_ctx.globals)
+    Heap.put_persistent_globals(new_ctx.globals)
     run(advance(frame), rest, gas - 1, new_ctx)
   end
 
   # define_func: global scope function hoisting (sloppy mode)
   defp run({:define_func, [atom_idx, _flags]}, frame, [fun | rest], gas, ctx) do
     ctx = Scope.set_global(ctx, atom_idx, fun)
-    Process.put(:qb_persistent_globals, ctx.globals)
+    Heap.put_persistent_globals(ctx.globals)
     run(advance(frame), rest, gas - 1, ctx)
   end
 
@@ -2649,9 +2649,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
            })
 
            # Queue for when parent resolves
-           waiters = Process.get({:qb_promise_waiters, promise_ref}, [])
+           waiters = Heap.get_promise_waiters(promise_ref)
 
-           Process.put({:qb_promise_waiters, promise_ref}, [
+           Heap.put_promise_waiters(promise_ref, [
              {on_fulfilled, on_rejected, child_ref} | waiters
            ])
 
@@ -2705,9 +2705,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
                     resolve_promise(child_ref, :rejected, v)
 
                   %{"__promise_state__" => :pending} ->
-                    waiters = Process.get({:qb_promise_waiters, r}, [])
+                    waiters = Heap.get_promise_waiters(r)
 
-                    Process.put({:qb_promise_waiters, r}, [
+                    Heap.put_promise_waiters(r, [
                       {fn v -> resolve_promise(child_ref, :resolved, v) end, nil, child_ref}
                       | waiters
                     ])
@@ -2734,8 +2734,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     })
 
     # Notify waiters
-    waiters = Process.get({:qb_promise_waiters, ref}, [])
-    Process.delete({:qb_promise_waiters, ref})
+    waiters = Heap.get_promise_waiters(ref)
+    Heap.delete_promise_waiters(ref)
 
     for {on_fulfilled, on_rejected, child_ref} <- waiters do
       case state do

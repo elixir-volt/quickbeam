@@ -844,21 +844,8 @@ defmodule QuickBEAM.BeamVM.Runtime do
   def to_float(n) when is_integer(n), do: n * 1.0
   def to_float(_), do: 0.0
 
-  def to_number(n) when is_number(n), do: n
-  def to_number(true), do: 1
-  def to_number(false), do: 0
-  def to_number(nil), do: 0
-  def to_number(:undefined), do: :nan
-
-  def to_number(s) when is_binary(s) do
-    case Float.parse(s) do
-      {f, ""} -> f
-      {f, _} -> f
-      :error -> :nan
-    end
-  end
-
-  def to_number(_), do: :nan
+  def to_number({:bigint, n}), do: n
+  def to_number(val), do: QuickBEAM.BeamVM.Interpreter.Values.to_number(val)
 
   def normalize_index(idx, len) when idx < 0, do: max(len + idx, 0)
   def normalize_index(idx, len), do: min(idx, len)

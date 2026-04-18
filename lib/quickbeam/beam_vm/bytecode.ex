@@ -78,7 +78,7 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   @spec decode(binary()) :: {:ok, struct()} | {:error, term()}
   def decode(data) when is_binary(data) do
     with {:ok, version, rest} <- LEB128.read_u8(data),
-         true <- version == Opcodes.bc_version() || {:error, {:bad_version, version}},
+         :ok <- validate_version(version),
          <<_checksum::little-unsigned-32, rest2::binary>> <- rest || {:error, :no_checksum},
          {:ok, atoms, rest3} <- read_atoms(rest2),
          {:ok, value, _rest4} <- read_object(rest3, atoms) do
@@ -320,6 +320,10 @@ defmodule QuickBEAM.BeamVM.Bytecode do
       _ ->
         {:error, :unexpected_end}
     end
+  end
+
+  defp validate_version(version) do
+    if version == Opcodes.bc_version(), do: :ok, else: {:error, {:bad_version, version}}
   end
 
   defp read_function_body(flags, data, atoms) do

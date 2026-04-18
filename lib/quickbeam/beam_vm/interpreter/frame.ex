@@ -2,7 +2,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Frame do
   @moduledoc false
   @type t :: {non_neg_integer(), tuple(), tuple(), tuple(), non_neg_integer(), tuple(), map()}
 
-  # Tuple layout: {pc, locals, constants, var_refs, stack_size, instructions, local_to_vref}
+  # Tuple layout: {pc, locals, constants, var_refs, _stack_size (unused), instructions, local_to_vref}
   @pc 0
   @locals 1
   @constants 2
