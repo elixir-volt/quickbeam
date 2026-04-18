@@ -237,16 +237,16 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
 
   defp replace_all(s, _), do: s
 
-  defp match(s, [{:regexp, _bytecode, source} | _]) when is_binary(s) do
-    case RegExp.compile_pattern(source) do
-      {:ok, re} ->
-        case Regex.run(re, s, return: :index) do
-          nil -> nil
-          matches -> Enum.map(matches, fn {start, len} -> String.slice(s, start, len) end)
-        end
-
-      _ ->
+  defp match(s, [{:regexp, bytecode, _source} | _]) when is_binary(s) and is_binary(bytecode) do
+    case RegExp.nif_exec(bytecode, s, 0) do
+      nil ->
         nil
+
+      captures ->
+        Enum.map(captures, fn
+          {start, len} -> String.slice(s, start, len)
+          nil -> :undefined
+        end)
     end
   end
 
@@ -257,7 +257,7 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
   defp match(_, _), do: nil
 
   defp regex_replace(s, {:regexp, _bytecode, source}, replacement) when is_binary(source) do
-    case RegExp.compile_pattern(source) do
+    case Regex.compile(source) do
       {:ok, re} -> String.replace(s, re, Runtime.js_to_string(replacement))
       _ -> s
     end
@@ -266,7 +266,7 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
   defp regex_replace(s, _, _), do: s
 
   defp search(s, [{:regexp, _bc, source} | _]) when is_binary(s) and is_binary(source) do
-    case RegExp.compile_pattern(source) do
+    case Regex.compile(source) do
       {:ok, re} ->
         case Regex.run(re, s, return: :index) do
           [{start, _} | _] -> start
@@ -288,7 +288,7 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
   defp search(_, _), do: -1
 
   defp match_all(s, [{:regexp, _bc, source} | _]) when is_binary(s) and is_binary(source) do
-    case RegExp.compile_pattern(source) do
+    case Regex.compile(source) do
       {:ok, re} ->
         matches = Regex.scan(re, s, return: :index)
 

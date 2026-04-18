@@ -211,25 +211,4 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
   defp js_is(:nan, :nan), do: true
   defp js_is(a, b), do: a === b
-
-  defp sort_js_keys(keys) do
-    {numeric, strings} =
-      Enum.split_with(keys, fn
-        k when is_integer(k) -> true
-        k when is_binary(k) -> match?({_, ""}, Integer.parse(k))
-        _ -> false
-      end)
-
-    sorted_numeric =
-      Enum.sort_by(numeric, fn
-        k when is_integer(k) -> k
-        k when is_binary(k) -> elem(Integer.parse(k), 0)
-      end)
-      |> Enum.map(fn
-        k when is_integer(k) -> Integer.to_string(k)
-        k -> k
-      end)
-
-    sorted_numeric ++ Enum.filter(strings, &is_binary/1)
-  end
 end

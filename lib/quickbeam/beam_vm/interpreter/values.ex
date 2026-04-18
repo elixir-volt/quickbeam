@@ -342,6 +342,21 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def abstract_eq(a, b) when is_binary(a) and is_number(b), do: to_number(a) == b
   def abstract_eq({:bigint, a}, b) when is_integer(b), do: a == b
   def abstract_eq({:bigint, a}, b) when is_float(b), do: a == b
+
+  def abstract_eq({:bigint, a}, b) when is_binary(b) do
+    case Integer.parse(b) do
+      {n, ""} -> a == n
+      _ -> false
+    end
+  end
+
+  def abstract_eq(a, {:bigint, b}) when is_binary(a) do
+    case Integer.parse(a) do
+      {n, ""} -> n == b
+      _ -> false
+    end
+  end
+
   def abstract_eq(a, {:bigint, b}) when is_integer(a), do: a == b
   def abstract_eq(a, {:bigint, b}) when is_float(a), do: a == b
   def abstract_eq(_, _), do: false
