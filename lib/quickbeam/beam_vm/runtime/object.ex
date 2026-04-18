@@ -184,12 +184,32 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   end
 
   defp get_own_property_names([{:obj, ref} | _]) do
-    map = Heap.get_obj(ref, %{})
-    Map.keys(map) |> Enum.filter(&is_binary/1)
+    data = Heap.get_obj(ref, %{})
+
+    names =
+      case data do
+        list when is_list(list) ->
+          Enum.with_index(list) |> Enum.map(fn {_, i} -> Integer.to_string(i) end)
+
+        map when is_map(map) ->
+          Map.keys(map)
+          |> Enum.filter(&is_binary/1)
+          |> Enum.reject(fn k -> String.starts_with?(k, "__") and String.ends_with?(k, "__") end)
+
+        _ ->
+          []
+      end
+
+    result_ref = make_ref()
+    Heap.put_obj(result_ref, names)
+    {:obj, result_ref}
   end
 
-  defp get_own_property_names([map | _]) when is_map(map), do: Map.keys(map)
-  defp get_own_property_names(_), do: []
+  defp get_own_property_names(_) do
+    ref = make_ref()
+    Heap.put_obj(ref, [])
+    {:obj, ref}
+  end
 
   defp raw_keys({:obj, ref}) do
     case Heap.get_obj(ref, []) do

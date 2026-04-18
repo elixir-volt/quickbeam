@@ -347,13 +347,45 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
-  defp materialize_constant({:template_object, elems, raw}) do
+  defp materialize_constant({:template_object, elems, raw}) when is_list(elems) do
+    raw_list =
+      case raw do
+        {:array, l} when is_list(l) -> l
+        l when is_list(l) -> l
+        :undefined -> elems
+        _ -> elems
+      end
+
     raw_ref = make_ref()
-    Heap.put_obj(raw_ref, raw)
+
+    raw_map =
+      raw_list
+      |> Enum.with_index()
+      |> Enum.reduce(%{"length" => length(raw_list)}, fn {v, i}, acc ->
+        Map.put(acc, Integer.to_string(i), v)
+      end)
+
+    Heap.put_obj(raw_ref, raw_map)
+
     ref = make_ref()
-    Heap.put_obj(ref, elems)
-    Objects.put({:obj, ref}, "raw", {:obj, raw_ref})
+
+    map =
+      elems
+      |> Enum.with_index()
+      |> Enum.reduce(%{"length" => length(elems), "raw" => {:obj, raw_ref}}, fn {v, i}, acc ->
+        Map.put(acc, Integer.to_string(i), v)
+      end)
+
+    Heap.put_obj(ref, map)
     {:obj, ref}
+  end
+
+  defp materialize_constant({:template_object, {:array, elems}, raw}) do
+    materialize_constant({:template_object, elems, raw})
+  end
+
+  defp materialize_constant({:template_object, elems, raw}) when not is_list(elems) do
+    materialize_constant({:template_object, [elems], raw})
   end
 
   defp materialize_constant(val), do: val

@@ -106,7 +106,49 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
         "byteLength" => length_val * elem_size(type),
         "byteOffset" => offset,
         "buffer" => orig_buf || make_buffer_ref(buffer),
-        "set" => set_fn
+        "set" => set_fn,
+        "subarray" =>
+          {:builtin, "subarray",
+           fn args, _this ->
+             ta = Heap.get_obj(ta_ref, %{})
+             buf = Map.get(ta, "__buffer__", <<>>)
+             t = Map.get(ta, "__type__", :uint8)
+             len = Map.get(ta, "length", 0)
+             s = max(0, min(elem_size_idx(Enum.at(args, 0, 0)), len))
+             e = min(elem_size_idx(Enum.at(args, 1, len)), len)
+             new_len = max(0, e - s)
+             es = elem_size(t)
+             new_buf = binary_part(buf, s * es, new_len * es)
+             new_ref = make_ref()
+
+             Heap.put_obj(new_ref, %{
+               "__typed_array__" => true,
+               "__type__" => t,
+               "__buffer__" => new_buf,
+               "__offset__" => 0,
+               "length" => new_len,
+               "byteLength" => new_len * es,
+               "byteOffset" => 0,
+               "buffer" => Map.get(ta, "buffer")
+             })
+
+             {:obj, new_ref}
+           end},
+        "fill" =>
+          {:builtin, "fill",
+           fn [val | _], _this ->
+             ta = Heap.get_obj(ta_ref, %{})
+             len = Map.get(ta, "length", 0)
+             t = Map.get(ta, "__type__", :uint8)
+
+             new_buf =
+               Enum.reduce(0..(len - 1), Map.get(ta, "__buffer__", <<>>), fn i, buf ->
+                 write_element(buf, i, val, t)
+               end)
+
+             Heap.put_obj(ta_ref, Map.put(ta, "__buffer__", new_buf))
+             {:obj, ta_ref}
+           end}
       })
 
       {:obj, ref}
@@ -160,6 +202,10 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
   end
 
   def typed_array?(_), do: false
+
+  defp elem_size_idx(n) when is_integer(n), do: n
+  defp elem_size_idx(n) when is_float(n), do: trunc(n)
+  defp elem_size_idx(_), do: 0
 
   defp elem_size(:uint8), do: 1
   defp elem_size(:int8), do: 1
