@@ -1653,6 +1653,40 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
   end
 
+  describe "microtask queue" do
+    test "then chaining", %{rt: rt} do
+      ok(
+        rt,
+        "(async function(){ return await Promise.resolve(1).then(function(v){ return v + 1 }).then(function(v){ return v * 10 }) })()",
+        20
+      )
+    end
+
+    test "microtask ordering", %{rt: rt} do
+      ok(
+        rt,
+        "(async function(){ var log = []; log.push(1); Promise.resolve().then(function(){ log.push(3) }); log.push(2); await Promise.resolve(); return log.join(',') })()",
+        "1,2,3"
+      )
+    end
+
+    test "catch rejected promise", %{rt: rt} do
+      ok(
+        rt,
+        "(async function(){ return await Promise.reject('err').catch(function(e){ return e + '!' }) })()",
+        "err!"
+      )
+    end
+
+    test "queueMicrotask", %{rt: rt} do
+      ok(
+        rt,
+        "(async function(){ var x = 0; queueMicrotask(function(){ x = 42 }); await Promise.resolve(); return x })()",
+        42
+      )
+    end
+  end
+
   # ── Edge cases ──
 
   describe "edge cases" do

@@ -281,8 +281,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
     %{
       "resolve" =>
         {:builtin, "resolve",
-         fn [val | _] ->
-           QuickBEAM.BeamVM.Interpreter.make_resolved_promise(val)
+         fn
+           [val | _] -> QuickBEAM.BeamVM.Interpreter.make_resolved_promise(val)
+           [] -> QuickBEAM.BeamVM.Interpreter.make_resolved_promise(:undefined)
          end},
       "reject" =>
         {:builtin, "reject",

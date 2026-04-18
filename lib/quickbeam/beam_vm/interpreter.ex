@@ -77,7 +77,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             )
 
           try do
-            {:ok, unwrap_promise(run(frame, args, gas, ctx))}
+            result = run(frame, args, gas, ctx)
+            drain_microtask_queue()
+            {:ok, unwrap_promise(result)}
           catch
             {:js_throw, val} -> {:error, {:js_throw, val}}
             {:error, _} = err -> err
@@ -157,6 +159,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   @compile {:inline, unwrap_promise: 2}
   defp unwrap_promise(val, depth \\ 0)
 
+  defp unwrap_promise(val, -1),
+    do:
+      (
+        drain_microtask_queue()
+        unwrap_promise(val, 0)
+      )
+
   defp unwrap_promise({:obj, ref}, depth) when depth < 10 do
     case Heap.get_obj(ref, %{}) do
       %{"__promise_state__" => :resolved, "__promise_value__" => val} ->
@@ -170,10 +179,32 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp unwrap_promise(val, _depth), do: val
 
   defp resolve_awaited({:obj, ref} = obj) do
+    drain_microtask_queue()
+
     case Heap.get_obj(ref, %{}) do
-      %{"__promise_state__" => :resolved, "__promise_value__" => val} -> val
-      %{"__promise_state__" => :rejected, "__promise_value__" => val} -> throw({:js_throw, val})
-      _ -> obj
+      %{"__promise_state__" => :resolved, "__promise_value__" => val} ->
+        val
+
+      %{"__promise_state__" => :rejected, "__promise_value__" => val} ->
+        throw({:js_throw, val})
+
+      %{"__promise_state__" => :pending} ->
+        # Drain again in case resolution was queued
+        drain_microtask_queue()
+
+        case Heap.get_obj(ref, %{}) do
+          %{"__promise_state__" => :resolved, "__promise_value__" => val} ->
+            val
+
+          %{"__promise_state__" => :rejected, "__promise_value__" => val} ->
+            throw({:js_throw, val})
+
+          _ ->
+            obj
+        end
+
+      _ ->
+        obj
     end
   end
 
@@ -2300,65 +2331,185 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   @doc false
   def make_resolved_promise(val) do
-    ref = make_ref()
+    promise_ref = make_ref()
 
-    then_fn =
-      {:builtin, "then",
-       fn
-         [on_resolved | _], _this ->
-           result = invoke_callback(on_resolved, [val])
-           make_resolved_promise(result)
-
-         [], _this ->
-           make_resolved_promise(val)
-       end}
-
-    catch_fn = {:builtin, "catch", fn _args, _this -> make_resolved_promise(val) end}
-
-    Heap.put_obj(ref, %{
+    Heap.put_obj(promise_ref, %{
       "__promise_state__" => :resolved,
       "__promise_value__" => val,
-      "then" => then_fn,
-      "catch" => catch_fn
+      "then" => make_then_fn(promise_ref),
+      "catch" => make_catch_fn(promise_ref)
     })
 
-    {:obj, ref}
+    {:obj, promise_ref}
   end
 
   @doc false
   def make_rejected_promise(val) do
-    ref = make_ref()
+    promise_ref = make_ref()
 
-    then_fn =
-      {:builtin, "then",
-       fn
-         [_, on_rejected | _], _this ->
-           result = invoke_callback(on_rejected, [val])
-           make_resolved_promise(result)
-
-         _, _this ->
-           make_rejected_promise(val)
-       end}
-
-    catch_fn =
-      {:builtin, "catch",
-       fn
-         [handler | _], _this ->
-           result = invoke_callback(handler, [val])
-           make_resolved_promise(result)
-
-         [], _this ->
-           make_rejected_promise(val)
-       end}
-
-    Heap.put_obj(ref, %{
+    Heap.put_obj(promise_ref, %{
       "__promise_state__" => :rejected,
       "__promise_value__" => val,
-      "then" => then_fn,
-      "catch" => catch_fn
+      "then" => make_then_fn(promise_ref),
+      "catch" => make_catch_fn(promise_ref)
     })
 
-    {:obj, ref}
+    {:obj, promise_ref}
+  end
+
+  def make_then_fn(promise_ref) do
+    {:builtin, "then",
+     fn args, _this ->
+       on_fulfilled = Enum.at(args, 0)
+       on_rejected = Enum.at(args, 1)
+
+       case Heap.get_obj(promise_ref, %{}) do
+         %{"__promise_state__" => :resolved, "__promise_value__" => val} ->
+           if on_fulfilled && on_fulfilled != :undefined do
+             child_ref = make_ref()
+
+             Heap.put_obj(child_ref, %{
+               "__promise_state__" => :pending,
+               "then" => make_then_fn(child_ref),
+               "catch" => make_catch_fn(child_ref)
+             })
+
+             Heap.enqueue_microtask({:resolve, child_ref, on_fulfilled, val})
+             {:obj, child_ref}
+           else
+             make_resolved_promise(val)
+           end
+
+         %{"__promise_state__" => :rejected, "__promise_value__" => val} ->
+           if on_rejected && on_rejected != :undefined do
+             child_ref = make_ref()
+
+             Heap.put_obj(child_ref, %{
+               "__promise_state__" => :pending,
+               "then" => make_then_fn(child_ref),
+               "catch" => make_catch_fn(child_ref)
+             })
+
+             Heap.enqueue_microtask({:resolve, child_ref, on_rejected, val})
+             {:obj, child_ref}
+           else
+             make_rejected_promise(val)
+           end
+
+         %{"__promise_state__" => :pending} ->
+           child_ref = make_ref()
+
+           Heap.put_obj(child_ref, %{
+             "__promise_state__" => :pending,
+             "then" => make_then_fn(child_ref),
+             "catch" => make_catch_fn(child_ref)
+           })
+
+           # Queue for when parent resolves
+           waiters = Process.get({:qb_promise_waiters, promise_ref}, [])
+
+           Process.put({:qb_promise_waiters, promise_ref}, [
+             {on_fulfilled, on_rejected, child_ref} | waiters
+           ])
+
+           {:obj, child_ref}
+
+         _ ->
+           make_resolved_promise(:undefined)
+       end
+     end}
+  end
+
+  def make_catch_fn(promise_ref) do
+    {:builtin, "catch",
+     fn args, this ->
+       handler = List.first(args)
+       then_fn = make_then_fn(promise_ref)
+
+       case then_fn do
+         {:builtin, _, cb} -> cb.([nil, handler], this)
+       end
+     end}
+  end
+
+  @doc false
+  def drain_microtask_queue do
+    case Heap.dequeue_microtask() do
+      nil ->
+        :ok
+
+      {:resolve, child_ref, callback, val} ->
+        result =
+          try do
+            invoke_callback(callback, [val])
+          catch
+            {:js_throw, err} -> {:rejected, err}
+          end
+
+        case result do
+          {:rejected, err} ->
+            resolve_promise(child_ref, :rejected, err)
+
+          result_val ->
+            # If result is a promise, chain it
+            case result_val do
+              {:obj, r} ->
+                case Heap.get_obj(r, %{}) do
+                  %{"__promise_state__" => :resolved, "__promise_value__" => v} ->
+                    resolve_promise(child_ref, :resolved, v)
+
+                  %{"__promise_state__" => :rejected, "__promise_value__" => v} ->
+                    resolve_promise(child_ref, :rejected, v)
+
+                  %{"__promise_state__" => :pending} ->
+                    waiters = Process.get({:qb_promise_waiters, r}, [])
+                    then_fn = make_then_fn(r)
+
+                    Process.put({:qb_promise_waiters, r}, [
+                      {fn v -> resolve_promise(child_ref, :resolved, v) end, nil, child_ref}
+                      | waiters
+                    ])
+
+                  _ ->
+                    resolve_promise(child_ref, :resolved, result_val)
+                end
+
+              _ ->
+                resolve_promise(child_ref, :resolved, result_val)
+            end
+        end
+
+        drain_microtask_queue()
+    end
+  end
+
+  def resolve_promise(ref, state, val) do
+    Heap.put_obj(ref, %{
+      "__promise_state__" => state,
+      "__promise_value__" => val,
+      "then" => make_then_fn(ref),
+      "catch" => make_catch_fn(ref)
+    })
+
+    # Notify waiters
+    waiters = Process.get({:qb_promise_waiters, ref}, [])
+    Process.delete({:qb_promise_waiters, ref})
+
+    for {on_fulfilled, on_rejected, child_ref} <- waiters do
+      case state do
+        :resolved when on_fulfilled != nil and on_fulfilled != :undefined ->
+          Heap.enqueue_microtask({:resolve, child_ref, on_fulfilled, val})
+
+        :rejected when on_rejected != nil and on_rejected != :undefined ->
+          Heap.enqueue_microtask({:resolve, child_ref, on_rejected, val})
+
+        :resolved ->
+          resolve_promise(child_ref, :resolved, val)
+
+        :rejected ->
+          resolve_promise(child_ref, :rejected, val)
+      end
+    end
   end
 
   defp generator_next(gen_ref, arg) do

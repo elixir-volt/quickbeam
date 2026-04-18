@@ -167,7 +167,12 @@ defmodule QuickBEAM.BeamVM.Runtime do
          end},
       "globalThis" => obj_new(),
       "structuredClone" => {:builtin, "structuredClone", fn [val | _] -> val end},
-      "queueMicrotask" => {:builtin, "queueMicrotask", fn _ -> :undefined end},
+      "queueMicrotask" =>
+        {:builtin, "queueMicrotask",
+         fn [cb | _] ->
+           Heap.enqueue_microtask({:resolve, nil, cb, :undefined})
+           :undefined
+         end},
       "ArrayBuffer" => {:builtin, "ArrayBuffer", &TypedArray.array_buffer_constructor/1},
       "Uint8Array" => {:builtin, "Uint8Array", TypedArray.typed_array_constructor(:uint8)},
       "Int8Array" => {:builtin, "Int8Array", TypedArray.typed_array_constructor(:int8)},

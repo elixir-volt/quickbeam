@@ -202,6 +202,31 @@ defmodule QuickBEAM.BeamVM.Heap do
     end)
   end
 
+  # ── Microtask queue ──
+
+  def enqueue_microtask(task) do
+    queue = Process.get(:qb_microtask_queue, :queue.new())
+    Process.put(:qb_microtask_queue, :queue.in(task, queue))
+  end
+
+  def dequeue_microtask do
+    queue = Process.get(:qb_microtask_queue, :queue.new())
+
+    case :queue.out(queue) do
+      {{:value, task}, rest} ->
+        Process.put(:qb_microtask_queue, rest)
+        task
+
+      {:empty, _} ->
+        nil
+    end
+  end
+
+  def microtask_queue_empty? do
+    queue = Process.get(:qb_microtask_queue, :queue.new())
+    :queue.is_empty(queue)
+  end
+
   # ── GC ──
 
   @doc "Delete all heap data. Call between independent eval() invocations to free memory."
