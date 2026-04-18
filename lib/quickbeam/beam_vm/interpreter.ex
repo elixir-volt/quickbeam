@@ -182,7 +182,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp make_error_obj(message, name) do
     ref = make_ref()
-    Heap.put_obj(ref, %{"message" => message, "name" => name, "stack" => ""})
+    # Get the error constructor's prototype for instanceof chain
+    error_ctor = Map.get(active_ctx().globals, name)
+    proto = if error_ctor, do: Heap.get_class_proto(error_ctor), else: nil
+    base = %{"message" => message, "name" => name, "stack" => ""}
+    obj = if proto, do: Map.put(base, "__proto__", proto), else: base
+    Heap.put_obj(ref, obj)
     {:obj, ref}
   end
 
@@ -1292,6 +1297,16 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         {:closure, _, %Bytecode.Function{} = f} -> f
         other -> other
       end
+
+    # Generators and async generators cannot be constructors
+    case raw_ctor do
+      %Bytecode.Function{func_kind: fk} when fk in [@func_generator, @func_async_generator] ->
+        name = raw_ctor.name || "anonymous"
+        throw({:js_throw, make_error_obj("#{name} is not a constructor", "TypeError")})
+
+      _ ->
+        :ok
+    end
 
     this_ref = make_ref()
     proto = Heap.get_class_proto(raw_ctor) || get_or_create_prototype(ctor)

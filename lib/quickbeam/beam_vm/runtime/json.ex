@@ -47,8 +47,7 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
 
   defp stringify([]), do: :undefined
 
-  defp to_json({:obj, ref}) do
-    # Filter internal keys before JSON serialization
+  defp to_json({:obj, ref} = obj) do
     case Heap.get_obj(ref) do
       nil ->
         %{}
@@ -68,9 +67,11 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
             case v do
               {:accessor, getter, _setter} when getter != nil ->
                 try do
-                  QuickBEAM.BeamVM.Runtime.call_builtin_callback(getter, [], :no_interp)
+                  QuickBEAM.BeamVM.Runtime.invoke_getter(getter, obj)
                 rescue
                   _ -> :undefined
+                catch
+                  _, _ -> :undefined
                 end
 
               _ ->
