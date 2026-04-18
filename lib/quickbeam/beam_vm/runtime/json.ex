@@ -57,7 +57,13 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
         Enum.map(list, &to_json/1)
 
       map when is_map(map) ->
-        map |> Map.drop([:__key_order__]) |> Map.new(fn {k, v} -> {to_string(k), to_json(v)} end)
+        map
+        |> Map.drop([:__key_order__])
+        |> Enum.reject(fn {k, v} ->
+          v == :undefined or
+            (is_binary(k) and String.starts_with?(k, "__") and String.ends_with?(k, "__"))
+        end)
+        |> Map.new(fn {k, v} -> {to_string(k), to_json(v)} end)
     end
   end
 

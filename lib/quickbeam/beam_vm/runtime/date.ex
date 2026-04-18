@@ -178,6 +178,150 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
          end
        end}
 
+  def proto_property("setFullYear"),
+    do:
+      {:builtin, "setFullYear",
+       fn [y | _], this ->
+         case {get_ms(this), this} do
+           {ms, {:obj, ref}} when is_number(ms) ->
+             dt = DateTime.from_unix!(trunc(ms), :millisecond)
+
+             {:ok, ndt} =
+               NaiveDateTime.new(trunc(y), dt.month, dt.day, dt.hour, dt.minute, dt.second)
+
+             new_ms = DateTime.from_naive!(ndt, "Etc/UTC") |> DateTime.to_unix(:millisecond)
+             map = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
+             QuickBEAM.BeamVM.Heap.put_obj(ref, Map.put(map, "__date_ms__", new_ms))
+             new_ms
+
+           _ ->
+             :nan
+         end
+       end}
+
+  def proto_property("setMonth"),
+    do:
+      {:builtin, "setMonth",
+       fn [m | _], this ->
+         case {get_ms(this), this} do
+           {ms, {:obj, ref}} when is_number(ms) ->
+             dt = DateTime.from_unix!(trunc(ms), :millisecond)
+
+             {:ok, ndt} =
+               NaiveDateTime.new(dt.year, trunc(m) + 1, dt.day, dt.hour, dt.minute, dt.second)
+
+             new_ms = DateTime.from_naive!(ndt, "Etc/UTC") |> DateTime.to_unix(:millisecond)
+             map = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
+             QuickBEAM.BeamVM.Heap.put_obj(ref, Map.put(map, "__date_ms__", new_ms))
+             new_ms
+
+           _ ->
+             :nan
+         end
+       end}
+
+  def proto_property("setDate"),
+    do:
+      {:builtin, "setDate",
+       fn [d | _], this ->
+         case {get_ms(this), this} do
+           {ms, {:obj, ref}} when is_number(ms) ->
+             dt = DateTime.from_unix!(trunc(ms), :millisecond)
+
+             {:ok, ndt} =
+               NaiveDateTime.new(dt.year, dt.month, trunc(d), dt.hour, dt.minute, dt.second)
+
+             new_ms = DateTime.from_naive!(ndt, "Etc/UTC") |> DateTime.to_unix(:millisecond)
+             map = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
+             QuickBEAM.BeamVM.Heap.put_obj(ref, Map.put(map, "__date_ms__", new_ms))
+             new_ms
+
+           _ ->
+             :nan
+         end
+       end}
+
+  def proto_property("setHours"),
+    do:
+      {:builtin, "setHours",
+       fn [h | _], this ->
+         case {get_ms(this), this} do
+           {ms, {:obj, ref}} when is_number(ms) ->
+             dt = DateTime.from_unix!(trunc(ms), :millisecond)
+
+             {:ok, ndt} =
+               NaiveDateTime.new(dt.year, dt.month, dt.day, trunc(h), dt.minute, dt.second)
+
+             new_ms = DateTime.from_naive!(ndt, "Etc/UTC") |> DateTime.to_unix(:millisecond)
+             map = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
+             QuickBEAM.BeamVM.Heap.put_obj(ref, Map.put(map, "__date_ms__", new_ms))
+             new_ms
+
+           _ ->
+             :nan
+         end
+       end}
+
+  def proto_property("setMinutes"),
+    do:
+      {:builtin, "setMinutes",
+       fn [m | _], this ->
+         case {get_ms(this), this} do
+           {ms, {:obj, ref}} when is_number(ms) ->
+             dt = DateTime.from_unix!(trunc(ms), :millisecond)
+
+             {:ok, ndt} =
+               NaiveDateTime.new(dt.year, dt.month, dt.day, dt.hour, trunc(m), dt.second)
+
+             new_ms = DateTime.from_naive!(ndt, "Etc/UTC") |> DateTime.to_unix(:millisecond)
+             map = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
+             QuickBEAM.BeamVM.Heap.put_obj(ref, Map.put(map, "__date_ms__", new_ms))
+             new_ms
+
+           _ ->
+             :nan
+         end
+       end}
+
+  def proto_property("setSeconds"),
+    do:
+      {:builtin, "setSeconds",
+       fn [s | _], this ->
+         case {get_ms(this), this} do
+           {ms, {:obj, ref}} when is_number(ms) ->
+             dt = DateTime.from_unix!(trunc(ms), :millisecond)
+
+             {:ok, ndt} =
+               NaiveDateTime.new(dt.year, dt.month, dt.day, dt.hour, dt.minute, trunc(s))
+
+             new_ms = DateTime.from_naive!(ndt, "Etc/UTC") |> DateTime.to_unix(:millisecond)
+             map = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
+             QuickBEAM.BeamVM.Heap.put_obj(ref, Map.put(map, "__date_ms__", new_ms))
+             new_ms
+
+           _ ->
+             :nan
+         end
+       end}
+
+  def proto_property("setMilliseconds"),
+    do:
+      {:builtin, "setMilliseconds",
+       fn [ms_val | _], this ->
+         case {get_ms(this), this} do
+           {ms, {:obj, ref}} when is_number(ms) ->
+             dt = DateTime.from_unix!(trunc(ms), :millisecond)
+             base = DateTime.to_unix(dt, :second) * 1000
+             new_ms = base + trunc(ms_val)
+             map = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
+             QuickBEAM.BeamVM.Heap.put_obj(ref, Map.put(map, "__date_ms__", new_ms))
+             new_ms
+
+           _ ->
+             :nan
+         end
+       end}
+
   def proto_property("toString"),
     do:
       {:builtin, "toString",
@@ -211,6 +355,69 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   end
 
   defp ms_to_dt(_), do: nil
+
+  def parse_date_string(s) when is_binary(s) do
+    s = String.trim(s)
+
+    cond do
+      s == "" ->
+        :nan
+
+      # ISO 8601: YYYY-MM-DDTHH:mm:ss.sssZ
+      Regex.match?(
+        ~r/^[+-]?\d{4,6}(-\d{2}(-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z?([+-]\d{2}:\d{2})?)?)?)?$/,
+        s
+      ) ->
+        parse_iso(s)
+
+      # Simple year: YYYY
+      Regex.match?(~r/^\d{4}$/, s) ->
+        parse_iso(s)
+
+      true ->
+        :nan
+    end
+  end
+
+  def parse_date_string(_), do: :nan
+
+  defp parse_iso(s) do
+    try do
+      # Extract components
+      {sign, rest} =
+        case s do
+          "+" <> r -> {1, r}
+          "-" <> r -> {-1, r}
+          r -> {1, r}
+        end
+
+      parts = String.split(rest, ~r/[-T:Z.+]/, trim: true)
+      year = sign * String.to_integer(Enum.at(parts, 0, "0"))
+      month = String.to_integer(Enum.at(parts, 1, "1"))
+      day = String.to_integer(Enum.at(parts, 2, "1"))
+      hour = String.to_integer(Enum.at(parts, 3, "0"))
+      minute = String.to_integer(Enum.at(parts, 4, "0"))
+      second = String.to_integer(Enum.at(parts, 5, "0"))
+      ms_str = Enum.at(parts, 6, "0")
+      ms = String.to_integer(String.pad_trailing(String.slice(ms_str, 0, 3), 3, "0"))
+
+      if month < 1 or month > 12 or day < 1 or day > 31 or
+           hour < 0 or hour > 23 or minute < 0 or minute > 59 or second < 0 or second > 59 do
+        :nan
+      else
+        case NaiveDateTime.new(year, month, day, hour, minute, second) do
+          {:ok, ndt} ->
+            base = DateTime.from_naive!(ndt, "Etc/UTC") |> DateTime.to_unix(:millisecond)
+            base + ms
+
+          _ ->
+            :nan
+        end
+      end
+    rescue
+      _ -> :nan
+    end
+  end
 
   defp utc(this) do
     case get_ms(this) do

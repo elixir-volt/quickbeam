@@ -263,6 +263,24 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
        "acosh" => {:builtin, "acosh", fn [a | _] -> :math.acosh(Runtime.to_float(a)) end},
        "asinh" => {:builtin, "asinh", fn [a | _] -> :math.asinh(Runtime.to_float(a)) end},
        "atanh" => {:builtin, "atanh", fn [a | _] -> :math.atanh(Runtime.to_float(a)) end},
+       "sumPrecise" =>
+         {:builtin, "sumPrecise",
+          fn [arr | _] ->
+            list =
+              case arr do
+                {:obj, ref} ->
+                  data = QuickBEAM.BeamVM.Heap.get_obj(ref, [])
+                  if is_list(data), do: data, else: []
+
+                l when is_list(l) ->
+                  l
+
+                _ ->
+                  []
+              end
+
+            Enum.reduce(list, 0.0, fn v, acc -> acc + Runtime.to_float(v) end)
+          end},
        "hypot" =>
          {:builtin, "hypot",
           fn args ->

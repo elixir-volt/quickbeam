@@ -3,6 +3,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   alias QuickBEAM.BeamVM.{Heap, Bytecode}
 
   def put({:obj, ref} = obj, key, val) do
+    key = normalize_key(key)
     map = Heap.get_obj(ref, %{})
 
     case map do
@@ -43,6 +44,12 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
     do: Heap.put_ctor_static(c, key, val)
 
   def put(_, _, _), do: :ok
+
+  defp normalize_key(k) when is_float(k) and k == trunc(k) and k >= 0,
+    do: Integer.to_string(trunc(k))
+
+  defp normalize_key(k) when is_float(k), do: QuickBEAM.BeamVM.Interpreter.Values.to_js_string(k)
+  defp normalize_key(k), do: k
 
   def put_getter({:obj, ref}, key, fun) do
     Heap.update_obj(ref, %{}, fn map ->

@@ -134,6 +134,267 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
              {:obj, new_ref}
            end},
+        "join" =>
+          {:builtin, "join",
+           fn args, _this ->
+             ta = Heap.get_obj(ta_ref, %{})
+             len = Map.get(ta, "length", 0)
+             t = Map.get(ta, "__type__", :uint8)
+             buf = Map.get(ta, "__buffer__", <<>>)
+
+             sep =
+               case args do
+                 [s | _] when is_binary(s) -> s
+                 _ -> ","
+               end
+
+             Enum.map_join(0..max(0, len - 1), sep, fn i ->
+               Integer.to_string(trunc(read_element(buf, i, t)))
+             end)
+           end},
+        "forEach" =>
+          {:builtin, "forEach",
+           fn [cb | _], this ->
+             ta = Heap.get_obj(ta_ref, %{})
+             len = Map.get(ta, "length", 0)
+             t = Map.get(ta, "__type__", :uint8)
+             buf = Map.get(ta, "__buffer__", <<>>)
+
+             for i <- 0..(len - 1) do
+               val = read_element(buf, i, t)
+               QuickBEAM.BeamVM.Runtime.call_builtin_callback(cb, [val, i, this], :no_interp)
+             end
+
+             :undefined
+           end},
+        "map" =>
+          {:builtin, "map",
+           fn [cb | _], this ->
+             ta = Heap.get_obj(ta_ref, %{})
+             len = Map.get(ta, "length", 0)
+             t = Map.get(ta, "__type__", :uint8)
+             buf = Map.get(ta, "__buffer__", <<>>)
+
+             new_buf =
+               Enum.reduce(0..(len - 1), buf, fn i, acc ->
+                 val = read_element(acc, i, t)
+
+                 result =
+                   QuickBEAM.BeamVM.Runtime.call_builtin_callback(cb, [val, i, this], :no_interp)
+
+                 write_element(acc, i, result, t)
+               end)
+
+             nr = make_ref()
+
+             Heap.put_obj(nr, %{
+               "__typed_array__" => true,
+               "__type__" => t,
+               "__buffer__" => new_buf,
+               "__offset__" => 0,
+               "length" => len,
+               "byteLength" => byte_size(new_buf),
+               "byteOffset" => 0,
+               "buffer" => Map.get(ta, "buffer")
+             })
+
+             {:obj, nr}
+           end},
+        "filter" =>
+          {:builtin, "filter",
+           fn [cb | _], this ->
+             ta = Heap.get_obj(ta_ref, %{})
+             len = Map.get(ta, "length", 0)
+             t = Map.get(ta, "__type__", :uint8)
+             buf = Map.get(ta, "__buffer__", <<>>)
+
+             vals =
+               for i <- 0..(len - 1),
+                   (
+                     val = read_element(buf, i, t)
+
+                     QuickBEAM.BeamVM.Runtime.call_builtin_callback(
+                       cb,
+                       [val, i, this],
+                       :no_interp
+                     ) not in [false, nil, :undefined, 0, ""]
+                   ),
+                   do: val
+
+             new_buf =
+               vals
+               |> Enum.with_index()
+               |> Enum.reduce(:binary.copy(<<0>>, length(vals) * elem_size(t)), fn {v, i}, acc ->
+                 write_element(acc, i, v, t)
+               end)
+
+             nr = make_ref()
+
+             Heap.put_obj(nr, %{
+               "__typed_array__" => true,
+               "__type__" => t,
+               "__buffer__" => new_buf,
+               "__offset__" => 0,
+               "length" => length(vals),
+               "byteLength" => byte_size(new_buf),
+               "byteOffset" => 0
+             })
+
+             {:obj, nr}
+           end},
+        "every" =>
+          {:builtin, "every",
+           fn [cb | _], this ->
+             ta = Heap.get_obj(ta_ref, %{})
+             len = Map.get(ta, "length", 0)
+             t = Map.get(ta, "__type__", :uint8)
+             buf = Map.get(ta, "__buffer__", <<>>)
+
+             Enum.all?(0..max(0, len - 1), fn i ->
+               val = read_element(buf, i, t)
+
+               QuickBEAM.BeamVM.Runtime.call_builtin_callback(cb, [val, i, this], :no_interp) not in [
+                 false,
+                 nil,
+                 :undefined,
+                 0,
+                 ""
+               ]
+             end)
+           end},
+        "some" =>
+          {:builtin, "some",
+           fn [cb | _], this ->
+             ta = Heap.get_obj(ta_ref, %{})
+             len = Map.get(ta, "length", 0)
+             t = Map.get(ta, "__type__", :uint8)
+             buf = Map.get(ta, "__buffer__", <<>>)
+
+             Enum.any?(0..max(0, len - 1), fn i ->
+               val = read_element(buf, i, t)
+
+               QuickBEAM.BeamVM.Runtime.call_builtin_callback(cb, [val, i, this], :no_interp) not in [
+                 false,
+                 nil,
+                 :undefined,
+                 0,
+                 ""
+               ]
+             end)
+           end},
+        "reduce" =>
+          {:builtin, "reduce",
+           fn args, this ->
+             ta = Heap.get_obj(ta_ref, %{})
+             len = Map.get(ta, "length", 0)
+             t = Map.get(ta, "__type__", :uint8)
+             buf = Map.get(ta, "__buffer__", <<>>)
+             cb = List.first(args)
+             init = Enum.at(args, 1)
+             {start, acc} = if init != nil, do: {0, init}, else: {1, read_element(buf, 0, t)}
+
+             Enum.reduce(start..max(start, len - 1), acc, fn i, a ->
+               val = read_element(buf, i, t)
+               QuickBEAM.BeamVM.Runtime.call_builtin_callback(cb, [a, val, i, this], :no_interp)
+             end)
+           end},
+        "indexOf" =>
+          {:builtin, "indexOf",
+           fn [target | _], _this ->
+             ta = Heap.get_obj(ta_ref, %{})
+             len = Map.get(ta, "length", 0)
+             t = Map.get(ta, "__type__", :uint8)
+             buf = Map.get(ta, "__buffer__", <<>>)
+
+             Enum.find_value(0..max(0, len - 1), -1, fn i ->
+               if read_element(buf, i, t) == target, do: i
+             end)
+           end},
+        "find" =>
+          {:builtin, "find",
+           fn [cb | _], this ->
+             ta = Heap.get_obj(ta_ref, %{})
+             len = Map.get(ta, "length", 0)
+             t = Map.get(ta, "__type__", :uint8)
+             buf = Map.get(ta, "__buffer__", <<>>)
+
+             Enum.find_value(0..max(0, len - 1), :undefined, fn i ->
+               val = read_element(buf, i, t)
+
+               if QuickBEAM.BeamVM.Runtime.call_builtin_callback(cb, [val, i, this], :no_interp) not in [
+                    false,
+                    nil,
+                    :undefined,
+                    0,
+                    ""
+                  ],
+                  do: val
+             end)
+           end},
+        "sort" =>
+          {:builtin, "sort",
+           fn _args, _this ->
+             ta = Heap.get_obj(ta_ref, %{})
+             len = Map.get(ta, "length", 0)
+             t = Map.get(ta, "__type__", :uint8)
+             buf = Map.get(ta, "__buffer__", <<>>)
+
+             vals =
+               Enum.map(0..max(0, len - 1), fn i -> read_element(buf, i, t) end) |> Enum.sort()
+
+             new_buf =
+               vals
+               |> Enum.with_index()
+               |> Enum.reduce(buf, fn {v, i}, acc -> write_element(acc, i, v, t) end)
+
+             Heap.put_obj(ta_ref, Map.put(ta, "__buffer__", new_buf))
+             {:obj, ta_ref}
+           end},
+        "reverse" =>
+          {:builtin, "reverse",
+           fn _args, _this ->
+             ta = Heap.get_obj(ta_ref, %{})
+             len = Map.get(ta, "length", 0)
+             t = Map.get(ta, "__type__", :uint8)
+             buf = Map.get(ta, "__buffer__", <<>>)
+
+             vals =
+               Enum.map(0..max(0, len - 1), fn i -> read_element(buf, i, t) end) |> Enum.reverse()
+
+             new_buf =
+               vals
+               |> Enum.with_index()
+               |> Enum.reduce(buf, fn {v, i}, acc -> write_element(acc, i, v, t) end)
+
+             Heap.put_obj(ta_ref, Map.put(ta, "__buffer__", new_buf))
+             {:obj, ta_ref}
+           end},
+        "slice" =>
+          {:builtin, "slice",
+           fn args, _this ->
+             ta = Heap.get_obj(ta_ref, %{})
+             len = Map.get(ta, "length", 0)
+             t = Map.get(ta, "__type__", :uint8)
+             buf = Map.get(ta, "__buffer__", <<>>)
+             s = max(0, elem_size_idx(Enum.at(args, 0, 0)))
+             e = min(len, elem_size_idx(Enum.at(args, 1, len)))
+             new_len = max(0, e - s)
+             es = elem_size(t)
+             new_buf = if new_len > 0, do: binary_part(buf, s * es, new_len * es), else: <<>>
+             nr = make_ref()
+
+             Heap.put_obj(nr, %{
+               "__typed_array__" => true,
+               "__type__" => t,
+               "__buffer__" => new_buf,
+               "__offset__" => 0,
+               "length" => new_len,
+               "byteLength" => byte_size(new_buf),
+               "byteOffset" => 0
+             })
+
+             {:obj, nr}
+           end},
         "fill" =>
           {:builtin, "fill",
            fn [val | _], _this ->
