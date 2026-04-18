@@ -293,10 +293,47 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   def get_property(value, key) when is_binary(key) do
     case get_own_property(value, key) do
-      :undefined -> get_prototype_property(value, key)
-      val -> val
+      :undefined ->
+        result = get_prototype_raw(value, key)
+
+        case result do
+          {:accessor, getter, _} when getter != nil -> invoke_getter(getter, value)
+          _ -> result
+        end
+
+      val ->
+        val
     end
   end
+
+  defp get_prototype_raw({:obj, ref}, key) do
+    case Heap.get_obj(ref) do
+      map when is_map(map) and is_map_key(map, "__proto__") ->
+        proto = Map.get(map, "__proto__")
+
+        case proto do
+          {:obj, pref} ->
+            pmap = Heap.get_obj(pref, %{})
+
+            if is_map(pmap) do
+              case Map.get(pmap, key, :undefined) do
+                :undefined -> get_prototype_raw(proto, key)
+                val -> val
+              end
+            else
+              get_prototype_property(proto, key)
+            end
+
+          _ ->
+            get_prototype_property(proto, key)
+        end
+
+      data ->
+        get_prototype_property({:obj, ref}, key)
+    end
+  end
+
+  defp get_prototype_raw(value, key), do: get_prototype_property(value, key)
 
   def get_property(value, key) when is_integer(key),
     do: get_property(value, Integer.to_string(key))
