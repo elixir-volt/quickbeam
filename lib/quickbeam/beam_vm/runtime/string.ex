@@ -11,6 +11,9 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
   def proto_property("charCodeAt"),
     do: {:builtin, "charCodeAt", fn args, this -> char_code_at(this, args) end}
 
+  def proto_property("codePointAt"),
+    do: {:builtin, "codePointAt", fn args, this -> code_point_at(this, args) end}
+
   def proto_property("indexOf"),
     do: {:builtin, "indexOf", fn args, this -> index_of(this, args) end}
 
@@ -116,6 +119,14 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
   end
 
   defp char_code_at(_, _), do: :nan
+
+  defp code_point_at(s, [idx | _]) when is_binary(s) do
+    i = Runtime.to_int(idx)
+    chars = String.to_charlist(s)
+    if i >= 0 and i < length(chars), do: Enum.at(chars, i), else: :undefined
+  end
+
+  defp code_point_at(_, _), do: :undefined
 
   defp index_of(s, [sub | rest]) when is_binary(s) and is_binary(sub) do
     from =

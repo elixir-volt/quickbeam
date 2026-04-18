@@ -134,7 +134,45 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
        "SQRT2" => :math.sqrt(2),
        "SQRT1_2" => :math.sqrt(2) / 2,
        "MAX_SAFE_INTEGER" => 9_007_199_254_740_991,
-       "MIN_SAFE_INTEGER" => -9_007_199_254_740_991
+       "MIN_SAFE_INTEGER" => -9_007_199_254_740_991,
+       "clz32" =>
+         {:builtin, "clz32",
+          fn [a | _] ->
+            n = Values.to_uint32(a)
+            if n == 0, do: 32, else: 31 - trunc(:math.log2(n))
+          end},
+       "fround" =>
+         {:builtin, "fround",
+          fn [a | _] ->
+            f = Runtime.to_float(a)
+            <<f32::float-32>> = <<f::float-32>>
+            f32 * 1.0
+          end},
+       "imul" =>
+         {:builtin, "imul",
+          fn [a, b | _] ->
+            Values.to_int32(Values.to_int32(a) * Values.to_int32(b))
+          end},
+       "atan2" =>
+         {:builtin, "atan2",
+          fn [a, b | _] -> :math.atan2(Runtime.to_float(a), Runtime.to_float(b)) end},
+       "asin" => {:builtin, "asin", fn [a | _] -> :math.asin(Runtime.to_float(a)) end},
+       "acos" => {:builtin, "acos", fn [a | _] -> :math.acos(Runtime.to_float(a)) end},
+       "atan" => {:builtin, "atan", fn [a | _] -> :math.atan(Runtime.to_float(a)) end},
+       "exp" => {:builtin, "exp", fn [a | _] -> :math.exp(Runtime.to_float(a)) end},
+       "cbrt" =>
+         {:builtin, "cbrt",
+          fn [a | _] ->
+            f = Runtime.to_float(a)
+            sign = if f < 0, do: -1, else: 1
+            sign * :math.pow(abs(f), 1.0 / 3.0)
+          end},
+       "hypot" =>
+         {:builtin, "hypot",
+          fn args ->
+            sum = Enum.reduce(args, 0.0, fn a, acc -> acc + :math.pow(Runtime.to_float(a), 2) end)
+            :math.sqrt(sum)
+          end}
      }}
   end
 

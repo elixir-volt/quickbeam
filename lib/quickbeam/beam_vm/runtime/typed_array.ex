@@ -57,6 +57,46 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
       ref = make_ref()
 
+      ta_ref = ref
+
+      set_fn =
+        {:builtin, "set",
+         fn [source | _], _this ->
+           ta = Heap.get_obj(ta_ref, %{})
+
+           src_list =
+             case source do
+               {:obj, sref} ->
+                 case Heap.get_obj(sref) do
+                   list when is_list(list) ->
+                     list
+
+                   map when is_map(map) ->
+                     len = Map.get(map, "length", 0)
+                     for i <- 0..(len - 1), do: Map.get(map, Integer.to_string(i), 0)
+
+                   _ ->
+                     []
+                 end
+
+               _ ->
+                 []
+             end
+
+           buf = Map.get(ta, "__buffer__", <<>>)
+           t = Map.get(ta, "__type__", :uint8)
+
+           new_buf =
+             src_list
+             |> Enum.with_index()
+             |> Enum.reduce(buf, fn {val, i}, acc ->
+               write_element(acc, i, val, t)
+             end)
+
+           Heap.put_obj(ta_ref, Map.put(ta, "__buffer__", new_buf))
+           :undefined
+         end}
+
       Heap.put_obj(ref, %{
         "__typed_array__" => true,
         "__type__" => type,
@@ -65,7 +105,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
         "length" => length_val,
         "byteLength" => length_val * elem_size(type),
         "byteOffset" => offset,
-        "buffer" => orig_buf || make_buffer_ref(buffer)
+        "buffer" => orig_buf || make_buffer_ref(buffer),
+        "set" => set_fn
       })
 
       {:obj, ref}
