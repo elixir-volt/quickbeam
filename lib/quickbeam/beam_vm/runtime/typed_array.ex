@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
+  @moduledoc false
   alias QuickBEAM.BeamVM.Heap
 
   def array_buffer_constructor(args) do

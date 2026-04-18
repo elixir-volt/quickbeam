@@ -86,14 +86,14 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
 
   def global_bindings do
-    case Process.get(:qb_global_bindings_cache) do
+    case Heap.get_global_cache() do
       nil -> build_global_bindings()
       cached -> cached
     end
   end
 
   defp build_global_bindings do
-    obj_proto_ref = Process.get(:qb_object_prototype)
+    obj_proto_ref = Heap.get_object_prototype()
 
     obj_proto_ref =
       if obj_proto_ref do
@@ -133,7 +133,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
           "constructor" => obj_ctor
         })
 
-        Process.put(:qb_object_prototype, {:obj, ref})
+        Heap.put_object_prototype({:obj, ref})
         {:obj, ref}
       end
 
@@ -295,7 +295,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
       "DataView" => {:builtin, "DataView", fn _ -> obj_new() end}
     }
 
-    Process.put(:qb_global_bindings_cache, bindings)
+    Heap.put_global_cache(bindings)
     bindings
   end
 
@@ -433,7 +433,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property({:regexp, _, _}, key), do: RegExp.proto_property(key)
 
   defp get_own_property(%Bytecode.Function{} = f, "prototype") do
-    get_or_create_prototype(f)
+    Heap.get_or_create_prototype(f)
   end
 
   defp get_own_property(%Bytecode.Function{} = f, key) do
@@ -441,7 +441,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
 
   defp get_own_property({:closure, _, %Bytecode.Function{}} = c, "prototype") do
-    get_or_create_prototype(c)
+    Heap.get_or_create_prototype(c)
   end
 
   defp get_own_property({:closure, _, %Bytecode.Function{} = f} = c, key) do
@@ -460,29 +460,6 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property({:symbol, desc}, "description"), do: desc
   defp get_own_property({:symbol, desc, _}, "description"), do: desc
   defp get_own_property(_, _), do: :undefined
-
-  defp get_or_create_prototype(ctor) do
-    # Check class proto first (set during class definition)
-    class_proto = Heap.get_class_proto(ctor)
-
-    if class_proto do
-      class_proto
-    else
-      key = {:qb_func_proto, :erlang.phash2(ctor)}
-
-      case Process.get(key) do
-        nil ->
-          proto_ref = make_ref()
-          Heap.put_obj(proto_ref, %{"constructor" => ctor})
-          proto = {:obj, proto_ref}
-          Process.put(key, proto)
-          proto
-
-        existing ->
-          existing
-      end
-    end
-  end
 
   def extract_regexp_flags(<<flags_byte::8, _::binary>>) do
     [{1, "g"}, {2, "i"}, {4, "m"}, {8, "s"}, {16, "u"}, {32, "y"}]

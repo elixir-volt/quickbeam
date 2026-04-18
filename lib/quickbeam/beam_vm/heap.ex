@@ -19,7 +19,14 @@ defmodule QuickBEAM.BeamVM.Heap do
             put_class_proto: 2,
             get_parent_ctor: 1,
             put_parent_ctor: 2,
-            get_ctor_statics: 1}
+            get_ctor_statics: 1,
+            wrap: 1,
+            to_list: 1,
+            iter_result: 2,
+            make_error: 2,
+            get_object_prototype: 0,
+            get_atoms: 0,
+            get_persistent_globals: 0}
   @moduledoc """
   Mutable heap storage for JS runtime values.
 
@@ -35,6 +42,82 @@ defmodule QuickBEAM.BeamVM.Heap do
     - `{:qb_parent_ctor, hash}` — parent constructor references
     - `{:qb_var, name}` — global variable bindings
   """
+
+  # ── Convenience constructors ──
+
+  def wrap(data) do
+    ref = make_ref()
+    put_obj(ref, data)
+    {:obj, ref}
+  end
+
+  def to_list({:obj, ref}) do
+    case get_obj(ref, []) do
+      list when is_list(list) ->
+        list
+
+      map when is_map(map) ->
+        len = Map.get(map, "length", 0)
+
+        if is_integer(len) and len > 0,
+          do: for(i <- 0..(len - 1), do: Map.get(map, Integer.to_string(i), :undefined)),
+          else: []
+
+      _ ->
+        []
+    end
+  end
+
+  def to_list(list) when is_list(list), do: list
+  def to_list(_), do: []
+
+  def iter_result(val, done), do: wrap(%{"value" => val, "done" => done})
+
+  def make_error(message, name) do
+    wrap(%{"message" => message, "name" => name, "stack" => ""})
+  end
+
+  def get_or_create_prototype(ctor) do
+    class_proto = get_class_proto(ctor)
+
+    if class_proto do
+      class_proto
+    else
+      key = {:qb_func_proto, :erlang.phash2(ctor)}
+
+      case Process.get(key) do
+        nil ->
+          proto_ref = make_ref()
+          put_obj(proto_ref, %{"constructor" => ctor})
+          proto = {:obj, proto_ref}
+          Process.put(key, proto)
+          proto
+
+        existing ->
+          existing
+      end
+    end
+  end
+
+  # ── Singleton PD accessors ──
+
+  def get_object_prototype, do: Process.get(:qb_object_prototype)
+  def put_object_prototype(proto), do: Process.put(:qb_object_prototype, proto)
+
+  def get_global_cache, do: Process.get(:qb_global_bindings_cache)
+  def put_global_cache(bindings), do: Process.put(:qb_global_bindings_cache, bindings)
+
+  def get_atoms, do: Process.get(:qb_atoms, {})
+  def put_atoms(atoms), do: Process.put(:qb_atoms, atoms)
+
+  def get_persistent_globals, do: Process.get(:qb_persistent_globals, %{})
+  def put_persistent_globals(globals), do: Process.put(:qb_persistent_globals, globals)
+
+  def get_handler_globals, do: Process.get(:qb_handler_globals)
+  def put_handler_globals(globals), do: Process.put(:qb_handler_globals, globals)
+
+  def get_runtime_mode(runtime), do: Process.get({:qb_runtime_mode, runtime})
+  def put_runtime_mode(runtime, mode), do: Process.put({:qb_runtime_mode, runtime}, mode)
 
   # ── Objects ──
 
@@ -274,39 +357,28 @@ defmodule QuickBEAM.BeamVM.Heap do
     persistent_roots = Process.get(:qb_persistent_globals, %{}) |> Map.values()
     all_roots = module_roots ++ persistent_roots
 
-    if all_roots == [] do
-      # Fast path: no modules, delete everything
-      Process.get_keys()
-      |> Enum.each(fn
-        {:qb_obj, _} = k -> Process.delete(k)
-        {:qb_cell, _} = k -> Process.delete(k)
-        {:qb_class_proto, _} = k -> Process.delete(k)
-        {:qb_parent_ctor, _} = k -> Process.delete(k)
-        {:qb_ctor_statics, _} = k -> Process.delete(k)
-        {:qb_prop_desc, _, _} = k -> Process.delete(k)
-        {:qb_frozen, _} = k -> Process.delete(k)
-        {:qb_var, _} = k -> Process.delete(k)
-        {:qb_key_order, _} = k -> Process.delete(k)
-        _ -> :ok
-      end)
-    else
-      marked = mark(all_roots, MapSet.new())
-
-      Process.get_keys()
-      |> Enum.each(fn
-        {:qb_obj, _} = k -> unless MapSet.member?(marked, k), do: Process.delete(k)
-        {:qb_cell, _} = k -> unless MapSet.member?(marked, k), do: Process.delete(k)
-        {:qb_class_proto, _} = k -> Process.delete(k)
-        {:qb_parent_ctor, _} = k -> Process.delete(k)
-        {:qb_ctor_statics, _} = k -> Process.delete(k)
-        {:qb_prop_desc, _, _} = k -> Process.delete(k)
-        {:qb_frozen, _} = k -> Process.delete(k)
-        {:qb_var, _} = k -> Process.delete(k)
-        {:qb_key_order, _} = k -> Process.delete(k)
-        _ -> :ok
-      end)
-    end
+    marked = if all_roots == [], do: nil, else: mark(all_roots, MapSet.new())
+    sweep_keys(marked)
   end
+
+  defp sweep_keys(marked) do
+    Process.get_keys()
+    |> Enum.each(fn
+      {:qb_obj, _} = k -> sweep_key(k, marked)
+      {:qb_cell, _} = k -> sweep_key(k, marked)
+      {:qb_class_proto, _} = k -> Process.delete(k)
+      {:qb_parent_ctor, _} = k -> Process.delete(k)
+      {:qb_ctor_statics, _} = k -> Process.delete(k)
+      {:qb_prop_desc, _, _} = k -> Process.delete(k)
+      {:qb_frozen, _} = k -> Process.delete(k)
+      {:qb_var, _} = k -> Process.delete(k)
+      {:qb_key_order, _} = k -> Process.delete(k)
+      _ -> :ok
+    end)
+  end
+
+  defp sweep_key(key, nil), do: Process.delete(key)
+  defp sweep_key(key, marked), do: unless(MapSet.member?(marked, key), do: Process.delete(key))
 
   # ── Symbol registry ──
 

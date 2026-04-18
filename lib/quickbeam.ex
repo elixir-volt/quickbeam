@@ -172,7 +172,7 @@ defmodule QuickBEAM do
     alias QuickBEAM.BeamVM.{Bytecode, Interpreter}
 
     handler_globals =
-      case Process.get(:qb_handler_globals) do
+      case QuickBEAM.BeamVM.Heap.get_handler_globals() do
         nil ->
           handlers =
             try do
@@ -194,7 +194,7 @@ defmodule QuickBEAM do
                 end}}
             end
 
-          Process.put(:qb_handler_globals, globals)
+          QuickBEAM.BeamVM.Heap.put_handler_globals(globals)
           globals
 
         cached ->
@@ -357,7 +357,7 @@ defmodule QuickBEAM do
     globals =
       Runtime.global_bindings()
       |> Map.merge(handler_globals)
-      |> Map.merge(Process.get(:qb_persistent_globals, %{}))
+      |> Map.merge(QuickBEAM.BeamVM.Heap.get_persistent_globals())
 
     case Map.get(globals, fn_name) do
       nil ->
@@ -593,7 +593,7 @@ defmodule QuickBEAM do
   @spec get_global(runtime(), String.t()) :: js_result()
   def get_global(runtime, name, opts \\ []) when is_binary(name) do
     if resolve_mode(runtime, opts) == :beam do
-      persistent = Process.get(:qb_persistent_globals, %{})
+      persistent = QuickBEAM.BeamVM.Heap.get_persistent_globals()
       raw = Map.get(persistent, name, :undefined)
       {:ok, convert_beam_value(raw)}
     else
@@ -617,9 +617,9 @@ defmodule QuickBEAM do
   @spec set_global(runtime(), String.t(), term()) :: :ok
   def set_global(runtime, name, value, opts \\ []) when is_binary(name) do
     if resolve_mode(runtime, opts) == :beam do
-      persistent = Process.get(:qb_persistent_globals, %{})
+      persistent = QuickBEAM.BeamVM.Heap.get_persistent_globals()
       js_val = elixir_to_js(value)
-      Process.put(:qb_persistent_globals, Map.put(persistent, name, js_val))
+      QuickBEAM.BeamVM.Heap.put_persistent_globals(Map.put(persistent, name, js_val))
       :ok
     else
       GenServer.call(runtime, {:set_global, name, value}, :infinity)

@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime.Date do
+  @moduledoc false
   alias QuickBEAM.BeamVM.Heap
 
   def constructor(args) do

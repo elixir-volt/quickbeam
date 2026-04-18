@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Ctx do
+  @moduledoc false
   @type t :: %__MODULE__{
           this: term(),
           arg_buf: tuple(),

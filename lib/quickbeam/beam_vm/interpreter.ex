@@ -61,7 +61,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       runtime_pid: Map.get(opts, :runtime_pid)
     }
 
-    Process.put(:qb_atoms, atoms)
+    Heap.put_atoms(atoms)
     prev_ctx = Heap.get_ctx()
     Heap.put_ctx(ctx)
 
@@ -137,7 +137,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp active_ctx do
     case Heap.get_ctx() do
       nil ->
-        atoms = Process.get(:qb_atoms, {})
+        atoms = Heap.get_atoms()
         %Ctx{atoms: atoms}
 
       ctx ->
@@ -182,14 +182,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     do: put_elem(f, Frame.locals(), put_elem(elem(f, Frame.locals()), idx, val))
 
   defp make_error_obj(message, name) do
-    ref = make_ref()
-    # Get the error constructor's prototype for instanceof chain
     error_ctor = Map.get(active_ctx().globals, name)
     proto = if error_ctor, do: Heap.get_class_proto(error_ctor), else: nil
     base = %{"message" => message, "name" => name, "stack" => ""}
     obj = if proto, do: Map.put(base, "__proto__", proto), else: base
-    Heap.put_obj(ref, obj)
-    {:obj, ref}
+    Heap.wrap(obj)
   end
 
   @compile {:inline, unwrap_promise: 2}
@@ -337,28 +334,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         acc
       end
     end)
-  end
-
-  defp get_or_create_prototype(ctor) do
-    class_proto = Heap.get_class_proto(ctor)
-
-    if class_proto do
-      class_proto
-    else
-      key = {:qb_func_proto, :erlang.phash2(ctor)}
-
-      case Process.get(key) do
-        nil ->
-          proto_ref = make_ref()
-          Heap.put_obj(proto_ref, %{"constructor" => ctor})
-          proto = {:obj, proto_ref}
-          Process.put(key, proto)
-          proto
-
-        existing ->
-          existing
-      end
-    end
   end
 
   defp collect_iterator(iter_obj, acc) do
@@ -920,7 +895,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:object, []}, frame, stack, gas, ctx) do
     ref = make_ref()
-    proto = Process.get(:qb_object_prototype)
+    proto = Heap.get_object_prototype()
     init = if proto, do: %{"__proto__" => proto}, else: %{}
     Heap.put_obj(ref, init)
     run(advance(frame), [{:obj, ref} | stack], gas - 1, ctx)
@@ -1300,7 +1275,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
 
     this_ref = make_ref()
-    proto = Heap.get_class_proto(raw_ctor) || get_or_create_prototype(ctor)
+    proto = Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
     init = if proto, do: %{"__proto__" => proto}, else: %{}
     Heap.put_obj(this_ref, init)
     this_obj = {:obj, this_ref}
