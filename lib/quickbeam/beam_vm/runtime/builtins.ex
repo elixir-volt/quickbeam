@@ -93,16 +93,66 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   def string_static_property(_), do: :undefined
 
   defp number_to_string(n, [radix | _]) when is_number(n) do
-    case Runtime.to_int(radix) do
-      10 -> QuickBEAM.BeamVM.Interpreter.Values.to_js_string(n * 1.0)
-      16 -> Integer.to_string(trunc(n), 16) |> String.downcase()
-      2 -> Integer.to_string(trunc(n), 2)
-      8 -> Integer.to_string(trunc(n), 8)
-      _ -> Runtime.js_to_string(n)
+    r = Runtime.to_int(radix)
+
+    cond do
+      r == 10 ->
+        QuickBEAM.BeamVM.Interpreter.Values.to_js_string(n * 1.0)
+
+      r >= 2 and r <= 36 and n == trunc(n) ->
+        Integer.to_string(trunc(n), r) |> String.downcase()
+
+      r >= 2 and r <= 36 ->
+        float_to_radix(n * 1.0, r)
+
+      true ->
+        Runtime.js_to_string(n)
     end
   end
 
   defp number_to_string(n, _), do: Runtime.js_to_string(n)
+
+  defp float_to_radix(n, radix) do
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    {sign, n} = if n < 0, do: {"-", -n}, else: {"", n}
+    int_part = trunc(n)
+    frac_part = n - int_part
+
+    int_str = if int_part == 0, do: "0", else: integer_to_radix(int_part, radix, digits, "")
+
+    frac_str =
+      if frac_part == 0.0 do
+        ""
+      else
+        build_frac(frac_part, radix, digits, "", 0)
+      end
+
+    if frac_str == "", do: sign <> int_str, else: sign <> int_str <> "." <> frac_str
+  end
+
+  defp integer_to_radix(0, _radix, _digits, acc), do: acc
+
+  defp integer_to_radix(n, radix, digits, acc) do
+    integer_to_radix(
+      div(n, radix),
+      radix,
+      digits,
+      <<String.at(digits, rem(n, radix))::binary, acc::binary>>
+    )
+  end
+
+  defp build_frac(_frac, _radix, _digits, acc, count) when count >= 20, do: acc
+
+  defp build_frac(frac, radix, digits, acc, count) do
+    prod = frac * radix
+    digit = trunc(prod)
+    rest = prod - digit
+    new_acc = acc <> String.at(digits, digit)
+
+    if rest == 0.0 or count >= 19,
+      do: new_acc,
+      else: build_frac(rest, radix, digits, new_acc, count + 1)
+  end
 
   defp number_to_fixed(:nan, _), do: "NaN"
   defp number_to_fixed(:infinity, _), do: "Infinity"
@@ -889,6 +939,145 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
            {:obj, r}
          end}
 
+      delete_fn =
+        {:builtin, "delete",
+         fn [val | _], _ ->
+           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
+           new_data = List.delete(data, val)
+           map = Heap.get_obj(set_ref, %{})
+           Heap.put_obj(set_ref, %{map | "__set_data__" => new_data, "size" => length(new_data)})
+           val in data
+         end}
+
+      clear_fn =
+        {:builtin, "clear",
+         fn _, _ ->
+           map = Heap.get_obj(set_ref, %{})
+           Heap.put_obj(set_ref, %{map | "__set_data__" => [], "size" => 0})
+           :undefined
+         end}
+
+      difference_fn =
+        {:builtin, "difference",
+         fn [other | _], _ ->
+           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
+
+           other_data =
+             case other do
+               {:obj, r} -> Map.get(Heap.get_obj(r, %{}), "__set_data__", [])
+               _ -> []
+             end
+
+           QuickBEAM.BeamVM.Runtime.call_builtin_callback(
+             set_constructor(),
+             [data -- other_data],
+             :no_interp
+           )
+         end}
+
+      intersection_fn =
+        {:builtin, "intersection",
+         fn [other | _], _ ->
+           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
+
+           other_has = fn v ->
+             case other do
+               {:obj, r} ->
+                 od = Map.get(Heap.get_obj(r, %{}), "__set_data__", [])
+                 v in od
+
+               _ ->
+                 false
+             end
+           end
+
+           QuickBEAM.BeamVM.Runtime.call_builtin_callback(
+             set_constructor(),
+             [Enum.filter(data, other_has)],
+             :no_interp
+           )
+         end}
+
+      union_fn =
+        {:builtin, "union",
+         fn [other | _], _ ->
+           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
+
+           other_data =
+             case other do
+               {:obj, r} -> Map.get(Heap.get_obj(r, %{}), "__set_data__", [])
+               _ -> []
+             end
+
+           QuickBEAM.BeamVM.Runtime.call_builtin_callback(
+             set_constructor(),
+             [Enum.uniq(data ++ other_data)],
+             :no_interp
+           )
+         end}
+
+      symmetric_difference_fn =
+        {:builtin, "symmetricDifference",
+         fn [other | _], _ ->
+           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
+
+           other_data =
+             case other do
+               {:obj, r} -> Map.get(Heap.get_obj(r, %{}), "__set_data__", [])
+               _ -> []
+             end
+
+           result = (data -- other_data) ++ (other_data -- data)
+
+           QuickBEAM.BeamVM.Runtime.call_builtin_callback(
+             set_constructor(),
+             [result],
+             :no_interp
+           )
+         end}
+
+      is_subset_fn =
+        {:builtin, "isSubsetOf",
+         fn [other | _], _ ->
+           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
+
+           other_data =
+             case other do
+               {:obj, r} -> Map.get(Heap.get_obj(r, %{}), "__set_data__", [])
+               _ -> []
+             end
+
+           Enum.all?(data, &(&1 in other_data))
+         end}
+
+      is_superset_fn =
+        {:builtin, "isSupersetOf",
+         fn [other | _], _ ->
+           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
+
+           other_data =
+             case other do
+               {:obj, r} -> Map.get(Heap.get_obj(r, %{}), "__set_data__", [])
+               _ -> []
+             end
+
+           Enum.all?(other_data, &(&1 in data))
+         end}
+
+      is_disjoint_fn =
+        {:builtin, "isDisjointFrom",
+         fn [other | _], _ ->
+           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
+
+           other_data =
+             case other do
+               {:obj, r} -> Map.get(Heap.get_obj(r, %{}), "__set_data__", [])
+               _ -> []
+             end
+
+           not Enum.any?(data, &(&1 in other_data))
+         end}
+
       set_obj = %{
         "__set_data__" => items,
         "size" => length(items),
@@ -896,7 +1085,16 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
         "values" => values_fn,
         "keys" => values_fn,
         "entries" => entries_fn,
-        "add" => add_fn
+        "add" => add_fn,
+        "delete" => delete_fn,
+        "clear" => clear_fn,
+        "difference" => difference_fn,
+        "intersection" => intersection_fn,
+        "union" => union_fn,
+        "symmetricDifference" => symmetric_difference_fn,
+        "isSubsetOf" => is_subset_fn,
+        "isSupersetOf" => is_superset_fn,
+        "isDisjointFrom" => is_disjoint_fn
       }
 
       Heap.put_obj(ref, set_obj)

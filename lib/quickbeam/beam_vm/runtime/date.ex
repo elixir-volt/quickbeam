@@ -322,6 +322,36 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
          end
        end}
 
+  def proto_property("toDateString"),
+    do:
+      {:builtin, "toDateString",
+       fn _, this ->
+         case ms_to_dt(get_ms(this)) do
+           nil -> "Invalid Date"
+           dt -> Calendar.strftime(dt, "%a %b %d %Y")
+         end
+       end}
+
+  def proto_property("toTimeString"),
+    do:
+      {:builtin, "toTimeString",
+       fn _, this ->
+         case ms_to_dt(get_ms(this)) do
+           nil -> "Invalid Date"
+           dt -> Calendar.strftime(dt, "%H:%M:%S GMT+0000")
+         end
+       end}
+
+  def proto_property("toUTCString"),
+    do:
+      {:builtin, "toUTCString",
+       fn _, this ->
+         case ms_to_dt(get_ms(this)) do
+           nil -> "Invalid Date"
+           dt -> Calendar.strftime(dt, "%a, %d %b %Y %H:%M:%S GMT")
+         end
+       end}
+
   def proto_property("toString"),
     do:
       {:builtin, "toString",

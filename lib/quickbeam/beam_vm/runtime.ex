@@ -306,6 +306,11 @@ defmodule QuickBEAM.BeamVM.Runtime do
     end
   end
 
+  def get_property(value, key) when is_integer(key),
+    do: get_property(value, Integer.to_string(key))
+
+  def get_property(_, _), do: :undefined
+
   defp get_prototype_raw({:obj, ref}, key) do
     case Heap.get_obj(ref) do
       map when is_map(map) and is_map_key(map, "__proto__") ->
@@ -328,17 +333,12 @@ defmodule QuickBEAM.BeamVM.Runtime do
             get_prototype_property(proto, key)
         end
 
-      data ->
+      _ ->
         get_prototype_property({:obj, ref}, key)
     end
   end
 
   defp get_prototype_raw(value, key), do: get_prototype_property(value, key)
-
-  def get_property(value, key) when is_integer(key),
-    do: get_property(value, Integer.to_string(key))
-
-  def get_property(_, _), do: :undefined
 
   def js_string_length(s) do
     len = String.length(s)
@@ -483,7 +483,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   def extract_regexp_flags(_), do: ""
 
-  defp invoke_getter(fun, this_obj) do
+  def invoke_getter(fun, this_obj) do
     QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [], 10_000_000, this_obj)
   end
 
@@ -587,12 +587,18 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
 
   defp function_proto_property(fun, "bind") do
+    orig_len =
+      case fun do
+        %Bytecode.Function{defined_arg_count: n} -> n
+        {:closure, _, %Bytecode.Function{defined_arg_count: n}} -> n
+        _ -> 0
+      end
+
     {:builtin, "bind",
      fn [this_arg | bound_args], _this ->
-       {:builtin, "bound",
-        fn args, _this2 ->
-          invoke_fun(fun, bound_args ++ args, this_arg)
-        end}
+       bound_len = max(0, orig_len - length(bound_args))
+       bound_fn = fn args, _this2 -> invoke_fun(fun, bound_args ++ args, this_arg) end
+       {:bound, bound_len, {:builtin, "bound", bound_fn}}
      end}
   end
 
@@ -605,7 +611,12 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp function_proto_property({:closure, _, %Bytecode.Function{} = f}, "length"),
     do: f.defined_arg_count
 
+  defp function_proto_property({:bound, _, inner}, key) when key not in ["length", "name"],
+    do: function_proto_property(inner, key)
+
+  defp function_proto_property({:bound, len, _}, "length"), do: len
   defp function_proto_property(_fun, "length"), do: 0
+  defp function_proto_property({:bound, _, _}, "name"), do: "bound "
   defp function_proto_property(_fun, "name"), do: ""
   defp function_proto_property(_fun, _), do: :undefined
 
@@ -795,6 +806,9 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   def call_builtin_callback(fun, args, interp) do
     case fun do
+      {:bound, _, inner} ->
+        call_builtin_callback(inner, args, interp)
+
       {:builtin, _, cb} when is_function(cb, 1) ->
         cb.(args)
 
