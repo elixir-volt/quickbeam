@@ -119,8 +119,26 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   defp freeze(obj), do: obj
 
   defp keys([{:obj, ref} | _]) do
-    map = Heap.get_obj(ref, %{})
+    data = Heap.get_obj(ref, %{})
 
+    # Arrays are stored as lists
+    if is_list(data) do
+      keys = Enum.with_index(data) |> Enum.map(fn {_, i} -> Integer.to_string(i) end)
+      arr_ref = make_ref()
+      Heap.put_obj(arr_ref, keys)
+      {:obj, arr_ref}
+    else
+      keys_from_map(ref, data)
+    end
+  end
+
+  defp keys(_) do
+    ref = make_ref()
+    Heap.put_obj(ref, [])
+    {:obj, ref}
+  end
+
+  defp keys_from_map(ref, map) do
     raw_keys =
       case Map.get(map, :__key_order__) do
         order when is_list(order) -> Enum.reverse(order)
@@ -146,15 +164,17 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
     all = sorted_numeric ++ Enum.filter(strings, &is_binary/1)
 
-    Enum.filter(all, fn k ->
-      not String.starts_with?(k, "__") and
-        Map.has_key?(map, k) and
-        not match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
-    end)
-  end
+    filtered =
+      Enum.filter(all, fn k ->
+        not String.starts_with?(k, "__") and
+          Map.has_key?(map, k) and
+          not match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
+      end)
 
-  defp keys([map | _]) when is_map(map), do: Map.keys(map)
-  defp keys(_), do: []
+    result_ref = make_ref()
+    Heap.put_obj(result_ref, filtered)
+    {:obj, result_ref}
+  end
 
   defp get_own_property_names([{:obj, ref} | _]) do
     map = Heap.get_obj(ref, %{})
@@ -164,19 +184,39 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   defp get_own_property_names([map | _]) when is_map(map), do: Map.keys(map)
   defp get_own_property_names(_), do: []
 
+  defp raw_keys({:obj, ref}) do
+    case Heap.get_obj(ref, []) do
+      list when is_list(list) -> list
+      _ -> []
+    end
+  end
+
   defp values([{:obj, ref} | _]) do
-    ks = keys([{:obj, ref}])
+    ks = raw_keys(keys([{:obj, ref}]))
     map = Heap.get_obj(ref, %{})
-    Enum.map(ks, fn k -> Map.get(map, k) end)
+    vals = Enum.map(ks, fn k -> Map.get(map, k) end)
+    result_ref = make_ref()
+    Heap.put_obj(result_ref, vals)
+    {:obj, result_ref}
   end
 
   defp values([map | _]) when is_map(map), do: Map.values(map)
   defp values(_), do: []
 
   defp entries([{:obj, ref} | _]) do
-    ks = keys([{:obj, ref}])
+    ks = raw_keys(keys([{:obj, ref}]))
     map = Heap.get_obj(ref, %{})
-    Enum.map(ks, fn k -> [k, Map.get(map, k)] end)
+
+    pairs =
+      Enum.map(ks, fn k ->
+        pair_ref = make_ref()
+        Heap.put_obj(pair_ref, [k, Map.get(map, k)])
+        {:obj, pair_ref}
+      end)
+
+    result_ref = make_ref()
+    Heap.put_obj(result_ref, pairs)
+    {:obj, result_ref}
   end
 
   defp entries([map | _]) when is_map(map) do

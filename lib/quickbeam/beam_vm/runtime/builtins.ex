@@ -57,7 +57,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
 
   defp number_to_string(n, [radix | _]) when is_number(n) do
     case Runtime.to_int(radix) do
-      10 -> Float.to_string(n * 1.0) |> String.trim_trailing(".0")
+      10 -> QuickBEAM.BeamVM.Interpreter.Values.to_js_string(n * 1.0)
       16 -> Integer.to_string(trunc(n), 16)
       2 -> Integer.to_string(trunc(n), 2)
       8 -> Integer.to_string(trunc(n), 8)

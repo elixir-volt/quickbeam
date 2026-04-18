@@ -105,9 +105,13 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
   defp char_at(_, _), do: ""
 
   defp char_code_at(s, [idx | _]) when is_binary(s) do
-    case :binary.at(s, Runtime.to_int(idx)) do
-      :badarg -> :nan
-      byte -> byte
+    i = Runtime.to_int(idx)
+    graphemes = String.to_charlist(s)
+
+    if i >= 0 and i < length(graphemes) do
+      Enum.at(graphemes, i)
+    else
+      :nan
     end
   end
 

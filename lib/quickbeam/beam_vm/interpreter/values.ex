@@ -334,10 +334,60 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def neg_zero?(b), do: is_float(b) and b == 0.0 and hd(:erlang.float_to_list(b)) == ?-
 
   defp format_float(n) do
-    if n == trunc(n) and abs(n) < 1.0e20 do
-      Integer.to_string(trunc(n))
+    short = :erlang.float_to_binary(n, [:short])
+
+    cond do
+      String.contains?(short, "e") or String.contains?(short, "E") ->
+        format_js_exponential(short, n)
+
+      String.ends_with?(short, ".0") ->
+        String.trim_trailing(short, ".0")
+
+      true ->
+        short
+    end
+  end
+
+  defp format_js_exponential(short, n) do
+    {mantissa, exp} =
+      case String.split(short, ~r/[eE]/) do
+        [m, e] -> {m, String.to_integer(e)}
+        _ -> {short, 0}
+      end
+
+    # Strip trailing .0 from mantissa (1.0 -> 1)
+    mantissa =
+      if String.ends_with?(mantissa, ".0"),
+        do: String.trim_trailing(mantissa, ".0"),
+        else: mantissa
+
+    if exp >= 0 and exp <= 20 do
+      # Fixed notation for exponents 0..20
+      digits = String.replace(mantissa, ".", "")
+
+      decimal_pos =
+        case String.split(mantissa, ".") do
+          [int, _frac] -> String.length(int)
+          _ -> String.length(digits)
+        end
+
+      total_pos = decimal_pos + exp
+
+      if total_pos >= String.length(digits) do
+        digits <> String.duplicate("0", total_pos - String.length(digits))
+      else
+        String.slice(digits, 0, total_pos) <> "." <> String.slice(digits, total_pos..-1//1)
+      end
     else
-      :erlang.float_to_binary(n, [{:decimals, 20}, :compact])
+      if exp < 0 and exp >= -6 do
+        digits = String.replace(mantissa, "-", "") |> String.replace(".", "")
+        prefix = if n < 0, do: "-", else: ""
+        prefix <> "0." <> String.duplicate("0", abs(exp) - 1) <> digits
+      else
+        # Use exponential notation
+        sign = if exp >= 0, do: "+", else: ""
+        mantissa <> "e" <> sign <> Integer.to_string(exp)
+      end
     end
   end
 
