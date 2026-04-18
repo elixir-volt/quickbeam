@@ -40,7 +40,11 @@ defmodule QuickBEAM.BeamVM.Heap do
 
   def get_obj(ref), do: Process.get({:qb_obj, ref})
   def get_obj(ref, default), do: Process.get({:qb_obj, ref}, default)
-  def put_obj(ref, val), do: Process.put({:qb_obj, ref}, val)
+
+  def put_obj(ref, val) do
+    Process.put({:qb_obj, ref}, val)
+    track_alloc()
+  end
 
   def update_obj(ref, default, fun) do
     Process.put({:qb_obj, ref}, fun.(Process.get({:qb_obj, ref}, default)))
@@ -107,6 +111,96 @@ defmodule QuickBEAM.BeamVM.Heap do
 
   def get_prop_desc(ref, key), do: Process.get({:qb_prop_desc, ref, key})
   def put_prop_desc(ref, key, desc), do: Process.put({:qb_prop_desc, ref, key}, desc)
+
+  # ── GC: pressure-triggered mark-sweep ──
+
+  @gc_initial_threshold 5_000
+
+  def track_alloc do
+    count = Process.get(:qb_alloc_count, 0) + 1
+    Process.put(:qb_alloc_count, count)
+    threshold = Process.get(:qb_gc_threshold, @gc_initial_threshold)
+
+    if count >= threshold do
+      # Signal that GC is needed — actual collection happens at a safe point
+      Process.put(:qb_gc_needed, true)
+    end
+  end
+
+  def gc_needed?, do: Process.get(:qb_gc_needed, false)
+
+  def mark_and_sweep(roots) do
+    marked = mark(roots, MapSet.new())
+    sweep(marked)
+    live_count = MapSet.size(marked)
+    Process.put(:qb_alloc_count, live_count)
+    Process.put(:qb_gc_threshold, live_count + max(live_count, @gc_initial_threshold))
+    Process.delete(:qb_gc_needed)
+  end
+
+  defp mark([], visited), do: visited
+
+  defp mark([{:obj, ref} | rest], visited) do
+    key = {:qb_obj, ref}
+
+    if MapSet.member?(visited, key) do
+      mark(rest, visited)
+    else
+      visited = MapSet.put(visited, key)
+
+      case Process.get(key) do
+        map when is_map(map) ->
+          children = Map.values(map) ++ Map.keys(map)
+          mark(children ++ rest, visited)
+
+        list when is_list(list) ->
+          mark(list ++ rest, visited)
+
+        _ ->
+          mark(rest, visited)
+      end
+    end
+  end
+
+  defp mark([{:cell, ref} | rest], visited) do
+    key = {:qb_cell, ref}
+
+    if MapSet.member?(visited, key) do
+      mark(rest, visited)
+    else
+      visited = MapSet.put(visited, key)
+      val = Process.get(key, :undefined)
+      mark([val | rest], visited)
+    end
+  end
+
+  defp mark([{:closure, captured, _fun} | rest], visited) do
+    cells = Map.values(captured)
+    mark(cells ++ rest, visited)
+  end
+
+  defp mark([tuple | rest], visited) when is_tuple(tuple) do
+    mark(Tuple.to_list(tuple) ++ rest, visited)
+  end
+
+  defp mark([list | rest], visited) when is_list(list) do
+    mark(list ++ rest, visited)
+  end
+
+  defp mark([%{} = map | rest], visited) do
+    mark(Map.values(map) ++ rest, visited)
+  end
+
+  defp mark([_ | rest], visited), do: mark(rest, visited)
+
+  defp sweep(marked) do
+    Process.get_keys()
+    |> Enum.each(fn
+      {:qb_obj, _} = k -> unless MapSet.member?(marked, k), do: Process.delete(k)
+      {:qb_cell, _} = k -> unless MapSet.member?(marked, k), do: Process.delete(k)
+      _ -> :ok
+    end)
+  end
 
   # ── GC ──
 

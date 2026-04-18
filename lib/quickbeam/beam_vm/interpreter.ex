@@ -232,6 +232,20 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run(frame, stack, gas, ctx) do
+    if Heap.gc_needed?() do
+      roots = [
+        elem(frame, Frame.locals()),
+        elem(frame, Frame.var_refs()),
+        elem(frame, Frame.constants()),
+        ctx.this,
+        ctx.current_func,
+        ctx.arg_buf
+        | stack
+      ]
+
+      Heap.mark_and_sweep(roots)
+    end
+
     run(elem(elem(frame, Frame.insns()), elem(frame, Frame.pc())), frame, stack, gas, ctx)
   end
 
