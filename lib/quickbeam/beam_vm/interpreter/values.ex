@@ -206,7 +206,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def bor(a, b), do: Bitwise.bor(to_int32(a), to_int32(b))
   def bxor({:bigint, a}, {:bigint, b}), do: {:bigint, Bitwise.bxor(a, b)}
   def bxor(a, b), do: Bitwise.bxor(to_int32(a), to_int32(b))
-  def shl({:bigint, a}, {:bigint, b}), do: {:bigint, Bitwise.bsl(a, b)}
+  def shl({:bigint, a}, {:bigint, b}) when b >= 0 and b <= 1_000_000, do: {:bigint, Bitwise.bsl(a, b)}
+  def shl({:bigint, _}, {:bigint, _}), do: throw({:js_throw, %{"message" => "Maximum BigInt size exceeded", "name" => "RangeError"}})
   def shl(a, b), do: Bitwise.bsl(to_int32(a), Bitwise.band(to_int32(b), 31))
   def sar({:bigint, a}, {:bigint, b}), do: {:bigint, Bitwise.bsr(a, b)}
   def sar(a, b), do: Bitwise.bsr(to_int32(a), Bitwise.band(to_int32(b), 31))
@@ -253,5 +254,9 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def abstract_eq(a, false), do: abstract_eq(a, 0)
   def abstract_eq(a, b) when is_number(a) and is_binary(b), do: a == to_number(b)
   def abstract_eq(a, b) when is_binary(a) and is_number(b), do: to_number(a) == b
+  def abstract_eq({:bigint, a}, b) when is_integer(b), do: a == b
+  def abstract_eq({:bigint, a}, b) when is_float(b), do: a == b
+  def abstract_eq(a, {:bigint, b}) when is_integer(a), do: a == b
+  def abstract_eq(a, {:bigint, b}) when is_float(a), do: a == b
   def abstract_eq(_, _), do: false
 end

@@ -16,29 +16,29 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
   def typed_array_constructor(type) do
     fn args ->
-      {buffer, offset, length_val} = case args do
-        [{:obj, buf_ref} | rest] ->
+      {buffer, offset, length_val, orig_buf} = case args do
+        [{:obj, buf_ref} = buf_obj | rest] ->
           buf = Heap.get_obj(buf_ref, %{})
           cond do
             is_list(buf) ->
               len = length(buf)
-              {list_to_buffer(buf, type), 0, len}
+              {list_to_buffer(buf, type), 0, len, nil}
             is_map(buf) and Map.has_key?(buf, "__buffer__") ->
               bin = Map.get(buf, "__buffer__")
               offset = Enum.at(rest, 0) || 0
               len = Enum.at(rest, 1) || div(byte_size(bin) - offset, elem_size(type))
-              {bin, offset, len}
-            true -> {:binary.copy(<<0>>, 0), 0, 0}
+              {bin, offset, len, buf_obj}
+            true -> {:binary.copy(<<0>>, 0), 0, 0, nil}
           end
         [n | _] when is_integer(n) ->
-          {:binary.copy(<<0>>, n * elem_size(type)), 0, n}
+          {:binary.copy(<<0>>, n * elem_size(type)), 0, n, nil}
         [list | _] when is_list(list) ->
           len = length(list)
           buf = list_to_buffer(list, type)
-          {buf, 0, len}
+          {buf, 0, len, nil}
         [] ->
-          {:binary.copy(<<0>>, 0), 0, 0}
-        _ -> {:binary.copy(<<0>>, 0), 0, 0}
+          {:binary.copy(<<0>>, 0), 0, 0, nil}
+        _ -> {:binary.copy(<<0>>, 0), 0, 0, nil}
       end
       ref = make_ref()
       Heap.put_obj(ref, %{
@@ -49,7 +49,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
         "length" => length_val,
         "byteLength" => length_val * elem_size(type),
         "byteOffset" => offset,
-        "buffer" => make_buffer_ref(buffer)
+        "buffer" => orig_buf || make_buffer_ref(buffer)
       })
       {:obj, ref}
     end
@@ -96,6 +96,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
   defp elem_size(:bigint64), do: 8
   defp elem_size(:biguint64), do: 8
 
+  defp read_element(buf, pos, :uint8_clamped) when pos < byte_size(buf), do: :binary.at(buf, pos)
   defp read_element(buf, pos, :uint8) when pos < byte_size(buf), do: :binary.at(buf, pos)
   defp read_element(buf, pos, :int8) when pos < byte_size(buf) do
     <<_::binary-size(pos), v::signed-8, _::binary>> = buf; v
@@ -120,6 +121,11 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
   end
   defp read_element(_, _, _), do: :undefined
 
+  defp write_element(buf, pos, :uint8_clamped, val) when pos < byte_size(buf) do
+    v = trunc(val) |> max(0) |> min(255)
+    <<pre::binary-size(pos), _::8, post::binary>> = buf
+    <<pre::binary, v::8, post::binary>>
+  end
   defp write_element(buf, pos, :uint8, val) when pos < byte_size(buf) do
     v = trunc(val) |> Bitwise.band(0xFF)
     <<pre::binary-size(pos), _::8, post::binary>> = buf
@@ -137,6 +143,11 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     v = val * 1.0
     <<pre::binary-size(pos), _::64, post::binary>> = buf
     <<pre::binary, v::little-float-64, post::binary>>
+  end
+  defp write_element(buf, pos, :float32, val) when pos + 3 < byte_size(buf) do
+    v = val * 1.0
+    <<pre::binary-size(pos), _::32, post::binary>> = buf
+    <<pre::binary, v::little-float-32, post::binary>>
   end
   defp write_element(buf, pos, type, val) do
     size = elem_size(type) * 8
@@ -159,9 +170,11 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     end)
   end
 
+  defp encode_element(val, :uint8_clamped), do: <<(trunc(val) |> max(0) |> min(255))::8>>
   defp encode_element(val, :uint8), do: <<trunc(val) |> Bitwise.band(0xFF)::8>>
   defp encode_element(val, :int8), do: <<trunc(val)::signed-8>>
   defp encode_element(val, :int32), do: <<trunc(val)::little-signed-32>>
+  defp encode_element(val, :float32), do: <<(val * 1.0)::little-float-32>>
   defp encode_element(val, :float64), do: <<(val * 1.0)::little-float-64>>
   defp encode_element(val, type) do
     size = elem_size(type) * 8
