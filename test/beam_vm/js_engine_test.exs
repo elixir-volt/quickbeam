@@ -106,18 +106,35 @@ defmodule QuickBEAM.JSEngineTest do
     skip_list = if file == "test_builtin.js", do: @skip_builtin, else: @skip_language
     cleaned = String.replace(source, ~r/^import .*\n/m, "")
 
+    # Get test function names
     func_names =
-      Regex.scan(~r/^function (test_\w+)\(/m, cleaned)
+      Regex.scan(~r/^function (test_\w+)\(\)/m, cleaned)
       |> Enum.map(fn [_, name] -> name end)
       |> Enum.uniq()
       |> Enum.reject(fn name -> name in skip_list end)
 
-    # Extract preamble (everything before first "function test_")
+    # Extract preamble (everything before first "function test_" or "function " at top level)
     preamble =
       case Regex.run(~r/\A(.*?)^function test_/ms, cleaned) do
-        [_, pre] -> String.replace(pre, ~r/^import .*/m, "")
+        [_, pre] -> pre
         _ -> ""
       end
+
+    # Extract non-test helper functions (my_func, test, F, rope_concat, etc.)
+    all_func_names =
+      Regex.scan(~r/^function (\w+)\(/m, cleaned)
+      |> Enum.map(fn [_, name] -> name end)
+      |> Enum.uniq()
+
+    helper_names =
+      (all_func_names -- func_names -- skip_list)
+      |> Enum.reject(fn name -> name in ["assert", "assert_throws"] end)
+
+    helpers =
+      helper_names
+      |> Enum.map(fn name -> Helper.extract_function(cleaned, name) end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("\n")
 
     for func_name <- func_names do
       func_body = Helper.extract_function(cleaned, func_name)
@@ -125,10 +142,11 @@ defmodule QuickBEAM.JSEngineTest do
       if func_body do
         @tag :js_engine
         test "#{file}: #{func_name}", %{rt: rt} do
-          preamble = unquote(preamble)
-
           code =
-            preamble <> @assert_js <> unquote(func_body) <> "\n" <> unquote(func_name) <> "();"
+            unquote(preamble) <>
+              @assert_js <>
+              unquote(helpers) <>
+              "\n" <> unquote(func_body) <> "\n" <> unquote(func_name) <> "();"
 
           case QuickBEAM.eval(rt, code) do
             {:ok, _} -> :ok
