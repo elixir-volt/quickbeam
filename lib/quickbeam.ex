@@ -248,7 +248,32 @@ defmodule QuickBEAM do
   """
   @spec call(runtime(), String.t(), list(), keyword()) :: js_result()
   def call(runtime, fn_name, args \\ [], opts \\ []) do
-    QuickBEAM.Runtime.call(runtime, fn_name, args, opts)
+    if Keyword.get(opts, :mode) == :beam do
+      call_beam(runtime, fn_name, args)
+    else
+      QuickBEAM.Runtime.call(runtime, fn_name, args, opts)
+    end
+  end
+
+  defp call_beam(_runtime, fn_name, args) do
+    alias QuickBEAM.BeamVM.{Interpreter, Heap, Runtime}
+
+    globals =
+      Runtime.global_bindings()
+      |> Map.merge(Process.get(:qb_persistent_globals, %{}))
+
+    case Map.get(globals, fn_name) do
+      nil ->
+        {:error, "#{fn_name} is not defined"}
+
+      fun ->
+        try do
+          result = Interpreter.invoke(fun, args, 1_000_000_000)
+          {:ok, result}
+        catch
+          {:js_throw, val} -> {:error, val}
+        end
+    end
   end
 
   @doc """
@@ -465,8 +490,13 @@ defmodule QuickBEAM do
       {:ok, nil}
   """
   @spec get_global(runtime(), String.t()) :: js_result()
-  def get_global(runtime, name) when is_binary(name) do
-    GenServer.call(runtime, {:get_global, name}, :infinity)
+  def get_global(runtime, name, opts \\ []) when is_binary(name) do
+    if Keyword.get(opts, :mode) == :beam do
+      persistent = Process.get(:qb_persistent_globals, %{})
+      {:ok, Map.get(persistent, name, :undefined)}
+    else
+      GenServer.call(runtime, {:get_global, name}, :infinity)
+    end
   end
 
   @doc """
@@ -483,8 +513,14 @@ defmodule QuickBEAM do
       {:ok, 3} = QuickBEAM.eval(rt, "items.length")
   """
   @spec set_global(runtime(), String.t(), term()) :: :ok
-  def set_global(runtime, name, value) when is_binary(name) do
-    GenServer.call(runtime, {:set_global, name, value}, :infinity)
+  def set_global(runtime, name, value, opts \\ []) when is_binary(name) do
+    if Keyword.get(opts, :mode) == :beam do
+      persistent = Process.get(:qb_persistent_globals, %{})
+      Process.put(:qb_persistent_globals, Map.put(persistent, name, value))
+      :ok
+    else
+      GenServer.call(runtime, {:set_global, name, value}, :infinity)
+    end
   end
 
   @doc """

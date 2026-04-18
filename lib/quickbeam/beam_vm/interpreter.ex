@@ -50,9 +50,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   def eval(%Bytecode.Function{} = fun, args, opts, atoms) do
     gas = Map.get(opts, :gas, @default_gas)
 
+    persistent = Process.get(:qb_persistent_globals, %{})
+
     ctx = %Ctx{
       atoms: atoms,
-      globals: Map.merge(Runtime.global_bindings(), Map.get(opts, :globals, %{})),
+      globals:
+        Runtime.global_bindings()
+        |> Map.merge(persistent)
+        |> Map.merge(Map.get(opts, :globals, %{})),
       runtime_pid: Map.get(opts, :runtime_pid)
     }
 
@@ -1011,22 +1016,27 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:put_var, [atom_idx]}, frame, [val | rest], gas, ctx) do
-    run(advance(frame), rest, gas - 1, Scope.set_global(ctx, atom_idx, val))
+    new_ctx = Scope.set_global(ctx, atom_idx, val)
+    Process.put(:qb_persistent_globals, new_ctx.globals)
+    run(advance(frame), rest, gas - 1, new_ctx)
   end
 
   defp run({:put_var_init, [atom_idx]}, frame, [val | rest], gas, ctx) do
-    run(advance(frame), rest, gas - 1, Scope.set_global(ctx, atom_idx, val))
+    new_ctx = Scope.set_global(ctx, atom_idx, val)
+    Process.put(:qb_persistent_globals, new_ctx.globals)
+    run(advance(frame), rest, gas - 1, new_ctx)
   end
 
   # define_func: global scope function hoisting (sloppy mode)
   defp run({:define_func, [atom_idx, _flags]}, frame, [fun | rest], gas, ctx) do
     ctx = Scope.set_global(ctx, atom_idx, fun)
+    Process.put(:qb_persistent_globals, ctx.globals)
     run(advance(frame), rest, gas - 1, ctx)
   end
 
-  defp run({:define_var, [atom_idx, _scope]}, frame, [val | rest], gas, ctx) do
-    Heap.put_var(Scope.resolve_atom(ctx, atom_idx), val)
-    run(advance(frame), rest, gas - 1, ctx)
+  defp run({:define_var, [atom_idx, _scope]}, frame, stack, gas, ctx) do
+    Heap.put_var(Scope.resolve_atom(ctx, atom_idx), :undefined)
+    run(advance(frame), stack, gas - 1, ctx)
   end
 
   defp run({:check_define_var, [atom_idx, _scope]}, frame, stack, gas, ctx) do
