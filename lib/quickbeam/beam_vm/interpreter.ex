@@ -1319,7 +1319,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(jump(frame, ret_pc), rest, gas - 1, ctx)
   end
 
-  # ── eval ──
+  # ── eval (indirect/global scope only — direct eval with local scope access not yet implemented) ──
 
   defp run({:eval, [argc | _]}, frame, stack, gas, ctx) do
     {args, rest} = Enum.split(stack, argc)
