@@ -134,7 +134,37 @@ defmodule QuickBEAM.BeamVM.Runtime do
              __MODULE__.obj_new()
          end},
       "console" => Builtins.console_object(),
-      "eval" => {:builtin, "eval", fn _ -> :undefined end},
+      "eval" =>
+        {:builtin, "eval",
+         fn [code | _] ->
+           ctx = QuickBEAM.BeamVM.Heap.get_ctx()
+
+           if (is_binary(code) and ctx) && ctx.runtime_pid do
+             case QuickBEAM.Runtime.compile(ctx.runtime_pid, code) do
+               {:ok, bc} ->
+                 case QuickBEAM.BeamVM.Bytecode.decode(bc) do
+                   {:ok, parsed} ->
+                     case QuickBEAM.BeamVM.Interpreter.eval(
+                            parsed.value,
+                            [],
+                            %{gas: 1_000_000_000, runtime_pid: ctx.runtime_pid},
+                            parsed.atoms
+                          ) do
+                       {:ok, val} -> val
+                       _ -> :undefined
+                     end
+
+                   _ ->
+                     :undefined
+                 end
+
+               _ ->
+                 :undefined
+             end
+           else
+             :undefined
+           end
+         end},
       "globalThis" => obj_new(),
       "structuredClone" => {:builtin, "structuredClone", fn [val | _] -> val end},
       "queueMicrotask" => {:builtin, "queueMicrotask", fn _ -> :undefined end},

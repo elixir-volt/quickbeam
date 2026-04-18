@@ -50,7 +50,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   def eval(%Bytecode.Function{} = fun, args, opts, atoms) do
     gas = Map.get(opts, :gas, @default_gas)
 
-    ctx = %Ctx{atoms: atoms, globals: Runtime.global_bindings()}
+    ctx = %Ctx{
+      atoms: atoms,
+      globals: Runtime.global_bindings(),
+      runtime_pid: Map.get(opts, :runtime_pid)
+    }
+
     prev_ctx = Heap.get_ctx()
     Heap.put_ctx(ctx)
 
@@ -1314,10 +1319,42 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(jump(frame, ret_pc), rest, gas - 1, ctx)
   end
 
-  # ── eval (stub) ──
+  # ── eval ──
 
-  defp run({:eval, [_argc]}, frame, [_val | rest], gas, ctx) do
-    run(advance(frame), [:undefined | rest], gas - 1, ctx)
+  defp run({:eval, [argc | _]}, frame, stack, gas, ctx) do
+    {args, rest} = Enum.split(stack, argc)
+    code = List.first(Enum.reverse(args), :undefined)
+
+    result =
+      if is_binary(code) and ctx.runtime_pid != nil do
+        case QuickBEAM.Runtime.compile(ctx.runtime_pid, code) do
+          {:ok, bc} ->
+            case Bytecode.decode(bc) do
+              {:ok, parsed} ->
+                __MODULE__.eval(
+                  parsed.value,
+                  [],
+                  %{gas: gas, runtime_pid: ctx.runtime_pid},
+                  parsed.atoms
+                )
+                |> case do
+                  {:ok, val} -> val
+                  {:error, {:js_throw, val}} -> throw({:js_throw, val})
+                  {:error, _} -> :undefined
+                end
+
+              _ ->
+                :undefined
+            end
+
+          _ ->
+            :undefined
+        end
+      else
+        :undefined
+      end
+
+    run(advance(frame), [result | rest], gas - 1, ctx)
   end
 
   # ── Iterators ──

@@ -6,6 +6,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Ctx do
           catch_stack: [{non_neg_integer(), [term()]}],
           atoms: tuple(),
           globals: map(),
+          runtime_pid: pid() | nil,
           new_target: term()
         }
 
@@ -15,5 +16,6 @@ defmodule QuickBEAM.BeamVM.Interpreter.Ctx do
             catch_stack: [],
             atoms: {},
             globals: %{},
+            runtime_pid: nil,
             new_target: :undefined
 end
