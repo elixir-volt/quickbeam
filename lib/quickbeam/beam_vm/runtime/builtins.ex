@@ -255,6 +255,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
             sign = if f < 0, do: -1, else: 1
             sign * :math.pow(abs(f), 1.0 / 3.0)
           end},
+       "log1p" => {:builtin, "log1p", fn [a | _] -> :math.log(1 + Runtime.to_float(a)) end},
+       "expm1" => {:builtin, "expm1", fn [a | _] -> :math.exp(Runtime.to_float(a)) - 1 end},
+       "cosh" => {:builtin, "cosh", fn [a | _] -> :math.cosh(Runtime.to_float(a)) end},
+       "sinh" => {:builtin, "sinh", fn [a | _] -> :math.sinh(Runtime.to_float(a)) end},
+       "tanh" => {:builtin, "tanh", fn [a | _] -> :math.tanh(Runtime.to_float(a)) end},
+       "acosh" => {:builtin, "acosh", fn [a | _] -> :math.acosh(Runtime.to_float(a)) end},
+       "asinh" => {:builtin, "asinh", fn [a | _] -> :math.asinh(Runtime.to_float(a)) end},
+       "atanh" => {:builtin, "atanh", fn [a | _] -> :math.atanh(Runtime.to_float(a)) end},
        "hypot" =>
          {:builtin, "hypot",
           fn args ->
@@ -831,12 +839,46 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
            {:obj, iter_ref}
          end}
 
+      add_fn =
+        {:builtin, "add",
+         fn [val | _], _ ->
+           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
+
+           unless val in data do
+             new_data = data ++ [val]
+             map = Heap.get_obj(set_ref, %{})
+
+             Heap.put_obj(set_ref, %{map | "__set_data__" => new_data, "size" => length(new_data)})
+           end
+
+           {:obj, set_ref}
+         end}
+
+      entries_fn =
+        {:builtin, "entries",
+         fn _, _ ->
+           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
+
+           pairs =
+             Enum.map(data, fn v ->
+               r = make_ref()
+               Heap.put_obj(r, [v, v])
+               {:obj, r}
+             end)
+
+           r = make_ref()
+           Heap.put_obj(r, pairs)
+           {:obj, r}
+         end}
+
       set_obj = %{
         "__set_data__" => items,
         "size" => length(items),
         {:symbol, "Symbol.iterator"} => values_fn,
         "values" => values_fn,
-        "keys" => values_fn
+        "keys" => values_fn,
+        "entries" => entries_fn,
+        "add" => add_fn
       }
 
       Heap.put_obj(ref, set_obj)

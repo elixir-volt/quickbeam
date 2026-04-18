@@ -99,6 +99,85 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
   def proto_property("toJSON"), do: proto_property("toISOString")
 
+  def proto_property("getTimezoneOffset"),
+    do:
+      {:builtin, "getTimezoneOffset",
+       fn _, _this ->
+         utc_now = :calendar.universal_time()
+         local_now = :calendar.local_time()
+         utc_s = :calendar.datetime_to_gregorian_seconds(utc_now)
+         local_s = :calendar.datetime_to_gregorian_seconds(local_now)
+         div(utc_s - local_s, 60)
+       end}
+
+  def proto_property("getDay"),
+    do:
+      {:builtin, "getDay",
+       fn _, this ->
+         case ms_to_dt(get_ms(this)) do
+           nil -> :nan
+           dt -> Date.day_of_week(DateTime.to_date(dt)) |> rem(7)
+         end
+       end}
+
+  def proto_property("getUTCFullYear"),
+    do:
+      {:builtin, "getUTCFullYear",
+       fn _, this ->
+         case get_ms(this) do
+           ms when is_number(ms) -> DateTime.from_unix!(trunc(ms), :millisecond).year
+           _ -> :nan
+         end
+       end}
+
+  def proto_property("setTime"),
+    do:
+      {:builtin, "setTime",
+       fn [ms | _], this ->
+         case this do
+           {:obj, ref} ->
+             map = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
+
+             if is_map(map),
+               do: QuickBEAM.BeamVM.Heap.put_obj(ref, Map.put(map, "__date_ms__", ms))
+
+             ms
+
+           _ ->
+             :nan
+         end
+       end}
+
+  def proto_property("toLocaleDateString"),
+    do:
+      {:builtin, "toLocaleDateString",
+       fn _, this ->
+         case ms_to_dt(get_ms(this)) do
+           nil -> "Invalid Date"
+           dt -> Calendar.strftime(dt, "%m/%d/%Y")
+         end
+       end}
+
+  def proto_property("toLocaleTimeString"),
+    do:
+      {:builtin, "toLocaleTimeString",
+       fn _, this ->
+         case ms_to_dt(get_ms(this)) do
+           nil -> "Invalid Date"
+           dt -> Calendar.strftime(dt, "%H:%M:%S")
+         end
+       end}
+
+  def proto_property("toLocaleString"),
+    do:
+      {:builtin, "toLocaleString",
+       fn _, this ->
+         case ms_to_dt(get_ms(this)) do
+           nil -> "Invalid Date"
+           dt -> Calendar.strftime(dt, "%m/%d/%Y, %H:%M:%S")
+         end
+       end}
+
   def proto_property("toString"),
     do:
       {:builtin, "toString",
@@ -122,6 +201,16 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   end
 
   defp get_ms(_), do: :nan
+
+  defp ms_to_dt(ms) when is_number(ms) do
+    try do
+      DateTime.from_unix!(trunc(ms), :millisecond)
+    rescue
+      _ -> nil
+    end
+  end
+
+  defp ms_to_dt(_), do: nil
 
   defp utc(this) do
     case get_ms(this) do
