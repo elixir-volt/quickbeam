@@ -195,10 +195,7 @@ defmodule QuickBEAM do
 
   defp convert_beam_value(v), do: v
 
-  @doc """
-  Load a JS module for BEAM interpreter. Exports become available via require().
-  """
-  def load_beam_module(runtime, name, code) when is_binary(name) and is_binary(code) do
+  defp load_module_beam(runtime, name, code) do
     alias QuickBEAM.BeamVM.{Bytecode, Interpreter, Heap}
 
     wrapper =
@@ -321,9 +318,13 @@ defmodule QuickBEAM do
       iex> QuickBEAM.stop(rt)
       :ok
   """
-  @spec load_module(runtime(), String.t(), String.t()) :: :ok | {:error, String.t()}
-  def load_module(runtime, name, code) do
-    QuickBEAM.Runtime.load_module(runtime, name, code)
+  @spec load_module(runtime(), String.t(), String.t(), keyword()) :: :ok | {:error, String.t()}
+  def load_module(runtime, name, code, opts \\ []) do
+    if Keyword.get(opts, :mode) == :beam do
+      load_module_beam(runtime, name, code)
+    else
+      QuickBEAM.Runtime.load_module(runtime, name, code)
+    end
   end
 
   @doc """
