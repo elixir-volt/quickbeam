@@ -146,6 +146,7 @@ defmodule QuickBEAM.Native do
       src:
         [
           {:priv, "c_src/quickjs.c", @quickjs_cflags},
+          {:priv, "c_src/regexp_nif.c", @quickjs_cflags},
           {:priv, "c_src/libregexp.c", @quickjs_cflags},
           {:priv, "c_src/libunicode.c", @quickjs_cflags},
           {:priv, "c_src/dtoa.c", @quickjs_cflags},
@@ -154,6 +155,7 @@ defmodule QuickBEAM.Native do
     ],
     resources: [:RuntimeResource, :PoolResource, :WasmModuleResource, :WasmInstanceResource],
     nifs: [
+      regexp_exec: 3,
       eval: 4,
       compile: 2,
       call_function: 4,

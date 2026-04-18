@@ -1,5 +1,30 @@
 defmodule QuickBEAM.BeamVM.Runtime.RegExp do
   alias QuickBEAM.BeamVM.Heap
+  import Bitwise, only: [&&&: 2]
+
+  defp utf8_to_latin1(bin) do
+    bin
+    |> :unicode.characters_to_list(:utf8)
+    |> Enum.map(fn cp -> cp &&& 0xFF end)
+    |> :erlang.list_to_binary()
+  rescue
+    _ -> bin
+  end
+
+  def nif_exec(bytecode, str, last_index) do
+    raw_bc = utf8_to_latin1(bytecode)
+
+    case QuickBEAM.Native.regexp_exec(raw_bc, str, last_index) do
+      nil ->
+        nil
+
+      captures when is_list(captures) ->
+        Enum.map(captures, fn
+          {start, end_off} -> {start, end_off - start}
+          nil -> nil
+        end)
+    end
+  end
 
   def proto_property("test"), do: {:builtin, "test", fn args, this -> test(this, args) end}
   def proto_property("exec"), do: {:builtin, "exec", fn args, this -> exec(this, args) end}

@@ -907,3 +907,33 @@ pub fn disasm_bytecode(bytecode: []const u8) beam.term {
     const term = js_to_beam.convert(ctx, result, env);
     return beam.make(.{ .ok, beam.term{ .v = term } }, .{});
 }
+
+// ── RegExp NIF ──
+const regexp_c = @cImport(@cInclude("regexp_nif.h"));
+
+pub fn regexp_exec(bc_buf: []const u8, input: []const u8, last_index: u32) beam.term {
+    var out_captures: [512]c_int = undefined;
+    const ret = regexp_c.qb_regexp_exec(
+        bc_buf.ptr,
+        @intCast(bc_buf.len),
+        input.ptr,
+        @intCast(input.len),
+        @intCast(last_index),
+        &out_captures,
+        256,
+    );
+    if (ret <= 0) return beam.make(null, .{});
+
+    const capture_count: u32 = @intCast(ret);
+    var result_terms: [256]beam.term = undefined;
+    for (0..capture_count) |i| {
+        const s = out_captures[i * 2];
+        const end_off = out_captures[i * 2 + 1];
+        if (s >= 0 and end_off >= 0) {
+            result_terms[i] = beam.make(.{ @as(u32, @intCast(s)), @as(u32, @intCast(end_off)) }, .{});
+        } else {
+            result_terms[i] = beam.make(null, .{});
+        }
+    }
+    return beam.make(result_terms[0..capture_count], .{});
+}

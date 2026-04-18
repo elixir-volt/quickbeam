@@ -539,7 +539,8 @@ defmodule QuickBEAM.Runtime do
 
   # ── NIF dispatch callbacks ──
 
-  defp nif_eval(state, code, timeout), do: QuickBEAM.Native.eval(state.resource, code, timeout, "")
+  defp nif_eval(state, code, timeout),
+    do: QuickBEAM.Native.eval(state.resource, code, timeout, "")
 
   defp nif_call(state, fn_name, args, timeout),
     do: QuickBEAM.Native.call_function(state.resource, fn_name, args, timeout)

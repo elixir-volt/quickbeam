@@ -151,6 +151,19 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   # ── String reading ──
   # bc_get_leb128 for len (where bit0=is_wide, bits1+=actual_len), then raw bytes.
 
+  defp read_binary_raw(data) do
+    with {:ok, len_encoded, rest} <- LEB128.read_unsigned(data) do
+      byte_len = bsr(len_encoded, 1)
+
+      if byte_size(rest) < byte_len do
+        {:error, :unexpected_end}
+      else
+        <<raw::binary-size(byte_len), rest2::binary>> = rest
+        {:ok, raw, rest2}
+      end
+    end
+  end
+
   defp read_string_raw(data) do
     with {:ok, len_encoded, rest} <- LEB128.read_unsigned(data) do
       is_wide = band(len_encoded, 1) == 1
@@ -234,7 +247,7 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   end
 
   defp read_object(<<@tag_regexp, rest::binary>>, _atoms) do
-    with {:ok, bytecode, rest2} <- read_string_raw(rest),
+    with {:ok, bytecode, rest2} <- read_binary_raw(rest),
          {:ok, source, rest3} <- read_string_raw(rest2) do
       {:ok, {:regexp, bytecode, source}, rest3}
     end

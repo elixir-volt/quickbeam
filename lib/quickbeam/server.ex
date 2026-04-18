@@ -117,7 +117,9 @@ defmodule QuickBEAM.Server do
       end
 
       defp pop_websocket(state, ref) do
-        case Enum.find(state.websockets, fn {_socket_id, {_pid, monitor_ref}} -> monitor_ref == ref end) do
+        case Enum.find(state.websockets, fn {_socket_id, {_pid, monitor_ref}} ->
+               monitor_ref == ref
+             end) do
           {socket_id, {_pid, _monitor_ref}} ->
             {true, %{state | websockets: Map.delete(state.websockets, socket_id)}}
 

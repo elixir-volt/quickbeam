@@ -136,15 +136,20 @@ defmodule QuickBEAM do
 
   defp eval_beam(runtime, code, _opts) do
     alias QuickBEAM.BeamVM.{Bytecode, Interpreter}
+
     case QuickBEAM.Runtime.compile(runtime, code) do
       {:ok, bc} ->
         case Bytecode.decode(bc) do
           {:ok, parsed} ->
             result = Interpreter.eval(parsed.value, [], %{gas: 1_000_000_000}, parsed.atoms)
             convert_beam_result(result)
-          {:error, _} = err -> err
+
+          {:error, _} = err ->
+            err
         end
-      {:error, _} = err -> err
+
+      {:error, _} = err ->
+        err
     end
   end
 
@@ -153,14 +158,18 @@ defmodule QuickBEAM do
     val = convert_beam_value(obj)
     {:error, val}
   end
+
   defp convert_beam_result({:error, {:js_throw, val}}), do: {:error, convert_beam_value(val)}
+
   defp convert_beam_result({:ok, {:obj, ref}}) do
     {:ok, convert_beam_value({:obj, ref})}
   end
+
   defp convert_beam_result({:ok, val}), do: {:ok, convert_beam_value(val)}
   defp convert_beam_result({:error, _} = err), do: err
 
   defp convert_beam_value(:undefined), do: nil
+
   defp convert_beam_value({:obj, ref}) do
     case Process.get({:qb_obj, ref}) do
       nil -> nil
@@ -168,6 +177,7 @@ defmodule QuickBEAM do
       map when is_map(map) -> Map.new(map, fn {k, v} -> {k, convert_beam_value(v)} end)
     end
   end
+
   defp convert_beam_value(v), do: v
 
   @doc """
