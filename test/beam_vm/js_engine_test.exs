@@ -94,7 +94,7 @@ defmodule QuickBEAM.JSEngineTest do
     test_reserved_names test_syntax test_parse_semicolon test_regexp_skip test_template_skip
   )
 
-  setup_all do
+  setup do
     {:ok, rt} = QuickBEAM.start()
     %{rt: rt}
   end

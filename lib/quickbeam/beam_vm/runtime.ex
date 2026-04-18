@@ -58,6 +58,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
       "String" => {:builtin, "String", Builtins.string_constructor()},
       "Number" => {:builtin, "Number", Builtins.number_constructor()},
       "BigInt" => {:builtin, "BigInt", Builtins.bigint_constructor()},
+      "gc" => {:builtin, "gc", fn _ -> :undefined end},
       "Boolean" => {:builtin, "Boolean", Builtins.boolean_constructor()},
       "Function" => {:builtin, "Function", Builtins.function_constructor()},
       "Error" => register_error_builtin("Error"),
@@ -322,6 +323,16 @@ defmodule QuickBEAM.BeamVM.Runtime do
     end
   end
 
+  defp get_own_property({:symbol, desc}, "toString"),
+    do: {:builtin, "toString", fn _, _ -> "Symbol(#{desc})" end}
+
+  defp get_own_property({:symbol, desc, _}, "toString"),
+    do: {:builtin, "toString", fn _, _ -> "Symbol(#{desc})" end}
+
+  defp get_own_property({:symbol, desc}, "description"), do: desc
+  defp get_own_property({:symbol, desc, _}, "description"), do: desc
+  defp get_own_property(_, _), do: :undefined
+
   defp get_or_create_prototype(ctor) do
     key = {:qb_func_proto, :erlang.phash2(ctor)}
 
@@ -337,16 +348,6 @@ defmodule QuickBEAM.BeamVM.Runtime do
         existing
     end
   end
-
-  defp get_own_property({:symbol, desc}, "toString"),
-    do: {:builtin, "toString", fn _, _ -> "Symbol(#{desc})" end}
-
-  defp get_own_property({:symbol, desc, _}, "toString"),
-    do: {:builtin, "toString", fn _, _ -> "Symbol(#{desc})" end}
-
-  defp get_own_property({:symbol, desc}, "description"), do: desc
-  defp get_own_property({:symbol, desc, _}, "description"), do: desc
-  defp get_own_property(_, _), do: :undefined
 
   def extract_regexp_flags(<<flags_byte::8, _::binary>>) do
     [{1, "g"}, {2, "i"}, {4, "m"}, {8, "s"}, {16, "u"}, {32, "y"}]

@@ -165,11 +165,22 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def to_js_string(s) when is_binary(s), do: s
 
   def to_js_string({:obj, _} = obj) do
-    map = QuickBEAM.BeamVM.Heap.get_obj(elem(obj, 1), %{})
+    data = QuickBEAM.BeamVM.Heap.get_obj(elem(obj, 1), %{})
 
-    case Map.get(map, "toString") do
-      fun when fun != nil and fun != :undefined ->
-        to_js_string(QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [], 10_000_000, obj))
+    case data do
+      list when is_list(list) ->
+        Enum.map_join(list, ",", &to_js_string/1)
+
+      map when is_map(map) ->
+        case Map.get(map, "toString") do
+          fun when fun != nil and fun != :undefined ->
+            to_js_string(
+              QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [], 10_000_000, obj)
+            )
+
+          _ ->
+            "[object Object]"
+        end
 
       _ ->
         "[object Object]"
@@ -473,5 +484,52 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
 
   def abstract_eq(a, {:bigint, b}) when is_integer(a), do: a == b
   def abstract_eq(a, {:bigint, b}) when is_float(a), do: a == b
+
+  def abstract_eq({:obj, _} = obj, b) when is_number(b) or is_binary(b) do
+    prim = to_primitive(obj)
+    if match?({:obj, _}, prim), do: false, else: abstract_eq(prim, b)
+  end
+
+  def abstract_eq(a, {:obj, _} = obj) when is_number(a) or is_binary(a) do
+    prim = to_primitive(obj)
+    if match?({:obj, _}, prim), do: false, else: abstract_eq(a, prim)
+  end
+
+  def abstract_eq({:obj, ref1}, {:obj, ref2}), do: ref1 === ref2
   def abstract_eq(_, _), do: false
+
+  defp to_primitive({:obj, ref} = obj) do
+    map = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
+
+    cond do
+      is_map(map) and Map.has_key?(map, "valueOf") ->
+        case Map.get(map, "valueOf") do
+          {:builtin, _, cb} when is_function(cb, 2) -> cb.([], obj)
+          {:builtin, _, cb} when is_function(cb, 1) -> cb.([])
+          fun -> QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [], 10_000_000, obj)
+        end
+
+      is_map(map) and Map.has_key?(map, "__proto__") ->
+        proto = Map.get(map, "__proto__")
+
+        case proto do
+          {:obj, pref} ->
+            pmap = QuickBEAM.BeamVM.Heap.get_obj(pref, %{})
+
+            case Map.get(pmap, "valueOf") do
+              {:builtin, _, cb} when is_function(cb, 2) -> cb.([], obj)
+              {:builtin, _, cb} when is_function(cb, 1) -> cb.([])
+              _ -> obj
+            end
+
+          _ ->
+            obj
+        end
+
+      true ->
+        obj
+    end
+  end
+
+  defp to_primitive(val), do: val
 end

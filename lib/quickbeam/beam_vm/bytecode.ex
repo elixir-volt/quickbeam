@@ -241,8 +241,8 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   defp read_object(<<@tag_template_object, rest::binary>>, atoms) do
     with {:ok, count, rest2} <- LEB128.read_unsigned(rest),
          {:ok, elems, rest3} <- read_array_elems(rest2, count, [], atoms),
-         {:ok, _raw, rest4} <- read_object(rest3, atoms) do
-      {:ok, elems, rest4}
+         {:ok, raw, rest4} <- read_object(rest3, atoms) do
+      {:ok, {:template_object, elems, raw}, rest4}
     end
   end
 

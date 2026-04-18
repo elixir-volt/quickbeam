@@ -138,7 +138,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     {:obj, ref}
   end
 
-  defp keys_from_map(ref, map) do
+  defp keys_from_map(_ref, list) when is_list(list) do
+    keys = Enum.with_index(list) |> Enum.map(fn {_, i} -> Integer.to_string(i) end)
+    result_ref = make_ref()
+    Heap.put_obj(result_ref, keys)
+    {:obj, result_ref}
+  end
+
+  defp keys_from_map(ref, map) when is_map(map) do
     raw_keys =
       case Map.get(map, :__key_order__) do
         order when is_list(order) -> Enum.reverse(order)

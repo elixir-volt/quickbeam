@@ -106,6 +106,21 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   def invoke({:closure, _, %Bytecode.Function{}} = c, args, gas),
     do: invoke_closure(c, args, gas, active_ctx())
 
+  def invoke({:builtin, _, cb}, args, _gas) when is_function(cb, 1), do: cb.(args)
+  def invoke({:builtin, _, cb}, args, _gas) when is_function(cb, 2), do: cb.(args, nil)
+
+  def invoke(nil, _args, _gas),
+    do: throw({:js_throw, %{"message" => "not a function", "name" => "TypeError"}})
+
+  def invoke(:undefined, _args, _gas),
+    do: throw({:js_throw, %{"message" => "not a function", "name" => "TypeError"}})
+
+  def invoke(other, _args, _gas),
+    do:
+      throw(
+        {:js_throw, %{"message" => "#{inspect(other)} is not a function", "name" => "TypeError"}}
+      )
+
   @doc false
   def invoke_with_receiver(fun, args, gas, this_obj) do
     prev = Heap.get_ctx()
@@ -332,6 +347,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
+  defp materialize_constant({:template_object, elems, raw}) do
+    raw_ref = make_ref()
+    Heap.put_obj(raw_ref, raw)
+    ref = make_ref()
+    Heap.put_obj(ref, elems)
+    Objects.put({:obj, ref}, "raw", {:obj, raw_ref})
+    {:obj, ref}
+  end
+
+  defp materialize_constant(val), do: val
+
   defp check_prototype_chain(_, :undefined), do: false
   defp check_prototype_chain(_, nil), do: false
 
@@ -424,12 +450,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     do: run(advance(frame), [7 | stack], gas - 1, ctx)
 
   defp run({op, [idx]}, frame, stack, gas, ctx) when op in [:push_const, :push_const8] do
-    run(
-      advance(frame),
-      [Scope.resolve_const(elem(frame, Frame.constants()), idx) | stack],
-      gas - 1,
-      ctx
-    )
+    val = Scope.resolve_const(elem(frame, Frame.constants()), idx)
+    val = materialize_constant(val)
+    run(advance(frame), [val | stack], gas - 1, ctx)
   end
 
   defp run({:push_atom_value, [atom_idx]}, frame, stack, gas, ctx) do
@@ -489,13 +512,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     do: run(advance(frame), [a, b, c, d, a | rest], gas - 1, ctx)
 
   defp run({:perm3, []}, frame, [a, b, c | rest], gas, ctx),
-    do: run(advance(frame), [c, a, b | rest], gas - 1, ctx)
+    do: run(advance(frame), [b, c, a | rest], gas - 1, ctx)
 
   defp run({:perm4, []}, frame, [a, b, c, d | rest], gas, ctx),
-    do: run(advance(frame), [d, a, b, c | rest], gas - 1, ctx)
+    do: run(advance(frame), [b, c, d, a | rest], gas - 1, ctx)
 
   defp run({:perm5, []}, frame, [a, b, c, d, e | rest], gas, ctx),
-    do: run(advance(frame), [e, a, b, c, d | rest], gas - 1, ctx)
+    do: run(advance(frame), [b, c, d, e, a | rest], gas - 1, ctx)
 
   defp run({:swap, []}, frame, [a, b | rest], gas, ctx),
     do: run(advance(frame), [b, a | rest], gas - 1, ctx)
@@ -507,7 +530,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     do: run(advance(frame), [b, c, a | rest], gas - 1, ctx)
 
   defp run({:rot3r, []}, frame, [a, b, c | rest], gas, ctx),
-    do: run(advance(frame), [c, a, b | rest], gas - 1, ctx)
+    do: run(advance(frame), [b, c, a | rest], gas - 1, ctx)
 
   defp run({:rot4l, []}, frame, [a, b, c, d | rest], gas, ctx),
     do: run(advance(frame), [b, c, d, a | rest], gas - 1, ctx)
@@ -581,12 +604,31 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:get_loc_check, [idx]}, frame, stack, gas, ctx) do
     val = elem(elem(frame, Frame.locals()), idx)
-    if val == :undefined, do: throw({:error, {:uninitialized_local, idx}})
+
+    if val == :undefined,
+      do:
+        throw(
+          {:js_throw,
+           %{
+             "message" => "Cannot access variable before initialization",
+             "name" => "ReferenceError"
+           }}
+        )
+
     run(advance(frame), [val | stack], gas - 1, ctx)
   end
 
   defp run({:put_loc_check, [idx]}, frame, [val | rest], gas, ctx) do
-    if val == :undefined, do: throw({:error, {:uninitialized_local, idx}})
+    if val == :undefined,
+      do:
+        throw(
+          {:js_throw,
+           %{
+             "message" => "Cannot access variable before initialization",
+             "name" => "ReferenceError"
+           }}
+        )
+
     run(advance(put_local(frame, idx, val)), rest, gas - 1, ctx)
   end
 
@@ -1193,6 +1235,25 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
         {:builtin, name, cb} when is_function(cb, 1) ->
           obj = cb.(rev_args)
+
+          if name in ~w(Number String Boolean) do
+            # Store primitive value for valueOf() on wrapper objects
+            existing = Heap.get_obj(this_ref, %{})
+            val_fn = {:builtin, "valueOf", fn _, _ -> obj end}
+
+            to_str_fn =
+              {:builtin, "toString",
+               fn _, _ -> QuickBEAM.BeamVM.Interpreter.Values.to_js_string(obj) end}
+
+            Heap.put_obj(
+              this_ref,
+              Map.merge(existing, %{
+                "__primitive_value__" => obj,
+                "valueOf" => val_fn,
+                "toString" => to_str_fn
+              })
+            )
+          end
 
           if name in ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError) do
             case obj do

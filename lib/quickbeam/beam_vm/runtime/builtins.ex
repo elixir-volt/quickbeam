@@ -138,7 +138,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
        "clz32" =>
          {:builtin, "clz32",
           fn [a | _] ->
-            n = Values.to_uint32(a)
+            n = QuickBEAM.BeamVM.Interpreter.Values.to_uint32(a)
             if n == 0, do: 32, else: 31 - trunc(:math.log2(n))
           end},
        "fround" =>
@@ -151,7 +151,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
        "imul" =>
          {:builtin, "imul",
           fn [a, b | _] ->
-            Values.to_int32(Values.to_int32(a) * Values.to_int32(b))
+            QuickBEAM.BeamVM.Interpreter.Values.to_int32(
+              QuickBEAM.BeamVM.Interpreter.Values.to_int32(a) *
+                QuickBEAM.BeamVM.Interpreter.Values.to_int32(b)
+            )
           end},
        "atan2" =>
          {:builtin, "atan2",
