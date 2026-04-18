@@ -1,11 +1,31 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Values do
-  @compile {:inline, truthy?: 1, falsy?: 1, to_int32: 1, strict_eq: 2,
-             add: 2, sub: 2, mul: 2, neg: 1, typeof: 1, to_number: 1, to_js_string: 1,
-             lt: 2, lte: 2, gt: 2, gte: 2, eq: 2, neq: 2,
-             band: 2, bor: 2, bxor: 2, shl: 2, sar: 2, shr: 2, numeric_add: 2}
+  @compile {:inline,
+            truthy?: 1,
+            falsy?: 1,
+            to_int32: 1,
+            strict_eq: 2,
+            add: 2,
+            sub: 2,
+            mul: 2,
+            neg: 1,
+            typeof: 1,
+            to_number: 1,
+            to_js_string: 1,
+            lt: 2,
+            lte: 2,
+            gt: 2,
+            gte: 2,
+            eq: 2,
+            neq: 2,
+            band: 2,
+            bor: 2,
+            bxor: 2,
+            shl: 2,
+            sar: 2,
+            shr: 2,
+            numeric_add: 2}
   alias QuickBEAM.BeamVM.Bytecode
   import Bitwise
-
 
   def truthy?(nil), do: false
   def truthy?(:undefined), do: false
@@ -27,10 +47,14 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def to_number(:infinity), do: :infinity
   def to_number(:neg_infinity), do: :neg_infinity
   def to_number(:nan), do: :nan
+
   def to_number(s) when is_binary(s) do
     s = String.trim(s)
+
     case Integer.parse(s) do
-      {i, ""} -> i
+      {i, ""} ->
+        i
+
       _ ->
         case Float.parse(s) do
           {f, ""} -> f
@@ -38,15 +62,26 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
         end
     end
   end
-  def to_number({:bigint, _}), do: throw({:js_throw, %{"message" => "Cannot convert a BigInt value to a number", "name" => "TypeError"}})
+
+  def to_number({:bigint, _}),
+    do:
+      throw(
+        {:js_throw,
+         %{"message" => "Cannot convert a BigInt value to a number", "name" => "TypeError"}}
+      )
+
   def to_number({:obj, _} = obj) do
     map = QuickBEAM.BeamVM.Heap.get_obj(elem(obj, 1), %{})
+
     case Map.get(map, "valueOf") do
       fun when fun != nil and fun != :undefined ->
         to_number(QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [], 10_000_000, obj))
-      _ -> :nan
+
+      _ ->
+        :nan
     end
   end
+
   def to_number(_), do: :nan
 
   def to_int32(val) when is_integer(val), do: val
@@ -63,14 +98,19 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def to_js_string({:symbol, desc}), do: "Symbol(#{desc})"
   def to_js_string({:symbol, desc, _ref}), do: "Symbol(#{desc})"
   def to_js_string(s) when is_binary(s), do: s
+
   def to_js_string({:obj, _} = obj) do
     map = QuickBEAM.BeamVM.Heap.get_obj(elem(obj, 1), %{})
+
     case Map.get(map, "toString") do
       fun when fun != nil and fun != :undefined ->
         to_js_string(QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [], 10_000_000, obj))
-      _ -> "[object Object]"
+
+      _ ->
+        "[object Object]"
     end
   end
+
   def to_js_string(_), do: "[object]"
 
   def typeof(:undefined), do: "undefined"
@@ -118,11 +158,15 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
 
   def mul({:bigint, a}, {:bigint, b}), do: {:bigint, a * b}
   def mul(a, b) when is_number(a) and is_number(b), do: a * b
+
   def mul(a, b) do
     na = to_number(a)
     nb = to_number(b)
+
     cond do
-      na == :nan or nb == :nan -> :nan
+      na == :nan or nb == :nan ->
+        :nan
+
       na in [:infinity, :neg_infinity] or nb in [:infinity, :neg_infinity] ->
         if na == 0 or nb == 0 do
           :nan
@@ -131,37 +175,59 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
           sb = if nb in [:neg_infinity] or (is_number(nb) and nb < 0), do: -1, else: 1
           if sa * sb > 0, do: :infinity, else: :neg_infinity
         end
+
       # Reached when one or both args were non-numeric but to_number made them numeric (e.g. booleans)
-      is_number(na) and is_number(nb) -> na * nb
-      true -> :nan
+      is_number(na) and is_number(nb) ->
+        na * nb
+
+      true ->
+        :nan
     end
   end
 
   def div({:bigint, a}, {:bigint, b}) when b != 0, do: {:bigint, Kernel.div(a, b)}
-  def div({:bigint, _}, {:bigint, 0}), do: throw({:js_throw, %{"message" => "Division by zero", "name" => "RangeError"}})
+
+  def div({:bigint, _}, {:bigint, 0}),
+    do: throw({:js_throw, %{"message" => "Division by zero", "name" => "RangeError"}})
+
   def div(a, b) when is_number(a) and is_number(b) do
     cond do
       b == 0 and neg_zero?(b) ->
         if a > 0, do: :neg_infinity, else: if(a < 0, do: :infinity, else: :nan)
-      b == 0 -> inf_or_nan(a)
-      true -> a / b
+
+      b == 0 ->
+        inf_or_nan(a)
+
+      true ->
+        a / b
     end
   end
+
   def div(a, b) do
     na = to_number(a)
     nb = to_number(b)
+
     cond do
-      na == :nan or nb == :nan -> :nan
+      na == :nan or nb == :nan ->
+        :nan
+
       na in [:infinity, :neg_infinity] or nb in [:infinity, :neg_infinity] ->
         div_inf(na, nb)
+
       is_number(na) and is_number(nb) ->
         cond do
           nb == 0 and neg_zero?(nb) ->
             if na > 0, do: :neg_infinity, else: if(na < 0, do: :infinity, else: :nan)
-          nb == 0 -> inf_or_nan(na)
-          true -> na / nb
+
+          nb == 0 ->
+            inf_or_nan(na)
+
+          true ->
+            na / nb
         end
-      true -> :nan
+
+      true ->
+        :nan
     end
   end
 
@@ -178,8 +244,13 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   defp div_inf(_, _), do: :nan
 
   def mod({:bigint, a}, {:bigint, b}) when b != 0, do: {:bigint, rem(a, b)}
-  def mod({:bigint, _}, {:bigint, 0}), do: throw({:js_throw, %{"message" => "Division by zero", "name" => "RangeError"}})
-  def mod(a, b) when is_number(a) and is_number(b), do: if(b == 0, do: :nan, else: rem(trunc(a), trunc(b)))
+
+  def mod({:bigint, _}, {:bigint, 0}),
+    do: throw({:js_throw, %{"message" => "Division by zero", "name" => "RangeError"}})
+
+  def mod(a, b) when is_number(a) and is_number(b),
+    do: if(b == 0, do: :nan, else: rem(trunc(a), trunc(b)))
+
   def mod(_, _), do: :nan
 
   def pow({:bigint, a}, {:bigint, b}) when b >= 0, do: {:bigint, Integer.pow(a, b)}
@@ -206,8 +277,13 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def bor(a, b), do: Bitwise.bor(to_int32(a), to_int32(b))
   def bxor({:bigint, a}, {:bigint, b}), do: {:bigint, Bitwise.bxor(a, b)}
   def bxor(a, b), do: Bitwise.bxor(to_int32(a), to_int32(b))
-  def shl({:bigint, a}, {:bigint, b}) when b >= 0 and b <= 1_000_000, do: {:bigint, Bitwise.bsl(a, b)}
-  def shl({:bigint, _}, {:bigint, _}), do: throw({:js_throw, %{"message" => "Maximum BigInt size exceeded", "name" => "RangeError"}})
+
+  def shl({:bigint, a}, {:bigint, b}) when b >= 0 and b <= 1_000_000,
+    do: {:bigint, Bitwise.bsl(a, b)}
+
+  def shl({:bigint, _}, {:bigint, _}),
+    do: throw({:js_throw, %{"message" => "Maximum BigInt size exceeded", "name" => "RangeError"}})
+
   def shl(a, b), do: Bitwise.bsl(to_int32(a), Bitwise.band(to_int32(b), 31))
   def sar({:bigint, a}, {:bigint, b}), do: {:bigint, Bitwise.bsr(a, b)}
   def sar(a, b), do: Bitwise.bsr(to_int32(a), Bitwise.band(to_int32(b), 31))

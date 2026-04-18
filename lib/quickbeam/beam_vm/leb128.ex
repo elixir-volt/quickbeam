@@ -27,7 +27,7 @@ defmodule QuickBEAM.BeamVM.LEB128 do
     # Sign extend if the last byte's high bit is set
     size = shift + 7
     # Sign-extend: shift left to put sign bit at position 63, then arithmetic shift right
-    {:ok, result <<< (64 - size) >>> (64 - size), rest}
+    {:ok, (result <<< (64 - size)) >>> (64 - size), rest}
   end
 
   defp read_signed(_, _, _), do: {:error, :bad_sleb128}

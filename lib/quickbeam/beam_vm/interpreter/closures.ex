@@ -12,7 +12,9 @@ defmodule QuickBEAM.BeamVM.Interpreter.Closures do
 
   def read_captured_local(l2v, idx, locals, var_refs) do
     case Map.get(l2v, idx) do
-      nil -> elem(locals, idx)
+      nil ->
+        elem(locals, idx)
+
       vref_idx ->
         case elem(var_refs, vref_idx) do
           {:cell, ref} -> Heap.get_cell(ref)
@@ -23,7 +25,9 @@ defmodule QuickBEAM.BeamVM.Interpreter.Closures do
 
   def write_captured_local(l2v, idx, val, _locals, var_refs) do
     case Map.get(l2v, idx) do
-      nil -> :ok
+      nil ->
+        :ok
+
       vref_idx ->
         case elem(var_refs, vref_idx) do
           {:cell, ref} -> Heap.put_cell(ref, val)
@@ -42,7 +46,9 @@ defmodule QuickBEAM.BeamVM.Interpreter.Closures do
     vrefs = if is_tuple(var_refs), do: Tuple.to_list(var_refs), else: var_refs
 
     {locals, vrefs, l2v} =
-      for {vd, local_idx} <- Enum.with_index(fun.locals), vd.is_captured, reduce: {locals, vrefs, %{}} do
+      for {vd, local_idx} <- Enum.with_index(fun.locals),
+          vd.is_captured,
+          reduce: {locals, vrefs, %{}} do
         {acc_locals, acc_vrefs, acc_l2v} ->
           val =
             if local_idx < tuple_size(arg_buf),

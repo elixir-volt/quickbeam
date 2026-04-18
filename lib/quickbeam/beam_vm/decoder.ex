@@ -1,6 +1,13 @@
 defmodule QuickBEAM.BeamVM.Decoder do
-  @compile {:inline, get_u8: 2, get_i8: 2, get_u16: 2, get_i16: 2,
-             get_u32: 2, get_i32: 2, get_atom_u32: 2, resolve_label: 2}
+  @compile {:inline,
+            get_u8: 2,
+            get_i8: 2,
+            get_u16: 2,
+            get_i16: 2,
+            get_u32: 2,
+            get_i32: 2,
+            get_atom_u32: 2,
+            resolve_label: 2}
   @moduledoc """
   Decodes raw QuickJS bytecode bytes into instruction tuples.
 
@@ -36,8 +43,11 @@ defmodule QuickBEAM.BeamVM.Decoder do
 
   defp build_offset_map(bc, len, pos, idx, acc) do
     op = :binary.at(bc, pos)
+
     case Opcodes.info(op) do
-      nil -> {:error, {:unknown_opcode, op, pos}}
+      nil ->
+        {:error, {:unknown_opcode, op, pos}}
+
       {_name, size, _n_pop, _n_push, _fmt} ->
         if pos + size > len do
           {:error, {:truncated_instruction, op, pos}}
@@ -53,15 +63,21 @@ defmodule QuickBEAM.BeamVM.Decoder do
 
   defp decode_pass2(bc, len, pos, idx, offset_map, acc) do
     op = :binary.at(bc, pos)
+
     case Opcodes.info(op) do
-      nil -> {:error, {:unknown_opcode, op, pos}}
+      nil ->
+        {:error, {:unknown_opcode, op, pos}}
+
       {name, size, _n_pop, _n_push, fmt} ->
         if pos + size > len do
           {:error, {:truncated_instruction, name, pos}}
         else
           operands = decode_operands(bc, pos + 1, fmt, offset_map)
           {canonical_name, final_args} = Opcodes.expand_short_form(name, operands)
-          decode_pass2(bc, len, pos + size, idx + 1, offset_map, [{canonical_name, final_args} | acc])
+
+          decode_pass2(bc, len, pos + size, idx + 1, offset_map, [
+            {canonical_name, final_args} | acc
+          ])
         end
     end
   end
@@ -133,12 +149,12 @@ defmodule QuickBEAM.BeamVM.Decoder do
   end
 
   defp decode_operands(bc, pos, :atom_label_u8, om) do
-    byte_off = (pos + 4) + get_i32(bc, pos + 4)
+    byte_off = pos + 4 + get_i32(bc, pos + 4)
     [get_atom_u32(bc, pos), resolve_label(byte_off, om), get_u8(bc, pos + 8)]
   end
 
   defp decode_operands(bc, pos, :atom_label_u16, om) do
-    byte_off = (pos + 4) + get_i32(bc, pos + 4)
+    byte_off = pos + 4 + get_i32(bc, pos + 4)
     [get_atom_u32(bc, pos), resolve_label(byte_off, om), get_u16(bc, pos + 8)]
   end
 
@@ -182,12 +198,12 @@ defmodule QuickBEAM.BeamVM.Decoder do
   @js_atom_end 229
   defp get_atom_u32(bc, pos) do
     v = get_u32(bc, pos)
+
     cond do
       band(v, 0x80000000) != 0 -> {:tagged_int, band(v, 0x7FFFFFFF)}
       v >= 1 and v < @js_atom_end -> {:predefined, v}
       v >= @js_atom_end -> v - @js_atom_end
       true -> {:predefined, v}
     end
-
   end
 end

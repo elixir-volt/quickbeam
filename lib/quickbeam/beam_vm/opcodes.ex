@@ -426,7 +426,7 @@ defmodule QuickBEAM.BeamVM.Opcodes do
     put_loc8: :put_loc,
     set_loc8: :set_loc,
     get_loc_check8: :get_loc_check,
-    put_loc_check8: :put_loc_check,
+    put_loc_check8: :put_loc_check
   }
 
   def expand_short_form(name, args) do
@@ -436,7 +436,9 @@ defmodule QuickBEAM.BeamVM.Opcodes do
           nil -> {name, args}
           canonical -> {canonical, args}
         end
-      {canonical, const_args} -> {canonical, const_args}
+
+      {canonical, const_args} ->
+        {canonical, const_args}
     end
   end
 end

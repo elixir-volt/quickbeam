@@ -412,7 +412,11 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "higher-order function", %{rt: rt} do
-      ok(rt, "(function(){ function apply(f, x) { return f(x) }; return apply(function(x){ return x+1 }, 5) })()", 6)
+      ok(
+        rt,
+        "(function(){ function apply(f, x) { return f(x) }; return apply(function(x){ return x+1 }, 5) })()",
+        6
+      )
     end
 
     test "default parameter", %{rt: rt} do
@@ -450,7 +454,11 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "for-in loop", %{rt: rt} do
-      ok(rt, ~s|(function(){ var o = {a:1,b:2}; var keys = []; for(var k in o) keys.push(k); return keys })()|, ["a", "b"])
+      ok(
+        rt,
+        ~s|(function(){ var o = {a:1,b:2}; var keys = []; for(var k in o) keys.push(k); return keys })()|,
+        ["a", "b"]
+      )
     end
 
     test "do-while", %{rt: rt} do
@@ -458,16 +466,33 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "break", %{rt: rt} do
-      ok(rt, "(function(){ var s=0; for(var i=0;i<10;i++){ if(i>2) break; s+=i } return s })()", 3)
+      ok(
+        rt,
+        "(function(){ var s=0; for(var i=0;i<10;i++){ if(i>2) break; s+=i } return s })()",
+        3
+      )
     end
 
     test "continue", %{rt: rt} do
-      ok(rt, "(function(){ var s=0; for(var i=0;i<5;i++){ if(i===2) continue; s+=i } return s })()", 8)
+      ok(
+        rt,
+        "(function(){ var s=0; for(var i=0;i<5;i++){ if(i===2) continue; s+=i } return s })()",
+        8
+      )
     end
 
     test "switch", %{rt: rt} do
-      ok(rt, "(function(n){ switch(n){ case 1: return 'one'; case 2: return 'two'; default: return 'other' } })(1)", "one")
-      ok(rt, "(function(n){ switch(n){ case 1: return 'one'; case 2: return 'two'; default: return 'other' } })(3)", "other")
+      ok(
+        rt,
+        "(function(n){ switch(n){ case 1: return 'one'; case 2: return 'two'; default: return 'other' } })(1)",
+        "one"
+      )
+
+      ok(
+        rt,
+        "(function(n){ switch(n){ case 1: return 'one'; case 2: return 'two'; default: return 'other' } })(3)",
+        "other"
+      )
     end
   end
 
@@ -513,11 +538,18 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "spread object", %{rt: rt} do
-      ok(rt, "(function(){ var a = {x: 1}; var b = {...a, y: 2}; return b })()", %{"x" => 1, "y" => 2})
+      ok(rt, "(function(){ var a = {x: 1}; var b = {...a, y: 2}; return b })()", %{
+        "x" => 1,
+        "y" => 2
+      })
     end
 
     test "spread in function call", %{rt: rt} do
-      ok(rt, "(function(){ function add(a,b,c){ return a+b+c } var args = [1,2,3]; return add(...args) })()", 6)
+      ok(
+        rt,
+        "(function(){ function add(a,b,c){ return a+b+c } var args = [1,2,3]; return add(...args) })()",
+        6
+      )
     end
   end
 
@@ -612,11 +644,19 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
 
   describe "try/catch" do
     test "catch Error", %{rt: rt} do
-      ok(rt, ~s|(function(){ try { throw new Error("boom") } catch(e) { return e.message } })()|, "boom")
+      ok(
+        rt,
+        ~s|(function(){ try { throw new Error("boom") } catch(e) { return e.message } })()|,
+        "boom"
+      )
     end
 
     test "catch thrown value", %{rt: rt} do
-      ok(rt, ~s|(function(){ try { throw "just a string" } catch(e) { return e } })()|, "just a string")
+      ok(
+        rt,
+        ~s|(function(){ try { throw "just a string" } catch(e) { return e } })()|,
+        "just a string"
+      )
     end
 
     test "finally", %{rt: rt} do
@@ -624,7 +664,11 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "try/catch/finally", %{rt: rt} do
-      ok(rt, ~s|(function(){ var x=0; try { throw "err" } catch(e) { x=1 } finally { x+=1 } return x })()|, 2)
+      ok(
+        rt,
+        ~s|(function(){ var x=0; try { throw "err" } catch(e) { x=1 } finally { x+=1 } return x })()|,
+        2
+      )
     end
   end
 
@@ -640,23 +684,43 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
 
   describe "closures" do
     test "mutable closure", %{rt: rt} do
-      ok(rt, "(function(){ var count = 0; function inc() { count++ } inc(); inc(); return count })()", 2)
+      ok(
+        rt,
+        "(function(){ var count = 0; function inc() { count++ } inc(); inc(); return count })()",
+        2
+      )
     end
 
     test "multiple closures share state", %{rt: rt} do
-      ok(rt, "(function(){ var n = 0; function inc() { n++ } function get() { return n } inc(); inc(); return get() })()", 2)
+      ok(
+        rt,
+        "(function(){ var n = 0; function inc() { n++ } function get() { return n } inc(); inc(); return get() })()",
+        2
+      )
     end
 
     test "closure over loop variable", %{rt: rt} do
-      ok(rt, "(function(){ var fns = []; for(var i = 0; i < 3; i++) { fns.push(function(){ return i }) } return fns[1]() })()", 3)
+      ok(
+        rt,
+        "(function(){ var fns = []; for(var i = 0; i < 3; i++) { fns.push(function(){ return i }) } return fns[1]() })()",
+        3
+      )
     end
 
     test "closure over let loop variable", %{rt: rt} do
-      ok(rt, "(function(){ var fns = []; for(let i = 0; i < 3; i++) { fns.push(function(){ return i }) } return fns[1]() })()", 1)
+      ok(
+        rt,
+        "(function(){ var fns = []; for(let i = 0; i < 3; i++) { fns.push(function(){ return i }) } return fns[1]() })()",
+        1
+      )
     end
 
     test "counter factory", %{rt: rt} do
-      ok(rt, "(function(){ function counter() { var n = 0; return function() { return ++n } } var c = counter(); c(); return c() })()", 2)
+      ok(
+        rt,
+        "(function(){ function counter() { var n = 0; return function() { return ++n } } var c = counter(); c(); return c() })()",
+        2
+      )
     end
   end
 
@@ -688,7 +752,7 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     test "shift", %{rt: rt} do
       ok(rt, "1 << 3", 8)
       ok(rt, "8 >> 2", 2)
-      ok(rt, "-1 >>> 1", 2147483647)
+      ok(rt, "-1 >>> 1", 2_147_483_647)
     end
 
     test "not", %{rt: rt} do
@@ -722,27 +786,51 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
 
   describe "classes" do
     test "basic class", %{rt: rt} do
-      ok(rt, "(function(){ class Point { constructor(x,y) { this.x = x; this.y = y } } var p = new Point(1,2); return p.x + p.y })()", 3)
+      ok(
+        rt,
+        "(function(){ class Point { constructor(x,y) { this.x = x; this.y = y } } var p = new Point(1,2); return p.x + p.y })()",
+        3
+      )
     end
 
     test "class method", %{rt: rt} do
-      ok(rt, "(function(){ class Rect { constructor(w,h) { this.w = w; this.h = h } area() { return this.w * this.h } } return new Rect(3,4).area() })()", 12)
+      ok(
+        rt,
+        "(function(){ class Rect { constructor(w,h) { this.w = w; this.h = h } area() { return this.w * this.h } } return new Rect(3,4).area() })()",
+        12
+      )
     end
 
     test "class inheritance", %{rt: rt} do
-      ok(rt, "(function(){ class Animal { constructor(name) { this.name = name } speak() { return this.name + ' speaks' } } class Dog extends Animal { speak() { return this.name + ' barks' } } return new Dog('Rex').speak() })()", "Rex barks")
+      ok(
+        rt,
+        "(function(){ class Animal { constructor(name) { this.name = name } speak() { return this.name + ' speaks' } } class Dog extends Animal { speak() { return this.name + ' barks' } } return new Dog('Rex').speak() })()",
+        "Rex barks"
+      )
     end
 
     test "class explicit super()", %{rt: rt} do
-      ok(rt, "(function(){ class A { constructor(x) { this.x = x } } class B extends A { constructor(x) { super(x) } } return new B(42).x })()", 42)
+      ok(
+        rt,
+        "(function(){ class A { constructor(x) { this.x = x } } class B extends A { constructor(x) { super(x) } } return new B(42).x })()",
+        42
+      )
     end
 
     test "class multi-level inheritance", %{rt: rt} do
-      ok(rt, "(function(){ class A { constructor(x) { this.x = x } } class B extends A {} class C extends B {} return new C(99).x })()", 99)
+      ok(
+        rt,
+        "(function(){ class A { constructor(x) { this.x = x } } class B extends A {} class C extends B {} return new C(99).x })()",
+        99
+      )
     end
 
     test "class super with method", %{rt: rt} do
-      ok(rt, "(function(){ class A { constructor(x) { this.val = x } get() { return this.val } } class B extends A { constructor(x) { super(x * 2) } } return new B(21).get() })()", 42)
+      ok(
+        rt,
+        "(function(){ class A { constructor(x) { this.val = x } get() { return this.val } } class B extends A { constructor(x) { super(x * 2) } } return new B(21).get() })()",
+        42
+      )
     end
 
     test "class static methods", %{rt: rt} do
@@ -754,13 +842,21 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "class static and instance methods", %{rt: rt} do
-      ok(rt, "(function(){ class A { static s() { return 1 } i() { return 2 } } return A.s() + new A().i() })()", 3)
+      ok(
+        rt,
+        "(function(){ class A { static s() { return 1 } i() { return 2 } } return A.s() + new A().i() })()",
+        3
+      )
     end
   end
 
   describe "error handling" do
     test "ReferenceError is catchable", %{rt: rt} do
-      ok(rt, "(function(){ try { undeclaredVar } catch(e) { return e.name } })()", "ReferenceError")
+      ok(
+        rt,
+        "(function(){ try { undeclaredVar } catch(e) { return e.name } })()",
+        "ReferenceError"
+      )
     end
 
     test "TypeError on null property access", %{rt: rt} do
@@ -772,7 +868,11 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "error.message accessible", %{rt: rt} do
-      ok(rt, "(function(){ try { undeclaredVar } catch(e) { return e.message } })()", "undeclaredVar is not defined")
+      ok(
+        rt,
+        "(function(){ try { undeclaredVar } catch(e) { return e.message } })()",
+        "undeclaredVar is not defined"
+      )
     end
 
     test "typeof caught error is object", %{rt: rt} do
@@ -780,13 +880,20 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "throw from called function is catchable", %{rt: rt} do
-      ok(rt, "(function(){ function f() { throw new Error('boom') } try { f() } catch(e) { return e.message } })()", "boom")
+      ok(
+        rt,
+        "(function(){ function f() { throw new Error('boom') } try { f() } catch(e) { return e.message } })()",
+        "boom"
+      )
     end
 
     test "uncaught TypeError propagates through call stack", %{rt: rt} do
-      ok(rt, "(function(){ function f() { null.x } try { f() } catch(e) { return e.name } })()", "TypeError")
+      ok(
+        rt,
+        "(function(){ function f() { null.x } try { f() } catch(e) { return e.name } })()",
+        "TypeError"
+      )
     end
-
   end
 
   describe "instanceof" do
@@ -795,7 +902,11 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "instanceof with inheritance", %{rt: rt} do
-      ok(rt, "(function(){ class A {} class B extends A {} return new B() instanceof A })()", true)
+      ok(
+        rt,
+        "(function(){ class A {} class B extends A {} return new B() instanceof A })()",
+        true
+      )
     end
   end
 
@@ -805,11 +916,19 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "getter and setter", %{rt: rt} do
-      ok(rt, "(function(){ var o = { _v: 0, set v(x) { this._v = x }, get v() { return this._v } }; o.v = 7; return o.v })()", 7)
+      ok(
+        rt,
+        "(function(){ var o = { _v: 0, set v(x) { this._v = x }, get v() { return this._v } }; o.v = 7; return o.v })()",
+        7
+      )
     end
 
     test "Object.defineProperty getter", %{rt: rt} do
-      ok(rt, "(function(){ var o = {}; Object.defineProperty(o, 'x', { get: function() { return 42 } }); return o.x })()", 42)
+      ok(
+        rt,
+        "(function(){ var o = {}; Object.defineProperty(o, 'x', { get: function() { return 42 } }); return o.x })()",
+        42
+      )
     end
   end
 
@@ -819,13 +938,21 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "toString for concatenation", %{rt: rt} do
-      ok(rt, "(function(){ var o = { toString: function() { return 'hi' } }; return o + '!' })()", "hi!")
+      ok(
+        rt,
+        "(function(){ var o = { toString: function() { return 'hi' } }; return o + '!' })()",
+        "hi!"
+      )
     end
   end
 
   describe "array methods" do
     test "flatMap", %{rt: rt} do
-      ok(rt, "(function(){ return [1,2,3].flatMap(function(x){return [x, x*2]}).join(',') })()", "1,2,2,4,3,6")
+      ok(
+        rt,
+        "(function(){ return [1,2,3].flatMap(function(x){return [x, x*2]}).join(',') })()",
+        "1,2,2,4,3,6"
+      )
     end
 
     test "fill", %{rt: rt} do
@@ -833,7 +960,11 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "Array.from with map callback", %{rt: rt} do
-      ok(rt, "(function(){ return Array.from([1,2,3], function(x){return x*2}).join(',') })()", "2,4,6")
+      ok(
+        rt,
+        "(function(){ return Array.from([1,2,3], function(x){return x*2}).join(',') })()",
+        "2,4,6"
+      )
     end
   end
 
@@ -843,12 +974,19 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "tagged template literal", %{rt: rt} do
-      code = "(function(){ function tag(s, ...v) { return s[0] + v[0] + s[1]; } return tag" <> <<96>> <> "a${42}b" <> <<96>> <> "; })()"
+      code =
+        "(function(){ function tag(s, ...v) { return s[0] + v[0] + s[1]; } return tag" <>
+          <<96>> <> "a${42}b" <> <<96>> <> "; })()"
+
       ok(rt, code, "a42b")
     end
 
     test "WeakMap get/set", %{rt: rt} do
-      ok(rt, "(function(){ var w = new WeakMap(); var k = {}; w.set(k, 42); return w.get(k) })()", 42)
+      ok(
+        rt,
+        "(function(){ var w = new WeakMap(); var k = {}; w.set(k, 42); return w.get(k) })()",
+        42
+      )
     end
 
     test "Array.copyWithin", %{rt: rt} do
@@ -864,39 +1002,75 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
 
   describe "generators" do
     test "generator next", %{rt: rt} do
-      ok(rt, "(function(){ function* g() { yield 1; yield 2; yield 3 } var i = g(); return i.next().value })()", 1)
+      ok(
+        rt,
+        "(function(){ function* g() { yield 1; yield 2; yield 3 } var i = g(); return i.next().value })()",
+        1
+      )
     end
 
     test "generator sequence", %{rt: rt} do
-      ok(rt, "(function(){ function* g() { yield 1; yield 2 } var i = g(); i.next(); return i.next().value })()", 2)
+      ok(
+        rt,
+        "(function(){ function* g() { yield 1; yield 2 } var i = g(); i.next(); return i.next().value })()",
+        2
+      )
     end
 
     test "generator done", %{rt: rt} do
-      ok(rt, "(function(){ function* g() { yield 1 } var i = g(); i.next(); return i.next().done })()", true)
+      ok(
+        rt,
+        "(function(){ function* g() { yield 1 } var i = g(); i.next(); return i.next().done })()",
+        true
+      )
     end
 
     test "generator return value", %{rt: rt} do
-      ok(rt, "(function(){ function* g() { yield 1; return 42 } var i = g(); i.next(); return i.next().value })()", 42)
+      ok(
+        rt,
+        "(function(){ function* g() { yield 1; return 42 } var i = g(); i.next(); return i.next().value })()",
+        42
+      )
     end
 
     test "generator for-of", %{rt: rt} do
-      ok(rt, "(function(){ function* g() { yield 1; yield 2; yield 3 } var sum = 0; for (var x of g()) sum += x; return sum })()", 6)
+      ok(
+        rt,
+        "(function(){ function* g() { yield 1; yield 2; yield 3 } var sum = 0; for (var x of g()) sum += x; return sum })()",
+        6
+      )
     end
 
     test "generator with args", %{rt: rt} do
-      ok(rt, "(function(){ function* range(s, e) { for (var i = s; i < e; i++) yield i } var r = []; for (var x of range(3, 6)) r.push(x); return r.join(',') })()", "3,4,5")
+      ok(
+        rt,
+        "(function(){ function* range(s, e) { for (var i = s; i < e; i++) yield i } var r = []; for (var x of range(3, 6)) r.push(x); return r.join(',') })()",
+        "3,4,5"
+      )
     end
 
     test "generator fibonacci", %{rt: rt} do
-      ok(rt, "(function(){ function* fib() { var a = 0, b = 1; while(true) { yield a; var t = a; a = b; b = t + b } } var i = fib(); var r = []; for(var j = 0; j < 8; j++) r.push(i.next().value); return r.join(',') })()", "0,1,1,2,3,5,8,13")
+      ok(
+        rt,
+        "(function(){ function* fib() { var a = 0, b = 1; while(true) { yield a; var t = a; a = b; b = t + b } } var i = fib(); var r = []; for(var j = 0; j < 8; j++) r.push(i.next().value); return r.join(',') })()",
+        "0,1,1,2,3,5,8,13"
+      )
     end
 
     test "yield expression receives next() arg", %{rt: rt} do
-      ok(rt, "(function(){ function* g() { var x = yield 1; yield x + 10 } var i = g(); i.next(); return i.next(5).value })()", 15)
+      ok(
+        rt,
+        "(function(){ function* g() { var x = yield 1; yield x + 10 } var i = g(); i.next(); return i.next(5).value })()",
+        15
+      )
     end
 
     test "generator return() stops iteration", %{rt: rt} do
-      ok(rt, "(function(){ function* g() { yield 1; yield 2; yield 3 } var i = g(); i.next(); i.return(); return i.next().done })()", true)
+      ok(
+        rt,
+        "(function(){ function* g() { yield 1; yield 2; yield 3 } var i = g(); i.next(); i.return(); return i.next().done })()",
+        true
+      )
     end
   end
 
@@ -922,15 +1096,27 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "async try/catch", %{rt: rt} do
-      ok(rt, "(async function(){ try { throw new Error('boom') } catch(e) { return e.message } })()", "boom")
+      ok(
+        rt,
+        "(async function(){ try { throw new Error('boom') } catch(e) { return e.message } })()",
+        "boom"
+      )
     end
 
     test "chained await", %{rt: rt} do
-      ok(rt, "(async function(){ return await Promise.resolve(await Promise.resolve(42)) })()", 42)
+      ok(
+        rt,
+        "(async function(){ return await Promise.resolve(await Promise.resolve(42)) })()",
+        42
+      )
     end
 
     test "Promise.resolve().then()", %{rt: rt} do
-      ok(rt, "(async function(){ return await Promise.resolve(1).then(function(v) { return v + 1 }) })()", 2)
+      ok(
+        rt,
+        "(async function(){ return await Promise.resolve(1).then(function(v) { return v + 1 }) })()",
+        2
+      )
     end
   end
 
@@ -939,17 +1125,22 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
   describe "Map/Set" do
     test "Map basic", %{rt: rt} do
       result = ev(rt, "(function(){ var m = new Map(); m.set('a', 1); return m.get('a') })()")
+
       case result do
         {:ok, 1} -> :ok
-        {:error, _} -> :ok  # Map not yet supported
+        # Map not yet supported
+        {:error, _} -> :ok
       end
     end
 
     test "Set basic", %{rt: rt} do
-      result = ev(rt, "(function(){ var s = new Set(); s.add(1); s.add(2); s.add(1); return s.size })()")
+      result =
+        ev(rt, "(function(){ var s = new Set(); s.add(1); s.add(2); s.add(1); return s.size })()")
+
       case result do
         {:ok, 2} -> :ok
-        {:error, _} -> :ok  # Set not yet supported
+        # Set not yet supported
+        {:error, _} -> :ok
       end
     end
   end
@@ -958,7 +1149,11 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
 
   describe "complex expressions" do
     test "nested object access", %{rt: rt} do
-      ok(rt, ~s|(function(){ var data = {order: {items: [{sku: "A"}, {sku: "B"}]}}; return data.order.items.map(function(i){ return i.sku }).join(",") })()|, "A,B")
+      ok(
+        rt,
+        ~s|(function(){ var data = {order: {items: [{sku: "A"}, {sku: "B"}]}}; return data.order.items.map(function(i){ return i.sku }).join(",") })()|,
+        "A,B"
+      )
     end
 
     test "fibonacci", %{rt: rt} do
@@ -966,23 +1161,43 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "nested closures", %{rt: rt} do
-      ok(rt, "(function(){ function makeAdder(x) { return function(y) { return x + y } } var add5 = makeAdder(5); return add5(3) })()", 8)
+      ok(
+        rt,
+        "(function(){ function makeAdder(x) { return function(y) { return x + y } } var add5 = makeAdder(5); return add5(3) })()",
+        8
+      )
     end
 
     test "sort with comparator", %{rt: rt} do
-      ok(rt, "(function(){ var a = [{v:3},{v:1},{v:2}]; a.sort(function(a,b){ return a.v - b.v }); return a[0].v })()", 1)
+      ok(
+        rt,
+        "(function(){ var a = [{v:3},{v:1},{v:2}]; a.sort(function(a,b){ return a.v - b.v }); return a[0].v })()",
+        1
+      )
     end
 
     test "flatten array manually", %{rt: rt} do
-      ok(rt, "(function(){ var nested = [[1,2],[3,4],[5]]; var flat = []; nested.forEach(function(arr){ arr.forEach(function(x){ flat.push(x) }) }); return flat })()", [1, 2, 3, 4, 5])
+      ok(
+        rt,
+        "(function(){ var nested = [[1,2],[3,4],[5]]; var flat = []; nested.forEach(function(arr){ arr.forEach(function(x){ flat.push(x) }) }); return flat })()",
+        [1, 2, 3, 4, 5]
+      )
     end
 
     test "string manipulation pipeline", %{rt: rt} do
-      ok(rt, ~s|(function(){ var s = "  Hello World  "; return s.trim().toLowerCase().split(" ").join("-") })()|, "hello-world")
+      ok(
+        rt,
+        ~s|(function(){ var s = "  Hello World  "; return s.trim().toLowerCase().split(" ").join("-") })()|,
+        "hello-world"
+      )
     end
 
     test "memoize pattern", %{rt: rt} do
-      ok(rt, "(function(){ var cache = {}; function memo(n) { if(n in cache) return cache[n]; var r = n * n; cache[n] = r; return r } memo(5); return memo(5) })()", 25)
+      ok(
+        rt,
+        "(function(){ var cache = {}; function memo(n) { if(n in cache) return cache[n]; var r = n * n; cache[n] = r; return r } memo(5); return memo(5) })()",
+        25
+      )
     end
   end
 
@@ -1076,33 +1291,61 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
 
   describe "private fields" do
     test "private field read", %{rt: rt} do
-      ok(rt, "(function(){ class A { #x = 42; get() { return this.#x } } return new A().get() })()", 42)
+      ok(
+        rt,
+        "(function(){ class A { #x = 42; get() { return this.#x } } return new A().get() })()",
+        42
+      )
     end
 
     test "private field write", %{rt: rt} do
-      ok(rt, "(function(){ class A { #x = 0; set(v) { this.#x = v } get() { return this.#x } } var a = new A(); a.set(99); return a.get() })()", 99)
+      ok(
+        rt,
+        "(function(){ class A { #x = 0; set(v) { this.#x = v } get() { return this.#x } } var a = new A(); a.set(99); return a.get() })()",
+        99
+      )
     end
 
     test "private field in constructor", %{rt: rt} do
-      ok(rt, "(function(){ class A { #x; constructor(v) { this.#x = v } get() { return this.#x } } return new A(42).get() })()", 42)
+      ok(
+        rt,
+        "(function(){ class A { #x; constructor(v) { this.#x = v } get() { return this.#x } } return new A(42).get() })()",
+        42
+      )
     end
 
     test "private in operator", %{rt: rt} do
-      ok(rt, "(function(){ class A { #x = 1; has() { return #x in this } } return new A().has() })()", true)
+      ok(
+        rt,
+        "(function(){ class A { #x = 1; has() { return #x in this } } return new A().has() })()",
+        true
+      )
     end
   end
 
   describe "super property access" do
     test "super.method()", %{rt: rt} do
-      ok(rt, "(function(){ class A { greet() { return 'hello' } } class B extends A { test() { return super.greet() } } return new B().test() })()", "hello")
+      ok(
+        rt,
+        "(function(){ class A { greet() { return 'hello' } } class B extends A { test() { return super.greet() } } return new B().test() })()",
+        "hello"
+      )
     end
 
     test "super with override", %{rt: rt} do
-      ok(rt, "(function(){ class A { val() { return 10 } } class B extends A { val() { return super.val() + 5 } } return new B().val() })()", 15)
+      ok(
+        rt,
+        "(function(){ class A { val() { return 10 } } class B extends A { val() { return super.val() + 5 } } return new B().val() })()",
+        15
+      )
     end
 
     test "inherited method without override", %{rt: rt} do
-      ok(rt, "(function(){ class A { greet() { return 'hello' } } class B extends A {} return new B().greet() })()", "hello")
+      ok(
+        rt,
+        "(function(){ class A { greet() { return 'hello' } } class B extends A {} return new B().greet() })()",
+        "hello"
+      )
     end
   end
 
@@ -1114,7 +1357,11 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
 
   describe "Function.prototype" do
     test "call", %{rt: rt} do
-      ok(rt, "(function(){ function f(x) { return this.v + x } return f.call({v: 10}, 5) })()", 15)
+      ok(
+        rt,
+        "(function(){ function f(x) { return this.v + x } return f.call({v: 10}, 5) })()",
+        15
+      )
     end
 
     test "apply", %{rt: rt} do
@@ -1122,7 +1369,11 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "bind", %{rt: rt} do
-      ok(rt, "(function(){ function f(x) { return this.v + x } var g = f.bind({v: 100}); return g(5) })()", 105)
+      ok(
+        rt,
+        "(function(){ function f(x) { return this.v + x } var g = f.bind({v: 100}); return g(5) })()",
+        105
+      )
     end
   end
 
@@ -1142,7 +1393,11 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "with nested", %{rt: rt} do
-      ok(rt, "(function(){ var o = {x: 10}; var p = {y: 20}; with(o) { with(p) { return x + y } } })()", 30)
+      ok(
+        rt,
+        "(function(){ var o = {x: 10}; var p = {y: 20}; with(o) { with(p) { return x + y } } })()",
+        30
+      )
     end
   end
 
@@ -1178,7 +1433,11 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     end
 
     test "custom iterable with Symbol.iterator", %{rt: rt} do
-      ok(rt, "(function(){ var o = {}; o[Symbol.iterator] = function() { var i = 0; return { next: function() { return { value: i++, done: i > 3 } } } }; var r = []; for (var x of o) r.push(x); return r.join(',') })()", "0,1,2")
+      ok(
+        rt,
+        "(function(){ var o = {}; o[Symbol.iterator] = function() { var i = 0; return { next: function() { return { value: i++, done: i > 3 } } } }; var r = []; for (var x of o) r.push(x); return r.join(',') })()",
+        "0,1,2"
+      )
     end
   end
 
@@ -1186,15 +1445,157 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
 
   describe "Proxy" do
     test "get trap", %{rt: rt} do
-      ok(rt, "(function(){ var p = new Proxy({x: 1}, { get: function(t,k) { return t[k] * 2 } }); return p.x })()", 2)
+      ok(
+        rt,
+        "(function(){ var p = new Proxy({x: 1}, { get: function(t,k) { return t[k] * 2 } }); return p.x })()",
+        2
+      )
     end
 
     test "set trap", %{rt: rt} do
-      ok(rt, "(function(){ var o = {x: 1}; var p = new Proxy(o, { set: function(t,k,v) { t[k] = v * 10; return true } }); p.x = 5; return o.x })()", 50)
+      ok(
+        rt,
+        "(function(){ var o = {x: 1}; var p = new Proxy(o, { set: function(t,k,v) { t[k] = v * 10; return true } }); p.x = 5; return o.x })()",
+        50
+      )
     end
 
     test "no trap passthrough", %{rt: rt} do
       ok(rt, "(function(){ var p = new Proxy({x: 42}, {}); return p.x })()", 42)
+    end
+  end
+
+  describe "for-in" do
+    test "enumerate object keys", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ var o = {a:1,b:2}; var r = []; for (var k in o) r.push(k); return r.join(',') })()",
+        "a,b"
+      )
+    end
+  end
+
+  describe "switch" do
+    test "matching case", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ switch(2) { case 1: return 'a'; case 2: return 'b'; default: return 'c' } })()",
+        "b"
+      )
+    end
+
+    test "default case", %{rt: rt} do
+      ok(rt, "(function(){ switch(99) { case 1: return 'a'; default: return 'z' } })()", "z")
+    end
+  end
+
+  describe "optional chaining and nullish" do
+    test "optional chain on null", %{rt: rt} do
+      ok(rt, "(function(){ var o = null; return o?.x })()", nil)
+    end
+
+    test "nullish coalescing", %{rt: rt} do
+      ok(rt, "(function(){ return null ?? 42 })()", 42)
+    end
+  end
+
+  describe "rest and spread" do
+    test "rest params", %{rt: rt} do
+      ok(rt, "(function(){ function f(...args) { return args.length } return f(1,2,3) })()", 3)
+    end
+
+    test "spread call", %{rt: rt} do
+      ok(rt, "(function(){ function f(a,b,c) { return a+b+c } return f(...[1,2,3]) })()", 6)
+    end
+
+    test "default params", %{rt: rt} do
+      ok(rt, "(function(){ function f(a, b=10) { return a + b } return f(5) })()", 15)
+    end
+  end
+
+  describe "Date" do
+    test "Date.now returns number", %{rt: rt} do
+      ok(rt, "(function(){ return typeof Date.now() })()", "number")
+    end
+
+    test "new Date().getTime()", %{rt: rt} do
+      ok(rt, "(function(){ return typeof new Date().getTime() })()", "number")
+    end
+  end
+
+  describe "WeakMap" do
+    test "set and get", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ var w = new WeakMap(); var k = {}; w.set(k, 42); return w.get(k) })()",
+        42
+      )
+    end
+  end
+
+  describe "Object methods" do
+    test "Object.create", %{rt: rt} do
+      ok(rt, "(function(){ var p = {x:42}; var o = Object.create(p); return o.x })()", 42)
+    end
+
+    test "Object.freeze", %{rt: rt} do
+      ok(rt, "(function(){ var o = {x:1}; Object.freeze(o); o.x = 2; return o.x })()", 1)
+    end
+
+    test "Object.keys on class instance", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { constructor() { this.x = 1; this.y = 2 } } return Object.keys(new A()).length })()",
+        2
+      )
+    end
+  end
+
+  describe "Error types" do
+    test "new Error message", %{rt: rt} do
+      ok(rt, "(function(){ return new Error('boom').message })()", "boom")
+    end
+
+    test "Error instanceof", %{rt: rt} do
+      ok(rt, "(function(){ return new Error() instanceof Error })()", true)
+    end
+
+    test "TypeError instanceof", %{rt: rt} do
+      ok(rt, "(function(){ return new TypeError() instanceof TypeError })()", true)
+    end
+  end
+
+  describe "regexp" do
+    test "regexp test", %{rt: rt} do
+      ok(rt, "(function(){ return /abc/.test('xabcy') })()", true)
+    end
+
+    test "regexp exec group", %{rt: rt} do
+      ok(rt, "(function(){ return /a(b)c/.exec('xabcy')[1] })()", "b")
+    end
+  end
+
+  describe "Promise" do
+    test "Promise.resolve then", %{rt: rt} do
+      ok(rt, "(async function(){ return await Promise.resolve(42) })()", 42)
+    end
+
+    test "Promise.all", %{rt: rt} do
+      ok(
+        rt,
+        "(async function(){ var r = await Promise.all([Promise.resolve(1), Promise.resolve(2)]); return r.length })()",
+        2
+      )
+    end
+  end
+
+  describe "async generators" do
+    test "async generator next", %{rt: rt} do
+      ok(
+        rt,
+        "(async function(){ async function* ag() { yield 1 } var g = ag(); var r = await g.next(); return r.value })()",
+        1
+      )
     end
   end
 

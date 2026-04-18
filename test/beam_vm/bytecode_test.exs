@@ -5,7 +5,15 @@ defmodule QuickBEAM.BeamVM.BytecodeTest do
 
   setup do
     {:ok, rt} = QuickBEAM.start()
-    on_exit(fn -> try do QuickBEAM.stop(rt) catch :exit, _ -> :ok end end)
+
+    on_exit(fn ->
+      try do
+        QuickBEAM.stop(rt)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+
     %{rt: rt}
   end
 
@@ -149,7 +157,9 @@ defmodule QuickBEAM.BeamVM.BytecodeTest do
     end
 
     test "class", %{rt: rt} do
-      parsed = compile_and_decode(rt, "(function(){class A{constructor(x){this.x=x}} return new A(1)})")
+      parsed =
+        compile_and_decode(rt, "(function(){class A{constructor(x){this.x=x}} return new A(1)})")
+
       fun = user_function(parsed)
       assert is_struct(fun, Bytecode.Function)
     end

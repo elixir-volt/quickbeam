@@ -56,7 +56,16 @@ defmodule QuickBEAM.BeamVM.Bytecode do
 
   defmodule VarDef do
     @moduledoc false
-    defstruct [:name, :scope_level, :scope_next, :var_kind, :is_const, :is_lexical, :is_captured, :var_ref_idx]
+    defstruct [
+      :name,
+      :scope_level,
+      :scope_next,
+      :var_kind,
+      :is_const,
+      :is_lexical,
+      :is_captured,
+      :var_ref_idx
+    ]
   end
 
   defmodule ClosureVar do
@@ -91,6 +100,7 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   end
 
   defp read_atom_list(data, 0, acc), do: {:ok, List.to_tuple(Enum.reverse(acc)), data}
+
   defp read_atom_list(data, count, acc) do
     with {:ok, type, rest} <- LEB128.read_u8(data) do
       if type == 0 do
@@ -116,13 +126,23 @@ defmodule QuickBEAM.BeamVM.Bytecode do
         {:ok, {:tagged_int, bsr(v, 1)}, rest}
       else
         idx = bsr(v, 1)
-        name = cond do
-          idx == 0 -> ""
-          idx < @js_atom_end -> {:predefined, idx}
-          true ->
-            local_idx = idx - @js_atom_end
-            if local_idx < tuple_size(atoms), do: elem(atoms, local_idx), else: {:unknown_atom, idx}
-        end
+
+        name =
+          cond do
+            idx == 0 ->
+              ""
+
+            idx < @js_atom_end ->
+              {:predefined, idx}
+
+            true ->
+              local_idx = idx - @js_atom_end
+
+              if local_idx < tuple_size(atoms),
+                do: elem(atoms, local_idx),
+                else: {:unknown_atom, idx}
+          end
+
         {:ok, name, rest}
       end
     end
@@ -141,6 +161,7 @@ defmodule QuickBEAM.BeamVM.Bytecode do
         {:error, :unexpected_end}
       else
         <<str::binary-size(byte_len), rest2::binary>> = rest
+
         if is_wide do
           {:ok, wide_to_utf8(str), rest2}
         else
@@ -162,11 +183,13 @@ defmodule QuickBEAM.BeamVM.Bytecode do
 
   defp decode_utf16_le(data, acc \\ [])
   defp decode_utf16_le(<<>>, acc), do: Enum.reverse(acc)
+
   defp decode_utf16_le(<<hi::little-16, lo::little-16, rest::binary>>, acc)
        when hi >= 0xD800 and hi <= 0xDBFF and lo >= 0xDC00 and lo <= 0xDFFF do
     cp = (hi - 0xD800) * 0x400 + (lo - 0xDC00) + 0x10000
     decode_utf16_le(rest, [cp | acc])
   end
+
   defp decode_utf16_le(<<c::little-16, rest::binary>>, acc) do
     decode_utf16_le(rest, [c | acc])
   end
@@ -191,7 +214,9 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   end
 
   defp read_object(<<@tag_string, rest::binary>>, _atoms), do: read_string_raw(rest)
-  defp read_object(<<@tag_function_bytecode, rest::binary>>, atoms), do: read_function(rest, atoms)
+
+  defp read_object(<<@tag_function_bytecode, rest::binary>>, atoms),
+    do: read_function(rest, atoms)
 
   defp read_object(<<@tag_object, rest::binary>>, atoms), do: read_plain_object(rest, atoms)
   defp read_object(<<@tag_array, rest::binary>>, atoms), do: read_array(rest, atoms)
@@ -231,6 +256,7 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   end
 
   defp read_props(data, 0, acc, _atoms), do: {:ok, {:object, acc}, data}
+
   defp read_props(data, count, acc, atoms) do
     with {:ok, key, rest} <- read_prop_key(data, atoms),
          {:ok, val, rest2} <- read_object(rest, atoms) do
@@ -239,6 +265,7 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   end
 
   defp read_array_elems(data, 0, acc, _atoms), do: {:ok, {:array, Enum.reverse(acc)}, data}
+
   defp read_array_elems(data, count, acc, atoms) do
     with {:ok, val, rest} <- read_object(data, atoms) do
       read_array_elems(rest, count - 1, [val | acc], atoms)
@@ -276,6 +303,7 @@ defmodule QuickBEAM.BeamVM.Bytecode do
     case data do
       <<flags::little-unsigned-16, rest::binary>> ->
         read_function_body(flags, rest, atoms)
+
       _ ->
         {:error, :unexpected_end}
     end
@@ -298,7 +326,6 @@ defmodule QuickBEAM.BeamVM.Bytecode do
          {:ok, locals, rest} <- read_vardefs(rest, local_count, atoms),
          {:ok, closure_vars, rest} <- read_closure_vars(rest, closure_var_count, atoms),
          {:ok, cpool, rest} <- read_cpool(rest, cpool_count, atoms) do
-
       if byte_size(rest) < byte_code_len do
         {:error, :unexpected_end}
       else
@@ -369,11 +396,13 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   #   if is_captured: var_ref_idx (leb128_u16)
 
   defp read_vardefs(data, 0, _atoms), do: {:ok, [], data}
+
   defp read_vardefs(data, count, atoms) do
     read_vardefs_loop(data, count, atoms, [])
   end
 
   defp read_vardefs_loop(data, 0, _atoms, acc), do: {:ok, Enum.reverse(acc), data}
+
   defp read_vardefs_loop(data, count, atoms, acc) do
     with {:ok, name, rest} <- read_atom_ref(data, atoms),
          {:ok, scope_level, rest} <- LEB128.read_signed(rest),
@@ -393,9 +422,14 @@ defmodule QuickBEAM.BeamVM.Bytecode do
         end
 
       vd = %VarDef{
-        name: name, scope_level: scope_level, scope_next: scope_next,
-        var_kind: var_kind, is_const: is_const, is_lexical: is_lexical,
-        is_captured: is_captured, var_ref_idx: var_ref_idx
+        name: name,
+        scope_level: scope_level,
+        scope_next: scope_next,
+        var_kind: var_kind,
+        is_const: is_const,
+        is_lexical: is_lexical,
+        is_captured: is_captured,
+        var_ref_idx: var_ref_idx
       }
 
       read_vardefs_loop(rest, count - 1, atoms, [vd | acc])
@@ -411,20 +445,23 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   defp read_closure_vars(data, count, atoms), do: read_closure_vars_loop(data, count, atoms, [])
 
   defp read_closure_vars_loop(data, 0, _atoms, acc), do: {:ok, Enum.reverse(acc), data}
+
   defp read_closure_vars_loop(data, count, atoms, acc) do
     with {:ok, name, rest} <- read_atom_ref(data, atoms),
          {:ok, var_idx, rest} <- LEB128.read_signed(rest),
          {:ok, flags, rest} <- LEB128.read_signed(rest) do
-
       closure_type = band(flags, 0x7)
       is_const = band(bsr(flags, 3), 1) == 1
       is_lexical = band(bsr(flags, 4), 1) == 1
       var_kind = band(bsr(flags, 5), 0xF)
 
       cv = %ClosureVar{
-        name: name, var_idx: var_idx,
-        closure_type: closure_type, is_const: is_const,
-        is_lexical: is_lexical, var_kind: var_kind
+        name: name,
+        var_idx: var_idx,
+        closure_type: closure_type,
+        is_const: is_const,
+        is_lexical: is_lexical,
+        var_kind: var_kind
       }
 
       read_closure_vars_loop(rest, count - 1, atoms, [cv | acc])
@@ -435,6 +472,7 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   defp read_cpool(data, count, atoms), do: read_cpool_loop(data, count, atoms, [])
 
   defp read_cpool_loop(data, 0, _atoms, acc), do: {:ok, Enum.reverse(acc), data}
+
   defp read_cpool_loop(data, count, atoms, acc) do
     case read_object(data, atoms) do
       {:ok, val, rest} -> read_cpool_loop(rest, count - 1, atoms, [val | acc])
@@ -444,6 +482,7 @@ defmodule QuickBEAM.BeamVM.Bytecode do
 
   # After bytecode: if has_debug_info, read filename atom + line_num leb128
   defp skip_debug_info(data, false, _atoms), do: data
+
   defp skip_debug_info(data, true, atoms) do
     with {:ok, _filename, rest} <- read_atom_ref(data, atoms),
          {:ok, _line_num, rest} <- LEB128.read_signed(rest),
@@ -459,9 +498,11 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   end
 
   defp skip_bytes(data, 0), do: {:ok, data}
+
   defp skip_bytes(data, n) when byte_size(data) >= n do
     <<_::binary-size(n), rest::binary>> = data
     {:ok, rest}
   end
+
   defp skip_bytes(_, _), do: {:error, :unexpected_end}
 end
