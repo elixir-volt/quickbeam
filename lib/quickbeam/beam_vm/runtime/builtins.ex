@@ -131,8 +131,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
        "ceil" => {:builtin, "ceil", fn [a | _] -> ceil(Runtime.to_float(a)) end},
        "round" => {:builtin, "round", fn [a | _] -> round(Runtime.to_float(a)) end},
        "abs" => {:builtin, "abs", fn [a | _] -> abs(a) end},
-       "max" => {:builtin, "max", fn args -> Enum.max(args) end},
-       "min" => {:builtin, "min", fn args -> Enum.min(args) end},
+       "max" =>
+         {:builtin, "max",
+          fn
+            [] -> :neg_infinity
+            args -> Enum.max(args)
+          end},
+       "min" =>
+         {:builtin, "min",
+          fn
+            [] -> :infinity
+            args -> Enum.min(args)
+          end},
        "sqrt" => {:builtin, "sqrt", fn [a | _] -> :math.sqrt(Runtime.to_float(a)) end},
        "pow" =>
          {:builtin, "pow",
