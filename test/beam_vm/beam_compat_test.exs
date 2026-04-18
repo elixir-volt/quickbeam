@@ -728,15 +728,16 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
 
   describe "errors" do
     test "throw new Error", %{rt: rt} do
-      assert {:error, %{"message" => "boom"}} = ev(rt, ~s|throw new Error("boom")|)
+      assert {:error, %QuickBEAM.JSError{message: "boom"}} = ev(rt, ~s|throw new Error("boom")|)
     end
 
     test "throw string", %{rt: rt} do
-      assert {:error, "just a string"} = ev(rt, ~s|throw "just a string"|)
+      assert {:error, %QuickBEAM.JSError{message: "just a string"}} =
+               ev(rt, ~s|throw "just a string"|)
     end
 
     test "reference error", %{rt: rt} do
-      assert {:error, %{"name" => "ReferenceError"}} = ev(rt, "undeclaredVar")
+      assert {:error, %QuickBEAM.JSError{name: "ReferenceError"}} = ev(rt, "undeclaredVar")
     end
   end
 

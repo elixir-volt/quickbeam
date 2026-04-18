@@ -88,6 +88,16 @@ defmodule QuickBEAM do
   """
   @spec start(keyword()) :: GenServer.on_start()
   def start(opts \\ []) do
+    opts =
+      if Keyword.has_key?(opts, :mode) do
+        opts
+      else
+        case System.get_env("QUICKBEAM_MODE") do
+          "beam" -> Keyword.put(opts, :mode, :beam)
+          _ -> opts
+        end
+      end
+
     QuickBEAM.Runtime.start_link(opts)
   end
 
@@ -208,12 +218,13 @@ defmodule QuickBEAM do
   end
 
   defp convert_beam_result({:error, {:js_throw, {:obj, _ref} = obj}}) do
-    # Convert thrown Error objects to maps
     val = convert_beam_value(obj)
-    {:error, val}
+    {:error, wrap_js_error(val)}
   end
 
-  defp convert_beam_result({:error, {:js_throw, val}}), do: {:error, convert_beam_value(val)}
+  defp convert_beam_result({:error, {:js_throw, val}}) do
+    {:error, wrap_js_error(convert_beam_value(val))}
+  end
 
   defp convert_beam_result({:ok, {:obj, ref}}) do
     {:ok, convert_beam_value({:obj, ref})}
@@ -221,6 +232,9 @@ defmodule QuickBEAM do
 
   defp convert_beam_result({:ok, val}), do: {:ok, convert_beam_value(val)}
   defp convert_beam_result({:error, _} = err), do: err
+
+  defp wrap_js_error(val) when is_map(val), do: QuickBEAM.JSError.from_js_value(val)
+  defp wrap_js_error(val), do: QuickBEAM.JSError.from_js_value(val)
 
   defp convert_beam_value(:undefined), do: nil
 
@@ -259,6 +273,9 @@ defmodule QuickBEAM do
               {:ok, mod_exports} ->
                 Heap.register_module(name, mod_exports)
                 :ok
+
+              {:error, {:js_throw, _}} = error ->
+                convert_beam_result(error)
 
               error ->
                 error
