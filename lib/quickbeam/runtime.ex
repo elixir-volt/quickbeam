@@ -5,7 +5,15 @@ defmodule QuickBEAM.Runtime do
   require Logger
 
   @enforce_keys [:resource]
-  defstruct [:resource, handlers: %{}, monitors: %{}, workers: %{}, websockets: %{}, pending: %{}]
+  defstruct [
+    :resource,
+    mode: :nif,
+    handlers: %{},
+    monitors: %{},
+    workers: %{},
+    websockets: %{},
+    pending: %{}
+  ]
 
   @type t :: %__MODULE__{
           resource: reference(),
@@ -295,6 +303,7 @@ defmodule QuickBEAM.Runtime do
         do: Map.merge(builtin_handlers, @browser_handlers),
         else: builtin_handlers
 
+    mode = Keyword.get(opts, :mode, :nif)
     merged_handlers = builtin_handlers |> Map.merge(user_handlers)
 
     nif_opts =
@@ -303,7 +312,7 @@ defmodule QuickBEAM.Runtime do
       |> Map.new()
 
     resource = QuickBEAM.Native.start_runtime(self(), nif_opts)
-    state = %__MODULE__{resource: resource, handlers: merged_handlers}
+    state = %__MODULE__{resource: resource, mode: mode, handlers: merged_handlers}
     if QuickBEAM.Cover.enabled?(), do: sync_enable_coverage(resource)
     install_builtins(state, apis)
     install_defines(state, Keyword.get(opts, :define, %{}))
@@ -440,6 +449,10 @@ defmodule QuickBEAM.Runtime do
   end
 
   @impl true
+  def handle_call(:get_mode, _from, state) do
+    {:reply, state.mode, state}
+  end
+
   def handle_call(:get_handlers, _from, state) do
     {:reply, state.handlers, state}
   end

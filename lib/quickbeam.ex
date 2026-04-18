@@ -127,10 +127,24 @@ defmodule QuickBEAM do
   """
   @spec eval(runtime(), String.t(), keyword()) :: js_result()
   def eval(runtime, code, opts \\ []) do
-    if Keyword.get(opts, :mode) == :beam do
+    if resolve_mode(runtime, opts) == :beam do
       eval_beam(runtime, code, opts)
     else
       QuickBEAM.Runtime.eval(runtime, code, opts)
+    end
+  end
+
+  defp resolve_mode(runtime, opts) do
+    case Keyword.get(opts, :mode) do
+      nil ->
+        try do
+          GenServer.call(runtime, :get_mode, 1000)
+        catch
+          :exit, _ -> :nif
+        end
+
+      mode ->
+        mode
     end
   end
 
@@ -278,7 +292,7 @@ defmodule QuickBEAM do
   """
   @spec call(runtime(), String.t(), list(), keyword()) :: js_result()
   def call(runtime, fn_name, args \\ [], opts \\ []) do
-    if Keyword.get(opts, :mode) == :beam do
+    if resolve_mode(runtime, opts) == :beam do
       call_beam(runtime, fn_name, args)
     else
       QuickBEAM.Runtime.call(runtime, fn_name, args, opts)
@@ -375,7 +389,7 @@ defmodule QuickBEAM do
   """
   @spec load_module(runtime(), String.t(), String.t(), keyword()) :: :ok | {:error, String.t()}
   def load_module(runtime, name, code, opts \\ []) do
-    if Keyword.get(opts, :mode) == :beam do
+    if resolve_mode(runtime, opts) == :beam do
       load_module_beam(runtime, name, code)
     else
       QuickBEAM.Runtime.load_module(runtime, name, code)
@@ -521,7 +535,7 @@ defmodule QuickBEAM do
   """
   @spec get_global(runtime(), String.t()) :: js_result()
   def get_global(runtime, name, opts \\ []) when is_binary(name) do
-    if Keyword.get(opts, :mode) == :beam do
+    if resolve_mode(runtime, opts) == :beam do
       persistent = Process.get(:qb_persistent_globals, %{})
       {:ok, Map.get(persistent, name, :undefined)}
     else
@@ -544,7 +558,7 @@ defmodule QuickBEAM do
   """
   @spec set_global(runtime(), String.t(), term()) :: :ok
   def set_global(runtime, name, value, opts \\ []) when is_binary(name) do
-    if Keyword.get(opts, :mode) == :beam do
+    if resolve_mode(runtime, opts) == :beam do
       persistent = Process.get(:qb_persistent_globals, %{})
       Process.put(:qb_persistent_globals, Map.put(persistent, name, value))
       :ok

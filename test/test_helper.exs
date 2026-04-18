@@ -22,7 +22,6 @@ unless File.exists?(test_addon_out) and
 end
 
 # Load shared test modules
-Code.require_file("support/shared_api_tests.exs", __DIR__)
 
 ExUnit.start(exclude: [:pending_beam, :pending_class])
 
