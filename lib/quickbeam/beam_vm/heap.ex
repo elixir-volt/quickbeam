@@ -1,4 +1,6 @@
 defmodule QuickBEAM.BeamVM.Heap do
+  import QuickBEAM.BeamVM.InternalKeys
+
   @compile {:inline,
             get_obj: 1,
             get_obj: 2,
@@ -135,8 +137,9 @@ defmodule QuickBEAM.BeamVM.Heap do
     if is_map(map) do
       new_map =
         if not Map.has_key?(map, key) and (is_binary(key) or is_integer(key)) do
-          order = Map.get(map, :__key_order__, [])
-          Map.put(Map.put(map, key, val), :__key_order__, [key | order])
+          order = Map.get(map, key_order(), [])
+
+          Map.put(Map.put(map, key, val), key_order(), [key | order])
         else
           Map.put(map, key, val)
         end

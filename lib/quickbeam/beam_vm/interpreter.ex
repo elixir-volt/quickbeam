@@ -1,4 +1,6 @@
 defmodule QuickBEAM.BeamVM.Interpreter do
+  import QuickBEAM.BeamVM.InternalKeys
+
   @compile {:inline,
             advance: 1,
             jump: 2,
@@ -111,18 +113,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   def invoke({:bound, _, inner}, args, gas), do: invoke(inner, args, gas)
 
-  def invoke(nil, _args, _gas),
-    do: throw({:js_throw, %{"message" => "not a function", "name" => "TypeError"}})
-
-  def invoke(:undefined, _args, _gas),
-    do: throw({:js_throw, %{"message" => "not a function", "name" => "TypeError"}})
-
-  def invoke(other, _args, _gas),
-    do:
-      throw(
-        {:js_throw, %{"message" => "#{inspect(other)} is not a function", "name" => "TypeError"}}
-      )
-
   @doc false
   def invoke_with_receiver(fun, args, gas, this_obj) do
     prev = Heap.get_ctx()
@@ -177,7 +167,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     error_ctor = Map.get(active_ctx().globals, name)
     proto = if error_ctor, do: Heap.get_class_proto(error_ctor), else: nil
     base = %{"message" => message, "name" => name, "stack" => ""}
-    obj = if proto, do: Map.put(base, "__proto__", proto), else: base
+    obj = if proto, do: Map.put(base, proto(), proto), else: base
     Heap.wrap(obj)
   end
 
@@ -186,7 +176,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp unwrap_promise({:obj, ref}, depth) when depth < 10 do
     case Heap.get_obj(ref, %{}) do
-      %{"__promise_state__" => :resolved, "__promise_value__" => val} ->
+      %{
+        promise_state() => :resolved,
+        promise_value() => val
+      } ->
         unwrap_promise(val, depth + 1)
 
       _ ->
@@ -200,21 +193,33 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     drain_microtask_queue()
 
     case Heap.get_obj(ref, %{}) do
-      %{"__promise_state__" => :resolved, "__promise_value__" => val} ->
+      %{
+        promise_state() => :resolved,
+        promise_value() => val
+      } ->
         val
 
-      %{"__promise_state__" => :rejected, "__promise_value__" => val} ->
+      %{
+        promise_state() => :rejected,
+        promise_value() => val
+      } ->
         throw({:js_throw, val})
 
-      %{"__promise_state__" => :pending} ->
+      %{promise_state() => :pending} ->
         # Drain again in case resolution was queued
         drain_microtask_queue()
 
         case Heap.get_obj(ref, %{}) do
-          %{"__promise_state__" => :resolved, "__promise_value__" => val} ->
+          %{
+            promise_state() => :resolved,
+            promise_value() => val
+          } ->
             val
 
-          %{"__promise_state__" => :rejected, "__promise_value__" => val} ->
+          %{
+            promise_state() => :rejected,
+            promise_value() => val
+          } ->
             throw({:js_throw, val})
 
           _ ->
@@ -393,7 +398,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp check_prototype_chain({:obj, ref}, target) do
     case Heap.get_obj(ref, %{}) do
       map when is_map(map) ->
-        case Map.get(map, "__proto__") do
+        case Map.get(map, proto()) do
           ^target -> true
           nil -> false
           :undefined -> false
@@ -884,7 +889,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:object, []}, frame, stack, gas, ctx) do
     ref = make_ref()
     proto = Heap.get_object_prototype()
-    init = if proto, do: %{"__proto__" => proto}, else: %{}
+    init = if proto, do: %{proto() => proto}, else: %{}
     Heap.put_obj(ref, init)
     run(advance(frame), [{:obj, ref} | stack], gas - 1, ctx)
   end
@@ -1189,7 +1194,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           map = Heap.get_obj(ref, %{})
 
           raw_keys =
-            case Map.get(map, :__key_order__) do
+            case Map.get(map, key_order()) do
               order when is_list(order) -> Enum.reverse(order)
               _ -> Map.keys(map)
             end
@@ -1264,7 +1269,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
     this_ref = make_ref()
     proto = Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
-    init = if proto, do: %{"__proto__" => proto}, else: %{}
+    init = if proto, do: %{proto() => proto}, else: %{}
     Heap.put_obj(this_ref, init)
     this_obj = {:obj, this_ref}
 
@@ -1293,7 +1298,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             Heap.put_obj(
               this_ref,
               Map.merge(existing, %{
-                "__primitive_value__" => obj,
+                primitive_value() => obj,
                 "valueOf" => val_fn,
                 "toString" => to_str_fn
               })
@@ -1330,8 +1335,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {{:obj, rref}, {:obj, _} = proto2} ->
         rmap = Heap.get_obj(rref, %{})
 
-        unless Map.has_key?(rmap, "__proto__") do
-          Heap.put_obj(rref, Map.put(rmap, "__proto__", proto2))
+        unless Map.has_key?(rmap, proto()) do
+          Heap.put_obj(rref, Map.put(rmap, proto(), proto2))
         end
 
       _ ->
@@ -1459,11 +1464,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
               iter_obj = Runtime.call_builtin_callback(iter_fn, [], :no_interp)
               collect_iterator(iter_obj, [])
 
-            is_map(stored) and Map.has_key?(stored, "__set_data__") ->
-              Map.get(stored, "__set_data__", [])
+            is_map(stored) and Map.has_key?(stored, set_data()) ->
+              Map.get(stored, set_data(), [])
 
-            is_map(stored) and Map.has_key?(stored, "__map_data__") ->
-              Map.get(stored, "__map_data__", [])
+            is_map(stored) and Map.has_key?(stored, map_data()) ->
+              Map.get(stored, map_data(), [])
 
             true ->
               []
@@ -1800,7 +1805,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         map = Heap.get_obj(ref, %{})
 
         if is_map(map) do
-          Heap.put_obj(ref, Map.put(map, "__proto__", proto))
+          Heap.put_obj(ref, Map.put(map, proto(), proto))
         end
 
       _ ->
@@ -1833,7 +1838,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           case ctx.this do
             {:obj, ref} ->
               case Heap.get_obj(ref, %{}) do
-                %{"__proto__" => proto} -> proto
+                %{proto() => proto} -> proto
                 _ -> :undefined
               end
 
@@ -1885,8 +1890,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       case func do
         {:obj, ref} ->
           case Heap.get_obj(ref, %{}) do
-            map when is_map(map) -> Map.get(map, "__proto__", :undefined)
-            _ -> :undefined
+            map when is_map(map) ->
+              Map.get(map, proto(), :undefined)
+
+            _ ->
+              :undefined
           end
 
         {:closure, _, %Bytecode.Function{} = f} ->
@@ -2030,7 +2038,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     parent_proto = Heap.get_class_proto(parent_ctor)
 
     proto_map =
-      if parent_proto, do: Map.put(proto_map, "__proto__", parent_proto), else: proto_map
+      if parent_proto,
+        do: Map.put(proto_map, proto(), parent_proto),
+        else: proto_map
 
     Heap.put_obj(proto_ref, proto_map)
     proto = {:obj, proto_ref}

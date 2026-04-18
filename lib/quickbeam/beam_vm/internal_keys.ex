@@ -16,20 +16,20 @@ defmodule QuickBEAM.BeamVM.InternalKeys do
   @type_key "__type__"
   @offset "__offset__"
 
-  def proto, do: @proto
-  def promise_state, do: @promise_state
-  def promise_value, do: @promise_value
-  def map_data, do: @map_data
-  def set_data, do: @set_data
-  def typed_array, do: @typed_array
-  def date_ms, do: @date_ms
-  def proxy_target, do: @proxy_target
-  def proxy_handler, do: @proxy_handler
-  def buffer, do: @buffer
-  def key_order, do: @key_order
-  def primitive_value, do: @primitive_value
-  def type_key, do: @type_key
-  def offset, do: @offset
+  defmacro proto, do: @proto
+  defmacro promise_state, do: @promise_state
+  defmacro promise_value, do: @promise_value
+  defmacro map_data, do: @map_data
+  defmacro set_data, do: @set_data
+  defmacro typed_array, do: @typed_array
+  defmacro date_ms, do: @date_ms
+  defmacro proxy_target, do: @proxy_target
+  defmacro proxy_handler, do: @proxy_handler
+  defmacro buffer, do: @buffer
+  defmacro key_order, do: @key_order
+  defmacro primitive_value, do: @primitive_value
+  defmacro type_key, do: @type_key
+  defmacro offset, do: @offset
 
   def internal?(key) when is_binary(key),
     do: String.starts_with?(key, "__") and String.ends_with?(key, "__")

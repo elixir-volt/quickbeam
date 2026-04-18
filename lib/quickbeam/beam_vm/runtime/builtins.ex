@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime.Builtins do
+  import QuickBEAM.BeamVM.InternalKeys
   alias QuickBEAM.BeamVM.Heap
   @moduledoc "Math, Number, Boolean, Console, constructors, and global functions."
 
@@ -543,8 +544,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
                case item do
                  {:obj, r} ->
                    case QuickBEAM.BeamVM.Heap.get_obj(r, %{}) do
-                     %{"__promise_state__" => :resolved, "__promise_value__" => val} -> val
-                     _ -> item
+                     %{
+                       promise_state() => :resolved,
+                       promise_value() => val
+                     } ->
+                       val
+
+                     _ ->
+                       item
                    end
 
                  _ ->
@@ -577,10 +584,16 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
                  case item do
                    {:obj, r} ->
                      case Heap.get_obj(r, %{}) do
-                       %{"__promise_state__" => :resolved, "__promise_value__" => v} ->
+                       %{
+                         promise_state() => :resolved,
+                         promise_value() => v
+                       } ->
                          {"fulfilled", v}
 
-                       %{"__promise_state__" => :rejected, "__promise_value__" => v} ->
+                       %{
+                         promise_state() => :rejected,
+                         promise_value() => v
+                       } ->
                          {"rejected", v}
 
                        _ ->
@@ -626,8 +639,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
                case item do
                  {:obj, r} ->
                    case Heap.get_obj(r, %{}) do
-                     %{"__promise_state__" => :resolved, "__promise_value__" => v} -> v
-                     _ -> nil
+                     %{
+                       promise_state() => :resolved,
+                       promise_value() => v
+                     } ->
+                       v
+
+                     _ ->
+                       nil
                    end
 
                  _ ->
@@ -658,8 +677,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
                  case first do
                    {:obj, r} ->
                      case QuickBEAM.BeamVM.Heap.get_obj(r, %{}) do
-                       %{"__promise_state__" => :resolved, "__promise_value__" => v} -> v
-                       _ -> first
+                       %{
+                         promise_state() => :resolved,
+                         promise_value() => v
+                       } ->
+                         v
+
+                       _ ->
+                         first
                      end
 
                    _ ->
@@ -842,7 +867,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
             %{}
         end
 
-      map_obj = %{"__map_data__" => entries, "size" => map_size(entries)}
+      map_obj = %{
+        map_data() => entries,
+        "size" => map_size(entries)
+      }
+
       Heap.put_obj(ref, map_obj)
       {:obj, ref}
     end
@@ -861,7 +890,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
 
   defp build_set_object(set_ref, items) do
     %{
-      "__set_data__" => items,
+      set_data() => items,
       "size" => length(items),
       {:symbol, "Symbol.iterator"} => set_values_fn(set_ref),
       "values" => set_values_fn(set_ref),
@@ -882,11 +911,17 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
     }
   end
 
-  defp set_data(set_ref), do: Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
+  defp set_data(set_ref),
+    do: Map.get(Heap.get_obj(set_ref, %{}), set_data(), [])
 
   defp set_update_data(set_ref, new_data) do
     map = Heap.get_obj(set_ref, %{})
-    Heap.put_obj(set_ref, %{map | "__set_data__" => new_data, "size" => length(new_data)})
+
+    Heap.put_obj(set_ref, %{
+      map
+      | set_data() => new_data,
+        "size" => length(new_data)
+    })
   end
 
   defp set_values_fn(set_ref) do
@@ -968,7 +1003,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
 
   defp other_set_data(other) do
     case other do
-      {:obj, r} -> Map.get(Heap.get_obj(r, %{}), "__set_data__", [])
+      {:obj, r} -> Map.get(Heap.get_obj(r, %{}), set_data(), [])
       _ -> []
     end
   end

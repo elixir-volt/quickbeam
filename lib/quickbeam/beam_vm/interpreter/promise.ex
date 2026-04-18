@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Promise do
+  import QuickBEAM.BeamVM.InternalKeys
   @moduledoc false
 
   alias QuickBEAM.BeamVM.Heap
@@ -7,8 +8,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
     promise_ref = make_ref()
 
     Heap.put_obj(promise_ref, %{
-      "__promise_state__" => :resolved,
-      "__promise_value__" => val,
+      promise_state() => :resolved,
+      promise_value() => val,
       "then" => make_then_fn(promise_ref),
       "catch" => make_catch_fn(promise_ref)
     })
@@ -21,8 +22,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
     promise_ref = make_ref()
 
     Heap.put_obj(promise_ref, %{
-      "__promise_state__" => :rejected,
-      "__promise_value__" => val,
+      promise_state() => :rejected,
+      promise_value() => val,
       "then" => make_then_fn(promise_ref),
       "catch" => make_catch_fn(promise_ref)
     })
@@ -37,12 +38,15 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
        on_rejected = Enum.at(args, 1)
 
        case Heap.get_obj(promise_ref, %{}) do
-         %{"__promise_state__" => :resolved, "__promise_value__" => val} ->
+         %{
+           promise_state() => :resolved,
+           promise_value() => val
+         } ->
            if on_fulfilled && on_fulfilled != :undefined do
              child_ref = make_ref()
 
              Heap.put_obj(child_ref, %{
-               "__promise_state__" => :pending,
+               promise_state() => :pending,
                "then" => make_then_fn(child_ref),
                "catch" => make_catch_fn(child_ref)
              })
@@ -53,12 +57,15 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
              make_resolved_promise(val)
            end
 
-         %{"__promise_state__" => :rejected, "__promise_value__" => val} ->
+         %{
+           promise_state() => :rejected,
+           promise_value() => val
+         } ->
            if on_rejected && on_rejected != :undefined do
              child_ref = make_ref()
 
              Heap.put_obj(child_ref, %{
-               "__promise_state__" => :pending,
+               promise_state() => :pending,
                "then" => make_then_fn(child_ref),
                "catch" => make_catch_fn(child_ref)
              })
@@ -69,11 +76,11 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
              make_rejected_promise(val)
            end
 
-         %{"__promise_state__" => :pending} ->
+         %{promise_state() => :pending} ->
            child_ref = make_ref()
 
            Heap.put_obj(child_ref, %{
-             "__promise_state__" => :pending,
+             promise_state() => :pending,
              "then" => make_then_fn(child_ref),
              "catch" => make_catch_fn(child_ref)
            })
@@ -128,13 +135,19 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
             case result_val do
               {:obj, r} ->
                 case Heap.get_obj(r, %{}) do
-                  %{"__promise_state__" => :resolved, "__promise_value__" => v} ->
+                  %{
+                    promise_state() => :resolved,
+                    promise_value() => v
+                  } ->
                     resolve_promise(child_ref, :resolved, v)
 
-                  %{"__promise_state__" => :rejected, "__promise_value__" => v} ->
+                  %{
+                    promise_state() => :rejected,
+                    promise_value() => v
+                  } ->
                     resolve_promise(child_ref, :rejected, v)
 
-                  %{"__promise_state__" => :pending} ->
+                  %{promise_state() => :pending} ->
                     waiters = Heap.get_promise_waiters(r)
 
                     Heap.put_promise_waiters(r, [
@@ -157,8 +170,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
 
   def resolve_promise(ref, state, val) do
     Heap.put_obj(ref, %{
-      "__promise_state__" => state,
-      "__promise_value__" => val,
+      promise_state() => state,
+      promise_value() => val,
       "then" => make_then_fn(ref),
       "catch" => make_catch_fn(ref)
     })

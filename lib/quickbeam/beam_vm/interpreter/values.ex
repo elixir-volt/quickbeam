@@ -1,4 +1,6 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Values do
+  import QuickBEAM.BeamVM.InternalKeys
+
   @compile {:inline,
             truthy?: 1,
             falsy?: 1,
@@ -99,8 +101,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
          %{"message" => "Cannot convert a BigInt value to a number", "name" => "TypeError"}}
       )
 
-  def to_number({:obj, _} = obj) do
-    map = QuickBEAM.BeamVM.Heap.get_obj(elem(obj, 1), %{})
+  def to_number({:obj, ref} = obj) do
+    map = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
 
     case Map.get(map, "valueOf") do
       fun when fun != nil and fun != :undefined ->
@@ -164,8 +166,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def to_js_string({:symbol, desc, _ref}), do: "Symbol(#{desc})"
   def to_js_string(s) when is_binary(s), do: s
 
-  def to_js_string({:obj, _} = obj) do
-    data = QuickBEAM.BeamVM.Heap.get_obj(elem(obj, 1), %{})
+  def to_js_string({:obj, ref} = obj) do
+    data = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
 
     case data do
       list when is_list(list) ->
@@ -544,7 +546,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   end
 
   defp try_proto_method(map, obj, method) do
-    case Map.get(map, "__proto__") do
+    case Map.get(map, proto()) do
       {:obj, pref} ->
         pmap = QuickBEAM.BeamVM.Heap.get_obj(pref, %{})
         if is_map(pmap), do: try_call_method(pmap, obj, method)

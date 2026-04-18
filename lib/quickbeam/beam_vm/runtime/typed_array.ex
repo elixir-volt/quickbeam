@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
+  import QuickBEAM.BeamVM.InternalKeys
   @moduledoc false
   alias QuickBEAM.BeamVM.Heap
 
@@ -12,7 +13,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     ref = make_ref()
 
     Heap.put_obj(ref, %{
-      "__buffer__" => :binary.copy(<<0>>, byte_length),
+      buffer() => :binary.copy(<<0>>, byte_length),
       "byteLength" => byte_length
     })
 
@@ -31,8 +32,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
                 len = length(buf)
                 {list_to_buffer(buf, type), 0, len, nil}
 
-              is_map(buf) and Map.has_key?(buf, "__buffer__") ->
-                bin = Map.get(buf, "__buffer__")
+              is_map(buf) and Map.has_key?(buf, buffer()) ->
+                bin = Map.get(buf, buffer())
                 offset = Enum.at(rest, 0) || 0
                 len = Enum.at(rest, 1) || div(byte_size(bin) - offset, elem_size(type))
                 {bin, offset, len, buf_obj}
@@ -84,8 +85,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
                  []
              end
 
-           buf = Map.get(ta, "__buffer__", <<>>)
-           t = Map.get(ta, "__type__", :uint8)
+           buf = Map.get(ta, buffer(), <<>>)
+           t = Map.get(ta, type_key(), :uint8)
 
            new_buf =
              src_list
@@ -94,15 +95,15 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
                write_element(acc, i, val, t)
              end)
 
-           Heap.put_obj(ta_ref, Map.put(ta, "__buffer__", new_buf))
+           Heap.put_obj(ta_ref, Map.put(ta, buffer(), new_buf))
            :undefined
          end}
 
       Heap.put_obj(ref, %{
-        "__typed_array__" => true,
-        "__type__" => type,
-        "__buffer__" => buffer,
-        "__offset__" => offset,
+        typed_array() => true,
+        type_key() => type,
+        buffer() => buffer,
+        offset() => offset,
         "length" => length_val,
         "byteLength" => length_val * elem_size(type),
         "byteOffset" => offset,
@@ -112,8 +113,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
           {:builtin, "subarray",
            fn args, _this ->
              ta = Heap.get_obj(ta_ref, %{})
-             buf = Map.get(ta, "__buffer__", <<>>)
-             t = Map.get(ta, "__type__", :uint8)
+             buf = Map.get(ta, buffer(), <<>>)
+             t = Map.get(ta, type_key(), :uint8)
              len = Map.get(ta, "length", 0)
              s = max(0, min(elem_size_idx(Enum.at(args, 0, 0)), len))
              e = min(elem_size_idx(Enum.at(args, 1, len)), len)
@@ -123,10 +124,10 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
              new_ref = make_ref()
 
              Heap.put_obj(new_ref, %{
-               "__typed_array__" => true,
-               "__type__" => t,
-               "__buffer__" => new_buf,
-               "__offset__" => 0,
+               typed_array() => true,
+               type_key() => t,
+               buffer() => new_buf,
+               offset() => 0,
                "length" => new_len,
                "byteLength" => new_len * es,
                "byteOffset" => 0,
@@ -140,8 +141,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
            fn args, _this ->
              ta = Heap.get_obj(ta_ref, %{})
              len = Map.get(ta, "length", 0)
-             t = Map.get(ta, "__type__", :uint8)
-             buf = Map.get(ta, "__buffer__", <<>>)
+             t = Map.get(ta, type_key(), :uint8)
+             buf = Map.get(ta, buffer(), <<>>)
 
              sep =
                case args do
@@ -158,8 +159,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
            fn [cb | _], this ->
              ta = Heap.get_obj(ta_ref, %{})
              len = Map.get(ta, "length", 0)
-             t = Map.get(ta, "__type__", :uint8)
-             buf = Map.get(ta, "__buffer__", <<>>)
+             t = Map.get(ta, type_key(), :uint8)
+             buf = Map.get(ta, buffer(), <<>>)
 
              for i <- 0..(len - 1) do
                val = read_element(buf, i, t)
@@ -173,8 +174,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
            fn [cb | _], this ->
              ta = Heap.get_obj(ta_ref, %{})
              len = Map.get(ta, "length", 0)
-             t = Map.get(ta, "__type__", :uint8)
-             buf = Map.get(ta, "__buffer__", <<>>)
+             t = Map.get(ta, type_key(), :uint8)
+             buf = Map.get(ta, buffer(), <<>>)
 
              new_buf =
                Enum.reduce(0..(len - 1), buf, fn i, acc ->
@@ -189,10 +190,10 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
              nr = make_ref()
 
              Heap.put_obj(nr, %{
-               "__typed_array__" => true,
-               "__type__" => t,
-               "__buffer__" => new_buf,
-               "__offset__" => 0,
+               typed_array() => true,
+               type_key() => t,
+               buffer() => new_buf,
+               offset() => 0,
                "length" => len,
                "byteLength" => byte_size(new_buf),
                "byteOffset" => 0,
@@ -206,8 +207,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
            fn [cb | _], this ->
              ta = Heap.get_obj(ta_ref, %{})
              len = Map.get(ta, "length", 0)
-             t = Map.get(ta, "__type__", :uint8)
-             buf = Map.get(ta, "__buffer__", <<>>)
+             t = Map.get(ta, type_key(), :uint8)
+             buf = Map.get(ta, buffer(), <<>>)
 
              vals =
                for i <- 0..(len - 1),
@@ -232,10 +233,10 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
              nr = make_ref()
 
              Heap.put_obj(nr, %{
-               "__typed_array__" => true,
-               "__type__" => t,
-               "__buffer__" => new_buf,
-               "__offset__" => 0,
+               typed_array() => true,
+               type_key() => t,
+               buffer() => new_buf,
+               offset() => 0,
                "length" => length(vals),
                "byteLength" => byte_size(new_buf),
                "byteOffset" => 0
@@ -248,8 +249,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
            fn [cb | _], this ->
              ta = Heap.get_obj(ta_ref, %{})
              len = Map.get(ta, "length", 0)
-             t = Map.get(ta, "__type__", :uint8)
-             buf = Map.get(ta, "__buffer__", <<>>)
+             t = Map.get(ta, type_key(), :uint8)
+             buf = Map.get(ta, buffer(), <<>>)
 
              Enum.all?(0..max(0, len - 1), fn i ->
                val = read_element(buf, i, t)
@@ -268,8 +269,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
            fn [cb | _], this ->
              ta = Heap.get_obj(ta_ref, %{})
              len = Map.get(ta, "length", 0)
-             t = Map.get(ta, "__type__", :uint8)
-             buf = Map.get(ta, "__buffer__", <<>>)
+             t = Map.get(ta, type_key(), :uint8)
+             buf = Map.get(ta, buffer(), <<>>)
 
              Enum.any?(0..max(0, len - 1), fn i ->
                val = read_element(buf, i, t)
@@ -288,8 +289,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
            fn args, this ->
              ta = Heap.get_obj(ta_ref, %{})
              len = Map.get(ta, "length", 0)
-             t = Map.get(ta, "__type__", :uint8)
-             buf = Map.get(ta, "__buffer__", <<>>)
+             t = Map.get(ta, type_key(), :uint8)
+             buf = Map.get(ta, buffer(), <<>>)
              cb = List.first(args)
              init = Enum.at(args, 1)
              {start, acc} = if init != nil, do: {0, init}, else: {1, read_element(buf, 0, t)}
@@ -304,8 +305,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
            fn [target | _], _this ->
              ta = Heap.get_obj(ta_ref, %{})
              len = Map.get(ta, "length", 0)
-             t = Map.get(ta, "__type__", :uint8)
-             buf = Map.get(ta, "__buffer__", <<>>)
+             t = Map.get(ta, type_key(), :uint8)
+             buf = Map.get(ta, buffer(), <<>>)
 
              Enum.find_value(0..max(0, len - 1), -1, fn i ->
                if read_element(buf, i, t) == target, do: i
@@ -316,8 +317,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
            fn [cb | _], this ->
              ta = Heap.get_obj(ta_ref, %{})
              len = Map.get(ta, "length", 0)
-             t = Map.get(ta, "__type__", :uint8)
-             buf = Map.get(ta, "__buffer__", <<>>)
+             t = Map.get(ta, type_key(), :uint8)
+             buf = Map.get(ta, buffer(), <<>>)
 
              Enum.find_value(0..max(0, len - 1), :undefined, fn i ->
                val = read_element(buf, i, t)
@@ -337,8 +338,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
            fn _args, _this ->
              ta = Heap.get_obj(ta_ref, %{})
              len = Map.get(ta, "length", 0)
-             t = Map.get(ta, "__type__", :uint8)
-             buf = Map.get(ta, "__buffer__", <<>>)
+             t = Map.get(ta, type_key(), :uint8)
+             buf = Map.get(ta, buffer(), <<>>)
 
              vals =
                Enum.map(0..max(0, len - 1), fn i -> read_element(buf, i, t) end) |> Enum.sort()
@@ -348,7 +349,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
                |> Enum.with_index()
                |> Enum.reduce(buf, fn {v, i}, acc -> write_element(acc, i, v, t) end)
 
-             Heap.put_obj(ta_ref, Map.put(ta, "__buffer__", new_buf))
+             Heap.put_obj(ta_ref, Map.put(ta, buffer(), new_buf))
              {:obj, ta_ref}
            end},
         "reverse" =>
@@ -356,8 +357,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
            fn _args, _this ->
              ta = Heap.get_obj(ta_ref, %{})
              len = Map.get(ta, "length", 0)
-             t = Map.get(ta, "__type__", :uint8)
-             buf = Map.get(ta, "__buffer__", <<>>)
+             t = Map.get(ta, type_key(), :uint8)
+             buf = Map.get(ta, buffer(), <<>>)
 
              vals =
                Enum.map(0..max(0, len - 1), fn i -> read_element(buf, i, t) end) |> Enum.reverse()
@@ -367,7 +368,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
                |> Enum.with_index()
                |> Enum.reduce(buf, fn {v, i}, acc -> write_element(acc, i, v, t) end)
 
-             Heap.put_obj(ta_ref, Map.put(ta, "__buffer__", new_buf))
+             Heap.put_obj(ta_ref, Map.put(ta, buffer(), new_buf))
              {:obj, ta_ref}
            end},
         "slice" =>
@@ -375,8 +376,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
            fn args, _this ->
              ta = Heap.get_obj(ta_ref, %{})
              len = Map.get(ta, "length", 0)
-             t = Map.get(ta, "__type__", :uint8)
-             buf = Map.get(ta, "__buffer__", <<>>)
+             t = Map.get(ta, type_key(), :uint8)
+             buf = Map.get(ta, buffer(), <<>>)
              s = max(0, elem_size_idx(Enum.at(args, 0, 0)))
              e = min(len, elem_size_idx(Enum.at(args, 1, len)))
              new_len = max(0, e - s)
@@ -385,10 +386,10 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
              nr = make_ref()
 
              Heap.put_obj(nr, %{
-               "__typed_array__" => true,
-               "__type__" => t,
-               "__buffer__" => new_buf,
-               "__offset__" => 0,
+               typed_array() => true,
+               type_key() => t,
+               buffer() => new_buf,
+               offset() => 0,
                "length" => new_len,
                "byteLength" => byte_size(new_buf),
                "byteOffset" => 0
@@ -401,14 +402,18 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
            fn [val | _], _this ->
              ta = Heap.get_obj(ta_ref, %{})
              len = Map.get(ta, "length", 0)
-             t = Map.get(ta, "__type__", :uint8)
+             t = Map.get(ta, type_key(), :uint8)
 
              new_buf =
-               Enum.reduce(0..(len - 1), Map.get(ta, "__buffer__", <<>>), fn i, buf ->
-                 write_element(buf, i, val, t)
-               end)
+               Enum.reduce(
+                 0..(len - 1),
+                 Map.get(ta, buffer(), <<>>),
+                 fn i, buf ->
+                   write_element(buf, i, val, t)
+                 end
+               )
 
-             Heap.put_obj(ta_ref, Map.put(ta, "__buffer__", new_buf))
+             Heap.put_obj(ta_ref, Map.put(ta, buffer(), new_buf))
              {:obj, ta_ref}
            end}
       })
@@ -422,10 +427,10 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
     case map do
       %{
-        "__typed_array__" => true,
-        "__type__" => type,
-        "__buffer__" => buf,
-        "__offset__" => offset
+        typed_array() => true,
+        type_key() => type,
+        buffer() => buf,
+        offset() => offset
       } ->
         read_element(buf, offset + idx * elem_size(type), type)
 
@@ -441,13 +446,13 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
     case map do
       %{
-        "__typed_array__" => true,
-        "__type__" => type,
-        "__buffer__" => buf,
-        "__offset__" => offset
+        typed_array() => true,
+        type_key() => type,
+        buffer() => buf,
+        offset() => offset
       } ->
         new_buf = write_element(buf, offset + idx * elem_size(type), type, val)
-        Heap.put_obj(ref, %{map | "__buffer__" => new_buf})
+        Heap.put_obj(ref, %{map | buffer() => new_buf})
 
       _ ->
         :ok
@@ -458,7 +463,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
   def typed_array?({:obj, ref}) do
     case Heap.get_obj(ref, %{}) do
-      %{"__typed_array__" => true} -> true
+      %{typed_array() => true} -> true
       _ -> false
     end
   end
@@ -590,6 +595,9 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
   end
 
   defp make_buffer_ref(buffer) do
-    Heap.wrap(%{"__buffer__" => buffer, "byteLength" => byte_size(buffer)})
+    Heap.wrap(%{
+      buffer() => buffer,
+      "byteLength" => byte_size(buffer)
+    })
   end
 end

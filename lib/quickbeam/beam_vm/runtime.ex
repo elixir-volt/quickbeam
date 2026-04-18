@@ -1,4 +1,6 @@
 defmodule QuickBEAM.BeamVM.Runtime do
+  import QuickBEAM.BeamVM.InternalKeys
+
   @moduledoc """
   JS built-in runtime: property resolution, shared helpers, global bindings.
 
@@ -19,42 +21,6 @@ defmodule QuickBEAM.BeamVM.Runtime do
   alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
 
   # ── Global bindings ──
-
-  defp date_statics do
-    [
-      {"now", JSDate.static_now()},
-      {"parse", {:builtin, "parse", fn [s | _] -> JSDate.parse_date_string(to_string(s)) end}},
-      {"UTC",
-       {:builtin, "UTC",
-        fn args ->
-          [y | rest] = args ++ List.duplicate(0, 7)
-          m = Enum.at(rest, 0, 0)
-          d = Enum.at(rest, 1, 1)
-          h = Enum.at(rest, 2, 0)
-          mi = Enum.at(rest, 3, 0)
-          s = Enum.at(rest, 4, 0)
-          ms = Enum.at(rest, 5, 0)
-          year = if is_number(y) and y >= 0 and y <= 99, do: 1900 + trunc(y), else: trunc(y || 0)
-
-          case NaiveDateTime.new(
-                 year,
-                 trunc(m) + 1,
-                 max(1, trunc(d)),
-                 trunc(h),
-                 trunc(mi),
-                 trunc(s)
-               ) do
-            {:ok, dt} ->
-              DateTime.from_naive!(dt, "Etc/UTC")
-              |> DateTime.to_unix(:millisecond)
-              |> Kernel.+(trunc(ms))
-
-            _ ->
-              :nan
-          end
-        end}}
-    ]
-  end
 
   defp register_builtin(name, constructor, opts) do
     builtin = {:builtin, name, constructor}
@@ -172,7 +138,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
           ),
         "Math" => Builtins.math_object(),
         "JSON" => JSON.object(),
-        "Date" => register_builtin("Date", &JSDate.constructor/1, statics: date_statics()),
+        "Date" => register_builtin("Date", &JSDate.constructor/1, statics: JSDate.statics()),
         "Promise" =>
           register_builtin("Promise", Builtins.promise_constructor(),
             statics: Builtins.promise_statics()
@@ -234,7 +200,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
           {:builtin, "Proxy",
            fn
              [target, handler | _] ->
-               Heap.wrap(%{"__proxy_target__" => target, "__proxy_handler__" => handler})
+               Heap.wrap(%{
+                 proxy_target() => target,
+                 proxy_handler() => handler
+               })
 
              _ ->
                __MODULE__.obj_new()
@@ -348,8 +317,8 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   defp get_prototype_raw({:obj, ref}, key) do
     case Heap.get_obj(ref) do
-      map when is_map(map) and is_map_key(map, "__proto__") ->
-        proto = Map.get(map, "__proto__")
+      map when is_map(map) and is_map_key(map, proto()) ->
+        proto = Map.get(map, proto())
 
         case proto do
           {:obj, pref} ->
@@ -395,7 +364,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
       nil ->
         :undefined
 
-      %{"__proxy_target__" => target, "__proxy_handler__" => handler} ->
+      %{
+        proxy_target() => target,
+        proxy_handler() => handler
+      } ->
         get_trap = get_own_property(handler, "get")
 
         if get_trap != :undefined do
@@ -407,7 +379,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
       list when is_list(list) ->
         get_own_property(list, key)
 
-      %{"__date_ms__" => _} = map ->
+      %{date_ms() => _} = map ->
         case Map.get(map, key) do
           nil -> JSDate.proto_property(key)
           val -> val
@@ -506,15 +478,15 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
       map when is_map(map) ->
         cond do
-          Map.has_key?(map, "__map_data__") ->
+          Map.has_key?(map, map_data()) ->
             map_proto(key)
 
-          Map.has_key?(map, "__set_data__") ->
+          Map.has_key?(map, set_data()) ->
             set_proto(key)
 
-          Map.has_key?(map, "__proto__") ->
+          Map.has_key?(map, proto()) ->
             # Walk prototype chain
-            get_property(Map.get(map, "__proto__"), key)
+            get_property(Map.get(map, proto()), key)
 
           true ->
             :undefined
@@ -560,10 +532,14 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   defp invoke_fun(fun, args, this_arg) do
     case fun do
-      {:builtin, _, cb} when is_function(cb, 2) -> cb.(args, this_arg)
-      {:builtin, _, cb} when is_function(cb, 3) -> cb.(args, this_arg, :no_interp)
-      {:builtin, _, cb} when is_function(cb, 1) -> cb.(args)
-      _ -> QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, args, 10_000_000, this_arg)
+      %QuickBEAM.BeamVM.Bytecode.Function{} ->
+        QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, args, 10_000_000, this_arg)
+
+      {:closure, _, %QuickBEAM.BeamVM.Bytecode.Function{}} ->
+        QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, args, 10_000_000, this_arg)
+
+      other ->
+        QuickBEAM.BeamVM.Interpreter.Dispatch.call_builtin(other, args, this_arg)
     end
   end
 
@@ -636,7 +612,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     do:
       {:builtin, "get",
        fn [key | _], {:obj, ref} ->
-         data = Heap.get_obj(ref, %{}) |> Map.get("__map_data__", %{})
+         data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
          Map.get(data, key, :undefined)
        end}
 
@@ -645,9 +621,15 @@ defmodule QuickBEAM.BeamVM.Runtime do
       {:builtin, "set",
        fn [key, val | _], {:obj, ref} ->
          obj = Heap.get_obj(ref, %{})
-         data = Map.get(obj, "__map_data__", %{})
+         data = Map.get(obj, map_data(), %{})
          new_data = Map.put(data, key, val)
-         Heap.put_obj(ref, %{obj | "__map_data__" => new_data, "size" => map_size(new_data)})
+
+         Heap.put_obj(ref, %{
+           obj
+           | map_data() => new_data,
+             "size" => map_size(new_data)
+         })
+
          {:obj, ref}
        end}
 
@@ -655,7 +637,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     do:
       {:builtin, "has",
        fn [key | _], {:obj, ref} ->
-         data = Heap.get_obj(ref, %{}) |> Map.get("__map_data__", %{})
+         data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
          Map.has_key?(data, key)
        end}
 
@@ -664,9 +646,15 @@ defmodule QuickBEAM.BeamVM.Runtime do
       {:builtin, "delete",
        fn [key | _], {:obj, ref} ->
          obj = Heap.get_obj(ref, %{})
-         data = Map.get(obj, "__map_data__", %{})
+         data = Map.get(obj, map_data(), %{})
          new_data = Map.delete(data, key)
-         Heap.put_obj(ref, %{obj | "__map_data__" => new_data, "size" => map_size(new_data)})
+
+         Heap.put_obj(ref, %{
+           obj
+           | map_data() => new_data,
+             "size" => map_size(new_data)
+         })
+
          true
        end}
 
@@ -675,7 +663,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
       {:builtin, "clear",
        fn _, {:obj, ref} ->
          obj = Heap.get_obj(ref, %{})
-         Heap.put_obj(ref, %{obj | "__map_data__" => %{}, "size" => 0})
+         Heap.put_obj(ref, %{obj | map_data() => %{}, "size" => 0})
          :undefined
        end}
 
@@ -683,7 +671,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     do:
       {:builtin, "keys",
        fn _, {:obj, ref} ->
-         data = Heap.get_obj(ref, %{}) |> Map.get("__map_data__", %{})
+         data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
          keys = Map.keys(data)
          Heap.wrap(keys)
        end}
@@ -692,7 +680,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     do:
       {:builtin, "values",
        fn _, {:obj, ref} ->
-         data = Heap.get_obj(ref, %{}) |> Map.get("__map_data__", %{})
+         data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
          vals = Map.values(data)
          Heap.wrap(vals)
        end}
@@ -701,7 +689,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     do:
       {:builtin, "entries",
        fn _, {:obj, ref} ->
-         data = Heap.get_obj(ref, %{}) |> Map.get("__map_data__", %{})
+         data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
 
          entries =
            Enum.map(data, fn {k, v} ->
@@ -715,7 +703,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     do:
       {:builtin, "forEach",
        fn [cb | _], {:obj, ref}, interp ->
-         data = Heap.get_obj(ref, %{}) |> Map.get("__map_data__", %{})
+         data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
          Enum.each(data, fn {k, v} -> call_builtin_callback(cb, [v, k, {:obj, ref}], interp) end)
          :undefined
        end}
@@ -726,7 +714,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     do:
       {:builtin, "has",
        fn [val | _], {:obj, ref} ->
-         data = Heap.get_obj(ref, %{}) |> Map.get("__set_data__", [])
+         data = Heap.get_obj(ref, %{}) |> Map.get(set_data(), [])
          val in data
        end}
 
@@ -735,11 +723,16 @@ defmodule QuickBEAM.BeamVM.Runtime do
       {:builtin, "add",
        fn [val | _], {:obj, ref} ->
          obj = Heap.get_obj(ref, %{})
-         data = Map.get(obj, "__set_data__", [])
+         data = Map.get(obj, set_data(), [])
 
          unless val in data do
            new_data = data ++ [val]
-           Heap.put_obj(ref, %{obj | "__set_data__" => new_data, "size" => length(new_data)})
+
+           Heap.put_obj(ref, %{
+             obj
+             | set_data() => new_data,
+               "size" => length(new_data)
+           })
          end
 
          {:obj, ref}
@@ -750,9 +743,15 @@ defmodule QuickBEAM.BeamVM.Runtime do
       {:builtin, "delete",
        fn [val | _], {:obj, ref} ->
          obj = Heap.get_obj(ref, %{})
-         data = Map.get(obj, "__set_data__", [])
+         data = Map.get(obj, set_data(), [])
          new_data = List.delete(data, val)
-         Heap.put_obj(ref, %{obj | "__set_data__" => new_data, "size" => length(new_data)})
+
+         Heap.put_obj(ref, %{
+           obj
+           | set_data() => new_data,
+             "size" => length(new_data)
+         })
+
          true
        end}
 
@@ -761,7 +760,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
       {:builtin, "clear",
        fn _, {:obj, ref} ->
          obj = Heap.get_obj(ref, %{})
-         Heap.put_obj(ref, %{obj | "__set_data__" => [], "size" => 0})
+         Heap.put_obj(ref, %{obj | set_data() => [], "size" => 0})
          :undefined
        end}
 
@@ -769,7 +768,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     do:
       {:builtin, "values",
        fn _, {:obj, ref} ->
-         data = Heap.get_obj(ref, %{}) |> Map.get("__set_data__", [])
+         data = Heap.get_obj(ref, %{}) |> Map.get(set_data(), [])
          Heap.wrap(data)
        end}
 
@@ -779,7 +778,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     do:
       {:builtin, "entries",
        fn _, {:obj, ref} ->
-         data = Heap.get_obj(ref, %{}) |> Map.get("__set_data__", [])
+         data = Heap.get_obj(ref, %{}) |> Map.get(set_data(), [])
 
          entries =
            Enum.map(data, fn v ->
@@ -793,7 +792,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     do:
       {:builtin, "forEach",
        fn [cb | _], {:obj, ref}, interp ->
-         data = Heap.get_obj(ref, %{}) |> Map.get("__set_data__", [])
+         data = Heap.get_obj(ref, %{}) |> Map.get(set_data(), [])
          Enum.each(data, fn v -> call_builtin_callback(cb, [v, v, {:obj, ref}], interp) end)
          :undefined
        end}

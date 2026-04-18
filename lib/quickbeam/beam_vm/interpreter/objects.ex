@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Objects do
+  import QuickBEAM.BeamVM.InternalKeys
   @compile {:inline, has_property: 2, get_array_el: 2, list_set_at: 3}
   alias QuickBEAM.BeamVM.{Heap, Bytecode}
 
@@ -7,7 +8,10 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
     map = Heap.get_obj(ref, %{})
 
     case map do
-      %{"__proxy_target__" => target, "__proxy_handler__" => handler} ->
+      %{
+        proxy_target() => target,
+        proxy_handler() => handler
+      } ->
         set_trap = QuickBEAM.BeamVM.Runtime.get_property(handler, "set")
 
         if set_trap != :undefined do
@@ -87,7 +91,10 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
     map = Heap.get_obj(ref, %{})
 
     case map do
-      %{"__proxy_target__" => target, "__proxy_handler__" => handler} ->
+      %{
+        proxy_target() => target,
+        proxy_handler() => handler
+      } ->
         has_trap = QuickBEAM.BeamVM.Runtime.get_property(handler, "has")
 
         if has_trap != :undefined do
@@ -113,7 +120,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
 
   def get_array_el({:obj, ref} = obj, idx) do
     case Heap.get_obj(ref) do
-      %{"__typed_array__" => true} when is_integer(idx) ->
+      %{typed_array() => true} when is_integer(idx) ->
         QuickBEAM.BeamVM.Runtime.TypedArray.get_element(obj, idx)
 
       list when is_list(list) and is_integer(idx) ->
@@ -140,7 +147,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
 
   def put_array_el({:obj, ref} = obj, key, val) do
     case Heap.get_obj(ref) do
-      %{"__typed_array__" => true} when is_integer(key) ->
+      %{typed_array() => true} when is_integer(key) ->
         QuickBEAM.BeamVM.Runtime.TypedArray.set_element(obj, key, val)
 
       list when is_list(list) ->

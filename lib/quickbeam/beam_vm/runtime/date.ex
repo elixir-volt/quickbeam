@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime.Date do
+  import QuickBEAM.BeamVM.InternalKeys
   @moduledoc false
   alias QuickBEAM.BeamVM.Heap
 
@@ -21,7 +22,43 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
           System.system_time(:millisecond)
       end
 
-    Heap.wrap(%{"__date_ms__" => ms})
+    Heap.wrap(%{date_ms() => ms})
+  end
+
+  def statics do
+    [
+      {"now", static_now()},
+      {"parse", {:builtin, "parse", fn [s | _] -> parse_date_string(to_string(s)) end}},
+      {"UTC",
+       {:builtin, "UTC",
+        fn args ->
+          [y | rest] = args ++ List.duplicate(0, 7)
+          m = Enum.at(rest, 0, 0)
+          d = Enum.at(rest, 1, 1)
+          h = Enum.at(rest, 2, 0)
+          mi = Enum.at(rest, 3, 0)
+          s = Enum.at(rest, 4, 0)
+          ms = Enum.at(rest, 5, 0)
+          year = if is_number(y) and y >= 0 and y <= 99, do: 1900 + trunc(y), else: trunc(y || 0)
+
+          case NaiveDateTime.new(
+                 year,
+                 trunc(m) + 1,
+                 max(1, trunc(d)),
+                 trunc(h),
+                 trunc(mi),
+                 trunc(s)
+               ) do
+            {:ok, dt} ->
+              DateTime.from_naive!(dt, "Etc/UTC")
+              |> DateTime.to_unix(:millisecond)
+              |> Kernel.+(trunc(ms))
+
+            _ ->
+              :nan
+          end
+        end}}
+    ]
   end
 
   def proto_property("getTime"), do: {:builtin, "getTime", fn _, this -> get_ms(this) end}
@@ -115,6 +152,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
        fn _, this ->
          case ms_to_dt(get_ms(this)) do
            nil -> :nan
+           # JS: 0=Sun..6=Sat. Elixir day_of_week: 1=Mon..7=Sun. rem(7) maps 7→0 (Sun). Mon(1)..Sat(6) unchanged.
            dt -> Date.day_of_week(DateTime.to_date(dt)) |> rem(7)
          end
        end}
@@ -138,7 +176,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
              map = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
 
              if is_map(map),
-               do: QuickBEAM.BeamVM.Heap.put_obj(ref, Map.put(map, "__date_ms__", ms))
+               do:
+                 QuickBEAM.BeamVM.Heap.put_obj(
+                   ref,
+                   Map.put(map, date_ms(), ms)
+                 )
 
              ms
 
@@ -206,7 +248,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
              QuickBEAM.BeamVM.Heap.put_obj(
                ref,
-               Map.put(QuickBEAM.BeamVM.Heap.get_obj(ref, %{}), "__date_ms__", new_ms)
+               Map.put(
+                 QuickBEAM.BeamVM.Heap.get_obj(ref, %{}),
+                 date_ms(),
+                 new_ms
+               )
              )
 
              new_ms
@@ -291,7 +337,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
             QuickBEAM.BeamVM.Heap.put_obj(
               ref,
-              Map.put(QuickBEAM.BeamVM.Heap.get_obj(ref, %{}), "__date_ms__", new_ms)
+              Map.put(
+                QuickBEAM.BeamVM.Heap.get_obj(ref, %{}),
+                date_ms(),
+                new_ms
+              )
             )
 
             new_ms
@@ -307,7 +357,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
   defp get_ms({:obj, ref}) do
     case Heap.get_obj(ref, %{}) do
-      %{"__date_ms__" => ms} -> ms
+      %{date_ms() => ms} -> ms
       _ -> :nan
     end
   end

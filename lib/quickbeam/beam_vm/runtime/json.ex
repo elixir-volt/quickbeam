@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime.JSON do
+  import QuickBEAM.BeamVM.InternalKeys
   alias QuickBEAM.BeamVM.Heap
   @moduledoc "JSON.parse and JSON.stringify."
 
@@ -14,11 +15,20 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
     try do
       to_js(:json.decode(s))
     rescue
-      ArgumentError -> throw({:js_throw, "SyntaxError: JSON.parse"})
+      ArgumentError ->
+        throw(
+          {:js_throw,
+           QuickBEAM.BeamVM.Heap.make_error("Unexpected end of JSON input", "SyntaxError")}
+        )
     end
   end
 
-  defp parse(_), do: throw({:js_throw, "SyntaxError: JSON.parse"})
+  defp parse(_),
+    do:
+      throw(
+        {:js_throw,
+         QuickBEAM.BeamVM.Heap.make_error("Unexpected end of JSON input", "SyntaxError")}
+      )
 
   defp to_js(nil), do: nil
   defp to_js(:null), do: nil
@@ -57,7 +67,7 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
 
       map when is_map(map) ->
         map
-        |> Map.drop([:__key_order__])
+        |> Map.drop([key_order()])
         |> Enum.reject(fn {k, v} ->
           v == :undefined or
             (is_binary(k) and String.starts_with?(k, "__") and String.ends_with?(k, "__"))

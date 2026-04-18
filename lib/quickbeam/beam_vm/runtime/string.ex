@@ -149,10 +149,20 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
 
   defp index_of(_, _), do: -1
 
-  defp last_index_of(s, [sub | _]) when is_binary(s) and is_binary(sub) do
-    case :binary.matches(s, sub) |> List.last() do
-      {pos, _} -> pos
-      nil -> -1
+  defp last_index_of(s, [sub | rest]) when is_binary(s) and is_binary(sub) do
+    from =
+      case rest do
+        [f | _] when is_integer(f) -> min(f, String.length(s))
+        _ -> String.length(s)
+      end
+
+    search = String.slice(s, 0, from + String.length(sub))
+    parts = String.split(search, sub)
+
+    if length(parts) > 1 do
+      String.length(search) - String.length(List.last(parts)) - String.length(sub)
+    else
+      -1
     end
   end
 
@@ -297,9 +307,9 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
   end
 
   defp search(s, [pattern | _]) when is_binary(s) and is_binary(pattern) do
-    case :binary.match(s, pattern) do
-      {pos, _} -> pos
-      :nomatch -> -1
+    case String.split(s, pattern, parts: 2) do
+      [before, _] -> String.length(before)
+      _ -> -1
     end
   end
 

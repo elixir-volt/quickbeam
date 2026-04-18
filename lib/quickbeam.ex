@@ -1,4 +1,6 @@
 defmodule QuickBEAM do
+  import QuickBEAM.BeamVM.InternalKeys
+
   @moduledoc """
   QuickJS-NG JavaScript engine embedded in the BEAM.
 
@@ -272,7 +274,7 @@ defmodule QuickBEAM do
 
       map when is_map(map) ->
         map
-        |> Map.drop([:__key_order__])
+        |> Map.drop([key_order()])
         |> Map.new(fn {k, v} -> {convert_beam_key(k), convert_beam_value(v)} end)
         |> Map.reject(fn {k, _} ->
           is_binary(k) and String.starts_with?(k, "__") and String.ends_with?(k, "__")

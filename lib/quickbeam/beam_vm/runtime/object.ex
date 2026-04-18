@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime.Object do
+  import QuickBEAM.BeamVM.InternalKeys
   alias QuickBEAM.BeamVM.Heap
   @moduledoc "Object static methods."
 
@@ -77,7 +78,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     map = Heap.get_obj(ref, %{})
 
     if is_map(map) do
-      Heap.put_obj(ref, Map.put(map, "__proto__", proto))
+      Heap.put_obj(ref, Map.put(map, proto(), proto))
     end
 
     obj
@@ -95,7 +96,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
           %{}
 
         _ ->
-          %{"__proto__" => proto}
+          %{proto() => proto}
       end
 
     Heap.put_obj(ref, map)
@@ -106,7 +107,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
   defp get_prototype_of([{:obj, ref} | _]) do
     map = Heap.get_obj(ref, %{})
-    Map.get(map, "__proto__", nil)
+    Map.get(map, proto(), nil)
   end
 
   defp get_prototype_of(_), do: nil
@@ -141,7 +142,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
   defp keys_from_map(ref, map) when is_map(map) do
     raw_keys =
-      case Map.get(map, :__key_order__) do
+      case Map.get(map, key_order()) do
         order when is_list(order) -> Enum.reverse(order)
         _ -> Map.keys(map)
       end
