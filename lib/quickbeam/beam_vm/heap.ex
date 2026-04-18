@@ -245,23 +245,65 @@ defmodule QuickBEAM.BeamVM.Heap do
     :queue.is_empty(queue)
   end
 
+  # ── Module registry ──
+
+  def register_module(name, exports) do
+    Process.put({:qb_module, name}, exports)
+  end
+
+  def all_module_exports do
+    Process.get_keys()
+    |> Enum.filter(fn
+      {:qb_module, _} -> true
+      _ -> false
+    end)
+    |> Enum.map(fn k -> Process.get(k) end)
+  end
+
+  def get_module(name) do
+    Process.get({:qb_module, name})
+  end
+
   # ── GC ──
 
   @doc "Delete all heap data. Call between independent eval() invocations to free memory."
   def gc do
-    Process.get_keys()
-    |> Enum.each(fn
-      {:qb_obj, _} = k -> Process.delete(k)
-      {:qb_cell, _} = k -> Process.delete(k)
-      {:qb_class_proto, _} = k -> Process.delete(k)
-      {:qb_parent_ctor, _} = k -> Process.delete(k)
-      {:qb_ctor_statics, _} = k -> Process.delete(k)
-      {:qb_prop_desc, _, _} = k -> Process.delete(k)
-      {:qb_frozen, _} = k -> Process.delete(k)
-      {:qb_var, _} = k -> Process.delete(k)
-      {:qb_key_order, _} = k -> Process.delete(k)
-      _ -> :ok
-    end)
+    # Collect module exports as roots to preserve
+    module_roots = all_module_exports()
+
+    if module_roots == [] do
+      # Fast path: no modules, delete everything
+      Process.get_keys()
+      |> Enum.each(fn
+        {:qb_obj, _} = k -> Process.delete(k)
+        {:qb_cell, _} = k -> Process.delete(k)
+        {:qb_class_proto, _} = k -> Process.delete(k)
+        {:qb_parent_ctor, _} = k -> Process.delete(k)
+        {:qb_ctor_statics, _} = k -> Process.delete(k)
+        {:qb_prop_desc, _, _} = k -> Process.delete(k)
+        {:qb_frozen, _} = k -> Process.delete(k)
+        {:qb_var, _} = k -> Process.delete(k)
+        {:qb_key_order, _} = k -> Process.delete(k)
+        _ -> :ok
+      end)
+    else
+      # Mark module-reachable objects, sweep the rest
+      marked = mark(module_roots, MapSet.new())
+
+      Process.get_keys()
+      |> Enum.each(fn
+        {:qb_obj, _} = k -> unless MapSet.member?(marked, k), do: Process.delete(k)
+        {:qb_cell, _} = k -> unless MapSet.member?(marked, k), do: Process.delete(k)
+        {:qb_class_proto, _} = k -> Process.delete(k)
+        {:qb_parent_ctor, _} = k -> Process.delete(k)
+        {:qb_ctor_statics, _} = k -> Process.delete(k)
+        {:qb_prop_desc, _, _} = k -> Process.delete(k)
+        {:qb_frozen, _} = k -> Process.delete(k)
+        {:qb_var, _} = k -> Process.delete(k)
+        {:qb_key_order, _} = k -> Process.delete(k)
+        _ -> :ok
+      end)
+    end
   end
 
   # ── Symbol registry ──

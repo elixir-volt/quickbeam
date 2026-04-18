@@ -196,6 +196,43 @@ defmodule QuickBEAM do
   defp convert_beam_value(v), do: v
 
   @doc """
+  Load a JS module for BEAM interpreter. Exports become available via require().
+  """
+  def load_beam_module(runtime, name, code) when is_binary(name) and is_binary(code) do
+    alias QuickBEAM.BeamVM.{Bytecode, Interpreter, Heap}
+
+    wrapper =
+      "(function() { var module = {exports: {}}; var exports = module.exports; " <>
+        code <> "; return module.exports })()"
+
+    case QuickBEAM.Runtime.compile(runtime, wrapper) do
+      {:ok, bc} ->
+        case Bytecode.decode(bc) do
+          {:ok, parsed} ->
+            case Interpreter.eval(
+                   parsed.value,
+                   [],
+                   %{gas: 1_000_000_000, runtime_pid: runtime},
+                   parsed.atoms
+                 ) do
+              {:ok, mod_exports} ->
+                Heap.register_module(name, mod_exports)
+                :ok
+
+              error ->
+                error
+            end
+
+          error ->
+            error
+        end
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
   Call a global JavaScript function by name.
 
   Arguments are converted to JS values; the return value is converted back.

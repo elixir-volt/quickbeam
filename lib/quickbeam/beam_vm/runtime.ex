@@ -134,6 +134,25 @@ defmodule QuickBEAM.BeamVM.Runtime do
              __MODULE__.obj_new()
          end},
       "console" => Builtins.console_object(),
+      "require" =>
+        {:builtin, "require",
+         fn [name | _] ->
+           case Heap.get_module(name) do
+             nil ->
+               ref = make_ref()
+
+               Heap.put_obj(ref, %{
+                 "message" => "Cannot find module '#{name}'",
+                 "name" => "Error",
+                 "stack" => ""
+               })
+
+               throw({:js_throw, {:obj, ref}})
+
+             exports ->
+               exports
+           end
+         end},
       "eval" =>
         {:builtin, "eval",
          fn [code | _] ->

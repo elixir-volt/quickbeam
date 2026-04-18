@@ -341,17 +341,18 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run(frame, stack, gas, ctx) do
     if rem(gas, 1000) == 0 and Heap.gc_needed?() do
-      roots = [
-        elem(frame, Frame.locals()),
-        elem(frame, Frame.var_refs()),
-        elem(frame, Frame.constants()),
-        ctx.this,
-        ctx.current_func,
-        ctx.arg_buf,
-        ctx.catch_stack,
-        ctx.globals
-        | stack
-      ]
+      roots =
+        [
+          elem(frame, Frame.locals()),
+          elem(frame, Frame.var_refs()),
+          elem(frame, Frame.constants()),
+          ctx.this,
+          ctx.current_func,
+          ctx.arg_buf,
+          ctx.catch_stack,
+          ctx.globals
+          | stack
+        ] ++ Heap.all_module_exports()
 
       Heap.mark_and_sweep(roots)
     end
@@ -1432,6 +1433,27 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   # ── eval ──
+
+  defp run({:import, []}, frame, [specifier, _import_meta | rest], gas, ctx) do
+    result =
+      if is_binary(specifier) and ctx.runtime_pid != nil do
+        case QuickBEAM.Runtime.load_module(ctx.runtime_pid, specifier, "") do
+          :ok ->
+            # Module loaded — create a module namespace object
+            # For now, return an empty object (module exports would need linking)
+            make_resolved_promise(Runtime.obj_new())
+
+          {:error, _} ->
+            make_rejected_promise(
+              make_error_obj("Cannot find module '#{specifier}'", "TypeError")
+            )
+        end
+      else
+        make_rejected_promise(make_error_obj("Invalid module specifier", "TypeError"))
+      end
+
+    run(advance(frame), [result | rest], gas - 1, ctx)
+  end
 
   defp run({:eval, [argc | _]}, frame, stack, gas, ctx) do
     {args, rest} = Enum.split(stack, argc)
