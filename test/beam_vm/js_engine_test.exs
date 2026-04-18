@@ -38,7 +38,8 @@ defmodule QuickBEAM.JSEngineTest.Helper do
   defp find_end(<<"`", rest::binary>>, depth, pos), do: skip_string(rest, ?`, depth, pos + 1)
   defp find_end(<<_, rest::binary>>, depth, pos), do: find_end(rest, depth, pos + 1)
 
-  defp skip_string(<<"\\", _, rest::binary>>, d, depth, pos), do: skip_string(rest, d, depth, pos + 2)
+  defp skip_string(<<"\\", _, rest::binary>>, d, depth, pos),
+    do: skip_string(rest, d, depth, pos + 2)
 
   defp skip_string(<<c, rest::binary>>, d, depth, pos) when c == d,
     do: find_end(rest, depth, pos + 1)
@@ -111,13 +112,23 @@ defmodule QuickBEAM.JSEngineTest do
       |> Enum.uniq()
       |> Enum.reject(fn name -> name in skip_list end)
 
+    # Extract preamble (everything before first "function test_")
+    preamble =
+      case Regex.run(~r/\A(.*?)^function test_/ms, cleaned) do
+        [_, pre] -> String.replace(pre, ~r/^import .*/m, "")
+        _ -> ""
+      end
+
     for func_name <- func_names do
       func_body = Helper.extract_function(cleaned, func_name)
 
       if func_body do
         @tag :js_engine
         test "#{file}: #{func_name}", %{rt: rt} do
-          code = @assert_js <> unquote(func_body) <> "\n" <> unquote(func_name) <> "();"
+          preamble = unquote(preamble)
+
+          code =
+            preamble <> @assert_js <> unquote(func_body) <> "\n" <> unquote(func_name) <> "();"
 
           case QuickBEAM.eval(rt, code) do
             {:ok, _} -> :ok
