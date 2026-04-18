@@ -359,7 +359,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
     end
   end
 
-  defp format_js_exponential(short, n) do
+  defp format_js_exponential(short, _n) do
     {mantissa, exp} =
       case String.split(short, ~r/[eE]/) do
         [m, e] -> {m, String.to_integer(e)}
@@ -373,11 +373,15 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
         else: mantissa
 
     if exp >= 0 and exp <= 20 do
-      # Fixed notation for exponents 0..20
-      digits = String.replace(mantissa, ".", "")
+      {prefix, abs_mantissa} =
+        if String.starts_with?(mantissa, "-"),
+          do: {"-", String.trim_leading(mantissa, "-")},
+          else: {"", mantissa}
+
+      digits = String.replace(abs_mantissa, ".", "")
 
       decimal_pos =
-        case String.split(mantissa, ".") do
+        case String.split(abs_mantissa, ".") do
           [int, _frac] -> String.length(int)
           _ -> String.length(digits)
         end
@@ -385,14 +389,19 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
       total_pos = decimal_pos + exp
 
       if total_pos >= String.length(digits) do
-        digits <> String.duplicate("0", total_pos - String.length(digits))
+        prefix <> digits <> String.duplicate("0", total_pos - String.length(digits))
       else
-        String.slice(digits, 0, total_pos) <> "." <> String.slice(digits, total_pos..-1//1)
+        prefix <>
+          String.slice(digits, 0, total_pos) <> "." <> String.slice(digits, total_pos..-1//1)
       end
     else
       if exp < 0 and exp >= -6 do
-        digits = String.replace(mantissa, "-", "") |> String.replace(".", "")
-        prefix = if n < 0, do: "-", else: ""
+        {prefix, abs_mantissa} =
+          if String.starts_with?(mantissa, "-"),
+            do: {"-", String.trim_leading(mantissa, "-")},
+            else: {"", mantissa}
+
+        digits = String.replace(abs_mantissa, ".", "")
         prefix <> "0." <> String.duplicate("0", abs(exp) - 1) <> digits
       else
         # Use exponential notation
@@ -499,37 +508,48 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def abstract_eq(_, _), do: false
 
   defp to_primitive({:obj, ref} = obj) do
-    map = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
+    data = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
 
-    cond do
-      is_map(map) and Map.has_key?(map, "valueOf") ->
-        case Map.get(map, "valueOf") do
-          {:builtin, _, cb} when is_function(cb, 2) -> cb.([], obj)
-          {:builtin, _, cb} when is_function(cb, 1) -> cb.([])
-          fun -> QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [], 10_000_000, obj)
-        end
-
-      is_map(map) and Map.has_key?(map, "__proto__") ->
-        proto = Map.get(map, "__proto__")
-
-        case proto do
-          {:obj, pref} ->
-            pmap = QuickBEAM.BeamVM.Heap.get_obj(pref, %{})
-
-            case Map.get(pmap, "valueOf") do
-              {:builtin, _, cb} when is_function(cb, 2) -> cb.([], obj)
-              {:builtin, _, cb} when is_function(cb, 1) -> cb.([])
-              _ -> obj
-            end
-
-          _ ->
-            obj
-        end
-
-      true ->
+    if not is_map(data) do
+      obj
+    else
+      try_call_method(data, obj, "valueOf") ||
+        try_proto_method(data, obj, "valueOf") ||
+        try_call_method(data, obj, "toString") ||
+        try_proto_method(data, obj, "toString") ||
         obj
     end
   end
 
   defp to_primitive(val), do: val
+
+  defp try_call_method(map, obj, method) do
+    case Map.get(map, method) do
+      {:builtin, _, cb} when is_function(cb, 2) ->
+        result = cb.([], obj)
+        unless match?({:obj, _}, result), do: result
+
+      {:builtin, _, cb} when is_function(cb, 1) ->
+        result = cb.([])
+        unless match?({:obj, _}, result), do: result
+
+      fun when fun != nil and fun != :undefined ->
+        result = QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [], 10_000_000, obj)
+        unless match?({:obj, _}, result), do: result
+
+      _ ->
+        nil
+    end
+  end
+
+  defp try_proto_method(map, obj, method) do
+    case Map.get(map, "__proto__") do
+      {:obj, pref} ->
+        pmap = QuickBEAM.BeamVM.Heap.get_obj(pref, %{})
+        if is_map(pmap), do: try_call_method(pmap, obj, method)
+
+      _ ->
+        nil
+    end
+  end
 end

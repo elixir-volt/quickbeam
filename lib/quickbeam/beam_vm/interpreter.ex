@@ -512,13 +512,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     do: run(advance(frame), [a, b, c, d, a | rest], gas - 1, ctx)
 
   defp run({:perm3, []}, frame, [a, b, c | rest], gas, ctx),
-    do: run(advance(frame), [b, c, a | rest], gas - 1, ctx)
+    do: run(advance(frame), [a, c, b | rest], gas - 1, ctx)
 
   defp run({:perm4, []}, frame, [a, b, c, d | rest], gas, ctx),
-    do: run(advance(frame), [b, c, d, a | rest], gas - 1, ctx)
+    do: run(advance(frame), [a, c, d, b | rest], gas - 1, ctx)
 
   defp run({:perm5, []}, frame, [a, b, c, d, e | rest], gas, ctx),
-    do: run(advance(frame), [b, c, d, e, a | rest], gas - 1, ctx)
+    do: run(advance(frame), [a, c, d, e, b | rest], gas - 1, ctx)
 
   defp run({:swap, []}, frame, [a, b | rest], gas, ctx),
     do: run(advance(frame), [b, a | rest], gas - 1, ctx)
@@ -527,16 +527,16 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     do: run(advance(frame), [c, d, a, b | rest], gas - 1, ctx)
 
   defp run({:rot3l, []}, frame, [a, b, c | rest], gas, ctx),
-    do: run(advance(frame), [b, c, a | rest], gas - 1, ctx)
+    do: run(advance(frame), [c, a, b | rest], gas - 1, ctx)
 
   defp run({:rot3r, []}, frame, [a, b, c | rest], gas, ctx),
     do: run(advance(frame), [b, c, a | rest], gas - 1, ctx)
 
   defp run({:rot4l, []}, frame, [a, b, c, d | rest], gas, ctx),
-    do: run(advance(frame), [b, c, d, a | rest], gas - 1, ctx)
+    do: run(advance(frame), [d, a, b, c | rest], gas - 1, ctx)
 
   defp run({:rot5l, []}, frame, [a, b, c, d, e | rest], gas, ctx),
-    do: run(advance(frame), [b, c, d, e, a | rest], gas - 1, ctx)
+    do: run(advance(frame), [e, a, b, c, d | rest], gas - 1, ctx)
 
   # ── Args ──
 
@@ -776,11 +776,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:dec, []}, frame, [a | rest], gas, ctx),
     do: run(advance(frame), [Values.sub(a, 1) | rest], gas - 1, ctx)
 
-  defp run({:post_inc, []}, frame, [a | rest], gas, ctx),
-    do: run(advance(frame), [Values.add(a, 1), a | rest], gas - 1, ctx)
+  defp run({:post_inc, []}, frame, [a | rest], gas, ctx) do
+    num = Values.to_number(a)
+    run(advance(frame), [Values.add(num, 1), num | rest], gas - 1, ctx)
+  end
 
-  defp run({:post_dec, []}, frame, [a | rest], gas, ctx),
-    do: run(advance(frame), [Values.sub(a, 1), a | rest], gas - 1, ctx)
+  defp run({:post_dec, []}, frame, [a | rest], gas, ctx) do
+    num = Values.to_number(a)
+    run(advance(frame), [Values.sub(num, 1), num | rest], gas - 1, ctx)
+  end
 
   defp run({:inc_loc, [idx]}, frame, stack, gas, ctx) do
     locals = elem(frame, Frame.locals())
@@ -882,7 +886,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:put_field, [atom_idx]}, frame, [val, obj | rest], gas, ctx) do
     Objects.put(obj, Scope.resolve_atom(ctx, atom_idx), val)
-    run(advance(frame), [obj | rest], gas - 1, ctx)
+    run(advance(frame), rest, gas - 1, ctx)
   end
 
   defp run({:define_field, [atom_idx]}, frame, [val, obj | rest], gas, ctx) do
@@ -896,7 +900,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:put_array_el, []}, frame, [val, idx, obj | rest], gas, ctx) do
     Objects.put_array_el(obj, idx, val)
-    run(advance(frame), [obj | rest], gas - 1, ctx)
+    run(advance(frame), rest, gas - 1, ctx)
   end
 
   defp run({:get_super_value, []}, frame, [key, proto, _this_obj | rest], gas, ctx) do
@@ -944,7 +948,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         :ok
     end
 
-    run(advance(frame), [obj | rest], gas - 1, ctx)
+    run(advance(frame), rest, gas - 1, ctx)
   end
 
   defp run({:private_in, []}, frame, [key, obj | rest], gas, ctx) do

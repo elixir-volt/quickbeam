@@ -273,11 +273,10 @@ defmodule QuickBEAM do
       map when is_map(map) ->
         map
         |> Map.drop([:__key_order__])
-        |> Enum.reject(fn {k, _} ->
-          match?("__" <> _, to_string(k)) and match?("__proto__", to_string(k))
-        end)
         |> Map.new(fn {k, v} -> {convert_beam_key(k), convert_beam_value(v)} end)
-        |> Map.reject(fn {k, _} -> k == "__proto__" end)
+        |> Map.reject(fn {k, _} ->
+          is_binary(k) and String.starts_with?(k, "__") and String.ends_with?(k, "__")
+        end)
     end
   end
 
