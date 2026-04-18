@@ -752,7 +752,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:not, []}, frame, [a | rest], gas, ctx),
-    do: run(advance(frame), [bnot(Values.to_int32(a)) | rest], gas - 1, ctx)
+    do: run(advance(frame), [Values.to_int32(bnot(Values.to_int32(a))) | rest], gas - 1, ctx)
 
   defp run({:lnot, []}, frame, [a | rest], gas, ctx),
     do: run(advance(frame), [not Values.truthy?(a) | rest], gas - 1, ctx)

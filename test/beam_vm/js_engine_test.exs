@@ -1,9 +1,55 @@
+defmodule QuickBEAM.JSEngineTest.Helper do
+  @moduledoc false
+
+  def extract_function(source, func_name) do
+    case :binary.match(source, "function #{func_name}(") do
+      {start, _} ->
+        rest = binary_part(source, start, byte_size(source) - start)
+
+        case :binary.match(rest, "{") do
+          {brace_pos, _} ->
+            after_brace = binary_part(rest, brace_pos, byte_size(rest) - brace_pos)
+            end_pos = find_end(after_brace, 0, 0)
+            binary_part(rest, 0, brace_pos + end_pos)
+
+          _ ->
+            nil
+        end
+
+      :nomatch ->
+        nil
+    end
+  end
+
+  defp find_end(<<>>, _depth, pos), do: pos
+  defp find_end(<<"{", rest::binary>>, depth, pos), do: find_end(rest, depth + 1, pos + 1)
+  defp find_end(<<"}", _::binary>>, 1, pos), do: pos + 1
+  defp find_end(<<"}", rest::binary>>, depth, pos), do: find_end(rest, depth - 1, pos + 1)
+
+  defp find_end(<<"//", rest::binary>>, depth, pos) do
+    case :binary.match(rest, "\n") do
+      {nl, _} -> find_end(binary_part(rest, nl, byte_size(rest) - nl), depth, pos + 2 + nl)
+      :nomatch -> pos + 2 + byte_size(rest)
+    end
+  end
+
+  defp find_end(<<"\"", rest::binary>>, depth, pos), do: skip_string(rest, ?", depth, pos + 1)
+  defp find_end(<<"'", rest::binary>>, depth, pos), do: skip_string(rest, ?', depth, pos + 1)
+  defp find_end(<<"`", rest::binary>>, depth, pos), do: skip_string(rest, ?`, depth, pos + 1)
+  defp find_end(<<_, rest::binary>>, depth, pos), do: find_end(rest, depth, pos + 1)
+
+  defp skip_string(<<"\\", _, rest::binary>>, d, depth, pos), do: skip_string(rest, d, depth, pos + 2)
+
+  defp skip_string(<<c, rest::binary>>, d, depth, pos) when c == d,
+    do: find_end(rest, depth, pos + 1)
+
+  defp skip_string(<<_, rest::binary>>, d, depth, pos), do: skip_string(rest, d, depth, pos + 1)
+  defp skip_string(<<>>, _, _depth, pos), do: pos
+end
+
 defmodule QuickBEAM.JSEngineTest do
-  @moduledoc """
-  Runs QuickJS-ng test_builtin.js and test_language.js against both backends.
-  Each test_*() function becomes an ExUnit test case.
-  """
   use ExUnit.Case, async: true
+  alias QuickBEAM.JSEngineTest.Helper
 
   @assert_js """
   function assert(actual, expected, message) {
@@ -36,31 +82,16 @@ defmodule QuickBEAM.JSEngineTest do
   }
   """
 
-  # Functions that use QuickJS-specific APIs unavailable in our BEAM interpreter
-  @skip_builtin [
-    "test_exception_source_pos",
-    "test_function_source_pos",
-    "test_exception_prepare_stack",
-    "test_exception_stack_size_limit",
-    "test_exception_capture_stack_trace",
-    "test_exception_capture_stack_trace_filter",
-    "test_cur_pc",
-    "test_finalization_registry",
-    "test_rope",
-    "test_proxy_iter",
-    "test_proxy_is_array",
-    "test_eval2",
-    "test_weak_map",
-    "test_weak_set"
-  ]
+  @skip_builtin ~w(
+    test_exception_source_pos test_function_source_pos test_exception_prepare_stack
+    test_exception_stack_size_limit test_exception_capture_stack_trace
+    test_exception_capture_stack_trace_filter test_cur_pc test_finalization_registry
+    test_rope test_proxy_iter test_proxy_is_array test_eval2 test_weak_map test_weak_set
+  )
 
-  @skip_language [
-    "test_reserved_names",
-    "test_syntax",
-    "test_parse_semicolon",
-    "test_regexp_skip",
-    "test_template_skip"
-  ]
+  @skip_language ~w(
+    test_reserved_names test_syntax test_parse_semicolon test_regexp_skip test_template_skip
+  )
 
   setup_all do
     {:ok, rt} = QuickBEAM.start()
@@ -72,39 +103,27 @@ defmodule QuickBEAM.JSEngineTest do
   for file <- ["test_builtin.js", "test_language.js"] do
     source = File.read!(Path.join(@js_dir, file))
     skip_list = if file == "test_builtin.js", do: @skip_builtin, else: @skip_language
+    cleaned = String.replace(source, ~r/^import .*\n/m, "")
 
-    # Extract function bodies: find each "function test_xxx() { ... }" and the runner call
-    # Strategy: extract all test_* function names, then for each one, run the whole file
-    # with only that function called at the end.
-
-    # Parse function names from "function test_xxx("
     func_names =
-      Regex.scan(~r/^function (test_\w+)\(/m, source)
+      Regex.scan(~r/^function (test_\w+)\(/m, cleaned)
       |> Enum.map(fn [_, name] -> name end)
+      |> Enum.uniq()
       |> Enum.reject(fn name -> name in skip_list end)
 
     for func_name <- func_names do
-      # Strip the imports and the main() call at the bottom
-      cleaned =
-        source
-        |> String.replace(~r/^import .*\n/m, "")
-        |> String.replace(~r/^test_\w+\(\);\s*$/m, "")
+      func_body = Helper.extract_function(cleaned, func_name)
 
-      test_code = "#{cleaned}\n#{func_name}();"
+      if func_body do
+        @tag :js_engine
+        test "#{file}: #{func_name}", %{rt: rt} do
+          code = @assert_js <> unquote(func_body) <> "\n" <> unquote(func_name) <> "();"
 
-      @tag :js_engine
-      test "#{file}: #{func_name}", %{rt: rt} do
-        code = @assert_js <> unquote(test_code)
-
-        case QuickBEAM.eval(rt, code) do
-          {:ok, _} ->
-            :ok
-
-          {:error, %QuickBEAM.JSError{message: msg}} ->
-            flunk("JS assertion failed: #{msg}")
-
-          {:error, err} ->
-            flunk("JS error: #{inspect(err)}")
+          case QuickBEAM.eval(rt, code) do
+            {:ok, _} -> :ok
+            {:error, %QuickBEAM.JSError{message: msg}} -> flunk("JS: #{msg}")
+            {:error, err} -> flunk("JS error: #{inspect(err)}")
+          end
         end
       end
     end

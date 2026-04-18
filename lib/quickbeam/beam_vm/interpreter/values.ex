@@ -51,14 +51,43 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def to_number(s) when is_binary(s) do
     s = String.trim(s)
 
-    case Integer.parse(s) do
-      {i, ""} ->
-        i
+    cond do
+      s == "" ->
+        0
 
-      _ ->
-        case Float.parse(s) do
-          {f, ""} -> f
+      String.starts_with?(s, "0x") or String.starts_with?(s, "0X") ->
+        case Integer.parse(String.slice(s, 2..-1//1), 16) do
+          {i, ""} -> i
           _ -> :nan
+        end
+
+      String.starts_with?(s, "0o") or String.starts_with?(s, "0O") ->
+        case Integer.parse(String.slice(s, 2..-1//1), 8) do
+          {i, ""} -> i
+          _ -> :nan
+        end
+
+      String.starts_with?(s, "0b") or String.starts_with?(s, "0B") ->
+        case Integer.parse(String.slice(s, 2..-1//1), 2) do
+          {i, ""} -> i
+          _ -> :nan
+        end
+
+      true ->
+        case Integer.parse(s) do
+          {i, ""} ->
+            i
+
+          _ ->
+            case Float.parse(s) do
+              {f, ""} ->
+                f
+
+              _ ->
+                if String.starts_with?(s, "Infinity") or String.starts_with?(s, "+Infinity"),
+                  do: :infinity,
+                  else: if(String.starts_with?(s, "-Infinity"), do: :neg_infinity, else: :nan)
+            end
         end
     end
   end
@@ -84,9 +113,44 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
 
   def to_number(_), do: :nan
 
-  def to_int32(val) when is_integer(val), do: val
-  def to_int32(val) when is_float(val), do: trunc(val)
+  def to_int32(val) when is_integer(val), do: wrap_int32(val)
+  def to_int32(val) when is_float(val), do: wrap_int32(trunc(val))
+  def to_int32(true), do: 1
+  def to_int32(false), do: 0
+  def to_int32(nil), do: 0
+  def to_int32(:undefined), do: 0
+
+  def to_int32(val) when is_binary(val) do
+    case to_number(val) do
+      n when is_integer(n) -> wrap_int32(n)
+      n when is_float(n) -> wrap_int32(trunc(n))
+      _ -> 0
+    end
+  end
+
   def to_int32(_), do: 0
+
+  def to_uint32(val) when is_integer(val), do: Bitwise.band(val, 0xFFFFFFFF)
+  def to_uint32(val) when is_float(val), do: Bitwise.band(trunc(val), 0xFFFFFFFF)
+  def to_uint32(true), do: 1
+  def to_uint32(false), do: 0
+  def to_uint32(nil), do: 0
+  def to_uint32(:undefined), do: 0
+
+  def to_uint32(val) when is_binary(val) do
+    case to_number(val) do
+      n when is_integer(n) -> Bitwise.band(n, 0xFFFFFFFF)
+      n when is_float(n) -> Bitwise.band(trunc(n), 0xFFFFFFFF)
+      _ -> 0
+    end
+  end
+
+  def to_uint32(_), do: 0
+
+  defp wrap_int32(n) do
+    n = Bitwise.band(n, 0xFFFFFFFF)
+    if n >= 0x80000000, do: n - 0x100000000, else: n
+  end
 
   def to_js_string(:undefined), do: "undefined"
   def to_js_string(nil), do: "null"
@@ -294,7 +358,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def shl({:bigint, _}, {:bigint, _}),
     do: throw({:js_throw, %{"message" => "Maximum BigInt size exceeded", "name" => "RangeError"}})
 
-  def shl(a, b), do: Bitwise.bsl(to_int32(a), Bitwise.band(to_int32(b), 31))
+  def shl(a, b), do: to_int32(Bitwise.bsl(to_int32(a), Bitwise.band(to_int32(b), 31)))
   def sar({:bigint, a}, {:bigint, b}), do: {:bigint, Bitwise.bsr(a, b)}
   def sar(a, b), do: Bitwise.bsr(to_int32(a), Bitwise.band(to_int32(b), 31))
 
