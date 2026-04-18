@@ -834,32 +834,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   def js_strict_eq(a, b), do: a === b
 
-  def js_to_string({:bigint, n}), do: Integer.to_string(n)
-  def js_to_string(:undefined), do: "undefined"
-  def js_to_string(nil), do: "null"
-  def js_to_string(true), do: "true"
-  def js_to_string(false), do: "false"
-  def js_to_string(n) when is_integer(n), do: Integer.to_string(n)
-
-  def js_to_string(n) when is_float(n) and n == 0.0, do: "0"
-
-  def js_to_string(n) when is_float(n) do
-    QuickBEAM.BeamVM.Interpreter.Values.to_js_string(n)
-  end
-
-  def js_to_string(s) when is_binary(s), do: s
-
-  def js_to_string({:obj, ref}) do
-    case Heap.get_obj(ref, %{}) do
-      list when is_list(list) -> Enum.map_join(list, ",", &js_to_string/1)
-      _ -> "[object Object]"
-    end
-  end
-
-  def js_to_string(list) when is_list(list), do: Enum.map(list, &js_to_string/1) |> Enum.join(",")
-  def js_to_string({:symbol, desc}), do: "Symbol(#{desc})"
-  def js_to_string({:symbol, desc, _}), do: "Symbol(#{desc})"
-  def js_to_string(_), do: ""
+  def js_to_string(val), do: QuickBEAM.BeamVM.Interpreter.Values.to_js_string(val)
 
   def to_int(n) when is_integer(n), do: n
   def to_int(n) when is_float(n), do: trunc(n)

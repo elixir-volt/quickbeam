@@ -138,18 +138,11 @@ defmodule QuickBEAM.BeamVM.Runtime.StringProto do
     if sub == "" do
       min(from, String.length(s))
     else
-      case :binary.match(s, sub) do
-        {pos, _} when pos >= from ->
-          pos
+      search = String.slice(s, from..-1//1)
 
-        {_pos, _} ->
-          case :binary.match(s, sub, [{:scope, {from, byte_size(s) - from}}]) do
-            {pos2, _} -> pos2
-            :nomatch -> -1
-          end
-
-        :nomatch ->
-          -1
+      case String.split(search, sub, parts: 2) do
+        [before, _] -> from + String.length(before)
+        _ -> -1
       end
     end
   end
