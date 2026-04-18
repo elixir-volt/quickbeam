@@ -142,7 +142,9 @@ defmodule QuickBEAM do
         case Bytecode.decode(bc) do
           {:ok, parsed} ->
             result = Interpreter.eval(parsed.value, [], %{gas: 1_000_000_000}, parsed.atoms)
-            convert_beam_result(result)
+            converted = convert_beam_result(result)
+            QuickBEAM.BeamVM.Heap.gc()
+            converted
 
           {:error, _} = err ->
             err
