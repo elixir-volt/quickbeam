@@ -164,13 +164,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   @compile {:inline, unwrap_promise: 2}
   defp unwrap_promise(val, depth \\ 0)
 
-  defp unwrap_promise(val, -1),
-    do:
-      (
-        drain_microtask_queue()
-        unwrap_promise(val, 0)
-      )
-
   defp unwrap_promise({:obj, ref}, depth) when depth < 10 do
     case Heap.get_obj(ref, %{}) do
       %{"__promise_state__" => :resolved, "__promise_value__" => val} ->
@@ -272,20 +265,20 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp collect_caller_locals(frame, ctx) do
     locals = elem(frame, Frame.locals())
-    # Get the current function's local variable definitions
-    case ctx.current_func do
-      {:closure, _, %Bytecode.Function{locals: local_defs}} ->
-        build_local_map(local_defs, locals, ctx)
 
-      %Bytecode.Function{locals: local_defs} ->
-        build_local_map(local_defs, locals, ctx)
+    case ctx.current_func do
+      {:closure, _, %Bytecode.Function{locals: local_defs, arg_count: ac}} ->
+        build_local_map(local_defs, ac, locals, ctx)
+
+      %Bytecode.Function{locals: local_defs, arg_count: ac} ->
+        build_local_map(local_defs, ac, locals, ctx)
 
       _ ->
         %{}
     end
   end
 
-  defp build_local_map(local_defs, locals, ctx) do
+  defp build_local_map(local_defs, arg_count, locals, ctx) do
     arg_buf = ctx.arg_buf
 
     local_defs
@@ -299,10 +292,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       if name do
         val =
-          cond do
-            idx < tuple_size(arg_buf) -> elem(arg_buf, idx)
-            idx < tuple_size(locals) -> elem(locals, idx)
-            true -> :undefined
+          if idx < arg_count do
+            if idx < tuple_size(arg_buf), do: elem(arg_buf, idx), else: :undefined
+          else
+            var_idx = idx - arg_count
+            if var_idx < tuple_size(locals), do: elem(locals, var_idx), else: :undefined
           end
 
         if val != :undefined, do: Map.put(acc, name, val), else: acc

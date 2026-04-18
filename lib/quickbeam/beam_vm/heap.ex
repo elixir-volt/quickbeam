@@ -257,12 +257,9 @@ defmodule QuickBEAM.BeamVM.Heap do
   end
 
   def all_module_exports do
-    Process.get_keys()
-    |> Enum.filter(fn
-      {:qb_module, _} -> true
-      _ -> false
-    end)
-    |> Enum.map(fn k -> Process.get(k) end)
+    Process.get(:qb_module_list, [])
+    |> Enum.map(fn name -> Process.get({:qb_module, name}) end)
+    |> Enum.reject(&is_nil/1)
   end
 
   def get_module(name) do
