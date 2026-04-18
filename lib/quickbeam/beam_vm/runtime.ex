@@ -86,6 +86,13 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
 
   def global_bindings do
+    case Process.get(:qb_global_bindings_cache) do
+      nil -> build_global_bindings()
+      cached -> cached
+    end
+  end
+
+  defp build_global_bindings do
     obj_proto_ref = Process.get(:qb_object_prototype)
 
     obj_proto_ref =
@@ -133,7 +140,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     obj_builtin = {:builtin, "Object", Builtins.object_constructor()}
     Heap.put_ctor_static(obj_builtin, "prototype", obj_proto_ref)
 
-    %{
+    bindings = %{
       "Object" => obj_builtin,
       "Array" => {:builtin, "Array", Builtins.array_constructor()},
       "String" => {:builtin, "String", Builtins.string_constructor()},
@@ -287,6 +294,9 @@ defmodule QuickBEAM.BeamVM.Runtime do
       "Float64Array" => {:builtin, "Float64Array", TypedArray.typed_array_constructor(:float64)},
       "DataView" => {:builtin, "DataView", fn _ -> obj_new() end}
     }
+
+    Process.put(:qb_global_bindings_cache, bindings)
+    bindings
   end
 
   # ── Property resolution (prototype chain) ──

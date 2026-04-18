@@ -281,8 +281,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
               )
 
             # Write back modified locals from eval to caller frame
-            write_back_eval_locals(caller_frame, ctx, eval_globals)
-
             case result do
               {:ok, val} -> val
               {:error, {:js_throw, val}} -> throw({:js_throw, val})
@@ -296,14 +294,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       _ ->
         :undefined
     end
-  end
-
-  defp write_back_eval_locals(_frame, _ctx, _eval_globals) do
-    # eval() in our architecture writes to persistent globals.
-    # The caller reads back via get_var/get_loc which check globals.
-    # This is a simplification - full eval scope sharing would require
-    # sharing the same frame, which our architecture doesn't support.
-    :ok
   end
 
   defp collect_caller_locals(frame, ctx) do
