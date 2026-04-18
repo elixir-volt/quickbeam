@@ -646,7 +646,14 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
 
   def js_to_string(s) when is_binary(s), do: s
-  def js_to_string({:obj, _ref}), do: "[object Object]"
+
+  def js_to_string({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      list when is_list(list) -> Enum.map_join(list, ",", &js_to_string/1)
+      _ -> "[object Object]"
+    end
+  end
+
   def js_to_string(list) when is_list(list), do: Enum.map(list, &js_to_string/1) |> Enum.join(",")
   def js_to_string(_), do: ""
 

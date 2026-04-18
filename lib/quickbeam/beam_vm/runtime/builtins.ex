@@ -325,6 +325,87 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
            QuickBEAM.BeamVM.Heap.put_obj(result_ref, results)
            QuickBEAM.BeamVM.Interpreter.make_resolved_promise({:obj, result_ref})
          end},
+      "allSettled" =>
+        {:builtin, "allSettled",
+         fn [arr | _] ->
+           items =
+             case arr do
+               {:obj, ref} ->
+                 case Heap.get_obj(ref, []) do
+                   list when is_list(list) -> list
+                   _ -> []
+                 end
+
+               _ ->
+                 []
+             end
+
+           results =
+             Enum.map(items, fn item ->
+               {status, val} =
+                 case item do
+                   {:obj, r} ->
+                     case Heap.get_obj(r, %{}) do
+                       %{"__promise_state__" => :resolved, "__promise_value__" => v} ->
+                         {"fulfilled", v}
+
+                       %{"__promise_state__" => :rejected, "__promise_value__" => v} ->
+                         {"rejected", v}
+
+                       _ ->
+                         {"fulfilled", item}
+                     end
+
+                   _ ->
+                     {"fulfilled", item}
+                 end
+
+               r = make_ref()
+
+               m =
+                 if status == "fulfilled",
+                   do: %{"status" => status, "value" => val},
+                   else: %{"status" => status, "reason" => val}
+
+               Heap.put_obj(r, m)
+               {:obj, r}
+             end)
+
+           result_ref = make_ref()
+           Heap.put_obj(result_ref, results)
+           QuickBEAM.BeamVM.Interpreter.make_resolved_promise({:obj, result_ref})
+         end},
+      "any" =>
+        {:builtin, "any",
+         fn [arr | _] ->
+           items =
+             case arr do
+               {:obj, ref} ->
+                 case Heap.get_obj(ref, []) do
+                   list when is_list(list) -> list
+                   _ -> []
+                 end
+
+               _ ->
+                 []
+             end
+
+           result =
+             Enum.find_value(items, fn item ->
+               case item do
+                 {:obj, r} ->
+                   case Heap.get_obj(r, %{}) do
+                     %{"__promise_state__" => :resolved, "__promise_value__" => v} -> v
+                     _ -> nil
+                   end
+
+                 _ ->
+                   item
+               end
+             end)
+
+           QuickBEAM.BeamVM.Interpreter.make_resolved_promise(result || :undefined)
+         end},
       "race" =>
         {:builtin, "race",
          fn [arr | _] ->
@@ -507,7 +588,24 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
 
           [{:obj, r}] ->
             stored = Heap.get_obj(r, [])
-            if is_list(stored), do: Map.new(stored, fn [k, v] -> {k, v} end), else: %{}
+
+            if is_list(stored) do
+              Map.new(stored, fn
+                [k, v] ->
+                  {k, v}
+
+                {:obj, eref} ->
+                  case Heap.get_obj(eref, []) do
+                    [k, v | _] -> {k, v}
+                    _ -> {nil, nil}
+                  end
+
+                _ ->
+                  {nil, nil}
+              end)
+            else
+              %{}
+            end
 
           _ ->
             %{}
