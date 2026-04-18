@@ -263,17 +263,21 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:ok, bc} ->
         case Bytecode.decode(bc) do
           {:ok, parsed} ->
-            # Inject caller's named locals into eval's global scope
             eval_globals = collect_caller_locals(caller_frame, ctx)
             eval_ctx_globals = Map.merge(ctx.globals, eval_globals)
 
-            __MODULE__.eval(
-              parsed.value,
-              [],
-              %{gas: gas, runtime_pid: ctx.runtime_pid, globals: eval_ctx_globals},
-              parsed.atoms
-            )
-            |> case do
+            result =
+              __MODULE__.eval(
+                parsed.value,
+                [],
+                %{gas: gas, runtime_pid: ctx.runtime_pid, globals: eval_ctx_globals},
+                parsed.atoms
+              )
+
+            # Write back modified locals from eval to caller frame
+            write_back_eval_locals(caller_frame, ctx, eval_globals)
+
+            case result do
               {:ok, val} -> val
               {:error, {:js_throw, val}} -> throw({:js_throw, val})
               {:error, _} -> :undefined
@@ -286,6 +290,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       _ ->
         :undefined
     end
+  end
+
+  defp write_back_eval_locals(_frame, _ctx, _eval_globals) do
+    # eval() in our architecture writes to persistent globals.
+    # The caller reads back via get_var/get_loc which check globals.
+    # This is a simplification - full eval scope sharing would require
+    # sharing the same frame, which our architecture doesn't support.
+    :ok
   end
 
   defp collect_caller_locals(frame, ctx) do
@@ -657,13 +669,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:set_loc_uninitialized, [idx]}, frame, stack, gas, ctx) do
-    run(advance(put_local(frame, idx, :undefined)), stack, gas - 1, ctx)
+    run(advance(put_local(frame, idx, :__tdz__)), stack, gas - 1, ctx)
   end
 
   defp run({:get_loc_check, [idx]}, frame, stack, gas, ctx) do
     val = elem(elem(frame, Frame.locals()), idx)
 
-    if val == :undefined,
+    if val == :__tdz__,
       do:
         throw(
           {:js_throw,
@@ -677,7 +689,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:put_loc_check, [idx]}, frame, [val | rest], gas, ctx) do
-    if val == :undefined,
+    if val == :__tdz__,
       do:
         throw(
           {:js_throw,
@@ -912,7 +924,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:object, []}, frame, stack, gas, ctx) do
     ref = make_ref()
-    Heap.put_obj(ref, %{})
+    proto = Process.get(:qb_object_prototype)
+    init = if proto, do: %{"__proto__" => proto}, else: %{}
+    Heap.put_obj(ref, init)
     run(advance(frame), [{:obj, ref} | stack], gas - 1, ctx)
   end
 
@@ -1415,16 +1429,30 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   # ── delete ──
 
   defp run({:delete, []}, frame, [key, obj | rest], gas, ctx) do
-    case obj do
-      {:obj, ref} ->
-        map = Heap.get_obj(ref, %{})
-        if is_map(map), do: Heap.put_obj(ref, Map.delete(map, key))
+    result =
+      case obj do
+        {:obj, ref} ->
+          map = Heap.get_obj(ref, %{})
 
-      _ ->
-        :ok
-    end
+          if is_map(map) do
+            desc = Heap.get_prop_desc(ref, key)
 
-    run(advance(frame), [true | rest], gas - 1, ctx)
+            if match?(%{configurable: false}, desc) do
+              false
+            else
+              new_map = Map.delete(map, key)
+              Heap.put_obj(ref, new_map)
+              true
+            end
+          else
+            true
+          end
+
+        _ ->
+          true
+      end
+
+    run(advance(frame), [result | rest], gas - 1, ctx)
   end
 
   defp run({:delete_var, [_atom_idx]}, frame, stack, gas, ctx),
@@ -1561,9 +1589,20 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:get_var_ref_check, [idx]}, frame, stack, gas, ctx) do
     case elem(elem(frame, Frame.var_refs()), idx) do
-      :undefined -> throw({:error, {:uninitialized_var_ref, idx}})
-      {:cell, _} = cell -> run(advance(frame), [Closures.read_cell(cell) | stack], gas - 1, ctx)
-      val -> run(advance(frame), [val | stack], gas - 1, ctx)
+      :__tdz__ ->
+        throw(
+          {:js_throw,
+           %{
+             "message" => "Cannot access variable before initialization",
+             "name" => "ReferenceError"
+           }}
+        )
+
+      {:cell, _} = cell ->
+        run(advance(frame), [Closures.read_cell(cell) | stack], gas - 1, ctx)
+
+      val ->
+        run(advance(frame), [val | stack], gas - 1, ctx)
     end
   end
 

@@ -63,7 +63,24 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
           v == :undefined or
             (is_binary(k) and String.starts_with?(k, "__") and String.ends_with?(k, "__"))
         end)
-        |> Map.new(fn {k, v} -> {to_string(k), to_json(v)} end)
+        |> Enum.map(fn {k, v} ->
+          resolved =
+            case v do
+              {:accessor, getter, _setter} when getter != nil ->
+                try do
+                  QuickBEAM.BeamVM.Runtime.call_builtin_callback(getter, [], :no_interp)
+                rescue
+                  _ -> :undefined
+                end
+
+              _ ->
+                v
+            end
+
+          {to_string(k), to_json(resolved)}
+        end)
+        |> Enum.reject(fn {_, v} -> v == :undefined end)
+        |> Map.new()
     end
   end
 
@@ -72,5 +89,6 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
   defp to_json(:nan), do: :null
   defp to_json(:infinity), do: :null
   defp to_json(list) when is_list(list), do: Enum.map(list, &to_json/1)
+  defp to_json({:accessor, _, _}), do: :undefined
   defp to_json(val), do: val
 end

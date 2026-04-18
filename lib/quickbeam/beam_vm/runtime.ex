@@ -86,8 +86,55 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
 
   def global_bindings do
+    obj_proto_ref = Process.get(:qb_object_prototype)
+
+    obj_proto_ref =
+      if obj_proto_ref do
+        obj_proto_ref
+      else
+        ref = make_ref()
+        obj_ctor = {:builtin, "Object", Builtins.object_constructor()}
+
+        Heap.put_obj(ref, %{
+          "toString" => {:builtin, "toString", fn _, _ -> "[object Object]" end},
+          "valueOf" => {:builtin, "valueOf", fn _, this -> this end},
+          "hasOwnProperty" =>
+            {:builtin, "hasOwnProperty",
+             fn [key | _], this ->
+               case this do
+                 {:obj, r} ->
+                   data = Heap.get_obj(r, %{})
+                   is_map(data) and Map.has_key?(data, key)
+
+                 _ ->
+                   false
+               end
+             end},
+          "isPrototypeOf" => {:builtin, "isPrototypeOf", fn _, _ -> false end},
+          "propertyIsEnumerable" =>
+            {:builtin, "propertyIsEnumerable",
+             fn [key | _], this ->
+               case this do
+                 {:obj, r} ->
+                   desc = Heap.get_prop_desc(r, key)
+                   not match?(%{enumerable: false}, desc)
+
+                 _ ->
+                   false
+               end
+             end},
+          "constructor" => obj_ctor
+        })
+
+        Process.put(:qb_object_prototype, {:obj, ref})
+        {:obj, ref}
+      end
+
+    obj_builtin = {:builtin, "Object", Builtins.object_constructor()}
+    Heap.put_ctor_static(obj_builtin, "prototype", obj_proto_ref)
+
     %{
-      "Object" => {:builtin, "Object", Builtins.object_constructor()},
+      "Object" => obj_builtin,
       "Array" => {:builtin, "Array", Builtins.array_constructor()},
       "String" => {:builtin, "String", Builtins.string_constructor()},
       "Number" => {:builtin, "Number", Builtins.number_constructor()},
@@ -427,6 +474,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
       _ ->
         :undefined
     end
+  end
+
+  defp get_prototype_property(list, "constructor") when is_list(list) do
+    Map.get(global_bindings(), "Array", :undefined)
   end
 
   defp get_prototype_property(list, key) when is_list(list), do: Array.proto_property(key)
