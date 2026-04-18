@@ -316,6 +316,22 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end)
   end
 
+  defp get_or_create_prototype(ctor) do
+    key = {:qb_func_proto, :erlang.phash2(ctor)}
+
+    case Process.get(key) do
+      nil ->
+        proto_ref = make_ref()
+        Heap.put_obj(proto_ref, %{"constructor" => ctor})
+        proto = {:obj, proto_ref}
+        Process.put(key, proto)
+        proto
+
+      existing ->
+        existing
+    end
+  end
+
   defp check_prototype_chain(_, :undefined), do: false
   defp check_prototype_chain(_, nil), do: false
 
@@ -1160,7 +1176,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       end
 
     this_ref = make_ref()
-    proto = Heap.get_class_proto(raw_ctor)
+    proto = Heap.get_class_proto(raw_ctor) || get_or_create_prototype(ctor)
     init = if proto, do: %{"__proto__" => proto}, else: %{}
     Heap.put_obj(this_ref, init)
     this_obj = {:obj, this_ref}
@@ -1678,11 +1694,18 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [{:obj, ref} | stack], gas - 1, ctx)
   end
 
-  defp run({:typeof_is_function, [_atom_idx]}, frame, stack, gas, ctx),
-    do: run(advance(frame), [false | stack], gas - 1, ctx)
+  defp run({:typeof_is_function, []}, frame, [val | rest], gas, ctx) do
+    result =
+      match?({:builtin, _, _}, val) or match?(%Bytecode.Function{}, val) or
+        match?({:closure, _, _}, val)
 
-  defp run({:typeof_is_undefined, [_atom_idx]}, frame, stack, gas, ctx),
-    do: run(advance(frame), [false | stack], gas - 1, ctx)
+    run(advance(frame), [result | rest], gas - 1, ctx)
+  end
+
+  defp run({:typeof_is_undefined, []}, frame, [val | rest], gas, ctx) do
+    result = val == :undefined or val == nil
+    run(advance(frame), [result | rest], gas - 1, ctx)
+  end
 
   defp run({:throw_error, []}, _frame, [val | _], _gas, _ctx), do: throw({:js_throw, val})
 

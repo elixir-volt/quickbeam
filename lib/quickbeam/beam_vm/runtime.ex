@@ -303,14 +303,38 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   defp get_own_property({:regexp, _, _}, key), do: RegExp.proto_property(key)
 
+  defp get_own_property(%Bytecode.Function{} = f, "prototype") do
+    get_or_create_prototype(f)
+  end
+
   defp get_own_property(%Bytecode.Function{} = f, key) do
     Map.get(Heap.get_ctor_statics(f), key, :undefined)
+  end
+
+  defp get_own_property({:closure, _, %Bytecode.Function{}} = c, "prototype") do
+    get_or_create_prototype(c)
   end
 
   defp get_own_property({:closure, _, %Bytecode.Function{} = f} = c, key) do
     case Map.get(Heap.get_ctor_statics(c), key, :undefined) do
       :undefined -> Map.get(Heap.get_ctor_statics(f), key, :undefined)
       val -> val
+    end
+  end
+
+  defp get_or_create_prototype(ctor) do
+    key = {:qb_func_proto, :erlang.phash2(ctor)}
+
+    case Process.get(key) do
+      nil ->
+        proto_ref = make_ref()
+        Heap.put_obj(proto_ref, %{"constructor" => ctor})
+        proto = {:obj, proto_ref}
+        Process.put(key, proto)
+        proto
+
+      existing ->
+        existing
     end
   end
 

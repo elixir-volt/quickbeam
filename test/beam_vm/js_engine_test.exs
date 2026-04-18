@@ -127,7 +127,7 @@ defmodule QuickBEAM.JSEngineTest do
       |> Enum.uniq()
 
     helper_names =
-      (all_func_names -- func_names -- skip_list)
+      (all_func_names -- (func_names -- skip_list))
       |> Enum.reject(fn name -> name in ["assert", "assert_throws"] end)
 
     helpers =
