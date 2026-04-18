@@ -110,7 +110,15 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
        "random" => {:builtin, "random", fn _ -> :rand.uniform() end},
        "trunc" => {:builtin, "trunc", fn [a | _] -> trunc(Runtime.to_float(a)) end},
        "sign" =>
-         {:builtin, "sign", fn [a | _] -> if(a > 0, do: 1, else: if(a < 0, do: -1, else: 0)) end},
+         {:builtin, "sign",
+          fn [a | _] ->
+            cond do
+              is_number(a) and a > 0 -> 1
+              is_number(a) and a < 0 -> -1
+              is_number(a) -> a
+              true -> :nan
+            end
+          end},
        "log" => {:builtin, "log", fn [a | _] -> :math.log(Runtime.to_float(a)) end},
        "log2" => {:builtin, "log2", fn [a | _] -> :math.log2(Runtime.to_float(a)) end},
        "log10" => {:builtin, "log10", fn [a | _] -> :math.log10(Runtime.to_float(a)) end},

@@ -9,7 +9,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   def static_property("entries"), do: {:builtin, "entries", fn args -> entries(args) end}
   def static_property("assign"), do: {:builtin, "assign", fn args -> assign(args) end}
   def static_property("freeze"), do: {:builtin, "freeze", fn [obj | _] -> freeze(obj) end}
-  def static_property("is"), do: {:builtin, "is", fn [a, b | _] -> Runtime.js_strict_eq(a, b) end}
+  def static_property("is"), do: {:builtin, "is", fn [a, b | _] -> js_is(a, b) end}
   def static_property("create"), do: {:builtin, "create", fn args -> create(args) end}
 
   def static_property("getPrototypeOf"),
@@ -19,7 +19,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     do: {:builtin, "defineProperty", fn args -> define_property(args) end}
 
   def static_property("getOwnPropertyNames"),
-    do: {:builtin, "getOwnPropertyNames", fn args -> keys(args) end}
+    do: {:builtin, "getOwnPropertyNames", fn args -> get_own_property_names(args) end}
+
+  def static_property("getOwnPropertyDescriptor"),
+    do: {:builtin, "getOwnPropertyDescriptor", fn args -> get_own_property_descriptor(args) end}
 
   def static_property(_), do: :undefined
 
@@ -28,8 +31,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
     map =
       case proto do
-        nil -> %{}
-        _ -> %{"__proto__" => proto}
+        nil ->
+          %{}
+
+        _ ->
+          %{"__proto__" => proto}
       end
 
     Heap.put_obj(ref, map)
@@ -54,11 +60,24 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
   defp keys([{:obj, ref} | _]) do
     map = Heap.get_obj(ref, %{})
+
     Map.keys(map)
+    |> Enum.filter(fn k ->
+      is_binary(k) and not String.starts_with?(k, "__") and
+        not match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
+    end)
   end
 
   defp keys([map | _]) when is_map(map), do: Map.keys(map)
   defp keys(_), do: []
+
+  defp get_own_property_names([{:obj, ref} | _]) do
+    map = Heap.get_obj(ref, %{})
+    Map.keys(map) |> Enum.filter(&is_binary/1)
+  end
+
+  defp get_own_property_names([map | _]) when is_map(map), do: Map.keys(map)
+  defp get_own_property_names(_), do: []
 
   defp values([{:obj, ref} | _]) do
     map = Heap.get_obj(ref, %{})
@@ -122,8 +141,95 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
       Heap.put_obj(ref, Map.put(existing, prop_name, val))
     end
 
+    writable = Map.get(desc, "writable", true)
+    enumerable = Map.get(desc, "enumerable", true)
+    configurable = Map.get(desc, "configurable", true)
+
+    Heap.put_prop_desc(ref, prop_name, %{
+      writable: writable,
+      enumerable: enumerable,
+      configurable: configurable
+    })
+
     obj
   end
 
   defp define_property([obj | _]), do: obj
+
+  defp get_own_property_descriptor([{:obj, ref}, key | _]) do
+    prop_name = if is_binary(key), do: key, else: to_string(key)
+    map = Heap.get_obj(ref, %{})
+
+    case Map.get(map, prop_name) do
+      nil ->
+        :undefined
+
+      {:accessor, getter, setter} ->
+        desc = Heap.get_prop_desc(ref, prop_name) || %{enumerable: true, configurable: true}
+        desc_ref = make_ref()
+
+        Heap.put_obj(desc_ref, %{
+          "get" => getter || :undefined,
+          "set" => setter || :undefined,
+          "enumerable" => desc.enumerable,
+          "configurable" => desc.configurable
+        })
+
+        {:obj, desc_ref}
+
+      val ->
+        desc =
+          Heap.get_prop_desc(ref, prop_name) ||
+            %{writable: true, enumerable: true, configurable: true}
+
+        desc_ref = make_ref()
+
+        Heap.put_obj(desc_ref, %{
+          "value" => val,
+          "writable" => desc.writable,
+          "enumerable" => desc.enumerable,
+          "configurable" => desc.configurable
+        })
+
+        {:obj, desc_ref}
+    end
+  end
+
+  defp get_own_property_descriptor(_), do: :undefined
+
+  alias QuickBEAM.BeamVM.Interpreter.Values
+
+  defp js_is(a, b) when is_number(a) and is_number(b) do
+    cond do
+      a == 0 and b == 0 ->
+        Values.neg_zero?(a) == Values.neg_zero?(b)
+
+      true ->
+        a == b
+    end
+  end
+
+  defp js_is(:nan, :nan), do: true
+  defp js_is(a, b), do: a === b
+
+  defp sort_js_keys(keys) do
+    {numeric, strings} =
+      Enum.split_with(keys, fn
+        k when is_integer(k) -> true
+        k when is_binary(k) -> match?({_, ""}, Integer.parse(k))
+        _ -> false
+      end)
+
+    sorted_numeric =
+      Enum.sort_by(numeric, fn
+        k when is_integer(k) -> k
+        k when is_binary(k) -> elem(Integer.parse(k), 0)
+      end)
+      |> Enum.map(fn
+        k when is_integer(k) -> Integer.to_string(k)
+        k -> k
+      end)
+
+    sorted_numeric ++ Enum.filter(strings, &is_binary/1)
+  end
 end

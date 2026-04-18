@@ -103,6 +103,11 @@ defmodule QuickBEAM.BeamVM.Heap do
   def frozen?(ref), do: Process.get({:qb_frozen, ref}, false)
   def freeze(ref), do: Process.put({:qb_frozen, ref}, true)
 
+  # ── Property descriptors ──
+
+  def get_prop_desc(ref, key), do: Process.get({:qb_prop_desc, ref, key})
+  def put_prop_desc(ref, key, desc), do: Process.put({:qb_prop_desc, ref, key}, desc)
+
   # ── Symbol registry ──
 
   def get_symbol(key), do: Process.get({:qb_symbol_registry, key})

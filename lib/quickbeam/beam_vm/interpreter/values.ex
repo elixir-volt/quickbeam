@@ -93,7 +93,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def to_js_string(true), do: "true"
   def to_js_string(false), do: "false"
   def to_js_string(n) when is_integer(n), do: Integer.to_string(n)
-  def to_js_string(n) when is_float(n), do: Float.to_string(n)
+  def to_js_string(n) when is_float(n) and n == 0.0, do: "0"
+  def to_js_string(n) when is_float(n), do: format_float(n)
   def to_js_string({:bigint, n}), do: Integer.to_string(n)
   def to_js_string({:symbol, desc}), do: "Symbol(#{desc})"
   def to_js_string({:symbol, desc, _ref}), do: "Symbol(#{desc})"
@@ -134,6 +135,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def strict_eq(:neg_infinity, :neg_infinity), do: true
   def strict_eq({:bigint, a}, {:bigint, b}), do: a == b
   def strict_eq({:symbol, _, ref1}, {:symbol, _, ref2}), do: ref1 === ref2
+  def strict_eq(a, b) when is_number(a) and is_number(b), do: a == b
   def strict_eq(a, b), do: a === b
 
   def add({:bigint, a}, {:bigint, b}), do: {:bigint, a + b}
@@ -266,6 +268,14 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def neg(a), do: neg(to_number(a))
 
   def neg_zero?(b), do: is_float(b) and b == 0.0 and hd(:erlang.float_to_list(b)) == ?-
+
+  defp format_float(n) do
+    if n == trunc(n) and abs(n) < 1.0e20 do
+      Integer.to_string(trunc(n))
+    else
+      :erlang.float_to_binary(n, [{:decimals, 20}, :compact])
+    end
+  end
 
   def inf_or_nan(a) when a > 0, do: :infinity
   def inf_or_nan(a) when a < 0, do: :neg_infinity

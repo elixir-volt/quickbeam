@@ -25,7 +25,10 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
               invoke_setter(setter, val, obj)
 
             _ ->
-              Heap.put_obj(ref, Map.put(map, key, val))
+              case Heap.get_prop_desc(ref, key) do
+                %{writable: false} -> :ok
+                _ -> Heap.put_obj(ref, Map.put(map, key, val))
+              end
           end
         end
 

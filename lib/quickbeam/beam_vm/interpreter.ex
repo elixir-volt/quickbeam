@@ -946,9 +946,41 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:for_in_start, []}, frame, [obj | rest], gas, ctx) do
     keys =
       case obj do
-        {:obj, ref} -> Map.keys(Heap.get_obj(ref, %{}))
-        map when is_map(map) -> Map.keys(map)
-        _ -> []
+        {:obj, ref} ->
+          map = Heap.get_obj(ref, %{})
+
+          Map.keys(map)
+          |> Enum.reject(fn k ->
+            (is_binary(k) and String.starts_with?(k, "__")) or
+              is_tuple(k) or is_atom(k) or
+              match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
+          end)
+          |> then(fn keys ->
+            {numeric, strings} =
+              Enum.split_with(keys, fn
+                k when is_integer(k) -> true
+                k when is_binary(k) -> match?({_, ""}, Integer.parse(k))
+                _ -> false
+              end)
+
+            sorted_numeric =
+              Enum.sort_by(numeric, fn
+                k when is_integer(k) -> k
+                k when is_binary(k) -> elem(Integer.parse(k), 0)
+              end)
+              |> Enum.map(fn
+                k when is_integer(k) -> Integer.to_string(k)
+                k -> k
+              end)
+
+            sorted_numeric ++ Enum.filter(strings, &is_binary/1)
+          end)
+
+        map when is_map(map) ->
+          Map.keys(map)
+
+        _ ->
+          []
       end
 
     run(advance(frame), [{:for_in_iterator, keys} | rest], gas - 1, ctx)
@@ -965,7 +997,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   # ── new / constructor ──
 
   defp run({:call_constructor, [argc]}, frame, stack, gas, ctx) do
-    {args, [_new_target, ctor | rest]} = Enum.split(stack, argc)
+    {args, [new_target, ctor | rest]} = Enum.split(stack, argc)
     rev_args = Enum.reverse(args)
 
     raw_ctor =
@@ -980,7 +1012,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     Heap.put_obj(this_ref, init)
     this_obj = {:obj, this_ref}
 
-    ctor_ctx = %{ctx | this: this_obj}
+    ctor_ctx = %{ctx | this: this_obj, new_target: new_target}
 
     result =
       case ctor do
@@ -1447,7 +1479,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           current_func
 
         3 ->
-          current_func
+          ctx.new_target
 
         4 ->
           case ctx.this do

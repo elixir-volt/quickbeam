@@ -625,9 +625,15 @@ defmodule QuickBEAM.BeamVM.Runtime do
   def js_to_string(false), do: "false"
   def js_to_string(n) when is_integer(n), do: Integer.to_string(n)
 
+  def js_to_string(n) when is_float(n) and n == 0.0, do: "0"
+
   def js_to_string(n) when is_float(n) do
-    s = Float.to_string(n)
-    if String.ends_with?(s, ".0"), do: String.slice(s, 0..-3//1), else: s
+    if n == trunc(n) and abs(n) < 1.0e20 do
+      Integer.to_string(trunc(n))
+    else
+      s = Float.to_string(n)
+      if String.ends_with?(s, ".0"), do: String.slice(s, 0..-3//1), else: s
+    end
   end
 
   def js_to_string(s) when is_binary(s), do: s

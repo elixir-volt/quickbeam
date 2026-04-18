@@ -5,7 +5,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Ctx do
           current_func: term(),
           catch_stack: [{non_neg_integer(), [term()]}],
           atoms: tuple(),
-          globals: map()
+          globals: map(),
+          new_target: term()
         }
 
   defstruct this: :undefined,
@@ -13,5 +14,6 @@ defmodule QuickBEAM.BeamVM.Interpreter.Ctx do
             current_func: :undefined,
             catch_stack: [],
             atoms: {},
-            globals: %{}
+            globals: %{},
+            new_target: :undefined
 end
