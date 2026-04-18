@@ -249,6 +249,11 @@ defmodule QuickBEAM.BeamVM.Heap do
 
   def register_module(name, exports) do
     Process.put({:qb_module, name}, exports)
+    existing = Process.get(:qb_module_list, [])
+
+    unless name in existing do
+      Process.put(:qb_module_list, [name | existing])
+    end
   end
 
   def all_module_exports do

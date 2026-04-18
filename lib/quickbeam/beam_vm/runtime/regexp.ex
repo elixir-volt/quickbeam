@@ -11,7 +11,14 @@ defmodule QuickBEAM.BeamVM.Runtime.RegExp do
 
   def nif_exec(bytecode, str, last_index) when is_binary(bytecode) and is_binary(str) do
     raw_bc = utf8_to_latin1(bytecode)
-    raw_str = utf8_to_latin1(str)
+    # Unicode regexes expect UTF-8 input; non-unicode expect Latin-1
+    flags =
+      if byte_size(bytecode) >= 2,
+        do: :binary.at(bytecode, 0) + :binary.at(bytecode, 1) * 256,
+        else: 0
+
+    is_unicode = Bitwise.band(flags, 0x10) != 0
+    raw_str = if is_unicode, do: str, else: utf8_to_latin1(str)
 
     case QuickBEAM.Native.regexp_exec(raw_bc, raw_str, last_index) do
       nil ->

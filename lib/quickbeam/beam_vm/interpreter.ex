@@ -2492,7 +2492,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
                   %{"__promise_state__" => :pending} ->
                     waiters = Process.get({:qb_promise_waiters, r}, [])
-                    _then_fn = make_then_fn(r)
 
                     Process.put({:qb_promise_waiters, r}, [
                       {fn v -> resolve_promise(child_ref, :resolved, v) end, nil, child_ref}
@@ -2533,10 +2532,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           Heap.enqueue_microtask({:resolve, child_ref, on_rejected, val})
 
         :resolved ->
-          resolve_promise(child_ref, :resolved, val)
+          Heap.enqueue_microtask({:resolve, child_ref, fn v -> v end, val})
 
         :rejected ->
-          resolve_promise(child_ref, :rejected, val)
+          Heap.enqueue_microtask({:resolve, child_ref, fn v -> v end, val})
       end
     end
   end
