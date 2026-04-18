@@ -108,6 +108,25 @@ defmodule QuickBEAM.BeamVM.Heap do
   def get_prop_desc(ref, key), do: Process.get({:qb_prop_desc, ref, key})
   def put_prop_desc(ref, key, desc), do: Process.put({:qb_prop_desc, ref, key}, desc)
 
+  # ── GC ──
+
+  @doc "Delete all heap data. Call between independent eval() invocations to free memory."
+  def gc do
+    Process.get_keys()
+    |> Enum.each(fn
+      {:qb_obj, _} = k -> Process.delete(k)
+      {:qb_cell, _} = k -> Process.delete(k)
+      {:qb_class_proto, _} = k -> Process.delete(k)
+      {:qb_parent_ctor, _} = k -> Process.delete(k)
+      {:qb_ctor_statics, _} = k -> Process.delete(k)
+      {:qb_prop_desc, _, _} = k -> Process.delete(k)
+      {:qb_frozen, _} = k -> Process.delete(k)
+      {:qb_var, _} = k -> Process.delete(k)
+      {:qb_key_order, _} = k -> Process.delete(k)
+      _ -> :ok
+    end)
+  end
+
   # ── Symbol registry ──
 
   def get_symbol(key), do: Process.get({:qb_symbol_registry, key})

@@ -171,7 +171,7 @@ defmodule QuickBEAM do
   defp convert_beam_value(:undefined), do: nil
 
   defp convert_beam_value({:obj, ref}) do
-    case Process.get({:qb_obj, ref}) do
+    case QuickBEAM.BeamVM.Heap.get_obj(ref) do
       nil -> nil
       list when is_list(list) -> Enum.map(list, &convert_beam_value/1)
       map when is_map(map) -> Map.new(map, fn {k, v} -> {k, convert_beam_value(v)} end)
