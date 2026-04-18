@@ -270,10 +270,11 @@ defmodule QuickBEAM.BeamVM.Heap do
 
   @doc "Delete all heap data. Call between independent eval() invocations to free memory."
   def gc do
-    # Collect module exports as roots to preserve
     module_roots = all_module_exports()
+    persistent_roots = Process.get(:qb_persistent_globals, %{}) |> Map.values()
+    all_roots = module_roots ++ persistent_roots
 
-    if module_roots == [] do
+    if all_roots == [] do
       # Fast path: no modules, delete everything
       Process.get_keys()
       |> Enum.each(fn
@@ -289,8 +290,7 @@ defmodule QuickBEAM.BeamVM.Heap do
         _ -> :ok
       end)
     else
-      # Mark module-reachable objects, sweep the rest
-      marked = mark(module_roots, MapSet.new())
+      marked = mark(all_roots, MapSet.new())
 
       Process.get_keys()
       |> Enum.each(fn

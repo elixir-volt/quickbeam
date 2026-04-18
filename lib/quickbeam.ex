@@ -147,10 +147,20 @@ defmodule QuickBEAM do
   defp resolve_mode(runtime, opts) do
     case Keyword.get(opts, :mode) do
       nil ->
-        try do
-          GenServer.call(runtime, :get_mode, 1000)
-        catch
-          :exit, _ -> :nif
+        case Process.get({:qb_runtime_mode, runtime}) do
+          nil ->
+            mode =
+              try do
+                GenServer.call(runtime, :get_mode, 1000)
+              catch
+                :exit, _ -> :nif
+              end
+
+            Process.put({:qb_runtime_mode, runtime}, mode)
+            mode
+
+          cached ->
+            cached
         end
 
       mode ->
@@ -233,8 +243,22 @@ defmodule QuickBEAM do
   defp convert_beam_result({:ok, val}), do: {:ok, convert_beam_value(val)}
   defp convert_beam_result({:error, _} = err), do: err
 
-  defp wrap_js_error(val) when is_map(val), do: QuickBEAM.JSError.from_js_value(val)
   defp wrap_js_error(val), do: QuickBEAM.JSError.from_js_value(val)
+
+  defp elixir_to_js(val) when is_map(val) do
+    ref = make_ref()
+    obj = Map.new(val, fn {k, v} -> {to_string(k), elixir_to_js(v)} end)
+    QuickBEAM.BeamVM.Heap.put_obj(ref, obj)
+    {:obj, ref}
+  end
+
+  defp elixir_to_js(val) when is_list(val) do
+    ref = make_ref()
+    QuickBEAM.BeamVM.Heap.put_obj(ref, Enum.map(val, &elixir_to_js/1))
+    {:obj, ref}
+  end
+
+  defp elixir_to_js(val), do: val
 
   defp convert_beam_value(:undefined), do: nil
 
@@ -247,11 +271,21 @@ defmodule QuickBEAM do
         Enum.map(list, &convert_beam_value/1)
 
       map when is_map(map) ->
-        map |> Map.drop([:__key_order__]) |> Map.new(fn {k, v} -> {k, convert_beam_value(v)} end)
+        map
+        |> Map.drop([:__key_order__])
+        |> Enum.reject(fn {k, _} ->
+          match?("__" <> _, to_string(k)) and match?("__proto__", to_string(k))
+        end)
+        |> Map.new(fn {k, v} -> {convert_beam_key(k), convert_beam_value(v)} end)
+        |> Map.reject(fn {k, _} -> k == "__proto__" end)
     end
   end
 
   defp convert_beam_value(v), do: v
+
+  defp convert_beam_key(k) when is_binary(k), do: k
+  defp convert_beam_key(k) when is_integer(k), do: Integer.to_string(k)
+  defp convert_beam_key(k), do: inspect(k)
 
   defp load_module_beam(runtime, name, code) do
     alias QuickBEAM.BeamVM.{Bytecode, Interpreter, Heap}
@@ -319,20 +353,27 @@ defmodule QuickBEAM do
   defp call_beam(_runtime, fn_name, args) do
     alias QuickBEAM.BeamVM.{Interpreter, Heap, Runtime}
 
+    handler_globals = Process.get(:qb_handler_globals, %{})
+
     globals =
       Runtime.global_bindings()
+      |> Map.merge(handler_globals)
       |> Map.merge(Process.get(:qb_persistent_globals, %{}))
 
     case Map.get(globals, fn_name) do
       nil ->
-        {:error, "#{fn_name} is not defined"}
+        {:error,
+         QuickBEAM.JSError.from_js_value(%{
+           "message" => "#{fn_name} is not defined",
+           "name" => "ReferenceError"
+         })}
 
       fun ->
         try do
           result = Interpreter.invoke(fun, args, 1_000_000_000)
-          {:ok, result}
+          convert_beam_result({:ok, result})
         catch
-          {:js_throw, val} -> {:error, val}
+          {:js_throw, val} -> convert_beam_result({:error, {:js_throw, val}})
         end
     end
   end
@@ -554,7 +595,8 @@ defmodule QuickBEAM do
   def get_global(runtime, name, opts \\ []) when is_binary(name) do
     if resolve_mode(runtime, opts) == :beam do
       persistent = Process.get(:qb_persistent_globals, %{})
-      {:ok, Map.get(persistent, name, :undefined)}
+      raw = Map.get(persistent, name, :undefined)
+      {:ok, convert_beam_value(raw)}
     else
       GenServer.call(runtime, {:get_global, name}, :infinity)
     end
@@ -577,7 +619,8 @@ defmodule QuickBEAM do
   def set_global(runtime, name, value, opts \\ []) when is_binary(name) do
     if resolve_mode(runtime, opts) == :beam do
       persistent = Process.get(:qb_persistent_globals, %{})
-      Process.put(:qb_persistent_globals, Map.put(persistent, name, value))
+      js_val = elixir_to_js(value)
+      Process.put(:qb_persistent_globals, Map.put(persistent, name, js_val))
       :ok
     else
       GenServer.call(runtime, {:set_global, name, value}, :infinity)

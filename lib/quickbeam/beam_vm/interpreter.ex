@@ -61,6 +61,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       runtime_pid: Map.get(opts, :runtime_pid)
     }
 
+    Process.put(:qb_atoms, atoms)
     prev_ctx = Heap.get_ctx()
     Heap.put_ctx(ctx)
 
@@ -117,7 +118,16 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
-  defp active_ctx, do: Heap.get_ctx() || %Ctx{}
+  defp active_ctx do
+    case Heap.get_ctx() do
+      nil ->
+        atoms = Process.get(:qb_atoms, {})
+        %Ctx{atoms: atoms}
+
+      ctx ->
+        ctx
+    end
+  end
 
   defp invoke_callback(fun, args) do
     case fun do
