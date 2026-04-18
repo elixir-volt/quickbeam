@@ -30,6 +30,40 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   defp register_date_statics(date_builtin) do
     Heap.put_ctor_static(date_builtin, "now", JSDate.static_now())
+
+    Heap.put_ctor_static(
+      date_builtin,
+      "UTC",
+      {:builtin, "UTC",
+       fn args ->
+         [y | rest] = args ++ List.duplicate(0, 7)
+         m = Enum.at(rest, 0, 0)
+         d = Enum.at(rest, 1, 1)
+         h = Enum.at(rest, 2, 0)
+         mi = Enum.at(rest, 3, 0)
+         s = Enum.at(rest, 4, 0)
+         ms = Enum.at(rest, 5, 0)
+         year = if is_number(y) and y >= 0 and y <= 99, do: 1900 + trunc(y), else: trunc(y || 0)
+
+         case NaiveDateTime.new(
+                year,
+                trunc(m) + 1,
+                max(1, trunc(d)),
+                trunc(h),
+                trunc(mi),
+                trunc(s)
+              ) do
+           {:ok, dt} ->
+             DateTime.from_naive!(dt, "Etc/UTC")
+             |> DateTime.to_unix(:millisecond)
+             |> Kernel.+(trunc(ms))
+
+           _ ->
+             :nan
+         end
+       end}
+    )
+
     date_builtin
   end
 
@@ -334,18 +368,25 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property(_, _), do: :undefined
 
   defp get_or_create_prototype(ctor) do
-    key = {:qb_func_proto, :erlang.phash2(ctor)}
+    # Check class proto first (set during class definition)
+    class_proto = Heap.get_class_proto(ctor)
 
-    case Process.get(key) do
-      nil ->
-        proto_ref = make_ref()
-        Heap.put_obj(proto_ref, %{"constructor" => ctor})
-        proto = {:obj, proto_ref}
-        Process.put(key, proto)
-        proto
+    if class_proto do
+      class_proto
+    else
+      key = {:qb_func_proto, :erlang.phash2(ctor)}
 
-      existing ->
-        existing
+      case Process.get(key) do
+        nil ->
+          proto_ref = make_ref()
+          Heap.put_obj(proto_ref, %{"constructor" => ctor})
+          proto = {:obj, proto_ref}
+          Process.put(key, proto)
+          proto
+
+        existing ->
+          existing
+      end
     end
   end
 

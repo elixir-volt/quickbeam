@@ -63,7 +63,6 @@ defmodule QuickBEAM.MixProject do
 
   defp deps do
     [
-      {:reach, path: "/Users/dannote/Development/reach"},
       {:zigler_precompiled, "~> 0.1.2"},
       {:zigler, "~> 0.15.2", runtime: false, optional: true},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},

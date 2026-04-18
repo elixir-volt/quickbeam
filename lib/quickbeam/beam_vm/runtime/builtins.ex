@@ -13,6 +13,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
     do: {:builtin, "toFixed", fn args, this -> number_to_fixed(this, args) end}
 
   def number_proto_property("valueOf"), do: {:builtin, "valueOf", fn _args, this -> this end}
+
+  def number_proto_property("toExponential"),
+    do: {:builtin, "toExponential", fn args, this -> number_to_exponential(this, args) end}
+
+  def number_proto_property("toPrecision"),
+    do: {:builtin, "toPrecision", fn args, this -> number_to_precision(this, args) end}
+
   def number_proto_property(_), do: :undefined
 
   # ── Number static ──
@@ -88,7 +95,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   defp number_to_string(n, [radix | _]) when is_number(n) do
     case Runtime.to_int(radix) do
       10 -> QuickBEAM.BeamVM.Interpreter.Values.to_js_string(n * 1.0)
-      16 -> Integer.to_string(trunc(n), 16)
+      16 -> Integer.to_string(trunc(n), 16) |> String.downcase()
       2 -> Integer.to_string(trunc(n), 2)
       8 -> Integer.to_string(trunc(n), 8)
       _ -> Runtime.js_to_string(n)
@@ -113,6 +120,44 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   end
 
   defp number_to_fixed(n, _), do: Runtime.js_to_string(n)
+
+  defp number_to_exponential(n, [digits | _]) when is_number(n) do
+    d = Runtime.to_int(digits)
+    f = n * 1.0
+    exp = if f == 0.0, do: 0, else: trunc(:math.floor(:math.log10(abs(f))))
+    mantissa = f / :math.pow(10, exp)
+    sign = if exp >= 0, do: "+", else: ""
+    :erlang.float_to_binary(mantissa, decimals: d) <> "e" <> sign <> Integer.to_string(exp)
+  end
+
+  defp number_to_exponential(n, _), do: Runtime.js_to_string(n)
+
+  defp number_to_precision(n, [prec | _]) when is_number(n) do
+    p = max(1, Runtime.to_int(prec))
+    s = :erlang.float_to_binary(n * 1.0, [{:decimals, p + 10}, :compact])
+    # Round to p significant digits
+    {sign, abs_s} =
+      if String.starts_with?(s, "-"), do: {"-", String.trim_leading(s, "-")}, else: {"", s}
+
+    case Float.parse(abs_s) do
+      {f, _} ->
+        if f == 0.0 do
+          sign <> "0" <> if(p > 1, do: "." <> String.duplicate("0", p - 1), else: "")
+        else
+          exp = :math.floor(:math.log10(abs(f)))
+          rounded = Float.round(f / :math.pow(10, exp - p + 1)) * :math.pow(10, exp - p + 1)
+
+          QuickBEAM.BeamVM.Interpreter.Values.to_js_string(
+            if sign == "-", do: -rounded, else: rounded
+          )
+        end
+
+      _ ->
+        Runtime.js_to_string(n)
+    end
+  end
+
+  defp number_to_precision(n, _), do: Runtime.js_to_string(n)
 
   # ── Boolean.prototype ──
 
@@ -323,6 +368,42 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
       {:obj, ref}
     end
   end
+
+  def date_static_property("UTC") do
+    {:builtin, "UTC",
+     fn args ->
+       [y, m | rest] = args ++ List.duplicate(0, 7)
+       d = Enum.at(rest, 0, 1)
+       h = Enum.at(rest, 1, 0)
+       min = Enum.at(rest, 2, 0)
+       s = Enum.at(rest, 3, 0)
+       ms = Enum.at(rest, 4, 0)
+       year = if is_number(y) and y >= 0 and y <= 99, do: 1900 + trunc(y), else: trunc(y || 0)
+
+       case NaiveDateTime.new(
+              year,
+              trunc(m || 0) + 1,
+              max(1, trunc(d)),
+              trunc(h),
+              trunc(min),
+              trunc(s)
+            ) do
+         {:ok, dt} ->
+           DateTime.from_naive!(dt, "Etc/UTC")
+           |> DateTime.to_unix(:millisecond)
+           |> Kernel.+(trunc(ms))
+
+         _ ->
+           :nan
+       end
+     end}
+  end
+
+  def date_static_property("now") do
+    {:builtin, "now", fn _ -> System.system_time(:millisecond) end}
+  end
+
+  def date_static_property(_), do: :undefined
 
   def date_constructor do
     fn args ->
@@ -716,7 +797,48 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
             []
         end
 
-      set_obj = %{"__set_data__" => items, "size" => length(items)}
+      set_ref = ref
+
+      values_fn =
+        {:builtin, "values",
+         fn _, _ ->
+           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
+           iter_ref = make_ref()
+           pos_ref = make_ref()
+           Heap.put_obj(pos_ref, %{pos: 0, list: data})
+
+           next_fn =
+             {:builtin, "next",
+              fn _, _ ->
+                state = Heap.get_obj(pos_ref, %{pos: 0, list: []})
+                list = if is_list(state.list), do: state.list, else: []
+
+                if state.pos >= length(list) do
+                  r = make_ref()
+                  Heap.put_obj(r, %{"value" => :undefined, "done" => true})
+                  Heap.put_obj(pos_ref, %{state | pos: state.pos + 1})
+                  {:obj, r}
+                else
+                  val = Enum.at(list, state.pos)
+                  r = make_ref()
+                  Heap.put_obj(r, %{"value" => val, "done" => false})
+                  Heap.put_obj(pos_ref, %{state | pos: state.pos + 1})
+                  {:obj, r}
+                end
+              end}
+
+           Heap.put_obj(iter_ref, %{"next" => next_fn})
+           {:obj, iter_ref}
+         end}
+
+      set_obj = %{
+        "__set_data__" => items,
+        "size" => length(items),
+        {:symbol, "Symbol.iterator"} => values_fn,
+        "values" => values_fn,
+        "keys" => values_fn
+      }
+
       Heap.put_obj(ref, set_obj)
       {:obj, ref}
     end

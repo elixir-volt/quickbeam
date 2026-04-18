@@ -332,18 +332,44 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp get_or_create_prototype(ctor) do
-    key = {:qb_func_proto, :erlang.phash2(ctor)}
+    class_proto = Heap.get_class_proto(ctor)
 
-    case Process.get(key) do
-      nil ->
-        proto_ref = make_ref()
-        Heap.put_obj(proto_ref, %{"constructor" => ctor})
-        proto = {:obj, proto_ref}
-        Process.put(key, proto)
-        proto
+    if class_proto do
+      class_proto
+    else
+      key = {:qb_func_proto, :erlang.phash2(ctor)}
 
-      existing ->
-        existing
+      case Process.get(key) do
+        nil ->
+          proto_ref = make_ref()
+          Heap.put_obj(proto_ref, %{"constructor" => ctor})
+          proto = {:obj, proto_ref}
+          Process.put(key, proto)
+          proto
+
+        existing ->
+          existing
+      end
+    end
+  end
+
+  defp collect_iterator(iter_obj, acc) do
+    next_fn = Runtime.get_property(iter_obj, "next")
+
+    case Runtime.call_builtin_callback(next_fn, [], :no_interp) do
+      {:obj, ref} ->
+        result = Heap.get_obj(ref, %{})
+        done = Map.get(result, "done", false)
+
+        if done == true do
+          Enum.reverse(acc)
+        else
+          val = Map.get(result, "value", :undefined)
+          collect_iterator(iter_obj, [val | acc])
+        end
+
+      _ ->
+        Enum.reverse(acc)
     end
   end
 
@@ -1421,9 +1447,33 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:append, []}, frame, [obj, idx, arr | rest], gas, ctx) do
     src_list =
       case obj do
-        list when is_list(list) -> list
-        {:obj, ref} -> Heap.get_obj(ref, [])
-        _ -> []
+        list when is_list(list) ->
+          list
+
+        {:obj, ref} ->
+          stored = Heap.get_obj(ref, [])
+
+          cond do
+            is_list(stored) ->
+              stored
+
+            is_map(stored) and Map.has_key?(stored, {:symbol, "Symbol.iterator"}) ->
+              iter_fn = Map.get(stored, {:symbol, "Symbol.iterator"})
+              iter_obj = Runtime.call_builtin_callback(iter_fn, [], :no_interp)
+              collect_iterator(iter_obj, [])
+
+            is_map(stored) and Map.has_key?(stored, "__set_data__") ->
+              Map.get(stored, "__set_data__", [])
+
+            is_map(stored) and Map.has_key?(stored, "__map_data__") ->
+              Map.get(stored, "__map_data__", [])
+
+            true ->
+              []
+          end
+
+        _ ->
+          []
       end
 
     arr_list =
@@ -1736,7 +1786,21 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:set_home_object, []}, frame, stack, gas, ctx),
     do: run(advance(frame), stack, gas - 1, ctx)
 
-  defp run({:set_proto, []}, frame, stack, gas, ctx), do: run(advance(frame), stack, gas - 1, ctx)
+  defp run({:set_proto, []}, frame, [proto, obj | rest], gas, ctx) do
+    case obj do
+      {:obj, ref} ->
+        map = Heap.get_obj(ref, %{})
+
+        if is_map(map) do
+          Heap.put_obj(ref, Map.put(map, "__proto__", proto))
+        end
+
+      _ ->
+        :ok
+    end
+
+    run(advance(frame), [obj | rest], gas - 1, ctx)
+  end
 
   defp run(
          {:special_object, [type]},
