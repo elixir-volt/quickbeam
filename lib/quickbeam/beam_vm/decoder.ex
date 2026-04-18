@@ -171,24 +171,18 @@ defmodule QuickBEAM.BeamVM.Decoder do
     if v >= 128, do: v - 256, else: v
   end
 
-  defp get_u16(bc, pos) do
-    <<_::binary-size(pos), v::little-unsigned-16, _::binary>> = bc
-    v
-  end
+  defp get_u16(bc, pos), do: :binary.decode_unsigned(:binary.part(bc, pos, 2), :little)
 
   defp get_i16(bc, pos) do
-    <<_::binary-size(pos), v::little-signed-16, _::binary>> = bc
-    v
+    v = get_u16(bc, pos)
+    if v >= 0x8000, do: v - 0x10000, else: v
   end
 
-  defp get_u32(bc, pos) do
-    <<_::binary-size(pos), v::little-unsigned-32, _::binary>> = bc
-    v
-  end
+  defp get_u32(bc, pos), do: :binary.decode_unsigned(:binary.part(bc, pos, 4), :little)
 
   defp get_i32(bc, pos) do
-    <<_::binary-size(pos), v::little-signed-32, _::binary>> = bc
-    v
+    v = get_u32(bc, pos)
+    if v >= 0x80000000, do: v - 0x100000000, else: v
   end
 
   # Atoms in bytecode instructions use bc_atom_to_idx format (raw u32):
