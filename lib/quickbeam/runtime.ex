@@ -440,6 +440,10 @@ defmodule QuickBEAM.Runtime do
   end
 
   @impl true
+  def handle_call(:get_handlers, _from, state) do
+    {:reply, state.handlers, state}
+  end
+
   def handle_call(:info, _from, state) do
     handlers =
       state.handlers

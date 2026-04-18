@@ -137,6 +137,36 @@ defmodule QuickBEAM do
   defp eval_beam(runtime, code, _opts) do
     alias QuickBEAM.BeamVM.{Bytecode, Interpreter}
 
+    handler_globals =
+      case Process.get(:qb_handler_globals) do
+        nil ->
+          handlers =
+            try do
+              GenServer.call(runtime, :get_handlers, 1000)
+            catch
+              :exit, _ -> %{}
+            end
+
+          globals =
+            for {name, handler} <- handlers, into: %{} do
+              {name,
+               {:builtin, name,
+                fn args ->
+                  case handler do
+                    {:with_caller, fun} -> fun.(args, self())
+                    fun when is_function(fun, 1) -> fun.(args)
+                    _ -> :undefined
+                  end
+                end}}
+            end
+
+          Process.put(:qb_handler_globals, globals)
+          globals
+
+        cached ->
+          cached
+      end
+
     case QuickBEAM.Runtime.compile(runtime, code) do
       {:ok, bc} ->
         case Bytecode.decode(bc) do
@@ -145,7 +175,7 @@ defmodule QuickBEAM do
               Interpreter.eval(
                 parsed.value,
                 [],
-                %{gas: 1_000_000_000, runtime_pid: runtime},
+                %{gas: 1_000_000_000, runtime_pid: runtime, globals: handler_globals},
                 parsed.atoms
               )
 
