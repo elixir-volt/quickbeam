@@ -235,6 +235,78 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     {{:obj, iter_ref}, next_fn}
   end
 
+  defp eval_code(code, caller_frame, gas, ctx) do
+    case QuickBEAM.Runtime.compile(ctx.runtime_pid, code) do
+      {:ok, bc} ->
+        case Bytecode.decode(bc) do
+          {:ok, parsed} ->
+            # Inject caller's named locals into eval's global scope
+            eval_globals = collect_caller_locals(caller_frame, ctx)
+            eval_ctx_globals = Map.merge(ctx.globals, eval_globals)
+
+            __MODULE__.eval(
+              parsed.value,
+              [],
+              %{gas: gas, runtime_pid: ctx.runtime_pid, globals: eval_ctx_globals},
+              parsed.atoms
+            )
+            |> case do
+              {:ok, val} -> val
+              {:error, {:js_throw, val}} -> throw({:js_throw, val})
+              {:error, _} -> :undefined
+            end
+
+          _ ->
+            :undefined
+        end
+
+      _ ->
+        :undefined
+    end
+  end
+
+  defp collect_caller_locals(frame, ctx) do
+    locals = elem(frame, Frame.locals())
+    # Get the current function's local variable definitions
+    case ctx.current_func do
+      {:closure, _, %Bytecode.Function{locals: local_defs}} ->
+        build_local_map(local_defs, locals, ctx)
+
+      %Bytecode.Function{locals: local_defs} ->
+        build_local_map(local_defs, locals, ctx)
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp build_local_map(local_defs, locals, ctx) do
+    arg_buf = ctx.arg_buf
+
+    local_defs
+    |> Enum.with_index()
+    |> Enum.reduce(%{}, fn {vd, idx}, acc ->
+      name =
+        case vd.name do
+          s when is_binary(s) -> s
+          _ -> nil
+        end
+
+      if name do
+        val =
+          cond do
+            idx < tuple_size(arg_buf) -> elem(arg_buf, idx)
+            idx < tuple_size(locals) -> elem(locals, idx)
+            true -> :undefined
+          end
+
+        if val != :undefined, do: Map.put(acc, name, val), else: acc
+      else
+        acc
+      end
+    end)
+  end
+
   defp check_prototype_chain(_, :undefined), do: false
   defp check_prototype_chain(_, nil), do: false
 
@@ -1375,78 +1447,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [result | rest], gas - 1, ctx)
   end
 
-  defp eval_code(code, caller_frame, gas, ctx) do
-    case QuickBEAM.Runtime.compile(ctx.runtime_pid, code) do
-      {:ok, bc} ->
-        case Bytecode.decode(bc) do
-          {:ok, parsed} ->
-            # Inject caller's named locals into eval's global scope
-            eval_globals = collect_caller_locals(caller_frame, ctx)
-            eval_ctx_globals = Map.merge(ctx.globals, eval_globals)
-
-            __MODULE__.eval(
-              parsed.value,
-              [],
-              %{gas: gas, runtime_pid: ctx.runtime_pid, globals: eval_ctx_globals},
-              parsed.atoms
-            )
-            |> case do
-              {:ok, val} -> val
-              {:error, {:js_throw, val}} -> throw({:js_throw, val})
-              {:error, _} -> :undefined
-            end
-
-          _ ->
-            :undefined
-        end
-
-      _ ->
-        :undefined
-    end
-  end
-
-  defp collect_caller_locals(frame, ctx) do
-    locals = elem(frame, Frame.locals())
-    # Get the current function's local variable definitions
-    case ctx.current_func do
-      {:closure, _, %Bytecode.Function{locals: local_defs}} ->
-        build_local_map(local_defs, locals, ctx)
-
-      %Bytecode.Function{locals: local_defs} ->
-        build_local_map(local_defs, locals, ctx)
-
-      _ ->
-        %{}
-    end
-  end
-
-  defp build_local_map(local_defs, locals, ctx) do
-    arg_buf = ctx.arg_buf
-
-    local_defs
-    |> Enum.with_index()
-    |> Enum.reduce(%{}, fn {vd, idx}, acc ->
-      name =
-        case vd.name do
-          s when is_binary(s) -> s
-          _ -> nil
-        end
-
-      if name do
-        val =
-          cond do
-            idx < tuple_size(arg_buf) -> elem(arg_buf, idx)
-            idx < tuple_size(locals) -> elem(locals, idx)
-            true -> :undefined
-          end
-
-        if val != :undefined, do: Map.put(acc, name, val), else: acc
-      else
-        acc
-      end
-    end)
-  end
-
   # ── Iterators ──
 
   defp run({:for_of_start, []}, frame, [obj | rest], gas, ctx) do
@@ -2470,7 +2470,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
                   %{"__promise_state__" => :pending} ->
                     waiters = Process.get({:qb_promise_waiters, r}, [])
-                    then_fn = make_then_fn(r)
+                    _then_fn = make_then_fn(r)
 
                     Process.put({:qb_promise_waiters, r}, [
                       {fn v -> resolve_promise(child_ref, :resolved, v) end, nil, child_ref}
