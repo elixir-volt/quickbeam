@@ -32,7 +32,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   require Frame
 
   alias QuickBEAM.BeamVM.Heap
-  alias __MODULE__.{Values, Objects, Closures, Scope}
+  alias __MODULE__.{Values, Objects, Closures, Scope, Dispatch}
   import Bitwise, only: [bnot: 1, &&&: 2]
 
   @default_gas 1_000_000_000
@@ -1870,9 +1870,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:typeof_is_function, []}, frame, [val | rest], gas, ctx) do
-    result =
-      match?({:builtin, _, _}, val) or match?(%Bytecode.Function{}, val) or
-        match?({:closure, _, _}, val) or match?({:bound, _, _}, val)
+    result = Dispatch.callable?(val)
 
     run(advance(frame), [result | rest], gas - 1, ctx)
   end
@@ -2263,10 +2261,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, ctx)
       {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, ctx)
       {:bound, _, inner} -> invoke(inner, rev_args, gas)
-      {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, nil)
-      {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
-      f when is_function(f) -> apply(f, rev_args)
-      _ -> throw({:js_throw, make_error_obj("not a function", "TypeError")})
+      other -> Dispatch.call_builtin(other, rev_args, nil)
     end
   end
 
@@ -2348,10 +2343,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, ctx)
         {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, ctx)
         {:bound, _, inner} -> invoke(inner, rev_args, gas)
-        {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, nil)
-        {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
-        f when is_function(f) -> apply(f, rev_args)
-        _ -> throw({:js_throw, make_error_obj("not a function", "TypeError")})
+        other -> Dispatch.call_builtin(other, rev_args, nil)
       end
     end)
   end
@@ -2366,11 +2358,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, method_ctx)
         {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, method_ctx)
         {:bound, _, inner} -> invoke(inner, rev_args, gas)
-        {:builtin, _name, cb} when is_function(cb, 2) -> cb.(rev_args, obj)
-        {:builtin, _name, cb} when is_function(cb, 3) -> cb.(rev_args, obj, :no_interp)
-        {:builtin, _name, cb} when is_function(cb, 1) -> cb.(rev_args)
-        f when is_function(f) -> apply(f, [obj | rev_args])
-        _ -> throw({:js_throw, make_error_obj("not a function", "TypeError")})
+        other -> Dispatch.call_builtin(other, rev_args, obj)
       end
     end)
   end

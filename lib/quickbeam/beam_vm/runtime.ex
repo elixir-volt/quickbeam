@@ -791,31 +791,20 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   # ── Callback dispatch (used by higher-order array methods) ──
 
-  def call_builtin_callback(fun, args, interp) do
+  def call_builtin_callback(fun, args, _interp) do
     case fun do
-      {:bound, _, inner} ->
-        call_builtin_callback(inner, args, interp)
-
-      {:builtin, _, cb} when is_function(cb, 1) ->
-        cb.(args)
-
-      {:builtin, _, cb} when is_function(cb, 2) ->
-        cb.(args, nil)
-
-      {:builtin, _, cb} when is_function(cb, 3) ->
-        cb.(args, nil, interp)
-
       %QuickBEAM.BeamVM.Bytecode.Function{} = f ->
         QuickBEAM.BeamVM.Interpreter.invoke(f, args, 10_000_000)
 
       {:closure, _, %QuickBEAM.BeamVM.Bytecode.Function{}} = c ->
         QuickBEAM.BeamVM.Interpreter.invoke(c, args, 10_000_000)
 
-      f when is_function(f) ->
-        apply(f, args)
-
-      _ ->
-        :undefined
+      other ->
+        try do
+          QuickBEAM.BeamVM.Interpreter.Dispatch.call_builtin(other, args, nil)
+        catch
+          {:js_throw, _} -> :undefined
+        end
     end
   end
 
