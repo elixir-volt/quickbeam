@@ -852,18 +852,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
     fn args ->
       ref = make_ref()
 
-      items =
-        case args do
-          [list] when is_list(list) ->
-            Enum.uniq(list)
-
-          [{:obj, r}] ->
-            stored = Heap.get_obj(r, [])
-            if is_list(stored), do: Enum.uniq(stored), else: []
-
-          _ ->
-            []
-        end
+      items = Heap.to_list(List.first(args)) |> Enum.uniq()
 
       set_ref = ref
 

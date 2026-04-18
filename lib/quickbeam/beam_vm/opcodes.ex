@@ -4,53 +4,37 @@ defmodule QuickBEAM.BeamVM.Opcodes do
   # Each entry: {name, byte_size, n_pop, n_push, format}
 
   # BC_TAG values (top-level serialization tags, not opcodes)
-  @bc_tag_null 1
-  @bc_tag_undefined 2
-  @bc_tag_bool_false 3
-  @bc_tag_bool_true 4
-  @bc_tag_int32 5
-  @bc_tag_float64 6
-  @bc_tag_string 7
-  @bc_tag_object 8
-  @bc_tag_array 9
-  @bc_tag_big_int 10
-  @bc_tag_template_object 11
-  @bc_tag_function_bytecode 12
-  @bc_tag_module 13
-  @bc_tag_typed_array 14
-  @bc_tag_array_buffer 15
-  @bc_tag_shared_array_buffer 16
-  @bc_tag_regexp 17
-  @bc_tag_date 18
-  @bc_tag_object_value 19
-  @bc_tag_object_reference 20
-  @bc_tag_map 21
-  @bc_tag_set 22
-  @bc_tag_symbol 23
 
-  def bc_tag_null, do: @bc_tag_null
-  def bc_tag_undefined, do: @bc_tag_undefined
-  def bc_tag_bool_false, do: @bc_tag_bool_false
-  def bc_tag_bool_true, do: @bc_tag_bool_true
-  def bc_tag_int32, do: @bc_tag_int32
-  def bc_tag_float64, do: @bc_tag_float64
-  def bc_tag_string, do: @bc_tag_string
-  def bc_tag_object, do: @bc_tag_object
-  def bc_tag_array, do: @bc_tag_array
-  def bc_tag_big_int, do: @bc_tag_big_int
-  def bc_tag_function_bytecode, do: @bc_tag_function_bytecode
-  def bc_tag_module, do: @bc_tag_module
-  def bc_tag_regexp, do: @bc_tag_regexp
-  def bc_tag_template_object, do: @bc_tag_template_object
-  def bc_tag_typed_array, do: @bc_tag_typed_array
-  def bc_tag_array_buffer, do: @bc_tag_array_buffer
-  def bc_tag_shared_array_buffer, do: @bc_tag_shared_array_buffer
-  def bc_tag_date, do: @bc_tag_date
-  def bc_tag_object_value, do: @bc_tag_object_value
-  def bc_tag_object_reference, do: @bc_tag_object_reference
-  def bc_tag_map, do: @bc_tag_map
-  def bc_tag_set, do: @bc_tag_set
-  def bc_tag_symbol, do: @bc_tag_symbol
+  @bc_tags %{
+    null: 1,
+    undefined: 2,
+    bool_false: 3,
+    bool_true: 4,
+    int32: 5,
+    float64: 6,
+    string: 7,
+    object: 8,
+    array: 9,
+    big_int: 10,
+    template_object: 11,
+    function_bytecode: 12,
+    module: 13,
+    typed_array: 14,
+    array_buffer: 15,
+    shared_array_buffer: 16,
+    regexp: 17,
+    date: 18,
+    object_value: 19,
+    object_reference: 20,
+    map: 21,
+    set: 22,
+    symbol: 23
+  }
+
+  for {name, val} <- @bc_tags do
+    @doc false
+    def unquote(:"bc_tag_#{name}")(), do: unquote(val)
+  end
 
   @bc_version 24
   def bc_version, do: @bc_version

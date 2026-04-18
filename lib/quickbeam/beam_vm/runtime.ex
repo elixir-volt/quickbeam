@@ -20,68 +20,60 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   # ── Global bindings ──
 
-  defp register_symbol_statics(symbol_builtin) do
-    for {k, v} <- Builtins.symbol_statics() do
-      Heap.put_ctor_static(symbol_builtin, k, v)
+  defp date_statics do
+    [
+      {"now", JSDate.static_now()},
+      {"parse", {:builtin, "parse", fn [s | _] -> JSDate.parse_date_string(to_string(s)) end}},
+      {"UTC",
+       {:builtin, "UTC",
+        fn args ->
+          [y | rest] = args ++ List.duplicate(0, 7)
+          m = Enum.at(rest, 0, 0)
+          d = Enum.at(rest, 1, 1)
+          h = Enum.at(rest, 2, 0)
+          mi = Enum.at(rest, 3, 0)
+          s = Enum.at(rest, 4, 0)
+          ms = Enum.at(rest, 5, 0)
+          year = if is_number(y) and y >= 0 and y <= 99, do: 1900 + trunc(y), else: trunc(y || 0)
+
+          case NaiveDateTime.new(
+                 year,
+                 trunc(m) + 1,
+                 max(1, trunc(d)),
+                 trunc(h),
+                 trunc(mi),
+                 trunc(s)
+               ) do
+            {:ok, dt} ->
+              DateTime.from_naive!(dt, "Etc/UTC")
+              |> DateTime.to_unix(:millisecond)
+              |> Kernel.+(trunc(ms))
+
+            _ ->
+              :nan
+          end
+        end}}
+    ]
+  end
+
+  defp register_builtin(name, constructor, opts) do
+    builtin = {:builtin, name, constructor}
+
+    for {k, v} <- Keyword.get(opts, :statics, []) do
+      Heap.put_ctor_static(builtin, k, v)
     end
 
-    symbol_builtin
-  end
+    case Keyword.get(opts, :prototype) do
+      nil ->
+        :ok
 
-  defp register_date_statics(date_builtin) do
-    Heap.put_ctor_static(date_builtin, "now", JSDate.static_now())
-
-    Heap.put_ctor_static(
-      date_builtin,
-      "UTC",
-      {:builtin, "UTC",
-       fn args ->
-         [y | rest] = args ++ List.duplicate(0, 7)
-         m = Enum.at(rest, 0, 0)
-         d = Enum.at(rest, 1, 1)
-         h = Enum.at(rest, 2, 0)
-         mi = Enum.at(rest, 3, 0)
-         s = Enum.at(rest, 4, 0)
-         ms = Enum.at(rest, 5, 0)
-         year = if is_number(y) and y >= 0 and y <= 99, do: 1900 + trunc(y), else: trunc(y || 0)
-
-         case NaiveDateTime.new(
-                year,
-                trunc(m) + 1,
-                max(1, trunc(d)),
-                trunc(h),
-                trunc(mi),
-                trunc(s)
-              ) do
-           {:ok, dt} ->
-             DateTime.from_naive!(dt, "Etc/UTC")
-             |> DateTime.to_unix(:millisecond)
-             |> Kernel.+(trunc(ms))
-
-           _ ->
-             :nan
-         end
-       end}
-    )
-
-    date_builtin
-  end
-
-  defp register_promise_statics(promise_builtin) do
-    for {k, v} <- Builtins.promise_statics() do
-      Heap.put_ctor_static(promise_builtin, k, v)
+      proto_map ->
+        proto_ref = make_ref()
+        Heap.put_obj(proto_ref, Map.put(proto_map, "constructor", builtin))
+        Heap.put_class_proto(builtin, {:obj, proto_ref})
+        Heap.put_ctor_static(builtin, "prototype", {:obj, proto_ref})
     end
 
-    promise_builtin
-  end
-
-  defp register_error_builtin(name) do
-    builtin = {:builtin, name, Builtins.error_constructor()}
-    proto_ref = make_ref()
-    Heap.put_obj(proto_ref, %{"name" => name, "message" => "", "constructor" => builtin})
-    proto = {:obj, proto_ref}
-    Heap.put_class_proto(builtin, proto)
-    Heap.put_ctor_static(builtin, "prototype", proto)
     builtin
   end
 
@@ -149,20 +141,46 @@ defmodule QuickBEAM.BeamVM.Runtime do
       "gc" => {:builtin, "gc", fn _ -> :undefined end},
       "Boolean" => {:builtin, "Boolean", Builtins.boolean_constructor()},
       "Function" => {:builtin, "Function", Builtins.function_constructor()},
-      "Error" => register_error_builtin("Error"),
-      "TypeError" => register_error_builtin("TypeError"),
-      "RangeError" => register_error_builtin("RangeError"),
-      "SyntaxError" => register_error_builtin("SyntaxError"),
-      "ReferenceError" => register_error_builtin("ReferenceError"),
-      "URIError" => register_error_builtin("URIError"),
-      "EvalError" => register_error_builtin("EvalError"),
+      "Error" =>
+        register_builtin("Error", Builtins.error_constructor(),
+          prototype: %{"name" => "Error", "message" => ""}
+        ),
+      "TypeError" =>
+        register_builtin("TypeError", Builtins.error_constructor(),
+          prototype: %{"name" => "TypeError", "message" => ""}
+        ),
+      "RangeError" =>
+        register_builtin("RangeError", Builtins.error_constructor(),
+          prototype: %{"name" => "RangeError", "message" => ""}
+        ),
+      "SyntaxError" =>
+        register_builtin("SyntaxError", Builtins.error_constructor(),
+          prototype: %{"name" => "SyntaxError", "message" => ""}
+        ),
+      "ReferenceError" =>
+        register_builtin("ReferenceError", Builtins.error_constructor(),
+          prototype: %{"name" => "ReferenceError", "message" => ""}
+        ),
+      "URIError" =>
+        register_builtin("URIError", Builtins.error_constructor(),
+          prototype: %{"name" => "URIError", "message" => ""}
+        ),
+      "EvalError" =>
+        register_builtin("EvalError", Builtins.error_constructor(),
+          prototype: %{"name" => "EvalError", "message" => ""}
+        ),
       "Math" => Builtins.math_object(),
       "JSON" => JSON.object(),
-      "Date" => register_date_statics({:builtin, "Date", &JSDate.constructor/1}),
+      "Date" => register_builtin("Date", &JSDate.constructor/1, statics: date_statics()),
       "Promise" =>
-        register_promise_statics({:builtin, "Promise", Builtins.promise_constructor()}),
+        register_builtin("Promise", Builtins.promise_constructor(),
+          statics: Builtins.promise_statics()
+        ),
       "RegExp" => {:builtin, "RegExp", Builtins.regexp_constructor()},
-      "Symbol" => register_symbol_statics({:builtin, "Symbol", Builtins.symbol_constructor()}),
+      "Symbol" =>
+        register_builtin("Symbol", Builtins.symbol_constructor(),
+          statics: Builtins.symbol_statics()
+        ),
       "parseInt" => {:builtin, "parseInt", fn args -> Builtins.parse_int(args) end},
       "parseFloat" => {:builtin, "parseFloat", fn args -> Builtins.parse_float(args) end},
       "isNaN" => {:builtin, "isNaN", fn args -> Builtins.is_nan(args) end},
