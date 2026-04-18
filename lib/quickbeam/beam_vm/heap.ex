@@ -46,6 +46,24 @@ defmodule QuickBEAM.BeamVM.Heap do
     track_alloc()
   end
 
+  def put_obj_key(ref, key, val) do
+    map = get_obj(ref, %{})
+
+    if is_map(map) do
+      new_map =
+        if not Map.has_key?(map, key) and (is_binary(key) or is_integer(key)) do
+          order = Map.get(map, :__key_order__, [])
+          Map.put(Map.put(map, key, val), :__key_order__, [key | order])
+        else
+          Map.put(map, key, val)
+        end
+
+      Process.put({:qb_obj, ref}, new_map)
+    else
+      Process.put({:qb_obj, ref}, val)
+    end
+  end
+
   def update_obj(ref, default, fun) do
     Process.put({:qb_obj, ref}, fun.(Process.get({:qb_obj, ref}, default)))
   end

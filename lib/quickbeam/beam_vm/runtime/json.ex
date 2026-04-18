@@ -48,10 +48,16 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
   defp stringify([]), do: :undefined
 
   defp to_json({:obj, ref}) do
+    # Filter internal keys before JSON serialization
     case Heap.get_obj(ref) do
-      nil -> %{}
-      list when is_list(list) -> Enum.map(list, &to_json/1)
-      map when is_map(map) -> Map.new(map, fn {k, v} -> {to_string(k), to_json(v)} end)
+      nil ->
+        %{}
+
+      list when is_list(list) ->
+        Enum.map(list, &to_json/1)
+
+      map when is_map(map) ->
+        map |> Map.drop([:__key_order__]) |> Map.new(fn {k, v} -> {to_string(k), to_json(v)} end)
     end
   end
 

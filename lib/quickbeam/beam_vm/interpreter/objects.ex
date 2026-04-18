@@ -27,7 +27,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
             _ ->
               case Heap.get_prop_desc(ref, key) do
                 %{writable: false} -> :ok
-                _ -> Heap.put_obj(ref, Map.put(map, key, val))
+                _ -> Heap.put_obj_key(ref, key, val)
               end
           end
         end
@@ -153,7 +153,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
             _ -> Kernel.to_string(key)
           end
 
-        Heap.put_obj(ref, Map.put(map, str_key, val))
+        Heap.put_obj_key(ref, str_key, val)
 
       nil ->
         :ok

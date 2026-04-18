@@ -121,9 +121,34 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   defp keys([{:obj, ref} | _]) do
     map = Heap.get_obj(ref, %{})
 
-    Map.keys(map)
-    |> Enum.filter(fn k ->
-      is_binary(k) and not String.starts_with?(k, "__") and
+    raw_keys =
+      case Map.get(map, :__key_order__) do
+        order when is_list(order) -> Enum.reverse(order)
+        _ -> Map.keys(map)
+      end
+
+    {numeric, strings} =
+      Enum.split_with(raw_keys, fn
+        k when is_integer(k) -> true
+        k when is_binary(k) -> match?({_, ""}, Integer.parse(k))
+        _ -> false
+      end)
+
+    sorted_numeric =
+      Enum.sort_by(numeric, fn
+        k when is_integer(k) -> k
+        k when is_binary(k) -> elem(Integer.parse(k), 0)
+      end)
+      |> Enum.map(fn
+        k when is_integer(k) -> Integer.to_string(k)
+        k -> k
+      end)
+
+    all = sorted_numeric ++ Enum.filter(strings, &is_binary/1)
+
+    Enum.filter(all, fn k ->
+      not String.starts_with?(k, "__") and
+        Map.has_key?(map, k) and
         not match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
     end)
   end
@@ -140,16 +165,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   defp get_own_property_names(_), do: []
 
   defp values([{:obj, ref} | _]) do
+    ks = keys([{:obj, ref}])
     map = Heap.get_obj(ref, %{})
-    Map.values(map)
+    Enum.map(ks, fn k -> Map.get(map, k) end)
   end
 
   defp values([map | _]) when is_map(map), do: Map.values(map)
   defp values(_), do: []
 
   defp entries([{:obj, ref} | _]) do
+    ks = keys([{:obj, ref}])
     map = Heap.get_obj(ref, %{})
-    Enum.map(Map.to_list(map), fn {k, v} -> [k, v] end)
+    Enum.map(ks, fn k -> [k, Map.get(map, k)] end)
   end
 
   defp entries([map | _]) when is_map(map) do

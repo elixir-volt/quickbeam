@@ -1008,10 +1008,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         {:obj, ref} ->
           map = Heap.get_obj(ref, %{})
 
-          Map.keys(map)
+          raw_keys =
+            case Map.get(map, :__key_order__) do
+              order when is_list(order) -> Enum.reverse(order)
+              _ -> Map.keys(map)
+            end
+
+          raw_keys
           |> Enum.reject(fn k ->
             (is_binary(k) and String.starts_with?(k, "__")) or
               is_tuple(k) or is_atom(k) or
+              not Map.has_key?(map, k) or
               match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
           end)
           |> then(fn keys ->
@@ -1267,7 +1274,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
                   other -> Kernel.to_string(other)
                 end
 
-              Heap.put_obj(ref, Map.put(stored, key, val))
+              Heap.put_obj_key(ref, key, val)
 
             true ->
               :ok

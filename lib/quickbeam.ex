@@ -182,9 +182,14 @@ defmodule QuickBEAM do
 
   defp convert_beam_value({:obj, ref}) do
     case QuickBEAM.BeamVM.Heap.get_obj(ref) do
-      nil -> nil
-      list when is_list(list) -> Enum.map(list, &convert_beam_value/1)
-      map when is_map(map) -> Map.new(map, fn {k, v} -> {k, convert_beam_value(v)} end)
+      nil ->
+        nil
+
+      list when is_list(list) ->
+        Enum.map(list, &convert_beam_value/1)
+
+      map when is_map(map) ->
+        map |> Map.drop([:__key_order__]) |> Map.new(fn {k, v} -> {k, convert_beam_value(v)} end)
     end
   end
 
