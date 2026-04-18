@@ -127,5 +127,4 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
       {:js_throw, val} -> Promise.make_rejected_promise(val)
     end
   end
-
-  end
+end

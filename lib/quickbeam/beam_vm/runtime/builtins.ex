@@ -851,232 +851,181 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   def set_constructor do
     fn args ->
       ref = make_ref()
-
       items = Heap.to_list(List.first(args)) |> Enum.uniq()
 
-      set_ref = ref
-
-      values_fn =
-        {:builtin, "values",
-         fn _, _ ->
-           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
-           iter_ref = make_ref()
-           pos_ref = make_ref()
-           Heap.put_obj(pos_ref, %{pos: 0, list: data})
-
-           next_fn =
-             {:builtin, "next",
-              fn _, _ ->
-                state = Heap.get_obj(pos_ref, %{pos: 0, list: []})
-                list = if is_list(state.list), do: state.list, else: []
-
-                if state.pos >= length(list) do
-                  r = make_ref()
-                  Heap.put_obj(r, %{"value" => :undefined, "done" => true})
-                  Heap.put_obj(pos_ref, %{state | pos: state.pos + 1})
-                  {:obj, r}
-                else
-                  val = Enum.at(list, state.pos)
-                  r = make_ref()
-                  Heap.put_obj(r, %{"value" => val, "done" => false})
-                  Heap.put_obj(pos_ref, %{state | pos: state.pos + 1})
-                  {:obj, r}
-                end
-              end}
-
-           Heap.put_obj(iter_ref, %{"next" => next_fn})
-           {:obj, iter_ref}
-         end}
-
-      add_fn =
-        {:builtin, "add",
-         fn [val | _], _ ->
-           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
-
-           unless val in data do
-             new_data = data ++ [val]
-             map = Heap.get_obj(set_ref, %{})
-
-             Heap.put_obj(set_ref, %{map | "__set_data__" => new_data, "size" => length(new_data)})
-           end
-
-           {:obj, set_ref}
-         end}
-
-      entries_fn =
-        {:builtin, "entries",
-         fn _, _ ->
-           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
-
-           pairs =
-             Enum.map(data, fn v ->
-               Heap.wrap([v, v])
-             end)
-
-           Heap.wrap(pairs)
-         end}
-
-      delete_fn =
-        {:builtin, "delete",
-         fn [val | _], _ ->
-           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
-           new_data = List.delete(data, val)
-           map = Heap.get_obj(set_ref, %{})
-           Heap.put_obj(set_ref, %{map | "__set_data__" => new_data, "size" => length(new_data)})
-           val in data
-         end}
-
-      clear_fn =
-        {:builtin, "clear",
-         fn _, _ ->
-           map = Heap.get_obj(set_ref, %{})
-           Heap.put_obj(set_ref, %{map | "__set_data__" => [], "size" => 0})
-           :undefined
-         end}
-
-      difference_fn =
-        {:builtin, "difference",
-         fn [other | _], _ ->
-           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
-
-           other_data =
-             case other do
-               {:obj, r} -> Map.get(Heap.get_obj(r, %{}), "__set_data__", [])
-               _ -> []
-             end
-
-           QuickBEAM.BeamVM.Runtime.call_builtin_callback(
-             set_constructor(),
-             [data -- other_data],
-             :no_interp
-           )
-         end}
-
-      intersection_fn =
-        {:builtin, "intersection",
-         fn [other | _], _ ->
-           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
-
-           other_has = fn v ->
-             case other do
-               {:obj, r} ->
-                 od = Map.get(Heap.get_obj(r, %{}), "__set_data__", [])
-                 v in od
-
-               _ ->
-                 false
-             end
-           end
-
-           QuickBEAM.BeamVM.Runtime.call_builtin_callback(
-             set_constructor(),
-             [Enum.filter(data, other_has)],
-             :no_interp
-           )
-         end}
-
-      union_fn =
-        {:builtin, "union",
-         fn [other | _], _ ->
-           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
-
-           other_data =
-             case other do
-               {:obj, r} -> Map.get(Heap.get_obj(r, %{}), "__set_data__", [])
-               _ -> []
-             end
-
-           QuickBEAM.BeamVM.Runtime.call_builtin_callback(
-             set_constructor(),
-             [Enum.uniq(data ++ other_data)],
-             :no_interp
-           )
-         end}
-
-      symmetric_difference_fn =
-        {:builtin, "symmetricDifference",
-         fn [other | _], _ ->
-           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
-
-           other_data =
-             case other do
-               {:obj, r} -> Map.get(Heap.get_obj(r, %{}), "__set_data__", [])
-               _ -> []
-             end
-
-           result = (data -- other_data) ++ (other_data -- data)
-
-           QuickBEAM.BeamVM.Runtime.call_builtin_callback(
-             set_constructor(),
-             [result],
-             :no_interp
-           )
-         end}
-
-      is_subset_fn =
-        {:builtin, "isSubsetOf",
-         fn [other | _], _ ->
-           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
-
-           other_data =
-             case other do
-               {:obj, r} -> Map.get(Heap.get_obj(r, %{}), "__set_data__", [])
-               _ -> []
-             end
-
-           Enum.all?(data, &(&1 in other_data))
-         end}
-
-      is_superset_fn =
-        {:builtin, "isSupersetOf",
-         fn [other | _], _ ->
-           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
-
-           other_data =
-             case other do
-               {:obj, r} -> Map.get(Heap.get_obj(r, %{}), "__set_data__", [])
-               _ -> []
-             end
-
-           Enum.all?(other_data, &(&1 in data))
-         end}
-
-      is_disjoint_fn =
-        {:builtin, "isDisjointFrom",
-         fn [other | _], _ ->
-           data = Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
-
-           other_data =
-             case other do
-               {:obj, r} -> Map.get(Heap.get_obj(r, %{}), "__set_data__", [])
-               _ -> []
-             end
-
-           not Enum.any?(data, &(&1 in other_data))
-         end}
-
-      set_obj = %{
-        "__set_data__" => items,
-        "size" => length(items),
-        {:symbol, "Symbol.iterator"} => values_fn,
-        "values" => values_fn,
-        "keys" => values_fn,
-        "entries" => entries_fn,
-        "add" => add_fn,
-        "delete" => delete_fn,
-        "clear" => clear_fn,
-        "difference" => difference_fn,
-        "intersection" => intersection_fn,
-        "union" => union_fn,
-        "symmetricDifference" => symmetric_difference_fn,
-        "isSubsetOf" => is_subset_fn,
-        "isSupersetOf" => is_superset_fn,
-        "isDisjointFrom" => is_disjoint_fn
-      }
-
+      set_obj = build_set_object(ref, items)
       Heap.put_obj(ref, set_obj)
       {:obj, ref}
     end
+  end
+
+  defp build_set_object(set_ref, items) do
+    %{
+      "__set_data__" => items,
+      "size" => length(items),
+      {:symbol, "Symbol.iterator"} => set_values_fn(set_ref),
+      "values" => set_values_fn(set_ref),
+      "keys" => set_values_fn(set_ref),
+      "entries" => set_entries_fn(set_ref),
+      "add" => set_add_fn(set_ref),
+      "delete" => set_delete_fn(set_ref),
+      "clear" => set_clear_fn(set_ref),
+      "has" => set_has_fn(set_ref),
+      "forEach" => set_foreach_fn(set_ref),
+      "difference" => set_difference_fn(set_ref),
+      "intersection" => set_intersection_fn(set_ref),
+      "union" => set_union_fn(set_ref),
+      "symmetricDifference" => set_symmetric_difference_fn(set_ref),
+      "isSubsetOf" => set_is_subset_fn(set_ref),
+      "isSupersetOf" => set_is_superset_fn(set_ref),
+      "isDisjointFrom" => set_is_disjoint_fn(set_ref)
+    }
+  end
+
+  defp set_data(set_ref), do: Map.get(Heap.get_obj(set_ref, %{}), "__set_data__", [])
+
+  defp set_update_data(set_ref, new_data) do
+    map = Heap.get_obj(set_ref, %{})
+    Heap.put_obj(set_ref, %{map | "__set_data__" => new_data, "size" => length(new_data)})
+  end
+
+  defp set_values_fn(set_ref) do
+    {:builtin, "values",
+     fn _, _ ->
+       data = set_data(set_ref)
+       pos_ref = make_ref()
+       Heap.put_obj(pos_ref, %{pos: 0, list: data})
+
+       next_fn =
+         {:builtin, "next",
+          fn _, _ ->
+            state = Heap.get_obj(pos_ref, %{pos: 0, list: []})
+            list = if is_list(state.list), do: state.list, else: []
+
+            if state.pos >= length(list) do
+              Heap.put_obj(pos_ref, %{state | pos: state.pos + 1})
+              Heap.iter_result(:undefined, true)
+            else
+              val = Enum.at(list, state.pos)
+              Heap.put_obj(pos_ref, %{state | pos: state.pos + 1})
+              Heap.iter_result(val, false)
+            end
+          end}
+
+       Heap.wrap(%{"next" => next_fn})
+     end}
+  end
+
+  defp set_entries_fn(set_ref) do
+    {:builtin, "entries",
+     fn _, _ ->
+       data = set_data(set_ref)
+       pairs = Enum.map(data, fn v -> Heap.wrap([v, v]) end)
+       Heap.wrap(pairs)
+     end}
+  end
+
+  defp set_add_fn(set_ref) do
+    {:builtin, "add",
+     fn [val | _], _ ->
+       data = set_data(set_ref)
+       unless val in data, do: set_update_data(set_ref, data ++ [val])
+       {:obj, set_ref}
+     end}
+  end
+
+  defp set_delete_fn(set_ref) do
+    {:builtin, "delete",
+     fn [val | _], _ ->
+       data = set_data(set_ref)
+       set_update_data(set_ref, List.delete(data, val))
+       val in data
+     end}
+  end
+
+  defp set_clear_fn(set_ref) do
+    {:builtin, "clear",
+     fn _, _ ->
+       set_update_data(set_ref, [])
+       :undefined
+     end}
+  end
+
+  defp set_has_fn(set_ref) do
+    {:builtin, "has", fn [val | _], _ -> val in set_data(set_ref) end}
+  end
+
+  defp set_foreach_fn(set_ref) do
+    {:builtin, "forEach",
+     fn [cb | _], _ ->
+       for v <- set_data(set_ref) do
+         QuickBEAM.BeamVM.Runtime.call_builtin_callback(cb, [v, v], :no_interp)
+       end
+
+       :undefined
+     end}
+  end
+
+  defp other_set_data(other) do
+    case other do
+      {:obj, r} -> Map.get(Heap.get_obj(r, %{}), "__set_data__", [])
+      _ -> []
+    end
+  end
+
+  defp set_difference_fn(set_ref) do
+    {:builtin, "difference",
+     fn [other | _], _ ->
+       set_constructor().([set_data(set_ref) -- other_set_data(other)])
+     end}
+  end
+
+  defp set_intersection_fn(set_ref) do
+    {:builtin, "intersection",
+     fn [other | _], _ ->
+       od = other_set_data(other)
+       set_constructor().([Enum.filter(set_data(set_ref), &(&1 in od))])
+     end}
+  end
+
+  defp set_union_fn(set_ref) do
+    {:builtin, "union",
+     fn [other | _], _ ->
+       set_constructor().([Enum.uniq(set_data(set_ref) ++ other_set_data(other))])
+     end}
+  end
+
+  defp set_symmetric_difference_fn(set_ref) do
+    {:builtin, "symmetricDifference",
+     fn [other | _], _ ->
+       d = set_data(set_ref)
+       od = other_set_data(other)
+       set_constructor().([(d -- od) ++ (od -- d)])
+     end}
+  end
+
+  defp set_is_subset_fn(set_ref) do
+    {:builtin, "isSubsetOf",
+     fn [other | _], _ ->
+       od = other_set_data(other)
+       Enum.all?(set_data(set_ref), &(&1 in od))
+     end}
+  end
+
+  defp set_is_superset_fn(set_ref) do
+    {:builtin, "isSupersetOf",
+     fn [other | _], _ ->
+       d = set_data(set_ref)
+       Enum.all?(other_set_data(other), &(&1 in d))
+     end}
+  end
+
+  defp set_is_disjoint_fn(set_ref) do
+    {:builtin, "isDisjointFrom",
+     fn [other | _], _ ->
+       od = other_set_data(other)
+       not Enum.any?(set_data(set_ref), &(&1 in od))
+     end}
   end
 
   # ── Error static ──

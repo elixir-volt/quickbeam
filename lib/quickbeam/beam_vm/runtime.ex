@@ -132,182 +132,193 @@ defmodule QuickBEAM.BeamVM.Runtime do
     obj_builtin = {:builtin, "Object", Builtins.object_constructor()}
     Heap.put_ctor_static(obj_builtin, "prototype", obj_proto_ref)
 
-    bindings = %{
-      "Object" => obj_builtin,
-      "Array" => {:builtin, "Array", Builtins.array_constructor()},
-      "String" => {:builtin, "String", Builtins.string_constructor()},
-      "Number" => {:builtin, "Number", Builtins.number_constructor()},
-      "BigInt" => {:builtin, "BigInt", Builtins.bigint_constructor()},
-      "gc" => {:builtin, "gc", fn _ -> :undefined end},
-      "Boolean" => {:builtin, "Boolean", Builtins.boolean_constructor()},
-      "Function" => {:builtin, "Function", Builtins.function_constructor()},
-      "Error" =>
-        register_builtin("Error", Builtins.error_constructor(),
-          prototype: %{"name" => "Error", "message" => ""}
-        ),
-      "TypeError" =>
-        register_builtin("TypeError", Builtins.error_constructor(),
-          prototype: %{"name" => "TypeError", "message" => ""}
-        ),
-      "RangeError" =>
-        register_builtin("RangeError", Builtins.error_constructor(),
-          prototype: %{"name" => "RangeError", "message" => ""}
-        ),
-      "SyntaxError" =>
-        register_builtin("SyntaxError", Builtins.error_constructor(),
-          prototype: %{"name" => "SyntaxError", "message" => ""}
-        ),
-      "ReferenceError" =>
-        register_builtin("ReferenceError", Builtins.error_constructor(),
-          prototype: %{"name" => "ReferenceError", "message" => ""}
-        ),
-      "URIError" =>
-        register_builtin("URIError", Builtins.error_constructor(),
-          prototype: %{"name" => "URIError", "message" => ""}
-        ),
-      "EvalError" =>
-        register_builtin("EvalError", Builtins.error_constructor(),
-          prototype: %{"name" => "EvalError", "message" => ""}
-        ),
-      "Math" => Builtins.math_object(),
-      "JSON" => JSON.object(),
-      "Date" => register_builtin("Date", &JSDate.constructor/1, statics: date_statics()),
-      "Promise" =>
-        register_builtin("Promise", Builtins.promise_constructor(),
-          statics: Builtins.promise_statics()
-        ),
-      "RegExp" => {:builtin, "RegExp", Builtins.regexp_constructor()},
-      "Symbol" =>
-        register_builtin("Symbol", Builtins.symbol_constructor(),
-          statics: Builtins.symbol_statics()
-        ),
-      "parseInt" => {:builtin, "parseInt", fn args -> Builtins.parse_int(args) end},
-      "parseFloat" => {:builtin, "parseFloat", fn args -> Builtins.parse_float(args) end},
-      "isNaN" => {:builtin, "isNaN", fn args -> Builtins.is_nan(args) end},
-      "isFinite" => {:builtin, "isFinite", fn args -> Builtins.is_finite(args) end},
-      "NaN" => :nan,
-      "Infinity" => :infinity,
-      "undefined" => :undefined,
-      "Map" => {:builtin, "Map", Builtins.map_constructor()},
-      "Set" => {:builtin, "Set", Builtins.set_constructor()},
-      "WeakMap" => {:builtin, "WeakMap", Builtins.map_constructor()},
-      "WeakSet" => {:builtin, "WeakSet", Builtins.set_constructor()},
-      "WeakRef" => {:builtin, "WeakRef", fn _ -> __MODULE__.obj_new() end},
-      "Reflect" =>
-        {:builtin, "Reflect",
-         %{
-           "get" => {:builtin, "get", fn [obj, key | _] -> get_property(obj, key) end},
-           "set" =>
-             {:builtin, "set",
-              fn [obj, key, val | _] ->
-                QuickBEAM.BeamVM.Interpreter.Objects.put(obj, key, val)
-                true
-              end},
-           "has" =>
-             {:builtin, "has",
-              fn [obj, key | _] -> QuickBEAM.BeamVM.Interpreter.Objects.has_property(obj, key) end},
-           "ownKeys" =>
-             {:builtin, "ownKeys",
-              fn [obj | _] ->
-                case obj do
-                  {:obj, ref} ->
-                    keys = Map.keys(Heap.get_obj(ref, %{}))
-                    Heap.wrap(keys)
+    bindings =
+      %{
+        "Object" => obj_builtin,
+        "Array" => {:builtin, "Array", Builtins.array_constructor()},
+        "String" => {:builtin, "String", Builtins.string_constructor()},
+        "Number" => {:builtin, "Number", Builtins.number_constructor()},
+        "BigInt" => {:builtin, "BigInt", Builtins.bigint_constructor()},
+        "gc" => {:builtin, "gc", fn _ -> :undefined end},
+        "Boolean" => {:builtin, "Boolean", Builtins.boolean_constructor()},
+        "Function" => {:builtin, "Function", Builtins.function_constructor()},
+        "Error" =>
+          register_builtin("Error", Builtins.error_constructor(),
+            prototype: %{"name" => "Error", "message" => ""}
+          ),
+        "TypeError" =>
+          register_builtin("TypeError", Builtins.error_constructor(),
+            prototype: %{"name" => "TypeError", "message" => ""}
+          ),
+        "RangeError" =>
+          register_builtin("RangeError", Builtins.error_constructor(),
+            prototype: %{"name" => "RangeError", "message" => ""}
+          ),
+        "SyntaxError" =>
+          register_builtin("SyntaxError", Builtins.error_constructor(),
+            prototype: %{"name" => "SyntaxError", "message" => ""}
+          ),
+        "ReferenceError" =>
+          register_builtin("ReferenceError", Builtins.error_constructor(),
+            prototype: %{"name" => "ReferenceError", "message" => ""}
+          ),
+        "URIError" =>
+          register_builtin("URIError", Builtins.error_constructor(),
+            prototype: %{"name" => "URIError", "message" => ""}
+          ),
+        "EvalError" =>
+          register_builtin("EvalError", Builtins.error_constructor(),
+            prototype: %{"name" => "EvalError", "message" => ""}
+          ),
+        "Math" => Builtins.math_object(),
+        "JSON" => JSON.object(),
+        "Date" => register_builtin("Date", &JSDate.constructor/1, statics: date_statics()),
+        "Promise" =>
+          register_builtin("Promise", Builtins.promise_constructor(),
+            statics: Builtins.promise_statics()
+          ),
+        "RegExp" => {:builtin, "RegExp", Builtins.regexp_constructor()},
+        "Symbol" =>
+          register_builtin("Symbol", Builtins.symbol_constructor(),
+            statics: Builtins.symbol_statics()
+          ),
+        "parseInt" => {:builtin, "parseInt", fn args -> Builtins.parse_int(args) end},
+        "parseFloat" => {:builtin, "parseFloat", fn args -> Builtins.parse_float(args) end},
+        "isNaN" => {:builtin, "isNaN", fn args -> Builtins.is_nan(args) end},
+        "isFinite" => {:builtin, "isFinite", fn args -> Builtins.is_finite(args) end},
+        "NaN" => :nan,
+        "Infinity" => :infinity,
+        "undefined" => :undefined,
+        "Map" => {:builtin, "Map", Builtins.map_constructor()},
+        "Set" => {:builtin, "Set", Builtins.set_constructor()},
+        "WeakMap" => {:builtin, "WeakMap", Builtins.map_constructor()},
+        "WeakSet" => {:builtin, "WeakSet", Builtins.set_constructor()},
+        "WeakRef" => {:builtin, "WeakRef", fn _ -> __MODULE__.obj_new() end},
+        "Reflect" =>
+          {:builtin, "Reflect",
+           %{
+             "get" => {:builtin, "get", fn [obj, key | _] -> get_property(obj, key) end},
+             "set" =>
+               {:builtin, "set",
+                fn [obj, key, val | _] ->
+                  QuickBEAM.BeamVM.Interpreter.Objects.put(obj, key, val)
+                  true
+                end},
+             "has" =>
+               {:builtin, "has",
+                fn [obj, key | _] ->
+                  QuickBEAM.BeamVM.Interpreter.Objects.has_property(obj, key)
+                end},
+             "ownKeys" =>
+               {:builtin, "ownKeys",
+                fn [obj | _] ->
+                  case obj do
+                    {:obj, ref} ->
+                      keys = Map.keys(Heap.get_obj(ref, %{}))
+                      Heap.wrap(keys)
 
-                  _ ->
-                    {:obj,
-                     (
-                       r = make_ref()
-                       Heap.put_obj(r, [])
-                       r
-                     )}
-                end
-              end}
-         }},
-      # TODO: Proxy only intercepts get/set/has traps. Missing: deleteProperty,
-      # ownKeys, getPrototypeOf, apply, construct. Prototype chain lookup
-      # (get_prototype_property) does not check for proxy handlers.
-      "Proxy" =>
-        {:builtin, "Proxy",
-         fn
-           [target, handler | _] ->
-             Heap.wrap(%{"__proxy_target__" => target, "__proxy_handler__" => handler})
+                    _ ->
+                      {:obj,
+                       (
+                         r = make_ref()
+                         Heap.put_obj(r, [])
+                         r
+                       )}
+                  end
+                end}
+           }},
+        # TODO: Proxy only intercepts get/set/has traps. Missing: deleteProperty,
+        # ownKeys, getPrototypeOf, apply, construct. Prototype chain lookup
+        # (get_prototype_property) does not check for proxy handlers.
+        "Proxy" =>
+          {:builtin, "Proxy",
+           fn
+             [target, handler | _] ->
+               Heap.wrap(%{"__proxy_target__" => target, "__proxy_handler__" => handler})
 
-           _ ->
-             __MODULE__.obj_new()
-         end},
-      "console" => Builtins.console_object(),
-      "require" =>
-        {:builtin, "require",
-         fn [name | _] ->
-           case Heap.get_module(name) do
-             nil ->
-               ref = make_ref()
+             _ ->
+               __MODULE__.obj_new()
+           end},
+        "console" => Builtins.console_object(),
+        "require" =>
+          {:builtin, "require",
+           fn [name | _] ->
+             case Heap.get_module(name) do
+               nil ->
+                 ref = make_ref()
 
-               Heap.put_obj(ref, %{
-                 "message" => "Cannot find module '#{name}'",
-                 "name" => "Error",
-                 "stack" => ""
-               })
+                 Heap.put_obj(ref, %{
+                   "message" => "Cannot find module '#{name}'",
+                   "name" => "Error",
+                   "stack" => ""
+                 })
 
-               throw({:js_throw, {:obj, ref}})
+                 throw({:js_throw, {:obj, ref}})
 
-             exports ->
-               exports
-           end
-         end},
-      "eval" =>
-        {:builtin, "eval",
-         fn [code | _] ->
-           ctx = QuickBEAM.BeamVM.Heap.get_ctx()
-
-           if (is_binary(code) and ctx) && ctx.runtime_pid do
-             case QuickBEAM.Runtime.compile(ctx.runtime_pid, code) do
-               {:ok, bc} ->
-                 case QuickBEAM.BeamVM.Bytecode.decode(bc) do
-                   {:ok, parsed} ->
-                     case QuickBEAM.BeamVM.Interpreter.eval(
-                            parsed.value,
-                            [],
-                            %{gas: 1_000_000_000, runtime_pid: ctx.runtime_pid},
-                            parsed.atoms
-                          ) do
-                       {:ok, val} -> val
-                       _ -> :undefined
-                     end
-
-                   _ ->
-                     :undefined
-                 end
-
-               _ ->
-                 :undefined
+               exports ->
+                 exports
              end
-           else
+           end},
+        "eval" =>
+          {:builtin, "eval",
+           fn [code | _] ->
+             ctx = QuickBEAM.BeamVM.Heap.get_ctx()
+
+             if (is_binary(code) and ctx) && ctx.runtime_pid do
+               case QuickBEAM.Runtime.compile(ctx.runtime_pid, code) do
+                 {:ok, bc} ->
+                   case QuickBEAM.BeamVM.Bytecode.decode(bc) do
+                     {:ok, parsed} ->
+                       case QuickBEAM.BeamVM.Interpreter.eval(
+                              parsed.value,
+                              [],
+                              %{gas: 1_000_000_000, runtime_pid: ctx.runtime_pid},
+                              parsed.atoms
+                            ) do
+                         {:ok, val} -> val
+                         _ -> :undefined
+                       end
+
+                     _ ->
+                       :undefined
+                   end
+
+                 _ ->
+                   :undefined
+               end
+             else
+               :undefined
+             end
+           end},
+        "globalThis" => obj_new(),
+        "structuredClone" => {:builtin, "structuredClone", fn [val | _] -> val end},
+        "queueMicrotask" =>
+          {:builtin, "queueMicrotask",
+           fn [cb | _] ->
+             Heap.enqueue_microtask({:resolve, nil, cb, :undefined})
              :undefined
-           end
-         end},
-      "globalThis" => obj_new(),
-      "structuredClone" => {:builtin, "structuredClone", fn [val | _] -> val end},
-      "queueMicrotask" =>
-        {:builtin, "queueMicrotask",
-         fn [cb | _] ->
-           Heap.enqueue_microtask({:resolve, nil, cb, :undefined})
-           :undefined
-         end},
-      "ArrayBuffer" => {:builtin, "ArrayBuffer", &TypedArray.array_buffer_constructor/1},
-      "Uint8Array" => {:builtin, "Uint8Array", TypedArray.typed_array_constructor(:uint8)},
-      "Int8Array" => {:builtin, "Int8Array", TypedArray.typed_array_constructor(:int8)},
-      "Uint8ClampedArray" =>
-        {:builtin, "Uint8ClampedArray", TypedArray.typed_array_constructor(:uint8_clamped)},
-      "Uint16Array" => {:builtin, "Uint16Array", TypedArray.typed_array_constructor(:uint16)},
-      "Int16Array" => {:builtin, "Int16Array", TypedArray.typed_array_constructor(:int16)},
-      "Uint32Array" => {:builtin, "Uint32Array", TypedArray.typed_array_constructor(:uint32)},
-      "Int32Array" => {:builtin, "Int32Array", TypedArray.typed_array_constructor(:int32)},
-      "Float32Array" => {:builtin, "Float32Array", TypedArray.typed_array_constructor(:float32)},
-      "Float64Array" => {:builtin, "Float64Array", TypedArray.typed_array_constructor(:float64)},
-      "DataView" => {:builtin, "DataView", fn _ -> obj_new() end}
-    }
+           end},
+        "ArrayBuffer" => {:builtin, "ArrayBuffer", &TypedArray.array_buffer_constructor/1}
+      }
+      |> Map.merge(
+        for {name, type} <- [
+              {"Uint8Array", :uint8},
+              {"Int8Array", :int8},
+              {"Uint8ClampedArray", :uint8_clamped},
+              {"Uint16Array", :uint16},
+              {"Int16Array", :int16},
+              {"Uint32Array", :uint32},
+              {"Int32Array", :int32},
+              {"Float32Array", :float32},
+              {"Float64Array", :float64}
+            ],
+            into: %{} do
+          {name, {:builtin, name, TypedArray.typed_array_constructor(type)}}
+        end
+      )
+      |> Map.merge(%{
+        "DataView" => {:builtin, "DataView", fn _ -> obj_new() end}
+      })
 
     Heap.put_global_cache(bindings)
     bindings

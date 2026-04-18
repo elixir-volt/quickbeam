@@ -128,14 +128,14 @@ defmodule QuickBEAM.BeamVM.Bytecode do
         idx = bsr(v, 1)
 
         name =
-          cond do
-            idx == 0 ->
+          case idx do
+            0 ->
               ""
 
-            idx < @js_atom_end ->
-              {:predefined, idx}
+            n when n < @js_atom_end ->
+              {:predefined, n}
 
-            true ->
+            _ ->
               local_idx = idx - @js_atom_end
 
               if local_idx < tuple_size(atoms),
