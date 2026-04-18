@@ -52,7 +52,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
     ctx = %Ctx{
       atoms: atoms,
-      globals: Runtime.global_bindings(),
+      globals: Map.merge(Runtime.global_bindings(), Map.get(opts, :globals, %{})),
       runtime_pid: Map.get(opts, :runtime_pid)
     }
 
@@ -1319,7 +1319,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(jump(frame, ret_pc), rest, gas - 1, ctx)
   end
 
-  # ── eval (indirect/global scope only — direct eval with local scope access not yet implemented) ──
+  # ── eval ──
 
   defp run({:eval, [argc | _]}, frame, stack, gas, ctx) do
     {args, rest} = Enum.split(stack, argc)
@@ -1327,34 +1327,84 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
     result =
       if is_binary(code) and ctx.runtime_pid != nil do
-        case QuickBEAM.Runtime.compile(ctx.runtime_pid, code) do
-          {:ok, bc} ->
-            case Bytecode.decode(bc) do
-              {:ok, parsed} ->
-                __MODULE__.eval(
-                  parsed.value,
-                  [],
-                  %{gas: gas, runtime_pid: ctx.runtime_pid},
-                  parsed.atoms
-                )
-                |> case do
-                  {:ok, val} -> val
-                  {:error, {:js_throw, val}} -> throw({:js_throw, val})
-                  {:error, _} -> :undefined
-                end
-
-              _ ->
-                :undefined
-            end
-
-          _ ->
-            :undefined
-        end
+        eval_code(code, frame, gas, ctx)
       else
         :undefined
       end
 
     run(advance(frame), [result | rest], gas - 1, ctx)
+  end
+
+  defp eval_code(code, caller_frame, gas, ctx) do
+    case QuickBEAM.Runtime.compile(ctx.runtime_pid, code) do
+      {:ok, bc} ->
+        case Bytecode.decode(bc) do
+          {:ok, parsed} ->
+            # Inject caller's named locals into eval's global scope
+            eval_globals = collect_caller_locals(caller_frame, ctx)
+            eval_ctx_globals = Map.merge(ctx.globals, eval_globals)
+
+            __MODULE__.eval(
+              parsed.value,
+              [],
+              %{gas: gas, runtime_pid: ctx.runtime_pid, globals: eval_ctx_globals},
+              parsed.atoms
+            )
+            |> case do
+              {:ok, val} -> val
+              {:error, {:js_throw, val}} -> throw({:js_throw, val})
+              {:error, _} -> :undefined
+            end
+
+          _ ->
+            :undefined
+        end
+
+      _ ->
+        :undefined
+    end
+  end
+
+  defp collect_caller_locals(frame, ctx) do
+    locals = elem(frame, Frame.locals())
+    # Get the current function's local variable definitions
+    case ctx.current_func do
+      {:closure, _, %Bytecode.Function{locals: local_defs}} ->
+        build_local_map(local_defs, locals, ctx)
+
+      %Bytecode.Function{locals: local_defs} ->
+        build_local_map(local_defs, locals, ctx)
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp build_local_map(local_defs, locals, ctx) do
+    arg_buf = ctx.arg_buf
+
+    local_defs
+    |> Enum.with_index()
+    |> Enum.reduce(%{}, fn {vd, idx}, acc ->
+      name =
+        case vd.name do
+          s when is_binary(s) -> s
+          _ -> nil
+        end
+
+      if name do
+        val =
+          cond do
+            idx < tuple_size(arg_buf) -> elem(arg_buf, idx)
+            idx < tuple_size(locals) -> elem(locals, idx)
+            true -> :undefined
+          end
+
+        if val != :undefined, do: Map.put(acc, name, val), else: acc
+      else
+        acc
+      end
+    end)
   end
 
   # ── Iterators ──
