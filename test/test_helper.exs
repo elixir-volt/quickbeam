@@ -21,6 +21,9 @@ unless File.exists?(test_addon_out) and
   {_, 0} = System.cmd("cc", args, stderr_to_stdout: true)
 end
 
+# Load shared test modules
+Code.require_file("support/shared_api_tests.exs", __DIR__)
+
 ExUnit.start(exclude: [:pending_beam, :pending_class])
 
 # Force garbage collection before BEAM exits to prevent NIF finalizer crashes.
