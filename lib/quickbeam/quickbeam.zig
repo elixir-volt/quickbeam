@@ -909,28 +909,61 @@ pub fn disasm_bytecode(bytecode: []const u8) beam.term {
 }
 
 // ── RegExp NIF ──
-const regexp_c = @cImport(@cInclude("regexp_nif.h"));
+const lre = @cImport(@cInclude("libregexp.h"));
+
+threadlocal var tls_rt: ?*types.qjs.JSRuntime = null;
+threadlocal var tls_ctx: ?*types.qjs.JSContext = null;
+
+fn ensure_regexp_ctx() ?*types.qjs.JSContext {
+    if (tls_ctx) |ctx| return ctx;
+    const rt = types.qjs.JS_NewRuntime() orelse return null;
+    types.qjs.JS_SetMemoryLimit(rt, 8 * 1024 * 1024);
+    const ctx = types.qjs.JS_NewContext(rt) orelse return null;
+    tls_rt = rt;
+    tls_ctx = ctx;
+    return ctx;
+}
 
 pub fn regexp_exec(bc_buf: []const u8, input: []const u8, last_index: u32) beam.term {
-    var out_captures: [512]c_int = undefined;
-    const ret = regexp_c.qb_regexp_exec(
-        bc_buf.ptr,
-        @intCast(bc_buf.len),
-        input.ptr,
-        @intCast(input.len),
-        @intCast(last_index),
-        &out_captures,
-        256,
-    );
-    if (ret <= 0) return beam.make(null, .{});
+    const ctx = ensure_regexp_ctx() orelse return beam.make(null, .{});
 
-    const capture_count: u32 = @intCast(ret);
+    const capture_count: u32 = @intCast(bc_buf[2]); // RE_HEADER_CAPTURE_COUNT
+    if (capture_count == 0 or capture_count > 255) return beam.make(null, .{});
+    if (bc_buf.len < 8) return beam.make(null, .{});
+
+    // Read flags from header to determine unicode mode
+    const flags: u32 = @as(u32, bc_buf[0]) | (@as(u32, bc_buf[1]) << 8);
+    const is_unicode: c_int = if (flags & 0x10 != 0) 1 else 0; // LRE_FLAG_UNICODE = 1 << 4
+
+    // Allocate capture array via C malloc
+    const alloc_count = capture_count * 2;
+    const capture_mem = std.c.malloc(alloc_count * @sizeOf(?[*]u8)) orelse return beam.make(null, .{});
+    defer std.c.free(capture_mem);
+    const capture: [*]?[*]u8 = @ptrCast(@alignCast(capture_mem));
+    for (0..alloc_count) |i| {
+        capture[i] = null;
+    }
+
+    const ret = lre.lre_exec(
+        @ptrCast(capture),
+        bc_buf.ptr,
+        input.ptr,
+        @intCast(last_index),
+        @intCast(input.len),
+        is_unicode,
+        @ptrCast(ctx),
+    );
+
+    if (ret != 1) return beam.make(null, .{});
+
     var result_terms: [256]beam.term = undefined;
     for (0..capture_count) |i| {
-        const s = out_captures[i * 2];
-        const end_off = out_captures[i * 2 + 1];
-        if (s >= 0 and end_off >= 0) {
-            result_terms[i] = beam.make(.{ @as(u32, @intCast(s)), @as(u32, @intCast(end_off)) }, .{});
+        const sp = capture[i * 2];
+        const ep = capture[i * 2 + 1];
+        if (sp != null and ep != null) {
+            const s: u32 = @intCast(@intFromPtr(sp.?) - @intFromPtr(input.ptr));
+            const end_off: u32 = @intCast(@intFromPtr(ep.?) - @intFromPtr(input.ptr));
+            result_terms[i] = beam.make(.{ s, end_off }, .{});
         } else {
             result_terms[i] = beam.make(null, .{});
         }

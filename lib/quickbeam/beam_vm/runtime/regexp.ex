@@ -11,8 +11,9 @@ defmodule QuickBEAM.BeamVM.Runtime.RegExp do
 
   def nif_exec(bytecode, str, last_index) when is_binary(bytecode) and is_binary(str) do
     raw_bc = utf8_to_latin1(bytecode)
+    raw_str = utf8_to_latin1(str)
 
-    case QuickBEAM.Native.regexp_exec(raw_bc, str, last_index) do
+    case QuickBEAM.Native.regexp_exec(raw_bc, raw_str, last_index) do
       nil ->
         nil
 
