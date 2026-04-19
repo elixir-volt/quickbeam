@@ -30,6 +30,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     Prototypes,
     JSON,
     Object,
+    Reflect,
     RegExp,
     Boolean,
     Builtins,
@@ -68,6 +69,17 @@ defmodule QuickBEAM.BeamVM.Runtime do
     end
 
     builtin
+  end
+
+  @error_types ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError)
+
+  defp error_builtins do
+    for name <- @error_types, into: %{} do
+      {name,
+       register_builtin(name, Builtins.error_constructor(),
+         prototype: %{"name" => name, "message" => ""}
+       )}
+    end
   end
 
   def global_bindings do
@@ -135,34 +147,6 @@ defmodule QuickBEAM.BeamVM.Runtime do
         "gc" => {:builtin, "gc", fn _, _this -> :undefined end},
         "Boolean" => {:builtin, "Boolean", Boolean.constructor()},
         "Function" => {:builtin, "Function", Builtins.function_constructor()},
-        "Error" =>
-          register_builtin("Error", Builtins.error_constructor(),
-            prototype: %{"name" => "Error", "message" => ""}
-          ),
-        "TypeError" =>
-          register_builtin("TypeError", Builtins.error_constructor(),
-            prototype: %{"name" => "TypeError", "message" => ""}
-          ),
-        "RangeError" =>
-          register_builtin("RangeError", Builtins.error_constructor(),
-            prototype: %{"name" => "RangeError", "message" => ""}
-          ),
-        "SyntaxError" =>
-          register_builtin("SyntaxError", Builtins.error_constructor(),
-            prototype: %{"name" => "SyntaxError", "message" => ""}
-          ),
-        "ReferenceError" =>
-          register_builtin("ReferenceError", Builtins.error_constructor(),
-            prototype: %{"name" => "ReferenceError", "message" => ""}
-          ),
-        "URIError" =>
-          register_builtin("URIError", Builtins.error_constructor(),
-            prototype: %{"name" => "URIError", "message" => ""}
-          ),
-        "EvalError" =>
-          register_builtin("EvalError", Builtins.error_constructor(),
-            prototype: %{"name" => "EvalError", "message" => ""}
-          ),
         "Math" => Math.object(),
         "JSON" => JSON.object(),
         "Date" => register_builtin("Date", &JSDate.constructor/2, module: JSDate),
@@ -181,52 +165,14 @@ defmodule QuickBEAM.BeamVM.Runtime do
         "WeakMap" => {:builtin, "WeakMap", MapSet.map_constructor()},
         "WeakSet" => {:builtin, "WeakSet", MapSet.set_constructor()},
         "WeakRef" => {:builtin, "WeakRef", fn _, _this -> __MODULE__.obj_new() end},
-        "Reflect" =>
-          {:builtin, "Reflect",
-           %{
-             "get" => {:builtin, "get", fn [obj, key | _], _this -> get_property(obj, key) end},
-             "set" =>
-               {:builtin, "set",
-                fn [obj, key, val | _], _this ->
-                  QuickBEAM.BeamVM.Interpreter.Objects.put(obj, key, val)
-                  true
-                end},
-             "has" =>
-               {:builtin, "has",
-                fn [obj, key | _], _this ->
-                  QuickBEAM.BeamVM.Interpreter.Objects.has_property(obj, key)
-                end},
-             "ownKeys" =>
-               {:builtin, "ownKeys",
-                fn [obj | _], _this ->
-                  case obj do
-                    {:obj, ref} ->
-                      keys = Map.keys(Heap.get_obj(ref, %{}))
-                      Heap.wrap(keys)
-
-                    _ ->
-                      {:obj,
-                       (
-                         r = make_ref()
-                         Heap.put_obj(r, [])
-                         r
-                       )}
-                  end
-                end}
-           }},
-        # TODO: Proxy only intercepts get/set/has traps. Missing: deleteProperty,
-        # ownKeys, getPrototypeOf, apply, construct. Prototype chain lookup
-        # (get_prototype_property) does not check for proxy handlers.
+        "Reflect" => Reflect.object(),
         "Proxy" =>
           {:builtin, "Proxy",
            fn
-             [target, handler | _] ->
-               Heap.wrap(%{
-                 proxy_target() => target,
-                 proxy_handler() => handler
-               })
+             [target, handler | _], _this ->
+               Heap.wrap(%{proxy_target() => target, proxy_handler() => handler})
 
-             _ ->
+             _, _this ->
                __MODULE__.obj_new()
            end},
         "console" => Console.object(),
@@ -235,15 +181,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
            fn [name | _], _this ->
              case Heap.get_module(name) do
                nil ->
-                 ref = make_ref()
-
-                 Heap.put_obj(ref, %{
-                   "message" => "Cannot find module '#{name}'",
-                   "name" => "Error",
-                   "stack" => ""
-                 })
-
-                 throw({:js_throw, {:obj, ref}})
+                 throw({:js_throw, Heap.make_error("Cannot find module '\#{name}'", "Error")})
 
                exports ->
                  exports
@@ -309,6 +247,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
       |> Map.merge(%{
         "DataView" => {:builtin, "DataView", fn _, _this -> obj_new() end}
       })
+      |> Map.merge(error_builtins())
 
     Heap.put_global_cache(bindings)
     bindings
