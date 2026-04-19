@@ -475,10 +475,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
       map when is_map(map) ->
         cond do
           Map.has_key?(map, map_data()) ->
-            Prototypes.map_proto(key)
+            MapSet.map_proto(key)
 
           Map.has_key?(map, set_data()) ->
-            Prototypes.set_proto(key)
+            MapSet.set_proto(key)
 
           Map.has_key?(map, proto()) ->
             # Walk prototype chain
