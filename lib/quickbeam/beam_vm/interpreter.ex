@@ -2503,12 +2503,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp do_invoke(%Bytecode.Function{} = fun, args, var_refs, gas, ctx) do
-    self_ref =
-      if var_refs != [] or fun.closure_vars != [] do
-        {:closure, %{}, fun}
-      else
-        fun
-      end
+    self_ref = {:closure, %{}, fun}
 
     insns =
       case Heap.get_decoded(fun.byte_code) do
