@@ -17,7 +17,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     "Uint32Array" => :uint32,
     "Int32Array" => :int32,
     "Float32Array" => :float32,
-    "Float64Array" => :float64
+    "Float64Array" => :float64,
+    "Float16Array" => :float16,
   }
 
   def types, do: @types
@@ -44,6 +45,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
           method("reverse", do: reverse(ref))
           method("slice", do: slice(ref, args))
           method("fill", do: fill(ref, args))
+          method("toString", do: join(ref, [","]))
         end
 
       obj =
@@ -248,6 +250,61 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
   # ── Helpers ──
 
+  defp decode_float16(bits) do
+    sign = Bitwise.bsr(bits, 15) |> Bitwise.band(1)
+    exp = Bitwise.bsr(bits, 10) |> Bitwise.band(0x1F)
+    frac = Bitwise.band(bits, 0x3FF)
+    s = if sign == 1, do: -1.0, else: 1.0
+
+    cond do
+      exp == 0 and frac == 0 -> s * 0.0
+      exp == 0 -> s * frac * :math.pow(2, -24)
+      exp == 31 and frac == 0 -> s * :infinity
+      exp == 31 -> :nan
+      true -> s * :math.pow(2, exp - 15) * (1 + frac / 1024)
+    end
+  end
+
+  defp encode_float16(n) when n in [:nan, :NaN], do: 0x7E00
+  defp encode_float16(:infinity), do: 0x7C00
+  defp encode_float16(:neg_infinity), do: 0xFC00
+
+  defp encode_float16(n) when is_number(n) do
+    f = n * 1.0
+    sign = if f < 0, do: 1, else: 0
+    abs_f = abs(f)
+
+    cond do
+      abs_f == 0.0 -> Bitwise.bsl(sign, 15)
+      abs_f >= 65520.0 -> Bitwise.bsl(sign, 15) |> Bitwise.bor(0x7C00)
+      true ->
+        exp = trunc(:math.floor(:math.log2(abs_f)))
+        exp = max(-14, min(15, exp))
+        frac = trunc((abs_f / :math.pow(2, exp) - 1) * 1024 + 0.5) |> Bitwise.band(0x3FF)
+        exp_biased = exp + 15
+
+        Bitwise.bsl(sign, 15)
+        |> Bitwise.bor(Bitwise.bsl(exp_biased, 10))
+        |> Bitwise.bor(frac)
+    end
+  end
+
+  defp encode_float16(_), do: 0
+
+  defp bankers_round(n) when is_float(n) do
+    floor = trunc(n)
+    frac = n - floor
+    cond do
+      frac > 0.5 -> floor + 1
+      frac < 0.5 -> floor
+      rem(floor, 2) == 0 -> floor
+      true -> floor + 1
+    end
+  end
+
+  defp bankers_round(n) when is_integer(n), do: n
+  defp bankers_round(_), do: 0
+
   defp call(cb, args), do: Runtime.call_callback(cb, args)
   defp to_idx(n) when is_integer(n), do: n
   defp to_idx(n) when is_float(n), do: trunc(n)
@@ -298,6 +355,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
   defp elem_size(:int16), do: 2
   defp elem_size(:uint32), do: 4
   defp elem_size(:int32), do: 4
+  defp elem_size(:float16), do: 2
   defp elem_size(:float32), do: 4
   defp elem_size(:float64), do: 8
   defp elem_size(:bigint64), do: 8
@@ -327,6 +385,11 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     if v >= 0x80000000, do: v - 0x100000000, else: v
   end
 
+  defp read_element(buf, pos, :float16) when pos * 2 + 1 < byte_size(buf) do
+    <<_::binary-size(pos * 2), half::16-little, _::binary>> = buf
+    decode_float16(half)
+  end
+
   defp read_element(buf, pos, :float32) when pos * 4 + 3 < byte_size(buf) do
     <<f::little-float-32>> = :binary.part(buf, pos * 4, 4)
     f
@@ -340,7 +403,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
   defp read_element(_, _, _), do: :undefined
 
   defp write_element(buf, pos, val, :uint8_clamped) when pos < byte_size(buf) do
-    v = trunc(max(0, min(255, val || 0)))
+    v = max(0, min(255, bankers_round(val || 0)))
     <<pre::binary-size(pos), _::8, rest::binary>> = buf
     <<pre::binary, v::8, rest::binary>>
   end
@@ -366,6 +429,12 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     bp = pos * 8
     <<pre::binary-size(bp), _::64, rest::binary>> = buf
     <<pre::binary, (val || 0.0) * 1.0::little-float-64, rest::binary>>
+  end
+
+  defp write_element(buf, pos, val, :float16) when pos * 2 + 1 < byte_size(buf) do
+    half = encode_float16(val || 0)
+    <<pre::binary-size(pos * 2), _::16, rest::binary>> = buf
+    <<pre::binary, half::16-little, rest::binary>>
   end
 
   defp write_element(buf, pos, val, :float32) when pos * 4 + 3 < byte_size(buf) do
