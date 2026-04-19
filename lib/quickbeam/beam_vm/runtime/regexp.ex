@@ -2,9 +2,8 @@ defmodule QuickBEAM.BeamVM.Runtime.RegExp do
   @moduledoc false
 
   use QuickBEAM.BeamVM.Builtin
-  alias QuickBEAM.BeamVM.Runtime.Property
-
   alias QuickBEAM.BeamVM.Heap
+  alias QuickBEAM.BeamVM.Runtime.Property
 
   proto "test" do
     test(this, args)

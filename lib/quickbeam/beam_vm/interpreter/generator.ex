@@ -2,8 +2,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
   @moduledoc false
 
   alias QuickBEAM.BeamVM.Heap
-  alias QuickBEAM.BeamVM.Interpreter.Promise
   alias QuickBEAM.BeamVM.Interpreter
+  alias QuickBEAM.BeamVM.Interpreter.Promise
 
   def invoke(frame, gas, ctx) do
     gen_ref = make_ref()

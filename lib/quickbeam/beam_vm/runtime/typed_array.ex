@@ -3,8 +3,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
   @moduledoc false
 
   use QuickBEAM.BeamVM.Builtin
-  alias QuickBEAM.BeamVM.Runtime
   alias QuickBEAM.BeamVM.Heap
+  alias QuickBEAM.BeamVM.Runtime
 
   def array_buffer_constructor(args, _this \\ nil) do
     byte_length =

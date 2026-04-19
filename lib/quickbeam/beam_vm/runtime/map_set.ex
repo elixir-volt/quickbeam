@@ -3,9 +3,8 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
 
   import QuickBEAM.BeamVM.Heap.Keys
   use QuickBEAM.BeamVM.Builtin
-  alias QuickBEAM.BeamVM.Runtime
-
   alias QuickBEAM.BeamVM.Heap
+  alias QuickBEAM.BeamVM.Runtime
 
   # ── Map/Set ──
 

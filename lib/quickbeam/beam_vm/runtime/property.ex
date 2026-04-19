@@ -4,13 +4,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
   import QuickBEAM.BeamVM.Heap.Keys
   import Bitwise, only: [band: 2]
 
-  alias QuickBEAM.BeamVM.{Bytecode, Heap}
-
-  alias QuickBEAM.BeamVM.Runtime
-  alias QuickBEAM.BeamVM.Runtime.{Array, Boolean, Function, MapSet, Number, Object, RegExp, TypedArray}
-  alias QuickBEAM.BeamVM.Runtime.String, as: JSString
-  alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
   alias QuickBEAM.BeamVM.Interpreter
+  alias QuickBEAM.BeamVM.Runtime
+  alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
+  alias QuickBEAM.BeamVM.Runtime.String, as: JSString
+  alias QuickBEAM.BeamVM.Runtime.{Array, Boolean, Function, MapSet, Number, Object, RegExp, TypedArray}
+  alias QuickBEAM.BeamVM.{Bytecode, Heap}
 
   def get(value, key) when is_binary(key) do
     case get_own(value, key) do

@@ -55,9 +55,5 @@ defmodule QuickBEAM.BeamVM.LEB128 do
   def read_u64(_), do: {:error, :unexpected_end}
 
   @spec read_i32(binary()) :: {:ok, integer(), binary()} | {:error, term()}
-  def read_i32(bin) do
-    with {:ok, val, rest} <- read_signed(bin) do
-      {:ok, val, rest}
-    end
-  end
+  def read_i32(bin), do: read_signed(bin)
 end

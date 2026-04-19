@@ -7,27 +7,27 @@ defmodule QuickBEAM.BeamVM.Runtime.Console do
 
   js_object "console" do
     method "log" do
-      IO.puts(args |> Enum.map(&Runtime.stringify/1) |> Enum.join(" "))
+      IO.puts(Enum.map_join(args, " ", &Runtime.stringify/1))
       :undefined
     end
 
     method "warn" do
-      IO.warn(args |> Enum.map(&Runtime.stringify/1) |> Enum.join(" "))
+      IO.warn(Enum.map_join(args, " ", &Runtime.stringify/1))
       :undefined
     end
 
     method "error" do
-      IO.puts(:stderr, args |> Enum.map(&Runtime.stringify/1) |> Enum.join(" "))
+      IO.puts(:stderr, Enum.map_join(args, " ", &Runtime.stringify/1))
       :undefined
     end
 
     method "info" do
-      IO.puts(args |> Enum.map(&Runtime.stringify/1) |> Enum.join(" "))
+      IO.puts(Enum.map_join(args, " ", &Runtime.stringify/1))
       :undefined
     end
 
     method "debug" do
-      IO.puts(args |> Enum.map(&Runtime.stringify/1) |> Enum.join(" "))
+      IO.puts(Enum.map_join(args, " ", &Runtime.stringify/1))
       :undefined
     end
   end

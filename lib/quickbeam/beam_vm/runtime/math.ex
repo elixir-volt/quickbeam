@@ -3,9 +3,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Math do
 
   use QuickBEAM.BeamVM.Builtin
 
-  alias QuickBEAM.BeamVM.Runtime
-  alias QuickBEAM.BeamVM.Interpreter.Values
   alias QuickBEAM.BeamVM.Heap
+  alias QuickBEAM.BeamVM.Interpreter.Values
+  alias QuickBEAM.BeamVM.Runtime
 
   js_object "Math" do
     method "floor" do

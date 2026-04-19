@@ -178,7 +178,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     end
   end
 
-  defp pop(list, _) when is_list(list) and length(list) > 0, do: List.last(list)
+  defp pop([_ | _] = list, _), do: List.last(list)
   defp pop(_, _), do: :undefined
 
   defp shift({:obj, ref}, _) do
@@ -218,7 +218,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     Heap.wrap(result)
   end
 
-  defp map(list, [fun | _]) when is_list(list) and length(list) > 0 do
+  defp map([_ | _] = list, [fun | _]) do
     Enum.map(Enum.with_index(list), fn {val, idx} ->
       Runtime.call_callback(fun, [val, idx, list])
     end)

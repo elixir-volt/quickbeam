@@ -3,8 +3,8 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
   use QuickBEAM.BeamVM.Builtin
 
-  alias QuickBEAM.BeamVM.Runtime
   alias QuickBEAM.BeamVM.Heap
+  alias QuickBEAM.BeamVM.Runtime
   alias QuickBEAM.BeamVM.Runtime.RegExp
 
   # ── Dispatch ──
@@ -114,7 +114,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
   end
 
   proto "concat" do
-    this <> Enum.join(Enum.map(args, &Runtime.stringify/1))
+    this <> Enum.map_join(args, &Runtime.stringify/1)
   end
 
   proto "toString" do

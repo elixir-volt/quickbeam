@@ -3,8 +3,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
 
   use QuickBEAM.BeamVM.Builtin
 
-  alias QuickBEAM.BeamVM.Runtime
   alias QuickBEAM.BeamVM.Interpreter.Values
+  alias QuickBEAM.BeamVM.Runtime
 
   # ── Number.prototype ──
 

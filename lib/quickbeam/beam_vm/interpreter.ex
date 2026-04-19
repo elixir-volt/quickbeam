@@ -32,14 +32,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             with_has_property?: 2,
             check_prototype_chain: 2}
 
-  alias QuickBEAM.BeamVM.{Bytecode, Decoder, Runtime}
   alias QuickBEAM.BeamVM.Runtime.Property
+  alias QuickBEAM.BeamVM.{Bytecode, Decoder, Runtime}
   alias __MODULE__.{Frame, Context}
   require Frame
 
+  alias QuickBEAM.BeamVM.Builtin
   alias QuickBEAM.BeamVM.Heap
   alias __MODULE__.{Values, Objects, Closures, Scope, Promise, Generator}
-  alias QuickBEAM.BeamVM.Builtin
   import Bitwise, only: [bnot: 1, &&&: 2]
 
   @default_gas 1_000_000_000

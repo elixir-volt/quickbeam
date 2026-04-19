@@ -2,8 +2,8 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
   use QuickBEAM.BeamVM.Builtin
 
   import QuickBEAM.BeamVM.Heap.Keys
-  alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Bytecode
+  alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Runtime.Property
   @moduledoc "JSON.parse and JSON.stringify."
 
@@ -67,7 +67,7 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
   end
 
   defp encode_json(list) when is_list(list) do
-    inner = list |> Enum.map(&encode_json/1) |> Enum.join(",")
+    inner = Enum.map_join(list, ",", &encode_json/1)
     "[" <> inner <> "]"
   end
 

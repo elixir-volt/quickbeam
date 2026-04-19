@@ -5,8 +5,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
   import QuickBEAM.BeamVM.Heap.Keys
   alias QuickBEAM.BeamVM.Heap
-  alias QuickBEAM.BeamVM.Runtime
   alias QuickBEAM.BeamVM.Interpreter.Values
+  alias QuickBEAM.BeamVM.Runtime
 
   def build_prototype do
     ref = make_ref()
@@ -81,7 +81,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
         Values.neg_zero?(a) == Values.neg_zero?(b)
 
       is_number(a) and is_number(b) ->
-        a === b or (a != a and b != b)
+        a === b
 
       a == :nan and b == :nan ->
         true

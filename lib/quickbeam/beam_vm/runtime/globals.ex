@@ -3,12 +3,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
 
   import QuickBEAM.BeamVM.Heap.Keys
 
-  alias QuickBEAM.BeamVM.{Bytecode, Heap}
   alias QuickBEAM.BeamVM.Interpreter
-
   alias QuickBEAM.BeamVM.Runtime
-  alias QuickBEAM.BeamVM.Runtime.{Boolean, Console, JSON, MapSet, Math, Object, Promise, Reflect, Symbol, TypedArray}
   alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
+  alias QuickBEAM.BeamVM.Runtime.{Boolean, Console, JSON, MapSet, Math, Object, Promise, Reflect, Symbol, TypedArray}
+  alias QuickBEAM.BeamVM.{Bytecode, Heap}
 
   @error_types ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError)
 
@@ -140,18 +139,16 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   defp parse_int([s | _], _) when is_binary(s) do
     s = String.trim_leading(s)
 
-    cond do
-      String.starts_with?(s, "0x") or String.starts_with?(s, "0X") ->
-        case Integer.parse(String.slice(s, 2..-1//1), 16) do
-          {n, _} -> n
-          :error -> :nan
-        end
-
-      true ->
-        case Integer.parse(s) do
-          {n, _} -> n
-          :error -> :nan
-        end
+    if String.starts_with?(s, "0x") or String.starts_with?(s, "0X") do
+      case Integer.parse(String.slice(s, 2..-1//1), 16) do
+        {n, _} -> n
+        :error -> :nan
+      end
+    else
+      case Integer.parse(s) do
+        {n, _} -> n
+        :error -> :nan
+      end
     end
   end
 
