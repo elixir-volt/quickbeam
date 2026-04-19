@@ -6,6 +6,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Prototypes do
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.{Bytecode, Runtime}
 
+  # ── Key normalization: JS doesn't distinguish -0.0/0 or float/int for Map keys
+  defp normalize_map_key(k) when is_float(k) and k == trunc(k), do: trunc(k)
+  defp normalize_map_key(k), do: k
+
   # ── Map prototype ──
 
   def map_proto("get"),
@@ -13,13 +17,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Prototypes do
       {:builtin, "get",
        fn [key | _], {:obj, ref} ->
          data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
-         Map.get(data, key, :undefined)
+         Map.get(data, normalize_map_key(key), :undefined)
        end}
 
   def map_proto("set"),
     do:
       {:builtin, "set",
        fn [key, val | _], {:obj, ref} ->
+         key = normalize_map_key(key)
          obj = Heap.get_obj(ref, %{})
          data = Map.get(obj, map_data(), %{})
          new_data = Map.put(data, key, val)
@@ -38,13 +43,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Prototypes do
       {:builtin, "has",
        fn [key | _], {:obj, ref} ->
          data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
-         Map.has_key?(data, key)
+         Map.has_key?(data, normalize_map_key(key))
        end}
 
   def map_proto("delete"),
     do:
       {:builtin, "delete",
        fn [key | _], {:obj, ref} ->
+         key = normalize_map_key(key)
          obj = Heap.get_obj(ref, %{})
          data = Map.get(obj, map_data(), %{})
          new_data = Map.delete(data, key)

@@ -76,7 +76,28 @@ defmodule QuickBEAM.BeamVM.Heap do
   def iter_result(val, done), do: wrap(%{"value" => val, "done" => done})
 
   def make_error(message, name) do
-    wrap(%{"message" => message, "name" => name, "stack" => ""})
+    base = %{"message" => message, "name" => name, "stack" => ""}
+
+    # Try to find the error constructor's prototype for instanceof chain
+    error_ctor =
+      case get_global_cache() do
+        nil ->
+          case get_ctx() do
+            %{globals: globals} -> Map.get(globals, name)
+            _ -> nil
+          end
+
+        cache ->
+          Map.get(cache, name)
+      end
+
+    proto = if error_ctor, do: get_class_proto(error_ctor), else: nil
+
+    if proto do
+      wrap(Map.put(base, "__proto__", proto))
+    else
+      wrap(base)
+    end
   end
 
   def get_or_create_prototype(ctor) do

@@ -3,6 +3,22 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   @compile {:inline, has_property: 2, get_array_el: 2, list_set_at: 3}
   alias QuickBEAM.BeamVM.{Heap, Bytecode}
 
+  def put({:obj, ref} = _obj, "length", val) do
+    data = Heap.get_obj(ref)
+
+    if is_list(data) do
+      new_len = QuickBEAM.BeamVM.Runtime.to_int(val)
+      truncated = Enum.take(data, max(0, new_len))
+
+      padded =
+        if new_len > length(truncated),
+          do: truncated ++ List.duplicate(:undefined, new_len - length(truncated)),
+          else: truncated
+
+      Heap.put_obj(ref, padded)
+    end
+  end
+
   def put({:obj, ref} = obj, key, val) do
     key = normalize_key(key)
     map = Heap.get_obj(ref, %{})

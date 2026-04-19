@@ -1249,101 +1249,104 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:call_constructor, [argc]}, frame, stack, gas, ctx) do
     {args, [new_target, ctor | rest]} = Enum.split(stack, argc)
-    rev_args = Enum.reverse(args)
 
-    raw_ctor =
-      case ctor do
-        {:closure, _, %Bytecode.Function{} = f} -> f
-        other -> other
-      end
+    catch_js_throw(frame, rest, gas, ctx, fn ->
+      rev_args = Enum.reverse(args)
 
-    # Generators and async generators cannot be constructors
-    case raw_ctor do
-      %Bytecode.Function{func_kind: fk} when fk in [@func_generator, @func_async_generator] ->
-        name = raw_ctor.name || "anonymous"
-        throw({:js_throw, make_error_obj("#{name} is not a constructor", "TypeError")})
-
-      _ ->
-        :ok
-    end
-
-    this_ref = make_ref()
-    proto = Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
-    init = if proto, do: %{proto() => proto}, else: %{}
-    Heap.put_obj(this_ref, init)
-    this_obj = {:obj, this_ref}
-
-    ctor_ctx = %{ctx | this: this_obj, new_target: new_target}
-
-    result =
-      case ctor do
-        %Bytecode.Function{} = f ->
-          do_invoke(f, rev_args, ctor_var_refs(f), gas, ctor_ctx)
-
-        {:closure, captured, %Bytecode.Function{} = f} ->
-          do_invoke(f, rev_args, ctor_var_refs(f, captured), gas, ctor_ctx)
-
-        {:builtin, name, cb} when is_function(cb, 1) ->
-          obj = cb.(rev_args)
-
-          if name in ~w(Number String Boolean) do
-            # Store primitive value for valueOf() on wrapper objects
-            existing = Heap.get_obj(this_ref, %{})
-            val_fn = {:builtin, "valueOf", fn _, _ -> obj end}
-
-            to_str_fn =
-              {:builtin, "toString",
-               fn _, _ -> QuickBEAM.BeamVM.Interpreter.Values.to_js_string(obj) end}
-
-            Heap.put_obj(
-              this_ref,
-              Map.merge(existing, %{
-                primitive_value() => obj,
-                "valueOf" => val_fn,
-                "toString" => to_str_fn
-              })
-            )
-          end
-
-          if name in ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError) do
-            case obj do
-              {:obj, ref} ->
-                existing = Heap.get_obj(ref, %{})
-
-                if is_map(existing) and not Map.has_key?(existing, "name") do
-                  Heap.put_obj(ref, Map.put(existing, "name", name))
-                end
-
-              _ ->
-                :ok
-            end
-          end
-
-          obj
-
-        _ ->
-          this_obj
-      end
-
-    result =
-      case result do
-        {:obj, _} = obj -> obj
-        _ -> this_obj
-      end
-
-    case {result, Heap.get_class_proto(raw_ctor)} do
-      {{:obj, rref}, {:obj, _} = proto2} ->
-        rmap = Heap.get_obj(rref, %{})
-
-        unless Map.has_key?(rmap, proto()) do
-          Heap.put_obj(rref, Map.put(rmap, proto(), proto2))
+      raw_ctor =
+        case ctor do
+          {:closure, _, %Bytecode.Function{} = f} -> f
+          other -> other
         end
 
-      _ ->
-        :ok
-    end
+      # Generators and async generators cannot be constructors
+      case raw_ctor do
+        %Bytecode.Function{func_kind: fk} when fk in [@func_generator, @func_async_generator] ->
+          name = raw_ctor.name || "anonymous"
+          throw({:js_throw, Heap.make_error("#{name} is not a constructor", "TypeError")})
 
-    run(advance(frame), [result | rest], gas - 1, ctx)
+        _ ->
+          :ok
+      end
+
+      this_ref = make_ref()
+      proto = Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
+      init = if proto, do: %{proto() => proto}, else: %{}
+      Heap.put_obj(this_ref, init)
+      this_obj = {:obj, this_ref}
+
+      ctor_ctx = %{ctx | this: this_obj, new_target: new_target}
+
+      result =
+        case ctor do
+          %Bytecode.Function{} = f ->
+            do_invoke(f, rev_args, ctor_var_refs(f), gas, ctor_ctx)
+
+          {:closure, captured, %Bytecode.Function{} = f} ->
+            do_invoke(f, rev_args, ctor_var_refs(f, captured), gas, ctor_ctx)
+
+          {:builtin, name, cb} when is_function(cb, 1) ->
+            obj = cb.(rev_args)
+
+            if name in ~w(Number String Boolean) do
+              # Store primitive value for valueOf() on wrapper objects
+              existing = Heap.get_obj(this_ref, %{})
+              val_fn = {:builtin, "valueOf", fn _, _ -> obj end}
+
+              to_str_fn =
+                {:builtin, "toString",
+                 fn _, _ -> QuickBEAM.BeamVM.Interpreter.Values.to_js_string(obj) end}
+
+              Heap.put_obj(
+                this_ref,
+                Map.merge(existing, %{
+                  primitive_value() => obj,
+                  "valueOf" => val_fn,
+                  "toString" => to_str_fn
+                })
+              )
+            end
+
+            if name in ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError) do
+              case obj do
+                {:obj, ref} ->
+                  existing = Heap.get_obj(ref, %{})
+
+                  if is_map(existing) and not Map.has_key?(existing, "name") do
+                    Heap.put_obj(ref, Map.put(existing, "name", name))
+                  end
+
+                _ ->
+                  :ok
+              end
+            end
+
+            obj
+
+          _ ->
+            this_obj
+        end
+
+      result =
+        case result do
+          {:obj, _} = obj -> obj
+          _ -> this_obj
+        end
+
+      case {result, Heap.get_class_proto(raw_ctor)} do
+        {{:obj, rref}, {:obj, _} = proto2} ->
+          rmap = Heap.get_obj(rref, %{})
+
+          unless Map.has_key?(rmap, proto()) do
+            Heap.put_obj(rref, Map.put(rmap, proto(), proto2))
+          end
+
+        _ ->
+          :ok
+      end
+
+      result
+    end)
   end
 
   defp run({:init_ctor, []}, frame, stack, gas, %Ctx{arg_buf: arg_buf} = ctx) do
