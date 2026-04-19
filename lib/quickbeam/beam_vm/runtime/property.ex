@@ -269,8 +269,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
   defp get_from_prototype(%Bytecode.Function{} = f, key),
     do: Function.proto_property(f, key)
 
-  defp get_from_prototype({:closure, _, %Bytecode.Function{}} = c, key),
-    do: Function.proto_property(c, key)
+  defp get_from_prototype({:closure, _, %Bytecode.Function{} = f} = c, key) do
+    case Function.proto_property(c, key) do
+      :undefined ->
+        parent = Heap.get_parent_ctor(f)
+        if parent != nil, do: get(parent, key), else: :undefined
+      val -> val
+    end
+  end
 
   defp get_from_prototype({:builtin, "Error", _}, _key),
     do: :undefined

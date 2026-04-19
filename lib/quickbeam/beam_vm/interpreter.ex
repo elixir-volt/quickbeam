@@ -1310,7 +1310,21 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       end
 
       this_ref = make_ref()
-      proto = Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
+
+      raw_new_target =
+        case new_target do
+          {:closure, _, %Bytecode.Function{} = f} -> f
+          %Bytecode.Function{} = f -> f
+          _ -> nil
+        end
+
+      proto =
+        if raw_new_target != nil and raw_new_target != raw_ctor do
+          Heap.get_class_proto(raw_new_target) || Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
+        else
+          Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
+        end
+
       init = if proto, do: %{proto() => proto}, else: %{}
       Heap.put_obj(this_ref, init)
       this_obj = {:obj, this_ref}
