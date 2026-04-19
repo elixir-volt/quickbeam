@@ -8,7 +8,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Promise do
   @promise_state "__promise_state__"
   @promise_value "__promise_value__"
 
-  alias QuickBEAM.BeamVM.Interpreter.Promise, as: PromiseInterp
+  alias QuickBEAM.BeamVM.Interpreter.Promise
 
   def constructor do
     fn _args, _this -> Heap.wrap(%{}) end
@@ -16,13 +16,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Promise do
 
   static "resolve" do
     case args do
-      [val | _] -> PromiseInterp.resolved(val)
-      [] -> PromiseInterp.resolved(:undefined)
+      [val | _] -> Promise.resolved(val)
+      [] -> Promise.resolved(:undefined)
     end
   end
 
   static "reject" do
-    PromiseInterp.rejected(List.first(args, :undefined))
+    Promise.rejected(List.first(args, :undefined))
   end
 
   static "all" do
@@ -55,7 +55,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Promise do
 
     results = Enum.map(items, &unwrap_value/1)
 
-    PromiseInterp.resolved(Heap.wrap(results))
+    Promise.resolved(Heap.wrap(results))
   end
 
   defp promise_all_settled(arr) do
@@ -81,7 +81,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Promise do
           else: Heap.wrap(%{"status" => status, "reason" => val})
       end)
 
-    PromiseInterp.resolved(Heap.wrap(results))
+    Promise.resolved(Heap.wrap(results))
   end
 
   defp promise_any(arr) do
@@ -99,15 +99,15 @@ defmodule QuickBEAM.BeamVM.Runtime.Promise do
           val
       end)
 
-    PromiseInterp.resolved(result || :undefined)
+    Promise.resolved(result || :undefined)
   end
 
   defp promise_race(arr) do
     items = Heap.to_list(arr)
 
     case items do
-      [first | _] -> PromiseInterp.resolved(unwrap_value(first))
-      [] -> PromiseInterp.resolved(:undefined)
+      [first | _] -> Promise.resolved(unwrap_value(first))
+      [] -> Promise.resolved(:undefined)
     end
   end
 end
