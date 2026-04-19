@@ -180,6 +180,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
           case key do
             {:symbol, _, _} -> key
             {:symbol, _} -> key
+            k when is_float(k) and k == trunc(k) and k >= 0 -> Integer.to_string(trunc(k))
             _ -> Kernel.to_string(key)
           end
 

@@ -390,9 +390,8 @@ defmodule QuickBEAM.BeamVM.Heap do
     |> Enum.each(fn
       {:qb_obj, _} = k -> sweep_key(k, marked)
       {:qb_cell, _} = k -> sweep_key(k, marked)
-      {:qb_class_proto, _} = k -> Process.delete(k)
-      {:qb_parent_ctor, _} = k -> Process.delete(k)
-      {:qb_ctor_statics, _} = k -> Process.delete(k)
+      # {:qb_class_proto, _}, {:qb_parent_ctor, _}, {:qb_ctor_statics, _}
+      # are preserved across GC — they're set during global initialization
       {:qb_prop_desc, _, _} = k -> Process.delete(k)
       {:qb_frozen, _} = k -> Process.delete(k)
       {:qb_var, _} = k -> Process.delete(k)
