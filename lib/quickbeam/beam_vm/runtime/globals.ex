@@ -41,7 +41,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
       "WeakMap"    => register("WeakMap", MapSet.weak_map_constructor()),
       "WeakSet"    => register("WeakSet", MapSet.weak_set_constructor()),
       "WeakRef"    => register("WeakRef", fn _, _ -> Runtime.new_object() end),
-      "FinalizationRegistry" => register("FinalizationRegistry", fn _, _ -> Runtime.new_object() end),
+      "FinalizationRegistry" => register("FinalizationRegistry", fn [callback | _], _ ->
+        Heap.wrap(%{
+          "register" => {:builtin, "register", fn _, _ -> :undefined end},
+          "unregister" => {:builtin, "unregister", fn _, _ -> :undefined end}
+        })
+      end),
       "DataView"   => register("DataView", fn _, _ -> Runtime.new_object() end),
       "ArrayBuffer" => register("ArrayBuffer", &ArrayBuffer.constructor/2),
       "Proxy"      => register("Proxy", &proxy_constructor/2),

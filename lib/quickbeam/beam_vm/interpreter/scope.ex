@@ -36,7 +36,10 @@ defmodule QuickBEAM.BeamVM.Interpreter.Scope do
     if idx < tuple_size(atoms), do: elem(atoms, idx), else: {:atom, idx}
   end
 
-  def resolve_atom(_atoms, other), do: other
+  def resolve_atom(_atoms, other) when is_binary(other), do: other
+  def resolve_atom(_atoms, other) when is_integer(other), do: Integer.to_string(other)
+  def resolve_atom(_atoms, {:atom, n}), do: "atom_#{n}"
+  def resolve_atom(_atoms, other), do: inspect(other)
 
   def resolve_global(%Context{globals: globals} = ctx, atom_idx) do
     name = resolve_atom(ctx, atom_idx)
