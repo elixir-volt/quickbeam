@@ -33,6 +33,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             check_prototype_chain: 2}
 
   alias QuickBEAM.BeamVM.{Bytecode, Decoder, Runtime}
+  alias QuickBEAM.BeamVM.Runtime.Property
   alias __MODULE__.{Frame, Context}
   require Frame
 
@@ -345,7 +346,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp collect_iterator(iter_obj, acc) do
-    next_fn = Runtime.get_property(iter_obj, "next")
+    next_fn = Property.get(iter_obj, "next")
 
     case Runtime.call_callback(next_fn, []) do
       {:obj, ref} ->
@@ -428,7 +429,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp check_prototype_chain(_, _), do: false
 
   defp with_has_property?({:obj, _} = obj, key) do
-    Runtime.get_property(obj, key) != :undefined
+    Property.get(obj, key) != :undefined
   end
 
   defp with_has_property?(_, _), do: false
@@ -917,7 +918,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:get_field, [atom_idx]}, frame, [obj | rest], gas, ctx) do
     run(
       advance(frame),
-      [Runtime.get_property(obj, Scope.resolve_atom(ctx, atom_idx)) | rest],
+      [Property.get(obj, Scope.resolve_atom(ctx, atom_idx)) | rest],
       gas - 1,
       ctx
     )
@@ -943,7 +944,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:get_super_value, []}, frame, [key, proto, _this_obj | rest], gas, ctx) do
-    val = Runtime.get_property(proto, key)
+    val = Property.get(proto, key)
     run(advance(frame), [val | rest], gas - 1, ctx)
   end
 
@@ -1004,7 +1005,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           length(list)
 
         s when is_binary(s) ->
-          Runtime.string_length(s)
+          Property.string_length(s)
 
         %Bytecode.Function{} = f ->
           f.defined_arg_count
@@ -1126,7 +1127,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:get_field2, [atom_idx]}, frame, [obj | rest], gas, ctx) do
-    val = Runtime.get_property(obj, Scope.resolve_atom(ctx, atom_idx))
+    val = Property.get(obj, Scope.resolve_atom(ctx, atom_idx))
     run(advance(frame), [val, obj | rest], gas - 1, ctx)
   end
 
@@ -1336,7 +1337,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     result =
       case obj do
         {:obj, _} ->
-          ctor_proto = Runtime.get_property(ctor, "prototype")
+          ctor_proto = Property.get(ctor, "prototype")
           check_prototype_chain(obj, ctor_proto)
 
         _ ->
@@ -1625,10 +1626,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
                 Map.has_key?(map, sym_iter) ->
                   iter_fn = Map.get(map, sym_iter)
                   iter_obj = Runtime.call_callback(iter_fn, [])
-                  {iter_obj, Runtime.get_property(iter_obj, "next")}
+                  {iter_obj, Property.get(iter_obj, "next")}
 
                 Map.has_key?(map, "next") ->
-                  {obj, Runtime.get_property(obj, "next")}
+                  {obj, Property.get(obj, "next")}
 
                 true ->
                   make_list_iterator([])
@@ -1657,8 +1658,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       run(advance(frame), [true, :undefined | stack], gas - 1, ctx)
     else
       result = Runtime.call_callback(next_fn, [])
-      done = Runtime.get_property(result, "done")
-      value = Runtime.get_property(result, "value")
+      done = Property.get(result, "done")
+      value = Property.get(result, "value")
 
       if done == true do
         cleared = List.replace_at(stack, offset - 1, :undefined)
@@ -1677,8 +1678,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:iterator_get_value_done, []}, frame, [result | rest], gas, ctx) do
-    done = Runtime.get_property(result, "done")
-    value = Runtime.get_property(result, "value")
+    done = Property.get(result, "done")
+    value = Property.get(result, "value")
 
     if done == true do
       run(advance(frame), [true, :undefined | rest], gas - 1, ctx)
@@ -1689,7 +1690,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:iterator_close, []}, frame, [_catch_offset, _next_fn, iter_obj | rest], gas, ctx) do
     if iter_obj != :undefined do
-      return_fn = Runtime.get_property(iter_obj, "return")
+      return_fn = Property.get(iter_obj, "return")
 
       if return_fn != :undefined and return_fn != nil do
         Runtime.call_callback(return_fn, [])
@@ -1705,7 +1706,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:iterator_call, [flags]}, frame, stack, gas, ctx) do
     [_val, _catch_offset, _next_fn, iter_obj | _] = stack
     method_name = if Bitwise.band(flags, 1) == 1, do: "throw", else: "return"
-    method = Runtime.get_property(iter_obj, method_name)
+    method = Property.get(iter_obj, method_name)
 
     if method == :undefined or method == nil do
       run(advance(frame), [true | stack], gas - 1, ctx)
@@ -1899,7 +1900,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   # ── Array element access (2-element push) ──
 
   defp run({:get_array_el2, []}, frame, [idx, obj | rest], gas, ctx) do
-    run(advance(frame), [Runtime.get_property(obj, idx), obj | rest], gas - 1, ctx)
+    run(advance(frame), [Property.get(obj, idx), obj | rest], gas - 1, ctx)
   end
 
   # ── Spread/rest via apply ──
@@ -2096,7 +2097,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     key = Scope.resolve_atom(ctx, atom_idx)
 
     if with_has_property?(obj, key) do
-      run(jump(frame, target), [Runtime.get_property(obj, key) | rest], gas - 1, ctx)
+      run(jump(frame, target), [Property.get(obj, key) | rest], gas - 1, ctx)
     else
       run(advance(frame), rest, gas - 1, ctx)
     end
@@ -2142,7 +2143,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     key = Scope.resolve_atom(ctx, atom_idx)
 
     if with_has_property?(obj, key) do
-      run(jump(frame, target), [Runtime.get_property(obj, key), obj | rest], gas - 1, ctx)
+      run(jump(frame, target), [Property.get(obj, key), obj | rest], gas - 1, ctx)
     else
       run(advance(frame), rest, gas - 1, ctx)
     end
@@ -2152,7 +2153,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     key = Scope.resolve_atom(ctx, atom_idx)
 
     if with_has_property?(obj, key) do
-      run(jump(frame, target), [Runtime.get_property(obj, key), :undefined | rest], gas - 1, ctx)
+      run(jump(frame, target), [Property.get(obj, key), :undefined | rest], gas - 1, ctx)
     else
       run(advance(frame), rest, gas - 1, ctx)
     end
@@ -2169,7 +2170,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
               make_list_iterator(stored)
 
             is_map(stored) and Map.has_key?(stored, "next") ->
-              {obj, Runtime.get_property(obj, "next")}
+              {obj, Property.get(obj, "next")}
 
             true ->
               {obj, :undefined}

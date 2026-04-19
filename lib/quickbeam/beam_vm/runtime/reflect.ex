@@ -3,13 +3,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Reflect do
 
   use QuickBEAM.BeamVM.Builtin
   alias QuickBEAM.BeamVM.Heap
-  alias QuickBEAM.BeamVM.Runtime
+  alias QuickBEAM.BeamVM.Runtime.Property
   alias QuickBEAM.BeamVM.Interpreter.Objects
 
   js_object "Reflect" do
     method "get" do
       [obj, key | _] = args
-      Runtime.get_property(obj, key)
+      Property.get(obj, key)
     end
 
     method "set" do

@@ -3,6 +3,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   import QuickBEAM.BeamVM.Heap.Keys
   @compile {:inline, has_property: 2, get_element: 2, set_list_at: 3}
   alias QuickBEAM.BeamVM.{Heap, Bytecode, Runtime}
+  alias QuickBEAM.BeamVM.Runtime.Property
   alias QuickBEAM.BeamVM.Interpreter
   alias QuickBEAM.BeamVM.Interpreter.Values
 
@@ -31,7 +32,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
         proxy_target() => target,
         proxy_handler() => handler
       } ->
-        set_trap = Runtime.get_property(handler, "set")
+        set_trap = Property.get(handler, "set")
 
         if set_trap != :undefined do
           # Proxy set trap return value ignored (non-strict mode behavior)
@@ -114,7 +115,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
         proxy_target() => target,
         proxy_handler() => handler
       } ->
-        has_trap = Runtime.get_property(handler, "has")
+        has_trap = Property.get(handler, "has")
 
         if has_trap != :undefined do
           Runtime.call_callback(has_trap, [target, key])

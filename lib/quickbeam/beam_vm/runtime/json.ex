@@ -3,7 +3,8 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
 
   import QuickBEAM.BeamVM.Heap.Keys
   alias QuickBEAM.BeamVM.Heap
-  alias QuickBEAM.BeamVM.{Bytecode, Runtime}
+  alias QuickBEAM.BeamVM.Bytecode
+  alias QuickBEAM.BeamVM.Runtime.Property
   @moduledoc "JSON.parse and JSON.stringify."
 
   js_object "JSON" do
@@ -115,7 +116,7 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
               case v do
                 {:accessor, getter, _setter} when getter != nil ->
                   try do
-                    Runtime.invoke_getter(getter, obj)
+                    Property.call_getter(getter, obj)
                   rescue
                     _ -> :undefined
                   catch
