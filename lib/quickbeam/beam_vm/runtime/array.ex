@@ -582,37 +582,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
         _ -> {nil, nil}
       end
 
-    list =
-      case source do
-        {:obj, ref} ->
-          stored = Heap.get_obj(ref, %{})
-
-          case stored do
-            l when is_list(l) ->
-              l
-
-            map when is_map(map) ->
-              len = Map.get(map, "length", 0)
-
-              if len > 0 do
-                for i <- 0..(len - 1), do: Map.get(map, Integer.to_string(i), :undefined)
-              else
-                []
-              end
-
-            _ ->
-              []
-          end
-
-        l when is_list(l) ->
-          l
-
-        s when is_binary(s) ->
-          String.codepoints(s)
-
-        _ ->
-          []
-      end
+    list = coerce_to_list(source)
 
     if map_fn do
       Enum.map(Enum.with_index(list), fn {val, idx} ->
@@ -622,6 +592,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
       list
     end
   end
+
+  defp coerce_to_list({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      l when is_list(l) -> l
+      map when is_map(map) -> Heap.to_list({:obj, ref})
+      _ -> []
+    end
+  end
+
+  defp coerce_to_list(l) when is_list(l), do: l
+  defp coerce_to_list(s) when is_binary(s), do: String.codepoints(s)
+  defp coerce_to_list(_), do: []
 
   defp copy_within({:obj, ref}, args) do
     list = Heap.get_obj(ref, [])

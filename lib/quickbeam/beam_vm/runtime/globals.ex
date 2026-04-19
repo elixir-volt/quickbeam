@@ -182,28 +182,20 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   defp is_finite([:neg_infinity | _], _), do: false
   defp is_finite(_, _), do: false
 
-  defp js_eval([code | _], _) do
+  defp js_eval([code | _], _) when is_binary(code) do
     ctx = Heap.get_ctx()
 
-    if is_binary(code) and ctx && ctx.runtime_pid do
-      case QuickBEAM.Runtime.compile(ctx.runtime_pid, code) do
-        {:ok, bc} ->
-          case Bytecode.decode(bc) do
-            {:ok, parsed} ->
-              case Interpreter.eval(parsed.value, [], %{gas: Runtime.gas_budget(), runtime_pid: ctx.runtime_pid}, parsed.atoms) do
-                {:ok, val} -> val
-                _ -> :undefined
-              end
-
-            _ -> :undefined
-          end
-
-        _ -> :undefined
-      end
+    with %{runtime_pid: pid} when pid != nil <- ctx,
+         {:ok, bc} <- QuickBEAM.Runtime.compile(pid, code),
+         {:ok, parsed} <- Bytecode.decode(bc),
+         {:ok, val} <- Interpreter.eval(parsed.value, [], %{gas: Runtime.gas_budget(), runtime_pid: pid}, parsed.atoms) do
+      val
     else
-      :undefined
+      _ -> :undefined
     end
   end
+
+  defp js_eval(_, _), do: :undefined
 
   defp js_require([name | _], _) do
     case Heap.get_module(name) do

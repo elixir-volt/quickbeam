@@ -61,6 +61,18 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
     :json.encode(val, &json_encoder/2) |> IO.iodata_to_binary()
   end
 
+  defp resolve_value({:accessor, getter, _}, obj) when getter != nil do
+    try do
+      Property.call_getter(getter, obj)
+    rescue
+      _ -> :undefined
+    catch
+      _, _ -> :undefined
+    end
+  end
+
+  defp resolve_value(val, _obj), do: val
+
   defp json_encoder({:ordered_map, pairs}, encoder) do
     ["{", Enum.intersperse(Enum.map(pairs, fn {k, v} ->
       [encoder.(k, encoder), ":", encoder.(v, encoder)]
@@ -105,24 +117,7 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
 
         pairs =
           entries
-          |> Enum.map(fn {k, v} ->
-            resolved =
-              case v do
-                {:accessor, getter, _setter} when getter != nil ->
-                  try do
-                    Property.call_getter(getter, obj)
-                  rescue
-                    _ -> :undefined
-                  catch
-                    _, _ -> :undefined
-                  end
-
-                _ ->
-                  v
-              end
-
-            {to_string(k), to_json(resolved)}
-          end)
+          |> Enum.map(fn {k, v} -> {to_string(k), to_json(resolve_value(v, obj))} end)
           |> Enum.reject(fn {_, v} -> v == :undefined end)
 
         {:ordered_map, pairs}

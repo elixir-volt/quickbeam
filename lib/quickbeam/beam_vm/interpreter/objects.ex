@@ -48,19 +48,19 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
         end
 
       _ when is_map(map) ->
-        if Heap.frozen?(ref) do
-          :ok
-        else
-          case Map.get(map, key) do
-            {:accessor, _getter, setter} when setter != nil ->
-              invoke_setter(setter, val, obj)
+        cond do
+          Heap.frozen?(ref) ->
+            :ok
 
-            _ ->
-              case Heap.get_prop_desc(ref, key) do
-                %{writable: false} -> :ok
-                _ -> Heap.put_obj_key(ref, key, val)
-              end
-          end
+          match?({:accessor, _, setter} when setter != nil, Map.get(map, key)) ->
+            {:accessor, _, setter} = Map.get(map, key)
+            invoke_setter(setter, val, obj)
+
+          match?(%{writable: false}, Heap.get_prop_desc(ref, key)) ->
+            :ok
+
+          true ->
+            Heap.put_obj_key(ref, key, val)
         end
 
       _ ->

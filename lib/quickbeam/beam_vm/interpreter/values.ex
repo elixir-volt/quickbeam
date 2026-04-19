@@ -295,18 +295,12 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   defp div_inf(n, :neg_infinity) when is_number(n), do: -0.0
   defp div_inf(_, _), do: :nan
 
-  defp div_numbers(a, b) do
-    cond do
-      b == 0 and neg_zero?(b) ->
-        if a > 0, do: :neg_infinity, else: if(a < 0, do: :infinity, else: :nan)
+  defp div_numbers(a, b) when b == 0, do: if(neg_zero?(b), do: div_by_neg_zero(a), else: inf_or_nan(a))
+  defp div_numbers(a, b), do: a / b
 
-      b == 0 ->
-        inf_or_nan(a)
-
-      true ->
-        a / b
-    end
-  end
+  defp div_by_neg_zero(a) when a > 0, do: :neg_infinity
+  defp div_by_neg_zero(a) when a < 0, do: :infinity
+  defp div_by_neg_zero(_), do: :nan
 
   def mod({:bigint, a}, {:bigint, b}) when b != 0, do: {:bigint, rem(a, b)}
 

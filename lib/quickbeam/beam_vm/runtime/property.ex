@@ -45,10 +45,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
   def regexp_flags(_), do: ""
 
   def string_length(s) do
-    len = String.length(s)
-
-    if len == byte_size(s) do
-      len
+    if byte_size(s) == String.length(s) do
+      byte_size(s)
     else
       s
       |> String.to_charlist()

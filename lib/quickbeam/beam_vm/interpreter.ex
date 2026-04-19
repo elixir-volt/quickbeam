@@ -278,34 +278,23 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp eval_code(code, caller_frame, gas, ctx) do
-    case QuickBEAM.Runtime.compile(ctx.runtime_pid, code) do
-      {:ok, bc} ->
-        case Bytecode.decode(bc) do
-          {:ok, parsed} ->
-            eval_globals = collect_caller_locals(caller_frame, ctx)
-            eval_ctx_globals = Map.merge(ctx.globals, eval_globals)
+    with {:ok, bc} <- QuickBEAM.Runtime.compile(ctx.runtime_pid, code),
+         {:ok, parsed} <- Bytecode.decode(bc) do
+      eval_globals = collect_caller_locals(caller_frame, ctx)
+      eval_ctx_globals = Map.merge(ctx.globals, eval_globals)
 
-            result =
-              __MODULE__.eval(
-                parsed.value,
-                [],
-                %{gas: gas, runtime_pid: ctx.runtime_pid, globals: eval_ctx_globals},
-                parsed.atoms
-              )
-
-            # Write back modified locals from eval to caller frame
-            case result do
-              {:ok, val} -> val
-              {:error, {:js_throw, val}} -> throw({:js_throw, val})
-              _ -> :undefined
-            end
-
-          _ ->
-            :undefined
-        end
-
-      _ ->
-        :undefined
+      case __MODULE__.eval(
+             parsed.value,
+             [],
+             %{gas: gas, runtime_pid: ctx.runtime_pid, globals: eval_ctx_globals},
+             parsed.atoms
+           ) do
+        {:ok, val} -> val
+        {:error, {:js_throw, val}} -> throw({:js_throw, val})
+        _ -> :undefined
+      end
+    else
+      _ -> :undefined
     end
   end
 
@@ -330,26 +319,22 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     local_defs
     |> Enum.with_index()
     |> Enum.reduce(%{}, fn {vd, idx}, acc ->
-      name =
-        case vd.name do
-          s when is_binary(s) -> s
-          _ -> nil
-        end
-
-      if name do
-        val =
-          if idx < arg_count do
-            if idx < tuple_size(arg_buf), do: elem(arg_buf, idx), else: :undefined
-          else
-            var_idx = idx - arg_count
-            if var_idx < tuple_size(locals), do: elem(locals, var_idx), else: :undefined
-          end
-
-        if val != :undefined, do: Map.put(acc, name, val), else: acc
+      with name when is_binary(name) <- vd.name,
+           val when val != :undefined <- local_value(idx, arg_count, arg_buf, locals) do
+        Map.put(acc, name, val)
       else
-        acc
+        _ -> acc
       end
     end)
+  end
+
+  defp local_value(idx, arg_count, arg_buf, _locals) when idx < arg_count do
+    if idx < tuple_size(arg_buf), do: elem(arg_buf, idx), else: :undefined
+  end
+
+  defp local_value(idx, arg_count, _arg_buf, locals) do
+    var_idx = idx - arg_count
+    if var_idx < tuple_size(locals), do: elem(locals, var_idx), else: :undefined
   end
 
   defp collect_iterator(iter_obj, acc) do
