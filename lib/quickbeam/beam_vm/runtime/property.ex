@@ -33,6 +33,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
           _ -> result
         end
 
+      {:accessor, getter, _} when getter != nil ->
+        call_getter(getter, value)
+
       val ->
         val
     end

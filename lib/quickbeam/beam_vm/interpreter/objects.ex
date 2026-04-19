@@ -198,6 +198,28 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
     Property.get(obj, key)
   end
 
+  def get_element({:builtin, _, _} = b, {:symbol, _} = sym_key) do
+    case Map.get(Heap.get_ctor_statics(b), sym_key) do
+      {:accessor, getter, _} when getter != nil ->
+        Runtime.call_callback(getter, [])
+      nil -> :undefined
+      val -> val
+    end
+  end
+
+  def get_element({:obj, ref}, {:symbol, _} = sym_key) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        case Map.get(map, sym_key) do
+          {:accessor, getter, _} when getter != nil ->
+            Runtime.call_callback(getter, [])
+          nil -> :undefined
+          val -> val
+        end
+      _ -> :undefined
+    end
+  end
+
   def get_element(_, _), do: :undefined
 
   def put_element({:obj, ref} = obj, key, val) do

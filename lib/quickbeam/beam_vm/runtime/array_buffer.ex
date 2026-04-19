@@ -65,23 +65,7 @@ defmodule QuickBEAM.BeamVM.Runtime.ArrayBuffer do
   end
 
   proto "slice" do
-    case this do
-      {:obj, ref} ->
-        map = Heap.get_obj(ref, %{})
-
-        if is_map(map) and Map.get(map, "__detached__") do
-          throw({:js_throw, Heap.make_error("ArrayBuffer is detached", "TypeError")})
-        end
-
-        buf = Map.get(map, buffer(), <<>>)
-        len = byte_size(buf)
-        s = case args do [n | _] when is_number(n) -> normalize_idx(trunc(n), len); _ -> 0 end
-        e = case args do [_, n | _] when is_number(n) -> normalize_idx(trunc(n), len); _ -> len end
-        new_len = max(0, e - s)
-        new_buf = if new_len > 0, do: binary_part(buf, s, new_len), else: <<>>
-        Heap.wrap(%{buffer() => new_buf, "byteLength" => new_len})
-      _ -> :undefined
-    end
+    do_slice(this, args)
   end
 
   proto "sliceToImmutable" do
@@ -159,7 +143,26 @@ defmodule QuickBEAM.BeamVM.Runtime.ArrayBuffer do
         s = case args do [n | _] when is_number(n) -> normalize_idx(trunc(n), len); _ -> 0 end
         e = case args do [_, n | _] when is_number(n) -> normalize_idx(trunc(n), len); _ -> len end
         new_len = max(0, e - s)
-        new_buf = if new_len > 0, do: binary_part(buf, s, new_len), else: <<>>
+
+        # Check Symbol.species on the constructor
+        ab_ctor = QuickBEAM.BeamVM.Runtime.global_bindings()["ArrayBuffer"]
+        species = case ab_ctor do
+          {:builtin, _, _} = b ->
+            case Map.get(Heap.get_ctor_statics(b), {:symbol, "Symbol.species"}) do
+              {:accessor, getter, _} when getter != nil -> QuickBEAM.BeamVM.Runtime.call_callback(getter, [])
+              _ -> nil
+            end
+          _ -> nil
+        end
+
+        # After species getter, re-check the buffer (it may have been resized/detached)
+        map2 = Heap.get_obj(ref, %{})
+        buf2 = Map.get(map2, buffer(), <<>>)
+        if byte_size(buf2) < s + new_len do
+          throw({:js_throw, Heap.make_error("ArrayBuffer is detached", "TypeError")})
+        end
+
+        new_buf = if new_len > 0, do: binary_part(buf2, s, new_len), else: <<>>
         Heap.wrap(%{buffer() => new_buf, "byteLength" => new_len})
       _ -> :undefined
     end

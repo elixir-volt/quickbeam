@@ -405,6 +405,23 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     end
   end
 
+  defp define_property([{:builtin, _, _} = b, key, {:obj, desc_ref} | _]) do
+    desc = Heap.get_obj(desc_ref, %{})
+    prop_key = if is_binary(key), do: key, else: key
+
+    getter = Map.get(desc, "get")
+    setter = Map.get(desc, "set")
+
+    if getter != nil or setter != nil do
+      Heap.put_ctor_static(b, prop_key, {:accessor, getter, setter})
+    else
+      val = Map.get(desc, "value", :undefined)
+      Heap.put_ctor_static(b, prop_key, val)
+    end
+
+    b
+  end
+
   defp define_property([obj | _]), do: obj
 
   defp get_own_property_descriptor([{:obj, ref}, key | _]) do
