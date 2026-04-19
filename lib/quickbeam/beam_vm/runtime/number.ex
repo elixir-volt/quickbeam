@@ -91,10 +91,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
       sign <> int_str
     else
       precision = ceil(53 * :math.log(2) / :math.log(radix))
-      extra = precision + 4
-      raw_digits = frac_digits_list(frac_part, radix, extra)
-      digits = round_radix_digits(raw_digits, precision, radix)
-      digits = trim_trailing_zeros(digits)
+      digits = frac_digits_list(frac_part, radix, precision + 3)
+      digits = round_and_trim(digits, precision, radix, frac_part)
       chars = Enum.map(digits, &String.at("0123456789abcdefghijklmnopqrstuvwxyz", &1))
       sign <> int_str <> "." <> Enum.join(chars)
     end
@@ -112,6 +110,40 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
     else
       [digit | frac_digits_list(rest, radix, remaining - 1)]
     end
+  end
+
+  defp round_and_trim(digits, precision, radix, original_frac) do
+    truncated = Enum.take(digits, precision) |> trim_trailing_zeros()
+    rounded = round_radix_digits(digits, precision, radix) |> trim_trailing_zeros()
+
+    if truncated == rounded do
+      truncated
+    else
+      trunc_rt = digits_to_float_precise(truncated, radix)
+      round_rt = digits_to_float_precise(rounded, radix)
+
+      trunc_exact = trunc_rt == original_frac
+      round_exact = round_rt == original_frac
+
+      cond do
+        trunc_exact and not round_exact -> truncated
+        round_exact and not trunc_exact -> rounded
+        true ->
+          trunc_err = abs(trunc_rt - original_frac)
+          round_err = abs(round_rt - original_frac)
+          if round_err < trunc_err, do: rounded, else: truncated
+      end
+    end
+  end
+
+  defp digits_to_float_precise(digits, radix) do
+    {num, denom} =
+      Enum.reduce(Enum.with_index(digits), {0, 1}, fn {d, i}, {n, _} ->
+        power = round(:math.pow(radix, i + 1))
+        {n * radix + d, power}
+      end)
+
+    num / denom
   end
 
   defp round_radix_digits(digits, precision, radix) when length(digits) <= precision do
