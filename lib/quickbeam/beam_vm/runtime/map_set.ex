@@ -310,14 +310,14 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
     if Map.get(obj, :weak), do: validate_weak_key!(key, "WeakMap")
     key = normalize_map_key(key)
     data = Map.get(obj, map_data(), %{})
-    order = Map.get(obj, :map_order, [])
-    order = if Map.has_key?(data, key), do: order, else: order ++ [key]
+    order = Map.get(obj, key_order(), [])
+    order = if Map.has_key?(data, key), do: order, else: [key | order]
     new_data = Map.put(data, key, val)
 
     Heap.put_obj(ref, Map.merge(obj, %{
       map_data() => new_data,
       "size" => map_size(new_data),
-      :map_order => order
+      key_order() => order
     }))
 
     {:obj, ref}
@@ -333,12 +333,12 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
     obj = Heap.get_obj(ref, %{})
     data = Map.get(obj, map_data(), %{})
     new_data = Map.delete(data, key)
-    order = Map.get(obj, :map_order, []) |> List.delete(key)
+    order = Map.get(obj, key_order(), []) |> List.delete(key)
 
     Heap.put_obj(ref, Map.merge(obj, %{
       map_data() => new_data,
       "size" => map_size(new_data),
-      :map_order => order
+      key_order() => order
     }))
 
     true
@@ -352,21 +352,21 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
 
   defp map_keys(_, {:obj, ref}) do
     obj = Heap.get_obj(ref, %{})
-    order = Map.get(obj, :map_order, Map.keys(Map.get(obj, map_data(), %{})))
+    order = Map.get(obj, key_order(), []) |> Enum.reverse()
     Heap.wrap(order)
   end
 
   defp map_values(_, {:obj, ref}) do
     obj = Heap.get_obj(ref, %{})
     data = Map.get(obj, map_data(), %{})
-    order = Map.get(obj, :map_order, Map.keys(data))
+    order = Map.get(obj, key_order(), []) |> Enum.reverse()
     Heap.wrap(Enum.map(order, &Map.get(data, &1)))
   end
 
   defp map_entries(_, {:obj, ref}) do
     obj = Heap.get_obj(ref, %{})
     data = Map.get(obj, map_data(), %{})
-    order = Map.get(obj, :map_order, Map.keys(data))
+    order = Map.get(obj, key_order(), []) |> Enum.reverse()
     entries = Enum.map(order, fn k -> Heap.wrap([k, Map.get(data, k)]) end)
     Heap.wrap(entries)
   end
@@ -374,7 +374,7 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
   defp map_for_each([cb | _], {:obj, ref}) do
     obj = Heap.get_obj(ref, %{})
     data = Map.get(obj, map_data(), %{})
-    order = Map.get(obj, :map_order, Map.keys(data))
+    order = Map.get(obj, key_order(), []) |> Enum.reverse()
 
     Enum.each(order, fn k ->
       case Map.fetch(data, k) do
