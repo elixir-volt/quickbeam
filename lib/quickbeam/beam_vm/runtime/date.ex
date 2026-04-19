@@ -12,10 +12,31 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   def constructor(args, _this) do
     ms =
       case args do
-        [] -> System.system_time(:millisecond)
-        [val | _] when is_number(val) -> trunc(val)
-        [s | _] when is_binary(s) -> parse_date_string(s)
-        _ -> System.system_time(:millisecond)
+        [] ->
+          System.system_time(:millisecond)
+
+        [val] when is_number(val) ->
+          trunc(val)
+
+        [s] when is_binary(s) ->
+          parse_date_string(s)
+
+        [_ | _] when length(args) >= 2 ->
+          padded = args ++ List.duplicate(0, 7)
+          y = Enum.at(padded, 0, 0)
+          year = if is_number(y) and y >= 0 and y <= 99, do: 1900 + trunc(y), else: trunc(y || 0)
+          month = trunc(Enum.at(padded, 1, 0)) + 1
+          day = trunc(Enum.at(padded, 2, 1))
+          day = if day == 0, do: 1, else: day
+          hour = trunc(Enum.at(padded, 3, 0))
+          minute = trunc(Enum.at(padded, 4, 0))
+          second = trunc(Enum.at(padded, 5, 0))
+          ms_part = trunc(Enum.at(padded, 6, 0))
+          utc = gregorian_to_ms(year, month, day, hour, minute, second, ms_part)
+          if utc == :nan, do: :nan, else: utc - local_tz_offset_minutes() * 60_000
+
+        _ ->
+          System.system_time(:millisecond)
       end
 
     Heap.wrap(%{date_ms() => ms})
@@ -301,34 +322,159 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   def parse_date_string(_), do: :nan
 
   defp do_parse(s) do
-    s = expand_short_iso(s)
+    s_expanded = expand_short_iso(s)
+    has_explicit_tz = String.contains?(s, "Z") or Regex.match?(~r/[+-]\d{2}:\d{2}$/, s)
+    has_time = String.contains?(s_expanded, "T")
 
-    # Try full ISO 8601 first (handles YYYY-MM-DDTHH:MM:SSZ and variants)
-    case DateTime.from_iso8601(ensure_offset(s)) do
+    with :miss <- try_iso_datetime(s_expanded, has_explicit_tz, has_time),
+         :miss <- try_iso_date(s),
+         :miss <- try_informal(s),
+         :miss <- try_partial(s) do
+      :nan
+    end
+  end
+
+  defp try_iso_datetime(s, has_explicit_tz, has_time) do
+    with_tz = cond do
+      String.contains?(s, "Z") -> s
+      Regex.match?(~r/[+-]\d{2}:\d{2}$/, s) -> s
+      String.contains?(s, "T") -> s <> "Z"
+      true -> s
+    end
+
+    case DateTime.from_iso8601(with_tz) do
       {:ok, dt, _} ->
-        DateTime.to_unix(dt, :millisecond)
+        ms = DateTime.to_unix(dt, :millisecond)
+        if has_time and not has_explicit_tz do
+          ms - local_tz_offset_minutes() * 60_000
+        else
+          ms
+        end
 
       _ ->
-        # Try date-only via Date.from_iso8601 (handles YYYY-MM-DD)
-        case Date.from_iso8601(s) do
-          {:ok, d} ->
-            gregorian_to_ms(d.year, d.month, d.day, 0, 0, 0, 0)
+        :miss
+    end
+  end
 
-          _ ->
-            # Try bare year (YYYY) or year-month (YYYY-MM) or expanded year (+/-YYYYYY)
-            parse_partial(s)
+  defp try_iso_date(s) do
+    case Date.from_iso8601(s) do
+      {:ok, d} -> gregorian_to_ms(d.year, d.month, d.day, 0, 0, 0, 0)
+      _ -> :miss
+    end
+  end
+
+  defp try_partial(s) do
+    case parse_partial(s) do
+      :nan -> :miss
+      ms -> ms
+    end
+  end
+
+  @month_names %{
+    "jan" => 1, "feb" => 2, "mar" => 3, "apr" => 4, "may" => 5, "jun" => 6,
+    "jul" => 7, "aug" => 8, "sep" => 9, "oct" => 10, "nov" => 11, "dec" => 12
+  }
+
+  @day_names ~w(sun mon tue wed thu fri sat)
+
+  defp try_informal(s) do
+    s = String.trim(s)
+
+    s =
+      case String.split(s, " ", parts: 2) do
+        [w, rest] ->
+          if String.downcase(String.slice(w, 0..2)) in @day_names, do: rest, else: s
+        _ -> s
+      end
+
+    case Regex.run(~r/^(\w{3})\s+(\d{1,2})\s+(\d{4})\s*(.*)$/i, s) do
+      [_, month_str, day_str, year_str, time_tz] ->
+        month = Map.get(@month_names, String.downcase(String.slice(month_str, 0..2)))
+        if month do
+          {day, ""} = Integer.parse(day_str)
+          {year, ""} = Integer.parse(year_str)
+          {hour, minute, second, tz_offset} = parse_informal_time(String.trim(time_tz))
+          ms = gregorian_to_ms(year, month, day, hour, minute, second, 0)
+          if tz_offset != nil do
+            ms - tz_offset * 60_000
+          else
+            ms - local_tz_offset_minutes() * 60_000
+          end
+        else
+          :miss
         end
+      _ -> :miss
+    end
+  end
+
+  defp parse_informal_time(""), do: {0, 0, 0, nil}
+
+  defp parse_informal_time(s) do
+    case Regex.run(~r/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(.*)$/, s) do
+      [_, h, m, sec, tz] ->
+        {String.to_integer(h), String.to_integer(m),
+         (if sec != "", do: String.to_integer(sec), else: 0),
+         (if tz == "", do: nil, else: parse_tz_offset(String.trim(tz)))}
+      _ -> {0, 0, 0, nil}
+    end
+  end
+
+  defp local_tz_offset_minutes do
+    utc = :calendar.universal_time()
+    local = :calendar.local_time()
+    div(:calendar.datetime_to_gregorian_seconds(local) - :calendar.datetime_to_gregorian_seconds(utc), 60)
+  end
+
+  defp parse_tz_offset(""), do: 0
+  defp parse_tz_offset("Z"), do: 0
+  defp parse_tz_offset("GMT" <> rest), do: parse_tz_offset(rest)
+  defp parse_tz_offset("UTC" <> rest), do: parse_tz_offset(rest)
+  defp parse_tz_offset("+" <> o), do: parse_tz_num(o)
+  defp parse_tz_offset("-" <> o), do: -parse_tz_num(o)
+  defp parse_tz_offset(_), do: 0
+
+  defp parse_tz_num(s) when byte_size(s) == 4 do
+    String.to_integer(String.slice(s, 0..1)) * 60 + String.to_integer(String.slice(s, 2..3))
+  end
+  defp parse_tz_num(s) do
+    case Integer.parse(s) do
+      {n, ""} -> n * 60
+      _ -> 0
     end
   end
 
   defp expand_short_iso(s) do
-    case Regex.run(~r/^(\d{4})T(.+)$/, s) do
+    s = case Regex.run(~r/^(\d{4})T(.+)$/, s) do
       [_, year, time] -> "#{year}-01-01T#{time}"
       _ ->
         case Regex.run(~r/^(\d{4})-(\d{2})T(.+)$/, s) do
           [_, year, month, time] -> "#{year}-#{month}-01T#{time}"
           _ -> s
         end
+    end
+
+    normalize_time(s)
+  end
+
+  defp normalize_time(s) do
+    case String.split(s, "T", parts: 2) do
+      [date, time] ->
+        {time_part, tz} = split_time_tz(time)
+        padded = case String.split(time_part, ":") do
+          [h, m] -> "#{h}:#{m}:00"
+          _ -> time_part
+        end
+        date <> "T" <> padded <> tz
+      _ -> s
+    end
+  end
+
+  defp split_time_tz(time) do
+    cond do
+      String.ends_with?(time, "Z") -> {String.trim_trailing(time, "Z"), "Z"}
+      Regex.match?(~r/[+-]\d{2}:\d{2}$/, time) ->
+        {String.slice(time, 0..-7//1), String.slice(time, -6..-1//1)}
+      true -> {time, ""}
     end
   end
 
