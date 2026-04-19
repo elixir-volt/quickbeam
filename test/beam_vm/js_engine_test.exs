@@ -40,7 +40,7 @@ defmodule QuickBEAM.JSEngineTest do
       |> Enum.reject(&(&1.id.name in skip_list))
 
     helper_fns =
-      Enum.reject(fns, &(String.starts_with?(&1.id.name, "test_") and length(&1.params) == 0))
+      Enum.reject(fns, fn f -> (String.starts_with?(f.id.name, "test_") and length(f.params) == 0) or f.id.name == "test" end)
 
     helpers =
       helper_fns

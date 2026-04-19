@@ -89,8 +89,34 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   defp string_constructor(args, _), do: Runtime.stringify(List.first(args, ""))
   defp number_constructor(args, _), do: Runtime.to_number(List.first(args, 0))
 
-  defp function_constructor(_, _) do
-    throw({:js_throw, Heap.make_error("Function constructor not supported in BEAM mode", "Error")})
+  defp function_constructor(args, _) do
+    ctx = Heap.get_ctx()
+
+    if ctx && ctx.runtime_pid do
+      {params, body} = case Enum.reverse(args) do
+        [body | param_parts] ->
+          {Enum.join(Enum.reverse(param_parts), ","), body}
+        [] -> {"", ""}
+      end
+
+      code = "(function(" <> params <> "){" <> body <> "})"
+
+      case QuickBEAM.Runtime.compile(ctx.runtime_pid, code) do
+        {:ok, bc} ->
+          case Bytecode.decode(bc) do
+            {:ok, parsed} ->
+              case Interpreter.eval(parsed.value, [], %{gas: Runtime.gas_budget(), runtime_pid: ctx.runtime_pid}, parsed.atoms) do
+                {:ok, val} -> val
+                _ -> throw({:js_throw, Heap.make_error("Invalid function", "SyntaxError")})
+              end
+            _ -> throw({:js_throw, Heap.make_error("Invalid function", "SyntaxError")})
+          end
+        {:error, %{message: msg}} -> throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
+        _ -> throw({:js_throw, Heap.make_error("Invalid function", "SyntaxError")})
+      end
+    else
+      throw({:js_throw, Heap.make_error("Function constructor requires runtime", "Error")})
+    end
   end
 
   defp bigint_constructor([n | _], _) when is_integer(n), do: {:bigint, n}

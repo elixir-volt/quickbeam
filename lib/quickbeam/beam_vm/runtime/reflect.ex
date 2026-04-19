@@ -8,7 +8,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Reflect do
 
   js_object "Reflect" do
     method "apply" do
-      [target, this_arg, args_array | _] = args
+      [target, this_arg | rest] = args
+      args_array = List.first(rest)
+
+      if args_array == :undefined or args_array == nil do
+        throw({:js_throw, Heap.make_error("CreateListFromArrayLike called on non-object", "TypeError")})
+      end
+
       call_args = Heap.to_list(args_array)
       QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(target, call_args, QuickBEAM.BeamVM.Runtime.gas_budget(), this_arg)
     end

@@ -1305,6 +1305,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       result =
         case result do
           {:obj, _} = obj -> obj
+          %Bytecode.Function{} = f -> f
+          {:closure, _, %Bytecode.Function{}} = c -> c
           _ -> this_obj
         end
 
