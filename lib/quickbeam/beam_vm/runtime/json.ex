@@ -1,14 +1,18 @@
 defmodule QuickBEAM.BeamVM.Runtime.JSON do
+  use QuickBEAM.BeamVM.Builtin
+
   import QuickBEAM.BeamVM.Heap.Keys
   alias QuickBEAM.BeamVM.Heap
   @moduledoc "JSON.parse and JSON.stringify."
 
-  def object do
-    {:builtin, "JSON",
-     %{
-       "parse" => {:builtin, "parse", fn [s | _], _this -> parse(s) end},
-       "stringify" => {:builtin, "stringify", fn args, _this -> stringify(args) end}
-     }}
+  js_object "JSON" do
+    method "parse" do
+      parse(hd(args))
+    end
+
+    method "stringify" do
+      stringify(args)
+    end
   end
 
   defp parse(s) when is_binary(s) do

@@ -1,6 +1,8 @@
 defmodule QuickBEAM.BeamVM.Runtime.Promise do
   @moduledoc false
 
+  use QuickBEAM.BeamVM.Builtin
+
   alias QuickBEAM.BeamVM.Heap
 
   @promise_state "__promise_state__"
@@ -13,28 +15,35 @@ defmodule QuickBEAM.BeamVM.Runtime.Promise do
   end
 
   def statics do
-    %{
-      "resolve" => {:builtin, "resolve", &builtin_resolve/2},
-      "reject" => {:builtin, "reject", &builtin_reject/2},
-      "all" => {:builtin, "all", &builtin_all/2},
-      "allSettled" => {:builtin, "allSettled", &builtin_all_settled/2},
-      "any" => {:builtin, "any", &builtin_any/2},
-      "race" => {:builtin, "race", &builtin_race/2}
-    }
+    build_methods do
+      method "resolve" do
+        case args do
+          [val | _] -> PromiseInterp.resolved(val)
+          [] -> PromiseInterp.resolved(:undefined)
+        end
+      end
+
+      method "reject" do
+        PromiseInterp.rejected(List.first(args, :undefined))
+      end
+
+      method "all" do
+        promise_all(hd(args))
+      end
+
+      method "allSettled" do
+        promise_all_settled(hd(args))
+      end
+
+      method "any" do
+        promise_any(hd(args))
+      end
+
+      method "race" do
+        promise_race(hd(args))
+      end
+    end
   end
-
-  defp builtin_resolve([val | _], _this), do: PromiseInterp.resolved(val)
-  defp builtin_resolve([], _this), do: PromiseInterp.resolved(:undefined)
-
-  defp builtin_reject([val | _], _this), do: PromiseInterp.rejected(val)
-
-  defp builtin_all([arr | _], _this), do: promise_all(arr)
-
-  defp builtin_all_settled([arr | _], _this), do: promise_all_settled(arr)
-
-  defp builtin_any([arr | _], _this), do: promise_any(arr)
-
-  defp builtin_race([arr | _], _this), do: promise_race(arr)
 
   defp promise_all(arr) do
     items = Heap.to_list(arr)

@@ -2,6 +2,8 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
   @moduledoc false
 
   import QuickBEAM.BeamVM.Heap.Keys
+  use QuickBEAM.BeamVM.Builtin
+
   alias QuickBEAM.BeamVM.Heap
 
   # ── Map/Set ──
@@ -62,26 +64,74 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
   end
 
   defp build_set_object(set_ref, items) do
-    %{
-      set_data() => items,
-      "size" => length(items),
-      {:symbol, "Symbol.iterator"} => set_values_fn(set_ref),
-      "values" => set_values_fn(set_ref),
-      "keys" => set_values_fn(set_ref),
-      "entries" => set_entries_fn(set_ref),
-      "add" => set_add_fn(set_ref),
-      "delete" => set_delete_fn(set_ref),
-      "clear" => set_clear_fn(set_ref),
-      "has" => set_has_fn(set_ref),
-      "forEach" => set_foreach_fn(set_ref),
-      "difference" => set_difference_fn(set_ref),
-      "intersection" => set_intersection_fn(set_ref),
-      "union" => set_union_fn(set_ref),
-      "symmetricDifference" => set_symmetric_difference_fn(set_ref),
-      "isSubsetOf" => set_is_subset_fn(set_ref),
-      "isSupersetOf" => set_is_superset_fn(set_ref),
-      "isDisjointFrom" => set_is_disjoint_fn(set_ref)
-    }
+    methods =
+      build_methods do
+        method "values" do
+          do_set_values(set_ref)
+        end
+
+        method "keys" do
+          do_set_values(set_ref)
+        end
+
+        method "entries" do
+          do_set_entries(set_ref)
+        end
+
+        method "add" do
+          do_set_add(set_ref, hd(args))
+        end
+
+        method "delete" do
+          do_set_delete(set_ref, hd(args))
+        end
+
+        method "clear" do
+          set_update_data(set_ref, [])
+          :undefined
+        end
+
+        method "has" do
+          hd(args) in set_data(set_ref)
+        end
+
+        method "forEach" do
+          do_set_foreach(set_ref, hd(args))
+        end
+
+        method "difference" do
+          do_set_difference(set_ref, hd(args))
+        end
+
+        method "intersection" do
+          do_set_intersection(set_ref, hd(args))
+        end
+
+        method "union" do
+          do_set_union(set_ref, hd(args))
+        end
+
+        method "symmetricDifference" do
+          do_set_symmetric_difference(set_ref, hd(args))
+        end
+
+        method "isSubsetOf" do
+          do_set_is_subset(set_ref, hd(args))
+        end
+
+        method "isSupersetOf" do
+          do_set_is_superset(set_ref, hd(args))
+        end
+
+        method "isDisjointFrom" do
+          do_set_is_disjoint(set_ref, hd(args))
+        end
+
+        val(set_data(), items)
+        val("size", length(items))
+      end
+
+    Map.put(methods, {:symbol, "Symbol.iterator"}, methods["values"])
   end
 
   defp set_data(set_ref),
@@ -95,10 +145,6 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
       | set_data() => new_data,
         "size" => length(new_data)
     })
-  end
-
-  defp set_values_fn(set_ref) do
-    {:builtin, "values", fn _, _ -> do_set_values(set_ref) end}
   end
 
   defp do_set_values(set_ref) do
@@ -125,18 +171,10 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
     Heap.wrap(%{"next" => next_fn})
   end
 
-  defp set_entries_fn(set_ref) do
-    {:builtin, "entries", fn _, _ -> do_set_entries(set_ref) end}
-  end
-
   defp do_set_entries(set_ref) do
     data = set_data(set_ref)
     pairs = Enum.map(data, fn v -> Heap.wrap([v, v]) end)
     Heap.wrap(pairs)
-  end
-
-  defp set_add_fn(set_ref) do
-    {:builtin, "add", fn [val | _], _ -> do_set_add(set_ref, val) end}
   end
 
   defp do_set_add(set_ref, val) do
@@ -145,30 +183,10 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
     {:obj, set_ref}
   end
 
-  defp set_delete_fn(set_ref) do
-    {:builtin, "delete", fn [val | _], _ -> do_set_delete(set_ref, val) end}
-  end
-
   defp do_set_delete(set_ref, val) do
     data = set_data(set_ref)
     set_update_data(set_ref, List.delete(data, val))
     val in data
-  end
-
-  defp set_clear_fn(set_ref) do
-    {:builtin, "clear",
-     fn _, _ ->
-       set_update_data(set_ref, [])
-       :undefined
-     end}
-  end
-
-  defp set_has_fn(set_ref) do
-    {:builtin, "has", fn [val | _], _ -> val in set_data(set_ref) end}
-  end
-
-  defp set_foreach_fn(set_ref) do
-    {:builtin, "forEach", fn [cb | _], _ -> do_set_foreach(set_ref, cb) end}
   end
 
   defp do_set_foreach(set_ref, cb) do
@@ -186,16 +204,8 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
     end
   end
 
-  defp set_difference_fn(set_ref) do
-    {:builtin, "difference", fn [other | _], _ -> do_set_difference(set_ref, other) end}
-  end
-
   defp do_set_difference(set_ref, other) do
     set_constructor().([set_data(set_ref) -- other_set_data(other)])
-  end
-
-  defp set_intersection_fn(set_ref) do
-    {:builtin, "intersection", fn [other | _], _ -> do_set_intersection(set_ref, other) end}
   end
 
   defp do_set_intersection(set_ref, other) do
@@ -203,17 +213,8 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
     set_constructor().([Enum.filter(set_data(set_ref), &(&1 in od))])
   end
 
-  defp set_union_fn(set_ref) do
-    {:builtin, "union", fn [other | _], _ -> do_set_union(set_ref, other) end}
-  end
-
   defp do_set_union(set_ref, other) do
     set_constructor().([Enum.uniq(set_data(set_ref) ++ other_set_data(other))])
-  end
-
-  defp set_symmetric_difference_fn(set_ref) do
-    {:builtin, "symmetricDifference",
-     fn [other | _], _ -> do_set_symmetric_difference(set_ref, other) end}
   end
 
   defp do_set_symmetric_difference(set_ref, other) do
@@ -222,26 +223,14 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
     set_constructor().([(d -- od) ++ (od -- d)])
   end
 
-  defp set_is_subset_fn(set_ref) do
-    {:builtin, "isSubsetOf", fn [other | _], _ -> do_set_is_subset(set_ref, other) end}
-  end
-
   defp do_set_is_subset(set_ref, other) do
     od = other_set_data(other)
     Enum.all?(set_data(set_ref), &(&1 in od))
   end
 
-  defp set_is_superset_fn(set_ref) do
-    {:builtin, "isSupersetOf", fn [other | _], _ -> do_set_is_superset(set_ref, other) end}
-  end
-
   defp do_set_is_superset(set_ref, other) do
     d = set_data(set_ref)
     Enum.all?(other_set_data(other), &(&1 in d))
-  end
-
-  defp set_is_disjoint_fn(set_ref) do
-    {:builtin, "isDisjointFrom", fn [other | _], _ -> do_set_is_disjoint(set_ref, other) end}
   end
 
   defp do_set_is_disjoint(set_ref, other) do

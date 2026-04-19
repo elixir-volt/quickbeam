@@ -29,16 +29,20 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   end
 
   def statics do
-    [
-      {"now", {:builtin, "now", &now_static/2}},
-      {"parse", {:builtin, "parse", &parse_static/2}},
-      {"UTC", {:builtin, "UTC", &utc_static/2}}
-    ]
-  end
+    build_statics do
+      method "now" do
+        System.system_time(:millisecond)
+      end
 
-  defp now_static(_, _this), do: System.system_time(:millisecond)
-  defp parse_static([s | _], _this), do: parse_date_string(to_string(s))
-  defp utc_static(args, _this), do: compute_utc(args)
+      method "parse" do
+        parse_date_string(to_string(hd(args)))
+      end
+
+      method "UTC" do
+        compute_utc(args)
+      end
+    end
+  end
 
   defp compute_utc(args) do
     [y | rest] = args ++ List.duplicate(0, 7)

@@ -1,6 +1,8 @@
 defmodule QuickBEAM.BeamVM.Runtime.Symbol do
   @moduledoc false
 
+  use QuickBEAM.BeamVM.Builtin
+
   alias QuickBEAM.BeamVM.Heap
 
   def constructor do
@@ -16,21 +18,27 @@ defmodule QuickBEAM.BeamVM.Runtime.Symbol do
   end
 
   def statics do
-    %{
-      "iterator" => {:symbol, "Symbol.iterator"},
-      "toPrimitive" => {:symbol, "Symbol.toPrimitive"},
-      "hasInstance" => {:symbol, "Symbol.hasInstance"},
-      "toStringTag" => {:symbol, "Symbol.toStringTag"},
-      "asyncIterator" => {:symbol, "Symbol.asyncIterator"},
-      "isConcatSpreadable" => {:symbol, "Symbol.isConcatSpreadable"},
-      "species" => {:symbol, "Symbol.species"},
-      "match" => {:symbol, "Symbol.match"},
-      "replace" => {:symbol, "Symbol.replace"},
-      "search" => {:symbol, "Symbol.search"},
-      "split" => {:symbol, "Symbol.split"},
-      "for" => {:builtin, "for", fn [key | _], _this -> do_symbol_for(key) end},
-      "keyFor" => {:builtin, "keyFor", fn [sym | _], _this -> do_symbol_key_for(sym) end}
-    }
+    build_methods do
+      val("iterator", {:symbol, "Symbol.iterator"})
+      val("toPrimitive", {:symbol, "Symbol.toPrimitive"})
+      val("hasInstance", {:symbol, "Symbol.hasInstance"})
+      val("toStringTag", {:symbol, "Symbol.toStringTag"})
+      val("asyncIterator", {:symbol, "Symbol.asyncIterator"})
+      val("isConcatSpreadable", {:symbol, "Symbol.isConcatSpreadable"})
+      val("species", {:symbol, "Symbol.species"})
+      val("match", {:symbol, "Symbol.match"})
+      val("replace", {:symbol, "Symbol.replace"})
+      val("search", {:symbol, "Symbol.search"})
+      val("split", {:symbol, "Symbol.split"})
+
+      method "for" do
+        do_symbol_for(hd(args))
+      end
+
+      method "keyFor" do
+        do_symbol_key_for(hd(args))
+      end
+    end
   end
 
   defp do_symbol_for(key) do
