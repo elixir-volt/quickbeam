@@ -55,6 +55,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
           "length" => len,
           "byteLength" => len * elem_size(type),
           "byteOffset" => offset,
+          "BYTES_PER_ELEMENT" => elem_size(type),
           "buffer" => orig_buf || make_buffer_ref(buf)
         })
 
