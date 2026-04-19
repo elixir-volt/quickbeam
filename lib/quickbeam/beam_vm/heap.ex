@@ -303,6 +303,44 @@ defmodule QuickBEAM.BeamVM.Heap do
     Process.delete(:qb_gc_needed)
   end
 
+  @doc "Clear all heap state. Used in test setup."
+  def reset do
+    for key <- Process.get_keys() do
+      case key do
+        {:qb_obj, _} -> Process.delete(key)
+        {:qb_cell, _} -> Process.delete(key)
+        {:qb_class_proto, _} -> Process.delete(key)
+        {:qb_func_proto, _} -> Process.delete(key)
+        {:qb_decoded, _} -> Process.delete(key)
+        {:qb_promise_waiters, _} -> Process.delete(key)
+        {:qb_module, _} -> Process.delete(key)
+        {:qb_prop_desc, _, _} -> Process.delete(key)
+        {:qb_frozen, _} -> Process.delete(key)
+        {:qb_var, _} -> Process.delete(key)
+        {:qb_key_order, _} -> Process.delete(key)
+        {:qb_runtime_mode, _} -> Process.delete(key)
+        {:qb_alloc_count, _} -> Process.delete(key)
+        {:qb_gc_threshold, _} -> Process.delete(key)
+        {:qb_symbol_registry, _} -> Process.delete(key)
+        {:qb_ctor_statics, _} -> Process.delete(key)
+        {:qb_parent_ctor, _} -> Process.delete(key)
+        :qb_persistent_globals -> Process.delete(key)
+        :qb_handler_globals -> Process.delete(key)
+        :qb_atoms -> Process.delete(key)
+        :qb_module_list -> Process.delete(key)
+        :qb_ctx -> Process.delete(key)
+        :qb_gc_needed -> Process.delete(key)
+        :qb_alloc_count -> Process.delete(key)
+        :qb_object_prototype -> Process.delete(key)
+        :qb_global_bindings_cache -> Process.delete(key)
+        :qb_microtask_queue -> Process.delete(key)
+        _ -> :ok
+      end
+    end
+
+    :ok
+  end
+
   @doc "Full GC between independent eval() invocations."
   def gc do
     module_roots = all_module_exports()
