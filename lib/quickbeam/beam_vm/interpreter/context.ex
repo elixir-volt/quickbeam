@@ -8,8 +8,13 @@ defmodule QuickBEAM.BeamVM.Interpreter.Context do
           atoms: tuple(),
           globals: map(),
           runtime_pid: pid() | nil,
-          new_target: term()
+          new_target: term(),
+          gas: pos_integer()
         }
+
+  @default_gas 1_000_000_000
+
+  def default_gas, do: @default_gas
 
   defstruct this: :undefined,
             arg_buf: {},
@@ -18,5 +23,6 @@ defmodule QuickBEAM.BeamVM.Interpreter.Context do
             atoms: {},
             globals: %{},
             runtime_pid: nil,
-            new_target: :undefined
+            new_target: :undefined,
+            gas: @default_gas
 end

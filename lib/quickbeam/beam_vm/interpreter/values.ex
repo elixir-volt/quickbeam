@@ -110,7 +110,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
 
     case Map.get(map, "valueOf") do
       fun when fun != nil and fun != :undefined ->
-        to_number(Interpreter.invoke_with_receiver(fun, [], Interpreter.default_gas(), obj))
+        to_number(Interpreter.invoke_with_receiver(fun, [], QuickBEAM.BeamVM.Runtime.gas_budget(), obj))
 
       _ ->
         :nan
@@ -181,7 +181,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
         case Map.get(map, "toString") do
           fun when fun != nil and fun != :undefined ->
             stringify(
-              Interpreter.invoke_with_receiver(fun, [], Interpreter.default_gas(), obj)
+              Interpreter.invoke_with_receiver(fun, [], QuickBEAM.BeamVM.Runtime.gas_budget(), obj)
             )
 
           _ ->
@@ -530,7 +530,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
         unless match?({:obj, _}, result), do: result
 
       fun when fun != nil and fun != :undefined ->
-        result = Interpreter.invoke_with_receiver(fun, [], Interpreter.default_gas(), obj)
+        result = Interpreter.invoke_with_receiver(fun, [], QuickBEAM.BeamVM.Runtime.gas_budget(), obj)
         unless match?({:obj, _}, result), do: result
 
       _ ->
@@ -548,4 +548,5 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
         nil
     end
   end
+
 end

@@ -19,10 +19,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
   def call_callback(fun, args) do
     case fun do
       %Bytecode.Function{} = f ->
-        Interpreter.invoke(f, args, Interpreter.default_gas())
+        Interpreter.invoke(f, args, gas_budget())
 
       {:closure, _, %Bytecode.Function{}} = c ->
-        Interpreter.invoke(c, args, Interpreter.default_gas())
+        Interpreter.invoke(c, args, gas_budget())
 
       other ->
         try do
@@ -30,6 +30,13 @@ defmodule QuickBEAM.BeamVM.Runtime do
         catch
           {:js_throw, _} -> :undefined
         end
+    end
+  end
+
+  def gas_budget do
+    case Heap.get_ctx() do
+      %{gas: gas} -> gas
+      _ -> QuickBEAM.BeamVM.Interpreter.Context.default_gas()
     end
   end
 
