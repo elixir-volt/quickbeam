@@ -57,7 +57,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     case args do
       [nil | _] -> Heap.wrap(%{})
       [proto | _] -> Heap.wrap(%{proto() => proto})
-      _ -> Runtime.obj_new()
+      _ -> Runtime.new_object()
     end
   end
 
@@ -124,12 +124,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
       Enum.reduce(entries, %{}, fn
         {:obj, eref}, acc ->
           case Heap.get_obj(eref, []) do
-            [k, v | _] -> Map.put(acc, Runtime.js_to_string(k), v)
+            [k, v | _] -> Map.put(acc, Runtime.stringify(k), v)
             _ -> acc
           end
 
         [k, v | _], acc ->
-          Map.put(acc, Runtime.js_to_string(k), v)
+          Map.put(acc, Runtime.stringify(k), v)
 
         _, acc ->
           acc
@@ -139,7 +139,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     {:obj, result_ref}
   end
 
-  defp from_entries(_), do: Runtime.obj_new()
+  defp from_entries(_), do: Runtime.new_object()
 
   defp keys([{:obj, ref} | _]) do
     data = Heap.get_obj(ref, %{})

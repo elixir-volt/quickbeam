@@ -299,7 +299,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
   # ── Shared helpers ──
 
-  defp cb_call(cb, args), do: QuickBEAM.BeamVM.Runtime.call_builtin_callback(cb, args, :no_interp)
+  defp cb_call(cb, args), do: QuickBEAM.BeamVM.Runtime.call_callback(cb, args, :no_interp)
   defp truthy?(v), do: v not in [false, nil, :undefined, 0, ""]
   defp to_idx(n) when is_integer(n), do: n
   defp to_idx(n) when is_float(n), do: trunc(n)

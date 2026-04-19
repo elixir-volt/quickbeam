@@ -3,7 +3,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
 
   alias QuickBEAM.BeamVM.{Heap, Runtime}
 
-  def object_constructor, do: fn _args, _this -> Runtime.obj_new() end
+  def object_constructor, do: fn _args, _this -> Runtime.new_object() end
 
   def array_constructor do
     fn args, _this ->
@@ -17,7 +17,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
     end
   end
 
-  def string_constructor, do: fn args, _this -> Runtime.js_to_string(List.first(args, "")) end
+  def string_constructor, do: fn args, _this -> Runtime.stringify(List.first(args, "")) end
   def number_constructor, do: fn args, _this -> Runtime.to_number(List.first(args, 0)) end
 
   def function_constructor do
@@ -56,7 +56,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   def error_constructor do
     fn args, _this ->
       msg = List.first(args, "")
-      Heap.wrap(%{"message" => Runtime.js_to_string(msg), "stack" => ""})
+      Heap.wrap(%{"message" => Runtime.stringify(msg), "stack" => ""})
     end
   end
 

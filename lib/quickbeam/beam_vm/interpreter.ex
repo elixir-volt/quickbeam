@@ -34,7 +34,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   require Frame
 
   alias QuickBEAM.BeamVM.Heap
-  alias __MODULE__.{Values, Objects, Closures, Scope, Dispatch, Promise, Generator}
+  alias __MODULE__.{Values, Objects, Closures, Scope, Promise, Generator}
+  alias QuickBEAM.BeamVM.Builtin
   import Bitwise, only: [bnot: 1, &&&: 2]
 
   @default_gas 1_000_000_000
@@ -109,7 +110,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     do: invoke_closure(c, args, gas, active_ctx())
 
   def invoke(other, args, _gas) when not is_tuple(other) or elem(other, 0) != :bound,
-    do: Dispatch.call_builtin(other, args, nil)
+    do: Builtin.call(other, args, nil)
 
   def invoke({:bound, _, inner}, args, gas), do: invoke(inner, args, gas)
 
@@ -332,7 +333,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp collect_iterator(iter_obj, acc) do
     next_fn = Runtime.get_property(iter_obj, "next")
 
-    case Runtime.call_builtin_callback(next_fn, [], :no_interp) do
+    case Runtime.call_callback(next_fn, [], :no_interp) do
       {:obj, ref} ->
         result = Heap.get_obj(ref, %{})
         done = Map.get(result, "done", false)
@@ -931,11 +932,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:get_array_el, []}, frame, [idx, obj | rest], gas, ctx) do
-    run(advance(frame), [Objects.get_array_el(obj, idx) | rest], gas - 1, ctx)
+    run(advance(frame), [Objects.get_element(obj, idx) | rest], gas - 1, ctx)
   end
 
   defp run({:put_array_el, []}, frame, [val, idx, obj | rest], gas, ctx) do
-    Objects.put_array_el(obj, idx, val)
+    Objects.put_element(obj, idx, val)
     run(advance(frame), rest, gas - 1, ctx)
   end
 
@@ -1015,7 +1016,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           length(list)
 
         s when is_binary(s) ->
-          Runtime.js_string_length(s)
+          Runtime.string_length(s)
 
         %Bytecode.Function{} = f ->
           f.defined_arg_count
@@ -1464,7 +1465,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
             is_map(stored) and Map.has_key?(stored, {:symbol, "Symbol.iterator"}) ->
               iter_fn = Map.get(stored, {:symbol, "Symbol.iterator"})
-              iter_obj = Runtime.call_builtin_callback(iter_fn, [], :no_interp)
+              iter_obj = Runtime.call_callback(iter_fn, [], :no_interp)
               collect_iterator(iter_obj, [])
 
             is_map(stored) and Map.has_key?(stored, set_data()) ->
@@ -1509,7 +1510,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       case obj do
         list when is_list(list) ->
           i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
-          Objects.list_set_at(list, i, val)
+          Objects.set_list_at(list, i, val)
 
         {:obj, ref} ->
           stored = Heap.get_obj(ref, [])
@@ -1517,7 +1518,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           cond do
             is_list(stored) ->
               i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
-              Heap.put_obj(ref, Objects.list_set_at(stored, i, val))
+              Heap.put_obj(ref, Objects.set_list_at(stored, i, val))
 
             is_map(stored) ->
               key =
@@ -1634,7 +1635,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           :ok ->
             # Module loaded — create a module namespace object
             # For now, return an empty object (module exports would need linking)
-            Promise.resolved(Runtime.obj_new())
+            Promise.resolved(Runtime.new_object())
 
           {:error, _} ->
             Promise.rejected(make_error_obj("Cannot find module '#{specifier}'", "TypeError"))
@@ -1681,7 +1682,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
               cond do
                 Map.has_key?(map, sym_iter) ->
                   iter_fn = Map.get(map, sym_iter)
-                  iter_obj = Runtime.call_builtin_callback(iter_fn, [], :no_interp)
+                  iter_obj = Runtime.call_callback(iter_fn, [], :no_interp)
                   {iter_obj, Runtime.get_property(iter_obj, "next")}
 
                 Map.has_key?(map, "next") ->
@@ -1713,7 +1714,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     if iter_obj == :undefined do
       run(advance(frame), [true, :undefined | stack], gas - 1, ctx)
     else
-      result = Runtime.call_builtin_callback(next_fn, [], :no_interp)
+      result = Runtime.call_callback(next_fn, [], :no_interp)
       done = Runtime.get_property(result, "done")
       value = Runtime.get_property(result, "value")
 
@@ -1729,7 +1730,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   # iterator_next: stack is [val, catch_offset, next_fn, iter_obj | rest]
   # Calls next_fn(iter_obj, val), replaces val (top) with raw result object
   defp run({:iterator_next, []}, frame, [val, catch_offset, next_fn, iter_obj | rest], gas, ctx) do
-    result = Runtime.call_builtin_callback(next_fn, [val], :no_interp)
+    result = Runtime.call_callback(next_fn, [val], :no_interp)
     run(advance(frame), [result, catch_offset, next_fn, iter_obj | rest], gas - 1, ctx)
   end
 
@@ -1749,7 +1750,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       return_fn = Runtime.get_property(iter_obj, "return")
 
       if return_fn != :undefined and return_fn != nil do
-        Runtime.call_builtin_callback(return_fn, [], :no_interp)
+        Runtime.call_callback(return_fn, [], :no_interp)
       end
     end
 
@@ -1769,10 +1770,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     else
       result =
         if Bitwise.band(flags, 2) == 2 do
-          Runtime.call_builtin_callback(method, [], :no_interp)
+          Runtime.call_callback(method, [], :no_interp)
         else
           [val | _] = stack
-          Runtime.call_builtin_callback(method, [val], :no_interp)
+          Runtime.call_callback(method, [val], :no_interp)
         end
 
       [_ | rest] = stack
@@ -1868,7 +1869,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:typeof_is_function, []}, frame, [val | rest], gas, ctx) do
-    result = Dispatch.callable?(val)
+    result = Builtin.callable?(val)
 
     run(advance(frame), [result | rest], gas - 1, ctx)
   end
@@ -1981,7 +1982,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       case fun do
         %Bytecode.Function{} = f -> invoke_function(f, args, gas, apply_ctx)
         {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, args, gas, apply_ctx)
-        other -> Dispatch.call_builtin(other, args, this_obj)
+        other -> Builtin.call(other, args, this_obj)
       end
 
     run(advance(frame), [result | rest], gas - 1, ctx)
@@ -2260,7 +2261,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, ctx)
       {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, ctx)
       {:bound, _, inner} -> invoke(inner, rev_args, gas)
-      other -> Dispatch.call_builtin(other, rev_args, nil)
+      other -> Builtin.call(other, rev_args, nil)
     end
   end
 
@@ -2273,7 +2274,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, method_ctx)
       {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, method_ctx)
       {:bound, _, inner} -> invoke(inner, rev_args, gas)
-      other -> Dispatch.call_builtin(other, rev_args, obj)
+      other -> Builtin.call(other, rev_args, obj)
     end
   end
 
@@ -2338,7 +2339,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, ctx)
         {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, ctx)
         {:bound, _, inner} -> invoke(inner, rev_args, gas)
-        other -> Dispatch.call_builtin(other, rev_args, nil)
+        other -> Builtin.call(other, rev_args, nil)
       end
     end)
   end
@@ -2353,7 +2354,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, method_ctx)
         {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, method_ctx)
         {:bound, _, inner} -> invoke(inner, rev_args, gas)
-        other -> Dispatch.call_builtin(other, rev_args, obj)
+        other -> Builtin.call(other, rev_args, obj)
       end
     end)
   end
@@ -2445,7 +2446,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       _ ->
         try do
-          Dispatch.call_builtin(fun, args, nil)
+          Builtin.call(fun, args, nil)
         catch
           {:js_throw, _} -> List.first(args, :undefined)
         end

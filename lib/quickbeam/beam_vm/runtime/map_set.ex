@@ -191,7 +191,7 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
 
   defp do_set_foreach(set_ref, cb) do
     for v <- set_data(set_ref) do
-      QuickBEAM.BeamVM.Runtime.call_builtin_callback(cb, [v, v], :no_interp)
+      QuickBEAM.BeamVM.Runtime.call_callback(cb, [v, v], :no_interp)
     end
 
     :undefined

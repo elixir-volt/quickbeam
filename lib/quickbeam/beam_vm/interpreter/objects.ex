@@ -1,6 +1,6 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   import QuickBEAM.BeamVM.Heap.Keys
-  @compile {:inline, has_property: 2, get_array_el: 2, list_set_at: 3}
+  @compile {:inline, has_property: 2, get_element: 2, set_list_at: 3}
   alias QuickBEAM.BeamVM.{Heap, Bytecode}
 
   def put({:obj, ref} = _obj, "length", val) do
@@ -32,7 +32,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
 
         if set_trap != :undefined do
           # Proxy set trap return value ignored (non-strict mode behavior)
-          QuickBEAM.BeamVM.Runtime.call_builtin_callback(set_trap, [target, key, val], :no_interp)
+          QuickBEAM.BeamVM.Runtime.call_callback(set_trap, [target, key, val], :no_interp)
         else
           put(target, key, val)
         end
@@ -114,7 +114,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
         has_trap = QuickBEAM.BeamVM.Runtime.get_property(handler, "has")
 
         if has_trap != :undefined do
-          QuickBEAM.BeamVM.Runtime.call_builtin_callback(has_trap, [target, key], :no_interp)
+          QuickBEAM.BeamVM.Runtime.call_callback(has_trap, [target, key], :no_interp)
         else
           has_property(target, key)
         end
@@ -134,7 +134,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
 
   def has_property(_, _), do: false
 
-  def get_array_el({:obj, ref} = obj, idx) do
+  def get_element({:obj, ref} = obj, idx) do
     case Heap.get_obj(ref) do
       %{typed_array() => true} when is_integer(idx) ->
         QuickBEAM.BeamVM.Runtime.TypedArray.get_element(obj, idx)
@@ -151,17 +151,17 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
     end
   end
 
-  def get_array_el(obj, idx) when is_list(obj) and is_integer(idx),
+  def get_element(obj, idx) when is_list(obj) and is_integer(idx),
     do: Enum.at(obj, idx, :undefined)
 
-  def get_array_el(obj, idx) when is_map(obj), do: Map.get(obj, idx, :undefined)
+  def get_element(obj, idx) when is_map(obj), do: Map.get(obj, idx, :undefined)
 
-  def get_array_el(s, idx) when is_binary(s) and is_integer(idx) and idx >= 0,
+  def get_element(s, idx) when is_binary(s) and is_integer(idx) and idx >= 0,
     do: String.at(s, idx) || :undefined
 
-  def get_array_el(_, _), do: :undefined
+  def get_element(_, _), do: :undefined
 
-  def put_array_el({:obj, ref} = obj, key, val) do
+  def put_element({:obj, ref} = obj, key, val) do
     case Heap.get_obj(ref) do
       %{typed_array() => true} when is_integer(key) ->
         QuickBEAM.BeamVM.Runtime.TypedArray.set_element(obj, key, val)
@@ -191,11 +191,11 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
     end
   end
 
-  def put_array_el(_, _, _), do: :ok
+  def put_element(_, _, _), do: :ok
 
-  def list_set_at(list, i, val) when is_integer(i) and i >= 0 and i < length(list),
+  def set_list_at(list, i, val) when is_integer(i) and i >= 0 and i < length(list),
     do: List.replace_at(list, i, val)
 
-  def list_set_at(list, i, val) when is_integer(i) and i >= 0,
+  def set_list_at(list, i, val) when is_integer(i) and i >= 0,
     do: list ++ List.duplicate(:undefined, max(0, i - length(list))) ++ [val]
 end

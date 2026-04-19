@@ -212,7 +212,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
     result =
       Enum.map(Enum.with_index(list), fn {val, idx} ->
-        Runtime.call_builtin_callback(fun, [val, idx, list], interp)
+        Runtime.call_callback(fun, [val, idx, list], interp)
       end)
 
     Heap.wrap(result)
@@ -220,7 +220,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   defp map(list, [fun | _], interp) when is_list(list) and length(list) > 0 do
     Enum.map(Enum.with_index(list), fn {val, idx} ->
-      Runtime.call_builtin_callback(fun, [val, idx, list], interp)
+      Runtime.call_callback(fun, [val, idx, list], interp)
     end)
   end
 
@@ -231,7 +231,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
     result =
       Enum.filter(Enum.with_index(list), fn {val, idx} ->
-        Runtime.js_truthy(Runtime.call_builtin_callback(fun, [val, idx, list], interp))
+        Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list], interp))
       end)
       |> Enum.map(fn {val, _} -> val end)
 
@@ -240,7 +240,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   defp filter(list, [fun | _], interp) when is_list(list) do
     Enum.filter(Enum.with_index(list), fn {val, idx} ->
-      Runtime.js_truthy(Runtime.call_builtin_callback(fun, [val, idx, list], interp))
+      Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list], interp))
     end)
     |> Enum.map(fn {val, _} -> val end)
   end
@@ -266,7 +266,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
       end
 
     Enum.reduce(Enum.with_index(items), acc, fn {val, idx}, a ->
-      Runtime.call_builtin_callback(fun, [a, val, idx, list], interp)
+      Runtime.call_callback(fun, [a, val, idx, list], interp)
     end)
   end
 
@@ -274,7 +274,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     list = Heap.get_obj(ref, [])
 
     Enum.each(Enum.with_index(list), fn {val, idx} ->
-      Runtime.call_builtin_callback(fun, [val, idx, list], interp)
+      Runtime.call_callback(fun, [val, idx, list], interp)
     end)
 
     :undefined
@@ -282,7 +282,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   defp for_each(list, [fun | _], interp) when is_list(list) do
     Enum.each(Enum.with_index(list), fn {val, idx} ->
-      Runtime.call_builtin_callback(fun, [val, idx, list], interp)
+      Runtime.call_callback(fun, [val, idx, list], interp)
     end)
 
     :undefined
@@ -303,7 +303,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
     list
     |> Enum.drop(from)
-    |> Enum.find_index(&Runtime.js_strict_eq(&1, val))
+    |> Enum.find_index(&Runtime.strict_equal?(&1, val))
     |> then(fn
       nil -> -1
       idx -> idx + from
@@ -318,7 +318,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     list
     |> Enum.with_index()
     |> Enum.reverse()
-    |> Enum.find_value(-1, fn {el, i} -> if Runtime.js_strict_eq(el, val), do: i end)
+    |> Enum.find_value(-1, fn {el, i} -> if Runtime.strict_equal?(el, val), do: i end)
   end
 
   defp last_index_of(_, _), do: -1
@@ -332,7 +332,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
         _ -> 0
       end
 
-    list |> Enum.drop(from) |> Enum.any?(&Runtime.js_strict_eq(&1, val))
+    list |> Enum.drop(from) |> Enum.any?(&Runtime.strict_equal?(&1, val))
   end
 
   defp includes(_, _), do: false
@@ -383,9 +383,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   defp join({:obj, ref}, args), do: join(Heap.get_obj(ref, []), args)
 
   defp join(list, [sep | _]) when is_list(list),
-    do: Enum.map_join(list, Runtime.js_to_string(sep), &Runtime.js_to_string/1)
+    do: Enum.map_join(list, Runtime.stringify(sep), &Runtime.stringify/1)
 
-  defp join(list, []) when is_list(list), do: Enum.map_join(list, ",", &Runtime.js_to_string/1)
+  defp join(list, []) when is_list(list), do: Enum.map_join(list, ",", &Runtime.stringify/1)
   defp join(_, _), do: ""
 
   defp concat({:obj, ref}, args) do
@@ -418,15 +418,15 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
         compare_fn = hd(args)
 
         Enum.sort(list, fn a, b ->
-          result = Runtime.call_builtin_callback(compare_fn, [a, b], :no_interp)
+          result = Runtime.call_callback(compare_fn, [a, b], :no_interp)
 
           case result do
             n when is_number(n) -> n < 0
-            _ -> Runtime.js_to_string(a) < Runtime.js_to_string(b)
+            _ -> Runtime.stringify(a) < Runtime.stringify(b)
           end
         end)
       catch
-        _ -> Enum.sort(list, fn a, b -> Runtime.js_to_string(a) < Runtime.js_to_string(b) end)
+        _ -> Enum.sort(list, fn a, b -> Runtime.stringify(a) < Runtime.stringify(b) end)
       end
 
     Heap.put_obj(ref, sorted)
@@ -439,7 +439,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     Heap.put_obj(
       ref,
       Enum.sort(list, fn a, b ->
-        Runtime.js_to_string(a) < Runtime.js_to_string(b)
+        Runtime.stringify(a) < Runtime.stringify(b)
       end)
     )
 
@@ -447,13 +447,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
 
   defp sort(list, [_ | _]) when is_list(list) do
-    Enum.sort(list, fn a, b -> Runtime.js_to_string(a) < Runtime.js_to_string(b) end)
+    Enum.sort(list, fn a, b -> Runtime.stringify(a) < Runtime.stringify(b) end)
   end
 
   defp sort(list, []) when is_list(list),
     do:
       Enum.sort(list, fn a, b ->
-        Runtime.js_to_string(a) < Runtime.js_to_string(b)
+        Runtime.stringify(a) < Runtime.stringify(b)
       end)
 
   defp flat({:obj, ref}, args), do: flat(Heap.get_obj(ref, []), args)
@@ -481,7 +481,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   defp flat_map(list, [cb | _], interp) when is_list(list) do
     result =
       Enum.flat_map(Enum.with_index(list), fn {item, idx} ->
-        val = Runtime.call_builtin_callback(cb, [item, idx, list], interp)
+        val = Runtime.call_callback(cb, [item, idx, list], interp)
 
         case val do
           {:obj, r} ->
@@ -536,7 +536,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   defp find(list, [fun | _], interp) when is_list(list) do
     Enum.find_value(Enum.with_index(list), :undefined, fn {val, idx} ->
-      if Runtime.js_truthy(Runtime.call_builtin_callback(fun, [val, idx, list], interp)), do: val
+      if Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list], interp)), do: val
     end)
   end
 
@@ -546,7 +546,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   defp find_index(list, [fun | _], interp) when is_list(list) do
     Enum.find_value(Enum.with_index(list), -1, fn {val, idx} ->
-      if Runtime.js_truthy(Runtime.call_builtin_callback(fun, [val, idx, list], interp)), do: idx
+      if Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list], interp)), do: idx
     end)
   end
 
@@ -556,7 +556,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   defp every(list, [fun | _], interp) when is_list(list) do
     Enum.all?(Enum.with_index(list), fn {val, idx} ->
-      Runtime.js_truthy(Runtime.call_builtin_callback(fun, [val, idx, list], interp))
+      Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list], interp))
     end)
   end
 
@@ -566,7 +566,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   defp some(list, [fun | _], interp) when is_list(list) do
     Enum.any?(Enum.with_index(list), fn {val, idx} ->
-      Runtime.js_truthy(Runtime.call_builtin_callback(fun, [val, idx, list], interp))
+      Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list], interp))
     end)
   end
 
@@ -616,7 +616,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
     if map_fn do
       Enum.map(Enum.with_index(list), fn {val, idx} ->
-        Runtime.call_builtin_callback(map_fn, [val, idx], interp)
+        Runtime.call_callback(map_fn, [val, idx], interp)
       end)
     else
       list
@@ -669,7 +669,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     list
     |> Enum.reverse()
     |> Enum.find(:undefined, fn item ->
-      Runtime.call_builtin_callback(cb, [item], interp) |> Runtime.js_truthy()
+      Runtime.call_callback(cb, [item], interp) |> Runtime.truthy?()
     end)
   end
 
@@ -683,7 +683,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     |> Enum.with_index()
     |> Enum.reverse()
     |> Enum.find_value(-1, fn {item, idx} ->
-      if Runtime.call_builtin_callback(cb, [item, idx], interp) |> Runtime.js_truthy(), do: idx
+      if Runtime.call_callback(cb, [item, idx], interp) |> Runtime.truthy?(), do: idx
     end)
   end
 
@@ -709,7 +709,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
       Heap.put_obj(
         new_ref,
-        Enum.sort(list, fn a, b -> Runtime.js_to_string(a) <= Runtime.js_to_string(b) end)
+        Enum.sort(list, fn a, b -> Runtime.stringify(a) <= Runtime.stringify(b) end)
       )
 
       {:obj, new_ref}

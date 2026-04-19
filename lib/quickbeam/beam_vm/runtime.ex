@@ -164,7 +164,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
         "Set" => {:builtin, "Set", MapSet.set_constructor()},
         "WeakMap" => {:builtin, "WeakMap", MapSet.map_constructor()},
         "WeakSet" => {:builtin, "WeakSet", MapSet.set_constructor()},
-        "WeakRef" => {:builtin, "WeakRef", fn _, _this -> __MODULE__.obj_new() end},
+        "WeakRef" => {:builtin, "WeakRef", fn _, _this -> __MODULE__.new_object() end},
         "Reflect" => Reflect.object(),
         "Proxy" =>
           {:builtin, "Proxy",
@@ -173,7 +173,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
                Heap.wrap(%{proxy_target() => target, proxy_handler() => handler})
 
              _, _this ->
-               __MODULE__.obj_new()
+               __MODULE__.new_object()
            end},
         "console" => Console.object(),
         "require" =>
@@ -218,7 +218,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
                :undefined
              end
            end},
-        "globalThis" => obj_new(),
+        "globalThis" => new_object(),
         "structuredClone" => {:builtin, "structuredClone", fn [val | _], _this -> val end},
         "queueMicrotask" =>
           {:builtin, "queueMicrotask",
@@ -245,7 +245,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
         end
       )
       |> Map.merge(%{
-        "DataView" => {:builtin, "DataView", fn _, _this -> obj_new() end}
+        "DataView" => {:builtin, "DataView", fn _, _this -> new_object() end}
       })
       |> Map.merge(error_builtins())
 
@@ -304,7 +304,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   defp get_prototype_raw(value, key), do: get_prototype_property(value, key)
 
-  def js_string_length(s) do
+  def string_length(s) do
     len = String.length(s)
 
     if len == byte_size(s) do
@@ -331,7 +331,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
         get_trap = get_own_property(handler, "get")
 
         if get_trap != :undefined do
-          call_builtin_callback(get_trap, [target, key], :no_interp)
+          call_callback(get_trap, [target, key], :no_interp)
         else
           get_own_property(target, key)
         end
@@ -367,7 +367,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     end
   end
 
-  defp get_own_property(s, "length") when is_binary(s), do: js_string_length(s)
+  defp get_own_property(s, "length") when is_binary(s), do: string_length(s)
   defp get_own_property(s, key) when is_binary(s), do: JSString.proto_property(key)
 
   defp get_own_property(n, _) when is_number(n), do: :undefined
@@ -418,7 +418,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     end
   end
 
-  defp get_own_property({:regexp, bytecode, _source}, "flags"), do: extract_regexp_flags(bytecode)
+  defp get_own_property({:regexp, bytecode, _source}, "flags"), do: regexp_flags(bytecode)
   defp get_own_property({:regexp, _bytecode, source}, "source") when is_binary(source), do: source
 
   defp get_own_property({:regexp, _, _}, key), do: RegExp.proto_property(key)
@@ -452,14 +452,14 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_own_property({:symbol, desc, _}, "description"), do: desc
   defp get_own_property(_, _), do: :undefined
 
-  def extract_regexp_flags(<<flags_byte::8, _::binary>>) do
+  def regexp_flags(<<flags_byte::8, _::binary>>) do
     [{1, "g"}, {2, "i"}, {4, "m"}, {8, "s"}, {16, "u"}, {32, "y"}]
     |> Enum.reduce("", fn {bit, ch}, acc ->
       if band(flags_byte, bit) != 0, do: acc <> ch, else: acc
     end)
   end
 
-  def extract_regexp_flags(_), do: ""
+  def regexp_flags(_), do: ""
 
   def invoke_getter(fun, this_obj) do
     QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [], 10_000_000, this_obj)
@@ -528,7 +528,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   # ── Callback dispatch (used by higher-order array methods) ──
 
-  def call_builtin_callback(fun, args, _interp) do
+  def call_callback(fun, args, _interp) do
     case fun do
       %Bytecode.Function{} = f ->
         QuickBEAM.BeamVM.Interpreter.invoke(f, args, 10_000_000)
@@ -538,7 +538,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
       other ->
         try do
-          QuickBEAM.BeamVM.Interpreter.Dispatch.call_builtin(other, args, nil)
+          QuickBEAM.BeamVM.Builtin.call(other, args, nil)
         catch
           {:js_throw, _} -> :undefined
         end
@@ -547,20 +547,20 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   # ── Shared helpers (public for cross-module use) ──
 
-  def obj_new do
+  def new_object do
     Heap.wrap(%{})
   end
 
-  def js_truthy(nil), do: false
-  def js_truthy(:undefined), do: false
-  def js_truthy(false), do: false
-  def js_truthy(0), do: false
-  def js_truthy(""), do: false
-  def js_truthy(_), do: true
+  def truthy?(nil), do: false
+  def truthy?(:undefined), do: false
+  def truthy?(false), do: false
+  def truthy?(0), do: false
+  def truthy?(""), do: false
+  def truthy?(_), do: true
 
-  def js_strict_eq(a, b), do: a === b
+  def strict_equal?(a, b), do: a === b
 
-  def js_to_string(val), do: QuickBEAM.BeamVM.Interpreter.Values.to_js_string(val)
+  def stringify(val), do: QuickBEAM.BeamVM.Interpreter.Values.to_js_string(val)
 
   def to_int(n) when is_integer(n), do: n
   def to_int(n) when is_float(n), do: trunc(n)

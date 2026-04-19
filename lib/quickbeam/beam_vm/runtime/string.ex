@@ -113,7 +113,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
   end
 
   proto "concat" do
-    this <> Enum.join(Enum.map(args, &Runtime.js_to_string/1))
+    this <> Enum.join(Enum.map(args, &Runtime.stringify/1))
   end
 
   proto "toString" do
@@ -290,7 +290,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
         regex_replace(s, r, replacement)
 
       pat when is_binary(pat) ->
-        String.replace(s, pat, Runtime.js_to_string(replacement), global: false)
+        String.replace(s, pat, Runtime.stringify(replacement), global: false)
 
       _ ->
         s
@@ -302,7 +302,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
   defp replace_all(s, [pattern, replacement | _]) when is_binary(s) do
     case pattern do
       {:regexp, _bytecode, _source} = r -> regex_replace(s, r, replacement)
-      pat when is_binary(pat) -> String.replace(s, pat, Runtime.js_to_string(replacement))
+      pat when is_binary(pat) -> String.replace(s, pat, Runtime.stringify(replacement))
       _ -> s
     end
   end
@@ -330,7 +330,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
   defp regex_replace(s, {:regexp, _bytecode, source}, replacement) when is_binary(source) do
     case Regex.compile(source) do
-      {:ok, re} -> String.replace(s, re, Runtime.js_to_string(replacement))
+      {:ok, re} -> String.replace(s, re, Runtime.stringify(replacement))
       _ -> s
     end
   end
@@ -418,10 +418,10 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
       sub =
         if i < length(subs),
-          do: Runtime.js_to_string(Enum.at(subs, i)),
+          do: Runtime.stringify(Enum.at(subs, i)),
           else: ""
 
-      acc <> Runtime.js_to_string(part) <> sub
+      acc <> Runtime.stringify(part) <> sub
     end)
   end
 end

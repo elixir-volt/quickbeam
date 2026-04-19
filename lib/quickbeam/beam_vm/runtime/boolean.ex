@@ -12,5 +12,5 @@ defmodule QuickBEAM.BeamVM.Runtime.Boolean do
   end
 
   def constructor,
-    do: fn args, _this -> QuickBEAM.BeamVM.Runtime.js_truthy(List.first(args, false)) end
+    do: fn args, _this -> QuickBEAM.BeamVM.Runtime.truthy?(List.first(args, false)) end
 end

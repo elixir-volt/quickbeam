@@ -73,11 +73,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
         float_to_radix(n * 1.0, r)
 
       true ->
-        Runtime.js_to_string(n)
+        Runtime.stringify(n)
     end
   end
 
-  defp number_to_string(n, _), do: Runtime.js_to_string(n)
+  defp number_to_string(n, _), do: Runtime.stringify(n)
 
   defp float_to_radix(n, radix) do
     digits = "0123456789abcdefghijklmnopqrstuvwxyz"
@@ -136,7 +136,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
     end
   end
 
-  defp number_to_fixed(n, _), do: Runtime.js_to_string(n)
+  defp number_to_fixed(n, _), do: Runtime.stringify(n)
 
   defp number_to_exponential(n, [digits | _]) when is_number(n) do
     d = Runtime.to_int(digits)
@@ -147,7 +147,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
     :erlang.float_to_binary(mantissa, decimals: d) <> "e" <> sign <> Integer.to_string(exp)
   end
 
-  defp number_to_exponential(n, _), do: Runtime.js_to_string(n)
+  defp number_to_exponential(n, _), do: Runtime.stringify(n)
 
   defp number_to_precision(n, [prec | _]) when is_number(n) do
     p = max(1, Runtime.to_int(prec))
@@ -170,9 +170,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
         end
 
       _ ->
-        Runtime.js_to_string(n)
+        Runtime.stringify(n)
     end
   end
 
-  defp number_to_precision(n, _), do: Runtime.js_to_string(n)
+  defp number_to_precision(n, _), do: Runtime.stringify(n)
 end
