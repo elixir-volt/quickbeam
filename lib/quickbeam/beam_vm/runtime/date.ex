@@ -32,8 +32,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
           minute = trunc(Enum.at(padded, 4, 0))
           second = trunc(Enum.at(padded, 5, 0))
           ms_part = trunc(Enum.at(padded, 6, 0))
-          utc = gregorian_to_ms(year, month, day, hour, minute, second, ms_part)
-          if utc == :nan, do: :nan, else: utc - local_tz_offset_minutes() * 60_000
+          local_dt = {{year, month, max(day, 1)}, {hour, minute, second}}
+          case :calendar.local_time_to_universal_time_dst(local_dt) do
+            [utc_dt | _] ->
+              local_gs = :calendar.datetime_to_gregorian_seconds(local_dt)
+              utc_gs = :calendar.datetime_to_gregorian_seconds(utc_dt)
+              offset_s = local_gs - utc_gs
+              offset_min = div(offset_s + 30, 60) * 60
+              (local_gs - @epoch_gregorian_seconds - offset_min) * 1000 + ms_part
+            [] ->
+              utc = gregorian_to_ms(year, month, max(day, 1), hour, minute, second, ms_part)
+              if utc == :nan, do: :nan, else: utc - local_tz_offset_minutes() * 60_000
+          end
 
         _ ->
           System.system_time(:millisecond)
@@ -54,18 +64,29 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
   static "UTC" do
     padded = args ++ List.duplicate(0, 7)
-    y = Enum.at(padded, 0, 0)
-    year = if is_number(y) and y >= 0 and y <= 99, do: 1900 + trunc(y), else: trunc(y || 0)
 
-    gregorian_to_ms(
-      year,
-      trunc(Enum.at(padded, 1, 0)) + 1,
-      max(1, trunc(Enum.at(padded, 2, 1))),
-      trunc(Enum.at(padded, 3, 0)),
-      trunc(Enum.at(padded, 4, 0)),
-      trunc(Enum.at(padded, 5, 0)),
-      trunc(Enum.at(padded, 6, 0))
-    )
+    vals = Enum.map(Enum.take(padded, min(length(args), 7)), fn
+      v when v in [:nan, :NaN, :infinity, :neg_infinity] -> :nan
+      v when is_number(v) -> v
+      _ -> :nan
+    end)
+
+    if Enum.any?(vals, &(&1 == :nan)) do
+      :nan
+    else
+      y = Enum.at(vals, 0, 0)
+      year = if y >= 0 and y <= 99, do: 1900 + trunc(y), else: trunc(y)
+
+      gregorian_to_ms(
+        year,
+        trunc(Enum.at(vals, 1, 0)) + 1,
+        max(1, trunc(Enum.at(vals, 2, 1))),
+        trunc(Enum.at(vals, 3, 0)),
+        trunc(Enum.at(vals, 4, 0)),
+        trunc(Enum.at(vals, 5, 0)),
+        trunc(Enum.at(vals, 6, 0))
+      )
+    end
   end
 
   # ── Getters ──
@@ -398,7 +419,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
           if tz_offset != nil do
             ms - tz_offset * 60_000
           else
-            ms - local_tz_offset_minutes() * 60_000
+            local_dt = {{year, month, day}, {hour, minute, second}}
+            case :calendar.local_time_to_universal_time_dst(local_dt) do
+              [utc_dt | _] ->
+                gs = :calendar.datetime_to_gregorian_seconds(utc_dt)
+                (gs - @epoch_gregorian_seconds) * 1000
+              [] ->
+                ms - local_tz_offset_minutes() * 60_000
+            end
           end
         else
           :miss
