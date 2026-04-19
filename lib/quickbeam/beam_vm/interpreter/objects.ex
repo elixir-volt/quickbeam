@@ -52,6 +52,21 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
           put(target, key, val)
         end
 
+      list when is_list(list) ->
+        case key do
+          k when is_binary(k) ->
+            case Integer.parse(k) do
+              {idx, ""} when idx >= 0 -> put_element({:obj, ref}, idx, val)
+              _ -> :ok
+            end
+
+          k when is_integer(k) and k >= 0 ->
+            put_element({:obj, ref}, k, val)
+
+          _ ->
+            :ok
+        end
+
       _ when is_map(map) ->
         cond do
           Heap.frozen?(ref) ->
@@ -84,6 +99,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
     do: Integer.to_string(trunc(k))
 
   defp normalize_key(k) when is_float(k), do: Values.stringify(k)
+  defp normalize_key({:tagged_int, n}), do: Integer.to_string(n)
   defp normalize_key(k), do: k
 
   def put_getter({:obj, ref}, key, fun) do
