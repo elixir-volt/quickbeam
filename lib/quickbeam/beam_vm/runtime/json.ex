@@ -57,23 +57,17 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
 
   defp stringify([]), do: :undefined
 
-  defp encode_json({:ordered_map, pairs}) do
-    inner =
-      pairs
-      |> Enum.map(fn {k, v} -> encode_json(k) <> ":" <> encode_json(v) end)
-      |> Enum.join(",")
-
-    "{" <> inner <> "}"
-  end
-
-  defp encode_json(list) when is_list(list) do
-    inner = Enum.map_join(list, ",", &encode_json/1)
-    "[" <> inner <> "]"
-  end
-
   defp encode_json(val) do
-    :json.encode(val) |> IO.iodata_to_binary()
+    :json.encode(val, &json_encoder/2) |> IO.iodata_to_binary()
   end
+
+  defp json_encoder({:ordered_map, pairs}, encoder) do
+    ["{", Enum.intersperse(Enum.map(pairs, fn {k, v} ->
+      [encoder.(k, encoder), ":", encoder.(v, encoder)]
+    end), ","), "}"]
+  end
+
+  defp json_encoder(other, encoder), do: :json.encode_value(other, encoder)
 
   defp to_json({:obj, ref} = obj) do
     case Heap.get_obj(ref) do
