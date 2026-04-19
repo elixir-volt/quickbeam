@@ -154,32 +154,21 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
   end
 
   defp format_precision(f, p) do
-    sci = :erlang.float_to_binary(abs(f), [{:scientific, p - 1}])
+    exp = trunc(:math.floor(:math.log10(abs(f))))
+    sign = if f < 0, do: "-", else: ""
 
-    case String.split(sci, "e") do
-      [mantissa, exp_str] ->
-        exp = String.to_integer(exp_str)
-        sign = if f < 0, do: "-", else: ""
+    if exp >= p or exp < -6 do
+      sci = :erlang.float_to_binary(abs(f), [{:scientific, p - 1}])
 
-        if exp >= 0 and exp < p do
-          sign <> shift_decimal(mantissa, exp)
-        else
-          sign <> mantissa <> "e" <> format_exponent(exp)
-        end
+      case String.split(sci, "e") do
+        [mantissa, exp_str] ->
+          sign <> mantissa <> "e" <> format_exponent(String.to_integer(exp_str))
 
-      _ ->
-        Runtime.stringify(f)
-    end
-  end
-
-  defp shift_decimal(mantissa, exp) do
-    digits = String.replace(mantissa, ".", "")
-    point = exp + 1
-
-    if point >= String.length(digits) do
-      digits
+        _ ->
+          Runtime.stringify(f)
+      end
     else
-      String.slice(digits, 0, point) <> "." <> String.slice(digits, point..-1//1)
+      sign <> :erlang.float_to_binary(abs(f), decimals: p - exp - 1)
     end
   end
 
