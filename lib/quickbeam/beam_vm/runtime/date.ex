@@ -61,6 +61,34 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   proto("setMinutes", do: set_field(this, :minute, hd(args)))
   proto("setSeconds", do: set_field(this, :second, hd(args)))
 
+  proto "setUTCHours" do
+    set_utc_time_fields(this, args, [:hour, :minute, :second])
+  end
+
+  proto "setUTCMinutes" do
+    set_utc_time_fields(this, args, [:minute, :second])
+  end
+
+  proto "setUTCSeconds" do
+    set_utc_time_fields(this, args, [:second])
+  end
+
+  proto "setUTCMilliseconds" do
+    with_ms(this, &put_ms(this, div(&1, 1000) * 1000 + trunc(hd(args))))
+  end
+
+  proto "setUTCFullYear" do
+    set_field(this, :year, hd(args))
+  end
+
+  proto "setUTCMonth" do
+    set_field(this, :month, trunc(hd(args)) + 1)
+  end
+
+  proto "setUTCDate" do
+    set_field(this, :day, hd(args))
+  end
+
   proto "setMilliseconds" do
     with_ms(this, &put_ms(this, div(&1, 1000) * 1000 + trunc(hd(args))))
   end
@@ -73,13 +101,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   proto("toDateString", do: fmt_dt(this, &Calendar.strftime(&1, "%a %b %d %Y")))
   proto("toTimeString", do: fmt_dt(this, &Calendar.strftime(&1, "%H:%M:%S GMT+0000")))
   proto("toUTCString", do: fmt_dt(this, &Calendar.strftime(&1, "%a, %d %b %Y %H:%M:%S GMT")))
-  proto("toLocaleTimeString", do: fmt_dt(this, &Calendar.strftime(&1, "%H:%M:%S")))
-
-  proto("toLocaleDateString", do: fmt_dt(this, &"#{&1.month}/#{&1.day}/#{&1.year}"))
-
-  proto "toLocaleString" do
-    fmt_dt(this, &"#{&1.month}/#{&1.day}/#{&1.year}, #{Calendar.strftime(&1, "%H:%M:%S")}")
-  end
+  proto("toLocaleTimeString", do: fmt_local(this, "%I:%M:%S %p"))
+  proto("toLocaleDateString", do: fmt_local(this, "%m/%d/%Y"))
+  proto("toLocaleString", do: fmt_local(this, "%m/%d/%Y, %I:%M:%S %p"))
 
   # ── Internal: ms ↔ DateTime ──
 
@@ -124,6 +148,17 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
     end
   end
 
+  defp fmt_local(this, pattern) do
+    case ms_to_dt(get_ms(this)) do
+      nil -> "Invalid Date"
+      dt ->
+        local_erl = :calendar.universal_time_to_local_time(
+          {{dt.year, dt.month, dt.day}, {dt.hour, dt.minute, dt.second}}
+        )
+        Calendar.strftime(NaiveDateTime.from_erl!(local_erl), pattern)
+    end
+  end
+
   defp fmt_dt(this, fun) do
     case ms_to_dt(get_ms(this)) do
       nil -> "Invalid Date"
@@ -143,6 +178,22 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
       nil -> :nan
       dt ->
         put_ms(this, dt_to_ms(Map.put(dt, field, trunc(value))))
+    end
+  rescue
+    _ -> :nan
+  end
+
+  defp set_utc_time_fields(this, values, fields) do
+    case ms_to_dt(get_ms(this)) do
+      nil -> :nan
+      dt ->
+        new_dt =
+          Enum.zip(fields, values)
+          |> Enum.reduce(dt, fn {field, val}, acc ->
+            if is_number(val), do: Map.put(acc, field, trunc(val)), else: acc
+          end)
+
+        put_ms(this, dt_to_ms(new_dt))
     end
   rescue
     _ -> :nan
@@ -199,7 +250,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
       year = if y >= 0 and y <= 99, do: 1900 + trunc(y), else: trunc(y)
 
       {:ok,
-       {year, trunc(Enum.at(vals, 1, 0)) + 1, max(1, trunc(Enum.at(vals, 2, 1))),
+       {year, trunc(Enum.at(vals, 1, 0)) + 1, trunc(Enum.at(vals, 2, 1)),
         trunc(Enum.at(vals, 3, 0)), trunc(Enum.at(vals, 4, 0)), trunc(Enum.at(vals, 5, 0)),
         trunc(Enum.at(vals, 6, 0))}}
     end
@@ -293,7 +344,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   end
 
   defp safe_rfc3339_parse(s) do
-    {:ok, :calendar.rfc3339_to_system_time(String.to_charlist(s), unit: :millisecond)}
+    us = :calendar.rfc3339_to_system_time(String.to_charlist(s), unit: :microsecond)
+    {:ok, div(us, 1000)}
   rescue
     _ -> :error
   catch
