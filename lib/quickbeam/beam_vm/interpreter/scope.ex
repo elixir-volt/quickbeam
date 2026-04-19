@@ -2,7 +2,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Scope do
   @compile {:inline,
             resolve_const: 2, resolve_atom: 2, resolve_global: 2, set_global: 3, get_arg_value: 2}
   alias QuickBEAM.BeamVM.PredefinedAtoms
-  alias QuickBEAM.BeamVM.Interpreter.Ctx
+  alias QuickBEAM.BeamVM.Interpreter.Context
 
   @js_atom_end 229
 
@@ -20,7 +20,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Scope do
 
   def resolve_const(_cpool, idx), do: {:const_ref, idx}
 
-  def resolve_atom(%Ctx{atoms: atoms}, idx), do: resolve_atom(atoms, idx)
+  def resolve_atom(%Context{atoms: atoms}, idx), do: resolve_atom(atoms, idx)
 
   def resolve_atom(_atoms, :empty_string), do: ""
 
@@ -36,7 +36,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Scope do
 
   def resolve_atom(_atoms, other), do: other
 
-  def resolve_global(%Ctx{globals: globals} = ctx, atom_idx) do
+  def resolve_global(%Context{globals: globals} = ctx, atom_idx) do
     name = resolve_atom(ctx, atom_idx)
 
     case Map.fetch(globals, name) do
@@ -45,12 +45,12 @@ defmodule QuickBEAM.BeamVM.Interpreter.Scope do
     end
   end
 
-  def set_global(%Ctx{globals: globals} = ctx, atom_idx, val) do
+  def set_global(%Context{globals: globals} = ctx, atom_idx, val) do
     name = resolve_atom(ctx, atom_idx)
     %{ctx | globals: Map.put(globals, name, val)}
   end
 
-  def get_arg_value(%Ctx{arg_buf: arg_buf}, idx) do
+  def get_arg_value(%Context{arg_buf: arg_buf}, idx) do
     if idx < tuple_size(arg_buf), do: elem(arg_buf, idx), else: :undefined
   end
 end

@@ -341,4 +341,49 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
     QuickBEAM.BeamVM.Heap.put_obj(ref, [])
     {:obj, ref}
   end
+
+  # ── String static methods ──
+
+  def static_property("fromCharCode") do
+    {:builtin, "fromCharCode",
+     fn args ->
+       Enum.map(args, fn n ->
+         cp = QuickBEAM.BeamVM.Runtime.to_int(n)
+         if cp >= 0 and cp <= 0x10FFFF, do: <<cp::utf8>>, else: ""
+       end)
+       |> Enum.join()
+     end}
+  end
+
+  def static_property("raw") do
+    {:builtin, "raw",
+     fn [strings | subs] ->
+       map =
+         case strings do
+           {:obj, ref} -> QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
+           _ -> %{}
+         end
+
+       raw_map =
+         case Map.get(map, "raw") do
+           {:obj, rref} -> QuickBEAM.BeamVM.Heap.get_obj(rref, %{})
+           _ -> map
+         end
+
+       len = Map.get(raw_map, "length", 0)
+
+       Enum.reduce(0..(len - 1), "", fn i, acc ->
+         part = Map.get(raw_map, Integer.to_string(i), "")
+
+         sub =
+           if i < length(subs),
+             do: QuickBEAM.BeamVM.Runtime.js_to_string(Enum.at(subs, i)),
+             else: ""
+
+         acc <> QuickBEAM.BeamVM.Runtime.js_to_string(part) <> sub
+       end)
+     end}
+  end
+
+  def static_property(_), do: :undefined
 end

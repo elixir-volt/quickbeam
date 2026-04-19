@@ -22,6 +22,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   alias QuickBEAM.BeamVM.Runtime.{
     Array,
+    Console,
+    Globals,
+    Math,
+    Number,
     Prototypes,
     JSON,
     Object,
@@ -148,7 +152,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
           register_builtin("EvalError", Builtins.error_constructor(),
             prototype: %{"name" => "EvalError", "message" => ""}
           ),
-        "Math" => Builtins.math_object(),
+        "Math" => Math.object(),
         "JSON" => JSON.object(),
         "Date" => register_builtin("Date", &JSDate.constructor/1, statics: JSDate.statics()),
         "Promise" =>
@@ -160,10 +164,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
           register_builtin("Symbol", Builtins.symbol_constructor(),
             statics: Builtins.symbol_statics()
           ),
-        "parseInt" => {:builtin, "parseInt", fn args -> Builtins.parse_int(args) end},
-        "parseFloat" => {:builtin, "parseFloat", fn args -> Builtins.parse_float(args) end},
-        "isNaN" => {:builtin, "isNaN", fn args -> Builtins.is_nan(args) end},
-        "isFinite" => {:builtin, "isFinite", fn args -> Builtins.is_finite(args) end},
+        "parseInt" => {:builtin, "parseInt", fn args -> Globals.parse_int(args) end},
+        "parseFloat" => {:builtin, "parseFloat", fn args -> Globals.parse_float(args) end},
+        "isNaN" => {:builtin, "isNaN", fn args -> Globals.is_nan(args) end},
+        "isFinite" => {:builtin, "isFinite", fn args -> Globals.is_finite(args) end},
         "NaN" => :nan,
         "Infinity" => :infinity,
         "undefined" => :undefined,
@@ -220,7 +224,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
              _ ->
                __MODULE__.obj_new()
            end},
-        "console" => Builtins.console_object(),
+        "console" => Console.object(),
         "require" =>
           {:builtin, "require",
            fn [name | _] ->
@@ -538,7 +542,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   defp get_prototype_property(list, key) when is_list(list), do: Array.proto_property(key)
   defp get_prototype_property(s, key) when is_binary(s), do: JSString.proto_property(key)
-  defp get_prototype_property(n, key) when is_number(n), do: Builtins.number_proto_property(key)
+  defp get_prototype_property(n, key) when is_number(n), do: Number.proto_property(key)
   defp get_prototype_property(true, key), do: Builtins.boolean_proto_property(key)
   defp get_prototype_property(false, key), do: Builtins.boolean_proto_property(key)
 
@@ -557,10 +561,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_prototype_property({:builtin, "Set", _}, _key), do: :undefined
 
   defp get_prototype_property({:builtin, "Number", _}, key),
-    do: Builtins.number_static_property(key)
+    do: Number.static_property(key)
 
   defp get_prototype_property({:builtin, "String", _}, key),
-    do: Builtins.string_static_property(key)
+    do: JSString.static_property(key)
 
   defp get_prototype_property({:builtin, name, _} = fun, key) when is_binary(name),
     do: Prototypes.function_proto_property(fun, key)

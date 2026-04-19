@@ -30,7 +30,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   """
 
   alias QuickBEAM.BeamVM.{Bytecode, Decoder, Runtime}
-  alias __MODULE__.{Frame, Ctx}
+  alias __MODULE__.{Frame, Context}
   require Frame
 
   alias QuickBEAM.BeamVM.Heap
@@ -54,7 +54,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
     persistent = Heap.get_persistent_globals()
 
-    ctx = %Ctx{
+    ctx = %Context{
       atoms: atoms,
       globals:
         Runtime.global_bindings()
@@ -129,7 +129,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     case Heap.get_ctx() do
       nil ->
         atoms = Heap.get_atoms()
-        %Ctx{atoms: atoms}
+        %Context{atoms: atoms}
 
       ctx ->
         ctx
@@ -1051,7 +1051,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:check_ctor, []}, frame, stack, gas, ctx),
     do: run(advance(frame), stack, gas - 1, ctx)
 
-  defp run({:check_ctor_return, []}, frame, [val | rest], gas, %Ctx{this: this} = ctx) do
+  defp run({:check_ctor_return, []}, frame, [val | rest], gas, %Context{this: this} = ctx) do
     result =
       case val do
         {:obj, _} = obj -> obj
@@ -1064,7 +1064,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:set_name, [_atom_idx]}, frame, stack, gas, ctx),
     do: run(advance(frame), stack, gas - 1, ctx)
 
-  defp run({:throw, []}, frame, [val | _], gas, %Ctx{catch_stack: catch_stack} = ctx) do
+  defp run({:throw, []}, frame, [val | _], gas, %Context{catch_stack: catch_stack} = ctx) do
     case catch_stack do
       [{target, saved_stack} | rest_catch] ->
         run(jump(frame, target), [val | saved_stack], gas - 1, %{ctx | catch_stack: rest_catch})
@@ -1170,7 +1170,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── try/catch ──
 
-  defp run({:catch, [target]}, frame, stack, gas, %Ctx{catch_stack: catch_stack} = ctx) do
+  defp run({:catch, [target]}, frame, stack, gas, %Context{catch_stack: catch_stack} = ctx) do
     ctx = %{ctx | catch_stack: [{target, stack} | catch_stack]}
     run(advance(frame), [target | stack], gas - 1, ctx)
   end
@@ -1180,7 +1180,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
          frame,
          [a, _catch_offset | rest],
          gas,
-         %Ctx{catch_stack: [_ | rest_catch]} = ctx
+         %Context{catch_stack: [_ | rest_catch]} = ctx
        ) do
     run(advance(frame), [a | rest], gas - 1, %{ctx | catch_stack: rest_catch})
   end
@@ -1349,7 +1349,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end)
   end
 
-  defp run({:init_ctor, []}, frame, stack, gas, %Ctx{arg_buf: arg_buf} = ctx) do
+  defp run({:init_ctor, []}, frame, stack, gas, %Context{arg_buf: arg_buf} = ctx) do
     raw =
       case ctx.current_func do
         {:closure, _, %Bytecode.Function{} = f} -> f
@@ -1787,7 +1787,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Misc stubs ──
 
-  defp run({:put_arg, [idx]}, frame, [val | rest], gas, %Ctx{arg_buf: arg_buf} = ctx) do
+  defp run({:put_arg, [idx]}, frame, [val | rest], gas, %Context{arg_buf: arg_buf} = ctx) do
     padded = Tuple.to_list(arg_buf)
 
     padded =
@@ -1823,7 +1823,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
          frame,
          stack,
          gas,
-         %Ctx{arg_buf: arg_buf, current_func: current_func} = ctx
+         %Context{arg_buf: arg_buf, current_func: current_func} = ctx
        ) do
     val =
       case type do
@@ -1856,7 +1856,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [val | stack], gas - 1, ctx)
   end
 
-  defp run({:rest, [start_idx]}, frame, stack, gas, %Ctx{arg_buf: arg_buf} = ctx) do
+  defp run({:rest, [start_idx]}, frame, stack, gas, %Context{arg_buf: arg_buf} = ctx) do
     rest_args =
       if start_idx < tuple_size(arg_buf) do
         Tuple.to_list(arg_buf) |> Enum.drop(start_idx)
@@ -1913,7 +1913,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [parent | rest], gas - 1, ctx)
   end
 
-  defp run({:push_this, []}, frame, stack, gas, %Ctx{this: this} = ctx) do
+  defp run({:push_this, []}, frame, stack, gas, %Context{this: this} = ctx) do
     run(advance(frame), [this | stack], gas - 1, ctx)
   end
 
@@ -1924,7 +1924,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Argument mutation ──
 
-  defp run({:set_arg, [idx]}, frame, [val | rest], gas, %Ctx{arg_buf: arg_buf} = ctx) do
+  defp run({:set_arg, [idx]}, frame, [val | rest], gas, %Context{arg_buf: arg_buf} = ctx) do
     list = Tuple.to_list(arg_buf)
 
     padded =
@@ -1936,21 +1936,21 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [val | rest], gas - 1, ctx)
   end
 
-  defp run({:set_arg0, []}, frame, [val | rest], gas, %Ctx{arg_buf: arg_buf} = ctx) do
+  defp run({:set_arg0, []}, frame, [val | rest], gas, %Context{arg_buf: arg_buf} = ctx) do
     run(advance(frame), [val | rest], gas - 1, %{ctx | arg_buf: put_elem(arg_buf, 0, val)})
   end
 
-  defp run({:set_arg1, []}, frame, [val | rest], gas, %Ctx{arg_buf: arg_buf} = ctx) do
+  defp run({:set_arg1, []}, frame, [val | rest], gas, %Context{arg_buf: arg_buf} = ctx) do
     ctx = if tuple_size(arg_buf) > 1, do: %{ctx | arg_buf: put_elem(arg_buf, 1, val)}, else: ctx
     run(advance(frame), [val | rest], gas - 1, ctx)
   end
 
-  defp run({:set_arg2, []}, frame, [val | rest], gas, %Ctx{arg_buf: arg_buf} = ctx) do
+  defp run({:set_arg2, []}, frame, [val | rest], gas, %Context{arg_buf: arg_buf} = ctx) do
     ctx = if tuple_size(arg_buf) > 2, do: %{ctx | arg_buf: put_elem(arg_buf, 2, val)}, else: ctx
     run(advance(frame), [val | rest], gas - 1, ctx)
   end
 
-  defp run({:set_arg3, []}, frame, [val | rest], gas, %Ctx{arg_buf: arg_buf} = ctx) do
+  defp run({:set_arg3, []}, frame, [val | rest], gas, %Context{arg_buf: arg_buf} = ctx) do
     ctx = if tuple_size(arg_buf) > 3, do: %{ctx | arg_buf: put_elem(arg_buf, 3, val)}, else: ctx
     run(advance(frame), [val | rest], gas - 1, ctx)
   end
@@ -2281,7 +2281,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Closure construction ──
 
-  defp build_closure(%Bytecode.Function{} = fun, locals, vrefs, l2v, %Ctx{arg_buf: arg_buf}) do
+  defp build_closure(%Bytecode.Function{} = fun, locals, vrefs, l2v, %Context{arg_buf: arg_buf}) do
     captured =
       for cv <- fun.closure_vars do
         cell =

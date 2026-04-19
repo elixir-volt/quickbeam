@@ -1,4 +1,4 @@
-defmodule QuickBEAM.BeamVM.Interpreter.Ctx do
+defmodule QuickBEAM.BeamVM.Interpreter.Context do
   @moduledoc false
   @type t :: %__MODULE__{
           this: term(),
