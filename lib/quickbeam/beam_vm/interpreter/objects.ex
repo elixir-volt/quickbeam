@@ -100,6 +100,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
 
   defp normalize_key(k) when is_float(k), do: Values.stringify(k)
   defp normalize_key({:tagged_int, n}), do: Integer.to_string(n)
+  defp normalize_key(k) when is_integer(k) and k >= 0, do: Integer.to_string(k)
   defp normalize_key(k), do: k
 
   def put_getter({:obj, ref}, key, fun) do
