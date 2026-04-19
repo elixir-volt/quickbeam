@@ -17,7 +17,18 @@ defmodule QuickBEAM.BeamVM.Runtime do
   import Bitwise, only: [band: 2]
 
   alias QuickBEAM.BeamVM.Bytecode
-  alias QuickBEAM.BeamVM.Runtime.{Array, StringProto, JSON, Object, RegExp, Builtins, TypedArray}
+
+  alias QuickBEAM.BeamVM.Runtime.{
+    Array,
+    Prototypes,
+    StringProto,
+    JSON,
+    Object,
+    RegExp,
+    Builtins,
+    TypedArray
+  }
+
   alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
 
   # ── Global bindings ──
@@ -502,10 +513,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
       map when is_map(map) ->
         cond do
           Map.has_key?(map, map_data()) ->
-            map_proto(key)
+            Prototypes.map_proto(key)
 
           Map.has_key?(map, set_data()) ->
-            set_proto(key)
+            Prototypes.set_proto(key)
 
           Map.has_key?(map, proto()) ->
             # Walk prototype chain
@@ -529,10 +540,12 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_prototype_property(n, key) when is_number(n), do: Builtins.number_proto_property(key)
   defp get_prototype_property(true, key), do: Builtins.boolean_proto_property(key)
   defp get_prototype_property(false, key), do: Builtins.boolean_proto_property(key)
-  defp get_prototype_property(%Bytecode.Function{} = f, key), do: function_proto_property(f, key)
+
+  defp get_prototype_property(%Bytecode.Function{} = f, key),
+    do: Prototypes.function_proto_property(f, key)
 
   defp get_prototype_property({:closure, _, %Bytecode.Function{}} = c, key),
-    do: function_proto_property(c, key)
+    do: Prototypes.function_proto_property(c, key)
 
   defp get_prototype_property({:builtin, "Error", _}, key),
     do: Builtins.error_static_property(key)
@@ -549,278 +562,9 @@ defmodule QuickBEAM.BeamVM.Runtime do
     do: Builtins.string_static_property(key)
 
   defp get_prototype_property({:builtin, name, _} = fun, key) when is_binary(name),
-    do: function_proto_property(fun, key)
+    do: Prototypes.function_proto_property(fun, key)
 
   defp get_prototype_property(_, _), do: :undefined
-
-  defp invoke_fun(fun, args, this_arg) do
-    case fun do
-      %QuickBEAM.BeamVM.Bytecode.Function{} ->
-        QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, args, 10_000_000, this_arg)
-
-      {:closure, _, %QuickBEAM.BeamVM.Bytecode.Function{}} ->
-        QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, args, 10_000_000, this_arg)
-
-      other ->
-        QuickBEAM.BeamVM.Interpreter.Dispatch.call_builtin(other, args, this_arg)
-    end
-  end
-
-  defp function_proto_property(fun, "call") do
-    {:builtin, "call",
-     fn [this_arg | args], _this ->
-       invoke_fun(fun, args, this_arg)
-     end}
-  end
-
-  defp function_proto_property(fun, "apply") do
-    {:builtin, "apply",
-     fn [this_arg | rest], _this ->
-       args_array = List.first(rest)
-
-       args =
-         case args_array do
-           {:obj, ref} ->
-             case Heap.get_obj(ref, []) do
-               list when is_list(list) -> list
-               _ -> []
-             end
-
-           list when is_list(list) ->
-             list
-
-           _ ->
-             []
-         end
-
-       invoke_fun(fun, args, this_arg)
-     end}
-  end
-
-  defp function_proto_property(fun, "bind") do
-    orig_len =
-      case fun do
-        %Bytecode.Function{defined_arg_count: n} -> n
-        {:closure, _, %Bytecode.Function{defined_arg_count: n}} -> n
-        _ -> 0
-      end
-
-    {:builtin, "bind",
-     fn [this_arg | bound_args], _this ->
-       bound_len = max(0, orig_len - length(bound_args))
-       bound_fn = fn args, _this2 -> invoke_fun(fun, bound_args ++ args, this_arg) end
-       {:bound, bound_len, {:builtin, "bound", bound_fn}}
-     end}
-  end
-
-  defp function_proto_property(%Bytecode.Function{} = f, "name"), do: f.name || ""
-  defp function_proto_property(%Bytecode.Function{} = f, "length"), do: f.defined_arg_count
-
-  defp function_proto_property({:closure, _, %Bytecode.Function{} = f}, "name"),
-    do: f.name || ""
-
-  defp function_proto_property({:closure, _, %Bytecode.Function{} = f}, "length"),
-    do: f.defined_arg_count
-
-  defp function_proto_property({:bound, _, inner}, key) when key not in ["length", "name"],
-    do: function_proto_property(inner, key)
-
-  defp function_proto_property({:bound, len, _}, "length"), do: len
-  defp function_proto_property(_fun, "length"), do: 0
-  defp function_proto_property({:bound, _, _}, "name"), do: "bound "
-  defp function_proto_property(_fun, "name"), do: ""
-  defp function_proto_property(_fun, _), do: :undefined
-
-  defp map_proto("get"),
-    do:
-      {:builtin, "get",
-       fn [key | _], {:obj, ref} ->
-         data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
-         Map.get(data, key, :undefined)
-       end}
-
-  defp map_proto("set"),
-    do:
-      {:builtin, "set",
-       fn [key, val | _], {:obj, ref} ->
-         obj = Heap.get_obj(ref, %{})
-         data = Map.get(obj, map_data(), %{})
-         new_data = Map.put(data, key, val)
-
-         Heap.put_obj(ref, %{
-           obj
-           | map_data() => new_data,
-             "size" => map_size(new_data)
-         })
-
-         {:obj, ref}
-       end}
-
-  defp map_proto("has"),
-    do:
-      {:builtin, "has",
-       fn [key | _], {:obj, ref} ->
-         data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
-         Map.has_key?(data, key)
-       end}
-
-  defp map_proto("delete"),
-    do:
-      {:builtin, "delete",
-       fn [key | _], {:obj, ref} ->
-         obj = Heap.get_obj(ref, %{})
-         data = Map.get(obj, map_data(), %{})
-         new_data = Map.delete(data, key)
-
-         Heap.put_obj(ref, %{
-           obj
-           | map_data() => new_data,
-             "size" => map_size(new_data)
-         })
-
-         true
-       end}
-
-  defp map_proto("clear"),
-    do:
-      {:builtin, "clear",
-       fn _, {:obj, ref} ->
-         obj = Heap.get_obj(ref, %{})
-         Heap.put_obj(ref, %{obj | map_data() => %{}, "size" => 0})
-         :undefined
-       end}
-
-  defp map_proto("keys"),
-    do:
-      {:builtin, "keys",
-       fn _, {:obj, ref} ->
-         data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
-         keys = Map.keys(data)
-         Heap.wrap(keys)
-       end}
-
-  defp map_proto("values"),
-    do:
-      {:builtin, "values",
-       fn _, {:obj, ref} ->
-         data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
-         vals = Map.values(data)
-         Heap.wrap(vals)
-       end}
-
-  defp map_proto("entries"),
-    do:
-      {:builtin, "entries",
-       fn _, {:obj, ref} ->
-         data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
-
-         entries =
-           Enum.map(data, fn {k, v} ->
-             Heap.wrap([k, v])
-           end)
-
-         Heap.wrap(entries)
-       end}
-
-  defp map_proto("forEach"),
-    do:
-      {:builtin, "forEach",
-       fn [cb | _], {:obj, ref}, interp ->
-         data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
-         Enum.each(data, fn {k, v} -> call_builtin_callback(cb, [v, k, {:obj, ref}], interp) end)
-         :undefined
-       end}
-
-  defp map_proto(_), do: :undefined
-
-  defp set_proto("has"),
-    do:
-      {:builtin, "has",
-       fn [val | _], {:obj, ref} ->
-         data = Heap.get_obj(ref, %{}) |> Map.get(set_data(), [])
-         val in data
-       end}
-
-  defp set_proto("add"),
-    do:
-      {:builtin, "add",
-       fn [val | _], {:obj, ref} ->
-         obj = Heap.get_obj(ref, %{})
-         data = Map.get(obj, set_data(), [])
-
-         unless val in data do
-           new_data = data ++ [val]
-
-           Heap.put_obj(ref, %{
-             obj
-             | set_data() => new_data,
-               "size" => length(new_data)
-           })
-         end
-
-         {:obj, ref}
-       end}
-
-  defp set_proto("delete"),
-    do:
-      {:builtin, "delete",
-       fn [val | _], {:obj, ref} ->
-         obj = Heap.get_obj(ref, %{})
-         data = Map.get(obj, set_data(), [])
-         new_data = List.delete(data, val)
-
-         Heap.put_obj(ref, %{
-           obj
-           | set_data() => new_data,
-             "size" => length(new_data)
-         })
-
-         true
-       end}
-
-  defp set_proto("clear"),
-    do:
-      {:builtin, "clear",
-       fn _, {:obj, ref} ->
-         obj = Heap.get_obj(ref, %{})
-         Heap.put_obj(ref, %{obj | set_data() => [], "size" => 0})
-         :undefined
-       end}
-
-  defp set_proto("values"),
-    do:
-      {:builtin, "values",
-       fn _, {:obj, ref} ->
-         data = Heap.get_obj(ref, %{}) |> Map.get(set_data(), [])
-         Heap.wrap(data)
-       end}
-
-  defp set_proto("keys"), do: set_proto("values")
-
-  defp set_proto("entries"),
-    do:
-      {:builtin, "entries",
-       fn _, {:obj, ref} ->
-         data = Heap.get_obj(ref, %{}) |> Map.get(set_data(), [])
-
-         entries =
-           Enum.map(data, fn v ->
-             Heap.wrap([v, v])
-           end)
-
-         Heap.wrap(entries)
-       end}
-
-  defp set_proto("forEach"),
-    do:
-      {:builtin, "forEach",
-       fn [cb | _], {:obj, ref}, interp ->
-         data = Heap.get_obj(ref, %{}) |> Map.get(set_data(), [])
-         Enum.each(data, fn v -> call_builtin_callback(cb, [v, v, {:obj, ref}], interp) end)
-         :undefined
-       end}
-
-  defp set_proto(_), do: :undefined
 
   # ── Callback dispatch (used by higher-order array methods) ──
 
