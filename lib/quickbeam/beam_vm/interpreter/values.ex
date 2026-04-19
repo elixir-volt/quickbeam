@@ -68,7 +68,9 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
 
     case Map.get(map, "valueOf") do
       fun when fun != nil and fun != :undefined ->
-        to_number(Interpreter.invoke_with_receiver(fun, [], QuickBEAM.BeamVM.Runtime.gas_budget(), obj))
+        to_number(
+          Interpreter.invoke_with_receiver(fun, [], QuickBEAM.BeamVM.Runtime.gas_budget(), obj)
+        )
 
       _ ->
         :nan
@@ -90,7 +92,9 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
 
   defp parse_numeric(s) do
     case Integer.parse(s) do
-      {i, ""} -> i
+      {i, ""} ->
+        i
+
       _ ->
         case Float.parse(s) do
           {f, ""} -> f
@@ -105,7 +109,6 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
       _ -> :nan
     end
   end
-
 
   def to_int32(val) when is_integer(val), do: wrap_int32(val)
   def to_int32(val) when is_float(val), do: wrap_int32(trunc(val))
@@ -169,7 +172,12 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
         case Map.get(map, "toString") do
           fun when fun != nil and fun != :undefined ->
             stringify(
-              Interpreter.invoke_with_receiver(fun, [], QuickBEAM.BeamVM.Runtime.gas_budget(), obj)
+              Interpreter.invoke_with_receiver(
+                fun,
+                [],
+                QuickBEAM.BeamVM.Runtime.gas_budget(),
+                obj
+              )
             )
 
           _ ->
@@ -209,10 +217,47 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def strict_eq(a, b), do: a === b
 
   def add({:bigint, a}, {:bigint, b}), do: {:bigint, a + b}
-  def add({:symbol, _}, _), do: throw({:js_throw, QuickBEAM.BeamVM.Heap.make_error("Cannot convert a Symbol value to a string", "TypeError")})
-  def add(_, {:symbol, _}), do: throw({:js_throw, QuickBEAM.BeamVM.Heap.make_error("Cannot convert a Symbol value to a string", "TypeError")})
-  def add({:symbol, _, _}, _), do: throw({:js_throw, QuickBEAM.BeamVM.Heap.make_error("Cannot convert a Symbol value to a string", "TypeError")})
-  def add(_, {:symbol, _, _}), do: throw({:js_throw, QuickBEAM.BeamVM.Heap.make_error("Cannot convert a Symbol value to a string", "TypeError")})
+
+  def add({:symbol, _}, _),
+    do:
+      throw(
+        {:js_throw,
+         QuickBEAM.BeamVM.Heap.make_error(
+           "Cannot convert a Symbol value to a string",
+           "TypeError"
+         )}
+      )
+
+  def add(_, {:symbol, _}),
+    do:
+      throw(
+        {:js_throw,
+         QuickBEAM.BeamVM.Heap.make_error(
+           "Cannot convert a Symbol value to a string",
+           "TypeError"
+         )}
+      )
+
+  def add({:symbol, _, _}, _),
+    do:
+      throw(
+        {:js_throw,
+         QuickBEAM.BeamVM.Heap.make_error(
+           "Cannot convert a Symbol value to a string",
+           "TypeError"
+         )}
+      )
+
+  def add(_, {:symbol, _, _}),
+    do:
+      throw(
+        {:js_throw,
+         QuickBEAM.BeamVM.Heap.make_error(
+           "Cannot convert a Symbol value to a string",
+           "TypeError"
+         )}
+      )
+
   def add(a, b) when is_binary(a) or is_binary(b), do: stringify(a) <> stringify(b)
   def add(a, b) when is_number(a) and is_number(b), do: a + b
   def add(a, b), do: numeric_add(to_number(a), to_number(b))
@@ -299,7 +344,9 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   defp div_inf(n, :neg_infinity) when is_number(n), do: -0.0
   defp div_inf(_, _), do: :nan
 
-  defp div_numbers(a, b) when b == 0, do: if(neg_zero?(b), do: div_by_neg_zero(a), else: inf_or_nan(a))
+  defp div_numbers(a, b) when b == 0,
+    do: if(neg_zero?(b), do: div_by_neg_zero(a), else: inf_or_nan(a))
+
   defp div_numbers(a, b), do: a / b
 
   defp div_by_neg_zero(a) when a > 0, do: :neg_infinity
@@ -368,7 +415,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
     if total_pos >= String.length(digits) do
       prefix <> digits <> String.duplicate("0", total_pos - String.length(digits))
     else
-      prefix <> String.slice(digits, 0, total_pos) <> "." <> String.slice(digits, total_pos..-1//1)
+      prefix <>
+        String.slice(digits, 0, total_pos) <> "." <> String.slice(digits, total_pos..-1//1)
     end
   end
 
@@ -517,10 +565,16 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
 
   defp call_to_primitive(map, obj, method) do
     case Map.get(map, method) do
-      {:builtin, _, cb} -> unwrap_primitive(cb.([], obj))
+      {:builtin, _, cb} ->
+        unwrap_primitive(cb.([], obj))
+
       fun when fun != nil and fun != :undefined ->
-        unwrap_primitive(Interpreter.invoke_with_receiver(fun, [], QuickBEAM.BeamVM.Runtime.gas_budget(), obj))
-      _ -> nil
+        unwrap_primitive(
+          Interpreter.invoke_with_receiver(fun, [], QuickBEAM.BeamVM.Runtime.gas_budget(), obj)
+        )
+
+      _ ->
+        nil
     end
   end
 
@@ -529,11 +583,12 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
       {:obj, pref} ->
         pmap = Heap.get_obj(pref, %{})
         if is_map(pmap), do: call_to_primitive(pmap, obj, method)
-      _ -> nil
+
+      _ ->
+        nil
     end
   end
 
   defp unwrap_primitive({:obj, _}), do: nil
   defp unwrap_primitive(val), do: val
-
 end

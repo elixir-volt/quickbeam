@@ -92,11 +92,12 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
     result = apply_replacer(result, replacer)
     elixir_val = to_elixir(result)
 
-    opts = case space do
-      n when is_integer(n) and n > 0 -> [pretty: [indent: String.duplicate(" ", min(n, 10))]]
-      s when is_binary(s) and s != "" -> [pretty: [indent: String.slice(s, 0, 10)]]
-      _ -> []
-    end
+    opts =
+      case space do
+        n when is_integer(n) and n > 0 -> [pretty: [indent: String.duplicate(" ", min(n, 10))]]
+        s when is_binary(s) and s != "" -> [pretty: [indent: String.slice(s, 0, 10)]]
+        _ -> []
+      end
 
     case Jason.encode(elixir_val, opts) do
       {:ok, json} -> json
@@ -122,11 +123,14 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
     end
   end
 
-  defp apply_replacer({:ordered_map, pairs}, replacer) when replacer != nil and replacer != :undefined do
-    filtered = Enum.reduce(pairs, [], fn {k, v}, acc ->
-      result = Runtime.call_callback(replacer, [k, v])
-      if result == :undefined, do: acc, else: [{k, result} | acc]
-    end)
+  defp apply_replacer({:ordered_map, pairs}, replacer)
+       when replacer != nil and replacer != :undefined do
+    filtered =
+      Enum.reduce(pairs, [], fn {k, v}, acc ->
+        result = Runtime.call_callback(replacer, [k, v])
+        if result == :undefined, do: acc, else: [{k, result} | acc]
+      end)
+
     {:ordered_map, Enum.reverse(filtered)}
   end
 
@@ -145,36 +149,37 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
           fun when fun != nil and fun != :undefined ->
             result = Runtime.call_callback(fun, [])
             to_json(result)
+
           _ ->
-        order =
-          case Map.get(map, key_order()) do
-            list when is_list(list) -> Enum.reverse(list)
-            _ -> nil
-          end
-
-        entries =
-          map
-          |> Map.drop([key_order()])
-          |> Enum.reject(fn {k, v} -> v == :undefined or internal?(k) end)
-
-        entries =
-          if order do
-            Enum.sort_by(entries, fn {k, _} ->
-              case Enum.find_index(order, &(&1 == k)) do
-                nil -> length(order)
-                idx -> idx
+            order =
+              case Map.get(map, key_order()) do
+                list when is_list(list) -> Enum.reverse(list)
+                _ -> nil
               end
-            end)
-          else
-            entries
-          end
 
-        pairs =
-          entries
-          |> Enum.map(fn {k, v} -> {to_string(k), to_json(resolve_value(v, obj))} end)
-          |> Enum.reject(fn {_, v} -> v == :undefined end)
+            entries =
+              map
+              |> Map.drop([key_order()])
+              |> Enum.reject(fn {k, v} -> v == :undefined or internal?(k) end)
 
-        {:ordered_map, pairs}
+            entries =
+              if order do
+                Enum.sort_by(entries, fn {k, _} ->
+                  case Enum.find_index(order, &(&1 == k)) do
+                    nil -> length(order)
+                    idx -> idx
+                  end
+                end)
+              else
+                entries
+              end
+
+            pairs =
+              entries
+              |> Enum.map(fn {k, v} -> {to_string(k), to_json(resolve_value(v, obj))} end)
+              |> Enum.reject(fn {_, v} -> v == :undefined end)
+
+            {:ordered_map, pairs}
         end
     end
   end

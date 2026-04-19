@@ -6,7 +6,21 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   alias QuickBEAM.BeamVM.{Bytecode, Heap}
   alias QuickBEAM.BeamVM.Interpreter
   alias QuickBEAM.BeamVM.Runtime
-  alias QuickBEAM.BeamVM.Runtime.{ArrayBuffer, Boolean, Console, JSON, MapSet, Math, Object, Promise, Reflect, Symbol, TypedArray}
+
+  alias QuickBEAM.BeamVM.Runtime.{
+    ArrayBuffer,
+    Boolean,
+    Console,
+    JSON,
+    MapSet,
+    Math,
+    Object,
+    Promise,
+    Reflect,
+    Symbol,
+    TypedArray
+  }
+
   alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
 
   @error_types ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError)
@@ -26,49 +40,56 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
 
   defp bindings do
     %{
-      "Array"      => register("Array", &array_constructor/2),
-      "String"     => register("String", &string_constructor/2),
-      "Number"     => register("Number", &number_constructor/2),
-      "BigInt"     => register("BigInt", &bigint_constructor/2),
-      "Boolean"    => register("Boolean", Boolean.constructor()),
-      "Function"   => register("Function", &function_constructor/2),
-      "RegExp"     => register("RegExp", &regexp_constructor/2),
-      "Date"       => register("Date", &JSDate.constructor/2, module: JSDate),
-      "Promise"    => register("Promise", Promise.constructor(), module: Promise),
-      "Symbol"     => register("Symbol", Symbol.constructor(), module: Symbol),
-      "Map"        => register("Map", MapSet.map_constructor()),
-      "Set"        => register("Set", MapSet.set_constructor()),
-      "WeakMap"    => register("WeakMap", MapSet.weak_map_constructor()),
-      "WeakSet"    => register("WeakSet", MapSet.weak_set_constructor()),
-      "WeakRef"    => register("WeakRef", fn _, _ -> Runtime.new_object() end),
-      "FinalizationRegistry" => register("FinalizationRegistry", fn [callback | _], _ ->
-        Heap.wrap(%{
-          "register" => {:builtin, "register", fn _, _ -> :undefined end},
-          "unregister" => {:builtin, "unregister", fn _, _ -> :undefined end}
-        })
-      end),
-      "DataView"   => register("DataView", fn _, _ -> Runtime.new_object() end),
+      "Array" => register("Array", &array_constructor/2),
+      "String" => register("String", &string_constructor/2),
+      "Number" => register("Number", &number_constructor/2),
+      "BigInt" => register("BigInt", &bigint_constructor/2),
+      "Boolean" => register("Boolean", Boolean.constructor()),
+      "Function" => register("Function", &function_constructor/2),
+      "RegExp" => register("RegExp", &regexp_constructor/2),
+      "Date" => register("Date", &JSDate.constructor/2, module: JSDate),
+      "Promise" => register("Promise", Promise.constructor(), module: Promise),
+      "Symbol" => register("Symbol", Symbol.constructor(), module: Symbol),
+      "Map" => register("Map", MapSet.map_constructor()),
+      "Set" => register("Set", MapSet.set_constructor()),
+      "WeakMap" => register("WeakMap", MapSet.weak_map_constructor()),
+      "WeakSet" => register("WeakSet", MapSet.weak_set_constructor()),
+      "WeakRef" => register("WeakRef", fn _, _ -> Runtime.new_object() end),
+      "FinalizationRegistry" =>
+        register("FinalizationRegistry", fn [callback | _], _ ->
+          Heap.wrap(%{
+            "register" => {:builtin, "register", fn _, _ -> :undefined end},
+            "unregister" => {:builtin, "unregister", fn _, _ -> :undefined end}
+          })
+        end),
+      "DataView" => register("DataView", fn _, _ -> Runtime.new_object() end),
       "ArrayBuffer" => register("ArrayBuffer", &ArrayBuffer.constructor/2),
-      "Proxy"      => register("Proxy", &proxy_constructor/2),
-      "Math"       => Math.object(),
-      "JSON"       => JSON.object(),
-      "Reflect"    => Reflect.object(),
-      "console"    => Console.object(),
-      "parseInt"   => builtin("parseInt", &parse_int/2),
+      "Proxy" => register("Proxy", &proxy_constructor/2),
+      "Math" => Math.object(),
+      "JSON" => JSON.object(),
+      "Reflect" => Reflect.object(),
+      "console" => Console.object(),
+      "parseInt" => builtin("parseInt", &parse_int/2),
       "parseFloat" => builtin("parseFloat", &parse_float/2),
-      "isNaN"      => builtin("isNaN", &is_nan/2),
-      "isFinite"   => builtin("isFinite", &is_finite/2),
-      "eval"       => builtin("eval", &js_eval/2),
-      "require"    => builtin("require", &js_require/2),
+      "isNaN" => builtin("isNaN", &is_nan/2),
+      "isFinite" => builtin("isFinite", &is_finite/2),
+      "eval" => builtin("eval", &js_eval/2),
+      "require" => builtin("require", &js_require/2),
       "structuredClone" => builtin("structuredClone", fn [val | _], _ -> val end),
-      "queueMicrotask"  => builtin("queueMicrotask", &queue_microtask/2),
-      "gc"         => builtin("gc", fn _, _ -> :undefined end),
-      "os"         => Heap.wrap(%{"platform" => "elixir"}),
-      "qjs"        => Heap.wrap(%{"getStringKind" => builtin("getStringKind", fn [s | _], _ -> if is_binary(s) and byte_size(s) > 256, do: 1, else: 0 end)}),
+      "queueMicrotask" => builtin("queueMicrotask", &queue_microtask/2),
+      "gc" => builtin("gc", fn _, _ -> :undefined end),
+      "os" => Heap.wrap(%{"platform" => "elixir"}),
+      "qjs" =>
+        Heap.wrap(%{
+          "getStringKind" =>
+            builtin("getStringKind", fn [s | _], _ ->
+              if is_binary(s) and byte_size(s) > 256, do: 1, else: 0
+            end)
+        }),
       "globalThis" => Runtime.new_object(),
-      "NaN"        => :nan,
-      "Infinity"   => :infinity,
-      "undefined"  => :undefined
+      "NaN" => :nan,
+      "Infinity" => :infinity,
+      "undefined" => :undefined
     }
   end
 
@@ -93,11 +114,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
     ctx = Heap.get_ctx()
 
     if ctx && ctx.runtime_pid do
-      {params, body} = case Enum.reverse(args) do
-        [body | param_parts] ->
-          {Enum.join(Enum.reverse(param_parts), ","), body}
-        [] -> {"", ""}
-      end
+      {params, body} =
+        case Enum.reverse(args) do
+          [body | param_parts] ->
+            {Enum.join(Enum.reverse(param_parts), ","), body}
+
+          [] ->
+            {"", ""}
+        end
 
       code = "(function(" <> params <> "){" <> body <> "})"
 
@@ -105,14 +129,25 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
         {:ok, bc} ->
           case Bytecode.decode(bc) do
             {:ok, parsed} ->
-              case Interpreter.eval(parsed.value, [], %{gas: Runtime.gas_budget(), runtime_pid: ctx.runtime_pid}, parsed.atoms) do
+              case Interpreter.eval(
+                     parsed.value,
+                     [],
+                     %{gas: Runtime.gas_budget(), runtime_pid: ctx.runtime_pid},
+                     parsed.atoms
+                   ) do
                 {:ok, val} -> val
                 _ -> throw({:js_throw, Heap.make_error("Invalid function", "SyntaxError")})
               end
-            _ -> throw({:js_throw, Heap.make_error("Invalid function", "SyntaxError")})
+
+            _ ->
+              throw({:js_throw, Heap.make_error("Invalid function", "SyntaxError")})
           end
-        {:error, %{message: msg}} -> throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
-        _ -> throw({:js_throw, Heap.make_error("Invalid function", "SyntaxError")})
+
+        {:error, %{message: msg}} ->
+          throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
+
+        _ ->
+          throw({:js_throw, Heap.make_error("Invalid function", "SyntaxError")})
       end
     else
       throw({:js_throw, Heap.make_error("Function constructor requires runtime", "Error")})
@@ -134,16 +169,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   end
 
   defp regexp_constructor([pattern | rest], _) do
-    flags = case rest do
-      [f | _] when is_binary(f) -> f
-      _ -> ""
-    end
+    flags =
+      case rest do
+        [f | _] when is_binary(f) -> f
+        _ -> ""
+      end
 
-    pat = case pattern do
-      {:regexp, p, _} -> p
-      s when is_binary(s) -> s
-      _ -> ""
-    end
+    pat =
+      case pattern do
+        {:regexp, p, _} -> p
+        s when is_binary(s) -> s
+        _ -> ""
+      end
 
     {:regexp, pat, flags}
   end
@@ -171,6 +208,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
 
       r == 16 ->
         s = s |> String.replace_prefix("0x", "") |> String.replace_prefix("0X", "")
+
         case Integer.parse(s, 16) do
           {n, _} -> n
           :error -> :nan
@@ -210,8 +248,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
     s = String.trim(s)
 
     cond do
-      String.starts_with?(s, "Infinity") or String.starts_with?(s, "+Infinity") -> :infinity
-      String.starts_with?(s, "-Infinity") -> :neg_infinity
+      String.starts_with?(s, "Infinity") or String.starts_with?(s, "+Infinity") ->
+        :infinity
+
+      String.starts_with?(s, "-Infinity") ->
+        :neg_infinity
+
       true ->
         case Float.parse(s) do
           {f, _} -> f
@@ -246,7 +288,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
     with %{runtime_pid: pid} when pid != nil <- ctx,
          {:ok, bc} <- QuickBEAM.Runtime.compile(pid, code),
          {:ok, parsed} <- Bytecode.decode(bc),
-         {:ok, val} <- Interpreter.eval(parsed.value, [], %{gas: Runtime.gas_budget(), runtime_pid: pid}, parsed.atoms) do
+         {:ok, val} <-
+           Interpreter.eval(
+             parsed.value,
+             [],
+             %{gas: Runtime.gas_budget(), runtime_pid: pid},
+             parsed.atoms
+           ) do
       val
     else
       %{runtime_pid: nil} -> :undefined
@@ -324,16 +372,26 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
       Heap.put_ctor_static(ctor, "prototype", {:obj, proto_ref})
 
       if name == "Error" do
-        Heap.put_ctor_static(ctor, "captureStackTrace",
-          {:builtin, "captureStackTrace", fn
-            [], _ -> throw({:js_throw, Heap.make_error("Cannot convert undefined to object", "TypeError")})
-            [obj | _], _ ->
-              case obj do
-                {:obj, ref} -> Heap.update_obj(ref, %{}, &Map.put(&1, "stack", ""))
-                _ -> :ok
-              end
-              :undefined
-          end})
+        Heap.put_ctor_static(
+          ctor,
+          "captureStackTrace",
+          {:builtin, "captureStackTrace",
+           fn
+             [], _ ->
+               throw(
+                 {:js_throw, Heap.make_error("Cannot convert undefined to object", "TypeError")}
+               )
+
+             [obj | _], _ ->
+               case obj do
+                 {:obj, ref} -> Heap.update_obj(ref, %{}, &Map.put(&1, "stack", ""))
+                 _ -> :ok
+               end
+
+               :undefined
+           end}
+        )
+
         Heap.put_ctor_static(ctor, "prepareStackTrace", :undefined)
         Heap.put_ctor_static(ctor, "stackTraceLimit", 10)
       end
@@ -341,5 +399,4 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
       {name, ctor}
     end
   end
-
 end

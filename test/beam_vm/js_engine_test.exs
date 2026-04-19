@@ -1,7 +1,6 @@
 defmodule QuickBEAM.JSEngineTest do
   use ExUnit.Case, async: true
 
-
   # Source position tests require original file layout (line numbers shift when
   # functions are extracted). cur_pc/eval/array are QuickJS C engine limitations.
   # Source position tests: eval with line-number padding to preserve original positions.
@@ -19,7 +18,11 @@ defmodule QuickBEAM.JSEngineTest do
 
     assert_js = strip_exports(File.read!("test/beam_vm/assert.js"))
     QuickBEAM.eval(rt, assert_js)
-    QuickBEAM.eval(rt, ~s|gc=function(){};os={platform:'elixir'};qjs={getStringKind:function(s){return s.length>256?1:0}}|)
+
+    QuickBEAM.eval(
+      rt,
+      ~s|gc=function(){};os={platform:'elixir'};qjs={getStringKind:function(s){return s.length>256?1:0}}|
+    )
 
     %{rt: rt}
   end
@@ -40,7 +43,9 @@ defmodule QuickBEAM.JSEngineTest do
       |> Enum.reject(&(&1.id.name in skip_list))
 
     helper_fns =
-      Enum.reject(fns, fn f -> (String.starts_with?(f.id.name, "test_") and length(f.params) == 0) or f.id.name == "test" end)
+      Enum.reject(fns, fn f ->
+        (String.starts_with?(f.id.name, "test_") and length(f.params) == 0) or f.id.name == "test"
+      end)
 
     helpers =
       helper_fns

@@ -7,7 +7,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
   alias QuickBEAM.BeamVM.{Bytecode, Heap}
   alias QuickBEAM.BeamVM.Interpreter
   alias QuickBEAM.BeamVM.Runtime
-  alias QuickBEAM.BeamVM.Runtime.{Array, Boolean, Function, MapSet, Number, Object, RegExp, TypedArray}
+
+  alias QuickBEAM.BeamVM.Runtime.{
+    Array,
+    Boolean,
+    Function,
+    MapSet,
+    Number,
+    Object,
+    RegExp,
+    TypedArray
+  }
+
   alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
   alias QuickBEAM.BeamVM.Runtime.String, as: JSString
 
@@ -86,9 +97,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
 
       map when is_map(map) ->
         case Map.fetch(map, key) do
-          {:ok, {:accessor, getter, _setter}} when getter != nil -> call_getter(getter, {:obj, ref})
-          {:ok, val} -> val
-          :error -> :undefined
+          {:ok, {:accessor, getter, _setter}} when getter != nil ->
+            call_getter(getter, {:obj, ref})
+
+          {:ok, val} ->
+            val
+
+          :error ->
+            :undefined
         end
     end
   end
@@ -268,5 +284,4 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
     do: Function.proto_property(fun, key)
 
   defp get_from_prototype(_, _), do: :undefined
-
 end

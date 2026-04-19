@@ -130,9 +130,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp store_function_atoms(%Bytecode.Function{} = fun, atoms) do
     Process.put({:qb_fn_atoms, fun.byte_code}, atoms)
+
     for %Bytecode.Function{} = inner <- fun.constants do
       store_function_atoms(inner, atoms)
     end
+
     :ok
   end
 
@@ -166,22 +168,27 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp put_local(f, idx, val),
     do: put_elem(f, Frame.locals(), put_elem(elem(f, Frame.locals()), idx, val))
 
-
   defp collect_proto_keys(nil, acc), do: acc
   defp collect_proto_keys(:undefined, acc), do: acc
+
   defp collect_proto_keys({:obj, ref}, acc) do
     case Heap.get_obj(ref, %{}) do
       map when is_map(map) ->
-        keys = Map.keys(map)
+        keys =
+          Map.keys(map)
           |> Enum.filter(&is_binary/1)
           |> Enum.reject(fn k ->
             k == "constructor" or String.starts_with?(k, "__") or k in acc or
               match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
           end)
+
         collect_proto_keys(Map.get(map, proto()), acc ++ keys)
-      _ -> acc
+
+      _ ->
+        acc
     end
   end
+
   defp collect_proto_keys(_, acc), do: acc
 
   defp throw_or_catch(frame, error, gas, ctx) do
@@ -202,7 +209,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp throw_null_property_error(frame, obj, atom_idx, gas, ctx) do
     prop = Scope.resolve_atom(ctx, atom_idx)
     nullish = if obj == nil, do: "null", else: "undefined"
-    error = Heap.make_error("Cannot read properties of #{nullish} (reading '#{prop}')", "TypeError")
+
+    error =
+      Heap.make_error("Cannot read properties of #{nullish} (reading '#{prop}')", "TypeError")
+
     throw_or_catch(frame, error, gas, ctx)
   end
 
@@ -1212,13 +1222,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
                   _ -> Map.keys(map)
                 end
 
-              own_keys = raw_keys
-              |> Enum.reject(fn k ->
-                (is_binary(k) and String.starts_with?(k, "__")) or
-                  is_tuple(k) or is_atom(k) or
-                  not Map.has_key?(map, k) or
-                  match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
-              end)
+              own_keys =
+                raw_keys
+                |> Enum.reject(fn k ->
+                  (is_binary(k) and String.starts_with?(k, "__")) or
+                    is_tuple(k) or is_atom(k) or
+                    not Map.has_key?(map, k) or
+                    match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
+                end)
 
               proto_keys = collect_proto_keys(Map.get(map, proto()), [])
               all_keys = own_keys ++ Enum.reject(proto_keys, &(&1 in own_keys))
@@ -1292,8 +1303,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
               val_fn = {:builtin, "valueOf", fn _, _ -> obj end}
 
               to_str_fn =
-                {:builtin, "toString",
-                 fn _, _ -> Values.stringify(obj) end}
+                {:builtin, "toString", fn _, _ -> Values.stringify(obj) end}
 
               Heap.put_obj(
                 this_ref,
@@ -1405,9 +1415,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── delete ──
 
-  defp run({:delete, []}, frame, [key, obj | rest], gas, ctx) when obj == nil or obj == :undefined do
+  defp run({:delete, []}, frame, [key, obj | rest], gas, ctx)
+       when obj == nil or obj == :undefined do
     nullish = if obj == nil, do: "null", else: "undefined"
-    error = Heap.make_error("Cannot delete properties of #{nullish} (deleting '#{key}')", "TypeError")
+
+    error =
+      Heap.make_error("Cannot delete properties of #{nullish} (deleting '#{key}')", "TypeError")
+
     throw_or_catch(frame, error, gas, ctx)
   end
 
@@ -1896,14 +1910,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:throw_error, [atom_idx, reason]}, frame, _stack, gas, ctx) do
     name = Scope.resolve_atom(ctx, atom_idx)
 
-    {error_type, message} = case reason do
-      0 -> {"TypeError", "'#{name}' is read-only"}
-      1 -> {"SyntaxError", "redeclaration of '#{name}'"}
-      2 -> {"ReferenceError", "cannot access '#{name}' before initialization"}
-      3 -> {"ReferenceError", "unsupported reference to 'super'"}
-      4 -> {"TypeError", "iterator does not have a throw method"}
-      _ -> {"Error", name}
-    end
+    {error_type, message} =
+      case reason do
+        0 -> {"TypeError", "'#{name}' is read-only"}
+        1 -> {"SyntaxError", "redeclaration of '#{name}'"}
+        2 -> {"ReferenceError", "cannot access '#{name}' before initialization"}
+        3 -> {"ReferenceError", "unsupported reference to 'super'"}
+        4 -> {"TypeError", "iterator does not have a throw method"}
+        _ -> {"Error", name}
+      end
 
     throw_or_catch(frame, Heap.make_error(message, error_type), gas, ctx)
   end
@@ -2316,7 +2331,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp capture_var(%{closure_type: 2, var_idx: idx}, _locals, vrefs, _l2v, _arg_buf)
        when idx < tuple_size(vrefs) do
     case elem(vrefs, idx) do
-      {:cell, _} = existing -> existing
+      {:cell, _} = existing ->
+        existing
+
       val ->
         ref = make_ref()
         Heap.put_cell(ref, val)
@@ -2340,7 +2357,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       vref_idx ->
         case elem(vrefs, vref_idx) do
-          {:cell, _} = existing -> existing
+          {:cell, _} = existing ->
+            existing
+
           _ ->
             val = elem(locals, cv.var_idx)
             ref = make_ref()
@@ -2349,7 +2368,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         end
     end
   end
-
 
   defp ctor_var_refs(%Bytecode.Function{} = f, captured \\ %{}) do
     cell_ref = make_ref()
@@ -2440,7 +2458,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
         fn_atoms = Process.get({:qb_fn_atoms, fun.byte_code}, Heap.get_atoms())
         Heap.put_atoms(fn_atoms)
-        inner_ctx = %{ctx | current_func: self_ref, arg_buf: List.to_tuple(args), catch_stack: [], atoms: fn_atoms}
+
+        inner_ctx = %{
+          ctx
+          | current_func: self_ref,
+            arg_buf: List.to_tuple(args),
+            catch_stack: [],
+            atoms: fn_atoms
+        }
+
         prev_ctx = Heap.get_ctx()
         Heap.put_ctx(inner_ctx)
 

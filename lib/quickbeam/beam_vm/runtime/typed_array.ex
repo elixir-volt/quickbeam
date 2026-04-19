@@ -123,10 +123,11 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
   end
 
   defp join(ref, args) do
-    sep = case args do
-      [s | _] when is_binary(s) -> s
-      _ -> ","
-    end
+    sep =
+      case args do
+        [s | _] when is_binary(s) -> s
+        _ -> ","
+      end
 
     {b, l, t} = {buf(ref), len(ref), type(ref)}
     Enum.map_join(0..max(0, l - 1), sep, &Integer.to_string(trunc(read_element(b, &1, t))))
@@ -162,7 +163,10 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
     vals =
       for i <- 0..(l - 1),
-          (v = read_element(b, i, t); Runtime.truthy?(call(cb, [v, i, this]))),
+          (
+            v = read_element(b, i, t)
+            Runtime.truthy?(call(cb, [v, i, this]))
+          ),
           do: v
 
     new_buf =

@@ -12,11 +12,20 @@ defmodule QuickBEAM.BeamVM.Runtime.Reflect do
       args_array = List.first(rest)
 
       if args_array == :undefined or args_array == nil do
-        throw({:js_throw, Heap.make_error("CreateListFromArrayLike called on non-object", "TypeError")})
+        throw(
+          {:js_throw,
+           Heap.make_error("CreateListFromArrayLike called on non-object", "TypeError")}
+        )
       end
 
       call_args = Heap.to_list(args_array)
-      QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(target, call_args, QuickBEAM.BeamVM.Runtime.gas_budget(), this_arg)
+
+      QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(
+        target,
+        call_args,
+        QuickBEAM.BeamVM.Runtime.gas_budget(),
+        this_arg
+      )
     end
 
     method "construct" do

@@ -20,9 +20,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     })
 
     proto = {:obj, ref}
-    for key <- ["toString", "valueOf", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "constructor"] do
+
+    for key <- [
+          "toString",
+          "valueOf",
+          "hasOwnProperty",
+          "isPrototypeOf",
+          "propertyIsEnumerable",
+          "constructor"
+        ] do
       Heap.put_prop_desc(ref, key, %{enumerable: false, configurable: true, writable: true})
     end
+
     Heap.put_object_prototype(proto)
     proto
   end
@@ -120,9 +129,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     case args do
       [{:obj, ref} | _] ->
         data = Heap.get_obj(ref, %{})
-        syms = if is_map(data), do: Enum.filter(Map.keys(data), &match?({:symbol, _, _}, &1)), else: []
+
+        syms =
+          if is_map(data), do: Enum.filter(Map.keys(data), &match?({:symbol, _, _}, &1)), else: []
+
         Heap.wrap(syms)
-      _ -> Heap.wrap([])
+
+      _ ->
+        Heap.wrap([])
     end
   end
 
@@ -237,10 +251,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
         array_indices(list)
 
       map when is_map(map) ->
-        raw = case Map.get(map, key_order()) do
-          order when is_list(order) -> Enum.reverse(order)
-          _ -> Map.keys(map)
-        end
+        raw =
+          case Map.get(map, key_order()) do
+            order when is_list(order) -> Enum.reverse(order)
+            _ -> Map.keys(map)
+          end
 
         Runtime.sort_numeric_keys(raw)
         |> Enum.filter(fn k ->

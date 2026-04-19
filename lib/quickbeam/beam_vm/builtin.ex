@@ -155,10 +155,8 @@ defmodule QuickBEAM.BeamVM.Builtin do
 
   def call(f, args, _this) when is_function(f), do: apply(f, args)
 
-
   def call(_, _, _),
     do: throw({:js_throw, Heap.make_error("not a function", "TypeError")})
-
 
   def callable?(%Bytecode.Function{}), do: true
 

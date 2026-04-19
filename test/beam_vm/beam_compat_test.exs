@@ -13,9 +13,12 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
   end
 
   defp ev(rt, code), do: QuickBEAM.eval(rt, code, mode: :beam)
+
   defp ok(rt, code, expected) do
     assert {:ok, result} = ev(rt, code)
-    assert result == expected, "#{code}\n  expected: #{inspect(expected)}\n  got:      #{inspect(result)}"
+
+    assert result == expected,
+           "#{code}\n  expected: #{inspect(expected)}\n  got:      #{inspect(result)}"
   end
 
   # ── Basic types (mirrors quickbeam_test.exs "basic types") ──

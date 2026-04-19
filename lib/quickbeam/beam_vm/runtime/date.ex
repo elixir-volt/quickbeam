@@ -6,7 +6,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   alias QuickBEAM.BeamVM.Heap
 
   @epoch_gregorian_seconds 62_167_219_200
-  
+
   # ── Constructor ──
 
   def constructor(args, _this) do

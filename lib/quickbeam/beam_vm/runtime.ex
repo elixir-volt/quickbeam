@@ -1,5 +1,4 @@
 defmodule QuickBEAM.BeamVM.Runtime do
-
   @moduledoc "Shared helpers for the BEAM JS runtime: coercion, callbacks, object creation."
 
   alias QuickBEAM.BeamVM.Bytecode

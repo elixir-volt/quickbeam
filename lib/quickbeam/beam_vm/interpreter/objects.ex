@@ -220,5 +220,4 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
 
   def set_list_at(list, i, val) when is_integer(i) and i >= 0,
     do: list ++ List.duplicate(:undefined, max(0, i - length(list))) ++ [val]
-
 end

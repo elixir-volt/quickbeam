@@ -76,7 +76,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
        on_rejected = Enum.at(args, 1)
 
        case Heap.get_obj(promise_ref, %{}) do
-         %{promise_state() => state, promise_value() => val} when state in [:resolved, :rejected] ->
+         %{promise_state() => state, promise_value() => val}
+         when state in [:resolved, :rejected] ->
            handler = if state == :resolved, do: on_fulfilled, else: on_rejected
 
            if callable?(handler) do
@@ -90,7 +91,11 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
          %{promise_state() => :pending} ->
            child_ref = pending_child()
            waiters = Heap.get_promise_waiters(promise_ref)
-           Heap.put_promise_waiters(promise_ref, [{on_fulfilled, on_rejected, child_ref} | waiters])
+
+           Heap.put_promise_waiters(promise_ref, [
+             {on_fulfilled, on_rejected, child_ref} | waiters
+           ])
+
            {:obj, child_ref}
 
          _ ->
@@ -117,7 +122,10 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
 
       %{promise_state() => :pending} ->
         waiters = Heap.get_promise_waiters(r)
-        Heap.put_promise_waiters(r, [{fn v -> resolve(child_ref, :resolved, v) end, nil, child_ref} | waiters])
+
+        Heap.put_promise_waiters(r, [
+          {fn v -> resolve(child_ref, :resolved, v) end, nil, child_ref} | waiters
+        ])
 
       _ ->
         resolve(child_ref, :resolved, {:obj, r})
