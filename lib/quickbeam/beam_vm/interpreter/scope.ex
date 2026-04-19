@@ -27,7 +27,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Scope do
   def resolve_atom(_atoms, :empty_string), do: ""
 
   def resolve_atom(_atoms, {:predefined, idx}) when idx < @js_atom_end do
-    PredefinedAtoms.lookup(idx) || {:predefined_atom, idx}
+    PredefinedAtoms.lookup(idx) || "atom_#{idx}"
   end
 
   def resolve_atom(_atoms, {:tagged_int, val}), do: val

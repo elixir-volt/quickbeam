@@ -325,13 +325,16 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
 
       if name == "Error" do
         Heap.put_ctor_static(ctor, "captureStackTrace",
-          {:builtin, "captureStackTrace", fn [obj | _], _ ->
-            case obj do
-              {:obj, ref} -> Heap.update_obj(ref, %{}, &Map.put(&1, "stack", ""))
-              _ -> :ok
-            end
-            :undefined
+          {:builtin, "captureStackTrace", fn
+            [], _ -> throw({:js_throw, Heap.make_error("Cannot convert undefined to object", "TypeError")})
+            [obj | _], _ ->
+              case obj do
+                {:obj, ref} -> Heap.update_obj(ref, %{}, &Map.put(&1, "stack", ""))
+                _ -> :ok
+              end
+              :undefined
           end})
+        Heap.put_ctor_static(ctor, "prepareStackTrace", :undefined)
         Heap.put_ctor_static(ctor, "stackTraceLimit", 10)
       end
 
