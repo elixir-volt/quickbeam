@@ -66,6 +66,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     }
 
     Heap.put_atoms(atoms)
+    store_function_atoms(fun, atoms)
     prev_ctx = Heap.get_ctx()
     Heap.put_ctx(ctx)
 
@@ -126,6 +127,16 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       if prev, do: Heap.put_ctx(prev)
     end
   end
+
+  defp store_function_atoms(%Bytecode.Function{} = fun, atoms) do
+    Process.put({:qb_fn_atoms, fun.byte_code}, atoms)
+    for %Bytecode.Function{} = inner <- fun.constants do
+      store_function_atoms(inner, atoms)
+    end
+    :ok
+  end
+
+  defp store_function_atoms(_, _), do: :ok
 
   defp active_ctx do
     case Heap.get_ctx() do
@@ -2427,7 +2438,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             l2v
           )
 
-        inner_ctx = %{ctx | current_func: self_ref, arg_buf: List.to_tuple(args), catch_stack: []}
+        fn_atoms = Process.get({:qb_fn_atoms, fun.byte_code}, Heap.get_atoms())
+        Heap.put_atoms(fn_atoms)
+        inner_ctx = %{ctx | current_func: self_ref, arg_buf: List.to_tuple(args), catch_stack: [], atoms: fn_atoms}
         prev_ctx = Heap.get_ctx()
         Heap.put_ctx(inner_ctx)
 
