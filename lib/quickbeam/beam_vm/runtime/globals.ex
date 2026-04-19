@@ -3,11 +3,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
 
   import QuickBEAM.BeamVM.Heap.Keys
 
+  alias QuickBEAM.BeamVM.{Bytecode, Heap}
   alias QuickBEAM.BeamVM.Interpreter
   alias QuickBEAM.BeamVM.Runtime
-  alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
   alias QuickBEAM.BeamVM.Runtime.{Boolean, Console, JSON, MapSet, Math, Object, Promise, Reflect, Symbol, TypedArray}
-  alias QuickBEAM.BeamVM.{Bytecode, Heap}
+  alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
 
   @error_types ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError)
 

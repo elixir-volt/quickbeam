@@ -1,5 +1,12 @@
 defmodule QuickBEAM.BeamVM.Interpreter do
+  import Bitwise, only: [bnot: 1, &&&: 2]
   import QuickBEAM.BeamVM.Heap.Keys
+
+  alias QuickBEAM.BeamVM.{Builtin, Bytecode, Decoder, Heap, Runtime}
+  alias QuickBEAM.BeamVM.Runtime.Property
+  alias __MODULE__.{Closures, Context, Frame, Generator, Objects, Promise, Scope, Values}
+
+  require Frame
 
   @moduledoc """
   Executes decoded QuickJS bytecode via multi-clause function dispatch.

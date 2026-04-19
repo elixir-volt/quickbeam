@@ -1,6 +1,12 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   @moduledoc false
   import QuickBEAM.BeamVM.Heap.Keys
+
+  alias QuickBEAM.BeamVM.{Bytecode, Heap, Runtime}
+  alias QuickBEAM.BeamVM.Interpreter
+  alias QuickBEAM.BeamVM.Interpreter.Values
+  alias QuickBEAM.BeamVM.Runtime.Property
+
   @compile {:inline, has_property: 2, get_element: 2, set_list_at: 3}
   alias QuickBEAM.BeamVM.Interpreter
   alias QuickBEAM.BeamVM.Interpreter.Values

@@ -1,8 +1,7 @@
 defmodule QuickBEAM.BeamVM.Runtime.Function do
   @moduledoc false
-  alias QuickBEAM.BeamVM.Bytecode
-  alias QuickBEAM.BeamVM.Heap
-  alias QuickBEAM.BeamVM.{Builtin, Interpreter}
+  alias QuickBEAM.BeamVM.{Builtin, Bytecode, Heap}
+  alias QuickBEAM.BeamVM.Interpreter
 
   # ── Function prototype ──
 

@@ -1,5 +1,9 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Promise do
   import QuickBEAM.BeamVM.Heap.Keys
+
+  alias QuickBEAM.BeamVM.Heap
+  alias QuickBEAM.BeamVM.Interpreter
+
   @moduledoc false
 
   alias QuickBEAM.BeamVM.Heap
