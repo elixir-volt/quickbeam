@@ -1394,6 +1394,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── delete ──
 
+  defp run({:delete, []}, frame, [key, obj | rest], gas, ctx) when obj == nil or obj == :undefined do
+    nullish = if obj == nil, do: "null", else: "undefined"
+    error = Heap.make_error("Cannot delete properties of #{nullish} (deleting '#{key}')", "TypeError")
+    throw_or_catch(frame, error, gas, ctx)
+  end
+
   defp run({:delete, []}, frame, [key, obj | rest], gas, ctx) do
     result =
       case obj do
@@ -1886,6 +1892,21 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:throw_error, []}, _frame, [val | _], _gas, _ctx), do: throw({:js_throw, val})
+
+  defp run({:throw_error, [atom_idx, error_type]}, frame, _stack, gas, ctx) do
+    name = Scope.resolve_atom(ctx, atom_idx)
+    error_name = case error_type do
+      0 -> "Error"
+      1 -> "RangeError"
+      2 -> "ReferenceError"
+      3 -> "TypeError"
+      4 -> "SyntaxError"
+      5 -> "URIError"
+      6 -> "InternalError"
+      _ -> "Error"
+    end
+    throw_or_catch(frame, Heap.make_error(name, error_name), gas, ctx)
+  end
 
   defp run({:set_name_computed, []}, frame, stack, gas, ctx),
     do: run(advance(frame), stack, gas - 1, ctx)
