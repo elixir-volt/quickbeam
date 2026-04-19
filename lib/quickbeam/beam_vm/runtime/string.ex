@@ -389,6 +389,13 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
   # ── String static methods ──
 
+  static "fromCodePoint" do
+    Enum.map_join(args, fn n ->
+      cp = Runtime.to_int(n)
+      if cp >= 0 and cp <= 0x10FFFF, do: <<cp::utf8>>, else: ""
+    end)
+  end
+
   static "fromCharCode" do
     Enum.map_join(args, fn n ->
       cp = Runtime.to_int(n)

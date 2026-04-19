@@ -181,9 +181,16 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   defp parse_int(_, _), do: :nan
 
   defp parse_float([s | _], _) when is_binary(s) do
-    case Float.parse(String.trim(s)) do
-      {f, _} -> f
-      :error -> :nan
+    s = String.trim(s)
+
+    cond do
+      s == "Infinity" or s == "+Infinity" -> :infinity
+      s == "-Infinity" -> :neg_infinity
+      true ->
+        case Float.parse(s) do
+          {f, _} -> f
+          :error -> :nan
+        end
     end
   end
 
@@ -216,6 +223,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
          {:ok, val} <- Interpreter.eval(parsed.value, [], %{gas: Runtime.gas_budget(), runtime_pid: pid}, parsed.atoms) do
       val
     else
+      %{runtime_pid: nil} -> :undefined
+      nil -> :undefined
+      {:error, %{message: msg}} -> throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
+      {:error, msg} when is_binary(msg) -> throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
       _ -> :undefined
     end
   end

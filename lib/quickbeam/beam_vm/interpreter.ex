@@ -276,6 +276,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         _ -> :undefined
       end
     else
+      {:error, %{message: msg}} -> throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
+      {:error, msg} when is_binary(msg) -> throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
       _ -> :undefined
     end
   end
@@ -1152,20 +1154,33 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         {:obj, ref} ->
           map = Heap.get_obj(ref, %{})
 
-          raw_keys =
-            case Map.get(map, key_order()) do
-              order when is_list(order) -> Enum.reverse(order)
-              _ -> Map.keys(map)
-            end
+          case map do
+            %{proxy_target() => _target, proxy_handler() => handler} ->
+              own_keys_fn = Property.get(handler, "ownKeys")
 
-          raw_keys
-          |> Enum.reject(fn k ->
-            (is_binary(k) and String.starts_with?(k, "__")) or
-              is_tuple(k) or is_atom(k) or
-              not Map.has_key?(map, k) or
-              match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
-          end)
-          |> Runtime.sort_numeric_keys()
+              if own_keys_fn != :undefined and own_keys_fn != nil do
+                result = Runtime.call_callback(own_keys_fn, [obj])
+                Heap.to_list(result) |> Enum.map(&to_string/1)
+              else
+                []
+              end
+
+            _ ->
+              raw_keys =
+                case Map.get(map, key_order()) do
+                  order when is_list(order) -> Enum.reverse(order)
+                  _ -> Map.keys(map)
+                end
+
+              raw_keys
+              |> Enum.reject(fn k ->
+                (is_binary(k) and String.starts_with?(k, "__")) or
+                  is_tuple(k) or is_atom(k) or
+                  not Map.has_key?(map, k) or
+                  match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
+              end)
+              |> Runtime.sort_numeric_keys()
+          end
 
         map when is_map(map) ->
           Map.keys(map)
@@ -1590,14 +1605,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     {args, rest} = Enum.split(stack, argc)
     code = List.first(Enum.reverse(args), :undefined)
 
-    result =
+    catch_js_throw(frame, rest, gas, ctx, fn ->
       if is_binary(code) and ctx.runtime_pid != nil do
         eval_code(code, frame, gas, ctx)
       else
         :undefined
       end
-
-    run(advance(frame), [result | rest], gas - 1, ctx)
+    end)
   end
 
   # ── Iterators ──
