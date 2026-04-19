@@ -20,6 +20,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
   }
 
   alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
+  alias QuickBEAM.BeamVM.Runtime.ArrayBuffer
   alias QuickBEAM.BeamVM.Runtime.String, as: JSString
 
   def get(value, key) when is_binary(key) do
@@ -95,6 +96,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
       %{date_ms() => _} = map ->
         case Map.get(map, key) do
           nil -> JSDate.proto_property(key)
+          val -> val
+        end
+
+      %{buffer() => _} = map ->
+        case Map.get(map, key) do
+          nil -> ArrayBuffer.proto_property(key)
           val -> val
         end
 
