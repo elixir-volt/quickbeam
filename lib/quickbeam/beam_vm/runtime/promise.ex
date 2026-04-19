@@ -41,22 +41,19 @@ defmodule QuickBEAM.BeamVM.Runtime.Promise do
     promise_race(hd(args))
   end
 
+  defp unwrap_value({:obj, r} = obj) do
+    case Heap.get_obj(r, %{}) do
+      %{@promise_state => :resolved, @promise_value => val} -> val
+      _ -> obj
+    end
+  end
+
+  defp unwrap_value(val), do: val
+
   defp promise_all(arr) do
     items = Heap.to_list(arr)
 
-    results =
-      Enum.map(items, fn item ->
-        case item do
-          {:obj, r} ->
-            case Heap.get_obj(r, %{}) do
-              %{@promise_state => :resolved, @promise_value => val} -> val
-              _ -> item
-            end
-
-          _ ->
-            item
-        end
-      end)
+    results = Enum.map(items, &unwrap_value/1)
 
     PromiseInterp.resolved(Heap.wrap(results))
   end
@@ -91,17 +88,15 @@ defmodule QuickBEAM.BeamVM.Runtime.Promise do
     items = Heap.to_list(arr)
 
     result =
-      Enum.find_value(items, fn item ->
-        case item do
-          {:obj, r} ->
-            case Heap.get_obj(r, %{}) do
-              %{@promise_state => :resolved, @promise_value => v} -> v
-              _ -> nil
-            end
+      Enum.find_value(items, fn
+        {:obj, r} ->
+          case Heap.get_obj(r, %{}) do
+            %{@promise_state => :resolved, @promise_value => v} -> v
+            _ -> nil
+          end
 
-          _ ->
-            item
-        end
+        val ->
+          val
       end)
 
     PromiseInterp.resolved(result || :undefined)
@@ -111,23 +106,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Promise do
     items = Heap.to_list(arr)
 
     case items do
-      [first | _] ->
-        val =
-          case first do
-            {:obj, r} ->
-              case Heap.get_obj(r, %{}) do
-                %{@promise_state => :resolved, @promise_value => v} -> v
-                _ -> first
-              end
-
-            _ ->
-              first
-          end
-
-        PromiseInterp.resolved(val)
-
-      [] ->
-        PromiseInterp.resolved(:undefined)
+      [first | _] -> PromiseInterp.resolved(unwrap_value(first))
+      [] -> PromiseInterp.resolved(:undefined)
     end
   end
 end

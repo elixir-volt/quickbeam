@@ -274,18 +274,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def div({:bigint, _}, {:bigint, 0}),
     do: throw({:js_throw, %{"message" => "Division by zero", "name" => "RangeError"}})
 
-  def div(a, b) when is_number(a) and is_number(b) do
-    cond do
-      b == 0 and neg_zero?(b) ->
-        if a > 0, do: :neg_infinity, else: if(a < 0, do: :infinity, else: :nan)
-
-      b == 0 ->
-        inf_or_nan(a)
-
-      true ->
-        a / b
-    end
-  end
+  def div(a, b) when is_number(a) and is_number(b), do: div_numbers(a, b)
 
   def div(a, b) do
     na = to_number(a)
@@ -299,16 +288,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
         div_inf(na, nb)
 
       is_number(na) and is_number(nb) ->
-        cond do
-          nb == 0 and neg_zero?(nb) ->
-            if na > 0, do: :neg_infinity, else: if(na < 0, do: :infinity, else: :nan)
-
-          nb == 0 ->
-            inf_or_nan(na)
-
-          true ->
-            na / nb
-        end
+        div_numbers(na, nb)
 
       true ->
         :nan
@@ -326,6 +306,19 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   defp div_inf(n, :infinity) when is_number(n), do: 0.0
   defp div_inf(n, :neg_infinity) when is_number(n), do: -0.0
   defp div_inf(_, _), do: :nan
+
+  defp div_numbers(a, b) do
+    cond do
+      b == 0 and neg_zero?(b) ->
+        if a > 0, do: :neg_infinity, else: if(a < 0, do: :infinity, else: :nan)
+
+      b == 0 ->
+        inf_or_nan(a)
+
+      true ->
+        a / b
+    end
+  end
 
   def mod({:bigint, a}, {:bigint, b}) when b != 0, do: {:bigint, rem(a, b)}
 

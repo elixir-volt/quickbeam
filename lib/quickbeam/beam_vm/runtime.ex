@@ -572,4 +572,25 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   def normalize_index(idx, len) when idx < 0, do: max(len + idx, 0)
   def normalize_index(idx, len), do: min(idx, len)
+
+  def sort_numeric_keys(keys) do
+    {numeric, strings} =
+      Enum.split_with(keys, fn
+        k when is_integer(k) -> true
+        k when is_binary(k) -> match?({_, ""}, Integer.parse(k))
+        _ -> false
+      end)
+
+    sorted =
+      Enum.sort_by(numeric, fn
+        k when is_integer(k) -> k
+        k when is_binary(k) -> elem(Integer.parse(k), 0)
+      end)
+      |> Enum.map(fn
+        k when is_integer(k) -> Integer.to_string(k)
+        k -> k
+      end)
+
+    sorted ++ Enum.filter(strings, &is_binary/1)
+  end
 end

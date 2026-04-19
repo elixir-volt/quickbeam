@@ -168,24 +168,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
         _ -> Map.keys(map)
       end
 
-    {numeric, strings} =
-      Enum.split_with(raw_keys, fn
-        k when is_integer(k) -> true
-        k when is_binary(k) -> match?({_, ""}, Integer.parse(k))
-        _ -> false
-      end)
-
-    sorted_numeric =
-      Enum.sort_by(numeric, fn
-        k when is_integer(k) -> k
-        k when is_binary(k) -> elem(Integer.parse(k), 0)
-      end)
-      |> Enum.map(fn
-        k when is_integer(k) -> Integer.to_string(k)
-        k -> k
-      end)
-
-    all = sorted_numeric ++ Enum.filter(strings, &is_binary/1)
+    all = Runtime.sort_numeric_keys(raw_keys)
 
     filtered =
       Enum.filter(all, fn k ->

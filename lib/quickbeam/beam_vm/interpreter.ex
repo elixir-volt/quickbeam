@@ -145,17 +145,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       result = fun.()
       run(advance(frame), [result | rest], gas - 1, ctx)
     catch
-      {:js_throw, val} ->
-        case ctx.catch_stack do
-          [{target, saved_stack} | rest_catch] ->
-            run(jump(frame, target), [val | saved_stack], gas - 1, %{
-              ctx
-              | catch_stack: rest_catch
-            })
-
-          [] ->
-            throw({:js_throw, val})
-        end
+      {:js_throw, val} -> throw_or_catch(frame, val, gas, ctx)
     end
   end
 
@@ -183,6 +173,18 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       [] ->
         throw({:js_throw, error})
     end
+  end
+
+  defp set_private_field({:obj, ref}, key, val),
+    do: Heap.update_obj(ref, %{}, &Map.put(&1, {:private, key}, val))
+
+  defp set_private_field(_, _, _), do: :ok
+
+  defp throw_null_property_error(frame, obj, atom_idx, gas, ctx) do
+    prop = Scope.resolve_atom(ctx, atom_idx)
+    nullish = if obj == nil, do: "null", else: "undefined"
+    error = make_error_obj("Cannot read properties of #{nullish} (reading '#{prop}')", "TypeError")
+    throw_or_catch(frame, error, gas, ctx)
   end
 
   @compile {:inline, unwrap_promise: 2}
@@ -910,13 +912,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:get_field, [atom_idx]}, frame, [obj | _rest], gas, ctx)
        when obj == nil or obj == :undefined do
-    prop = Scope.resolve_atom(ctx, atom_idx)
-    nullish = if obj == nil, do: "null", else: "undefined"
-
-    error =
-      make_error_obj("Cannot read properties of #{nullish} (reading '#{prop}')", "TypeError")
-
-    throw_or_catch(frame, error, gas, ctx)
+    throw_null_property_error(frame, obj, atom_idx, gas, ctx)
   end
 
   defp run({:get_field, [atom_idx]}, frame, [obj | rest], gas, ctx) do
@@ -972,26 +968,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:put_private_field, []}, frame, [key, val, obj | rest], gas, ctx) do
-    case obj do
-      {:obj, ref} ->
-        Heap.update_obj(ref, %{}, &Map.put(&1, {:private, key}, val))
-
-      _ ->
-        :ok
-    end
-
+    set_private_field(obj, key, val)
     run(advance(frame), rest, gas - 1, ctx)
   end
 
   defp run({:define_private_field, []}, frame, [val, key, obj | rest], gas, ctx) do
-    case obj do
-      {:obj, ref} ->
-        Heap.update_obj(ref, %{}, &Map.put(&1, {:private, key}, val))
-
-      _ ->
-        :ok
-    end
-
+    set_private_field(obj, key, val)
     run(advance(frame), rest, gas - 1, ctx)
   end
 
@@ -1141,13 +1123,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:get_field2, [atom_idx]}, frame, [obj | _rest], gas, ctx)
        when obj == nil or obj == :undefined do
-    prop = Scope.resolve_atom(ctx, atom_idx)
-    nullish = if obj == nil, do: "null", else: "undefined"
-
-    error =
-      make_error_obj("Cannot read properties of #{nullish} (reading '#{prop}')", "TypeError")
-
-    throw_or_catch(frame, error, gas, ctx)
+    throw_null_property_error(frame, obj, atom_idx, gas, ctx)
   end
 
   defp run({:get_field2, [atom_idx]}, frame, [obj | rest], gas, ctx) do
@@ -1193,26 +1169,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
               not Map.has_key?(map, k) or
               match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
           end)
-          |> then(fn keys ->
-            {numeric, strings} =
-              Enum.split_with(keys, fn
-                k when is_integer(k) -> true
-                k when is_binary(k) -> match?({_, ""}, Integer.parse(k))
-                _ -> false
-              end)
-
-            sorted_numeric =
-              Enum.sort_by(numeric, fn
-                k when is_integer(k) -> k
-                k when is_binary(k) -> elem(Integer.parse(k), 0)
-              end)
-              |> Enum.map(fn
-                k when is_integer(k) -> Integer.to_string(k)
-                k -> k
-              end)
-
-            sorted_numeric ++ Enum.filter(strings, &is_binary/1)
-          end)
+          |> Runtime.sort_numeric_keys()
 
         map when is_map(map) ->
           Map.keys(map)
@@ -2210,12 +2167,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
           cond do
             is_list(stored) ->
-              pos_ref = make_ref()
-              Heap.put_obj(pos_ref, %{pos: 0, list: stored})
-              next = {:builtin, "next", fn _, _ -> list_iterator_next(pos_ref) end}
-              iter_ref = make_ref()
-              Heap.put_obj(iter_ref, %{"next" => next})
-              {{:obj, iter_ref}, next}
+              make_list_iterator(stored)
 
             is_map(stored) and Map.has_key?(stored, "next") ->
               {obj, Runtime.get_property(obj, "next")}
@@ -2237,18 +2189,22 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     throw({:error, {:unimplemented_opcode, name, args}})
   end
 
+  defp dispatch_call(fun, args, gas, ctx, this) do
+    case fun do
+      %Bytecode.Function{} = f -> invoke_function(f, args, gas, ctx)
+      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, args, gas, ctx)
+      {:bound, _, inner} -> invoke(inner, args, gas)
+      other -> Builtin.call(other, args, this)
+    end
+  end
+
   # ── Tail calls ──
 
   defp tail_call(stack, argc, gas, ctx) do
     {args, [fun | _rest]} = Enum.split(stack, argc)
     rev_args = Enum.reverse(args)
 
-    case fun do
-      %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, ctx)
-      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, ctx)
-      {:bound, _, inner} -> invoke(inner, rev_args, gas)
-      other -> Builtin.call(other, rev_args, nil)
-    end
+    dispatch_call(fun, rev_args, gas, ctx, nil)
   end
 
   defp tail_call_method(stack, argc, gas, ctx) do
@@ -2256,12 +2212,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     rev_args = Enum.reverse(args)
     method_ctx = %{ctx | this: obj}
 
-    case fun do
-      %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, method_ctx)
-      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, method_ctx)
-      {:bound, _, inner} -> invoke(inner, rev_args, gas)
-      other -> Builtin.call(other, rev_args, obj)
-    end
+    dispatch_call(fun, rev_args, gas, method_ctx, obj)
   end
 
   # ── Closure construction ──
@@ -2321,12 +2272,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     rev_args = Enum.reverse(args)
 
     catch_js_throw(frame, rest, gas, ctx, fn ->
-      case fun do
-        %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, ctx)
-        {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, ctx)
-        {:bound, _, inner} -> invoke(inner, rev_args, gas)
-        other -> Builtin.call(other, rev_args, nil)
-      end
+      dispatch_call(fun, rev_args, gas, ctx, nil)
     end)
   end
 
@@ -2336,12 +2282,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     method_ctx = %{ctx | this: obj}
 
     catch_js_throw(frame, rest, gas, ctx, fn ->
-      case fun do
-        %Bytecode.Function{} = f -> invoke_function(f, rev_args, gas, method_ctx)
-        {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, rev_args, gas, method_ctx)
-        {:bound, _, inner} -> invoke(inner, rev_args, gas)
-        other -> Builtin.call(other, rev_args, obj)
-      end
+      dispatch_call(fun, rev_args, gas, method_ctx, obj)
     end)
   end
 
