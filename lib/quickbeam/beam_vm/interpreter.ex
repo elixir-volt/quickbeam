@@ -763,6 +763,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Arithmetic ──
 
+  defp run({:add, []}, frame, [b, a | rest], gas, %Context{catch_stack: [_ | _]} = ctx) do
+    try do
+      run(advance(frame), [Values.add(a, b) | rest], gas - 1, ctx)
+    catch
+      {:js_throw, val} -> throw_or_catch(frame, val, gas, ctx)
+    end
+  end
+
   defp run({:add, []}, frame, [b, a | rest], gas, ctx),
     do: run(advance(frame), [Values.add(a, b) | rest], gas - 1, ctx)
 

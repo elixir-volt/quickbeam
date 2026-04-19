@@ -209,6 +209,10 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def strict_eq(a, b), do: a === b
 
   def add({:bigint, a}, {:bigint, b}), do: {:bigint, a + b}
+  def add({:symbol, _}, _), do: throw({:js_throw, QuickBEAM.BeamVM.Heap.make_error("Cannot convert a Symbol value to a string", "TypeError")})
+  def add(_, {:symbol, _}), do: throw({:js_throw, QuickBEAM.BeamVM.Heap.make_error("Cannot convert a Symbol value to a string", "TypeError")})
+  def add({:symbol, _, _}, _), do: throw({:js_throw, QuickBEAM.BeamVM.Heap.make_error("Cannot convert a Symbol value to a string", "TypeError")})
+  def add(_, {:symbol, _, _}), do: throw({:js_throw, QuickBEAM.BeamVM.Heap.make_error("Cannot convert a Symbol value to a string", "TypeError")})
   def add(a, b) when is_binary(a) or is_binary(b), do: stringify(a) <> stringify(b)
   def add(a, b) when is_number(a) and is_number(b), do: a + b
   def add(a, b), do: numeric_add(to_number(a), to_number(b))
