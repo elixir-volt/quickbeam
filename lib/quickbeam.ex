@@ -282,6 +282,7 @@ defmodule QuickBEAM do
     end
   end
 
+  defp convert_beam_value(list) when is_list(list), do: Enum.map(list, &convert_beam_value/1)
   defp convert_beam_value(v), do: v
 
   defp convert_beam_key(k) when is_binary(k), do: k

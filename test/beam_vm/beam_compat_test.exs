@@ -326,7 +326,6 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
       ok(rt, "[1,2,3].some(function(x){ return x > 5 })", false)
     end
 
-    @tag :pending_beam
     test "flat", %{rt: rt} do
       ok(rt, "[1,[2,3],[4,[5]]].flat()", [1, 2, 3, 4, [5]])
     end
@@ -621,7 +620,6 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
   # ── parseInt/parseFloat ──
 
   describe "global functions" do
-    @tag :pending_beam
     test "parseInt", %{rt: rt} do
       ok(rt, ~s|parseInt("42")|, 42)
       ok(rt, ~s|parseInt("0xff", 16)|, 255)
@@ -1252,7 +1250,6 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
   # ── P1 features ──
 
   describe "TypedArrays" do
-    @tag :pending_beam
     test "ArrayBuffer", %{rt: rt} do
       ok(rt, "(function(){ var buf = new ArrayBuffer(8); return buf.byteLength })()", 8)
     end
@@ -1711,7 +1708,6 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
       ok(rt, "(1, 2, 3)", 3)
     end
 
-    @tag :pending_beam
     test "property access on primitives", %{rt: rt} do
       ok(rt, ~s|"hello"[0]|, "h")
       ok(rt, ~s|"hello"["length"]|, 5)

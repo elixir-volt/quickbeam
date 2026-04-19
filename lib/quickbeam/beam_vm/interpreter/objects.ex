@@ -174,6 +174,9 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   def get_element(s, idx) when is_binary(s) and is_integer(idx) and idx >= 0,
     do: String.at(s, idx) || :undefined
 
+  def get_element(s, key) when is_binary(s) and is_binary(key),
+    do: Property.get(s, key)
+
   def get_element(_, _), do: :undefined
 
   def put_element({:obj, ref} = obj, key, val) do

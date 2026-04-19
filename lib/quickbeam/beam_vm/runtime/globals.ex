@@ -42,7 +42,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
       "WeakSet"    => register("WeakSet", MapSet.set_constructor()),
       "WeakRef"    => register("WeakRef", fn _, _ -> Runtime.new_object() end),
       "DataView"   => register("DataView", fn _, _ -> Runtime.new_object() end),
-      "ArrayBuffer" => register("ArrayBuffer", &ArrayBuffer.constructor/1),
+      "ArrayBuffer" => register("ArrayBuffer", &ArrayBuffer.constructor/2),
       "Proxy"      => register("Proxy", &proxy_constructor/2),
       "Math"       => Math.object(),
       "JSON"       => JSON.object(),
@@ -130,9 +130,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   # ── Global functions ──
 
   defp parse_int([s, radix | _], _) when is_binary(s) and is_number(radix) do
+    r = trunc(radix)
     s = String.trim_leading(s)
+    s = if r == 16, do: String.replace_prefix(s, "0x", "") |> String.replace_prefix("0X", ""), else: s
 
-    case Integer.parse(s, trunc(radix)) do
+    case Integer.parse(s, r) do
       {n, _} -> n
       :error -> :nan
     end
