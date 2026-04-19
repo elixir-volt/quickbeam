@@ -1,6 +1,9 @@
 defmodule QuickBEAM.BeamVM.Runtime.Date do
   import QuickBEAM.BeamVM.Heap.Keys
   @moduledoc false
+
+  use QuickBEAM.BeamVM.Builtin
+
   alias QuickBEAM.BeamVM.Heap
 
   def constructor(args, _this) do
@@ -61,247 +64,208 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
     ]
   end
 
-  def proto_property("getTime"), do: {:builtin, "getTime", fn _, this -> get_ms(this) end}
-  def proto_property("valueOf"), do: {:builtin, "valueOf", fn _, this -> get_ms(this) end}
+  proto "getTime" do
+    get_ms(this)
+  end
 
-  def proto_property("getFullYear"),
-    do:
-      {:builtin, "getFullYear",
-       fn _, this ->
-         {{y, _, _}, _} = utc(this)
-         y
-       end}
+  proto "valueOf" do
+    get_ms(this)
+  end
 
-  def proto_property("getMonth"),
-    do:
-      {:builtin, "getMonth",
-       fn _, this ->
-         {{_, m, _}, _} = utc(this)
-         m - 1
-       end}
+  proto "getFullYear" do
+    {{y, _, _}, _} = utc(this)
+    y
+  end
 
-  def proto_property("getDate"),
-    do:
-      {:builtin, "getDate",
-       fn _, this ->
-         {{_, _, d}, _} = utc(this)
-         d
-       end}
+  proto "getMonth" do
+    {{_, m, _}, _} = utc(this)
+    m - 1
+  end
 
-  def proto_property("getHours"),
-    do:
-      {:builtin, "getHours",
-       fn _, this ->
-         {_, {h, _, _}} = utc(this)
-         h
-       end}
+  proto "getDate" do
+    {{_, _, d}, _} = utc(this)
+    d
+  end
 
-  def proto_property("getMinutes"),
-    do:
-      {:builtin, "getMinutes",
-       fn _, this ->
-         {_, {_, m, _}} = utc(this)
-         m
-       end}
+  proto "getHours" do
+    {_, {h, _, _}} = utc(this)
+    h
+  end
 
-  def proto_property("getSeconds"),
-    do:
-      {:builtin, "getSeconds",
-       fn _, this ->
-         {_, {_, _, s}} = utc(this)
-         s
-       end}
+  proto "getMinutes" do
+    {_, {_, m, _}} = utc(this)
+    m
+  end
 
-  def proto_property("getMilliseconds"),
-    do:
-      {:builtin, "getMilliseconds",
-       fn _, this ->
-         rem(get_ms(this), 1000)
-       end}
+  proto "getSeconds" do
+    {_, {_, _, s}} = utc(this)
+    s
+  end
 
-  def proto_property("toISOString"),
-    do:
-      {:builtin, "toISOString",
-       fn _, this ->
-         ms = get_ms(this)
-         {{y, m, d}, {h, min, s}} = :calendar.system_time_to_universal_time(ms, :millisecond)
+  proto "getMilliseconds" do
+    rem(get_ms(this), 1000)
+  end
 
-         :io_lib.format(
-           "~4..0B-~2..0B-~2..0BT~2..0B:~2..0B:~2..0B.~3..0BZ",
-           [y, m, d, h, min, s, rem(ms, 1000)]
-         )
-         |> IO.iodata_to_binary()
-       end}
+  proto "toISOString" do
+    ms = get_ms(this)
+    {{y, m, d}, {h, min, s}} = :calendar.system_time_to_universal_time(ms, :millisecond)
 
-  def proto_property("toJSON"), do: proto_property("toISOString")
+    :io_lib.format(
+      "~4..0B-~2..0B-~2..0BT~2..0B:~2..0B:~2..0B.~3..0BZ",
+      [y, m, d, h, min, s, rem(ms, 1000)]
+    )
+    |> IO.iodata_to_binary()
+  end
 
-  def proto_property("getTimezoneOffset"),
-    do:
-      {:builtin, "getTimezoneOffset",
-       fn _, _this ->
-         utc_now = :calendar.universal_time()
-         local_now = :calendar.local_time()
-         utc_s = :calendar.datetime_to_gregorian_seconds(utc_now)
-         local_s = :calendar.datetime_to_gregorian_seconds(local_now)
-         div(utc_s - local_s, 60)
-       end}
+  proto "toJSON" do
+    {:builtin, _, cb} = proto_property("toISOString")
+    cb.(args, this)
+  end
 
-  def proto_property("getDay"),
-    do:
-      {:builtin, "getDay",
-       fn _, this ->
-         case ms_to_dt(get_ms(this)) do
-           nil -> :nan
-           # JS: 0=Sun..6=Sat. Elixir day_of_week: 1=Mon..7=Sun. rem(7) maps 7→0 (Sun). Mon(1)..Sat(6) unchanged.
-           dt -> Date.day_of_week(DateTime.to_date(dt)) |> rem(7)
-         end
-       end}
+  proto "getTimezoneOffset" do
+    utc_now = :calendar.universal_time()
+    local_now = :calendar.local_time()
+    utc_s = :calendar.datetime_to_gregorian_seconds(utc_now)
+    local_s = :calendar.datetime_to_gregorian_seconds(local_now)
+    div(utc_s - local_s, 60)
+  end
 
-  def proto_property("getUTCFullYear"),
-    do:
-      {:builtin, "getUTCFullYear",
-       fn _, this ->
-         case get_ms(this) do
-           ms when is_number(ms) -> DateTime.from_unix!(trunc(ms), :millisecond).year
-           _ -> :nan
-         end
-       end}
+  proto "getDay" do
+    case ms_to_dt(get_ms(this)) do
+      nil -> :nan
+      dt -> Date.day_of_week(DateTime.to_date(dt)) |> rem(7)
+    end
+  end
 
-  def proto_property("setTime"),
-    do:
-      {:builtin, "setTime",
-       fn [ms | _], this ->
-         case this do
-           {:obj, ref} ->
-             map = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
+  proto "getUTCFullYear" do
+    case get_ms(this) do
+      ms when is_number(ms) -> DateTime.from_unix!(trunc(ms), :millisecond).year
+      _ -> :nan
+    end
+  end
 
-             if is_map(map),
-               do:
-                 QuickBEAM.BeamVM.Heap.put_obj(
-                   ref,
-                   Map.put(map, date_ms(), ms)
-                 )
+  proto "setTime" do
+    [ms | _] = args
 
-             ms
+    case this do
+      {:obj, ref} ->
+        map = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
 
-           _ ->
-             :nan
-         end
-       end}
+        if is_map(map),
+          do:
+            QuickBEAM.BeamVM.Heap.put_obj(
+              ref,
+              Map.put(map, date_ms(), ms)
+            )
 
-  def proto_property("toLocaleDateString"),
-    do:
-      {:builtin, "toLocaleDateString",
-       fn _, this ->
-         case ms_to_dt(get_ms(this)) do
-           nil -> "Invalid Date"
-           dt -> Calendar.strftime(dt, "%m/%d/%Y")
-         end
-       end}
+        ms
 
-  def proto_property("toLocaleTimeString"),
-    do:
-      {:builtin, "toLocaleTimeString",
-       fn _, this ->
-         case ms_to_dt(get_ms(this)) do
-           nil -> "Invalid Date"
-           dt -> Calendar.strftime(dt, "%H:%M:%S")
-         end
-       end}
+      _ ->
+        :nan
+    end
+  end
 
-  def proto_property("toLocaleString"),
-    do:
-      {:builtin, "toLocaleString",
-       fn _, this ->
-         case ms_to_dt(get_ms(this)) do
-           nil -> "Invalid Date"
-           dt -> Calendar.strftime(dt, "%m/%d/%Y, %H:%M:%S")
-         end
-       end}
+  proto "toLocaleDateString" do
+    case ms_to_dt(get_ms(this)) do
+      nil -> "Invalid Date"
+      dt -> Calendar.strftime(dt, "%m/%d/%Y")
+    end
+  end
 
-  def proto_property("setFullYear"),
-    do: {:builtin, "setFullYear", fn [v | _], this -> set_date_field(this, :year, v) end}
+  proto "toLocaleTimeString" do
+    case ms_to_dt(get_ms(this)) do
+      nil -> "Invalid Date"
+      dt -> Calendar.strftime(dt, "%H:%M:%S")
+    end
+  end
 
-  def proto_property("setMonth"),
-    do: {:builtin, "setMonth", fn [v | _], this -> set_date_field(this, :month, trunc(v) + 1) end}
+  proto "toLocaleString" do
+    case ms_to_dt(get_ms(this)) do
+      nil -> "Invalid Date"
+      dt -> Calendar.strftime(dt, "%m/%d/%Y, %H:%M:%S")
+    end
+  end
 
-  def proto_property("setDate"),
-    do: {:builtin, "setDate", fn [v | _], this -> set_date_field(this, :day, v) end}
+  proto "setFullYear" do
+    [v | _] = args
+    set_date_field(this, :year, v)
+  end
 
-  def proto_property("setHours"),
-    do: {:builtin, "setHours", fn [v | _], this -> set_date_field(this, :hour, v) end}
+  proto "setMonth" do
+    [v | _] = args
+    set_date_field(this, :month, trunc(v) + 1)
+  end
 
-  def proto_property("setMinutes"),
-    do: {:builtin, "setMinutes", fn [v | _], this -> set_date_field(this, :minute, v) end}
+  proto "setDate" do
+    [v | _] = args
+    set_date_field(this, :day, v)
+  end
 
-  def proto_property("setSeconds"),
-    do: {:builtin, "setSeconds", fn [v | _], this -> set_date_field(this, :second, v) end}
+  proto "setHours" do
+    [v | _] = args
+    set_date_field(this, :hour, v)
+  end
 
-  def proto_property("setMilliseconds"),
-    do:
-      {:builtin, "setMilliseconds",
-       fn [ms | _], this ->
-         case {get_ms(this), this} do
-           {old_ms, {:obj, ref}} when is_number(old_ms) ->
-             base = trunc(old_ms / 1000) * 1000
-             new_ms = base + trunc(ms)
+  proto "setMinutes" do
+    [v | _] = args
+    set_date_field(this, :minute, v)
+  end
 
-             QuickBEAM.BeamVM.Heap.put_obj(
-               ref,
-               Map.put(
-                 QuickBEAM.BeamVM.Heap.get_obj(ref, %{}),
-                 date_ms(),
-                 new_ms
-               )
-             )
+  proto "setSeconds" do
+    [v | _] = args
+    set_date_field(this, :second, v)
+  end
 
-             new_ms
+  proto "setMilliseconds" do
+    [ms | _] = args
 
-           _ ->
-             :nan
-         end
-       end}
+    case {get_ms(this), this} do
+      {old_ms, {:obj, ref}} when is_number(old_ms) ->
+        base = trunc(old_ms / 1000) * 1000
+        new_ms = base + trunc(ms)
 
-  def proto_property("toDateString"),
-    do:
-      {:builtin, "toDateString",
-       fn _, this ->
-         case ms_to_dt(get_ms(this)) do
-           nil -> "Invalid Date"
-           dt -> Calendar.strftime(dt, "%a %b %d %Y")
-         end
-       end}
+        QuickBEAM.BeamVM.Heap.put_obj(
+          ref,
+          Map.put(
+            QuickBEAM.BeamVM.Heap.get_obj(ref, %{}),
+            date_ms(),
+            new_ms
+          )
+        )
 
-  def proto_property("toTimeString"),
-    do:
-      {:builtin, "toTimeString",
-       fn _, this ->
-         case ms_to_dt(get_ms(this)) do
-           nil -> "Invalid Date"
-           dt -> Calendar.strftime(dt, "%H:%M:%S GMT+0000")
-         end
-       end}
+        new_ms
 
-  def proto_property("toUTCString"),
-    do:
-      {:builtin, "toUTCString",
-       fn _, this ->
-         case ms_to_dt(get_ms(this)) do
-           nil -> "Invalid Date"
-           dt -> Calendar.strftime(dt, "%a, %d %b %Y %H:%M:%S GMT")
-         end
-       end}
+      _ ->
+        :nan
+    end
+  end
 
-  def proto_property("toString"),
-    do:
-      {:builtin, "toString",
-       fn _, this ->
-         ms = get_ms(this)
-         {{y, m, d}, {h, min, s}} = :calendar.system_time_to_universal_time(ms, :millisecond)
-         "#{y}-#{m}-#{d}T#{h}:#{min}:#{s}Z"
-       end}
+  proto "toDateString" do
+    case ms_to_dt(get_ms(this)) do
+      nil -> "Invalid Date"
+      dt -> Calendar.strftime(dt, "%a %b %d %Y")
+    end
+  end
 
-  def proto_property(_), do: :undefined
+  proto "toTimeString" do
+    case ms_to_dt(get_ms(this)) do
+      nil -> "Invalid Date"
+      dt -> Calendar.strftime(dt, "%H:%M:%S GMT+0000")
+    end
+  end
+
+  proto "toUTCString" do
+    case ms_to_dt(get_ms(this)) do
+      nil -> "Invalid Date"
+      dt -> Calendar.strftime(dt, "%a, %d %b %Y %H:%M:%S GMT")
+    end
+  end
+
+  proto "toString" do
+    ms = get_ms(this)
+    {{y, m, d}, {h, min, s}} = :calendar.system_time_to_universal_time(ms, :millisecond)
+    "#{y}-#{m}-#{d}T#{h}:#{min}:#{s}Z"
+  end
 
   def static_now do
     {:builtin, "now", fn _, _this -> System.system_time(:millisecond) end}

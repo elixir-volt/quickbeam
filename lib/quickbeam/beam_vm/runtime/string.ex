@@ -1,88 +1,132 @@
 defmodule QuickBEAM.BeamVM.Runtime.String do
   @moduledoc "String.prototype methods."
 
+  use QuickBEAM.BeamVM.Builtin
+
   alias QuickBEAM.BeamVM.Runtime
   alias QuickBEAM.BeamVM.Runtime.RegExp
 
   # ── Dispatch ──
 
-  def proto_property("charAt"), do: {:builtin, "charAt", fn args, this -> char_at(this, args) end}
+  proto "charAt" do
+    char_at(this, args)
+  end
 
-  def proto_property("charCodeAt"),
-    do: {:builtin, "charCodeAt", fn args, this -> char_code_at(this, args) end}
+  proto "charCodeAt" do
+    char_code_at(this, args)
+  end
 
-  def proto_property("codePointAt"),
-    do: {:builtin, "codePointAt", fn args, this -> code_point_at(this, args) end}
+  proto "codePointAt" do
+    code_point_at(this, args)
+  end
 
-  def proto_property("indexOf"),
-    do: {:builtin, "indexOf", fn args, this -> index_of(this, args) end}
+  proto "indexOf" do
+    index_of(this, args)
+  end
 
-  def proto_property("lastIndexOf"),
-    do: {:builtin, "lastIndexOf", fn args, this -> last_index_of(this, args) end}
+  proto "lastIndexOf" do
+    last_index_of(this, args)
+  end
 
-  def proto_property("includes"),
-    do: {:builtin, "includes", fn args, this -> includes(this, args) end}
+  proto "includes" do
+    includes(this, args)
+  end
 
-  def proto_property("startsWith"),
-    do: {:builtin, "startsWith", fn args, this -> starts_with(this, args) end}
+  proto "startsWith" do
+    starts_with(this, args)
+  end
 
-  def proto_property("endsWith"),
-    do: {:builtin, "endsWith", fn args, this -> ends_with(this, args) end}
+  proto "endsWith" do
+    ends_with(this, args)
+  end
 
-  def proto_property("slice"), do: {:builtin, "slice", fn args, this -> slice(this, args) end}
+  proto "slice" do
+    slice(this, args)
+  end
 
-  def proto_property("substring"),
-    do: {:builtin, "substring", fn args, this -> substring(this, args) end}
+  proto "substring" do
+    substring(this, args)
+  end
 
-  def proto_property("substr"), do: {:builtin, "substr", fn args, this -> substr(this, args) end}
-  def proto_property("split"), do: {:builtin, "split", fn args, this -> split(this, args) end}
-  def proto_property("trim"), do: {:builtin, "trim", fn _args, this -> String.trim(this) end}
+  proto "substr" do
+    substr(this, args)
+  end
 
-  def proto_property("trimStart"),
-    do: {:builtin, "trimStart", fn _args, this -> String.trim_leading(this) end}
+  proto "split" do
+    split(this, args)
+  end
 
-  def proto_property("trimEnd"),
-    do: {:builtin, "trimEnd", fn _args, this -> String.trim_trailing(this) end}
+  proto "trim" do
+    String.trim(this)
+  end
 
-  def proto_property("toUpperCase"),
-    do: {:builtin, "toUpperCase", fn _args, this -> String.upcase(this) end}
+  proto "trimStart" do
+    String.trim_leading(this)
+  end
 
-  def proto_property("toLowerCase"),
-    do: {:builtin, "toLowerCase", fn _args, this -> String.downcase(this) end}
+  proto "trimEnd" do
+    String.trim_trailing(this)
+  end
 
-  def proto_property("repeat"),
-    do:
-      {:builtin, "repeat", fn args, this -> String.duplicate(this, Runtime.to_int(hd(args))) end}
+  proto "toUpperCase" do
+    String.upcase(this)
+  end
 
-  def proto_property("padStart"),
-    do: {:builtin, "padStart", fn args, this -> pad(this, args, :start) end}
+  proto "toLowerCase" do
+    String.downcase(this)
+  end
 
-  def proto_property("padEnd"),
-    do: {:builtin, "padEnd", fn args, this -> pad(this, args, :end) end}
+  proto "repeat" do
+    String.duplicate(this, Runtime.to_int(hd(args)))
+  end
 
-  def proto_property("replace"),
-    do: {:builtin, "replace", fn args, this -> replace(this, args) end}
+  proto "padStart" do
+    pad(this, args, :start)
+  end
 
-  def proto_property("replaceAll"),
-    do: {:builtin, "replaceAll", fn args, this -> replace_all(this, args) end}
+  proto "padEnd" do
+    pad(this, args, :end)
+  end
 
-  def proto_property("match"), do: {:builtin, "match", fn args, this -> match(this, args) end}
+  proto "replace" do
+    replace(this, args)
+  end
 
-  def proto_property("matchAll"),
-    do: {:builtin, "matchAll", fn args, this -> match_all(this, args) end}
+  proto "replaceAll" do
+    replace_all(this, args)
+  end
 
-  def proto_property("search"), do: {:builtin, "search", fn args, this -> search(this, args) end}
-  def proto_property("normalize"), do: {:builtin, "normalize", fn _args, this -> this end}
+  proto "match" do
+    match(this, args)
+  end
 
-  def proto_property("concat"),
-    do:
-      {:builtin, "concat",
-       fn args, this -> this <> Enum.join(Enum.map(args, &Runtime.js_to_string/1)) end}
+  proto "matchAll" do
+    match_all(this, args)
+  end
 
-  def proto_property("toString"), do: {:builtin, "toString", fn _args, this -> this end}
-  def proto_property("valueOf"), do: {:builtin, "valueOf", fn _args, this -> this end}
-  def proto_property("at"), do: {:builtin, "at", fn args, this -> string_at(this, args) end}
-  def proto_property(_), do: :undefined
+  proto "search" do
+    search(this, args)
+  end
+
+  proto "normalize" do
+    this
+  end
+
+  proto "concat" do
+    this <> Enum.join(Enum.map(args, &Runtime.js_to_string/1))
+  end
+
+  proto "toString" do
+    this
+  end
+
+  proto "valueOf" do
+    this
+  end
+
+  proto "at" do
+    string_at(this, args)
+  end
 
   # ── Implementations ──
 
@@ -344,46 +388,40 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
   # ── String static methods ──
 
-  def static_property("fromCharCode") do
-    {:builtin, "fromCharCode",
-     fn args, _this ->
-       Enum.map(args, fn n ->
-         cp = QuickBEAM.BeamVM.Runtime.to_int(n)
-         if cp >= 0 and cp <= 0x10FFFF, do: <<cp::utf8>>, else: ""
-       end)
-       |> Enum.join()
-     end}
+  static "fromCharCode" do
+    Enum.map(args, fn n ->
+      cp = Runtime.to_int(n)
+      if cp >= 0 and cp <= 0x10FFFF, do: <<cp::utf8>>, else: ""
+    end)
+    |> Enum.join()
   end
 
-  def static_property("raw") do
-    {:builtin, "raw",
-     fn [strings | subs] ->
-       map =
-         case strings do
-           {:obj, ref} -> QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
-           _ -> %{}
-         end
+  static "raw" do
+    [strings | subs] = args
 
-       raw_map =
-         case Map.get(map, "raw") do
-           {:obj, rref} -> QuickBEAM.BeamVM.Heap.get_obj(rref, %{})
-           _ -> map
-         end
+    map =
+      case strings do
+        {:obj, ref} -> QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
+        _ -> %{}
+      end
 
-       len = Map.get(raw_map, "length", 0)
+    raw_map =
+      case Map.get(map, "raw") do
+        {:obj, rref} -> QuickBEAM.BeamVM.Heap.get_obj(rref, %{})
+        _ -> map
+      end
 
-       Enum.reduce(0..(len - 1), "", fn i, acc ->
-         part = Map.get(raw_map, Integer.to_string(i), "")
+    len = Map.get(raw_map, "length", 0)
 
-         sub =
-           if i < length(subs),
-             do: QuickBEAM.BeamVM.Runtime.js_to_string(Enum.at(subs, i)),
-             else: ""
+    Enum.reduce(0..(len - 1), "", fn i, acc ->
+      part = Map.get(raw_map, Integer.to_string(i), "")
 
-         acc <> QuickBEAM.BeamVM.Runtime.js_to_string(part) <> sub
-       end)
-     end}
+      sub =
+        if i < length(subs),
+          do: Runtime.js_to_string(Enum.at(subs, i)),
+          else: ""
+
+      acc <> Runtime.js_to_string(part) <> sub
+    end)
   end
-
-  def static_property(_), do: :undefined
 end

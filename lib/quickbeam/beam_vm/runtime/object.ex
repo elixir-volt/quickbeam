@@ -1,42 +1,68 @@
 defmodule QuickBEAM.BeamVM.Runtime.Object do
-  import QuickBEAM.BeamVM.Heap.Keys
-  alias QuickBEAM.BeamVM.Heap
   @moduledoc "Object static methods."
 
+  use QuickBEAM.BeamVM.Builtin
+
+  import QuickBEAM.BeamVM.Heap.Keys
+  alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Runtime
 
-  def static_property("keys"), do: {:builtin, "keys", fn args, _this -> keys(args) end}
-  def static_property("values"), do: {:builtin, "values", fn args, _this -> values(args) end}
-  def static_property("entries"), do: {:builtin, "entries", fn args, _this -> entries(args) end}
-  def static_property("assign"), do: {:builtin, "assign", fn args, _this -> assign(args) end}
-  def static_property("freeze"), do: {:builtin, "freeze", fn [obj | _], _this -> freeze(obj) end}
-  def static_property("is"), do: {:builtin, "is", fn [a, b | _], _this -> js_is(a, b) end}
-  def static_property("create"), do: {:builtin, "create", fn args, _this -> create(args) end}
+  static "keys" do
+    keys(args)
+  end
 
-  def static_property("getPrototypeOf"),
-    do: {:builtin, "getPrototypeOf", fn args, _this -> get_prototype_of(args) end}
+  static "values" do
+    values(args)
+  end
 
-  def static_property("defineProperty"),
-    do: {:builtin, "defineProperty", fn args, _this -> define_property(args) end}
+  static "entries" do
+    entries(args)
+  end
 
-  def static_property("getOwnPropertyNames"),
-    do: {:builtin, "getOwnPropertyNames", fn args, _this -> get_own_property_names(args) end}
+  static "assign" do
+    assign(args)
+  end
 
-  def static_property("getOwnPropertyDescriptor"),
-    do:
-      {:builtin, "getOwnPropertyDescriptor",
-       fn args, _this -> get_own_property_descriptor(args) end}
+  static "freeze" do
+    freeze(hd(args))
+  end
 
-  def static_property("fromEntries"),
-    do: {:builtin, "fromEntries", fn args, _this -> from_entries(args) end}
+  static "is" do
+    [a, b | _] = args
+    js_is(a, b)
+  end
 
-  def static_property("hasOwn"),
-    do: {:builtin, "hasOwn", fn args, _this -> has_own(args) end}
+  static "create" do
+    create(args)
+  end
 
-  def static_property("setPrototypeOf"),
-    do: {:builtin, "setPrototypeOf", fn args, _this -> set_prototype_of(args) end}
+  static "getPrototypeOf" do
+    get_prototype_of(args)
+  end
 
-  def static_property(_), do: :undefined
+  static "defineProperty" do
+    define_property(args)
+  end
+
+  static "getOwnPropertyNames" do
+    get_own_property_names(args)
+  end
+
+  static "getOwnPropertyDescriptor" do
+    get_own_property_descriptor(args)
+  end
+
+  static "fromEntries" do
+    from_entries(args)
+  end
+
+  static "hasOwn" do
+    has_own(args)
+  end
+
+  static "setPrototypeOf" do
+    set_prototype_of(args)
+  end
 
   defp from_entries([{:obj, ref} | _]) do
     entries =
@@ -124,7 +150,6 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   defp keys([{:obj, ref} | _]) do
     data = Heap.get_obj(ref, %{})
 
-    # Arrays are stored as lists
     if is_list(data) do
       keys = Enum.with_index(data) |> Enum.map(fn {_, i} -> Integer.to_string(i) end)
       Heap.wrap(keys)

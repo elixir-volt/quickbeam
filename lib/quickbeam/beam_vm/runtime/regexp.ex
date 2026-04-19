@@ -1,13 +1,21 @@
 defmodule QuickBEAM.BeamVM.Runtime.RegExp do
+  @moduledoc false
+
+  use QuickBEAM.BeamVM.Builtin
+
   alias QuickBEAM.BeamVM.Heap
 
-  def proto_property("test"), do: {:builtin, "test", fn args, this -> test(this, args) end}
-  def proto_property("exec"), do: {:builtin, "exec", fn args, this -> exec(this, args) end}
+  proto "test" do
+    test(this, args)
+  end
 
-  def proto_property("toString"),
-    do: {:builtin, "toString", fn _args, this -> regexp_to_string(this) end}
+  proto "exec" do
+    exec(this, args)
+  end
 
-  def proto_property(_), do: :undefined
+  proto "toString" do
+    regexp_to_string(this)
+  end
 
   def nif_exec(bytecode, str, last_index) when is_binary(bytecode) and is_binary(str) do
     raw_bc = utf8_to_latin1(bytecode)

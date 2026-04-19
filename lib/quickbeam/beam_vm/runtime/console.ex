@@ -1,50 +1,34 @@
 defmodule QuickBEAM.BeamVM.Runtime.Console do
   @moduledoc false
 
-  alias QuickBEAM.BeamVM.Heap
+  use QuickBEAM.BeamVM.Builtin
 
-  # ── Console ──
+  alias QuickBEAM.BeamVM.Runtime
 
-  def object do
-    ref = make_ref()
+  js_object "console" do
+    method "log" do
+      IO.puts(args |> Enum.map(&Runtime.js_to_string/1) |> Enum.join(" "))
+      :undefined
+    end
 
-    Heap.put_obj(ref, %{
-      "log" =>
-        {:builtin, "log",
-         fn args, _this ->
-           IO.puts(Enum.map(args, &QuickBEAM.BeamVM.Runtime.js_to_string/1) |> Enum.join(" "))
-           :undefined
-         end},
-      "warn" =>
-        {:builtin, "warn",
-         fn args, _this ->
-           IO.warn(Enum.map(args, &QuickBEAM.BeamVM.Runtime.js_to_string/1) |> Enum.join(" "))
-           :undefined
-         end},
-      "error" =>
-        {:builtin, "error",
-         fn args, _this ->
-           IO.puts(
-             :stderr,
-             Enum.map(args, &QuickBEAM.BeamVM.Runtime.js_to_string/1) |> Enum.join(" ")
-           )
+    method "warn" do
+      IO.warn(args |> Enum.map(&Runtime.js_to_string/1) |> Enum.join(" "))
+      :undefined
+    end
 
-           :undefined
-         end},
-      "info" =>
-        {:builtin, "info",
-         fn args, _this ->
-           IO.puts(Enum.map(args, &QuickBEAM.BeamVM.Runtime.js_to_string/1) |> Enum.join(" "))
-           :undefined
-         end},
-      "debug" =>
-        {:builtin, "debug",
-         fn args, _this ->
-           IO.puts(Enum.map(args, &QuickBEAM.BeamVM.Runtime.js_to_string/1) |> Enum.join(" "))
-           :undefined
-         end}
-    })
+    method "error" do
+      IO.puts(:stderr, args |> Enum.map(&Runtime.js_to_string/1) |> Enum.join(" "))
+      :undefined
+    end
 
-    {:obj, ref}
+    method "info" do
+      IO.puts(args |> Enum.map(&Runtime.js_to_string/1) |> Enum.join(" "))
+      :undefined
+    end
+
+    method "debug" do
+      IO.puts(args |> Enum.map(&Runtime.js_to_string/1) |> Enum.join(" "))
+      :undefined
+    end
   end
 end

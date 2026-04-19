@@ -1,111 +1,158 @@
 defmodule QuickBEAM.BeamVM.Runtime.Array do
-  alias QuickBEAM.BeamVM.Heap
   @moduledoc "Array.prototype and Array static methods."
 
+  use QuickBEAM.BeamVM.Builtin
+
+  alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Runtime
 
   # ── Array.prototype dispatch ──
 
-  def proto_property("push"), do: {:builtin, "push", fn args, this -> push(this, args) end}
-  def proto_property("pop"), do: {:builtin, "pop", fn args, this -> pop(this, args) end}
-  def proto_property("shift"), do: {:builtin, "shift", fn args, this -> shift(this, args) end}
+  proto "push" do
+    push(this, args)
+  end
 
-  def proto_property("unshift"),
-    do: {:builtin, "unshift", fn args, this -> unshift(this, args) end}
+  proto "pop" do
+    pop(this, args)
+  end
 
-  def proto_property("map"),
-    do: {:builtin, "map", fn args, this -> map(this, args, :no_interp) end}
+  proto "shift" do
+    shift(this, args)
+  end
 
-  def proto_property("filter"),
-    do: {:builtin, "filter", fn args, this -> filter(this, args, :no_interp) end}
+  proto "unshift" do
+    unshift(this, args)
+  end
 
-  def proto_property("reduce"),
-    do: {:builtin, "reduce", fn args, this -> reduce(this, args, :no_interp) end}
+  proto "map" do
+    map(this, args, :no_interp)
+  end
 
-  def proto_property("forEach"),
-    do: {:builtin, "forEach", fn args, this -> for_each(this, args, :no_interp) end}
+  proto "filter" do
+    filter(this, args, :no_interp)
+  end
 
-  def proto_property("indexOf"),
-    do: {:builtin, "indexOf", fn args, this -> index_of(this, args) end}
+  proto "reduce" do
+    reduce(this, args, :no_interp)
+  end
 
-  def proto_property("lastIndexOf"),
-    do: {:builtin, "lastIndexOf", fn args, this -> last_index_of(this, args) end}
+  proto "forEach" do
+    for_each(this, args, :no_interp)
+  end
 
-  def proto_property("toString"),
-    do: {:builtin, "toString", fn _args, this -> join(this, [","]) end}
+  proto "indexOf" do
+    index_of(this, args)
+  end
 
-  def proto_property("includes"),
-    do: {:builtin, "includes", fn args, this -> includes(this, args) end}
+  proto "lastIndexOf" do
+    last_index_of(this, args)
+  end
 
-  def proto_property("slice"), do: {:builtin, "slice", fn args, this -> slice(this, args) end}
-  def proto_property("splice"), do: {:builtin, "splice", fn args, this -> splice(this, args) end}
-  def proto_property("join"), do: {:builtin, "join", fn args, this -> join(this, args) end}
-  def proto_property("concat"), do: {:builtin, "concat", fn args, this -> concat(this, args) end}
+  proto "toString" do
+    join(this, [","])
+  end
 
-  def proto_property("reverse"),
-    do: {:builtin, "reverse", fn args, this -> reverse(this, args) end}
+  proto "includes" do
+    includes(this, args)
+  end
 
-  def proto_property("sort"), do: {:builtin, "sort", fn args, this -> sort(this, args) end}
-  def proto_property("flat"), do: {:builtin, "flat", fn args, this -> flat(this, args) end}
+  proto "slice" do
+    slice(this, args)
+  end
 
-  def proto_property("find"),
-    do: {:builtin, "find", fn args, this -> find(this, args, :no_interp) end}
+  proto "splice" do
+    splice(this, args)
+  end
 
-  def proto_property("findIndex"),
-    do: {:builtin, "findIndex", fn args, this -> find_index(this, args, :no_interp) end}
+  proto "join" do
+    join(this, args)
+  end
 
-  def proto_property("every"),
-    do: {:builtin, "every", fn args, this -> every(this, args, :no_interp) end}
+  proto "concat" do
+    concat(this, args)
+  end
 
-  def proto_property("some"),
-    do: {:builtin, "some", fn args, this -> some(this, args, :no_interp) end}
+  proto "reverse" do
+    reverse(this, args)
+  end
 
-  def proto_property("flatMap"),
-    do: {:builtin, "flatMap", fn args, this -> flat_map(this, args, :no_interp) end}
+  proto "sort" do
+    sort(this, args)
+  end
 
-  def proto_property("fill"), do: {:builtin, "fill", fn args, this -> fill(this, args) end}
+  proto "flat" do
+    flat(this, args)
+  end
 
-  def proto_property("copyWithin"),
-    do: {:builtin, "copyWithin", fn args, this -> copy_within(this, args) end}
+  proto "find" do
+    find(this, args, :no_interp)
+  end
 
-  def proto_property("at"), do: {:builtin, "at", fn args, this -> array_at(this, args) end}
+  proto "findIndex" do
+    find_index(this, args, :no_interp)
+  end
 
-  def proto_property("findLast"),
-    do: {:builtin, "findLast", fn args, this -> find_last(this, args, :no_interp) end}
+  proto "every" do
+    every(this, args, :no_interp)
+  end
 
-  def proto_property("findLastIndex"),
-    do: {:builtin, "findLastIndex", fn args, this -> find_last_index(this, args, :no_interp) end}
+  proto "some" do
+    some(this, args, :no_interp)
+  end
 
-  def proto_property("toReversed"),
-    do: {:builtin, "toReversed", fn _args, this -> to_reversed(this) end}
+  proto "flatMap" do
+    flat_map(this, args, :no_interp)
+  end
 
-  def proto_property("toSorted"),
-    do: {:builtin, "toSorted", fn _args, this -> to_sorted(this) end}
+  proto "fill" do
+    fill(this, args)
+  end
+
+  proto "copyWithin" do
+    copy_within(this, args)
+  end
+
+  proto "at" do
+    array_at(this, args)
+  end
+
+  proto "findLast" do
+    find_last(this, args, :no_interp)
+  end
+
+  proto "findLastIndex" do
+    find_last_index(this, args, :no_interp)
+  end
+
+  proto "toReversed" do
+    to_reversed(this)
+  end
+
+  proto "toSorted" do
+    to_sorted(this)
+  end
 
   def proto_property("constructor") do
     QuickBEAM.BeamVM.Runtime.global_bindings() |> Map.get("Array", :undefined)
   end
 
-  def proto_property(_), do: :undefined
-
   # ── Array static dispatch ──
 
-  def static_property("isArray") do
-    {:builtin, "isArray",
-     fn [val | _], _this ->
-       case val do
-         list when is_list(list) -> true
-         {:obj, ref} -> is_list(Heap.get_obj(ref))
-         _ -> false
-       end
-     end}
+  static "isArray" do
+    case hd(args) do
+      list when is_list(list) -> true
+      {:obj, ref} -> is_list(Heap.get_obj(ref))
+      _ -> false
+    end
   end
 
-  def static_property("from"),
-    do: {:builtin, "from", fn args, _this -> from(args, :no_interp) end}
+  static "from" do
+    from(args, :no_interp)
+  end
 
-  def static_property("of"), do: {:builtin, "of", fn args, _this -> args end}
-  def static_property(_), do: :undefined
+  static "of" do
+    args
+  end
 
   # ── Mutation helpers ──
 
