@@ -3,17 +3,16 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
 
   use QuickBEAM.BeamVM.Builtin
 
-  alias QuickBEAM.BeamVM.Interpreter.Values
   alias QuickBEAM.BeamVM.Runtime
 
   # ── Number.prototype ──
 
   proto "toString" do
-    number_to_string(this, args)
+    to_string_with_radix(this, args)
   end
 
   proto "toFixed" do
-    number_to_fixed(this, args)
+    to_fixed(this, args)
   end
 
   proto "valueOf" do
@@ -21,11 +20,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
   end
 
   proto "toExponential" do
-    number_to_exponential(this, args)
+    to_exponential(this, args)
   end
 
   proto "toPrecision" do
-    number_to_precision(this, args)
+    to_precision(this, args)
   end
 
   # ── Number static ──
@@ -35,7 +34,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
   end
 
   static "isFinite" do
-    hd(args) not in [:nan, :infinity, :neg_infinity]
+    is_number(hd(args))
   end
 
   static "isInteger" do
@@ -58,14 +57,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
   static_val("EPSILON", 2.220446049250313e-16)
   static_val("MIN_VALUE", 5.0e-324)
 
-  # ── Formatting implementations ──
+  # ── toString(radix) ──
 
-  defp number_to_string(n, [radix | _]) when is_number(n) do
+  defp to_string_with_radix(n, [radix | _]) when is_number(n) do
     r = Runtime.to_int(radix)
 
     cond do
       r == 10 ->
-        Values.stringify(n * 1.0)
+        Runtime.stringify(n)
 
       r >= 2 and r <= 36 and n == trunc(n) ->
         Integer.to_string(trunc(n), r) |> String.downcase()
@@ -78,102 +77,109 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
     end
   end
 
-  defp number_to_string(n, _), do: Runtime.stringify(n)
+  defp to_string_with_radix(n, _), do: Runtime.stringify(n)
 
   defp float_to_radix(n, radix) do
-    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
     {sign, n} = if n < 0, do: {"-", -n}, else: {"", n}
     int_part = trunc(n)
     frac_part = n - int_part
 
-    int_str = if int_part == 0, do: "0", else: integer_to_radix(int_part, radix, digits, "")
+    int_str =
+      if int_part == 0, do: "0", else: Integer.to_string(int_part, radix) |> String.downcase()
 
-    frac_str =
-      if frac_part == 0.0 do
-        ""
-      else
-        build_frac(frac_part, radix, digits, "", 0)
-      end
-
-    if frac_str == "", do: sign <> int_str, else: sign <> int_str <> "." <> frac_str
+    if frac_part == 0.0 do
+      sign <> int_str
+    else
+      sign <> int_str <> "." <> frac_digits(frac_part, radix, 20)
+    end
   end
 
-  defp integer_to_radix(0, _radix, _digits, acc), do: acc
+  defp frac_digits(_frac, _radix, 0), do: ""
 
-  defp integer_to_radix(n, radix, digits, acc) do
-    integer_to_radix(
-      div(n, radix),
-      radix,
-      digits,
-      <<String.at(digits, rem(n, radix))::binary, acc::binary>>
-    )
-  end
-
-  defp build_frac(_frac, _radix, _digits, acc, count) when count >= 20, do: acc
-
-  defp build_frac(frac, radix, digits, acc, count) do
+  defp frac_digits(frac, radix, remaining) do
     prod = frac * radix
     digit = trunc(prod)
     rest = prod - digit
-    new_acc = acc <> String.at(digits, digit)
+    char = String.at("0123456789abcdefghijklmnopqrstuvwxyz", digit)
 
-    if rest == 0.0 or count >= 19,
-      do: new_acc,
-      else: build_frac(rest, radix, digits, new_acc, count + 1)
+    if rest == 0.0, do: char, else: char <> frac_digits(rest, radix, remaining - 1)
   end
 
-  defp number_to_fixed(:nan, _), do: "NaN"
-  defp number_to_fixed(:infinity, _), do: "Infinity"
-  defp number_to_fixed(:neg_infinity, _), do: "-Infinity"
+  # ── toFixed(digits) ──
 
-  defp number_to_fixed(n, [digits | _]) when is_number(n) do
-    d = max(0, Runtime.to_int(digits))
-    s = :erlang.float_to_binary(n * 1.0, decimals: d)
+  defp to_fixed(:nan, _), do: "NaN"
+  defp to_fixed(:infinity, _), do: "Infinity"
+  defp to_fixed(:neg_infinity, _), do: "-Infinity"
 
-    if d > 0 do
-      s
+  defp to_fixed(n, [digits | _]) when is_number(n) do
+    :erlang.float_to_binary(n * 1.0, decimals: max(0, Runtime.to_int(digits)))
+  end
+
+  defp to_fixed(n, _), do: Runtime.stringify(n)
+
+  # ── toExponential(digits) ──
+
+  defp to_exponential(n, [digits | _]) when is_number(n) do
+    :erlang.float_to_binary(n * 1.0, [{:scientific, Runtime.to_int(digits)}])
+    |> strip_exponent_zeros()
+  end
+
+  defp to_exponential(n, _), do: Runtime.stringify(n)
+
+  defp strip_exponent_zeros(s) do
+    String.replace(s, ~r/e([+-])0*(\d+)/, "e\\1\\2")
+  end
+
+  # ── toPrecision(precision) ──
+
+  defp to_precision(n, [prec | _]) when is_number(n) do
+    p = max(1, Runtime.to_int(prec))
+    f = n * 1.0
+
+    if f == 0.0 do
+      zero_precision(n < 0, p)
     else
-      String.trim_trailing(s, ".0")
+      format_precision(f, p)
     end
   end
 
-  defp number_to_fixed(n, _), do: Runtime.stringify(n)
+  defp to_precision(n, _), do: Runtime.stringify(n)
 
-  defp number_to_exponential(n, [digits | _]) when is_number(n) do
-    d = Runtime.to_int(digits)
-    f = n * 1.0
-    exp = if f == 0.0, do: 0, else: trunc(:math.floor(:math.log10(abs(f))))
-    mantissa = f / :math.pow(10, exp)
-    sign = if exp >= 0, do: "+", else: ""
-    :erlang.float_to_binary(mantissa, decimals: d) <> "e" <> sign <> Integer.to_string(exp)
+  defp zero_precision(negative?, p) do
+    prefix = if negative?, do: "-", else: ""
+    prefix <> "0" <> if(p > 1, do: "." <> String.duplicate("0", p - 1), else: "")
   end
 
-  defp number_to_exponential(n, _), do: Runtime.stringify(n)
+  defp format_precision(f, p) do
+    sci = :erlang.float_to_binary(abs(f), [{:scientific, p - 1}])
 
-  defp number_to_precision(n, [prec | _]) when is_number(n) do
-    p = max(1, Runtime.to_int(prec))
-    s = :erlang.float_to_binary(n * 1.0, [{:decimals, p + 10}, :compact])
+    case String.split(sci, "e") do
+      [mantissa, exp_str] ->
+        exp = String.to_integer(exp_str)
+        sign = if f < 0, do: "-", else: ""
 
-    {sign, abs_s} =
-      if String.starts_with?(s, "-"), do: {"-", String.trim_leading(s, "-")}, else: {"", s}
-
-    case Float.parse(abs_s) do
-      {f, _} ->
-        if f == 0.0 do
-          sign <> "0" <> if(p > 1, do: "." <> String.duplicate("0", p - 1), else: "")
+        if exp >= 0 and exp < p do
+          sign <> shift_decimal(mantissa, exp)
         else
-          exp = :math.floor(:math.log10(abs(f)))
-          rounded = Float.round(f / :math.pow(10, exp - p + 1)) * :math.pow(10, exp - p + 1)
-
-          Values.stringify(
-            if sign == "-", do: -rounded, else: rounded
-          )
+          sign <> mantissa <> "e" <> format_exponent(exp)
         end
 
       _ ->
-        Runtime.stringify(n)
+        Runtime.stringify(f)
     end
   end
 
-  defp number_to_precision(n, _), do: Runtime.stringify(n)
+  defp shift_decimal(mantissa, exp) do
+    digits = String.replace(mantissa, ".", "")
+    point = exp + 1
+
+    if point >= String.length(digits) do
+      digits
+    else
+      String.slice(digits, 0, point) <> "." <> String.slice(digits, point..-1//1)
+    end
+  end
+
+  defp format_exponent(exp) when exp >= 0, do: "+" <> Integer.to_string(exp)
+  defp format_exponent(exp), do: Integer.to_string(exp)
 end
