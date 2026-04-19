@@ -160,11 +160,11 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
 
          if state.pos >= length(list) do
            Heap.put_obj(pos_ref, %{state | pos: state.pos + 1})
-           Heap.iter_result(:undefined, true)
+           Heap.wrap(%{"value" => :undefined, "done" => true})
          else
            val = Enum.at(list, state.pos)
            Heap.put_obj(pos_ref, %{state | pos: state.pos + 1})
-           Heap.iter_result(val, false)
+           Heap.wrap(%{"value" => val, "done" => false})
          end
        end}
 

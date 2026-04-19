@@ -1,4 +1,21 @@
 defmodule QuickBEAM.BeamVM.Heap do
+  @moduledoc """
+  Mutable heap storage for JS runtime values.
+
+  All heap access goes through this module — callers never touch
+  the process dictionary directly. Current implementation uses the
+  process dictionary for single-process performance; the backing
+  store can be swapped to ETS for concurrent access.
+
+  ## Storage keys
+
+    - `{:qb_obj, ref}` — JS object/array properties
+    - `{:qb_cell, ref}` — closure variable cells
+    - `{:qb_class_proto, hash}` — class prototype objects
+    - `{:qb_parent_ctor, hash}` — parent constructor references
+    - `{:qb_var, name}` — global variable bindings
+  """
+
   import QuickBEAM.BeamVM.Heap.Keys
 
   @compile {:inline,
@@ -24,26 +41,10 @@ defmodule QuickBEAM.BeamVM.Heap do
             get_ctor_statics: 1,
             wrap: 1,
             to_list: 1,
-            iter_result: 2,
             make_error: 2,
             get_object_prototype: 0,
             get_atoms: 0,
             get_persistent_globals: 0}
-  @moduledoc """
-  Mutable heap storage for JS runtime values.
-
-  All heap access goes through this module — callers never touch
-  the process dictionary directly. Current implementation uses the
-  process dictionary for single-process performance; the backing
-  store can be swapped to ETS for concurrent access.
-
-  ## Storage keys
-    - `{:qb_obj, ref}` — JS object/array properties
-    - `{:qb_cell, ref}` — closure variable cells
-    - `{:qb_class_proto, hash}` — class prototype objects
-    - `{:qb_parent_ctor, hash}` — parent constructor references
-    - `{:qb_var, name}` — global variable bindings
-  """
 
   # ── Convenience constructors ──
 
@@ -73,74 +74,49 @@ defmodule QuickBEAM.BeamVM.Heap do
   def to_list(list) when is_list(list), do: list
   def to_list(_), do: []
 
-  def iter_result(val, done), do: wrap(%{"value" => val, "done" => done})
-
   def make_error(message, name) do
-    base = %{"message" => message, "name" => name, "stack" => ""}
-
-    # Try to find the error constructor's prototype for instanceof chain
-    error_ctor =
-      case get_global_cache() do
-        nil ->
-          case get_ctx() do
-            %{globals: globals} -> Map.get(globals, name)
-            _ -> nil
-          end
-
-        cache ->
-          Map.get(cache, name)
+    proto =
+      case find_error_proto(name) do
+        nil -> nil
+        ctor -> get_class_proto(ctor)
       end
 
-    proto = if error_ctor, do: get_class_proto(error_ctor), else: nil
+    base = %{"message" => message, "name" => name, "stack" => ""}
+    if proto, do: wrap(Map.put(base, "__proto__", proto)), else: wrap(base)
+  end
 
-    if proto do
-      wrap(Map.put(base, "__proto__", proto))
-    else
-      wrap(base)
+  defp find_error_proto(name) do
+    case get_global_cache() do
+      nil ->
+        case get_ctx() do
+          %{globals: globals} -> Map.get(globals, name)
+          _ -> nil
+        end
+
+      cache ->
+        Map.get(cache, name)
     end
   end
 
   def get_or_create_prototype(ctor) do
-    class_proto = get_class_proto(ctor)
+    case get_class_proto(ctor) do
+      nil ->
+        key = {:qb_func_proto, :erlang.phash2(ctor)}
 
-    if class_proto do
-      class_proto
-    else
-      key = {:qb_func_proto, :erlang.phash2(ctor)}
+        case Process.get(key) do
+          nil ->
+            proto = wrap(%{"constructor" => ctor})
+            Process.put(key, proto)
+            proto
 
-      case Process.get(key) do
-        nil ->
-          proto_ref = make_ref()
-          put_obj(proto_ref, %{"constructor" => ctor})
-          proto = {:obj, proto_ref}
-          Process.put(key, proto)
-          proto
+          existing ->
+            existing
+        end
 
-        existing ->
-          existing
-      end
+      proto ->
+        proto
     end
   end
-
-  # ── Singleton PD accessors ──
-
-  def get_object_prototype, do: Process.get(:qb_object_prototype)
-  def put_object_prototype(proto), do: Process.put(:qb_object_prototype, proto)
-
-  def get_global_cache, do: Process.get(:qb_global_bindings_cache)
-  def put_global_cache(bindings), do: Process.put(:qb_global_bindings_cache, bindings)
-
-  def get_atoms, do: Process.get(:qb_atoms, {})
-  def put_atoms(atoms), do: Process.put(:qb_atoms, atoms)
-
-  def get_persistent_globals, do: Process.get(:qb_persistent_globals, %{})
-  def put_persistent_globals(globals), do: Process.put(:qb_persistent_globals, globals)
-
-  def get_handler_globals, do: Process.get(:qb_handler_globals)
-  def put_handler_globals(globals), do: Process.put(:qb_handler_globals, globals)
-
-  def get_runtime_mode(runtime), do: Process.get({:qb_runtime_mode, runtime})
-  def put_runtime_mode(runtime, mode), do: Process.put({:qb_runtime_mode, runtime}, mode)
 
   # ── Objects ──
 
@@ -159,7 +135,6 @@ defmodule QuickBEAM.BeamVM.Heap do
       new_map =
         if not Map.has_key?(map, key) and (is_binary(key) or is_integer(key)) do
           order = Map.get(map, key_order(), [])
-
           Map.put(Map.put(map, key, val), key_order(), [key | order])
         else
           Map.put(map, key, val)
@@ -217,7 +192,7 @@ defmodule QuickBEAM.BeamVM.Heap do
   def put_var(name, val), do: Process.put({:qb_var, name}, val)
   def delete_var(name), do: Process.delete({:qb_var, name})
 
-  # ── Active interpreter context ──
+  # ── Interpreter context ──
 
   def get_ctx, do: Process.get(:qb_ctx)
   def put_ctx(ctx), do: Process.put(:qb_ctx, ctx)
@@ -237,95 +212,25 @@ defmodule QuickBEAM.BeamVM.Heap do
   def get_prop_desc(ref, key), do: Process.get({:qb_prop_desc, ref, key})
   def put_prop_desc(ref, key, desc), do: Process.put({:qb_prop_desc, ref, key}, desc)
 
-  # ── GC: pressure-triggered mark-sweep ──
+  # ── Singleton state ──
 
-  @gc_initial_threshold 5_000
+  def get_object_prototype, do: Process.get(:qb_object_prototype)
+  def put_object_prototype(proto), do: Process.put(:qb_object_prototype, proto)
 
-  defp track_alloc do
-    count = Process.get(:qb_alloc_count, 0) + 1
-    Process.put(:qb_alloc_count, count)
-    threshold = Process.get(:qb_gc_threshold, @gc_initial_threshold)
+  def get_global_cache, do: Process.get(:qb_global_bindings_cache)
+  def put_global_cache(bindings), do: Process.put(:qb_global_bindings_cache, bindings)
 
-    if count >= threshold do
-      # Signal that GC is needed — actual collection happens at a safe point
-      Process.put(:qb_gc_needed, true)
-    end
-  end
+  def get_atoms, do: Process.get(:qb_atoms, {})
+  def put_atoms(atoms), do: Process.put(:qb_atoms, atoms)
 
-  def gc_needed?, do: Process.get(:qb_gc_needed, false)
+  def get_persistent_globals, do: Process.get(:qb_persistent_globals, %{})
+  def put_persistent_globals(globals), do: Process.put(:qb_persistent_globals, globals)
 
-  def mark_and_sweep(roots) do
-    marked = mark(roots, MapSet.new())
-    sweep(marked)
-    live_count = MapSet.size(marked)
-    Process.put(:qb_alloc_count, live_count)
-    Process.put(:qb_gc_threshold, live_count + max(live_count, @gc_initial_threshold))
-    Process.delete(:qb_gc_needed)
-  end
+  def get_handler_globals, do: Process.get(:qb_handler_globals)
+  def put_handler_globals(globals), do: Process.put(:qb_handler_globals, globals)
 
-  defp mark([], visited), do: visited
-
-  defp mark([{:obj, ref} | rest], visited) do
-    key = {:qb_obj, ref}
-
-    if MapSet.member?(visited, key) do
-      mark(rest, visited)
-    else
-      visited = MapSet.put(visited, key)
-
-      case Process.get(key) do
-        map when is_map(map) ->
-          children = Map.values(map) ++ Map.keys(map)
-          mark(children ++ rest, visited)
-
-        list when is_list(list) ->
-          mark(list ++ rest, visited)
-
-        _ ->
-          mark(rest, visited)
-      end
-    end
-  end
-
-  defp mark([{:cell, ref} | rest], visited) do
-    key = {:qb_cell, ref}
-
-    if MapSet.member?(visited, key) do
-      mark(rest, visited)
-    else
-      visited = MapSet.put(visited, key)
-      val = Process.get(key, :undefined)
-      mark([val | rest], visited)
-    end
-  end
-
-  defp mark([{:closure, captured, _fun} | rest], visited) do
-    cells = Map.values(captured)
-    mark(cells ++ rest, visited)
-  end
-
-  defp mark([tuple | rest], visited) when is_tuple(tuple) do
-    mark(Tuple.to_list(tuple) ++ rest, visited)
-  end
-
-  defp mark([list | rest], visited) when is_list(list) do
-    mark(list ++ rest, visited)
-  end
-
-  defp mark([%{} = map | rest], visited) do
-    mark(Map.values(map) ++ rest, visited)
-  end
-
-  defp mark([_ | rest], visited), do: mark(rest, visited)
-
-  defp sweep(marked) do
-    Process.get_keys()
-    |> Enum.each(fn
-      {:qb_obj, _} = k -> unless MapSet.member?(marked, k), do: Process.delete(k)
-      {:qb_cell, _} = k -> unless MapSet.member?(marked, k), do: Process.delete(k)
-      _ -> :ok
-    end)
-  end
+  def get_runtime_mode(runtime), do: Process.get({:qb_runtime_mode, runtime})
+  def put_runtime_mode(runtime, mode), do: Process.put({:qb_runtime_mode, runtime}, mode)
 
   # ── Microtask queue ──
 
@@ -347,66 +252,132 @@ defmodule QuickBEAM.BeamVM.Heap do
     end
   end
 
-
-  # ── Module registry ──
-
-  def register_module(name, exports) do
-    Process.put({:qb_module, name}, exports)
-    existing = Process.get(:qb_module_list, [])
-
-    unless name in existing do
-      Process.put(:qb_module_list, [name | existing])
-    end
-  end
-
-  def all_module_exports do
-    Process.get(:qb_module_list, [])
-    |> Enum.map(fn name -> Process.get({:qb_module, name}) end)
-    |> Enum.reject(&is_nil/1)
-  end
-
-  def get_module(name) do
-    Process.get({:qb_module, name})
-  end
-
-  # ── GC ──
-
-  @doc "Delete all heap data. Call between independent eval() invocations to free memory."
-  def gc do
-    module_roots = all_module_exports()
-    persistent_roots = Process.get(:qb_persistent_globals, %{}) |> Map.values()
-    all_roots = module_roots ++ persistent_roots
-
-    marked = if all_roots == [], do: nil, else: mark(all_roots, MapSet.new())
-    sweep_keys(marked)
-  end
-
-  defp sweep_keys(marked) do
-    Process.get_keys()
-    |> Enum.each(fn
-      {:qb_obj, _} = k -> sweep_key(k, marked)
-      {:qb_cell, _} = k -> sweep_key(k, marked)
-      # {:qb_class_proto, _}, {:qb_parent_ctor, _}, {:qb_ctor_statics, _}
-      # are preserved across GC — they're set during global initialization
-      {:qb_prop_desc, _, _} = k -> Process.delete(k)
-      {:qb_frozen, _} = k -> Process.delete(k)
-      {:qb_var, _} = k -> Process.delete(k)
-      {:qb_key_order, _} = k -> Process.delete(k)
-      _ -> :ok
-    end)
-  end
-
-  defp sweep_key(key, nil), do: Process.delete(key)
-  defp sweep_key(key, marked), do: unless(MapSet.member?(marked, key), do: Process.delete(key))
-
   # ── Promise waiters ──
 
   def get_promise_waiters(ref), do: Process.get({:qb_promise_waiters, ref}, [])
   def put_promise_waiters(ref, waiters), do: Process.put({:qb_promise_waiters, ref}, waiters)
   def delete_promise_waiters(ref), do: Process.delete({:qb_promise_waiters, ref})
 
+  # ── Module registry ──
+
+  def register_module(name, exports) do
+    Process.put({:qb_module, name}, exports)
+    existing = Process.get(:qb_module_list, [])
+    unless name in existing, do: Process.put(:qb_module_list, [name | existing])
+  end
+
+  def get_module(name), do: Process.get({:qb_module, name})
+
+  def all_module_exports do
+    Process.get(:qb_module_list, [])
+    |> Enum.map(&Process.get({:qb_module, &1}))
+    |> Enum.reject(&is_nil/1)
+  end
+
   # ── Symbol registry ──
 
   def get_symbol(key), do: Process.get({:qb_symbol_registry, key})
   def put_symbol(key, sym), do: Process.put({:qb_symbol_registry, key}, sym)
+
+  # ── Garbage collection ──
+
+  @gc_initial_threshold 5_000
+
+  defp track_alloc do
+    count = Process.get(:qb_alloc_count, 0) + 1
+    Process.put(:qb_alloc_count, count)
+
+    if count >= Process.get(:qb_gc_threshold, @gc_initial_threshold) do
+      Process.put(:qb_gc_needed, true)
+    end
+  end
+
+  def gc_needed?, do: Process.get(:qb_gc_needed, false)
+
+  def mark_and_sweep(roots) do
+    marked = mark(roots, MapSet.new())
+    sweep_heap(marked)
+    live_count = MapSet.size(marked)
+    Process.put(:qb_alloc_count, live_count)
+    Process.put(:qb_gc_threshold, live_count + max(live_count, @gc_initial_threshold))
+    Process.delete(:qb_gc_needed)
+  end
+
+  @doc "Full GC between independent eval() invocations."
+  def gc do
+    module_roots = all_module_exports()
+    persistent_roots = get_persistent_globals() |> Map.values()
+    all_roots = module_roots ++ persistent_roots
+
+    marked = if all_roots == [], do: nil, else: mark(all_roots, MapSet.new())
+    sweep_all(marked)
+  end
+
+  # ── Mark phase ──
+
+  defp mark([], visited), do: visited
+
+  defp mark([{:obj, ref} | rest], visited) do
+    mark_ref({:qb_obj, ref}, rest, visited, fn
+      map when is_map(map) -> Map.values(map) ++ Map.keys(map)
+      list when is_list(list) -> list
+      _ -> []
+    end)
+  end
+
+  defp mark([{:cell, ref} | rest], visited) do
+    mark_ref({:qb_cell, ref}, rest, visited, fn val -> [val] end)
+  end
+
+  defp mark([{:closure, captured, _fun} | rest], visited),
+    do: mark(Map.values(captured) ++ rest, visited)
+
+  defp mark([tuple | rest], visited) when is_tuple(tuple),
+    do: mark(Tuple.to_list(tuple) ++ rest, visited)
+
+  defp mark([list | rest], visited) when is_list(list),
+    do: mark(list ++ rest, visited)
+
+  defp mark([%{} = map | rest], visited),
+    do: mark(Map.values(map) ++ rest, visited)
+
+  defp mark([_ | rest], visited), do: mark(rest, visited)
+
+  defp mark_ref(key, rest, visited, children_fn) do
+    if MapSet.member?(visited, key) do
+      mark(rest, visited)
+    else
+      visited = MapSet.put(visited, key)
+      children = children_fn.(Process.get(key, :undefined))
+      mark(children ++ rest, visited)
+    end
+  end
+
+  # ── Sweep phase ──
+
+  defp sweep_heap(marked) do
+    for key <- Process.get_keys(), heap_key?(key), not MapSet.member?(marked, key) do
+      Process.delete(key)
+    end
+  end
+
+  defp sweep_all(marked) do
+    for key <- Process.get_keys() do
+      cond do
+        heap_key?(key) -> unless marked && MapSet.member?(marked, key), do: Process.delete(key)
+        ephemeral_key?(key) -> Process.delete(key)
+        true -> :ok
+      end
+    end
+  end
+
+  defp heap_key?({:qb_obj, _}), do: true
+  defp heap_key?({:qb_cell, _}), do: true
+  defp heap_key?(_), do: false
+
+  defp ephemeral_key?({:qb_prop_desc, _, _}), do: true
+  defp ephemeral_key?({:qb_frozen, _}), do: true
+  defp ephemeral_key?({:qb_var, _}), do: true
+  defp ephemeral_key?({:qb_key_order, _}), do: true
+  defp ephemeral_key?(_), do: false
 end

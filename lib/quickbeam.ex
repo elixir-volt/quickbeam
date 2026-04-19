@@ -149,7 +149,7 @@ defmodule QuickBEAM do
   defp resolve_mode(runtime, opts) do
     case Keyword.get(opts, :mode) do
       nil ->
-        case Process.get({:qb_runtime_mode, runtime}) do
+        case QuickBEAM.BeamVM.Heap.get_runtime_mode(runtime) do
           nil ->
             mode =
               try do
@@ -158,7 +158,7 @@ defmodule QuickBEAM do
                 :exit, _ -> :nif
               end
 
-            Process.put({:qb_runtime_mode, runtime}, mode)
+            QuickBEAM.BeamVM.Heap.put_runtime_mode(runtime, mode)
             mode
 
           cached ->
@@ -354,7 +354,7 @@ defmodule QuickBEAM do
   defp call_beam(_runtime, fn_name, args) do
     alias QuickBEAM.BeamVM.{Interpreter, Heap, Runtime}
 
-    handler_globals = Process.get(:qb_handler_globals, %{})
+    handler_globals = QuickBEAM.BeamVM.Heap.get_handler_globals() || %{}
 
     globals =
       Runtime.global_bindings()
