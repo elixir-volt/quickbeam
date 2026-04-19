@@ -568,7 +568,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_prototype_property({:closure, _, %Bytecode.Function{}} = c, key),
     do: Prototypes.function_proto_property(c, key)
 
-  defp get_prototype_property({:builtin, "Error", _}, key),
+  defp get_prototype_property({:builtin, "Error", _}, _key),
     do: :undefined
 
   defp get_prototype_property({:builtin, "Array", _}, key), do: Array.static_property(key)
