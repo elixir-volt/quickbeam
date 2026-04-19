@@ -87,7 +87,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
         end
 
       list when is_list(list) ->
-        get_own(list, key)
+        case Process.get({:qb_regexp_result, ref}) do
+          %{^key => val} -> val
+          _ -> get_own(list, key)
+        end
 
       %{date_ms() => _} = map ->
         case Map.get(map, key) do

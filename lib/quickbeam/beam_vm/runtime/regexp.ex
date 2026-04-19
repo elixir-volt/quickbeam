@@ -66,27 +66,16 @@ defmodule QuickBEAM.BeamVM.Runtime.RegExp do
             _ -> 0
           end
 
-        result_list = strings
         ref = make_ref()
+        Heap.put_obj(ref, strings)
 
-        map =
-          strings
-          |> Enum.with_index()
-          |> Enum.into(%{}, fn {v, i} -> {Integer.to_string(i), v} end)
-          |> Map.merge(%{
-            "index" => match_start,
-            "input" => s,
-            "groups" => :undefined,
-            "length" => length(strings),
-            "toString" => {:builtin, "toString", fn _, _ ->
-              Enum.map_join(result_list, ",", fn
-                :undefined -> ""
-                v -> QuickBEAM.BeamVM.Runtime.stringify(v)
-              end)
-            end}
-          })
+        # Store extra properties accessible via get_own_property
+        Process.put({:qb_regexp_result, ref}, %{
+          "index" => match_start,
+          "input" => s,
+          "groups" => :undefined
+        })
 
-        Heap.put_obj(ref, map)
         {:obj, ref}
     end
   end
