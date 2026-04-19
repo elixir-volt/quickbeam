@@ -4,7 +4,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Interpreter.Promise
 
-  def invoke_generator(frame, gas, ctx) do
+  def invoke(frame, gas, ctx) do
     gen_ref = make_ref()
 
     try do
@@ -37,15 +37,15 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
     next_fn =
       {:builtin, "next",
        fn
-         [arg | _], _this -> generator_next(gen_ref, arg)
-         [], _this -> generator_next(gen_ref, :undefined)
+         [arg | _], _this -> next(gen_ref, arg)
+         [], _this -> next(gen_ref, :undefined)
        end}
 
     return_fn =
       {:builtin, "return",
        fn
-         [val | _], _this -> generator_return(gen_ref, val)
-         [], _this -> generator_return(gen_ref, :undefined)
+         [val | _], _this -> return_value(gen_ref, val)
+         [], _this -> return_value(gen_ref, :undefined)
        end}
 
     obj_ref = make_ref()
@@ -71,15 +71,15 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
     next_fn =
       {:builtin, "next",
        fn
-         [arg | _], _this -> async_generator_next(gen_ref, arg)
-         [], _this -> async_generator_next(gen_ref, :undefined)
+         [arg | _], _this -> async_next(gen_ref, arg)
+         [], _this -> async_next(gen_ref, :undefined)
        end}
 
     return_fn =
       {:builtin, "return",
        fn
-         [val | _], _this -> Promise.make_resolved_promise(done_result(val))
-         [], _this -> Promise.make_resolved_promise(done_result(:undefined))
+         [val | _], _this -> Promise.resolved(done_result(val))
+         [], _this -> Promise.resolved(done_result(:undefined))
        end}
 
     obj_ref = make_ref()
@@ -87,7 +87,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
     {:obj, obj_ref}
   end
 
-  defp async_generator_next(gen_ref, arg) do
+  defp async_next(gen_ref, arg) do
     case Heap.get_obj(gen_ref) do
       %{state: :suspended, frame: frame, stack: stack, gas: gas, ctx: ctx} ->
         prev_ctx = Heap.get_ctx()
@@ -96,15 +96,15 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
         try do
           result = QuickBEAM.BeamVM.Interpreter.run_frame(frame, [false, arg | stack], gas, ctx)
           Heap.put_obj(gen_ref, %{state: :completed})
-          Promise.make_resolved_promise(done_result(result))
+          Promise.resolved(done_result(result))
         catch
           {:generator_yield, val, sf, ss, sg, sc} ->
             Heap.put_obj(gen_ref, %{state: :suspended, frame: sf, stack: ss, gas: sg, ctx: sc})
-            Promise.make_resolved_promise(yield_result(val))
+            Promise.resolved(yield_result(val))
 
           {:generator_return, val} ->
             Heap.put_obj(gen_ref, %{state: :completed})
-            Promise.make_resolved_promise(done_result(val))
+            Promise.resolved(done_result(val))
 
           {:js_throw, _} = thrown ->
             Heap.put_obj(gen_ref, %{state: :completed})
@@ -114,21 +114,21 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
         end
 
       _ ->
-        Promise.make_resolved_promise(done_result(:undefined))
+        Promise.resolved(done_result(:undefined))
     end
   end
 
   def invoke_async(frame, gas, ctx) do
     try do
       result = QuickBEAM.BeamVM.Interpreter.run_frame(frame, [], gas, ctx)
-      Promise.make_resolved_promise(result)
+      Promise.resolved(result)
     catch
-      {:generator_return, val} -> Promise.make_resolved_promise(val)
-      {:js_throw, val} -> Promise.make_rejected_promise(val)
+      {:generator_return, val} -> Promise.resolved(val)
+      {:js_throw, val} -> Promise.rejected(val)
     end
   end
 
-  def generator_next(gen_ref, arg) do
+  def next(gen_ref, arg) do
     case Heap.get_obj(gen_ref) do
       %{state: :suspended, frame: frame, stack: stack, gas: gas, ctx: ctx} ->
         Heap.put_ctx(ctx)
@@ -161,7 +161,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
     end
   end
 
-  def generator_return(gen_ref, val) do
+  def return_value(gen_ref, val) do
     Heap.put_obj(gen_ref, %{state: :completed})
     done_result(val)
   end

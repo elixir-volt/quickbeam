@@ -144,13 +144,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
       "resolve" =>
         {:builtin, "resolve",
          fn
-           [val | _] -> QuickBEAM.BeamVM.Interpreter.make_resolved_promise(val)
-           [] -> QuickBEAM.BeamVM.Interpreter.make_resolved_promise(:undefined)
+           [val | _] -> QuickBEAM.BeamVM.Interpreter.Promise.resolved(val)
+           [] -> QuickBEAM.BeamVM.Interpreter.Promise.resolved(:undefined)
          end},
       "reject" =>
         {:builtin, "reject",
          fn [val | _] ->
-           QuickBEAM.BeamVM.Interpreter.make_rejected_promise(val)
+           QuickBEAM.BeamVM.Interpreter.Promise.rejected(val)
          end},
       "all" =>
         {:builtin, "all",
@@ -192,7 +192,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
 
            result_ref = make_ref()
            QuickBEAM.BeamVM.Heap.put_obj(result_ref, results)
-           QuickBEAM.BeamVM.Interpreter.make_resolved_promise({:obj, result_ref})
+           QuickBEAM.BeamVM.Interpreter.Promise.resolved({:obj, result_ref})
          end},
       "allSettled" =>
         {:builtin, "allSettled",
@@ -248,7 +248,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
 
            result_ref = make_ref()
            Heap.put_obj(result_ref, results)
-           QuickBEAM.BeamVM.Interpreter.make_resolved_promise({:obj, result_ref})
+           QuickBEAM.BeamVM.Interpreter.Promise.resolved({:obj, result_ref})
          end},
       "any" =>
         {:builtin, "any",
@@ -285,7 +285,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
                end
              end)
 
-           QuickBEAM.BeamVM.Interpreter.make_resolved_promise(result || :undefined)
+           QuickBEAM.BeamVM.Interpreter.Promise.resolved(result || :undefined)
          end},
       "race" =>
         {:builtin, "race",
@@ -322,10 +322,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
                      first
                  end
 
-               QuickBEAM.BeamVM.Interpreter.make_resolved_promise(val)
+               QuickBEAM.BeamVM.Interpreter.Promise.resolved(val)
 
              [] ->
-               QuickBEAM.BeamVM.Interpreter.make_resolved_promise(:undefined)
+               QuickBEAM.BeamVM.Interpreter.Promise.resolved(:undefined)
            end
          end}
     }

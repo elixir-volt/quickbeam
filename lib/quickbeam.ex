@@ -215,7 +215,7 @@ defmodule QuickBEAM do
                 parsed.atoms
               )
 
-            QuickBEAM.BeamVM.Interpreter.drain_microtask_queue()
+            QuickBEAM.BeamVM.Interpreter.Promise.drain_microtasks()
             converted = convert_beam_result(result)
             QuickBEAM.BeamVM.Heap.gc()
             converted

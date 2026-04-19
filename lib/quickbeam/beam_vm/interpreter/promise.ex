@@ -4,34 +4,34 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
 
   alias QuickBEAM.BeamVM.Heap
 
-  def make_resolved_promise(val) do
+  def resolved(val) do
     promise_ref = make_ref()
 
     Heap.put_obj(promise_ref, %{
       promise_state() => :resolved,
       promise_value() => val,
-      "then" => make_then_fn(promise_ref),
-      "catch" => make_catch_fn(promise_ref)
+      "then" => then_fn(promise_ref),
+      "catch" => catch_fn(promise_ref)
     })
 
     {:obj, promise_ref}
   end
 
   @doc false
-  def make_rejected_promise(val) do
+  def rejected(val) do
     promise_ref = make_ref()
 
     Heap.put_obj(promise_ref, %{
       promise_state() => :rejected,
       promise_value() => val,
-      "then" => make_then_fn(promise_ref),
-      "catch" => make_catch_fn(promise_ref)
+      "then" => then_fn(promise_ref),
+      "catch" => catch_fn(promise_ref)
     })
 
     {:obj, promise_ref}
   end
 
-  def make_then_fn(promise_ref) do
+  def then_fn(promise_ref) do
     {:builtin, "then",
      fn args, _this ->
        on_fulfilled = Enum.at(args, 0)
@@ -47,14 +47,14 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
 
              Heap.put_obj(child_ref, %{
                promise_state() => :pending,
-               "then" => make_then_fn(child_ref),
-               "catch" => make_catch_fn(child_ref)
+               "then" => then_fn(child_ref),
+               "catch" => catch_fn(child_ref)
              })
 
              Heap.enqueue_microtask({:resolve, child_ref, on_fulfilled, val})
              {:obj, child_ref}
            else
-             make_resolved_promise(val)
+             resolved(val)
            end
 
          %{
@@ -66,14 +66,14 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
 
              Heap.put_obj(child_ref, %{
                promise_state() => :pending,
-               "then" => make_then_fn(child_ref),
-               "catch" => make_catch_fn(child_ref)
+               "then" => then_fn(child_ref),
+               "catch" => catch_fn(child_ref)
              })
 
              Heap.enqueue_microtask({:resolve, child_ref, on_rejected, val})
              {:obj, child_ref}
            else
-             make_rejected_promise(val)
+             rejected(val)
            end
 
          %{promise_state() => :pending} ->
@@ -81,8 +81,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
 
            Heap.put_obj(child_ref, %{
              promise_state() => :pending,
-             "then" => make_then_fn(child_ref),
-             "catch" => make_catch_fn(child_ref)
+             "then" => then_fn(child_ref),
+             "catch" => catch_fn(child_ref)
            })
 
            # Queue for when parent resolves
@@ -95,16 +95,16 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
            {:obj, child_ref}
 
          _ ->
-           make_resolved_promise(:undefined)
+           resolved(:undefined)
        end
      end}
   end
 
-  def make_catch_fn(promise_ref) do
+  def catch_fn(promise_ref) do
     {:builtin, "catch",
      fn args, this ->
        handler = List.first(args)
-       then_fn = make_then_fn(promise_ref)
+       then_fn = then_fn(promise_ref)
 
        case then_fn do
          {:builtin, _, cb} -> cb.([nil, handler], this)
@@ -113,7 +113,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
   end
 
   @doc false
-  def drain_microtask_queue do
+  def drain_microtasks do
     case Heap.dequeue_microtask() do
       nil ->
         :ok
@@ -128,7 +128,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
 
         case result do
           {:rejected, err} ->
-            resolve_promise(child_ref, :rejected, err)
+            resolve(child_ref, :rejected, err)
 
           result_val ->
             # If result is a promise, chain it
@@ -139,41 +139,41 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
                     promise_state() => :resolved,
                     promise_value() => v
                   } ->
-                    resolve_promise(child_ref, :resolved, v)
+                    resolve(child_ref, :resolved, v)
 
                   %{
                     promise_state() => :rejected,
                     promise_value() => v
                   } ->
-                    resolve_promise(child_ref, :rejected, v)
+                    resolve(child_ref, :rejected, v)
 
                   %{promise_state() => :pending} ->
                     waiters = Heap.get_promise_waiters(r)
 
                     Heap.put_promise_waiters(r, [
-                      {fn v -> resolve_promise(child_ref, :resolved, v) end, nil, child_ref}
+                      {fn v -> resolve(child_ref, :resolved, v) end, nil, child_ref}
                       | waiters
                     ])
 
                   _ ->
-                    resolve_promise(child_ref, :resolved, result_val)
+                    resolve(child_ref, :resolved, result_val)
                 end
 
               _ ->
-                resolve_promise(child_ref, :resolved, result_val)
+                resolve(child_ref, :resolved, result_val)
             end
         end
 
-        drain_microtask_queue()
+        drain_microtasks()
     end
   end
 
-  def resolve_promise(ref, state, val) do
+  def resolve(ref, state, val) do
     Heap.put_obj(ref, %{
       promise_state() => state,
       promise_value() => val,
-      "then" => make_then_fn(ref),
-      "catch" => make_catch_fn(ref)
+      "then" => then_fn(ref),
+      "catch" => catch_fn(ref)
     })
 
     # Notify waiters

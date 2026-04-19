@@ -86,7 +86,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
           try do
             result = run(frame, args, gas, ctx)
-            drain_microtask_queue()
+            Promise.drain_microtasks()
             {:ok, unwrap_promise(result)}
           catch
             {:js_throw, val} -> {:error, {:js_throw, val}}
@@ -190,7 +190,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp unwrap_promise(val, _depth), do: val
 
   defp resolve_awaited({:obj, ref} = obj) do
-    drain_microtask_queue()
+    Promise.drain_microtasks()
 
     case Heap.get_obj(ref, %{}) do
       %{
@@ -207,7 +207,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       %{promise_state() => :pending} ->
         # Drain again in case resolution was queued
-        drain_microtask_queue()
+        Promise.drain_microtasks()
 
         case Heap.get_obj(ref, %{}) do
           %{
@@ -1634,15 +1634,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           :ok ->
             # Module loaded — create a module namespace object
             # For now, return an empty object (module exports would need linking)
-            make_resolved_promise(Runtime.obj_new())
+            Promise.resolved(Runtime.obj_new())
 
           {:error, _} ->
-            make_rejected_promise(
-              make_error_obj("Cannot find module '#{specifier}'", "TypeError")
-            )
+            Promise.rejected(make_error_obj("Cannot find module '#{specifier}'", "TypeError"))
         end
       else
-        make_rejected_promise(make_error_obj("Invalid module specifier", "TypeError"))
+        Promise.rejected(make_error_obj("Invalid module specifier", "TypeError"))
       end
 
     run(advance(frame), [result | rest], gas - 1, ctx)
@@ -2422,9 +2420,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
         try do
           case fun.func_kind do
-            @func_generator -> invoke_generator(frame, gas, inner_ctx)
-            @func_async -> invoke_async(frame, gas, inner_ctx)
-            @func_async_generator -> invoke_async_generator(frame, gas, inner_ctx)
+            @func_generator -> Generator.invoke(frame, gas, inner_ctx)
+            @func_async -> Generator.invoke_async(frame, gas, inner_ctx)
+            @func_async_generator -> Generator.invoke_async_generator(frame, gas, inner_ctx)
             _ -> run(frame, [], gas, inner_ctx)
           end
         after
@@ -2453,22 +2451,4 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         end
     end
   end
-
-  # ── Generators (delegated to Interpreter.Generator) ──
-
-  defp invoke_generator(frame, gas, ctx), do: Generator.invoke_generator(frame, gas, ctx)
-
-  defp invoke_async_generator(frame, gas, ctx),
-    do: Generator.invoke_async_generator(frame, gas, ctx)
-
-  defp invoke_async(frame, gas, ctx), do: Generator.invoke_async(frame, gas, ctx)
-
-  # ── Promise (delegated to Interpreter.Promise) ──
-
-  def make_resolved_promise(val), do: Promise.make_resolved_promise(val)
-  def make_rejected_promise(val), do: Promise.make_rejected_promise(val)
-  def make_then_fn(ref), do: Promise.make_then_fn(ref)
-  def make_catch_fn(ref), do: Promise.make_catch_fn(ref)
-  def drain_microtask_queue, do: Promise.drain_microtask_queue()
-  def resolve_promise(ref, state, val), do: Promise.resolve_promise(ref, state, val)
 end
