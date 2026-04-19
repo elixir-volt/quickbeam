@@ -24,17 +24,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
   # ── Statics ──
 
-  static "now" do
-    System.system_time(:millisecond)
-  end
-
-  static "parse" do
-    parse_date_string(to_string(hd(args)))
-  end
-
-  static "UTC" do
-    utc_from_components(args)
-  end
+  static("now", do: System.system_time(:millisecond))
+  static("parse", do: parse_date_string(to_string(hd(args))))
+  static("UTC", do: utc_from_components(args))
 
   # ── Getters ──
 
@@ -54,44 +46,20 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   # ── Setters ──
 
   proto("setTime", do: put_ms(this, hd(args)))
-  proto("setFullYear", do: set_field(this, :year, hd(args)))
+  proto("setFullYear", do: set_fields(this, [:year], args))
   proto("setMonth", do: set_field(this, :month, trunc(hd(args)) + 1))
-  proto("setDate", do: set_field(this, :day, hd(args)))
-  proto("setHours", do: set_field(this, :hour, hd(args)))
-  proto("setMinutes", do: set_field(this, :minute, hd(args)))
-  proto("setSeconds", do: set_field(this, :second, hd(args)))
-
-  proto "setUTCHours" do
-    set_utc_time_fields(this, args, [:hour, :minute, :second])
-  end
-
-  proto "setUTCMinutes" do
-    set_utc_time_fields(this, args, [:minute, :second])
-  end
-
-  proto "setUTCSeconds" do
-    set_utc_time_fields(this, args, [:second])
-  end
-
-  proto "setUTCMilliseconds" do
-    with_ms(this, &put_ms(this, div(&1, 1000) * 1000 + trunc(hd(args))))
-  end
-
-  proto "setUTCFullYear" do
-    set_field(this, :year, hd(args))
-  end
-
-  proto "setUTCMonth" do
-    set_field(this, :month, trunc(hd(args)) + 1)
-  end
-
-  proto "setUTCDate" do
-    set_field(this, :day, hd(args))
-  end
-
-  proto "setMilliseconds" do
-    with_ms(this, &put_ms(this, div(&1, 1000) * 1000 + trunc(hd(args))))
-  end
+  proto("setDate", do: set_fields(this, [:day], args))
+  proto("setHours", do: set_fields(this, [:hour, :minute, :second], args))
+  proto("setMinutes", do: set_fields(this, [:minute, :second], args))
+  proto("setSeconds", do: set_fields(this, [:second], args))
+  proto("setMilliseconds", do: set_ms_field(this, args))
+  proto("setUTCHours", do: set_fields(this, [:hour, :minute, :second], args))
+  proto("setUTCMinutes", do: set_fields(this, [:minute, :second], args))
+  proto("setUTCSeconds", do: set_fields(this, [:second], args))
+  proto("setUTCMilliseconds", do: set_ms_field(this, args))
+  proto("setUTCFullYear", do: set_fields(this, [:year], args))
+  proto("setUTCMonth", do: set_field(this, :month, trunc(hd(args)) + 1))
+  proto("setUTCDate", do: set_fields(this, [:day], args))
 
   # ── Formatting ──
 
@@ -125,8 +93,6 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
   defp ms_to_dt(_), do: nil
 
-  defp dt_to_ms(%DateTime{} = dt), do: DateTime.to_unix(dt, :millisecond)
-
   defp dt_field(this, field, transform \\ & &1) do
     case ms_to_dt(get_ms(this)) do
       nil -> :nan
@@ -148,21 +114,24 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
     end
   end
 
-  defp fmt_local(this, pattern) do
-    case ms_to_dt(get_ms(this)) do
-      nil -> "Invalid Date"
-      dt ->
-        local_erl = :calendar.universal_time_to_local_time(
-          {{dt.year, dt.month, dt.day}, {dt.hour, dt.minute, dt.second}}
-        )
-        Calendar.strftime(NaiveDateTime.from_erl!(local_erl), pattern)
-    end
-  end
-
   defp fmt_dt(this, fun) do
     case ms_to_dt(get_ms(this)) do
       nil -> "Invalid Date"
       dt -> fun.(dt)
+    end
+  end
+
+  defp fmt_local(this, pattern) do
+    case ms_to_dt(get_ms(this)) do
+      nil ->
+        "Invalid Date"
+
+      dt ->
+        local_erl = :calendar.universal_time_to_local_time(
+          {{dt.year, dt.month, dt.day}, {dt.hour, dt.minute, dt.second}}
+        )
+
+        Calendar.strftime(NaiveDateTime.from_erl!(local_erl), pattern)
     end
   end
 
@@ -176,16 +145,17 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   defp set_field(this, field, value) do
     case ms_to_dt(get_ms(this)) do
       nil -> :nan
-      dt ->
-        put_ms(this, dt_to_ms(Map.put(dt, field, trunc(value))))
+      dt -> put_ms(this, DateTime.to_unix(Map.put(dt, field, trunc(value)), :millisecond))
     end
   rescue
     _ -> :nan
   end
 
-  defp set_utc_time_fields(this, values, fields) do
+  defp set_fields(this, fields, values) do
     case ms_to_dt(get_ms(this)) do
-      nil -> :nan
+      nil ->
+        :nan
+
       dt ->
         new_dt =
           Enum.zip(fields, values)
@@ -193,10 +163,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
             if is_number(val), do: Map.put(acc, field, trunc(val)), else: acc
           end)
 
-        put_ms(this, dt_to_ms(new_dt))
+        put_ms(this, DateTime.to_unix(new_dt, :millisecond))
     end
   rescue
     _ -> :nan
+  end
+
+  defp set_ms_field(this, args) do
+    with_ms(this, &put_ms(this, div(&1, 1000) * 1000 + trunc(hd(args))))
   end
 
   defp tz_offset_minutes do
@@ -207,37 +181,41 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   # ── Date component → ms ──
 
   defp utc_from_components(args) do
-    with {:ok, components} <- extract_components(args, length(args)) do
+    with {:ok, components} <- extract_components(args) do
       utc_ms(components)
     end
   end
 
   defp local_from_components(args) do
-    with {:ok, {year, month, day, hour, minute, second, ms_part}} <- extract_components(args, length(args)) do
-      local_dt = {{year, month, max(day, 1)}, {hour, minute, second}}
+    with {:ok, {year, month, day, hour, minute, second, ms_part}} <- extract_components(args) do
+      local_erl = {{year, month, max(day, 1)}, {hour, minute, second}}
 
-      case :calendar.local_time_to_universal_time_dst(local_dt) do
+      case :calendar.local_time_to_universal_time_dst(local_erl) do
         [utc_erl | _] ->
-          utc_dt = DateTime.from_naive!(NaiveDateTime.from_erl!(utc_erl), "Etc/UTC")
-          local_gs = :calendar.datetime_to_gregorian_seconds(local_dt)
-          utc_gs = :calendar.datetime_to_gregorian_seconds(utc_erl)
-          offset_min = div(local_gs - utc_gs + 30, 60) * 60
-          (local_gs - @epoch_gs - offset_min) * 1000 + ms_part
+          local_ndt = NaiveDateTime.from_erl!(local_erl)
+          utc_ndt = NaiveDateTime.from_erl!(utc_erl)
+          offset_min = div(NaiveDateTime.diff(local_ndt, utc_ndt, :second) + 30, 60)
+
+          DateTime.to_unix(DateTime.from_naive!(local_ndt, "Etc/UTC"), :millisecond) -
+            offset_min * 60_000 + ms_part
 
         [] ->
           utc_ms({year, month, max(day, 1), hour, minute, second, ms_part}) -
-            local_tz_offset_minutes() * 60_000
+            tz_offset_minutes() * -60_000
       end
     end
   rescue
     _ -> :nan
   end
 
-  defp extract_components(args, count) do
+  defp extract_components(args) do
     padded = args ++ List.duplicate(0, 7)
+    count = min(length(args), 7)
 
     vals =
-      Enum.map(Enum.take(padded, min(count, 7)), fn
+      padded
+      |> Enum.take(count)
+      |> Enum.map(fn
         v when v in [:nan, :NaN, :infinity, :neg_infinity] -> :nan
         v when is_number(v) -> v
         _ -> :nan
@@ -257,14 +235,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   end
 
   defp utc_ms({year, month, day, hour, minute, second, ms_part}) do
-    # ES spec MakeDate/MakeTime: normalize month overflow, compute as raw integers
     year = year + div(month - 1, 12)
     month = rem(rem(month - 1, 12) + 12, 12) + 1
 
     case make_day(year, month) do
-      :nan -> :nan
+      :nan ->
+        :nan
+
       base_days ->
-        # JS MakeDate uses float64 arithmetic — must match its precision
         day_f = (day - 1 + base_days) * 1.0
         time_ms = ((day_f * 24 + hour * 1.0) * 60 + minute * 1.0) * 60_000 +
                   second * 1000.0 + ms_part * 1.0
@@ -273,28 +251,19 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
     end
   end
 
-  defp make_day(year, month) do
-    # Days from epoch to year/month/1
-    try do
-      if year >= 0 do
-        :calendar.date_to_gregorian_days(year, month, 1) - 719_528
-      else
-        y = if month <= 2, do: year - 1, else: year
-        era = div(y - 399, 400)
-        yoe = y - era * 400
-        doy = div(153 * (month + (if month > 2, do: -3, else: 9)) + 2, 5)
-        doe = yoe * 365 + div(yoe, 4) - div(yoe, 100) + doy
-        era * 146097 + doe - 719_468
-      end
-    rescue
-      _ -> :nan
-    end
+  defp make_day(year, month) when year >= 0 do
+    :calendar.date_to_gregorian_days(year, month, 1) - 719_528
+  rescue
+    _ -> :nan
   end
 
-  defp local_tz_offset_minutes do
-    utc_gs = :calendar.datetime_to_gregorian_seconds(:calendar.universal_time())
-    local_gs = :calendar.datetime_to_gregorian_seconds(:calendar.local_time())
-    div(local_gs - utc_gs, 60)
+  defp make_day(year, month) do
+    y = if month <= 2, do: year - 1, else: year
+    era = div(y - 399, 400)
+    yoe = y - era * 400
+    doy = div(153 * (month + (if month > 2, do: -3, else: 9)) + 2, 5)
+    doe = yoe * 365 + div(yoe, 4) - div(yoe, 100) + doy
+    era * 146097 + doe - 719_468
   end
 
   # ── Date.parse ──
@@ -335,7 +304,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
     case safe_rfc3339_parse(with_tz) do
       {:ok, ms} ->
         if has_time and not has_explicit_tz,
-          do: ms - local_tz_offset_minutes() * 60_000,
+          do: ms + tz_offset_minutes() * 60_000,
           else: ms
 
       :error ->
@@ -367,24 +336,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
         r -> {1, r, false}
       end
 
-    valid_year? = fn str ->
-      byte_size(str) == 4 or (byte_size(str) == 6 and has_sign)
-    end
+    valid_year_len? = &(byte_size(&1) == 4 or (byte_size(&1) == 6 and has_sign))
 
     case String.split(digits, "-", parts: 3) do
-      [year_str] ->
-        if valid_year?.(year_str) do
-          with {year, ""} <- Integer.parse(year_str),
-               do: utc_ms({sign * year, 1, 1, 0, 0, 0, 0}),
-               else: (_ -> :miss)
-        else
-          :miss
-        end
+      [y] ->
+        if valid_year_len?.(y),
+          do: with({year, ""} <- Integer.parse(y), do: utc_ms({sign * year, 1, 1, 0, 0, 0, 0}), else: (_ -> :miss)),
+          else: :miss
 
-      [year_str, month_str] ->
-        if valid_year?.(year_str) do
-          with {year, ""} <- Integer.parse(year_str),
-               {month, ""} <- Integer.parse(month_str),
+      [y, m] ->
+        if valid_year_len?.(y) do
+          with {year, ""} <- Integer.parse(y),
+               {month, ""} <- Integer.parse(m),
                do: utc_ms({sign * year, month, 1, 0, 0, 0, 0}),
                else: (_ -> :miss)
         else
@@ -406,49 +369,30 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   @day_names ~w(sun mon tue wed thu fri sat)
 
   defp try_informal(s) do
-    s = String.trim(s)
-
-    s =
-      case String.split(s, " ", parts: 2) do
-        [w, rest] ->
-          if String.downcase(String.slice(w, 0..2)) in @day_names, do: rest, else: s
-
-        _ ->
-          s
-      end
+    s = strip_day_name(String.trim(s))
 
     case String.split(s, " ", parts: 4) do
-      [year_str, month_str, day_str | rest]
-          when byte_size(year_str) == 4 ->
-        with {year, ""} <- Integer.parse(year_str),
-             month when is_integer(month) <- Map.get(@month_names, String.downcase(String.slice(month_str, 0..2))),
-             {day, ""} <- Integer.parse(day_str) do
-          time_tz = String.trim(Enum.join(rest, " "))
-          {hour, minute, second, tz_offset} = parse_informal_time(time_tz)
+      [a, b, c | rest] ->
+        time_tz = String.trim(Enum.join(rest, " "))
 
-          if tz_offset != nil do
-            utc_ms({year, month, day, hour, minute, second, 0}) - tz_offset * 60_000
-          else
-            local_from_components([year, month - 1, day, hour, minute, second, 0])
+        result =
+          cond do
+            byte_size(a) == 4 -> parse_ymd(a, b, c)
+            true -> parse_mdy(a, b, c)
           end
-        else
-          _ -> :miss
-        end
 
-      [month_str, day_str, year_str | rest] ->
-        with month when is_integer(month) <- Map.get(@month_names, String.downcase(String.slice(month_str, 0..2))),
-             {day, ""} <- Integer.parse(day_str),
-             {year, ""} <- Integer.parse(year_str) do
-          time_tz = String.trim(Enum.join(rest, " "))
-          {hour, minute, second, tz_offset} = parse_informal_time(time_tz)
+        case result do
+          {:ok, year, month, day} ->
+            {hour, minute, second, tz_offset} = parse_informal_time(time_tz)
 
-          if tz_offset != nil do
-            utc_ms({year, month, day, hour, minute, second, 0}) - tz_offset * 60_000
-          else
-            local_from_components([year, month - 1, day, hour, minute, second, 0])
-          end
-        else
-          _ -> :miss
+            if tz_offset != nil do
+              utc_ms({year, month, day, hour, minute, second, 0}) - tz_offset * 60_000
+            else
+              local_from_components([year, month - 1, day, hour, minute, second, 0])
+            end
+
+          :miss ->
+            :miss
         end
 
       _ ->
@@ -456,27 +400,47 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
     end
   end
 
+  defp strip_day_name(s) do
+    case String.split(s, " ", parts: 2) do
+      [w, rest] ->
+        if String.downcase(String.slice(w, 0..2)) in @day_names, do: rest, else: s
+
+      _ ->
+        s
+    end
+  end
+
+  defp parse_ymd(year_str, month_str, day_str) do
+    with {year, ""} <- Integer.parse(year_str),
+         month when is_integer(month) <- Map.get(@month_names, String.downcase(String.slice(month_str, 0..2))),
+         {day, ""} <- Integer.parse(day_str) do
+      {:ok, year, month, day}
+    else
+      _ -> :miss
+    end
+  end
+
+  defp parse_mdy(month_str, day_str, year_str) do
+    with month when is_integer(month) <- Map.get(@month_names, String.downcase(String.slice(month_str, 0..2))),
+         {day, ""} <- Integer.parse(day_str),
+         {year, ""} <- Integer.parse(year_str) do
+      {:ok, year, month, day}
+    else
+      _ -> :miss
+    end
+  end
+
   defp parse_informal_time(""), do: {0, 0, 0, nil}
 
   defp parse_informal_time(s) do
     parts = String.split(s, " ")
-
-    {time_part, rest} =
-      case parts do
-        [t | r] -> {t, r}
-        [] -> {"", []}
-      end
+    {time_part, rest} = List.pop_at(parts, 0, "")
 
     {ampm, tz_parts} =
       case rest do
-        ["AM" | r] -> {:am, r}
-        ["PM" | r] -> {:pm, r}
-        ["am" | r] -> {:am, r}
-        ["pm" | r] -> {:pm, r}
+        [p | r] when p in ~w(AM PM am pm) -> {String.downcase(p), r}
         r -> {nil, r}
       end
-
-    tz_part = String.trim(Enum.join(tz_parts, " "))
 
     {h, m, sec} =
       case String.split(time_part, ":") do
@@ -485,13 +449,15 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
         _ -> {0, 0, 0}
       end
 
-    h = case ampm do
-      :am -> if h == 12, do: 0, else: h
-      :pm -> if h == 12, do: 12, else: h + 12
-      nil -> h
-    end
+    h =
+      case ampm do
+        "am" -> if h == 12, do: 0, else: h
+        "pm" -> if h == 12, do: 12, else: h + 12
+        nil -> h
+      end
 
-    {h, m, sec, if(tz_part == "", do: nil, else: parse_tz_offset(tz_part))}
+    tz_str = String.trim(Enum.join(tz_parts, " "))
+    {h, m, sec, if(tz_str == "", do: nil, else: parse_tz_offset(tz_str))}
   end
 
   defp parse_tz_offset(""), do: 0
@@ -532,7 +498,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
         padded =
           case String.split(time_part, ":") do
-            [h, m] -> "#{h}:#{m}:00"
+            [h, m] -> h <> ":" <> m <> ":00"
             _ -> time_part
           end
 
