@@ -109,7 +109,18 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
       {:obj, buf_ref} ->
         case Heap.get_obj(buf_ref, %{}) do
           m when is_map(m) ->
-            if Map.get(m, "__detached__"), do: nil, else: Map.get(m, buffer(), <<>>)
+            if Map.get(m, "__detached__") do
+              nil
+            else
+              ab_buf = Map.get(m, buffer(), <<>>)
+              offset = Map.get(s, "byteOffset", 0)
+              byte_len = Map.get(s, "byteLength", byte_size(ab_buf) - offset)
+              if offset == 0 and byte_len == byte_size(ab_buf) do
+                ab_buf
+              else
+                binary_part(ab_buf, offset, min(byte_len, byte_size(ab_buf) - offset))
+              end
+            end
           _ -> Map.get(s, buffer(), <<>>)
         end
       _ -> Map.get(s, buffer(), <<>>)
@@ -136,7 +147,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
       |> Enum.with_index(offset)
       |> Enum.reduce(buf(ref), fn {v, i}, acc -> write_element(acc, i, v, t) end)
 
-    Heap.put_obj(ref, Map.put(state(ref), buffer(), new_buf))
+    update_buffer(ref, new_buf)
     :undefined
   end
 
@@ -252,7 +263,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     {b, l, t} = {buf(ref), len(ref), type(ref)}
     vals = Enum.map(0..max(0, l - 1), &read_element(b, &1, t)) |> Enum.sort()
     new_buf = rebuild_buffer(vals, b, t)
-    Heap.put_obj(ref, Map.put(state(ref), buffer(), new_buf))
+    update_buffer(ref, new_buf)
     {:obj, ref}
   end
 
@@ -260,7 +271,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     {b, l, t} = {buf(ref), len(ref), type(ref)}
     vals = Enum.map(0..max(0, l - 1), &read_element(b, &1, t)) |> Enum.reverse()
     new_buf = rebuild_buffer(vals, b, t)
-    Heap.put_obj(ref, Map.put(state(ref), buffer(), new_buf))
+    update_buffer(ref, new_buf)
     {:obj, ref}
   end
 
@@ -276,7 +287,20 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     species_ctor = get_species_ctor({:obj, ref})
 
     if species_ctor do
-      Runtime.call_callback(species_ctor, [new_len])
+      result = Runtime.call_callback(species_ctor, [new_len])
+
+      case result do
+        {:obj, result_ref} ->
+          for i <- 0..(new_len - 1) do
+            val = read_element(new_buf, i, t)
+            set_element(result, i, val)
+          end
+
+        _ ->
+          :ok
+      end
+
+      result
     else
       elements = for i <- 0..(new_len - 1), do: read_element(new_buf, i, t)
       constructor(t).([elements], nil)
@@ -314,8 +338,19 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     case Map.get(s, "buffer") do
       {:obj, buf_ref} ->
         buf_map = Heap.get_obj(buf_ref, %{})
-        if is_map(buf_map), do: Heap.put_obj(buf_ref, Map.put(buf_map, buffer(), new_buf))
-      _ -> :ok
+
+        if is_map(buf_map) do
+          offset = Map.get(s, "byteOffset", 0)
+          ab_buf = Map.get(buf_map, buffer(), <<>>)
+          before = if offset > 0, do: binary_part(ab_buf, 0, min(offset, byte_size(ab_buf))), else: <<>>
+          after_offset = offset + byte_size(new_buf)
+          after_part = if after_offset < byte_size(ab_buf), do: binary_part(ab_buf, after_offset, byte_size(ab_buf) - after_offset), else: <<>>
+          merged = before <> new_buf <> after_part
+          Heap.put_obj(buf_ref, Map.put(buf_map, buffer(), merged))
+        end
+
+      _ ->
+        :ok
     end
   end
 
