@@ -114,7 +114,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   def invoke(other, args, _gas) when not is_tuple(other) or elem(other, 0) != :bound,
     do: Builtin.call(other, args, nil)
 
-  def invoke({:bound, _, inner}, args, gas), do: invoke(inner, args, gas)
+  def invoke({:bound, _, inner, _, _}, args, gas), do: invoke(inner, args, gas)
 
   @doc false
   def invoke_with_receiver(fun, args, gas, this_obj) do
@@ -1058,7 +1058,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         {:closure, _, %Bytecode.Function{} = f} ->
           f.defined_arg_count
 
-        {:bound, len, _} ->
+        {:bound, len, _, _, _} ->
           len
 
         _ ->
@@ -1262,9 +1262,22 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     catch_js_throw(frame, rest, gas, ctx, fn ->
       rev_args = Enum.reverse(args)
 
+      {ctor, rev_args} =
+        case ctor do
+          {:bound, _, {:builtin, _, bound_fn}} ->
+            # Unwrap bound function to get bound args
+            # bound_fn captures [bound_args ++ new_args, this_arg] 
+            # For new, we ignore bound this and prepend bound args
+            {ctor, rev_args}
+
+          _ ->
+            {ctor, rev_args}
+        end
+
       raw_ctor =
         case ctor do
           {:closure, _, %Bytecode.Function{} = f} -> f
+          {:bound, _, inner, _, _} -> inner
           other -> other
         end
 
@@ -1293,6 +1306,22 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
           {:closure, captured, %Bytecode.Function{} = f} ->
             do_invoke(f, rev_args, ctor_var_refs(f, captured), gas, ctor_ctx)
+
+          {:bound, _, _, orig_fun, bound_args} ->
+            all_args = bound_args ++ rev_args
+            case orig_fun do
+              %Bytecode.Function{} = f ->
+                do_invoke(f, all_args, ctor_var_refs(f), gas, ctor_ctx)
+              {:closure, captured, %Bytecode.Function{} = f} ->
+                do_invoke(f, all_args, ctor_var_refs(f, captured), gas, ctor_ctx)
+              {:builtin, _, cb} when is_function(cb, 2) ->
+                cb.(all_args, this_obj)
+              _ ->
+                this_obj
+            end
+
+          {:bound, _, {:builtin, _, bound_fn}, _, _} ->
+            bound_fn.(rev_args, this_obj)
 
           {:builtin, name, cb} when is_function(cb, 2) ->
             obj = cb.(rev_args, nil)
@@ -2292,7 +2321,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     case fun do
       %Bytecode.Function{} = f -> invoke_function(f, args, gas, ctx)
       {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, args, gas, ctx)
-      {:bound, _, inner} -> invoke(inner, args, gas)
+      {:bound, _, inner, _, _} -> invoke(inner, args, gas)
       other -> Builtin.call(other, args, this)
     end
   end

@@ -147,7 +147,7 @@ defmodule QuickBEAM.BeamVM.Builtin do
 
   def call({:builtin, _, cb}, args, this), do: cb.(args, this)
 
-  def call({:bound, _, inner}, args, this), do: call(inner, args, this)
+  def call({:bound, _, inner, _, _}, args, this), do: call(inner, args, this)
 
   def call(f, args, _this) when is_function(f, 2), do: f.(args, nil)
 
@@ -164,7 +164,7 @@ defmodule QuickBEAM.BeamVM.Builtin do
 
   def callable?({:builtin, _, _}), do: true
 
-  def callable?({:bound, _, _}), do: true
+  def callable?({:bound, _, _, _, _}), do: true
 
   def callable?(f) when is_function(f), do: true
 

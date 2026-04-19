@@ -189,7 +189,7 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
   defp to_json({:closure, _, _}), do: :undefined
   defp to_json(%Bytecode.Function{}), do: :undefined
   defp to_json({:builtin, _, _}), do: :undefined
-  defp to_json({:bound, _, _}), do: :undefined
+  defp to_json({:bound, _, _, _, _}), do: :undefined
   defp to_json(:nan), do: :null
   defp to_json(:infinity), do: :null
   defp to_json(list) when is_list(list), do: Enum.map(list, &to_json/1)

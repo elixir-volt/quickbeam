@@ -26,12 +26,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Function do
   def proto_property({:closure, _, %Bytecode.Function{} = f}, "length"),
     do: f.defined_arg_count
 
-  def proto_property({:bound, _, inner}, key) when key not in ["length", "name"],
+  def proto_property({:bound, _, inner, _, _}, key) when key not in ["length", "name"],
     do: proto_property(inner, key)
 
-  def proto_property({:bound, len, _}, "length"), do: len
+  def proto_property({:bound, len, _, _, _}, "length"), do: len
   def proto_property(_fun, "length"), do: 0
-  def proto_property({:bound, _, {:builtin, name, _}}, "name"), do: name
+  def proto_property({:bound, _, {:builtin, name, _}, _, _}, "name"), do: name
   def proto_property(_fun, "name"), do: ""
   def proto_property(_fun, _), do: :undefined
 
@@ -78,7 +78,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Function do
 
     bound_len = max(0, orig_len - length(bound_args))
     bound_fn = fn args, _this2 -> invoke_fun(fun, bound_args ++ args, this_arg) end
-    {:bound, bound_len, {:builtin, "bound " <> orig_name, bound_fn}}
+    {:bound, bound_len, {:builtin, "bound " <> orig_name, bound_fn}, fun, bound_args}
   end
 
   defp invoke_fun(fun, args, this_arg) do

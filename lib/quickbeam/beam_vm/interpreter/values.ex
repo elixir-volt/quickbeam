@@ -203,7 +203,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def typeof({:closure, _, %Bytecode.Function{}}), do: "function"
   def typeof({:symbol, _}), do: "symbol"
   def typeof({:symbol, _, _}), do: "symbol"
-  def typeof({:bound, _, _}), do: "function"
+  def typeof({:bound, _, _, _, _}), do: "function"
   def typeof({:bigint, _}), do: "bigint"
   def typeof({:builtin, _, _}), do: "function"
   def typeof(_), do: "object"

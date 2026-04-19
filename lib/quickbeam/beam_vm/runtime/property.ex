@@ -191,7 +191,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
   defp get_own({:symbol, _, _} = s, "valueOf"), do: {:builtin, "valueOf", fn _, _ -> s end}
   defp get_own({:symbol, desc}, "description"), do: desc
   defp get_own({:symbol, desc, _}, "description"), do: desc
-  defp get_own({:bound, _, _} = b, key), do: Function.proto_property(b, key)
+  defp get_own({:bound, _, _, _, _} = b, key), do: Function.proto_property(b, key)
   defp get_own(_, _), do: :undefined
 
   # ── Prototype chain ──
