@@ -1893,19 +1893,19 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({:throw_error, []}, _frame, [val | _], _gas, _ctx), do: throw({:js_throw, val})
 
-  defp run({:throw_error, [atom_idx, error_type]}, frame, _stack, gas, ctx) do
+  defp run({:throw_error, [atom_idx, reason]}, frame, _stack, gas, ctx) do
     name = Scope.resolve_atom(ctx, atom_idx)
-    error_name = case error_type do
-      0 -> "Error"
-      1 -> "RangeError"
-      2 -> "ReferenceError"
-      3 -> "TypeError"
-      4 -> "SyntaxError"
-      5 -> "URIError"
-      6 -> "InternalError"
-      _ -> "Error"
+
+    {error_type, message} = case reason do
+      0 -> {"TypeError", "'#{name}' is read-only"}
+      1 -> {"SyntaxError", "redeclaration of '#{name}'"}
+      2 -> {"ReferenceError", "cannot access '#{name}' before initialization"}
+      3 -> {"ReferenceError", "unsupported reference to 'super'"}
+      4 -> {"TypeError", "iterator does not have a throw method"}
+      _ -> {"Error", name}
     end
-    throw_or_catch(frame, Heap.make_error(name, error_name), gas, ctx)
+
+    throw_or_catch(frame, Heap.make_error(message, error_type), gas, ctx)
   end
 
   defp run({:set_name_computed, []}, frame, stack, gas, ctx),
