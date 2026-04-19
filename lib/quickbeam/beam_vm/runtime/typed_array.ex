@@ -148,15 +148,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
         write_element(acc, i, call(cb, [read_element(acc, i, t), i, this]), t)
       end)
 
-    Heap.wrap(%{
-      typed_array() => true,
-      type_key() => t,
-      buffer() => new_buf,
-      offset() => 0,
-      "length" => l,
-      "byteLength" => byte_size(new_buf),
-      "byteOffset" => 0
-    })
+    elements = for i <- 0..(l - 1), do: read_element(new_buf, i, t)
+    constructor(t).([elements], nil)
   end
 
   defp filter(ref, [cb | _], this) do
@@ -177,15 +170,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
         write_element(acc, i, v, t)
       end)
 
-    Heap.wrap(%{
-      typed_array() => true,
-      type_key() => t,
-      buffer() => new_buf,
-      offset() => 0,
-      "length" => length(vals),
-      "byteLength" => byte_size(new_buf),
-      "byteOffset" => 0
-    })
+    constructor(t).([vals], nil)
   end
 
   defp every(ref, [cb | _], this) do
@@ -250,16 +235,8 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     new_len = max(0, e - s)
     es = elem_size(t)
     new_buf = if new_len > 0, do: binary_part(buf(ref), s * es, new_len * es), else: <<>>
-
-    Heap.wrap(%{
-      typed_array() => true,
-      type_key() => t,
-      buffer() => new_buf,
-      offset() => 0,
-      "length" => new_len,
-      "byteLength" => byte_size(new_buf),
-      "byteOffset" => 0
-    })
+    elements = for i <- 0..(new_len - 1), do: read_element(new_buf, i, t)
+    constructor(t).([elements], nil)
   end
 
   defp fill(ref, [val | _]) do
