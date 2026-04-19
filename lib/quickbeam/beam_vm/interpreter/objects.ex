@@ -194,6 +194,10 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   def get_element(s, key) when is_binary(s) and is_binary(key),
     do: Property.get(s, key)
 
+  def get_element(obj, key) when is_binary(key) do
+    Property.get(obj, key)
+  end
+
   def get_element(_, _), do: :undefined
 
   def put_element({:obj, ref} = obj, key, val) do

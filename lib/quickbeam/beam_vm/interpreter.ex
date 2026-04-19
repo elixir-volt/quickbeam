@@ -162,6 +162,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Helpers ──
 
+  defp home_object_key({:closure, _, %Bytecode.Function{byte_code: bc}}), do: bc
+  defp home_object_key(%Bytecode.Function{byte_code: bc}), do: bc
+  defp home_object_key(_), do: nil
+
   defp advance(f), do: put_elem(f, Frame.pc(), elem(f, Frame.pc()) + 1)
   defp jump(f, target), do: put_elem(f, Frame.pc(), target)
 
@@ -1939,8 +1943,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), rest, gas - 1, ctx)
   end
 
-  defp run({:set_home_object, []}, frame, stack, gas, ctx),
-    do: run(advance(frame), stack, gas - 1, ctx)
+  defp run({:set_home_object, []}, frame, [method, target | _] = stack, gas, ctx) do
+    key = {:qb_home_object, home_object_key(method)}
+    if key != {:qb_home_object, nil}, do: Process.put(key, target)
+    run(advance(frame), stack, gas - 1, ctx)
+  end
 
   defp run({:set_proto, []}, frame, [proto, obj | rest], gas, ctx) do
     case obj do
@@ -1982,16 +1989,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           ctx.new_target
 
         4 ->
-          case ctx.this do
-            {:obj, ref} ->
-              case Heap.get_obj(ref, %{}) do
-                %{proto() => proto} -> proto
-                _ -> :undefined
-              end
-
-            _ ->
-              :undefined
-          end
+          key = {:qb_home_object, home_object_key(current_func)}
+          Process.get(key, :undefined)
 
         5 ->
           Heap.wrap(%{})
@@ -2099,6 +2098,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
         %Bytecode.Function{} = f ->
           Heap.get_parent_ctor(f) || :undefined
+
+        {:builtin, _, _} = b ->
+          Map.get(Heap.get_ctor_statics(b), "__proto__", :undefined)
 
         _ ->
           :undefined
@@ -2295,6 +2297,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       2 -> "set " <> name
       _ -> name
     end)
+
+    needs_home = match?({:closure, _, %Bytecode.Function{need_home_object: true}}, named_method) or
+                 match?(%Bytecode.Function{need_home_object: true}, named_method)
+
+    if needs_home do
+      key = {:qb_home_object, home_object_key(named_method)}
+      if key != {:qb_home_object, nil}, do: Process.put(key, target)
+    end
 
     case method_type do
       1 -> Objects.put_getter(target, name, named_method)
