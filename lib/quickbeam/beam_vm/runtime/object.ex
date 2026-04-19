@@ -354,9 +354,20 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   end
 
   defp define_property([{:obj, ref} = obj, key, {:obj, desc_ref} | _]) do
+    try do
     desc = Heap.get_obj(desc_ref, %{})
     prop_name = if is_binary(key), do: key, else: to_string(key)
     existing = Heap.get_obj(ref, %{})
+
+    if Map.get(existing, QuickBEAM.BeamVM.Heap.Keys.typed_array()) do
+      case Integer.parse(prop_name) do
+        {idx, ""} when idx >= 0 ->
+          val = Map.get(desc, "value")
+          if val != nil, do: QuickBEAM.BeamVM.Runtime.TypedArray.set_element(obj, idx, val)
+          throw({:early_return, obj})
+        _ -> :ok
+      end
+    end
 
     getter = Map.get(desc, "get")
     setter = Map.get(desc, "set")
@@ -389,6 +400,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     })
 
     obj
+    catch
+      {:early_return, val} -> val
+    end
   end
 
   defp define_property([obj | _]), do: obj
@@ -399,7 +413,28 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
     case Map.get(map, prop_name) do
       nil ->
-        :undefined
+        if Map.get(map, QuickBEAM.BeamVM.Heap.Keys.typed_array()) do
+          case Integer.parse(prop_name) do
+            {idx, ""} when idx >= 0 ->
+              val = QuickBEAM.BeamVM.Runtime.TypedArray.get_element({:obj, ref}, idx)
+              if val == :undefined do
+                :undefined
+              else
+                immutable = QuickBEAM.BeamVM.Runtime.TypedArray.immutable?({:obj, ref})
+                desc_ref = make_ref()
+                Heap.put_obj(desc_ref, %{
+                  "value" => val,
+                  "writable" => not immutable,
+                  "enumerable" => true,
+                  "configurable" => not immutable
+                })
+                {:obj, desc_ref}
+              end
+            _ -> :undefined
+          end
+        else
+          :undefined
+        end
 
       {:accessor, getter, setter} ->
         desc = Heap.get_prop_desc(ref, prop_name) || %{enumerable: true, configurable: true}

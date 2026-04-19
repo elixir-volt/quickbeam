@@ -68,25 +68,53 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
   # ── Element access (public, used by Interpreter.Objects) ──
 
+  def immutable?({:obj, ref}) do
+    is_immutable_buffer?(Heap.get_obj(ref, %{}))
+  end
+
   def get_element({:obj, ref}, idx) do
-    ta = Heap.get_obj(ref, %{})
-    read_element(Map.get(ta, buffer(), <<>>), idx, Map.get(ta, type_key(), :uint8))
+    b = buf(ref)
+    if b == nil, do: :undefined, else: read_element(b, idx, type(ref))
   end
 
   def set_element({:obj, ref}, idx, val) do
     ta = Heap.get_obj(ref, %{})
-    t = Map.get(ta, type_key(), :uint8)
 
-    Heap.put_obj(
-      ref,
-      Map.put(ta, buffer(), write_element(Map.get(ta, buffer(), <<>>), idx, val, t))
-    )
+    if Map.get(ta, "__immutable__") || is_immutable_buffer?(ta) do
+      :ok
+    else
+      t = Map.get(ta, type_key(), :uint8)
+      new_buf = write_element(buf(ref) || <<>>, idx, val, t)
+      update_buffer(ref, new_buf)
+    end
+  end
+
+  defp is_immutable_buffer?(ta) do
+    case Map.get(ta, "buffer") do
+      {:obj, buf_ref} ->
+        case Heap.get_obj(buf_ref, %{}) do
+          m when is_map(m) -> Map.get(m, "__immutable__", false)
+          _ -> false
+        end
+      _ -> false
+    end
   end
 
   # ── State readers ──
 
   defp state(ref), do: Heap.get_obj(ref, %{})
-  defp buf(ref), do: Map.get(state(ref), buffer(), <<>>)
+  defp buf(ref) do
+    s = state(ref)
+    case Map.get(s, "buffer") do
+      {:obj, buf_ref} ->
+        case Heap.get_obj(buf_ref, %{}) do
+          m when is_map(m) ->
+            if Map.get(m, "__detached__"), do: nil, else: Map.get(m, buffer(), <<>>)
+          _ -> Map.get(s, buffer(), <<>>)
+        end
+      _ -> Map.get(s, buffer(), <<>>)
+    end
+  end
   defp len(ref), do: Map.get(state(ref), "length", 0)
   defp type(ref), do: Map.get(state(ref), type_key(), :uint8)
 
@@ -274,9 +302,21 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
   defp fill(ref, [val | _]) do
     {l, t} = {len(ref), type(ref)}
-    new_buf = Enum.reduce(0..(l - 1), buf(ref), &write_element(&2, &1, val, t))
-    Heap.put_obj(ref, Map.put(state(ref), buffer(), new_buf))
+    new_buf = Enum.reduce(0..(l - 1), buf(ref) || <<>>, &write_element(&2, &1, val, t))
+    update_buffer(ref, new_buf)
     {:obj, ref}
+  end
+
+  defp update_buffer(ref, new_buf) do
+    s = state(ref)
+    Heap.put_obj(ref, Map.put(s, buffer(), new_buf))
+
+    case Map.get(s, "buffer") do
+      {:obj, buf_ref} ->
+        buf_map = Heap.get_obj(buf_ref, %{})
+        if is_map(buf_map), do: Heap.put_obj(buf_ref, Map.put(buf_map, buffer(), new_buf))
+      _ -> :ok
+    end
   end
 
   # ── Helpers ──
