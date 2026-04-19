@@ -927,9 +927,9 @@ fn ensure_regexp_ctx() ?*types.qjs.JSContext {
 pub fn regexp_exec(bc_buf: []const u8, input: []const u8, last_index: u32) beam.term {
     const ctx = ensure_regexp_ctx() orelse return beam.make(null, .{});
 
+    if (bc_buf.len < 8) return beam.make(null, .{});
     const capture_count: u32 = @intCast(bc_buf[2]); // RE_HEADER_CAPTURE_COUNT
     if (capture_count == 0 or capture_count > 255) return beam.make(null, .{});
-    if (bc_buf.len < 8) return beam.make(null, .{});
 
     // Read flags from header to determine unicode mode
     const flags: u32 = @as(u32, bc_buf[0]) | (@as(u32, bc_buf[1]) << 8);
@@ -969,4 +969,26 @@ pub fn regexp_exec(bc_buf: []const u8, input: []const u8, last_index: u32) beam.
         }
     }
     return beam.make(result_terms[0..capture_count], .{});
+}
+
+pub fn regexp_compile(pattern: []const u8, flags: u32) beam.term {
+    const ctx = ensure_regexp_ctx() orelse return beam.make(null, .{});
+
+    var bc_len: c_int = 0;
+    var error_msg: [64]u8 = undefined;
+
+    const bc_ptr: ?[*]u8 = lre.lre_compile(
+        &bc_len,
+        &error_msg,
+        error_msg.len,
+        @ptrCast(pattern.ptr),
+        pattern.len,
+        @intCast(flags),
+        @ptrCast(ctx),
+    );
+
+    if (bc_ptr == null or bc_len <= 0) return beam.make(null, .{});
+    defer std.c.free(bc_ptr.?);
+
+    return beam.make(bc_ptr.?[0..@intCast(bc_len)], .{});
 }

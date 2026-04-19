@@ -17,11 +17,12 @@ defmodule QuickBEAM.JSEngineTest do
     {:ok, rt} = QuickBEAM.start()
 
     assert_js = strip_exports(File.read!("test/beam_vm/assert.js"))
-    QuickBEAM.eval(rt, assert_js)
+    QuickBEAM.eval(rt, assert_js, mode: :beam)
 
     QuickBEAM.eval(
       rt,
-      ~s|gc=function(){};os={platform:'elixir'};qjs={getStringKind:function(s){return s.length>256?1:0}}|
+      ~s|gc=function(){};os={platform:'elixir'};qjs={getStringKind:function(s){return s.length>256?1:0}}|,
+      mode: :beam
     )
 
     %{rt: rt}
@@ -58,12 +59,12 @@ defmodule QuickBEAM.JSEngineTest do
 
       @tag :js_engine
       test "#{file}: #{func_name}", %{rt: rt} do
-        QuickBEAM.eval(rt, unquote(helpers))
+        QuickBEAM.eval(rt, unquote(helpers), mode: :beam)
 
         padding = String.duplicate("\n", unquote(func_line) - 1)
         code = padding <> unquote(func_body) <> "\n" <> unquote(func_name) <> "();"
 
-        case QuickBEAM.eval(rt, code, filename: unquote(file)) do
+        case QuickBEAM.eval(rt, code, mode: :beam, filename: unquote(file)) do
           {:ok, _} -> :ok
           {:error, %QuickBEAM.JSError{message: msg}} -> flunk("JS: #{msg}")
           {:error, err} -> flunk("JS error: #{inspect(err)}")

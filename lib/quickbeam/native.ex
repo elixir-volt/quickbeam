@@ -154,6 +154,7 @@ defmodule QuickBEAM.Native do
     ],
     resources: [:RuntimeResource, :PoolResource, :WasmModuleResource, :WasmInstanceResource],
     nifs: [
+      regexp_compile: 2,
       regexp_exec: 3,
       eval: 4,
       compile: 2,
