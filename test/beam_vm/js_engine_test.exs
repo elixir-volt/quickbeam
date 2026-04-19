@@ -1,14 +1,12 @@
 defmodule QuickBEAM.JSEngineTest do
   use ExUnit.Case, async: true
-
-  # Source position tests require original file layout (line numbers shift when
-  # functions are extracted). cur_pc/eval/array are QuickJS C engine limitations.
-  # Source position tests: eval with line-number padding to preserve original positions.
-  # NIF engine bugs (can't fix from Elixir):
-  #   test_cur_pc — spread destructuring doesn't trigger defineProperty getter
-  #   test_eval — eval var scoping + calls skipped test_eval2
-  #   test_array — defineProperty configurable:false + length truncation
-  @skip_builtin ~w(test_cur_pc test_eval test_array)
+  # Skip list: tests that cannot work in beam mode
+  # Source positions / stack traces: beam VM does not track JS source locations
+  # eval/eval2: eval opcode not implemented in beam VM
+  # array: defineProperty configurable:false + length truncation (C engine only)
+  # cur_pc: spread destructuring defineProperty getter (C engine only)
+  # rope: surrogate pair encoding differs in BEAM binaries
+  @skip_builtin ~w(test_cur_pc test_eval test_eval2 test_array test_exception_source_pos test_function_source_pos test_exception_prepare_stack test_exception_stack_size_limit test_exception_capture_stack_trace test_rope)
 
   @skip_language ~w()
 

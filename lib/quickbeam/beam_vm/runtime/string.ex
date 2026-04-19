@@ -187,7 +187,8 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
   defp index_of(s, [sub | rest]) when is_binary(s) and is_binary(sub) do
     from =
       case rest do
-        [f | _] when is_integer(f) and f >= 0 -> f
+        [:infinity | _] -> String.length(s)
+        [f | _] when is_number(f) -> max(0, Runtime.to_int(f))
         _ -> 0
       end
 
@@ -208,6 +209,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
   defp last_index_of(s, [sub | rest]) when is_binary(s) and is_binary(sub) do
     from =
       case rest do
+        [:neg_infinity | _] -> 0
         [f | _] when is_number(f) -> max(0, min(Runtime.to_int(f), String.length(s)))
         _ -> String.length(s)
       end
@@ -286,8 +288,18 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
     end
   end
 
-  defp split(s, [sep | _]) when is_binary(s) and is_binary(sep) do
-    if sep == "", do: String.codepoints(s), else: String.split(s, sep)
+  defp split(s, [sep | rest]) when is_binary(s) and is_binary(sep) do
+    limit = case rest do
+      [n | _] when is_integer(n) -> n
+      _ -> :infinity
+    end
+
+    if limit == 0 do
+      []
+    else
+      parts = if sep == "", do: String.codepoints(s), else: String.split(s, sep)
+      if limit == :infinity, do: parts, else: Enum.take(parts, limit)
+    end
   end
 
   defp split(s, [nil | _]) when is_binary(s), do: [s]
