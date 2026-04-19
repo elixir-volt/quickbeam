@@ -166,7 +166,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
         "Set" => {:builtin, "Set", MapSet.set_constructor()},
         "WeakMap" => {:builtin, "WeakMap", MapSet.map_constructor()},
         "WeakSet" => {:builtin, "WeakSet", MapSet.set_constructor()},
-        "WeakRef" => {:builtin, "WeakRef", fn _, _this -> __MODULE__.new_object() end},
+        "WeakRef" => {:builtin, "WeakRef", fn _, _this -> new_object() end},
         "Reflect" => Reflect.object(),
         "Proxy" =>
           {:builtin, "Proxy",
@@ -175,7 +175,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
                Heap.wrap(%{proxy_target() => target, proxy_handler() => handler})
 
              _, _this ->
-               __MODULE__.new_object()
+               new_object()
            end},
         "console" => Console.object(),
         "require" =>

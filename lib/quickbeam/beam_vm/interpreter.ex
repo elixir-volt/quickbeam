@@ -1,6 +1,26 @@
 defmodule QuickBEAM.BeamVM.Interpreter do
   import QuickBEAM.BeamVM.Heap.Keys
 
+  @moduledoc """
+  Executes decoded QuickJS bytecode via multi-clause function dispatch.
+
+  The interpreter pre-decodes bytecode into instruction tuples for O(1) indexed
+  access, then runs a tail-recursive dispatch loop with one `defp run/5` clause
+  per opcode family.
+
+  ## JS value representation
+
+    - number:    Elixir integer or float
+    - string:    Elixir binary
+    - boolean:   `true` / `false`
+    - null:      `nil`
+    - undefined: `:undefined`
+    - object:    `{:obj, reference()}`
+    - function:  `%Bytecode.Function{}` | `{:closure, map(), %Bytecode.Function{}}`
+    - symbol:    `{:symbol, desc}` | `{:symbol, desc, ref}`
+    - bigint:    `{:bigint, integer()}`
+  """
+
   @compile {:inline,
             advance: 1,
             jump: 2,
@@ -11,23 +31,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             make_list_iterator: 1,
             with_has_property?: 2,
             check_prototype_chain: 2}
-  @moduledoc """
-  Executes decoded QuickJS bytecode via multi-clause function dispatch.
-
-  The interpreter pre-decodes bytecode into instruction tuples for O(1) indexed
-  access, then runs a tail-recursive dispatch loop with one `defp run/5` clause
-  per opcode family.
-
-  ## JS value representation
-    - number: Elixir integer or float
-    - string: Elixir binary
-    - boolean: true / false
-    - null: nil
-    - undefined: :undefined
-    - object: {:ref, reference()}
-    - function: {:function, Bytecode.Function.t()} | {:closure, map(), Bytecode.Function.t()}
-    - array: {:array, list(), reference()}
-  """
 
   alias QuickBEAM.BeamVM.{Bytecode, Decoder, Runtime}
   alias __MODULE__.{Frame, Context}
@@ -170,6 +173,16 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     base = %{"message" => message, "name" => name, "stack" => ""}
     obj = if proto, do: Map.put(base, proto(), proto), else: base
     Heap.wrap(obj)
+  end
+
+  defp throw_or_catch(frame, error, gas, ctx) do
+    case ctx.catch_stack do
+      [{target, saved_stack} | rest_catch] ->
+        run(jump(frame, target), [error | saved_stack], gas - 1, %{ctx | catch_stack: rest_catch})
+
+      [] ->
+        throw({:js_throw, error})
+    end
   end
 
   @compile {:inline, unwrap_promise: 2}
@@ -903,13 +916,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     error =
       make_error_obj("Cannot read properties of #{nullish} (reading '#{prop}')", "TypeError")
 
-    case ctx.catch_stack do
-      [{target, saved_stack} | rest_catch] ->
-        run(jump(frame, target), [error | saved_stack], gas - 1, %{ctx | catch_stack: rest_catch})
-
-      [] ->
-        throw({:js_throw, error})
-    end
+    throw_or_catch(frame, error, gas, ctx)
   end
 
   defp run({:get_field, [atom_idx]}, frame, [obj | rest], gas, ctx) do
@@ -1065,14 +1072,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({:set_name, [_atom_idx]}, frame, stack, gas, ctx),
     do: run(advance(frame), stack, gas - 1, ctx)
 
-  defp run({:throw, []}, frame, [val | _], gas, %Context{catch_stack: catch_stack} = ctx) do
-    case catch_stack do
-      [{target, saved_stack} | rest_catch] ->
-        run(jump(frame, target), [val | saved_stack], gas - 1, %{ctx | catch_stack: rest_catch})
-
-      [] ->
-        throw({:js_throw, val})
-    end
+  defp run({:throw, []}, frame, [val | _], gas, ctx) do
+    throw_or_catch(frame, val, gas, ctx)
   end
 
   defp run({:is_undefined, []}, frame, [a | rest], gas, ctx),
@@ -1105,16 +1106,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         error =
           make_error_obj("#{Scope.resolve_atom(ctx, atom_idx)} is not defined", "ReferenceError")
 
-        case ctx.catch_stack do
-          [{target, saved_stack} | rest_catch] ->
-            run(jump(frame, target), [error | saved_stack], gas - 1, %{
-              ctx
-              | catch_stack: rest_catch
-            })
-
-          [] ->
-            throw({:js_throw, error})
-        end
+        throw_or_catch(frame, error, gas, ctx)
     end
   end
 
@@ -1155,13 +1147,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     error =
       make_error_obj("Cannot read properties of #{nullish} (reading '#{prop}')", "TypeError")
 
-    case ctx.catch_stack do
-      [{target, saved_stack} | rest_catch] ->
-        run(jump(frame, target), [error | saved_stack], gas - 1, %{ctx | catch_stack: rest_catch})
-
-      [] ->
-        throw({:js_throw, error})
-    end
+    throw_or_catch(frame, error, gas, ctx)
   end
 
   defp run({:get_field2, [atom_idx]}, frame, [obj | rest], gas, ctx) do
