@@ -1,5 +1,5 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Objects do
-  import QuickBEAM.BeamVM.InternalKeys
+  import QuickBEAM.BeamVM.Heap.Keys
   @compile {:inline, has_property: 2, get_array_el: 2, list_set_at: 3}
   alias QuickBEAM.BeamVM.{Heap, Bytecode}
 

@@ -1,7 +1,7 @@
 defmodule QuickBEAM.BeamVM.Runtime.Prototypes do
   @moduledoc false
 
-  import QuickBEAM.BeamVM.InternalKeys
+  import QuickBEAM.BeamVM.Heap.Keys
 
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.{Bytecode, Runtime}

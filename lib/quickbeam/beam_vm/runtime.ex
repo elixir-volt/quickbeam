@@ -1,12 +1,12 @@
 defmodule QuickBEAM.BeamVM.Runtime do
-  import QuickBEAM.BeamVM.InternalKeys
+  import QuickBEAM.BeamVM.Heap.Keys
 
   @moduledoc """
   JS built-in runtime: property resolution, shared helpers, global bindings.
 
   Domain-specific builtins live in sub-modules:
   - `Runtime.Array` — Array.prototype + Array static
-  - `Runtime.StringProto` — String.prototype
+  - `Runtime.String` — String.prototype
   - `Runtime.JSON` — parse/stringify
   - `Runtime.Object` — Object static methods
   - `Runtime.RegExp` — RegExp prototype + exec
@@ -18,10 +18,11 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   alias QuickBEAM.BeamVM.Bytecode
 
+  alias QuickBEAM.BeamVM.Runtime.String, as: JSString
+
   alias QuickBEAM.BeamVM.Runtime.{
     Array,
     Prototypes,
-    StringProto,
     JSON,
     Object,
     RegExp,
@@ -419,7 +420,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
 
   defp get_own_property(s, "length") when is_binary(s), do: js_string_length(s)
-  defp get_own_property(s, key) when is_binary(s), do: StringProto.proto_property(key)
+  defp get_own_property(s, key) when is_binary(s), do: JSString.proto_property(key)
 
   defp get_own_property(n, _) when is_number(n), do: :undefined
   defp get_own_property(true, _), do: :undefined
@@ -536,7 +537,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
 
   defp get_prototype_property(list, key) when is_list(list), do: Array.proto_property(key)
-  defp get_prototype_property(s, key) when is_binary(s), do: StringProto.proto_property(key)
+  defp get_prototype_property(s, key) when is_binary(s), do: JSString.proto_property(key)
   defp get_prototype_property(n, key) when is_number(n), do: Builtins.number_proto_property(key)
   defp get_prototype_property(true, key), do: Builtins.boolean_proto_property(key)
   defp get_prototype_property(false, key), do: Builtins.boolean_proto_property(key)

@@ -1,5 +1,5 @@
 defmodule QuickBEAM do
-  import QuickBEAM.BeamVM.InternalKeys
+  import QuickBEAM.BeamVM.Heap.Keys
 
   @moduledoc """
   QuickJS-NG JavaScript engine embedded in the BEAM.

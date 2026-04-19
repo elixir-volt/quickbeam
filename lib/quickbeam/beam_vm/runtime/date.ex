@@ -1,5 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime.Date do
-  import QuickBEAM.BeamVM.InternalKeys
+  import QuickBEAM.BeamVM.Heap.Keys
   @moduledoc false
   alias QuickBEAM.BeamVM.Heap
 

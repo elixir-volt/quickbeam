@@ -1,5 +1,5 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Promise do
-  import QuickBEAM.BeamVM.InternalKeys
+  import QuickBEAM.BeamVM.Heap.Keys
   @moduledoc false
 
   alias QuickBEAM.BeamVM.Heap
@@ -195,51 +195,5 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
           Heap.enqueue_microtask({:resolve, child_ref, fn v -> v end, val})
       end
     end
-  end
-
-  def generator_next(gen_ref, arg) do
-    case Heap.get_obj(gen_ref) do
-      %{state: :suspended, frame: frame, stack: stack, gas: gas, ctx: ctx} ->
-        Heap.put_ctx(ctx)
-
-        try do
-          # QuickJS yield protocol: [is_return_or_throw, value | saved_stack]
-          result = QuickBEAM.BeamVM.Interpreter.run_frame(frame, [false, arg | stack], gas, ctx)
-          Heap.put_obj(gen_ref, %{state: :completed})
-          done_result(result)
-        catch
-          {:generator_yield, val, sf, ss, sg, sc} ->
-            Heap.put_obj(gen_ref, %{state: :suspended, frame: sf, stack: ss, gas: sg, ctx: sc})
-            yield_result(val)
-
-          {:generator_yield_star, val, sf, ss, sg, sc} ->
-            Heap.put_obj(gen_ref, %{state: :suspended, frame: sf, stack: ss, gas: sg, ctx: sc})
-            val
-
-          {:generator_return, val} ->
-            Heap.put_obj(gen_ref, %{state: :completed})
-            done_result(val)
-
-          {:js_throw, _} = thrown ->
-            Heap.put_obj(gen_ref, %{state: :completed})
-            throw(thrown)
-        end
-
-      _ ->
-        done_result(:undefined)
-    end
-  end
-
-  def generator_return(gen_ref, val) do
-    Heap.put_obj(gen_ref, %{state: :completed})
-    done_result(val)
-  end
-
-  def yield_result(val) do
-    Heap.wrap(%{"value" => val, "done" => false})
-  end
-
-  def done_result(val) do
-    Heap.wrap(%{"value" => val, "done" => true})
   end
 end

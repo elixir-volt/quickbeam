@@ -1,4 +1,4 @@
-defmodule QuickBEAM.BeamVM.Runtime.StringProto do
+defmodule QuickBEAM.BeamVM.Runtime.String do
   @moduledoc "String.prototype methods."
 
   alias QuickBEAM.BeamVM.Runtime

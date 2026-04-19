@@ -1,5 +1,5 @@
 defmodule QuickBEAM.BeamVM.Heap do
-  import QuickBEAM.BeamVM.InternalKeys
+  import QuickBEAM.BeamVM.Heap.Keys
 
   @compile {:inline,
             get_obj: 1,

@@ -1,4 +1,4 @@
-defmodule QuickBEAM.BeamVM.InternalKeys do
+defmodule QuickBEAM.BeamVM.Heap.Keys do
   @moduledoc false
 
   @proto "__proto__"

@@ -1,5 +1,5 @@
 defmodule QuickBEAM.BeamVM.Interpreter do
-  import QuickBEAM.BeamVM.InternalKeys
+  import QuickBEAM.BeamVM.Heap.Keys
 
   @compile {:inline,
             advance: 1,

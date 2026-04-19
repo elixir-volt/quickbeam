@@ -1,5 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime.JSON do
-  import QuickBEAM.BeamVM.InternalKeys
+  import QuickBEAM.BeamVM.Heap.Keys
   alias QuickBEAM.BeamVM.Heap
   @moduledoc "JSON.parse and JSON.stringify."
 

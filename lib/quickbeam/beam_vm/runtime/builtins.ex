@@ -1,5 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime.Builtins do
-  import QuickBEAM.BeamVM.InternalKeys
+  import QuickBEAM.BeamVM.Heap.Keys
   alias QuickBEAM.BeamVM.Heap
   @moduledoc "Math, Number, Boolean, Console, constructors, and global functions."
 

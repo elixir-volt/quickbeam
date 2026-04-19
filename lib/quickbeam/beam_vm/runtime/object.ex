@@ -1,5 +1,5 @@
 defmodule QuickBEAM.BeamVM.Runtime.Object do
-  import QuickBEAM.BeamVM.InternalKeys
+  import QuickBEAM.BeamVM.Heap.Keys
   alias QuickBEAM.BeamVM.Heap
   @moduledoc "Object static methods."
 
