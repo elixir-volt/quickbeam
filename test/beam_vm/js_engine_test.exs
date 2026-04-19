@@ -1,7 +1,7 @@
 defmodule QuickBEAM.JSEngineTest do
   use ExUnit.Case, async: true
 
-  @assert_js Path.join(__DIR__, "assert.js") |> File.read!() |> String.replace("export ", "")
+  @assert_js_path Path.join(__DIR__, "assert.js")
 
   @stubs_js """
   if (typeof gc === 'undefined') { var gc = function() {}; }
@@ -23,6 +23,8 @@ defmodule QuickBEAM.JSEngineTest do
   setup do
     QuickBEAM.BeamVM.Heap.reset()
     {:ok, rt} = QuickBEAM.start()
+    assert_js = @assert_js_path |> File.read!() |> String.replace("export ", "")
+    QuickBEAM.eval(rt, assert_js)
     %{rt: rt}
   end
 
@@ -57,7 +59,6 @@ defmodule QuickBEAM.JSEngineTest do
       test "#{file}: #{func_name}", %{rt: rt} do
         code =
           @stubs_js <>
-            @assert_js <>
             unquote(helpers) <>
             "\n" <> unquote(func_body) <> "\n" <> unquote(func_name) <> "();"
 
