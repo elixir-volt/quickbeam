@@ -210,8 +210,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
     s = String.trim(s)
 
     cond do
-      s == "Infinity" or s == "+Infinity" -> :infinity
-      s == "-Infinity" -> :neg_infinity
+      String.starts_with?(s, "Infinity") or String.starts_with?(s, "+Infinity") -> :infinity
+      String.starts_with?(s, "-Infinity") -> :neg_infinity
       true ->
         case Float.parse(s) do
           {f, _} -> f
