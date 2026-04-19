@@ -162,6 +162,20 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Helpers ──
 
+  defp restore_pre_eval_globals(pre_eval_globals) do
+    post = Heap.get_persistent_globals() || %{}
+
+    restored =
+      Enum.reduce(post, post, fn {key, _val}, acc ->
+        case Map.fetch(pre_eval_globals, key) do
+          {:ok, old_val} -> Map.put(acc, key, old_val)
+          :error -> acc
+        end
+      end)
+
+    Heap.put_persistent_globals(restored)
+  end
+
   defp caller_is_strict?(%Context{current_func: func}) do
     case func do
       {:closure, _, %Bytecode.Function{is_strict_mode: s}} -> s
@@ -171,6 +185,20 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp home_object_key({:closure, _, %Bytecode.Function{byte_code: bc}}), do: bc
+  defp restore_pre_eval_globals(pre_eval_globals) do
+    post = Heap.get_persistent_globals() || %{}
+
+    restored =
+      Enum.reduce(post, post, fn {key, _val}, acc ->
+        case Map.fetch(pre_eval_globals, key) do
+          {:ok, old_val} -> Map.put(acc, key, old_val)
+          :error -> acc
+        end
+      end)
+
+    Heap.put_persistent_globals(restored)
+  end
+
   defp caller_is_strict?(%Context{current_func: func}) do
     case func do
       {:closure, _, %Bytecode.Function{is_strict_mode: s}} -> s
@@ -180,6 +208,20 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp home_object_key(%Bytecode.Function{byte_code: bc}), do: bc
+  defp restore_pre_eval_globals(pre_eval_globals) do
+    post = Heap.get_persistent_globals() || %{}
+
+    restored =
+      Enum.reduce(post, post, fn {key, _val}, acc ->
+        case Map.fetch(pre_eval_globals, key) do
+          {:ok, old_val} -> Map.put(acc, key, old_val)
+          :error -> acc
+        end
+      end)
+
+    Heap.put_persistent_globals(restored)
+  end
+
   defp caller_is_strict?(%Context{current_func: func}) do
     case func do
       {:closure, _, %Bytecode.Function{is_strict_mode: s}} -> s
@@ -353,7 +395,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
-  defp write_back_eval_vars(caller_frame, ctx, _original_globals, var_obj \\ nil) do
+  defp write_back_eval_vars(caller_frame, ctx, original_globals, var_objs \\ []) do
     new_globals = Heap.get_persistent_globals() || %{}
 
     if caller_is_strict?(ctx) do
@@ -382,26 +424,22 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:closure, _, %Bytecode.Function{locals: local_defs, arg_count: ac}} ->
         do_write_back(local_defs, ac, locals, vrefs, l2v, new_globals, ctx)
 
-    if var_obj != nil do
-      eval_globals = collect_caller_locals(caller_frame, ctx)
+    if var_objs != [] do
       for {name, val} <- new_globals,
           is_binary(name),
-          not Map.has_key?(eval_globals, name),
-          not Map.has_key?(ctx.globals, name) do
-        Objects.put(var_obj, name, val)
+          Map.get(original_globals, name) != val do
+        for var_obj <- var_objs, do: Objects.put(var_obj, name, val)
       end
     end
 
       %Bytecode.Function{locals: local_defs, arg_count: ac} ->
         do_write_back(local_defs, ac, locals, vrefs, l2v, new_globals, ctx)
 
-    if var_obj != nil do
-      eval_globals = collect_caller_locals(caller_frame, ctx)
+    if var_objs != [] do
       for {name, val} <- new_globals,
           is_binary(name),
-          not Map.has_key?(eval_globals, name),
-          not Map.has_key?(ctx.globals, name) do
-        Objects.put(var_obj, name, val)
+          Map.get(original_globals, name) != val do
+        for var_obj <- var_objs, do: Objects.put(var_obj, name, val)
       end
     end
 
@@ -1854,17 +1892,21 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     call_args = Enum.take(args, argc) |> Enum.reverse()
     code = List.first(call_args, :undefined)
 
-    scope_idx = List.first(scope_args)
-    var_obj =
-      if is_integer(scope_idx) do
+    var_objs =
+      if scope_args != [] do
         locals = elem(frame, Frame.locals())
-        if scope_idx < tuple_size(locals), do: elem(locals, scope_idx), else: nil
+        for i <- 0..(tuple_size(locals) - 1),
+            obj = elem(locals, i),
+            match?({:obj, _}, obj),
+            do: obj
+      else
+        []
       end
 
     catch_js_throw(frame, rest, gas, ctx, fn ->
       cond do
         eval_ref == ctx.globals["eval"] and is_binary(code) and ctx.runtime_pid != nil ->
-          eval_code(code, frame, gas, ctx, var_obj)
+          eval_code(code, frame, gas, ctx, var_objs)
 
         is_function(eval_ref) or match?({:fn, _, _}, eval_ref) or match?({:bound, _, _}, eval_ref) ->
           dispatch_call(eval_ref, call_args, gas, ctx, :undefined)
