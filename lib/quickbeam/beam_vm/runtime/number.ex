@@ -127,7 +127,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
   defp to_exponential(n, _), do: Runtime.stringify(n)
 
   defp strip_exponent_zeros(s) do
-    String.replace(s, ~r/e([+-])0*(\d+)/, "e\\1\\2")
+    case String.split(s, "e") do
+      [mantissa, exp_str] -> mantissa <> "e" <> format_exponent(String.to_integer(exp_str))
+      _ -> s
+    end
   end
 
   # ── toPrecision(precision) ──
