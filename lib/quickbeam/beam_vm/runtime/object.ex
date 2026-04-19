@@ -20,6 +20,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     })
 
     proto = {:obj, ref}
+    for key <- ["toString", "valueOf", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "constructor"] do
+      Heap.put_prop_desc(ref, key, %{enumerable: false, configurable: true, writable: true})
+    end
     Heap.put_object_prototype(proto)
     proto
   end

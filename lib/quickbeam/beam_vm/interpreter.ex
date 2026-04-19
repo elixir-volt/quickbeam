@@ -155,6 +155,23 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     do: put_elem(f, Frame.locals(), put_elem(elem(f, Frame.locals()), idx, val))
 
 
+  defp collect_proto_keys(nil, acc), do: acc
+  defp collect_proto_keys(:undefined, acc), do: acc
+  defp collect_proto_keys({:obj, ref}, acc) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        keys = Map.keys(map)
+          |> Enum.filter(&is_binary/1)
+          |> Enum.reject(fn k ->
+            k == "constructor" or String.starts_with?(k, "__") or k in acc or
+              match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
+          end)
+        collect_proto_keys(Map.get(map, proto()), acc ++ keys)
+      _ -> acc
+    end
+  end
+  defp collect_proto_keys(_, acc), do: acc
+
   defp throw_or_catch(frame, error, gas, ctx) do
     case ctx.catch_stack do
       [{target, saved_stack} | rest_catch] ->
@@ -1172,14 +1189,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
                   _ -> Map.keys(map)
                 end
 
-              raw_keys
+              own_keys = raw_keys
               |> Enum.reject(fn k ->
                 (is_binary(k) and String.starts_with?(k, "__")) or
                   is_tuple(k) or is_atom(k) or
                   not Map.has_key?(map, k) or
                   match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
               end)
-              |> Runtime.sort_numeric_keys()
+
+              proto_keys = collect_proto_keys(Map.get(map, proto()), [])
+              all_keys = own_keys ++ Enum.reject(proto_keys, &(&1 in own_keys))
+              Runtime.sort_numeric_keys(all_keys)
           end
 
         map when is_map(map) ->

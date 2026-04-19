@@ -295,6 +295,9 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
   def map_proto("values"), do: {:builtin, "values", &map_values/2}
   def map_proto("entries"), do: {:builtin, "entries", &map_entries/2}
   def map_proto("forEach"), do: {:builtin, "forEach", &map_for_each/2}
+  def map_proto("size"), do: {:builtin, "size", fn _, {:obj, ref} ->
+    Map.get(Heap.get_obj(ref, %{}), map_data(), %{}) |> map_size()
+  end}
   def map_proto(_), do: :undefined
 
   defp map_get([key | _], {:obj, ref}) do

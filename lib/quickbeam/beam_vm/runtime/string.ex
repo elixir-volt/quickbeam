@@ -310,16 +310,32 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
   defp replace_all(s, _), do: s
 
-  defp match(s, [{:regexp, bytecode, _source} | _]) when is_binary(s) and is_binary(bytecode) do
-    case RegExp.nif_exec(bytecode, s, 0) do
-      nil ->
-        nil
+  defp match(s, [{:regexp, bytecode, _source} = re | _]) when is_binary(s) and is_binary(bytecode) do
+    flags = QuickBEAM.BeamVM.Runtime.Property.regexp_flags(bytecode)
 
-      captures ->
-        Enum.map(captures, fn
-          {start, len} -> String.slice(s, start, len)
-          nil -> :undefined
-        end)
+    if String.contains?(flags, "g") do
+      match_all_strings(s, re, 0, [])
+    else
+      case RegExp.nif_exec(bytecode, s, 0) do
+        nil -> nil
+        captures ->
+          Enum.map(captures, fn
+            {start, len} -> String.slice(s, start, len)
+            nil -> :undefined
+          end)
+      end
+    end
+  end
+
+  defp match_all_strings(s, {:regexp, bytecode, _} = re, offset, acc) do
+    case RegExp.nif_exec(bytecode, s, offset) do
+      nil -> if acc == [], do: nil, else: Enum.reverse(acc)
+      [{start, len} | _] ->
+        matched = String.slice(s, start, len)
+        new_offset = start + max(len, 1)
+        if new_offset > byte_size(s),
+          do: Enum.reverse([matched | acc]),
+          else: match_all_strings(s, re, new_offset, [matched | acc])
     end
   end
 
