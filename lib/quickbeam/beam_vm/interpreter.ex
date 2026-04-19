@@ -1099,8 +1099,26 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [result | rest], gas - 1, ctx)
   end
 
-  defp run({:set_name, [_atom_idx]}, frame, stack, gas, ctx),
-    do: run(advance(frame), stack, gas - 1, ctx)
+  defp run({:set_name, [atom_idx]}, frame, [fun | rest], gas, ctx) do
+    name = Scope.resolve_atom(ctx, atom_idx)
+
+    named =
+      case fun do
+        {:closure, captured, %Bytecode.Function{} = f} ->
+          {:closure, captured, %{f | name: name}}
+
+        %Bytecode.Function{} = f ->
+          %{f | name: name}
+
+        {:builtin, _, cb} ->
+          {:builtin, name, cb}
+
+        other ->
+          other
+      end
+
+    run(advance(frame), [named | rest], gas - 1, ctx)
+  end
 
   defp run({:throw, []}, frame, [val | _], gas, ctx) do
     throw_or_catch(frame, val, gas, ctx)
@@ -1952,8 +1970,33 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     throw_or_catch(frame, Heap.make_error(message, error_type), gas, ctx)
   end
 
-  defp run({:set_name_computed, []}, frame, stack, gas, ctx),
-    do: run(advance(frame), stack, gas - 1, ctx)
+  defp run({:set_name_computed, []}, frame, [fun, name_val | rest], gas, ctx) do
+    name =
+      case name_val do
+        s when is_binary(s) -> s
+        n when is_number(n) -> Values.stringify(n)
+        {:symbol, desc, _} -> "[" <> desc <> "]"
+        {:symbol, desc} -> "[" <> desc <> "]"
+        _ -> ""
+      end
+
+    named =
+      case fun do
+        {:closure, captured, %Bytecode.Function{} = f} ->
+          {:closure, captured, %{f | name: name}}
+
+        %Bytecode.Function{} = f ->
+          %{f | name: name}
+
+        {:builtin, _, cb} ->
+          {:builtin, name, cb}
+
+        other ->
+          other
+      end
+
+    run(advance(frame), [named, name_val | rest], gas - 1, ctx)
+  end
 
   defp run({:copy_data_properties, []}, frame, stack, gas, ctx),
     do: run(advance(frame), stack, gas - 1, ctx)
@@ -2164,14 +2207,31 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     name = Scope.resolve_atom(ctx, atom_idx)
     method_type = Bitwise.band(flags, 3)
 
+    named_method = set_function_name(method_closure, case method_type do
+      1 -> "get " <> name
+      2 -> "set " <> name
+      _ -> name
+    end)
+
     case method_type do
-      1 -> Objects.put_getter(target, name, method_closure)
-      2 -> Objects.put_setter(target, name, method_closure)
-      _ -> Objects.put(target, name, method_closure)
+      1 -> Objects.put_getter(target, name, named_method)
+      2 -> Objects.put_setter(target, name, named_method)
+      _ -> Objects.put(target, name, named_method)
     end
 
     run(advance(frame), [target | rest], gas - 1, ctx)
   end
+
+  defp set_function_name({:closure, captured, %Bytecode.Function{} = f}, name),
+    do: {:closure, captured, %{f | name: name}}
+
+  defp set_function_name(%Bytecode.Function{} = f, name),
+    do: %{f | name: name}
+
+  defp set_function_name({:builtin, _, cb}, name),
+    do: {:builtin, name, cb}
+
+  defp set_function_name(other, _name), do: other
 
   defp run(
          {:define_method_computed, [_flags]},
