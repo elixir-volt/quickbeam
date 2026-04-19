@@ -1285,8 +1285,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           {:closure, captured, %Bytecode.Function{} = f} ->
             do_invoke(f, rev_args, ctor_var_refs(f, captured), gas, ctor_ctx)
 
-          {:builtin, name, cb} when is_function(cb, 1) ->
-            obj = cb.(rev_args)
+          {:builtin, name, cb} when is_function(cb, 2) ->
+            obj = cb.(rev_args, nil)
 
             if name in ~w(Number String Boolean) do
               # Store primitive value for valueOf() on wrapper objects
@@ -1371,8 +1371,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         {:closure, captured, %Bytecode.Function{} = f} ->
           do_invoke(f, args, ctor_var_refs(f, captured), gas, ctx)
 
-        {:builtin, _name, cb} when is_function(cb, 1) ->
-          cb.(args)
+        {:builtin, _name, cb} when is_function(cb, 2) ->
+          cb.(args, nil)
 
         _ ->
           ctx.this

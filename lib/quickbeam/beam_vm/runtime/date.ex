@@ -3,7 +3,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   @moduledoc false
   alias QuickBEAM.BeamVM.Heap
 
-  def constructor(args) do
+  def constructor(args, _this) do
     ms =
       case args do
         [] ->
@@ -28,10 +28,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   def statics do
     [
       {"now", static_now()},
-      {"parse", {:builtin, "parse", fn [s | _] -> parse_date_string(to_string(s)) end}},
+      {"parse", {:builtin, "parse", fn [s | _], _this -> parse_date_string(to_string(s)) end}},
       {"UTC",
        {:builtin, "UTC",
-        fn args ->
+        fn args, _this ->
           [y | rest] = args ++ List.duplicate(0, 7)
           m = Enum.at(rest, 0, 0)
           d = Enum.at(rest, 1, 1)
@@ -304,7 +304,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   def proto_property(_), do: :undefined
 
   def static_now do
-    {:builtin, "now", fn _ -> System.system_time(:millisecond) end}
+    {:builtin, "now", fn _, _this -> System.system_time(:millisecond) end}
   end
 
   defp set_date_field(this, field, value) do

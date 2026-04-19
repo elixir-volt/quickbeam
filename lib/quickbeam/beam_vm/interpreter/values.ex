@@ -528,12 +528,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
 
   defp try_call_method(map, obj, method) do
     case Map.get(map, method) do
-      {:builtin, _, cb} when is_function(cb, 2) ->
+      {:builtin, _, cb} ->
         result = cb.([], obj)
-        unless match?({:obj, _}, result), do: result
-
-      {:builtin, _, cb} when is_function(cb, 1) ->
-        result = cb.([])
         unless match?({:obj, _}, result), do: result
 
       fun when fun != nil and fun != :undefined ->

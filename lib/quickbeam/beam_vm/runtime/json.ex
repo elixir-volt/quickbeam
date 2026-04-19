@@ -6,8 +6,8 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
   def object do
     {:builtin, "JSON",
      %{
-       "parse" => {:builtin, "parse", fn [s | _] -> parse(s) end},
-       "stringify" => {:builtin, "stringify", fn args -> stringify(args) end}
+       "parse" => {:builtin, "parse", fn [s | _], _this -> parse(s) end},
+       "stringify" => {:builtin, "stringify", fn args, _this -> stringify(args) end}
      }}
   end
 

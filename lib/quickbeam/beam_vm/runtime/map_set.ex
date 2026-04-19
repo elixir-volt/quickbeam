@@ -7,7 +7,7 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
   # ── Map/Set ──
 
   def map_constructor do
-    fn args ->
+    fn args, _this ->
       ref = make_ref()
 
       entries =
@@ -51,7 +51,7 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
   end
 
   def set_constructor do
-    fn args ->
+    fn args, _this ->
       ref = make_ref()
       items = Heap.to_list(List.first(args)) |> Enum.uniq()
 

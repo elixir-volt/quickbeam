@@ -3,45 +3,24 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
 
   alias QuickBEAM.BeamVM.Runtime
 
+  use QuickBEAM.BeamVM.Builtin
+
   # ── Number.prototype ──
 
-  def proto_property("toString"),
-    do: {:builtin, "toString", fn args, this -> number_to_string(this, args) end}
-
-  def proto_property("toFixed"),
-    do: {:builtin, "toFixed", fn args, this -> number_to_fixed(this, args) end}
-
-  def proto_property("valueOf"), do: {:builtin, "valueOf", fn _args, this -> this end}
-
-  def proto_property("toExponential"),
-    do: {:builtin, "toExponential", fn args, this -> number_to_exponential(this, args) end}
-
-  def proto_property("toPrecision"),
-    do: {:builtin, "toPrecision", fn args, this -> number_to_precision(this, args) end}
-
+  defproto("toString", this, args, do: number_to_string(this, args))
+  defproto("toFixed", this, args, do: number_to_fixed(this, args))
+  defproto("valueOf", _args, this, do: this)
+  defproto("toExponential", this, args, do: number_to_exponential(this, args))
+  defproto("toPrecision", this, args, do: number_to_precision(this, args))
   def proto_property(_), do: :undefined
 
   # ── Number static ──
 
-  def static_property("isNaN"), do: {:builtin, "isNaN", fn [a | _] -> a == :nan end}
-
-  def static_property("isFinite"),
-    do:
-      {:builtin, "isFinite",
-       fn [a | _] -> a != :nan and a != :infinity and a != :neg_infinity end}
-
-  def static_property("isInteger"),
-    do:
-      {:builtin, "isInteger",
-       fn [a | _] -> is_integer(a) or (is_float(a) and a == Float.floor(a)) end}
-
-  def static_property("parseInt"),
-    do: {:builtin, "parseInt", fn args -> QuickBEAM.BeamVM.Runtime.Globals.parse_int(args) end}
-
-  def static_property("parseFloat"),
-    do:
-      {:builtin, "parseFloat", fn args -> QuickBEAM.BeamVM.Runtime.Globals.parse_float(args) end}
-
+  defstatic("isNaN", [a | _], do: a == :nan)
+  defstatic("isFinite", [a | _], do: a != :nan and a != :infinity and a != :neg_infinity)
+  defstatic("isInteger", [a | _], do: is_integer(a) or (is_float(a) and a == Float.floor(a)))
+  defstatic("parseInt", args, do: QuickBEAM.BeamVM.Runtime.Globals.parse_int(args))
+  defstatic("parseFloat", args, do: QuickBEAM.BeamVM.Runtime.Globals.parse_float(args))
   def static_property("NaN"), do: :nan
   def static_property("POSITIVE_INFINITY"), do: :infinity
   def static_property("NEGATIVE_INFINITY"), do: :neg_infinity

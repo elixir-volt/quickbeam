@@ -11,19 +11,19 @@ defmodule QuickBEAM.BeamVM.Runtime.Console do
     Heap.put_obj(ref, %{
       "log" =>
         {:builtin, "log",
-         fn args ->
+         fn args, _this ->
            IO.puts(Enum.map(args, &QuickBEAM.BeamVM.Runtime.js_to_string/1) |> Enum.join(" "))
            :undefined
          end},
       "warn" =>
         {:builtin, "warn",
-         fn args ->
+         fn args, _this ->
            IO.warn(Enum.map(args, &QuickBEAM.BeamVM.Runtime.js_to_string/1) |> Enum.join(" "))
            :undefined
          end},
       "error" =>
         {:builtin, "error",
-         fn args ->
+         fn args, _this ->
            IO.puts(
              :stderr,
              Enum.map(args, &QuickBEAM.BeamVM.Runtime.js_to_string/1) |> Enum.join(" ")
@@ -33,13 +33,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Console do
          end},
       "info" =>
         {:builtin, "info",
-         fn args ->
+         fn args, _this ->
            IO.puts(Enum.map(args, &QuickBEAM.BeamVM.Runtime.js_to_string/1) |> Enum.join(" "))
            :undefined
          end},
       "debug" =>
         {:builtin, "debug",
-         fn args ->
+         fn args, _this ->
            IO.puts(Enum.map(args, &QuickBEAM.BeamVM.Runtime.js_to_string/1) |> Enum.join(" "))
            :undefined
          end}

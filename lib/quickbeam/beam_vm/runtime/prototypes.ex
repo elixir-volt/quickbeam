@@ -108,11 +108,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Prototypes do
   def map_proto("forEach"),
     do:
       {:builtin, "forEach",
-       fn [cb | _], {:obj, ref}, interp ->
+       fn [cb | _], {:obj, ref} ->
          data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
 
          Enum.each(data, fn {k, v} ->
-           Runtime.call_builtin_callback(cb, [v, k, {:obj, ref}], interp)
+           Runtime.call_builtin_callback(cb, [v, k, {:obj, ref}], :no_interp)
          end)
 
          :undefined
@@ -203,11 +203,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Prototypes do
   def set_proto("forEach"),
     do:
       {:builtin, "forEach",
-       fn [cb | _], {:obj, ref}, interp ->
+       fn [cb | _], {:obj, ref} ->
          data = Heap.get_obj(ref, %{}) |> Map.get(set_data(), [])
 
          Enum.each(data, fn v ->
-           Runtime.call_builtin_callback(cb, [v, v, {:obj, ref}], interp)
+           Runtime.call_builtin_callback(cb, [v, v, {:obj, ref}], :no_interp)
          end)
 
          :undefined

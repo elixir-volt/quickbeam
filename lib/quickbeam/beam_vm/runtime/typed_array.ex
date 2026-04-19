@@ -21,7 +21,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
   end
 
   def typed_array_constructor(type) do
-    fn args ->
+    fn args, _this ->
       {buffer, offset, length_val, orig_buf} =
         case args do
           [{:obj, buf_ref} = buf_obj | rest] ->

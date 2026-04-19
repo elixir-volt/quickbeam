@@ -5,34 +5,36 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
   alias QuickBEAM.BeamVM.Runtime
 
-  def static_property("keys"), do: {:builtin, "keys", fn args -> keys(args) end}
-  def static_property("values"), do: {:builtin, "values", fn args -> values(args) end}
-  def static_property("entries"), do: {:builtin, "entries", fn args -> entries(args) end}
-  def static_property("assign"), do: {:builtin, "assign", fn args -> assign(args) end}
-  def static_property("freeze"), do: {:builtin, "freeze", fn [obj | _] -> freeze(obj) end}
-  def static_property("is"), do: {:builtin, "is", fn [a, b | _] -> js_is(a, b) end}
-  def static_property("create"), do: {:builtin, "create", fn args -> create(args) end}
+  def static_property("keys"), do: {:builtin, "keys", fn args, _this -> keys(args) end}
+  def static_property("values"), do: {:builtin, "values", fn args, _this -> values(args) end}
+  def static_property("entries"), do: {:builtin, "entries", fn args, _this -> entries(args) end}
+  def static_property("assign"), do: {:builtin, "assign", fn args, _this -> assign(args) end}
+  def static_property("freeze"), do: {:builtin, "freeze", fn [obj | _], _this -> freeze(obj) end}
+  def static_property("is"), do: {:builtin, "is", fn [a, b | _], _this -> js_is(a, b) end}
+  def static_property("create"), do: {:builtin, "create", fn args, _this -> create(args) end}
 
   def static_property("getPrototypeOf"),
-    do: {:builtin, "getPrototypeOf", fn args -> get_prototype_of(args) end}
+    do: {:builtin, "getPrototypeOf", fn args, _this -> get_prototype_of(args) end}
 
   def static_property("defineProperty"),
-    do: {:builtin, "defineProperty", fn args -> define_property(args) end}
+    do: {:builtin, "defineProperty", fn args, _this -> define_property(args) end}
 
   def static_property("getOwnPropertyNames"),
-    do: {:builtin, "getOwnPropertyNames", fn args -> get_own_property_names(args) end}
+    do: {:builtin, "getOwnPropertyNames", fn args, _this -> get_own_property_names(args) end}
 
   def static_property("getOwnPropertyDescriptor"),
-    do: {:builtin, "getOwnPropertyDescriptor", fn args -> get_own_property_descriptor(args) end}
+    do:
+      {:builtin, "getOwnPropertyDescriptor",
+       fn args, _this -> get_own_property_descriptor(args) end}
 
   def static_property("fromEntries"),
-    do: {:builtin, "fromEntries", fn args -> from_entries(args) end}
+    do: {:builtin, "fromEntries", fn args, _this -> from_entries(args) end}
 
   def static_property("hasOwn"),
-    do: {:builtin, "hasOwn", fn args -> has_own(args) end}
+    do: {:builtin, "hasOwn", fn args, _this -> has_own(args) end}
 
   def static_property("setPrototypeOf"),
-    do: {:builtin, "setPrototypeOf", fn args -> set_prototype_of(args) end}
+    do: {:builtin, "setPrototypeOf", fn args, _this -> set_prototype_of(args) end}
 
   def static_property(_), do: :undefined
 

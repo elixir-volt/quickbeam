@@ -14,16 +14,16 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     do: {:builtin, "unshift", fn args, this -> unshift(this, args) end}
 
   def proto_property("map"),
-    do: {:builtin, "map", fn args, this, interp -> map(this, args, interp) end}
+    do: {:builtin, "map", fn args, this -> map(this, args, :no_interp) end}
 
   def proto_property("filter"),
-    do: {:builtin, "filter", fn args, this, interp -> filter(this, args, interp) end}
+    do: {:builtin, "filter", fn args, this -> filter(this, args, :no_interp) end}
 
   def proto_property("reduce"),
-    do: {:builtin, "reduce", fn args, this, interp -> reduce(this, args, interp) end}
+    do: {:builtin, "reduce", fn args, this -> reduce(this, args, :no_interp) end}
 
   def proto_property("forEach"),
-    do: {:builtin, "forEach", fn args, this, interp -> for_each(this, args, interp) end}
+    do: {:builtin, "forEach", fn args, this -> for_each(this, args, :no_interp) end}
 
   def proto_property("indexOf"),
     do: {:builtin, "indexOf", fn args, this -> index_of(this, args) end}
@@ -49,19 +49,19 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   def proto_property("flat"), do: {:builtin, "flat", fn args, this -> flat(this, args) end}
 
   def proto_property("find"),
-    do: {:builtin, "find", fn args, this, interp -> find(this, args, interp) end}
+    do: {:builtin, "find", fn args, this -> find(this, args, :no_interp) end}
 
   def proto_property("findIndex"),
-    do: {:builtin, "findIndex", fn args, this, interp -> find_index(this, args, interp) end}
+    do: {:builtin, "findIndex", fn args, this -> find_index(this, args, :no_interp) end}
 
   def proto_property("every"),
-    do: {:builtin, "every", fn args, this, interp -> every(this, args, interp) end}
+    do: {:builtin, "every", fn args, this -> every(this, args, :no_interp) end}
 
   def proto_property("some"),
-    do: {:builtin, "some", fn args, this, interp -> some(this, args, interp) end}
+    do: {:builtin, "some", fn args, this -> some(this, args, :no_interp) end}
 
   def proto_property("flatMap"),
-    do: {:builtin, "flatMap", fn args, this, interp -> flat_map(this, args, interp) end}
+    do: {:builtin, "flatMap", fn args, this -> flat_map(this, args, :no_interp) end}
 
   def proto_property("fill"), do: {:builtin, "fill", fn args, this -> fill(this, args) end}
 
@@ -71,12 +71,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   def proto_property("at"), do: {:builtin, "at", fn args, this -> array_at(this, args) end}
 
   def proto_property("findLast"),
-    do: {:builtin, "findLast", fn args, this, interp -> find_last(this, args, interp) end}
+    do: {:builtin, "findLast", fn args, this -> find_last(this, args, :no_interp) end}
 
   def proto_property("findLastIndex"),
-    do:
-      {:builtin, "findLastIndex",
-       fn args, this, interp -> find_last_index(this, args, interp) end}
+    do: {:builtin, "findLastIndex", fn args, this -> find_last_index(this, args, :no_interp) end}
 
   def proto_property("toReversed"),
     do: {:builtin, "toReversed", fn _args, this -> to_reversed(this) end}
@@ -94,7 +92,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   def static_property("isArray") do
     {:builtin, "isArray",
-     fn [val | _] ->
+     fn [val | _], _this ->
        case val do
          list when is_list(list) -> true
          {:obj, ref} -> is_list(Heap.get_obj(ref))
@@ -104,9 +102,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
 
   def static_property("from"),
-    do: {:builtin, "from", fn args, _this, interp -> from(args, interp) end}
+    do: {:builtin, "from", fn args, _this -> from(args, :no_interp) end}
 
-  def static_property("of"), do: {:builtin, "of", fn args -> args end}
+  def static_property("of"), do: {:builtin, "of", fn args, _this -> args end}
   def static_property(_), do: :undefined
 
   # ── Mutation helpers ──

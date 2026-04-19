@@ -15,10 +15,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
 
   # ── Constructors ──
 
-  def object_constructor, do: fn _args -> Runtime.obj_new() end
+  def object_constructor, do: fn _args, _this -> Runtime.obj_new() end
 
   def array_constructor do
-    fn args ->
+    fn args, _this ->
       list =
         case args do
           [n] when is_integer(n) and n >= 0 -> List.duplicate(:undefined, n)
@@ -29,12 +29,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
     end
   end
 
-  def string_constructor, do: fn args -> Runtime.js_to_string(List.first(args, "")) end
-  def number_constructor, do: fn args -> Runtime.to_number(List.first(args, 0)) end
-  def boolean_constructor, do: fn args -> Runtime.js_truthy(List.first(args, false)) end
+  def string_constructor, do: fn args, _this -> Runtime.js_to_string(List.first(args, "")) end
+  def number_constructor, do: fn args, _this -> Runtime.to_number(List.first(args, 0)) end
+  def boolean_constructor, do: fn args, _this -> Runtime.js_truthy(List.first(args, false)) end
 
   def function_constructor do
-    fn _args ->
+    fn _args, _this ->
       throw(
         {:js_throw,
          %{"message" => "Function constructor not supported in BEAM mode", "name" => "Error"}}
@@ -44,10 +44,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
 
   def bigint_constructor do
     fn
-      [n | _] when is_integer(n) ->
+      [n | _], _this when is_integer(n) ->
         {:bigint, n}
 
-      [s | _] when is_binary(s) ->
+      [s | _], _this when is_binary(s) ->
         case Integer.parse(s) do
           {n, ""} ->
             {:bigint, n}
@@ -58,16 +58,16 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
             )
         end
 
-      [{:bigint, n} | _] ->
+      [{:bigint, n} | _], _this ->
         {:bigint, n}
 
-      _ ->
+      _, _this ->
         throw({:js_throw, %{"message" => "Cannot convert to BigInt", "name" => "TypeError"}})
     end
   end
 
   def error_constructor do
-    fn args ->
+    fn args, _this ->
       msg = List.first(args, "")
       Heap.wrap(%{"message" => Runtime.js_to_string(msg), "stack" => ""})
     end
@@ -75,7 +75,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
 
   def date_static_property("UTC") do
     {:builtin, "UTC",
-     fn args ->
+     fn args, _this ->
        [y, m | rest] = args ++ List.duplicate(0, 7)
        d = Enum.at(rest, 0, 1)
        h = Enum.at(rest, 1, 0)
@@ -104,13 +104,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   end
 
   def date_static_property("now") do
-    {:builtin, "now", fn _ -> System.system_time(:millisecond) end}
+    {:builtin, "now", fn _, _this -> System.system_time(:millisecond) end}
   end
 
   def date_static_property(_), do: :undefined
 
   def date_constructor do
-    fn args ->
+    fn args, _this ->
       ms =
         case args do
           [] ->
@@ -134,7 +134,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   end
 
   def promise_constructor do
-    fn _args ->
+    fn _args, _this ->
       Heap.wrap(%{})
     end
   end
@@ -144,17 +144,17 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
       "resolve" =>
         {:builtin, "resolve",
          fn
-           [val | _] -> QuickBEAM.BeamVM.Interpreter.Promise.resolved(val)
-           [] -> QuickBEAM.BeamVM.Interpreter.Promise.resolved(:undefined)
+           [val | _], _this -> QuickBEAM.BeamVM.Interpreter.Promise.resolved(val)
+           [], _this -> QuickBEAM.BeamVM.Interpreter.Promise.resolved(:undefined)
          end},
       "reject" =>
         {:builtin, "reject",
-         fn [val | _] ->
+         fn [val | _], _this ->
            QuickBEAM.BeamVM.Interpreter.Promise.rejected(val)
          end},
       "all" =>
         {:builtin, "all",
-         fn [arr | _] ->
+         fn [arr | _], _this ->
            items =
              case arr do
                {:obj, ref} ->
@@ -196,7 +196,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
          end},
       "allSettled" =>
         {:builtin, "allSettled",
-         fn [arr | _] ->
+         fn [arr | _], _this ->
            items =
              case arr do
                {:obj, ref} ->
@@ -252,7 +252,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
          end},
       "any" =>
         {:builtin, "any",
-         fn [arr | _] ->
+         fn [arr | _], _this ->
            items =
              case arr do
                {:obj, ref} ->
@@ -289,7 +289,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
          end},
       "race" =>
         {:builtin, "race",
-         fn [arr | _] ->
+         fn [arr | _], _this ->
            items =
              case arr do
                {:obj, ref} ->
@@ -332,7 +332,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   end
 
   def regexp_constructor do
-    fn [pattern | rest] ->
+    fn [pattern | rest], _this ->
       flags =
         case rest do
           [f | _] when is_binary(f) -> f
@@ -351,7 +351,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
   end
 
   def symbol_constructor do
-    fn args ->
+    fn args, _this ->
       desc =
         case args do
           [s | _] when is_binary(s) -> s
@@ -377,7 +377,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
       "split" => {:symbol, "Symbol.split"},
       "for" =>
         {:builtin, "for",
-         fn [key | _] ->
+         fn [key | _], _this ->
            case Heap.get_symbol(key) do
              nil ->
                sym = {:symbol, key}
@@ -390,7 +390,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Builtins do
          end},
       "keyFor" =>
         {:builtin, "keyFor",
-         fn [sym | _] ->
+         fn [sym | _], _this ->
            case sym do
              {:symbol, key} -> key
              {:symbol, key, _ref} -> key

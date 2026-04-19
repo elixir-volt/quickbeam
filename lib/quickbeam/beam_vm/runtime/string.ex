@@ -346,7 +346,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
   def static_property("fromCharCode") do
     {:builtin, "fromCharCode",
-     fn args ->
+     fn args, _this ->
        Enum.map(args, fn n ->
          cp = QuickBEAM.BeamVM.Runtime.to_int(n)
          if cp >= 0 and cp <= 0x10FFFF, do: <<cp::utf8>>, else: ""

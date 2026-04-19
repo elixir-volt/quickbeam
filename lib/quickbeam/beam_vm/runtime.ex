@@ -122,7 +122,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
         "String" => {:builtin, "String", Builtins.string_constructor()},
         "Number" => {:builtin, "Number", Builtins.number_constructor()},
         "BigInt" => {:builtin, "BigInt", Builtins.bigint_constructor()},
-        "gc" => {:builtin, "gc", fn _ -> :undefined end},
+        "gc" => {:builtin, "gc", fn _, _this -> :undefined end},
         "Boolean" => {:builtin, "Boolean", Builtins.boolean_constructor()},
         "Function" => {:builtin, "Function", Builtins.function_constructor()},
         "Error" =>
@@ -155,7 +155,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
           ),
         "Math" => Math.object(),
         "JSON" => JSON.object(),
-        "Date" => register_builtin("Date", &JSDate.constructor/1, statics: JSDate.statics()),
+        "Date" => register_builtin("Date", &JSDate.constructor/2, statics: JSDate.statics()),
         "Promise" =>
           register_builtin("Promise", Builtins.promise_constructor(),
             statics: Builtins.promise_statics()
@@ -165,10 +165,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
           register_builtin("Symbol", Builtins.symbol_constructor(),
             statics: Builtins.symbol_statics()
           ),
-        "parseInt" => {:builtin, "parseInt", fn args -> Globals.parse_int(args) end},
-        "parseFloat" => {:builtin, "parseFloat", fn args -> Globals.parse_float(args) end},
-        "isNaN" => {:builtin, "isNaN", fn args -> Globals.is_nan(args) end},
-        "isFinite" => {:builtin, "isFinite", fn args -> Globals.is_finite(args) end},
+        "parseInt" => {:builtin, "parseInt", fn args, _this -> Globals.parse_int(args) end},
+        "parseFloat" => {:builtin, "parseFloat", fn args, _this -> Globals.parse_float(args) end},
+        "isNaN" => {:builtin, "isNaN", fn args, _this -> Globals.is_nan(args) end},
+        "isFinite" => {:builtin, "isFinite", fn args, _this -> Globals.is_finite(args) end},
         "NaN" => :nan,
         "Infinity" => :infinity,
         "undefined" => :undefined,
@@ -176,25 +176,25 @@ defmodule QuickBEAM.BeamVM.Runtime do
         "Set" => {:builtin, "Set", MapSet.set_constructor()},
         "WeakMap" => {:builtin, "WeakMap", MapSet.map_constructor()},
         "WeakSet" => {:builtin, "WeakSet", MapSet.set_constructor()},
-        "WeakRef" => {:builtin, "WeakRef", fn _ -> __MODULE__.obj_new() end},
+        "WeakRef" => {:builtin, "WeakRef", fn _, _this -> __MODULE__.obj_new() end},
         "Reflect" =>
           {:builtin, "Reflect",
            %{
-             "get" => {:builtin, "get", fn [obj, key | _] -> get_property(obj, key) end},
+             "get" => {:builtin, "get", fn [obj, key | _], _this -> get_property(obj, key) end},
              "set" =>
                {:builtin, "set",
-                fn [obj, key, val | _] ->
+                fn [obj, key, val | _], _this ->
                   QuickBEAM.BeamVM.Interpreter.Objects.put(obj, key, val)
                   true
                 end},
              "has" =>
                {:builtin, "has",
-                fn [obj, key | _] ->
+                fn [obj, key | _], _this ->
                   QuickBEAM.BeamVM.Interpreter.Objects.has_property(obj, key)
                 end},
              "ownKeys" =>
                {:builtin, "ownKeys",
-                fn [obj | _] ->
+                fn [obj | _], _this ->
                   case obj do
                     {:obj, ref} ->
                       keys = Map.keys(Heap.get_obj(ref, %{}))
@@ -228,7 +228,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
         "console" => Console.object(),
         "require" =>
           {:builtin, "require",
-           fn [name | _] ->
+           fn [name | _], _this ->
              case Heap.get_module(name) do
                nil ->
                  ref = make_ref()
@@ -247,7 +247,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
            end},
         "eval" =>
           {:builtin, "eval",
-           fn [code | _] ->
+           fn [code | _], _this ->
              ctx = QuickBEAM.BeamVM.Heap.get_ctx()
 
              if (is_binary(code) and ctx) && ctx.runtime_pid do
@@ -277,10 +277,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
              end
            end},
         "globalThis" => obj_new(),
-        "structuredClone" => {:builtin, "structuredClone", fn [val | _] -> val end},
+        "structuredClone" => {:builtin, "structuredClone", fn [val | _], _this -> val end},
         "queueMicrotask" =>
           {:builtin, "queueMicrotask",
-           fn [cb | _] ->
+           fn [cb | _], _this ->
              Heap.enqueue_microtask({:resolve, nil, cb, :undefined})
              :undefined
            end},
@@ -303,7 +303,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
         end
       )
       |> Map.merge(%{
-        "DataView" => {:builtin, "DataView", fn _ -> obj_new() end}
+        "DataView" => {:builtin, "DataView", fn _, _this -> obj_new() end}
       })
 
     Heap.put_global_cache(bindings)
@@ -454,7 +454,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     type = Map.get(type_map, name, :uint8)
 
     {:builtin, "from",
-     fn [source | _] ->
+     fn [source | _], _this ->
        list = Heap.to_list(source)
        QuickBEAM.BeamVM.Runtime.TypedArray.typed_array_constructor(type).(list)
      end}
