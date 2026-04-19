@@ -1,56 +1,5 @@
-defmodule QuickBEAM.JSEngineTest.Helper do
-  @moduledoc false
-
-  def extract_function(source, func_name) do
-    case :binary.match(source, "function #{func_name}(") do
-      {start, _} ->
-        rest = binary_part(source, start, byte_size(source) - start)
-
-        case :binary.match(rest, "{") do
-          {brace_pos, _} ->
-            after_brace = binary_part(rest, brace_pos, byte_size(rest) - brace_pos)
-            end_pos = find_end(after_brace, 0, 0)
-            binary_part(rest, 0, brace_pos + end_pos)
-
-          _ ->
-            nil
-        end
-
-      :nomatch ->
-        nil
-    end
-  end
-
-  defp find_end(<<>>, _depth, pos), do: pos
-  defp find_end(<<"{", rest::binary>>, depth, pos), do: find_end(rest, depth + 1, pos + 1)
-  defp find_end(<<"}", _::binary>>, 1, pos), do: pos + 1
-  defp find_end(<<"}", rest::binary>>, depth, pos), do: find_end(rest, depth - 1, pos + 1)
-
-  defp find_end(<<"//", rest::binary>>, depth, pos) do
-    case :binary.match(rest, "\n") do
-      {nl, _} -> find_end(binary_part(rest, nl, byte_size(rest) - nl), depth, pos + 2 + nl)
-      :nomatch -> pos + 2 + byte_size(rest)
-    end
-  end
-
-  defp find_end(<<"\"", rest::binary>>, depth, pos), do: skip_string(rest, ?", depth, pos + 1)
-  defp find_end(<<"'", rest::binary>>, depth, pos), do: skip_string(rest, ?', depth, pos + 1)
-  defp find_end(<<"`", rest::binary>>, depth, pos), do: skip_string(rest, ?`, depth, pos + 1)
-  defp find_end(<<_, rest::binary>>, depth, pos), do: find_end(rest, depth, pos + 1)
-
-  defp skip_string(<<"\\", _, rest::binary>>, d, depth, pos),
-    do: skip_string(rest, d, depth, pos + 2)
-
-  defp skip_string(<<c, rest::binary>>, d, depth, pos) when c == d,
-    do: find_end(rest, depth, pos + 1)
-
-  defp skip_string(<<_, rest::binary>>, d, depth, pos), do: skip_string(rest, d, depth, pos + 1)
-  defp skip_string(<<>>, _, _depth, pos), do: pos
-end
-
 defmodule QuickBEAM.JSEngineTest do
   use ExUnit.Case, async: true
-  alias QuickBEAM.JSEngineTest.Helper
 
   @assert_js """
   function assert(actual, expected, message) {
@@ -83,21 +32,24 @@ defmodule QuickBEAM.JSEngineTest do
   }
   """
 
+  @stubs_js """
+  if (typeof gc === 'undefined') { var gc = function() {}; }
+  if (typeof os === 'undefined') { var os = { platform: 'elixir' }; }
+  if (typeof qjs === 'undefined') { var qjs = { getStringKind: function(s) { return s.length > 256 ? 1 : 0; } }; }
+  """
+
   @skip_builtin ~w(
     test_exception_source_pos test_function_source_pos test_exception_prepare_stack
     test_exception_stack_size_limit test_exception_capture_stack_trace
     test_exception_capture_stack_trace_filter test_cur_pc test_finalization_registry
-    test_rope test_proxy_iter test_proxy_is_array test_eval2 test_weak_map test_weak_set
-    test_date test_string test_regexp test_eval test_array
+    test_rope test_proxy_iter test_proxy_is_array test_eval test_eval2 test_array test_weak_map test_weak_set
   )
 
   @skip_language ~w(
     test_reserved_names test_syntax test_parse_semicolon test_regexp_skip test_template_skip
-    test_arguments
   )
 
   setup do
-    # Clean process dictionary state from previous BEAM mode evals
     for key <- Process.get_keys() do
       case key do
         {:qb_obj, _} -> Process.delete(key)
@@ -134,62 +86,38 @@ defmodule QuickBEAM.JSEngineTest do
     skip_list = if file == "test_builtin.js", do: @skip_builtin, else: @skip_language
     cleaned = String.replace(source, ~r/^import .*\n/m, "")
 
-    # Get test function names
-    func_names =
-      Regex.scan(~r/^function (test_\w+)\(\)/m, cleaned)
-      |> Enum.map(fn [_, name] -> name end)
-      |> Enum.uniq()
-      |> Enum.reject(fn name -> name in skip_list end)
+    {:ok, ast} = OXC.parse(cleaned, file)
 
-    # Extract preamble (everything before first "function test_" or "function " at top level)
-    preamble =
-      case Regex.run(~r/\A(.*?)^function test_/ms, cleaned) do
-        [_, pre] -> pre
-        _ -> ""
-      end
+    fns = Enum.filter(ast.body, &(&1.type == :function_declaration))
 
-    # Extract non-test helper functions (my_func, test, F, rope_concat, etc.)
-    all_func_names =
-      Regex.scan(~r/^function (\w+)\(/m, cleaned)
-      |> Enum.map(fn [_, name] -> name end)
-      |> Enum.uniq()
+    test_fns =
+      fns
+      |> Enum.filter(&(String.starts_with?(&1.id.name, "test_") and length(&1.params) == 0))
+      |> Enum.reject(&(&1.id.name in skip_list))
 
-    test_func_names =
-      Regex.scan(~r/^function (test_\w+)\(\)/m, cleaned)
-      |> Enum.map(fn [_, name] -> name end)
-      |> Enum.uniq()
-
-    helper_names =
-      all_func_names
-      |> Enum.reject(fn name -> name in test_func_names or name in ["assert", "assert_throws", "test"] end)
+    helper_fns =
+      Enum.reject(fns, &(String.starts_with?(&1.id.name, "test_") and length(&1.params) == 0))
 
     helpers =
-      helper_names
-      |> Enum.map(fn name -> Helper.extract_function(cleaned, name) end)
-      |> Enum.reject(&is_nil/1)
+      helper_fns
+      |> Enum.map(&binary_part(cleaned, &1.start, &1[:end] - &1.start))
       |> Enum.join("\n")
 
-    for func_name <- func_names do
-      func_body = Helper.extract_function(cleaned, func_name)
+    for %{id: %{name: func_name}} = func <- test_fns do
+      func_body = binary_part(cleaned, func.start, func[:end] - func.start)
 
-      if func_body do
-        @tag :js_engine
-        test "#{file}: #{func_name}", %{rt: rt} do
-          code =
-            unquote(preamble) <>
-              @assert_js <>
-              unquote(helpers) <>
-              "\n" <> unquote(func_body) <> "\n" <> unquote(func_name) <> "();"
+      @tag :js_engine
+      test "#{file}: #{func_name}", %{rt: rt} do
+        code =
+          @stubs_js <>
+            @assert_js <>
+            unquote(helpers) <>
+            "\n" <> unquote(func_body) <> "\n" <> unquote(func_name) <> "();"
 
-          if unquote(func_name) == "test_inc_dec" do
-            File.write!("/tmp/exunit_code.js", code)
-          end
-
-          case QuickBEAM.eval(rt, code) do
-            {:ok, _} -> :ok
-            {:error, %QuickBEAM.JSError{message: msg}} -> flunk("JS: #{msg}")
-            {:error, err} -> flunk("JS error: #{inspect(err)}")
-          end
+        case QuickBEAM.eval(rt, code) do
+          {:ok, _} -> :ok
+          {:error, %QuickBEAM.JSError{message: msg}} -> flunk("JS: #{msg}")
+          {:error, err} -> flunk("JS error: #{inspect(err)}")
         end
       end
     end
