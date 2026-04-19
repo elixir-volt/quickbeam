@@ -495,42 +495,35 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
     data = Heap.get_obj(ref, %{})
 
     if is_map(data) do
-      try_call_method(data, obj, "valueOf") ||
-        try_proto_method(data, obj, "valueOf") ||
-        try_call_method(data, obj, "toString") ||
-        try_proto_method(data, obj, "toString") ||
+      call_to_primitive(data, obj, "valueOf") ||
+        proto_to_primitive(data, obj, "valueOf") ||
+        call_to_primitive(data, obj, "toString") ||
+        proto_to_primitive(data, obj, "toString") ||
         obj
     else
       obj
     end
   end
 
-  defp to_primitive(val), do: val # catch-all for non-object values
-
-  defp try_call_method(map, obj, method) do
+  defp call_to_primitive(map, obj, method) do
     case Map.get(map, method) do
-      {:builtin, _, cb} ->
-        result = cb.([], obj)
-        unless match?({:obj, _}, result), do: result
-
+      {:builtin, _, cb} -> unwrap_primitive(cb.([], obj))
       fun when fun != nil and fun != :undefined ->
-        result = Interpreter.invoke_with_receiver(fun, [], QuickBEAM.BeamVM.Runtime.gas_budget(), obj)
-        unless match?({:obj, _}, result), do: result
-
-      _ ->
-        nil
+        unwrap_primitive(Interpreter.invoke_with_receiver(fun, [], QuickBEAM.BeamVM.Runtime.gas_budget(), obj))
+      _ -> nil
     end
   end
 
-  defp try_proto_method(map, obj, method) do
+  defp proto_to_primitive(map, obj, method) do
     case Map.get(map, proto()) do
       {:obj, pref} ->
         pmap = Heap.get_obj(pref, %{})
-        if is_map(pmap), do: try_call_method(pmap, obj, method)
-
-      _ ->
-        nil
+        if is_map(pmap), do: call_to_primitive(pmap, obj, method)
+      _ -> nil
     end
   end
+
+  defp unwrap_primitive({:obj, _}), do: nil
+  defp unwrap_primitive(val), do: val
 
 end
