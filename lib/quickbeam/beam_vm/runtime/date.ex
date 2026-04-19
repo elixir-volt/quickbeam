@@ -6,6 +6,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   alias QuickBEAM.BeamVM.Heap
 
   @epoch_days 719_528
+  @epoch_gs @epoch_days * 86_400
 
   # ── Constructor ──
 
@@ -56,27 +57,27 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   end
 
   proto "getFullYear" do
-    with_utc_dt(this, fn {y, _, _}, _ -> y end)
+    dt_field(this, :year)
   end
 
   proto "getMonth" do
-    with_utc_dt(this, fn {_, m, _}, _ -> m - 1 end)
+    dt_field(this, :month, &(&1 - 1))
   end
 
   proto "getDate" do
-    with_utc_dt(this, fn {_, _, d}, _ -> d end)
+    dt_field(this, :day)
   end
 
   proto "getHours" do
-    with_utc_dt(this, fn _, {h, _, _} -> h end)
+    dt_field(this, :hour)
   end
 
   proto "getMinutes" do
-    with_utc_dt(this, fn _, {_, m, _} -> m end)
+    dt_field(this, :minute)
   end
 
   proto "getSeconds" do
-    with_utc_dt(this, fn _, {_, _, s} -> s end)
+    dt_field(this, :second)
   end
 
   proto "getMilliseconds" do
@@ -84,13 +85,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   end
 
   proto "getUTCFullYear" do
-    with_utc_dt(this, fn {y, _, _}, _ -> y end)
+    dt_field(this, :year)
   end
 
   proto "getDay" do
-    with_utc_dt(this, fn date, _ ->
-      rem(:calendar.day_of_the_week(date), 7)
-    end)
+    case ms_to_dt(get_ms(this)) do
+      nil -> :nan
+      dt -> Date.day_of_week(dt) |> rem(7)
+    end
   end
 
   proto "getTimezoneOffset" do
@@ -134,19 +136,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   # ── Formatting ──
 
   proto "toISOString" do
-    case get_ms(this) do
-      ms when is_number(ms) ->
-        frac = rem(abs(trunc(ms)), 1000)
-        rfc = :calendar.system_time_to_rfc3339(trunc(ms), unit: :millisecond, offset: ~c"Z")
-        s = to_string(rfc)
-        if frac == 0 and not String.contains?(s, ".") do
-          String.replace(s, "Z", ".000Z")
-        else
-          s
-        end
-
-      _ ->
-        "Invalid Date"
+    case ms_to_dt(get_ms(this)) do
+      nil -> "Invalid Date"
+      dt -> DateTime.to_iso8601(dt)
     end
   end
 
@@ -156,49 +148,52 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   end
 
   proto "toString" do
-    case get_ms(this) do
-      ms when is_number(ms) ->
-        to_string(:calendar.system_time_to_rfc3339(trunc(ms), unit: :millisecond, offset: ~c"Z"))
-
-      _ ->
-        "Invalid Date"
+    case ms_to_dt(get_ms(this)) do
+      nil -> "Invalid Date"
+      dt -> Calendar.strftime(dt, "%a %b %d %Y %H:%M:%S GMT+0000 (UTC)")
     end
   end
 
   proto "toDateString" do
-    with_utc_dt(this, fn {y, m, d}, _ ->
-      day_name = Enum.at(~w(Mon Tue Wed Thu Fri Sat Sun), :calendar.day_of_the_week({y, m, d}) - 1)
-      month_name = Enum.at(~w(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec), m - 1)
-      "#{day_name} #{month_name} #{String.pad_leading(Integer.to_string(d), 2, "0")} #{y}"
-    end, "Invalid Date")
+    case ms_to_dt(get_ms(this)) do
+      nil -> "Invalid Date"
+      dt -> Calendar.strftime(dt, "%a %b %d %Y")
+    end
   end
 
   proto "toTimeString" do
-    with_utc_dt(this, fn _, {h, m, s} ->
-      "#{pad2(h)}:#{pad2(m)}:#{pad2(s)} GMT+0000"
-    end, "Invalid Date")
+    case ms_to_dt(get_ms(this)) do
+      nil -> "Invalid Date"
+      dt -> Calendar.strftime(dt, "%H:%M:%S GMT+0000")
+    end
   end
 
   proto "toUTCString" do
-    with_utc_dt(this, fn {y, mo, d}, {h, mi, s} ->
-      day_name = Enum.at(~w(Mon Tue Wed Thu Fri Sat Sun), :calendar.day_of_the_week({y, mo, d}) - 1)
-      month_name = Enum.at(~w(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec), mo - 1)
-      "#{day_name}, #{pad2(d)} #{month_name} #{y} #{pad2(h)}:#{pad2(mi)}:#{pad2(s)} GMT"
-    end, "Invalid Date")
+    case ms_to_dt(get_ms(this)) do
+      nil -> "Invalid Date"
+      dt -> Calendar.strftime(dt, "%a, %d %b %Y %H:%M:%S GMT")
+    end
   end
 
   proto "toLocaleDateString" do
-    with_utc_dt(this, fn {y, m, d}, _ -> "#{m}/#{d}/#{y}" end, "Invalid Date")
+    case ms_to_dt(get_ms(this)) do
+      nil -> "Invalid Date"
+      dt -> "#{dt.month}/#{dt.day}/#{dt.year}"
+    end
   end
 
   proto "toLocaleTimeString" do
-    with_utc_dt(this, fn _, {h, m, s} -> "#{pad2(h)}:#{pad2(m)}:#{pad2(s)}" end, "Invalid Date")
+    case ms_to_dt(get_ms(this)) do
+      nil -> "Invalid Date"
+      dt -> Calendar.strftime(dt, "%H:%M:%S")
+    end
   end
 
   proto "toLocaleString" do
-    with_utc_dt(this, fn {y, mo, d}, {h, mi, s} ->
-      "#{mo}/#{d}/#{y}, #{pad2(h)}:#{pad2(mi)}:#{pad2(s)}"
-    end, "Invalid Date")
+    case ms_to_dt(get_ms(this)) do
+      nil -> "Invalid Date"
+      dt -> "#{dt.month}/#{dt.day}/#{dt.year}, #{Calendar.strftime(dt, "%H:%M:%S")}"
+    end
   end
 
   # ── Internal: ms <-> datetime ──
@@ -212,19 +207,21 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
   defp get_ms(_), do: :nan
 
-  defp ms_to_datetime(ms) when is_number(ms) do
-    total_s = div(trunc(ms), 1000)
-    :calendar.gregorian_seconds_to_datetime(total_s + @epoch_days * 86_400)
+  defp ms_to_dt(ms) when is_number(ms) do
+    ms = trunc(ms)
+    gs = div(ms, 1000) + @epoch_gs
+    frac = {rem(abs(ms), 1000) * 1000, 3}
+    DateTime.from_gregorian_seconds(gs, frac)
   rescue
     _ -> nil
   end
 
-  defp ms_to_datetime(_), do: nil
+  defp ms_to_dt(_), do: nil
 
-  defp with_utc_dt(this, fun, default \\ :nan) do
-    case ms_to_datetime(get_ms(this)) do
-      nil -> default
-      {date, time} -> fun.(date, time)
+  defp dt_field(this, field, transform \\ & &1) do
+    case ms_to_dt(get_ms(this)) do
+      nil -> :nan
+      dt -> transform.(Map.get(dt, field))
     end
   end
 
@@ -243,25 +240,23 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   defp put_ms(_, _), do: :nan
 
   defp set_field(this, field, value) do
-    with_utc_dt(this, fn {y, mo, d}, {h, mi, s} ->
-      fields = %{year: y, month: mo, day: d, hour: h, minute: mi, second: s}
-      f = Map.put(fields, field, trunc(value))
-
-      try do
-        gs = :calendar.datetime_to_gregorian_seconds({{f.year, f.month, f.day}, {f.hour, f.minute, f.second}})
-        put_ms(this, (gs - @epoch_days * 86_400) * 1000)
-      rescue
-        _ -> :nan
-      end
-    end)
+    case ms_to_dt(get_ms(this)) do
+      nil -> :nan
+      dt ->
+        try do
+          new_dt = Map.put(dt, field, trunc(value))
+          put_ms(this, DateTime.to_unix(new_dt, :millisecond))
+        rescue
+          _ -> :nan
+        end
+    end
   end
 
   defp pad2(n), do: String.pad_leading(Integer.to_string(n), 2, "0")
 
   defp tz_offset_minutes do
-    utc_s = :calendar.datetime_to_gregorian_seconds(:calendar.universal_time())
-    local_s = :calendar.datetime_to_gregorian_seconds(:calendar.local_time())
-    div(utc_s - local_s, 60)
+    {utc, local} = {:calendar.universal_time(), :calendar.local_time()}
+    div(:calendar.datetime_to_gregorian_seconds(utc) - :calendar.datetime_to_gregorian_seconds(local), 60)
   end
 
   # ── Date.UTC ──
