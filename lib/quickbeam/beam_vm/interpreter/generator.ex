@@ -7,116 +7,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
 
   def invoke(frame, gas, ctx) do
     gen_ref = make_ref()
-
-    try do
-      Interpreter.run_frame(frame, [], gas, ctx)
-    catch
-      {:generator_yield_star, _val, suspended_frame, suspended_stack, suspended_gas,
-       suspended_ctx} ->
-        state = %{
-          state: :suspended,
-          frame: suspended_frame,
-          stack: suspended_stack,
-          gas: suspended_gas,
-          ctx: suspended_ctx
-        }
-
-        Heap.put_obj(gen_ref, state)
-
-      {:generator_yield, _val, suspended_frame, suspended_stack, suspended_gas, suspended_ctx} ->
-        state = %{
-          state: :suspended,
-          frame: suspended_frame,
-          stack: suspended_stack,
-          gas: suspended_gas,
-          ctx: suspended_ctx
-        }
-
-        Heap.put_obj(gen_ref, state)
-    end
-
-    next_fn =
-      {:builtin, "next",
-       fn
-         [arg | _], _this -> next(gen_ref, arg)
-         [], _this -> next(gen_ref, :undefined)
-       end}
-
-    return_fn =
-      {:builtin, "return",
-       fn
-         [val | _], _this -> return_value(gen_ref, val)
-         [], _this -> return_value(gen_ref, :undefined)
-       end}
-
-    obj_ref = make_ref()
-
-    Heap.put_obj(obj_ref, %{
-      "next" => next_fn,
-      "return" => return_fn
-    })
-
-    {:obj, obj_ref}
-  end
-
-  def invoke_async_generator(frame, gas, ctx) do
-    gen_ref = make_ref()
-
-    try do
-      Interpreter.run_frame(frame, [], gas, ctx)
-    catch
-      {:generator_yield, _val, sf, ss, sg, sc} ->
-        Heap.put_obj(gen_ref, %{state: :suspended, frame: sf, stack: ss, gas: sg, ctx: sc})
-    end
-
-    next_fn =
-      {:builtin, "next",
-       fn
-         [arg | _], _this -> async_next(gen_ref, arg)
-         [], _this -> async_next(gen_ref, :undefined)
-       end}
-
-    return_fn =
-      {:builtin, "return",
-       fn
-         [val | _], _this -> Promise.resolved(done_result(val))
-         [], _this -> Promise.resolved(done_result(:undefined))
-       end}
-
-    obj_ref = make_ref()
-    Heap.put_obj(obj_ref, %{"next" => next_fn, "return" => return_fn})
-    {:obj, obj_ref}
-  end
-
-  defp async_next(gen_ref, arg) do
-    case Heap.get_obj(gen_ref) do
-      %{state: :suspended, frame: frame, stack: stack, gas: gas, ctx: ctx} ->
-        prev_ctx = Heap.get_ctx()
-        Heap.put_ctx(ctx)
-
-        try do
-          result = Interpreter.run_frame(frame, [false, arg | stack], gas, ctx)
-          Heap.put_obj(gen_ref, %{state: :completed})
-          Promise.resolved(done_result(result))
-        catch
-          {:generator_yield, val, sf, ss, sg, sc} ->
-            Heap.put_obj(gen_ref, %{state: :suspended, frame: sf, stack: ss, gas: sg, ctx: sc})
-            Promise.resolved(yield_result(val))
-
-          {:generator_return, val} ->
-            Heap.put_obj(gen_ref, %{state: :completed})
-            Promise.resolved(done_result(val))
-
-          {:js_throw, _} = thrown ->
-            Heap.put_obj(gen_ref, %{state: :completed})
-            throw(thrown)
-        after
-          if prev_ctx, do: Heap.put_ctx(prev_ctx)
-        end
-
-      _ ->
-        Promise.resolved(done_result(:undefined))
-    end
+    suspend(gen_ref, frame, gas, ctx)
+    build_iterator(gen_ref, &next/2, &return_value/2)
   end
 
   def invoke_async(frame, gas, ctx) do
@@ -129,49 +21,131 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
     end
   end
 
-  def next(gen_ref, arg) do
+  def invoke_async_generator(frame, gas, ctx) do
+    gen_ref = make_ref()
+    suspend(gen_ref, frame, gas, ctx)
+
+    build_iterator(gen_ref, &async_next/2, fn _ref, val ->
+      Promise.resolved(done_result(val))
+    end)
+  end
+
+  # ── Sync generator ──
+
+  defp next(gen_ref, arg) do
     case Heap.get_obj(gen_ref) do
-      %{state: :suspended, frame: frame, stack: stack, gas: gas, ctx: ctx} ->
-        Heap.put_ctx(ctx)
-
-        try do
-          # QuickJS yield protocol: [is_return_or_throw, value | saved_stack]
-          result = Interpreter.run_frame(frame, [false, arg | stack], gas, ctx)
-          Heap.put_obj(gen_ref, %{state: :completed})
-          done_result(result)
-        catch
-          {:generator_yield, val, sf, ss, sg, sc} ->
-            Heap.put_obj(gen_ref, %{state: :suspended, frame: sf, stack: ss, gas: sg, ctx: sc})
-            yield_result(val)
-
-          {:generator_yield_star, val, sf, ss, sg, sc} ->
-            Heap.put_obj(gen_ref, %{state: :suspended, frame: sf, stack: ss, gas: sg, ctx: sc})
-            val
-
-          {:generator_return, val} ->
-            Heap.put_obj(gen_ref, %{state: :completed})
-            done_result(val)
-
-          {:js_throw, _} = thrown ->
-            Heap.put_obj(gen_ref, %{state: :completed})
-            throw(thrown)
-        end
+      %{state: :suspended} = s ->
+        Heap.put_ctx(s.ctx)
+        resume_sync(gen_ref, s, arg)
 
       _ ->
         done_result(:undefined)
     end
   end
 
-  def return_value(gen_ref, val) do
-    Heap.put_obj(gen_ref, %{state: :completed})
+  defp resume_sync(gen_ref, s, arg) do
+    try do
+      result = Interpreter.run_frame(s.frame, [false, arg | s.stack], s.gas, s.ctx)
+      complete(gen_ref)
+      done_result(result)
+    catch
+      {:generator_yield, val, sf, ss, sg, sc} ->
+        save_suspended(gen_ref, sf, ss, sg, sc)
+        yield_result(val)
+
+      {:generator_yield_star, val, sf, ss, sg, sc} ->
+        save_suspended(gen_ref, sf, ss, sg, sc)
+        val
+
+      {:generator_return, val} ->
+        complete(gen_ref)
+        done_result(val)
+
+      {:js_throw, _} = thrown ->
+        complete(gen_ref)
+        throw(thrown)
+    end
+  end
+
+  # ── Async generator ──
+
+  defp async_next(gen_ref, arg) do
+    case Heap.get_obj(gen_ref) do
+      %{state: :suspended} = s ->
+        prev_ctx = Heap.get_ctx()
+        Heap.put_ctx(s.ctx)
+
+        try do
+          resume_async(gen_ref, s, arg)
+        after
+          if prev_ctx, do: Heap.put_ctx(prev_ctx)
+        end
+
+      _ ->
+        Promise.resolved(done_result(:undefined))
+    end
+  end
+
+  defp resume_async(gen_ref, s, arg) do
+    try do
+      result = Interpreter.run_frame(s.frame, [false, arg | s.stack], s.gas, s.ctx)
+      complete(gen_ref)
+      Promise.resolved(done_result(result))
+    catch
+      {:generator_yield, val, sf, ss, sg, sc} ->
+        save_suspended(gen_ref, sf, ss, sg, sc)
+        Promise.resolved(yield_result(val))
+
+      {:generator_return, val} ->
+        complete(gen_ref)
+        Promise.resolved(done_result(val))
+
+      {:js_throw, _} = thrown ->
+        complete(gen_ref)
+        throw(thrown)
+    end
+  end
+
+  # ── Shared helpers ──
+
+  defp return_value(gen_ref, val) do
+    complete(gen_ref)
     done_result(val)
   end
 
-  def yield_result(val) do
-    Heap.wrap(%{"value" => val, "done" => false})
+  defp suspend(gen_ref, frame, gas, ctx) do
+    try do
+      Interpreter.run_frame(frame, [], gas, ctx)
+    catch
+      {:generator_yield, _val, sf, ss, sg, sc} -> save_suspended(gen_ref, sf, ss, sg, sc)
+      {:generator_yield_star, _val, sf, ss, sg, sc} -> save_suspended(gen_ref, sf, ss, sg, sc)
+    end
   end
 
-  def done_result(val) do
-    Heap.wrap(%{"value" => val, "done" => true})
+  defp save_suspended(ref, frame, stack, gas, ctx) do
+    Heap.put_obj(ref, %{state: :suspended, frame: frame, stack: stack, gas: gas, ctx: ctx})
+  end
+
+  defp complete(ref), do: Heap.put_obj(ref, %{state: :completed})
+
+  defp yield_result(val), do: Heap.wrap(%{"value" => val, "done" => false})
+  defp done_result(val), do: Heap.wrap(%{"value" => val, "done" => true})
+
+  defp build_iterator(gen_ref, next_impl, return_impl) do
+    next_fn =
+      {:builtin, "next",
+       fn
+         [arg | _], _this -> next_impl.(gen_ref, arg)
+         [], _this -> next_impl.(gen_ref, :undefined)
+       end}
+
+    return_fn =
+      {:builtin, "return",
+       fn
+         [val | _], _this -> return_impl.(gen_ref, val)
+         [], _this -> return_impl.(gen_ref, :undefined)
+       end}
+
+    Heap.wrap(%{"next" => next_fn, "return" => return_fn})
   end
 end
