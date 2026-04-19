@@ -1,23 +1,18 @@
 defmodule QuickBEAM.JSEngineTest do
   use ExUnit.Case, async: true
 
-  @stubs_js """
-  if (typeof gc === 'undefined') { var gc = function() {}; }
-  if (typeof os === 'undefined') { var os = { platform: 'elixir' }; }
-  if (typeof qjs === 'undefined') { var qjs = { getStringKind: function(s) { return s.length > 256 ? 1 : 0; } }; }
-  """
+  @stubs_js "if(typeof gc==='undefined'){var gc=function(){}}if(typeof os==='undefined'){var os={platform:'elixir'}}if(typeof qjs==='undefined'){var qjs={getStringKind:function(s){return s.length>256?1:0}}}\n"
 
+
+  # Source position tests require original file layout (line numbers shift when
+  # functions are extracted). cur_pc/eval/array are QuickJS C engine limitations.
   @skip_builtin ~w(
-    test_exception_source_pos test_function_source_pos test_exception_prepare_stack
-    test_exception_stack_size_limit test_exception_capture_stack_trace
-    test_exception_capture_stack_trace_filter test_cur_pc test_finalization_registry
-    test_rope test_proxy_iter test_proxy_is_array test_eval test_eval2 test_weak_map test_weak_set
-    test_array
+    test_exception_source_pos test_function_source_pos
+    test_exception_prepare_stack test_exception_stack_size_limit
+    test_cur_pc test_eval test_array
   )
 
-  @skip_language ~w(
-    test_reserved_names test_syntax test_parse_semicolon test_regexp_skip test_template_skip
-  )
+  @skip_language ~w()
 
   setup do
     QuickBEAM.BeamVM.Heap.reset()
@@ -57,10 +52,10 @@ defmodule QuickBEAM.JSEngineTest do
 
       @tag :js_engine
       test "#{file}: #{func_name}", %{rt: rt} do
-        code =
-          @stubs_js <>
-            unquote(helpers) <>
-            "\n" <> unquote(func_body) <> "\n" <> unquote(func_name) <> "();"
+        # Load helpers into runtime once (they persist across evals)
+        QuickBEAM.eval(rt, @stubs_js <> unquote(helpers))
+
+        code = unquote(func_body) <> "\n" <> unquote(func_name) <> "();"
 
         case QuickBEAM.eval(rt, code) do
           {:ok, _} -> :ok
