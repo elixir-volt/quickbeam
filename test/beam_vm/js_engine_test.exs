@@ -1,8 +1,6 @@
 defmodule QuickBEAM.JSEngineTest do
   use ExUnit.Case, async: true
 
-  @stubs_js "if(typeof gc==='undefined'){var gc=function(){}}if(typeof os==='undefined'){var os={platform:'elixir'}}if(typeof qjs==='undefined'){var qjs={getStringKind:function(s){return s.length>256?1:0}}}\n"
-
 
   # Source position tests require original file layout (line numbers shift when
   # functions are extracted). cur_pc/eval/array are QuickJS C engine limitations.
@@ -20,6 +18,7 @@ defmodule QuickBEAM.JSEngineTest do
 
     assert_js = strip_exports(File.read!("test/beam_vm/assert.js"))
     QuickBEAM.eval(rt, assert_js)
+    QuickBEAM.eval(rt, ~s|gc=function(){};os={platform:'elixir'};qjs={getStringKind:function(s){return s.length>256?1:0}}|)
 
     %{rt: rt}
   end
@@ -53,7 +52,7 @@ defmodule QuickBEAM.JSEngineTest do
       @tag :js_engine
       test "#{file}: #{func_name}", %{rt: rt} do
         # Load helpers into runtime once (they persist across evals)
-        QuickBEAM.eval(rt, @stubs_js <> unquote(helpers))
+        QuickBEAM.eval(rt, unquote(helpers))
 
         code = unquote(func_body) <> "\n" <> unquote(func_name) <> "();"
 

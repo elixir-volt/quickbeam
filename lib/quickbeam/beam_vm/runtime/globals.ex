@@ -57,6 +57,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
       "structuredClone" => builtin("structuredClone", fn [val | _], _ -> val end),
       "queueMicrotask"  => builtin("queueMicrotask", &queue_microtask/2),
       "gc"         => builtin("gc", fn _, _ -> :undefined end),
+      "os"         => Heap.wrap(%{"platform" => "elixir"}),
+      "qjs"        => Heap.wrap(%{"getStringKind" => builtin("getStringKind", fn [s | _], _ -> if is_binary(s) and byte_size(s) > 256, do: 1, else: 0 end)}),
       "globalThis" => Runtime.new_object(),
       "NaN"        => :nan,
       "Infinity"   => :infinity,
