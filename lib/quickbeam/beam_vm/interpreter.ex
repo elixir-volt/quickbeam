@@ -326,7 +326,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     {{:obj, iter_ref}, next_fn}
   end
 
-  defp eval_code(code, caller_frame, gas, ctx) do
+  defp eval_code(code, caller_frame, gas, ctx, var_obj \\ nil) do
     with {:ok, bc} <- QuickBEAM.Runtime.compile(ctx.runtime_pid, code),
          {:ok, parsed} <- Bytecode.decode(bc) do
       eval_globals = collect_caller_locals(caller_frame, ctx)
@@ -336,11 +336,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       case __MODULE__.eval(parsed.value, [], eval_opts, parsed.atoms) do
         {:ok, val} ->
-          write_back_eval_vars(caller_frame, ctx, eval_ctx_globals)
+          write_back_eval_vars(caller_frame, ctx, eval_ctx_globals, var_obj)
           val
 
         {:error, {:js_throw, val}} ->
-          write_back_eval_vars(caller_frame, ctx, eval_ctx_globals)
+          write_back_eval_vars(caller_frame, ctx, eval_ctx_globals, var_obj)
           throw({:js_throw, val})
 
         _ ->
@@ -353,7 +353,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
-  defp write_back_eval_vars(caller_frame, ctx, _original_globals) do
+  defp write_back_eval_vars(caller_frame, ctx, _original_globals, var_obj \\ nil) do
     new_globals = Heap.get_persistent_globals() || %{}
 
     if caller_is_strict?(ctx) do
@@ -382,8 +382,28 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:closure, _, %Bytecode.Function{locals: local_defs, arg_count: ac}} ->
         do_write_back(local_defs, ac, locals, vrefs, l2v, new_globals, ctx)
 
+    if var_obj != nil do
+      eval_globals = collect_caller_locals(caller_frame, ctx)
+      for {name, val} <- new_globals,
+          is_binary(name),
+          not Map.has_key?(eval_globals, name),
+          not Map.has_key?(ctx.globals, name) do
+        Objects.put(var_obj, name, val)
+      end
+    end
+
       %Bytecode.Function{locals: local_defs, arg_count: ac} ->
         do_write_back(local_defs, ac, locals, vrefs, l2v, new_globals, ctx)
+
+    if var_obj != nil do
+      eval_globals = collect_caller_locals(caller_frame, ctx)
+      for {name, val} <- new_globals,
+          is_binary(name),
+          not Map.has_key?(eval_globals, name),
+          not Map.has_key?(ctx.globals, name) do
+        Objects.put(var_obj, name, val)
+      end
+    end
 
       _ ->
         :ok
@@ -1828,16 +1848,23 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [result | rest], gas - 1, ctx)
   end
 
-  defp run({:eval, [argc | _]}, frame, stack, gas, ctx) do
+  defp run({:eval, [argc | scope_args]}, frame, stack, gas, ctx) do
     {args, rest} = Enum.split(stack, argc + 1)
     eval_ref = List.last(args)
     call_args = Enum.take(args, argc) |> Enum.reverse()
     code = List.first(call_args, :undefined)
 
+    scope_idx = List.first(scope_args)
+    var_obj =
+      if is_integer(scope_idx) do
+        locals = elem(frame, Frame.locals())
+        if scope_idx < tuple_size(locals), do: elem(locals, scope_idx), else: nil
+      end
+
     catch_js_throw(frame, rest, gas, ctx, fn ->
       cond do
         eval_ref == ctx.globals["eval"] and is_binary(code) and ctx.runtime_pid != nil ->
-          eval_code(code, frame, gas, ctx)
+          eval_code(code, frame, gas, ctx, var_obj)
 
         is_function(eval_ref) or match?({:fn, _, _}, eval_ref) or match?({:bound, _, _}, eval_ref) ->
           dispatch_call(eval_ref, call_args, gas, ctx, :undefined)
