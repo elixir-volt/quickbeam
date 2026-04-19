@@ -48,7 +48,8 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
       :undefined
     else
       try do
-        :json.encode(to_json(val)) |> IO.iodata_to_binary()
+        result = to_json(val)
+        if result == :undefined, do: :undefined, else: encode_json(result)
       rescue
         ArgumentError -> :undefined
       end
@@ -56,6 +57,24 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
   end
 
   defp stringify([]), do: :undefined
+
+  defp encode_json({:ordered_map, pairs}) do
+    inner =
+      pairs
+      |> Enum.map(fn {k, v} -> encode_json(k) <> ":" <> encode_json(v) end)
+      |> Enum.join(",")
+
+    "{" <> inner <> "}"
+  end
+
+  defp encode_json(list) when is_list(list) do
+    inner = list |> Enum.map(&encode_json/1) |> Enum.join(",")
+    "[" <> inner <> "]"
+  end
+
+  defp encode_json(val) do
+    :json.encode(val) |> IO.iodata_to_binary()
+  end
 
   defp to_json({:obj, ref} = obj) do
     case Heap.get_obj(ref) do
@@ -66,37 +85,63 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
         Enum.map(list, &to_json/1)
 
       map when is_map(map) ->
-        map
-        |> Map.drop([key_order()])
-        |> Enum.reject(fn {k, v} ->
-          v == :undefined or
-            (is_binary(k) and String.starts_with?(k, "__") and String.ends_with?(k, "__"))
-        end)
-        |> Enum.map(fn {k, v} ->
-          resolved =
-            case v do
-              {:accessor, getter, _setter} when getter != nil ->
-                try do
-                  QuickBEAM.BeamVM.Runtime.invoke_getter(getter, obj)
-                rescue
-                  _ -> :undefined
-                catch
-                  _, _ -> :undefined
-                end
+        order =
+          case Map.get(map, key_order()) do
+            list when is_list(list) -> Enum.reverse(list)
+            _ -> nil
+          end
 
-              _ ->
-                v
-            end
+        entries =
+          map
+          |> Map.drop([key_order()])
+          |> Enum.reject(fn {k, v} ->
+            v == :undefined or internal?(k)
+          end)
 
-          {to_string(k), to_json(resolved)}
-        end)
-        |> Enum.reject(fn {_, v} -> v == :undefined end)
-        |> Map.new()
+        entries =
+          if order do
+            Enum.sort_by(entries, fn {k, _} ->
+              case Enum.find_index(order, &(&1 == k)) do
+                nil -> length(order)
+                idx -> idx
+              end
+            end)
+          else
+            entries
+          end
+
+        pairs =
+          entries
+          |> Enum.map(fn {k, v} ->
+            resolved =
+              case v do
+                {:accessor, getter, _setter} when getter != nil ->
+                  try do
+                    QuickBEAM.BeamVM.Runtime.invoke_getter(getter, obj)
+                  rescue
+                    _ -> :undefined
+                  catch
+                    _, _ -> :undefined
+                  end
+
+                _ ->
+                  v
+              end
+
+            {to_string(k), to_json(resolved)}
+          end)
+          |> Enum.reject(fn {_, v} -> v == :undefined end)
+
+        {:ordered_map, pairs}
     end
   end
 
   defp to_json(nil), do: :null
   defp to_json(:undefined), do: :null
+  defp to_json({:closure, _, _}), do: :undefined
+  defp to_json(%QuickBEAM.BeamVM.Bytecode.Function{}), do: :undefined
+  defp to_json({:builtin, _, _}), do: :undefined
+  defp to_json({:bound, _, _}), do: :undefined
   defp to_json(:nan), do: :null
   defp to_json(:infinity), do: :null
   defp to_json(list) when is_list(list), do: Enum.map(list, &to_json/1)

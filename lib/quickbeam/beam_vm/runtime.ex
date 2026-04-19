@@ -420,6 +420,29 @@ defmodule QuickBEAM.BeamVM.Runtime do
     Map.get(map, key, :undefined)
   end
 
+  defp get_own_property({:builtin, name, _}, "from")
+       when name in ~w(Uint8Array Int8Array Uint8ClampedArray Uint16Array Int16Array Uint32Array Int32Array Float32Array Float64Array) do
+    type_map = %{
+      "Uint8Array" => :uint8,
+      "Int8Array" => :int8,
+      "Uint8ClampedArray" => :uint8_clamped,
+      "Uint16Array" => :uint16,
+      "Int16Array" => :int16,
+      "Uint32Array" => :uint32,
+      "Int32Array" => :int32,
+      "Float32Array" => :float32,
+      "Float64Array" => :float64
+    }
+
+    type = Map.get(type_map, name, :uint8)
+
+    {:builtin, "from",
+     fn [source | _] ->
+       list = Heap.to_list(source)
+       QuickBEAM.BeamVM.Runtime.TypedArray.typed_array_constructor(type).(list)
+     end}
+  end
+
   defp get_own_property({:builtin, _, _} = b, key) do
     Map.get(Heap.get_ctor_statics(b), key, :undefined)
   end

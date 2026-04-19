@@ -84,6 +84,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   def proto_property("toSorted"),
     do: {:builtin, "toSorted", fn _args, this -> to_sorted(this) end}
 
+  def proto_property("constructor") do
+    QuickBEAM.BeamVM.Runtime.global_bindings() |> Map.get("Array", :undefined)
+  end
+
   def proto_property(_), do: :undefined
 
   # ── Array static dispatch ──
