@@ -304,20 +304,67 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       eval_globals = collect_caller_locals(caller_frame, ctx)
       eval_ctx_globals = Map.merge(ctx.globals, eval_globals)
 
-      case __MODULE__.eval(
-             parsed.value,
-             [],
-             %{gas: gas, runtime_pid: ctx.runtime_pid, globals: eval_ctx_globals},
-             parsed.atoms
-           ) do
-        {:ok, val} -> val
-        {:error, {:js_throw, val}} -> throw({:js_throw, val})
-        _ -> :undefined
+      eval_opts = %{gas: gas, runtime_pid: ctx.runtime_pid, globals: eval_ctx_globals}
+
+      case __MODULE__.eval(parsed.value, [], eval_opts, parsed.atoms) do
+        {:ok, val} ->
+          write_back_eval_vars(caller_frame, ctx, eval_ctx_globals)
+          val
+
+        {:error, {:js_throw, val}} ->
+          write_back_eval_vars(caller_frame, ctx, eval_ctx_globals)
+          throw({:js_throw, val})
+
+        _ ->
+          :undefined
       end
     else
       {:error, %{message: msg}} -> throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
       {:error, msg} when is_binary(msg) -> throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
       _ -> :undefined
+    end
+  end
+
+  defp write_back_eval_vars(caller_frame, ctx, _original_globals) do
+    new_globals = Heap.get_persistent_globals() || %{}
+    locals = elem(caller_frame, Frame.locals())
+    vrefs = elem(caller_frame, Frame.var_refs())
+    l2v = elem(caller_frame, Frame.l2v())
+
+    case ctx.current_func do
+      {:closure, _, %Bytecode.Function{locals: local_defs, arg_count: ac}} ->
+        do_write_back(local_defs, ac, locals, vrefs, l2v, new_globals, ctx)
+
+      %Bytecode.Function{locals: local_defs, arg_count: ac} ->
+        do_write_back(local_defs, ac, locals, vrefs, l2v, new_globals, ctx)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp do_write_back(local_defs, arg_count, locals, vrefs, l2v, new_globals, ctx) do
+    for {vd, idx} <- Enum.with_index(local_defs),
+        name = vd.name,
+        is_binary(name),
+        Map.has_key?(new_globals, name) do
+      new_val = Map.get(new_globals, name)
+
+      case Map.get(l2v, idx) do
+        nil ->
+          # Not captured — write back to arg_buf or locals directly (can't mutate tuples)
+          # But we can update via process dict for the var_ref path
+          :ok
+
+        vref_idx when vref_idx < tuple_size(vrefs) ->
+          case elem(vrefs, vref_idx) do
+            {:cell, ref} -> Closures.write_cell({:cell, ref}, new_val)
+            _ -> :ok
+          end
+
+        _ ->
+          :ok
+      end
     end
   end
 
