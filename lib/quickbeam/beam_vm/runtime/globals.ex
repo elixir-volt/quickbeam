@@ -6,7 +6,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   alias QuickBEAM.BeamVM.{Bytecode, Heap}
   alias QuickBEAM.BeamVM.Interpreter
   alias QuickBEAM.BeamVM.Runtime
-  alias QuickBEAM.BeamVM.Runtime.{Boolean, Console, JSON, MapSet, Math, Object, Promise, Reflect, Symbol, TypedArray}
+  alias QuickBEAM.BeamVM.Runtime.{ArrayBuffer, Boolean, Console, JSON, MapSet, Math, Object, Promise, Reflect, Symbol, TypedArray}
   alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
 
   @error_types ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError)
@@ -42,7 +42,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
       "WeakSet"    => register("WeakSet", MapSet.set_constructor()),
       "WeakRef"    => register("WeakRef", fn _, _ -> Runtime.new_object() end),
       "DataView"   => register("DataView", fn _, _ -> Runtime.new_object() end),
-      "ArrayBuffer" => register("ArrayBuffer", &TypedArray.array_buffer_constructor/1),
+      "ArrayBuffer" => register("ArrayBuffer", &ArrayBuffer.constructor/1),
       "Proxy"      => register("Proxy", &proxy_constructor/2),
       "Math"       => Math.object(),
       "JSON"       => JSON.object(),
@@ -260,7 +260,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
           {"Float64Array", :float64}
         ],
         into: %{} do
-      {name, register(name, TypedArray.typed_array_constructor(type))}
+      {name, register(name, TypedArray.constructor(type))}
     end
   end
 

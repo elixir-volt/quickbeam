@@ -134,7 +134,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
     {:builtin, "from",
      fn [source | _], _this ->
        list = Heap.to_list(source)
-       TypedArray.typed_array_constructor(type).(list, nil)
+       TypedArray.constructor(type).(list, nil)
      end}
   end
 

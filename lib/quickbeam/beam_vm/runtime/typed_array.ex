@@ -1,87 +1,35 @@
 defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
-  import QuickBEAM.BeamVM.Heap.Keys
   @moduledoc false
 
+  import QuickBEAM.BeamVM.Heap.Keys
+
   use QuickBEAM.BeamVM.Builtin
+
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Runtime
 
-  def array_buffer_constructor(args, _this \\ nil) do
-    byte_length =
-      case args do
-        [n | _] when is_integer(n) -> n
-        _ -> 0
-      end
-
-    Heap.wrap(%{buffer() => :binary.copy(<<0>>, byte_length), "byteLength" => byte_length})
-  end
-
-  def typed_array_constructor(type) do
+  def constructor(type) do
     fn args, _this ->
-      {buf, offset, len, orig_buf} = parse_ta_args(args, type)
+      {buf, offset, len, orig_buf} = parse_args(args, type)
       ref = make_ref()
 
       methods =
         build_methods do
-          method "set" do
-            ta_set(ref, args)
-          end
-
-          method "subarray" do
-            ta_subarray(ref, args)
-          end
-
-          method "join" do
-            ta_join(ref, args)
-          end
-
-          method "forEach" do
-            ta_for_each(ref, args, this)
-          end
-
-          method "map" do
-            ta_map(ref, args, this)
-          end
-
-          method "filter" do
-            ta_filter(ref, args, this)
-          end
-
-          method "every" do
-            ta_every(ref, args, this)
-          end
-
-          method "some" do
-            ta_some(ref, args, this)
-          end
-
-          method "reduce" do
-            ta_reduce(ref, args, this)
-          end
-
-          method "indexOf" do
-            ta_index_of(ref, args)
-          end
-
-          method "find" do
-            ta_find(ref, args, this)
-          end
-
-          method "sort" do
-            ta_sort(ref)
-          end
-
-          method "reverse" do
-            ta_reverse(ref)
-          end
-
-          method "slice" do
-            ta_slice(ref, args)
-          end
-
-          method "fill" do
-            ta_fill(ref, args)
-          end
+          method("set", do: set(ref, args))
+          method("subarray", do: subarray(ref, args))
+          method("join", do: join(ref, args))
+          method("forEach", do: for_each(ref, args, this))
+          method("map", do: map(ref, args, this))
+          method("filter", do: filter(ref, args, this))
+          method("every", do: every(ref, args, this))
+          method("some", do: some(ref, args, this))
+          method("reduce", do: reduce(ref, args, this))
+          method("indexOf", do: index_of(ref, args))
+          method("find", do: find(ref, args, this))
+          method("sort", do: sort(ref))
+          method("reverse", do: reverse(ref))
+          method("slice", do: slice(ref, args))
+          method("fill", do: fill(ref, args))
         end
 
       obj =
@@ -101,70 +49,87 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     end
   end
 
-  # ── Read helpers ──
+  # ── Element access (public, used by Interpreter.Objects) ──
 
-  defp ta(ref), do: Heap.get_obj(ref, %{})
-  defp ta_buf(ref), do: Map.get(ta(ref), buffer(), <<>>)
-  defp ta_len(ref), do: Map.get(ta(ref), "length", 0)
-  defp ta_type(ref), do: Map.get(ta(ref), type_key(), :uint8)
+  def get_element({:obj, ref}, idx) do
+    ta = Heap.get_obj(ref, %{})
+    read_element(Map.get(ta, buffer(), <<>>), idx, Map.get(ta, type_key(), :uint8))
+  end
+
+  def set_element({:obj, ref}, idx, val) do
+    ta = Heap.get_obj(ref, %{})
+    t = Map.get(ta, type_key(), :uint8)
+
+    Heap.put_obj(
+      ref,
+      Map.put(ta, buffer(), write_element(Map.get(ta, buffer(), <<>>), idx, val, t))
+    )
+  end
+
+  # ── State readers ──
+
+  defp state(ref), do: Heap.get_obj(ref, %{})
+  defp buf(ref), do: Map.get(state(ref), buffer(), <<>>)
+  defp len(ref), do: Map.get(state(ref), "length", 0)
+  defp type(ref), do: Map.get(state(ref), type_key(), :uint8)
 
   # ── Method implementations ──
 
-  defp ta_set(ref, [source | _]) do
+  defp set(ref, [source | _]) do
     src_list = Heap.to_list(source)
-    t = ta_type(ref)
+    t = type(ref)
 
     new_buf =
-      Enum.with_index(src_list)
-      |> Enum.reduce(ta_buf(ref), fn {v, i}, acc -> write_element(acc, i, v, t) end)
+      src_list
+      |> Enum.with_index()
+      |> Enum.reduce(buf(ref), fn {v, i}, acc -> write_element(acc, i, v, t) end)
 
-    Heap.put_obj(ref, Map.put(ta(ref), buffer(), new_buf))
+    Heap.put_obj(ref, Map.put(state(ref), buffer(), new_buf))
     :undefined
   end
 
-  defp ta_subarray(ref, args) do
-    len = ta_len(ref)
-    t = ta_type(ref)
-    s = max(0, min(to_idx(Enum.at(args, 0, 0)), len))
-    e = min(to_idx(Enum.at(args, 1, len)), len)
+  defp subarray(ref, args) do
+    l = len(ref)
+    t = type(ref)
+    s = max(0, min(to_idx(Enum.at(args, 0, 0)), l))
+    e = min(to_idx(Enum.at(args, 1, l)), l)
     new_len = max(0, e - s)
     es = elem_size(t)
 
     Heap.wrap(%{
       typed_array() => true,
       type_key() => t,
-      buffer() => binary_part(ta_buf(ref), s * es, new_len * es),
+      buffer() => binary_part(buf(ref), s * es, new_len * es),
       offset() => 0,
       "length" => new_len,
       "byteLength" => new_len * es,
       "byteOffset" => 0,
-      "buffer" => Map.get(ta(ref), "buffer")
+      "buffer" => Map.get(state(ref), "buffer")
     })
   end
 
-  defp ta_join(ref, args) do
-    sep =
-      case args do
-        [s | _] when is_binary(s) -> s
-        _ -> ","
-      end
+  defp join(ref, args) do
+    sep = case args do
+      [s | _] when is_binary(s) -> s
+      _ -> ","
+    end
 
-    {buf, len, t} = {ta_buf(ref), ta_len(ref), ta_type(ref)}
-    Enum.map_join(0..max(0, len - 1), sep, &Integer.to_string(trunc(read_element(buf, &1, t))))
+    {b, l, t} = {buf(ref), len(ref), type(ref)}
+    Enum.map_join(0..max(0, l - 1), sep, &Integer.to_string(trunc(read_element(b, &1, t))))
   end
 
-  defp ta_for_each(ref, [cb | _], this) do
-    {buf, len, t} = {ta_buf(ref), ta_len(ref), ta_type(ref)}
-    for i <- 0..(len - 1), do: cb_call(cb, [read_element(buf, i, t), i, this])
+  defp for_each(ref, [cb | _], this) do
+    {b, l, t} = {buf(ref), len(ref), type(ref)}
+    for i <- 0..(l - 1), do: call(cb, [read_element(b, i, t), i, this])
     :undefined
   end
 
-  defp ta_map(ref, [cb | _], this) do
-    {buf, len, t} = {ta_buf(ref), ta_len(ref), ta_type(ref)}
+  defp map(ref, [cb | _], this) do
+    {b, l, t} = {buf(ref), len(ref), type(ref)}
 
     new_buf =
-      Enum.reduce(0..(len - 1), buf, fn i, acc ->
-        write_element(acc, i, cb_call(cb, [read_element(acc, i, t), i, this]), t)
+      Enum.reduce(0..(l - 1), b, fn i, acc ->
+        write_element(acc, i, call(cb, [read_element(acc, i, t), i, this]), t)
       end)
 
     Heap.wrap(%{
@@ -172,21 +137,18 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
       type_key() => t,
       buffer() => new_buf,
       offset() => 0,
-      "length" => len,
+      "length" => l,
       "byteLength" => byte_size(new_buf),
       "byteOffset" => 0
     })
   end
 
-  defp ta_filter(ref, [cb | _], this) do
-    {buf, len, t} = {ta_buf(ref), ta_len(ref), ta_type(ref)}
+  defp filter(ref, [cb | _], this) do
+    {b, l, t} = {buf(ref), len(ref), type(ref)}
 
     vals =
-      for i <- 0..(len - 1),
-          (
-            v = read_element(buf, i, t)
-            truthy?(cb_call(cb, [v, i, this]))
-          ),
+      for i <- 0..(l - 1),
+          (v = read_element(b, i, t); truthy?(call(cb, [v, i, this]))),
           do: v
 
     new_buf =
@@ -207,78 +169,68 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     })
   end
 
-  defp ta_every(ref, [cb | _], this) do
-    {buf, len, t} = {ta_buf(ref), ta_len(ref), ta_type(ref)}
-    Enum.all?(0..max(0, len - 1), &truthy?(cb_call(cb, [read_element(buf, &1, t), &1, this])))
+  defp every(ref, [cb | _], this) do
+    {b, l, t} = {buf(ref), len(ref), type(ref)}
+    Enum.all?(0..max(0, l - 1), &truthy?(call(cb, [read_element(b, &1, t), &1, this])))
   end
 
-  defp ta_some(ref, [cb | _], this) do
-    {buf, len, t} = {ta_buf(ref), ta_len(ref), ta_type(ref)}
-    Enum.any?(0..max(0, len - 1), &truthy?(cb_call(cb, [read_element(buf, &1, t), &1, this])))
+  defp some(ref, [cb | _], this) do
+    {b, l, t} = {buf(ref), len(ref), type(ref)}
+    Enum.any?(0..max(0, l - 1), &truthy?(call(cb, [read_element(b, &1, t), &1, this])))
   end
 
-  defp ta_reduce(ref, args, this) do
-    {buf, len, t} = {ta_buf(ref), ta_len(ref), ta_type(ref)}
+  defp reduce(ref, args, this) do
+    {b, l, t} = {buf(ref), len(ref), type(ref)}
     cb = List.first(args)
     init = Enum.at(args, 1)
-    {start, acc} = if init != nil, do: {0, init}, else: {1, read_element(buf, 0, t)}
+    {start, acc} = if init != nil, do: {0, init}, else: {1, read_element(b, 0, t)}
 
-    Enum.reduce(start..max(start, len - 1), acc, fn i, a ->
-      cb_call(cb, [a, read_element(buf, i, t), i, this])
+    Enum.reduce(start..max(start, l - 1), acc, fn i, a ->
+      call(cb, [a, read_element(b, i, t), i, this])
     end)
   end
 
-  defp ta_index_of(ref, [target | _]) do
-    {buf, len, t} = {ta_buf(ref), ta_len(ref), ta_type(ref)}
+  defp index_of(ref, [target | _]) do
+    {b, l, t} = {buf(ref), len(ref), type(ref)}
 
-    Enum.find_value(0..max(0, len - 1), -1, fn i ->
-      if read_element(buf, i, t) == target, do: i
+    Enum.find_value(0..max(0, l - 1), -1, fn i ->
+      if read_element(b, i, t) == target, do: i
     end)
   end
 
-  defp ta_find(ref, [cb | _], this) do
-    {buf, len, t} = {ta_buf(ref), ta_len(ref), ta_type(ref)}
+  defp find(ref, [cb | _], this) do
+    {b, l, t} = {buf(ref), len(ref), type(ref)}
 
-    Enum.find_value(0..max(0, len - 1), :undefined, fn i ->
-      v = read_element(buf, i, t)
-      if truthy?(cb_call(cb, [v, i, this])), do: v
+    Enum.find_value(0..max(0, l - 1), :undefined, fn i ->
+      v = read_element(b, i, t)
+      if truthy?(call(cb, [v, i, this])), do: v
     end)
   end
 
-  defp ta_sort(ref) do
-    {buf, len, t} = {ta_buf(ref), ta_len(ref), ta_type(ref)}
-    vals = Enum.map(0..max(0, len - 1), &read_element(buf, &1, t)) |> Enum.sort()
-
-    new_buf =
-      vals
-      |> Enum.with_index()
-      |> Enum.reduce(buf, fn {v, i}, acc -> write_element(acc, i, v, t) end)
-
-    Heap.put_obj(ref, Map.put(ta(ref), buffer(), new_buf))
+  defp sort(ref) do
+    {b, l, t} = {buf(ref), len(ref), type(ref)}
+    vals = Enum.map(0..max(0, l - 1), &read_element(b, &1, t)) |> Enum.sort()
+    new_buf = rebuild_buffer(vals, b, t)
+    Heap.put_obj(ref, Map.put(state(ref), buffer(), new_buf))
     {:obj, ref}
   end
 
-  defp ta_reverse(ref) do
-    {buf, len, t} = {ta_buf(ref), ta_len(ref), ta_type(ref)}
-    vals = Enum.map(0..max(0, len - 1), &read_element(buf, &1, t)) |> Enum.reverse()
-
-    new_buf =
-      vals
-      |> Enum.with_index()
-      |> Enum.reduce(buf, fn {v, i}, acc -> write_element(acc, i, v, t) end)
-
-    Heap.put_obj(ref, Map.put(ta(ref), buffer(), new_buf))
+  defp reverse(ref) do
+    {b, l, t} = {buf(ref), len(ref), type(ref)}
+    vals = Enum.map(0..max(0, l - 1), &read_element(b, &1, t)) |> Enum.reverse()
+    new_buf = rebuild_buffer(vals, b, t)
+    Heap.put_obj(ref, Map.put(state(ref), buffer(), new_buf))
     {:obj, ref}
   end
 
-  defp ta_slice(ref, args) do
-    len = ta_len(ref)
-    t = ta_type(ref)
+  defp slice(ref, args) do
+    l = len(ref)
+    t = type(ref)
     s = max(0, to_idx(Enum.at(args, 0, 0)))
-    e = min(len, to_idx(Enum.at(args, 1, len)))
+    e = min(l, to_idx(Enum.at(args, 1, l)))
     new_len = max(0, e - s)
     es = elem_size(t)
-    new_buf = if new_len > 0, do: binary_part(ta_buf(ref), s * es, new_len * es), else: <<>>
+    new_buf = if new_len > 0, do: binary_part(buf(ref), s * es, new_len * es), else: <<>>
 
     Heap.wrap(%{
       typed_array() => true,
@@ -291,22 +243,28 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     })
   end
 
-  defp ta_fill(ref, [val | _]) do
-    {len, t} = {ta_len(ref), ta_type(ref)}
-    new_buf = Enum.reduce(0..(len - 1), ta_buf(ref), &write_element(&2, &1, val, t))
-    Heap.put_obj(ref, Map.put(ta(ref), buffer(), new_buf))
+  defp fill(ref, [val | _]) do
+    {l, t} = {len(ref), type(ref)}
+    new_buf = Enum.reduce(0..(l - 1), buf(ref), &write_element(&2, &1, val, t))
+    Heap.put_obj(ref, Map.put(state(ref), buffer(), new_buf))
     {:obj, ref}
   end
 
-  # ── Shared helpers ──
+  # ── Helpers ──
 
-  defp cb_call(cb, args), do: Runtime.call_callback(cb, args)
+  defp call(cb, args), do: Runtime.call_callback(cb, args)
   defp truthy?(v), do: v not in [false, nil, :undefined, 0, ""]
   defp to_idx(n) when is_integer(n), do: n
   defp to_idx(n) when is_float(n), do: trunc(n)
   defp to_idx(_), do: 0
 
-  defp parse_ta_args(args, type) do
+  defp rebuild_buffer(vals, buf, type) do
+    vals
+    |> Enum.with_index()
+    |> Enum.reduce(buf, fn {v, i}, acc -> write_element(acc, i, v, type) end)
+  end
+
+  defp parse_args(args, type) do
     case args do
       [{:obj, buf_ref} = buf_obj | rest] ->
         buf = Heap.get_obj(buf_ref, %{})
@@ -337,21 +295,6 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
   end
 
   # ── Element read/write ──
-
-  def get_element({:obj, ref}, idx) do
-    ta = Heap.get_obj(ref, %{})
-    read_element(Map.get(ta, buffer(), <<>>), idx, Map.get(ta, type_key(), :uint8))
-  end
-
-  def set_element({:obj, ref}, idx, val) do
-    ta = Heap.get_obj(ref, %{})
-    t = Map.get(ta, type_key(), :uint8)
-
-    Heap.put_obj(
-      ref,
-      Map.put(ta, buffer(), write_element(Map.get(ta, buffer(), <<>>), idx, val, t))
-    )
-  end
 
   defp elem_size(:uint8), do: 1
   defp elem_size(:int8), do: 1
@@ -457,7 +400,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     |> Enum.reduce(buf, fn {val, i}, acc -> write_element(acc, i, val, type) end)
   end
 
-  defp make_buffer_ref(buffer) do
-    Heap.wrap(%{buffer() => buffer, "byteLength" => byte_size(buffer)})
+  defp make_buffer_ref(buffer_data) do
+    Heap.wrap(%{buffer() => buffer_data, "byteLength" => byte_size(buffer_data)})
   end
 end
