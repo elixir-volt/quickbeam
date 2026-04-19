@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Scope do
+  @moduledoc false
   @compile {:inline,
             resolve_const: 2, resolve_atom: 2, resolve_global: 2, set_global: 3, get_arg_value: 2}
   alias QuickBEAM.BeamVM.PredefinedAtoms

@@ -333,7 +333,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
         get_trap = get_own_property(handler, "get")
 
         if get_trap != :undefined do
-          call_callback(get_trap, [target, key], :no_interp)
+          call_callback(get_trap, [target, key])
         else
           get_own_property(target, key)
         end
@@ -530,7 +530,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   # ── Callback dispatch (used by higher-order array methods) ──
 
-  def call_callback(fun, args, _interp) do
+  def call_callback(fun, args) do
     case fun do
       %Bytecode.Function{} = f ->
         Interpreter.invoke(f, args, 10_000_000)
@@ -553,12 +553,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     Heap.wrap(%{})
   end
 
-  def truthy?(nil), do: false
-  def truthy?(:undefined), do: false
-  def truthy?(false), do: false
-  def truthy?(0), do: false
-  def truthy?(""), do: false
-  def truthy?(_), do: true
+  defdelegate truthy?(val), to: Values
 
   def strict_equal?(a, b), do: a === b
 

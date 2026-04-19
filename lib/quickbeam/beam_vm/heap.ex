@@ -241,7 +241,7 @@ defmodule QuickBEAM.BeamVM.Heap do
 
   @gc_initial_threshold 5_000
 
-  def track_alloc do
+  defp track_alloc do
     count = Process.get(:qb_alloc_count, 0) + 1
     Process.put(:qb_alloc_count, count)
     threshold = Process.get(:qb_gc_threshold, @gc_initial_threshold)
@@ -347,10 +347,6 @@ defmodule QuickBEAM.BeamVM.Heap do
     end
   end
 
-  def microtask_queue_empty? do
-    queue = Process.get(:qb_microtask_queue, :queue.new())
-    :queue.is_empty(queue)
-  end
 
   # ── Module registry ──
 

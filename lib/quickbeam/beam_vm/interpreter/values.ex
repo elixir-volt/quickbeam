@@ -1,4 +1,5 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Values do
+  @moduledoc false
   import QuickBEAM.BeamVM.Heap.Keys
 
   alias QuickBEAM.BeamVM.Heap
@@ -27,8 +28,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
             bxor: 2,
             shl: 2,
             sar: 2,
-            shr: 2,
-            numeric_add: 2}
+            shr: 2}
+
   alias QuickBEAM.BeamVM.Bytecode
   import Bitwise
 
@@ -224,16 +225,16 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def add(a, b) when is_number(a) and is_number(b), do: a + b
   def add(a, b), do: numeric_add(to_number(a), to_number(b))
 
-  def numeric_add(a, b) when is_number(a) and is_number(b), do: a + b
-  def numeric_add(:nan, _), do: :nan
-  def numeric_add(_, :nan), do: :nan
-  def numeric_add(:infinity, :neg_infinity), do: :nan
-  def numeric_add(:neg_infinity, :infinity), do: :nan
-  def numeric_add(:infinity, _), do: :infinity
-  def numeric_add(:neg_infinity, _), do: :neg_infinity
-  def numeric_add(_, :infinity), do: :infinity
-  def numeric_add(_, :neg_infinity), do: :neg_infinity
-  def numeric_add(_, _), do: :nan
+  defp numeric_add(a, b) when is_number(a) and is_number(b), do: a + b
+  defp numeric_add(:nan, _), do: :nan
+  defp numeric_add(_, :nan), do: :nan
+  defp numeric_add(:infinity, :neg_infinity), do: :nan
+  defp numeric_add(:neg_infinity, :infinity), do: :nan
+  defp numeric_add(:infinity, _), do: :infinity
+  defp numeric_add(:neg_infinity, _), do: :neg_infinity
+  defp numeric_add(_, :infinity), do: :infinity
+  defp numeric_add(_, :neg_infinity), do: :neg_infinity
+  defp numeric_add(_, _), do: :nan
 
   def sub({:bigint, a}, {:bigint, b}), do: {:bigint, a - b}
   def sub(a, b) when is_number(a) and is_number(b), do: a - b
@@ -417,9 +418,9 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
     end
   end
 
-  def inf_or_nan(a) when a > 0, do: :infinity
-  def inf_or_nan(a) when a < 0, do: :neg_infinity
-  def inf_or_nan(_), do: :nan
+  defp inf_or_nan(a) when a > 0, do: :infinity
+  defp inf_or_nan(a) when a < 0, do: :neg_infinity
+  defp inf_or_nan(_), do: :nan
 
   def band({:bigint, a}, {:bigint, b}), do: {:bigint, Bitwise.band(a, b)}
   def band(a, b), do: Bitwise.band(to_int32(a), to_int32(b))
@@ -467,51 +468,51 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def eq(a, b), do: abstract_eq(a, b)
   def neq(a, b), do: not abstract_eq(a, b)
 
-  def abstract_eq(nil, nil), do: true
-  def abstract_eq(nil, :undefined), do: true
-  def abstract_eq(:undefined, nil), do: true
-  def abstract_eq(:undefined, :undefined), do: true
-  def abstract_eq(a, b) when is_number(a) and is_number(b), do: a == b
-  def abstract_eq(a, b) when is_binary(a) and is_binary(b), do: a == b
-  def abstract_eq(a, b) when is_boolean(a) and is_boolean(b), do: a == b
-  def abstract_eq(true, b), do: abstract_eq(1, b)
-  def abstract_eq(a, true), do: abstract_eq(a, 1)
-  def abstract_eq(false, b), do: abstract_eq(0, b)
-  def abstract_eq(a, false), do: abstract_eq(a, 0)
-  def abstract_eq(a, b) when is_number(a) and is_binary(b), do: a == to_number(b)
-  def abstract_eq(a, b) when is_binary(a) and is_number(b), do: to_number(a) == b
-  def abstract_eq({:bigint, a}, b) when is_integer(b), do: a == b
-  def abstract_eq({:bigint, a}, b) when is_float(b), do: a == b
+  defp abstract_eq(nil, nil), do: true
+  defp abstract_eq(nil, :undefined), do: true
+  defp abstract_eq(:undefined, nil), do: true
+  defp abstract_eq(:undefined, :undefined), do: true
+  defp abstract_eq(a, b) when is_number(a) and is_number(b), do: a == b
+  defp abstract_eq(a, b) when is_binary(a) and is_binary(b), do: a == b
+  defp abstract_eq(a, b) when is_boolean(a) and is_boolean(b), do: a == b
+  defp abstract_eq(true, b), do: abstract_eq(1, b)
+  defp abstract_eq(a, true), do: abstract_eq(a, 1)
+  defp abstract_eq(false, b), do: abstract_eq(0, b)
+  defp abstract_eq(a, false), do: abstract_eq(a, 0)
+  defp abstract_eq(a, b) when is_number(a) and is_binary(b), do: a == to_number(b)
+  defp abstract_eq(a, b) when is_binary(a) and is_number(b), do: to_number(a) == b
+  defp abstract_eq({:bigint, a}, b) when is_integer(b), do: a == b
+  defp abstract_eq({:bigint, a}, b) when is_float(b), do: a == b
 
-  def abstract_eq({:bigint, a}, b) when is_binary(b) do
+  defp abstract_eq({:bigint, a}, b) when is_binary(b) do
     case Integer.parse(b) do
       {n, ""} -> a == n
       _ -> false
     end
   end
 
-  def abstract_eq(a, {:bigint, b}) when is_binary(a) do
+  defp abstract_eq(a, {:bigint, b}) when is_binary(a) do
     case Integer.parse(a) do
       {n, ""} -> n == b
       _ -> false
     end
   end
 
-  def abstract_eq(a, {:bigint, b}) when is_integer(a), do: a == b
-  def abstract_eq(a, {:bigint, b}) when is_float(a), do: a == b
+  defp abstract_eq(a, {:bigint, b}) when is_integer(a), do: a == b
+  defp abstract_eq(a, {:bigint, b}) when is_float(a), do: a == b
 
-  def abstract_eq({:obj, _} = obj, b) when is_number(b) or is_binary(b) do
+  defp abstract_eq({:obj, _} = obj, b) when is_number(b) or is_binary(b) do
     prim = to_primitive(obj)
     if match?({:obj, _}, prim), do: false, else: abstract_eq(prim, b)
   end
 
-  def abstract_eq(a, {:obj, _} = obj) when is_number(a) or is_binary(a) do
+  defp abstract_eq(a, {:obj, _} = obj) when is_number(a) or is_binary(a) do
     prim = to_primitive(obj)
     if match?({:obj, _}, prim), do: false, else: abstract_eq(a, prim)
   end
 
-  def abstract_eq({:obj, ref1}, {:obj, ref2}), do: ref1 === ref2
-  def abstract_eq(_, _), do: false
+  defp abstract_eq({:obj, ref1}, {:obj, ref2}), do: ref1 === ref2
+  defp abstract_eq(_, _), do: false
 
   defp to_primitive({:obj, ref} = obj) do
     data = Heap.get_obj(ref, %{})

@@ -25,19 +25,19 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
 
   proto "map" do
-    map(this, args, :no_interp)
+    map(this, args)
   end
 
   proto "filter" do
-    filter(this, args, :no_interp)
+    filter(this, args)
   end
 
   proto "reduce" do
-    reduce(this, args, :no_interp)
+    reduce(this, args)
   end
 
   proto "forEach" do
-    for_each(this, args, :no_interp)
+    for_each(this, args)
   end
 
   proto "indexOf" do
@@ -85,23 +85,23 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
 
   proto "find" do
-    find(this, args, :no_interp)
+    find(this, args)
   end
 
   proto "findIndex" do
-    find_index(this, args, :no_interp)
+    find_index(this, args)
   end
 
   proto "every" do
-    every(this, args, :no_interp)
+    every(this, args)
   end
 
   proto "some" do
-    some(this, args, :no_interp)
+    some(this, args)
   end
 
   proto "flatMap" do
-    flat_map(this, args, :no_interp)
+    flat_map(this, args)
   end
 
   proto "fill" do
@@ -117,11 +117,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
 
   proto "findLast" do
-    find_last(this, args, :no_interp)
+    find_last(this, args)
   end
 
   proto "findLastIndex" do
-    find_last_index(this, args, :no_interp)
+    find_last_index(this, args)
   end
 
   proto "toReversed" do
@@ -147,7 +147,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
 
   static "from" do
-    from(args, :no_interp)
+    from(args)
   end
 
   static "of" do
@@ -207,58 +207,58 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   # ── Higher-order ──
 
-  defp map({:obj, ref}, [fun | _], interp) do
+  defp map({:obj, ref}, [fun | _]) do
     list = Heap.get_obj(ref, [])
 
     result =
       Enum.map(Enum.with_index(list), fn {val, idx} ->
-        Runtime.call_callback(fun, [val, idx, list], interp)
+        Runtime.call_callback(fun, [val, idx, list])
       end)
 
     Heap.wrap(result)
   end
 
-  defp map(list, [fun | _], interp) when is_list(list) and length(list) > 0 do
+  defp map(list, [fun | _]) when is_list(list) and length(list) > 0 do
     Enum.map(Enum.with_index(list), fn {val, idx} ->
-      Runtime.call_callback(fun, [val, idx, list], interp)
+      Runtime.call_callback(fun, [val, idx, list])
     end)
   end
 
-  defp map(list, _, _), do: list
+  defp map(list, _), do: list
 
-  defp filter({:obj, ref}, [fun | _], interp) do
+  defp filter({:obj, ref}, [fun | _]) do
     list = Heap.get_obj(ref, [])
 
     result =
       Enum.filter(Enum.with_index(list), fn {val, idx} ->
-        Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list], interp))
+        Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list]))
       end)
       |> Enum.map(fn {val, _} -> val end)
 
     Heap.wrap(result)
   end
 
-  defp filter(list, [fun | _], interp) when is_list(list) do
+  defp filter(list, [fun | _]) when is_list(list) do
     Enum.filter(Enum.with_index(list), fn {val, idx} ->
-      Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list], interp))
+      Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list]))
     end)
     |> Enum.map(fn {val, _} -> val end)
   end
 
-  defp filter(list, _, _), do: list
+  defp filter(list, _), do: list
 
-  defp reduce({:obj, ref}, [fun | rest], interp) do
+  defp reduce({:obj, ref}, [fun | rest]) do
     list = Heap.get_obj(ref, [])
-    reduce_impl(list, fun, rest, interp)
+    reduce_impl(list, fun, rest)
   end
 
-  defp reduce(list, [fun | rest], interp) when is_list(list),
-    do: reduce_impl(list, fun, rest, interp)
+  defp reduce(list, [fun | rest]) when is_list(list),
+    do: reduce_impl(list, fun, rest)
 
-  defp reduce([], [_, init | _], _), do: init
-  defp reduce([val], _, _), do: val
+  defp reduce([], [_, init | _]), do: init
+  defp reduce([val], _), do: val
 
-  defp reduce_impl(list, fun, rest, interp) do
+  defp reduce_impl(list, fun, rest) do
     {acc, items} =
       case rest do
         [init] -> {init, list}
@@ -266,29 +266,29 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
       end
 
     Enum.reduce(Enum.with_index(items), acc, fn {val, idx}, a ->
-      Runtime.call_callback(fun, [a, val, idx, list], interp)
+      Runtime.call_callback(fun, [a, val, idx, list])
     end)
   end
 
-  defp for_each({:obj, ref}, [fun | _], interp) do
+  defp for_each({:obj, ref}, [fun | _]) do
     list = Heap.get_obj(ref, [])
 
     Enum.each(Enum.with_index(list), fn {val, idx} ->
-      Runtime.call_callback(fun, [val, idx, list], interp)
+      Runtime.call_callback(fun, [val, idx, list])
     end)
 
     :undefined
   end
 
-  defp for_each(list, [fun | _], interp) when is_list(list) do
+  defp for_each(list, [fun | _]) when is_list(list) do
     Enum.each(Enum.with_index(list), fn {val, idx} ->
-      Runtime.call_callback(fun, [val, idx, list], interp)
+      Runtime.call_callback(fun, [val, idx, list])
     end)
 
     :undefined
   end
 
-  defp for_each(_, _, _), do: :undefined
+  defp for_each(_, _), do: :undefined
 
   # ── Search ──
 
@@ -418,7 +418,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
         compare_fn = hd(args)
 
         Enum.sort(list, fn a, b ->
-          result = Runtime.call_callback(compare_fn, [a, b], :no_interp)
+          result = Runtime.call_callback(compare_fn, [a, b])
 
           case result do
             n when is_number(n) -> n < 0
@@ -476,12 +476,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   defp flat(_, _), do: []
 
-  defp flat_map({:obj, ref}, args, interp), do: flat_map(Heap.get_obj(ref, []), args, interp)
+  defp flat_map({:obj, ref}, args), do: flat_map(Heap.get_obj(ref, []), args)
 
-  defp flat_map(list, [cb | _], interp) when is_list(list) do
+  defp flat_map(list, [cb | _]) when is_list(list) do
     result =
       Enum.flat_map(Enum.with_index(list), fn {item, idx} ->
-        val = Runtime.call_callback(cb, [item, idx, list], interp)
+        val = Runtime.call_callback(cb, [item, idx, list])
 
         case val do
           {:obj, r} ->
@@ -501,7 +501,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     Heap.wrap(result)
   end
 
-  defp flat_map(_, _, _), do: :undefined
+  defp flat_map(_, _), do: :undefined
 
   defp fill({:obj, ref}, args) do
     list = Heap.get_obj(ref, [])
@@ -532,49 +532,49 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   # ── Predicates ──
 
-  defp find({:obj, ref}, args, interp), do: find(Heap.get_obj(ref, []), args, interp)
+  defp find({:obj, ref}, args), do: find(Heap.get_obj(ref, []), args)
 
-  defp find(list, [fun | _], interp) when is_list(list) do
+  defp find(list, [fun | _]) when is_list(list) do
     Enum.find_value(Enum.with_index(list), :undefined, fn {val, idx} ->
-      if Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list], interp)), do: val
+      if Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list])), do: val
     end)
   end
 
-  defp find(_, _, _), do: :undefined
+  defp find(_, _), do: :undefined
 
-  defp find_index({:obj, ref}, args, interp), do: find_index(Heap.get_obj(ref, []), args, interp)
+  defp find_index({:obj, ref}, args), do: find_index(Heap.get_obj(ref, []), args)
 
-  defp find_index(list, [fun | _], interp) when is_list(list) do
+  defp find_index(list, [fun | _]) when is_list(list) do
     Enum.find_value(Enum.with_index(list), -1, fn {val, idx} ->
-      if Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list], interp)), do: idx
+      if Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list])), do: idx
     end)
   end
 
-  defp find_index(_, _, _), do: -1
+  defp find_index(_, _), do: -1
 
-  defp every({:obj, ref}, args, interp), do: every(Heap.get_obj(ref, []), args, interp)
+  defp every({:obj, ref}, args), do: every(Heap.get_obj(ref, []), args)
 
-  defp every(list, [fun | _], interp) when is_list(list) do
+  defp every(list, [fun | _]) when is_list(list) do
     Enum.all?(Enum.with_index(list), fn {val, idx} ->
-      Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list], interp))
+      Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list]))
     end)
   end
 
-  defp every(_, _, _), do: true
+  defp every(_, _), do: true
 
-  defp some({:obj, ref}, args, interp), do: some(Heap.get_obj(ref, []), args, interp)
+  defp some({:obj, ref}, args), do: some(Heap.get_obj(ref, []), args)
 
-  defp some(list, [fun | _], interp) when is_list(list) do
+  defp some(list, [fun | _]) when is_list(list) do
     Enum.any?(Enum.with_index(list), fn {val, idx} ->
-      Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list], interp))
+      Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list]))
     end)
   end
 
-  defp some(_, _, _), do: false
+  defp some(_, _), do: false
 
   # ── Array.from ──
 
-  defp from(args, interp) do
+  defp from(args) do
     {source, map_fn} =
       case args do
         [s, f | _] -> {s, f}
@@ -616,7 +616,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
     if map_fn do
       Enum.map(Enum.with_index(list), fn {val, idx} ->
-        Runtime.call_callback(map_fn, [val, idx], interp)
+        Runtime.call_callback(map_fn, [val, idx])
       end)
     else
       list
@@ -663,31 +663,31 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   defp array_at(_, _), do: :undefined
 
-  defp find_last({:obj, ref}, args, interp), do: find_last(Heap.get_obj(ref, []), args, interp)
+  defp find_last({:obj, ref}, args), do: find_last(Heap.get_obj(ref, []), args)
 
-  defp find_last(list, [cb | _], interp) when is_list(list) do
+  defp find_last(list, [cb | _]) when is_list(list) do
     list
     |> Enum.reverse()
     |> Enum.find(:undefined, fn item ->
-      Runtime.call_callback(cb, [item], interp) |> Runtime.truthy?()
+      Runtime.call_callback(cb, [item]) |> Runtime.truthy?()
     end)
   end
 
-  defp find_last(_, _, _), do: :undefined
+  defp find_last(_, _), do: :undefined
 
-  defp find_last_index({:obj, ref}, args, interp),
-    do: find_last_index(Heap.get_obj(ref, []), args, interp)
+  defp find_last_index({:obj, ref}, args),
+    do: find_last_index(Heap.get_obj(ref, []), args)
 
-  defp find_last_index(list, [cb | _], interp) when is_list(list) do
+  defp find_last_index(list, [cb | _]) when is_list(list) do
     list
     |> Enum.with_index()
     |> Enum.reverse()
     |> Enum.find_value(-1, fn {item, idx} ->
-      if Runtime.call_callback(cb, [item, idx], interp) |> Runtime.truthy?(), do: idx
+      if Runtime.call_callback(cb, [item, idx]) |> Runtime.truthy?(), do: idx
     end)
   end
 
-  defp find_last_index(_, _, _), do: -1
+  defp find_last_index(_, _), do: -1
 
   defp to_reversed({:obj, ref}) do
     list = Heap.get_obj(ref, [])

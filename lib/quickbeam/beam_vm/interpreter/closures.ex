@@ -66,7 +66,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Closures do
     {locals, List.to_tuple(vrefs), l2v}
   end
 
-  def ensure_vref_size(vrefs, idx, val) do
+  defp ensure_vref_size(vrefs, idx, val) do
     vrefs =
       if idx >= length(vrefs),
         do: vrefs ++ List.duplicate(:undefined, idx + 1 - length(vrefs)),

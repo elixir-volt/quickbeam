@@ -89,7 +89,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Prototypes do
     data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
 
     Enum.each(data, fn {k, v} ->
-      Runtime.call_callback(cb, [v, k, {:obj, ref}], :no_interp)
+      Runtime.call_callback(cb, [v, k, {:obj, ref}])
     end)
 
     :undefined
@@ -164,7 +164,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Prototypes do
     data = Heap.get_obj(ref, %{}) |> Map.get(set_data(), [])
 
     Enum.each(data, fn v ->
-      Runtime.call_callback(cb, [v, v, {:obj, ref}], :no_interp)
+      Runtime.call_callback(cb, [v, v, {:obj, ref}])
     end)
 
     :undefined
