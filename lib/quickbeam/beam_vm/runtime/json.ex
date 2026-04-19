@@ -21,14 +21,33 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
   end
 
   defp parse([s | _]) when is_binary(s) do
-    try do
-      to_js(:json.decode(s))
-    rescue
-      _ -> throw({:js_throw, Heap.make_error("Unexpected end of JSON input", "SyntaxError")})
-    catch
-      _, _ -> throw({:js_throw, Heap.make_error("Unexpected end of JSON input", "SyntaxError")})
-    end
+    decoded =
+      try do
+        :json.decode(s)
+      rescue
+        _ -> throw({:js_throw, Heap.make_error("Unexpected end of JSON input", "SyntaxError")})
+      catch
+        _, _ -> throw({:js_throw, Heap.make_error("Unexpected end of JSON input", "SyntaxError")})
+      end
+
+    to_js_root(decoded, s)
   end
+
+  defp to_js_root(val, json_str) when is_map(val) do
+    keys =
+      case Jason.decode(json_str, objects: :ordered_objects) do
+        {:ok, %Jason.OrderedObject{values: pairs}} ->
+          pairs |> Enum.map(&elem(&1, 0)) |> Enum.reverse()
+
+        _ ->
+          Map.keys(val) |> Enum.reverse()
+      end
+
+    to_js(val, keys)
+  end
+
+  defp to_js_root(val, _) when is_list(val), do: Enum.map(val, &to_js/1)
+  defp to_js_root(val, _), do: to_js(val)
 
   defp parse(_),
     do: throw({:js_throw, Heap.make_error("Unexpected end of JSON input", "SyntaxError")})
@@ -36,12 +55,19 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
   defp to_js(nil), do: nil
   defp to_js(:null), do: nil
 
-  defp to_js(val) when is_map(val) do
-    map = Map.new(val, fn {k, v} -> {k, to_js(v)} end)
-    Heap.wrap(map)
+  defp to_js(val) when is_map(val), do: to_js(val, nil)
+
+  defp to_js(val, key_order) when is_map(val) do
+    ref = make_ref()
+    map = Map.new(val, fn {k, v} -> {k, to_js(v, nil)} end)
+    order = key_order || Map.keys(val) |> Enum.reverse()
+    Heap.put_obj(ref, Map.put(map, key_order(), order))
+    {:obj, ref}
   end
 
   defp to_js(val) when is_list(val), do: Enum.map(val, &to_js/1)
+  defp to_js(val, _) when is_list(val), do: Enum.map(val, &to_js/1)
+  defp to_js(val, _), do: to_js(val)
   defp to_js(val), do: val
 
   defp stringify([val | rest]) do
