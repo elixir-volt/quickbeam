@@ -76,12 +76,13 @@ defmodule QuickBEAM.Runtime do
   @spec eval(GenServer.server(), String.t(), keyword()) :: QuickBEAM.js_result()
   def eval(server, code, opts \\ []) when is_binary(code) do
     timeout_ms = Keyword.get(opts, :timeout, 0)
+    filename = Keyword.get(opts, :filename, "")
     vars = Keyword.get(opts, :vars)
 
     if vars && vars != %{} do
-      GenServer.call(server, {:eval_with_vars, code, timeout_ms, vars}, :infinity)
+      GenServer.call(server, {:eval_with_vars, code, timeout_ms, vars, filename}, :infinity)
     else
-      GenServer.call(server, {:eval, code, timeout_ms}, :infinity)
+      GenServer.call(server, {:eval, code, timeout_ms, filename}, :infinity)
     end
   end
 
@@ -468,14 +469,14 @@ defmodule QuickBEAM.Runtime do
   end
 
   @impl true
-  def handle_call({:eval_with_vars, code, timeout_ms, vars}, from, state) do
+  def handle_call({:eval_with_vars, code, timeout_ms, vars, filename}, from, state) do
     names = Map.keys(vars)
 
     Enum.each(vars, fn {name, value} ->
       QuickBEAM.Native.define_global(state.resource, name, value)
     end)
 
-    ref = QuickBEAM.Native.eval(state.resource, code, timeout_ms, "")
+    ref = QuickBEAM.Native.eval(state.resource, code, timeout_ms, filename)
 
     transform = fn result ->
       QuickBEAM.Native.delete_globals(state.resource, names)
@@ -556,8 +557,8 @@ defmodule QuickBEAM.Runtime do
 
   # ── NIF dispatch callbacks ──
 
-  defp nif_eval(state, code, timeout),
-    do: QuickBEAM.Native.eval(state.resource, code, timeout, "")
+  defp nif_eval(state, code, timeout, filename \\ ""),
+    do: QuickBEAM.Native.eval(state.resource, code, timeout, filename)
 
   defp nif_call(state, fn_name, args, timeout),
     do: QuickBEAM.Native.call_function(state.resource, fn_name, args, timeout)

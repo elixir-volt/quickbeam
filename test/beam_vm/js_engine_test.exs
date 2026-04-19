@@ -4,11 +4,12 @@ defmodule QuickBEAM.JSEngineTest do
 
   # Source position tests require original file layout (line numbers shift when
   # functions are extracted). cur_pc/eval/array are QuickJS C engine limitations.
-  @skip_builtin ~w(
-    test_exception_source_pos test_function_source_pos
-    test_exception_prepare_stack test_exception_stack_size_limit
-    test_cur_pc test_eval test_array
-  )
+  # Source position tests: eval with line-number padding to preserve original positions.
+  # NIF engine bugs (can't fix from Elixir):
+  #   test_cur_pc — spread destructuring doesn't trigger defineProperty getter
+  #   test_eval — eval var scoping + calls skipped test_eval2
+  #   test_array — defineProperty configurable:false + length truncation
+  @skip_builtin ~w(test_cur_pc test_eval test_array)
 
   @skip_language ~w()
 
@@ -48,15 +49,16 @@ defmodule QuickBEAM.JSEngineTest do
 
     for %{id: %{name: func_name}} = func <- test_fns do
       func_body = binary_part(source, func.start, func[:end] - func.start)
+      func_line = source |> binary_part(0, func.start) |> String.split("\n") |> length()
 
       @tag :js_engine
       test "#{file}: #{func_name}", %{rt: rt} do
-        # Load helpers into runtime once (they persist across evals)
         QuickBEAM.eval(rt, unquote(helpers))
 
-        code = unquote(func_body) <> "\n" <> unquote(func_name) <> "();"
+        padding = String.duplicate("\n", unquote(func_line) - 1)
+        code = padding <> unquote(func_body) <> "\n" <> unquote(func_name) <> "();"
 
-        case QuickBEAM.eval(rt, code) do
+        case QuickBEAM.eval(rt, code, filename: unquote(file)) do
           {:ok, _} -> :ok
           {:error, %QuickBEAM.JSError{message: msg}} -> flunk("JS: #{msg}")
           {:error, err} -> flunk("JS error: #{inspect(err)}")

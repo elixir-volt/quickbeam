@@ -79,7 +79,8 @@ defmodule QuickBEAM.Context do
   @spec eval(GenServer.server(), String.t(), keyword()) :: {:ok, term()} | {:error, String.t()}
   def eval(server, code, opts \\ []) when is_binary(code) do
     timeout_ms = Keyword.get(opts, :timeout, 0)
-    GenServer.call(server, {:eval, code, timeout_ms}, :infinity)
+    filename = Keyword.get(opts, :filename, "")
+    GenServer.call(server, {:eval, code, timeout_ms, filename}, :infinity)
   end
 
   @spec reset(GenServer.server()) :: :ok | {:error, String.t()}
@@ -318,7 +319,7 @@ defmodule QuickBEAM.Context do
 
   # ── NIF dispatch callbacks ──
 
-  defp nif_eval(state, code, timeout),
+  defp nif_eval(state, code, timeout, _filename \\ ""),
     do: QuickBEAM.Native.pool_eval(state.pool_resource, state.context_id, code, timeout)
 
   defp nif_call(state, fn_name, args, timeout),

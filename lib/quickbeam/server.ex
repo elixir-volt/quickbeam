@@ -46,6 +46,12 @@ defmodule QuickBEAM.Server do
       end
 
       @impl true
+      def handle_call({:eval, code, timeout_ms, filename}, from, state) do
+        ref = nif_eval(state, code, timeout_ms, filename)
+        {:noreply, put_pending(state, ref, from, js_error_transform())}
+      end
+
+      @impl true
       def handle_call({:call, fn_name, args, timeout_ms}, from, state) do
         ref = nif_call(state, fn_name, args, timeout_ms)
         {:noreply, put_pending(state, ref, from, js_error_transform())}
