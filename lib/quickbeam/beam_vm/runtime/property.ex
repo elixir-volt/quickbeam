@@ -107,7 +107,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
             val
 
           :error ->
-            :undefined
+            case Map.get(map, "__wrapped_symbol__") do
+              sym when sym != nil -> get_own(sym, key)
+              _ -> :undefined
+            end
         end
     end
   end

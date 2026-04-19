@@ -95,6 +95,36 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
 
   # ── Constructors ──
 
+  defp object_constructor([arg | _], _) do
+    case arg do
+      {:symbol, _, _} = sym ->
+        ref = make_ref()
+        Heap.put_obj(ref, %{"__wrapped_symbol__" => sym})
+        {:obj, ref}
+
+      {:obj, _} = obj ->
+        obj
+
+      v when is_binary(v) ->
+        ref = make_ref()
+        Heap.put_obj(ref, %{"__wrapped_string__" => v})
+        {:obj, ref}
+
+      v when is_number(v) ->
+        ref = make_ref()
+        Heap.put_obj(ref, %{"__wrapped_number__" => v})
+        {:obj, ref}
+
+      v when is_boolean(v) ->
+        ref = make_ref()
+        Heap.put_obj(ref, %{"__wrapped_boolean__" => v})
+        {:obj, ref}
+
+      _ ->
+        Runtime.new_object()
+    end
+  end
+
   defp object_constructor(_, _), do: Runtime.new_object()
 
   defp array_constructor(args, _) do
