@@ -8,6 +8,7 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
   alias QuickBEAM.BeamVM.Bytecode
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Runtime.Property
+  alias QuickBEAM.BeamVM.Runtime
 
   js_object "JSON" do
     method "parse" do
@@ -97,7 +98,7 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
 
   defp apply_replacer({:ordered_map, pairs}, replacer) when replacer != nil and replacer != :undefined do
     filtered = Enum.reduce(pairs, [], fn {k, v}, acc ->
-      result = QuickBEAM.BeamVM.Runtime.call_callback(replacer, [k, v])
+      result = Runtime.call_callback(replacer, [k, v])
       if result == :undefined, do: acc, else: [{k, result} | acc]
     end)
     {:ordered_map, Enum.reverse(filtered)}
@@ -116,7 +117,7 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
       map when is_map(map) ->
         case Map.get(map, "toJSON") do
           fun when fun != nil and fun != :undefined ->
-            result = QuickBEAM.BeamVM.Runtime.call_callback(fun, [])
+            result = Runtime.call_callback(fun, [])
             to_json(result)
           _ ->
         order =
