@@ -189,6 +189,10 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
           i when is_integer(i) and i >= 0 and i < length(list) ->
             Heap.put_obj(ref, List.replace_at(list, i, val))
 
+          i when is_integer(i) and i >= 0 ->
+            padded = list ++ List.duplicate(:undefined, i - length(list)) ++ [val]
+            Heap.put_obj(ref, padded)
+
           _ ->
             :ok
         end

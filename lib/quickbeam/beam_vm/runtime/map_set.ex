@@ -310,13 +310,15 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
     if Map.get(obj, :weak), do: validate_weak_key!(key, "WeakMap")
     key = normalize_map_key(key)
     data = Map.get(obj, map_data(), %{})
+    order = Map.get(obj, :map_order, [])
+    order = if Map.has_key?(data, key), do: order, else: order ++ [key]
     new_data = Map.put(data, key, val)
 
-    Heap.put_obj(ref, %{
-      obj
-      | map_data() => new_data,
-        "size" => map_size(new_data)
-    })
+    Heap.put_obj(ref, Map.merge(obj, %{
+      map_data() => new_data,
+      "size" => map_size(new_data),
+      :map_order => order
+    }))
 
     {:obj, ref}
   end
@@ -331,12 +333,13 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
     obj = Heap.get_obj(ref, %{})
     data = Map.get(obj, map_data(), %{})
     new_data = Map.delete(data, key)
+    order = Map.get(obj, :map_order, []) |> List.delete(key)
 
-    Heap.put_obj(ref, %{
-      obj
-      | map_data() => new_data,
-        "size" => map_size(new_data)
-    })
+    Heap.put_obj(ref, Map.merge(obj, %{
+      map_data() => new_data,
+      "size" => map_size(new_data),
+      :map_order => order
+    }))
 
     true
   end
@@ -348,26 +351,36 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
   end
 
   defp map_keys(_, {:obj, ref}) do
-    data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
-    Heap.wrap(Map.keys(data))
+    obj = Heap.get_obj(ref, %{})
+    order = Map.get(obj, :map_order, Map.keys(Map.get(obj, map_data(), %{})))
+    Heap.wrap(order)
   end
 
   defp map_values(_, {:obj, ref}) do
-    data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
-    Heap.wrap(Map.values(data))
+    obj = Heap.get_obj(ref, %{})
+    data = Map.get(obj, map_data(), %{})
+    order = Map.get(obj, :map_order, Map.keys(data))
+    Heap.wrap(Enum.map(order, &Map.get(data, &1)))
   end
 
   defp map_entries(_, {:obj, ref}) do
-    data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
-    entries = Enum.map(data, fn {k, v} -> Heap.wrap([k, v]) end)
+    obj = Heap.get_obj(ref, %{})
+    data = Map.get(obj, map_data(), %{})
+    order = Map.get(obj, :map_order, Map.keys(data))
+    entries = Enum.map(order, fn k -> Heap.wrap([k, Map.get(data, k)]) end)
     Heap.wrap(entries)
   end
 
   defp map_for_each([cb | _], {:obj, ref}) do
-    data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
+    obj = Heap.get_obj(ref, %{})
+    data = Map.get(obj, map_data(), %{})
+    order = Map.get(obj, :map_order, Map.keys(data))
 
-    Enum.each(data, fn {k, v} ->
-      Runtime.call_callback(cb, [v, k, {:obj, ref}])
+    Enum.each(order, fn k ->
+      case Map.fetch(data, k) do
+        {:ok, v} -> Runtime.call_callback(cb, [v, k, {:obj, ref}])
+        :error -> :ok
+      end
     end)
 
     :undefined
