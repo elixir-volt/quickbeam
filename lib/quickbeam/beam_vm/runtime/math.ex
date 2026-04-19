@@ -183,7 +183,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Math do
             []
         end
 
-      Enum.reduce(list, 0.0, fn v, acc -> acc + Runtime.to_float(v) end)
+      shewchuk_sum(list)
     end
 
     method "hypot" do
@@ -201,5 +201,74 @@ defmodule QuickBEAM.BeamVM.Runtime.Math do
     val("SQRT1_2", :math.sqrt(2) / 2)
     val("MAX_SAFE_INTEGER", 9_007_199_254_740_991)
     val("MIN_SAFE_INTEGER", -9_007_199_254_740_991)
+  end
+
+  defp shewchuk_sum(list) do
+    partials =
+      Enum.reduce(list, [], fn v, partials ->
+        x = Runtime.to_float(v)
+        grow(partials, x, [])
+      end)
+
+    case partials do
+      [] -> 0.0
+      [x] -> x
+      _ ->
+        partials = Enum.reverse(partials)
+        finalize_partials(partials)
+    end
+  end
+
+  defp grow([], x, new_partials), do: if(x != 0.0, do: new_partials ++ [x], else: new_partials)
+
+  defp grow([p | rest], x, new_partials) do
+    {hi, lo} = two_sum(x, p)
+    new_partials = if lo != 0.0, do: new_partials ++ [lo], else: new_partials
+    grow(rest, hi, new_partials)
+  end
+
+  # CPython fsum-style finalization: detect halfway cases where
+  # remaining partials should break the tie
+  defp finalize_partials([]), do: 0.0
+  defp finalize_partials([x]), do: x
+
+  defp finalize_partials(partials) do
+    [hi | rest] = partials
+    {hi, lo, remaining} = fold_top(hi, rest)
+
+    cond do
+      lo == 0.0 ->
+        hi
+
+      remaining == [] ->
+        hi + lo
+
+      true ->
+        [next | _] = remaining
+        # lo is the rounding error. If remaining partials have the same sign
+        # as lo, the true value is farther from hi than lo suggests — round away
+        if (lo > 0 and next > 0) or (lo < 0 and next < 0) do
+          # Adjust lo to break tie in favor of rounding away from hi
+          nudged = lo + lo
+          result = hi + nudged
+          if result == hi + lo, do: hi + lo, else: result
+        else
+          hi + lo
+        end
+    end
+  end
+
+  defp fold_top(hi, []), do: {hi, 0.0, []}
+
+  defp fold_top(hi, [lo | rest]) do
+    {s, t} = two_sum(hi, lo)
+    if t == 0.0, do: fold_top(s, rest), else: {s, t, rest}
+  end
+
+  defp two_sum(a, b) do
+    s = a + b
+    v = s - a
+    t = (a - (s - v)) + (b - v)
+    {s, t}
   end
 end
