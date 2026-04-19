@@ -1654,23 +1654,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end)
   end
 
-  defp run({:apply_eval, [argc]}, frame, [arg_array, this_obj, fun | rest], gas, ctx) do
-    args = case arg_array do
-      {:obj, ref} ->
-        stored = Heap.get_obj(ref, [])
-        if is_list(stored), do: stored, else: []
-      list when is_list(list) -> list
-      _ -> []
-    end
+  defp run({:apply_eval, [_magic]}, frame, [arg_array, this_obj, fun | rest], gas, ctx) do
+    args = Heap.to_list(arg_array)
 
-    result = case fun do
-      %Bytecode.Function{} = f -> invoke_function(f, args, gas, %{ctx | this: this_obj})
-      {:closure, _, %Bytecode.Function{}} = cl -> invoke_closure(cl, args, gas, %{ctx | this: this_obj})
-      {:bound, _, inner} -> invoke(inner, args, gas)
-      other -> Builtin.call(other, args, this_obj)
-    end
-
-    run(advance(frame), [result | rest], gas - 1, ctx)
+    catch_js_throw(frame, rest, gas, ctx, fn ->
+      dispatch_call(fun, args, gas, %{ctx | this: this_obj}, this_obj)
+    end)
   end
 
   # ── Iterators ──
