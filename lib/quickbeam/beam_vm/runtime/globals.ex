@@ -38,9 +38,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
       "Symbol"     => register("Symbol", Symbol.constructor(), module: Symbol),
       "Map"        => register("Map", MapSet.map_constructor()),
       "Set"        => register("Set", MapSet.set_constructor()),
-      "WeakMap"    => register("WeakMap", MapSet.map_constructor()),
-      "WeakSet"    => register("WeakSet", MapSet.set_constructor()),
+      "WeakMap"    => register("WeakMap", MapSet.weak_map_constructor()),
+      "WeakSet"    => register("WeakSet", MapSet.weak_set_constructor()),
       "WeakRef"    => register("WeakRef", fn _, _ -> Runtime.new_object() end),
+      "FinalizationRegistry" => register("FinalizationRegistry", fn _, _ -> Runtime.new_object() end),
       "DataView"   => register("DataView", fn _, _ -> Runtime.new_object() end),
       "ArrayBuffer" => register("ArrayBuffer", &ArrayBuffer.constructor/2),
       "Proxy"      => register("Proxy", &proxy_constructor/2),
@@ -132,11 +133,26 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   defp parse_int([s, radix | _], _) when is_binary(s) and is_number(radix) do
     r = trunc(radix)
     s = String.trim_leading(s)
-    s = if r == 16, do: String.replace_prefix(s, "0x", "") |> String.replace_prefix("0X", ""), else: s
 
-    case Integer.parse(s, r) do
-      {n, _} -> n
-      :error -> :nan
+    cond do
+      r == 0 or r == 10 ->
+        parse_int([s], nil)
+
+      r == 16 ->
+        s = s |> String.replace_prefix("0x", "") |> String.replace_prefix("0X", "")
+        case Integer.parse(s, 16) do
+          {n, _} -> n
+          :error -> :nan
+        end
+
+      r >= 2 and r <= 36 ->
+        case Integer.parse(s, r) do
+          {n, _} -> n
+          :error -> :nan
+        end
+
+      true ->
+        :nan
     end
   end
 
@@ -264,6 +280,19 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
       Heap.put_obj(proto_ref, %{"name" => name, "message" => "", "constructor" => ctor})
       Heap.put_class_proto(ctor, {:obj, proto_ref})
       Heap.put_ctor_static(ctor, "prototype", {:obj, proto_ref})
+
+      if name == "Error" do
+        Heap.put_ctor_static(ctor, "captureStackTrace",
+          {:builtin, "captureStackTrace", fn [obj | _], _ ->
+            case obj do
+              {:obj, ref} -> Heap.update_obj(ref, %{}, &Map.put(&1, "stack", ""))
+              _ -> :ok
+            end
+            :undefined
+          end})
+        Heap.put_ctor_static(ctor, "stackTraceLimit", 10)
+      end
+
       {name, ctor}
     end
   end

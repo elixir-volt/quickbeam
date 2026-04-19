@@ -113,6 +113,16 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     from_entries(args)
   end
 
+  static "getOwnPropertySymbols" do
+    case args do
+      [{:obj, ref} | _] ->
+        data = Heap.get_obj(ref, %{})
+        syms = if is_map(data), do: Enum.filter(Map.keys(data), &match?({:symbol, _, _}, &1)), else: []
+        Heap.wrap(syms)
+      _ -> Heap.wrap([])
+    end
+  end
+
   static "hasOwn" do
     case args do
       [{:obj, ref}, key | _] ->

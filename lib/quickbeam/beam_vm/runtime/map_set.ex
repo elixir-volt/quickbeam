@@ -8,6 +8,47 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
 
   # ── Map/Set ──
 
+  def weak_map_constructor do
+    fn args, _this ->
+      ref = make_ref()
+      init = case args do
+        [{:obj, _} = entries | _] ->
+          Heap.to_list(entries)
+          |> Enum.reduce(%{}, fn
+            {:obj, eref}, acc ->
+              case Heap.get_obj(eref, []) do
+                [k, v | _] -> validate_weak_key!(k, "WeakMap"); Map.put(acc, k, v)
+                _ -> acc
+              end
+            _, acc -> acc
+          end)
+        _ -> %{}
+      end
+      Heap.put_obj(ref, %{map_data() => init, "size" => map_size(init), :weak => true})
+      {:obj, ref}
+    end
+  end
+
+  def weak_set_constructor do
+    fn args, _this ->
+      ref = make_ref()
+      items = case args do
+        [source | _] ->
+          Heap.to_list(source)
+          |> Enum.each(&validate_weak_key!(&1, "WeakSet"))
+          Heap.to_list(source)
+        _ -> []
+      end
+      Heap.put_obj(ref, %{set_data() => items, "size" => length(items), :weak => true})
+      {:obj, ref}
+    end
+  end
+
+  defp validate_weak_key!({:obj, _}, _), do: :ok
+  defp validate_weak_key!({:symbol, _, _}, _), do: :ok
+  defp validate_weak_key!(_, kind),
+    do: throw({:js_throw, Heap.make_error("invalid value used as #{kind} key", "TypeError")})
+
   def map_constructor do
     fn args, _this ->
       ref = make_ref()
@@ -262,8 +303,9 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
   end
 
   defp map_set([key, val | _], {:obj, ref}) do
-    key = normalize_map_key(key)
     obj = Heap.get_obj(ref, %{})
+    if Map.get(obj, :weak), do: validate_weak_key!(key, "WeakMap")
+    key = normalize_map_key(key)
     data = Map.get(obj, map_data(), %{})
     new_data = Map.put(data, key, val)
 
@@ -347,6 +389,7 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
 
   defp set_add([val | _], {:obj, ref}) do
     obj = Heap.get_obj(ref, %{})
+    if Map.get(obj, :weak), do: validate_weak_key!(val, "WeakSet")
     data = Map.get(obj, set_data(), [])
 
     unless val in data do
