@@ -217,7 +217,7 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   defp read_object(<<@tag_bool_true, rest::binary>>, _atoms), do: {:ok, true, rest}
 
   defp read_object(<<@tag_int32, rest::binary>>, _atoms) do
-    with {:ok, val, rest2} <- LEB128.read_signed(rest), do: {:ok, val, rest2}
+    LEB128.read_signed(rest)
   end
 
   defp read_object(<<@tag_float64, rest::binary>>, _atoms) do

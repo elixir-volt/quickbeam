@@ -54,49 +54,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def to_number(:neg_infinity), do: :neg_infinity
   def to_number(:nan), do: :nan
 
-  def to_number(s) when is_binary(s) do
-    s = String.trim(s)
-
-    cond do
-      s == "" ->
-        0
-
-      String.starts_with?(s, "0x") or String.starts_with?(s, "0X") ->
-        case Integer.parse(String.slice(s, 2..-1//1), 16) do
-          {i, ""} -> i
-          _ -> :nan
-        end
-
-      String.starts_with?(s, "0o") or String.starts_with?(s, "0O") ->
-        case Integer.parse(String.slice(s, 2..-1//1), 8) do
-          {i, ""} -> i
-          _ -> :nan
-        end
-
-      String.starts_with?(s, "0b") or String.starts_with?(s, "0B") ->
-        case Integer.parse(String.slice(s, 2..-1//1), 2) do
-          {i, ""} -> i
-          _ -> :nan
-        end
-
-      true ->
-        case Integer.parse(s) do
-          {i, ""} ->
-            i
-
-          _ ->
-            case Float.parse(s) do
-              {f, ""} ->
-                f
-
-              _ ->
-                if String.starts_with?(s, "Infinity") or String.starts_with?(s, "+Infinity"),
-                  do: :infinity,
-                  else: if(String.starts_with?(s, "-Infinity"), do: :neg_infinity, else: :nan)
-            end
-        end
-    end
-  end
+  def to_number(s) when is_binary(s), do: parse_numeric(String.trim(s))
 
   def to_number({:bigint, _}),
     do:
@@ -118,6 +76,36 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   end
 
   def to_number(_), do: :nan
+
+  defp parse_numeric(""), do: 0
+  defp parse_numeric("0x" <> rest), do: parse_int_or_nan(rest, 16)
+  defp parse_numeric("0X" <> rest), do: parse_int_or_nan(rest, 16)
+  defp parse_numeric("0o" <> rest), do: parse_int_or_nan(rest, 8)
+  defp parse_numeric("0O" <> rest), do: parse_int_or_nan(rest, 8)
+  defp parse_numeric("0b" <> rest), do: parse_int_or_nan(rest, 2)
+  defp parse_numeric("0B" <> rest), do: parse_int_or_nan(rest, 2)
+  defp parse_numeric("Infinity" <> _), do: :infinity
+  defp parse_numeric("+Infinity" <> _), do: :infinity
+  defp parse_numeric("-Infinity" <> _), do: :neg_infinity
+
+  defp parse_numeric(s) do
+    case Integer.parse(s) do
+      {i, ""} -> i
+      _ ->
+        case Float.parse(s) do
+          {f, ""} -> f
+          _ -> :nan
+        end
+    end
+  end
+
+  defp parse_int_or_nan(s, base) do
+    case Integer.parse(s, base) do
+      {i, ""} -> i
+      _ -> :nan
+    end
+  end
+
 
   def to_int32(val) when is_integer(val), do: wrap_int32(val)
   def to_int32(val) when is_float(val), do: wrap_int32(trunc(val))
@@ -252,13 +240,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
         :nan
 
       na in [:infinity, :neg_infinity] or nb in [:infinity, :neg_infinity] ->
-        if na == 0 or nb == 0 do
-          :nan
-        else
-          sa = if na in [:neg_infinity] or (is_number(na) and na < 0), do: -1, else: 1
-          sb = if nb in [:neg_infinity] or (is_number(nb) and nb < 0), do: -1, else: 1
-          if sa * sb > 0, do: :infinity, else: :neg_infinity
-        end
+        if na == 0 or nb == 0, do: :nan, else: mul_inf_sign(na, nb)
 
       # Reached when one or both args were non-numeric but to_number made them numeric (e.g. booleans)
       is_number(na) and is_number(nb) ->
@@ -267,6 +249,12 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
       true ->
         :nan
     end
+  end
+
+  defp mul_inf_sign(a, b) do
+    sign_a = if a == :neg_infinity or (is_number(a) and a < 0), do: -1, else: 1
+    sign_b = if b == :neg_infinity or (is_number(b) and b < 0), do: -1, else: 1
+    if sign_a * sign_b > 0, do: :infinity, else: :neg_infinity
   end
 
   def div({:bigint, a}, {:bigint, b}) when b != 0, do: {:bigint, Kernel.div(a, b)}
@@ -366,49 +354,51 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
         _ -> {short, 0}
       end
 
-    # Strip trailing .0 from mantissa (1.0 -> 1)
     mantissa =
       if String.ends_with?(mantissa, ".0"),
         do: String.trim_trailing(mantissa, ".0"),
         else: mantissa
 
-    if exp >= 0 and exp <= 20 do
-      {prefix, abs_mantissa} =
-        if String.starts_with?(mantissa, "-"),
-          do: {"-", String.trim_leading(mantissa, "-")},
-          else: {"", mantissa}
+    expand_exponential(mantissa, exp)
+  end
 
-      digits = String.replace(abs_mantissa, ".", "")
+  defp expand_exponential(mantissa, exp) when exp >= 0 and exp <= 20 do
+    {prefix, digits, decimal_pos} = split_mantissa(mantissa)
+    total_pos = decimal_pos + exp
 
-      decimal_pos =
-        case String.split(abs_mantissa, ".") do
-          [int, _frac] -> String.length(int)
-          _ -> String.length(digits)
-        end
-
-      total_pos = decimal_pos + exp
-
-      if total_pos >= String.length(digits) do
-        prefix <> digits <> String.duplicate("0", total_pos - String.length(digits))
-      else
-        prefix <>
-          String.slice(digits, 0, total_pos) <> "." <> String.slice(digits, total_pos..-1//1)
-      end
+    if total_pos >= String.length(digits) do
+      prefix <> digits <> String.duplicate("0", total_pos - String.length(digits))
     else
-      if exp < 0 and exp >= -6 do
-        {prefix, abs_mantissa} =
-          if String.starts_with?(mantissa, "-"),
-            do: {"-", String.trim_leading(mantissa, "-")},
-            else: {"", mantissa}
-
-        digits = String.replace(abs_mantissa, ".", "")
-        prefix <> "0." <> String.duplicate("0", abs(exp) - 1) <> digits
-      else
-        # Use exponential notation
-        sign = if exp >= 0, do: "+", else: ""
-        mantissa <> "e" <> sign <> Integer.to_string(exp)
-      end
+      prefix <> String.slice(digits, 0, total_pos) <> "." <> String.slice(digits, total_pos..-1//1)
     end
+  end
+
+  defp expand_exponential(mantissa, exp) when exp < 0 and exp >= -6 do
+    {prefix, digits, _} = split_mantissa(mantissa)
+    prefix <> "0." <> String.duplicate("0", abs(exp) - 1) <> digits
+  end
+
+  defp expand_exponential(mantissa, exp) do
+    sign = if exp >= 0, do: "+", else: ""
+    mantissa <> "e" <> sign <> Integer.to_string(exp)
+  end
+
+  defp split_mantissa(mantissa) do
+    {prefix, abs_mantissa} =
+      case mantissa do
+        "-" <> rest -> {"-", rest}
+        other -> {"", other}
+      end
+
+    digits = String.replace(abs_mantissa, ".", "")
+
+    decimal_pos =
+      case String.split(abs_mantissa, ".") do
+        [int, _] -> String.length(int)
+        _ -> String.length(digits)
+      end
+
+    {prefix, digits, decimal_pos}
   end
 
   defp inf_or_nan(a) when a > 0, do: :infinity
@@ -510,14 +500,14 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   defp to_primitive({:obj, ref} = obj) do
     data = Heap.get_obj(ref, %{})
 
-    if not is_map(data) do
-      obj
-    else
+    if is_map(data) do
       try_call_method(data, obj, "valueOf") ||
         try_proto_method(data, obj, "valueOf") ||
         try_call_method(data, obj, "toString") ||
         try_proto_method(data, obj, "toString") ||
         obj
+    else
+      obj
     end
   end
 

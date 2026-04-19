@@ -390,11 +390,10 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
   # ── String static methods ──
 
   static "fromCharCode" do
-    Enum.map(args, fn n ->
+    Enum.map_join(args, fn n ->
       cp = Runtime.to_int(n)
       if cp >= 0 and cp <= 0x10FFFF, do: <<cp::utf8>>, else: ""
     end)
-    |> Enum.join()
   end
 
   static "raw" do
