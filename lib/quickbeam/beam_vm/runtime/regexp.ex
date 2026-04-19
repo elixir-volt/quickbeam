@@ -66,6 +66,7 @@ defmodule QuickBEAM.BeamVM.Runtime.RegExp do
             _ -> 0
           end
 
+        result_list = strings
         ref = make_ref()
 
         map =
@@ -76,7 +77,13 @@ defmodule QuickBEAM.BeamVM.Runtime.RegExp do
             "index" => match_start,
             "input" => s,
             "groups" => :undefined,
-            "length" => length(strings)
+            "length" => length(strings),
+            "toString" => {:builtin, "toString", fn _, _ ->
+              Enum.map_join(result_list, ",", fn
+                :undefined -> ""
+                v -> QuickBEAM.BeamVM.Runtime.stringify(v)
+              end)
+            end}
           })
 
         Heap.put_obj(ref, map)
