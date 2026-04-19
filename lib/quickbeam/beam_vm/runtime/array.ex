@@ -133,6 +133,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     to_sorted(this)
   end
 
+  proto "values" do
+    make_array_iterator(this, :values)
+  end
+
+  proto "keys" do
+    make_array_iterator(this, :keys)
+  end
+
+  proto "entries" do
+    make_array_iterator(this, :entries)
+  end
+
   def proto_property("constructor") do
     Runtime.global_bindings() |> Map.get("Array", :undefined)
   end
@@ -722,6 +734,49 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
 
   defp to_sorted(_), do: :undefined
+
+  defp make_array_iterator(arr, mode) do
+    list =
+      case arr do
+        {:obj, ref} ->
+          data = Heap.get_obj(ref, [])
+          if is_list(data), do: data, else: []
+
+        l when is_list(l) ->
+          l
+
+        s when is_binary(s) ->
+          String.codepoints(s)
+
+        _ ->
+          []
+      end
+
+    idx_ref = :atomics.new(1, signed: false)
+    ref = make_ref()
+
+    next_fn = {:builtin, "next", fn _args, _this ->
+      i = :atomics.get(idx_ref, 1)
+
+      if i >= length(list) do
+        Heap.wrap(%{"value" => :undefined, "done" => true})
+      else
+        :atomics.put(idx_ref, 1, i + 1)
+        value =
+          case mode do
+            :values -> Enum.at(list, i, :undefined)
+            :keys -> i
+            :entries -> Heap.wrap([i, Enum.at(list, i, :undefined)])
+          end
+
+        Heap.wrap(%{"value" => value, "done" => false})
+      end
+    end}
+
+    iter_ref = make_ref()
+    Heap.put_obj(iter_ref, %{"next" => next_fn})
+    {:obj, iter_ref}
+  end
 
   # ── Internal ──
 
