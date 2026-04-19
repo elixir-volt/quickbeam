@@ -166,7 +166,11 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
 
     case data do
       list when is_list(list) ->
-        Enum.map_join(list, ",", &stringify/1)
+        Enum.map_join(list, ",", fn
+          :undefined -> ""
+          nil -> ""
+          v -> stringify(v)
+        end)
 
       map when is_map(map) ->
         case Map.get(map, "toString") do

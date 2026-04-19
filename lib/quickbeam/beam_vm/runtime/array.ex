@@ -400,9 +400,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   defp join({:obj, ref}, args), do: join(Heap.get_obj(ref, []), args)
 
   defp join(list, [sep | _]) when is_list(list),
-    do: Enum.map_join(list, Runtime.stringify(sep), &Runtime.stringify/1)
+    do: Enum.map_join(list, Runtime.stringify(sep), &array_element_to_string/1)
 
-  defp join(list, []) when is_list(list), do: Enum.map_join(list, ",", &Runtime.stringify/1)
+  defp join(list, []) when is_list(list), do: Enum.map_join(list, ",", &array_element_to_string/1)
+
+  defp array_element_to_string(:undefined), do: ""
+  defp array_element_to_string(nil), do: ""
+  defp array_element_to_string(val), do: Runtime.stringify(val)
   defp join(_, _), do: ""
 
   defp concat({:obj, ref}, args) do
