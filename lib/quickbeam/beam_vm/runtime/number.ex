@@ -1,32 +1,63 @@
 defmodule QuickBEAM.BeamVM.Runtime.Number do
   @moduledoc false
 
-  alias QuickBEAM.BeamVM.Runtime
-
   use QuickBEAM.BeamVM.Builtin
+
+  alias QuickBEAM.BeamVM.Runtime
 
   # ── Number.prototype ──
 
-  defproto("toString", this, args, do: number_to_string(this, args))
-  defproto("toFixed", this, args, do: number_to_fixed(this, args))
-  defproto("valueOf", _args, this, do: this)
-  defproto("toExponential", this, args, do: number_to_exponential(this, args))
-  defproto("toPrecision", this, args, do: number_to_precision(this, args))
-  def proto_property(_), do: :undefined
+  proto "toString" do
+    number_to_string(this, args)
+  end
+
+  proto "toFixed" do
+    number_to_fixed(this, args)
+  end
+
+  proto "valueOf" do
+    this
+  end
+
+  proto "toExponential" do
+    number_to_exponential(this, args)
+  end
+
+  proto "toPrecision" do
+    number_to_precision(this, args)
+  end
 
   # ── Number static ──
 
-  defstatic("isNaN", [a | _], do: a == :nan)
-  defstatic("isFinite", [a | _], do: a != :nan and a != :infinity and a != :neg_infinity)
-  defstatic("isInteger", [a | _], do: is_integer(a) or (is_float(a) and a == Float.floor(a)))
-  defstatic("parseInt", args, do: QuickBEAM.BeamVM.Runtime.Globals.parse_int(args))
-  defstatic("parseFloat", args, do: QuickBEAM.BeamVM.Runtime.Globals.parse_float(args))
-  def static_property("NaN"), do: :nan
-  def static_property("POSITIVE_INFINITY"), do: :infinity
-  def static_property("NEGATIVE_INFINITY"), do: :neg_infinity
-  def static_property("MAX_SAFE_INTEGER"), do: 9_007_199_254_740_991
-  def static_property("MIN_SAFE_INTEGER"), do: -9_007_199_254_740_991
-  def static_property(_), do: :undefined
+  static "isNaN" do
+    hd(args) == :nan
+  end
+
+  static "isFinite" do
+    hd(args) not in [:nan, :infinity, :neg_infinity]
+  end
+
+  static "isInteger" do
+    is_integer(hd(args)) or (is_float(hd(args)) and hd(args) == Float.floor(hd(args)))
+  end
+
+  static "parseInt" do
+    QuickBEAM.BeamVM.Runtime.Globals.parse_int(args)
+  end
+
+  static "parseFloat" do
+    QuickBEAM.BeamVM.Runtime.Globals.parse_float(args)
+  end
+
+  static_val("NaN", :nan)
+  static_val("POSITIVE_INFINITY", :infinity)
+  static_val("NEGATIVE_INFINITY", :neg_infinity)
+  static_val("MAX_SAFE_INTEGER", 9_007_199_254_740_991)
+  static_val("MIN_SAFE_INTEGER", -9_007_199_254_740_991)
+  static_val("EPSILON", 2.220446049250313e-16)
+  static_val("MIN_VALUE", 5.0e-324)
+
+  # ── Formatting implementations ──
 
   defp number_to_string(n, [radix | _]) when is_number(n) do
     r = Runtime.to_int(radix)
@@ -121,7 +152,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
   defp number_to_precision(n, [prec | _]) when is_number(n) do
     p = max(1, Runtime.to_int(prec))
     s = :erlang.float_to_binary(n * 1.0, [{:decimals, p + 10}, :compact])
-    # Round to p significant digits
+
     {sign, abs_s} =
       if String.starts_with?(s, "-"), do: {"-", String.trim_leading(s, "-")}, else: {"", s}
 
