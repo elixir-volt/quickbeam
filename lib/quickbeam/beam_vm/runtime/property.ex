@@ -85,10 +85,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
         end
 
       map when is_map(map) ->
-        case Map.get(map, key) do
-          {:accessor, getter, _setter} when getter != nil -> call_getter(getter, {:obj, ref})
-          nil -> :undefined
-          val -> val
+        case Map.fetch(map, key) do
+          {:ok, {:accessor, getter, _setter}} when getter != nil -> call_getter(getter, {:obj, ref})
+          {:ok, val} -> val
+          :error -> :undefined
         end
     end
   end
@@ -171,6 +171,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
   defp get_own({:symbol, desc, _}, "toString"),
     do: {:builtin, "toString", fn _, _ -> "Symbol(#{desc})" end}
 
+  defp get_own({:symbol, _} = s, "valueOf"), do: {:builtin, "valueOf", fn _, _ -> s end}
+  defp get_own({:symbol, _, _} = s, "valueOf"), do: {:builtin, "valueOf", fn _, _ -> s end}
   defp get_own({:symbol, desc}, "description"), do: desc
   defp get_own({:symbol, desc, _}, "description"), do: desc
   defp get_own({:bound, _, _} = b, key), do: Function.proto_property(b, key)

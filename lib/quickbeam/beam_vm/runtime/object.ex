@@ -211,7 +211,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     names =
       case data do
         list when is_list(list) ->
-          array_indices(list)
+          array_indices(list) ++ ["length"]
 
         map when is_map(map) ->
           Map.keys(map)

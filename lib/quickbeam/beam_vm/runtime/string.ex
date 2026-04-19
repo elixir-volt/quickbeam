@@ -105,6 +105,17 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
     match_all(this, args)
   end
 
+  proto "localeCompare" do
+    other = List.first(args, "")
+    other_str = if is_binary(other), do: other, else: Runtime.stringify(other)
+
+    cond do
+      this < other_str -> -1
+      this > other_str -> 1
+      true -> 0
+    end
+  end
+
   proto "search" do
     search(this, args)
   end
@@ -197,7 +208,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
   defp last_index_of(s, [sub | rest]) when is_binary(s) and is_binary(sub) do
     from =
       case rest do
-        [f | _] when is_integer(f) -> min(f, String.length(s))
+        [f | _] when is_number(f) -> max(0, min(Runtime.to_int(f), String.length(s)))
         _ -> String.length(s)
       end
 
