@@ -6,6 +6,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   import QuickBEAM.BeamVM.Heap.Keys
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Runtime
+  alias QuickBEAM.BeamVM.Interpreter.Values
 
   static "keys" do
     keys(args)
@@ -360,8 +361,6 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   end
 
   defp get_own_property_descriptor(_), do: :undefined
-
-  alias QuickBEAM.BeamVM.Interpreter.Values
 
   defp js_is(a, b) when is_number(a) and is_number(b) do
     cond do

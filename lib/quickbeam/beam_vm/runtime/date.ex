@@ -30,38 +30,35 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
   def statics do
     [
-      {"now", static_now()},
-      {"parse", {:builtin, "parse", fn [s | _], _this -> parse_date_string(to_string(s)) end}},
-      {"UTC",
-       {:builtin, "UTC",
-        fn args, _this ->
-          [y | rest] = args ++ List.duplicate(0, 7)
-          m = Enum.at(rest, 0, 0)
-          d = Enum.at(rest, 1, 1)
-          h = Enum.at(rest, 2, 0)
-          mi = Enum.at(rest, 3, 0)
-          s = Enum.at(rest, 4, 0)
-          ms = Enum.at(rest, 5, 0)
-          year = if is_number(y) and y >= 0 and y <= 99, do: 1900 + trunc(y), else: trunc(y || 0)
-
-          case NaiveDateTime.new(
-                 year,
-                 trunc(m) + 1,
-                 max(1, trunc(d)),
-                 trunc(h),
-                 trunc(mi),
-                 trunc(s)
-               ) do
-            {:ok, dt} ->
-              DateTime.from_naive!(dt, "Etc/UTC")
-              |> DateTime.to_unix(:millisecond)
-              |> Kernel.+(trunc(ms))
-
-            _ ->
-              :nan
-          end
-        end}}
+      {"now", {:builtin, "now", &now_static/2}},
+      {"parse", {:builtin, "parse", &parse_static/2}},
+      {"UTC", {:builtin, "UTC", &utc_static/2}}
     ]
+  end
+
+  defp now_static(_, _this), do: System.system_time(:millisecond)
+  defp parse_static([s | _], _this), do: parse_date_string(to_string(s))
+  defp utc_static(args, _this), do: compute_utc(args)
+
+  defp compute_utc(args) do
+    [y | rest] = args ++ List.duplicate(0, 7)
+    m = Enum.at(rest, 0, 0)
+    d = Enum.at(rest, 1, 1)
+    h = Enum.at(rest, 2, 0)
+    mi = Enum.at(rest, 3, 0)
+    s = Enum.at(rest, 4, 0)
+    ms = Enum.at(rest, 5, 0)
+    year = if is_number(y) and y >= 0 and y <= 99, do: 1900 + trunc(y), else: trunc(y || 0)
+
+    case NaiveDateTime.new(year, trunc(m) + 1, max(1, trunc(d)), trunc(h), trunc(mi), trunc(s)) do
+      {:ok, dt} ->
+        DateTime.from_naive!(dt, "Etc/UTC")
+        |> DateTime.to_unix(:millisecond)
+        |> Kernel.+(trunc(ms))
+
+      _ ->
+        :nan
+    end
   end
 
   proto "getTime" do
@@ -265,10 +262,6 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
     ms = get_ms(this)
     {{y, m, d}, {h, min, s}} = :calendar.system_time_to_universal_time(ms, :millisecond)
     "#{y}-#{m}-#{d}T#{h}:#{min}:#{s}Z"
-  end
-
-  def static_now do
-    {:builtin, "now", fn _, _this -> System.system_time(:millisecond) end}
   end
 
   defp set_date_field(this, field, value) do
