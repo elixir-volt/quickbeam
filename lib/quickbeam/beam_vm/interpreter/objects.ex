@@ -8,10 +8,6 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   alias QuickBEAM.BeamVM.Runtime.Property
 
   @compile {:inline, has_property: 2, get_element: 2, set_list_at: 3}
-  alias QuickBEAM.BeamVM.Interpreter
-  alias QuickBEAM.BeamVM.Interpreter.Values
-  alias QuickBEAM.BeamVM.Runtime.Property
-  alias QuickBEAM.BeamVM.{Heap, Bytecode, Runtime}
 
   def put({:obj, ref} = _obj, "length", val) do
     data = Heap.get_obj(ref)

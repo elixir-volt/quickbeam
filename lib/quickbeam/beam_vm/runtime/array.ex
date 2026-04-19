@@ -610,9 +610,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
     if is_list(list) do
       len = length(list)
-      target = arr_normalize_index(Enum.at(args, 0, 0), len)
-      start_idx = arr_normalize_index(Enum.at(args, 1, 0), len)
-      end_idx = arr_normalize_index(Enum.at(args, 2) || len, len)
+      target = Runtime.normalize_index(Runtime.to_int(Enum.at(args, 0, 0)), len)
+      start_idx = Runtime.normalize_index(Runtime.to_int(Enum.at(args, 1, 0)), len)
+      end_idx = Runtime.normalize_index(Runtime.to_int(Enum.at(args, 2) || len), len)
       slice = Enum.slice(list, start_idx, end_idx - start_idx)
 
       new_list =
@@ -702,9 +702,6 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   defp to_sorted(_), do: :undefined
 
-  defp arr_normalize_index(i, len) when is_integer(i) and i < 0, do: max(0, len + i)
-  defp arr_normalize_index(i, len) when is_integer(i), do: min(i, len)
-  defp arr_normalize_index(_, _), do: 0
 
   # ── Internal ──
 

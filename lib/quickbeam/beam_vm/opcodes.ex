@@ -39,6 +39,9 @@ defmodule QuickBEAM.BeamVM.Opcodes do
   @bc_version 24
   def bc_version, do: @bc_version
 
+  @js_atom_end 229
+  def js_atom_end, do: @js_atom_end
+
   # Opcode format types — determine how operand bytes are decoded
   # :none / :none_int / :none_loc / :none_arg / :none_var_ref → 0 extra bytes
   # :u8 / :i8 / :loc8 / :const8 / :label8 → 1 byte

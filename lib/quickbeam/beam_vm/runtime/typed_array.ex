@@ -162,7 +162,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
     vals =
       for i <- 0..(l - 1),
-          (v = read_element(b, i, t); truthy?(call(cb, [v, i, this]))),
+          (v = read_element(b, i, t); Runtime.truthy?(call(cb, [v, i, this]))),
           do: v
 
     new_buf =
@@ -185,12 +185,12 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
   defp every(ref, [cb | _], this) do
     {b, l, t} = {buf(ref), len(ref), type(ref)}
-    Enum.all?(0..max(0, l - 1), &truthy?(call(cb, [read_element(b, &1, t), &1, this])))
+    Enum.all?(0..max(0, l - 1), &Runtime.truthy?(call(cb, [read_element(b, &1, t), &1, this])))
   end
 
   defp some(ref, [cb | _], this) do
     {b, l, t} = {buf(ref), len(ref), type(ref)}
-    Enum.any?(0..max(0, l - 1), &truthy?(call(cb, [read_element(b, &1, t), &1, this])))
+    Enum.any?(0..max(0, l - 1), &Runtime.truthy?(call(cb, [read_element(b, &1, t), &1, this])))
   end
 
   defp reduce(ref, args, this) do
@@ -217,7 +217,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
     Enum.find_value(0..max(0, l - 1), :undefined, fn i ->
       v = read_element(b, i, t)
-      if truthy?(call(cb, [v, i, this])), do: v
+      if Runtime.truthy?(call(cb, [v, i, this])), do: v
     end)
   end
 
@@ -267,7 +267,6 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
   # ── Helpers ──
 
   defp call(cb, args), do: Runtime.call_callback(cb, args)
-  defp truthy?(v), do: v not in [false, nil, :undefined, 0, ""]
   defp to_idx(n) when is_integer(n), do: n
   defp to_idx(n) when is_float(n), do: trunc(n)
   defp to_idx(_), do: 0

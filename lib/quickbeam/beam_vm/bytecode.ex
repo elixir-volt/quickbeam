@@ -10,7 +10,7 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   import Bitwise
 
   # JS_ATOM_NULL=0, plus 228 DEF entries from quickjs-atom.h
-  @js_atom_end 229
+  @js_atom_end Opcodes.js_atom_end()
 
   # Pre-compute tag constants for use in match clauses
   @tag_null Opcodes.bc_tag_null()

@@ -189,7 +189,7 @@ defmodule QuickBEAM.BeamVM.Decoder do
   #   u32 < JS_ATOM_END (229) → predefined runtime atom
   #   u32 >= JS_ATOM_END → atom table at (u32 - 229)
   # Tagged int atoms (odd values) are rare but possible.
-  @js_atom_end 229
+  @js_atom_end Opcodes.js_atom_end()
   defp get_atom_u32(bc, pos) do
     v = get_u32(bc, pos)
 

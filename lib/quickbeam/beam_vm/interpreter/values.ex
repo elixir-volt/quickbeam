@@ -307,8 +307,9 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def mod({:bigint, _}, {:bigint, 0}),
     do: throw({:js_throw, %{"message" => "Division by zero", "name" => "RangeError"}})
 
-  def mod(a, b) when is_number(a) and is_number(b),
-    do: if(b == 0, do: :nan, else: rem(trunc(a), trunc(b)))
+  def mod(a, b) when is_integer(a) and is_integer(b) and b != 0, do: rem(a, b)
+  def mod(a, b) when is_number(a) and is_number(b) and b != 0, do: a - Float.floor(a / b) * b
+  def mod(_, b) when is_number(b), do: :nan
 
   def mod(_, _), do: :nan
 
@@ -424,22 +425,27 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def lt({:bigint, a}, {:bigint, b}), do: a < b
   def lt(a, b) when is_number(a) and is_number(b), do: a < b
   def lt(a, b) when is_binary(a) and is_binary(b), do: a < b
-  def lt(a, b), do: to_number(a) < to_number(b)
+  def lt(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.</2)
 
   def lte({:bigint, a}, {:bigint, b}), do: a <= b
   def lte(a, b) when is_number(a) and is_number(b), do: a <= b
   def lte(a, b) when is_binary(a) and is_binary(b), do: a <= b
-  def lte(a, b), do: to_number(a) <= to_number(b)
+  def lte(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.<=/2)
 
   def gt({:bigint, a}, {:bigint, b}), do: a > b
   def gt(a, b) when is_number(a) and is_number(b), do: a > b
   def gt(a, b) when is_binary(a) and is_binary(b), do: a > b
-  def gt(a, b), do: to_number(a) > to_number(b)
+  def gt(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.>/2)
 
   def gte({:bigint, a}, {:bigint, b}), do: a >= b
   def gte(a, b) when is_number(a) and is_number(b), do: a >= b
   def gte(a, b) when is_binary(a) and is_binary(b), do: a >= b
-  def gte(a, b), do: to_number(a) >= to_number(b)
+  def gte(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.>=/2)
+
+  defp numeric_compare(:nan, _, _), do: false
+  defp numeric_compare(_, :nan, _), do: false
+  defp numeric_compare(a, b, op) when is_number(a) and is_number(b), do: op.(a, b)
+  defp numeric_compare(_, _, _), do: false
 
   def eq({:bigint, a}, {:bigint, b}), do: a == b
   def eq(a, b), do: abstract_eq(a, b)

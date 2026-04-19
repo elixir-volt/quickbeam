@@ -6,8 +6,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   alias QuickBEAM.BeamVM.Heap
 
   @epoch_gregorian_seconds 62_167_219_200
-  @date_ms_key "__date_ms__"
-
+  
   # ── Constructor ──
 
   def constructor(args, _this) do
@@ -183,7 +182,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
   defp get_ms({:obj, ref}) do
     case Heap.get_obj(ref, %{}) do
-      %{@date_ms_key => ms} -> ms
+      %{date_ms() => ms} -> ms
       _ -> :nan
     end
   end

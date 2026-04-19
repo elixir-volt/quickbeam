@@ -32,22 +32,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             advance: 1,
             jump: 2,
             put_local: 3,
-            make_error_obj: 2,
             active_ctx: 0,
             list_iterator_next: 1,
             make_list_iterator: 1,
             with_has_property?: 2,
             check_prototype_chain: 2}
-
-  alias QuickBEAM.BeamVM.Runtime.Property
-  alias QuickBEAM.BeamVM.{Bytecode, Decoder, Runtime}
-  alias __MODULE__.{Frame, Context}
-  require Frame
-
-  alias QuickBEAM.BeamVM.Builtin
-  alias QuickBEAM.BeamVM.Heap
-  alias __MODULE__.{Values, Objects, Closures, Scope, Promise, Generator}
-  import Bitwise, only: [bnot: 1, &&&: 2]
 
   @func_generator 1
   @func_async 2
@@ -165,13 +154,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp put_local(f, idx, val),
     do: put_elem(f, Frame.locals(), put_elem(elem(f, Frame.locals()), idx, val))
 
-  defp make_error_obj(message, name) do
-    error_ctor = Map.get(active_ctx().globals, name)
-    proto = if error_ctor, do: Heap.get_class_proto(error_ctor), else: nil
-    base = %{"message" => message, "name" => name, "stack" => ""}
-    obj = if proto, do: Map.put(base, proto(), proto), else: base
-    Heap.wrap(obj)
-  end
 
   defp throw_or_catch(frame, error, gas, ctx) do
     case ctx.catch_stack do
@@ -191,7 +173,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp throw_null_property_error(frame, obj, atom_idx, gas, ctx) do
     prop = Scope.resolve_atom(ctx, atom_idx)
     nullish = if obj == nil, do: "null", else: "undefined"
-    error = make_error_obj("Cannot read properties of #{nullish} (reading '#{prop}')", "TypeError")
+    error = Heap.make_error("Cannot read properties of #{nullish} (reading '#{prop}')", "TypeError")
     throw_or_catch(frame, error, gas, ctx)
   end
 
@@ -1078,7 +1060,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       :not_found ->
         error =
-          make_error_obj("#{Scope.resolve_atom(ctx, atom_idx)} is not defined", "ReferenceError")
+          Heap.make_error("#{Scope.resolve_atom(ctx, atom_idx)} is not defined", "ReferenceError")
 
         throw_or_catch(frame, error, gas, ctx)
     end
@@ -1573,10 +1555,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             Promise.resolved(Runtime.new_object())
 
           {:error, _} ->
-            Promise.rejected(make_error_obj("Cannot find module '#{specifier}'", "TypeError"))
+            Promise.rejected(Heap.make_error("Cannot find module '#{specifier}'", "TypeError"))
         end
       else
-        Promise.rejected(make_error_obj("Invalid module specifier", "TypeError"))
+        Promise.rejected(Heap.make_error("Invalid module specifier", "TypeError"))
       end
 
     run(advance(frame), [result | rest], gas - 1, ctx)
@@ -2010,7 +1992,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     # Permissive: verify obj is an object (skip full brand check for perf)
     case obj do
       {:obj, _} -> run(advance(frame), stack, gas - 1, ctx)
-      _ -> throw({:js_throw, make_error_obj("invalid brand on object", "TypeError")})
+      _ -> throw({:js_throw, Heap.make_error("invalid brand on object", "TypeError")})
     end
   end
 

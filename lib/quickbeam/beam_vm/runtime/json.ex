@@ -1,12 +1,12 @@
 defmodule QuickBEAM.BeamVM.Runtime.JSON do
+  @moduledoc "JSON.parse and JSON.stringify."
+
   use QuickBEAM.BeamVM.Builtin
 
   import QuickBEAM.BeamVM.Heap.Keys
   alias QuickBEAM.BeamVM.Bytecode
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Runtime.Property
-  @moduledoc "JSON.parse and JSON.stringify."
-
   js_object "JSON" do
     method "parse" do
       parse(hd(args))

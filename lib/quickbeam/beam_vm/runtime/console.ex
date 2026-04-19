@@ -12,7 +12,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Console do
     end
 
     method "warn" do
-      IO.warn(Enum.map_join(args, " ", &Runtime.stringify/1))
+      IO.puts(:stderr, Enum.map_join(args, " ", &Runtime.stringify/1))
       :undefined
     end
 

@@ -3,10 +3,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Promise do
 
   use QuickBEAM.BeamVM.Builtin
 
-  alias QuickBEAM.BeamVM.Heap
+  import QuickBEAM.BeamVM.Heap.Keys
 
-  @promise_state "__promise_state__"
-  @promise_value "__promise_value__"
+  alias QuickBEAM.BeamVM.Heap
 
   alias QuickBEAM.BeamVM.Interpreter.Promise
 
@@ -43,7 +42,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Promise do
 
   defp unwrap_value({:obj, r} = obj) do
     case Heap.get_obj(r, %{}) do
-      %{@promise_state => :resolved, @promise_value => val} -> val
+      %{promise_state() => :resolved, promise_value() => val} -> val
       _ -> obj
     end
   end
@@ -67,8 +66,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Promise do
           case item do
             {:obj, r} ->
               case Heap.get_obj(r, %{}) do
-                %{@promise_state => :resolved, @promise_value => v} -> {"fulfilled", v}
-                %{@promise_state => :rejected, @promise_value => v} -> {"rejected", v}
+                %{promise_state() => :resolved, promise_value() => v} -> {"fulfilled", v}
+                %{promise_state() => :rejected, promise_value() => v} -> {"rejected", v}
                 _ -> {"fulfilled", item}
               end
 
@@ -91,7 +90,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Promise do
       Enum.find_value(items, fn
         {:obj, r} ->
           case Heap.get_obj(r, %{}) do
-            %{@promise_state => :resolved, @promise_value => v} -> v
+            %{promise_state() => :resolved, promise_value() => v} -> v
             _ -> nil
           end
 

@@ -6,7 +6,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Scope do
   alias QuickBEAM.BeamVM.Interpreter.Context
   alias QuickBEAM.BeamVM.PredefinedAtoms
 
-  @js_atom_end 229
+  @js_atom_end QuickBEAM.BeamVM.Opcodes.js_atom_end()
 
   def resolve_const(cpool, idx) when is_tuple(cpool) and idx < tuple_size(cpool) do
     case elem(cpool, idx) do
