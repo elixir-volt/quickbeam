@@ -8,6 +8,20 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Runtime
 
+  @types %{
+    "Uint8Array" => :uint8,
+    "Int8Array" => :int8,
+    "Uint8ClampedArray" => :uint8_clamped,
+    "Uint16Array" => :uint16,
+    "Int16Array" => :int16,
+    "Uint32Array" => :uint32,
+    "Int32Array" => :int32,
+    "Float32Array" => :float32,
+    "Float64Array" => :float64
+  }
+
+  def types, do: @types
+
   def constructor(type) do
     fn args, _this ->
       {buf, offset, len, orig_buf} = parse_args(args, type)

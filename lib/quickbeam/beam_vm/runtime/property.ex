@@ -117,19 +117,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
 
   defp get_own({:builtin, name, _}, "from")
        when name in ~w(Uint8Array Int8Array Uint8ClampedArray Uint16Array Int16Array Uint32Array Int32Array Float32Array Float64Array) do
-    type_map = %{
-      "Uint8Array" => :uint8,
-      "Int8Array" => :int8,
-      "Uint8ClampedArray" => :uint8_clamped,
-      "Uint16Array" => :uint16,
-      "Int16Array" => :int16,
-      "Uint32Array" => :uint32,
-      "Int32Array" => :int32,
-      "Float32Array" => :float32,
-      "Float64Array" => :float64
-    }
-
-    type = Map.get(type_map, name, :uint8)
+    type = Map.get(TypedArray.types(), name, :uint8)
 
     {:builtin, "from",
      fn [source | _], _this ->

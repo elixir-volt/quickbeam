@@ -248,18 +248,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   end
 
   defp typed_arrays do
-    for {name, type} <- [
-          {"Uint8Array", :uint8},
-          {"Int8Array", :int8},
-          {"Uint8ClampedArray", :uint8_clamped},
-          {"Uint16Array", :uint16},
-          {"Int16Array", :int16},
-          {"Uint32Array", :uint32},
-          {"Int32Array", :int32},
-          {"Float32Array", :float32},
-          {"Float64Array", :float64}
-        ],
-        into: %{} do
+    for {name, type} <- TypedArray.types(), into: %{} do
       {name, register(name, TypedArray.constructor(type))}
     end
   end
