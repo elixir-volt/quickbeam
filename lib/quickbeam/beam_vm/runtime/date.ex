@@ -266,10 +266,27 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   end
 
   defp gregorian_to_ms(year, month, day, hour, minute, second, ms) do
-    gs = :calendar.datetime_to_gregorian_seconds({{year, month, day}, {hour, minute, second}})
-    (gs - @epoch_gregorian_seconds) * 1000 + ms
+    if year >= 0 do
+      gs = :calendar.datetime_to_gregorian_seconds({{year, month, day}, {hour, minute, second}})
+      (gs - @epoch_gregorian_seconds) * 1000 + ms
+    else
+      days = days_from_epoch(year, month, day)
+      time_s = hour * 3600 + minute * 60 + second
+      days * 86_400_000 + time_s * 1000 + ms
+    end
   rescue
     _ -> :nan
+  end
+
+  defp days_from_epoch(year, month, day) do
+    # Days from 1970-01-01 to the given date (negative for dates before epoch)
+    # Using the algorithm from Howard Hinnant's date library
+    y = if month <= 2, do: year - 1, else: year
+    era = div(if(y >= 0, do: y, else: y - 399), 400)
+    yoe = y - era * 400
+    doy = div(153 * (month + (if month > 2, do: -3, else: 9)) + 2, 5) + day - 1
+    doe = yoe * 365 + div(yoe, 4) - div(yoe, 100) + doy
+    era * 146097 + doe - 719468
   end
 
   # ── Date.parse ──
@@ -284,6 +301,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   def parse_date_string(_), do: :nan
 
   defp do_parse(s) do
+    s = expand_short_iso(s)
+
     # Try full ISO 8601 first (handles YYYY-MM-DDTHH:MM:SSZ and variants)
     case DateTime.from_iso8601(ensure_offset(s)) do
       {:ok, dt, _} ->
@@ -302,12 +321,57 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
     end
   end
 
+  defp expand_short_iso(s) do
+    case Regex.run(~r/^(\d{4})T(.+)$/, s) do
+      [_, year, time] -> "#{year}-01-01T#{time}"
+      _ ->
+        case Regex.run(~r/^(\d{4})-(\d{2})T(.+)$/, s) do
+          [_, year, month, time] -> "#{year}-#{month}-01T#{time}"
+          _ -> s
+        end
+    end
+  end
+
   defp ensure_offset(s) do
+    s = normalize_time(s)
+
     cond do
       String.contains?(s, "Z") -> s
       String.contains?(s, "+") and String.contains?(s, "T") -> s
       String.contains?(s, "T") -> s <> "Z"
       true -> s
+    end
+  end
+
+  defp normalize_time(s) do
+    case String.split(s, "T", parts: 2) do
+      [date, time] ->
+        {time_part, tz} = split_tz(time)
+
+        padded =
+          case String.split(time_part, ":") do
+            [h, m] -> "#{h}:#{m}:00"
+            _ -> time_part
+          end
+
+        date <> "T" <> padded <> tz
+
+      _ ->
+        s
+    end
+  end
+
+  defp split_tz(time) do
+    cond do
+      String.contains?(time, "Z") ->
+        [t, _] = String.split(time, "Z", parts: 2)
+        {t, "Z"}
+
+      String.match?(time, ~r/[+-]\d{2}:\d{2}$/) ->
+        {String.slice(time, 0..-7//1), String.slice(time, -6..-1//1)}
+
+      true ->
+        {time, ""}
     end
   end
 
