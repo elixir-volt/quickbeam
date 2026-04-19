@@ -140,26 +140,24 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   # ── Array static dispatch ──
 
   static "isArray" do
-    is_array(hd(args), 0)
+    is_array(hd(args))
   end
 
-  defp is_array(val, depth) do
-    case val do
+  @max_proxy_depth 1_000_000
+
+  defp is_array(val, depth \\ 0)
+  defp is_array(_, depth) when depth > @max_proxy_depth do
+    throw({:js_throw, Heap.make_error("Maximum call stack size exceeded", "RangeError")})
+  end
+  defp is_array(list, _) when is_list(list), do: true
+  defp is_array({:obj, ref}, depth) do
+    case Heap.get_obj(ref) do
       list when is_list(list) -> true
-      {:obj, ref} ->
-        case Heap.get_obj(ref) do
-          list when is_list(list) -> true
-          %{proxy_target() => target} ->
-            if depth > 500_000 do
-              throw({:js_throw, Heap.make_error("Maximum call stack size exceeded", "RangeError")})
-            else
-              is_array(target, depth + 1)
-            end
-          _ -> false
-        end
+      %{proxy_target() => target} -> is_array(target, depth + 1)
       _ -> false
     end
   end
+  defp is_array(_, _), do: false
 
   static "from" do
     from(args)
