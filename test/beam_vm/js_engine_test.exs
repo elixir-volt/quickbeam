@@ -1,36 +1,7 @@
 defmodule QuickBEAM.JSEngineTest do
   use ExUnit.Case, async: true
 
-  @assert_js """
-  function assert(actual, expected, message) {
-    if (arguments.length === 1) expected = true;
-    if (typeof actual === typeof expected) {
-      if (actual === expected) {
-        if (actual !== 0 || (1 / actual) === (1 / expected)) return;
-      }
-      if (typeof actual === 'number') {
-        if (isNaN(actual) && isNaN(expected)) return;
-      }
-      if (typeof actual === 'object') {
-        if (actual !== null && expected !== null
-        &&  actual.constructor === expected.constructor
-        &&  actual.toString() === expected.toString()) return;
-      }
-    }
-    throw Error("assertion failed: got |" + actual + "|, expected |" + expected + "|" +
-                (message ? " (" + message + ")" : ""));
-  }
-  function assertThrows(err, func) {
-    var ex = false;
-    try { func(); } catch(e) { ex = true; assert(e instanceof err); }
-    assert(ex, true, "exception expected");
-  }
-  function assertArrayEquals(a, b) {
-    if (!Array.isArray(a) || !Array.isArray(b)) return assert(false);
-    assert(a.length, b.length);
-    a.forEach(function(value, idx) { assert(b[idx], value); });
-  }
-  """
+  @assert_js Path.join(__DIR__, "assert.js") |> File.read!() |> String.replace("export ", "")
 
   @stubs_js """
   if (typeof gc === 'undefined') { var gc = function() {}; }
