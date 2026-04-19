@@ -19,10 +19,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
   def call_callback(fun, args) do
     case fun do
       %Bytecode.Function{} = f ->
-        Interpreter.invoke(f, args, 10_000_000)
+        Interpreter.invoke(f, args, Interpreter.default_gas())
 
       {:closure, _, %Bytecode.Function{}} = c ->
-        Interpreter.invoke(c, args, 10_000_000)
+        Interpreter.invoke(c, args, Interpreter.default_gas())
 
       other ->
         try do

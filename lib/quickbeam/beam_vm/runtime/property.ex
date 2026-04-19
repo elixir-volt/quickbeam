@@ -32,7 +32,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
   def get(_, _), do: :undefined
 
   def call_getter(fun, this_obj) do
-    Interpreter.invoke_with_receiver(fun, [], 10_000_000, this_obj)
+    Interpreter.invoke_with_receiver(fun, [], Interpreter.default_gas(), this_obj)
   end
 
   def regexp_flags(<<flags_byte::8, _::binary>>) do

@@ -43,6 +43,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   import Bitwise, only: [bnot: 1, &&&: 2]
 
   @default_gas 1_000_000_000
+  def default_gas, do: @default_gas
   @func_generator 1
   @func_async 2
   @func_async_generator 3
@@ -2366,10 +2367,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   def invoke_callback(fun, args) do
     case fun do
       %Bytecode.Function{} = f ->
-        invoke_function(f, args, 10_000_000, active_ctx())
+        invoke_function(f, args, @default_gas, active_ctx())
 
       {:closure, _, %Bytecode.Function{}} = c ->
-        invoke_closure(c, args, 10_000_000, active_ctx())
+        invoke_closure(c, args, @default_gas, active_ctx())
 
       _ ->
         try do

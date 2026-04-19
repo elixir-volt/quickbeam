@@ -104,7 +104,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   def put_setter(target, key, fun), do: Heap.put_ctor_static(target, key, {:accessor, nil, fun})
 
   defp invoke_setter(fun, val, this_obj) do
-    Interpreter.invoke_with_receiver(fun, [val], 10_000_000, this_obj)
+    Interpreter.invoke_with_receiver(fun, [val], Interpreter.default_gas(), this_obj)
   end
 
   def has_property({:obj, ref}, key) do

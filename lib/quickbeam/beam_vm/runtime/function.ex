@@ -77,10 +77,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Function do
   defp invoke_fun(fun, args, this_arg) do
     case fun do
       %Bytecode.Function{} ->
-        Interpreter.invoke_with_receiver(fun, args, 10_000_000, this_arg)
+        Interpreter.invoke_with_receiver(fun, args, Interpreter.default_gas(), this_arg)
 
       {:closure, _, %Bytecode.Function{}} ->
-        Interpreter.invoke_with_receiver(fun, args, 10_000_000, this_arg)
+        Interpreter.invoke_with_receiver(fun, args, Interpreter.default_gas(), this_arg)
 
       other ->
         Builtin.call(other, args, this_arg)

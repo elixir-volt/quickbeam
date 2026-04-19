@@ -190,7 +190,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
         {:ok, bc} ->
           case Bytecode.decode(bc) do
             {:ok, parsed} ->
-              case Interpreter.eval(parsed.value, [], %{gas: 1_000_000_000, runtime_pid: ctx.runtime_pid}, parsed.atoms) do
+              case Interpreter.eval(parsed.value, [], %{gas: Interpreter.default_gas(), runtime_pid: ctx.runtime_pid}, parsed.atoms) do
                 {:ok, val} -> val
                 _ -> :undefined
               end
