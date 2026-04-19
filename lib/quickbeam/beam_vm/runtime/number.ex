@@ -90,19 +90,68 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
     if frac_part == 0.0 do
       sign <> int_str
     else
-      sign <> int_str <> "." <> frac_digits(frac_part, radix, 20)
+      precision = ceil(53 * :math.log(2) / :math.log(radix))
+      extra = precision + 4
+      raw_digits = frac_digits_list(frac_part, radix, extra)
+      digits = round_radix_digits(raw_digits, precision, radix)
+      digits = trim_trailing_zeros(digits)
+      chars = Enum.map(digits, &String.at("0123456789abcdefghijklmnopqrstuvwxyz", &1))
+      sign <> int_str <> "." <> Enum.join(chars)
     end
   end
 
-  defp frac_digits(_frac, _radix, 0), do: ""
+  defp frac_digits_list(_frac, _radix, 0), do: []
 
-  defp frac_digits(frac, radix, remaining) do
+  defp frac_digits_list(frac, radix, remaining) do
     prod = frac * radix
     digit = trunc(prod)
     rest = prod - digit
-    char = String.at("0123456789abcdefghijklmnopqrstuvwxyz", digit)
 
-    if rest == 0.0, do: char, else: char <> frac_digits(rest, radix, remaining - 1)
+    if rest == 0.0 do
+      [digit]
+    else
+      [digit | frac_digits_list(rest, radix, remaining - 1)]
+    end
+  end
+
+  defp round_radix_digits(digits, precision, radix) when length(digits) <= precision do
+    digits
+  end
+
+  defp round_radix_digits(digits, precision, radix) do
+    {keep, tail} = Enum.split(digits, precision)
+
+    should_round_up =
+      case tail do
+        [d | _] when d >= div(radix, 2) + 1 -> true
+        [d | rest] when d == div(radix, 2) ->
+          Enum.any?(rest, &(&1 > 0))
+        _ -> false
+      end
+
+    if should_round_up do
+      propagate_carry(Enum.reverse(keep), radix) |> Enum.reverse()
+    else
+      keep
+    end
+  end
+
+  defp propagate_carry([], _radix), do: [1]
+
+  defp propagate_carry([d | rest], radix) do
+    new_d = d + 1
+    if new_d >= radix do
+      [0 | propagate_carry(rest, radix)]
+    else
+      [new_d | rest]
+    end
+  end
+
+  defp trim_trailing_zeros(digits) do
+    digits
+    |> Enum.reverse()
+    |> Enum.drop_while(&(&1 == 0))
+    |> Enum.reverse()
   end
 
   # ── toFixed(digits) ──
@@ -120,8 +169,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
   # ── toExponential(digits) ──
 
   defp to_exponential(n, [digits | _]) when is_number(n) do
-    :erlang.float_to_binary(n * 1.0, [{:scientific, Runtime.to_int(digits)}])
-    |> strip_exponent_zeros()
+    d = Runtime.to_int(digits)
+    f = js_round_significant(abs(n * 1.0), d + 1)
+    sign = if n < 0, do: "-", else: ""
+    sign <> (:erlang.float_to_binary(f, [{:scientific, d}]) |> strip_exponent_zeros())
   end
 
   defp to_exponential(n, _), do: Runtime.stringify(n)
@@ -156,9 +207,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
   defp format_precision(f, p) do
     exp = trunc(:math.floor(:math.log10(abs(f))))
     sign = if f < 0, do: "-", else: ""
+    f = js_round_significant(abs(f), p)
 
     if exp >= p or exp < -6 do
-      sci = :erlang.float_to_binary(abs(f), [{:scientific, p - 1}])
+      sci = :erlang.float_to_binary(f, [{:scientific, p - 1}])
 
       case String.split(sci, "e") do
         [mantissa, exp_str] ->
@@ -168,8 +220,20 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
           Runtime.stringify(f)
       end
     else
-      sign <> :erlang.float_to_binary(abs(f), decimals: p - exp - 1)
+      sign <> :erlang.float_to_binary(f, decimals: p - exp - 1)
     end
+  end
+
+  defp js_round_significant(f, p) do
+    if f == 0.0, do: 0.0, else: do_js_round_sig(f, p)
+  end
+
+  defp do_js_round_sig(f, p) do
+    exp = :math.floor(:math.log10(f))
+    factor = :math.pow(10, p - 1 - exp)
+    scaled = f * factor
+    rounded = :erlang.trunc(scaled + 0.5)
+    rounded / factor
   end
 
   defp format_exponent(exp) when exp >= 0, do: "+" <> Integer.to_string(exp)
