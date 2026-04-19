@@ -1,4 +1,4 @@
-defmodule QuickBEAM.BeamVM.Runtime.Prototypes do
+defmodule QuickBEAM.BeamVM.Runtime.Function do
   @moduledoc false
 
 
@@ -8,35 +8,35 @@ defmodule QuickBEAM.BeamVM.Runtime.Prototypes do
 
   # ── Function prototype ──
 
-  def function_proto_property(fun, "call") do
+  def proto_property(fun, "call") do
     {:builtin, "call", fn args, this -> fn_call(fun, args, this) end}
   end
 
-  def function_proto_property(fun, "apply") do
+  def proto_property(fun, "apply") do
     {:builtin, "apply", fn args, this -> fn_apply(fun, args, this) end}
   end
 
-  def function_proto_property(fun, "bind") do
+  def proto_property(fun, "bind") do
     {:builtin, "bind", fn args, this -> fn_bind(fun, args, this) end}
   end
 
-  def function_proto_property(%Bytecode.Function{} = f, "name"), do: f.name || ""
-  def function_proto_property(%Bytecode.Function{} = f, "length"), do: f.defined_arg_count
+  def proto_property(%Bytecode.Function{} = f, "name"), do: f.name || ""
+  def proto_property(%Bytecode.Function{} = f, "length"), do: f.defined_arg_count
 
-  def function_proto_property({:closure, _, %Bytecode.Function{} = f}, "name"),
+  def proto_property({:closure, _, %Bytecode.Function{} = f}, "name"),
     do: f.name || ""
 
-  def function_proto_property({:closure, _, %Bytecode.Function{} = f}, "length"),
+  def proto_property({:closure, _, %Bytecode.Function{} = f}, "length"),
     do: f.defined_arg_count
 
-  def function_proto_property({:bound, _, inner}, key) when key not in ["length", "name"],
-    do: function_proto_property(inner, key)
+  def proto_property({:bound, _, inner}, key) when key not in ["length", "name"],
+    do: proto_property(inner, key)
 
-  def function_proto_property({:bound, len, _}, "length"), do: len
-  def function_proto_property(_fun, "length"), do: 0
-  def function_proto_property({:bound, _, _}, "name"), do: "bound "
-  def function_proto_property(_fun, "name"), do: ""
-  def function_proto_property(_fun, _), do: :undefined
+  def proto_property({:bound, len, _}, "length"), do: len
+  def proto_property(_fun, "length"), do: 0
+  def proto_property({:bound, _, _}, "name"), do: "bound "
+  def proto_property(_fun, "name"), do: ""
+  def proto_property(_fun, _), do: :undefined
 
   defp fn_call(fun, [this_arg | args], _this) do
     invoke_fun(fun, args, this_arg)

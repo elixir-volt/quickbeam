@@ -22,19 +22,19 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   alias QuickBEAM.BeamVM.Runtime.{
     Array,
-    Console,
-    Globals,
-    Math,
-    MapSet,
-    Number,
-    Prototypes,
-    JSON,
-    Object,
-    Reflect,
-    RegExp,
     Boolean,
     Builtins,
+    Console,
+    Function,
+    Globals,
+    JSON,
+    MapSet,
+    Math,
+    Number,
+    Object,
     Promise,
+    Reflect,
+    RegExp,
     Symbol,
     TypedArray
   }
@@ -504,10 +504,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp get_prototype_property(false, key), do: Boolean.proto_property(key)
 
   defp get_prototype_property(%Bytecode.Function{} = f, key),
-    do: Prototypes.function_proto_property(f, key)
+    do: Function.proto_property(f, key)
 
   defp get_prototype_property({:closure, _, %Bytecode.Function{}} = c, key),
-    do: Prototypes.function_proto_property(c, key)
+    do: Function.proto_property(c, key)
 
   defp get_prototype_property({:builtin, "Error", _}, _key),
     do: :undefined
@@ -524,7 +524,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     do: JSString.static_property(key)
 
   defp get_prototype_property({:builtin, name, _} = fun, key) when is_binary(name),
-    do: Prototypes.function_proto_property(fun, key)
+    do: Function.proto_property(fun, key)
 
   defp get_prototype_property(_, _), do: :undefined
 
