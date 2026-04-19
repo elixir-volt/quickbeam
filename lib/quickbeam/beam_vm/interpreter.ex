@@ -41,6 +41,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   @func_generator 1
   @func_async 2
   @func_async_generator 3
+  @gc_check_interval 1000
 
   @spec eval(Bytecode.Function.t()) :: {:ok, term()} | {:error, term()}
   def eval(%Bytecode.Function{} = fun), do: eval(fun, [], %{})
@@ -434,7 +435,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run(frame, stack, gas, ctx) do
-    if rem(gas, 1000) == 0 and Heap.gc_needed?() do
+    if rem(gas, @gc_check_interval) == 0 and Heap.gc_needed?() do
       roots =
         [
           elem(frame, Frame.locals()),
