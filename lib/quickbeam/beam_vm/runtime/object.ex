@@ -25,20 +25,47 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   end
 
   static "freeze" do
-    freeze(hd(args))
+    case hd(args) do
+      {:obj, ref} = obj ->
+        Heap.freeze(ref)
+        obj
+
+      obj ->
+        obj
+    end
   end
 
   static "is" do
     [a, b | _] = args
-    js_is(a, b)
+
+    cond do
+      is_number(a) and is_number(b) and a == 0 and b == 0 ->
+        Values.neg_zero?(a) == Values.neg_zero?(b)
+
+      is_number(a) and is_number(b) ->
+        a === b or (a != a and b != b)
+
+      a == :nan and b == :nan ->
+        true
+
+      true ->
+        a === b
+    end
   end
 
   static "create" do
-    create(args)
+    case args do
+      [nil | _] -> Heap.wrap(%{})
+      [proto | _] -> Heap.wrap(%{proto() => proto})
+      _ -> Runtime.obj_new()
+    end
   end
 
   static "getPrototypeOf" do
-    get_prototype_of(args)
+    case args do
+      [{:obj, ref} | _] -> Map.get(Heap.get_obj(ref, %{}), proto(), nil)
+      _ -> nil
+    end
   end
 
   static "defineProperty" do
@@ -58,11 +85,30 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   end
 
   static "hasOwn" do
-    has_own(args)
+    case args do
+      [{:obj, ref}, key | _] ->
+        prop_name = if is_binary(key), do: key, else: to_string(key)
+        map = Heap.get_obj(ref, %{})
+        is_map(map) and Map.has_key?(map, prop_name)
+
+      _ ->
+        false
+    end
   end
 
   static "setPrototypeOf" do
-    set_prototype_of(args)
+    case args do
+      [{:obj, ref} = obj, proto | _] ->
+        map = Heap.get_obj(ref, %{})
+        if is_map(map), do: Heap.put_obj(ref, Map.put(map, proto(), proto))
+        obj
+
+      [obj | _] ->
+        obj
+
+      _ ->
+        :undefined
+    end
   end
 
   defp from_entries([{:obj, ref} | _]) do
@@ -94,59 +140,6 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   end
 
   defp from_entries(_), do: Runtime.obj_new()
-
-  defp has_own([{:obj, ref}, key | _]) do
-    prop_name = if is_binary(key), do: key, else: to_string(key)
-    map = Heap.get_obj(ref, %{})
-    is_map(map) and Map.has_key?(map, prop_name)
-  end
-
-  defp has_own(_), do: false
-
-  defp set_prototype_of([{:obj, ref} = obj, proto | _]) do
-    map = Heap.get_obj(ref, %{})
-
-    if is_map(map) do
-      Heap.put_obj(ref, Map.put(map, proto(), proto))
-    end
-
-    obj
-  end
-
-  defp set_prototype_of([obj | _]), do: obj
-  defp set_prototype_of(_), do: :undefined
-
-  defp create([proto | _]) do
-    ref = make_ref()
-
-    map =
-      case proto do
-        nil ->
-          %{}
-
-        _ ->
-          %{proto() => proto}
-      end
-
-    Heap.put_obj(ref, map)
-    {:obj, ref}
-  end
-
-  defp create(_), do: Runtime.obj_new()
-
-  defp get_prototype_of([{:obj, ref} | _]) do
-    map = Heap.get_obj(ref, %{})
-    Map.get(map, proto(), nil)
-  end
-
-  defp get_prototype_of(_), do: nil
-
-  defp freeze({:obj, ref} = obj) do
-    Heap.freeze(ref)
-    obj
-  end
-
-  defp freeze(obj), do: obj
 
   defp keys([{:obj, ref} | _]) do
     data = Heap.get_obj(ref, %{})
@@ -361,16 +354,6 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   end
 
   defp get_own_property_descriptor(_), do: :undefined
-
-  defp js_is(a, b) when is_number(a) and is_number(b) do
-    cond do
-      a == 0 and b == 0 ->
-        Values.neg_zero?(a) == Values.neg_zero?(b)
-
-      true ->
-        a == b
-    end
-  end
 
   defp js_is(:nan, :nan), do: true
   defp js_is(a, b), do: a === b
