@@ -95,6 +95,14 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
     end
   end
 
+  defp apply_replacer({:ordered_map, pairs}, replacer) when replacer != nil and replacer != :undefined do
+    filtered = Enum.reduce(pairs, [], fn {k, v}, acc ->
+      result = QuickBEAM.BeamVM.Runtime.call_callback(replacer, [k, v])
+      if result == :undefined, do: acc, else: [{k, result} | acc]
+    end)
+    {:ordered_map, Enum.reverse(filtered)}
+  end
+
   defp apply_replacer(result, _), do: result
 
   defp to_json({:obj, ref} = obj) do
@@ -106,6 +114,11 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
         Enum.map(list, &to_json/1)
 
       map when is_map(map) ->
+        case Map.get(map, "toJSON") do
+          fun when fun != nil and fun != :undefined ->
+            result = QuickBEAM.BeamVM.Runtime.call_callback(fun, [])
+            to_json(result)
+          _ ->
         order =
           case Map.get(map, key_order()) do
             list when is_list(list) -> Enum.reverse(list)
@@ -135,6 +148,7 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
           |> Enum.reject(fn {_, v} -> v == :undefined end)
 
         {:ordered_map, pairs}
+        end
     end
   end
 
