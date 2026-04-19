@@ -12,7 +12,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
             neg: 1,
             typeof: 1,
             to_number: 1,
-            to_js_string: 1,
+            stringify: 1,
             lt: 2,
             lte: 2,
             gt: 2,
@@ -154,29 +154,29 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
     if n >= 0x80000000, do: n - 0x100000000, else: n
   end
 
-  def to_js_string(:undefined), do: "undefined"
-  def to_js_string(nil), do: "null"
-  def to_js_string(true), do: "true"
-  def to_js_string(false), do: "false"
-  def to_js_string(n) when is_integer(n), do: Integer.to_string(n)
-  def to_js_string(n) when is_float(n) and n == 0.0, do: "0"
-  def to_js_string(n) when is_float(n), do: format_float(n)
-  def to_js_string({:bigint, n}), do: Integer.to_string(n)
-  def to_js_string({:symbol, desc}), do: "Symbol(#{desc})"
-  def to_js_string({:symbol, desc, _ref}), do: "Symbol(#{desc})"
-  def to_js_string(s) when is_binary(s), do: s
+  def stringify(:undefined), do: "undefined"
+  def stringify(nil), do: "null"
+  def stringify(true), do: "true"
+  def stringify(false), do: "false"
+  def stringify(n) when is_integer(n), do: Integer.to_string(n)
+  def stringify(n) when is_float(n) and n == 0.0, do: "0"
+  def stringify(n) when is_float(n), do: format_float(n)
+  def stringify({:bigint, n}), do: Integer.to_string(n)
+  def stringify({:symbol, desc}), do: "Symbol(#{desc})"
+  def stringify({:symbol, desc, _ref}), do: "Symbol(#{desc})"
+  def stringify(s) when is_binary(s), do: s
 
-  def to_js_string({:obj, ref} = obj) do
+  def stringify({:obj, ref} = obj) do
     data = QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
 
     case data do
       list when is_list(list) ->
-        Enum.map_join(list, ",", &to_js_string/1)
+        Enum.map_join(list, ",", &stringify/1)
 
       map when is_map(map) ->
         case Map.get(map, "toString") do
           fun when fun != nil and fun != :undefined ->
-            to_js_string(
+            stringify(
               QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [], 10_000_000, obj)
             )
 
@@ -189,7 +189,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
     end
   end
 
-  def to_js_string(_), do: "[object]"
+  def stringify(_), do: "[object]"
 
   def typeof(:undefined), do: "undefined"
   def typeof(:nan), do: "number"
@@ -217,7 +217,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def strict_eq(a, b), do: a === b
 
   def add({:bigint, a}, {:bigint, b}), do: {:bigint, a + b}
-  def add(a, b) when is_binary(a) or is_binary(b), do: to_js_string(a) <> to_js_string(b)
+  def add(a, b) when is_binary(a) or is_binary(b), do: stringify(a) <> stringify(b)
   def add(a, b) when is_number(a) and is_number(b), do: a + b
   def add(a, b), do: numeric_add(to_number(a), to_number(b))
 

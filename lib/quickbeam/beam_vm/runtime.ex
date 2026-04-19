@@ -560,7 +560,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   def strict_equal?(a, b), do: a === b
 
-  def stringify(val), do: QuickBEAM.BeamVM.Interpreter.Values.to_js_string(val)
+  def stringify(val), do: QuickBEAM.BeamVM.Interpreter.Values.stringify(val)
 
   def to_int(n) when is_integer(n), do: n
   def to_int(n) when is_float(n), do: trunc(n)

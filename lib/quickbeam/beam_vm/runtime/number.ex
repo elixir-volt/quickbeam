@@ -64,7 +64,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
 
     cond do
       r == 10 ->
-        QuickBEAM.BeamVM.Interpreter.Values.to_js_string(n * 1.0)
+        QuickBEAM.BeamVM.Interpreter.Values.stringify(n * 1.0)
 
       r >= 2 and r <= 36 and n == trunc(n) ->
         Integer.to_string(trunc(n), r) |> String.downcase()
@@ -164,7 +164,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
           exp = :math.floor(:math.log10(abs(f)))
           rounded = Float.round(f / :math.pow(10, exp - p + 1)) * :math.pow(10, exp - p + 1)
 
-          QuickBEAM.BeamVM.Interpreter.Values.to_js_string(
+          QuickBEAM.BeamVM.Interpreter.Values.stringify(
             if sign == "-", do: -rounded, else: rounded
           )
         end

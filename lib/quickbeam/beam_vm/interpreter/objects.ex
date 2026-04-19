@@ -68,7 +68,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   defp normalize_key(k) when is_float(k) and k == trunc(k) and k >= 0,
     do: Integer.to_string(trunc(k))
 
-  defp normalize_key(k) when is_float(k), do: QuickBEAM.BeamVM.Interpreter.Values.to_js_string(k)
+  defp normalize_key(k) when is_float(k), do: QuickBEAM.BeamVM.Interpreter.Values.stringify(k)
   defp normalize_key(k), do: k
 
   def put_getter({:obj, ref}, key, fun) do

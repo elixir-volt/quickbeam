@@ -1296,7 +1296,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
               to_str_fn =
                 {:builtin, "toString",
-                 fn _, _ -> QuickBEAM.BeamVM.Interpreter.Values.to_js_string(obj) end}
+                 fn _, _ -> QuickBEAM.BeamVM.Interpreter.Values.stringify(obj) end}
 
               Heap.put_obj(
                 this_ref,
