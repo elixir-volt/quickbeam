@@ -325,12 +325,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
           s
       end
 
-    case Regex.run(~r/^(\w{3})\s+(\d{1,2})\s+(\d{4})\s*(.*)$/i, s) do
-      [_, month_str, day_str, year_str, time_tz] ->
+    case String.split(s, " ", parts: 4) do
+      [month_str, day_str, year_str | rest] ->
         with month when is_integer(month) <- Map.get(@month_names, String.downcase(String.slice(month_str, 0..2))),
              {day, ""} <- Integer.parse(day_str),
              {year, ""} <- Integer.parse(year_str) do
-          {hour, minute, second, tz_offset} = parse_informal_time(String.trim(time_tz))
+          time_tz = String.trim(Enum.join(rest, " "))
+          {hour, minute, second, tz_offset} = parse_informal_time(time_tz)
 
           if tz_offset != nil do
             utc_ms({year, month, day, hour, minute, second, 0}) - tz_offset * 60_000
@@ -349,11 +350,20 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   defp parse_informal_time(""), do: {0, 0, 0, nil}
 
   defp parse_informal_time(s) do
-    case Regex.run(~r/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(.*)$/, s) do
-      [_, h, m, sec, tz] ->
-        {String.to_integer(h), String.to_integer(m),
-         (if sec != "", do: String.to_integer(sec), else: 0),
-         (if tz == "", do: nil, else: parse_tz_offset(String.trim(tz)))}
+    {time_part, tz_part} =
+      case String.split(s, " ", parts: 2) do
+        [t, tz] -> {t, String.trim(tz)}
+        [t] -> {t, ""}
+      end
+
+    case String.split(time_part, ":") do
+      [h, m, sec] ->
+        {String.to_integer(h), String.to_integer(m), String.to_integer(sec),
+         if(tz_part == "", do: nil, else: parse_tz_offset(tz_part))}
+
+      [h, m] ->
+        {String.to_integer(h), String.to_integer(m), 0,
+         if(tz_part == "", do: nil, else: parse_tz_offset(tz_part))}
 
       _ ->
         {0, 0, 0, nil}
@@ -380,19 +390,16 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
   # ── ISO helpers ──
 
-  defp expand_short_iso(s) do
-    s =
-      case Regex.run(~r/^(\d{4})T(.+)$/, s) do
-        [_, year, time] -> "#{year}-01-01T#{time}"
-        _ ->
-          case Regex.run(~r/^(\d{4})-(\d{2})T(.+)$/, s) do
-            [_, year, month, time] -> "#{year}-#{month}-01T#{time}"
-            _ -> s
-          end
-      end
+  defp expand_short_iso(<<y1, y2, y3, y4, ?T, rest::binary>>)
+       when y1 in ?0..?9 and y2 in ?0..?9 and y3 in ?0..?9 and y4 in ?0..?9,
+       do: pad_seconds(<<y1, y2, y3, y4, "-01-01T", rest::binary>>)
 
-    pad_seconds(s)
-  end
+  defp expand_short_iso(<<y1, y2, y3, y4, ?-, m1, m2, ?T, rest::binary>>)
+       when y1 in ?0..?9 and y2 in ?0..?9 and y3 in ?0..?9 and y4 in ?0..?9
+        and m1 in ?0..?9 and m2 in ?0..?9,
+       do: pad_seconds(<<y1, y2, y3, y4, ?-, m1, m2, "-01T", rest::binary>>)
+
+  defp expand_short_iso(s), do: pad_seconds(s)
 
   defp pad_seconds(s) do
     case String.split(s, "T", parts: 2) do
