@@ -162,8 +162,32 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Helpers ──
 
+  defp caller_is_strict?(%Context{current_func: func}) do
+    case func do
+      {:closure, _, %Bytecode.Function{is_strict_mode: s}} -> s
+      %Bytecode.Function{is_strict_mode: s} -> s
+      _ -> false
+    end
+  end
+
   defp home_object_key({:closure, _, %Bytecode.Function{byte_code: bc}}), do: bc
+  defp caller_is_strict?(%Context{current_func: func}) do
+    case func do
+      {:closure, _, %Bytecode.Function{is_strict_mode: s}} -> s
+      %Bytecode.Function{is_strict_mode: s} -> s
+      _ -> false
+    end
+  end
+
   defp home_object_key(%Bytecode.Function{byte_code: bc}), do: bc
+  defp caller_is_strict?(%Context{current_func: func}) do
+    case func do
+      {:closure, _, %Bytecode.Function{is_strict_mode: s}} -> s
+      %Bytecode.Function{is_strict_mode: s} -> s
+      _ -> false
+    end
+  end
+
   defp home_object_key(_), do: nil
 
   defp advance(f), do: put_elem(f, Frame.pc(), elem(f, Frame.pc()) + 1)
@@ -331,6 +355,25 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp write_back_eval_vars(caller_frame, ctx, _original_globals) do
     new_globals = Heap.get_persistent_globals() || %{}
+
+    if caller_is_strict?(ctx) do
+      func_name = case ctx.current_func do
+        {:closure, _, %Bytecode.Function{name: n}} -> n
+        %Bytecode.Function{name: n} -> n
+        _ -> nil
+      end
+
+      if func_name && Map.has_key?(new_globals, func_name) do
+        old_val = case ctx.current_func do
+          {:closure, _, %Bytecode.Function{} = f} -> Heap.get_parent_ctor(f)
+          _ -> nil
+        end
+        new_val = Map.get(new_globals, func_name)
+        if old_val == nil and new_val != ctx.current_func and new_val != :undefined do
+          throw({:js_throw, Heap.make_error("Assignment to constant variable.", "TypeError")})
+        end
+      end
+    end
     locals = elem(caller_frame, Frame.locals())
     vrefs = elem(caller_frame, Frame.var_refs())
     l2v = elem(caller_frame, Frame.l2v())
@@ -348,9 +391,16 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp do_write_back(local_defs, arg_count, locals, vrefs, l2v, new_globals, ctx) do
+    func_name = case ctx.current_func do
+      {:closure, _, %Bytecode.Function{name: n}} -> n
+      %Bytecode.Function{name: n} -> n
+      _ -> nil
+    end
+
     for {vd, idx} <- Enum.with_index(local_defs),
         name = vd.name,
         is_binary(name),
+        name != func_name,
         Map.has_key?(new_globals, name) do
       new_val = Map.get(new_globals, name)
 
