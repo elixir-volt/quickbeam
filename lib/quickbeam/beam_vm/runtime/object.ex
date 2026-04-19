@@ -7,6 +7,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Interpreter.Values
   alias QuickBEAM.BeamVM.Runtime
+  alias QuickBEAM.BeamVM.Bytecode
 
   def build_prototype do
     ref = make_ref()
@@ -104,8 +105,43 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
   static "getPrototypeOf" do
     case args do
-      [{:obj, ref} | _] -> Map.get(Heap.get_obj(ref, %{}), proto(), nil)
-      _ -> nil
+      [{:obj, ref} | _] ->
+        Map.get(Heap.get_obj(ref, %{}), proto(), nil)
+
+      [val | _] when is_list(val) ->
+        Heap.get_class_proto(Runtime.global_bindings()["Array"])
+
+      [{:builtin, _, _} | _] -> func_proto()
+      [{:closure, _, _} | _] -> func_proto()
+      [%Bytecode.Function{} | _] -> func_proto()
+      [val | _] when is_function(val) -> func_proto()
+
+      _ ->
+        nil
+    end
+  end
+
+  defp func_proto do
+    case Process.get(:qb_func_proto) do
+      nil ->
+        ref = make_ref()
+        call_fn = {:builtin, "call", fn [this | args], _ ->
+          Runtime.call_callback(this, args)
+        end}
+        apply_fn = {:builtin, "apply", fn [this, arg_array], _ ->
+          args = case arg_array do
+            {:obj, r} -> case Heap.get_obj(r, []) do l when is_list(l) -> l; _ -> [] end
+            _ -> []
+          end
+          Runtime.call_callback(this, args)
+        end}
+        bind_fn = {:builtin, "bind", fn [this | bound_args], func ->
+          {:bound, "bound", func, this, bound_args}
+        end}
+        proto = Heap.wrap(%{"call" => call_fn, "apply" => apply_fn, "bind" => bind_fn, "constructor" => :undefined})
+        Process.put(:qb_func_proto, proto)
+        proto
+      existing -> existing
     end
   end
 

@@ -206,10 +206,38 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   end
 
   defp utc_ms({year, month, day, hour, minute, second, ms_part}) do
-    dt = DateTime.from_naive!(NaiveDateTime.new!(year, month, day, hour, minute, second, {ms_part * 1000, 3}), "Etc/UTC")
-    dt_to_ms(dt)
-  rescue
-    _ -> :nan
+    # ES spec MakeDate/MakeTime: normalize month overflow, compute as raw integers
+    year = year + div(month - 1, 12)
+    month = rem(rem(month - 1, 12) + 12, 12) + 1
+
+    case make_day(year, month) do
+      :nan -> :nan
+      base_days ->
+        # JS MakeDate uses float64 arithmetic — must match its precision
+        day_f = (day - 1 + base_days) * 1.0
+        time_ms = ((day_f * 24 + hour * 1.0) * 60 + minute * 1.0) * 60_000 +
+                  second * 1000.0 + ms_part * 1.0
+        time_ms = trunc(time_ms)
+        if abs(time_ms) > 8_640_000_000_000_000, do: :nan, else: time_ms
+    end
+  end
+
+  defp make_day(year, month) do
+    # Days from epoch to year/month/1
+    try do
+      if year >= 0 do
+        :calendar.date_to_gregorian_days(year, month, 1) - 719_528
+      else
+        y = if month <= 2, do: year - 1, else: year
+        era = div(y - 399, 400)
+        yoe = y - era * 400
+        doy = div(153 * (month + (if month > 2, do: -3, else: 9)) + 2, 5)
+        doe = yoe * 365 + div(yoe, 4) - div(yoe, 100) + doy
+        era * 146097 + doe - 719_468
+      end
+    rescue
+      _ -> :nan
+    end
   end
 
   defp local_tz_offset_minutes do
@@ -280,24 +308,36 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   end
 
   defp try_partial(s) do
-    {sign, digits} =
+    {sign, digits, has_sign} =
       case s do
-        "+" <> r -> {1, r}
-        "-" <> r -> {-1, r}
-        r -> {1, r}
+        "+" <> r -> {1, r, true}
+        "-" <> r -> {-1, r, true}
+        r -> {1, r, false}
       end
+
+    valid_year? = fn str ->
+      byte_size(str) == 4 or (byte_size(str) == 6 and has_sign)
+    end
 
     case String.split(digits, "-", parts: 3) do
       [year_str] ->
-        with {year, ""} <- Integer.parse(year_str),
-             do: utc_ms({sign * year, 1, 1, 0, 0, 0, 0}),
-             else: (_ -> :miss)
+        if valid_year?.(year_str) do
+          with {year, ""} <- Integer.parse(year_str),
+               do: utc_ms({sign * year, 1, 1, 0, 0, 0, 0}),
+               else: (_ -> :miss)
+        else
+          :miss
+        end
 
       [year_str, month_str] ->
-        with {year, ""} <- Integer.parse(year_str),
-             {month, ""} <- Integer.parse(month_str),
-             do: utc_ms({sign * year, month, 1, 0, 0, 0, 0}),
-             else: (_ -> :miss)
+        if valid_year?.(year_str) do
+          with {year, ""} <- Integer.parse(year_str),
+               {month, ""} <- Integer.parse(month_str),
+               do: utc_ms({sign * year, month, 1, 0, 0, 0, 0}),
+               else: (_ -> :miss)
+        else
+          :miss
+        end
 
       _ ->
         :miss
@@ -326,6 +366,23 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
       end
 
     case String.split(s, " ", parts: 4) do
+      [year_str, month_str, day_str | rest]
+          when byte_size(year_str) == 4 ->
+        with {year, ""} <- Integer.parse(year_str),
+             month when is_integer(month) <- Map.get(@month_names, String.downcase(String.slice(month_str, 0..2))),
+             {day, ""} <- Integer.parse(day_str) do
+          time_tz = String.trim(Enum.join(rest, " "))
+          {hour, minute, second, tz_offset} = parse_informal_time(time_tz)
+
+          if tz_offset != nil do
+            utc_ms({year, month, day, hour, minute, second, 0}) - tz_offset * 60_000
+          else
+            local_from_components([year, month - 1, day, hour, minute, second, 0])
+          end
+        else
+          _ -> :miss
+        end
+
       [month_str, day_str, year_str | rest] ->
         with month when is_integer(month) <- Map.get(@month_names, String.downcase(String.slice(month_str, 0..2))),
              {day, ""} <- Integer.parse(day_str),
@@ -350,24 +407,39 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   defp parse_informal_time(""), do: {0, 0, 0, nil}
 
   defp parse_informal_time(s) do
-    {time_part, tz_part} =
-      case String.split(s, " ", parts: 2) do
-        [t, tz] -> {t, String.trim(tz)}
-        [t] -> {t, ""}
+    parts = String.split(s, " ")
+
+    {time_part, rest} =
+      case parts do
+        [t | r] -> {t, r}
+        [] -> {"", []}
       end
 
-    case String.split(time_part, ":") do
-      [h, m, sec] ->
-        {String.to_integer(h), String.to_integer(m), String.to_integer(sec),
-         if(tz_part == "", do: nil, else: parse_tz_offset(tz_part))}
+    {ampm, tz_parts} =
+      case rest do
+        ["AM" | r] -> {:am, r}
+        ["PM" | r] -> {:pm, r}
+        ["am" | r] -> {:am, r}
+        ["pm" | r] -> {:pm, r}
+        r -> {nil, r}
+      end
 
-      [h, m] ->
-        {String.to_integer(h), String.to_integer(m), 0,
-         if(tz_part == "", do: nil, else: parse_tz_offset(tz_part))}
+    tz_part = String.trim(Enum.join(tz_parts, " "))
 
-      _ ->
-        {0, 0, 0, nil}
+    {h, m, sec} =
+      case String.split(time_part, ":") do
+        [hh, mm, ss] -> {String.to_integer(hh), String.to_integer(mm), String.to_integer(ss)}
+        [hh, mm] -> {String.to_integer(hh), String.to_integer(mm), 0}
+        _ -> {0, 0, 0}
+      end
+
+    h = case ampm do
+      :am -> if h == 12, do: 0, else: h
+      :pm -> if h == 12, do: 12, else: h + 12
+      nil -> h
     end
+
+    {h, m, sec, if(tz_part == "", do: nil, else: parse_tz_offset(tz_part))}
   end
 
   defp parse_tz_offset(""), do: 0
