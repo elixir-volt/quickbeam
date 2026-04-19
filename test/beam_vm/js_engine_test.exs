@@ -1,8 +1,6 @@
 defmodule QuickBEAM.JSEngineTest do
   use ExUnit.Case, async: true
 
-  @assert_js_path Path.join(__DIR__, "assert.js")
-
   @stubs_js """
   if (typeof gc === 'undefined') { var gc = function() {}; }
   if (typeof os === 'undefined') { var os = { platform: 'elixir' }; }
@@ -13,7 +11,8 @@ defmodule QuickBEAM.JSEngineTest do
     test_exception_source_pos test_function_source_pos test_exception_prepare_stack
     test_exception_stack_size_limit test_exception_capture_stack_trace
     test_exception_capture_stack_trace_filter test_cur_pc test_finalization_registry
-    test_rope test_proxy_iter test_proxy_is_array test_eval test_eval2 test_array test_weak_map test_weak_set
+    test_rope test_proxy_iter test_proxy_is_array test_eval test_eval2 test_weak_map test_weak_set
+    test_array
   )
 
   @skip_language ~w(
@@ -23,8 +22,10 @@ defmodule QuickBEAM.JSEngineTest do
   setup do
     QuickBEAM.BeamVM.Heap.reset()
     {:ok, rt} = QuickBEAM.start()
-    assert_js = @assert_js_path |> File.read!() |> String.replace("export ", "")
+
+    assert_js = strip_exports(File.read!("test/beam_vm/assert.js"))
     QuickBEAM.eval(rt, assert_js)
+
     %{rt: rt}
   end
 
@@ -33,9 +34,8 @@ defmodule QuickBEAM.JSEngineTest do
   for file <- ["test_builtin.js", "test_language.js"] do
     source = File.read!(Path.join(@js_dir, file))
     skip_list = if file == "test_builtin.js", do: @skip_builtin, else: @skip_language
-    cleaned = String.replace(source, ~r/^import .*\n/m, "")
 
-    {:ok, ast} = OXC.parse(cleaned, file)
+    {:ok, ast} = OXC.parse(source, file)
 
     fns = Enum.filter(ast.body, &(&1.type == :function_declaration))
 
@@ -49,11 +49,11 @@ defmodule QuickBEAM.JSEngineTest do
 
     helpers =
       helper_fns
-      |> Enum.map(&binary_part(cleaned, &1.start, &1[:end] - &1.start))
+      |> Enum.map(&binary_part(source, &1.start, &1[:end] - &1.start))
       |> Enum.join("\n")
 
     for %{id: %{name: func_name}} = func <- test_fns do
-      func_body = binary_part(cleaned, func.start, func[:end] - func.start)
+      func_body = binary_part(source, func.start, func[:end] - func.start)
 
       @tag :js_engine
       test "#{file}: #{func_name}", %{rt: rt} do
@@ -69,5 +69,19 @@ defmodule QuickBEAM.JSEngineTest do
         end
       end
     end
+  end
+
+  defp strip_exports(source) do
+    {:ok, ast} = OXC.parse(source, "module.js")
+
+    ast.body
+    |> Enum.map(fn
+      %{type: :export_named_declaration, declaration: decl} ->
+        binary_part(source, decl.start, decl[:end] - decl.start)
+
+      node ->
+        binary_part(source, node.start, node[:end] - node.start)
+    end)
+    |> Enum.join("\n")
   end
 end
