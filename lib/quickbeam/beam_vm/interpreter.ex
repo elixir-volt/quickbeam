@@ -653,6 +653,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
            }}
         )
 
+    Closures.write_captured_local(
+      elem(frame, Frame.l2v()),
+      idx,
+      val,
+      elem(frame, Frame.locals()),
+      elem(frame, Frame.var_refs())
+    )
+
     run(advance(put_local(frame, idx, val)), rest, gas - 1, ctx)
   end
 
@@ -695,8 +703,21 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(advance(frame), [val | rest], gas - 1, ctx)
   end
 
-  defp run({:close_loc, [_idx]}, frame, stack, gas, ctx),
-    do: run(advance(frame), stack, gas - 1, ctx)
+  defp run({:close_loc, [idx]}, frame, stack, gas, ctx) do
+    case Map.get(elem(frame, Frame.l2v()), idx) do
+      nil ->
+        run(advance(frame), stack, gas - 1, ctx)
+
+      vref_idx ->
+        vrefs = elem(frame, Frame.var_refs())
+        old_cell = elem(vrefs, vref_idx)
+        val = Closures.read_cell(old_cell)
+        new_ref = make_ref()
+        Heap.put_cell(new_ref, val)
+        frame = put_elem(frame, Frame.var_refs(), put_elem(vrefs, vref_idx, {:cell, new_ref}))
+        run(advance(frame), stack, gas - 1, ctx)
+    end
+  end
 
   # ── Control flow ──
 
@@ -850,12 +871,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({op, [idx]}, frame, stack, gas, ctx) when op in [:fclosure, :fclosure8] do
     fun = Scope.resolve_const(elem(frame, Frame.constants()), idx)
+    vrefs = elem(frame, Frame.var_refs())
 
     closure =
       build_closure(
         fun,
         elem(frame, Frame.locals()),
-        elem(frame, Frame.var_refs()),
+        vrefs,
         elem(frame, Frame.l2v()),
         ctx
       )
@@ -2194,33 +2216,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp build_closure(%Bytecode.Function{} = fun, locals, vrefs, l2v, %Context{arg_buf: arg_buf}) do
     captured =
       for cv <- fun.closure_vars do
-        cell =
-          case Map.get(l2v, cv.var_idx) do
-            nil ->
-              val =
-                cond do
-                  cv.var_idx < tuple_size(arg_buf) -> elem(arg_buf, cv.var_idx)
-                  cv.var_idx < tuple_size(locals) -> elem(locals, cv.var_idx)
-                  true -> :undefined
-                end
-
-              ref = make_ref()
-              Heap.put_cell(ref, val)
-              {:cell, ref}
-
-            vref_idx ->
-              case elem(vrefs, vref_idx) do
-                {:cell, _} = existing ->
-                  existing
-
-                _ ->
-                  val = elem(locals, cv.var_idx)
-                  ref = make_ref()
-                  Heap.put_cell(ref, val)
-                  {:cell, ref}
-              end
-          end
-
+        cell = capture_var(cv, locals, vrefs, l2v, arg_buf)
         {cv.var_idx, cell}
       end
 
@@ -2228,6 +2224,44 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp build_closure(other, _locals, _vrefs, _l2v, _ctx), do: other
+
+  defp capture_var(%{closure_type: 2, var_idx: idx}, _locals, vrefs, _l2v, _arg_buf)
+       when idx < tuple_size(vrefs) do
+    case elem(vrefs, idx) do
+      {:cell, _} = existing -> existing
+      val ->
+        ref = make_ref()
+        Heap.put_cell(ref, val)
+        {:cell, ref}
+    end
+  end
+
+  defp capture_var(cv, locals, vrefs, l2v, arg_buf) do
+    case Map.get(l2v, cv.var_idx) do
+      nil ->
+        val =
+          cond do
+            cv.var_idx < tuple_size(arg_buf) -> elem(arg_buf, cv.var_idx)
+            cv.var_idx < tuple_size(locals) -> elem(locals, cv.var_idx)
+            true -> :undefined
+          end
+
+        ref = make_ref()
+        Heap.put_cell(ref, val)
+        {:cell, ref}
+
+      vref_idx ->
+        case elem(vrefs, vref_idx) do
+          {:cell, _} = existing -> existing
+          _ ->
+            val = elem(locals, cv.var_idx)
+            ref = make_ref()
+            Heap.put_cell(ref, val)
+            {:cell, ref}
+        end
+    end
+  end
+
 
   defp ctor_var_refs(%Bytecode.Function{} = f, captured \\ %{}) do
     cell_ref = make_ref()

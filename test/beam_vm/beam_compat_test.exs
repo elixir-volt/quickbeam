@@ -710,7 +710,6 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
       )
     end
 
-    @tag :pending_beam
     test "closure over let loop variable", %{rt: rt} do
       ok(
         rt,
@@ -1181,7 +1180,6 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
       )
     end
 
-    @tag :pending_beam
     test "flatten array manually", %{rt: rt} do
       ok(
         rt,
