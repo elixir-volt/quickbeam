@@ -8,6 +8,44 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   alias QuickBEAM.BeamVM.Runtime
   alias QuickBEAM.BeamVM.Interpreter.Values
 
+  def build_prototype do
+    ref = make_ref()
+
+    Heap.put_obj(ref, %{
+      "toString" => {:builtin, "toString", fn _, _ -> "[object Object]" end},
+      "valueOf" => {:builtin, "valueOf", fn _, this -> this end},
+      "hasOwnProperty" =>
+        {:builtin, "hasOwnProperty",
+         fn [key | _], this ->
+           case this do
+             {:obj, r} ->
+               data = Heap.get_obj(r, %{})
+               is_map(data) and Map.has_key?(data, key)
+
+             _ ->
+               false
+           end
+         end},
+      "isPrototypeOf" => {:builtin, "isPrototypeOf", fn _, _ -> false end},
+      "propertyIsEnumerable" =>
+        {:builtin, "propertyIsEnumerable",
+         fn [key | _], this ->
+           case this do
+             {:obj, r} ->
+               desc = Heap.get_prop_desc(r, key)
+               not match?(%{enumerable: false}, desc)
+
+             _ ->
+               false
+           end
+         end}
+    })
+
+    proto = {:obj, ref}
+    Heap.put_object_prototype(proto)
+    proto
+  end
+
   static "keys" do
     keys(args)
   end

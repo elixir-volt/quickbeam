@@ -1,19 +1,143 @@
 defmodule QuickBEAM.BeamVM.Runtime.Globals do
-  @moduledoc false
+  @moduledoc "JS global scope: constructors, global functions, and the binding map."
+
+  import QuickBEAM.BeamVM.Heap.Keys
+
+  alias QuickBEAM.BeamVM.{Bytecode, Heap}
+  alias QuickBEAM.BeamVM.Interpreter
+
+  alias QuickBEAM.BeamVM.Runtime
+  alias QuickBEAM.BeamVM.Runtime.{Boolean, Console, JSON, MapSet, Math, Object, Promise, Reflect, Symbol, TypedArray}
+  alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
+
+  @error_types ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError)
+
+  def build do
+    obj_proto = ensure_object_prototype()
+    obj_ctor = register("Object", &object_constructor/2, prototype: obj_proto)
+
+    bindings()
+    |> Map.put("Object", obj_ctor)
+    |> Map.merge(typed_arrays())
+    |> Map.merge(error_types())
+    |> tap(&Heap.put_global_cache/1)
+  end
+
+  # ── Binding map ──
+
+  defp bindings do
+    %{
+      "Array"      => register("Array", &array_constructor/2),
+      "String"     => register("String", &string_constructor/2),
+      "Number"     => register("Number", &number_constructor/2),
+      "BigInt"     => register("BigInt", &bigint_constructor/2),
+      "Boolean"    => register("Boolean", Boolean.constructor()),
+      "Function"   => register("Function", &function_constructor/2),
+      "RegExp"     => register("RegExp", &regexp_constructor/2),
+      "Date"       => register("Date", &JSDate.constructor/2, module: JSDate),
+      "Promise"    => register("Promise", Promise.constructor(), module: Promise),
+      "Symbol"     => register("Symbol", Symbol.constructor(), module: Symbol),
+      "Map"        => register("Map", MapSet.map_constructor()),
+      "Set"        => register("Set", MapSet.set_constructor()),
+      "WeakMap"    => register("WeakMap", MapSet.map_constructor()),
+      "WeakSet"    => register("WeakSet", MapSet.set_constructor()),
+      "WeakRef"    => register("WeakRef", fn _, _ -> Runtime.new_object() end),
+      "DataView"   => register("DataView", fn _, _ -> Runtime.new_object() end),
+      "ArrayBuffer" => register("ArrayBuffer", &TypedArray.array_buffer_constructor/1),
+      "Proxy"      => register("Proxy", &proxy_constructor/2),
+      "Math"       => Math.object(),
+      "JSON"       => JSON.object(),
+      "Reflect"    => Reflect.object(),
+      "console"    => Console.object(),
+      "parseInt"   => builtin("parseInt", &parse_int/2),
+      "parseFloat" => builtin("parseFloat", &parse_float/2),
+      "isNaN"      => builtin("isNaN", &is_nan/2),
+      "isFinite"   => builtin("isFinite", &is_finite/2),
+      "eval"       => builtin("eval", &js_eval/2),
+      "require"    => builtin("require", &js_require/2),
+      "structuredClone" => builtin("structuredClone", fn [val | _], _ -> val end),
+      "queueMicrotask"  => builtin("queueMicrotask", &queue_microtask/2),
+      "gc"         => builtin("gc", fn _, _ -> :undefined end),
+      "globalThis" => Runtime.new_object(),
+      "NaN"        => :nan,
+      "Infinity"   => :infinity,
+      "undefined"  => :undefined
+    }
+  end
+
+  # ── Constructors ──
+
+  defp object_constructor(_, _), do: Runtime.new_object()
+
+  defp array_constructor(args, _) do
+    list =
+      case args do
+        [n] when is_integer(n) and n >= 0 -> List.duplicate(:undefined, n)
+        _ -> args
+      end
+
+    Heap.wrap(list)
+  end
+
+  defp string_constructor(args, _), do: Runtime.stringify(List.first(args, ""))
+  defp number_constructor(args, _), do: Runtime.to_number(List.first(args, 0))
+
+  defp function_constructor(_, _) do
+    throw({:js_throw, Heap.make_error("Function constructor not supported in BEAM mode", "Error")})
+  end
+
+  defp bigint_constructor([n | _], _) when is_integer(n), do: {:bigint, n}
+  defp bigint_constructor([{:bigint, n} | _], _), do: {:bigint, n}
+
+  defp bigint_constructor([s | _], _) when is_binary(s) do
+    case Integer.parse(s) do
+      {n, ""} -> {:bigint, n}
+      _ -> throw({:js_throw, Heap.make_error("Cannot convert to BigInt", "SyntaxError")})
+    end
+  end
+
+  defp bigint_constructor(_, _) do
+    throw({:js_throw, Heap.make_error("Cannot convert to BigInt", "TypeError")})
+  end
+
+  defp regexp_constructor([pattern | rest], _) do
+    flags = case rest do
+      [f | _] when is_binary(f) -> f
+      _ -> ""
+    end
+
+    pat = case pattern do
+      {:regexp, p, _} -> p
+      s when is_binary(s) -> s
+      _ -> ""
+    end
+
+    {:regexp, pat, flags}
+  end
+
+  defp error_constructor(args, _) do
+    msg = List.first(args, "")
+    Heap.wrap(%{"message" => Runtime.stringify(msg), "stack" => ""})
+  end
+
+  defp proxy_constructor([target, handler | _], _) do
+    Heap.wrap(%{proxy_target() => target, proxy_handler() => handler})
+  end
+
+  defp proxy_constructor(_, _), do: Runtime.new_object()
 
   # ── Global functions ──
 
-  def parse_int([s, radix | _]) when is_binary(s) and is_number(radix) do
-    r = trunc(radix)
+  defp parse_int([s, radix | _], _) when is_binary(s) and is_number(radix) do
     s = String.trim_leading(s)
 
-    case Integer.parse(s, r) do
+    case Integer.parse(s, trunc(radix)) do
       {n, _} -> n
       :error -> :nan
     end
   end
 
-  def parse_int([s | _]) when is_binary(s) do
+  defp parse_int([s | _], _) when is_binary(s) do
     s = String.trim_leading(s)
 
     cond do
@@ -31,35 +155,134 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
     end
   end
 
-  def parse_int([n | _]) when is_number(n), do: trunc(n)
-  def parse_int(_), do: :nan
+  defp parse_int([n | _], _) when is_number(n), do: trunc(n)
+  defp parse_int(_, _), do: :nan
 
-  def parse_float([s | _]) when is_binary(s) do
+  defp parse_float([s | _], _) when is_binary(s) do
     case Float.parse(String.trim(s)) do
-      {f, ""} -> f
       {f, _} -> f
       :error -> :nan
     end
   end
 
-  def parse_float([n | _]) when is_number(n), do: n * 1.0
-  def parse_float(_), do: :nan
+  defp parse_float([n | _], _) when is_number(n), do: n * 1.0
+  defp parse_float(_, _), do: :nan
 
-  def is_nan([:nan | _]), do: true
-  def is_nan([n | _]) when is_number(n), do: false
+  defp is_nan([:nan | _], _), do: true
+  defp is_nan([n | _], _) when is_number(n), do: false
 
-  def is_nan([s | _]) when is_binary(s) do
+  defp is_nan([s | _], _) when is_binary(s) do
     case Float.parse(s) do
       :error -> true
       _ -> false
     end
   end
 
-  def is_nan(_), do: true
+  defp is_nan(_, _), do: true
 
-  def is_finite([n | _])
-      when is_number(n) and n != :infinity and n != :neg_infinity and n != :nan,
-      do: true
+  defp is_finite([n | _], _) when is_number(n), do: true
+  defp is_finite([:infinity | _], _), do: false
+  defp is_finite([:neg_infinity | _], _), do: false
+  defp is_finite(_, _), do: false
 
-  def is_finite(_), do: false
+  defp js_eval([code | _], _) do
+    ctx = Heap.get_ctx()
+
+    if is_binary(code) and ctx && ctx.runtime_pid do
+      case QuickBEAM.Runtime.compile(ctx.runtime_pid, code) do
+        {:ok, bc} ->
+          case Bytecode.decode(bc) do
+            {:ok, parsed} ->
+              case Interpreter.eval(parsed.value, [], %{gas: 1_000_000_000, runtime_pid: ctx.runtime_pid}, parsed.atoms) do
+                {:ok, val} -> val
+                _ -> :undefined
+              end
+
+            _ -> :undefined
+          end
+
+        _ -> :undefined
+      end
+    else
+      :undefined
+    end
+  end
+
+  defp js_require([name | _], _) do
+    case Heap.get_module(name) do
+      nil -> throw({:js_throw, Heap.make_error("Cannot find module '#{name}'", "Error")})
+      exports -> exports
+    end
+  end
+
+  defp queue_microtask([cb | _], _) do
+    Heap.enqueue_microtask({:resolve, nil, cb, :undefined})
+    :undefined
+  end
+
+  # ── Public API (called by Number.parseInt/parseFloat statics) ──
+
+  def parse_int(args), do: parse_int(args, nil)
+  def parse_float(args), do: parse_float(args, nil)
+  def is_nan(args), do: is_nan(args, nil)
+  def is_finite(args), do: is_finite(args, nil)
+
+  # ── Registration helpers ──
+
+  defp builtin(name, fun), do: {:builtin, name, fun}
+
+  defp register(name, constructor, opts \\ []) do
+    ctor = {:builtin, name, constructor}
+
+    case Keyword.get(opts, :module) do
+      nil -> :ok
+      mod -> Heap.put_ctor_static(ctor, :__module__, mod)
+    end
+
+    case Keyword.get(opts, :prototype) do
+      nil ->
+        :ok
+
+      proto ->
+        Heap.put_class_proto(ctor, proto)
+        Heap.put_ctor_static(ctor, "prototype", proto)
+    end
+
+    ctor
+  end
+
+  defp ensure_object_prototype do
+    case Heap.get_object_prototype() do
+      nil -> Object.build_prototype()
+      existing -> existing
+    end
+  end
+
+  defp typed_arrays do
+    for {name, type} <- [
+          {"Uint8Array", :uint8},
+          {"Int8Array", :int8},
+          {"Uint8ClampedArray", :uint8_clamped},
+          {"Uint16Array", :uint16},
+          {"Int16Array", :int16},
+          {"Uint32Array", :uint32},
+          {"Int32Array", :int32},
+          {"Float32Array", :float32},
+          {"Float64Array", :float64}
+        ],
+        into: %{} do
+      {name, register(name, TypedArray.typed_array_constructor(type))}
+    end
+  end
+
+  defp error_types do
+    for name <- @error_types, into: %{} do
+      proto_ref = make_ref()
+      ctor = {:builtin, name, &error_constructor/2}
+      Heap.put_obj(proto_ref, %{"name" => name, "message" => "", "constructor" => ctor})
+      Heap.put_class_proto(ctor, {:obj, proto_ref})
+      Heap.put_ctor_static(ctor, "prototype", {:obj, proto_ref})
+      {name, ctor}
+    end
+  end
 end
