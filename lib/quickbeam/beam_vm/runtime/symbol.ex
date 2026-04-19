@@ -46,7 +46,6 @@ defmodule QuickBEAM.BeamVM.Runtime.Symbol do
   static "keyFor" do
     case hd(args) do
       {:symbol, key} -> key
-      {:symbol, key, _ref} -> key
       _ -> :undefined
     end
   end

@@ -551,6 +551,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   end
 
   defp abstract_eq({:obj, ref1}, {:obj, ref2}), do: ref1 === ref2
+  defp abstract_eq({:symbol, _, ref1}, {:symbol, _, ref2}), do: ref1 === ref2
   defp abstract_eq(_, _), do: false
 
   defp to_primitive({:obj, ref} = obj) do
