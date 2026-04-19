@@ -521,7 +521,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
     end
   end
 
-  defp to_primitive(val), do: val
+  defp to_primitive(val), do: val # catch-all for non-object values
 
   defp try_call_method(map, obj, method) do
     case Map.get(map, method) do

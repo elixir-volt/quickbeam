@@ -358,10 +358,6 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   defp get_own_property(list, "length") when is_list(list), do: length(list)
 
-  defp get_own_property(list, key) when is_list(list) and is_integer(key) do
-    if key >= 0 and key < length(list), do: Enum.at(list, key), else: :undefined
-  end
-
   defp get_own_property(list, key) when is_list(list) and is_binary(key) do
     case Integer.parse(key) do
       {idx, ""} when idx >= 0 -> Enum.at(list, idx, :undefined)
@@ -401,7 +397,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     {:builtin, "from",
      fn [source | _], _this ->
        list = Heap.to_list(source)
-       TypedArray.typed_array_constructor(type).(list)
+       TypedArray.typed_array_constructor(type).(list, nil)
      end}
   end
 

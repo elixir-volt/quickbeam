@@ -187,7 +187,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     throw_or_catch(frame, error, gas, ctx)
   end
 
-  @compile {:inline, unwrap_promise: 2}
   defp unwrap_promise(val, depth \\ 0)
 
   defp unwrap_promise({:obj, ref}, depth) when depth < 10 do
@@ -290,7 +289,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             case result do
               {:ok, val} -> val
               {:error, {:js_throw, val}} -> throw({:js_throw, val})
-              {:error, _} -> :undefined
+              _ -> :undefined
             end
 
           _ ->

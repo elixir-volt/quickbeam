@@ -206,22 +206,22 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
   end
 
   defp do_set_difference(set_ref, other) do
-    set_constructor().([set_data(set_ref) -- other_set_data(other)])
+    set_constructor().([set_data(set_ref) -- other_set_data(other)], nil)
   end
 
   defp do_set_intersection(set_ref, other) do
     od = other_set_data(other)
-    set_constructor().([Enum.filter(set_data(set_ref), &(&1 in od))])
+    set_constructor().([Enum.filter(set_data(set_ref), &(&1 in od))], nil)
   end
 
   defp do_set_union(set_ref, other) do
-    set_constructor().([Enum.uniq(set_data(set_ref) ++ other_set_data(other))])
+    set_constructor().([Enum.uniq(set_data(set_ref) ++ other_set_data(other))], nil)
   end
 
   defp do_set_symmetric_difference(set_ref, other) do
     d = set_data(set_ref)
     od = other_set_data(other)
-    set_constructor().([(d -- od) ++ (od -- d)])
+    set_constructor().([(d -- od) ++ (od -- d)], nil)
   end
 
   defp do_set_is_subset(set_ref, other) do

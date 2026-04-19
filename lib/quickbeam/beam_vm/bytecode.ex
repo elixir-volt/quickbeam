@@ -29,6 +29,7 @@ defmodule QuickBEAM.BeamVM.Bytecode do
 
   defmodule Function do
     @moduledoc false
+    @type t :: %__MODULE__{}
     defstruct [
       :name,
       arg_count: 0,
@@ -79,13 +80,13 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   def decode(data) when is_binary(data) do
     with {:ok, version, rest} <- LEB128.read_u8(data),
          :ok <- validate_version(version),
-         <<_checksum::little-unsigned-32, rest2::binary>> <- rest || {:error, :no_checksum},
+         <<_checksum::little-unsigned-32, rest2::binary>> <- rest,
          {:ok, atoms, rest3} <- read_atoms(rest2),
          {:ok, value, _rest4} <- read_object(rest3, atoms) do
       {:ok, %__MODULE__{version: version, atoms: atoms, value: value}}
     else
       {:error, _} = err -> err
-      false -> {:error, :unexpected_end}
+      _ -> {:error, :unexpected_end}
     end
   end
 
