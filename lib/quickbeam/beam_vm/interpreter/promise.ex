@@ -3,6 +3,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
   @moduledoc false
 
   alias QuickBEAM.BeamVM.Heap
+  alias QuickBEAM.BeamVM.Interpreter
 
   def resolved(val) do
     promise_ref = make_ref()
@@ -121,7 +122,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Promise do
       {:resolve, child_ref, callback, val} ->
         result =
           try do
-            QuickBEAM.BeamVM.Interpreter.invoke_callback(callback, [val])
+            Interpreter.invoke_callback(callback, [val])
           catch
             {:js_throw, err} -> {:rejected, err}
           end

@@ -3,6 +3,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Scope do
             resolve_const: 2, resolve_atom: 2, resolve_global: 2, set_global: 3, get_arg_value: 2}
   alias QuickBEAM.BeamVM.PredefinedAtoms
   alias QuickBEAM.BeamVM.Interpreter.Context
+  alias QuickBEAM.BeamVM.Heap
 
   @js_atom_end 229
 
@@ -10,7 +11,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Scope do
     case elem(cpool, idx) do
       {:array, list} when is_list(list) ->
         ref = make_ref()
-        QuickBEAM.BeamVM.Heap.put_obj(ref, list)
+        Heap.put_obj(ref, list)
         {:obj, ref}
 
       other ->

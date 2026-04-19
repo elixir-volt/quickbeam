@@ -4,6 +4,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
   use QuickBEAM.BeamVM.Builtin
 
   alias QuickBEAM.BeamVM.Runtime
+  alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Runtime.RegExp
 
   # ── Dispatch ──
@@ -370,19 +371,19 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
           end)
 
         ref = make_ref()
-        QuickBEAM.BeamVM.Heap.put_obj(ref, results)
+        Heap.put_obj(ref, results)
         {:obj, ref}
 
       _ ->
         ref = make_ref()
-        QuickBEAM.BeamVM.Heap.put_obj(ref, [])
+        Heap.put_obj(ref, [])
         {:obj, ref}
     end
   end
 
   defp match_all(_, _) do
     ref = make_ref()
-    QuickBEAM.BeamVM.Heap.put_obj(ref, [])
+    Heap.put_obj(ref, [])
     {:obj, ref}
   end
 
@@ -401,13 +402,13 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
     map =
       case strings do
-        {:obj, ref} -> QuickBEAM.BeamVM.Heap.get_obj(ref, %{})
+        {:obj, ref} -> Heap.get_obj(ref, %{})
         _ -> %{}
       end
 
     raw_map =
       case Map.get(map, "raw") do
-        {:obj, rref} -> QuickBEAM.BeamVM.Heap.get_obj(rref, %{})
+        {:obj, rref} -> Heap.get_obj(rref, %{})
         _ -> map
       end
 

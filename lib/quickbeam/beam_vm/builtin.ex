@@ -143,19 +143,43 @@ defmodule QuickBEAM.BeamVM.Builtin do
 
   # ── Runtime dispatch ──
 
+  alias QuickBEAM.BeamVM.{Heap, Bytecode}
+
   def call({:builtin, _, cb}, args, this), do: cb.(args, this)
+  alias QuickBEAM.BeamVM.{Heap, Bytecode}
+
   def call({:bound, _, inner}, args, this), do: call(inner, args, this)
+  alias QuickBEAM.BeamVM.{Heap, Bytecode}
+
   def call(f, args, _this) when is_function(f, 2), do: f.(args, nil)
+  alias QuickBEAM.BeamVM.{Heap, Bytecode}
+
   def call(f, args, _this) when is_function(f, 1), do: f.(args)
+  alias QuickBEAM.BeamVM.{Heap, Bytecode}
+
   def call(f, args, _this) when is_function(f), do: apply(f, args)
 
-  def call(_, _, _),
-    do: throw({:js_throw, QuickBEAM.BeamVM.Heap.make_error("not a function", "TypeError")})
+  alias QuickBEAM.BeamVM.{Heap, Bytecode}
 
-  def callable?(%QuickBEAM.BeamVM.Bytecode.Function{}), do: true
-  def callable?({:closure, _, %QuickBEAM.BeamVM.Bytecode.Function{}}), do: true
+  def call(_, _, _),
+    do: throw({:js_throw, Heap.make_error("not a function", "TypeError")})
+
+  alias QuickBEAM.BeamVM.{Heap, Bytecode}
+
+  def callable?(%Bytecode.Function{}), do: true
+  alias QuickBEAM.BeamVM.{Heap, Bytecode}
+
+  def callable?({:closure, _, %Bytecode.Function{}}), do: true
+  alias QuickBEAM.BeamVM.{Heap, Bytecode}
+
   def callable?({:builtin, _, _}), do: true
+  alias QuickBEAM.BeamVM.{Heap, Bytecode}
+
   def callable?({:bound, _, _}), do: true
+  alias QuickBEAM.BeamVM.{Heap, Bytecode}
+
   def callable?(f) when is_function(f), do: true
+  alias QuickBEAM.BeamVM.{Heap, Bytecode}
+
   def callable?(_), do: false
 end

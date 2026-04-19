@@ -2,6 +2,7 @@ defmodule QuickBEAM.BeamVM.Runtime.RegExp do
   @moduledoc false
 
   use QuickBEAM.BeamVM.Builtin
+  alias QuickBEAM.BeamVM.Runtime
 
   alias QuickBEAM.BeamVM.Heap
 
@@ -87,7 +88,7 @@ defmodule QuickBEAM.BeamVM.Runtime.RegExp do
   defp exec(_, _), do: nil
 
   defp regexp_to_string({:regexp, bytecode, source}) do
-    flags = QuickBEAM.BeamVM.Runtime.regexp_flags(bytecode)
+    flags = Runtime.regexp_flags(bytecode)
     "/#{source}/#{flags}"
   end
 

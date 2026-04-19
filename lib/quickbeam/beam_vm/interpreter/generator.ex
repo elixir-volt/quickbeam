@@ -3,12 +3,13 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
 
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Interpreter.Promise
+  alias QuickBEAM.BeamVM.Interpreter
 
   def invoke(frame, gas, ctx) do
     gen_ref = make_ref()
 
     try do
-      QuickBEAM.BeamVM.Interpreter.run_frame(frame, [], gas, ctx)
+      Interpreter.run_frame(frame, [], gas, ctx)
     catch
       {:generator_yield_star, _val, suspended_frame, suspended_stack, suspended_gas,
        suspended_ctx} ->
@@ -62,7 +63,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
     gen_ref = make_ref()
 
     try do
-      QuickBEAM.BeamVM.Interpreter.run_frame(frame, [], gas, ctx)
+      Interpreter.run_frame(frame, [], gas, ctx)
     catch
       {:generator_yield, _val, sf, ss, sg, sc} ->
         Heap.put_obj(gen_ref, %{state: :suspended, frame: sf, stack: ss, gas: sg, ctx: sc})
@@ -94,7 +95,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
         Heap.put_ctx(ctx)
 
         try do
-          result = QuickBEAM.BeamVM.Interpreter.run_frame(frame, [false, arg | stack], gas, ctx)
+          result = Interpreter.run_frame(frame, [false, arg | stack], gas, ctx)
           Heap.put_obj(gen_ref, %{state: :completed})
           Promise.resolved(done_result(result))
         catch
@@ -120,7 +121,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
 
   def invoke_async(frame, gas, ctx) do
     try do
-      result = QuickBEAM.BeamVM.Interpreter.run_frame(frame, [], gas, ctx)
+      result = Interpreter.run_frame(frame, [], gas, ctx)
       Promise.resolved(result)
     catch
       {:generator_return, val} -> Promise.resolved(val)
@@ -135,7 +136,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
 
         try do
           # QuickJS yield protocol: [is_return_or_throw, value | saved_stack]
-          result = QuickBEAM.BeamVM.Interpreter.run_frame(frame, [false, arg | stack], gas, ctx)
+          result = Interpreter.run_frame(frame, [false, arg | stack], gas, ctx)
           Heap.put_obj(gen_ref, %{state: :completed})
           done_result(result)
         catch

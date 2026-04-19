@@ -1,13 +1,15 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   import QuickBEAM.BeamVM.Heap.Keys
   @compile {:inline, has_property: 2, get_element: 2, set_list_at: 3}
-  alias QuickBEAM.BeamVM.{Heap, Bytecode}
+  alias QuickBEAM.BeamVM.{Heap, Bytecode, Runtime}
+  alias QuickBEAM.BeamVM.Interpreter
+  alias QuickBEAM.BeamVM.Interpreter.Values
 
   def put({:obj, ref} = _obj, "length", val) do
     data = Heap.get_obj(ref)
 
     if is_list(data) do
-      new_len = QuickBEAM.BeamVM.Runtime.to_int(val)
+      new_len = Runtime.to_int(val)
       truncated = Enum.take(data, max(0, new_len))
 
       padded =
@@ -28,11 +30,11 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
         proxy_target() => target,
         proxy_handler() => handler
       } ->
-        set_trap = QuickBEAM.BeamVM.Runtime.get_property(handler, "set")
+        set_trap = Runtime.get_property(handler, "set")
 
         if set_trap != :undefined do
           # Proxy set trap return value ignored (non-strict mode behavior)
-          QuickBEAM.BeamVM.Runtime.call_callback(set_trap, [target, key, val], :no_interp)
+          Runtime.call_callback(set_trap, [target, key, val], :no_interp)
         else
           put(target, key, val)
         end
@@ -68,7 +70,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   defp normalize_key(k) when is_float(k) and k == trunc(k) and k >= 0,
     do: Integer.to_string(trunc(k))
 
-  defp normalize_key(k) when is_float(k), do: QuickBEAM.BeamVM.Interpreter.Values.stringify(k)
+  defp normalize_key(k) when is_float(k), do: Values.stringify(k)
   defp normalize_key(k), do: k
 
   def put_getter({:obj, ref}, key, fun) do
@@ -100,7 +102,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   def put_setter(target, key, fun), do: Heap.put_ctor_static(target, key, {:accessor, nil, fun})
 
   defp invoke_setter(fun, val, this_obj) do
-    QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [val], 10_000_000, this_obj)
+    Interpreter.invoke_with_receiver(fun, [val], 10_000_000, this_obj)
   end
 
   def has_property({:obj, ref}, key) do
@@ -111,10 +113,10 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
         proxy_target() => target,
         proxy_handler() => handler
       } ->
-        has_trap = QuickBEAM.BeamVM.Runtime.get_property(handler, "has")
+        has_trap = Runtime.get_property(handler, "has")
 
         if has_trap != :undefined do
-          QuickBEAM.BeamVM.Runtime.call_callback(has_trap, [target, key], :no_interp)
+          Runtime.call_callback(has_trap, [target, key], :no_interp)
         else
           has_property(target, key)
         end
@@ -137,7 +139,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   def get_element({:obj, ref} = obj, idx) do
     case Heap.get_obj(ref) do
       %{typed_array() => true} when is_integer(idx) ->
-        QuickBEAM.BeamVM.Runtime.TypedArray.get_element(obj, idx)
+        Runtime.TypedArray.get_element(obj, idx)
 
       list when is_list(list) and is_integer(idx) ->
         Enum.at(list, idx, :undefined)
@@ -164,7 +166,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   def put_element({:obj, ref} = obj, key, val) do
     case Heap.get_obj(ref) do
       %{typed_array() => true} when is_integer(key) ->
-        QuickBEAM.BeamVM.Runtime.TypedArray.set_element(obj, key, val)
+        Runtime.TypedArray.set_element(obj, key, val)
 
       list when is_list(list) ->
         case key do

@@ -4,6 +4,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
   use QuickBEAM.BeamVM.Builtin
 
   alias QuickBEAM.BeamVM.Runtime
+  alias QuickBEAM.BeamVM.Interpreter.Values
 
   # ── Number.prototype ──
 
@@ -64,7 +65,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
 
     cond do
       r == 10 ->
-        QuickBEAM.BeamVM.Interpreter.Values.stringify(n * 1.0)
+        Values.stringify(n * 1.0)
 
       r >= 2 and r <= 36 and n == trunc(n) ->
         Integer.to_string(trunc(n), r) |> String.downcase()
@@ -164,7 +165,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
           exp = :math.floor(:math.log10(abs(f)))
           rounded = Float.round(f / :math.pow(10, exp - p + 1)) * :math.pow(10, exp - p + 1)
 
-          QuickBEAM.BeamVM.Interpreter.Values.stringify(
+          Values.stringify(
             if sign == "-", do: -rounded, else: rounded
           )
         end

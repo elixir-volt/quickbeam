@@ -4,6 +4,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Math do
   use QuickBEAM.BeamVM.Builtin
 
   alias QuickBEAM.BeamVM.Runtime
+  alias QuickBEAM.BeamVM.Interpreter.Values
+  alias QuickBEAM.BeamVM.Heap
 
   js_object "Math" do
     method "floor" do
@@ -89,7 +91,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Math do
     end
 
     method "clz32" do
-      n = QuickBEAM.BeamVM.Interpreter.Values.to_uint32(hd(args))
+      n = Values.to_uint32(hd(args))
       if n == 0, do: 32, else: 31 - trunc(:math.log2(n))
     end
 
@@ -102,9 +104,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Math do
     method "imul" do
       [a, b | _] = args
 
-      QuickBEAM.BeamVM.Interpreter.Values.to_int32(
-        QuickBEAM.BeamVM.Interpreter.Values.to_int32(a) *
-          QuickBEAM.BeamVM.Interpreter.Values.to_int32(b)
+      Values.to_int32(
+        Values.to_int32(a) *
+          Values.to_int32(b)
       )
     end
 
@@ -171,7 +173,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Math do
       list =
         case hd(args) do
           {:obj, ref} ->
-            data = QuickBEAM.BeamVM.Heap.get_obj(ref, [])
+            data = Heap.get_obj(ref, [])
             if is_list(data), do: data, else: []
 
           l when is_list(l) ->

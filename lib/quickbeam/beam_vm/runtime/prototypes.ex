@@ -5,6 +5,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Prototypes do
 
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.{Bytecode, Runtime}
+  alias QuickBEAM.BeamVM.{Builtin, Interpreter}
 
   defp normalize_map_key(k) when is_float(k) and k == trunc(k), do: trunc(k)
   defp normalize_map_key(k), do: k
@@ -241,14 +242,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Prototypes do
 
   defp invoke_fun(fun, args, this_arg) do
     case fun do
-      %QuickBEAM.BeamVM.Bytecode.Function{} ->
-        QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, args, 10_000_000, this_arg)
+      %Bytecode.Function{} ->
+        Interpreter.invoke_with_receiver(fun, args, 10_000_000, this_arg)
 
-      {:closure, _, %QuickBEAM.BeamVM.Bytecode.Function{}} ->
-        QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, args, 10_000_000, this_arg)
+      {:closure, _, %Bytecode.Function{}} ->
+        Interpreter.invoke_with_receiver(fun, args, 10_000_000, this_arg)
 
       other ->
-        QuickBEAM.BeamVM.Builtin.call(other, args, this_arg)
+        Builtin.call(other, args, this_arg)
     end
   end
 end

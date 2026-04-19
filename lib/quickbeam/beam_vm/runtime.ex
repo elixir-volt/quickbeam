@@ -40,6 +40,8 @@ defmodule QuickBEAM.BeamVM.Runtime do
   }
 
   alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
+  alias QuickBEAM.BeamVM.Interpreter.Values
+  alias QuickBEAM.BeamVM.{Builtin, Interpreter}
 
   # ── Global bindings ──
 
@@ -197,7 +199,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
                  {:ok, bc} ->
                    case Bytecode.decode(bc) do
                      {:ok, parsed} ->
-                       case QuickBEAM.BeamVM.Interpreter.eval(
+                       case Interpreter.eval(
                               parsed.value,
                               [],
                               %{gas: 1_000_000_000, runtime_pid: ctx.runtime_pid},
@@ -399,7 +401,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
     {:builtin, "from",
      fn [source | _], _this ->
        list = Heap.to_list(source)
-       QuickBEAM.BeamVM.Runtime.TypedArray.typed_array_constructor(type).(list)
+       TypedArray.typed_array_constructor(type).(list)
      end}
   end
 
@@ -462,7 +464,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   def regexp_flags(_), do: ""
 
   def invoke_getter(fun, this_obj) do
-    QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(fun, [], 10_000_000, this_obj)
+    Interpreter.invoke_with_receiver(fun, [], 10_000_000, this_obj)
   end
 
   defp get_prototype_property({:obj, ref}, key) do
@@ -531,14 +533,14 @@ defmodule QuickBEAM.BeamVM.Runtime do
   def call_callback(fun, args, _interp) do
     case fun do
       %Bytecode.Function{} = f ->
-        QuickBEAM.BeamVM.Interpreter.invoke(f, args, 10_000_000)
+        Interpreter.invoke(f, args, 10_000_000)
 
       {:closure, _, %Bytecode.Function{}} = c ->
-        QuickBEAM.BeamVM.Interpreter.invoke(c, args, 10_000_000)
+        Interpreter.invoke(c, args, 10_000_000)
 
       other ->
         try do
-          QuickBEAM.BeamVM.Builtin.call(other, args, nil)
+          Builtin.call(other, args, nil)
         catch
           {:js_throw, _} -> :undefined
         end
@@ -560,7 +562,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   def strict_equal?(a, b), do: a === b
 
-  def stringify(val), do: QuickBEAM.BeamVM.Interpreter.Values.stringify(val)
+  def stringify(val), do: Values.stringify(val)
 
   def to_int(n) when is_integer(n), do: n
   def to_int(n) when is_float(n), do: trunc(n)
@@ -571,7 +573,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   def to_float(_), do: 0.0
 
   def to_number({:bigint, n}), do: n
-  def to_number(val), do: QuickBEAM.BeamVM.Interpreter.Values.to_number(val)
+  def to_number(val), do: Values.to_number(val)
 
   def normalize_index(idx, len) when idx < 0, do: max(len + idx, 0)
   def normalize_index(idx, len), do: min(idx, len)
