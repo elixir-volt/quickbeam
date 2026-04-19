@@ -2219,7 +2219,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
     ctor_closure =
       case ctor do
-        %Bytecode.Function{} = f -> build_closure(f, locals, vrefs, l2v, ctx)
+        %Bytecode.Function{} = f ->
+          base = build_closure(f, locals, vrefs, l2v, ctx)
+          inherit_parent_vrefs(base, vrefs)
         already_closure -> already_closure
       end
 
@@ -2497,6 +2499,20 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp build_closure(other, _locals, _vrefs, _l2v, _ctx), do: other
+
+  defp inherit_parent_vrefs({:closure, captured, %Bytecode.Function{} = f}, parent_vrefs)
+       when is_tuple(parent_vrefs) do
+    extra =
+      for i <- 0..(tuple_size(parent_vrefs) - 1),
+          not Map.has_key?(captured, i),
+          into: %{} do
+        {i, elem(parent_vrefs, i)}
+      end
+
+    {:closure, Map.merge(extra, captured), f}
+  end
+
+  defp inherit_parent_vrefs(closure, _), do: closure
 
   defp capture_var(%{closure_type: 2, var_idx: idx}, _locals, vrefs, _l2v, _arg_buf)
        when idx < tuple_size(vrefs) do
