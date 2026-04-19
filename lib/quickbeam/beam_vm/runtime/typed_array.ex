@@ -92,13 +92,20 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
   # ── Method implementations ──
 
-  defp set(ref, [source | _]) do
+  defp set(ref, args) do
+    {source, offset} =
+      case args do
+        [s, o | _] when is_number(o) -> {s, trunc(o)}
+        [s | _] -> {s, 0}
+        _ -> {nil, 0}
+      end
+
     src_list = Heap.to_list(source)
     t = type(ref)
 
     new_buf =
       src_list
-      |> Enum.with_index()
+      |> Enum.with_index(offset)
       |> Enum.reduce(buf(ref), fn {v, i}, acc -> write_element(acc, i, v, t) end)
 
     Heap.put_obj(ref, Map.put(state(ref), buffer(), new_buf))
@@ -237,9 +244,33 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     new_len = max(0, e - s)
     es = elem_size(t)
     new_buf = if new_len > 0, do: binary_part(buf(ref), s * es, new_len * es), else: <<>>
-    elements = for i <- 0..(new_len - 1), do: read_element(new_buf, i, t)
-    constructor(t).([elements], nil)
+
+    species_ctor = get_species_ctor({:obj, ref})
+
+    if species_ctor do
+      Runtime.call_callback(species_ctor, [new_len])
+    else
+      elements = for i <- 0..(new_len - 1), do: read_element(new_buf, i, t)
+      constructor(t).([elements], nil)
+    end
   end
+
+  defp get_species_ctor({:obj, ref}) do
+    map = Heap.get_obj(ref, %{})
+    ctor = Map.get(map, "constructor")
+
+    case ctor do
+      {:obj, ctor_ref} ->
+        ctor_map = Heap.get_obj(ctor_ref, %{})
+        species = Map.get(ctor_map, {:symbol, "Symbol.species"})
+        if species != nil, do: species, else: nil
+
+      _ ->
+        nil
+    end
+  end
+
+  defp get_species_ctor(_), do: nil
 
   defp fill(ref, [val | _]) do
     {l, t} = {len(ref), type(ref)}
