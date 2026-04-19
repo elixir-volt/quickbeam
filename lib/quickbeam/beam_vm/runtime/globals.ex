@@ -388,8 +388,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   end
 
   defp typed_arrays do
+    ta_base = {:builtin, "TypedArray", fn _args, _this ->
+      throw({:js_throw, Heap.make_error("Abstract class TypedArray cannot be called", "TypeError")})
+    end}
+
+    ta_base_ref = make_ref()
+    Heap.put_obj(ta_base_ref, %{"__proto__" => nil})
+    Heap.put_ctor_static(ta_base, "prototype", {:obj, ta_base_ref})
+
     for {name, type} <- TypedArray.types(), into: %{} do
-      {name, register(name, TypedArray.constructor(type))}
+      ctor = register(name, TypedArray.constructor(type))
+      Heap.put_ctor_static(ctor, "__proto__", ta_base)
+      {name, ctor}
     end
   end
 

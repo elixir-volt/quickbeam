@@ -111,8 +111,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
       [val | _] when is_list(val) ->
         Heap.get_class_proto(Runtime.global_bindings()["Array"])
 
-      [{:builtin, _, _} | _] -> func_proto()
-      [{:closure, _, _} | _] -> func_proto()
+      [{:builtin, _, _} = b | _] ->
+        case Map.get(Heap.get_ctor_statics(b), "__proto__") do
+          nil -> func_proto()
+          parent -> parent
+        end
+
+      [{:closure, _, _} = c | _] ->
+        case Map.get(Heap.get_ctor_statics(c), "__proto__") do
+          nil -> func_proto()
+          parent -> parent
+        end
+
       [%Bytecode.Function{} | _] -> func_proto()
       [val | _] when is_function(val) -> func_proto()
 
