@@ -1906,6 +1906,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
        ) do
     val =
       case type do
+        0 ->
+          args_list = Tuple.to_list(arg_buf)
+          Heap.wrap(args_list)
+
         1 ->
           args_list = Tuple.to_list(arg_buf)
           Heap.wrap(args_list)
