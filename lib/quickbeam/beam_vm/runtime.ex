@@ -45,6 +45,13 @@ defmodule QuickBEAM.BeamVM.Runtime do
   defp register_builtin(name, constructor, opts) do
     builtin = {:builtin, name, constructor}
 
+    # Register module for static_property dispatch
+    case Keyword.get(opts, :module) do
+      nil -> :ok
+      mod -> Heap.put_ctor_static(builtin, :__module__, mod)
+    end
+
+    # Legacy: direct statics stored in PD (being phased out)
     for {k, v} <- Keyword.get(opts, :statics, []) do
       Heap.put_ctor_static(builtin, k, v)
     end
@@ -158,11 +165,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
           ),
         "Math" => Math.object(),
         "JSON" => JSON.object(),
-        "Date" => register_builtin("Date", &JSDate.constructor/2, statics: JSDate.statics()),
-        "Promise" =>
-          register_builtin("Promise", Promise.constructor(), statics: Promise.statics()),
+        "Date" => register_builtin("Date", &JSDate.constructor/2, module: JSDate),
+        "Promise" => register_builtin("Promise", Promise.constructor(), module: Promise),
         "RegExp" => {:builtin, "RegExp", Builtins.regexp_constructor()},
-        "Symbol" => register_builtin("Symbol", Symbol.constructor(), statics: Symbol.statics()),
+        "Symbol" => register_builtin("Symbol", Symbol.constructor(), module: Symbol),
         "parseInt" => {:builtin, "parseInt", fn args, _this -> Globals.parse_int(args) end},
         "parseFloat" => {:builtin, "parseFloat", fn args, _this -> Globals.parse_float(args) end},
         "isNaN" => {:builtin, "isNaN", fn args, _this -> Globals.is_nan(args) end},
@@ -459,7 +465,18 @@ defmodule QuickBEAM.BeamVM.Runtime do
   end
 
   defp get_own_property({:builtin, _, _} = b, key) do
-    Map.get(Heap.get_ctor_statics(b), key, :undefined)
+    statics = Heap.get_ctor_statics(b)
+
+    case Map.get(statics, :__module__) do
+      nil ->
+        Map.get(statics, key, :undefined)
+
+      mod ->
+        case mod.static_property(key) do
+          :undefined -> Map.get(statics, key, :undefined)
+          val -> val
+        end
+    end
   end
 
   defp get_own_property({:regexp, bytecode, _source}, "flags"), do: extract_regexp_flags(bytecode)

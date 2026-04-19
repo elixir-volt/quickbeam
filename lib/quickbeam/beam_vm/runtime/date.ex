@@ -28,20 +28,16 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
     Heap.wrap(%{date_ms() => ms})
   end
 
-  def statics do
-    build_statics do
-      method "now" do
-        System.system_time(:millisecond)
-      end
+  static "now" do
+    System.system_time(:millisecond)
+  end
 
-      method "parse" do
-        parse_date_string(to_string(hd(args)))
-      end
+  static "parse" do
+    parse_date_string(to_string(hd(args)))
+  end
 
-      method "UTC" do
-        compute_utc(args)
-      end
-    end
+  static "UTC" do
+    compute_utc(args)
   end
 
   defp compute_utc(args) do

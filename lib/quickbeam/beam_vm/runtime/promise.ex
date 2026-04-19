@@ -14,35 +14,31 @@ defmodule QuickBEAM.BeamVM.Runtime.Promise do
     fn _args, _this -> Heap.wrap(%{}) end
   end
 
-  def statics do
-    build_methods do
-      method "resolve" do
-        case args do
-          [val | _] -> PromiseInterp.resolved(val)
-          [] -> PromiseInterp.resolved(:undefined)
-        end
-      end
-
-      method "reject" do
-        PromiseInterp.rejected(List.first(args, :undefined))
-      end
-
-      method "all" do
-        promise_all(hd(args))
-      end
-
-      method "allSettled" do
-        promise_all_settled(hd(args))
-      end
-
-      method "any" do
-        promise_any(hd(args))
-      end
-
-      method "race" do
-        promise_race(hd(args))
-      end
+  static "resolve" do
+    case args do
+      [val | _] -> PromiseInterp.resolved(val)
+      [] -> PromiseInterp.resolved(:undefined)
     end
+  end
+
+  static "reject" do
+    PromiseInterp.rejected(List.first(args, :undefined))
+  end
+
+  static "all" do
+    promise_all(hd(args))
+  end
+
+  static "allSettled" do
+    promise_all_settled(hd(args))
+  end
+
+  static "any" do
+    promise_any(hd(args))
+  end
+
+  static "race" do
+    promise_race(hd(args))
   end
 
   defp promise_all(arr) do

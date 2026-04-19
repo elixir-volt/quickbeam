@@ -17,31 +17,21 @@ defmodule QuickBEAM.BeamVM.Runtime.Symbol do
     end
   end
 
-  def statics do
-    build_methods do
-      val("iterator", {:symbol, "Symbol.iterator"})
-      val("toPrimitive", {:symbol, "Symbol.toPrimitive"})
-      val("hasInstance", {:symbol, "Symbol.hasInstance"})
-      val("toStringTag", {:symbol, "Symbol.toStringTag"})
-      val("asyncIterator", {:symbol, "Symbol.asyncIterator"})
-      val("isConcatSpreadable", {:symbol, "Symbol.isConcatSpreadable"})
-      val("species", {:symbol, "Symbol.species"})
-      val("match", {:symbol, "Symbol.match"})
-      val("replace", {:symbol, "Symbol.replace"})
-      val("search", {:symbol, "Symbol.search"})
-      val("split", {:symbol, "Symbol.split"})
+  static_val("iterator", {:symbol, "Symbol.iterator"})
+  static_val("toPrimitive", {:symbol, "Symbol.toPrimitive"})
+  static_val("hasInstance", {:symbol, "Symbol.hasInstance"})
+  static_val("toStringTag", {:symbol, "Symbol.toStringTag"})
+  static_val("asyncIterator", {:symbol, "Symbol.asyncIterator"})
+  static_val("isConcatSpreadable", {:symbol, "Symbol.isConcatSpreadable"})
+  static_val("species", {:symbol, "Symbol.species"})
+  static_val("match", {:symbol, "Symbol.match"})
+  static_val("replace", {:symbol, "Symbol.replace"})
+  static_val("search", {:symbol, "Symbol.search"})
+  static_val("split", {:symbol, "Symbol.split"})
 
-      method "for" do
-        do_symbol_for(hd(args))
-      end
+  static "for" do
+    key = hd(args)
 
-      method "keyFor" do
-        do_symbol_key_for(hd(args))
-      end
-    end
-  end
-
-  defp do_symbol_for(key) do
     case Heap.get_symbol(key) do
       nil ->
         sym = {:symbol, key}
@@ -53,8 +43,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Symbol do
     end
   end
 
-  defp do_symbol_key_for(sym) do
-    case sym do
+  static "keyFor" do
+    case hd(args) do
       {:symbol, key} -> key
       {:symbol, key, _ref} -> key
       _ -> :undefined
