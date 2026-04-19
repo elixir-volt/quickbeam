@@ -5,6 +5,9 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
   use QuickBEAM.BeamVM.Builtin
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Runtime
+  alias QuickBEAM.BeamVM.Runtime.Property
+  alias QuickBEAM.BeamVM.Interpreter
+  alias QuickBEAM.BeamVM.Bytecode
 
   # ── Map/Set ──
 
@@ -258,25 +261,111 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
 
   defp other_set_data(other) do
     case other do
-      {:obj, r} -> Map.get(Heap.get_obj(r, %{}), set_data(), [])
-      _ -> []
+      {:obj, r} ->
+        map = Heap.get_obj(r, %{})
+
+        case Map.get(map, set_data()) do
+          items when is_list(items) ->
+            items
+
+          _ ->
+            keys_fn = Property.get(other, "keys")
+            iterate_setlike(keys_fn, other)
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  defp other_set_size(other) do
+    case other do
+      {:obj, _} -> Property.get(other, "size")
+      _ -> 0
+    end
+  end
+
+  defp validate_set_like!(other) do
+    size = other_set_size(other)
+
+    cond do
+      size == :nan or size == :NaN ->
+        throw({:js_throw, Heap.make_error("can't convert to number: .size is NaN", "TypeError")})
+
+      is_number(size) and size < 0 ->
+        throw({:js_throw, Heap.make_error("invalid .size: must be non-negative", "RangeError")})
+
+      size == :neg_infinity ->
+        throw({:js_throw, Heap.make_error("invalid .size: must be non-negative", "RangeError")})
+
+      true ->
+        :ok
+    end
+  end
+
+  defp other_set_has(other, val) do
+    has_fn = Property.get(other, "has")
+
+    case has_fn do
+      {:builtin, _, f} when is_function(f) -> f.([val], other) == true
+      f -> Runtime.call_callback(f, [val]) == true
+    end
+  end
+
+  defp iterate_setlike(keys_fn, _other) when keys_fn in [:undefined, nil], do: []
+
+  defp iterate_setlike(keys_fn, other) do
+    iterator = call_with_this(keys_fn, [], other)
+    collect_iterator(iterator, [])
+  end
+
+  defp collect_iterator(iterator, acc) do
+    next_fn = Property.get(iterator, "next")
+    result = call_with_this(next_fn, [], iterator)
+
+    done = Property.get(result, "done")
+    if done == true do
+      Enum.reverse(acc)
+    else
+      value = Property.get(result, "value")
+      collect_iterator(iterator, [value | acc])
+    end
+  end
+
+  defp call_with_this(fun, args, this) do
+    case fun do
+      {:builtin, _, f} when is_function(f) ->
+        f.(args, this)
+
+      %Bytecode.Function{} = f ->
+        Interpreter.invoke_with_receiver(f, args, Runtime.gas_budget(), this)
+
+      {:closure, _, %Bytecode.Function{}} = c ->
+        Interpreter.invoke_with_receiver(c, args, Runtime.gas_budget(), this)
+
+      _ ->
+        Runtime.call_callback(fun, args)
     end
   end
 
   defp do_set_difference(set_ref, other) do
+    validate_set_like!(other)
     set_constructor().([set_data(set_ref) -- other_set_data(other)], nil)
   end
 
   defp do_set_intersection(set_ref, other) do
+    validate_set_like!(other)
     od = other_set_data(other)
     set_constructor().([Enum.filter(set_data(set_ref), &(&1 in od))], nil)
   end
 
   defp do_set_union(set_ref, other) do
+    validate_set_like!(other)
     set_constructor().([Enum.uniq(set_data(set_ref) ++ other_set_data(other))], nil)
   end
 
   defp do_set_symmetric_difference(set_ref, other) do
+    validate_set_like!(other)
     d = set_data(set_ref)
     od = other_set_data(other)
     set_constructor().([(d -- od) ++ (od -- d)], nil)
@@ -289,12 +378,77 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
 
   defp do_set_is_superset(set_ref, other) do
     d = set_data(set_ref)
-    Enum.all?(other_set_data(other), &(&1 in d))
+    other_size = other_set_size(other)
+
+    if is_number(other_size) and length(d) >= other_size do
+      keys_fn = Property.get(other, "keys")
+      iterator = call_with_this(keys_fn, [], other)
+      iterate_check_all(iterator, d, other)
+    else
+      false
+    end
   end
 
   defp do_set_is_disjoint(set_ref, other) do
-    od = other_set_data(other)
-    not Enum.any?(set_data(set_ref), &(&1 in od))
+    d = set_data(set_ref)
+    other_size = other_set_size(other)
+
+    if is_number(other_size) and length(d) > other_size do
+      keys_fn = Property.get(other, "keys")
+      iterator = call_with_this(keys_fn, [], other)
+      iterate_check_none(iterator, d, other)
+    else
+      od = other_set_data(other)
+      not Enum.any?(d, fn v -> other_set_has(other, v) end)
+    end
+  end
+
+  defp iterate_check_all(iterator, set_data, _other) do
+    next_fn = Property.get(iterator, "next")
+    do_iterate_check(iterator, next_fn, set_data, :all)
+  end
+
+  defp iterate_check_none(iterator, set_data, _other) do
+    next_fn = Property.get(iterator, "next")
+    do_iterate_check(iterator, next_fn, set_data, :none)
+  end
+
+  defp do_iterate_check(iterator, next_fn, set_data, mode) do
+    result = call_with_this(next_fn, [], iterator)
+    done = Property.get(result, "done")
+
+    if done == true do
+      true
+    else
+      value = Property.get(result, "value")
+      in_set = value in set_data
+
+      case mode do
+        :all ->
+          if in_set do
+            do_iterate_check(iterator, next_fn, set_data, mode)
+          else
+            call_iterator_return(iterator)
+            false
+          end
+
+        :none ->
+          if not in_set do
+            do_iterate_check(iterator, next_fn, set_data, mode)
+          else
+            call_iterator_return(iterator)
+            false
+          end
+      end
+    end
+  end
+
+  defp call_iterator_return(iterator) do
+    return_fn = Property.get(iterator, "return")
+
+    if return_fn != :undefined and return_fn != nil do
+      call_with_this(return_fn, [], iterator)
+    end
   end
 
   # ── Map prototype (property resolution) ──
