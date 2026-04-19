@@ -1029,6 +1029,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         {:closure, _, %Bytecode.Function{} = f} ->
           f.defined_arg_count
 
+        {:bound, len, _} ->
+          len
+
         _ ->
           :undefined
       end

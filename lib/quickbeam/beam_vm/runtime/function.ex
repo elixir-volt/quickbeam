@@ -31,7 +31,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Function do
 
   def proto_property({:bound, len, _}, "length"), do: len
   def proto_property(_fun, "length"), do: 0
-  def proto_property({:bound, _, _}, "name"), do: "bound "
+  def proto_property({:bound, _, {:builtin, name, _}}, "name"), do: name
   def proto_property(_fun, "name"), do: ""
   def proto_property(_fun, _), do: :undefined
 
@@ -68,9 +68,17 @@ defmodule QuickBEAM.BeamVM.Runtime.Function do
         _ -> 0
       end
 
+    orig_name =
+      case fun do
+        %Bytecode.Function{name: n} when is_binary(n) -> n
+        {:closure, _, %Bytecode.Function{name: n}} when is_binary(n) -> n
+        {:builtin, n, _} -> n
+        _ -> ""
+      end
+
     bound_len = max(0, orig_len - length(bound_args))
     bound_fn = fn args, _this2 -> invoke_fun(fun, bound_args ++ args, this_arg) end
-    {:bound, bound_len, {:builtin, "bound", bound_fn}}
+    {:bound, bound_len, {:builtin, "bound " <> orig_name, bound_fn}}
   end
 
   defp invoke_fun(fun, args, this_arg) do
