@@ -42,11 +42,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
   end
 
   static "parseInt" do
-    QuickBEAM.BeamVM.Runtime.Globals.parse_int(args)
+    Runtime.Globals.parse_int(args)
   end
 
   static "parseFloat" do
-    QuickBEAM.BeamVM.Runtime.Globals.parse_float(args)
+    Runtime.Globals.parse_float(args)
   end
 
   static_val("NaN", :nan)

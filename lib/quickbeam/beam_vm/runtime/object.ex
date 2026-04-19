@@ -354,7 +354,4 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   end
 
   defp get_own_property_descriptor(_), do: :undefined
-
-  defp js_is(:nan, :nan), do: true
-  defp js_is(a, b), do: a === b
 end

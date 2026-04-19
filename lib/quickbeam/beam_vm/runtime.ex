@@ -252,12 +252,12 @@ defmodule QuickBEAM.BeamVM.Runtime do
         "eval" =>
           {:builtin, "eval",
            fn [code | _], _this ->
-             ctx = QuickBEAM.BeamVM.Heap.get_ctx()
+             ctx = Heap.get_ctx()
 
              if (is_binary(code) and ctx) && ctx.runtime_pid do
                case QuickBEAM.Runtime.compile(ctx.runtime_pid, code) do
                  {:ok, bc} ->
-                   case QuickBEAM.BeamVM.Bytecode.decode(bc) do
+                   case Bytecode.decode(bc) do
                      {:ok, parsed} ->
                        case QuickBEAM.BeamVM.Interpreter.eval(
                               parsed.value,
@@ -591,10 +591,10 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   def call_builtin_callback(fun, args, _interp) do
     case fun do
-      %QuickBEAM.BeamVM.Bytecode.Function{} = f ->
+      %Bytecode.Function{} = f ->
         QuickBEAM.BeamVM.Interpreter.invoke(f, args, 10_000_000)
 
-      {:closure, _, %QuickBEAM.BeamVM.Bytecode.Function{}} = c ->
+      {:closure, _, %Bytecode.Function{}} = c ->
         QuickBEAM.BeamVM.Interpreter.invoke(c, args, 10_000_000)
 
       other ->

@@ -133,7 +133,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
   end
 
   def proto_property("constructor") do
-    QuickBEAM.BeamVM.Runtime.global_bindings() |> Map.get("Array", :undefined)
+    Runtime.global_bindings() |> Map.get("Array", :undefined)
   end
 
   # ── Array static dispatch ──

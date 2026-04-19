@@ -20,19 +20,12 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
       to_js(:json.decode(s))
     rescue
       ArgumentError ->
-        throw(
-          {:js_throw,
-           QuickBEAM.BeamVM.Heap.make_error("Unexpected end of JSON input", "SyntaxError")}
-        )
+        throw({:js_throw, Heap.make_error("Unexpected end of JSON input", "SyntaxError")})
     end
   end
 
   defp parse(_),
-    do:
-      throw(
-        {:js_throw,
-         QuickBEAM.BeamVM.Heap.make_error("Unexpected end of JSON input", "SyntaxError")}
-      )
+    do: throw({:js_throw, Heap.make_error("Unexpected end of JSON input", "SyntaxError")})
 
   defp to_js(nil), do: nil
   defp to_js(:null), do: nil
