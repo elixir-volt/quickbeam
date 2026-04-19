@@ -1714,14 +1714,21 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({:eval, [argc | _]}, frame, stack, gas, ctx) do
-    {args, rest} = Enum.split(stack, argc)
-    code = List.first(Enum.reverse(args), :undefined)
+    {args, rest} = Enum.split(stack, argc + 1)
+    eval_ref = List.last(args)
+    call_args = Enum.take(args, argc) |> Enum.reverse()
+    code = List.first(call_args, :undefined)
 
     catch_js_throw(frame, rest, gas, ctx, fn ->
-      if is_binary(code) and ctx.runtime_pid != nil do
-        eval_code(code, frame, gas, ctx)
-      else
-        :undefined
+      cond do
+        eval_ref == ctx.globals["eval"] and is_binary(code) and ctx.runtime_pid != nil ->
+          eval_code(code, frame, gas, ctx)
+
+        is_function(eval_ref) or match?({:fn, _, _}, eval_ref) or match?({:bound, _, _}, eval_ref) ->
+          dispatch_call(eval_ref, call_args, gas, ctx, :undefined)
+
+        true ->
+          :undefined
       end
     end)
   end
