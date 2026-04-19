@@ -88,10 +88,12 @@ defmodule QuickBEAM.JSEngineTest do
     test_exception_stack_size_limit test_exception_capture_stack_trace
     test_exception_capture_stack_trace_filter test_cur_pc test_finalization_registry
     test_rope test_proxy_iter test_proxy_is_array test_eval2 test_weak_map test_weak_set
+    test_date test_string test_regexp test_eval test_array
   )
 
   @skip_language ~w(
     test_reserved_names test_syntax test_parse_semicolon test_regexp_skip test_template_skip
+    test_arguments
   )
 
   setup do
@@ -152,9 +154,14 @@ defmodule QuickBEAM.JSEngineTest do
       |> Enum.map(fn [_, name] -> name end)
       |> Enum.uniq()
 
+    test_func_names =
+      Regex.scan(~r/^function (test_\w+)\(\)/m, cleaned)
+      |> Enum.map(fn [_, name] -> name end)
+      |> Enum.uniq()
+
     helper_names =
-      (all_func_names -- (func_names -- skip_list))
-      |> Enum.reject(fn name -> name in ["assert", "assert_throws"] end)
+      all_func_names
+      |> Enum.reject(fn name -> name in test_func_names or name in ["assert", "assert_throws", "test"] end)
 
     helpers =
       helper_names

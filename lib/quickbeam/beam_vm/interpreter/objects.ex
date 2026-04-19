@@ -14,14 +14,23 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
 
     if is_list(data) do
       new_len = Runtime.to_int(val)
-      truncated = Enum.take(data, max(0, new_len))
+      old_len = length(data)
 
-      padded =
-        if new_len > length(truncated),
-          do: truncated ++ List.duplicate(:undefined, new_len - length(truncated)),
-          else: truncated
+      if new_len < old_len do
+        non_configurable =
+          Enum.any?(new_len..(old_len - 1), fn i ->
+            match?(%{configurable: false}, Heap.get_prop_desc(ref, Integer.to_string(i)))
+          end)
 
-      Heap.put_obj(ref, padded)
+        if non_configurable do
+          throw({:js_throw, Heap.make_error("Cannot delete property", "TypeError")})
+        end
+
+        Heap.put_obj(ref, Enum.take(data, new_len))
+      else
+        padded = data ++ List.duplicate(:undefined, new_len - old_len)
+        Heap.put_obj(ref, padded)
+      end
     end
   end
 
