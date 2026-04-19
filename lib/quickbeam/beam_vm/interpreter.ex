@@ -1320,18 +1320,18 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       result =
         case ctor do
           %Bytecode.Function{} = f ->
-            do_invoke(f, rev_args, ctor_var_refs(f), gas, ctor_ctx)
+            do_invoke(f, {:closure, %{}, f}, rev_args, ctor_var_refs(f), gas, ctor_ctx)
 
           {:closure, captured, %Bytecode.Function{} = f} ->
-            do_invoke(f, rev_args, ctor_var_refs(f, captured), gas, ctor_ctx)
+            do_invoke(f, {:closure, captured, f}, rev_args, ctor_var_refs(f, captured), gas, ctor_ctx)
 
           {:bound, _, _, orig_fun, bound_args} ->
             all_args = bound_args ++ rev_args
             case orig_fun do
               %Bytecode.Function{} = f ->
-                do_invoke(f, all_args, ctor_var_refs(f), gas, ctor_ctx)
+                do_invoke(f, {:closure, %{}, f}, all_args, ctor_var_refs(f), gas, ctor_ctx)
               {:closure, captured, %Bytecode.Function{} = f} ->
-                do_invoke(f, all_args, ctor_var_refs(f, captured), gas, ctor_ctx)
+                do_invoke(f, {:closure, captured, f}, all_args, ctor_var_refs(f, captured), gas, ctor_ctx)
               {:builtin, _, cb} when is_function(cb, 2) ->
                 cb.(all_args, this_obj)
               _ ->
@@ -1423,10 +1423,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           ctx.this
 
         %Bytecode.Function{} = f ->
-          do_invoke(f, args, ctor_var_refs(f), gas, ctx)
+          do_invoke(f, {:closure, %{}, f}, args, ctor_var_refs(f), gas, ctx)
 
         {:closure, captured, %Bytecode.Function{} = f} ->
-          do_invoke(f, args, ctor_var_refs(f, captured), gas, ctx)
+          do_invoke(f, {:closure, captured, f}, args, ctor_var_refs(f, captured), gas, ctx)
 
         {:builtin, _name, cb} when is_function(cb, 2) ->
           cb.(args, nil)
@@ -1931,6 +1931,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             _ ->
               :undefined
           end
+
+        5 ->
+          Heap.wrap(%{})
+
+        6 ->
+          Heap.wrap(%{})
+
+        7 ->
+          Heap.wrap(%{"__proto__" => nil})
 
         _ ->
           :undefined
@@ -2501,20 +2510,19 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp invoke_function(%Bytecode.Function{} = fun, args, gas, ctx) do
-    do_invoke(fun, args, [], gas, ctx)
+    do_invoke(fun, {:closure, %{}, fun}, args, [], gas, ctx)
   end
 
-  defp invoke_closure({:closure, captured, %Bytecode.Function{} = fun}, args, gas, ctx) do
+  defp invoke_closure({:closure, captured, %Bytecode.Function{} = fun} = self, args, gas, ctx) do
     var_refs =
       for cv <- fun.closure_vars do
         Map.get(captured, cv.var_idx, :undefined)
       end
 
-    do_invoke(fun, args, var_refs, gas, ctx)
+    do_invoke(fun, self, args, var_refs, gas, ctx)
   end
 
-  defp do_invoke(%Bytecode.Function{} = fun, args, var_refs, gas, ctx) do
-    self_ref = {:closure, %{}, fun}
+  defp do_invoke(%Bytecode.Function{} = fun, self_ref, args, var_refs, gas, ctx) do
 
     insns =
       case Heap.get_decoded(fun.byte_code) do
