@@ -94,6 +94,17 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     {:ok, put_capture_cell(state, idx, bound), bound}
   end
 
+  def close_capture_cell(state, idx) do
+    {bound, state} =
+      bind(
+        state,
+        capture_name(idx, state.temp),
+        compiler_call(:close_capture_cell, [capture_cell_expr(state, idx), slot_expr(state, idx)])
+      )
+
+    {:ok, put_capture_cell(state, idx, bound)}
+  end
+
   def duplicate_top(state) do
     with {:ok, expr, state} <- pop(state) do
       {bound, state} = bind(state, temp_name(state.temp), expr)
@@ -231,11 +242,10 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   def define_method_call(state, atom_idx, flags) do
     with {:ok, method, state} <- pop(state),
          {:ok, target, state} <- pop(state) do
-      {:ok,
-       push(
-         state,
-         compiler_call(:define_method, [target, method, literal(atom_idx), literal(flags)])
-       )}
+      effectful_push(
+        state,
+        compiler_call(:define_method, [target, method, literal(atom_idx), literal(flags)])
+      )
     end
   end
 
@@ -243,7 +253,17 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     with {:ok, method, state} <- pop(state),
          {:ok, field_name, state} <- pop(state),
          {:ok, target, state} <- pop(state) do
-      {:ok, push(state, compiler_call(:define_method_computed, [target, method, field_name]))}
+      effectful_push(state, compiler_call(:define_method_computed, [target, method, field_name]))
+    end
+  end
+
+  def define_class_call(state) do
+    with {:ok, ctor, state} <- pop(state),
+         {:ok, parent_ctor, state} <- pop(state) do
+      {pair, state} =
+        bind(state, temp_name(state.temp), compiler_call(:define_class, [ctor, parent_ctor]))
+
+      {:ok, %{state | stack: [tuple_element(pair, 1), tuple_element(pair, 2) | state.stack]}}
     end
   end
 

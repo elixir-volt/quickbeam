@@ -62,6 +62,8 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   def push_atom_value(atom_idx), do: atom_name(atom_idx)
 
+  def private_symbol(atom_idx), do: {:private_symbol, atom_name(atom_idx), make_ref()}
+
   def new_object do
     object_proto = Heap.get_object_prototype()
     init = if object_proto, do: %{proto() => object_proto}, else: %{}
@@ -71,6 +73,61 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   def array_from(list), do: Heap.wrap(list)
 
   def get_field(obj, atom_idx), do: Property.get(obj, atom_name(atom_idx))
+
+  def push_this do
+    case Heap.get_ctx() do
+      %{this: this}
+      when this == :uninitialized or
+             (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized) ->
+        throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
+
+      %{this: this} ->
+        this
+
+      _ ->
+        :undefined
+    end
+  end
+
+  def special_object(type) do
+    ctx = Heap.get_ctx() || %{}
+    current_func = Map.get(ctx, :current_func)
+    arg_buf = Map.get(ctx, :arg_buf, {})
+
+    case type do
+      0 -> Heap.wrap(Tuple.to_list(arg_buf))
+      1 -> Heap.wrap(Tuple.to_list(arg_buf))
+      2 -> current_func
+      3 -> Map.get(ctx, :new_target, :undefined)
+      4 -> Process.get({:qb_home_object, home_object_key(current_func)}, :undefined)
+      5 -> Heap.wrap(%{})
+      6 -> Heap.wrap(%{})
+      7 -> Heap.wrap(%{"__proto__" => nil})
+      _ -> :undefined
+    end
+  end
+
+  def get_super(func) do
+    case func do
+      {:obj, ref} ->
+        case Heap.get_obj(ref, %{}) do
+          map when is_map(map) -> Map.get(map, proto(), :undefined)
+          _ -> :undefined
+        end
+
+      {:closure, _, %Bytecode.Function{} = fun} ->
+        Heap.get_parent_ctor(fun) || :undefined
+
+      %Bytecode.Function{} = fun ->
+        Heap.get_parent_ctor(fun) || :undefined
+
+      {:builtin, _, _} = builtin ->
+        Map.get(Heap.get_ctor_statics(builtin), "__proto__", :undefined)
+
+      _ ->
+        :undefined
+    end
+  end
 
   def get_array_el2(obj, idx), do: {Property.get(obj, idx), obj}
 
@@ -332,12 +389,57 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     {:cell, ref}
   end
 
+  def close_capture_cell({:cell, ref}, val) do
+    current = Heap.get_cell(ref)
+    next_val = if current == :undefined, do: val, else: current
+    new_ref = make_ref()
+    Heap.put_cell(new_ref, next_val)
+    {:cell, new_ref}
+  end
+
+  def close_capture_cell(_cell, val) do
+    ref = make_ref()
+    Heap.put_cell(ref, val)
+    {:cell, ref}
+  end
+
   def sync_capture_cell({:cell, ref}, val) do
     Heap.put_cell(ref, val)
     :ok
   end
 
   def sync_capture_cell(_, _), do: :ok
+
+  def define_class(ctor, parent_ctor) do
+    ctor_closure =
+      case ctor do
+        %Bytecode.Function{} = fun -> {:closure, %{}, fun}
+        other -> other
+      end
+
+    raw =
+      case ctor_closure do
+        {:closure, _, %Bytecode.Function{} = fun} -> fun
+        %Bytecode.Function{} = fun -> fun
+        other -> other
+      end
+
+    proto_ref = make_ref()
+    proto_map = %{"constructor" => ctor_closure}
+    parent_proto = Heap.get_class_proto(parent_ctor)
+    proto_map = if parent_proto, do: Map.put(proto_map, proto(), parent_proto), else: proto_map
+
+    Heap.put_obj(proto_ref, proto_map)
+    proto = {:obj, proto_ref}
+    Heap.put_class_proto(raw, proto)
+    Heap.put_ctor_static(ctor_closure, "prototype", proto)
+
+    if parent_ctor != :undefined do
+      Heap.put_parent_ctor(raw, parent_ctor)
+    end
+
+    {proto, ctor_closure}
+  end
 
   def invoke_runtime(fun, args) do
     case fun do
@@ -671,8 +773,12 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   defp constructor_prototype(nil), do: nil
 
-  defp constructor_prototype(target),
-    do: normalize_constructor_prototype(Property.get(target, "prototype"))
+  defp constructor_prototype(target) do
+    case Heap.get_class_proto(target) do
+      {:obj, _} = proto -> proto
+      _ -> normalize_constructor_prototype(Property.get(target, "prototype"))
+    end
+  end
 
   defp normalize_constructor_prototype({:obj, _} = object_proto), do: object_proto
   defp normalize_constructor_prototype(_), do: nil

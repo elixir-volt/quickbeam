@@ -69,10 +69,10 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         State.array_from_call(state, argc)
 
       {{:ok, :push_const}, [const_idx]} ->
-        push_const(state, constants, const_idx)
+        push_const(state, constants, arg_count, const_idx)
 
       {{:ok, :push_const8}, [const_idx]} ->
-        push_const(state, constants, const_idx)
+        push_const(state, constants, arg_count, const_idx)
 
       {{:ok, :fclosure}, [const_idx]} ->
         lower_fclosure(state, constants, arg_count, const_idx)
@@ -80,8 +80,17 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
       {{:ok, :fclosure8}, [const_idx]} ->
         lower_fclosure(state, constants, arg_count, const_idx)
 
+      {{:ok, :private_symbol}, [atom_idx]} ->
+        {:ok, State.push(state, State.compiler_call(:private_symbol, [State.literal(atom_idx)]))}
+
       {{:ok, :push_atom_value}, [atom_idx]} ->
         {:ok, State.push(state, State.compiler_call(:push_atom_value, [State.literal(atom_idx)]))}
+
+      {{:ok, :push_this}, []} ->
+        {:ok, State.push(state, State.compiler_call(:push_this, []))}
+
+      {{:ok, :special_object}, [type]} ->
+        {:ok, State.push(state, State.compiler_call(:special_object, [State.literal(type)]))}
 
       {{:ok, :set_name}, [atom_idx]} ->
         State.set_name_atom(state, atom_idx)
@@ -92,11 +101,17 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
       {{:ok, :set_home_object}, []} ->
         State.set_home_object(state)
 
+      {{:ok, :close_loc}, [slot_idx]} ->
+        State.close_capture_cell(state, slot_idx)
+
       {{:ok, :get_var}, [atom_idx]} ->
         {:ok, State.push(state, State.compiler_call(:get_var, [State.literal(atom_idx)]))}
 
       {{:ok, :get_var_undef}, [atom_idx]} ->
         {:ok, State.push(state, State.compiler_call(:get_var_undef, [State.literal(atom_idx)]))}
+
+      {{:ok, :get_super}, []} ->
+        State.unary_call(state, RuntimeHelpers, :get_super)
 
       {{:ok, :get_arg}, [slot_idx]} ->
         {:ok, State.push(state, State.slot_expr(state, slot_idx))}
@@ -200,6 +215,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         State.assign_slot(state, slot_idx, true)
 
       {{:ok, :set_loc3}, [slot_idx]} ->
+        State.assign_slot(state, slot_idx, true)
+
+      {{:ok, :set_loc8}, [slot_idx]} ->
         State.assign_slot(state, slot_idx, true)
 
       {{:ok, :set_arg}, [slot_idx]} ->
@@ -348,6 +366,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
 
       {{:ok, :define_method_computed}, [_flags]} ->
         State.define_method_computed_call(state)
+
+      {{:ok, :define_class}, [_atom_idx, _flags]} ->
+        State.define_class_call(state)
 
       {{:ok, :put_array_el}, []} ->
         State.put_array_el_call(state)
@@ -594,7 +615,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
   defp closure_slot_index(_arg_count, %{closure_type: type, var_idx: idx}),
     do: {:error, {:closure_type_not_supported, type, idx}}
 
-  defp push_const(state, constants, idx) do
+  defp push_const(state, constants, arg_count, idx) do
     case Enum.at(constants, idx) do
       nil ->
         {:error, {:unsupported_const, idx}}
@@ -609,6 +630,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
 
       %QuickBEAM.BeamVM.Bytecode.Function{} = fun when fun.closure_vars == [] ->
         {:ok, State.push(state, State.literal(fun))}
+
+      %QuickBEAM.BeamVM.Bytecode.Function{} ->
+        lower_fclosure(state, constants, arg_count, idx)
 
       _ ->
         {:error, {:unsupported_const, idx}}

@@ -502,6 +502,58 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(fun, [])
     end
 
+    test "compiles simple classes", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(){ class A { m(){ return 1 } } return new A().m() })")
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles classes with constructors", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { constructor(x){ this.x=x } } return new A(3).x })"
+        )
+        |> user_function()
+
+      assert {:ok, 3} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles class inheritance with super methods", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { m(){ return 1 } } class B extends A { m(){ return super.m()+1 } } return new B().m() })"
+        )
+        |> user_function()
+
+      assert {:ok, 2} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private field classes", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #x = 42; get() { return this.#x } } return new A().get() })"
+        )
+        |> user_function()
+
+      assert {:ok, 42} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private field setters", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #x = 0; set(v) { this.#x = v } get() { return this.#x } } var a = new A(); a.set(99); return a.get() })"
+        )
+        |> user_function()
+
+      assert {:ok, 99} = Compiler.invoke(fun, [])
+    end
+
     test "preserves side-effectful dropped method calls", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(o){ o.bump(); return o.n })") |> user_function()
 
