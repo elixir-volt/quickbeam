@@ -2864,19 +2864,34 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Tail calls ──
 
-  defp tail_call(stack, argc, gas, ctx) do
-    {args, [fun | _rest]} = Enum.split(stack, argc)
-    rev_args = Enum.reverse(args)
+  defp tail_call([fun | _rest], 0, gas, ctx) do
+    dispatch_call(fun, [], gas, ctx, nil)
+  end
 
-    dispatch_call(fun, rev_args, gas, ctx, nil)
+  defp tail_call([a0, fun | _], 1, gas, ctx) do
+    dispatch_call(fun, [a0], gas, ctx, nil)
+  end
+
+  defp tail_call([a1, a0, fun | _], 2, gas, ctx) do
+    dispatch_call(fun, [a0, a1], gas, ctx, nil)
+  end
+
+  defp tail_call(stack, argc, gas, ctx) do
+    {args, [fun | _]} = Enum.split(stack, argc)
+    dispatch_call(fun, Enum.reverse(args), gas, ctx, nil)
+  end
+
+  defp tail_call_method([fun, obj | _], 0, gas, ctx) do
+    dispatch_call(fun, [], gas, %{ctx | this: obj}, obj)
+  end
+
+  defp tail_call_method([a0, fun, obj | _], 1, gas, ctx) do
+    dispatch_call(fun, [a0], gas, %{ctx | this: obj}, obj)
   end
 
   defp tail_call_method(stack, argc, gas, ctx) do
-    {args, [fun, obj | _rest]} = Enum.split(stack, argc)
-    rev_args = Enum.reverse(args)
-    method_ctx = %{ctx | this: obj}
-
-    dispatch_call(fun, rev_args, gas, method_ctx, obj)
+    {args, [fun, obj | _]} = Enum.split(stack, argc)
+    dispatch_call(fun, Enum.reverse(args), gas, %{ctx | this: obj}, obj)
   end
 
   # ── Closure construction ──
@@ -2976,22 +2991,78 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Function calls ──
 
-  defp call_function(pc, frame, stack, argc, gas, ctx) do
-    {args, [fun | rest]} = Enum.split(stack, argc)
-    rev_args = Enum.reverse(args)
+  defp call_function(pc, frame, stack, 0, gas, ctx) do
+    [fun | rest] = stack
 
     catch_js_throw(pc, frame, rest, gas, ctx, fn ->
-      dispatch_call(fun, rev_args, gas, ctx, nil)
+      dispatch_call(fun, [], gas, ctx, nil)
+    end)
+  end
+
+  defp call_function(pc, frame, [a0, fun | rest], 1, gas, ctx) do
+    catch_js_throw(pc, frame, rest, gas, ctx, fn ->
+      dispatch_call(fun, [a0], gas, ctx, nil)
+    end)
+  end
+
+  defp call_function(pc, frame, [a1, a0, fun | rest], 2, gas, ctx) do
+    catch_js_throw(pc, frame, rest, gas, ctx, fn ->
+      dispatch_call(fun, [a0, a1], gas, ctx, nil)
+    end)
+  end
+
+  defp call_function(pc, frame, [a2, a1, a0, fun | rest], 3, gas, ctx) do
+    catch_js_throw(pc, frame, rest, gas, ctx, fn ->
+      dispatch_call(fun, [a0, a1, a2], gas, ctx, nil)
+    end)
+  end
+
+  defp call_function(pc, frame, stack, argc, gas, ctx) do
+    {args, [fun | rest]} = Enum.split(stack, argc)
+
+    catch_js_throw(pc, frame, rest, gas, ctx, fn ->
+      dispatch_call(fun, Enum.reverse(args), gas, ctx, nil)
+    end)
+  end
+
+  defp call_method(pc, frame, [fun, obj | rest], 0, gas, ctx) do
+    method_ctx = %{ctx | this: obj}
+
+    catch_js_throw(pc, frame, rest, gas, ctx, fn ->
+      dispatch_call(fun, [], gas, method_ctx, obj)
+    end)
+  end
+
+  defp call_method(pc, frame, [a0, fun, obj | rest], 1, gas, ctx) do
+    method_ctx = %{ctx | this: obj}
+
+    catch_js_throw(pc, frame, rest, gas, ctx, fn ->
+      dispatch_call(fun, [a0], gas, method_ctx, obj)
+    end)
+  end
+
+  defp call_method(pc, frame, [a1, a0, fun, obj | rest], 2, gas, ctx) do
+    method_ctx = %{ctx | this: obj}
+
+    catch_js_throw(pc, frame, rest, gas, ctx, fn ->
+      dispatch_call(fun, [a0, a1], gas, method_ctx, obj)
+    end)
+  end
+
+  defp call_method(pc, frame, [a2, a1, a0, fun, obj | rest], 3, gas, ctx) do
+    method_ctx = %{ctx | this: obj}
+
+    catch_js_throw(pc, frame, rest, gas, ctx, fn ->
+      dispatch_call(fun, [a0, a1, a2], gas, method_ctx, obj)
     end)
   end
 
   defp call_method(pc, frame, stack, argc, gas, ctx) do
     {args, [fun, obj | rest]} = Enum.split(stack, argc)
-    rev_args = Enum.reverse(args)
     method_ctx = %{ctx | this: obj}
 
     catch_js_throw(pc, frame, rest, gas, ctx, fn ->
-      dispatch_call(fun, rev_args, gas, method_ctx, obj)
+      dispatch_call(fun, Enum.reverse(args), gas, method_ctx, obj)
     end)
   end
 
