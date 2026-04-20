@@ -291,11 +291,8 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   end
 
   def return_top(state) do
-    with {:ok, expr, %{stack: []}} <- pop(state) do
+    with {:ok, expr, _state} <- pop(state) do
       {:done, state.body ++ [expr]}
-    else
-      {:ok, _expr, _state} -> {:error, :stack_not_empty_on_return}
-      {:error, _} = error -> error
     end
   end
 

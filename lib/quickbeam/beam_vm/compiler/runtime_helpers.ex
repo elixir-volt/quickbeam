@@ -2,7 +2,7 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   @moduledoc false
 
   import Bitwise, only: [bnot: 1]
-  import QuickBEAM.BeamVM.Heap.Keys, only: [map_data: 0, proto: 0, set_data: 0]
+  import QuickBEAM.BeamVM.Heap.Keys, only: [key_order: 0, map_data: 0, proto: 0, set_data: 0]
 
   alias QuickBEAM.BeamVM.{Builtin, Bytecode, Heap}
   alias QuickBEAM.BeamVM.Interpreter.{Scope, Values}
@@ -328,6 +328,18 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     end
   end
 
+  def for_in_start(obj), do: {:for_in_iterator, enumerable_keys(obj)}
+
+  def for_in_next({:for_in_iterator, [key | rest_keys]}) do
+    {false, key, {:for_in_iterator, rest_keys}}
+  end
+
+  def for_in_next({:for_in_iterator, []} = iter) do
+    {true, :undefined, iter}
+  end
+
+  def for_in_next(iter), do: {true, :undefined, iter}
+
   def for_of_next(_next_fn, :undefined), do: {true, :undefined, :undefined}
 
   def for_of_next(_next_fn, {:list_iter, list, idx}) do
@@ -429,6 +441,70 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   defp enumerable_string_props(map) when is_map(map), do: map
   defp enumerable_string_props(_), do: %{}
+
+  defp enumerable_keys({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      {:qb_arr, arr} ->
+        numeric_index_keys(:array.size(arr))
+
+      list when is_list(list) ->
+        numeric_index_keys(length(list))
+
+      map when is_map(map) ->
+        own_keys = enumerable_object_keys(map, ref)
+        proto_keys = enumerable_proto_keys(Map.get(map, proto()))
+        Runtime.sort_numeric_keys(own_keys ++ Enum.reject(proto_keys, &(&1 in own_keys)))
+
+      _ ->
+        []
+    end
+  end
+
+  defp enumerable_keys(map) when is_map(map) do
+    map
+    |> Map.keys()
+    |> Enum.filter(&is_binary/1)
+    |> Enum.reject(fn key -> String.starts_with?(key, "__") and String.ends_with?(key, "__") end)
+    |> Runtime.sort_numeric_keys()
+  end
+
+  defp enumerable_keys(list) when is_list(list), do: numeric_index_keys(length(list))
+  defp enumerable_keys(s) when is_binary(s), do: numeric_index_keys(Property.string_length(s))
+  defp enumerable_keys(_), do: []
+
+  defp enumerable_object_keys(map, ref) do
+    raw_keys =
+      case Map.get(map, key_order()) do
+        order when is_list(order) -> Enum.reverse(order)
+        _ -> Map.keys(map)
+      end
+
+    raw_keys
+    |> Enum.filter(&enumerable_key_candidate?/1)
+    |> Enum.reject(fn key -> match?(%{enumerable: false}, Heap.get_prop_desc(ref, key)) end)
+  end
+
+  defp enumerable_proto_keys({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        own_keys = enumerable_object_keys(map, ref)
+        parent_keys = enumerable_proto_keys(Map.get(map, proto()))
+        own_keys ++ Enum.reject(parent_keys, &(&1 in own_keys))
+
+      _ ->
+        []
+    end
+  end
+
+  defp enumerable_proto_keys(_), do: []
+
+  defp enumerable_key_candidate?(key) when is_binary(key),
+    do: not (String.starts_with?(key, "__") and String.ends_with?(key, "__"))
+
+  defp enumerable_key_candidate?(_), do: false
+
+  defp numeric_index_keys(size) when size <= 0, do: []
+  defp numeric_index_keys(size), do: Enum.map(0..(size - 1), &Integer.to_string/1)
 
   defp collect_iterator_values(iter_obj, acc) do
     next_fn = Property.get(iter_obj, "next")

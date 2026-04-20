@@ -352,6 +352,12 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
       {{:ok, :strict_neq}, []} ->
         State.binary_local_call(state, :op_strict_neq)
 
+      {{:ok, :for_in_start}, []} ->
+        lower_for_in_start(state)
+
+      {{:ok, :for_in_next}, []} ->
+        lower_for_in_next(state)
+
       {{:ok, :for_of_start}, []} ->
         lower_for_of_start(state)
 
@@ -432,6 +438,31 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
 
       {{:ok, name}, _} ->
         {:error, {:unsupported_opcode, name}}
+    end
+  end
+
+  defp lower_for_in_start(state) do
+    with {:ok, obj, state} <- State.pop(state) do
+      {:ok, State.push(state, State.compiler_call(:for_in_start, [obj]))}
+    end
+  end
+
+  defp lower_for_in_next(state) do
+    with {:ok, state, iter} <- State.bind_stack_entry(state, 0) do
+      {result, state} =
+        State.bind(
+          state,
+          State.temp_name(state.temp),
+          State.compiler_call(:for_in_next, [iter])
+        )
+
+      state = %{state | stack: List.replace_at(state.stack, 0, State.tuple_element(result, 3))}
+      state = State.push(state, State.tuple_element(result, 2))
+      state = State.push(state, State.tuple_element(result, 1))
+      {:ok, state}
+    else
+      :error -> {:error, :for_in_state_missing}
+      {:error, _} = error -> error
     end
   end
 

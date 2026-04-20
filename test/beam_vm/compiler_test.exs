@@ -351,6 +351,30 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, 13} = Compiler.invoke(fun, [throwing_fun])
     end
 
+    test "compiles for-in loops over object keys", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(o){ let s=''; for (const k in o) s += k; return s })")
+        |> user_function()
+
+      assert {:ok, "ab"} = Compiler.invoke(fun, [Heap.wrap(%{"a" => 1, "b" => 2})])
+    end
+
+    test "compiles for-in loops over array indexes", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(a){ let s=''; for (const k in a) s += k; return s })")
+        |> user_function()
+
+      assert {:ok, "012"} = Compiler.invoke(fun, [Heap.wrap([10, 20, 30])])
+    end
+
+    test "compiles empty for-in fallthrough", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(o){ for (const k in o) return k; return 'none' })")
+        |> user_function()
+
+      assert {:ok, "none"} = Compiler.invoke(fun, [Heap.wrap(%{})])
+    end
+
     test "preserves side-effectful dropped method calls", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(o){ o.bump(); return o.n })") |> user_function()
 
