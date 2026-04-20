@@ -158,7 +158,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   @op_with_get_ref_undef 119
   @op_make_loc_ref 120
   @op_make_arg_ref 121
-  @op_make_var_ref_ref 122
   @op_make_var_ref 123
   @op_for_in_start 124
   @op_for_of_start 125
