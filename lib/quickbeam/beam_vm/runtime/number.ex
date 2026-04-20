@@ -162,21 +162,22 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
       end
 
     if should_round_up do
-      propagate_carry(Enum.reverse(keep), radix) |> Enum.reverse()
+      propagate_carry(keep, radix)
     else
       keep
     end
   end
 
-  defp propagate_carry([], _radix), do: [1]
+  defp propagate_carry(digits, radix) do
+    {result, carry} =
+      digits
+      |> Enum.reverse()
+      |> Enum.map_reduce(1, fn d, carry ->
+        sum = d + carry
+        {rem(sum, radix), div(sum, radix)}
+      end)
 
-  defp propagate_carry([d | rest], radix) do
-    new_d = d + 1
-    if new_d >= radix do
-      [0 | propagate_carry(rest, radix)]
-    else
-      [new_d | rest]
-    end
+    if carry > 0, do: [carry | result], else: result
   end
 
   defp trim_trailing_zeros(digits) do

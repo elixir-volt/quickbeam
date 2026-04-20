@@ -96,7 +96,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   def put(_, _, _), do: :ok
 
   defp normalize_key(k) when is_float(k) and k == trunc(k) and k >= 0,
-    do: Integer.to_string(trunc(k))
+    do: k |> trunc() |> Integer.to_string()
 
   defp normalize_key(k) when is_float(k), do: Values.stringify(k)
   defp normalize_key({:tagged_int, n}), do: Integer.to_string(n)

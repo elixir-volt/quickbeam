@@ -78,7 +78,8 @@ defmodule QuickBEAM.MixProject do
       {:websock_adapter, "~> 0.5", only: :test},
       {:benchee, "~> 1.3", only: :bench, runtime: false},
       {:quickjs_ex, "~> 0.3.1", only: :bench, runtime: false},
-      {:ex_doc, "~> 0.35", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.35", only: :dev, runtime: false},
+      {:reach, "~> 1.5", only: :dev, runtime: false}
     ]
   end
 
