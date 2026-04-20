@@ -241,6 +241,15 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
       {{:ok, :dec}, []} ->
         State.unary_call(state, RuntimeHelpers, :dec)
 
+      {{:ok, :inc_loc}, [slot_idx]} ->
+        State.inc_slot(state, slot_idx)
+
+      {{:ok, :dec_loc}, [slot_idx]} ->
+        State.dec_slot(state, slot_idx)
+
+      {{:ok, :add_loc}, [slot_idx]} ->
+        State.add_to_slot(state, slot_idx)
+
       {{:ok, :post_inc}, []} ->
         State.post_update(state, :post_inc)
 

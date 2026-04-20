@@ -63,6 +63,13 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     end
   end
 
+  def update_slot(state, idx, expr, keep? \\ false) do
+    {bound, state} = bind(state, slot_name(idx, state.temp), expr)
+    state = put_slot(state, idx, bound)
+    state = if keep?, do: push(state, bound), else: state
+    {:ok, state}
+  end
+
   def duplicate_top(state) do
     with {:ok, expr, state} <- pop(state) do
       {bound, state} = bind(state, temp_name(state.temp), expr)
@@ -98,6 +105,18 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
       {:ok, %{state | stack: [tuple_element(pair, 1), tuple_element(pair, 2) | state.stack]}}
     end
   end
+
+  def add_to_slot(state, idx) do
+    with {:ok, expr, state} <- pop(state) do
+      update_slot(state, idx, local_call(:op_add, [slot_expr(state, idx), expr]))
+    end
+  end
+
+  def inc_slot(state, idx),
+    do: update_slot(state, idx, compiler_call(:inc, [slot_expr(state, idx)]))
+
+  def dec_slot(state, idx),
+    do: update_slot(state, idx, compiler_call(:dec, [slot_expr(state, idx)]))
 
   def unary_call(state, mod, fun, extra_args \\ []) do
     with {:ok, expr, state} <- pop(state) do

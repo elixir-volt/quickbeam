@@ -375,6 +375,33 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, "none"} = Compiler.invoke(fun, [Heap.wrap(%{})])
     end
 
+    test "compiles try finally with side effects", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(){ var x=0; try { x=1 } finally { x=2 } return x })")
+        |> user_function()
+
+      assert {:ok, 2} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles try catch finally", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ var x=0; try { throw 'err' } catch(e) { x=1 } finally { x+=1 } return x })"
+        )
+        |> user_function()
+
+      assert {:ok, 2} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles try finally around returns", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(f){ try { return f() } finally { 1 } })")
+        |> user_function()
+
+      assert {:ok, 5} = Compiler.invoke(fun, [{:builtin, "five", fn [], _ -> 5 end}])
+    end
+
     test "preserves side-effectful dropped method calls", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(o){ o.bump(); return o.n })") |> user_function()
 

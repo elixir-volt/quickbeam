@@ -71,6 +71,17 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
               target
             )
 
+          {:ok, :gosub} ->
+            lower_gosub_suffix(
+              instructions,
+              idx,
+              next_entry,
+              arg_count,
+              state,
+              stack_depths,
+              target
+            )
+
           _ ->
             lower_instruction(
               instruction,
@@ -138,6 +149,58 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
            ) do
       {:ok,
        state.body ++ [State.try_catch_expr(try_body, State.var("Caught#{idx}"), [handler_call])]}
+    end
+  end
+
+  defp lower_gosub_suffix(instructions, idx, next_entry, arg_count, state, stack_depths, target) do
+    with {:ok, inlined_state} <- lower_finally_inline(instructions, target, state) do
+      lower_block(instructions, idx + 1, next_entry, arg_count, inlined_state, stack_depths)
+    end
+  end
+
+  defp lower_finally_inline(instructions, idx, _state) when idx >= length(instructions) do
+    {:error, {:missing_ret, idx}}
+  end
+
+  defp lower_finally_inline(instructions, idx, state) do
+    instruction = Enum.at(instructions, idx)
+
+    case instruction do
+      {op, []} ->
+        case Analysis.opcode_name(op) do
+          {:ok, :ret} ->
+            {:ok, state}
+
+          {:ok, name} when name in [:catch, :gosub, :goto, :goto8, :goto16] ->
+            {:error, {:unsupported_finally_opcode, name, idx}}
+
+          _ ->
+            case Ops.lower_instruction(instruction, idx, nil, 0, state, %{}) do
+              {:ok, next_state} -> lower_finally_inline(instructions, idx + 1, next_state)
+              {:done, body} -> {:ok, %{state | body: body, stack: state.stack}}
+              {:error, _} = error -> error
+            end
+        end
+
+      {op, _args} ->
+        case Analysis.opcode_name(op) do
+          {:ok, :gosub} ->
+            {:error, {:unsupported_finally_opcode, :gosub, idx}}
+
+          {:ok, :catch} ->
+            {:error, {:unsupported_finally_opcode, :catch, idx}}
+
+          {:ok, name}
+          when name in [:if_false, :if_false8, :if_true, :if_true8, :goto, :goto8, :goto16] ->
+            {:error, {:unsupported_finally_opcode, name, idx}}
+
+          _ ->
+            case Ops.lower_instruction(instruction, idx, nil, 0, state, %{}) do
+              {:ok, next_state} -> lower_finally_inline(instructions, idx + 1, next_state)
+              {:done, body} -> {:ok, %{state | body: body, stack: state.stack}}
+              {:error, _} = error -> error
+            end
+        end
     end
   end
 
