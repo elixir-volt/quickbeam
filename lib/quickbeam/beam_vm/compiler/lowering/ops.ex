@@ -361,6 +361,12 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
       {{:ok, :iterator_close}, []} ->
         lower_iterator_close(state)
 
+      {{:ok, :nip_catch}, []} ->
+        State.nip_catch(state)
+
+      {{:ok, :throw}, []} ->
+        State.throw_top(state)
+
       {{:ok, :call_constructor}, [argc]} ->
         State.invoke_constructor_call(state, argc)
 

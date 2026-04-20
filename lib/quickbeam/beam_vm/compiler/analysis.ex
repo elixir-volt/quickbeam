@@ -13,7 +13,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
             [target] = args
             acc |> MapSet.put(target) |> MapSet.put(idx + 1)
 
-          {:ok, name} when name in [:goto, :goto8, :goto16] ->
+          {:ok, name} when name in [:goto, :goto8, :goto16, :catch] ->
             [target] = args
             MapSet.put(acc, target)
 
@@ -39,6 +39,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
       nil -> {:error, {:unknown_opcode, op}}
     end
   end
+
+  def matching_nip_catch(instructions, catch_idx),
+    do: find_nip_catch(instructions, catch_idx + 1, 0)
 
   defp walk_block_stack_depths(_instructions, _entries, [], depths), do: {:ok, depths}
 
@@ -86,6 +89,12 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
             {:ok, [{target, next_depth}, {next_entry, next_depth}]}
           end
 
+        {{:ok, :catch}, [target]} ->
+          with {:ok, successors} <-
+                 do_simulate_block_stack_depths(instructions, idx + 1, next_entry, next_depth) do
+            {:ok, [{target, next_depth} | successors]}
+          end
+
         {{:ok, name}, [target]} when name in [:goto, :goto8, :goto16] ->
           {:ok, [{target, next_depth}]}
 
@@ -96,6 +105,12 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
           {:ok, []}
 
         {{:ok, :return_undef}, []} ->
+          {:ok, []}
+
+        {{:ok, :throw}, []} ->
+          {:ok, []}
+
+        {{:ok, :throw_error}, _} ->
           {:ok, []}
 
         _ ->
@@ -130,6 +145,26 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
 
       {{:error, _} = error, _} ->
         error
+    end
+  end
+
+  defp find_nip_catch(instructions, idx, _depth) when idx >= length(instructions), do: :error
+
+  defp find_nip_catch(instructions, idx, depth) do
+    {op, _args} = Enum.at(instructions, idx)
+
+    case opcode_name(op) do
+      {:ok, :catch} ->
+        find_nip_catch(instructions, idx + 1, depth + 1)
+
+      {:ok, :nip_catch} when depth == 0 ->
+        {:ok, idx}
+
+      {:ok, :nip_catch} ->
+        find_nip_catch(instructions, idx + 1, depth - 1)
+
+      _ ->
+        find_nip_catch(instructions, idx + 1, depth)
     end
   end
 end

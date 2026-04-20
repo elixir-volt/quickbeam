@@ -320,6 +320,37 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, "abc"} = Compiler.invoke(fun, ["abc"])
     end
 
+    test "compiles try catch around explicit throws", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(e){ try { throw e } catch(err) { return err } })")
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [7])
+    end
+
+    test "compiles try catch around throwing calls", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(f){ try { return f() } catch(err) { return err } })")
+        |> user_function()
+
+      throwing_fun = {:builtin, "boom", fn [], _ -> throw({:js_throw, 11}) end}
+
+      assert {:ok, 11} = Compiler.invoke(fun, [throwing_fun])
+    end
+
+    test "compiles nested try catch rethrows", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(f){ try { try { return f() } catch(err) { throw err } } catch(err) { return err } })"
+        )
+        |> user_function()
+
+      throwing_fun = {:builtin, "boom", fn [], _ -> throw({:js_throw, 13}) end}
+
+      assert {:ok, 13} = Compiler.invoke(fun, [throwing_fun])
+    end
+
     test "preserves side-effectful dropped method calls", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(o){ o.bump(); return o.n })") |> user_function()
 

@@ -87,6 +87,11 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   def swap_top(%{stack: [a, b | rest]} = state), do: {:ok, %{state | stack: [b, a | rest]}}
   def swap_top(_state), do: {:error, :stack_underflow}
 
+  def nip_catch(%{stack: [val, _catch_offset | rest]} = state),
+    do: {:ok, %{state | stack: [val | rest]}}
+
+  def nip_catch(_state), do: {:error, :stack_underflow}
+
   def post_update(state, fun) do
     with {:ok, expr, state} <- pop(state) do
       {pair, state} = bind(state, temp_name(state.temp), compiler_call(fun, [expr]))
@@ -294,14 +299,24 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     end
   end
 
+  def throw_top(state) do
+    with {:ok, expr, _state} <- pop(state) do
+      {:done, state.body ++ [throw_js(expr)]}
+    end
+  end
+
   def bind(state, name, expr) do
     var = var(name)
     {var, %{state | body: state.body ++ [match(var, expr)], temp: state.temp + 1}}
   end
 
   def block_jump_call(state, target, stack_depths) do
+    block_jump_call_values(target, stack_depths, current_slots(state), current_stack(state))
+  end
+
+  def block_jump_call_values(target, stack_depths, slots, stack) do
     expected_depth = Map.get(stack_depths, target)
-    actual_depth = length(state.stack)
+    actual_depth = length(stack)
 
     cond do
       is_nil(expected_depth) ->
@@ -311,7 +326,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
         {:error, {:stack_depth_mismatch, target, expected_depth, actual_depth}}
 
       true ->
-        {:ok, local_call(block_name(target), current_slots(state) ++ current_stack(state))}
+        {:ok, local_call(block_name(target), slots ++ stack)}
     end
   end
 
@@ -352,6 +367,12 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   def local_call(fun, args), do: {:call, @line, {:atom, @line, fun}, args}
   def compiler_call(fun, args), do: remote_call(RuntimeHelpers, fun, args)
 
+  def throw_js(expr), do: remote_call(:erlang, :throw, [{:tuple, @line, [atom(:js_throw), expr]}])
+
+  def try_catch_expr(try_body, err_var, catch_body) do
+    {:try, @line, try_body, [], [catch_clause(err_var, catch_body)], []}
+  end
+
   defp ordered_slot_values(slots) do
     slots
     |> Enum.sort_by(fn {idx, _expr} -> idx end)
@@ -364,5 +385,12 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
        {:clause, @line, [atom(false)], [], false_body},
        {:clause, @line, [atom(true)], [], true_body}
      ]}
+  end
+
+  defp catch_clause(err_var, catch_body) do
+    pattern =
+      {:tuple, @line, [atom(:throw), {:tuple, @line, [atom(:js_throw), err_var]}, var(:_)]}
+
+    {:clause, @line, [pattern], [], catch_body}
   end
 end

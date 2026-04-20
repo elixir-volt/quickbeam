@@ -57,6 +57,54 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
   defp lower_block(instructions, idx, next_entry, arg_count, state, stack_depths) do
     instruction = Enum.at(instructions, idx)
 
+    case instruction do
+      {op, [target]} ->
+        case Analysis.opcode_name(op) do
+          {:ok, :catch} ->
+            lower_catch_suffix(
+              instructions,
+              idx,
+              next_entry,
+              arg_count,
+              state,
+              stack_depths,
+              target
+            )
+
+          _ ->
+            lower_instruction(
+              instruction,
+              instructions,
+              idx,
+              next_entry,
+              arg_count,
+              state,
+              stack_depths
+            )
+        end
+
+      _ ->
+        lower_instruction(
+          instruction,
+          instructions,
+          idx,
+          next_entry,
+          arg_count,
+          state,
+          stack_depths
+        )
+    end
+  end
+
+  defp lower_instruction(
+         instruction,
+         instructions,
+         idx,
+         next_entry,
+         arg_count,
+         state,
+         stack_depths
+       ) do
     case Ops.lower_instruction(instruction, idx, next_entry, arg_count, state, stack_depths) do
       {:ok, next_state} ->
         lower_block(instructions, idx + 1, next_entry, arg_count, next_state, stack_depths)
@@ -68,4 +116,42 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
         error
     end
   end
+
+  defp lower_catch_suffix(instructions, idx, next_entry, arg_count, state, stack_depths, target) do
+    with :ok <- ensure_catch_region_supported(instructions, idx, target),
+         {saved_stack, state} <- freeze_stack(state),
+         {:ok, handler_call} <-
+           State.block_jump_call_values(
+             target,
+             stack_depths,
+             State.current_slots(state),
+             [State.var("Caught#{idx}") | saved_stack]
+           ),
+         {:ok, try_body} <-
+           lower_block(
+             instructions,
+             idx + 1,
+             next_entry,
+             arg_count,
+             %{state | body: [], stack: [State.literal(target) | saved_stack]},
+             stack_depths
+           ) do
+      {:ok,
+       state.body ++ [State.try_catch_expr(try_body, State.var("Caught#{idx}"), [handler_call])]}
+    end
+  end
+
+  defp freeze_stack(%{stack: []} = state), do: {[], state}
+
+  defp freeze_stack(state) do
+    state =
+      Enum.reduce(0..(length(state.stack) - 1), state, fn idx, state ->
+        {:ok, state, _bound} = State.bind_stack_entry(state, idx)
+        state
+      end)
+
+    {state.stack, state}
+  end
+
+  defp ensure_catch_region_supported(_instructions, _catch_idx, _target), do: :ok
 end
