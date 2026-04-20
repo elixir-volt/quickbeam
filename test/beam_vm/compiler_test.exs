@@ -1,6 +1,8 @@
 defmodule QuickBEAM.BeamVM.CompilerTest do
   use ExUnit.Case, async: true
 
+  import QuickBEAM.BeamVM.Heap.Keys, only: [proto: 0]
+
   alias QuickBEAM.BeamVM.{Bytecode, Compiler, Heap, Interpreter}
 
   setup do
@@ -203,10 +205,100 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, "undefined"} = Compiler.invoke(fun, [:undefined])
     end
 
+    test "compiles specialized typeof comparisons", %{rt: rt} do
+      function_fun =
+        compile_and_decode(rt, "(function(x){ return typeof x === 'function' })")
+        |> user_function()
+
+      undefined_fun =
+        compile_and_decode(rt, "(function(x){ return typeof x === 'undefined' })")
+        |> user_function()
+
+      assert {:ok, true} =
+               Compiler.invoke(function_fun, [{:builtin, "noop", fn _, _ -> :undefined end}])
+
+      assert {:ok, false} = Compiler.invoke(function_fun, [5])
+      assert {:ok, true} = Compiler.invoke(undefined_fun, [:undefined])
+      assert {:ok, true} = Compiler.invoke(undefined_fun, [nil])
+      assert {:ok, false} = Compiler.invoke(undefined_fun, [0])
+    end
+
+    test "compiles null checks", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(x){ return x === null })") |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [nil])
+      assert {:ok, false} = Compiler.invoke(fun, [:undefined])
+    end
+
+    test "compiles in operator", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(k,o){ return k in o })") |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, ["x", Heap.wrap(%{"x" => 1})])
+      assert {:ok, false} = Compiler.invoke(fun, ["y", Heap.wrap(%{"x" => 1})])
+    end
+
     test "compiles delete with atom property names", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(o){ delete o.x; return o.x })") |> user_function()
 
       assert {:ok, :undefined} = Compiler.invoke(fun, [Heap.wrap(%{"x" => 7})])
+    end
+
+    test "compiles instanceof", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(obj, ctor){ return obj instanceof ctor })")
+        |> user_function()
+
+      parent_proto = Heap.wrap(%{})
+      child = Heap.wrap(%{proto() => parent_proto})
+      ctor = Heap.wrap(%{"prototype" => parent_proto})
+
+      assert {:ok, true} = Compiler.invoke(fun, [child, ctor])
+      assert {:ok, false} = Compiler.invoke(fun, [5, ctor])
+    end
+
+    test "compiles instanceof through prototype chains", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(obj, ctor){ return obj instanceof ctor })")
+        |> user_function()
+
+      parent_proto = Heap.wrap(%{})
+      mid_proto = Heap.wrap(%{proto() => parent_proto})
+      child = Heap.wrap(%{proto() => mid_proto})
+      ctor = Heap.wrap(%{"prototype" => parent_proto})
+
+      assert {:ok, true} = Compiler.invoke(fun, [child, ctor])
+    end
+
+    test "compiles constructor calls", %{rt: rt} do
+      ctor = compile_and_decode(rt, "(function A(x){ this.x = x })") |> user_function()
+      fun = compile_and_decode(rt, "(function(C,x){ return new C(x).x })") |> user_function()
+
+      assert {:ok, 9} = Compiler.invoke(fun, [ctor, 9])
+    end
+
+    test "compiles constructor calls without arguments", %{rt: rt} do
+      ctor = compile_and_decode(rt, "(function A(){ this.x = 1 })") |> user_function()
+      fun = compile_and_decode(rt, "(function(C){ return new C().x })") |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [ctor])
+    end
+
+    test "compiles array spread", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(a){ return [...a].length })") |> user_function()
+
+      assert {:ok, 3} = Compiler.invoke(fun, [Heap.wrap([1, 2, 3])])
+    end
+
+    test "compiles object spread", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(o){ return {...o}.x })") |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [Heap.wrap(%{"x" => 7})])
+    end
+
+    test "compiles object spread followed by field definition", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(o){ return {...o, y:1}.y })") |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [Heap.wrap(%{"x" => 7})])
     end
 
     test "preserves side-effectful dropped method calls", %{rt: rt} do

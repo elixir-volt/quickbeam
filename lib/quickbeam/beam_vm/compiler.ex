@@ -2,7 +2,7 @@ defmodule QuickBEAM.BeamVM.Compiler do
   @moduledoc false
 
   import Bitwise, only: [bnot: 1]
-  import QuickBEAM.BeamVM.Heap.Keys, only: [proto: 0]
+  import QuickBEAM.BeamVM.Heap.Keys, only: [map_data: 0, proto: 0, set_data: 0]
 
   alias QuickBEAM.BeamVM.{Builtin, Bytecode, Decoder, Heap, Opcodes}
   alias QuickBEAM.BeamVM.Interpreter.{Scope, Values}
@@ -67,6 +67,11 @@ defmodule QuickBEAM.BeamVM.Compiler do
 
   def strict_neq(a, b), do: not Values.strict_eq(a, b)
 
+  def is_undefined(val), do: val == :undefined
+  def is_null(val), do: val == nil
+  def typeof_is_undefined(val), do: val == :undefined or val == nil
+  def typeof_is_function(val), do: Builtin.callable?(val)
+
   def bit_not(a), do: Values.to_int32(bnot(Values.to_int32(a)))
   def lnot(a), do: not Values.truthy?(a)
 
@@ -124,6 +129,93 @@ defmodule QuickBEAM.BeamVM.Compiler do
     QuickBEAM.BeamVM.Interpreter.Objects.put_element(obj, idx, val)
     :ok
   end
+
+  def append_spread(arr, idx, obj) do
+    src_list = spread_source_to_list(obj)
+    arr_list = spread_target_to_list(arr)
+    new_idx = if(is_integer(idx), do: idx, else: Runtime.to_int(idx)) + length(src_list)
+    merged = arr_list ++ src_list
+
+    merged_obj =
+      case arr do
+        {:obj, ref} ->
+          Heap.put_obj(ref, merged)
+          {:obj, ref}
+
+        _ ->
+          merged
+      end
+
+    {new_idx, merged_obj}
+  end
+
+  def copy_data_properties(target, source) do
+    src_props = enumerable_string_props(source)
+
+    case target do
+      {:obj, ref} ->
+        existing = Heap.get_obj(ref, %{})
+        Heap.put_obj(ref, Map.merge(if(is_map(existing), do: existing, else: %{}), src_props))
+        target
+
+      _ ->
+        target
+    end
+  end
+
+  def construct_runtime(ctor, new_target, args) do
+    raw_ctor = unwrap_constructor_target(ctor)
+    raw_new_target = unwrap_new_target(new_target)
+
+    proto =
+      constructor_prototype(raw_new_target) || constructor_prototype(raw_ctor) ||
+        Heap.get_object_prototype()
+
+    init = if proto, do: %{proto() => proto}, else: %{}
+    this_obj = Heap.wrap(init)
+
+    result =
+      case ctor do
+        %Bytecode.Function{} = fun ->
+          QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(
+            fun,
+            args,
+            Runtime.gas_budget(),
+            this_obj
+          )
+
+        {:closure, _, %Bytecode.Function{}} = closure ->
+          QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(
+            closure,
+            args,
+            Runtime.gas_budget(),
+            this_obj
+          )
+
+        {:bound, _, _inner, orig_fun, bound_args} ->
+          construct_runtime(orig_fun, new_target, bound_args ++ args)
+
+        {:builtin, _name, cb} when is_function(cb, 2) ->
+          cb.(args, this_obj)
+
+        _ ->
+          this_obj
+      end
+
+    case result do
+      {:obj, _} = obj -> obj
+      %Bytecode.Function{} = fun -> fun
+      {:closure, _, %Bytecode.Function{}} = closure -> closure
+      _ -> this_obj
+    end
+  end
+
+  def instanceof({:obj, _} = obj, ctor) do
+    ctor_proto = Property.get(ctor, "prototype")
+    prototype_chain_contains?(obj, ctor_proto)
+  end
+
+  def instanceof(_obj, _ctor), do: false
 
   def delete_property(nil, key) do
     throw(
@@ -248,6 +340,120 @@ defmodule QuickBEAM.BeamVM.Compiler do
   end
 
   defp apply_compiled({mod, name}, args), do: apply(mod, name, args)
+
+  defp spread_source_to_list({:qb_arr, arr}), do: :array.to_list(arr)
+  defp spread_source_to_list(list) when is_list(list), do: list
+
+  defp spread_source_to_list({:obj, ref} = source_obj) do
+    case Heap.get_obj(ref) do
+      {:qb_arr, _} ->
+        Heap.to_list(source_obj)
+
+      list when is_list(list) ->
+        list
+
+      map when is_map(map) ->
+        cond do
+          Map.has_key?(map, {:symbol, "Symbol.iterator"}) ->
+            iter_fn = Map.get(map, {:symbol, "Symbol.iterator"})
+            iter_obj = Runtime.call_callback(iter_fn, [])
+            collect_iterator_values(iter_obj, [])
+
+          Map.has_key?(map, set_data()) ->
+            Map.get(map, set_data(), [])
+
+          Map.has_key?(map, map_data()) ->
+            Map.get(map, map_data(), [])
+
+          true ->
+            []
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  defp spread_source_to_list(_), do: []
+
+  defp spread_target_to_list({:qb_arr, arr}), do: :array.to_list(arr)
+  defp spread_target_to_list(list) when is_list(list), do: list
+  defp spread_target_to_list({:obj, _ref} = obj), do: Heap.to_list(obj)
+  defp spread_target_to_list(_), do: []
+
+  defp enumerable_string_props({:obj, ref} = source_obj) do
+    case Heap.get_obj(ref, %{}) do
+      {:qb_arr, _} ->
+        Enum.reduce(0..max(Heap.array_size(ref) - 1, 0), %{}, fn i, acc ->
+          Map.put(acc, Integer.to_string(i), Property.get(source_obj, Integer.to_string(i)))
+        end)
+
+      list when is_list(list) ->
+        Enum.reduce(0..max(length(list) - 1, 0), %{}, fn i, acc ->
+          Map.put(acc, Integer.to_string(i), Property.get(source_obj, Integer.to_string(i)))
+        end)
+
+      map when is_map(map) ->
+        map
+        |> Map.keys()
+        |> Enum.filter(&is_binary/1)
+        |> Enum.reject(fn k -> String.starts_with?(k, "__") and String.ends_with?(k, "__") end)
+        |> Enum.reduce(%{}, fn k, acc -> Map.put(acc, k, Property.get(source_obj, k)) end)
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp enumerable_string_props(map) when is_map(map), do: map
+  defp enumerable_string_props(_), do: %{}
+
+  defp collect_iterator_values(iter_obj, acc) do
+    next_fn = Property.get(iter_obj, "next")
+    step = Runtime.call_callback(next_fn, [])
+
+    if Property.get(step, "done") do
+      Enum.reverse(acc)
+    else
+      collect_iterator_values(iter_obj, [Property.get(step, "value") | acc])
+    end
+  end
+
+  defp unwrap_constructor_target({:closure, _, %Bytecode.Function{} = fun}), do: fun
+  defp unwrap_constructor_target({:bound, _, inner, _, _}), do: unwrap_constructor_target(inner)
+  defp unwrap_constructor_target(other), do: other
+
+  defp unwrap_new_target({:closure, _, %Bytecode.Function{} = fun}), do: fun
+  defp unwrap_new_target(%Bytecode.Function{} = fun), do: fun
+  defp unwrap_new_target(_), do: nil
+
+  defp constructor_prototype(nil), do: nil
+
+  defp constructor_prototype(target),
+    do: normalize_constructor_prototype(Property.get(target, "prototype"))
+
+  defp normalize_constructor_prototype({:obj, _} = proto), do: proto
+  defp normalize_constructor_prototype(_), do: nil
+
+  defp prototype_chain_contains?(_, :undefined), do: false
+  defp prototype_chain_contains?(_, nil), do: false
+
+  defp prototype_chain_contains?({:obj, ref}, target) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        case Map.get(map, proto()) do
+          ^target -> true
+          nil -> false
+          :undefined -> false
+          parent -> prototype_chain_contains?(parent, target)
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp prototype_chain_contains?(_, _), do: false
 
   defp current_globals do
     case Heap.get_ctx() do
@@ -586,6 +792,18 @@ defmodule QuickBEAM.BeamVM.Compiler do
       {{:ok, :lnot}, []} ->
         unary_call(state, __MODULE__, :lnot)
 
+      {{:ok, :is_undefined}, []} ->
+        unary_call(state, __MODULE__, :is_undefined)
+
+      {{:ok, :is_null}, []} ->
+        unary_call(state, __MODULE__, :is_null)
+
+      {{:ok, :typeof_is_undefined}, []} ->
+        unary_call(state, __MODULE__, :typeof_is_undefined)
+
+      {{:ok, :typeof_is_function}, []} ->
+        unary_call(state, __MODULE__, :typeof_is_function)
+
       {{:ok, :inc}, []} ->
         unary_call(state, __MODULE__, :inc)
 
@@ -637,6 +855,12 @@ defmodule QuickBEAM.BeamVM.Compiler do
       {{:ok, :typeof}, []} ->
         unary_call(state, Values, :typeof)
 
+      {{:ok, :instanceof}, []} ->
+        binary_call(state, __MODULE__, :instanceof)
+
+      {{:ok, :in}, []} ->
+        in_call(state)
+
       {{:ok, :delete}, []} ->
         delete_call(state)
 
@@ -660,6 +884,12 @@ defmodule QuickBEAM.BeamVM.Compiler do
 
       {{:ok, :put_array_el}, []} ->
         put_array_el_call(state)
+
+      {{:ok, :append}, []} ->
+        append_call(state)
+
+      {{:ok, :copy_data_properties}, [mask]} ->
+        copy_data_properties_call(state, mask)
 
       {{:ok, :to_propkey}, []} ->
         {:ok, state}
@@ -690,6 +920,9 @@ defmodule QuickBEAM.BeamVM.Compiler do
 
       {{:ok, :strict_neq}, []} ->
         binary_local_call(state, :op_strict_neq)
+
+      {{:ok, :call_constructor}, [argc]} ->
+        invoke_constructor_call(state, argc)
 
       {{:ok, :call}, [argc]} ->
         invoke_call(state, argc)
@@ -871,6 +1104,17 @@ defmodule QuickBEAM.BeamVM.Compiler do
     end
   end
 
+  defp invoke_constructor_call(state, argc) do
+    with {:ok, args, state} <- pop_n(state, argc),
+         {:ok, new_target, state} <- pop(state),
+         {:ok, ctor, state} <- pop(state) do
+      effectful_push(
+        state,
+        compiler_call(:construct_runtime, [ctor, new_target, list_expr(Enum.reverse(args))])
+      )
+    end
+  end
+
   defp invoke_tail_call(state, argc) do
     with {:ok, args, state} <- pop_n(state, argc),
          {:ok, fun, %{stack: []} = state} <- pop(state) do
@@ -896,6 +1140,38 @@ defmodule QuickBEAM.BeamVM.Compiler do
   defp array_from_call(state, argc) do
     with {:ok, elems, state} <- pop_n(state, argc) do
       {:ok, push(state, compiler_call(:array_from, [list_expr(Enum.reverse(elems))]))}
+    end
+  end
+
+  defp in_call(state) do
+    with {:ok, obj, state} <- pop(state),
+         {:ok, key, state} <- pop(state) do
+      {:ok,
+       push(state, remote_call(QuickBEAM.BeamVM.Interpreter.Objects, :has_property, [obj, key]))}
+    end
+  end
+
+  defp append_call(state) do
+    with {:ok, obj, state} <- pop(state),
+         {:ok, idx, state} <- pop(state),
+         {:ok, arr, state} <- pop(state) do
+      {pair, state} =
+        bind(state, temp_name(state.temp), compiler_call(:append_spread, [arr, idx, obj]))
+
+      {:ok, %{state | stack: [tuple_element(pair, 1), tuple_element(pair, 2) | state.stack]}}
+    end
+  end
+
+  defp copy_data_properties_call(state, mask) do
+    target_idx = Bitwise.band(mask, 3)
+    source_idx = Bitwise.band(Bitwise.bsr(mask, 2), 7)
+
+    with {:ok, state, target} <- bind_stack_entry(state, target_idx),
+         {:ok, state, source} <- bind_stack_entry(state, source_idx) do
+      {:ok,
+       %{state | body: state.body ++ [compiler_call(:copy_data_properties, [target, source])]}}
+    else
+      :error -> {:error, {:copy_data_properties_missing, mask, target_idx, source_idx}}
     end
   end
 
@@ -973,6 +1249,17 @@ defmodule QuickBEAM.BeamVM.Compiler do
   end
 
   defp push(state, expr), do: %{state | stack: [expr | state.stack]}
+
+  defp bind_stack_entry(state, idx) do
+    case Enum.fetch(state.stack, idx) do
+      {:ok, expr} ->
+        {bound, state} = bind(state, temp_name(state.temp), expr)
+        {:ok, %{state | stack: List.replace_at(state.stack, idx, bound)}, bound}
+
+      :error ->
+        :error
+    end
+  end
 
   defp put_slot(state, idx, expr), do: %{state | slots: Map.put(state.slots, idx, expr)}
 
