@@ -70,11 +70,11 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
   end
 
   proto "toUpperCase" do
-    String.upcase(this)
+    :string.uppercase(this) |> IO.iodata_to_binary()
   end
 
   proto "toLowerCase" do
-    String.downcase(this)
+    :string.lowercase(this) |> IO.iodata_to_binary()
   end
 
   proto "repeat" do
@@ -195,11 +195,18 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
     if sub == "" do
       min(from, String.length(s))
     else
-      search = String.slice(s, from..-1//1)
+      if byte_size(s) == String.length(s) do
+        case :binary.match(s, sub, scope: {from, byte_size(s) - from}) do
+          {pos, _len} -> pos
+          :nomatch -> -1
+        end
+      else
+        search = String.slice(s, from..-1//1)
 
-      case String.split(search, sub, parts: 2) do
-        [before, _] -> from + String.length(before)
-        _ -> -1
+        case :binary.match(search, sub) do
+          {pos, _len} -> from + pos
+          :nomatch -> -1
+        end
       end
     end
   end
@@ -214,13 +221,22 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
         _ -> String.length(s)
       end
 
-    search = String.slice(s, 0, from + String.length(sub))
-    parts = String.split(search, sub)
+    if byte_size(s) == String.length(s) do
+      scope_len = min(from + byte_size(sub), byte_size(s))
 
-    if length(parts) > 1 do
-      String.length(search) - String.length(List.last(parts)) - String.length(sub)
+      case :binary.matches(s, sub, scope: {0, scope_len}) do
+        [] -> -1
+        matches -> elem(List.last(matches), 0)
+      end
     else
-      -1
+      search = String.slice(s, 0, from + String.length(sub))
+      parts = :binary.split(search, sub, [:global])
+
+      if length(parts) > 1 do
+        byte_size(search) - byte_size(List.last(parts)) - byte_size(sub)
+      else
+        -1
+      end
     end
   end
 
@@ -304,7 +320,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
     if limit == 0 do
       []
     else
-      parts = if sep == "", do: String.codepoints(s), else: String.split(s, sep)
+      parts = if sep == "", do: String.codepoints(s), else: :binary.split(s, sep, [:global])
       if limit == :infinity, do: parts, else: Enum.take(parts, limit)
     end
   end
@@ -335,7 +351,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
           cap_values =
             Enum.map(captures, fn
-              {start, len} -> String.slice(s, start, len)
+              {start, len} -> binary_part(s, start, len)
               nil -> :undefined
             end)
 
@@ -386,7 +402,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
         regex_replace(s, r, replacement)
 
       pat when is_binary(pat) ->
-        String.replace(s, pat, Runtime.stringify(replacement), global: false)
+        :binary.replace(s, pat, Runtime.stringify(replacement))
 
       _ ->
         s
@@ -397,9 +413,14 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
   defp replace_all(s, [pattern, replacement | _]) when is_binary(s) do
     case pattern do
-      {:regexp, _bytecode, _source} = r -> regex_replace(s, r, replacement)
-      pat when is_binary(pat) -> String.replace(s, pat, Runtime.stringify(replacement))
-      _ -> s
+      {:regexp, _bytecode, _source} = r ->
+        regex_replace(s, r, replacement)
+
+      pat when is_binary(pat) ->
+        :binary.replace(s, pat, Runtime.stringify(replacement), [:global])
+
+      _ ->
+        s
     end
   end
 
@@ -418,7 +439,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
         captures ->
           Enum.map(captures, fn
-            {start, len} -> String.slice(s, start, len)
+            {start, len} -> binary_part(s, start, len)
             nil -> :undefined
           end)
       end
@@ -440,7 +461,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
         if acc == [], do: nil, else: Enum.reverse(acc)
 
       [{start, len} | _] ->
-        matched = String.slice(s, start, len)
+        matched = binary_part(s, start, len)
         new_offset = start + max(len, 1)
 
         if new_offset > byte_size(s),
@@ -456,9 +477,9 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
       [{start, len} | captures] ->
         strings =
-          [String.slice(s, start, len)] ++
+          [binary_part(s, start, len)] ++
             Enum.map(captures, fn
-              {cs, cl} -> String.slice(s, cs, cl)
+              {cs, cl} -> binary_part(s, cs, cl)
               nil -> :undefined
             end)
 
@@ -498,9 +519,9 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
   end
 
   defp search(s, [pattern | _]) when is_binary(s) and is_binary(pattern) do
-    case String.split(s, pattern, parts: 2) do
-      [before, _] -> String.length(before)
-      _ -> -1
+    case :binary.match(s, pattern) do
+      {pos, _len} -> pos
+      :nomatch -> -1
     end
   end
 
