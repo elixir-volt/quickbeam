@@ -60,7 +60,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         {:ok, State.push(state, State.atom(:undefined))}
 
       {{:ok, :push_empty_string}, []} ->
-        {:error, {:unsupported_literal, :empty_string}}
+        {:ok, State.push(state, State.literal(""))}
 
       {{:ok, :object}, []} ->
         {:ok, State.push(state, State.compiler_call(:new_object, []))}
@@ -352,6 +352,15 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
       {{:ok, :strict_neq}, []} ->
         State.binary_local_call(state, :op_strict_neq)
 
+      {{:ok, :for_of_start}, []} ->
+        lower_for_of_start(state)
+
+      {{:ok, :for_of_next}, [iter_idx]} ->
+        lower_for_of_next(state, iter_idx)
+
+      {{:ok, :iterator_close}, []} ->
+        lower_iterator_close(state)
+
       {{:ok, :call_constructor}, [argc]} ->
         State.invoke_constructor_call(state, argc)
 
@@ -417,6 +426,50 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
 
       {{:ok, name}, _} ->
         {:error, {:unsupported_opcode, name}}
+    end
+  end
+
+  defp lower_for_of_start(state) do
+    with {:ok, obj, state} <- State.pop(state) do
+      {pair, state} =
+        State.bind(state, State.temp_name(state.temp), State.compiler_call(:for_of_start, [obj]))
+
+      state = State.push(state, State.tuple_element(pair, 1))
+      state = State.push(state, State.tuple_element(pair, 2))
+      state = State.push(state, State.integer(0))
+      {:ok, state}
+    end
+  end
+
+  defp lower_for_of_next(state, iter_idx) do
+    with {:ok, state, next_fn} <- State.bind_stack_entry(state, iter_idx + 1),
+         {:ok, state, iter_obj} <- State.bind_stack_entry(state, iter_idx + 2) do
+      {result, state} =
+        State.bind(
+          state,
+          State.temp_name(state.temp),
+          State.compiler_call(:for_of_next, [next_fn, iter_obj])
+        )
+
+      state = %{
+        state
+        | stack: List.replace_at(state.stack, iter_idx + 2, State.tuple_element(result, 3))
+      }
+
+      state = State.push(state, State.tuple_element(result, 2))
+      state = State.push(state, State.tuple_element(result, 1))
+      {:ok, state}
+    else
+      :error -> {:error, {:for_of_state_missing, iter_idx}}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp lower_iterator_close(state) do
+    with {:ok, _catch_offset, state} <- State.pop(state),
+         {:ok, _next_fn, state} <- State.pop(state),
+         {:ok, iter_obj, state} <- State.pop(state) do
+      {:ok, %{state | body: state.body ++ [State.compiler_call(:iterator_close, [iter_obj])]}}
     end
   end
 

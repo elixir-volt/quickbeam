@@ -287,6 +287,82 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     end
   end
 
+  def for_of_start(obj) do
+    case obj do
+      list when is_list(list) ->
+        {{:list_iter, list, 0}, :undefined}
+
+      {:obj, ref} = obj_ref ->
+        case Heap.get_obj(ref) do
+          {:qb_arr, arr} ->
+            {{:list_iter, :array.to_list(arr), 0}, :undefined}
+
+          list when is_list(list) ->
+            {{:list_iter, list, 0}, :undefined}
+
+          map when is_map(map) ->
+            sym_iter = {:symbol, "Symbol.iterator"}
+
+            cond do
+              Map.has_key?(map, sym_iter) ->
+                iter_fn = Map.get(map, sym_iter)
+                iter_obj = Runtime.call_callback(iter_fn, [])
+                {iter_obj, Property.get(iter_obj, "next")}
+
+              Map.has_key?(map, "next") ->
+                {obj_ref, Property.get(obj_ref, "next")}
+
+              true ->
+                {{:list_iter, [], 0}, :undefined}
+            end
+
+          _ ->
+            {{:list_iter, [], 0}, :undefined}
+        end
+
+      s when is_binary(s) ->
+        {{:list_iter, String.codepoints(s), 0}, :undefined}
+
+      _ ->
+        {{:list_iter, [], 0}, :undefined}
+    end
+  end
+
+  def for_of_next(_next_fn, :undefined), do: {true, :undefined, :undefined}
+
+  def for_of_next(_next_fn, {:list_iter, list, idx}) do
+    if idx < length(list) do
+      {false, Enum.at(list, idx), {:list_iter, list, idx + 1}}
+    else
+      {true, :undefined, :undefined}
+    end
+  end
+
+  def for_of_next(next_fn, iter_obj) do
+    result = Runtime.call_callback(next_fn, [])
+    done = Property.get(result, "done")
+    value = Property.get(result, "value")
+
+    if done == true do
+      {true, :undefined, :undefined}
+    else
+      {false, value, iter_obj}
+    end
+  end
+
+  def iterator_close(:undefined), do: :ok
+  def iterator_close({:list_iter, _, _}), do: :ok
+
+  def iterator_close(iter_obj) do
+    return_fn = Property.get(iter_obj, "return")
+
+    if return_fn != :undefined and return_fn != nil do
+      Runtime.call_callback(return_fn, [])
+    end
+
+    :ok
+  end
+
   defp spread_source_to_list({:qb_arr, arr}), do: :array.to_list(arr)
   defp spread_source_to_list(list) when is_list(list), do: list
 
