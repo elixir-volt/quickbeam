@@ -415,11 +415,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     do: Enum.map_join(list, Runtime.stringify(sep), &array_element_to_string/1)
 
   defp join(list, []) when is_list(list), do: Enum.map_join(list, ",", &array_element_to_string/1)
+  defp join(_, _), do: ""
 
   defp array_element_to_string(:undefined), do: ""
   defp array_element_to_string(nil), do: ""
   defp array_element_to_string(val), do: Runtime.stringify(val)
-  defp join(_, _), do: ""
 
   defp concat({:obj, ref}, args) do
     list = Heap.get_obj(ref, [])
@@ -753,7 +753,6 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
       end
 
     idx_ref = :atomics.new(1, signed: false)
-    ref = make_ref()
 
     next_fn = {:builtin, "next", fn _args, _this ->
       i = :atomics.get(idx_ref, 1)

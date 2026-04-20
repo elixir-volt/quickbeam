@@ -146,7 +146,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
     num / denom
   end
 
-  defp round_radix_digits(digits, precision, radix) when length(digits) <= precision do
+  defp round_radix_digits(digits, precision, _radix) when length(digits) <= precision do
     digits
   end
 

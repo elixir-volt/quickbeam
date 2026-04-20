@@ -414,6 +414,14 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
       end
     end
   end
+  defp match(s, [pattern | _]) when is_binary(s) and is_binary(pattern) do
+    case QuickBEAM.Native.regexp_compile(Regex.escape(pattern), 0) do
+      bytecode when is_binary(bytecode) -> match(s, [{:regexp, bytecode, pattern}])
+      _ -> nil
+    end
+  end
+
+  defp match(_, _), do: nil
 
   defp match_all_strings(s, {:regexp, bytecode, _} = re, offset, acc) do
     case RegExp.nif_exec(bytecode, s, offset) do
@@ -450,15 +458,6 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
           else: match_all_with_captures(s, re, new_offset, [strings | acc])
     end
   end
-
-  defp match(s, [pattern | _]) when is_binary(s) and is_binary(pattern) do
-    case QuickBEAM.Native.regexp_compile(Regex.escape(pattern), 0) do
-      bytecode when is_binary(bytecode) -> match(s, [{:regexp, bytecode, pattern}])
-      _ -> nil
-    end
-  end
-
-  defp match(_, _), do: nil
 
   defp regex_replace(s, {:regexp, bytecode, _source}, replacement)
        when is_binary(s) and is_binary(bytecode) do

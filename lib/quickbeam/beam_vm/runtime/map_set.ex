@@ -398,7 +398,6 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
       iterator = call_with_this(keys_fn, [], other)
       iterate_check_none(iterator, d, other)
     else
-      od = other_set_data(other)
       not Enum.any?(d, fn v -> other_set_has(other, v) end)
     end
   end

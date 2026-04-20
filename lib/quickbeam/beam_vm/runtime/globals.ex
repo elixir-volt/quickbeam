@@ -56,7 +56,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
       "WeakSet" => register("WeakSet", MapSet.weak_set_constructor()),
       "WeakRef" => register("WeakRef", fn _, _ -> Runtime.new_object() end),
       "FinalizationRegistry" =>
-        register("FinalizationRegistry", fn [callback | _], _ ->
+        register("FinalizationRegistry", fn [_callback | _], _ ->
           Heap.wrap(%{
             "register" => {:builtin, "register", fn _, _ -> :undefined end},
             "unregister" => {:builtin, "unregister", fn _, _ -> :undefined end}

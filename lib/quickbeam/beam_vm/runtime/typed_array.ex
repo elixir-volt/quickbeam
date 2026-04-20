@@ -211,13 +211,6 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
           ),
           do: v
 
-    new_buf =
-      vals
-      |> Enum.with_index()
-      |> Enum.reduce(:binary.copy(<<0>>, length(vals) * elem_size(t)), fn {v, i}, acc ->
-        write_element(acc, i, v, t)
-      end)
-
     constructor(t).([vals], nil)
   end
 
@@ -290,7 +283,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
       result = Runtime.call_callback(species_ctor, [new_len])
 
       case result do
-        {:obj, result_ref} ->
+        {:obj, _result_ref} ->
           for i <- 0..(new_len - 1) do
             val = read_element(new_buf, i, t)
             set_element(result, i, val)
@@ -365,7 +358,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     cond do
       exp == 0 and frac == 0 -> s * 0.0
       exp == 0 -> s * frac * :math.pow(2, -24)
-      exp == 31 and frac == 0 -> s * :infinity
+      exp == 31 and frac == 0 -> if(s == -1.0, do: :neg_infinity, else: :infinity)
       exp == 31 -> :nan
       true -> s * :math.pow(2, exp - 15) * (1 + frac / 1024)
     end

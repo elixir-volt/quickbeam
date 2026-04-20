@@ -134,7 +134,6 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   defp func_proto do
     case Process.get(:qb_func_proto) do
       nil ->
-        ref = make_ref()
         call_fn = {:builtin, "call", fn [this | args], _ ->
           Runtime.call_callback(this, args)
         end}
