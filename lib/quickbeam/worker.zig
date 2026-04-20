@@ -419,7 +419,7 @@ pub const WorkerState = struct {
         self.set_ok_term(val, result);
     }
 
-    pub fn do_compile(self: *WorkerState, code: []const u8, result: *Result) void {
+    pub fn do_compile(self: *WorkerState, code: []const u8, filename: []const u8, result: *Result) void {
         const code_z = gpa.dupeZ(u8, code) catch {
             result.ok = false;
             result.json = "Out of memory";
@@ -428,7 +428,15 @@ pub const WorkerState = struct {
         defer gpa.free(code_z);
 
         const flags: c_int = qjs.JS_EVAL_TYPE_GLOBAL | qjs.JS_EVAL_FLAG_COMPILE_ONLY;
-        const func = qjs.JS_Eval(self.ctx, code_z.ptr, code.len, "<compile>", flags);
+        const fname = if (filename.len > 0) filename else "<compile>";
+        const fname_z = gpa.dupeZ(u8, fname) catch {
+            result.ok = false;
+            result.json = "Out of memory";
+            return;
+        };
+        defer gpa.free(fname_z);
+
+        const func = qjs.JS_Eval(self.ctx, code_z.ptr, code.len, fname_z.ptr, flags);
         defer qjs.JS_FreeValue(self.ctx, func);
 
         if (js.js_is_exception(func)) {
@@ -965,8 +973,9 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                 },
                 .compile => |p| {
                     var result = Result{};
-                    state.do_compile(p.code, &result);
+                    state.do_compile(p.code, p.filename, &result);
                     gpa.free(p.code);
+                    if (p.filename.len > 0) gpa.free(p.filename);
                     types.send_reply(p.caller_pid, p.ref_env, p.ref_term, result.ok, result.env, result.term, result.json);
                 },
                 .call_fn => |p| {

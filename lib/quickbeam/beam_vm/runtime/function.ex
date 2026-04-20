@@ -20,12 +20,19 @@ defmodule QuickBEAM.BeamVM.Runtime.Function do
 
   def proto_property(%Bytecode.Function{} = f, "name"), do: f.name || ""
   def proto_property(%Bytecode.Function{} = f, "length"), do: f.defined_arg_count
+  def proto_property(%Bytecode.Function{} = f, "fileName"), do: f.filename || ""
+  def proto_property(%Bytecode.Function{} = f, "lineNumber"), do: f.line_num
+  def proto_property(%Bytecode.Function{} = f, "columnNumber"), do: f.col_num
 
   def proto_property({:closure, _, %Bytecode.Function{} = f}, "name"),
     do: f.name || ""
 
   def proto_property({:closure, _, %Bytecode.Function{} = f}, "length"),
     do: f.defined_arg_count
+
+  def proto_property({:closure, _, %Bytecode.Function{} = f}, "fileName"), do: f.filename || ""
+  def proto_property({:closure, _, %Bytecode.Function{} = f}, "lineNumber"), do: f.line_num
+  def proto_property({:closure, _, %Bytecode.Function{} = f}, "columnNumber"), do: f.col_num
 
   def proto_property({:bound, _, inner, _, _}, key) when key not in ["length", "name"],
     do: proto_property(inner, key)

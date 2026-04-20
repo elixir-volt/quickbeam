@@ -3,13 +3,7 @@ defmodule QuickBEAM.JSEngineTest do
 
   alias QuickBEAM.BeamVM.Heap
 
-  # Skip list: tests that cannot work in beam mode
-  # Source positions / stack traces: beam VM does not track JS source locations
-  # eval/eval2: eval opcode not implemented in beam VM
-  # array: defineProperty configurable:false + length truncation (C engine only)
-  # cur_pc: spread destructuring defineProperty getter (C engine only)
-  # rope: surrogate pair encoding differs in BEAM binaries
-  @skip_builtin ~w(test_cur_pc test_eval test_eval2 test_array test_exception_source_pos test_function_source_pos test_exception_prepare_stack test_exception_stack_size_limit test_exception_capture_stack_trace test_rope)
+  @skip_builtin ~w()
 
   @skip_language ~w()
 
@@ -44,10 +38,7 @@ defmodule QuickBEAM.JSEngineTest do
       |> Enum.filter(&(String.starts_with?(&1.id.name, "test_") and &1.params == []))
       |> Enum.reject(&(&1.id.name in skip_list))
 
-    helper_fns =
-      Enum.reject(fns, fn f ->
-        (String.starts_with?(f.id.name, "test_") and f.params == []) or f.id.name == "test"
-      end)
+    helper_fns = Enum.reject(fns, &(&1.id.name == "test"))
 
     helpers =
       Enum.map_join(helper_fns, "\n", &binary_part(source, &1.start, &1[:end] - &1.start))
@@ -56,9 +47,14 @@ defmodule QuickBEAM.JSEngineTest do
       func_body = binary_part(source, func.start, func[:end] - func.start)
       func_line = source |> binary_part(0, func.start) |> String.split("\n") |> length()
 
+      current_helpers =
+        helper_fns
+        |> Enum.reject(&(&1.id.name == func_name))
+        |> Enum.map_join("\n", &binary_part(source, &1.start, &1[:end] - &1.start))
+
       @tag :js_engine
       test "#{file}: #{func_name}", %{rt: rt} do
-        QuickBEAM.eval(rt, unquote(helpers), mode: :beam)
+        QuickBEAM.eval(rt, unquote(current_helpers), mode: :beam)
 
         padding = String.duplicate("\n", unquote(func_line) - 1)
         code = padding <> unquote(func_body) <> "\n" <> unquote(func_name) <> "();"

@@ -168,7 +168,10 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
     graphemes = String.to_charlist(s)
 
     if i >= 0 and i < length(graphemes) do
-      Enum.at(graphemes, i)
+      case Enum.at(graphemes, i) do
+        cp when cp >= 0xE000 and cp <= 0xE7FF -> cp - 0x800
+        cp -> cp
+      end
     else
       :nan
     end
@@ -196,9 +199,13 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
       min(from, String.length(s))
     else
       if byte_size(s) == String.length(s) do
-        case :binary.match(s, sub, scope: {from, byte_size(s) - from}) do
-          {pos, _len} -> pos
-          :nomatch -> -1
+        if from >= byte_size(s) do
+          -1
+        else
+          case :binary.match(s, sub, scope: {from, byte_size(s) - from}) do
+            {pos, _len} -> pos
+            :nomatch -> -1
+          end
         end
       else
         search = String.slice(s, from..-1//1)
@@ -221,22 +228,27 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
         _ -> String.length(s)
       end
 
-    if byte_size(s) == String.length(s) do
-      scope_len = min(from + byte_size(sub), byte_size(s))
+    cond do
+      sub == "" ->
+        from
 
-      case :binary.matches(s, sub, scope: {0, scope_len}) do
-        [] -> -1
-        matches -> elem(List.last(matches), 0)
-      end
-    else
-      search = String.slice(s, 0, from + String.length(sub))
-      parts = :binary.split(search, sub, [:global])
+      byte_size(s) == String.length(s) ->
+        scope_len = min(from + byte_size(sub), byte_size(s))
 
-      if length(parts) > 1 do
-        byte_size(search) - byte_size(List.last(parts)) - byte_size(sub)
-      else
-        -1
-      end
+        case :binary.matches(s, sub, scope: {0, scope_len}) do
+          [] -> -1
+          matches -> elem(List.last(matches), 0)
+        end
+
+      true ->
+        search = String.slice(s, 0, from + String.length(sub))
+        parts = :binary.split(search, sub, [:global])
+
+        if length(parts) > 1 do
+          byte_size(search) - byte_size(List.last(parts)) - byte_size(sub)
+        else
+          -1
+        end
     end
   end
 
@@ -552,8 +564,14 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
   static "fromCharCode" do
     Enum.map_join(args, fn n ->
-      cp = Runtime.to_int(n)
-      if cp >= 0 and cp <= 0x10FFFF, do: <<cp::utf8>>, else: ""
+      cp = Bitwise.band(Runtime.to_int(n), 0xFFFF)
+
+      mapped =
+        if cp >= 0xD800 and cp <= 0xDFFF,
+          do: cp + 0x800,
+          else: cp
+
+      if mapped >= 0 and mapped <= 0x10FFFF, do: <<mapped::utf8>>, else: ""
     end)
   end
 

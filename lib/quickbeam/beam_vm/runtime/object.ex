@@ -307,6 +307,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
     names =
       case data do
+        {:qb_arr, arr} ->
+          (for i <- 0..(:array.size(arr) - 1), do: Integer.to_string(i)) ++ ["length"]
+
         list when is_list(list) ->
           array_indices(list) ++ ["length"]
 
@@ -395,7 +398,31 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     prop_name = if is_binary(key), do: key, else: to_string(key)
     existing = Heap.get_obj(ref, %{})
 
-    if Map.get(existing, typed_array()) do
+    if is_list(existing) or match?({:qb_arr, _}, existing) do
+      case Integer.parse(prop_name) do
+        {idx, ""} when idx >= 0 ->
+          writable = Map.get(desc, "writable", true)
+          enumerable = Map.get(desc, "enumerable", true)
+          configurable = Map.get(desc, "configurable", true)
+
+          Heap.put_prop_desc(ref, prop_name, %{
+            writable: writable,
+            enumerable: enumerable,
+            configurable: configurable
+          })
+
+          if Map.has_key?(desc, "value") do
+            Heap.array_set(ref, idx, Map.get(desc, "value"))
+          end
+
+          throw({:early_return, obj})
+
+        _ ->
+          :ok
+      end
+    end
+
+    if is_map(existing) and Map.get(existing, typed_array()) do
       case Integer.parse(prop_name) do
         {idx, ""} when idx >= 0 ->
           val = Map.get(desc, "value")
@@ -463,66 +490,99 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
   defp get_own_property_descriptor([{:obj, ref}, key | _]) do
     prop_name = if is_binary(key), do: key, else: to_string(key)
-    map = Heap.get_obj(ref, %{})
+    data = Heap.get_obj(ref, %{})
 
-    case Map.get(map, prop_name) do
-      nil ->
-        if Map.get(map, typed_array()) do
-          case Integer.parse(prop_name) do
-            {idx, ""} when idx >= 0 ->
-              val = TypedArray.get_element({:obj, ref}, idx)
+    cond do
+      is_list(data) or match?({:qb_arr, _}, data) ->
+        case Integer.parse(prop_name) do
+          {idx, ""} when idx >= 0 ->
+            val = Heap.array_get(ref, idx)
 
-              if val == :undefined do
-                :undefined
-              else
-                immutable = TypedArray.immutable?({:obj, ref})
-                desc_ref = make_ref()
-
-                Heap.put_obj(desc_ref, %{
-                  "value" => val,
-                  "writable" => not immutable,
-                  "enumerable" => true,
-                  "configurable" => not immutable
-                })
-
-                {:obj, desc_ref}
-              end
-
-            _ ->
+            if val == :undefined and Heap.get_prop_desc(ref, prop_name) == nil do
               :undefined
-          end
-        else
-          :undefined
+            else
+              desc =
+                Heap.get_prop_desc(ref, prop_name) ||
+                  %{writable: true, enumerable: true, configurable: true}
+
+              desc_ref = make_ref()
+
+              Heap.put_obj(desc_ref, %{
+                "value" => val,
+                "writable" => desc.writable,
+                "enumerable" => desc.enumerable,
+                "configurable" => desc.configurable
+              })
+
+              {:obj, desc_ref}
+            end
+
+          _ ->
+            :undefined
         end
 
-      {:accessor, getter, setter} ->
-        desc = Heap.get_prop_desc(ref, prop_name) || %{enumerable: true, configurable: true}
-        desc_ref = make_ref()
+      is_map(data) and Map.get(data, typed_array()) ->
+        case Integer.parse(prop_name) do
+          {idx, ""} when idx >= 0 ->
+            val = TypedArray.get_element({:obj, ref}, idx)
 
-        Heap.put_obj(desc_ref, %{
-          "get" => getter || :undefined,
-          "set" => setter || :undefined,
-          "enumerable" => desc.enumerable,
-          "configurable" => desc.configurable
-        })
+            if val == :undefined do
+              :undefined
+            else
+              immutable = TypedArray.immutable?({:obj, ref})
+              desc_ref = make_ref()
 
-        {:obj, desc_ref}
+              Heap.put_obj(desc_ref, %{
+                "value" => val,
+                "writable" => not immutable,
+                "enumerable" => true,
+                "configurable" => not immutable
+              })
 
-      val ->
-        desc =
-          Heap.get_prop_desc(ref, prop_name) ||
-            %{writable: true, enumerable: true, configurable: true}
+              {:obj, desc_ref}
+            end
 
-        desc_ref = make_ref()
+          _ ->
+            :undefined
+        end
 
-        Heap.put_obj(desc_ref, %{
-          "value" => val,
-          "writable" => desc.writable,
-          "enumerable" => desc.enumerable,
-          "configurable" => desc.configurable
-        })
+      is_map(data) ->
+        case Map.get(data, prop_name) do
+          nil ->
+            :undefined
 
-        {:obj, desc_ref}
+          {:accessor, getter, setter} ->
+            desc = Heap.get_prop_desc(ref, prop_name) || %{enumerable: true, configurable: true}
+            desc_ref = make_ref()
+
+            Heap.put_obj(desc_ref, %{
+              "get" => getter || :undefined,
+              "set" => setter || :undefined,
+              "enumerable" => desc.enumerable,
+              "configurable" => desc.configurable
+            })
+
+            {:obj, desc_ref}
+
+          val ->
+            desc =
+              Heap.get_prop_desc(ref, prop_name) ||
+                %{writable: true, enumerable: true, configurable: true}
+
+            desc_ref = make_ref()
+
+            Heap.put_obj(desc_ref, %{
+              "value" => val,
+              "writable" => desc.writable,
+              "enumerable" => desc.enumerable,
+              "configurable" => desc.configurable
+            })
+
+            {:obj, desc_ref}
+        end
+
+      true ->
+        :undefined
     end
   end
 

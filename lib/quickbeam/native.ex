@@ -157,7 +157,7 @@ defmodule QuickBEAM.Native do
       regexp_compile: 2,
       regexp_exec: 3,
       eval: 4,
-      compile: 2,
+      compile: 3,
       call_function: 4,
       load_module: 3,
       load_bytecode: 2,

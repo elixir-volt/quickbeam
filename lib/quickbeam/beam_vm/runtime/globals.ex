@@ -6,6 +6,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   alias QuickBEAM.BeamVM.{Bytecode, Heap}
   alias QuickBEAM.BeamVM.Interpreter
   alias QuickBEAM.BeamVM.Runtime
+  alias QuickBEAM.BeamVM.Stacktrace
 
   alias QuickBEAM.BeamVM.Runtime.{
     ArrayBuffer,
@@ -226,9 +227,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
     {:regexp, pat, flags}
   end
 
-  defp error_constructor(args, _) do
+  defp error_constructor(name, args) do
     msg = List.first(args, "")
-    Heap.wrap(%{"message" => Runtime.stringify(msg), "stack" => ""})
+    error = Heap.make_error(Runtime.stringify(msg), name)
+    Stacktrace.attach_stack(error)
   end
 
   defp proxy_constructor([target, handler | _], _) do
@@ -431,7 +433,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   defp error_types do
     for name <- @error_types, into: %{} do
       proto_ref = make_ref()
-      ctor = {:builtin, name, &error_constructor/2}
+      ctor = {:builtin, name, fn args, _this -> error_constructor(name, args) end}
       Heap.put_obj(proto_ref, %{"name" => name, "message" => "", "constructor" => ctor})
       Heap.put_class_proto(ctor, {:obj, proto_ref})
       Heap.put_ctor_static(ctor, "prototype", {:obj, proto_ref})
@@ -447,9 +449,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
                  {:js_throw, Heap.make_error("Cannot convert undefined to object", "TypeError")}
                )
 
-             [obj | _], _ ->
+             [obj | rest], _ ->
+               filter_fun = List.first(rest)
+
                case obj do
-                 {:obj, ref} -> Heap.update_obj(ref, %{}, &Map.put(&1, "stack", ""))
+                 {:obj, _} -> Stacktrace.attach_stack(obj, filter_fun)
                  _ -> :ok
                end
 

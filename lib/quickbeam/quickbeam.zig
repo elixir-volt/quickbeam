@@ -130,7 +130,7 @@ pub fn eval(resource: RuntimeResource, code: []const u8, timeout_ms: u64, filena
     return beam.term{ .v = e.enif_make_copy(env, ref_term) };
 }
 
-pub fn compile(resource: RuntimeResource, code: []const u8) beam.term {
+pub fn compile(resource: RuntimeResource, code: []const u8, filename: []const u8) beam.term {
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
@@ -139,12 +139,20 @@ pub fn compile(resource: RuntimeResource, code: []const u8) beam.term {
     const ref_term = e.enif_make_ref(ref_env);
 
     const code_copy = gpa.dupe(u8, code) catch return beam.make(.{ .@"error", "OOM" }, .{});
+    const fname_copy = if (filename.len > 0)
+        (gpa.dupe(u8, filename) catch {
+            gpa.free(code_copy);
+            return beam.make(.{ .@"error", "OOM" }, .{});
+        })
+    else
+        &[_]u8{};
 
     enqueue(data, .{ .compile = .{
         .code = code_copy,
         .caller_pid = caller_pid,
         .ref_env = ref_env,
         .ref_term = ref_term,
+        .filename = fname_copy,
     } });
 
     return beam.term{ .v = e.enif_make_copy(env, ref_term) };

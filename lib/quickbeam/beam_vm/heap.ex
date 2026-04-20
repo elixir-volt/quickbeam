@@ -93,7 +93,11 @@ defmodule QuickBEAM.BeamVM.Heap do
       end
 
     base = %{"message" => message, "name" => name, "stack" => ""}
-    if proto, do: wrap(Map.put(base, "__proto__", proto)), else: wrap(base)
+    error = if proto, do: wrap(Map.put(base, "__proto__", proto)), else: wrap(base)
+
+    if get_ctx() != nil,
+      do: QuickBEAM.BeamVM.Stacktrace.attach_stack(error),
+      else: error
   end
 
   defp find_error_proto(name) do

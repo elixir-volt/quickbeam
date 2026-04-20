@@ -14,21 +14,23 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
 
     if is_list(data) or match?({:qb_arr, _}, data) do
       new_len = Runtime.to_int(val)
-      old_len = length(data)
+      list = if is_list(data), do: data, else: Heap.obj_to_list(ref)
+      old_len = length(list)
 
       if new_len < old_len do
-        non_configurable =
-          Enum.any?(new_len..(old_len - 1), fn i ->
+        non_configurable_idx =
+          Enum.find(new_len..(old_len - 1), fn i ->
             match?(%{configurable: false}, Heap.get_prop_desc(ref, Integer.to_string(i)))
           end)
 
-        if non_configurable do
+        if non_configurable_idx do
+          Heap.put_obj(ref, Enum.take(list, non_configurable_idx + 1))
           throw({:js_throw, Heap.make_error("Cannot delete property", "TypeError")})
         end
 
-        Heap.put_obj(ref, Enum.take(data, new_len))
+        Heap.put_obj(ref, Enum.take(list, new_len))
       else
-        padded = data ++ List.duplicate(:undefined, new_len - old_len)
+        padded = list ++ List.duplicate(:undefined, new_len - old_len)
         Heap.put_obj(ref, padded)
       end
     end
@@ -50,6 +52,21 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
           Runtime.call_callback(set_trap, [target, key, val])
         else
           put(target, key, val)
+        end
+
+      {:qb_arr, _} ->
+        case key do
+          k when is_binary(k) ->
+            case Integer.parse(k) do
+              {idx, ""} when idx >= 0 -> put_element({:obj, ref}, idx, val)
+              _ -> :ok
+            end
+
+          k when is_integer(k) and k >= 0 ->
+            put_element({:obj, ref}, k, val)
+
+          _ ->
+            :ok
         end
 
       list when is_list(list) ->
@@ -92,6 +109,8 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
 
   def put({:closure, _, %Bytecode.Function{}} = c, key, val),
     do: Heap.put_ctor_static(c, key, val)
+
+  def put({:builtin, _, _} = b, key, val), do: Heap.put_ctor_static(b, key, val)
 
   def put(_, _, _), do: :ok
 

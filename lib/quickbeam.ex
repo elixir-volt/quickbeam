@@ -180,7 +180,7 @@ defmodule QuickBEAM do
     end
   end
 
-  defp eval_beam(runtime, code, _opts) do
+  defp eval_beam(runtime, code, _opts = opts) do
     handler_globals =
       case Heap.get_handler_globals() do
         nil ->
@@ -211,7 +211,7 @@ defmodule QuickBEAM do
           cached
       end
 
-    case Runtime.compile(runtime, code) do
+    case Runtime.compile(runtime, code, Keyword.get(opts, :filename, "")) do
       {:ok, bc} ->
         case BeamBytecode.decode(bc) do
           {:ok, parsed} ->

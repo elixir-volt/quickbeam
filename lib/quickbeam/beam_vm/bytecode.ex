@@ -32,6 +32,11 @@ defmodule QuickBEAM.BeamVM.Bytecode do
     @type t :: %__MODULE__{}
     defstruct [
       :name,
+      :filename,
+      line_num: 1,
+      col_num: 1,
+      pc2line: <<>>,
+      source: <<>>,
       arg_count: 0,
       var_count: 0,
       defined_arg_count: 0,
@@ -349,7 +354,7 @@ defmodule QuickBEAM.BeamVM.Bytecode do
       else
         <<byte_code::binary-size(byte_code_len), rest::binary>> = rest
 
-        rest = skip_debug_info(rest, flags_map.has_debug_info, atoms)
+        {debug_info, rest} = read_debug_info(rest, flags_map.has_debug_info, atoms)
 
         fun = %Function{
           name: func_name,
@@ -362,6 +367,11 @@ defmodule QuickBEAM.BeamVM.Bytecode do
           closure_vars: closure_vars,
           constants: cpool,
           byte_code: byte_code,
+          filename: debug_info.filename,
+          line_num: debug_info.line_num,
+          col_num: debug_info.col_num,
+          pc2line: debug_info.pc2line,
+          source: debug_info.source,
           is_strict_mode: strict > 0,
           has_prototype: flags_map.has_prototype,
           has_simple_parameter_list: flags_map.has_simple_parameter_list,
@@ -498,20 +508,24 @@ defmodule QuickBEAM.BeamVM.Bytecode do
     end
   end
 
-  # After bytecode: if has_debug_info, read filename atom + line_num leb128
-  defp skip_debug_info(data, false, _atoms), do: data
+  defp read_debug_info(data, false, _atoms) do
+    {%{filename: nil, line_num: 1, col_num: 1, pc2line: <<>>, source: <<>>}, data}
+  end
 
-  defp skip_debug_info(data, true, atoms) do
-    with {:ok, _filename, rest} <- read_atom_ref(data, atoms),
-         {:ok, _line_num, rest} <- LEB128.read_signed(rest),
-         {:ok, _col_num, rest} <- LEB128.read_signed(rest),
+  defp read_debug_info(data, true, atoms) do
+    with {:ok, filename, rest} <- read_atom_ref(data, atoms),
+         {:ok, line_num, rest} <- LEB128.read_signed(rest),
+         {:ok, col_num, rest} <- LEB128.read_signed(rest),
          {:ok, pc2line_len, rest} <- LEB128.read_signed(rest),
-         {:ok, rest} <- skip_bytes(rest, pc2line_len),
+         true <- byte_size(rest) >= pc2line_len,
+         <<pc2line::binary-size(pc2line_len), rest::binary>> <- rest,
          {:ok, source_len, rest} <- LEB128.read_signed(rest),
-         {:ok, rest} <- skip_bytes(rest, source_len) do
-      rest
+         true <- byte_size(rest) >= source_len,
+         <<source::binary-size(source_len), rest::binary>> <- rest do
+      {%{filename: filename, line_num: line_num, col_num: col_num, pc2line: pc2line, source: source},
+       rest}
     else
-      {:error, _} -> data
+      _ -> {%{filename: nil, line_num: 1, col_num: 1, pc2line: <<>>, source: <<>>}, data}
     end
   end
 
@@ -523,4 +537,65 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   end
 
   defp skip_bytes(_, _), do: {:error, :unexpected_end}
+
+  @pc2line_base -1
+  @pc2line_range 5
+  @pc2line_op_first 1
+
+  def instruction_offset(byte_code, insn_index) when is_binary(byte_code) and is_integer(insn_index) do
+    do_instruction_offset(byte_code, byte_size(byte_code), 0, 0, insn_index)
+  end
+
+  defp do_instruction_offset(_bc, _len, pos, idx, target) when idx >= target, do: pos
+
+  defp do_instruction_offset(bc, len, pos, idx, target) when pos < len do
+    op = :binary.at(bc, pos)
+
+    case Opcodes.info(op) do
+      {_name, size, _n_pop, _n_push, _fmt} ->
+        do_instruction_offset(bc, len, pos + size, idx + 1, target)
+
+      _ ->
+        pos
+    end
+  end
+
+  defp do_instruction_offset(_bc, _len, pos, _idx, _target), do: pos
+
+  def source_position(%Function{} = fun, insn_index) do
+    pc = instruction_offset(fun.byte_code, insn_index)
+    decode_pc2line(fun, pc)
+  end
+
+  defp decode_pc2line(%Function{pc2line: <<>>} = fun, _pc), do: {fun.line_num, fun.col_num}
+
+  defp decode_pc2line(%Function{} = fun, target_pc) do
+    do_decode_pc2line(fun.pc2line, target_pc, 0, fun.line_num, fun.col_num)
+  end
+
+  defp do_decode_pc2line(<<>>, _target_pc, _pc, line_num, col_num), do: {line_num, col_num}
+
+  defp do_decode_pc2line(data, target_pc, pc, line_num, col_num) do
+    <<op_byte, rest::binary>> = data
+
+    {next_pc, next_line, next_col, rest2} =
+      if op_byte == 0 do
+        {:ok, diff_pc, rest1} = LEB128.read_unsigned(rest)
+        {:ok, diff_line, rest2} = LEB128.read_signed(rest1)
+        {:ok, diff_col, rest3} = LEB128.read_signed(rest2)
+        {pc + diff_pc, line_num + diff_line, col_num + diff_col, rest3}
+      else
+        op = op_byte - @pc2line_op_first
+        {:ok, diff_col, rest3} = LEB128.read_signed(rest)
+
+        {pc + div(op, @pc2line_range), line_num + rem(op, @pc2line_range) + @pc2line_base,
+         col_num + diff_col, rest3}
+      end
+
+    if target_pc < next_pc do
+      {line_num, col_num}
+    else
+      do_decode_pc2line(rest2, target_pc, next_pc, next_line, next_col)
+    end
+  end
 end

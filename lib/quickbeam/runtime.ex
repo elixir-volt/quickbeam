@@ -86,9 +86,9 @@ defmodule QuickBEAM.Runtime do
     end
   end
 
-  @spec compile(GenServer.server(), String.t()) :: {:ok, binary()} | {:error, String.t()}
-  def compile(server, code) when is_binary(code) do
-    GenServer.call(server, {:compile, code}, :infinity)
+  @spec compile(GenServer.server(), String.t(), String.t()) :: {:ok, binary()} | {:error, String.t()}
+  def compile(server, code, filename \\ "") when is_binary(code) and is_binary(filename) do
+    GenServer.call(server, {:compile, code, filename}, :infinity)
   end
 
   @spec load_bytecode(GenServer.server(), binary()) ::
@@ -501,8 +501,8 @@ defmodule QuickBEAM.Runtime do
     {:noreply, %{state | pending: Map.put(state.pending, ref, {from, transform})}}
   end
 
-  def handle_call({:compile, code}, from, state) do
-    ref = QuickBEAM.Native.compile(state.resource, code)
+  def handle_call({:compile, code, filename}, from, state) do
+    ref = QuickBEAM.Native.compile(state.resource, code, filename)
 
     transform = fn
       {:ok, {:bytes, bytecode}} -> {:ok, bytecode}
