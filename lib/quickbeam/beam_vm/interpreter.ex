@@ -1571,13 +1571,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
-  defp run({@op_put_var, [atom_idx]}, pc, frame, [val | rest], gas, ctx) do
-    new_ctx = Scope.set_global(ctx, atom_idx, val)
-    Heap.put_persistent_globals(new_ctx.globals)
-    run(pc + 1, frame, rest, gas - 1, new_ctx)
-  end
-
-  defp run({@op_put_var_init, [atom_idx]}, pc, frame, [val | rest], gas, ctx) do
+  defp run({op, [atom_idx]}, pc, frame, [val | rest], gas, ctx)
+       when op in [@op_put_var, @op_put_var_init] do
     new_ctx = Scope.set_global(ctx, atom_idx, val)
     Heap.put_persistent_globals(new_ctx.globals)
     run(pc + 1, frame, rest, gas - 1, new_ctx)
@@ -2052,7 +2047,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Closure variable refs (mutable) ──
 
-  defp run({@op_make_var_ref, [idx]}, pc, frame, stack, gas, ctx) do
+  defp run({op, [idx]}, pc, frame, stack, gas, ctx)
+       when op in [@op_make_var_ref, @op_make_loc_ref] do
     ref = make_ref()
     Heap.put_cell(ref, elem(elem(frame, Frame.locals()), idx))
     run(pc + 1, frame, [{:cell, ref} | stack], gas - 1, ctx)
@@ -2061,12 +2057,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({@op_make_arg_ref, [idx]}, pc, frame, stack, gas, ctx) do
     ref = make_ref()
     Heap.put_cell(ref, Scope.get_arg_value(ctx, idx))
-    run(pc + 1, frame, [{:cell, ref} | stack], gas - 1, ctx)
-  end
-
-  defp run({@op_make_loc_ref, [idx]}, pc, frame, stack, gas, ctx) do
-    ref = make_ref()
-    Heap.put_cell(ref, elem(elem(frame, Frame.locals()), idx))
     run(pc + 1, frame, [{:cell, ref} | stack], gas - 1, ctx)
   end
 
@@ -2089,16 +2079,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
-  defp run({@op_put_var_ref_check, [idx]}, pc, frame, [val | rest], gas, ctx) do
-    case elem(elem(frame, Frame.var_refs()), idx) do
-      {:cell, ref} -> Closures.write_cell({:cell, ref}, val)
-      _ -> :ok
-    end
-
-    run(pc + 1, frame, rest, gas - 1, ctx)
-  end
-
-  defp run({@op_put_var_ref_check_init, [idx]}, pc, frame, [val | rest], gas, ctx) do
+  defp run({op, [idx]}, pc, frame, [val | rest], gas, ctx)
+       when op in [@op_put_var_ref_check, @op_put_var_ref_check_init] do
     case elem(elem(frame, Frame.var_refs()), idx) do
       {:cell, ref} -> Closures.write_cell({:cell, ref}, val)
       _ -> :ok
