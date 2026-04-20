@@ -125,6 +125,45 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
 
       assert {:ok, 12} = Compiler.invoke(fun, [-12])
     end
+
+    test "compiles array writes with indexed reads", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(v){ let a=[]; a[0]=v; return a[0] })")
+        |> user_function()
+
+      assert {:ok, 11} = Compiler.invoke(fun, [11])
+    end
+
+    test "compiles compound array updates", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(a,v){ a[0] += v; return a[0] })") |> user_function()
+
+      assert {:ok, 8} = Compiler.invoke(fun, [Heap.wrap([3]), 5])
+    end
+
+    test "compiles loose-null checks before indexed writes", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(i,v){ if (i == null) i = 0; let a=[]; a[i]=v; return a[i] })"
+        )
+        |> user_function()
+
+      assert {:ok, 12} = Compiler.invoke(fun, [nil, 12])
+      assert {:ok, 13} = Compiler.invoke(fun, [1, 13])
+    end
+
+    test "compiles local increments", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(x){ x++; return x })") |> user_function()
+
+      assert {:ok, 6} = Compiler.invoke(fun, [5])
+    end
+
+    test "compiles bitwise operators", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(a,b){ return ((a & b) ^ 1) << 2 })") |> user_function()
+
+      assert {:ok, 0} = Compiler.invoke(fun, [3, 1])
+    end
   end
 
   describe "Interpreter integration" do

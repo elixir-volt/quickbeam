@@ -66,6 +66,9 @@ defmodule QuickBEAM.BeamVM.Compiler do
 
   def strict_neq(a, b), do: not Values.strict_eq(a, b)
 
+  def inc(a), do: Values.add(a, 1)
+  def dec(a), do: Values.sub(a, 1)
+
   def get_var(atom_idx) do
     globals = current_globals()
     name = atom_name(atom_idx)
@@ -218,14 +221,25 @@ defmodule QuickBEAM.BeamVM.Compiler do
     entries = block_entries(instructions)
     slot_count = fun.arg_count + fun.var_count
 
-    blocks =
-      for start <- entries, into: [] do
-        {start, block_form(start, fun.arg_count, slot_count, instructions, entries)}
-      end
+    with {:ok, stack_depths} <- infer_block_stack_depths(instructions, entries) do
+      blocks =
+        for start <- entries, Map.has_key?(stack_depths, start), into: [] do
+          {start,
+           block_form(
+             start,
+             fun.arg_count,
+             slot_count,
+             instructions,
+             entries,
+             Map.fetch!(stack_depths, start),
+             stack_depths
+           )}
+        end
 
-    case Enum.find(blocks, fn {_start, form} -> match?({:error, _}, form) end) do
-      nil -> {:ok, {slot_count, Enum.map(blocks, &elem(&1, 1))}}
-      {_start, error} -> error
+      case Enum.find(blocks, fn {_start, form} -> match?({:error, _}, form) end) do
+        nil -> {:ok, {slot_count, Enum.map(blocks, &elem(&1, 1))}}
+        {_start, error} -> error
+      end
     end
   end
 
@@ -253,13 +267,15 @@ defmodule QuickBEAM.BeamVM.Compiler do
     |> Enum.sort()
   end
 
-  defp block_form(start, arg_count, slot_count, instructions, entries) do
-    state = initial_state(slot_count)
+  defp block_form(start, arg_count, slot_count, instructions, entries, stack_depth, stack_depths) do
+    state = initial_state(slot_count, stack_depth)
     next_entry = next_entry(entries, start)
+    args = slot_vars(slot_count) ++ stack_vars(stack_depth)
 
-    with {:ok, body} <- lower_block(instructions, start, next_entry, arg_count, state) do
-      {:function, @line, block_name(start), slot_count,
-       [{:clause, @line, slot_vars(slot_count), [], body}]}
+    with {:ok, body} <-
+           lower_block(instructions, start, next_entry, arg_count, state, stack_depths) do
+      {:function, @line, block_name(start), slot_count + stack_depth,
+       [{:clause, @line, args, [], body}]}
     end
   end
 
@@ -267,44 +283,52 @@ defmodule QuickBEAM.BeamVM.Compiler do
     Enum.find(entries, &(&1 > start))
   end
 
-  defp initial_state(slot_count) do
+  defp initial_state(slot_count, stack_depth) do
     slots =
       if slot_count == 0,
         do: %{},
         else: Map.new(0..(slot_count - 1), fn idx -> {idx, slot_var(idx)} end)
 
+    stack =
+      if stack_depth == 0,
+        do: [],
+        else: Enum.map(0..(stack_depth - 1), &stack_var/1)
+
     %{
       body: [],
       slots: slots,
-      stack: [],
+      stack: stack,
       temp: 0
     }
   end
 
-  defp lower_block(instructions, idx, next_entry, arg_count, state)
+  defp lower_block(instructions, idx, next_entry, arg_count, state, _stack_depths)
        when idx >= length(instructions) do
     {:error, {:missing_terminator, idx, next_entry, arg_count, state.body}}
   end
 
-  defp lower_block(_instructions, idx, idx, _arg_count, %{stack: []} = state) do
-    {:ok, state.body ++ [local_call(block_name(idx), current_slots(state))]}
-  end
-
-  defp lower_block(_instructions, idx, idx, _arg_count, _state) do
-    {:error, {:stack_not_empty_at_block_boundary, idx}}
-  end
-
-  defp lower_block(instructions, idx, next_entry, arg_count, state) do
-    instruction = Enum.at(instructions, idx)
-
-    case lower_instruction(instruction, idx, next_entry, arg_count, state) do
-      {:ok, next_state} -> lower_block(instructions, idx + 1, next_entry, arg_count, next_state)
-      {:done, body} -> {:ok, body}
-      {:error, _} = error -> error
+  defp lower_block(_instructions, idx, idx, _arg_count, state, stack_depths) do
+    with {:ok, call} <- block_jump_call(state, idx, stack_depths) do
+      {:ok, state.body ++ [call]}
     end
   end
 
-  defp lower_instruction({op, args}, idx, next_entry, _arg_count, state) do
+  defp lower_block(instructions, idx, next_entry, arg_count, state, stack_depths) do
+    instruction = Enum.at(instructions, idx)
+
+    case lower_instruction(instruction, idx, next_entry, arg_count, state, stack_depths) do
+      {:ok, next_state} ->
+        lower_block(instructions, idx + 1, next_entry, arg_count, next_state, stack_depths)
+
+      {:done, body} ->
+        {:ok, body}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp lower_instruction({op, args}, idx, next_entry, _arg_count, state, stack_depths) do
     name = opcode_name(op)
 
     case {name, args} do
@@ -489,6 +513,9 @@ defmodule QuickBEAM.BeamVM.Compiler do
       {{:ok, :dup}, []} ->
         duplicate_top(state)
 
+      {{:ok, :dup2}, []} ->
+        duplicate_top_two(state)
+
       {{:ok, :drop}, []} ->
         drop_top(state)
 
@@ -501,6 +528,12 @@ defmodule QuickBEAM.BeamVM.Compiler do
       {{:ok, :plus}, []} ->
         unary_local_call(state, :op_plus)
 
+      {{:ok, :inc}, []} ->
+        unary_call(state, __MODULE__, :inc)
+
+      {{:ok, :dec}, []} ->
+        unary_call(state, __MODULE__, :dec)
+
       {{:ok, :add}, []} ->
         binary_local_call(state, :op_add)
 
@@ -512,6 +545,24 @@ defmodule QuickBEAM.BeamVM.Compiler do
 
       {{:ok, :div}, []} ->
         binary_local_call(state, :op_div)
+
+      {{:ok, :band}, []} ->
+        binary_call(state, Values, :band)
+
+      {{:ok, :bor}, []} ->
+        binary_call(state, Values, :bor)
+
+      {{:ok, :bxor}, []} ->
+        binary_call(state, Values, :bxor)
+
+      {{:ok, :shl}, []} ->
+        binary_call(state, Values, :shl)
+
+      {{:ok, :sar}, []} ->
+        binary_call(state, Values, :sar)
+
+      {{:ok, :shr}, []} ->
+        binary_call(state, Values, :shr)
 
       {{:ok, :get_length}, []} ->
         unary_call(state, __MODULE__, :get_length)
@@ -552,6 +603,12 @@ defmodule QuickBEAM.BeamVM.Compiler do
       {{:ok, :gte}, []} ->
         binary_local_call(state, :op_gte)
 
+      {{:ok, :eq}, []} ->
+        binary_local_call(state, :op_eq)
+
+      {{:ok, :neq}, []} ->
+        binary_local_call(state, :op_neq)
+
       {{:ok, :strict_eq}, []} ->
         binary_local_call(state, :op_strict_eq)
 
@@ -586,25 +643,25 @@ defmodule QuickBEAM.BeamVM.Compiler do
         unary_call(state, __MODULE__, :is_undefined_or_null)
 
       {{:ok, :if_false}, [target]} ->
-        branch(state, idx, next_entry, target, false)
+        branch(state, idx, next_entry, target, false, stack_depths)
 
       {{:ok, :if_false8}, [target]} ->
-        branch(state, idx, next_entry, target, false)
+        branch(state, idx, next_entry, target, false, stack_depths)
 
       {{:ok, :if_true}, [target]} ->
-        branch(state, idx, next_entry, target, true)
+        branch(state, idx, next_entry, target, true, stack_depths)
 
       {{:ok, :if_true8}, [target]} ->
-        branch(state, idx, next_entry, target, true)
+        branch(state, idx, next_entry, target, true, stack_depths)
 
       {{:ok, :goto}, [target]} ->
-        goto(state, target)
+        goto(state, target, stack_depths)
 
       {{:ok, :goto8}, [target]} ->
-        goto(state, target)
+        goto(state, target, stack_depths)
 
       {{:ok, :goto16}, [target]} ->
-        goto(state, target)
+        goto(state, target, stack_depths)
 
       {{:ok, :return}, []} ->
         return_top(state)
@@ -639,6 +696,17 @@ defmodule QuickBEAM.BeamVM.Compiler do
     with {:ok, expr, state} <- pop(state) do
       {bound, state} = bind(state, temp_name(state.temp), expr)
       {:ok, %{state | stack: [bound, bound | state.stack]}}
+    end
+  end
+
+  defp duplicate_top_two(state) do
+    with {:ok, first, state} <- pop(state),
+         {:ok, second, state} <- pop(state) do
+      {second_bound, state} = bind(state, temp_name(state.temp), second)
+      {first_bound, state} = bind(state, temp_name(state.temp), first)
+
+      {:ok,
+       %{state | stack: [first_bound, second_bound, first_bound, second_bound | state.stack]}}
     end
   end
 
@@ -757,25 +825,27 @@ defmodule QuickBEAM.BeamVM.Compiler do
     end
   end
 
-  defp goto(%{stack: []} = state, target) do
-    {:done, state.body ++ [local_call(block_name(target), current_slots(state))]}
+  defp goto(state, target, stack_depths) do
+    with {:ok, call} <- block_jump_call(state, target, stack_depths) do
+      {:done, state.body ++ [call]}
+    end
   end
 
-  defp goto(_state, target), do: {:error, {:stack_not_empty_at_goto, target}}
-
-  defp branch(%{stack: stack}, idx, next_entry, target, sense) when stack == [] do
+  defp branch(%{stack: stack}, idx, next_entry, target, sense, _stack_depths) when stack == [] do
     {:error, {:missing_branch_condition, idx, target, sense, next_entry}}
   end
 
-  defp branch(state, _idx, next_entry, target, sense) when is_nil(next_entry) do
+  defp branch(state, _idx, next_entry, target, sense, _stack_depths) when is_nil(next_entry) do
     {:error, {:missing_fallthrough_block, target, sense, state.body}}
   end
 
-  defp branch(state, _idx, next_entry, target, sense) do
-    with {:ok, cond_expr, %{stack: []} = state} <- pop(state) do
+  defp branch(state, _idx, next_entry, target, sense, stack_depths) do
+    with {:ok, cond_expr, state} <- pop(state),
+         {:ok, target_call} <- block_jump_call(state, target, stack_depths),
+         {:ok, next_call} <- block_jump_call(state, next_entry, stack_depths) do
       truthy = remote_call(Values, :truthy?, [cond_expr])
-      false_body = [local_call(block_name(target), current_slots(state))]
-      true_body = [local_call(block_name(next_entry), current_slots(state))]
+      false_body = [target_call]
+      true_body = [next_call]
 
       body =
         case sense do
@@ -784,9 +854,6 @@ defmodule QuickBEAM.BeamVM.Compiler do
         end
 
       {:done, body}
-    else
-      {:ok, _cond, _state} -> {:error, {:stack_not_empty_after_branch, target}}
-      {:error, _} = error -> error
     end
   end
 
@@ -816,6 +883,103 @@ defmodule QuickBEAM.BeamVM.Compiler do
   defp put_slot(state, idx, expr), do: %{state | slots: Map.put(state.slots, idx, expr)}
 
   defp slot_expr(state, idx), do: Map.get(state.slots, idx, atom(:undefined))
+
+  defp infer_block_stack_depths(instructions, entries) do
+    walk_block_stack_depths(instructions, entries, [{0, 0}], %{})
+  end
+
+  defp walk_block_stack_depths(_instructions, _entries, [], depths), do: {:ok, depths}
+
+  defp walk_block_stack_depths(instructions, entries, [{start, depth} | rest], depths) do
+    case Map.fetch(depths, start) do
+      {:ok, ^depth} ->
+        walk_block_stack_depths(instructions, entries, rest, depths)
+
+      {:ok, other_depth} ->
+        {:error, {:inconsistent_block_stack_depth, start, other_depth, depth}}
+
+      :error ->
+        with {:ok, successors} <- simulate_block_stack_depths(instructions, entries, start, depth) do
+          walk_block_stack_depths(
+            instructions,
+            entries,
+            rest ++ successors,
+            Map.put(depths, start, depth)
+          )
+        end
+    end
+  end
+
+  defp simulate_block_stack_depths(instructions, entries, start, depth) do
+    next_entry = next_entry(entries, start)
+    do_simulate_block_stack_depths(instructions, start, next_entry, depth)
+  end
+
+  defp do_simulate_block_stack_depths(instructions, idx, _next_entry, _depth)
+       when idx >= length(instructions) do
+    {:error, {:missing_terminator, idx}}
+  end
+
+  defp do_simulate_block_stack_depths(_instructions, idx, idx, depth), do: {:ok, [{idx, depth}]}
+
+  defp do_simulate_block_stack_depths(instructions, idx, next_entry, depth) do
+    {op, args} = Enum.at(instructions, idx)
+
+    with {:ok, next_depth} <- apply_stack_effect(op, args, depth) do
+      case {opcode_name(op), args} do
+        {{:ok, name}, [target]} when name in [:if_false, :if_false8, :if_true, :if_true8] ->
+          if is_nil(next_entry) do
+            {:error, {:missing_fallthrough_block, target, name}}
+          else
+            {:ok, [{target, next_depth}, {next_entry, next_depth}]}
+          end
+
+        {{:ok, name}, [target]} when name in [:goto, :goto8, :goto16] ->
+          {:ok, [{target, next_depth}]}
+
+        {{:ok, name}, [_argc]} when name in [:tail_call, :tail_call_method] ->
+          {:ok, []}
+
+        {{:ok, :return}, []} ->
+          {:ok, []}
+
+        {{:ok, :return_undef}, []} ->
+          {:ok, []}
+
+        _ ->
+          do_simulate_block_stack_depths(instructions, idx + 1, next_entry, next_depth)
+      end
+    end
+  end
+
+  defp apply_stack_effect(op, args, depth) do
+    with {:ok, pop_count, push_count} <- stack_effect(op, args),
+         true <- depth >= pop_count or {:error, {:stack_underflow_at, op, args, depth, pop_count}} do
+      {:ok, depth - pop_count + push_count}
+    end
+  end
+
+  defp stack_effect(op, args) do
+    case {opcode_name(op), args} do
+      {{:ok, name}, [argc]} when name in [:call, :call0, :call1, :call2, :call3, :tail_call] ->
+        {:ok, argc + 1, if(name == :tail_call, do: 0, else: 1)}
+
+      {{:ok, name}, [argc]} when name in [:call_method, :tail_call_method] ->
+        {:ok, argc + 2, if(name == :tail_call_method, do: 0, else: 1)}
+
+      {{:ok, :array_from}, [argc]} ->
+        {:ok, argc, 1}
+
+      {{:ok, _name}, _} ->
+        case Opcodes.info(op) do
+          {_name, _size, pop_count, push_count, _fmt} -> {:ok, pop_count, push_count}
+          nil -> {:error, {:unknown_opcode, op}}
+        end
+
+      {{:error, _} = error, _} ->
+        error
+    end
+  end
 
   defp bind(state, name, expr) do
     var = var(name)
@@ -853,6 +1017,23 @@ defmodule QuickBEAM.BeamVM.Compiler do
   end
 
   defp current_slots(state), do: ordered_slot_values(state.slots)
+  defp current_stack(state), do: state.stack
+
+  defp block_jump_call(state, target, stack_depths) do
+    expected_depth = Map.get(stack_depths, target)
+    actual_depth = length(state.stack)
+
+    cond do
+      is_nil(expected_depth) ->
+        {:error, {:unknown_block_target, target}}
+
+      expected_depth != actual_depth ->
+        {:error, {:stack_depth_mismatch, target, expected_depth, actual_depth}}
+
+      true ->
+        {:ok, local_call(block_name(target), current_slots(state) ++ current_stack(state))}
+    end
+  end
 
   defp helper_forms do
     [
@@ -864,6 +1045,8 @@ defmodule QuickBEAM.BeamVM.Compiler do
       guarded_binary_helper(:op_lte, :"=<", Values, :lte),
       guarded_binary_helper(:op_gt, :>, Values, :gt),
       guarded_binary_helper(:op_gte, :>=, Values, :gte),
+      eq_helper(),
+      neq_helper(),
       strict_eq_helper(),
       strict_neq_helper(),
       guarded_unary_helper(:op_neg, :-, Values, :neg),
@@ -899,6 +1082,27 @@ defmodule QuickBEAM.BeamVM.Compiler do
      [
        {:clause, @line, [a], [[integer_guard(a)]], [a]},
        {:clause, @line, [a], [], [remote_call(fallback_mod, fallback_fun, [a])]}
+     ]}
+  end
+
+  defp eq_helper do
+    a = var("A")
+    b = var("B")
+
+    {:function, @line, :op_eq, 2,
+     [
+       {:clause, @line, [a, b], [number_guards(a, b)], [{:op, @line, :==, a, b}]},
+       {:clause, @line, [a, b], [], [remote_call(Values, :eq, [a, b])]}
+     ]}
+  end
+
+  defp neq_helper do
+    a = var("A")
+    b = var("B")
+
+    {:function, @line, :op_neq, 2,
+     [
+       {:clause, @line, [a, b], [], [{:op, @line, :not, local_call(:op_eq, [a, b])}]}
      ]}
   end
 
@@ -966,9 +1170,13 @@ defmodule QuickBEAM.BeamVM.Compiler do
   defp temp_name(n), do: "Tmp#{n}"
 
   defp slot_var(idx), do: var("Slot#{idx}")
+  defp stack_var(idx), do: var("Stack#{idx}")
 
   defp slot_vars(0), do: []
   defp slot_vars(count), do: Enum.map(0..(count - 1), &slot_var/1)
+
+  defp stack_vars(0), do: []
+  defp stack_vars(count), do: Enum.map(0..(count - 1), &stack_var/1)
 
   defp var(name) when is_binary(name), do: {:var, @line, String.to_atom(name)}
   defp var(name) when is_integer(name), do: {:var, @line, String.to_atom(Integer.to_string(name))}
