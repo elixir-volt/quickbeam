@@ -85,13 +85,25 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, 7} = Compiler.invoke(fun, [Heap.wrap(%{"x" => 7})])
     end
 
+    test "compiles object creation plus field writes", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(v){ let o={}; o.x=v; return o.x })") |> user_function()
+
+      assert {:ok, 9} = Compiler.invoke(fun, [9])
+    end
+
+    test "compiles object literals", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(v){ return {x:v} })") |> user_function()
+
+      assert {:ok, {:obj, ref}} = Compiler.invoke(fun, [5])
+      assert %{"x" => 5} = Heap.get_obj(ref)
+    end
+
     test "compiles function calls through arguments", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(f,x){return f(x)})") |> user_function()
-      double = Heap.wrap(%{"call" => :undefined})
       callback = {:builtin, "double", fn [x], _ -> x * 2 end}
 
       assert {:ok, 8} = Compiler.invoke(fun, [callback, 4])
-      refute double == :undefined
     end
 
     test "compiles method calls with receiver", %{rt: rt} do

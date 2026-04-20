@@ -1,6 +1,8 @@
 defmodule QuickBEAM.BeamVM.Compiler do
   @moduledoc false
 
+  import QuickBEAM.BeamVM.Heap.Keys, only: [proto: 0]
+
   alias QuickBEAM.BeamVM.{Builtin, Bytecode, Decoder, Heap, Opcodes}
   alias QuickBEAM.BeamVM.Interpreter.{Scope, Values}
   alias QuickBEAM.BeamVM.Runtime
@@ -79,7 +81,32 @@ defmodule QuickBEAM.BeamVM.Compiler do
     Map.get(globals, atom_name(atom_idx), :undefined)
   end
 
+  def new_object do
+    proto = Heap.get_object_prototype()
+    init = if proto, do: %{proto() => proto}, else: %{}
+    Heap.wrap(init)
+  end
+
+  def array_from(list), do: Heap.wrap(list)
+
   def get_field(obj, atom_idx), do: Property.get(obj, atom_name(atom_idx))
+
+  def put_field(obj, atom_idx, val) do
+    QuickBEAM.BeamVM.Interpreter.Objects.put(obj, atom_name(atom_idx), val)
+    :ok
+  end
+
+  def define_field(obj, atom_idx, val) do
+    QuickBEAM.BeamVM.Interpreter.Objects.put(obj, atom_name(atom_idx), val)
+    obj
+  end
+
+  def put_array_el(obj, idx, val) do
+    QuickBEAM.BeamVM.Interpreter.Objects.put_element(obj, idx, val)
+    :ok
+  end
+
+  def is_undefined_or_null(val), do: val == :undefined or val == nil
 
   def invoke_runtime(fun, args) do
     case fun do
@@ -332,6 +359,12 @@ defmodule QuickBEAM.BeamVM.Compiler do
       {{:ok, :push_empty_string}, []} ->
         {:error, {:unsupported_literal, :empty_string}}
 
+      {{:ok, :object}, []} ->
+        {:ok, push(state, compiler_call(:new_object, []))}
+
+      {{:ok, :array_from}, [argc]} ->
+        array_from_call(state, argc)
+
       {{:ok, :push_const}, [idx]} ->
         push_const(state, idx)
 
@@ -459,6 +492,9 @@ defmodule QuickBEAM.BeamVM.Compiler do
       {{:ok, :drop}, []} ->
         drop_top(state)
 
+      {{:ok, :swap}, []} ->
+        swap_top(state)
+
       {{:ok, :neg}, []} ->
         unary_local_call(state, :op_neg)
 
@@ -488,6 +524,21 @@ defmodule QuickBEAM.BeamVM.Compiler do
 
       {{:ok, :get_field2}, [atom_idx]} ->
         get_field2(state, atom_idx)
+
+      {{:ok, :put_field}, [atom_idx]} ->
+        put_field_call(state, atom_idx)
+
+      {{:ok, :define_field}, [atom_idx]} ->
+        define_field_call(state, atom_idx)
+
+      {{:ok, :put_array_el}, []} ->
+        put_array_el_call(state)
+
+      {{:ok, :to_propkey}, []} ->
+        {:ok, state}
+
+      {{:ok, :to_propkey2}, []} ->
+        {:ok, state}
 
       {{:ok, :lt}, []} ->
         binary_local_call(state, :op_lt)
@@ -530,6 +581,9 @@ defmodule QuickBEAM.BeamVM.Compiler do
 
       {{:ok, :tail_call_method}, [argc]} ->
         invoke_tail_method_call(state, argc)
+
+      {{:ok, :is_undefined_or_null}, []} ->
+        unary_call(state, __MODULE__, :is_undefined_or_null)
 
       {{:ok, :if_false}, [target]} ->
         branch(state, idx, next_entry, target, false)
@@ -595,6 +649,9 @@ defmodule QuickBEAM.BeamVM.Compiler do
     end
   end
 
+  defp swap_top(%{stack: [a, b | rest]} = state), do: {:ok, %{state | stack: [b, a | rest]}}
+  defp swap_top(_state), do: {:error, :stack_underflow}
+
   defp unary_call(state, mod, fun, extra_args \\ []) do
     with {:ok, expr, state} <- pop(state) do
       {:ok, push(state, remote_call(mod, fun, [expr | extra_args]))}
@@ -628,6 +685,29 @@ defmodule QuickBEAM.BeamVM.Compiler do
     end
   end
 
+  defp put_field_call(state, atom_idx) do
+    with {:ok, val, state} <- pop(state),
+         {:ok, obj, state} <- pop(state) do
+      {:ok,
+       %{state | body: state.body ++ [compiler_call(:put_field, [obj, literal(atom_idx), val])]}}
+    end
+  end
+
+  defp define_field_call(state, atom_idx) do
+    with {:ok, val, state} <- pop(state),
+         {:ok, obj, state} <- pop(state) do
+      {:ok, push(state, compiler_call(:define_field, [obj, literal(atom_idx), val]))}
+    end
+  end
+
+  defp put_array_el_call(state) do
+    with {:ok, val, state} <- pop(state),
+         {:ok, idx, state} <- pop(state),
+         {:ok, obj, state} <- pop(state) do
+      {:ok, %{state | body: state.body ++ [compiler_call(:put_array_el, [obj, idx, val])]}}
+    end
+  end
+
   defp invoke_call(state, argc) do
     with {:ok, args, state} <- pop_n(state, argc),
          {:ok, fun, state} <- pop(state) do
@@ -655,6 +735,12 @@ defmodule QuickBEAM.BeamVM.Compiler do
          state,
          compiler_call(:invoke_method_runtime, [fun, obj, list_expr(Enum.reverse(args))])
        )}
+    end
+  end
+
+  defp array_from_call(state, argc) do
+    with {:ok, elems, state} <- pop_n(state, argc) do
+      {:ok, push(state, compiler_call(:array_from, [list_expr(Enum.reverse(elems))]))}
     end
   end
 
