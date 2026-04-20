@@ -158,6 +158,18 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, 6} = Compiler.invoke(fun, [5])
     end
 
+    test "compiles post-increment expression results", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(x){ return x++ })") |> user_function()
+
+      assert {:ok, 5} = Compiler.invoke(fun, [5])
+    end
+
+    test "compiles exponentiation", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(a,b){ return a ** b })") |> user_function()
+
+      assert {:ok, 8.0} = Compiler.invoke(fun, [2, 3])
+    end
+
     test "compiles bitwise operators", %{rt: rt} do
       fun =
         compile_and_decode(rt, "(function(a,b){ return ((a & b) ^ 1) << 2 })") |> user_function()

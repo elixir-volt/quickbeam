@@ -69,6 +69,16 @@ defmodule QuickBEAM.BeamVM.Compiler do
   def inc(a), do: Values.add(a, 1)
   def dec(a), do: Values.sub(a, 1)
 
+  def post_inc(a) do
+    num = Values.to_number(a)
+    {Values.add(num, 1), num}
+  end
+
+  def post_dec(a) do
+    num = Values.to_number(a)
+    {Values.sub(num, 1), num}
+  end
+
   def get_var(atom_idx) do
     globals = current_globals()
     name = atom_name(atom_idx)
@@ -534,6 +544,12 @@ defmodule QuickBEAM.BeamVM.Compiler do
       {{:ok, :dec}, []} ->
         unary_call(state, __MODULE__, :dec)
 
+      {{:ok, :post_inc}, []} ->
+        post_update(state, :post_inc)
+
+      {{:ok, :post_dec}, []} ->
+        post_update(state, :post_dec)
+
       {{:ok, :add}, []} ->
         binary_local_call(state, :op_add)
 
@@ -545,6 +561,9 @@ defmodule QuickBEAM.BeamVM.Compiler do
 
       {{:ok, :div}, []} ->
         binary_local_call(state, :op_div)
+
+      {{:ok, :pow}, []} ->
+        binary_call(state, Values, :pow)
 
       {{:ok, :band}, []} ->
         binary_call(state, Values, :band)
@@ -719,6 +738,13 @@ defmodule QuickBEAM.BeamVM.Compiler do
 
   defp swap_top(%{stack: [a, b | rest]} = state), do: {:ok, %{state | stack: [b, a | rest]}}
   defp swap_top(_state), do: {:error, :stack_underflow}
+
+  defp post_update(state, fun) do
+    with {:ok, expr, state} <- pop(state) do
+      {pair, state} = bind(state, temp_name(state.temp), compiler_call(fun, [expr]))
+      {:ok, %{state | stack: [tuple_element(pair, 1), tuple_element(pair, 2) | state.stack]}}
+    end
+  end
 
   defp unary_call(state, mod, fun, extra_args \\ []) do
     with {:ok, expr, state} <- pop(state) do
@@ -1186,6 +1212,11 @@ defmodule QuickBEAM.BeamVM.Compiler do
   defp atom(value), do: {:atom, @line, value}
   defp literal(value), do: :erl_parse.abstract(value)
   defp match(left, right), do: {:match, @line, left, right}
+
+  defp tuple_element(tuple, index) do
+    {:call, @line, {:remote, @line, {:atom, @line, :erlang}, {:atom, @line, :element}},
+     [integer(index), tuple]}
+  end
 
   defp list_expr([]), do: {nil, @line}
   defp list_expr([head | tail]), do: {:cons, @line, head, list_expr(tail)}
