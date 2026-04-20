@@ -522,8 +522,13 @@ defmodule QuickBEAM.BeamVM.Bytecode do
          {:ok, source_len, rest} <- LEB128.read_signed(rest),
          true <- byte_size(rest) >= source_len,
          <<source::binary-size(source_len), rest::binary>> <- rest do
-      {%{filename: filename, line_num: line_num, col_num: col_num, pc2line: pc2line, source: source},
-       rest}
+      {%{
+         filename: filename,
+         line_num: line_num,
+         col_num: col_num,
+         pc2line: pc2line,
+         source: source
+       }, rest}
     else
       _ -> {%{filename: nil, line_num: 1, col_num: 1, pc2line: <<>>, source: <<>>}, data}
     end
@@ -533,7 +538,8 @@ defmodule QuickBEAM.BeamVM.Bytecode do
   @pc2line_range 5
   @pc2line_op_first 1
 
-  def instruction_offset(byte_code, insn_index) when is_binary(byte_code) and is_integer(insn_index) do
+  def instruction_offset(byte_code, insn_index)
+      when is_binary(byte_code) and is_integer(insn_index) do
     do_instruction_offset(byte_code, byte_size(byte_code), 0, 0, insn_index)
   end
 

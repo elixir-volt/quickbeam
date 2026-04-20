@@ -556,21 +556,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
         val = Runtime.call_callback(cb, [item, idx, list])
 
         case val do
-          {:obj, r} ->
-            case Heap.obj_to_list(r) do
-              {:qb_arr, arr2} -> :array.to_list(arr2)
-              l when is_list(l) -> l
-              _ -> [val]
-            end
-
-          {:qb_arr, arr2} ->
-            :array.to_list(arr2)
-
-          l when is_list(l) ->
-            l
-
-          _ ->
-            [val]
+          {:obj, r} -> Heap.obj_to_list(r)
+          {:qb_arr, arr2} -> :array.to_list(arr2)
+          l when is_list(l) -> l
+          _ -> [val]
         end
       end)
 
@@ -581,22 +570,17 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   defp fill({:obj, ref}, args) do
     list = Heap.obj_to_list(ref)
+    val = Enum.at(args, 0, :undefined)
+    start_idx = Enum.at(args, 1) || 0
+    end_idx = Enum.at(args, 2) || length(list)
 
-    if is_list(list) do
-      val = Enum.at(args, 0, :undefined)
-      start_idx = Enum.at(args, 1) || 0
-      end_idx = Enum.at(args, 2) || length(list)
+    new_list =
+      Enum.with_index(list, fn item, idx ->
+        if idx >= start_idx and idx < end_idx, do: val, else: item
+      end)
 
-      new_list =
-        Enum.with_index(list, fn item, idx ->
-          if idx >= start_idx and idx < end_idx, do: val, else: item
-        end)
-
-      Heap.put_obj(ref, new_list)
-      {:obj, ref}
-    else
-      {:obj, ref}
-    end
+    Heap.put_obj(ref, new_list)
+    {:obj, ref}
   end
 
   defp fill({:qb_arr, arr}, args), do: fill(:array.to_list(arr), args)
@@ -695,27 +679,22 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   defp copy_within({:obj, ref}, args) do
     list = Heap.obj_to_list(ref)
+    len = length(list)
+    target = Runtime.normalize_index(Runtime.to_int(Enum.at(args, 0, 0)), len)
+    start_idx = Runtime.normalize_index(Runtime.to_int(Enum.at(args, 1, 0)), len)
+    end_idx = Runtime.normalize_index(Runtime.to_int(Enum.at(args, 2) || len), len)
+    slice = Enum.slice(list, start_idx, end_idx - start_idx)
 
-    if is_list(list) do
-      len = length(list)
-      target = Runtime.normalize_index(Runtime.to_int(Enum.at(args, 0, 0)), len)
-      start_idx = Runtime.normalize_index(Runtime.to_int(Enum.at(args, 1, 0)), len)
-      end_idx = Runtime.normalize_index(Runtime.to_int(Enum.at(args, 2) || len), len)
-      slice = Enum.slice(list, start_idx, end_idx - start_idx)
+    new_list =
+      list
+      |> Enum.with_index()
+      |> Enum.map(fn {item, i} ->
+        offset = i - target
+        if i >= target and offset < length(slice), do: Enum.at(slice, offset), else: item
+      end)
 
-      new_list =
-        list
-        |> Enum.with_index()
-        |> Enum.map(fn {item, i} ->
-          offset = i - target
-          if i >= target and offset < length(slice), do: Enum.at(slice, offset), else: item
-        end)
-
-      Heap.put_obj(ref, new_list)
-      {:obj, ref}
-    else
-      {:obj, ref}
-    end
+    Heap.put_obj(ref, new_list)
+    {:obj, ref}
   end
 
   defp copy_within(_, _), do: :undefined
@@ -767,36 +746,21 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   defp to_reversed({:obj, ref}) do
     list = Heap.obj_to_list(ref)
-
-    case list do
-      {:qb_arr, arr} ->
-        Heap.wrap(Enum.reverse(:array.to_list(arr)))
-
-      l when is_list(l) ->
-        Heap.wrap(Enum.reverse(l))
-
-      _ ->
-        {:obj, ref}
-    end
+    Heap.wrap(Enum.reverse(list))
   end
 
   defp to_reversed(_), do: :undefined
 
   defp to_sorted({:obj, ref}) do
     list = Heap.obj_to_list(ref)
+    new_ref = make_ref()
 
-    if is_list(list) do
-      new_ref = make_ref()
+    Heap.put_obj(
+      new_ref,
+      Enum.sort(list, fn a, b -> Runtime.stringify(a) <= Runtime.stringify(b) end)
+    )
 
-      Heap.put_obj(
-        new_ref,
-        Enum.sort(list, fn a, b -> Runtime.stringify(a) <= Runtime.stringify(b) end)
-      )
-
-      {:obj, new_ref}
-    else
-      {:obj, ref}
-    end
+    {:obj, new_ref}
   end
 
   defp to_sorted(_), do: :undefined
@@ -805,13 +769,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     list =
       case arr do
         {:obj, ref} ->
-          data = Heap.obj_to_list(ref)
-
-          case data do
-            {:qb_arr, arr} -> :array.to_list(arr)
-            l when is_list(l) -> l
-            _ -> []
-          end
+          Heap.obj_to_list(ref)
 
         {:qb_arr, arr} ->
           :array.to_list(arr)

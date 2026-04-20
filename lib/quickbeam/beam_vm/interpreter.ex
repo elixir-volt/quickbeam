@@ -426,8 +426,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     :ok
   end
 
-  defp store_function_atoms(_, _), do: :ok
-
   defp active_ctx do
     case Heap.get_ctx() do
       nil ->
@@ -493,8 +491,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp resolve_local_name(idx) when is_integer(idx) do
     case Heap.get_ctx() do
-      %{atoms: atoms} when is_tuple(atoms) and idx >= 0 and idx < tuple_size(atoms) -> elem(atoms, idx)
-      _ -> nil
+      %{atoms: atoms} when is_tuple(atoms) and idx >= 0 and idx < tuple_size(atoms) ->
+        elem(atoms, idx)
+
+      _ ->
+        nil
     end
   end
 
@@ -520,7 +521,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
-  defp current_local_name(%Context{current_func: {:closure, _, %Bytecode.Function{locals: locals}}}, idx)
+  defp current_local_name(
+         %Context{current_func: {:closure, _, %Bytecode.Function{locals: locals}}},
+         idx
+       )
        when idx >= 0 and idx < length(locals),
        do: locals |> Enum.at(idx) |> Map.get(:name) |> resolve_local_name()
 
@@ -550,7 +554,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp derived_this_uninitialized?(_), do: false
 
-  defp current_var_ref_name(%Context{current_func: {:closure, _, %Bytecode.Function{closure_vars: vars}}}, idx)
+  defp current_var_ref_name(
+         %Context{current_func: {:closure, _, %Bytecode.Function{closure_vars: vars}}},
+         idx
+       )
        when idx >= 0 and idx < length(vars),
        do: vars |> Enum.at(idx) |> Map.get(:name) |> resolve_local_name()
 
@@ -721,7 +728,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       declared_names = eval_declared_names(parsed.value, parsed.atoms)
       eval_globals = collect_caller_locals(caller_frame, ctx)
       captured_globals = collect_captured_globals(ctx.current_func)
-      eval_scope_globals = merge_var_object_globals(Map.merge(eval_globals, captured_globals), var_objs)
+
+      eval_scope_globals =
+        merge_var_object_globals(Map.merge(eval_globals, captured_globals), var_objs)
 
       base_globals =
         if keep_declared?,
@@ -784,7 +793,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           {:undefined, %{}}
       end
     else
-      {:error, %{message: msg}} -> throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
       {:error, msg} when is_binary(msg) -> throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
       _ -> {:undefined, %{}}
     end
@@ -900,7 +908,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       end
 
       if keep_declared? do
-        apply_transient_captured_vars(current_func, transient_globals, MapSet.new(Map.keys(transient_globals)))
+        apply_transient_captured_vars(
+          current_func,
+          transient_globals,
+          MapSet.new(Map.keys(transient_globals))
+        )
       end
     end
   end
@@ -999,7 +1011,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp eval_declared_names(_, _), do: MapSet.new()
 
   defp resolve_declared_atom({:predefined, idx}, _atoms), do: PredefinedAtoms.lookup(idx)
-  defp resolve_declared_atom(idx, atoms) when is_integer(idx) and idx >= 0 and idx < tuple_size(atoms), do: elem(atoms, idx)
+
+  defp resolve_declared_atom(idx, atoms)
+       when is_integer(idx) and idx >= 0 and idx < tuple_size(atoms), do: elem(atoms, idx)
+
   defp resolve_declared_atom(name, _atoms) when is_binary(name), do: name
   defp resolve_declared_atom(_, _atoms), do: nil
 
@@ -1156,6 +1171,88 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp with_has_property?(_, _), do: false
+
+  defp ensure_initialized_local!(ctx, idx, val) do
+    if val == :__tdz__ or
+         (val == :undefined and uninitialized_this_local?(ctx, idx) and
+            derived_this_uninitialized?(ctx)) do
+      message =
+        if uninitialized_this_local?(ctx, idx) and derived_this_uninitialized?(ctx),
+          do: "this is not initialized",
+          else: "Cannot access variable before initialization"
+
+      throw({:js_throw, Heap.make_error(message, "ReferenceError")})
+    end
+  end
+
+  defp eval_scope_var_objects(frame, ctx, enabled?, scope_idx) do
+    if enabled? do
+      locals = elem(frame, Frame.locals())
+
+      obj_locals =
+        for i <- 0..(tuple_size(locals) - 1),
+            obj = elem(locals, i),
+            match?({:obj, _}, obj),
+            do: obj
+
+      obj_locals = if scope_idx == 0, do: Enum.take(obj_locals, 1), else: obj_locals
+      Enum.uniq(obj_locals ++ captured_var_objects(ctx.current_func))
+    else
+      []
+    end
+  end
+
+  defp run_eval_or_call(pc, frame, rest, gas, ctx, fun, args, scope_idx, var_objs) do
+    case eval_or_call(
+           fun,
+           List.first(args, :undefined),
+           args,
+           scope_idx,
+           frame,
+           gas,
+           ctx,
+           var_objs
+         ) do
+      {:ok, {result, new_ctx}} -> run(pc + 1, frame, [result | rest], gas, new_ctx)
+      {:error, error} -> throw_or_catch(frame, error, gas, ctx)
+    end
+  end
+
+  defp eval_or_call(fun, code, args, scope_idx, frame, gas, ctx, var_objs) do
+    try do
+      {:ok, eval_or_call_result(fun, code, args, scope_idx, frame, gas, ctx, var_objs)}
+    catch
+      {:js_throw, error} -> {:error, error}
+    end
+  end
+
+  defp eval_or_call_result(fun, code, args, scope_idx, frame, gas, ctx, var_objs) do
+    cond do
+      fun == ctx.globals["eval"] and is_binary(code) and ctx.runtime_pid != nil ->
+        keep_declared? = scope_idx > 0
+        {value, transient_globals} = eval_code(code, frame, gas, ctx, var_objs, keep_declared?)
+        {value, %{ctx | globals: Map.merge(ctx.globals, transient_globals)}}
+
+      callable?(fun) ->
+        persistent = Heap.get_persistent_globals() || %{}
+
+        {dispatch_call(fun, args, gas, ctx, :undefined),
+         %{ctx | globals: Map.merge(ctx.globals, persistent)}}
+
+      true ->
+        {:undefined, ctx}
+    end
+  end
+
+  defp callable?(fun) do
+    is_function(fun) or match?({:fn, _, _}, fun) or match?({:bound, _, _}, fun) or
+      match?(%Bytecode.Function{}, fun) or match?({:closure, _, %Bytecode.Function{}}, fun)
+  end
+
+  defp run_arg_update(pc, frame, stack, gas, %Context{arg_buf: arg_buf} = ctx, idx, val) do
+    ctx = put_arg_value(ctx, idx, val, arg_buf)
+    run(pc + 1, frame, stack, gas, ctx)
+  end
 
   # ── Main dispatch loop ──
 
@@ -1363,32 +1460,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({@op_get_loc_check, [idx]}, pc, frame, stack, gas, ctx) do
     val = elem(elem(frame, Frame.locals()), idx)
-
-    if val == :__tdz__ or
-         (val == :undefined and uninitialized_this_local?(ctx, idx) and
-            derived_this_uninitialized?(ctx)) do
-      message =
-        if uninitialized_this_local?(ctx, idx) and derived_this_uninitialized?(ctx),
-          do: "this is not initialized",
-          else: "Cannot access variable before initialization"
-
-      throw({:js_throw, Heap.make_error(message, "ReferenceError")})
-    end
-
+    ensure_initialized_local!(ctx, idx, val)
     run(pc + 1, frame, [val | stack], gas, ctx)
   end
 
   defp run({@op_put_loc_check, [idx]}, pc, frame, [val | rest], gas, ctx) do
-    if val == :__tdz__ or
-         (val == :undefined and uninitialized_this_local?(ctx, idx) and
-            derived_this_uninitialized?(ctx)) do
-      message =
-        if uninitialized_this_local?(ctx, idx) and derived_this_uninitialized?(ctx),
-          do: "this is not initialized",
-          else: "Cannot access variable before initialization"
-
-      throw({:js_throw, Heap.make_error(message, "ReferenceError")})
-    end
+    ensure_initialized_local!(ctx, idx, val)
 
     Closures.write_captured_local(
       elem(frame, Frame.l2v()),
@@ -2521,94 +2598,18 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     {args, rest} = Enum.split(stack, argc + 1)
     eval_ref = List.last(args)
     call_args = Enum.take(args, argc) |> Enum.reverse()
-    code = List.first(call_args, :undefined)
     scope_depth = List.first(scope_args, -1)
+    var_objs = eval_scope_var_objects(frame, ctx, scope_args != [], scope_depth)
 
-    var_objs =
-      if scope_args != [] do
-        locals = elem(frame, Frame.locals())
-
-        obj_locals =
-          for i <- 0..(tuple_size(locals) - 1),
-              obj = elem(locals, i),
-              match?({:obj, _}, obj),
-              do: obj
-
-        obj_locals = if scope_depth == 0, do: Enum.take(obj_locals, 1), else: obj_locals
-        Enum.uniq(obj_locals ++ captured_var_objects(ctx.current_func))
-      else
-        []
-      end
-
-    try do
-      {result, new_ctx} =
-        cond do
-          eval_ref == ctx.globals["eval"] and is_binary(code) and ctx.runtime_pid != nil ->
-            keep_declared? = scope_depth > 0
-            {value, transient_globals} = eval_code(code, frame, gas, ctx, var_objs, keep_declared?)
-            {value, %{ctx | globals: Map.merge(ctx.globals, transient_globals)}}
-
-          is_function(eval_ref) or match?({:fn, _, _}, eval_ref) or match?({:bound, _, _}, eval_ref) or
-              match?(%Bytecode.Function{}, eval_ref) or
-              match?({:closure, _, %Bytecode.Function{}}, eval_ref) ->
-            persistent = Heap.get_persistent_globals() || %{}
-            {dispatch_call(eval_ref, call_args, gas, ctx, :undefined),
-             %{ctx | globals: Map.merge(ctx.globals, persistent)}}
-
-          true ->
-            {:undefined, ctx}
-        end
-
-      run(pc + 1, frame, [result | rest], gas, new_ctx)
-    catch
-      {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
-    end
+    run_eval_or_call(pc, frame, rest, gas, ctx, eval_ref, call_args, scope_depth, var_objs)
   end
 
   defp run({@op_apply_eval, [scope_idx_raw]}, pc, frame, [arg_array, fun | rest], gas, ctx) do
     args = Heap.to_list(arg_array)
-    code = List.first(args, :undefined)
     scope_idx = scope_idx_raw - 1
+    var_objs = eval_scope_var_objects(frame, ctx, scope_idx >= 0, scope_idx)
 
-    var_objs =
-      if scope_idx >= 0 do
-        locals = elem(frame, Frame.locals())
-
-        obj_locals =
-          for i <- 0..(tuple_size(locals) - 1),
-              obj = elem(locals, i),
-              match?({:obj, _}, obj),
-              do: obj
-
-        obj_locals = if scope_idx == 0, do: Enum.take(obj_locals, 1), else: obj_locals
-        Enum.uniq(obj_locals ++ captured_var_objects(ctx.current_func))
-      else
-        []
-      end
-
-    try do
-      {result, new_ctx} =
-        cond do
-          fun == ctx.globals["eval"] and is_binary(code) and ctx.runtime_pid != nil ->
-            keep_declared? = scope_idx > 0
-            {value, transient_globals} = eval_code(code, frame, gas, ctx, var_objs, keep_declared?)
-            {value, %{ctx | globals: Map.merge(ctx.globals, transient_globals)}}
-
-          is_function(fun) or match?({:fn, _, _}, fun) or match?({:bound, _, _}, fun) or
-              match?(%Bytecode.Function{}, fun) or
-              match?({:closure, _, %Bytecode.Function{}}, fun) ->
-            persistent = Heap.get_persistent_globals() || %{}
-            {dispatch_call(fun, args, gas, ctx, :undefined),
-             %{ctx | globals: Map.merge(ctx.globals, persistent)}}
-
-          true ->
-            {:undefined, ctx}
-        end
-
-      run(pc + 1, frame, [result | rest], gas, new_ctx)
-    catch
-      {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
-    end
+    run_eval_or_call(pc, frame, rest, gas, ctx, fun, args, scope_idx, var_objs)
   end
 
   # ── Iterators ──
@@ -2753,10 +2754,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Misc stubs ──
 
-  defp run({op, [idx]}, pc, frame, [val | rest], gas, %Context{arg_buf: arg_buf} = ctx)
+  defp run({op, [idx]}, pc, frame, [val | rest], gas, %Context{} = ctx)
        when op in [@op_put_arg, @op_put_arg0, @op_put_arg1, @op_put_arg2, @op_put_arg3] do
-    ctx = put_arg_value(ctx, idx, val, arg_buf)
-    run(pc + 1, frame, rest, gas, ctx)
+    run_arg_update(pc, frame, rest, gas, ctx, idx, val)
   end
 
   defp run({@op_set_home_object, []}, pc, frame, [method, target | _] = stack, gas, ctx) do
@@ -2930,10 +2930,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Argument mutation ──
 
-  defp run({op, [idx]}, pc, frame, [val | rest], gas, %Context{arg_buf: arg_buf} = ctx)
+  defp run({op, [idx]}, pc, frame, [val | rest], gas, %Context{} = ctx)
        when op in [@op_set_arg, @op_set_arg0, @op_set_arg1, @op_set_arg2, @op_set_arg3] do
-    ctx = put_arg_value(ctx, idx, val, arg_buf)
-    run(pc + 1, frame, [val | rest], gas, ctx)
+    run_arg_update(pc, frame, [val | rest], gas, ctx, idx, val)
   end
 
   # ── Array element access (2-element push) ──
@@ -2987,19 +2986,29 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             case Heap.get_obj(ref, %{}) do
               {:qb_arr, _} ->
                 Enum.reduce(0..max(Heap.array_size(ref) - 1, 0), %{}, fn i, acc ->
-                  Map.put(acc, Integer.to_string(i), Property.get(source_obj, Integer.to_string(i)))
+                  Map.put(
+                    acc,
+                    Integer.to_string(i),
+                    Property.get(source_obj, Integer.to_string(i))
+                  )
                 end)
 
               list when is_list(list) ->
                 Enum.reduce(0..max(length(list) - 1, 0), %{}, fn i, acc ->
-                  Map.put(acc, Integer.to_string(i), Property.get(source_obj, Integer.to_string(i)))
+                  Map.put(
+                    acc,
+                    Integer.to_string(i),
+                    Property.get(source_obj, Integer.to_string(i))
+                  )
                 end)
 
               map when is_map(map) ->
                 map
                 |> Map.keys()
                 |> Enum.filter(&is_binary/1)
-                |> Enum.reject(fn k -> String.starts_with?(k, "__") and String.ends_with?(k, "__") end)
+                |> Enum.reject(fn k ->
+                  String.starts_with?(k, "__") and String.ends_with?(k, "__")
+                end)
                 |> Enum.reduce(%{}, fn k, acc -> Map.put(acc, k, Property.get(source_obj, k)) end)
 
               _ ->

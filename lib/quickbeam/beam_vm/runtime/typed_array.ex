@@ -326,8 +326,6 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     end
   end
 
-  defp get_species_ctor(_), do: nil
-
   defp fill(ref, [val | _]) do
     {l, t} = {len(ref), type(ref)}
     new_buf = Enum.reduce(0..(l - 1), buf(ref) || <<>>, &write_element(&2, &1, val, t))

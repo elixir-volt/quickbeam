@@ -55,34 +55,10 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
         end
 
       {:qb_arr, _} ->
-        case key do
-          k when is_binary(k) ->
-            case Integer.parse(k) do
-              {idx, ""} when idx >= 0 -> put_element({:obj, ref}, idx, val)
-              _ -> :ok
-            end
-
-          k when is_integer(k) and k >= 0 ->
-            put_element({:obj, ref}, k, val)
-
-          _ ->
-            :ok
-        end
+        put_array_key(ref, key, val)
 
       list when is_list(list) ->
-        case key do
-          k when is_binary(k) ->
-            case Integer.parse(k) do
-              {idx, ""} when idx >= 0 -> put_element({:obj, ref}, idx, val)
-              _ -> :ok
-            end
-
-          k when is_integer(k) and k >= 0 ->
-            put_element({:obj, ref}, k, val)
-
-          _ ->
-            :ok
-        end
+        put_array_key(ref, key, val)
 
       _ when is_map(map) ->
         cond do
@@ -121,6 +97,22 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   defp normalize_key({:tagged_int, n}), do: Integer.to_string(n)
   defp normalize_key(k) when is_integer(k) and k >= 0, do: Integer.to_string(k)
   defp normalize_key(k), do: k
+
+  defp put_array_key(ref, key, val) do
+    case key do
+      k when is_binary(k) ->
+        case Integer.parse(k) do
+          {idx, ""} when idx >= 0 -> put_element({:obj, ref}, idx, val)
+          _ -> :ok
+        end
+
+      k when is_integer(k) and k >= 0 ->
+        put_element({:obj, ref}, k, val)
+
+      _ ->
+        :ok
+    end
+  end
 
   def put_getter({:obj, ref}, key, fun) do
     Heap.update_obj(ref, %{}, fn map ->

@@ -10,26 +10,9 @@ defmodule QuickBEAM.BeamVM.Runtime.ArrayBuffer do
   def constructor(args, _this \\ nil) do
     {byte_length, max_byte_length} =
       case args do
-        [n, opts | _] when is_integer(n) ->
-          max =
-            case opts do
-              {:obj, ref} ->
-                case Heap.get_obj(ref, %{}) do
-                  map when is_map(map) -> Map.get(map, "maxByteLength")
-                  _ -> nil
-                end
-
-              _ ->
-                nil
-            end
-
-          {n, max}
-
-        [n | _] when is_integer(n) ->
-          {n, nil}
-
-        _ ->
-          {0, nil}
+        [n, opts | _] when is_integer(n) -> {n, max_byte_length_option(opts)}
+        [n | _] when is_integer(n) -> {n, nil}
+        _ -> {0, nil}
       end
 
     map = %{buffer() => :binary.copy(<<0>>, byte_length), "byteLength" => byte_length}
@@ -149,20 +132,7 @@ defmodule QuickBEAM.BeamVM.Runtime.ArrayBuffer do
 
         new_len = max(0, e - s)
 
-        # Check Symbol.species on the constructor
-        ab_ctor = Runtime.global_bindings()["ArrayBuffer"]
-
-        _species =
-          case ab_ctor do
-            {:builtin, _, _} = b ->
-              case Map.get(Heap.get_ctor_statics(b), {:symbol, "Symbol.species"}) do
-                {:accessor, getter, _} when getter != nil -> Runtime.call_callback(getter, [])
-                _ -> nil
-              end
-
-            _ ->
-              nil
-          end
+        read_array_buffer_species()
 
         # After species getter, re-check the buffer (it may have been resized/detached)
         map2 = Heap.get_obj(ref, %{})
@@ -182,4 +152,26 @@ defmodule QuickBEAM.BeamVM.Runtime.ArrayBuffer do
 
   defp normalize_idx(n, len) when n < 0, do: max(0, len + n)
   defp normalize_idx(n, len), do: min(n, len)
+
+  defp max_byte_length_option({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) -> Map.get(map, "maxByteLength")
+      _ -> nil
+    end
+  end
+
+  defp max_byte_length_option(_), do: nil
+
+  defp read_array_buffer_species do
+    case Runtime.global_bindings()["ArrayBuffer"] do
+      {:builtin, _, _} = ctor ->
+        case Map.get(Heap.get_ctor_statics(ctor), {:symbol, "Symbol.species"}) do
+          {:accessor, getter, _} when getter != nil -> Runtime.call_callback(getter, [])
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
 end

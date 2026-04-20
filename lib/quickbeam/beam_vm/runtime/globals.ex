@@ -185,9 +185,6 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
               throw({:js_throw, Heap.make_error("Invalid function", "SyntaxError")})
           end
 
-        {:error, %{message: msg}} ->
-          throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
-
         _ ->
           throw({:js_throw, Heap.make_error("Invalid function", "SyntaxError")})
       end
@@ -434,7 +431,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
     error_proto_ref = make_ref()
     error_ctor = {:builtin, "Error", fn args, _this -> error_constructor("Error", args) end}
 
-    Heap.put_obj(error_proto_ref, %{"name" => "Error", "message" => "", "constructor" => error_ctor})
+    Heap.put_obj(error_proto_ref, %{
+      "name" => "Error",
+      "message" => "",
+      "constructor" => error_ctor
+    })
+
     Heap.put_class_proto(error_ctor, {:obj, error_proto_ref})
     Heap.put_ctor_static(error_ctor, "prototype", {:obj, error_proto_ref})
 

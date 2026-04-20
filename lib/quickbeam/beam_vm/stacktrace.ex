@@ -61,35 +61,26 @@ defmodule QuickBEAM.BeamVM.Stacktrace do
   defp function_name(%Bytecode.Function{name: name}) when is_binary(name) and name != "", do: name
   defp function_name(_), do: nil
 
-  defp prepare_stack_trace do
-    case Heap.get_ctx() do
-      %{globals: globals} ->
-        case Map.get(globals, "Error") do
-          {:builtin, _, _} = ctor -> Map.get(Heap.get_ctor_statics(ctor), "prepareStackTrace", :undefined)
-          _ -> :undefined
-        end
+  defp prepare_stack_trace, do: error_static("prepareStackTrace", :undefined)
 
-      _ ->
-        :undefined
+  defp stack_trace_limit do
+    case error_static("stackTraceLimit", 10) do
+      n when is_integer(n) and n >= 0 -> n
+      n when is_float(n) and n >= 0 -> trunc(n)
+      _ -> 10
     end
   end
 
-  defp stack_trace_limit do
+  defp error_static(key, default) do
     case Heap.get_ctx() do
       %{globals: globals} ->
         case Map.get(globals, "Error") do
-          {:builtin, _, _} = ctor ->
-            case Map.get(Heap.get_ctor_statics(ctor), "stackTraceLimit", 10) do
-              n when is_integer(n) and n >= 0 -> n
-              n when is_float(n) and n >= 0 -> trunc(n)
-              _ -> 10
-            end
-
-          _ -> 10
+          {:builtin, _, _} = ctor -> Map.get(Heap.get_ctor_statics(ctor), key, default)
+          _ -> default
         end
 
       _ ->
-        10
+        default
     end
   end
 
@@ -108,7 +99,8 @@ defmodule QuickBEAM.BeamVM.Stacktrace do
     Heap.wrap(%{
       "getFileName" => {:builtin, "getFileName", fn _, _ -> frame.file_name end},
       "getFunction" => {:builtin, "getFunction", fn _, _ -> frame.function end},
-      "getFunctionName" => {:builtin, "getFunctionName", fn _, _ -> frame.function_name || :undefined end},
+      "getFunctionName" =>
+        {:builtin, "getFunctionName", fn _, _ -> frame.function_name || :undefined end},
       "getLineNumber" => {:builtin, "getLineNumber", fn _, _ -> frame.line_number end},
       "getColumnNumber" => {:builtin, "getColumnNumber", fn _, _ -> frame.column_number end},
       "isNative" => {:builtin, "isNative", fn _, _ -> false end}

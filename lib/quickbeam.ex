@@ -180,7 +180,7 @@ defmodule QuickBEAM do
     end
   end
 
-  defp eval_beam(runtime, code, _opts = opts) do
+  defp eval_beam(runtime, code, opts) do
     handler_globals =
       case Heap.get_handler_globals() do
         nil ->

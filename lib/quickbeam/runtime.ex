@@ -86,7 +86,8 @@ defmodule QuickBEAM.Runtime do
     end
   end
 
-  @spec compile(GenServer.server(), String.t(), String.t()) :: {:ok, binary()} | {:error, String.t()}
+  @spec compile(GenServer.server(), String.t(), String.t()) ::
+          {:ok, binary()} | {:error, String.t()}
   def compile(server, code, filename \\ "") when is_binary(code) and is_binary(filename) do
     GenServer.call(server, {:compile, code, filename}, :infinity)
   end

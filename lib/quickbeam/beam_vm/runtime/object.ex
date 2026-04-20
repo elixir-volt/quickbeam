@@ -152,15 +152,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
            fn [this, arg_array], _ ->
              args =
                case arg_array do
-                 {:obj, r} ->
-                   case Heap.obj_to_list(r) do
-                     {:qb_arr, arr} -> :array.to_list(arr)
-                     l when is_list(l) -> l
-                     _ -> []
-                   end
-
-                 _ ->
-                   []
+                 {:obj, r} -> Heap.obj_to_list(r)
+                 _ -> []
                end
 
              Runtime.call_callback(this, args)
@@ -308,7 +301,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     names =
       case data do
         {:qb_arr, arr} ->
-          (for i <- 0..(:array.size(arr) - 1), do: Integer.to_string(i)) ++ ["length"]
+          for(i <- 0..(:array.size(arr) - 1), do: Integer.to_string(i)) ++ ["length"]
 
         list when is_list(list) ->
           array_indices(list) ++ ["length"]
@@ -501,20 +494,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
             if val == :undefined and Heap.get_prop_desc(ref, prop_name) == nil do
               :undefined
             else
-              desc =
+              data_desc =
                 Heap.get_prop_desc(ref, prop_name) ||
                   %{writable: true, enumerable: true, configurable: true}
 
-              desc_ref = make_ref()
-
-              Heap.put_obj(desc_ref, %{
-                "value" => val,
-                "writable" => desc.writable,
-                "enumerable" => desc.enumerable,
-                "configurable" => desc.configurable
-              })
-
-              {:obj, desc_ref}
+              data_descriptor_obj(val, data_desc)
             end
 
           _ ->
@@ -565,20 +549,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
             {:obj, desc_ref}
 
           val ->
-            desc =
+            data_desc =
               Heap.get_prop_desc(ref, prop_name) ||
                 %{writable: true, enumerable: true, configurable: true}
 
-            desc_ref = make_ref()
-
-            Heap.put_obj(desc_ref, %{
-              "value" => val,
-              "writable" => desc.writable,
-              "enumerable" => desc.enumerable,
-              "configurable" => desc.configurable
-            })
-
-            {:obj, desc_ref}
+            data_descriptor_obj(val, data_desc)
         end
 
       true ->
@@ -607,20 +582,24 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
         :undefined
 
       val ->
-        desc_ref = make_ref()
-
-        Heap.put_obj(desc_ref, %{
-          "value" => val,
-          "writable" => true,
-          "enumerable" => true,
-          "configurable" => true
-        })
-
-        {:obj, desc_ref}
+        data_descriptor_obj(val, %{writable: true, enumerable: true, configurable: true})
     end
   end
 
   defp get_own_property_descriptor(_), do: :undefined
+
+  defp data_descriptor_obj(val, desc) do
+    desc_ref = make_ref()
+
+    Heap.put_obj(desc_ref, %{
+      "value" => val,
+      "writable" => desc.writable,
+      "enumerable" => desc.enumerable,
+      "configurable" => desc.configurable
+    })
+
+    {:obj, desc_ref}
+  end
 
   defp array_indices(list) do
     list |> Enum.with_index() |> Enum.map(fn {_, i} -> Integer.to_string(i) end)
