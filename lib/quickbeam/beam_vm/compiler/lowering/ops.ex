@@ -71,6 +71,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
       {{:ok, :push_const}, [const_idx]} ->
         push_const(state, constants, const_idx)
 
+      {{:ok, :push_const8}, [const_idx]} ->
+        push_const(state, constants, const_idx)
+
       {{:ok, :fclosure}, [const_idx]} ->
         lower_fclosure(state, constants, arg_count, const_idx)
 
@@ -79,6 +82,15 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
 
       {{:ok, :push_atom_value}, [atom_idx]} ->
         {:ok, State.push(state, State.compiler_call(:push_atom_value, [State.literal(atom_idx)]))}
+
+      {{:ok, :set_name}, [atom_idx]} ->
+        State.set_name_atom(state, atom_idx)
+
+      {{:ok, :set_name_computed}, []} ->
+        State.set_name_computed(state)
+
+      {{:ok, :set_home_object}, []} ->
+        State.set_home_object(state)
 
       {{:ok, :get_var}, [atom_idx]} ->
         {:ok, State.push(state, State.compiler_call(:get_var, [State.literal(atom_idx)]))}
@@ -316,6 +328,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
       {{:ok, :get_array_el}, []} ->
         State.binary_call(state, QuickBEAM.BeamVM.Interpreter.Objects, :get_element)
 
+      {{:ok, :get_array_el2}, []} ->
+        State.get_array_el2(state)
+
       {{:ok, :get_field}, [atom_idx]} ->
         State.unary_call(state, RuntimeHelpers, :get_field, [State.literal(atom_idx)])
 
@@ -328,8 +343,17 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
       {{:ok, :define_field}, [atom_idx]} ->
         State.define_field_call(state, atom_idx)
 
+      {{:ok, :define_method}, [atom_idx, flags]} ->
+        State.define_method_call(state, atom_idx, flags)
+
+      {{:ok, :define_method_computed}, [_flags]} ->
+        State.define_method_computed_call(state)
+
       {{:ok, :put_array_el}, []} ->
         State.put_array_el_call(state)
+
+      {{:ok, :define_array_el}, []} ->
+        State.define_array_el_call(state)
 
       {{:ok, :append}, []} ->
         State.append_call(state)

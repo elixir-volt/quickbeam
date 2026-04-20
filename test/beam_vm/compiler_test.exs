@@ -459,6 +459,49 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, 5} = Compiler.invoke(fun, [])
     end
 
+    test "compiles arrow closures with inferred names", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(x){ const f = (y) => x + y; return f(2) })")
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [5])
+    end
+
+    test "compiles object literal methods", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(){ return { m(){ return 1 } }.m() })")
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles object literal methods with captures", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(x){ return { m(y){ return x+y } }.m(2) })")
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [5])
+    end
+
+    test "compiles computed object literal methods", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, ~s|(function(){ return ({ ["m"](){ return 1 } })["m"]() })|)
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles computed-name function expressions", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          ~s|(function(){ const n = "x"; return ({ [n]: function(){ return 1 } })[n]() })|
+        )
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
     test "preserves side-effectful dropped method calls", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(o){ o.bump(); return o.n })") |> user_function()
 

@@ -72,6 +72,30 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   def get_field(obj, atom_idx), do: Property.get(obj, atom_name(atom_idx))
 
+  def get_array_el2(obj, idx), do: {Property.get(obj, idx), obj}
+
+  def set_function_name({:closure, captured, %Bytecode.Function{} = fun}, name),
+    do: {:closure, captured, %{fun | name: name}}
+
+  def set_function_name(%Bytecode.Function{} = fun, name), do: %{fun | name: name}
+  def set_function_name({:builtin, _, cb}, name), do: {:builtin, name, cb}
+  def set_function_name(other, _name), do: other
+
+  def set_function_name_atom(fun, atom_idx), do: set_function_name(fun, atom_name(atom_idx))
+
+  def set_function_name_computed(fun, name_val) do
+    name =
+      case name_val do
+        s when is_binary(s) -> s
+        n when is_number(n) -> Values.stringify(n)
+        {:symbol, desc, _} -> "[" <> desc <> "]"
+        {:symbol, desc} -> "[" <> desc <> "]"
+        _ -> ""
+      end
+
+    set_function_name(fun, name)
+  end
+
   def put_field(obj, atom_idx, val) do
     QuickBEAM.BeamVM.Interpreter.Objects.put(obj, atom_name(atom_idx), val)
     :ok
@@ -85,6 +109,94 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   def put_array_el(obj, idx, val) do
     QuickBEAM.BeamVM.Interpreter.Objects.put_element(obj, idx, val)
     :ok
+  end
+
+  def define_array_el(obj, idx, val) do
+    obj2 =
+      case obj do
+        list when is_list(list) ->
+          i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
+          QuickBEAM.BeamVM.Interpreter.Objects.set_list_at(list, i, val)
+
+        {:obj, ref} ->
+          stored = Heap.get_obj(ref, [])
+
+          cond do
+            match?({:qb_arr, _}, stored) ->
+              i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
+              Heap.array_set(ref, i, val)
+
+            is_list(stored) ->
+              i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
+              Heap.put_obj(ref, QuickBEAM.BeamVM.Interpreter.Objects.set_list_at(stored, i, val))
+
+            is_map(stored) ->
+              key =
+                case idx do
+                  i when is_integer(i) -> Integer.to_string(i)
+                  {:symbol, _} = sym -> sym
+                  {:symbol, _, _} = sym -> sym
+                  s when is_binary(s) -> s
+                  other -> Kernel.to_string(other)
+                end
+
+              Heap.put_obj_key(ref, key, val)
+
+            true ->
+              :ok
+          end
+
+          {:obj, ref}
+
+        _ ->
+          obj
+      end
+
+    {idx, obj2}
+  end
+
+  def define_method(target, method, atom_idx, flags) do
+    name = atom_name(atom_idx)
+    method_type = Bitwise.band(flags, 3)
+
+    named_method =
+      set_function_name(
+        method,
+        case method_type do
+          1 -> "get " <> name
+          2 -> "set " <> name
+          _ -> name
+        end
+      )
+
+    maybe_put_home_object(named_method, target)
+
+    case method_type do
+      1 -> QuickBEAM.BeamVM.Interpreter.Objects.put_getter(target, name, named_method)
+      2 -> QuickBEAM.BeamVM.Interpreter.Objects.put_setter(target, name, named_method)
+      _ -> QuickBEAM.BeamVM.Interpreter.Objects.put(target, name, named_method)
+    end
+
+    target
+  end
+
+  def define_method_computed(target, method, field_name) do
+    maybe_put_home_object(method, target)
+
+    case target do
+      {:obj, ref} ->
+        proto = Heap.get_obj(ref, %{})
+        Heap.put_obj(ref, Map.put(proto, field_name, method))
+        target
+
+      _ ->
+        target
+    end
+  end
+
+  def set_home_object(method, target) do
+    maybe_put_home_object(method, target)
+    method
   end
 
   def append_spread(arr, idx, obj) do
@@ -456,6 +568,23 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   defp enumerable_string_props(map) when is_map(map), do: map
   defp enumerable_string_props(_), do: %{}
+
+  defp maybe_put_home_object(method, target) do
+    needs_home =
+      match?({:closure, _, %Bytecode.Function{need_home_object: true}}, method) or
+        match?(%Bytecode.Function{need_home_object: true}, method)
+
+    if needs_home do
+      key = {:qb_home_object, home_object_key(method)}
+      if key != {:qb_home_object, nil}, do: Process.put(key, target)
+    end
+
+    :ok
+  end
+
+  defp home_object_key({:closure, _, %Bytecode.Function{byte_code: bc}}), do: bc
+  defp home_object_key(%Bytecode.Function{byte_code: bc}), do: bc
+  defp home_object_key(_), do: nil
 
   defp enumerable_keys({:obj, ref}) do
     case Heap.get_obj(ref, %{}) do

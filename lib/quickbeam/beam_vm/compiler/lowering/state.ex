@@ -180,6 +180,39 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     end
   end
 
+  def get_array_el2(state) do
+    with {:ok, idx, state} <- pop(state),
+         {:ok, obj, state} <- pop(state) do
+      {pair, state} =
+        bind(state, temp_name(state.temp), compiler_call(:get_array_el2, [obj, idx]))
+
+      {:ok, %{state | stack: [tuple_element(pair, 1), tuple_element(pair, 2) | state.stack]}}
+    end
+  end
+
+  def set_name_atom(state, atom_idx) do
+    with {:ok, fun, state} <- pop(state) do
+      {:ok, push(state, compiler_call(:set_function_name_atom, [fun, literal(atom_idx)]))}
+    end
+  end
+
+  def set_name_computed(state) do
+    with {:ok, fun, state} <- pop(state),
+         {:ok, name, state} <- pop(state) do
+      named = compiler_call(:set_function_name_computed, [fun, name])
+      {:ok, %{state | stack: [named, name | state.stack]}}
+    end
+  end
+
+  def set_home_object(state) do
+    with {:ok, state, method} <- bind_stack_entry(state, 0),
+         {:ok, state, target} <- bind_stack_entry(state, 1) do
+      {:ok, %{state | body: state.body ++ [compiler_call(:set_home_object, [method, target])]}}
+    else
+      :error -> {:error, :set_home_object_state_missing}
+    end
+  end
+
   def put_field_call(state, atom_idx) do
     with {:ok, val, state} <- pop(state),
          {:ok, obj, state} <- pop(state) do
@@ -195,11 +228,41 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     end
   end
 
+  def define_method_call(state, atom_idx, flags) do
+    with {:ok, method, state} <- pop(state),
+         {:ok, target, state} <- pop(state) do
+      {:ok,
+       push(
+         state,
+         compiler_call(:define_method, [target, method, literal(atom_idx), literal(flags)])
+       )}
+    end
+  end
+
+  def define_method_computed_call(state) do
+    with {:ok, method, state} <- pop(state),
+         {:ok, field_name, state} <- pop(state),
+         {:ok, target, state} <- pop(state) do
+      {:ok, push(state, compiler_call(:define_method_computed, [target, method, field_name]))}
+    end
+  end
+
   def put_array_el_call(state) do
     with {:ok, val, state} <- pop(state),
          {:ok, idx, state} <- pop(state),
          {:ok, obj, state} <- pop(state) do
       {:ok, %{state | body: state.body ++ [compiler_call(:put_array_el, [obj, idx, val])]}}
+    end
+  end
+
+  def define_array_el_call(state) do
+    with {:ok, val, state} <- pop(state),
+         {:ok, idx, state} <- pop(state),
+         {:ok, obj, state} <- pop(state) do
+      {pair, state} =
+        bind(state, temp_name(state.temp), compiler_call(:define_array_el, [obj, idx, val]))
+
+      {:ok, %{state | stack: [tuple_element(pair, 1), tuple_element(pair, 2) | state.stack]}}
     end
   end
 
