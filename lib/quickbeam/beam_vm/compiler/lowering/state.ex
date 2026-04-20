@@ -12,6 +12,11 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
         do: %{},
         else: Map.new(0..(slot_count - 1), fn idx -> {idx, slot_var(idx)} end)
 
+    capture_cells =
+      if slot_count == 0,
+        do: %{},
+        else: Map.new(0..(slot_count - 1), fn idx -> {idx, capture_var(idx)} end)
+
     stack =
       if stack_depth == 0,
         do: [],
@@ -20,6 +25,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     %{
       body: [],
       slots: slots,
+      capture_cells: capture_cells,
       stack: stack,
       temp: 0
     }
@@ -42,6 +48,11 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   def put_slot(state, idx, expr), do: %{state | slots: Map.put(state.slots, idx, expr)}
   def slot_expr(state, idx), do: Map.get(state.slots, idx, atom(:undefined))
 
+  def put_capture_cell(state, idx, expr),
+    do: %{state | capture_cells: Map.put(state.capture_cells, idx, expr)}
+
+  def capture_cell_expr(state, idx), do: Map.get(state.capture_cells, idx, atom(:undefined))
+
   def bind_stack_entry(state, idx) do
     case Enum.fetch(state.stack, idx) do
       {:ok, expr} ->
@@ -58,6 +69,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
       expr = if wrapper, do: compiler_call(wrapper, [expr]), else: expr
       {bound, state} = bind(state, slot_name(idx, state.temp), expr)
       state = put_slot(state, idx, bound)
+      state = sync_capture_cell(state, idx, bound)
       state = if keep?, do: push(state, bound), else: state
       {:ok, state}
     end
@@ -66,8 +78,20 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   def update_slot(state, idx, expr, keep? \\ false) do
     {bound, state} = bind(state, slot_name(idx, state.temp), expr)
     state = put_slot(state, idx, bound)
+    state = sync_capture_cell(state, idx, bound)
     state = if keep?, do: push(state, bound), else: state
     {:ok, state}
+  end
+
+  def ensure_capture_cell(state, idx) do
+    {bound, state} =
+      bind(
+        state,
+        capture_name(idx, state.temp),
+        compiler_call(:ensure_capture_cell, [capture_cell_expr(state, idx), slot_expr(state, idx)])
+      )
+
+    {:ok, put_capture_cell(state, idx, bound), bound}
   end
 
   def duplicate_top(state) do
@@ -327,10 +351,16 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   end
 
   def block_jump_call(state, target, stack_depths) do
-    block_jump_call_values(target, stack_depths, current_slots(state), current_stack(state))
+    block_jump_call_values(
+      target,
+      stack_depths,
+      current_slots(state),
+      current_stack(state),
+      current_capture_cells(state)
+    )
   end
 
-  def block_jump_call_values(target, stack_depths, slots, stack) do
+  def block_jump_call_values(target, stack_depths, slots, stack, capture_cells) do
     expected_depth = Map.get(stack_depths, target)
     actual_depth = length(stack)
 
@@ -342,22 +372,27 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
         {:error, {:stack_depth_mismatch, target, expected_depth, actual_depth}}
 
       true ->
-        {:ok, local_call(block_name(target), slots ++ stack)}
+        {:ok, local_call(block_name(target), slots ++ stack ++ capture_cells)}
     end
   end
 
-  def current_slots(state), do: ordered_slot_values(state.slots)
+  def current_slots(state), do: ordered_values(state.slots)
   def current_stack(state), do: state.stack
+  def current_capture_cells(state), do: ordered_values(state.capture_cells)
 
   def block_name(idx), do: String.to_atom("block_#{idx}")
   def slot_name(idx, n), do: "Slot#{idx}_#{n}"
+  def capture_name(idx, n), do: "Capture#{idx}_#{n}"
   def temp_name(n), do: "Tmp#{n}"
   def slot_var(idx), do: var("Slot#{idx}")
   def stack_var(idx), do: var("Stack#{idx}")
+  def capture_var(idx), do: var("Capture#{idx}")
   def slot_vars(0), do: []
   def slot_vars(count), do: Enum.map(0..(count - 1), &slot_var/1)
   def stack_vars(0), do: []
   def stack_vars(count), do: Enum.map(0..(count - 1), &stack_var/1)
+  def capture_vars(0), do: []
+  def capture_vars(count), do: Enum.map(0..(count - 1), &capture_var/1)
 
   def var(name) when is_binary(name), do: {:var, @line, String.to_atom(name)}
   def var(name) when is_integer(name), do: {:var, @line, String.to_atom(Integer.to_string(name))}
@@ -371,6 +406,12 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   def tuple_element(tuple, index) do
     {:call, @line, {:remote, @line, {:atom, @line, :erlang}, {:atom, @line, :element}},
      [integer(index), tuple]}
+  end
+
+  def tuple_expr(values), do: {:tuple, @line, values}
+
+  def map_expr(entries) do
+    {:map, @line, Enum.map(entries, fn {key, value} -> {:map_field_assoc, @line, key, value} end)}
   end
 
   def list_expr([]), do: {nil, @line}
@@ -389,10 +430,18 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     {:try, @line, try_body, [], [catch_clause(err_var, catch_body)], []}
   end
 
-  defp ordered_slot_values(slots) do
-    slots
+  defp ordered_values(values) do
+    values
     |> Enum.sort_by(fn {idx, _expr} -> idx end)
     |> Enum.map(fn {_idx, expr} -> expr end)
+  end
+
+  defp sync_capture_cell(state, idx, expr) do
+    %{
+      state
+      | body:
+          state.body ++ [compiler_call(:sync_capture_cell, [capture_cell_expr(state, idx), expr])]
+    }
   end
 
   defp case_expr(expr, false_body, true_body) do

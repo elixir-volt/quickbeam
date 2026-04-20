@@ -6,6 +6,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Runner do
 
   def invoke(%Bytecode.Function{closure_vars: []} = fun, args) do
     key = {fun.byte_code, fun.arg_count}
+    args = normalize_args(args, fun.arg_count)
 
     if atoms = Process.get({:qb_fn_atoms, fun.byte_code}) do
       Heap.put_atoms(atoms)
@@ -33,4 +34,10 @@ defmodule QuickBEAM.BeamVM.Compiler.Runner do
   end
 
   defp apply_compiled({mod, name}, args), do: apply(mod, name, args)
+
+  defp normalize_args(args, arg_count) do
+    args
+    |> Enum.take(arg_count)
+    |> then(fn args -> args ++ List.duplicate(:undefined, arg_count - length(args)) end)
+  end
 end

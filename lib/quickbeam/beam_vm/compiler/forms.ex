@@ -28,7 +28,10 @@ defmodule QuickBEAM.BeamVM.Compiler.Forms do
         do: [],
         else: Enum.map(arity..(slot_count - 1), fn _ -> atom(:undefined) end)
 
-    body = [local_call(block_name(0), args ++ locals)]
+    capture_cells =
+      if slot_count == 0, do: [], else: Enum.map(1..slot_count, fn _ -> atom(:undefined) end)
+
+    body = [local_call(block_name(0), args ++ locals ++ capture_cells)]
 
     {:function, @line, entry, arity, [{:clause, @line, args, [], body}]}
   end

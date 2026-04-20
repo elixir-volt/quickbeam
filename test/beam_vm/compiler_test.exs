@@ -402,6 +402,63 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, 5} = Compiler.invoke(fun, [{:builtin, "five", fn [], _ -> 5 end}])
     end
 
+    test "compiles nested plain functions", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(){ function f(a,b){ return a+b } return f(1,2) })")
+        |> user_function()
+
+      assert {:ok, 3} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles nested rest-parameter functions", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ function f(...args){ return args.length } return f(1,2,3) })"
+        )
+        |> user_function()
+
+      assert {:ok, 3} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles nested default-parameter functions", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(){ function f(a,b=10){ return a+b } return f(5) })")
+        |> user_function()
+
+      assert {:ok, 15} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles nested captured-argument functions", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(x){ function f(y){ return x+y } return f(2) })")
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [5])
+    end
+
+    test "compiles nested captured-local updates", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(x){ let y=x; function f(z){ return y+z } y=5; return f(2) })"
+        )
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [1])
+    end
+
+    test "compiles nested closures that mutate captured locals", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ let x=1; function f(){ x+=1; return x } return f()+f() })"
+        )
+        |> user_function()
+
+      assert {:ok, 5} = Compiler.invoke(fun, [])
+    end
+
     test "preserves side-effectful dropped method calls", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(o){ o.bump(); return o.n })") |> user_function()
 

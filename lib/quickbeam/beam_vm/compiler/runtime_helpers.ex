@@ -212,6 +212,21 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   def is_undefined_or_null(val), do: val == :undefined or val == nil
 
+  def ensure_capture_cell({:cell, _} = cell, _val), do: cell
+
+  def ensure_capture_cell(_cell, val) do
+    ref = make_ref()
+    Heap.put_cell(ref, val)
+    {:cell, ref}
+  end
+
+  def sync_capture_cell({:cell, ref}, val) do
+    Heap.put_cell(ref, val)
+    :ok
+  end
+
+  def sync_capture_cell(_, _), do: :ok
+
   def invoke_runtime(fun, args) do
     case fun do
       %Bytecode.Function{} ->

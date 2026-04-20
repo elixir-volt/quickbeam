@@ -7,7 +7,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
 
   @tdz :__tdz__
 
-  def lower_instruction({op, args}, idx, next_entry, _arg_count, state, stack_depths) do
+  def lower_instruction({op, args}, idx, next_entry, arg_count, state, stack_depths, constants) do
     name = Analysis.opcode_name(op)
 
     case {name, args} do
@@ -69,7 +69,13 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         State.array_from_call(state, argc)
 
       {{:ok, :push_const}, [const_idx]} ->
-        push_const(state, const_idx)
+        push_const(state, constants, const_idx)
+
+      {{:ok, :fclosure}, [const_idx]} ->
+        lower_fclosure(state, constants, arg_count, const_idx)
+
+      {{:ok, :fclosure8}, [const_idx]} ->
+        lower_fclosure(state, constants, arg_count, const_idx)
 
       {{:ok, :push_atom_value}, [atom_idx]} ->
         {:ok, State.push(state, State.compiler_call(:push_atom_value, [State.literal(atom_idx)]))}
@@ -519,5 +525,69 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
     end
   end
 
-  defp push_const(_state, idx), do: {:error, {:unsupported_const, idx}}
+  defp lower_fclosure(state, constants, arg_count, const_idx) do
+    case Enum.at(constants, const_idx) do
+      %QuickBEAM.BeamVM.Bytecode.Function{closure_vars: []} = fun ->
+        {:ok, State.push(state, State.literal(fun))}
+
+      %QuickBEAM.BeamVM.Bytecode.Function{} = fun ->
+        with {:ok, state, entries} <-
+               lower_closure_entries(state, arg_count, fun.closure_vars, []) do
+          closure =
+            State.tuple_expr([
+              State.atom(:closure),
+              State.map_expr(Enum.reverse(entries)),
+              State.literal(fun)
+            ])
+
+          {:ok, State.push(state, closure)}
+        end
+
+      nil ->
+        {:error, {:unsupported_const, const_idx}}
+
+      other ->
+        {:error, {:unsupported_fclosure_const, const_idx, other}}
+    end
+  end
+
+  defp lower_closure_entries(state, _arg_count, [], acc), do: {:ok, state, acc}
+
+  defp lower_closure_entries(state, arg_count, [cv | rest], acc) do
+    with {:ok, slot_idx} <- closure_slot_index(arg_count, cv),
+         {:ok, state, cell} <- State.ensure_capture_cell(state, slot_idx) do
+      key = State.literal({cv.closure_type, cv.var_idx})
+      lower_closure_entries(state, arg_count, rest, [{key, cell} | acc])
+    end
+  end
+
+  defp closure_slot_index(_arg_count, %{closure_type: 1, var_idx: idx}), do: {:ok, idx}
+  defp closure_slot_index(arg_count, %{closure_type: 0, var_idx: idx}), do: {:ok, idx + arg_count}
+
+  defp closure_slot_index(_arg_count, %{closure_type: 2, var_idx: idx}),
+    do: {:error, {:closure_var_ref_not_supported, idx}}
+
+  defp closure_slot_index(_arg_count, %{closure_type: type, var_idx: idx}),
+    do: {:error, {:closure_type_not_supported, type, idx}}
+
+  defp push_const(state, constants, idx) do
+    case Enum.at(constants, idx) do
+      nil ->
+        {:error, {:unsupported_const, idx}}
+
+      value
+      when is_integer(value) or is_float(value) or is_binary(value) or is_boolean(value) or
+             is_nil(value) ->
+        {:ok, State.push(state, State.literal(value))}
+
+      :undefined ->
+        {:ok, State.push(state, State.atom(:undefined))}
+
+      %QuickBEAM.BeamVM.Bytecode.Function{} = fun when fun.closure_vars == [] ->
+        {:ok, State.push(state, State.literal(fun))}
+
+      _ ->
+        {:error, {:unsupported_const, idx}}
+    end
+  end
 end
