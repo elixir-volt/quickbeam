@@ -42,16 +42,16 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
   end
 
   defp resume_sync(gen_ref, s, arg) do
-    result = Interpreter.run_frame(s.frame, [false, arg | s.stack], s.gas, s.ctx)
+    result = Interpreter.run_frame(s.pc, s.frame, [false, arg | s.stack], s.gas, s.ctx)
     complete(gen_ref)
     done_result(result)
   catch
-    {:generator_yield, val, sf, ss, sg, sc} ->
-      save_suspended(gen_ref, sf, ss, sg, sc)
+    {:generator_yield, val, sp, sf, ss, sg, sc} ->
+      save_suspended(gen_ref, sp, sf, ss, sg, sc)
       yield_result(val)
 
-    {:generator_yield_star, val, sf, ss, sg, sc} ->
-      save_suspended(gen_ref, sf, ss, sg, sc)
+    {:generator_yield_star, val, sp, sf, ss, sg, sc} ->
+      save_suspended(gen_ref, sp, sf, ss, sg, sc)
       val
 
     {:generator_return, val} ->
@@ -83,12 +83,12 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
   end
 
   defp resume_async(gen_ref, s, arg) do
-    result = Interpreter.run_frame(s.frame, [false, arg | s.stack], s.gas, s.ctx)
+    result = Interpreter.run_frame(s.pc, s.frame, [false, arg | s.stack], s.gas, s.ctx)
     complete(gen_ref)
     Promise.resolved(done_result(result))
   catch
-    {:generator_yield, val, sf, ss, sg, sc} ->
-      save_suspended(gen_ref, sf, ss, sg, sc)
+    {:generator_yield, val, sp, sf, ss, sg, sc} ->
+      save_suspended(gen_ref, sp, sf, ss, sg, sc)
       Promise.resolved(yield_result(val))
 
     {:generator_return, val} ->
@@ -110,12 +110,12 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
   defp suspend(gen_ref, frame, gas, ctx) do
     Interpreter.run_frame(frame, [], gas, ctx)
   catch
-    {:generator_yield, _val, sf, ss, sg, sc} -> save_suspended(gen_ref, sf, ss, sg, sc)
-    {:generator_yield_star, _val, sf, ss, sg, sc} -> save_suspended(gen_ref, sf, ss, sg, sc)
+    {:generator_yield, _val, sp, sf, ss, sg, sc} -> save_suspended(gen_ref, sp, sf, ss, sg, sc)
+    {:generator_yield_star, _val, sp, sf, ss, sg, sc} -> save_suspended(gen_ref, sp, sf, ss, sg, sc)
   end
 
-  defp save_suspended(ref, frame, stack, gas, ctx) do
-    Heap.put_obj(ref, %{state: :suspended, frame: frame, stack: stack, gas: gas, ctx: ctx})
+  defp save_suspended(ref, pc, frame, stack, gas, ctx) do
+    Heap.put_obj(ref, %{state: :suspended, pc: pc, frame: frame, stack: stack, gas: gas, ctx: ctx})
   end
 
   defp complete(ref), do: Heap.put_obj(ref, %{state: :completed})
