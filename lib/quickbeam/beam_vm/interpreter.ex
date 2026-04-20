@@ -71,7 +71,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     Heap.put_ctx(ctx)
 
     try do
-      case Decoder.decode(fun.byte_code) do
+      case Decoder.decode(fun.byte_code, fun.arg_count) do
         {:ok, instructions} ->
           instructions = List.to_tuple(instructions)
           locals = :erlang.make_tuple(max(fun.arg_count + fun.var_count, 1), :undefined)
@@ -2730,13 +2730,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp do_invoke(%Bytecode.Function{} = fun, self_ref, args, var_refs, gas, ctx) do
 
+    cache_key = {fun.byte_code, fun.arg_count}
+
     insns =
-      case Heap.get_decoded(fun.byte_code) do
+      case Heap.get_decoded(cache_key) do
         nil ->
-          case Decoder.decode(fun.byte_code) do
+          case Decoder.decode(fun.byte_code, fun.arg_count) do
             {:ok, instructions} ->
               t = List.to_tuple(instructions)
-              Heap.put_decoded(fun.byte_code, t)
+              Heap.put_decoded(cache_key, t)
               t
 
             {:error, _} = err ->

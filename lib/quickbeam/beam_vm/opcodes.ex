@@ -416,7 +416,7 @@ defmodule QuickBEAM.BeamVM.Opcodes do
     put_loc_check8: :put_loc_check
   }
 
-  def expand_short_form(name, args) do
+  def expand_short_form(name, args, arg_count \\ 0) do
     case Map.get(@short_forms, name) do
       nil ->
         case Map.get(@passthrough_aliases, name) do
@@ -425,7 +425,12 @@ defmodule QuickBEAM.BeamVM.Opcodes do
         end
 
       {canonical, const_args} ->
-        {canonical, const_args}
+        if canonical in [:get_loc, :put_loc, :set_loc] do
+          [idx] = const_args
+          {canonical, [idx + arg_count]}
+        else
+          {canonical, const_args}
+        end
     end
   end
 end
