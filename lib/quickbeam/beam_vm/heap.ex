@@ -450,8 +450,23 @@ defmodule QuickBEAM.BeamVM.Heap do
     mark_ref({:qb_cell, ref}, rest, visited, fn val -> [val] end)
   end
 
-  defp mark([{:closure, captured, _fun} | rest], visited),
-    do: mark(Map.values(captured) ++ rest, visited)
+  defp mark([{:closure, captured, %QuickBEAM.BeamVM.Bytecode.Function{} = fun} = closure | rest], visited) do
+    related = [get_class_proto(closure), get_class_proto(fun), get_parent_ctor(fun)]
+    statics = Map.values(get_ctor_statics(closure)) ++ Map.values(get_ctor_statics(fun))
+    mark(Map.values(captured) ++ related ++ statics ++ rest, visited)
+  end
+
+  defp mark([{:builtin, _, _} = builtin | rest], visited) do
+    related = [get_class_proto(builtin), get_parent_ctor(builtin)]
+    statics = Map.values(get_ctor_statics(builtin))
+    mark(related ++ statics ++ rest, visited)
+  end
+
+  defp mark([%QuickBEAM.BeamVM.Bytecode.Function{} = fun | rest], visited) do
+    related = [get_class_proto(fun), get_parent_ctor(fun)]
+    statics = Map.values(get_ctor_statics(fun))
+    mark(Map.values(Map.from_struct(fun)) ++ related ++ statics ++ rest, visited)
+  end
 
   defp mark([tuple | rest], visited) when is_tuple(tuple),
     do: mark(Tuple.to_list(tuple) ++ rest, visited)

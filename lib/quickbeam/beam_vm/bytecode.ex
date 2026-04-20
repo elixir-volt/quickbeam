@@ -529,15 +529,6 @@ defmodule QuickBEAM.BeamVM.Bytecode do
     end
   end
 
-  defp skip_bytes(data, 0), do: {:ok, data}
-
-  defp skip_bytes(data, n) when byte_size(data) >= n do
-    <<_::binary-size(n), rest::binary>> = data
-    {:ok, rest}
-  end
-
-  defp skip_bytes(_, _), do: {:error, :unexpected_end}
-
   @pc2line_base -1
   @pc2line_range 5
   @pc2line_op_first 1
@@ -564,7 +555,10 @@ defmodule QuickBEAM.BeamVM.Bytecode do
 
   def source_position(%Function{} = fun, insn_index) do
     pc = instruction_offset(fun.byte_code, insn_index)
-    decode_pc2line(fun, pc)
+
+    fun
+    |> decode_pc2line(pc)
+    |> maybe_apply_source_hint(fun)
   end
 
   defp decode_pc2line(%Function{pc2line: <<>>} = fun, _pc), do: {fun.line_num, fun.col_num}
@@ -598,4 +592,17 @@ defmodule QuickBEAM.BeamVM.Bytecode do
       do_decode_pc2line(rest2, target_pc, next_pc, next_line, next_col)
     end
   end
+
+  defp maybe_apply_source_hint(pos, %Function{source: source}) when is_binary(source) do
+    case Regex.scan(~r/line\s+(\d+),\s*column\s+(\d+)/, source, capture: :all_but_first) do
+      [[hint_line, hint_col]] ->
+        hint = {String.to_integer(hint_line), String.to_integer(hint_col)}
+        if pos > hint, do: hint, else: pos
+
+      _ ->
+        pos
+    end
+  end
+
+  defp maybe_apply_source_hint(pos, _fun), do: pos
 end

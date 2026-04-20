@@ -14,10 +14,24 @@ defmodule QuickBEAM.JSEngineTest do
     assert_js = strip_exports(File.read!("test/beam_vm/assert.js"))
     QuickBEAM.eval(rt, assert_js, mode: :beam)
 
-    QuickBEAM.eval(
-      rt,
-      ~s|gc=function(){};os={platform:'elixir'};qjs={getStringKind:function(s){return s.length>256?1:0}}|,
-      mode: :beam
+    qjs =
+      Heap.wrap(%{
+        "getStringKind" =>
+          {:builtin, "getStringKind",
+           fn
+             [s | _], _ when is_binary(s) -> if byte_size(s) > 256, do: 1, else: 0
+             _, _ -> 0
+           end}
+      })
+
+    os = Heap.wrap(%{"platform" => "elixir"})
+
+    Heap.put_persistent_globals(
+      Map.merge(Heap.get_persistent_globals(), %{
+        "gc" => {:builtin, "gc", fn _, _ -> :undefined end},
+        "os" => os,
+        "qjs" => qjs
+      })
     )
 
     %{rt: rt}
@@ -39,9 +53,6 @@ defmodule QuickBEAM.JSEngineTest do
       |> Enum.reject(&(&1.id.name in skip_list))
 
     helper_fns = Enum.reject(fns, &(&1.id.name == "test"))
-
-    helpers =
-      Enum.map_join(helper_fns, "\n", &binary_part(source, &1.start, &1[:end] - &1.start))
 
     for %{id: %{name: func_name}} = func <- test_fns do
       func_body = binary_part(source, func.start, func[:end] - func.start)

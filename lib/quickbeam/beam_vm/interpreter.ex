@@ -532,6 +532,24 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp uninitialized_this_local?(ctx, idx), do: current_local_name(ctx, idx) == "this"
 
+  defp derived_this_uninitialized?(%Context{
+         this: this,
+         current_func: {:closure, _, %Bytecode.Function{is_derived_class_constructor: true}}
+       })
+       when this == :uninitialized or
+              (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized),
+       do: true
+
+  defp derived_this_uninitialized?(%Context{
+         this: this,
+         current_func: %Bytecode.Function{is_derived_class_constructor: true}
+       })
+       when this == :uninitialized or
+              (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized),
+       do: true
+
+  defp derived_this_uninitialized?(_), do: false
+
   defp current_var_ref_name(%Context{current_func: {:closure, _, %Bytecode.Function{closure_vars: vars}}}, idx)
        when idx >= 0 and idx < length(vars),
        do: vars |> Enum.at(idx) |> Map.get(:name) |> resolve_local_name()
@@ -697,7 +715,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     {{:obj, iter_ref}, next_fn}
   end
 
-  defp eval_code(code, caller_frame, gas, ctx, var_objs, keep_declared? \\ false) do
+  defp eval_code(code, caller_frame, gas, ctx, var_objs, keep_declared?) do
     with {:ok, bc} <- QuickBEAM.Runtime.compile(ctx.runtime_pid, code),
          {:ok, parsed} <- Bytecode.decode(bc) do
       declared_names = eval_declared_names(parsed.value, parsed.atoms)
@@ -751,30 +769,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             |> Map.take(MapSet.to_list(visible_declared_names))
 
           apply_eval_transients(ctx.current_func, var_objs, transient_globals, keep_declared?)
-
-          write_back_eval_vars(
-            caller_frame,
-            ctx,
-            pre_eval_globals,
-            var_objs,
-            declared_names,
-            keep_declared?,
-            visible_declared_names
-          )
+          write_back_eval_vars(caller_frame, ctx, pre_eval_globals, var_objs, declared_names)
 
           clean_eval_globals(pre_eval_globals)
           {val, transient_globals}
 
         {:error, {:js_throw, val}} ->
-          write_back_eval_vars(
-            caller_frame,
-            ctx,
-            pre_eval_globals,
-            var_objs,
-            declared_names,
-            keep_declared?,
-            visible_declared_names
-          )
+          write_back_eval_vars(caller_frame, ctx, pre_eval_globals, var_objs, declared_names)
 
           clean_eval_globals(pre_eval_globals)
           throw({:js_throw, val})
@@ -841,15 +842,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp collect_captured_globals(_), do: %{}
 
-  defp write_back_eval_vars(
-         caller_frame,
-         ctx,
-         original_globals,
-         var_objs,
-         declared_names \\ MapSet.new(),
-         keep_declared? \\ false,
-         visible_declared_names \\ MapSet.new()
-       ) do
+  defp write_back_eval_vars(caller_frame, ctx, original_globals, var_objs, declared_names) do
     new_globals = Heap.get_persistent_globals() || %{}
 
     if caller_is_strict?(ctx) do
@@ -1371,9 +1364,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({@op_get_loc_check, [idx]}, pc, frame, stack, gas, ctx) do
     val = elem(elem(frame, Frame.locals()), idx)
 
-    if val == :__tdz__ or (val == :undefined and uninitialized_this_local?(ctx, idx)) do
+    if val == :__tdz__ or
+         (val == :undefined and uninitialized_this_local?(ctx, idx) and
+            derived_this_uninitialized?(ctx)) do
       message =
-        if uninitialized_this_local?(ctx, idx),
+        if uninitialized_this_local?(ctx, idx) and derived_this_uninitialized?(ctx),
           do: "this is not initialized",
           else: "Cannot access variable before initialization"
 
@@ -1384,9 +1379,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({@op_put_loc_check, [idx]}, pc, frame, [val | rest], gas, ctx) do
-    if val == :__tdz__ or (val == :undefined and uninitialized_this_local?(ctx, idx)) do
+    if val == :__tdz__ or
+         (val == :undefined and uninitialized_this_local?(ctx, idx) and
+            derived_this_uninitialized?(ctx)) do
       message =
-        if uninitialized_this_local?(ctx, idx),
+        if uninitialized_this_local?(ctx, idx) and derived_this_uninitialized?(ctx),
           do: "this is not initialized",
           else: "Cannot access variable before initialization"
 
@@ -2065,15 +2062,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
         end
 
+      init = if proto, do: %{proto() => proto}, else: %{}
+      Heap.put_obj(this_ref, init)
+      fresh_this = {:obj, this_ref}
+
       this_obj =
         case raw_ctor do
           %Bytecode.Function{is_derived_class_constructor: true} ->
-            :uninitialized
+            {:uninitialized, fresh_this}
 
           _ ->
-            init = if proto, do: %{proto() => proto}, else: %{}
-            Heap.put_obj(this_ref, init)
-            {:obj, this_ref}
+            fresh_this
         end
 
       ctor_ctx = %{ctx | this: this_obj, new_target: new_target}
@@ -2166,7 +2165,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           _ -> this_obj
         end
 
-      if result == :uninitialized do
+      if match?({:uninitialized, _}, result) do
         throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
       end
 
@@ -2197,28 +2196,44 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     parent = Heap.get_parent_ctor(raw)
     args = Tuple.to_list(arg_buf)
 
+    pending_this =
+      case ctx.this do
+        {:uninitialized, {:obj, _} = obj} -> obj
+        {:obj, _} = obj -> obj
+        _ -> ctx.this
+      end
+
+    parent_ctx = %{ctx | this: pending_this}
+
     result =
       case parent do
         nil ->
-          ctx.this
+          pending_this
 
         %Bytecode.Function{} = f ->
-          do_invoke(f, {:closure, %{}, f}, args, ctor_var_refs(f), gas, ctx)
+          do_invoke(f, {:closure, %{}, f}, args, ctor_var_refs(f), gas, parent_ctx)
 
         {:closure, captured, %Bytecode.Function{} = f} ->
-          do_invoke(f, {:closure, captured, f}, args, ctor_var_refs(f, captured), gas, ctx)
+          do_invoke(
+            f,
+            {:closure, captured, f},
+            args,
+            ctor_var_refs(f, captured),
+            gas,
+            parent_ctx
+          )
 
         {:builtin, _name, cb} when is_function(cb, 2) ->
-          cb.(args, nil)
+          cb.(args, pending_this)
 
         _ ->
-          ctx.this
+          pending_this
       end
 
     result =
       case result do
         {:obj, _} = obj -> obj
-        _ -> ctx.this
+        _ -> pending_this
       end
 
     run(pc + 1, frame, [result | stack], gas, %{ctx | this: result})
@@ -2430,7 +2445,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       {:cell, _} = cell ->
         val = Closures.read_cell(cell)
 
-        if val == :__tdz__ and current_var_ref_name(ctx, idx) == "this" do
+        if val == :__tdz__ and current_var_ref_name(ctx, idx) == "this" and
+             derived_this_uninitialized?(ctx) do
           throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
         end
 
@@ -2897,7 +2913,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(pc + 1, frame, [parent | rest], gas, ctx)
   end
 
-  defp run({@op_push_this, []}, _pc, frame, _stack, gas, %Context{this: :uninitialized} = ctx) do
+  defp run({@op_push_this, []}, _pc, frame, _stack, gas, %Context{this: this} = ctx)
+       when this == :uninitialized or
+              (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized) do
     throw_or_catch(frame, Heap.make_error("this is not initialized", "ReferenceError"), gas, ctx)
   end
 
