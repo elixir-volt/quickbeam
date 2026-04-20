@@ -1,5 +1,9 @@
 # Changelog
 
+
+## 0.10.1
+
+- Allow oxc ~> 0.8 (adds OXC.Lint support)
 ## 0.10.0
 
 ### Added
