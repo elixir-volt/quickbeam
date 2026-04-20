@@ -1,7 +1,7 @@
 defmodule QuickBEAM.BeamVM.Runtime.Globals do
   @moduledoc "JS global scope: constructors, global functions, and the binding map."
 
-  import QuickBEAM.BeamVM.Builtin, only: [build_object: 1]
+  import QuickBEAM.BeamVM.Builtin, only: [build_methods: 1, build_object: 1]
   import QuickBEAM.BeamVM.Heap.Keys
 
   alias QuickBEAM.BeamVM.{Bytecode, Heap}
@@ -437,11 +437,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
     error_proto_ref = make_ref()
     error_ctor = {:builtin, "Error", fn args, _this -> error_constructor("Error", args) end}
 
-    Heap.put_obj(error_proto_ref, %{
-      "name" => "Error",
-      "message" => "",
-      "constructor" => error_ctor
-    })
+    Heap.put_obj(
+      error_proto_ref,
+      build_methods do
+        val("name", "Error")
+        val("message", "")
+        val("constructor", error_ctor)
+      end
+    )
 
     Heap.put_class_proto(error_ctor, {:obj, error_proto_ref})
     Heap.put_ctor_static(error_ctor, "prototype", {:obj, error_proto_ref})
@@ -474,12 +477,15 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
         proto_ref = make_ref()
         ctor = {:builtin, name, fn args, _this -> error_constructor(name, args) end}
 
-        Heap.put_obj(proto_ref, %{
-          "__proto__" => {:obj, error_proto_ref},
-          "name" => name,
-          "message" => "",
-          "constructor" => ctor
-        })
+        Heap.put_obj(
+          proto_ref,
+          build_methods do
+            val("__proto__", {:obj, error_proto_ref})
+            val("name", name)
+            val("message", "")
+            val("constructor", ctor)
+          end
+        )
 
         Heap.put_class_proto(ctor, {:obj, proto_ref})
         Heap.put_ctor_static(ctor, "prototype", {:obj, proto_ref})

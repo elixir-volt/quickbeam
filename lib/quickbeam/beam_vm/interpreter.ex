@@ -1,6 +1,6 @@
 defmodule QuickBEAM.BeamVM.Interpreter do
   import Bitwise, only: [bnot: 1, &&&: 2]
-  import QuickBEAM.BeamVM.Builtin, only: [build_object: 1]
+  import QuickBEAM.BeamVM.Builtin, only: [build_methods: 1, build_object: 1]
   import QuickBEAM.BeamVM.Heap.Keys
 
   alias QuickBEAM.BeamVM.{Builtin, Bytecode, Decoder, Heap, PredefinedAtoms, Runtime}
@@ -2205,11 +2205,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
               Heap.put_obj(
                 this_ref,
-                Map.merge(existing, %{
-                  primitive_value() => obj,
-                  "valueOf" => val_fn,
-                  "toString" => to_str_fn
-                })
+                existing
+                |> Map.merge(
+                  build_methods do
+                    val("valueOf", val_fn)
+                    val("toString", to_str_fn)
+                  end
+                )
+                |> Map.put(primitive_value(), obj)
               )
             end
 

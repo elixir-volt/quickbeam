@@ -13,13 +13,30 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   def build_prototype do
     ref = make_ref()
 
-    Heap.put_obj(ref, %{
-      "toString" => {:builtin, "toString", fn _, _ -> "[object Object]" end},
-      "valueOf" => {:builtin, "valueOf", fn _, this -> this end},
-      "hasOwnProperty" => {:builtin, "hasOwnProperty", &has_own_property/2},
-      "isPrototypeOf" => {:builtin, "isPrototypeOf", fn _, _ -> false end},
-      "propertyIsEnumerable" => {:builtin, "propertyIsEnumerable", &property_enumerable?/2}
-    })
+    Heap.put_obj(
+      ref,
+      build_methods do
+        method "toString" do
+          "[object Object]"
+        end
+
+        method "valueOf" do
+          this
+        end
+
+        method "hasOwnProperty" do
+          has_own_property(args, this)
+        end
+
+        method "isPrototypeOf" do
+          false
+        end
+
+        method "propertyIsEnumerable" do
+          property_enumerable?(args, this)
+        end
+      end
+    )
 
     proto = {:obj, ref}
 
