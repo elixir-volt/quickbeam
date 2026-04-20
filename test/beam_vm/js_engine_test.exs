@@ -1,5 +1,8 @@
 defmodule QuickBEAM.JSEngineTest do
   use ExUnit.Case, async: true
+
+  alias QuickBEAM.BeamVM.Heap
+
   # Skip list: tests that cannot work in beam mode
   # Source positions / stack traces: beam VM does not track JS source locations
   # eval/eval2: eval opcode not implemented in beam VM
@@ -11,7 +14,7 @@ defmodule QuickBEAM.JSEngineTest do
   @skip_language ~w()
 
   setup do
-    QuickBEAM.BeamVM.Heap.reset()
+    Heap.reset()
     {:ok, rt} = QuickBEAM.start()
 
     assert_js = strip_exports(File.read!("test/beam_vm/assert.js"))
@@ -38,18 +41,16 @@ defmodule QuickBEAM.JSEngineTest do
 
     test_fns =
       fns
-      |> Enum.filter(&(String.starts_with?(&1.id.name, "test_") and length(&1.params) == 0))
+      |> Enum.filter(&(String.starts_with?(&1.id.name, "test_") and &1.params == []))
       |> Enum.reject(&(&1.id.name in skip_list))
 
     helper_fns =
       Enum.reject(fns, fn f ->
-        (String.starts_with?(f.id.name, "test_") and length(f.params) == 0) or f.id.name == "test"
+        (String.starts_with?(f.id.name, "test_") and f.params == []) or f.id.name == "test"
       end)
 
     helpers =
-      helper_fns
-      |> Enum.map(&binary_part(source, &1.start, &1[:end] - &1.start))
-      |> Enum.join("\n")
+      Enum.map_join(helper_fns, "\n", &binary_part(source, &1.start, &1[:end] - &1.start))
 
     for %{id: %{name: func_name}} = func <- test_fns do
       func_body = binary_part(source, func.start, func[:end] - func.start)
@@ -75,13 +76,12 @@ defmodule QuickBEAM.JSEngineTest do
     {:ok, ast} = OXC.parse(source, "module.js")
 
     ast.body
-    |> Enum.map(fn
+    Enum.map_join(ast.body, "\n", fn
       %{type: :export_named_declaration, declaration: decl} ->
         binary_part(source, decl.start, decl[:end] - decl.start)
 
       node ->
         binary_part(source, node.start, node[:end] - node.start)
     end)
-    |> Enum.join("\n")
   end
 end

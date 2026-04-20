@@ -151,20 +151,25 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
   # ── Array static dispatch ──
 
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   static "isArray" do
     is_array(hd(args))
   end
 
   @max_proxy_depth 1_000_000
 
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_array(val, depth \\ 0)
 
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_array(_, depth) when depth > @max_proxy_depth do
     throw({:js_throw, Heap.make_error("Maximum call stack size exceeded", "RangeError")})
   end
 
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_array(list, _) when is_list(list), do: true
 
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_array({:obj, ref}, depth) do
     case Heap.get_obj(ref) do
       list when is_list(list) -> true
@@ -173,6 +178,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
     end
   end
 
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_array(_, _), do: false
 
   static "from" do

@@ -89,6 +89,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     end
   end
 
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_immutable_buffer?(ta) do
     case Map.get(ta, "buffer") do
       {:obj, buf_ref} ->
@@ -337,7 +338,10 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
           ab_buf = Map.get(buf_map, buffer(), <<>>)
           before = if offset > 0, do: binary_part(ab_buf, 0, min(offset, byte_size(ab_buf))), else: <<>>
           after_offset = offset + byte_size(new_buf)
-          after_part = if after_offset < byte_size(ab_buf), do: binary_part(ab_buf, after_offset, byte_size(ab_buf) - after_offset), else: <<>>
+          after_part =
+            if after_offset < byte_size(ab_buf),
+              do: binary_part(ab_buf, after_offset, byte_size(ab_buf) - after_offset),
+              else: <<>>
           merged = before <> new_buf <> after_part
           Heap.put_obj(buf_ref, Map.put(buf_map, buffer(), merged))
         end
@@ -375,7 +379,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
     cond do
       abs_f == 0.0 -> Bitwise.bsl(sign, 15)
-      abs_f >= 65520.0 -> Bitwise.bsl(sign, 15) |> Bitwise.bor(0x7C00)
+      abs_f >= 65_520.0 -> Bitwise.bsl(sign, 15) |> Bitwise.bor(0x7C00)
       true ->
         exp = trunc(:math.floor(:math.log2(abs_f)))
         exp = max(-14, min(15, exp))

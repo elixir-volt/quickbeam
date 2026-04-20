@@ -5,6 +5,7 @@ defmodule QuickBEAM.BeamVM.Runtime.ArrayBuffer do
   use QuickBEAM.BeamVM.Builtin
 
   alias QuickBEAM.BeamVM.Heap
+  alias QuickBEAM.BeamVM.Runtime
 
   def constructor(args, _this \\ nil) do
     {byte_length, max_byte_length} =
@@ -47,7 +48,10 @@ defmodule QuickBEAM.BeamVM.Runtime.ArrayBuffer do
     case this do
       {:obj, ref} ->
         map = Heap.get_obj(ref, %{})
-        new_size = case args do [n | _] when is_number(n) -> trunc(n); _ -> 0 end
+        new_size = case args do
+          [n | _] when is_number(n) -> trunc(n)
+          _ -> 0
+        end
 
         if is_map(map) do
           old_buf = Map.get(map, buffer(), <<>>)
@@ -73,8 +77,14 @@ defmodule QuickBEAM.BeamVM.Runtime.ArrayBuffer do
         map = Heap.get_obj(ref, %{})
         buf = Map.get(map, buffer(), <<>>)
         len = byte_size(buf)
-        s = case args do [n | _] when is_number(n) -> normalize_idx(trunc(n), len); _ -> 0 end
-        e = case args do [_, n | _] when is_number(n) -> normalize_idx(trunc(n), len); _ -> len end
+        s = case args do
+          [n | _] when is_number(n) -> normalize_idx(trunc(n), len)
+          _ -> 0
+        end
+        e = case args do
+          [_, n | _] when is_number(n) -> normalize_idx(trunc(n), len)
+          _ -> len
+        end
         new_len = max(0, e - s)
         new_buf = if new_len > 0, do: binary_part(buf, s, new_len), else: <<>>
         Heap.wrap(%{buffer() => new_buf, "byteLength" => new_len, "__immutable__" => true})
@@ -93,16 +103,22 @@ defmodule QuickBEAM.BeamVM.Runtime.ArrayBuffer do
 
         buf = Map.get(map, buffer(), <<>>)
         len = byte_size(buf)
-        s = case args do [n | _] when is_number(n) -> normalize_idx(trunc(n), len); _ -> 0 end
-        e = case args do [_, n | _] when is_number(n) -> normalize_idx(trunc(n), len); _ -> len end
+        s = case args do
+          [n | _] when is_number(n) -> normalize_idx(trunc(n), len)
+          _ -> 0
+        end
+        e = case args do
+          [_, n | _] when is_number(n) -> normalize_idx(trunc(n), len)
+          _ -> len
+        end
         new_len = max(0, e - s)
 
         # Check Symbol.species on the constructor
-        ab_ctor = QuickBEAM.BeamVM.Runtime.global_bindings()["ArrayBuffer"]
+        ab_ctor = Runtime.global_bindings()["ArrayBuffer"]
         _species = case ab_ctor do
           {:builtin, _, _} = b ->
             case Map.get(Heap.get_ctor_statics(b), {:symbol, "Symbol.species"}) do
-              {:accessor, getter, _} when getter != nil -> QuickBEAM.BeamVM.Runtime.call_callback(getter, [])
+              {:accessor, getter, _} when getter != nil -> Runtime.call_callback(getter, [])
               _ -> nil
             end
           _ -> nil

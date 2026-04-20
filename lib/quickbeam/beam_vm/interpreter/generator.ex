@@ -12,13 +12,11 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
   end
 
   def invoke_async(frame, gas, ctx) do
-    try do
-      result = Interpreter.run_frame(frame, [], gas, ctx)
-      Promise.resolved(result)
-    catch
-      {:generator_return, val} -> Promise.resolved(val)
-      {:js_throw, val} -> Promise.rejected(val)
-    end
+    result = Interpreter.run_frame(frame, [], gas, ctx)
+    Promise.resolved(result)
+  catch
+    {:generator_return, val} -> Promise.resolved(val)
+    {:js_throw, val} -> Promise.rejected(val)
   end
 
   def invoke_async_generator(frame, gas, ctx) do
@@ -44,27 +42,25 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
   end
 
   defp resume_sync(gen_ref, s, arg) do
-    try do
-      result = Interpreter.run_frame(s.frame, [false, arg | s.stack], s.gas, s.ctx)
+    result = Interpreter.run_frame(s.frame, [false, arg | s.stack], s.gas, s.ctx)
+    complete(gen_ref)
+    done_result(result)
+  catch
+    {:generator_yield, val, sf, ss, sg, sc} ->
+      save_suspended(gen_ref, sf, ss, sg, sc)
+      yield_result(val)
+
+    {:generator_yield_star, val, sf, ss, sg, sc} ->
+      save_suspended(gen_ref, sf, ss, sg, sc)
+      val
+
+    {:generator_return, val} ->
       complete(gen_ref)
-      done_result(result)
-    catch
-      {:generator_yield, val, sf, ss, sg, sc} ->
-        save_suspended(gen_ref, sf, ss, sg, sc)
-        yield_result(val)
+      done_result(val)
 
-      {:generator_yield_star, val, sf, ss, sg, sc} ->
-        save_suspended(gen_ref, sf, ss, sg, sc)
-        val
-
-      {:generator_return, val} ->
-        complete(gen_ref)
-        done_result(val)
-
-      {:js_throw, _} = thrown ->
-        complete(gen_ref)
-        throw(thrown)
-    end
+    {:js_throw, _} = thrown ->
+      complete(gen_ref)
+      throw(thrown)
   end
 
   # ── Async generator ──
@@ -87,23 +83,21 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
   end
 
   defp resume_async(gen_ref, s, arg) do
-    try do
-      result = Interpreter.run_frame(s.frame, [false, arg | s.stack], s.gas, s.ctx)
+    result = Interpreter.run_frame(s.frame, [false, arg | s.stack], s.gas, s.ctx)
+    complete(gen_ref)
+    Promise.resolved(done_result(result))
+  catch
+    {:generator_yield, val, sf, ss, sg, sc} ->
+      save_suspended(gen_ref, sf, ss, sg, sc)
+      Promise.resolved(yield_result(val))
+
+    {:generator_return, val} ->
       complete(gen_ref)
-      Promise.resolved(done_result(result))
-    catch
-      {:generator_yield, val, sf, ss, sg, sc} ->
-        save_suspended(gen_ref, sf, ss, sg, sc)
-        Promise.resolved(yield_result(val))
+      Promise.resolved(done_result(val))
 
-      {:generator_return, val} ->
-        complete(gen_ref)
-        Promise.resolved(done_result(val))
-
-      {:js_throw, _} = thrown ->
-        complete(gen_ref)
-        throw(thrown)
-    end
+    {:js_throw, _} = thrown ->
+      complete(gen_ref)
+      throw(thrown)
   end
 
   # ── Shared helpers ──
@@ -114,12 +108,10 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
   end
 
   defp suspend(gen_ref, frame, gas, ctx) do
-    try do
-      Interpreter.run_frame(frame, [], gas, ctx)
-    catch
-      {:generator_yield, _val, sf, ss, sg, sc} -> save_suspended(gen_ref, sf, ss, sg, sc)
-      {:generator_yield_star, _val, sf, ss, sg, sc} -> save_suspended(gen_ref, sf, ss, sg, sc)
-    end
+    Interpreter.run_frame(frame, [], gas, ctx)
+  catch
+    {:generator_yield, _val, sf, ss, sg, sc} -> save_suspended(gen_ref, sf, ss, sg, sc)
+    {:generator_yield_star, _val, sf, ss, sg, sc} -> save_suspended(gen_ref, sf, ss, sg, sc)
   end
 
   defp save_suspended(ref, frame, stack, gas, ctx) do

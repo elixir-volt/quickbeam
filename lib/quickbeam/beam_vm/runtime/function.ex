@@ -2,6 +2,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Function do
   @moduledoc false
   alias QuickBEAM.BeamVM.{Builtin, Bytecode, Heap}
   alias QuickBEAM.BeamVM.Interpreter
+  alias QuickBEAM.BeamVM.Runtime
 
   # ── Function prototype ──
 
@@ -87,7 +88,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Function do
         Interpreter.invoke_with_receiver(
           fun,
           args,
-          QuickBEAM.BeamVM.Runtime.gas_budget(),
+          Runtime.gas_budget(),
           this_arg
         )
 
@@ -95,7 +96,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Function do
         Interpreter.invoke_with_receiver(
           fun,
           args,
-          QuickBEAM.BeamVM.Runtime.gas_budget(),
+          Runtime.gas_budget(),
           this_arg
         )
 

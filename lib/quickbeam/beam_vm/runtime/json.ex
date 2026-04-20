@@ -7,8 +7,8 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
 
   alias QuickBEAM.BeamVM.Bytecode
   alias QuickBEAM.BeamVM.Heap
-  alias QuickBEAM.BeamVM.Runtime.Property
   alias QuickBEAM.BeamVM.Runtime
+  alias QuickBEAM.BeamVM.Runtime.Property
 
   js_object "JSON" do
     method "parse" do
@@ -196,13 +196,11 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
   defp to_json(val), do: val
 
   defp resolve_value({:accessor, getter, _}, obj) when getter != nil do
-    try do
-      Property.call_getter(getter, obj)
-    rescue
-      _ -> :undefined
-    catch
-      _, _ -> :undefined
-    end
+    Property.call_getter(getter, obj)
+  rescue
+    _ -> :undefined
+  catch
+    _, _ -> :undefined
   end
 
   defp resolve_value(val, _obj), do: val

@@ -1,14 +1,14 @@
 defmodule QuickBEAM.BeamVM.Runtime do
   @moduledoc "Shared helpers for the BEAM JS runtime: coercion, callbacks, object creation."
 
-  alias QuickBEAM.BeamVM.Bytecode
+  alias QuickBEAM.BeamVM.{Builtin, Bytecode, Interpreter}
   alias QuickBEAM.BeamVM.Heap
-  alias QuickBEAM.BeamVM.Interpreter.Values
-  alias QuickBEAM.BeamVM.{Builtin, Interpreter}
+  alias QuickBEAM.BeamVM.Interpreter.{Context, Values}
+  alias QuickBEAM.BeamVM.Runtime.Globals
 
   def global_bindings do
     case Heap.get_global_cache() do
-      nil -> QuickBEAM.BeamVM.Runtime.Globals.build()
+      nil -> Globals.build()
       cached -> cached
     end
   end
@@ -35,7 +35,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
   def gas_budget do
     case Heap.get_ctx() do
       %{gas: gas} -> gas
-      _ -> QuickBEAM.BeamVM.Interpreter.Context.default_gas()
+      _ -> Context.default_gas()
     end
   end
 

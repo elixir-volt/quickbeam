@@ -292,7 +292,7 @@ defmodule QuickBEAM.BeamVM.Bytecode do
 
   # ── Function bytecode ──
   # Matches JS_ReadFunctionTag exactly.
-  # 
+  #
   # Layout:
   #   flags (u16 raw LE)
   #   is_strict_mode (u8)

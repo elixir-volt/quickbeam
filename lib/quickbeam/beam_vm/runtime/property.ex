@@ -19,8 +19,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
     TypedArray
   }
 
-  alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
   alias QuickBEAM.BeamVM.Runtime.ArrayBuffer
+  alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
   alias QuickBEAM.BeamVM.Runtime.String, as: JSString
 
   def get(value, key) when is_binary(key) do

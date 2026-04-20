@@ -263,7 +263,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
     yoe = y - era * 400
     doy = div(153 * (month + (if month > 2, do: -3, else: 9)) + 2, 5)
     doe = yoe * 365 + div(yoe, 4) - div(yoe, 100) + doy
-    era * 146097 + doe - 719_468
+    era * 146_097 + doe - 719_468
   end
 
   # ── Date.parse ──
@@ -340,9 +340,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
     case String.split(digits, "-", parts: 3) do
       [y] ->
-        if valid_year_len?.(y),
-          do: with({year, ""} <- Integer.parse(y), do: utc_ms({sign * year, 1, 1, 0, 0, 0, 0}), else: (_ -> :miss)),
-          else: :miss
+        if valid_year_len?.(y) do
+          case Integer.parse(y) do
+            {year, ""} -> utc_ms({sign * year, 1, 1, 0, 0, 0, 0})
+            _ -> :miss
+          end
+        else
+          :miss
+        end
 
       [y, m] ->
         if valid_year_len?.(y) do
@@ -376,11 +381,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
         time_tz = String.trim(Enum.join(rest, " "))
 
         result =
-          cond do
-            byte_size(a) == 4 -> parse_ymd(a, b, c)
-            true -> parse_mdy(a, b, c)
-          end
-
+          if byte_size(a) == 4, do: parse_ymd(a, b, c), else: parse_mdy(a, b, c)
         case result do
           {:ok, year, month, day} ->
             {hour, minute, second, tz_offset} = parse_informal_time(time_tz)

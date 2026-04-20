@@ -300,9 +300,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   defp parse_float([n | _], _) when is_number(n), do: n * 1.0
   defp parse_float(_, _), do: :nan
 
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_nan([:nan | _], _), do: true
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_nan([n | _], _) when is_number(n), do: false
 
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_nan([s | _], _) when is_binary(s) do
     case Float.parse(s) do
       :error -> true
@@ -310,11 +313,16 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
     end
   end
 
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_nan(_, _), do: true
 
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_finite([n | _], _) when is_number(n), do: true
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_finite([:infinity | _], _), do: false
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_finite([:neg_infinity | _], _), do: false
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_finite(_, _), do: false
 
   defp js_eval([code | _], _) when is_binary(code) do
@@ -358,7 +366,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
 
   def parse_int(args), do: parse_int(args, nil)
   def parse_float(args), do: parse_float(args, nil)
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   def is_nan(args), do: is_nan(args, nil)
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   def is_finite(args), do: is_finite(args, nil)
 
   # ── Registration helpers ──

@@ -3,7 +3,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Reflect do
 
   use QuickBEAM.BeamVM.Builtin
   alias QuickBEAM.BeamVM.Heap
+  alias QuickBEAM.BeamVM.Interpreter
   alias QuickBEAM.BeamVM.Interpreter.Objects
+  alias QuickBEAM.BeamVM.Runtime
   alias QuickBEAM.BeamVM.Runtime.Property
 
   js_object "Reflect" do
@@ -20,10 +22,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Reflect do
 
       call_args = Heap.to_list(args_array)
 
-      QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(
+      Interpreter.invoke_with_receiver(
         target,
         call_args,
-        QuickBEAM.BeamVM.Runtime.gas_budget(),
+        Runtime.gas_budget(),
         this_arg
       )
     end
@@ -31,7 +33,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Reflect do
     method "construct" do
       [target, args_array | _] = args
       call_args = Heap.to_list(args_array)
-      QuickBEAM.BeamVM.Runtime.call_callback(target, call_args)
+      Runtime.call_callback(target, call_args)
     end
 
     method "get" do

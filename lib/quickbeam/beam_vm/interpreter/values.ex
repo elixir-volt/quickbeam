@@ -4,6 +4,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
 
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Interpreter
+  alias QuickBEAM.BeamVM.Runtime
 
   @compile {:inline,
             truthy?: 1,
@@ -69,7 +70,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
     case Map.get(map, "valueOf") do
       fun when fun != nil and fun != :undefined ->
         to_number(
-          Interpreter.invoke_with_receiver(fun, [], QuickBEAM.BeamVM.Runtime.gas_budget(), obj)
+          Interpreter.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj)
         )
 
       _ ->
@@ -179,7 +180,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
               Interpreter.invoke_with_receiver(
                 fun,
                 [],
-                QuickBEAM.BeamVM.Runtime.gas_budget(),
+                Runtime.gas_budget(),
                 obj
               )
             )
@@ -226,7 +227,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
     do:
       throw(
         {:js_throw,
-         QuickBEAM.BeamVM.Heap.make_error(
+         Heap.make_error(
            "Cannot convert a Symbol value to a string",
            "TypeError"
          )}
@@ -236,7 +237,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
     do:
       throw(
         {:js_throw,
-         QuickBEAM.BeamVM.Heap.make_error(
+         Heap.make_error(
            "Cannot convert a Symbol value to a string",
            "TypeError"
          )}
@@ -246,7 +247,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
     do:
       throw(
         {:js_throw,
-         QuickBEAM.BeamVM.Heap.make_error(
+         Heap.make_error(
            "Cannot convert a Symbol value to a string",
            "TypeError"
          )}
@@ -256,7 +257,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
     do:
       throw(
         {:js_throw,
-         QuickBEAM.BeamVM.Heap.make_error(
+         Heap.make_error(
            "Cannot convert a Symbol value to a string",
            "TypeError"
          )}
@@ -575,7 +576,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
 
       fun when fun != nil and fun != :undefined ->
         unwrap_primitive(
-          Interpreter.invoke_with_receiver(fun, [], QuickBEAM.BeamVM.Runtime.gas_budget(), obj)
+          Interpreter.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj)
         )
 
       _ ->

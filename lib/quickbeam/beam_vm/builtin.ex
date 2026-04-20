@@ -143,7 +143,7 @@ defmodule QuickBEAM.BeamVM.Builtin do
 
   # ── Runtime dispatch ──
 
-  alias QuickBEAM.BeamVM.{Heap, Bytecode}
+  alias QuickBEAM.BeamVM.{Bytecode, Heap}
 
   def call({:builtin, _, cb}, args, this), do: cb.(args, this)
 

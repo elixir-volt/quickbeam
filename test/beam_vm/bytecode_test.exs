@@ -32,7 +32,10 @@ defmodule QuickBEAM.BeamVM.BytecodeTest do
     # The actual code is in the top-level function itself.
     # For function expressions, the user function is in the cpool.
     inner = for %Bytecode.Function{} = f <- fun.constants, do: f
-    if length(inner) > 0, do: hd(inner), else: fun
+    case inner do
+      [first | _] -> first
+      [] -> fun
+    end
   end
 
   describe "decode/1 structure" do
@@ -99,10 +102,10 @@ defmodule QuickBEAM.BeamVM.BytecodeTest do
       parsed = compile_and_decode(rt, "(function(){let x=1;return function(){return x}})")
       outer = user_function(parsed)
       inner_funs = for %Bytecode.Function{} = f <- outer.constants, do: f
-      assert length(inner_funs) >= 1
+      assert inner_funs != []
 
       inner = hd(inner_funs)
-      assert length(inner.closure_vars) >= 1
+      assert inner.closure_vars != []
       assert inner.closure_vars |> hd() |> Map.get(:name) == "x"
     end
 
@@ -153,7 +156,7 @@ defmodule QuickBEAM.BeamVM.BytecodeTest do
       parsed = compile_and_decode(rt, "(function(){return [1,2,3].map(x=>x*2)})")
       fun = user_function(parsed)
       inner_funs = for %Bytecode.Function{} = f <- fun.constants, do: f
-      assert length(inner_funs) >= 1
+      assert inner_funs != []
     end
 
     test "class", %{rt: rt} do

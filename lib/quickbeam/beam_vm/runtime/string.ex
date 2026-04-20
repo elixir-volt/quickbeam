@@ -397,7 +397,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
   defp match(s, [{:regexp, bytecode, _source} = re | _])
        when is_binary(s) and is_binary(bytecode) do
-    flags = QuickBEAM.BeamVM.Runtime.Property.regexp_flags(bytecode)
+    flags = Runtime.Property.regexp_flags(bytecode)
 
     if String.contains?(flags, "g") do
       match_all_strings(s, re, 0, [])

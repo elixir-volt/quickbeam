@@ -4,10 +4,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   use QuickBEAM.BeamVM.Builtin
 
   import QuickBEAM.BeamVM.Heap.Keys
+  alias QuickBEAM.BeamVM.Bytecode
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Interpreter.Values
   alias QuickBEAM.BeamVM.Runtime
-  alias QuickBEAM.BeamVM.Bytecode
+  alias QuickBEAM.BeamVM.Runtime.TypedArray
 
   def build_prototype do
     ref = make_ref()
@@ -139,7 +140,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
         end}
         apply_fn = {:builtin, "apply", fn [this, arg_array], _ ->
           args = case arg_array do
-            {:obj, r} -> case Heap.get_obj(r, []) do l when is_list(l) -> l; _ -> [] end
+            {:obj, r} ->
+              case Heap.get_obj(r, []) do
+                l when is_list(l) -> l
+                _ -> []
+              end
             _ -> []
           end
           Runtime.call_callback(this, args)
@@ -353,16 +358,15 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   end
 
   defp define_property([{:obj, ref} = obj, key, {:obj, desc_ref} | _]) do
-    try do
     desc = Heap.get_obj(desc_ref, %{})
     prop_name = if is_binary(key), do: key, else: to_string(key)
     existing = Heap.get_obj(ref, %{})
 
-    if Map.get(existing, QuickBEAM.BeamVM.Heap.Keys.typed_array()) do
+    if Map.get(existing, typed_array()) do
       case Integer.parse(prop_name) do
         {idx, ""} when idx >= 0 ->
           val = Map.get(desc, "value")
-          if val != nil, do: QuickBEAM.BeamVM.Runtime.TypedArray.set_element(obj, idx, val)
+          if val != nil, do: TypedArray.set_element(obj, idx, val)
           throw({:early_return, obj})
         _ -> :ok
       end
@@ -399,9 +403,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     })
 
     obj
-    catch
-      {:early_return, val} -> val
-    end
+  catch
+    {:early_return, val} -> val
   end
 
   defp define_property([{:builtin, _, _} = b, key, {:obj, desc_ref} | _]) do
@@ -429,14 +432,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
     case Map.get(map, prop_name) do
       nil ->
-        if Map.get(map, QuickBEAM.BeamVM.Heap.Keys.typed_array()) do
+        if Map.get(map, typed_array()) do
           case Integer.parse(prop_name) do
             {idx, ""} when idx >= 0 ->
-              val = QuickBEAM.BeamVM.Runtime.TypedArray.get_element({:obj, ref}, idx)
+              val = TypedArray.get_element({:obj, ref}, idx)
               if val == :undefined do
                 :undefined
               else
-                immutable = QuickBEAM.BeamVM.Runtime.TypedArray.immutable?({:obj, ref})
+                immutable = TypedArray.immutable?({:obj, ref})
                 desc_ref = make_ref()
                 Heap.put_obj(desc_ref, %{
                   "value" => val,

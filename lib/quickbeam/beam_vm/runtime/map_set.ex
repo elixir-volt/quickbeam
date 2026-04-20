@@ -3,11 +3,11 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
 
   import QuickBEAM.BeamVM.Heap.Keys
   use QuickBEAM.BeamVM.Builtin
+  alias QuickBEAM.BeamVM.Bytecode
   alias QuickBEAM.BeamVM.Heap
+  alias QuickBEAM.BeamVM.Interpreter
   alias QuickBEAM.BeamVM.Runtime
   alias QuickBEAM.BeamVM.Runtime.Property
-  alias QuickBEAM.BeamVM.Interpreter
-  alias QuickBEAM.BeamVM.Bytecode
 
   # ── Map/Set ──
 
@@ -432,11 +432,11 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
           end
 
         :none ->
-          if not in_set do
-            do_iterate_check(iterator, next_fn, set_data, mode)
-          else
+          if in_set do
             call_iterator_return(iterator)
             false
+          else
+            do_iterate_check(iterator, next_fn, set_data, mode)
           end
       end
     end

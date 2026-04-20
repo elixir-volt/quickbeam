@@ -116,7 +116,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   def invoke({:bound, _, inner, _, _}, args, gas), do: invoke(inner, args, gas)
 
-  @doc false
+  @doc """
+  Invokes a JS function with a specific `this` receiver.
+  """
   def invoke_with_receiver(fun, args, gas, this_obj) do
     prev = Heap.get_ctx()
     Heap.put_ctx(%{active_ctx() | this: this_obj})
@@ -152,12 +154,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp catch_js_throw(frame, rest, gas, ctx, fun) do
-    try do
-      result = fun.()
-      run(advance(frame), [result | rest], gas - 1, ctx)
-    catch
-      {:js_throw, val} -> throw_or_catch(frame, val, gas, ctx)
-    end
+    result = fun.()
+    run(advance(frame), [result | rest], gas - 1, ctx)
+  catch
+    {:js_throw, val} -> throw_or_catch(frame, val, gas, ctx)
   end
 
   # ── Helpers ──
@@ -907,11 +907,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   # ── Arithmetic ──
 
   defp run({:add, []}, frame, [b, a | rest], gas, %Context{catch_stack: [_ | _]} = ctx) do
-    try do
-      run(advance(frame), [Values.add(a, b) | rest], gas - 1, ctx)
-    catch
-      {:js_throw, val} -> throw_or_catch(frame, val, gas, ctx)
-    end
+    run(advance(frame), [Values.add(a, b) | rest], gas - 1, ctx)
+  catch
+    {:js_throw, val} -> throw_or_catch(frame, val, gas, ctx)
   end
 
   defp run({:add, []}, frame, [b, a | rest], gas, ctx),
@@ -2705,10 +2703,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
-  @doc false
+  @doc """
+  Runs a bytecode frame — entry point for external callers.
+  """
   def run_frame(frame, stack, gas, ctx), do: run(frame, stack, gas, ctx)
 
-  @doc false
+  @doc """
+  Invokes a callback function from built-in code (e.g. Array.prototype.map).
+  """
   def invoke_callback(fun, args) do
     case fun do
       %Bytecode.Function{} = f ->
