@@ -453,24 +453,6 @@ defmodule QuickBEAM.Context do
     handle_websocket_started(socket_id, pid, state)
   end
 
-  def handle_info({:ws_send, socket_id, kind, payload}, state) do
-    case Map.get(state.websockets, socket_id) do
-      {pid, _ref} -> GenServer.cast(pid, {:send, kind, payload})
-      nil -> :ok
-    end
-
-    {:noreply, state}
-  end
-
-  def handle_info({:ws_close, socket_id, code, reason}, state) do
-    case Map.get(state.websockets, socket_id) do
-      {pid, _ref} -> GenServer.cast(pid, {:close, code, reason})
-      nil -> :ok
-    end
-
-    {:noreply, state}
-  end
-
   def handle_info({:websocket_event, message}, state) do
     QuickBEAM.Native.pool_send_message(state.pool_resource, state.context_id, message)
     {:noreply, state}

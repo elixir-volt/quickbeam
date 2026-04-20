@@ -2322,14 +2322,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({op, [idx]}, pc, frame, [val | rest], gas, %Context{arg_buf: arg_buf} = ctx)
        when op in [@op_put_arg, @op_put_arg0, @op_put_arg1, @op_put_arg2, @op_put_arg3] do
-    padded = Tuple.to_list(arg_buf)
-
-    padded =
-      if idx < length(padded),
-        do: padded,
-        else: padded ++ List.duplicate(:undefined, idx + 1 - length(padded))
-
-    ctx = %{ctx | arg_buf: List.to_tuple(List.replace_at(padded, idx, val))}
+    ctx = put_arg_value(ctx, idx, val, arg_buf)
     run(pc + 1, frame, rest, gas - 1, ctx)
   end
 
@@ -2500,14 +2493,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({op, [idx]}, pc, frame, [val | rest], gas, %Context{arg_buf: arg_buf} = ctx)
        when op in [@op_set_arg, @op_set_arg0, @op_set_arg1, @op_set_arg2, @op_set_arg3] do
-    list = Tuple.to_list(arg_buf)
-
-    padded =
-      if idx < length(list),
-        do: list,
-        else: list ++ List.duplicate(:undefined, idx + 1 - length(list))
-
-    ctx = %{ctx | arg_buf: List.to_tuple(List.replace_at(padded, idx, val))}
+    ctx = put_arg_value(ctx, idx, val, arg_buf)
     run(pc + 1, frame, [val | rest], gas - 1, ctx)
   end
 
@@ -2854,6 +2840,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({op, args}, _pc, _frame, _stack, _gas, _ctx) do
     throw({:error, {:unimplemented_opcode, op, args}})
+  end
+
+  defp put_arg_value(ctx, idx, val, arg_buf) do
+    padded = Tuple.to_list(arg_buf)
+
+    padded =
+      if idx < length(padded),
+        do: padded,
+        else: padded ++ List.duplicate(:undefined, idx + 1 - length(padded))
+
+    %{ctx | arg_buf: List.to_tuple(List.replace_at(padded, idx, val))}
   end
 
   defp dispatch_call(fun, args, gas, ctx, this) do

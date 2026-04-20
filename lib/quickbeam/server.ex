@@ -114,6 +114,26 @@ defmodule QuickBEAM.Server do
         {:noreply, state}
       end
 
+      @impl true
+      def handle_info({:ws_send, socket_id, kind, payload}, state) do
+        case Map.get(state.websockets, socket_id) do
+          {pid, _ref} -> GenServer.cast(pid, {:send, kind, payload})
+          nil -> :ok
+        end
+
+        {:noreply, state}
+      end
+
+      @impl true
+      def handle_info({:ws_close, socket_id, code, reason}, state) do
+        case Map.get(state.websockets, socket_id) do
+          {pid, _ref} -> GenServer.cast(pid, {:close, code, reason})
+          nil -> :ok
+        end
+
+        {:noreply, state}
+      end
+
       # ── WebSocket helpers ──
 
       defp handle_websocket_started(socket_id, pid, state) do
