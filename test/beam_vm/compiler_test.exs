@@ -176,6 +176,55 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
 
       assert {:ok, 0} = Compiler.invoke(fun, [3, 1])
     end
+
+    test "compiles modulo", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(a,b){ return a % b })") |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [10, 3])
+    end
+
+    test "compiles logical not", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(x){ return !x })") |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [0])
+      assert {:ok, false} = Compiler.invoke(fun, [1])
+    end
+
+    test "compiles bitwise not", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(x){ return ~x })") |> user_function()
+
+      assert {:ok, -6} = Compiler.invoke(fun, [5])
+    end
+
+    test "compiles typeof", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(x){ return typeof x })") |> user_function()
+
+      assert {:ok, "number"} = Compiler.invoke(fun, [5])
+      assert {:ok, "undefined"} = Compiler.invoke(fun, [:undefined])
+    end
+
+    test "compiles delete with atom property names", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(o){ delete o.x; return o.x })") |> user_function()
+
+      assert {:ok, :undefined} = Compiler.invoke(fun, [Heap.wrap(%{"x" => 7})])
+    end
+
+    test "preserves side-effectful dropped method calls", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(o){ o.bump(); return o.n })") |> user_function()
+
+      obj =
+        Heap.wrap(%{
+          "n" => 0,
+          "bump" =>
+            {:builtin, "bump",
+             fn [], {:obj, ref} ->
+               Heap.put_obj(ref, Map.put(Heap.get_obj(ref, %{}), "n", 1))
+               :undefined
+             end}
+        })
+
+      assert {:ok, 1} = Compiler.invoke(fun, [obj])
+    end
   end
 
   describe "Interpreter integration" do

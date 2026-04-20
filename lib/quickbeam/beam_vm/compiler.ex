@@ -1,6 +1,7 @@
 defmodule QuickBEAM.BeamVM.Compiler do
   @moduledoc false
 
+  import Bitwise, only: [bnot: 1]
   import QuickBEAM.BeamVM.Heap.Keys, only: [proto: 0]
 
   alias QuickBEAM.BeamVM.{Builtin, Bytecode, Decoder, Heap, Opcodes}
@@ -66,6 +67,9 @@ defmodule QuickBEAM.BeamVM.Compiler do
 
   def strict_neq(a, b), do: not Values.strict_eq(a, b)
 
+  def bit_not(a), do: Values.to_int32(bnot(Values.to_int32(a)))
+  def lnot(a), do: not Values.truthy?(a)
+
   def inc(a), do: Values.add(a, 1)
   def dec(a), do: Values.sub(a, 1)
 
@@ -94,6 +98,8 @@ defmodule QuickBEAM.BeamVM.Compiler do
     Map.get(globals, atom_name(atom_idx), :undefined)
   end
 
+  def push_atom_value(atom_idx), do: atom_name(atom_idx)
+
   def new_object do
     proto = Heap.get_object_prototype()
     init = if proto, do: %{proto() => proto}, else: %{}
@@ -118,6 +124,39 @@ defmodule QuickBEAM.BeamVM.Compiler do
     QuickBEAM.BeamVM.Interpreter.Objects.put_element(obj, idx, val)
     :ok
   end
+
+  def delete_property(nil, key) do
+    throw(
+      {:js_throw,
+       Heap.make_error("Cannot delete properties of null (deleting '#{key}')", "TypeError")}
+    )
+  end
+
+  def delete_property(:undefined, key) do
+    throw(
+      {:js_throw,
+       Heap.make_error("Cannot delete properties of undefined (deleting '#{key}')", "TypeError")}
+    )
+  end
+
+  def delete_property({:obj, ref}, key) do
+    map = Heap.get_obj(ref, %{})
+
+    if is_map(map) do
+      desc = Heap.get_prop_desc(ref, key)
+
+      if match?(%{configurable: false}, desc) do
+        false
+      else
+        Heap.put_obj(ref, Map.delete(map, key))
+        true
+      end
+    else
+      true
+    end
+  end
+
+  def delete_property(_obj, _key), do: true
 
   def is_undefined_or_null(val), do: val == :undefined or val == nil
 
@@ -402,6 +441,9 @@ defmodule QuickBEAM.BeamVM.Compiler do
       {{:ok, :push_const}, [idx]} ->
         push_const(state, idx)
 
+      {{:ok, :push_atom_value}, [atom_idx]} ->
+        {:ok, push(state, compiler_call(:push_atom_value, [literal(atom_idx)]))}
+
       {{:ok, :get_var}, [atom_idx]} ->
         {:ok, push(state, compiler_call(:get_var, [literal(atom_idx)]))}
 
@@ -538,6 +580,12 @@ defmodule QuickBEAM.BeamVM.Compiler do
       {{:ok, :plus}, []} ->
         unary_local_call(state, :op_plus)
 
+      {{:ok, :not}, []} ->
+        unary_call(state, __MODULE__, :bit_not)
+
+      {{:ok, :lnot}, []} ->
+        unary_call(state, __MODULE__, :lnot)
+
       {{:ok, :inc}, []} ->
         unary_call(state, __MODULE__, :inc)
 
@@ -562,6 +610,9 @@ defmodule QuickBEAM.BeamVM.Compiler do
       {{:ok, :div}, []} ->
         binary_local_call(state, :op_div)
 
+      {{:ok, :mod}, []} ->
+        binary_call(state, Values, :mod)
+
       {{:ok, :pow}, []} ->
         binary_call(state, Values, :pow)
 
@@ -582,6 +633,12 @@ defmodule QuickBEAM.BeamVM.Compiler do
 
       {{:ok, :shr}, []} ->
         binary_call(state, Values, :shr)
+
+      {{:ok, :typeof}, []} ->
+        unary_call(state, Values, :typeof)
+
+      {{:ok, :delete}, []} ->
+        delete_call(state)
 
       {{:ok, :get_length}, []} ->
         unary_call(state, __MODULE__, :get_length)
@@ -752,6 +809,11 @@ defmodule QuickBEAM.BeamVM.Compiler do
     end
   end
 
+  defp effectful_push(state, expr) do
+    {bound, state} = bind(state, temp_name(state.temp), expr)
+    {:ok, push(state, bound)}
+  end
+
   defp unary_local_call(state, fun) do
     with {:ok, expr, state} <- pop(state) do
       {:ok, push(state, local_call(fun, [expr]))}
@@ -805,7 +867,7 @@ defmodule QuickBEAM.BeamVM.Compiler do
   defp invoke_call(state, argc) do
     with {:ok, args, state} <- pop_n(state, argc),
          {:ok, fun, state} <- pop(state) do
-      {:ok, push(state, compiler_call(:invoke_runtime, [fun, list_expr(Enum.reverse(args))]))}
+      effectful_push(state, compiler_call(:invoke_runtime, [fun, list_expr(Enum.reverse(args))]))
     end
   end
 
@@ -824,17 +886,23 @@ defmodule QuickBEAM.BeamVM.Compiler do
     with {:ok, args, state} <- pop_n(state, argc),
          {:ok, fun, state} <- pop(state),
          {:ok, obj, state} <- pop(state) do
-      {:ok,
-       push(
-         state,
-         compiler_call(:invoke_method_runtime, [fun, obj, list_expr(Enum.reverse(args))])
-       )}
+      effectful_push(
+        state,
+        compiler_call(:invoke_method_runtime, [fun, obj, list_expr(Enum.reverse(args))])
+      )
     end
   end
 
   defp array_from_call(state, argc) do
     with {:ok, elems, state} <- pop_n(state, argc) do
       {:ok, push(state, compiler_call(:array_from, [list_expr(Enum.reverse(elems))]))}
+    end
+  end
+
+  defp delete_call(state) do
+    with {:ok, key, state} <- pop(state),
+         {:ok, obj, state} <- pop(state) do
+      effectful_push(state, compiler_call(:delete_property, [obj, key]))
     end
   end
 
