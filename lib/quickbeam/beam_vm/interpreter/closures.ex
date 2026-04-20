@@ -44,6 +44,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Closures do
   def setup_captured_locals(fun, locals, var_refs, args) do
     arg_buf = List.to_tuple(args)
     vrefs = if is_tuple(var_refs), do: Tuple.to_list(var_refs), else: var_refs
+    closure_ref_count = length(vrefs)
 
     {locals, vrefs, l2v} =
       for {vd, local_idx} <- Enum.with_index(fun.locals),
@@ -55,11 +56,12 @@ defmodule QuickBEAM.BeamVM.Interpreter.Closures do
               do: elem(arg_buf, local_idx),
               else: elem(acc_locals, local_idx)
 
+          local_ref_idx = closure_ref_count + vd.var_ref_idx
           acc_locals = put_elem(acc_locals, local_idx, val)
           ref = make_ref()
           Heap.put_cell(ref, val)
-          acc_vrefs = ensure_vref_size(acc_vrefs, vd.var_ref_idx, {:cell, ref})
-          acc_l2v = Map.put(acc_l2v, local_idx, vd.var_ref_idx)
+          acc_vrefs = ensure_vref_size(acc_vrefs, local_ref_idx, {:cell, ref})
+          acc_l2v = Map.put(acc_l2v, local_idx, local_ref_idx)
           {acc_locals, acc_vrefs, acc_l2v}
       end
 

@@ -346,11 +346,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     {{:obj, iter_ref}, next_fn}
   end
 
-  defp eval_code(code, caller_frame, gas, ctx, var_obj) do
+  defp eval_code(code, caller_frame, gas, ctx, var_objs) do
     with {:ok, bc} <- QuickBEAM.Runtime.compile(ctx.runtime_pid, code),
          {:ok, parsed} <- Bytecode.decode(bc) do
       eval_globals = collect_caller_locals(caller_frame, ctx)
-      eval_ctx_globals = Map.merge(ctx.globals, eval_globals)
+      eval_scope_globals = merge_var_object_globals(eval_globals, var_objs)
+      eval_ctx_globals = Map.merge(ctx.globals, eval_scope_globals)
 
       eval_opts = %{gas: gas, runtime_pid: ctx.runtime_pid, globals: eval_ctx_globals}
 
@@ -358,12 +359,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       case __MODULE__.eval(parsed.value, [], eval_opts, parsed.atoms) do
         {:ok, val} ->
-          write_back_eval_vars(caller_frame, ctx, pre_eval_globals, var_obj)
+          write_back_eval_vars(caller_frame, ctx, pre_eval_globals, var_objs)
           clean_eval_globals(pre_eval_globals)
           val
 
         {:error, {:js_throw, val}} ->
-          write_back_eval_vars(caller_frame, ctx, pre_eval_globals, var_obj)
+          write_back_eval_vars(caller_frame, ctx, pre_eval_globals, var_objs)
           clean_eval_globals(pre_eval_globals)
           throw({:js_throw, val})
 
@@ -377,6 +378,38 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
+  defp merge_var_object_globals(globals, []), do: globals
+
+  defp merge_var_object_globals(globals, var_objs) do
+    Enum.reduce(var_objs, globals, fn
+      {:obj, ref}, acc ->
+        case Heap.get_obj(ref, %{}) do
+          map when is_map(map) -> Map.merge(acc, map)
+          _ -> acc
+        end
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  defp captured_var_objects({:closure, captured, _}) do
+    captured
+    |> Map.values()
+    |> Enum.flat_map(fn
+      {:cell, ref} ->
+        case Heap.get_cell(ref) do
+          {:obj, _} = obj -> [obj]
+          _ -> []
+        end
+
+      _ ->
+        []
+    end)
+  end
+
+  defp captured_var_objects(_), do: []
+
   defp write_back_eval_vars(caller_frame, ctx, original_globals, var_objs) do
     new_globals = Heap.get_persistent_globals() || %{}
 
@@ -384,11 +417,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       func_name = current_func_name(ctx)
 
       if func_name && Map.has_key?(new_globals, func_name) do
-        old_val = case ctx.current_func do
-          {:closure, _, %Bytecode.Function{} = f} -> Heap.get_parent_ctor(f)
-          _ -> nil
-        end
+        old_val =
+          case ctx.current_func do
+            {:closure, _, %Bytecode.Function{} = f} -> Heap.get_parent_ctor(f)
+            _ -> nil
+          end
+
         new_val = Map.get(new_globals, func_name)
+
         if old_val == nil and new_val != ctx.current_func and new_val != :undefined do
           throw({:js_throw, Heap.make_error("Assignment to constant variable.", "TypeError")})
         end
@@ -1415,7 +1451,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       proto =
         if raw_new_target != nil and raw_new_target != raw_ctor do
-          Heap.get_class_proto(raw_new_target) || Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
+          Heap.get_class_proto(raw_new_target) || Heap.get_class_proto(raw_ctor) ||
+            Heap.get_or_create_prototype(ctor)
         else
           Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
         end
@@ -1432,17 +1469,35 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             do_invoke(f, {:closure, %{}, f}, rev_args, ctor_var_refs(f), gas, ctor_ctx)
 
           {:closure, captured, %Bytecode.Function{} = f} ->
-            do_invoke(f, {:closure, captured, f}, rev_args, ctor_var_refs(f, captured), gas, ctor_ctx)
+            do_invoke(
+              f,
+              {:closure, captured, f},
+              rev_args,
+              ctor_var_refs(f, captured),
+              gas,
+              ctor_ctx
+            )
 
           {:bound, _, _, orig_fun, bound_args} ->
             all_args = bound_args ++ rev_args
+
             case orig_fun do
               %Bytecode.Function{} = f ->
                 do_invoke(f, {:closure, %{}, f}, all_args, ctor_var_refs(f), gas, ctor_ctx)
+
               {:closure, captured, %Bytecode.Function{} = f} ->
-                do_invoke(f, {:closure, captured, f}, all_args, ctor_var_refs(f, captured), gas, ctor_ctx)
+                do_invoke(
+                  f,
+                  {:closure, captured, f},
+                  all_args,
+                  ctor_var_refs(f, captured),
+                  gas,
+                  ctor_ctx
+                )
+
               {:builtin, _, cb} when is_function(cb, 2) ->
                 cb.(all_args, this_obj)
+
               _ ->
                 this_obj
             end
@@ -1828,10 +1883,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     var_objs =
       if scope_args != [] do
         locals = elem(frame, Frame.locals())
-        for i <- 0..(tuple_size(locals) - 1),
-            obj = elem(locals, i),
-            match?({:obj, _}, obj),
-            do: obj
+
+        obj_locals =
+          for i <- 0..(tuple_size(locals) - 1),
+              obj = elem(locals, i),
+              match?({:obj, _}, obj),
+              do: obj
+
+        obj_locals =
+          if List.first(scope_args) == 0, do: Enum.take(obj_locals, 1), else: obj_locals
+
+        Enum.uniq(obj_locals ++ captured_var_objects(ctx.current_func))
       else
         []
       end
@@ -2263,7 +2325,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         %Bytecode.Function{} = f ->
           base = build_closure(f, locals, vrefs, l2v, ctx)
           inherit_parent_vrefs(base, vrefs)
-        already_closure -> already_closure
+
+        already_closure ->
+          already_closure
       end
 
     raw =
@@ -2331,14 +2395,19 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     name = Scope.resolve_atom(ctx, atom_idx)
     method_type = Bitwise.band(flags, 3)
 
-    named_method = set_function_name(method_closure, case method_type do
-      1 -> "get " <> name
-      2 -> "set " <> name
-      _ -> name
-    end)
+    named_method =
+      set_function_name(
+        method_closure,
+        case method_type do
+          1 -> "get " <> name
+          2 -> "set " <> name
+          _ -> name
+        end
+      )
 
-    needs_home = match?({:closure, _, %Bytecode.Function{need_home_object: true}}, named_method) or
-                 match?(%Bytecode.Function{need_home_object: true}, named_method)
+    needs_home =
+      match?({:closure, _, %Bytecode.Function{need_home_object: true}}, named_method) or
+        match?(%Bytecode.Function{need_home_object: true}, named_method)
 
     if needs_home do
       key = {:qb_home_object, home_object_key(named_method)}
@@ -2526,14 +2595,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Closure construction ──
 
-  defp build_closure(%Bytecode.Function{} = fun, locals, vrefs, l2v, %Context{arg_buf: arg_buf}) do
+  defp build_closure(%Bytecode.Function{} = fun, locals, vrefs, l2v, %Context{} = ctx) do
+    parent_arg_count = current_function_arg_count(ctx)
+
     captured =
-      for cv <- fun.closure_vars do
-        cell = capture_var(cv, locals, vrefs, l2v, arg_buf)
-        {cv.var_idx, cell}
+      for cv <- fun.closure_vars, into: %{} do
+        {closure_capture_key(cv), capture_var(cv, locals, vrefs, l2v, parent_arg_count)}
       end
 
-    {:closure, Map.new(captured), fun}
+    {:closure, captured, fun}
   end
 
   defp build_closure(other, _locals, _vrefs, _l2v, _ctx), do: other
@@ -2542,9 +2612,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
        when is_tuple(parent_vrefs) do
     extra =
       for i <- 0..(tuple_size(parent_vrefs) - 1),
-          not Map.has_key?(captured, i),
+          not Map.has_key?(captured, closure_capture_key(2, i)),
           into: %{} do
-        {i, elem(parent_vrefs, i)}
+        {closure_capture_key(2, i), elem(parent_vrefs, i)}
       end
 
     {:closure, Map.merge(extra, captured), f}
@@ -2552,7 +2622,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp inherit_parent_vrefs(closure, _), do: closure
 
-  defp capture_var(%{closure_type: 2, var_idx: idx}, _locals, vrefs, _l2v, _arg_buf)
+  defp capture_var(%{closure_type: 2, var_idx: idx}, _locals, vrefs, _l2v, _arg_count)
        when idx < tuple_size(vrefs) do
     case elem(vrefs, idx) do
       {:cell, _} = existing ->
@@ -2565,16 +2635,18 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
-  defp capture_var(cv, locals, vrefs, l2v, arg_buf) do
-    case Map.get(l2v, cv.var_idx) do
-      nil ->
-        val =
-          cond do
-            cv.var_idx < tuple_size(arg_buf) -> elem(arg_buf, cv.var_idx)
-            cv.var_idx < tuple_size(locals) -> elem(locals, cv.var_idx)
-            true -> :undefined
-          end
+  defp capture_var(%{closure_type: 0, var_idx: idx}, locals, vrefs, l2v, arg_count) do
+    capture_local_var(idx + arg_count, locals, vrefs, l2v)
+  end
 
+  defp capture_var(%{var_idx: idx}, locals, vrefs, l2v, _arg_count) do
+    capture_local_var(idx, locals, vrefs, l2v)
+  end
+
+  defp capture_local_var(idx, locals, vrefs, l2v) do
+    case Map.get(l2v, idx) do
+      nil ->
+        val = if idx < tuple_size(locals), do: elem(locals, idx), else: :undefined
         ref = make_ref()
         Heap.put_cell(ref, val)
         {:cell, ref}
@@ -2585,7 +2657,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             existing
 
           _ ->
-            val = elem(locals, cv.var_idx)
+            val = elem(locals, idx)
             ref = make_ref()
             Heap.put_cell(ref, val)
             {:cell, ref}
@@ -2593,13 +2665,25 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
+  defp closure_capture_key(%{closure_type: type, var_idx: idx}),
+    do: closure_capture_key(type, idx)
+
+  defp closure_capture_key(type, idx), do: {type, idx}
+
+  defp current_function_arg_count(%Context{
+         current_func: {:closure, _, %Bytecode.Function{arg_count: n}}
+       }), do: n
+
+  defp current_function_arg_count(%Context{current_func: %Bytecode.Function{arg_count: n}}), do: n
+  defp current_function_arg_count(%Context{arg_buf: arg_buf}), do: tuple_size(arg_buf)
+
   defp ctor_var_refs(%Bytecode.Function{} = f, captured \\ %{}) do
     cell_ref = make_ref()
     Heap.put_cell(cell_ref, false)
 
     case f.closure_vars do
       [] -> [{:cell, cell_ref}]
-      cvs -> Enum.map(cvs, &Map.get(captured, &1.var_idx, {:cell, cell_ref}))
+      cvs -> Enum.map(cvs, &Map.get(captured, closure_capture_key(&1), {:cell, cell_ref}))
     end
   end
 
@@ -2631,14 +2715,13 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp invoke_closure({:closure, captured, %Bytecode.Function{} = fun} = self, args, gas, ctx) do
     var_refs =
       for cv <- fun.closure_vars do
-        Map.get(captured, cv.var_idx, :undefined)
+        Map.get(captured, closure_capture_key(cv), :undefined)
       end
 
     do_invoke(fun, self, args, var_refs, gas, ctx)
   end
 
   defp do_invoke(%Bytecode.Function{} = fun, self_ref, args, var_refs, gas, ctx) do
-
     cache_key = {fun.byte_code, fun.arg_count}
 
     insns =

@@ -247,6 +247,18 @@ defmodule QuickBEAM.BeamVM.InterpreterTest do
       code = "(function(x) { return (function() { return x })() })(42)"
       assert eval_js!(rt, code) == 42
     end
+
+    test "closure captures local vars after arguments", %{rt: rt} do
+      code = "(function(a, b) { var c = 99; return (function() { return c })() })(1, 2)"
+      assert eval_js!(rt, code) == 99
+    end
+
+    test "default parameter scope arrow sees arguments object", %{rt: rt} do
+      code =
+        "(function() { var f = function(a, b = () => arguments) { return b; }; return f(12)()[0]; })()"
+
+      assert eval_js!(rt, code) == 12
+    end
   end
 
   describe "string operations" do
