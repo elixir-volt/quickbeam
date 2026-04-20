@@ -45,6 +45,30 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, 6} = Compiler.invoke(fun, [5])
     end
 
+    test "compiles conditional branches", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(x){if(x>0)return 1;else return 2})") |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [3])
+      assert {:ok, 2} = Compiler.invoke(fun, [-1])
+    end
+
+    test "compiles simple while loops", %{rt: rt} do
+      code = "(function(n){let s=0; let i=0; while(i<n){ s=s+i; i=i+1;} return s})"
+      fun = compile_and_decode(rt, code) |> user_function()
+
+      assert {:ok, 10} = Compiler.invoke(fun, [5])
+    end
+
+    test "compiles loops over array length and array indexing", %{rt: rt} do
+      code =
+        "(function(arr){let s=0; let i=0; while(i<arr.length){ s=s+arr[i]; i=i+1;} return s})"
+
+      fun = compile_and_decode(rt, code) |> user_function()
+
+      assert {:ok, 10} = Compiler.invoke(fun, [Heap.wrap([1, 2, 3, 4])])
+    end
+
     test "rejects unsupported opcodes", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(obj){return obj.x})") |> user_function()
 
@@ -58,6 +82,14 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       fun = user_function(parsed)
 
       assert 9 == Interpreter.invoke(fun, [4, 5], 1_000)
+      assert {:compiled, {_mod, :run}} = Heap.get_compiled({fun.byte_code, fun.arg_count})
+    end
+
+    test "branchy functions also use the compiled cache", %{rt: rt} do
+      parsed = compile_and_decode(rt, "(function(x){if(x>0)return 1;else return 2})")
+      fun = user_function(parsed)
+
+      assert 1 == Interpreter.invoke(fun, [5], 1_000)
       assert {:compiled, {_mod, :run}} = Heap.get_compiled({fun.byte_code, fun.arg_count})
     end
   end
