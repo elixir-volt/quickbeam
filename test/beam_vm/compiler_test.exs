@@ -21,7 +21,17 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
   defp compile_and_decode(rt, code) do
     {:ok, bc} = QuickBEAM.compile(rt, code)
     {:ok, parsed} = Bytecode.decode(bc)
+    cache_function_atoms(parsed.value, parsed.atoms)
     parsed
+  end
+
+  defp cache_function_atoms(%Bytecode.Function{} = fun, atoms) do
+    Process.put({:qb_fn_atoms, fun.byte_code}, atoms)
+
+    Enum.each(fun.constants, fn
+      %Bytecode.Function{} = inner -> cache_function_atoms(inner, atoms)
+      _ -> :ok
+    end)
   end
 
   defp user_function(parsed) do
@@ -69,10 +79,39 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, 10} = Compiler.invoke(fun, [Heap.wrap([1, 2, 3, 4])])
     end
 
-    test "rejects unsupported opcodes", %{rt: rt} do
+    test "compiles object field access", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(obj){return obj.x})") |> user_function()
 
-      assert {:error, {:unsupported_opcode, :get_field}} = Compiler.compile(fun)
+      assert {:ok, 7} = Compiler.invoke(fun, [Heap.wrap(%{"x" => 7})])
+    end
+
+    test "compiles function calls through arguments", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(f,x){return f(x)})") |> user_function()
+      double = Heap.wrap(%{"call" => :undefined})
+      callback = {:builtin, "double", fn [x], _ -> x * 2 end}
+
+      assert {:ok, 8} = Compiler.invoke(fun, [callback, 4])
+      refute double == :undefined
+    end
+
+    test "compiles method calls with receiver", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(o,x){return o.inc(x)})") |> user_function()
+
+      obj =
+        Heap.wrap(%{
+          "base" => 10,
+          "inc" =>
+            {:builtin, "inc",
+             fn [x], this -> QuickBEAM.BeamVM.Runtime.Property.get(this, "base") + x end}
+        })
+
+      assert {:ok, 13} = Compiler.invoke(fun, [obj, 3])
+    end
+
+    test "compiles global lookup plus method call", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(x){return Math.abs(x)})") |> user_function()
+
+      assert {:ok, 12} = Compiler.invoke(fun, [-12])
     end
   end
 
