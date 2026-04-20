@@ -445,6 +445,10 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
         buf = Heap.get_obj(buf_ref, %{})
 
         cond do
+          match?({:qb_arr, _}, buf) ->
+            list = :array.to_list(elem(buf, 1))
+            {list_to_buffer(list, type), 0, length(list), nil}
+
           is_list(buf) ->
             {list_to_buffer(buf, type), 0, length(buf), nil}
 
@@ -460,6 +464,10 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
 
       [n | _] when is_integer(n) ->
         {:binary.copy(<<0>>, n * elem_size(type)), 0, n, nil}
+
+      [{:qb_arr, arr} | _] ->
+        list = :array.to_list(arr)
+        {list_to_buffer(list, type), 0, length(list), nil}
 
       [list | _] when is_list(list) ->
         {list_to_buffer(list, type), 0, length(list), nil}

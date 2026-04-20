@@ -12,7 +12,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   def put({:obj, ref} = _obj, "length", val) do
     data = Heap.get_obj(ref)
 
-    if is_list(data) do
+    if is_list(data) or match?({:qb_arr, _}, data) do
       new_len = Runtime.to_int(val)
       old_len = length(data)
 
@@ -161,6 +161,9 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
 
   def has_property(obj, key) when is_map(obj), do: Map.has_key?(obj, key)
 
+  def has_property({:qb_arr, arr}, key) when is_integer(key),
+    do: key >= 0 and key < :array.size(arr)
+
   def has_property(obj, key) when is_list(obj) and is_integer(key),
     do: key >= 0 and key < length(obj)
 
@@ -170,6 +173,11 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
     case Heap.get_obj(ref) do
       %{typed_array() => true} when is_integer(idx) ->
         Runtime.TypedArray.get_element(obj, idx)
+
+      {:qb_arr, arr} when is_integer(idx) ->
+        if idx >= 0 and idx < :array.size(arr),
+          do: :array.get(idx, arr),
+          else: :undefined
 
       list when is_list(list) and is_integer(idx) ->
         Enum.at(list, idx, :undefined)
@@ -181,6 +189,12 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
       _ ->
         :undefined
     end
+  end
+
+  def get_element({:qb_arr, arr}, idx) when is_integer(idx) do
+    if idx >= 0 and idx < :array.size(arr),
+      do: :array.get(idx, arr),
+      else: :undefined
   end
 
   def get_element(obj, idx) when is_list(obj) and is_integer(idx),
@@ -236,6 +250,12 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
     case Heap.get_obj(ref) do
       %{typed_array() => true} when is_integer(key) ->
         Runtime.TypedArray.set_element(obj, key, val)
+
+      {:qb_arr, _} ->
+        case key do
+          i when is_integer(i) and i >= 0 -> Heap.array_set(ref, i, val)
+          _ -> :ok
+        end
 
       list when is_list(list) ->
         case key do

@@ -140,6 +140,9 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
       nil ->
         %{}
 
+      {:qb_arr, arr} ->
+        :array.to_list(arr) |> Enum.map(&to_json/1)
+
       list when is_list(list) ->
         Enum.map(list, &to_json/1)
 
@@ -152,6 +155,7 @@ defmodule QuickBEAM.BeamVM.Runtime.JSON do
           _ ->
             order =
               case Map.get(map, key_order()) do
+                {:qb_arr, arr} -> :array.to_list(arr)
                 list when is_list(list) -> Enum.reverse(list)
                 _ -> nil
               end

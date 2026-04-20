@@ -1463,10 +1463,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       case obj do
         {:obj, ref} ->
           case Heap.get_obj(ref) do
+            {:qb_arr, arr} -> :array.size(arr)
             list when is_list(list) -> length(list)
             map when is_map(map) -> Map.get(map, "length", map_size(map))
             _ -> 0
           end
+
+        {:qb_arr, arr} ->
+          :array.size(arr)
 
         list when is_list(list) ->
           length(list)
@@ -1953,13 +1957,19 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({@op_append, []}, pc, frame, [obj, idx, arr | rest], gas, ctx) do
     src_list =
       case obj do
+        {:qb_arr, arr} ->
+          :array.to_list(arr)
+
         list when is_list(list) ->
           list
 
         {:obj, ref} ->
-          stored = Heap.get_obj(ref, [])
+          stored = Heap.get_obj(ref)
 
           cond do
+            match?({:qb_arr, _}, stored) ->
+              Heap.to_list({:obj, ref})
+
             is_list(stored) ->
               stored
 
@@ -1984,8 +1994,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
     arr_list =
       case arr do
+        {:qb_arr, arr_data} -> :array.to_list(arr_data)
         list when is_list(list) -> list
-        {:obj, ref} -> Heap.get_obj(ref, [])
+        {:obj, ref} -> Heap.to_list({:obj, ref})
         _ -> []
       end
 
@@ -2016,6 +2027,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           stored = Heap.get_obj(ref, [])
 
           cond do
+            match?({:qb_arr, _}, stored) ->
+              i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
+              Heap.array_set(ref, i, val)
+
             is_list(stored) ->
               i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
               Heap.put_obj(ref, Objects.set_list_at(stored, i, val))
@@ -2190,9 +2205,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           make_list_iterator(list)
 
         {:obj, ref} ->
-          stored = Heap.get_obj(ref, [])
+          stored = Heap.get_obj(ref)
 
           case stored do
+            {:qb_arr, arr} ->
+              make_list_iterator(:array.to_list(arr))
+
             list when is_list(list) ->
               make_list_iterator(list)
 
@@ -2508,12 +2526,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({@op_apply, [_magic]}, pc, frame, [arg_array, this_obj, fun | rest], gas, ctx) do
     args =
       case arg_array do
+        {:qb_arr, arr} ->
+          :array.to_list(arr)
+
         list when is_list(list) ->
           list
 
         {:obj, ref} ->
-          stored = Heap.get_obj(ref, [])
-          if is_list(stored), do: stored, else: []
+          Heap.to_list({:obj, ref})
 
         _ ->
           []
@@ -2819,6 +2839,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           stored = Heap.get_obj(ref, [])
 
           cond do
+            match?({:qb_arr, _}, stored) ->
+              make_list_iterator(Heap.to_list({:obj, ref}))
+
+            match?({:qb_arr, _}, stored) ->
+              make_list_iterator(Heap.to_list({:obj, ref}))
+
             is_list(stored) ->
               make_list_iterator(stored)
 

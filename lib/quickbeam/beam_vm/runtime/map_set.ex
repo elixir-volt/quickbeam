@@ -82,7 +82,7 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
           [{:obj, r}] ->
             stored = Heap.get_obj(r, [])
 
-            if is_list(stored) do
+            if is_list(stored) or match?({:qb_arr, _}, stored) do
               Map.new(stored, fn
                 [k, v] ->
                   {k, v}

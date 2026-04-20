@@ -109,6 +109,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
       [{:obj, ref} | _] ->
         Map.get(Heap.get_obj(ref, %{}), proto(), nil)
 
+      [{:qb_arr, _} | _] ->
+        func_proto()
+
       [val | _] when is_list(val) ->
         Heap.get_class_proto(Runtime.global_bindings()["Array"])
 
@@ -150,7 +153,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
              args =
                case arg_array do
                  {:obj, r} ->
-                   case Heap.get_obj(r, []) do
+                   case Heap.obj_to_list(r) do
+                     {:qb_arr, arr} -> :array.to_list(arr)
                      l when is_list(l) -> l
                      _ -> []
                    end
@@ -244,7 +248,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
   defp from_entries([{:obj, ref} | _]) do
     entries =
-      case Heap.get_obj(ref, []) do
+      case Heap.obj_to_list(ref) do
         list when is_list(list) -> list
         _ -> []
       end
@@ -254,7 +258,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     map =
       Enum.reduce(entries, %{}, fn
         {:obj, eref}, acc ->
-          case Heap.get_obj(eref, []) do
+          case Heap.obj_to_list(eref) do
             [k, v | _] -> Map.put(acc, Runtime.stringify(k), v)
             _ -> acc
           end
@@ -275,7 +279,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   defp keys([{:obj, ref} | _]) do
     data = Heap.get_obj(ref, %{})
 
-    if is_list(data) do
+    if is_list(data) or match?({:qb_arr, _}, data) do
       Heap.wrap(array_indices(data))
     else
       keys_from_map(ref, data)
@@ -284,6 +288,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
   defp keys(_) do
     Heap.wrap([])
+  end
+
+  defp keys_from_map(_ref, {:qb_arr, arr}) do
+    for i <- 0..(:array.size(arr) - 1), do: Integer.to_string(i)
   end
 
   defp keys_from_map(_ref, list) when is_list(list) do

@@ -47,9 +47,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Function do
       case args_array do
         {:obj, ref} ->
           case Heap.get_obj(ref, []) do
+            {:qb_arr, arr} -> :array.to_list(arr)
             list when is_list(list) -> list
             _ -> []
           end
+
+        {:qb_arr, arr} ->
+          :array.to_list(arr)
 
         list when is_list(list) ->
           list

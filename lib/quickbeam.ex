@@ -277,6 +277,9 @@ defmodule QuickBEAM do
       nil ->
         nil
 
+      {:qb_arr, arr} ->
+        :array.to_list(arr) |> Enum.map(&convert_beam_value/1)
+
       list when is_list(list) ->
         Enum.map(list, &convert_beam_value/1)
 

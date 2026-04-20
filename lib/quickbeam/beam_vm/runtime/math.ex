@@ -174,7 +174,15 @@ defmodule QuickBEAM.BeamVM.Runtime.Math do
         case hd(args) do
           {:obj, ref} ->
             data = Heap.get_obj(ref, [])
-            if is_list(data), do: data, else: []
+
+            case data do
+              {:qb_arr, arr} -> :array.to_list(arr)
+              l when is_list(l) -> l
+              _ -> []
+            end
+
+          {:qb_arr, arr} ->
+            :array.to_list(arr)
 
           l when is_list(l) ->
             l

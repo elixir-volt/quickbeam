@@ -41,6 +41,12 @@ defmodule QuickBEAM.BeamVM.Heap do
             get_ctor_statics: 1,
             wrap: 1,
             to_list: 1,
+            obj_is_array?: 1,
+            obj_to_list: 1,
+            array_get: 2,
+            array_size: 1,
+            array_push: 2,
+            array_set: 3,
             make_error: 2,
             get_object_prototype: 0,
             get_atoms: 0,
@@ -50,12 +56,16 @@ defmodule QuickBEAM.BeamVM.Heap do
 
   def wrap(data) do
     ref = make_ref()
+    # put_obj handles list -> :qb_arr conversion
     put_obj(ref, data)
     {:obj, ref}
   end
 
   def to_list({:obj, ref}) do
-    case get_obj(ref, []) do
+    case Process.get({:qb_obj, ref}, []) do
+      {:qb_arr, arr} ->
+        :array.to_list(arr)
+
       list when is_list(list) ->
         list
 
@@ -71,6 +81,7 @@ defmodule QuickBEAM.BeamVM.Heap do
     end
   end
 
+  def to_list({:qb_arr, arr}), do: :array.to_list(arr)
   def to_list(list) when is_list(list), do: list
   def to_list(_), do: []
 
@@ -123,6 +134,11 @@ defmodule QuickBEAM.BeamVM.Heap do
   def get_obj(ref), do: Process.get({:qb_obj, ref})
   def get_obj(ref, default), do: Process.get({:qb_obj, ref}, default)
 
+  def put_obj(ref, list) when is_list(list) do
+    Process.put({:qb_obj, ref}, {:qb_arr, :array.from_list(list, :undefined)})
+    track_alloc()
+  end
+
   def put_obj(ref, val) do
     Process.put({:qb_obj, ref}, val)
     track_alloc()
@@ -148,6 +164,68 @@ defmodule QuickBEAM.BeamVM.Heap do
 
   def update_obj(ref, default, fun) do
     Process.put({:qb_obj, ref}, fun.(Process.get({:qb_obj, ref}, default)))
+  end
+
+  # ── Array helpers ──
+
+  def obj_is_array?(ref) do
+    case Process.get({:qb_obj, ref}) do
+      {:qb_arr, _} -> true
+      _ -> false
+    end
+  end
+
+  def obj_to_list(ref) do
+    case Process.get({:qb_obj, ref}) do
+      {:qb_arr, arr} -> :array.to_list(arr)
+      list when is_list(list) -> list
+      _ -> []
+    end
+  end
+
+  def array_get(ref, idx) do
+    case Process.get({:qb_obj, ref}) do
+      {:qb_arr, arr} when idx >= 0 ->
+        if idx < :array.size(arr), do: :array.get(idx, arr), else: :undefined
+
+      _ ->
+        :undefined
+    end
+  end
+
+  def array_size(ref) do
+    case Process.get({:qb_obj, ref}) do
+      {:qb_arr, arr} -> :array.size(arr)
+      list when is_list(list) -> length(list)
+      _ -> 0
+    end
+  end
+
+  def array_push(ref, values) do
+    case Process.get({:qb_obj, ref}) do
+      {:qb_arr, arr} ->
+        new_arr =
+          Enum.reduce(values, {:array.size(arr), arr}, fn v, {i, a} ->
+            {i + 1, :array.set(i, v, a)}
+          end)
+          |> elem(1)
+
+        Process.put({:qb_obj, ref}, {:qb_arr, new_arr})
+        :array.size(new_arr)
+
+      _ ->
+        0
+    end
+  end
+
+  def array_set(ref, idx, val) do
+    case Process.get({:qb_obj, ref}) do
+      {:qb_arr, arr} ->
+        Process.put({:qb_obj, ref}, {:qb_arr, :array.set(idx, val, arr)})
+
+      _ ->
+        :ok
+    end
   end
 
   # ── Closure cells ──
@@ -358,6 +436,7 @@ defmodule QuickBEAM.BeamVM.Heap do
   defp mark([{:obj, ref} | rest], visited) do
     mark_ref({:qb_obj, ref}, rest, visited, fn
       map when is_map(map) -> Map.values(map) ++ Map.keys(map)
+      {:qb_arr, arr} -> :array.to_list(arr)
       list when is_list(list) -> list
       _ -> []
     end)

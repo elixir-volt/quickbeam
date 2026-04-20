@@ -164,6 +164,11 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
     data = Heap.get_obj(ref, %{})
 
     case data do
+      {:qb_arr, arr} ->
+        :array.to_list(arr)
+        |> Enum.map(&stringify/1)
+        |> Enum.join(",")
+
       list when is_list(list) ->
         Enum.map_join(list, ",", fn
           :undefined -> ""

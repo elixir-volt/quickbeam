@@ -90,6 +90,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
           get_own(target, key)
         end
 
+      {:qb_arr, _} = arr ->
+        case Process.get({:qb_regexp_result, ref}) do
+          %{^key => val} -> val
+          _ -> get_own(arr, key)
+        end
+
       list when is_list(list) ->
         case Process.get({:qb_regexp_result, ref}) do
           %{^key => val} -> val
@@ -122,6 +128,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
               _ -> :undefined
             end
         end
+    end
+  end
+
+  defp get_own({:qb_arr, arr}, "length"), do: :array.size(arr)
+
+  defp get_own({:qb_arr, arr}, key) when is_binary(key) do
+    case Integer.parse(key) do
+      {idx, ""} when idx >= 0 ->
+        if idx < :array.size(arr), do: :array.get(idx, arr), else: :undefined
+
+      _ ->
+        :undefined
     end
   end
 
@@ -243,6 +261,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
 
   defp get_from_prototype({:obj, ref}, key) do
     case Heap.get_obj(ref) do
+      {:qb_arr, _} ->
+        Array.proto_property(key)
+
       list when is_list(list) ->
         Array.proto_property(key)
 
@@ -265,6 +286,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
         :undefined
     end
   end
+
+  defp get_from_prototype({:qb_arr, _}, "constructor") do
+    Map.get(Runtime.global_bindings(), "Array", :undefined)
+  end
+
+  defp get_from_prototype({:qb_arr, _}, key), do: Array.proto_property(key)
 
   defp get_from_prototype(list, "constructor") when is_list(list) do
     Map.get(Runtime.global_bindings(), "Array", :undefined)
