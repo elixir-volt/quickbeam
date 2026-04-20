@@ -882,14 +882,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
          pc, frame, stack, gas, ctx) when op in [@op_push_i32, @op_push_i8, @op_push_i16, @op_push_minus1, @op_push_0, @op_push_1, @op_push_2, @op_push_3, @op_push_4, @op_push_5, @op_push_6, @op_push_7],
     do: run(pc + 1, frame, [val | stack], gas - 1, ctx)
 
-  defp run({@op_push_i8, [val]}, 
-         pc, frame, stack, gas, ctx),
-    do: run(pc + 1, frame, [val | stack], gas - 1, ctx)
-
-  defp run({@op_push_i16, [val]}, 
-         pc, frame, stack, gas, ctx),
-    do: run(pc + 1, frame, [val | stack], gas - 1, ctx)
-
   defp run({op, [idx]}, pc, frame, stack, gas, ctx) when op in [@op_push_const, @op_push_const8] do
     val = Scope.resolve_const(elem(frame, Frame.constants()), idx)
     val = materialize_constant(val)
