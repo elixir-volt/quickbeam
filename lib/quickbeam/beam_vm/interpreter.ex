@@ -3,7 +3,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   import QuickBEAM.BeamVM.Builtin, only: [build_methods: 1, build_object: 1]
   import QuickBEAM.BeamVM.Heap.Keys
 
-  alias QuickBEAM.BeamVM.{Builtin, Bytecode, Decoder, Heap, PredefinedAtoms, Runtime}
+  alias QuickBEAM.BeamVM.{Builtin, Bytecode, Compiler, Decoder, Heap, PredefinedAtoms, Runtime}
   alias QuickBEAM.BeamVM.Runtime.Property
   alias __MODULE__.{Closures, Context, Frame, Generator, Objects, Promise, Scope, Values}
 
@@ -392,8 +392,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   @doc "Invoke a bytecode function or closure from external code."
-  def invoke(%Bytecode.Function{} = fun, args, gas),
-    do: invoke_function(fun, args, gas, active_ctx())
+  def invoke(%Bytecode.Function{} = fun, args, gas) do
+    case Compiler.invoke(fun, args) do
+      {:ok, result} -> result
+      :error -> invoke_function(fun, args, gas, active_ctx())
+    end
+  end
 
   def invoke({:closure, _, %Bytecode.Function{}} = c, args, gas),
     do: invoke_closure(c, args, gas, active_ctx())

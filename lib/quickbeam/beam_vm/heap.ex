@@ -34,6 +34,8 @@ defmodule QuickBEAM.BeamVM.Heap do
             freeze: 1,
             get_decoded: 1,
             put_decoded: 2,
+            get_compiled: 1,
+            put_compiled: 2,
             get_class_proto: 1,
             put_class_proto: 2,
             get_parent_ctor: 1,
@@ -284,6 +286,11 @@ defmodule QuickBEAM.BeamVM.Heap do
   def get_decoded(byte_code), do: Process.get({:qb_decoded, byte_code})
   def put_decoded(byte_code, insns), do: Process.put({:qb_decoded, byte_code}, insns)
 
+  # ── Compiled function cache ──
+
+  def get_compiled(key), do: Process.get({:qb_compiled, key})
+  def put_compiled(key, compiled), do: Process.put({:qb_compiled, key}, compiled)
+
   # ── Frozen objects ──
 
   def frozen?(ref), do: Process.get({:qb_frozen, ref}, false)
@@ -394,6 +401,7 @@ defmodule QuickBEAM.BeamVM.Heap do
         {:qb_class_proto, _} -> Process.delete(key)
         {:qb_func_proto, _} -> Process.delete(key)
         {:qb_decoded, _} -> Process.delete(key)
+        {:qb_compiled, _} -> Process.delete(key)
         {:qb_promise_waiters, _} -> Process.delete(key)
         {:qb_module, _} -> Process.delete(key)
         {:qb_prop_desc, _, _} -> Process.delete(key)
