@@ -211,8 +211,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Math do
       end)
 
     case partials do
-      [] -> 0.0
-      [x] -> x
+      [] ->
+        0.0
+
+      [x] ->
+        x
+
       _ ->
         partials = Enum.reverse(partials)
         finalize_partials(partials)
@@ -268,7 +272,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Math do
   defp two_sum(a, b) do
     s = a + b
     v = s - a
-    t = (a - (s - v)) + (b - v)
+    t = a - (s - v) + (b - v)
     {s, t}
   end
 end

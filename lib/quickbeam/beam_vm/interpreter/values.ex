@@ -69,9 +69,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
 
     case Map.get(map, "valueOf") do
       fun when fun != nil and fun != :undefined ->
-        to_number(
-          Interpreter.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj)
-        )
+        to_number(Interpreter.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj))
 
       _ ->
         :nan
@@ -575,9 +573,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
         unwrap_primitive(cb.([], obj))
 
       fun when fun != nil and fun != :undefined ->
-        unwrap_primitive(
-          Interpreter.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj)
-        )
+        unwrap_primitive(Interpreter.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj))
 
       _ ->
         nil

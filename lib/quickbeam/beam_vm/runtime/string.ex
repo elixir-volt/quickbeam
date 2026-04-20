@@ -274,25 +274,32 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
   defp substr(s, [start | _]) when is_binary(s), do: String.slice(s, Runtime.to_int(start)..-1//1)
   defp substr(s, _), do: s
 
-  defp split(s, [{:regexp, bytecode, _source} | rest]) when is_binary(s) and is_binary(bytecode) do
-    limit = case rest do
-      [n | _] when is_integer(n) -> n
-      _ -> :infinity
-    end
+  defp split(s, [{:regexp, bytecode, _source} | rest])
+       when is_binary(s) and is_binary(bytecode) do
+    limit =
+      case rest do
+        [n | _] when is_integer(n) -> n
+        _ -> :infinity
+      end
 
     cond do
-      limit == 0 -> []
+      limit == 0 ->
+        []
+
       s == "" ->
         if RegExp.nif_exec(bytecode, s, 0) != nil, do: [], else: [""]
-      true -> nif_regex_split(s, bytecode, 0, 0, limit, [])
+
+      true ->
+        nif_regex_split(s, bytecode, 0, 0, limit, [])
     end
   end
 
   defp split(s, [sep | rest]) when is_binary(s) and is_binary(sep) do
-    limit = case rest do
-      [n | _] when is_integer(n) -> n
-      _ -> :infinity
-    end
+    limit =
+      case rest do
+        [n | _] when is_integer(n) -> n
+        _ -> :infinity
+      end
 
     if limit == 0 do
       []
@@ -326,10 +333,11 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
           before = binary_part(s, last_end, match_start - last_end)
           acc = [before | acc]
 
-          cap_values = Enum.map(captures, fn
-            {start, len} -> String.slice(s, start, len)
-            nil -> :undefined
-          end)
+          cap_values =
+            Enum.map(captures, fn
+              {start, len} -> String.slice(s, start, len)
+              nil -> :undefined
+            end)
 
           acc = Enum.reverse(cap_values) ++ acc
 
@@ -349,7 +357,9 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
   end
 
   defp finalize_split(s, last_end, limit, acc) do
-    tail = if last_end >= byte_size(s), do: "", else: binary_part(s, last_end, byte_size(s) - last_end)
+    tail =
+      if last_end >= byte_size(s), do: "", else: binary_part(s, last_end, byte_size(s) - last_end)
+
     result = Enum.reverse([tail | acc])
     if limit != :infinity, do: Enum.take(result, limit), else: result
   end
@@ -414,6 +424,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
       end
     end
   end
+
   defp match(s, [pattern | _]) when is_binary(s) and is_binary(pattern) do
     case QuickBEAM.Native.regexp_compile(Regex.escape(pattern), 0) do
       bytecode when is_binary(bytecode) -> match(s, [{:regexp, bytecode, pattern}])
@@ -469,7 +480,10 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
       [{match_start, match_len} | _captures] ->
         before = binary_part(s, 0, match_start)
-        after_str = binary_part(s, match_start + match_len, byte_size(s) - match_start - match_len)
+
+        after_str =
+          binary_part(s, match_start + match_len, byte_size(s) - match_start - match_len)
+
         before <> rep <> after_str
     end
   end
@@ -492,7 +506,8 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
   defp search(_, _), do: -1
 
-  defp match_all(s, [{:regexp, bytecode, _source} = re | _]) when is_binary(s) and is_binary(bytecode) do
+  defp match_all(s, [{:regexp, bytecode, _source} = re | _])
+       when is_binary(s) and is_binary(bytecode) do
     results = match_all_with_captures(s, re, 0, [])
     ref = make_ref()
     Heap.put_obj(ref, results)

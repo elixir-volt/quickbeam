@@ -284,7 +284,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
       :undefined ->
         parent = Heap.get_parent_ctor(f)
         if parent != nil, do: get(parent, key), else: :undefined
-      val -> val
+
+      val ->
+        val
     end
   end
 

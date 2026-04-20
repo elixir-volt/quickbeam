@@ -18,7 +18,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     "Int32Array" => :int32,
     "Float32Array" => :float32,
     "Float64Array" => :float64,
-    "Float16Array" => :float16,
+    "Float16Array" => :float16
   }
 
   def types, do: @types
@@ -97,15 +97,19 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
           m when is_map(m) -> Map.get(m, "__immutable__", false)
           _ -> false
         end
-      _ -> false
+
+      _ ->
+        false
     end
   end
 
   # ── State readers ──
 
   defp state(ref), do: Heap.get_obj(ref, %{})
+
   defp buf(ref) do
     s = state(ref)
+
     case Map.get(s, "buffer") do
       {:obj, buf_ref} ->
         case Heap.get_obj(buf_ref, %{}) do
@@ -116,17 +120,23 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
               ab_buf = Map.get(m, buffer(), <<>>)
               offset = Map.get(s, "byteOffset", 0)
               byte_len = Map.get(s, "byteLength", byte_size(ab_buf) - offset)
+
               if offset == 0 and byte_len == byte_size(ab_buf) do
                 ab_buf
               else
                 binary_part(ab_buf, offset, min(byte_len, byte_size(ab_buf) - offset))
               end
             end
-          _ -> Map.get(s, buffer(), <<>>)
+
+          _ ->
+            Map.get(s, buffer(), <<>>)
         end
-      _ -> Map.get(s, buffer(), <<>>)
+
+      _ ->
+        Map.get(s, buffer(), <<>>)
     end
   end
+
   defp len(ref), do: Map.get(state(ref), "length", 0)
   defp type(ref), do: Map.get(state(ref), type_key(), :uint8)
 
@@ -336,12 +346,17 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
         if is_map(buf_map) do
           offset = Map.get(s, "byteOffset", 0)
           ab_buf = Map.get(buf_map, buffer(), <<>>)
-          before = if offset > 0, do: binary_part(ab_buf, 0, min(offset, byte_size(ab_buf))), else: <<>>
+
+          before =
+            if offset > 0, do: binary_part(ab_buf, 0, min(offset, byte_size(ab_buf))), else: <<>>
+
           after_offset = offset + byte_size(new_buf)
+
           after_part =
             if after_offset < byte_size(ab_buf),
               do: binary_part(ab_buf, after_offset, byte_size(ab_buf) - after_offset),
               else: <<>>
+
           merged = before <> new_buf <> after_part
           Heap.put_obj(buf_ref, Map.put(buf_map, buffer(), merged))
         end
@@ -378,8 +393,12 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     abs_f = abs(f)
 
     cond do
-      abs_f == 0.0 -> Bitwise.bsl(sign, 15)
-      abs_f >= 65_520.0 -> Bitwise.bsl(sign, 15) |> Bitwise.bor(0x7C00)
+      abs_f == 0.0 ->
+        Bitwise.bsl(sign, 15)
+
+      abs_f >= 65_520.0 ->
+        Bitwise.bsl(sign, 15) |> Bitwise.bor(0x7C00)
+
       true ->
         exp = trunc(:math.floor(:math.log2(abs_f)))
         exp = max(-14, min(15, exp))
@@ -397,6 +416,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
   defp bankers_round(n) when is_float(n) do
     floor = trunc(n)
     frac = n - floor
+
     cond do
       frac > 0.5 -> floor + 1
       frac < 0.5 -> floor

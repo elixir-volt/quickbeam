@@ -202,8 +202,12 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
     case Map.get(Heap.get_ctor_statics(b), sym_key) do
       {:accessor, getter, _} when getter != nil ->
         Runtime.call_callback(getter, [])
-      nil -> :undefined
-      val -> val
+
+      nil ->
+        :undefined
+
+      val ->
+        val
     end
   end
 
@@ -213,10 +217,16 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
         case Map.get(map, sym_key) do
           {:accessor, getter, _} when getter != nil ->
             Runtime.call_callback(getter, [])
-          nil -> :undefined
-          val -> val
+
+          nil ->
+            :undefined
+
+          val ->
+            val
         end
-      _ -> :undefined
+
+      _ ->
+        :undefined
     end
   end
 

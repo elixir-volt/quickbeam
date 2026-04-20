@@ -83,9 +83,17 @@ defmodule QuickBEAM.BeamVM.Decoder do
               _ -> decode_operands(bc, pos + 1, fmt, offset_map, ac)
             end
 
-          decode_pass2(bc, len, pos + size, idx + 1, offset_map, [
-            {op, operands} | acc
-          ], ac)
+          decode_pass2(
+            bc,
+            len,
+            pos + size,
+            idx + 1,
+            offset_map,
+            [
+              {op, operands} | acc
+            ],
+            ac
+          )
         end
     end
   end

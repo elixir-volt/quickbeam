@@ -63,12 +63,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
           })
         end),
       "DataView" => register("DataView", fn _, _ -> Runtime.new_object() end),
-      "ArrayBuffer" => (
-        ab_ctor = register("ArrayBuffer", &ArrayBuffer.constructor/2)
-        Heap.put_ctor_static(ab_ctor, {:symbol, "Symbol.species"},
-          {:accessor, {:builtin, "get [Symbol.species]", fn _, _ -> ab_ctor end}, nil})
-        ab_ctor
-      ),
+      "ArrayBuffer" =>
+        (
+          ab_ctor = register("ArrayBuffer", &ArrayBuffer.constructor/2)
+
+          Heap.put_ctor_static(
+            ab_ctor,
+            {:symbol, "Symbol.species"},
+            {:accessor, {:builtin, "get [Symbol.species]", fn _, _ -> ab_ctor end}, nil}
+          )
+
+          ab_ctor
+        ),
       "Proxy" => register("Proxy", &proxy_constructor/2),
       "Math" => Math.object(),
       "JSON" => JSON.object(),
@@ -403,9 +409,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   end
 
   defp typed_arrays do
-    ta_base = {:builtin, "TypedArray", fn _args, _this ->
-      throw({:js_throw, Heap.make_error("Abstract class TypedArray cannot be called", "TypeError")})
-    end}
+    ta_base =
+      {:builtin, "TypedArray",
+       fn _args, _this ->
+         throw(
+           {:js_throw, Heap.make_error("Abstract class TypedArray cannot be called", "TypeError")}
+         )
+       end}
 
     ta_base_ref = make_ref()
     Heap.put_obj(ta_base_ref, %{"__proto__" => nil})

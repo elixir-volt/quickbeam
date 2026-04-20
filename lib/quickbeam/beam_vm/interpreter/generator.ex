@@ -110,8 +110,11 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
   defp suspend(gen_ref, frame, gas, ctx) do
     Interpreter.run_frame(frame, [], gas, ctx)
   catch
-    {:generator_yield, _val, sp, sf, ss, sg, sc} -> save_suspended(gen_ref, sp, sf, ss, sg, sc)
-    {:generator_yield_star, _val, sp, sf, ss, sg, sc} -> save_suspended(gen_ref, sp, sf, ss, sg, sc)
+    {:generator_yield, _val, sp, sf, ss, sg, sc} ->
+      save_suspended(gen_ref, sp, sf, ss, sg, sc)
+
+    {:generator_yield_star, _val, sp, sf, ss, sg, sc} ->
+      save_suspended(gen_ref, sp, sf, ss, sg, sc)
   end
 
   defp save_suspended(ref, pc, frame, stack, gas, ctx) do

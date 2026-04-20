@@ -76,6 +76,7 @@ defmodule QuickBEAM.JSEngineTest do
     {:ok, ast} = OXC.parse(source, "module.js")
 
     ast.body
+
     Enum.map_join(ast.body, "\n", fn
       %{type: :export_named_declaration, declaration: decl} ->
         binary_part(source, decl.start, decl[:end] - decl.start)

@@ -65,7 +65,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
   proto("toISOString", do: fmt_dt(this, &DateTime.to_iso8601/1))
   proto("toJSON", do: fmt_dt(this, &DateTime.to_iso8601/1))
-  proto("toString", do: fmt_dt(this, &Calendar.strftime(&1, "%a %b %d %Y %H:%M:%S GMT+0000 (UTC)")))
+
+  proto("toString",
+    do: fmt_dt(this, &Calendar.strftime(&1, "%a %b %d %Y %H:%M:%S GMT+0000 (UTC)"))
+  )
+
   proto("toDateString", do: fmt_dt(this, &Calendar.strftime(&1, "%a %b %d %Y")))
   proto("toTimeString", do: fmt_dt(this, &Calendar.strftime(&1, "%H:%M:%S GMT+0000")))
   proto("toUTCString", do: fmt_dt(this, &Calendar.strftime(&1, "%a, %d %b %Y %H:%M:%S GMT")))
@@ -127,9 +131,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
         "Invalid Date"
 
       dt ->
-        local_erl = :calendar.universal_time_to_local_time(
-          {{dt.year, dt.month, dt.day}, {dt.hour, dt.minute, dt.second}}
-        )
+        local_erl =
+          :calendar.universal_time_to_local_time(
+            {{dt.year, dt.month, dt.day}, {dt.hour, dt.minute, dt.second}}
+          )
 
         Calendar.strftime(NaiveDateTime.from_erl!(local_erl), pattern)
     end
@@ -175,7 +180,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
   defp tz_offset_minutes do
     {utc, local} = {:calendar.universal_time(), :calendar.local_time()}
-    div(:calendar.datetime_to_gregorian_seconds(utc) - :calendar.datetime_to_gregorian_seconds(local), 60)
+
+    div(
+      :calendar.datetime_to_gregorian_seconds(utc) -
+        :calendar.datetime_to_gregorian_seconds(local),
+      60
+    )
   end
 
   # ── Date component → ms ──
@@ -244,8 +254,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
       base_days ->
         day_f = (day - 1 + base_days) * 1.0
-        time_ms = ((day_f * 24 + hour * 1.0) * 60 + minute * 1.0) * 60_000 +
-                  second * 1000.0 + ms_part * 1.0
+
+        time_ms =
+          ((day_f * 24 + hour * 1.0) * 60 + minute * 1.0) * 60_000 +
+            second * 1000.0 + ms_part * 1.0
+
         time_ms = trunc(time_ms)
         if abs(time_ms) > 8_640_000_000_000_000, do: :nan, else: time_ms
     end
@@ -261,7 +274,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
     y = if month <= 2, do: year - 1, else: year
     era = div(y - 399, 400)
     yoe = y - era * 400
-    doy = div(153 * (month + (if month > 2, do: -3, else: 9)) + 2, 5)
+    doy = div(153 * (month + if(month > 2, do: -3, else: 9)) + 2, 5)
     doe = yoe * 365 + div(yoe, 4) - div(yoe, 100) + doy
     era * 146_097 + doe - 719_468
   end
@@ -367,8 +380,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   # ── Informal date parsing ──
 
   @month_names %{
-    "jan" => 1, "feb" => 2, "mar" => 3, "apr" => 4, "may" => 5, "jun" => 6,
-    "jul" => 7, "aug" => 8, "sep" => 9, "oct" => 10, "nov" => 11, "dec" => 12
+    "jan" => 1,
+    "feb" => 2,
+    "mar" => 3,
+    "apr" => 4,
+    "may" => 5,
+    "jun" => 6,
+    "jul" => 7,
+    "aug" => 8,
+    "sep" => 9,
+    "oct" => 10,
+    "nov" => 11,
+    "dec" => 12
   }
 
   @day_names ~w(sun mon tue wed thu fri sat)
@@ -382,6 +405,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
         result =
           if byte_size(a) == 4, do: parse_ymd(a, b, c), else: parse_mdy(a, b, c)
+
         case result do
           {:ok, year, month, day} ->
             {hour, minute, second, tz_offset} = parse_informal_time(time_tz)
@@ -413,7 +437,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
 
   defp parse_ymd(year_str, month_str, day_str) do
     with {year, ""} <- Integer.parse(year_str),
-         month when is_integer(month) <- Map.get(@month_names, String.downcase(String.slice(month_str, 0..2))),
+         month when is_integer(month) <-
+           Map.get(@month_names, String.downcase(String.slice(month_str, 0..2))),
          {day, ""} <- Integer.parse(day_str) do
       {:ok, year, month, day}
     else
@@ -422,7 +447,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
   end
 
   defp parse_mdy(month_str, day_str, year_str) do
-    with month when is_integer(month) <- Map.get(@month_names, String.downcase(String.slice(month_str, 0..2))),
+    with month when is_integer(month) <-
+           Map.get(@month_names, String.downcase(String.slice(month_str, 0..2))),
          {day, ""} <- Integer.parse(day_str),
          {year, ""} <- Integer.parse(year_str) do
       {:ok, year, month, day}
@@ -486,8 +512,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Date do
        do: pad_seconds(<<y1, y2, y3, y4, "-01-01T", rest::binary>>)
 
   defp expand_short_iso(<<y1, y2, y3, y4, ?-, m1, m2, ?T, rest::binary>>)
-       when y1 in ?0..?9 and y2 in ?0..?9 and y3 in ?0..?9 and y4 in ?0..?9
-        and m1 in ?0..?9 and m2 in ?0..?9,
+       when y1 in ?0..?9 and y2 in ?0..?9 and y3 in ?0..?9 and y4 in ?0..?9 and
+              m1 in ?0..?9 and m2 in ?0..?9,
        do: pad_seconds(<<y1, y2, y3, y4, ?-, m1, m2, "-01T", rest::binary>>)
 
   defp expand_short_iso(s), do: pad_seconds(s)

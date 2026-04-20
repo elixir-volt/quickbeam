@@ -760,23 +760,26 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
 
     idx_ref = :atomics.new(1, signed: false)
 
-    next_fn = {:builtin, "next", fn _args, _this ->
-      i = :atomics.get(idx_ref, 1)
+    next_fn =
+      {:builtin, "next",
+       fn _args, _this ->
+         i = :atomics.get(idx_ref, 1)
 
-      if i >= length(list) do
-        Heap.wrap(%{"value" => :undefined, "done" => true})
-      else
-        :atomics.put(idx_ref, 1, i + 1)
-        value =
-          case mode do
-            :values -> Enum.at(list, i, :undefined)
-            :keys -> i
-            :entries -> Heap.wrap([i, Enum.at(list, i, :undefined)])
-          end
+         if i >= length(list) do
+           Heap.wrap(%{"value" => :undefined, "done" => true})
+         else
+           :atomics.put(idx_ref, 1, i + 1)
 
-        Heap.wrap(%{"value" => value, "done" => false})
-      end
-    end}
+           value =
+             case mode do
+               :values -> Enum.at(list, i, :undefined)
+               :keys -> i
+               :entries -> Heap.wrap([i, Enum.at(list, i, :undefined)])
+             end
+
+           Heap.wrap(%{"value" => value, "done" => false})
+         end
+       end}
 
     iter_ref = make_ref()
     Heap.put_obj(iter_ref, %{"next" => next_fn})

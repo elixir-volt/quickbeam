@@ -70,13 +70,17 @@ defmodule QuickBEAM.BeamVM.Runtime do
   def sort_numeric_keys(keys) do
     {numeric, strings} =
       Enum.split_with(keys, fn
-        k when is_integer(k) and k >= 0 and k <= @max_array_index -> true
+        k when is_integer(k) and k >= 0 and k <= @max_array_index ->
+          true
+
         k when is_binary(k) ->
           case Integer.parse(k) do
             {n, ""} when n >= 0 and n <= @max_array_index -> true
             _ -> false
           end
-        _ -> false
+
+        _ ->
+          false
       end)
 
     sorted =

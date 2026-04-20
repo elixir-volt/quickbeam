@@ -32,6 +32,7 @@ defmodule QuickBEAM.BeamVM.BytecodeTest do
     # The actual code is in the top-level function itself.
     # For function expressions, the user function is in the cpool.
     inner = for %Bytecode.Function{} = f <- fun.constants, do: f
+
     case inner do
       [first | _] -> first
       [] -> fun

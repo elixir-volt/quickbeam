@@ -324,6 +324,7 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
     result = call_with_this(next_fn, [], iterator)
 
     done = Property.get(result, "done")
+
     if done == true do
       Enum.reverse(acc)
     else

@@ -126,8 +126,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
       round_exact = round_rt == original_frac
 
       cond do
-        trunc_exact and not round_exact -> truncated
-        round_exact and not trunc_exact -> rounded
+        trunc_exact and not round_exact ->
+          truncated
+
+        round_exact and not trunc_exact ->
+          rounded
+
         true ->
           trunc_err = abs(trunc_rt - original_frac)
           round_err = abs(round_rt - original_frac)
@@ -155,10 +159,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
 
     should_round_up =
       case tail do
-        [d | _] when d >= div(radix, 2) + 1 -> true
+        [d | _] when d >= div(radix, 2) + 1 ->
+          true
+
         [d | rest] when d == div(radix, 2) ->
           Enum.any?(rest, &(&1 > 0))
-        _ -> false
+
+        _ ->
+          false
       end
 
     if should_round_up do

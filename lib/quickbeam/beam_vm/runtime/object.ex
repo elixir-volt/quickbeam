@@ -124,8 +124,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
           parent -> parent
         end
 
-      [%Bytecode.Function{} | _] -> func_proto()
-      [val | _] when is_function(val) -> func_proto()
+      [%Bytecode.Function{} | _] ->
+        func_proto()
+
+      [val | _] when is_function(val) ->
+        func_proto()
 
       _ ->
         nil
@@ -135,27 +138,49 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
   defp func_proto do
     case Process.get(:qb_func_proto) do
       nil ->
-        call_fn = {:builtin, "call", fn [this | args], _ ->
-          Runtime.call_callback(this, args)
-        end}
-        apply_fn = {:builtin, "apply", fn [this, arg_array], _ ->
-          args = case arg_array do
-            {:obj, r} ->
-              case Heap.get_obj(r, []) do
-                l when is_list(l) -> l
-                _ -> []
-              end
-            _ -> []
-          end
-          Runtime.call_callback(this, args)
-        end}
-        bind_fn = {:builtin, "bind", fn [this | bound_args], func ->
-          {:bound, "bound", func, this, bound_args}
-        end}
-        proto = Heap.wrap(%{"call" => call_fn, "apply" => apply_fn, "bind" => bind_fn, "constructor" => :undefined})
+        call_fn =
+          {:builtin, "call",
+           fn [this | args], _ ->
+             Runtime.call_callback(this, args)
+           end}
+
+        apply_fn =
+          {:builtin, "apply",
+           fn [this, arg_array], _ ->
+             args =
+               case arg_array do
+                 {:obj, r} ->
+                   case Heap.get_obj(r, []) do
+                     l when is_list(l) -> l
+                     _ -> []
+                   end
+
+                 _ ->
+                   []
+               end
+
+             Runtime.call_callback(this, args)
+           end}
+
+        bind_fn =
+          {:builtin, "bind",
+           fn [this | bound_args], func ->
+             {:bound, "bound", func, this, bound_args}
+           end}
+
+        proto =
+          Heap.wrap(%{
+            "call" => call_fn,
+            "apply" => apply_fn,
+            "bind" => bind_fn,
+            "constructor" => :undefined
+          })
+
         Process.put(:qb_func_proto, proto)
         proto
-      existing -> existing
+
+      existing ->
+        existing
     end
   end
 
@@ -368,7 +393,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
           val = Map.get(desc, "value")
           if val != nil, do: TypedArray.set_element(obj, idx, val)
           throw({:early_return, obj})
-        _ -> :ok
+
+        _ ->
+          :ok
       end
     end
 
@@ -436,20 +463,25 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
           case Integer.parse(prop_name) do
             {idx, ""} when idx >= 0 ->
               val = TypedArray.get_element({:obj, ref}, idx)
+
               if val == :undefined do
                 :undefined
               else
                 immutable = TypedArray.immutable?({:obj, ref})
                 desc_ref = make_ref()
+
                 Heap.put_obj(desc_ref, %{
                   "value" => val,
                   "writable" => not immutable,
                   "enumerable" => true,
                   "configurable" => not immutable
                 })
+
                 {:obj, desc_ref}
               end
-            _ -> :undefined
+
+            _ ->
+              :undefined
           end
         else
           :undefined
@@ -493,12 +525,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
     case Map.get(statics, prop_key) do
       {:accessor, getter, setter} ->
         desc_ref = make_ref()
+
         Heap.put_obj(desc_ref, %{
           "get" => getter || :undefined,
           "set" => setter || :undefined,
           "enumerable" => false,
           "configurable" => true
         })
+
         {:obj, desc_ref}
 
       nil ->
@@ -506,12 +540,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
 
       val ->
         desc_ref = make_ref()
+
         Heap.put_obj(desc_ref, %{
           "value" => val,
           "writable" => true,
           "enumerable" => true,
           "configurable" => true
         })
+
         {:obj, desc_ref}
     end
   end
