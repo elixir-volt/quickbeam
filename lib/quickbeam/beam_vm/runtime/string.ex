@@ -165,11 +165,11 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
   defp char_code_at(s, [idx | _]) when is_binary(s) do
     i = Runtime.to_int(idx)
-    graphemes = String.to_charlist(s)
+    chars = codepoints(s)
 
-    if i >= 0 and i < length(graphemes) do
-      case Enum.at(graphemes, i) do
-        cp when cp >= 0xE000 and cp <= 0xE7FF -> cp - 0x800
+    if i >= 0 and i < tuple_size(chars) do
+      case elem(chars, i) do
+        cp when cp >= 0xF0000 and cp <= 0xF07FF -> cp - 0xF0000 + 0xD800
         cp -> cp
       end
     else
@@ -181,8 +181,8 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
   defp code_point_at(s, [idx | _]) when is_binary(s) do
     i = Runtime.to_int(idx)
-    chars = String.to_charlist(s)
-    if i >= 0 and i < length(chars), do: Enum.at(chars, i), else: :undefined
+    chars = codepoints(s)
+    if i >= 0 and i < tuple_size(chars), do: elem(chars, i), else: :undefined
   end
 
   defp code_point_at(_, _), do: :undefined
@@ -568,7 +568,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
       mapped =
         if cp >= 0xD800 and cp <= 0xDFFF,
-          do: cp + 0x800,
+          do: 0xF0000 + (cp - 0xD800),
           else: cp
 
       if mapped >= 0 and mapped <= 0x10FFFF, do: <<mapped::utf8>>, else: ""
@@ -602,5 +602,17 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
       acc <> Runtime.stringify(part) <> sub
     end)
+  end
+
+  defp codepoints(s) do
+    case Process.get({:qb_string_codepoints, s}) do
+      nil ->
+        chars = s |> String.to_charlist() |> List.to_tuple()
+        Process.put({:qb_string_codepoints, s}, chars)
+        chars
+
+      chars ->
+        chars
+    end
   end
 end

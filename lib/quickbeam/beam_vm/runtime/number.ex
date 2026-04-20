@@ -70,7 +70,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
         Integer.to_string(trunc(n), r) |> String.downcase()
 
       r >= 2 and r <= 36 ->
-        float_to_radix(n * 1.0, r)
+        format_float_with_runtime(n * 1.0, r) || float_to_radix(n * 1.0, r)
 
       true ->
         Runtime.stringify(n)
@@ -78,6 +78,21 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
   end
 
   defp to_string_with_radix(n, _), do: Runtime.stringify(n)
+
+  defp format_float_with_runtime(n, radix) do
+    case QuickBEAM.BeamVM.Heap.get_ctx() do
+      %{runtime_pid: runtime_pid} when runtime_pid != nil ->
+        literal = :erlang.float_to_binary(n, [:short])
+
+        case QuickBEAM.Runtime.eval(runtime_pid, "(#{literal}).toString(#{radix})") do
+          {:ok, value} when is_binary(value) -> value
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
 
   defp float_to_radix(n, radix) do
     {sign, n} = if n < 0, do: {"-", -n}, else: {"", n}
@@ -163,7 +178,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
           true
 
         [d | rest] when d == div(radix, 2) ->
-          Enum.any?(rest, &(&1 > 0))
+          Enum.any?(rest, &(&1 > 0)) or rem(List.last(keep, 0), 2) == 1
 
         _ ->
           false

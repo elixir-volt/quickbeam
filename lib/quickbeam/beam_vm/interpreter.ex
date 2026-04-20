@@ -322,15 +322,23 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   @spec eval(Bytecode.Function.t(), [term()], map(), tuple()) :: {:ok, term()} | {:error, term()}
   def eval(%Bytecode.Function{} = fun, args, opts, atoms) do
+    case eval_with_ctx(fun, args, opts, atoms) do
+      {:ok, value, _ctx} -> {:ok, value}
+      {:error, _} = err -> err
+    end
+  end
+
+  defp eval_with_ctx(%Bytecode.Function{} = fun, args, opts, atoms) do
     gas = Map.get(opts, :gas, Context.default_gas())
 
-    persistent = Heap.get_persistent_globals()
+    base_globals = Runtime.global_bindings()
+    persistent = Heap.get_persistent_globals() |> Map.drop(Map.keys(base_globals))
 
     ctx = %Context{
       atoms: atoms,
       gas: gas,
       globals:
-        Runtime.global_bindings()
+        base_globals
         |> Map.merge(persistent)
         |> Map.merge(Map.get(opts, :globals, %{})),
       runtime_pid: Map.get(opts, :runtime_pid),
@@ -366,7 +374,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           try do
             result = run(0, frame, args, gas, ctx)
             Promise.drain_microtasks()
-            {:ok, unwrap_promise(result)}
+            {:ok, unwrap_promise(result), Heap.get_ctx()}
           catch
             {:js_throw, val} -> {:error, {:js_throw, val}}
             {:error, _} = err -> err
@@ -482,6 +490,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp resolve_local_name(name) when is_binary(name), do: name
   defp resolve_local_name({:predefined, idx}), do: PredefinedAtoms.lookup(idx)
+
+  defp resolve_local_name(idx) when is_integer(idx) do
+    case Heap.get_ctx() do
+      %{atoms: atoms} when is_tuple(atoms) and idx >= 0 and idx < tuple_size(atoms) -> elem(atoms, idx)
+      _ -> nil
+    end
+  end
+
   defp resolve_local_name(_), do: nil
 
   defp caller_is_strict?(%Context{current_func: func}) do
@@ -503,6 +519,28 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       _ -> nil
     end
   end
+
+  defp current_local_name(%Context{current_func: {:closure, _, %Bytecode.Function{locals: locals}}}, idx)
+       when idx >= 0 and idx < length(locals),
+       do: locals |> Enum.at(idx) |> Map.get(:name) |> resolve_local_name()
+
+  defp current_local_name(%Context{current_func: %Bytecode.Function{locals: locals}}, idx)
+       when idx >= 0 and idx < length(locals),
+       do: locals |> Enum.at(idx) |> Map.get(:name) |> resolve_local_name()
+
+  defp current_local_name(_, _), do: nil
+
+  defp uninitialized_this_local?(ctx, idx), do: current_local_name(ctx, idx) == "this"
+
+  defp current_var_ref_name(%Context{current_func: {:closure, _, %Bytecode.Function{closure_vars: vars}}}, idx)
+       when idx >= 0 and idx < length(vars),
+       do: vars |> Enum.at(idx) |> Map.get(:name) |> resolve_local_name()
+
+  defp current_var_ref_name(%Context{current_func: %Bytecode.Function{closure_vars: vars}}, idx)
+       when idx >= 0 and idx < length(vars),
+       do: vars |> Enum.at(idx) |> Map.get(:name) |> resolve_local_name()
+
+  defp current_var_ref_name(_, _), do: nil
 
   defp set_function_name({:closure, captured, %Bytecode.Function{} = f}, name),
     do: {:closure, captured, %{f | name: name}}
@@ -542,6 +580,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp collect_proto_keys(_, acc), do: acc
 
   defp throw_or_catch(frame, error, gas, ctx) do
+    error = maybe_refresh_error_stack(error)
+
     case ctx.catch_stack do
       [{target, saved_stack} | rest_catch] ->
         run(target, frame, [error | saved_stack], gas, %{ctx | catch_stack: rest_catch})
@@ -550,6 +590,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         throw({:js_throw, error})
     end
   end
+
+  defp maybe_refresh_error_stack({:obj, ref} = error) do
+    case Heap.get_obj(ref, %{}) do
+      %{"name" => _, "message" => _} -> QuickBEAM.BeamVM.Stacktrace.attach_stack(error)
+      _ -> error
+    end
+  end
+
+  defp maybe_refresh_error_stack(error), do: error
 
   defp set_private_field({:obj, ref}, key, val),
     do: Heap.update_obj(ref, %{}, &Map.put(&1, {:private, key}, val))
@@ -651,7 +700,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp eval_code(code, caller_frame, gas, ctx, var_objs, keep_declared? \\ false) do
     with {:ok, bc} <- QuickBEAM.Runtime.compile(ctx.runtime_pid, code),
          {:ok, parsed} <- Bytecode.decode(bc) do
-      declared_names = eval_declared_names(parsed.value)
+      declared_names = eval_declared_names(parsed.value, parsed.atoms)
       eval_globals = collect_caller_locals(caller_frame, ctx)
       captured_globals = collect_captured_globals(ctx.current_func)
       eval_scope_globals = merge_var_object_globals(Map.merge(eval_globals, captured_globals), var_objs)
@@ -671,6 +720,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         |> Map.merge(scoped_globals)
         |> Map.put("arguments", Heap.wrap(Tuple.to_list(ctx.arg_buf)))
 
+      visible_declared_names =
+        base_globals
+        |> Map.merge(eval_scope_globals)
+        |> Map.put("arguments", :present)
+        |> Map.keys()
+        |> Enum.filter(&is_binary/1)
+        |> MapSet.new()
+        |> MapSet.intersection(declared_names)
+
       eval_opts = %{
         gas: gas,
         runtime_pid: ctx.runtime_pid,
@@ -683,19 +741,41 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
       pre_eval_globals = Heap.get_persistent_globals() || %{}
 
-      case __MODULE__.eval(parsed.value, [], eval_opts, parsed.atoms) do
-        {:ok, val} ->
+      case eval_with_ctx(parsed.value, [], eval_opts, parsed.atoms) do
+        {:ok, val, final_ctx} ->
           post_eval_globals = Heap.get_persistent_globals() || %{}
 
           transient_globals =
-            if keep_declared?, do: Map.take(post_eval_globals, MapSet.to_list(declared_names)), else: %{}
+            post_eval_globals
+            |> Map.merge(Map.get(final_ctx || %{}, :globals, %{}))
+            |> Map.take(MapSet.to_list(visible_declared_names))
 
-          write_back_eval_vars(caller_frame, ctx, pre_eval_globals, var_objs, declared_names)
+          apply_eval_transients(ctx.current_func, var_objs, transient_globals, keep_declared?)
+
+          write_back_eval_vars(
+            caller_frame,
+            ctx,
+            pre_eval_globals,
+            var_objs,
+            declared_names,
+            keep_declared?,
+            visible_declared_names
+          )
+
           clean_eval_globals(pre_eval_globals)
           {val, transient_globals}
 
         {:error, {:js_throw, val}} ->
-          write_back_eval_vars(caller_frame, ctx, pre_eval_globals, var_objs, declared_names)
+          write_back_eval_vars(
+            caller_frame,
+            ctx,
+            pre_eval_globals,
+            var_objs,
+            declared_names,
+            keep_declared?,
+            visible_declared_names
+          )
+
           clean_eval_globals(pre_eval_globals)
           throw({:js_throw, val})
 
@@ -761,7 +841,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp collect_captured_globals(_), do: %{}
 
-  defp write_back_eval_vars(caller_frame, ctx, original_globals, var_objs, declared_names \\ MapSet.new()) do
+  defp write_back_eval_vars(
+         caller_frame,
+         ctx,
+         original_globals,
+         var_objs,
+         declared_names \\ MapSet.new(),
+         keep_declared? \\ false,
+         visible_declared_names \\ MapSet.new()
+       ) do
     new_globals = Heap.get_persistent_globals() || %{}
 
     if caller_is_strict?(ctx) do
@@ -803,10 +891,23 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     if var_objs != [] do
       for {name, val} <- new_globals,
           is_binary(name),
-          not MapSet.member?(declared_names, name),
           Map.has_key?(original_globals, name),
           Map.get(original_globals, name) != val do
         for var_obj <- var_objs, do: Objects.put(var_obj, name, val)
+      end
+    end
+  end
+
+  defp apply_eval_transients(current_func, var_objs, transient_globals, keep_declared?) do
+    if transient_globals != %{} do
+      if var_objs != [] do
+        for {name, val} <- transient_globals, var_obj <- var_objs do
+          Objects.put(var_obj, name, val)
+        end
+      end
+
+      if keep_declared? do
+        apply_transient_captured_vars(current_func, transient_globals, MapSet.new(Map.keys(transient_globals)))
       end
     end
   end
@@ -832,14 +933,82 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp write_back_captured_vars(_, _, _, _), do: :ok
 
-  defp eval_declared_names(%Bytecode.Function{locals: locals}) do
-    locals
-    |> Enum.map(&resolve_local_name(&1.name))
-    |> Enum.filter(&is_binary/1)
-    |> MapSet.new()
+  defp apply_transient_captured_vars(
+         {:closure, captured, %Bytecode.Function{closure_vars: cvs}},
+         new_globals,
+         declared_names
+       ) do
+    for cv <- cvs,
+        name = resolve_local_name(cv.name),
+        is_binary(name),
+        MapSet.member?(declared_names, name),
+        Map.has_key?(new_globals, name) do
+      case Map.get(captured, closure_capture_key(cv)) do
+        {:cell, ref} ->
+          old_val = Heap.get_cell(ref)
+          restore_stack = Process.get(:qb_eval_restore_stack, [])
+          Process.put(:qb_eval_restore_stack, [{ref, old_val} | restore_stack])
+          Heap.put_cell(ref, Map.get(new_globals, name))
+
+        _ ->
+          :ok
+      end
+    end
   end
 
-  defp eval_declared_names(_), do: MapSet.new()
+  defp apply_transient_captured_vars(_, _, _), do: :ok
+
+  defp restore_eval_restores(mark) do
+    restores = Process.get(:qb_eval_restore_stack, [])
+    {to_restore, keep} = Enum.split(restores, length(restores) - mark)
+
+    Enum.each(to_restore, fn {ref, old_val} ->
+      Heap.put_cell(ref, old_val)
+    end)
+
+    Process.put(:qb_eval_restore_stack, keep)
+  end
+
+  defp eval_declared_names(%Bytecode.Function{} = fun, atoms) do
+    local_names =
+      fun.locals
+      |> Enum.map(&resolve_local_name(&1.name))
+      |> Enum.filter(&is_binary/1)
+
+    instruction_names =
+      case Decoder.decode(fun.byte_code, fun.arg_count) do
+        {:ok, insns} ->
+          insns
+          |> Enum.reduce([], fn
+            {op, [atom_ref, _scope]}, acc when op in [@op_define_var, @op_check_define_var] ->
+              case resolve_declared_atom(atom_ref, atoms) do
+                name when is_binary(name) -> [name | acc]
+                _ -> acc
+              end
+
+            {op, [atom_ref, _flags]}, acc when op == @op_define_func ->
+              case resolve_declared_atom(atom_ref, atoms) do
+                name when is_binary(name) -> [name | acc]
+                _ -> acc
+              end
+
+            _, acc ->
+              acc
+          end)
+
+        _ ->
+          []
+      end
+
+    MapSet.new(local_names ++ instruction_names)
+  end
+
+  defp eval_declared_names(_, _), do: MapSet.new()
+
+  defp resolve_declared_atom({:predefined, idx}, _atoms), do: PredefinedAtoms.lookup(idx)
+  defp resolve_declared_atom(idx, atoms) when is_integer(idx) and idx >= 0 and idx < tuple_size(atoms), do: elem(atoms, idx)
+  defp resolve_declared_atom(name, _atoms) when is_binary(name), do: name
+  defp resolve_declared_atom(_, _atoms), do: nil
 
   defp do_write_back(local_defs, vrefs, l2v, new_globals, ctx, original_globals, declared_names) do
     func_name = current_func_name(ctx)
@@ -998,6 +1167,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   # ── Main dispatch loop ──
 
   defp run(pc, frame, stack, gas, ctx) do
+    Heap.put_ctx(ctx)
     update_active_frame_pc(pc)
     run(elem(elem(frame, Frame.insns()), pc), pc, frame, stack, gas, ctx)
   end
@@ -1187,35 +1357,41 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({@op_set_loc_uninitialized, [idx]}, pc, frame, stack, gas, ctx) do
+    Closures.write_captured_local(
+      elem(frame, Frame.l2v()),
+      idx,
+      :__tdz__,
+      elem(frame, Frame.locals()),
+      elem(frame, Frame.var_refs())
+    )
+
     run(pc + 1, put_local(frame, idx, :__tdz__), stack, gas, ctx)
   end
 
   defp run({@op_get_loc_check, [idx]}, pc, frame, stack, gas, ctx) do
     val = elem(elem(frame, Frame.locals()), idx)
 
-    if val == :__tdz__,
-      do:
-        throw(
-          {:js_throw,
-           %{
-             "message" => "Cannot access variable before initialization",
-             "name" => "ReferenceError"
-           }}
-        )
+    if val == :__tdz__ or (val == :undefined and uninitialized_this_local?(ctx, idx)) do
+      message =
+        if uninitialized_this_local?(ctx, idx),
+          do: "this is not initialized",
+          else: "Cannot access variable before initialization"
+
+      throw({:js_throw, Heap.make_error(message, "ReferenceError")})
+    end
 
     run(pc + 1, frame, [val | stack], gas, ctx)
   end
 
   defp run({@op_put_loc_check, [idx]}, pc, frame, [val | rest], gas, ctx) do
-    if val == :__tdz__,
-      do:
-        throw(
-          {:js_throw,
-           %{
-             "message" => "Cannot access variable before initialization",
-             "name" => "ReferenceError"
-           }}
-        )
+    if val == :__tdz__ or (val == :undefined and uninitialized_this_local?(ctx, idx)) do
+      message =
+        if uninitialized_this_local?(ctx, idx),
+          do: "this is not initialized",
+          else: "Cannot access variable before initialization"
+
+      throw({:js_throw, Heap.make_error(message, "ReferenceError")})
+    end
 
     Closures.write_captured_local(
       elem(frame, Frame.l2v()),
@@ -1777,6 +1953,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── for-in ──
 
+  defp run({@op_for_in_start, []}, _pc, frame, [obj | _rest], gas, ctx)
+       when obj == :uninitialized do
+    throw_or_catch(frame, Heap.make_error("this is not initialized", "ReferenceError"), gas, ctx)
+  end
+
   defp run({@op_for_in_start, []}, pc, frame, [obj | rest], gas, ctx) do
     keys =
       case obj do
@@ -1984,6 +2165,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           {:closure, _, %Bytecode.Function{}} = c -> c
           _ -> this_obj
         end
+
+      if result == :uninitialized do
+        throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
+      end
 
       case {result, Heap.get_class_proto(raw_ctor)} do
         {{:obj, rref}, {:obj, _} = proto2} ->
@@ -2235,16 +2420,21 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({@op_get_var_ref_check, [idx]}, pc, frame, stack, gas, ctx) do
     case elem(elem(frame, Frame.var_refs()), idx) do
       :__tdz__ ->
-        throw(
-          {:js_throw,
-           %{
-             "message" => "Cannot access variable before initialization",
-             "name" => "ReferenceError"
-           }}
-        )
+        message =
+          if current_var_ref_name(ctx, idx) == "this",
+            do: "this is not initialized",
+            else: "Cannot access variable before initialization"
+
+        throw({:js_throw, Heap.make_error(message, "ReferenceError")})
 
       {:cell, _} = cell ->
-        run(pc + 1, frame, [Closures.read_cell(cell) | stack], gas, ctx)
+        val = Closures.read_cell(cell)
+
+        if val == :__tdz__ and current_var_ref_name(ctx, idx) == "this" do
+          throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
+        end
+
+        run(pc + 1, frame, [val | stack], gas, ctx)
 
       val ->
         run(pc + 1, frame, [val | stack], gas, ctx)
@@ -3181,10 +3371,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp inherit_parent_vrefs({:closure, captured, %Bytecode.Function{} = f}, parent_vrefs)
        when is_tuple(parent_vrefs) do
     extra =
-      for i <- 0..(tuple_size(parent_vrefs) - 1),
-          not Map.has_key?(captured, closure_capture_key(2, i)),
-          into: %{} do
-        {closure_capture_key(2, i), elem(parent_vrefs, i)}
+      if tuple_size(parent_vrefs) == 0 do
+        %{}
+      else
+        for i <- 0..(tuple_size(parent_vrefs) - 1),
+            not Map.has_key?(captured, closure_capture_key(2, i)),
+            into: %{} do
+          {closure_capture_key(2, i), elem(parent_vrefs, i)}
+        end
       end
 
     {:closure, Map.merge(extra, captured), f}
@@ -3413,6 +3607,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         Heap.put_ctx(inner_ctx)
 
         push_active_frame(self_ref)
+        restore_mark = length(Process.get(:qb_eval_restore_stack, []))
 
         try do
           case fun.func_kind do
@@ -3422,6 +3617,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             _ -> run(0, frame, [], gas, inner_ctx)
           end
         after
+          restore_eval_restores(restore_mark)
           pop_active_frame()
           if prev_ctx, do: Heap.put_ctx(prev_ctx)
         end

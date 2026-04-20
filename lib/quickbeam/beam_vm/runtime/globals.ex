@@ -431,41 +431,54 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   end
 
   defp error_types do
-    for name <- @error_types, into: %{} do
-      proto_ref = make_ref()
-      ctor = {:builtin, name, fn args, _this -> error_constructor(name, args) end}
-      Heap.put_obj(proto_ref, %{"name" => name, "message" => "", "constructor" => ctor})
-      Heap.put_class_proto(ctor, {:obj, proto_ref})
-      Heap.put_ctor_static(ctor, "prototype", {:obj, proto_ref})
+    error_proto_ref = make_ref()
+    error_ctor = {:builtin, "Error", fn args, _this -> error_constructor("Error", args) end}
 
-      if name == "Error" do
-        Heap.put_ctor_static(
-          ctor,
-          "captureStackTrace",
-          {:builtin, "captureStackTrace",
-           fn
-             [], _ ->
-               throw(
-                 {:js_throw, Heap.make_error("Cannot convert undefined to object", "TypeError")}
-               )
+    Heap.put_obj(error_proto_ref, %{"name" => "Error", "message" => "", "constructor" => error_ctor})
+    Heap.put_class_proto(error_ctor, {:obj, error_proto_ref})
+    Heap.put_ctor_static(error_ctor, "prototype", {:obj, error_proto_ref})
 
-             [obj | rest], _ ->
-               filter_fun = List.first(rest)
+    Heap.put_ctor_static(
+      error_ctor,
+      "captureStackTrace",
+      {:builtin, "captureStackTrace",
+       fn
+         [], _ ->
+           throw({:js_throw, Heap.make_error("Cannot convert undefined to object", "TypeError")})
 
-               case obj do
-                 {:obj, _} -> Stacktrace.attach_stack(obj, filter_fun)
-                 _ -> :ok
-               end
+         [obj | rest], _ ->
+           filter_fun = List.first(rest)
 
-               :undefined
-           end}
-        )
+           case obj do
+             {:obj, _} -> Stacktrace.attach_stack(obj, filter_fun)
+             _ -> :ok
+           end
 
-        Heap.put_ctor_static(ctor, "prepareStackTrace", :undefined)
-        Heap.put_ctor_static(ctor, "stackTraceLimit", 10)
+           :undefined
+       end}
+    )
+
+    Heap.put_ctor_static(error_ctor, "prepareStackTrace", :undefined)
+    Heap.put_ctor_static(error_ctor, "stackTraceLimit", 10)
+
+    derived =
+      for name <- Enum.reject(@error_types, &(&1 == "Error")), into: %{} do
+        proto_ref = make_ref()
+        ctor = {:builtin, name, fn args, _this -> error_constructor(name, args) end}
+
+        Heap.put_obj(proto_ref, %{
+          "__proto__" => {:obj, error_proto_ref},
+          "name" => name,
+          "message" => "",
+          "constructor" => ctor
+        })
+
+        Heap.put_class_proto(ctor, {:obj, proto_ref})
+        Heap.put_ctor_static(ctor, "prototype", {:obj, proto_ref})
+        Heap.put_ctor_static(ctor, "__proto__", error_ctor)
+        {name, ctor}
       end
 
-      {name, ctor}
-    end
+    Map.put(derived, "Error", error_ctor)
   end
 end
