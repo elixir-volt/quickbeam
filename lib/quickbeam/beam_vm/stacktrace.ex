@@ -1,6 +1,8 @@
 defmodule QuickBEAM.BeamVM.Stacktrace do
   @moduledoc false
 
+  import QuickBEAM.BeamVM.Builtin, only: [build_object: 1]
+
   alias QuickBEAM.BeamVM.{Bytecode, Heap}
   alias QuickBEAM.BeamVM.Runtime
 
@@ -96,14 +98,30 @@ defmodule QuickBEAM.BeamVM.Stacktrace do
   end
 
   defp callsite_object(frame) do
-    Heap.wrap(%{
-      "getFileName" => {:builtin, "getFileName", fn _, _ -> frame.file_name end},
-      "getFunction" => {:builtin, "getFunction", fn _, _ -> frame.function end},
-      "getFunctionName" =>
-        {:builtin, "getFunctionName", fn _, _ -> frame.function_name || :undefined end},
-      "getLineNumber" => {:builtin, "getLineNumber", fn _, _ -> frame.line_number end},
-      "getColumnNumber" => {:builtin, "getColumnNumber", fn _, _ -> frame.column_number end},
-      "isNative" => {:builtin, "isNative", fn _, _ -> false end}
-    })
+    build_object do
+      method "getFileName" do
+        frame.file_name
+      end
+
+      method "getFunction" do
+        frame.function
+      end
+
+      method "getFunctionName" do
+        frame.function_name || :undefined
+      end
+
+      method "getLineNumber" do
+        frame.line_number
+      end
+
+      method "getColumnNumber" do
+        frame.column_number
+      end
+
+      method "isNative" do
+        false
+      end
+    end
   end
 end

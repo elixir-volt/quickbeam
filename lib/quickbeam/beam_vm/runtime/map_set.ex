@@ -230,7 +230,9 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
          end
        end}
 
-    Heap.wrap(%{"next" => next_fn})
+    build_object do
+      val("next", next_fn)
+    end
   end
 
   defp do_set_entries(set_ref) do

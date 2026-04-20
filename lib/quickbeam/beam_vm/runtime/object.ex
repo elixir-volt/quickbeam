@@ -166,12 +166,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Object do
            end}
 
         proto =
-          Heap.wrap(%{
-            "call" => call_fn,
-            "apply" => apply_fn,
-            "bind" => bind_fn,
-            "constructor" => :undefined
-          })
+          build_object do
+            val("call", call_fn)
+            val("apply", apply_fn)
+            val("bind", bind_fn)
+            val("constructor", :undefined)
+          end
 
         Process.put(:qb_func_proto, proto)
         proto

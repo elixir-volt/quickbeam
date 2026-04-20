@@ -1,6 +1,8 @@
 defmodule QuickBEAM.BeamVM.Interpreter.Generator do
   @moduledoc false
 
+  import QuickBEAM.BeamVM.Builtin, only: [build_object: 1]
+
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Interpreter
   alias QuickBEAM.BeamVM.Interpreter.Promise
@@ -141,6 +143,9 @@ defmodule QuickBEAM.BeamVM.Interpreter.Generator do
          [], _this -> return_impl.(gen_ref, :undefined)
        end}
 
-    Heap.wrap(%{"next" => next_fn, "return" => return_fn})
+    build_object do
+      val("next", next_fn)
+      val("return", return_fn)
+    end
   end
 end

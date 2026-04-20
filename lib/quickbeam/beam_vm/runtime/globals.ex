@@ -1,6 +1,7 @@
 defmodule QuickBEAM.BeamVM.Runtime.Globals do
   @moduledoc "JS global scope: constructors, global functions, and the binding map."
 
+  import QuickBEAM.BeamVM.Builtin, only: [build_object: 1]
   import QuickBEAM.BeamVM.Heap.Keys
 
   alias QuickBEAM.BeamVM.{Bytecode, Heap}
@@ -58,10 +59,15 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
       "WeakRef" => register("WeakRef", fn _, _ -> Runtime.new_object() end),
       "FinalizationRegistry" =>
         register("FinalizationRegistry", fn [_callback | _], _ ->
-          Heap.wrap(%{
-            "register" => {:builtin, "register", fn _, _ -> :undefined end},
-            "unregister" => {:builtin, "unregister", fn _, _ -> :undefined end}
-          })
+          build_object do
+            method "register" do
+              :undefined
+            end
+
+            method "unregister" do
+              :undefined
+            end
+          end
         end),
       "DataView" => register("DataView", fn _, _ -> Runtime.new_object() end),
       "ArrayBuffer" =>
@@ -92,12 +98,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
       "gc" => builtin("gc", fn _, _ -> :undefined end),
       "os" => Heap.wrap(%{"platform" => "elixir"}),
       "qjs" =>
-        Heap.wrap(%{
-          "getStringKind" =>
-            builtin("getStringKind", fn [s | _], _ ->
-              if is_binary(s) and byte_size(s) > 256, do: 1, else: 0
-            end)
-        }),
+        build_object do
+          method "getStringKind" do
+            s = hd(args)
+            if is_binary(s) and byte_size(s) > 256, do: 1, else: 0
+          end
+        end,
       "globalThis" => Runtime.new_object(),
       "NaN" => :nan,
       "Infinity" => :infinity,

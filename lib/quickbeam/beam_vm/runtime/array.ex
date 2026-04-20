@@ -807,9 +807,9 @@ defmodule QuickBEAM.BeamVM.Runtime.Array do
          end
        end}
 
-    iter_ref = make_ref()
-    Heap.put_obj(iter_ref, %{"next" => next_fn})
-    {:obj, iter_ref}
+    build_object do
+      val("next", next_fn)
+    end
   end
 
   # ── Internal ──

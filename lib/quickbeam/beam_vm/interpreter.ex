@@ -1,5 +1,6 @@
 defmodule QuickBEAM.BeamVM.Interpreter do
   import Bitwise, only: [bnot: 1, &&&: 2]
+  import QuickBEAM.BeamVM.Builtin, only: [build_object: 1]
   import QuickBEAM.BeamVM.Heap.Keys
 
   alias QuickBEAM.BeamVM.{Builtin, Bytecode, Decoder, Heap, PredefinedAtoms, Runtime}
@@ -717,9 +718,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     pos_ref = make_ref()
     Heap.put_obj(pos_ref, %{pos: 0, list: items})
     next_fn = {:builtin, "next", fn _, _ -> list_iterator_next(pos_ref) end}
-    iter_ref = make_ref()
-    Heap.put_obj(iter_ref, %{"next" => next_fn})
-    {{:obj, iter_ref}, next_fn}
+    {build_object(do: val("next", next_fn)), next_fn}
   end
 
   defp eval_code(code, caller_frame, gas, ctx, var_objs, keep_declared?) do
