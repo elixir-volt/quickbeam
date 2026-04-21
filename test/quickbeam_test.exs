@@ -62,6 +62,16 @@ defmodule QuickBEAMTest do
       assert {:ok, 42} = QuickBEAM.call(rt, "add", [10, 32])
     end
 
+    test "beam eval keeps returned closure captures alive" do
+      {:ok, rt} = QuickBEAM.start(mode: :beam, apis: false)
+
+      assert {:ok, {:closure, _, _} = closure} =
+               QuickBEAM.eval(rt, "(() => { const x = 1; return function f(){ return x } })()")
+
+      assert 1 == QuickBEAM.VM.Interpreter.invoke(closure, [], 1_000_000)
+      QuickBEAM.stop(rt)
+    end
+
     @tag :nif_only
     test "arrow functions", %{rt: rt} do
       QuickBEAM.eval(rt, "globalThis.double = x => x * 2")

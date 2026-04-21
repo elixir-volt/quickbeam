@@ -1116,6 +1116,23 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp run_arg_update(pc, frame, stack, gas, %Context{arg_buf: arg_buf} = ctx, idx, val) do
+    locals = elem(frame, Frame.locals())
+
+    frame =
+      if idx < tuple_size(locals) do
+        Closures.write_captured_local(
+          elem(frame, Frame.l2v()),
+          idx,
+          val,
+          locals,
+          elem(frame, Frame.var_refs())
+        )
+
+        put_local(frame, idx, val)
+      else
+        frame
+      end
+
     ctx = put_arg_value(ctx, idx, val, arg_buf)
     run(pc + 1, frame, stack, gas, ctx)
   end

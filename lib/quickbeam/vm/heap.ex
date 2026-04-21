@@ -261,10 +261,10 @@ defmodule QuickBEAM.VM.Heap do
   end
 
   @doc "Full GC between independent eval() invocations."
-  def gc do
+  def gc(extra_roots \\ []) do
     module_roots = all_module_exports()
     persistent_roots = get_persistent_globals() |> Map.values()
-    all_roots = module_roots ++ persistent_roots
+    all_roots = List.wrap(extra_roots) ++ module_roots ++ persistent_roots
 
     marked = if all_roots == [], do: nil, else: mark(all_roots, MapSet.new())
     sweep_all(marked)

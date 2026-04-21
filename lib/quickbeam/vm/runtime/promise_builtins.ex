@@ -6,11 +6,18 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
   import QuickBEAM.VM.Heap.Keys
 
   alias QuickBEAM.VM.Heap
-
   alias QuickBEAM.VM.PromiseState
 
   def constructor do
     fn _args, _this -> Heap.wrap(%{}) end
+  end
+
+  def prototype do
+    build_object do
+      val("then", {:builtin, "then", &PromiseState.promise_then/2})
+      val("catch", {:builtin, "catch", &PromiseState.promise_catch/2})
+      val("finally", {:builtin, "finally", &PromiseState.promise_finally/2})
+    end
   end
 
   static "resolve" do

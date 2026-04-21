@@ -49,7 +49,11 @@ defmodule QuickBEAM.VM.Runtime.Globals do
       "Function" => register("Function", &Constructors.function/2),
       "RegExp" => register("RegExp", &Constructors.regexp/2),
       "Date" => register("Date", &JSDate.constructor/2, module: JSDate),
-      "Promise" => register("Promise", PromiseBuiltins.constructor(), module: PromiseBuiltins),
+      "Promise" =>
+        register("Promise", PromiseBuiltins.constructor(),
+          module: PromiseBuiltins,
+          prototype: PromiseBuiltins.prototype()
+        ),
       "Symbol" => register("Symbol", Symbol.constructor(), module: Symbol),
       "Map" => register("Map", JSMap.constructor()),
       "Set" => register("Set", JSSet.constructor()),

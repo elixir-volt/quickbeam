@@ -208,9 +208,26 @@ defmodule QuickBEAM.VM.Invocation do
   end
 
   defp active_ctx do
+    base_globals =
+      Runtime.global_bindings()
+      |> Map.merge(Heap.get_handler_globals() || %{})
+      |> Map.merge(Heap.get_persistent_globals())
+
     case Heap.get_ctx() do
-      nil -> %Context{atoms: Heap.get_atoms()}
-      ctx -> ctx
+      %Context{} = ctx when ctx.globals == %{} ->
+        %{ctx | globals: base_globals}
+
+      %Context{} = ctx ->
+        ctx
+
+      nil ->
+        %Context{atoms: Heap.get_atoms(), globals: base_globals}
+
+      map ->
+        struct(
+          Context,
+          Map.merge(Map.from_struct(%Context{}), Map.put(map, :globals, base_globals))
+        )
     end
   end
 

@@ -1783,6 +1783,11 @@ defmodule QuickBEAM.VM.BeamCompatTest do
   end
 
   describe "Promise" do
+    test "Promise.prototype exposes then", %{rt: rt} do
+      ok(rt, "typeof Promise.prototype.then", "function")
+      ok(rt, "typeof Promise.resolve(1).then", "function")
+    end
+
     test "Promise.resolve then", %{rt: rt} do
       ok(rt, "(async function(){ return await Promise.resolve(42) })()", 42)
     end

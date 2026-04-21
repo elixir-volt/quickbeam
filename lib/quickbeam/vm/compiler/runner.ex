@@ -74,17 +74,22 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   defp with_compiled_ctx(current_func, args, ctx_overrides, callback) do
     prev_ctx = Process.get(:qb_ctx, @missing)
 
+    base_globals =
+      Runtime.global_bindings()
+      |> Map.merge(Heap.get_handler_globals() || %{})
+      |> Map.merge(Heap.get_persistent_globals())
+
     base_ctx =
       case Heap.get_ctx() do
         %Context{} = ctx ->
-          if ctx.globals == %{}, do: %{ctx | globals: Runtime.global_bindings()}, else: ctx
+          %{ctx | globals: Map.merge(base_globals, ctx.globals)}
 
         nil ->
-          %Context{atoms: Heap.get_atoms(), globals: Runtime.global_bindings()}
+          %Context{atoms: Heap.get_atoms(), globals: base_globals}
 
         map ->
           ctx = struct(Context, Map.merge(Map.from_struct(%Context{}), map))
-          if ctx.globals == %{}, do: %{ctx | globals: Runtime.global_bindings()}, else: ctx
+          %{ctx | globals: Map.merge(base_globals, ctx.globals)}
       end
 
     next_ctx =

@@ -226,7 +226,7 @@ defmodule QuickBEAM do
 
             Promise.drain_microtasks()
             converted = convert_beam_result(result)
-            Heap.gc()
+            Heap.gc(beam_gc_roots(result))
             converted
 
           {:error, _} = err ->
@@ -255,6 +255,10 @@ defmodule QuickBEAM do
   defp convert_beam_result({:error, _} = err), do: err
 
   defp wrap_js_error(val), do: JSError.from_js_value(val)
+
+  defp beam_gc_roots({:ok, value}), do: [value]
+  defp beam_gc_roots({:error, {:js_throw, value}}), do: [value]
+  defp beam_gc_roots(_), do: []
 
   defp elixir_to_js(val) when is_map(val) do
     ref = make_ref()

@@ -9,6 +9,29 @@ defmodule QuickBEAM.VM.PromiseState do
   def resolved(val), do: make_promise(:resolved, val)
   def rejected(val), do: make_promise(:rejected, val)
 
+  def promise_then(args, {:obj, promise_ref}), do: then_impl(args, promise_ref)
+  def promise_then(_args, _this), do: resolved(:undefined)
+
+  def promise_catch(args, this), do: promise_then([nil, List.first(args)], this)
+
+  def promise_finally([callback | _], {:obj, promise_ref}) do
+    then_impl(
+      [
+        fn value ->
+          run_finally(callback)
+          value
+        end,
+        fn reason ->
+          run_finally(callback)
+          throw({:js_throw, reason})
+        end
+      ],
+      promise_ref
+    )
+  end
+
+  def promise_finally(_args, _this), do: resolved(:undefined)
+
   def resolve(ref, state, val) do
     Heap.put_obj(ref, promise_obj(state, val, ref))
 
@@ -55,12 +78,17 @@ defmodule QuickBEAM.VM.PromiseState do
   end
 
   defp promise_obj(state, val, ref) do
-    %{
+    base = %{
       promise_state() => state,
       promise_value() => val,
       "then" => then_fn(ref),
       "catch" => catch_fn(ref)
     }
+
+    case promise_proto() do
+      nil -> base
+      proto -> Map.put(base, "__proto__", proto)
+    end
   end
 
   defp pending_child do
@@ -70,46 +98,57 @@ defmodule QuickBEAM.VM.PromiseState do
   end
 
   defp then_fn(promise_ref) do
-    {:builtin, "then",
-     fn args, _this ->
-       on_fulfilled = Enum.at(args, 0)
-       on_rejected = Enum.at(args, 1)
-
-       case Heap.get_obj(promise_ref, %{}) do
-         %{promise_state() => state, promise_value() => val}
-         when state in [:resolved, :rejected] ->
-           handler = if state == :resolved, do: on_fulfilled, else: on_rejected
-
-           if callable?(handler) do
-             child_ref = pending_child()
-             Heap.enqueue_microtask({:resolve, child_ref, handler, val})
-             {:obj, child_ref}
-           else
-             make_promise(state, val)
-           end
-
-         %{promise_state() => :pending} ->
-           child_ref = pending_child()
-           waiters = Heap.get_promise_waiters(promise_ref)
-
-           Heap.put_promise_waiters(promise_ref, [
-             {on_fulfilled, on_rejected, child_ref} | waiters
-           ])
-
-           {:obj, child_ref}
-
-         _ ->
-           resolved(:undefined)
-       end
-     end}
+    {:builtin, "then", fn args, _this -> then_impl(args, promise_ref) end}
   end
 
   defp catch_fn(promise_ref) do
-    {:builtin, "catch",
-     fn args, this ->
-       {:builtin, _, cb} = then_fn(promise_ref)
-       cb.([nil, List.first(args)], this)
-     end}
+    {:builtin, "catch", fn args, _this -> then_impl([nil, List.first(args)], promise_ref) end}
+  end
+
+  defp then_impl(args, promise_ref) do
+    on_fulfilled = Enum.at(args, 0)
+    on_rejected = Enum.at(args, 1)
+
+    case Heap.get_obj(promise_ref, %{}) do
+      %{promise_state() => state, promise_value() => val} when state in [:resolved, :rejected] ->
+        handler = if state == :resolved, do: on_fulfilled, else: on_rejected
+
+        if callable?(handler) do
+          child_ref = pending_child()
+          Heap.enqueue_microtask({:resolve, child_ref, handler, val})
+          {:obj, child_ref}
+        else
+          make_promise(state, val)
+        end
+
+      %{promise_state() => :pending} ->
+        child_ref = pending_child()
+        waiters = Heap.get_promise_waiters(promise_ref)
+
+        Heap.put_promise_waiters(promise_ref, [
+          {on_fulfilled, on_rejected, child_ref} | waiters
+        ])
+
+        {:obj, child_ref}
+
+      _ ->
+        resolved(:undefined)
+    end
+  end
+
+  defp run_finally(callback) do
+    if callable?(callback) do
+      Interpreter.invoke_callback(callback, [])
+    else
+      :undefined
+    end
+  end
+
+  defp promise_proto do
+    case Heap.get_global_cache() do
+      %{"Promise" => ctor} -> Heap.get_class_proto(ctor)
+      _ -> nil
+    end
   end
 
   defp resolve_or_chain(child_ref, {:obj, r}) do

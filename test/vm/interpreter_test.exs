@@ -259,6 +259,13 @@ defmodule QuickBEAM.VM.InterpreterTest do
 
       assert eval_js!(rt, code) == 12
     end
+
+    test "captured argument reassignment is visible inside nested callbacks", %{rt: rt} do
+      code =
+        "(function(){ function flatten(n, l){ return l = l || [], Array.isArray(n) ? n.some(function(x){ flatten(x, l) }) : l.push(n), l } return flatten([1,2,3]).length })()"
+
+      assert eval_js!(rt, code) == 3
+    end
   end
 
   describe "string operations" do
