@@ -637,17 +637,16 @@ defmodule QuickBEAM.VM.Compiler.Forms do
         {:op, @line, :andalso,
          {:op, @line, :not,
           {:call, @line, {:atom, @line, :is_map_key}, [literal("__proxy_handler__"), map]}},
-         {:op, @line, :not, remote_call(Heap, :frozen?, [ref])}}}}
+         {:op, @line, :not, pd_flag_expr(frozen_key_expr(ref))}}}}
 
     {:function, @line, :op_define_field, 4,
      [
        {:clause, @line, [ctx, wrapped, key, val], [],
         [
-          {:match, @line, map, remote_call(Heap, :get_obj, [ref, map_expr([])])},
+          {:match, @line, map, pd_get_with_default_expr(obj_key_expr(ref), map_expr([]))},
           {:case, @line, plain_object?,
            [
-             {:clause, @line, [atom(true)], [],
-              [remote_call(Heap, :put_obj_key, [ref, map, key, val]), wrapped]},
+             {:clause, @line, [atom(true)], [], [put_obj_key_expr(ref, map, key, val), wrapped]},
              {:clause, @line, [atom(false)], [],
               [remote_call(Put, :put, [wrapped, key, val]), wrapped]}
            ]}
@@ -801,6 +800,84 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   end
 
   defp not_nil_guard(expr), do: {:op, @line, :"=/=", expr, atom(nil)}
+
+  defp obj_key_expr(ref), do: tuple_expr([atom(:qb_obj), ref])
+  defp frozen_key_expr(ref), do: tuple_expr([atom(:qb_frozen), ref])
+
+  defp pd_get_with_default_expr(key, default) do
+    value = var("PdValue")
+
+    {:case, @line, {:call, @line, {:atom, @line, :get}, [key]},
+     [
+       {:clause, @line, [atom(:undefined)], [], [default]},
+       {:clause, @line, [value], [], [value]}
+     ]}
+  end
+
+  defp pd_flag_expr(key) do
+    {:case, @line, {:call, @line, {:atom, @line, :get}, [key]},
+     [
+       {:clause, @line, [atom(true)], [], [atom(true)]},
+       {:clause, @line, [var(:_)], [], [atom(false)]}
+     ]}
+  end
+
+  defp put_obj_key_expr(ref, map, key, val) do
+    order = var("Order")
+    new_map = var("NewMap")
+    order_key = literal(:__key_order__)
+
+    needs_order =
+      {:op, @line, :andalso,
+       {:op, @line, :not, {:call, @line, {:atom, @line, :is_map_key}, [key, map]}},
+       {:op, @line, :orelse, {:call, @line, {:atom, @line, :is_binary}, [key]},
+        {:call, @line, {:atom, @line, :is_integer}, [key]}}}
+
+    ordered_map =
+      {:case, @line,
+       {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :find}},
+        [order_key, map]},
+       [
+         {:clause, @line, [tuple_expr([atom(:ok), order])], [],
+          [
+            {:match, @line, new_map,
+             {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
+              [
+                order_key,
+                {:cons, @line, key, order},
+                {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
+                 [key, val, map]}
+              ]}},
+            {:call, @line, {:atom, @line, :put}, [obj_key_expr(ref), new_map]}
+          ]},
+         {:clause, @line, [atom(:error)], [],
+          [
+            {:match, @line, new_map,
+             {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
+              [
+                order_key,
+                list_expr([key]),
+                {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
+                 [key, val, map]}
+              ]}},
+            {:call, @line, {:atom, @line, :put}, [obj_key_expr(ref), new_map]}
+          ]}
+       ]}
+
+    plain_put =
+      {:call, @line, {:atom, @line, :put},
+       [
+         obj_key_expr(ref),
+         {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
+          [key, val, map]}
+       ]}
+
+    {:case, @line, needs_order,
+     [
+       {:clause, @line, [atom(true)], [], [ordered_map]},
+       {:clause, @line, [atom(false)], [], [plain_put]}
+     ]}
+  end
 
   defp block_name(idx), do: String.to_atom("block_#{idx}")
   defp slot_var(idx), do: var("Slot#{idx}")
