@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   @moduledoc false
 
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Captures, Types}
+  alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.ObjectModel.Put
 
   @line 1
@@ -753,7 +754,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   defp invoke_call_expr(state, fun, fun_type, args, _arg_types) do
     effectful_push(
       state,
-      Builder.compiler_call(:invoke_runtime, [fun, Builder.list_expr(args)]),
+      invoke_runtime_expr(fun, args),
       function_return_type(fun_type, state.return_type)
     )
   end
@@ -762,7 +763,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     do: state.body ++ [Builder.local_call(:run, normalize_self_call_args(state, args))]
 
   defp tail_call_expr(state, fun, _fun_type, args, _arg_types),
-    do: state.body ++ [Builder.compiler_call(:invoke_runtime, [fun, Builder.list_expr(args)])]
+    do: state.body ++ [invoke_runtime_expr(fun, args)]
 
   defp specialize_unary(:op_neg, expr, :integer), do: {{:op, @line, :-, expr}, :integer}
   defp specialize_unary(:op_neg, expr, :number), do: {{:op, @line, :-, expr}, :number}
@@ -830,6 +831,34 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   defp specialize_get_length(expr, _type),
     do: {Builder.local_call(:op_get_length, [expr]), :integer}
+
+  defp invoke_runtime_expr(fun, args) do
+    case var_ref_fun_call(fun, length(args)) do
+      {:ok, helper, idx} -> Builder.compiler_call(helper, [idx | args])
+      :error -> Builder.compiler_call(:invoke_runtime, [fun, Builder.list_expr(args)])
+    end
+  end
+
+  defp var_ref_fun_call(
+         {:call, _, {:remote, _, {:atom, _, RuntimeHelpers}, {:atom, _, fun}}, [idx]},
+         argc
+       )
+       when fun in [:get_var_ref, :get_var_ref_check] do
+    {:ok, invoke_var_ref_helper(fun, argc), idx}
+  end
+
+  defp var_ref_fun_call(_expr, _argc), do: :error
+
+  defp invoke_var_ref_helper(:get_var_ref, argc),
+    do: invoke_var_ref_helper_name(:invoke_var_ref, argc)
+
+  defp invoke_var_ref_helper(:get_var_ref_check, argc),
+    do: invoke_var_ref_helper_name(:invoke_var_ref_check, argc)
+
+  defp invoke_var_ref_helper_name(prefix, argc) when argc in 0..3,
+    do: String.to_atom("#{prefix}#{argc}")
+
+  defp invoke_var_ref_helper_name(prefix, _argc), do: prefix
 
   defp binary_operator(:op_sub), do: :-
   defp binary_operator(:op_mul), do: :*

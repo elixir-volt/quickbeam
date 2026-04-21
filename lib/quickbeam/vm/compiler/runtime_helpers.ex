@@ -86,24 +86,29 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def get_var_ref(idx), do: read_var_ref(current_var_ref(idx))
 
-  def get_var_ref_check(idx) do
-    case current_var_ref(idx) do
-      :__tdz__ ->
-        throw({:js_throw, Heap.make_error(var_ref_error_message(idx), "ReferenceError")})
+  def get_var_ref_check(idx), do: checked_var_ref(idx)
 
-      {:cell, _} = cell ->
-        val = Closures.read_cell(cell)
+  def invoke_var_ref(idx, args), do: Invocation.invoke_runtime(get_var_ref(idx), args)
+  def invoke_var_ref0(idx), do: Invocation.invoke_runtime(get_var_ref(idx), [])
+  def invoke_var_ref1(idx, arg0), do: Invocation.invoke_runtime(get_var_ref(idx), [arg0])
 
-        if val == :__tdz__ and var_ref_name(idx) == "this" and derived_this_uninitialized?() do
-          throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
-        end
+  def invoke_var_ref2(idx, arg0, arg1),
+    do: Invocation.invoke_runtime(get_var_ref(idx), [arg0, arg1])
 
-        val
+  def invoke_var_ref3(idx, arg0, arg1, arg2),
+    do: Invocation.invoke_runtime(get_var_ref(idx), [arg0, arg1, arg2])
 
-      val ->
-        val
-    end
-  end
+  def invoke_var_ref_check(idx, args), do: Invocation.invoke_runtime(checked_var_ref(idx), args)
+  def invoke_var_ref_check0(idx), do: Invocation.invoke_runtime(checked_var_ref(idx), [])
+
+  def invoke_var_ref_check1(idx, arg0),
+    do: Invocation.invoke_runtime(checked_var_ref(idx), [arg0])
+
+  def invoke_var_ref_check2(idx, arg0, arg1),
+    do: Invocation.invoke_runtime(checked_var_ref(idx), [arg0, arg1])
+
+  def invoke_var_ref_check3(idx, arg0, arg1, arg2),
+    do: Invocation.invoke_runtime(checked_var_ref(idx), [arg0, arg1, arg2])
 
   def put_var_ref(idx, val) do
     write_var_ref(current_var_ref(idx), val)
@@ -393,6 +398,25 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   defp read_var_ref({:cell, _} = cell), do: Closures.read_cell(cell)
   defp read_var_ref(other), do: other
+
+  defp checked_var_ref(idx) do
+    case current_var_ref(idx) do
+      :__tdz__ ->
+        throw({:js_throw, Heap.make_error(var_ref_error_message(idx), "ReferenceError")})
+
+      {:cell, _} = cell ->
+        val = Closures.read_cell(cell)
+
+        if val == :__tdz__ and var_ref_name(idx) == "this" and derived_this_uninitialized?() do
+          throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
+        end
+
+        val
+
+      val ->
+        val
+    end
+  end
 
   defp write_var_ref({:cell, _} = cell, val), do: Closures.write_cell(cell, val)
   defp write_var_ref(_, _), do: :ok

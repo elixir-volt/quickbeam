@@ -19,8 +19,16 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
-  def invoke({:closure, _, %Bytecode.Function{}} = closure, args, gas),
-    do: Interpreter.invoke_closure_fallback(closure, args, gas, active_ctx())
+  def invoke({:closure, _, %Bytecode.Function{} = inner} = closure, args, gas) do
+    if compiled_closure_callable?(inner) do
+      case Runner.invoke(closure, args) do
+        {:ok, result} -> result
+        :error -> Interpreter.invoke_closure_fallback(closure, args, gas, active_ctx())
+      end
+    else
+      Interpreter.invoke_closure_fallback(closure, args, gas, active_ctx())
+    end
+  end
 
   def invoke(other, args, _gas) when not is_tuple(other) or elem(other, 0) != :bound,
     do: Builtin.call(other, args, nil)
@@ -79,10 +87,10 @@ defmodule QuickBEAM.VM.Invocation do
   def call_callback(fun, args) do
     case fun do
       %Bytecode.Function{} = bytecode_fun ->
-        invoke(bytecode_fun, args, Runtime.gas_budget())
+        callback_invoke(bytecode_fun, args, active_ctx())
 
       {:closure, _, %Bytecode.Function{}} = closure ->
-        invoke(closure, args, Runtime.gas_budget())
+        callback_invoke(closure, args, active_ctx())
 
       other ->
         try do
@@ -96,10 +104,10 @@ defmodule QuickBEAM.VM.Invocation do
   def invoke_callback(fun, args) do
     case fun do
       %Bytecode.Function{} = bytecode_fun ->
-        Interpreter.invoke_function_fallback(bytecode_fun, args, active_ctx().gas, active_ctx())
+        callback_invoke(bytecode_fun, args, active_ctx(), fn -> List.first(args, :undefined) end)
 
       {:closure, _, %Bytecode.Function{}} = closure ->
-        Interpreter.invoke_closure_fallback(closure, args, active_ctx().gas, active_ctx())
+        callback_invoke(closure, args, active_ctx(), fn -> List.first(args, :undefined) end)
 
       _ ->
         try do
@@ -260,6 +268,34 @@ defmodule QuickBEAM.VM.Invocation do
 
   defp invoke_receiver_target(other, args, gas, this_obj),
     do: dispatch(other, args, gas, Heap.get_ctx(), this_obj)
+
+  defp callback_invoke(fun, args, ctx, on_throw \\ fn -> :undefined end)
+
+  defp callback_invoke(%Bytecode.Function{} = fun, args, ctx, on_throw) do
+    try do
+      case Runner.invoke(fun, args) do
+        {:ok, value} -> value
+        :error -> Interpreter.invoke_function_fallback(fun, args, ctx.gas, ctx)
+      end
+    catch
+      {:js_throw, _} -> on_throw.()
+    end
+  end
+
+  defp callback_invoke({:closure, _, %Bytecode.Function{} = inner} = closure, args, ctx, on_throw) do
+    try do
+      if compiled_closure_callable?(inner) do
+        case Runner.invoke(closure, args) do
+          {:ok, value} -> value
+          :error -> Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
+        end
+      else
+        Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
+      end
+    catch
+      {:js_throw, _} -> on_throw.()
+    end
+  end
 
   defp compiled_closure_callable?(%Bytecode.Function{need_home_object: false}), do: true
   defp compiled_closure_callable?(_), do: false

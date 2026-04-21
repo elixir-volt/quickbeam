@@ -156,6 +156,30 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 8} = Compiler.invoke(fun, [callback, 4])
     end
 
+    test "fuses captured var-ref calls into one runtime helper", %{rt: rt} do
+      outer =
+        compile_and_decode(rt, "(function(f){ return function(x){ return f(x) } })")
+        |> user_function()
+
+      inner = Enum.find(outer.constants, &match?(%Bytecode.Function{closure_vars: [_ | _]}, &1))
+      assert %Bytecode.Function{} = inner
+
+      assert {:ok, beam_file} = Compiler.disasm(inner)
+      block = beam_function_instructions(beam_file, :block_0)
+
+      assert {RuntimeHelpers, :invoke_var_ref1, 2} in beam_extfuncs(beam_file)
+
+      refute Enum.any?(block, fn
+               {:call_ext, 1, {:extfunc, RuntimeHelpers, :get_var_ref, 1}} -> true
+               {:call_ext, 2, {:extfunc, RuntimeHelpers, :invoke_runtime, 2}} -> true
+               _ -> false
+             end)
+
+      callback = {:builtin, "double", fn [x], _ -> x * 2 end}
+      assert {:ok, {:closure, _, _} = closure} = Compiler.invoke(outer, [callback])
+      assert {:ok, 8} = Compiler.invoke(closure, [4])
+    end
+
     test "compiles method calls with receiver", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(o,x){return o.inc(x)})") |> user_function()
 
