@@ -59,8 +59,10 @@ defmodule QuickBEAM.VM.Compiler.Forms do
       guarded_binary_helper(:op_gte, :>=, Values, :gte)
       | invoke_var_ref_helpers(fun) ++
           [
+            object_literal_helper(),
+            object_literal_fields_helper(),
             new_object_helper(),
-            define_field_helper(),
+            define_field_name_helper(),
             invoke_method_runtime_helper(),
             get_field_helper(),
             get_field_store_helper(),
@@ -600,13 +602,77 @@ defmodule QuickBEAM.VM.Compiler.Forms do
      ]}
   end
 
-  defp new_object_helper do
-    ctx = var("Ctx")
+  defp object_literal_helper do
+    fields = var("Fields")
     proto = var("Proto")
 
-    {:function, @line, :op_new_object, 1,
+    {:function, @line, :op_object_literal, 1,
      [
-       {:clause, @line, [ctx], [],
+       {:clause, @line, [fields], [],
+        [
+          {:case, @line, remote_call(Heap, :get_object_prototype, []),
+           [
+             {:clause, @line, [atom(nil)], [],
+              [local_call(:op_object_literal_fields, [fields, map_expr([]), nil_pattern()])]},
+             {:clause, @line, [atom(:undefined)], [],
+              [local_call(:op_object_literal_fields, [fields, map_expr([]), nil_pattern()])]},
+             {:clause, @line, [proto], [],
+              [
+                local_call(:op_object_literal_fields, [
+                  fields,
+                  map_expr([{literal("__proto__"), proto}]),
+                  nil_pattern()
+                ])
+              ]}
+           ]}
+        ]}
+     ]}
+  end
+
+  defp object_literal_fields_helper do
+    field = var("Field")
+    rest = var("Rest")
+    key = var("Key")
+    val = var("Val")
+    map = var("Map")
+    order = var("Order")
+    new_map = var("NewMap")
+    order_key = literal(:__key_order__)
+
+    {:function, @line, :op_object_literal_fields, 3,
+     [
+       {:clause, @line, [nil_pattern(), map, nil_pattern()], [],
+        [remote_call(Heap, :wrap, [map])]},
+       {:clause, @line, [nil_pattern(), map, order], [],
+        [
+          remote_call(Heap, :wrap, [
+            {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
+             [order_key, remote_call(:lists, :reverse, [order]), map]}
+          ])
+        ]},
+       {:clause, @line, [cons_pattern(field, rest), map, order], [],
+        [
+          {:match, @line, tuple_expr([key, val]), field},
+          {:match, @line, new_map,
+           {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
+            [key, val, map]}},
+          {:case, @line, {:call, @line, {:atom, @line, :is_map_key}, [key, map]},
+           [
+             {:clause, @line, [atom(true)], [],
+              [local_call(:op_object_literal_fields, [rest, new_map, order])]},
+             {:clause, @line, [atom(false)], [],
+              [local_call(:op_object_literal_fields, [rest, new_map, cons_pattern(key, order)])]}
+           ]}
+        ]}
+     ]}
+  end
+
+  defp new_object_helper do
+    proto = var("Proto")
+
+    {:function, @line, :op_new_object, 0,
+     [
+       {:clause, @line, [], [],
         [
           {:case, @line, remote_call(Heap, :get_object_prototype, []),
            [
@@ -619,8 +685,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
      ]}
   end
 
-  defp define_field_helper do
-    ctx = var("Ctx")
+  defp define_field_name_helper do
     obj = var("Obj")
     ref = var("Ref")
     key = var("Key")
@@ -638,19 +703,20 @@ defmodule QuickBEAM.VM.Compiler.Forms do
           {:call, @line, {:atom, @line, :is_map_key}, [literal("__proxy_handler__"), map]}},
          {:op, @line, :not, pd_flag_expr(frozen_key_expr(ref))}}}}
 
-    {:function, @line, :op_define_field, 4,
+    {:function, @line, :op_define_field_name, 3,
      [
-       {:clause, @line, [ctx, wrapped, key, val], [],
+       {:clause, @line, [wrapped, key, val], [],
         [
           {:match, @line, map, pd_get_with_default_expr(obj_key_expr(ref), map_expr([]))},
           {:case, @line, plain_object?,
            [
-             {:clause, @line, [atom(true)], [], [put_obj_key_expr(ref, map, key, val), wrapped]},
+             {:clause, @line, [atom(true)], [],
+              [put_obj_name_key_expr(ref, map, key, val), wrapped]},
              {:clause, @line, [atom(false)], [],
               [remote_call(Put, :put, [wrapped, key, val]), wrapped]}
            ]}
         ]},
-       {:clause, @line, [ctx, obj, key, val], [], [remote_call(Put, :put, [obj, key, val]), obj]}
+       {:clause, @line, [obj, key, val], [], [remote_call(Put, :put, [obj, key, val]), obj]}
      ]}
   end
 
@@ -814,60 +880,55 @@ defmodule QuickBEAM.VM.Compiler.Forms do
      ]}
   end
 
-  defp put_obj_key_expr(ref, map, key, val) do
+  defp put_obj_name_key_expr(ref, map, key, val) do
     order = var("Order")
     new_map = var("NewMap")
     order_key = literal(:__key_order__)
 
-    needs_order =
-      {:op, @line, :andalso,
-       {:op, @line, :not, {:call, @line, {:atom, @line, :is_map_key}, [key, map]}},
-       {:op, @line, :orelse, {:call, @line, {:atom, @line, :is_binary}, [key]},
-        {:call, @line, {:atom, @line, :is_integer}, [key]}}}
-
-    ordered_map =
-      {:case, @line,
-       {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :find}},
-        [order_key, map]},
-       [
-         {:clause, @line, [tuple_expr([atom(:ok), order])], [],
-          [
-            {:match, @line, new_map,
-             {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
-              [
-                order_key,
-                {:cons, @line, key, order},
-                {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
-                 [key, val, map]}
-              ]}},
-            {:call, @line, {:atom, @line, :put}, [obj_key_expr(ref), new_map]}
-          ]},
-         {:clause, @line, [atom(:error)], [],
-          [
-            {:match, @line, new_map,
-             {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
-              [
-                order_key,
-                list_expr([key]),
-                {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
-                 [key, val, map]}
-              ]}},
-            {:call, @line, {:atom, @line, :put}, [obj_key_expr(ref), new_map]}
-          ]}
-       ]}
-
-    plain_put =
-      {:call, @line, {:atom, @line, :put},
-       [
-         obj_key_expr(ref),
-         {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
-          [key, val, map]}
-       ]}
-
-    {:case, @line, needs_order,
+    {:case, @line,
+     {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :find}}, [key, map]},
      [
-       {:clause, @line, [atom(true)], [], [ordered_map]},
-       {:clause, @line, [atom(false)], [], [plain_put]}
+       {:clause, @line, [tuple_expr([atom(:ok), var(:_)])], [],
+        [
+          {:call, @line, {:atom, @line, :put},
+           [
+             obj_key_expr(ref),
+             {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
+              [key, val, map]}
+           ]}
+        ]},
+       {:clause, @line, [atom(:error)], [],
+        [
+          {:case, @line,
+           {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :find}},
+            [order_key, map]},
+           [
+             {:clause, @line, [tuple_expr([atom(:ok), order])], [],
+              [
+                {:match, @line, new_map,
+                 {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
+                  [
+                    order_key,
+                    {:cons, @line, key, order},
+                    {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
+                     [key, val, map]}
+                  ]}},
+                {:call, @line, {:atom, @line, :put}, [obj_key_expr(ref), new_map]}
+              ]},
+             {:clause, @line, [atom(:error)], [],
+              [
+                {:match, @line, new_map,
+                 {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
+                  [
+                    order_key,
+                    list_expr([key]),
+                    {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
+                     [key, val, map]}
+                  ]}},
+                {:call, @line, {:atom, @line, :put}, [obj_key_expr(ref), new_map]}
+              ]}
+           ]}
+        ]}
      ]}
   end
 

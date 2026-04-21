@@ -207,16 +207,19 @@ defmodule QuickBEAM.VM.CompilerTest do
       block = beam_function_instructions(beam_file, :block_0)
 
       assert Enum.any?(block, fn
-               {:call, 1, {_module, :op_new_object, 1}} -> true
-               {:call_only, 1, {_module, :op_new_object, 1}} -> true
-               {:call_last, 1, {_module, :op_new_object, 1}, _} -> true
+               {:call, 1, {_module, :op_object_literal, 1}} -> true
+               {:call_only, 1, {_module, :op_object_literal, 1}} -> true
+               {:call_last, 1, {_module, :op_object_literal, 1}, _} -> true
                _ -> false
              end)
 
-      assert Enum.any?(block, fn
-               {:call, 4, {_module, :op_define_field, 4}} -> true
-               {:call_only, 4, {_module, :op_define_field, 4}} -> true
-               {:call_last, 4, {_module, :op_define_field, 4}, _} -> true
+      refute Enum.any?(block, fn
+               {:call, 0, {_module, :op_new_object, 0}} -> true
+               {:call_only, 0, {_module, :op_new_object, 0}} -> true
+               {:call_last, 0, {_module, :op_new_object, 0}, _} -> true
+               {:call, 3, {_module, :op_define_field_name, 3}} -> true
+               {:call_only, 3, {_module, :op_define_field_name, 3}} -> true
+               {:call_last, 3, {_module, :op_define_field_name, 3}, _} -> true
                _ -> false
              end)
 

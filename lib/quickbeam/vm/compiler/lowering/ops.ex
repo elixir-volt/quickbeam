@@ -78,8 +78,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         {:ok, State.push(state, Builder.literal(""))}
 
       {{:ok, :object}, []} ->
-        {:ok,
-         State.push(state, Builder.local_call(:op_new_object, [State.ctx_expr(state)]), :object)}
+        {:ok, State.push(state, Builder.local_call(:op_new_object, []), :object)}
 
       {{:ok, :array_from}, [argc]} ->
         State.array_from_call(state, argc)
@@ -475,7 +474,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         State.put_field_call(state, Builder.literal(Builder.atom_name(state, atom_idx)))
 
       {{:ok, :define_field}, [atom_idx]} ->
-        State.define_field_call(state, Builder.literal(Builder.atom_name(state, atom_idx)))
+        State.define_field_name_call(state, Builder.literal(Builder.atom_name(state, atom_idx)))
 
       {{:ok, :define_method}, [atom_idx, flags]} ->
         State.define_method_call(state, Builder.atom_name(state, atom_idx), flags)

@@ -433,15 +433,20 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
-  def define_field_call(state, key_expr) do
+  def define_field_name_call(state, key_expr) do
     with {:ok, val, _val_type, state} <- pop_typed(state),
          {:ok, obj, _obj_type, state} <- pop_typed(state) do
-      {:ok,
-       push(
-         state,
-         Builder.local_call(:op_define_field, [ctx_expr(state), obj, key_expr, val]),
-         :object
-       )}
+      expr =
+        case object_literal_fields(obj) do
+          {:ok, fields} ->
+            field = Builder.tuple_expr([key_expr, val])
+            Builder.local_call(:op_object_literal, [Builder.list_expr(fields ++ [field])])
+
+          :error ->
+            Builder.local_call(:op_define_field_name, [obj, key_expr, val])
+        end
+
+      {:ok, push(state, expr, :object)}
     end
   end
 
@@ -964,4 +969,21 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     |> Enum.sort_by(fn {idx, _expr} -> idx end)
     |> Enum.map(fn {_idx, expr} -> expr end)
   end
+
+  defp object_literal_fields({:call, _, {:atom, _, :op_new_object}, []}), do: {:ok, []}
+
+  defp object_literal_fields({:call, _, {:atom, _, :op_object_literal}, [fields_ast]}),
+    do: extract_list_items(fields_ast)
+
+  defp object_literal_fields(_expr), do: :error
+
+  defp extract_list_items({nil, _line}), do: {:ok, []}
+
+  defp extract_list_items({:cons, _line, head, tail}) do
+    with {:ok, rest} <- extract_list_items(tail) do
+      {:ok, [head | rest]}
+    end
+  end
+
+  defp extract_list_items(_ast), do: :error
 end
