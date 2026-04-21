@@ -11,8 +11,8 @@ defmodule QuickBEAM.BeamVM.Heap do
 
     - `{:qb_obj, ref}` — JS object/array properties
     - `{:qb_cell, ref}` — closure variable cells
-    - `{:qb_class_proto, hash}` — class prototype objects
-    - `{:qb_parent_ctor, hash}` — parent constructor references
+    - `{:qb_class_proto, ctor}` — class prototype objects
+    - `{:qb_parent_ctor, ctor}` — parent constructor references
     - `{:qb_var, name}` — global variable bindings
   """
 
@@ -118,7 +118,7 @@ defmodule QuickBEAM.BeamVM.Heap do
   def get_or_create_prototype(ctor) do
     case get_class_proto(ctor) do
       nil ->
-        key = {:qb_func_proto, :erlang.phash2(ctor)}
+        key = {:qb_func_proto, ctor}
 
         case Process.get(key) do
           nil ->
@@ -242,33 +242,33 @@ defmodule QuickBEAM.BeamVM.Heap do
   # ── Class metadata ──
 
   def get_class_proto({:closure, _, raw} = ctor) do
-    Process.get({:qb_class_proto, :erlang.phash2(ctor)}) ||
-      Process.get({:qb_class_proto, :erlang.phash2(raw)})
+    Process.get({:qb_class_proto, ctor}) ||
+      Process.get({:qb_class_proto, raw})
   end
 
-  def get_class_proto(ctor), do: Process.get({:qb_class_proto, :erlang.phash2(ctor)})
+  def get_class_proto(ctor), do: Process.get({:qb_class_proto, ctor})
 
   def put_class_proto(ctor, proto),
-    do: Process.put({:qb_class_proto, :erlang.phash2(ctor)}, proto)
+    do: Process.put({:qb_class_proto, ctor}, proto)
 
   def get_parent_ctor({:closure, _, raw} = ctor) do
-    Process.get({:qb_parent_ctor, :erlang.phash2(ctor)}) ||
-      Process.get({:qb_parent_ctor, :erlang.phash2(raw)})
+    Process.get({:qb_parent_ctor, ctor}) ||
+      Process.get({:qb_parent_ctor, raw})
   end
 
-  def get_parent_ctor(ctor), do: Process.get({:qb_parent_ctor, :erlang.phash2(ctor)})
+  def get_parent_ctor(ctor), do: Process.get({:qb_parent_ctor, ctor})
 
   def put_parent_ctor(ctor, parent),
-    do: Process.put({:qb_parent_ctor, :erlang.phash2(ctor)}, parent)
+    do: Process.put({:qb_parent_ctor, ctor}, parent)
 
-  def delete_parent_ctor(ctor), do: Process.delete({:qb_parent_ctor, :erlang.phash2(ctor)})
+  def delete_parent_ctor(ctor), do: Process.delete({:qb_parent_ctor, ctor})
 
   # ── Constructor statics ──
 
-  def get_ctor_statics(ctor), do: Process.get({:qb_ctor_statics, :erlang.phash2(ctor)}, %{})
+  def get_ctor_statics(ctor), do: Process.get({:qb_ctor_statics, ctor}, %{})
 
   def put_ctor_statics(ctor, statics),
-    do: Process.put({:qb_ctor_statics, :erlang.phash2(ctor)}, statics)
+    do: Process.put({:qb_ctor_statics, ctor}, statics)
 
   def put_ctor_static(ctor, key, val) do
     statics = get_ctor_statics(ctor)
