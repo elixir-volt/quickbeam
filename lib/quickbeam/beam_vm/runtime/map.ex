@@ -81,15 +81,15 @@ defmodule QuickBEAM.BeamVM.Runtime.Map do
     end
   end
 
-  def proto_property("get"), do: {:builtin, "get", &map_get/2}
-  def proto_property("set"), do: {:builtin, "set", &map_set/2}
-  def proto_property("has"), do: {:builtin, "has", &map_has/2}
-  def proto_property("delete"), do: {:builtin, "delete", &map_delete/2}
-  def proto_property("clear"), do: {:builtin, "clear", &map_clear/2}
-  def proto_property("keys"), do: {:builtin, "keys", &map_keys/2}
-  def proto_property("values"), do: {:builtin, "values", &map_values/2}
-  def proto_property("entries"), do: {:builtin, "entries", &map_entries/2}
-  def proto_property("forEach"), do: {:builtin, "forEach", &map_for_each/2}
+  def proto_property("get"), do: {:builtin, "get", &get/2}
+  def proto_property("set"), do: {:builtin, "set", &set/2}
+  def proto_property("has"), do: {:builtin, "has", &has/2}
+  def proto_property("delete"), do: {:builtin, "delete", &delete/2}
+  def proto_property("clear"), do: {:builtin, "clear", &clear/2}
+  def proto_property("keys"), do: {:builtin, "keys", &keys/2}
+  def proto_property("values"), do: {:builtin, "values", &values/2}
+  def proto_property("entries"), do: {:builtin, "entries", &entries/2}
+  def proto_property("forEach"), do: {:builtin, "forEach", &for_each/2}
 
   def proto_property("size") do
     {:builtin, "size",
@@ -109,18 +109,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Map do
     throw({:js_throw, Heap.make_error("invalid value used as #{kind} key", "TypeError")})
   end
 
-  defp normalize_map_key(k) when is_float(k) and k == trunc(k), do: trunc(k)
-  defp normalize_map_key(k), do: k
+  defp normalize_key(k) when is_float(k) and k == trunc(k), do: trunc(k)
+  defp normalize_key(k), do: k
 
-  defp map_get([key | _], {:obj, ref}) do
+  defp get([key | _], {:obj, ref}) do
     data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
-    Map.get(data, normalize_map_key(key), :undefined)
+    Map.get(data, normalize_key(key), :undefined)
   end
 
-  defp map_set([key, val | _], {:obj, ref}) do
+  defp set([key, val | _], {:obj, ref}) do
     obj = Heap.get_obj(ref, %{})
     if Map.get(obj, :weak), do: validate_weak_key!(key, "WeakMap")
-    key = normalize_map_key(key)
+    key = normalize_key(key)
     data = Map.get(obj, map_data(), %{})
     order = Map.get(obj, key_order(), [])
     order = if Map.has_key?(data, key), do: order, else: [key | order]
@@ -138,13 +138,13 @@ defmodule QuickBEAM.BeamVM.Runtime.Map do
     {:obj, ref}
   end
 
-  defp map_has([key | _], {:obj, ref}) do
+  defp has([key | _], {:obj, ref}) do
     data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
-    Map.has_key?(data, normalize_map_key(key))
+    Map.has_key?(data, normalize_key(key))
   end
 
-  defp map_delete([key | _], {:obj, ref}) do
-    key = normalize_map_key(key)
+  defp delete([key | _], {:obj, ref}) do
+    key = normalize_key(key)
     obj = Heap.get_obj(ref, %{})
     data = Map.get(obj, map_data(), %{})
     new_data = Map.delete(data, key)
@@ -162,33 +162,33 @@ defmodule QuickBEAM.BeamVM.Runtime.Map do
     true
   end
 
-  defp map_clear(_, {:obj, ref}) do
+  defp clear(_, {:obj, ref}) do
     obj = Heap.get_obj(ref, %{})
     Heap.put_obj(ref, %{obj | map_data() => %{}, "size" => 0})
     :undefined
   end
 
-  defp map_keys(_, {:obj, ref}) do
+  defp keys(_, {:obj, ref}) do
     order = Heap.get_obj(ref, %{}) |> Map.get(key_order(), []) |> Enum.reverse()
     Heap.wrap(order)
   end
 
-  defp map_values(_, {:obj, ref}) do
+  defp values(_, {:obj, ref}) do
     obj = Heap.get_obj(ref, %{})
     data = Map.get(obj, map_data(), %{})
     order = Map.get(obj, key_order(), []) |> Enum.reverse()
     Heap.wrap(Enum.map(order, &Map.get(data, &1)))
   end
 
-  defp map_entries(_, {:obj, ref}) do
+  defp entries(_, {:obj, ref}) do
     obj = Heap.get_obj(ref, %{})
     data = Map.get(obj, map_data(), %{})
     order = Map.get(obj, key_order(), []) |> Enum.reverse()
-    entries = Enum.map(order, fn key -> Heap.wrap([key, Map.get(data, key)]) end)
-    Heap.wrap(entries)
+    items = Enum.map(order, fn key -> Heap.wrap([key, Map.get(data, key)]) end)
+    Heap.wrap(items)
   end
 
-  defp map_for_each([cb | _], {:obj, ref}) do
+  defp for_each([cb | _], {:obj, ref}) do
     obj = Heap.get_obj(ref, %{})
     data = Map.get(obj, map_data(), %{})
     order = Map.get(obj, key_order(), []) |> Enum.reverse()

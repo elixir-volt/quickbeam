@@ -1,7 +1,9 @@
 defmodule QuickBEAM do
   import QuickBEAM.BeamVM.Heap.Keys
 
+  alias QuickBEAM.BeamDisasm
   alias QuickBEAM.BeamVM.Bytecode, as: BeamBytecode
+  alias QuickBEAM.BeamVM.Compiler, as: BeamCompiler
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Interpreter
   alias QuickBEAM.BeamVM.PromiseState, as: Promise
@@ -409,15 +411,34 @@ defmodule QuickBEAM do
   end
 
   @doc """
-  Compile JavaScript source and disassemble the resulting bytecode.
+  Compile JavaScript source and disassemble it.
+
+  In the default NIF mode this returns `%QuickBEAM.Bytecode{}`. In `:beam`
+  mode it returns `%QuickBEAM.BeamDisasm{}` with the real compiled BEAM code.
 
       {:ok, %QuickBEAM.Bytecode{cpool: [%QuickBEAM.Bytecode{name: "add"}]}} =
         QuickBEAM.disasm(rt, "function add(a, b) { return a + b }")
+
+      {:ok, rt} = QuickBEAM.start(mode: :beam, apis: false)
+      {:ok, %QuickBEAM.BeamDisasm{} = beam} =
+        QuickBEAM.disasm(rt, "function fib(n) { if (n <= 1) return n; return fib(n - 1) + fib(n - 2) }")
   """
-  @spec disasm(runtime(), String.t()) :: {:ok, QuickBEAM.Bytecode.t()} | {:error, term()}
-  def disasm(runtime, code) when is_binary(code) do
-    with {:ok, bytecode} <- compile(runtime, code) do
-      disasm(bytecode)
+  @spec disasm(runtime(), String.t(), keyword()) ::
+          {:ok, QuickBEAM.Bytecode.t() | BeamDisasm.t()} | {:error, term()}
+  def disasm(runtime, code, opts \\ []) when is_binary(code) do
+    if resolve_mode(runtime, opts) == :beam do
+      disasm_beam(runtime, code, opts)
+    else
+      with {:ok, bytecode} <- Runtime.compile(runtime, code, Keyword.get(opts, :filename, "")) do
+        disasm(bytecode)
+      end
+    end
+  end
+
+  defp disasm_beam(runtime, code, opts) do
+    with {:ok, bytecode} <- Runtime.compile(runtime, code, Keyword.get(opts, :filename, "")),
+         {:ok, parsed} <- BeamBytecode.decode(bytecode) do
+      BeamCompiler.disasm(parsed.value)
     end
   end
 
