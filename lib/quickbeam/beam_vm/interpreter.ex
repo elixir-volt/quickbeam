@@ -28,7 +28,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     Context,
     EvalEnv,
     Frame,
+    Gas,
     Generator,
+    Setup,
     Values
   }
 
@@ -312,32 +314,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   @func_async_generator 3
   @gc_check_interval 1000
 
-  defp check_gas(_pc, frame, stack, gas, ctx) do
-    gas = gas - 1
-
-    if gas <= 0 do
-      throw({:error, {:out_of_gas, gas}})
-    end
-
-    if rem(gas, @gc_check_interval) == 0 and Heap.gc_needed?() do
-      roots =
-        [
-          elem(frame, Frame.locals()),
-          elem(frame, Frame.var_refs()),
-          elem(frame, Frame.constants()),
-          ctx.this,
-          ctx.current_func,
-          ctx.arg_buf,
-          ctx.catch_stack,
-          ctx.globals
-          | stack
-        ] ++ Heap.all_module_exports()
-
-      Heap.mark_and_sweep(roots)
-    end
-
-    gas
-  end
+  defp check_gas(_pc, frame, stack, gas, ctx),
+    do: Gas.check(frame, stack, gas, ctx, @gc_check_interval)
 
   @spec eval(Bytecode.Function.t()) :: {:ok, term()} | {:error, term()}
   def eval(%Bytecode.Function{} = fun), do: eval(fun, [], %{})
@@ -356,27 +334,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp eval_with_ctx(%Bytecode.Function{} = fun, args, opts, atoms) do
     gas = Map.get(opts, :gas, Context.default_gas())
 
-    base_globals = Runtime.global_bindings()
-    persistent = Heap.get_persistent_globals() |> Map.drop(Map.keys(base_globals))
-
-    ctx =
-      %Context{
-        atoms: atoms,
-        gas: gas,
-        globals:
-          base_globals
-          |> Map.merge(persistent)
-          |> Map.merge(Map.get(opts, :globals, %{})),
-        runtime_pid: Map.get(opts, :runtime_pid),
-        this: Map.get(opts, :this, :undefined),
-        arg_buf: Map.get(opts, :arg_buf, {}),
-        current_func: Map.get(opts, :current_func, :undefined),
-        new_target: Map.get(opts, :new_target, :undefined)
-      }
-      |> InvokeContext.attach_method_state()
+    ctx = Setup.build_eval_context(opts, atoms, gas)
 
     Heap.put_atoms(atoms)
-    store_function_atoms(fun, atoms)
+    Setup.store_function_atoms(fun, atoms)
     prev_ctx = Heap.get_ctx()
     Heap.put_ctx(ctx)
 
@@ -428,16 +389,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   def invoke_constructor(fun, args, gas, this_obj, new_target),
     do: Invocation.invoke_constructor(fun, args, gas, this_obj, new_target)
-
-  defp store_function_atoms(%Bytecode.Function{} = fun, atoms) do
-    Process.put({:qb_fn_atoms, fun.byte_code}, atoms)
-
-    for %Bytecode.Function{} = inner <- fun.constants do
-      store_function_atoms(inner, atoms)
-    end
-
-    :ok
-  end
 
   defp catch_js_throw(pc, frame, rest, gas, ctx, fun) do
     result = fun.()

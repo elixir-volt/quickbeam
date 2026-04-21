@@ -1,8 +1,9 @@
 defmodule QuickBEAM.BeamVM.Compiler.Lowering do
   @moduledoc false
 
-  alias QuickBEAM.BeamVM.Compiler.{Analysis, Lowering.Ops, Lowering.State}
   alias QuickBEAM.BeamVM.Compiler.Analysis.{CFG, Stack, Types}
+  alias QuickBEAM.BeamVM.Compiler.Lowering.Builder
+  alias QuickBEAM.BeamVM.Compiler.{Lowering.Ops, Lowering.State}
 
   @line 1
 
@@ -74,11 +75,11 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
 
     state = State.new(slot_count, stack_depth, state_opts)
 
-    next_entry = Analysis.next_entry(entries, start)
+    next_entry = CFG.next_entry(entries, start)
 
     args =
-      State.slot_vars(slot_count) ++
-        State.stack_vars(stack_depth) ++ State.capture_vars(slot_count)
+      Builder.slot_vars(slot_count) ++
+        Builder.stack_vars(stack_depth) ++ Builder.capture_vars(slot_count)
 
     with {:ok, body} <-
            lower_block(
@@ -92,7 +93,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
              entries,
              inline_targets
            ) do
-      {:function, @line, State.block_name(start), slot_count + stack_depth + slot_count,
+      {:function, @line, Builder.block_name(start), slot_count + stack_depth + slot_count,
        [{:clause, @line, args, [], body}]}
     end
   end
@@ -127,7 +128,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
       lower_block(
         instructions,
         idx,
-        Analysis.next_entry(entries, idx),
+        CFG.next_entry(entries, idx),
         arg_count,
         state,
         stack_depths,
@@ -157,7 +158,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
 
     case instruction do
       {op, [target]} ->
-        case Analysis.opcode_name(op) do
+        case CFG.opcode_name(op) do
           {:ok, :catch} ->
             lower_catch_suffix(
               instructions,
@@ -229,7 +230,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
          entries,
          inline_targets
        ) do
-    case Analysis.opcode_name(op) do
+    case CFG.opcode_name(op) do
       {:ok, :if_false} ->
         lower_branch_instruction(
           instructions,
@@ -372,7 +373,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
         lower_block(
           instructions,
           target,
-          Analysis.next_entry(entries, target),
+          CFG.next_entry(entries, target),
           arg_count,
           next_state,
           stack_depths,
@@ -426,10 +427,10 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
                entries,
                inline_targets
              ) do
-        truthy = State.branch_condition(cond_expr, cond_type)
+        truthy = Builder.branch_condition(cond_expr, cond_type)
         false_body = if(sense, do: next_body, else: target_body)
         true_body = if(sense, do: target_body, else: next_body)
-        {:ok, state.body ++ [State.branch_case(truthy, false_body, true_body)]}
+        {:ok, state.body ++ [Builder.branch_case(truthy, false_body, true_body)]}
       end
     else
       lower_non_branch_instruction(
@@ -476,7 +477,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
       lower_block(
         instructions,
         target,
-        Analysis.next_entry(entries, target),
+        CFG.next_entry(entries, target),
         arg_count,
         %{state | body: []},
         stack_depths,
@@ -510,7 +511,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
              target,
              stack_depths,
              State.current_slots(state),
-             [State.var("Caught#{idx}") | saved_stack],
+             [Builder.var("Caught#{idx}") | saved_stack],
              State.current_capture_cells(state)
            ),
          {:ok, try_body} <-
@@ -522,7 +523,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
              %{
                state
                | body: [],
-                 stack: [State.literal(target) | saved_stack],
+                 stack: [Builder.literal(target) | saved_stack],
                  stack_types: [:integer | state.stack_types]
              },
              stack_depths,
@@ -531,7 +532,8 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
              inline_targets
            ) do
       {:ok,
-       state.body ++ [State.try_catch_expr(try_body, State.var("Caught#{idx}"), [handler_call])]}
+       state.body ++
+         [Builder.try_catch_expr(try_body, Builder.var("Caught#{idx}"), [handler_call])]}
     end
   end
 
@@ -571,7 +573,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
 
     case instruction do
       {op, []} ->
-        case Analysis.opcode_name(op) do
+        case CFG.opcode_name(op) do
           {:ok, :ret} ->
             {:ok, state}
 
@@ -583,7 +585,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
         end
 
       {op, _args} ->
-        case Analysis.opcode_name(op) do
+        case CFG.opcode_name(op) do
           {:ok, :gosub} ->
             {:error, {:unsupported_finally_opcode, :gosub, idx}}
 

@@ -1,7 +1,7 @@
 defmodule QuickBEAM.BeamVM.Compiler.Optimizer do
   @moduledoc false
 
-  alias QuickBEAM.BeamVM.Compiler.Analysis
+  alias QuickBEAM.BeamVM.Compiler.Analysis.CFG
   alias QuickBEAM.BeamVM.Opcodes
 
   @push_one_ops [
@@ -51,7 +51,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Optimizer do
   defp fold_binary_window(instructions, idx, a, b, c, constants) do
     with {:ok, left} <- instruction_literal(a, constants),
          {:ok, right} <- instruction_literal(b, constants),
-         {:ok, op_name} <- Analysis.opcode_name(elem(c, 0)),
+         {:ok, op_name} <- CFG.opcode_name(elem(c, 0)),
          {:ok, result} <- fold_binary(op_name, left, right),
          {:ok, replacement} <- literal_instruction(result) do
       replace_window(instructions, idx, [replacement, nop(), nop()])
@@ -62,7 +62,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Optimizer do
 
   defp fold_unary_window(instructions, idx, a, b, constants) do
     with {:ok, value} <- instruction_literal(a, constants),
-         {:ok, op_name} <- Analysis.opcode_name(elem(b, 0)),
+         {:ok, op_name} <- CFG.opcode_name(elem(b, 0)),
          {:ok, result} <- fold_unary(op_name, value),
          {:ok, replacement} <- literal_instruction(result) do
       replace_window(instructions, idx, [replacement, nop()])
@@ -113,13 +113,13 @@ defmodule QuickBEAM.BeamVM.Compiler.Optimizer do
   end
 
   defp rewrite_loc_update_window(instructions, idx, a, b, c, d) do
-    with {:ok, get_name} <- Analysis.opcode_name(elem(a, 0)),
+    with {:ok, get_name} <- CFG.opcode_name(elem(a, 0)),
          true <- get_name in [:get_loc, :get_loc0, :get_loc1, :get_loc2, :get_loc3, :get_loc8],
          [slot_idx] <- elem(a, 1),
-         {:ok, put_name} <- Analysis.opcode_name(elem(d, 0)),
+         {:ok, put_name} <- CFG.opcode_name(elem(d, 0)),
          true <- put_name in [:put_loc, :put_loc0, :put_loc1, :put_loc2, :put_loc3, :put_loc8],
          [^slot_idx] <- elem(d, 1) do
-      case {b, Analysis.opcode_name(elem(c, 0))} do
+      case {b, CFG.opcode_name(elem(c, 0))} do
         {{op_b, [1]}, {:ok, :add}} when op_b in @push_one_ops ->
           replace_window(instructions, idx, [nop(), nop(), inc_loc(slot_idx), nop()])
 
@@ -152,7 +152,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Optimizer do
   defp simplify_branch_window(instructions, idx, cond_insn, branch_insn) do
     case {instruction_boolean(cond_insn), branch_insn} do
       {{:ok, true}, {op, [target]}} ->
-        case Analysis.opcode_name(op) do
+        case CFG.opcode_name(op) do
           {:ok, :if_true} -> replace_window(instructions, idx, [nop(), goto(target)])
           {:ok, :if_true8} -> replace_window(instructions, idx, [nop(), goto(target)])
           {:ok, :if_false} -> replace_window(instructions, idx, [nop(), nop()])
@@ -161,7 +161,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Optimizer do
         end
 
       {{:ok, false}, {op, [target]}} ->
-        case Analysis.opcode_name(op) do
+        case CFG.opcode_name(op) do
           {:ok, :if_false} -> replace_window(instructions, idx, [nop(), goto(target)])
           {:ok, :if_false8} -> replace_window(instructions, idx, [nop(), goto(target)])
           {:ok, :if_true} -> replace_window(instructions, idx, [nop(), nop()])
@@ -176,18 +176,18 @@ defmodule QuickBEAM.BeamVM.Compiler.Optimizer do
 
   defp rewrite_forwarding_targets(instructions) do
     if Enum.any?(instructions, fn {op, _args} ->
-         match?({:ok, name} when name in [:catch, :gosub, :ret], Analysis.opcode_name(op))
+         match?({:ok, name} when name in [:catch, :gosub, :ret], CFG.opcode_name(op))
        end) do
       instructions
     else
-      entries = Analysis.block_entries(instructions)
-      next_entry = fn start -> Analysis.next_entry(entries, start) || length(instructions) end
+      entries = CFG.block_entries(instructions)
+      next_entry = fn start -> CFG.next_entry(entries, start) || length(instructions) end
 
       forwarding =
         Enum.reduce(entries, %{}, fn start, acc ->
           case {next_entry.(start), Enum.at(instructions, start)} do
             {next, {op, [target]}} when next == start + 1 ->
-              case Analysis.opcode_name(op) do
+              case CFG.opcode_name(op) do
                 {:ok, name} when name in [:goto, :goto8, :goto16] -> Map.put(acc, start, target)
                 _ -> acc
               end
@@ -201,7 +201,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Optimizer do
         instructions
       else
         Enum.map(instructions, fn {op, args} = insn ->
-          case {Analysis.opcode_name(op), args} do
+          case {CFG.opcode_name(op), args} do
             {{:ok, name}, [target]}
             when name in [:goto, :goto8, :goto16, :if_true, :if_true8, :if_false, :if_false8] ->
               {op, [follow_forwarding(target, forwarding)]}
@@ -230,7 +230,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Optimizer do
   end
 
   defp instruction_literal({op, args}, constants) do
-    case Analysis.opcode_name(op) do
+    case CFG.opcode_name(op) do
       {:ok, :push_i32} ->
         {:ok, hd(args)}
 

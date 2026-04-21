@@ -1,7 +1,8 @@
 defmodule QuickBEAM.BeamVM.Compiler.AnalysisTest do
   use ExUnit.Case, async: true
 
-  alias QuickBEAM.BeamVM.{Bytecode, Compiler.Analysis, Decoder, Heap}
+  alias QuickBEAM.BeamVM.{Bytecode, Decoder, Heap}
+  alias QuickBEAM.BeamVM.Compiler.Analysis.{CFG, Stack, Types}
 
   setup do
     Heap.reset()
@@ -35,11 +36,11 @@ defmodule QuickBEAM.BeamVM.Compiler.AnalysisTest do
 
   defp infer_types(fun) do
     {:ok, instructions} = Decoder.decode(fun.byte_code, fun.arg_count)
-    entries = Analysis.block_entries(instructions)
-    {:ok, stack_depths} = Analysis.infer_block_stack_depths(instructions, entries)
+    entries = CFG.block_entries(instructions)
+    {:ok, stack_depths} = Stack.infer_block_stack_depths(instructions, entries)
 
     {:ok, {entry_types, return_type}} =
-      Analysis.infer_block_entry_types(fun, instructions, entries, stack_depths)
+      Types.infer_block_entry_types(fun, instructions, entries, stack_depths)
 
     {entry_types, return_type}
   end
@@ -75,7 +76,7 @@ defmodule QuickBEAM.BeamVM.Compiler.AnalysisTest do
     {_inner_entry_types, inner_return_type} = infer_types(inner)
     {_outer_entry_types, outer_return_type} = infer_types(outer)
 
-    assert Analysis.function_type(inner) == {:function, :integer}
+    assert Types.function_type(inner) == {:function, :integer}
     assert inner_return_type == :integer
     assert outer_return_type == :integer
   end
