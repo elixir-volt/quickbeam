@@ -64,7 +64,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
     next_entry = CFG.next_entry(entries, start)
 
     args =
-      Builder.slot_vars(slot_count) ++
+      [Builder.ctx_var() | Builder.slot_vars(slot_count)] ++
         Builder.stack_vars(stack_depth) ++ Builder.capture_vars(slot_count)
 
     fast_guards = block_clause_guards(slot_count, stack_depth, entry_type_state)
@@ -125,7 +125,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
           error
 
         clauses ->
-          {:function, @line, Builder.block_name(start), slot_count + stack_depth + slot_count,
+          {:function, @line, Builder.block_name(start), 1 + slot_count + stack_depth + slot_count,
            clauses}
       end
     end

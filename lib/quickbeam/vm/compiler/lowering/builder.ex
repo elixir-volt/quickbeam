@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
   def slot_name(idx, n), do: "Slot#{idx}_#{n}"
   def capture_name(idx, n), do: "Capture#{idx}_#{n}"
   def temp_name(n), do: "Tmp#{n}"
+  def ctx_var, do: var("Ctx")
   def slot_var(idx), do: var("Slot#{idx}")
   def stack_var(idx), do: var("Stack#{idx}")
   def capture_var(idx), do: var("Capture#{idx}")
@@ -47,7 +48,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
   end
 
   def local_call(fun, args), do: {:call, @line, {:atom, @line, fun}, args}
-  def compiler_call(fun, args), do: remote_call(RuntimeHelpers, fun, args)
+  def compiler_call(fun, args), do: remote_call(RuntimeHelpers, fun, [ctx_var() | args])
 
   def throw_js(expr), do: remote_call(:erlang, :throw, [{:tuple, @line, [atom(:js_throw), expr]}])
 

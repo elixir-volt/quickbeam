@@ -6,12 +6,290 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   alias QuickBEAM.VM.{Builtin, Bytecode, GlobalEnv, Heap, Invocation, Names}
   alias QuickBEAM.VM.Environment.Captures
-  alias QuickBEAM.VM.Interpreter.{Closures, Values}
+  alias QuickBEAM.VM.Interpreter.{Closures, Context, Values}
   alias QuickBEAM.VM.Invocation.Context, as: InvokeContext
   alias QuickBEAM.VM.ObjectModel.{Class, Copy, Delete, Functions, Get, Methods, Private, Put}
   alias QuickBEAM.VM.Runtime
 
   @tdz :__tdz__
+
+  def entry_ctx do
+    case Heap.get_ctx() do
+      %Context{} = ctx ->
+        Context.mark_dirty(ctx)
+
+      map when is_map(map) ->
+        map |> context_struct() |> Context.mark_dirty()
+
+      _ ->
+        %Context{atoms: Heap.get_atoms(), globals: GlobalEnv.base_globals()}
+        |> Context.mark_dirty()
+    end
+  end
+
+  def ensure_initialized_local!(_ctx, val), do: ensure_initialized_local!(val)
+  def strict_neq(_ctx, a, b), do: strict_neq(a, b)
+  def undefined?(_ctx, val), do: undefined?(val)
+  def null?(_ctx, val), do: null?(val)
+  def typeof_is_undefined(_ctx, val), do: typeof_is_undefined(val)
+  def typeof_is_function(_ctx, val), do: typeof_is_function(val)
+  def bit_not(_ctx, a), do: bit_not(a)
+  def lnot(_ctx, a), do: lnot(a)
+  def inc(_ctx, a), do: inc(a)
+  def dec(_ctx, a), do: dec(a)
+  def post_inc(_ctx, a), do: post_inc(a)
+  def post_dec(_ctx, a), do: post_dec(a)
+
+  def get_var(ctx, name) when is_binary(name), do: fetch_ctx_var(ctx, name)
+
+  def get_var(ctx, atom_idx),
+    do: fetch_ctx_var(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
+
+  def get_var_undef(ctx, name) when is_binary(name),
+    do: GlobalEnv.get(context_globals(ctx), name, :undefined)
+
+  def get_var_undef(ctx, atom_idx),
+    do: get_var_undef(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
+
+  def push_atom_value(ctx, atom_idx), do: Names.resolve_atom(context_atoms(ctx), atom_idx)
+
+  def private_symbol(_ctx, name) when is_binary(name), do: Private.private_symbol(name)
+
+  def private_symbol(ctx, atom_idx),
+    do: Private.private_symbol(Names.resolve_atom(context_atoms(ctx), atom_idx))
+
+  def new_object(_ctx), do: new_object()
+  def array_from(_ctx, list), do: array_from(list)
+
+  def get_var_ref(ctx, idx), do: read_var_ref(current_var_ref(ctx, idx))
+  def get_var_ref_check(ctx, idx), do: checked_var_ref(ctx, idx)
+
+  def invoke_var_ref(ctx, idx, args),
+    do: Invocation.invoke_runtime(ctx, get_var_ref(ctx, idx), args)
+
+  def invoke_var_ref0(ctx, idx), do: Invocation.invoke_runtime(ctx, get_var_ref(ctx, idx), [])
+
+  def invoke_var_ref1(ctx, idx, arg0),
+    do: Invocation.invoke_runtime(ctx, get_var_ref(ctx, idx), [arg0])
+
+  def invoke_var_ref2(ctx, idx, arg0, arg1),
+    do: Invocation.invoke_runtime(ctx, get_var_ref(ctx, idx), [arg0, arg1])
+
+  def invoke_var_ref3(ctx, idx, arg0, arg1, arg2),
+    do: Invocation.invoke_runtime(ctx, get_var_ref(ctx, idx), [arg0, arg1, arg2])
+
+  def invoke_var_ref_check(ctx, idx, args),
+    do: Invocation.invoke_runtime(ctx, checked_var_ref(ctx, idx), args)
+
+  def invoke_var_ref_check0(ctx, idx),
+    do: Invocation.invoke_runtime(ctx, checked_var_ref(ctx, idx), [])
+
+  def invoke_var_ref_check1(ctx, idx, arg0),
+    do: Invocation.invoke_runtime(ctx, checked_var_ref(ctx, idx), [arg0])
+
+  def invoke_var_ref_check2(ctx, idx, arg0, arg1),
+    do: Invocation.invoke_runtime(ctx, checked_var_ref(ctx, idx), [arg0, arg1])
+
+  def invoke_var_ref_check3(ctx, idx, arg0, arg1, arg2),
+    do: Invocation.invoke_runtime(ctx, checked_var_ref(ctx, idx), [arg0, arg1, arg2])
+
+  def put_var_ref(ctx, idx, val) do
+    write_var_ref(current_var_ref(ctx, idx), val)
+    :ok
+  end
+
+  def set_var_ref(ctx, idx, val) do
+    put_var_ref(ctx, idx, val)
+    val
+  end
+
+  def push_this(ctx) do
+    case context_this(ctx) do
+      this
+      when this == :uninitialized or
+             (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized) ->
+        throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
+
+      this ->
+        this
+    end
+  end
+
+  def special_object(ctx, type) do
+    current_func = context_current_func(ctx)
+    arg_buf = context_arg_buf(ctx)
+
+    case type do
+      0 -> Heap.wrap(Tuple.to_list(arg_buf))
+      1 -> Heap.wrap(Tuple.to_list(arg_buf))
+      2 -> current_func
+      3 -> context_new_target(ctx)
+      4 -> context_home_object(ctx, current_func)
+      5 -> Heap.wrap(%{})
+      6 -> Heap.wrap(%{})
+      7 -> Heap.wrap(%{"__proto__" => nil})
+      _ -> :undefined
+    end
+  end
+
+  def get_super(ctx, func) do
+    if context_home_object(ctx, context_current_func(ctx)) == func,
+      do: context_super(ctx),
+      else: Class.get_super(func)
+  end
+
+  def get_array_el2(_ctx, obj, idx), do: get_array_el2(obj, idx)
+  def set_function_name(_ctx, fun, name), do: set_function_name(fun, name)
+
+  def set_function_name_atom(ctx, fun, atom_idx),
+    do: Functions.set_name_atom(fun, atom_idx, context_atoms(ctx))
+
+  def set_function_name_computed(_ctx, fun, name_val),
+    do: set_function_name_computed(fun, name_val)
+
+  def put_field(_ctx, obj, key, val) when is_binary(key) do
+    put_field(obj, key, val)
+  end
+
+  def put_field(ctx, obj, atom_idx, val),
+    do: put_field(obj, Names.resolve_atom(context_atoms(ctx), atom_idx), val)
+
+  def define_field(_ctx, obj, key, val) when is_binary(key), do: define_field(obj, key, val)
+
+  def define_field(ctx, obj, atom_idx, val),
+    do: define_field(obj, Names.resolve_atom(context_atoms(ctx), atom_idx), val)
+
+  def put_array_el(_ctx, obj, idx, val), do: put_array_el(obj, idx, val)
+  def define_array_el(_ctx, obj, idx, val), do: define_array_el(obj, idx, val)
+
+  def define_method(_ctx, target, method, name, flags) when is_binary(name),
+    do: define_method(target, method, name, flags)
+
+  def define_method(ctx, target, method, atom_idx, flags),
+    do:
+      Methods.define_method(
+        target,
+        method,
+        Names.resolve_atom(context_atoms(ctx), atom_idx),
+        flags
+      )
+
+  def define_method_computed(_ctx, target, method, field_name, flags),
+    do: define_method_computed(target, method, field_name, flags)
+
+  def set_home_object(_ctx, method, target), do: set_home_object(method, target)
+  def add_brand(_ctx, target, brand), do: add_brand(target, brand)
+  def append_spread(_ctx, arr, idx, obj), do: append_spread(arr, idx, obj)
+
+  def copy_data_properties(_ctx, target, source) do
+    copy_data_properties(target, source)
+  end
+
+  def define_class(ctx, ctor, parent_ctor, atom_idx) do
+    ctor_closure =
+      case ctor do
+        %Bytecode.Function{} = fun -> {:closure, %{}, fun}
+        other -> other
+      end
+
+    Class.define_class(
+      ctor_closure,
+      parent_ctor,
+      Names.resolve_atom(context_atoms(ctx), atom_idx)
+    )
+  end
+
+  def invoke_runtime(ctx, fun, args), do: Invocation.invoke_runtime(ctx, fun, args)
+
+  def invoke_method_runtime(ctx, fun, this_obj, args),
+    do: Invocation.invoke_method_runtime(ctx, fun, this_obj, args)
+
+  def construct_runtime(ctx, ctor, new_target, args),
+    do: Invocation.construct_runtime(ctx, ctor, new_target, args)
+
+  def for_of_start(ctx, obj) do
+    case obj do
+      list when is_list(list) ->
+        {{:list_iter, list, 0}, :undefined}
+
+      {:obj, ref} = obj_ref ->
+        case Heap.get_obj(ref) do
+          {:qb_arr, arr} ->
+            {{:list_iter, :array.to_list(arr), 0}, :undefined}
+
+          list when is_list(list) ->
+            {{:list_iter, list, 0}, :undefined}
+
+          map when is_map(map) ->
+            sym_iter = {:symbol, "Symbol.iterator"}
+
+            cond do
+              Map.has_key?(map, sym_iter) ->
+                iter_fn = Map.get(map, sym_iter)
+                iter_obj = Invocation.call_callback(ctx, iter_fn, [])
+                {iter_obj, Get.get(iter_obj, "next")}
+
+              Map.has_key?(map, "next") ->
+                {obj_ref, Get.get(obj_ref, "next")}
+
+              true ->
+                {{:list_iter, [], 0}, :undefined}
+            end
+
+          _ ->
+            {{:list_iter, [], 0}, :undefined}
+        end
+
+      s when is_binary(s) ->
+        {{:list_iter, String.codepoints(s), 0}, :undefined}
+
+      _ ->
+        {{:list_iter, [], 0}, :undefined}
+    end
+  end
+
+  def for_in_start(_ctx, obj), do: for_in_start(obj)
+  def for_in_next(_ctx, iter), do: for_in_next(iter)
+
+  def for_of_next(_ctx, _next_fn, :undefined), do: {true, :undefined, :undefined}
+
+  def for_of_next(_ctx, _next_fn, {:list_iter, list, idx}) do
+    if idx < length(list) do
+      {false, Enum.at(list, idx), {:list_iter, list, idx + 1}}
+    else
+      {true, :undefined, :undefined}
+    end
+  end
+
+  def for_of_next(ctx, next_fn, iter_obj) do
+    result = Invocation.call_callback(ctx, next_fn, [])
+    done = Get.get(result, "done")
+    value = Get.get(result, "value")
+
+    if done == true do
+      {true, :undefined, :undefined}
+    else
+      {false, value, iter_obj}
+    end
+  end
+
+  def iterator_close(_ctx, :undefined), do: :ok
+  def iterator_close(_ctx, {:list_iter, _, _}), do: :ok
+
+  def iterator_close(ctx, iter_obj) do
+    return_fn = Get.get(iter_obj, "return")
+
+    if return_fn != :undefined and return_fn != nil do
+      Invocation.call_callback(ctx, return_fn, [])
+    end
+
+    :ok
+  end
+
+  def delete_property(_ctx, obj, key), do: delete_property(obj, key)
+  def ensure_capture_cell(_ctx, cell, val), do: ensure_capture_cell(cell, val)
+  def close_capture_cell(_ctx, cell, val), do: close_capture_cell(cell, val)
+  def sync_capture_cell(_ctx, cell, val), do: sync_capture_cell(cell, val)
 
   def ensure_initialized_local!(val) do
     if val == @tdz do
@@ -384,8 +662,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   defp prototype_chain_contains?(_, _), do: false
 
-  defp current_var_ref(idx) do
-    case InvokeContext.current_func() do
+  defp current_var_ref(idx), do: current_var_ref(current_context(), idx)
+
+  defp current_var_ref(ctx, idx) do
+    case context_current_func(ctx) do
       {:closure, captured, %Bytecode.Function{closure_vars: vars}}
       when idx >= 0 and idx < length(vars) ->
         cv = Enum.at(vars, idx)
@@ -399,15 +679,18 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   defp read_var_ref({:cell, _} = cell), do: Closures.read_cell(cell)
   defp read_var_ref(other), do: other
 
-  defp checked_var_ref(idx) do
-    case current_var_ref(idx) do
+  defp checked_var_ref(idx), do: checked_var_ref(current_context(), idx)
+
+  defp checked_var_ref(ctx, idx) do
+    case current_var_ref(ctx, idx) do
       :__tdz__ ->
-        throw({:js_throw, Heap.make_error(var_ref_error_message(idx), "ReferenceError")})
+        throw({:js_throw, Heap.make_error(var_ref_error_message(ctx, idx), "ReferenceError")})
 
       {:cell, _} = cell ->
         val = Closures.read_cell(cell)
 
-        if val == :__tdz__ and var_ref_name(idx) == "this" and derived_this_uninitialized?() do
+        if val == :__tdz__ and var_ref_name(ctx, idx) == "this" and
+             derived_this_uninitialized?(ctx) do
           throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
         end
 
@@ -421,22 +704,22 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   defp write_var_ref({:cell, _} = cell, val), do: Closures.write_cell(cell, val)
   defp write_var_ref(_, _), do: :ok
 
-  defp var_ref_error_message(idx) do
-    if var_ref_name(idx) == "this" and derived_this_uninitialized?() do
+  defp var_ref_error_message(ctx, idx) do
+    if var_ref_name(ctx, idx) == "this" and derived_this_uninitialized?(ctx) do
       "this is not initialized"
     else
       "Cannot access variable before initialization"
     end
   end
 
-  defp var_ref_name(idx) do
-    case InvokeContext.current_func() do
+  defp var_ref_name(ctx, idx) do
+    case context_current_func(ctx) do
       {:closure, _, %Bytecode.Function{closure_vars: vars}}
       when idx >= 0 and idx < length(vars) ->
         vars
         |> Enum.at(idx)
         |> Map.get(:name)
-        |> Names.resolve_display_name(InvokeContext.current_atoms())
+        |> Names.resolve_display_name(context_atoms(ctx))
 
       _ ->
         nil
@@ -445,8 +728,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   defp closure_capture_key(%{closure_type: type, var_idx: idx}), do: {type, idx}
 
-  defp derived_this_uninitialized? do
-    case InvokeContext.current_this() do
+  defp derived_this_uninitialized?(ctx) do
+    case context_this(ctx) do
       this
       when this == :uninitialized or
              (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized) ->
@@ -454,6 +737,57 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
       _ ->
         false
+    end
+  end
+
+  defp fetch_ctx_var(ctx, name) do
+    case GlobalEnv.fetch(context_globals(ctx), name) do
+      {:found, val} ->
+        val
+
+      :not_found ->
+        throw({:js_throw, Heap.make_error("#{name} is not defined", "ReferenceError")})
+    end
+  end
+
+  defp current_context do
+    case Heap.get_ctx() do
+      %Context{} = ctx -> ctx
+      map when is_map(map) -> context_struct(map)
+      _ -> %Context{atoms: Heap.get_atoms(), globals: GlobalEnv.base_globals()}
+    end
+  end
+
+  defp context_struct(%Context{} = ctx), do: ctx
+
+  defp context_struct(map) when is_map(map) do
+    struct(Context, Map.merge(Map.from_struct(%Context{}), map))
+  end
+
+  defp context_atoms(%{atoms: atoms}), do: atoms
+  defp context_atoms(_), do: {}
+  defp context_globals(%{globals: globals}), do: globals
+  defp context_globals(_), do: GlobalEnv.base_globals()
+  defp context_current_func(%{current_func: current_func}), do: current_func
+  defp context_current_func(_), do: :undefined
+  defp context_arg_buf(%{arg_buf: arg_buf}), do: arg_buf
+  defp context_arg_buf(_), do: {}
+  defp context_this(%{this: this}), do: this
+  defp context_this(_), do: :undefined
+  defp context_new_target(%{new_target: new_target}), do: new_target
+  defp context_new_target(_), do: :undefined
+
+  defp context_home_object(ctx, current_func) do
+    case Map.get(ctx, :home_object, :undefined) do
+      :undefined -> Functions.current_home_object(current_func)
+      home_object -> home_object
+    end
+  end
+
+  defp context_super(ctx) do
+    case Map.get(ctx, :super, :undefined) do
+      :undefined -> Class.get_super(context_home_object(ctx, context_current_func(ctx)))
+      super -> super
     end
   end
 end

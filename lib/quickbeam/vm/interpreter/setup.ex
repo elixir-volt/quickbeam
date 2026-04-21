@@ -20,7 +20,8 @@ defmodule QuickBEAM.VM.Interpreter.Setup do
       this: Map.get(opts, :this, :undefined),
       arg_buf: Map.get(opts, :arg_buf, {}),
       current_func: Map.get(opts, :current_func, :undefined),
-      new_target: Map.get(opts, :new_target, :undefined)
+      new_target: Map.get(opts, :new_target, :undefined),
+      trace_enabled: Map.get(opts, :trace_enabled, true)
     }
     |> InvokeContext.attach_method_state()
   end

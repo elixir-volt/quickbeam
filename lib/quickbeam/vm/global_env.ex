@@ -41,22 +41,22 @@ defmodule QuickBEAM.VM.GlobalEnv do
       Heap.put_persistent_globals(globals)
     end
 
-    %{ctx | globals: globals}
+    %{ctx | globals: globals} |> Context.mark_dirty()
   end
 
   def define_var(%Context{} = ctx, atom_idx) do
     Heap.put_var(Names.resolve_atom(ctx, atom_idx), :undefined)
-    ctx
+    Context.mark_dirty(ctx)
   end
 
   def check_define_var(%Context{} = ctx, atom_idx) do
     Heap.delete_var(Names.resolve_atom(ctx, atom_idx))
-    ctx
+    Context.mark_dirty(ctx)
   end
 
   def refresh(%Context{} = ctx) do
     persistent = Heap.get_persistent_globals() || %{}
-    %{ctx | globals: Map.merge(ctx.globals, persistent)}
+    %{ctx | globals: Map.merge(ctx.globals, persistent)} |> Context.mark_dirty()
   end
 
   def current_name(atom_idx), do: Names.resolve_atom(Heap.get_atoms(), atom_idx)

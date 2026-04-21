@@ -6,62 +6,83 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   alias QuickBEAM.VM.Interpreter.Context
   alias QuickBEAM.VM.Invocation.Context, as: InvokeContext
 
-  @missing :__qb_missing__
-
-  def invoke(%Bytecode.Function{} = fun, args), do: invoke_target(fun, fun, args, %{})
-
-  def invoke({:closure, _captured, %Bytecode.Function{} = fun} = closure, args),
-    do: invoke_target(closure, fun, args, %{})
-
+  def invoke(%Bytecode.Function{} = fun, args), do: invoke(fun, args, nil)
+  def invoke({:closure, _, %Bytecode.Function{}} = closure, args), do: invoke(closure, args, nil)
   def invoke(_, _), do: :error
 
-  def invoke_with_receiver(%Bytecode.Function{} = fun, args, this_obj),
-    do: invoke_target(fun, fun, args, %{this: this_obj})
+  def invoke(%Bytecode.Function{} = fun, args, base_ctx),
+    do: invoke_target(fun, fun, args, %{}, base_ctx)
 
-  def invoke_with_receiver(
-        {:closure, _captured, %Bytecode.Function{} = fun} = closure,
-        args,
-        this_obj
-      ),
-      do: invoke_target(closure, fun, args, %{this: this_obj})
+  def invoke({:closure, _, %Bytecode.Function{} = fun} = closure, args, base_ctx),
+    do: invoke_target(closure, fun, args, %{}, base_ctx)
+
+  def invoke(_, _, _), do: :error
+
+  def invoke_with_receiver(%Bytecode.Function{} = fun, args, this_obj),
+    do: invoke_with_receiver(fun, args, this_obj, nil)
+
+  def invoke_with_receiver({:closure, _, %Bytecode.Function{}} = closure, args, this_obj),
+    do: invoke_with_receiver(closure, args, this_obj, nil)
 
   def invoke_with_receiver(_, _, _), do: :error
 
+  def invoke_with_receiver(%Bytecode.Function{} = fun, args, this_obj, base_ctx),
+    do: invoke_target(fun, fun, args, %{this: this_obj}, base_ctx)
+
+  def invoke_with_receiver(
+        {:closure, _, %Bytecode.Function{} = fun} = closure,
+        args,
+        this_obj,
+        base_ctx
+      ),
+      do: invoke_target(closure, fun, args, %{this: this_obj}, base_ctx)
+
+  def invoke_with_receiver(_, _, _, _), do: :error
+
   def invoke_constructor(%Bytecode.Function{} = fun, args, this_obj, new_target),
-    do: invoke_target(fun, fun, args, %{this: this_obj, new_target: new_target})
+    do: invoke_constructor(fun, args, this_obj, new_target, nil)
 
   def invoke_constructor(
-        {:closure, _captured, %Bytecode.Function{} = fun} = closure,
+        {:closure, _, %Bytecode.Function{}} = closure,
         args,
         this_obj,
         new_target
       ),
-      do: invoke_target(closure, fun, args, %{this: this_obj, new_target: new_target})
+      do: invoke_constructor(closure, args, this_obj, new_target, nil)
 
   def invoke_constructor(_, _, _, _), do: :error
 
-  defp invoke_target(current_func, %Bytecode.Function{} = fun, args, ctx_overrides) do
+  def invoke_constructor(%Bytecode.Function{} = fun, args, this_obj, new_target, base_ctx),
+    do: invoke_target(fun, fun, args, %{this: this_obj, new_target: new_target}, base_ctx)
+
+  def invoke_constructor(
+        {:closure, _, %Bytecode.Function{} = fun} = closure,
+        args,
+        this_obj,
+        new_target,
+        base_ctx
+      ),
+      do: invoke_target(closure, fun, args, %{this: this_obj, new_target: new_target}, base_ctx)
+
+  def invoke_constructor(_, _, _, _, _), do: :error
+
+  defp invoke_target(current_func, %Bytecode.Function{} = fun, args, ctx_overrides, base_ctx) do
     key = {fun.byte_code, fun.arg_count}
     args = normalize_args(args, fun.arg_count)
+    ctx = invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun)
 
-    if atoms = Process.get({:qb_fn_atoms, fun.byte_code}) do
-      Heap.put_atoms(atoms)
+    case Heap.get_compiled(key) do
+      {:compiled, {mod, name}} -> {:ok, apply_compiled({mod, name}, ctx, args)}
+      :unsupported -> :error
+      nil -> compile_and_invoke(fun, ctx, args, key)
     end
-
-    with_compiled_ctx(current_func, args, ctx_overrides, fn ->
-      case Heap.get_compiled(key) do
-        {:compiled, {mod, name}} -> {:ok, apply(mod, name, args)}
-        :unsupported -> :error
-        nil -> compile_and_invoke(fun, args, key)
-      end
-    end)
   end
 
-  defp compile_and_invoke(fun, args, key) do
+  defp compile_and_invoke(fun, ctx, args, key) do
     case Compiler.compile(fun) do
       {:ok, compiled} ->
         Heap.put_compiled(key, {:compiled, compiled})
-        {:ok, apply_compiled(compiled, args)}
+        {:ok, apply_compiled(compiled, ctx, args)}
 
       {:error, _} ->
         Heap.put_compiled(key, :unsupported)
@@ -69,48 +90,48 @@ defmodule QuickBEAM.VM.Compiler.Runner do
     end
   end
 
-  defp apply_compiled({mod, name}, args), do: apply(mod, name, args)
+  defp apply_compiled({mod, name}, ctx, args), do: apply(mod, name, [ctx | args])
 
-  defp with_compiled_ctx(current_func, args, ctx_overrides, callback) do
-    prev_ctx = Process.get(:qb_ctx, @missing)
+  defp invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun) do
+    atoms = Process.get({:qb_fn_atoms, fun.byte_code}, current_atoms(base_ctx))
 
-    base_globals =
-      Runtime.global_bindings()
-      |> Map.merge(Heap.get_handler_globals() || %{})
-      |> Map.merge(Heap.get_persistent_globals())
-
-    base_ctx =
-      case Heap.get_ctx() do
-        %Context{} = ctx ->
-          %{ctx | globals: Map.merge(base_globals, ctx.globals)}
-
-        nil ->
-          %Context{atoms: Heap.get_atoms(), globals: base_globals}
-
-        map ->
-          ctx = struct(Context, Map.merge(Map.from_struct(%Context{}), map))
-          %{ctx | globals: Map.merge(base_globals, ctx.globals)}
-      end
-
-    next_ctx =
-      base_ctx
-      |> Map.merge(ctx_overrides)
-      |> Map.put(:current_func, current_func)
-      |> Map.put(:arg_buf, List.to_tuple(args))
-      |> InvokeContext.attach_method_state()
-
-    prev_fast_ctx = InvokeContext.snapshot_fast_ctx()
-
-    if prev_ctx != @missing, do: Heap.put_ctx(next_ctx)
-    InvokeContext.put_fast_ctx(next_ctx)
-
-    try do
-      callback.()
-    after
-      if prev_ctx != @missing, do: Heap.put_ctx(prev_ctx), else: Process.delete(:qb_ctx)
-      InvokeContext.restore_fast_ctx(prev_fast_ctx)
-    end
+    base_ctx
+    |> base_ctx()
+    |> Map.put(:atoms, atoms)
+    |> Map.merge(ctx_overrides)
+    |> Map.put(:current_func, current_func)
+    |> Map.put(:arg_buf, List.to_tuple(args))
+    |> Map.put(:trace_enabled, Map.get(base_ctx || %{}, :trace_enabled, false))
+    |> InvokeContext.attach_method_state()
+    |> Context.mark_dirty()
   end
+
+  defp base_ctx(%Context{} = ctx), do: ensure_globals(ctx)
+
+  defp base_ctx(nil) do
+    %Context{atoms: Heap.get_atoms(), globals: base_globals(), trace_enabled: false}
+  end
+
+  defp base_ctx(map) when is_map(map) do
+    map
+    |> then(&struct(Context, Map.merge(Map.from_struct(%Context{}), &1)))
+    |> ensure_globals()
+  end
+
+  defp ensure_globals(%Context{globals: globals} = ctx) when globals == %{},
+    do: %{ctx | globals: base_globals()}
+
+  defp ensure_globals(%Context{} = ctx), do: ctx
+
+  defp base_globals do
+    Runtime.global_bindings()
+    |> Map.merge(Heap.get_handler_globals() || %{})
+    |> Map.merge(Heap.get_persistent_globals())
+  end
+
+  defp current_atoms(%Context{} = ctx), do: ctx.atoms
+  defp current_atoms(map) when is_map(map), do: Map.get(map, :atoms, Heap.get_atoms())
+  defp current_atoms(_), do: Heap.get_atoms()
 
   defp normalize_args(_args, 0), do: []
   defp normalize_args([a0 | _], 1), do: [a0]

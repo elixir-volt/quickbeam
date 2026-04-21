@@ -67,7 +67,7 @@ defmodule QuickBEAM.VM.CompilerTest do
     test "compiles a straight-line arithmetic function", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(a,b){return a+b})") |> user_function()
 
-      assert {:ok, {_mod, :run}} = Compiler.compile(fun)
+      assert {:ok, {_mod, :run_ctx}} = Compiler.compile(fun)
       assert {:ok, 7} = Compiler.invoke(fun, [3, 4])
     end
 
@@ -182,7 +182,7 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, beam_file} = Compiler.disasm(inner)
       block = beam_function_instructions(beam_file, :block_0)
 
-      assert {RuntimeHelpers, :invoke_var_ref1, 2} in beam_extfuncs(beam_file)
+      assert {RuntimeHelpers, :invoke_var_ref1, 3} in beam_extfuncs(beam_file)
 
       refute Enum.any?(block, fn
                {:call_ext, 1, {:extfunc, RuntimeHelpers, :get_var_ref, 1}} -> true
@@ -1003,7 +1003,7 @@ defmodule QuickBEAM.VM.CompilerTest do
       fun = user_function(parsed)
 
       assert 9 == Interpreter.invoke(fun, [4, 5], 1_000)
-      assert {:compiled, {_mod, :run}} = Heap.get_compiled({fun.byte_code, fun.arg_count})
+      assert {:compiled, {_mod, :run_ctx}} = Heap.get_compiled({fun.byte_code, fun.arg_count})
     end
 
     test "branchy functions also use the compiled cache", %{rt: rt} do
@@ -1011,7 +1011,7 @@ defmodule QuickBEAM.VM.CompilerTest do
       fun = user_function(parsed)
 
       assert 1 == Interpreter.invoke(fun, [5], 1_000)
-      assert {:compiled, {_mod, :run}} = Heap.get_compiled({fun.byte_code, fun.arg_count})
+      assert {:compiled, {_mod, :run_ctx}} = Heap.get_compiled({fun.byte_code, fun.arg_count})
     end
   end
 end

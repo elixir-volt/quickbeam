@@ -11,7 +11,7 @@ defmodule QuickBEAM.VM.Compiler do
 
   def compile(%Bytecode.Function{} = fun) do
     module = module_name(fun)
-    entry = entry_name()
+    entry = ctx_entry_name()
 
     case :code.is_loaded(module) do
       {:file, _} ->
@@ -59,13 +59,14 @@ defmodule QuickBEAM.VM.Compiler do
   defp compile_binary(%Bytecode.Function{} = fun) do
     module = module_name(fun)
     entry = entry_name()
+    ctx_entry = ctx_entry_name()
 
     with {:ok, instructions} <- Decoder.decode(fun.byte_code, fun.arg_count),
          optimized = Optimizer.optimize(instructions, fun.constants),
          {:ok, {slot_count, block_forms}} <- Lowering.lower(fun, optimized),
          {:ok, _module, binary} <-
-           Forms.compile_module(module, entry, fun.arg_count, slot_count, block_forms) do
-      {:ok, module, entry, binary}
+           Forms.compile_module(module, entry, ctx_entry, fun.arg_count, slot_count, block_forms) do
+      {:ok, module, ctx_entry, binary}
     end
   end
 
@@ -81,4 +82,5 @@ defmodule QuickBEAM.VM.Compiler do
   end
 
   defp entry_name, do: :run
+  defp ctx_entry_name, do: :run_ctx
 end

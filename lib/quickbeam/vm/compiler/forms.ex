@@ -1,16 +1,18 @@
 defmodule QuickBEAM.VM.Compiler.Forms do
   @moduledoc false
 
+  alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.ObjectModel.Get
 
   @line 1
 
-  def compile_module(module, entry, arity, slot_count, block_forms) do
+  def compile_module(module, entry, ctx_entry, arity, slot_count, block_forms) do
     forms = [
       {:attribute, @line, :module, module},
-      {:attribute, @line, :export, [{entry, arity}]},
-      entry_form(entry, arity, slot_count)
+      {:attribute, @line, :export, [{entry, arity}, {ctx_entry, arity + 1}]},
+      entry_form(entry, ctx_entry, arity),
+      ctx_entry_form(ctx_entry, arity, slot_count)
       | helper_forms() ++ block_forms
     ]
 
@@ -21,8 +23,15 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     end
   end
 
-  defp entry_form(entry, arity, slot_count) do
+  defp entry_form(entry, ctx_entry, arity) do
     args = slot_vars(arity)
+    body = [local_call(ctx_entry, [remote_call(RuntimeHelpers, :entry_ctx, []) | args])]
+    {:function, @line, entry, arity, [{:clause, @line, args, [], body}]}
+  end
+
+  defp ctx_entry_form(ctx_entry, arity, slot_count) do
+    ctx = var("Ctx")
+    args = [ctx | slot_vars(arity)]
 
     locals =
       if slot_count <= arity,
@@ -32,9 +41,9 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     capture_cells =
       if slot_count == 0, do: [], else: Enum.map(1..slot_count, fn _ -> atom(:undefined) end)
 
-    body = [local_call(block_name(0), args ++ locals ++ capture_cells)]
+    body = [local_call(block_name(0), [ctx | slot_vars(arity) ++ locals ++ capture_cells])]
 
-    {:function, @line, entry, arity, [{:clause, @line, args, [], body}]}
+    {:function, @line, ctx_entry, arity + 1, [{:clause, @line, args, [], body}]}
   end
 
   defp helper_forms do

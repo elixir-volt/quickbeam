@@ -720,7 +720,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
         {:error, {:stack_depth_mismatch, target, expected_depth, actual_depth}}
 
       true ->
-        {:ok, Builder.local_call(Builder.block_name(target), slots ++ stack ++ capture_cells)}
+        {:ok,
+         Builder.local_call(Builder.block_name(target), [
+           Builder.ctx_var() | slots ++ stack ++ capture_cells
+         ])}
     end
   end
 
@@ -746,7 +749,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   defp invoke_call_expr(%{return_type: return_type} = state, _fun, :self_fun, args, _arg_types) do
     effectful_push(
       state,
-      Builder.local_call(:run, normalize_self_call_args(state, args)),
+      Builder.local_call(:run_ctx, [Builder.ctx_var() | normalize_self_call_args(state, args)]),
       return_type
     )
   end
@@ -760,7 +763,11 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   end
 
   defp tail_call_expr(state, _fun, :self_fun, args, _arg_types),
-    do: state.body ++ [Builder.local_call(:run, normalize_self_call_args(state, args))]
+    do:
+      state.body ++
+        [
+          Builder.local_call(:run_ctx, [Builder.ctx_var() | normalize_self_call_args(state, args)])
+        ]
 
   defp tail_call_expr(state, fun, _fun_type, args, _arg_types),
     do: state.body ++ [invoke_runtime_expr(fun, args)]
@@ -840,7 +847,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   end
 
   defp var_ref_fun_call(
-         {:call, _, {:remote, _, {:atom, _, RuntimeHelpers}, {:atom, _, fun}}, [idx]},
+         {:call, _, {:remote, _, {:atom, _, RuntimeHelpers}, {:atom, _, fun}}, [_ctx, idx]},
          argc
        )
        when fun in [:get_var_ref, :get_var_ref_check] do

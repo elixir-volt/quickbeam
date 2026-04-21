@@ -341,6 +341,7 @@ defmodule QuickBEAM.VM.Interpreter do
     Setup.store_function_atoms(fun, atoms)
     prev_ctx = Heap.get_ctx()
     Heap.put_ctx(ctx)
+    ctx = Context.mark_synced(ctx)
 
     try do
       case Decoder.decode(fun.byte_code, fun.arg_count) do
@@ -358,7 +359,7 @@ defmodule QuickBEAM.VM.Interpreter do
               %{}
             )
 
-          Trace.push(fun)
+          if ctx.trace_enabled, do: Trace.push(fun)
 
           try do
             result = run(0, frame, args, gas, ctx)
@@ -368,7 +369,7 @@ defmodule QuickBEAM.VM.Interpreter do
             {:js_throw, val} -> {:error, {:js_throw, val}}
             {:error, _} = err -> err
           after
-            Trace.pop()
+            if ctx.trace_enabled, do: Trace.pop()
           end
 
         {:error, _} = err ->
@@ -401,7 +402,14 @@ defmodule QuickBEAM.VM.Interpreter do
   defp catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fun) do
     result = fun.()
     persistent = Heap.get_persistent_globals() || %{}
-    run(pc + 1, frame, [result | rest], gas, %{ctx | globals: Map.merge(ctx.globals, persistent)})
+
+    run(
+      pc + 1,
+      frame,
+      [result | rest],
+      gas,
+      Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
+    )
   catch
     {:js_throw, val} -> throw_or_catch(frame, val, gas, ctx)
   end
@@ -471,7 +479,13 @@ defmodule QuickBEAM.VM.Interpreter do
 
     case ctx.catch_stack do
       [{target, saved_stack} | rest_catch] ->
-        run(target, frame, [error | saved_stack], gas, %{ctx | catch_stack: rest_catch})
+        run(
+          target,
+          frame,
+          [error | saved_stack],
+          gas,
+          Context.mark_dirty(%{ctx | catch_stack: rest_catch})
+        )
 
       [] ->
         throw({:js_throw, error})
@@ -1097,13 +1111,13 @@ defmodule QuickBEAM.VM.Interpreter do
       fun == ctx.globals["eval"] and is_binary(code) and ctx.runtime_pid != nil ->
         keep_declared? = scope_idx > 0
         {value, transient_globals} = eval_code(code, frame, gas, ctx, var_objs, keep_declared?)
-        {value, %{ctx | globals: Map.merge(ctx.globals, transient_globals)}}
+        {value, Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, transient_globals)})}
 
       callable?(fun) ->
         persistent = Heap.get_persistent_globals() || %{}
 
         {dispatch_call(fun, args, gas, ctx, :undefined),
-         %{ctx | globals: Map.merge(ctx.globals, persistent)}}
+         Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})}
 
       true ->
         {:undefined, ctx}
@@ -1140,9 +1154,18 @@ defmodule QuickBEAM.VM.Interpreter do
   # ── Main dispatch loop ──
 
   defp run(pc, frame, stack, gas, ctx) do
-    Heap.put_ctx(ctx)
-    Trace.update_pc(pc)
+    ctx = sync_ctx(ctx)
+    if ctx.trace_enabled, do: Trace.update_pc(pc)
     run(elem(elem(frame, Frame.insns()), pc), pc, frame, stack, gas, ctx)
+  end
+
+  defp sync_ctx(%Context{} = ctx) do
+    if Context.synced?(ctx) do
+      ctx
+    else
+      Heap.put_ctx(ctx)
+      Context.mark_synced(ctx)
+    end
   end
 
   # ── Push constants ──
@@ -1844,7 +1867,7 @@ defmodule QuickBEAM.VM.Interpreter do
   # ── try/catch ──
 
   defp run({@op_catch, [target]}, pc, frame, stack, gas, %Context{catch_stack: catch_stack} = ctx) do
-    ctx = %{ctx | catch_stack: [{target, stack} | catch_stack]}
+    ctx = Context.mark_dirty(%{ctx | catch_stack: [{target, stack} | catch_stack]})
     run(pc + 1, frame, [target | stack], gas, ctx)
   end
 
@@ -1856,7 +1879,7 @@ defmodule QuickBEAM.VM.Interpreter do
          gas,
          %Context{catch_stack: [_ | rest_catch]} = ctx
        ) do
-    run(pc + 1, frame, [a | rest], gas, %{ctx | catch_stack: rest_catch})
+    run(pc + 1, frame, [a | rest], gas, Context.mark_dirty(%{ctx | catch_stack: rest_catch}))
   end
 
   # ── for-in ──
@@ -1943,7 +1966,7 @@ defmodule QuickBEAM.VM.Interpreter do
             fresh_this
         end
 
-      ctor_ctx = %{ctx | this: this_obj, new_target: new_target}
+      ctor_ctx = Context.mark_dirty(%{ctx | this: this_obj, new_target: new_target})
 
       result =
         case ctor do
@@ -2082,7 +2105,7 @@ defmodule QuickBEAM.VM.Interpreter do
         _ -> ctx.this
       end
 
-    parent_ctx = %{ctx | this: pending_this}
+    parent_ctx = Context.mark_dirty(%{ctx | this: pending_this})
 
     result =
       case parent do
@@ -2115,7 +2138,7 @@ defmodule QuickBEAM.VM.Interpreter do
         _ -> pending_this
       end
 
-    run(pc + 1, frame, [result | stack], gas, %{ctx | this: result})
+    run(pc + 1, frame, [result | stack], gas, Context.mark_dirty(%{ctx | this: result}))
   end
 
   # ── instanceof ──
@@ -2686,12 +2709,12 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp run({@op_apply, [1]}, pc, frame, [arg_array, new_target, fun | rest], gas, ctx) do
     result = invoke_super_constructor(fun, new_target, apply_args(arg_array), gas, ctx)
-    run(pc + 1, frame, [result | rest], gas, %{ctx | this: result})
+    run(pc + 1, frame, [result | rest], gas, Context.mark_dirty(%{ctx | this: result}))
   end
 
   defp run({@op_apply, [_magic]}, pc, frame, [arg_array, this_obj, fun | rest], gas, ctx) do
     args = apply_args(arg_array)
-    apply_ctx = %{ctx | this: this_obj}
+    apply_ctx = Context.mark_dirty(%{ctx | this: this_obj})
 
     result = dispatch_call(fun, args, gas, apply_ctx, this_obj)
 
@@ -2945,7 +2968,13 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp invoke_super_constructor(fun, new_target, args, gas, ctx) do
     pending_this = pending_constructor_this(ctx.this)
-    ctor_ctx = %{ctx | this: super_constructor_this(fun, pending_this), new_target: new_target}
+
+    ctor_ctx =
+      Context.mark_dirty(%{
+        ctx
+        | this: super_constructor_this(fun, pending_this),
+          new_target: new_target
+      })
 
     result =
       case fun do
@@ -3006,7 +3035,7 @@ defmodule QuickBEAM.VM.Interpreter do
         do: padded,
         else: padded ++ List.duplicate(:undefined, idx + 1 - length(padded))
 
-    %{ctx | arg_buf: List.to_tuple(List.replace_at(padded, idx, val))}
+    Context.mark_dirty(%{ctx | arg_buf: List.to_tuple(List.replace_at(padded, idx, val))})
   end
 
   defp dispatch_call(fun, args, gas, ctx, this),
@@ -3032,16 +3061,16 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp tail_call_method([fun, obj | _], 0, gas, ctx) do
-    dispatch_call(fun, [], gas, %{ctx | this: obj}, obj)
+    dispatch_call(fun, [], gas, Context.mark_dirty(%{ctx | this: obj}), obj)
   end
 
   defp tail_call_method([a0, fun, obj | _], 1, gas, ctx) do
-    dispatch_call(fun, [a0], gas, %{ctx | this: obj}, obj)
+    dispatch_call(fun, [a0], gas, Context.mark_dirty(%{ctx | this: obj}), obj)
   end
 
   defp tail_call_method(stack, argc, gas, ctx) do
     {args, [fun, obj | _]} = Enum.split(stack, argc)
-    dispatch_call(fun, Enum.reverse(args), gas, %{ctx | this: obj}, obj)
+    dispatch_call(fun, Enum.reverse(args), gas, Context.mark_dirty(%{ctx | this: obj}), obj)
   end
 
   # ── Closure construction ──
@@ -3098,7 +3127,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp call_method(pc, frame, [fun, obj | rest], 0, gas, ctx) do
     gas = check_gas(pc, frame, rest, gas, ctx)
-    method_ctx = %{ctx | this: obj}
+    method_ctx = Context.mark_dirty(%{ctx | this: obj})
 
     catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
       dispatch_call(fun, [], gas, method_ctx, obj)
@@ -3107,7 +3136,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp call_method(pc, frame, [a0, fun, obj | rest], 1, gas, ctx) do
     gas = check_gas(pc, frame, rest, gas, ctx)
-    method_ctx = %{ctx | this: obj}
+    method_ctx = Context.mark_dirty(%{ctx | this: obj})
 
     catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
       dispatch_call(fun, [a0], gas, method_ctx, obj)
@@ -3116,7 +3145,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp call_method(pc, frame, [a1, a0, fun, obj | rest], 2, gas, ctx) do
     gas = check_gas(pc, frame, rest, gas, ctx)
-    method_ctx = %{ctx | this: obj}
+    method_ctx = Context.mark_dirty(%{ctx | this: obj})
 
     catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
       dispatch_call(fun, [a0, a1], gas, method_ctx, obj)
@@ -3125,7 +3154,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp call_method(pc, frame, [a2, a1, a0, fun, obj | rest], 3, gas, ctx) do
     gas = check_gas(pc, frame, rest, gas, ctx)
-    method_ctx = %{ctx | this: obj}
+    method_ctx = Context.mark_dirty(%{ctx | this: obj})
 
     catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
       dispatch_call(fun, [a0, a1, a2], gas, method_ctx, obj)
@@ -3135,7 +3164,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp call_method(pc, frame, stack, argc, gas, ctx) do
     gas = check_gas(pc, frame, stack, gas, ctx)
     {args, [fun, obj | rest]} = Enum.split(stack, argc)
-    method_ctx = %{ctx | this: obj}
+    method_ctx = Context.mark_dirty(%{ctx | this: obj})
 
     catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
       dispatch_call(fun, Enum.reverse(args), gas, method_ctx, obj)
@@ -3225,8 +3254,9 @@ defmodule QuickBEAM.VM.Interpreter do
 
         prev_ctx = Heap.get_ctx()
         Heap.put_ctx(inner_ctx)
+        inner_ctx = Context.mark_synced(inner_ctx)
 
-        Trace.push(self_ref)
+        if inner_ctx.trace_enabled, do: Trace.push(self_ref)
         restore_mark = length(Process.get(:qb_eval_restore_stack, []))
 
         try do
@@ -3238,7 +3268,7 @@ defmodule QuickBEAM.VM.Interpreter do
           end
         after
           restore_eval_restores(restore_mark)
-          Trace.pop()
+          if inner_ctx.trace_enabled, do: Trace.pop()
           if prev_ctx, do: Heap.put_ctx(prev_ctx)
         end
     end

@@ -36,7 +36,10 @@ defmodule QuickBEAM.VM.Invocation.Context do
 
   def attach_method_state(%Context{current_func: current_func} = ctx) do
     home_object = Functions.current_home_object(current_func)
-    %{ctx | home_object: home_object, super: current_super(home_object)}
+
+    ctx
+    |> Map.merge(%{home_object: home_object, super: current_super(home_object)})
+    |> Context.mark_dirty()
   end
 
   def current_atoms do

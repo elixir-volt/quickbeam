@@ -11,7 +11,9 @@ defmodule QuickBEAM.VM.Interpreter.Context do
           globals: map(),
           runtime_pid: pid() | nil,
           new_target: term(),
-          gas: pos_integer()
+          gas: pos_integer(),
+          trace_enabled: boolean(),
+          pd_synced: boolean()
         }
 
   @default_gas 1_000_000_000
@@ -28,5 +30,11 @@ defmodule QuickBEAM.VM.Interpreter.Context do
             globals: %{},
             runtime_pid: nil,
             new_target: :undefined,
-            gas: @default_gas
+            gas: @default_gas,
+            trace_enabled: false,
+            pd_synced: false
+
+  def mark_dirty(%__MODULE__{} = ctx), do: %{ctx | pd_synced: false}
+  def mark_synced(%__MODULE__{} = ctx), do: %{ctx | pd_synced: true}
+  def synced?(%__MODULE__{pd_synced: synced?}), do: synced?
 end

@@ -84,13 +84,15 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
-  def call_callback(fun, args) do
+  def call_callback(fun, args), do: call_callback(active_ctx(), fun, args)
+
+  def call_callback(ctx, fun, args) do
     case fun do
       %Bytecode.Function{} = bytecode_fun ->
-        callback_invoke(bytecode_fun, args, active_ctx())
+        callback_invoke(bytecode_fun, args, ctx)
 
       {:closure, _, %Bytecode.Function{}} = closure ->
-        callback_invoke(closure, args, active_ctx())
+        callback_invoke(closure, args, ctx)
 
       other ->
         try do
@@ -101,13 +103,15 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
-  def invoke_callback(fun, args) do
+  def invoke_callback(fun, args), do: invoke_callback(active_ctx(), fun, args)
+
+  def invoke_callback(ctx, fun, args) do
     case fun do
       %Bytecode.Function{} = bytecode_fun ->
-        callback_invoke(bytecode_fun, args, active_ctx(), fn -> List.first(args, :undefined) end)
+        callback_invoke(bytecode_fun, args, ctx, fn -> List.first(args, :undefined) end)
 
       {:closure, _, %Bytecode.Function{}} = closure ->
-        callback_invoke(closure, args, active_ctx(), fn -> List.first(args, :undefined) end)
+        callback_invoke(closure, args, ctx, fn -> List.first(args, :undefined) end)
 
       _ ->
         try do
@@ -118,63 +122,97 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
-  def invoke_runtime(fun, args) do
+  def invoke_runtime(fun, args), do: invoke_runtime(active_ctx(), fun, args)
+
+  def invoke_runtime(ctx, fun, args) do
     case fun do
       %Bytecode.Function{} = bytecode_fun ->
-        case Runner.invoke(bytecode_fun, args) do
+        case Runner.invoke(bytecode_fun, args, ctx) do
           {:ok, value} -> value
-          :error -> invoke(bytecode_fun, args, Runtime.gas_budget())
+          :error -> Interpreter.invoke_function_fallback(bytecode_fun, args, ctx.gas, ctx)
         end
 
       {:closure, _, %Bytecode.Function{} = inner} = closure ->
         if compiled_closure_callable?(inner) do
-          case Runner.invoke(closure, args) do
+          case Runner.invoke(closure, args, ctx) do
             {:ok, value} -> value
-            :error -> invoke(closure, args, Runtime.gas_budget())
+            :error -> Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
           end
         else
-          invoke(closure, args, Runtime.gas_budget())
+          Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
         end
 
       {:bound, _, inner, _, _} ->
-        invoke_runtime(inner, args)
+        invoke_runtime(ctx, inner, args)
 
       other ->
         Builtin.call(other, args, nil)
     end
   end
 
-  def invoke_method_runtime(fun, this_obj, args) do
+  def invoke_method_runtime(fun, this_obj, args),
+    do: invoke_method_runtime(active_ctx(), fun, this_obj, args)
+
+  def invoke_method_runtime(ctx, fun, this_obj, args) do
     case fun do
       %Bytecode.Function{} = bytecode_fun ->
         if compiled_method_callable?(bytecode_fun, this_obj) do
-          case Runner.invoke_with_receiver(bytecode_fun, args, this_obj) do
-            {:ok, value} -> value
-            :error -> invoke_with_receiver(bytecode_fun, args, Runtime.gas_budget(), this_obj)
+          case Runner.invoke_with_receiver(bytecode_fun, args, this_obj, ctx) do
+            {:ok, value} ->
+              value
+
+            :error ->
+              Interpreter.invoke_function_fallback(
+                bytecode_fun,
+                args,
+                ctx.gas,
+                Context.mark_dirty(%{ctx | this: this_obj})
+              )
           end
         else
-          invoke_with_receiver(bytecode_fun, args, Runtime.gas_budget(), this_obj)
+          Interpreter.invoke_function_fallback(
+            bytecode_fun,
+            args,
+            ctx.gas,
+            Context.mark_dirty(%{ctx | this: this_obj})
+          )
         end
 
       {:closure, _, %Bytecode.Function{} = inner} = closure ->
         if compiled_method_callable?(inner, this_obj) do
-          case Runner.invoke_with_receiver(closure, args, this_obj) do
-            {:ok, value} -> value
-            :error -> invoke_with_receiver(closure, args, Runtime.gas_budget(), this_obj)
+          case Runner.invoke_with_receiver(closure, args, this_obj, ctx) do
+            {:ok, value} ->
+              value
+
+            :error ->
+              Interpreter.invoke_closure_fallback(
+                closure,
+                args,
+                ctx.gas,
+                Context.mark_dirty(%{ctx | this: this_obj})
+              )
           end
         else
-          invoke_with_receiver(closure, args, Runtime.gas_budget(), this_obj)
+          Interpreter.invoke_closure_fallback(
+            closure,
+            args,
+            ctx.gas,
+            Context.mark_dirty(%{ctx | this: this_obj})
+          )
         end
 
       {:bound, _, inner, _, _} ->
-        invoke_method_runtime(inner, this_obj, args)
+        invoke_method_runtime(ctx, inner, this_obj, args)
 
       other ->
         Builtin.call(other, args, this_obj)
     end
   end
 
-  def construct_runtime(ctor, new_target, args) do
+  def construct_runtime(ctor, new_target, args),
+    do: construct_runtime(active_ctx(), ctor, new_target, args)
+
+  def construct_runtime(ctx, ctor, new_target, args) do
     raw_ctor = unwrap_constructor_target(ctor)
     raw_new_target = unwrap_new_target(new_target)
 
@@ -188,18 +226,18 @@ defmodule QuickBEAM.VM.Invocation do
     result =
       case ctor do
         %Bytecode.Function{} = fun ->
-          case Runner.invoke_constructor(fun, args, this_obj, new_target) do
+          case Runner.invoke_constructor(fun, args, this_obj, new_target, ctx) do
             {:ok, value} -> value
-            :error -> invoke_constructor(fun, args, Runtime.gas_budget(), this_obj, new_target)
+            :error -> invoke_constructor(fun, args, ctx.gas, this_obj, new_target)
           end
 
         {:closure, _, %Bytecode.Function{}} = closure ->
-          case Runner.invoke_constructor(closure, args, this_obj, new_target) do
+          case Runner.invoke_constructor(closure, args, this_obj, new_target, ctx) do
             {:ok, value} ->
               value
 
             :error ->
-              invoke_constructor(closure, args, Runtime.gas_budget(), this_obj, new_target)
+              invoke_constructor(closure, args, ctx.gas, this_obj, new_target)
           end
 
         {:bound, _, _inner, orig_fun, bound_args} ->
@@ -223,7 +261,7 @@ defmodule QuickBEAM.VM.Invocation do
 
     case Heap.get_ctx() do
       %Context{} = ctx when ctx.globals == %{} ->
-        %{ctx | globals: base_globals}
+        Context.mark_dirty(%{ctx | globals: base_globals})
 
       %Context{} = ctx ->
         ctx
@@ -273,7 +311,7 @@ defmodule QuickBEAM.VM.Invocation do
 
   defp callback_invoke(%Bytecode.Function{} = fun, args, ctx, on_throw) do
     try do
-      case Runner.invoke(fun, args) do
+      case Runner.invoke(fun, args, ctx) do
         {:ok, value} -> value
         :error -> Interpreter.invoke_function_fallback(fun, args, ctx.gas, ctx)
       end
@@ -285,7 +323,7 @@ defmodule QuickBEAM.VM.Invocation do
   defp callback_invoke({:closure, _, %Bytecode.Function{} = inner} = closure, args, ctx, on_throw) do
     try do
       if compiled_closure_callable?(inner) do
-        case Runner.invoke(closure, args) do
+        case Runner.invoke(closure, args, ctx) do
           {:ok, value} -> value
           :error -> Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
         end
