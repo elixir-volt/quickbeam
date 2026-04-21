@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
   alias QuickBEAM.VM.Compiler.Lowering.Builder
   alias QuickBEAM.VM.Compiler.{Lowering.Ops, Lowering.State}
 
+  @guardable_types [:integer, :number, :boolean, :string, :undefined, :null]
   @line 1
 
   def lower(fun, instructions) do
@@ -60,6 +61,77 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          entry_type_state,
          return_type
        ) do
+    next_entry = CFG.next_entry(entries, start)
+
+    args =
+      Builder.slot_vars(slot_count) ++
+        Builder.stack_vars(stack_depth) ++ Builder.capture_vars(slot_count)
+
+    fast_guards = block_clause_guards(slot_count, stack_depth, entry_type_state)
+
+    with {:ok, fast_body} <-
+           lower_block(
+             instructions,
+             start,
+             next_entry,
+             arg_count,
+             block_state(
+               fun,
+               arg_count,
+               slot_count,
+               stack_depth,
+               return_type,
+               entry_type_state,
+               true
+             ),
+             stack_depths,
+             constants,
+             entries,
+             inline_targets
+           ) do
+      clauses =
+        if fast_guards == [] do
+          [{:clause, @line, args, [], fast_body}]
+        else
+          with {:ok, slow_body} <-
+                 lower_block(
+                   instructions,
+                   start,
+                   next_entry,
+                   arg_count,
+                   block_state(
+                     fun,
+                     arg_count,
+                     slot_count,
+                     stack_depth,
+                     return_type,
+                     entry_type_state,
+                     false
+                   ),
+                   stack_depths,
+                   constants,
+                   entries,
+                   inline_targets
+                 ) do
+            [
+              {:clause, @line, args, [fast_guards], fast_body},
+              {:clause, @line, args, [], slow_body}
+            ]
+          end
+        end
+
+      case clauses do
+        {:error, _} = error ->
+          error
+
+        clauses ->
+          {:function, @line, Builder.block_name(start), slot_count + stack_depth + slot_count,
+           clauses}
+      end
+    end
+  end
+
+  defp block_state(fun, arg_count, slot_count, stack_depth, return_type, entry_type_state, typed?) do
     state_opts =
       [
         locals: fun.locals,
@@ -67,40 +139,58 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
         arg_count: arg_count,
         return_type: return_type
       ] ++
-        if entry_type_state do
-          [
-            slot_types: entry_type_state.slot_types,
-            slot_inits: entry_type_state.slot_inits,
-            stack_types: entry_type_state.stack_types
-          ]
-        else
-          []
+        case {entry_type_state, typed?} do
+          {nil, _} ->
+            []
+
+          {entry_type_state, true} ->
+            [
+              slot_types: entry_type_state.slot_types,
+              slot_inits: entry_type_state.slot_inits,
+              stack_types: entry_type_state.stack_types
+            ]
+
+          {entry_type_state, false} ->
+            [slot_inits: entry_type_state.slot_inits]
         end
 
-    state = State.new(slot_count, stack_depth, state_opts)
-
-    next_entry = CFG.next_entry(entries, start)
-
-    args =
-      Builder.slot_vars(slot_count) ++
-        Builder.stack_vars(stack_depth) ++ Builder.capture_vars(slot_count)
-
-    with {:ok, body} <-
-           lower_block(
-             instructions,
-             start,
-             next_entry,
-             arg_count,
-             state,
-             stack_depths,
-             constants,
-             entries,
-             inline_targets
-           ) do
-      {:function, @line, Builder.block_name(start), slot_count + stack_depth + slot_count,
-       [{:clause, @line, args, [], body}]}
-    end
+    State.new(slot_count, stack_depth, state_opts)
   end
+
+  defp block_clause_guards(_slot_count, _stack_depth, nil), do: []
+
+  defp block_clause_guards(slot_count, stack_depth, entry_type_state) do
+    slot_guards =
+      if slot_count == 0 do
+        []
+      else
+        for idx <- 0..(slot_count - 1),
+            guard =
+              type_guard(
+                Builder.slot_var(idx),
+                Map.get(entry_type_state.slot_types, idx, :unknown)
+              ),
+            guard != nil,
+            do: guard
+      end
+
+    stack_guards =
+      for {type, idx} <- Enum.with_index(entry_type_state.stack_types || []),
+          idx < stack_depth,
+          guard = type_guard(Builder.stack_var(idx), type),
+          guard != nil,
+          do: guard
+
+    slot_guards ++ stack_guards
+  end
+
+  defp type_guard(_expr, type) when type not in @guardable_types, do: nil
+  defp type_guard(expr, :integer), do: {:call, @line, {:atom, @line, :is_integer}, [expr]}
+  defp type_guard(expr, :number), do: {:call, @line, {:atom, @line, :is_number}, [expr]}
+  defp type_guard(expr, :boolean), do: {:call, @line, {:atom, @line, :is_boolean}, [expr]}
+  defp type_guard(expr, :string), do: {:call, @line, {:atom, @line, :is_binary}, [expr]}
+  defp type_guard(expr, :undefined), do: {:op, @line, :==, expr, {:atom, @line, :undefined}}
+  defp type_guard(expr, :null), do: {:op, @line, :==, expr, {:atom, @line, nil}}
 
   defp lower_block(
          instructions,

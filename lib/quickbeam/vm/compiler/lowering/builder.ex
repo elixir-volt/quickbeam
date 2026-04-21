@@ -61,6 +61,23 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
   end
 
   def branch_condition(expr, :boolean), do: expr
+
+  def branch_condition({:call, _, {:atom, _, fun}, [left, right]} = expr, _type)
+      when fun in [:op_lt, :op_lte, :op_gt, :op_gte],
+      do: comparison_branch_condition(fun, left, right, expr)
+
+  def branch_condition({:call, _, {:atom, _, fun}, _args} = expr, _type)
+      when fun in [:op_eq, :op_neq, :op_strict_eq, :op_strict_neq],
+      do: expr
+
+  def branch_condition(expr, :integer), do: {:op, @line, :"=/=", expr, integer(0)}
+  def branch_condition(_expr, :undefined), do: atom(false)
+  def branch_condition(_expr, :null), do: atom(false)
+  def branch_condition(expr, :string), do: {:op, @line, :"=/=", expr, literal("")}
+  def branch_condition(_expr, :object), do: atom(true)
+  def branch_condition(_expr, :function), do: atom(true)
+  def branch_condition(_expr, {:function, _}), do: atom(true)
+  def branch_condition(_expr, :self_fun), do: atom(true)
   def branch_condition(expr, _type), do: remote_call(Values, :truthy?, [expr])
   def branch_case(expr, false_body, true_body), do: case_expr(expr, false_body, true_body)
 
@@ -75,6 +92,26 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
 
   defp resolve_local_name(_name, _atoms), do: nil
   defp resolve_atom_name(atom_idx, atoms), do: resolve_local_name(atom_idx, atoms)
+
+  defp comparison_branch_condition(fun, left, right, fallback_expr) do
+    lhs = var(:BranchLhs)
+    rhs = var(:BranchRhs)
+
+    {:case, @line, tuple_expr([left, right]),
+     [
+       {:clause, @line, [tuple_expr([lhs, rhs])], [number_guards(lhs, rhs)],
+        [{:op, @line, comparison_operator(fun), lhs, rhs}]},
+       {:clause, @line, [var(:_)], [], [fallback_expr]}
+     ]}
+  end
+
+  defp comparison_operator(:op_lt), do: :<
+  defp comparison_operator(:op_lte), do: :"=<"
+  defp comparison_operator(:op_gt), do: :>
+  defp comparison_operator(:op_gte), do: :>=
+
+  defp number_guards(a, b), do: [number_guard(a), number_guard(b)]
+  defp number_guard(expr), do: {:call, @line, {:atom, @line, :is_number}, [expr]}
 
   defp case_expr(expr, false_body, true_body) do
     {:case, @line, expr,

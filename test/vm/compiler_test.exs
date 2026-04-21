@@ -101,6 +101,21 @@ defmodule QuickBEAM.VM.CompilerTest do
       code = "(function(n){let s=0; let i=0; while(i<n){ s=s+i; i=i+1;} return s})"
       fun = compile_and_decode(rt, code) |> user_function()
 
+      assert {:ok, beam_file} = Compiler.disasm(fun)
+      refute {QuickBEAM.VM.Interpreter.Values, :truthy?, 1} in beam_extfuncs(beam_file)
+
+      block = beam_function_instructions(beam_file, :block_6)
+
+      assert Enum.any?(block, fn
+               {:test, :is_number, _, _} -> true
+               _ -> false
+             end)
+
+      assert Enum.any?(block, fn
+               {:bif, :<, _, _, _} -> true
+               _ -> false
+             end)
+
       assert {:ok, 10} = Compiler.invoke(fun, [5])
     end
 
