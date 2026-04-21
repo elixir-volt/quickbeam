@@ -848,8 +848,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   defp invoke_runtime_expr(fun, args) do
     case var_ref_fun_call(fun, length(args)) do
-      {:ok, helper, idx} -> Builder.local_call(helper, [Builder.ctx_var(), idx | args])
-      :error -> Builder.compiler_call(:invoke_runtime, [fun, Builder.list_expr(args)])
+      {:ok, helper, idx, argc} when argc in 0..3 ->
+        Builder.local_call(helper, [Builder.ctx_var(), idx | args])
+
+      {:ok, helper, idx, _argc} ->
+        Builder.local_call(helper, [Builder.ctx_var(), idx, Builder.list_expr(args)])
+
+      :error ->
+        Builder.compiler_call(:invoke_runtime, [fun, Builder.list_expr(args)])
     end
   end
 
@@ -858,7 +864,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
          argc
        )
        when fun in [:get_var_ref, :get_var_ref_check] do
-    {:ok, invoke_var_ref_helper(fun, argc), idx}
+    {:ok, invoke_var_ref_helper(fun, argc), idx, argc}
   end
 
   defp var_ref_fun_call(_expr, _argc), do: :error

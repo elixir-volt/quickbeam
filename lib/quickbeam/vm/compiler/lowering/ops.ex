@@ -453,6 +453,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       {{:ok, :copy_data_properties}, [mask]} ->
         State.copy_data_properties_call(state, mask)
 
+      {{:ok, :to_object}, []} ->
+        {:ok, state}
+
       {{:ok, :to_propkey}, []} ->
         {:ok, state}
 
@@ -684,6 +687,30 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
   end
 
   defp lower_closure_entries(state, _arg_count, [], acc), do: {:ok, state, acc}
+
+  defp lower_closure_entries(
+         state,
+         arg_count,
+         [%{closure_type: 2, var_idx: idx} = cv | rest],
+         acc
+       ) do
+    {parent_ref, state} =
+      State.bind(
+        state,
+        Builder.temp_name(state.temp),
+        Builder.local_call(:op_current_var_ref, [Builder.ctx_var(), Builder.literal(idx)])
+      )
+
+    {cell, state} =
+      State.bind(
+        state,
+        Builder.temp_name(state.temp),
+        Builder.compiler_call(:ensure_capture_cell, [parent_ref, parent_ref])
+      )
+
+    key = Builder.literal({cv.closure_type, cv.var_idx})
+    lower_closure_entries(state, arg_count, rest, [{key, cell} | acc])
+  end
 
   defp lower_closure_entries(state, arg_count, [cv | rest], acc) do
     with {:ok, slot_idx} <- closure_slot_index(arg_count, cv),

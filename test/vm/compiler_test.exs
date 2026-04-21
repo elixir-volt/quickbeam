@@ -128,6 +128,13 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 10} = Compiler.invoke(fun, [Heap.wrap([1, 2, 3, 4])])
     end
 
+    test "compiles object destructuring", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(obj){ const {x} = obj; return x })") |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [Heap.wrap(%{"x" => 7})])
+    end
+
     test "compiles object field access", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(obj){return obj.x})") |> user_function()
 
@@ -220,6 +227,30 @@ defmodule QuickBEAM.VM.CompilerTest do
       callback = {:builtin, "double", fn [x], _ -> x * 2 end}
       assert {:ok, {:closure, _, _} = closure} = Compiler.invoke(outer, [callback])
       assert {:ok, 8} = Compiler.invoke(closure, [4])
+    end
+
+    test "compiles captured var-ref calls with more than three arguments", %{rt: rt} do
+      outer =
+        compile_and_decode(rt, "(function(f){ return function(a,b,c,d){ return f(a,b,c,d) } })")
+        |> user_function()
+
+      callback = {:builtin, "sum4", fn [a, b, c, d], _ -> a + b + c + d end}
+      assert {:ok, {:closure, _, _} = closure} = Compiler.invoke(outer, [callback])
+      assert {:ok, 10} = Compiler.invoke(closure, [1, 2, 3, 4])
+    end
+
+    test "compiles transitive captured closures", %{rt: rt} do
+      outer =
+        compile_and_decode(
+          rt,
+          "(function(f){ return function(){ return function(x){ return f(x) } } })"
+        )
+        |> user_function()
+
+      callback = {:builtin, "double", fn [x], _ -> x * 2 end}
+      assert {:ok, {:closure, _, _} = mid} = Compiler.invoke(outer, [callback])
+      assert {:ok, {:closure, _, _} = inner} = Compiler.invoke(mid, [])
+      assert {:ok, 8} = Compiler.invoke(inner, [4])
     end
 
     test "compiles method calls with receiver", %{rt: rt} do
