@@ -3130,6 +3130,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
        ) do
     name = Scope.resolve_atom(ctx, atom_idx)
     method_type = Bitwise.band(flags, 3)
+    enumerable = Bitwise.band(flags, 4) != 0
 
     named_method =
       set_function_name(
@@ -3151,9 +3152,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
 
     case method_type do
-      1 -> Objects.put_getter(target, name, named_method)
-      2 -> Objects.put_setter(target, name, named_method)
-      _ -> Objects.put(target, name, named_method)
+      1 -> Objects.put_getter(target, name, named_method, enumerable)
+      2 -> Objects.put_setter(target, name, named_method, enumerable)
+      _ -> Objects.put(target, name, named_method, enumerable)
     end
 
     run(pc + 1, frame, [target | rest], gas, ctx)
@@ -3168,6 +3169,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
          ctx
        ) do
     method_type = Bitwise.band(flags, 3)
+    enumerable = Bitwise.band(flags, 4) != 0
 
     named_method =
       set_function_name(
@@ -3189,9 +3191,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
 
     case method_type do
-      1 -> Objects.put_getter(target, field_name, named_method)
-      2 -> Objects.put_setter(target, field_name, named_method)
-      _ -> Objects.put(target, field_name, named_method)
+      1 -> Objects.put_getter(target, field_name, named_method, enumerable)
+      2 -> Objects.put_setter(target, field_name, named_method, enumerable)
+      _ -> Objects.put(target, field_name, named_method, enumerable)
     end
 
     run(pc + 1, frame, [target | rest], gas, ctx)

@@ -544,6 +544,30 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(fun, [])
     end
 
+    test "keeps class prototype methods non-enumerable", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { m(){ return 1 } } return [Object.keys(A.prototype).length, A.prototype.propertyIsEnumerable(\"constructor\"), A.prototype.propertyIsEnumerable(\"m\")] })"
+        )
+        |> user_function()
+
+      assert {:ok, {:obj, ref}} = Compiler.invoke(fun, [])
+      assert [0, false, false] = Heap.to_list({:obj, ref})
+    end
+
+    test "keeps class prototype accessors non-enumerable", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { get x(){ return 1 } set x(v){} } return [Object.keys(A.prototype).length, A.prototype.propertyIsEnumerable(\"x\")] })"
+        )
+        |> user_function()
+
+      assert {:ok, {:obj, ref}} = Compiler.invoke(fun, [])
+      assert [0, false] = Heap.to_list({:obj, ref})
+    end
+
     test "compiles classes with constructors", %{rt: rt} do
       fun =
         compile_and_decode(

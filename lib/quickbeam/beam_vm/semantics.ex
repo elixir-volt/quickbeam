@@ -86,9 +86,17 @@ defmodule QuickBEAM.BeamVM.Semantics do
     proto_ref = make_ref()
     proto_map = %{"constructor" => ctor_closure}
     parent_proto = Heap.get_class_proto(parent_ctor)
-    proto_map = if parent_proto, do: Map.put(proto_map, proto(), parent_proto), else: proto_map
+    base_proto = parent_proto || Heap.get_object_prototype()
+    proto_map = if base_proto, do: Map.put(proto_map, proto(), base_proto), else: proto_map
 
     Heap.put_obj(proto_ref, proto_map)
+
+    Heap.put_prop_desc(proto_ref, "constructor", %{
+      writable: true,
+      enumerable: false,
+      configurable: true
+    })
+
     proto = {:obj, proto_ref}
     Heap.put_class_proto(raw, proto)
     Heap.put_ctor_statics(ctor_closure, %{"prototype" => proto})

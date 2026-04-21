@@ -93,6 +93,28 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
 
   def put(_, _, _), do: :ok
 
+  def put(target, key, val, true), do: put(target, key, val)
+
+  def put({:obj, ref}, key, val, false) do
+    map = Heap.get_obj(ref, %{})
+
+    if is_map(map) and not Heap.frozen?(ref) do
+      Heap.put_obj(ref, Map.put(map, key, val))
+      Heap.put_prop_desc(ref, key, %{writable: true, enumerable: false, configurable: true})
+    end
+
+    :ok
+  end
+
+  def put(%Bytecode.Function{} = f, key, val, _enumerable), do: Heap.put_ctor_static(f, key, val)
+
+  def put({:closure, _, %Bytecode.Function{}} = c, key, val, _enumerable),
+    do: Heap.put_ctor_static(c, key, val)
+
+  def put({:builtin, _, _} = b, key, val, _enumerable), do: Heap.put_ctor_static(b, key, val)
+
+  def put(_, _, _, _), do: :ok
+
   defp normalize_key(k) when is_float(k) and k == trunc(k) and k >= 0,
     do: k |> trunc() |> Integer.to_string()
 
@@ -118,6 +140,38 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
   end
 
   def put_getter({:obj, ref}, key, fun) do
+    update_getter(ref, key, fun)
+  end
+
+  def put_getter(target, key, fun), do: Heap.put_ctor_static(target, key, {:accessor, fun, nil})
+
+  def put_getter(target, key, fun, true), do: put_getter(target, key, fun)
+
+  def put_getter({:obj, ref}, key, fun, false) do
+    update_getter(ref, key, fun)
+    Heap.put_prop_desc(ref, key, %{enumerable: false, configurable: true})
+  end
+
+  def put_getter(target, key, fun, _enumerable),
+    do: Heap.put_ctor_static(target, key, {:accessor, fun, nil})
+
+  def put_setter({:obj, ref}, key, fun) do
+    update_setter(ref, key, fun)
+  end
+
+  def put_setter(target, key, fun), do: Heap.put_ctor_static(target, key, {:accessor, nil, fun})
+
+  def put_setter(target, key, fun, true), do: put_setter(target, key, fun)
+
+  def put_setter({:obj, ref}, key, fun, false) do
+    update_setter(ref, key, fun)
+    Heap.put_prop_desc(ref, key, %{enumerable: false, configurable: true})
+  end
+
+  def put_setter(target, key, fun, _enumerable),
+    do: Heap.put_ctor_static(target, key, {:accessor, nil, fun})
+
+  defp update_getter(ref, key, fun) do
     Heap.update_obj(ref, %{}, fn map ->
       desc =
         case Map.get(map, key) do
@@ -129,9 +183,7 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
     end)
   end
 
-  def put_getter(target, key, fun), do: Heap.put_ctor_static(target, key, {:accessor, fun, nil})
-
-  def put_setter({:obj, ref}, key, fun) do
+  defp update_setter(ref, key, fun) do
     Heap.update_obj(ref, %{}, fn map ->
       desc =
         case Map.get(map, key) do
@@ -142,8 +194,6 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
       Map.put(map, key, desc)
     end)
   end
-
-  def put_setter(target, key, fun), do: Heap.put_ctor_static(target, key, {:accessor, nil, fun})
 
   defp invoke_setter(fun, val, this_obj) do
     Interpreter.invoke_with_receiver(fun, [val], Runtime.gas_budget(), this_obj)

@@ -206,6 +206,7 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   def define_method(target, method, name, flags) when is_binary(name) do
     method_type = Bitwise.band(flags, 3)
+    enumerable = Bitwise.band(flags, 4) != 0
 
     named_method =
       set_function_name(
@@ -220,9 +221,9 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     maybe_put_home_object(named_method, target)
 
     case method_type do
-      1 -> QuickBEAM.BeamVM.Interpreter.Objects.put_getter(target, name, named_method)
-      2 -> QuickBEAM.BeamVM.Interpreter.Objects.put_setter(target, name, named_method)
-      _ -> QuickBEAM.BeamVM.Interpreter.Objects.put(target, name, named_method)
+      1 -> QuickBEAM.BeamVM.Interpreter.Objects.put_getter(target, name, named_method, enumerable)
+      2 -> QuickBEAM.BeamVM.Interpreter.Objects.put_setter(target, name, named_method, enumerable)
+      _ -> QuickBEAM.BeamVM.Interpreter.Objects.put(target, name, named_method, enumerable)
     end
 
     target
@@ -233,6 +234,7 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   def define_method_computed(target, method, field_name, flags) do
     method_type = Bitwise.band(flags, 3)
+    enumerable = Bitwise.band(flags, 4) != 0
 
     named_method =
       set_function_name(
@@ -247,9 +249,24 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     maybe_put_home_object(named_method, target)
 
     case method_type do
-      1 -> QuickBEAM.BeamVM.Interpreter.Objects.put_getter(target, field_name, named_method)
-      2 -> QuickBEAM.BeamVM.Interpreter.Objects.put_setter(target, field_name, named_method)
-      _ -> QuickBEAM.BeamVM.Interpreter.Objects.put(target, field_name, named_method)
+      1 ->
+        QuickBEAM.BeamVM.Interpreter.Objects.put_getter(
+          target,
+          field_name,
+          named_method,
+          enumerable
+        )
+
+      2 ->
+        QuickBEAM.BeamVM.Interpreter.Objects.put_setter(
+          target,
+          field_name,
+          named_method,
+          enumerable
+        )
+
+      _ ->
+        QuickBEAM.BeamVM.Interpreter.Objects.put(target, field_name, named_method, enumerable)
     end
 
     target

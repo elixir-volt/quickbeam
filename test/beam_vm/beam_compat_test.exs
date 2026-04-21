@@ -808,6 +808,22 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
       )
     end
 
+    test "class prototype methods are non-enumerable", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { m(){ return 1 } } return [Object.keys(A.prototype).length, A.prototype.propertyIsEnumerable(\"constructor\"), A.prototype.propertyIsEnumerable(\"m\")] })()",
+        [0, false, false]
+      )
+    end
+
+    test "class prototype accessors are non-enumerable", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { get x(){ return 1 } set x(v){} } return [Object.keys(A.prototype).length, A.prototype.propertyIsEnumerable(\"x\")] })()",
+        [0, false]
+      )
+    end
+
     test "class inheritance", %{rt: rt} do
       ok(
         rt,
