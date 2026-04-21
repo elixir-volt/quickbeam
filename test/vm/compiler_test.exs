@@ -160,6 +160,26 @@ defmodule QuickBEAM.VM.CompilerTest do
     test "compiles object literals", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(v){ return {x:v} })") |> user_function()
 
+      assert {:ok, beam_file} = Compiler.disasm(fun)
+      block = beam_function_instructions(beam_file, :block_0)
+
+      assert Enum.any?(block, fn
+               {:call, 1, {_module, :op_new_object, 1}} -> true
+               {:call_only, 1, {_module, :op_new_object, 1}} -> true
+               {:call_last, 1, {_module, :op_new_object, 1}, _} -> true
+               _ -> false
+             end)
+
+      assert Enum.any?(block, fn
+               {:call, 4, {_module, :op_define_field, 4}} -> true
+               {:call_only, 4, {_module, :op_define_field, 4}} -> true
+               {:call_last, 4, {_module, :op_define_field, 4}, _} -> true
+               _ -> false
+             end)
+
+      refute {RuntimeHelpers, :new_object, 1} in beam_extfuncs(beam_file)
+      refute {RuntimeHelpers, :define_field, 4} in beam_extfuncs(beam_file)
+
       assert {:ok, {:obj, ref}} = Compiler.invoke(fun, [5])
       assert %{"x" => 5} = Heap.get_obj(ref)
     end
@@ -197,6 +217,9 @@ defmodule QuickBEAM.VM.CompilerTest do
 
     test "compiles method calls with receiver", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(o,x){return o.inc(x)})") |> user_function()
+
+      assert {:ok, beam_file} = Compiler.disasm(fun)
+      refute {RuntimeHelpers, :invoke_method_runtime, 4} in beam_extfuncs(beam_file)
 
       obj =
         Heap.wrap(%{

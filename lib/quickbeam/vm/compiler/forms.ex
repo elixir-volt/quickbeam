@@ -3,7 +3,8 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.Interpreter.Values
-  alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.{Heap, Invocation}
+  alias QuickBEAM.VM.ObjectModel.{Get, Put}
 
   @line 1
 
@@ -56,6 +57,9 @@ defmodule QuickBEAM.VM.Compiler.Forms do
       guarded_binary_helper(:op_lte, :"=<", Values, :lte),
       guarded_binary_helper(:op_gt, :>, Values, :gt),
       guarded_binary_helper(:op_gte, :>=, Values, :gte),
+      new_object_helper(),
+      define_field_helper(),
+      invoke_method_runtime_helper(),
       get_field_helper(),
       get_field_store_helper(),
       get_field_found_helper(),
@@ -109,6 +113,50 @@ defmodule QuickBEAM.VM.Compiler.Forms do
      [
        {:clause, @line, [a], [[integer_guard(a)]], [a]},
        {:clause, @line, [a], [], [remote_call(fallback_mod, fallback_fun, [a])]}
+     ]}
+  end
+
+  defp new_object_helper do
+    ctx = var("Ctx")
+    proto = var("Proto")
+
+    {:function, @line, :op_new_object, 1,
+     [
+       {:clause, @line, [ctx], [],
+        [
+          {:case, @line, remote_call(Heap, :get_object_prototype, []),
+           [
+             {:clause, @line, [atom(nil)], [], [remote_call(Heap, :wrap, [map_expr([])])]},
+             {:clause, @line, [atom(:undefined)], [], [remote_call(Heap, :wrap, [map_expr([])])]},
+             {:clause, @line, [proto], [],
+              [remote_call(Heap, :wrap, [map_expr([{literal("__proto__"), proto}])])]}
+           ]}
+        ]}
+     ]}
+  end
+
+  defp define_field_helper do
+    ctx = var("Ctx")
+    obj = var("Obj")
+    key = var("Key")
+    val = var("Val")
+
+    {:function, @line, :op_define_field, 4,
+     [
+       {:clause, @line, [ctx, obj, key, val], [], [remote_call(Put, :put, [obj, key, val]), obj]}
+     ]}
+  end
+
+  defp invoke_method_runtime_helper do
+    ctx = var("Ctx")
+    fun = var("Fun")
+    obj = var("Obj")
+    args = var("Args")
+
+    {:function, @line, :op_invoke_method_runtime, 4,
+     [
+       {:clause, @line, [ctx, fun, obj, args], [],
+        [remote_call(Invocation, :invoke_method_runtime, [ctx, fun, obj, args])]}
      ]}
   end
 
@@ -253,6 +301,10 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   end
 
   defp literal(value), do: :erl_parse.abstract(value)
+
+  defp map_expr(entries) do
+    {:map, @line, Enum.map(entries, fn {key, value} -> {:map_field_assoc, @line, key, value} end)}
+  end
 
   defp binary_concat(left, right) do
     {:bin, @line,

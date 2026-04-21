@@ -387,7 +387,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def define_field_call(state, key_expr) do
     with {:ok, val, _val_type, state} <- pop_typed(state),
          {:ok, obj, _obj_type, state} <- pop_typed(state) do
-      {:ok, push(state, Builder.compiler_call(:define_field, [obj, key_expr, val]), :object)}
+      {:ok,
+       push(
+         state,
+         Builder.local_call(:op_define_field, [Builder.ctx_var(), obj, key_expr, val]),
+         :object
+       )}
     end
   end
 
@@ -553,7 +558,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
          {:ok, obj, _obj_type, state} <- pop_typed(state) do
       effectful_push(
         state,
-        Builder.compiler_call(:invoke_method_runtime, [
+        Builder.local_call(:op_invoke_method_runtime, [
+          Builder.ctx_var(),
           fun,
           obj,
           Builder.list_expr(Enum.reverse(args))
@@ -636,7 +642,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       {:done,
        state.body ++
          [
-           Builder.compiler_call(:invoke_method_runtime, [
+           Builder.local_call(:op_invoke_method_runtime, [
+             Builder.ctx_var(),
              fun,
              obj,
              Builder.list_expr(Enum.reverse(args))

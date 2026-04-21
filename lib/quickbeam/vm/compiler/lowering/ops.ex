@@ -77,7 +77,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         {:ok, State.push(state, Builder.literal(""))}
 
       {{:ok, :object}, []} ->
-        {:ok, State.push(state, Builder.compiler_call(:new_object, []), :object)}
+        {:ok, State.push(state, Builder.local_call(:op_new_object, [Builder.ctx_var()]), :object)}
 
       {{:ok, :array_from}, [argc]} ->
         State.array_from_call(state, argc)
