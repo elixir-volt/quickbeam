@@ -12,6 +12,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Types do
   def infer_expr_type({:atom, _, nil}), do: :null
   def infer_expr_type(_), do: :unknown
 
+  def definitely_initialized?(:unknown), do: false
+  def definitely_initialized?(_), do: true
+
   def pure_expr?({:integer, _, _}), do: true
   def pure_expr?({:float, _, _}), do: true
   def pure_expr?({:char, _, _}), do: true

@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   @moduledoc false
 
   alias QuickBEAM.VM.Interpreter.Values
+  alias QuickBEAM.VM.ObjectModel.Get
 
   @line 1
 
@@ -46,6 +47,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
       guarded_binary_helper(:op_lte, :"=<", Values, :lte),
       guarded_binary_helper(:op_gt, :>, Values, :gt),
       guarded_binary_helper(:op_gte, :>=, Values, :gte),
+      get_length_helper(),
       eq_helper(),
       neq_helper(),
       strict_eq_helper(),
@@ -98,6 +100,20 @@ defmodule QuickBEAM.VM.Compiler.Forms do
      ]}
   end
 
+  defp get_length_helper do
+    a = var("A")
+    arr = var("Arr")
+
+    {:function, @line, :op_get_length, 1,
+     [
+       {:clause, @line, [{:tuple, @line, [atom(:qb_arr), arr]}], [],
+        [remote_call(:array, :size, [arr])]},
+       {:clause, @line, [a], [[list_guard(a)]], [remote_call(:erlang, :length, [a])]},
+       {:clause, @line, [a], [[binary_guard(a)]], [remote_call(Get, :string_length, [a])]},
+       {:clause, @line, [a], [], [remote_call(Get, :length_of, [a])]}
+     ]}
+  end
+
   defp eq_helper do
     a = var("A")
     b = var("B")
@@ -146,6 +162,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   defp integer_guard(expr), do: {:call, @line, {:atom, @line, :is_integer}, [expr]}
   defp number_guard(expr), do: {:call, @line, {:atom, @line, :is_number}, [expr]}
   defp binary_guard(expr), do: {:call, @line, {:atom, @line, :is_binary}, [expr]}
+  defp list_guard(expr), do: {:call, @line, {:atom, @line, :is_list}, [expr]}
 
   defp block_name(idx), do: String.to_atom("block_#{idx}")
   defp slot_var(idx), do: var("Slot#{idx}")

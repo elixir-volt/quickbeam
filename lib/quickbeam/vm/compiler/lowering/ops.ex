@@ -1,8 +1,12 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
   @moduledoc false
 
-  alias QuickBEAM.VM.Compiler.Analysis.{CFG, Types}
-  alias QuickBEAM.VM.Compiler.Lowering.{Builder, Captures, State}
+  alias QuickBEAM.VM.Compiler.Analysis.CFG
+  alias QuickBEAM.VM.Compiler.Analysis.Types, as: AnalysisTypes
+  alias QuickBEAM.VM.Compiler.Lowering.Builder
+  alias QuickBEAM.VM.Compiler.Lowering.Captures
+  alias QuickBEAM.VM.Compiler.Lowering.State
+  alias QuickBEAM.VM.Compiler.Lowering.Types, as: LoweringTypes
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.ObjectModel.Get
@@ -203,12 +207,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
          }}
 
       {{:ok, :get_loc_check}, [slot_idx]} ->
-        {:ok,
-         State.push(
-           state,
-           Builder.compiler_call(:ensure_initialized_local!, [State.slot_expr(state, slot_idx)]),
-           State.slot_type(state, slot_idx)
-         )}
+        lower_get_loc_check(state, slot_idx)
 
       {{:ok, name}, [idx]}
       when name in [:get_var_ref, :get_var_ref0, :get_var_ref1, :get_var_ref2, :get_var_ref3] ->
@@ -267,7 +266,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         lower_put_var_ref(state, idx)
 
       {{:ok, :put_loc_check}, [slot_idx]} ->
-        State.assign_slot(state, slot_idx, false, :ensure_initialized_local!)
+        lower_put_loc_check(state, slot_idx)
 
       {{:ok, :put_loc_check_init}, [slot_idx]} ->
         State.assign_slot(state, slot_idx, false)
@@ -415,7 +414,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         State.delete_call(state)
 
       {{:ok, :get_length}, []} ->
-        State.unary_call(state, RuntimeHelpers, :get_length)
+        State.get_length_call(state)
 
       {{:ok, :get_array_el}, []} ->
         State.binary_call(state, QuickBEAM.VM.ObjectModel.Put, :get_element)
@@ -663,7 +662,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
   defp lower_fclosure(state, constants, arg_count, const_idx) do
     case Enum.at(constants, const_idx) do
       %QuickBEAM.VM.Bytecode.Function{closure_vars: []} = fun ->
-        {:ok, State.push(state, Builder.literal(fun), Types.function_type(fun))}
+        {:ok, State.push(state, Builder.literal(fun), AnalysisTypes.function_type(fun))}
 
       %QuickBEAM.VM.Bytecode.Function{} = fun ->
         with {:ok, state, entries} <-
@@ -675,7 +674,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
               Builder.literal(fun)
             ])
 
-          {:ok, State.push(state, closure, Types.function_type(fun))}
+          {:ok, State.push(state, closure, AnalysisTypes.function_type(fun))}
         end
 
       nil ->
@@ -719,7 +718,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         {:ok, State.push(state, Builder.atom(:undefined), :undefined)}
 
       %QuickBEAM.VM.Bytecode.Function{} = fun when fun.closure_vars == [] ->
-        {:ok, State.push(state, Builder.literal(fun), Types.function_type(fun))}
+        {:ok, State.push(state, Builder.literal(fun), AnalysisTypes.function_type(fun))}
 
       %QuickBEAM.VM.Bytecode.Function{} ->
         lower_fclosure(state, constants, arg_count, idx)
@@ -767,6 +766,31 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
     else
       State.goto(state, target, stack_depths)
     end
+  end
+
+  defp lower_get_loc_check(state, slot_idx) do
+    slot_expr = State.slot_expr(state, slot_idx)
+    slot_type = State.slot_type(state, slot_idx)
+
+    expr =
+      if LoweringTypes.definitely_initialized?(slot_type) do
+        slot_expr
+      else
+        Builder.compiler_call(:ensure_initialized_local!, [slot_expr])
+      end
+
+    {:ok, State.push(state, expr, slot_type)}
+  end
+
+  defp lower_put_loc_check(state, slot_idx) do
+    wrapper =
+      if LoweringTypes.definitely_initialized?(State.slot_type(state, slot_idx)) do
+        nil
+      else
+        :ensure_initialized_local!
+      end
+
+    State.assign_slot(state, slot_idx, false, wrapper)
   end
 
   defp special_object_type(2), do: :self_fun

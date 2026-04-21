@@ -235,6 +235,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  def get_length_call(state) do
+    with {:ok, expr, type, state} <- pop_typed(state) do
+      {result_expr, result_type} = specialize_get_length(expr, type)
+      {:ok, push(state, result_expr, result_type)}
+    end
+  end
+
   def effectful_push(state, expr), do: effectful_push(state, expr, Types.infer_expr_type(expr))
 
   def effectful_push(state, expr, type) do
@@ -734,6 +741,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   defp specialize_binary(:op_add, left, :string, right, :string),
     do: {binary_concat(left, right), :string}
 
+  defp specialize_binary(:op_strict_eq, left, type, right, type)
+       when type in [:integer, :boolean, :string, :null, :undefined],
+       do: {{:op, @line, :"=:=", left, right}, :boolean}
+
+  defp specialize_binary(:op_strict_neq, left, type, right, type)
+       when type in [:integer, :boolean, :string, :null, :undefined],
+       do: {{:op, @line, :"=/=", left, right}, :boolean}
+
   defp specialize_binary(fun, left, left_type, right, right_type)
        when fun in [:op_sub, :op_mul] and left_type == :integer and right_type == :integer,
        do: {{:op, @line, binary_operator(fun), left, right}, :integer}
@@ -757,6 +772,24 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   defp specialize_binary(fun, left, _left_type, right, _right_type),
     do: {Builder.local_call(fun, [left, right]), :unknown}
+
+  defp specialize_get_length(expr, :string),
+    do: {Builder.local_call(:op_get_length, [expr]), :integer}
+
+  defp specialize_get_length(expr, :function),
+    do: {Builder.local_call(:op_get_length, [expr]), :integer}
+
+  defp specialize_get_length(expr, {:function, _}),
+    do: {Builder.local_call(:op_get_length, [expr]), :integer}
+
+  defp specialize_get_length(expr, :self_fun),
+    do: {Builder.local_call(:op_get_length, [expr]), :integer}
+
+  defp specialize_get_length(expr, :object),
+    do: {Builder.local_call(:op_get_length, [expr]), :integer}
+
+  defp specialize_get_length(expr, _type),
+    do: {Builder.local_call(:op_get_length, [expr]), :integer}
 
   defp binary_operator(:op_sub), do: :-
   defp binary_operator(:op_mul), do: :*
