@@ -17,7 +17,7 @@ Run individual benchmarks:
 MIX_ENV=bench mix run bench/eval_roundtrip.exs
 MIX_ENV=bench mix run bench/call_with_data.exs
 MIX_ENV=bench mix run bench/beam_call.exs
-MIX_ENV=bench mix run bench/beam_vm_compiler.exs
+MIX_ENV=bench mix run bench/vm_compiler.exs
 MIX_ENV=bench mix run bench/startup.exs
 MIX_ENV=bench mix run bench/concurrent.exs
 ```

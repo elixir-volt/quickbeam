@@ -1,12 +1,12 @@
 defmodule QuickBEAM do
-  import QuickBEAM.BeamVM.Heap.Keys
+  import QuickBEAM.VM.Heap.Keys
 
-  alias QuickBEAM.BeamVM.Bytecode, as: BeamBytecode
-  alias QuickBEAM.BeamVM.Compiler, as: BeamCompiler
-  alias QuickBEAM.BeamVM.Heap
-  alias QuickBEAM.BeamVM.Interpreter
-  alias QuickBEAM.BeamVM.PromiseState, as: Promise
-  alias QuickBEAM.BeamVM.Runtime, as: BeamRuntime
+  alias QuickBEAM.VM.Bytecode, as: BeamBytecode
+  alias QuickBEAM.VM.Compiler, as: BeamCompiler
+  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.Interpreter
+  alias QuickBEAM.VM.PromiseState, as: Promise
+  alias QuickBEAM.VM.Runtime, as: BeamRuntime
   alias QuickBEAM.Bytecode
   alias QuickBEAM.JSError
   alias QuickBEAM.Native
