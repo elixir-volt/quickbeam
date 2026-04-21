@@ -130,14 +130,73 @@ defmodule QuickBEAM.VM.Compiler.Runner do
     |> Context.mark_dirty()
   end
 
+  defp build_invocation_ctx(%Context{} = base_ctx, current_func, args, fun, atoms),
+    do: build_invocation_ctx(base_ctx, current_func, args, fun, atoms, [])
+
+  defp build_invocation_ctx(%Context{} = base_ctx, current_func, args, _fun, atoms, []) do
+    {home_object, super} = home_object_and_super(current_func)
+
+    %Context{
+      base_ctx
+      | atoms: atoms || current_atoms(base_ctx),
+        current_func: current_func,
+        arg_buf: List.to_tuple(args),
+        trace_enabled: trace_enabled(base_ctx),
+        home_object: home_object,
+        super: super
+    }
+    |> Context.mark_dirty()
+  end
+
   defp build_invocation_ctx(
          %Context{} = base_ctx,
          current_func,
          args,
          _fun,
          atoms,
-         overrides \\ []
+         this: this_obj
        ) do
+    {home_object, super} = home_object_and_super(current_func)
+
+    %Context{
+      base_ctx
+      | atoms: atoms || current_atoms(base_ctx),
+        current_func: current_func,
+        arg_buf: List.to_tuple(args),
+        trace_enabled: trace_enabled(base_ctx),
+        home_object: home_object,
+        super: super,
+        this: this_obj
+    }
+    |> Context.mark_dirty()
+  end
+
+  defp build_invocation_ctx(
+         %Context{} = base_ctx,
+         current_func,
+         args,
+         _fun,
+         atoms,
+         this: this_obj,
+         new_target: new_target
+       ) do
+    {home_object, super} = home_object_and_super(current_func)
+
+    %Context{
+      base_ctx
+      | atoms: atoms || current_atoms(base_ctx),
+        current_func: current_func,
+        arg_buf: List.to_tuple(args),
+        trace_enabled: trace_enabled(base_ctx),
+        home_object: home_object,
+        super: super,
+        this: this_obj,
+        new_target: new_target
+    }
+    |> Context.mark_dirty()
+  end
+
+  defp build_invocation_ctx(%Context{} = base_ctx, current_func, args, _fun, atoms, overrides) do
     {home_object, super} = home_object_and_super(current_func)
 
     %Context{

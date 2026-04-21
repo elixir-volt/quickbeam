@@ -160,6 +160,8 @@ defmodule QuickBEAM.VM.CompilerTest do
 
       assert {:ok, beam_file} = Compiler.disasm(fun)
       block = beam_function_instructions(beam_file, :block_0)
+      get_field = beam_function_instructions(beam_file, :op_get_field)
+      get_field_from_store = beam_function_instructions(beam_file, :op_get_field_from_store)
 
       assert Enum.any?(block, fn
                {:call, 2, {_module, :op_get_field, 2}} -> true
@@ -171,6 +173,20 @@ defmodule QuickBEAM.VM.CompilerTest do
       refute Enum.any?(block, fn
                {:call_ext, 2, {:extfunc, QuickBEAM.VM.ObjectModel.Get, :get, 2}} -> true
                {:call_ext_last, 2, {:extfunc, QuickBEAM.VM.ObjectModel.Get, :get, 2}, _} -> true
+               _ -> false
+             end)
+
+      refute Enum.any?(get_field, fn
+               {:call_ext, 1, {:extfunc, QuickBEAM.VM.Heap, :get_obj, 1}} -> true
+               {:call_ext_last, 1, {:extfunc, QuickBEAM.VM.Heap, :get_obj, 1}, _} -> true
+               {:call_ext_only, 1, {:extfunc, QuickBEAM.VM.Heap, :get_obj, 1}} -> true
+               _ -> false
+             end)
+
+      refute Enum.any?(get_field_from_store, fn
+               {:call, 3, {_module, :op_get_field_found, 3}} -> true
+               {:call_only, 3, {_module, :op_get_field_found, 3}} -> true
+               {:call_last, 3, {_module, :op_get_field_found, 3}, _} -> true
                _ -> false
              end)
 

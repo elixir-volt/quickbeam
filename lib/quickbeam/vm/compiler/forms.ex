@@ -64,7 +64,6 @@ defmodule QuickBEAM.VM.Compiler.Forms do
             invoke_method_runtime_helper(),
             get_field_helper(),
             get_field_store_helper(),
-            get_field_found_helper(),
             get_length_helper(),
             eq_helper(),
             neq_helper(),
@@ -679,7 +678,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
        {:clause, @line, [wrapped, key], [],
         [
           local_call(:op_get_field_from_store, [
-            remote_call(QuickBEAM.VM.Heap, :get_obj, [ref]),
+            pd_get_with_default_expr(obj_key_expr(ref), atom(nil)),
             wrapped,
             key
           ])
@@ -692,33 +691,26 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     map = var("Map")
     obj = var("Obj")
     key = var("Key")
+    getter = var("Getter")
+    val = var("Val")
 
     {:function, @line, :op_get_field_from_store, 3,
      [
        {:clause, @line, [map, obj, key], [map_proxy_guards(map)],
         [remote_call(Get, :get, [obj, key])]},
        {:clause, @line, [map, obj, key], [[map_guard(map)]],
-        [local_call(:op_get_field_found, [remote_call(:maps, :find, [key, map]), obj, key])]},
-       {:clause, @line, [map, obj, key], [], [remote_call(Get, :get, [obj, key])]}
-     ]}
-  end
-
-  defp get_field_found_helper do
-    getter = var("Getter")
-    obj = var("Obj")
-    key = var("Key")
-    val = var("Val")
-
-    {:function, @line, :op_get_field_found, 3,
-     [
-       {:clause, @line,
         [
-          {:tuple, @line, [atom(:ok), {:tuple, @line, [atom(:accessor), getter, var("_")]}]},
-          obj,
-          key
-        ], [[not_nil_guard(getter)]], [remote_call(Get, :call_getter, [getter, obj])]},
-       {:clause, @line, [{:tuple, @line, [atom(:ok), val]}, obj, key], [], [val]},
-       {:clause, @line, [atom(:error), obj, key], [], [remote_call(Get, :get, [obj, key])]}
+          {:case, @line, remote_call(:maps, :find, [key, map]),
+           [
+             {:clause, @line,
+              [
+                {:tuple, @line, [atom(:ok), {:tuple, @line, [atom(:accessor), getter, var("_")]}]}
+              ], [[not_nil_guard(getter)]], [remote_call(Get, :call_getter, [getter, obj])]},
+             {:clause, @line, [{:tuple, @line, [atom(:ok), val]}], [], [val]},
+             {:clause, @line, [atom(:error)], [], [remote_call(Get, :get, [obj, key])]}
+           ]}
+        ]},
+       {:clause, @line, [map, obj, key], [], [remote_call(Get, :get, [obj, key])]}
      ]}
   end
 
