@@ -5,6 +5,16 @@ defmodule QuickBEAM.BeamVM.Compiler.Runner do
   alias QuickBEAM.BeamVM.Compiler
   alias QuickBEAM.BeamVM.Interpreter.Context
 
+  @fast_ctx_keys [
+    :qb_ctx_atoms,
+    :qb_ctx_globals,
+    :qb_current_func,
+    :qb_arg_buf,
+    :qb_this,
+    :qb_new_target
+  ]
+  @missing :__qb_missing__
+
   def invoke(%Bytecode.Function{} = fun, args), do: invoke_target(fun, fun, args, %{})
 
   def invoke({:closure, _captured, %Bytecode.Function{} = fun} = closure, args),
@@ -90,13 +100,37 @@ defmodule QuickBEAM.BeamVM.Compiler.Runner do
       |> Map.put(:current_func, current_func)
       |> Map.put(:arg_buf, List.to_tuple(args))
 
+    prev_fast_ctx = snapshot_fast_ctx()
+
     Heap.put_ctx(next_ctx)
+    put_fast_ctx(next_ctx)
 
     try do
       callback.()
     after
       if prev_ctx, do: Heap.put_ctx(prev_ctx), else: Process.delete(:qb_ctx)
+      restore_fast_ctx(prev_fast_ctx)
     end
+  end
+
+  defp snapshot_fast_ctx do
+    Map.new(@fast_ctx_keys, fn key -> {key, Process.get(key, @missing)} end)
+  end
+
+  defp put_fast_ctx(ctx) do
+    Process.put(:qb_ctx_atoms, Map.get(ctx, :atoms, {}))
+    Process.put(:qb_ctx_globals, Map.get(ctx, :globals, %{}))
+    Process.put(:qb_current_func, Map.get(ctx, :current_func, :undefined))
+    Process.put(:qb_arg_buf, Map.get(ctx, :arg_buf, {}))
+    Process.put(:qb_this, Map.get(ctx, :this, :undefined))
+    Process.put(:qb_new_target, Map.get(ctx, :new_target, :undefined))
+  end
+
+  defp restore_fast_ctx(snapshot) do
+    Enum.each(snapshot, fn
+      {key, @missing} -> Process.delete(key)
+      {key, value} -> Process.put(key, value)
+    end)
   end
 
   defp normalize_args(args, arg_count) do

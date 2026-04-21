@@ -112,30 +112,26 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   end
 
   def push_this do
-    case Heap.get_ctx() do
-      %{this: this}
+    case current_this() do
+      this
       when this == :uninitialized or
              (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized) ->
         throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
 
-      %{this: this} ->
+      this ->
         this
-
-      _ ->
-        :undefined
     end
   end
 
   def special_object(type) do
-    ctx = Heap.get_ctx() || %{}
-    current_func = Map.get(ctx, :current_func)
-    arg_buf = Map.get(ctx, :arg_buf, {})
+    current_func = current_func()
+    arg_buf = current_arg_buf()
 
     case type do
       0 -> Heap.wrap(Tuple.to_list(arg_buf))
       1 -> Heap.wrap(Tuple.to_list(arg_buf))
       2 -> current_func
-      3 -> Map.get(ctx, :new_target, :undefined)
+      3 -> current_new_target()
       4 -> Process.get({:qb_home_object, home_object_key(current_func)}, :undefined)
       5 -> Heap.wrap(%{})
       6 -> Heap.wrap(%{})
@@ -736,15 +732,21 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   defp prototype_chain_contains?(_, _), do: false
 
   defp current_globals do
-    case Heap.get_ctx() do
-      %{globals: globals} -> globals
-      _ -> Runtime.global_bindings()
+    case Process.get(:qb_ctx_globals, :__missing__) do
+      globals when globals != :__missing__ ->
+        globals
+
+      _ ->
+        case Heap.get_ctx() do
+          %{globals: globals} -> globals
+          _ -> Runtime.global_bindings()
+        end
     end
   end
 
   defp current_var_ref(idx) do
-    case Heap.get_ctx() do
-      %{current_func: {:closure, captured, %Bytecode.Function{closure_vars: vars}}}
+    case current_func() do
+      {:closure, captured, %Bytecode.Function{closure_vars: vars}}
       when idx >= 0 and idx < length(vars) ->
         cv = Enum.at(vars, idx)
         Map.get(captured, closure_capture_key(cv), :undefined)
@@ -769,8 +771,8 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   end
 
   defp var_ref_name(idx) do
-    case Heap.get_ctx() do
-      %{current_func: {:closure, _, %Bytecode.Function{closure_vars: vars}}}
+    case current_func() do
+      {:closure, _, %Bytecode.Function{closure_vars: vars}}
       when idx >= 0 and idx < length(vars) ->
         vars |> Enum.at(idx) |> Map.get(:name) |> resolve_name()
 
@@ -787,8 +789,8 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   defp closure_capture_key(%{closure_type: type, var_idx: idx}), do: {type, idx}
 
   defp derived_this_uninitialized? do
-    case Heap.get_ctx() do
-      %{this: this}
+    case current_this() do
+      this
       when this == :uninitialized or
              (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized) ->
         true
@@ -798,11 +800,69 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     end
   end
 
+  defp current_func do
+    case Process.get(:qb_current_func, :__missing__) do
+      current_func when current_func != :__missing__ ->
+        current_func
+
+      _ ->
+        case Heap.get_ctx() do
+          %{current_func: current_func} -> current_func
+          _ -> :undefined
+        end
+    end
+  end
+
+  defp current_arg_buf do
+    case Process.get(:qb_arg_buf, :__missing__) do
+      arg_buf when arg_buf != :__missing__ ->
+        arg_buf
+
+      _ ->
+        case Heap.get_ctx() do
+          %{arg_buf: arg_buf} -> arg_buf
+          _ -> {}
+        end
+    end
+  end
+
+  defp current_this do
+    case Process.get(:qb_this, :__missing__) do
+      this when this != :__missing__ ->
+        this
+
+      _ ->
+        case Heap.get_ctx() do
+          %{this: this} -> this
+          _ -> :undefined
+        end
+    end
+  end
+
+  defp current_new_target do
+    case Process.get(:qb_new_target, :__missing__) do
+      new_target when new_target != :__missing__ ->
+        new_target
+
+      _ ->
+        case Heap.get_ctx() do
+          %{new_target: new_target} -> new_target
+          _ -> :undefined
+        end
+    end
+  end
+
   defp atom_name(atom_idx) do
     atoms =
-      case Heap.get_ctx() do
-        %{atoms: atoms} -> atoms
-        _ -> Heap.get_atoms()
+      case Process.get(:qb_ctx_atoms, :__missing__) do
+        atoms when atoms != :__missing__ ->
+          atoms
+
+        _ ->
+          case Heap.get_ctx() do
+            %{atoms: atoms} -> atoms
+            _ -> Heap.get_atoms()
+          end
       end
 
     Scope.resolve_atom(atoms, atom_idx)
