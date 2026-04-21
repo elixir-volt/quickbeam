@@ -304,6 +304,27 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
          {:continue, state |> put_slot_type(slot_idx, :unknown) |> put_slot_init(slot_idx, false),
           return_type}}
 
+      {{:ok, :define_var}, [_atom_idx, _scope]} ->
+        {:ok, {:continue, state, return_type}}
+
+      {{:ok, :check_define_var}, [_atom_idx, _scope]} ->
+        {:ok, {:continue, state, return_type}}
+
+      {{:ok, :put_var}, [_atom_idx]} ->
+        with {:ok, _type, state} <- pop_type(state) do
+          {:ok, {:continue, state, return_type}}
+        end
+
+      {{:ok, :put_var_init}, [_atom_idx]} ->
+        with {:ok, _type, state} <- pop_type(state) do
+          {:ok, {:continue, state, return_type}}
+        end
+
+      {{:ok, :define_func}, [_atom_idx, _flags]} ->
+        with {:ok, _type, state} <- pop_type(state) do
+          {:ok, {:continue, state, return_type}}
+        end
+
       {{:ok, name}, [slot_idx]}
       when name in [
              :put_loc,
@@ -376,6 +397,12 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
           {:ok, {:continue, next_state, return_type}}
         end
 
+      {{:ok, :regexp}, _} ->
+        with {:ok, _pattern_type, state} <- pop_type(state),
+             {:ok, _flags_type, state} <- pop_type(state) do
+          {:ok, {:continue, push_type(state, :unknown), return_type}}
+        end
+
       {{:ok, :dup2}, _} ->
         with {:ok, first, state} <- pop_type(state),
              {:ok, second, state} <- pop_type(state) do
@@ -383,6 +410,32 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
             state
             |> push_type(second)
             |> push_type(first)
+            |> push_type(second)
+            |> push_type(first)
+
+          {:ok, {:continue, next_state, return_type}}
+        end
+
+      {{:ok, :insert2}, _} ->
+        with {:ok, first, state} <- pop_type(state),
+             {:ok, second, state} <- pop_type(state) do
+          next_state =
+            state
+            |> push_type(first)
+            |> push_type(second)
+            |> push_type(first)
+
+          {:ok, {:continue, next_state, return_type}}
+        end
+
+      {{:ok, :insert3}, _} ->
+        with {:ok, first, state} <- pop_type(state),
+             {:ok, second, state} <- pop_type(state),
+             {:ok, third, state} <- pop_type(state) do
+          next_state =
+            state
+            |> push_type(first)
+            |> push_type(third)
             |> push_type(second)
             |> push_type(first)
 
@@ -398,6 +451,19 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
         with {:ok, first, state} <- pop_type(state),
              {:ok, second, state} <- pop_type(state) do
           {:ok, {:continue, state |> push_type(first) |> push_type(second), return_type}}
+        end
+
+      {{:ok, :perm3}, _} ->
+        with {:ok, first, state} <- pop_type(state),
+             {:ok, second, state} <- pop_type(state),
+             {:ok, third, state} <- pop_type(state) do
+          next_state =
+            state
+            |> push_type(second)
+            |> push_type(third)
+            |> push_type(first)
+
+          {:ok, {:continue, next_state, return_type}}
         end
 
       {{:ok, :nip_catch}, _} ->

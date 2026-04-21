@@ -604,6 +604,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
            State.block_jump_call_values(
              target,
              stack_depths,
+             State.ctx_expr(state),
              State.current_slots(state),
              [Builder.var("Caught#{idx}") | saved_stack],
              State.current_capture_cells(state)

@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
   alias QuickBEAM.VM.Compiler.Lowering.Captures
   alias QuickBEAM.VM.Compiler.Lowering.State
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
+  alias QuickBEAM.VM.{GlobalEnv}
   alias QuickBEAM.VM.Interpreter.Values
 
   @tdz :__tdz__
@@ -77,7 +78,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         {:ok, State.push(state, Builder.literal(""))}
 
       {{:ok, :object}, []} ->
-        {:ok, State.push(state, Builder.local_call(:op_new_object, [Builder.ctx_var()]), :object)}
+        {:ok,
+         State.push(state, Builder.local_call(:op_new_object, [State.ctx_expr(state)]), :object)}
 
       {{:ok, :array_from}, [argc]} ->
         State.array_from_call(state, argc)
@@ -94,11 +96,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       {{:ok, :fclosure8}, [const_idx]} ->
         lower_fclosure(state, constants, arg_count, const_idx)
 
+      {{:ok, :regexp}, []} ->
+        State.regexp_literal(state)
+
       {{:ok, :private_symbol}, [atom_idx]} ->
         {:ok,
          State.push(
            state,
-           Builder.compiler_call(:private_symbol, [
+           State.compiler_call(state, :private_symbol, [
              Builder.literal(Builder.atom_name(state, atom_idx))
            ]),
            :unknown
@@ -108,13 +113,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         {:ok, State.push(state, Builder.literal(Builder.atom_name(state, atom_idx)), :string)}
 
       {{:ok, :push_this}, []} ->
-        {:ok, State.push(state, Builder.compiler_call(:push_this, []), :object)}
+        {:ok, State.push(state, State.compiler_call(state, :push_this, []), :object)}
 
       {{:ok, :special_object}, [type]} ->
         {:ok,
          State.push(
            state,
-           Builder.compiler_call(:special_object, [Builder.literal(type)]),
+           State.compiler_call(state, :special_object, [Builder.literal(type)]),
            special_object_type(type)
          )}
 
@@ -134,14 +139,16 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         {:ok,
          State.push(
            state,
-           Builder.compiler_call(:get_var, [Builder.literal(Builder.atom_name(state, atom_idx))])
+           State.compiler_call(state, :get_var, [
+             Builder.literal(Builder.atom_name(state, atom_idx))
+           ])
          )}
 
       {{:ok, :get_var_undef}, [atom_idx]} ->
         {:ok,
          State.push(
            state,
-           Builder.compiler_call(:get_var_undef, [
+           State.compiler_call(state, :get_var_undef, [
              Builder.literal(Builder.atom_name(state, atom_idx))
            ])
          )}
@@ -209,14 +216,43 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
 
       {{:ok, name}, [idx]}
       when name in [:get_var_ref, :get_var_ref0, :get_var_ref1, :get_var_ref2, :get_var_ref3] ->
-        {:ok, State.push(state, Builder.compiler_call(:get_var_ref, [Builder.literal(idx)]))}
+        {:ok, State.push(state, State.compiler_call(state, :get_var_ref, [Builder.literal(idx)]))}
 
       {{:ok, :get_var_ref_check}, [idx]} ->
         {:ok,
-         State.push(state, Builder.compiler_call(:get_var_ref_check, [Builder.literal(idx)]))}
+         State.push(state, State.compiler_call(state, :get_var_ref_check, [Builder.literal(idx)]))}
 
       {{:ok, :set_loc_uninitialized}, [slot_idx]} ->
         {:ok, State.put_uninitialized_slot(state, slot_idx, Builder.atom(@tdz))}
+
+      {{:ok, :define_var}, [atom_idx, _scope]} ->
+        {:ok,
+         State.update_ctx(
+           state,
+           Builder.remote_call(GlobalEnv, :define_var, [
+             State.ctx_expr(state),
+             Builder.literal(atom_idx)
+           ])
+         )}
+
+      {{:ok, :check_define_var}, [atom_idx, _scope]} ->
+        {:ok,
+         State.update_ctx(
+           state,
+           Builder.remote_call(GlobalEnv, :check_define_var, [
+             State.ctx_expr(state),
+             Builder.literal(atom_idx)
+           ])
+         )}
+
+      {{:ok, :put_var}, [atom_idx]} ->
+        lower_put_var(state, atom_idx)
+
+      {{:ok, :put_var_init}, [atom_idx]} ->
+        lower_put_var(state, atom_idx)
+
+      {{:ok, :define_func}, [atom_idx, _flags]} ->
+        lower_put_var(state, atom_idx)
 
       {{:ok, :put_loc}, [slot_idx]} ->
         State.assign_slot(state, slot_idx, false)
@@ -312,11 +348,20 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       {{:ok, :dup2}, []} ->
         State.duplicate_top_two(state)
 
+      {{:ok, :insert2}, []} ->
+        State.insert_top_two(state)
+
+      {{:ok, :insert3}, []} ->
+        State.insert_top_three(state)
+
       {{:ok, :drop}, []} ->
         State.drop_top(state)
 
       {{:ok, :swap}, []} ->
         State.swap_top(state)
+
+      {{:ok, :perm3}, []} ->
+        State.permute_top_three(state)
 
       {{:ok, :neg}, []} ->
         State.unary_local_call(state, :op_neg)
@@ -583,7 +628,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
 
   defp lower_for_in_start(state) do
     with {:ok, obj, _type, state} <- State.pop_typed(state) do
-      {:ok, State.push(state, Builder.compiler_call(:for_in_start, [obj]), :unknown)}
+      {:ok, State.push(state, State.compiler_call(state, :for_in_start, [obj]), :unknown)}
     end
   end
 
@@ -594,7 +639,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
           State.bind(
             state,
             Builder.temp_name(state.temp),
-            Builder.compiler_call(:for_in_next, [iter])
+            State.compiler_call(state, :for_in_next, [iter])
           )
 
         state = %{
@@ -618,7 +663,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         State.bind(
           state,
           Builder.temp_name(state.temp),
-          Builder.compiler_call(:for_of_start, [obj])
+          State.compiler_call(state, :for_of_start, [obj])
         )
 
       state = State.push(state, Builder.tuple_element(pair, 1), :object)
@@ -635,7 +680,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         State.bind(
           state,
           Builder.temp_name(state.temp),
-          Builder.compiler_call(:for_of_next, [next_fn, iter_obj])
+          State.compiler_call(state, :for_of_next, [next_fn, iter_obj])
         )
 
       state = %{
@@ -656,7 +701,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
     with {:ok, _catch_offset, _catch_type, state} <- State.pop_typed(state),
          {:ok, _next_fn, _next_type, state} <- State.pop_typed(state),
          {:ok, iter_obj, _iter_type, state} <- State.pop_typed(state) do
-      {:ok, %{state | body: state.body ++ [Builder.compiler_call(:iterator_close, [iter_obj])]}}
+      {:ok,
+       %{state | body: state.body ++ [State.compiler_call(state, :iterator_close, [iter_obj])]}}
     end
   end
 
@@ -698,14 +744,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       State.bind(
         state,
         Builder.temp_name(state.temp),
-        Builder.local_call(:op_current_var_ref, [Builder.ctx_var(), Builder.literal(idx)])
+        Builder.local_call(:op_current_var_ref, [State.ctx_expr(state), Builder.literal(idx)])
       )
 
     {cell, state} =
       State.bind(
         state,
         Builder.temp_name(state.temp),
-        Builder.compiler_call(:ensure_capture_cell, [parent_ref, parent_ref])
+        State.compiler_call(state, :ensure_capture_cell, [parent_ref, parent_ref])
       )
 
     key = Builder.literal({cv.closure_type, cv.var_idx})
@@ -753,12 +799,27 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
     end
   end
 
+  defp lower_put_var(state, atom_idx) do
+    with {:ok, val, _type, state} <- State.pop_typed(state) do
+      {:ok,
+       State.update_ctx(
+         state,
+         Builder.remote_call(GlobalEnv, :put, [
+           State.ctx_expr(state),
+           Builder.literal(atom_idx),
+           val
+         ])
+       )}
+    end
+  end
+
   defp lower_put_var_ref(state, idx) do
     with {:ok, val, _type, state} <- State.pop_typed(state) do
       {:ok,
        %{
          state
-         | body: state.body ++ [Builder.compiler_call(:put_var_ref, [Builder.literal(idx), val])]
+         | body:
+             state.body ++ [State.compiler_call(state, :put_var_ref, [Builder.literal(idx), val])]
        }}
     end
   end
@@ -767,7 +828,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
     with {:ok, val, _type, state} <- State.pop_typed(state) do
       State.effectful_push(
         state,
-        Builder.compiler_call(:set_var_ref, [Builder.literal(idx), val])
+        State.compiler_call(state, :set_var_ref, [Builder.literal(idx), val])
       )
     end
   end
@@ -801,7 +862,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       if State.slot_initialized?(state, slot_idx) do
         slot_expr
       else
-        Builder.compiler_call(:ensure_initialized_local!, [slot_expr])
+        State.compiler_call(state, :ensure_initialized_local!, [slot_expr])
       end
 
     {:ok, State.push(state, expr, slot_type)}

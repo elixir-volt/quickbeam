@@ -77,6 +77,20 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 6} = Compiler.invoke(fun, [5])
     end
 
+    test "compiles top-level var declarations and writes", %{rt: rt} do
+      root = compile_and_decode(rt, "var x = 1; x = x + 2; x").value
+
+      assert {:ok, {_mod, :run_ctx}} = Compiler.compile(root)
+      assert {:ok, 3} = Compiler.invoke(root, [])
+    end
+
+    test "compiles top-level function declarations", %{rt: rt} do
+      root = compile_and_decode(rt, "function inc(x){ return x + 1 } inc(2)").value
+
+      assert {:ok, {_mod, :run_ctx}} = Compiler.compile(root)
+      assert {:ok, 3} = Compiler.invoke(root, [])
+    end
+
     test "compiled disasm skips TDZ helper after initialized unknown locals", %{rt: rt} do
       fun =
         compile_and_decode(rt, "(function(f){ const value = f(); return value + value })")
@@ -133,6 +147,12 @@ defmodule QuickBEAM.VM.CompilerTest do
         compile_and_decode(rt, "(function(obj){ const {x} = obj; return x })") |> user_function()
 
       assert {:ok, 7} = Compiler.invoke(fun, [Heap.wrap(%{"x" => 7})])
+    end
+
+    test "compiles regexp literals", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(){ return /a+/.test('aa') })") |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
     end
 
     test "compiles object field access", %{rt: rt} do

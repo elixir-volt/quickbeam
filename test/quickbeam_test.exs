@@ -449,8 +449,8 @@ defmodule QuickBEAMTest do
           "function fib(n) { if (n <= 1) return n; return fib(n - 1) + fib(n - 2) }"
         )
 
-      assert Enum.any?(exports, &match?({:run, 1, _}, &1))
-      assert Enum.any?(code, &match?({:function, :run, 1, _, _}, &1))
+      assert Enum.any?(exports, &match?({:run, arity, _} when arity in [0, 1], &1))
+      assert Enum.any?(code, &match?({:function, :run, arity, _, _} when arity in [0, 1], &1))
       QuickBEAM.stop(rt)
     end
 

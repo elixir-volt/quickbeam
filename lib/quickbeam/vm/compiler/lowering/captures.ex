@@ -8,7 +8,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Captures do
       State.bind(
         state,
         Builder.capture_name(idx, state.temp),
-        Builder.compiler_call(:ensure_capture_cell, [
+        State.compiler_call(state, :ensure_capture_cell, [
           State.capture_cell_expr(state, idx),
           State.slot_expr(state, idx)
         ])
@@ -22,7 +22,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Captures do
       State.bind(
         state,
         Builder.capture_name(idx, state.temp),
-        Builder.compiler_call(:close_capture_cell, [
+        State.compiler_call(state, :close_capture_cell, [
           State.capture_cell_expr(state, idx),
           State.slot_expr(state, idx)
         ])
@@ -38,7 +38,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Captures do
         | body:
             state.body ++
               [
-                Builder.compiler_call(:sync_capture_cell, [
+                State.compiler_call(state, :sync_capture_cell, [
                   State.capture_cell_expr(state, idx),
                   expr
                 ])
