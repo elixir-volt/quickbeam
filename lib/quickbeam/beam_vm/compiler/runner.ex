@@ -5,16 +5,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Runner do
   alias QuickBEAM.BeamVM.Compiler
   alias QuickBEAM.BeamVM.Interpreter.Context
 
-  @fast_ctx_keys [
-    :qb_ctx_atoms,
-    :qb_ctx_globals,
-    :qb_current_func,
-    :qb_arg_buf,
-    :qb_this,
-    :qb_new_target,
-    :qb_home_object_current,
-    :qb_super_current
-  ]
+  @fast_ctx_key :qb_fast_ctx
   @missing :__qb_missing__
 
   def invoke(%Bytecode.Function{} = fun, args), do: invoke_target(fun, fun, args, %{})
@@ -115,22 +106,25 @@ defmodule QuickBEAM.BeamVM.Compiler.Runner do
     end
   end
 
-  defp snapshot_fast_ctx do
-    Map.new(@fast_ctx_keys, fn key -> {key, Process.get(key, @missing)} end)
-  end
+  defp snapshot_fast_ctx, do: Process.get(@fast_ctx_key, @missing)
 
   defp put_fast_ctx(ctx) do
     current_func = Map.get(ctx, :current_func, :undefined)
     home_object = current_home_object(current_func)
 
-    Process.put(:qb_ctx_atoms, Map.get(ctx, :atoms, {}))
-    Process.put(:qb_ctx_globals, Map.get(ctx, :globals, %{}))
-    Process.put(:qb_current_func, current_func)
-    Process.put(:qb_arg_buf, Map.get(ctx, :arg_buf, {}))
-    Process.put(:qb_this, Map.get(ctx, :this, :undefined))
-    Process.put(:qb_new_target, Map.get(ctx, :new_target, :undefined))
-    Process.put(:qb_home_object_current, home_object)
-    Process.put(:qb_super_current, current_super(home_object))
+    Process.put(
+      @fast_ctx_key,
+      {
+        Map.get(ctx, :atoms, {}),
+        Map.get(ctx, :globals, %{}),
+        current_func,
+        Map.get(ctx, :arg_buf, {}),
+        Map.get(ctx, :this, :undefined),
+        Map.get(ctx, :new_target, :undefined),
+        home_object,
+        current_super(home_object)
+      }
+    )
   end
 
   defp current_home_object(current_func) do
@@ -144,12 +138,8 @@ defmodule QuickBEAM.BeamVM.Compiler.Runner do
   defp home_object_key(%Bytecode.Function{byte_code: byte_code}), do: byte_code
   defp home_object_key(_), do: nil
 
-  defp restore_fast_ctx(snapshot) do
-    Enum.each(snapshot, fn
-      {key, @missing} -> Process.delete(key)
-      {key, value} -> Process.put(key, value)
-    end)
-  end
+  defp restore_fast_ctx(@missing), do: Process.delete(@fast_ctx_key)
+  defp restore_fast_ctx(snapshot), do: Process.put(@fast_ctx_key, snapshot)
 
   defp normalize_args(args, arg_count) do
     args

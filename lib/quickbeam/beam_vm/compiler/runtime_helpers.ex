@@ -124,26 +124,48 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   end
 
   def special_object(type) do
-    current_func = current_func()
-    arg_buf = current_arg_buf()
+    case fast_ctx() do
+      {_atoms, _globals, current_func, arg_buf, _this, new_target, home_object, _super} ->
+        case type do
+          0 -> Heap.wrap(Tuple.to_list(arg_buf))
+          1 -> Heap.wrap(Tuple.to_list(arg_buf))
+          2 -> current_func
+          3 -> new_target
+          4 -> home_object
+          5 -> Heap.wrap(%{})
+          6 -> Heap.wrap(%{})
+          7 -> Heap.wrap(%{"__proto__" => nil})
+          _ -> :undefined
+        end
 
-    case type do
-      0 -> Heap.wrap(Tuple.to_list(arg_buf))
-      1 -> Heap.wrap(Tuple.to_list(arg_buf))
-      2 -> current_func
-      3 -> current_new_target()
-      4 -> current_home_object(current_func)
-      5 -> Heap.wrap(%{})
-      6 -> Heap.wrap(%{})
-      7 -> Heap.wrap(%{"__proto__" => nil})
-      _ -> :undefined
+      _ ->
+        current_func = current_func()
+        arg_buf = current_arg_buf()
+
+        case type do
+          0 -> Heap.wrap(Tuple.to_list(arg_buf))
+          1 -> Heap.wrap(Tuple.to_list(arg_buf))
+          2 -> current_func
+          3 -> current_new_target()
+          4 -> current_home_object(current_func)
+          5 -> Heap.wrap(%{})
+          6 -> Heap.wrap(%{})
+          7 -> Heap.wrap(%{"__proto__" => nil})
+          _ -> :undefined
+        end
     end
   end
 
   def get_super(func) do
-    case current_home_object(current_func()) do
-      ^func -> current_super()
-      _ -> Semantics.get_super(func)
+    case fast_ctx() do
+      {_atoms, _globals, _current_func, _arg_buf, _this, _new_target, ^func, super} ->
+        super
+
+      _ ->
+        case current_home_object(current_func()) do
+          ^func -> current_super()
+          _ -> Semantics.get_super(func)
+        end
     end
   end
 
@@ -737,8 +759,8 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   defp prototype_chain_contains?(_, _), do: false
 
   defp current_globals do
-    case Process.get(:qb_ctx_globals, :__missing__) do
-      globals when globals != :__missing__ ->
+    case fast_ctx() do
+      {_atoms, globals, _current_func, _arg_buf, _this, _new_target, _home_object, _super} ->
         globals
 
       _ ->
@@ -806,8 +828,8 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   end
 
   defp current_func do
-    case Process.get(:qb_current_func, :__missing__) do
-      current_func when current_func != :__missing__ ->
+    case fast_ctx() do
+      {_atoms, _globals, current_func, _arg_buf, _this, _new_target, _home_object, _super} ->
         current_func
 
       _ ->
@@ -819,8 +841,8 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   end
 
   defp current_home_object(current_func) do
-    case Process.get(:qb_home_object_current, :__missing__) do
-      home_object when home_object != :__missing__ ->
+    case fast_ctx() do
+      {_atoms, _globals, _current_func, _arg_buf, _this, _new_target, home_object, _super} ->
         home_object
 
       _ ->
@@ -829,8 +851,8 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   end
 
   defp current_super do
-    case Process.get(:qb_super_current, :__missing__) do
-      super when super != :__missing__ ->
+    case fast_ctx() do
+      {_atoms, _globals, _current_func, _arg_buf, _this, _new_target, _home_object, super} ->
         super
 
       _ ->
@@ -839,8 +861,8 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   end
 
   defp current_arg_buf do
-    case Process.get(:qb_arg_buf, :__missing__) do
-      arg_buf when arg_buf != :__missing__ ->
+    case fast_ctx() do
+      {_atoms, _globals, _current_func, arg_buf, _this, _new_target, _home_object, _super} ->
         arg_buf
 
       _ ->
@@ -852,8 +874,8 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   end
 
   defp current_this do
-    case Process.get(:qb_this, :__missing__) do
-      this when this != :__missing__ ->
+    case fast_ctx() do
+      {_atoms, _globals, _current_func, _arg_buf, this, _new_target, _home_object, _super} ->
         this
 
       _ ->
@@ -865,8 +887,8 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   end
 
   defp current_new_target do
-    case Process.get(:qb_new_target, :__missing__) do
-      new_target when new_target != :__missing__ ->
+    case fast_ctx() do
+      {_atoms, _globals, _current_func, _arg_buf, _this, new_target, _home_object, _super} ->
         new_target
 
       _ ->
@@ -879,8 +901,8 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   defp atom_name(atom_idx) do
     atoms =
-      case Process.get(:qb_ctx_atoms, :__missing__) do
-        atoms when atoms != :__missing__ ->
+      case fast_ctx() do
+        {atoms, _globals, _current_func, _arg_buf, _this, _new_target, _home_object, _super} ->
           atoms
 
         _ ->
@@ -892,4 +914,6 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
     Scope.resolve_atom(atoms, atom_idx)
   end
+
+  defp fast_ctx, do: Process.get(:qb_fast_ctx, :__missing__)
 end
