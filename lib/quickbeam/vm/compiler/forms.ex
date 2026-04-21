@@ -8,13 +8,13 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
   @line 1
 
-  def compile_module(module, entry, ctx_entry, arity, slot_count, block_forms) do
+  def compile_module(module, entry, ctx_entry, fun, arity, slot_count, block_forms) do
     forms = [
       {:attribute, @line, :module, module},
       {:attribute, @line, :export, [{entry, arity}, {ctx_entry, arity + 1}]},
       entry_form(entry, ctx_entry, arity),
       ctx_entry_form(ctx_entry, arity, slot_count)
-      | helper_forms() ++ block_forms
+      | helper_forms(fun) ++ block_forms
     ]
 
     case :compile.forms(forms, [:binary, :return_errors, :return_warnings]) do
@@ -47,7 +47,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     {:function, @line, ctx_entry, arity + 1, [{:clause, @line, args, [], body}]}
   end
 
-  defp helper_forms do
+  defp helper_forms(fun) do
     [
       add_helper(),
       guarded_binary_helper(:op_sub, :-, Values, :sub),
@@ -57,7 +57,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
       guarded_binary_helper(:op_lte, :"=<", Values, :lte),
       guarded_binary_helper(:op_gt, :>, Values, :gt),
       guarded_binary_helper(:op_gte, :>=, Values, :gte)
-      | invoke_var_ref_helpers() ++
+      | invoke_var_ref_helpers(fun) ++
           [
             new_object_helper(),
             define_field_helper(),
@@ -119,46 +119,70 @@ defmodule QuickBEAM.VM.Compiler.Forms do
      ]}
   end
 
-  defp invoke_var_ref_helpers do
+  defp invoke_var_ref_helpers(fun) do
     [
-      current_var_ref_helper(),
+      current_var_ref_helper(fun),
       current_var_ref_from_closure_helper(),
       read_var_ref_helper(),
-      get_var_ref_helper(),
-      get_var_ref_check_helper(),
+      get_var_ref_helper(fun),
+      get_var_ref_check_helper(fun),
       checked_var_ref_cell_helper(),
-      var_ref_error_message_helper(),
-      var_ref_is_this_helper(),
+      var_ref_error_message_helper(fun),
+      var_ref_is_this_helper(fun),
       var_ref_is_this_from_closure_helper(),
       derived_this_uninitialized_helper()
       | invoke_var_ref_runtime_helpers()
     ]
   end
 
-  defp current_var_ref_helper do
+  defp current_var_ref_helper(fun) do
     ctx = var("Ctx")
     idx = var("Idx")
     captured = var("Captured")
-    fun = var("Fun")
+    closure_fun = var("Fun")
+
+    clauses =
+      Enum.with_index(fun.closure_vars)
+      |> Enum.map(fn {cv, idx_value} ->
+        key = literal({cv.closure_type, cv.var_idx})
+        value = var("Val#{idx_value}")
+
+        {:clause, @line, [ctx, integer(idx_value)], [],
+         [
+           {:case, @line, remote_call(:maps, :get, [atom(:current_func), ctx]),
+            [
+              {:clause, @line, [tuple_expr([atom(:closure), captured, closure_fun])], [],
+               [
+                 {:case, @line, remote_call(:maps, :find, [key, captured]),
+                  [
+                    {:clause, @line, [tuple_expr([atom(:ok), value])], [], [value]},
+                    {:clause, @line, [atom(:error)], [], [atom(:undefined)]}
+                  ]}
+               ]},
+              {:clause, @line, [var(:_)], [], [atom(:undefined)]}
+            ]}
+         ]}
+      end)
 
     {:function, @line, :op_current_var_ref, 2,
-     [
-       {:clause, @line, [ctx, idx], [],
-        [
-          {:case, @line, remote_call(:maps, :get, [atom(:current_func), ctx]),
-           [
-             {:clause, @line, [tuple_expr([atom(:closure), captured, fun])], [],
-              [
-                local_call(:op_current_var_ref_from_closure, [
-                  captured,
-                  remote_call(:maps, :get, [atom(:closure_vars), fun]),
-                  idx
-                ])
-              ]},
-             {:clause, @line, [var(:_)], [], [atom(:undefined)]}
-           ]}
-        ]}
-     ]}
+     clauses ++
+       [
+         {:clause, @line, [ctx, idx], [],
+          [
+            {:case, @line, remote_call(:maps, :get, [atom(:current_func), ctx]),
+             [
+               {:clause, @line, [tuple_expr([atom(:closure), captured, closure_fun])], [],
+                [
+                  local_call(:op_current_var_ref_from_closure, [
+                    captured,
+                    remote_call(:maps, :get, [atom(:closure_vars), closure_fun]),
+                    idx
+                  ])
+                ]},
+               {:clause, @line, [var(:_)], [], [atom(:undefined)]}
+             ]}
+          ]}
+       ]}
   end
 
   defp current_var_ref_from_closure_helper do
@@ -204,43 +228,180 @@ defmodule QuickBEAM.VM.Compiler.Forms do
      ]}
   end
 
-  defp get_var_ref_helper do
+  defp get_var_ref_helper(fun) do
     ctx = var("Ctx")
     idx = var("Idx")
 
+    clauses =
+      Enum.with_index(fun.closure_vars)
+      |> Enum.map(fn {cv, idx_value} ->
+        {:clause, @line, [ctx, integer(idx_value)], [],
+         [read_var_ref_expr(capture_lookup_expr(ctx, literal({cv.closure_type, cv.var_idx})))]}
+      end)
+
     {:function, @line, :op_get_var_ref, 2,
-     [
-       {:clause, @line, [ctx, idx], [],
-        [local_call(:op_read_var_ref, [local_call(:op_current_var_ref, [ctx, idx])])]}
-     ]}
+     clauses ++
+       [
+         {:clause, @line, [ctx, idx], [],
+          [local_call(:op_read_var_ref, [local_call(:op_current_var_ref, [ctx, idx])])]}
+       ]}
   end
 
-  defp get_var_ref_check_helper do
+  defp get_var_ref_check_helper(fun) do
     ctx = var("Ctx")
     idx = var("Idx")
     val = var("Val")
     cell_ref = var("CellRef")
     cell_pattern = tuple_expr([atom(:cell), cell_ref])
+    atoms = Process.get({:qb_fn_atoms, fun.byte_code}, {})
+
+    clauses =
+      Enum.with_index(fun.closure_vars)
+      |> Enum.map(fn {cv, idx_value} ->
+        is_this = Names.resolve_display_name(Map.get(cv, :name), atoms) == "this"
+
+        {:clause, @line, [ctx, integer(idx_value)], [],
+         [
+           {:case, @line, capture_lookup_expr(ctx, literal({cv.closure_type, cv.var_idx})),
+            [
+              {:clause, @line, [atom(:__tdz__)], [], [tdz_error_expr(ctx, is_this)]},
+              {:clause, @line, [cell_pattern], [],
+               [checked_cell_expr(ctx, cell_pattern, is_this)]},
+              {:clause, @line, [val], [], [val]}
+            ]}
+         ]}
+      end)
 
     {:function, @line, :op_get_var_ref_check, 2,
+     clauses ++
+       [
+         {:clause, @line, [ctx, idx], [],
+          [
+            {:case, @line, local_call(:op_current_var_ref, [ctx, idx]),
+             [
+               {:clause, @line, [atom(:__tdz__)], [],
+                [
+                  throw_js(
+                    remote_call(Heap, :make_error, [
+                      local_call(:op_var_ref_error_message, [ctx, idx]),
+                      literal("ReferenceError")
+                    ])
+                  )
+                ]},
+               {:clause, @line, [cell_pattern], [],
+                [local_call(:op_checked_var_ref_cell, [ctx, idx, cell_pattern])]},
+               {:clause, @line, [val], [], [val]}
+             ]}
+          ]}
+       ]}
+  end
+
+  defp capture_lookup_expr(ctx, key) do
+    captured = var("CapturedLookup")
+    closure_fun = var("ClosureFunLookup")
+    value = var("CapturedValue")
+
+    {:case, @line, remote_call(:maps, :get, [atom(:current_func), ctx]),
      [
-       {:clause, @line, [ctx, idx], [],
+       {:clause, @line, [tuple_expr([atom(:closure), captured, closure_fun])], [],
         [
-          {:case, @line, local_call(:op_current_var_ref, [ctx, idx]),
+          {:case, @line, remote_call(:maps, :find, [key, captured]),
            [
-             {:clause, @line, [atom(:__tdz__)], [],
-              [
-                throw_js(
-                  remote_call(Heap, :make_error, [
-                    local_call(:op_var_ref_error_message, [ctx, idx]),
-                    literal("ReferenceError")
-                  ])
-                )
-              ]},
-             {:clause, @line, [cell_pattern], [],
-              [local_call(:op_checked_var_ref_cell, [ctx, idx, cell_pattern])]},
-             {:clause, @line, [val], [], [val]}
+             {:clause, @line, [tuple_expr([atom(:ok), value])], [], [value]},
+             {:clause, @line, [atom(:error)], [], [atom(:undefined)]}
            ]}
+        ]},
+       {:clause, @line, [var(:_)], [], [atom(:undefined)]}
+     ]}
+  end
+
+  defp read_var_ref_expr(expr) do
+    cell_ref = var("ReadCellRef")
+    cell_pattern = tuple_expr([atom(:cell), cell_ref])
+    value = var("ReadValue")
+
+    {:case, @line, expr,
+     [
+       {:clause, @line, [cell_pattern], [], [remote_call(Closures, :read_cell, [cell_pattern])]},
+       {:clause, @line, [value], [], [value]}
+     ]}
+  end
+
+  defp tdz_error_expr(ctx, true) do
+    {:case, @line, local_call(:op_derived_this_uninitialized, [ctx]),
+     [
+       {:clause, @line, [atom(true)], [],
+        [
+          throw_js(
+            remote_call(Heap, :make_error, [
+              literal("this is not initialized"),
+              literal("ReferenceError")
+            ])
+          )
+        ]},
+       {:clause, @line, [atom(false)], [],
+        [
+          throw_js(
+            remote_call(Heap, :make_error, [
+              literal("Cannot access variable before initialization"),
+              literal("ReferenceError")
+            ])
+          )
+        ]}
+     ]}
+  end
+
+  defp tdz_error_expr(_ctx, false) do
+    throw_js(
+      remote_call(Heap, :make_error, [
+        literal("Cannot access variable before initialization"),
+        literal("ReferenceError")
+      ])
+    )
+  end
+
+  defp checked_cell_expr(ctx, cell_pattern, true) do
+    val = var("CheckedCellVal")
+
+    {:block, @line,
+     [
+       {:match, @line, val, remote_call(Closures, :read_cell, [cell_pattern])},
+       {:case, @line,
+        {:op, @line, :andalso, {:op, @line, :==, val, atom(:__tdz__)},
+         local_call(:op_derived_this_uninitialized, [ctx])},
+        [
+          {:clause, @line, [atom(true)], [],
+           [
+             throw_js(
+               remote_call(Heap, :make_error, [
+                 literal("this is not initialized"),
+                 literal("ReferenceError")
+               ])
+             )
+           ]},
+          {:clause, @line, [atom(false)], [], [val]}
+        ]}
+     ]}
+  end
+
+  defp checked_cell_expr(_ctx, cell_pattern, false) do
+    val = var("CheckedCellVal")
+
+    {:block, @line,
+     [
+       {:match, @line, val, remote_call(Closures, :read_cell, [cell_pattern])},
+       {:case, @line, {:op, @line, :==, val, atom(:__tdz__)},
+        [
+          {:clause, @line, [atom(true)], [],
+           [
+             throw_js(
+               remote_call(Heap, :make_error, [
+                 literal("Cannot access variable before initialization"),
+                 literal("ReferenceError")
+               ])
+             )
+           ]},
+          {:clause, @line, [atom(false)], [], [val]}
         ]}
      ]}
   end
@@ -276,50 +437,83 @@ defmodule QuickBEAM.VM.Compiler.Forms do
      ]}
   end
 
-  defp var_ref_error_message_helper do
+  defp var_ref_error_message_helper(fun) do
     ctx = var("Ctx")
     idx = var("Idx")
 
+    clauses =
+      Enum.with_index(fun.closure_vars)
+      |> Enum.map(fn {cv, idx_value} ->
+        atoms = Process.get({:qb_fn_atoms, fun.byte_code}, {})
+        is_this = Names.resolve_display_name(Map.get(cv, :name), atoms) == "this"
+
+        body =
+          if is_this do
+            [
+              {:case, @line, local_call(:op_derived_this_uninitialized, [ctx]),
+               [
+                 {:clause, @line, [atom(true)], [], [literal("this is not initialized")]},
+                 {:clause, @line, [atom(false)], [],
+                  [literal("Cannot access variable before initialization")]}
+               ]}
+            ]
+          else
+            [literal("Cannot access variable before initialization")]
+          end
+
+        {:clause, @line, [ctx, integer(idx_value)], [], body}
+      end)
+
     {:function, @line, :op_var_ref_error_message, 2,
-     [
-       {:clause, @line, [ctx, idx], [],
-        [
-          {:case, @line,
-           {:op, @line, :andalso, local_call(:op_var_ref_is_this, [ctx, idx]),
-            local_call(:op_derived_this_uninitialized, [ctx])},
-           [
-             {:clause, @line, [atom(true)], [], [literal("this is not initialized")]},
-             {:clause, @line, [atom(false)], [],
-              [literal("Cannot access variable before initialization")]}
-           ]}
-        ]}
-     ]}
+     clauses ++
+       [
+         {:clause, @line, [ctx, idx], [],
+          [
+            {:case, @line,
+             {:op, @line, :andalso, local_call(:op_var_ref_is_this, [ctx, idx]),
+              local_call(:op_derived_this_uninitialized, [ctx])},
+             [
+               {:clause, @line, [atom(true)], [], [literal("this is not initialized")]},
+               {:clause, @line, [atom(false)], [],
+                [literal("Cannot access variable before initialization")]}
+             ]}
+          ]}
+       ]}
   end
 
-  defp var_ref_is_this_helper do
+  defp var_ref_is_this_helper(fun) do
     ctx = var("Ctx")
     idx = var("Idx")
     captured = var("Captured")
-    fun = var("Fun")
+    closure_fun = var("Fun")
+    atoms = Process.get({:qb_fn_atoms, fun.byte_code}, {})
+
+    clauses =
+      Enum.with_index(fun.closure_vars)
+      |> Enum.map(fn {cv, idx_value} ->
+        is_this = Names.resolve_display_name(Map.get(cv, :name), atoms) == "this"
+        {:clause, @line, [ctx, integer(idx_value)], [], [atom(is_this)]}
+      end)
 
     {:function, @line, :op_var_ref_is_this, 2,
-     [
-       {:clause, @line, [ctx, idx], [],
-        [
-          {:case, @line, remote_call(:maps, :get, [atom(:current_func), ctx]),
-           [
-             {:clause, @line, [tuple_expr([atom(:closure), captured, fun])], [],
-              [
-                local_call(:op_var_ref_is_this_from_closure, [
-                  remote_call(:maps, :get, [atom(:closure_vars), fun]),
-                  remote_call(:maps, :get, [atom(:atoms), ctx]),
-                  idx
-                ])
-              ]},
-             {:clause, @line, [var(:_)], [], [atom(false)]}
-           ]}
-        ]}
-     ]}
+     clauses ++
+       [
+         {:clause, @line, [ctx, idx], [],
+          [
+            {:case, @line, remote_call(:maps, :get, [atom(:current_func), ctx]),
+             [
+               {:clause, @line, [tuple_expr([atom(:closure), captured, closure_fun])], [],
+                [
+                  local_call(:op_var_ref_is_this_from_closure, [
+                    remote_call(:maps, :get, [atom(:closure_vars), closure_fun]),
+                    remote_call(:maps, :get, [atom(:atoms), ctx]),
+                    idx
+                  ])
+                ]},
+               {:clause, @line, [var(:_)], [], [atom(false)]}
+             ]}
+          ]}
+       ]}
   end
 
   defp var_ref_is_this_from_closure_helper do

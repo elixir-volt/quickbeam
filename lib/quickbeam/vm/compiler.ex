@@ -65,7 +65,15 @@ defmodule QuickBEAM.VM.Compiler do
          optimized = Optimizer.optimize(instructions, fun.constants),
          {:ok, {slot_count, block_forms}} <- Lowering.lower(fun, optimized),
          {:ok, _module, binary} <-
-           Forms.compile_module(module, entry, ctx_entry, fun.arg_count, slot_count, block_forms) do
+           Forms.compile_module(
+             module,
+             entry,
+             ctx_entry,
+             fun,
+             fun.arg_count,
+             slot_count,
+             block_forms
+           ) do
       {:ok, module, ctx_entry, binary}
     end
   end
