@@ -1,8 +1,7 @@
 defmodule QuickBEAM.BeamVM.Runtime do
   @moduledoc "Shared helpers for the BEAM JS runtime: coercion, callbacks, object creation."
 
-  alias QuickBEAM.BeamVM.{Builtin, Bytecode, Interpreter}
-  alias QuickBEAM.BeamVM.Heap
+  alias QuickBEAM.BeamVM.{Heap, Invocation}
   alias QuickBEAM.BeamVM.Interpreter.{Context, Values}
   alias QuickBEAM.BeamVM.Runtime.Globals
 
@@ -15,22 +14,7 @@ defmodule QuickBEAM.BeamVM.Runtime do
 
   # ── Callback dispatch (used by higher-order array methods) ──
 
-  def call_callback(fun, args) do
-    case fun do
-      %Bytecode.Function{} = f ->
-        Interpreter.invoke(f, args, gas_budget())
-
-      {:closure, _, %Bytecode.Function{}} = c ->
-        Interpreter.invoke(c, args, gas_budget())
-
-      other ->
-        try do
-          Builtin.call(other, args, nil)
-        catch
-          {:js_throw, _} -> :undefined
-        end
-    end
-  end
+  def call_callback(fun, args), do: Invocation.call_callback(fun, args)
 
   def gas_budget do
     case Heap.get_ctx() do

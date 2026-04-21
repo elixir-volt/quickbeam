@@ -16,9 +16,7 @@ defmodule QuickBEAM.BeamVM.Heap do
     - `{:qb_var, name}` — global variable bindings
   """
 
-  import QuickBEAM.BeamVM.Heap.Keys
-
-  alias QuickBEAM.BeamVM.Interpreter.Context
+  alias QuickBEAM.BeamVM.Heap.{Async, Caches, Context, Registry, Store}
 
   @compile {:inline,
             get_obj: 1,
@@ -139,279 +137,78 @@ defmodule QuickBEAM.BeamVM.Heap do
 
   # ── Objects ──
 
-  def get_obj(ref), do: Process.get({:qb_obj, ref})
-  def get_obj(ref, default), do: Process.get({:qb_obj, ref}, default)
-
-  def put_obj(ref, list) when is_list(list) do
-    Process.put({:qb_obj, ref}, {:qb_arr, :array.from_list(list, :undefined)})
-    track_alloc()
-  end
-
-  def put_obj(ref, val) do
-    Process.put({:qb_obj, ref}, val)
-    track_alloc()
-  end
-
-  def put_obj_key(ref, key, val) do
-    map = get_obj(ref, %{})
-
-    if is_map(map) do
-      new_map =
-        if not Map.has_key?(map, key) and (is_binary(key) or is_integer(key)) do
-          order = Map.get(map, key_order(), [])
-          Map.put(Map.put(map, key, val), key_order(), [key | order])
-        else
-          Map.put(map, key, val)
-        end
-
-      Process.put({:qb_obj, ref}, new_map)
-    else
-      Process.put({:qb_obj, ref}, val)
-    end
-  end
-
-  def update_obj(ref, default, fun) do
-    Process.put({:qb_obj, ref}, fun.(Process.get({:qb_obj, ref}, default)))
-  end
+  defdelegate get_obj(ref), to: Store
+  defdelegate get_obj(ref, default), to: Store
+  defdelegate put_obj(ref, value), to: Store
+  defdelegate put_obj_key(ref, key, value), to: Store
+  defdelegate update_obj(ref, default, fun), to: Store
 
   # ── Array helpers ──
 
-  def obj_is_array?(ref) do
-    case Process.get({:qb_obj, ref}) do
-      {:qb_arr, _} -> true
-      _ -> false
-    end
-  end
-
-  def obj_to_list(ref) do
-    case Process.get({:qb_obj, ref}) do
-      {:qb_arr, arr} -> :array.to_list(arr)
-      list when is_list(list) -> list
-      _ -> []
-    end
-  end
-
-  def array_get(ref, idx) do
-    case Process.get({:qb_obj, ref}) do
-      {:qb_arr, arr} when idx >= 0 ->
-        if idx < :array.size(arr), do: :array.get(idx, arr), else: :undefined
-
-      _ ->
-        :undefined
-    end
-  end
-
-  def array_size(ref) do
-    case Process.get({:qb_obj, ref}) do
-      {:qb_arr, arr} -> :array.size(arr)
-      list when is_list(list) -> length(list)
-      _ -> 0
-    end
-  end
-
-  def array_push(ref, values) do
-    case Process.get({:qb_obj, ref}) do
-      {:qb_arr, arr} ->
-        new_arr =
-          Enum.reduce(values, {:array.size(arr), arr}, fn v, {i, a} ->
-            {i + 1, :array.set(i, v, a)}
-          end)
-          |> elem(1)
-
-        Process.put({:qb_obj, ref}, {:qb_arr, new_arr})
-        :array.size(new_arr)
-
-      _ ->
-        0
-    end
-  end
-
-  def array_set(ref, idx, val) do
-    case Process.get({:qb_obj, ref}) do
-      {:qb_arr, arr} ->
-        Process.put({:qb_obj, ref}, {:qb_arr, :array.set(idx, val, arr)})
-
-      _ ->
-        :ok
-    end
-  end
+  defdelegate obj_is_array?(ref), to: Store
+  defdelegate obj_to_list(ref), to: Store
+  defdelegate array_get(ref, idx), to: Store
+  defdelegate array_size(ref), to: Store
+  defdelegate array_push(ref, values), to: Store
+  defdelegate array_set(ref, idx, value), to: Store
 
   # ── Closure cells ──
 
-  def get_cell(ref), do: Process.get({:qb_cell, ref}, :undefined)
-  def put_cell(ref, val), do: Process.put({:qb_cell, ref}, val)
+  defdelegate get_cell(ref), to: Store
+  defdelegate put_cell(ref, value), to: Store
 
   # ── Class metadata ──
 
-  def get_class_proto({:closure, _, raw} = ctor) do
-    Process.get({:qb_class_proto, ctor}) ||
-      Process.get({:qb_class_proto, raw})
-  end
-
-  def get_class_proto(ctor), do: Process.get({:qb_class_proto, ctor})
-
-  def put_class_proto(ctor, proto),
-    do: Process.put({:qb_class_proto, ctor}, proto)
-
-  def get_parent_ctor({:closure, _, raw} = ctor) do
-    Process.get({:qb_parent_ctor, ctor}) ||
-      Process.get({:qb_parent_ctor, raw})
-  end
-
-  def get_parent_ctor(ctor), do: Process.get({:qb_parent_ctor, ctor})
-
-  def put_parent_ctor(ctor, parent),
-    do: Process.put({:qb_parent_ctor, ctor}, parent)
-
-  def delete_parent_ctor(ctor), do: Process.delete({:qb_parent_ctor, ctor})
-
-  # ── Constructor statics ──
-
-  def get_ctor_statics(ctor), do: Process.get({:qb_ctor_statics, ctor}, %{})
-
-  def put_ctor_statics(ctor, statics),
-    do: Process.put({:qb_ctor_statics, ctor}, statics)
-
-  def put_ctor_static(ctor, key, val) do
-    statics = get_ctor_statics(ctor)
-    put_ctor_statics(ctor, Map.put(statics, key, val))
-  end
-
-  # ── Variable bindings ──
-
-  def get_var(name), do: Process.get({:qb_var, name})
-  def put_var(name, val), do: Process.put({:qb_var, name}, val)
-  def delete_var(name), do: Process.delete({:qb_var, name})
+  defdelegate get_class_proto(ctor), to: Store
+  defdelegate put_class_proto(ctor, proto), to: Store
+  defdelegate get_parent_ctor(ctor), to: Store
+  defdelegate put_parent_ctor(ctor, parent), to: Store
+  defdelegate delete_parent_ctor(ctor), to: Store
+  defdelegate get_ctor_statics(ctor), to: Store
+  defdelegate put_ctor_statics(ctor, statics), to: Store
+  defdelegate put_ctor_static(ctor, key, value), to: Store
+  defdelegate get_var(name), to: Store
+  defdelegate put_var(name, value), to: Store
+  defdelegate delete_var(name), to: Store
 
   # ── Interpreter context ──
 
-  def get_ctx do
-    case Process.get(:qb_ctx, :__qb_missing__) do
-      :__qb_missing__ ->
-        case Process.get(:qb_fast_ctx, :__qb_missing__) do
-          {atoms, globals, current_func, arg_buf, this, new_target, home_object, super} ->
-            %Context{
-              atoms: atoms,
-              globals: globals,
-              current_func: current_func,
-              arg_buf: arg_buf,
-              this: this,
-              new_target: new_target,
-              home_object: home_object,
-              super: super
-            }
-
-          _ ->
-            nil
-        end
-
-      ctx ->
-        ctx
-    end
-  end
-
-  def put_ctx(nil), do: Process.delete(:qb_ctx)
-  def put_ctx(ctx), do: Process.put(:qb_ctx, ctx)
-
-  # ── Bytecode decode cache ──
-
-  def get_decoded(byte_code), do: Process.get({:qb_decoded, byte_code})
-  def put_decoded(byte_code, insns), do: Process.put({:qb_decoded, byte_code}, insns)
-
-  # ── Compiled function cache ──
-
-  def get_compiled(key), do: Process.get({:qb_compiled, key})
-  def put_compiled(key, compiled), do: Process.put({:qb_compiled, key}, compiled)
-
-  # ── Frozen objects ──
-
-  def frozen?(ref), do: Process.get({:qb_frozen, ref}, false)
-  def freeze(ref), do: Process.put({:qb_frozen, ref}, true)
-
-  # ── Property descriptors ──
-
-  def get_prop_desc(ref, key), do: Process.get({:qb_prop_desc, ref, key})
-  def put_prop_desc(ref, key, desc), do: Process.put({:qb_prop_desc, ref, key}, desc)
-
-  # ── Singleton state ──
-
-  def get_object_prototype, do: Process.get(:qb_object_prototype)
-  def put_object_prototype(proto), do: Process.put(:qb_object_prototype, proto)
-
-  def get_global_cache, do: Process.get(:qb_global_bindings_cache)
-  def put_global_cache(bindings), do: Process.put(:qb_global_bindings_cache, bindings)
-
-  def get_atoms, do: Process.get(:qb_atoms, {})
-  def put_atoms(atoms), do: Process.put(:qb_atoms, atoms)
-
-  def get_persistent_globals, do: Process.get(:qb_persistent_globals, %{})
-  def put_persistent_globals(globals), do: Process.put(:qb_persistent_globals, globals)
-
-  def get_handler_globals, do: Process.get(:qb_handler_globals)
-  def put_handler_globals(globals), do: Process.put(:qb_handler_globals, globals)
-
-  def get_runtime_mode(runtime), do: Process.get({:qb_runtime_mode, runtime})
-  def put_runtime_mode(runtime, mode), do: Process.put({:qb_runtime_mode, runtime}, mode)
-
-  # ── Microtask queue ──
-
-  def enqueue_microtask(task) do
-    queue = Process.get(:qb_microtask_queue, :queue.new())
-    Process.put(:qb_microtask_queue, :queue.in(task, queue))
-  end
-
-  def dequeue_microtask do
-    queue = Process.get(:qb_microtask_queue, :queue.new())
-
-    case :queue.out(queue) do
-      {{:value, task}, rest} ->
-        Process.put(:qb_microtask_queue, rest)
-        task
-
-      {:empty, _} ->
-        nil
-    end
-  end
-
-  # ── Promise waiters ──
-
-  def get_promise_waiters(ref), do: Process.get({:qb_promise_waiters, ref}, [])
-  def put_promise_waiters(ref, waiters), do: Process.put({:qb_promise_waiters, ref}, waiters)
-  def delete_promise_waiters(ref), do: Process.delete({:qb_promise_waiters, ref})
-
-  # ── Module registry ──
-
-  def register_module(name, exports) do
-    Process.put({:qb_module, name}, exports)
-    existing = Process.get(:qb_module_list, [])
-    unless name in existing, do: Process.put(:qb_module_list, [name | existing])
-  end
-
-  def get_module(name), do: Process.get({:qb_module, name})
-
-  def all_module_exports do
-    Process.get(:qb_module_list, [])
-    |> Enum.map(&Process.get({:qb_module, &1}))
-    |> Enum.reject(&is_nil/1)
-  end
-
-  # ── Symbol registry ──
-
-  def get_symbol(key), do: Process.get({:qb_symbol_registry, key})
-  def put_symbol(key, sym), do: Process.put({:qb_symbol_registry, key}, sym)
+  defdelegate get_ctx(), to: Context
+  defdelegate put_ctx(ctx), to: Context
+  defdelegate get_decoded(byte_code), to: Caches
+  defdelegate put_decoded(byte_code, instructions), to: Caches
+  defdelegate get_compiled(key), to: Caches
+  defdelegate put_compiled(key, compiled), to: Caches
+  defdelegate frozen?(ref), to: Store
+  defdelegate freeze(ref), to: Store
+  defdelegate get_prop_desc(ref, key), to: Store
+  defdelegate put_prop_desc(ref, key, desc), to: Store
+  defdelegate get_object_prototype(), to: Context
+  defdelegate put_object_prototype(proto), to: Context
+  defdelegate get_global_cache(), to: Context
+  defdelegate put_global_cache(bindings), to: Context
+  defdelegate get_atoms(), to: Context
+  defdelegate put_atoms(atoms), to: Context
+  defdelegate get_persistent_globals(), to: Context
+  defdelegate put_persistent_globals(globals), to: Context
+  defdelegate get_handler_globals(), to: Context
+  defdelegate put_handler_globals(globals), to: Context
+  defdelegate get_runtime_mode(runtime), to: Context
+  defdelegate put_runtime_mode(runtime, mode), to: Context
+  defdelegate enqueue_microtask(task), to: Async
+  defdelegate dequeue_microtask(), to: Async
+  defdelegate get_promise_waiters(ref), to: Async
+  defdelegate put_promise_waiters(ref, waiters), to: Async
+  defdelegate delete_promise_waiters(ref), to: Async
+  defdelegate register_module(name, exports), to: Registry
+  defdelegate get_module(name), to: Registry
+  defdelegate all_module_exports(), to: Registry
+  defdelegate get_symbol(key), to: Registry
+  defdelegate put_symbol(key, sym), to: Registry
 
   # ── Garbage collection ──
 
   @gc_initial_threshold 5_000
-
-  defp track_alloc do
-    count = Process.get(:qb_alloc_count, 0) + 1
-    Process.put(:qb_alloc_count, count)
-
-    if count >= Process.get(:qb_gc_threshold, @gc_initial_threshold) do
-      Process.put(:qb_gc_needed, true)
-    end
-  end
 
   def gc_needed?, do: Process.get(:qb_gc_needed, false)
 

@@ -2,6 +2,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
   @moduledoc false
 
   alias QuickBEAM.BeamVM.Compiler.{Analysis, RuntimeHelpers}
+  alias QuickBEAM.BeamVM.Compiler.Analysis.Types
   alias QuickBEAM.BeamVM.Compiler.Lowering.State
   alias QuickBEAM.BeamVM.Interpreter.Values
 
@@ -657,7 +658,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
   defp lower_fclosure(state, constants, arg_count, const_idx) do
     case Enum.at(constants, const_idx) do
       %QuickBEAM.BeamVM.Bytecode.Function{closure_vars: []} = fun ->
-        {:ok, State.push(state, State.literal(fun), Analysis.function_type(fun))}
+        {:ok, State.push(state, State.literal(fun), Types.function_type(fun))}
 
       %QuickBEAM.BeamVM.Bytecode.Function{} = fun ->
         with {:ok, state, entries} <-
@@ -669,7 +670,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
               State.literal(fun)
             ])
 
-          {:ok, State.push(state, closure, Analysis.function_type(fun))}
+          {:ok, State.push(state, closure, Types.function_type(fun))}
         end
 
       nil ->
@@ -713,7 +714,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         {:ok, State.push(state, State.atom(:undefined), :undefined)}
 
       %QuickBEAM.BeamVM.Bytecode.Function{} = fun when fun.closure_vars == [] ->
-        {:ok, State.push(state, State.literal(fun), Analysis.function_type(fun))}
+        {:ok, State.push(state, State.literal(fun), Types.function_type(fun))}
 
       %QuickBEAM.BeamVM.Bytecode.Function{} ->
         lower_fclosure(state, constants, arg_count, idx)

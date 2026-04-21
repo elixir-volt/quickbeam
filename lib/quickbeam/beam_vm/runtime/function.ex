@@ -1,8 +1,6 @@
 defmodule QuickBEAM.BeamVM.Runtime.Function do
   @moduledoc false
-  alias QuickBEAM.BeamVM.{Builtin, Bytecode, Heap}
-  alias QuickBEAM.BeamVM.Interpreter
-  alias QuickBEAM.BeamVM.Runtime
+  alias QuickBEAM.BeamVM.{Builtin, Bytecode, Heap, Invocation}
 
   # ── Function prototype ──
 
@@ -96,20 +94,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Function do
   defp invoke_fun(fun, args, this_arg) do
     case fun do
       %Bytecode.Function{} ->
-        Interpreter.invoke_with_receiver(
-          fun,
-          args,
-          Runtime.gas_budget(),
-          this_arg
-        )
+        Invocation.invoke_with_receiver(fun, args, this_arg)
 
       {:closure, _, %Bytecode.Function{}} ->
-        Interpreter.invoke_with_receiver(
-          fun,
-          args,
-          Runtime.gas_budget(),
-          this_arg
-        )
+        Invocation.invoke_with_receiver(fun, args, this_arg)
 
       other ->
         Builtin.call(other, args, this_arg)

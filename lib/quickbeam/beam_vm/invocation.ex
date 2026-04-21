@@ -1,0 +1,272 @@
+defmodule QuickBEAM.BeamVM.Invocation do
+  @moduledoc false
+
+  import QuickBEAM.BeamVM.Heap.Keys, only: [proto: 0]
+
+  alias QuickBEAM.BeamVM.{Builtin, Bytecode, Compiler, Heap, Runtime}
+  alias QuickBEAM.BeamVM.Compiler.Runner
+  alias QuickBEAM.BeamVM.Interpreter
+  alias QuickBEAM.BeamVM.Interpreter.Context
+  alias QuickBEAM.BeamVM.Invocation.Context, as: InvokeContext
+  alias QuickBEAM.BeamVM.ObjectModel.{Class, Get}
+
+  def invoke(fun, args, gas \\ Runtime.gas_budget())
+
+  def invoke(%Bytecode.Function{} = fun, args, gas) do
+    case Compiler.invoke(fun, args) do
+      {:ok, result} -> result
+      :error -> Interpreter.invoke_function_fallback(fun, args, gas, active_ctx())
+    end
+  end
+
+  def invoke({:closure, _, %Bytecode.Function{}} = closure, args, gas),
+    do: Interpreter.invoke_closure_fallback(closure, args, gas, active_ctx())
+
+  def invoke(other, args, _gas) when not is_tuple(other) or elem(other, 0) != :bound,
+    do: Builtin.call(other, args, nil)
+
+  def invoke({:bound, _, inner, _, _}, args, gas), do: invoke(inner, args, gas)
+
+  def invoke_with_receiver(fun, args, this_obj),
+    do: invoke_with_receiver(fun, args, Runtime.gas_budget(), this_obj)
+
+  def invoke_with_receiver(fun, args, gas, this_obj) do
+    prev = Heap.get_ctx()
+    Heap.put_ctx(%{active_ctx() | this: this_obj} |> InvokeContext.attach_method_state())
+
+    try do
+      invoke_receiver_target(fun, args, gas, this_obj)
+    after
+      if prev, do: Heap.put_ctx(prev), else: Heap.put_ctx(nil)
+    end
+  end
+
+  def invoke_constructor(fun, args, this_obj, new_target),
+    do: invoke_constructor(fun, args, Runtime.gas_budget(), this_obj, new_target)
+
+  def invoke_constructor(fun, args, gas, this_obj, new_target) do
+    prev = Heap.get_ctx()
+
+    ctor_ctx =
+      %{active_ctx() | this: this_obj, new_target: new_target}
+      |> InvokeContext.attach_method_state()
+
+    Heap.put_ctx(ctor_ctx)
+
+    try do
+      dispatch(fun, args, gas, ctor_ctx, this_obj)
+    after
+      if prev, do: Heap.put_ctx(prev), else: Heap.put_ctx(nil)
+    end
+  end
+
+  def dispatch(fun, args, gas, ctx, this) do
+    case fun do
+      %Bytecode.Function{} = bytecode_fun ->
+        Interpreter.invoke_function_fallback(bytecode_fun, args, gas, ctx)
+
+      {:closure, _, %Bytecode.Function{}} = closure ->
+        Interpreter.invoke_closure_fallback(closure, args, gas, ctx)
+
+      {:bound, _, inner, _, _} ->
+        invoke(inner, args, gas)
+
+      other ->
+        Builtin.call(other, args, this)
+    end
+  end
+
+  def call_callback(fun, args) do
+    case fun do
+      %Bytecode.Function{} = bytecode_fun ->
+        invoke(bytecode_fun, args, Runtime.gas_budget())
+
+      {:closure, _, %Bytecode.Function{}} = closure ->
+        invoke(closure, args, Runtime.gas_budget())
+
+      other ->
+        try do
+          Builtin.call(other, args, nil)
+        catch
+          {:js_throw, _} -> :undefined
+        end
+    end
+  end
+
+  def invoke_callback(fun, args) do
+    case fun do
+      %Bytecode.Function{} = bytecode_fun ->
+        Interpreter.invoke_function_fallback(bytecode_fun, args, active_ctx().gas, active_ctx())
+
+      {:closure, _, %Bytecode.Function{}} = closure ->
+        Interpreter.invoke_closure_fallback(closure, args, active_ctx().gas, active_ctx())
+
+      _ ->
+        try do
+          Builtin.call(fun, args, nil)
+        catch
+          {:js_throw, _} -> List.first(args, :undefined)
+        end
+    end
+  end
+
+  def invoke_runtime(fun, args) do
+    case fun do
+      %Bytecode.Function{} = bytecode_fun ->
+        case Runner.invoke(bytecode_fun, args) do
+          {:ok, value} -> value
+          :error -> invoke(bytecode_fun, args, Runtime.gas_budget())
+        end
+
+      {:closure, _, %Bytecode.Function{} = inner} = closure ->
+        if compiled_closure_callable?(inner) do
+          case Runner.invoke(closure, args) do
+            {:ok, value} -> value
+            :error -> invoke(closure, args, Runtime.gas_budget())
+          end
+        else
+          invoke(closure, args, Runtime.gas_budget())
+        end
+
+      {:bound, _, inner, _, _} ->
+        invoke_runtime(inner, args)
+
+      other ->
+        Builtin.call(other, args, nil)
+    end
+  end
+
+  def invoke_method_runtime(fun, this_obj, args) do
+    case fun do
+      %Bytecode.Function{} = bytecode_fun ->
+        if compiled_method_callable?(bytecode_fun, this_obj) do
+          case Runner.invoke_with_receiver(bytecode_fun, args, this_obj) do
+            {:ok, value} -> value
+            :error -> invoke_with_receiver(bytecode_fun, args, Runtime.gas_budget(), this_obj)
+          end
+        else
+          invoke_with_receiver(bytecode_fun, args, Runtime.gas_budget(), this_obj)
+        end
+
+      {:closure, _, %Bytecode.Function{} = inner} = closure ->
+        if compiled_method_callable?(inner, this_obj) do
+          case Runner.invoke_with_receiver(closure, args, this_obj) do
+            {:ok, value} -> value
+            :error -> invoke_with_receiver(closure, args, Runtime.gas_budget(), this_obj)
+          end
+        else
+          invoke_with_receiver(closure, args, Runtime.gas_budget(), this_obj)
+        end
+
+      {:bound, _, inner, _, _} ->
+        invoke_method_runtime(inner, this_obj, args)
+
+      other ->
+        Builtin.call(other, args, this_obj)
+    end
+  end
+
+  def construct_runtime(ctor, new_target, args) do
+    raw_ctor = unwrap_constructor_target(ctor)
+    raw_new_target = unwrap_new_target(new_target)
+
+    ctor_proto =
+      constructor_prototype(raw_new_target) || constructor_prototype(raw_ctor) ||
+        Heap.get_object_prototype()
+
+    init = if ctor_proto, do: %{proto() => ctor_proto}, else: %{}
+    this_obj = Heap.wrap(init)
+
+    result =
+      case ctor do
+        %Bytecode.Function{} = fun ->
+          case Runner.invoke_constructor(fun, args, this_obj, new_target) do
+            {:ok, value} -> value
+            :error -> invoke_constructor(fun, args, Runtime.gas_budget(), this_obj, new_target)
+          end
+
+        {:closure, _, %Bytecode.Function{}} = closure ->
+          case Runner.invoke_constructor(closure, args, this_obj, new_target) do
+            {:ok, value} ->
+              value
+
+            :error ->
+              invoke_constructor(closure, args, Runtime.gas_budget(), this_obj, new_target)
+          end
+
+        {:bound, _, _inner, orig_fun, bound_args} ->
+          construct_runtime(orig_fun, new_target, bound_args ++ args)
+
+        {:builtin, _name, cb} when is_function(cb, 2) ->
+          cb.(args, this_obj)
+
+        _ ->
+          this_obj
+      end
+
+    Class.coalesce_this_result(result, this_obj)
+  end
+
+  defp active_ctx do
+    case Heap.get_ctx() do
+      nil -> %Context{atoms: Heap.get_atoms()}
+      ctx -> ctx
+    end
+  end
+
+  defp invoke_receiver_target(%Bytecode.Function{} = fun, args, gas, this_obj) do
+    if compiled_method_callable?(fun, this_obj) do
+      case Runner.invoke_with_receiver(fun, args, this_obj) do
+        {:ok, value} -> value
+        :error -> Interpreter.invoke_function_fallback(fun, args, gas, Heap.get_ctx())
+      end
+    else
+      Interpreter.invoke_function_fallback(fun, args, gas, Heap.get_ctx())
+    end
+  end
+
+  defp invoke_receiver_target(
+         {:closure, _, %Bytecode.Function{} = inner} = closure,
+         args,
+         gas,
+         this_obj
+       ) do
+    if compiled_method_callable?(inner, this_obj) do
+      case Runner.invoke_with_receiver(closure, args, this_obj) do
+        {:ok, value} -> value
+        :error -> Interpreter.invoke_closure_fallback(closure, args, gas, Heap.get_ctx())
+      end
+    else
+      Interpreter.invoke_closure_fallback(closure, args, gas, Heap.get_ctx())
+    end
+  end
+
+  defp invoke_receiver_target(other, args, gas, this_obj),
+    do: dispatch(other, args, gas, Heap.get_ctx(), this_obj)
+
+  defp compiled_closure_callable?(%Bytecode.Function{need_home_object: false}), do: true
+  defp compiled_closure_callable?(_), do: false
+
+  defp compiled_method_callable?(%Bytecode.Function{need_home_object: false}, {:obj, _}), do: true
+  defp compiled_method_callable?(_, _), do: false
+
+  defp unwrap_constructor_target({:closure, _, %Bytecode.Function{} = fun}), do: fun
+  defp unwrap_constructor_target({:bound, _, inner, _, _}), do: unwrap_constructor_target(inner)
+  defp unwrap_constructor_target(other), do: other
+
+  defp unwrap_new_target({:closure, _, %Bytecode.Function{} = fun}), do: fun
+  defp unwrap_new_target(%Bytecode.Function{} = fun), do: fun
+  defp unwrap_new_target(_), do: nil
+
+  defp constructor_prototype(nil), do: nil
+
+  defp constructor_prototype(target) do
+    case Heap.get_class_proto(target) do
+      {:obj, _} = proto_obj -> proto_obj
+      _ -> normalize_constructor_prototype(Get.get(target, "prototype"))
+    end
+  end
+
+  defp normalize_constructor_prototype({:obj, _} = object_proto), do: object_proto
+  defp normalize_constructor_prototype(_), do: nil
+end

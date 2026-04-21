@@ -6,17 +6,33 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   alias QuickBEAM.BeamVM.{
     Builtin,
     Bytecode,
-    Compiler,
     Decoder,
+    GlobalEnv,
     Heap,
-    PredefinedAtoms,
+    Invocation,
+    Names,
     Runtime,
     Semantics
   }
 
+  alias QuickBEAM.BeamVM.Execution.Trace
+  alias QuickBEAM.BeamVM.Invocation.Context, as: InvokeContext
+  alias QuickBEAM.BeamVM.ObjectModel.{Functions, Methods, Private}
   alias QuickBEAM.BeamVM.Runtime.Property
   alias QuickBEAM.JSError
-  alias __MODULE__.{Closures, Context, Frame, Generator, Objects, Promise, Scope, Values}
+
+  alias __MODULE__.{
+    ClosureBuilder,
+    Closures,
+    Context,
+    EvalEnv,
+    Frame,
+    Generator,
+    Objects,
+    Promise,
+    Scope,
+    Values
+  }
 
   require Frame
 
@@ -42,7 +58,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   @compile {:inline,
             put_local: 3,
-            active_ctx: 0,
             list_iterator_next: 1,
             make_list_iterator: 1,
             with_has_property?: 2,
@@ -405,46 +420,16 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   @doc "Invoke a bytecode function or closure from external code."
-  def invoke(%Bytecode.Function{} = fun, args, gas) do
-    case Compiler.invoke(fun, args) do
-      {:ok, result} -> result
-      :error -> invoke_function(fun, args, gas, active_ctx())
-    end
-  end
-
-  def invoke({:closure, _, %Bytecode.Function{}} = c, args, gas),
-    do: invoke_closure(c, args, gas, active_ctx())
-
-  def invoke(other, args, _gas) when not is_tuple(other) or elem(other, 0) != :bound,
-    do: Builtin.call(other, args, nil)
-
-  def invoke({:bound, _, inner, _, _}, args, gas), do: invoke(inner, args, gas)
+  def invoke(fun, args, gas), do: Invocation.invoke(fun, args, gas)
 
   @doc """
   Invokes a JS function with a specific `this` receiver.
   """
-  def invoke_with_receiver(fun, args, gas, this_obj) do
-    prev = Heap.get_ctx()
-    Heap.put_ctx(%{active_ctx() | this: this_obj} |> attach_method_state())
+  def invoke_with_receiver(fun, args, gas, this_obj),
+    do: Invocation.invoke_with_receiver(fun, args, gas, this_obj)
 
-    try do
-      invoke(fun, args, gas)
-    after
-      if prev, do: Heap.put_ctx(prev)
-    end
-  end
-
-  def invoke_constructor(fun, args, gas, this_obj, new_target) do
-    prev = Heap.get_ctx()
-    ctor_ctx = %{active_ctx() | this: this_obj, new_target: new_target} |> attach_method_state()
-    Heap.put_ctx(ctor_ctx)
-
-    try do
-      dispatch_call(fun, args, gas, ctor_ctx, this_obj)
-    after
-      if prev, do: Heap.put_ctx(prev)
-    end
-  end
+  def invoke_constructor(fun, args, gas, this_obj, new_target),
+    do: Invocation.invoke_constructor(fun, args, gas, this_obj, new_target)
 
   defp store_function_atoms(%Bytecode.Function{} = fun, atoms) do
     Process.put({:qb_fn_atoms, fun.byte_code}, atoms)
@@ -454,17 +439,6 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
 
     :ok
-  end
-
-  defp active_ctx do
-    case Heap.get_ctx() do
-      nil ->
-        atoms = Heap.get_atoms()
-        %Context{atoms: atoms}
-
-      ctx ->
-        ctx
-    end
   end
 
   defp catch_js_throw(pc, frame, rest, gas, ctx, fun) do
@@ -482,23 +456,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     {:js_throw, val} -> throw_or_catch(frame, val, gas, ctx)
   end
 
-  defp push_active_frame(fun) do
-    Process.put(:qb_active_frames, [%{fun: fun, pc: 0} | Process.get(:qb_active_frames, [])])
-  end
-
-  defp pop_active_frame do
-    case Process.get(:qb_active_frames, []) do
-      [_ | rest] -> Process.put(:qb_active_frames, rest)
-      [] -> :ok
-    end
-  end
-
-  defp update_active_frame_pc(pc) do
-    case Process.get(:qb_active_frames, []) do
-      [frame | rest] -> Process.put(:qb_active_frames, [%{frame | pc: pc} | rest])
-      [] -> :ok
-    end
-  end
+  defp push_active_frame(fun), do: Trace.push(fun)
+  defp pop_active_frame, do: Trace.pop()
+  defp update_active_frame_pc(pc), do: Trace.update_pc(pc)
 
   # ── Helpers ──
 
@@ -516,67 +476,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     Heap.put_persistent_globals(cleaned)
   end
 
-  defp resolve_local_name(name) when is_binary(name), do: name
-  defp resolve_local_name({:predefined, idx}), do: PredefinedAtoms.lookup(idx)
+  defp resolve_local_name(name), do: EvalEnv.resolve_local_name(name)
 
-  defp resolve_local_name(idx) when is_integer(idx) do
-    case Heap.get_ctx() do
-      %{atoms: atoms} when is_tuple(atoms) and idx >= 0 and idx < tuple_size(atoms) ->
-        elem(atoms, idx)
-
-      _ ->
-        nil
-    end
-  end
-
-  defp resolve_local_name(_), do: nil
-
-  defp seed_class_binding(frame, ctx, atom_idx, ctor_closure) do
-    case class_binding_local_index(ctx, atom_idx) do
-      nil ->
-        frame
-
-      idx ->
-        Closures.write_captured_local(
-          elem(frame, Frame.l2v()),
-          idx,
-          ctor_closure,
-          elem(frame, Frame.locals()),
-          elem(frame, Frame.var_refs())
-        )
-
-        put_local(frame, idx, ctor_closure)
-    end
-  end
-
-  defp class_binding_local_index(%Context{current_func: current_func}, atom_idx) do
-    class_name = resolve_local_name(atom_idx)
-
-    current_func
-    |> current_bytecode_function()
-    |> case do
-      %Bytecode.Function{locals: locals} ->
-        locals
-        |> Enum.with_index()
-        |> Enum.filter(fn {%{name: name, scope_level: scope_level, is_lexical: is_lexical}, _idx} ->
-          is_lexical and scope_level > 1 and resolve_local_name(name) == class_name
-        end)
-        |> Enum.max_by(fn {%{scope_level: scope_level}, _idx} -> scope_level end, fn -> nil end)
-        |> case do
-          nil -> nil
-          {_local, idx} -> idx
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp class_binding_local_index(_, _), do: nil
-
-  defp current_bytecode_function({:closure, _, %Bytecode.Function{} = fun}), do: fun
-  defp current_bytecode_function(%Bytecode.Function{} = fun), do: fun
-  defp current_bytecode_function(_), do: nil
+  defp seed_class_binding(frame, ctx, atom_idx, ctor_closure),
+    do: EvalEnv.seed_class_binding(frame, ctx, atom_idx, ctor_closure)
 
   defp caller_is_strict?(%Context{current_func: func}) do
     case func do
@@ -586,35 +489,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
-  defp home_object_key({:closure, _, %Bytecode.Function{byte_code: bc}}), do: bc
-  defp home_object_key(%Bytecode.Function{byte_code: bc}), do: bc
-  defp home_object_key(_), do: nil
-
-  defp attach_method_state(%Context{current_func: current_func} = ctx) do
-    home_object = Process.get({:qb_home_object, home_object_key(current_func)}, :undefined)
-    %{ctx | home_object: home_object, super: Semantics.get_super(home_object)}
-  end
-
-  defp current_func_name(%Context{current_func: func}) do
-    case func do
-      {:closure, _, %Bytecode.Function{name: n}} -> n
-      %Bytecode.Function{name: n} -> n
-      _ -> nil
-    end
-  end
-
-  defp current_local_name(
-         %Context{current_func: {:closure, _, %Bytecode.Function{locals: locals}}},
-         idx
-       )
-       when idx >= 0 and idx < length(locals),
-       do: locals |> Enum.at(idx) |> Map.get(:name) |> resolve_local_name()
-
-  defp current_local_name(%Context{current_func: %Bytecode.Function{locals: locals}}, idx)
-       when idx >= 0 and idx < length(locals),
-       do: locals |> Enum.at(idx) |> Map.get(:name) |> resolve_local_name()
-
-  defp current_local_name(_, _), do: nil
+  defp home_object_key(fun), do: Functions.home_object_key(fun)
+  defp attach_method_state(ctx), do: InvokeContext.attach_method_state(ctx)
+  defp current_func_name(ctx), do: EvalEnv.current_func_name(ctx)
+  defp current_local_name(ctx, idx), do: EvalEnv.current_local_name(ctx, idx)
 
   defp uninitialized_this_local?(ctx, idx), do: current_local_name(ctx, idx) == "this"
 
@@ -649,42 +527,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp current_var_ref_name(_, _), do: nil
 
-  defp set_function_name({:closure, captured, %Bytecode.Function{} = f}, name),
-    do: {:closure, captured, %{f | name: name}}
-
-  defp set_function_name(%Bytecode.Function{} = f, name),
-    do: %{f | name: name}
-
-  defp set_function_name({:builtin, _, cb}, name),
-    do: {:builtin, name, cb}
-
-  defp set_function_name(other, _name), do: other
-
   defp put_local(f, idx, val),
     do: put_elem(f, Frame.locals(), put_elem(elem(f, Frame.locals()), idx, val))
-
-  defp collect_proto_keys(nil, acc), do: acc
-  defp collect_proto_keys(:undefined, acc), do: acc
-
-  defp collect_proto_keys({:obj, ref}, acc) do
-    case Heap.get_obj(ref, %{}) do
-      map when is_map(map) ->
-        keys =
-          Map.keys(map)
-          |> Enum.filter(&is_binary/1)
-          |> Enum.reject(fn k ->
-            k == "constructor" or String.starts_with?(k, "__") or k in acc or
-              match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
-          end)
-
-        collect_proto_keys(Map.get(map, proto()), acc ++ keys)
-
-      _ ->
-        acc
-    end
-  end
-
-  defp collect_proto_keys(_, acc), do: acc
 
   defp throw_or_catch(frame, error, gas, ctx) do
     error = maybe_refresh_error_stack(error)
@@ -707,116 +551,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp maybe_refresh_error_stack(error), do: error
 
-  defp get_private_field({:obj, ref}, key) do
-    map = Heap.get_obj(ref, %{})
-    Map.get(map, {:private, key}, :missing)
-  end
-
-  defp get_private_field({:closure, _, %Bytecode.Function{}} = ctor, key),
-    do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :missing)
-
-  defp get_private_field(%Bytecode.Function{} = ctor, key),
-    do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :missing)
-
-  defp get_private_field({:builtin, _, _} = ctor, key),
-    do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :missing)
-
-  defp get_private_field(_, _key), do: :missing
-
-  defp has_private_field?(target, key), do: get_private_field(target, key) != :missing
-
-  defp put_private_field!(target, key, val) do
-    if has_private_field?(target, key) do
-      define_private_field!(target, key, val)
-      :ok
-    else
-      :error
-    end
-  end
-
-  defp define_private_field!({:obj, ref}, key, val) do
-    Heap.update_obj(ref, %{}, &Map.put(&1, {:private, key}, val))
-    :ok
-  end
-
-  defp define_private_field!({:closure, _, %Bytecode.Function{}} = ctor, key, val) do
-    Heap.put_ctor_static(ctor, {:private, key}, val)
-    :ok
-  end
-
-  defp define_private_field!(%Bytecode.Function{} = ctor, key, val) do
-    Heap.put_ctor_static(ctor, {:private, key}, val)
-    :ok
-  end
-
-  defp define_private_field!({:builtin, _, _} = ctor, key, val) do
-    Heap.put_ctor_static(ctor, {:private, key}, val)
-    :ok
-  end
-
-  defp define_private_field!(_, _key, _val), do: :error
-
-  defp private_brands({:obj, ref}), do: Map.get(Heap.get_obj(ref, %{}), :__brands__, [])
-
-  defp private_brands({:closure, _, %Bytecode.Function{}} = ctor),
-    do: Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
-
-  defp private_brands(%Bytecode.Function{} = ctor),
-    do: Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
-
-  defp private_brands({:builtin, _, _} = ctor),
-    do: Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
-
-  defp private_brands(_), do: []
-
-  defp private_brand_match?(obj, brand) do
-    brands = private_brands(obj)
-    home_object = Process.get({:qb_home_object, home_object_key(brand)})
-
-    brand in brands or
-      (home_object not in [nil, :undefined] and
-         (home_object in brands or private_brand_home_match?(obj, home_object)))
-  end
-
-  defp private_brand_home_match?({:obj, ref}, home_object) do
-    map = Heap.get_obj(ref, %{})
-    parent = Map.get(map, proto())
-    parent == home_object or private_brand_home_match?(parent, home_object)
-  end
-
-  defp private_brand_home_match?(:undefined, _home_object), do: false
-  defp private_brand_home_match?(nil, _home_object), do: false
-  defp private_brand_home_match?(_, _home_object), do: false
-
-  defp ensure_private_brand!(obj, brand) do
-    if private_brand_match?(obj, brand), do: :ok, else: :error
-  end
-
-  defp private_brand_error, do: Heap.make_error("invalid brand on object", "TypeError")
-
-  defp add_brand_value({:obj, ref}, brand) do
-    Heap.update_obj(ref, %{}, fn map ->
-      brands = Map.get(map, :__brands__, [])
-      Map.put(map, :__brands__, [brand | brands])
-    end)
-  end
-
-  defp add_brand_value({:closure, _, %Bytecode.Function{}} = ctor, brand) do
-    brands = Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
-    Heap.put_ctor_static(ctor, :__brands__, [brand | brands])
-  end
-
-  defp add_brand_value(%Bytecode.Function{} = ctor, brand) do
-    brands = Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
-    Heap.put_ctor_static(ctor, :__brands__, [brand | brands])
-  end
-
-  defp add_brand_value({:builtin, _, _} = ctor, brand) do
-    brands = Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
-    Heap.put_ctor_static(ctor, :__brands__, [brand | brands])
-  end
-
-  defp add_brand_value(_, _brand), do: :ok
+  defp get_private_field(obj, key), do: Private.get_field(obj, key)
+  defp has_private_field?(target, key), do: Private.has_field?(target, key)
+  defp put_private_field!(target, key, val), do: Private.put_field!(target, key, val)
+  defp define_private_field!(target, key, val), do: Private.define_field!(target, key, val)
+  defp ensure_private_brand!(obj, brand), do: Private.ensure_brand(obj, brand)
+  defp private_brand_error, do: Private.brand_error()
 
   defp throw_null_property_error(frame, obj, atom_idx, gas, ctx) do
     prop = Scope.resolve_atom(ctx, atom_idx)
@@ -1202,7 +942,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp eval_declared_names(_, _), do: MapSet.new()
 
-  defp resolve_declared_atom({:predefined, idx}, _atoms), do: PredefinedAtoms.lookup(idx)
+  defp resolve_declared_atom({:predefined, idx}, _atoms),
+    do: QuickBEAM.BeamVM.PredefinedAtoms.lookup(idx)
 
   defp resolve_declared_atom(idx, atoms)
        when is_integer(idx) and idx >= 0 and idx < tuple_size(atoms), do: elem(atoms, idx)
@@ -2082,10 +1823,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({@op_set_name, [atom_idx]}, pc, frame, [fun | rest], gas, ctx) do
-    name = Scope.resolve_atom(ctx, atom_idx)
-
-    named = set_function_name(fun, name)
-
+    named = Functions.set_name_atom(fun, atom_idx, ctx.atoms)
     run(pc + 1, frame, [named | rest], gas, ctx)
   end
 
@@ -2106,23 +1844,17 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     do: throw({:error, :invalid_opcode})
 
   defp run({@op_get_var_undef, [atom_idx]}, pc, frame, stack, gas, ctx) do
-    val =
-      case Scope.resolve_global(ctx, atom_idx) do
-        {:found, v} -> v
-        :not_found -> :undefined
-      end
-
-    run(pc + 1, frame, [val | stack], gas, ctx)
+    run(pc + 1, frame, [GlobalEnv.get(ctx, atom_idx, :undefined) | stack], gas, ctx)
   end
 
   defp run({@op_get_var, [atom_idx]}, pc, frame, stack, gas, ctx) do
-    case Scope.resolve_global(ctx, atom_idx) do
+    case GlobalEnv.fetch(ctx, atom_idx) do
       {:found, val} ->
         run(pc + 1, frame, [val | stack], gas, ctx)
 
       :not_found ->
         error =
-          Heap.make_error("#{Scope.resolve_atom(ctx, atom_idx)} is not defined", "ReferenceError")
+          Heap.make_error("#{Names.resolve_atom(ctx, atom_idx)} is not defined", "ReferenceError")
 
         throw_or_catch(frame, error, gas, ctx)
     end
@@ -2130,25 +1862,22 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({op, [atom_idx]}, pc, frame, [val | rest], gas, ctx)
        when op in [@op_put_var, @op_put_var_init] do
-    new_ctx = Scope.set_global(ctx, atom_idx, val)
-    Heap.put_persistent_globals(new_ctx.globals)
+    new_ctx = GlobalEnv.put(ctx, atom_idx, val)
     run(pc + 1, frame, rest, gas, new_ctx)
   end
 
-  # define_func: global scope function hoisting (sloppy mode)
   defp run({@op_define_func, [atom_idx, _flags]}, pc, frame, [fun | rest], gas, ctx) do
-    ctx = Scope.set_global(ctx, atom_idx, fun)
-    Heap.put_persistent_globals(ctx.globals)
-    run(pc + 1, frame, rest, gas, ctx)
+    next_ctx = GlobalEnv.put(ctx, atom_idx, fun)
+    run(pc + 1, frame, rest, gas, next_ctx)
   end
 
   defp run({@op_define_var, [atom_idx, _scope]}, pc, frame, stack, gas, ctx) do
-    Heap.put_var(Scope.resolve_atom(ctx, atom_idx), :undefined)
+    GlobalEnv.define_var(ctx, atom_idx)
     run(pc + 1, frame, stack, gas, ctx)
   end
 
   defp run({@op_check_define_var, [atom_idx, _scope]}, pc, frame, stack, gas, ctx) do
-    Heap.delete_var(Scope.resolve_atom(ctx, atom_idx))
+    GlobalEnv.check_define_var(ctx, atom_idx)
     run(pc + 1, frame, stack, gas, ctx)
   end
 
@@ -2188,50 +1917,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({@op_for_in_start, []}, pc, frame, [obj | rest], gas, ctx) do
-    keys =
-      case obj do
-        {:obj, ref} ->
-          map = Heap.get_obj(ref, %{})
-
-          case map do
-            %{proxy_target() => _target, proxy_handler() => handler} ->
-              own_keys_fn = Property.get(handler, "ownKeys")
-
-              if own_keys_fn != :undefined and own_keys_fn != nil do
-                result = Runtime.call_callback(own_keys_fn, [obj])
-                Heap.to_list(result) |> Enum.map(&to_string/1)
-              else
-                []
-              end
-
-            _ ->
-              raw_keys =
-                case Map.get(map, key_order()) do
-                  order when is_list(order) -> Enum.reverse(order)
-                  _ -> Map.keys(map)
-                end
-
-              own_keys =
-                raw_keys
-                |> Enum.reject(fn k ->
-                  (is_binary(k) and String.starts_with?(k, "__")) or
-                    is_tuple(k) or is_atom(k) or
-                    not Map.has_key?(map, k) or
-                    match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
-                end)
-
-              proto_keys = collect_proto_keys(Map.get(map, proto()), [])
-              all_keys = own_keys ++ Enum.reject(proto_keys, &(&1 in own_keys))
-              Runtime.sort_numeric_keys(all_keys)
-          end
-
-        map when is_map(map) ->
-          Map.keys(map)
-
-        _ ->
-          []
-      end
-
+    keys = QuickBEAM.BeamVM.ObjectModel.Copy.enumerable_keys(obj)
     run(pc + 1, frame, [{:for_in_iterator, keys} | rest], gas, ctx)
   end
 
@@ -2985,8 +2671,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({@op_set_name_computed, []}, pc, frame, [fun, name_val | rest], gas, ctx) do
-    named = set_function_name(fun, Semantics.function_name(name_val))
-
+    named = Functions.set_name_computed(fun, name_val)
     run(pc + 1, frame, [named, name_val | rest], gas, ctx)
   end
 
@@ -3017,7 +2702,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp run({@op_private_symbol, [atom_idx]}, pc, frame, stack, gas, ctx) do
     name = Scope.resolve_atom(ctx, atom_idx)
-    run(pc + 1, frame, [{:private_symbol, name, make_ref()} | stack], gas, ctx)
+    run(pc + 1, frame, [Private.private_symbol(name) | stack], gas, ctx)
   end
 
   # ── Argument mutation ──
@@ -3058,7 +2743,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     source = Enum.at(stack, source_idx)
 
     try do
-      Semantics.copy_data_properties(target, source)
+      QuickBEAM.BeamVM.ObjectModel.Copy.copy_data_properties(target, source)
       run(pc + 1, frame, stack, gas, ctx)
     catch
       {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
@@ -3098,7 +2783,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({@op_add_brand, []}, pc, frame, [obj, brand | rest], gas, ctx) do
-    add_brand_value(obj, brand)
+    Private.add_brand(obj, brand)
     run(pc + 1, frame, rest, gas, ctx)
   end
 
@@ -3128,35 +2813,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
          gas,
          ctx
        ) do
-    name = Scope.resolve_atom(ctx, atom_idx)
-    method_type = Bitwise.band(flags, 3)
-    enumerable = Bitwise.band(flags, 4) != 0
-
-    named_method =
-      set_function_name(
-        method_closure,
-        case method_type do
-          1 -> "get " <> name
-          2 -> "set " <> name
-          _ -> name
-        end
-      )
-
-    needs_home =
-      match?({:closure, _, %Bytecode.Function{need_home_object: true}}, named_method) or
-        match?(%Bytecode.Function{need_home_object: true}, named_method)
-
-    if needs_home do
-      key = {:qb_home_object, home_object_key(named_method)}
-      if key != {:qb_home_object, nil}, do: Process.put(key, target)
-    end
-
-    case method_type do
-      1 -> Objects.put_getter(target, name, named_method, enumerable)
-      2 -> Objects.put_setter(target, name, named_method, enumerable)
-      _ -> Objects.put(target, name, named_method, enumerable)
-    end
-
+    Methods.define_method(target, method_closure, Scope.resolve_atom(ctx, atom_idx), flags)
     run(pc + 1, frame, [target | rest], gas, ctx)
   end
 
@@ -3168,34 +2825,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
          gas,
          ctx
        ) do
-    method_type = Bitwise.band(flags, 3)
-    enumerable = Bitwise.band(flags, 4) != 0
-
-    named_method =
-      set_function_name(
-        method_closure,
-        case method_type do
-          1 -> "get " <> Semantics.function_name(field_name)
-          2 -> "set " <> Semantics.function_name(field_name)
-          _ -> Semantics.function_name(field_name)
-        end
-      )
-
-    needs_home =
-      match?({:closure, _, %Bytecode.Function{need_home_object: true}}, named_method) or
-        match?(%Bytecode.Function{need_home_object: true}, named_method)
-
-    if needs_home do
-      key = {:qb_home_object, home_object_key(named_method)}
-      if key != {:qb_home_object, nil}, do: Process.put(key, target)
-    end
-
-    case method_type do
-      1 -> Objects.put_getter(target, field_name, named_method, enumerable)
-      2 -> Objects.put_setter(target, field_name, named_method, enumerable)
-      _ -> Objects.put(target, field_name, named_method, enumerable)
-    end
-
+    Methods.define_method_computed(target, method_closure, field_name, flags)
     run(pc + 1, frame, [target | rest], gas, ctx)
   end
 
@@ -3260,11 +2890,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     key = Scope.resolve_atom(ctx, atom_idx)
 
     if with_has_property?(obj, key) do
-      case obj do
-        {:obj, ref} -> Heap.update_obj(ref, %{}, &Map.delete(&1, key))
-        _ -> :ok
-      end
-
+      QuickBEAM.BeamVM.ObjectModel.Delete.delete_property(obj, key)
       run(target, frame, [true | rest], gas, ctx)
     else
       run(pc + 1, frame, rest, gas, ctx)
@@ -3412,14 +3038,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     %{ctx | arg_buf: List.to_tuple(List.replace_at(padded, idx, val))}
   end
 
-  defp dispatch_call(fun, args, gas, ctx, this) do
-    case fun do
-      %Bytecode.Function{} = f -> invoke_function(f, args, gas, ctx)
-      {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, args, gas, ctx)
-      {:bound, _, inner, _, _} -> invoke(inner, args, gas)
-      other -> Builtin.call(other, args, this)
-    end
-  end
+  defp dispatch_call(fun, args, gas, ctx, this),
+    do: Invocation.dispatch(fun, args, gas, ctx, this)
 
   # ── Tail calls ──
 
@@ -3455,102 +3075,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Closure construction ──
 
-  defp build_closure(%Bytecode.Function{} = fun, locals, vrefs, l2v, %Context{} = ctx) do
-    parent_arg_count = current_function_arg_count(ctx)
+  defp build_closure(fun, locals, vrefs, l2v, ctx),
+    do: ClosureBuilder.build(fun, locals, vrefs, l2v, ctx)
 
-    captured =
-      for cv <- fun.closure_vars, into: %{} do
-        {closure_capture_key(cv), capture_var(cv, locals, vrefs, l2v, parent_arg_count)}
-      end
+  defp inherit_parent_vrefs(closure, parent_vrefs),
+    do: ClosureBuilder.inherit_parent_vrefs(closure, parent_vrefs)
 
-    {:closure, captured, fun}
-  end
-
-  defp build_closure(other, _locals, _vrefs, _l2v, _ctx), do: other
-
-  defp inherit_parent_vrefs({:closure, captured, %Bytecode.Function{} = f}, parent_vrefs)
-       when is_tuple(parent_vrefs) do
-    extra =
-      if tuple_size(parent_vrefs) == 0 do
-        %{}
-      else
-        for i <- 0..(tuple_size(parent_vrefs) - 1),
-            not Map.has_key?(captured, closure_capture_key(2, i)),
-            into: %{} do
-          {closure_capture_key(2, i), elem(parent_vrefs, i)}
-        end
-      end
-
-    {:closure, Map.merge(extra, captured), f}
-  end
-
-  defp inherit_parent_vrefs(closure, _), do: closure
-
-  defp capture_var(%{closure_type: 2, var_idx: idx}, _locals, vrefs, _l2v, _arg_count)
-       when idx < tuple_size(vrefs) do
-    case elem(vrefs, idx) do
-      {:cell, _} = existing ->
-        existing
-
-      val ->
-        ref = make_ref()
-        Heap.put_cell(ref, val)
-        {:cell, ref}
-    end
-  end
-
-  defp capture_var(%{closure_type: 0, var_idx: idx}, locals, vrefs, l2v, arg_count) do
-    capture_local_var(idx + arg_count, locals, vrefs, l2v)
-  end
-
-  defp capture_var(%{var_idx: idx}, locals, vrefs, l2v, _arg_count) do
-    capture_local_var(idx, locals, vrefs, l2v)
-  end
-
-  defp capture_local_var(idx, locals, vrefs, l2v) do
-    case Map.get(l2v, idx) do
-      nil ->
-        val = if idx < tuple_size(locals), do: elem(locals, idx), else: :undefined
-        ref = make_ref()
-        Heap.put_cell(ref, val)
-        {:cell, ref}
-
-      vref_idx ->
-        case elem(vrefs, vref_idx) do
-          {:cell, _} = existing ->
-            existing
-
-          _ ->
-            val = elem(locals, idx)
-            ref = make_ref()
-            Heap.put_cell(ref, val)
-            {:cell, ref}
-        end
-    end
-  end
-
-  defp closure_capture_key(%{closure_type: type, var_idx: idx}),
-    do: closure_capture_key(type, idx)
-
-  defp closure_capture_key(type, idx), do: {type, idx}
-
-  defp current_function_arg_count(%Context{
-         current_func: {:closure, _, %Bytecode.Function{arg_count: n}}
-       }),
-       do: n
-
-  defp current_function_arg_count(%Context{current_func: %Bytecode.Function{arg_count: n}}), do: n
-  defp current_function_arg_count(%Context{arg_buf: arg_buf}), do: tuple_size(arg_buf)
-
-  defp ctor_var_refs(%Bytecode.Function{} = f, captured \\ %{}) do
-    cell_ref = make_ref()
-    Heap.put_cell(cell_ref, false)
-
-    case f.closure_vars do
-      [] -> [{:cell, cell_ref}]
-      cvs -> Enum.map(cvs, &Map.get(captured, closure_capture_key(&1), {:cell, cell_ref}))
-    end
-  end
+  defp closure_capture_key(cv), do: ClosureBuilder.capture_key(cv)
+  defp ctor_var_refs(fun, captured \\ %{}), do: ClosureBuilder.ctor_var_refs(fun, captured)
 
   # ── Function calls ──
 
@@ -3641,6 +3173,24 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       dispatch_call(fun, Enum.reverse(args), gas, method_ctx, obj)
     end)
   end
+
+  def invoke_function_fallback(%Bytecode.Function{} = fun, args, gas, ctx) do
+    invoke_function(fun, args, gas, ctx)
+  end
+
+  def invoke_function_fallback(other, args, _gas, _ctx)
+      when not is_tuple(other) or elem(other, 0) != :bound,
+      do: Builtin.call(other, args, nil)
+
+  def invoke_function_fallback({:bound, _, inner, _, _}, args, gas, _ctx),
+    do: Invocation.invoke(inner, args, gas)
+
+  def invoke_closure_fallback({:closure, _, %Bytecode.Function{}} = closure, args, gas, ctx) do
+    invoke_closure(closure, args, gas, ctx)
+  end
+
+  def invoke_closure_fallback(other, args, gas, ctx),
+    do: invoke_function_fallback(other, args, gas, ctx)
 
   defp invoke_function(%Bytecode.Function{} = fun, args, gas, ctx) do
     do_invoke(fun, {:closure, %{}, fun}, args, [], gas, ctx)
@@ -3735,20 +3285,5 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   @doc """
   Invokes a callback function from built-in code (e.g. Array.prototype.map).
   """
-  def invoke_callback(fun, args) do
-    case fun do
-      %Bytecode.Function{} = f ->
-        invoke_function(f, args, active_ctx().gas, active_ctx())
-
-      {:closure, _, %Bytecode.Function{}} = c ->
-        invoke_closure(c, args, active_ctx().gas, active_ctx())
-
-      _ ->
-        try do
-          Builtin.call(fun, args, nil)
-        catch
-          {:js_throw, _} -> List.first(args, :undefined)
-        end
-    end
-  end
+  def invoke_callback(fun, args), do: Invocation.invoke_callback(fun, args)
 end

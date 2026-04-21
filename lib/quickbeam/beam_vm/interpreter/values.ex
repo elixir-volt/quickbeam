@@ -152,6 +152,9 @@ defmodule QuickBEAM.BeamVM.Interpreter.Values do
   def stringify(nil), do: "null"
   def stringify(true), do: "true"
   def stringify(false), do: "false"
+  def stringify(:nan), do: "NaN"
+  def stringify(:infinity), do: "Infinity"
+  def stringify(:neg_infinity), do: "-Infinity"
   def stringify(n) when is_integer(n), do: Integer.to_string(n)
   def stringify(n) when is_float(n) and n == 0.0, do: "0"
   def stringify(n) when is_float(n), do: format_float(n)

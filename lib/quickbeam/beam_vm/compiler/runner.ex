@@ -1,11 +1,11 @@
 defmodule QuickBEAM.BeamVM.Compiler.Runner do
   @moduledoc false
 
-  alias QuickBEAM.BeamVM.{Bytecode, Heap, Runtime, Semantics}
+  alias QuickBEAM.BeamVM.{Bytecode, Heap, Runtime}
   alias QuickBEAM.BeamVM.Compiler
   alias QuickBEAM.BeamVM.Interpreter.Context
+  alias QuickBEAM.BeamVM.Invocation.Context, as: InvokeContext
 
-  @fast_ctx_key :qb_fast_ctx
   @missing :__qb_missing__
 
   def invoke(%Bytecode.Function{} = fun, args), do: invoke_target(fun, fun, args, %{})
@@ -92,54 +92,20 @@ defmodule QuickBEAM.BeamVM.Compiler.Runner do
       |> Map.merge(ctx_overrides)
       |> Map.put(:current_func, current_func)
       |> Map.put(:arg_buf, List.to_tuple(args))
+      |> InvokeContext.attach_method_state()
 
-    prev_fast_ctx = snapshot_fast_ctx()
+    prev_fast_ctx = InvokeContext.snapshot_fast_ctx()
 
     if prev_ctx != @missing, do: Heap.put_ctx(next_ctx)
-    put_fast_ctx(next_ctx)
+    InvokeContext.put_fast_ctx(next_ctx)
 
     try do
       callback.()
     after
       if prev_ctx != @missing, do: Heap.put_ctx(prev_ctx), else: Process.delete(:qb_ctx)
-      restore_fast_ctx(prev_fast_ctx)
+      InvokeContext.restore_fast_ctx(prev_fast_ctx)
     end
   end
-
-  defp snapshot_fast_ctx, do: Process.get(@fast_ctx_key, @missing)
-
-  defp put_fast_ctx(ctx) do
-    current_func = Map.get(ctx, :current_func, :undefined)
-    home_object = current_home_object(current_func)
-
-    Process.put(
-      @fast_ctx_key,
-      {
-        Map.get(ctx, :atoms, {}),
-        Map.get(ctx, :globals, %{}),
-        current_func,
-        Map.get(ctx, :arg_buf, {}),
-        Map.get(ctx, :this, :undefined),
-        Map.get(ctx, :new_target, :undefined),
-        home_object,
-        current_super(home_object)
-      }
-    )
-  end
-
-  defp current_home_object(current_func) do
-    Process.get({:qb_home_object, home_object_key(current_func)}, :undefined)
-  end
-
-  defp current_super(:undefined), do: :undefined
-  defp current_super(home_object), do: Semantics.get_super(home_object)
-
-  defp home_object_key({:closure, _, %Bytecode.Function{byte_code: byte_code}}), do: byte_code
-  defp home_object_key(%Bytecode.Function{byte_code: byte_code}), do: byte_code
-  defp home_object_key(_), do: nil
-
-  defp restore_fast_ctx(@missing), do: Process.delete(@fast_ctx_key)
-  defp restore_fast_ctx(snapshot), do: Process.put(@fast_ctx_key, snapshot)
 
   defp normalize_args(_args, 0), do: []
   defp normalize_args([a0 | _], 1), do: [a0]

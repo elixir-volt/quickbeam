@@ -2,18 +2,19 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
   @moduledoc false
 
   alias QuickBEAM.BeamVM.Compiler.{Analysis, Lowering.Ops, Lowering.State}
+  alias QuickBEAM.BeamVM.Compiler.Analysis.{CFG, Stack, Types}
 
   @line 1
 
   def lower(fun, instructions) do
-    entries = Analysis.block_entries(instructions)
+    entries = CFG.block_entries(instructions)
     slot_count = fun.arg_count + fun.var_count
     constants = fun.constants
 
-    with {:ok, stack_depths} <- Analysis.infer_block_stack_depths(instructions, entries),
+    with {:ok, stack_depths} <- Stack.infer_block_stack_depths(instructions, entries),
          {:ok, {entry_types, return_type}} <-
-           Analysis.infer_block_entry_types(fun, instructions, entries, stack_depths) do
-      inline_targets = Analysis.inlineable_entries(instructions, entries)
+           Types.infer_block_entry_types(fun, instructions, entries, stack_depths) do
+      inline_targets = CFG.inlineable_entries(instructions, entries)
 
       blocks =
         for start <- entries,

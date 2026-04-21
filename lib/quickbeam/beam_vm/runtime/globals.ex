@@ -1,20 +1,20 @@
 defmodule QuickBEAM.BeamVM.Runtime.Globals do
   @moduledoc "JS global scope: constructors, global functions, and the binding map."
 
-  import QuickBEAM.BeamVM.Builtin, only: [build_methods: 1, build_object: 1]
+  import QuickBEAM.BeamVM.Builtin, only: [build_object: 1]
   import QuickBEAM.BeamVM.Heap.Keys
 
   alias QuickBEAM.BeamVM.{Bytecode, Heap}
   alias QuickBEAM.BeamVM.Interpreter
   alias QuickBEAM.BeamVM.Runtime
-  alias QuickBEAM.BeamVM.Stacktrace
 
   alias QuickBEAM.BeamVM.Runtime.{
     ArrayBuffer,
     Boolean,
     Console,
+    Errors,
+    GlobalNumeric,
     JSON,
-    MapSet,
     Math,
     Object,
     Promise,
@@ -23,9 +23,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
     TypedArray
   }
 
-  alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
+  alias QuickBEAM.BeamVM.Runtime.Map, as: JSMap
+  alias QuickBEAM.BeamVM.Runtime.Set, as: JSSet
+  alias QuickBEAM.BeamVM.Runtime.WeakMap, as: JSWeakMap
+  alias QuickBEAM.BeamVM.Runtime.WeakSet, as: JSWeakSet
 
-  @error_types ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError)
+  alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
 
   def build do
     obj_proto = ensure_object_prototype()
@@ -34,7 +37,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
     bindings()
     |> Map.put("Object", obj_ctor)
     |> Map.merge(typed_arrays())
-    |> Map.merge(error_types())
+    |> Map.merge(Errors.bindings())
     |> tap(&Heap.put_global_cache/1)
   end
 
@@ -52,10 +55,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
       "Date" => register("Date", &JSDate.constructor/2, module: JSDate),
       "Promise" => register("Promise", Promise.constructor(), module: Promise),
       "Symbol" => register("Symbol", Symbol.constructor(), module: Symbol),
-      "Map" => register("Map", MapSet.map_constructor()),
-      "Set" => register("Set", MapSet.set_constructor()),
-      "WeakMap" => register("WeakMap", MapSet.weak_map_constructor()),
-      "WeakSet" => register("WeakSet", MapSet.weak_set_constructor()),
+      "Map" => register("Map", JSMap.constructor()),
+      "Set" => register("Set", JSSet.constructor()),
+      "WeakMap" => register("WeakMap", JSWeakMap.constructor()),
+      "WeakSet" => register("WeakSet", JSWeakSet.constructor()),
       "WeakRef" => register("WeakRef", fn _, _ -> Runtime.new_object() end),
       "FinalizationRegistry" =>
         register("FinalizationRegistry", fn [_callback | _], _ ->
@@ -87,10 +90,10 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
       "JSON" => JSON.object(),
       "Reflect" => Reflect.object(),
       "console" => Console.object(),
-      "parseInt" => builtin("parseInt", &parse_int/2),
-      "parseFloat" => builtin("parseFloat", &parse_float/2),
-      "isNaN" => builtin("isNaN", &is_nan/2),
-      "isFinite" => builtin("isFinite", &is_finite/2),
+      "parseInt" => builtin("parseInt", &GlobalNumeric.parse_int/2),
+      "parseFloat" => builtin("parseFloat", &GlobalNumeric.parse_float/2),
+      "isNaN" => builtin("isNaN", &GlobalNumeric.nan?/2),
+      "isFinite" => builtin("isFinite", &GlobalNumeric.finite?/2),
       "eval" => builtin("eval", &js_eval/2),
       "require" => builtin("require", &js_require/2),
       "structuredClone" => builtin("structuredClone", fn [val | _], _ -> val end),
@@ -230,12 +233,6 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
     {:regexp, pat, flags}
   end
 
-  defp error_constructor(name, args) do
-    msg = List.first(args, "")
-    error = Heap.make_error(Runtime.stringify(msg), name)
-    Stacktrace.attach_stack(error)
-  end
-
   defp proxy_constructor([target, handler | _], _) do
     Heap.wrap(%{proxy_target() => target, proxy_handler() => handler})
   end
@@ -243,98 +240,6 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   defp proxy_constructor(_, _), do: Runtime.new_object()
 
   # ── Global functions ──
-
-  defp parse_int([s, radix | _], _) when is_binary(s) and is_number(radix) do
-    r = trunc(radix)
-    s = String.trim_leading(s)
-
-    cond do
-      r == 0 or r == 10 ->
-        parse_int([s], nil)
-
-      r == 16 ->
-        s = s |> String.replace_prefix("0x", "") |> String.replace_prefix("0X", "")
-
-        case Integer.parse(s, 16) do
-          {n, _} -> n
-          :error -> :nan
-        end
-
-      r >= 2 and r <= 36 ->
-        case Integer.parse(s, r) do
-          {n, _} -> n
-          :error -> :nan
-        end
-
-      true ->
-        :nan
-    end
-  end
-
-  defp parse_int([s | _], _) when is_binary(s) do
-    s = String.trim_leading(s)
-
-    if String.starts_with?(s, "0x") or String.starts_with?(s, "0X") do
-      case Integer.parse(String.slice(s, 2..-1//1), 16) do
-        {n, _} -> n
-        :error -> :nan
-      end
-    else
-      case Integer.parse(s) do
-        {n, _} -> n
-        :error -> :nan
-      end
-    end
-  end
-
-  defp parse_int([n | _], _) when is_number(n), do: trunc(n)
-  defp parse_int(_, _), do: :nan
-
-  defp parse_float([s | _], _) when is_binary(s) do
-    s = String.trim(s)
-
-    cond do
-      String.starts_with?(s, "Infinity") or String.starts_with?(s, "+Infinity") ->
-        :infinity
-
-      String.starts_with?(s, "-Infinity") ->
-        :neg_infinity
-
-      true ->
-        case Float.parse(s) do
-          {f, _} -> f
-          :error -> :nan
-        end
-    end
-  end
-
-  defp parse_float([n | _], _) when is_number(n), do: n * 1.0
-  defp parse_float(_, _), do: :nan
-
-  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
-  defp is_nan([:nan | _], _), do: true
-  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
-  defp is_nan([n | _], _) when is_number(n), do: false
-
-  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
-  defp is_nan([s | _], _) when is_binary(s) do
-    case Float.parse(s) do
-      :error -> true
-      _ -> false
-    end
-  end
-
-  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
-  defp is_nan(_, _), do: true
-
-  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
-  defp is_finite([n | _], _) when is_number(n), do: true
-  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
-  defp is_finite([:infinity | _], _), do: false
-  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
-  defp is_finite([:neg_infinity | _], _), do: false
-  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
-  defp is_finite(_, _), do: false
 
   defp js_eval([code | _], _) when is_binary(code) do
     ctx = Heap.get_ctx()
@@ -375,12 +280,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
 
   # ── Public API (called by Number.parseInt/parseFloat statics) ──
 
-  def parse_int(args), do: parse_int(args, nil)
-  def parse_float(args), do: parse_float(args, nil)
+  def parse_int(args), do: GlobalNumeric.parse_int(args, nil)
+  def parse_float(args), do: GlobalNumeric.parse_float(args, nil)
   # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
-  def is_nan(args), do: is_nan(args, nil)
+  def is_nan(args), do: GlobalNumeric.nan?(args, nil)
   # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
-  def is_finite(args), do: is_finite(args, nil)
+  def is_finite(args), do: GlobalNumeric.finite?(args, nil)
 
   # ── Registration helpers ──
 
@@ -431,68 +336,5 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
       Heap.put_ctor_static(ctor, "__proto__", ta_base)
       {name, ctor}
     end
-  end
-
-  defp error_types do
-    error_proto_ref = make_ref()
-    error_ctor = {:builtin, "Error", fn args, _this -> error_constructor("Error", args) end}
-
-    Heap.put_obj(
-      error_proto_ref,
-      build_methods do
-        val("name", "Error")
-        val("message", "")
-        val("constructor", error_ctor)
-      end
-    )
-
-    Heap.put_class_proto(error_ctor, {:obj, error_proto_ref})
-    Heap.put_ctor_static(error_ctor, "prototype", {:obj, error_proto_ref})
-
-    Heap.put_ctor_static(
-      error_ctor,
-      "captureStackTrace",
-      {:builtin, "captureStackTrace",
-       fn
-         [], _ ->
-           throw({:js_throw, Heap.make_error("Cannot convert undefined to object", "TypeError")})
-
-         [obj | rest], _ ->
-           filter_fun = List.first(rest)
-
-           case obj do
-             {:obj, _} -> Stacktrace.attach_stack(obj, filter_fun)
-             _ -> :ok
-           end
-
-           :undefined
-       end}
-    )
-
-    Heap.put_ctor_static(error_ctor, "prepareStackTrace", :undefined)
-    Heap.put_ctor_static(error_ctor, "stackTraceLimit", 10)
-
-    derived =
-      for name <- Enum.reject(@error_types, &(&1 == "Error")), into: %{} do
-        proto_ref = make_ref()
-        ctor = {:builtin, name, fn args, _this -> error_constructor(name, args) end}
-
-        Heap.put_obj(
-          proto_ref,
-          build_methods do
-            val("__proto__", {:obj, error_proto_ref})
-            val("name", name)
-            val("message", "")
-            val("constructor", ctor)
-          end
-        )
-
-        Heap.put_class_proto(ctor, {:obj, proto_ref})
-        Heap.put_ctor_static(ctor, "prototype", {:obj, proto_ref})
-        Heap.put_ctor_static(ctor, "__proto__", error_ctor)
-        {name, ctor}
-      end
-
-    Map.put(derived, "Error", error_ctor)
   end
 end
