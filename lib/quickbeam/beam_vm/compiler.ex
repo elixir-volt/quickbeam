@@ -1,11 +1,11 @@
 defmodule QuickBEAM.BeamVM.Compiler do
   @moduledoc false
 
-  alias QuickBEAM.BeamDisasm
-  alias QuickBEAM.BeamVM.{Bytecode, Decoder, Names}
+  alias QuickBEAM.BeamVM.{Bytecode, Decoder}
   alias QuickBEAM.BeamVM.Compiler.{Forms, Lowering, Optimizer, Runner}
 
   @type compiled_fun :: {module(), atom()}
+  @type beam_file :: {:beam_file, module(), list(), list(), list(), list()}
 
   def invoke(fun, args), do: Runner.invoke(fun, args)
 
@@ -31,30 +31,30 @@ defmodule QuickBEAM.BeamVM.Compiler do
   def compile(_), do: {:error, :var_refs_not_supported}
 
   def disasm(%Bytecode.Function{} = fun) do
-    with {:ok, children} <- disasm_children(fun.constants) do
-      case compile_binary(fun) do
-        {:ok, _module, entry, binary} ->
-          case :beam_disasm.file(binary) do
-            {:beam_file, _, _, _, _, _} = beam_file ->
-              {:ok,
-               BeamDisasm.from_beam_file(
-                 beam_file,
-                 entry: entry,
-                 js_name: display_name(fun.name),
-                 children: children
-               )}
-
-            {:error, _, _} = error ->
-              {:ok, unsupported_disasm(fun.name, children, error)}
-          end
-
-        {:error, _} = error ->
-          {:ok, unsupported_disasm(fun.name, children, error)}
-      end
+    case disasm_compiled(fun) do
+      {:ok, _} = ok -> ok
+      {:error, _} = error -> disasm_single_nested(fun.constants, error)
     end
   end
 
   def disasm(_), do: {:error, :var_refs_not_supported}
+
+  defp disasm_compiled(%Bytecode.Function{} = fun) do
+    with {:ok, _module, _entry, binary} <- compile_binary(fun),
+         {:beam_file, _, _, _, _, _} = beam_file <- :beam_disasm.file(binary) do
+      {:ok, beam_file}
+    else
+      {:error, _, _} = error -> {:error, error}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp disasm_single_nested(constants, original_error) do
+    case Enum.filter(constants, &match?(%Bytecode.Function{}, &1)) do
+      [%Bytecode.Function{} = fun] -> disasm(fun)
+      _ -> original_error
+    end
+  end
 
   defp compile_binary(%Bytecode.Function{} = fun) do
     module = module_name(fun)
@@ -68,27 +68,6 @@ defmodule QuickBEAM.BeamVM.Compiler do
       {:ok, module, entry, binary}
     end
   end
-
-  defp disasm_children(constants) do
-    constants
-    |> Enum.filter(&match?(%Bytecode.Function{}, &1))
-    |> Enum.reduce_while({:ok, []}, fn fun, {:ok, acc} ->
-      case disasm(fun) do
-        {:ok, child} -> {:cont, {:ok, [child | acc]}}
-        {:error, _} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, children} -> {:ok, Enum.reverse(children)}
-      error -> error
-    end
-  end
-
-  defp unsupported_disasm(js_name, children, error) do
-    %BeamDisasm{js_name: display_name(js_name), children: children, error: error}
-  end
-
-  defp display_name(name), do: Names.resolve_display_name(name) || "<anonymous>"
 
   defp module_name(fun) do
     hash =

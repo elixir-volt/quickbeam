@@ -430,22 +430,17 @@ defmodule QuickBEAMTest do
     end
 
     @tag :nif_only
-    test "disasm/2 returns real BEAM disassembly for beam runtimes" do
+    test "disasm/2 returns raw beam_disasm output for beam runtimes" do
       {:ok, rt} = QuickBEAM.start(apis: false, mode: :beam)
 
-      {:ok, %QuickBEAM.BeamDisasm{} = beam} =
+      {:ok, {:beam_file, _module, exports, _attributes, _compile_info, code}} =
         QuickBEAM.disasm(
           rt,
           "function fib(n) { if (n <= 1) return n; return fib(n - 1) + fib(n - 2) }"
         )
 
-      assert beam.js_name == "<eval>"
-      assert beam.error == {:error, {:unsupported_opcode, :check_define_var}}
-
-      fib = Enum.find(beam.children, &(&1.js_name == "fib"))
-      assert %QuickBEAM.BeamDisasm{} = fib
-      assert Enum.any?(fib.exports, &match?({:run, 1, _}, &1))
-      assert Enum.any?(fib.code, &match?({:function, :run, 1, _, _}, &1))
+      assert Enum.any?(exports, &match?({:run, 1, _}, &1))
+      assert Enum.any?(code, &match?({:function, :run, 1, _, _}, &1))
       QuickBEAM.stop(rt)
     end
 
