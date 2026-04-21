@@ -72,10 +72,10 @@ defmodule QuickBEAM.BeamVM.Compiler.Runner do
   defp apply_compiled({mod, name}, args), do: apply(mod, name, args)
 
   defp with_compiled_ctx(current_func, args, ctx_overrides, callback) do
-    prev_ctx = Heap.get_ctx()
+    prev_ctx = Process.get(:qb_ctx, @missing)
 
     base_ctx =
-      case prev_ctx do
+      case Heap.get_ctx() do
         %Context{} = ctx ->
           if ctx.globals == %{}, do: %{ctx | globals: Runtime.global_bindings()}, else: ctx
 
@@ -95,13 +95,13 @@ defmodule QuickBEAM.BeamVM.Compiler.Runner do
 
     prev_fast_ctx = snapshot_fast_ctx()
 
-    Heap.put_ctx(next_ctx)
+    if prev_ctx != @missing, do: Heap.put_ctx(next_ctx)
     put_fast_ctx(next_ctx)
 
     try do
       callback.()
     after
-      if prev_ctx, do: Heap.put_ctx(prev_ctx), else: Process.delete(:qb_ctx)
+      if prev_ctx != @missing, do: Heap.put_ctx(prev_ctx), else: Process.delete(:qb_ctx)
       restore_fast_ctx(prev_fast_ctx)
     end
   end

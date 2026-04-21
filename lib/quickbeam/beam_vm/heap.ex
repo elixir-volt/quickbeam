@@ -18,6 +18,8 @@ defmodule QuickBEAM.BeamVM.Heap do
 
   import QuickBEAM.BeamVM.Heap.Keys
 
+  alias QuickBEAM.BeamVM.Interpreter.Context
+
   @compile {:inline,
             get_obj: 1,
             get_obj: 2,
@@ -283,7 +285,32 @@ defmodule QuickBEAM.BeamVM.Heap do
 
   # ── Interpreter context ──
 
-  def get_ctx, do: Process.get(:qb_ctx)
+  def get_ctx do
+    case Process.get(:qb_ctx, :__qb_missing__) do
+      :__qb_missing__ ->
+        case Process.get(:qb_fast_ctx, :__qb_missing__) do
+          {atoms, globals, current_func, arg_buf, this, new_target, home_object, super} ->
+            %Context{
+              atoms: atoms,
+              globals: globals,
+              current_func: current_func,
+              arg_buf: arg_buf,
+              this: this,
+              new_target: new_target,
+              home_object: home_object,
+              super: super
+            }
+
+          _ ->
+            nil
+        end
+
+      ctx ->
+        ctx
+    end
+  end
+
+  def put_ctx(nil), do: Process.delete(:qb_ctx)
   def put_ctx(ctx), do: Process.put(:qb_ctx, ctx)
 
   # ── Bytecode decode cache ──
