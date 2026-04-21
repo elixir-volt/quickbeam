@@ -303,12 +303,19 @@ defmodule QuickBEAM.BeamVM.Runtime.Property do
   defp get_from_prototype(true, key), do: Boolean.proto_property(key)
   defp get_from_prototype(false, key), do: Boolean.proto_property(key)
 
+  defp get_from_prototype(%Bytecode.Function{} = f, key) when key in ["length", "name"],
+    do: Function.proto_property(f, key)
+
   defp get_from_prototype(%Bytecode.Function{} = f, key) do
     case Heap.get_parent_ctor(f) do
       nil -> Function.proto_property(f, key)
       parent -> fallback_to_function_proto(get(parent, key), f, key)
     end
   end
+
+  defp get_from_prototype({:closure, _, %Bytecode.Function{}} = c, key)
+       when key in ["length", "name"],
+       do: Function.proto_property(c, key)
 
   defp get_from_prototype({:closure, _, %Bytecode.Function{} = f} = c, key) do
     case Heap.get_parent_ctor(f) do

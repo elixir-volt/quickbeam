@@ -165,18 +165,28 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     target
   end
 
-  def define_method_computed(target, method, field_name) do
-    maybe_put_home_object(method, target)
+  def define_method_computed(target, method, field_name, flags) do
+    method_type = Bitwise.band(flags, 3)
 
-    case target do
-      {:obj, ref} ->
-        proto = Heap.get_obj(ref, %{})
-        Heap.put_obj(ref, Map.put(proto, field_name, method))
-        target
+    named_method =
+      set_function_name(
+        method,
+        case method_type do
+          1 -> "get " <> Semantics.function_name(field_name)
+          2 -> "set " <> Semantics.function_name(field_name)
+          _ -> Semantics.function_name(field_name)
+        end
+      )
 
-      _ ->
-        target
+    maybe_put_home_object(named_method, target)
+
+    case method_type do
+      1 -> QuickBEAM.BeamVM.Interpreter.Objects.put_getter(target, field_name, named_method)
+      2 -> QuickBEAM.BeamVM.Interpreter.Objects.put_setter(target, field_name, named_method)
+      _ -> QuickBEAM.BeamVM.Interpreter.Objects.put(target, field_name, named_method)
     end
+
+    target
   end
 
   def set_home_object(method, target) do
@@ -260,19 +270,21 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     result =
       case ctor do
         %Bytecode.Function{} = fun ->
-          QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(
+          QuickBEAM.BeamVM.Interpreter.invoke_constructor(
             fun,
             args,
             Runtime.gas_budget(),
-            this_obj
+            this_obj,
+            new_target
           )
 
         {:closure, _, %Bytecode.Function{}} = closure ->
-          QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(
+          QuickBEAM.BeamVM.Interpreter.invoke_constructor(
             closure,
             args,
             Runtime.gas_budget(),
-            this_obj
+            this_obj,
+            new_target
           )
 
         {:bound, _, _inner, orig_fun, bound_args} ->

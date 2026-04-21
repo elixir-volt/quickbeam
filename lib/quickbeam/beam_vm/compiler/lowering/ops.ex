@@ -364,8 +364,8 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
       {{:ok, :define_method}, [atom_idx, flags]} ->
         State.define_method_call(state, atom_idx, flags)
 
-      {{:ok, :define_method_computed}, [_flags]} ->
-        State.define_method_computed_call(state)
+      {{:ok, :define_method_computed}, [flags]} ->
+        State.define_method_computed_call(state, flags)
 
       {{:ok, :define_class}, [atom_idx, _flags]} ->
         State.define_class_call(state, atom_idx)

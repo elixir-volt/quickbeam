@@ -193,6 +193,14 @@ defmodule QuickBEAM.BeamVM.Semantics do
     end
   end
 
+  def get_super_value(proto_obj, this_obj, key) do
+    case find_super_property(proto_obj, key) do
+      {:accessor, getter, _} when getter != nil -> invoke_with_receiver(getter, [], this_obj)
+      :undefined -> :undefined
+      val -> val
+    end
+  end
+
   def put_super_value(proto_obj, this_obj, key, val) do
     case find_super_setter(proto_obj, key) do
       nil ->
@@ -319,57 +327,64 @@ defmodule QuickBEAM.BeamVM.Semantics do
 
   defp invoke_with_receiver(fun, args, this_obj), do: Builtin.call(fun, args, this_obj)
 
-  defp find_super_setter({:obj, ref}, key) do
+  defp find_super_setter(proto_obj, key) do
+    case find_super_property(proto_obj, key) do
+      {:accessor, _, setter} when setter != nil -> setter
+      _ -> nil
+    end
+  end
+
+  defp find_super_property({:obj, ref}, key) do
     case Heap.get_obj(ref, %{}) do
       map when is_map(map) ->
-        case Map.get(map, key) do
-          {:accessor, _, setter} when setter != nil -> setter
-          _ -> find_super_setter(Map.get(map, proto(), :undefined), key)
+        case Map.fetch(map, key) do
+          {:ok, val} -> val
+          :error -> find_super_property(Map.get(map, proto(), :undefined), key)
         end
 
       _ ->
-        nil
+        Property.get({:obj, ref}, key)
     end
   end
 
-  defp find_super_setter({:closure, _, %Bytecode.Function{} = fun} = ctor, key) do
+  defp find_super_property({:closure, _, %Bytecode.Function{} = fun} = ctor, key) do
     statics = Heap.get_ctor_statics(ctor)
 
-    case Map.get(statics, key) do
-      {:accessor, _, setter} when setter != nil ->
-        setter
+    case Map.fetch(statics, key) do
+      {:ok, val} ->
+        val
 
-      _ ->
-        find_super_setter(
+      :error ->
+        find_super_property(
           Heap.get_parent_ctor(fun) || Map.get(statics, "__proto__", :undefined),
           key
         )
     end
   end
 
-  defp find_super_setter(%Bytecode.Function{} = fun, key) do
+  defp find_super_property(%Bytecode.Function{} = fun, key) do
     statics = Heap.get_ctor_statics(fun)
 
-    case Map.get(statics, key) do
-      {:accessor, _, setter} when setter != nil ->
-        setter
+    case Map.fetch(statics, key) do
+      {:ok, val} ->
+        val
 
-      _ ->
-        find_super_setter(
+      :error ->
+        find_super_property(
           Heap.get_parent_ctor(fun) || Map.get(statics, "__proto__", :undefined),
           key
         )
     end
   end
 
-  defp find_super_setter({:builtin, _, _} = ctor, key) do
+  defp find_super_property({:builtin, _, _} = ctor, key) do
     statics = Heap.get_ctor_statics(ctor)
 
-    case Map.get(statics, key) do
-      {:accessor, _, setter} when setter != nil -> setter
-      _ -> find_super_setter(Map.get(statics, "__proto__", :undefined), key)
+    case Map.fetch(statics, key) do
+      {:ok, val} -> val
+      :error -> find_super_property(Map.get(statics, "__proto__", :undefined), key)
     end
   end
 
-  defp find_super_setter(_, _), do: nil
+  defp find_super_property(value, key), do: Property.get(value, key)
 end

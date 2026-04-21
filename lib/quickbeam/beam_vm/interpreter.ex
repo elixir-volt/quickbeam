@@ -432,6 +432,18 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
+  def invoke_constructor(fun, args, gas, this_obj, new_target) do
+    prev = Heap.get_ctx()
+    ctor_ctx = %{active_ctx() | this: this_obj, new_target: new_target}
+    Heap.put_ctx(ctor_ctx)
+
+    try do
+      dispatch_call(fun, args, gas, ctor_ctx, this_obj)
+    after
+      if prev, do: Heap.put_ctx(prev)
+    end
+  end
+
   defp store_function_atoms(%Bytecode.Function{} = fun, atoms) do
     Process.put({:qb_fn_atoms, fun.byte_code}, atoms)
 
@@ -1977,8 +1989,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     end
   end
 
-  defp run({@op_get_super_value, []}, pc, frame, [key, proto, _this_obj | rest], gas, ctx) do
-    val = Property.get(proto, key)
+  defp run({@op_get_super_value, []}, pc, frame, [key, proto, this_obj | rest], gas, ctx) do
+    val = Semantics.get_super_value(proto, this_obj, key)
     run(pc + 1, frame, [val | rest], gas, ctx)
   end
 
@@ -3004,30 +3016,16 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   # ── Spread/rest via apply ──
 
+  defp run({@op_apply, [1]}, pc, frame, [arg_array, new_target, fun | rest], gas, ctx) do
+    result = invoke_super_constructor(fun, new_target, apply_args(arg_array), gas, ctx)
+    run(pc + 1, frame, [result | rest], gas, %{ctx | this: result})
+  end
+
   defp run({@op_apply, [_magic]}, pc, frame, [arg_array, this_obj, fun | rest], gas, ctx) do
-    args =
-      case arg_array do
-        {:qb_arr, arr} ->
-          :array.to_list(arr)
-
-        list when is_list(list) ->
-          list
-
-        {:obj, ref} ->
-          Heap.to_list({:obj, ref})
-
-        _ ->
-          []
-      end
-
+    args = apply_args(arg_array)
     apply_ctx = %{ctx | this: this_obj}
 
-    result =
-      case fun do
-        %Bytecode.Function{} = f -> invoke_function(f, args, gas, apply_ctx)
-        {:closure, _, %Bytecode.Function{}} = c -> invoke_closure(c, args, gas, apply_ctx)
-        other -> Builtin.call(other, args, this_obj)
-      end
+    result = dispatch_call(fun, args, gas, apply_ctx, this_obj)
 
     run(pc + 1, frame, [result | rest], gas, ctx)
   end
@@ -3143,23 +3141,41 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run(
-         {@op_define_method_computed, [_flags]},
+         {@op_define_method_computed, [flags]},
          pc,
          frame,
-         [method_closure, target, field_name | rest],
+         [method_closure, field_name, target | rest],
          gas,
          ctx
        ) do
-    case target do
-      {:obj, ref} ->
-        proto = Heap.get_obj(ref, %{})
-        Heap.put_obj(ref, Map.put(proto, field_name, method_closure))
+    method_type = Bitwise.band(flags, 3)
 
-      _ ->
-        :ok
+    named_method =
+      set_function_name(
+        method_closure,
+        case method_type do
+          1 -> "get " <> Semantics.function_name(field_name)
+          2 -> "set " <> Semantics.function_name(field_name)
+          _ -> Semantics.function_name(field_name)
+        end
+      )
+
+    needs_home =
+      match?({:closure, _, %Bytecode.Function{need_home_object: true}}, named_method) or
+        match?(%Bytecode.Function{need_home_object: true}, named_method)
+
+    if needs_home do
+      key = {:qb_home_object, home_object_key(named_method)}
+      if key != {:qb_home_object, nil}, do: Process.put(key, target)
     end
 
-    run(pc + 1, frame, rest, gas, ctx)
+    case method_type do
+      1 -> Objects.put_getter(target, field_name, named_method)
+      2 -> Objects.put_setter(target, field_name, named_method)
+      _ -> Objects.put(target, field_name, named_method)
+    end
+
+    run(pc + 1, frame, [target | rest], gas, ctx)
   end
 
   # ── Generators ──
@@ -3306,6 +3322,63 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({op, args}, _pc, _frame, _stack, _gas, _ctx) do
     throw({:error, {:unimplemented_opcode, op, args}})
   end
+
+  defp apply_args(arg_array) do
+    case arg_array do
+      {:qb_arr, arr} -> :array.to_list(arr)
+      list when is_list(list) -> list
+      {:obj, ref} -> Heap.to_list({:obj, ref})
+      _ -> []
+    end
+  end
+
+  defp invoke_super_constructor(fun, new_target, args, gas, ctx) do
+    pending_this = pending_constructor_this(ctx.this)
+    ctor_ctx = %{ctx | this: super_constructor_this(fun, pending_this), new_target: new_target}
+
+    result =
+      case fun do
+        %Bytecode.Function{} = f ->
+          do_invoke(f, {:closure, %{}, f}, args, ctor_var_refs(f), gas, ctor_ctx)
+
+        {:closure, captured, %Bytecode.Function{} = f} ->
+          do_invoke(f, {:closure, captured, f}, args, ctor_var_refs(f, captured), gas, ctor_ctx)
+
+        {:bound, _, _, orig_fun, bound_args} ->
+          invoke_super_constructor(orig_fun, new_target, bound_args ++ args, gas, ctx)
+
+        {:builtin, _name, cb} when is_function(cb, 2) ->
+          cb.(args, pending_this)
+
+        _ ->
+          pending_this
+      end
+
+    result = Semantics.coalesce_this_result(result, ctor_ctx.this)
+
+    case result do
+      {:uninitialized, _} ->
+        throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
+
+      other ->
+        other
+    end
+  end
+
+  defp pending_constructor_this({:uninitialized, {:obj, _} = obj}), do: obj
+  defp pending_constructor_this({:obj, _} = obj), do: obj
+  defp pending_constructor_this(other), do: other
+
+  defp super_constructor_this(fun, pending_this) do
+    case unwrap_constructor_target(fun) do
+      %Bytecode.Function{is_derived_class_constructor: true} -> {:uninitialized, pending_this}
+      _ -> pending_this
+    end
+  end
+
+  defp unwrap_constructor_target({:closure, _, %Bytecode.Function{} = f}), do: f
+  defp unwrap_constructor_target({:bound, _, inner, _, _}), do: unwrap_constructor_target(inner)
+  defp unwrap_constructor_target(other), do: other
 
   defp put_arg_value(ctx, idx, val, arg_buf) do
     padded = Tuple.to_list(arg_buf)

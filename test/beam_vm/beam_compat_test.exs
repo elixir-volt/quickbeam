@@ -1492,6 +1492,18 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
     test "computed static fields are assigned", %{rt: rt} do
       ok(rt, "(function(){ const k = \"x\"; class A { static [k] = 4 } return A.x })()", 4)
     end
+
+    test "computed static methods are assigned", %{rt: rt} do
+      ok(rt, "(function(){ class A { static [\"m\"](){ return 1 } } return A.m() })()", 1)
+    end
+
+    test "derived super calls preserve new.target", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { constructor(){ this.v = new.target.name } } class B extends A { constructor(...args){ super(...args) } } return new B().v })()",
+        "B"
+      )
+    end
   end
 
   describe "super property access" do
@@ -1516,6 +1528,14 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
         rt,
         "(function(){ class A { greet() { return 'hello' } } class B extends A {} return new B().greet() })()",
         "hello"
+      )
+    end
+
+    test "static super getter uses the derived constructor as receiver", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { static get x(){ return this.y } } class B extends A { static y = 7; static g(){ return super.x } } return B.g() })()",
+        7
       )
     end
   end

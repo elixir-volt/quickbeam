@@ -258,11 +258,14 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     end
   end
 
-  def define_method_computed_call(state) do
+  def define_method_computed_call(state, flags) do
     with {:ok, method, state} <- pop(state),
          {:ok, field_name, state} <- pop(state),
          {:ok, target, state} <- pop(state) do
-      effectful_push(state, compiler_call(:define_method_computed, [target, method, field_name]))
+      effectful_push(
+        state,
+        compiler_call(:define_method_computed, [target, method, field_name, literal(flags)])
+      )
     end
   end
 

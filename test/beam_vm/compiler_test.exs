@@ -771,6 +771,39 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, 3} = Compiler.invoke(fun, [])
     end
 
+    test "compiles static super getters", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static get x(){ return this.y } } class B extends A { static y = 7; static g(){ return super.x } } return B.g() })"
+        )
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles computed static methods", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static [\"m\"](){ return 1 } } return A.m() })"
+        )
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "propagates new.target through derived super calls", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { constructor(){ this.v = new.target.name } } class B extends A { constructor(...args){ super(...args) } } return new B().v })"
+        )
+        |> user_function()
+
+      assert {:ok, "B"} = Compiler.invoke(fun, [])
+    end
+
     test "compiles derived constructors returning objects", %{rt: rt} do
       fun =
         compile_and_decode(
