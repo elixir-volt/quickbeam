@@ -8,7 +8,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
   alias QuickBEAM.VM.Compiler.Lowering.State
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.Interpreter.Values
-  alias QuickBEAM.VM.ObjectModel.Get
 
   @tdz :__tdz__
 
@@ -422,7 +421,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         State.get_array_el2(state)
 
       {{:ok, :get_field}, [atom_idx]} ->
-        State.unary_call(state, Get, :get, [Builder.literal(Builder.atom_name(state, atom_idx))])
+        State.get_field_call(state, Builder.literal(Builder.atom_name(state, atom_idx)))
 
       {{:ok, :get_field2}, [atom_idx]} ->
         State.get_field2(state, Builder.literal(Builder.atom_name(state, atom_idx)))

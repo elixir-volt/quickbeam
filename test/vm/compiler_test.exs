@@ -53,6 +53,16 @@ defmodule QuickBEAM.VM.CompilerTest do
     end
   end
 
+  defp beam_function_instructions(
+         {:beam_file, _module, _exports, _attributes, _compile_info, code},
+         name
+       ) do
+    Enum.find_value(code, fn
+      {:function, ^name, _arity, _label, instructions} -> instructions
+      _ -> nil
+    end)
+  end
+
   describe "compile/1" do
     test "compiles a straight-line arithmetic function", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(a,b){return a+b})") |> user_function()
@@ -105,6 +115,22 @@ defmodule QuickBEAM.VM.CompilerTest do
 
     test "compiles object field access", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(obj){return obj.x})") |> user_function()
+
+      assert {:ok, beam_file} = Compiler.disasm(fun)
+      block = beam_function_instructions(beam_file, :block_0)
+
+      assert Enum.any?(block, fn
+               {:call, 2, {_module, :op_get_field, 2}} -> true
+               {:call_only, 2, {_module, :op_get_field, 2}} -> true
+               {:call_last, 2, {_module, :op_get_field, 2}, _} -> true
+               _ -> false
+             end)
+
+      refute Enum.any?(block, fn
+               {:call_ext, 2, {:extfunc, QuickBEAM.VM.ObjectModel.Get, :get, 2}} -> true
+               {:call_ext_last, 2, {:extfunc, QuickBEAM.VM.ObjectModel.Get, :get, 2}, _} -> true
+               _ -> false
+             end)
 
       assert {:ok, 7} = Compiler.invoke(fun, [Heap.wrap(%{"x" => 7})])
     end

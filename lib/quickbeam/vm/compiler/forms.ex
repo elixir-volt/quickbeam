@@ -47,6 +47,9 @@ defmodule QuickBEAM.VM.Compiler.Forms do
       guarded_binary_helper(:op_lte, :"=<", Values, :lte),
       guarded_binary_helper(:op_gt, :>, Values, :gt),
       guarded_binary_helper(:op_gte, :>=, Values, :gte),
+      get_field_helper(),
+      get_field_store_helper(),
+      get_field_found_helper(),
       get_length_helper(),
       eq_helper(),
       neq_helper(),
@@ -97,6 +100,60 @@ defmodule QuickBEAM.VM.Compiler.Forms do
      [
        {:clause, @line, [a], [[integer_guard(a)]], [a]},
        {:clause, @line, [a], [], [remote_call(fallback_mod, fallback_fun, [a])]}
+     ]}
+  end
+
+  defp get_field_helper do
+    obj = var("Obj")
+    ref = var("Ref")
+    key = var("Key")
+    wrapped = {:tuple, @line, [atom(:obj), ref]}
+
+    {:function, @line, :op_get_field, 2,
+     [
+       {:clause, @line, [wrapped, key], [],
+        [
+          local_call(:op_get_field_from_store, [
+            remote_call(QuickBEAM.VM.Heap, :get_obj, [ref]),
+            wrapped,
+            key
+          ])
+        ]},
+       {:clause, @line, [obj, key], [], [remote_call(Get, :get, [obj, key])]}
+     ]}
+  end
+
+  defp get_field_store_helper do
+    map = var("Map")
+    obj = var("Obj")
+    key = var("Key")
+
+    {:function, @line, :op_get_field_from_store, 3,
+     [
+       {:clause, @line, [map, obj, key], [map_proxy_guards(map)],
+        [remote_call(Get, :get, [obj, key])]},
+       {:clause, @line, [map, obj, key], [[map_guard(map)]],
+        [local_call(:op_get_field_found, [remote_call(:maps, :find, [key, map]), obj, key])]},
+       {:clause, @line, [map, obj, key], [], [remote_call(Get, :get, [obj, key])]}
+     ]}
+  end
+
+  defp get_field_found_helper do
+    getter = var("Getter")
+    obj = var("Obj")
+    key = var("Key")
+    val = var("Val")
+
+    {:function, @line, :op_get_field_found, 3,
+     [
+       {:clause, @line,
+        [
+          {:tuple, @line, [atom(:ok), {:tuple, @line, [atom(:accessor), getter, var("_")]}]},
+          obj,
+          key
+        ], [[not_nil_guard(getter)]], [remote_call(Get, :call_getter, [getter, obj])]},
+       {:clause, @line, [{:tuple, @line, [atom(:ok), val]}, obj, key], [], [val]},
+       {:clause, @line, [atom(:error), obj, key], [], [remote_call(Get, :get, [obj, key])]}
      ]}
   end
 
@@ -163,6 +220,17 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   defp number_guard(expr), do: {:call, @line, {:atom, @line, :is_number}, [expr]}
   defp binary_guard(expr), do: {:call, @line, {:atom, @line, :is_binary}, [expr]}
   defp list_guard(expr), do: {:call, @line, {:atom, @line, :is_list}, [expr]}
+  defp map_guard(expr), do: {:call, @line, {:atom, @line, :is_map}, [expr]}
+
+  defp map_proxy_guards(map) do
+    [
+      map_guard(map),
+      {:call, @line, {:atom, @line, :is_map_key}, [literal("__proxy_target__"), map]},
+      {:call, @line, {:atom, @line, :is_map_key}, [literal("__proxy_handler__"), map]}
+    ]
+  end
+
+  defp not_nil_guard(expr), do: {:op, @line, :"=/=", expr, atom(nil)}
 
   defp block_name(idx), do: String.to_atom("block_#{idx}")
   defp slot_var(idx), do: var("Slot#{idx}")
@@ -174,6 +242,8 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   defp remote_call(mod, fun, args) do
     {:call, @line, {:remote, @line, {:atom, @line, mod}, {:atom, @line, fun}}, args}
   end
+
+  defp literal(value), do: :erl_parse.abstract(value)
 
   defp binary_concat(left, right) do
     {:bin, @line,

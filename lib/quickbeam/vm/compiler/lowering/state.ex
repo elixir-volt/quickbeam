@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   @moduledoc false
 
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Captures, Types}
-  alias QuickBEAM.VM.ObjectModel.{Get, Put}
+  alias QuickBEAM.VM.ObjectModel.Put
 
   @line 1
 
@@ -290,9 +290,15 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  def get_field_call(state, key_expr) do
+    with {:ok, obj, _type, state} <- pop_typed(state) do
+      {:ok, push(state, Builder.local_call(:op_get_field, [obj, key_expr]))}
+    end
+  end
+
   def get_field2(state, key_expr) do
     with {:ok, obj, _type, state} <- pop_typed(state) do
-      field = Builder.remote_call(Get, :get, [obj, key_expr])
+      field = Builder.local_call(:op_get_field, [obj, key_expr])
 
       {:ok,
        %{
