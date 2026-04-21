@@ -13,7 +13,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
     with {:ok, stack_depths} <- Analysis.infer_block_stack_depths(instructions, entries),
          {:ok, {entry_types, return_type}} <-
            Analysis.infer_block_entry_types(fun, instructions, entries, stack_depths) do
-      inline_targets = Analysis.inlineable_goto_targets(instructions, entries)
+      inline_targets = Analysis.inlineable_entries(instructions, entries)
 
       blocks =
         for start <- entries,
@@ -112,18 +112,32 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
   end
 
   defp lower_block(
-         _instructions,
+         instructions,
          idx,
          idx,
-         _arg_count,
+         arg_count,
          state,
          stack_depths,
-         _constants,
-         _entries,
-         _inline_targets
+         constants,
+         entries,
+         inline_targets
        ) do
-    with {:ok, call} <- State.block_jump_call(state, idx, stack_depths) do
-      {:ok, state.body ++ [call]}
+    if MapSet.member?(inline_targets, idx) do
+      lower_block(
+        instructions,
+        idx,
+        Analysis.next_entry(entries, idx),
+        arg_count,
+        state,
+        stack_depths,
+        constants,
+        entries,
+        inline_targets
+      )
+    else
+      with {:ok, call} <- State.block_jump_call(state, idx, stack_depths) do
+        {:ok, state.body ++ [call]}
+      end
     end
   end
 
@@ -203,6 +217,121 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
   end
 
   defp lower_instruction(
+         {op, [target]} = instruction,
+         instructions,
+         idx,
+         next_entry,
+         arg_count,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets
+       ) do
+    case Analysis.opcode_name(op) do
+      {:ok, :if_false} ->
+        lower_branch_instruction(
+          instructions,
+          idx,
+          next_entry,
+          arg_count,
+          state,
+          stack_depths,
+          constants,
+          entries,
+          inline_targets,
+          target,
+          false
+        )
+
+      {:ok, :if_false8} ->
+        lower_branch_instruction(
+          instructions,
+          idx,
+          next_entry,
+          arg_count,
+          state,
+          stack_depths,
+          constants,
+          entries,
+          inline_targets,
+          target,
+          false
+        )
+
+      {:ok, :if_true} ->
+        lower_branch_instruction(
+          instructions,
+          idx,
+          next_entry,
+          arg_count,
+          state,
+          stack_depths,
+          constants,
+          entries,
+          inline_targets,
+          target,
+          true
+        )
+
+      {:ok, :if_true8} ->
+        lower_branch_instruction(
+          instructions,
+          idx,
+          next_entry,
+          arg_count,
+          state,
+          stack_depths,
+          constants,
+          entries,
+          inline_targets,
+          target,
+          true
+        )
+
+      _ ->
+        lower_non_branch_instruction(
+          instruction,
+          instructions,
+          idx,
+          next_entry,
+          arg_count,
+          state,
+          stack_depths,
+          constants,
+          entries,
+          inline_targets
+        )
+    end
+  end
+
+  defp lower_instruction(
+         instruction,
+         instructions,
+         idx,
+         next_entry,
+         arg_count,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets
+       ) do
+    lower_non_branch_instruction(
+      instruction,
+      instructions,
+      idx,
+      next_entry,
+      arg_count,
+      state,
+      stack_depths,
+      constants,
+      entries,
+      inline_targets
+    )
+  end
+
+  defp lower_non_branch_instruction(
          instruction,
          instructions,
          idx,
@@ -256,6 +385,108 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  defp lower_branch_instruction(
+         instructions,
+         idx,
+         next_entry,
+         arg_count,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets,
+         target,
+         sense
+       ) do
+    if MapSet.member?(inline_targets, target) or MapSet.member?(inline_targets, next_entry) do
+      with {:ok, cond_expr, cond_type, state} <- State.pop_typed(state),
+           {:ok, target_body} <-
+             lower_branch_target_body(
+               instructions,
+               target,
+               arg_count,
+               state,
+               stack_depths,
+               constants,
+               entries,
+               inline_targets
+             ),
+           {:ok, next_body} <-
+             lower_branch_target_body(
+               instructions,
+               next_entry,
+               arg_count,
+               state,
+               stack_depths,
+               constants,
+               entries,
+               inline_targets
+             ) do
+        truthy = State.branch_condition(cond_expr, cond_type)
+        false_body = if(sense, do: next_body, else: target_body)
+        true_body = if(sense, do: target_body, else: next_body)
+        {:ok, state.body ++ [State.branch_case(truthy, false_body, true_body)]}
+      end
+    else
+      lower_non_branch_instruction(
+        {if(sense,
+           do: QuickBEAM.BeamVM.Opcodes.num(:if_true),
+           else: QuickBEAM.BeamVM.Opcodes.num(:if_false)
+         ), [target]},
+        instructions,
+        idx,
+        next_entry,
+        arg_count,
+        state,
+        stack_depths,
+        constants,
+        entries,
+        inline_targets
+      )
+    end
+  end
+
+  defp lower_branch_target_body(
+         _instructions,
+         nil,
+         _arg_count,
+         _state,
+         _stack_depths,
+         _constants,
+         _entries,
+         _inline_targets
+       ),
+       do: {:error, :missing_branch_fallthrough}
+
+  defp lower_branch_target_body(
+         instructions,
+         target,
+         arg_count,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets
+       ) do
+    if MapSet.member?(inline_targets, target) do
+      lower_block(
+        instructions,
+        target,
+        Analysis.next_entry(entries, target),
+        arg_count,
+        %{state | body: []},
+        stack_depths,
+        constants,
+        entries,
+        inline_targets
+      )
+    else
+      with {:ok, call} <- State.block_jump_call(state, target, stack_depths) do
+        {:ok, [call]}
+      end
     end
   end
 

@@ -30,27 +30,45 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
   def next_entry(entries, start), do: Enum.find(entries, &(&1 > start))
 
   def predecessor_counts(instructions, entries) do
-    entries
-    |> Enum.reduce(%{}, fn start, counts ->
-      successors = block_successors(instructions, entries, start)
-
-      Enum.reduce(successors, counts, fn succ, counts ->
-        Map.update(counts, succ, 1, &(&1 + 1))
-      end)
-    end)
+    predecessor_sources(instructions, entries)
+    |> Enum.into(%{}, fn {target, preds} -> {target, length(preds)} end)
   end
 
-  def inlineable_goto_targets(instructions, entries) do
-    counts = predecessor_counts(instructions, entries)
-
+  def predecessor_sources(instructions, entries) do
     entries
-    |> Enum.reduce(MapSet.new(), fn start, acc ->
+    |> Enum.reduce(%{}, fn start, preds ->
       next = next_entry(entries, start)
 
       case block_terminal(instructions, start, next) do
+        {:branch, target, term_idx} when is_integer(next) ->
+          preds
+          |> add_predecessor(target, term_idx)
+          |> add_predecessor(next, term_idx)
+
+        {:catch, target, term_idx} when is_integer(next) ->
+          preds
+          |> add_predecessor(target, term_idx)
+          |> add_predecessor(next, term_idx)
+
         {:goto, target, term_idx} ->
-          if target > term_idx and Map.get(counts, target, 0) == 1 and
-               not protected_target?(instructions, target) do
+          add_predecessor(preds, target, term_idx)
+
+        {:fallthrough, target_idx} ->
+          add_predecessor(preds, target_idx, target_idx - 1)
+
+        _ ->
+          preds
+      end
+    end)
+  end
+
+  def inlineable_entries(instructions, entries) do
+    instructions
+    |> predecessor_sources(entries)
+    |> Enum.reduce(MapSet.new(), fn {target, preds}, acc ->
+      case preds do
+        [pred_end] ->
+          if pred_end < target and not protected_target?(instructions, target) do
             MapSet.put(acc, target)
           else
             acc
@@ -82,37 +100,35 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
   end
 
   def function_type(%Bytecode.Function{} = fun) do
-    key = {:qb_function_type, fun.byte_code}
+    stack = Process.get(:qb_function_type_stack, MapSet.new())
 
-    case Process.get(key) do
-      {:function, _} = type ->
-        type
+    if MapSet.member?(stack, fun.byte_code) do
+      :function
+    else
+      next_stack = MapSet.put(stack, fun.byte_code)
+      Process.put(:qb_function_type_stack, next_stack)
 
-      :in_progress ->
-        :function
+      try do
+        case Decoder.decode(fun.byte_code, fun.arg_count) do
+          {:ok, instructions} ->
+            entries = block_entries(instructions)
 
-      _ ->
-        Process.put(key, :in_progress)
+            with {:ok, stack_depths} <- infer_block_stack_depths(instructions, entries),
+                 {:ok, {_entry_types, return_type}} <-
+                   infer_block_entry_types(fun, instructions, entries, stack_depths) do
+              {:function, return_type}
+            else
+              _ -> :function
+            end
 
-        type =
-          case Decoder.decode(fun.byte_code, fun.arg_count) do
-            {:ok, instructions} ->
-              entries = block_entries(instructions)
-
-              with {:ok, stack_depths} <- infer_block_stack_depths(instructions, entries),
-                   {:ok, {_entry_types, return_type}} <-
-                     infer_block_entry_types(fun, instructions, entries, stack_depths) do
-                {:function, return_type}
-              else
-                _ -> :function
-              end
-
-            _ ->
-              :function
-          end
-
-        Process.put(key, type)
-        type
+          _ ->
+            :function
+        end
+      after
+        if MapSet.size(stack) == 0,
+          do: Process.delete(:qb_function_type_stack),
+          else: Process.put(:qb_function_type_stack, stack)
+      end
     end
   end
 
@@ -1065,6 +1081,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
         do_block_terminal(instructions, idx + 1, next_entry)
     end
   end
+
+  defp add_predecessor(preds, target, pred_end),
+    do: Map.update(preds, target, [pred_end], &[pred_end | &1])
 
   defp protected_target?(instructions, target) do
     Enum.any?(instructions, fn {op, args} ->

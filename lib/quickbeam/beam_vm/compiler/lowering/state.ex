@@ -724,6 +724,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
 
   def branch_condition(expr, :boolean), do: expr
   def branch_condition(expr, _type), do: remote_call(Values, :truthy?, [expr])
+  def branch_case(expr, false_body, true_body), do: case_expr(expr, false_body, true_body)
 
   def atom_name(state, atom_idx), do: resolve_atom_name(atom_idx, state.atoms)
 
