@@ -506,6 +506,53 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp resolve_local_name(_), do: nil
 
+  defp seed_class_binding(frame, ctx, atom_idx, ctor_closure) do
+    case class_binding_local_index(ctx, atom_idx) do
+      nil ->
+        frame
+
+      idx ->
+        Closures.write_captured_local(
+          elem(frame, Frame.l2v()),
+          idx,
+          ctor_closure,
+          elem(frame, Frame.locals()),
+          elem(frame, Frame.var_refs())
+        )
+
+        put_local(frame, idx, ctor_closure)
+    end
+  end
+
+  defp class_binding_local_index(%Context{current_func: current_func}, atom_idx) do
+    class_name = resolve_local_name(atom_idx)
+
+    current_func
+    |> current_bytecode_function()
+    |> case do
+      %Bytecode.Function{locals: locals} ->
+        locals
+        |> Enum.with_index()
+        |> Enum.filter(fn {%{name: name, scope_level: scope_level, is_lexical: is_lexical}, _idx} ->
+          is_lexical and scope_level > 1 and resolve_local_name(name) == class_name
+        end)
+        |> Enum.max_by(fn {%{scope_level: scope_level}, _idx} -> scope_level end, fn -> nil end)
+        |> case do
+          nil -> nil
+          {_local, idx} -> idx
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp class_binding_local_index(_, _), do: nil
+
+  defp current_bytecode_function({:closure, _, %Bytecode.Function{} = fun}), do: fun
+  defp current_bytecode_function(%Bytecode.Function{} = fun), do: fun
+  defp current_bytecode_function(_), do: nil
+
   defp caller_is_strict?(%Context{current_func: func}) do
     case func do
       {:closure, _, %Bytecode.Function{is_strict_mode: s}} -> s
@@ -630,10 +677,75 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp maybe_refresh_error_stack(error), do: error
 
+  defp get_private_field({:obj, ref}, key) do
+    map = Heap.get_obj(ref, %{})
+    Map.get(map, {:private, key}, :undefined)
+  end
+
+  defp get_private_field({:closure, _, %Bytecode.Function{}} = ctor, key),
+    do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :undefined)
+
+  defp get_private_field(%Bytecode.Function{} = ctor, key),
+    do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :undefined)
+
+  defp get_private_field({:builtin, _, _} = ctor, key),
+    do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :undefined)
+
+  defp get_private_field(_, _key), do: :undefined
+
+  defp has_private_field?({:obj, ref}, key) do
+    map = Heap.get_obj(ref, %{})
+    Map.has_key?(map, {:private, key})
+  end
+
+  defp has_private_field?({:closure, _, %Bytecode.Function{}} = ctor, key),
+    do: Map.has_key?(Heap.get_ctor_statics(ctor), {:private, key})
+
+  defp has_private_field?(%Bytecode.Function{} = ctor, key),
+    do: Map.has_key?(Heap.get_ctor_statics(ctor), {:private, key})
+
+  defp has_private_field?({:builtin, _, _} = ctor, key),
+    do: Map.has_key?(Heap.get_ctor_statics(ctor), {:private, key})
+
+  defp has_private_field?(_, _key), do: false
+
   defp set_private_field({:obj, ref}, key, val),
     do: Heap.update_obj(ref, %{}, &Map.put(&1, {:private, key}, val))
 
+  defp set_private_field({:closure, _, %Bytecode.Function{}} = ctor, key, val),
+    do: Heap.put_ctor_static(ctor, {:private, key}, val)
+
+  defp set_private_field(%Bytecode.Function{} = ctor, key, val),
+    do: Heap.put_ctor_static(ctor, {:private, key}, val)
+
+  defp set_private_field({:builtin, _, _} = ctor, key, val),
+    do: Heap.put_ctor_static(ctor, {:private, key}, val)
+
   defp set_private_field(_, _, _), do: :ok
+
+  defp add_brand_value({:obj, ref}, brand) do
+    Heap.update_obj(ref, %{}, fn map ->
+      brands = Map.get(map, :__brands__, [])
+      Map.put(map, :__brands__, [brand | brands])
+    end)
+  end
+
+  defp add_brand_value({:closure, _, %Bytecode.Function{}} = ctor, brand) do
+    brands = Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
+    Heap.put_ctor_static(ctor, :__brands__, [brand | brands])
+  end
+
+  defp add_brand_value(%Bytecode.Function{} = ctor, brand) do
+    brands = Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
+    Heap.put_ctor_static(ctor, :__brands__, [brand | brands])
+  end
+
+  defp add_brand_value({:builtin, _, _} = ctor, brand) do
+    brands = Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
+    Heap.put_ctor_static(ctor, :__brands__, [brand | brands])
+  end
+
+  defp add_brand_value(_, _brand), do: :ok
 
   defp throw_null_property_error(frame, obj, atom_idx, gas, ctx) do
     prop = Scope.resolve_atom(ctx, atom_idx)
@@ -1822,17 +1934,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({@op_get_private_field, []}, pc, frame, [key, obj | rest], gas, ctx) do
-    val =
-      case obj do
-        {:obj, ref} ->
-          map = Heap.get_obj(ref, %{})
-          Map.get(map, {:private, key}, :undefined)
-
-        _ ->
-          :undefined
-      end
-
-    run(pc + 1, frame, [val | rest], gas, ctx)
+    run(pc + 1, frame, [get_private_field(obj, key) | rest], gas, ctx)
   end
 
   defp run({@op_put_private_field, []}, pc, frame, [key, val, obj | rest], gas, ctx) do
@@ -1846,17 +1948,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({@op_private_in, []}, pc, frame, [key, obj | rest], gas, ctx) do
-    result =
-      case obj do
-        {:obj, ref} ->
-          map = Heap.get_obj(ref, %{})
-          Map.has_key?(map, {:private, key})
-
-        _ ->
-          false
-      end
-
-    run(pc + 1, frame, [result | rest], gas, ctx)
+    run(pc + 1, frame, [has_private_field?(obj, key) | rest], gas, ctx)
   end
 
   defp run({@op_get_length, []}, pc, frame, [obj | rest], gas, ctx) do
@@ -3047,7 +3139,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   # ── Class definitions ──
 
   defp run(
-         {@op_define_class, [_atom_idx, _flags]},
+         {@op_define_class, [atom_idx, _flags]},
          pc,
          frame,
          [ctor, parent_ctor | rest],
@@ -3093,28 +3185,22 @@ defmodule QuickBEAM.BeamVM.Interpreter do
       Heap.put_parent_ctor(raw, parent_ctor)
     end
 
+    frame = seed_class_binding(frame, ctx, atom_idx, ctor_closure)
+
     run(pc + 1, frame, [proto, ctor_closure | rest], gas, ctx)
   end
 
   defp run({@op_add_brand, []}, pc, frame, [obj, brand | rest], gas, ctx) do
-    case obj do
-      {:obj, ref} ->
-        Heap.update_obj(ref, %{}, fn map ->
-          brands = Map.get(map, :__brands__, [])
-          Map.put(map, :__brands__, [brand | brands])
-        end)
-
-      _ ->
-        :ok
-    end
-
+    add_brand_value(obj, brand)
     run(pc + 1, frame, rest, gas, ctx)
   end
 
   defp run({@op_check_brand, []}, pc, frame, [_brand, obj | _] = stack, gas, ctx) do
-    # Permissive: verify obj is an object (skip full brand check for perf)
     case obj do
       {:obj, _} -> run(pc + 1, frame, stack, gas, ctx)
+      {:closure, _, %Bytecode.Function{}} -> run(pc + 1, frame, stack, gas, ctx)
+      %Bytecode.Function{} -> run(pc + 1, frame, stack, gas, ctx)
+      {:builtin, _, _} -> run(pc + 1, frame, stack, gas, ctx)
       _ -> throw({:js_throw, Heap.make_error("invalid brand on object", "TypeError")})
     end
   end

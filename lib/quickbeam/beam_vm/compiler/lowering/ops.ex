@@ -367,8 +367,8 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
       {{:ok, :define_method_computed}, [_flags]} ->
         State.define_method_computed_call(state)
 
-      {{:ok, :define_class}, [_atom_idx, _flags]} ->
-        State.define_class_call(state)
+      {{:ok, :define_class}, [atom_idx, _flags]} ->
+        State.define_class_call(state, atom_idx)
 
       {{:ok, :put_array_el}, []} ->
         State.put_array_el_call(state)
@@ -426,6 +426,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
 
       {{:ok, :iterator_close}, []} ->
         lower_iterator_close(state)
+
+      {{:ok, :add_brand}, []} ->
+        State.add_brand(state)
 
       {{:ok, :nip_catch}, []} ->
         State.nip_catch(state)

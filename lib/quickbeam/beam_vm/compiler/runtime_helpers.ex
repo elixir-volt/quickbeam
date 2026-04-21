@@ -256,6 +256,35 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     method
   end
 
+  def add_brand({:obj, ref}, brand) do
+    Heap.update_obj(ref, %{}, fn map ->
+      brands = Map.get(map, :__brands__, [])
+      Map.put(map, :__brands__, [brand | brands])
+    end)
+
+    :ok
+  end
+
+  def add_brand({:closure, _, %Bytecode.Function{}} = ctor, brand) do
+    brands = Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
+    Heap.put_ctor_static(ctor, :__brands__, [brand | brands])
+    :ok
+  end
+
+  def add_brand(%Bytecode.Function{} = ctor, brand) do
+    brands = Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
+    Heap.put_ctor_static(ctor, :__brands__, [brand | brands])
+    :ok
+  end
+
+  def add_brand({:builtin, _, _} = ctor, brand) do
+    brands = Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
+    Heap.put_ctor_static(ctor, :__brands__, [brand | brands])
+    :ok
+  end
+
+  def add_brand(_obj, _brand), do: :ok
+
   def append_spread(arr, idx, obj) do
     src_list = spread_source_to_list(obj)
     arr_list = spread_target_to_list(arr)

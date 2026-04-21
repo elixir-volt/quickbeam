@@ -15,6 +15,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
         for start <- entries, Map.has_key?(stack_depths, start), into: [] do
           {start,
            block_form(
+             fun,
              start,
              fun.arg_count,
              slot_count,
@@ -34,6 +35,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
   end
 
   defp block_form(
+         fun,
          start,
          arg_count,
          slot_count,
@@ -43,7 +45,12 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
          stack_depths,
          constants
        ) do
-    state = State.new(slot_count, stack_depth)
+    state =
+      State.new(slot_count, stack_depth,
+        locals: fun.locals,
+        atoms: Process.get({:qb_fn_atoms, fun.byte_code})
+      )
+
     next_entry = Analysis.next_entry(entries, start)
 
     args =

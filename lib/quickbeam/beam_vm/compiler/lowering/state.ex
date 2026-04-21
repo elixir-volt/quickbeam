@@ -6,7 +6,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
 
   @line 1
 
-  def new(slot_count, stack_depth) do
+  def new(slot_count, stack_depth, opts \\ []) do
     slots =
       if slot_count == 0,
         do: %{},
@@ -27,7 +27,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
       slots: slots,
       capture_cells: capture_cells,
       stack: stack,
-      temp: 0
+      temp: 0,
+      locals: Keyword.get(opts, :locals, []),
+      atoms: Keyword.get(opts, :atoms)
     }
   end
 
@@ -224,6 +226,13 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     end
   end
 
+  def add_brand(state) do
+    with {:ok, obj, state} <- pop(state),
+         {:ok, brand, state} <- pop(state) do
+      {:ok, %{state | body: state.body ++ [compiler_call(:add_brand, [obj, brand])]}}
+    end
+  end
+
   def put_field_call(state, atom_idx) do
     with {:ok, val, state} <- pop(state),
          {:ok, obj, state} <- pop(state) do
@@ -257,15 +266,56 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     end
   end
 
-  def define_class_call(state) do
+  def define_class_call(state, atom_idx) do
     with {:ok, ctor, state} <- pop(state),
          {:ok, parent_ctor, state} <- pop(state) do
       {pair, state} =
         bind(state, temp_name(state.temp), compiler_call(:define_class, [ctor, parent_ctor]))
 
-      {:ok, %{state | stack: [tuple_element(pair, 1), tuple_element(pair, 2) | state.stack]}}
+      ctor = tuple_element(pair, 2)
+
+      state =
+        case class_binding_slot(state, atom_idx) do
+          nil -> state
+          slot_idx -> update_slot!(state, slot_idx, ctor)
+        end
+
+      {:ok, %{state | stack: [tuple_element(pair, 1), ctor | state.stack]}}
     end
   end
+
+  defp update_slot!(state, idx, expr) do
+    {:ok, state} = update_slot(state, idx, expr)
+    state
+  end
+
+  defp class_binding_slot(%{locals: locals, atoms: atoms}, atom_idx) do
+    class_name = resolve_atom_name(atom_idx, atoms)
+
+    locals
+    |> Enum.with_index()
+    |> Enum.filter(fn {%{name: name, scope_level: scope_level, is_lexical: is_lexical}, _idx} ->
+      is_lexical and scope_level > 1 and resolve_local_name(name, atoms) == class_name
+    end)
+    |> Enum.max_by(fn {%{scope_level: scope_level}, _idx} -> scope_level end, fn -> nil end)
+    |> case do
+      nil -> nil
+      {_local, idx} -> idx
+    end
+  end
+
+  defp resolve_local_name(name, _atoms) when is_binary(name), do: name
+
+  defp resolve_local_name({:predefined, idx}, _atoms),
+    do: QuickBEAM.BeamVM.PredefinedAtoms.lookup(idx)
+
+  defp resolve_local_name(idx, atoms)
+       when is_integer(idx) and is_tuple(atoms) and idx < tuple_size(atoms),
+       do: elem(atoms, idx)
+
+  defp resolve_local_name(_name, _atoms), do: nil
+
+  defp resolve_atom_name(atom_idx, atoms), do: resolve_local_name(atom_idx, atoms)
 
   def put_array_el_call(state) do
     with {:ok, val, state} <- pop(state),

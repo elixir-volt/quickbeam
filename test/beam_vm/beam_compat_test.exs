@@ -1328,6 +1328,46 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
         true
       )
     end
+
+    test "private static field read", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { static #x = 42; static get() { return A.#x } } return A.get() })()",
+        42
+      )
+    end
+
+    test "private static field write", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { static #x = 1; static set(v){ A.#x = v } static get(){ return A.#x } } A.set(9); return A.get() })()",
+        9
+      )
+    end
+
+    test "private static method", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { static #m(){ return 5 } static get(){ return A.#m() } } return A.get() })()",
+        5
+      )
+    end
+
+    test "private static accessor", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { static get #x(){ return 7 } static read(){ return A.#x } } return A.read() })()",
+        7
+      )
+    end
+
+    test "private static in operator", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { static #x = 1; static has(){ return #x in A } } return A.has() })()",
+        true
+      )
+    end
   end
 
   describe "super property access" do

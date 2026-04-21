@@ -554,6 +554,83 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, 99} = Compiler.invoke(fun, [])
     end
 
+    test "compiles private methods", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #m() { return 3 } get() { return this.#m() } } return new A().get() })"
+        )
+        |> user_function()
+
+      assert {:ok, 3} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private accessors", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { get #x() { return 7 } read() { return this.#x } } return new A().read() })"
+        )
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private static fields", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static #x = 42; static get() { return A.#x } } return A.get() })"
+        )
+        |> user_function()
+
+      assert {:ok, 42} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private static writes", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static #x = 1; static set(v){ A.#x = v } static get(){ return A.#x } } A.set(9); return A.get() })"
+        )
+        |> user_function()
+
+      assert {:ok, 9} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private static methods", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static #m(){ return 5 } static get(){ return A.#m() } } return A.get() })"
+        )
+        |> user_function()
+
+      assert {:ok, 5} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private static accessors", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static get #x(){ return 7 } static read(){ return A.#x } } return A.read() })"
+        )
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private static in checks", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static #x = 1; static has(){ return #x in A } } return A.has() })"
+        )
+        |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
     test "preserves side-effectful dropped method calls", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(o){ o.bump(); return o.n })") |> user_function()
 
