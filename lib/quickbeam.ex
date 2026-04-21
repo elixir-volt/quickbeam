@@ -4,7 +4,7 @@ defmodule QuickBEAM do
   alias QuickBEAM.BeamVM.Bytecode, as: BeamBytecode
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Interpreter
-  alias QuickBEAM.BeamVM.Interpreter.Promise
+  alias QuickBEAM.BeamVM.PromiseState, as: Promise
   alias QuickBEAM.BeamVM.Runtime, as: BeamRuntime
   alias QuickBEAM.Bytecode
   alias QuickBEAM.JSError

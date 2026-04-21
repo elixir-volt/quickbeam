@@ -66,7 +66,7 @@ defmodule QuickBEAM.BeamVM.Runtime.TypedArray do
     end
   end
 
-  # ── Element access (public, used by Interpreter.Objects) ──
+  # ── Element access (public, used by ObjectModel.Put) ──
 
   def immutable?({:obj, ref}) do
     is_immutable_buffer?(Heap.get_obj(ref, %{}))

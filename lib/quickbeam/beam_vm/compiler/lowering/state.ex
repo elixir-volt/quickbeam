@@ -3,6 +3,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
 
   alias QuickBEAM.BeamVM.Compiler.RuntimeHelpers
   alias QuickBEAM.BeamVM.Interpreter.Values
+  alias QuickBEAM.BeamVM.ObjectModel.{Get, Put}
 
   @line 1
 
@@ -285,7 +286,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
 
   def get_field2(state, key_expr) do
     with {:ok, obj, _type, state} <- pop_typed(state) do
-      field = remote_call(QuickBEAM.BeamVM.Runtime.Property, :get, [obj, key_expr])
+      field = remote_call(Get, :get, [obj, key_expr])
 
       {:ok,
        %{
@@ -355,7 +356,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
          state
          | body:
              state.body ++
-               [remote_call(QuickBEAM.BeamVM.Interpreter.Objects, :put, [obj, key_expr, val])]
+               [remote_call(Put, :put, [obj, key_expr, val])]
        }}
     end
   end
@@ -528,7 +529,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
       {:ok,
        push(
          state,
-         remote_call(QuickBEAM.BeamVM.Interpreter.Objects, :has_property, [obj, key]),
+         remote_call(Put, :has_property, [obj, key]),
          :boolean
        )}
     end

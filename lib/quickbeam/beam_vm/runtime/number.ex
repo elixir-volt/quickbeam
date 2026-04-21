@@ -4,6 +4,7 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
   use QuickBEAM.BeamVM.Builtin
 
   alias QuickBEAM.BeamVM.Runtime
+  alias QuickBEAM.BeamVM.Runtime.GlobalNumeric
 
   # ── Number.prototype ──
 
@@ -42,11 +43,11 @@ defmodule QuickBEAM.BeamVM.Runtime.Number do
   end
 
   static "parseInt" do
-    Runtime.Globals.parse_int(args)
+    GlobalNumeric.parse_int(args, nil)
   end
 
   static "parseFloat" do
-    Runtime.Globals.parse_float(args)
+    GlobalNumeric.parse_float(args, nil)
   end
 
   static_val("NaN", :nan)

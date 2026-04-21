@@ -12,14 +12,12 @@ defmodule QuickBEAM.BeamVM.ObjectModel.Get do
     Array,
     Boolean,
     Function,
+    MapSet,
     Number,
     Object,
     RegExp,
     TypedArray
   }
-
-  alias QuickBEAM.BeamVM.Runtime.Map, as: JSMap
-  alias QuickBEAM.BeamVM.Runtime.Set, as: JSSet
 
   alias QuickBEAM.BeamVM.Runtime.ArrayBuffer
   alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
@@ -305,10 +303,10 @@ defmodule QuickBEAM.BeamVM.ObjectModel.Get do
       map when is_map(map) ->
         cond do
           Map.has_key?(map, map_data()) ->
-            JSMap.proto_property(key)
+            MapSet.map_proto(key)
 
           Map.has_key?(map, set_data()) ->
-            JSSet.proto_property(key)
+            MapSet.set_proto(key)
 
           Map.has_key?(map, proto()) ->
             get(Map.get(map, proto()), key)

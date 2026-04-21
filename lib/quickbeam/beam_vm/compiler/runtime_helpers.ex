@@ -57,15 +57,19 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     end
   end
 
-  def get_var(atom_idx), do: get_var(atom_name(atom_idx))
+  def get_var(atom_idx), do: get_var(Names.resolve_atom(InvokeContext.current_atoms(), atom_idx))
 
   def get_var_undef(name) when is_binary(name), do: GlobalEnv.get(name, :undefined)
-  def get_var_undef(atom_idx), do: get_var_undef(atom_name(atom_idx))
 
-  def push_atom_value(atom_idx), do: atom_name(atom_idx)
+  def get_var_undef(atom_idx),
+    do: get_var_undef(Names.resolve_atom(InvokeContext.current_atoms(), atom_idx))
+
+  def push_atom_value(atom_idx), do: Names.resolve_atom(InvokeContext.current_atoms(), atom_idx)
 
   def private_symbol(name) when is_binary(name), do: Private.private_symbol(name)
-  def private_symbol(atom_idx), do: Private.private_symbol(atom_name(atom_idx))
+
+  def private_symbol(atom_idx),
+    do: Private.private_symbol(Names.resolve_atom(InvokeContext.current_atoms(), atom_idx))
 
   def new_object do
     object_proto = Heap.get_object_prototype()
@@ -76,7 +80,9 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   def array_from(list), do: Heap.wrap(list)
 
   def get_field(obj, key) when is_binary(key), do: Get.get(obj, key)
-  def get_field(obj, atom_idx), do: Get.get(obj, atom_name(atom_idx))
+
+  def get_field(obj, atom_idx),
+    do: Get.get(obj, Names.resolve_atom(InvokeContext.current_atoms(), atom_idx))
 
   def get_var_ref(idx), do: read_var_ref(current_var_ref(idx))
 
@@ -110,7 +116,7 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   end
 
   def push_this do
-    case current_this() do
+    case InvokeContext.current_this() do
       this
       when this == :uninitialized or
              (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized) ->
@@ -122,7 +128,7 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   end
 
   def special_object(type) do
-    case fast_ctx() do
+    case InvokeContext.fast_ctx() do
       {_atoms, _globals, current_func, arg_buf, _this, new_target, home_object, _super} ->
         case type do
           0 -> Heap.wrap(Tuple.to_list(arg_buf))
@@ -137,15 +143,15 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
         end
 
       _ ->
-        current_func = current_func()
-        arg_buf = current_arg_buf()
+        current_func = InvokeContext.current_func()
+        arg_buf = InvokeContext.current_arg_buf()
 
         case type do
           0 -> Heap.wrap(Tuple.to_list(arg_buf))
           1 -> Heap.wrap(Tuple.to_list(arg_buf))
           2 -> current_func
-          3 -> current_new_target()
-          4 -> current_home_object(current_func)
+          3 -> InvokeContext.current_new_target()
+          4 -> InvokeContext.current_home_object(current_func)
           5 -> Heap.wrap(%{})
           6 -> Heap.wrap(%{})
           7 -> Heap.wrap(%{"__proto__" => nil})
@@ -180,14 +186,16 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     :ok
   end
 
-  def put_field(obj, atom_idx, val), do: put_field(obj, atom_name(atom_idx), val)
+  def put_field(obj, atom_idx, val),
+    do: put_field(obj, Names.resolve_atom(InvokeContext.current_atoms(), atom_idx), val)
 
   def define_field(obj, key, val) when is_binary(key) do
     Put.put(obj, key, val)
     obj
   end
 
-  def define_field(obj, atom_idx, val), do: define_field(obj, atom_name(atom_idx), val)
+  def define_field(obj, atom_idx, val),
+    do: define_field(obj, Names.resolve_atom(InvokeContext.current_atoms(), atom_idx), val)
 
   def put_array_el(obj, idx, val) do
     Put.put_element(obj, idx, val)
@@ -200,7 +208,13 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     do: Methods.define_method(target, method, name, flags)
 
   def define_method(target, method, atom_idx, flags),
-    do: Methods.define_method(target, method, atom_name(atom_idx), flags)
+    do:
+      Methods.define_method(
+        target,
+        method,
+        Names.resolve_atom(InvokeContext.current_atoms(), atom_idx),
+        flags
+      )
 
   def define_method_computed(target, method, field_name, flags),
     do: Methods.define_method_computed(target, method, field_name, flags)
@@ -241,7 +255,11 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
         other -> other
       end
 
-    Class.define_class(ctor_closure, parent_ctor, atom_name(atom_idx))
+    Class.define_class(
+      ctor_closure,
+      parent_ctor,
+      Names.resolve_atom(InvokeContext.current_atoms(), atom_idx)
+    )
   end
 
   def invoke_runtime(fun, args), do: Invocation.invoke_runtime(fun, args)
@@ -362,7 +380,7 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   defp prototype_chain_contains?(_, _), do: false
 
   defp current_var_ref(idx) do
-    case current_func() do
+    case InvokeContext.current_func() do
       {:closure, captured, %Bytecode.Function{closure_vars: vars}}
       when idx >= 0 and idx < length(vars) ->
         cv = Enum.at(vars, idx)
@@ -388,22 +406,23 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   end
 
   defp var_ref_name(idx) do
-    case current_func() do
+    case InvokeContext.current_func() do
       {:closure, _, %Bytecode.Function{closure_vars: vars}}
       when idx >= 0 and idx < length(vars) ->
-        vars |> Enum.at(idx) |> Map.get(:name) |> resolve_name()
+        vars
+        |> Enum.at(idx)
+        |> Map.get(:name)
+        |> Names.resolve_display_name(InvokeContext.current_atoms())
 
       _ ->
         nil
     end
   end
 
-  defp resolve_name(name), do: Names.resolve_display_name(name, InvokeContext.current_atoms())
-
   defp closure_capture_key(%{closure_type: type, var_idx: idx}), do: {type, idx}
 
   defp derived_this_uninitialized? do
-    case current_this() do
+    case InvokeContext.current_this() do
       this
       when this == :uninitialized or
              (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized) ->
@@ -413,12 +432,4 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
         false
     end
   end
-
-  defp current_func, do: InvokeContext.current_func()
-  defp current_home_object(current_func), do: InvokeContext.current_home_object(current_func)
-  defp current_arg_buf, do: InvokeContext.current_arg_buf()
-  defp current_this, do: InvokeContext.current_this()
-  defp current_new_target, do: InvokeContext.current_new_target()
-  defp atom_name(atom_idx), do: Names.resolve_atom(InvokeContext.current_atoms(), atom_idx)
-  defp fast_ctx, do: InvokeContext.fast_ctx()
 end

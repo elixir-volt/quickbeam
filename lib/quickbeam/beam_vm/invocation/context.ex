@@ -1,9 +1,9 @@
 defmodule QuickBEAM.BeamVM.Invocation.Context do
   @moduledoc false
 
-  alias QuickBEAM.BeamVM.{Heap, Runtime, Semantics}
+  alias QuickBEAM.BeamVM.{Heap, Runtime}
   alias QuickBEAM.BeamVM.Interpreter.Context
-  alias QuickBEAM.BeamVM.ObjectModel.Functions
+  alias QuickBEAM.BeamVM.ObjectModel.{Class, Functions}
 
   @fast_ctx_key :qb_fast_ctx
   @missing :__qb_missing__
@@ -138,7 +138,7 @@ defmodule QuickBEAM.BeamVM.Invocation.Context do
         super
 
       _ ->
-        Semantics.get_super(home_object)
+        Class.get_super(home_object)
     end
   end
 

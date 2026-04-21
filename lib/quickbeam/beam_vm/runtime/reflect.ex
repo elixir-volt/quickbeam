@@ -4,9 +4,8 @@ defmodule QuickBEAM.BeamVM.Runtime.Reflect do
   use QuickBEAM.BeamVM.Builtin
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Interpreter
-  alias QuickBEAM.BeamVM.Interpreter.Objects
+  alias QuickBEAM.BeamVM.ObjectModel.{Get, Put}
   alias QuickBEAM.BeamVM.Runtime
-  alias QuickBEAM.BeamVM.Runtime.Property
 
   js_object "Reflect" do
     method "apply" do
@@ -38,18 +37,18 @@ defmodule QuickBEAM.BeamVM.Runtime.Reflect do
 
     method "get" do
       [obj, key | _] = args
-      Property.get(obj, key)
+      Get.get(obj, key)
     end
 
     method "set" do
       [obj, key, val | _] = args
-      Objects.put(obj, key, val)
+      Put.put(obj, key, val)
       true
     end
 
     method "has" do
       [obj, key | _] = args
-      Objects.has_property(obj, key)
+      Put.has_property(obj, key)
     end
 
     method "ownKeys" do

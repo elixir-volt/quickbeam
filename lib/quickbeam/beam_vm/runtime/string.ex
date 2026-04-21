@@ -4,6 +4,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
   use QuickBEAM.BeamVM.Builtin
 
   alias QuickBEAM.BeamVM.Heap
+  alias QuickBEAM.BeamVM.ObjectModel.Get
   alias QuickBEAM.BeamVM.Runtime
   alias QuickBEAM.BeamVM.Runtime.RegExp
 
@@ -440,7 +441,7 @@ defmodule QuickBEAM.BeamVM.Runtime.String do
 
   defp match(s, [{:regexp, bytecode, _source} = re | _])
        when is_binary(s) and is_binary(bytecode) do
-    flags = Runtime.Property.regexp_flags(bytecode)
+    flags = Get.regexp_flags(bytecode)
 
     if String.contains?(flags, "g") do
       match_all_strings(s, re, 0, [])

@@ -15,18 +15,14 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
     Errors,
     GlobalNumeric,
     JSON,
+    MapSet,
     Math,
     Object,
-    Promise,
+    PromiseBuiltins,
     Reflect,
     Symbol,
     TypedArray
   }
-
-  alias QuickBEAM.BeamVM.Runtime.Map, as: JSMap
-  alias QuickBEAM.BeamVM.Runtime.Set, as: JSSet
-  alias QuickBEAM.BeamVM.Runtime.WeakMap, as: JSWeakMap
-  alias QuickBEAM.BeamVM.Runtime.WeakSet, as: JSWeakSet
 
   alias QuickBEAM.BeamVM.Runtime.Date, as: JSDate
 
@@ -53,12 +49,12 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
       "Function" => register("Function", &function_constructor/2),
       "RegExp" => register("RegExp", &regexp_constructor/2),
       "Date" => register("Date", &JSDate.constructor/2, module: JSDate),
-      "Promise" => register("Promise", Promise.constructor(), module: Promise),
+      "Promise" => register("Promise", PromiseBuiltins.constructor(), module: PromiseBuiltins),
       "Symbol" => register("Symbol", Symbol.constructor(), module: Symbol),
-      "Map" => register("Map", JSMap.constructor()),
-      "Set" => register("Set", JSSet.constructor()),
-      "WeakMap" => register("WeakMap", JSWeakMap.constructor()),
-      "WeakSet" => register("WeakSet", JSWeakSet.constructor()),
+      "Map" => register("Map", MapSet.map_constructor()),
+      "Set" => register("Set", MapSet.set_constructor()),
+      "WeakMap" => register("WeakMap", MapSet.weak_map_constructor()),
+      "WeakSet" => register("WeakSet", MapSet.weak_set_constructor()),
       "WeakRef" => register("WeakRef", fn _, _ -> Runtime.new_object() end),
       "FinalizationRegistry" =>
         register("FinalizationRegistry", fn [_callback | _], _ ->
@@ -279,13 +275,6 @@ defmodule QuickBEAM.BeamVM.Runtime.Globals do
   end
 
   # ── Public API (called by Number.parseInt/parseFloat statics) ──
-
-  def parse_int(args), do: GlobalNumeric.parse_int(args, nil)
-  def parse_float(args), do: GlobalNumeric.parse_float(args, nil)
-  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
-  def is_nan(args), do: GlobalNumeric.nan?(args, nil)
-  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
-  def is_finite(args), do: GlobalNumeric.finite?(args, nil)
 
   # ── Registration helpers ──
 

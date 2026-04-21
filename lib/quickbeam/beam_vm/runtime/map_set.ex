@@ -6,8 +6,8 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
   alias QuickBEAM.BeamVM.Bytecode
   alias QuickBEAM.BeamVM.Heap
   alias QuickBEAM.BeamVM.Interpreter
+  alias QuickBEAM.BeamVM.ObjectModel.Get
   alias QuickBEAM.BeamVM.Runtime
-  alias QuickBEAM.BeamVM.Runtime.Property
 
   # ── Map/Set ──
 
@@ -271,7 +271,7 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
             items
 
           _ ->
-            keys_fn = Property.get(other, "keys")
+            keys_fn = Get.get(other, "keys")
             iterate_setlike(keys_fn, other)
         end
 
@@ -282,7 +282,7 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
 
   defp other_set_size(other) do
     case other do
-      {:obj, _} -> Property.get(other, "size")
+      {:obj, _} -> Get.get(other, "size")
       _ -> 0
     end
   end
@@ -306,7 +306,7 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
   end
 
   defp other_set_has(other, val) do
-    has_fn = Property.get(other, "has")
+    has_fn = Get.get(other, "has")
 
     case has_fn do
       {:builtin, _, f} when is_function(f) -> f.([val], other) == true
@@ -322,15 +322,15 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
   end
 
   defp collect_iterator(iterator, acc) do
-    next_fn = Property.get(iterator, "next")
+    next_fn = Get.get(iterator, "next")
     result = call_with_this(next_fn, [], iterator)
 
-    done = Property.get(result, "done")
+    done = Get.get(result, "done")
 
     if done == true do
       Enum.reverse(acc)
     else
-      value = Property.get(result, "value")
+      value = Get.get(result, "value")
       collect_iterator(iterator, [value | acc])
     end
   end
@@ -384,7 +384,7 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
     other_size = other_set_size(other)
 
     if is_number(other_size) and length(d) >= other_size do
-      keys_fn = Property.get(other, "keys")
+      keys_fn = Get.get(other, "keys")
       iterator = call_with_this(keys_fn, [], other)
       iterate_check_all(iterator, d, other)
     else
@@ -397,7 +397,7 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
     other_size = other_set_size(other)
 
     if is_number(other_size) and length(d) > other_size do
-      keys_fn = Property.get(other, "keys")
+      keys_fn = Get.get(other, "keys")
       iterator = call_with_this(keys_fn, [], other)
       iterate_check_none(iterator, d, other)
     else
@@ -406,23 +406,23 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
   end
 
   defp iterate_check_all(iterator, set_data, _other) do
-    next_fn = Property.get(iterator, "next")
+    next_fn = Get.get(iterator, "next")
     do_iterate_check(iterator, next_fn, set_data, :all)
   end
 
   defp iterate_check_none(iterator, set_data, _other) do
-    next_fn = Property.get(iterator, "next")
+    next_fn = Get.get(iterator, "next")
     do_iterate_check(iterator, next_fn, set_data, :none)
   end
 
   defp do_iterate_check(iterator, next_fn, set_data, mode) do
     result = call_with_this(next_fn, [], iterator)
-    done = Property.get(result, "done")
+    done = Get.get(result, "done")
 
     if done == true do
       true
     else
-      value = Property.get(result, "value")
+      value = Get.get(result, "value")
       in_set = value in set_data
 
       case mode do
@@ -446,7 +446,7 @@ defmodule QuickBEAM.BeamVM.Runtime.MapSet do
   end
 
   defp call_iterator_return(iterator) do
-    return_fn = Property.get(iterator, "return")
+    return_fn = Get.get(iterator, "return")
 
     if return_fn != :undefined and return_fn != nil do
       call_with_this(return_fn, [], iterator)

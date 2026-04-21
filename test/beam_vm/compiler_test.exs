@@ -5,6 +5,7 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
 
   alias QuickBEAM.BeamVM.{Bytecode, Compiler, Heap, Interpreter}
   alias QuickBEAM.BeamVM.Compiler.RuntimeHelpers
+  alias QuickBEAM.BeamVM.ObjectModel.Get
 
   setup do
     Heap.reset()
@@ -115,9 +116,7 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       obj =
         Heap.wrap(%{
           "base" => 10,
-          "inc" =>
-            {:builtin, "inc",
-             fn [x], this -> QuickBEAM.BeamVM.Runtime.Property.get(this, "base") + x end}
+          "inc" => {:builtin, "inc", fn [x], this -> Get.get(this, "base") + x end}
         })
 
       assert {:ok, 13} = Compiler.invoke(fun, [obj, 3])

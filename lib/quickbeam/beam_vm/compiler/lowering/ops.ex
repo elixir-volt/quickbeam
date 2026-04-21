@@ -5,6 +5,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
   alias QuickBEAM.BeamVM.Compiler.Analysis.Types
   alias QuickBEAM.BeamVM.Compiler.Lowering.State
   alias QuickBEAM.BeamVM.Interpreter.Values
+  alias QuickBEAM.BeamVM.ObjectModel.Get
 
   @tdz :__tdz__
 
@@ -412,18 +413,13 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         State.unary_call(state, RuntimeHelpers, :get_length)
 
       {{:ok, :get_array_el}, []} ->
-        State.binary_call(state, QuickBEAM.BeamVM.Interpreter.Objects, :get_element)
+        State.binary_call(state, QuickBEAM.BeamVM.ObjectModel.Put, :get_element)
 
       {{:ok, :get_array_el2}, []} ->
         State.get_array_el2(state)
 
       {{:ok, :get_field}, [atom_idx]} ->
-        State.unary_call(
-          state,
-          QuickBEAM.BeamVM.Runtime.Property,
-          :get,
-          [State.literal(State.atom_name(state, atom_idx))]
-        )
+        State.unary_call(state, Get, :get, [State.literal(State.atom_name(state, atom_idx))])
 
       {{:ok, :get_field2}, [atom_idx]} ->
         State.get_field2(state, State.literal(State.atom_name(state, atom_idx)))
