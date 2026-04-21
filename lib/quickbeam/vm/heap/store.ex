@@ -16,9 +16,9 @@ defmodule QuickBEAM.VM.Heap.Store do
     track_alloc()
   end
 
-  def put_obj_key(ref, key, val) do
-    map = get_obj(ref, %{})
+  def put_obj_key(ref, key, val), do: put_obj_key(ref, get_obj(ref, %{}), key, val)
 
+  def put_obj_key(ref, map, key, val) do
     if is_map(map) do
       new_map =
         if not Map.has_key?(map, key) and (is_binary(key) or is_integer(key)) do

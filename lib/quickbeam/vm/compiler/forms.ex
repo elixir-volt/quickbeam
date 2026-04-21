@@ -453,7 +453,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
           {:case, @line, plain_object?,
            [
              {:clause, @line, [atom(true)], [],
-              [remote_call(Heap, :put_obj_key, [ref, key, val]), wrapped]},
+              [remote_call(Heap, :put_obj_key, [ref, map, key, val]), wrapped]},
              {:clause, @line, [atom(false)], [],
               [remote_call(Put, :put, [wrapped, key, val]), wrapped]}
            ]}

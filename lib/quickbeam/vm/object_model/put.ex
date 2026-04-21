@@ -66,7 +66,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             :ok
 
           not Map.has_key?(map, key) ->
-            Heap.put_obj_key(ref, key, val)
+            Heap.put_obj_key(ref, map, key, val)
 
           match?({:accessor, _, setter} when setter != nil, Map.get(map, key)) ->
             {:accessor, _, setter} = Map.get(map, key)
@@ -76,7 +76,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             :ok
 
           true ->
-            Heap.put_obj_key(ref, key, val)
+            Heap.put_obj_key(ref, map, key, val)
         end
 
       _ ->
@@ -343,7 +343,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             _ -> Kernel.to_string(key)
           end
 
-        Heap.put_obj_key(ref, str_key, val)
+        Heap.put_obj_key(ref, map, str_key, val)
 
       nil ->
         :ok
@@ -372,7 +372,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
               Heap.put_obj(ref, set_list_at(stored, i, val))
 
             is_map(stored) ->
-              Heap.put_obj_key(ref, Names.normalize_property_key(idx), val)
+              Heap.put_obj_key(ref, stored, Names.normalize_property_key(idx), val)
 
             true ->
               :ok
