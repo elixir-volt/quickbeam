@@ -429,11 +429,35 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   defp define_field_helper do
     ctx = var("Ctx")
     obj = var("Obj")
+    ref = var("Ref")
     key = var("Key")
     val = var("Val")
+    map = var("Map")
+    wrapped = tuple_expr([atom(:obj), ref])
+
+    plain_object? =
+      {:op, @line, :andalso, map_guard(map),
+       {:op, @line, :andalso,
+        {:op, @line, :not,
+         {:call, @line, {:atom, @line, :is_map_key}, [literal("__proxy_target__"), map]}},
+        {:op, @line, :andalso,
+         {:op, @line, :not,
+          {:call, @line, {:atom, @line, :is_map_key}, [literal("__proxy_handler__"), map]}},
+         {:op, @line, :not, remote_call(Heap, :frozen?, [ref])}}}}
 
     {:function, @line, :op_define_field, 4,
      [
+       {:clause, @line, [ctx, wrapped, key, val], [],
+        [
+          {:match, @line, map, remote_call(Heap, :get_obj, [ref, map_expr([])])},
+          {:case, @line, plain_object?,
+           [
+             {:clause, @line, [atom(true)], [],
+              [remote_call(Heap, :put_obj_key, [ref, key, val]), wrapped]},
+             {:clause, @line, [atom(false)], [],
+              [remote_call(Put, :put, [wrapped, key, val]), wrapped]}
+           ]}
+        ]},
        {:clause, @line, [ctx, obj, key, val], [], [remote_call(Put, :put, [obj, key, val]), obj]}
      ]}
   end

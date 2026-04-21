@@ -69,19 +69,26 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   defp invoke_target(current_func, %Bytecode.Function{} = fun, args, ctx_overrides, base_ctx) do
     key = {fun.byte_code, fun.arg_count}
     args = normalize_args(args, fun.arg_count)
-    ctx = invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun)
 
     case Heap.get_compiled(key) do
-      {:compiled, {mod, name}} -> {:ok, apply_compiled({mod, name}, ctx, args)}
-      :unsupported -> :error
-      nil -> compile_and_invoke(fun, ctx, args, key)
+      {:compiled, {mod, name}, atoms} ->
+        ctx = invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun, atoms)
+        {:ok, apply_compiled({mod, name}, ctx, args)}
+
+      :unsupported ->
+        :error
+
+      nil ->
+        compile_and_invoke(fun, current_func, args, ctx_overrides, base_ctx, key)
     end
   end
 
-  defp compile_and_invoke(fun, ctx, args, key) do
+  defp compile_and_invoke(fun, current_func, args, ctx_overrides, base_ctx, key) do
     case Compiler.compile(fun) do
       {:ok, compiled} ->
-        Heap.put_compiled(key, {:compiled, compiled})
+        atoms = Process.get({:qb_fn_atoms, fun.byte_code}, Heap.get_atoms())
+        Heap.put_compiled(key, {:compiled, compiled, atoms})
+        ctx = invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun, atoms)
         {:ok, apply_compiled(compiled, ctx, args)}
 
       {:error, _} ->
@@ -92,13 +99,13 @@ defmodule QuickBEAM.VM.Compiler.Runner do
 
   defp apply_compiled({mod, name}, ctx, args), do: apply(mod, name, [ctx | args])
 
-  defp invocation_ctx(base_ctx, current_func, args, %{} = ctx_overrides, fun)
+  defp invocation_ctx(base_ctx, current_func, args, %{} = ctx_overrides, fun, atoms)
        when map_size(ctx_overrides) == 0 do
-    build_invocation_ctx(base_ctx(base_ctx), current_func, args, fun)
+    build_invocation_ctx(base_ctx(base_ctx), current_func, args, fun, atoms)
   end
 
-  defp invocation_ctx(base_ctx, current_func, args, %{this: this_obj}, fun) do
-    build_invocation_ctx(base_ctx(base_ctx), current_func, args, fun, this: this_obj)
+  defp invocation_ctx(base_ctx, current_func, args, %{this: this_obj}, fun, atoms) do
+    build_invocation_ctx(base_ctx(base_ctx), current_func, args, fun, atoms, this: this_obj)
   end
 
   defp invocation_ctx(
@@ -106,28 +113,36 @@ defmodule QuickBEAM.VM.Compiler.Runner do
          current_func,
          args,
          %{this: this_obj, new_target: new_target},
-         fun
+         fun,
+         atoms
        ) do
-    build_invocation_ctx(base_ctx(base_ctx), current_func, args, fun,
+    build_invocation_ctx(base_ctx(base_ctx), current_func, args, fun, atoms,
       this: this_obj,
       new_target: new_target
     )
   end
 
-  defp invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun) do
-    ctx = build_invocation_ctx(base_ctx(base_ctx), current_func, args, fun)
+  defp invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun, atoms) do
+    ctx = build_invocation_ctx(base_ctx(base_ctx), current_func, args, fun, atoms)
 
     ctx
     |> struct(Map.take(ctx_overrides, [:this, :new_target]))
     |> Context.mark_dirty()
   end
 
-  defp build_invocation_ctx(%Context{} = base_ctx, current_func, args, fun, overrides \\ []) do
+  defp build_invocation_ctx(
+         %Context{} = base_ctx,
+         current_func,
+         args,
+         _fun,
+         atoms,
+         overrides \\ []
+       ) do
     {home_object, super} = home_object_and_super(current_func)
 
     %Context{
       base_ctx
-      | atoms: Process.get({:qb_fn_atoms, fun.byte_code}, current_atoms(base_ctx)),
+      | atoms: atoms || current_atoms(base_ctx),
         current_func: current_func,
         arg_buf: List.to_tuple(args),
         trace_enabled: trace_enabled(base_ctx),
