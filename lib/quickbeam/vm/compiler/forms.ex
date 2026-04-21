@@ -604,24 +604,42 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
   defp object_literal_helper do
     fields = var("Fields")
+    order = var("Order")
     proto = var("Proto")
+    order_key = literal(:__key_order__)
 
-    {:function, @line, :op_object_literal, 1,
+    {:function, @line, :op_object_literal, 2,
      [
-       {:clause, @line, [fields], [],
+       {:clause, @line, [fields, nil_pattern()], [],
         [
           {:case, @line, remote_call(Heap, :get_object_prototype, []),
            [
              {:clause, @line, [atom(nil)], [],
-              [local_call(:op_object_literal_fields, [fields, map_expr([]), nil_pattern()])]},
+              [local_call(:op_object_literal_fields, [fields, map_expr([])])]},
              {:clause, @line, [atom(:undefined)], [],
-              [local_call(:op_object_literal_fields, [fields, map_expr([]), nil_pattern()])]},
+              [local_call(:op_object_literal_fields, [fields, map_expr([])])]},
              {:clause, @line, [proto], [],
               [
                 local_call(:op_object_literal_fields, [
                   fields,
-                  map_expr([{literal("__proto__"), proto}]),
-                  nil_pattern()
+                  map_expr([{literal("__proto__"), proto}])
+                ])
+              ]}
+           ]}
+        ]},
+       {:clause, @line, [fields, order], [],
+        [
+          {:case, @line, remote_call(Heap, :get_object_prototype, []),
+           [
+             {:clause, @line, [atom(nil)], [],
+              [local_call(:op_object_literal_fields, [fields, map_expr([{order_key, order}])])]},
+             {:clause, @line, [atom(:undefined)], [],
+              [local_call(:op_object_literal_fields, [fields, map_expr([{order_key, order}])])]},
+             {:clause, @line, [proto], [],
+              [
+                local_call(:op_object_literal_fields, [
+                  fields,
+                  map_expr([{literal("__proto__"), proto}, {order_key, order}])
                 ])
               ]}
            ]}
@@ -635,34 +653,18 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     key = var("Key")
     val = var("Val")
     map = var("Map")
-    order = var("Order")
     new_map = var("NewMap")
-    order_key = literal(:__key_order__)
 
-    {:function, @line, :op_object_literal_fields, 3,
+    {:function, @line, :op_object_literal_fields, 2,
      [
-       {:clause, @line, [nil_pattern(), map, nil_pattern()], [],
-        [remote_call(Heap, :wrap, [map])]},
-       {:clause, @line, [nil_pattern(), map, order], [],
-        [
-          remote_call(Heap, :wrap, [
-            {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
-             [order_key, remote_call(:lists, :reverse, [order]), map]}
-          ])
-        ]},
-       {:clause, @line, [cons_pattern(field, rest), map, order], [],
+       {:clause, @line, [nil_pattern(), map], [], [remote_call(Heap, :wrap, [map])]},
+       {:clause, @line, [cons_pattern(field, rest), map], [],
         [
           {:match, @line, tuple_expr([key, val]), field},
           {:match, @line, new_map,
            {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :put}},
             [key, val, map]}},
-          {:case, @line, {:call, @line, {:atom, @line, :is_map_key}, [key, map]},
-           [
-             {:clause, @line, [atom(true)], [],
-              [local_call(:op_object_literal_fields, [rest, new_map, order])]},
-             {:clause, @line, [atom(false)], [],
-              [local_call(:op_object_literal_fields, [rest, new_map, cons_pattern(key, order)])]}
-           ]}
+          local_call(:op_object_literal_fields, [rest, new_map])
         ]}
      ]}
   end

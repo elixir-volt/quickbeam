@@ -440,7 +440,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
         case object_literal_fields(obj) do
           {:ok, fields} ->
             field = Builder.tuple_expr([key_expr, val])
-            Builder.local_call(:op_object_literal, [Builder.list_expr(fields ++ [field])])
+            fields = fields ++ [field]
+
+            Builder.local_call(:op_object_literal, [
+              Builder.list_expr(fields),
+              object_literal_order_ast(fields)
+            ])
 
           :error ->
             Builder.local_call(:op_define_field_name, [obj, key_expr, val])
@@ -972,10 +977,27 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   defp object_literal_fields({:call, _, {:atom, _, :op_new_object}, []}), do: {:ok, []}
 
-  defp object_literal_fields({:call, _, {:atom, _, :op_object_literal}, [fields_ast]}),
-    do: extract_list_items(fields_ast)
+  defp object_literal_fields(
+         {:call, _, {:atom, _, :op_object_literal}, [fields_ast, _order_ast]}
+       ),
+       do: extract_list_items(fields_ast)
 
   defp object_literal_fields(_expr), do: :error
+
+  defp object_literal_order_ast(fields) do
+    fields
+    |> Enum.map(&object_literal_field_key/1)
+    |> Enum.reduce([], fn key, acc ->
+      if key in acc do
+        acc
+      else
+        acc ++ [key]
+      end
+    end)
+    |> Builder.list_expr()
+  end
+
+  defp object_literal_field_key({:tuple, _, [key, _val]}), do: key
 
   defp extract_list_items({nil, _line}), do: {:ok, []}
 
