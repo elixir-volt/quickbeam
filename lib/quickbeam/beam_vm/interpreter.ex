@@ -4,6 +4,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   import QuickBEAM.BeamVM.Heap.Keys
 
   alias QuickBEAM.BeamVM.{Builtin, Bytecode, Compiler, Decoder, Heap, PredefinedAtoms, Runtime}
+  alias QuickBEAM.JSError
   alias QuickBEAM.BeamVM.Runtime.Property
   alias __MODULE__.{Closures, Context, Frame, Generator, Objects, Promise, Scope, Values}
 
@@ -949,8 +950,14 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           {:undefined, %{}}
       end
     else
-      {:error, msg} when is_binary(msg) -> throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
-      _ -> {:undefined, %{}}
+      {:error, msg} when is_binary(msg) ->
+        throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
+
+      {:error, %JSError{name: name, message: msg}} ->
+        throw({:js_throw, Heap.make_error(msg, name)})
+
+      _ ->
+        {:undefined, %{}}
     end
   end
 
