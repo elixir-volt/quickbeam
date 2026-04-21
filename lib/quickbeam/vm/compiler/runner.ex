@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   alias QuickBEAM.VM.{Bytecode, GlobalEnv, Heap}
   alias QuickBEAM.VM.Compiler
   alias QuickBEAM.VM.Interpreter.Context
-  alias QuickBEAM.VM.Invocation.Context, as: InvokeContext
+  alias QuickBEAM.VM.ObjectModel.{Class, Functions}
 
   def invoke(%Bytecode.Function{} = fun, args), do: invoke(fun, args, nil)
   def invoke({:closure, _, %Bytecode.Function{}} = closure, args), do: invoke(closure, args, nil)
@@ -92,17 +92,50 @@ defmodule QuickBEAM.VM.Compiler.Runner do
 
   defp apply_compiled({mod, name}, ctx, args), do: apply(mod, name, [ctx | args])
 
-  defp invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun) do
-    atoms = Process.get({:qb_fn_atoms, fun.byte_code}, current_atoms(base_ctx))
+  defp invocation_ctx(base_ctx, current_func, args, %{} = ctx_overrides, fun)
+       when map_size(ctx_overrides) == 0 do
+    build_invocation_ctx(base_ctx(base_ctx), current_func, args, fun)
+  end
 
-    base_ctx
-    |> base_ctx()
-    |> Map.put(:atoms, atoms)
-    |> Map.merge(ctx_overrides)
-    |> Map.put(:current_func, current_func)
-    |> Map.put(:arg_buf, List.to_tuple(args))
-    |> Map.put(:trace_enabled, Map.get(base_ctx || %{}, :trace_enabled, false))
-    |> InvokeContext.attach_method_state()
+  defp invocation_ctx(base_ctx, current_func, args, %{this: this_obj}, fun) do
+    build_invocation_ctx(base_ctx(base_ctx), current_func, args, fun, this: this_obj)
+  end
+
+  defp invocation_ctx(
+         base_ctx,
+         current_func,
+         args,
+         %{this: this_obj, new_target: new_target},
+         fun
+       ) do
+    build_invocation_ctx(base_ctx(base_ctx), current_func, args, fun,
+      this: this_obj,
+      new_target: new_target
+    )
+  end
+
+  defp invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun) do
+    ctx = build_invocation_ctx(base_ctx(base_ctx), current_func, args, fun)
+
+    ctx
+    |> struct(Map.take(ctx_overrides, [:this, :new_target]))
+    |> Context.mark_dirty()
+  end
+
+  defp build_invocation_ctx(%Context{} = base_ctx, current_func, args, fun, overrides \\ []) do
+    home_object = Functions.current_home_object(current_func)
+
+    %Context{
+      base_ctx
+      | atoms: Process.get({:qb_fn_atoms, fun.byte_code}, current_atoms(base_ctx)),
+        current_func: current_func,
+        arg_buf: List.to_tuple(args),
+        trace_enabled: trace_enabled(base_ctx),
+        home_object: home_object,
+        super: current_super(home_object),
+        this: Keyword.get(overrides, :this, base_ctx.this),
+        new_target: Keyword.get(overrides, :new_target, base_ctx.new_target)
+    }
     |> Context.mark_dirty()
   end
 
@@ -128,6 +161,14 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   defp current_atoms(%Context{} = ctx), do: ctx.atoms
   defp current_atoms(map) when is_map(map), do: Map.get(map, :atoms, Heap.get_atoms())
   defp current_atoms(_), do: Heap.get_atoms()
+
+  defp trace_enabled(%Context{} = ctx), do: ctx.trace_enabled
+  defp trace_enabled(map) when is_map(map), do: Map.get(map, :trace_enabled, false)
+  defp trace_enabled(_), do: false
+
+  defp current_super(:undefined), do: :undefined
+  defp current_super(nil), do: :undefined
+  defp current_super(home_object), do: Class.get_super(home_object)
 
   defp normalize_args(_args, 0), do: []
   defp normalize_args([a0 | _], 1), do: [a0]

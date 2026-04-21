@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Invocation.Context do
   @moduledoc false
 
-  alias QuickBEAM.VM.{Heap, Runtime}
+  alias QuickBEAM.VM.{Bytecode, Heap, Runtime}
   alias QuickBEAM.VM.Interpreter.Context
   alias QuickBEAM.VM.ObjectModel.{Class, Functions}
 
@@ -33,6 +33,15 @@ defmodule QuickBEAM.VM.Invocation.Context do
   end
 
   def fast_ctx, do: Process.get(@fast_ctx_key, @missing)
+
+  def attach_method_state(
+        %Context{current_func: %Bytecode.Function{need_home_object: false}} = ctx
+      ), do: ctx
+
+  def attach_method_state(
+        %Context{current_func: {:closure, _, %Bytecode.Function{need_home_object: false}}} = ctx
+      ),
+      do: ctx
 
   def attach_method_state(%Context{current_func: current_func} = ctx) do
     home_object = Functions.current_home_object(current_func)
@@ -120,7 +129,14 @@ defmodule QuickBEAM.VM.Invocation.Context do
     end
   end
 
-  def current_home_object(current_func \\ current_func()) do
+  def current_home_object(current_func \\ current_func())
+
+  def current_home_object(%Bytecode.Function{need_home_object: false}), do: :undefined
+
+  def current_home_object({:closure, _, %Bytecode.Function{need_home_object: false}}),
+    do: :undefined
+
+  def current_home_object(current_func) do
     case fast_ctx() do
       {_atoms, _globals, _current_func, _arg_buf, _this, _new_target, home_object, _super} ->
         home_object

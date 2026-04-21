@@ -43,37 +43,53 @@ defmodule QuickBEAM.VM.Interpreter.Closures do
 
   def setup_captured_locals(fun, locals, var_refs, args) do
     arg_buf = List.to_tuple(args)
-    vrefs = if is_tuple(var_refs), do: Tuple.to_list(var_refs), else: var_refs
-    closure_ref_count = length(vrefs)
+    vrefs = if is_tuple(var_refs), do: var_refs, else: List.to_tuple(var_refs)
 
-    {locals, vrefs, l2v} =
-      for {vd, local_idx} <- Enum.with_index(fun.locals),
-          vd.is_captured,
-          reduce: {locals, vrefs, %{}} do
-        {acc_locals, acc_vrefs, acc_l2v} ->
-          val =
-            if local_idx < tuple_size(arg_buf),
-              do: elem(arg_buf, local_idx),
-              else: elem(acc_locals, local_idx)
-
-          local_ref_idx = closure_ref_count + vd.var_ref_idx
-          acc_locals = put_elem(acc_locals, local_idx, val)
-          ref = make_ref()
-          Heap.put_cell(ref, val)
-          acc_vrefs = ensure_vref_size(acc_vrefs, local_ref_idx, {:cell, ref})
-          acc_l2v = Map.put(acc_l2v, local_idx, local_ref_idx)
-          {acc_locals, acc_vrefs, acc_l2v}
-      end
-
-    {locals, List.to_tuple(vrefs), l2v}
+    setup_captured_locals(fun.locals, 0, locals, vrefs, tuple_size(vrefs), arg_buf, %{})
   end
 
-  defp ensure_vref_size(vrefs, idx, val) do
-    vrefs =
-      if idx >= length(vrefs),
-        do: vrefs ++ List.duplicate(:undefined, idx + 1 - length(vrefs)),
-        else: vrefs
+  defp setup_captured_locals([], _idx, locals, vrefs, _closure_ref_count, _arg_buf, l2v),
+    do: {locals, vrefs, l2v}
 
-    List.replace_at(vrefs, idx, val)
+  defp setup_captured_locals(
+         [%{is_captured: true, var_ref_idx: var_ref_idx} | rest],
+         idx,
+         locals,
+         vrefs,
+         closure_ref_count,
+         arg_buf,
+         l2v
+       ) do
+    val =
+      if idx < tuple_size(arg_buf),
+        do: elem(arg_buf, idx),
+        else: elem(locals, idx)
+
+    ref = make_ref()
+    Heap.put_cell(ref, val)
+    local_ref_idx = closure_ref_count + var_ref_idx
+
+    setup_captured_locals(
+      rest,
+      idx + 1,
+      put_elem(locals, idx, val),
+      put_vref(vrefs, local_ref_idx, {:cell, ref}),
+      closure_ref_count,
+      arg_buf,
+      Map.put(l2v, idx, local_ref_idx)
+    )
+  end
+
+  defp setup_captured_locals([_ | rest], idx, locals, vrefs, closure_ref_count, arg_buf, l2v),
+    do: setup_captured_locals(rest, idx + 1, locals, vrefs, closure_ref_count, arg_buf, l2v)
+
+  defp put_vref(vrefs, idx, val) when idx < tuple_size(vrefs), do: put_elem(vrefs, idx, val)
+
+  defp put_vref(vrefs, idx, val) do
+    vrefs
+    |> Tuple.to_list()
+    |> Kernel.++(List.duplicate(:undefined, idx + 1 - tuple_size(vrefs)))
+    |> List.replace_at(idx, val)
+    |> List.to_tuple()
   end
 end
