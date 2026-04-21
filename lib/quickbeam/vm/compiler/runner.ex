@@ -123,7 +123,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   end
 
   defp build_invocation_ctx(%Context{} = base_ctx, current_func, args, fun, overrides \\ []) do
-    home_object = Functions.current_home_object(current_func)
+    {home_object, super} = home_object_and_super(current_func)
 
     %Context{
       base_ctx
@@ -132,7 +132,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
         arg_buf: List.to_tuple(args),
         trace_enabled: trace_enabled(base_ctx),
         home_object: home_object,
-        super: current_super(home_object),
+        super: super,
         this: Keyword.get(overrides, :this, base_ctx.this),
         new_target: Keyword.get(overrides, :new_target, base_ctx.new_target)
     }
@@ -165,6 +165,17 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   defp trace_enabled(%Context{} = ctx), do: ctx.trace_enabled
   defp trace_enabled(map) when is_map(map), do: Map.get(map, :trace_enabled, false)
   defp trace_enabled(_), do: false
+
+  defp home_object_and_super(%Bytecode.Function{need_home_object: false}),
+    do: {:undefined, :undefined}
+
+  defp home_object_and_super({:closure, _, %Bytecode.Function{need_home_object: false}}),
+    do: {:undefined, :undefined}
+
+  defp home_object_and_super(current_func) do
+    home_object = Functions.current_home_object(current_func)
+    {home_object, current_super(home_object)}
+  end
 
   defp current_super(:undefined), do: :undefined
   defp current_super(nil), do: :undefined
