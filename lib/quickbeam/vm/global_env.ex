@@ -13,9 +13,17 @@ defmodule QuickBEAM.VM.GlobalEnv do
   end
 
   def base_globals do
-    builtins = Runtime.global_bindings()
-    persistent = Heap.get_persistent_globals() || %{}
-    Map.merge(builtins, Map.drop(persistent, Map.keys(builtins)))
+    case Heap.get_base_globals() do
+      nil ->
+        builtins = Runtime.global_bindings()
+        persistent = Heap.get_persistent_globals() || %{}
+        globals = Map.merge(builtins, Map.drop(persistent, Map.keys(builtins)))
+        Heap.put_base_globals(globals)
+        globals
+
+      globals ->
+        globals
+    end
   end
 
   def fetch(%Context{} = ctx, atom_idx), do: fetch(ctx.globals, atom_idx, ctx.atoms)
@@ -39,6 +47,7 @@ defmodule QuickBEAM.VM.GlobalEnv do
 
     if Keyword.get(opts, :persist, true) do
       Heap.put_persistent_globals(globals)
+      Heap.put_base_globals(globals)
     end
 
     %{ctx | globals: globals} |> Context.mark_dirty()
@@ -55,8 +64,9 @@ defmodule QuickBEAM.VM.GlobalEnv do
   end
 
   def refresh(%Context{} = ctx) do
-    persistent = Heap.get_persistent_globals() || %{}
-    %{ctx | globals: Map.merge(ctx.globals, persistent)} |> Context.mark_dirty()
+    globals = Map.merge(ctx.globals, Heap.get_persistent_globals() || %{})
+    Heap.put_base_globals(globals)
+    %{ctx | globals: globals} |> Context.mark_dirty()
   end
 
   def current_name(atom_idx), do: Names.resolve_atom(Heap.get_atoms(), atom_idx)

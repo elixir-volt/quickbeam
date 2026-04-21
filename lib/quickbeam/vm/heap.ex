@@ -187,6 +187,8 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate put_object_prototype(proto), to: Context
   defdelegate get_global_cache(), to: Context
   defdelegate put_global_cache(bindings), to: Context
+  defdelegate get_base_globals(), to: Context
+  defdelegate put_base_globals(globals), to: Context
   defdelegate get_atoms(), to: Context
   defdelegate put_atoms(atoms), to: Context
   defdelegate get_persistent_globals(), to: Context
@@ -252,6 +254,7 @@ defmodule QuickBEAM.VM.Heap do
         :qb_alloc_count -> Process.delete(key)
         :qb_object_prototype -> Process.delete(key)
         :qb_global_bindings_cache -> Process.delete(key)
+        :qb_base_globals_cache -> Process.delete(key)
         :qb_microtask_queue -> Process.delete(key)
         _ -> :ok
       end

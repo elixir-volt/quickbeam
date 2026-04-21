@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.Invocation do
 
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
 
-  alias QuickBEAM.VM.{Builtin, Bytecode, Compiler, Heap, Runtime}
+  alias QuickBEAM.VM.{Builtin, Bytecode, Compiler, GlobalEnv, Heap, Runtime}
   alias QuickBEAM.VM.Compiler.Runner
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.Interpreter.Context
@@ -254,10 +254,7 @@ defmodule QuickBEAM.VM.Invocation do
   end
 
   defp active_ctx do
-    base_globals =
-      Runtime.global_bindings()
-      |> Map.merge(Heap.get_handler_globals() || %{})
-      |> Map.merge(Heap.get_persistent_globals())
+    base_globals = GlobalEnv.base_globals()
 
     case Heap.get_ctx() do
       %Context{} = ctx when ctx.globals == %{} ->

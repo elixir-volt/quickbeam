@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Runner do
   @moduledoc false
 
-  alias QuickBEAM.VM.{Bytecode, Heap, Runtime}
+  alias QuickBEAM.VM.{Bytecode, GlobalEnv, Heap}
   alias QuickBEAM.VM.Compiler
   alias QuickBEAM.VM.Interpreter.Context
   alias QuickBEAM.VM.Invocation.Context, as: InvokeContext
@@ -123,11 +123,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
 
   defp ensure_globals(%Context{} = ctx), do: ctx
 
-  defp base_globals do
-    Runtime.global_bindings()
-    |> Map.merge(Heap.get_handler_globals() || %{})
-    |> Map.merge(Heap.get_persistent_globals())
-  end
+  defp base_globals, do: GlobalEnv.base_globals()
 
   defp current_atoms(%Context{} = ctx), do: ctx.atoms
   defp current_atoms(map) when is_map(map), do: Map.get(map, :atoms, Heap.get_atoms())

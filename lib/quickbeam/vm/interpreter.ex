@@ -1153,19 +1153,23 @@ defmodule QuickBEAM.VM.Interpreter do
 
   # ── Main dispatch loop ──
 
-  defp run(pc, frame, stack, gas, ctx) do
-    ctx = sync_ctx(ctx)
+  defp run(pc, frame, stack, gas, %Context{pd_synced: true} = ctx) do
     if ctx.trace_enabled, do: Trace.update_pc(pc)
     run(elem(elem(frame, Frame.insns()), pc), pc, frame, stack, gas, ctx)
   end
 
-  defp sync_ctx(%Context{} = ctx) do
-    if Context.synced?(ctx) do
-      ctx
-    else
-      Heap.put_ctx(ctx)
-      Context.mark_synced(ctx)
-    end
+  defp run(pc, frame, stack, gas, %Context{pd_synced: false} = ctx) do
+    Heap.put_ctx(ctx)
+    ctx = Context.mark_synced(ctx)
+
+    if ctx.trace_enabled, do: Trace.update_pc(pc)
+    run(elem(elem(frame, Frame.insns()), pc), pc, frame, stack, gas, ctx)
+  end
+
+  defp run(pc, frame, stack, gas, ctx) do
+    Heap.put_ctx(ctx)
+    if Map.get(ctx, :trace_enabled, false), do: Trace.update_pc(pc)
+    run(elem(elem(frame, Frame.insns()), pc), pc, frame, stack, gas, ctx)
   end
 
   # ── Push constants ──

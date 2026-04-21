@@ -35,16 +35,30 @@ defmodule QuickBEAM.VM.Heap.Context do
   def put_object_prototype(proto), do: Process.put(:qb_object_prototype, proto)
 
   def get_global_cache, do: Process.get(:qb_global_bindings_cache)
-  def put_global_cache(bindings), do: Process.put(:qb_global_bindings_cache, bindings)
+
+  def put_global_cache(bindings) do
+    Process.delete(:qb_base_globals_cache)
+    Process.put(:qb_global_bindings_cache, bindings)
+  end
+
+  def get_base_globals, do: Process.get(:qb_base_globals_cache)
+  def put_base_globals(globals), do: Process.put(:qb_base_globals_cache, globals)
 
   def get_atoms, do: Process.get(:qb_atoms, {})
   def put_atoms(atoms), do: Process.put(:qb_atoms, atoms)
 
   def get_persistent_globals, do: Process.get(:qb_persistent_globals, %{})
-  def put_persistent_globals(globals), do: Process.put(:qb_persistent_globals, globals)
+
+  def put_persistent_globals(globals) do
+    Process.put(:qb_persistent_globals, globals)
+  end
 
   def get_handler_globals, do: Process.get(:qb_handler_globals)
-  def put_handler_globals(globals), do: Process.put(:qb_handler_globals, globals)
+
+  def put_handler_globals(globals) do
+    Process.delete(:qb_base_globals_cache)
+    Process.put(:qb_handler_globals, globals)
+  end
 
   def get_runtime_mode(runtime), do: Process.get({:qb_runtime_mode, runtime})
   def put_runtime_mode(runtime, mode), do: Process.put({:qb_runtime_mode, runtime}, mode)
