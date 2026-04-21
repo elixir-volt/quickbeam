@@ -7,7 +7,17 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
 
   @tdz :__tdz__
 
-  def lower_instruction({op, args}, idx, next_entry, arg_count, state, stack_depths, constants) do
+  def lower_instruction(
+        {op, args},
+        idx,
+        next_entry,
+        arg_count,
+        state,
+        stack_depths,
+        constants,
+        _entries,
+        inline_targets
+      ) do
     name = Analysis.opcode_name(op)
 
     case {name, args} do
@@ -518,13 +528,13 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         State.branch(state, idx, next_entry, target, true, stack_depths)
 
       {{:ok, :goto}, [target]} ->
-        State.goto(state, target, stack_depths)
+        lower_goto(state, target, stack_depths, inline_targets)
 
       {{:ok, :goto8}, [target]} ->
-        State.goto(state, target, stack_depths)
+        lower_goto(state, target, stack_depths, inline_targets)
 
       {{:ok, :goto16}, [target]} ->
-        State.goto(state, target, stack_depths)
+        lower_goto(state, target, stack_depths, inline_targets)
 
       {{:ok, :return}, []} ->
         State.return_top(state)
@@ -697,6 +707,14 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         end
 
       {:ok, State.push(state, result, :boolean)}
+    end
+  end
+
+  defp lower_goto(state, target, stack_depths, inline_targets) do
+    if MapSet.member?(inline_targets, target) do
+      {:inline_goto, target, state}
+    else
+      State.goto(state, target, stack_depths)
     end
   end
 

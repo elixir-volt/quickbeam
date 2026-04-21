@@ -29,6 +29,39 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
 
   def next_entry(entries, start), do: Enum.find(entries, &(&1 > start))
 
+  def predecessor_counts(instructions, entries) do
+    entries
+    |> Enum.reduce(%{}, fn start, counts ->
+      successors = block_successors(instructions, entries, start)
+
+      Enum.reduce(successors, counts, fn succ, counts ->
+        Map.update(counts, succ, 1, &(&1 + 1))
+      end)
+    end)
+  end
+
+  def inlineable_goto_targets(instructions, entries) do
+    counts = predecessor_counts(instructions, entries)
+
+    entries
+    |> Enum.reduce(MapSet.new(), fn start, acc ->
+      next = next_entry(entries, start)
+
+      case block_terminal(instructions, start, next) do
+        {:goto, target, term_idx} ->
+          if target > term_idx and Map.get(counts, target, 0) == 1 and
+               not protected_target?(instructions, target) do
+            MapSet.put(acc, target)
+          else
+            acc
+          end
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
   def infer_block_stack_depths(instructions, entries) do
     walk_block_stack_depths(instructions, entries, [{0, 0}], %{})
   end
@@ -42,6 +75,21 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
 
   def matching_nip_catch(instructions, catch_idx),
     do: find_nip_catch(instructions, catch_idx + 1, 0)
+
+  def block_terminal(instructions, start, next_entry),
+    do: do_block_terminal(instructions, start, next_entry)
+
+  def block_successors(instructions, entries, start) do
+    next = next_entry(entries, start)
+
+    case block_terminal(instructions, start, next) do
+      {:branch, target, _idx} when is_integer(next) -> [target, next]
+      {:catch, target, _idx} when is_integer(next) -> [target, next]
+      {:goto, target, _idx} -> [target]
+      {:fallthrough, target_idx} -> [target_idx]
+      _ -> []
+    end
+  end
 
   defp walk_block_stack_depths(_instructions, _entries, [], depths), do: {:ok, depths}
 
@@ -146,6 +194,44 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
       {{:error, _} = error, _} ->
         error
     end
+  end
+
+  defp do_block_terminal(instructions, idx, _next_entry) when idx >= length(instructions),
+    do: {:done, idx}
+
+  defp do_block_terminal(_instructions, idx, idx), do: {:fallthrough, idx}
+
+  defp do_block_terminal(instructions, idx, next_entry) do
+    {op, args} = Enum.at(instructions, idx)
+
+    case {opcode_name(op), args} do
+      {{:ok, name}, [target]} when name in [:if_false, :if_false8, :if_true, :if_true8] ->
+        {:branch, target, idx}
+
+      {{:ok, :catch}, [target]} ->
+        {:catch, target, idx}
+
+      {{:ok, name}, [target]} when name in [:goto, :goto8, :goto16] ->
+        {:goto, target, idx}
+
+      {{:ok, name}, [_argc]} when name in [:tail_call, :tail_call_method] ->
+        {:done, idx}
+
+      {{:ok, name}, _args} when name in [:return, :return_undef, :throw, :throw_error] ->
+        {:done, idx}
+
+      _ ->
+        do_block_terminal(instructions, idx + 1, next_entry)
+    end
+  end
+
+  defp protected_target?(instructions, target) do
+    Enum.any?(instructions, fn {op, args} ->
+      case {opcode_name(op), args} do
+        {{:ok, name}, [^target]} when name in [:catch, :gosub] -> true
+        _ -> false
+      end
+    end)
   end
 
   defp find_nip_catch(instructions, idx, _depth) when idx >= length(instructions), do: :error

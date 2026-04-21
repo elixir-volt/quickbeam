@@ -11,8 +11,13 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
     constants = fun.constants
 
     with {:ok, stack_depths} <- Analysis.infer_block_stack_depths(instructions, entries) do
+      inline_targets = Analysis.inlineable_goto_targets(instructions, entries)
+
       blocks =
-        for start <- entries, Map.has_key?(stack_depths, start), into: [] do
+        for start <- entries,
+            Map.has_key?(stack_depths, start),
+            not MapSet.member?(inline_targets, start),
+            into: [] do
           {start,
            block_form(
              fun,
@@ -23,7 +28,8 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
              entries,
              Map.fetch!(stack_depths, start),
              stack_depths,
-             constants
+             constants,
+             inline_targets
            )}
         end
 
@@ -43,7 +49,8 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
          entries,
          stack_depth,
          stack_depths,
-         constants
+         constants,
+         inline_targets
        ) do
     state =
       State.new(slot_count, stack_depth,
@@ -59,24 +66,64 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
         State.stack_vars(stack_depth) ++ State.capture_vars(slot_count)
 
     with {:ok, body} <-
-           lower_block(instructions, start, next_entry, arg_count, state, stack_depths, constants) do
+           lower_block(
+             instructions,
+             start,
+             next_entry,
+             arg_count,
+             state,
+             stack_depths,
+             constants,
+             entries,
+             inline_targets
+           ) do
       {:function, @line, State.block_name(start), slot_count + stack_depth + slot_count,
        [{:clause, @line, args, [], body}]}
     end
   end
 
-  defp lower_block(instructions, idx, next_entry, arg_count, state, _stack_depths, _constants)
+  defp lower_block(
+         instructions,
+         idx,
+         next_entry,
+         arg_count,
+         state,
+         _stack_depths,
+         _constants,
+         _entries,
+         _inline_targets
+       )
        when idx >= length(instructions) do
     {:error, {:missing_terminator, idx, next_entry, arg_count, state.body}}
   end
 
-  defp lower_block(_instructions, idx, idx, _arg_count, state, stack_depths, _constants) do
+  defp lower_block(
+         _instructions,
+         idx,
+         idx,
+         _arg_count,
+         state,
+         stack_depths,
+         _constants,
+         _entries,
+         _inline_targets
+       ) do
     with {:ok, call} <- State.block_jump_call(state, idx, stack_depths) do
       {:ok, state.body ++ [call]}
     end
   end
 
-  defp lower_block(instructions, idx, next_entry, arg_count, state, stack_depths, constants) do
+  defp lower_block(
+         instructions,
+         idx,
+         next_entry,
+         arg_count,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets
+       ) do
     instruction = Enum.at(instructions, idx)
 
     case instruction do
@@ -91,6 +138,8 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
               state,
               stack_depths,
               constants,
+              entries,
+              inline_targets,
               target
             )
 
@@ -103,6 +152,8 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
               state,
               stack_depths,
               constants,
+              entries,
+              inline_targets,
               target
             )
 
@@ -115,7 +166,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
               arg_count,
               state,
               stack_depths,
-              constants
+              constants,
+              entries,
+              inline_targets
             )
         end
 
@@ -128,7 +181,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
           arg_count,
           state,
           stack_depths,
-          constants
+          constants,
+          entries,
+          inline_targets
         )
     end
   end
@@ -141,7 +196,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
          arg_count,
          state,
          stack_depths,
-         constants
+         constants,
+         entries,
+         inline_targets
        ) do
     case Ops.lower_instruction(
            instruction,
@@ -150,7 +207,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
            arg_count,
            state,
            stack_depths,
-           constants
+           constants,
+           entries,
+           inline_targets
          ) do
       {:ok, next_state} ->
         lower_block(
@@ -160,7 +219,22 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
           arg_count,
           next_state,
           stack_depths,
-          constants
+          constants,
+          entries,
+          inline_targets
+        )
+
+      {:inline_goto, target, next_state} ->
+        lower_block(
+          instructions,
+          target,
+          Analysis.next_entry(entries, target),
+          arg_count,
+          next_state,
+          stack_depths,
+          constants,
+          entries,
+          inline_targets
         )
 
       {:done, body} ->
@@ -179,6 +253,8 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
          state,
          stack_depths,
          constants,
+         entries,
+         inline_targets,
          target
        ) do
     with :ok <- ensure_catch_region_supported(instructions, idx, target),
@@ -204,7 +280,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
                  stack_types: [:integer | state.stack_types]
              },
              stack_depths,
-             constants
+             constants,
+             entries,
+             inline_targets
            ) do
       {:ok,
        state.body ++ [State.try_catch_expr(try_body, State.var("Caught#{idx}"), [handler_call])]}
@@ -219,6 +297,8 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
          state,
          stack_depths,
          constants,
+         entries,
+         inline_targets,
          target
        ) do
     with {:ok, inlined_state} <- lower_finally_inline(instructions, target, state) do
@@ -229,7 +309,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
         arg_count,
         inlined_state,
         stack_depths,
-        constants
+        constants,
+        entries,
+        inline_targets
       )
     end
   end
@@ -273,7 +355,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
   end
 
   defp lower_finally_instruction(instructions, instruction, idx, state) do
-    case Ops.lower_instruction(instruction, idx, nil, 0, state, %{}, []) do
+    case Ops.lower_instruction(instruction, idx, nil, 0, state, %{}, [], [], MapSet.new()) do
       {:ok, next_state} ->
         lower_finally_inline(instructions, idx + 1, next_state)
 
