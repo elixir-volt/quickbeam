@@ -3,6 +3,8 @@ defmodule QuickBEAM.VM.Interpreter do
   import QuickBEAM.VM.Builtin, only: [build_methods: 1, build_object: 1]
   import QuickBEAM.VM.Heap.Keys
 
+  alias QuickBEAM.VM.Execution.Trace
+
   alias QuickBEAM.VM.{
     Builtin,
     Bytecode,
@@ -16,11 +18,10 @@ defmodule QuickBEAM.VM.Interpreter do
     Stacktrace
   }
 
-  alias QuickBEAM.VM.Execution.Trace
+  alias QuickBEAM.JSError
   alias QuickBEAM.VM.Invocation.Context, as: InvokeContext
   alias QuickBEAM.VM.ObjectModel.{Class, Copy, Delete, Functions, Get, Methods, Private, Put}
   alias QuickBEAM.VM.PromiseState, as: Promise
-  alias QuickBEAM.JSError
 
   alias __MODULE__.{
     ClosureBuilder,

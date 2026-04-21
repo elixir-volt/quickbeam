@@ -1,16 +1,16 @@
 defmodule QuickBEAM do
   import QuickBEAM.VM.Heap.Keys
 
+  alias QuickBEAM.Bytecode
+  alias QuickBEAM.JSError
+  alias QuickBEAM.Native
+  alias QuickBEAM.Runtime
   alias QuickBEAM.VM.Bytecode, as: BeamBytecode
   alias QuickBEAM.VM.Compiler, as: BeamCompiler
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.PromiseState, as: Promise
   alias QuickBEAM.VM.Runtime, as: BeamRuntime
-  alias QuickBEAM.Bytecode
-  alias QuickBEAM.JSError
-  alias QuickBEAM.Native
-  alias QuickBEAM.Runtime
 
   @moduledoc """
   QuickJS-NG JavaScript engine embedded in the BEAM.
