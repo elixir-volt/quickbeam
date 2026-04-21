@@ -1432,6 +1432,38 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
         true
       )
     end
+
+    test "static methods named call are inherited", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { static call(){ return 1 } } class B extends A {} return B.call() })()",
+        1
+      )
+    end
+
+    test "private static methods are not inherited", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { static #m(){ return 1 } static call(){ return this.#m() } } class B extends A {} try { return B.call() } catch (e) { return e instanceof TypeError } })()",
+        true
+      )
+    end
+
+    test "private static blocks update private fields", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { static #x = 1; static { this.#x += 2 } static get(){ return this.#x } } return A.get() })()",
+        3
+      )
+    end
+
+    test "private methods work through super calls", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { #m(){ return 1 } call(){ return this.#m() } } class B extends A { call2(){ return super.call() } } return new B().call2() })()",
+        1
+      )
+    end
   end
 
   describe "super property access" do

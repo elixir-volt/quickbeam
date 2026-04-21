@@ -260,10 +260,10 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         State.unary_call(state, RuntimeHelpers, :lnot)
 
       {{:ok, :is_undefined}, []} ->
-        State.unary_call(state, RuntimeHelpers, :is_undefined)
+        State.unary_call(state, RuntimeHelpers, :undefined?)
 
       {{:ok, :is_null}, []} ->
-        State.unary_call(state, RuntimeHelpers, :is_null)
+        State.unary_call(state, RuntimeHelpers, :null?)
 
       {{:ok, :typeof_is_undefined}, []} ->
         State.unary_call(state, RuntimeHelpers, :typeof_is_undefined)
@@ -464,7 +464,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         State.invoke_tail_method_call(state, argc)
 
       {{:ok, :is_undefined_or_null}, []} ->
-        State.unary_call(state, RuntimeHelpers, :is_undefined_or_null)
+        State.unary_call(state, RuntimeHelpers, :undefined_or_null?)
 
       {{:ok, :if_false}, [target]} ->
         State.branch(state, idx, next_entry, target, false, stack_depths)
@@ -511,21 +511,22 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
   end
 
   defp lower_for_in_next(state) do
-    with {:ok, state, iter} <- State.bind_stack_entry(state, 0) do
-      {result, state} =
-        State.bind(
-          state,
-          State.temp_name(state.temp),
-          State.compiler_call(:for_in_next, [iter])
-        )
+    case State.bind_stack_entry(state, 0) do
+      {:ok, state, iter} ->
+        {result, state} =
+          State.bind(
+            state,
+            State.temp_name(state.temp),
+            State.compiler_call(:for_in_next, [iter])
+          )
 
-      state = %{state | stack: List.replace_at(state.stack, 0, State.tuple_element(result, 3))}
-      state = State.push(state, State.tuple_element(result, 2))
-      state = State.push(state, State.tuple_element(result, 1))
-      {:ok, state}
-    else
-      :error -> {:error, :for_in_state_missing}
-      {:error, _} = error -> error
+        state = %{state | stack: List.replace_at(state.stack, 0, State.tuple_element(result, 3))}
+        state = State.push(state, State.tuple_element(result, 2))
+        state = State.push(state, State.tuple_element(result, 1))
+        {:ok, state}
+
+      :error ->
+        {:error, :for_in_state_missing}
     end
   end
 
@@ -561,7 +562,6 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
       {:ok, state}
     else
       :error -> {:error, {:for_of_state_missing, iter_idx}}
-      {:error, _} = error -> error
     end
   end
 

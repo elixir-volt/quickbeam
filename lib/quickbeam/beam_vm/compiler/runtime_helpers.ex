@@ -2,9 +2,9 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   @moduledoc false
 
   import Bitwise, only: [bnot: 1]
-  import QuickBEAM.BeamVM.Heap.Keys, only: [key_order: 0, map_data: 0, proto: 0, set_data: 0]
+  import QuickBEAM.BeamVM.Heap.Keys, only: [key_order: 0, proto: 0]
 
-  alias QuickBEAM.BeamVM.{Builtin, Bytecode, Heap}
+  alias QuickBEAM.BeamVM.{Builtin, Bytecode, Heap, Semantics}
   alias QuickBEAM.BeamVM.Interpreter.{Scope, Values}
   alias QuickBEAM.BeamVM.Runtime
   alias QuickBEAM.BeamVM.Runtime.Property
@@ -24,8 +24,8 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   def strict_neq(a, b), do: not Values.strict_eq(a, b)
 
-  def is_undefined(val), do: val == :undefined
-  def is_null(val), do: val == nil
+  def undefined?(val), do: val == :undefined
+  def null?(val), do: val == nil
   def typeof_is_undefined(val), do: val == :undefined or val == nil
   def typeof_is_function(val), do: Builtin.callable?(val)
 
@@ -107,27 +107,7 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     end
   end
 
-  def get_super(func) do
-    case func do
-      {:obj, ref} ->
-        case Heap.get_obj(ref, %{}) do
-          map when is_map(map) -> Map.get(map, proto(), :undefined)
-          _ -> :undefined
-        end
-
-      {:closure, _, %Bytecode.Function{} = fun} ->
-        Heap.get_parent_ctor(fun) || :undefined
-
-      %Bytecode.Function{} = fun ->
-        Heap.get_parent_ctor(fun) || :undefined
-
-      {:builtin, _, _} = builtin ->
-        Map.get(Heap.get_ctor_statics(builtin), "__proto__", :undefined)
-
-      _ ->
-        :undefined
-    end
-  end
+  def get_super(func), do: Semantics.get_super(func)
 
   def get_array_el2(obj, idx), do: {Property.get(obj, idx), obj}
 
@@ -140,18 +120,8 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   def set_function_name_atom(fun, atom_idx), do: set_function_name(fun, atom_name(atom_idx))
 
-  def set_function_name_computed(fun, name_val) do
-    name =
-      case name_val do
-        s when is_binary(s) -> s
-        n when is_number(n) -> Values.stringify(n)
-        {:symbol, desc, _} -> "[" <> desc <> "]"
-        {:symbol, desc} -> "[" <> desc <> "]"
-        _ -> ""
-      end
-
-    set_function_name(fun, name)
-  end
+  def set_function_name_computed(fun, name_val),
+    do: set_function_name(fun, Semantics.function_name(name_val))
 
   def put_field(obj, atom_idx, val) do
     QuickBEAM.BeamVM.Interpreter.Objects.put(obj, atom_name(atom_idx), val)
@@ -168,49 +138,7 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     :ok
   end
 
-  def define_array_el(obj, idx, val) do
-    obj2 =
-      case obj do
-        list when is_list(list) ->
-          i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
-          QuickBEAM.BeamVM.Interpreter.Objects.set_list_at(list, i, val)
-
-        {:obj, ref} ->
-          stored = Heap.get_obj(ref, [])
-
-          cond do
-            match?({:qb_arr, _}, stored) ->
-              i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
-              Heap.array_set(ref, i, val)
-
-            is_list(stored) ->
-              i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
-              Heap.put_obj(ref, QuickBEAM.BeamVM.Interpreter.Objects.set_list_at(stored, i, val))
-
-            is_map(stored) ->
-              key =
-                case idx do
-                  i when is_integer(i) -> Integer.to_string(i)
-                  {:symbol, _} = sym -> sym
-                  {:symbol, _, _} = sym -> sym
-                  s when is_binary(s) -> s
-                  other -> Kernel.to_string(other)
-                end
-
-              Heap.put_obj_key(ref, key, val)
-
-            true ->
-              :ok
-          end
-
-          {:obj, ref}
-
-        _ ->
-          obj
-      end
-
-    {idx, obj2}
-  end
+  def define_array_el(obj, idx, val), do: Semantics.define_array_el(obj, idx, val)
 
   def define_method(target, method, atom_idx, flags) do
     name = atom_name(atom_idx)
@@ -357,12 +285,7 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
           this_obj
       end
 
-    case result do
-      {:obj, _} = obj -> obj
-      %Bytecode.Function{} = fun -> fun
-      {:closure, _, %Bytecode.Function{}} = closure -> closure
-      _ -> this_obj
-    end
+    Semantics.coalesce_this_result(result, this_obj)
   end
 
   def instanceof({:obj, _} = obj, ctor) do
@@ -408,7 +331,7 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   def delete_property(_obj, _key), do: true
 
-  def is_undefined_or_null(val), do: val == :undefined or val == nil
+  def undefined_or_null?(val), do: val == :undefined or val == nil
 
   def ensure_capture_cell({:cell, _} = cell, _val), do: cell
 
@@ -446,28 +369,7 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
         other -> other
       end
 
-    raw =
-      case ctor_closure do
-        {:closure, _, %Bytecode.Function{} = fun} -> fun
-        %Bytecode.Function{} = fun -> fun
-        other -> other
-      end
-
-    proto_ref = make_ref()
-    proto_map = %{"constructor" => ctor_closure}
-    parent_proto = Heap.get_class_proto(parent_ctor)
-    proto_map = if parent_proto, do: Map.put(proto_map, proto(), parent_proto), else: proto_map
-
-    Heap.put_obj(proto_ref, proto_map)
-    proto = {:obj, proto_ref}
-    Heap.put_class_proto(raw, proto)
-    Heap.put_ctor_static(ctor_closure, "prototype", proto)
-
-    if parent_ctor != :undefined do
-      Heap.put_parent_ctor(raw, parent_ctor)
-    end
-
-    {proto, ctor_closure}
+    Semantics.define_class(ctor_closure, parent_ctor)
   end
 
   def invoke_runtime(fun, args) do
@@ -512,38 +414,7 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     end
   end
 
-  def get_length(obj) do
-    case obj do
-      {:obj, ref} ->
-        case Heap.get_obj(ref) do
-          {:qb_arr, arr} -> :array.size(arr)
-          list when is_list(list) -> length(list)
-          map when is_map(map) -> Map.get(map, "length", map_size(map))
-          _ -> 0
-        end
-
-      {:qb_arr, arr} ->
-        :array.size(arr)
-
-      list when is_list(list) ->
-        length(list)
-
-      s when is_binary(s) ->
-        Property.string_length(s)
-
-      %Bytecode.Function{} = fun ->
-        fun.defined_arg_count
-
-      {:closure, _, %Bytecode.Function{} = fun} ->
-        fun.defined_arg_count
-
-      {:bound, len, _, _, _} ->
-        len
-
-      _ ->
-        :undefined
-    end
-  end
+  def get_length(obj), do: Semantics.length_of(obj)
 
   def for_of_start(obj) do
     case obj do
@@ -633,72 +504,11 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     :ok
   end
 
-  defp spread_source_to_list({:qb_arr, arr}), do: :array.to_list(arr)
-  defp spread_source_to_list(list) when is_list(list), do: list
+  defp spread_source_to_list(obj), do: Semantics.spread_source_to_list(obj)
 
-  defp spread_source_to_list({:obj, ref} = source_obj) do
-    case Heap.get_obj(ref) do
-      {:qb_arr, _} ->
-        Heap.to_list(source_obj)
+  defp spread_target_to_list(obj), do: Semantics.spread_target_to_list(obj)
 
-      list when is_list(list) ->
-        list
-
-      map when is_map(map) ->
-        cond do
-          Map.has_key?(map, {:symbol, "Symbol.iterator"}) ->
-            iter_fn = Map.get(map, {:symbol, "Symbol.iterator"})
-            iter_obj = Runtime.call_callback(iter_fn, [])
-            collect_iterator_values(iter_obj, [])
-
-          Map.has_key?(map, set_data()) ->
-            Map.get(map, set_data(), [])
-
-          Map.has_key?(map, map_data()) ->
-            Map.get(map, map_data(), [])
-
-          true ->
-            []
-        end
-
-      _ ->
-        []
-    end
-  end
-
-  defp spread_source_to_list(_), do: []
-
-  defp spread_target_to_list({:qb_arr, arr}), do: :array.to_list(arr)
-  defp spread_target_to_list(list) when is_list(list), do: list
-  defp spread_target_to_list({:obj, _ref} = obj), do: Heap.to_list(obj)
-  defp spread_target_to_list(_), do: []
-
-  defp enumerable_string_props({:obj, ref} = source_obj) do
-    case Heap.get_obj(ref, %{}) do
-      {:qb_arr, _} ->
-        Enum.reduce(0..max(Heap.array_size(ref) - 1, 0), %{}, fn i, acc ->
-          Map.put(acc, Integer.to_string(i), Property.get(source_obj, Integer.to_string(i)))
-        end)
-
-      list when is_list(list) ->
-        Enum.reduce(0..max(length(list) - 1, 0), %{}, fn i, acc ->
-          Map.put(acc, Integer.to_string(i), Property.get(source_obj, Integer.to_string(i)))
-        end)
-
-      map when is_map(map) ->
-        map
-        |> Map.keys()
-        |> Enum.filter(&is_binary/1)
-        |> Enum.reject(fn k -> String.starts_with?(k, "__") and String.ends_with?(k, "__") end)
-        |> Enum.reduce(%{}, fn k, acc -> Map.put(acc, k, Property.get(source_obj, k)) end)
-
-      _ ->
-        %{}
-    end
-  end
-
-  defp enumerable_string_props(map) when is_map(map), do: map
-  defp enumerable_string_props(_), do: %{}
+  defp enumerable_string_props(obj), do: Semantics.enumerable_string_props(obj)
 
   defp maybe_put_home_object(method, target) do
     needs_home =
@@ -780,17 +590,6 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   defp numeric_index_keys(size) when size <= 0, do: []
   defp numeric_index_keys(size), do: Enum.map(0..(size - 1), &Integer.to_string/1)
-
-  defp collect_iterator_values(iter_obj, acc) do
-    next_fn = Property.get(iter_obj, "next")
-    step = Runtime.call_callback(next_fn, [])
-
-    if Property.get(step, "done") do
-      Enum.reverse(acc)
-    else
-      collect_iterator_values(iter_obj, [Property.get(step, "value") | acc])
-    end
-  end
 
   defp unwrap_constructor_target({:closure, _, %Bytecode.Function{} = fun}), do: fun
   defp unwrap_constructor_target({:bound, _, inner, _, _}), do: unwrap_constructor_target(inner)

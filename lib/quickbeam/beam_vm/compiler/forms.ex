@@ -138,7 +138,6 @@ defmodule QuickBEAM.BeamVM.Compiler.Forms do
   defp slot_vars(0), do: []
   defp slot_vars(count), do: Enum.map(0..(count - 1), &slot_var/1)
   defp var(name) when is_binary(name), do: {:var, @line, String.to_atom(name)}
-  defp var(name) when is_atom(name), do: {:var, @line, name}
   defp atom(value), do: {:atom, @line, value}
 
   defp remote_call(mod, fun, args) do

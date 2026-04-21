@@ -3,9 +3,19 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   import QuickBEAM.BeamVM.Builtin, only: [build_methods: 1, build_object: 1]
   import QuickBEAM.BeamVM.Heap.Keys
 
-  alias QuickBEAM.BeamVM.{Builtin, Bytecode, Compiler, Decoder, Heap, PredefinedAtoms, Runtime}
-  alias QuickBEAM.JSError
+  alias QuickBEAM.BeamVM.{
+    Builtin,
+    Bytecode,
+    Compiler,
+    Decoder,
+    Heap,
+    PredefinedAtoms,
+    Runtime,
+    Semantics
+  }
+
   alias QuickBEAM.BeamVM.Runtime.Property
+  alias QuickBEAM.JSError
   alias __MODULE__.{Closures, Context, Frame, Generator, Objects, Promise, Scope, Values}
 
   require Frame
@@ -2007,39 +2017,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({@op_get_length, []}, pc, frame, [obj | rest], gas, ctx) do
-    len =
-      case obj do
-        {:obj, ref} ->
-          case Heap.get_obj(ref) do
-            {:qb_arr, arr} -> :array.size(arr)
-            list when is_list(list) -> length(list)
-            map when is_map(map) -> Map.get(map, "length", map_size(map))
-            _ -> 0
-          end
-
-        {:qb_arr, arr} ->
-          :array.size(arr)
-
-        list when is_list(list) ->
-          length(list)
-
-        s when is_binary(s) ->
-          Property.string_length(s)
-
-        %Bytecode.Function{} = f ->
-          f.defined_arg_count
-
-        {:closure, _, %Bytecode.Function{} = f} ->
-          f.defined_arg_count
-
-        {:bound, len, _, _, _} ->
-          len
-
-        _ ->
-          :undefined
-      end
-
-    run(pc + 1, frame, [len | rest], gas, ctx)
+    run(pc + 1, frame, [Semantics.length_of(obj) | rest], gas, ctx)
   end
 
   defp run({@op_array_from, [argc]}, pc, frame, stack, gas, ctx) do
@@ -2387,13 +2365,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
             this_obj
         end
 
-      result =
-        case result do
-          {:obj, _} = obj -> obj
-          %Bytecode.Function{} = f -> f
-          {:closure, _, %Bytecode.Function{}} = c -> c
-          _ -> this_obj
-        end
+      result = Semantics.coalesce_this_result(result, this_obj)
 
       if match?({:uninitialized, _}, result) do
         throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
@@ -2623,16 +2595,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
               Heap.put_obj(ref, Objects.set_list_at(stored, i, val))
 
             is_map(stored) ->
-              key =
-                case idx do
-                  i when is_integer(i) -> Integer.to_string(i)
-                  {:symbol, _} = sym -> sym
-                  {:symbol, _, _} = sym -> sym
-                  s when is_binary(s) -> s
-                  other -> Kernel.to_string(other)
-                end
-
-              Heap.put_obj_key(ref, key, val)
+              Heap.put_obj_key(ref, Semantics.normalize_property_key(idx), val)
 
             true ->
               :ok
@@ -3021,16 +2984,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({@op_set_name_computed, []}, pc, frame, [fun, name_val | rest], gas, ctx) do
-    name =
-      case name_val do
-        s when is_binary(s) -> s
-        n when is_number(n) -> Values.stringify(n)
-        {:symbol, desc, _} -> "[" <> desc <> "]"
-        {:symbol, desc} -> "[" <> desc <> "]"
-        _ -> ""
-      end
-
-    named = set_function_name(fun, name)
+    named = set_function_name(fun, Semantics.function_name(name_val))
 
     run(pc + 1, frame, [named, name_val | rest], gas, ctx)
   end
@@ -3039,31 +2993,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     do: run(pc + 1, frame, stack, gas, ctx)
 
   defp run({@op_get_super, []}, pc, frame, [func | rest], gas, ctx) do
-    parent =
-      case func do
-        {:obj, ref} ->
-          case Heap.get_obj(ref, %{}) do
-            map when is_map(map) ->
-              Map.get(map, proto(), :undefined)
-
-            _ ->
-              :undefined
-          end
-
-        {:closure, _, %Bytecode.Function{} = f} ->
-          Heap.get_parent_ctor(f) || :undefined
-
-        %Bytecode.Function{} = f ->
-          Heap.get_parent_ctor(f) || :undefined
-
-        {:builtin, _, _} = b ->
-          Map.get(Heap.get_ctor_statics(b), "__proto__", :undefined)
-
-        _ ->
-          :undefined
-      end
-
-    run(pc + 1, frame, [parent | rest], gas, ctx)
+    run(pc + 1, frame, [Semantics.get_super(func) | rest], gas, ctx)
   end
 
   defp run({@op_push_this, []}, _pc, frame, _stack, gas, %Context{this: this} = ctx)
@@ -3133,58 +3063,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     source = Enum.at(stack, source_idx)
 
     try do
-      src_props =
-        case source do
-          {:obj, ref} = source_obj ->
-            case Heap.get_obj(ref, %{}) do
-              {:qb_arr, _} ->
-                Enum.reduce(0..max(Heap.array_size(ref) - 1, 0), %{}, fn i, acc ->
-                  Map.put(
-                    acc,
-                    Integer.to_string(i),
-                    Property.get(source_obj, Integer.to_string(i))
-                  )
-                end)
-
-              list when is_list(list) ->
-                Enum.reduce(0..max(length(list) - 1, 0), %{}, fn i, acc ->
-                  Map.put(
-                    acc,
-                    Integer.to_string(i),
-                    Property.get(source_obj, Integer.to_string(i))
-                  )
-                end)
-
-              map when is_map(map) ->
-                map
-                |> Map.keys()
-                |> Enum.filter(&is_binary/1)
-                |> Enum.reject(fn k ->
-                  String.starts_with?(k, "__") and String.ends_with?(k, "__")
-                end)
-                |> Enum.reduce(%{}, fn k, acc -> Map.put(acc, k, Property.get(source_obj, k)) end)
-
-              _ ->
-                %{}
-            end
-
-          map when is_map(map) ->
-            map
-
-          _ ->
-            %{}
-        end
-
-      case target do
-        {:obj, ref} ->
-          existing = Heap.get_obj(ref, %{})
-          existing = if is_map(existing), do: existing, else: %{}
-          Heap.put_obj(ref, Map.merge(existing, src_props))
-
-        _ ->
-          :ok
-      end
-
+      Semantics.copy_data_properties(target, source)
       run(pc + 1, frame, stack, gas, ctx)
     catch
       {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
@@ -3215,30 +3094,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           already_closure
       end
 
-    raw =
-      case ctor_closure do
-        {:closure, _, %Bytecode.Function{} = f} -> f
-        %Bytecode.Function{} = f -> f
-        other -> other
-      end
-
-    proto_ref = make_ref()
-    proto_map = %{"constructor" => ctor_closure}
-    parent_proto = Heap.get_class_proto(parent_ctor)
-
-    proto_map =
-      if parent_proto,
-        do: Map.put(proto_map, proto(), parent_proto),
-        else: proto_map
-
-    Heap.put_obj(proto_ref, proto_map)
-    proto = {:obj, proto_ref}
-    Heap.put_class_proto(raw, proto)
-    Heap.put_ctor_static(ctor_closure, "prototype", proto)
-
-    if parent_ctor != :undefined do
-      Heap.put_parent_ctor(raw, parent_ctor)
-    end
+    {proto, ctor_closure} = Semantics.define_class(ctor_closure, parent_ctor)
 
     frame = seed_class_binding(frame, ctx, atom_idx, ctor_closure)
 

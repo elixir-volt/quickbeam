@@ -245,11 +245,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
             {:error, {:unsupported_finally_opcode, name, idx}}
 
           _ ->
-            case Ops.lower_instruction(instruction, idx, nil, 0, state, %{}, []) do
-              {:ok, next_state} -> lower_finally_inline(instructions, idx + 1, next_state)
-              {:done, body} -> {:ok, %{state | body: body, stack: state.stack}}
-              {:error, _} = error -> error
-            end
+            lower_finally_instruction(instructions, instruction, idx, state)
         end
 
       {op, _args} ->
@@ -265,12 +261,16 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
             {:error, {:unsupported_finally_opcode, name, idx}}
 
           _ ->
-            case Ops.lower_instruction(instruction, idx, nil, 0, state, %{}, []) do
-              {:ok, next_state} -> lower_finally_inline(instructions, idx + 1, next_state)
-              {:done, body} -> {:ok, %{state | body: body, stack: state.stack}}
-              {:error, _} = error -> error
-            end
+            lower_finally_instruction(instructions, instruction, idx, state)
         end
+    end
+  end
+
+  defp lower_finally_instruction(instructions, instruction, idx, state) do
+    case Ops.lower_instruction(instruction, idx, nil, 0, state, %{}, []) do
+      {:ok, next_state} -> lower_finally_inline(instructions, idx + 1, next_state)
+      {:done, body} -> {:ok, %{state | body: body, stack: state.stack}}
+      {:error, _} = error -> error
     end
   end
 

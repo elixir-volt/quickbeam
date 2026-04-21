@@ -457,9 +457,10 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
       true_body = [next_call]
 
       body =
-        case sense do
-          false -> state.body ++ [case_expr(truthy, false_body, true_body)]
-          true -> state.body ++ [case_expr(truthy, true_body, false_body)]
+        if sense do
+          state.body ++ [case_expr(truthy, true_body, false_body)]
+        else
+          state.body ++ [case_expr(truthy, false_body, true_body)]
         end
 
       {:done, body}

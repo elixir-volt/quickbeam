@@ -716,6 +716,50 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, true} = Compiler.invoke(fun, [])
     end
 
+    test "inherits static methods named call", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static call(){ return 1 } } class B extends A {} return B.call() })"
+        )
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "rejects inherited private static methods", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static #m(){ return 1 } static call(){ return this.#m() } } class B extends A {} try { return B.call() } catch (e) { return e instanceof TypeError } })"
+        )
+        |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private static blocks", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static #x = 1; static { this.#x += 2 } static get(){ return this.#x } } return A.get() })"
+        )
+        |> user_function()
+
+      assert {:ok, 3} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private super calls", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #m(){ return 1 } call(){ return this.#m() } } class B extends A { call2(){ return super.call() } } return new B().call2() })"
+        )
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
     test "preserves side-effectful dropped method calls", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(o){ o.bump(); return o.n })") |> user_function()
 

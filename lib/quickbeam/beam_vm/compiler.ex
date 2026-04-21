@@ -34,7 +34,9 @@ defmodule QuickBEAM.BeamVM.Compiler do
 
   defp module_name(fun) do
     hash =
-      :crypto.hash(:sha256, [fun.byte_code, <<fun.arg_count::32, fun.var_count::32>>])
+      fun
+      |> :erlang.term_to_binary()
+      |> then(&:crypto.hash(:sha256, &1))
       |> binary_part(0, 8)
       |> Base.encode16(case: :lower)
 
