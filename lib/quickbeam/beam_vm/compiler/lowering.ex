@@ -48,7 +48,8 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
     state =
       State.new(slot_count, stack_depth,
         locals: fun.locals,
-        atoms: Process.get({:qb_fn_atoms, fun.byte_code})
+        atoms: Process.get({:qb_fn_atoms, fun.byte_code}),
+        arg_count: arg_count
       )
 
     next_entry = Analysis.next_entry(entries, start)
@@ -196,7 +197,12 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
              idx + 1,
              next_entry,
              arg_count,
-             %{state | body: [], stack: [State.literal(target) | saved_stack]},
+             %{
+               state
+               | body: [],
+                 stack: [State.literal(target) | saved_stack],
+                 stack_types: [:integer | state.stack_types]
+             },
              stack_depths,
              constants
            ) do
@@ -268,9 +274,14 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
 
   defp lower_finally_instruction(instructions, instruction, idx, state) do
     case Ops.lower_instruction(instruction, idx, nil, 0, state, %{}, []) do
-      {:ok, next_state} -> lower_finally_inline(instructions, idx + 1, next_state)
-      {:done, body} -> {:ok, %{state | body: body, stack: state.stack}}
-      {:error, _} = error -> error
+      {:ok, next_state} ->
+        lower_finally_inline(instructions, idx + 1, next_state)
+
+      {:done, body} ->
+        {:ok, %{state | body: body, stack: state.stack, stack_types: state.stack_types}}
+
+      {:error, _} = error ->
+        error
     end
   end
 

@@ -63,7 +63,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         {:ok, State.push(state, State.literal(""))}
 
       {{:ok, :object}, []} ->
-        {:ok, State.push(state, State.compiler_call(:new_object, []))}
+        {:ok, State.push(state, State.compiler_call(:new_object, []), :object)}
 
       {{:ok, :array_from}, [argc]} ->
         State.array_from_call(state, argc)
@@ -81,19 +81,29 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         lower_fclosure(state, constants, arg_count, const_idx)
 
       {{:ok, :private_symbol}, [atom_idx]} ->
-        {:ok, State.push(state, State.compiler_call(:private_symbol, [State.literal(atom_idx)]))}
+        {:ok,
+         State.push(
+           state,
+           State.compiler_call(:private_symbol, [State.literal(State.atom_name(state, atom_idx))]),
+           :unknown
+         )}
 
       {{:ok, :push_atom_value}, [atom_idx]} ->
-        {:ok, State.push(state, State.compiler_call(:push_atom_value, [State.literal(atom_idx)]))}
+        {:ok, State.push(state, State.literal(State.atom_name(state, atom_idx)), :string)}
 
       {{:ok, :push_this}, []} ->
-        {:ok, State.push(state, State.compiler_call(:push_this, []))}
+        {:ok, State.push(state, State.compiler_call(:push_this, []), :object)}
 
       {{:ok, :special_object}, [type]} ->
-        {:ok, State.push(state, State.compiler_call(:special_object, [State.literal(type)]))}
+        {:ok,
+         State.push(
+           state,
+           State.compiler_call(:special_object, [State.literal(type)]),
+           special_object_type(type)
+         )}
 
       {{:ok, :set_name}, [atom_idx]} ->
-        State.set_name_atom(state, atom_idx)
+        State.set_name_atom(state, State.atom_name(state, atom_idx))
 
       {{:ok, :set_name_computed}, []} ->
         State.set_name_computed(state)
@@ -105,59 +115,83 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         State.close_capture_cell(state, slot_idx)
 
       {{:ok, :get_var}, [atom_idx]} ->
-        {:ok, State.push(state, State.compiler_call(:get_var, [State.literal(atom_idx)]))}
+        {:ok,
+         State.push(
+           state,
+           State.compiler_call(:get_var, [State.literal(State.atom_name(state, atom_idx))])
+         )}
 
       {{:ok, :get_var_undef}, [atom_idx]} ->
-        {:ok, State.push(state, State.compiler_call(:get_var_undef, [State.literal(atom_idx)]))}
+        {:ok,
+         State.push(
+           state,
+           State.compiler_call(:get_var_undef, [State.literal(State.atom_name(state, atom_idx))])
+         )}
 
       {{:ok, :get_super}, []} ->
         State.unary_call(state, RuntimeHelpers, :get_super)
 
       {{:ok, :get_arg}, [slot_idx]} ->
-        {:ok, State.push(state, State.slot_expr(state, slot_idx))}
+        {:ok,
+         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
 
       {{:ok, :get_arg0}, [slot_idx]} ->
-        {:ok, State.push(state, State.slot_expr(state, slot_idx))}
+        {:ok,
+         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
 
       {{:ok, :get_arg1}, [slot_idx]} ->
-        {:ok, State.push(state, State.slot_expr(state, slot_idx))}
+        {:ok,
+         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
 
       {{:ok, :get_arg2}, [slot_idx]} ->
-        {:ok, State.push(state, State.slot_expr(state, slot_idx))}
+        {:ok,
+         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
 
       {{:ok, :get_arg3}, [slot_idx]} ->
-        {:ok, State.push(state, State.slot_expr(state, slot_idx))}
+        {:ok,
+         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
 
       {{:ok, :get_loc}, [slot_idx]} ->
-        {:ok, State.push(state, State.slot_expr(state, slot_idx))}
+        {:ok,
+         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
 
       {{:ok, :get_loc0}, [slot_idx]} ->
-        {:ok, State.push(state, State.slot_expr(state, slot_idx))}
+        {:ok,
+         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
 
       {{:ok, :get_loc1}, [slot_idx]} ->
-        {:ok, State.push(state, State.slot_expr(state, slot_idx))}
+        {:ok,
+         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
 
       {{:ok, :get_loc2}, [slot_idx]} ->
-        {:ok, State.push(state, State.slot_expr(state, slot_idx))}
+        {:ok,
+         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
 
       {{:ok, :get_loc3}, [slot_idx]} ->
-        {:ok, State.push(state, State.slot_expr(state, slot_idx))}
+        {:ok,
+         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
 
       {{:ok, :get_loc8}, [slot_idx]} ->
-        {:ok, State.push(state, State.slot_expr(state, slot_idx))}
+        {:ok,
+         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
 
       {{:ok, :get_loc0_loc1}, [slot0, slot1]} ->
         {:ok,
          %{
            state
-           | stack: [State.slot_expr(state, slot1), State.slot_expr(state, slot0) | state.stack]
+           | stack: [State.slot_expr(state, slot1), State.slot_expr(state, slot0) | state.stack],
+             stack_types: [
+               State.slot_type(state, slot1),
+               State.slot_type(state, slot0) | state.stack_types
+             ]
          }}
 
       {{:ok, :get_loc_check}, [slot_idx]} ->
         {:ok,
          State.push(
            state,
-           State.compiler_call(:ensure_initialized_local!, [State.slot_expr(state, slot_idx)])
+           State.compiler_call(:ensure_initialized_local!, [State.slot_expr(state, slot_idx)]),
+           State.slot_type(state, slot_idx)
          )}
 
       {{:ok, :set_loc_uninitialized}, [slot_idx]} ->
@@ -350,19 +384,24 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         State.get_array_el2(state)
 
       {{:ok, :get_field}, [atom_idx]} ->
-        State.unary_call(state, RuntimeHelpers, :get_field, [State.literal(atom_idx)])
+        State.unary_call(
+          state,
+          QuickBEAM.BeamVM.Runtime.Property,
+          :get,
+          [State.literal(State.atom_name(state, atom_idx))]
+        )
 
       {{:ok, :get_field2}, [atom_idx]} ->
-        State.get_field2(state, atom_idx)
+        State.get_field2(state, State.literal(State.atom_name(state, atom_idx)))
 
       {{:ok, :put_field}, [atom_idx]} ->
-        State.put_field_call(state, atom_idx)
+        State.put_field_call(state, State.literal(State.atom_name(state, atom_idx)))
 
       {{:ok, :define_field}, [atom_idx]} ->
-        State.define_field_call(state, atom_idx)
+        State.define_field_call(state, State.literal(State.atom_name(state, atom_idx)))
 
       {{:ok, :define_method}, [atom_idx, flags]} ->
-        State.define_method_call(state, atom_idx, flags)
+        State.define_method_call(state, State.atom_name(state, atom_idx), flags)
 
       {{:ok, :define_method_computed}, [flags]} ->
         State.define_method_computed_call(state, flags)
@@ -464,7 +503,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         State.invoke_tail_method_call(state, argc)
 
       {{:ok, :is_undefined_or_null}, []} ->
-        State.unary_call(state, RuntimeHelpers, :undefined_or_null?)
+        lower_is_undefined_or_null(state)
 
       {{:ok, :if_false}, [target]} ->
         State.branch(state, idx, next_entry, target, false, stack_depths)
@@ -505,8 +544,8 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
   end
 
   defp lower_for_in_start(state) do
-    with {:ok, obj, state} <- State.pop(state) do
-      {:ok, State.push(state, State.compiler_call(:for_in_start, [obj]))}
+    with {:ok, obj, _type, state} <- State.pop_typed(state) do
+      {:ok, State.push(state, State.compiler_call(:for_in_start, [obj]), :unknown)}
     end
   end
 
@@ -520,9 +559,14 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
             State.compiler_call(:for_in_next, [iter])
           )
 
-        state = %{state | stack: List.replace_at(state.stack, 0, State.tuple_element(result, 3))}
-        state = State.push(state, State.tuple_element(result, 2))
-        state = State.push(state, State.tuple_element(result, 1))
+        state = %{
+          state
+          | stack: List.replace_at(state.stack, 0, State.tuple_element(result, 3)),
+            stack_types: List.replace_at(state.stack_types, 0, :unknown)
+        }
+
+        state = State.push(state, State.tuple_element(result, 2), :unknown)
+        state = State.push(state, State.tuple_element(result, 1), :boolean)
         {:ok, state}
 
       :error ->
@@ -531,13 +575,13 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
   end
 
   defp lower_for_of_start(state) do
-    with {:ok, obj, state} <- State.pop(state) do
+    with {:ok, obj, _type, state} <- State.pop_typed(state) do
       {pair, state} =
         State.bind(state, State.temp_name(state.temp), State.compiler_call(:for_of_start, [obj]))
 
-      state = State.push(state, State.tuple_element(pair, 1))
-      state = State.push(state, State.tuple_element(pair, 2))
-      state = State.push(state, State.integer(0))
+      state = State.push(state, State.tuple_element(pair, 1), :object)
+      state = State.push(state, State.tuple_element(pair, 2), :function)
+      state = State.push(state, State.integer(0), :integer)
       {:ok, state}
     end
   end
@@ -554,11 +598,12 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
 
       state = %{
         state
-        | stack: List.replace_at(state.stack, iter_idx + 2, State.tuple_element(result, 3))
+        | stack: List.replace_at(state.stack, iter_idx + 2, State.tuple_element(result, 3)),
+          stack_types: List.replace_at(state.stack_types, iter_idx + 2, :object)
       }
 
-      state = State.push(state, State.tuple_element(result, 2))
-      state = State.push(state, State.tuple_element(result, 1))
+      state = State.push(state, State.tuple_element(result, 2), :unknown)
+      state = State.push(state, State.tuple_element(result, 1), :boolean)
       {:ok, state}
     else
       :error -> {:error, {:for_of_state_missing, iter_idx}}
@@ -566,9 +611,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
   end
 
   defp lower_iterator_close(state) do
-    with {:ok, _catch_offset, state} <- State.pop(state),
-         {:ok, _next_fn, state} <- State.pop(state),
-         {:ok, iter_obj, state} <- State.pop(state) do
+    with {:ok, _catch_offset, _catch_type, state} <- State.pop_typed(state),
+         {:ok, _next_fn, _next_type, state} <- State.pop_typed(state),
+         {:ok, iter_obj, _iter_type, state} <- State.pop_typed(state) do
       {:ok, %{state | body: state.body ++ [State.compiler_call(:iterator_close, [iter_obj])]}}
     end
   end
@@ -576,7 +621,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
   defp lower_fclosure(state, constants, arg_count, const_idx) do
     case Enum.at(constants, const_idx) do
       %QuickBEAM.BeamVM.Bytecode.Function{closure_vars: []} = fun ->
-        {:ok, State.push(state, State.literal(fun))}
+        {:ok, State.push(state, State.literal(fun), :function)}
 
       %QuickBEAM.BeamVM.Bytecode.Function{} = fun ->
         with {:ok, state, entries} <-
@@ -588,7 +633,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
               State.literal(fun)
             ])
 
-          {:ok, State.push(state, closure)}
+          {:ok, State.push(state, closure, :function)}
         end
 
       nil ->
@@ -629,10 +674,10 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         {:ok, State.push(state, State.literal(value))}
 
       :undefined ->
-        {:ok, State.push(state, State.atom(:undefined))}
+        {:ok, State.push(state, State.atom(:undefined), :undefined)}
 
       %QuickBEAM.BeamVM.Bytecode.Function{} = fun when fun.closure_vars == [] ->
-        {:ok, State.push(state, State.literal(fun))}
+        {:ok, State.push(state, State.literal(fun), :function)}
 
       %QuickBEAM.BeamVM.Bytecode.Function{} ->
         lower_fclosure(state, constants, arg_count, idx)
@@ -641,4 +686,22 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         {:error, {:unsupported_const, idx}}
     end
   end
+
+  defp lower_is_undefined_or_null(state) do
+    with {:ok, expr, type, state} <- State.pop_typed(state) do
+      result =
+        case type do
+          :undefined -> State.atom(true)
+          :null -> State.atom(true)
+          _ -> State.undefined_or_null_expr(expr)
+        end
+
+      {:ok, State.push(state, result, :boolean)}
+    end
+  end
+
+  defp special_object_type(2), do: :self_fun
+  defp special_object_type(3), do: :function
+  defp special_object_type(type) when type in [0, 1, 5, 6, 7], do: :object
+  defp special_object_type(_), do: :unknown
 end

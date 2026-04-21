@@ -38,7 +38,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Forms do
 
   defp helper_forms do
     [
-      guarded_binary_helper(:op_add, :+, Values, :add),
+      add_helper(),
       guarded_binary_helper(:op_sub, :-, Values, :sub),
       guarded_binary_helper(:op_mul, :*, Values, :mul),
       guarded_binary_helper(:op_div, :/, Values, :div),
@@ -53,6 +53,18 @@ defmodule QuickBEAM.BeamVM.Compiler.Forms do
       guarded_unary_helper(:op_neg, :-, Values, :neg),
       unary_fallback_helper(:op_plus, Values, :to_number)
     ]
+  end
+
+  defp add_helper do
+    a = var("A")
+    b = var("B")
+
+    {:function, @line, :op_add, 2,
+     [
+       {:clause, @line, [a, b], [integer_guards(a, b)], [{:op, @line, :+, a, b}]},
+       {:clause, @line, [a, b], [binary_guards(a, b)], [binary_concat(a, b)]},
+       {:clause, @line, [a, b], [], [remote_call(Values, :add, [a, b])]}
+     ]}
   end
 
   defp guarded_binary_helper(name, op, fallback_mod, fallback_fun) do
@@ -130,8 +142,10 @@ defmodule QuickBEAM.BeamVM.Compiler.Forms do
 
   defp integer_guards(a, b), do: [integer_guard(a), integer_guard(b)]
   defp number_guards(a, b), do: [number_guard(a), number_guard(b)]
+  defp binary_guards(a, b), do: [binary_guard(a), binary_guard(b)]
   defp integer_guard(expr), do: {:call, @line, {:atom, @line, :is_integer}, [expr]}
   defp number_guard(expr), do: {:call, @line, {:atom, @line, :is_number}, [expr]}
+  defp binary_guard(expr), do: {:call, @line, {:atom, @line, :is_binary}, [expr]}
 
   defp block_name(idx), do: String.to_atom("block_#{idx}")
   defp slot_var(idx), do: var("Slot#{idx}")
@@ -142,6 +156,14 @@ defmodule QuickBEAM.BeamVM.Compiler.Forms do
 
   defp remote_call(mod, fun, args) do
     {:call, @line, {:remote, @line, {:atom, @line, mod}, {:atom, @line, fun}}, args}
+  end
+
+  defp binary_concat(left, right) do
+    {:bin, @line,
+     [
+       {:bin_element, @line, left, :default, [:binary]},
+       {:bin_element, @line, right, :default, [:binary]}
+     ]}
   end
 
   defp local_call(fun, args), do: {:call, @line, {:atom, @line, fun}, args}

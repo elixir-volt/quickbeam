@@ -25,17 +25,30 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     %{
       body: [],
       slots: slots,
+      slot_types: Map.new(slots, fn {idx, _expr} -> {idx, :unknown} end),
       capture_cells: capture_cells,
       stack: stack,
+      stack_types: List.duplicate(:unknown, stack_depth),
       temp: 0,
       locals: Keyword.get(opts, :locals, []),
-      atoms: Keyword.get(opts, :atoms)
+      atoms: Keyword.get(opts, :atoms),
+      arg_count: Keyword.get(opts, :arg_count, 0)
     }
   end
 
-  def push(state, expr), do: %{state | stack: [expr | state.stack]}
+  def push(state, expr), do: push(state, expr, infer_expr_type(expr))
 
-  def pop(%{stack: [expr | rest]} = state), do: {:ok, expr, %{state | stack: rest}}
+  def push(state, expr, type),
+    do: %{state | stack: [expr | state.stack], stack_types: [type | state.stack_types]}
+
+  def pop_typed(%{stack: [expr | rest], stack_types: [type | type_rest]} = state),
+    do: {:ok, expr, type, %{state | stack: rest, stack_types: type_rest}}
+
+  def pop_typed(_state), do: {:error, :stack_underflow}
+
+  def pop(%{stack: [expr | rest], stack_types: [_type | type_rest]} = state),
+    do: {:ok, expr, %{state | stack: rest, stack_types: type_rest}}
+
   def pop(_state), do: {:error, :stack_underflow}
 
   def pop_n(state, 0), do: {:ok, [], state}
@@ -47,8 +60,27 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     end
   end
 
-  def put_slot(state, idx, expr), do: %{state | slots: Map.put(state.slots, idx, expr)}
+  def pop_n_typed(state, 0), do: {:ok, [], [], state}
+
+  def pop_n_typed(state, count) when count > 0 do
+    with {:ok, expr, type, state} <- pop_typed(state),
+         {:ok, rest, rest_types, state} <- pop_n_typed(state, count - 1) do
+      {:ok, [expr | rest], [type | rest_types], state}
+    end
+  end
+
+  def put_slot(state, idx, expr), do: put_slot(state, idx, expr, infer_expr_type(expr))
+
+  def put_slot(state, idx, expr, type) do
+    %{
+      state
+      | slots: Map.put(state.slots, idx, expr),
+        slot_types: Map.put(state.slot_types, idx, type)
+    }
+  end
+
   def slot_expr(state, idx), do: Map.get(state.slots, idx, atom(:undefined))
+  def slot_type(state, idx), do: Map.get(state.slot_types, idx, :unknown)
 
   def put_capture_cell(state, idx, expr),
     do: %{state | capture_cells: Map.put(state.capture_cells, idx, expr)}
@@ -67,21 +99,40 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   end
 
   def assign_slot(state, idx, keep?, wrapper \\ nil) do
-    with {:ok, expr, state} <- pop(state) do
+    with {:ok, expr, type, state} <- pop_typed(state) do
       expr = if wrapper, do: compiler_call(wrapper, [expr]), else: expr
-      {bound, state} = bind(state, slot_name(idx, state.temp), expr)
-      state = put_slot(state, idx, bound)
-      state = sync_capture_cell(state, idx, bound)
-      state = if keep?, do: push(state, bound), else: state
+
+      {slot_expr, state} =
+        if keep? or not pure_expr?(expr) or slot_captured?(state, idx) do
+          bind(state, slot_name(idx, state.temp), expr)
+        else
+          {expr, state}
+        end
+
+      state = put_slot(state, idx, slot_expr, type)
+      state = sync_capture_cell(state, idx, slot_expr)
+      state = if keep?, do: push(state, slot_expr, type), else: state
       {:ok, state}
     end
   end
 
-  def update_slot(state, idx, expr, keep? \\ false) do
-    {bound, state} = bind(state, slot_name(idx, state.temp), expr)
-    state = put_slot(state, idx, bound)
-    state = sync_capture_cell(state, idx, bound)
-    state = if keep?, do: push(state, bound), else: state
+  def update_slot(state, idx, expr),
+    do: update_slot(state, idx, expr, false, infer_expr_type(expr))
+
+  def update_slot(state, idx, expr, keep?),
+    do: update_slot(state, idx, expr, keep?, infer_expr_type(expr))
+
+  def update_slot(state, idx, expr, keep?, type) do
+    {slot_expr, state} =
+      if keep? or not pure_expr?(expr) or slot_captured?(state, idx) do
+        bind(state, slot_name(idx, state.temp), expr)
+      else
+        {expr, state}
+      end
+
+    state = put_slot(state, idx, slot_expr, type)
+    state = sync_capture_cell(state, idx, slot_expr)
+    state = if keep?, do: push(state, slot_expr, type), else: state
     {:ok, state}
   end
 
@@ -108,112 +159,158 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   end
 
   def duplicate_top(state) do
-    with {:ok, expr, state} <- pop(state) do
+    with {:ok, expr, type, state} <- pop_typed(state) do
       {bound, state} = bind(state, temp_name(state.temp), expr)
-      {:ok, %{state | stack: [bound, bound | state.stack]}}
+
+      {:ok,
+       %{
+         state
+         | stack: [bound, bound | state.stack],
+           stack_types: [type, type | state.stack_types]
+       }}
     end
   end
 
   def duplicate_top_two(state) do
-    with {:ok, first, state} <- pop(state),
-         {:ok, second, state} <- pop(state) do
+    with {:ok, first, first_type, state} <- pop_typed(state),
+         {:ok, second, second_type, state} <- pop_typed(state) do
       {second_bound, state} = bind(state, temp_name(state.temp), second)
       {first_bound, state} = bind(state, temp_name(state.temp), first)
 
       {:ok,
-       %{state | stack: [first_bound, second_bound, first_bound, second_bound | state.stack]}}
+       %{
+         state
+         | stack: [first_bound, second_bound, first_bound, second_bound | state.stack],
+           stack_types: [first_type, second_type, first_type, second_type | state.stack_types]
+       }}
     end
   end
 
-  def drop_top(%{stack: [_ | rest]} = state), do: {:ok, %{state | stack: rest}}
+  def drop_top(%{stack: [_ | rest], stack_types: [_ | type_rest]} = state),
+    do: {:ok, %{state | stack: rest, stack_types: type_rest}}
+
   def drop_top(_state), do: {:error, :stack_underflow}
 
-  def swap_top(%{stack: [a, b | rest]} = state), do: {:ok, %{state | stack: [b, a | rest]}}
+  def swap_top(%{stack: [a, b | rest], stack_types: [ta, tb | type_rest]} = state),
+    do: {:ok, %{state | stack: [b, a | rest], stack_types: [tb, ta | type_rest]}}
+
   def swap_top(_state), do: {:error, :stack_underflow}
 
-  def nip_catch(%{stack: [val, _catch_offset | rest]} = state),
-    do: {:ok, %{state | stack: [val | rest]}}
+  def nip_catch(
+        %{stack: [val, _catch_offset | rest], stack_types: [type, _ | type_rest]} = state
+      ),
+      do: {:ok, %{state | stack: [val | rest], stack_types: [type | type_rest]}}
 
   def nip_catch(_state), do: {:error, :stack_underflow}
 
   def post_update(state, fun) do
-    with {:ok, expr, state} <- pop(state) do
+    with {:ok, expr, _type, state} <- pop_typed(state) do
       {pair, state} = bind(state, temp_name(state.temp), compiler_call(fun, [expr]))
-      {:ok, %{state | stack: [tuple_element(pair, 1), tuple_element(pair, 2) | state.stack]}}
+
+      {:ok,
+       %{
+         state
+         | stack: [tuple_element(pair, 1), tuple_element(pair, 2) | state.stack],
+           stack_types: [:number, :number | state.stack_types]
+       }}
     end
   end
 
   def add_to_slot(state, idx) do
-    with {:ok, expr, state} <- pop(state) do
-      update_slot(state, idx, local_call(:op_add, [slot_expr(state, idx), expr]))
+    with {:ok, expr, expr_type, state} <- pop_typed(state) do
+      {op_expr, result_type} =
+        specialize_binary(:op_add, slot_expr(state, idx), slot_type(state, idx), expr, expr_type)
+
+      update_slot(state, idx, op_expr, false, result_type)
     end
   end
 
   def inc_slot(state, idx),
-    do: update_slot(state, idx, compiler_call(:inc, [slot_expr(state, idx)]))
+    do: update_slot(state, idx, compiler_call(:inc, [slot_expr(state, idx)]), false, :number)
 
   def dec_slot(state, idx),
-    do: update_slot(state, idx, compiler_call(:dec, [slot_expr(state, idx)]))
+    do: update_slot(state, idx, compiler_call(:dec, [slot_expr(state, idx)]), false, :number)
 
   def unary_call(state, mod, fun, extra_args \\ []) do
-    with {:ok, expr, state} <- pop(state) do
+    with {:ok, expr, _type, state} <- pop_typed(state) do
       {:ok, push(state, remote_call(mod, fun, [expr | extra_args]))}
     end
   end
 
-  def effectful_push(state, expr) do
+  def effectful_push(state, expr), do: effectful_push(state, expr, infer_expr_type(expr))
+
+  def effectful_push(state, expr, type) do
     {bound, state} = bind(state, temp_name(state.temp), expr)
-    {:ok, push(state, bound)}
+    {:ok, push(state, bound, type)}
   end
 
   def unary_local_call(state, fun) do
-    with {:ok, expr, state} <- pop(state) do
-      {:ok, push(state, local_call(fun, [expr]))}
+    with {:ok, expr, type, state} <- pop_typed(state) do
+      {result_expr, result_type} = specialize_unary(fun, expr, type)
+      {:ok, push(state, result_expr, result_type)}
     end
   end
 
   def binary_call(state, mod, fun) do
-    with {:ok, right, state} <- pop(state),
-         {:ok, left, state} <- pop(state) do
+    with {:ok, right, _right_type, state} <- pop_typed(state),
+         {:ok, left, _left_type, state} <- pop_typed(state) do
       {:ok, push(state, remote_call(mod, fun, [left, right]))}
     end
   end
 
   def binary_local_call(state, fun) do
-    with {:ok, right, state} <- pop(state),
-         {:ok, left, state} <- pop(state) do
-      {:ok, push(state, local_call(fun, [left, right]))}
+    with {:ok, right, right_type, state} <- pop_typed(state),
+         {:ok, left, left_type, state} <- pop_typed(state) do
+      {result_expr, result_type} = specialize_binary(fun, left, left_type, right, right_type)
+      {:ok, push(state, result_expr, result_type)}
     end
   end
 
-  def get_field2(state, atom_idx) do
-    with {:ok, obj, state} <- pop(state) do
-      field = remote_call(RuntimeHelpers, :get_field, [obj, literal(atom_idx)])
-      {:ok, %{state | stack: [field, obj | state.stack]}}
+  def get_field2(state, key_expr) do
+    with {:ok, obj, _type, state} <- pop_typed(state) do
+      field = remote_call(QuickBEAM.BeamVM.Runtime.Property, :get, [obj, key_expr])
+
+      {:ok,
+       %{
+         state
+         | stack: [field, obj | state.stack],
+           stack_types: [:unknown, :object | state.stack_types]
+       }}
     end
   end
 
   def get_array_el2(state) do
-    with {:ok, idx, state} <- pop(state),
-         {:ok, obj, state} <- pop(state) do
+    with {:ok, idx, _idx_type, state} <- pop_typed(state),
+         {:ok, obj, _obj_type, state} <- pop_typed(state) do
       {pair, state} =
         bind(state, temp_name(state.temp), compiler_call(:get_array_el2, [obj, idx]))
 
-      {:ok, %{state | stack: [tuple_element(pair, 1), tuple_element(pair, 2) | state.stack]}}
+      {:ok,
+       %{
+         state
+         | stack: [tuple_element(pair, 1), tuple_element(pair, 2) | state.stack],
+           stack_types: [:unknown, :object | state.stack_types]
+       }}
     end
   end
 
-  def set_name_atom(state, atom_idx) do
-    with {:ok, fun, state} <- pop(state) do
-      {:ok, push(state, compiler_call(:set_function_name_atom, [fun, literal(atom_idx)]))}
+  def set_name_atom(state, atom_name) do
+    with {:ok, fun, _type, state} <- pop_typed(state) do
+      {:ok, push(state, compiler_call(:set_function_name, [fun, literal(atom_name)]), :function)}
     end
   end
 
   def set_name_computed(state) do
-    with {:ok, fun, state} <- pop(state),
-         {:ok, name, state} <- pop(state) do
+    with {:ok, fun, _fun_type, state} <- pop_typed(state),
+         {:ok, name, name_type, state} <- pop_typed(state) do
       named = compiler_call(:set_function_name_computed, [fun, name])
-      {:ok, %{state | stack: [named, name | state.stack]}}
+
+      {:ok,
+       %{
+         state
+         | stack: [named, name | state.stack],
+           stack_types: [:function, name_type | state.stack_types]
+       }}
     end
   end
 
@@ -233,27 +330,33 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     end
   end
 
-  def put_field_call(state, atom_idx) do
-    with {:ok, val, state} <- pop(state),
-         {:ok, obj, state} <- pop(state) do
+  def put_field_call(state, key_expr) do
+    with {:ok, val, _val_type, state} <- pop_typed(state),
+         {:ok, obj, _obj_type, state} <- pop_typed(state) do
       {:ok,
-       %{state | body: state.body ++ [compiler_call(:put_field, [obj, literal(atom_idx), val])]}}
+       %{
+         state
+         | body:
+             state.body ++
+               [remote_call(QuickBEAM.BeamVM.Interpreter.Objects, :put, [obj, key_expr, val])]
+       }}
     end
   end
 
-  def define_field_call(state, atom_idx) do
-    with {:ok, val, state} <- pop(state),
-         {:ok, obj, state} <- pop(state) do
-      {:ok, push(state, compiler_call(:define_field, [obj, literal(atom_idx), val]))}
+  def define_field_call(state, key_expr) do
+    with {:ok, val, _val_type, state} <- pop_typed(state),
+         {:ok, obj, _obj_type, state} <- pop_typed(state) do
+      {:ok, push(state, compiler_call(:define_field, [obj, key_expr, val]), :object)}
     end
   end
 
-  def define_method_call(state, atom_idx, flags) do
-    with {:ok, method, state} <- pop(state),
-         {:ok, target, state} <- pop(state) do
+  def define_method_call(state, method_name, flags) do
+    with {:ok, method, _method_type, state} <- pop_typed(state),
+         {:ok, target, _target_type, state} <- pop_typed(state) do
       effectful_push(
         state,
-        compiler_call(:define_method, [target, method, literal(atom_idx), literal(flags)])
+        compiler_call(:define_method, [target, method, literal(method_name), literal(flags)]),
+        :object
       )
     end
   end
@@ -284,15 +387,20 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
       state =
         case class_binding_slot(state, atom_idx) do
           nil -> state
-          slot_idx -> update_slot!(state, slot_idx, ctor)
+          slot_idx -> update_slot!(state, slot_idx, ctor, :function)
         end
 
-      {:ok, %{state | stack: [tuple_element(pair, 1), ctor | state.stack]}}
+      {:ok,
+       %{
+         state
+         | stack: [tuple_element(pair, 1), ctor | state.stack],
+           stack_types: [:object, :function | state.stack_types]
+       }}
     end
   end
 
-  defp update_slot!(state, idx, expr) do
-    {:ok, state} = update_slot(state, idx, expr)
+  defp update_slot!(state, idx, expr, type) do
+    {:ok, state} = update_slot(state, idx, expr, false, type)
     state
   end
 
@@ -325,57 +433,62 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   defp resolve_atom_name(atom_idx, atoms), do: resolve_local_name(atom_idx, atoms)
 
   def put_array_el_call(state) do
-    with {:ok, val, state} <- pop(state),
-         {:ok, idx, state} <- pop(state),
-         {:ok, obj, state} <- pop(state) do
+    with {:ok, val, _val_type, state} <- pop_typed(state),
+         {:ok, idx, _idx_type, state} <- pop_typed(state),
+         {:ok, obj, _obj_type, state} <- pop_typed(state) do
       {:ok, %{state | body: state.body ++ [compiler_call(:put_array_el, [obj, idx, val])]}}
     end
   end
 
   def define_array_el_call(state) do
-    with {:ok, val, state} <- pop(state),
-         {:ok, idx, state} <- pop(state),
-         {:ok, obj, state} <- pop(state) do
+    with {:ok, val, _val_type, state} <- pop_typed(state),
+         {:ok, idx, idx_type, state} <- pop_typed(state),
+         {:ok, obj, _obj_type, state} <- pop_typed(state) do
       {pair, state} =
         bind(state, temp_name(state.temp), compiler_call(:define_array_el, [obj, idx, val]))
 
-      {:ok, %{state | stack: [tuple_element(pair, 1), tuple_element(pair, 2) | state.stack]}}
+      {:ok,
+       %{
+         state
+         | stack: [tuple_element(pair, 1), tuple_element(pair, 2) | state.stack],
+           stack_types: [idx_type, :object | state.stack_types]
+       }}
     end
   end
 
   def invoke_call(state, argc) do
-    with {:ok, args, state} <- pop_n(state, argc),
-         {:ok, fun, state} <- pop(state) do
-      effectful_push(state, compiler_call(:invoke_runtime, [fun, list_expr(Enum.reverse(args))]))
+    with {:ok, args, arg_types, state} <- pop_n_typed(state, argc),
+         {:ok, fun, fun_type, state} <- pop_typed(state) do
+      invoke_call_expr(state, fun, fun_type, Enum.reverse(args), Enum.reverse(arg_types))
     end
   end
 
   def invoke_constructor_call(state, argc) do
-    with {:ok, args, state} <- pop_n(state, argc),
-         {:ok, new_target, state} <- pop(state),
-         {:ok, ctor, state} <- pop(state) do
+    with {:ok, args, _arg_types, state} <- pop_n_typed(state, argc),
+         {:ok, new_target, _new_target_type, state} <- pop_typed(state),
+         {:ok, ctor, _ctor_type, state} <- pop_typed(state) do
       effectful_push(
         state,
-        compiler_call(:construct_runtime, [ctor, new_target, list_expr(Enum.reverse(args))])
+        compiler_call(:construct_runtime, [ctor, new_target, list_expr(Enum.reverse(args))]),
+        :object
       )
     end
   end
 
   def invoke_tail_call(state, argc) do
-    with {:ok, args, state} <- pop_n(state, argc),
-         {:ok, fun, %{stack: []} = state} <- pop(state) do
-      {:done,
-       state.body ++ [compiler_call(:invoke_runtime, [fun, list_expr(Enum.reverse(args))])]}
+    with {:ok, args, arg_types, state} <- pop_n_typed(state, argc),
+         {:ok, fun, fun_type, %{stack: [], stack_types: []} = state} <- pop_typed(state) do
+      {:done, tail_call_expr(state, fun, fun_type, Enum.reverse(args), Enum.reverse(arg_types))}
     else
-      {:ok, _fun, _state} -> {:error, :stack_not_empty_on_tail_call}
+      {:ok, _fun, _fun_type, _state} -> {:error, :stack_not_empty_on_tail_call}
       {:error, _} = error -> error
     end
   end
 
   def invoke_method_call(state, argc) do
-    with {:ok, args, state} <- pop_n(state, argc),
-         {:ok, fun, state} <- pop(state),
-         {:ok, obj, state} <- pop(state) do
+    with {:ok, args, _arg_types, state} <- pop_n_typed(state, argc),
+         {:ok, fun, _fun_type, state} <- pop_typed(state),
+         {:ok, obj, _obj_type, state} <- pop_typed(state) do
       effectful_push(
         state,
         compiler_call(:invoke_method_runtime, [fun, obj, list_expr(Enum.reverse(args))])
@@ -384,27 +497,36 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   end
 
   def array_from_call(state, argc) do
-    with {:ok, elems, state} <- pop_n(state, argc) do
-      {:ok, push(state, compiler_call(:array_from, [list_expr(Enum.reverse(elems))]))}
+    with {:ok, elems, _types, state} <- pop_n_typed(state, argc) do
+      {:ok, push(state, compiler_call(:array_from, [list_expr(Enum.reverse(elems))]), :object)}
     end
   end
 
   def in_call(state) do
-    with {:ok, obj, state} <- pop(state),
-         {:ok, key, state} <- pop(state) do
+    with {:ok, obj, _obj_type, state} <- pop_typed(state),
+         {:ok, key, _key_type, state} <- pop_typed(state) do
       {:ok,
-       push(state, remote_call(QuickBEAM.BeamVM.Interpreter.Objects, :has_property, [obj, key]))}
+       push(
+         state,
+         remote_call(QuickBEAM.BeamVM.Interpreter.Objects, :has_property, [obj, key]),
+         :boolean
+       )}
     end
   end
 
   def append_call(state) do
-    with {:ok, obj, state} <- pop(state),
-         {:ok, idx, state} <- pop(state),
-         {:ok, arr, state} <- pop(state) do
+    with {:ok, obj, _obj_type, state} <- pop_typed(state),
+         {:ok, idx, _idx_type, state} <- pop_typed(state),
+         {:ok, arr, _arr_type, state} <- pop_typed(state) do
       {pair, state} =
         bind(state, temp_name(state.temp), compiler_call(:append_spread, [arr, idx, obj]))
 
-      {:ok, %{state | stack: [tuple_element(pair, 1), tuple_element(pair, 2) | state.stack]}}
+      {:ok,
+       %{
+         state
+         | stack: [tuple_element(pair, 1), tuple_element(pair, 2) | state.stack],
+           stack_types: [:number, :object | state.stack_types]
+       }}
     end
   end
 
@@ -422,21 +544,21 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   end
 
   def delete_call(state) do
-    with {:ok, key, state} <- pop(state),
-         {:ok, obj, state} <- pop(state) do
-      effectful_push(state, compiler_call(:delete_property, [obj, key]))
+    with {:ok, key, _key_type, state} <- pop_typed(state),
+         {:ok, obj, _obj_type, state} <- pop_typed(state) do
+      effectful_push(state, compiler_call(:delete_property, [obj, key]), :boolean)
     end
   end
 
   def invoke_tail_method_call(state, argc) do
-    with {:ok, args, state} <- pop_n(state, argc),
-         {:ok, fun, state} <- pop(state),
-         {:ok, obj, %{stack: []} = state} <- pop(state) do
+    with {:ok, args, _arg_types, state} <- pop_n_typed(state, argc),
+         {:ok, fun, _fun_type, state} <- pop_typed(state),
+         {:ok, obj, _obj_type, %{stack: [], stack_types: []} = state} <- pop_typed(state) do
       {:done,
        state.body ++
          [compiler_call(:invoke_method_runtime, [fun, obj, list_expr(Enum.reverse(args))])]}
     else
-      {:ok, _obj, _state} -> {:error, :stack_not_empty_on_tail_call}
+      {:ok, _obj, _obj_type, _state} -> {:error, :stack_not_empty_on_tail_call}
       {:error, _} = error -> error
     end
   end
@@ -456,10 +578,10 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   end
 
   def branch(state, _idx, next_entry, target, sense, stack_depths) do
-    with {:ok, cond_expr, state} <- pop(state),
+    with {:ok, cond_expr, cond_type, state} <- pop_typed(state),
          {:ok, target_call} <- block_jump_call(state, target, stack_depths),
          {:ok, next_call} <- block_jump_call(state, next_entry, stack_depths) do
-      truthy = remote_call(Values, :truthy?, [cond_expr])
+      truthy = branch_condition(cond_expr, cond_type)
       false_body = [target_call]
       true_body = [next_call]
 
@@ -569,6 +691,122 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
 
   def try_catch_expr(try_body, err_var, catch_body) do
     {:try, @line, try_body, [], [catch_clause(err_var, catch_body)], []}
+  end
+
+  def undefined_or_null_expr(expr) do
+    {:case, @line, expr,
+     [
+       {:clause, @line, [atom(:undefined)], [], [atom(true)]},
+       {:clause, @line, [atom(nil)], [], [atom(true)]},
+       {:clause, @line, [var(:_)], [], [atom(false)]}
+     ]}
+  end
+
+  def branch_condition(expr, :boolean), do: expr
+  def branch_condition(expr, _type), do: remote_call(Values, :truthy?, [expr])
+
+  def atom_name(state, atom_idx), do: resolve_atom_name(atom_idx, state.atoms)
+
+  def infer_expr_type({:integer, _, _}), do: :integer
+  def infer_expr_type({:float, _, _}), do: :number
+  def infer_expr_type({:char, _, _}), do: :integer
+  def infer_expr_type({:string, _, _}), do: :string
+  def infer_expr_type({:bin, _, _}), do: :string
+  def infer_expr_type({:atom, _, true}), do: :boolean
+  def infer_expr_type({:atom, _, false}), do: :boolean
+  def infer_expr_type({:atom, _, :undefined}), do: :undefined
+  def infer_expr_type({:atom, _, nil}), do: :null
+  def infer_expr_type(_), do: :unknown
+
+  def pure_expr?({:integer, _, _}), do: true
+  def pure_expr?({:float, _, _}), do: true
+  def pure_expr?({:char, _, _}), do: true
+  def pure_expr?({:string, _, _}), do: true
+  def pure_expr?({:atom, _, _}), do: true
+  def pure_expr?({nil, _}), do: true
+  def pure_expr?({:var, _, _}), do: true
+  def pure_expr?({:tuple, _, values}), do: Enum.all?(values, &pure_expr?/1)
+  def pure_expr?({:cons, _, head, tail}), do: pure_expr?(head) and pure_expr?(tail)
+  def pure_expr?({:map, _, fields}), do: Enum.all?(fields, &pure_map_field?/1)
+  def pure_expr?(_), do: false
+
+  defp pure_map_field?({:map_field_assoc, _, key, value}),
+    do: pure_expr?(key) and pure_expr?(value)
+
+  defp pure_map_field?(_), do: false
+
+  defp slot_captured?(%{locals: locals}, idx) when is_list(locals) do
+    case Enum.at(locals, idx) do
+      %{is_captured: true} -> true
+      _ -> false
+    end
+  end
+
+  defp slot_captured?(_state, _idx), do: false
+
+  defp invoke_call_expr(state, _fun, :self_fun, args, _arg_types) do
+    effectful_push(state, local_call(:run, normalize_self_call_args(state, args)))
+  end
+
+  defp invoke_call_expr(state, fun, _fun_type, args, _arg_types),
+    do: effectful_push(state, compiler_call(:invoke_runtime, [fun, list_expr(args)]))
+
+  defp tail_call_expr(state, _fun, :self_fun, args, _arg_types),
+    do: state.body ++ [local_call(:run, normalize_self_call_args(state, args))]
+
+  defp tail_call_expr(state, fun, _fun_type, args, _arg_types),
+    do: state.body ++ [compiler_call(:invoke_runtime, [fun, list_expr(args)])]
+
+  defp specialize_unary(:op_neg, expr, :integer), do: {{:op, @line, :-, expr}, :integer}
+  defp specialize_unary(:op_neg, expr, :number), do: {{:op, @line, :-, expr}, :number}
+  defp specialize_unary(:op_plus, expr, type) when type in [:integer, :number], do: {expr, type}
+  defp specialize_unary(fun, expr, _type), do: {local_call(fun, [expr]), :unknown}
+
+  defp specialize_binary(:op_add, left, :integer, right, :integer),
+    do: {{:op, @line, :+, left, right}, :integer}
+
+  defp specialize_binary(:op_add, left, :string, right, :string),
+    do: {binary_concat(left, right), :string}
+
+  defp specialize_binary(fun, left, left_type, right, right_type)
+       when fun in [:op_sub, :op_mul] and left_type == :integer and right_type == :integer,
+       do: {{:op, @line, binary_operator(fun), left, right}, :integer}
+
+  defp specialize_binary(fun, left, left_type, right, right_type)
+       when fun in [:op_sub, :op_mul, :op_div, :op_lt, :op_lte, :op_gt, :op_gte] and
+              left_type in [:integer, :number] and right_type in [:integer, :number] do
+    {type, op} =
+      case fun do
+        :op_sub -> {:number, :-}
+        :op_mul -> {:number, :*}
+        :op_div -> {:number, :/}
+        :op_lt -> {:boolean, :<}
+        :op_lte -> {:boolean, :"=<"}
+        :op_gt -> {:boolean, :>}
+        :op_gte -> {:boolean, :>=}
+      end
+
+    {{:op, @line, op, left, right}, type}
+  end
+
+  defp specialize_binary(fun, left, _left_type, right, _right_type),
+    do: {local_call(fun, [left, right]), :unknown}
+
+  defp binary_operator(:op_sub), do: :-
+  defp binary_operator(:op_mul), do: :*
+
+  defp normalize_self_call_args(%{arg_count: arg_count}, args) do
+    args
+    |> Enum.take(arg_count)
+    |> then(fn args -> args ++ List.duplicate(atom(:undefined), arg_count - length(args)) end)
+  end
+
+  defp binary_concat(left, right) do
+    {:bin, @line,
+     [
+       {:bin_element, @line, left, :default, [:binary]},
+       {:bin_element, @line, right, :default, [:binary]}
+     ]}
   end
 
   defp ordered_values(values) do

@@ -45,9 +45,8 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     {Values.sub(num, 1), num}
   end
 
-  def get_var(atom_idx) do
+  def get_var(name) when is_binary(name) do
     globals = current_globals()
-    name = atom_name(atom_idx)
 
     case Map.fetch(globals, name) do
       {:ok, val} -> val
@@ -55,13 +54,18 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     end
   end
 
-  def get_var_undef(atom_idx) do
+  def get_var(atom_idx), do: get_var(atom_name(atom_idx))
+
+  def get_var_undef(name) when is_binary(name) do
     globals = current_globals()
-    Map.get(globals, atom_name(atom_idx), :undefined)
+    Map.get(globals, name, :undefined)
   end
+
+  def get_var_undef(atom_idx), do: get_var_undef(atom_name(atom_idx))
 
   def push_atom_value(atom_idx), do: atom_name(atom_idx)
 
+  def private_symbol(name) when is_binary(name), do: {:private_symbol, name, make_ref()}
   def private_symbol(atom_idx), do: {:private_symbol, atom_name(atom_idx), make_ref()}
 
   def new_object do
@@ -72,6 +76,7 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   def array_from(list), do: Heap.wrap(list)
 
+  def get_field(obj, key) when is_binary(key), do: Property.get(obj, key)
   def get_field(obj, atom_idx), do: Property.get(obj, atom_name(atom_idx))
 
   def push_this do
@@ -123,15 +128,19 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   def set_function_name_computed(fun, name_val),
     do: set_function_name(fun, Semantics.function_name(name_val))
 
-  def put_field(obj, atom_idx, val) do
-    QuickBEAM.BeamVM.Interpreter.Objects.put(obj, atom_name(atom_idx), val)
+  def put_field(obj, key, val) when is_binary(key) do
+    QuickBEAM.BeamVM.Interpreter.Objects.put(obj, key, val)
     :ok
   end
 
-  def define_field(obj, atom_idx, val) do
-    QuickBEAM.BeamVM.Interpreter.Objects.put(obj, atom_name(atom_idx), val)
+  def put_field(obj, atom_idx, val), do: put_field(obj, atom_name(atom_idx), val)
+
+  def define_field(obj, key, val) when is_binary(key) do
+    QuickBEAM.BeamVM.Interpreter.Objects.put(obj, key, val)
     obj
   end
+
+  def define_field(obj, atom_idx, val), do: define_field(obj, atom_name(atom_idx), val)
 
   def put_array_el(obj, idx, val) do
     QuickBEAM.BeamVM.Interpreter.Objects.put_element(obj, idx, val)
@@ -140,8 +149,7 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   def define_array_el(obj, idx, val), do: Semantics.define_array_el(obj, idx, val)
 
-  def define_method(target, method, atom_idx, flags) do
-    name = atom_name(atom_idx)
+  def define_method(target, method, name, flags) when is_binary(name) do
     method_type = Bitwise.band(flags, 3)
 
     named_method =
@@ -164,6 +172,9 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
     target
   end
+
+  def define_method(target, method, atom_idx, flags),
+    do: define_method(target, method, atom_name(atom_idx), flags)
 
   def define_method_computed(target, method, field_name, flags) do
     method_type = Bitwise.band(flags, 3)

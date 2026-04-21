@@ -2,7 +2,7 @@ defmodule QuickBEAM.BeamVM.Compiler do
   @moduledoc false
 
   alias QuickBEAM.BeamVM.{Bytecode, Decoder}
-  alias QuickBEAM.BeamVM.Compiler.{Forms, Lowering, Runner}
+  alias QuickBEAM.BeamVM.Compiler.{Forms, Lowering, Optimizer, Runner}
 
   @type compiled_fun :: {module(), atom()}
 
@@ -18,7 +18,8 @@ defmodule QuickBEAM.BeamVM.Compiler do
 
       false ->
         with {:ok, instructions} <- Decoder.decode(fun.byte_code, fun.arg_count),
-             {:ok, {slot_count, block_forms}} <- Lowering.lower(fun, instructions),
+             optimized = Optimizer.optimize(instructions, fun.constants),
+             {:ok, {slot_count, block_forms}} <- Lowering.lower(fun, optimized),
              {:ok, _module, binary} <-
                Forms.compile_module(module, entry, fun.arg_count, slot_count, block_forms),
              {:module, ^module} <- :code.load_binary(module, ~c"quickbeam_compiler", binary) do
