@@ -679,49 +679,90 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   defp get_private_field({:obj, ref}, key) do
     map = Heap.get_obj(ref, %{})
-    Map.get(map, {:private, key}, :undefined)
+    Map.get(map, {:private, key}, :missing)
   end
 
   defp get_private_field({:closure, _, %Bytecode.Function{}} = ctor, key),
-    do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :undefined)
+    do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :missing)
 
   defp get_private_field(%Bytecode.Function{} = ctor, key),
-    do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :undefined)
+    do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :missing)
 
   defp get_private_field({:builtin, _, _} = ctor, key),
-    do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :undefined)
+    do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :missing)
 
-  defp get_private_field(_, _key), do: :undefined
+  defp get_private_field(_, _key), do: :missing
 
-  defp has_private_field?({:obj, ref}, key) do
-    map = Heap.get_obj(ref, %{})
-    Map.has_key?(map, {:private, key})
+  defp has_private_field?(target, key), do: get_private_field(target, key) != :missing
+
+  defp put_private_field!(target, key, val) do
+    if has_private_field?(target, key) do
+      define_private_field!(target, key, val)
+      :ok
+    else
+      :error
+    end
   end
 
-  defp has_private_field?({:closure, _, %Bytecode.Function{}} = ctor, key),
-    do: Map.has_key?(Heap.get_ctor_statics(ctor), {:private, key})
+  defp define_private_field!({:obj, ref}, key, val) do
+    Heap.update_obj(ref, %{}, &Map.put(&1, {:private, key}, val))
+    :ok
+  end
 
-  defp has_private_field?(%Bytecode.Function{} = ctor, key),
-    do: Map.has_key?(Heap.get_ctor_statics(ctor), {:private, key})
+  defp define_private_field!({:closure, _, %Bytecode.Function{}} = ctor, key, val) do
+    Heap.put_ctor_static(ctor, {:private, key}, val)
+    :ok
+  end
 
-  defp has_private_field?({:builtin, _, _} = ctor, key),
-    do: Map.has_key?(Heap.get_ctor_statics(ctor), {:private, key})
+  defp define_private_field!(%Bytecode.Function{} = ctor, key, val) do
+    Heap.put_ctor_static(ctor, {:private, key}, val)
+    :ok
+  end
 
-  defp has_private_field?(_, _key), do: false
+  defp define_private_field!({:builtin, _, _} = ctor, key, val) do
+    Heap.put_ctor_static(ctor, {:private, key}, val)
+    :ok
+  end
 
-  defp set_private_field({:obj, ref}, key, val),
-    do: Heap.update_obj(ref, %{}, &Map.put(&1, {:private, key}, val))
+  defp define_private_field!(_, _key, _val), do: :error
 
-  defp set_private_field({:closure, _, %Bytecode.Function{}} = ctor, key, val),
-    do: Heap.put_ctor_static(ctor, {:private, key}, val)
+  defp private_brands({:obj, ref}), do: Map.get(Heap.get_obj(ref, %{}), :__brands__, [])
 
-  defp set_private_field(%Bytecode.Function{} = ctor, key, val),
-    do: Heap.put_ctor_static(ctor, {:private, key}, val)
+  defp private_brands({:closure, _, %Bytecode.Function{}} = ctor),
+    do: Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
 
-  defp set_private_field({:builtin, _, _} = ctor, key, val),
-    do: Heap.put_ctor_static(ctor, {:private, key}, val)
+  defp private_brands(%Bytecode.Function{} = ctor),
+    do: Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
 
-  defp set_private_field(_, _, _), do: :ok
+  defp private_brands({:builtin, _, _} = ctor),
+    do: Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
+
+  defp private_brands(_), do: []
+
+  defp private_brand_match?(obj, brand) do
+    brands = private_brands(obj)
+    home_object = Process.get({:qb_home_object, home_object_key(brand)})
+
+    brand in brands or
+      (home_object not in [nil, :undefined] and
+         (home_object in brands or private_brand_home_match?(obj, home_object)))
+  end
+
+  defp private_brand_home_match?({:obj, ref}, home_object) do
+    map = Heap.get_obj(ref, %{})
+    parent = Map.get(map, proto())
+    parent == home_object or private_brand_home_match?(parent, home_object)
+  end
+
+  defp private_brand_home_match?(:undefined, _home_object), do: false
+  defp private_brand_home_match?(nil, _home_object), do: false
+  defp private_brand_home_match?(_, _home_object), do: false
+
+  defp ensure_private_brand!(obj, brand) do
+    if private_brand_match?(obj, brand), do: :ok, else: :error
+  end
+
+  defp private_brand_error, do: Heap.make_error("invalid brand on object", "TypeError")
 
   defp add_brand_value({:obj, ref}, brand) do
     Heap.update_obj(ref, %{}, fn map ->
@@ -1934,17 +1975,24 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({@op_get_private_field, []}, pc, frame, [key, obj | rest], gas, ctx) do
-    run(pc + 1, frame, [get_private_field(obj, key) | rest], gas, ctx)
+    case get_private_field(obj, key) do
+      :missing -> throw_or_catch(frame, private_brand_error(), gas, ctx)
+      val -> run(pc + 1, frame, [val | rest], gas, ctx)
+    end
   end
 
   defp run({@op_put_private_field, []}, pc, frame, [key, val, obj | rest], gas, ctx) do
-    set_private_field(obj, key, val)
-    run(pc + 1, frame, rest, gas, ctx)
+    case put_private_field!(obj, key, val) do
+      :ok -> run(pc + 1, frame, rest, gas, ctx)
+      :error -> throw_or_catch(frame, private_brand_error(), gas, ctx)
+    end
   end
 
   defp run({@op_define_private_field, []}, pc, frame, [val, key, obj | rest], gas, ctx) do
-    set_private_field(obj, key, val)
-    run(pc + 1, frame, rest, gas, ctx)
+    case define_private_field!(obj, key, val) do
+      :ok -> run(pc + 1, frame, rest, gas, ctx)
+      :error -> throw_or_catch(frame, private_brand_error(), gas, ctx)
+    end
   end
 
   defp run({@op_private_in, []}, pc, frame, [key, obj | rest], gas, ctx) do
@@ -3195,13 +3243,10 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(pc + 1, frame, rest, gas, ctx)
   end
 
-  defp run({@op_check_brand, []}, pc, frame, [_brand, obj | _] = stack, gas, ctx) do
-    case obj do
-      {:obj, _} -> run(pc + 1, frame, stack, gas, ctx)
-      {:closure, _, %Bytecode.Function{}} -> run(pc + 1, frame, stack, gas, ctx)
-      %Bytecode.Function{} -> run(pc + 1, frame, stack, gas, ctx)
-      {:builtin, _, _} -> run(pc + 1, frame, stack, gas, ctx)
-      _ -> throw({:js_throw, Heap.make_error("invalid brand on object", "TypeError")})
+  defp run({@op_check_brand, []}, pc, frame, [brand, obj | _] = stack, gas, ctx) do
+    case ensure_private_brand!(obj, brand) do
+      :ok -> run(pc + 1, frame, stack, gas, ctx)
+      :error -> throw_or_catch(frame, private_brand_error(), gas, ctx)
     end
   end
 

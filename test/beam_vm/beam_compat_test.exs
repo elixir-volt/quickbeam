@@ -1368,6 +1368,70 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
         true
       )
     end
+
+    test "private field wrong receiver throws", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { #x = 1; get(){ return this.#x } } const g = (new A()).get; try { return g.call({}) } catch (e) { return e instanceof TypeError } })()",
+        true
+      )
+    end
+
+    test "private method wrong receiver throws", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { #m(){ return 1 } get(){ return this.#m() } } const g = (new A()).get; try { return g.call({}) } catch (e) { return e instanceof TypeError } })()",
+        true
+      )
+    end
+
+    test "private field cross class throws", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { #x = 1; get(o){ try { return o.#x } catch (e) { return e instanceof TypeError } } } class B {} return new A().get(new B()) })()",
+        true
+      )
+    end
+
+    test "private static field cross class throws", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { static #x = 1; static get(o){ try { return o.#x } catch (e) { return e instanceof TypeError } } } class B {} return A.get(B) })()",
+        true
+      )
+    end
+
+    test "private setter wrong receiver throws", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { #x = 1; set(v){ this.#x = v } } const s = (new A()).set; try { s.call({}, 2); return false } catch (e) { return e instanceof TypeError } })()",
+        true
+      )
+    end
+
+    test "private fields work on subclass instances", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { #x = 1; get(){ return this.#x } } class B extends A {} return new B().get() })()",
+        1
+      )
+    end
+
+    test "private methods work on subclass instances", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { #m(){ return 1 } call(){ return this.#m() } } class B extends A {} return new B().call() })()",
+        1
+      )
+    end
+
+    test "private static fields are not inherited", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { static #x = 1; static get(){ return this.#x } } class B extends A {} try { return B.get() } catch (e) { return e instanceof TypeError } })()",
+        true
+      )
+    end
   end
 
   describe "super property access" do

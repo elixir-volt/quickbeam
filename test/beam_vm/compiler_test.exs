@@ -631,6 +631,91 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, true} = Compiler.invoke(fun, [])
     end
 
+    test "rejects invalid private field receivers", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #x = 1; get(){ return this.#x } } const g = (new A()).get; try { return g.call({}) } catch (e) { return e instanceof TypeError } })"
+        )
+        |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
+    test "rejects invalid private method receivers", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #m(){ return 1 } get(){ return this.#m() } } const g = (new A()).get; try { return g.call({}) } catch (e) { return e instanceof TypeError } })"
+        )
+        |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
+    test "rejects invalid private receivers across classes", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #x = 1; get(o){ try { return o.#x } catch (e) { return e instanceof TypeError } } } class B {} return new A().get(new B()) })"
+        )
+        |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
+    test "rejects invalid private static receivers across classes", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static #x = 1; static get(o){ try { return o.#x } catch (e) { return e instanceof TypeError } } } class B {} return A.get(B) })"
+        )
+        |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
+    test "rejects invalid private setters", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #x = 1; set(v){ this.#x = v } } const s = (new A()).set; try { s.call({}, 2); return false } catch (e) { return e instanceof TypeError } })"
+        )
+        |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
+    test "supports private members on subclass instances", %{rt: rt} do
+      field_fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #x = 1; get(){ return this.#x } } class B extends A {} return new B().get() })"
+        )
+        |> user_function()
+
+      method_fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #m(){ return 1 } call(){ return this.#m() } } class B extends A {} return new B().call() })"
+        )
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(field_fun, [])
+      assert {:ok, 1} = Compiler.invoke(method_fun, [])
+    end
+
+    test "rejects inherited private static access", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static #x = 1; static get(){ return this.#x } } class B extends A {} try { return B.get() } catch (e) { return e instanceof TypeError } })"
+        )
+        |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
     test "preserves side-effectful dropped method calls", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(o){ o.bump(); return o.n })") |> user_function()
 
