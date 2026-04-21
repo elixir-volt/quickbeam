@@ -6,7 +6,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
   alias QuickBEAM.VM.Compiler.Lowering.Builder
   alias QuickBEAM.VM.Compiler.Lowering.Captures
   alias QuickBEAM.VM.Compiler.Lowering.State
-  alias QuickBEAM.VM.Compiler.Lowering.Types, as: LoweringTypes
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.ObjectModel.Get
@@ -218,7 +217,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
          State.push(state, Builder.compiler_call(:get_var_ref_check, [Builder.literal(idx)]))}
 
       {{:ok, :set_loc_uninitialized}, [slot_idx]} ->
-        {:ok, State.put_slot(state, slot_idx, Builder.atom(@tdz))}
+        {:ok, State.put_uninitialized_slot(state, slot_idx, Builder.atom(@tdz))}
 
       {{:ok, :put_loc}, [slot_idx]} ->
         State.assign_slot(state, slot_idx, false)
@@ -773,7 +772,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
     slot_type = State.slot_type(state, slot_idx)
 
     expr =
-      if LoweringTypes.definitely_initialized?(slot_type) do
+      if State.slot_initialized?(state, slot_idx) do
         slot_expr
       else
         Builder.compiler_call(:ensure_initialized_local!, [slot_expr])
@@ -784,7 +783,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
 
   defp lower_put_loc_check(state, slot_idx) do
     wrapper =
-      if LoweringTypes.definitely_initialized?(State.slot_type(state, slot_idx)) do
+      if State.slot_initialized?(state, slot_idx) do
         nil
       else
         :ensure_initialized_local!

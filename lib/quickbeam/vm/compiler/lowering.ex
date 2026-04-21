@@ -68,7 +68,11 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
         return_type: return_type
       ] ++
         if entry_type_state do
-          [slot_types: entry_type_state.slot_types, stack_types: entry_type_state.stack_types]
+          [
+            slot_types: entry_type_state.slot_types,
+            slot_inits: entry_type_state.slot_inits,
+            stack_types: entry_type_state.stack_types
+          ]
         else
           []
         end

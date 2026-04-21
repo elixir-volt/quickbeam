@@ -22,18 +22,23 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
         do: [],
         else: Enum.map(0..(stack_depth - 1), &Builder.stack_var/1)
 
+    arg_count = Keyword.get(opts, :arg_count, 0)
+    locals = Keyword.get(opts, :locals, [])
+
     %{
       body: [],
       slots: slots,
       slot_types:
         Keyword.get(opts, :slot_types, Map.new(slots, fn {idx, _expr} -> {idx, :unknown} end)),
+      slot_inits:
+        Keyword.get(opts, :slot_inits, initial_slot_inits(slot_count, arg_count, locals)),
       capture_cells: capture_cells,
       stack: stack,
       stack_types: Keyword.get(opts, :stack_types, List.duplicate(:unknown, stack_depth)),
       temp: 0,
-      locals: Keyword.get(opts, :locals, []),
+      locals: locals,
       atoms: Keyword.get(opts, :atoms),
-      arg_count: Keyword.get(opts, :arg_count, 0),
+      arg_count: arg_count,
       return_type: Keyword.get(opts, :return_type, :unknown)
     }
   end
@@ -77,12 +82,26 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     %{
       state
       | slots: Map.put(state.slots, idx, expr),
-        slot_types: Map.put(state.slot_types, idx, type)
+        slot_types: Map.put(state.slot_types, idx, type),
+        slot_inits: Map.put(state.slot_inits, idx, true)
+    }
+  end
+
+  def put_uninitialized_slot(state, idx, expr),
+    do: put_uninitialized_slot(state, idx, expr, Types.infer_expr_type(expr))
+
+  def put_uninitialized_slot(state, idx, expr, type) do
+    %{
+      state
+      | slots: Map.put(state.slots, idx, expr),
+        slot_types: Map.put(state.slot_types, idx, type),
+        slot_inits: Map.put(state.slot_inits, idx, false)
     }
   end
 
   def slot_expr(state, idx), do: Map.get(state.slots, idx, Builder.atom(:undefined))
   def slot_type(state, idx), do: Map.get(state.slot_types, idx, :unknown)
+  def slot_initialized?(state, idx), do: Map.get(state.slot_inits, idx, false)
 
   def put_capture_cell(state, idx, expr),
     do: %{state | capture_cells: Map.put(state.capture_cells, idx, expr)}
@@ -701,6 +720,21 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def current_slots(state), do: ordered_values(state.slots)
   def current_stack(state), do: state.stack
   def current_capture_cells(state), do: ordered_values(state.capture_cells)
+
+  defp initial_slot_inits(0, _arg_count, _locals), do: %{}
+
+  defp initial_slot_inits(slot_count, arg_count, locals) do
+    Map.new(0..(slot_count - 1), fn idx ->
+      initialized =
+        cond do
+          idx < arg_count -> true
+          match?(%{is_lexical: true}, Enum.at(locals, idx)) -> false
+          true -> true
+        end
+
+      {idx, initialized}
+    end)
+  end
 
   defp invoke_call_expr(%{return_type: return_type} = state, _fun, :self_fun, args, _arg_types) do
     effectful_push(

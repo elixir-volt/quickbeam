@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
 
   def infer_block_entry_types(fun, instructions, entries, stack_depths) do
     slot_count = fun.arg_count + fun.var_count
-    initial = initial_type_state(slot_count, Map.get(stack_depths, 0, 0))
+    initial = initial_type_state(fun, slot_count, Map.get(stack_depths, 0, 0))
 
     iterate_block_entry_types(
       instructions,
@@ -300,7 +300,9 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
         {:ok, {:continue, push_type(state, :unknown), return_type}}
 
       {{:ok, :set_loc_uninitialized}, [slot_idx]} ->
-        {:ok, {:continue, put_slot_type(state, slot_idx, :unknown), return_type}}
+        {:ok,
+         {:continue, state |> put_slot_type(slot_idx, :unknown) |> put_slot_init(slot_idx, false),
+          return_type}}
 
       {{:ok, name}, [slot_idx]}
       when name in [
@@ -319,7 +321,9 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
              :put_loc_check_init
            ] ->
         with {:ok, type, state} <- pop_type(state) do
-          {:ok, {:continue, put_slot_type(state, slot_idx, type), return_type}}
+          {:ok,
+           {:continue, state |> put_slot_type(slot_idx, type) |> put_slot_init(slot_idx, true),
+            return_type}}
         end
 
       {{:ok, name}, [_idx]}
@@ -351,7 +355,12 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
              :set_arg3
            ] ->
         with {:ok, type, state} <- pop_type(state) do
-          next_state = state |> put_slot_type(slot_idx, type) |> push_type(type)
+          next_state =
+            state
+            |> put_slot_type(slot_idx, type)
+            |> put_slot_init(slot_idx, true)
+            |> push_type(type)
+
           {:ok, {:continue, next_state, return_type}}
         end
 
@@ -671,14 +680,20 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
     end
   end
 
-  defp initial_type_state(slot_count, stack_depth) do
+  defp initial_type_state(fun, slot_count, stack_depth) do
     slot_types =
       if slot_count == 0,
         do: %{},
         else: Map.new(0..(slot_count - 1), fn idx -> {idx, :unknown} end)
 
+    slot_inits =
+      if slot_count == 0,
+        do: %{},
+        else: Map.new(0..(slot_count - 1), fn idx -> {idx, initially_initialized?(fun, idx)} end)
+
     %{
       slot_types: slot_types,
+      slot_inits: slot_inits,
       stack_types: List.duplicate(:unknown, stack_depth)
     }
   end
@@ -695,6 +710,10 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
         Map.merge(left.slot_types, right.slot_types, fn _idx, left_type, right_type ->
           join_type(left_type, right_type)
         end),
+      slot_inits:
+        Map.merge(left.slot_inits, right.slot_inits, fn _idx, left_init, right_init ->
+          left_init and right_init
+        end),
       stack_types: merge_stack_types(left.stack_types, right.stack_types)
     }
   end
@@ -706,6 +725,9 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
 
   defp put_slot_type(state, idx, type),
     do: %{state | slot_types: Map.put(state.slot_types, idx, type)}
+
+  defp put_slot_init(state, idx, initialized),
+    do: %{state | slot_inits: Map.put(state.slot_inits, idx, initialized)}
 
   defp slot_type(state, idx), do: Map.get(state.slot_types, idx, :unknown)
   defp push_type(state, type), do: %{state | stack_types: [type | state.stack_types]}
@@ -842,4 +864,13 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
   defp join_type(:self_fun, {:function, type}), do: {:function, type}
   defp join_type({:function, type}, :self_fun), do: {:function, type}
   defp join_type(_left, _right), do: :unknown
+
+  defp initially_initialized?(fun, idx) when idx < fun.arg_count, do: true
+
+  defp initially_initialized?(fun, idx) do
+    case Enum.at(fun.locals, idx) do
+      %{is_lexical: true} -> false
+      _ -> true
+    end
+  end
 end

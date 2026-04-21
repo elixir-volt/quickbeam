@@ -45,6 +45,14 @@ defmodule QuickBEAM.VM.CompilerTest do
     end
   end
 
+  defp beam_extfuncs({:beam_file, _module, _exports, _attributes, _compile_info, code}) do
+    for {:function, _name, _arity, _label, instructions} <- code,
+        {op, _argc, {:extfunc, mod, fun, arity}} <- instructions,
+        op in [:call_ext, :call_ext_last, :call_ext_only] do
+      {mod, fun, arity}
+    end
+  end
+
   describe "compile/1" do
     test "compiles a straight-line arithmetic function", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(a,b){return a+b})") |> user_function()
@@ -57,6 +65,18 @@ defmodule QuickBEAM.VM.CompilerTest do
       fun = compile_and_decode(rt, "(function(a){let x=1; x=x+a; return x})") |> user_function()
 
       assert {:ok, 6} = Compiler.invoke(fun, [5])
+    end
+
+    test "compiled disasm skips TDZ helper after initialized unknown locals", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(f){ const value = f(); return value + value })")
+        |> user_function()
+
+      assert {:ok, beam_file} = Compiler.disasm(fun)
+      refute {RuntimeHelpers, :ensure_initialized_local!, 1} in beam_extfuncs(beam_file)
+
+      callback = {:builtin, "one", fn [], _ -> 1 end}
+      assert {:ok, 2} = Compiler.invoke(fun, [callback])
     end
 
     test "compiles conditional branches", %{rt: rt} do
