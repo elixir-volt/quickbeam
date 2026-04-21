@@ -91,10 +91,12 @@ defmodule QuickBEAM.BeamVM.Semantics do
     Heap.put_obj(proto_ref, proto_map)
     proto = {:obj, proto_ref}
     Heap.put_class_proto(raw, proto)
-    Heap.put_ctor_static(ctor_closure, "prototype", proto)
+    Heap.put_ctor_statics(ctor_closure, %{"prototype" => proto})
 
     if parent_ctor != :undefined do
       Heap.put_parent_ctor(raw, parent_ctor)
+    else
+      Heap.delete_parent_ctor(raw)
     end
 
     {proto, ctor_closure}

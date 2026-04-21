@@ -141,6 +141,17 @@ defmodule QuickBEAM.BeamVM.Compiler.Runner do
   defp restore_fast_ctx(@missing), do: Process.delete(@fast_ctx_key)
   defp restore_fast_ctx(snapshot), do: Process.put(@fast_ctx_key, snapshot)
 
+  defp normalize_args(_args, 0), do: []
+  defp normalize_args([a0 | _], 1), do: [a0]
+  defp normalize_args([], 1), do: [:undefined]
+  defp normalize_args([a0, a1 | _], 2), do: [a0, a1]
+  defp normalize_args([a0], 2), do: [a0, :undefined]
+  defp normalize_args([], 2), do: [:undefined, :undefined]
+  defp normalize_args([a0, a1, a2 | _], 3), do: [a0, a1, a2]
+  defp normalize_args([a0, a1], 3), do: [a0, a1, :undefined]
+  defp normalize_args([a0], 3), do: [a0, :undefined, :undefined]
+  defp normalize_args([], 3), do: [:undefined, :undefined, :undefined]
+
   defp normalize_args(args, arg_count) do
     args
     |> Enum.take(arg_count)
