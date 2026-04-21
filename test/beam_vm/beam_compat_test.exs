@@ -1464,6 +1464,34 @@ defmodule QuickBEAM.BeamVM.BeamCompatTest do
         1
       )
     end
+
+    test "static super setters target the derived constructor", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { static set x(v){ this.y = v + 1 } } class B extends A { static g(){ super.x = 2; return this.y } } return B.g() })()",
+        3
+      )
+    end
+
+    test "derived constructors can return objects", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ class A { constructor(){ this.a = 1 } } class B extends A { constructor(){ super(); return {b:2} } } return new B().b })()",
+        2
+      )
+    end
+
+    test "class expressions keep their inner name", %{rt: rt} do
+      ok(
+        rt,
+        "(function(){ const C = class D { static n(){ return D.name } }; return C.n() })()",
+        "D"
+      )
+    end
+
+    test "computed static fields are assigned", %{rt: rt} do
+      ok(rt, "(function(){ const k = \"x\"; class A { static [k] = 4 } return A.x })()", 4)
+    end
   end
 
   describe "super property access" do

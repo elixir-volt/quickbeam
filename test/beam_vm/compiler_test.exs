@@ -760,6 +760,50 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(fun, [])
     end
 
+    test "compiles static super setters", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static set x(v){ this.y = v + 1 } } class B extends A { static g(){ super.x = 2; return this.y } } return B.g() })"
+        )
+        |> user_function()
+
+      assert {:ok, 3} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles derived constructors returning objects", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { constructor(){ this.a = 1 } } class B extends A { constructor(){ super(); return {b:2} } } return new B().b })"
+        )
+        |> user_function()
+
+      assert {:ok, 2} = Compiler.invoke(fun, [])
+    end
+
+    test "preserves inner class expression names", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ const C = class D { static n(){ return D.name } }; return C.n() })"
+        )
+        |> user_function()
+
+      assert {:ok, "D"} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles computed static fields", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ const k = \"x\"; class A { static [k] = 4 } return A.x })"
+        )
+        |> user_function()
+
+      assert {:ok, 4} = Compiler.invoke(fun, [])
+    end
+
     test "preserves side-effectful dropped method calls", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(o){ o.bump(); return o.n })") |> user_function()
 

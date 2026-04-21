@@ -270,7 +270,11 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     with {:ok, ctor, state} <- pop(state),
          {:ok, parent_ctor, state} <- pop(state) do
       {pair, state} =
-        bind(state, temp_name(state.temp), compiler_call(:define_class, [ctor, parent_ctor]))
+        bind(
+          state,
+          temp_name(state.temp),
+          compiler_call(:define_class, [ctor, parent_ctor, literal(atom_idx)])
+        )
 
       ctor = tuple_element(pair, 2)
 

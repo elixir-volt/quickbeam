@@ -362,14 +362,14 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   def sync_capture_cell(_, _), do: :ok
 
-  def define_class(ctor, parent_ctor) do
+  def define_class(ctor, parent_ctor, atom_idx) do
     ctor_closure =
       case ctor do
         %Bytecode.Function{} = fun -> {:closure, %{}, fun}
         other -> other
       end
 
-    Semantics.define_class(ctor_closure, parent_ctor)
+    Semantics.define_class(ctor_closure, parent_ctor, atom_name(atom_idx))
   end
 
   def invoke_runtime(fun, args) do

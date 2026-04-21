@@ -1982,9 +1982,9 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     run(pc + 1, frame, [val | rest], gas, ctx)
   end
 
-  defp run({@op_put_super_value, []}, pc, frame, [val, key, _proto, this_obj | rest], gas, ctx) do
+  defp run({@op_put_super_value, []}, pc, frame, [val, key, proto_obj, this_obj | rest], gas, ctx) do
     try do
-      Objects.put(this_obj, key, val)
+      Semantics.put_super_value(proto_obj, this_obj, key, val)
       run(pc + 1, frame, rest, gas, ctx)
     catch
       {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
@@ -2044,14 +2044,22 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({@op_check_ctor, []}, pc, frame, stack, gas, ctx),
     do: run(pc + 1, frame, stack, gas, ctx)
 
-  defp run({@op_check_ctor_return, []}, pc, frame, [val | rest], gas, %Context{this: this} = ctx) do
-    result =
-      case val do
-        {:obj, _} = obj -> obj
-        _ -> this
-      end
+  defp run({@op_check_ctor_return, []}, pc, frame, [val | rest], gas, ctx) do
+    case Semantics.check_ctor_return(val) do
+      {replace_with_this?, checked_val} ->
+        run(pc + 1, frame, [replace_with_this?, checked_val | rest], gas, ctx)
 
-    run(pc + 1, frame, [result | rest], gas, ctx)
+      :error ->
+        throw_or_catch(
+          frame,
+          Heap.make_error(
+            "Derived constructors may only return object or undefined",
+            "TypeError"
+          ),
+          gas,
+          ctx
+        )
+    end
   end
 
   defp run({@op_set_name, [atom_idx]}, pc, frame, [fun | rest], gas, ctx) do
@@ -2576,37 +2584,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   end
 
   defp run({@op_define_array_el, []}, pc, frame, [val, idx, obj | rest], gas, ctx) do
-    obj2 =
-      case obj do
-        list when is_list(list) ->
-          i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
-          Objects.set_list_at(list, i, val)
-
-        {:obj, ref} ->
-          stored = Heap.get_obj(ref, [])
-
-          cond do
-            match?({:qb_arr, _}, stored) ->
-              i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
-              Heap.array_set(ref, i, val)
-
-            is_list(stored) ->
-              i = if is_integer(idx), do: idx, else: Runtime.to_int(idx)
-              Heap.put_obj(ref, Objects.set_list_at(stored, i, val))
-
-            is_map(stored) ->
-              Heap.put_obj_key(ref, Semantics.normalize_property_key(idx), val)
-
-            true ->
-              :ok
-          end
-
-          {:obj, ref}
-
-        _ ->
-          obj
-      end
-
+    {_idx, obj2} = Semantics.define_array_el(obj, idx, val)
     run(pc + 1, frame, [idx, obj2 | rest], gas, ctx)
   end
 
@@ -3094,7 +3072,8 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           already_closure
       end
 
-    {proto, ctor_closure} = Semantics.define_class(ctor_closure, parent_ctor)
+    class_name = Scope.resolve_atom(ctx, atom_idx)
+    {proto, ctor_closure} = Semantics.define_class(ctor_closure, parent_ctor, class_name)
 
     frame = seed_class_binding(frame, ctx, atom_idx, ctor_closure)
 

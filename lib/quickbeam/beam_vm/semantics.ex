@@ -3,7 +3,8 @@ defmodule QuickBEAM.BeamVM.Semantics do
 
   import QuickBEAM.BeamVM.Heap.Keys, only: [map_data: 0, proto: 0, set_data: 0]
 
-  alias QuickBEAM.BeamVM.{Bytecode, Heap, Runtime}
+  alias QuickBEAM.BeamVM.{Builtin, Bytecode, Heap, Runtime}
+  alias QuickBEAM.BeamVM.Interpreter
   alias QuickBEAM.BeamVM.Interpreter.Values
   alias QuickBEAM.BeamVM.Runtime.Property
 
@@ -58,6 +59,13 @@ defmodule QuickBEAM.BeamVM.Semantics do
     end
   end
 
+  def rename_function({:closure, captured, %Bytecode.Function{} = fun}, name),
+    do: {:closure, captured, %{fun | name: name}}
+
+  def rename_function(%Bytecode.Function{} = fun, name), do: %{fun | name: name}
+  def rename_function({:builtin, _, cb}, name), do: {:builtin, name, cb}
+  def rename_function(other, _name), do: other
+
   def raw_function(ctor_closure) do
     case ctor_closure do
       {:closure, _, %Bytecode.Function{} = fun} -> fun
@@ -66,7 +74,14 @@ defmodule QuickBEAM.BeamVM.Semantics do
     end
   end
 
-  def define_class(ctor_closure, parent_ctor) do
+  def define_class(ctor_closure, parent_ctor, class_name \\ nil) do
+    ctor_closure =
+      if is_binary(class_name) and class_name != "" do
+        rename_function(ctor_closure, class_name)
+      else
+        ctor_closure
+      end
+
     raw = raw_function(ctor_closure)
     proto_ref = make_ref()
     proto_map = %{"constructor" => ctor_closure}
@@ -146,11 +161,48 @@ defmodule QuickBEAM.BeamVM.Semantics do
 
           {:obj, ref}
 
+        %Bytecode.Function{} = ctor ->
+          Heap.put_ctor_static(ctor, normalize_property_key(idx), val)
+          ctor
+
+        {:closure, _, %Bytecode.Function{}} = ctor ->
+          Heap.put_ctor_static(ctor, normalize_property_key(idx), val)
+          ctor
+
+        {:builtin, _, _} = ctor ->
+          Heap.put_ctor_static(ctor, normalize_property_key(idx), val)
+          ctor
+
         _ ->
           obj
       end
 
     {idx, obj2}
+  end
+
+  def check_ctor_return(val) do
+    cond do
+      val == :undefined ->
+        {true, val}
+
+      object_like?(val) ->
+        {false, val}
+
+      true ->
+        :error
+    end
+  end
+
+  def put_super_value(proto_obj, this_obj, key, val) do
+    case find_super_setter(proto_obj, key) do
+      nil ->
+        QuickBEAM.BeamVM.Interpreter.Objects.put(this_obj, key, val)
+
+      setter ->
+        invoke_with_receiver(setter, [val], this_obj)
+    end
+
+    :ok
   end
 
   def copy_data_properties(target, source) do
@@ -251,4 +303,73 @@ defmodule QuickBEAM.BeamVM.Semantics do
       collect_iterator_values(iter_obj, [Property.get(result, "value") | acc])
     end
   end
+
+  defp object_like?({:obj, _}), do: true
+  defp object_like?(%Bytecode.Function{}), do: true
+  defp object_like?({:closure, _, %Bytecode.Function{}}), do: true
+  defp object_like?({:builtin, _, _}), do: true
+  defp object_like?({:bound, _, _, _, _}), do: true
+  defp object_like?(_), do: false
+
+  defp invoke_with_receiver(%Bytecode.Function{} = fun, args, this_obj),
+    do: Interpreter.invoke_with_receiver(fun, args, Runtime.gas_budget(), this_obj)
+
+  defp invoke_with_receiver({:closure, _, %Bytecode.Function{}} = fun, args, this_obj),
+    do: Interpreter.invoke_with_receiver(fun, args, Runtime.gas_budget(), this_obj)
+
+  defp invoke_with_receiver(fun, args, this_obj), do: Builtin.call(fun, args, this_obj)
+
+  defp find_super_setter({:obj, ref}, key) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        case Map.get(map, key) do
+          {:accessor, _, setter} when setter != nil -> setter
+          _ -> find_super_setter(Map.get(map, proto(), :undefined), key)
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp find_super_setter({:closure, _, %Bytecode.Function{} = fun} = ctor, key) do
+    statics = Heap.get_ctor_statics(ctor)
+
+    case Map.get(statics, key) do
+      {:accessor, _, setter} when setter != nil ->
+        setter
+
+      _ ->
+        find_super_setter(
+          Heap.get_parent_ctor(fun) || Map.get(statics, "__proto__", :undefined),
+          key
+        )
+    end
+  end
+
+  defp find_super_setter(%Bytecode.Function{} = fun, key) do
+    statics = Heap.get_ctor_statics(fun)
+
+    case Map.get(statics, key) do
+      {:accessor, _, setter} when setter != nil ->
+        setter
+
+      _ ->
+        find_super_setter(
+          Heap.get_parent_ctor(fun) || Map.get(statics, "__proto__", :undefined),
+          key
+        )
+    end
+  end
+
+  defp find_super_setter({:builtin, _, _} = ctor, key) do
+    statics = Heap.get_ctor_statics(ctor)
+
+    case Map.get(statics, key) do
+      {:accessor, _, setter} when setter != nil -> setter
+      _ -> find_super_setter(Map.get(statics, "__proto__", :undefined), key)
+    end
+  end
+
+  defp find_super_setter(_, _), do: nil
 end
