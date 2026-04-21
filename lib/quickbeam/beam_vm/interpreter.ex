@@ -346,19 +346,21 @@ defmodule QuickBEAM.BeamVM.Interpreter do
     base_globals = Runtime.global_bindings()
     persistent = Heap.get_persistent_globals() |> Map.drop(Map.keys(base_globals))
 
-    ctx = %Context{
-      atoms: atoms,
-      gas: gas,
-      globals:
-        base_globals
-        |> Map.merge(persistent)
-        |> Map.merge(Map.get(opts, :globals, %{})),
-      runtime_pid: Map.get(opts, :runtime_pid),
-      this: Map.get(opts, :this, :undefined),
-      arg_buf: Map.get(opts, :arg_buf, {}),
-      current_func: Map.get(opts, :current_func, :undefined),
-      new_target: Map.get(opts, :new_target, :undefined)
-    }
+    ctx =
+      %Context{
+        atoms: atoms,
+        gas: gas,
+        globals:
+          base_globals
+          |> Map.merge(persistent)
+          |> Map.merge(Map.get(opts, :globals, %{})),
+        runtime_pid: Map.get(opts, :runtime_pid),
+        this: Map.get(opts, :this, :undefined),
+        arg_buf: Map.get(opts, :arg_buf, {}),
+        current_func: Map.get(opts, :current_func, :undefined),
+        new_target: Map.get(opts, :new_target, :undefined)
+      }
+      |> attach_method_state()
 
     Heap.put_atoms(atoms)
     store_function_atoms(fun, atoms)
@@ -423,7 +425,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   """
   def invoke_with_receiver(fun, args, gas, this_obj) do
     prev = Heap.get_ctx()
-    Heap.put_ctx(%{active_ctx() | this: this_obj})
+    Heap.put_ctx(%{active_ctx() | this: this_obj} |> attach_method_state())
 
     try do
       invoke(fun, args, gas)
@@ -434,7 +436,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
 
   def invoke_constructor(fun, args, gas, this_obj, new_target) do
     prev = Heap.get_ctx()
-    ctor_ctx = %{active_ctx() | this: this_obj, new_target: new_target}
+    ctor_ctx = %{active_ctx() | this: this_obj, new_target: new_target} |> attach_method_state()
     Heap.put_ctx(ctor_ctx)
 
     try do
@@ -587,6 +589,11 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp home_object_key({:closure, _, %Bytecode.Function{byte_code: bc}}), do: bc
   defp home_object_key(%Bytecode.Function{byte_code: bc}), do: bc
   defp home_object_key(_), do: nil
+
+  defp attach_method_state(%Context{current_func: current_func} = ctx) do
+    home_object = Process.get({:qb_home_object, home_object_key(current_func)}, :undefined)
+    %{ctx | home_object: home_object, super: Semantics.get_super(home_object)}
+  end
 
   defp current_func_name(%Context{current_func: func}) do
     case func do
@@ -2893,7 +2900,7 @@ defmodule QuickBEAM.BeamVM.Interpreter do
          frame,
          stack,
          gas,
-         %Context{arg_buf: arg_buf, current_func: current_func} = ctx
+         %Context{arg_buf: arg_buf, current_func: current_func, home_object: home_object} = ctx
        ) do
     val =
       case type do
@@ -2912,8 +2919,12 @@ defmodule QuickBEAM.BeamVM.Interpreter do
           ctx.new_target
 
         4 ->
-          key = {:qb_home_object, home_object_key(current_func)}
-          Process.get(key, :undefined)
+          if home_object == :undefined do
+            key = {:qb_home_object, home_object_key(current_func)}
+            Process.get(key, :undefined)
+          else
+            home_object
+          end
 
         5 ->
           Heap.wrap(%{})
@@ -2982,8 +2993,16 @@ defmodule QuickBEAM.BeamVM.Interpreter do
   defp run({@op_copy_data_properties, []}, pc, frame, stack, gas, ctx),
     do: run(pc + 1, frame, stack, gas, ctx)
 
-  defp run({@op_get_super, []}, pc, frame, [func | rest], gas, ctx) do
-    run(pc + 1, frame, [Semantics.get_super(func) | rest], gas, ctx)
+  defp run(
+         {@op_get_super, []},
+         pc,
+         frame,
+         [func | rest],
+         gas,
+         %Context{home_object: home_object, super: super} = ctx
+       ) do
+    val = if func == home_object, do: super, else: Semantics.get_super(func)
+    run(pc + 1, frame, [val | rest], gas, ctx)
   end
 
   defp run({@op_push_this, []}, _pc, frame, _stack, gas, %Context{this: this} = ctx)
@@ -3674,13 +3693,15 @@ defmodule QuickBEAM.BeamVM.Interpreter do
         fn_atoms = Process.get({:qb_fn_atoms, fun.byte_code}, Heap.get_atoms())
         Heap.put_atoms(fn_atoms)
 
-        inner_ctx = %{
-          ctx
-          | current_func: self_ref,
-            arg_buf: List.to_tuple(args),
-            catch_stack: [],
-            atoms: fn_atoms
-        }
+        inner_ctx =
+          %{
+            ctx
+            | current_func: self_ref,
+              arg_buf: List.to_tuple(args),
+              catch_stack: [],
+              atoms: fn_atoms
+          }
+          |> attach_method_state()
 
         prev_ctx = Heap.get_ctx()
         Heap.put_ctx(inner_ctx)
