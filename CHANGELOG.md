@@ -1,6 +1,10 @@
 # Changelog
 
 
+## 0.10.2
+
+- Allow oxc ~> 0.9 (adds OXC.Format support)
+
 ## 0.10.1
 
 - Allow oxc ~> 0.8 (adds OXC.Lint support)
