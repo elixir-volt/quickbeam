@@ -1,6 +1,6 @@
 [
-  {"Elixir.QuickBEAM.Native-v0.10.1-aarch64-macos-none.so.tar.gz",
-   "sha256:563bc12f5b6839c543994a44d5751110d416b87220f5c5dd14054e6710fd643a"},
-  {"Elixir.QuickBEAM.Native-v0.10.1-x86_64-linux-gnu.so.tar.gz",
-   "sha256:5bfb938bec2accd30ce153e4e62f713b14dd3d7509e9b4a205b5a32394173690"}
+  {"Elixir.QuickBEAM.Native-v0.10.2-aarch64-macos-none.so.tar.gz",
+   "sha256:11512b60e56300f771b350847b37255aa37c21a9c96be8954727e63d9bd0afdb"},
+  {"Elixir.QuickBEAM.Native-v0.10.2-x86_64-linux-gnu.so.tar.gz",
+   "sha256:11e330ef349e7a46ee26b3af99de059475544f44251f08cf853cbc1d3ed54fbb"}
 ]
