@@ -206,14 +206,15 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   def nip_catch(_state), do: {:error, :stack_underflow}
 
   def post_update(state, fun) do
-    with {:ok, expr, _type, state} <- pop_typed(state) do
+    with {:ok, expr, type, state} <- pop_typed(state) do
+      result_type = if type == :integer, do: :integer, else: :number
       {pair, state} = bind(state, temp_name(state.temp), compiler_call(fun, [expr]))
 
       {:ok,
        %{
          state
          | stack: [tuple_element(pair, 1), tuple_element(pair, 2) | state.stack],
-           stack_types: [:number, :number | state.stack_types]
+           stack_types: [result_type, result_type | state.stack_types]
        }}
     end
   end
@@ -228,10 +229,24 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   end
 
   def inc_slot(state, idx),
-    do: update_slot(state, idx, compiler_call(:inc, [slot_expr(state, idx)]), false, :number)
+    do:
+      update_slot(
+        state,
+        idx,
+        compiler_call(:inc, [slot_expr(state, idx)]),
+        false,
+        if(slot_type(state, idx) == :integer, do: :integer, else: :number)
+      )
 
   def dec_slot(state, idx),
-    do: update_slot(state, idx, compiler_call(:dec, [slot_expr(state, idx)]), false, :number)
+    do:
+      update_slot(
+        state,
+        idx,
+        compiler_call(:dec, [slot_expr(state, idx)]),
+        false,
+        if(slot_type(state, idx) == :integer, do: :integer, else: :number)
+      )
 
   def unary_call(state, mod, fun, extra_args \\ []) do
     with {:ok, expr, _type, state} <- pop_typed(state) do
@@ -297,13 +312,13 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   end
 
   def set_name_atom(state, atom_name) do
-    with {:ok, fun, _type, state} <- pop_typed(state) do
-      {:ok, push(state, compiler_call(:set_function_name, [fun, literal(atom_name)]), :function)}
+    with {:ok, fun, fun_type, state} <- pop_typed(state) do
+      {:ok, push(state, compiler_call(:set_function_name, [fun, literal(atom_name)]), fun_type)}
     end
   end
 
   def set_name_computed(state) do
-    with {:ok, fun, _fun_type, state} <- pop_typed(state),
+    with {:ok, fun, fun_type, state} <- pop_typed(state),
          {:ok, name, name_type, state} <- pop_typed(state) do
       named = compiler_call(:set_function_name_computed, [fun, name])
 
@@ -311,7 +326,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
        %{
          state
          | stack: [named, name | state.stack],
-           stack_types: [:function, name_type | state.stack_types]
+           stack_types: [fun_type, name_type | state.stack_types]
        }}
     end
   end
@@ -386,17 +401,19 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
 
       ctor = tuple_element(pair, 2)
 
+      ctor_type = function_type_from_expr(ctor)
+
       state =
         case class_binding_slot(state, atom_idx) do
           nil -> state
-          slot_idx -> update_slot!(state, slot_idx, ctor, :function)
+          slot_idx -> update_slot!(state, slot_idx, ctor, ctor_type)
         end
 
       {:ok,
        %{
          state
          | stack: [tuple_element(pair, 1), ctor | state.stack],
-           stack_types: [:object, :function | state.stack_types]
+           stack_types: [:object, ctor_type | state.stack_types]
        }}
     end
   end
@@ -489,11 +506,12 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
 
   def invoke_method_call(state, argc) do
     with {:ok, args, _arg_types, state} <- pop_n_typed(state, argc),
-         {:ok, fun, _fun_type, state} <- pop_typed(state),
+         {:ok, fun, fun_type, state} <- pop_typed(state),
          {:ok, obj, _obj_type, state} <- pop_typed(state) do
       effectful_push(
         state,
-        compiler_call(:invoke_method_runtime, [fun, obj, list_expr(Enum.reverse(args))])
+        compiler_call(:invoke_method_runtime, [fun, obj, list_expr(Enum.reverse(args))]),
+        function_return_type(fun_type, state.return_type)
       )
     end
   end
@@ -750,8 +768,13 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     effectful_push(state, local_call(:run, normalize_self_call_args(state, args)), return_type)
   end
 
-  defp invoke_call_expr(state, fun, _fun_type, args, _arg_types),
-    do: effectful_push(state, compiler_call(:invoke_runtime, [fun, list_expr(args)]))
+  defp invoke_call_expr(state, fun, fun_type, args, _arg_types) do
+    effectful_push(
+      state,
+      compiler_call(:invoke_runtime, [fun, list_expr(args)]),
+      function_return_type(fun_type, state.return_type)
+    )
+  end
 
   defp tail_call_expr(state, _fun, :self_fun, args, _arg_types),
     do: state.body ++ [local_call(:run, normalize_self_call_args(state, args))]
@@ -766,6 +789,12 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
 
   defp specialize_binary(:op_add, left, :integer, right, :integer),
     do: {{:op, @line, :+, left, right}, :integer}
+
+  defp specialize_binary(:op_add, left, left_type, right, right_type)
+       when left_type in [:integer, :number] and right_type in [:integer, :number],
+       do:
+         {{:op, @line, :+, left, right},
+          if(left_type == :integer and right_type == :integer, do: :integer, else: :number)}
 
   defp specialize_binary(:op_add, left, :string, right, :string),
     do: {binary_concat(left, right), :string}
@@ -802,6 +831,12 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     |> Enum.take(arg_count)
     |> then(fn args -> args ++ List.duplicate(atom(:undefined), arg_count - length(args)) end)
   end
+
+  defp function_return_type(:self_fun, return_type), do: return_type
+  defp function_return_type({:function, type}, _return_type), do: type
+  defp function_return_type(_fun_type, _return_type), do: :unknown
+
+  defp function_type_from_expr(expr), do: infer_expr_type(expr)
 
   defp binary_concat(left, right) do
     {:bin, @line,

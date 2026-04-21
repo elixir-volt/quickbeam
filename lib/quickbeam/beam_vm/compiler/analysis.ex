@@ -1,7 +1,7 @@
 defmodule QuickBEAM.BeamVM.Compiler.Analysis do
   @moduledoc false
 
-  alias QuickBEAM.BeamVM.{Bytecode, Opcodes}
+  alias QuickBEAM.BeamVM.{Bytecode, Decoder, Opcodes}
 
   def block_entries(instructions) do
     entries =
@@ -79,6 +79,41 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
       :unknown,
       0
     )
+  end
+
+  def function_type(%Bytecode.Function{} = fun) do
+    key = {:qb_function_type, fun.byte_code}
+
+    case Process.get(key) do
+      {:function, _} = type ->
+        type
+
+      :in_progress ->
+        :function
+
+      _ ->
+        Process.put(key, :in_progress)
+
+        type =
+          case Decoder.decode(fun.byte_code, fun.arg_count) do
+            {:ok, instructions} ->
+              entries = block_entries(instructions)
+
+              with {:ok, stack_depths} <- infer_block_stack_depths(instructions, entries),
+                   {:ok, {_entry_types, return_type}} <-
+                     infer_block_entry_types(fun, instructions, entries, stack_depths) do
+                {:function, return_type}
+              else
+                _ -> :function
+              end
+
+            _ ->
+              :function
+          end
+
+        Process.put(key, type)
+        type
+    end
   end
 
   def opcode_name(op) do
@@ -416,8 +451,8 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
       {{:ok, name}, [const_idx]} when name in [:push_const, :push_const8] ->
         {:ok, {:continue, push_type(state, constant_type(constants, const_idx)), return_type}}
 
-      {{:ok, name}, [_const_idx]} when name in [:fclosure, :fclosure8] ->
-        {:ok, {:continue, push_type(state, :function), return_type}}
+      {{:ok, name}, [const_idx]} when name in [:fclosure, :fclosure8] ->
+        {:ok, {:continue, push_type(state, closure_type(constants, const_idx)), return_type}}
 
       {{:ok, :special_object}, [type]} ->
         {:ok, {:continue, push_type(state, special_object_type(type)), return_type}}
@@ -599,13 +634,15 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
         transfer_binaryish_type(name, state, return_type)
 
       {{:ok, name}, _} when name in [:inc, :dec] ->
-        with {:ok, _type, state} <- pop_type(state) do
-          {:ok, {:continue, push_type(state, :number), return_type}}
+        with {:ok, type, state} <- pop_type(state) do
+          next_type = if type == :integer, do: :integer, else: :number
+          {:ok, {:continue, push_type(state, next_type), return_type}}
         end
 
       {{:ok, name}, _} when name in [:post_inc, :post_dec] ->
-        with {:ok, _type, state} <- pop_type(state) do
-          next_state = state |> push_type(:number) |> push_type(:number)
+        with {:ok, type, state} <- pop_type(state) do
+          next_type = if type == :integer, do: :integer, else: :number
+          next_state = state |> push_type(next_type) |> push_type(next_type)
           {:ok, {:continue, next_state, return_type}}
         end
 
@@ -653,16 +690,17 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
 
       {{:ok, :call_method}, [argc]} ->
         with {:ok, state} <- pop_types(state, argc),
-             {:ok, _fun_type, state} <- pop_type(state),
+             {:ok, fun_type, state} <- pop_type(state),
              {:ok, _obj_type, state} <- pop_type(state) do
-          {:ok, {:continue, push_type(state, :unknown), return_type}}
+          {:ok,
+           {:continue, push_type(state, invoke_result_type(fun_type, return_type)), return_type}}
         end
 
       {{:ok, :tail_call_method}, [argc]} ->
         with {:ok, state} <- pop_types(state, argc),
-             {:ok, _fun_type, state} <- pop_type(state),
+             {:ok, fun_type, state} <- pop_type(state),
              {:ok, _obj_type, _state} <- pop_type(state) do
-          {:ok, {:halt, join_type(return_type, :unknown)}}
+          {:ok, {:halt, join_type(return_type, invoke_result_type(fun_type, return_type))}}
         end
 
       {{:ok, :call_constructor}, [argc]} ->
@@ -906,6 +944,10 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
   defp binary_result_type(:add, :integer, :integer), do: :integer
   defp binary_result_type(:add, :string, :string), do: :string
 
+  defp binary_result_type(:add, left, right)
+       when left in [:integer, :number] and right in [:integer, :number],
+       do: :number
+
   defp binary_result_type(name, left, right)
        when name in [:sub, :mul] and left == :integer and right == :integer,
        do: :integer
@@ -945,6 +987,7 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
   defp binary_result_type(_name, _left, _right), do: :unknown
 
   defp invoke_result_type(:self_fun, return_type), do: return_type
+  defp invoke_result_type({:function, type}, _return_type), do: type
   defp invoke_result_type(_fun_type, _return_type), do: :unknown
 
   defp constant_type(constants, idx) do
@@ -955,8 +998,15 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
       value when is_binary(value) -> :string
       nil -> :null
       :undefined -> :undefined
-      %Bytecode.Function{} -> :function
+      %Bytecode.Function{} = fun -> function_type(fun)
       _ -> :unknown
+    end
+  end
+
+  defp closure_type(constants, idx) do
+    case Enum.at(constants, idx) do
+      %Bytecode.Function{} = fun -> function_type(fun)
+      _ -> :function
     end
   end
 
@@ -980,6 +1030,11 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
   defp join_type(:number, :integer), do: :number
   defp join_type(:self_fun, :function), do: :function
   defp join_type(:function, :self_fun), do: :function
+  defp join_type({:function, left}, {:function, right}), do: {:function, join_type(left, right)}
+  defp join_type({:function, type}, :function), do: {:function, type}
+  defp join_type(:function, {:function, type}), do: {:function, type}
+  defp join_type(:self_fun, {:function, type}), do: {:function, type}
+  defp join_type({:function, type}, :self_fun), do: {:function, type}
   defp join_type(_left, _right), do: :unknown
 
   defp do_block_terminal(instructions, idx, _next_entry) when idx >= length(instructions),

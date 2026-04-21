@@ -60,6 +60,13 @@ cases = %{
     fun: compile_case.("(function sum(n, acc){ return n ? sum(n - 1, acc + n) : acc })"),
     args: [300, 0]
   },
+  local_calls: %{
+    fun:
+      compile_case.(
+        "(function(n){ function f(x){ return x + 1 } let s = 0; for (let i = 0; i < n; i++) s += f(i); return s })"
+      ),
+    args: [400]
+  },
   class_method: %{
     fun:
       compile_case.(

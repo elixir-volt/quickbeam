@@ -18,9 +18,14 @@ defmodule QuickBEAM.BeamVM.Compiler.AnalysisTest do
     %{rt: rt}
   end
 
-  defp compile_function(rt, code) do
+  defp compile_parsed(rt, code) do
     {:ok, bc} = QuickBEAM.compile(rt, code)
     {:ok, parsed} = Bytecode.decode(bc)
+    parsed
+  end
+
+  defp compile_function(rt, code) do
+    parsed = compile_parsed(rt, code)
 
     case for %Bytecode.Function{} = fun <- parsed.value.constants, do: fun do
       [fun | _] -> fun
@@ -58,5 +63,20 @@ defmodule QuickBEAM.BeamVM.Compiler.AnalysisTest do
     assert loop_state.slot_types[1] == :integer
     assert loop_state.slot_types[2] == :integer
     assert return_type == :integer
+  end
+
+  test "tracks return types for nested local functions", %{rt: rt} do
+    parsed =
+      compile_parsed(rt, "(function(){ function f(){ return 1 } let x = f(); return x + 1 })")
+
+    [outer] = for %Bytecode.Function{} = fun <- parsed.value.constants, do: fun
+    [inner] = for %Bytecode.Function{} = fun <- outer.constants, do: fun
+
+    {_inner_entry_types, inner_return_type} = infer_types(inner)
+    {_outer_entry_types, outer_return_type} = infer_types(outer)
+
+    assert Analysis.function_type(inner) == {:function, :integer}
+    assert inner_return_type == :integer
+    assert outer_return_type == :integer
   end
 end
