@@ -65,6 +65,9 @@ defmodule QuickBEAM.BeamVM.Interpreter.Objects do
           Heap.frozen?(ref) ->
             :ok
 
+          not Map.has_key?(map, key) ->
+            Heap.put_obj_key(ref, key, val)
+
           match?({:accessor, _, setter} when setter != nil, Map.get(map, key)) ->
             {:accessor, _, setter} = Map.get(map, key)
             invoke_setter(setter, val, obj)
