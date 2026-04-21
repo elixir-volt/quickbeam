@@ -16,6 +16,9 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
       {{:ok, name}, [argc]} when name in [:call_method, :tail_call_method] ->
         {:ok, argc + 2, if(name == :tail_call_method, do: 0, else: 1)}
 
+      {{:ok, :call_constructor}, [argc]} ->
+        {:ok, argc + 2, 1}
+
       {{:ok, :array_from}, [argc]} ->
         {:ok, argc, 1}
 

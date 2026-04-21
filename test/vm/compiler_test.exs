@@ -449,6 +449,19 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(fun, [ctor])
     end
 
+    test "compiles constructor calls used in later control flow", %{rt: rt} do
+      ctor = compile_and_decode(rt, "(function A(x){ this.x = x })") |> user_function()
+
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(C,x){ const o = {}; o.value = new C(x); let i = 0; if (i < x) return o.value.x; return 0 })"
+        )
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [ctor, 7])
+    end
+
     test "compiles wrapped non-capturing closures", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(x){ return x + 1 })") |> user_function()
 
