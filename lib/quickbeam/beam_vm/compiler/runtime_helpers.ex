@@ -132,7 +132,7 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
       1 -> Heap.wrap(Tuple.to_list(arg_buf))
       2 -> current_func
       3 -> current_new_target()
-      4 -> Process.get({:qb_home_object, home_object_key(current_func)}, :undefined)
+      4 -> current_home_object(current_func)
       5 -> Heap.wrap(%{})
       6 -> Heap.wrap(%{})
       7 -> Heap.wrap(%{"__proto__" => nil})
@@ -140,7 +140,12 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     end
   end
 
-  def get_super(func), do: Semantics.get_super(func)
+  def get_super(func) do
+    case current_home_object(current_func()) do
+      ^func -> current_super()
+      _ -> Semantics.get_super(func)
+    end
+  end
 
   def get_array_el2(obj, idx), do: {Property.get(obj, idx), obj}
 
@@ -810,6 +815,26 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
           %{current_func: current_func} -> current_func
           _ -> :undefined
         end
+    end
+  end
+
+  defp current_home_object(current_func) do
+    case Process.get(:qb_home_object_current, :__missing__) do
+      home_object when home_object != :__missing__ ->
+        home_object
+
+      _ ->
+        Process.get({:qb_home_object, home_object_key(current_func)}, :undefined)
+    end
+  end
+
+  defp current_super do
+    case Process.get(:qb_super_current, :__missing__) do
+      super when super != :__missing__ ->
+        super
+
+      _ ->
+        Semantics.get_super(current_home_object(current_func()))
     end
   end
 

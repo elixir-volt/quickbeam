@@ -1,7 +1,7 @@
 defmodule QuickBEAM.BeamVM.Compiler.Runner do
   @moduledoc false
 
-  alias QuickBEAM.BeamVM.{Bytecode, Heap, Runtime}
+  alias QuickBEAM.BeamVM.{Bytecode, Heap, Runtime, Semantics}
   alias QuickBEAM.BeamVM.Compiler
   alias QuickBEAM.BeamVM.Interpreter.Context
 
@@ -11,7 +11,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Runner do
     :qb_current_func,
     :qb_arg_buf,
     :qb_this,
-    :qb_new_target
+    :qb_new_target,
+    :qb_home_object_current,
+    :qb_super_current
   ]
   @missing :__qb_missing__
 
@@ -118,13 +120,29 @@ defmodule QuickBEAM.BeamVM.Compiler.Runner do
   end
 
   defp put_fast_ctx(ctx) do
+    current_func = Map.get(ctx, :current_func, :undefined)
+    home_object = current_home_object(current_func)
+
     Process.put(:qb_ctx_atoms, Map.get(ctx, :atoms, {}))
     Process.put(:qb_ctx_globals, Map.get(ctx, :globals, %{}))
-    Process.put(:qb_current_func, Map.get(ctx, :current_func, :undefined))
+    Process.put(:qb_current_func, current_func)
     Process.put(:qb_arg_buf, Map.get(ctx, :arg_buf, {}))
     Process.put(:qb_this, Map.get(ctx, :this, :undefined))
     Process.put(:qb_new_target, Map.get(ctx, :new_target, :undefined))
+    Process.put(:qb_home_object_current, home_object)
+    Process.put(:qb_super_current, current_super(home_object))
   end
+
+  defp current_home_object(current_func) do
+    Process.get({:qb_home_object, home_object_key(current_func)}, :undefined)
+  end
+
+  defp current_super(:undefined), do: :undefined
+  defp current_super(home_object), do: Semantics.get_super(home_object)
+
+  defp home_object_key({:closure, _, %Bytecode.Function{byte_code: byte_code}}), do: byte_code
+  defp home_object_key(%Bytecode.Function{byte_code: byte_code}), do: byte_code
+  defp home_object_key(_), do: nil
 
   defp restore_fast_ctx(snapshot) do
     Enum.each(snapshot, fn
