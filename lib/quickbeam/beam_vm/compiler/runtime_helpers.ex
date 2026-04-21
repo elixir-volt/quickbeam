@@ -447,8 +447,15 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
           :error -> QuickBEAM.BeamVM.Interpreter.invoke(fun, args, Runtime.gas_budget())
         end
 
-      {:closure, _, %Bytecode.Function{}} ->
-        QuickBEAM.BeamVM.Interpreter.invoke(fun, args, Runtime.gas_budget())
+      {:closure, _, %Bytecode.Function{} = inner} = closure ->
+        if compiled_closure_callable?(inner) do
+          case Runner.invoke(closure, args) do
+            {:ok, value} -> value
+            :error -> QuickBEAM.BeamVM.Interpreter.invoke(closure, args, Runtime.gas_budget())
+          end
+        else
+          QuickBEAM.BeamVM.Interpreter.invoke(closure, args, Runtime.gas_budget())
+        end
 
       {:bound, _, inner, _, _} ->
         invoke_runtime(inner, args)
@@ -474,13 +481,28 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
             )
         end
 
-      {:closure, _, %Bytecode.Function{}} ->
-        QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(
-          fun,
-          args,
-          Runtime.gas_budget(),
-          this_obj
-        )
+      {:closure, _, %Bytecode.Function{} = inner} = closure ->
+        if compiled_method_callable?(inner, this_obj) do
+          case Runner.invoke_with_receiver(closure, args, this_obj) do
+            {:ok, value} ->
+              value
+
+            :error ->
+              QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(
+                closure,
+                args,
+                Runtime.gas_budget(),
+                this_obj
+              )
+          end
+        else
+          QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(
+            closure,
+            args,
+            Runtime.gas_budget(),
+            this_obj
+          )
+        end
 
       {:bound, _, inner, _, _} ->
         invoke_method_runtime(inner, this_obj, args)
@@ -579,6 +601,12 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
     :ok
   end
+
+  defp compiled_closure_callable?(%Bytecode.Function{need_home_object: false}), do: true
+  defp compiled_closure_callable?(_), do: false
+
+  defp compiled_method_callable?(%Bytecode.Function{need_home_object: false}, {:obj, _}), do: true
+  defp compiled_method_callable?(_, _), do: false
 
   defp spread_source_to_list(obj), do: Semantics.spread_source_to_list(obj)
 

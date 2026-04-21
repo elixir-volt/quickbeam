@@ -854,11 +854,16 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
   end
 
   defp sync_capture_cell(state, idx, expr) do
-    %{
+    if slot_captured?(state, idx) do
+      %{
+        state
+        | body:
+            state.body ++
+              [compiler_call(:sync_capture_cell, [capture_cell_expr(state, idx), expr])]
+      }
+    else
       state
-      | body:
-          state.body ++ [compiler_call(:sync_capture_cell, [capture_cell_expr(state, idx), expr])]
-    }
+    end
   end
 
   defp case_expr(expr, false_body, true_body) do
