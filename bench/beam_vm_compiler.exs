@@ -56,6 +56,10 @@ cases = %{
     fun: compile_case.("(function fib(n){ return n < 2 ? n : fib(n-1) + fib(n-2) })"),
     args: [18]
   },
+  tail_recursion: %{
+    fun: compile_case.("(function sum(n, acc){ return n ? sum(n - 1, acc + n) : acc })"),
+    args: [300, 0]
+  },
   class_method: %{
     fun:
       compile_case.(

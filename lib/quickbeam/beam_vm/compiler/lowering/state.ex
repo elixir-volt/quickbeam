@@ -25,14 +25,16 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
     %{
       body: [],
       slots: slots,
-      slot_types: Map.new(slots, fn {idx, _expr} -> {idx, :unknown} end),
+      slot_types:
+        Keyword.get(opts, :slot_types, Map.new(slots, fn {idx, _expr} -> {idx, :unknown} end)),
       capture_cells: capture_cells,
       stack: stack,
-      stack_types: List.duplicate(:unknown, stack_depth),
+      stack_types: Keyword.get(opts, :stack_types, List.duplicate(:unknown, stack_depth)),
       temp: 0,
       locals: Keyword.get(opts, :locals, []),
       atoms: Keyword.get(opts, :atoms),
-      arg_count: Keyword.get(opts, :arg_count, 0)
+      arg_count: Keyword.get(opts, :arg_count, 0),
+      return_type: Keyword.get(opts, :return_type, :unknown)
     }
   end
 
@@ -744,8 +746,8 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.State do
 
   defp slot_captured?(_state, _idx), do: false
 
-  defp invoke_call_expr(state, _fun, :self_fun, args, _arg_types) do
-    effectful_push(state, local_call(:run, normalize_self_call_args(state, args)))
+  defp invoke_call_expr(%{return_type: return_type} = state, _fun, :self_fun, args, _arg_types) do
+    effectful_push(state, local_call(:run, normalize_self_call_args(state, args)), return_type)
   end
 
   defp invoke_call_expr(state, fun, _fun_type, args, _arg_types),

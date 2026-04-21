@@ -10,7 +10,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
     slot_count = fun.arg_count + fun.var_count
     constants = fun.constants
 
-    with {:ok, stack_depths} <- Analysis.infer_block_stack_depths(instructions, entries) do
+    with {:ok, stack_depths} <- Analysis.infer_block_stack_depths(instructions, entries),
+         {:ok, {entry_types, return_type}} <-
+           Analysis.infer_block_entry_types(fun, instructions, entries, stack_depths) do
       inline_targets = Analysis.inlineable_goto_targets(instructions, entries)
 
       blocks =
@@ -29,7 +31,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
              Map.fetch!(stack_depths, start),
              stack_depths,
              constants,
-             inline_targets
+             inline_targets,
+             Map.get(entry_types, start),
+             return_type
            )}
         end
 
@@ -50,14 +54,24 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering do
          stack_depth,
          stack_depths,
          constants,
-         inline_targets
+         inline_targets,
+         entry_type_state,
+         return_type
        ) do
-    state =
-      State.new(slot_count, stack_depth,
+    state_opts =
+      [
         locals: fun.locals,
         atoms: Process.get({:qb_fn_atoms, fun.byte_code}),
-        arg_count: arg_count
-      )
+        arg_count: arg_count,
+        return_type: return_type
+      ] ++
+        if entry_type_state do
+          [slot_types: entry_type_state.slot_types, stack_types: entry_type_state.stack_types]
+        else
+          []
+        end
+
+    state = State.new(slot_count, stack_depth, state_opts)
 
     next_entry = Analysis.next_entry(entries, start)
 
