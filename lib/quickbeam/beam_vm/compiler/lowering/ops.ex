@@ -204,6 +204,13 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
            State.slot_type(state, slot_idx)
          )}
 
+      {{:ok, name}, [idx]}
+      when name in [:get_var_ref, :get_var_ref0, :get_var_ref1, :get_var_ref2, :get_var_ref3] ->
+        {:ok, State.push(state, State.compiler_call(:get_var_ref, [State.literal(idx)]))}
+
+      {{:ok, :get_var_ref_check}, [idx]} ->
+        {:ok, State.push(state, State.compiler_call(:get_var_ref_check, [State.literal(idx)]))}
+
       {{:ok, :set_loc_uninitialized}, [slot_idx]} ->
         {:ok, State.put_slot(state, slot_idx, State.atom(@tdz))}
 
@@ -239,6 +246,18 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
 
       {{:ok, :put_arg3}, [slot_idx]} ->
         State.assign_slot(state, slot_idx, false)
+
+      {{:ok, name}, [idx]}
+      when name in [
+             :put_var_ref,
+             :put_var_ref0,
+             :put_var_ref1,
+             :put_var_ref2,
+             :put_var_ref3,
+             :put_var_ref_check,
+             :put_var_ref_check_init
+           ] ->
+        lower_put_var_ref(state, idx)
 
       {{:ok, :put_loc_check}, [slot_idx]} ->
         State.assign_slot(state, slot_idx, false, :ensure_initialized_local!)
@@ -278,6 +297,10 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
 
       {{:ok, :set_arg3}, [slot_idx]} ->
         State.assign_slot(state, slot_idx, true)
+
+      {{:ok, name}, [idx]}
+      when name in [:set_var_ref, :set_var_ref0, :set_var_ref1, :set_var_ref2, :set_var_ref3] ->
+        lower_set_var_ref(state, idx)
 
       {{:ok, :dup}, []} ->
         State.duplicate_top(state)
@@ -435,6 +458,9 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
         {:ok, state}
 
       {{:ok, :to_propkey2}, []} ->
+        {:ok, state}
+
+      {{:ok, :check_ctor}, []} ->
         {:ok, state}
 
       {{:ok, :lt}, []} ->
@@ -694,6 +720,22 @@ defmodule QuickBEAM.BeamVM.Compiler.Lowering.Ops do
 
       _ ->
         {:error, {:unsupported_const, idx}}
+    end
+  end
+
+  defp lower_put_var_ref(state, idx) do
+    with {:ok, val, _type, state} <- State.pop_typed(state) do
+      {:ok,
+       %{
+         state
+         | body: state.body ++ [State.compiler_call(:put_var_ref, [State.literal(idx), val])]
+       }}
+    end
+  end
+
+  defp lower_set_var_ref(state, idx) do
+    with {:ok, val, _type, state} <- State.pop_typed(state) do
+      State.effectful_push(state, State.compiler_call(:set_var_ref, [State.literal(idx), val]))
     end
   end
 

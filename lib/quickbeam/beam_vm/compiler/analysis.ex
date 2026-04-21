@@ -446,6 +446,17 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
           |> push_type(slot_type(state, slot0))
           |> push_type(slot_type(state, slot1)), return_type}}
 
+      {{:ok, name}, [_idx]}
+      when name in [
+             :get_var_ref,
+             :get_var_ref0,
+             :get_var_ref1,
+             :get_var_ref2,
+             :get_var_ref3,
+             :get_var_ref_check
+           ] ->
+        {:ok, {:continue, push_type(state, :unknown), return_type}}
+
       {{:ok, :set_loc_uninitialized}, [slot_idx]} ->
         {:ok, {:continue, put_slot_type(state, slot_idx, :unknown), return_type}}
 
@@ -469,6 +480,20 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
           {:ok, {:continue, put_slot_type(state, slot_idx, type), return_type}}
         end
 
+      {{:ok, name}, [_idx]}
+      when name in [
+             :put_var_ref,
+             :put_var_ref0,
+             :put_var_ref1,
+             :put_var_ref2,
+             :put_var_ref3,
+             :put_var_ref_check,
+             :put_var_ref_check_init
+           ] ->
+        with {:ok, _type, state} <- pop_type(state) do
+          {:ok, {:continue, state, return_type}}
+        end
+
       {{:ok, name}, [slot_idx]}
       when name in [
              :set_loc,
@@ -486,6 +511,12 @@ defmodule QuickBEAM.BeamVM.Compiler.Analysis do
         with {:ok, type, state} <- pop_type(state) do
           next_state = state |> put_slot_type(slot_idx, type) |> push_type(type)
           {:ok, {:continue, next_state, return_type}}
+        end
+
+      {{:ok, name}, [_idx]}
+      when name in [:set_var_ref, :set_var_ref0, :set_var_ref1, :set_var_ref2, :set_var_ref3] ->
+        with {:ok, _type, state} <- pop_type(state) do
+          {:ok, {:continue, push_type(state, :unknown), return_type}}
         end
 
       {{:ok, :dup}, _} ->

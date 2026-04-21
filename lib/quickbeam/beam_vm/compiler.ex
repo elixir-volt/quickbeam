@@ -8,7 +8,7 @@ defmodule QuickBEAM.BeamVM.Compiler do
 
   def invoke(fun, args), do: Runner.invoke(fun, args)
 
-  def compile(%Bytecode.Function{closure_vars: []} = fun) do
+  def compile(%Bytecode.Function{} = fun) do
     module = module_name(fun)
     entry = entry_name()
 
@@ -31,7 +31,7 @@ defmodule QuickBEAM.BeamVM.Compiler do
     end
   end
 
-  def compile(_), do: {:error, :closure_not_supported}
+  def compile(_), do: {:error, :var_refs_not_supported}
 
   defp module_name(fun) do
     hash =

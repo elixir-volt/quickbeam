@@ -4,6 +4,7 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
   import QuickBEAM.BeamVM.Heap.Keys, only: [proto: 0]
 
   alias QuickBEAM.BeamVM.{Bytecode, Compiler, Heap, Interpreter}
+  alias QuickBEAM.BeamVM.Compiler.RuntimeHelpers
 
   setup do
     Heap.reset()
@@ -281,6 +282,39 @@ defmodule QuickBEAM.BeamVM.CompilerTest do
       fun = compile_and_decode(rt, "(function(C){ return new C().x })") |> user_function()
 
       assert {:ok, 1} = Compiler.invoke(fun, [ctor])
+    end
+
+    test "compiles wrapped non-capturing closures", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(x){ return x + 1 })") |> user_function()
+
+      assert {:ok, 6} = Compiler.invoke({:closure, %{}, fun}, [5])
+      assert match?({:compiled, _}, Heap.get_compiled({fun.byte_code, fun.arg_count}))
+    end
+
+    test "compiles class constructor closures without var ref reads", %{rt: rt} do
+      outer =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { constructor(x){ this.x = x } } return A })"
+        )
+        |> user_function()
+
+      ctor =
+        Enum.find(outer.constants, fn
+          %Bytecode.Function{source: source} when is_binary(source) ->
+            String.contains?(source, "constructor")
+
+          _ ->
+            false
+        end)
+
+      assert %Bytecode.Function{var_ref_count: 0} = ctor
+
+      closure = {:closure, %{}, ctor}
+
+      assert {:obj, ref} = RuntimeHelpers.construct_runtime(closure, closure, [9])
+      assert 9 == Heap.get_obj(ref)["x"]
+      assert match?({:compiled, _}, Heap.get_compiled({ctor.byte_code, ctor.arg_count}))
     end
 
     test "compiles array spread", %{rt: rt} do

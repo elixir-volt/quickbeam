@@ -4,8 +4,9 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   import Bitwise, only: [bnot: 1]
   import QuickBEAM.BeamVM.Heap.Keys, only: [key_order: 0, proto: 0]
 
-  alias QuickBEAM.BeamVM.{Builtin, Bytecode, Heap, Semantics}
-  alias QuickBEAM.BeamVM.Interpreter.{Scope, Values}
+  alias QuickBEAM.BeamVM.{Builtin, Bytecode, Heap, PredefinedAtoms, Semantics}
+  alias QuickBEAM.BeamVM.Compiler.Runner
+  alias QuickBEAM.BeamVM.Interpreter.{Closures, Scope, Values}
   alias QuickBEAM.BeamVM.Runtime
   alias QuickBEAM.BeamVM.Runtime.Property
 
@@ -78,6 +79,37 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
 
   def get_field(obj, key) when is_binary(key), do: Property.get(obj, key)
   def get_field(obj, atom_idx), do: Property.get(obj, atom_name(atom_idx))
+
+  def get_var_ref(idx), do: read_var_ref(current_var_ref(idx))
+
+  def get_var_ref_check(idx) do
+    case current_var_ref(idx) do
+      :__tdz__ ->
+        throw({:js_throw, Heap.make_error(var_ref_error_message(idx), "ReferenceError")})
+
+      {:cell, _} = cell ->
+        val = Closures.read_cell(cell)
+
+        if val == :__tdz__ and var_ref_name(idx) == "this" and derived_this_uninitialized?() do
+          throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
+        end
+
+        val
+
+      val ->
+        val
+    end
+  end
+
+  def put_var_ref(idx, val) do
+    write_var_ref(current_var_ref(idx), val)
+    :ok
+  end
+
+  def set_var_ref(idx, val) do
+    put_var_ref(idx, val)
+    val
+  end
 
   def push_this do
     case Heap.get_ctx() do
@@ -281,22 +313,34 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     result =
       case ctor do
         %Bytecode.Function{} = fun ->
-          QuickBEAM.BeamVM.Interpreter.invoke_constructor(
-            fun,
-            args,
-            Runtime.gas_budget(),
-            this_obj,
-            new_target
-          )
+          case Runner.invoke_constructor(fun, args, this_obj, new_target) do
+            {:ok, value} ->
+              value
+
+            :error ->
+              QuickBEAM.BeamVM.Interpreter.invoke_constructor(
+                fun,
+                args,
+                Runtime.gas_budget(),
+                this_obj,
+                new_target
+              )
+          end
 
         {:closure, _, %Bytecode.Function{}} = closure ->
-          QuickBEAM.BeamVM.Interpreter.invoke_constructor(
-            closure,
-            args,
-            Runtime.gas_budget(),
-            this_obj,
-            new_target
-          )
+          case Runner.invoke_constructor(closure, args, this_obj, new_target) do
+            {:ok, value} ->
+              value
+
+            :error ->
+              QuickBEAM.BeamVM.Interpreter.invoke_constructor(
+                closure,
+                args,
+                Runtime.gas_budget(),
+                this_obj,
+                new_target
+              )
+          end
 
         {:bound, _, _inner, orig_fun, bound_args} ->
           construct_runtime(orig_fun, new_target, bound_args ++ args)
@@ -398,7 +442,10 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   def invoke_runtime(fun, args) do
     case fun do
       %Bytecode.Function{} ->
-        QuickBEAM.BeamVM.Interpreter.invoke(fun, args, Runtime.gas_budget())
+        case Runner.invoke(fun, args) do
+          {:ok, value} -> value
+          :error -> QuickBEAM.BeamVM.Interpreter.invoke(fun, args, Runtime.gas_budget())
+        end
 
       {:closure, _, %Bytecode.Function{}} ->
         QuickBEAM.BeamVM.Interpreter.invoke(fun, args, Runtime.gas_budget())
@@ -414,12 +461,18 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
   def invoke_method_runtime(fun, this_obj, args) do
     case fun do
       %Bytecode.Function{} ->
-        QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(
-          fun,
-          args,
-          Runtime.gas_budget(),
-          this_obj
-        )
+        case Runner.invoke_with_receiver(fun, args, this_obj) do
+          {:ok, value} ->
+            value
+
+          :error ->
+            QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(
+              fun,
+              args,
+              Runtime.gas_budget(),
+              this_obj
+            )
+        end
 
       {:closure, _, %Bytecode.Function{}} ->
         QuickBEAM.BeamVM.Interpreter.invoke_with_receiver(
@@ -658,6 +711,62 @@ defmodule QuickBEAM.BeamVM.Compiler.RuntimeHelpers do
     case Heap.get_ctx() do
       %{globals: globals} -> globals
       _ -> Runtime.global_bindings()
+    end
+  end
+
+  defp current_var_ref(idx) do
+    case Heap.get_ctx() do
+      %{current_func: {:closure, captured, %Bytecode.Function{closure_vars: vars}}}
+      when idx >= 0 and idx < length(vars) ->
+        cv = Enum.at(vars, idx)
+        Map.get(captured, closure_capture_key(cv), :undefined)
+
+      _ ->
+        :undefined
+    end
+  end
+
+  defp read_var_ref({:cell, _} = cell), do: Closures.read_cell(cell)
+  defp read_var_ref(other), do: other
+
+  defp write_var_ref({:cell, _} = cell, val), do: Closures.write_cell(cell, val)
+  defp write_var_ref(_, _), do: :ok
+
+  defp var_ref_error_message(idx) do
+    if var_ref_name(idx) == "this" and derived_this_uninitialized?() do
+      "this is not initialized"
+    else
+      "Cannot access variable before initialization"
+    end
+  end
+
+  defp var_ref_name(idx) do
+    case Heap.get_ctx() do
+      %{current_func: {:closure, _, %Bytecode.Function{closure_vars: vars}}}
+      when idx >= 0 and idx < length(vars) ->
+        vars |> Enum.at(idx) |> Map.get(:name) |> resolve_name()
+
+      _ ->
+        nil
+    end
+  end
+
+  defp resolve_name(name) when is_binary(name), do: name
+  defp resolve_name({:predefined, idx}), do: PredefinedAtoms.lookup(idx)
+  defp resolve_name(idx) when is_integer(idx), do: atom_name(idx)
+  defp resolve_name(_), do: nil
+
+  defp closure_capture_key(%{closure_type: type, var_idx: idx}), do: {type, idx}
+
+  defp derived_this_uninitialized? do
+    case Heap.get_ctx() do
+      %{this: this}
+      when this == :uninitialized or
+             (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized) ->
+        true
+
+      _ ->
+        false
     end
   end
 
