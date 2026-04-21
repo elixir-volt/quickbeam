@@ -202,7 +202,14 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, beam_file} = Compiler.disasm(inner)
       block = beam_function_instructions(beam_file, :block_0)
 
-      assert {RuntimeHelpers, :invoke_var_ref1, 3} in beam_extfuncs(beam_file)
+      assert Enum.any?(block, fn
+               {:call, 3, {_module, :op_invoke_var_ref1, 3}} -> true
+               {:call_only, 3, {_module, :op_invoke_var_ref1, 3}} -> true
+               {:call_last, 3, {_module, :op_invoke_var_ref1, 3}, _} -> true
+               _ -> false
+             end)
+
+      refute {RuntimeHelpers, :invoke_var_ref1, 3} in beam_extfuncs(beam_file)
 
       refute Enum.any?(block, fn
                {:call_ext, 1, {:extfunc, RuntimeHelpers, :get_var_ref, 1}} -> true

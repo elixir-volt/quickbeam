@@ -848,7 +848,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   defp invoke_runtime_expr(fun, args) do
     case var_ref_fun_call(fun, length(args)) do
-      {:ok, helper, idx} -> Builder.compiler_call(helper, [idx | args])
+      {:ok, helper, idx} -> Builder.local_call(helper, [Builder.ctx_var(), idx | args])
       :error -> Builder.compiler_call(:invoke_runtime, [fun, Builder.list_expr(args)])
     end
   end
@@ -870,9 +870,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     do: invoke_var_ref_helper_name(:invoke_var_ref_check, argc)
 
   defp invoke_var_ref_helper_name(prefix, argc) when argc in 0..3,
-    do: String.to_atom("#{prefix}#{argc}")
+    do: String.to_atom("op_#{prefix}#{argc}")
 
-  defp invoke_var_ref_helper_name(prefix, _argc), do: prefix
+  defp invoke_var_ref_helper_name(prefix, _argc), do: String.to_atom("op_#{prefix}")
 
   defp binary_operator(:op_sub), do: :-
   defp binary_operator(:op_mul), do: :*
