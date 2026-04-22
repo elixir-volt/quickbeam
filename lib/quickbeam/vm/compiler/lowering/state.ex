@@ -905,17 +905,11 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   defp invoke_runtime_expr(state, fun, args) do
     case var_ref_fun_call(fun, length(args)) do
-      {:ok, _helper, idx, _argc} ->
-        {helper_fun, _} = var_ref_fun_and_arity(fun)
+      {:ok, helper, idx, argc} when argc in 0..3 ->
+        Builder.local_call(helper, [ctx_expr(state), idx | args])
 
-        Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_runtime, [
-          ctx_expr(state),
-          Builder.remote_call(QuickBEAM.VM.Compiler.RuntimeHelpers, helper_fun, [
-            ctx_expr(state),
-            idx
-          ]),
-          Builder.list_expr(args)
-        ])
+      {:ok, helper, idx, _argc} ->
+        Builder.local_call(helper, [ctx_expr(state), idx, Builder.list_expr(args)])
 
       :error ->
         compiler_call(state, :invoke_runtime, [fun, Builder.list_expr(args)])
