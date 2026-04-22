@@ -89,12 +89,11 @@ defmodule QuickBEAM.VM.Heap.Shapes do
         }
 
         put_shape(new_id, new_shape)
-        put_shape(shape_id, %{shape | transitions: Map.put(shape.transitions, key, new_id)})
+        put_shape(shape_id, %{shape | transitions: Map.put(shape.transitions, key, {new_id, new_offsets})})
         {new_id, new_offsets, offset}
 
-      child_id ->
-        child = get_shape(child_id)
-        {child_id, child.offsets, offset}
+      {child_id, child_offsets} ->
+        {child_id, child_offsets, offset}
     end
   end
 
