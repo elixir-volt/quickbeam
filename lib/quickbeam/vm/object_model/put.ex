@@ -60,6 +60,16 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
+  def put_field({:obj, ref}, key, val) do
+    case Process.get(ref) do
+      {:shape, shape_id, offsets, vals, proto} ->
+        shape_put(ref, shape_id, offsets, vals, proto, key, val)
+
+      _ ->
+        put({:obj, ref}, key, val)
+    end
+  end
+
   def put({:obj, ref} = obj, key, val) do
     key = normalize_key(key)
 

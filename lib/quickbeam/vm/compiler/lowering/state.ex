@@ -457,7 +457,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
          state
          | body:
              state.body ++
-               [Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put, [obj, key_expr, val])],
+               [Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put_field, [obj, key_expr, val])],
            stack: [obj | state.stack],
            stack_types: [:object | state.stack_types]
        }}
