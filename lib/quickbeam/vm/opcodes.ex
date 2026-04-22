@@ -36,10 +36,10 @@ defmodule QuickBEAM.VM.Opcodes do
     def unquote(:"bc_tag_#{name}")(), do: unquote(val)
   end
 
-  @bc_version 24
+  @bc_version 25
   def bc_version, do: @bc_version
 
-  @js_atom_end 229
+  @js_atom_end 230
   def js_atom_end, do: @js_atom_end
 
   # Opcode format types — determine how operand bytes are decoded
