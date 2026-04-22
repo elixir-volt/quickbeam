@@ -43,7 +43,10 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   end
 
   def enumerable_string_props({:obj, ref} = source_obj) do
-    case Heap.get_obj(ref, %{}) do
+    case Heap.get_obj_raw(ref) do
+      {:shape, shape_id, _offsets, vals, _proto} ->
+        Heap.Shapes.to_map(shape_id, vals, nil)
+
       {:qb_arr, _} ->
         Enum.reduce(0..max(Heap.array_size(ref) - 1, 0), %{}, fn i, acc ->
           Map.put(acc, Integer.to_string(i), Get.get(source_obj, Integer.to_string(i)))
@@ -72,7 +75,19 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   def enumerable_string_props(_), do: %{}
 
   def enumerable_keys({:obj, ref} = obj) do
-    case Heap.get_obj(ref, %{}) do
+    case Heap.get_obj_raw(ref) do
+      {:shape, shape_id, _offsets, _vals, proto} ->
+        own_keys = Heap.Shapes.keys(shape_id) |> Enum.filter(&enumerable_key_candidate?/1)
+        proto_keys = enumerable_proto_keys(proto)
+        Runtime.sort_numeric_keys(own_keys ++ Enum.reject(proto_keys, &(&1 in own_keys)))
+
+      raw ->
+        enumerable_keys_from_raw(obj, ref, raw)
+    end
+  end
+
+  defp enumerable_keys_from_raw(obj, ref, raw) do
+    case raw || %{} do
       %{proxy_target() => _target, proxy_handler() => handler} ->
         own_keys_fn = Get.get(handler, "ownKeys")
 

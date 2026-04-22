@@ -76,7 +76,12 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   def length_of(obj) do
     case obj do
       {:obj, ref} ->
-        case Heap.get_obj(ref) do
+        case Heap.get_obj_raw(ref) do
+          {:shape, _, offsets, vals, _} ->
+            case Map.fetch(offsets, "length") do
+              {:ok, off} -> elem(vals, off)
+              :error -> map_size(offsets)
+            end
           {:qb_arr, arr} -> :array.size(arr)
           list when is_list(list) -> length(list)
           map when is_map(map) -> Map.get(map, "length", map_size(map))
