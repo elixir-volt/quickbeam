@@ -159,9 +159,12 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     a = var("A")
     b = var("B")
 
+    same = var("Same")
     {:function, @line, :op_eq, 2,
      [
+       {:clause, @line, [same, same], [], [{:atom, @line, true}]},
        {:clause, @line, [a, b], [number_guards(a, b)], [{:op, @line, :==, a, b}]},
+       {:clause, @line, [a, b], [[{:op, @line, :andalso, {:call, @line, {:atom, @line, :is_binary}, [a]}, {:call, @line, {:atom, @line, :is_binary}, [b]}}]], [{:op, @line, :==, a, b}]},
        {:clause, @line, [a, b], [], [remote_call(Values, :eq, [a, b])]}
      ]}
   end
