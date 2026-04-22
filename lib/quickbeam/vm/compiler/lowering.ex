@@ -316,6 +316,17 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
                 keys_tuple = {:tuple, @line, keys_list}
                 vals_tuple = {:tuple, @line, vals_list}
 
+                # Build compile-time offsets map from sorted key names
+                ct_offsets = sorted_pairs
+                |> Enum.with_index()
+                |> Enum.reduce(%{}, fn {{k_expr, _v}, idx}, acc ->
+                  key_str = case k_expr do
+                    {:bin, _, [{:bin_element, _, {:string, _, chars}, _, _}]} -> List.to_string(chars)
+                    _ -> nil
+                  end
+                  if key_str, do: Map.put(acc, key_str, idx), else: acc
+                end)
+
                 {obj, state} =
                   State.bind(
                     state,
@@ -325,7 +336,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
 
                 lower_block(
                   instructions, skip_to, next_entry, arg_count,
-                  State.push(state, obj, :object),
+                  State.push(state, obj, {:shaped_object, ct_offsets}),
                   stack_depths, constants, entries, inline_targets
                 )
 

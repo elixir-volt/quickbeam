@@ -84,7 +84,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
             Builder.remote_call(QuickBEAM.VM.Heap, :wrap, [Builder.literal(%{})])
           )
 
-        {:ok, State.push(state, obj, :object)}
+        {:ok, State.push(state, obj, {:shaped_object, %{}})}
 
       {{:ok, :array_from}, [argc]} ->
         State.array_from_call(state, argc)

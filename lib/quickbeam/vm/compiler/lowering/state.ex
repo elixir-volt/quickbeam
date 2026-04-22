@@ -357,10 +357,46 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   end
 
   def get_field_call(state, key_expr) do
-    with {:ok, obj, _type, state} <- pop_typed(state) do
-      {:ok, push(state, Builder.local_call(:op_get_field, [obj, key_expr]))}
+    with {:ok, obj, type, state} <- pop_typed(state) do
+      key_str = extract_literal_string(key_expr)
+
+      case {type, key_str} do
+        {{:shaped_object, offsets}, key} when is_binary(key) and is_map_key(offsets, key) ->
+          offset = Map.fetch!(offsets, key)
+          # Emit: case Obj of {:obj, Id} -> case :erlang.get(Id) of {:shape, _, _, Vals, _} -> element(Off+1, Vals) end end
+          id_var = Builder.var(Builder.temp_name(state.temp))
+          vals_var = Builder.var(Builder.temp_name(state.temp + 1))
+          state = %{state | temp: state.temp + 2}
+
+          access_expr = {:case, @line, obj, [
+            {:clause, @line, [{:tuple, @line, [{:atom, @line, :obj}, id_var]}], [], [
+              {:case, @line,
+                {:call, @line, {:remote, @line, {:atom, @line, :erlang}, {:atom, @line, :get}}, [id_var]},
+                [
+                  {:clause, @line,
+                    [{:tuple, @line, [{:atom, @line, :shape}, {:var, @line, :_}, {:var, @line, :_}, vals_var, {:var, @line, :_}]}],
+                    [],
+                    [{:call, @line, {:remote, @line, {:atom, @line, :erlang}, {:atom, @line, :element}},
+                      [{:integer, @line, offset + 1}, vals_var]}]},
+                  {:clause, @line, [{:var, @line, :_}], [],
+                    [Builder.local_call(:op_get_field, [obj, key_expr])]}
+                ]}
+            ]},
+            {:clause, @line, [{:var, @line, :_}], [],
+              [Builder.local_call(:op_get_field, [obj, key_expr])]}
+          ]}
+
+          {:ok, push(state, access_expr)}
+
+        _ ->
+          {:ok, push(state, Builder.local_call(:op_get_field, [obj, key_expr]))}
+      end
     end
   end
+
+  defp extract_literal_string({:bin, _, [{:bin_element, _, {:string, _, chars}, _, _}]}),
+    do: List.to_string(chars)
+  defp extract_literal_string(_), do: nil
 
   def get_field2(state, key_expr) do
     with {:ok, obj, _type, state} <- pop_typed(state) do
@@ -451,7 +487,19 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   def define_field_name_call(state, key_expr) do
     with {:ok, val, _val_type, state} <- pop_typed(state),
-         {:ok, obj, _obj_type, state} <- pop_typed(state) do
+         {:ok, obj, obj_type, state} <- pop_typed(state) do
+      key_str = extract_literal_string(key_expr)
+
+      new_type =
+        case {obj_type, key_str} do
+          {{:shaped_object, offsets}, k} when is_binary(k) ->
+            new_offset = map_size(offsets)
+            {:shaped_object, Map.put(offsets, k, new_offset)}
+
+          _ ->
+            :object
+        end
+
       {:ok,
        %{
          state
@@ -459,7 +507,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
              state.body ++
                [Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put_field, [obj, key_expr, val])],
            stack: [obj | state.stack],
-           stack_types: [:object | state.stack_types]
+           stack_types: [new_type | state.stack_types]
        }}
     end
   end
