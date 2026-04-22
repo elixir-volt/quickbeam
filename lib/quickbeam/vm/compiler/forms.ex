@@ -61,7 +61,8 @@ defmodule QuickBEAM.VM.Compiler.Forms do
       strict_eq_helper(),
       strict_neq_helper(),
       guarded_unary_helper(:op_neg, :-, Values, :neg),
-      unary_fallback_helper(:op_plus, Values, :to_number)
+      unary_fallback_helper(:op_plus, Values, :to_number),
+      get_field_inline_helper()
       | invoke_var_ref_runtime_helpers()
     ]
   end
@@ -224,6 +225,51 @@ defmodule QuickBEAM.VM.Compiler.Forms do
      [
        {:bin_element, @line, left, :default, [:binary]},
        {:bin_element, @line, right, :default, [:binary]}
+     ]}
+  end
+
+  defp get_field_inline_helper do
+    obj = var("Obj")
+    key = var("Key")
+    id = var("Id")
+    offsets = var("Offsets")
+    vals = var("Vals")
+    off = var("Off")
+    wild = var("_")
+    obj2 = var("Obj2")
+    key2 = var("Key2")
+
+    shape_match = {:tuple, @line, [{:atom, @line, :shape}, wild, offsets, vals, wild]}
+    obj_tuple = {:tuple, @line, [{:atom, @line, :obj}, id]}
+
+    {:function, @line, :op_get_field, 2,
+     [
+       {:clause, @line, [obj_tuple, key], [],
+        [
+          {:case, @line,
+           {:call, @line, {:remote, @line, {:atom, @line, :erlang}, {:atom, @line, :get}}, [id]},
+           [
+             {:clause, @line, [shape_match], [],
+              [
+                {:case, @line,
+                 {:call, @line, {:remote, @line, {:atom, @line, :maps}, {:atom, @line, :find}},
+                  [key, offsets]},
+                 [
+                   {:clause, @line, [{:tuple, @line, [{:atom, @line, :ok}, off]}], [],
+                    [
+                      {:call, @line, {:remote, @line, {:atom, @line, :erlang}, {:atom, @line, :element}},
+                       [{:op, @line, :+, off, {:integer, @line, 1}}, vals]}
+                    ]},
+                   {:clause, @line, [{:atom, @line, :error}], [],
+                    [remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [obj_tuple, key])]}
+                 ]}
+              ]},
+             {:clause, @line, [wild], [],
+              [remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [obj_tuple, key])]}
+           ]}
+        ]},
+       {:clause, @line, [obj2, key2], [],
+        [remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [obj2, key2])]}
      ]}
   end
 

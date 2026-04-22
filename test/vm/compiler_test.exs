@@ -162,9 +162,9 @@ defmodule QuickBEAM.VM.CompilerTest do
       block = beam_function_instructions(beam_file, :block_0)
 
       assert Enum.any?(block, fn
-               {:call_ext, 2, {:extfunc, QuickBEAM.VM.ObjectModel.Get, :get, 2}} -> true
-               {:call_ext_only, 2, {:extfunc, QuickBEAM.VM.ObjectModel.Get, :get, 2}} -> true
-               {:call_ext_last, 2, {:extfunc, QuickBEAM.VM.ObjectModel.Get, :get, 2}, _} -> true
+               {:call, 2, {_, :op_get_field, 2}} -> true
+               {:call_only, 2, {_, :op_get_field, 2}} -> true
+               {:call_last, 2, {_, :op_get_field, 2}, _} -> true
                _ -> false
              end)
 
