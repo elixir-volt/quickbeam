@@ -10,7 +10,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   @compile {:inline, has_property: 2, get_element: 2, set_list_at: 3}
 
   defp shape_put(ref, shape_id, offsets, vals, proto, key, val) do
-    case Heap.Shapes.lookup(shape_id, key) do
+    case Map.fetch(offsets, key) do
       {:ok, offset} ->
         Heap.put_obj_raw(ref, {:shape, shape_id, offsets, Heap.Shapes.put_val(vals, offset, val), proto})
 
@@ -24,7 +24,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   def put({:obj, ref} = _obj, "length", val) do
     case Heap.get_obj_raw(ref) do
       {:shape, shape_id, offsets, vals, proto} ->
-        case Heap.Shapes.lookup(shape_id, "length") do
+        case Map.fetch(offsets, "length") do
           {:ok, offset} ->
             new_vals = Heap.Shapes.put_val(vals, offset, val)
             Heap.put_obj_raw(ref, {:shape, shape_id, offsets, new_vals, proto})

@@ -27,7 +27,7 @@ defmodule QuickBEAM.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :inets, :ssl, :public_key, :xmerl],
+      extra_applications: [:logger, :inets, :ssl, :public_key, :xmerl, :tools, :runtime_tools],
       mod: {QuickBEAM.Application, []}
     ]
   end

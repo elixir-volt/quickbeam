@@ -38,7 +38,7 @@ defmodule QuickBEAM.VM.Heap.Store do
   def put_obj_key(ref, key, val), do: put_obj_key(ref, get_obj_raw(ref), key, val)
 
   def put_obj_key(ref, {:shape, shape_id, offsets, vals, proto}, key, val) do
-    case Shapes.lookup(shape_id, key) do
+    case Map.fetch(offsets, key) do
       {:ok, offset} ->
         new_vals = Shapes.put_val(vals, offset, val)
         Process.put({:qb_obj, ref}, {:shape, shape_id, offsets, new_vals, proto})
