@@ -9,7 +9,7 @@ defmodule QuickBEAM.VM.Heap.Shapes do
 
   Shape-backed objects are stored as
       {:shape, shape_id, offsets_map, values_tuple, proto_ref}
-  in the process dictionary under `{:qb_obj, ref}`.
+  in the process dictionary under the object's integer ID key.
 
   Objects that gain accessors, internal keys, or otherwise become
   non-plain deopt back to regular maps.

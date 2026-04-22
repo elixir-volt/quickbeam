@@ -6,32 +6,32 @@ defmodule QuickBEAM.VM.Heap.Store do
 
   # ── Raw storage (bypasses shape→map reconstruction) ──
 
-  def get_obj_raw(ref), do: Process.get({:qb_obj, ref})
-  def put_obj_raw(ref, val), do: Process.put({:qb_obj, ref}, val)
+  def get_obj_raw(ref), do: Process.get(ref)
+  def put_obj_raw(ref, val), do: Process.put(ref, val)
 
   # ── Object access (map-compatible, reconstructs shapes) ──
 
   def get_obj(ref) do
-    case Process.get({:qb_obj, ref}) do
+    case Process.get(ref) do
       {:shape, shape_id, _offsets, vals, proto} -> Shapes.to_map(shape_id, vals, proto)
       other -> other
     end
   end
 
   def get_obj(ref, default) do
-    case Process.get({:qb_obj, ref}, default) do
+    case Process.get(ref, default) do
       {:shape, shape_id, _offsets, vals, proto} -> Shapes.to_map(shape_id, vals, proto)
       other -> other
     end
   end
 
   def put_obj(ref, list) when is_list(list) do
-    Process.put({:qb_obj, ref}, {:qb_arr, :array.from_list(list, :undefined)})
+    Process.put(ref, {:qb_arr, :array.from_list(list, :undefined)})
     track_alloc()
   end
 
   def put_obj(ref, val) do
-    Process.put({:qb_obj, ref}, val)
+    Process.put(ref, val)
     track_alloc()
   end
 
@@ -41,12 +41,12 @@ defmodule QuickBEAM.VM.Heap.Store do
     case Map.fetch(offsets, key) do
       {:ok, offset} ->
         new_vals = Shapes.put_val(vals, offset, val)
-        Process.put({:qb_obj, ref}, {:shape, shape_id, offsets, new_vals, proto})
+        Process.put(ref, {:shape, shape_id, offsets, new_vals, proto})
 
       :error ->
         {new_shape_id, new_offsets, offset} = Shapes.transition(shape_id, key)
         new_vals = Shapes.put_val(vals, offset, val)
-        Process.put({:qb_obj, ref}, {:shape, new_shape_id, new_offsets, new_vals, proto})
+        Process.put(ref, {:shape, new_shape_id, new_offsets, new_vals, proto})
     end
   end
 
@@ -59,15 +59,15 @@ defmodule QuickBEAM.VM.Heap.Store do
         Map.put(map, key, val)
       end
 
-    Process.put({:qb_obj, ref}, new_map)
+    Process.put(ref, new_map)
   end
 
   def put_obj_key(ref, _other, key, val) do
-    Process.put({:qb_obj, ref}, %{key => val})
+    Process.put(ref, %{key => val})
   end
 
   def update_obj(ref, default, fun) do
-    current = Process.get({:qb_obj, ref}, default)
+    current = Process.get(ref, default)
 
     current_map =
       case current do
@@ -76,20 +76,20 @@ defmodule QuickBEAM.VM.Heap.Store do
       end
 
     result = fun.(current_map)
-    Process.put({:qb_obj, ref}, result)
+    Process.put(ref, result)
   end
 
   # ── Array helpers ──
 
   def obj_is_array?(ref) do
-    case Process.get({:qb_obj, ref}) do
+    case Process.get(ref) do
       {:qb_arr, _} -> true
       _ -> false
     end
   end
 
   def obj_to_list(ref) do
-    case Process.get({:qb_obj, ref}) do
+    case Process.get(ref) do
       {:qb_arr, arr} -> :array.to_list(arr)
       list when is_list(list) -> list
       _ -> []
@@ -97,7 +97,7 @@ defmodule QuickBEAM.VM.Heap.Store do
   end
 
   def array_get(ref, idx) do
-    case Process.get({:qb_obj, ref}) do
+    case Process.get(ref) do
       {:qb_arr, arr} when idx >= 0 ->
         if idx < :array.size(arr), do: :array.get(idx, arr), else: :undefined
 
@@ -107,7 +107,7 @@ defmodule QuickBEAM.VM.Heap.Store do
   end
 
   def array_size(ref) do
-    case Process.get({:qb_obj, ref}) do
+    case Process.get(ref) do
       {:qb_arr, arr} -> :array.size(arr)
       list when is_list(list) -> length(list)
       _ -> 0
@@ -115,7 +115,7 @@ defmodule QuickBEAM.VM.Heap.Store do
   end
 
   def array_push(ref, values) do
-    case Process.get({:qb_obj, ref}) do
+    case Process.get(ref) do
       {:qb_arr, arr} ->
         new_arr =
           Enum.reduce(values, {:array.size(arr), arr}, fn value, {idx, array} ->
@@ -123,7 +123,7 @@ defmodule QuickBEAM.VM.Heap.Store do
           end)
           |> elem(1)
 
-        Process.put({:qb_obj, ref}, {:qb_arr, new_arr})
+        Process.put(ref, {:qb_arr, new_arr})
         :array.size(new_arr)
 
       _ ->
@@ -132,8 +132,8 @@ defmodule QuickBEAM.VM.Heap.Store do
   end
 
   def array_set(ref, idx, val) do
-    case Process.get({:qb_obj, ref}) do
-      {:qb_arr, arr} -> Process.put({:qb_obj, ref}, {:qb_arr, :array.set(idx, val, arr)})
+    case Process.get(ref) do
+      {:qb_arr, arr} -> Process.put(ref, {:qb_arr, :array.set(idx, val, arr)})
       _ -> :ok
     end
   end
@@ -181,6 +181,14 @@ defmodule QuickBEAM.VM.Heap.Store do
 
   def get_prop_desc(ref, key), do: Process.get({:qb_prop_desc, ref, key})
   def put_prop_desc(ref, key, desc), do: Process.put({:qb_prop_desc, ref, key}, desc)
+
+  # ── Object ID allocation ──
+
+  def next_id do
+    id = Process.get(:qb_next_id, 1)
+    Process.put(:qb_next_id, id + 1)
+    id
+  end
 
   defp track_alloc do
     count = Process.get(:qb_alloc_count, 0) + 1

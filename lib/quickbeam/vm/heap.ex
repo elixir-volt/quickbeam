@@ -9,7 +9,7 @@ defmodule QuickBEAM.VM.Heap do
 
   ## Storage keys
 
-    - `{:qb_obj, ref}` — JS object/array properties
+    - `integer_id` — JS object/array properties (raw integer keys)
     - `{:qb_cell, ref}` — closure variable cells
     - `{:qb_class_proto, ctor}` — class prototype objects
     - `{:qb_parent_ctor, ctor}` — parent constructor references
@@ -68,9 +68,9 @@ defmodule QuickBEAM.VM.Heap do
   end
 
   def wrap(data) do
-    ref = make_ref()
-    put_obj(ref, data)
-    {:obj, ref}
+    id = Store.next_id()
+    put_obj(id, data)
+    {:obj, id}
   end
 
   defp wrap_map(map, proto) do
@@ -79,22 +79,22 @@ defmodule QuickBEAM.VM.Heap do
         wrap_shaped(shape_id, offsets, vals, proto)
 
       :ineligible ->
-        ref = make_ref()
+        id = Store.next_id()
         data = if proto, do: Map.put(map, "__proto__", proto), else: map
-        put_obj(ref, data)
-        {:obj, ref}
+        put_obj(id, data)
+        {:obj, id}
     end
   end
 
   @doc "Fast allocation with a pre-resolved shape. Skips eligibility check and key sorting."
   def wrap_shaped(shape_id, offsets, vals, proto) do
-    ref = make_ref()
-    Store.put_obj_raw(ref, {:shape, shape_id, offsets, vals, proto})
-    {:obj, ref}
+    id = Store.next_id()
+    Store.put_obj_raw(id, {:shape, shape_id, offsets, vals, proto})
+    {:obj, id}
   end
 
   def to_list({:obj, ref}) do
-    case Process.get({:qb_obj, ref}, []) do
+    case Process.get(ref, []) do
       {:qb_arr, arr} ->
         :array.to_list(arr)
 
@@ -264,7 +264,7 @@ defmodule QuickBEAM.VM.Heap do
   def reset do
     for key <- Process.get_keys() do
       case key do
-        {:qb_obj, _} -> Process.delete(key)
+        id when is_integer(id) and id > 0 -> Process.delete(key)
         {:qb_cell, _} -> Process.delete(key)
         {:qb_class_proto, _} -> Process.delete(key)
         {:qb_func_proto, _} -> Process.delete(key)
@@ -289,6 +289,7 @@ defmodule QuickBEAM.VM.Heap do
         :qb_ctx -> Process.delete(key)
         :qb_gc_needed -> Process.delete(key)
         :qb_alloc_count -> Process.delete(key)
+        :qb_next_id -> Process.delete(key)
         :qb_object_prototype -> Process.delete(key)
         :qb_global_bindings_cache -> Process.delete(key)
         :qb_base_globals_cache -> Process.delete(key)
@@ -318,7 +319,7 @@ defmodule QuickBEAM.VM.Heap do
   defp mark([], visited), do: visited
 
   defp mark([{:obj, ref} | rest], visited) do
-    mark_ref({:qb_obj, ref}, rest, visited, fn
+    mark_ref(ref, rest, visited, fn
       {:shape, _shape_id, _offsets, vals, proto} ->
         Tuple.to_list(vals) ++ [proto]
 
@@ -400,7 +401,7 @@ defmodule QuickBEAM.VM.Heap do
     end
   end
 
-  defp heap_key?({:qb_obj, _}), do: true
+  defp heap_key?(key) when is_integer(key) and key > 0, do: true
   defp heap_key?({:qb_cell, _}), do: true
   defp heap_key?(_), do: false
 
