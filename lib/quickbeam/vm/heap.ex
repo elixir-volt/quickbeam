@@ -59,21 +59,22 @@ defmodule QuickBEAM.VM.Heap do
   # ── Convenience constructors ──
 
   def wrap(data) when is_map(data) do
-    ref = make_ref()
+    if is_map_key(data, "__proto__") do
+      {proto, rest} = Map.pop!(data, "__proto__")
+      wrap_map(rest, proto)
+    else
+      wrap_map(data, nil)
+    end
+  end
 
-    {proto, rest} =
-      case Map.pop(data, "__proto__", :missing) do
-        {:missing, rest} -> {nil, rest}
-        {proto, rest} -> {proto, rest}
-      end
-
-    case Shapes.from_map(rest) do
+  defp wrap_map(map, proto) do
+    case Shapes.from_map(map) do
       {:ok, shape_id, vals} ->
-        Store.put_obj_raw(ref, {:shape, shape_id, vals, proto})
-        {:obj, ref}
+        wrap_shaped(shape_id, vals, proto)
 
       :ineligible ->
-        data = if proto, do: Map.put(rest, "__proto__", proto), else: rest
+        ref = make_ref()
+        data = if proto, do: Map.put(map, "__proto__", proto), else: map
         put_obj(ref, data)
         {:obj, ref}
     end
@@ -82,6 +83,13 @@ defmodule QuickBEAM.VM.Heap do
   def wrap(data) do
     ref = make_ref()
     put_obj(ref, data)
+    {:obj, ref}
+  end
+
+  @doc "Fast allocation with a pre-resolved shape. Skips eligibility check and key sorting."
+  def wrap_shaped(shape_id, vals, proto) do
+    ref = make_ref()
+    Store.put_obj_raw(ref, {:shape, shape_id, vals, proto})
     {:obj, ref}
   end
 

@@ -101,32 +101,56 @@ defmodule QuickBEAM.VM.Heap.Shapes do
   Convert a plain map (without `__proto__`) into a shape and values tuple.
   Returns `{:ok, shape_id, values_tuple}` or `:ineligible`.
   """
+  def from_map(map) when is_map(map) and map_size(map) == 0 do
+    {:ok, @empty_shape, {}}
+  end
+
   def from_map(map) when is_map(map) do
-    if eligible?(map) do
-      string_keys =
-        map
-        |> Map.keys()
-        |> Enum.filter(&is_binary/1)
-        |> Enum.sort()
+    case resolve_shape_for_map(map) do
+      shape_id when is_integer(shape_id) ->
+        # For flatmaps (≤32 keys), :maps.values returns values in sorted
+        # key order — same order as the shape's offsets. No per-key lookup needed.
+        {:ok, shape_id, :erlang.list_to_tuple(:maps.values(map))}
 
-      {shape_id, _offsets} =
-        Enum.reduce(string_keys, {@empty_shape, %{}}, fn key, {sid, _acc} ->
-          {new_sid, offset} = transition(sid, key)
-          {new_sid, offset}
-        end)
-
-      vals =
-        string_keys
-        |> Enum.map(&Map.fetch!(map, &1))
-        |> List.to_tuple()
-
-      {:ok, shape_id, vals}
-    else
-      :ineligible
+      :ineligible ->
+        :ineligible
     end
   end
 
   def from_map(_), do: :ineligible
+
+  defp resolve_shape_for_map(map) do
+    size = map_size(map)
+    cache_key = {:qb_shape_cache, size, :erlang.phash2(:maps.keys(map))}
+
+    case Process.get(cache_key) do
+      nil ->
+        case build_shape(map) do
+          :ineligible -> :ineligible
+          shape_id -> Process.put(cache_key, shape_id); shape_id
+        end
+
+      shape_id ->
+        shape_id
+    end
+  end
+
+  defp build_shape(map) do
+    keys = :maps.keys(map)
+
+    if Enum.all?(keys, &(is_binary(&1) and not internal_key?(&1))) and
+         Enum.all?(:maps.values(map), &simple_value?/1) do
+      # For flatmaps, keys are already sorted
+      {shape_id, _} =
+        Enum.reduce(keys, {@empty_shape, 0}, fn key, {sid, _} ->
+          transition(sid, key)
+        end)
+
+      shape_id
+    else
+      :ineligible
+    end
+  end
 
   @doc "Reconstruct a plain map from a shape-backed representation."
   def to_map(shape_id, vals, proto) do
