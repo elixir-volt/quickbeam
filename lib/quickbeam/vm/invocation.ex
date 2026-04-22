@@ -146,8 +146,6 @@ defmodule QuickBEAM.VM.Invocation do
           | current_func: closure,
             arg_buf: List.to_tuple(nargs),
             atoms: atoms || ctx.atoms,
-            home_object: :undefined,
-            super: :undefined,
             pd_synced: false
         }
 
