@@ -110,11 +110,11 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp get_own({:obj, ref}, key) do
     case Heap.get_obj_raw(ref) do
-      {:shape, _shape_id, _vals, proto} when key == "__proto__" ->
+      {:shape, _shape_id, _offsets, _vals, proto} when key == "__proto__" ->
         if proto, do: proto, else: :undefined
 
-      {:shape, shape_id, vals, _proto} ->
-        case Heap.Shapes.lookup(shape_id, key) do
+      {:shape, _shape_id, offsets, vals, _proto} ->
+        case Map.fetch(offsets, key) do
           {:ok, offset} -> elem(vals, offset)
           :error -> :undefined
         end
@@ -276,12 +276,12 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp get_prototype_raw({:obj, ref}, key) do
     case Heap.get_obj_raw(ref) do
-      {:shape, _shape_id, _vals, proto} ->
+      {:shape, _shape_id, _offsets, _vals, proto} ->
         case proto do
           {:obj, pref} ->
             case Heap.get_obj_raw(pref) do
-              {:shape, proto_shape_id, proto_vals, _proto_next} ->
-                case Heap.Shapes.lookup(proto_shape_id, key) do
+              {:shape, _proto_shape_id, proto_offsets, proto_vals, _proto_next} ->
+                case Map.fetch(proto_offsets, key) do
                   {:ok, offset} -> elem(proto_vals, offset)
                   :error -> get_prototype_raw(proto, key)
                 end

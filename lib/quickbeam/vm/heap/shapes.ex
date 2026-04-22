@@ -8,7 +8,7 @@ defmodule QuickBEAM.VM.Heap.Shapes do
   O(log n) map lookup.
 
   Shape-backed objects are stored as
-      {:shape, shape_id, values_tuple, proto_ref}
+      {:shape, shape_id, offsets_map, values_tuple, proto_ref}
   in the process dictionary under `{:qb_obj, ref}`.
 
   Objects that gain accessors, internal keys, or otherwise become
@@ -44,7 +44,7 @@ defmodule QuickBEAM.VM.Heap.Shapes do
     id
   end
 
-  defp get_shape(id) do
+  def get_shape(id) do
     Map.fetch!(shape_table(), id)
   end
 
@@ -102,15 +102,13 @@ defmodule QuickBEAM.VM.Heap.Shapes do
   Returns `{:ok, shape_id, values_tuple}` or `:ineligible`.
   """
   def from_map(map) when is_map(map) and map_size(map) == 0 do
-    {:ok, @empty_shape, {}}
+    {:ok, @empty_shape, %{}, {}}
   end
 
   def from_map(map) when is_map(map) do
     case resolve_shape_for_map(map) do
-      shape_id when is_integer(shape_id) ->
-        # For flatmaps (≤32 keys), :maps.values returns values in sorted
-        # key order — same order as the shape's offsets. No per-key lookup needed.
-        {:ok, shape_id, :erlang.list_to_tuple(:maps.values(map))}
+      {shape_id, offsets} ->
+        {:ok, shape_id, offsets, :erlang.list_to_tuple(:maps.values(map))}
 
       :ineligible ->
         :ineligible
@@ -126,14 +124,17 @@ defmodule QuickBEAM.VM.Heap.Shapes do
     case Process.get(cache_key) do
       nil ->
         case build_shape(map) do
-          :ineligible -> :ineligible
+          :ineligible ->
+            :ineligible
+
           shape_id ->
-            Process.put(cache_key, shape_id)
-            shape_id
+            offsets = get_shape(shape_id).offsets
+            Process.put(cache_key, {shape_id, offsets})
+            {shape_id, offsets}
         end
 
-      shape_id ->
-        shape_id
+      result ->
+        result
     end
   end
 
@@ -169,7 +170,7 @@ defmodule QuickBEAM.VM.Heap.Shapes do
   end
 
   @doc "Check whether a stored heap value is shape-backed."
-  def shape?({:shape, _, _, _}), do: true
+  def shape?({:shape, _, _, _, _}), do: true
   def shape?(_), do: false
 
   @doc "Grow or update a values tuple at `offset`."

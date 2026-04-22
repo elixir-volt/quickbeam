@@ -13,14 +13,14 @@ defmodule QuickBEAM.VM.Heap.Store do
 
   def get_obj(ref) do
     case Process.get({:qb_obj, ref}) do
-      {:shape, shape_id, vals, proto} -> Shapes.to_map(shape_id, vals, proto)
+      {:shape, shape_id, _offsets, vals, proto} -> Shapes.to_map(shape_id, vals, proto)
       other -> other
     end
   end
 
   def get_obj(ref, default) do
     case Process.get({:qb_obj, ref}, default) do
-      {:shape, shape_id, vals, proto} -> Shapes.to_map(shape_id, vals, proto)
+      {:shape, shape_id, _offsets, vals, proto} -> Shapes.to_map(shape_id, vals, proto)
       other -> other
     end
   end
@@ -37,16 +37,17 @@ defmodule QuickBEAM.VM.Heap.Store do
 
   def put_obj_key(ref, key, val), do: put_obj_key(ref, get_obj_raw(ref), key, val)
 
-  def put_obj_key(ref, {:shape, shape_id, vals, proto}, key, val) do
+  def put_obj_key(ref, {:shape, shape_id, offsets, vals, proto}, key, val) do
     case Shapes.lookup(shape_id, key) do
       {:ok, offset} ->
         new_vals = Shapes.put_val(vals, offset, val)
-        Process.put({:qb_obj, ref}, {:shape, shape_id, new_vals, proto})
+        Process.put({:qb_obj, ref}, {:shape, shape_id, offsets, new_vals, proto})
 
       :error ->
         {new_shape_id, offset} = Shapes.transition(shape_id, key)
         new_vals = Shapes.put_val(vals, offset, val)
-        Process.put({:qb_obj, ref}, {:shape, new_shape_id, new_vals, proto})
+        new_offsets = Shapes.get_shape(new_shape_id).offsets
+        Process.put({:qb_obj, ref}, {:shape, new_shape_id, new_offsets, new_vals, proto})
     end
   end
 
@@ -71,7 +72,7 @@ defmodule QuickBEAM.VM.Heap.Store do
 
     current_map =
       case current do
-        {:shape, shape_id, vals, proto} -> Shapes.to_map(shape_id, vals, proto)
+        {:shape, shape_id, _offsets, vals, proto} -> Shapes.to_map(shape_id, vals, proto)
         other -> other
       end
 

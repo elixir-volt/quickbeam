@@ -75,8 +75,8 @@ defmodule QuickBEAM.VM.Heap do
 
   defp wrap_map(map, proto) do
     case Shapes.from_map(map) do
-      {:ok, shape_id, vals} ->
-        wrap_shaped(shape_id, vals, proto)
+      {:ok, shape_id, offsets, vals} ->
+        wrap_shaped(shape_id, offsets, vals, proto)
 
       :ineligible ->
         ref = make_ref()
@@ -87,9 +87,9 @@ defmodule QuickBEAM.VM.Heap do
   end
 
   @doc "Fast allocation with a pre-resolved shape. Skips eligibility check and key sorting."
-  def wrap_shaped(shape_id, vals, proto) do
+  def wrap_shaped(shape_id, offsets, vals, proto) do
     ref = make_ref()
-    Store.put_obj_raw(ref, {:shape, shape_id, vals, proto})
+    Store.put_obj_raw(ref, {:shape, shape_id, offsets, vals, proto})
     {:obj, ref}
   end
 
@@ -101,7 +101,7 @@ defmodule QuickBEAM.VM.Heap do
       list when is_list(list) ->
         list
 
-      {:shape, _shape_id, _vals, _proto} ->
+      {:shape, _shape_id, _offsets, _vals, _proto} ->
         []
 
       map when is_map(map) ->
@@ -319,7 +319,7 @@ defmodule QuickBEAM.VM.Heap do
 
   defp mark([{:obj, ref} | rest], visited) do
     mark_ref({:qb_obj, ref}, rest, visited, fn
-      {:shape, _shape_id, vals, proto} ->
+      {:shape, _shape_id, _offsets, vals, proto} ->
         Tuple.to_list(vals) ++ [proto]
 
       map when is_map(map) ->
