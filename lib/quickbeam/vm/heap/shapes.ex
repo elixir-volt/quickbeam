@@ -178,10 +178,14 @@ defmodule QuickBEAM.VM.Heap.Shapes do
     put_elem(vals, offset, val)
   end
 
+  def put_val(vals, offset, val) when offset == tuple_size(vals) do
+    :erlang.append_element(vals, val)
+  end
+
   def put_val(vals, offset, val) do
-    list = Tuple.to_list(vals)
-    padded = list ++ List.duplicate(:undefined, offset - length(list))
-    List.to_tuple(padded ++ [val])
+    padding = offset - tuple_size(vals)
+    padded = Enum.reduce(1..padding, vals, fn _, acc -> :erlang.append_element(acc, :undefined) end)
+    :erlang.append_element(padded, val)
   end
 
   # ── Eligibility ──
