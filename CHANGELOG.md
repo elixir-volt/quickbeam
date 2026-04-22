@@ -1,5 +1,17 @@
 # Changelog
 
+
+## 0.10.3
+
+- Widen OXC dep to >= 0.7.0 (supports OXC 0.10 with codegen, bind, splice, and bundle :external option)
+
+## 0.10.2
+
+- Allow oxc ~> 0.9 (adds OXC.Format support)
+
+## 0.10.1
+
+- Allow oxc ~> 0.8 (adds OXC.Lint support)
 ## 0.10.0
 
 ### Added
