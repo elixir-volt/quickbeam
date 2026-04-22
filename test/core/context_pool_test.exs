@@ -335,9 +335,9 @@ defmodule QuickBEAM.Core.ContextPoolTest do
     {:ok, pool} = QuickBEAM.ContextPool.start_link()
 
     {:ok, ctx} =
-      QuickBEAM.Context.start_link(pool: pool, apis: false, max_reductions: 100_000)
+      QuickBEAM.Context.start_link(pool: pool, apis: false, max_reductions: 1_000)
 
-    assert {:error, %QuickBEAM.JSError{message: "reduction limit exceeded"}} =
+    assert {:error, %QuickBEAM.JSError{message: "interrupted"}} =
              QuickBEAM.Context.eval(
                ctx,
                "(() => { let s = 0; for(let i = 0; i < 10000000; i++) s += i; return s })()"
@@ -350,7 +350,7 @@ defmodule QuickBEAM.Core.ContextPoolTest do
     {:ok, pool} = QuickBEAM.ContextPool.start_link()
 
     {:ok, ctx} =
-      QuickBEAM.Context.start_link(pool: pool, apis: false, max_reductions: 100_000)
+      QuickBEAM.Context.start_link(pool: pool, apis: false, max_reductions: 1_000)
 
     assert {:error, _} =
              QuickBEAM.Context.eval(

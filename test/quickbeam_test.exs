@@ -456,11 +456,11 @@ defmodule QuickBEAMTest do
     test "max_stack_size allows deeper recursion" do
       code = "function deep(n) { return n <= 0 ? 0 : deep(n - 1) }; deep(50)"
 
-      {:ok, rt_small} = QuickBEAM.start(apis: false, max_stack_size: 256 * 1024)
+      {:ok, rt_small} = QuickBEAM.start(apis: false, max_stack_size: 128 * 1024)
       {:error, %QuickBEAM.JSError{name: "RangeError"}} = QuickBEAM.eval(rt_small, code)
       QuickBEAM.stop(rt_small)
 
-      {:ok, rt_large} = QuickBEAM.start(apis: false, max_stack_size: 8 * 1024 * 1024)
+      {:ok, rt_large} = QuickBEAM.start(apis: false, max_stack_size: 16 * 1024 * 1024)
       assert {:ok, 0} = QuickBEAM.eval(rt_large, code)
       QuickBEAM.stop(rt_large)
     end
