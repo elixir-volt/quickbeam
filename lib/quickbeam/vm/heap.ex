@@ -239,6 +239,7 @@ defmodule QuickBEAM.VM.Heap do
   # ── Garbage collection ──
 
   @gc_initial_threshold 5_000
+  def gc_initial_threshold, do: @gc_initial_threshold
 
   def gc_needed?, do: Process.get(:qb_gc_needed, false)
 

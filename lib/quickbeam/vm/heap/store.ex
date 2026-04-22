@@ -180,7 +180,7 @@ defmodule QuickBEAM.VM.Heap.Store do
     count = Process.get(:qb_alloc_count, 0) + 1
     Process.put(:qb_alloc_count, count)
 
-    if count >= Process.get(:qb_gc_threshold, 5_000) do
+    if count >= Process.get(:qb_gc_threshold, QuickBEAM.VM.Heap.gc_initial_threshold()) do
       Process.put(:qb_gc_needed, true)
     end
   end
