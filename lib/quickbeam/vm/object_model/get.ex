@@ -280,7 +280,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         case proto do
           {:obj, pref} ->
             case Heap.get_obj_raw(pref) do
-              {:shape, proto_shape_id, proto_vals, proto_next} ->
+              {:shape, proto_shape_id, proto_vals, _proto_next} ->
                 case Heap.Shapes.lookup(proto_shape_id, key) do
                   {:ok, offset} -> elem(proto_vals, offset)
                   :error -> get_prototype_raw(proto, key)

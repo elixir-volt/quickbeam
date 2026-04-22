@@ -53,8 +53,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     cvs = closure_vars_expr(state)
 
     if idx >= 0 and idx < length(cvs) do
-      cv = Enum.at(cvs, idx)
-      key = Builder.literal({cv.closure_type, cv.var_idx})
       {bound, state} = bind(state, Builder.temp_name(state.temp), compiler_call(state, :get_var_ref, [Builder.literal(idx)]))
       {bound, state}
     else
@@ -920,8 +918,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
-  defp var_ref_fun_and_arity({:call, _, {:remote, _, _, {:atom, _, :get_var_ref}}, _}), do: {:get_var_ref, 2}
-  defp var_ref_fun_and_arity({:call, _, {:remote, _, _, {:atom, _, :get_var_ref_check}}, _}), do: {:get_var_ref_check, 2}
 
   defp var_ref_fun_call(
          {:call, _, {:remote, _, {:atom, _, RuntimeHelpers}, {:atom, _, fun}}, [_ctx, idx]},
