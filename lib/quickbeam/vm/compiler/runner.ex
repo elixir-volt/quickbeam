@@ -3,8 +3,10 @@ defmodule QuickBEAM.VM.Compiler.Runner do
 
   alias QuickBEAM.VM.{Bytecode, GlobalEnv, Heap}
   alias QuickBEAM.VM.Compiler
+  alias QuickBEAM.VM.Compiler.GeneratorIterator
   alias QuickBEAM.VM.Interpreter.Context
   alias QuickBEAM.VM.ObjectModel.{Class, Functions}
+  alias QuickBEAM.VM.PromiseState, as: Promise
 
   def invoke(%Bytecode.Function{} = fun, args), do: invoke(fun, args, nil)
   def invoke({:closure, _, %Bytecode.Function{}} = closure, args), do: invoke(closure, args, nil)
@@ -126,15 +128,15 @@ defmodule QuickBEAM.VM.Compiler.Runner do
         Heap.put_obj(gen_ref, %{state: :suspended, continuation: continuation})
     end
 
-    QuickBEAM.VM.Compiler.GeneratorIterator.build(gen_ref)
+    GeneratorIterator.build(gen_ref)
   end
 
   defp compiled_async_invoke(compiled, ctx, args) do
     result = apply_compiled(compiled, ctx, args)
-    QuickBEAM.VM.PromiseState.resolved(result)
+    Promise.resolved(result)
   catch
-    {:generator_return, val} -> QuickBEAM.VM.PromiseState.resolved(val)
-    {:js_throw, val} -> QuickBEAM.VM.PromiseState.rejected(val)
+    {:generator_return, val} -> Promise.resolved(val)
+    {:js_throw, val} -> Promise.rejected(val)
   end
 
   defp compiled_async_gen_invoke(compiled, ctx, args) do
@@ -147,7 +149,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
         Heap.put_obj(gen_ref, %{state: :suspended, continuation: continuation})
     end
 
-    QuickBEAM.VM.Compiler.GeneratorIterator.build_async(gen_ref)
+    GeneratorIterator.build_async(gen_ref)
   end
 
   defp apply_compiled({mod, name}, ctx, args), do: apply(mod, name, [ctx | args])

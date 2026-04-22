@@ -5,10 +5,13 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
 
   alias QuickBEAM.VM.{Builtin, Bytecode, GlobalEnv, Heap, Invocation, Names}
+  alias QuickBEAM.VM.Compiler.Runner
   alias QuickBEAM.VM.Environment.Captures
+  alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.Interpreter.{Closures, Context, Values}
   alias QuickBEAM.VM.Invocation.Context, as: InvokeContext
   alias QuickBEAM.VM.ObjectModel.{Class, Copy, Delete, Functions, Get, Methods, Private, Put}
+  alias QuickBEAM.VM.PromiseState, as: Promise
   alias QuickBEAM.VM.Runtime
 
   @tdz :__tdz__
@@ -349,7 +352,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
           pending_this
 
         %Bytecode.Function{} = f ->
-          case QuickBEAM.VM.Compiler.Runner.invoke_constructor(
+          case Runner.invoke_constructor(
                  {:closure, %{}, f}, args, pending_this, context_new_target(ctx), parent_ctx
                ) do
             {:ok, val} -> val
@@ -357,7 +360,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
           end
 
         {:closure, _, %Bytecode.Function{}} = closure ->
-          case QuickBEAM.VM.Compiler.Runner.invoke_constructor(
+          case Runner.invoke_constructor(
                  closure, args, pending_this, context_new_target(ctx), parent_ctx
                ) do
             {:ok, val} -> val
@@ -415,18 +418,19 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def throw_error(ctx, atom_idx, reason) do
     name = Names.resolve_atom(context_atoms(ctx), atom_idx)
-
-    {error_type, message} =
-      case reason do
-        0 -> {"TypeError", "'#{name}' is read-only"}
-        1 -> {"SyntaxError", "redeclaration of '#{name}'"}
-        2 -> {"ReferenceError", "cannot access '#{name}' before initialization"}
-        3 -> {"ReferenceError", "unsupported reference to 'super'"}
-        4 -> {"TypeError", "iterator does not have a throw method"}
-        _ -> {"Error", name}
-      end
-
+    {error_type, message} = throw_error_message(name, reason)
     throw({:js_throw, Heap.make_error(message, error_type)})
+  end
+
+  def throw_error_message(name, reason) do
+    case reason do
+      0 -> {"TypeError", "'#{name}' is read-only"}
+      1 -> {"SyntaxError", "redeclaration of '#{name}'"}
+      2 -> {"ReferenceError", "cannot access '#{name}' before initialization"}
+      3 -> {"ReferenceError", "unsupported reference to 'super'"}
+      4 -> {"TypeError", "iterator does not have a throw method"}
+      _ -> {"Error", name}
+    end
   end
 
   def ensure_initialized_local!(val) do
@@ -736,21 +740,21 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     Context.mark_dirty(%{ctx | this: this_val})
   end
 
-  def await(_ctx, val), do: QuickBEAM.VM.Interpreter.resolve_awaited(val)
-  def await(val), do: QuickBEAM.VM.Interpreter.resolve_awaited(val)
+  def await(_ctx, val), do: Interpreter.resolve_awaited(val)
+  def await(val), do: Interpreter.resolve_awaited(val)
 
   def import_module(ctx, specifier) do
     if is_binary(specifier) and Map.get(ctx, :runtime_pid) != nil do
-      QuickBEAM.VM.PromiseState.resolved(Runtime.new_object())
+      Promise.resolved(Runtime.new_object())
     else
-      QuickBEAM.VM.PromiseState.rejected(
+      Promise.rejected(
         Heap.make_error("Cannot import #{specifier}", "TypeError")
       )
     end
   end
 
   def import_module(specifier) do
-    QuickBEAM.VM.PromiseState.rejected(
+    Promise.rejected(
       Heap.make_error("Cannot import #{specifier}", "TypeError")
     )
   end

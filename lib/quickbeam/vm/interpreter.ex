@@ -19,6 +19,7 @@ defmodule QuickBEAM.VM.Interpreter do
   }
 
   alias QuickBEAM.JSError
+  alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.Invocation.Context, as: InvokeContext
   alias QuickBEAM.VM.ObjectModel.{Class, Copy, Delete, Functions, Get, Methods, Private, Put}
   alias QuickBEAM.VM.PromiseState, as: Promise
@@ -2647,17 +2648,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp run({@op_throw_error, [atom_idx, reason]}, __pc, frame, _stack, gas, ctx) do
     name = Names.resolve_atom(ctx, atom_idx)
-
-    {error_type, message} =
-      case reason do
-        0 -> {"TypeError", "'#{name}' is read-only"}
-        1 -> {"SyntaxError", "redeclaration of '#{name}'"}
-        2 -> {"ReferenceError", "cannot access '#{name}' before initialization"}
-        3 -> {"ReferenceError", "unsupported reference to 'super'"}
-        4 -> {"TypeError", "iterator does not have a throw method"}
-        _ -> {"Error", name}
-      end
-
+    {error_type, message} = RuntimeHelpers.throw_error_message(name, reason)
     throw_or_catch(frame, Heap.make_error(message, error_type), gas, ctx)
   end
 

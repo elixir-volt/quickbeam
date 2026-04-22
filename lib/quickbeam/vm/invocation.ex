@@ -169,14 +169,7 @@ defmodule QuickBEAM.VM.Invocation do
         end
 
       {:closure, _, %Bytecode.Function{} = inner} = closure ->
-        if compiled_closure_callable?(inner) do
-          case Runner.invoke(closure, args, ctx) do
-            {:ok, value} -> value
-            :error -> Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
-          end
-        else
-          Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
-        end
+        invoke_closure(closure, inner, args, ctx)
 
       {:bound, _, inner, _, _} ->
         invoke_runtime(ctx, inner, args)
@@ -371,17 +364,21 @@ defmodule QuickBEAM.VM.Invocation do
 
   defp callback_invoke({:closure, _, %Bytecode.Function{} = inner} = closure, args, ctx, on_throw) do
     try do
-      if compiled_closure_callable?(inner) do
-        case Runner.invoke(closure, args, ctx) do
-          {:ok, value} -> value
-          :error -> Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
-        end
-      else
-        Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
-      end
+      invoke_closure(closure, inner, args, ctx)
     catch
       {:js_throw, _} -> on_throw.()
     end
+  end
+
+  defp invoke_closure(closure, %Bytecode.Function{need_home_object: false}, args, ctx) do
+    case Runner.invoke(closure, args, ctx) do
+      {:ok, value} -> value
+      :error -> Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
+    end
+  end
+
+  defp invoke_closure(closure, _inner, args, ctx) do
+    Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
   end
 
   defp compiled_closure_callable?(%Bytecode.Function{need_home_object: false}), do: true

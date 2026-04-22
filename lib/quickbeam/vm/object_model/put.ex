@@ -9,6 +9,17 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   @compile {:inline, has_property: 2, get_element: 2, set_list_at: 3}
 
+  defp shape_put(ref, shape_id, vals, proto, key, val) do
+    case Heap.Shapes.lookup(shape_id, key) do
+      {:ok, offset} ->
+        Heap.put_obj_raw(ref, {:shape, shape_id, Heap.Shapes.put_val(vals, offset, val), proto})
+
+      :error ->
+        {new_shape_id, offset} = Heap.Shapes.transition(shape_id, key)
+        Heap.put_obj_raw(ref, {:shape, new_shape_id, Heap.Shapes.put_val(vals, offset, val), proto})
+    end
+  end
+
   def put({:obj, ref} = _obj, "length", val) do
     case Heap.get_obj_raw(ref) do
       {:shape, shape_id, vals, proto} ->
@@ -62,16 +73,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             Heap.put_obj_raw(ref, {:shape, shape_id, vals, val})
 
           true ->
-            case Heap.Shapes.lookup(shape_id, key) do
-              {:ok, offset} ->
-                new_vals = Heap.Shapes.put_val(vals, offset, val)
-                Heap.put_obj_raw(ref, {:shape, shape_id, new_vals, proto})
-
-              :error ->
-                {new_shape_id, offset} = Heap.Shapes.transition(shape_id, key)
-                new_vals = Heap.Shapes.put_val(vals, offset, val)
-                Heap.put_obj_raw(ref, {:shape, new_shape_id, new_vals, proto})
-            end
+            shape_put(ref, shape_id, vals, proto, key, val)
         end
 
       %{
@@ -131,16 +133,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     case Heap.get_obj_raw(ref) do
       {:shape, shape_id, vals, proto} ->
         if not Heap.frozen?(ref) do
-          case Heap.Shapes.lookup(shape_id, key) do
-            {:ok, offset} ->
-              new_vals = Heap.Shapes.put_val(vals, offset, val)
-              Heap.put_obj_raw(ref, {:shape, shape_id, new_vals, proto})
-
-            :error ->
-              {new_shape_id, offset} = Heap.Shapes.transition(shape_id, key)
-              new_vals = Heap.Shapes.put_val(vals, offset, val)
-              Heap.put_obj_raw(ref, {:shape, new_shape_id, new_vals, proto})
-          end
+          shape_put(ref, shape_id, vals, proto, key, val)
 
           Heap.put_prop_desc(ref, key, %{writable: true, enumerable: false, configurable: true})
         end

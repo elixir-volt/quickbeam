@@ -1,13 +1,11 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
   @moduledoc false
 
+  alias QuickBEAM.VM.{Bytecode, GlobalEnv}
   alias QuickBEAM.VM.Compiler.Analysis.CFG
   alias QuickBEAM.VM.Compiler.Analysis.Types, as: AnalysisTypes
-  alias QuickBEAM.VM.Compiler.Lowering.Builder
-  alias QuickBEAM.VM.Compiler.Lowering.Captures
-  alias QuickBEAM.VM.Compiler.Lowering.State
+  alias QuickBEAM.VM.Compiler.Lowering.{Builder, Captures, State}
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
-  alias QuickBEAM.VM.GlobalEnv
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.ObjectModel.{Class, Private}
 
@@ -997,10 +995,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
 
   defp lower_fclosure(state, constants, arg_count, const_idx) do
     case Enum.at(constants, const_idx) do
-      %QuickBEAM.VM.Bytecode.Function{closure_vars: []} = fun ->
+      %Bytecode.Function{closure_vars: []} = fun ->
         {:ok, State.push(state, Builder.literal(fun), AnalysisTypes.function_type(fun))}
 
-      %QuickBEAM.VM.Bytecode.Function{} = fun ->
+      %Bytecode.Function{} = fun ->
         with {:ok, state, entries} <-
                lower_closure_entries(state, arg_count, fun.closure_vars, []) do
           closure =
@@ -1080,10 +1078,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       :undefined ->
         {:ok, State.push(state, Builder.atom(:undefined), :undefined)}
 
-      %QuickBEAM.VM.Bytecode.Function{} = fun when fun.closure_vars == [] ->
+      %Bytecode.Function{} = fun when fun.closure_vars == [] ->
         {:ok, State.push(state, Builder.literal(fun), AnalysisTypes.function_type(fun))}
 
-      %QuickBEAM.VM.Bytecode.Function{} ->
+      %Bytecode.Function{} ->
         lower_fclosure(state, constants, arg_count, idx)
 
       _ ->
