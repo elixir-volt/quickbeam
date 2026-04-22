@@ -124,7 +124,33 @@ defmodule QuickBEAM.VM.Invocation do
 
   def invoke_runtime(fun, args), do: invoke_runtime(active_ctx(), fun, args)
 
-  def invoke_runtime(ctx, fun, args) do
+  def invoke_runtime(%Context{} = ctx, {:closure, _, %Bytecode.Function{need_home_object: false} = inner} = closure, args) do
+    key = {inner.byte_code, inner.arg_count}
+
+    case Heap.get_compiled(key) do
+      {:compiled, {mod, name}, atoms} ->
+        nargs = Runner.normalize_args(args, inner.arg_count)
+
+        fast_ctx = %{
+          ctx
+          | current_func: closure,
+            arg_buf: List.to_tuple(nargs),
+            atoms: atoms || ctx.atoms,
+            home_object: :undefined,
+            super: :undefined,
+            pd_synced: false
+        }
+
+        apply(mod, name, [fast_ctx | nargs])
+
+      _ ->
+        invoke_runtime_full(ctx, closure, args)
+    end
+  end
+
+  def invoke_runtime(ctx, fun, args), do: invoke_runtime_full(ctx, fun, args)
+
+  defp invoke_runtime_full(ctx, fun, args) do
     case fun do
       %Bytecode.Function{} = bytecode_fun ->
         case Runner.invoke(bytecode_fun, args, ctx) do

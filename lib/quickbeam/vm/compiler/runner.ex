@@ -255,18 +255,18 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   defp current_super(nil), do: :undefined
   defp current_super(home_object), do: Class.get_super(home_object)
 
-  defp normalize_args(_args, 0), do: []
-  defp normalize_args([a0 | _], 1), do: [a0]
-  defp normalize_args([], 1), do: [:undefined]
-  defp normalize_args([a0, a1 | _], 2), do: [a0, a1]
-  defp normalize_args([a0], 2), do: [a0, :undefined]
-  defp normalize_args([], 2), do: [:undefined, :undefined]
-  defp normalize_args([a0, a1, a2 | _], 3), do: [a0, a1, a2]
-  defp normalize_args([a0, a1], 3), do: [a0, a1, :undefined]
-  defp normalize_args([a0], 3), do: [a0, :undefined, :undefined]
-  defp normalize_args([], 3), do: [:undefined, :undefined, :undefined]
+  def normalize_args(_args, 0), do: []
+  def normalize_args([a0 | _], 1), do: [a0]
+  def normalize_args([], 1), do: [:undefined]
+  def normalize_args([a0, a1 | _], 2), do: [a0, a1]
+  def normalize_args([a0], 2), do: [a0, :undefined]
+  def normalize_args([], 2), do: [:undefined, :undefined]
+  def normalize_args([a0, a1, a2 | _], 3), do: [a0, a1, a2]
+  def normalize_args([a0, a1], 3), do: [a0, a1, :undefined]
+  def normalize_args([a0], 3), do: [a0, :undefined, :undefined]
+  def normalize_args([], 3), do: [:undefined, :undefined, :undefined]
 
-  defp normalize_args(args, arg_count) do
+  def normalize_args(args, arg_count) do
     args
     |> Enum.take(arg_count)
     |> then(fn args -> args ++ List.duplicate(:undefined, arg_count - length(args)) end)
