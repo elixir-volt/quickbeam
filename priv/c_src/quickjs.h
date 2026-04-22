@@ -118,7 +118,8 @@ extern "C" {
 
 /* Borrowed from Folly */
 #ifndef JS_PRINTF_FORMAT
-#ifdef _MSC_VER
+/* Clang on Windows doesn't seem to support _Printf_format_string_ */
+#if defined(_MSC_VER) && !defined(__clang__)
 #include <sal.h>
 #define JS_PRINTF_FORMAT _Printf_format_string_
 #define JS_PRINTF_FORMAT_ATTR(format_param, dots_param)
@@ -511,11 +512,6 @@ JS_EXTERN JSRuntime *JS_NewRuntime(void);
 JS_EXTERN void JS_SetRuntimeInfo(JSRuntime *rt, const char *info);
 /* use 0 to disable memory limit */
 JS_EXTERN void JS_SetMemoryLimit(JSRuntime *rt, size_t limit);
-JS_EXTERN void JS_SetContextMemoryLimit(JSContext *ctx, size_t limit);
-JS_EXTERN size_t JS_GetContextMallocSize(JSContext *ctx);
-JS_EXTERN void JS_SetContextReductionLimit(JSContext *ctx, int64_t limit);
-JS_EXTERN int64_t JS_GetContextReductionCount(JSContext *ctx);
-JS_EXTERN void JS_ResetContextReductionCount(JSContext *ctx);
 JS_EXTERN void JS_SetDumpFlags(JSRuntime *rt, uint64_t flags);
 JS_EXTERN uint64_t JS_GetDumpFlags(JSRuntime *rt);
 JS_EXTERN size_t JS_GetGCThreshold(JSRuntime *rt);
@@ -550,20 +546,21 @@ JS_EXTERN JSValue JS_GetFunctionProto(JSContext *ctx);
 /* the following functions are used to select the intrinsic object to
    save memory */
 JS_EXTERN JSContext *JS_NewContextRaw(JSRuntime *rt);
-JS_EXTERN void JS_AddIntrinsicBaseObjects(JSContext *ctx);
-JS_EXTERN void JS_AddIntrinsicDate(JSContext *ctx);
-JS_EXTERN void JS_AddIntrinsicEval(JSContext *ctx);
+JS_EXTERN int JS_AddIntrinsicBaseObjects(JSContext *ctx);
+JS_EXTERN int JS_AddIntrinsicDate(JSContext *ctx);
+JS_EXTERN int JS_AddIntrinsicEval(JSContext *ctx);
 JS_EXTERN void JS_AddIntrinsicRegExpCompiler(JSContext *ctx);
 JS_EXTERN int JS_AddIntrinsicRegExp(JSContext *ctx);
-JS_EXTERN void JS_AddIntrinsicJSON(JSContext *ctx);
-JS_EXTERN void JS_AddIntrinsicProxy(JSContext *ctx);
-JS_EXTERN void JS_AddIntrinsicMapSet(JSContext *ctx);
-JS_EXTERN void JS_AddIntrinsicTypedArrays(JSContext *ctx);
-JS_EXTERN void JS_AddIntrinsicPromise(JSContext *ctx);
-JS_EXTERN void JS_AddIntrinsicBigInt(JSContext *ctx);
-JS_EXTERN void JS_AddIntrinsicWeakRef(JSContext *ctx);
-JS_EXTERN void JS_AddPerformance(JSContext *ctx);
-JS_EXTERN void JS_AddIntrinsicDOMException(JSContext *ctx);
+JS_EXTERN int JS_AddIntrinsicJSON(JSContext *ctx);
+JS_EXTERN int JS_AddIntrinsicProxy(JSContext *ctx);
+JS_EXTERN int JS_AddIntrinsicMapSet(JSContext *ctx);
+JS_EXTERN int JS_AddIntrinsicTypedArrays(JSContext *ctx);
+JS_EXTERN int JS_AddIntrinsicPromise(JSContext *ctx);
+JS_EXTERN int JS_AddIntrinsicBigInt(JSContext *ctx);
+JS_EXTERN int JS_AddIntrinsicWeakRef(JSContext *ctx);
+JS_EXTERN int JS_AddPerformance(JSContext *ctx);
+JS_EXTERN int JS_AddIntrinsicDOMException(JSContext *ctx);
+JS_EXTERN int JS_AddIntrinsicAToB(JSContext *ctx);
 
 /* for equality comparisons and sameness */
 JS_EXTERN int JS_IsEqual(JSContext *ctx, JSValueConst op1, JSValueConst op2);
@@ -930,6 +927,7 @@ JS_EXTERN JSValue JS_ToObject(JSContext *ctx, JSValueConst val);
 JS_EXTERN JSValue JS_ToObjectString(JSContext *ctx, JSValueConst val);
 
 JS_EXTERN bool JS_IsFunction(JSContext* ctx, JSValueConst val);
+JS_EXTERN bool JS_IsAsyncFunction(JSValueConst val);
 JS_EXTERN bool JS_IsConstructor(JSContext* ctx, JSValueConst val);
 JS_EXTERN bool JS_SetConstructorBit(JSContext *ctx, JSValueConst func_obj, bool val);
 
@@ -1150,9 +1148,6 @@ JS_EXTERN void JS_SetHostPromiseRejectionTracker(JSRuntime *rt, JSHostPromiseRej
 /* return != 0 if the JS code needs to be interrupted */
 typedef int JSInterruptHandler(JSRuntime *rt, void *opaque);
 JS_EXTERN void JS_SetInterruptHandler(JSRuntime *rt, JSInterruptHandler *cb, void *opaque);
-JS_EXTERN void JS_EnableCoverage(JSRuntime *rt);
-JS_EXTERN JSValue JS_GetCoverage(JSContext *ctx);
-JS_EXTERN void JS_ResetCoverage(JSRuntime *rt);
 /* if can_block is true, Atomics.wait() can be used */
 JS_EXTERN void JS_SetCanBlock(JSRuntime *rt, bool can_block);
 /* set the [IsHTMLDDA] internal slot */
@@ -1215,6 +1210,7 @@ JS_EXTERN int JS_EnqueueJob(JSContext *ctx, JSJobFunc *job_func,
                             int argc, JSValueConst *argv);
 
 JS_EXTERN bool JS_IsJobPending(JSRuntime *rt);
+JS_EXTERN JSContext *JS_GetPendingJobContext(JSRuntime *rt);
 JS_EXTERN int JS_ExecutePendingJob(JSRuntime *rt, JSContext **pctx);
 
 /* Structure to retrieve (de)serialized SharedArrayBuffer objects. */
@@ -1241,10 +1237,6 @@ JS_EXTERN uint8_t *JS_WriteObject2(JSContext *ctx, size_t *psize, JSValueConst o
 JS_EXTERN JSValue JS_ReadObject(JSContext *ctx, const uint8_t *buf, size_t buf_len, int flags);
 JS_EXTERN JSValue JS_ReadObject2(JSContext *ctx, const uint8_t *buf, size_t buf_len,
                                  int flags, JSSABTab *psab_tab);
-/* Disassemble bytecode into a JS object tree describing functions,
-   opcodes, constant pools, and metadata. The bytecode must have been
-   produced by JS_WriteObject with JS_WRITE_OBJ_BYTECODE. */
-JS_EXTERN JSValue JS_DisasmBytecode(JSContext *ctx, const uint8_t *buf, size_t buf_len);
 /* instantiate and evaluate a bytecode function. Only used when
    reading a script or module with JS_ReadObject() */
 JS_EXTERN JSValue JS_EvalFunction(JSContext *ctx, JSValue fun_obj);
@@ -1297,7 +1289,7 @@ JS_EXTERN JSValue JS_NewCFunction2(JSContext *ctx, JSCFunction *func,
 JS_EXTERN JSValue JS_NewCFunction3(JSContext *ctx, JSCFunction *func,
                                    const char *name,
                                    int length, JSCFunctionEnum cproto, int magic,
-                                   JSValueConst proto_val);
+                                   JSValueConst proto_val, int n_fields);
 JS_EXTERN JSValue JS_NewCFunctionData(JSContext *ctx, JSCFunctionData *func,
                                       int length, int magic, int data_len,
                                       JSValueConst *data);
@@ -1326,8 +1318,8 @@ static inline JSValue JS_NewCFunctionMagic(JSContext *ctx, JSCFunctionMagic *fun
     ft.generic_magic = func;
     return JS_NewCFunction2(ctx, ft.generic, name, length, cproto, magic);
 }
-JS_EXTERN void JS_SetConstructor(JSContext *ctx, JSValueConst func_obj,
-                                 JSValueConst proto);
+JS_EXTERN int JS_SetConstructor(JSContext *ctx, JSValueConst func_obj,
+                                JSValueConst proto);
 
 /* C property definition */
 
@@ -1372,6 +1364,8 @@ typedef struct JSCFunctionListEntry {
 #define JS_DEF_PROP_UNDEFINED 7
 #define JS_DEF_OBJECT         8
 #define JS_DEF_ALIAS          9
+#define JS_DEF_PROP_SYMBOL   10
+#define JS_DEF_PROP_BOOL     11
 
 /* Note: c++ does not like nested designators */
 #define JS_CFUNC_DEF(name, length, func1) { name, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE, JS_DEF_CFUNC, 0, { .func = { length, JS_CFUNC_generic, { .generic = func1 } } } }
@@ -1388,6 +1382,8 @@ typedef struct JSCFunctionListEntry {
 #define JS_PROP_DOUBLE_DEF(name, val, prop_flags) { name, prop_flags, JS_DEF_PROP_DOUBLE, 0, { .f64 = val } }
 #define JS_PROP_U2D_DEF(name, val, prop_flags) { name, prop_flags, JS_DEF_PROP_DOUBLE, 0, { .u64 = val } }
 #define JS_PROP_UNDEFINED_DEF(name, prop_flags) { name, prop_flags, JS_DEF_PROP_UNDEFINED, 0, { .i32 = 0 } }
+#define JS_PROP_SYMBOL_DEF(name, val, prop_flags) { name, prop_flags, JS_DEF_PROP_SYMBOL, 0, { .i32 = val } }
+#define JS_PROP_BOOL_DEF(name, val, prop_flags) { name, prop_flags, JS_DEF_PROP_BOOL, 0, { .i32 = val } }
 #define JS_OBJECT_DEF(name, tab, len, prop_flags) { name, prop_flags, JS_DEF_OBJECT, 0, { .prop_list = { tab, len } } }
 #define JS_ALIAS_DEF(name, from) { name, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE, JS_DEF_ALIAS, 0, { .alias = { from, -1 } } }
 #define JS_ALIAS_BASE_DEF(name, from, base) { name, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE, JS_DEF_ALIAS, 0, { .alias = { from, base } } }
@@ -1415,8 +1411,8 @@ JS_EXTERN int JS_SetModuleExportList(JSContext *ctx, JSModuleDef *m,
 /* Version */
 
 #define QJS_VERSION_MAJOR 0
-#define QJS_VERSION_MINOR 12
-#define QJS_VERSION_PATCH 1
+#define QJS_VERSION_MINOR 14
+#define QJS_VERSION_PATCH 0
 #define QJS_VERSION_SUFFIX ""
 
 JS_EXTERN const char* JS_GetVersion(void);
