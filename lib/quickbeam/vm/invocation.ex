@@ -13,21 +13,31 @@ defmodule QuickBEAM.VM.Invocation do
   def invoke(fun, args, gas \\ Runtime.gas_budget())
 
   def invoke(%Bytecode.Function{} = fun, args, gas) do
-    case Compiler.invoke(fun, args) do
-      {:ok, result} -> result
-      :error -> Interpreter.invoke_function_fallback(fun, args, gas, active_ctx())
-    end
+    track_invoke_depth()
+
+    result =
+      case Compiler.invoke(fun, args) do
+        {:ok, result} -> result
+        :error -> Interpreter.invoke_function_fallback(fun, args, gas, active_ctx())
+      end
+
+    maybe_gc(result, [fun | args])
   end
 
   def invoke({:closure, _, %Bytecode.Function{} = inner} = closure, args, gas) do
-    if compiled_closure_callable?(inner) do
-      case Runner.invoke(closure, args) do
-        {:ok, result} -> result
-        :error -> Interpreter.invoke_closure_fallback(closure, args, gas, active_ctx())
+    track_invoke_depth()
+
+    result =
+      if compiled_closure_callable?(inner) do
+        case Runner.invoke(closure, args) do
+          {:ok, result} -> result
+          :error -> Interpreter.invoke_closure_fallback(closure, args, gas, active_ctx())
+        end
+      else
+        Interpreter.invoke_closure_fallback(closure, args, gas, active_ctx())
       end
-    else
-      Interpreter.invoke_closure_fallback(closure, args, gas, active_ctx())
-    end
+
+    maybe_gc(result, [closure | args])
   end
 
   def invoke(other, args, _gas) when not is_tuple(other) or elem(other, 0) != :bound,
@@ -277,6 +287,22 @@ defmodule QuickBEAM.VM.Invocation do
       end
 
     Class.coalesce_this_result(result, this_obj)
+  end
+
+  defp maybe_gc(result, extra_roots) do
+    depth = Process.get(:qb_invoke_depth, 0) - 1
+    Process.put(:qb_invoke_depth, depth)
+
+    if depth == 0 and Heap.gc_needed?() do
+      Heap.gc([result | extra_roots])
+    end
+
+    result
+  end
+
+  defp track_invoke_depth do
+    depth = Process.get(:qb_invoke_depth, 0) + 1
+    Process.put(:qb_invoke_depth, depth)
   end
 
   defp active_ctx do

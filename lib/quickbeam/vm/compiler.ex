@@ -1,13 +1,30 @@
 defmodule QuickBEAM.VM.Compiler do
   @moduledoc false
 
-  alias QuickBEAM.VM.{Bytecode, Decoder}
+  alias QuickBEAM.VM.{Bytecode, Decoder, Heap}
   alias QuickBEAM.VM.Compiler.{Forms, Lowering, Optimizer, Runner}
 
   @type compiled_fun :: {module(), atom()}
   @type beam_file :: {:beam_file, module(), list(), list(), list(), list()}
 
-  def invoke(fun, args), do: Runner.invoke(fun, args)
+  def invoke(fun, args) do
+    depth = Process.get(:qb_invoke_depth, 0)
+    Process.put(:qb_invoke_depth, depth + 1)
+
+    result = Runner.invoke(fun, args)
+
+    Process.put(:qb_invoke_depth, depth)
+
+    if depth == 0 and Heap.gc_needed?() do
+      extra = case result do
+        {:ok, v} -> [v, fun | args]
+        _ -> [fun | args]
+      end
+      Heap.gc(extra)
+    end
+
+    result
+  end
 
   def compile(%Bytecode.Function{} = fun) do
     module = module_name(fun)
