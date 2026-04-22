@@ -349,15 +349,23 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
           pending_this
 
         %Bytecode.Function{} = f ->
-          Invocation.invoke_with_receiver(
-            {:closure, %{}, f},
-            args,
-            context_gas(ctx),
-            pending_this
-          )
+          case QuickBEAM.VM.Compiler.Runner.invoke_constructor(
+                 {:closure, %{}, f}, args, pending_this, context_new_target(ctx), parent_ctx
+               ) do
+            {:ok, val} -> val
+            :error -> Invocation.invoke_with_receiver({:closure, %{}, f}, args, context_gas(ctx), pending_this)
+          end
 
         {:closure, _, %Bytecode.Function{}} = closure ->
-          Invocation.invoke_with_receiver(closure, args, context_gas(ctx), pending_this)
+          case QuickBEAM.VM.Compiler.Runner.invoke_constructor(
+                 closure, args, pending_this, context_new_target(ctx), parent_ctx
+               ) do
+            {:ok, val} -> val
+            :error -> Invocation.invoke_with_receiver(closure, args, context_gas(ctx), pending_this)
+          end
+
+        {:builtin, _name, cb} when is_function(cb, 2) ->
+          cb.(args, pending_this)
 
         {:builtin, _name, cb} when is_function(cb, 2) ->
           cb.(args, pending_this)
@@ -711,8 +719,25 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def invoke_method_runtime(fun, this_obj, args),
     do: Invocation.invoke_method_runtime(fun, this_obj, args)
 
-  def await(_ctx, val), do: Interpreter.resolve_awaited(val)
-  def await(val), do: Interpreter.resolve_awaited(val)
+  def apply_super(ctx, fun, new_target, args) do
+    Invocation.construct_runtime(ctx, fun, new_target, args)
+  end
+
+  def apply_super(fun, new_target, args) do
+    Invocation.construct_runtime(fun, new_target, args)
+  end
+
+  def update_this(ctx, this_val) do
+    Context.mark_dirty(%{ctx | this: this_val})
+  end
+
+  def update_this(this_val) do
+    ctx = current_context()
+    Context.mark_dirty(%{ctx | this: this_val})
+  end
+
+  def await(_ctx, val), do: QuickBEAM.VM.Interpreter.resolve_awaited(val)
+  def await(val), do: QuickBEAM.VM.Interpreter.resolve_awaited(val)
 
   def import_module(ctx, specifier) do
     if is_binary(specifier) and Map.get(ctx, :runtime_pid) != nil do

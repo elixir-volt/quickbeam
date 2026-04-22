@@ -788,23 +788,42 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
           )
         end
 
-      {{:ok, :apply}, [magic]} ->
+      {{:ok, :apply}, [1]} ->
+        # super(...args): stack is [arg_array, new_target, fun]
+        with {:ok, arg_array, state} <- State.pop(state),
+             {:ok, new_target, state} <- State.pop(state),
+             {:ok, fun, state} <- State.pop(state) do
+          {result, state} =
+            State.bind(
+              state,
+              Builder.temp_name(state.temp),
+              State.compiler_call(state, :apply_super, [
+                fun,
+                new_target,
+                Builder.remote_call(QuickBEAM.VM.Heap, :to_list, [arg_array])
+              ])
+            )
+
+          state = State.update_ctx(
+            state,
+            State.compiler_call(state, :update_this, [result])
+          )
+          {:ok, State.push(state, result)}
+        end
+
+      {{:ok, :apply}, [_magic]} ->
         with {:ok, arg_array, state} <- State.pop(state),
              {:ok, this_obj, state} <- State.pop(state),
              {:ok, fun, state} <- State.pop(state) do
-          expr =
-            if magic == 1 do
-              State.compiler_call(state, :construct_runtime, [
-                fun, this_obj,
-                Builder.remote_call(QuickBEAM.VM.Heap, :to_list, [arg_array])
-              ])
-            else
-              Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_method_runtime, [
-                State.ctx_expr(state), fun, this_obj,
-                Builder.remote_call(QuickBEAM.VM.Heap, :to_list, [arg_array])
-              ])
-            end
-          State.effectful_push(state, expr)
+          State.effectful_push(
+            state,
+            Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_method_runtime, [
+              State.ctx_expr(state),
+              fun,
+              this_obj,
+              Builder.remote_call(QuickBEAM.VM.Heap, :to_list, [arg_array])
+            ])
+          )
         end
 
       {{:ok, :import}, []} ->

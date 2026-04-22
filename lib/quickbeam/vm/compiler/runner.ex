@@ -117,7 +117,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   end
 
   defp compiled_gen_invoke(compiled, ctx, args) do
-    gen_ref = Heap.alloc_obj(nil)
+    gen_ref = make_ref()
 
     try do
       apply_compiled(compiled, ctx, args)
@@ -138,7 +138,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   end
 
   defp compiled_async_gen_invoke(compiled, ctx, args) do
-    gen_ref = Heap.alloc_obj(nil)
+    gen_ref = make_ref()
 
     try do
       apply_compiled(compiled, ctx, args)
@@ -155,10 +155,6 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   defp invocation_ctx(base_ctx, current_func, args, %{} = ctx_overrides, fun, atoms)
        when map_size(ctx_overrides) == 0 do
     build_invocation_ctx(base_ctx(base_ctx), current_func, args, fun, atoms)
-  end
-
-  defp invocation_ctx(base_ctx, current_func, args, %{this: this_obj}, fun, atoms) do
-    build_invocation_ctx(base_ctx(base_ctx), current_func, args, fun, atoms, this: this_obj)
   end
 
   defp invocation_ctx(
