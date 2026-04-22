@@ -297,6 +297,42 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
             )
         end
 
+      {op, []} ->
+        case CFG.opcode_name(op) do
+          {:ok, :object} ->
+            case collect_define_fields(instructions, idx + 1, arg_count, state) do
+              {:ok, map_pairs, skip_to, state} ->
+                map_expr = {:map, @line, Enum.map(map_pairs, fn {k, v} ->
+                  {:map_field_assoc, @line, k, v}
+                end)}
+
+                {obj, state} =
+                  State.bind(
+                    state,
+                    Builder.temp_name(state.temp),
+                    Builder.remote_call(QuickBEAM.VM.Heap, :wrap, [map_expr])
+                  )
+
+                lower_block(
+                  instructions, skip_to, next_entry, arg_count,
+                  State.push(state, obj, :object),
+                  stack_depths, constants, entries, inline_targets
+                )
+
+              :not_literal ->
+                lower_instruction(
+                  instruction, instructions, idx, next_entry, arg_count,
+                  state, stack_depths, constants, entries, inline_targets
+                )
+            end
+
+          _ ->
+            lower_instruction(
+              instruction, instructions, idx, next_entry, arg_count,
+              state, stack_depths, constants, entries, inline_targets
+            )
+        end
+
       _ ->
         lower_instruction(
           instruction,
@@ -310,6 +346,73 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
           entries,
           inline_targets
         )
+    end
+  end
+
+  defp collect_define_fields(instructions, idx, arg_count, state) do
+    collect_define_fields(instructions, idx, arg_count, state, [])
+  end
+
+  defp collect_define_fields(instructions, idx, arg_count, state, acc) do
+    val_instr = Enum.at(instructions, idx)
+    df_instr = Enum.at(instructions, idx + 1)
+
+    with {val_op, val_args} <- val_instr,
+         {df_op, [key_idx]} <- df_instr,
+         {:ok, :define_field} <- CFG.opcode_name(df_op),
+         {:ok, val_expr, new_state} <- lower_value_opcode(val_op, val_args, arg_count, state) do
+      key_name = Builder.atom_name(new_state, key_idx)
+
+      if is_binary(key_name) do
+        key_expr = Builder.literal(key_name)
+        collect_define_fields(instructions, idx + 2, arg_count, new_state, [{key_expr, val_expr} | acc])
+      else
+        # Atom not resolvable at compile time — abort batching
+        if acc == [], do: :not_literal, else: {:ok, Enum.reverse(acc), idx, state}
+      end
+    else
+      _ ->
+        if acc == [] do
+          :not_literal
+        else
+          {:ok, Enum.reverse(acc), idx, state}
+        end
+    end
+  end
+
+  defp lower_value_opcode(op, args, _arg_count, state) do
+    case CFG.opcode_name(op) do
+      {:ok, :push_i32} -> {:ok, Builder.integer(hd(args)), state}
+      {:ok, :push_i8} -> {:ok, Builder.integer(hd(args)), state}
+      {:ok, :push_0} -> {:ok, Builder.integer(0), state}
+      {:ok, :push_1} -> {:ok, Builder.integer(1), state}
+      {:ok, :push_2} -> {:ok, Builder.integer(2), state}
+      {:ok, :push_3} -> {:ok, Builder.integer(3), state}
+      {:ok, :push_4} -> {:ok, Builder.integer(4), state}
+      {:ok, :push_5} -> {:ok, Builder.integer(5), state}
+      {:ok, :push_6} -> {:ok, Builder.integer(6), state}
+      {:ok, :push_7} -> {:ok, Builder.integer(7), state}
+      {:ok, :push_minus1} -> {:ok, Builder.integer(-1), state}
+      {:ok, :null} -> {:ok, Builder.atom(nil), state}
+      {:ok, :undefined} -> {:ok, Builder.atom(:undefined), state}
+      {:ok, :push_false} -> {:ok, Builder.atom(false), state}
+      {:ok, :push_true} -> {:ok, Builder.atom(true), state}
+      {:ok, :push_empty_string} -> {:ok, Builder.literal(""), state}
+      {:ok, n} when n in [:get_arg0, :get_arg1, :get_arg2, :get_arg3] ->
+        slot_idx = case n do
+          :get_arg0 -> 0; :get_arg1 -> 1; :get_arg2 -> 2; :get_arg3 -> 3
+        end
+        {:ok, State.slot_expr(state, slot_idx), state}
+      {:ok, :get_arg} -> {:ok, State.slot_expr(state, hd(args)), state}
+      {:ok, n} when n in [:get_loc0, :get_loc1, :get_loc2, :get_loc3] ->
+        slot_idx = case n do
+          :get_loc0 -> 0; :get_loc1 -> 1; :get_loc2 -> 2; :get_loc3 -> 3
+        end
+        {:ok, State.slot_expr(state, slot_idx), state}
+      {:ok, :get_loc} -> {:ok, State.slot_expr(state, hd(args)), state}
+      {:ok, :push_atom_value} ->
+        {:ok, State.compiler_call(state, :push_atom_value, [Builder.literal(hd(args))]), state}
+      _ -> :error
     end
   end
 

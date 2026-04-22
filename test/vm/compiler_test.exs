@@ -187,12 +187,7 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert Enum.any?(block, fn
                {:call_ext, 1, {:extfunc, QuickBEAM.VM.Heap, :wrap, 1}} -> true
                {:call_ext_last, 1, {:extfunc, QuickBEAM.VM.Heap, :wrap, 1}, _} -> true
-               _ -> false
-             end)
-
-      assert Enum.any?(block, fn
-               {:call_ext, 3, {:extfunc, QuickBEAM.VM.ObjectModel.Put, :put, 3}} -> true
-               {:call_ext_last, 3, {:extfunc, QuickBEAM.VM.ObjectModel.Put, :put, 3}, _} -> true
+               {:call_ext_only, 1, {:extfunc, QuickBEAM.VM.Heap, :wrap, 1}} -> true
                _ -> false
              end)
 
