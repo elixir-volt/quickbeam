@@ -313,6 +313,18 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   def normalize_args([a0], 3), do: [a0, :undefined, :undefined]
   def normalize_args([], 3), do: [:undefined, :undefined, :undefined]
 
+  def normalize_args([a0, a1, a2, a3 | _], 4), do: [a0, a1, a2, a3]
+  def normalize_args([a0, a1, a2], 4), do: [a0, a1, a2, :undefined]
+  def normalize_args([a0, a1], 4), do: [a0, a1, :undefined, :undefined]
+  def normalize_args([a0], 4), do: [a0, :undefined, :undefined, :undefined]
+  def normalize_args([], 4), do: [:undefined, :undefined, :undefined, :undefined]
+  def normalize_args([a0, a1, a2, a3, a4 | _], 5), do: [a0, a1, a2, a3, a4]
+  def normalize_args([a0, a1, a2, a3], 5), do: [a0, a1, a2, a3, :undefined]
+  def normalize_args([a0, a1, a2], 5), do: [a0, a1, a2, :undefined, :undefined]
+  def normalize_args([a0, a1], 5), do: [a0, a1, :undefined, :undefined, :undefined]
+  def normalize_args([a0], 5), do: [a0, :undefined, :undefined, :undefined, :undefined]
+  def normalize_args([], 5), do: [:undefined, :undefined, :undefined, :undefined, :undefined]
+
   def normalize_args(args, arg_count) do
     args
     |> Enum.take(arg_count)
