@@ -128,14 +128,36 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   def put(target, key, val, true), do: put(target, key, val)
 
   def put({:obj, ref}, key, val, false) do
-    map = Heap.get_obj(ref, %{})
+    case Heap.get_obj_raw(ref) do
+      {:shape, shape_id, vals, proto} ->
+        if not Heap.frozen?(ref) do
+          case Heap.Shapes.lookup(shape_id, key) do
+            {:ok, offset} ->
+              new_vals = Heap.Shapes.put_val(vals, offset, val)
+              Heap.put_obj_raw(ref, {:shape, shape_id, new_vals, proto})
 
-    if is_map(map) and not Heap.frozen?(ref) do
-      Heap.put_obj(ref, Map.put(map, key, val))
-      Heap.put_prop_desc(ref, key, %{writable: true, enumerable: false, configurable: true})
+            :error ->
+              {new_shape_id, offset} = Heap.Shapes.transition(shape_id, key)
+              new_vals = Heap.Shapes.put_val(vals, offset, val)
+              Heap.put_obj_raw(ref, {:shape, new_shape_id, new_vals, proto})
+          end
+
+          Heap.put_prop_desc(ref, key, %{writable: true, enumerable: false, configurable: true})
+        end
+
+        :ok
+
+      map when is_map(map) ->
+        if not Heap.frozen?(ref) do
+          Heap.put_obj(ref, Map.put(map, key, val))
+          Heap.put_prop_desc(ref, key, %{writable: true, enumerable: false, configurable: true})
+        end
+
+        :ok
+
+      _ ->
+        :ok
     end
-
-    :ok
   end
 
   def put(%Bytecode.Function{} = f, key, val, _enumerable), do: Heap.put_ctor_static(f, key, val)
