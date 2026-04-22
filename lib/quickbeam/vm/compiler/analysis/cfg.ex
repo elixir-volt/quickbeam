@@ -17,6 +17,16 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
             [target] = args
             MapSet.put(acc, target)
 
+          {:ok, name}
+          when name in [
+                 :initial_yield,
+                 :yield,
+                 :yield_star,
+                 :async_yield_star,
+                 :gosub
+               ] ->
+            MapSet.put(acc, idx + 1)
+
           _ ->
             acc
         end

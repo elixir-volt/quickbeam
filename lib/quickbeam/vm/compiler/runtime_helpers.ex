@@ -711,6 +711,9 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def invoke_method_runtime(fun, this_obj, args),
     do: Invocation.invoke_method_runtime(fun, this_obj, args)
 
+  def await(_ctx, val), do: Interpreter.resolve_awaited(val)
+  def await(val), do: Interpreter.resolve_awaited(val)
+
   def get_length(obj), do: Get.length_of(obj)
 
   def for_of_start(obj) do

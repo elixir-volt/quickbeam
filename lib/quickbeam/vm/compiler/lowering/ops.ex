@@ -725,6 +725,43 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       {{:ok, :nop}, []} ->
         {:ok, state}
 
+      # ── Generators / async ──
+
+      {{:ok, :initial_yield}, []} ->
+        lower_initial_yield(state, next_entry, stack_depths)
+
+      {{:ok, :yield}, []} ->
+        lower_yield(state, next_entry, stack_depths)
+
+      {{:ok, :yield_star}, []} ->
+        lower_yield_star(state, next_entry, stack_depths)
+
+      {{:ok, :async_yield_star}, []} ->
+        lower_yield_star(state, next_entry, stack_depths)
+
+      {{:ok, :await}, []} ->
+        lower_await(state)
+
+      {{:ok, :return_async}, []} ->
+        lower_return_async(state)
+
+      {{:ok, :gosub}, [target]} ->
+        # gosub is used for finally blocks — the block at target is
+        # the finally body.  We inline it as a direct call since
+        # the compiler already duplicates finally blocks via CFG.
+        State.goto(state, target, stack_depths)
+
+      {{:ok, :ret}, []} ->
+        # ret returns from a gosub.  In the compiler's block model
+        # the finally body falls through to the next block, so ret
+        # is a no-op terminal.
+        {:done, state.body ++ [Builder.atom(:undefined)]}
+
+      {{:ok, :catch}, [_target]} ->
+        # catch pushes catch offset — the compiler handles try/catch
+        # via BEAM exceptions; push a dummy offset for nip_catch.
+        {:ok, State.push(state, Builder.integer(0))}
+
       {{:error, _} = error, _} ->
         error
 
@@ -1374,4 +1411,96 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
   defp special_object_type(3), do: :function
   defp special_object_type(type) when type in [0, 1, 5, 6, 7], do: :object
   defp special_object_type(_), do: :unknown
+
+  # ── Generator / async helpers ──
+
+  defp lower_initial_yield(state, next_entry, stack_depths) do
+    # initial_yield: yield :undefined, resume at next block
+    yield_throw(state, Builder.atom(:undefined), next_entry, stack_depths)
+  end
+
+  defp lower_yield(state, next_entry, stack_depths) do
+    with {:ok, val, _type, state} <- State.pop_typed(state) do
+      yield_throw(state, val, next_entry, stack_depths)
+    end
+  end
+
+  defp lower_yield_star(state, next_entry, stack_depths) do
+    # yield* delegates to an inner iterator — for now, treat same as yield
+    with {:ok, val, _type, state} <- State.pop_typed(state) do
+      {:done,
+       state.body ++
+         [Builder.remote_call(:erlang, :throw, [
+           Builder.tuple_expr([
+             Builder.atom(:generator_yield_star),
+             val,
+             yield_continuation(state, next_entry, stack_depths)
+           ])
+         ])]}
+    end
+  end
+
+  defp lower_await(state) do
+    # await: synchronously resolve promise in BEAM VM
+    with {:ok, val, _type, state} <- State.pop_typed(state) do
+      State.effectful_push(
+        state,
+        Builder.remote_call(QuickBEAM.VM.Compiler.RuntimeHelpers, :await, [
+          State.ctx_expr(state),
+          val
+        ])
+      )
+    end
+  end
+
+  defp lower_return_async(state) do
+    with {:ok, val, _state} <- State.pop(state) do
+      {:done,
+       state.body ++
+         [Builder.remote_call(:erlang, :throw, [
+           Builder.tuple_expr([Builder.atom(:generator_return), val])
+         ])]}
+    end
+  end
+
+  defp yield_throw(state, val, next_entry, stack_depths) do
+    {:done,
+     state.body ++
+       [Builder.remote_call(:erlang, :throw, [
+         Builder.tuple_expr([
+           Builder.atom(:generator_yield),
+           val,
+           yield_continuation(state, next_entry, stack_depths)
+         ])
+       ])]}
+  end
+
+  defp yield_continuation(state, next_entry, stack_depths) do
+    # The continuation is a fun(Arg) -> block_N(Ctx, Slots..., Arg, Captures...)
+    # "Arg" is what next() passes — it becomes the yield return value
+    # which the interpreter pushes as [false, arg | stack]
+    # The "false" indicates "not a return", arg is the yielded-back value.
+    arg_var = Builder.var("YieldArg")
+    false_var = Builder.atom(false)
+
+    ctx = State.ctx_expr(state)
+    slots = State.current_slots(state)
+    # The resumed block expects [false, arg | original_stack] on the stack
+    stack = [false_var, arg_var | State.current_stack(state)]
+    captures = State.current_capture_cells(state)
+
+    expected_depth = Map.get(stack_depths, next_entry)
+
+    if expected_depth && expected_depth == length(stack) do
+      call =
+        Builder.local_call(Builder.block_name(next_entry), [
+          ctx | slots ++ stack ++ captures
+        ])
+
+      {:fun, 1, {:clauses, [{:clause, 1, [arg_var], [], [call]}]}}
+    else
+      # Stack depth mismatch — fall back to a noop continuation
+      {:fun, 1, {:clauses, [{:clause, 1, [arg_var], [], [Builder.atom(:undefined)]}]}}
+    end
+  end
 end

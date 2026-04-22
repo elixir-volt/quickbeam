@@ -721,6 +721,13 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
       {{:ok, name}, _} when name in [:throw, :throw_error] ->
         {:ok, {:halt, return_type}}
 
+      {{:ok, :return_async}, _} ->
+        {:ok, {:halt, return_type}}
+
+      {{:ok, name}, _}
+      when name in [:initial_yield, :yield, :yield_star, :async_yield_star, :gosub, :ret] ->
+        {:ok, {:halt, return_type}}
+
       {{:ok, :nop}, _} ->
         {:ok, {:continue, state, return_type}}
 

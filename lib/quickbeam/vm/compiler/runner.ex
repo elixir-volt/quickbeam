@@ -73,7 +73,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
     case Heap.get_compiled(key) do
       {:compiled, {mod, name}, atoms} ->
         ctx = invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun, atoms)
-        {:ok, apply_compiled({mod, name}, ctx, normalized_args)}
+        {:ok, invoke_compiled(fun, {mod, name}, ctx, normalized_args)}
 
       :unsupported ->
         :error
@@ -89,12 +89,65 @@ defmodule QuickBEAM.VM.Compiler.Runner do
         atoms = Process.get({:qb_fn_atoms, fun.byte_code}, Heap.get_atoms())
         Heap.put_compiled(key, {:compiled, compiled, atoms})
         ctx = invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun, atoms)
-        {:ok, apply_compiled(compiled, ctx, normalized_args)}
+        {:ok, invoke_compiled(fun, compiled, ctx, normalized_args)}
 
       {:error, _} ->
         Heap.put_compiled(key, :unsupported)
         :error
     end
+  end
+
+  defp invoke_compiled(%Bytecode.Function{func_kind: 1}, compiled, ctx, args) do
+    # Generator: wrap in yield/suspend protocol
+    compiled_gen_invoke(compiled, ctx, args)
+  end
+
+  defp invoke_compiled(%Bytecode.Function{func_kind: 2}, compiled, ctx, args) do
+    # Async: wrap in promise
+    compiled_async_invoke(compiled, ctx, args)
+  end
+
+  defp invoke_compiled(%Bytecode.Function{func_kind: 3}, compiled, ctx, args) do
+    # Async generator
+    compiled_async_gen_invoke(compiled, ctx, args)
+  end
+
+  defp invoke_compiled(_fun, compiled, ctx, args) do
+    apply_compiled(compiled, ctx, args)
+  end
+
+  defp compiled_gen_invoke(compiled, ctx, args) do
+    gen_ref = Heap.alloc_obj(nil)
+
+    try do
+      apply_compiled(compiled, ctx, args)
+    catch
+      {:generator_yield, _val, continuation} ->
+        Heap.put_obj(gen_ref, %{state: :suspended, continuation: continuation})
+    end
+
+    QuickBEAM.VM.Compiler.GeneratorIterator.build(gen_ref)
+  end
+
+  defp compiled_async_invoke(compiled, ctx, args) do
+    result = apply_compiled(compiled, ctx, args)
+    QuickBEAM.VM.PromiseState.resolved(result)
+  catch
+    {:generator_return, val} -> QuickBEAM.VM.PromiseState.resolved(val)
+    {:js_throw, val} -> QuickBEAM.VM.PromiseState.rejected(val)
+  end
+
+  defp compiled_async_gen_invoke(compiled, ctx, args) do
+    gen_ref = Heap.alloc_obj(nil)
+
+    try do
+      apply_compiled(compiled, ctx, args)
+    catch
+      {:generator_yield, _val, continuation} ->
+        Heap.put_obj(gen_ref, %{state: :suspended, continuation: continuation})
+    end
+
+    QuickBEAM.VM.Compiler.GeneratorIterator.build_async(gen_ref)
   end
 
   defp apply_compiled({mod, name}, ctx, args), do: apply(mod, name, [ctx | args])

@@ -103,6 +103,27 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
         {{:ok, :throw_error}, _} ->
           {:ok, []}
 
+        {{:ok, :return_async}, []} ->
+          {:ok, []}
+
+        {{:ok, :initial_yield}, []} ->
+          {:ok, []}
+
+        {{:ok, :yield}, []} ->
+          {:ok, []}
+
+        {{:ok, :yield_star}, []} ->
+          {:ok, []}
+
+        {{:ok, :async_yield_star}, []} ->
+          {:ok, []}
+
+        {{:ok, :gosub}, [_target]} ->
+          {:ok, []}
+
+        {{:ok, :ret}, []} ->
+          {:ok, []}
+
         _ ->
           do_simulate_block_stack_depths(instructions, idx + 1, next_entry, next_depth)
       end

@@ -532,7 +532,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp unwrap_promise(val, _depth), do: val
 
-  defp resolve_awaited({:obj, ref} = obj) do
+  def resolve_awaited({:obj, ref} = obj) do
     Promise.drain_microtasks()
 
     case Heap.get_obj(ref, %{}) do
@@ -574,7 +574,7 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
-  defp resolve_awaited(val), do: val
+  def resolve_awaited(val), do: val
 
   defp list_iterator_next(pos_ref) do
     state = Heap.get_obj(pos_ref, %{pos: 0, list: []})
