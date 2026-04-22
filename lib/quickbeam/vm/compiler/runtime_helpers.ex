@@ -291,6 +291,136 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def close_capture_cell(_ctx, cell, val), do: close_capture_cell(cell, val)
   def sync_capture_cell(_ctx, cell, val), do: sync_capture_cell(cell, val)
 
+  def set_proto(_ctx, obj, proto), do: set_proto(obj, proto)
+
+  def get_private_field(_ctx, obj, key) do
+    case Private.get_field(obj, key) do
+      :missing -> throw({:js_throw, Private.brand_error()})
+      val -> val
+    end
+  end
+
+  def put_private_field(_ctx, obj, key, val) do
+    case Private.put_field!(obj, key, val) do
+      :ok -> :ok
+      :error -> throw({:js_throw, Private.brand_error()})
+    end
+  end
+
+  def define_private_field(_ctx, obj, key, val) do
+    case Private.define_field!(obj, key, val) do
+      :ok -> :ok
+      :error -> throw({:js_throw, Private.brand_error()})
+    end
+  end
+
+  def check_brand(_ctx, obj, brand) do
+    case Private.ensure_brand(obj, brand) do
+      :ok -> :ok
+      :error -> throw({:js_throw, Private.brand_error()})
+    end
+  end
+
+  def init_ctor(ctx) do
+    current_func = context_current_func(ctx)
+
+    raw =
+      case current_func do
+        {:closure, _, %Bytecode.Function{} = f} -> f
+        %Bytecode.Function{} = f -> f
+        other -> other
+      end
+
+    parent = Heap.get_parent_ctor(raw)
+    args = Tuple.to_list(context_arg_buf(ctx))
+
+    pending_this =
+      case context_this(ctx) do
+        {:uninitialized, {:obj, _} = obj} -> obj
+        {:obj, _} = obj -> obj
+        other -> other
+      end
+
+    parent_ctx = Context.mark_dirty(%{ensure_context(ctx) | this: pending_this})
+
+    result =
+      case parent do
+        nil ->
+          pending_this
+
+        %Bytecode.Function{} = f ->
+          Invocation.invoke_with_receiver(
+            {:closure, %{}, f},
+            args,
+            context_gas(ctx),
+            pending_this
+          )
+
+        {:closure, _, %Bytecode.Function{}} = closure ->
+          Invocation.invoke_with_receiver(closure, args, context_gas(ctx), pending_this)
+
+        {:builtin, _name, cb} when is_function(cb, 2) ->
+          cb.(args, pending_this)
+
+        _ ->
+          pending_this
+      end
+
+    result =
+      case result do
+        {:obj, _} = obj -> obj
+        _ -> pending_this
+      end
+
+    Heap.put_ctx(Context.mark_dirty(%{parent_ctx | this: result}))
+    result
+  end
+
+  def make_loc_ref(_ctx, idx), do: make_loc_ref(idx)
+  def make_arg_ref(_ctx, idx), do: make_arg_ref(idx)
+
+  def make_var_ref_ref(ctx, idx) do
+    case current_var_ref(ctx, idx) do
+      {:cell, _} = cell -> cell
+      val ->
+        ref = make_ref()
+        Heap.put_cell(ref, val)
+        {:cell, ref}
+    end
+  end
+
+  def get_ref_value(_ctx, ref), do: get_ref_value(ref)
+  def put_ref_value(_ctx, val, ref), do: put_ref_value(val, ref)
+
+  def rest(ctx, start_idx) do
+    arg_buf = context_arg_buf(ctx)
+
+    rest_args =
+      if start_idx < tuple_size(arg_buf) do
+        Tuple.to_list(arg_buf) |> Enum.drop(start_idx)
+      else
+        []
+      end
+
+    Heap.wrap(rest_args)
+  end
+
+  def throw_error(ctx, atom_idx, reason) do
+    name = Names.resolve_atom(context_atoms(ctx), atom_idx)
+
+    {error_type, message} =
+      case reason do
+        0 -> {"TypeError", "'#{name}' is read-only"}
+        1 -> {"SyntaxError", "redeclaration of '#{name}'"}
+        2 -> {"ReferenceError", "cannot access '#{name}' before initialization"}
+        3 -> {"ReferenceError", "unsupported reference to 'super'"}
+        4 -> {"TypeError", "iterator does not have a throw method"}
+        _ -> {"Error", name}
+      end
+
+    throw({:js_throw, Heap.make_error(message, error_type)})
+  end
+
   def ensure_initialized_local!(val) do
     if val == @tdz do
       throw(
@@ -530,6 +660,37 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def ensure_capture_cell(cell, val), do: Captures.ensure(cell, val)
   def close_capture_cell(cell, val), do: Captures.close(cell, val)
   def sync_capture_cell(cell, val), do: Captures.sync(cell, val)
+
+  def set_proto({:obj, ref} = _obj, proto) do
+    map = Heap.get_obj(ref, %{})
+    if is_map(map), do: Heap.put_obj(ref, Map.put(map, proto(), proto))
+    :ok
+  end
+
+  def set_proto(_obj, _proto), do: :ok
+
+  def make_loc_ref(_idx) do
+    ref = make_ref()
+    Heap.put_cell(ref, :undefined)
+    {:cell, ref}
+  end
+
+  def make_arg_ref(idx) do
+    ref = make_ref()
+    val = elem(InvokeContext.current_arg_buf(), idx)
+    Heap.put_cell(ref, val)
+    {:cell, ref}
+  end
+
+  def get_ref_value({:cell, _} = cell), do: Closures.read_cell(cell)
+  def get_ref_value(_), do: :undefined
+
+  def put_ref_value(val, {:cell, _} = cell) do
+    Closures.write_cell(cell, val)
+    val
+  end
+
+  def put_ref_value(val, _), do: val
 
   def define_class(ctor, parent_ctor, atom_idx) do
     ctor_closure =
@@ -776,6 +937,14 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   defp context_this(_), do: :undefined
   defp context_new_target(%{new_target: new_target}), do: new_target
   defp context_new_target(_), do: :undefined
+  defp context_gas(%{gas: gas}), do: gas
+  defp context_gas(_), do: Context.default_gas()
+
+  defp ensure_context(%Context{} = ctx), do: ctx
+  defp ensure_context(map) when is_map(map), do: context_struct(map)
+
+  defp ensure_context(_),
+    do: %Context{atoms: Heap.get_atoms(), globals: GlobalEnv.base_globals()}
 
   defp context_home_object(ctx, current_func) do
     case Map.get(ctx, :home_object, :undefined) do

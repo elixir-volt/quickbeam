@@ -68,28 +68,28 @@ defmodule QuickBEAM.VM.Compiler.Runner do
 
   defp invoke_target(current_func, %Bytecode.Function{} = fun, args, ctx_overrides, base_ctx) do
     key = {fun.byte_code, fun.arg_count}
-    args = normalize_args(args, fun.arg_count)
+    normalized_args = normalize_args(args, fun.arg_count)
 
     case Heap.get_compiled(key) do
       {:compiled, {mod, name}, atoms} ->
         ctx = invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun, atoms)
-        {:ok, apply_compiled({mod, name}, ctx, args)}
+        {:ok, apply_compiled({mod, name}, ctx, normalized_args)}
 
       :unsupported ->
         :error
 
       nil ->
-        compile_and_invoke(fun, current_func, args, ctx_overrides, base_ctx, key)
+        compile_and_invoke(fun, current_func, args, normalized_args, ctx_overrides, base_ctx, key)
     end
   end
 
-  defp compile_and_invoke(fun, current_func, args, ctx_overrides, base_ctx, key) do
+  defp compile_and_invoke(fun, current_func, args, normalized_args, ctx_overrides, base_ctx, key) do
     case Compiler.compile(fun) do
       {:ok, compiled} ->
         atoms = Process.get({:qb_fn_atoms, fun.byte_code}, Heap.get_atoms())
         Heap.put_compiled(key, {:compiled, compiled, atoms})
         ctx = invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun, atoms)
-        {:ok, apply_compiled(compiled, ctx, args)}
+        {:ok, apply_compiled(compiled, ctx, normalized_args)}
 
       {:error, _} ->
         Heap.put_compiled(key, :unsupported)

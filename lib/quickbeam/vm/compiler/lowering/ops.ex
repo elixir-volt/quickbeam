@@ -9,6 +9,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.{GlobalEnv}
   alias QuickBEAM.VM.Interpreter.Values
+  alias QuickBEAM.VM.ObjectModel.{Class, Private}
 
   @tdz :__tdz__
 
@@ -352,8 +353,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       {{:ok, :dup}, []} ->
         State.duplicate_top(state)
 
+      {{:ok, :dup1}, []} ->
+        lower_dup1(state)
+
       {{:ok, :dup2}, []} ->
         State.duplicate_top_two(state)
+
+      {{:ok, :dup3}, []} ->
+        lower_dup3(state)
 
       {{:ok, :insert2}, []} ->
         State.insert_top_two(state)
@@ -361,14 +368,44 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       {{:ok, :insert3}, []} ->
         State.insert_top_three(state)
 
+      {{:ok, :insert4}, []} ->
+        lower_insert4(state)
+
       {{:ok, :drop}, []} ->
         State.drop_top(state)
+
+      {{:ok, :nip}, []} ->
+        lower_nip(state)
+
+      {{:ok, :nip1}, []} ->
+        lower_nip1(state)
 
       {{:ok, :swap}, []} ->
         State.swap_top(state)
 
+      {{:ok, :swap2}, []} ->
+        lower_swap2(state)
+
+      {{:ok, :rot3l}, []} ->
+        lower_rot3l(state)
+
+      {{:ok, :rot3r}, []} ->
+        lower_rot3r(state)
+
+      {{:ok, :rot4l}, []} ->
+        lower_rot4l(state)
+
+      {{:ok, :rot5l}, []} ->
+        lower_rot5l(state)
+
       {{:ok, :perm3}, []} ->
         State.permute_top_three(state)
+
+      {{:ok, :perm4}, []} ->
+        lower_perm4(state)
+
+      {{:ok, :perm5}, []} ->
+        lower_perm5(state)
 
       {{:ok, :neg}, []} ->
         State.unary_local_call(state, :op_neg)
@@ -493,6 +530,24 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       {{:ok, :define_class}, [atom_idx, _flags]} ->
         State.define_class_call(state, atom_idx)
 
+      {{:ok, :define_class_computed}, [atom_idx, _flags]} ->
+        lower_define_class_computed(state, atom_idx)
+
+      {{:ok, :set_proto}, []} ->
+        lower_set_proto(state)
+
+      {{:ok, :get_super_value}, []} ->
+        lower_get_super_value(state)
+
+      {{:ok, :put_super_value}, []} ->
+        lower_put_super_value(state)
+
+      {{:ok, :check_ctor_return}, []} ->
+        lower_check_ctor_return(state)
+
+      {{:ok, :init_ctor}, []} ->
+        lower_init_ctor(state)
+
       {{:ok, :put_array_el}, []} ->
         State.put_array_el_call(state)
 
@@ -559,11 +614,29 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       {{:ok, :add_brand}, []} ->
         State.add_brand(state)
 
+      {{:ok, :check_brand}, []} ->
+        lower_check_brand(state)
+
+      {{:ok, :get_private_field}, []} ->
+        lower_get_private_field(state)
+
+      {{:ok, :put_private_field}, []} ->
+        lower_put_private_field(state)
+
+      {{:ok, :define_private_field}, []} ->
+        lower_define_private_field(state)
+
+      {{:ok, :private_in}, []} ->
+        lower_private_in(state)
+
       {{:ok, :nip_catch}, []} ->
         State.nip_catch(state)
 
       {{:ok, :throw}, []} ->
         State.throw_top(state)
+
+      {{:ok, :throw_error}, [atom_idx, reason]} ->
+        lower_throw_error(state, atom_idx, reason)
 
       {{:ok, :call_constructor}, [argc]} ->
         State.invoke_constructor_call(state, argc)
@@ -591,6 +664,33 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
 
       {{:ok, :tail_call_method}, [argc]} ->
         State.invoke_tail_method_call(state, argc)
+
+      {{:ok, :make_loc_ref}, [idx]} ->
+        lower_make_loc_ref(state, idx)
+
+      {{:ok, :make_arg_ref}, [idx]} ->
+        lower_make_arg_ref(state, idx)
+
+      {{:ok, :make_var_ref}, [idx]} ->
+        lower_make_loc_ref(state, idx)
+
+      {{:ok, :make_var_ref_ref}, [idx]} ->
+        lower_make_var_ref_ref(state, idx)
+
+      {{:ok, :get_ref_value}, []} ->
+        lower_get_ref_value(state)
+
+      {{:ok, :put_ref_value}, []} ->
+        lower_put_ref_value(state)
+
+      {{:ok, :rest}, [start_idx]} ->
+        lower_rest(state, start_idx)
+
+      {{:ok, :push_bigint_i32}, [value]} ->
+        {:ok, State.push(state, Builder.tuple_expr([Builder.atom(:bigint), Builder.integer(value)]))}
+
+      {{:ok, :delete_var}, [_atom_idx]} ->
+        {:ok, State.push(state, Builder.atom(true), :boolean)}
 
       {{:ok, :is_undefined_or_null}, []} ->
         lower_is_undefined_or_null(state)
@@ -884,6 +984,390 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       end
 
     State.assign_slot(state, slot_idx, false, wrapper)
+  end
+
+  # ── Stack manipulation helpers ──
+
+  # dup1: [a, b | rest] → [a, b, a, b | rest]
+  # Note: in QuickJS, dup1 duplicates the top 2 entries
+  defp lower_dup1(state) do
+    with {:ok, a, ta, state} <- State.pop_typed(state),
+         {:ok, b, tb, state} <- State.pop_typed(state) do
+      {b_bound, state} = State.bind(state, Builder.temp_name(state.temp), b)
+      {a_bound, state} = State.bind(state, Builder.temp_name(state.temp), a)
+
+      {:ok,
+       %{
+         state
+         | stack: [a_bound, b_bound, a_bound, b_bound | state.stack],
+           stack_types: [ta, tb, ta, tb | state.stack_types]
+       }}
+    end
+  end
+
+  # dup3: [a, b, c | rest] → [a, b, c, a, b, c | rest]
+  defp lower_dup3(state) do
+    with {:ok, a, ta, state} <- State.pop_typed(state),
+         {:ok, b, tb, state} <- State.pop_typed(state),
+         {:ok, c, tc, state} <- State.pop_typed(state) do
+      {c_bound, state} = State.bind(state, Builder.temp_name(state.temp), c)
+      {b_bound, state} = State.bind(state, Builder.temp_name(state.temp), b)
+      {a_bound, state} = State.bind(state, Builder.temp_name(state.temp), a)
+
+      {:ok,
+       %{
+         state
+         | stack: [a_bound, b_bound, c_bound, a_bound, b_bound, c_bound | state.stack],
+           stack_types: [ta, tb, tc, ta, tb, tc | state.stack_types]
+       }}
+    end
+  end
+
+  # insert4: [a, b, c, d | rest] → [a, b, c, d, a | rest]
+  defp lower_insert4(state) do
+    with {:ok, a, ta, state} <- State.pop_typed(state),
+         {:ok, b, tb, state} <- State.pop_typed(state),
+         {:ok, c, tc, state} <- State.pop_typed(state),
+         {:ok, d, td, state} <- State.pop_typed(state) do
+      {a_bound, state} = State.bind(state, Builder.temp_name(state.temp), a)
+
+      {:ok,
+       %{
+         state
+         | stack: [a_bound, b, c, d, a_bound | state.stack],
+           stack_types: [ta, tb, tc, td, ta | state.stack_types]
+       }}
+    end
+  end
+
+  # nip: [a, b | rest] → [a | rest]
+  defp lower_nip(%{stack: [a, _b | rest], stack_types: [ta, _tb | type_rest]} = state),
+    do: {:ok, %{state | stack: [a | rest], stack_types: [ta | type_rest]}}
+
+  defp lower_nip(_state), do: {:error, :stack_underflow}
+
+  # nip1: [a, b, c | rest] → [a, b | rest]
+  defp lower_nip1(
+         %{stack: [a, b, _c | rest], stack_types: [ta, tb, _tc | type_rest]} = state
+       ),
+       do: {:ok, %{state | stack: [a, b | rest], stack_types: [ta, tb | type_rest]}}
+
+  defp lower_nip1(_state), do: {:error, :stack_underflow}
+
+  # swap2: [a, b, c, d | rest] → [c, d, a, b | rest]
+  defp lower_swap2(
+         %{
+           stack: [a, b, c, d | rest],
+           stack_types: [ta, tb, tc, td | type_rest]
+         } = state
+       ),
+       do: {:ok, %{state | stack: [c, d, a, b | rest], stack_types: [tc, td, ta, tb | type_rest]}}
+
+  defp lower_swap2(_state), do: {:error, :stack_underflow}
+
+  # rot3l: [a, b, c | rest] → [c, a, b | rest] (rotate left: bottom goes to top)
+  defp lower_rot3l(
+         %{stack: [a, b, c | rest], stack_types: [ta, tb, tc | type_rest]} = state
+       ),
+       do: {:ok, %{state | stack: [c, a, b | rest], stack_types: [tc, ta, tb | type_rest]}}
+
+  defp lower_rot3l(_state), do: {:error, :stack_underflow}
+
+  # rot3r: [a, b, c | rest] → [b, c, a | rest] (rotate right: top goes to bottom)
+  defp lower_rot3r(
+         %{stack: [a, b, c | rest], stack_types: [ta, tb, tc | type_rest]} = state
+       ),
+       do: {:ok, %{state | stack: [b, c, a | rest], stack_types: [tb, tc, ta | type_rest]}}
+
+  defp lower_rot3r(_state), do: {:error, :stack_underflow}
+
+  # rot4l: [a, b, c, d | rest] → [d, a, b, c | rest]
+  defp lower_rot4l(
+         %{
+           stack: [a, b, c, d | rest],
+           stack_types: [ta, tb, tc, td | type_rest]
+         } = state
+       ),
+       do:
+         {:ok,
+          %{state | stack: [d, a, b, c | rest], stack_types: [td, ta, tb, tc | type_rest]}}
+
+  defp lower_rot4l(_state), do: {:error, :stack_underflow}
+
+  # rot5l: [a, b, c, d, e | rest] → [e, a, b, c, d | rest]
+  defp lower_rot5l(
+         %{
+           stack: [a, b, c, d, e | rest],
+           stack_types: [ta, tb, tc, td, te | type_rest]
+         } = state
+       ),
+       do:
+         {:ok,
+          %{
+            state
+            | stack: [e, a, b, c, d | rest],
+              stack_types: [te, ta, tb, tc, td | type_rest]
+          }}
+
+  defp lower_rot5l(_state), do: {:error, :stack_underflow}
+
+  # perm4: [a, b, c, d | rest] → [a, c, d, b | rest]
+  defp lower_perm4(
+         %{
+           stack: [a, b, c, d | rest],
+           stack_types: [ta, tb, tc, td | type_rest]
+         } = state
+       ),
+       do:
+         {:ok,
+          %{state | stack: [a, c, d, b | rest], stack_types: [ta, tc, td, tb | type_rest]}}
+
+  defp lower_perm4(_state), do: {:error, :stack_underflow}
+
+  # perm5: [a, b, c, d, e | rest] → [a, c, d, e, b | rest]
+  defp lower_perm5(
+         %{
+           stack: [a, b, c, d, e | rest],
+           stack_types: [ta, tb, tc, td, te | type_rest]
+         } = state
+       ),
+       do:
+         {:ok,
+          %{
+            state
+            | stack: [a, c, d, e, b | rest],
+              stack_types: [ta, tc, td, te, tb | type_rest]
+          }}
+
+  defp lower_perm5(_state), do: {:error, :stack_underflow}
+
+  # ── Private field helpers ──
+
+  defp lower_get_private_field(state) do
+    with {:ok, key, state} <- State.pop(state),
+         {:ok, obj, state} <- State.pop(state) do
+      State.effectful_push(
+        state,
+        State.compiler_call(state, :get_private_field, [obj, key])
+      )
+    end
+  end
+
+  defp lower_put_private_field(state) do
+    with {:ok, key, state} <- State.pop(state),
+         {:ok, val, state} <- State.pop(state),
+         {:ok, obj, state} <- State.pop(state) do
+      {:ok,
+       %{
+         state
+         | body:
+             state.body ++
+               [State.compiler_call(state, :put_private_field, [obj, key, val])]
+       }}
+    end
+  end
+
+  defp lower_define_private_field(state) do
+    with {:ok, val, state} <- State.pop(state),
+         {:ok, key, state} <- State.pop(state),
+         {:ok, obj, _obj_type, state} <- State.pop_typed(state) do
+      {:ok,
+       %{
+         state
+         | body:
+             state.body ++
+               [State.compiler_call(state, :define_private_field, [obj, key, val])],
+           stack: [obj | state.stack],
+           stack_types: [:object | state.stack_types]
+       }}
+    end
+  end
+
+  defp lower_check_brand(state) do
+    with {:ok, state, brand} <- State.bind_stack_entry(state, 0),
+         {:ok, state, obj} <- State.bind_stack_entry(state, 1) do
+      {:ok,
+       %{
+         state
+         | body:
+             state.body ++
+               [State.compiler_call(state, :check_brand, [obj, brand])]
+       }}
+    else
+      :error -> {:error, :check_brand_state_missing}
+    end
+  end
+
+  defp lower_private_in(state) do
+    with {:ok, key, state} <- State.pop(state),
+         {:ok, obj, state} <- State.pop(state) do
+      {:ok,
+       State.push(
+         state,
+         Builder.remote_call(Private, :has_field?, [obj, key]),
+         :boolean
+       )}
+    end
+  end
+
+  # ── Class helpers ──
+
+  defp lower_set_proto(state) do
+    with {:ok, proto, state} <- State.pop(state),
+         {:ok, obj, _obj_type, state} <- State.pop_typed(state) do
+      {:ok,
+       %{
+         state
+         | body:
+             state.body ++
+               [State.compiler_call(state, :set_proto, [obj, proto])],
+           stack: [obj | state.stack],
+           stack_types: [:object | state.stack_types]
+       }}
+    end
+  end
+
+  defp lower_get_super_value(state) do
+    with {:ok, key, state} <- State.pop(state),
+         {:ok, proto, state} <- State.pop(state),
+         {:ok, this_obj, state} <- State.pop(state) do
+      State.effectful_push(
+        state,
+        Builder.remote_call(Class, :get_super_value, [proto, this_obj, key])
+      )
+    end
+  end
+
+  defp lower_put_super_value(state) do
+    with {:ok, val, state} <- State.pop(state),
+         {:ok, key, state} <- State.pop(state),
+         {:ok, proto_obj, state} <- State.pop(state),
+         {:ok, this_obj, state} <- State.pop(state) do
+      {:ok,
+       %{
+         state
+         | body:
+             state.body ++
+               [Builder.remote_call(Class, :put_super_value, [proto_obj, this_obj, key, val])]
+       }}
+    end
+  end
+
+  defp lower_check_ctor_return(state) do
+    with {:ok, val, state} <- State.pop(state) do
+      {pair, state} =
+        State.bind(
+          state,
+          Builder.temp_name(state.temp),
+          Builder.remote_call(Class, :check_ctor_return, [val])
+        )
+
+      {:ok,
+       %{
+         state
+         | stack: [Builder.tuple_element(pair, 1), Builder.tuple_element(pair, 2) | state.stack],
+           stack_types: [:unknown, :unknown | state.stack_types]
+       }}
+    end
+  end
+
+  defp lower_init_ctor(state) do
+    State.effectful_push(
+      state,
+      State.compiler_call(state, :init_ctor, []),
+      :object
+    )
+  end
+
+  defp lower_define_class_computed(state, atom_idx) do
+    with {:ok, ctor, state} <- State.pop(state),
+         {:ok, parent_ctor, state} <- State.pop(state),
+         {:ok, _computed_name, state} <- State.pop(state) do
+      {pair, state} =
+        State.bind(
+          state,
+          Builder.temp_name(state.temp),
+          State.compiler_call(state, :define_class, [
+            ctor,
+            parent_ctor,
+            Builder.literal(atom_idx)
+          ])
+        )
+
+      {:ok,
+       %{
+         state
+         | stack: [Builder.tuple_element(pair, 1), Builder.tuple_element(pair, 2) | state.stack],
+           stack_types: [:object, :function | state.stack_types]
+       }}
+    end
+  end
+
+  # ── Ref creation helpers ──
+
+  defp lower_make_loc_ref(state, idx) do
+    State.effectful_push(
+      state,
+      State.compiler_call(state, :make_loc_ref, [Builder.literal(idx)]),
+      :unknown
+    )
+  end
+
+  defp lower_make_arg_ref(state, idx) do
+    State.effectful_push(
+      state,
+      State.compiler_call(state, :make_arg_ref, [Builder.literal(idx)]),
+      :unknown
+    )
+  end
+
+  defp lower_make_var_ref_ref(state, idx) do
+    State.effectful_push(
+      state,
+      State.compiler_call(state, :make_var_ref_ref, [Builder.literal(idx)]),
+      :unknown
+    )
+  end
+
+  defp lower_get_ref_value(state) do
+    with {:ok, ref, state} <- State.pop(state) do
+      State.effectful_push(
+        state,
+        State.compiler_call(state, :get_ref_value, [ref])
+      )
+    end
+  end
+
+  defp lower_put_ref_value(state) do
+    with {:ok, val, state} <- State.pop(state),
+         {:ok, ref, state} <- State.pop(state) do
+      {:ok,
+       %{
+         state
+         | body:
+             state.body ++
+               [State.compiler_call(state, :put_ref_value, [val, ref])]
+       }}
+    end
+  end
+
+  defp lower_rest(state, start_idx) do
+    State.effectful_push(
+      state,
+      State.compiler_call(state, :rest, [Builder.literal(start_idx)]),
+      :object
+    )
+  end
+
+  defp lower_throw_error(state, atom_idx, reason) do
+    {:done,
+     state.body ++
+       [
+         State.compiler_call(state, :throw_error, [
+           Builder.literal(atom_idx),
+           Builder.literal(reason)
+         ])
+       ]}
   end
 
   defp special_object_type(2), do: :self_fun
