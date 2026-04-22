@@ -19,6 +19,18 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
 
           {:ok, name}
           when name in [
+                 :with_get_var,
+                 :with_put_var,
+                 :with_delete_var,
+                 :with_make_ref,
+                 :with_get_ref,
+                 :with_get_ref_undef
+               ] ->
+            [_atom_idx, target, _is_with] = args
+            acc |> MapSet.put(target) |> MapSet.put(idx + 1)
+
+          {:ok, name}
+          when name in [
                  :initial_yield,
                  :yield,
                  :yield_star,

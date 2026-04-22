@@ -714,6 +714,22 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def await(_ctx, val), do: Interpreter.resolve_awaited(val)
   def await(val), do: Interpreter.resolve_awaited(val)
 
+  def import_module(ctx, specifier) do
+    if is_binary(specifier) and Map.get(ctx, :runtime_pid) != nil do
+      QuickBEAM.VM.PromiseState.resolved(Runtime.new_object())
+    else
+      QuickBEAM.VM.PromiseState.rejected(
+        Heap.make_error("Cannot import #{specifier}", "TypeError")
+      )
+    end
+  end
+
+  def import_module(specifier) do
+    QuickBEAM.VM.PromiseState.rejected(
+      Heap.make_error("Cannot import #{specifier}", "TypeError")
+    )
+  end
+
   def get_length(obj), do: Get.length_of(obj)
 
   def for_of_start(obj) do

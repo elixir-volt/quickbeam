@@ -762,6 +762,132 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         # via BEAM exceptions; push a dummy offset for nip_catch.
         {:ok, State.push(state, Builder.integer(0))}
 
+      # ── eval / apply / import ──
+
+      {{:ok, :eval}, [argc | _scope_args]} ->
+        with {:ok, args, _types, state} <- State.pop_n_typed(state, argc + 1) do
+          [eval_ref | call_args] = Enum.reverse(args)
+          State.effectful_push(
+            state,
+            Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_runtime, [
+              State.ctx_expr(state), eval_ref, Builder.list_expr(call_args)
+            ])
+          )
+        end
+
+      {{:ok, :apply_eval}, [_scope_idx]} ->
+        with {:ok, arg_array, state} <- State.pop(state),
+             {:ok, fun, state} <- State.pop(state) do
+          State.effectful_push(
+            state,
+            Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_runtime, [
+              State.ctx_expr(state),
+              fun,
+              Builder.remote_call(QuickBEAM.VM.Heap, :to_list, [arg_array])
+            ])
+          )
+        end
+
+      {{:ok, :apply}, [magic]} ->
+        with {:ok, arg_array, state} <- State.pop(state),
+             {:ok, this_obj, state} <- State.pop(state),
+             {:ok, fun, state} <- State.pop(state) do
+          expr =
+            if magic == 1 do
+              State.compiler_call(state, :construct_runtime, [
+                fun, this_obj,
+                Builder.remote_call(QuickBEAM.VM.Heap, :to_list, [arg_array])
+              ])
+            else
+              Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_method_runtime, [
+                State.ctx_expr(state), fun, this_obj,
+                Builder.remote_call(QuickBEAM.VM.Heap, :to_list, [arg_array])
+              ])
+            end
+          State.effectful_push(state, expr)
+        end
+
+      {{:ok, :import}, []} ->
+        with {:ok, _meta, state} <- State.pop(state),
+             {:ok, specifier, state} <- State.pop(state) do
+          State.effectful_push(
+            state,
+            State.compiler_call(state, :import_module, [specifier])
+          )
+        end
+
+      # ── with statement ──
+
+      {{:ok, name}, [atom_idx, _target, _is_with]}
+      when name in [:with_get_var, :with_get_ref, :with_get_ref_undef] ->
+        with {:ok, obj, _type, state} <- State.pop_typed(state) do
+          key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+          val = Builder.remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [obj, key])
+          case name do
+            :with_get_var -> {:ok, State.push(state, val)}
+            :with_get_ref -> {:ok, state |> State.push(obj) |> State.push(val)}
+            :with_get_ref_undef -> {:ok, state |> State.push(Builder.atom(:undefined)) |> State.push(val)}
+          end
+        end
+
+      {{:ok, :with_put_var}, [atom_idx, _target, _is_with]} ->
+        with {:ok, obj, state} <- State.pop(state),
+             {:ok, val, state} <- State.pop(state) do
+          key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+          {:ok, %{state | body: state.body ++
+            [Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put, [obj, key, val])]}}
+        end
+
+      {{:ok, :with_delete_var}, [atom_idx, _target, _is_with]} ->
+        with {:ok, obj, state} <- State.pop(state) do
+          key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+          State.effectful_push(
+            state,
+            Builder.remote_call(QuickBEAM.VM.ObjectModel.Delete, :delete_property, [obj, key])
+          )
+        end
+
+      {{:ok, :with_make_ref}, [atom_idx, _target, _is_with]} ->
+        with {:ok, obj, state} <- State.pop(state) do
+          key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+          {:ok, state |> State.push(obj) |> State.push(key)}
+        end
+
+      # ── Async iterators ──
+
+      {{:ok, :for_await_of_start}, []} ->
+        with {:ok, obj, _type, state} <- State.pop_typed(state) do
+          State.effectful_push(state, State.compiler_call(state, :for_of_start, [obj]))
+        end
+
+      {{:ok, :iterator_next}, []} ->
+        with {:ok, iter, state} <- State.pop(state) do
+          next_fn = Builder.remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [iter, Builder.literal("next")])
+          State.effectful_push(
+            state,
+            Builder.remote_call(QuickBEAM.VM.Runtime, :call_callback, [next_fn, Builder.list_expr([])])
+          )
+        end
+
+      {{:ok, :iterator_call}, [_method]} ->
+        with {:ok, iter, state} <- State.pop(state) do
+          {:ok, %{state | body: state.body ++
+            [State.compiler_call(state, :iterator_close, [iter])]}}
+        end
+
+      {{:ok, :iterator_check_object}, []} ->
+        {:ok, state}
+
+      {{:ok, :iterator_get_value_done}, []} ->
+        with {:ok, result, state} <- State.pop(state) do
+          done = Builder.remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [result, Builder.literal("done")])
+          value = Builder.remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [result, Builder.literal("value")])
+          {:ok, state |> State.push(done) |> State.push(value)}
+        end
+
+      {{:ok, :invalid}, _} ->
+        {:error, {:unsupported_opcode, :invalid}}
+
       {{:error, _} = error, _} ->
         error
 
