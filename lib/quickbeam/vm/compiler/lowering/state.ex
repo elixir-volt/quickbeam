@@ -52,11 +52,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def inline_get_var_ref(state, idx) do
     cvs = closure_vars_expr(state)
 
-    if idx >= 0 and idx < length(cvs) do
-      {bound, state} = bind(state, Builder.temp_name(state.temp), compiler_call(state, :get_var_ref, [Builder.literal(idx)]))
-      {bound, state}
-    else
-      {Builder.atom(:undefined), state}
+    case Enum.at(cvs, idx) do
+      %{closure_type: type, var_idx: var_idx} ->
+        key = Builder.literal({type, var_idx})
+        {bound, state} = bind(state, Builder.temp_name(state.temp), compiler_call(state, :get_capture, [key]))
+        {bound, state}
+
+      nil ->
+        {Builder.atom(:undefined), state}
     end
   end
 

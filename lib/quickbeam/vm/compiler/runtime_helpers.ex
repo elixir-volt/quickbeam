@@ -67,6 +67,13 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def get_var_ref(ctx, idx), do: read_var_ref(current_var_ref(ctx, idx))
   def get_var_ref_check(ctx, idx), do: checked_var_ref(ctx, idx)
 
+  def get_capture(ctx, key) do
+    case context_current_func(ctx) do
+      {:closure, captured, _} -> read_var_ref(Map.get(captured, key, :undefined))
+      _ -> :undefined
+    end
+  end
+
   def invoke_var_ref(ctx, idx, args),
     do: Invocation.invoke_runtime(ctx, get_var_ref(ctx, idx), args)
 
@@ -103,6 +110,20 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def set_var_ref(ctx, idx, val) do
     put_var_ref(ctx, idx, val)
+    val
+  end
+
+  def put_capture(ctx, key, val) do
+    case context_current_func(ctx) do
+      {:closure, captured, _} -> write_var_ref(Map.get(captured, key, :undefined), val)
+      _ -> :ok
+    end
+
+    :ok
+  end
+
+  def set_capture(ctx, key, val) do
+    put_capture(ctx, key, val)
     val
   end
 
@@ -875,13 +896,31 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   defp current_var_ref(ctx, idx) do
     case context_current_func(ctx) do
-      {:closure, captured, %Bytecode.Function{closure_vars: vars}}
-      when idx >= 0 and idx < length(vars) ->
-        cv = Enum.at(vars, idx)
-        Map.get(captured, closure_capture_key(cv), :undefined)
+      {:closure, captured, %Bytecode.Function{} = fun} ->
+        case capture_keys_tuple(fun) do
+          keys when idx >= 0 and idx < tuple_size(keys) ->
+            Map.get(captured, elem(keys, idx), :undefined)
+
+          _ ->
+            :undefined
+        end
 
       _ ->
         :undefined
+    end
+  end
+
+  defp capture_keys_tuple(%Bytecode.Function{closure_vars: vars} = fun) do
+    key = {:qb_capture_keys, fun.byte_code}
+
+    case Process.get(key) do
+      nil ->
+        tuple = vars |> Enum.map(&closure_capture_key/1) |> List.to_tuple()
+        Process.put(key, tuple)
+        tuple
+
+      cached ->
+        cached
     end
   end
 
