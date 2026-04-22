@@ -74,26 +74,27 @@ defmodule QuickBEAM.VM.Heap.Shapes do
   """
   def transition(shape_id, key) do
     shape = get_shape(shape_id)
+    offset = map_size(shape.offsets)
 
     case Map.get(shape.transitions, key) do
       nil ->
-        offset = map_size(shape.offsets)
         new_id = next_shape_id()
+        new_offsets = Map.put(shape.offsets, key, offset)
 
         new_shape = %{
           keys: shape.keys ++ [key],
-          offsets: Map.put(shape.offsets, key, offset),
+          offsets: new_offsets,
           parent_id: shape_id,
           transitions: %{}
         }
 
         put_shape(new_id, new_shape)
         put_shape(shape_id, %{shape | transitions: Map.put(shape.transitions, key, new_id)})
-        {new_id, offset}
+        {new_id, new_offsets, offset}
 
       child_id ->
         child = get_shape(child_id)
-        {child_id, Map.fetch!(child.offsets, key)}
+        {child_id, child.offsets, offset}
     end
   end
 
@@ -144,8 +145,8 @@ defmodule QuickBEAM.VM.Heap.Shapes do
     if Enum.all?(keys, &(is_binary(&1) and not internal_key?(&1))) and
          Enum.all?(:maps.values(map), &simple_value?/1) do
       # For flatmaps, keys are already sorted
-      {shape_id, _} =
-        Enum.reduce(keys, {@empty_shape, 0}, fn key, {sid, _} ->
+      {shape_id, _, _} =
+        Enum.reduce(keys, {@empty_shape, %{}, 0}, fn key, {sid, _, _} ->
           transition(sid, key)
         end)
 

@@ -15,8 +15,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         Heap.put_obj_raw(ref, {:shape, shape_id, offsets, Heap.Shapes.put_val(vals, offset, val), proto})
 
       :error ->
-        {new_shape_id, offset} = Heap.Shapes.transition(shape_id, key)
-        new_offsets = Heap.Shapes.get_shape(new_shape_id).offsets
+        {new_shape_id, new_offsets, offset} = Heap.Shapes.transition(shape_id, key)
         Heap.put_obj_raw(ref, {:shape, new_shape_id, new_offsets, Heap.Shapes.put_val(vals, offset, val), proto})
     end
   end
@@ -30,9 +29,8 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             Heap.put_obj_raw(ref, {:shape, shape_id, offsets, new_vals, proto})
 
           :error ->
-            {new_shape_id, offset} = Heap.Shapes.transition(shape_id, "length")
+            {new_shape_id, new_offsets, offset} = Heap.Shapes.transition(shape_id, "length")
             new_vals = Heap.Shapes.put_val(vals, offset, val)
-            new_offsets = Heap.Shapes.get_shape(new_shape_id).offsets
             Heap.put_obj_raw(ref, {:shape, new_shape_id, new_offsets, new_vals, proto})
         end
 

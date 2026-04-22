@@ -44,9 +44,8 @@ defmodule QuickBEAM.VM.Heap.Store do
         Process.put({:qb_obj, ref}, {:shape, shape_id, offsets, new_vals, proto})
 
       :error ->
-        {new_shape_id, offset} = Shapes.transition(shape_id, key)
+        {new_shape_id, new_offsets, offset} = Shapes.transition(shape_id, key)
         new_vals = Shapes.put_val(vals, offset, val)
-        new_offsets = Shapes.get_shape(new_shape_id).offsets
         Process.put({:qb_obj, ref}, {:shape, new_shape_id, new_offsets, new_vals, proto})
     end
   end
