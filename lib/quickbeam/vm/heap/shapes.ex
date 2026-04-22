@@ -170,7 +170,7 @@ defmodule QuickBEAM.VM.Heap.Shapes do
   end
 
   defp internal_key?(key) when is_binary(key),
-    do: String.starts_with?(key, "__") and String.ends_with?(key, "__")
+    do: String.starts_with?(key, "__") and String.ends_with?(key, "__") and byte_size(key) > 2
 
   defp internal_key?(_), do: false
 
