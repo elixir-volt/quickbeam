@@ -158,10 +158,12 @@ defmodule QuickBEAM.VM.Heap.Shapes do
   @doc "Reconstruct a plain map from a shape-backed representation."
   def to_map(shape_id, vals, proto) do
     keys = keys(shape_id)
-    values = Tuple.to_list(vals)
-    map = :maps.from_list(List.zip([keys, values]))
+    map = keys_vals_to_map(keys, vals, 0, %{})
     if proto, do: Map.put(map, "__proto__", proto), else: map
   end
+
+  defp keys_vals_to_map([], _vals, _idx, acc), do: acc
+  defp keys_vals_to_map([k | ks], vals, idx, acc), do: keys_vals_to_map(ks, vals, idx + 1, Map.put(acc, k, elem(vals, idx)))
 
   @doc "Check whether a stored heap value is shape-backed."
   def shape?({:shape, _, _, _, _}), do: true

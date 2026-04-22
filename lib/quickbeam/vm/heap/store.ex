@@ -184,11 +184,7 @@ defmodule QuickBEAM.VM.Heap.Store do
 
   # ── Object ID allocation ──
 
-  def next_id do
-    id = Process.get(:qb_next_id, 1)
-    Process.put(:qb_next_id, id + 1)
-    id
-  end
+  def next_id, do: :erlang.unique_integer([:positive, :monotonic])
 
   defp track_alloc do
     count = Process.get(:qb_alloc_count, 0) + 1
