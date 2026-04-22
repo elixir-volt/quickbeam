@@ -2245,8 +2245,11 @@ JSValue JS_GetCoverage(JSContext *ctx)
         if (!b->line_coverage || b->line_count <= 0 || b->filename == JS_ATOM_NULL)
             continue;
 
-        char buf[256];
-        const char *filename = JS_AtomGetStrRT(rt, buf, sizeof(buf), b->filename);
+        char atom_buf[256];
+        const char *src = JS_AtomGetStrRT(rt, atom_buf, sizeof(atom_buf), b->filename);
+        char *filename = js_malloc_rt(rt, strlen(src) + 1);
+        if (!filename) { js_free_rt(rt, entries); return JS_EXCEPTION; }
+        strcpy(filename, src);
 
         for (int i = 0; i < b->line_count; i++) {
             if (count >= cap) {
@@ -2314,6 +2317,15 @@ JSValue JS_GetCoverage(JSContext *ctx)
 
     dbuf_putc(&dbuf, '}');
 
+    /* Free heap-allocated filename strings */
+    for (int i = 0; i < count; i++) {
+        bool dup = false;
+        for (int j = 0; j < i; j++) {
+            if (entries[j].filename == entries[i].filename) { dup = true; break; }
+        }
+        if (!dup)
+            js_free_rt(rt, (void *)entries[i].filename);
+    }
     js_free_rt(rt, entries);
 
     JSValue result = JS_NewStringLen(ctx, (const char *)dbuf.buf, dbuf.size);

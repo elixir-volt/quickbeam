@@ -42,7 +42,7 @@ defmodule QuickBEAM.VM.BytecodeTest do
   describe "decode/1 structure" do
     test "parses version and atom table", %{rt: rt} do
       parsed = compile_and_decode(rt, "42")
-      assert parsed.version == 24
+      assert parsed.version == 25
       assert is_tuple(parsed.atoms)
     end
 
