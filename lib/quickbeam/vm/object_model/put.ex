@@ -11,12 +11,20 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   defp shape_put(ref, shape_id, offsets, vals, proto, key, val) do
     case Map.fetch(offsets, key) do
+      {:ok, offset} when offset < tuple_size(vals) ->
+        Process.put(ref, {:shape, shape_id, offsets, put_elem(vals, offset, val), proto})
+
       {:ok, offset} ->
-        Heap.put_obj_raw(ref, {:shape, shape_id, offsets, Heap.Shapes.put_val(vals, offset, val), proto})
+        Process.put(ref, {:shape, shape_id, offsets, Heap.Shapes.put_val(vals, offset, val), proto})
 
       :error ->
         {new_shape_id, new_offsets, offset} = Heap.Shapes.transition(shape_id, key)
-        Heap.put_obj_raw(ref, {:shape, new_shape_id, new_offsets, Heap.Shapes.put_val(vals, offset, val), proto})
+        new_vals =
+          if offset == tuple_size(vals),
+            do: :erlang.append_element(vals, val),
+            else: Heap.Shapes.put_val(vals, offset, val)
+
+        Process.put(ref, {:shape, new_shape_id, new_offsets, new_vals, proto})
     end
   end
 
