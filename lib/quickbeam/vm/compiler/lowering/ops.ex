@@ -141,22 +141,28 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         Captures.close_capture_cell(state, slot_idx)
 
       {{:ok, :get_var}, [atom_idx]} ->
-        {:ok,
-         State.push(
-           state,
-           State.compiler_call(state, :get_var, [
-             Builder.literal(Builder.atom_name(state, atom_idx))
-           ])
-         )}
+        name = Builder.atom_name(state, atom_idx)
+        if is_binary(name) do
+          {:ok, State.push(state, inline_get_var(state, name))}
+        else
+          {:ok,
+           State.push(
+             state,
+             State.compiler_call(state, :get_var, [Builder.literal(name)])
+           )}
+        end
 
       {{:ok, :get_var_undef}, [atom_idx]} ->
-        {:ok,
-         State.push(
-           state,
-           State.compiler_call(state, :get_var_undef, [
-             Builder.literal(Builder.atom_name(state, atom_idx))
-           ])
-         )}
+        name = Builder.atom_name(state, atom_idx)
+        if is_binary(name) do
+          {:ok, State.push(state, inline_get_var_undef(state, name))}
+        else
+          {:ok,
+           State.push(
+             state,
+             State.compiler_call(state, :get_var_undef, [Builder.literal(name)])
+           )}
+        end
 
       {{:ok, :get_super}, []} ->
         State.unary_call(state, RuntimeHelpers, :get_super)
@@ -1648,5 +1654,21 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       # Stack depth mismatch — fall back to a noop continuation
       {:fun, 1, {:clauses, [{:clause, 1, [arg_var], [], [Builder.atom(:undefined)]}]}}
     end
+  end
+
+  defp inline_get_var(state, name) do
+    globals_expr = {:map_field_assoc, 1, {:atom, 1, :globals}, State.ctx_expr(state)}
+    globals = {:map_field_exact, 1, State.ctx_expr(state), {:atom, 1, :globals}}
+    Builder.remote_call(RuntimeHelpers, :get_global, [
+      {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :map_get}}, [{:atom, 1, :globals}, State.ctx_expr(state)]},
+      Builder.literal(name)
+    ])
+  end
+
+  defp inline_get_var_undef(state, name) do
+    Builder.remote_call(RuntimeHelpers, :get_global_undef, [
+      {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :map_get}}, [{:atom, 1, :globals}, State.ctx_expr(state)]},
+      Builder.literal(name)
+    ])
   end
 end

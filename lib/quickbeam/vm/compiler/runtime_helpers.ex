@@ -45,6 +45,15 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def get_var(ctx, name) when is_binary(name), do: fetch_ctx_var(ctx, name)
 
+  def get_global(globals, name) do
+    case Map.fetch(globals, name) do
+      {:ok, val} -> val
+      :error -> throw({:js_throw, Heap.make_error("#{name} is not defined", "ReferenceError")})
+    end
+  end
+
+  def get_global_undef(globals, name), do: Map.get(globals, name, :undefined)
+
   def get_var(ctx, atom_idx),
     do: fetch_ctx_var(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
 
