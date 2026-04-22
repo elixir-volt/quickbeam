@@ -1611,7 +1611,7 @@ pub export fn napi_define_class(
 
     // Create prototype object and wire up ctor <-> proto
     const proto = qjs.JS_NewObject(env.ctx);
-    qjs.JS_SetConstructor(env.ctx, ctor, proto);
+    _ = qjs.JS_SetConstructor(env.ctx, ctor, proto);
 
     // Add properties — static ones go on the constructor, instance ones on the prototype
     for (0..property_count) |i| {
