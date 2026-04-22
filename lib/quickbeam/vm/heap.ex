@@ -86,6 +86,32 @@ defmodule QuickBEAM.VM.Heap do
     end
   end
 
+  @doc "Create a shape-backed object with pre-sorted keys. Keys tuple is a compile-time constant."
+  def wrap_keyed(keys, vals) when is_tuple(keys) and is_tuple(vals) do
+    cache_key = {:qb_wrap_cache, keys}
+
+    case Process.get(cache_key) do
+      {shape_id, offsets} ->
+        id = Store.next_id()
+        Store.put_obj_raw(id, {:shape, shape_id, offsets, vals, nil})
+        {:obj, id}
+
+      nil ->
+        map = :maps.from_list(:lists.zip(Tuple.to_list(keys), Tuple.to_list(vals)))
+
+        case Shapes.from_map(map) do
+          {:ok, shape_id, offsets, _} ->
+            Process.put(cache_key, {shape_id, offsets})
+            id = Store.next_id()
+            Store.put_obj_raw(id, {:shape, shape_id, offsets, vals, nil})
+            {:obj, id}
+
+          :ineligible ->
+            wrap(map)
+        end
+    end
+  end
+
   @doc "Fast allocation with a pre-resolved shape. Skips eligibility check and key sorting."
   def wrap_shaped(shape_id, offsets, vals, proto) do
     id = Store.next_id()

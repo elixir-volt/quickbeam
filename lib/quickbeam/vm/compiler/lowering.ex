@@ -302,15 +302,25 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
           {:ok, :object} ->
             case collect_define_fields(instructions, idx + 1, arg_count, state) do
               {:ok, map_pairs, skip_to, state} ->
-                map_expr = {:map, @line, Enum.map(map_pairs, fn {k, v} ->
-                  {:map_field_assoc, @line, k, v}
-                end)}
+                # Extract sorted keys and corresponding values
+                sorted_pairs = Enum.sort_by(map_pairs, fn {k, _v} ->
+                  # k is Builder.literal(string) — extract the string
+                  case k do
+                    {:bin, _, [{:bin_element, _, {:string, _, chars}, _, _}]} -> List.to_string(chars)
+                    _ -> ""
+                  end
+                end)
+
+                keys_list = Enum.map(sorted_pairs, &elem(&1, 0))
+                vals_list = Enum.map(sorted_pairs, &elem(&1, 1))
+                keys_tuple = {:tuple, @line, keys_list}
+                vals_tuple = {:tuple, @line, vals_list}
 
                 {obj, state} =
                   State.bind(
                     state,
                     Builder.temp_name(state.temp),
-                    Builder.remote_call(QuickBEAM.VM.Heap, :wrap, [map_expr])
+                    Builder.remote_call(QuickBEAM.VM.Heap, :wrap_keyed, [keys_tuple, vals_tuple])
                   )
 
                 lower_block(
