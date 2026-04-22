@@ -158,14 +158,8 @@ defmodule QuickBEAM.VM.Heap.Shapes do
   @doc "Reconstruct a plain map from a shape-backed representation."
   def to_map(shape_id, vals, proto) do
     keys = keys(shape_id)
-
-    map =
-      keys
-      |> Enum.with_index()
-      |> Enum.reduce(%{}, fn {key, idx}, acc ->
-        Map.put(acc, key, elem(vals, idx))
-      end)
-
+    values = Tuple.to_list(vals)
+    map = :maps.from_list(List.zip([keys, values]))
     if proto, do: Map.put(map, "__proto__", proto), else: map
   end
 
