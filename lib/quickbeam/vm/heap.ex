@@ -284,6 +284,9 @@ defmodule QuickBEAM.VM.Heap do
         :qb_global_bindings_cache -> Process.delete(key)
         :qb_base_globals_cache -> Process.delete(key)
         :qb_microtask_queue -> Process.delete(key)
+        :qb_shape_table -> Process.delete(key)
+        :qb_shape_empty -> Process.delete(key)
+        :qb_shape_next_id -> Process.delete(key)
         _ -> :ok
       end
     end

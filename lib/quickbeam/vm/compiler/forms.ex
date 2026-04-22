@@ -2,8 +2,11 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   @moduledoc false
 
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
+  alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Invocation
+  alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.ObjectModel.Put
 
   @line 1
 
@@ -213,6 +216,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   defp var(name) when is_integer(name), do: {:var, @line, String.to_atom(Integer.to_string(name))}
   defp var(name) when is_atom(name), do: {:var, @line, name}
   defp atom(value), do: {:atom, @line, value}
+  defp integer(value), do: {:integer, @line, value}
 
   defp remote_call(mod, fun, args) do
     {:call, @line, {:remote, @line, {:atom, @line, mod}, {:atom, @line, fun}}, args}
@@ -227,6 +231,10 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   end
 
   defp local_call(fun, args), do: {:call, @line, {:atom, @line, fun}, args}
+
+  defp tuple_expr(elements) do
+    {:tuple, @line, elements}
+  end
 
   defp list_expr([]), do: {nil, @line}
   defp list_expr([h | t]), do: {:cons, @line, h, list_expr(t)}

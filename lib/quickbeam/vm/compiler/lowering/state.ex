@@ -912,7 +912,11 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
         Builder.local_call(helper, [ctx_expr(state), idx, Builder.list_expr(args)])
 
       :error ->
-        compiler_call(state, :invoke_runtime, [fun, Builder.list_expr(args)])
+        Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_runtime, [
+          ctx_expr(state),
+          fun,
+          Builder.list_expr(args)
+        ])
     end
   end
 
