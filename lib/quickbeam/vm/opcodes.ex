@@ -39,7 +39,7 @@ defmodule QuickBEAM.VM.Opcodes do
   @bc_version 25
   def bc_version, do: @bc_version
 
-  @js_atom_end 230
+  @js_atom_end QuickBEAM.VM.PredefinedAtoms.count() + 1
   def js_atom_end, do: @js_atom_end
 
   # Opcode format types — determine how operand bytes are decoded
