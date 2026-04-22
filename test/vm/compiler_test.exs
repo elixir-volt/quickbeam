@@ -160,33 +160,11 @@ defmodule QuickBEAM.VM.CompilerTest do
 
       assert {:ok, beam_file} = Compiler.disasm(fun)
       block = beam_function_instructions(beam_file, :block_0)
-      get_field = beam_function_instructions(beam_file, :op_get_field)
-      get_field_from_store = beam_function_instructions(beam_file, :op_get_field_from_store)
 
       assert Enum.any?(block, fn
-               {:call, 2, {_module, :op_get_field, 2}} -> true
-               {:call_only, 2, {_module, :op_get_field, 2}} -> true
-               {:call_last, 2, {_module, :op_get_field, 2}, _} -> true
-               _ -> false
-             end)
-
-      refute Enum.any?(block, fn
                {:call_ext, 2, {:extfunc, QuickBEAM.VM.ObjectModel.Get, :get, 2}} -> true
+               {:call_ext_only, 2, {:extfunc, QuickBEAM.VM.ObjectModel.Get, :get, 2}} -> true
                {:call_ext_last, 2, {:extfunc, QuickBEAM.VM.ObjectModel.Get, :get, 2}, _} -> true
-               _ -> false
-             end)
-
-      refute Enum.any?(get_field, fn
-               {:call_ext, 1, {:extfunc, QuickBEAM.VM.Heap, :get_obj, 1}} -> true
-               {:call_ext_last, 1, {:extfunc, QuickBEAM.VM.Heap, :get_obj, 1}, _} -> true
-               {:call_ext_only, 1, {:extfunc, QuickBEAM.VM.Heap, :get_obj, 1}} -> true
-               _ -> false
-             end)
-
-      refute Enum.any?(get_field_from_store, fn
-               {:call, 3, {_module, :op_get_field_found, 3}} -> true
-               {:call_only, 3, {_module, :op_get_field_found, 3}} -> true
-               {:call_last, 3, {_module, :op_get_field_found, 3}, _} -> true
                _ -> false
              end)
 
@@ -207,24 +185,16 @@ defmodule QuickBEAM.VM.CompilerTest do
       block = beam_function_instructions(beam_file, :block_0)
 
       assert Enum.any?(block, fn
-               {:call, 2, {_module, :op_object_literal, 2}} -> true
-               {:call_only, 2, {_module, :op_object_literal, 2}} -> true
-               {:call_last, 2, {_module, :op_object_literal, 2}, _} -> true
+               {:call_ext, 1, {:extfunc, QuickBEAM.VM.Heap, :wrap, 1}} -> true
+               {:call_ext_last, 1, {:extfunc, QuickBEAM.VM.Heap, :wrap, 1}, _} -> true
                _ -> false
              end)
 
-      refute Enum.any?(block, fn
-               {:call, 0, {_module, :op_new_object, 0}} -> true
-               {:call_only, 0, {_module, :op_new_object, 0}} -> true
-               {:call_last, 0, {_module, :op_new_object, 0}, _} -> true
-               {:call, 3, {_module, :op_define_field_name, 3}} -> true
-               {:call_only, 3, {_module, :op_define_field_name, 3}} -> true
-               {:call_last, 3, {_module, :op_define_field_name, 3}, _} -> true
+      assert Enum.any?(block, fn
+               {:call_ext, 3, {:extfunc, QuickBEAM.VM.ObjectModel.Put, :put, 3}} -> true
+               {:call_ext_last, 3, {:extfunc, QuickBEAM.VM.ObjectModel.Put, :put, 3}, _} -> true
                _ -> false
              end)
-
-      refute {RuntimeHelpers, :new_object, 1} in beam_extfuncs(beam_file)
-      refute {RuntimeHelpers, :define_field, 4} in beam_extfuncs(beam_file)
 
       assert {:ok, {:obj, ref}} = Compiler.invoke(fun, [5])
       assert %{"x" => 5} = Heap.get_obj(ref)
@@ -249,17 +219,8 @@ defmodule QuickBEAM.VM.CompilerTest do
       block = beam_function_instructions(beam_file, :block_0)
 
       assert Enum.any?(block, fn
-               {:call, 3, {_module, :op_invoke_var_ref1, 3}} -> true
-               {:call_only, 3, {_module, :op_invoke_var_ref1, 3}} -> true
-               {:call_last, 3, {_module, :op_invoke_var_ref1, 3}, _} -> true
-               _ -> false
-             end)
-
-      refute {RuntimeHelpers, :invoke_var_ref1, 3} in beam_extfuncs(beam_file)
-
-      refute Enum.any?(block, fn
-               {:call_ext, 1, {:extfunc, RuntimeHelpers, :get_var_ref, 1}} -> true
-               {:call_ext, 2, {:extfunc, RuntimeHelpers, :invoke_runtime, 2}} -> true
+               {:call_ext, 2, {:extfunc, QuickBEAM.VM.Compiler.RuntimeHelpers, :get_var_ref, 2}} -> true
+               {:call_ext_last, 2, {:extfunc, QuickBEAM.VM.Compiler.RuntimeHelpers, :get_var_ref, 2}, _} -> true
                _ -> false
              end)
 

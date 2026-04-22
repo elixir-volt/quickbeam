@@ -135,6 +135,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
     state_opts =
       [
         locals: fun.locals,
+        closure_vars: fun.closure_vars,
         atoms: Process.get({:qb_fn_atoms, fun.byte_code}),
         arg_count: arg_count,
         return_type: return_type

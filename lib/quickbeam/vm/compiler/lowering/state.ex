@@ -3,7 +3,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Captures, Types}
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
-  alias QuickBEAM.VM.ObjectModel.Put
 
   @line 1
 
@@ -39,6 +38,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       stack_types: Keyword.get(opts, :stack_types, List.duplicate(:unknown, stack_depth)),
       temp: 0,
       locals: locals,
+      closure_vars: Keyword.get(opts, :closure_vars, []),
       atoms: Keyword.get(opts, :atoms),
       arg_count: arg_count,
       return_type: Keyword.get(opts, :return_type, :unknown)
@@ -46,6 +46,21 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   end
 
   def ctx_expr(%{ctx: ctx}), do: ctx
+
+  def closure_vars_expr(%{closure_vars: cvs}), do: cvs
+
+  def inline_get_var_ref(state, idx) do
+    cvs = closure_vars_expr(state)
+
+    if idx >= 0 and idx < length(cvs) do
+      cv = Enum.at(cvs, idx)
+      key = Builder.literal({cv.closure_type, cv.var_idx})
+      {bound, state} = bind(state, Builder.temp_name(state.temp), compiler_call(state, :get_var_ref, [Builder.literal(idx)]))
+      {bound, state}
+    else
+      {Builder.atom(:undefined), state}
+    end
+  end
 
   def compiler_call(state, fun, args),
     do: Builder.remote_call(RuntimeHelpers, fun, [ctx_expr(state) | args])
@@ -342,13 +357,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   def get_field_call(state, key_expr) do
     with {:ok, obj, _type, state} <- pop_typed(state) do
-      {:ok, push(state, Builder.local_call(:op_get_field, [obj, key_expr]))}
+      {:ok, push(state, Builder.remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [obj, key_expr]))}
     end
   end
 
   def get_field2(state, key_expr) do
     with {:ok, obj, _type, state} <- pop_typed(state) do
-      field = Builder.local_call(:op_get_field, [obj, key_expr])
+      field = Builder.remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [obj, key_expr])
 
       {:ok,
        %{
@@ -428,7 +443,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
          state
          | body:
              state.body ++
-               [Builder.remote_call(Put, :put, [obj, key_expr, val])]
+               [Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put, [obj, key_expr, val])]
        }}
     end
   end
@@ -436,22 +451,15 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def define_field_name_call(state, key_expr) do
     with {:ok, val, _val_type, state} <- pop_typed(state),
          {:ok, obj, _obj_type, state} <- pop_typed(state) do
-      expr =
-        case object_literal_fields(obj) do
-          {:ok, fields} ->
-            field = Builder.tuple_expr([key_expr, val])
-            fields = fields ++ [field]
-
-            Builder.local_call(:op_object_literal, [
-              Builder.list_expr(fields),
-              object_literal_order_ast(fields)
-            ])
-
-          :error ->
-            Builder.local_call(:op_define_field_name, [obj, key_expr, val])
-        end
-
-      {:ok, push(state, expr, :object)}
+      {:ok,
+       %{
+         state
+         | body:
+             state.body ++
+               [Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put, [obj, key_expr, val])],
+           stack: [obj | state.stack],
+           stack_types: [:object | state.stack_types]
+       }}
     end
   end
 
@@ -616,7 +624,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
          {:ok, obj, _obj_type, state} <- pop_typed(state) do
       effectful_push(
         state,
-        Builder.local_call(:op_invoke_method_runtime, [
+        Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_method_runtime, [
           ctx_expr(state),
           fun,
           obj,
@@ -644,7 +652,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       {:ok,
        push(
          state,
-         Builder.remote_call(Put, :has_property, [obj, key]),
+         Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :has_property, [obj, key]),
          :boolean
        )}
     end
@@ -700,7 +708,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       {:done,
        state.body ++
          [
-           Builder.local_call(:op_invoke_method_runtime, [
+           Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_method_runtime, [
              ctx_expr(state),
              fun,
              obj,
@@ -892,36 +900,30 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   defp specialize_binary(fun, left, _left_type, right, _right_type),
     do: {Builder.local_call(fun, [left, right]), :unknown}
 
-  defp specialize_get_length(expr, :string),
-    do: {Builder.local_call(:op_get_length, [expr]), :integer}
-
-  defp specialize_get_length(expr, :function),
-    do: {Builder.local_call(:op_get_length, [expr]), :integer}
-
-  defp specialize_get_length(expr, {:function, _}),
-    do: {Builder.local_call(:op_get_length, [expr]), :integer}
-
-  defp specialize_get_length(expr, :self_fun),
-    do: {Builder.local_call(:op_get_length, [expr]), :integer}
-
-  defp specialize_get_length(expr, :object),
-    do: {Builder.local_call(:op_get_length, [expr]), :integer}
-
   defp specialize_get_length(expr, _type),
-    do: {Builder.local_call(:op_get_length, [expr]), :integer}
+    do: {Builder.remote_call(QuickBEAM.VM.ObjectModel.Get, :length_of, [expr]), :integer}
 
   defp invoke_runtime_expr(state, fun, args) do
     case var_ref_fun_call(fun, length(args)) do
-      {:ok, helper, idx, argc} when argc in 0..3 ->
-        Builder.local_call(helper, [ctx_expr(state), idx | args])
+      {:ok, _helper, idx, _argc} ->
+        {helper_fun, _} = var_ref_fun_and_arity(fun)
 
-      {:ok, helper, idx, _argc} ->
-        Builder.local_call(helper, [ctx_expr(state), idx, Builder.list_expr(args)])
+        Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_runtime, [
+          ctx_expr(state),
+          Builder.remote_call(QuickBEAM.VM.Compiler.RuntimeHelpers, helper_fun, [
+            ctx_expr(state),
+            idx
+          ]),
+          Builder.list_expr(args)
+        ])
 
       :error ->
         compiler_call(state, :invoke_runtime, [fun, Builder.list_expr(args)])
     end
   end
+
+  defp var_ref_fun_and_arity({:call, _, {:remote, _, _, {:atom, _, :get_var_ref}}, _}), do: {:get_var_ref, 2}
+  defp var_ref_fun_and_arity({:call, _, {:remote, _, _, {:atom, _, :get_var_ref_check}}, _}), do: {:get_var_ref_check, 2}
 
   defp var_ref_fun_call(
          {:call, _, {:remote, _, {:atom, _, RuntimeHelpers}, {:atom, _, fun}}, [_ctx, idx]},
@@ -974,38 +976,4 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     |> Enum.sort_by(fn {idx, _expr} -> idx end)
     |> Enum.map(fn {_idx, expr} -> expr end)
   end
-
-  defp object_literal_fields({:call, _, {:atom, _, :op_new_object}, []}), do: {:ok, []}
-
-  defp object_literal_fields(
-         {:call, _, {:atom, _, :op_object_literal}, [fields_ast, _order_ast]}
-       ),
-       do: extract_list_items(fields_ast)
-
-  defp object_literal_fields(_expr), do: :error
-
-  defp object_literal_order_ast(fields) do
-    fields
-    |> Enum.map(&object_literal_field_key/1)
-    |> Enum.reduce([], fn key, acc ->
-      if key in acc do
-        acc
-      else
-        acc ++ [key]
-      end
-    end)
-    |> Builder.list_expr()
-  end
-
-  defp object_literal_field_key({:tuple, _, [key, _val]}), do: key
-
-  defp extract_list_items({nil, _line}), do: {:ok, []}
-
-  defp extract_list_items({:cons, _line, head, tail}) do
-    with {:ok, rest} <- extract_list_items(tail) do
-      {:ok, [head | rest]}
-    end
-  end
-
-  defp extract_list_items(_ast), do: :error
 end

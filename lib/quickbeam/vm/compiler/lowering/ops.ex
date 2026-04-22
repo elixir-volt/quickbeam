@@ -78,7 +78,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         {:ok, State.push(state, Builder.literal(""))}
 
       {{:ok, :object}, []} ->
-        {:ok, State.push(state, Builder.local_call(:op_new_object, []), :object)}
+        {obj, state} =
+          State.bind(
+            state,
+            Builder.temp_name(state.temp),
+            Builder.remote_call(QuickBEAM.VM.Heap, :wrap, [Builder.literal(%{})])
+          )
+
+        {:ok, State.push(state, obj, :object)}
 
       {{:ok, :array_from}, [argc]} ->
         State.array_from_call(state, argc)
@@ -215,11 +222,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
 
       {{:ok, name}, [idx]}
       when name in [:get_var_ref, :get_var_ref0, :get_var_ref1, :get_var_ref2, :get_var_ref3] ->
-        {:ok, State.push(state, State.compiler_call(state, :get_var_ref, [Builder.literal(idx)]))}
+        {expr, state} = State.inline_get_var_ref(state, idx)
+        {:ok, State.push(state, expr)}
 
       {{:ok, :get_var_ref_check}, [idx]} ->
-        {:ok,
-         State.push(state, State.compiler_call(state, :get_var_ref_check, [Builder.literal(idx)]))}
+        {expr, state} = State.inline_get_var_ref(state, idx)
+        {:ok, State.push(state, expr)}
 
       {{:ok, :set_loc_uninitialized}, [slot_idx]} ->
         {:ok, State.put_uninitialized_slot(state, slot_idx, Builder.atom(@tdz))}
@@ -743,7 +751,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       State.bind(
         state,
         Builder.temp_name(state.temp),
-        Builder.local_call(:op_current_var_ref, [State.ctx_expr(state), Builder.literal(idx)])
+        Builder.remote_call(QuickBEAM.VM.Compiler.RuntimeHelpers, :get_var_ref, [State.ctx_expr(state), Builder.literal(idx)])
       )
 
     {cell, state} =
