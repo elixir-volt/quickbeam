@@ -67,6 +67,12 @@ defmodule QuickBEAM.VM.Heap do
     end
   end
 
+  def wrap(data) do
+    ref = make_ref()
+    put_obj(ref, data)
+    {:obj, ref}
+  end
+
   defp wrap_map(map, proto) do
     case Shapes.from_map(map) do
       {:ok, shape_id, vals} ->
@@ -78,12 +84,6 @@ defmodule QuickBEAM.VM.Heap do
         put_obj(ref, data)
         {:obj, ref}
     end
-  end
-
-  def wrap(data) do
-    ref = make_ref()
-    put_obj(ref, data)
-    {:obj, ref}
   end
 
   @doc "Fast allocation with a pre-resolved shape. Skips eligibility check and key sorting."

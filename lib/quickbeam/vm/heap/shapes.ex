@@ -127,7 +127,9 @@ defmodule QuickBEAM.VM.Heap.Shapes do
       nil ->
         case build_shape(map) do
           :ineligible -> :ineligible
-          shape_id -> Process.put(cache_key, shape_id); shape_id
+          shape_id ->
+            Process.put(cache_key, shape_id)
+            shape_id
         end
 
       shape_id ->
@@ -182,16 +184,6 @@ defmodule QuickBEAM.VM.Heap.Shapes do
   end
 
   # ── Eligibility ──
-
-  defp eligible?(map) do
-    Enum.all?(map, fn {key, val} ->
-      cond do
-        key == "__proto__" -> true
-        is_binary(key) and not internal_key?(key) -> simple_value?(val)
-        true -> false
-      end
-    end)
-  end
 
   defp internal_key?(key) when is_binary(key),
     do: String.starts_with?(key, "__") and String.ends_with?(key, "__") and byte_size(key) > 2

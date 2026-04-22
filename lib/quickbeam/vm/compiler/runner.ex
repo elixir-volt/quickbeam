@@ -282,12 +282,8 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   defp base_globals, do: GlobalEnv.base_globals()
 
   defp current_atoms(%Context{} = ctx), do: ctx.atoms
-  defp current_atoms(map) when is_map(map), do: Map.get(map, :atoms, Heap.get_atoms())
-  defp current_atoms(_), do: Heap.get_atoms()
 
   defp trace_enabled(%Context{} = ctx), do: ctx.trace_enabled
-  defp trace_enabled(map) when is_map(map), do: Map.get(map, :trace_enabled, false)
-  defp trace_enabled(_), do: false
 
   defp home_object_and_super(%Bytecode.Function{need_home_object: false}),
     do: {:undefined, :undefined}

@@ -918,7 +918,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
-
   defp var_ref_fun_call(
          {:call, _, {:remote, _, {:atom, _, RuntimeHelpers}, {:atom, _, fun}}, [_ctx, idx]},
          argc

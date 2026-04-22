@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
   alias QuickBEAM.VM.Compiler.Lowering.Captures
   alias QuickBEAM.VM.Compiler.Lowering.State
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
-  alias QuickBEAM.VM.{GlobalEnv}
+  alias QuickBEAM.VM.GlobalEnv
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.ObjectModel.{Class, Private}
 
@@ -1033,7 +1033,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       State.bind(
         state,
         Builder.temp_name(state.temp),
-        Builder.remote_call(QuickBEAM.VM.Compiler.RuntimeHelpers, :get_var_ref, [State.ctx_expr(state), Builder.literal(idx)])
+        Builder.remote_call(QuickBEAM.VM.Compiler.RuntimeHelpers, :get_var_ref, [
+          State.ctx_expr(state),
+          Builder.literal(idx)
+        ])
       )
 
     {cell, state} =
