@@ -22,14 +22,14 @@ defmodule QuickBEAM.VM.Heap.Shapes do
   defp shape_table do
     case Process.get(:qb_shape_table) do
       nil ->
-        table = %{
-          @empty_shape => %{
-            keys: [],
-            offsets: %{},
-            parent_id: nil,
-            transitions: %{}
-          }
+        empty = %{
+          keys: [],
+          offsets: %{},
+          parent_id: nil,
+          transitions: %{}
         }
+
+        table = {empty}
         Process.put(:qb_shape_table, table)
         table
 
@@ -39,18 +39,24 @@ defmodule QuickBEAM.VM.Heap.Shapes do
   end
 
   defp next_shape_id do
-    id = Process.get(:qb_shape_next_id, 1)
-    Process.put(:qb_shape_next_id, id + 1)
-    id
+    tuple_size(shape_table())
   end
 
   def get_shape(id) do
-    Map.fetch!(shape_table(), id)
+    elem(shape_table(), id)
   end
 
   defp put_shape(id, shape) do
-    table = Map.put(shape_table(), id, shape)
-    Process.put(:qb_shape_table, table)
+    table = shape_table()
+
+    new_table =
+      if id == tuple_size(table) do
+        :erlang.append_element(table, shape)
+      else
+        put_elem(table, id, shape)
+      end
+
+    Process.put(:qb_shape_table, new_table)
   end
 
   # ── Public API ──
