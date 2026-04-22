@@ -2,9 +2,28 @@ defmodule QuickBEAM.VM.Heap.Store do
   @moduledoc false
 
   import QuickBEAM.VM.Heap.Keys
+  alias QuickBEAM.VM.Heap.Shapes
 
-  def get_obj(ref), do: Process.get({:qb_obj, ref})
-  def get_obj(ref, default), do: Process.get({:qb_obj, ref}, default)
+  # ── Raw storage (bypasses shape→map reconstruction) ──
+
+  def get_obj_raw(ref), do: Process.get({:qb_obj, ref})
+  def put_obj_raw(ref, val), do: Process.put({:qb_obj, ref}, val)
+
+  # ── Object access (map-compatible, reconstructs shapes) ──
+
+  def get_obj(ref) do
+    case Process.get({:qb_obj, ref}) do
+      {:shape, shape_id, vals, proto} -> Shapes.to_map(shape_id, vals, proto)
+      other -> other
+    end
+  end
+
+  def get_obj(ref, default) do
+    case Process.get({:qb_obj, ref}, default) do
+      {:shape, shape_id, vals, proto} -> Shapes.to_map(shape_id, vals, proto)
+      other -> other
+    end
+  end
 
   def put_obj(ref, list) when is_list(list) do
     Process.put({:qb_obj, ref}, {:qb_arr, :array.from_list(list, :undefined)})
@@ -16,26 +35,51 @@ defmodule QuickBEAM.VM.Heap.Store do
     track_alloc()
   end
 
-  def put_obj_key(ref, key, val), do: put_obj_key(ref, get_obj(ref, %{}), key, val)
+  def put_obj_key(ref, key, val), do: put_obj_key(ref, get_obj_raw(ref), key, val)
 
-  def put_obj_key(ref, map, key, val) do
-    if is_map(map) do
-      new_map =
-        if not Map.has_key?(map, key) and (is_binary(key) or is_integer(key)) do
-          order = Map.get(map, key_order(), [])
-          Map.put(Map.put(map, key, val), key_order(), [key | order])
-        else
-          Map.put(map, key, val)
-        end
+  def put_obj_key(ref, {:shape, shape_id, vals, proto}, key, val) do
+    case Shapes.lookup(shape_id, key) do
+      {:ok, offset} ->
+        new_vals = Shapes.put_val(vals, offset, val)
+        Process.put({:qb_obj, ref}, {:shape, shape_id, new_vals, proto})
 
-      Process.put({:qb_obj, ref}, new_map)
-    else
-      Process.put({:qb_obj, ref}, val)
+      :error ->
+        {new_shape_id, offset} = Shapes.transition(shape_id, key)
+        new_vals = Shapes.put_val(vals, offset, val)
+        Process.put({:qb_obj, ref}, {:shape, new_shape_id, new_vals, proto})
     end
   end
 
-  def update_obj(ref, default, fun),
-    do: Process.put({:qb_obj, ref}, fun.(Process.get({:qb_obj, ref}, default)))
+  def put_obj_key(ref, map, key, val) when is_map(map) do
+    new_map =
+      if not Map.has_key?(map, key) and (is_binary(key) or is_integer(key)) do
+        order = Map.get(map, key_order(), [])
+        Map.put(Map.put(map, key, val), key_order(), [key | order])
+      else
+        Map.put(map, key, val)
+      end
+
+    Process.put({:qb_obj, ref}, new_map)
+  end
+
+  def put_obj_key(ref, _other, key, val) do
+    Process.put({:qb_obj, ref}, %{key => val})
+  end
+
+  def update_obj(ref, default, fun) do
+    current = Process.get({:qb_obj, ref}, default)
+
+    current_map =
+      case current do
+        {:shape, shape_id, vals, proto} -> Shapes.to_map(shape_id, vals, proto)
+        other -> other
+      end
+
+    result = fun.(current_map)
+    Process.put({:qb_obj, ref}, result)
+  end
+
+  # ── Array helpers ──
 
   def obj_is_array?(ref) do
     case Process.get({:qb_obj, ref}) do
@@ -94,8 +138,12 @@ defmodule QuickBEAM.VM.Heap.Store do
     end
   end
 
+  # ── Closure cells ──
+
   def get_cell(ref), do: Process.get({:qb_cell, ref}, :undefined)
   def put_cell(ref, val), do: Process.put({:qb_cell, ref}, val)
+
+  # ── Class metadata ──
 
   def get_class_proto({:closure, _, raw} = ctor),
     do: Process.get({:qb_class_proto, ctor}) || Process.get({:qb_class_proto, raw})

@@ -10,37 +10,70 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   @compile {:inline, has_property: 2, get_element: 2, set_list_at: 3}
 
   def put({:obj, ref} = _obj, "length", val) do
-    data = Heap.get_obj(ref)
+    case Heap.get_obj_raw(ref) do
+      {:shape, shape_id, vals, proto} ->
+        case Heap.Shapes.lookup(shape_id, "length") do
+          {:ok, offset} ->
+            new_vals = Heap.Shapes.put_val(vals, offset, val)
+            Heap.put_obj_raw(ref, {:shape, shape_id, new_vals, proto})
 
-    if is_list(data) or match?({:qb_arr, _}, data) do
-      new_len = Runtime.to_int(val)
-      list = if is_list(data), do: data, else: Heap.obj_to_list(ref)
-      old_len = length(list)
-
-      if new_len < old_len do
-        non_configurable_idx =
-          Enum.find(new_len..(old_len - 1), fn i ->
-            match?(%{configurable: false}, Heap.get_prop_desc(ref, Integer.to_string(i)))
-          end)
-
-        if non_configurable_idx do
-          Heap.put_obj(ref, Enum.take(list, non_configurable_idx + 1))
-          throw({:js_throw, Heap.make_error("Cannot delete property", "TypeError")})
+          :error ->
+            {new_shape_id, offset} = Heap.Shapes.transition(shape_id, "length")
+            new_vals = Heap.Shapes.put_val(vals, offset, val)
+            Heap.put_obj_raw(ref, {:shape, new_shape_id, new_vals, proto})
         end
 
-        Heap.put_obj(ref, Enum.take(list, new_len))
-      else
-        padded = list ++ List.duplicate(:undefined, new_len - old_len)
-        Heap.put_obj(ref, padded)
-      end
+      data ->
+        if is_list(data) or match?({:qb_arr, _}, data) do
+          new_len = Runtime.to_int(val)
+          list = if is_list(data), do: data, else: Heap.obj_to_list(ref)
+          old_len = length(list)
+
+          if new_len < old_len do
+            non_configurable_idx =
+              Enum.find(new_len..(old_len - 1), fn i ->
+                match?(%{configurable: false}, Heap.get_prop_desc(ref, Integer.to_string(i)))
+              end)
+
+            if non_configurable_idx do
+              Heap.put_obj(ref, Enum.take(list, non_configurable_idx + 1))
+              throw({:js_throw, Heap.make_error("Cannot delete property", "TypeError")})
+            end
+
+            Heap.put_obj(ref, Enum.take(list, new_len))
+          else
+            padded = list ++ List.duplicate(:undefined, new_len - old_len)
+            Heap.put_obj(ref, padded)
+          end
+        end
     end
   end
 
   def put({:obj, ref} = obj, key, val) do
     key = normalize_key(key)
-    map = Heap.get_obj(ref, %{})
 
-    case map do
+    case Heap.get_obj_raw(ref) do
+      {:shape, shape_id, vals, proto} ->
+        cond do
+          Heap.frozen?(ref) ->
+            :ok
+
+          key == "__proto__" ->
+            Heap.put_obj_raw(ref, {:shape, shape_id, vals, val})
+
+          true ->
+            case Heap.Shapes.lookup(shape_id, key) do
+              {:ok, offset} ->
+                new_vals = Heap.Shapes.put_val(vals, offset, val)
+                Heap.put_obj_raw(ref, {:shape, shape_id, new_vals, proto})
+
+              :error ->
+                {new_shape_id, offset} = Heap.Shapes.transition(shape_id, key)
+                new_vals = Heap.Shapes.put_val(vals, offset, val)
+                Heap.put_obj_raw(ref, {:shape, new_shape_id, new_vals, proto})
+            end
+        end
+
       %{
         proxy_target() => target,
         proxy_handler() => handler
@@ -48,7 +81,6 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         set_trap = Get.get(handler, "set")
 
         if set_trap != :undefined do
-          # Proxy set trap return value ignored (non-strict mode behavior)
           Runtime.call_callback(set_trap, [target, key, val])
         else
           put(target, key, val)
@@ -60,7 +92,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
       list when is_list(list) ->
         put_array_key(ref, key, val)
 
-      _ when is_map(map) ->
+      map when is_map(map) ->
         cond do
           Heap.frozen?(ref) ->
             :ok

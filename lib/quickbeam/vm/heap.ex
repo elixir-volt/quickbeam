@@ -16,12 +16,14 @@ defmodule QuickBEAM.VM.Heap do
     - `{:qb_var, name}` — global variable bindings
   """
 
-  alias QuickBEAM.VM.Heap.{Async, Caches, Context, Registry, Store}
+  alias QuickBEAM.VM.Heap.{Async, Caches, Context, Registry, Shapes, Store}
 
   @compile {:inline,
             get_obj: 1,
             get_obj: 2,
+            get_obj_raw: 1,
             put_obj: 2,
+            put_obj_raw: 2,
             update_obj: 3,
             get_cell: 1,
             put_cell: 2,
@@ -56,9 +58,29 @@ defmodule QuickBEAM.VM.Heap do
 
   # ── Convenience constructors ──
 
+  def wrap(data) when is_map(data) do
+    ref = make_ref()
+
+    {proto, rest} =
+      case Map.pop(data, "__proto__", :missing) do
+        {:missing, rest} -> {nil, rest}
+        {proto, rest} -> {proto, rest}
+      end
+
+    case Shapes.from_map(rest) do
+      {:ok, shape_id, vals} ->
+        Store.put_obj_raw(ref, {:shape, shape_id, vals, proto})
+        {:obj, ref}
+
+      :ineligible ->
+        data = if proto, do: Map.put(rest, "__proto__", proto), else: rest
+        put_obj(ref, data)
+        {:obj, ref}
+    end
+  end
+
   def wrap(data) do
     ref = make_ref()
-    # put_obj handles list -> :qb_arr conversion
     put_obj(ref, data)
     {:obj, ref}
   end
@@ -70,6 +92,9 @@ defmodule QuickBEAM.VM.Heap do
 
       list when is_list(list) ->
         list
+
+      {:shape, _shape_id, _vals, _proto} ->
+        []
 
       map when is_map(map) ->
         len = Map.get(map, "length", 0)
@@ -139,7 +164,9 @@ defmodule QuickBEAM.VM.Heap do
 
   defdelegate get_obj(ref), to: Store
   defdelegate get_obj(ref, default), to: Store
+  defdelegate get_obj_raw(ref), to: Store
   defdelegate put_obj(ref, value), to: Store
+  defdelegate put_obj_raw(ref, value), to: Store
   defdelegate put_obj_key(ref, key, value), to: Store
   defdelegate put_obj_key(ref, map, key, value), to: Store
   defdelegate update_obj(ref, default, fun), to: Store
@@ -280,10 +307,20 @@ defmodule QuickBEAM.VM.Heap do
 
   defp mark([{:obj, ref} | rest], visited) do
     mark_ref({:qb_obj, ref}, rest, visited, fn
-      map when is_map(map) -> Map.values(map) ++ Map.keys(map)
-      {:qb_arr, arr} -> :array.to_list(arr)
-      list when is_list(list) -> list
-      _ -> []
+      {:shape, _shape_id, vals, proto} ->
+        Tuple.to_list(vals) ++ [proto]
+
+      map when is_map(map) ->
+        Map.values(map) ++ Map.keys(map)
+
+      {:qb_arr, arr} ->
+        :array.to_list(arr)
+
+      list when is_list(list) ->
+        list
+
+      _ ->
+        []
     end)
   end
 

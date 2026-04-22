@@ -109,7 +109,16 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   # ── Own property lookup ──
 
   defp get_own({:obj, ref}, key) do
-    case Heap.get_obj(ref) do
+    case Heap.get_obj_raw(ref) do
+      {:shape, _shape_id, _vals, proto} when key == "__proto__" ->
+        if proto, do: proto, else: :undefined
+
+      {:shape, shape_id, vals, _proto} ->
+        case Heap.Shapes.lookup(shape_id, key) do
+          {:ok, offset} -> elem(vals, offset)
+          :error -> :undefined
+        end
+
       nil ->
         :undefined
 
@@ -266,7 +275,31 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   # ── Prototype chain ──
 
   defp get_prototype_raw({:obj, ref}, key) do
-    case Heap.get_obj(ref) do
+    case Heap.get_obj_raw(ref) do
+      {:shape, _shape_id, _vals, proto} ->
+        case proto do
+          {:obj, pref} ->
+            case Heap.get_obj_raw(pref) do
+              {:shape, proto_shape_id, proto_vals, proto_next} ->
+                case Heap.Shapes.lookup(proto_shape_id, key) do
+                  {:ok, offset} -> elem(proto_vals, offset)
+                  :error -> get_prototype_raw(proto, key)
+                end
+
+              pmap when is_map(pmap) ->
+                case Map.fetch(pmap, key) do
+                  {:ok, val} -> val
+                  :error -> get_prototype_raw(proto, key)
+                end
+
+              _ ->
+                get_prototype_raw(proto, key)
+            end
+
+          _ ->
+            get_from_prototype(proto, key)
+        end
+
       map when is_map(map) and is_map_key(map, proto()) ->
         proto = Map.get(map, proto())
 
