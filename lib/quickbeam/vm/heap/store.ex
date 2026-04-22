@@ -170,8 +170,14 @@ defmodule QuickBEAM.VM.Heap.Store do
   def put_var(name, val), do: Process.put({:qb_var, name}, val)
   def delete_var(name), do: Process.delete({:qb_var, name})
 
-  def frozen?(ref), do: Process.get({:qb_frozen, ref}, false)
-  def freeze(ref), do: Process.put({:qb_frozen, ref}, true)
+  def frozen?(ref) do
+    Process.get(:qb_has_frozen, false) and Process.get({:qb_frozen, ref}, false)
+  end
+
+  def freeze(ref) do
+    Process.put(:qb_has_frozen, true)
+    Process.put({:qb_frozen, ref}, true)
+  end
 
   def get_prop_desc(ref, key), do: Process.get({:qb_prop_desc, ref, key})
   def put_prop_desc(ref, key, desc), do: Process.put({:qb_prop_desc, ref, key}, desc)
