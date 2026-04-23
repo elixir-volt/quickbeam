@@ -101,6 +101,11 @@ fn get_own_property_names(ctx: ?*qjs.JSContext, ptab: [*c][*c]qjs.JSPropertyEnum
     defer if (override_ptab) |op| qjs.JS_FreePropertyEnum(ctx, op, override_plen);
 
     const total = map_size + override_count;
+    if (total == 0) {
+        ptab.* = null;
+        plen.* = 0;
+        return 0;
+    }
     const byte_size = total * @sizeOf(qjs.JSPropertyEnum);
     const raw = qjs.js_malloc(ctx, byte_size) orelse return -1;
     const tab: [*]qjs.JSPropertyEnum = @ptrCast(@alignCast(raw));
@@ -217,7 +222,10 @@ fn ensureOverrides(ctx: ?*qjs.JSContext, data: *BeamProxyData) void {
 
 fn convertValue(ctx: *qjs.JSContext, env: *e.ErlNifEnv, term: e.ErlNifTerm) qjs.JSValue {
     if (e.enif_is_map(env, term) != 0) {
-        return create(ctx, env, term);
+        var map_size: usize = 0;
+        if (e.enif_get_map_size(env, term, &map_size) != 0 and map_size > 0) {
+            return create(ctx, env, term);
+        }
     }
     return beam_to_js.convert(ctx, env, term);
 }
