@@ -187,6 +187,7 @@ defmodule QuickBEAM.VM.Interpreter do
   @op_with_get_ref_undef 119
   @op_make_loc_ref 120
   @op_make_arg_ref 121
+  @op_make_var_ref_ref 122
   @op_make_var_ref 123
   @op_for_in_start 124
   @op_for_of_start 125
@@ -2287,17 +2288,32 @@ defmodule QuickBEAM.VM.Interpreter do
 
   # ── Closure variable refs (mutable) ──
 
-  defp run({op, [idx]}, pc, frame, stack, gas, ctx)
+  defp run({op, [idx | _]}, pc, frame, stack, gas, ctx)
        when op in [@op_make_var_ref, @op_make_loc_ref] do
     ref = make_ref()
     Heap.put_cell(ref, elem(elem(frame, Frame.locals()), idx))
     run(pc + 1, frame, [{:cell, ref} | stack], gas, ctx)
   end
 
-  defp run({@op_make_arg_ref, [idx]}, pc, frame, stack, gas, ctx) do
+  defp run({@op_make_arg_ref, [idx | _]}, pc, frame, stack, gas, ctx) do
     ref = make_ref()
     Heap.put_cell(ref, get_arg_value(ctx, idx))
     run(pc + 1, frame, [{:cell, ref} | stack], gas, ctx)
+  end
+
+  defp run({@op_make_var_ref_ref, [idx | _]}, pc, frame, stack, gas, ctx) do
+    val = elem(elem(frame, Frame.var_refs()), idx)
+
+    cell =
+      case val do
+        {:cell, _} -> val
+        _ ->
+          ref = make_ref()
+          Heap.put_cell(ref, val)
+          {:cell, ref}
+      end
+
+    run(pc + 1, frame, [cell | stack], gas, ctx)
   end
 
   defp run({@op_get_var_ref_check, [idx]}, pc, frame, stack, gas, ctx) do
