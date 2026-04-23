@@ -2109,7 +2109,7 @@ defmodule QuickBEAM.VM.Interpreter do
             end
 
           {:builtin, name, cb} when is_function(cb, 2) ->
-            obj = cb.(rev_args, nil)
+            obj = cb.(rev_args, this_obj)
 
             if name in ~w(Number String Boolean) do
               # Store primitive value for valueOf() on wrapper objects
