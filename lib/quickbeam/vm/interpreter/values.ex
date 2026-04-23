@@ -271,6 +271,18 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   def add(a, b) when is_binary(a) or is_binary(b), do: stringify(a) <> stringify(b)
   def add(a, b) when is_number(a) and is_number(b), do: a + b
+
+  def add({:obj, _} = a, b) do
+    pa = to_primitive(a)
+    pb = if match?({:obj, _}, b), do: to_primitive(b), else: b
+    if is_binary(pa) or is_binary(pb), do: stringify(pa) <> stringify(pb), else: numeric_add(to_number(pa), to_number(pb))
+  end
+
+  def add(a, {:obj, _} = b) do
+    pb = to_primitive(b)
+    if is_binary(a) or is_binary(pb), do: stringify(a) <> stringify(pb), else: numeric_add(to_number(a), to_number(pb))
+  end
+
   def add(a, b), do: numeric_add(to_number(a), to_number(b))
 
   defp numeric_add(a, b) when is_number(a) and is_number(b), do: a + b
@@ -560,6 +572,9 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   defp abstract_eq({:obj, ref1}, {:obj, ref2}), do: ref1 === ref2
   defp abstract_eq({:symbol, _, ref1}, {:symbol, _, ref2}), do: ref1 === ref2
   defp abstract_eq(_, _), do: false
+
+  defp to_primitive(val) when is_number(val) or is_binary(val) or is_boolean(val) or is_atom(val), do: val
+  defp to_primitive({:bigint, _} = val), do: val
 
   defp to_primitive({:obj, ref} = obj) do
     data = Heap.get_obj(ref, %{})
