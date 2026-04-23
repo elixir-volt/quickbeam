@@ -207,6 +207,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def typeof(:undefined), do: "undefined"
   def typeof(:nan), do: "number"
   def typeof(:infinity), do: "number"
+  def typeof(:neg_infinity), do: "number"
   def typeof(nil), do: "object"
   def typeof(true), do: "boolean"
   def typeof(false), do: "boolean"

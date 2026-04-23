@@ -1,5 +1,6 @@
 defmodule QuickBEAM.VM.Runtime.GlobalNumeric do
   @moduledoc false
+  alias QuickBEAM.VM.Interpreter.Values
 
   def parse_int([string, radix | _], _) when is_binary(string) and is_number(radix) do
     base = trunc(radix)
@@ -79,10 +80,27 @@ defmodule QuickBEAM.VM.Runtime.GlobalNumeric do
     end
   end
 
+  def nan?([val | _], _) do
+    case Values.to_number(val) do
+      :nan -> true
+      n when is_number(n) -> false
+      _ -> true
+    end
+  end
+
   def nan?(_, _), do: true
 
   def finite?([n | _], _) when is_number(n), do: true
   def finite?([:infinity | _], _), do: false
   def finite?([:neg_infinity | _], _), do: false
+  def finite?([:nan | _], _), do: false
+
+  def finite?([val | _], _) do
+    case Values.to_number(val) do
+      n when is_number(n) -> true
+      _ -> false
+    end
+  end
+
   def finite?(_, _), do: false
 end
