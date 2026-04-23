@@ -1949,7 +1949,11 @@ defmodule QuickBEAM.VM.Interpreter do
         case ctor do
           {:closure, _, %Bytecode.Function{} = f} -> f
           {:bound, _, inner, _, _} -> inner
-          other -> other
+          %Bytecode.Function{} = f -> f
+          {:builtin, _, _} -> ctor
+          _ ->
+            throw({:js_throw, Heap.make_error(
+              "#{Values.stringify(ctor)} is not a constructor", "TypeError")})
         end
 
       # Generators and async generators cannot be constructors
@@ -2170,17 +2174,25 @@ defmodule QuickBEAM.VM.Interpreter do
   # ── instanceof ──
 
   defp run({@op_instanceof, []}, pc, frame, [ctor, obj | rest], gas, ctx) do
-    result =
-      case obj do
-        {:obj, _} ->
-          ctor_proto = Get.get(ctor, "prototype")
-          check_prototype_chain(obj, ctor_proto)
-
-        _ ->
-          false
+    catch_js_throw(pc, frame, rest, gas, ctx, fn ->
+      # Check ctor is callable
+      unless match?({:closure, _, _}, ctor) or match?(%Bytecode.Function{}, ctor) or
+               match?({:builtin, _, _}, ctor) or match?({:bound, _, _, _, _}, ctor) do
+        throw({:js_throw, Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")})
       end
 
-    run(pc + 1, frame, [result | rest], gas, ctx)
+      ctor_proto = Get.get(ctor, "prototype")
+
+      unless match?({:obj, _}, ctor_proto) do
+        throw({:js_throw, Heap.make_error(
+          "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check", "TypeError")})
+      end
+
+      case obj do
+        {:obj, _} -> check_prototype_chain(obj, ctor_proto)
+        _ -> false
+      end
+    end)
   end
 
   # ── delete ──
