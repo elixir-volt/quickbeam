@@ -413,10 +413,20 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def mod(_, {:bigint, _}), do: throw_bigint_mix_error()
 
   def mod(a, b) when is_integer(a) and is_integer(b) and b != 0, do: rem(a, b)
-  def mod(a, b) when is_number(a) and is_number(b) and b != 0, do: a - Float.floor(a / b) * b
-  def mod(_, b) when is_number(b), do: :nan
+  def mod(a, b) when is_number(a) and is_number(b) and b != 0, do: safe_arith(fn -> a - Float.floor(a / b) * b end)
+  def mod(a, b) when is_number(a) and is_number(b), do: :nan
+  def mod(a, b), do: numeric_mod(to_number(a), to_number(b))
 
-  def mod(_, _), do: :nan
+  defp numeric_mod(:nan, _), do: :nan
+  defp numeric_mod(_, :nan), do: :nan
+  defp numeric_mod(:infinity, _), do: :nan
+  defp numeric_mod(:neg_infinity, _), do: :nan
+  defp numeric_mod(a, :infinity) when is_number(a), do: a
+  defp numeric_mod(a, :neg_infinity) when is_number(a), do: a
+  defp numeric_mod(_, b) when is_number(b) and b == 0, do: :nan
+  defp numeric_mod(a, b) when is_integer(a) and is_integer(b), do: rem(a, b)
+  defp numeric_mod(a, b) when is_number(a) and is_number(b), do: safe_arith(fn -> a - Float.floor(a / b) * b end)
+  defp numeric_mod(_, _), do: :nan
 
   def pow({:bigint, a}, {:bigint, b}) when b >= 0, do: {:bigint, Integer.pow(a, b)}
   def pow(a, b) when is_number(a) and is_number(b), do: :math.pow(a, b)
