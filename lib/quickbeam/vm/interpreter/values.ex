@@ -778,6 +778,13 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   defp to_primitive(val) when is_number(val) or is_binary(val) or is_boolean(val) or is_atom(val), do: val
   defp to_primitive({:bigint, _} = val), do: val
 
+  defp to_primitive({:closure, _, %{source: src}}) when is_binary(src) and src != "", do: src
+  defp to_primitive({:closure, _, _}), do: "function () { [native code] }"
+  defp to_primitive(%QuickBEAM.VM.Bytecode.Function{source: src}) when is_binary(src) and src != "", do: src
+  defp to_primitive(%QuickBEAM.VM.Bytecode.Function{}), do: "function () { [native code] }"
+  defp to_primitive({:builtin, name, _}), do: "function #{name}() { [native code] }"
+  defp to_primitive({:bound, _, _, _, _}), do: "function () { [native code] }"
+
   defp to_primitive({:obj, ref} = obj) do
     data = Heap.get_obj(ref, %{})
 
