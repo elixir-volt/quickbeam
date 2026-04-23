@@ -222,7 +222,10 @@ fn ensureOverrides(ctx: ?*qjs.JSContext, data: *BeamProxyData) void {
 
 fn convertValue(ctx: *qjs.JSContext, env: *e.ErlNifEnv, term: e.ErlNifTerm) qjs.JSValue {
     if (e.enif_is_map(env, term) != 0) {
-        return create(ctx, env, term);
+        var map_size: usize = 0;
+        if (e.enif_get_map_size(env, term, &map_size) != 0 and map_size > 0) {
+            return create(ctx, env, term);
+        }
     }
     return beam_to_js.convert(ctx, env, term);
 }

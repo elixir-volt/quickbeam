@@ -97,5 +97,24 @@ defmodule QuickBEAM.Core.EvalVarsTest do
       assert {:ok, "B"} = QuickBEAM.eval(rt, "v", vars: %{"v" => "B"})
       assert {:ok, "undefined"} = QuickBEAM.eval(rt, "typeof v")
     end
+
+    test "Object.keys on nested empty map", %{rt: rt} do
+      assert {:ok, 0} =
+               QuickBEAM.eval(rt, "Object.keys(obj.x).length", vars: %{"obj" => %{x: %{}}})
+    end
+
+    test "for-in on nested empty map", %{rt: rt} do
+      assert {:ok, 0} =
+               QuickBEAM.eval(rt, "var c = 0; for (var k in obj.x) c++; c",
+                 vars: %{"obj" => %{x: %{}}}
+               )
+    end
+
+    test "Object.keys on nested non-empty map", %{rt: rt} do
+      assert {:ok, 2} =
+               QuickBEAM.eval(rt, "Object.keys(obj.x).length",
+                 vars: %{"obj" => %{x: %{a: 1, b: 2}}}
+               )
+    end
   end
 end
