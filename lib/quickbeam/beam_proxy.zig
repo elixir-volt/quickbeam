@@ -101,6 +101,11 @@ fn get_own_property_names(ctx: ?*qjs.JSContext, ptab: [*c][*c]qjs.JSPropertyEnum
     defer if (override_ptab) |op| qjs.JS_FreePropertyEnum(ctx, op, override_plen);
 
     const total = map_size + override_count;
+    if (total == 0) {
+        ptab.* = null;
+        plen.* = 0;
+        return 0;
+    }
     const byte_size = total * @sizeOf(qjs.JSPropertyEnum);
     const raw = qjs.js_malloc(ctx, byte_size) orelse return -1;
     const tab: [*]qjs.JSPropertyEnum = @ptrCast(@alignCast(raw));
