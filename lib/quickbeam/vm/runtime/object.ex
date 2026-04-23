@@ -202,6 +202,10 @@ defmodule QuickBEAM.VM.Runtime.Object do
     define_property(args)
   end
 
+  static "defineProperties" do
+    define_properties(args)
+  end
+
   static "getOwnPropertyNames" do
     get_own_property_names(args)
   end
@@ -497,6 +501,20 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp define_property([obj | _]), do: obj
+
+  defp define_properties([obj, {:obj, props_ref} | _]) do
+    props = Heap.get_obj(props_ref, %{})
+
+    if is_map(props) do
+      for {key, desc} <- props, is_binary(key) do
+        define_property([obj, key, desc])
+      end
+    end
+
+    obj
+  end
+
+  defp define_properties([obj | _]), do: obj
 
   defp get_own_property_descriptor([{:obj, ref}, key | _]) do
     prop_name = if is_binary(key), do: key, else: Values.stringify(key)
