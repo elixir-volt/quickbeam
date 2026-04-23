@@ -1054,6 +1054,18 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp with_has_property?(_, _), do: false
 
+  defp delete_static(fun, key) do
+    key_str = if is_binary(key), do: key, else: Values.stringify(key)
+    statics = Heap.get_ctor_statics(fun)
+
+    if Map.has_key?(statics, key_str) do
+      Heap.put_ctor_statics(fun, Map.delete(statics, key_str))
+      true
+    else
+      true
+    end
+  end
+
   defp ensure_initialized_local!(ctx, idx, val) do
     if val == :__tdz__ or
          (val == :undefined and uninitialized_this_local?(ctx, idx) and
@@ -2279,6 +2291,15 @@ defmodule QuickBEAM.VM.Interpreter do
           else
             true
           end
+
+        {:closure, _, _} = fun ->
+          delete_static(fun, key)
+
+        %Bytecode.Function{} = fun ->
+          delete_static(fun, key)
+
+        {:builtin, _, _} = fun ->
+          delete_static(fun, key)
 
         _ ->
           true
