@@ -79,7 +79,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
   def branch_condition(_expr, :function), do: atom(true)
   def branch_condition(_expr, {:function, _}), do: atom(true)
   def branch_condition(_expr, :self_fun), do: atom(true)
-  def branch_condition(expr, _type), do: remote_call(Values, :truthy?, [expr])
+  def branch_condition(expr, _type), do: local_call(:op_truthy, [expr])
   def branch_case(expr, false_body, true_body), do: case_expr(expr, false_body, true_body)
 
   def atom_name(%{atoms: atoms}, atom_idx), do: resolve_atom_name(atom_idx, atoms)

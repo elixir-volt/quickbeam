@@ -493,7 +493,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         State.binary_call(state, Values, :shr)
 
       {{:ok, :typeof}, []} ->
-        State.unary_call(state, Values, :typeof)
+        with {:ok, expr, _type, state} <- State.pop_typed(state) do
+          {:ok, State.push(state, Builder.local_call(:op_typeof, [expr]))}
+        end
 
       {{:ok, :instanceof}, []} ->
         State.binary_call(state, RuntimeHelpers, :instanceof)

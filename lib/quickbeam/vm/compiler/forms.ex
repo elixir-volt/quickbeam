@@ -62,7 +62,9 @@ defmodule QuickBEAM.VM.Compiler.Forms do
       strict_neq_helper(),
       guarded_unary_helper(:op_neg, :-, Values, :neg),
       unary_fallback_helper(:op_plus, Values, :to_number),
-      get_field_inline_helper()
+      get_field_inline_helper(),
+      truthy_inline_helper(),
+      typeof_inline_helper()
       | invoke_var_ref_runtime_helpers()
     ]
   end
@@ -274,6 +276,37 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   end
 
   defp local_call(fun, args), do: {:call, @line, {:atom, @line, fun}, args}
+
+
+  defp truthy_inline_helper do
+    v = var("V")
+
+    {:function, @line, :op_truthy, 1,
+     [
+       {:clause, @line, [{:atom, @line, nil}], [], [{:atom, @line, false}]},
+       {:clause, @line, [{:atom, @line, :undefined}], [], [{:atom, @line, false}]},
+       {:clause, @line, [{:atom, @line, false}], [], [{:atom, @line, false}]},
+       {:clause, @line, [{:integer, @line, 0}], [], [{:atom, @line, false}]},
+       {:clause, @line, [{:float, @line, 0.0}], [], [{:atom, @line, false}]},
+       {:clause, @line, [{:bin, @line, []}], [], [{:atom, @line, false}]},
+       {:clause, @line, [v], [], [{:atom, @line, true}]}
+     ]}
+  end
+
+  defp typeof_inline_helper do
+    v = var("V")
+
+    {:function, @line, :op_typeof, 1,
+     [
+       {:clause, @line, [{:atom, @line, :undefined}], [], [:erl_parse.abstract("undefined")]},
+       {:clause, @line, [{:atom, @line, nil}], [], [:erl_parse.abstract("object")]},
+       {:clause, @line, [{:atom, @line, true}], [], [:erl_parse.abstract("boolean")]},
+       {:clause, @line, [{:atom, @line, false}], [], [:erl_parse.abstract("boolean")]},
+       {:clause, @line, [v], [[{:call, @line, {:atom, @line, :is_number}, [v]}]], [:erl_parse.abstract("number")]},
+       {:clause, @line, [v], [[{:call, @line, {:atom, @line, :is_binary}, [v]}]], [:erl_parse.abstract("string")]},
+       {:clause, @line, [v], [], [remote_call(Values, :typeof, [v])]}
+     ]}
+  end
 
   defp list_expr([]), do: {nil, @line}
   defp list_expr([h | t]), do: {:cons, @line, h, list_expr(t)}
