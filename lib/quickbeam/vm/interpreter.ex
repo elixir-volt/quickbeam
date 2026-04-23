@@ -1499,69 +1499,63 @@ defmodule QuickBEAM.VM.Interpreter do
 
   # ── Arithmetic ──
 
-  defp run({@op_add, []}, pc, frame, [b, a | rest], gas, %Context{catch_stack: [_ | _]} = ctx) do
-    run(pc + 1, frame, [Values.add(a, b) | rest], gas, ctx)
-  catch
-    {:js_throw, val} -> throw_or_catch(frame, val, gas, ctx)
-  end
-
   defp run({@op_add, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.add(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.add(a, b) end)
 
   defp run({@op_sub, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.sub(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.sub(a, b) end)
 
   defp run({@op_mul, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.mul(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.mul(a, b) end)
 
   defp run({@op_div, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.js_div(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.js_div(a, b) end)
 
   defp run({@op_mod, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.mod(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.mod(a, b) end)
 
   defp run({@op_pow, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.pow(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.pow(a, b) end)
 
   # ── Bitwise ──
 
   defp run({@op_band, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.band(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.band(a, b) end)
 
   defp run({@op_bor, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.bor(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.bor(a, b) end)
 
   defp run({@op_bxor, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.bxor(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.bxor(a, b) end)
 
   defp run({@op_shl, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.shl(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.shl(a, b) end)
 
   defp run({@op_sar, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.sar(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.sar(a, b) end)
 
   defp run({@op_shr, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.shr(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.shr(a, b) end)
 
   # ── Comparison ──
 
   defp run({@op_lt, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.lt(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.lt(a, b) end)
 
   defp run({@op_lte, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.lte(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.lte(a, b) end)
 
   defp run({@op_gt, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.gt(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.gt(a, b) end)
 
   defp run({@op_gte, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.gte(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.gte(a, b) end)
 
   defp run({@op_eq, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.eq(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.eq(a, b) end)
 
   defp run({@op_neq, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.neq(a, b) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.neq(a, b) end)
 
   defp run({@op_strict_eq, []}, pc, frame, [b, a | rest], gas, ctx),
     do: run(pc + 1, frame, [Values.strict_eq(a, b) | rest], gas, ctx)
@@ -1572,10 +1566,10 @@ defmodule QuickBEAM.VM.Interpreter do
   # ── Unary ──
 
   defp run({@op_neg, []}, pc, frame, [a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.neg(a) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.neg(a) end)
 
   defp run({@op_plus, []}, pc, frame, [a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.to_number(a) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.to_number(a) end)
 
   defp run({@op_inc, []}, pc, frame, [{:bigint, n} | rest], gas, ctx),
     do: run(pc + 1, frame, [{:bigint, n + 1} | rest], gas, ctx)
@@ -1641,7 +1635,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp run({@op_not, []}, pc, frame, [a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.bnot(a) | rest], gas, ctx)
+    do: catch_js_throw(pc, frame, rest, gas, ctx, fn -> Values.bnot(a) end)
 
   defp run({@op_lnot, []}, pc, frame, [a | rest], gas, ctx),
     do: run(pc + 1, frame, [not Values.truthy?(a) | rest], gas, ctx)
