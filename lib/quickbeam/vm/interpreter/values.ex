@@ -210,6 +210,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def typeof({:symbol, _, _}), do: "symbol"
   def typeof({:bound, _, _, _, _}), do: "function"
   def typeof({:bigint, _}), do: "bigint"
+  def typeof({:builtin, _, map}) when is_map(map), do: "object"
   def typeof({:builtin, _, _}), do: "function"
   def typeof(_), do: "object"
 

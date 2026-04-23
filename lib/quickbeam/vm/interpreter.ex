@@ -1950,7 +1950,10 @@ defmodule QuickBEAM.VM.Interpreter do
           {:closure, _, %Bytecode.Function{} = f} -> f
           {:bound, _, inner, _, _} -> inner
           %Bytecode.Function{} = f -> f
-          {:builtin, _, _} -> ctor
+          {:builtin, _, cb} when is_function(cb) -> ctor
+          {:builtin, _, map} when is_map(map) ->
+            throw({:js_throw, Heap.make_error(
+              "#{Values.stringify(ctor)} is not a constructor", "TypeError")})
           _ ->
             throw({:js_throw, Heap.make_error(
               "#{Values.stringify(ctor)} is not a constructor", "TypeError")})
