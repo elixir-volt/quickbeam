@@ -829,11 +829,20 @@ defmodule QuickBEAM.VM.Interpreter.Values do
             proto_to_primitive(data, obj, "valueOf") ||
             call_to_primitive(data, obj, "toString") ||
             proto_to_primitive(data, obj, "toString") ||
+            get_to_primitive(obj, "toString") ||
             obj
         end
       end
     else
       obj
+    end
+  end
+
+  defp get_to_primitive(obj, method) do
+    case Get.get(obj, method) do
+      fun when fun != nil and fun != :undefined ->
+        unwrap_primitive(Invocation.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj))
+      _ -> nil
     end
   end
 
