@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   @moduledoc false
   import QuickBEAM.VM.Heap.Keys
 
-  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.{Heap, Invocation}
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.Runtime
 
@@ -710,7 +710,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
         unwrap_primitive(cb.([], obj))
 
       fun when fun != nil and fun != :undefined ->
-        unwrap_primitive(Interpreter.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj))
+        unwrap_primitive(Invocation.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj))
 
       _ ->
         nil
