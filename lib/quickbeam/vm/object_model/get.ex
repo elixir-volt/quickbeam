@@ -266,6 +266,15 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     end
   end
 
+  defp get_own({:bigint, n}, "toString"),
+    do: {:builtin, "toString", fn _, _ -> Integer.to_string(n) end}
+
+  defp get_own({:bigint, n}, "valueOf"),
+    do: {:builtin, "valueOf", fn _, _ -> {:bigint, n} end}
+
+  defp get_own({:bigint, _}, "toLocaleString"),
+    do: :undefined
+
   defp get_own({:symbol, desc}, "toString"),
     do: {:builtin, "toString", fn _, _ -> "Symbol(#{desc})" end}
 
