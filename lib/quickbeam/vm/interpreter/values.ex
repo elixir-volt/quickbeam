@@ -826,10 +826,9 @@ defmodule QuickBEAM.VM.Interpreter.Values do
           if match?({:obj, _}, result), do: obj, else: result
         else
           call_to_primitive(data, obj, "valueOf") ||
-            proto_to_primitive(data, obj, "valueOf") ||
+            (if not has_own_method?(data, "valueOf"), do: proto_to_primitive(data, obj, "valueOf")) ||
             call_to_primitive(data, obj, "toString") ||
-            proto_to_primitive(data, obj, "toString") ||
-            get_to_primitive(obj, "toString") ||
+            (if not has_own_method?(data, "toString"), do: proto_to_primitive(data, obj, "toString") || get_to_primitive(obj, "toString")) ||
             obj
         end
       end
@@ -837,6 +836,16 @@ defmodule QuickBEAM.VM.Interpreter.Values do
       obj
     end
   end
+
+  defp has_own_method?(data, method) when is_map(data) do
+    case Map.get(data, method) do
+      nil -> false
+      :undefined -> false
+      _ -> true
+    end
+  end
+
+  defp has_own_method?(_, _), do: false
 
   defp get_to_primitive(obj, method) do
     case Get.get(obj, method) do
