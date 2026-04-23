@@ -285,7 +285,11 @@ defmodule QuickBEAM.VM.Interpreter.Values do
          )}
       )
 
-  def add(a, b) when is_binary(a) or is_binary(b), do: stringify(a) <> stringify(b)
+  def add(a, b) when is_binary(a) and is_binary(b), do: a <> b
+  def add(a, b) when is_binary(a) and is_number(b), do: a <> stringify(b)
+  def add(a, b) when is_number(a) and is_binary(b), do: stringify(a) <> b
+  def add(a, b) when is_binary(b) and not is_tuple(a) and not is_map(a), do: stringify(a) <> b
+  def add(a, b) when is_binary(a) and not is_tuple(b) and not is_map(b), do: a <> stringify(b)
   def add(a, b) when is_number(a) and is_number(b), do: safe_add(a, b)
 
   def add({:obj, _} = a, b) do
