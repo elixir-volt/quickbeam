@@ -165,6 +165,12 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def stringify({:symbol, desc}), do: "Symbol(#{desc})"
   def stringify({:symbol, desc, _ref}), do: "Symbol(#{desc})"
   def stringify(s) when is_binary(s), do: s
+  def stringify({:closure, _, %{source: src}}) when is_binary(src) and src != "", do: src
+  def stringify({:closure, _, _}), do: "function () { [native code] }"
+  def stringify(%Bytecode.Function{source: src}) when is_binary(src) and src != "", do: src
+  def stringify(%Bytecode.Function{}), do: "function () { [native code] }"
+  def stringify({:builtin, name, _}), do: "function #{name}() { [native code] }"
+  def stringify({:bound, _, _, _, _}), do: "function () { [native code] }"
 
   def stringify({:obj, ref} = obj) do
     data = Heap.get_obj(ref, %{})
