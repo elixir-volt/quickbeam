@@ -177,7 +177,9 @@ defmodule QuickBEAM.VM.Heap do
   def get_or_create_prototype(ctor) do
     case get_class_proto(ctor) do
       nil ->
-        key = {:qb_func_proto, ctor}
+        # Use stable key based on bytecode identity, not closure tuple reference
+        stable_key = proto_cache_key(ctor)
+        key = {:qb_func_proto, stable_key}
 
         case Process.get(key) do
           nil ->
@@ -189,6 +191,18 @@ defmodule QuickBEAM.VM.Heap do
             proto
 
           existing ->
+            # Update constructor reference to current ctor (may differ across invocations)
+            {:obj, ref} = existing
+            case Store.get_obj_raw(ref) do
+              {:shape, sid, offsets, vals, p} ->
+                case Map.fetch(offsets, "constructor") do
+                  {:ok, off} -> Store.put_obj_raw(ref, {:shape, sid, offsets, put_elem(vals, off, ctor), p})
+                  _ -> :ok
+                end
+              map when is_map(map) -> Store.put_obj_raw(ref, Map.put(map, "constructor", ctor))
+              _ -> :ok
+            end
+
             existing
         end
 
@@ -198,6 +212,10 @@ defmodule QuickBEAM.VM.Heap do
   end
 
   # ── Objects ──
+
+  defp proto_cache_key({:closure, _, %{byte_code: bc}}), do: bc
+  defp proto_cache_key(%{byte_code: bc}), do: bc
+  defp proto_cache_key(ctor), do: ctor
 
   defdelegate get_obj(ref), to: Store
   defdelegate get_obj(ref, default), to: Store
