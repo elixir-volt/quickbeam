@@ -71,6 +71,10 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     if match?({:obj, _}, prim), do: :nan, else: to_number(prim)
   end
 
+  def to_number({:closure, _, _} = f), do: to_number(fn_to_primitive(f))
+  def to_number(%Bytecode.Function{} = f), do: to_number(fn_to_primitive(f))
+  def to_number({:bound, _, _, _, _} = f), do: to_number(fn_to_primitive(f))
+  def to_number({:builtin, _, _} = f), do: to_number(fn_to_primitive(f))
   def to_number(_), do: :nan
 
   defp parse_numeric(""), do: 0
