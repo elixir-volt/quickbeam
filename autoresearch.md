@@ -32,7 +32,7 @@ Maximize the number of passing ECMAScript test262 tests in the QuickBEAM BEAM VM
 - `MIX_ENV=test mix test test/vm/beam_compat_test.exs test/vm/compiler_test.exs` must pass (396 tests, 0 failures)
 - No new dependencies
 
-## Remaining Failure Categories (404 failures)
+## Remaining Failure Categories (308 failures)
 1. **with statement scope (64)** — `p1/f is not defined`: global `this` property not bridged to vars
 2. **toPrimitive side effects (47)** — `_isSameValue threw [object Object]`: closure var mutations inside valueOf/toString callbacks don't propagate back to caller scope
 3. **Error constructor identity (17)** — `different error constructor with same name`: compiled closure constructor identity differs across invocation contexts
@@ -64,6 +64,22 @@ Maximize the number of passing ECMAScript test262 tests in the QuickBEAM BEAM VM
 - **Iterator null/undefined**: for-of/destructuring throws TypeError. +7 tests.
 - **Builtin .name property**: get_own returns builtin name for "name" key.
 - **Prototype chain for new**: get_or_create_prototype sets __proto__ to Object.prototype. +2 tests.
+- **Global this binding**: Set this=globalThis in eval context + get_var fallback to globalThis properties. +51 tests.
+- **get_var_undef/put_var globalThis**: Sync variable access through globalThis object. +1 test.
+- **delete_var returns false**: var declarations are non-configurable. +3 tests.
+- **to_object TypeError**: Throws TypeError for null/undefined (was no-op). +8 tests.
+- **Function.prototype auto-setup**: auto_proto for Function constructor. +1 test.
+- **Wrapped object primitives**: Object(1n/42/"str"/true) wrapping + to_primitive/stringify for __wrapped_* keys. +17 tests.
+- **Delete on function statics**: delete F.prop removes from ctor_statics. +1 test.
+- **NaN is falsy**: truthy?(:nan) = false. +7 tests.
+- **Negative zero falsy**: truthy?(-0.0) = false. +1 test.
+- **typeof :neg_infinity**: Returns "number" (was falling to "object"). +1 test.
+- **isNaN/isFinite coercion**: Convert non-number args via to_number. +1 test.
+- **BigInt vs infinity/NaN comparisons**: Explicit clauses for all comparison operators. +4 tests.
+- **Object.defineProperties**: New static method.
+- **stringify for functions**: Functions return source or [native code] (was "[object]").
+- **to_primitive for functions**: Functions return source string from to_primitive.
+- **DEAD END: auto_proto for Boolean/Number/String/Array**: Caused 5-8 regressions.
 - **DEAD END: auto_proto for builtins**: Caused 8 regressions in try/throw/logical-not tests.
   Object.prototype not available during globals init. Reverted.
 - **DEAD END: toPrimitive side effects**: Closure var mutations don't propagate.
