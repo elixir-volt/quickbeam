@@ -168,7 +168,8 @@ defmodule QuickBEAM.WebAPIs.ProcessTest do
 
   describe "Process.monitor" do
     test "callback fires when monitored process exits normally", %{rt: rt} do
-      pid = spawn(fn -> Process.sleep(50) end)
+      test_pid = self()
+      pid = spawn(fn -> receive do :go -> :ok end end)
 
       QuickBEAM.eval(rt, """
         globalThis.downFired = false;
@@ -179,35 +180,43 @@ defmodule QuickBEAM.WebAPIs.ProcessTest do
               globalThis.downFired = true;
               globalThis.downReason = reason;
             });
+            Beam.send(msg.test, "monitored");
           }
         });
       """)
 
-      QuickBEAM.send_message(rt, %{action: "monitor", pid: pid})
-      Process.sleep(200)
+      QuickBEAM.send_message(rt, %{action: "monitor", pid: pid, test: test_pid})
+      assert_receive "monitored", 1000
+      send(pid, :go)
+      Process.sleep(100)
 
       assert {:ok, true} = QuickBEAM.eval(rt, "downFired")
       assert {:ok, "normal"} = QuickBEAM.eval(rt, "downReason")
     end
 
     test "callback fires with exit reason", %{rt: rt} do
+      test_pid = self()
+
       pid =
         spawn(fn ->
-          Process.sleep(50)
-          exit(:kaboom)
+          receive do :go -> exit(:kaboom) end
         end)
 
       QuickBEAM.eval(rt, """
         globalThis.downReason = null;
         Beam.onMessage((msg) => {
-          Beam.monitor(msg, (reason) => {
+          if (typeof msg === "string") return;
+          Beam.monitor(msg.pid, (reason) => {
             globalThis.downReason = reason;
           });
+          Beam.send(msg.test, "monitored");
         });
       """)
 
-      QuickBEAM.send_message(rt, pid)
-      Process.sleep(500)
+      QuickBEAM.send_message(rt, %{pid: pid, test: test_pid})
+      assert_receive "monitored", 1000
+      send(pid, :go)
+      Process.sleep(100)
 
       assert {:ok, "kaboom"} = QuickBEAM.eval(rt, "downReason")
     end
