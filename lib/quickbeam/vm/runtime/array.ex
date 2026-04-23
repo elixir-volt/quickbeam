@@ -7,6 +7,24 @@ defmodule QuickBEAM.VM.Runtime.Array do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Runtime
 
+  def prototype do
+    mod = __MODULE__
+    methods = ~w(push pop shift unshift map filter reduce forEach indexOf
+      lastIndexOf toString includes slice splice join concat reverse sort
+      flat find findIndex some every fill copyWithin entries keys values
+      at flatMap)
+
+    proto_map =
+      Enum.reduce(methods, %{}, fn name, acc ->
+        Map.put(acc, name, {:builtin, name, fn args, this ->
+          {:builtin, _, cb} = mod.proto_property(name)
+          cb.(args, this)
+        end})
+      end)
+
+    Heap.wrap(proto_map)
+  end
+
   # ── Array.prototype dispatch ──
 
   proto "push" do

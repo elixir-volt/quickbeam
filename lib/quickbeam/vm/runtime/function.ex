@@ -2,6 +2,14 @@ defmodule QuickBEAM.VM.Runtime.Function do
   @moduledoc false
   alias QuickBEAM.VM.{Builtin, Bytecode, Heap, Invocation}
 
+  def prototype do
+    Heap.wrap(%{
+      "call" => {:builtin, "call", fn args, this -> fn_call(this, args, this) end},
+      "apply" => {:builtin, "apply", fn args, this -> fn_apply(this, args, this) end},
+      "bind" => {:builtin, "bind", fn args, this -> fn_bind(this, args, this) end}
+    })
+  end
+
   # ── Function prototype ──
 
   def proto_property(fun, "call") do
