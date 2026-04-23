@@ -2280,7 +2280,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp run({@op_delete_var, [_atom_idx]}, pc, frame, stack, gas, ctx),
-    do: run(pc + 1, frame, [true | stack], gas, ctx)
+    do: run(pc + 1, frame, [false | stack], gas, ctx)
 
   # ── in operator ──
 
