@@ -867,17 +867,22 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   defp fn_to_primitive(fun) do
     statics = Heap.get_ctor_statics(fun)
-    cond do
-      Map.has_key?(statics, "valueOf") ->
-        val = statics["valueOf"]
-        if is_callable?(val) do
-          result = Invocation.invoke_with_receiver(val, [], Runtime.gas_budget(), fun)
-          if is_function_like?(result), do: stringify(fun), else: result
-        else
-          stringify(fun)
-        end
-      true -> stringify(fun)
-    end
+    vo = Map.get(statics, "valueOf")
+    ts = Map.get(statics, "toString")
+
+    result =
+      if is_callable?(vo) do
+        r = Invocation.invoke_with_receiver(vo, [], Runtime.gas_budget(), fun)
+        if is_function_like?(r), do: nil, else: r
+      end
+
+    result = result ||
+      if is_callable?(ts) do
+        r = Invocation.invoke_with_receiver(ts, [], Runtime.gas_budget(), fun)
+        if is_function_like?(r), do: nil, else: r
+      end
+
+    result || stringify(fun)
   end
 
   defp has_own_method?(data, method) when is_map(data) do
