@@ -33,6 +33,11 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
         Heap.put_obj(ref, %{"__wrapped_boolean__" => value})
         {:obj, ref}
 
+      {:bigint, _} = value ->
+        ref = make_ref()
+        Heap.put_obj(ref, %{"__wrapped_bigint__" => value})
+        {:obj, ref}
+
       _ ->
         Runtime.new_object()
     end

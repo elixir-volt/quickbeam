@@ -189,18 +189,19 @@ defmodule QuickBEAM.VM.Interpreter.Values do
         end)
 
       map when is_map(map) ->
-        case Map.get(map, "toString") do
-          fun when fun != nil and fun != :undefined ->
-            stringify(
-              Interpreter.invoke_with_receiver(
-                fun,
-                [],
-                Runtime.gas_budget(),
-                obj
-              )
-            )
+        wrapped = Map.get(map, "__wrapped_string__") ||
+          Map.get(map, "__wrapped_number__") ||
+          Map.get(map, "__wrapped_boolean__") ||
+          Map.get(map, "__wrapped_bigint__")
 
-          _ ->
+        cond do
+          wrapped != nil ->
+            stringify(wrapped)
+
+          (fun = Map.get(map, "toString")) != nil and fun != :undefined ->
+            stringify(Invocation.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj))
+
+          true ->
             "[object Object]"
         end
 
@@ -795,19 +796,29 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     data = Heap.get_obj(ref, %{})
 
     if is_map(data) do
-      # Check @@toPrimitive first (spec: 7.1.1)
-      sym_key = {:symbol, "Symbol.toPrimitive"}
-      toPrim = Map.get(data, sym_key) || Get.get(obj, sym_key)
+      # Check for wrapped primitives (Object(1n), Object("str"), etc.)
+      wrapped = Map.get(data, "__wrapped_bigint__") ||
+        Map.get(data, "__wrapped_number__") ||
+        Map.get(data, "__wrapped_string__") ||
+        Map.get(data, "__wrapped_boolean__")
 
-      if toPrim != nil and toPrim != :undefined do
-        result = Invocation.invoke_with_receiver(toPrim, ["default"], Runtime.gas_budget(), obj)
-        if match?({:obj, _}, result), do: obj, else: result
+      if wrapped != nil do
+        wrapped
       else
-        call_to_primitive(data, obj, "valueOf") ||
-          proto_to_primitive(data, obj, "valueOf") ||
-          call_to_primitive(data, obj, "toString") ||
-          proto_to_primitive(data, obj, "toString") ||
-          obj
+        # Check @@toPrimitive first (spec: 7.1.1)
+        sym_key = {:symbol, "Symbol.toPrimitive"}
+        toPrim = Map.get(data, sym_key) || Get.get(obj, sym_key)
+
+        if toPrim != nil and toPrim != :undefined do
+          result = Invocation.invoke_with_receiver(toPrim, ["default"], Runtime.gas_budget(), obj)
+          if match?({:obj, _}, result), do: obj, else: result
+        else
+          call_to_primitive(data, obj, "valueOf") ||
+            proto_to_primitive(data, obj, "valueOf") ||
+            call_to_primitive(data, obj, "toString") ||
+            proto_to_primitive(data, obj, "toString") ||
+            obj
+        end
       end
     else
       obj
