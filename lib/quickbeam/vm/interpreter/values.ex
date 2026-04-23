@@ -458,7 +458,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     end
   end
   def mod(a, b) when is_number(a) and is_number(b) and b != 0 do
-    result = safe_arith(fn -> a - Float.floor(a / b) * b end)
+    result = :math.fmod(a / 1, b / 1)
     if result == 0 and neg_sign?(a), do: -0.0, else: result
   end
   def mod(a, b) when is_number(a) and is_number(b), do: :nan
