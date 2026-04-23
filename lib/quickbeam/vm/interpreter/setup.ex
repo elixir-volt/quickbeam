@@ -17,7 +17,7 @@ defmodule QuickBEAM.VM.Interpreter.Setup do
         |> Map.merge(persistent)
         |> Map.merge(Map.get(opts, :globals, %{})),
       runtime_pid: Map.get(opts, :runtime_pid),
-      this: Map.get(opts, :this, :undefined),
+      this: Map.get(opts, :this) || Map.get(base_globals, "globalThis", :undefined),
       arg_buf: Map.get(opts, :arg_buf, {}),
       current_func: Map.get(opts, :current_func, :undefined),
       new_target: Map.get(opts, :new_target, :undefined),

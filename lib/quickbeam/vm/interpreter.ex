@@ -1846,10 +1846,24 @@ defmodule QuickBEAM.VM.Interpreter do
         run(pc + 1, frame, [val | stack], gas, ctx)
 
       :not_found ->
-        error =
-          Heap.make_error("#{Names.resolve_atom(ctx, atom_idx)} is not defined", "ReferenceError")
+        name = Names.resolve_atom(ctx, atom_idx)
 
-        throw_or_catch(frame, error, gas, ctx)
+        # Check globalThis object as fallback
+        global_this = Map.get(ctx.globals, "globalThis")
+
+        case global_this do
+          {:obj, _} ->
+            val = Get.get(global_this, name)
+
+            if val != :undefined do
+              run(pc + 1, frame, [val | stack], gas, ctx)
+            else
+              throw_or_catch(frame, Heap.make_error("#{name} is not defined", "ReferenceError"), gas, ctx)
+            end
+
+          _ ->
+            throw_or_catch(frame, Heap.make_error("#{name} is not defined", "ReferenceError"), gas, ctx)
+        end
     end
   end
 
