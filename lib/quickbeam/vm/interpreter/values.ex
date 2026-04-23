@@ -451,8 +451,16 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def mod({:bigint, _}, _), do: throw_bigint_mix_error()
   def mod(_, {:bigint, _}), do: throw_bigint_mix_error()
 
-  def mod(a, b) when is_integer(a) and is_integer(b) and b != 0, do: rem(a, b)
-  def mod(a, b) when is_number(a) and is_number(b) and b != 0, do: safe_arith(fn -> a - Float.floor(a / b) * b end)
+  def mod(a, b) when is_integer(a) and is_integer(b) and b != 0 do
+    case rem(a, b) do
+      0 when a < 0 -> -0.0
+      r -> r
+    end
+  end
+  def mod(a, b) when is_number(a) and is_number(b) and b != 0 do
+    result = safe_arith(fn -> a - Float.floor(a / b) * b end)
+    if result == 0 and neg_sign?(a), do: -0.0, else: result
+  end
   def mod(a, b) when is_number(a) and is_number(b), do: :nan
   def mod(a, b), do: numeric_mod(to_number(a), to_number(b))
 
