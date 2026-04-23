@@ -117,9 +117,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
     end
 
     case Keyword.get(opts, :prototype) do
-      nil ->
-        :ok
-
+      nil -> :ok
       proto ->
         Heap.put_class_proto(ctor, proto)
         Heap.put_ctor_static(ctor, "prototype", proto)

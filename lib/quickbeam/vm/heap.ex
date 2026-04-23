@@ -181,7 +181,10 @@ defmodule QuickBEAM.VM.Heap do
 
         case Process.get(key) do
           nil ->
-            proto = wrap(%{"constructor" => ctor})
+            obj_proto = get_object_prototype()
+            proto_map = %{"constructor" => ctor}
+            proto_map = if obj_proto, do: Map.put(proto_map, "__proto__", obj_proto), else: proto_map
+            proto = wrap(proto_map)
             Process.put(key, proto)
             proto
 
