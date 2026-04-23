@@ -232,7 +232,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   static "hasOwn" do
     case args do
       [{:obj, ref}, key | _] ->
-        prop_name = if is_binary(key), do: key, else: to_string(key)
+        prop_name = if is_binary(key), do: key, else: Values.stringify(key)
         map = Heap.get_obj(ref, %{})
         is_map(map) and Map.has_key?(map, prop_name)
 
@@ -405,7 +405,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp define_property([{:obj, ref} = obj, key, {:obj, desc_ref} | _]) do
     desc = Heap.get_obj(desc_ref, %{})
-    prop_name = if is_binary(key), do: key, else: to_string(key)
+    prop_name = if is_binary(key), do: key, else: Values.stringify(key)
     existing = Heap.get_obj(ref, %{})
 
     if is_list(existing) or match?({:qb_arr, _}, existing) do
@@ -499,7 +499,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp define_property([obj | _]), do: obj
 
   defp get_own_property_descriptor([{:obj, ref}, key | _]) do
-    prop_name = if is_binary(key), do: key, else: to_string(key)
+    prop_name = if is_binary(key), do: key, else: Values.stringify(key)
     data = Heap.get_obj(ref, %{})
 
     cond do

@@ -70,7 +70,8 @@ defmodule QuickBEAM.VM.Names do
       {:symbol, _} = sym -> sym
       {:symbol, _, _} = sym -> sym
       s when is_binary(s) -> s
-      other -> Kernel.to_string(other)
+      other when is_number(other) -> Kernel.to_string(other)
+      other -> QuickBEAM.VM.Interpreter.Values.stringify(other)
     end
   end
 end

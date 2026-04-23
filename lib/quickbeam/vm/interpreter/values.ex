@@ -268,12 +268,22 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def add({:obj, _} = a, b) do
     pa = to_primitive(a)
     pb = if match?({:obj, _}, b), do: to_primitive(b), else: b
-    add(pa, pb)
+
+    if match?({:obj, _}, pa) or match?({:obj, _}, pb) do
+      stringify(pa) <> stringify(pb)
+    else
+      add(pa, pb)
+    end
   end
 
   def add(a, {:obj, _} = b) do
     pb = to_primitive(b)
-    add(a, pb)
+
+    if match?({:obj, _}, pb) do
+      stringify(a) <> stringify(pb)
+    else
+      add(a, pb)
+    end
   end
 
   def add({:bigint, _}, _), do: throw_bigint_mix_error()
@@ -542,8 +552,8 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   def shr({:bigint, _}, _), do: throw({:js_throw, Heap.make_error("Cannot convert a BigInt value to a number", "TypeError")})
   def shr(_, {:bigint, _}), do: throw({:js_throw, Heap.make_error("Cannot convert a BigInt value to a number", "TypeError")})
-  def shr({:obj, _} = a, b), do: shr(to_primitive(a), b)
-  def shr(a, {:obj, _} = b), do: shr(a, to_primitive(b))
+  def shr({:obj, _} = a, b), do: shr(to_numeric(a), b)
+  def shr(a, {:obj, _} = b), do: shr(a, to_numeric(b))
 
   def shr(a, b) do
     ua = to_int32(a) &&& 0xFFFFFFFF

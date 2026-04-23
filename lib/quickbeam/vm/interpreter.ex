@@ -2190,7 +2190,7 @@ defmodule QuickBEAM.VM.Interpreter do
     nullish = if obj == nil, do: "null", else: "undefined"
 
     error =
-      Heap.make_error("Cannot delete properties of #{nullish} (deleting '#{key}')", "TypeError")
+      Heap.make_error("Cannot delete properties of #{nullish} (deleting '#{Values.stringify(key)}')", "TypeError")
 
     throw_or_catch(frame, error, gas, ctx)
   end

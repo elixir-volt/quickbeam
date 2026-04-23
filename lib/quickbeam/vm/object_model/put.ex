@@ -405,7 +405,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             {:symbol, _, _} -> key
             {:symbol, _} -> key
             k when is_float(k) and k == trunc(k) and k >= 0 -> Integer.to_string(trunc(k))
-            _ -> Kernel.to_string(key)
+            _ -> Values.stringify(key)
           end
 
         Heap.put_obj_key(ref, map, str_key, val)
