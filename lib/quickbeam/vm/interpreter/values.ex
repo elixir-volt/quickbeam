@@ -64,16 +64,9 @@ defmodule QuickBEAM.VM.Interpreter.Values do
          %{"message" => "Cannot convert a BigInt value to a number", "name" => "TypeError"}}
       )
 
-  def to_number({:obj, ref} = obj) do
-    map = Heap.get_obj(ref, %{})
-
-    case Map.get(map, "valueOf") do
-      fun when fun != nil and fun != :undefined ->
-        to_number(Interpreter.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj))
-
-      _ ->
-        :nan
-    end
+  def to_number({:obj, _} = obj) do
+    prim = to_primitive(obj)
+    if match?({:obj, _}, prim), do: :nan, else: to_number(prim)
   end
 
   def to_number(_), do: :nan
