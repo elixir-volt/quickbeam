@@ -307,6 +307,14 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   def add({:bigint, _}, _), do: throw_bigint_mix_error()
   def add(_, {:bigint, _}), do: throw_bigint_mix_error()
+  def add({:closure, _, _} = a, b), do: stringify(a) <> stringify(b)
+  def add(a, {:closure, _, _} = b), do: stringify(a) <> stringify(b)
+  def add(%Bytecode.Function{} = a, b), do: stringify(a) <> stringify(b)
+  def add(a, %Bytecode.Function{} = b), do: stringify(a) <> stringify(b)
+  def add({:bound, _, _, _, _} = a, b), do: stringify(a) <> stringify(b)
+  def add(a, {:bound, _, _, _, _} = b), do: stringify(a) <> stringify(b)
+  def add({:builtin, _, _} = a, b), do: stringify(a) <> stringify(b)
+  def add(a, {:builtin, _, _} = b), do: stringify(a) <> stringify(b)
   def add(a, b), do: numeric_add(to_number(a), to_number(b))
 
   defp numeric_add(a, b) when is_number(a) and is_number(b), do: safe_add(a, b)
