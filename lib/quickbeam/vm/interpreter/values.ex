@@ -645,6 +645,14 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   defp abstract_eq(nil, :undefined), do: true
   defp abstract_eq(:undefined, nil), do: true
   defp abstract_eq(:undefined, :undefined), do: true
+  defp abstract_eq(:nan, _), do: false
+  defp abstract_eq(_, :nan), do: false
+  defp abstract_eq(:infinity, :infinity), do: true
+  defp abstract_eq(:neg_infinity, :neg_infinity), do: true
+  defp abstract_eq(:infinity, b) when is_number(b), do: false
+  defp abstract_eq(:neg_infinity, b) when is_number(b), do: false
+  defp abstract_eq(a, :infinity) when is_number(a), do: false
+  defp abstract_eq(a, :neg_infinity) when is_number(a), do: false
   defp abstract_eq(a, b) when is_number(a) and is_number(b), do: a == b
   defp abstract_eq(a, b) when is_binary(a) and is_binary(b), do: a == b
   defp abstract_eq(a, b) when is_boolean(a) and is_boolean(b), do: a == b
@@ -658,16 +666,24 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   defp abstract_eq({:bigint, a}, b) when is_float(b), do: a == b
 
   defp abstract_eq({:bigint, a}, b) when is_binary(b) do
-    case Integer.parse(b) do
-      {n, ""} -> a == n
-      _ -> false
+    case String.trim(b) do
+      "" -> a == 0
+      trimmed ->
+        case Integer.parse(trimmed) do
+          {n, ""} -> a == n
+          _ -> false
+        end
     end
   end
 
   defp abstract_eq(a, {:bigint, b}) when is_binary(a) do
-    case Integer.parse(a) do
-      {n, ""} -> n == b
-      _ -> false
+    case String.trim(a) do
+      "" -> 0 == b
+      trimmed ->
+        case Integer.parse(trimmed) do
+          {n, ""} -> n == b
+          _ -> false
+        end
     end
   end
 
