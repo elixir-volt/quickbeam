@@ -4,7 +4,6 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   alias QuickBEAM.VM.{Heap, Invocation}
   alias QuickBEAM.VM.ObjectModel.Get
-  alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.Runtime
 
   @compile {:inline,
