@@ -55,7 +55,19 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
     Heap.wrap(list)
   end
 
+  def string(args, {:obj, _} = this) do
+    val = Runtime.stringify(List.first(args, ""))
+    QuickBEAM.VM.ObjectModel.Put.put(this, "__wrapped_string__", val)
+    this
+  end
+
   def string(args, _), do: Runtime.stringify(List.first(args, ""))
+  def number(args, {:obj, _} = this) do
+    val = Runtime.to_number(List.first(args, 0))
+    QuickBEAM.VM.ObjectModel.Put.put(this, "__wrapped_number__", val)
+    this
+  end
+
   def number(args, _), do: Runtime.to_number(List.first(args, 0))
 
   def function(args, _) do
