@@ -855,7 +855,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     case Map.get(data, method) do
       nil -> false
       :undefined -> false
-      _ -> true
+      val -> is_callable?(val)
     end
   end
 
@@ -875,7 +875,11 @@ defmodule QuickBEAM.VM.Interpreter.Values do
         unwrap_primitive(cb.([], obj))
 
       fun when fun != nil and fun != :undefined ->
-        unwrap_primitive(Invocation.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj))
+        if is_callable?(fun) do
+          unwrap_primitive(Invocation.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj))
+        else
+          nil
+        end
 
       _ ->
         nil
