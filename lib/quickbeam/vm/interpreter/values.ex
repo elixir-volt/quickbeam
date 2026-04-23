@@ -264,7 +264,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
       )
 
   def add(a, b) when is_binary(a) or is_binary(b), do: stringify(a) <> stringify(b)
-  def add(a, b) when is_number(a) and is_number(b), do: a + b
+  def add(a, b) when is_number(a) and is_number(b), do: safe_add(a, b)
 
   def add({:obj, _} = a, b) do
     pa = to_primitive(a)
@@ -291,7 +291,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def add(_, {:bigint, _}), do: throw_bigint_mix_error()
   def add(a, b), do: numeric_add(to_number(a), to_number(b))
 
-  defp numeric_add(a, b) when is_number(a) and is_number(b), do: safe_arith(fn -> a + b end)
+  defp numeric_add(a, b) when is_number(a) and is_number(b), do: safe_add(a, b)
   defp numeric_add(:nan, _), do: :nan
   defp numeric_add(_, :nan), do: :nan
   defp numeric_add(:infinity, :neg_infinity), do: :nan
@@ -309,7 +309,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def sub(a, {:obj, _} = b), do: sub(a, to_numeric(b))
   def sub({:bigint, _}, _), do: throw_bigint_mix_error()
   def sub(_, {:bigint, _}), do: throw_bigint_mix_error()
-  def sub(a, b) when is_number(a) and is_number(b), do: safe_arith(fn -> a - b end)
+  def sub(a, b) when is_number(a) and is_number(b), do: safe_add(a, -b)
   def sub(a, b), do: numeric_add(to_number(a), neg(to_number(b)))
 
   def mul({:bigint, a}, {:bigint, b}), do: {:bigint, a * b}
@@ -319,7 +319,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def mul(a, {:obj, _} = b), do: mul(a, to_numeric(b))
   def mul({:bigint, _}, _), do: throw_bigint_mix_error()
   def mul(_, {:bigint, _}), do: throw_bigint_mix_error()
-  def mul(a, b) when is_number(a) and is_number(b), do: safe_arith(fn -> a * b end)
+  def mul(a, b) when is_number(a) and is_number(b), do: safe_mul(a, b)
 
   def mul(a, b) do
     na = to_number(a)
@@ -383,9 +383,9 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   defp div_inf(:infinity, :neg_infinity), do: :nan
   defp div_inf(:neg_infinity, :infinity), do: :nan
   defp div_inf(:neg_infinity, :neg_infinity), do: :nan
-  defp div_inf(:infinity, n) when is_number(n) and n > 0, do: :infinity
+  defp div_inf(:infinity, n) when is_number(n) and n >= 0, do: :infinity
   defp div_inf(:infinity, n) when is_number(n) and n < 0, do: :neg_infinity
-  defp div_inf(:neg_infinity, n) when is_number(n) and n > 0, do: :neg_infinity
+  defp div_inf(:neg_infinity, n) when is_number(n) and n >= 0, do: :neg_infinity
   defp div_inf(:neg_infinity, n) when is_number(n) and n < 0, do: :infinity
   defp div_inf(n, :infinity) when is_number(n), do: 0.0
   defp div_inf(n, :neg_infinity) when is_number(n), do: -0.0
@@ -617,11 +617,27 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   defp safe_arith(fun) do
     try do
-      result = fun.()
-      # BEAM floats don't support infinity, but the result should be finite
-      result
+      fun.()
     rescue
       ArithmeticError -> :infinity
+    end
+  end
+
+  defp safe_mul(a, b) do
+    try do
+      a * b
+    rescue
+      ArithmeticError ->
+        if (a > 0 and b > 0) or (a < 0 and b < 0), do: :infinity, else: :neg_infinity
+    end
+  end
+
+  defp safe_add(a, b) do
+    try do
+      a + b
+    rescue
+      ArithmeticError ->
+        if a > 0 or b > 0, do: :infinity, else: :neg_infinity
     end
   end
 
