@@ -307,14 +307,14 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   def add({:bigint, _}, _), do: throw_bigint_mix_error()
   def add(_, {:bigint, _}), do: throw_bigint_mix_error()
-  def add({:closure, _, _} = a, b), do: stringify(a) <> stringify(b)
-  def add(a, {:closure, _, _} = b), do: stringify(a) <> stringify(b)
-  def add(%Bytecode.Function{} = a, b), do: stringify(a) <> stringify(b)
-  def add(a, %Bytecode.Function{} = b), do: stringify(a) <> stringify(b)
-  def add({:bound, _, _, _, _} = a, b), do: stringify(a) <> stringify(b)
-  def add(a, {:bound, _, _, _, _} = b), do: stringify(a) <> stringify(b)
-  def add({:builtin, _, _} = a, b), do: stringify(a) <> stringify(b)
-  def add(a, {:builtin, _, _} = b), do: stringify(a) <> stringify(b)
+  def add({:closure, _, _} = a, b), do: add(fn_to_primitive(a), b)
+  def add(a, {:closure, _, _} = b), do: add(a, fn_to_primitive(b))
+  def add(%Bytecode.Function{} = a, b), do: add(fn_to_primitive(a), b)
+  def add(a, %Bytecode.Function{} = b), do: add(a, fn_to_primitive(b))
+  def add({:bound, _, _, _, _} = a, b), do: add(fn_to_primitive(a), b)
+  def add(a, {:bound, _, _, _, _} = b), do: add(a, fn_to_primitive(b))
+  def add({:builtin, _, _} = a, b), do: add(fn_to_primitive(a), b)
+  def add(a, {:builtin, _, _} = b), do: add(a, fn_to_primitive(b))
   def add(a, b), do: numeric_add(to_number(a), to_number(b))
 
   defp numeric_add(a, b) when is_number(a) and is_number(b), do: safe_add(a, b)
@@ -858,6 +858,27 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   defp is_callable?({:bound, _, _, _, _}), do: true
   defp is_callable?(%Bytecode.Function{}), do: true
   defp is_callable?(_), do: false
+
+  defp is_function_like?({:closure, _, _}), do: true
+  defp is_function_like?(%Bytecode.Function{}), do: true
+  defp is_function_like?({:bound, _, _, _, _}), do: true
+  defp is_function_like?({:builtin, _, _}), do: true
+  defp is_function_like?(_), do: false
+
+  defp fn_to_primitive(fun) do
+    statics = Heap.get_ctor_statics(fun)
+    cond do
+      Map.has_key?(statics, "valueOf") ->
+        val = statics["valueOf"]
+        if is_callable?(val) do
+          result = Invocation.invoke_with_receiver(val, [], Runtime.gas_budget(), fun)
+          if is_function_like?(result), do: stringify(fun), else: result
+        else
+          stringify(fun)
+        end
+      true -> stringify(fun)
+    end
+  end
 
   defp has_own_method?(data, method) when is_map(data) do
     case Map.get(data, method) do
