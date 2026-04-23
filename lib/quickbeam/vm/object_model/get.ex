@@ -256,7 +256,10 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   end
 
   defp get_own({:closure, _, %Bytecode.Function{}} = c, "prototype") do
-    Heap.get_or_create_prototype(c)
+    case Map.get(Heap.get_ctor_statics(c), "prototype", :not_set) do
+      :not_set -> Heap.get_or_create_prototype(c)
+      val -> val
+    end
   end
 
   defp get_own({:closure, _, %Bytecode.Function{} = f} = c, key) do
