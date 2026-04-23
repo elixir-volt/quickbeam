@@ -341,6 +341,14 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   def get_element(s, key) when is_binary(s) and is_binary(key),
     do: Get.get(s, key)
 
+  def get_element(nil, key) do
+    throw({:js_throw, Heap.make_error("Cannot read properties of null (reading '#{Values.stringify(key)}')", "TypeError")})
+  end
+
+  def get_element(:undefined, key) do
+    throw({:js_throw, Heap.make_error("Cannot read properties of undefined (reading '#{Values.stringify(key)}')", "TypeError")})
+  end
+
   def get_element(obj, key) when is_binary(key) do
     Get.get(obj, key)
   end

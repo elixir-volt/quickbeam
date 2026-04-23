@@ -1730,7 +1730,11 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp run({@op_get_array_el, []}, pc, frame, [idx, obj | rest], gas, ctx) do
-    run(pc + 1, frame, [Put.get_element(obj, idx) | rest], gas, ctx)
+    try do
+      run(pc + 1, frame, [Put.get_element(obj, idx) | rest], gas, ctx)
+    catch
+      {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
+    end
   end
 
   defp run({@op_put_array_el, []}, pc, frame, [val, idx, obj | rest], gas, ctx) do
