@@ -32,7 +32,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
             shr: 2}
 
   alias QuickBEAM.VM.Bytecode
-  import Bitwise
+  import Bitwise, except: [band: 2, bor: 2, bxor: 2, bnot: 1]
 
   def truthy?(nil), do: false
   def truthy?(:undefined), do: false
@@ -275,14 +275,16 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def add({:obj, _} = a, b) do
     pa = to_primitive(a)
     pb = if match?({:obj, _}, b), do: to_primitive(b), else: b
-    if is_binary(pa) or is_binary(pb), do: stringify(pa) <> stringify(pb), else: numeric_add(to_number(pa), to_number(pb))
+    add(pa, pb)
   end
 
   def add(a, {:obj, _} = b) do
     pb = to_primitive(b)
-    if is_binary(a) or is_binary(pb), do: stringify(a) <> stringify(pb), else: numeric_add(to_number(a), to_number(pb))
+    add(a, pb)
   end
 
+  def add({:bigint, _}, _), do: throw_bigint_mix_error()
+  def add(_, {:bigint, _}), do: throw_bigint_mix_error()
   def add(a, b), do: numeric_add(to_number(a), to_number(b))
 
   defp numeric_add(a, b) when is_number(a) and is_number(b), do: a + b
@@ -297,10 +299,22 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   defp numeric_add(_, _), do: :nan
 
   def sub({:bigint, a}, {:bigint, b}), do: {:bigint, a - b}
+  def sub({:bigint, _}, b) when is_number(b), do: throw_bigint_mix_error()
+  def sub(a, {:bigint, _}) when is_number(a), do: throw_bigint_mix_error()
+  def sub({:obj, _} = a, b), do: sub(to_numeric(a), b)
+  def sub(a, {:obj, _} = b), do: sub(a, to_numeric(b))
+  def sub({:bigint, _}, _), do: throw_bigint_mix_error()
+  def sub(_, {:bigint, _}), do: throw_bigint_mix_error()
   def sub(a, b) when is_number(a) and is_number(b), do: a - b
   def sub(a, b), do: numeric_add(to_number(a), neg(to_number(b)))
 
   def mul({:bigint, a}, {:bigint, b}), do: {:bigint, a * b}
+  def mul({:bigint, _}, b) when is_number(b), do: throw_bigint_mix_error()
+  def mul(a, {:bigint, _}) when is_number(a), do: throw_bigint_mix_error()
+  def mul({:obj, _} = a, b), do: mul(to_numeric(a), b)
+  def mul(a, {:obj, _} = b), do: mul(a, to_numeric(b))
+  def mul({:bigint, _}, _), do: throw_bigint_mix_error()
+  def mul(_, {:bigint, _}), do: throw_bigint_mix_error()
   def mul(a, b) when is_number(a) and is_number(b), do: a * b
 
   def mul(a, b) do
@@ -329,14 +343,20 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     if sign_a * sign_b > 0, do: :infinity, else: :neg_infinity
   end
 
-  def div({:bigint, a}, {:bigint, b}) when b != 0, do: {:bigint, Kernel.div(a, b)}
+  def js_div({:bigint, a}, {:bigint, b}) when b != 0, do: {:bigint, Kernel.div(a, b)}
 
-  def div({:bigint, _}, {:bigint, 0}),
-    do: throw({:js_throw, %{"message" => "Division by zero", "name" => "RangeError"}})
+  def js_div({:bigint, _}, {:bigint, 0}),
+    do: throw({:js_throw, Heap.make_error("Division by zero", "RangeError")})
 
-  def div(a, b) when is_number(a) and is_number(b), do: div_numbers(a, b)
+  def js_div({:bigint, _}, b) when is_number(b), do: throw_bigint_mix_error()
+  def js_div(a, {:bigint, _}) when is_number(a), do: throw_bigint_mix_error()
+  def js_div({:obj, _} = a, b), do: js_div(to_numeric(a), b)
+  def js_div(a, {:obj, _} = b), do: js_div(a, to_numeric(b))
+  def js_div({:bigint, _}, _), do: throw_bigint_mix_error()
+  def js_div(_, {:bigint, _}), do: throw_bigint_mix_error()
+  def js_div(a, b) when is_number(a) and is_number(b), do: div_numbers(a, b)
 
-  def div(a, b) do
+  def js_div(a, b) do
     na = to_number(a)
     nb = to_number(b)
 
@@ -379,7 +399,14 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def mod({:bigint, a}, {:bigint, b}) when b != 0, do: {:bigint, rem(a, b)}
 
   def mod({:bigint, _}, {:bigint, 0}),
-    do: throw({:js_throw, %{"message" => "Division by zero", "name" => "RangeError"}})
+    do: throw({:js_throw, Heap.make_error("Division by zero", "RangeError")})
+
+  def mod({:bigint, _}, b) when is_number(b), do: throw_bigint_mix_error()
+  def mod(a, {:bigint, _}) when is_number(a), do: throw_bigint_mix_error()
+  def mod({:obj, _} = a, b), do: mod(to_numeric(a), b)
+  def mod(a, {:obj, _} = b), do: mod(a, to_numeric(b))
+  def mod({:bigint, _}, _), do: throw_bigint_mix_error()
+  def mod(_, {:bigint, _}), do: throw_bigint_mix_error()
 
   def mod(a, b) when is_integer(a) and is_integer(b) and b != 0, do: rem(a, b)
   def mod(a, b) when is_number(a) and is_number(b) and b != 0, do: a - Float.floor(a / b) * b
@@ -476,21 +503,54 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   defp inf_or_nan(_), do: :nan
 
   def band({:bigint, a}, {:bigint, b}), do: {:bigint, Bitwise.band(a, b)}
+  def band({:obj, _} = a, b), do: band(to_numeric(a), b)
+  def band(a, {:obj, _} = b), do: band(a, to_numeric(b))
+  def band({:bigint, _}, _), do: throw_bigint_mix_error()
+  def band(_, {:bigint, _}), do: throw_bigint_mix_error()
   def band(a, b), do: Bitwise.band(to_int32(a), to_int32(b))
   def bor({:bigint, a}, {:bigint, b}), do: {:bigint, Bitwise.bor(a, b)}
+  def bor({:obj, _} = a, b), do: bor(to_numeric(a), b)
+  def bor(a, {:obj, _} = b), do: bor(a, to_numeric(b))
+  def bor({:bigint, _}, _), do: throw_bigint_mix_error()
+  def bor(_, {:bigint, _}), do: throw_bigint_mix_error()
   def bor(a, b), do: Bitwise.bor(to_int32(a), to_int32(b))
   def bxor({:bigint, a}, {:bigint, b}), do: {:bigint, Bitwise.bxor(a, b)}
+  def bxor({:obj, _} = a, b), do: bxor(to_numeric(a), b)
+  def bxor(a, {:obj, _} = b), do: bxor(a, to_numeric(b))
+  def bxor({:bigint, _}, _), do: throw_bigint_mix_error()
+  def bxor(_, {:bigint, _}), do: throw_bigint_mix_error()
   def bxor(a, b), do: Bitwise.bxor(to_int32(a), to_int32(b))
+
+  def bnot({:bigint, a}), do: {:bigint, -(a + 1)}
+  def bnot({:obj, _} = a), do: bnot(to_numeric(a))
+  def bnot(a), do: to_int32(Bitwise.bnot(to_int32(a)))
 
   def shl({:bigint, a}, {:bigint, b}) when b >= 0 and b <= 1_000_000,
     do: {:bigint, Bitwise.bsl(a, b)}
 
-  def shl({:bigint, _}, {:bigint, _}),
-    do: throw({:js_throw, %{"message" => "Maximum BigInt size exceeded", "name" => "RangeError"}})
+  def shl({:bigint, a}, {:bigint, b}) when b < 0,
+    do: {:bigint, Bitwise.bsr(a, -b)}
 
+  def shl({:bigint, _}, {:bigint, _}),
+    do: throw({:js_throw, Heap.make_error("Maximum BigInt size exceeded", "RangeError")})
+
+  def shl({:obj, _} = a, b), do: shl(to_numeric(a), b)
+  def shl(a, {:obj, _} = b), do: shl(a, to_numeric(b))
+  def shl({:bigint, _}, _), do: throw_bigint_mix_error()
+  def shl(_, {:bigint, _}), do: throw_bigint_mix_error()
   def shl(a, b), do: to_int32(Bitwise.bsl(to_int32(a), Bitwise.band(to_int32(b), 31)))
+
   def sar({:bigint, a}, {:bigint, b}), do: {:bigint, Bitwise.bsr(a, b)}
+  def sar({:obj, _} = a, b), do: sar(to_numeric(a), b)
+  def sar(a, {:obj, _} = b), do: sar(a, to_numeric(b))
+  def sar({:bigint, _}, _), do: throw_bigint_mix_error()
+  def sar(_, {:bigint, _}), do: throw_bigint_mix_error()
   def sar(a, b), do: Bitwise.bsr(to_int32(a), Bitwise.band(to_int32(b), 31))
+
+  def shr({:bigint, _}, _), do: throw({:js_throw, Heap.make_error("Cannot convert a BigInt value to a number", "TypeError")})
+  def shr(_, {:bigint, _}), do: throw({:js_throw, Heap.make_error("Cannot convert a BigInt value to a number", "TypeError")})
+  def shr({:obj, _} = a, b), do: shr(to_primitive(a), b)
+  def shr(a, {:obj, _} = b), do: shr(a, to_primitive(b))
 
   def shr(a, b) do
     ua = to_int32(a) &&& 0xFFFFFFFF
@@ -498,24 +558,59 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   end
 
   def lt({:bigint, a}, {:bigint, b}), do: a < b
+  def lt({:bigint, a}, b) when is_number(b), do: if b == :nan, do: false, else: a < b
+  def lt(a, {:bigint, b}) when is_number(a), do: if a == :nan, do: false, else: a < b
+  def lt({:bigint, _} = a, b) when is_binary(b), do: bigint_string_compare(a, b, &Kernel.</2)
+  def lt(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y < x end)
   def lt(a, b) when is_number(a) and is_number(b), do: a < b
   def lt(a, b) when is_binary(a) and is_binary(b), do: a < b
   def lt(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.</2)
 
   def lte({:bigint, a}, {:bigint, b}), do: a <= b
+  def lte({:bigint, a}, b) when is_number(b), do: if b == :nan, do: false, else: a <= b
+  def lte(a, {:bigint, b}) when is_number(a), do: if a == :nan, do: false, else: a <= b
+  def lte({:bigint, _} = a, b) when is_binary(b), do: bigint_string_compare(a, b, &Kernel.<=/2)
+  def lte(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y <= x end)
   def lte(a, b) when is_number(a) and is_number(b), do: a <= b
   def lte(a, b) when is_binary(a) and is_binary(b), do: a <= b
   def lte(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.<=/2)
 
   def gt({:bigint, a}, {:bigint, b}), do: a > b
+  def gt({:bigint, a}, b) when is_number(b), do: if b == :nan, do: false, else: a > b
+  def gt(a, {:bigint, b}) when is_number(a), do: if a == :nan, do: false, else: a > b
+  def gt({:bigint, _} = a, b) when is_binary(b), do: bigint_string_compare(a, b, &Kernel.>/2)
+  def gt(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y > x end)
   def gt(a, b) when is_number(a) and is_number(b), do: a > b
   def gt(a, b) when is_binary(a) and is_binary(b), do: a > b
   def gt(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.>/2)
 
   def gte({:bigint, a}, {:bigint, b}), do: a >= b
+  def gte({:bigint, a}, b) when is_number(b), do: if b == :nan, do: false, else: a >= b
+  def gte(a, {:bigint, b}) when is_number(a), do: if a == :nan, do: false, else: a >= b
+  def gte({:bigint, _} = a, b) when is_binary(b), do: bigint_string_compare(a, b, &Kernel.>=/2)
+  def gte(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y >= x end)
   def gte(a, b) when is_number(a) and is_number(b), do: a >= b
   def gte(a, b) when is_binary(a) and is_binary(b), do: a >= b
   def gte(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.>=/2)
+
+  defp to_numeric({:obj, _} = obj) do
+    case to_primitive(obj) do
+      {:bigint, _} = b -> b
+      {:obj, _} -> throw({:js_throw, Heap.make_error("Cannot convert object to primitive value", "TypeError")})
+      other -> to_number(other)
+    end
+  end
+
+  defp throw_bigint_mix_error do
+    throw({:js_throw, Heap.make_error("Cannot mix BigInt and other types, use explicit conversions", "TypeError")})
+  end
+
+  defp bigint_string_compare({:bigint, a}, str, op) do
+    case Integer.parse(str) do
+      {n, ""} -> op.(a, n)
+      _ -> false
+    end
+  end
 
   defp numeric_compare(:nan, _, _), do: false
   defp numeric_compare(_, :nan, _), do: false
