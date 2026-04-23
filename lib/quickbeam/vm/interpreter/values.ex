@@ -118,6 +118,10 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     end
   end
 
+  def to_int32(:nan), do: 0
+  def to_int32(:infinity), do: 0
+  def to_int32(:neg_infinity), do: 0
+  def to_int32({:obj, _} = obj), do: to_int32(to_number(obj))
   def to_int32(_), do: 0
 
   def to_uint32(val) when is_integer(val), do: Bitwise.band(val, 0xFFFFFFFF)
@@ -135,6 +139,10 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     end
   end
 
+  def to_uint32(:nan), do: 0
+  def to_uint32(:infinity), do: 0
+  def to_uint32(:neg_infinity), do: 0
+  def to_uint32({:obj, _} = obj), do: to_uint32(to_number(obj))
   def to_uint32(_), do: 0
 
   defp wrap_int32(n) do
@@ -573,8 +581,14 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   end
 
   def lt({:bigint, a}, {:bigint, b}), do: a < b
-  def lt({:bigint, a}, b) when is_number(b), do: if(b == :nan, do: false, else: a < b)
-  def lt(a, {:bigint, b}) when is_number(a), do: if(a == :nan, do: false, else: a < b)
+  def lt({:bigint, _}, :nan), do: false
+  def lt(:nan, {:bigint, _}), do: false
+  def lt({:bigint, _}, :infinity), do: true
+  def lt({:bigint, _}, :neg_infinity), do: false
+  def lt(:infinity, {:bigint, _}), do: false
+  def lt(:neg_infinity, {:bigint, _}), do: true
+  def lt({:bigint, a}, b) when is_number(b), do: a < b
+  def lt(a, {:bigint, b}) when is_number(a), do: a < b
   def lt({:bigint, _} = a, b) when is_binary(b), do: bigint_string_compare(a, b, &Kernel.</2)
   def lt(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y < x end)
   def lt({:bigint, a}, b) when is_boolean(b), do: a < to_number(b)
@@ -584,8 +598,14 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def lt(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.</2)
 
   def lte({:bigint, a}, {:bigint, b}), do: a <= b
-  def lte({:bigint, a}, b) when is_number(b), do: if(b == :nan, do: false, else: a <= b)
-  def lte(a, {:bigint, b}) when is_number(a), do: if(a == :nan, do: false, else: a <= b)
+  def lte({:bigint, _}, :nan), do: false
+  def lte(:nan, {:bigint, _}), do: false
+  def lte({:bigint, _}, :infinity), do: true
+  def lte({:bigint, _}, :neg_infinity), do: false
+  def lte(:infinity, {:bigint, _}), do: false
+  def lte(:neg_infinity, {:bigint, _}), do: true
+  def lte({:bigint, a}, b) when is_number(b), do: a <= b
+  def lte(a, {:bigint, b}) when is_number(a), do: a <= b
   def lte({:bigint, _} = a, b) when is_binary(b), do: bigint_string_compare(a, b, &Kernel.<=/2)
   def lte({:bigint, a}, b) when is_boolean(b), do: a <= to_number(b)
   def lte(a, {:bigint, b}) when is_boolean(a), do: to_number(a) <= b
@@ -595,8 +615,14 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def lte(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.<=/2)
 
   def gt({:bigint, a}, {:bigint, b}), do: a > b
-  def gt({:bigint, a}, b) when is_number(b), do: if(b == :nan, do: false, else: a > b)
-  def gt(a, {:bigint, b}) when is_number(a), do: if(a == :nan, do: false, else: a > b)
+  def gt({:bigint, _}, :nan), do: false
+  def gt(:nan, {:bigint, _}), do: false
+  def gt({:bigint, _}, :infinity), do: false
+  def gt({:bigint, _}, :neg_infinity), do: true
+  def gt(:infinity, {:bigint, _}), do: true
+  def gt(:neg_infinity, {:bigint, _}), do: false
+  def gt({:bigint, a}, b) when is_number(b), do: a > b
+  def gt(a, {:bigint, b}) when is_number(a), do: a > b
   def gt({:bigint, _} = a, b) when is_binary(b), do: bigint_string_compare(a, b, &Kernel.>/2)
   def gt({:bigint, a}, b) when is_boolean(b), do: a > to_number(b)
   def gt(a, {:bigint, b}) when is_boolean(a), do: to_number(a) > b
@@ -606,8 +632,14 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def gt(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.>/2)
 
   def gte({:bigint, a}, {:bigint, b}), do: a >= b
-  def gte({:bigint, a}, b) when is_number(b), do: if(b == :nan, do: false, else: a >= b)
-  def gte(a, {:bigint, b}) when is_number(a), do: if(a == :nan, do: false, else: a >= b)
+  def gte({:bigint, _}, :nan), do: false
+  def gte(:nan, {:bigint, _}), do: false
+  def gte({:bigint, _}, :infinity), do: false
+  def gte({:bigint, _}, :neg_infinity), do: true
+  def gte(:infinity, {:bigint, _}), do: true
+  def gte(:neg_infinity, {:bigint, _}), do: false
+  def gte({:bigint, a}, b) when is_number(b), do: a >= b
+  def gte(a, {:bigint, b}) when is_number(a), do: a >= b
   def gte({:bigint, _} = a, b) when is_binary(b), do: bigint_string_compare(a, b, &Kernel.>=/2)
   def gte({:bigint, a}, b) when is_boolean(b), do: a >= to_number(b)
   def gte(a, {:bigint, b}) when is_boolean(a), do: to_number(a) >= b
@@ -724,6 +756,8 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   defp abstract_eq(a, {:bigint, b}) when is_integer(a), do: a == b
   defp abstract_eq(a, {:bigint, b}) when is_float(a), do: a == b
+  defp abstract_eq({:bigint, _} = a, b) when is_boolean(b), do: abstract_eq(a, to_number(b))
+  defp abstract_eq(a, {:bigint, _} = b) when is_boolean(a), do: abstract_eq(to_number(a), b)
 
   defp abstract_eq({:obj, _} = obj, b) when is_number(b) or is_binary(b) do
     prim = to_primitive(obj)
