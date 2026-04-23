@@ -119,7 +119,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
     case Keyword.get(opts, :prototype) do
       nil ->
         if Keyword.get(opts, :auto_proto, false) do
-          proto = Heap.wrap(%{"constructor" => ctor, "__proto__" => Heap.get_object_prototype()})
+          proto = Heap.wrap(%{"constructor" => ctor})
           Heap.put_class_proto(ctor, proto)
           Heap.put_ctor_static(ctor, "prototype", proto)
         end
