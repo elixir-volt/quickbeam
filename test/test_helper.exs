@@ -26,7 +26,7 @@ end
 beam_mode? = System.get_env("QUICKBEAM_MODE") == "beam"
 
 exclude =
-  [:pending_beam, :pending_class, :js_engine] ++
+  [:pending_beam, :pending_class, :js_engine, :test262] ++
     if(beam_mode?, do: [:nif_only], else: [])
 
 ExUnit.start(exclude: exclude)

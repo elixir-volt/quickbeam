@@ -241,7 +241,15 @@ defmodule QuickBEAM.VM.Bytecode do
   defp read_object(<<@tag_array, rest::binary>>, atoms), do: read_array(rest, atoms)
 
   defp read_object(<<@tag_big_int, rest::binary>>, _atoms) do
-    with {:ok, str, rest2} <- read_string_raw(rest), do: {:ok, {:bigint, str}, rest2}
+    with {:ok, len, rest2} <- LEB128.read_unsigned(rest) do
+      if byte_size(rest2) < len do
+        {:error, :unexpected_end}
+      else
+        <<bytes::binary-size(len), rest3::binary>> = rest2
+        value = decode_bigint_twos_complement(bytes)
+        {:ok, {:bigint, value}, rest3}
+      end
+    end
   end
 
   defp read_object(<<@tag_template_object, rest::binary>>, atoms) do
@@ -261,6 +269,20 @@ defmodule QuickBEAM.VM.Bytecode do
 
   defp read_object(<<tag, _rest::binary>>, _atoms), do: {:error, {:unknown_tag, tag}}
   defp read_object(<<>>, _atoms), do: {:error, :unexpected_end}
+
+  defp decode_bigint_twos_complement(<<>>), do: 0
+
+  defp decode_bigint_twos_complement(bytes) do
+    # QuickJS stores bigint as little-endian two's complement bytes
+    size = byte_size(bytes)
+    <<value::little-unsigned-integer-size(size)-unit(8)>> = bytes
+    # Check sign bit
+    if band(binary_part(bytes, size - 1, 1) |> :binary.decode_unsigned(), 0x80) != 0 do
+      value - (1 <<< (size * 8))
+    else
+      value
+    end
+  end
 
   defp read_plain_object(data, atoms) do
     with {:ok, count, rest} <- LEB128.read_unsigned(data) do

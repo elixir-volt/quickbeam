@@ -12,6 +12,7 @@ defmodule QuickBEAM.MixProject do
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      elixirc_paths: elixirc_paths(Mix.env()),
       aliases: aliases(),
       dialyzer: [plt_add_apps: [:crypto, :inets, :ssl, :public_key]],
       name: "QuickBEAM",
@@ -61,9 +62,13 @@ defmodule QuickBEAM.MixProject do
     ]
   end
 
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
   defp deps do
     [
       {:zigler_precompiled, "~> 0.1.2"},
+      {:yaml_elixir, "~> 2.11", only: :test, runtime: false},
       {:zigler, "~> 0.15.2", runtime: false, optional: true},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
