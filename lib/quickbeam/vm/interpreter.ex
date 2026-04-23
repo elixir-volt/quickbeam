@@ -2248,6 +2248,15 @@ defmodule QuickBEAM.VM.Interpreter do
   # ── in operator ──
 
   defp run({@op_in, []}, pc, frame, [obj, key | rest], gas, ctx) do
+    unless match?({:obj, _}, obj) or match?({:builtin, _, _}, obj) or
+             match?({:closure, _, _}, obj) or match?(%Bytecode.Function{}, obj) or
+             match?({:bound, _, _, _, _}, obj) or match?({:qb_arr, _}, obj) or
+             is_list(obj) or is_map(obj) do
+      throw({:js_throw, Heap.make_error(
+        "Cannot use 'in' operator to search for '#{Values.stringify(key)}' in #{Values.stringify(obj)}",
+        "TypeError")})
+    end
+
     run(pc + 1, frame, [Put.has_property(obj, key) | rest], gas, ctx)
   end
 

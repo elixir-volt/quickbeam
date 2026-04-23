@@ -281,11 +281,15 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         end
 
       _ when is_map(map) ->
-        Map.has_key?(map, key)
+        Map.has_key?(map, key) or Get.get({:obj, ref}, key) != :undefined
 
       _ ->
         false
     end
+  end
+
+  def has_property({:builtin, _, _} = b, key) do
+    Get.get(b, key) != :undefined
   end
 
   def has_property(obj, key) when is_map(obj), do: Map.has_key?(obj, key)
