@@ -55,7 +55,12 @@ defmodule QuickBEAM.VM.Invocation do
     try do
       invoke_receiver_target(fun, args, gas, this_obj)
     after
-      if prev, do: Heap.put_ctx(prev), else: Heap.put_ctx(nil)
+      if prev do
+        refreshed = GlobalEnv.refresh(prev)
+        Heap.put_ctx(refreshed)
+      else
+        Heap.put_ctx(nil)
+      end
     end
   end
 

@@ -717,6 +717,14 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     {:cell, ref}
   end
 
+  def make_var_ref(ctx, atom_idx) do
+    name = Names.resolve_atom(context_atoms(ctx), atom_idx)
+    val = GlobalEnv.get(context_globals(ctx), name, :undefined, context_atoms(ctx))
+    ref = make_ref()
+    Heap.put_cell(ref, val)
+    {:cell, ref}
+  end
+
   def make_arg_ref(idx) do
     ref = make_ref()
     val = elem(InvokeContext.current_arg_buf(), idx)

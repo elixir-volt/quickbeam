@@ -671,17 +671,24 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       {{:ok, :tail_call_method}, [argc]} ->
         State.invoke_tail_method_call(state, argc)
 
-      {{:ok, :make_loc_ref}, [idx | _]} ->
-        lower_make_loc_ref(state, idx)
+      {{:ok, :make_loc_ref}, [_atom_idx, var_idx]} ->
+        lower_make_loc_ref(state, var_idx)
 
-      {{:ok, :make_arg_ref}, [idx | _]} ->
-        lower_make_arg_ref(state, idx)
+      {{:ok, :make_arg_ref}, [_atom_idx, var_idx]} ->
+        lower_make_arg_ref(state, var_idx)
 
-      {{:ok, :make_var_ref}, [idx | _]} ->
-        lower_make_loc_ref(state, idx)
+      {{:ok, :make_var_ref}, [atom_idx]} ->
+        State.effectful_push(
+          state,
+          State.compiler_call(state, :make_var_ref, [Builder.literal(atom_idx)]),
+          :unknown
+        )
 
-      {{:ok, :make_var_ref_ref}, [idx | _]} ->
-        lower_make_var_ref_ref(state, idx)
+      {{:ok, :make_var_ref}, [_atom_idx, var_idx]} ->
+        lower_make_loc_ref(state, var_idx)
+
+      {{:ok, :make_var_ref_ref}, [_atom_idx, var_idx]} ->
+        lower_make_var_ref_ref(state, var_idx)
 
       {{:ok, :get_ref_value}, []} ->
         lower_get_ref_value(state)

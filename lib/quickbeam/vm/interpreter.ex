@@ -2308,21 +2308,28 @@ defmodule QuickBEAM.VM.Interpreter do
 
   # ── Closure variable refs (mutable) ──
 
-  defp run({op, [idx | _]}, pc, frame, stack, gas, ctx)
-       when op in [@op_make_var_ref, @op_make_loc_ref] do
+  defp run({@op_make_loc_ref, [_atom_idx, var_idx]}, pc, frame, stack, gas, ctx) do
     ref = make_ref()
-    Heap.put_cell(ref, elem(elem(frame, Frame.locals()), idx))
+    Heap.put_cell(ref, elem(elem(frame, Frame.locals()), var_idx))
     run(pc + 1, frame, [{:cell, ref} | stack], gas, ctx)
   end
 
-  defp run({@op_make_arg_ref, [idx | _]}, pc, frame, stack, gas, ctx) do
+  defp run({@op_make_var_ref, [atom_idx]}, pc, frame, stack, gas, ctx) do
+    name = Names.resolve_atom(ctx, atom_idx)
+    val = GlobalEnv.get(ctx.globals, name, :undefined, ctx.atoms)
     ref = make_ref()
-    Heap.put_cell(ref, get_arg_value(ctx, idx))
+    Heap.put_cell(ref, val)
     run(pc + 1, frame, [{:cell, ref} | stack], gas, ctx)
   end
 
-  defp run({@op_make_var_ref_ref, [idx | _]}, pc, frame, stack, gas, ctx) do
-    val = elem(elem(frame, Frame.var_refs()), idx)
+  defp run({@op_make_arg_ref, [_atom_idx, var_idx]}, pc, frame, stack, gas, ctx) do
+    ref = make_ref()
+    Heap.put_cell(ref, get_arg_value(ctx, var_idx))
+    run(pc + 1, frame, [{:cell, ref} | stack], gas, ctx)
+  end
+
+  defp run({@op_make_var_ref_ref, [_atom_idx, var_idx]}, pc, frame, stack, gas, ctx) do
+    val = elem(elem(frame, Frame.var_refs()), var_idx)
 
     cell =
       case val do

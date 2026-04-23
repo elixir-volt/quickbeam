@@ -551,8 +551,8 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   end
 
   def lt({:bigint, a}, {:bigint, b}), do: a < b
-  def lt({:bigint, a}, b) when is_number(b), do: if b == :nan, do: false, else: a < b
-  def lt(a, {:bigint, b}) when is_number(a), do: if a == :nan, do: false, else: a < b
+  def lt({:bigint, a}, b) when is_number(b), do: if(b == :nan, do: false, else: a < b)
+  def lt(a, {:bigint, b}) when is_number(a), do: if(a == :nan, do: false, else: a < b)
   def lt({:bigint, _} = a, b) when is_binary(b), do: bigint_string_compare(a, b, &Kernel.</2)
   def lt(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y < x end)
   def lt(a, b) when is_number(a) and is_number(b), do: a < b
@@ -560,8 +560,8 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def lt(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.</2)
 
   def lte({:bigint, a}, {:bigint, b}), do: a <= b
-  def lte({:bigint, a}, b) when is_number(b), do: if b == :nan, do: false, else: a <= b
-  def lte(a, {:bigint, b}) when is_number(a), do: if a == :nan, do: false, else: a <= b
+  def lte({:bigint, a}, b) when is_number(b), do: if(b == :nan, do: false, else: a <= b)
+  def lte(a, {:bigint, b}) when is_number(a), do: if(a == :nan, do: false, else: a <= b)
   def lte({:bigint, _} = a, b) when is_binary(b), do: bigint_string_compare(a, b, &Kernel.<=/2)
   def lte(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y <= x end)
   def lte(a, b) when is_number(a) and is_number(b), do: a <= b
@@ -569,8 +569,8 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def lte(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.<=/2)
 
   def gt({:bigint, a}, {:bigint, b}), do: a > b
-  def gt({:bigint, a}, b) when is_number(b), do: if b == :nan, do: false, else: a > b
-  def gt(a, {:bigint, b}) when is_number(a), do: if a == :nan, do: false, else: a > b
+  def gt({:bigint, a}, b) when is_number(b), do: if(b == :nan, do: false, else: a > b)
+  def gt(a, {:bigint, b}) when is_number(a), do: if(a == :nan, do: false, else: a > b)
   def gt({:bigint, _} = a, b) when is_binary(b), do: bigint_string_compare(a, b, &Kernel.>/2)
   def gt(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y > x end)
   def gt(a, b) when is_number(a) and is_number(b), do: a > b
@@ -578,8 +578,8 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def gt(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.>/2)
 
   def gte({:bigint, a}, {:bigint, b}), do: a >= b
-  def gte({:bigint, a}, b) when is_number(b), do: if b == :nan, do: false, else: a >= b
-  def gte(a, {:bigint, b}) when is_number(a), do: if a == :nan, do: false, else: a >= b
+  def gte({:bigint, a}, b) when is_number(b), do: if(b == :nan, do: false, else: a >= b)
+  def gte(a, {:bigint, b}) when is_number(a), do: if(a == :nan, do: false, else: a >= b)
   def gte({:bigint, _} = a, b) when is_binary(b), do: bigint_string_compare(a, b, &Kernel.>=/2)
   def gte(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y >= x end)
   def gte(a, b) when is_number(a) and is_number(b), do: a >= b
