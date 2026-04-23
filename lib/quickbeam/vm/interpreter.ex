@@ -2316,7 +2316,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp run({@op_make_var_ref, [atom_idx]}, pc, frame, stack, gas, ctx) do
     name = Names.resolve_atom(ctx, atom_idx)
-    val = GlobalEnv.get(ctx.globals, name, :undefined, ctx.atoms)
+    val = Map.get(ctx.globals, name, :undefined)
     ref = make_ref()
     Heap.put_cell(ref, val)
     run(pc + 1, frame, [{:cell, ref} | stack], gas, ctx)
