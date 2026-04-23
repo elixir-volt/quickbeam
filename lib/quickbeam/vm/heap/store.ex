@@ -161,6 +161,12 @@ defmodule QuickBEAM.VM.Heap.Store do
   def get_ctor_statics(ctor), do: Process.get({:qb_ctor_statics, ctor}, %{})
   def put_ctor_statics(ctor, statics), do: Process.put({:qb_ctor_statics, ctor}, statics)
 
+  def put_ctor_static({:closure, _, _} = ctor, "prototype", {:obj, _} = val) do
+    statics = get_ctor_statics(ctor)
+    put_ctor_statics(ctor, Map.put(statics, "prototype", val))
+    Process.put({:qb_class_proto, ctor}, val)
+  end
+
   def put_ctor_static(ctor, key, val) do
     statics = get_ctor_statics(ctor)
     put_ctor_statics(ctor, Map.put(statics, key, val))
