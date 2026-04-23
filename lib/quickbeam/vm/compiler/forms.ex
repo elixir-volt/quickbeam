@@ -289,6 +289,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
        {:clause, @line, [{:integer, @line, 0}], [], [{:atom, @line, false}]},
        {:clause, @line, [{:float, @line, 0.0}], [], [{:atom, @line, false}]},
        {:clause, @line, [{:float, @line, -0.0}], [], [{:atom, @line, false}]},
+       {:clause, @line, [{:atom, @line, :nan}], [], [{:atom, @line, false}]},
        {:clause, @line, [{:bin, @line, []}], [], [{:atom, @line, false}]},
        {:clause, @line, [v], [], [{:atom, @line, true}]}
      ]}

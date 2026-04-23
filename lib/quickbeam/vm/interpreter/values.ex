@@ -41,6 +41,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def truthy?(0), do: false
   def truthy?(+0.0), do: false
   def truthy?(-0.0), do: false
+  def truthy?(:nan), do: false
   def truthy?(""), do: false
   def truthy?({:bigint, 0}), do: false
   def truthy?({:bigint, _}), do: true
