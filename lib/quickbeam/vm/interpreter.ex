@@ -1837,7 +1837,22 @@ defmodule QuickBEAM.VM.Interpreter do
     do: throw({:error, :invalid_opcode})
 
   defp run({@op_get_var_undef, [atom_idx]}, pc, frame, stack, gas, ctx) do
-    run(pc + 1, frame, [GlobalEnv.get(ctx, atom_idx, :undefined) | stack], gas, ctx)
+    val = GlobalEnv.get(ctx, atom_idx, :undefined)
+
+    val =
+      if val == :undefined do
+        name = Names.resolve_atom(ctx, atom_idx)
+        global_this = Map.get(ctx.globals, "globalThis")
+
+        case global_this do
+          {:obj, _} -> Get.get(global_this, name)
+          _ -> :undefined
+        end
+      else
+        val
+      end
+
+    run(pc + 1, frame, [val | stack], gas, ctx)
   end
 
   defp run({@op_get_var, [atom_idx]}, pc, frame, stack, gas, ctx) do
@@ -1870,6 +1885,17 @@ defmodule QuickBEAM.VM.Interpreter do
   defp run({op, [atom_idx]}, pc, frame, [val | rest], gas, ctx)
        when op in [@op_put_var, @op_put_var_init] do
     new_ctx = GlobalEnv.put(ctx, atom_idx, val)
+
+    # Sync to globalThis so this.x and x stay consistent
+    case Map.get(ctx.globals, "globalThis") do
+      {:obj, _} = gt ->
+        name = Names.resolve_atom(ctx, atom_idx)
+        Put.put(gt, name, val)
+
+      _ ->
+        :ok
+    end
+
     run(pc + 1, frame, rest, gas, new_ctx)
   end
 
