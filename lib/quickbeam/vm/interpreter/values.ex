@@ -410,7 +410,14 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   defp div_numbers(a, b) when b == 0,
     do: if(neg_zero?(b), do: div_by_neg_zero(a), else: inf_or_nan(a))
 
-  defp div_numbers(a, b), do: a / b
+  defp div_numbers(a, b) do
+    try do
+      a / b
+    rescue
+      ArithmeticError ->
+        if (a > 0 and b > 0) or (a < 0 and b < 0), do: :infinity, else: :neg_infinity
+    end
+  end
 
   defp div_by_neg_zero(a) when a > 0, do: :neg_infinity
   defp div_by_neg_zero(a) when a < 0, do: :infinity
@@ -441,7 +448,13 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   defp numeric_mod(a, :neg_infinity) when is_number(a), do: a
   defp numeric_mod(_, b) when is_number(b) and b == 0, do: :nan
   defp numeric_mod(a, b) when is_integer(a) and is_integer(b), do: rem(a, b)
-  defp numeric_mod(a, b) when is_number(a) and is_number(b), do: safe_arith(fn -> a - Float.floor(a / b) * b end)
+  defp numeric_mod(a, b) when is_number(a) and is_number(b) do
+    try do
+      a - Float.floor(a / b) * b
+    rescue
+      ArithmeticError -> :nan
+    end
+  end
   defp numeric_mod(_, _), do: :nan
 
   def pow({:bigint, a}, {:bigint, b}) when b >= 0, do: {:bigint, Integer.pow(a, b)}
