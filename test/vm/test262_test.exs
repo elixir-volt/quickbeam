@@ -87,11 +87,11 @@ defmodule QuickBEAM.VM.Test262Test do
         test "test262 #{relative}", ctx do
           harness = QuickBEAM.Test262.harness_source(unquote(includes))
           source = unquote(source)
-          wrapped = "(function(){" <> harness <> "\n" <> source <> "\n})()"
+          full = harness <> "\n" <> source
 
           result =
             try do
-              QuickBEAM.eval(ctx.rt, wrapped, mode: :beam)
+              QuickBEAM.eval(ctx.rt, full, mode: :beam)
             catch
               :throw, {:js_throw, err} -> {:error, err}
             end
@@ -110,7 +110,7 @@ defmodule QuickBEAM.VM.Test262Test do
 
   setup do
     QuickBEAM.VM.Heap.reset()
-    {:ok, rt} = QuickBEAM.start(apis: false, mode: :beam)
+    {:ok, rt} = QuickBEAM.start(mode: :beam)
     %{rt: rt}
   end
 end

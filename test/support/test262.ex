@@ -49,7 +49,7 @@ defmodule QuickBEAM.Test262 do
         if "async" in flags(meta) or "module" in flags(meta) do
           acc
         else
-          full = "(function(){" <> harness_source(includes(meta)) <> "\n" <> source <> "\n})()"
+          full = harness_source(includes(meta)) <> "\n" <> source
           pass = try do match?({:ok, _}, QuickBEAM.eval(rt, full)) catch _, _ -> false end
           if pass, do: acc, else: MapSet.put(acc, relative_path(file))
         end

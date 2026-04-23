@@ -33,7 +33,7 @@ categories = ~w(
   language/statements/labeled language/statements/with
 )
 
-{:ok, rt} = QuickBEAM.start(apis: false)
+{:ok, rt} = QuickBEAM.start()
 failures = QuickBEAM.Test262.build_nif_failures(rt, categories)
 QuickBEAM.stop(rt)
 
