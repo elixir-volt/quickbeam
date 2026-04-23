@@ -39,6 +39,19 @@ defmodule QuickBEAM.VM.Runtime.Function do
   def proto_property(_fun, "length"), do: 0
   def proto_property({:bound, _, {:builtin, name, _}, _, _}, "name"), do: name
   def proto_property(_fun, "name"), do: ""
+
+  def proto_property(fun, "toString") do
+    {:builtin, "toString",
+     fn _, _ ->
+       case fun do
+         {:closure, _, %Bytecode.Function{source: src}} when is_binary(src) and src != "" -> src
+         %Bytecode.Function{source: src} when is_binary(src) and src != "" -> src
+         {:builtin, name, _} -> "function #{name}() { [native code] }"
+         {:bound, _, _, _, _} -> "function () { [native code] }"
+         _ -> "function () { [native code] }"
+       end
+     end}
+  end
   def proto_property(_fun, _), do: :undefined
 
   defp fn_call(fun, [this_arg | args], _this) do

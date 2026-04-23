@@ -2507,8 +2507,14 @@ defmodule QuickBEAM.VM.Interpreter do
         s when is_binary(s) ->
           make_list_iterator(String.codepoints(s))
 
-        _ ->
-          make_list_iterator([])
+        nil ->
+          throw({:js_throw, Heap.make_error("Cannot read properties of null (reading 'Symbol(Symbol.iterator)')", "TypeError")})
+
+        :undefined ->
+          throw({:js_throw, Heap.make_error("Cannot read properties of undefined (reading 'Symbol(Symbol.iterator)')", "TypeError")})
+
+        other ->
+          throw({:js_throw, Heap.make_error("#{Values.stringify(other)} is not iterable", "TypeError")})
       end
 
     run(pc + 1, frame, [0, next_fn, iter_obj | rest], gas, ctx)
