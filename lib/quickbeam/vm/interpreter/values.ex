@@ -290,7 +290,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def add(_, {:bigint, _}), do: throw_bigint_mix_error()
   def add(a, b), do: numeric_add(to_number(a), to_number(b))
 
-  defp numeric_add(a, b) when is_number(a) and is_number(b), do: a + b
+  defp numeric_add(a, b) when is_number(a) and is_number(b), do: safe_arith(fn -> a + b end)
   defp numeric_add(:nan, _), do: :nan
   defp numeric_add(_, :nan), do: :nan
   defp numeric_add(:infinity, :neg_infinity), do: :nan
@@ -308,7 +308,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def sub(a, {:obj, _} = b), do: sub(a, to_numeric(b))
   def sub({:bigint, _}, _), do: throw_bigint_mix_error()
   def sub(_, {:bigint, _}), do: throw_bigint_mix_error()
-  def sub(a, b) when is_number(a) and is_number(b), do: a - b
+  def sub(a, b) when is_number(a) and is_number(b), do: safe_arith(fn -> a - b end)
   def sub(a, b), do: numeric_add(to_number(a), neg(to_number(b)))
 
   def mul({:bigint, a}, {:bigint, b}), do: {:bigint, a * b}
@@ -318,7 +318,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def mul(a, {:obj, _} = b), do: mul(a, to_numeric(b))
   def mul({:bigint, _}, _), do: throw_bigint_mix_error()
   def mul(_, {:bigint, _}), do: throw_bigint_mix_error()
-  def mul(a, b) when is_number(a) and is_number(b), do: a * b
+  def mul(a, b) when is_number(a) and is_number(b), do: safe_arith(fn -> a * b end)
 
   def mul(a, b) do
     na = to_number(a)
@@ -604,6 +604,16 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     end
   end
 
+  defp safe_arith(fun) do
+    try do
+      result = fun.()
+      # BEAM floats don't support infinity, but the result should be finite
+      result
+    rescue
+      ArithmeticError -> :infinity
+    end
+  end
+
   defp throw_bigint_mix_error do
     throw({:js_throw, Heap.make_error("Cannot mix BigInt and other types, use explicit conversions", "TypeError")})
   end
@@ -617,6 +627,12 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   defp numeric_compare(:nan, _, _), do: false
   defp numeric_compare(_, :nan, _), do: false
+  defp numeric_compare(:infinity, :infinity, op), do: op.(1, 1)
+  defp numeric_compare(:neg_infinity, :neg_infinity, op), do: op.(1, 1)
+  defp numeric_compare(:infinity, _, op), do: op.(1, 0)
+  defp numeric_compare(_, :infinity, op), do: op.(0, 1)
+  defp numeric_compare(:neg_infinity, _, op), do: op.(0, 1)
+  defp numeric_compare(_, :neg_infinity, op), do: op.(1, 0)
   defp numeric_compare(a, b, op) when is_number(a) and is_number(b), do: op.(a, b)
   defp numeric_compare(_, _, _), do: false
 
