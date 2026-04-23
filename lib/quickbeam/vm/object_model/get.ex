@@ -225,6 +225,8 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
      end}
   end
 
+  defp get_own({:builtin, name, _}, "name"), do: name
+
   defp get_own({:builtin, _, _} = b, key) do
     statics = Heap.get_ctor_statics(b)
 
