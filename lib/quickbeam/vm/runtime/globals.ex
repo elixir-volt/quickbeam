@@ -46,7 +46,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
       "Number" => register("Number", &Constructors.number/2),
       "BigInt" => register("BigInt", &Constructors.bigint/2),
       "Boolean" => register("Boolean", Boolean.constructor()),
-      "Function" => register("Function", &Constructors.function/2),
+      "Function" => register("Function", &Constructors.function/2, auto_proto: true),
       "RegExp" => register("RegExp", &Constructors.regexp/2),
       "Date" => register("Date", &JSDate.constructor/2, module: JSDate),
       "Promise" =>
@@ -117,7 +117,13 @@ defmodule QuickBEAM.VM.Runtime.Globals do
     end
 
     case Keyword.get(opts, :prototype) do
-      nil -> :ok
+      nil ->
+        if Keyword.get(opts, :auto_proto, false) do
+          proto = Heap.wrap(%{"constructor" => ctor, "__proto__" => Heap.get_object_prototype()})
+          Heap.put_class_proto(ctor, proto)
+          Heap.put_ctor_static(ctor, "prototype", proto)
+        end
+
       proto ->
         Heap.put_class_proto(ctor, proto)
         Heap.put_ctor_static(ctor, "prototype", proto)
