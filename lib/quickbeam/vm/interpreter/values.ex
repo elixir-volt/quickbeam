@@ -822,20 +822,34 @@ defmodule QuickBEAM.VM.Interpreter.Values do
         toPrim = Map.get(data, sym_key) || Get.get(obj, sym_key)
 
         if toPrim != nil and toPrim != :undefined do
+          if not is_callable?(toPrim) do
+            throw({:js_throw, Heap.make_error("Symbol.toPrimitive is not a function", "TypeError")})
+          end
+
           result = Invocation.invoke_with_receiver(toPrim, ["default"], Runtime.gas_budget(), obj)
-          if match?({:obj, _}, result), do: obj, else: result
+          if match?({:obj, _}, result) do
+            throw({:js_throw, Heap.make_error("Cannot convert object to primitive value", "TypeError")})
+          else
+            result
+          end
         else
           call_to_primitive(data, obj, "valueOf") ||
             (if not has_own_method?(data, "valueOf"), do: proto_to_primitive(data, obj, "valueOf")) ||
             call_to_primitive(data, obj, "toString") ||
             (if not has_own_method?(data, "toString"), do: proto_to_primitive(data, obj, "toString") || get_to_primitive(obj, "toString")) ||
-            obj
+            throw({:js_throw, Heap.make_error("Cannot convert object to primitive value", "TypeError")})
         end
       end
     else
       obj
     end
   end
+
+  defp is_callable?({:closure, _, _}), do: true
+  defp is_callable?({:builtin, _, cb}) when is_function(cb), do: true
+  defp is_callable?({:bound, _, _, _, _}), do: true
+  defp is_callable?(%Bytecode.Function{}), do: true
+  defp is_callable?(_), do: false
 
   defp has_own_method?(data, method) when is_map(data) do
     case Map.get(data, method) do
