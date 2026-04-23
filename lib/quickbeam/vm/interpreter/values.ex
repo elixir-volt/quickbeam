@@ -71,6 +71,8 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     if match?({:obj, _}, prim), do: :nan, else: to_number(prim)
   end
 
+  def to_number({:symbol, _}), do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
+  def to_number({:symbol, _, _}), do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
   def to_number({:closure, _, _} = f), do: to_number(fn_to_primitive(f))
   def to_number(%Bytecode.Function{} = f), do: to_number(fn_to_primitive(f))
   def to_number({:bound, _, _, _, _} = f), do: to_number(fn_to_primitive(f))
