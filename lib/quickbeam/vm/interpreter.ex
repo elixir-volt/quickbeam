@@ -2175,22 +2175,30 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp run({@op_instanceof, []}, pc, frame, [ctor, obj | rest], gas, ctx) do
     catch_js_throw(pc, frame, rest, gas, ctx, fn ->
-      # Check ctor is callable
-      unless match?({:closure, _, _}, ctor) or match?(%Bytecode.Function{}, ctor) or
-               match?({:builtin, _, _}, ctor) or match?({:bound, _, _, _, _}, ctor) do
+      is_object = match?({:closure, _, _}, ctor) or match?(%Bytecode.Function{}, ctor) or
+               match?({:builtin, _, _}, ctor) or match?({:bound, _, _, _, _}, ctor) or
+               match?({:obj, _}, ctor)
+
+      unless is_object do
         throw({:js_throw, Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")})
       end
 
       ctor_proto = Get.get(ctor, "prototype")
 
-      unless match?({:obj, _}, ctor_proto) do
-        throw({:js_throw, Heap.make_error(
-          "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check", "TypeError")})
-      end
+      case ctor_proto do
+        {:obj, _} ->
+          case obj do
+            {:obj, _} -> check_prototype_chain(obj, ctor_proto)
+            _ -> false
+          end
 
-      case obj do
-        {:obj, _} -> check_prototype_chain(obj, ctor_proto)
-        _ -> false
+        _ ->
+          if match?({:obj, _}, ctor) do
+            throw({:js_throw, Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")})
+          else
+            throw({:js_throw, Heap.make_error(
+              "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check", "TypeError")})
+          end
       end
     end)
   end
