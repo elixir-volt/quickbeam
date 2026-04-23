@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   import QuickBEAM.VM.Heap.Keys
 
   alias QuickBEAM.VM.{Heap, Invocation}
+  alias QuickBEAM.VM.ObjectModel.Get
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.Runtime
 
@@ -694,11 +695,20 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     data = Heap.get_obj(ref, %{})
 
     if is_map(data) do
-      call_to_primitive(data, obj, "valueOf") ||
-        proto_to_primitive(data, obj, "valueOf") ||
-        call_to_primitive(data, obj, "toString") ||
-        proto_to_primitive(data, obj, "toString") ||
-        obj
+      # Check @@toPrimitive first (spec: 7.1.1)
+      sym_key = {:symbol, "Symbol.toPrimitive"}
+      toPrim = Map.get(data, sym_key) || Get.get(obj, sym_key)
+
+      if toPrim != nil and toPrim != :undefined do
+        result = Invocation.invoke_with_receiver(toPrim, ["default"], Runtime.gas_budget(), obj)
+        if match?({:obj, _}, result), do: obj, else: result
+      else
+        call_to_primitive(data, obj, "valueOf") ||
+          proto_to_primitive(data, obj, "valueOf") ||
+          call_to_primitive(data, obj, "toString") ||
+          proto_to_primitive(data, obj, "toString") ||
+          obj
+      end
     else
       obj
     end
