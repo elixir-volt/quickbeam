@@ -1,6 +1,12 @@
 # Changelog
 
 
+## 0.10.4
+
+- Fix segfault on nested empty BEAM map property enumeration (e.g. `Object.keys` on `%{x: %{}}` passed as a var)
+- Update QuickJS-NG to latest upstream (fixes GC crash)
+- Fix coverage use-after-free
+
 ## 0.10.3
 
 - Widen OXC dep to >= 0.7.0 (supports OXC 0.10 with codegen, bind, splice, and bundle :external option)
