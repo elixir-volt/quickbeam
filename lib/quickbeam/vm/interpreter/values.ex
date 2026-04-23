@@ -401,12 +401,10 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   defp div_inf(:infinity, :neg_infinity), do: :nan
   defp div_inf(:neg_infinity, :infinity), do: :nan
   defp div_inf(:neg_infinity, :neg_infinity), do: :nan
-  defp div_inf(:infinity, n) when is_number(n) and n >= 0, do: :infinity
-  defp div_inf(:infinity, n) when is_number(n) and n < 0, do: :neg_infinity
-  defp div_inf(:neg_infinity, n) when is_number(n) and n >= 0, do: :neg_infinity
-  defp div_inf(:neg_infinity, n) when is_number(n) and n < 0, do: :infinity
-  defp div_inf(n, :infinity) when is_number(n), do: 0.0
-  defp div_inf(n, :neg_infinity) when is_number(n), do: -0.0
+  defp div_inf(:infinity, n) when is_number(n), do: if(neg_sign?(n), do: :neg_infinity, else: :infinity)
+  defp div_inf(:neg_infinity, n) when is_number(n), do: if(neg_sign?(n), do: :infinity, else: :neg_infinity)
+  defp div_inf(n, :infinity) when is_number(n), do: if(n < 0, do: -0.0, else: 0.0)
+  defp div_inf(n, :neg_infinity) when is_number(n), do: if(n < 0, do: 0.0, else: -0.0)
   defp div_inf(_, _), do: :nan
 
   defp div_numbers(a, b) when b == 0,
@@ -459,6 +457,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def neg(a), do: neg(to_number(a))
 
   def neg_zero?(b), do: is_float(b) and b == 0.0 and hd(:erlang.float_to_list(b)) == ?-
+  defp neg_sign?(n), do: n < 0 or neg_zero?(n)
 
   defp format_float(n) do
     short = :erlang.float_to_binary(n, [:short])
