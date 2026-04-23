@@ -1785,6 +1785,14 @@ defmodule QuickBEAM.VM.Interpreter do
   defp run({@op_nop, []}, pc, frame, stack, gas, ctx),
     do: run(pc + 1, frame, stack, gas, ctx)
 
+  defp run({@op_to_object, []}, pc, frame, [nil | _rest], _gas, _ctx) do
+    throw({:js_throw, Heap.make_error("Cannot convert null to object", "TypeError")})
+  end
+
+  defp run({@op_to_object, []}, pc, frame, [:undefined | _rest], _gas, _ctx) do
+    throw({:js_throw, Heap.make_error("Cannot convert undefined to object", "TypeError")})
+  end
+
   defp run({@op_to_object, []}, pc, frame, stack, gas, ctx),
     do: run(pc + 1, frame, stack, gas, ctx)
 
