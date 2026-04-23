@@ -2312,8 +2312,14 @@ defmodule QuickBEAM.VM.Interpreter do
     run(pc + 1, frame, [result | rest], gas, ctx)
   end
 
-  defp run({@op_delete_var, [_atom_idx]}, pc, frame, stack, gas, ctx),
-    do: run(pc + 1, frame, [false | stack], gas, ctx)
+  defp run({@op_delete_var, [atom_idx]}, pc, frame, stack, gas, ctx) do
+    name = Names.resolve_atom(ctx.atoms, atom_idx)
+    result = case Map.fetch(ctx.globals, name) do
+      {:ok, _} -> false
+      :error -> true
+    end
+    run(pc + 1, frame, [result | stack], gas, ctx)
+  end
 
   # ── in operator ──
 
