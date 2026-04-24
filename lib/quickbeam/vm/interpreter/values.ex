@@ -832,6 +832,8 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   defp abstract_eq(a, {:bigint, b}) when is_float(a), do: a == b
   defp abstract_eq({:bigint, _} = a, b) when is_boolean(b), do: abstract_eq(a, to_number(b))
   defp abstract_eq(a, {:bigint, _} = b) when is_boolean(a), do: abstract_eq(to_number(a), b)
+  defp abstract_eq({:bigint, _} = a, {:obj, _} = b), do: abstract_eq(a, to_primitive(b))
+  defp abstract_eq({:obj, _} = a, {:bigint, _} = b), do: abstract_eq(to_primitive(a), b)
 
   defp abstract_eq({:obj, _} = obj, b) when is_number(b) or is_binary(b) do
     prim = to_primitive(obj)
