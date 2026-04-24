@@ -608,11 +608,10 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
-  defp array_proto_iterator({:obj, ref}) do
+  defp array_proto_iterator(_obj) do
     sym_iter = {:symbol, "Symbol.iterator"}
-    proto = Heap.get_array_proto(ref)
 
-    case proto do
+    case Process.get(:qb_array_proto) do
       {:obj, proto_ref} ->
         proto_data = Heap.get_obj(proto_ref, %{})
 
@@ -628,8 +627,6 @@ defmodule QuickBEAM.VM.Interpreter do
         :default
     end
   end
-
-  defp array_proto_iterator(_), do: :default
 
   defp invoke_custom_iterator(iter_fn, obj) do
     iter_obj = Invocation.invoke_callback_or_throw(iter_fn, [], obj)
