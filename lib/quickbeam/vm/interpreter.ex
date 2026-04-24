@@ -1164,7 +1164,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp with_has_property?({:obj, _} = obj, key) do
-    Get.get(obj, key) != :undefined
+    Put.has_property(obj, key)
   end
 
   defp with_has_property?(_, _), do: false
