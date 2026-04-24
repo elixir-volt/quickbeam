@@ -16,10 +16,12 @@ defmodule QuickBEAM.VM.Compiler do
     Process.put(:qb_invoke_depth, depth)
 
     if depth == 0 and Heap.gc_needed?() do
-      extra = case result do
-        {:ok, v} -> [v, fun | args]
-        _ -> [fun | args]
-      end
+      extra =
+        case result do
+          {:ok, v} -> [v, fun | args]
+          _ -> [fun | args]
+        end
+
       Heap.gc(extra)
     end
 

@@ -71,8 +71,18 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     if match?({:obj, _}, prim), do: :nan, else: to_number(prim)
   end
 
-  def to_number({:symbol, _}), do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
-  def to_number({:symbol, _, _}), do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
+  def to_number({:symbol, _}),
+    do:
+      throw(
+        {:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")}
+      )
+
+  def to_number({:symbol, _, _}),
+    do:
+      throw(
+        {:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")}
+      )
+
   def to_number({:closure, _, _} = f), do: to_number(fn_to_primitive(f))
   def to_number(%Bytecode.Function{} = f), do: to_number(fn_to_primitive(f))
   def to_number({:bound, _, _, _, _} = f), do: to_number(fn_to_primitive(f))
@@ -195,14 +205,15 @@ defmodule QuickBEAM.VM.Interpreter.Values do
         end)
 
       map when is_map(map) ->
-        wrapped_key = cond do
-          Map.has_key?(map, "__wrapped_string__") -> "__wrapped_string__"
-          Map.has_key?(map, "__wrapped_number__") -> "__wrapped_number__"
-          Map.has_key?(map, "__wrapped_boolean__") -> "__wrapped_boolean__"
-          Map.has_key?(map, "__wrapped_bigint__") -> "__wrapped_bigint__"
-          Map.has_key?(map, "__wrapped_symbol__") -> "__wrapped_symbol__"
-          true -> nil
-        end
+        wrapped_key =
+          cond do
+            Map.has_key?(map, "__wrapped_string__") -> "__wrapped_string__"
+            Map.has_key?(map, "__wrapped_number__") -> "__wrapped_number__"
+            Map.has_key?(map, "__wrapped_boolean__") -> "__wrapped_boolean__"
+            Map.has_key?(map, "__wrapped_bigint__") -> "__wrapped_bigint__"
+            Map.has_key?(map, "__wrapped_symbol__") -> "__wrapped_symbol__"
+            true -> nil
+          end
 
         cond do
           wrapped_key != nil ->
@@ -351,10 +362,12 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def sub(a, {:obj, _} = b), do: sub(a, to_numeric(b))
   def sub({:bigint, _}, _), do: throw_bigint_mix_error()
   def sub(_, {:bigint, _}), do: throw_bigint_mix_error()
+
   def sub(a, b) when is_number(a) and is_number(b) do
     result = safe_add(a, -b)
     if result == 0 and neg_sign?(a) and not neg_sign?(b), do: -0.0, else: result
   end
+
   def sub(a, b), do: numeric_add(to_number(a), neg(to_number(b)))
 
   def mul({:bigint, a}, {:bigint, b}), do: {:bigint, a * b}
@@ -428,8 +441,13 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   defp div_inf(:infinity, :neg_infinity), do: :nan
   defp div_inf(:neg_infinity, :infinity), do: :nan
   defp div_inf(:neg_infinity, :neg_infinity), do: :nan
-  defp div_inf(:infinity, n) when is_number(n), do: if(neg_sign?(n), do: :neg_infinity, else: :infinity)
-  defp div_inf(:neg_infinity, n) when is_number(n), do: if(neg_sign?(n), do: :infinity, else: :neg_infinity)
+
+  defp div_inf(:infinity, n) when is_number(n),
+    do: if(neg_sign?(n), do: :neg_infinity, else: :infinity)
+
+  defp div_inf(:neg_infinity, n) when is_number(n),
+    do: if(neg_sign?(n), do: :infinity, else: :neg_infinity)
+
   defp div_inf(n, :infinity) when is_number(n), do: if(n < 0, do: -0.0, else: 0.0)
   defp div_inf(n, :neg_infinity) when is_number(n), do: if(n < 0, do: 0.0, else: -0.0)
   defp div_inf(_, _), do: :nan
@@ -468,10 +486,12 @@ defmodule QuickBEAM.VM.Interpreter.Values do
       r -> r
     end
   end
+
   def mod(a, b) when is_number(a) and is_number(b) and b != 0 do
     result = :math.fmod(a / 1, b / 1)
     if result == 0 and neg_sign?(a), do: -0.0, else: result
   end
+
   def mod(a, b) when is_number(a) and is_number(b), do: :nan
   def mod(a, b), do: numeric_mod(to_number(a), to_number(b))
 
@@ -483,6 +503,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   defp numeric_mod(a, :neg_infinity) when is_number(a), do: a
   defp numeric_mod(_, b) when is_number(b) and b == 0, do: :nan
   defp numeric_mod(a, b) when is_integer(a) and is_integer(b), do: rem(a, b)
+
   defp numeric_mod(a, b) when is_number(a) and is_number(b) do
     try do
       a - Float.floor(a / b) * b
@@ -490,6 +511,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
       ArithmeticError -> :nan
     end
   end
+
   defp numeric_mod(_, _), do: :nan
 
   def pow({:bigint, a}, {:bigint, b}) when b >= 0, do: {:bigint, Integer.pow(a, b)}
@@ -502,12 +524,14 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def neg(:neg_infinity), do: :infinity
   def neg(:nan), do: :nan
   def neg(a) when is_number(a), do: -a
+
   def neg({:obj, _} = a) do
     case to_primitive(a) do
       {:bigint, _} = b -> neg(b)
       other -> neg(to_number(other))
     end
   end
+
   def neg(a), do: neg(to_number(a))
 
   def neg_zero?(b), do: is_float(b) and b == 0.0 and hd(:erlang.float_to_list(b)) == ?-
@@ -632,8 +656,18 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def sar(_, {:bigint, _}), do: throw_bigint_mix_error()
   def sar(a, b), do: Bitwise.bsr(to_int32(a), Bitwise.band(to_int32(b), 31))
 
-  def shr({:bigint, _}, _), do: throw({:js_throw, Heap.make_error("Cannot convert a BigInt value to a number", "TypeError")})
-  def shr(_, {:bigint, _}), do: throw({:js_throw, Heap.make_error("Cannot convert a BigInt value to a number", "TypeError")})
+  def shr({:bigint, _}, _),
+    do:
+      throw(
+        {:js_throw, Heap.make_error("Cannot convert a BigInt value to a number", "TypeError")}
+      )
+
+  def shr(_, {:bigint, _}),
+    do:
+      throw(
+        {:js_throw, Heap.make_error("Cannot convert a BigInt value to a number", "TypeError")}
+      )
+
   def shr({:obj, _} = a, b), do: shr(to_numeric(a), b)
   def shr(a, {:obj, _} = b), do: shr(a, to_numeric(b))
 
@@ -652,19 +686,47 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def lt({:bigint, a}, b) when is_number(b), do: a < b
   def lt(a, {:bigint, b}) when is_number(a), do: a < b
   def lt({:bigint, _} = a, b) when is_binary(b), do: bigint_string_compare(a, b, &Kernel.</2)
-  def lt(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y < x end)
+
+  def lt(a, {:bigint, _} = b) when is_binary(a),
+    do: bigint_string_compare(b, a, fn x, y -> y < x end)
+
   def lt({:bigint, a}, b) when is_boolean(b), do: a < to_number(b)
   def lt(a, {:bigint, b}) when is_boolean(a), do: to_number(a) < b
-  def lt({:bigint, _}, {:symbol, _}), do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
-  def lt({:bigint, _}, {:symbol, _, _}), do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
-  def lt({:symbol, _}, {:bigint, _}), do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
-  def lt({:symbol, _, _}, {:bigint, _}), do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
+
+  def lt({:bigint, _}, {:symbol, _}),
+    do:
+      throw(
+        {:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")}
+      )
+
+  def lt({:bigint, _}, {:symbol, _, _}),
+    do:
+      throw(
+        {:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")}
+      )
+
+  def lt({:symbol, _}, {:bigint, _}),
+    do:
+      throw(
+        {:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")}
+      )
+
+  def lt({:symbol, _, _}, {:bigint, _}),
+    do:
+      throw(
+        {:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")}
+      )
+
   def lt(a, b) when is_number(a) and is_number(b), do: a < b
   def lt(a, b) when is_binary(a) and is_binary(b), do: a < b
+
   def lt(a, b) do
-    pa = if match?({:obj, _}, a), do: to_primitive(a), else: if is_function_like?(a), do: fn_to_primitive(a), else: a
-    pb = if match?({:obj, _}, b), do: to_primitive(b), else: if is_function_like?(b), do: fn_to_primitive(b), else: b
-    if is_binary(pa) and is_binary(pb), do: pa < pb, else: numeric_compare(to_number(pa), to_number(pb), &Kernel.</2)
+    pa = coerce_to_primitive(a)
+    pb = coerce_to_primitive(b)
+
+    if is_binary(pa) and is_binary(pb),
+      do: pa < pb,
+      else: numeric_compare(to_number(pa), to_number(pb), &Kernel.</2)
   end
 
   def lte({:bigint, a}, {:bigint, b}), do: a <= b
@@ -679,13 +741,20 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def lte({:bigint, _} = a, b) when is_binary(b), do: bigint_string_compare(a, b, &Kernel.<=/2)
   def lte({:bigint, a}, b) when is_boolean(b), do: a <= to_number(b)
   def lte(a, {:bigint, b}) when is_boolean(a), do: to_number(a) <= b
-  def lte(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y <= x end)
+
+  def lte(a, {:bigint, _} = b) when is_binary(a),
+    do: bigint_string_compare(b, a, fn x, y -> y <= x end)
+
   def lte(a, b) when is_number(a) and is_number(b), do: a <= b
   def lte(a, b) when is_binary(a) and is_binary(b), do: a <= b
+
   def lte(a, b) do
-    pa = if match?({:obj, _}, a), do: to_primitive(a), else: if is_function_like?(a), do: fn_to_primitive(a), else: a
-    pb = if match?({:obj, _}, b), do: to_primitive(b), else: if is_function_like?(b), do: fn_to_primitive(b), else: b
-    if is_binary(pa) and is_binary(pb), do: pa <= pb, else: numeric_compare(to_number(pa), to_number(pb), &Kernel.<=/2)
+    pa = coerce_to_primitive(a)
+    pb = coerce_to_primitive(b)
+
+    if is_binary(pa) and is_binary(pb),
+      do: pa <= pb,
+      else: numeric_compare(to_number(pa), to_number(pb), &Kernel.<=/2)
   end
 
   def gt({:bigint, a}, {:bigint, b}), do: a > b
@@ -700,15 +769,32 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def gt({:bigint, _} = a, b) when is_binary(b), do: bigint_string_compare(a, b, &Kernel.>/2)
   def gt({:bigint, a}, b) when is_boolean(b), do: a > to_number(b)
   def gt(a, {:bigint, b}) when is_boolean(a), do: to_number(a) > b
-  def gt(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y > x end)
-  def gt({:bigint, _}, s) when is_tuple(s) and elem(s, 0) == :symbol, do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
-  def gt(s, {:bigint, _}) when is_tuple(s) and elem(s, 0) == :symbol, do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
+
+  def gt(a, {:bigint, _} = b) when is_binary(a),
+    do: bigint_string_compare(b, a, fn x, y -> y > x end)
+
+  def gt({:bigint, _}, s) when is_tuple(s) and elem(s, 0) == :symbol,
+    do:
+      throw(
+        {:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")}
+      )
+
+  def gt(s, {:bigint, _}) when is_tuple(s) and elem(s, 0) == :symbol,
+    do:
+      throw(
+        {:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")}
+      )
+
   def gt(a, b) when is_number(a) and is_number(b), do: a > b
   def gt(a, b) when is_binary(a) and is_binary(b), do: a > b
+
   def gt(a, b) do
-    pa = if match?({:obj, _}, a), do: to_primitive(a), else: if is_function_like?(a), do: fn_to_primitive(a), else: a
-    pb = if match?({:obj, _}, b), do: to_primitive(b), else: if is_function_like?(b), do: fn_to_primitive(b), else: b
-    if is_binary(pa) and is_binary(pb), do: pa > pb, else: numeric_compare(to_number(pa), to_number(pb), &Kernel.>/2)
+    pa = coerce_to_primitive(a)
+    pb = coerce_to_primitive(b)
+
+    if is_binary(pa) and is_binary(pb),
+      do: pa > pb,
+      else: numeric_compare(to_number(pa), to_number(pb), &Kernel.>/2)
   end
 
   def gte({:bigint, a}, {:bigint, b}), do: a >= b
@@ -723,33 +809,46 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def gte({:bigint, _} = a, b) when is_binary(b), do: bigint_string_compare(a, b, &Kernel.>=/2)
   def gte({:bigint, a}, b) when is_boolean(b), do: a >= to_number(b)
   def gte(a, {:bigint, b}) when is_boolean(a), do: to_number(a) >= b
-  def gte(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y >= x end)
-  def gte({:bigint, _}, s) when is_tuple(s) and elem(s, 0) == :symbol, do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
-  def gte(s, {:bigint, _}) when is_tuple(s) and elem(s, 0) == :symbol, do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
+
+  def gte(a, {:bigint, _} = b) when is_binary(a),
+    do: bigint_string_compare(b, a, fn x, y -> y >= x end)
+
+  def gte({:bigint, _}, s) when is_tuple(s) and elem(s, 0) == :symbol,
+    do:
+      throw(
+        {:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")}
+      )
+
+  def gte(s, {:bigint, _}) when is_tuple(s) and elem(s, 0) == :symbol,
+    do:
+      throw(
+        {:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")}
+      )
+
   def gte(a, b) when is_number(a) and is_number(b), do: a >= b
   def gte(a, b) when is_binary(a) and is_binary(b), do: a >= b
-  def gte(a, b) do
-    pa = if match?({:obj, _}, a), do: to_primitive(a), else: if is_function_like?(a), do: fn_to_primitive(a), else: a
-    pb = if match?({:obj, _}, b), do: to_primitive(b), else: if is_function_like?(b), do: fn_to_primitive(b), else: b
-    if is_binary(pa) and is_binary(pb), do: pa >= pb, else: numeric_compare(to_number(pa), to_number(pb), &Kernel.>=/2)
-  end
 
-  defp to_numeric_prim({:bigint, _} = b), do: b
-  defp to_numeric_prim(val), do: to_number(val)
+  def gte(a, b) do
+    pa = coerce_to_primitive(a)
+    pb = coerce_to_primitive(b)
+
+    if is_binary(pa) and is_binary(pb),
+      do: pa >= pb,
+      else: numeric_compare(to_number(pa), to_number(pb), &Kernel.>=/2)
+  end
 
   defp to_numeric({:obj, _} = obj) do
     case to_primitive(obj) do
-      {:bigint, _} = b -> b
-      {:obj, _} -> throw({:js_throw, Heap.make_error("Cannot convert object to primitive value", "TypeError")})
-      other -> to_number(other)
-    end
-  end
+      {:bigint, _} = b ->
+        b
 
-  defp safe_arith(fun) do
-    try do
-      fun.()
-    rescue
-      ArithmeticError -> :infinity
+      {:obj, _} ->
+        throw(
+          {:js_throw, Heap.make_error("Cannot convert object to primitive value", "TypeError")}
+        )
+
+      other ->
+        to_number(other)
     end
   end
 
@@ -772,33 +871,43 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   end
 
   defp throw_bigint_mix_error do
-    throw({:js_throw, Heap.make_error("Cannot mix BigInt and other types, use explicit conversions", "TypeError")})
+    throw(
+      {:js_throw,
+       Heap.make_error("Cannot mix BigInt and other types, use explicit conversions", "TypeError")}
+    )
   end
 
   defp bigint_string_compare({:bigint, a}, str, op) do
     trimmed = String.trim(str)
+
     case trimmed do
-      "" -> op.(a, 0)
+      "" ->
+        op.(a, 0)
+
       "0x" <> hex ->
         case Integer.parse(hex, 16) do
           {n, ""} -> op.(a, n)
           _ -> false
         end
+
       "0X" <> hex ->
         case Integer.parse(hex, 16) do
           {n, ""} -> op.(a, n)
           _ -> false
         end
+
       "0o" <> oct ->
         case Integer.parse(oct, 8) do
           {n, ""} -> op.(a, n)
           _ -> false
         end
+
       "0b" <> bin ->
         case Integer.parse(bin, 2) do
           {n, ""} -> op.(a, n)
           _ -> false
         end
+
       _ ->
         case Integer.parse(trimmed) do
           {n, ""} -> op.(a, n)
@@ -849,7 +958,9 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   defp abstract_eq({:bigint, a}, b) when is_binary(b) do
     case String.trim(b) do
-      "" -> a == 0
+      "" ->
+        a == 0
+
       trimmed ->
         case Integer.parse(trimmed) do
           {n, ""} -> a == n
@@ -860,7 +971,9 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   defp abstract_eq(a, {:bigint, b}) when is_binary(a) do
     case String.trim(a) do
-      "" -> 0 == b
+      "" ->
+        0 == b
+
       trimmed ->
         case Integer.parse(trimmed) do
           {n, ""} -> n == b
@@ -890,12 +1003,17 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   defp abstract_eq({:symbol, _, ref1}, {:symbol, _, ref2}), do: ref1 === ref2
   defp abstract_eq(_, _), do: false
 
-  defp to_primitive(val) when is_number(val) or is_binary(val) or is_boolean(val) or is_atom(val), do: val
+  defp to_primitive(val) when is_number(val) or is_binary(val) or is_boolean(val) or is_atom(val),
+    do: val
+
   defp to_primitive({:bigint, _} = val), do: val
 
   defp to_primitive({:closure, _, %{source: src}}) when is_binary(src) and src != "", do: src
   defp to_primitive({:closure, _, _}), do: "function () { [native code] }"
-  defp to_primitive(%QuickBEAM.VM.Bytecode.Function{source: src}) when is_binary(src) and src != "", do: src
+
+  defp to_primitive(%QuickBEAM.VM.Bytecode.Function{source: src})
+       when is_binary(src) and src != "", do: src
+
   defp to_primitive(%QuickBEAM.VM.Bytecode.Function{}), do: "function () { [native code] }"
   defp to_primitive({:builtin, name, _}), do: "function #{name}() { [native code] }"
   defp to_primitive({:bound, _, _, _, _}), do: "function () { [native code] }"
@@ -905,39 +1023,52 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
     if is_map(data) do
       # Check for wrapped primitives (Object(1n), Object("str"), etc.)
-      wrapped_key = cond do
-        Map.has_key?(data, "__wrapped_bigint__") -> "__wrapped_bigint__"
-        Map.has_key?(data, "__wrapped_number__") -> "__wrapped_number__"
-        Map.has_key?(data, "__wrapped_string__") -> "__wrapped_string__"
-        Map.has_key?(data, "__wrapped_boolean__") -> "__wrapped_boolean__"
-        Map.has_key?(data, "__wrapped_symbol__") -> "__wrapped_symbol__"
-        true -> nil
-      end
+      wrapped_key =
+        cond do
+          Map.has_key?(data, "__wrapped_bigint__") -> "__wrapped_bigint__"
+          Map.has_key?(data, "__wrapped_number__") -> "__wrapped_number__"
+          Map.has_key?(data, "__wrapped_string__") -> "__wrapped_string__"
+          Map.has_key?(data, "__wrapped_boolean__") -> "__wrapped_boolean__"
+          Map.has_key?(data, "__wrapped_symbol__") -> "__wrapped_symbol__"
+          true -> nil
+        end
 
       if wrapped_key != nil do
         Map.get(data, wrapped_key)
       else
-        # Check @@toPrimitive first (spec: 7.1.1)
+        # Check @@to_primitive first (spec: 7.1.1)
         sym_key = {:symbol, "Symbol.toPrimitive"}
-        toPrim = Map.get(data, sym_key) || Get.get(obj, sym_key)
+        to_prim = Map.get(data, sym_key) || Get.get(obj, sym_key)
 
-        if toPrim != nil and toPrim != :undefined do
-          if not is_callable?(toPrim) do
-            throw({:js_throw, Heap.make_error("Symbol.toPrimitive is not a function", "TypeError")})
+        if to_prim != nil and to_prim != :undefined do
+          if not callable?(to_prim) do
+            throw(
+              {:js_throw, Heap.make_error("Symbol.toPrimitive is not a function", "TypeError")}
+            )
           end
 
-          result = Invocation.invoke_with_receiver(toPrim, ["default"], Runtime.gas_budget(), obj)
+          result =
+            Invocation.invoke_with_receiver(to_prim, ["default"], Runtime.gas_budget(), obj)
+
           if match?({:obj, _}, result) do
-            throw({:js_throw, Heap.make_error("Cannot convert object to primitive value", "TypeError")})
+            throw(
+              {:js_throw,
+               Heap.make_error("Cannot convert object to primitive value", "TypeError")}
+            )
           else
             result
           end
         else
           call_to_primitive(data, obj, "valueOf") ||
-            (if not has_own_method?(data, "valueOf"), do: proto_to_primitive(data, obj, "valueOf")) ||
+            if(not has_own_method?(data, "valueOf"), do: proto_to_primitive(data, obj, "valueOf")) ||
             call_to_primitive(data, obj, "toString") ||
-            (if not has_own_method?(data, "toString"), do: proto_to_primitive(data, obj, "toString") || get_to_primitive(obj, "toString")) ||
-            throw({:js_throw, Heap.make_error("Cannot convert object to primitive value", "TypeError")})
+            if(not has_own_method?(data, "toString"),
+              do: proto_to_primitive(data, obj, "toString") || get_to_primitive(obj, "toString")
+            ) ||
+            throw(
+              {:js_throw,
+               Heap.make_error("Cannot convert object to primitive value", "TypeError")}
+            )
         end
       end
     else
@@ -945,17 +1076,25 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     end
   end
 
-  defp is_callable?({:closure, _, _}), do: true
-  defp is_callable?({:builtin, _, cb}) when is_function(cb), do: true
-  defp is_callable?({:bound, _, _, _, _}), do: true
-  defp is_callable?(%Bytecode.Function{}), do: true
-  defp is_callable?(_), do: false
+  defp callable?({:closure, _, _}), do: true
+  defp callable?({:builtin, _, cb}) when is_function(cb), do: true
+  defp callable?({:bound, _, _, _, _}), do: true
+  defp callable?(%Bytecode.Function{}), do: true
+  defp callable?(_), do: false
 
-  defp is_function_like?({:closure, _, _}), do: true
-  defp is_function_like?(%Bytecode.Function{}), do: true
-  defp is_function_like?({:bound, _, _, _, _}), do: true
-  defp is_function_like?({:builtin, _, _}), do: true
-  defp is_function_like?(_), do: false
+  defp function_like?({:closure, _, _}), do: true
+  defp function_like?(%Bytecode.Function{}), do: true
+  defp function_like?({:bound, _, _, _, _}), do: true
+  defp function_like?({:builtin, _, _}), do: true
+  defp function_like?(_), do: false
+
+  defp coerce_to_primitive(val) do
+    cond do
+      match?({:obj, _}, val) -> to_primitive(val)
+      function_like?(val) -> fn_to_primitive(val)
+      true -> val
+    end
+  end
 
   defp fn_to_primitive(fun) do
     statics = Heap.get_ctor_statics(fun)
@@ -963,16 +1102,17 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     ts = Map.get(statics, "toString")
 
     result =
-      if is_callable?(vo) do
+      if callable?(vo) do
         r = Invocation.invoke_with_receiver(vo, [], Runtime.gas_budget(), fun)
-        if is_function_like?(r), do: nil, else: r
+        if function_like?(r), do: nil, else: r
       end
 
-    result = result ||
-      if is_callable?(ts) do
-        r = Invocation.invoke_with_receiver(ts, [], Runtime.gas_budget(), fun)
-        if is_function_like?(r), do: nil, else: r
-      end
+    result =
+      result ||
+        if callable?(ts) do
+          r = Invocation.invoke_with_receiver(ts, [], Runtime.gas_budget(), fun)
+          if function_like?(r), do: nil, else: r
+        end
 
     result || stringify(fun)
   end
@@ -985,13 +1125,16 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     end
   end
 
+  @dialyzer {:nowarn_function, has_own_method?: 2}
   defp has_own_method?(_, _), do: false
 
   defp get_to_primitive(obj, method) do
     case Get.get(obj, method) do
       fun when fun != nil and fun != :undefined ->
         unwrap_primitive(Invocation.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj))
-      _ -> nil
+
+      _ ->
+        nil
     end
   end
 
@@ -1001,7 +1144,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
         unwrap_primitive(cb.([], obj))
 
       fun when fun != nil and fun != :undefined ->
-        if is_callable?(fun) do
+        if callable?(fun) do
           unwrap_primitive(Invocation.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj))
         else
           nil

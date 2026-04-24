@@ -142,6 +142,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
 
       {{:ok, :get_var}, [atom_idx]} ->
         name = Builder.atom_name(state, atom_idx)
+
         if is_binary(name) do
           {:ok, State.push(state, inline_get_var(state, name))}
         else
@@ -154,6 +155,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
 
       {{:ok, :get_var_undef}, [atom_idx]} ->
         name = Builder.atom_name(state, atom_idx)
+
         if is_binary(name) do
           {:ok, State.push(state, inline_get_var_undef(state, name))}
         else
@@ -700,7 +702,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         lower_rest(state, start_idx)
 
       {{:ok, :push_bigint_i32}, [value]} ->
-        {:ok, State.push(state, Builder.tuple_expr([Builder.atom(:bigint), Builder.integer(value)]))}
+        {:ok,
+         State.push(state, Builder.tuple_expr([Builder.atom(:bigint), Builder.integer(value)]))}
 
       {{:ok, :delete_var}, [_atom_idx]} ->
         {:ok, State.push(state, Builder.atom(true), :boolean)}
@@ -780,10 +783,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       {{:ok, :eval}, [argc | _scope_args]} ->
         with {:ok, args, _types, state} <- State.pop_n_typed(state, argc + 1) do
           [eval_ref | call_args] = Enum.reverse(args)
+
           State.effectful_push(
             state,
             Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_runtime, [
-              State.ctx_expr(state), eval_ref, Builder.list_expr(call_args)
+              State.ctx_expr(state),
+              eval_ref,
+              Builder.list_expr(call_args)
             ])
           )
         end
@@ -817,10 +823,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
               ])
             )
 
-          state = State.update_ctx(
-            state,
-            State.compiler_call(state, :update_this, [result])
-          )
+          state =
+            State.update_ctx(
+              state,
+              State.compiler_call(state, :update_this, [result])
+            )
+
           {:ok, State.push(state, result)}
         end
 
@@ -855,10 +863,16 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         with {:ok, obj, _type, state} <- State.pop_typed(state) do
           key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
           val = Builder.remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [obj, key])
+
           case name do
-            :with_get_var -> {:ok, State.push(state, val)}
-            :with_get_ref -> {:ok, state |> State.push(obj) |> State.push(val)}
-            :with_get_ref_undef -> {:ok, state |> State.push(Builder.atom(:undefined)) |> State.push(val)}
+            :with_get_var ->
+              {:ok, State.push(state, val)}
+
+            :with_get_ref ->
+              {:ok, state |> State.push(obj) |> State.push(val)}
+
+            :with_get_ref_undef ->
+              {:ok, state |> State.push(Builder.atom(:undefined)) |> State.push(val)}
           end
         end
 
@@ -866,13 +880,20 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         with {:ok, obj, state} <- State.pop(state),
              {:ok, val, state} <- State.pop(state) do
           key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
-          {:ok, %{state | body: state.body ++
-            [Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put, [obj, key, val])]}}
+
+          {:ok,
+           %{
+             state
+             | body:
+                 state.body ++
+                   [Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put, [obj, key, val])]
+           }}
         end
 
       {{:ok, :with_delete_var}, [atom_idx, _target, _is_with]} ->
         with {:ok, obj, state} <- State.pop(state) do
           key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+
           State.effectful_push(
             state,
             Builder.remote_call(QuickBEAM.VM.ObjectModel.Delete, :delete_property, [obj, key])
@@ -894,17 +915,30 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
 
       {{:ok, :iterator_next}, []} ->
         with {:ok, iter, state} <- State.pop(state) do
-          next_fn = Builder.remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [iter, Builder.literal("next")])
+          next_fn =
+            Builder.remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [
+              iter,
+              Builder.literal("next")
+            ])
+
           State.effectful_push(
             state,
-            Builder.remote_call(QuickBEAM.VM.Runtime, :call_callback, [next_fn, Builder.list_expr([])])
+            Builder.remote_call(QuickBEAM.VM.Runtime, :call_callback, [
+              next_fn,
+              Builder.list_expr([])
+            ])
           )
         end
 
       {{:ok, :iterator_call}, [_method]} ->
         with {:ok, iter, state} <- State.pop(state) do
-          {:ok, %{state | body: state.body ++
-            [State.compiler_call(state, :iterator_close, [iter])]}}
+          {:ok,
+           %{
+             state
+             | body:
+                 state.body ++
+                   [State.compiler_call(state, :iterator_close, [iter])]
+           }}
         end
 
       {{:ok, :iterator_check_object}, []} ->
@@ -912,8 +946,18 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
 
       {{:ok, :iterator_get_value_done}, []} ->
         with {:ok, result, state} <- State.pop(state) do
-          done = Builder.remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [result, Builder.literal("done")])
-          value = Builder.remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [result, Builder.literal("value")])
+          done =
+            Builder.remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [
+              result,
+              Builder.literal("done")
+            ])
+
+          value =
+            Builder.remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [
+              result,
+              Builder.literal("value")
+            ])
+
           {:ok, state |> State.push(done) |> State.push(value)}
         end
 
@@ -1245,10 +1289,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
   defp lower_nip(_state), do: {:error, :stack_underflow}
 
   # nip1: [a, b, c | rest] → [a, b | rest]
-  defp lower_nip1(
-         %{stack: [a, b, _c | rest], stack_types: [ta, tb, _tc | type_rest]} = state
-       ),
-       do: {:ok, %{state | stack: [a, b | rest], stack_types: [ta, tb | type_rest]}}
+  defp lower_nip1(%{stack: [a, b, _c | rest], stack_types: [ta, tb, _tc | type_rest]} = state),
+    do: {:ok, %{state | stack: [a, b | rest], stack_types: [ta, tb | type_rest]}}
 
   defp lower_nip1(_state), do: {:error, :stack_underflow}
 
@@ -1264,18 +1306,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
   defp lower_swap2(_state), do: {:error, :stack_underflow}
 
   # rot3l: [a, b, c | rest] → [c, a, b | rest] (rotate left: bottom goes to top)
-  defp lower_rot3l(
-         %{stack: [a, b, c | rest], stack_types: [ta, tb, tc | type_rest]} = state
-       ),
-       do: {:ok, %{state | stack: [c, a, b | rest], stack_types: [tc, ta, tb | type_rest]}}
+  defp lower_rot3l(%{stack: [a, b, c | rest], stack_types: [ta, tb, tc | type_rest]} = state),
+    do: {:ok, %{state | stack: [c, a, b | rest], stack_types: [tc, ta, tb | type_rest]}}
 
   defp lower_rot3l(_state), do: {:error, :stack_underflow}
 
   # rot3r: [a, b, c | rest] → [b, c, a | rest] (rotate right: top goes to bottom)
-  defp lower_rot3r(
-         %{stack: [a, b, c | rest], stack_types: [ta, tb, tc | type_rest]} = state
-       ),
-       do: {:ok, %{state | stack: [b, c, a | rest], stack_types: [tb, tc, ta | type_rest]}}
+  defp lower_rot3r(%{stack: [a, b, c | rest], stack_types: [ta, tb, tc | type_rest]} = state),
+    do: {:ok, %{state | stack: [b, c, a | rest], stack_types: [tb, tc, ta | type_rest]}}
 
   defp lower_rot3r(_state), do: {:error, :stack_underflow}
 
@@ -1286,9 +1324,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
            stack_types: [ta, tb, tc, td | type_rest]
          } = state
        ),
-       do:
-         {:ok,
-          %{state | stack: [d, a, b, c | rest], stack_types: [td, ta, tb, tc | type_rest]}}
+       do: {:ok, %{state | stack: [d, a, b, c | rest], stack_types: [td, ta, tb, tc | type_rest]}}
 
   defp lower_rot4l(_state), do: {:error, :stack_underflow}
 
@@ -1316,9 +1352,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
            stack_types: [ta, tb, tc, td | type_rest]
          } = state
        ),
-       do:
-         {:ok,
-          %{state | stack: [a, c, d, b | rest], stack_types: [ta, tc, td, tb | type_rest]}}
+       do: {:ok, %{state | stack: [a, c, d, b | rest], stack_types: [ta, tc, td, tb | type_rest]}}
 
   defp lower_perm4(_state), do: {:error, :stack_underflow}
 
@@ -1591,13 +1625,15 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
     with {:ok, val, _type, state} <- State.pop_typed(state) do
       {:done,
        state.body ++
-         [Builder.remote_call(:erlang, :throw, [
-           Builder.tuple_expr([
-             Builder.atom(:generator_yield_star),
-             val,
-             yield_continuation(state, next_entry, stack_depths)
+         [
+           Builder.remote_call(:erlang, :throw, [
+             Builder.tuple_expr([
+               Builder.atom(:generator_yield_star),
+               val,
+               yield_continuation(state, next_entry, stack_depths)
+             ])
            ])
-         ])]}
+         ]}
     end
   end
 
@@ -1618,22 +1654,26 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
     with {:ok, val, _state} <- State.pop(state) do
       {:done,
        state.body ++
-         [Builder.remote_call(:erlang, :throw, [
-           Builder.tuple_expr([Builder.atom(:generator_return), val])
-         ])]}
+         [
+           Builder.remote_call(:erlang, :throw, [
+             Builder.tuple_expr([Builder.atom(:generator_return), val])
+           ])
+         ]}
     end
   end
 
   defp yield_throw(state, val, next_entry, stack_depths) do
     {:done,
      state.body ++
-       [Builder.remote_call(:erlang, :throw, [
-         Builder.tuple_expr([
-           Builder.atom(:generator_yield),
-           val,
-           yield_continuation(state, next_entry, stack_depths)
+       [
+         Builder.remote_call(:erlang, :throw, [
+           Builder.tuple_expr([
+             Builder.atom(:generator_yield),
+             val,
+             yield_continuation(state, next_entry, stack_depths)
+           ])
          ])
-       ])]}
+       ]}
   end
 
   defp yield_continuation(state, next_entry, stack_depths) do
@@ -1666,17 +1706,17 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
   end
 
   defp inline_get_var(state, name) do
-    globals_expr = {:map_field_assoc, 1, {:atom, 1, :globals}, State.ctx_expr(state)}
-    globals = {:map_field_exact, 1, State.ctx_expr(state), {:atom, 1, :globals}}
     Builder.remote_call(RuntimeHelpers, :get_global, [
-      {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :map_get}}, [{:atom, 1, :globals}, State.ctx_expr(state)]},
+      {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :map_get}},
+       [{:atom, 1, :globals}, State.ctx_expr(state)]},
       Builder.literal(name)
     ])
   end
 
   defp inline_get_var_undef(state, name) do
     Builder.remote_call(RuntimeHelpers, :get_global_undef, [
-      {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :map_get}}, [{:atom, 1, :globals}, State.ctx_expr(state)]},
+      {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :map_get}},
+       [{:atom, 1, :globals}, State.ctx_expr(state)]},
       Builder.literal(name)
     ])
   end

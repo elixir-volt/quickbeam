@@ -86,6 +86,21 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
     end
   end
 
+  def enumerable_keys(map) when is_map(map) do
+    map
+    |> Map.keys()
+    |> Enum.filter(&is_binary/1)
+    |> Enum.reject(fn key -> String.starts_with?(key, "__") and String.ends_with?(key, "__") end)
+    |> Runtime.sort_numeric_keys()
+  end
+
+  def enumerable_keys(list) when is_list(list), do: numeric_index_keys(length(list))
+
+  def enumerable_keys(string) when is_binary(string),
+    do: numeric_index_keys(Get.string_length(string))
+
+  def enumerable_keys(_), do: []
+
   defp enumerable_keys_from_raw(obj, ref, raw) do
     case raw || %{} do
       %{proxy_target() => _target, proxy_handler() => handler} ->
@@ -113,21 +128,6 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
         []
     end
   end
-
-  def enumerable_keys(map) when is_map(map) do
-    map
-    |> Map.keys()
-    |> Enum.filter(&is_binary/1)
-    |> Enum.reject(fn key -> String.starts_with?(key, "__") and String.ends_with?(key, "__") end)
-    |> Runtime.sort_numeric_keys()
-  end
-
-  def enumerable_keys(list) when is_list(list), do: numeric_index_keys(length(list))
-
-  def enumerable_keys(string) when is_binary(string),
-    do: numeric_index_keys(Get.string_length(string))
-
-  def enumerable_keys(_), do: []
 
   def spread_source_to_list({:qb_arr, arr}), do: :array.to_list(arr)
   def spread_source_to_list(list) when is_list(list), do: list

@@ -33,7 +33,9 @@ defmodule QuickBEAM.VM.Runtime.Globals do
     # Set constructor on Object.prototype
     {:obj, proto_ref} = obj_proto
     proto_data = Heap.get_obj(proto_ref, %{})
-    if is_map(proto_data), do: Heap.put_obj(proto_ref, Map.put(proto_data, "constructor", obj_ctor))
+
+    if is_map(proto_data),
+      do: Heap.put_obj(proto_ref, Map.put(proto_data, "constructor", obj_ctor))
 
     bindings()
     |> Map.put("Object", obj_ctor)
@@ -47,15 +49,19 @@ defmodule QuickBEAM.VM.Runtime.Globals do
   defp bindings do
     %{
       "Array" =>
-        (ctor = register("Array", &Constructors.array/2)
-         Heap.put_ctor_static(ctor, "prototype", QuickBEAM.VM.Runtime.Array.prototype())
-         ctor),
+        (
+          ctor = register("Array", &Constructors.array/2)
+          Heap.put_ctor_static(ctor, "prototype", QuickBEAM.VM.Runtime.Array.prototype())
+          ctor
+        ),
       "String" => register("String", &Constructors.string/2, auto_proto: true),
       "Number" => register("Number", &Constructors.number/2, auto_proto: true),
       "BigInt" => register("BigInt", &Constructors.bigint/2),
       "Boolean" => register("Boolean", Boolean.constructor(), auto_proto: true),
-      "Function" => register("Function", &Constructors.function/2,
-        prototype: QuickBEAM.VM.Runtime.Function.prototype()),
+      "Function" =>
+        register("Function", &Constructors.function/2,
+          prototype: QuickBEAM.VM.Runtime.Function.prototype()
+        ),
       "RegExp" => register("RegExp", &Constructors.regexp/2),
       "Date" => register("Date", &JSDate.constructor/2, module: JSDate),
       "Promise" =>

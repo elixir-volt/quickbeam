@@ -139,7 +139,11 @@ defmodule QuickBEAM.VM.Invocation do
 
   def invoke_runtime(fun, args), do: invoke_runtime(active_ctx(), fun, args)
 
-  def invoke_runtime(%Context{} = ctx, {:closure, _, %Bytecode.Function{need_home_object: false} = inner} = closure, args) do
+  def invoke_runtime(
+        %Context{} = ctx,
+        {:closure, _, %Bytecode.Function{need_home_object: false} = inner} = closure,
+        args
+      ) do
     key = {inner.byte_code, inner.arg_count}
 
     case Heap.get_compiled(key) do

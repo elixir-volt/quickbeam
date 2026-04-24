@@ -15,16 +15,30 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         Process.put(ref, {:shape, shape_id, offsets, put_elem(vals, offset, val), proto})
 
       {:ok, offset} ->
-        Process.put(ref, {:shape, shape_id, offsets, Heap.Shapes.put_val(vals, offset, val), proto})
+        Process.put(
+          ref,
+          {:shape, shape_id, offsets, Heap.Shapes.put_val(vals, offset, val), proto}
+        )
 
       :error ->
         {new_shape_id, new_offsets, offset} = Heap.Shapes.transition(shape_id, key)
+
         new_vals =
           if offset == tuple_size(vals),
             do: :erlang.append_element(vals, val),
             else: Heap.Shapes.put_val(vals, offset, val)
 
         Process.put(ref, {:shape, new_shape_id, new_offsets, new_vals, proto})
+    end
+  end
+
+  def put_field({:obj, ref}, key, val) do
+    case Process.get(ref) do
+      {:shape, shape_id, offsets, vals, proto} ->
+        shape_put(ref, shape_id, offsets, vals, proto, key, val)
+
+      _ ->
+        put({:obj, ref}, key, val)
     end
   end
 
@@ -65,16 +79,6 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             Heap.put_obj(ref, padded)
           end
         end
-    end
-  end
-
-  def put_field({:obj, ref}, key, val) do
-    case Process.get(ref) do
-      {:shape, shape_id, offsets, vals, proto} ->
-        shape_put(ref, shape_id, offsets, vals, proto, key, val)
-
-      _ ->
-        put({:obj, ref}, key, val)
     end
   end
 
@@ -317,14 +321,21 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
       map when is_map(map) ->
         key = if is_integer(idx), do: Integer.to_string(idx), else: idx
+
         case Map.fetch(map, key) do
-          {:ok, val} -> val
+          {:ok, val} ->
+            val
+
           :error ->
             case Map.fetch(map, idx) do
-              {:ok, val} -> val
+              {:ok, val} ->
+                val
+
               :error when is_binary(key) or is_binary(idx) ->
                 Get.get(obj, if(is_binary(key), do: key, else: idx))
-              :error -> :undefined
+
+              :error ->
+                :undefined
             end
         end
 
@@ -354,11 +365,23 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     do: Get.get(s, key)
 
   def get_element(nil, key) do
-    throw({:js_throw, Heap.make_error("Cannot read properties of null (reading '#{Values.stringify(key)}')", "TypeError")})
+    throw(
+      {:js_throw,
+       Heap.make_error(
+         "Cannot read properties of null (reading '#{Values.stringify(key)}')",
+         "TypeError"
+       )}
+    )
   end
 
   def get_element(:undefined, key) do
-    throw({:js_throw, Heap.make_error("Cannot read properties of undefined (reading '#{Values.stringify(key)}')", "TypeError")})
+    throw(
+      {:js_throw,
+       Heap.make_error(
+         "Cannot read properties of undefined (reading '#{Values.stringify(key)}')",
+         "TypeError"
+       )}
+    )
   end
 
   def get_element(obj, key) when is_binary(key) do

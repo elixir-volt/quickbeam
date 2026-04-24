@@ -95,7 +95,12 @@ defmodule QuickBEAM.VM.Heap.Shapes do
         }
 
         put_shape(new_id, new_shape)
-        put_shape(shape_id, %{shape | transitions: Map.put(shape.transitions, key, {new_id, new_offsets})})
+
+        put_shape(shape_id, %{
+          shape
+          | transitions: Map.put(shape.transitions, key, {new_id, new_offsets})
+        })
+
         {new_id, new_offsets, offset}
 
       {child_id, child_offsets} ->
@@ -169,7 +174,9 @@ defmodule QuickBEAM.VM.Heap.Shapes do
   end
 
   defp keys_vals_to_map([], _vals, _idx, acc), do: acc
-  defp keys_vals_to_map([k | ks], vals, idx, acc), do: keys_vals_to_map(ks, vals, idx + 1, Map.put(acc, k, elem(vals, idx)))
+
+  defp keys_vals_to_map([k | ks], vals, idx, acc),
+    do: keys_vals_to_map(ks, vals, idx + 1, Map.put(acc, k, elem(vals, idx)))
 
   @doc "Check whether a stored heap value is shape-backed."
   def shape?({:shape, _, _, _, _}), do: true
@@ -186,7 +193,10 @@ defmodule QuickBEAM.VM.Heap.Shapes do
 
   def put_val(vals, offset, val) do
     padding = offset - tuple_size(vals)
-    padded = Enum.reduce(1..padding, vals, fn _, acc -> :erlang.append_element(acc, :undefined) end)
+
+    padded =
+      Enum.reduce(1..padding, vals, fn _, acc -> :erlang.append_element(acc, :undefined) end)
+
     :erlang.append_element(padded, val)
   end
 

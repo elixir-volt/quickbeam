@@ -13,19 +13,25 @@ defmodule QuickBEAM.VM.Runtime.Errors do
     error_proto_ref = make_ref()
     error_ctor = {:builtin, "Error", fn args, _this -> error_constructor("Error", args) end}
 
-    error_tostring = {:builtin, "toString", fn _args, this ->
-      name = case QuickBEAM.VM.ObjectModel.Get.get(this, "name") do
-        nil -> "Error"
-        :undefined -> "Error"
-        n -> Runtime.stringify(n)
-      end
-      msg = case QuickBEAM.VM.ObjectModel.Get.get(this, "message") do
-        nil -> ""
-        :undefined -> ""
-        m -> Runtime.stringify(m)
-      end
-      if msg == "", do: name, else: name <> ": " <> msg
-    end}
+    error_tostring =
+      {:builtin, "toString",
+       fn _args, this ->
+         name =
+           case QuickBEAM.VM.ObjectModel.Get.get(this, "name") do
+             nil -> "Error"
+             :undefined -> "Error"
+             n -> Runtime.stringify(n)
+           end
+
+         msg =
+           case QuickBEAM.VM.ObjectModel.Get.get(this, "message") do
+             nil -> ""
+             :undefined -> ""
+             m -> Runtime.stringify(m)
+           end
+
+         if msg == "", do: name, else: name <> ": " <> msg
+       end}
 
     Heap.put_obj(
       error_proto_ref,

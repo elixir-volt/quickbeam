@@ -16,10 +16,15 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
     proto_map =
       Enum.reduce(methods, %{}, fn name, acc ->
-        Map.put(acc, name, {:builtin, name, fn args, this ->
-          {:builtin, _, cb} = mod.proto_property(name)
-          cb.(args, this)
-        end})
+        Map.put(
+          acc,
+          name,
+          {:builtin, name,
+           fn args, this ->
+             {:builtin, _, cb} = mod.proto_property(name)
+             cb.(args, this)
+           end}
+        )
       end)
 
     Heap.wrap(proto_map)

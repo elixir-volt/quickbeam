@@ -45,6 +45,9 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def get_var(ctx, name) when is_binary(name), do: fetch_ctx_var(ctx, name)
 
+  def get_var(ctx, atom_idx),
+    do: fetch_ctx_var(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
+
   def get_global(globals, name) do
     case Map.fetch(globals, name) do
       {:ok, val} -> val
@@ -53,9 +56,6 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   def get_global_undef(globals, name), do: Map.get(globals, name, :undefined)
-
-  def get_var(ctx, atom_idx),
-    do: fetch_ctx_var(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
 
   def get_var_undef(ctx, name) when is_binary(name),
     do: GlobalEnv.get(context_globals(ctx), name, :undefined)
@@ -383,18 +383,37 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
         %Bytecode.Function{} = f ->
           case Runner.invoke_constructor(
-                 {:closure, %{}, f}, args, pending_this, context_new_target(ctx), parent_ctx
+                 {:closure, %{}, f},
+                 args,
+                 pending_this,
+                 context_new_target(ctx),
+                 parent_ctx
                ) do
-            {:ok, val} -> val
-            :error -> Invocation.invoke_with_receiver({:closure, %{}, f}, args, context_gas(ctx), pending_this)
+            {:ok, val} ->
+              val
+
+            :error ->
+              Invocation.invoke_with_receiver(
+                {:closure, %{}, f},
+                args,
+                context_gas(ctx),
+                pending_this
+              )
           end
 
         {:closure, _, %Bytecode.Function{}} = closure ->
           case Runner.invoke_constructor(
-                 closure, args, pending_this, context_new_target(ctx), parent_ctx
+                 closure,
+                 args,
+                 pending_this,
+                 context_new_target(ctx),
+                 parent_ctx
                ) do
-            {:ok, val} -> val
-            :error -> Invocation.invoke_with_receiver(closure, args, context_gas(ctx), pending_this)
+            {:ok, val} ->
+              val
+
+            :error ->
+              Invocation.invoke_with_receiver(closure, args, context_gas(ctx), pending_this)
           end
 
         {:builtin, _name, cb} when is_function(cb, 2) ->
@@ -422,7 +441,9 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def make_var_ref_ref(ctx, idx) do
     case current_var_ref(ctx, idx) do
-      {:cell, _} = cell -> cell
+      {:cell, _} = cell ->
+        cell
+
       val ->
         ref = make_ref()
         Heap.put_cell(ref, val)
@@ -719,7 +740,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def make_var_ref(ctx, atom_idx) do
     name = Names.resolve_atom(context_atoms(ctx), atom_idx)
-    val = GlobalEnv.get(context_globals(ctx), name, :undefined, context_atoms(ctx))
+    val = Map.get(context_globals(ctx), name, :undefined)
     ref = make_ref()
     Heap.put_cell(ref, val)
     {:cell, ref}
@@ -785,16 +806,12 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     if is_binary(specifier) and Map.get(ctx, :runtime_pid) != nil do
       Promise.resolved(Runtime.new_object())
     else
-      Promise.rejected(
-        Heap.make_error("Cannot import #{specifier}", "TypeError")
-      )
+      Promise.rejected(Heap.make_error("Cannot import #{specifier}", "TypeError"))
     end
   end
 
   def import_module(specifier) do
-    Promise.rejected(
-      Heap.make_error("Cannot import #{specifier}", "TypeError")
-    )
+    Promise.rejected(Heap.make_error("Cannot import #{specifier}", "TypeError"))
   end
 
   def get_length(obj), do: Get.length_of(obj)

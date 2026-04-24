@@ -55,7 +55,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     case Enum.at(cvs, idx) do
       %{closure_type: type, var_idx: var_idx} ->
         key = Builder.literal({type, var_idx})
-        {bound, state} = bind(state, Builder.temp_name(state.temp), compiler_call(state, :get_capture, [key]))
+
+        {bound, state} =
+          bind(state, Builder.temp_name(state.temp), compiler_call(state, :get_capture, [key]))
+
         {bound, state}
 
       nil ->
@@ -363,28 +366,44 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       case {type, key_str} do
         {{:shaped_object, offsets}, key} when is_binary(key) and is_map_key(offsets, key) ->
           offset = Map.fetch!(offsets, key)
+
           # Emit: case Obj of {:obj, Id} -> case :erlang.get(Id) of {:shape, _, _, Vals, _} -> element(Off+1, Vals) end end
           id_var = Builder.var(Builder.temp_name(state.temp))
           vals_var = Builder.var(Builder.temp_name(state.temp + 1))
           state = %{state | temp: state.temp + 2}
 
-          access_expr = {:case, @line, obj, [
-            {:clause, @line, [{:tuple, @line, [{:atom, @line, :obj}, id_var]}], [], [
-              {:case, @line,
-                {:call, @line, {:remote, @line, {:atom, @line, :erlang}, {:atom, @line, :get}}, [id_var]},
+          access_expr =
+            {:case, @line, obj,
+             [
+               {:clause, @line, [{:tuple, @line, [{:atom, @line, :obj}, id_var]}], [],
                 [
-                  {:clause, @line,
-                    [{:tuple, @line, [{:atom, @line, :shape}, {:var, @line, :_}, {:var, @line, :_}, vals_var, {:var, @line, :_}]}],
-                    [],
-                    [{:call, @line, {:remote, @line, {:atom, @line, :erlang}, {:atom, @line, :element}},
-                      [{:integer, @line, offset + 1}, vals_var]}]},
-                  {:clause, @line, [{:var, @line, :_}], [],
-                    [Builder.local_call(:op_get_field, [obj, key_expr])]}
-                ]}
-            ]},
-            {:clause, @line, [{:var, @line, :_}], [],
-              [Builder.local_call(:op_get_field, [obj, key_expr])]}
-          ]}
+                  {:case, @line,
+                   {:call, @line, {:remote, @line, {:atom, @line, :erlang}, {:atom, @line, :get}},
+                    [id_var]},
+                   [
+                     {:clause, @line,
+                      [
+                        {:tuple, @line,
+                         [
+                           {:atom, @line, :shape},
+                           {:var, @line, :_},
+                           {:var, @line, :_},
+                           vals_var,
+                           {:var, @line, :_}
+                         ]}
+                      ], [],
+                      [
+                        {:call, @line,
+                         {:remote, @line, {:atom, @line, :erlang}, {:atom, @line, :element}},
+                         [{:integer, @line, offset + 1}, vals_var]}
+                      ]},
+                     {:clause, @line, [{:var, @line, :_}], [],
+                      [Builder.local_call(:op_get_field, [obj, key_expr])]}
+                   ]}
+                ]},
+               {:clause, @line, [{:var, @line, :_}], [],
+                [Builder.local_call(:op_get_field, [obj, key_expr])]}
+             ]}
 
           {:ok, push(state, access_expr)}
 
@@ -396,6 +415,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   defp extract_literal_string({:bin, _, [{:bin_element, _, {:string, _, chars}, _, _}]}),
     do: List.to_string(chars)
+
   defp extract_literal_string(_), do: nil
 
   def get_field2(state, key_expr) do
@@ -505,7 +525,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
          state
          | body:
              state.body ++
-               [Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put_field, [obj, key_expr, val])],
+               [
+                 Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put_field, [
+                   obj,
+                   key_expr,
+                   val
+                 ])
+               ],
            stack: [obj | state.stack],
            stack_types: [new_type | state.stack_types]
        }}

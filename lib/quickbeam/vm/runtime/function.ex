@@ -60,6 +60,7 @@ defmodule QuickBEAM.VM.Runtime.Function do
        end
      end}
   end
+
   def proto_property(_fun, _), do: :undefined
 
   defp fn_call(fun, [this_arg | args], _this) do

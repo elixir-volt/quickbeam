@@ -303,13 +303,17 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
             case collect_define_fields(instructions, idx + 1, arg_count, state) do
               {:ok, map_pairs, skip_to, state} ->
                 # Extract sorted keys and corresponding values
-                sorted_pairs = Enum.sort_by(map_pairs, fn {k, _v} ->
-                  # k is Builder.literal(string) — extract the string
-                  case k do
-                    {:bin, _, [{:bin_element, _, {:string, _, chars}, _, _}]} -> List.to_string(chars)
-                    _ -> ""
-                  end
-                end)
+                sorted_pairs =
+                  Enum.sort_by(map_pairs, fn {k, _v} ->
+                    # k is Builder.literal(string) — extract the string
+                    case k do
+                      {:bin, _, [{:bin_element, _, {:string, _, chars}, _, _}]} ->
+                        List.to_string(chars)
+
+                      _ ->
+                        ""
+                    end
+                  end)
 
                 keys_list = Enum.map(sorted_pairs, &elem(&1, 0))
                 vals_list = Enum.map(sorted_pairs, &elem(&1, 1))
@@ -317,15 +321,21 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
                 vals_tuple = {:tuple, @line, vals_list}
 
                 # Build compile-time offsets map from sorted key names
-                ct_offsets = sorted_pairs
-                |> Enum.with_index()
-                |> Enum.reduce(%{}, fn {{k_expr, _v}, idx}, acc ->
-                  key_str = case k_expr do
-                    {:bin, _, [{:bin_element, _, {:string, _, chars}, _, _}]} -> List.to_string(chars)
-                    _ -> nil
-                  end
-                  if key_str, do: Map.put(acc, key_str, idx), else: acc
-                end)
+                ct_offsets =
+                  sorted_pairs
+                  |> Enum.with_index()
+                  |> Enum.reduce(%{}, fn {{k_expr, _v}, idx}, acc ->
+                    key_str =
+                      case k_expr do
+                        {:bin, _, [{:bin_element, _, {:string, _, chars}, _, _}]} ->
+                          List.to_string(chars)
+
+                        _ ->
+                          nil
+                      end
+
+                    if key_str, do: Map.put(acc, key_str, idx), else: acc
+                  end)
 
                 {obj, state} =
                   State.bind(
@@ -335,22 +345,44 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
                   )
 
                 lower_block(
-                  instructions, skip_to, next_entry, arg_count,
+                  instructions,
+                  skip_to,
+                  next_entry,
+                  arg_count,
                   State.push(state, obj, {:shaped_object, ct_offsets}),
-                  stack_depths, constants, entries, inline_targets
+                  stack_depths,
+                  constants,
+                  entries,
+                  inline_targets
                 )
 
               :not_literal ->
                 lower_instruction(
-                  instruction, instructions, idx, next_entry, arg_count,
-                  state, stack_depths, constants, entries, inline_targets
+                  instruction,
+                  instructions,
+                  idx,
+                  next_entry,
+                  arg_count,
+                  state,
+                  stack_depths,
+                  constants,
+                  entries,
+                  inline_targets
                 )
             end
 
           _ ->
             lower_instruction(
-              instruction, instructions, idx, next_entry, arg_count,
-              state, stack_depths, constants, entries, inline_targets
+              instruction,
+              instructions,
+              idx,
+              next_entry,
+              arg_count,
+              state,
+              stack_depths,
+              constants,
+              entries,
+              inline_targets
             )
         end
 
@@ -386,7 +418,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
 
       if is_binary(key_name) do
         key_expr = Builder.literal(key_name)
-        collect_define_fields(instructions, idx + 2, arg_count, new_state, [{key_expr, val_expr} | acc])
+
+        collect_define_fields(instructions, idx + 2, arg_count, new_state, [
+          {key_expr, val_expr} | acc
+        ])
       else
         # Atom not resolvable at compile time — abort batching
         if acc == [], do: :not_literal, else: {:ok, Enum.reverse(acc), idx, state}
@@ -403,37 +438,87 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
 
   defp lower_value_opcode(op, args, _arg_count, state) do
     case CFG.opcode_name(op) do
-      {:ok, :push_i32} -> {:ok, Builder.integer(hd(args)), state}
-      {:ok, :push_i8} -> {:ok, Builder.integer(hd(args)), state}
-      {:ok, :push_0} -> {:ok, Builder.integer(0), state}
-      {:ok, :push_1} -> {:ok, Builder.integer(1), state}
-      {:ok, :push_2} -> {:ok, Builder.integer(2), state}
-      {:ok, :push_3} -> {:ok, Builder.integer(3), state}
-      {:ok, :push_4} -> {:ok, Builder.integer(4), state}
-      {:ok, :push_5} -> {:ok, Builder.integer(5), state}
-      {:ok, :push_6} -> {:ok, Builder.integer(6), state}
-      {:ok, :push_7} -> {:ok, Builder.integer(7), state}
-      {:ok, :push_minus1} -> {:ok, Builder.integer(-1), state}
-      {:ok, :null} -> {:ok, Builder.atom(nil), state}
-      {:ok, :undefined} -> {:ok, Builder.atom(:undefined), state}
-      {:ok, :push_false} -> {:ok, Builder.atom(false), state}
-      {:ok, :push_true} -> {:ok, Builder.atom(true), state}
-      {:ok, :push_empty_string} -> {:ok, Builder.literal(""), state}
+      {:ok, :push_i32} ->
+        {:ok, Builder.integer(hd(args)), state}
+
+      {:ok, :push_i8} ->
+        {:ok, Builder.integer(hd(args)), state}
+
+      {:ok, :push_0} ->
+        {:ok, Builder.integer(0), state}
+
+      {:ok, :push_1} ->
+        {:ok, Builder.integer(1), state}
+
+      {:ok, :push_2} ->
+        {:ok, Builder.integer(2), state}
+
+      {:ok, :push_3} ->
+        {:ok, Builder.integer(3), state}
+
+      {:ok, :push_4} ->
+        {:ok, Builder.integer(4), state}
+
+      {:ok, :push_5} ->
+        {:ok, Builder.integer(5), state}
+
+      {:ok, :push_6} ->
+        {:ok, Builder.integer(6), state}
+
+      {:ok, :push_7} ->
+        {:ok, Builder.integer(7), state}
+
+      {:ok, :push_minus1} ->
+        {:ok, Builder.integer(-1), state}
+
+      {:ok, :null} ->
+        {:ok, Builder.atom(nil), state}
+
+      {:ok, :undefined} ->
+        {:ok, Builder.atom(:undefined), state}
+
+      {:ok, :push_false} ->
+        {:ok, Builder.atom(false), state}
+
+      {:ok, :push_true} ->
+        {:ok, Builder.atom(true), state}
+
+      {:ok, :push_empty_string} ->
+        {:ok, Builder.literal(""), state}
+
       {:ok, n} when n in [:get_arg0, :get_arg1, :get_arg2, :get_arg3] ->
-        slot_idx = case n do
-          :get_arg0 -> 0; :get_arg1 -> 1; :get_arg2 -> 2; :get_arg3 -> 3
-        end
+        slot_idx =
+          case n do
+            :get_arg0 -> 0
+            :get_arg1 -> 1
+            :get_arg2 -> 2
+            :get_arg3 -> 3
+          end
+
         {:ok, State.slot_expr(state, slot_idx), state}
-      {:ok, :get_arg} -> {:ok, State.slot_expr(state, hd(args)), state}
+
+      {:ok, :get_arg} ->
+        {:ok, State.slot_expr(state, hd(args)), state}
+
       {:ok, n} when n in [:get_loc0, :get_loc1, :get_loc2, :get_loc3] ->
-        slot_idx = case n do
-          :get_loc0 -> 0; :get_loc1 -> 1; :get_loc2 -> 2; :get_loc3 -> 3
-        end
+        slot_idx =
+          case n do
+            :get_loc0 -> 0
+            :get_loc1 -> 1
+            :get_loc2 -> 2
+            :get_loc3 -> 3
+          end
+
         {:ok, State.slot_expr(state, slot_idx), state}
-      {:ok, :get_loc} -> {:ok, State.slot_expr(state, hd(args)), state}
+
+      {:ok, :get_loc} ->
+        {:ok, State.slot_expr(state, hd(args)), state}
+
       {:ok, :push_atom_value} ->
         {:ok, State.compiler_call(state, :push_atom_value, [Builder.literal(hd(args))]), state}
-      _ -> :error
+
+      _ ->
+        :error
     end
   end
 

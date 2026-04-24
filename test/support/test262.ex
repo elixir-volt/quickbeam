@@ -27,7 +27,9 @@ defmodule QuickBEAM.Test262 do
 
   def harness_source(includes \\ []) do
     extra = Enum.map_join(includes, "\n", &read_harness/1)
-    test262_error() <> "\n" <> read_harness("sta.js") <> "\n" <> read_harness("assert.js") <> "\n" <> extra
+
+    test262_error() <>
+      "\n" <> read_harness("sta.js") <> "\n" <> read_harness("assert.js") <> "\n" <> extra
   end
 
   def load_skip_list do
@@ -50,7 +52,14 @@ defmodule QuickBEAM.Test262 do
           acc
         else
           full = harness_source(includes(meta)) <> "\n" <> source
-          pass = try do match?({:ok, _}, QuickBEAM.eval(rt, full)) catch _, _ -> false end
+
+          pass =
+            try do
+              match?({:ok, _}, QuickBEAM.eval(rt, full))
+            catch
+              _, _ -> false
+            end
+
           if pass, do: acc, else: MapSet.put(acc, relative_path(file))
         end
     end

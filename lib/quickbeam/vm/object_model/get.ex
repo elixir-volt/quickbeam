@@ -82,10 +82,18 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
               {:ok, off} -> elem(vals, off)
               :error -> map_size(offsets)
             end
-          {:qb_arr, arr} -> :array.size(arr)
-          list when is_list(list) -> length(list)
-          map when is_map(map) -> Map.get(map, "length", map_size(map))
-          _ -> 0
+
+          {:qb_arr, arr} ->
+            :array.size(arr)
+
+          list when is_list(list) ->
+            length(list)
+
+          map when is_map(map) ->
+            Map.get(map, "length", map_size(map))
+
+          _ ->
+            0
         end
 
       {:qb_arr, arr} ->

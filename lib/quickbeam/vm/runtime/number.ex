@@ -56,6 +56,7 @@ defmodule QuickBEAM.VM.Runtime.Number do
   static_val("MAX_SAFE_INTEGER", 9_007_199_254_740_991)
   static_val("MIN_SAFE_INTEGER", -9_007_199_254_740_991)
   static_val("EPSILON", 2.220446049250313e-16)
+  # credo:disable-for-next-line Credo.Check.Readability.LargeNumbers
   static_val("MAX_VALUE", 1.7976931348623157e+308)
   static_val("MIN_VALUE", 5.0e-324)
 

@@ -217,9 +217,15 @@ defmodule QuickBEAM.VM.CompilerTest do
       block = beam_function_instructions(beam_file, :block_0)
 
       assert Enum.any?(block, fn
-               {:call_ext, 2, {:extfunc, QuickBEAM.VM.Compiler.RuntimeHelpers, :get_capture, 2}} -> true
-               {:call_ext_last, 2, {:extfunc, QuickBEAM.VM.Compiler.RuntimeHelpers, :get_capture, 2}, _} -> true
-               _ -> false
+               {:call_ext, 2, {:extfunc, QuickBEAM.VM.Compiler.RuntimeHelpers, :get_capture, 2}} ->
+                 true
+
+               {:call_ext_last, 2,
+                {:extfunc, QuickBEAM.VM.Compiler.RuntimeHelpers, :get_capture, 2}, _} ->
+                 true
+
+               _ ->
+                 false
              end)
 
       callback = {:builtin, "double", fn [x], _ -> x * 2 end}
@@ -444,7 +450,11 @@ defmodule QuickBEAM.VM.CompilerTest do
       fun = compile_and_decode(rt, "(function(x){ return x + 1 })") |> user_function()
 
       assert {:ok, 6} = Compiler.invoke({:closure, %{}, fun}, [5])
-      assert match?({:compiled, _, _}, Heap.get_compiled({fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants)}))
+
+      assert match?(
+               {:compiled, _, _},
+               Heap.get_compiled({fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants)})
+             )
     end
 
     test "compiles class constructor closures without var ref reads", %{rt: rt} do
@@ -470,7 +480,11 @@ defmodule QuickBEAM.VM.CompilerTest do
 
       assert {:obj, ref} = RuntimeHelpers.construct_runtime(closure, closure, [9])
       assert 9 == Heap.get_obj(ref)["x"]
-      assert match?({:compiled, _, _}, Heap.get_compiled({ctor.byte_code, ctor.arg_count, :erlang.phash2(ctor.constants)}))
+
+      assert match?(
+               {:compiled, _, _},
+               Heap.get_compiled({ctor.byte_code, ctor.arg_count, :erlang.phash2(ctor.constants)})
+             )
     end
 
     test "compiles array spread", %{rt: rt} do

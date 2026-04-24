@@ -343,9 +343,11 @@ defmodule QuickBEAM.VM.Interpreter do
     Setup.store_function_atoms(fun, atoms)
     prev_ctx = Heap.get_ctx()
     Heap.put_ctx(ctx)
+
     if Process.get(:qb_builtin_names) == nil do
       Process.put(:qb_builtin_names, MapSet.new(Map.keys(Runtime.global_bindings())))
     end
+
     ctx = Context.mark_synced(ctx)
 
     try do
@@ -1036,6 +1038,13 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp materialize_constant(val), do: val
 
+  defp function_value?({:closure, _, _}), do: true
+  defp function_value?(%Bytecode.Function{}), do: true
+  defp function_value?({:builtin, _, _}), do: true
+  defp function_value?({:bound, _, _, _, _}), do: true
+  defp function_value?(_), do: false
+
+  @dialyzer {:nowarn_function, check_prototype_chain: 2}
   defp check_prototype_chain(_, :undefined), do: false
   defp check_prototype_chain(_, nil), do: false
 
@@ -1630,11 +1639,14 @@ defmodule QuickBEAM.VM.Interpreter do
     vrefs = elem(frame, Frame.var_refs())
     l2v = elem(frame, Frame.l2v())
     old = elem(locals, idx)
-    new_val = case old do
-      {:bigint, n} -> {:bigint, n + 1}
-      n when is_number(n) -> n + 1
-      _ -> Values.add(Values.to_number(old), 1)
-    end
+
+    new_val =
+      case old do
+        {:bigint, n} -> {:bigint, n + 1}
+        n when is_number(n) -> n + 1
+        _ -> Values.add(Values.to_number(old), 1)
+      end
+
     Closures.write_captured_local(l2v, idx, new_val, locals, vrefs)
     run(pc + 1, put_local(frame, idx, new_val), stack, gas, ctx)
   end
@@ -1644,11 +1656,14 @@ defmodule QuickBEAM.VM.Interpreter do
     vrefs = elem(frame, Frame.var_refs())
     l2v = elem(frame, Frame.l2v())
     old = elem(locals, idx)
-    new_val = case old do
-      {:bigint, n} -> {:bigint, n - 1}
-      n when is_number(n) -> n - 1
-      _ -> Values.sub(Values.to_number(old), 1)
-    end
+
+    new_val =
+      case old do
+        {:bigint, n} -> {:bigint, n - 1}
+        n when is_number(n) -> n - 1
+        _ -> Values.sub(Values.to_number(old), 1)
+      end
+
     Closures.write_captured_local(l2v, idx, new_val, locals, vrefs)
     run(pc + 1, put_local(frame, idx, new_val), stack, gas, ctx)
   end
@@ -1913,11 +1928,21 @@ defmodule QuickBEAM.VM.Interpreter do
             if val != :undefined do
               run(pc + 1, frame, [val | stack], gas, ctx)
             else
-              throw_or_catch(frame, Heap.make_error("#{name} is not defined", "ReferenceError"), gas, ctx)
+              throw_or_catch(
+                frame,
+                Heap.make_error("#{name} is not defined", "ReferenceError"),
+                gas,
+                ctx
+              )
             end
 
           _ ->
-            throw_or_catch(frame, Heap.make_error("#{name} is not defined", "ReferenceError"), gas, ctx)
+            throw_or_catch(
+              frame,
+              Heap.make_error("#{name} is not defined", "ReferenceError"),
+              gas,
+              ctx
+            )
         end
     end
   end
@@ -2021,16 +2046,35 @@ defmodule QuickBEAM.VM.Interpreter do
 
       raw_ctor =
         case ctor do
-          {:closure, _, %Bytecode.Function{} = f} -> f
-          {:bound, _, inner, _, _} -> inner
-          %Bytecode.Function{} = f -> f
-          {:builtin, _, cb} when is_function(cb) -> ctor
+          {:closure, _, %Bytecode.Function{} = f} ->
+            f
+
+          {:bound, _, inner, _, _} ->
+            inner
+
+          %Bytecode.Function{} = f ->
+            f
+
+          {:builtin, _, cb} when is_function(cb) ->
+            ctor
+
           {:builtin, _, map} when is_map(map) ->
-            throw({:js_throw, Heap.make_error(
-              "#{Values.stringify(ctor)} is not a constructor", "TypeError")})
+            throw(
+              {:js_throw,
+               Heap.make_error(
+                 "#{Values.stringify(ctor)} is not a constructor",
+                 "TypeError"
+               )}
+            )
+
           _ ->
-            throw({:js_throw, Heap.make_error(
-              "#{Values.stringify(ctor)} is not a constructor", "TypeError")})
+            throw(
+              {:js_throw,
+               Heap.make_error(
+                 "#{Values.stringify(ctor)} is not a constructor",
+                 "TypeError"
+               )}
+            )
         end
 
       # Generators and async generators cannot be constructors
@@ -2252,12 +2296,13 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp run({@op_instanceof, []}, pc, frame, [ctor, obj | rest], gas, ctx) do
     catch_js_throw(pc, frame, rest, gas, ctx, fn ->
-      is_object = match?({:closure, _, _}, ctor) or match?(%Bytecode.Function{}, ctor) or
-               match?({:builtin, _, _}, ctor) or match?({:bound, _, _, _, _}, ctor) or
-               match?({:obj, _}, ctor)
+      is_object = function_value?(ctor) or match?({:obj, _}, ctor)
 
       unless is_object do
-        throw({:js_throw, Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")})
+        throw(
+          {:js_throw,
+           Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")}
+        )
       end
 
       ctor_proto = Get.get(ctor, "prototype")
@@ -2266,20 +2311,33 @@ defmodule QuickBEAM.VM.Interpreter do
         {:obj, _} ->
           case obj do
             {:obj, ref} ->
-              ctor_name = case ctor do {:builtin, n, _} -> n; _ -> nil end
+              ctor_name =
+                case ctor do
+                  {:builtin, n, _} -> n
+                  _ -> nil
+                end
+
               if ctor_name in ["Array", "Object"] do
                 data = Heap.get_obj(ref)
                 is_arr = match?({:qb_arr, _}, data) or is_list(data)
-                if (is_arr and ctor_name == "Array") or ctor_name == "Object", do: true,
-                else: check_prototype_chain(obj, ctor_proto)
+
+                if (is_arr and ctor_name == "Array") or ctor_name == "Object",
+                  do: true,
+                  else: check_prototype_chain(obj, ctor_proto)
               else
                 check_prototype_chain(obj, ctor_proto)
               end
+
             _ ->
-              is_fn = match?({:closure, _, _}, obj) or match?(%Bytecode.Function{}, obj) or
-                      match?({:builtin, _, _}, obj) or match?({:bound, _, _, _, _}, obj)
+              is_fn = function_value?(obj)
+
               if is_fn do
-                ctor_name = case ctor do {:builtin, name, _} -> name; _ -> nil end
+                ctor_name =
+                  case ctor do
+                    {:builtin, name, _} -> name
+                    _ -> nil
+                  end
+
                 ctor_name == "Function" or ctor_name == "Object"
               else
                 false
@@ -2288,10 +2346,18 @@ defmodule QuickBEAM.VM.Interpreter do
 
         _ ->
           if match?({:obj, _}, ctor) do
-            throw({:js_throw, Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")})
+            throw(
+              {:js_throw,
+               Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")}
+            )
           else
-            throw({:js_throw, Heap.make_error(
-              "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check", "TypeError")})
+            throw(
+              {:js_throw,
+               Heap.make_error(
+                 "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check",
+                 "TypeError"
+               )}
+            )
           end
       end
     end)
@@ -2304,7 +2370,10 @@ defmodule QuickBEAM.VM.Interpreter do
     nullish = if obj == nil, do: "null", else: "undefined"
 
     error =
-      Heap.make_error("Cannot delete properties of #{nullish} (deleting '#{Values.stringify(key)}')", "TypeError")
+      Heap.make_error(
+        "Cannot delete properties of #{nullish} (deleting '#{Values.stringify(key)}')",
+        "TypeError"
+      )
 
     throw_or_catch(frame, error, gas, ctx)
   end
@@ -2350,15 +2419,20 @@ defmodule QuickBEAM.VM.Interpreter do
   defp run({@op_delete_var, [atom_idx]}, pc, frame, stack, gas, ctx) do
     name = Names.resolve_atom(ctx.atoms, atom_idx)
     builtins = Process.get(:qb_builtin_names, MapSet.new())
-    result = case Map.fetch(ctx.globals, name) do
-      {:ok, _} ->
-        if MapSet.member?(@non_configurable_globals, name) do
-          false
-        else
-          MapSet.member?(builtins, name)
-        end
-      :error -> true
-    end
+
+    result =
+      case Map.fetch(ctx.globals, name) do
+        {:ok, _} ->
+          if MapSet.member?(@non_configurable_globals, name) do
+            false
+          else
+            MapSet.member?(builtins, name)
+          end
+
+        :error ->
+          true
+      end
+
     run(pc + 1, frame, [result | stack], gas, ctx)
   end
 
@@ -2370,9 +2444,13 @@ defmodule QuickBEAM.VM.Interpreter do
                match?({:closure, _, _}, obj) or match?(%Bytecode.Function{}, obj) or
                match?({:bound, _, _, _, _}, obj) or match?({:qb_arr, _}, obj) or
                is_list(obj) or is_map(obj) do
-        throw({:js_throw, Heap.make_error(
-          "Cannot use 'in' operator to search for '#{Values.stringify(key)}' in #{Values.stringify(obj)}",
-          "TypeError")})
+        throw(
+          {:js_throw,
+           Heap.make_error(
+             "Cannot use 'in' operator to search for '#{Values.stringify(key)}' in #{Values.stringify(obj)}",
+             "TypeError"
+           )}
+        )
       end
 
       coerced_key = if is_binary(key) or is_integer(key), do: key, else: Values.stringify(key)
@@ -2482,7 +2560,9 @@ defmodule QuickBEAM.VM.Interpreter do
 
     cell =
       case val do
-        {:cell, _} -> val
+        {:cell, _} ->
+          val
+
         _ ->
           ref = make_ref()
           Heap.put_cell(ref, val)
@@ -2637,13 +2717,28 @@ defmodule QuickBEAM.VM.Interpreter do
           make_list_iterator(String.codepoints(s))
 
         nil ->
-          throw({:js_throw, Heap.make_error("Cannot read properties of null (reading 'Symbol(Symbol.iterator)')", "TypeError")})
+          throw(
+            {:js_throw,
+             Heap.make_error(
+               "Cannot read properties of null (reading 'Symbol(Symbol.iterator)')",
+               "TypeError"
+             )}
+          )
 
         :undefined ->
-          throw({:js_throw, Heap.make_error("Cannot read properties of undefined (reading 'Symbol(Symbol.iterator)')", "TypeError")})
+          throw(
+            {:js_throw,
+             Heap.make_error(
+               "Cannot read properties of undefined (reading 'Symbol(Symbol.iterator)')",
+               "TypeError"
+             )}
+          )
 
         other ->
-          throw({:js_throw, Heap.make_error("#{Values.stringify(other)} is not iterable", "TypeError")})
+          throw(
+            {:js_throw,
+             Heap.make_error("#{Values.stringify(other)} is not iterable", "TypeError")}
+          )
       end
 
     run(pc + 1, frame, [0, next_fn, iter_obj | rest], gas, ctx)
@@ -2903,7 +2998,10 @@ defmodule QuickBEAM.VM.Interpreter do
   defp run({@op_apply, [1]}, pc, frame, [arg_array, new_target, fun | rest], gas, ctx) do
     result = invoke_super_constructor(fun, new_target, apply_args(arg_array), gas, ctx)
     persistent = Heap.get_persistent_globals() || %{}
-    refreshed = Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent), this: result})
+
+    refreshed =
+      Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent), this: result})
+
     run(pc + 1, frame, [result | rest], gas, refreshed)
   end
 

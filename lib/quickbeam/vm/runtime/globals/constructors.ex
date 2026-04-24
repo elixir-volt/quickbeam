@@ -62,6 +62,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   end
 
   def string(args, _), do: Runtime.stringify(List.first(args, ""))
+
   def number(args, {:obj, _} = this) do
     val = Runtime.to_number(List.first(args, 0))
     QuickBEAM.VM.ObjectModel.Put.put(this, "__wrapped_number__", val)
@@ -126,6 +127,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   end
 
   def regexp([], this), do: regexp(["" | []], this)
+
   def regexp([pattern | rest], _) do
     flags =
       case rest do

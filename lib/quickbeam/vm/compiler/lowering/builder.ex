@@ -2,7 +2,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
   @moduledoc false
 
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
-  alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.PredefinedAtoms
 
   @line 1

@@ -163,11 +163,18 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     b = var("B")
 
     same = var("Same")
+
     {:function, @line, :op_eq, 2,
      [
        {:clause, @line, [same, same], [], [{:atom, @line, true}]},
        {:clause, @line, [a, b], [number_guards(a, b)], [{:op, @line, :==, a, b}]},
-       {:clause, @line, [a, b], [[{:op, @line, :andalso, {:call, @line, {:atom, @line, :is_binary}, [a]}, {:call, @line, {:atom, @line, :is_binary}, [b]}}]], [{:op, @line, :==, a, b}]},
+       {:clause, @line, [a, b],
+        [
+          [
+            {:op, @line, :andalso, {:call, @line, {:atom, @line, :is_binary}, [a]},
+             {:call, @line, {:atom, @line, :is_binary}, [b]}}
+          ]
+        ], [{:op, @line, :==, a, b}]},
        {:clause, @line, [a, b], [], [remote_call(Values, :eq, [a, b])]}
      ]}
   end
@@ -231,7 +238,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   end
 
   defp get_field_inline_helper do
-    obj = var("Obj")
+    _obj = var("Obj")
     key = var("Key")
     id = var("Id")
     offsets = var("Offsets")
@@ -259,7 +266,8 @@ defmodule QuickBEAM.VM.Compiler.Forms do
                  [
                    {:clause, @line, [{:tuple, @line, [{:atom, @line, :ok}, off]}], [],
                     [
-                      {:call, @line, {:remote, @line, {:atom, @line, :erlang}, {:atom, @line, :element}},
+                      {:call, @line,
+                       {:remote, @line, {:atom, @line, :erlang}, {:atom, @line, :element}},
                        [{:op, @line, :+, off, {:integer, @line, 1}}, vals]}
                     ]},
                    {:clause, @line, [{:atom, @line, :error}], [],
@@ -276,7 +284,6 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   end
 
   defp local_call(fun, args), do: {:call, @line, {:atom, @line, fun}, args}
-
 
   defp truthy_inline_helper do
     v = var("V")
@@ -304,8 +311,10 @@ defmodule QuickBEAM.VM.Compiler.Forms do
        {:clause, @line, [{:atom, @line, nil}], [], [:erl_parse.abstract("object")]},
        {:clause, @line, [{:atom, @line, true}], [], [:erl_parse.abstract("boolean")]},
        {:clause, @line, [{:atom, @line, false}], [], [:erl_parse.abstract("boolean")]},
-       {:clause, @line, [v], [[{:call, @line, {:atom, @line, :is_number}, [v]}]], [:erl_parse.abstract("number")]},
-       {:clause, @line, [v], [[{:call, @line, {:atom, @line, :is_binary}, [v]}]], [:erl_parse.abstract("string")]},
+       {:clause, @line, [v], [[{:call, @line, {:atom, @line, :is_number}, [v]}]],
+        [:erl_parse.abstract("number")]},
+       {:clause, @line, [v], [[{:call, @line, {:atom, @line, :is_binary}, [v]}]],
+        [:erl_parse.abstract("string")]},
        {:clause, @line, [v], [], [remote_call(Values, :typeof, [v])]}
      ]}
   end
