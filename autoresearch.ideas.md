@@ -1,31 +1,32 @@
-# Autoresearch Ideas — 96 remaining failures (93.9%)
+# Autoresearch Ideas — 68 remaining failures (95.7% pass rate)
 
-## Session progress: 106 → 96 = 10 tests fixed
+## Session progress: 72 → 68 = 4 tests fixed
 
 ## Fixes this session
-1. **CRITICAL: Shape key ordering in wrap_keyed** — lowering sort_by pattern didn't match :erl_parse.abstract binary AST format (3 tests)
-2. **from_map vals ordering** — build vals in shape offset order instead of map iteration order
-3. **Iterator error propagation** — invoke_callback_or_throw replaces call_callback in for_of_start/next/iterator_next (5 tests)
-4. **Spread iterator accessor descriptors** — handle defineProperty getter on Symbol.iterator (2 tests)
-5. **Spread TypeError for non-object iterator** — per spec 7.4.1 step 3 (1 test)
+1. **CRITICAL: Stale catch_stack in opcode try/catch handlers** — `run(pc+1, ...)` inside BEAM `try` blocks prevents tail call optimization, so throws from ANY subsequent opcode are caught by stale catch clause with old `ctx.catch_stack`. Fixed by refreshing ctx from process dictionary in catch handlers. Also extracted `for_of_start`/`to_object`/`throw_error` throws to route through `throw_or_catch`. (4 tests)
 
-## Remaining breakdown (96 failures)
-### Unfixable (~63)
-- **47** with-statement scope
-- **16** inc/dec using with in source (CRASHes)
+## Previous session: 106 → 72 = 34 tests fixed
+(See git history for details)
 
-### Potentially fixable (~33)
-- **~13** _isSameValue — systemic assert.sameValue issue
-- **~7** for/dstr — array-prototype iterator override, rest-getter
-- **~7** try/dstr — similar + null destructuring
-- **~4** instanceof — closure identity, prototype getter
-- **~3** try/finally — double execution across function boundaries
-- **~4** unicode surrogates — UTF-8 vs UTF-16 (may be unfixable)
-- **~2** spread timeout — value getter on iterator result
-- **~2** private fields — #field syntax
-- **~1** proxy, ~1 typeof/proxy, ~1 delete this.y, ~1 unsigned-right-shift
+## Remaining breakdown (68 failures)
+### Unfixable (~61)
+- **45** with-statement scope (no `with` support in BEAM VM)
+- **16** inc/dec using `with` in source (CRASHes/wrong scope)
 
-## Dead ends
+### Potentially fixable (~7)
+- **2** instanceof — `new Function` doesn't set constructor on prototype; `prototype` getter on Function.prototype not invoked during instanceof
+- **2** private fields (`#field` syntax) — `in` operator for private field presence check
+- **1** typeof/proxy — `typeof Proxy(function(){}, {})` returns "object" instead of "function"; Proxy needs to forward `[[Call]]`
+- **1** delete — `delete this.y` returns true for declared vars; globalThis/variable binding mismatch
+- **1** for-in/head-lhs-let — `let` as variable name in non-strict for-in; parser/lexer issue
+
+## Dead ends (from previous sessions)
 - `{:obj, _}` non-callable in instanceof: Function.prototype is {:obj, _} but callable
 - collect_iterator with invoke_callback_or_throw: spread on undefined is valid, causes 4 regressions
-- Destructuring null: for_of_start throws TypeError but it's caught and swallowed by the error propagation machinery
+- Destructuring null: catch clause binding was swallowing TypeError (now fixed via ctx refresh)
+
+## Architecture notes
+- BEAM try/catch prevents tail call optimization for `run(pc+1, ...)` inside try blocks
+- Any opcode handler that wraps `run(pc+1, ...)` in try MUST refresh ctx from PD in catch clause
+- The `catch_js_throw`/`catch_js_throw_refresh_globals` helpers are already correct (they extract results before calling `run`)
+- The compiled path (RuntimeHelpers) uses BEAM try/catch from the lowering compiler, which properly scopes catch handlers
