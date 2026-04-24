@@ -2,15 +2,15 @@
 set -euo pipefail
 
 # Quick sanity check — compile and run core tests
-if ! MIX_ENV=test mix compile --no-optional-deps 2>&1 | tail -1 | grep -q "Generated\|Compiled"; then
-  ERRORS=$(MIX_ENV=test mix compile --no-optional-deps 2>&1 | grep -c "error:" || true)
+if ! MIX_ENV=test mix compile --no-optional-deps --no-deps-check 2>&1 | tail -1 | grep -q "Generated\|Compiled"; then
+  ERRORS=$(MIX_ENV=test mix compile --no-optional-deps --no-deps-check 2>&1 | grep -c "error:" || true)
   if [ "$ERRORS" -gt 0 ]; then
     echo "METRIC failing_tests=9999"
     exit 1
   fi
 fi
 
-MIX_ENV=test mix test test/vm/beam_compat_test.exs test/vm/compiler_test.exs --no-color 2>&1 | tail -1 | grep -q "0 failures" || {
+MIX_ENV=test mix test test/vm/beam_compat_test.exs test/vm/compiler_test.exs --no-color --no-deps-check 2>&1 | tail -1 | grep -q "0 failures" || {
   echo "METRIC failing_tests=9999"
   echo "METRIC passing_tests=0"
   echo "Core tests failed — regression!"
@@ -19,7 +19,7 @@ MIX_ENV=test mix test test/vm/beam_compat_test.exs test/vm/compiler_test.exs --n
 
 # Run test262 suite
 START=$(date +%s)
-OUTPUT=$(MIX_ENV=test mix test test/vm/test262_test.exs --include test262 --max-cases 8 --no-color 2>&1 | tail -5 || true)
+OUTPUT=$(MIX_ENV=test mix test test/vm/test262_test.exs --include test262 --max-cases 8 --no-color --no-deps-check 2>&1 | tail -5 || true)
 END=$(date +%s)
 ELAPSED=$((END - START))
 
