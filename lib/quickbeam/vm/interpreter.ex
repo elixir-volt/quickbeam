@@ -356,14 +356,17 @@ defmodule QuickBEAM.VM.Interpreter do
           instructions = List.to_tuple(instructions)
           locals = :erlang.make_tuple(max(fun.arg_count + fun.var_count, 1), :undefined)
 
+          {locals, var_refs_tuple, l2v} =
+            Closures.setup_captured_locals(fun, locals, [], args)
+
           frame =
             Frame.new(
               locals,
               List.to_tuple(fun.constants),
-              {},
+              var_refs_tuple,
               fun.stack_size,
               instructions,
-              %{}
+              l2v
             )
 
           if ctx.trace_enabled, do: Trace.push(fun)
