@@ -1897,6 +1897,14 @@ defmodule QuickBEAM.VM.Interpreter do
   defp run({@op_put_array_el, []}, pc, frame, [val, idx, obj | rest], gas, ctx) do
     try do
       Put.put_element(obj, idx, val)
+
+      ctx =
+        case Heap.get_persistent_globals() do
+          nil -> ctx
+          p when map_size(p) == 0 -> ctx
+          p -> Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, p)})
+        end
+
       run(pc + 1, frame, rest, gas, ctx)
     catch
       {:js_throw, error} ->

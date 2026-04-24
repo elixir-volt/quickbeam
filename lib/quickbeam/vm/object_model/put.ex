@@ -268,6 +268,31 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     Invocation.invoke_with_receiver(fun, [val], this_obj)
   end
 
+  defp proto_has_setter?(idx) do
+    case find_array_proto_accessor(Integer.to_string(idx)) do
+      {:accessor, _, setter} when setter != nil -> true
+      _ -> false
+    end
+  end
+
+  defp invoke_proto_setter(obj, idx, val) do
+    case find_array_proto_accessor(Integer.to_string(idx)) do
+      {:accessor, _, setter} when setter != nil -> invoke_setter(setter, val, obj)
+      _ -> :ok
+    end
+  end
+
+  defp find_array_proto_accessor(str_key) do
+    with %{globals: globals} <- Heap.get_ctx(),
+         array_ctor when array_ctor != nil <- Map.get(globals, "Array"),
+         {:obj, proto_ref} <- Map.get(Heap.get_ctor_statics(array_ctor), "prototype"),
+         map when is_map(map) <- Heap.get_obj(proto_ref, nil) do
+      Map.get(map, str_key)
+    else
+      _ -> nil
+    end
+  end
+
 
 
   def has_property({:obj, ref}, key) do
@@ -429,9 +454,15 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
       %{typed_array() => true} when is_integer(key) ->
         Runtime.TypedArray.set_element(obj, key, val)
 
-      {:qb_arr, _} ->
+      {:qb_arr, arr} ->
         case key do
-          i when is_integer(i) and i >= 0 -> Heap.array_set(ref, i, val)
+          i when is_integer(i) and i >= 0 ->
+            if i >= :array.size(arr) and proto_has_setter?(i) do
+              invoke_proto_setter(obj, i, val)
+            else
+              Heap.array_set(ref, i, val)
+            end
+
           _ -> :ok
         end
 
@@ -441,8 +472,12 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             Heap.put_obj(ref, List.replace_at(list, i, val))
 
           i when is_integer(i) and i >= 0 ->
-            padded = list ++ List.duplicate(:undefined, i - length(list)) ++ [val]
-            Heap.put_obj(ref, padded)
+            if proto_has_setter?(i) do
+              invoke_proto_setter(obj, i, val)
+            else
+              padded = list ++ List.duplicate(:undefined, i - length(list)) ++ [val]
+              Heap.put_obj(ref, padded)
+            end
 
           _ ->
             :ok
