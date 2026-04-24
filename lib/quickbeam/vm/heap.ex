@@ -191,18 +191,6 @@ defmodule QuickBEAM.VM.Heap do
             proto
 
           existing ->
-            # Update constructor reference to current ctor (may differ across invocations)
-            {:obj, ref} = existing
-            case Store.get_obj_raw(ref) do
-              {:shape, sid, offsets, vals, p} ->
-                case Map.fetch(offsets, "constructor") do
-                  {:ok, off} -> Store.put_obj_raw(ref, {:shape, sid, offsets, put_elem(vals, off, ctor), p})
-                  _ -> :ok
-                end
-              map when is_map(map) -> Store.put_obj_raw(ref, Map.put(map, "constructor", ctor))
-              _ -> :ok
-            end
-
             existing
         end
 

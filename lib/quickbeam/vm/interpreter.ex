@@ -413,7 +413,10 @@ defmodule QuickBEAM.VM.Interpreter do
       Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
     )
   catch
-    {:js_throw, val} -> throw_or_catch(frame, val, gas, ctx)
+    {:js_throw, val} ->
+      persistent = Heap.get_persistent_globals() || %{}
+      refreshed_ctx = Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
+      throw_or_catch(frame, val, gas, refreshed_ctx)
   end
 
   # ── Helpers ──
