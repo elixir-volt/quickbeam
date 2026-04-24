@@ -409,7 +409,15 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp define_property([{:obj, ref} = obj, key, {:obj, desc_ref} | _]) do
     desc = Heap.get_obj(desc_ref, %{})
-    prop_name = if is_binary(key), do: key, else: Values.stringify(key)
+
+    prop_name =
+      case key do
+        k when is_binary(k) -> k
+        {:symbol, _} -> key
+        {:symbol, _, _} -> key
+        _ -> Values.stringify(key)
+      end
+
     existing = Heap.get_obj(ref, %{})
 
     if is_list(existing) or match?({:qb_arr, _}, existing) do

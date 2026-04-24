@@ -1044,7 +1044,17 @@ defmodule QuickBEAM.VM.Interpreter.Values do
       else
         # Check @@to_primitive first (spec: 7.1.1)
         sym_key = {:symbol, "Symbol.toPrimitive"}
-        to_prim = Map.get(data, sym_key) || Get.get(obj, sym_key)
+
+        raw_prim = Map.get(data, sym_key) || Get.get(obj, sym_key)
+
+        to_prim =
+          case raw_prim do
+            {:accessor, getter, _} when getter != nil ->
+              Get.call_getter(getter, obj)
+
+            other ->
+              other
+          end
 
         if to_prim != nil and to_prim != :undefined do
           if not callable?(to_prim) do

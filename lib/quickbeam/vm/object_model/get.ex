@@ -46,6 +46,17 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   def get(value, key) when is_integer(key),
     do: get(value, Integer.to_string(key))
 
+  def get({:obj, ref} = value, {:symbol, _} = sym_key) do
+    data = Heap.get_obj(ref, %{})
+
+    case is_map(data) && Map.get(data, sym_key) do
+      {:accessor, getter, _} when getter != nil -> call_getter(getter, value)
+      nil -> :undefined
+      false -> :undefined
+      val -> val
+    end
+  end
+
   def get(_, _), do: :undefined
 
   def call_getter(fun, this_obj) do
