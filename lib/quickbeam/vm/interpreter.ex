@@ -2076,6 +2076,21 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp run({@op_define_var, [atom_idx, _scope]}, pc, frame, stack, gas, ctx) do
     ctx = GlobalEnv.define_var(ctx, atom_idx)
+
+    case Map.get(ctx.globals, "globalThis") do
+      {:obj, ref} ->
+        name = Names.resolve_atom(ctx, atom_idx)
+        stored = Heap.get_obj(ref)
+
+        if is_map(stored) and not Map.has_key?(stored, name) do
+          Heap.put_obj(ref, Map.put(stored, name, :undefined))
+          Heap.put_prop_desc(ref, name, %{writable: true, enumerable: true, configurable: false})
+        end
+
+      _ ->
+        :ok
+    end
+
     run(pc + 1, frame, stack, gas, ctx)
   end
 
