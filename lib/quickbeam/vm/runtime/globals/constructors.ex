@@ -125,6 +125,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
     throw({:js_throw, Heap.make_error("Cannot convert to BigInt", "TypeError")})
   end
 
+  def regexp([], this), do: regexp(["" | []], this)
   def regexp([pattern | rest], _) do
     flags =
       case rest do
