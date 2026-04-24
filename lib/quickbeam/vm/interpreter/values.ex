@@ -978,10 +978,10 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   end
 
   defp has_own_method?(data, method) when is_map(data) do
-    case Map.get(data, method) do
-      nil -> false
-      :undefined -> false
-      val -> is_callable?(val)
+    case Map.fetch(data, method) do
+      {:ok, :undefined} -> false
+      {:ok, _} -> true
+      :error -> false
     end
   end
 
