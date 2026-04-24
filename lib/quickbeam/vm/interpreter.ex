@@ -1082,7 +1082,18 @@ defmodule QuickBEAM.VM.Interpreter do
       case fun do
         {:builtin, _, _} ->
           val = Get.get(fun, key_str)
-          if val == :undefined, do: true, else: false
+
+          cond do
+            val == :undefined ->
+              true
+
+            is_number(val) or val == :infinity or val == :neg_infinity or val == :nan ->
+              false
+
+            true ->
+              Heap.put_ctor_statics(fun, Map.put(statics, key_str, :deleted))
+              true
+          end
 
         _ ->
           true
@@ -2413,7 +2424,8 @@ defmodule QuickBEAM.VM.Interpreter do
               true
             end
           else
-            true
+            key_str = if is_binary(key), do: key, else: Values.stringify(key)
+            if key_str == "length", do: false, else: true
           end
 
         {:closure, _, _} = fun ->

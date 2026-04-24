@@ -218,8 +218,14 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_own(nil, _), do: :undefined
   defp get_own(:undefined, _), do: :undefined
 
-  defp get_own({:builtin, _name, map}, key) when is_map(map) do
-    Map.get(map, key, :undefined)
+  defp get_own({:builtin, _name, map} = b, key) when is_map(map) do
+    statics = Heap.get_ctor_statics(b)
+
+    case Map.fetch(statics, key) do
+      {:ok, :deleted} -> :undefined
+      {:ok, val} -> val
+      :error -> Map.get(map, key, :undefined)
+    end
   end
 
   defp get_own({:builtin, name, _}, "from")
@@ -238,14 +244,17 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_own({:builtin, _, _} = b, key) do
     statics = Heap.get_ctor_statics(b)
 
-    case Map.get(statics, :__module__) do
-      nil ->
-        Map.get(statics, key, :undefined)
+    case Map.fetch(statics, key) do
+      {:ok, :deleted} ->
+        :undefined
 
-      mod ->
-        case mod.static_property(key) do
-          :undefined -> Map.get(statics, key, :undefined)
-          val -> val
+      {:ok, val} ->
+        val
+
+      :error ->
+        case Map.get(statics, :__module__) do
+          nil -> :undefined
+          mod -> mod.static_property(key)
         end
     end
   end
