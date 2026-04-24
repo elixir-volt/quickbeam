@@ -2896,6 +2896,14 @@ defmodule QuickBEAM.VM.Interpreter do
       run(pc + 1, frame, [true, :undefined | stack], gas, ctx)
     else
       result = Invocation.invoke_callback_or_throw(next_fn, [])
+
+      ctx =
+        case Heap.get_persistent_globals() do
+          nil -> ctx
+          p when map_size(p) == 0 -> ctx
+          p -> Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, p)})
+        end
+
       done = Get.get(result, "done")
       value = Get.get(result, "value")
 
@@ -2919,6 +2927,8 @@ defmodule QuickBEAM.VM.Interpreter do
          ctx
        ) do
     result = Invocation.invoke_callback_or_throw(next_fn, [val])
+    persistent = Heap.get_persistent_globals() || %{}
+    ctx = Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
     run(pc + 1, frame, [result, catch_offset, next_fn, iter_obj | rest], gas, ctx)
   end
 
@@ -2941,13 +2951,20 @@ defmodule QuickBEAM.VM.Interpreter do
          gas,
          ctx
        ) do
-    if iter_obj != :undefined do
-      return_fn = Get.get(iter_obj, "return")
+    ctx =
+      if iter_obj != :undefined do
+        return_fn = Get.get(iter_obj, "return")
 
-      if return_fn != :undefined and return_fn != nil do
-        Invocation.invoke_callback_or_throw(return_fn, [], iter_obj)
+        if return_fn != :undefined and return_fn != nil do
+          Invocation.invoke_callback_or_throw(return_fn, [], iter_obj)
+          persistent = Heap.get_persistent_globals() || %{}
+          Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
+        else
+          ctx
+        end
+      else
+        ctx
       end
-    end
 
     run(pc + 1, frame, rest, gas, ctx)
   end
