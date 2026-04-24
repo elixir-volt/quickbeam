@@ -3117,6 +3117,13 @@ defmodule QuickBEAM.VM.Interpreter do
       {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
     end
 
+    ctx =
+      case Heap.get_persistent_globals() do
+        nil -> ctx
+        p when map_size(p) == 0 -> ctx
+        p -> Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, p)})
+      end
+
     run(pc + 1, frame, [source, target | rest], gas, ctx)
   end
 
@@ -3193,6 +3200,14 @@ defmodule QuickBEAM.VM.Interpreter do
 
     try do
       Copy.copy_data_properties(target, source, exclude)
+
+      ctx =
+        case Heap.get_persistent_globals() do
+          nil -> ctx
+          p when map_size(p) == 0 -> ctx
+          p -> Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, p)})
+        end
+
       run(pc + 1, frame, stack, gas, ctx)
     catch
       {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
