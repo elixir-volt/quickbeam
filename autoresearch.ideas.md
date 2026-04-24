@@ -1,29 +1,20 @@
-# Autoresearch Ideas — 139 remaining failures (91.2%)
+# Autoresearch — 138 remaining failures (91.3%)
 
-## Breakdown  
-- **47 with-statement** — scope chain management, opcodes
-- **28 inc/dec** — unimplemented opcodes (21), evaluation order in args (7)
-- **18 for/dstr** — destructuring iterator, _isSameValue (verifyProperty)
-- **8 try/dstr** — destructuring in catch
-- **8 delete** — _isSameValue, property descriptors
-- **7 instanceof** — Symbol.hasInstance, prototype getter
-- **5 new** — spread iterator errors, _isSameValue
-- **18 other** — surrogates, private fields, proxy, _isSameValue misc
+## Overall: 628 → 138 = 490 tests fixed (78.0%)
 
-## Key blockers
-1. **with-statement** (47+some inc/dec = ~68): Deep interpreter rewrite
-2. **_isSameValue through verifyProperty** (~12): Object.getOwnPropertyDescriptor 
-   returns correct values but verifyProperty from propertyHelper.js fails for
-   spread-created objects
-3. **x[0]++ as function argument** (4): BigInt post-increment in call arg position
-   fails with "not a function"
-4. **Destructuring iterator protocol** (~18): for-loop destructuring doesn't
-   trigger iterator, rest pattern doesn't exclude named props
+## Remaining breakdown
+- **68** with-statement scope + unimplemented opcodes — deep interpreter rewrite needed
+- **~30** _isSameValue / closure identity — builtin property deletion, compiled cache edge cases
+- **~18** destructuring iterator protocol — for-loop dstr, rest patterns
+- **8** inc/dec evaluation order — null[prop()]++ TypeError vs DummyError  
+- **7** instanceof — Symbol.hasInstance (3), prototype getter (2), other (2)
+- **7** other — Unicode surrogates (4), private fields (2), proxy (1)
 
-## Session achievements (152 → 139)
-- var hoisting: define_var now updates ctx.globals (13 tests!)
-- op_apply[1] constructor apply refresh (8 tests)
-- call_constructor + op_apply refresh (4 tests)
-- delete_var builtin distinction
-
-## Overall: 628 → 139 = 489 tests fixed (77.9%), 91.2% pass rate
+## Not fixable without deep changes
+- with-statement scope chain (47 tests)
+- Unimplemented opcodes insert3/perm4/put_ref_value (21 tests)
+- Builtin property deletion (delete JSON.stringify doesn't work)
+- Symbol.hasInstance in instanceof
+- Private field syntax (#field in obj)
+- Proxy objects
+- Unicode surrogate comparison (UTF-8 vs UTF-16 code unit order)
