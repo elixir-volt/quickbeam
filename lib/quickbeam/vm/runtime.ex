@@ -41,6 +41,9 @@ defmodule QuickBEAM.VM.Runtime do
 
   def to_float(n) when is_float(n), do: n
   def to_float(n) when is_integer(n), do: n * 1.0
+  def to_float(:infinity), do: :infinity
+  def to_float(:neg_infinity), do: :neg_infinity
+  def to_float(:nan), do: :nan
   def to_float(_), do: 0.0
 
   def to_number({:bigint, n}), do: n

@@ -9,19 +9,40 @@ defmodule QuickBEAM.VM.Runtime.Math do
 
   js_object "Math" do
     method "floor" do
-      floor(Runtime.to_float(hd(args)))
+      case Runtime.to_float(hd(args)) do
+        :infinity -> :infinity
+        :neg_infinity -> :neg_infinity
+        :nan -> :nan
+        n -> floor(n)
+      end
     end
 
     method "ceil" do
-      ceil(Runtime.to_float(hd(args)))
+      case Runtime.to_float(hd(args)) do
+        :infinity -> :infinity
+        :neg_infinity -> :neg_infinity
+        :nan -> :nan
+        n -> ceil(n)
+      end
     end
 
     method "round" do
-      round(Runtime.to_float(hd(args)))
+      case Runtime.to_float(hd(args)) do
+        :infinity -> :infinity
+        :neg_infinity -> :neg_infinity
+        :nan -> :nan
+        n -> round(n)
+      end
     end
 
     method "abs" do
-      abs(hd(args))
+      case hd(args) do
+        :infinity -> :infinity
+        :neg_infinity -> :infinity
+        :nan -> :nan
+        n when is_number(n) -> abs(n)
+        _ -> :nan
+      end
     end
 
     method "max" do
