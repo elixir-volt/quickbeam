@@ -288,7 +288,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         Map.has_key?(map, key) or Get.get({:obj, ref}, key) != :undefined
 
       _ ->
-        false
+        Get.get({:obj, ref}, key) != :undefined
     end
   end
 

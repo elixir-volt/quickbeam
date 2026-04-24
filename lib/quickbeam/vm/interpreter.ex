@@ -2016,18 +2016,22 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp run({@op_for_in_start, []}, pc, frame, [obj | rest], gas, ctx) do
     keys = Copy.enumerable_keys(obj)
-    run(pc + 1, frame, [{:for_in_iterator, keys} | rest], gas, ctx)
+    run(pc + 1, frame, [{:for_in_iterator, keys, obj} | rest], gas, ctx)
   end
 
   defp run(
-         {@op_for_in_next, []},
+         {@op_for_in_next, []} = instr,
          pc,
          frame,
-         [{:for_in_iterator, [key | rest_keys]} | rest],
+         [{:for_in_iterator, [key | rest_keys], obj} | rest],
          gas,
          ctx
        ) do
-    run(pc + 1, frame, [false, key, {:for_in_iterator, rest_keys} | rest], gas, ctx)
+    if Put.has_property(obj, key) do
+      run(pc + 1, frame, [false, key, {:for_in_iterator, rest_keys, obj} | rest], gas, ctx)
+    else
+      run(instr, pc, frame, [{:for_in_iterator, rest_keys, obj} | rest], gas, ctx)
+    end
   end
 
   defp run({@op_for_in_next, []}, pc, frame, [iter | rest], gas, ctx) do
