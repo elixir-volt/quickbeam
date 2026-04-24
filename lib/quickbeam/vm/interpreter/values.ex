@@ -648,7 +648,11 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def lt(a, {:bigint, b}) when is_boolean(a), do: to_number(a) < b
   def lt(a, b) when is_number(a) and is_number(b), do: a < b
   def lt(a, b) when is_binary(a) and is_binary(b), do: a < b
-  def lt(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.</2)
+  def lt(a, b) do
+    pa = if match?({:obj, _}, a), do: to_primitive(a), else: if is_function_like?(a), do: fn_to_primitive(a), else: a
+    pb = if match?({:obj, _}, b), do: to_primitive(b), else: if is_function_like?(b), do: fn_to_primitive(b), else: b
+    if is_binary(pa) and is_binary(pb), do: pa < pb, else: numeric_compare(to_number(pa), to_number(pb), &Kernel.</2)
+  end
 
   def lte({:bigint, a}, {:bigint, b}), do: a <= b
   def lte({:bigint, _}, :nan), do: false
@@ -665,7 +669,11 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def lte(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y <= x end)
   def lte(a, b) when is_number(a) and is_number(b), do: a <= b
   def lte(a, b) when is_binary(a) and is_binary(b), do: a <= b
-  def lte(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.<=/2)
+  def lte(a, b) do
+    pa = if match?({:obj, _}, a), do: to_primitive(a), else: if is_function_like?(a), do: fn_to_primitive(a), else: a
+    pb = if match?({:obj, _}, b), do: to_primitive(b), else: if is_function_like?(b), do: fn_to_primitive(b), else: b
+    if is_binary(pa) and is_binary(pb), do: pa <= pb, else: numeric_compare(to_number(pa), to_number(pb), &Kernel.<=/2)
+  end
 
   def gt({:bigint, a}, {:bigint, b}), do: a > b
   def gt({:bigint, _}, :nan), do: false
@@ -682,7 +690,11 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def gt(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y > x end)
   def gt(a, b) when is_number(a) and is_number(b), do: a > b
   def gt(a, b) when is_binary(a) and is_binary(b), do: a > b
-  def gt(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.>/2)
+  def gt(a, b) do
+    pa = if match?({:obj, _}, a), do: to_primitive(a), else: if is_function_like?(a), do: fn_to_primitive(a), else: a
+    pb = if match?({:obj, _}, b), do: to_primitive(b), else: if is_function_like?(b), do: fn_to_primitive(b), else: b
+    if is_binary(pa) and is_binary(pb), do: pa > pb, else: numeric_compare(to_number(pa), to_number(pb), &Kernel.>/2)
+  end
 
   def gte({:bigint, a}, {:bigint, b}), do: a >= b
   def gte({:bigint, _}, :nan), do: false
@@ -699,7 +711,11 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def gte(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y >= x end)
   def gte(a, b) when is_number(a) and is_number(b), do: a >= b
   def gte(a, b) when is_binary(a) and is_binary(b), do: a >= b
-  def gte(a, b), do: numeric_compare(to_number(a), to_number(b), &Kernel.>=/2)
+  def gte(a, b) do
+    pa = if match?({:obj, _}, a), do: to_primitive(a), else: if is_function_like?(a), do: fn_to_primitive(a), else: a
+    pb = if match?({:obj, _}, b), do: to_primitive(b), else: if is_function_like?(b), do: fn_to_primitive(b), else: b
+    if is_binary(pa) and is_binary(pb), do: pa >= pb, else: numeric_compare(to_number(pa), to_number(pb), &Kernel.>=/2)
+  end
 
   defp to_numeric({:obj, _} = obj) do
     case to_primitive(obj) do
