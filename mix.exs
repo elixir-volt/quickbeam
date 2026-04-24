@@ -12,6 +12,7 @@ defmodule QuickBEAM.MixProject do
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      elixirc_paths: elixirc_paths(Mix.env()),
       aliases: aliases(),
       dialyzer: [plt_add_apps: [:crypto, :inets, :ssl, :public_key]],
       name: "QuickBEAM",
@@ -27,7 +28,7 @@ defmodule QuickBEAM.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :inets, :ssl, :public_key, :xmerl],
+      extra_applications: [:logger, :inets, :ssl, :public_key, :xmerl, :tools, :runtime_tools],
       mod: {QuickBEAM.Application, []}
     ]
   end
@@ -61,13 +62,18 @@ defmodule QuickBEAM.MixProject do
     ]
   end
 
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
   defp deps do
     [
       {:zigler_precompiled, "~> 0.1.2"},
+      {:yaml_elixir, "~> 2.11", only: :test, runtime: false},
       {:zigler, "~> 0.15.2", runtime: false, optional: true},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_dna, "~> 1.1", only: [:dev, :test], runtime: false},
+      {:jason, "~> 1.4"},
       {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false},
       {:oxc, ">= 0.7.0"},
       {:npm, "~> 0.6.0"},
@@ -77,7 +83,9 @@ defmodule QuickBEAM.MixProject do
       {:websock_adapter, "~> 0.5", only: :test},
       {:benchee, "~> 1.3", only: :bench, runtime: false},
       {:quickjs_ex, "~> 0.3.1", only: :bench, runtime: false},
-      {:ex_doc, "~> 0.35", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.35", only: :dev, runtime: false},
+      {:reach, "~> 1.6", only: :dev, runtime: false},
+      {:ex_ast, "~> 0.3", only: [:dev, :test]}
     ]
   end
 

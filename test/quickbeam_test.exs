@@ -1,7 +1,9 @@
 defmodule QuickBEAMTest do
   use ExUnit.Case, async: true
 
-  doctest QuickBEAM
+  unless System.get_env("QUICKBEAM_MODE") == "beam" do
+    doctest QuickBEAM
+  end
 
   setup do
     {:ok, rt} = QuickBEAM.start()
@@ -60,6 +62,17 @@ defmodule QuickBEAMTest do
       assert {:ok, 42} = QuickBEAM.call(rt, "add", [10, 32])
     end
 
+    test "beam eval keeps returned closure captures alive" do
+      {:ok, rt} = QuickBEAM.start(mode: :beam, apis: false)
+
+      assert {:ok, {:closure, _, _} = closure} =
+               QuickBEAM.eval(rt, "(() => { const x = 1; return function f(){ return x } })()")
+
+      assert 1 == QuickBEAM.VM.Interpreter.invoke(closure, [], 1_000_000)
+      QuickBEAM.stop(rt)
+    end
+
+    @tag :nif_only
     test "arrow functions", %{rt: rt} do
       QuickBEAM.eval(rt, "globalThis.double = x => x * 2")
       assert {:ok, 84} = QuickBEAM.call(rt, "double", [42])
@@ -84,6 +97,7 @@ defmodule QuickBEAMTest do
                QuickBEAM.eval(rt, "if (")
     end
 
+    @tag :nif_only
     test "error has stack trace", %{rt: rt} do
       assert {:error, %QuickBEAM.JSError{stack: stack}} =
                QuickBEAM.eval(rt, ~s[throw new Error("test")])
@@ -108,11 +122,13 @@ defmodule QuickBEAMTest do
       assert {:ok, 42} = QuickBEAM.eval(rt, "Promise.resolve(42)")
     end
 
+    @tag :nif_only
     test "Promise.reject", %{rt: rt} do
       assert {:error, %QuickBEAM.JSError{message: "nope"}} =
                QuickBEAM.eval(rt, "Promise.reject(new Error('nope'))")
     end
 
+    @tag :nif_only
     test "async/await", %{rt: rt} do
       assert {:ok, 99} = QuickBEAM.eval(rt, "await Promise.resolve(99)")
     end
@@ -124,6 +140,7 @@ defmodule QuickBEAMTest do
   end
 
   describe "timers" do
+    @tag :nif_only
     test "setTimeout", %{rt: rt} do
       QuickBEAM.eval(
         rt,
@@ -134,6 +151,7 @@ defmodule QuickBEAMTest do
       assert {:ok, true} = QuickBEAM.eval(rt, "globalThis.fired")
     end
 
+    @tag :nif_only
     test "setTimeout with delay", %{rt: rt} do
       QuickBEAM.eval(
         rt,
@@ -146,6 +164,7 @@ defmodule QuickBEAMTest do
   end
 
   describe "console" do
+    @tag :nif_only
     test "console.log outputs to stderr", %{rt: rt} do
       assert {:ok, nil} = QuickBEAM.eval(rt, ~s[console.log("test output")])
     end
@@ -159,6 +178,7 @@ defmodule QuickBEAMTest do
   end
 
   describe "reset" do
+    @tag :nif_only
     test "clears global state", %{rt: rt} do
       QuickBEAM.eval(rt, "globalThis.x = 42")
       assert {:ok, 42} = QuickBEAM.eval(rt, "globalThis.x")
@@ -168,6 +188,7 @@ defmodule QuickBEAMTest do
       assert {:ok, "undefined"} = QuickBEAM.eval(rt, "typeof globalThis.x")
     end
 
+    @tag :nif_only
     test "functions still work after reset", %{rt: rt} do
       :ok = QuickBEAM.reset(rt)
       QuickBEAM.eval(rt, "function sq(x) { return x * x; }")
@@ -176,6 +197,7 @@ defmodule QuickBEAMTest do
   end
 
   describe "Beam.call" do
+    @tag :nif_only
     test "simple handler" do
       {:ok, rt} =
         QuickBEAM.start(
@@ -188,6 +210,7 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt)
     end
 
+    @tag :nif_only
     test "string handler" do
       {:ok, rt} =
         QuickBEAM.start(
@@ -200,6 +223,7 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt)
     end
 
+    @tag :nif_only
     test "multiple args" do
       {:ok, rt} =
         QuickBEAM.start(
@@ -212,6 +236,7 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt)
     end
 
+    @tag :nif_only
     test "chained calls with await" do
       {:ok, rt} =
         QuickBEAM.start(
@@ -233,6 +258,7 @@ defmodule QuickBEAMTest do
   end
 
   describe "isolation" do
+    @tag :nif_only
     test "multiple runtimes are isolated" do
       {:ok, rt1} = QuickBEAM.start()
       {:ok, rt2} = QuickBEAM.start()
@@ -249,6 +275,7 @@ defmodule QuickBEAMTest do
   end
 
   describe "introspection" do
+    @tag :nif_only
     test "globals returns sorted list of all global names" do
       {:ok, rt} = QuickBEAM.start()
       {:ok, globals} = QuickBEAM.globals(rt)
@@ -261,6 +288,7 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt)
     end
 
+    @tag :nif_only
     test "globals with user_only: true excludes builtins" do
       {:ok, rt} = QuickBEAM.start()
       {:ok, empty} = QuickBEAM.globals(rt, user_only: true)
@@ -275,6 +303,7 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt)
     end
 
+    @tag :nif_only
     test "get_global returns primitive values" do
       {:ok, rt} = QuickBEAM.start()
       QuickBEAM.eval(rt, "globalThis.n = 42; globalThis.s = 'hello'; globalThis.b = true")
@@ -285,12 +314,14 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt)
     end
 
+    @tag :nif_only
     test "get_global returns nil for undefined" do
       {:ok, rt} = QuickBEAM.start()
       assert {:ok, nil} = QuickBEAM.get_global(rt, "nonexistent")
       QuickBEAM.stop(rt)
     end
 
+    @tag :nif_only
     test "get_global returns map for objects" do
       {:ok, rt} = QuickBEAM.start()
       QuickBEAM.eval(rt, "globalThis.obj = { x: 1, y: 2 }")
@@ -298,6 +329,7 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt)
     end
 
+    @tag :nif_only
     test "info returns handlers, memory, and global count" do
       {:ok, rt} = QuickBEAM.start(handlers: %{"greet" => fn [n] -> "Hi #{n}" end})
       QuickBEAM.eval(rt, "globalThis.x = 1")
@@ -313,6 +345,7 @@ defmodule QuickBEAMTest do
   end
 
   describe "bytecode" do
+    @tag :nif_only
     test "compile returns binary" do
       {:ok, rt} = QuickBEAM.start()
       {:ok, bytecode} = QuickBEAM.compile(rt, "1 + 2")
@@ -321,6 +354,7 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt)
     end
 
+    @tag :nif_only
     test "compile and load_bytecode round-trip" do
       {:ok, rt} = QuickBEAM.start()
       {:ok, bytecode} = QuickBEAM.compile(rt, "40 + 2")
@@ -329,6 +363,7 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt)
     end
 
+    @tag :nif_only
     test "bytecode transfers between runtimes" do
       {:ok, rt1} = QuickBEAM.start()
       {:ok, bytecode} = QuickBEAM.compile(rt1, "function mul(a, b) { return a * b }")
@@ -341,12 +376,14 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt2)
     end
 
+    @tag :nif_only
     test "compile reports syntax errors" do
       {:ok, rt} = QuickBEAM.start()
       {:error, %QuickBEAM.JSError{}} = QuickBEAM.compile(rt, "function {")
       QuickBEAM.stop(rt)
     end
 
+    @tag :nif_only
     test "bytecode is compact binary" do
       {:ok, rt} = QuickBEAM.start()
 
@@ -363,6 +400,7 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt)
     end
 
+    @tag :nif_only
     test "compiled globals persist after load" do
       {:ok, rt} = QuickBEAM.start()
       {:ok, bytecode} = QuickBEAM.compile(rt, "globalThis.answer = 42")
@@ -373,6 +411,7 @@ defmodule QuickBEAMTest do
   end
 
   describe "disasm" do
+    @tag :nif_only
     test "disasm/1 decodes bytecode without a runtime" do
       {:ok, rt} = QuickBEAM.start(apis: false)
       {:ok, bytecode} = QuickBEAM.compile(rt, "1 + 2")
@@ -384,6 +423,7 @@ defmodule QuickBEAMTest do
       assert bc.opcodes != []
     end
 
+    @tag :nif_only
     test "disasm/2 compiles and disassembles in one call" do
       {:ok, rt} = QuickBEAM.start(apis: false)
 
@@ -399,6 +439,22 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt)
     end
 
+    @tag :nif_only
+    test "disasm/2 returns raw beam_disasm output for beam runtimes" do
+      {:ok, rt} = QuickBEAM.start(apis: false, mode: :beam)
+
+      {:ok, {:beam_file, _module, exports, _attributes, _compile_info, code}} =
+        QuickBEAM.disasm(
+          rt,
+          "function fib(n) { if (n <= 1) return n; return fib(n - 1) + fib(n - 2) }"
+        )
+
+      assert Enum.any?(exports, &match?({:run, arity, _} when arity in [0, 1], &1))
+      assert Enum.any?(code, &match?({:function, :run, arity, _, _} when arity in [0, 1], &1))
+      QuickBEAM.stop(rt)
+    end
+
+    @tag :nif_only
     test "nested functions in constant pool" do
       {:ok, rt} = QuickBEAM.start(apis: false)
 
@@ -412,6 +468,7 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt)
     end
 
+    @tag :nif_only
     test "closure variables are reported" do
       {:ok, rt} = QuickBEAM.start(apis: false)
 
@@ -424,11 +481,13 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt)
     end
 
+    @tag :nif_only
     test "error on invalid bytecode" do
       assert {:error, _} = QuickBEAM.disasm("garbage")
       assert {:error, _} = QuickBEAM.disasm(<<>>)
     end
 
+    @tag :nif_only
     test "source text included when available" do
       {:ok, rt} = QuickBEAM.start(apis: false)
 
@@ -439,6 +498,7 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt)
     end
 
+    @tag :nif_only
     test "opcodes include byte offsets" do
       {:ok, rt} = QuickBEAM.start(apis: false)
       {:ok, bc} = QuickBEAM.disasm(rt, "1 + 2")
@@ -453,6 +513,7 @@ defmodule QuickBEAMTest do
   end
 
   describe "resource limits" do
+    @tag :nif_only
     test "max_stack_size allows deeper recursion" do
       code = "function deep(n) { return n <= 0 ? 0 : deep(n - 1) }; deep(50)"
 
@@ -465,6 +526,7 @@ defmodule QuickBEAMTest do
       QuickBEAM.stop(rt_large)
     end
 
+    @tag :nif_only
     test "memory_limit caps allocation" do
       {:ok, rt} = QuickBEAM.start(memory_limit: 1024 * 1024)
 

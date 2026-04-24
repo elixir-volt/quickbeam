@@ -4,6 +4,12 @@
   "workspaces": {
     "": {
       "name": "quickbeam",
+      "dependencies": {
+        "@node-rs/argon2": "^2.0.2",
+        "@node-rs/bcrypt": "^1.10.7",
+        "@node-rs/crc32": "^1.10.6",
+        "sqlite-napi": "^1.0.1",
+      },
       "devDependencies": {
         "jscpd": "^4.0.8",
         "oxfmt": "^0.37.0",
@@ -23,6 +29,12 @@
 
     "@colors/colors": ["@colors/colors@1.5.0", "", {}, "sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ=="],
 
+    "@emnapi/core": ["@emnapi/core@1.10.0", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.1", "tslib": "^2.4.0" } }, "sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw=="],
+
+    "@emnapi/runtime": ["@emnapi/runtime@1.10.0", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-ewvYlk86xUoGI0zQRNq/mC+16R1QeDlKQy21Ki3oSYXNgLb45GV1P6A0M+/s6nyCuNDqe5VpaY84BzXGwVbwFA=="],
+
+    "@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-uTII7OYF+/Mes/MrcIOYp5yOtSMLBWSIoLPpcgwipoiKbli6k322tcoFsxoIIxPDqW01SQGAgko4EzZi2BNv2w=="],
+
     "@jscpd/badge-reporter": ["@jscpd/badge-reporter@4.0.4", "", { "dependencies": { "badgen": "^3.2.3", "colors": "^1.4.0", "fs-extra": "^11.2.0" } }, "sha512-I9b4MmLXPM2vo0SxSUWnNGKcA4PjQlD3GzXvFK60z43cN/EIdLbOq3FVwCL+dg2obUqGXKIzAm7EsDFTg0D+mQ=="],
 
     "@jscpd/core": ["@jscpd/core@4.0.4", "", { "dependencies": { "eventemitter3": "^5.0.1" } }, "sha512-QGMT3iXEX1fI6lgjPH+x8eyJwhwr2KkpSF5uBpjC0Z5Xloj0yFTFLtwJT+RhxP/Ob4WYrtx2jvpKB269oIwgMQ=="],
@@ -33,11 +45,127 @@
 
     "@jscpd/tokenizer": ["@jscpd/tokenizer@4.0.4", "", { "dependencies": { "@jscpd/core": "4.0.4", "reprism": "^0.0.11", "spark-md5": "^3.0.2" } }, "sha512-xxYYY/qaLah/FlwogEbGIxx9CjDO+G9E6qawcy26WwrflzJb6wsnhjwdneN6Wb0RNCDsqvzY+bzG453jsin4UQ=="],
 
+    "@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@0.2.12", "", { "dependencies": { "@emnapi/core": "^1.4.3", "@emnapi/runtime": "^1.4.3", "@tybys/wasm-util": "^0.10.0" } }, "sha512-ZVWUcfwY4E/yPitQJl481FjFo3K22D6qF0DuFH6Y/nbnE11GY5uguDxZMGXPQ8WQ0128MXQD7TnfHyK4oWoIJQ=="],
+
+    "@node-rs/argon2": ["@node-rs/argon2@2.0.2", "", { "optionalDependencies": { "@node-rs/argon2-android-arm-eabi": "2.0.2", "@node-rs/argon2-android-arm64": "2.0.2", "@node-rs/argon2-darwin-arm64": "2.0.2", "@node-rs/argon2-darwin-x64": "2.0.2", "@node-rs/argon2-freebsd-x64": "2.0.2", "@node-rs/argon2-linux-arm-gnueabihf": "2.0.2", "@node-rs/argon2-linux-arm64-gnu": "2.0.2", "@node-rs/argon2-linux-arm64-musl": "2.0.2", "@node-rs/argon2-linux-x64-gnu": "2.0.2", "@node-rs/argon2-linux-x64-musl": "2.0.2", "@node-rs/argon2-wasm32-wasi": "2.0.2", "@node-rs/argon2-win32-arm64-msvc": "2.0.2", "@node-rs/argon2-win32-ia32-msvc": "2.0.2", "@node-rs/argon2-win32-x64-msvc": "2.0.2" } }, "sha512-t64wIsPEtNd4aUPuTAyeL2ubxATCBGmeluaKXEMAFk/8w6AJIVVkeLKMBpgLW6LU2t5cQxT+env/c6jxbtTQBg=="],
+
+    "@node-rs/argon2-android-arm-eabi": ["@node-rs/argon2-android-arm-eabi@2.0.2", "", { "os": "android", "cpu": "arm" }, "sha512-DV/H8p/jt40lrao5z5g6nM9dPNPGEHL+aK6Iy/og+dbL503Uj0AHLqj1Hk9aVUSCNnsDdUEKp4TVMi0YakDYKw=="],
+
+    "@node-rs/argon2-android-arm64": ["@node-rs/argon2-android-arm64@2.0.2", "", { "os": "android", "cpu": "arm64" }, "sha512-1LKwskau+8O1ktKx7TbK7jx1oMOMt4YEXZOdSNIar1TQKxm6isZ0cRXgHLibPHEcNHgYRsJWDE9zvDGBB17QDg=="],
+
+    "@node-rs/argon2-darwin-arm64": ["@node-rs/argon2-darwin-arm64@2.0.2", "", { "os": "darwin", "cpu": "arm64" }, "sha512-3TTNL/7wbcpNju5YcqUrCgXnXUSbD7ogeAKatzBVHsbpjZQbNb1NDxDjqqrWoTt6XL3z9mJUMGwbAk7zQltHtA=="],
+
+    "@node-rs/argon2-darwin-x64": ["@node-rs/argon2-darwin-x64@2.0.2", "", { "os": "darwin", "cpu": "x64" }, "sha512-vNPfkLj5Ij5111UTiYuwgxMqE7DRbOS2y58O2DIySzSHbcnu+nipmRKg+P0doRq6eKIJStyBK8dQi5Ic8pFyDw=="],
+
+    "@node-rs/argon2-freebsd-x64": ["@node-rs/argon2-freebsd-x64@2.0.2", "", { "os": "freebsd", "cpu": "x64" }, "sha512-M8vQZk01qojQfCqQU0/O1j1a4zPPrz93zc9fSINY7Q/6RhQRBCYwDw7ltDCZXg5JRGlSaeS8cUXWyhPGar3cGg=="],
+
+    "@node-rs/argon2-linux-arm-gnueabihf": ["@node-rs/argon2-linux-arm-gnueabihf@2.0.2", "", { "os": "linux", "cpu": "arm" }, "sha512-7EmmEPHLzcu0G2GDh30L6G48CH38roFC2dqlQJmtRCxs6no3tTE/pvgBGatTp/o2n2oyOJcfmgndVFcUpwMnww=="],
+
+    "@node-rs/argon2-linux-arm64-gnu": ["@node-rs/argon2-linux-arm64-gnu@2.0.2", "", { "os": "linux", "cpu": "arm64" }, "sha512-6lsYh3Ftbk+HAIZ7wNuRF4SZDtxtFTfK+HYFAQQyW7Ig3LHqasqwfUKRXVSV5tJ+xTnxjqgKzvZSUJCAyIfHew=="],
+
+    "@node-rs/argon2-linux-arm64-musl": ["@node-rs/argon2-linux-arm64-musl@2.0.2", "", { "os": "linux", "cpu": "arm64" }, "sha512-p3YqVMNT/4DNR67tIHTYGbedYmXxW9QlFmF39SkXyEbGQwpgSf6pH457/fyXBIYznTU/smnG9EH+C1uzT5j4hA=="],
+
+    "@node-rs/argon2-linux-x64-gnu": ["@node-rs/argon2-linux-x64-gnu@2.0.2", "", { "os": "linux", "cpu": "x64" }, "sha512-ZM3jrHuJ0dKOhvA80gKJqBpBRmTJTFSo2+xVZR+phQcbAKRlDMSZMFDiKbSTnctkfwNFtjgDdh5g1vaEV04AvA=="],
+
+    "@node-rs/argon2-linux-x64-musl": ["@node-rs/argon2-linux-x64-musl@2.0.2", "", { "os": "linux", "cpu": "x64" }, "sha512-of5uPqk7oCRF/44a89YlWTEfjsftPywyTULwuFDKyD8QtVZoonrJR6ZWvfFE/6jBT68S0okAkAzzMEdBVWdxWw=="],
+
+    "@node-rs/argon2-wasm32-wasi": ["@node-rs/argon2-wasm32-wasi@2.0.2", "", { "dependencies": { "@napi-rs/wasm-runtime": "^0.2.5" }, "cpu": "none" }, "sha512-U3PzLYKSQYzTERstgtHLd4ZTkOF9co57zTXT77r0cVUsleGZOrd6ut7rHzeWwoJSiHOVxxa0OhG1JVQeB7lLoQ=="],
+
+    "@node-rs/argon2-win32-arm64-msvc": ["@node-rs/argon2-win32-arm64-msvc@2.0.2", "", { "os": "win32", "cpu": "arm64" }, "sha512-Eisd7/NM0m23ijrGr6xI2iMocdOuyl6gO27gfMfya4C5BODbUSP7ljKJ7LrA0teqZMdYHesRDzx36Js++/vhiQ=="],
+
+    "@node-rs/argon2-win32-ia32-msvc": ["@node-rs/argon2-win32-ia32-msvc@2.0.2", "", { "os": "win32", "cpu": "ia32" }, "sha512-GsE2ezwAYwh72f9gIjbGTZOf4HxEksb5M2eCaj+Y5rGYVwAdt7C12Q2e9H5LRYxWcFvLH4m4jiSZpQQ4upnPAQ=="],
+
+    "@node-rs/argon2-win32-x64-msvc": ["@node-rs/argon2-win32-x64-msvc@2.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-cJxWXanH4Ew9CfuZ4IAEiafpOBCe97bzoKowHCGk5lG/7kR4WF/eknnBlHW9m8q7t10mKq75kruPLtbSDqgRTw=="],
+
+    "@node-rs/bcrypt": ["@node-rs/bcrypt@1.10.7", "", { "optionalDependencies": { "@node-rs/bcrypt-android-arm-eabi": "1.10.7", "@node-rs/bcrypt-android-arm64": "1.10.7", "@node-rs/bcrypt-darwin-arm64": "1.10.7", "@node-rs/bcrypt-darwin-x64": "1.10.7", "@node-rs/bcrypt-freebsd-x64": "1.10.7", "@node-rs/bcrypt-linux-arm-gnueabihf": "1.10.7", "@node-rs/bcrypt-linux-arm64-gnu": "1.10.7", "@node-rs/bcrypt-linux-arm64-musl": "1.10.7", "@node-rs/bcrypt-linux-x64-gnu": "1.10.7", "@node-rs/bcrypt-linux-x64-musl": "1.10.7", "@node-rs/bcrypt-wasm32-wasi": "1.10.7", "@node-rs/bcrypt-win32-arm64-msvc": "1.10.7", "@node-rs/bcrypt-win32-ia32-msvc": "1.10.7", "@node-rs/bcrypt-win32-x64-msvc": "1.10.7" } }, "sha512-1wk0gHsUQC/ap0j6SJa2K34qNhomxXRcEe3T8cI5s+g6fgHBgLTN7U9LzWTG/HE6G4+2tWWLeCabk1wiYGEQSA=="],
+
+    "@node-rs/bcrypt-android-arm-eabi": ["@node-rs/bcrypt-android-arm-eabi@1.10.7", "", { "os": "android", "cpu": "arm" }, "sha512-8dO6/PcbeMZXS3VXGEtct9pDYdShp2WBOWlDvSbcRwVqyB580aCBh0BEFmKYtXLzLvUK8Wf+CG3U6sCdILW1lA=="],
+
+    "@node-rs/bcrypt-android-arm64": ["@node-rs/bcrypt-android-arm64@1.10.7", "", { "os": "android", "cpu": "arm64" }, "sha512-UASFBS/CucEMHiCtL/2YYsAY01ZqVR1N7vSb94EOvG5iwW7BQO06kXXCTgj+Xbek9azxixrCUmo3WJnkJZ0hTQ=="],
+
+    "@node-rs/bcrypt-darwin-arm64": ["@node-rs/bcrypt-darwin-arm64@1.10.7", "", { "os": "darwin", "cpu": "arm64" }, "sha512-DgzFdAt455KTuiJ/zYIyJcKFobjNDR/hnf9OS7pK5NRS13Nq4gLcSIIyzsgHwZHxsJWbLpHmFc1H23Y7IQoQBw=="],
+
+    "@node-rs/bcrypt-darwin-x64": ["@node-rs/bcrypt-darwin-x64@1.10.7", "", { "os": "darwin", "cpu": "x64" }, "sha512-SPWVfQ6sxSokoUWAKWD0EJauvPHqOGQTd7CxmYatcsUgJ/bruvEHxZ4bIwX1iDceC3FkOtmeHO0cPwR480n/xA=="],
+
+    "@node-rs/bcrypt-freebsd-x64": ["@node-rs/bcrypt-freebsd-x64@1.10.7", "", { "os": "freebsd", "cpu": "x64" }, "sha512-gpa+Ixs6GwEx6U6ehBpsQetzUpuAGuAFbOiuLB2oo4N58yU4AZz1VIcWyWAHrSWRs92O0SHtmo2YPrMrwfBbSw=="],
+
+    "@node-rs/bcrypt-linux-arm-gnueabihf": ["@node-rs/bcrypt-linux-arm-gnueabihf@1.10.7", "", { "os": "linux", "cpu": "arm" }, "sha512-kYgJnTnpxrzl9sxYqzflobvMp90qoAlaX1oDL7nhNTj8OYJVDIk0jQgblj0bIkjmoPbBed53OJY/iu4uTS+wig=="],
+
+    "@node-rs/bcrypt-linux-arm64-gnu": ["@node-rs/bcrypt-linux-arm64-gnu@1.10.7", "", { "os": "linux", "cpu": "arm64" }, "sha512-7cEkK2RA+gBCj2tCVEI1rDSJV40oLbSq7bQ+PNMHNI6jCoXGmj9Uzo7mg7ZRbNZ7piIyNH5zlJqutjo8hh/tmA=="],
+
+    "@node-rs/bcrypt-linux-arm64-musl": ["@node-rs/bcrypt-linux-arm64-musl@1.10.7", "", { "os": "linux", "cpu": "arm64" }, "sha512-X7DRVjshhwxUqzdUKDlF55cwzh+wqWJ2E/tILvZPboO3xaNO07Um568Vf+8cmKcz+tiZCGP7CBmKbBqjvKN/Pw=="],
+
+    "@node-rs/bcrypt-linux-x64-gnu": ["@node-rs/bcrypt-linux-x64-gnu@1.10.7", "", { "os": "linux", "cpu": "x64" }, "sha512-LXRZsvG65NggPD12hn6YxVgH0W3VR5fsE/o1/o2D5X0nxKcNQGeLWnRzs5cP8KpoFOuk1ilctXQJn8/wq+Gn/Q=="],
+
+    "@node-rs/bcrypt-linux-x64-musl": ["@node-rs/bcrypt-linux-x64-musl@1.10.7", "", { "os": "linux", "cpu": "x64" }, "sha512-tCjHmct79OfcO3g5q21ME7CNzLzpw1MAsUXCLHLGWH+V6pp/xTvMbIcLwzkDj6TI3mxK6kehTn40SEjBkZ3Rog=="],
+
+    "@node-rs/bcrypt-wasm32-wasi": ["@node-rs/bcrypt-wasm32-wasi@1.10.7", "", { "dependencies": { "@napi-rs/wasm-runtime": "^0.2.5" }, "cpu": "none" }, "sha512-4qXSihIKeVXYglfXZEq/QPtYtBUvR8d3S85k15Lilv3z5B6NSGQ9mYiNleZ7QHVLN2gEc5gmi7jM353DMH9GkA=="],
+
+    "@node-rs/bcrypt-win32-arm64-msvc": ["@node-rs/bcrypt-win32-arm64-msvc@1.10.7", "", { "os": "win32", "cpu": "arm64" }, "sha512-FdfUQrqmDfvC5jFhntMBkk8EI+fCJTx/I1v7Rj+Ezlr9rez1j1FmuUnywbBj2Cg15/0BDhwYdbyZ5GCMFli2aQ=="],
+
+    "@node-rs/bcrypt-win32-ia32-msvc": ["@node-rs/bcrypt-win32-ia32-msvc@1.10.7", "", { "os": "win32", "cpu": "ia32" }, "sha512-lZLf4Cx+bShIhU071p5BZft4OvP4PGhyp542EEsb3zk34U5GLsGIyCjOafcF/2DGewZL6u8/aqoxbSuROkgFXg=="],
+
+    "@node-rs/bcrypt-win32-x64-msvc": ["@node-rs/bcrypt-win32-x64-msvc@1.10.7", "", { "os": "win32", "cpu": "x64" }, "sha512-hdw7tGmN1DxVAMTzICLdaHpXjy+4rxaxnBMgI8seG1JL5e3VcRGsd1/1vVDogVp2cbsmgq+6d6yAY+D9lW/DCg=="],
+
+    "@node-rs/crc32": ["@node-rs/crc32@1.10.6", "", { "optionalDependencies": { "@node-rs/crc32-android-arm-eabi": "1.10.6", "@node-rs/crc32-android-arm64": "1.10.6", "@node-rs/crc32-darwin-arm64": "1.10.6", "@node-rs/crc32-darwin-x64": "1.10.6", "@node-rs/crc32-freebsd-x64": "1.10.6", "@node-rs/crc32-linux-arm-gnueabihf": "1.10.6", "@node-rs/crc32-linux-arm64-gnu": "1.10.6", "@node-rs/crc32-linux-arm64-musl": "1.10.6", "@node-rs/crc32-linux-x64-gnu": "1.10.6", "@node-rs/crc32-linux-x64-musl": "1.10.6", "@node-rs/crc32-wasm32-wasi": "1.10.6", "@node-rs/crc32-win32-arm64-msvc": "1.10.6", "@node-rs/crc32-win32-ia32-msvc": "1.10.6", "@node-rs/crc32-win32-x64-msvc": "1.10.6" } }, "sha512-+llXfqt+UzgoDzT9of5vPQPGqTAVCohU74I9zIBkNo5TH6s2P31DFJOGsJQKN207f0GHnYv5pV3wh3BCY/un/A=="],
+
+    "@node-rs/crc32-android-arm-eabi": ["@node-rs/crc32-android-arm-eabi@1.10.6", "", { "os": "android", "cpu": "arm" }, "sha512-vZAMuJXm3TpWPOkkhxdrofWDv+Q+I2oO7ucLRbXyAPmXFNDhHtBxbO1rk9Qzz+M3eep8ieS4/+jCL1Q0zacNMQ=="],
+
+    "@node-rs/crc32-android-arm64": ["@node-rs/crc32-android-arm64@1.10.6", "", { "os": "android", "cpu": "arm64" }, "sha512-Vl/JbjCinCw/H9gEpZveWCMjxjcEChDcDBM8S4hKay5yyoRCUHJPuKr4sjVDBeOm+1nwU3oOm6Ca8dyblwp4/w=="],
+
+    "@node-rs/crc32-darwin-arm64": ["@node-rs/crc32-darwin-arm64@1.10.6", "", { "os": "darwin", "cpu": "arm64" }, "sha512-kARYANp5GnmsQiViA5Qu74weYQ3phOHSYQf0G+U5wB3NB5JmBHnZcOc46Ig21tTypWtdv7u63TaltJQE41noyg=="],
+
+    "@node-rs/crc32-darwin-x64": ["@node-rs/crc32-darwin-x64@1.10.6", "", { "os": "darwin", "cpu": "x64" }, "sha512-Q99bevJVMfLTISpkpKBlXgtPUItrvTWKFyiqoKH5IvscZmLV++NH4V13Pa17GTBmv9n18OwzgQY4/SRq6PQNVA=="],
+
+    "@node-rs/crc32-freebsd-x64": ["@node-rs/crc32-freebsd-x64@1.10.6", "", { "os": "freebsd", "cpu": "x64" }, "sha512-66hpawbNjrgnS9EDMErta/lpaqOMrL6a6ee+nlI2viduVOmRZWm9Rg9XdGTK/+c4bQLdtC6jOd+Kp4EyGRYkAg=="],
+
+    "@node-rs/crc32-linux-arm-gnueabihf": ["@node-rs/crc32-linux-arm-gnueabihf@1.10.6", "", { "os": "linux", "cpu": "arm" }, "sha512-E8Z0WChH7X6ankbVm8J/Yym19Cq3otx6l4NFPS6JW/cWdjv7iw+Sps2huSug+TBprjbcEA+s4TvEwfDI1KScjg=="],
+
+    "@node-rs/crc32-linux-arm64-gnu": ["@node-rs/crc32-linux-arm64-gnu@1.10.6", "", { "os": "linux", "cpu": "arm64" }, "sha512-LmWcfDbqAvypX0bQjQVPmQGazh4dLiVklkgHxpV4P0TcQ1DT86H/SWpMBMs/ncF8DGuCQ05cNyMv1iddUDugoQ=="],
+
+    "@node-rs/crc32-linux-arm64-musl": ["@node-rs/crc32-linux-arm64-musl@1.10.6", "", { "os": "linux", "cpu": "arm64" }, "sha512-k8ra/bmg0hwRrIEE8JL1p32WfaN9gDlUUpQRWsbxd1WhjqvXea7kKO6K4DwVxyxlPhBS9Gkb5Urq7Y4mXANzaw=="],
+
+    "@node-rs/crc32-linux-x64-gnu": ["@node-rs/crc32-linux-x64-gnu@1.10.6", "", { "os": "linux", "cpu": "x64" }, "sha512-IfjtqcuFK7JrSZ9mlAFhb83xgium30PguvRjIMI45C3FJwu18bnLk1oR619IYb/zetQT82MObgmqfKOtgemEKw=="],
+
+    "@node-rs/crc32-linux-x64-musl": ["@node-rs/crc32-linux-x64-musl@1.10.6", "", { "os": "linux", "cpu": "x64" }, "sha512-LbFYsA5M9pNunOweSt6uhxenYQF94v3bHDAQRPTQ3rnjn+mK6IC7YTAYoBjvoJP8lVzcvk9hRj8wp4Jyh6Y80g=="],
+
+    "@node-rs/crc32-wasm32-wasi": ["@node-rs/crc32-wasm32-wasi@1.10.6", "", { "dependencies": { "@napi-rs/wasm-runtime": "^0.2.5" }, "cpu": "none" }, "sha512-KaejdLgHMPsRaxnM+OG9L9XdWL2TabNx80HLdsCOoX9BVhEkfh39OeahBo8lBmidylKbLGMQoGfIKDjq0YMStw=="],
+
+    "@node-rs/crc32-win32-arm64-msvc": ["@node-rs/crc32-win32-arm64-msvc@1.10.6", "", { "os": "win32", "cpu": "arm64" }, "sha512-x50AXiSxn5Ccn+dCjLf1T7ZpdBiV1Sp5aC+H2ijhJO4alwznvXgWbopPRVhbp2nj0i+Gb6kkDUEyU+508KAdGQ=="],
+
+    "@node-rs/crc32-win32-ia32-msvc": ["@node-rs/crc32-win32-ia32-msvc@1.10.6", "", { "os": "win32", "cpu": "ia32" }, "sha512-DpDxQLaErJF9l36aghe1Mx+cOnYLKYo6qVPqPL9ukJ5rAGLtCdU0C+Zoi3gs9ySm8zmbFgazq/LvmsZYU42aBw=="],
+
+    "@node-rs/crc32-win32-x64-msvc": ["@node-rs/crc32-win32-x64-msvc@1.10.6", "", { "os": "win32", "cpu": "x64" }, "sha512-5B1vXosIIBw1m2Rcnw62IIfH7W9s9f7H7Ma0rRuhT8HR4Xh8QCgw6NJSI2S2MCngsGktYnAhyUvs81b7efTyQw=="],
+
     "@nodelib/fs.scandir": ["@nodelib/fs.scandir@2.1.5", "", { "dependencies": { "@nodelib/fs.stat": "2.0.5", "run-parallel": "^1.1.9" } }, "sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g=="],
 
     "@nodelib/fs.stat": ["@nodelib/fs.stat@2.0.5", "", {}, "sha512-RkhPPp2zrqDAQA/2jNhnztcPAlv64XdhIp7a7454A5ovI7Bukxgt7MX7udwAu3zg1DcpPU0rz3VV1SeaqvY4+A=="],
 
     "@nodelib/fs.walk": ["@nodelib/fs.walk@1.2.8", "", { "dependencies": { "@nodelib/fs.scandir": "2.1.5", "fastq": "^1.6.0" } }, "sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg=="],
+
+    "@oven/bun-darwin-aarch64": ["@oven/bun-darwin-aarch64@1.3.13", "", { "os": "darwin", "cpu": "arm64" }, "sha512-qAS6Hg8Q14ckfBuqJ2Zh7gBQSVSUHeibSq4OFqBTv6DzyJuxYlr0sdYQzmYmnbPxbqobekqUDTa/4XEaqRi7vg=="],
+
+    "@oven/bun-darwin-x64": ["@oven/bun-darwin-x64@1.3.13", "", { "os": "darwin", "cpu": "x64" }, "sha512-kGePeDD4IN4imo+H4uLjQGZLmvyYQg+nKr2P0nt4ksXXrWA4HE+mb0/TUPHfRI127DocXQpew+fvrHuHR5mpJQ=="],
+
+    "@oven/bun-darwin-x64-baseline": ["@oven/bun-darwin-x64-baseline@1.3.13", "", { "os": "darwin", "cpu": "x64" }, "sha512-gMEQayUpmCPYaE9zkNBj9TiQqHupnhjOYcuSzxFjzIjHJBUO4VjNnrpbKVeXNs+rKHFothORDd2QKquu5paSPQ=="],
+
+    "@oven/bun-linux-aarch64": ["@oven/bun-linux-aarch64@1.3.13", "", { "os": "linux", "cpu": "arm64" }, "sha512-NbLOJdr+RBFO1vFZ2YUFg4oVJ+2ua6zrwo4ZWRs0jKKcGJWtbY2wY5uz+i0PkwH6b9HYaYDgVTzE4ev06ncYZw=="],
+
+    "@oven/bun-linux-aarch64-musl": ["@oven/bun-linux-aarch64-musl@1.3.13", "", { "os": "linux", "cpu": "arm64" }, "sha512-UV9EE18VE5aRhWtV2L6MTAGGn3slhJJ2OW/m+FJM15maHm0qf1V7TaZY0FovxhdQRvnklSiQ7Ntv0H5TUX4w0g=="],
+
+    "@oven/bun-linux-x64": ["@oven/bun-linux-x64@1.3.13", "", { "os": "linux", "cpu": "x64" }, "sha512-UwttIUXoe9fS+40OcjoaRHgZw+HCPFqBVWEXkXqAJ3W7wA0XPZrWsoMAD9sGh3TaLqrwdiMo5xPogwpXhOtVXA=="],
+
+    "@oven/bun-linux-x64-baseline": ["@oven/bun-linux-x64-baseline@1.3.13", "", { "os": "linux", "cpu": "x64" }, "sha512-fOi4ziKzgJG4UrrNd4AicBs6Fu9GY5xOqg+9tC76nuZNDAdSh6++kzab6TNi1Ck0Yzq6zIBIdGit6/0uSbBn8A=="],
+
+    "@oven/bun-linux-x64-musl": ["@oven/bun-linux-x64-musl@1.3.13", "", { "os": "linux", "cpu": "x64" }, "sha512-+VHhE44kEjCXcTFHyc81zfTxL9+vzh9RqIh7gM1iWNhxpctD9kzntbUkP3UTFTwwNjoou1o8VRyxQafvc4OepA=="],
+
+    "@oven/bun-linux-x64-musl-baseline": ["@oven/bun-linux-x64-musl-baseline@1.3.13", "", { "os": "linux", "cpu": "x64" }, "sha512-fqBKuiiWLEu2dVkowZaXgKS98xfrvBqivdoxRtRP3eINcpI1dcelGbsOz+Xphn7tbGAuBiE1/0AelvvvdqS9rg=="],
+
+    "@oven/bun-windows-aarch64": ["@oven/bun-windows-aarch64@1.3.13", "", { "os": "win32", "cpu": "arm64" }, "sha512-+EvdRWRCRg95Xea4M2lqSJFTjzQBTJDQTMlbG8bmwFkVTN16MdmSH7xhfxVQWUOyZBLEpIwuNFIlBBxVCwSUyQ=="],
+
+    "@oven/bun-windows-x64": ["@oven/bun-windows-x64@1.3.13", "", { "os": "win32", "cpu": "x64" }, "sha512-vqDEFX63ZZQF3YstPSpPD+RxNm5AILPdUuuKpNwsj7ld4NjhdHUYkAmLXDtKNWt9JMRL10bop//W8faY/LV+RQ=="],
+
+    "@oven/bun-windows-x64-baseline": ["@oven/bun-windows-x64-baseline@1.3.13", "", { "os": "win32", "cpu": "x64" }, "sha512-6gy4hhQSjq/T/S9hC9m3NxY0RY+9Ww+XNlB+8koIMTsMSYEjk7Ho+hFHQz1Bn4W61Ub7Vykufg+jgDgPfa2GFA=="],
 
     "@oxfmt/binding-android-arm-eabi": ["@oxfmt/binding-android-arm-eabi@0.37.0", "", { "os": "android", "cpu": "arm" }, "sha512-2AW4VHG6mePEb1r4l6nBOVz1MwevNa0obayXd5Xce+gtP+cL/FCaoVK7JtpqCj4cEVxbLU4jijBUIWK41X2GGg=="],
 
@@ -127,6 +255,8 @@
 
     "@oxlint/binding-win32-x64-msvc": ["@oxlint/binding-win32-x64-msvc@1.52.0", "", { "os": "win32", "cpu": "x64" }, "sha512-wikx9I9J9/lPOZlrCCNgm8YjWkia8NZfhWd1TTvZTMguyChbw/oA2VEM6Fzx+kkpA+1qu5Mo7nrLdOXEJavw8g=="],
 
+    "@tybys/wasm-util": ["@tybys/wasm-util@0.10.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg=="],
+
     "@types/sarif": ["@types/sarif@2.1.7", "", {}, "sha512-kRz0VEkJqWLf1LLVN4pT1cg1Z9wAuvI6L97V3m2f5B76Tg8d413ddvLBPTEHAZJlnn4XSvu0FkZtViCQGVyrXQ=="],
 
     "acorn": ["acorn@7.4.1", "", { "bin": { "acorn": "bin/acorn" } }, "sha512-nQyp0o1/mNdbTO1PO6kHkwSrmgZ0MT/jCCpNiwbUjGoRN4dlBhqJtoQuCnEOKzgTVwg0ZWiCoQy6SxMebQVh8A=="],
@@ -144,6 +274,8 @@
     "blamer": ["blamer@1.0.7", "", { "dependencies": { "execa": "^4.0.0", "which": "^2.0.2" } }, "sha512-GbBStl/EVlSWkiJQBZps3H1iARBrC7vt++Jb/TTmCNu/jZ04VW7tSN1nScbFXBUy1AN+jzeL7Zep9sbQxLhXKA=="],
 
     "braces": ["braces@3.0.3", "", { "dependencies": { "fill-range": "^7.1.1" } }, "sha512-yQbXgO/OSZVD2IsiLlro+7Hf6Q18EJrKSEsdoMzKePKXct3gvD8oLcOQdIzGupr5Fj+EDe8gO/lxc1BzfMpxvA=="],
+
+    "bun": ["bun@1.3.13", "", { "optionalDependencies": { "@oven/bun-darwin-aarch64": "1.3.13", "@oven/bun-darwin-x64": "1.3.13", "@oven/bun-darwin-x64-baseline": "1.3.13", "@oven/bun-linux-aarch64": "1.3.13", "@oven/bun-linux-aarch64-musl": "1.3.13", "@oven/bun-linux-x64": "1.3.13", "@oven/bun-linux-x64-baseline": "1.3.13", "@oven/bun-linux-x64-musl": "1.3.13", "@oven/bun-linux-x64-musl-baseline": "1.3.13", "@oven/bun-windows-aarch64": "1.3.13", "@oven/bun-windows-x64": "1.3.13", "@oven/bun-windows-x64-baseline": "1.3.13" }, "os": [ "linux", "win32", "darwin", ], "cpu": [ "x64", "arm64", ], "bin": { "bun": "bin/bun.exe", "bunx": "bin/bunx.exe" } }, "sha512-b9T4xZ8KqCHs4+TkHJv540LG1B8OD7noKu0Qaizusx3jFtMDHY6osNqgbaOlwW2B8RB2AKzz+sjzlGKIGxIjZw=="],
 
     "bytes": ["bytes@3.1.2", "", {}, "sha512-/Nf7TyzTx6S3yRJObOAV7956r8cr2+Oj8AC5dt8wSP3BQAoeX58NoHyCU8P8zGkNXStjTSi6fzO6F0pBdcYbEg=="],
 
@@ -325,6 +457,8 @@
 
     "spark-md5": ["spark-md5@3.0.2", "", {}, "sha512-wcFzz9cDfbuqe0FZzfi2or1sgyIrsDwmPwfZC4hiNidPdPINjeUwNfv5kldczoEAcjl9Y1L3SM7Uz2PUEQzxQw=="],
 
+    "sqlite-napi": ["sqlite-napi@1.0.1", "", { "dependencies": { "sqlite-napi": "^1.0.0" }, "peerDependencies": { "bun": ">=1.0.0" } }, "sha512-qgW6ebeXgg+4JebrFe00sn62lieyMHoK+6ExF7h+QwoP8Lq8H8TxuxGWqpc+b1n+67suPpdpLF3h6AGiJ25P4g=="],
+
     "string-width": ["string-width@4.2.3", "", { "dependencies": { "emoji-regex": "^8.0.0", "is-fullwidth-code-point": "^3.0.0", "strip-ansi": "^6.0.1" } }, "sha512-wKyQRQpjJ0sIp62ErSZdGsjMJWsap5oRNihHhu6G7JVO/9jIB6UyevL+tXuOqrng8j/cxKTWyWUwvSTriiZz/g=="],
 
     "strip-ansi": ["strip-ansi@6.0.1", "", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
@@ -338,6 +472,8 @@
     "to-regex-range": ["to-regex-range@5.0.1", "", { "dependencies": { "is-number": "^7.0.0" } }, "sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ=="],
 
     "token-stream": ["token-stream@1.0.0", "", {}, "sha512-VSsyNPPW74RpHwR8Fc21uubwHY7wMDeJLys2IX5zJNih+OnAnaifKHo+1LHT7DAdloQ7apeaaWg8l7qnf/TnEg=="],
+
+    "tslib": ["tslib@2.8.1", "", {}, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
 
     "universalify": ["universalify@2.0.1", "", {}, "sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw=="],
 

@@ -5,7 +5,15 @@ defmodule QuickBEAM.Runtime do
   require Logger
 
   @enforce_keys [:resource]
-  defstruct [:resource, handlers: %{}, monitors: %{}, workers: %{}, websockets: %{}, pending: %{}]
+  defstruct [
+    :resource,
+    mode: :nif,
+    handlers: %{},
+    monitors: %{},
+    workers: %{},
+    websockets: %{},
+    pending: %{}
+  ]
 
   @type t :: %__MODULE__{
           resource: reference(),
@@ -68,18 +76,20 @@ defmodule QuickBEAM.Runtime do
   @spec eval(GenServer.server(), String.t(), keyword()) :: QuickBEAM.js_result()
   def eval(server, code, opts \\ []) when is_binary(code) do
     timeout_ms = Keyword.get(opts, :timeout, 0)
+    filename = Keyword.get(opts, :filename, "")
     vars = Keyword.get(opts, :vars)
 
     if vars && vars != %{} do
-      GenServer.call(server, {:eval_with_vars, code, timeout_ms, vars}, :infinity)
+      GenServer.call(server, {:eval_with_vars, code, timeout_ms, vars, filename}, :infinity)
     else
-      GenServer.call(server, {:eval, code, timeout_ms}, :infinity)
+      GenServer.call(server, {:eval, code, timeout_ms, filename}, :infinity)
     end
   end
 
-  @spec compile(GenServer.server(), String.t()) :: {:ok, binary()} | {:error, String.t()}
-  def compile(server, code) when is_binary(code) do
-    GenServer.call(server, {:compile, code}, :infinity)
+  @spec compile(GenServer.server(), String.t(), String.t()) ::
+          {:ok, binary()} | {:error, QuickBEAM.JSError.t() | String.t()}
+  def compile(server, code, filename \\ "") when is_binary(code) and is_binary(filename) do
+    GenServer.call(server, {:compile, code, filename}, :infinity)
   end
 
   @spec load_bytecode(GenServer.server(), binary()) ::
@@ -295,6 +305,7 @@ defmodule QuickBEAM.Runtime do
         do: Map.merge(builtin_handlers, @browser_handlers),
         else: builtin_handlers
 
+    mode = Keyword.get(opts, :mode, :nif)
     merged_handlers = builtin_handlers |> Map.merge(user_handlers)
 
     nif_opts =
@@ -303,7 +314,7 @@ defmodule QuickBEAM.Runtime do
       |> Map.new()
 
     resource = QuickBEAM.Native.start_runtime(self(), nif_opts)
-    state = %__MODULE__{resource: resource, handlers: merged_handlers}
+    state = %__MODULE__{resource: resource, mode: mode, handlers: merged_handlers}
     if QuickBEAM.Cover.enabled?(), do: sync_enable_coverage(resource)
     install_builtins(state, apis)
     install_defines(state, Keyword.get(opts, :define, %{}))
@@ -440,6 +451,14 @@ defmodule QuickBEAM.Runtime do
   end
 
   @impl true
+  def handle_call(:get_mode, _from, state) do
+    {:reply, state.mode, state}
+  end
+
+  def handle_call(:get_handlers, _from, state) do
+    {:reply, state.handlers, state}
+  end
+
   def handle_call(:info, _from, state) do
     handlers =
       state.handlers
@@ -451,14 +470,14 @@ defmodule QuickBEAM.Runtime do
   end
 
   @impl true
-  def handle_call({:eval_with_vars, code, timeout_ms, vars}, from, state) do
+  def handle_call({:eval_with_vars, code, timeout_ms, vars, filename}, from, state) do
     names = Map.keys(vars)
 
     Enum.each(vars, fn {name, value} ->
       QuickBEAM.Native.define_global(state.resource, name, value)
     end)
 
-    ref = QuickBEAM.Native.eval(state.resource, code, timeout_ms, "")
+    ref = QuickBEAM.Native.eval(state.resource, code, timeout_ms, filename)
 
     transform = fn result ->
       QuickBEAM.Native.delete_globals(state.resource, names)
@@ -483,8 +502,8 @@ defmodule QuickBEAM.Runtime do
     {:noreply, %{state | pending: Map.put(state.pending, ref, {from, transform})}}
   end
 
-  def handle_call({:compile, code}, from, state) do
-    ref = QuickBEAM.Native.compile(state.resource, code)
+  def handle_call({:compile, code, filename}, from, state) do
+    ref = QuickBEAM.Native.compile(state.resource, code, filename)
 
     transform = fn
       {:ok, {:bytes, bytecode}} -> {:ok, bytecode}
@@ -539,7 +558,8 @@ defmodule QuickBEAM.Runtime do
 
   # ── NIF dispatch callbacks ──
 
-  defp nif_eval(state, code, timeout), do: QuickBEAM.Native.eval(state.resource, code, timeout, "")
+  defp nif_eval(state, code, timeout, filename \\ ""),
+    do: QuickBEAM.Native.eval(state.resource, code, timeout, filename)
 
   defp nif_call(state, fn_name, args, timeout),
     do: QuickBEAM.Native.call_function(state.resource, fn_name, args, timeout)
@@ -654,24 +674,6 @@ defmodule QuickBEAM.Runtime do
 
   def handle_info({:websocket_started, socket_id, pid}, state) do
     handle_websocket_started(socket_id, pid, state)
-  end
-
-  def handle_info({:ws_send, socket_id, kind, payload}, state) do
-    case Map.get(state.websockets, socket_id) do
-      {pid, _ref} -> GenServer.cast(pid, {:send, kind, payload})
-      nil -> :ok
-    end
-
-    {:noreply, state}
-  end
-
-  def handle_info({:ws_close, socket_id, code, reason}, state) do
-    case Map.get(state.websockets, socket_id) do
-      {pid, _ref} -> GenServer.cast(pid, {:close, code, reason})
-      nil -> :ok
-    end
-
-    {:noreply, state}
   end
 
   def handle_info({:websocket_event, message}, state) do

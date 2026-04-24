@@ -46,6 +46,12 @@ defmodule QuickBEAM.Server do
       end
 
       @impl true
+      def handle_call({:eval, code, timeout_ms, filename}, from, state) do
+        ref = nif_eval(state, code, timeout_ms, filename)
+        {:noreply, put_pending(state, ref, from, js_error_transform())}
+      end
+
+      @impl true
       def handle_call({:call, fn_name, args, timeout_ms}, from, state) do
         ref = nif_call(state, fn_name, args, timeout_ms)
         {:noreply, put_pending(state, ref, from, js_error_transform())}
@@ -108,6 +114,26 @@ defmodule QuickBEAM.Server do
         {:noreply, state}
       end
 
+      @impl true
+      def handle_info({:ws_send, socket_id, kind, payload}, state) do
+        case Map.get(state.websockets, socket_id) do
+          {pid, _ref} -> GenServer.cast(pid, {:send, kind, payload})
+          nil -> :ok
+        end
+
+        {:noreply, state}
+      end
+
+      @impl true
+      def handle_info({:ws_close, socket_id, code, reason}, state) do
+        case Map.get(state.websockets, socket_id) do
+          {pid, _ref} -> GenServer.cast(pid, {:close, code, reason})
+          nil -> :ok
+        end
+
+        {:noreply, state}
+      end
+
       # ── WebSocket helpers ──
 
       defp handle_websocket_started(socket_id, pid, state) do
@@ -117,7 +143,9 @@ defmodule QuickBEAM.Server do
       end
 
       defp pop_websocket(state, ref) do
-        case Enum.find(state.websockets, fn {_socket_id, {_pid, monitor_ref}} -> monitor_ref == ref end) do
+        case Enum.find(state.websockets, fn {_socket_id, {_pid, monitor_ref}} ->
+               monitor_ref == ref
+             end) do
           {socket_id, {_pid, _monitor_ref}} ->
             {true, %{state | websockets: Map.delete(state.websockets, socket_id)}}
 

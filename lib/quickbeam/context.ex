@@ -79,7 +79,8 @@ defmodule QuickBEAM.Context do
   @spec eval(GenServer.server(), String.t(), keyword()) :: {:ok, term()} | {:error, String.t()}
   def eval(server, code, opts \\ []) when is_binary(code) do
     timeout_ms = Keyword.get(opts, :timeout, 0)
-    GenServer.call(server, {:eval, code, timeout_ms}, :infinity)
+    filename = Keyword.get(opts, :filename, "")
+    GenServer.call(server, {:eval, code, timeout_ms, filename}, :infinity)
   end
 
   @spec reset(GenServer.server()) :: :ok | {:error, String.t()}
@@ -318,16 +319,42 @@ defmodule QuickBEAM.Context do
 
   # ── NIF dispatch callbacks ──
 
-  defp nif_eval(state, code, timeout), do: QuickBEAM.Native.pool_eval(state.pool_resource, state.context_id, code, timeout)
-  defp nif_call(state, fn_name, args, timeout), do: QuickBEAM.Native.pool_call_function(state.pool_resource, state.context_id, fn_name, args, timeout)
-  defp nif_dom_find(state, selector), do: QuickBEAM.Native.pool_dom_find(state.pool_resource, state.context_id, selector)
-  defp nif_dom_find_all(state, selector), do: QuickBEAM.Native.pool_dom_find_all(state.pool_resource, state.context_id, selector)
-  defp nif_dom_text(state, selector), do: QuickBEAM.Native.pool_dom_text(state.pool_resource, state.context_id, selector)
-  defp nif_dom_html(state), do: QuickBEAM.Native.pool_dom_html(state.pool_resource, state.context_id)
-  defp nif_reset(state), do: QuickBEAM.Native.pool_reset_context(state.pool_resource, state.context_id)
-  defp nif_get_global(state, name), do: QuickBEAM.Native.pool_get_global(state.pool_resource, state.context_id, name)
-  defp nif_set_global(state, name, value), do: QuickBEAM.Native.pool_define_global(state.pool_resource, state.context_id, name, value)
-  defp nif_send_message(state, message), do: QuickBEAM.Native.pool_send_message(state.pool_resource, state.context_id, message)
+  defp nif_eval(state, code, timeout, _filename \\ ""),
+    do: QuickBEAM.Native.pool_eval(state.pool_resource, state.context_id, code, timeout)
+
+  defp nif_call(state, fn_name, args, timeout),
+    do:
+      QuickBEAM.Native.pool_call_function(
+        state.pool_resource,
+        state.context_id,
+        fn_name,
+        args,
+        timeout
+      )
+
+  defp nif_dom_find(state, selector),
+    do: QuickBEAM.Native.pool_dom_find(state.pool_resource, state.context_id, selector)
+
+  defp nif_dom_find_all(state, selector),
+    do: QuickBEAM.Native.pool_dom_find_all(state.pool_resource, state.context_id, selector)
+
+  defp nif_dom_text(state, selector),
+    do: QuickBEAM.Native.pool_dom_text(state.pool_resource, state.context_id, selector)
+
+  defp nif_dom_html(state),
+    do: QuickBEAM.Native.pool_dom_html(state.pool_resource, state.context_id)
+
+  defp nif_reset(state),
+    do: QuickBEAM.Native.pool_reset_context(state.pool_resource, state.context_id)
+
+  defp nif_get_global(state, name),
+    do: QuickBEAM.Native.pool_get_global(state.pool_resource, state.context_id, name)
+
+  defp nif_set_global(state, name, value),
+    do: QuickBEAM.Native.pool_define_global(state.pool_resource, state.context_id, name, value)
+
+  defp nif_send_message(state, message),
+    do: QuickBEAM.Native.pool_send_message(state.pool_resource, state.context_id, message)
 
   @impl true
   def handle_info({:beam_call, call_id, handler_name, args}, state) do
@@ -424,24 +451,6 @@ defmodule QuickBEAM.Context do
 
   def handle_info({:websocket_started, socket_id, pid}, state) do
     handle_websocket_started(socket_id, pid, state)
-  end
-
-  def handle_info({:ws_send, socket_id, kind, payload}, state) do
-    case Map.get(state.websockets, socket_id) do
-      {pid, _ref} -> GenServer.cast(pid, {:send, kind, payload})
-      nil -> :ok
-    end
-
-    {:noreply, state}
-  end
-
-  def handle_info({:ws_close, socket_id, code, reason}, state) do
-    case Map.get(state.websockets, socket_id) do
-      {pid, _ref} -> GenServer.cast(pid, {:close, code, reason})
-      nil -> :ok
-    end
-
-    {:noreply, state}
   end
 
   def handle_info({:websocket_event, message}, state) do

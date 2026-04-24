@@ -1,4 +1,17 @@
 defmodule QuickBEAM do
+  import QuickBEAM.VM.Heap.Keys
+
+  alias QuickBEAM.Bytecode
+  alias QuickBEAM.JSError
+  alias QuickBEAM.Native
+  alias QuickBEAM.Runtime
+  alias QuickBEAM.VM.Bytecode, as: BeamBytecode
+  alias QuickBEAM.VM.Compiler, as: BeamCompiler
+  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.Interpreter
+  alias QuickBEAM.VM.PromiseState, as: Promise
+  alias QuickBEAM.VM.Runtime, as: BeamRuntime
+
   @moduledoc """
   QuickJS-NG JavaScript engine embedded in the BEAM.
 
@@ -58,7 +71,7 @@ defmodule QuickBEAM do
 
   @doc false
   def child_spec(opts) do
-    QuickBEAM.Runtime.child_spec(opts)
+    Runtime.child_spec(opts)
   end
 
   @doc """
@@ -88,7 +101,17 @@ defmodule QuickBEAM do
   """
   @spec start(keyword()) :: GenServer.on_start()
   def start(opts \\ []) do
-    QuickBEAM.Runtime.start_link(opts)
+    opts =
+      if Keyword.has_key?(opts, :mode) do
+        opts
+      else
+        case System.get_env("QUICKBEAM_MODE") do
+          "beam" -> Keyword.put(opts, :mode, :beam)
+          _ -> opts
+        end
+      end
+
+    Runtime.start_link(opts)
   end
 
   @doc """
@@ -127,7 +150,194 @@ defmodule QuickBEAM do
   """
   @spec eval(runtime(), String.t(), keyword()) :: js_result()
   def eval(runtime, code, opts \\ []) do
-    QuickBEAM.Runtime.eval(runtime, code, opts)
+    if resolve_mode(runtime, opts) == :beam do
+      eval_beam(runtime, code, opts)
+    else
+      Runtime.eval(runtime, code, opts)
+    end
+  end
+
+  defp resolve_mode(runtime, opts) do
+    case Keyword.get(opts, :mode) do
+      nil ->
+        case Heap.get_runtime_mode(runtime) do
+          nil ->
+            mode =
+              try do
+                GenServer.call(runtime, :get_mode, 1000)
+              catch
+                :exit, _ -> :nif
+              end
+
+            Heap.put_runtime_mode(runtime, mode)
+            mode
+
+          cached ->
+            cached
+        end
+
+      mode ->
+        mode
+    end
+  end
+
+  defp eval_beam(runtime, code, opts) do
+    handler_globals =
+      case Heap.get_handler_globals() do
+        nil ->
+          handlers =
+            try do
+              GenServer.call(runtime, :get_handlers, 1000)
+            catch
+              :exit, _ -> %{}
+            end
+
+          globals =
+            for {name, handler} <- handlers, into: %{} do
+              {name,
+               {:builtin, name,
+                fn args ->
+                  case handler do
+                    {:with_caller, fun} -> fun.(args, self())
+                    fun when is_function(fun, 1) -> fun.(args)
+                    _ -> :undefined
+                  end
+                end}}
+            end
+
+          Heap.put_handler_globals(globals)
+          globals
+
+        cached ->
+          cached
+      end
+
+    case Runtime.compile(runtime, code, Keyword.get(opts, :filename, "")) do
+      {:ok, bc} ->
+        case BeamBytecode.decode(bc) do
+          {:ok, parsed} ->
+            result =
+              Interpreter.eval(
+                parsed.value,
+                [],
+                %{gas: 1_000_000_000, runtime_pid: runtime, globals: handler_globals},
+                parsed.atoms
+              )
+
+            Promise.drain_microtasks()
+            converted = convert_beam_result(result)
+            Heap.gc(beam_gc_roots(result))
+            converted
+
+          {:error, _} = err ->
+            err
+        end
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp convert_beam_result({:error, {:js_throw, {:obj, _ref} = obj}}) do
+    val = convert_beam_value(obj)
+    {:error, wrap_js_error(val)}
+  end
+
+  defp convert_beam_result({:error, {:js_throw, val}}) do
+    {:error, wrap_js_error(convert_beam_value(val))}
+  end
+
+  defp convert_beam_result({:ok, {:obj, ref}}) do
+    {:ok, convert_beam_value({:obj, ref})}
+  end
+
+  defp convert_beam_result({:ok, val}), do: {:ok, convert_beam_value(val)}
+  defp convert_beam_result({:error, _} = err), do: err
+
+  defp wrap_js_error(val), do: JSError.from_js_value(val)
+
+  defp beam_gc_roots({:ok, value}), do: [value]
+  defp beam_gc_roots({:error, {:js_throw, value}}), do: [value]
+  defp beam_gc_roots(_), do: []
+
+  defp elixir_to_js(val) when is_map(val) do
+    ref = make_ref()
+    obj = Map.new(val, fn {k, v} -> {to_string(k), elixir_to_js(v)} end)
+    Heap.put_obj(ref, obj)
+    {:obj, ref}
+  end
+
+  defp elixir_to_js(val) when is_list(val) do
+    ref = make_ref()
+    Heap.put_obj(ref, Enum.map(val, &elixir_to_js/1))
+    {:obj, ref}
+  end
+
+  defp elixir_to_js(val), do: val
+
+  defp convert_beam_value(:undefined), do: nil
+
+  defp convert_beam_value({:obj, ref}) do
+    case Heap.get_obj(ref) do
+      nil ->
+        nil
+
+      {:qb_arr, arr} ->
+        :array.to_list(arr) |> Enum.map(&convert_beam_value/1)
+
+      list when is_list(list) ->
+        Enum.map(list, &convert_beam_value/1)
+
+      map when is_map(map) ->
+        map
+        |> Map.drop([key_order()])
+        |> Map.new(fn {k, v} -> {convert_beam_key(k), convert_beam_value(v)} end)
+        |> Map.reject(fn {k, _} ->
+          is_binary(k) and String.starts_with?(k, "__") and String.ends_with?(k, "__")
+        end)
+    end
+  end
+
+  defp convert_beam_value(list) when is_list(list), do: Enum.map(list, &convert_beam_value/1)
+  defp convert_beam_value(v), do: v
+
+  defp convert_beam_key(k) when is_binary(k), do: k
+  defp convert_beam_key(k) when is_integer(k), do: Integer.to_string(k)
+  defp convert_beam_key(k), do: inspect(k)
+
+  defp load_module_beam(runtime, name, code) do
+    wrapper =
+      "(function() { var module = {exports: {}}; var exports = module.exports; " <>
+        code <> "; return module.exports })()"
+
+    case Runtime.compile(runtime, wrapper) do
+      {:ok, bc} ->
+        case BeamBytecode.decode(bc) do
+          {:ok, parsed} ->
+            case Interpreter.eval(
+                   parsed.value,
+                   [],
+                   %{gas: 1_000_000_000, runtime_pid: runtime},
+                   parsed.atoms
+                 ) do
+              {:ok, mod_exports} ->
+                Heap.register_module(name, mod_exports)
+                :ok
+
+              {:error, {:js_throw, _}} = error ->
+                convert_beam_result(error)
+
+              error ->
+                error
+            end
+
+          error ->
+            error
+        end
+
+      error ->
+        error
+    end
   end
 
   @doc """
@@ -149,7 +359,37 @@ defmodule QuickBEAM do
   """
   @spec call(runtime(), String.t(), list(), keyword()) :: js_result()
   def call(runtime, fn_name, args \\ [], opts \\ []) do
-    QuickBEAM.Runtime.call(runtime, fn_name, args, opts)
+    if resolve_mode(runtime, opts) == :beam do
+      call_beam(runtime, fn_name, args)
+    else
+      Runtime.call(runtime, fn_name, args, opts)
+    end
+  end
+
+  defp call_beam(_runtime, fn_name, args) do
+    handler_globals = Heap.get_handler_globals() || %{}
+
+    globals =
+      BeamRuntime.global_bindings()
+      |> Map.merge(handler_globals)
+      |> Map.merge(Heap.get_persistent_globals())
+
+    case Map.get(globals, fn_name) do
+      nil ->
+        {:error,
+         JSError.from_js_value(%{
+           "message" => "#{fn_name} is not defined",
+           "name" => "ReferenceError"
+         })}
+
+      fun ->
+        try do
+          result = Interpreter.invoke(fun, args, 1_000_000_000)
+          convert_beam_result({:ok, result})
+        catch
+          {:js_throw, val} -> convert_beam_result({:error, {:js_throw, val}})
+        end
+    end
   end
 
   @doc """
@@ -167,22 +407,41 @@ defmodule QuickBEAM do
   """
   @spec disasm(binary()) :: {:ok, QuickBEAM.Bytecode.t()} | {:error, String.t()}
   def disasm(bytecode) when is_binary(bytecode) do
-    case QuickBEAM.Native.disasm_bytecode(bytecode) do
-      {:ok, map} -> {:ok, QuickBEAM.Bytecode.from_map(map)}
+    case Native.disasm_bytecode(bytecode) do
+      {:ok, map} -> {:ok, Bytecode.from_map(map)}
       {:error, _} = error -> error
     end
   end
 
   @doc """
-  Compile JavaScript source and disassemble the resulting bytecode.
+  Compile JavaScript source and disassemble it.
+
+  In the default NIF mode this returns `%QuickBEAM.Bytecode{}`. In `:beam`
+  mode it returns the raw `:beam_disasm.file/1` result.
 
       {:ok, %QuickBEAM.Bytecode{cpool: [%QuickBEAM.Bytecode{name: "add"}]}} =
         QuickBEAM.disasm(rt, "function add(a, b) { return a + b }")
+
+      {:ok, rt} = QuickBEAM.start(mode: :beam, apis: false)
+      {:ok, {:beam_file, _, _, _, _, _}} =
+        QuickBEAM.disasm(rt, "function fib(n) { if (n <= 1) return n; return fib(n - 1) + fib(n - 2) }")
   """
-  @spec disasm(runtime(), String.t()) :: {:ok, QuickBEAM.Bytecode.t()} | {:error, term()}
-  def disasm(runtime, code) when is_binary(code) do
-    with {:ok, bytecode} <- compile(runtime, code) do
-      disasm(bytecode)
+  @spec disasm(runtime(), String.t(), keyword()) ::
+          {:ok, QuickBEAM.Bytecode.t() | tuple()} | {:error, term()}
+  def disasm(runtime, code, opts \\ []) when is_binary(code) do
+    if resolve_mode(runtime, opts) == :beam do
+      disasm_beam(runtime, code, opts)
+    else
+      with {:ok, bytecode} <- Runtime.compile(runtime, code, Keyword.get(opts, :filename, "")) do
+        disasm(bytecode)
+      end
+    end
+  end
+
+  defp disasm_beam(runtime, code, opts) do
+    with {:ok, bytecode} <- Runtime.compile(runtime, code, Keyword.get(opts, :filename, "")),
+         {:ok, parsed} <- BeamBytecode.decode(bytecode) do
+      BeamCompiler.disasm(parsed.value)
     end
   end
 
@@ -195,7 +454,7 @@ defmodule QuickBEAM do
   """
   @spec compile(runtime(), String.t()) :: {:ok, binary()} | {:error, QuickBEAM.JSError.t()}
   def compile(runtime, code) do
-    QuickBEAM.Runtime.compile(runtime, code)
+    Runtime.compile(runtime, code)
   end
 
   @doc """
@@ -206,7 +465,7 @@ defmodule QuickBEAM do
   """
   @spec load_bytecode(runtime(), binary()) :: js_result()
   def load_bytecode(runtime, bytecode) do
-    QuickBEAM.Runtime.load_bytecode(runtime, bytecode)
+    Runtime.load_bytecode(runtime, bytecode)
   end
 
   @doc """
@@ -219,9 +478,13 @@ defmodule QuickBEAM do
       iex> QuickBEAM.stop(rt)
       :ok
   """
-  @spec load_module(runtime(), String.t(), String.t()) :: :ok | {:error, String.t()}
-  def load_module(runtime, name, code) do
-    QuickBEAM.Runtime.load_module(runtime, name, code)
+  @spec load_module(runtime(), String.t(), String.t(), keyword()) :: :ok | {:error, String.t()}
+  def load_module(runtime, name, code, opts \\ []) do
+    if resolve_mode(runtime, opts) == :beam do
+      load_module_beam(runtime, name, code)
+    else
+      Runtime.load_module(runtime, name, code)
+    end
   end
 
   @doc """
@@ -244,7 +507,7 @@ defmodule QuickBEAM do
   """
   @spec load_addon(runtime(), String.t(), keyword()) :: {:ok, term()} | {:error, term()}
   def load_addon(runtime, path, opts \\ []) do
-    QuickBEAM.Runtime.load_addon(runtime, path, opts)
+    Runtime.load_addon(runtime, path, opts)
   end
 
   @doc """
@@ -261,13 +524,13 @@ defmodule QuickBEAM do
   """
   @spec reset(runtime()) :: :ok | {:error, String.t()}
   def reset(runtime) do
-    QuickBEAM.Runtime.reset(runtime)
+    Runtime.reset(runtime)
   end
 
   @doc "Stop a runtime and free its resources."
   @spec stop(runtime()) :: :ok
   def stop(runtime) do
-    QuickBEAM.Runtime.stop(runtime)
+    Runtime.stop(runtime)
   end
 
   @doc """
@@ -305,7 +568,7 @@ defmodule QuickBEAM do
   @doc "Return QuickJS memory usage statistics."
   @spec memory_usage(runtime()) :: map()
   def memory_usage(runtime) do
-    QuickBEAM.Runtime.memory_usage(runtime)
+    Runtime.memory_usage(runtime)
   end
 
   @doc """
@@ -316,7 +579,7 @@ defmodule QuickBEAM do
   """
   @spec send_message(runtime(), term()) :: :ok
   def send_message(runtime, message) do
-    QuickBEAM.Runtime.send_message(runtime, message)
+    Runtime.send_message(runtime, message)
   end
 
   @doc """
@@ -362,8 +625,14 @@ defmodule QuickBEAM do
       {:ok, nil}
   """
   @spec get_global(runtime(), String.t()) :: js_result()
-  def get_global(runtime, name) when is_binary(name) do
-    GenServer.call(runtime, {:get_global, name}, :infinity)
+  def get_global(runtime, name, opts \\ []) when is_binary(name) do
+    if resolve_mode(runtime, opts) == :beam do
+      persistent = Heap.get_persistent_globals()
+      raw = Map.get(persistent, name, :undefined)
+      {:ok, convert_beam_value(raw)}
+    else
+      GenServer.call(runtime, {:get_global, name}, :infinity)
+    end
   end
 
   @doc """
@@ -380,8 +649,15 @@ defmodule QuickBEAM do
       {:ok, 3} = QuickBEAM.eval(rt, "items.length")
   """
   @spec set_global(runtime(), String.t(), term()) :: :ok
-  def set_global(runtime, name, value) when is_binary(name) do
-    GenServer.call(runtime, {:set_global, name, value}, :infinity)
+  def set_global(runtime, name, value, opts \\ []) when is_binary(name) do
+    if resolve_mode(runtime, opts) == :beam do
+      persistent = Heap.get_persistent_globals()
+      js_val = elixir_to_js(value)
+      Heap.put_persistent_globals(Map.put(persistent, name, js_val))
+      :ok
+    else
+      GenServer.call(runtime, {:set_global, name, value}, :infinity)
+    end
   end
 
   @doc """
@@ -413,7 +689,7 @@ defmodule QuickBEAM do
   """
   @spec dom_find(runtime(), String.t()) :: {:ok, tuple() | nil}
   def dom_find(runtime, selector) do
-    QuickBEAM.Runtime.dom_find(runtime, selector)
+    Runtime.dom_find(runtime, selector)
   end
 
   @doc """
@@ -428,7 +704,7 @@ defmodule QuickBEAM do
   """
   @spec dom_find_all(runtime(), String.t()) :: {:ok, list()}
   def dom_find_all(runtime, selector) do
-    QuickBEAM.Runtime.dom_find_all(runtime, selector)
+    Runtime.dom_find_all(runtime, selector)
   end
 
   @doc """
@@ -440,7 +716,7 @@ defmodule QuickBEAM do
   """
   @spec dom_text(runtime(), String.t()) :: {:ok, String.t()}
   def dom_text(runtime, selector) do
-    QuickBEAM.Runtime.dom_text(runtime, selector)
+    Runtime.dom_text(runtime, selector)
   end
 
   @doc """
@@ -454,7 +730,7 @@ defmodule QuickBEAM do
   """
   @spec dom_attr(runtime(), String.t(), String.t()) :: {:ok, String.t() | nil}
   def dom_attr(runtime, selector, attr_name) do
-    QuickBEAM.Runtime.dom_attr(runtime, selector, attr_name)
+    Runtime.dom_attr(runtime, selector, attr_name)
   end
 
   @doc """
@@ -466,6 +742,6 @@ defmodule QuickBEAM do
   """
   @spec dom_html(runtime()) :: {:ok, String.t()}
   def dom_html(runtime) do
-    QuickBEAM.Runtime.dom_html(runtime)
+    Runtime.dom_html(runtime)
   end
 end

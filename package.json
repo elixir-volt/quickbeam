@@ -9,7 +9,8 @@
     "jscpd": "^4.0.8",
     "oxfmt": "^0.37.0",
     "oxlint": "^1.52.0",
-    "oxlint-tsgolint": "^0.16.0"
+    "oxlint-tsgolint": "^0.16.0",
+    "preact": "^10.29.1"
   },
   "private": true,
   "scripts": {

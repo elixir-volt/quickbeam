@@ -17,9 +17,26 @@ Run individual benchmarks:
 MIX_ENV=bench mix run bench/eval_roundtrip.exs
 MIX_ENV=bench mix run bench/call_with_data.exs
 MIX_ENV=bench mix run bench/beam_call.exs
+MIX_ENV=bench mix run bench/vm_compiler.exs
+MIX_ENV=bench mix run bench/preact_vm.exs
 MIX_ENV=bench mix run bench/startup.exs
 MIX_ENV=bench mix run bench/concurrent.exs
 ```
+
+### Preact VM benchmark
+
+`bench/preact_vm.exs` bundles `bench/assets/preact_ssr.js` with Bun and compares
+steady-state `QuickBEAM.VM.Interpreter.invoke/3` against
+`QuickBEAM.VM.Compiler.invoke/2` on a real Preact component tree workload.
+Each Benchee worker builds its own VM/runtime state once, so measurements stay
+in-process and do not include cross-process heap setup on every iteration.
+
+`bench/preact_vm_profile.exs` writes supporting artifacts to `/tmp/`:
+
+- `preact_vm_render_app_quickjs.txt`
+- `preact_vm_render_app_opcodes.txt`
+- `preact_vm_beam_disasm.txt`
+- `preact_vm_profile_summary.txt` when `:eprof` is unavailable locally
 
 ## Results
 
