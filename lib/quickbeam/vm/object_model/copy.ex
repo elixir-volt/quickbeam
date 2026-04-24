@@ -33,7 +33,19 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
       {:obj, ref} ->
         existing = Heap.get_obj(ref, %{})
         existing = if is_map(existing), do: existing, else: %{}
-        Heap.put_obj(ref, Map.merge(existing, src_props))
+        merged = Map.merge(existing, src_props)
+
+        merged =
+          case Map.get(merged, key_order()) do
+            order when is_list(order) ->
+              new_keys = Map.keys(src_props) -- Enum.map(order, &to_string/1)
+              Map.put(merged, key_order(), Enum.reverse(new_keys) ++ order)
+
+            _ ->
+              merged
+          end
+
+        Heap.put_obj(ref, merged)
 
       _ ->
         :ok

@@ -2950,8 +2950,15 @@ defmodule QuickBEAM.VM.Interpreter do
     run(pc + 1, frame, [named, name_val | rest], gas, ctx)
   end
 
-  defp run({@op_copy_data_properties, []}, pc, frame, stack, gas, ctx),
-    do: run(pc + 1, frame, stack, gas, ctx)
+  defp run({@op_copy_data_properties, []}, pc, frame, [source, target | rest], gas, ctx) do
+    try do
+      Copy.copy_data_properties(target, source)
+    catch
+      {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
+    end
+
+    run(pc + 1, frame, [source, target | rest], gas, ctx)
+  end
 
   defp run(
          {@op_get_super, []},
