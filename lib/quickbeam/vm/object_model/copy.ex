@@ -74,7 +74,8 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   def enumerable_string_props({:obj, ref} = source_obj) do
     case Heap.get_obj_raw(ref) do
       {:shape, shape_id, _offsets, vals, _proto} ->
-        Heap.Shapes.to_map(shape_id, vals, nil)
+        map = Heap.Shapes.to_map(shape_id, vals, nil)
+        resolve_accessors(map, source_obj)
 
       {:qb_arr, _} ->
         Enum.reduce(0..max(Heap.array_size(ref) - 1, 0), %{}, fn i, acc ->
@@ -102,6 +103,13 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
 
   def enumerable_string_props(map) when is_map(map), do: map
   def enumerable_string_props(_), do: %{}
+
+  defp resolve_accessors(map, obj) do
+    Map.new(map, fn
+      {k, {:accessor, getter, _}} when getter != nil -> {k, Get.call_getter(getter, obj)}
+      pair -> pair
+    end)
+  end
 
   def enumerable_keys({:obj, ref} = obj) do
     case Heap.get_obj_raw(ref) do
