@@ -343,6 +343,9 @@ defmodule QuickBEAM.VM.Interpreter do
     Setup.store_function_atoms(fun, atoms)
     prev_ctx = Heap.get_ctx()
     Heap.put_ctx(ctx)
+    if Process.get(:qb_builtin_names) == nil do
+      Process.put(:qb_builtin_names, MapSet.new(Map.keys(Runtime.global_bindings())))
+    end
     ctx = Context.mark_synced(ctx)
 
     try do
@@ -2344,8 +2347,9 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp run({@op_delete_var, [atom_idx]}, pc, frame, stack, gas, ctx) do
     name = Names.resolve_atom(ctx.atoms, atom_idx)
+    builtins = Process.get(:qb_builtin_names, MapSet.new())
     result = case Map.fetch(ctx.globals, name) do
-      {:ok, _} -> false
+      {:ok, _} -> MapSet.member?(builtins, name)
       :error -> true
     end
     run(pc + 1, frame, [result | stack], gas, ctx)
