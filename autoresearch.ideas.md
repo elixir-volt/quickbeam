@@ -1,31 +1,27 @@
-# Autoresearch Ideas — 61 remaining failures (96.1% pass rate)
+# Autoresearch Ideas — 47 remaining failures (96.9% pass rate)
 
-## Total progress: 72 → 61 = 11 tests fixed
+## Total progress: 72 → 47 = 25 tests fixed
 
-## Fixes across all sessions
-1. **Stale catch_stack in opcode try/catch handlers** — refresh ctx from PD in catch clauses (4 tests)
-2. **delete this.y for declared vars** — define_var syncs to globalThis with configurable:false (1 test)
-3. **Function.prototype.constructor** — added constructor to proto_property chain (1 test)
-4. **typeof for proxies** — delegates to proxy target + added Proxy.revocable (1 test)
-5. **check_prototype_chain for arrays** — arrays/qb_arr now match Array/Object prototype (1 test)
-6. **Class field initializer capture** — eval_with_ctx now calls setup_captured_locals (1 test)
-7. **private_in for accessors** — check brand in addition to field presence (1 test)
-8. **Array prototype setter + globals refresh** — put_element checks Array.prototype for OOB setters, put_array_el refreshes persistent globals (1 test)
+## Key fixes
+1. **Stale catch_stack** — refresh ctx from PD in catch clauses (4 tests)
+2. **delete this.y** — configurable:false for declared vars (1 test)
+3. **Function.prototype.constructor** — proto_property chain (1 test)
+4. **typeof proxy** — delegates to target + Proxy.revocable (1 test)
+5. **instanceof for arrays** — Array/Object.prototype check (1 test)
+6. **Class field capture** — eval_with_ctx setup_captured_locals (1 test)
+7. **private_in for accessors** — brand check (1 test)
+8. **Array proto setter** — OOB put_element + globals refresh (1 test)
+9. **make_*_ref 2-value push** — prop_name + cell (eliminates 23 crashes)
+10. **with_has_property?** — has_property instead of Get.get (14 tests!)
+11. **with_make_ref compiler fallback** — force interpreter for with-scope functions
 
-## Remaining breakdown (61 failures)
-### All unfixable without `with` scope implementation
-- **45** with-statement scope (no `with` support in BEAM VM)
-- **16** inc/dec using `with` in source (stack opcodes fail with wrong scope)
+## Remaining breakdown (47 failures, all with-scope)
+- **15** not a function — function calls through `with` scope use different opcodes
+- **6** p5 is not defined — var declarations inside `with` don't leak to outer scope
+- **6** undefined is not a constructor — constructor calls through `with`
+- **6** Expected ReferenceError — strict mode ref errors in `with`
+- **14** misc with-scope issues (unscopables, property access, scope close)
 
-### No more fixable tests
-All non-with test262 failures have been resolved. The remaining 61 failures all require full `with` statement scope implementation, which would need:
-- Object environment records
-- Scope chain with `with` binding layer
-- `with_get_var`/`with_put_var` proper scope resolution
-- `Symbol.unscopables` support
-- Stack opcode (insert3/perm4) correct stack depth in `with` context
-
-## Dead ends
-- `with` scope: Would require full environment record refactor (100+ opcodes affected)
-- `Function.prototype` typeof: Returns "object" instead of "function"
-- toPrimitive side effects: Closure vars captured by copy, not reference (partially mitigated by persistent_globals refresh)
+## Potential next steps
+- **Function calls in `with`**: The `with_get_var` resolves reads but function CALLS may use different bytecode paths. Need to check if `call_function` looks up through `with` scope.
+- **var creation in `with`**: When `p5 = 'x5'` runs inside `with(myObj)` and `myObj` doesn't have `p5`, it should create a global `p5`. The `with_put_var` fallthrough should handle this.
