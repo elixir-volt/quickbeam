@@ -2347,9 +2347,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
         obj_is_object = match?({:obj, _}, obj) or function_value?(obj)
 
-        unless obj_is_object do
-          false
-        else
+        if obj_is_object do
           ctor_proto = Get.get(ctor, "prototype")
 
           case ctor_proto do
@@ -2405,6 +2403,8 @@ defmodule QuickBEAM.VM.Interpreter do
                 )
               end
           end
+        else
+          false
         end
       end
     end)
