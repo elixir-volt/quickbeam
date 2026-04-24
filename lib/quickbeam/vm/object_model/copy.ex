@@ -26,8 +26,25 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
     {new_idx, merged_obj}
   end
 
-  def copy_data_properties(target, source) do
+  def copy_data_properties(target, source, exclude \\ nil) do
     src_props = enumerable_string_props(source)
+
+    src_props =
+      case exclude do
+        {:obj, eref} ->
+          exclude_keys =
+            case Heap.get_obj(eref) do
+              {:qb_arr, arr} -> :array.to_list(arr) |> Enum.map(&to_string/1)
+              list when is_list(list) -> Enum.map(list, &to_string/1)
+              map when is_map(map) -> Map.keys(map) |> Enum.filter(&is_binary/1)
+              _ -> []
+            end
+
+          Map.drop(src_props, exclude_keys)
+
+        _ ->
+          src_props
+      end
 
     case target do
       {:obj, ref} ->

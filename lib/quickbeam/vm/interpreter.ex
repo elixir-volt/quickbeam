@@ -3026,11 +3026,13 @@ defmodule QuickBEAM.VM.Interpreter do
   defp run({@op_copy_data_properties, [mask]}, pc, frame, stack, gas, ctx) do
     target_idx = mask &&& 3
     source_idx = Bitwise.bsr(mask, 2) &&& 7
+    exclude_idx = Bitwise.bsr(mask, 5) &&& 7
     target = Enum.at(stack, target_idx)
     source = Enum.at(stack, source_idx)
+    exclude = Enum.at(stack, exclude_idx)
 
     try do
-      Copy.copy_data_properties(target, source)
+      Copy.copy_data_properties(target, source, exclude)
       run(pc + 1, frame, stack, gas, ctx)
     catch
       {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
