@@ -646,6 +646,10 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def lt(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y < x end)
   def lt({:bigint, a}, b) when is_boolean(b), do: a < to_number(b)
   def lt(a, {:bigint, b}) when is_boolean(a), do: to_number(a) < b
+  def lt({:bigint, _}, {:symbol, _}), do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
+  def lt({:bigint, _}, {:symbol, _, _}), do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
+  def lt({:symbol, _}, {:bigint, _}), do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
+  def lt({:symbol, _, _}, {:bigint, _}), do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
   def lt(a, b) when is_number(a) and is_number(b), do: a < b
   def lt(a, b) when is_binary(a) and is_binary(b), do: a < b
   def lt(a, b) do
@@ -688,6 +692,8 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def gt({:bigint, a}, b) when is_boolean(b), do: a > to_number(b)
   def gt(a, {:bigint, b}) when is_boolean(a), do: to_number(a) > b
   def gt(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y > x end)
+  def gt({:bigint, _}, s) when is_tuple(s) and elem(s, 0) == :symbol, do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
+  def gt(s, {:bigint, _}) when is_tuple(s) and elem(s, 0) == :symbol, do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
   def gt(a, b) when is_number(a) and is_number(b), do: a > b
   def gt(a, b) when is_binary(a) and is_binary(b), do: a > b
   def gt(a, b) do
@@ -709,6 +715,8 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def gte({:bigint, a}, b) when is_boolean(b), do: a >= to_number(b)
   def gte(a, {:bigint, b}) when is_boolean(a), do: to_number(a) >= b
   def gte(a, {:bigint, _} = b) when is_binary(a), do: bigint_string_compare(b, a, fn x, y -> y >= x end)
+  def gte({:bigint, _}, s) when is_tuple(s) and elem(s, 0) == :symbol, do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
+  def gte(s, {:bigint, _}) when is_tuple(s) and elem(s, 0) == :symbol, do: throw({:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")})
   def gte(a, b) when is_number(a) and is_number(b), do: a >= b
   def gte(a, b) when is_binary(a) and is_binary(b), do: a >= b
   def gte(a, b) do
