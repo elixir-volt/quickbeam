@@ -1,40 +1,31 @@
-# Autoresearch Ideas — 106 remaining failures (93.3%)
+# Autoresearch Ideas — 96 remaining failures (93.9%)
 
-## Session progress: 133 → 106 = 27 tests fixed
+## Session progress: 106 → 96 = 10 tests fixed
 
-## Remaining breakdown (106 failures)
-### Unfixable without deep changes (~71)
-- **47** with-statement scope — deep interpreter rewrite needed
-- **16** inc/dec using with-scope in test source — also unfixable
-- **4** unicode surrogate comparison — UTF-8 vs UTF-16
-- **2** private fields — #field in obj
-- **1** proxy — not implemented
-- **1** delete this.y — var declarations not on globalThis
+## Fixes this session
+1. **CRITICAL: Shape key ordering in wrap_keyed** — lowering sort_by pattern didn't match :erl_parse.abstract binary AST format (3 tests)
+2. **from_map vals ordering** — build vals in shape offset order instead of map iteration order
+3. **Iterator error propagation** — invoke_callback_or_throw replaces call_callback in for_of_start/next/iterator_next (5 tests)
+4. **Spread iterator accessor descriptors** — handle defineProperty getter on Symbol.iterator (2 tests)
+5. **Spread TypeError for non-object iterator** — per spec 7.4.1 step 3 (1 test)
 
-### Potentially fixable (~35)
-- **~15** for/dstr + try/dstr — destructuring iterator protocol not invoked
-- **~8** _isSameValue — systemic assert.sameValue issue (defineProperty getters needed)
-- **~4** instanceof — closure identity, prototype getter on Function.prototype
-- **~3** try/finally — completion values (finally double-execution across function calls)
-- **~4** new/spread — iterator with defineProperty getters + timeout
-- **~1** unsigned-right-shift BigInt toPrimitive eval order
+## Remaining breakdown (96 failures)
+### Unfixable (~63)
+- **47** with-statement scope
+- **16** inc/dec using with in source (CRASHes)
 
-## Completed fixes this session
-1. dup2/dup3 stack corruption (4 tests)
-2. Spread property enumeration + __key_order__ (1 test)
-3. Destructuring rest pattern exclusion (4 tests)
-4. for-in: skip deleted properties during enumeration (1 test)
-5. Symbol.hasInstance in instanceof (1 test)
-6. BigInt TypeError with Heap.make_error (1 test)
-7. Builtin property deletion (configurable methods vs non-configurable constants) (2 tests)
-8. Array element delete (sparse arrays) (2 tests)
-9. for-in: non-enumerable own properties shadow prototype keys (1 test)
-10. to_propkey2 null/undefined check (8 tests)
-11. instanceof OrdinaryHasInstance spec order (1 test)
-12. abstract_eq Symbol × Object ToPrimitive (1 test)
-13. defineProperty symbol keys + accessor in ToPrimitive (2 tests)
-14. instanceof namespace objects not callable (1 test)
-15. Values.div/2 wrapper for compiler
+### Potentially fixable (~33)
+- **~13** _isSameValue — systemic assert.sameValue issue
+- **~7** for/dstr — array-prototype iterator override, rest-getter
+- **~7** try/dstr — similar + null destructuring
+- **~4** instanceof — closure identity, prototype getter
+- **~3** try/finally — double execution across function boundaries
+- **~4** unicode surrogates — UTF-8 vs UTF-16 (may be unfixable)
+- **~2** spread timeout — value getter on iterator result
+- **~2** private fields — #field syntax
+- **~1** proxy, ~1 typeof/proxy, ~1 delete this.y, ~1 unsigned-right-shift
 
 ## Dead ends
-- **{:obj, _} non-callable in instanceof**: Too aggressive — Function.prototype is {:obj, _} but callable. 4 regressions.
+- `{:obj, _}` non-callable in instanceof: Function.prototype is {:obj, _} but callable
+- collect_iterator with invoke_callback_or_throw: spread on undefined is valid, causes 4 regressions
+- Destructuring null: for_of_start throws TypeError but it's caught and swallowed by the error propagation machinery
