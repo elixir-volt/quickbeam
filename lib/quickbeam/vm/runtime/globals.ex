@@ -30,6 +30,11 @@ defmodule QuickBEAM.VM.Runtime.Globals do
     obj_proto = ensure_object_prototype()
     obj_ctor = register("Object", &Constructors.object/2, prototype: obj_proto)
 
+    # Set constructor on Object.prototype
+    {:obj, proto_ref} = obj_proto
+    proto_data = Heap.get_obj(proto_ref, %{})
+    if is_map(proto_data), do: Heap.put_obj(proto_ref, Map.put(proto_data, "constructor", obj_ctor))
+
     bindings()
     |> Map.put("Object", obj_ctor)
     |> Map.merge(typed_arrays())
