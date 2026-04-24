@@ -150,8 +150,9 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
 
       map when is_map(map) ->
         own_keys = enumerable_object_keys(map, ref)
+        all_own = Map.keys(map) |> Enum.filter(&is_binary/1)
         proto_keys = enumerable_proto_keys(Map.get(map, proto()))
-        Runtime.sort_numeric_keys(own_keys ++ Enum.reject(proto_keys, &(&1 in own_keys)))
+        Runtime.sort_numeric_keys(own_keys ++ Enum.reject(proto_keys, &(&1 in all_own)))
 
       _ ->
         []
