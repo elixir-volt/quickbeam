@@ -2834,6 +2834,8 @@ defmodule QuickBEAM.VM.Interpreter do
       done = Get.get(result, "done")
       value = Get.get(result, "value")
 
+
+
       if done == true do
         cleared = List.replace_at(stack, offset - 1, :undefined)
         run(pc + 1, frame, [true, :undefined | cleared], gas, ctx)

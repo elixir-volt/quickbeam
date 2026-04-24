@@ -119,7 +119,13 @@ defmodule QuickBEAM.VM.Heap.Shapes do
   def from_map(map) when is_map(map) do
     case resolve_shape_for_map(map) do
       {shape_id, offsets} ->
-        {:ok, shape_id, offsets, :erlang.list_to_tuple(:maps.values(map))}
+        vals =
+          offsets
+          |> Enum.sort_by(fn {_k, offset} -> offset end)
+          |> Enum.map(fn {k, _offset} -> Map.get(map, k) end)
+          |> :erlang.list_to_tuple()
+
+        {:ok, shape_id, offsets, vals}
 
       :ineligible ->
         :ineligible

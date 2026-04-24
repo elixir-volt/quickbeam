@@ -302,13 +302,21 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
           {:ok, :object} ->
             case collect_define_fields(instructions, idx + 1, arg_count, state) do
               {:ok, map_pairs, skip_to, state} ->
-                # Extract sorted keys and corresponding values
                 sorted_pairs =
                   Enum.sort_by(map_pairs, fn {k, _v} ->
-                    # k is Builder.literal(string) — extract the string
                     case k do
-                      {:bin, _, [{:bin_element, _, {:string, _, chars}, _, _}]} ->
+                      {:string, _, chars} when is_list(chars) ->
                         List.to_string(chars)
+
+                      {:bin, _, elements} when is_list(elements) ->
+                        elements
+                        |> Enum.map(fn
+                          {:bin_element, _, {:integer, _, c}, _, _} -> c
+                          {:bin_element, _, {:string, _, chars}, _, _} -> chars
+                          _ -> []
+                        end)
+                        |> List.flatten()
+                        |> List.to_string()
 
                       _ ->
                         ""
@@ -327,8 +335,18 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
                   |> Enum.reduce(%{}, fn {{k_expr, _v}, idx}, acc ->
                     key_str =
                       case k_expr do
-                        {:bin, _, [{:bin_element, _, {:string, _, chars}, _, _}]} ->
+                        {:string, _, chars} when is_list(chars) ->
                           List.to_string(chars)
+
+                        {:bin, _, elements} when is_list(elements) ->
+                          elements
+                          |> Enum.map(fn
+                            {:bin_element, _, {:integer, _, c}, _, _} -> c
+                            {:bin_element, _, {:string, _, chars}, _, _} -> chars
+                            _ -> []
+                          end)
+                          |> List.flatten()
+                          |> List.to_string()
 
                         _ ->
                           nil
