@@ -2863,8 +2863,25 @@ defmodule QuickBEAM.VM.Interpreter do
     run(pc + 1, frame, [Get.get(obj, prop_name) | stack], gas, ctx)
   end
 
-  defp run({@op_put_ref_value, []}, pc, frame, [val, _prop_name, {:cell, _} = ref | rest], gas, ctx) do
+  defp run({@op_put_ref_value, []}, pc, frame, [val, prop_name, {:cell, _} = ref | rest], gas, ctx) do
     Closures.write_cell(ref, val)
+
+    ctx =
+      if is_binary(prop_name) and Map.has_key?(ctx.globals, prop_name) do
+        new_globals = Map.put(ctx.globals, prop_name, val)
+        Heap.put_persistent_globals(new_globals)
+        Heap.put_base_globals(new_globals)
+
+        case Map.get(ctx.globals, "globalThis") do
+          {:obj, _} = gt -> Put.put(gt, prop_name, val)
+          _ -> :ok
+        end
+
+        Context.mark_dirty(%{ctx | globals: new_globals})
+      else
+        ctx
+      end
+
     run(pc + 1, frame, rest, gas, ctx)
   end
 
