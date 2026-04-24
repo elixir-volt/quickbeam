@@ -9,6 +9,14 @@ defmodule QuickBEAM.VM.Runtime.Date do
 
   # ── Constructor ──
 
+  def constructor(_args, nil) do
+    ms = System.system_time(:millisecond)
+    case DateTime.from_unix(ms, :millisecond) do
+      {:ok, dt} -> Calendar.strftime(dt, "%a %b %d %Y %H:%M:%S GMT+0000 (UTC)")
+      _ -> "Invalid Date"
+    end
+  end
+
   def constructor(args, _this) do
     ms =
       case args do
