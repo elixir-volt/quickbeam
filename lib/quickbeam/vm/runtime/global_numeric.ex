@@ -71,6 +71,8 @@ defmodule QuickBEAM.VM.Runtime.GlobalNumeric do
   def parse_float(_, _), do: :nan
 
   def nan?([:nan | _], _), do: true
+  def nan?([:infinity | _], _), do: false
+  def nan?([:neg_infinity | _], _), do: false
   def nan?([n | _], _) when is_number(n), do: false
 
   def nan?([string | _], _) when is_binary(string) do
