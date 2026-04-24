@@ -2408,8 +2408,8 @@ defmodule QuickBEAM.VM.Interpreter do
   # ── instanceof ──
 
   defp run({@op_instanceof, []}, pc, frame, [ctor, obj | rest], gas, ctx) do
-    catch_js_throw(pc, frame, rest, gas, ctx, fn ->
-      has_instance = Put.get_element(ctor, {:symbol, "Symbol.hasInstance"})
+    catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
+      has_instance = Get.get(ctor, {:symbol, "Symbol.hasInstance"})
 
       if has_instance != :undefined and has_instance != nil and function_value?(has_instance) do
         result = Invocation.invoke_with_receiver(has_instance, [obj], Runtime.gas_budget(), ctor)
@@ -2427,6 +2427,7 @@ defmodule QuickBEAM.VM.Interpreter do
         is_callable_ctor =
           case ctor do
             {:builtin, _, map} when is_map(map) -> false
+            {:obj, ref} -> Get.get({:obj, ref}, "call") != :undefined
             _ -> true
           end
 

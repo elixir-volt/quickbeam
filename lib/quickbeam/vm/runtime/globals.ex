@@ -61,9 +61,19 @@ defmodule QuickBEAM.VM.Runtime.Globals do
       "BigInt" => register("BigInt", &Constructors.bigint/2),
       "Boolean" => register("Boolean", Boolean.constructor(), auto_proto: true),
       "Function" =>
-        register("Function", &Constructors.function/2,
-          prototype: QuickBEAM.VM.Runtime.Function.prototype()
-        ),
+        (fn ->
+           fun_ctor =
+             register("Function", &Constructors.function/2,
+               prototype: QuickBEAM.VM.Runtime.Function.prototype()
+             )
+
+           proto = Heap.get_ctor_statics(fun_ctor)["prototype"]
+
+           if match?({:obj, _}, proto),
+             do: QuickBEAM.VM.ObjectModel.Put.put(proto, "constructor", fun_ctor)
+
+           fun_ctor
+         end).(),
       "RegExp" => register("RegExp", &Constructors.regexp/2),
       "Date" => register("Date", &JSDate.constructor/2, module: JSDate),
       "Promise" =>
