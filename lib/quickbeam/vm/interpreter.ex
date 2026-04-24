@@ -2345,6 +2345,19 @@ defmodule QuickBEAM.VM.Interpreter do
           )
         end
 
+        is_callable_ctor =
+          case ctor do
+            {:builtin, _, map} when is_map(map) -> false
+            _ -> true
+          end
+
+        unless is_callable_ctor do
+          throw(
+            {:js_throw,
+             Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")}
+          )
+        end
+
         obj_is_object = match?({:obj, _}, obj) or function_value?(obj)
 
         if obj_is_object do
