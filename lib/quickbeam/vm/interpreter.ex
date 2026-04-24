@@ -1945,7 +1945,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp run({@op_define_var, [atom_idx, _scope]}, pc, frame, stack, gas, ctx) do
-    GlobalEnv.define_var(ctx, atom_idx)
+    ctx = GlobalEnv.define_var(ctx, atom_idx)
     run(pc + 1, frame, stack, gas, ctx)
   end
 

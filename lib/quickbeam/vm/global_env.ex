@@ -54,8 +54,11 @@ defmodule QuickBEAM.VM.GlobalEnv do
   end
 
   def define_var(%Context{} = ctx, atom_idx) do
-    Heap.put_var(Names.resolve_atom(ctx, atom_idx), :undefined)
-    Context.mark_dirty(ctx)
+    name = Names.resolve_atom(ctx, atom_idx)
+    Heap.put_var(name, :undefined)
+    globals = Map.put_new(ctx.globals, name, :undefined)
+    Heap.put_persistent_globals(globals)
+    Context.mark_dirty(%{ctx | globals: globals})
   end
 
   def check_define_var(%Context{} = ctx, atom_idx) do
