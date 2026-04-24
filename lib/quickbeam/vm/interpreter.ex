@@ -2425,7 +2425,24 @@ defmodule QuickBEAM.VM.Interpreter do
             end
           else
             key_str = if is_binary(key), do: key, else: Values.stringify(key)
-            if key_str == "length", do: false, else: true
+
+            cond do
+              key_str == "length" ->
+                false
+
+              match?({:qb_arr, _}, map) or is_list(map) ->
+                case Integer.parse(key_str) do
+                  {idx, ""} when idx >= 0 ->
+                    Heap.array_set(ref, idx, :undefined)
+                    true
+
+                  _ ->
+                    true
+                end
+
+              true ->
+                true
+            end
           end
 
         {:closure, _, _} = fun ->
