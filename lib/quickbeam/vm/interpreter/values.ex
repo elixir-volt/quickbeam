@@ -347,11 +347,6 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def sub({:bigint, a}, {:bigint, b}), do: {:bigint, a - b}
   def sub({:bigint, _}, b) when is_number(b), do: throw_bigint_mix_error()
   def sub(a, {:bigint, _}) when is_number(a), do: throw_bigint_mix_error()
-  def sub({:obj, _} = a, {:obj, _} = b) do
-    pa = to_primitive(a)
-    pb = to_primitive(b)
-    sub(to_numeric_prim(pa), to_numeric_prim(pb))
-  end
   def sub({:obj, _} = a, b), do: sub(to_numeric(a), b)
   def sub(a, {:obj, _} = b), do: sub(a, to_numeric(b))
   def sub({:bigint, _}, _), do: throw_bigint_mix_error()
