@@ -1269,12 +1269,12 @@ defmodule QuickBEAM.VM.Interpreter do
     run(pc + 1, frame, [a, b | stack], gas, ctx)
   end
 
-  defp run({@op_dup2, []}, pc, frame, [a, b | _] = stack, gas, ctx) do
-    run(pc + 1, frame, [a, b, a, b | stack], gas, ctx)
+  defp run({@op_dup2, []}, pc, frame, [a, b | _rest] = stack, gas, ctx) do
+    run(pc + 1, frame, [a, b | stack], gas, ctx)
   end
 
-  defp run({@op_dup3, []}, pc, frame, [a, b, c | _] = stack, gas, ctx) do
-    run(pc + 1, frame, [a, b, c, a, b, c | stack], gas, ctx)
+  defp run({@op_dup3, []}, pc, frame, [a, b, c | _rest] = stack, gas, ctx) do
+    run(pc + 1, frame, [a, b, c | stack], gas, ctx)
   end
 
   defp run({@op_insert2, []}, pc, frame, [a, b | rest], gas, ctx),
