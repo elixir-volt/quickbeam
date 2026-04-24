@@ -444,7 +444,7 @@ defmodule QuickBEAM.VM.CompilerTest do
       fun = compile_and_decode(rt, "(function(x){ return x + 1 })") |> user_function()
 
       assert {:ok, 6} = Compiler.invoke({:closure, %{}, fun}, [5])
-      assert match?({:compiled, _, _}, Heap.get_compiled({fun.byte_code, fun.arg_count}))
+      assert match?({:compiled, _, _}, Heap.get_compiled({fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants)}))
     end
 
     test "compiles class constructor closures without var ref reads", %{rt: rt} do
@@ -470,7 +470,7 @@ defmodule QuickBEAM.VM.CompilerTest do
 
       assert {:obj, ref} = RuntimeHelpers.construct_runtime(closure, closure, [9])
       assert 9 == Heap.get_obj(ref)["x"]
-      assert match?({:compiled, _, _}, Heap.get_compiled({ctor.byte_code, ctor.arg_count}))
+      assert match?({:compiled, _, _}, Heap.get_compiled({ctor.byte_code, ctor.arg_count, :erlang.phash2(ctor.constants)}))
     end
 
     test "compiles array spread", %{rt: rt} do
@@ -1077,7 +1077,7 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert 9 == Interpreter.invoke(fun, [4, 5], 1_000)
 
       assert {:compiled, {_mod, :run_ctx}, _atoms} =
-               Heap.get_compiled({fun.byte_code, fun.arg_count})
+               Heap.get_compiled({fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants)})
     end
 
     test "branchy functions also use the compiled cache", %{rt: rt} do
@@ -1087,7 +1087,7 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert 1 == Interpreter.invoke(fun, [5], 1_000)
 
       assert {:compiled, {_mod, :run_ctx}, _atoms} =
-               Heap.get_compiled({fun.byte_code, fun.arg_count})
+               Heap.get_compiled({fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants)})
     end
   end
 end

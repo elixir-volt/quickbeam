@@ -69,7 +69,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   def invoke_constructor(_, _, _, _, _), do: :error
 
   defp invoke_target(current_func, %Bytecode.Function{} = fun, args, ctx_overrides, base_ctx) do
-    key = {fun.byte_code, fun.arg_count}
+    key = {fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants)}
     normalized_args = normalize_args(args, fun.arg_count)
 
     case Heap.get_compiled(key) do
