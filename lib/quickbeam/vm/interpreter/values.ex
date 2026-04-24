@@ -820,7 +820,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   def eq({:bigint, a}, {:bigint, b}), do: a == b
   def eq(a, b), do: abstract_eq(a, b)
-  def neq(a, b), do: not abstract_eq(a, b)
+  def neq(a, b), do: not eq(a, b)
 
   defp abstract_eq(nil, nil), do: true
   defp abstract_eq(nil, :undefined), do: true
@@ -834,6 +834,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   defp abstract_eq(:neg_infinity, b) when is_number(b), do: false
   defp abstract_eq(a, :infinity) when is_number(a), do: false
   defp abstract_eq(a, :neg_infinity) when is_number(a), do: false
+  defp abstract_eq({:bigint, a}, {:bigint, b}), do: a == b
   defp abstract_eq(a, b) when is_number(a) and is_number(b), do: a == b
   defp abstract_eq(a, b) when is_binary(a) and is_binary(b), do: a == b
   defp abstract_eq(a, b) when is_boolean(a) and is_boolean(b), do: a == b
