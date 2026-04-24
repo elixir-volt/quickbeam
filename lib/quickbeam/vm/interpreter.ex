@@ -2779,10 +2779,11 @@ defmodule QuickBEAM.VM.Interpreter do
 
   # ── Closure variable refs (mutable) ──
 
-  defp run({@op_make_loc_ref, [_atom_idx, var_idx]}, pc, frame, stack, gas, ctx) do
+  defp run({@op_make_loc_ref, [atom_idx, var_idx]}, pc, frame, stack, gas, ctx) do
     ref = make_ref()
     Heap.put_cell(ref, elem(elem(frame, Frame.locals()), var_idx))
-    run(pc + 1, frame, [{:cell, ref} | stack], gas, ctx)
+    prop_name = Names.resolve_atom(ctx, atom_idx)
+    run(pc + 1, frame, [prop_name, {:cell, ref} | stack], gas, ctx)
   end
 
   defp run({@op_make_var_ref, [atom_idx]}, pc, frame, stack, gas, ctx) do
@@ -2790,16 +2791,17 @@ defmodule QuickBEAM.VM.Interpreter do
     val = Map.get(ctx.globals, name, :undefined)
     ref = make_ref()
     Heap.put_cell(ref, val)
-    run(pc + 1, frame, [{:cell, ref} | stack], gas, ctx)
+    run(pc + 1, frame, [name, {:cell, ref} | stack], gas, ctx)
   end
 
-  defp run({@op_make_arg_ref, [_atom_idx, var_idx]}, pc, frame, stack, gas, ctx) do
+  defp run({@op_make_arg_ref, [atom_idx, var_idx]}, pc, frame, stack, gas, ctx) do
     ref = make_ref()
     Heap.put_cell(ref, get_arg_value(ctx, var_idx))
-    run(pc + 1, frame, [{:cell, ref} | stack], gas, ctx)
+    prop_name = Names.resolve_atom(ctx, atom_idx)
+    run(pc + 1, frame, [prop_name, {:cell, ref} | stack], gas, ctx)
   end
 
-  defp run({@op_make_var_ref_ref, [_atom_idx, var_idx]}, pc, frame, stack, gas, ctx) do
+  defp run({@op_make_var_ref_ref, [atom_idx, var_idx]}, pc, frame, stack, gas, ctx) do
     val = elem(elem(frame, Frame.var_refs()), var_idx)
 
     cell =
@@ -2813,7 +2815,8 @@ defmodule QuickBEAM.VM.Interpreter do
           {:cell, ref}
       end
 
-    run(pc + 1, frame, [cell | stack], gas, ctx)
+    prop_name = Names.resolve_atom(ctx, atom_idx)
+    run(pc + 1, frame, [prop_name, cell | stack], gas, ctx)
   end
 
   defp run({@op_get_var_ref_check, [idx]}, pc, frame, stack, gas, ctx) do
@@ -2851,13 +2854,18 @@ defmodule QuickBEAM.VM.Interpreter do
     run(pc + 1, frame, rest, gas, ctx)
   end
 
-  defp run({@op_get_ref_value, []}, pc, frame, [ref | rest], gas, ctx) do
-    run(pc + 1, frame, [Closures.read_cell(ref) | rest], gas, ctx)
+  defp run({@op_get_ref_value, []}, pc, frame, [_prop_name, {:cell, _} = ref | _] = stack, gas, ctx) do
+    run(pc + 1, frame, [Closures.read_cell(ref) | stack], gas, ctx)
   end
 
-  defp run({@op_put_ref_value, []}, pc, frame, [val, {:cell, _} = ref | rest], gas, ctx) do
+  defp run({@op_get_ref_value, []}, pc, frame, [prop_name, obj | _] = stack, gas, ctx)
+       when is_binary(prop_name) do
+    run(pc + 1, frame, [Get.get(obj, prop_name) | stack], gas, ctx)
+  end
+
+  defp run({@op_put_ref_value, []}, pc, frame, [val, _prop_name, {:cell, _} = ref | rest], gas, ctx) do
     Closures.write_cell(ref, val)
-    run(pc + 1, frame, [val | rest], gas, ctx)
+    run(pc + 1, frame, rest, gas, ctx)
   end
 
   defp run({@op_put_ref_value, []}, pc, frame, [val, key, obj | rest], gas, ctx)
