@@ -76,7 +76,7 @@ defmodule QuickBEAM.MixProject do
       {:jason, "~> 1.4"},
       {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false},
       {:oxc, ">= 0.7.0"},
-      {:npm, "~> 0.5.2"},
+      {:npm, "~> 0.6.0"},
       {:mint_web_socket, "~> 1.0"},
       {:nimble_pool, "~> 1.1"},
       {:bandit, "~> 1.0", only: :test},
