@@ -1119,12 +1119,46 @@ defmodule QuickBEAM.VM.Interpreter do
           proto -> check_prototype_chain(proto, target)
         end
 
+      data when is_list(data) ->
+        array_proto_matches?(target)
+
+      {:qb_arr, _} ->
+        array_proto_matches?(target)
+
       _ ->
         false
     end
   end
 
   defp check_prototype_chain(_, _), do: false
+
+  defp array_proto_matches?(target) do
+    case Heap.get_ctx() do
+      %{globals: globals} ->
+        array_ctor = Map.get(globals, "Array")
+
+        if array_ctor do
+          array_proto = Get.get(array_ctor, "prototype")
+
+          if array_proto == target do
+            true
+          else
+            object_ctor = Map.get(globals, "Object")
+
+            if object_ctor do
+              Get.get(object_ctor, "prototype") == target
+            else
+              false
+            end
+          end
+        else
+          false
+        end
+
+      _ ->
+        false
+    end
+  end
 
   defp with_has_property?({:obj, _} = obj, key) do
     Get.get(obj, key) != :undefined
