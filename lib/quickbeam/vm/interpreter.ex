@@ -978,7 +978,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp collect_iterator(iter_obj, acc) do
     next_fn = Get.get(iter_obj, "next")
 
-    case Invocation.invoke_callback_or_throw(next_fn, []) do
+    case Runtime.call_callback(next_fn, []) do
       {:obj, ref} ->
         result = Heap.get_obj(ref, %{})
         done = Map.get(result, "done", false)
