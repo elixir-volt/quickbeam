@@ -719,7 +719,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
       )
 
   def lt(a, b) when is_number(a) and is_number(b), do: a < b
-  def lt(a, b) when is_binary(a) and is_binary(b), do: a < b
+  def lt(a, b) when is_binary(a) and is_binary(b), do: utf16_compare(a, b) == :lt
 
   def lt(a, b) do
     pa = coerce_to_primitive(a)
@@ -747,7 +747,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     do: bigint_string_compare(b, a, fn x, y -> y <= x end)
 
   def lte(a, b) when is_number(a) and is_number(b), do: a <= b
-  def lte(a, b) when is_binary(a) and is_binary(b), do: a <= b
+  def lte(a, b) when is_binary(a) and is_binary(b), do: utf16_compare(a, b) in [:lt, :eq]
 
   def lte(a, b) do
     pa = coerce_to_primitive(a)
@@ -787,7 +787,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
       )
 
   def gt(a, b) when is_number(a) and is_number(b), do: a > b
-  def gt(a, b) when is_binary(a) and is_binary(b), do: a > b
+  def gt(a, b) when is_binary(a) and is_binary(b), do: utf16_compare(a, b) == :gt
 
   def gt(a, b) do
     pa = coerce_to_primitive(a)
@@ -827,7 +827,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
       )
 
   def gte(a, b) when is_number(a) and is_number(b), do: a >= b
-  def gte(a, b) when is_binary(a) and is_binary(b), do: a >= b
+  def gte(a, b) when is_binary(a) and is_binary(b), do: utf16_compare(a, b) in [:gt, :eq]
 
   def gte(a, b) do
     pa = coerce_to_primitive(a)
@@ -876,6 +876,56 @@ defmodule QuickBEAM.VM.Interpreter.Values do
       {:js_throw,
        Heap.make_error("Cannot mix BigInt and other types, use explicit conversions", "TypeError")}
     )
+  end
+
+  defp utf16_compare(a, b) when a == b, do: :eq
+
+  defp utf16_compare(a, b) do
+    # Fast path: if neither string has bytes >= 0xED (surrogates or supplementary),
+    # UTF-8 comparison equals UTF-16 comparison
+    if needs_utf16_compare?(a) or needs_utf16_compare?(b) do
+      compare_utf16_units(to_utf16_units(a), to_utf16_units(b))
+    else
+      cond do
+        a < b -> :lt
+        a > b -> :gt
+        true -> :eq
+      end
+    end
+  end
+
+  defp needs_utf16_compare?(<<>>), do: false
+  defp needs_utf16_compare?(<<b, _::binary>>) when b >= 0xF0, do: true
+  defp needs_utf16_compare?(<<b, _::binary>>) when b >= 0xED, do: true
+  defp needs_utf16_compare?(<<_, rest::binary>>), do: needs_utf16_compare?(rest)
+
+  defp to_utf16_units(<<>>), do: []
+
+  defp to_utf16_units(<<cp::utf8, rest::binary>>) when cp >= 0x10000 do
+    hi = 0xD800 + ((cp - 0x10000) >>> 10)
+    lo = 0xDC00 + (cp - 0x10000 &&& 0x3FF)
+    [hi, lo | to_utf16_units(rest)]
+  end
+
+  defp to_utf16_units(<<0xED, a, b, rest::binary>>) when a >= 0xA0 do
+    # CESU-8 encoded lone surrogate
+    cp = (0xED &&& 0x0F) <<< 12 ||| (a &&& 0x3F) <<< 6 ||| (b &&& 0x3F)
+    [cp | to_utf16_units(rest)]
+  end
+
+  defp to_utf16_units(<<cp::utf8, rest::binary>>), do: [cp | to_utf16_units(rest)]
+  defp to_utf16_units(<<_, rest::binary>>), do: to_utf16_units(rest)
+
+  defp compare_utf16_units([], []), do: :eq
+  defp compare_utf16_units([], _), do: :lt
+  defp compare_utf16_units(_, []), do: :gt
+
+  defp compare_utf16_units([a | ra], [b | rb]) do
+    cond do
+      a < b -> :lt
+      a > b -> :gt
+      true -> compare_utf16_units(ra, rb)
+    end
   end
 
   defp bigint_string_compare({:bigint, a}, str, op) do

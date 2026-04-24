@@ -197,7 +197,20 @@ defmodule QuickBEAM.VM.Bytecode do
   defp wide_to_utf8(data) do
     data
     |> decode_utf16_le()
-    |> :unicode.characters_to_binary(:utf8)
+    |> codepoints_to_binary()
+  end
+
+  defp codepoints_to_binary(codepoints) do
+    IO.iodata_to_binary(
+      for cp <- codepoints do
+        if cp >= 0xD800 and cp <= 0xDFFF do
+          # Lone surrogate: encode as CESU-8 (3-byte UTF-8-like encoding)
+          <<0xE0 ||| cp >>> 12, 0x80 ||| (cp >>> 6 &&& 0x3F), 0x80 ||| (cp &&& 0x3F)>>
+        else
+          <<cp::utf8>>
+        end
+      end
+    )
   end
 
   defp decode_utf16_le(data, acc \\ [])
