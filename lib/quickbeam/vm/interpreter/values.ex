@@ -315,6 +315,8 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     end
   end
 
+  def add({:bigint, _} = a, b) when is_binary(b), do: stringify(a) <> b
+  def add(a, {:bigint, _} = b) when is_binary(a), do: a <> stringify(b)
   def add({:bigint, _}, _), do: throw_bigint_mix_error()
   def add(_, {:bigint, _}), do: throw_bigint_mix_error()
   def add({:closure, _, _} = a, b), do: add(fn_to_primitive(a), b)
