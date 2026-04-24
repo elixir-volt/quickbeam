@@ -759,6 +759,26 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     trimmed = String.trim(str)
     case trimmed do
       "" -> op.(a, 0)
+      "0x" <> hex ->
+        case Integer.parse(hex, 16) do
+          {n, ""} -> op.(a, n)
+          _ -> false
+        end
+      "0X" <> hex ->
+        case Integer.parse(hex, 16) do
+          {n, ""} -> op.(a, n)
+          _ -> false
+        end
+      "0o" <> oct ->
+        case Integer.parse(oct, 8) do
+          {n, ""} -> op.(a, n)
+          _ -> false
+        end
+      "0b" <> bin ->
+        case Integer.parse(bin, 2) do
+          {n, ""} -> op.(a, n)
+          _ -> false
+        end
       _ ->
         case Integer.parse(trimmed) do
           {n, ""} -> op.(a, n)
