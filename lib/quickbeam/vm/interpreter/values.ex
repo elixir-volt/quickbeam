@@ -502,6 +502,12 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def neg(:neg_infinity), do: :infinity
   def neg(:nan), do: :nan
   def neg(a) when is_number(a), do: -a
+  def neg({:obj, _} = a) do
+    case to_primitive(a) do
+      {:bigint, _} = b -> neg(b)
+      other -> neg(to_number(other))
+    end
+  end
   def neg(a), do: neg(to_number(a))
 
   def neg_zero?(b), do: is_float(b) and b == 0.0 and hd(:erlang.float_to_list(b)) == ?-
