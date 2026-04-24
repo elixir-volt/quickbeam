@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.6
+
+- Update OXC dependency to 0.11
+
 ## 0.10.5
 
 - Update npm dependency to 0.6 and use the `NPM.Resolution.PackageResolver` namespace
