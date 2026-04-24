@@ -2250,7 +2250,19 @@ defmodule QuickBEAM.VM.Interpreter do
         {:obj, _} ->
           case obj do
             {:obj, _} -> check_prototype_chain(obj, ctor_proto)
-            _ -> false
+            _ ->
+              is_fn = match?({:closure, _, _}, obj) or match?(%Bytecode.Function{}, obj) or
+                      match?({:builtin, _, _}, obj) or match?({:bound, _, _, _, _}, obj)
+              if is_fn do
+                ctor_name = case ctor do
+                  {:builtin, name, _} -> name
+                  _ -> nil
+                end
+                ctor_name == "Function" or
+                  (ctor_name == "Object" and true)
+              else
+                false
+              end
           end
 
         _ ->

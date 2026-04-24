@@ -9,3 +9,6 @@
 - **Variable hoisting in labeled loops**: `break label; var x = 1` — variable `x` should still be hoisted (value=undefined).
 - **Symbol.iterator on arrays**: `Array.prototype[Symbol.iterator]` returns undefined.
 - **with-statement scope**: 47 tests blocked — insert3/perm4/put_ref_value opcodes fail when stack doesn't have enough elements.
+- **for-in mid-iteration deletion**: for-in should skip properties deleted during iteration. Currently snapshots keys at start.
+- **Unicode surrogate comparison**: \uD800 < \uDC00 fails — Elixir binary comparison doesn't match JS code unit comparison.
+- **var hoisting at global scope**: `var x; void x` at top-level eval doesn't hoist the var properly.
