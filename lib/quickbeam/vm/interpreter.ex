@@ -1864,6 +1864,18 @@ defmodule QuickBEAM.VM.Interpreter do
   defp run({@op_to_propkey, []}, pc, frame, stack, gas, ctx),
     do: run(pc + 1, frame, stack, gas, ctx)
 
+  defp run({@op_to_propkey2, []}, _pc, frame, [_key, obj | _rest], gas, ctx)
+       when obj == nil or obj == :undefined do
+    nullish = if obj == nil, do: "null", else: "undefined"
+
+    throw_or_catch(
+      frame,
+      Heap.make_error("Cannot read properties of #{nullish}", "TypeError"),
+      gas,
+      ctx
+    )
+  end
+
   defp run({@op_to_propkey2, []}, pc, frame, stack, gas, ctx),
     do: run(pc + 1, frame, stack, gas, ctx)
 
