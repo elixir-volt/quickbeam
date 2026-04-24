@@ -1041,14 +1041,13 @@ defmodule QuickBEAM.VM.Interpreter do
     next_fn = Get.get(iter_obj, "next")
 
     case Runtime.call_callback(next_fn, []) do
-      {:obj, ref} ->
-        result = Heap.get_obj(ref, %{})
-        done = Map.get(result, "done", false)
+      {:obj, _} = result_obj ->
+        done = Get.get(result_obj, "done")
 
         if done == true do
           Enum.reverse(acc)
         else
-          val = Map.get(result, "value", :undefined)
+          val = Get.get(result_obj, "value")
           collect_iterator(iter_obj, [val | acc])
         end
 
