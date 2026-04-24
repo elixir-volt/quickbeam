@@ -1,15 +1,22 @@
 # Autoresearch Ideas
 
-## Deferred Optimizations
+## High Impact (if solvable)
 
-- **F.prototype = value sync to class_proto**: Need to only apply for user-defined closures, NOT builtins (Array/Number/String/Boolean). Discriminate by checking `ctor` type: `{:closure, _, _}` vs `{:builtin, _, _}`.
-- **for-in prototype value access**: Keys from prototype are enumerated but values return undefined inside for-in loop. Might be a scope/context issue in the for-in body.
-- **Error constructor identity across invocations**: ~55 tests still fail due to closure identity across nested invoke_with_receiver. Fixed: no constructor update on cache hit, catch path refresh, ctx sync in do_invoke/catch_js_throw. Remaining failures are from assert.throws nesting where the calling ctx diverges from the prototype's constructor reference.
-- **Test262 async mode**: Some tests pass individually but fail in async ExUnit. Heap.reset() might not fully isolate process state in concurrent tests.
-- **Destructuring in for initializer**: `for (var [x] = iter; ...)` doesn't trigger iterator protocol on `iter`.
-- **Variable hoisting in labeled loops**: `break label; var x = 1` — variable `x` should still be hoisted (value=undefined).
-- **Symbol.iterator on arrays**: `Array.prototype[Symbol.iterator]` returns undefined.
-- **with-statement scope**: 47 tests blocked — insert3/perm4/put_ref_value opcodes fail when stack doesn't have enough elements.
-- **for-in mid-iteration deletion**: for-in should skip properties deleted during iteration. Currently snapshots keys at start.
-- **Unicode surrogate comparison**: \uD800 < \uDC00 fails — Elixir binary comparison doesn't match JS code unit comparison.
-- **var hoisting at global scope**: `var x; void x` at top-level eval doesn't hoist the var properly.
+- **Closure identity in invoke_with_receiver** (~55 tests): The fundamental issue is that `GlobalEnv.refresh` calls `Map.merge(prev.globals, persistent)` which can introduce term references that differ from the original ctx.globals. When a function throws through catch_js_throw_refresh_globals, the error's constructor (set from the callback's ctx) differs from the expectedCtor argument (from the caller's ctx). Would need to track and preserve exact Erlang term identity across Map.merge operations, or change how prototypes store constructor references.
+
+- **with-statement scope** (~68 tests): The with-statement pushes a scope object onto the scope chain. The bytecode uses insert3/perm4/put_ref_value opcodes that expect a specific stack layout. These opcodes ARE implemented but fail because the with-statement doesn't set up the stack correctly. Would need deep changes to how with-blocks manage the evaluation stack.
+
+## Medium Impact
+
+- **Destructuring in for initializer** (~6 tests): `for (var [x] = iter; ...)` doesn't trigger iterator protocol.
+- **Variable hoisting at eval scope** (~4 tests): `var` declarations inside nested for loops aren't hoisted to the eval scope.
+- **Unicode surrogate comparison** (4 tests): Elixir UTF-8 binary comparison doesn't match JS UTF-16 code unit comparison for lone surrogates.
+- **Symbol.hasInstance** (3 tests): instanceof should check @@hasInstance before callable check.
+- **for-in mid-iteration deletion** (1 test): Keys deleted during iteration should be skipped.
+- **catch variable shadowing** (1 test): Nested try/catch with same variable name in catch clause.
+
+## Low Impact / Won't Fix
+
+- **Property descriptors** (2 tests): delete Math.E / delete this.y — non-configurable properties.
+- **Private fields** (2 tests): `#field in obj` syntax not implemented.
+- **Function.prototype callable** (1 test): Function.prototype is a special callable non-function object per spec.
