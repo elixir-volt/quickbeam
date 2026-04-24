@@ -404,6 +404,8 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     if sign_a * sign_b > 0, do: :infinity, else: :neg_infinity
   end
 
+  def div(a, b), do: js_div(a, b)
+
   def js_div({:bigint, a}, {:bigint, b}) when b != 0, do: {:bigint, Kernel.div(a, b)}
 
   def js_div({:bigint, _}, {:bigint, 0}),
