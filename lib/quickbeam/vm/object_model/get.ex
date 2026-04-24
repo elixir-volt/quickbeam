@@ -286,6 +286,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_own({:closure, _, %Bytecode.Function{}} = c, "prototype") do
     case Map.get(Heap.get_ctor_statics(c), "prototype", :not_set) do
       :not_set -> Heap.get_or_create_prototype(c)
+      {:accessor, getter, _} when getter != nil -> call_getter(getter, c)
       val -> val
     end
   end
@@ -293,6 +294,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_own({:closure, _, %Bytecode.Function{} = f} = c, key) do
     case Map.get(Heap.get_ctor_statics(c), key, :undefined) do
       :undefined -> Map.get(Heap.get_ctor_statics(f), key, :undefined)
+      {:accessor, getter, _} when getter != nil -> call_getter(getter, c)
       val -> val
     end
   end
