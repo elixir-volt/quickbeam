@@ -25,6 +25,8 @@ defmodule QuickBEAM.VM.ObjectModel.Private do
 
   def has_field?(target, key), do: get_field(target, key) != :missing
 
+  def has_brand?(target, brand), do: brand_match?(target, brand)
+
   def put_field!(target, key, val) do
     if has_field?(target, key) do
       define_field!(target, key, val)

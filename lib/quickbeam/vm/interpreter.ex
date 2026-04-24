@@ -1943,7 +1943,8 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp run({@op_private_in, []}, pc, frame, [key, obj | rest], gas, ctx) do
-    run(pc + 1, frame, [Private.has_field?(obj, key) | rest], gas, ctx)
+    result = Private.has_field?(obj, key) or Private.has_brand?(obj, key)
+    run(pc + 1, frame, [result | rest], gas, ctx)
   end
 
   defp run({@op_get_length, []}, pc, frame, [obj | rest], gas, ctx) do
