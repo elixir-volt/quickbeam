@@ -1,30 +1,29 @@
-# Autoresearch Ideas — 152 remaining failures (90.4%)
+# Autoresearch Ideas — 139 remaining failures (91.2%)
 
-## Breakdown
-- **47 with-statement scope** — insert3/perm4/put_ref_value opcodes
-- **28 increment/decrement** — 21 unimplemented opcodes (with-scope), 7 evaluation order
-- **18 for/dstr** — destructuring iterator, _isSameValue
+## Breakdown  
+- **47 with-statement** — scope chain management, opcodes
+- **28 inc/dec** — unimplemented opcodes (21), evaluation order in args (7)
+- **18 for/dstr** — destructuring iterator, _isSameValue (verifyProperty)
 - **8 try/dstr** — destructuring in catch
-- **8 instanceof** — Symbol.hasInstance, prototype getter, var hoisting
-- **8 delete** — _isSameValue (verifyProperty/Object.getOwnPropertyDescriptor), property descriptors
-- **7 for** — var hoisting at eval scope
-- **5 new** — spread iterator, _isSameValue
-- **3 try** — catch shadowing, completion values
-- **20 other** — surrogates (4), comparison (4), various
+- **8 delete** — _isSameValue, property descriptors
+- **7 instanceof** — Symbol.hasInstance, prototype getter
+- **5 new** — spread iterator errors, _isSameValue
+- **18 other** — surrogates, private fields, proxy, _isSameValue misc
 
-## Key blocker: _isSameValue through verifyProperty
-Many remaining _isSameValue failures are from verifyProperty (propertyHelper.js) 
-which uses Object.getOwnPropertyDescriptor. Our VM returns incomplete descriptors
-or the descriptor check throws. Implementing Object.getOwnPropertyDescriptor
-properly could fix ~15-20 tests.
+## Key blockers
+1. **with-statement** (47+some inc/dec = ~68): Deep interpreter rewrite
+2. **_isSameValue through verifyProperty** (~12): Object.getOwnPropertyDescriptor 
+   returns correct values but verifyProperty from propertyHelper.js fails for
+   spread-created objects
+3. **x[0]++ as function argument** (4): BigInt post-increment in call arg position
+   fails with "not a function"
+4. **Destructuring iterator protocol** (~18): for-loop destructuring doesn't
+   trigger iterator, rest pattern doesn't exclude named props
 
-## Key blocker: with-statement (47+21 = 68 tests)
-Needs deep interpreter rewrite for scope chain management.
+## Session achievements (152 → 139)
+- var hoisting: define_var now updates ctx.globals (13 tests!)
+- op_apply[1] constructor apply refresh (8 tests)
+- call_constructor + op_apply refresh (4 tests)
+- delete_var builtin distinction
 
-## Fixed this session
-- op_apply[1] constructor apply globals refresh (8 tests!)
-- call_constructor globals refresh (4 tests)
-- Compiled cache key with constants hash (11 tests)
-- Constructor identity (bare function wrapping, 10 tests)
-- BigInt abstract_eq + neq (3 tests)
-- delete_var builtin vs var-declared distinction
+## Overall: 628 → 139 = 489 tests fixed (77.9%), 91.2% pass rate
