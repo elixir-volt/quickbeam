@@ -195,14 +195,18 @@ defmodule QuickBEAM.VM.Interpreter.Values do
         end)
 
       map when is_map(map) ->
-        wrapped = Map.get(map, "__wrapped_string__") ||
-          Map.get(map, "__wrapped_number__") ||
-          Map.get(map, "__wrapped_boolean__") ||
-          Map.get(map, "__wrapped_bigint__")
+        wrapped_key = cond do
+          Map.has_key?(map, "__wrapped_string__") -> "__wrapped_string__"
+          Map.has_key?(map, "__wrapped_number__") -> "__wrapped_number__"
+          Map.has_key?(map, "__wrapped_boolean__") -> "__wrapped_boolean__"
+          Map.has_key?(map, "__wrapped_bigint__") -> "__wrapped_bigint__"
+          Map.has_key?(map, "__wrapped_symbol__") -> "__wrapped_symbol__"
+          true -> nil
+        end
 
         cond do
-          wrapped != nil ->
-            stringify(wrapped)
+          wrapped_key != nil ->
+            stringify(Map.get(map, wrapped_key))
 
           (fun = Map.get(map, "toString")) != nil and fun != :undefined ->
             stringify(Invocation.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj))
@@ -837,13 +841,17 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
     if is_map(data) do
       # Check for wrapped primitives (Object(1n), Object("str"), etc.)
-      wrapped = Map.get(data, "__wrapped_bigint__") ||
-        Map.get(data, "__wrapped_number__") ||
-        Map.get(data, "__wrapped_string__") ||
-        Map.get(data, "__wrapped_boolean__")
+      wrapped_key = cond do
+        Map.has_key?(data, "__wrapped_bigint__") -> "__wrapped_bigint__"
+        Map.has_key?(data, "__wrapped_number__") -> "__wrapped_number__"
+        Map.has_key?(data, "__wrapped_string__") -> "__wrapped_string__"
+        Map.has_key?(data, "__wrapped_boolean__") -> "__wrapped_boolean__"
+        Map.has_key?(data, "__wrapped_symbol__") -> "__wrapped_symbol__"
+        true -> nil
+      end
 
-      if wrapped != nil do
-        wrapped
+      if wrapped_key != nil do
+        Map.get(data, wrapped_key)
       else
         # Check @@toPrimitive first (spec: 7.1.1)
         sym_key = {:symbol, "Symbol.toPrimitive"}
