@@ -351,7 +351,10 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def sub(a, {:obj, _} = b), do: sub(a, to_numeric(b))
   def sub({:bigint, _}, _), do: throw_bigint_mix_error()
   def sub(_, {:bigint, _}), do: throw_bigint_mix_error()
-  def sub(a, b) when is_number(a) and is_number(b), do: safe_add(a, -b)
+  def sub(a, b) when is_number(a) and is_number(b) do
+    result = safe_add(a, -b)
+    if result == 0 and neg_sign?(a) and not neg_sign?(b), do: -0.0, else: result
+  end
   def sub(a, b), do: numeric_add(to_number(a), neg(to_number(b)))
 
   def mul({:bigint, a}, {:bigint, b}), do: {:bigint, a * b}

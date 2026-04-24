@@ -1591,14 +1591,20 @@ defmodule QuickBEAM.VM.Interpreter do
   defp run({@op_inc, []}, pc, frame, [{:bigint, n} | rest], gas, ctx),
     do: run(pc + 1, frame, [{:bigint, n + 1} | rest], gas, ctx)
 
+  defp run({@op_inc, []}, pc, frame, [a | rest], gas, ctx) when is_number(a),
+    do: run(pc + 1, frame, [a + 1 | rest], gas, ctx)
+
   defp run({@op_inc, []}, pc, frame, [a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.add(a, 1) | rest], gas, ctx)
+    do: run(pc + 1, frame, [Values.add(Values.to_number(a), 1) | rest], gas, ctx)
 
   defp run({@op_dec, []}, pc, frame, [{:bigint, n} | rest], gas, ctx),
     do: run(pc + 1, frame, [{:bigint, n - 1} | rest], gas, ctx)
 
+  defp run({@op_dec, []}, pc, frame, [a | rest], gas, ctx) when is_number(a),
+    do: run(pc + 1, frame, [a - 1 | rest], gas, ctx)
+
   defp run({@op_dec, []}, pc, frame, [a | rest], gas, ctx),
-    do: run(pc + 1, frame, [Values.sub(a, 1) | rest], gas, ctx)
+    do: run(pc + 1, frame, [Values.sub(Values.to_number(a), 1) | rest], gas, ctx)
 
   defp run({@op_post_inc, []}, pc, frame, [{:bigint, n} = val | rest], gas, ctx),
     do: run(pc + 1, frame, [{:bigint, n + 1}, val | rest], gas, ctx)
@@ -1623,7 +1629,8 @@ defmodule QuickBEAM.VM.Interpreter do
     old = elem(locals, idx)
     new_val = case old do
       {:bigint, n} -> {:bigint, n + 1}
-      _ -> Values.add(old, 1)
+      n when is_number(n) -> n + 1
+      _ -> Values.add(Values.to_number(old), 1)
     end
     Closures.write_captured_local(l2v, idx, new_val, locals, vrefs)
     run(pc + 1, put_local(frame, idx, new_val), stack, gas, ctx)
@@ -1636,7 +1643,8 @@ defmodule QuickBEAM.VM.Interpreter do
     old = elem(locals, idx)
     new_val = case old do
       {:bigint, n} -> {:bigint, n - 1}
-      _ -> Values.sub(old, 1)
+      n when is_number(n) -> n - 1
+      _ -> Values.sub(Values.to_number(old), 1)
     end
     Closures.write_captured_local(l2v, idx, new_val, locals, vrefs)
     run(pc + 1, put_local(frame, idx, new_val), stack, gas, ctx)
