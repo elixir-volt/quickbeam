@@ -1946,7 +1946,7 @@ defmodule QuickBEAM.VM.Interpreter do
     run(pc + 1, frame, [named | rest], gas, ctx)
   end
 
-  defp run({@op_throw, []}, __pc, frame, [val | _], gas, ctx) do
+  defp run({@op_throw, []}, pc, frame, [val | _], gas, ctx) do
     throw_or_catch(frame, val, gas, ctx)
   end
 
