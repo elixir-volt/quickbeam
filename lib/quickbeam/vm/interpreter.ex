@@ -1823,11 +1823,17 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp run({@op_put_field, [atom_idx]}, pc, frame, [val, obj | rest], gas, ctx) do
-    try do
-      Put.put(obj, Names.resolve_atom(ctx, atom_idx), val)
-      run(pc + 1, frame, rest, gas, ctx)
-    catch
-      {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
+    result =
+      try do
+        Put.put(obj, Names.resolve_atom(ctx, atom_idx), val)
+        :ok
+      catch
+        {:js_throw, error} -> {:throw, error}
+      end
+
+    case result do
+      :ok -> run(pc + 1, frame, rest, gas, ctx)
+      {:throw, error} -> throw_or_catch(frame, error, gas, ctx)
     end
   end
 
