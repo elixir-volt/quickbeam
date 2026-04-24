@@ -978,7 +978,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp collect_iterator(iter_obj, acc) do
     next_fn = Get.get(iter_obj, "next")
 
-    case Runtime.call_callback(next_fn, []) do
+    case Invocation.invoke_callback_or_throw(next_fn, []) do
       {:obj, ref} ->
         result = Heap.get_obj(ref, %{})
         done = Map.get(result, "done", false)
@@ -2777,7 +2777,10 @@ defmodule QuickBEAM.VM.Interpreter do
               cond do
                 Map.has_key?(map, sym_iter) ->
                   iter_fn = Map.get(map, sym_iter)
-                  iter_obj = Runtime.call_callback(iter_fn, [])
+
+                  iter_obj =
+                    Invocation.invoke_callback_or_throw(iter_fn, [], obj)
+
                   {iter_obj, Get.get(iter_obj, "next")}
 
                 Map.has_key?(map, "next") ->
@@ -2830,7 +2833,7 @@ defmodule QuickBEAM.VM.Interpreter do
     if iter_obj == :undefined do
       run(pc + 1, frame, [true, :undefined | stack], gas, ctx)
     else
-      result = Runtime.call_callback(next_fn, [])
+      result = Invocation.invoke_callback_or_throw(next_fn, [])
       done = Get.get(result, "done")
       value = Get.get(result, "value")
 
@@ -2853,7 +2856,7 @@ defmodule QuickBEAM.VM.Interpreter do
          gas,
          ctx
        ) do
-    result = Runtime.call_callback(next_fn, [val])
+    result = Invocation.invoke_callback_or_throw(next_fn, [val])
     run(pc + 1, frame, [result, catch_offset, next_fn, iter_obj | rest], gas, ctx)
   end
 

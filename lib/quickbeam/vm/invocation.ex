@@ -99,6 +99,30 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
+  def invoke_callback_or_throw(fun, args, this_obj \\ nil) do
+    ctx = active_ctx()
+
+    case fun do
+      {:closure, _, %Bytecode.Function{need_home_object: false}} = closure ->
+        case Runner.invoke(closure, args, ctx) do
+          {:ok, value} -> value
+          :error -> Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
+        end
+
+      {:closure, _, %Bytecode.Function{}} = closure ->
+        Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
+
+      %Bytecode.Function{} = bytecode_fun ->
+        case Runner.invoke(bytecode_fun, args, ctx) do
+          {:ok, value} -> value
+          :error -> Interpreter.invoke_function_fallback(bytecode_fun, args, ctx.gas, ctx)
+        end
+
+      other ->
+        Builtin.call(other, args, this_obj)
+    end
+  end
+
   def call_callback(fun, args), do: call_callback(active_ctx(), fun, args)
 
   def call_callback(ctx, fun, args) do
