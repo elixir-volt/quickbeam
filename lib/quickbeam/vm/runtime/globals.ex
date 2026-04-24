@@ -102,7 +102,29 @@ defmodule QuickBEAM.VM.Runtime.Globals do
 
           ab_ctor
         ),
-      "Proxy" => register("Proxy", &Constructors.proxy/2),
+      "Proxy" =>
+        (fn ->
+           ctor = register("Proxy", &Constructors.proxy/2)
+
+           Heap.put_ctor_static(
+             ctor,
+             "revocable",
+             {:builtin, "revocable",
+              fn [target, handler | _], _ ->
+                proxy = Constructors.proxy([target, handler], nil)
+
+                revoke_fn =
+                  {:builtin, "revoke",
+                   fn _, _ ->
+                     :undefined
+                   end}
+
+                Heap.wrap(%{"proxy" => proxy, "revoke" => revoke_fn})
+              end}
+           )
+
+           ctor
+         end).(),
       "Math" => Math.object(),
       "JSON" => JSON.object(),
       "Reflect" => Reflect.object(),

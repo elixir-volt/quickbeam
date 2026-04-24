@@ -249,6 +249,14 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def typeof({:bigint, _}), do: "bigint"
   def typeof({:builtin, _, map}) when is_map(map), do: "object"
   def typeof({:builtin, _, _}), do: "function"
+
+  def typeof({:obj, ref}) do
+    case Heap.get_obj(ref) do
+      %{"__proxy_target__" => target} -> typeof(target)
+      _ -> "object"
+    end
+  end
+
   def typeof(_), do: "object"
 
   def strict_eq(:nan, :nan), do: false
