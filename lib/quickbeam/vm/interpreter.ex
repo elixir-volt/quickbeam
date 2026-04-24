@@ -650,7 +650,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp invoke_custom_iterator(iter_fn, obj) do
-    iter_obj = Invocation.invoke_callback_or_throw(iter_fn, [], obj)
+    iter_obj = Invocation.invoke_with_receiver(iter_fn, [], Runtime.gas_budget(), obj)
 
     unless match?({:obj, _}, iter_obj) do
       throw(
@@ -2915,7 +2915,7 @@ defmodule QuickBEAM.VM.Interpreter do
                     end
 
                   iter_obj =
-                    Invocation.invoke_callback_or_throw(iter_fn, [], obj)
+                    Invocation.invoke_with_receiver(iter_fn, [], Runtime.gas_budget(), obj)
 
                   unless match?({:obj, _}, iter_obj) do
                     throw(

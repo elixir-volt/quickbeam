@@ -1186,7 +1186,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   defp invoke_custom_iter(iter_fn, obj) do
-    iter_obj = Runtime.call_callback(iter_fn, [obj])
+    iter_obj = Invocation.invoke_with_receiver(iter_fn, [], Runtime.gas_budget(), obj)
 
     unless match?({:obj, _}, iter_obj) do
       throw(
