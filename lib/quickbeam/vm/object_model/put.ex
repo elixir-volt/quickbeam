@@ -268,6 +268,8 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     Invocation.invoke_with_receiver(fun, [val], this_obj)
   end
 
+
+
   def has_property({:obj, ref}, key) do
     map = Heap.get_obj(ref, %{})
 
