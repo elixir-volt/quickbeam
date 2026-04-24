@@ -2564,8 +2564,15 @@ defmodule QuickBEAM.VM.Interpreter do
               stored
 
             is_map(stored) and Map.has_key?(stored, {:symbol, "Symbol.iterator"}) ->
-              iter_fn = Map.get(stored, {:symbol, "Symbol.iterator"})
-              iter_obj = Runtime.call_callback(iter_fn, [])
+              raw_iter = Map.get(stored, {:symbol, "Symbol.iterator"})
+
+              iter_fn =
+                case raw_iter do
+                  {:accessor, getter, _} when getter != nil -> Get.call_getter(getter, obj)
+                  _ -> raw_iter
+                end
+
+              iter_obj = Invocation.invoke_callback_or_throw(iter_fn, [], obj)
               collect_iterator(iter_obj, [])
 
             is_map(stored) and Map.has_key?(stored, set_data()) ->
@@ -2776,7 +2783,13 @@ defmodule QuickBEAM.VM.Interpreter do
 
               cond do
                 Map.has_key?(map, sym_iter) ->
-                  iter_fn = Map.get(map, sym_iter)
+                  raw_iter = Map.get(map, sym_iter)
+
+                  iter_fn =
+                    case raw_iter do
+                      {:accessor, getter, _} when getter != nil -> Get.call_getter(getter, obj)
+                      _ -> raw_iter
+                    end
 
                   iter_obj =
                     Invocation.invoke_callback_or_throw(iter_fn, [], obj)
