@@ -415,7 +415,12 @@ defmodule QuickBEAM.VM.Invocation do
   defp compiled_closure_callable?(%Bytecode.Function{need_home_object: false}), do: true
   defp compiled_closure_callable?(_), do: false
 
-  defp compiled_method_callable?(%Bytecode.Function{need_home_object: false}, {:obj, _}), do: true
+  defp compiled_method_callable?(
+         %Bytecode.Function{need_home_object: false, func_kind: 0},
+         {:obj, _}
+       ),
+       do: true
+
   defp compiled_method_callable?(_, _), do: false
 
   defp unwrap_constructor_target({:closure, _, %Bytecode.Function{} = fun}), do: fun
