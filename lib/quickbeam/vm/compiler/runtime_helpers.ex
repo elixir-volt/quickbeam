@@ -276,8 +276,28 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
       s when is_binary(s) ->
         {{:list_iter, String.codepoints(s), 0}, :undefined}
 
-      _ ->
-        {{:list_iter, [], 0}, :undefined}
+      nil ->
+        throw(
+          {:js_throw,
+           Heap.make_error(
+             "Cannot read properties of null (reading 'Symbol(Symbol.iterator)')",
+             "TypeError"
+           )}
+        )
+
+      :undefined ->
+        throw(
+          {:js_throw,
+           Heap.make_error(
+             "Cannot read properties of undefined (reading 'Symbol(Symbol.iterator)')",
+             "TypeError"
+           )}
+        )
+
+      other ->
+        throw(
+          {:js_throw, Heap.make_error("#{Values.stringify(other)} is not iterable", "TypeError")}
+        )
     end
   end
 
@@ -852,8 +872,28 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
       s when is_binary(s) ->
         {{:list_iter, String.codepoints(s), 0}, :undefined}
 
-      _ ->
-        {{:list_iter, [], 0}, :undefined}
+      nil ->
+        throw(
+          {:js_throw,
+           Heap.make_error(
+             "Cannot read properties of null (reading 'Symbol(Symbol.iterator)')",
+             "TypeError"
+           )}
+        )
+
+      :undefined ->
+        throw(
+          {:js_throw,
+           Heap.make_error(
+             "Cannot read properties of undefined (reading 'Symbol(Symbol.iterator)')",
+             "TypeError"
+           )}
+        )
+
+      other ->
+        throw(
+          {:js_throw, Heap.make_error("#{Values.stringify(other)} is not iterable", "TypeError")}
+        )
     end
   end
 
