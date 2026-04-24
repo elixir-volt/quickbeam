@@ -756,9 +756,14 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   end
 
   defp bigint_string_compare({:bigint, a}, str, op) do
-    case Integer.parse(str) do
-      {n, ""} -> op.(a, n)
-      _ -> false
+    trimmed = String.trim(str)
+    case trimmed do
+      "" -> op.(a, 0)
+      _ ->
+        case Integer.parse(trimmed) do
+          {n, ""} -> op.(a, n)
+          _ -> false
+        end
     end
   end
 
