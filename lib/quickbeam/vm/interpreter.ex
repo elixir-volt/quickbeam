@@ -1079,7 +1079,14 @@ defmodule QuickBEAM.VM.Interpreter do
       Heap.put_ctor_statics(fun, Map.delete(statics, key_str))
       true
     else
-      true
+      case fun do
+        {:builtin, _, _} ->
+          val = Get.get(fun, key_str)
+          if val == :undefined, do: true, else: false
+
+        _ ->
+          true
+      end
     end
   end
 
@@ -2300,69 +2307,76 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp run({@op_instanceof, []}, pc, frame, [ctor, obj | rest], gas, ctx) do
     catch_js_throw(pc, frame, rest, gas, ctx, fn ->
-      is_object = function_value?(ctor) or match?({:obj, _}, ctor)
+      has_instance = Put.get_element(ctor, {:symbol, "Symbol.hasInstance"})
 
-      unless is_object do
-        throw(
-          {:js_throw,
-           Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")}
-        )
-      end
+      if has_instance != :undefined and has_instance != nil and function_value?(has_instance) do
+        result = Invocation.invoke_with_receiver(has_instance, [obj], Runtime.gas_budget(), ctor)
+        Values.truthy?(result)
+      else
+        is_object = function_value?(ctor) or match?({:obj, _}, ctor)
 
-      ctor_proto = Get.get(ctor, "prototype")
+        unless is_object do
+          throw(
+            {:js_throw,
+             Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")}
+          )
+        end
 
-      case ctor_proto do
-        {:obj, _} ->
-          case obj do
-            {:obj, ref} ->
-              ctor_name =
-                case ctor do
-                  {:builtin, n, _} -> n
-                  _ -> nil
-                end
+        ctor_proto = Get.get(ctor, "prototype")
 
-              if ctor_name in ["Array", "Object"] do
-                data = Heap.get_obj(ref)
-                is_arr = match?({:qb_arr, _}, data) or is_list(data)
-
-                if (is_arr and ctor_name == "Array") or ctor_name == "Object",
-                  do: true,
-                  else: check_prototype_chain(obj, ctor_proto)
-              else
-                check_prototype_chain(obj, ctor_proto)
-              end
-
-            _ ->
-              is_fn = function_value?(obj)
-
-              if is_fn do
+        case ctor_proto do
+          {:obj, _} ->
+            case obj do
+              {:obj, ref} ->
                 ctor_name =
                   case ctor do
-                    {:builtin, name, _} -> name
+                    {:builtin, n, _} -> n
                     _ -> nil
                   end
 
-                ctor_name == "Function" or ctor_name == "Object"
-              else
-                false
-              end
-          end
+                if ctor_name in ["Array", "Object"] do
+                  data = Heap.get_obj(ref)
+                  is_arr = match?({:qb_arr, _}, data) or is_list(data)
 
-        _ ->
-          if match?({:obj, _}, ctor) do
-            throw(
-              {:js_throw,
-               Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")}
-            )
-          else
-            throw(
-              {:js_throw,
-               Heap.make_error(
-                 "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check",
-                 "TypeError"
-               )}
-            )
-          end
+                  if (is_arr and ctor_name == "Array") or ctor_name == "Object",
+                    do: true,
+                    else: check_prototype_chain(obj, ctor_proto)
+                else
+                  check_prototype_chain(obj, ctor_proto)
+                end
+
+              _ ->
+                is_fn = function_value?(obj)
+
+                if is_fn do
+                  ctor_name =
+                    case ctor do
+                      {:builtin, name, _} -> name
+                      _ -> nil
+                    end
+
+                  ctor_name == "Function" or ctor_name == "Object"
+                else
+                  false
+                end
+            end
+
+          _ ->
+            if match?({:obj, _}, ctor) do
+              throw(
+                {:js_throw,
+                 Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")}
+              )
+            else
+              throw(
+                {:js_throw,
+                 Heap.make_error(
+                   "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check",
+                   "TypeError"
+                 )}
+              )
+            end
+        end
       end
     end)
   end

@@ -62,8 +62,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def to_number({:bigint, _}),
     do:
       throw(
-        {:js_throw,
-         %{"message" => "Cannot convert a BigInt value to a number", "name" => "TypeError"}}
+        {:js_throw, Heap.make_error("Cannot convert a BigInt value to a number", "TypeError")}
       )
 
   def to_number({:obj, _} = obj) do
