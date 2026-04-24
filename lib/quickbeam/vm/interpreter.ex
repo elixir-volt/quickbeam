@@ -2891,7 +2891,9 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp run({@op_apply, [1]}, pc, frame, [arg_array, new_target, fun | rest], gas, ctx) do
     result = invoke_super_constructor(fun, new_target, apply_args(arg_array), gas, ctx)
-    run(pc + 1, frame, [result | rest], gas, Context.mark_dirty(%{ctx | this: result}))
+    persistent = Heap.get_persistent_globals() || %{}
+    refreshed = Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent), this: result})
+    run(pc + 1, frame, [result | rest], gas, refreshed)
   end
 
   defp run({@op_apply, [_magic]}, pc, frame, [arg_array, this_obj, fun | rest], gas, ctx) do
