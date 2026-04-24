@@ -395,6 +395,7 @@ defmodule QuickBEAM.VM.Interpreter do
     do: Invocation.invoke_constructor(fun, args, gas, this_obj, new_target)
 
   defp catch_js_throw(pc, frame, rest, gas, ctx, fun) do
+    Heap.put_ctx(ctx)
     result = fun.()
     run(pc + 1, frame, [result | rest], gas, ctx)
   catch
@@ -402,6 +403,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fun) do
+    Heap.put_ctx(ctx)
     result = fun.()
     persistent = Heap.get_persistent_globals() || %{}
 
@@ -3375,6 +3377,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp do_invoke(%Bytecode.Function{} = fun, self_ref, args, var_refs, gas, ctx) do
+    Heap.put_ctx(ctx)
     cache_key = {fun.byte_code, fun.arg_count}
 
     insns =
