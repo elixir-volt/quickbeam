@@ -401,29 +401,50 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp catch_js_throw(pc, frame, rest, gas, ctx, fun) do
     Heap.put_ctx(ctx)
-    result = fun.()
-    run(pc + 1, frame, [result | rest], gas, ctx)
-  catch
-    {:js_throw, val} -> throw_or_catch(frame, val, gas, ctx)
+
+    call_result =
+      try do
+        {:ok, fun.()}
+      catch
+        {:js_throw, val} -> {:throw, val}
+      end
+
+    case call_result do
+      {:ok, result} ->
+        run(pc + 1, frame, [result | rest], gas, ctx)
+
+      {:throw, val} ->
+        throw_or_catch(frame, val, gas, ctx)
+    end
   end
 
   defp catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fun) do
     Heap.put_ctx(ctx)
-    result = fun.()
-    persistent = Heap.get_persistent_globals() || %{}
 
-    run(
-      pc + 1,
-      frame,
-      [result | rest],
-      gas,
-      Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
-    )
-  catch
-    {:js_throw, val} ->
-      persistent = Heap.get_persistent_globals() || %{}
-      refreshed_ctx = Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
-      throw_or_catch(frame, val, gas, refreshed_ctx)
+    call_result =
+      try do
+        {:ok, fun.()}
+      catch
+        {:js_throw, val} -> {:throw, val}
+      end
+
+    case call_result do
+      {:ok, result} ->
+        persistent = Heap.get_persistent_globals() || %{}
+
+        run(
+          pc + 1,
+          frame,
+          [result | rest],
+          gas,
+          Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
+        )
+
+      {:throw, val} ->
+        persistent = Heap.get_persistent_globals() || %{}
+        refreshed_ctx = Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
+        throw_or_catch(frame, val, gas, refreshed_ctx)
+    end
   end
 
   # ── Helpers ──
