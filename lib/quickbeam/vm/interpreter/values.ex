@@ -998,8 +998,13 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     if match?({:obj, _}, prim), do: false, else: abstract_eq(a, prim)
   end
 
+  defp abstract_eq({:symbol, _} = a, {:obj, _} = b), do: abstract_eq(a, to_primitive(b))
+  defp abstract_eq({:obj, _} = a, {:symbol, _} = b), do: abstract_eq(to_primitive(a), b)
+  defp abstract_eq({:symbol, _, _} = a, {:obj, _} = b), do: abstract_eq(a, to_primitive(b))
+  defp abstract_eq({:obj, _} = a, {:symbol, _, _} = b), do: abstract_eq(to_primitive(a), b)
   defp abstract_eq({:obj, ref1}, {:obj, ref2}), do: ref1 === ref2
   defp abstract_eq({:symbol, _, ref1}, {:symbol, _, ref2}), do: ref1 === ref2
+  defp abstract_eq({:symbol, a}, {:symbol, b}), do: a === b
   defp abstract_eq(_, _), do: false
 
   defp to_primitive(val) when is_number(val) or is_binary(val) or is_boolean(val) or is_atom(val),
