@@ -317,7 +317,19 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
       map when is_map(map) ->
         key = if is_integer(idx), do: Integer.to_string(idx), else: idx
-        Map.get(map, key, Map.get(map, idx, :undefined))
+        case Map.fetch(map, key) do
+          {:ok, val} -> val
+          :error ->
+            case Map.fetch(map, idx) do
+              {:ok, val} -> val
+              :error when is_binary(key) or is_binary(idx) ->
+                Get.get(obj, if(is_binary(key), do: key, else: idx))
+              :error -> :undefined
+            end
+        end
+
+      {:shape, _, _, _, _} when is_binary(idx) or is_integer(idx) ->
+        Get.get(obj, if(is_integer(idx), do: Integer.to_string(idx), else: idx))
 
       _ ->
         :undefined
