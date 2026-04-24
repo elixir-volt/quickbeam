@@ -4,7 +4,8 @@
 
 - **F.prototype = value sync to class_proto**: Need to only apply for user-defined closures, NOT builtins (Array/Number/String/Boolean). Discriminate by checking `ctor` type: `{:closure, _, _}` vs `{:builtin, _, _}`.
 - **for-in prototype value access**: Keys from prototype are enumerated but values return undefined inside for-in loop. Might be a scope/context issue in the for-in body.
-- **Error constructor identity across invocations**: 72 tests still fail due to closure identity across nested invoke_with_receiver. Fixed get_or_create_prototype (no more constructor update on cache hit) and catch_js_throw_refresh_globals catch path refresh. Remaining failures are from deeper nesting through assert.throws.
+- **Error constructor identity across invocations**: ~55 tests still fail due to closure identity across nested invoke_with_receiver. Fixed: no constructor update on cache hit, catch path refresh, ctx sync in do_invoke/catch_js_throw. Remaining failures are from assert.throws nesting where the calling ctx diverges from the prototype's constructor reference.
+- **Test262 async mode**: Some tests pass individually but fail in async ExUnit. Heap.reset() might not fully isolate process state in concurrent tests.
 - **Destructuring in for initializer**: `for (var [x] = iter; ...)` doesn't trigger iterator protocol on `iter`.
 - **Variable hoisting in labeled loops**: `break label; var x = 1` — variable `x` should still be hoisted (value=undefined).
 - **Symbol.iterator on arrays**: `Array.prototype[Symbol.iterator]` returns undefined.
