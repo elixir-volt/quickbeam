@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.10.5
+
+- Update npm dependency to 0.6 and use the `NPM.Resolution.PackageResolver` namespace
 
 ## 0.10.4
 

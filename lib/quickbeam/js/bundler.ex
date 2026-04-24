@@ -1,7 +1,7 @@
 defmodule QuickBEAM.JS.Bundler do
   @moduledoc false
 
-  alias NPM.PackageResolver
+  alias NPM.Resolution.PackageResolver
 
   @ts_extensions [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json"]
   @resolve_opts [extensions: @ts_extensions]
