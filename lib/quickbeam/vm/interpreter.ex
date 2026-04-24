@@ -2345,60 +2345,66 @@ defmodule QuickBEAM.VM.Interpreter do
           )
         end
 
-        ctor_proto = Get.get(ctor, "prototype")
+        obj_is_object = match?({:obj, _}, obj) or function_value?(obj)
 
-        case ctor_proto do
-          {:obj, _} ->
-            case obj do
-              {:obj, ref} ->
-                ctor_name =
-                  case ctor do
-                    {:builtin, n, _} -> n
-                    _ -> nil
-                  end
+        unless obj_is_object do
+          false
+        else
+          ctor_proto = Get.get(ctor, "prototype")
 
-                if ctor_name in ["Array", "Object"] do
-                  data = Heap.get_obj(ref)
-                  is_arr = match?({:qb_arr, _}, data) or is_list(data)
-
-                  if (is_arr and ctor_name == "Array") or ctor_name == "Object",
-                    do: true,
-                    else: check_prototype_chain(obj, ctor_proto)
-                else
-                  check_prototype_chain(obj, ctor_proto)
-                end
-
-              _ ->
-                is_fn = function_value?(obj)
-
-                if is_fn do
+          case ctor_proto do
+            {:obj, _} ->
+              case obj do
+                {:obj, ref} ->
                   ctor_name =
                     case ctor do
-                      {:builtin, name, _} -> name
+                      {:builtin, n, _} -> n
                       _ -> nil
                     end
 
-                  ctor_name == "Function" or ctor_name == "Object"
-                else
-                  false
-                end
-            end
+                  if ctor_name in ["Array", "Object"] do
+                    data = Heap.get_obj(ref)
+                    is_arr = match?({:qb_arr, _}, data) or is_list(data)
 
-          _ ->
-            if match?({:obj, _}, ctor) do
-              throw(
-                {:js_throw,
-                 Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")}
-              )
-            else
-              throw(
-                {:js_throw,
-                 Heap.make_error(
-                   "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check",
-                   "TypeError"
-                 )}
-              )
-            end
+                    if (is_arr and ctor_name == "Array") or ctor_name == "Object",
+                      do: true,
+                      else: check_prototype_chain(obj, ctor_proto)
+                  else
+                    check_prototype_chain(obj, ctor_proto)
+                  end
+
+                _ ->
+                  is_fn = function_value?(obj)
+
+                  if is_fn do
+                    ctor_name =
+                      case ctor do
+                        {:builtin, name, _} -> name
+                        _ -> nil
+                      end
+
+                    ctor_name == "Function" or ctor_name == "Object"
+                  else
+                    false
+                  end
+              end
+
+            _ ->
+              if match?({:obj, _}, ctor) do
+                throw(
+                  {:js_throw,
+                   Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")}
+                )
+              else
+                throw(
+                  {:js_throw,
+                   Heap.make_error(
+                     "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check",
+                     "TypeError"
+                   )}
+                )
+              end
+          end
         end
       end
     end)
