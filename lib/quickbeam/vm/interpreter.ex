@@ -2945,7 +2945,7 @@ defmodule QuickBEAM.VM.Interpreter do
       return_fn = Get.get(iter_obj, "return")
 
       if return_fn != :undefined and return_fn != nil do
-        Runtime.call_callback(return_fn, [])
+        Invocation.invoke_callback_or_throw(return_fn, [], iter_obj)
       end
     end
 
