@@ -2013,7 +2013,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
     gas = check_gas(pc, frame, rest, gas, ctx)
 
-    catch_js_throw(pc, frame, rest, gas, ctx, fn ->
+    catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
       rev_args = Enum.reverse(args)
 
       raw_ctor =
@@ -2898,9 +2898,9 @@ defmodule QuickBEAM.VM.Interpreter do
     args = apply_args(arg_array)
     apply_ctx = Context.mark_dirty(%{ctx | this: this_obj})
 
-    result = dispatch_call(fun, args, gas, apply_ctx, this_obj)
-
-    run(pc + 1, frame, [result | rest], gas, ctx)
+    catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
+      dispatch_call(fun, args, gas, apply_ctx, this_obj)
+    end)
   end
 
   # ── Object spread (copy_data_properties with mask) ──
