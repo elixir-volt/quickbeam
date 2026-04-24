@@ -2573,6 +2573,17 @@ defmodule QuickBEAM.VM.Interpreter do
                 end
 
               iter_obj = Invocation.invoke_callback_or_throw(iter_fn, [], obj)
+
+              unless match?({:obj, _}, iter_obj) do
+                throw(
+                  {:js_throw,
+                   Heap.make_error(
+                     "Result of the Symbol.iterator method is not an object",
+                     "TypeError"
+                   )}
+                )
+              end
+
               collect_iterator(iter_obj, [])
 
             is_map(stored) and Map.has_key?(stored, set_data()) ->
