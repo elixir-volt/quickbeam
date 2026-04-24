@@ -486,6 +486,16 @@ defmodule QuickBEAM.VM.Interpreter do
   defp put_local(f, idx, val),
     do: put_elem(f, Frame.locals(), put_elem(elem(f, Frame.locals()), idx, val))
 
+  defp trim_catch_stack(ctx, saved_depth) do
+    if ctx.catch_depth <= saved_depth do
+      ctx
+    else
+      excess = ctx.catch_depth - saved_depth
+      trimmed = Enum.drop(ctx.catch_stack, excess)
+      Context.mark_dirty(%{ctx | catch_stack: trimmed, catch_depth: saved_depth})
+    end
+  end
+
   defp throw_or_catch(frame, error, gas, ctx) do
     error = maybe_refresh_error_stack(error)
 
@@ -496,7 +506,7 @@ defmodule QuickBEAM.VM.Interpreter do
           frame,
           [error | saved_stack],
           gas,
-          Context.mark_dirty(%{ctx | catch_stack: rest_catch})
+          Context.mark_dirty(%{ctx | catch_stack: rest_catch, catch_depth: ctx.catch_depth - 1})
         )
 
       [] ->
@@ -2022,7 +2032,13 @@ defmodule QuickBEAM.VM.Interpreter do
   # ── try/catch ──
 
   defp run({@op_catch, [target]}, pc, frame, stack, gas, %Context{catch_stack: catch_stack} = ctx) do
-    ctx = Context.mark_dirty(%{ctx | catch_stack: [{target, stack} | catch_stack]})
+    ctx =
+      Context.mark_dirty(%{
+        ctx
+        | catch_stack: [{target, stack} | catch_stack],
+          catch_depth: ctx.catch_depth + 1
+      })
+
     run(pc + 1, frame, [target | stack], gas, ctx)
   end
 
@@ -2034,7 +2050,13 @@ defmodule QuickBEAM.VM.Interpreter do
          gas,
          %Context{catch_stack: [_ | rest_catch]} = ctx
        ) do
-    run(pc + 1, frame, [a | rest], gas, Context.mark_dirty(%{ctx | catch_stack: rest_catch}))
+    run(
+      pc + 1,
+      frame,
+      [a | rest],
+      gas,
+      Context.mark_dirty(%{ctx | catch_stack: rest_catch, catch_depth: ctx.catch_depth - 1})
+    )
   end
 
   # ── for-in ──
@@ -2725,7 +2747,12 @@ defmodule QuickBEAM.VM.Interpreter do
   # ── gosub/ret (finally blocks) ──
 
   defp run({@op_gosub, [target]}, pc, frame, stack, gas, ctx) do
-    run(target, frame, [{:return_addr, pc + 1} | stack], gas, ctx)
+    run(target, frame, [{:return_addr, pc + 1, ctx.catch_depth} | stack], gas, ctx)
+  end
+
+  defp run({@op_ret, []}, __pc, frame, [{:return_addr, ret_pc, saved_depth} | rest], gas, ctx) do
+    ctx = trim_catch_stack(ctx, saved_depth)
+    run(ret_pc, frame, rest, gas, ctx)
   end
 
   defp run({@op_ret, []}, __pc, frame, [{:return_addr, ret_pc} | rest], gas, ctx) do
@@ -3666,6 +3693,7 @@ defmodule QuickBEAM.VM.Interpreter do
             | current_func: self_ref,
               arg_buf: List.to_tuple(args),
               catch_stack: [],
+              catch_depth: 0,
               atoms: fn_atoms
           }
           |> InvokeContext.attach_method_state()
