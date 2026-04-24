@@ -2252,17 +2252,22 @@ defmodule QuickBEAM.VM.Interpreter do
       case ctor_proto do
         {:obj, _} ->
           case obj do
-            {:obj, _} -> check_prototype_chain(obj, ctor_proto)
+            {:obj, ref} ->
+              ctor_name = case ctor do {:builtin, n, _} -> n; _ -> nil end
+              if ctor_name in ["Array", "Object"] do
+                data = Heap.get_obj(ref)
+                is_arr = match?({:qb_arr, _}, data) or is_list(data)
+                if (is_arr and ctor_name == "Array") or ctor_name == "Object", do: true,
+                else: check_prototype_chain(obj, ctor_proto)
+              else
+                check_prototype_chain(obj, ctor_proto)
+              end
             _ ->
               is_fn = match?({:closure, _, _}, obj) or match?(%Bytecode.Function{}, obj) or
                       match?({:builtin, _, _}, obj) or match?({:bound, _, _, _, _}, obj)
               if is_fn do
-                ctor_name = case ctor do
-                  {:builtin, name, _} -> name
-                  _ -> nil
-                end
-                ctor_name == "Function" or
-                  (ctor_name == "Object" and true)
+                ctor_name = case ctor do {:builtin, name, _} -> name; _ -> nil end
+                ctor_name == "Function" or ctor_name == "Object"
               else
                 false
               end
