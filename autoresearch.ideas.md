@@ -1,28 +1,30 @@
-# Autoresearch Ideas — 164 remaining failures (89.6%)
+# Autoresearch Ideas — 152 remaining failures (90.4%)
 
 ## Breakdown
-- **47 with-statement scope** — insert3/perm4/put_ref_value opcodes, scope chain management
+- **47 with-statement scope** — insert3/perm4/put_ref_value opcodes
 - **28 increment/decrement** — 21 unimplemented opcodes (with-scope), 7 evaluation order
-- **18 for/dstr** — destructuring iterator protocol, closure identity
-- **17 new/spread** — mostly _isSameValue closure identity through spread
-- **8 try/dstr** — destructuring in catch, closure identity
-- **8 instanceof** — Symbol.hasInstance, prototype getter
-- **8 delete** — 6 _isSameValue, 2 property descriptors (Math.E, this.y)
-- **7 for** — var hoisting at eval scope (4), for-in deletion (1), other (2)
-- **3 try** — catch variable shadowing, completion values, closure identity
-- **2 addition** — Symbol.toPrimitive getter, closure identity
-- **2 do-while** — var hoisting in labeled break
-- **16 other** — Unicode surrogates (4), typeof proxy (1), various edge cases
+- **18 for/dstr** — destructuring iterator, _isSameValue
+- **8 try/dstr** — destructuring in catch
+- **8 instanceof** — Symbol.hasInstance, prototype getter, var hoisting
+- **8 delete** — _isSameValue (verifyProperty/Object.getOwnPropertyDescriptor), property descriptors
+- **7 for** — var hoisting at eval scope
+- **5 new** — spread iterator, _isSameValue
+- **3 try** — catch shadowing, completion values
+- **20 other** — surrogates (4), comparison (4), various
 
-## Fixed root causes (key learnings)
-1. Compiled module cache keyed only by bytecode — missed constants (11 tests!)
-2. Bare Bytecode.Function vs closure tuple in get_or_create_prototype (10 tests!)
-3. Constructor update on prototype cache hit corrupted identity (21 tests!)
-4. to_primitive: own valueOf/toString type checking, null as own property
-5. String fast path in add bypassed ToPrimitive
-6. isNaN/Math.floor didn't handle Infinity atoms
+## Key blocker: _isSameValue through verifyProperty
+Many remaining _isSameValue failures are from verifyProperty (propertyHelper.js) 
+which uses Object.getOwnPropertyDescriptor. Our VM returns incomplete descriptors
+or the descriptor check throws. Implementing Object.getOwnPropertyDescriptor
+properly could fix ~15-20 tests.
 
-## Dead ends
-- delete_var pre_eval_keys: function declarations also appear in pre-eval context
-- Sub ToPrimitive-both-first: wrong per spec evaluation order
-- GlobalEnv.refresh identity preservation: doesn't address root cause
+## Key blocker: with-statement (47+21 = 68 tests)
+Needs deep interpreter rewrite for scope chain management.
+
+## Fixed this session
+- op_apply[1] constructor apply globals refresh (8 tests!)
+- call_constructor globals refresh (4 tests)
+- Compiled cache key with constants hash (11 tests)
+- Constructor identity (bare function wrapping, 10 tests)
+- BigInt abstract_eq + neq (3 tests)
+- delete_var builtin vs var-declared distinction
