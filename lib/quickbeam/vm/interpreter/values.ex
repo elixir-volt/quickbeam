@@ -657,6 +657,9 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def sar(_, {:bigint, _}), do: throw_bigint_mix_error()
   def sar(a, b), do: Bitwise.bsr(to_int32(a), Bitwise.band(to_int32(b), 31))
 
+  def shr({:obj, _} = a, b), do: shr(to_numeric(a), b)
+  def shr(a, {:obj, _} = b), do: shr(a, to_numeric(b))
+
   def shr({:bigint, _}, _),
     do:
       throw(
@@ -668,9 +671,6 @@ defmodule QuickBEAM.VM.Interpreter.Values do
       throw(
         {:js_throw, Heap.make_error("Cannot convert a BigInt value to a number", "TypeError")}
       )
-
-  def shr({:obj, _} = a, b), do: shr(to_numeric(a), b)
-  def shr(a, {:obj, _} = b), do: shr(a, to_numeric(b))
 
   def shr(a, b) do
     ua = to_int32(a) &&& 0xFFFFFFFF
