@@ -27,6 +27,25 @@ defmodule QuickBEAM.VM.Runtime.Array do
         )
       end)
 
+    sym_iter = {:symbol, "Symbol.iterator"}
+
+    proto_map =
+      Map.put(
+        proto_map,
+        sym_iter,
+        {:builtin, "[Symbol.iterator]",
+         fn _args, this ->
+           case this do
+             {:obj, ref} ->
+               list = Heap.to_list(this)
+               Heap.wrap_iterator(list)
+
+             _ ->
+               Heap.wrap_iterator([])
+           end
+         end}
+      )
+
     Heap.wrap(proto_map)
   end
 

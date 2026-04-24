@@ -608,6 +608,42 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
+  defp array_proto_iterator({:obj, ref}) do
+    sym_iter = {:symbol, "Symbol.iterator"}
+    proto = Heap.get_array_proto(ref)
+
+    case proto do
+      {:obj, proto_ref} ->
+        proto_data = Heap.get_obj(proto_ref, %{})
+
+        case is_map(proto_data) && Map.get(proto_data, sym_iter) do
+          nil -> :deleted
+          false -> :deleted
+          :deleted -> :deleted
+          {:builtin, "[Symbol.iterator]", _} -> :default
+          other -> other
+        end
+
+      _ ->
+        :default
+    end
+  end
+
+  defp array_proto_iterator(_), do: :default
+
+  defp invoke_custom_iterator(iter_fn, obj) do
+    iter_obj = Invocation.invoke_callback_or_throw(iter_fn, [], obj)
+
+    unless match?({:obj, _}, iter_obj) do
+      throw(
+        {:js_throw,
+         Heap.make_error("Result of the Symbol.iterator method is not an object", "TypeError")}
+      )
+    end
+
+    {iter_obj, Get.get(iter_obj, "next")}
+  end
+
   defp make_list_iterator(items) do
     pos_ref = make_ref()
     Heap.put_obj(pos_ref, %{pos: 0, list: items})
@@ -2812,10 +2848,34 @@ defmodule QuickBEAM.VM.Interpreter do
 
           case stored do
             {:qb_arr, arr} ->
-              make_list_iterator(:array.to_list(arr))
+              case array_proto_iterator(obj) do
+                :default ->
+                  make_list_iterator(:array.to_list(arr))
+
+                :deleted ->
+                  throw(
+                    {:js_throw,
+                     Heap.make_error("[Symbol.iterator] is not a function", "TypeError")}
+                  )
+
+                custom_fn ->
+                  invoke_custom_iterator(custom_fn, obj)
+              end
 
             list when is_list(list) ->
-              make_list_iterator(list)
+              case array_proto_iterator(obj) do
+                :default ->
+                  make_list_iterator(list)
+
+                :deleted ->
+                  throw(
+                    {:js_throw,
+                     Heap.make_error("[Symbol.iterator] is not a function", "TypeError")}
+                  )
+
+                custom_fn ->
+                  invoke_custom_iterator(custom_fn, obj)
+              end
 
             map when is_map(map) ->
               sym_iter = {:symbol, "Symbol.iterator"}

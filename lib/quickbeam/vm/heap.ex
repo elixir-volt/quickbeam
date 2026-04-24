@@ -87,6 +87,34 @@ defmodule QuickBEAM.VM.Heap do
   end
 
   @doc "Create a shape-backed object with pre-sorted keys. Keys tuple is a compile-time constant."
+  def get_array_proto(ref) do
+    case Store.get_obj_raw(ref) do
+      {:shape, _, _, _, proto} when proto != nil -> proto
+      map when is_map(map) -> Map.get(map, "__proto__")
+      _ -> Process.get(:qb_array_proto)
+    end
+  end
+
+  def wrap_iterator(list) when is_list(list) do
+    pos_ref = make_ref()
+    Process.put(pos_ref, {list, 0})
+
+    next_fn =
+      {:builtin, "next",
+       fn _, _ ->
+         case Process.get(pos_ref) do
+           {items, idx} when idx < length(items) ->
+             Process.put(pos_ref, {items, idx + 1})
+             wrap(%{"value" => Enum.at(items, idx), "done" => false})
+
+           _ ->
+             wrap(%{"value" => :undefined, "done" => true})
+         end
+       end}
+
+    wrap(%{"next" => next_fn})
+  end
+
   def wrap_keyed(keys, vals) when is_tuple(keys) and is_tuple(vals) do
     cache_key = {:qb_wrap_cache, keys}
 

@@ -248,10 +248,32 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
       {:obj, ref} = obj_ref ->
         case Heap.get_obj(ref) do
           {:qb_arr, arr} ->
-            {{:list_iter, :array.to_list(arr), 0}, :undefined}
+            case check_array_proto_iterator(obj_ref, ref) do
+              :default ->
+                {{:list_iter, :array.to_list(arr), 0}, :undefined}
+
+              :deleted ->
+                throw(
+                  {:js_throw, Heap.make_error("[Symbol.iterator] is not a function", "TypeError")}
+                )
+
+              custom_fn ->
+                invoke_custom_iter(custom_fn, obj_ref)
+            end
 
           list when is_list(list) ->
-            {{:list_iter, list, 0}, :undefined}
+            case check_array_proto_iterator(obj_ref, ref) do
+              :default ->
+                {{:list_iter, list, 0}, :undefined}
+
+              :deleted ->
+                throw(
+                  {:js_throw, Heap.make_error("[Symbol.iterator] is not a function", "TypeError")}
+                )
+
+              custom_fn ->
+                invoke_custom_iter(custom_fn, obj_ref)
+            end
 
           map when is_map(map) ->
             sym_iter = {:symbol, "Symbol.iterator"}
@@ -844,10 +866,32 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
       {:obj, ref} = obj_ref ->
         case Heap.get_obj(ref) do
           {:qb_arr, arr} ->
-            {{:list_iter, :array.to_list(arr), 0}, :undefined}
+            case check_array_proto_iterator(obj_ref, ref) do
+              :default ->
+                {{:list_iter, :array.to_list(arr), 0}, :undefined}
+
+              :deleted ->
+                throw(
+                  {:js_throw, Heap.make_error("[Symbol.iterator] is not a function", "TypeError")}
+                )
+
+              custom_fn ->
+                invoke_custom_iter(custom_fn, obj_ref)
+            end
 
           list when is_list(list) ->
-            {{:list_iter, list, 0}, :undefined}
+            case check_array_proto_iterator(obj_ref, ref) do
+              :default ->
+                {{:list_iter, list, 0}, :undefined}
+
+              :deleted ->
+                throw(
+                  {:js_throw, Heap.make_error("[Symbol.iterator] is not a function", "TypeError")}
+                )
+
+              custom_fn ->
+                invoke_custom_iter(custom_fn, obj_ref)
+            end
 
           map when is_map(map) ->
             sym_iter = {:symbol, "Symbol.iterator"}
@@ -1119,5 +1163,38 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
       :undefined -> Class.get_super(context_home_object(ctx, context_current_func(ctx)))
       super -> super
     end
+  end
+
+  defp check_array_proto_iterator({:obj, _ref}, _raw_ref) do
+    sym_iter = {:symbol, "Symbol.iterator"}
+
+    case Process.get(:qb_array_proto) do
+      {:obj, proto_ref} ->
+        proto_data = Heap.get_obj(proto_ref, %{})
+
+        case is_map(proto_data) && Map.get(proto_data, sym_iter) do
+          nil -> :deleted
+          false -> :deleted
+          :deleted -> :deleted
+          {:builtin, "[Symbol.iterator]", _} -> :default
+          other -> other
+        end
+
+      _ ->
+        :default
+    end
+  end
+
+  defp invoke_custom_iter(iter_fn, obj) do
+    iter_obj = Runtime.call_callback(iter_fn, [obj])
+
+    unless match?({:obj, _}, iter_obj) do
+      throw(
+        {:js_throw,
+         Heap.make_error("Result of the Symbol.iterator method is not an object", "TypeError")}
+      )
+    end
+
+    {iter_obj, Get.get(iter_obj, "next")}
   end
 end
