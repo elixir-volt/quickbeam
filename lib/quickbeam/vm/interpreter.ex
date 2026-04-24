@@ -1841,7 +1841,9 @@ defmodule QuickBEAM.VM.Interpreter do
       Put.put(obj, Names.resolve_atom(ctx, atom_idx), val)
       run(pc + 1, frame, [obj | rest], gas, ctx)
     catch
-      {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
+      {:js_throw, error} ->
+        ctx = Heap.get_ctx() || ctx
+        throw_or_catch(frame, error, gas, ctx)
     end
   end
 
@@ -1849,7 +1851,9 @@ defmodule QuickBEAM.VM.Interpreter do
     try do
       run(pc + 1, frame, [Put.get_element(obj, idx) | rest], gas, ctx)
     catch
-      {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
+      {:js_throw, error} ->
+        ctx = Heap.get_ctx() || ctx
+        throw_or_catch(frame, error, gas, ctx)
     end
   end
 
@@ -1858,7 +1862,9 @@ defmodule QuickBEAM.VM.Interpreter do
       Put.put_element(obj, idx, val)
       run(pc + 1, frame, rest, gas, ctx)
     catch
-      {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
+      {:js_throw, error} ->
+        ctx = Heap.get_ctx() || ctx
+        throw_or_catch(frame, error, gas, ctx)
     end
   end
 
@@ -1872,7 +1878,9 @@ defmodule QuickBEAM.VM.Interpreter do
       Class.put_super_value(proto_obj, this_obj, key, val)
       run(pc + 1, frame, rest, gas, ctx)
     catch
-      {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
+      {:js_throw, error} ->
+        ctx = Heap.get_ctx() || ctx
+        throw_or_catch(frame, error, gas, ctx)
     end
   end
 
@@ -1917,12 +1925,12 @@ defmodule QuickBEAM.VM.Interpreter do
   defp run({@op_nop, []}, pc, frame, stack, gas, ctx),
     do: run(pc + 1, frame, stack, gas, ctx)
 
-  defp run({@op_to_object, []}, _pc, _frame, [nil | _rest], _gas, _ctx) do
-    throw({:js_throw, Heap.make_error("Cannot convert null to object", "TypeError")})
+  defp run({@op_to_object, []}, _pc, frame, [nil | _rest], gas, ctx) do
+    throw_or_catch(frame, Heap.make_error("Cannot convert null to object", "TypeError"), gas, ctx)
   end
 
-  defp run({@op_to_object, []}, _pc, _frame, [:undefined | _rest], _gas, _ctx) do
-    throw({:js_throw, Heap.make_error("Cannot convert undefined to object", "TypeError")})
+  defp run({@op_to_object, []}, _pc, frame, [:undefined | _rest], gas, ctx) do
+    throw_or_catch(frame, Heap.make_error("Cannot convert undefined to object", "TypeError"), gas, ctx)
   end
 
   defp run({@op_to_object, []}, pc, frame, stack, gas, ctx),
@@ -2797,7 +2805,9 @@ defmodule QuickBEAM.VM.Interpreter do
       Put.put(obj, key, val)
       run(pc + 1, frame, rest, gas, ctx)
     catch
-      {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
+      {:js_throw, error} ->
+        ctx = Heap.get_ctx() || ctx
+        throw_or_catch(frame, error, gas, ctx)
     end
   end
 
@@ -2862,113 +2872,127 @@ defmodule QuickBEAM.VM.Interpreter do
   # ── Iterators ──
 
   defp run({@op_for_of_start, []}, pc, frame, [obj | rest], gas, ctx) do
-    {iter_obj, next_fn} =
-      case obj do
-        list when is_list(list) ->
-          make_list_iterator(list)
-
-        {:obj, ref} ->
-          stored = Heap.get_obj(ref)
-
-          case stored do
-            {:qb_arr, arr} ->
-              case array_proto_iterator(obj) do
-                :default ->
-                  make_list_iterator(:array.to_list(arr))
-
-                :deleted ->
-                  throw(
-                    {:js_throw,
-                     Heap.make_error("[Symbol.iterator] is not a function", "TypeError")}
-                  )
-
-                custom_fn ->
-                  invoke_custom_iterator(custom_fn, obj)
-              end
-
-            list when is_list(list) ->
-              case array_proto_iterator(obj) do
-                :default ->
-                  make_list_iterator(list)
-
-                :deleted ->
-                  throw(
-                    {:js_throw,
-                     Heap.make_error("[Symbol.iterator] is not a function", "TypeError")}
-                  )
-
-                custom_fn ->
-                  invoke_custom_iterator(custom_fn, obj)
-              end
-
-            map when is_map(map) ->
-              sym_iter = {:symbol, "Symbol.iterator"}
-
-              cond do
-                Map.has_key?(map, sym_iter) ->
-                  raw_iter = Map.get(map, sym_iter)
-
-                  iter_fn =
-                    case raw_iter do
-                      {:accessor, getter, _} when getter != nil -> Get.call_getter(getter, obj)
-                      _ -> raw_iter
-                    end
-
-                  iter_obj =
-                    Invocation.invoke_with_receiver(iter_fn, [], Runtime.gas_budget(), obj)
-
-                  unless match?({:obj, _}, iter_obj) do
-                    throw(
-                      {:js_throw,
-                       Heap.make_error(
-                         "Result of the Symbol.iterator method is not an object",
-                         "TypeError"
-                       )}
-                    )
-                  end
-
-                  {iter_obj, Get.get(iter_obj, "next")}
-
-                Map.has_key?(map, "next") ->
-                  {obj, Get.get(obj, "next")}
-
-                true ->
-                  make_list_iterator([])
-              end
-
-            _ ->
-              make_list_iterator([])
-          end
-
-        s when is_binary(s) ->
-          make_list_iterator(String.codepoints(s))
-
-        nil ->
-          throw(
-            {:js_throw,
-             Heap.make_error(
-               "Cannot read properties of null (reading 'Symbol(Symbol.iterator)')",
-               "TypeError"
-             )}
-          )
-
-        :undefined ->
-          throw(
-            {:js_throw,
-             Heap.make_error(
-               "Cannot read properties of undefined (reading 'Symbol(Symbol.iterator)')",
-               "TypeError"
-             )}
-          )
-
-        other ->
-          throw(
-            {:js_throw,
-             Heap.make_error("#{Values.stringify(other)} is not iterable", "TypeError")}
-          )
+    result =
+      try do
+        {:ok, for_of_start_iter(obj)}
+      catch
+        {:js_throw, val} -> {:throw, val}
       end
 
-    run(pc + 1, frame, [0, next_fn, iter_obj | rest], gas, ctx)
+    case result do
+      {:ok, {iter_obj, next_fn}} ->
+        run(pc + 1, frame, [0, next_fn, iter_obj | rest], gas, ctx)
+
+      {:throw, error} ->
+        throw_or_catch(frame, error, gas, ctx)
+    end
+  end
+
+  defp for_of_start_iter(obj) do
+    case obj do
+      list when is_list(list) ->
+        make_list_iterator(list)
+
+      {:obj, ref} ->
+        stored = Heap.get_obj(ref)
+
+        case stored do
+          {:qb_arr, arr} ->
+            case array_proto_iterator(obj) do
+              :default ->
+                make_list_iterator(:array.to_list(arr))
+
+              :deleted ->
+                throw(
+                  {:js_throw,
+                   Heap.make_error("[Symbol.iterator] is not a function", "TypeError")}
+                )
+
+              custom_fn ->
+                invoke_custom_iterator(custom_fn, obj)
+            end
+
+          list when is_list(list) ->
+            case array_proto_iterator(obj) do
+              :default ->
+                make_list_iterator(list)
+
+              :deleted ->
+                throw(
+                  {:js_throw,
+                   Heap.make_error("[Symbol.iterator] is not a function", "TypeError")}
+                )
+
+              custom_fn ->
+                invoke_custom_iterator(custom_fn, obj)
+            end
+
+          map when is_map(map) ->
+            sym_iter = {:symbol, "Symbol.iterator"}
+
+            cond do
+              Map.has_key?(map, sym_iter) ->
+                raw_iter = Map.get(map, sym_iter)
+
+                iter_fn =
+                  case raw_iter do
+                    {:accessor, getter, _} when getter != nil -> Get.call_getter(getter, obj)
+                    _ -> raw_iter
+                  end
+
+                iter_obj =
+                  Invocation.invoke_with_receiver(iter_fn, [], Runtime.gas_budget(), obj)
+
+                unless match?({:obj, _}, iter_obj) do
+                  throw(
+                    {:js_throw,
+                     Heap.make_error(
+                       "Result of the Symbol.iterator method is not an object",
+                       "TypeError"
+                     )}
+                  )
+                end
+
+                {iter_obj, Get.get(iter_obj, "next")}
+
+              Map.has_key?(map, "next") ->
+                {obj, Get.get(obj, "next")}
+
+              true ->
+                make_list_iterator([])
+            end
+
+          _ ->
+            make_list_iterator([])
+        end
+
+      s when is_binary(s) ->
+        make_list_iterator(String.codepoints(s))
+
+      nil ->
+        throw(
+          {:js_throw,
+           Heap.make_error(
+             "Cannot read properties of null (reading 'Symbol(Symbol.iterator)')",
+             "TypeError"
+           )}
+        )
+
+      :undefined ->
+        throw(
+          {:js_throw,
+           Heap.make_error(
+             "Cannot read properties of undefined (reading 'Symbol(Symbol.iterator)')",
+             "TypeError"
+           )}
+        )
+
+      other ->
+        throw(
+          {:js_throw,
+           Heap.make_error("#{Values.stringify(other)} is not iterable", "TypeError")}
+        )
+    end
   end
 
   defp run({@op_for_of_next, [idx]}, pc, frame, stack, gas, ctx) do
@@ -3181,7 +3205,7 @@ defmodule QuickBEAM.VM.Interpreter do
     run(pc + 1, frame, [result | rest], gas, ctx)
   end
 
-  defp run({@op_throw_error, []}, _pc, _frame, [val | _], _gas, _ctx), do: throw({:js_throw, val})
+  defp run({@op_throw_error, []}, _pc, frame, [val | _], gas, ctx), do: throw_or_catch(frame, val, gas, ctx)
 
   defp run({@op_throw_error, [atom_idx, reason]}, __pc, frame, _stack, gas, ctx) do
     name = Names.resolve_atom(ctx, atom_idx)
@@ -3294,7 +3318,9 @@ defmodule QuickBEAM.VM.Interpreter do
 
       run(pc + 1, frame, stack, gas, ctx)
     catch
-      {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
+      {:js_throw, error} ->
+        ctx = Heap.get_ctx() || ctx
+        throw_or_catch(frame, error, gas, ctx)
     end
   end
 
