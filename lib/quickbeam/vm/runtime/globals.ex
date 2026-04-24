@@ -45,10 +45,10 @@ defmodule QuickBEAM.VM.Runtime.Globals do
         (ctor = register("Array", &Constructors.array/2)
          Heap.put_ctor_static(ctor, "prototype", QuickBEAM.VM.Runtime.Array.prototype())
          ctor),
-      "String" => register("String", &Constructors.string/2),
-      "Number" => register("Number", &Constructors.number/2),
+      "String" => register("String", &Constructors.string/2, auto_proto: true),
+      "Number" => register("Number", &Constructors.number/2, auto_proto: true),
       "BigInt" => register("BigInt", &Constructors.bigint/2),
-      "Boolean" => register("Boolean", Boolean.constructor()),
+      "Boolean" => register("Boolean", Boolean.constructor(), auto_proto: true),
       "Function" => register("Function", &Constructors.function/2,
         prototype: QuickBEAM.VM.Runtime.Function.prototype()),
       "RegExp" => register("RegExp", &Constructors.regexp/2),
