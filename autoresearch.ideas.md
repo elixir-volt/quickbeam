@@ -1,23 +1,24 @@
-# Autoresearch Ideas — 13 remaining failures (99.2% pass rate)
+# Autoresearch Ideas — 4 remaining failures (99.7% pass rate)
 
-## Total progress: 72 → 13 = 59 tests fixed (81.9% reduction)
+## Total progress: 72 → 4 = 68 tests fixed (94.4% reduction)
 
-## This session's key fixes
-1. **put_ref_value global sync** — cell writes always sync to ctx.globals/globalThis/persistent_globals (-33 tests!)
-2. **Symbol.unscopables** — added symbol, unscopables check in with_has_property?, shaped object symbol-key storage (-1 test)
+## Remaining 4 failures
+All require getter side effect propagation (closure var mutations from accessor callbacks):
 
-## Remaining 13 failures
-- **3** S12.10_A1.7 — `this.p2='x2'` in callback doesn't propagate to caller's ctx.globals
-- **4** inc/dec putvalue strict mode — ReferenceError for deleted with-scope bindings  
-- **3** unscopables binding deletion — delete + unscopables + strict mode interaction
-- **1** has-property-err — Proxy `has` trap should throw in with_has_property
-- **1** unscopables-inc-dec — unscopables with inc/dec ops
-- **1** typed-array strict mode — binding deletion with typed array in prototype chain
+1. **unscopables-inc-dec** — @@unscopables getter count assertion
+2. **get-mutable-binding-binding-deleted-in-get-unscopables** — @@unscopables getter count 
+3. **set-mutable-binding-binding-deleted-in-get-unscopables** — same issue
+4. **has-property-err** — Proxy `has` trap (assert.throws not found — likely a test harness issue)
 
-## Dead ends this session
-- **refresh_globals from globalThis**: Caused 31 regressions. globalThis contains stale data that overwrites newer values from put_var. Need targeted sync only for properties actually modified by callee, not a bulk refresh.
+## Root cause of remaining failures
+All 3 unscopables tests track how many times an accessor getter is called (`count++` inside getter). The getter updates a captured outer variable, but the update doesn't propagate back because:
+- Getter runs via `Get.get` → `call_getter` → `Invocation.invoke_with_receiver`
+- `count++` uses `put_var` which syncs to `persistent_globals`
+- But the caller of `call_getter` doesn't refresh from `persistent_globals`
+- So the outer scope's `ctx.globals` still has the old `count` value
 
-## Potential approaches for remaining tests
-- **this.p2 issue**: `put_field` on globalThis should write to persistent_globals when the key is a known global variable. This is targeted (won't regress) but requires checking if obj === globalThis in put_field.
-- **Strict mode ReferenceError**: with_put_var needs strict mode enforcement — throw ReferenceError when binding was deleted during unscopables check.
-- **Proxy has trap**: with_has_property? should call Proxy `has` trap for proxy objects.
+The `has-property-err` test likely fails because `assert.throws` isn't resolved — possibly a test harness includes issue.
+
+## Dead ends
+- **Bulk globalThis refresh**: Caused 31 regressions (stale data overwrites)
+- **toPrimitive side effects**: Same fundamental issue — closure captures don't propagate
