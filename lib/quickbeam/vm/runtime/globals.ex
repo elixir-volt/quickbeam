@@ -6,6 +6,8 @@ defmodule QuickBEAM.VM.Runtime.Globals do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Runtime
 
+  alias QuickBEAM.VM.Runtime.WebAPIs
+
   alias QuickBEAM.VM.Runtime.{
     ArrayBuffer,
     Boolean,
@@ -41,6 +43,8 @@ defmodule QuickBEAM.VM.Runtime.Globals do
     |> Map.put("Object", obj_ctor)
     |> Map.merge(typed_arrays())
     |> Map.merge(Errors.bindings())
+    |> tap(&Heap.put_global_cache/1)
+    |> Map.merge(WebAPIs.bindings())
     |> tap(&Heap.put_global_cache/1)
   end
 
@@ -202,7 +206,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
     Heap.put_ctor_static(ta_base, "prototype", {:obj, ta_base_ref})
 
     for {name, type} <- TypedArray.types(), into: %{} do
-      ctor = register(name, TypedArray.constructor(type))
+      ctor = register(name, TypedArray.constructor(type), auto_proto: true)
       Heap.put_ctor_static(ctor, "__proto__", ta_base)
       {name, ctor}
     end

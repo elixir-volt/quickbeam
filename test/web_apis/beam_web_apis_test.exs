@@ -112,7 +112,7 @@ defmodule QuickBEAM.WebAPIs.BeamWebAPIsTest do
     end
 
     test "clearTimeout accepts id", %{rt: rt} do
-      assert {:ok, :undefined} = eval(rt, "clearTimeout(setTimeout(() => {}, 1000))")
+      assert {:ok, nil} = eval(rt, "clearTimeout(setTimeout(() => {}, 1000))")
     end
   end
 

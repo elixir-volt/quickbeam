@@ -48,6 +48,8 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
           method("toString", do: join(ref, [","]))
         end
 
+      sym_iter = {:symbol, "Symbol.iterator"}
+
       obj =
         Map.merge(methods, %{
           typed_array() => true,
@@ -58,7 +60,20 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
           "byteLength" => len * elem_size(type),
           "byteOffset" => offset,
           "BYTES_PER_ELEMENT" => elem_size(type),
-          "buffer" => orig_buf || make_buffer_ref(buf)
+          "buffer" => orig_buf || make_buffer_ref(buf),
+          sym_iter =>
+            {:builtin, "[Symbol.iterator]",
+             fn _args, this ->
+               case this do
+                 {:obj, iter_ref} ->
+                   l = Map.get(Heap.get_obj(iter_ref, %{}), "length", 0)
+                   list = if l > 0, do: (for i <- 0..(l - 1), do: get_element({:obj, iter_ref}, i)), else: []
+                   Heap.wrap_iterator(list)
+
+                 _ ->
+                   Heap.wrap_iterator([])
+               end
+             end}
         })
 
       Heap.put_obj(ref, obj)
