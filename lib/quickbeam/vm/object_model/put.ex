@@ -94,6 +94,10 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
           key == "__proto__" ->
             Heap.put_obj_raw(ref, {:shape, shape_id, offsets, vals, val})
 
+          match?({:symbol, _}, key) or match?({:symbol, _, _}, key) ->
+            map = Heap.Shapes.to_map(shape_id, vals, proto)
+            Heap.put_obj(ref, Map.put(map, key, val))
+
           true ->
             shape_put(ref, shape_id, offsets, vals, proto, key, val)
         end

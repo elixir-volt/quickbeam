@@ -1164,7 +1164,16 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp with_has_property?({:obj, _} = obj, key) do
-    Put.has_property(obj, key)
+    if Put.has_property(obj, key) do
+      unscopables = Get.get(obj, {:symbol, "Symbol.unscopables"})
+
+      case unscopables do
+        {:obj, _} -> not Values.truthy?(Get.get(unscopables, key))
+        _ -> true
+      end
+    else
+      false
+    end
   end
 
   defp with_has_property?(_, _), do: false

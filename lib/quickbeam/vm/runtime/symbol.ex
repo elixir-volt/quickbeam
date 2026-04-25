@@ -28,6 +28,7 @@ defmodule QuickBEAM.VM.Runtime.Symbol do
   static_val("replace", {:symbol, "Symbol.replace"})
   static_val("search", {:symbol, "Symbol.search"})
   static_val("split", {:symbol, "Symbol.split"})
+  static_val("unscopables", {:symbol, "Symbol.unscopables"})
 
   static "for" do
     key = hd(args)
