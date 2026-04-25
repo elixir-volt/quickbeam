@@ -550,6 +550,12 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp sync_global_this_write(ctx, _obj, _name, _val), do: ctx
 
+  defp current_strict_mode?(%{current_func: {:closure, _, %Bytecode.Function{is_strict_mode: s}}}),
+    do: s
+
+  defp current_strict_mode?(%{current_func: %Bytecode.Function{is_strict_mode: s}}), do: s
+  defp current_strict_mode?(_), do: false
+
   defp maybe_refresh_error_stack({:obj, ref} = error) do
     case Heap.get_obj(ref, %{}) do
       %{"name" => _, "message" => _} -> Stacktrace.attach_stack(error)
@@ -2916,13 +2922,23 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp run({@op_put_ref_value, []}, pc, frame, [val, key, obj | rest], gas, ctx)
        when is_binary(key) do
-    try do
-      Put.put(obj, key, val)
-      run(pc + 1, frame, rest, gas, ctx)
-    catch
-      {:js_throw, error} ->
-        ctx = Heap.get_ctx() || ctx
-        throw_or_catch(frame, error, gas, ctx)
+    if current_strict_mode?(ctx) and match?({:obj, _}, obj) and
+         not Put.has_property(obj, key) do
+      throw_or_catch(
+        frame,
+        Heap.make_error("#{key} is not defined", "ReferenceError"),
+        gas,
+        ctx
+      )
+    else
+      try do
+        Put.put(obj, key, val)
+        run(pc + 1, frame, rest, gas, ctx)
+      catch
+        {:js_throw, error} ->
+          ctx = Heap.get_ctx() || ctx
+          throw_or_catch(frame, error, gas, ctx)
+      end
     end
   end
 
