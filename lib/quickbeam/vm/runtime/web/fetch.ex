@@ -4,12 +4,13 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.ObjectModel.Get
   alias QuickBEAM.VM.Runtime.Web.Headers
+  alias QuickBEAM.VM.Runtime.WebAPIs
 
   def bindings do
     %{
       "fetch" => {:builtin, "fetch", fn _args, _ -> :undefined end},
-      "Request" => register("Request", &build_request/2),
-      "Response" => register("Response", &build_response/2)
+      "Request" => WebAPIs.register("Request", &build_request/2),
+      "Response" => WebAPIs.register("Response", &build_response/2)
     }
   end
 
@@ -82,12 +83,4 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
   defp coerce_string(nil, default), do: default
   defp coerce_string(s, _) when is_binary(s), do: s
   defp coerce_string(v, _), do: to_string(v)
-
-  defp register(name, constructor) do
-    ctor = {:builtin, name, constructor}
-    proto = Heap.wrap(%{"constructor" => ctor})
-    Heap.put_class_proto(ctor, proto)
-    Heap.put_ctor_static(ctor, "prototype", proto)
-    ctor
-  end
 end

@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.WebAPIs do
   @moduledoc "Aggregates all Web API builtins for BEAM mode."
 
+  alias QuickBEAM.VM.Heap
+
   alias QuickBEAM.VM.Runtime.Web.{
     Abort,
     Blob,
@@ -13,6 +15,14 @@ defmodule QuickBEAM.VM.Runtime.WebAPIs do
     Timers,
     URL
   }
+
+  def register(name, constructor) do
+    ctor = {:builtin, name, constructor}
+    proto = Heap.wrap(%{"constructor" => ctor})
+    Heap.put_class_proto(ctor, proto)
+    Heap.put_ctor_static(ctor, "prototype", proto)
+    ctor
+  end
 
   def bindings do
     %{}

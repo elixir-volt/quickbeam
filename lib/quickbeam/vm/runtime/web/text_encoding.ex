@@ -5,29 +5,31 @@ defmodule QuickBEAM.VM.Runtime.Web.TextEncoding do
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Runtime.WebAPIs
 
   def bindings do
     %{
-      "TextEncoder" => register("TextEncoder", &build_text_encoder/2),
-      "TextDecoder" => register("TextDecoder", &build_text_decoder/2)
+      "TextEncoder" => WebAPIs.register("TextEncoder", &build_text_encoder/2),
+      "TextDecoder" => WebAPIs.register("TextDecoder", &build_text_decoder/2)
     }
   end
 
   defp build_text_encoder(_args, _this) do
-    Heap.wrap(%{
-      "encoding" => "utf-8",
-      "encode" =>
-        {:builtin, "encode",
-         fn args, _this ->
-           str =
-             case args do
-               [s | _] when is_binary(s) -> s
-               _ -> ""
-             end
+    Heap.wrap(
+      build_methods do
+        val("encoding", "utf-8")
 
-           make_uint8array(:binary.bin_to_list(str))
-         end}
-    })
+        method "encode" do
+          str =
+            case args do
+              [s | _] when is_binary(s) -> s
+              _ -> ""
+            end
+
+          make_uint8array(:binary.bin_to_list(str))
+        end
+      end
+    )
   end
 
   defp build_text_decoder(_args, _this) do
@@ -90,12 +92,4 @@ defmodule QuickBEAM.VM.Runtime.Web.TextEncoding do
 
   defp typed_array_to_list(list) when is_list(list), do: list
   defp typed_array_to_list(_), do: []
-
-  defp register(name, constructor) do
-    ctor = {:builtin, name, constructor}
-    proto = Heap.wrap(%{"constructor" => ctor})
-    Heap.put_class_proto(ctor, proto)
-    Heap.put_ctor_static(ctor, "prototype", proto)
-    ctor
-  end
 end

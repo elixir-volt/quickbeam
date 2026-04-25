@@ -1,35 +1,34 @@
 defmodule QuickBEAM.VM.Runtime.Web.Abort do
   @moduledoc "AbortController and AbortSignal builtins for BEAM mode."
 
+  import QuickBEAM.VM.Builtin, only: [build_methods: 1, build_object: 1]
+
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
+  alias QuickBEAM.VM.Runtime.WebAPIs
 
   def bindings do
-    %{"AbortController" => register("AbortController", &build_abort_controller/2)}
+    %{"AbortController" => WebAPIs.register("AbortController", &build_abort_controller/2)}
   end
 
   defp build_abort_controller(_args, _this) do
-    signal = Heap.wrap(%{"aborted" => false, "reason" => :undefined})
+    signal = build_object do
+      val("aborted", false)
+      val("reason", :undefined)
+    end
 
-    Heap.wrap(%{
-      "signal" => signal,
-      "abort" =>
-        {:builtin, "abort",
-         fn args, this ->
-           sig = Get.get(this, "signal")
-           reason = List.first(args, :undefined)
-           Put.put(sig, "aborted", true)
-           Put.put(sig, "reason", reason)
-           :undefined
-         end}
-    })
-  end
+    Heap.wrap(
+      build_methods do
+        val("signal", signal)
 
-  defp register(name, constructor) do
-    ctor = {:builtin, name, constructor}
-    proto = Heap.wrap(%{"constructor" => ctor})
-    Heap.put_class_proto(ctor, proto)
-    Heap.put_ctor_static(ctor, "prototype", proto)
-    ctor
+        method "abort" do
+          sig = Get.get(this, "signal")
+          reason = List.first(args, :undefined)
+          Put.put(sig, "aborted", true)
+          Put.put(sig, "reason", reason)
+          :undefined
+        end
+      end
+    )
   end
 end
