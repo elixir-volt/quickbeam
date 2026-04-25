@@ -62,255 +62,11 @@ defmodule QuickBEAM.VM.Interpreter do
             put_local: 3,
             list_iterator_next: 1,
             make_list_iterator: 1,
-            with_has_property?: 2,
             check_prototype_chain: 2}
 
-  @op_invalid 0
-  @op_push_i32 1
-  @op_push_const 2
-  @op_fclosure 3
-  @op_push_atom_value 4
-  @op_private_symbol 5
-  @op_undefined 6
-  @op_null 7
-  @op_push_this 8
-  @op_push_false 9
-  @op_push_true 10
-  @op_object 11
-  @op_special_object 12
-  @op_rest 13
-  @op_drop 14
-  @op_nip 15
-  @op_nip1 16
-  @op_dup 17
-  @op_dup1 18
-  @op_dup2 19
-  @op_dup3 20
-  @op_insert2 21
-  @op_insert3 22
-  @op_insert4 23
-  @op_perm3 24
-  @op_perm4 25
-  @op_perm5 26
-  @op_swap 27
-  @op_swap2 28
-  @op_rot3l 29
-  @op_rot3r 30
-  @op_rot4l 31
-  @op_rot5l 32
-  @op_call_constructor 33
-  @op_call 34
-  @op_tail_call 35
-  @op_call_method 36
-  @op_tail_call_method 37
-  @op_array_from 38
-  @op_apply 39
-  @op_return 40
-  @op_return_undef 41
-  @op_check_ctor_return 42
-  @op_check_ctor 43
-  @op_init_ctor 44
-  @op_check_brand 45
-  @op_add_brand 46
-  @op_return_async 47
-  @op_throw 48
-  @op_throw_error 49
-  @op_eval 50
-  @op_apply_eval 51
-  @op_regexp 52
-  @op_get_super 53
-  @op_import 54
-  @op_get_var_undef 55
-  @op_get_var 56
-  @op_put_var 57
-  @op_put_var_init 58
-  @op_get_ref_value 59
-  @op_put_ref_value 60
-  @op_define_var 61
-  @op_check_define_var 62
-  @op_define_func 63
-  @op_get_field 64
-  @op_get_field2 65
-  @op_put_field 66
-  @op_get_private_field 67
-  @op_put_private_field 68
-  @op_define_private_field 69
-  @op_get_array_el 70
-  @op_get_array_el2 71
-  @op_put_array_el 72
-  @op_get_super_value 73
-  @op_put_super_value 74
-  @op_define_field 75
-  @op_set_name 76
-  @op_set_name_computed 77
-  @op_set_proto 78
-  @op_set_home_object 79
-  @op_define_array_el 80
-  @op_append 81
-  @op_copy_data_properties 82
-  @op_define_method 83
-  @op_define_method_computed 84
-  @op_define_class 85
-  @op_define_class_computed 86
-  @op_get_loc 87
-  @op_put_loc 88
-  @op_set_loc 89
-  @op_get_arg 90
-  @op_put_arg 91
-  @op_set_arg 92
-  @op_get_var_ref 93
-  @op_put_var_ref 94
-  @op_set_var_ref 95
-  @op_set_loc_uninitialized 96
-  @op_get_loc_check 97
-  @op_put_loc_check 98
-  @op_put_loc_check_init 99
-  @op_get_var_ref_check 100
-  @op_put_var_ref_check 101
-  @op_put_var_ref_check_init 102
-  @op_close_loc 103
-  @op_if_false 104
-  @op_if_true 105
-  @op_goto 106
-  @op_catch 107
-  @op_gosub 108
-  @op_ret 109
-  @op_nip_catch 110
-  @op_to_object 111
-  @op_to_propkey 112
-  @op_to_propkey2 113
-  @op_with_get_var 114
-  @op_with_put_var 115
-  @op_with_delete_var 116
-  @op_with_make_ref 117
-  @op_with_get_ref 118
-  @op_with_get_ref_undef 119
-  @op_make_loc_ref 120
-  @op_make_arg_ref 121
-  @op_make_var_ref_ref 122
-  @op_make_var_ref 123
-  @op_for_in_start 124
-  @op_for_of_start 125
-  @op_for_await_of_start 126
-  @op_for_in_next 127
-  @op_for_of_next 128
-  @op_iterator_check_object 129
-  @op_iterator_get_value_done 130
-  @op_iterator_close 131
-  @op_iterator_next 132
-  @op_iterator_call 133
-  @op_initial_yield 134
-  @op_yield 135
-  @op_yield_star 136
-  @op_async_yield_star 137
-  @op_await 138
-  @op_neg 139
-  @op_plus 140
-  @op_dec 141
-  @op_inc 142
-  @op_post_dec 143
-  @op_post_inc 144
-  @op_dec_loc 145
-  @op_inc_loc 146
-  @op_add_loc 147
-  @op_not 148
-  @op_lnot 149
-  @op_typeof 150
-  @op_delete 151
-  @op_delete_var 152
-  @op_mul 153
-  @op_div 154
-  @op_mod 155
-  @op_add 156
-  @op_sub 157
-  @op_shl 158
-  @op_sar 159
-  @op_shr 160
-  @op_band 161
-  @op_bxor 162
-  @op_bor 163
-  @op_pow 164
-  @op_lt 165
-  @op_lte 166
-  @op_gt 167
-  @op_gte 168
-  @op_instanceof 169
-  @op_in 170
-  @op_eq 171
-  @op_neq 172
-  @op_strict_eq 173
-  @op_strict_neq 174
-  @op_is_undefined_or_null 175
-  @op_private_in 176
-  @op_push_bigint_i32 177
-  @op_nop 178
-  @op_push_minus1 179
-  @op_push_0 180
-  @op_push_1 181
-  @op_push_2 182
-  @op_push_3 183
-  @op_push_4 184
-  @op_push_5 185
-  @op_push_6 186
-  @op_push_7 187
-  @op_push_i8 188
-  @op_push_i16 189
-  @op_push_const8 190
-  @op_fclosure8 191
-  @op_push_empty_string 192
-  @op_get_loc8 193
-  @op_put_loc8 194
-  @op_set_loc8 195
-  @op_get_loc0_loc1 196
-  @op_get_loc0 197
-  @op_get_loc1 198
-  @op_get_loc2 199
-  @op_get_loc3 200
-  @op_put_loc0 201
-  @op_put_loc1 202
-  @op_put_loc2 203
-  @op_put_loc3 204
-  @op_set_loc0 205
-  @op_set_loc1 206
-  @op_set_loc2 207
-  @op_set_loc3 208
-  @op_get_arg0 209
-  @op_get_arg1 210
-  @op_get_arg2 211
-  @op_get_arg3 212
-  @op_put_arg0 213
-  @op_put_arg1 214
-  @op_put_arg2 215
-  @op_put_arg3 216
-  @op_set_arg0 217
-  @op_set_arg1 218
-  @op_set_arg2 219
-  @op_set_arg3 220
-  @op_get_var_ref0 221
-  @op_get_var_ref1 222
-  @op_get_var_ref2 223
-  @op_get_var_ref3 224
-  @op_put_var_ref0 225
-  @op_put_var_ref1 226
-  @op_put_var_ref2 227
-  @op_put_var_ref3 228
-  @op_set_var_ref0 229
-  @op_set_var_ref1 230
-  @op_set_var_ref2 231
-  @op_set_var_ref3 232
-  @op_get_length 233
-  @op_if_false8 234
-  @op_if_true8 235
-  @op_goto8 236
-  @op_goto16 237
-  @op_call0 238
-  @op_call1 239
-  @op_call2 240
-  @op_call3 241
-  @op_is_undefined 242
-  @op_is_null 243
-  @op_typeof_is_undefined 244
-  @op_typeof_is_function 245
+  for {num, {name, _, _, _, _}} <- QuickBEAM.VM.Opcodes.table() do
+    Module.put_attribute(__MODULE__, :"op_#{name}", num)
+  end
 
   @func_generator 1
   @func_async 2
@@ -402,7 +158,7 @@ defmodule QuickBEAM.VM.Interpreter do
   def invoke_constructor(fun, args, gas, this_obj, new_target),
     do: Invocation.invoke_constructor(fun, args, gas, this_obj, new_target)
 
-  defp catch_js_throw(pc, frame, rest, gas, ctx, fun) do
+  defp catch_and_dispatch(pc, frame, rest, gas, ctx, fun, refresh_globals?) do
     Heap.put_ctx(ctx)
 
     call_result =
@@ -412,41 +168,19 @@ defmodule QuickBEAM.VM.Interpreter do
         {:js_throw, val} -> {:throw, val}
       end
 
-    case call_result do
-      {:ok, result} ->
-        run(pc + 1, frame, [result | rest], gas, ctx)
+    if refresh_globals? do
+      persistent = Heap.get_persistent_globals() || %{}
+      refreshed_ctx = Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
 
-      {:throw, val} ->
-        throw_or_catch(frame, val, gas, ctx)
-    end
-  end
-
-  defp catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fun) do
-    Heap.put_ctx(ctx)
-
-    call_result =
-      try do
-        {:ok, fun.()}
-      catch
-        {:js_throw, val} -> {:throw, val}
+      case call_result do
+        {:ok, result} -> run(pc + 1, frame, [result | rest], gas, refreshed_ctx)
+        {:throw, val} -> throw_or_catch(frame, val, gas, refreshed_ctx)
       end
-
-    case call_result do
-      {:ok, result} ->
-        persistent = Heap.get_persistent_globals() || %{}
-
-        run(
-          pc + 1,
-          frame,
-          [result | rest],
-          gas,
-          Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
-        )
-
-      {:throw, val} ->
-        persistent = Heap.get_persistent_globals() || %{}
-        refreshed_ctx = Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
-        throw_or_catch(frame, val, gas, refreshed_ctx)
+    else
+      case call_result do
+        {:ok, result} -> run(pc + 1, frame, [result | rest], gas, ctx)
+        {:throw, val} -> throw_or_catch(frame, val, gas, ctx)
+      end
     end
   end
 
@@ -464,14 +198,6 @@ defmodule QuickBEAM.VM.Interpreter do
       end)
 
     Heap.put_persistent_globals(cleaned)
-  end
-
-  defp caller_is_strict?(%Context{current_func: func}) do
-    case func do
-      {:closure, _, %Bytecode.Function{is_strict_mode: s}} -> s
-      %Bytecode.Function{is_strict_mode: s} -> s
-      _ -> false
-    end
   end
 
   defp uninitialized_this_local?(ctx, idx), do: EvalEnv.current_local_name(ctx, idx) == "this"
@@ -837,7 +563,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp write_back_eval_vars(caller_frame, ctx, original_globals, var_objs, declared_names) do
     new_globals = Heap.get_persistent_globals() || %{}
 
-    if caller_is_strict?(ctx) do
+    if current_strict_mode?(ctx) do
       func_name = EvalEnv.current_func_name(ctx)
 
       if func_name && Map.has_key?(new_globals, func_name) do
@@ -1682,62 +1408,62 @@ defmodule QuickBEAM.VM.Interpreter do
   # ── Arithmetic ──
 
   defp run({@op_add, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.add(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.add(a, b) end, true)
 
   defp run({@op_sub, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.sub(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.sub(a, b) end, true)
 
   defp run({@op_mul, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.mul(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.mul(a, b) end, true)
 
   defp run({@op_div, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.js_div(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.js_div(a, b) end, true)
 
   defp run({@op_mod, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.mod(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.mod(a, b) end, true)
 
   defp run({@op_pow, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.pow(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.pow(a, b) end, true)
 
   # ── Bitwise ──
 
   defp run({@op_band, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.band(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.band(a, b) end, true)
 
   defp run({@op_bor, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.bor(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.bor(a, b) end, true)
 
   defp run({@op_bxor, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.bxor(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.bxor(a, b) end, true)
 
   defp run({@op_shl, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.shl(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.shl(a, b) end, true)
 
   defp run({@op_sar, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.sar(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.sar(a, b) end, true)
 
   defp run({@op_shr, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.shr(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.shr(a, b) end, true)
 
   # ── Comparison ──
 
   defp run({@op_lt, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.lt(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.lt(a, b) end, true)
 
   defp run({@op_lte, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.lte(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.lte(a, b) end, true)
 
   defp run({@op_gt, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.gt(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.gt(a, b) end, true)
 
   defp run({@op_gte, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.gte(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.gte(a, b) end, true)
 
   defp run({@op_eq, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.eq(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.eq(a, b) end, true)
 
   defp run({@op_neq, []}, pc, frame, [b, a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.neq(a, b) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.neq(a, b) end, true)
 
   defp run({@op_strict_eq, []}, pc, frame, [b, a | rest], gas, ctx),
     do: run(pc + 1, frame, [Values.strict_eq(a, b) | rest], gas, ctx)
@@ -1748,10 +1474,10 @@ defmodule QuickBEAM.VM.Interpreter do
   # ── Unary ──
 
   defp run({@op_neg, []}, pc, frame, [a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.neg(a) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.neg(a) end, true)
 
   defp run({@op_plus, []}, pc, frame, [a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.to_number(a) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.to_number(a) end, true)
 
   defp run({@op_inc, []}, pc, frame, [{:bigint, n} | rest], gas, ctx),
     do: run(pc + 1, frame, [{:bigint, n + 1} | rest], gas, ctx)
@@ -1831,7 +1557,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp run({@op_not, []}, pc, frame, [a | rest], gas, ctx),
-    do: catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn -> Values.bnot(a) end)
+    do: catch_and_dispatch(pc, frame, rest, gas, ctx, fn -> Values.bnot(a) end, true)
 
   defp run({@op_lnot, []}, pc, frame, [a | rest], gas, ctx),
     do: run(pc + 1, frame, [not Values.truthy?(a) | rest], gas, ctx)
@@ -2265,7 +1991,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
     gas = check_gas(pc, frame, rest, gas, ctx)
 
-    catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
+    catch_and_dispatch(pc, frame, rest, gas, ctx, fn ->
       rev_args = Enum.reverse(args)
 
       raw_ctor =
@@ -2459,7 +2185,7 @@ defmodule QuickBEAM.VM.Interpreter do
       end
 
       result
-    end)
+    end, true)
   end
 
   defp run({@op_init_ctor, []}, pc, frame, stack, gas, %Context{arg_buf: arg_buf} = ctx) do
@@ -2519,7 +2245,7 @@ defmodule QuickBEAM.VM.Interpreter do
   # ── instanceof ──
 
   defp run({@op_instanceof, []}, pc, frame, [ctor, obj | rest], gas, ctx) do
-    catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
+    catch_and_dispatch(pc, frame, rest, gas, ctx, fn ->
       has_instance = Get.get(ctor, {:symbol, "Symbol.hasInstance"})
 
       if has_instance != :undefined and has_instance != nil and function_value?(has_instance) do
@@ -2611,7 +2337,7 @@ defmodule QuickBEAM.VM.Interpreter do
           false
         end
       end
-    end)
+    end, true)
   end
 
   # ── delete ──
@@ -2708,7 +2434,7 @@ defmodule QuickBEAM.VM.Interpreter do
   # ── in operator ──
 
   defp run({@op_in, []}, pc, frame, [obj, key | rest], gas, ctx) do
-    catch_js_throw(pc, frame, rest, gas, ctx, fn ->
+    catch_and_dispatch(pc, frame, rest, gas, ctx, fn ->
       unless match?({:obj, _}, obj) or match?({:builtin, _, _}, obj) or
                match?({:closure, _, _}, obj) or match?(%Bytecode.Function{}, obj) or
                match?({:bound, _, _, _, _}, obj) or match?({:qb_arr, _}, obj) or
@@ -2724,7 +2450,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
       coerced_key = if is_binary(key) or is_integer(key), do: key, else: Values.stringify(key)
       Put.has_property(obj, coerced_key)
-    end)
+    end, false)
   end
 
   # ── regexp literal ──
@@ -3436,9 +3162,9 @@ defmodule QuickBEAM.VM.Interpreter do
     args = apply_args(arg_array)
     apply_ctx = Context.mark_dirty(%{ctx | this: this_obj})
 
-    catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
+    catch_and_dispatch(pc, frame, rest, gas, ctx, fn ->
       dispatch_call(fun, args, gas, apply_ctx, this_obj)
-    end)
+    end, true)
   end
 
   # ── Object spread (copy_data_properties with mask) ──
@@ -3795,29 +3521,9 @@ defmodule QuickBEAM.VM.Interpreter do
 
   # ── Tail calls ──
 
-  defp tail_call([fun | _rest], 0, gas, ctx) do
-    dispatch_call(fun, [], gas, ctx, nil)
-  end
-
-  defp tail_call([a0, fun | _], 1, gas, ctx) do
-    dispatch_call(fun, [a0], gas, ctx, nil)
-  end
-
-  defp tail_call([a1, a0, fun | _], 2, gas, ctx) do
-    dispatch_call(fun, [a0, a1], gas, ctx, nil)
-  end
-
   defp tail_call(stack, argc, gas, ctx) do
     {args, [fun | _]} = Enum.split(stack, argc)
     dispatch_call(fun, Enum.reverse(args), gas, ctx, nil)
-  end
-
-  defp tail_call_method([fun, obj | _], 0, gas, ctx) do
-    dispatch_call(fun, [], gas, Context.mark_dirty(%{ctx | this: obj}), obj)
-  end
-
-  defp tail_call_method([a0, fun, obj | _], 1, gas, ctx) do
-    dispatch_call(fun, [a0], gas, Context.mark_dirty(%{ctx | this: obj}), obj)
   end
 
   defp tail_call_method(stack, argc, gas, ctx) do
@@ -3835,92 +3541,23 @@ defmodule QuickBEAM.VM.Interpreter do
 
   # ── Function calls ──
 
-  defp call_function(pc, frame, stack, 0, gas, ctx) do
-    [fun | rest] = stack
-    gas = check_gas(pc, frame, rest, gas, ctx)
-
-    catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
-      dispatch_call(fun, [], gas, ctx, nil)
-    end)
-  end
-
-  defp call_function(pc, frame, [a0, fun | rest], 1, gas, ctx) do
-    gas = check_gas(pc, frame, rest, gas, ctx)
-
-    catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
-      dispatch_call(fun, [a0], gas, ctx, nil)
-    end)
-  end
-
-  defp call_function(pc, frame, [a1, a0, fun | rest], 2, gas, ctx) do
-    gas = check_gas(pc, frame, rest, gas, ctx)
-
-    catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
-      dispatch_call(fun, [a0, a1], gas, ctx, nil)
-    end)
-  end
-
-  defp call_function(pc, frame, [a2, a1, a0, fun | rest], 3, gas, ctx) do
-    gas = check_gas(pc, frame, rest, gas, ctx)
-
-    catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
-      dispatch_call(fun, [a0, a1, a2], gas, ctx, nil)
-    end)
-  end
-
   defp call_function(pc, frame, stack, argc, gas, ctx) do
     {args, [fun | rest]} = Enum.split(stack, argc)
     gas = check_gas(pc, frame, rest, gas, ctx)
 
-    catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
+    catch_and_dispatch(pc, frame, rest, gas, ctx, fn ->
       dispatch_call(fun, Enum.reverse(args), gas, ctx, nil)
-    end)
-  end
-
-  defp call_method(pc, frame, [fun, obj | rest], 0, gas, ctx) do
-    gas = check_gas(pc, frame, rest, gas, ctx)
-    method_ctx = Context.mark_dirty(%{ctx | this: obj})
-
-    catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
-      dispatch_call(fun, [], gas, method_ctx, obj)
-    end)
-  end
-
-  defp call_method(pc, frame, [a0, fun, obj | rest], 1, gas, ctx) do
-    gas = check_gas(pc, frame, rest, gas, ctx)
-    method_ctx = Context.mark_dirty(%{ctx | this: obj})
-
-    catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
-      dispatch_call(fun, [a0], gas, method_ctx, obj)
-    end)
-  end
-
-  defp call_method(pc, frame, [a1, a0, fun, obj | rest], 2, gas, ctx) do
-    gas = check_gas(pc, frame, rest, gas, ctx)
-    method_ctx = Context.mark_dirty(%{ctx | this: obj})
-
-    catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
-      dispatch_call(fun, [a0, a1], gas, method_ctx, obj)
-    end)
-  end
-
-  defp call_method(pc, frame, [a2, a1, a0, fun, obj | rest], 3, gas, ctx) do
-    gas = check_gas(pc, frame, rest, gas, ctx)
-    method_ctx = Context.mark_dirty(%{ctx | this: obj})
-
-    catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
-      dispatch_call(fun, [a0, a1, a2], gas, method_ctx, obj)
-    end)
+    end, true)
   end
 
   defp call_method(pc, frame, stack, argc, gas, ctx) do
-    gas = check_gas(pc, frame, stack, gas, ctx)
     {args, [fun, obj | rest]} = Enum.split(stack, argc)
+    gas = check_gas(pc, frame, rest, gas, ctx)
     method_ctx = Context.mark_dirty(%{ctx | this: obj})
 
-    catch_js_throw_refresh_globals(pc, frame, rest, gas, ctx, fn ->
+    catch_and_dispatch(pc, frame, rest, gas, ctx, fn ->
       dispatch_call(fun, Enum.reverse(args), gas, method_ctx, obj)
-    end)
+    end, true)
   end
 
   def invoke_function_fallback(%Bytecode.Function{} = fun, args, gas, ctx) do

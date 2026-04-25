@@ -348,6 +348,7 @@ defmodule QuickBEAM.VM.Opcodes do
 
   @name_to_num for {num, {name, _, _, _, _}} <- @opcodes, into: %{}, do: {name, num}
 
+  def table, do: @opcodes
   def info(num) when is_integer(num), do: Map.get(@opcodes, num)
   def num(name) when is_atom(name), do: Map.get(@name_to_num, name)
 

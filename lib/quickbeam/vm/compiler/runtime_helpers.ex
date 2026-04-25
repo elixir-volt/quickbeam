@@ -30,18 +30,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
-  def ensure_initialized_local!(_ctx, val), do: ensure_initialized_local!(val)
-  def strict_neq(_ctx, a, b), do: strict_neq(a, b)
-  def undefined?(_ctx, val), do: undefined?(val)
-  def null?(_ctx, val), do: null?(val)
-  def typeof_is_undefined(_ctx, val), do: typeof_is_undefined(val)
-  def typeof_is_function(_ctx, val), do: typeof_is_function(val)
-  def bit_not(_ctx, a), do: bit_not(a)
-  def lnot(_ctx, a), do: lnot(a)
-  def inc(_ctx, a), do: inc(a)
-  def dec(_ctx, a), do: dec(a)
-  def post_inc(_ctx, a), do: post_inc(a)
-  def post_dec(_ctx, a), do: post_dec(a)
+  # (ctx-accepting wrappers merged into the implementations below via _ctx \\ nil)
 
   def get_var(ctx, name) when is_binary(name), do: fetch_ctx_var(ctx, name)
 
@@ -70,8 +59,13 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def private_symbol(ctx, atom_idx),
     do: Private.private_symbol(Names.resolve_atom(context_atoms(ctx), atom_idx))
 
-  def new_object(_ctx), do: new_object()
-  def array_from(_ctx, list), do: array_from(list)
+  def new_object(_ctx \\ nil) do
+    object_proto = Heap.get_object_prototype()
+    init = if object_proto, do: %{proto() => object_proto}, else: %{}
+    Heap.wrap(init)
+  end
+
+  def array_from(_ctx \\ nil, list), do: Heap.wrap(list)
 
   def get_var_ref(ctx, idx), do: read_var_ref(current_var_ref(ctx, idx))
   def get_var_ref_check(ctx, idx), do: checked_var_ref(ctx, idx)
@@ -171,14 +165,12 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
       else: Class.get_super(func)
   end
 
-  def get_array_el2(_ctx, obj, idx), do: get_array_el2(obj, idx)
-  def set_function_name(_ctx, fun, name), do: set_function_name(fun, name)
+
 
   def set_function_name_atom(ctx, fun, atom_idx),
     do: Functions.set_name_atom(fun, atom_idx, context_atoms(ctx))
 
-  def set_function_name_computed(_ctx, fun, name_val),
-    do: set_function_name_computed(fun, name_val)
+
 
   def put_field(_ctx, obj, key, val) when is_binary(key) do
     put_field(obj, key, val)
@@ -192,8 +184,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def define_field(ctx, obj, atom_idx, val),
     do: define_field(obj, Names.resolve_atom(context_atoms(ctx), atom_idx), val)
 
-  def put_array_el(_ctx, obj, idx, val), do: put_array_el(obj, idx, val)
-  def define_array_el(_ctx, obj, idx, val), do: define_array_el(obj, idx, val)
+
 
   def define_method(_ctx, target, method, name, flags) when is_binary(name),
     do: define_method(target, method, name, flags)
@@ -207,16 +198,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
         flags
       )
 
-  def define_method_computed(_ctx, target, method, field_name, flags),
-    do: define_method_computed(target, method, field_name, flags)
 
-  def set_home_object(_ctx, method, target), do: set_home_object(method, target)
-  def add_brand(_ctx, target, brand), do: add_brand(target, brand)
-  def append_spread(_ctx, arr, idx, obj), do: append_spread(arr, idx, obj)
-
-  def copy_data_properties(_ctx, target, source) do
-    copy_data_properties(target, source)
-  end
 
   def define_class(ctx, ctor, parent_ctor, atom_idx) do
     ctor_closure =
@@ -323,8 +305,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
-  def for_in_start(_ctx, obj), do: for_in_start(obj)
-  def for_in_next(_ctx, iter), do: for_in_next(iter)
+  # for_in_start/2 and for_in_next/2 are defined below with their implementations
 
   def for_of_next(_ctx, _next_fn, :undefined), do: {true, :undefined, :undefined}
 
@@ -361,12 +342,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     :ok
   end
 
-  def delete_property(_ctx, obj, key), do: delete_property(obj, key)
-  def ensure_capture_cell(_ctx, cell, val), do: ensure_capture_cell(cell, val)
-  def close_capture_cell(_ctx, cell, val), do: close_capture_cell(cell, val)
-  def sync_capture_cell(_ctx, cell, val), do: sync_capture_cell(cell, val)
 
-  def set_proto(_ctx, obj, proto), do: set_proto(obj, proto)
 
   def get_private_field(_ctx, obj, key) do
     case Private.get_field(obj, key) do
@@ -478,8 +454,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     result
   end
 
-  def make_loc_ref(_ctx, idx), do: make_loc_ref(idx)
-  def make_arg_ref(_ctx, idx), do: make_arg_ref(idx)
+
 
   def make_var_ref_ref(ctx, idx) do
     case current_var_ref(ctx, idx) do
@@ -493,8 +468,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
-  def get_ref_value(_ctx, ref), do: get_ref_value(ref)
-  def put_ref_value(_ctx, val, ref), do: put_ref_value(val, ref)
+
 
   def rest(ctx, start_idx) do
     arg_buf = context_arg_buf(ctx)
@@ -526,7 +500,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
-  def ensure_initialized_local!(val) do
+  def ensure_initialized_local!(_ctx \\ nil, val) do
     if val == @tdz do
       throw(
         {:js_throw,
@@ -537,25 +511,25 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     val
   end
 
-  def strict_neq(a, b), do: not Values.strict_eq(a, b)
+  def strict_neq(_ctx \\ nil, a, b), do: not Values.strict_eq(a, b)
 
-  def undefined?(val), do: val == :undefined
-  def null?(val), do: val == nil
-  def typeof_is_undefined(val), do: val == :undefined or val == nil
-  def typeof_is_function(val), do: Builtin.callable?(val)
+  def undefined?(_ctx \\ nil, val), do: val == :undefined
+  def null?(_ctx \\ nil, val), do: val == nil
+  def typeof_is_undefined(_ctx \\ nil, val), do: val == :undefined or val == nil
+  def typeof_is_function(_ctx \\ nil, val), do: Builtin.callable?(val)
 
-  def bit_not(a), do: Values.to_int32(bnot(Values.to_int32(a)))
-  def lnot(a), do: not Values.truthy?(a)
+  def bit_not(_ctx \\ nil, a), do: Values.to_int32(bnot(Values.to_int32(a)))
+  def lnot(_ctx \\ nil, a), do: not Values.truthy?(a)
 
-  def inc(a), do: Values.add(a, 1)
-  def dec(a), do: Values.sub(a, 1)
+  def inc(_ctx \\ nil, a), do: Values.add(a, 1)
+  def dec(_ctx \\ nil, a), do: Values.sub(a, 1)
 
-  def post_inc(a) do
+  def post_inc(_ctx \\ nil, a) do
     num = Values.to_number(a)
     {Values.add(num, 1), num}
   end
 
-  def post_dec(a) do
+  def post_dec(_ctx \\ nil, a) do
     num = Values.to_number(a)
     {Values.sub(num, 1), num}
   end
@@ -583,14 +557,6 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def private_symbol(atom_idx),
     do: Private.private_symbol(Names.resolve_atom(InvokeContext.current_atoms(), atom_idx))
-
-  def new_object do
-    object_proto = Heap.get_object_prototype()
-    init = if object_proto, do: %{proto() => object_proto}, else: %{}
-    Heap.wrap(init)
-  end
-
-  def array_from(list), do: Heap.wrap(list)
 
   def get_field(obj, key) when is_binary(key), do: Get.get(obj, key)
 
@@ -690,14 +656,14 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
-  def get_array_el2(obj, idx), do: {Get.get(obj, idx), obj}
+  def get_array_el2(_ctx \\ nil, obj, idx), do: {Get.get(obj, idx), obj}
 
-  def set_function_name(fun, name), do: Functions.rename(fun, name)
+  def set_function_name(_ctx \\ nil, fun, name), do: Functions.rename(fun, name)
 
   def set_function_name_atom(fun, atom_idx),
     do: Functions.set_name_atom(fun, atom_idx, InvokeContext.current_atoms())
 
-  def set_function_name_computed(fun, name_val), do: Functions.set_name_computed(fun, name_val)
+  def set_function_name_computed(_ctx \\ nil, fun, name_val), do: Functions.set_name_computed(fun, name_val)
 
   def put_field(obj, key, val) when is_binary(key) do
     Put.put(obj, key, val)
@@ -715,12 +681,12 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def define_field(obj, atom_idx, val),
     do: define_field(obj, Names.resolve_atom(InvokeContext.current_atoms(), atom_idx), val)
 
-  def put_array_el(obj, idx, val) do
+  def put_array_el(_ctx \\ nil, obj, idx, val) do
     Put.put_element(obj, idx, val)
     :ok
   end
 
-  def define_array_el(obj, idx, val), do: Put.define_array_el(obj, idx, val)
+  def define_array_el(_ctx \\ nil, obj, idx, val), do: Put.define_array_el(obj, idx, val)
 
   def define_method(target, method, name, flags) when is_binary(name),
     do: Methods.define_method(target, method, name, flags)
@@ -734,16 +700,16 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
         flags
       )
 
-  def define_method_computed(target, method, field_name, flags),
+  def define_method_computed(_ctx \\ nil, target, method, field_name, flags),
     do: Methods.define_method_computed(target, method, field_name, flags)
 
-  def set_home_object(method, target), do: Methods.set_home_object(method, target)
+  def set_home_object(_ctx \\ nil, method, target), do: Methods.set_home_object(method, target)
 
-  def add_brand(target, brand), do: Private.add_brand(target, brand)
+  def add_brand(_ctx \\ nil, target, brand), do: Private.add_brand(target, brand)
 
-  def append_spread(arr, idx, obj), do: Copy.append_spread(arr, idx, obj)
+  def append_spread(_ctx \\ nil, arr, idx, obj), do: Copy.append_spread(arr, idx, obj)
 
-  def copy_data_properties(target, source) do
+  def copy_data_properties(_ctx \\ nil, target, source) do
     Copy.copy_data_properties(target, source)
     target
   end
@@ -758,23 +724,25 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def instanceof(_obj, _ctor), do: false
 
-  def delete_property(obj, key), do: Delete.delete_property(obj, key)
+  def delete_property(_ctx \\ nil, obj, key), do: Delete.delete_property(obj, key)
 
   def undefined_or_null?(val), do: val == :undefined or val == nil
 
-  def ensure_capture_cell(cell, val), do: Captures.ensure(cell, val)
-  def close_capture_cell(cell, val), do: Captures.close(cell, val)
-  def sync_capture_cell(cell, val), do: Captures.sync(cell, val)
+  def ensure_capture_cell(_ctx \\ nil, cell, val), do: Captures.ensure(cell, val)
+  def close_capture_cell(_ctx \\ nil, cell, val), do: Captures.close(cell, val)
+  def sync_capture_cell(_ctx \\ nil, cell, val), do: Captures.sync(cell, val)
 
-  def set_proto({:obj, ref} = _obj, proto) do
+  def set_proto(_ctx \\ nil, obj, proto)
+
+  def set_proto(_ctx, {:obj, ref} = _obj, proto) do
     map = Heap.get_obj(ref, %{})
     if is_map(map), do: Heap.put_obj(ref, Map.put(map, proto(), proto))
     :ok
   end
 
-  def set_proto(_obj, _proto), do: :ok
+  def set_proto(_ctx, _obj, _proto), do: :ok
 
-  def make_loc_ref(_idx) do
+  def make_loc_ref(_ctx \\ nil, _idx) do
     ref = make_ref()
     Heap.put_cell(ref, :undefined)
     {:cell, ref}
@@ -788,22 +756,25 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     {:cell, ref}
   end
 
-  def make_arg_ref(idx) do
+  def make_arg_ref(_ctx \\ nil, idx) do
     ref = make_ref()
     val = elem(InvokeContext.current_arg_buf(), idx)
     Heap.put_cell(ref, val)
     {:cell, ref}
   end
 
-  def get_ref_value({:cell, _} = cell), do: Closures.read_cell(cell)
-  def get_ref_value(_), do: :undefined
+  def get_ref_value(_ctx \\ nil, ref)
+  def get_ref_value(_ctx, {:cell, _} = cell), do: Closures.read_cell(cell)
+  def get_ref_value(_ctx, _), do: :undefined
 
-  def put_ref_value(val, {:cell, _} = cell) do
+  def put_ref_value(_ctx \\ nil, val, ref)
+
+  def put_ref_value(_ctx, val, {:cell, _} = cell) do
     Closures.write_cell(cell, val)
     val
   end
 
-  def put_ref_value(val, _), do: val
+  def put_ref_value(_ctx, val, _), do: val
 
   def define_class(ctor, parent_ctor, atom_idx) do
     ctor_closure =
@@ -841,8 +812,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     Context.mark_dirty(%{ctx | this: this_val})
   end
 
-  def await(_ctx, val), do: Interpreter.resolve_awaited(val)
-  def await(val), do: Interpreter.resolve_awaited(val)
+  def await(_ctx \\ nil, val), do: Interpreter.resolve_awaited(val)
 
   def import_module(ctx, specifier) do
     if is_binary(specifier) and Map.get(ctx, :runtime_pid) != nil do
@@ -941,17 +911,19 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
-  def for_in_start(obj), do: {:for_in_iterator, enumerable_keys(obj)}
+  def for_in_start(_ctx \\ nil, obj), do: {:for_in_iterator, enumerable_keys(obj)}
 
-  def for_in_next({:for_in_iterator, [key | rest_keys]}) do
+  def for_in_next(_ctx \\ nil, iter)
+
+  def for_in_next(_ctx, {:for_in_iterator, [key | rest_keys]}) do
     {false, key, {:for_in_iterator, rest_keys}}
   end
 
-  def for_in_next({:for_in_iterator, []} = iter) do
+  def for_in_next(_ctx, {:for_in_iterator, []} = iter) do
     {true, :undefined, iter}
   end
 
-  def for_in_next(iter), do: {true, :undefined, iter}
+  def for_in_next(_ctx, iter), do: {true, :undefined, iter}
 
   def for_of_next(_next_fn, :undefined), do: {true, :undefined, :undefined}
 
