@@ -317,25 +317,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
             case collect_define_fields(instructions, size, idx + 1, arg_count, state) do
               {:ok, map_pairs, skip_to, state} ->
                 sorted_pairs =
-                  Enum.sort_by(map_pairs, fn {k, _v} ->
-                    case k do
-                      {:string, _, chars} when is_list(chars) ->
-                        List.to_string(chars)
-
-                      {:bin, _, elements} when is_list(elements) ->
-                        elements
-                        |> Enum.map(fn
-                          {:bin_element, _, {:integer, _, c}, _, _} -> c
-                          {:bin_element, _, {:string, _, chars}, _, _} -> chars
-                          _ -> []
-                        end)
-                        |> List.flatten()
-                        |> List.to_string()
-
-                      _ ->
-                        ""
-                    end
-                  end)
+                  Enum.sort_by(map_pairs, fn {k, _v} -> extract_key_string(k) || "" end)
 
                 keys_list = Enum.map(sorted_pairs, &elem(&1, 0))
                 vals_list = Enum.map(sorted_pairs, &elem(&1, 1))
@@ -346,26 +328,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
                   sorted_pairs
                   |> Enum.with_index()
                   |> Enum.reduce(%{}, fn {{k_expr, _v}, i}, acc ->
-                    key_str =
-                      case k_expr do
-                        {:string, _, chars} when is_list(chars) ->
-                          List.to_string(chars)
-
-                        {:bin, _, elements} when is_list(elements) ->
-                          elements
-                          |> Enum.map(fn
-                            {:bin_element, _, {:integer, _, c}, _, _} -> c
-                            {:bin_element, _, {:string, _, chars}, _, _} -> chars
-                            _ -> []
-                          end)
-                          |> List.flatten()
-                          |> List.to_string()
-
-                        _ ->
-                          nil
-                      end
-
+                    key_str = extract_key_string(k_expr)
                     if key_str, do: Map.put(acc, key_str, i), else: acc
+                  end)
+
+                value_map =
+                  Map.new(sorted_pairs, fn {k_expr, v_expr} ->
+                    {extract_key_string(k_expr), v_expr}
                   end)
 
                 {obj, state} =
@@ -381,7 +350,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
                   skip_to,
                   next_entry,
                   arg_count,
-                  State.push(state, obj, {:shaped_object, ct_offsets}),
+                  State.push(state, obj, {:shaped_object, ct_offsets, value_map}),
                   stack_depths,
                   constants,
                   entries,
@@ -436,6 +405,21 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
         )
     end
   end
+
+  defp extract_key_string({:string, _, chars}) when is_list(chars), do: List.to_string(chars)
+
+  defp extract_key_string({:bin, _, elements}) when is_list(elements) do
+    elements
+    |> Enum.map(fn
+      {:bin_element, _, {:integer, _, c}, _, _} -> c
+      {:bin_element, _, {:string, _, chars}, _, _} -> chars
+      _ -> []
+    end)
+    |> List.flatten()
+    |> List.to_string()
+  end
+
+  defp extract_key_string(_), do: nil
 
   defp collect_define_fields(instructions, size, idx, arg_count, state) do
     collect_define_fields(instructions, size, idx, arg_count, state, [])

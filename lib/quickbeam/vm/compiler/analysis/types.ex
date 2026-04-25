@@ -3,14 +3,20 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
 
   alias QuickBEAM.VM.Bytecode
   alias QuickBEAM.VM.Compiler.Analysis.{CFG, Stack}
+  alias QuickBEAM.VM.Compiler.Lowering.Types, as: LoweringTypes
   alias QuickBEAM.VM.Decoder
+  alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Heap.Caches
+  alias QuickBEAM.VM.PredefinedAtoms
+
+  @line 1
 
   def infer_block_entry_types(fun, instructions, entries, stack_depths) do
     slot_count = fun.arg_count + fun.var_count
     initial = initial_type_state(fun, slot_count, Map.get(stack_depths, 0, 0))
     t = List.to_tuple(instructions)
     size = tuple_size(t)
+    atoms = Heap.get_fn_atoms(fun.byte_code)
 
     iterate_block_entry_types(
       t,
@@ -18,6 +24,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
       entries,
       stack_depths,
       fun.constants,
+      atoms,
       %{0 => initial},
       :unknown,
       0
@@ -39,6 +46,8 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
             t = List.to_tuple(instructions)
             size = tuple_size(t)
 
+            atoms = Heap.get_fn_atoms(fun.byte_code)
+
             with {:ok, stack_depths} <- Stack.infer_block_stack_depths(instructions, entries),
                  {:ok, {_entry_types, return_type}} <-
                    iterate_block_entry_types(
@@ -47,6 +56,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
                      entries,
                      stack_depths,
                      fun.constants,
+                     atoms,
                      %{0 => initial_type_state(fun, fun.arg_count + fun.var_count, Map.get(stack_depths, 0, 0))},
                      :unknown,
                      0
@@ -73,6 +83,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
          entries,
          stack_depths,
          constants,
+         atoms,
          entry_types,
          return_type,
          iteration
@@ -85,6 +96,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
              entries,
              stack_depths,
              constants,
+             atoms,
              entry_types,
              return_type
            ) do
@@ -97,6 +109,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
           entries,
           stack_depths,
           constants,
+          atoms,
           next_entry_types,
           next_return_type,
           iteration + 1
@@ -111,6 +124,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
          _entries,
          _stack_depths,
          _constants,
+         _atoms,
          _entry_types,
          _return_type,
          iteration
@@ -124,6 +138,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
          entries,
          stack_depths,
          constants,
+         atoms,
          entry_types,
          return_type
        ) do
@@ -141,6 +156,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
                  entries,
                  stack_depths,
                  constants,
+                 atoms,
                  start,
                  next,
                  state,
@@ -164,6 +180,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
          entries,
          stack_depths,
          _constants,
+         _atoms,
          idx,
          next_entry,
          state,
@@ -180,6 +197,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
          _entries,
          _stack_depths,
          _constants,
+         _atoms,
          idx,
          idx,
          state,
@@ -194,6 +212,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
          entries,
          stack_depths,
          constants,
+         atoms,
          idx,
          next_entry,
          state,
@@ -201,7 +220,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
        ) do
     instruction = elem(instructions, idx)
 
-    with {:ok, result} <- transfer_types(instruction, state, return_type, constants) do
+    with {:ok, result} <- transfer_types(instruction, state, return_type, constants, atoms) do
       case result do
         {:continue, next_state, next_return_type} ->
           simulate_block_types(
@@ -210,6 +229,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
             entries,
             stack_depths,
             constants,
+            atoms,
             idx + 1,
             next_entry,
             next_state,
@@ -224,6 +244,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
                    entries,
                    stack_depths,
                    constants,
+                   atoms,
                    idx + 1,
                    next_entry,
                    next_state,
@@ -248,32 +269,44 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
     end
   end
 
-  defp transfer_types({op, args}, state, return_type, constants) do
+  defp transfer_types({op, args}, state, return_type, constants, atoms) do
     case {CFG.opcode_name(op), args} do
       {{:ok, name}, [value]} when name in [:push_i32, :push_i16, :push_i8] ->
-        {:ok, {:continue, push_type(state, literal_type(value)), return_type}}
+        {:ok, {:continue, push_type(state, {:const, {:integer, @line, value}}), return_type}}
 
       {{:ok, :push_minus1}, _} ->
-        {:ok, {:continue, push_type(state, :integer), return_type}}
+        {:ok, {:continue, push_type(state, {:const, {:integer, @line, -1}}), return_type}}
 
       {{:ok, name}, _}
       when name in [:push_0, :push_1, :push_2, :push_3, :push_4, :push_5, :push_6, :push_7] ->
-        {:ok, {:continue, push_type(state, :integer), return_type}}
+        int_val =
+          case name do
+            :push_0 -> 0
+            :push_1 -> 1
+            :push_2 -> 2
+            :push_3 -> 3
+            :push_4 -> 4
+            :push_5 -> 5
+            :push_6 -> 6
+            :push_7 -> 7
+          end
+        {:ok, {:continue, push_type(state, {:const, {:integer, @line, int_val}}), return_type}}
 
       {{:ok, name}, _} when name in [:push_true, :push_false] ->
-        {:ok, {:continue, push_type(state, :boolean), return_type}}
+        bool_val = name == :push_true
+        {:ok, {:continue, push_type(state, {:const, {:atom, @line, bool_val}}), return_type}}
 
       {{:ok, :null}, _} ->
-        {:ok, {:continue, push_type(state, :null), return_type}}
+        {:ok, {:continue, push_type(state, {:const, {:atom, @line, nil}}), return_type}}
 
       {{:ok, :undefined}, _} ->
-        {:ok, {:continue, push_type(state, :undefined), return_type}}
+        {:ok, {:continue, push_type(state, {:const, {:atom, @line, :undefined}}), return_type}}
 
       {{:ok, :push_empty_string}, _} ->
-        {:ok, {:continue, push_type(state, :string), return_type}}
+        {:ok, {:continue, push_type(state, {:const, {:bin, @line, []}}), return_type}}
 
       {{:ok, :object}, _} ->
-        {:ok, {:continue, push_type(state, :object), return_type}}
+        {:ok, {:continue, push_type(state, {:shaped_object, %{}, %{}}), return_type}}
 
       {{:ok, :array_from}, [argc]} ->
         with {:ok, state} <- pop_types(state, argc) do
@@ -367,8 +400,9 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
              :put_loc_check_init
            ] ->
         with {:ok, type, state} <- pop_type(state) do
+          slot_type = normalize_slot_type(type)
           {:ok,
-           {:continue, state |> put_slot_type(slot_idx, type) |> put_slot_init(slot_idx, true),
+           {:continue, state |> put_slot_type(slot_idx, slot_type) |> put_slot_init(slot_idx, true),
             return_type}}
         end
 
@@ -401,9 +435,10 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
              :set_arg3
            ] ->
         with {:ok, type, state} <- pop_type(state) do
+          slot_type = normalize_slot_type(type)
           next_state =
             state
-            |> put_slot_type(slot_idx, type)
+            |> put_slot_type(slot_idx, slot_type)
             |> put_slot_init(slot_idx, true)
             |> push_type(type)
 
@@ -628,10 +663,30 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
       {{:ok, :copy_data_properties}, _} ->
         {:ok, {:continue, state, return_type}}
 
-      {{:ok, :define_field}, _} ->
-        with {:ok, _val_type, state} <- pop_type(state),
-             {:ok, _obj_type, state} <- pop_type(state) do
-          {:ok, {:continue, push_type(state, :object), return_type}}
+      {{:ok, :define_field}, [atom_idx]} ->
+        with {:ok, val_type, state} <- pop_type(state),
+             {:ok, obj_type, state} <- pop_type(state) do
+          result_type =
+            case {obj_type, val_type} do
+              {{:shaped_object, offsets, value_map}, {:const, val_expr}} ->
+                if LoweringTypes.pure_expr?(val_expr) do
+                  key_str = resolve_atom_name(atom_idx, atoms)
+
+                  if is_binary(key_str) do
+                    new_offset = map_size(offsets)
+                    {:shaped_object, Map.put(offsets, key_str, new_offset), Map.put(value_map, key_str, val_expr)}
+                  else
+                    :object
+                  end
+                else
+                  :object
+                end
+
+              _ ->
+                :object
+            end
+
+          {:ok, {:continue, push_type(state, result_type), return_type}}
         end
 
       {{:ok, name}, _}
@@ -941,19 +996,25 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
   defp special_object_type(type) when type in [0, 1, 5, 6, 7], do: :object
   defp special_object_type(_type), do: :unknown
 
-  defp literal_type(value) when is_integer(value), do: :integer
-  defp literal_type(value) when is_float(value), do: :number
-  defp literal_type(value) when is_boolean(value), do: :boolean
-  defp literal_type(value) when is_binary(value), do: :string
-  defp literal_type(nil), do: :null
-  defp literal_type(:undefined), do: :undefined
-  defp literal_type(_value), do: :unknown
-
   defp join_type(:unknown, other), do: other
   defp join_type(other, :unknown), do: other
   defp join_type(type, type), do: type
   defp join_type(:integer, :number), do: :number
   defp join_type(:number, :integer), do: :number
+  defp join_type({:const, _}, :integer), do: :integer
+  defp join_type(:integer, {:const, _}), do: :integer
+  defp join_type({:const, _}, :number), do: :number
+  defp join_type(:number, {:const, _}), do: :number
+  defp join_type({:const, {:integer, _, _}}, {:const, {:integer, _, _}}), do: :integer
+  defp join_type({:const, {:atom, _, v}}, {:const, {:atom, _, v}}) when is_boolean(v), do: :boolean
+  defp join_type({:const, {:bin, _, _}}, {:const, {:bin, _, _}}), do: :string
+  defp join_type({:const, _}, _other), do: :unknown
+  defp join_type(_other, {:const, _}), do: :unknown
+  defp join_type({:shaped_object, offsets, vm}, {:shaped_object, offsets, vm}),
+    do: {:shaped_object, offsets, vm}
+  defp join_type({:shaped_object, _, _}, {:shaped_object, _, _}), do: :object
+  defp join_type({:shaped_object, _, _}, :object), do: :object
+  defp join_type(:object, {:shaped_object, _, _}), do: :object
   defp join_type(:self_fun, :function), do: :function
   defp join_type(:function, :self_fun), do: :function
   defp join_type({:function, left}, {:function, right}), do: {:function, join_type(left, right)}
@@ -962,6 +1023,25 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
   defp join_type(:self_fun, {:function, type}), do: {:function, type}
   defp join_type({:function, type}, :self_fun), do: {:function, type}
   defp join_type(_left, _right), do: :unknown
+
+  defp normalize_slot_type({:const, {:integer, _, _}}), do: :integer
+  defp normalize_slot_type({:const, {:float, _, _}}), do: :number
+  defp normalize_slot_type({:const, {:atom, _, true}}), do: :boolean
+  defp normalize_slot_type({:const, {:atom, _, false}}), do: :boolean
+  defp normalize_slot_type({:const, {:atom, _, :undefined}}), do: :undefined
+  defp normalize_slot_type({:const, {:atom, _, nil}}), do: :null
+  defp normalize_slot_type({:const, {:bin, _, _}}), do: :string
+  defp normalize_slot_type({:const, _}), do: :unknown
+  defp normalize_slot_type(type), do: type
+
+  defp resolve_atom_name(name, _atoms) when is_binary(name), do: name
+  defp resolve_atom_name({:predefined, idx}, _atoms), do: PredefinedAtoms.lookup(idx)
+
+  defp resolve_atom_name(idx, atoms)
+       when is_integer(idx) and is_tuple(atoms) and idx >= 0 and idx < tuple_size(atoms),
+       do: elem(atoms, idx)
+
+  defp resolve_atom_name(_name, _atoms), do: nil
 
   defp initially_initialized?(fun, idx) when idx < fun.arg_count, do: true
 

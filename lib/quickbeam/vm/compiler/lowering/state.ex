@@ -192,6 +192,16 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       key_str = extract_literal_string(key_expr)
 
       case {type, key_str} do
+        {{:shaped_object, _offsets, value_map}, key}
+        when is_binary(key) and is_map_key(value_map, key) ->
+          val_expr = Map.fetch!(value_map, key)
+
+          if Types.pure_expr?(val_expr) do
+            {:ok, push(state, val_expr)}
+          else
+            {:ok, push(state, Builder.local_call(:op_get_field, [obj, key_expr]))}
+          end
+
         {{:shaped_object, offsets}, key} when is_binary(key) and is_map_key(offsets, key) ->
           offset = Map.fetch!(offsets, key)
 
@@ -922,8 +932,23 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   # ── Private helpers ──
 
-  defp extract_literal_string({:bin, _, [{:bin_element, _, {:string, _, chars}, _, _}]}),
+  defp extract_literal_string({:string, _, chars}) when is_list(chars),
     do: List.to_string(chars)
+
+  defp extract_literal_string({:bin, _, elements}) when is_list(elements) do
+    result =
+      Enum.map(elements, fn
+        {:bin_element, _, {:integer, _, c}, _, _} -> c
+        {:bin_element, _, {:string, _, chars}, _, _} -> chars
+        _ -> nil
+      end)
+
+    if Enum.any?(result, &is_nil/1) do
+      nil
+    else
+      result |> List.flatten() |> List.to_string()
+    end
+  end
 
   defp extract_literal_string(_), do: nil
 
