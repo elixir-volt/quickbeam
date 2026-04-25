@@ -66,6 +66,10 @@ defmodule QuickBEAM.VM.Heap.Registry do
 
   ## Misc
   - `{:qb_microtask_queue, …}` — microtask queue entries
+
+  ## Timer state
+  - `:qb_timer_queue` — list of pending timer entries (setTimeout/setInterval)
+  - `:qb_timer_next_id` — monotonic counter for timer IDs
   """
 
   def register_module(name, exports) do

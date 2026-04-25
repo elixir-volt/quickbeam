@@ -3,7 +3,6 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
 
   import QuickBEAM.VM.Heap.Keys
 
-  alias QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
 
@@ -15,7 +14,7 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
   defp deep_clone(val) when is_binary(val), do: val
   defp deep_clone(val) when is_boolean(val), do: val
   defp deep_clone(nil), do: nil
-  defp deep_clone(:undefined), do: nil
+  defp deep_clone(:undefined), do: :undefined
   defp deep_clone(:nan), do: :nan
   defp deep_clone(:infinity), do: :infinity
   defp deep_clone(:neg_infinity), do: :neg_infinity
@@ -32,8 +31,7 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
     JSThrow.type_error!("function #{name} could not be cloned.")
   end
 
-  defp deep_clone({:regexp, bc, src} = r) do
-    # Wrap in an obj so clone !== original (reference identity)
+  defp deep_clone({:regexp, bc, src}) do
     clone_regexp(bc, src)
   end
 
@@ -222,6 +220,5 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
 
   defp format_val({:closure, _, _}), do: "function"
   defp format_val(%QuickBEAM.VM.Bytecode.Function{}), do: "function"
-  defp format_val({:builtin, name, _}), do: "function #{name}"
   defp format_val(_), do: "value"
 end

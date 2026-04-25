@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Runtime.Web.URL do
   import QuickBEAM.VM.Builtin, only: [build_methods: 1]
 
   alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.Get
   alias QuickBEAM.VM.Runtime.WebAPIs
 
@@ -36,7 +37,7 @@ defmodule QuickBEAM.VM.Runtime.Web.URL do
         make_url_object(c)
 
       _ ->
-        throw({:js_throw, Heap.make_error("Invalid URL: #{input_str}", "TypeError")})
+        JSThrow.type_error!("Invalid URL: #{input_str}")
     end
   end
 

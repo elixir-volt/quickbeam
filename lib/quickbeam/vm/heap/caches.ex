@@ -63,4 +63,11 @@ defmodule QuickBEAM.VM.Heap.Caches do
 
   def get_home_object(key), do: Process.get({:qb_home_object, key}, :undefined)
   def put_home_object(key, target), do: Process.put({:qb_home_object, key}, target)
+
+  # ── Timer state ──
+
+  def get_timer_queue, do: Process.get(:qb_timer_queue, [])
+  def put_timer_queue(queue), do: Process.put(:qb_timer_queue, queue)
+  def get_timer_next_id, do: Process.get(:qb_timer_next_id, 1)
+  def put_timer_next_id(id), do: Process.put(:qb_timer_next_id, id)
 end

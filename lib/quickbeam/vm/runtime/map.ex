@@ -20,7 +20,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
             stored = Heap.get_obj(r, [])
 
             if is_list(stored) or match?({:qb_arr, _}, stored) do
-              Heap.to_list({:obj, r}) |> Enum.map(&entry_to_kv/1) |> Enum.into(%{})
+              Heap.to_list({:obj, r}) |> Map.new(&entry_to_kv/1)
             else
               %{}
             end

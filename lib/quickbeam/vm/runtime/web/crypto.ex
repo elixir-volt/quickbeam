@@ -24,8 +24,8 @@ defmodule QuickBEAM.VM.Runtime.Web.Crypto do
             _ -> 0
           end
 
-        if len > 65536 do
-          JSThrow.type_error!("Failed to execute 'getRandomValues' on 'Crypto': The ArrayBufferView's byte length (#{len}) exceeds the number of bytes of entropy available via this API (65536).")
+        if len > 65_536 do
+          JSThrow.type_error!("Failed to execute 'getRandomValues' on 'Crypto': The ArrayBufferView's byte length (#{len}) exceeds the number of bytes of entropy available via this API (65_536).")
         end
 
         if len > 0 do

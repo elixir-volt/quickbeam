@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Runtime.Web.Timers do
   @moduledoc "setTimeout, clearTimeout, setInterval, clearInterval builtins for BEAM mode."
 
+  alias QuickBEAM.VM.Heap.Caches
   alias QuickBEAM.VM.Interpreter
 
   def bindings do
@@ -15,8 +16,8 @@ defmodule QuickBEAM.VM.Runtime.Web.Timers do
   # ── Timer queue (stored in process dictionary) ──
 
   defp next_id do
-    id = Process.get(:qb_timer_next_id, 1)
-    Process.put(:qb_timer_next_id, id + 1)
+    id = Caches.get_timer_next_id()
+    Caches.put_timer_next_id(id + 1)
     id
   end
 
@@ -25,22 +26,20 @@ defmodule QuickBEAM.VM.Runtime.Web.Timers do
   defp enqueue_timer(id, type, callback, delay_ms, repeat_ms) do
     fire_at = now_ms() + max(delay_ms, 0)
     timer = %{id: id, type: type, callback: callback, fire_at: fire_at, repeat_ms: repeat_ms}
-    queue = Process.get(:qb_timer_queue, [])
-    Process.put(:qb_timer_queue, queue ++ [timer])
+    Caches.put_timer_queue(Caches.get_timer_queue() ++ [timer])
   end
 
   defp dequeue_timer_id(id) do
-    queue = Process.get(:qb_timer_queue, [])
-    Process.put(:qb_timer_queue, Enum.reject(queue, &(&1.id == id)))
+    Caches.put_timer_queue(Enum.reject(Caches.get_timer_queue(), &(&1.id == id)))
   end
 
   def drain_timers do
-    queue = Process.get(:qb_timer_queue, [])
+    queue = Caches.get_timer_queue()
     now = now_ms()
 
     {ready, pending} = Enum.split_with(queue, fn timer -> timer.fire_at <= now end)
 
-    Process.put(:qb_timer_queue, pending)
+    Caches.put_timer_queue(pending)
 
     if ready != [] do
       Enum.each(ready, fn timer ->
@@ -64,7 +63,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Timers do
   end
 
   def next_timer_delay_ms do
-    case Process.get(:qb_timer_queue, []) do
+    case Caches.get_timer_queue() do
       [] ->
         nil
 
