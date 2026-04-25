@@ -161,9 +161,67 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
   defp promise_race(arr) do
     items = Heap.to_list(arr)
 
-    case items do
-      [first | _] -> PromiseState.resolved(unwrap_value(first))
-      [] -> PromiseState.resolved(:undefined)
+    if items == [] do
+      PromiseState.resolved(:undefined)
+    else
+      # Check if any already resolved
+      already = Enum.find_value(items, fn
+        {:obj, r} ->
+          case Heap.get_obj(r, %{}) do
+            %{promise_state() => :resolved, promise_value() => v} -> {:ok, v}
+            %{promise_state() => :rejected, promise_value() => v} -> {:err, v}
+            _ -> nil
+          end
+        val -> {:ok, val}
+      end)
+
+      case already do
+        {:ok, v} -> PromiseState.resolved(v)
+        {:err, v} -> PromiseState.rejected(v)
+        nil ->
+          # Create a new pending promise; attach handlers to each input
+          race_ref = make_ref()
+          Heap.put_obj(race_ref, %{promise_state() => :pending, promise_value() => nil})
+          race_promise = {:obj, race_ref}
+
+          Enum.each(items, fn item ->
+            case item do
+              {:obj, _} ->
+                on_fulfilled = {:builtin, "__race_fulfilled",
+                  fn args, _ ->
+                    val = List.first(args, :undefined)
+                    case Heap.get_obj(race_ref, %{}) do
+                      %{promise_state() => :pending} ->
+                        PromiseState.resolve(race_ref, :resolved, val)
+                      _ -> :ok
+                    end
+                    val
+                  end}
+
+                on_rejected = {:builtin, "__race_rejected",
+                  fn args, _ ->
+                    reason = List.first(args, :undefined)
+                    case Heap.get_obj(race_ref, %{}) do
+                      %{promise_state() => :pending} ->
+                        PromiseState.resolve(race_ref, :rejected, reason)
+                      _ -> :ok
+                    end
+                    throw({:js_throw, reason})
+                  end}
+
+                PromiseState.promise_then([on_fulfilled, on_rejected], item)
+
+              _ ->
+                case Heap.get_obj(race_ref, %{}) do
+                  %{promise_state() => :pending} ->
+                    PromiseState.resolve(race_ref, :resolved, item)
+                  _ -> :ok
+                end
+            end
+          end)
+
+          race_promise
+      end
     end
   end
 end

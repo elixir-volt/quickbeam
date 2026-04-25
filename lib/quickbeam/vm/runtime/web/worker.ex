@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.Web.Worker do
-  @moduledoc "Worker constructor for BEAM mode — runs in a separate QuickBEAM instance."
+  @moduledoc "Worker constructor for BEAM mode."
 
   import QuickBEAM.VM.Builtin, only: [build_methods: 1]
 
@@ -13,39 +13,43 @@ defmodule QuickBEAM.VM.Runtime.Web.Worker do
   end
 
   defp build_worker([script | _], _this) do
-    parent_pid = self()
-    worker_ref = make_ref()
-
-    # Refs for message handlers
-    onmessage_ref = make_ref()
-    onerror_ref = make_ref()
-    listeners_ref = make_ref()
-
-    Heap.put_obj(onmessage_ref, nil)
-    Heap.put_obj(onerror_ref, nil)
-    Heap.put_obj(listeners_ref, [])
-
     script_str = case script do
       s when is_binary(s) -> s
       _ -> to_string(script)
     end
 
-    worker_pid = spawn_worker(script_str, parent_pid, worker_ref, onmessage_ref, onerror_ref, listeners_ref)
+    parent_pid = self()
+    worker_ref = make_ref()
+
+    onmessage_ref = make_ref()
+    onerror_ref = make_ref()
+    listeners_ref = make_ref()
+
+    # Use Process.put directly to avoid Heap.put_obj converting lists to {:qb_arr, ...}
+    Process.put(onmessage_ref, nil)
+    Process.put(onerror_ref, nil)
+    Process.put(listeners_ref, [])
+
+    # Spawn the worker process
+    worker_pid = spawn_worker(script_str, parent_pid, worker_ref)
 
     workers = Process.get(@workers_key, %{})
     Process.put(@workers_key, Map.put(workers, worker_ref, worker_pid))
 
+    # Register as a "message source" to be polled during drain_pending
+    register_worker_source(worker_ref, onmessage_ref, listeners_ref)
+
     onmessage_acc = {:accessor,
-      {:builtin, "get onmessage", fn _, _ -> Heap.get_obj(onmessage_ref, nil) end},
+      {:builtin, "get onmessage", fn _, _ -> Process.get(onmessage_ref, nil) end},
       {:builtin, "set onmessage", fn [h | _], _ ->
-         Heap.put_obj(onmessage_ref, h)
+         Process.put(onmessage_ref, h)
          :undefined
        end}}
 
     onerror_acc = {:accessor,
-      {:builtin, "get onerror", fn _, _ -> Heap.get_obj(onerror_ref, nil) end},
+      {:builtin, "get onerror", fn _, _ -> Process.get(onerror_ref, nil) end},
       {:builtin, "set onerror", fn [h | _], _ ->
-         Heap.put_obj(onerror_ref, h)
+         Process.put(onerror_ref, h)
          :undefined
        end}}
 
@@ -55,7 +59,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Worker do
         workers = Process.get(@workers_key, %{})
         case Map.get(workers, worker_ref) do
           pid when is_pid(pid) ->
-            send(pid, {:parent_message, data})
+            send(pid, {:parent_post, data})
           _ -> :ok
         end
         :undefined
@@ -69,22 +73,23 @@ defmodule QuickBEAM.VM.Runtime.Web.Worker do
             Process.put(@workers_key, Map.delete(workers, worker_ref))
           _ -> :ok
         end
+        unregister_worker_source(worker_ref)
         :undefined
       end
 
       method "addEventListener" do
         [type, callback | _] = args ++ ["message", nil]
         if to_string(type) == "message" do
-          listeners = Heap.get_obj(listeners_ref, [])
-          Heap.put_obj(listeners_ref, listeners ++ [callback])
+          listeners = Process.get(listeners_ref, [])
+          Process.put(listeners_ref, listeners ++ [callback])
         end
         :undefined
       end
 
       method "removeEventListener" do
         [_type, callback | _] = args ++ ["message", nil]
-        listeners = Heap.get_obj(listeners_ref, [])
-        Heap.put_obj(listeners_ref, Enum.reject(listeners, &(&1 == callback)))
+        listeners = Process.get(listeners_ref, [])
+        Process.put(listeners_ref, Enum.reject(listeners, &(&1 == callback)))
         :undefined
       end
     end
@@ -95,61 +100,108 @@ defmodule QuickBEAM.VM.Runtime.Web.Worker do
     }))
   end
 
-  defp spawn_worker(script, parent_pid, worker_ref, onmessage_ref, onerror_ref, listeners_ref) do
-    spawn(fn ->
-      worker_self = self()
+  # ── Worker message sources (polled during drain_pending) ──
 
-      # Bootstrap: create a child QuickBEAM VM
+  @sources_key :qb_worker_sources
+
+  defp register_worker_source(worker_ref, onmessage_ref, listeners_ref) do
+    sources = Process.get(@sources_key, [])
+    Process.put(@sources_key, sources ++ [{worker_ref, onmessage_ref, listeners_ref}])
+  end
+
+  defp unregister_worker_source(worker_ref) do
+    sources = Process.get(@sources_key, [])
+    Process.put(@sources_key, Enum.reject(sources, fn {ref, _, _} -> ref == worker_ref end))
+  end
+
+  @doc "Drain all pending worker messages. Called from drain_pending loop."
+  def drain_all_worker_messages do
+    sources = Process.get(@sources_key, [])
+    Enum.each(sources, fn {worker_ref, onmessage_ref, listeners_ref} ->
+      drain_worker_source(worker_ref, onmessage_ref, listeners_ref)
+    end)
+  end
+
+  defp drain_worker_source(worker_ref, onmessage_ref, listeners_ref) do
+    receive do
+      {:worker_msg_to_parent, ^worker_ref, data} ->
+        deliver_to_handlers(data, onmessage_ref, listeners_ref)
+        drain_worker_source(worker_ref, onmessage_ref, listeners_ref)
+    after
+      0 -> :ok
+    end
+  end
+
+  defp deliver_to_handlers(data, onmessage_ref, listeners_ref) do
+    handler = Process.get(onmessage_ref, nil)
+    listeners = Process.get(listeners_ref, [])
+    event = Heap.wrap(%{"type" => "message", "data" => data})
+
+    if handler != nil and handler != :undefined do
+      safe_invoke(handler, [event])
+    end
+
+    Enum.each(listeners, fn cb -> safe_invoke(cb, [event]) end)
+  end
+
+  defp safe_invoke(cb, args) do
+    try do
+      Invocation.invoke_with_receiver(cb, args, :undefined)
+    rescue
+      _ -> :ok
+    catch
+      _, _ -> :ok
+    end
+  end
+
+  # ── Worker process ──
+
+  defp spawn_worker(script, parent_pid, worker_ref) do
+    spawn(fn ->
+      QuickBEAM.VM.Heap.reset()
+
       {:ok, child_rt} =
         QuickBEAM.start(
           mode: :beam,
           handlers: %{
             "__worker_post" => fn [data] ->
-              send(parent_pid, {:worker_msg, worker_ref, data})
+              send(parent_pid, {:worker_msg_to_parent, worker_ref, data})
               nil
             end
           }
         )
 
-      # Install self.postMessage and self.onmessage in child
       bootstrap = """
       globalThis.self = globalThis;
       self.postMessage = function(data) {
         Beam.call("__worker_post", data);
       };
       self.close = function() {};
-      Object.defineProperty(self, "onmessage", {
-        set(handler) {
-          Beam.onMessage(msg => {
-            if (msg && msg.__worker_msg) {
-              handler({ data: msg.data, type: "message" });
-            }
-          });
-        },
-        get() { return null; },
-        configurable: true,
+      // Handle messages from parent via Beam.onMessage
+      Beam.onMessage(function(data) {
+        if (typeof self.onmessage === 'function') {
+          self.onmessage({ data: data, type: 'message' });
+        }
       });
       """
 
       QuickBEAM.eval(child_rt, bootstrap)
 
       # Run the worker script
-      case QuickBEAM.eval(child_rt, script) do
-        {:ok, _} -> :ok
-        {:error, err} ->
-          send(parent_pid, {:worker_error, worker_ref, err})
-      end
+      QuickBEAM.eval(child_rt, script)
 
-      # Keep alive to receive postMessage from parent
-      worker_loop(child_rt, parent_pid, worker_ref)
+      # Keep alive to handle parent postMessage
+      worker_loop(child_rt)
     end)
   end
 
-  defp worker_loop(child_rt, parent_pid, worker_ref) do
+  defp worker_loop(child_rt) do
     receive do
-      {:parent_message, data} ->
-        QuickBEAM.eval(child_rt, "typeof self.onmessage === 'function' && self.onmessage({data: #{Jason.encode!(to_json_safe(data))}, type: 'message'})")
-        worker_loop(child_rt, parent_pid, worker_ref)
+      {:parent_post, data} ->
+        # Deliver message to worker's onmessage handler
+        # Store data as a global, then call onmessage
+        store_and_deliver(child_rt, data)
+        worker_loop(child_rt)
 
       :terminate ->
         QuickBEAM.stop(child_rt)
@@ -159,43 +211,11 @@ defmodule QuickBEAM.VM.Runtime.Web.Worker do
     end
   end
 
-  defp to_json_safe(val) when is_map(val) do
-    Map.new(val, fn {k, v} -> {k, to_json_safe(v)} end)
-  end
-  defp to_json_safe(val) when is_list(val), do: Enum.map(val, &to_json_safe/1)
-  defp to_json_safe(nil), do: nil
-  defp to_json_safe(true), do: true
-  defp to_json_safe(false), do: false
-  defp to_json_safe(val) when is_binary(val), do: val
-  defp to_json_safe(val) when is_number(val), do: val
-  defp to_json_safe(_), do: nil
-
-  # Handle incoming worker messages on the parent side
-  # Called by the scheduler to deliver {:worker_msg, ref, data} to parent JS
-  def deliver_message(worker_ref, data, onmessage_ref, onerror_ref, listeners_ref) do
-    handler = Heap.get_obj(onmessage_ref, nil)
-    listeners = Heap.get_obj(listeners_ref, [])
-
-    event = Heap.wrap(%{"type" => "message", "data" => data})
-
-    if handler != nil and handler != :undefined do
-      try do
-        Invocation.invoke_with_receiver(handler, [event], :undefined)
-      rescue
-        _ -> :ok
-      catch
-        _, _ -> :ok
-      end
-    end
-
-    Enum.each(listeners, fn cb ->
-      try do
-        Invocation.invoke_with_receiver(cb, [event], :undefined)
-      rescue
-        _ -> :ok
-      catch
-        _, _ -> :ok
-      end
-    end)
+  defp store_and_deliver(child_rt, data) do
+    # Deliver data directly to the worker's JS context
+    # Since worker_loop runs in the worker spawn process,
+    # we can call deliver_beam_message directly (it stores in THIS process's dict)
+    alias QuickBEAM.VM.Runtime.Web.BeamAPI
+    BeamAPI.deliver_beam_message(data)
   end
 end

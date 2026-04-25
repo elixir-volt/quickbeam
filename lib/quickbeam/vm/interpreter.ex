@@ -364,6 +364,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp drain_pending(ref, obj, elapsed_ms) do
     did_fire = QuickBEAM.VM.Runtime.Web.Timers.drain_timers()
+    QuickBEAM.VM.Runtime.Web.Worker.drain_all_worker_messages()
     Promise.drain_microtasks()
 
     case Heap.get_obj(ref, %{}) do
