@@ -36,7 +36,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         {:builtin, "[Symbol.iterator]",
          fn _args, this ->
            case this do
-             {:obj, ref} ->
+             {:obj, _ref} ->
                list = Heap.to_list(this)
                Heap.wrap_iterator(list)
 

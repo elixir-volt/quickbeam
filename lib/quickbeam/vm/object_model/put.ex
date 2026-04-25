@@ -298,8 +298,6 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
-
-
   def has_property({:obj, ref}, key) do
     map = Heap.get_obj(ref, %{})
 

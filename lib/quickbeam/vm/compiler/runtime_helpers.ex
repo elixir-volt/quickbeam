@@ -165,12 +165,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
       else: Class.get_super(func)
   end
 
-
-
   def set_function_name_atom(ctx, fun, atom_idx),
     do: Functions.set_name_atom(fun, atom_idx, context_atoms(ctx))
-
-
 
   def put_field(_ctx, obj, key, val) when is_binary(key) do
     put_field(obj, key, val)
@@ -184,8 +180,6 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def define_field(ctx, obj, atom_idx, val),
     do: define_field(obj, Names.resolve_atom(context_atoms(ctx), atom_idx), val)
 
-
-
   def define_method(_ctx, target, method, name, flags) when is_binary(name),
     do: define_method(target, method, name, flags)
 
@@ -197,8 +191,6 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
         Names.resolve_atom(context_atoms(ctx), atom_idx),
         flags
       )
-
-
 
   def define_class(ctx, ctor, parent_ctor, atom_idx) do
     ctor_closure =
@@ -342,8 +334,6 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     :ok
   end
 
-
-
   def get_private_field(_ctx, obj, key) do
     case Private.get_field(obj, key) do
       :missing -> throw({:js_throw, Private.brand_error()})
@@ -454,8 +444,6 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     result
   end
 
-
-
   def make_var_ref_ref(ctx, idx) do
     case current_var_ref(ctx, idx) do
       {:cell, _} = cell ->
@@ -467,8 +455,6 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
         {:cell, ref}
     end
   end
-
-
 
   def rest(ctx, start_idx) do
     arg_buf = context_arg_buf(ctx)
