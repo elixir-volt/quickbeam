@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
   import QuickBEAM.VM.Heap.Keys
 
   alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
 
   def constructor do
@@ -106,7 +107,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
   defp validate_weak_key!({:symbol, _, _}, _), do: :ok
 
   defp validate_weak_key!(_, kind) do
-    throw({:js_throw, Heap.make_error("invalid value used as #{kind} key", "TypeError")})
+    JSThrow.type_error!("invalid value used as #{kind} key")
   end
 
   defp normalize_key(k) when is_float(k) and k == trunc(k), do: trunc(k)

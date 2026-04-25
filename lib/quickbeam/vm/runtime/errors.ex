@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
   import QuickBEAM.VM.Builtin, only: [build_methods: 1]
 
   alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Stacktrace
 
@@ -52,7 +53,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
       {:builtin, "captureStackTrace",
        fn
          [], _ ->
-           throw({:js_throw, Heap.make_error("Cannot convert undefined to object", "TypeError")})
+           JSThrow.type_error!("Cannot convert undefined to object")
 
          [obj | rest], _ ->
            filter_fun = List.first(rest)

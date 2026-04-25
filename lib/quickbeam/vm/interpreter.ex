@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.Interpreter do
   import Bitwise, only: [&&&: 2]
   import QuickBEAM.VM.Builtin, only: [build_methods: 1, build_object: 1]
   import QuickBEAM.VM.Heap.Keys
+  import QuickBEAM.VM.Value, only: [is_object: 1, is_closure: 1]
 
   alias QuickBEAM.VM.Execution.Trace
 
@@ -21,6 +22,7 @@ defmodule QuickBEAM.VM.Interpreter do
   alias QuickBEAM.JSError
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.Invocation.Context, as: InvokeContext
+  alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.{Class, Copy, Delete, Functions, Get, Methods, Private, Put}
   alias QuickBEAM.VM.PromiseState, as: Promise
 
@@ -409,7 +411,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp invoke_custom_iterator(iter_fn, obj) do
     iter_obj = Invocation.invoke_with_receiver(iter_fn, [], Runtime.gas_budget(), obj)
 
-    unless match?({:obj, _}, iter_obj) do
+    unless is_object(iter_obj) do
       throw(
         {:js_throw,
          Heap.make_error("Result of the Symbol.iterator method is not an object", "TypeError")}
@@ -498,7 +500,7 @@ defmodule QuickBEAM.VM.Interpreter do
       end
     else
       {:error, msg} when is_binary(msg) ->
-        throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
+        JSThrow.syntax_error!(msg)
 
       {:error, %JSError{name: name, message: msg}} ->
         throw({:js_throw, Heap.make_error(msg, name)})
@@ -576,7 +578,7 @@ defmodule QuickBEAM.VM.Interpreter do
         new_val = Map.get(new_globals, func_name)
 
         if old_val == nil and new_val != ctx.current_func and new_val != :undefined do
-          throw({:js_throw, Heap.make_error("Assignment to constant variable.", "TypeError")})
+          JSThrow.type_error!("Assignment to constant variable.")
         end
       end
     end
@@ -595,7 +597,7 @@ defmodule QuickBEAM.VM.Interpreter do
         :ok
     end
 
-    if match?({:closure, _, %Bytecode.Function{}}, ctx.current_func) do
+    if is_closure(ctx.current_func) do
       write_back_captured_vars(ctx.current_func, new_globals, original_globals, declared_names)
     end
 
@@ -971,7 +973,7 @@ defmodule QuickBEAM.VM.Interpreter do
           do: "this is not initialized",
           else: "Cannot access variable before initialization"
 
-      throw({:js_throw, Heap.make_error(message, "ReferenceError")})
+      JSThrow.reference_error!(message)
     end
   end
 
@@ -982,7 +984,7 @@ defmodule QuickBEAM.VM.Interpreter do
       obj_locals =
         for i <- 0..(tuple_size(locals) - 1),
             obj = elem(locals, i),
-            match?({:obj, _}, obj),
+            is_object(obj),
             do: obj
 
       obj_locals = if scope_idx == 0, do: Enum.take(obj_locals, 1), else: obj_locals
@@ -2031,7 +2033,7 @@ defmodule QuickBEAM.VM.Interpreter do
       case raw_ctor do
         %Bytecode.Function{func_kind: fk} when fk in [@func_generator, @func_async_generator] ->
           name = raw_ctor.name || "anonymous"
-          throw({:js_throw, Heap.make_error("#{name} is not a constructor", "TypeError")})
+          JSThrow.type_error!("#{name} is not a constructor")
 
         _ ->
           :ok
@@ -2169,7 +2171,7 @@ defmodule QuickBEAM.VM.Interpreter do
       result = Class.coalesce_this_result(result, this_obj)
 
       if match?({:uninitialized, _}, result) do
-        throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
+        JSThrow.reference_error!("this is not initialized")
       end
 
       case {result, Heap.get_class_proto(raw_ctor)} do
@@ -2252,7 +2254,7 @@ defmodule QuickBEAM.VM.Interpreter do
         result = Invocation.invoke_with_receiver(has_instance, [obj], Runtime.gas_budget(), ctor)
         Values.truthy?(result)
       else
-        is_object = function_value?(ctor) or match?({:obj, _}, ctor)
+        is_object = function_value?(ctor) or is_object(ctor)
 
         unless is_object do
           throw(
@@ -2275,7 +2277,7 @@ defmodule QuickBEAM.VM.Interpreter do
           )
         end
 
-        obj_is_object = match?({:obj, _}, obj) or function_value?(obj)
+        obj_is_object = is_object(obj) or function_value?(obj)
 
         if obj_is_object do
           ctor_proto = Get.get(ctor, "prototype")
@@ -2318,7 +2320,7 @@ defmodule QuickBEAM.VM.Interpreter do
               end
 
             _ ->
-              if match?({:obj, _}, ctor) do
+              if is_object(ctor) do
                 throw(
                   {:js_throw,
                    Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")}
@@ -2435,8 +2437,8 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp run({@op_in, []}, pc, frame, [obj, key | rest], gas, ctx) do
     catch_and_dispatch(pc, frame, rest, gas, ctx, fn ->
-      unless match?({:obj, _}, obj) or match?({:builtin, _, _}, obj) or
-               match?({:closure, _, _}, obj) or match?(%Bytecode.Function{}, obj) or
+      unless is_object(obj) or match?({:builtin, _, _}, obj) or
+               is_closure(obj) or match?(%Bytecode.Function{}, obj) or
                match?({:bound, _, _, _, _}, obj) or match?({:qb_arr, _}, obj) or
                is_list(obj) or is_map(obj) do
         throw(
@@ -2491,7 +2493,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
               iter_obj = Invocation.invoke_callback_or_throw(iter_fn, [], obj)
 
-              unless match?({:obj, _}, iter_obj) do
+              unless is_object(iter_obj) do
                 throw(
                   {:js_throw,
                    Heap.make_error(
@@ -2596,14 +2598,14 @@ defmodule QuickBEAM.VM.Interpreter do
             do: "this is not initialized",
             else: "Cannot access variable before initialization"
 
-        throw({:js_throw, Heap.make_error(message, "ReferenceError")})
+        JSThrow.reference_error!(message)
 
       {:cell, _} = cell ->
         val = Closures.read_cell(cell)
 
         if val == :__tdz__ and current_var_ref_name(ctx, idx) == "this" and
              derived_this_uninitialized?(ctx) do
-          throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
+          JSThrow.reference_error!("this is not initialized")
         end
 
         run(pc + 1, frame, [val | stack], gas, ctx)
@@ -2656,7 +2658,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp run({@op_put_ref_value, []}, pc, frame, [val, key, obj | rest], gas, ctx)
        when is_binary(key) do
-    if current_strict_mode?(ctx) and match?({:obj, _}, obj) and
+    if current_strict_mode?(ctx) and is_object(obj) and
          not Put.has_property(obj, key) do
       throw_or_catch(
         frame,
@@ -3383,7 +3385,7 @@ defmodule QuickBEAM.VM.Interpreter do
                 iter_obj =
                   Invocation.invoke_with_receiver(iter_fn, [], Runtime.gas_budget(), obj)
 
-                unless match?({:obj, _}, iter_obj) do
+                unless is_object(iter_obj) do
                   throw(
                     {:js_throw,
                      Heap.make_error(
@@ -3483,7 +3485,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
     case result do
       {:uninitialized, _} ->
-        throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
+        JSThrow.reference_error!("this is not initialized")
 
       other ->
         other

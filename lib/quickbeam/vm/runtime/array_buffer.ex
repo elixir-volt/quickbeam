@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
   use QuickBEAM.VM.Builtin
 
   alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
 
   def constructor(args, _this \\ nil) do
@@ -112,7 +113,7 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
         map = Heap.get_obj(ref, %{})
 
         if is_map(map) and Map.get(map, "__detached__") do
-          throw({:js_throw, Heap.make_error("ArrayBuffer is detached", "TypeError")})
+          JSThrow.type_error!("ArrayBuffer is detached")
         end
 
         buf = Map.get(map, buffer(), <<>>)
@@ -139,7 +140,7 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
         buf2 = Map.get(map2, buffer(), <<>>)
 
         if byte_size(buf2) < s + new_len do
-          throw({:js_throw, Heap.make_error("ArrayBuffer is detached", "TypeError")})
+          JSThrow.type_error!("ArrayBuffer is detached")
         end
 
         new_buf = if new_len > 0, do: binary_part(buf2, s, new_len), else: <<>>

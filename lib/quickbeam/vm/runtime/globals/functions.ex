@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
 
   alias QuickBEAM.VM.{Bytecode, Heap}
   alias QuickBEAM.VM.Interpreter
+  alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
 
   def js_eval([code | _], _) when is_binary(code) do
@@ -22,8 +23,8 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
     else
       %{runtime_pid: nil} -> :undefined
       nil -> :undefined
-      {:error, %{message: msg}} -> throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
-      {:error, msg} when is_binary(msg) -> throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
+      {:error, %{message: msg}} -> JSThrow.syntax_error!(msg)
+      {:error, msg} when is_binary(msg) -> JSThrow.syntax_error!(msg)
       _ -> :undefined
     end
   end
@@ -32,7 +33,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
 
   def js_require([name | _], _) do
     case Heap.get_module(name) do
-      nil -> throw({:js_throw, Heap.make_error("Cannot find module '#{name}'", "Error")})
+      nil -> JSThrow.error!("Cannot find module '#{name}'")
       exports -> exports
     end
   end

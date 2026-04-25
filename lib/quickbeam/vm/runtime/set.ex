@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
   alias QuickBEAM.VM.Bytecode
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter
+  alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.Get
   alias QuickBEAM.VM.Runtime
 
@@ -54,7 +55,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
   defp validate_weak_key!({:symbol, _, _}, _), do: :ok
 
   defp validate_weak_key!(_, kind) do
-    throw({:js_throw, Heap.make_error("invalid value used as #{kind} key", "TypeError")})
+    JSThrow.type_error!("invalid value used as #{kind} key")
   end
 
   defp build_object(set_ref, items) do
@@ -225,13 +226,13 @@ defmodule QuickBEAM.VM.Runtime.Set do
 
     cond do
       size == :nan or size == :NaN ->
-        throw({:js_throw, Heap.make_error("can't convert to number: .size is NaN", "TypeError")})
+        JSThrow.type_error!("can't convert to number: .size is NaN")
 
       is_number(size) and size < 0 ->
-        throw({:js_throw, Heap.make_error("invalid .size: must be non-negative", "RangeError")})
+        JSThrow.range_error!("invalid .size: must be non-negative")
 
       size == :neg_infinity ->
-        throw({:js_throw, Heap.make_error("invalid .size: must be non-negative", "RangeError")})
+        JSThrow.range_error!("invalid .size: must be non-negative")
 
       true ->
         :ok

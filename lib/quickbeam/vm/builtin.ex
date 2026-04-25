@@ -158,7 +158,8 @@ defmodule QuickBEAM.VM.Builtin do
 
   # ── Runtime dispatch ──
 
-  alias QuickBEAM.VM.{Bytecode, Heap}
+  alias QuickBEAM.VM.Bytecode
+  alias QuickBEAM.VM.JSThrow
 
   def call({:builtin, _, cb}, args, this), do: cb.(args, this)
 
@@ -171,7 +172,7 @@ defmodule QuickBEAM.VM.Builtin do
   def call(f, args, _this) when is_function(f), do: apply(f, args)
 
   def call(_, _, _),
-    do: throw({:js_throw, Heap.make_error("not a function", "TypeError")})
+    do: JSThrow.type_error!("not a function")
 
   def callable?(%Bytecode.Function{}), do: true
 

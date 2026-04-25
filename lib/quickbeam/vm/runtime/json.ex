@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
   alias QuickBEAM.VM.Bytecode
   alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.Get
   alias QuickBEAM.VM.Runtime
 
@@ -25,16 +26,16 @@ defmodule QuickBEAM.VM.Runtime.JSON do
       try do
         :json.decode(s)
       rescue
-        _ -> throw({:js_throw, Heap.make_error("Unexpected end of JSON input", "SyntaxError")})
+        _ -> JSThrow.syntax_error!("Unexpected end of JSON input")
       catch
-        _, _ -> throw({:js_throw, Heap.make_error("Unexpected end of JSON input", "SyntaxError")})
+        _, _ -> JSThrow.syntax_error!("Unexpected end of JSON input")
       end
 
     to_js_root(decoded, s)
   end
 
   defp parse(_),
-    do: throw({:js_throw, Heap.make_error("Unexpected end of JSON input", "SyntaxError")})
+    do: JSThrow.syntax_error!("Unexpected end of JSON input")
 
   defp to_js_root(val, json_str) when is_map(val) do
     keys =

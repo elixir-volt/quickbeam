@@ -1,8 +1,10 @@
 defmodule QuickBEAM.VM.Interpreter.Values do
   @moduledoc false
   import QuickBEAM.VM.Heap.Keys
+  import QuickBEAM.VM.Value, only: [is_object: 1]
 
   alias QuickBEAM.VM.{Heap, Invocation}
+  alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.Get
   alias QuickBEAM.VM.Runtime
 
@@ -67,7 +69,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   def to_number({:obj, _} = obj) do
     prim = to_primitive(obj)
-    if match?({:obj, _}, prim), do: :nan, else: to_number(prim)
+    if is_object(prim), do: :nan, else: to_number(prim)
   end
 
   def to_number({:symbol, _}),
@@ -318,9 +320,9 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   def add({:obj, _} = a, b) do
     pa = to_primitive(a)
-    pb = if match?({:obj, _}, b), do: to_primitive(b), else: b
+    pb = if is_object(b), do: to_primitive(b), else: b
 
-    if match?({:obj, _}, pa) or match?({:obj, _}, pb) do
+    if is_object(pa) or is_object(pb) do
       stringify(pa) <> stringify(pb)
     else
       add(pa, pb)
@@ -330,7 +332,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def add(a, {:obj, _} = b) do
     pb = to_primitive(b)
 
-    if match?({:obj, _}, pb) do
+    if is_object(pb) do
       stringify(a) <> stringify(pb)
     else
       add(a, pb)
@@ -417,7 +419,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def js_div({:bigint, a}, {:bigint, b}) when b != 0, do: {:bigint, Kernel.div(a, b)}
 
   def js_div({:bigint, _}, {:bigint, 0}),
-    do: throw({:js_throw, Heap.make_error("Division by zero", "RangeError")})
+    do: JSThrow.range_error!("Division by zero")
 
   def js_div({:bigint, _}, b) when is_number(b), do: throw_bigint_mix_error()
   def js_div(a, {:bigint, _}) when is_number(a), do: throw_bigint_mix_error()
@@ -480,7 +482,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def mod({:bigint, a}, {:bigint, b}) when b != 0, do: {:bigint, rem(a, b)}
 
   def mod({:bigint, _}, {:bigint, 0}),
-    do: throw({:js_throw, Heap.make_error("Division by zero", "RangeError")})
+    do: JSThrow.range_error!("Division by zero")
 
   def mod({:bigint, _}, b) when is_number(b), do: throw_bigint_mix_error()
   def mod(a, {:bigint, _}) when is_number(a), do: throw_bigint_mix_error()
@@ -650,7 +652,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
     do: {:bigint, Bitwise.bsr(a, -b)}
 
   def shl({:bigint, _}, {:bigint, _}),
-    do: throw({:js_throw, Heap.make_error("Maximum BigInt size exceeded", "RangeError")})
+    do: JSThrow.range_error!("Maximum BigInt size exceeded")
 
   def shl({:obj, _} = a, b), do: shl(to_numeric(a), b)
   def shl(a, {:obj, _} = b), do: shl(a, to_numeric(b))
@@ -1050,12 +1052,12 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   defp abstract_eq({:obj, _} = obj, b) when is_number(b) or is_binary(b) do
     prim = to_primitive(obj)
-    if match?({:obj, _}, prim), do: false, else: abstract_eq(prim, b)
+    if is_object(prim), do: false, else: abstract_eq(prim, b)
   end
 
   defp abstract_eq(a, {:obj, _} = obj) when is_number(a) or is_binary(a) do
     prim = to_primitive(obj)
-    if match?({:obj, _}, prim), do: false, else: abstract_eq(a, prim)
+    if is_object(prim), do: false, else: abstract_eq(a, prim)
   end
 
   defp abstract_eq({:symbol, _} = a, {:obj, _} = b), do: abstract_eq(a, to_primitive(b))
@@ -1124,7 +1126,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
           result =
             Invocation.invoke_with_receiver(to_prim, ["default"], Runtime.gas_budget(), obj)
 
-          if match?({:obj, _}, result) do
+          if is_object(result) do
             throw(
               {:js_throw,
                Heap.make_error("Cannot convert object to primitive value", "TypeError")}
@@ -1164,7 +1166,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   defp coerce_to_primitive(val) do
     cond do
-      match?({:obj, _}, val) -> to_primitive(val)
+      is_object(val) -> to_primitive(val)
       function_like?(val) -> fn_to_primitive(val)
       true -> val
     end

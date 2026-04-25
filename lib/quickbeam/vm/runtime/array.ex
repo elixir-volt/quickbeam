@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   import QuickBEAM.VM.Heap.Keys
   alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
 
   def prototype do
@@ -205,7 +206,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_array(_, depth) when depth > @max_proxy_depth do
-    throw({:js_throw, Heap.make_error("Maximum call stack size exceeded", "RangeError")})
+    JSThrow.range_error!("Maximum call stack size exceeded")
   end
 
   # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames

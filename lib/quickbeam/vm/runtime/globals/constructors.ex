@@ -6,6 +6,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
   alias QuickBEAM.VM.{Bytecode, Heap}
   alias QuickBEAM.VM.Interpreter
+  alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
 
   def object([arg | _], _) do
@@ -97,18 +98,18 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
                      parsed.atoms
                    ) do
                 {:ok, value} -> value
-                _ -> throw({:js_throw, Heap.make_error("Invalid function", "SyntaxError")})
+                _ -> JSThrow.syntax_error!("Invalid function")
               end
 
             _ ->
-              throw({:js_throw, Heap.make_error("Invalid function", "SyntaxError")})
+              JSThrow.syntax_error!("Invalid function")
           end
 
         _ ->
-          throw({:js_throw, Heap.make_error("Invalid function", "SyntaxError")})
+          JSThrow.syntax_error!("Invalid function")
       end
     else
-      throw({:js_throw, Heap.make_error("Function constructor requires runtime", "Error")})
+      JSThrow.error!("Function constructor requires runtime")
     end
   end
 
@@ -118,12 +119,12 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   def bigint([string | _], _) when is_binary(string) do
     case Integer.parse(string) do
       {n, ""} -> {:bigint, n}
-      _ -> throw({:js_throw, Heap.make_error("Cannot convert to BigInt", "SyntaxError")})
+      _ -> JSThrow.syntax_error!("Cannot convert to BigInt")
     end
   end
 
   def bigint(_, _) do
-    throw({:js_throw, Heap.make_error("Cannot convert to BigInt", "TypeError")})
+    JSThrow.type_error!("Cannot convert to BigInt")
   end
 
   def regexp([], this), do: regexp(["" | []], this)

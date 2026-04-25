@@ -1,10 +1,12 @@
 defmodule QuickBEAM.VM.ObjectModel.Put do
   @moduledoc false
   import QuickBEAM.VM.Heap.Keys
+  import QuickBEAM.VM.Value, only: [is_symbol: 1]
 
   alias QuickBEAM.VM.{Bytecode, Heap, Names, Runtime}
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Invocation
+  alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.Get
 
   @compile {:inline, has_property: 2, get_element: 2, set_list_at: 3}
@@ -70,7 +72,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
             if non_configurable_idx do
               Heap.put_obj(ref, Enum.take(list, non_configurable_idx + 1))
-              throw({:js_throw, Heap.make_error("Cannot delete property", "TypeError")})
+              JSThrow.type_error!("Cannot delete property")
             end
 
             Heap.put_obj(ref, Enum.take(list, new_len))
@@ -95,7 +97,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
           key == "__proto__" ->
             Heap.put_obj_raw(ref, {:shape, shape_id, offsets, vals, val})
 
-          match?({:symbol, _}, key) or match?({:symbol, _, _}, key) ->
+          is_symbol(key) ->
             map = Heap.Shapes.to_map(shape_id, vals, proto)
             Heap.put_obj(ref, Map.put(map, key, val))
 

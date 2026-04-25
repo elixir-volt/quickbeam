@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   import Bitwise, only: [bnot: 1]
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
+  import QuickBEAM.VM.Value, only: [is_object: 1]
 
   alias QuickBEAM.VM.{Builtin, Bytecode, GlobalEnv, Heap, Invocation, Names}
   alias QuickBEAM.VM.Compiler.Runner
@@ -10,6 +11,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.Interpreter.{Closures, Context, Values}
   alias QuickBEAM.VM.Invocation.Context, as: InvokeContext
+  alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.{Class, Copy, Delete, Functions, Get, Methods, Private, Put}
   alias QuickBEAM.VM.PromiseState, as: Promise
   alias QuickBEAM.VM.Runtime
@@ -40,7 +42,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def get_global(globals, name) do
     case Map.fetch(globals, name) do
       {:ok, val} -> val
-      :error -> throw({:js_throw, Heap.make_error("#{name} is not defined", "ReferenceError")})
+      :error -> JSThrow.reference_error!("#{name} is not defined")
     end
   end
 
@@ -135,7 +137,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
       this
       when this == :uninitialized or
              (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized) ->
-        throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
+        JSThrow.reference_error!("this is not initialized")
 
       this ->
         this
@@ -526,7 +528,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
         val
 
       :not_found ->
-        throw({:js_throw, Heap.make_error("#{name} is not defined", "ReferenceError")})
+        JSThrow.reference_error!("#{name} is not defined")
     end
   end
 
@@ -590,7 +592,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
       this
       when this == :uninitialized or
              (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized) ->
-        throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
+        JSThrow.reference_error!("this is not initialized")
 
       this ->
         this
@@ -1008,14 +1010,14 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   defp checked_var_ref(ctx, idx) do
     case current_var_ref(ctx, idx) do
       :__tdz__ ->
-        throw({:js_throw, Heap.make_error(var_ref_error_message(ctx, idx), "ReferenceError")})
+        JSThrow.reference_error!(var_ref_error_message(ctx, idx))
 
       {:cell, _} = cell ->
         val = Closures.read_cell(cell)
 
         if val == :__tdz__ and var_ref_name(ctx, idx) == "this" and
              derived_this_uninitialized?(ctx) do
-          throw({:js_throw, Heap.make_error("this is not initialized", "ReferenceError")})
+          JSThrow.reference_error!("this is not initialized")
         end
 
         val
@@ -1070,7 +1072,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
         val
 
       :not_found ->
-        throw({:js_throw, Heap.make_error("#{name} is not defined", "ReferenceError")})
+        JSThrow.reference_error!("#{name} is not defined")
     end
   end
 
@@ -1146,7 +1148,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   defp invoke_custom_iter(iter_fn, obj) do
     iter_obj = Invocation.invoke_with_receiver(iter_fn, [], Runtime.gas_budget(), obj)
 
-    unless match?({:obj, _}, iter_obj) do
+    unless is_object(iter_obj) do
       throw(
         {:js_throw,
          Heap.make_error("Result of the Symbol.iterator method is not an object", "TypeError")}
