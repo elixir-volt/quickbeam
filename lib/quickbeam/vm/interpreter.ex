@@ -550,6 +550,14 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp sync_global_this_write(ctx, _obj, _name, _val), do: ctx
 
+  defp refresh_persistent_globals(ctx) do
+    case Heap.get_persistent_globals() do
+      nil -> ctx
+      p when map_size(p) == 0 -> ctx
+      p -> Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, p)})
+    end
+  end
+
   defp current_strict_mode?(%{current_func: {:closure, _, %Bytecode.Function{is_strict_mode: s}}}),
     do: s
 
@@ -3573,8 +3581,10 @@ defmodule QuickBEAM.VM.Interpreter do
     key = Names.resolve_atom(ctx, atom_idx)
 
     if with_has_property?(obj, key) do
+      ctx = refresh_persistent_globals(ctx)
       run(target, frame, [Get.get(obj, key) | rest], gas, ctx)
     else
+      ctx = refresh_persistent_globals(ctx)
       run(pc + 1, frame, rest, gas, ctx)
     end
   end
@@ -3612,8 +3622,10 @@ defmodule QuickBEAM.VM.Interpreter do
     key = Names.resolve_atom(ctx, atom_idx)
 
     if with_has_property?(obj, key) do
+      ctx = refresh_persistent_globals(ctx)
       run(target, frame, [key, obj | rest], gas, ctx)
     else
+      ctx = refresh_persistent_globals(ctx)
       run(pc + 1, frame, rest, gas, ctx)
     end
   end
@@ -3622,8 +3634,10 @@ defmodule QuickBEAM.VM.Interpreter do
     key = Names.resolve_atom(ctx, atom_idx)
 
     if with_has_property?(obj, key) do
+      ctx = refresh_persistent_globals(ctx)
       run(target, frame, [Get.get(obj, key), obj | rest], gas, ctx)
     else
+      ctx = refresh_persistent_globals(ctx)
       run(pc + 1, frame, rest, gas, ctx)
     end
   end
@@ -3639,8 +3653,10 @@ defmodule QuickBEAM.VM.Interpreter do
     key = Names.resolve_atom(ctx, atom_idx)
 
     if with_has_property?(obj, key) do
+      ctx = refresh_persistent_globals(ctx)
       run(target, frame, [Get.get(obj, key), :undefined | rest], gas, ctx)
     else
+      ctx = refresh_persistent_globals(ctx)
       run(pc + 1, frame, rest, gas, ctx)
     end
   end

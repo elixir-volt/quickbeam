@@ -24,7 +24,7 @@ END=$(date +%s)
 ELAPSED=$((END - START))
 
 # Parse: "2494 tests, N failures, M skipped"
-FAILURES=$(echo "$OUTPUT" | grep -oE '[0-9]+ failures' | grep -oE '[0-9]+' || echo "9999")
+FAILURES=$(echo "$OUTPUT" | grep -oE '[0-9]+ failures?' | grep -oE '[0-9]+' || echo "9999")
 PASSING=$(echo "$OUTPUT" | grep -oE '[0-9]+ tests' | head -1 | grep -oE '[0-9]+' || echo "0")
 SKIPPED=$(echo "$OUTPUT" | grep -oE '[0-9]+ skipped' | grep -oE '[0-9]+' || echo "0")
 
