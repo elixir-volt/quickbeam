@@ -1,5 +1,0 @@
-{"type":"config","name":"BEAM Web API Builtins","metricName":"failing_tests","metricUnit":"","bestDirection":"lower"}
-{"run":31,"commit":"fb02521","metric":32,"metrics":{"passing_tests":0},"status":"keep","description":"Baseline: 32 failing, 0 passing. No web APIs available in BEAM mode.","timestamp":1777130174321,"segment":1,"confidence":null,"iterationTokens":151,"asi":{"hypothesis":"baseline"}}
-{"type":"config","name":"Web API Builtins for BEAM Mode","metricName":"failing_tests","metricUnit":"","bestDirection":"lower"}
-{"run":2,"commit":"e4f0978","metric":32,"metrics":{"passing_tests":0},"status":"keep","description":"Baseline: 0 web APIs implemented, all 32 tests failing","timestamp":1777130395889,"segment":1,"confidence":null,"iterationTokens":353}
-{"run":3,"commit":"b417c47","metric":0,"metrics":{"passing_tests":32},"status":"keep","description":"All 32 web API tests pass: TextEncoder/Decoder, URL/URLSearchParams, atob/btoa, setTimeout, Headers, AbortController, performance, Blob, crypto, fetch/Request/Response","timestamp":1777131040749,"segment":1,"confidence":null,"iterationTokens":46862}
