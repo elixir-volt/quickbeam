@@ -70,7 +70,11 @@ defmodule QuickBEAM.VM.Runtime.Web.MessageChannel do
        end}}
 
     onmessageerror_accessor = {:accessor,
-      {:builtin, "get onmessageerror", fn _, _ -> nil end},
+      {:builtin, "get onmessageerror",
+       fn _, _ ->
+         state = Heap.get_obj(my_q, %{})
+         Map.get(state, :error_handler, nil)
+       end},
       {:builtin, "set onmessageerror", fn [h | _], _ ->
          state = Heap.get_obj(my_q, %{})
          Heap.put_obj(my_q, Map.put(state, :error_handler, h))

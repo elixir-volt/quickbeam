@@ -109,12 +109,13 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
   end
 
   defp bytes_to_uint8array(bytes) when is_binary(bytes) do
+    byte_list = :binary.bin_to_list(bytes)
     case Heap.get_global_cache() do
-      nil -> Heap.wrap(:binary.bin_to_list(bytes))
+      nil -> Heap.wrap(byte_list)
       globals ->
         case Map.get(globals, "Uint8Array") do
-          {:builtin, _, cb} -> cb.([bytes], nil)
-          _ -> Heap.wrap(:binary.bin_to_list(bytes))
+          {:builtin, _, cb} -> cb.([byte_list], nil)
+          _ -> Heap.wrap(byte_list)
         end
     end
   end

@@ -182,6 +182,9 @@ defmodule QuickBEAM do
   end
 
   defp eval_beam(runtime, code, opts) do
+    # Deliver any pending BEAM messages before running JS
+    deliver_pending_beam_messages(runtime)
+
     handler_globals =
       case Heap.get_handler_globals() do
         nil ->
@@ -521,6 +524,77 @@ defmodule QuickBEAM do
     end
   end
 
+  defp deliver_pending_beam_messages(runtime) do
+    # First, deliver messages queued via send_message (which may register monitors)
+    try do
+      msgs = GenServer.call(runtime, :take_pending_messages, 1000)
+
+      if msgs != [] do
+        alias QuickBEAM.VM.Runtime.Web.BeamAPI
+        Enum.each(msgs, fn msg ->
+          elixir_msg = convert_msg_to_js(msg)
+          BeamAPI.deliver_beam_message(elixir_msg)
+        end)
+      end
+    catch
+      :exit, _ -> :ok
+    end
+
+    # Then, drain DOWN messages (after monitors may have been registered)
+    drain_down_messages()
+  end
+
+  defp drain_down_messages do
+    alias QuickBEAM.VM.Runtime.Web.BeamAPI
+    monitors_key = :qb_beam_monitors
+
+    receive do
+      {:DOWN, ref, :process, _pid, reason} ->
+        monitors = Process.get(monitors_key, %{})
+        case Map.get(monitors, ref) do
+          nil -> :ok
+          callback ->
+            reason_str = case reason do
+              :normal -> "normal"
+              :killed -> "killed"
+              a when is_atom(a) -> Atom.to_string(a)
+              _ -> inspect(reason)
+            end
+
+            try do
+              QuickBEAM.VM.Invocation.invoke_with_receiver(callback, [reason_str], :undefined)
+            rescue
+              _ -> :ok
+            catch
+              _, _ -> :ok
+            end
+
+            Process.put(monitors_key, Map.delete(monitors, ref))
+        end
+        drain_down_messages()
+    after
+      0 -> :ok
+    end
+  end
+
+  defp convert_msg_to_js(msg) when is_map(msg) do
+    Heap.wrap(Map.new(msg, fn {k, v} -> {to_string(k), convert_msg_to_js(v)} end))
+  end
+
+  defp convert_msg_to_js(msg) when is_list(msg) do
+    Heap.wrap(Enum.map(msg, &convert_msg_to_js/1))
+  end
+
+  defp convert_msg_to_js(nil), do: nil
+  defp convert_msg_to_js(true), do: true
+  defp convert_msg_to_js(false), do: false
+  defp convert_msg_to_js(n) when is_number(n), do: n
+  defp convert_msg_to_js(s) when is_binary(s), do: s
+  defp convert_msg_to_js(a) when is_atom(a), do: Atom.to_string(a)
+  defp convert_msg_to_js(pid) when is_pid(pid), do: pid
+  defp convert_msg_to_js(ref) when is_reference(ref), do: ref
+  defp convert_msg_to_js(_), do: nil
+
   defp extract_buffer_bytes(map) do
     case Map.get(map, "buffer") do
       {:obj, buf_ref} ->
@@ -826,7 +900,21 @@ defmodule QuickBEAM do
   """
   @spec send_message(runtime(), term()) :: :ok
   def send_message(runtime, message) do
-    Runtime.send_message(runtime, message)
+    # In BEAM mode, try to deliver the message synchronously to the current process's JS state
+    # (if it has BEAM mode active). Fall back to GenServer cast if not.
+    case Heap.get_global_cache() do
+      nil ->
+        # No BEAM state in this process - use GenServer
+        Runtime.send_message(runtime, message)
+
+      _globals ->
+        # This process has BEAM state - deliver directly
+        js_msg = convert_msg_to_js(message)
+        alias QuickBEAM.VM.Runtime.Web.BeamAPI
+        BeamAPI.deliver_beam_message(js_msg)
+        # Also drain any pending DOWN messages that may have been registered
+        drain_down_messages()
+    end
   end
 
   @doc """
