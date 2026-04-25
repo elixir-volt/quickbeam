@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   use QuickBEAM.VM.Builtin
 
   import QuickBEAM.VM.Heap.Keys
+  import QuickBEAM.VM.Value, only: [is_symbol: 1]
   alias QuickBEAM.VM.Bytecode
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Values
@@ -224,7 +225,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
         data = Heap.get_obj(ref, %{})
 
         syms =
-          if is_map(data), do: Enum.filter(Map.keys(data), &match?({:symbol, _, _}, &1)), else: []
+          if is_map(data), do: Enum.filter(Map.keys(data), &is_symbol/1), else: []
 
         Heap.wrap(syms)
 
