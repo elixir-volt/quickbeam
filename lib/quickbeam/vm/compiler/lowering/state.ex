@@ -6,6 +6,23 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   @line 1
 
+  defstruct [
+    :body,
+    :ctx,
+    :slots,
+    :slot_types,
+    :slot_inits,
+    :capture_cells,
+    :stack,
+    :stack_types,
+    :temp,
+    :locals,
+    :closure_vars,
+    :atoms,
+    :arg_count,
+    :return_type
+  ]
+
   # ── Construction ──
 
   def new(slot_count, stack_depth, opts \\ []) do
@@ -27,7 +44,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     arg_count = Keyword.get(opts, :arg_count, 0)
     locals = Keyword.get(opts, :locals, [])
 
-    %{
+    %__MODULE__{
       body: [],
       ctx: Builder.ctx_var(),
       slots: slots,
@@ -868,7 +885,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       do: {{:op, @line, :"=/=", left, right}, :boolean}
 
   def specialize_binary(:op_mod, left, :integer, right, :integer),
-    do: {{:op, @line, :rem, left, right}, :integer}
+    do: {Builder.local_call(:op_mod, [left, right]), :number}
 
   def specialize_binary(fun, left, left_type, right, right_type)
       when fun in [:op_band, :op_bor, :op_bxor, :op_shl, :op_sar] and

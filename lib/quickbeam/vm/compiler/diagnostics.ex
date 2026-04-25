@@ -5,6 +5,9 @@ defmodule QuickBEAM.VM.Compiler.Diagnostics do
   alias QuickBEAM.VM.Compiler
   alias QuickBEAM.VM.Compiler.Analysis.CFG
 
+  @unsupported_opcodes [:invalid, :with_get_var, :with_put_var, :with_delete_var, :with_make_ref,
+                         :with_get_ref, :with_get_ref_undef]
+
   @doc "Check if a function can be compiled. Returns :ok or {:error, reasons}."
   def check(%Bytecode.Function{} = fun) do
     case Compiler.compile(fun) do
@@ -61,6 +64,55 @@ defmodule QuickBEAM.VM.Compiler.Diagnostics do
       opcode_count: 0,
       unsupported_opcodes: []
     }
+
+  @doc """
+  Analyze a function's compilability without compiling.
+
+  Returns a map with:
+  - `:compilable?` — whether the function should compile successfully
+  - `:unsupported_opcodes` — list of `%{pc: integer, opcode: atom}` for unsupported ops
+  - `:has_var_refs` — whether the function uses captured variable references
+  - `:opcode_count` — total number of instructions
+  """
+  def capabilities(%Bytecode.Function{} = fun) do
+    case Decoder.decode(fun.byte_code, fun.arg_count) do
+      {:ok, instructions} ->
+        unsupported =
+          instructions
+          |> Enum.with_index()
+          |> Enum.flat_map(fn {{op, _args}, pc} ->
+            case CFG.opcode_name(op) do
+              {:ok, name} ->
+                if name in @unsupported_opcodes, do: [%{pc: pc, opcode: name}], else: []
+
+              {:error, _} ->
+                [%{pc: pc, opcode: :unknown}]
+            end
+          end)
+
+        has_var_refs =
+          fun.var_ref_count > 0 and
+            not Enum.all?(fun.closure_vars, &(&1.closure_type == 0))
+
+        %{
+          compilable?: unsupported == [] and not has_var_refs,
+          unsupported_opcodes: unsupported,
+          has_var_refs: has_var_refs,
+          opcode_count: length(instructions)
+        }
+
+      {:error, _} ->
+        %{
+          compilable?: false,
+          unsupported_opcodes: [],
+          has_var_refs: false,
+          opcode_count: 0
+        }
+    end
+  end
+
+  def capabilities(_),
+    do: %{compilable?: false, unsupported_opcodes: [], has_var_refs: true, opcode_count: 0}
 
   @doc "Count helper calls in compiled output."
   def helper_call_counts(%Bytecode.Function{} = fun) do
