@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
   alias QuickBEAM.VM.Compiler.Analysis.{CFG, Stack, Types}
   alias QuickBEAM.VM.Compiler.Lowering.Builder
   alias QuickBEAM.VM.Compiler.{Lowering.Ops, Lowering.State}
+  alias QuickBEAM.VM.Heap
 
   @guardable_types [:integer, :number, :boolean, :string, :undefined, :null]
   @line 1
@@ -136,7 +137,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
       [
         locals: fun.locals,
         closure_vars: fun.closure_vars,
-        atoms: Process.get({:qb_fn_atoms, fun.byte_code}),
+        atoms: Heap.get_fn_atoms(fun.byte_code),
         arg_count: arg_count,
         return_type: return_type
       ] ++

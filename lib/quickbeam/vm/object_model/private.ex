@@ -102,7 +102,7 @@ defmodule QuickBEAM.VM.ObjectModel.Private do
 
   defp brand_match?(target, brand) do
     target_brands = brands(target)
-    home_object = Process.get({:qb_home_object, Functions.home_object_key(brand)})
+    home_object = Functions.current_home_object(brand)
 
     brand in target_brands or
       (home_object not in [nil, :undefined] and

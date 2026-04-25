@@ -88,7 +88,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   defp compile_and_invoke(fun, current_func, args, normalized_args, ctx_overrides, base_ctx, key) do
     case Compiler.compile(fun) do
       {:ok, compiled} ->
-        atoms = Process.get({:qb_fn_atoms, fun.byte_code}, Heap.get_atoms())
+        atoms = Heap.get_fn_atoms(fun.byte_code, Heap.get_atoms())
         Heap.put_compiled(key, {:compiled, compiled, atoms})
         ctx = invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun, atoms)
         {:ok, invoke_compiled(fun, compiled, ctx, normalized_args)}
