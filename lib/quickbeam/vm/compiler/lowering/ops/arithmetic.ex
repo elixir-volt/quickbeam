@@ -40,10 +40,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Arithmetic do
         end
 
       {{:ok, :inc}, []} ->
-        State.unary_call(state, RuntimeHelpers, :inc)
+        lower_inc_dec(state, :+)
 
       {{:ok, :dec}, []} ->
-        State.unary_call(state, RuntimeHelpers, :dec)
+        lower_inc_dec(state, :-)
 
       {{:ok, :post_inc}, []} ->
         State.post_update(state, :post_inc)
@@ -113,6 +113,20 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Arithmetic do
 
       _ ->
         :not_handled
+    end
+  end
+
+  defp lower_inc_dec(state, op) do
+    with {:ok, expr, type, state} <- State.pop_typed(state) do
+      {result_expr, result_type} =
+        if type == :integer do
+          {{:op, 1, op, expr, {:integer, 1, 1}}, :integer}
+        else
+          fun = if op == :+, do: :inc, else: :dec
+          {State.compiler_call(state, fun, [expr]), :unknown}
+        end
+
+      {:ok, State.push(state, result_expr, result_type)}
     end
   end
 

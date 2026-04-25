@@ -123,8 +123,9 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
 
   def block_successors(instructions, entries, start) do
     next = next_entry(entries, start)
+    t = List.to_tuple(instructions)
 
-    case do_block_terminal(List.to_tuple(instructions), length(instructions), start, next) do
+    case do_block_terminal(t, tuple_size(t), start, next) do
       {:branch, target, _idx} when is_integer(next) -> [target, next]
       {:catch, target, _idx} when is_integer(next) -> [target, next]
       {:goto, target, _idx} -> [target]
