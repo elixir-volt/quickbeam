@@ -536,6 +536,20 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
+  defp sync_global_this_write(ctx, obj, name, val) when is_binary(name) do
+    case Map.get(ctx.globals, "globalThis") do
+      ^obj ->
+        new_globals = Map.put(ctx.globals, name, val)
+        Heap.put_persistent_globals(new_globals)
+        Context.mark_dirty(%{ctx | globals: new_globals})
+
+      _ ->
+        ctx
+    end
+  end
+
+  defp sync_global_this_write(ctx, _obj, _name, _val), do: ctx
+
   defp maybe_refresh_error_stack({:obj, ref} = error) do
     case Heap.get_obj(ref, %{}) do
       %{"name" => _, "message" => _} -> Stacktrace.attach_stack(error)
@@ -1868,17 +1882,23 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp run({@op_put_field, [atom_idx]}, pc, frame, [val, obj | rest], gas, ctx) do
+    name = Names.resolve_atom(ctx, atom_idx)
+
     result =
       try do
-        Put.put(obj, Names.resolve_atom(ctx, atom_idx), val)
+        Put.put(obj, name, val)
         :ok
       catch
         {:js_throw, error} -> {:throw, error}
       end
 
     case result do
-      :ok -> run(pc + 1, frame, rest, gas, ctx)
-      {:throw, error} -> throw_or_catch(frame, error, gas, ctx)
+      :ok ->
+        ctx = sync_global_this_write(ctx, obj, name, val)
+        run(pc + 1, frame, rest, gas, ctx)
+
+      {:throw, error} ->
+        throw_or_catch(frame, error, gas, ctx)
     end
   end
 
@@ -3346,6 +3366,12 @@ defmodule QuickBEAM.VM.Interpreter do
        when this == :uninitialized or
               (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized) do
     throw_or_catch(frame, Heap.make_error("this is not initialized", "ReferenceError"), gas, ctx)
+  end
+
+  defp run({@op_push_this, []}, pc, frame, stack, gas, %Context{this: this} = ctx)
+       when this == :undefined or this == nil do
+    global_this = Map.get(ctx.globals, "globalThis", :undefined)
+    run(pc + 1, frame, [global_this | stack], gas, ctx)
   end
 
   defp run({@op_push_this, []}, pc, frame, stack, gas, %Context{this: this} = ctx) do

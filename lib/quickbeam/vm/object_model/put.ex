@@ -84,6 +84,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   def put({:obj, ref} = obj, key, val) do
     key = normalize_key(key)
+    sync_global_this?(obj, key, val)
 
     case Heap.get_obj_raw(ref) do
       {:shape, shape_id, offsets, vals, proto} ->
@@ -557,4 +558,17 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   def set_list_at(list, i, val) when is_integer(i) and i >= 0,
     do: list ++ List.duplicate(:undefined, max(0, i - length(list))) ++ [val]
+
+  defp sync_global_this?(obj, key, val) when is_binary(key) do
+    case Heap.get_ctx() do
+      %{globals: %{"globalThis" => ^obj}} ->
+        globals = Heap.get_persistent_globals() || %{}
+        Heap.put_persistent_globals(Map.put(globals, key, val))
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp sync_global_this?(_obj, _key, _val), do: :ok
 end
