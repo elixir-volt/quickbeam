@@ -5,7 +5,8 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
   alias QuickBEAM.VM.Opcodes
 
   def infer_block_stack_depths(instructions, entries) do
-    walk_block_stack_depths(instructions, entries, [{0, 0}], %{})
+    t = List.to_tuple(instructions)
+    walk_block_stack_depths(t, tuple_size(t), entries, [{0, 0}], %{})
   end
 
   def stack_effect(op, args) do
@@ -33,20 +34,21 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
     end
   end
 
-  defp walk_block_stack_depths(_instructions, _entries, [], depths), do: {:ok, depths}
+  defp walk_block_stack_depths(_instructions, _size, _entries, [], depths), do: {:ok, depths}
 
-  defp walk_block_stack_depths(instructions, entries, [{start, depth} | rest], depths) do
+  defp walk_block_stack_depths(instructions, size, entries, [{start, depth} | rest], depths) do
     case Map.fetch(depths, start) do
       {:ok, ^depth} ->
-        walk_block_stack_depths(instructions, entries, rest, depths)
+        walk_block_stack_depths(instructions, size, entries, rest, depths)
 
       {:ok, other_depth} ->
         {:error, {:inconsistent_block_stack_depth, start, other_depth, depth}}
 
       :error ->
-        with {:ok, successors} <- simulate_block_stack_depths(instructions, entries, start, depth) do
+        with {:ok, successors} <- simulate_block_stack_depths(instructions, size, entries, start, depth) do
           walk_block_stack_depths(
             instructions,
+            size,
             entries,
             rest ++ successors,
             Map.put(depths, start, depth)
@@ -55,20 +57,20 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
     end
   end
 
-  defp simulate_block_stack_depths(instructions, entries, start, depth) do
+  defp simulate_block_stack_depths(instructions, size, entries, start, depth) do
     next_entry = CFG.next_entry(entries, start)
-    do_simulate_block_stack_depths(instructions, start, next_entry, depth)
+    do_simulate_block_stack_depths(instructions, size, start, next_entry, depth)
   end
 
-  defp do_simulate_block_stack_depths(instructions, idx, _next_entry, _depth)
-       when idx >= length(instructions) do
+  defp do_simulate_block_stack_depths(_instructions, size, idx, _next_entry, _depth)
+       when idx >= size do
     {:error, {:missing_terminator, idx}}
   end
 
-  defp do_simulate_block_stack_depths(_instructions, idx, idx, depth), do: {:ok, [{idx, depth}]}
+  defp do_simulate_block_stack_depths(_instructions, _size, idx, idx, depth), do: {:ok, [{idx, depth}]}
 
-  defp do_simulate_block_stack_depths(instructions, idx, next_entry, depth) do
-    {op, args} = Enum.at(instructions, idx)
+  defp do_simulate_block_stack_depths(instructions, size, idx, next_entry, depth) do
+    {op, args} = elem(instructions, idx)
 
     with {:ok, next_depth} <- apply_stack_effect(op, args, depth) do
       case {CFG.opcode_name(op), args} do
@@ -81,7 +83,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
 
         {{:ok, :catch}, [target]} ->
           with {:ok, successors} <-
-                 do_simulate_block_stack_depths(instructions, idx + 1, next_entry, next_depth) do
+                 do_simulate_block_stack_depths(instructions, size, idx + 1, next_entry, next_depth) do
             {:ok, [{target, next_depth} | successors]}
           end
 
@@ -125,7 +127,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
           {:ok, []}
 
         _ ->
-          do_simulate_block_stack_depths(instructions, idx + 1, next_entry, next_depth)
+          do_simulate_block_stack_depths(instructions, size, idx + 1, next_entry, next_depth)
       end
     end
   end

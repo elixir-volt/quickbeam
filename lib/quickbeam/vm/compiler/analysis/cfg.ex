@@ -57,10 +57,13 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
   end
 
   def predecessor_sources(instructions, entries) do
+    t = List.to_tuple(instructions)
+    size = tuple_size(t)
+
     Enum.reduce(entries, %{}, fn start, preds ->
       next = next_entry(entries, start)
 
-      case block_terminal(instructions, start, next) do
+      case do_block_terminal(t, size, start, next) do
         {:branch, target, term_idx} when is_integer(next) ->
           preds
           |> add_predecessor(target, term_idx)
@@ -108,16 +111,20 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
     end
   end
 
-  def matching_nip_catch(instructions, catch_idx),
-    do: find_nip_catch(instructions, catch_idx + 1, 0)
+  def matching_nip_catch(instructions, catch_idx) do
+    t = List.to_tuple(instructions)
+    find_nip_catch(t, catch_idx + 1, tuple_size(t))
+  end
 
-  def block_terminal(instructions, start, next_entry),
-    do: do_block_terminal(instructions, start, next_entry)
+  def block_terminal(instructions, start, next_entry) do
+    t = List.to_tuple(instructions)
+    do_block_terminal(t, tuple_size(t), start, next_entry)
+  end
 
   def block_successors(instructions, entries, start) do
     next = next_entry(entries, start)
 
-    case block_terminal(instructions, start, next) do
+    case do_block_terminal(List.to_tuple(instructions), length(instructions), start, next) do
       {:branch, target, _idx} when is_integer(next) -> [target, next]
       {:catch, target, _idx} when is_integer(next) -> [target, next]
       {:goto, target, _idx} -> [target]
@@ -126,13 +133,13 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
     end
   end
 
-  defp do_block_terminal(instructions, idx, _next_entry) when idx >= length(instructions),
+  defp do_block_terminal(_instructions, size, idx, _next_entry) when idx >= size,
     do: {:done, idx}
 
-  defp do_block_terminal(_instructions, idx, idx), do: {:fallthrough, idx}
+  defp do_block_terminal(_instructions, _size, idx, idx), do: {:fallthrough, idx}
 
-  defp do_block_terminal(instructions, idx, next_entry) do
-    {op, args} = Enum.at(instructions, idx)
+  defp do_block_terminal(instructions, size, idx, next_entry) do
+    {op, args} = elem(instructions, idx)
 
     case {opcode_name(op), args} do
       {{:ok, name}, [target]} when name in [:if_false, :if_false8, :if_true, :if_true8] ->
@@ -151,7 +158,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
         {:done, idx}
 
       _ ->
-        do_block_terminal(instructions, idx + 1, next_entry)
+        do_block_terminal(instructions, size, idx + 1, next_entry)
     end
   end
 
@@ -167,23 +174,27 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
     end)
   end
 
-  defp find_nip_catch(instructions, idx, _depth) when idx >= length(instructions), do: :error
+  defp find_nip_catch(instructions, idx, size) when is_tuple(instructions) do
+    find_nip_catch_t(instructions, idx, size, 0)
+  end
 
-  defp find_nip_catch(instructions, idx, depth) do
-    {op, _args} = Enum.at(instructions, idx)
+  defp find_nip_catch_t(_instructions, idx, size, _depth) when idx >= size, do: :error
+
+  defp find_nip_catch_t(instructions, idx, size, depth) do
+    {op, _args} = elem(instructions, idx)
 
     case opcode_name(op) do
       {:ok, :catch} ->
-        find_nip_catch(instructions, idx + 1, depth + 1)
+        find_nip_catch_t(instructions, idx + 1, size, depth + 1)
 
       {:ok, :nip_catch} when depth == 0 ->
         {:ok, idx}
 
       {:ok, :nip_catch} ->
-        find_nip_catch(instructions, idx + 1, depth - 1)
+        find_nip_catch_t(instructions, idx + 1, size, depth - 1)
 
       _ ->
-        find_nip_catch(instructions, idx + 1, depth)
+        find_nip_catch_t(instructions, idx + 1, size, depth)
     end
   end
 end

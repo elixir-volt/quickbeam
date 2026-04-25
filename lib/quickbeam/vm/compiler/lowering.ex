@@ -13,6 +13,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
     entries = CFG.block_entries(instructions)
     slot_count = fun.arg_count + fun.var_count
     constants = fun.constants
+    instrs = List.to_tuple(instructions)
+    size = tuple_size(instrs)
 
     with {:ok, stack_depths} <- Stack.infer_block_stack_depths(instructions, entries),
          {:ok, {entry_types, return_type}} <-
@@ -30,7 +32,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
              start,
              fun.arg_count,
              slot_count,
-             instructions,
+             instrs,
+             size,
              entries,
              Map.fetch!(stack_depths, start),
              stack_depths,
@@ -54,6 +57,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          arg_count,
          slot_count,
          instructions,
+         size,
          entries,
          stack_depth,
          stack_depths,
@@ -73,6 +77,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
     with {:ok, fast_body} <-
            lower_block(
              instructions,
+             size,
              start,
              next_entry,
              arg_count,
@@ -97,6 +102,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
           with {:ok, slow_body} <-
                  lower_block(
                    instructions,
+                   size,
                    start,
                    next_entry,
                    arg_count,
@@ -195,7 +201,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
   defp type_guard(expr, :null), do: {:op, @line, :==, expr, {:atom, @line, nil}}
 
   defp lower_block(
-         instructions,
+         _instructions,
+         size,
          idx,
          next_entry,
          arg_count,
@@ -205,12 +212,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          _entries,
          _inline_targets
        )
-       when idx >= length(instructions) do
+       when idx >= size do
     {:error, {:missing_terminator, idx, next_entry, arg_count, state.body}}
   end
 
   defp lower_block(
          instructions,
+         size,
          idx,
          idx,
          arg_count,
@@ -223,6 +231,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
     if MapSet.member?(inline_targets, idx) do
       lower_block(
         instructions,
+        size,
         idx,
         CFG.next_entry(entries, idx),
         arg_count,
@@ -241,6 +250,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
 
   defp lower_block(
          instructions,
+         size,
          idx,
          next_entry,
          arg_count,
@@ -250,7 +260,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          entries,
          inline_targets
        ) do
-    instruction = Enum.at(instructions, idx)
+    instruction = elem(instructions, idx)
 
     case instruction do
       {op, [target]} ->
@@ -258,6 +268,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
           {:ok, :catch} ->
             lower_catch_suffix(
               instructions,
+              size,
               idx,
               next_entry,
               arg_count,
@@ -272,6 +283,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
           {:ok, :gosub} ->
             lower_gosub_suffix(
               instructions,
+              size,
               idx,
               next_entry,
               arg_count,
@@ -287,6 +299,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
             lower_instruction(
               instruction,
               instructions,
+              size,
               idx,
               next_entry,
               arg_count,
@@ -301,7 +314,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
       {op, []} ->
         case CFG.opcode_name(op) do
           {:ok, :object} ->
-            case collect_define_fields(instructions, idx + 1, arg_count, state) do
+            case collect_define_fields(instructions, size, idx + 1, arg_count, state) do
               {:ok, map_pairs, skip_to, state} ->
                 sorted_pairs =
                   Enum.sort_by(map_pairs, fn {k, _v} ->
@@ -329,11 +342,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
                 keys_tuple = {:tuple, @line, keys_list}
                 vals_tuple = {:tuple, @line, vals_list}
 
-                # Build compile-time offsets map from sorted key names
                 ct_offsets =
                   sorted_pairs
                   |> Enum.with_index()
-                  |> Enum.reduce(%{}, fn {{k_expr, _v}, idx}, acc ->
+                  |> Enum.reduce(%{}, fn {{k_expr, _v}, i}, acc ->
                     key_str =
                       case k_expr do
                         {:string, _, chars} when is_list(chars) ->
@@ -353,7 +365,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
                           nil
                       end
 
-                    if key_str, do: Map.put(acc, key_str, idx), else: acc
+                    if key_str, do: Map.put(acc, key_str, i), else: acc
                   end)
 
                 {obj, state} =
@@ -365,6 +377,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
 
                 lower_block(
                   instructions,
+                  size,
                   skip_to,
                   next_entry,
                   arg_count,
@@ -379,6 +392,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
                 lower_instruction(
                   instruction,
                   instructions,
+                  size,
                   idx,
                   next_entry,
                   arg_count,
@@ -394,6 +408,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
             lower_instruction(
               instruction,
               instructions,
+              size,
               idx,
               next_entry,
               arg_count,
@@ -409,6 +424,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
         lower_instruction(
           instruction,
           instructions,
+          size,
           idx,
           next_entry,
           arg_count,
@@ -421,13 +437,18 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
     end
   end
 
-  defp collect_define_fields(instructions, idx, arg_count, state) do
-    collect_define_fields(instructions, idx, arg_count, state, [])
+  defp collect_define_fields(instructions, size, idx, arg_count, state) do
+    collect_define_fields(instructions, size, idx, arg_count, state, [])
   end
 
-  defp collect_define_fields(instructions, idx, arg_count, state, acc) do
-    val_instr = Enum.at(instructions, idx)
-    df_instr = Enum.at(instructions, idx + 1)
+  defp collect_define_fields(_instructions, size, idx, _arg_count, state, acc)
+       when idx + 1 >= size do
+    if acc == [], do: :not_literal, else: {:ok, Enum.reverse(acc), idx, state}
+  end
+
+  defp collect_define_fields(instructions, size, idx, arg_count, state, acc) do
+    val_instr = elem(instructions, idx)
+    df_instr = elem(instructions, idx + 1)
 
     with {val_op, val_args} <- val_instr,
          {df_op, [key_idx]} <- df_instr,
@@ -438,11 +459,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
       if is_binary(key_name) do
         key_expr = Builder.literal(key_name)
 
-        collect_define_fields(instructions, idx + 2, arg_count, new_state, [
+        collect_define_fields(instructions, size, idx + 2, arg_count, new_state, [
           {key_expr, val_expr} | acc
         ])
       else
-        # Atom not resolvable at compile time — abort batching
         if acc == [], do: :not_literal, else: {:ok, Enum.reverse(acc), idx, state}
       end
     else
@@ -544,6 +564,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
   defp lower_instruction(
          {op, [target]} = instruction,
          instructions,
+         size,
          idx,
          next_entry,
          arg_count,
@@ -557,6 +578,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
       {:ok, :if_false} ->
         lower_branch_instruction(
           instructions,
+          size,
           idx,
           next_entry,
           arg_count,
@@ -572,6 +594,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
       {:ok, :if_false8} ->
         lower_branch_instruction(
           instructions,
+          size,
           idx,
           next_entry,
           arg_count,
@@ -587,6 +610,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
       {:ok, :if_true} ->
         lower_branch_instruction(
           instructions,
+          size,
           idx,
           next_entry,
           arg_count,
@@ -602,6 +626,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
       {:ok, :if_true8} ->
         lower_branch_instruction(
           instructions,
+          size,
           idx,
           next_entry,
           arg_count,
@@ -618,6 +643,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
         lower_non_branch_instruction(
           instruction,
           instructions,
+          size,
           idx,
           next_entry,
           arg_count,
@@ -633,6 +659,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
   defp lower_instruction(
          instruction,
          instructions,
+         size,
          idx,
          next_entry,
          arg_count,
@@ -645,6 +672,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
     lower_non_branch_instruction(
       instruction,
       instructions,
+      size,
       idx,
       next_entry,
       arg_count,
@@ -659,6 +687,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
   defp lower_non_branch_instruction(
          instruction,
          instructions,
+         size,
          idx,
          next_entry,
          arg_count,
@@ -682,6 +711,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
       {:ok, next_state} ->
         lower_block(
           instructions,
+          size,
           idx + 1,
           next_entry,
           arg_count,
@@ -695,6 +725,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
       {:inline_goto, target, next_state} ->
         lower_block(
           instructions,
+          size,
           target,
           CFG.next_entry(entries, target),
           arg_count,
@@ -715,6 +746,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
 
   defp lower_branch_instruction(
          instructions,
+         size,
          idx,
          next_entry,
          arg_count,
@@ -731,6 +763,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
            {:ok, target_body} <-
              lower_branch_target_body(
                instructions,
+               size,
                target,
                arg_count,
                state,
@@ -742,6 +775,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
            {:ok, next_body} <-
              lower_branch_target_body(
                instructions,
+               size,
                next_entry,
                arg_count,
                state,
@@ -762,6 +796,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
            else: QuickBEAM.VM.Opcodes.num(:if_false)
          ), [target]},
         instructions,
+        size,
         idx,
         next_entry,
         arg_count,
@@ -776,6 +811,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
 
   defp lower_branch_target_body(
          _instructions,
+         _size,
          nil,
          _arg_count,
          _state,
@@ -788,6 +824,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
 
   defp lower_branch_target_body(
          instructions,
+         size,
          target,
          arg_count,
          state,
@@ -799,6 +836,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
     if MapSet.member?(inline_targets, target) do
       lower_block(
         instructions,
+        size,
         target,
         CFG.next_entry(entries, target),
         arg_count,
@@ -817,6 +855,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
 
   defp lower_catch_suffix(
          instructions,
+         size,
          idx,
          next_entry,
          arg_count,
@@ -841,6 +880,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          {:ok, try_body} <-
            lower_block(
              instructions,
+             size,
              idx + 1,
              next_entry,
              arg_count,
@@ -855,12 +895,17 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
              entries,
              inline_targets
            ) do
-      {:ok, Enum.reverse([Builder.try_catch_expr(try_body, Builder.var("Caught#{idx}"), [handler_call]) | state.body])}
+      {:ok,
+       Enum.reverse([
+         Builder.try_catch_expr(try_body, Builder.var("Caught#{idx}"), [handler_call])
+         | state.body
+       ])}
     end
   end
 
   defp lower_gosub_suffix(
          instructions,
+         size,
          idx,
          next_entry,
          arg_count,
@@ -871,9 +916,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          inline_targets,
          target
        ) do
-    with {:ok, inlined_state} <- lower_finally_inline(instructions, target, state) do
+    with {:ok, inlined_state} <- lower_finally_inline(instructions, size, target, state) do
       lower_block(
         instructions,
+        size,
         idx + 1,
         next_entry,
         arg_count,
@@ -886,12 +932,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
     end
   end
 
-  defp lower_finally_inline(instructions, idx, _state) when idx >= length(instructions) do
+  defp lower_finally_inline(_instructions, size, idx, _state) when idx >= size do
     {:error, {:missing_ret, idx}}
   end
 
-  defp lower_finally_inline(instructions, idx, state) do
-    instruction = Enum.at(instructions, idx)
+  defp lower_finally_inline(instructions, size, idx, state) do
+    instruction = elem(instructions, idx)
 
     case instruction do
       {op, []} ->
@@ -903,7 +949,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
             {:error, {:unsupported_finally_opcode, name, idx}}
 
           _ ->
-            lower_finally_instruction(instructions, instruction, idx, state)
+            lower_finally_instruction(instructions, size, instruction, idx, state)
         end
 
       {op, _args} ->
@@ -919,15 +965,15 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
             {:error, {:unsupported_finally_opcode, name, idx}}
 
           _ ->
-            lower_finally_instruction(instructions, instruction, idx, state)
+            lower_finally_instruction(instructions, size, instruction, idx, state)
         end
     end
   end
 
-  defp lower_finally_instruction(instructions, instruction, idx, state) do
+  defp lower_finally_instruction(instructions, size, instruction, idx, state) do
     case Ops.lower_instruction(instruction, idx, nil, 0, state, %{}, [], [], MapSet.new()) do
       {:ok, next_state} ->
-        lower_finally_inline(instructions, idx + 1, next_state)
+        lower_finally_inline(instructions, size, idx + 1, next_state)
 
       {:done, body} ->
         {:ok, %{state | body: Enum.reverse(body), stack: state.stack, stack_types: state.stack_types}}

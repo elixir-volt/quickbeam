@@ -8,9 +8,12 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
   def infer_block_entry_types(fun, instructions, entries, stack_depths) do
     slot_count = fun.arg_count + fun.var_count
     initial = initial_type_state(fun, slot_count, Map.get(stack_depths, 0, 0))
+    t = List.to_tuple(instructions)
+    size = tuple_size(t)
 
     iterate_block_entry_types(
-      instructions,
+      t,
+      size,
       entries,
       stack_depths,
       fun.constants,
@@ -33,10 +36,21 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
         case Decoder.decode(fun.byte_code, fun.arg_count) do
           {:ok, instructions} ->
             entries = CFG.block_entries(instructions)
+            t = List.to_tuple(instructions)
+            size = tuple_size(t)
 
             with {:ok, stack_depths} <- Stack.infer_block_stack_depths(instructions, entries),
                  {:ok, {_entry_types, return_type}} <-
-                   infer_block_entry_types(fun, instructions, entries, stack_depths) do
+                   iterate_block_entry_types(
+                     t,
+                     size,
+                     entries,
+                     stack_depths,
+                     fun.constants,
+                     %{0 => initial_type_state(fun, fun.arg_count + fun.var_count, Map.get(stack_depths, 0, 0))},
+                     :unknown,
+                     0
+                   ) do
               {:function, return_type}
             else
               _ -> :function
@@ -55,6 +69,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
 
   defp iterate_block_entry_types(
          instructions,
+         size,
          entries,
          stack_depths,
          constants,
@@ -66,6 +81,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
     with {:ok, {next_entry_types, next_return_type}} <-
            walk_block_entry_types(
              instructions,
+             size,
              entries,
              stack_depths,
              constants,
@@ -77,6 +93,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
       else
         iterate_block_entry_types(
           instructions,
+          size,
           entries,
           stack_depths,
           constants,
@@ -90,6 +107,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
 
   defp iterate_block_entry_types(
          _instructions,
+         _size,
          _entries,
          _stack_depths,
          _constants,
@@ -102,6 +120,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
 
   defp walk_block_entry_types(
          instructions,
+         size,
          entries,
          stack_depths,
          constants,
@@ -118,6 +137,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
 
           case simulate_block_types(
                  instructions,
+                 size,
                  entries,
                  stack_depths,
                  constants,
@@ -139,7 +159,8 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
   end
 
   defp simulate_block_types(
-         instructions,
+         _instructions,
+         size,
          entries,
          stack_depths,
          _constants,
@@ -148,13 +169,14 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
          state,
          return_type
        )
-       when idx >= length(instructions) do
+       when idx >= size do
     {:error,
      {:missing_type_terminator, idx, next_entry, state, return_type, entries, stack_depths}}
   end
 
   defp simulate_block_types(
          _instructions,
+         _size,
          _entries,
          _stack_depths,
          _constants,
@@ -168,6 +190,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
 
   defp simulate_block_types(
          instructions,
+         size,
          entries,
          stack_depths,
          constants,
@@ -176,13 +199,14 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
          state,
          return_type
        ) do
-    instruction = Enum.at(instructions, idx)
+    instruction = elem(instructions, idx)
 
     with {:ok, result} <- transfer_types(instruction, state, return_type, constants) do
       case result do
         {:continue, next_state, next_return_type} ->
           simulate_block_types(
             instructions,
+            size,
             entries,
             stack_depths,
             constants,
@@ -196,6 +220,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
           with {:ok, {updates, final_return_type}} <-
                  simulate_block_types(
                    instructions,
+                   size,
                    entries,
                    stack_depths,
                    constants,
