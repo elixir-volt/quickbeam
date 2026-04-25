@@ -377,14 +377,13 @@ defmodule QuickBEAM.VM.Interpreter do
   def resolve_awaited(val), do: val
 
   defp list_iterator_next(pos_ref) do
-    state = Heap.get_obj(pos_ref, %{pos: 0, list: []})
+    case Heap.get_obj_raw(pos_ref) do
+      [head | tail] ->
+        Heap.put_obj_raw(pos_ref, tail)
+        Heap.wrap(%{"value" => head, "done" => false})
 
-    if state.pos < length(state.list) do
-      val = Enum.at(state.list, state.pos)
-      Heap.put_obj(pos_ref, %{state | pos: state.pos + 1})
-      Heap.wrap(%{"value" => val, "done" => false})
-    else
-      Heap.wrap(%{"value" => :undefined, "done" => true})
+      _ ->
+        Heap.wrap(%{"value" => :undefined, "done" => true})
     end
   end
 
@@ -423,7 +422,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp make_list_iterator(items) do
     pos_ref = make_ref()
-    Heap.put_obj(pos_ref, %{pos: 0, list: items})
+    Heap.put_obj_raw(pos_ref, items)
     next_fn = {:builtin, "next", fn _, _ -> list_iterator_next(pos_ref) end}
     {build_object(do: val("next", next_fn)), next_fn}
   end

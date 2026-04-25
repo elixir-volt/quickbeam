@@ -45,6 +45,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     }
   end
 
+  def emit(state, expr), do: %{state | body: [expr | state.body]}
+  def emit_all(state, exprs), do: %{state | body: Enum.reverse(exprs, state.body)}
+
   def ctx_expr(%{ctx: ctx}), do: ctx
 
   def closure_vars_expr(%{closure_vars: cvs}), do: cvs
@@ -478,8 +481,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def set_home_object(state) do
     with {:ok, state, method} <- bind_stack_entry(state, 0),
          {:ok, state, target} <- bind_stack_entry(state, 1) do
-      {:ok,
-       %{state | body: state.body ++ [compiler_call(state, :set_home_object, [method, target])]}}
+      {:ok, emit(state, compiler_call(state, :set_home_object, [method, target]))}
     else
       :error -> {:error, :set_home_object_state_missing}
     end
@@ -488,20 +490,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def add_brand(state) do
     with {:ok, obj, state} <- pop(state),
          {:ok, brand, state} <- pop(state) do
-      {:ok, %{state | body: state.body ++ [compiler_call(state, :add_brand, [obj, brand])]}}
+      {:ok, emit(state, compiler_call(state, :add_brand, [obj, brand]))}
     end
   end
 
   def put_field_call(state, key_expr) do
     with {:ok, val, _val_type, state} <- pop_typed(state),
          {:ok, obj, _obj_type, state} <- pop_typed(state) do
-      {:ok,
-       %{
-         state
-         | body:
-             state.body ++
-               [Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put, [obj, key_expr, val])]
-       }}
+      {:ok, emit(state, Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put, [obj, key_expr, val]))}
     end
   end
 
@@ -521,20 +517,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
         end
 
       {:ok,
-       %{
-         state
-         | body:
-             state.body ++
-               [
-                 Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put_field, [
-                   obj,
-                   key_expr,
-                   val
-                 ])
-               ],
-           stack: [obj | state.stack],
-           stack_types: [new_type | state.stack_types]
-       }}
+       state
+       |> emit(Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put_field, [obj, key_expr, val]))
+       |> push(obj, new_type)}
     end
   end
 
@@ -636,7 +621,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     with {:ok, val, _val_type, state} <- pop_typed(state),
          {:ok, idx, _idx_type, state} <- pop_typed(state),
          {:ok, obj, _obj_type, state} <- pop_typed(state) do
-      {:ok, %{state | body: state.body ++ [compiler_call(state, :put_array_el, [obj, idx, val])]}}
+      {:ok, emit(state, compiler_call(state, :put_array_el, [obj, idx, val]))}
     end
   end
 
@@ -762,7 +747,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       {:ok,
        %{
          state
-         | body: state.body ++ [compiler_call(state, :copy_data_properties, [target, source])]
+         | body: [compiler_call(state, :copy_data_properties, [target, source]) | state.body]
        }}
     else
       :error -> {:error, {:copy_data_properties_missing, mask, target_idx, source_idx}}
@@ -780,16 +765,15 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     with {:ok, args, _arg_types, state} <- pop_n_typed(state, argc),
          {:ok, fun, _fun_type, state} <- pop_typed(state),
          {:ok, obj, _obj_type, %{stack: [], stack_types: []} = state} <- pop_typed(state) do
-      {:done,
-       state.body ++
-         [
-           Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_method_runtime, [
-             ctx_expr(state),
-             fun,
-             obj,
-             Builder.list_expr(Enum.reverse(args))
-           ])
-         ]}
+      expr =
+        Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_method_runtime, [
+          ctx_expr(state),
+          fun,
+          obj,
+          Builder.list_expr(Enum.reverse(args))
+        ])
+
+      {:done, Enum.reverse([expr | state.body])}
     else
       {:ok, _obj, _obj_type, _state} -> {:error, :stack_not_empty_on_tail_call}
       {:error, _} = error -> error
@@ -798,7 +782,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   def goto(state, target, stack_depths) do
     with {:ok, call} <- block_jump_call(state, target, stack_depths) do
-      {:done, state.body ++ [call]}
+      {:done, Enum.reverse([call | state.body])}
     end
   end
 
@@ -820,9 +804,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
       body =
         if sense do
-          state.body ++ [Builder.branch_case(truthy, true_body, false_body)]
+          Enum.reverse([Builder.branch_case(truthy, true_body, false_body) | state.body])
         else
-          state.body ++ [Builder.branch_case(truthy, false_body, true_body)]
+          Enum.reverse([Builder.branch_case(truthy, false_body, true_body) | state.body])
         end
 
       {:done, body}
@@ -831,19 +815,19 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   def return_top(state) do
     with {:ok, expr, _state} <- pop(state) do
-      {:done, state.body ++ [expr]}
+      {:done, Enum.reverse([expr | state.body])}
     end
   end
 
   def throw_top(state) do
     with {:ok, expr, _state} <- pop(state) do
-      {:done, state.body ++ [Builder.throw_js(expr)]}
+      {:done, Enum.reverse([Builder.throw_js(expr) | state.body])}
     end
   end
 
   def bind(state, name, expr) do
     var = Builder.var(name)
-    {var, %{state | body: state.body ++ [Builder.match(var, expr)], temp: state.temp + 1}}
+    {var, %{state | body: [Builder.match(var, expr) | state.body], temp: state.temp + 1}}
   end
 
   def update_ctx(state, expr) do
@@ -918,13 +902,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   defp tail_call_expr(state, _fun, :self_fun, args, _arg_types),
     do:
-      state.body ++
-        [
-          Builder.local_call(:run_ctx, [ctx_expr(state) | normalize_self_call_args(state, args)])
-        ]
+      Enum.reverse([
+        Builder.local_call(:run_ctx, [ctx_expr(state) | normalize_self_call_args(state, args)])
+        | state.body
+      ])
 
   defp tail_call_expr(state, fun, _fun_type, args, _arg_types),
-    do: state.body ++ [invoke_runtime_expr(state, fun, args)]
+    do: Enum.reverse([invoke_runtime_expr(state, fun, args) | state.body])
 
   defp specialize_unary(:op_neg, expr, :integer), do: {{:op, @line, :-, expr}, :integer}
   defp specialize_unary(:op_neg, expr, :number), do: {{:op, @line, :-, expr}, :number}

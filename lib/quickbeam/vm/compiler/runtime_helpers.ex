@@ -219,14 +219,14 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def for_of_start(ctx, obj) do
     case obj do
       list when is_list(list) ->
-        {{:list_iter, list, 0}, :undefined}
+        {{:list_iter, list}, :undefined}
 
       {:obj, ref} = obj_ref ->
         case Heap.get_obj(ref) do
           {:qb_arr, arr} ->
             case check_array_proto_iterator(obj_ref, ref) do
               :default ->
-                {{:list_iter, :array.to_list(arr), 0}, :undefined}
+                {{:list_iter, :array.to_list(arr)}, :undefined}
 
               :deleted ->
                 throw(
@@ -240,7 +240,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
           list when is_list(list) ->
             case check_array_proto_iterator(obj_ref, ref) do
               :default ->
-                {{:list_iter, list, 0}, :undefined}
+                {{:list_iter, list}, :undefined}
 
               :deleted ->
                 throw(
@@ -264,15 +264,15 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
                 {obj_ref, Get.get(obj_ref, "next")}
 
               true ->
-                {{:list_iter, [], 0}, :undefined}
+                {{:list_iter, []}, :undefined}
             end
 
           _ ->
-            {{:list_iter, [], 0}, :undefined}
+            {{:list_iter, []}, :undefined}
         end
 
       s when is_binary(s) ->
-        {{:list_iter, String.codepoints(s), 0}, :undefined}
+        {{:list_iter, String.codepoints(s)}, :undefined}
 
       nil ->
         throw(
@@ -303,13 +303,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def for_of_next(_ctx, _next_fn, :undefined), do: {true, :undefined, :undefined}
 
-  def for_of_next(_ctx, _next_fn, {:list_iter, list, idx}) do
-    if idx < length(list) do
-      {false, Enum.at(list, idx), {:list_iter, list, idx + 1}}
-    else
-      {true, :undefined, :undefined}
-    end
-  end
+  def for_of_next(_ctx, _next_fn, {:list_iter, [head | tail]}),
+    do: {false, head, {:list_iter, tail}}
+
+  def for_of_next(_ctx, _next_fn, {:list_iter, []}), do: {true, :undefined, :undefined}
 
   def for_of_next(ctx, next_fn, iter_obj) do
     result = Invocation.call_callback(ctx, next_fn, [])
@@ -324,7 +321,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   def iterator_close(_ctx, :undefined), do: :ok
-  def iterator_close(_ctx, {:list_iter, _, _}), do: :ok
+  def iterator_close(_ctx, {:list_iter, _}), do: :ok
 
   def iterator_close(ctx, iter_obj) do
     return_fn = Get.get(iter_obj, "return")
@@ -819,14 +816,14 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def for_of_start(obj) do
     case obj do
       list when is_list(list) ->
-        {{:list_iter, list, 0}, :undefined}
+        {{:list_iter, list}, :undefined}
 
       {:obj, ref} = obj_ref ->
         case Heap.get_obj(ref) do
           {:qb_arr, arr} ->
             case check_array_proto_iterator(obj_ref, ref) do
               :default ->
-                {{:list_iter, :array.to_list(arr), 0}, :undefined}
+                {{:list_iter, :array.to_list(arr)}, :undefined}
 
               :deleted ->
                 throw(
@@ -840,7 +837,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
           list when is_list(list) ->
             case check_array_proto_iterator(obj_ref, ref) do
               :default ->
-                {{:list_iter, list, 0}, :undefined}
+                {{:list_iter, list}, :undefined}
 
               :deleted ->
                 throw(
@@ -864,15 +861,15 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
                 {obj_ref, Get.get(obj_ref, "next")}
 
               true ->
-                {{:list_iter, [], 0}, :undefined}
+                {{:list_iter, []}, :undefined}
             end
 
           _ ->
-            {{:list_iter, [], 0}, :undefined}
+            {{:list_iter, []}, :undefined}
         end
 
       s when is_binary(s) ->
-        {{:list_iter, String.codepoints(s), 0}, :undefined}
+        {{:list_iter, String.codepoints(s)}, :undefined}
 
       nil ->
         throw(
@@ -915,13 +912,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def for_of_next(_next_fn, :undefined), do: {true, :undefined, :undefined}
 
-  def for_of_next(_next_fn, {:list_iter, list, idx}) do
-    if idx < length(list) do
-      {false, Enum.at(list, idx), {:list_iter, list, idx + 1}}
-    else
-      {true, :undefined, :undefined}
-    end
-  end
+  def for_of_next(_next_fn, {:list_iter, [head | tail]}),
+    do: {false, head, {:list_iter, tail}}
+
+  def for_of_next(_next_fn, {:list_iter, []}), do: {true, :undefined, :undefined}
 
   def for_of_next(next_fn, iter_obj) do
     result = Runtime.call_callback(next_fn, [])
@@ -936,7 +930,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   def iterator_close(:undefined), do: :ok
-  def iterator_close({:list_iter, _, _}), do: :ok
+  def iterator_close({:list_iter, _}), do: :ok
 
   def iterator_close(iter_obj) do
     return_fn = Get.get(iter_obj, "return")
