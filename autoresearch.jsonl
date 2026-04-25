@@ -1,1 +1,3 @@
 {"type":"config","name":"Complete BEAM Web API Parity","metricName":"failing_tests","metricUnit":"","bestDirection":"lower"}
+{"run":36,"commit":"027f89b","metric":172,"metrics":{"passing_tests":330},"status":"keep","description":"Baseline: 172 failing, 330 passing out of 502 web API tests","timestamp":1777144176601,"segment":4,"confidence":null,"iterationTokens":151,"asi":{"hypothesis":"baseline"}}
+{"type":"config","name":"Complete Web API Parity - 172 failing tests","metricName":"failing_tests","metricUnit":"","bestDirection":"lower"}
