@@ -2867,7 +2867,7 @@ defmodule QuickBEAM.VM.Interpreter do
     Closures.write_cell(ref, val)
 
     ctx =
-      if is_binary(prop_name) and Map.has_key?(ctx.globals, prop_name) do
+      if is_binary(prop_name) do
         new_globals = Map.put(ctx.globals, prop_name, val)
         Heap.put_persistent_globals(new_globals)
         Heap.put_base_globals(new_globals)
