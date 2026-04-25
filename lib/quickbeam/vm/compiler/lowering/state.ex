@@ -702,17 +702,21 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   def post_update(state, fun) do
     with {:ok, expr, type, state} <- pop_typed(state) do
-      result_type = if type == :integer, do: :integer, else: :number
+      if type == :integer do
+        op = if fun == :post_inc, do: :+, else: :-
+        {new_val, state} = bind(state, Builder.temp_name(state.temp), {:op, @line, op, expr, {:integer, @line, 1}})
+        {:ok, %{state | stack: [new_val, expr | state.stack], stack_types: [:integer, :integer | state.stack_types]}}
+      else
+        {pair, state} =
+          bind(state, Builder.temp_name(state.temp), compiler_call(state, fun, [expr]))
 
-      {pair, state} =
-        bind(state, Builder.temp_name(state.temp), compiler_call(state, fun, [expr]))
-
-      {:ok,
-       %{
-         state
-         | stack: [Builder.tuple_element(pair, 1), Builder.tuple_element(pair, 2) | state.stack],
-           stack_types: [result_type, result_type | state.stack_types]
-       }}
+        {:ok,
+         %{
+           state
+           | stack: [Builder.tuple_element(pair, 1), Builder.tuple_element(pair, 2) | state.stack],
+             stack_types: [:number, :number | state.stack_types]
+         }}
+      end
     end
   end
 
