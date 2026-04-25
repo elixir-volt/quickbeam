@@ -191,13 +191,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   def put(_, _, _, _), do: :ok
 
-  defp normalize_key(k) when is_float(k) and k == trunc(k) and k >= 0,
-    do: k |> trunc() |> Integer.to_string()
-
-  defp normalize_key(k) when is_float(k), do: Values.stringify(k)
-  defp normalize_key({:tagged_int, n}), do: Integer.to_string(n)
-  defp normalize_key(k) when is_integer(k) and k >= 0, do: Integer.to_string(k)
-  defp normalize_key(k), do: k
+  defp normalize_key(k), do: QuickBEAM.VM.ObjectModel.PropertyKey.normalize(k)
 
   defp put_array_key(ref, key, val) do
     case key do
