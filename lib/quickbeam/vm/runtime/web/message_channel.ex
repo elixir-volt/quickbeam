@@ -233,14 +233,31 @@ defmodule QuickBEAM.VM.Runtime.Web.MessageChannel do
   end
 
   defp make_message_event(data) do
-    Heap.wrap(%{
+    base = %{
       "type" => "message",
       "data" => data,
       "origin" => "",
       "lastEventId" => "",
       "source" => nil,
       "ports" => []
-    })
+    }
+
+    # Add constructor and proto for instanceof MessageEvent
+    me_ctor = case Heap.get_global_cache() do
+      nil -> nil
+      globals -> Map.get(globals, "MessageEvent")
+    end
+
+    base = if me_ctor do
+      proto = Heap.get_class_proto(me_ctor)
+      base
+      |> Map.put("constructor", me_ctor)
+      |> then(fn m -> if proto, do: Map.put(m, "__proto__", proto), else: m end)
+    else
+      base
+    end
+
+    Heap.wrap(base)
   end
 
   defp build_message_event_ctor do

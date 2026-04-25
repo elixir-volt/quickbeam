@@ -93,8 +93,14 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Locals do
       end
 
       defp run({@op_get_loc_check, [idx]}, pc, frame, stack, gas, ctx) do
-        val = elem(elem(frame, Frame.locals()), idx)
-        ensure_initialized_local!(ctx, idx, val)
+        raw = elem(elem(frame, Frame.locals()), idx)
+        ensure_initialized_local!(ctx, idx, raw)
+        val = Closures.read_captured_local(
+          elem(frame, Frame.l2v()),
+          idx,
+          elem(frame, Frame.locals()),
+          elem(frame, Frame.var_refs())
+        )
         run(pc + 1, frame, [val | stack], gas, ctx)
       end
 

@@ -12,8 +12,64 @@ defmodule QuickBEAM.VM.Runtime.Web.EventSourceAPI do
   @open 1
   @closed 2
 
+  @es_sources_key :qb_event_source_sources
+
   def bindings do
     %{"EventSource" => WebAPIs.register("EventSource", &build_event_source/2)}
+  end
+
+  @doc "Drain all pending EventSource messages. Called from drain_pending loop."
+  def drain_all_event_sources do
+    sources = Process.get(@es_sources_key, [])
+    Enum.each(sources, fn {es_id, state_ref, onopen_ref, onmessage_ref, onerror_ref, listeners_ref, last_event_id_ref} ->
+      state = Heap.get_obj(state_ref, %{})
+      unless Map.get(state, :readyState) == @closed do
+        msgs = drain_sse_messages(es_id, [])
+        Enum.each(msgs, fn msg ->
+          case msg do
+            {:eventsource_open, ^es_id} ->
+              Heap.put_obj(state_ref, Map.put(state, :readyState, @open))
+              handler = Heap.get_obj(onopen_ref, nil)
+              event = Heap.wrap(%{"type" => "open"})
+              fire_handler(handler, event)
+              fire_listeners(listeners_ref, "open", event)
+
+            {:eventsource_event, ^es_id, sse_event} ->
+              event_type = Map.get(sse_event, :type, "message")
+              data = Map.get(sse_event, :data, "")
+              event_id = Map.get(sse_event, :id)
+
+              if event_id, do: Heap.put_obj(last_event_id_ref, event_id)
+              last_id = Heap.get_obj(last_event_id_ref, "")
+
+              event = Heap.wrap(%{
+                "type" => event_type,
+                "data" => data,
+                "origin" => "",
+                "lastEventId" => last_id
+              })
+
+              if event_type == "message" do
+                handler = Heap.get_obj(onmessage_ref, nil)
+                fire_handler(handler, event)
+              end
+
+              fire_listeners(listeners_ref, event_type, event)
+
+            {:eventsource_error, ^es_id, _reason} ->
+              cur_state = Heap.get_obj(state_ref, %{})
+              if Map.get(cur_state, :readyState) != @closed do
+                handler = Heap.get_obj(onerror_ref, nil)
+                event = Heap.wrap(%{"type" => "error"})
+                fire_handler(handler, event)
+                fire_listeners(listeners_ref, "error", event)
+              end
+
+            _ -> :ok
+          end
+        end)
+      end
+    end)
   end
 
   defp build_event_source([url | rest], _this) do
@@ -45,6 +101,10 @@ defmodule QuickBEAM.VM.Runtime.Web.EventSourceAPI do
 
     # Register the task pid for cleanup
     Heap.put_obj(state_ref, %{readyState: @connecting, task_pid: task_pid})
+
+    # Register as an event source for drain_all_event_sources
+    sources = Process.get(@es_sources_key, [])
+    Process.put(@es_sources_key, sources ++ [{es_id, state_ref, onopen_ref, onmessage_ref, onerror_ref, listeners_ref, last_event_id_ref}])
 
     # Schedule delivery of SSE events via message polling
     schedule_sse_delivery(es_id, state_ref, onopen_ref, onmessage_ref, onerror_ref, listeners_ref, last_event_id_ref)

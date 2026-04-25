@@ -2,3 +2,4 @@
 {"run":36,"commit":"027f89b","metric":172,"metrics":{"passing_tests":330},"status":"keep","description":"Baseline: 172 failing, 330 passing out of 502 web API tests","timestamp":1777144176601,"segment":4,"confidence":null,"iterationTokens":151,"asi":{"hypothesis":"baseline"}}
 {"type":"config","name":"Complete Web API Parity - 172 failing tests","metricName":"failing_tests","metricUnit":"","bestDirection":"lower"}
 {"run":2,"commit":"c3fa20e","metric":172,"metrics":{"passing_tests":330},"status":"keep","description":"Baseline: 172 failing, 330 passing","timestamp":1777144681223,"segment":1,"confidence":null,"iterationTokens":752}
+{"run":3,"commit":"8874493","metric":9,"metrics":{"passing_tests":493},"status":"keep","description":"172→9 failures: Buffer, SubtleCrypto, MessageChannel, Compression, Navigator.locks, Beam API, Worker, Promise.race, streams fixes","timestamp":1777152511834,"segment":1,"confidence":null,"iterationTokens":296671}
