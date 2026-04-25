@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
   alias QuickBEAM.VM.Bytecode
   alias QuickBEAM.VM.Compiler.Analysis.{CFG, Stack}
   alias QuickBEAM.VM.Decoder
+  alias QuickBEAM.VM.Heap.Caches
 
   def infer_block_entry_types(fun, instructions, entries, stack_depths) do
     slot_count = fun.arg_count + fun.var_count
@@ -24,13 +25,12 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
   end
 
   def function_type(%Bytecode.Function{} = fun) do
-    stack = Process.get(:qb_function_type_stack, MapSet.new())
+    stack = Caches.get_function_type_stack()
 
     if MapSet.member?(stack, fun.byte_code) do
       :function
     else
-      next_stack = MapSet.put(stack, fun.byte_code)
-      Process.put(:qb_function_type_stack, next_stack)
+      Caches.put_function_type_stack(MapSet.put(stack, fun.byte_code))
 
       try do
         case Decoder.decode(fun.byte_code, fun.arg_count) do
@@ -61,8 +61,8 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
         end
       after
         if MapSet.size(stack) == 0,
-          do: Process.delete(:qb_function_type_stack),
-          else: Process.put(:qb_function_type_stack, stack)
+          do: Caches.delete_function_type_stack(),
+          else: Caches.put_function_type_stack(stack)
       end
     end
   end

@@ -314,8 +314,8 @@ defmodule QuickBEAM.VM.Invocation do
   end
 
   defp maybe_gc(result, extra_roots) do
-    depth = Process.get(:qb_invoke_depth, 0) - 1
-    Process.put(:qb_invoke_depth, depth)
+    depth = Heap.get_invoke_depth() - 1
+    Heap.put_invoke_depth(depth)
 
     if depth == 0 and Heap.gc_needed?() do
       Heap.gc([result | extra_roots])
@@ -325,8 +325,7 @@ defmodule QuickBEAM.VM.Invocation do
   end
 
   defp track_invoke_depth do
-    depth = Process.get(:qb_invoke_depth, 0) + 1
-    Process.put(:qb_invoke_depth, depth)
+    Heap.put_invoke_depth(Heap.get_invoke_depth() + 1)
   end
 
   defp active_ctx do

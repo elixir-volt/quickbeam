@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.Heap.Store do
   @moduledoc "Low-level process-dictionary storage for JS heap objects: objects, arrays, cells, atoms, and GC roots."
 
   import QuickBEAM.VM.Heap.Keys
-  alias QuickBEAM.VM.Heap.Shapes
+  alias QuickBEAM.VM.Heap.{Arrays, Shapes}
 
   # ── Raw storage (bypasses shape→map reconstruction) ──
 
@@ -90,7 +90,7 @@ defmodule QuickBEAM.VM.Heap.Store do
 
   def obj_to_list(ref) do
     case Process.get(ref) do
-      {:qb_arr, arr} -> :array.to_list(arr)
+      {:qb_arr, _} = arr -> Arrays.to_list(arr)
       list when is_list(list) -> list
       _ -> []
     end
@@ -98,11 +98,8 @@ defmodule QuickBEAM.VM.Heap.Store do
 
   def array_get(ref, idx) do
     case Process.get(ref) do
-      {:qb_arr, arr} when idx >= 0 ->
-        if idx < :array.size(arr), do: :array.get(idx, arr), else: :undefined
-
-      _ ->
-        :undefined
+      {:qb_arr, _} = arr when idx >= 0 -> Arrays.get(arr, idx)
+      _ -> :undefined
     end
   end
 

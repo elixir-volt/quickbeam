@@ -42,4 +42,25 @@ defmodule QuickBEAM.VM.Heap.Caches do
 
   def get_string_codepoints(s), do: Process.get({:qb_string_codepoints, s})
   def put_string_codepoints(s, chars), do: Process.put({:qb_string_codepoints, s}, chars)
+
+  # ── Invocation depth ──
+
+  def get_invoke_depth, do: Process.get(:qb_invoke_depth, 0)
+  def put_invoke_depth(depth), do: Process.put(:qb_invoke_depth, depth)
+
+  # ── Eval restore stack ──
+
+  def get_eval_restore_stack, do: Process.get(:qb_eval_restore_stack, [])
+  def put_eval_restore_stack(stack), do: Process.put(:qb_eval_restore_stack, stack)
+
+  # ── Function type inference recursion guard ──
+
+  def get_function_type_stack, do: Process.get(:qb_function_type_stack, MapSet.new())
+  def put_function_type_stack(stack), do: Process.put(:qb_function_type_stack, stack)
+  def delete_function_type_stack, do: Process.delete(:qb_function_type_stack)
+
+  # ── Home object storage ──
+
+  def get_home_object(key), do: Process.get({:qb_home_object, key}, :undefined)
+  def put_home_object(key, target), do: Process.put({:qb_home_object, key}, target)
 end

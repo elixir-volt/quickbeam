@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Stacktrace do
   import QuickBEAM.VM.Builtin, only: [build_object: 1]
 
   alias QuickBEAM.VM.{Bytecode, Heap}
+  alias QuickBEAM.VM.Execution.Trace
   alias QuickBEAM.VM.Runtime
 
   def attach_stack({:obj, ref} = error_obj, filter_fun \\ nil) do
@@ -25,7 +26,7 @@ defmodule QuickBEAM.VM.Stacktrace do
   end
 
   def current_frames(filter_fun \\ nil) do
-    frames = Process.get(:qb_active_frames, [])
+    frames = Trace.get_frames()
     limit = stack_trace_limit()
 
     frames

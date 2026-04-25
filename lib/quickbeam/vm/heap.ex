@@ -16,7 +16,7 @@ defmodule QuickBEAM.VM.Heap do
     - `{:qb_var, name}` — global variable bindings
   """
 
-  alias QuickBEAM.VM.Heap.{Async, Caches, Context, GC, Registry, Shapes, Store}
+  alias QuickBEAM.VM.Heap.{Arrays, Async, Caches, Context, GC, Registry, Shapes, Store}
 
   @compile {:inline,
             get_obj: 1,
@@ -183,7 +183,7 @@ defmodule QuickBEAM.VM.Heap do
     end
   end
 
-  def to_list({:qb_arr, arr}), do: :array.to_list(arr)
+  def to_list({:qb_arr, _} = arr), do: Arrays.to_list(arr)
   def to_list(list) when is_list(list), do: list
   def to_list(_), do: []
 
@@ -311,6 +311,14 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate put_regexp_result(ref, result), to: Caches
   defdelegate get_string_codepoints(s), to: Caches
   defdelegate put_string_codepoints(s, chars), to: Caches
+  defdelegate array?(val), to: Arrays
+  defdelegate array_length(arr), to: Arrays, as: :length
+  defdelegate get_invoke_depth(), to: Caches
+  defdelegate put_invoke_depth(depth), to: Caches
+  defdelegate get_eval_restore_stack(), to: Caches
+  defdelegate put_eval_restore_stack(stack), to: Caches
+  defdelegate get_home_object(key), to: Caches
+  defdelegate put_home_object(key, target), to: Caches
   defdelegate frozen?(ref), to: Store
   defdelegate freeze(ref), to: Store
   defdelegate get_prop_desc(ref, key), to: Store

@@ -3,8 +3,10 @@ defmodule QuickBEAM.VM.Execution.Trace do
 
   @key :qb_active_frames
 
+  def get_frames, do: Process.get(@key, [])
+
   def push(fun) do
-    Process.put(@key, [%{fun: fun, pc: 0} | Process.get(@key, [])])
+    Process.put(@key, [%{fun: fun, pc: 0} | get_frames()])
   end
 
   def pop do

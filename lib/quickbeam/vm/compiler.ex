@@ -8,12 +8,12 @@ defmodule QuickBEAM.VM.Compiler do
   @type beam_file :: {:beam_file, module(), list(), list(), list(), list()}
 
   def invoke(fun, args) do
-    depth = Process.get(:qb_invoke_depth, 0)
-    Process.put(:qb_invoke_depth, depth + 1)
+    depth = Heap.get_invoke_depth()
+    Heap.put_invoke_depth(depth + 1)
 
     result = Runner.invoke(fun, args)
 
-    Process.put(:qb_invoke_depth, depth)
+    Heap.put_invoke_depth(depth)
 
     if depth == 0 and Heap.gc_needed?() do
       extra =
@@ -97,16 +97,32 @@ defmodule QuickBEAM.VM.Compiler do
     end
   end
 
+  @compiler_version 1
+
   defp module_name(fun) do
+    atoms = Heap.get_fn_atoms(fun.byte_code, {})
+
     hash =
-      fun
-      |> :erlang.term_to_binary()
-      |> then(&:crypto.hash(:sha256, &1))
+      :crypto.hash(:sha256, [
+        <<@compiler_version>>,
+        fun.byte_code,
+        <<fun.arg_count::16, fun.var_count::16, fun.func_kind::8>>,
+        :erlang.term_to_binary(Enum.map(fun.closure_vars, &closure_var_key/1)),
+        :erlang.term_to_binary(Enum.map(fun.constants, &constant_key/1)),
+        :erlang.term_to_binary(atoms)
+      ])
       |> binary_part(0, 8)
       |> Base.encode16(case: :lower)
 
     Module.concat(QuickBEAM.VM.Compiled, "F#{hash}")
   end
+
+  defp closure_var_key(%{closure_type: t, var_idx: i}), do: {t, i}
+
+  defp constant_key(%Bytecode.Function{byte_code: bc, arg_count: ac, var_count: vc, func_kind: fk, closure_vars: cvs, constants: consts}),
+    do: {:fn, bc, ac, vc, fk, Enum.map(cvs, &closure_var_key/1), Enum.map(consts, &constant_key/1)}
+
+  defp constant_key(other), do: other
 
   defp entry_name, do: :run
   defp ctx_entry_name, do: :run_ctx

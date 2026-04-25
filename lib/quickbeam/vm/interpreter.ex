@@ -661,8 +661,7 @@ defmodule QuickBEAM.VM.Interpreter do
       case Map.get(captured, ClosureBuilder.capture_key(cv)) do
         {:cell, ref} ->
           old_val = Heap.get_cell(ref)
-          restore_stack = Process.get(:qb_eval_restore_stack, [])
-          Process.put(:qb_eval_restore_stack, [{ref, old_val} | restore_stack])
+          Heap.put_eval_restore_stack([{ref, old_val} | Heap.get_eval_restore_stack()])
           Heap.put_cell(ref, Map.get(new_globals, name))
 
         _ ->
@@ -674,14 +673,14 @@ defmodule QuickBEAM.VM.Interpreter do
   defp apply_transient_captured_vars(_, _, _), do: :ok
 
   defp restore_eval_restores(mark) do
-    restores = Process.get(:qb_eval_restore_stack, [])
+    restores = Heap.get_eval_restore_stack()
     {to_restore, keep} = Enum.split(restores, length(restores) - mark)
 
     Enum.each(to_restore, fn {ref, old_val} ->
       Heap.put_cell(ref, old_val)
     end)
 
-    Process.put(:qb_eval_restore_stack, keep)
+    Heap.put_eval_restore_stack(keep)
   end
 
   defp eval_declared_names(%Bytecode.Function{} = fun, atoms) do
@@ -1427,7 +1426,7 @@ defmodule QuickBEAM.VM.Interpreter do
         inner_ctx = Context.mark_synced(inner_ctx)
 
         if inner_ctx.trace_enabled, do: Trace.push(self_ref)
-        restore_mark = length(Process.get(:qb_eval_restore_stack, []))
+        restore_mark = length(Heap.get_eval_restore_stack())
 
         try do
           case fun.func_kind do
