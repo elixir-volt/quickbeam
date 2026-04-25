@@ -64,28 +64,28 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Arithmetic do
         State.binary_local_call(state, :op_div)
 
       {{:ok, :mod}, []} ->
-        State.binary_call(state, Values, :mod)
+        State.binary_local_call(state, :op_mod)
 
       {{:ok, :pow}, []} ->
         State.binary_call(state, Values, :pow)
 
       {{:ok, :band}, []} ->
-        State.binary_call(state, Values, :band)
+        State.binary_local_call(state, :op_band)
 
       {{:ok, :bor}, []} ->
-        State.binary_call(state, Values, :bor)
+        State.binary_local_call(state, :op_bor)
 
       {{:ok, :bxor}, []} ->
-        State.binary_call(state, Values, :bxor)
+        State.binary_local_call(state, :op_bxor)
 
       {{:ok, :shl}, []} ->
-        State.binary_call(state, Values, :shl)
+        State.binary_local_call(state, :op_shl)
 
       {{:ok, :sar}, []} ->
-        State.binary_call(state, Values, :sar)
+        State.binary_local_call(state, :op_sar)
 
       {{:ok, :shr}, []} ->
-        State.binary_call(state, Values, :shr)
+        State.binary_local_call(state, :op_shr)
 
       {{:ok, :lt}, []} ->
         State.binary_local_call(state, :op_lt)

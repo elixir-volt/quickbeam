@@ -56,6 +56,13 @@ defmodule QuickBEAM.VM.Compiler.Forms do
       guarded_binary_helper(:op_lte, :"=<", Values, :lte),
       guarded_binary_helper(:op_gt, :>, Values, :gt),
       guarded_binary_helper(:op_gte, :>=, Values, :gte),
+      guarded_binary_helper(:op_mod, :rem, Values, :mod),
+      guarded_binary_helper(:op_band, :band, Values, :band),
+      guarded_binary_helper(:op_bor, :bor, Values, :bor),
+      guarded_binary_helper(:op_bxor, :bxor, Values, :bxor),
+      guarded_binary_helper(:op_shl, :bsl, Values, :shl),
+      guarded_binary_helper(:op_sar, :bsr, Values, :sar),
+      unary_fallback_helper2(:op_shr, Values, :shr),
       eq_helper(),
       neq_helper(),
       strict_eq_helper(),
@@ -155,6 +162,16 @@ defmodule QuickBEAM.VM.Compiler.Forms do
      [
        {:clause, @line, [a], [[integer_guard(a)]], [a]},
        {:clause, @line, [a], [], [remote_call(fallback_mod, fallback_fun, [a])]}
+     ]}
+  end
+
+  defp unary_fallback_helper2(name, fallback_mod, fallback_fun) do
+    a = var("A")
+    b = var("B")
+
+    {:function, @line, name, 2,
+     [
+       {:clause, @line, [a, b], [], [remote_call(fallback_mod, fallback_fun, [a, b])]}
      ]}
   end
 

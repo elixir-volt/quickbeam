@@ -935,6 +935,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
        when type in [:integer, :boolean, :string, :null, :undefined],
        do: {{:op, @line, :"=/=", left, right}, :boolean}
 
+  defp specialize_binary(:op_mod, left, :integer, right, :integer),
+    do: {{:op, @line, :rem, left, right}, :integer}
+
+  defp specialize_binary(fun, left, left_type, right, right_type)
+       when fun in [:op_band, :op_bor, :op_bxor, :op_shl, :op_sar] and
+              left_type in [:integer, :number] and right_type in [:integer, :number],
+       do: {{:op, @line, binary_operator(fun), left, right}, :integer}
+
   defp specialize_binary(fun, left, left_type, right, right_type)
        when fun in [:op_sub, :op_mul] and left_type == :integer and right_type == :integer,
        do: {{:op, @line, binary_operator(fun), left, right}, :integer}
@@ -1002,6 +1010,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   defp binary_operator(:op_sub), do: :-
   defp binary_operator(:op_mul), do: :*
+  defp binary_operator(:op_mod), do: :rem
+  defp binary_operator(:op_band), do: :band
+  defp binary_operator(:op_bor), do: :bor
+  defp binary_operator(:op_bxor), do: :bxor
+  defp binary_operator(:op_shl), do: :bsl
+  defp binary_operator(:op_sar), do: :bsr
 
   defp normalize_self_call_args(%{arg_count: arg_count}, args) do
     args
