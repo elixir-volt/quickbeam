@@ -97,7 +97,6 @@ defmodule QuickBEAM.VM.Compiler do
     end
   end
 
-
   defp module_name(fun) do
     hash =
       fun
@@ -108,9 +107,6 @@ defmodule QuickBEAM.VM.Compiler do
 
     Module.concat(QuickBEAM.VM.Compiled, "F#{hash}")
   end
-
-
-
 
   defp entry_name, do: :run
   defp ctx_entry_name, do: :run_ctx

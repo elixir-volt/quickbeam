@@ -50,13 +50,13 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     [
       add_helper(),
       guarded_binary_helper(:op_sub, :-, Values, :sub),
-      guarded_binary_helper(:op_mul, :*, Values, :mul),
-      guarded_binary_helper(:op_div, :/, Values, :div),
-      guarded_binary_helper(:op_lt, :<, Values, :lt),
-      guarded_binary_helper(:op_lte, :"=<", Values, :lte),
-      guarded_binary_helper(:op_gt, :>, Values, :gt),
-      guarded_binary_helper(:op_gte, :>=, Values, :gte),
-      guarded_binary_helper(:op_mod, :rem, Values, :mod),
+      number_guarded_binary_helper(:op_mul, :*, Values, :mul),
+      div_helper(),
+      number_guarded_binary_helper(:op_lt, :<, Values, :lt),
+      number_guarded_binary_helper(:op_lte, :"=<", Values, :lte),
+      number_guarded_binary_helper(:op_gt, :>, Values, :gt),
+      number_guarded_binary_helper(:op_gte, :>=, Values, :gte),
+      mod_helper(),
       guarded_binary_helper(:op_band, :band, Values, :band),
       guarded_binary_helper(:op_bor, :bor, Values, :bor),
       guarded_binary_helper(:op_bxor, :bxor, Values, :bxor),
@@ -67,7 +67,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
       neq_helper(),
       strict_eq_helper(),
       strict_neq_helper(),
-      guarded_unary_helper(:op_neg, :-, Values, :neg),
+      neg_helper(),
       unary_fallback_helper(:op_plus, Values, :to_number),
       get_field_inline_helper(),
       truthy_inline_helper(),
@@ -129,6 +129,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     {:function, @line, :op_add, 2,
      [
        {:clause, @line, [a, b], [integer_guards(a, b)], [{:op, @line, :+, a, b}]},
+       {:clause, @line, [a, b], [float_guards(a, b)], [{:op, @line, :+, a, b}]},
        {:clause, @line, [a, b], [binary_guards(a, b)], [binary_concat(a, b)]},
        {:clause, @line, [a, b], [], [remote_call(Values, :add, [a, b])]}
      ]}
@@ -145,13 +146,47 @@ defmodule QuickBEAM.VM.Compiler.Forms do
      ]}
   end
 
-  defp guarded_unary_helper(name, op, fallback_mod, fallback_fun) do
+  defp number_guarded_binary_helper(name, op, fallback_mod, fallback_fun) do
+    a = var("A")
+    b = var("B")
+
+    {:function, @line, name, 2,
+     [
+       {:clause, @line, [a, b], [number_guards(a, b)], [{:op, @line, op, a, b}]},
+       {:clause, @line, [a, b], [], [remote_call(fallback_mod, fallback_fun, [a, b])]}
+     ]}
+  end
+
+  defp div_helper do
+    a = var("A")
+    b = var("B")
+
+    {:function, @line, :op_div, 2,
+     [
+       {:clause, @line, [a, b], [number_nonzero_guards(a, b)], [{:op, @line, :/, a, b}]},
+       {:clause, @line, [a, b], [], [remote_call(Values, :js_div, [a, b])]}
+     ]}
+  end
+
+  defp mod_helper do
+    a = var("A")
+    b = var("B")
+
+    {:function, @line, :op_mod, 2,
+     [
+       {:clause, @line, [a, b], [integer_nonzero_guards(a, b)], [{:op, @line, :rem, a, b}]},
+       {:clause, @line, [a, b], [], [remote_call(Values, :mod, [a, b])]}
+     ]}
+  end
+
+  defp neg_helper do
     a = var("A")
 
-    {:function, @line, name, 1,
+    {:function, @line, :op_neg, 1,
      [
-       {:clause, @line, [a], [[integer_guard(a)]], [{:op, @line, op, a}]},
-       {:clause, @line, [a], [], [remote_call(fallback_mod, fallback_fun, [a])]}
+       {:clause, @line, [a], [[integer_guard(a)]], [{:op, @line, :-, a}]},
+       {:clause, @line, [a], [[float_guard(a)]], [{:op, @line, :-, a}]},
+       {:clause, @line, [a], [], [remote_call(Values, :neg, [a])]}
      ]}
   end
 
@@ -229,11 +264,22 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
   defp integer_guards(a, b), do: [integer_guard(a), integer_guard(b)]
   defp number_guards(a, b), do: [number_guard(a), number_guard(b)]
+  defp float_guards(a, b), do: [float_guard(a), float_guard(b)]
   defp binary_guards(a, b), do: [binary_guard(a), binary_guard(b)]
-  defp integer_guard(expr), do: {:call, @line, {:atom, @line, :is_integer}, [expr]}
 
+  defp number_nonzero_guards(a, b),
+    do: [number_guard(a), number_guard(b), nonzero_guard(b)]
+
+  defp integer_nonzero_guards(a, b),
+    do: [integer_guard(a), integer_guard(b), nonzero_guard(b)]
+
+  defp integer_guard(expr), do: {:call, @line, {:atom, @line, :is_integer}, [expr]}
   defp number_guard(expr), do: {:call, @line, {:atom, @line, :is_number}, [expr]}
+  defp float_guard(expr), do: {:call, @line, {:atom, @line, :is_float}, [expr]}
   defp binary_guard(expr), do: {:call, @line, {:atom, @line, :is_binary}, [expr]}
+
+  defp nonzero_guard(expr),
+    do: {:op, @line, :"/=", expr, {:integer, @line, 0}}
 
   defp block_name(idx), do: String.to_atom("block_#{idx}")
   defp slot_var(idx), do: var("Slot#{idx}")
