@@ -21,6 +21,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   alias QuickBEAM.VM.Runtime.Map, as: JSMap
   alias QuickBEAM.VM.Runtime.Set, as: JSSet
 
+  alias QuickBEAM.VM.ObjectModel.PropertyKey
   alias QuickBEAM.VM.Runtime.ArrayBuffer
   alias QuickBEAM.VM.Runtime.Date, as: JSDate
   alias QuickBEAM.VM.Runtime.String, as: JSString
@@ -209,11 +210,11 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_own({:qb_arr, arr}, "length"), do: :array.size(arr)
 
   defp get_own({:qb_arr, arr}, key) when is_binary(key) do
-    case Integer.parse(key) do
-      {idx, ""} when idx >= 0 ->
+    case PropertyKey.array_index(key) do
+      {:ok, idx} ->
         if idx < :array.size(arr), do: :array.get(idx, arr), else: :undefined
 
-      _ ->
+      :error ->
         :undefined
     end
   end
@@ -221,9 +222,9 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_own(list, "length") when is_list(list), do: length(list)
 
   defp get_own(list, key) when is_list(list) and is_binary(key) do
-    case Integer.parse(key) do
-      {idx, ""} when idx >= 0 -> Enum.at(list, idx, :undefined)
-      _ -> :undefined
+    case PropertyKey.array_index(key) do
+      {:ok, idx} -> Enum.at(list, idx, :undefined)
+      :error -> :undefined
     end
   end
 

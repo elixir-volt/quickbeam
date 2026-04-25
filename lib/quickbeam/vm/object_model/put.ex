@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.JSThrow
-  alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.ObjectModel.{Get, PropertyKey}
 
   @compile {:inline, has_property: 2, get_element: 2, set_list_at: 3}
 
@@ -191,14 +191,14 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   def put(_, _, _, _), do: :ok
 
-  defp normalize_key(k), do: QuickBEAM.VM.ObjectModel.PropertyKey.normalize(k)
+  defp normalize_key(k), do: PropertyKey.normalize(k)
 
   defp put_array_key(ref, key, val) do
     case key do
       k when is_binary(k) ->
-        case Integer.parse(k) do
-          {idx, ""} when idx >= 0 -> put_element({:obj, ref}, idx, val)
-          _ -> :ok
+        case PropertyKey.array_index(k) do
+          {:ok, idx} -> put_element({:obj, ref}, idx, val)
+          :error -> :ok
         end
 
       k when is_integer(k) and k >= 0 ->
