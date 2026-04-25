@@ -3580,12 +3580,24 @@ defmodule QuickBEAM.VM.Interpreter do
   defp run({@op_with_get_var, [atom_idx, target, _is_with]}, pc, frame, [obj | rest], gas, ctx) do
     key = Names.resolve_atom(ctx, atom_idx)
 
-    if with_has_property?(obj, key) do
-      ctx = refresh_persistent_globals(ctx)
-      run(target, frame, [Get.get(obj, key) | rest], gas, ctx)
-    else
-      ctx = refresh_persistent_globals(ctx)
-      run(pc + 1, frame, rest, gas, ctx)
+    result =
+      try do
+        {:ok, with_has_property?(obj, key)}
+      catch
+        {:js_throw, error} -> {:throw, error}
+      end
+
+    case result do
+      {:ok, true} ->
+        ctx = refresh_persistent_globals(ctx)
+        run(target, frame, [Get.get(obj, key) | rest], gas, ctx)
+
+      {:ok, false} ->
+        ctx = refresh_persistent_globals(ctx)
+        run(pc + 1, frame, rest, gas, ctx)
+
+      {:throw, error} ->
+        throw_or_catch(frame, error, gas, ctx)
     end
   end
 

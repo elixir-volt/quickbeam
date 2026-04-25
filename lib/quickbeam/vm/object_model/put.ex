@@ -311,7 +311,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         has_trap = Get.get(handler, "has")
 
         if has_trap != :undefined do
-          Runtime.call_callback(has_trap, [target, key])
+          Values.truthy?(Invocation.invoke_callback_or_throw(has_trap, [target, key]))
         else
           has_property(target, key)
         end
