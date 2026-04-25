@@ -1,13 +1,21 @@
 # Autoresearch Ideas — Web API Builtins
 
-## Approach
-Implement each missing API as a native BEAM builtin. Use existing Elixir stdlib where possible.
+## STATUS: COMPLETE - 0/92 failing
 
-## Currently passing (38/92)
-TextEncoder, TextDecoder, URL, URLSearchParams, atob, btoa, crypto.getRandomValues, performance.now, queueMicrotask, structuredClone, console, setTimeout/clearTimeout
+All 92 beam web API tests pass. 
 
-## Likely failing categories
-- encodeURIComponent/decodeURIComponent/encodeURI/decodeURI — missing globals
-- crypto.randomUUID — may need format fix
-- Detailed TextEncoder/TextDecoder edge cases
-- Timer callback execution (setTimeout actually running callbacks)
+## What was fixed
+- TextEncoder encodeInto + lone surrogate (WTF-8) handling
+- TextDecoder proper UTF-8 decode, fatal mode, BOM, ArrayBuffer input
+- atob/btoa type coercion, whitespace, padding
+- crypto.getRandomValues: zero-length and >65536 fixes
+- performance.now: positive ms relative to session start
+- queueMicrotask: TypeError for non-function, silent error discard
+- structuredClone: full deep clone for all structured-cloneable types
+- Timers: actual timer execution via macro task queue + drain_pending loop
+- Promise constructor: executor called with resolve/reject builtins
+- String spread operator: iterate UTF-8 codepoints correctly
+- Top-level await: async IIFE wrapper in eval_beam
+- Map constructor: handle qb_arr-backed inner arrays
+- instanceof: auto_proto for Date/RegExp/Map/Set/ArrayBuffer
+- get_prototype_raw: type-specialized methods before proto chain
