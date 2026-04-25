@@ -1,1 +1,3 @@
 {"type":"config","name":"BEAM Web API Builtins","metricName":"failing_tests","metricUnit":"","bestDirection":"lower"}
+{"run":31,"commit":"fb02521","metric":32,"metrics":{"passing_tests":0},"status":"keep","description":"Baseline: 32 failing, 0 passing. No web APIs available in BEAM mode.","timestamp":1777130174321,"segment":1,"confidence":null,"iterationTokens":151,"asi":{"hypothesis":"baseline"}}
+{"type":"config","name":"Web API Builtins for BEAM Mode","metricName":"failing_tests","metricUnit":"","bestDirection":"lower"}
