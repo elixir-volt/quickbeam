@@ -36,13 +36,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Captures do
       %{
         state
         | body:
-            state.body ++
-              [
-                State.compiler_call(state, :sync_capture_cell, [
-                  State.capture_cell_expr(state, idx),
-                  expr
-                ])
-              ]
+            [
+              State.compiler_call(state, :sync_capture_cell, [
+                State.capture_cell_expr(state, idx),
+                expr
+              ])
+              | state.body
+            ]
       }
     else
       state

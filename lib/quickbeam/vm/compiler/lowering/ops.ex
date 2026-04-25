@@ -736,7 +736,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         State.return_top(state)
 
       {{:ok, :return_undef}, []} ->
-        {:done, state.body ++ [Builder.atom(:undefined)]}
+        {:done, Enum.reverse([Builder.atom(:undefined) | state.body])}
 
       {{:ok, :nop}, []} ->
         {:ok, state}
@@ -771,7 +771,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
         # ret returns from a gosub.  In the compiler's block model
         # the finally body falls through to the next block, so ret
         # is a no-op terminal.
-        {:done, state.body ++ [Builder.atom(:undefined)]}
+        {:done, Enum.reverse([Builder.atom(:undefined) | state.body])}
 
       {{:ok, :catch}, [_target]} ->
         # catch pushes catch offset — the compiler handles try/catch
@@ -882,12 +882,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
           key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
 
           {:ok,
-           %{
-             state
-             | body:
-                 state.body ++
-                   [Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put, [obj, key, val])]
-           }}
+           State.emit(state, Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put, [obj, key, val]))}
         end
 
       {{:ok, :with_delete_var}, [atom_idx, _target, _is_with]} ->
@@ -930,12 +925,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       {{:ok, :iterator_call}, [_method]} ->
         with {:ok, iter, state} <- State.pop(state) do
           {:ok,
-           %{
-             state
-             | body:
-                 state.body ++
-                   [State.compiler_call(state, :iterator_close, [iter])]
-           }}
+           State.emit(state, State.compiler_call(state, :iterator_close, [iter]))}
         end
 
       {{:ok, :iterator_check_object}, []} ->
@@ -1045,7 +1035,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
          {:ok, _next_fn, _next_type, state} <- State.pop_typed(state),
          {:ok, iter_obj, _iter_type, state} <- State.pop_typed(state) do
       {:ok,
-       %{state | body: state.body ++ [State.compiler_call(state, :iterator_close, [iter_obj])]}}
+       State.emit(state, State.compiler_call(state, :iterator_close, [iter_obj]))}
     end
   end
 
@@ -1165,7 +1155,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        %{
          state
          | body:
-             state.body ++ [State.compiler_call(state, :put_var_ref, [Builder.literal(idx), val])]
+             [State.compiler_call(state, :put_var_ref, [Builder.literal(idx), val]) | state.body]
        }}
     end
   end
@@ -1390,8 +1380,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        %{
          state
          | body:
-             state.body ++
-               [State.compiler_call(state, :put_private_field, [obj, key, val])]
+             [State.compiler_call(state, :put_private_field, [obj, key, val]) | state.body]
        }}
     end
   end
@@ -1404,8 +1393,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        %{
          state
          | body:
-             state.body ++
-               [State.compiler_call(state, :define_private_field, [obj, key, val])],
+             [State.compiler_call(state, :define_private_field, [obj, key, val]) | state.body],
            stack: [obj | state.stack],
            stack_types: [:object | state.stack_types]
        }}
@@ -1419,8 +1407,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        %{
          state
          | body:
-             state.body ++
-               [State.compiler_call(state, :check_brand, [obj, brand])]
+             [State.compiler_call(state, :check_brand, [obj, brand]) | state.body]
        }}
     else
       :error -> {:error, :check_brand_state_missing}
@@ -1448,8 +1435,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        %{
          state
          | body:
-             state.body ++
-               [State.compiler_call(state, :set_proto, [obj, proto])],
+             [State.compiler_call(state, :set_proto, [obj, proto]) | state.body],
            stack: [obj | state.stack],
            stack_types: [:object | state.stack_types]
        }}
@@ -1476,8 +1462,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        %{
          state
          | body:
-             state.body ++
-               [Builder.remote_call(Class, :put_super_value, [proto_obj, this_obj, key, val])]
+             [Builder.remote_call(Class, :put_super_value, [proto_obj, this_obj, key, val]) | state.body]
        }}
     end
   end
@@ -1574,8 +1559,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        %{
          state
          | body:
-             state.body ++
-               [State.compiler_call(state, :put_ref_value, [val, ref])]
+             [State.compiler_call(state, :put_ref_value, [val, ref]) | state.body]
        }}
     end
   end
@@ -1590,13 +1574,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
 
   defp lower_throw_error(state, atom_idx, reason) do
     {:done,
-     state.body ++
-       [
-         State.compiler_call(state, :throw_error, [
-           Builder.literal(atom_idx),
-           Builder.literal(reason)
-         ])
-       ]}
+     Enum.reverse([
+       State.compiler_call(state, :throw_error, [
+         Builder.literal(atom_idx),
+         Builder.literal(reason)
+       ])
+       | state.body
+     ])}
   end
 
   defp special_object_type(2), do: :self_fun
@@ -1621,16 +1605,16 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
     # yield* delegates to an inner iterator — for now, treat same as yield
     with {:ok, val, _type, state} <- State.pop_typed(state) do
       {:done,
-       state.body ++
-         [
-           Builder.remote_call(:erlang, :throw, [
-             Builder.tuple_expr([
-               Builder.atom(:generator_yield_star),
-               val,
-               yield_continuation(state, next_entry, stack_depths)
-             ])
+       Enum.reverse([
+         Builder.remote_call(:erlang, :throw, [
+           Builder.tuple_expr([
+             Builder.atom(:generator_yield_star),
+             val,
+             yield_continuation(state, next_entry, stack_depths)
            ])
-         ]}
+         ])
+         | state.body
+       ])}
     end
   end
 
@@ -1650,27 +1634,27 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
   defp lower_return_async(state) do
     with {:ok, val, _state} <- State.pop(state) do
       {:done,
-       state.body ++
-         [
-           Builder.remote_call(:erlang, :throw, [
-             Builder.tuple_expr([Builder.atom(:generator_return), val])
-           ])
-         ]}
+       Enum.reverse([
+         Builder.remote_call(:erlang, :throw, [
+           Builder.tuple_expr([Builder.atom(:generator_return), val])
+         ])
+         | state.body
+       ])}
     end
   end
 
   defp yield_throw(state, val, next_entry, stack_depths) do
     {:done,
-     state.body ++
-       [
-         Builder.remote_call(:erlang, :throw, [
-           Builder.tuple_expr([
-             Builder.atom(:generator_yield),
-             val,
-             yield_continuation(state, next_entry, stack_depths)
-           ])
+     Enum.reverse([
+       Builder.remote_call(:erlang, :throw, [
+         Builder.tuple_expr([
+           Builder.atom(:generator_yield),
+           val,
+           yield_continuation(state, next_entry, stack_depths)
          ])
-       ]}
+       ])
+       | state.body
+     ])}
   end
 
   defp yield_continuation(state, next_entry, stack_depths) do

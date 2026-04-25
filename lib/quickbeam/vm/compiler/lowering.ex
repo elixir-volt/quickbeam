@@ -233,7 +233,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
       )
     else
       with {:ok, call} <- State.block_jump_call(state, idx, stack_depths) do
-        {:ok, state.body ++ [call]}
+        {:ok, Enum.reverse([call | state.body])}
       end
     end
   end
@@ -752,7 +752,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
         truthy = Builder.branch_condition(cond_expr, cond_type)
         false_body = if(sense, do: next_body, else: target_body)
         true_body = if(sense, do: target_body, else: next_body)
-        {:ok, state.body ++ [Builder.branch_case(truthy, false_body, true_body)]}
+        {:ok, Enum.reverse([Builder.branch_case(truthy, false_body, true_body) | state.body])}
       end
     else
       lower_non_branch_instruction(
@@ -854,9 +854,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
              entries,
              inline_targets
            ) do
-      {:ok,
-       state.body ++
-         [Builder.try_catch_expr(try_body, Builder.var("Caught#{idx}"), [handler_call])]}
+      {:ok, Enum.reverse([Builder.try_catch_expr(try_body, Builder.var("Caught#{idx}"), [handler_call]) | state.body])}
     end
   end
 
@@ -931,7 +929,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
         lower_finally_inline(instructions, idx + 1, next_state)
 
       {:done, body} ->
-        {:ok, %{state | body: body, stack: state.stack, stack_types: state.stack_types}}
+        {:ok, %{state | body: Enum.reverse(body), stack: state.stack, stack_types: state.stack_types}}
 
       {:error, _} = error ->
         error
