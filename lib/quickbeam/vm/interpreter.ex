@@ -102,8 +102,8 @@ defmodule QuickBEAM.VM.Interpreter do
     prev_ctx = Heap.get_ctx()
     Heap.put_ctx(ctx)
 
-    if Process.get(:qb_builtin_names) == nil do
-      Process.put(:qb_builtin_names, MapSet.new(Map.keys(Runtime.global_bindings())))
+    if Heap.get_builtin_names() == nil do
+      Heap.put_builtin_names(MapSet.new(Map.keys(Runtime.global_bindings())))
     end
 
     ctx = Context.mark_synced(ctx)
@@ -390,7 +390,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp array_proto_iterator(_obj) do
     sym_iter = {:symbol, "Symbol.iterator"}
 
-    case Process.get(:qb_array_proto) do
+    case Heap.get_array_proto() do
       {:obj, proto_ref} ->
         proto_data = Heap.get_obj(proto_ref, %{})
 
@@ -2414,7 +2414,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp run({@op_delete_var, [atom_idx]}, pc, frame, stack, gas, ctx) do
     name = Names.resolve_atom(ctx.atoms, atom_idx)
-    builtins = Process.get(:qb_builtin_names, MapSet.new())
+    builtins = Heap.get_builtin_names() || MapSet.new()
 
     result =
       case Map.fetch(ctx.globals, name) do
@@ -2871,8 +2871,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp run({@op_set_home_object, []}, pc, frame, [method, target | _] = stack, gas, ctx) do
-    key = {:qb_home_object, Functions.home_object_key(method)}
-    if key != {:qb_home_object, nil}, do: Process.put(key, target)
+    Functions.put_home_object(method, target)
     run(pc + 1, frame, stack, gas, ctx)
   end
 
@@ -2918,8 +2917,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
         4 ->
           if home_object == :undefined do
-            key = {:qb_home_object, Functions.home_object_key(current_func)}
-            Process.get(key, :undefined)
+            Functions.current_home_object(current_func)
           else
             home_object
           end
@@ -3630,7 +3628,7 @@ defmodule QuickBEAM.VM.Interpreter do
             l2v
           )
 
-        fn_atoms = Process.get({:qb_fn_atoms, fun.byte_code}, Heap.get_atoms())
+        fn_atoms = Heap.get_fn_atoms(fun.byte_code, Heap.get_atoms())
         Heap.put_atoms(fn_atoms)
 
         inner_ctx =

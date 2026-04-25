@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Invocation do
-  @moduledoc false
+  @moduledoc "Unified JS function invocation: dispatches to compiled modules, interpreter fallback, builtins, and native callbacks."
 
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
 

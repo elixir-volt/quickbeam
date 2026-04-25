@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.ObjectModel.Copy do
-  @moduledoc false
+  @moduledoc "Object spread and property copying: `append_spread`, `copy_data_properties`, and array/iterator flattening."
 
   import QuickBEAM.VM.Heap.Keys,
     only: [key_order: 0, map_data: 0, proto: 0, proxy_handler: 0, proxy_target: 0, set_data: 0]

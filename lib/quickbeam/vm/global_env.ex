@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.GlobalEnv do
-  @moduledoc false
+  @moduledoc "Global variable environment: resolves JS globals from the persistent heap and runtime bindings."
 
   alias QuickBEAM.VM.{Heap, Names, Runtime}
   alias QuickBEAM.VM.Interpreter.Context

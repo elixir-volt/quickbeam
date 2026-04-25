@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.Analysis.Types do
-  @moduledoc false
+  @moduledoc "Abstract type inference: propagates JS value types through basic blocks to enable guard elision."
 
   alias QuickBEAM.VM.Bytecode
   alias QuickBEAM.VM.Compiler.Analysis.{CFG, Stack}

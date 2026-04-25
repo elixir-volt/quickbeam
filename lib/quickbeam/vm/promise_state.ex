@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.PromiseState do
-  @moduledoc false
+  @moduledoc "Promise lifecycle: create resolved/rejected promises, chain `.then`/`.catch`/`.finally`, and flush microtasks."
 
   import QuickBEAM.VM.Heap.Keys
 

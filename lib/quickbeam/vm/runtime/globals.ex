@@ -53,7 +53,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
           ctor = register("Array", &Constructors.array/2)
           proto = QuickBEAM.VM.Runtime.Array.prototype()
           Heap.put_ctor_static(ctor, "prototype", proto)
-          Process.put(:qb_array_proto, proto)
+          Heap.put_array_proto(proto)
           ctor
         ),
       "String" => register("String", &Constructors.string/2, auto_proto: true),

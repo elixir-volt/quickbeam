@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.Set do
-  @moduledoc false
+  @moduledoc "JS `Set` and `WeakSet` built-ins: constructor, `add`/`has`/`delete`, `forEach`, and iteration."
 
   import QuickBEAM.VM.Heap.Keys
   use QuickBEAM.VM.Builtin

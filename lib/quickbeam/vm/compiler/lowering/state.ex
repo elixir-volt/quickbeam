@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.State do
-  @moduledoc false
+  @moduledoc "Lowering accumulator: tracks the operand stack, slot bindings, and emitted body forms during a block compilation."
 
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Captures, Types}
   alias QuickBEAM.VM.Compiler.RuntimeHelpers

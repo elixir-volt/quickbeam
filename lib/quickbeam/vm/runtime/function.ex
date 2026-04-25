@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.Function do
-  @moduledoc false
+  @moduledoc "JS `Function` prototype: `call`, `apply`, `bind`, and property access for name/length/fileName."
   alias QuickBEAM.VM.{Builtin, Bytecode, Heap, Invocation}
 
   def prototype do

@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.RegExp do
-  @moduledoc false
+  @moduledoc "JS `RegExp` built-in: `test`, `exec`, `toString`, and NIF-backed regex matching against JS bytecode patterns."
 
   use QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Heap
@@ -70,7 +70,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         Heap.put_obj(ref, strings)
 
         # Store extra properties accessible via get_own_property
-        Process.put({:qb_regexp_result, ref}, %{
+        Heap.put_regexp_result(ref, %{
           "index" => match_start,
           "input" => s,
           "groups" => :undefined

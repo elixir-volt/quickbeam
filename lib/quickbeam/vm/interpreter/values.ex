@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Interpreter.Values do
-  @moduledoc false
+  @moduledoc "JS type coercion, arithmetic, comparison, and equality operations."
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Value, only: [is_object: 1]
 

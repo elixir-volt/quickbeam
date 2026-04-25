@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.ObjectModel.Methods do
-  @moduledoc false
+  @moduledoc "Method definition helpers: installs getters, setters, and regular methods on objects and classes."
 
   import Bitwise, only: [band: 2]
 

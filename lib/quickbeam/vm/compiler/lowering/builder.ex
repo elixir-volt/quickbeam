@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
-  @moduledoc false
+  @moduledoc "Erlang abstract-format helpers: variable, literal, call, and case-clause constructors for the lowering pass."
 
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.PredefinedAtoms

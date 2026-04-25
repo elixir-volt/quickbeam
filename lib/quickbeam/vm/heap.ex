@@ -38,6 +38,21 @@ defmodule QuickBEAM.VM.Heap do
             put_decoded: 2,
             get_compiled: 1,
             put_compiled: 2,
+            get_fn_atoms: 1,
+            get_fn_atoms: 2,
+            put_fn_atoms: 2,
+            get_capture_keys: 1,
+            put_capture_keys: 2,
+            get_array_proto: 0,
+            put_array_proto: 1,
+            get_func_proto: 0,
+            put_func_proto: 1,
+            get_builtin_names: 0,
+            put_builtin_names: 1,
+            get_regexp_result: 1,
+            put_regexp_result: 2,
+            get_string_codepoints: 1,
+            put_string_codepoints: 2,
             get_class_proto: 1,
             put_class_proto: 2,
             get_parent_ctor: 1,
@@ -91,7 +106,7 @@ defmodule QuickBEAM.VM.Heap do
     case Store.get_obj_raw(ref) do
       {:shape, _, _, _, proto} when proto != nil -> proto
       map when is_map(map) -> Map.get(map, "__proto__")
-      _ -> Process.get(:qb_array_proto)
+      _ -> Caches.get_array_proto()
     end
   end
 
@@ -116,9 +131,7 @@ defmodule QuickBEAM.VM.Heap do
   end
 
   def wrap_keyed(keys, vals) when is_tuple(keys) and is_tuple(vals) do
-    cache_key = {:qb_wrap_cache, keys}
-
-    case Process.get(cache_key) do
+    case Caches.get_wrap_cache(keys) do
       {shape_id, offsets} ->
         id = Store.next_id()
         Store.put_obj_raw(id, {:shape, shape_id, offsets, vals, nil})
@@ -129,7 +142,7 @@ defmodule QuickBEAM.VM.Heap do
 
         case Shapes.from_map(map) do
           {:ok, shape_id, offsets, _} ->
-            Process.put(cache_key, {shape_id, offsets})
+            Caches.put_wrap_cache(keys, {shape_id, offsets})
             id = Store.next_id()
             Store.put_obj_raw(id, {:shape, shape_id, offsets, vals, nil})
             {:obj, id}
@@ -281,6 +294,23 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate put_decoded(byte_code, instructions), to: Caches
   defdelegate get_compiled(key), to: Caches
   defdelegate put_compiled(key, compiled), to: Caches
+  defdelegate get_fn_atoms(byte_code), to: Caches
+  defdelegate get_fn_atoms(byte_code, default), to: Caches
+  defdelegate put_fn_atoms(byte_code, atoms), to: Caches
+  defdelegate get_capture_keys(byte_code), to: Caches
+  defdelegate put_capture_keys(byte_code, tuple), to: Caches
+  defdelegate get_wrap_cache(keys_tuple), to: Caches
+  defdelegate put_wrap_cache(keys_tuple, shape_info), to: Caches
+  defdelegate get_array_proto(), to: Caches
+  defdelegate put_array_proto(proto), to: Caches
+  defdelegate get_func_proto(), to: Caches
+  defdelegate put_func_proto(proto), to: Caches
+  defdelegate get_builtin_names(), to: Caches
+  defdelegate put_builtin_names(names), to: Caches
+  defdelegate get_regexp_result(ref), to: Caches
+  defdelegate put_regexp_result(ref, result), to: Caches
+  defdelegate get_string_codepoints(s), to: Caches
+  defdelegate put_string_codepoints(s, chars), to: Caches
   defdelegate frozen?(ref), to: Store
   defdelegate freeze(ref), to: Store
   defdelegate get_prop_desc(ref, key), to: Store

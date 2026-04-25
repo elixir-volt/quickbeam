@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.Map do
-  @moduledoc false
+  @moduledoc "JS `Map` and `WeakMap` built-ins: constructor, `get`/`set`/`has`/`delete`, and iteration."
 
   import QuickBEAM.VM.Heap.Keys
 

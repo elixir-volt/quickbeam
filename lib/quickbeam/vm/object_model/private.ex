@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.ObjectModel.Private do
-  @moduledoc false
+  @moduledoc "Private class fields and brand checks: get, put, and `in` operator support for `#field` syntax."
 
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
 

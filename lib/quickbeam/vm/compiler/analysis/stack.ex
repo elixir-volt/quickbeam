@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
-  @moduledoc false
+  @moduledoc "Stack-depth inference: computes operand-stack depth at every basic-block entry."
 
   alias QuickBEAM.VM.Compiler.Analysis.CFG
   alias QuickBEAM.VM.Opcodes

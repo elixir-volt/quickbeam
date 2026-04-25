@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Builtin do
-  @moduledoc false
+  @moduledoc "Macros for defining JS builtins: `proto`, `static`, `js_object`, `build_methods`, and `build_object`."
 
   @doc """
   Uniform macros for defining JS builtins in all contexts.

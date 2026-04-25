@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Heap.Store do
-  @moduledoc false
+  @moduledoc "Low-level process-dictionary storage for JS heap objects: objects, arrays, cells, atoms, and GC roots."
 
   import QuickBEAM.VM.Heap.Keys
   alias QuickBEAM.VM.Heap.Shapes

@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Interpreter.Generator do
-  @moduledoc false
+  @moduledoc "Generator and async function execution: suspends/resumes frames and wraps results in iterator or Promise objects."
 
   import QuickBEAM.VM.Builtin, only: [build_object: 1]
 

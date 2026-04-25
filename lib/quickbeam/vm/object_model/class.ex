@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.ObjectModel.Class do
-  @moduledoc false
+  @moduledoc "Class runtime support: `super` resolution, constructor dispatch, and `extends` prototype wiring."
 
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
 

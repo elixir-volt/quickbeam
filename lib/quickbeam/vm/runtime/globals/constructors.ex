@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
-  @moduledoc false
+  @moduledoc "Global constructor built-ins: `Object`, `Array`, `String`, `Boolean`, and other wrapper constructors."
 
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Builtin, only: [build_object: 1]

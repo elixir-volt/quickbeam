@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.Lowering do
-  @moduledoc false
+  @moduledoc "Bytecode-to-Erlang lowering pipeline: analyses control flow and types, then emits abstract-form block functions."
 
   alias QuickBEAM.VM.Compiler.Analysis.{CFG, Stack, Types}
   alias QuickBEAM.VM.Compiler.Lowering.Builder

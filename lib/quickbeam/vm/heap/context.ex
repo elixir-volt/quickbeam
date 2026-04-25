@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Heap.Context do
-  @moduledoc false
+  @moduledoc "Interpreter context store: reads and writes the active `Context` struct via process dictionary."
 
   alias QuickBEAM.VM.Interpreter.Context
 

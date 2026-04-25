@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.Optimizer do
-  @moduledoc false
+  @moduledoc "Bytecode optimizer: constant folding, peephole rewrites, and dead-branch elimination before lowering."
 
   alias QuickBEAM.VM.Compiler.Analysis.CFG
   alias QuickBEAM.VM.Opcodes

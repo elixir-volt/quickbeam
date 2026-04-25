@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
-  @moduledoc false
+  @moduledoc "Runtime support library called by JIT-compiled modules: property access, `new`, `typeof`, destructuring, and iteration."
 
   import Bitwise, only: [bnot: 1]
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
@@ -983,12 +983,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   defp capture_keys_tuple(%Bytecode.Function{closure_vars: vars} = fun) do
-    key = {:qb_capture_keys, fun.byte_code}
-
-    case Process.get(key) do
+    case Heap.get_capture_keys(fun.byte_code) do
       nil ->
         tuple = vars |> Enum.map(&closure_capture_key/1) |> List.to_tuple()
-        Process.put(key, tuple)
+        Heap.put_capture_keys(fun.byte_code, tuple)
         tuple
 
       cached ->
@@ -1122,7 +1120,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   defp check_array_proto_iterator({:obj, _ref}, _raw_ref) do
     sym_iter = {:symbol, "Symbol.iterator"}
 
-    case Process.get(:qb_array_proto) do
+    case Heap.get_array_proto() do
       {:obj, proto_ref} ->
         proto_data = Heap.get_obj(proto_ref, %{})
 

@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.Runner do
-  @moduledoc false
+  @moduledoc "Compiled-function invocation: sets up call frames, handles `new`, generators, and tail-call dispatch."
 
   alias QuickBEAM.VM.{Bytecode, GlobalEnv, Heap}
   alias QuickBEAM.VM.Compiler

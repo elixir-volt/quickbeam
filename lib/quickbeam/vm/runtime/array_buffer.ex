@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
-  @moduledoc false
+  @moduledoc "JS `ArrayBuffer` and `SharedArrayBuffer` built-in: constructor, transfer, resize, and slice operations."
 
   import QuickBEAM.VM.Heap.Keys
   use QuickBEAM.VM.Builtin

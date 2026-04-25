@@ -606,10 +606,10 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   defp codepoints(s) do
-    case Process.get({:qb_string_codepoints, s}) do
+    case Heap.get_string_codepoints(s) do
       nil ->
         chars = s |> String.to_charlist() |> List.to_tuple()
-        Process.put({:qb_string_codepoints, s}, chars)
+        Heap.put_string_codepoints(s, chars)
         chars
 
       chars ->

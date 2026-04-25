@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.Math do
-  @moduledoc false
+  @moduledoc "JS `Math` object: all standard methods (`floor`, `ceil`, `sin`, `random`, etc.) and numeric constants."
 
   use QuickBEAM.VM.Builtin
 

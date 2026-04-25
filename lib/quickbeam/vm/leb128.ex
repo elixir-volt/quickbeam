@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.LEB128 do
-  @moduledoc false
+  @moduledoc "LEB128 integer encoding/decoding for QuickJS bytecode parsing."
   import Bitwise
 
   @spec read_unsigned(binary()) :: {:ok, non_neg_integer(), binary()} | {:error, :bad_leb128}

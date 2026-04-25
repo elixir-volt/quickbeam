@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.Number do
-  @moduledoc false
+  @moduledoc "JS `Number` built-in: prototype methods (`toFixed`, `toString`, etc.) and static properties (`MAX_SAFE_INTEGER`, etc.)."
 
   use QuickBEAM.VM.Builtin
 

@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.Symbol do
-  @moduledoc false
+  @moduledoc "JS `Symbol` built-in: constructor, global symbol registry (`Symbol.for`/`keyFor`), and well-known symbol constants."
 
   use QuickBEAM.VM.Builtin
 

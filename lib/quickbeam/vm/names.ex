@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Names do
-  @moduledoc false
+  @moduledoc "Atom-pool resolution: maps bytecode constant indices to JS atom strings and resolves display names."
 
   alias QuickBEAM.VM.{Bytecode, Heap, PredefinedAtoms}
   alias QuickBEAM.VM.Interpreter.Context

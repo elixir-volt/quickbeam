@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.Date do
-  @moduledoc false
+  @moduledoc "JS `Date` built-in: constructor, parsing, formatting, and all get/set prototype methods."
 
   import QuickBEAM.VM.Heap.Keys
   use QuickBEAM.VM.Builtin

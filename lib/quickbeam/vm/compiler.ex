@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler do
-  @moduledoc false
+  @moduledoc "JIT compiler entry point: lowers bytecode to BEAM modules, caches them, and invokes compiled functions."
 
   alias QuickBEAM.VM.{Bytecode, Decoder, Heap}
   alias QuickBEAM.VM.Compiler.{Forms, Lowering, Optimizer, Runner}

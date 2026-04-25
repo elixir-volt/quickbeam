@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Captures do
-  @moduledoc false
+  @moduledoc "Capture-cell management during lowering: ensures and closes shared cells for captured local variables."
 
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, State}
 

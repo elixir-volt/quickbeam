@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
-  @moduledoc false
+  @moduledoc "Control-flow graph analysis: identifies basic-block boundaries and inlineable branch targets."
 
   alias QuickBEAM.VM.Opcodes
 

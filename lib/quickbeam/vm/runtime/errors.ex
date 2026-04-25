@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.Errors do
-  @moduledoc false
+  @moduledoc "JS Error constructors and prototype: `Error`, `TypeError`, `RangeError`, and the other standard error types."
 
   import QuickBEAM.VM.Builtin, only: [build_methods: 1]
 

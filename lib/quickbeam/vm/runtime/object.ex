@@ -157,7 +157,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp func_proto do
-    case Process.get(:qb_func_proto) do
+    case Heap.get_func_proto() do
       nil ->
         call_fn =
           {:builtin, "call",
@@ -191,7 +191,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
             val("constructor", :undefined)
           end
 
-        Process.put(:qb_func_proto, proto)
+        Heap.put_func_proto(proto)
         proto
 
       existing ->

@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
-  @moduledoc false
+  @moduledoc "JS `Promise` built-in: prototype `then`/`catch`/`finally` and static `resolve`/`reject`/`all`/`race`."
 
   use QuickBEAM.VM.Builtin
 

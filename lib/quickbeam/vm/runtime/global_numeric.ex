@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.GlobalNumeric do
-  @moduledoc false
+  @moduledoc "Global numeric functions: `parseInt`, `parseFloat`, `isNaN`, `isFinite`, and related utilities."
   alias QuickBEAM.VM.Interpreter.Values
 
   def parse_int([string, radix | _], _) when is_binary(string) and is_number(radix) do

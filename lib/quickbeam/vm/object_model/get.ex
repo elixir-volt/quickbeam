@@ -166,13 +166,13 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         end
 
       {:qb_arr, _} = arr ->
-        case Process.get({:qb_regexp_result, ref}) do
+        case Heap.get_regexp_result(ref) do
           %{^key => val} -> val
           _ -> get_own(arr, key)
         end
 
       list when is_list(list) ->
-        case Process.get({:qb_regexp_result, ref}) do
+        case Heap.get_regexp_result(ref) do
           %{^key => val} -> val
           _ -> get_own(list, key)
         end

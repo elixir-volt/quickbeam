@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Stacktrace do
-  @moduledoc false
+  @moduledoc "JS stack-trace capture and formatting: attaches `stack` to Error objects and supports `Error.prepareStackTrace`."
 
   import QuickBEAM.VM.Builtin, only: [build_object: 1]
 

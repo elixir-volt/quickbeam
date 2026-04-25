@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.ObjectModel.Put do
-  @moduledoc false
+  @moduledoc "Property write operations: set, define, and delete for JS objects, arrays, proxies, getters, and setters."
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Value, only: [is_symbol: 1]
 

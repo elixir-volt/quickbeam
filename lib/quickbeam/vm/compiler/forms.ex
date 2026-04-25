@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.Forms do
-  @moduledoc false
+  @moduledoc "Erlang abstract-format form builder: assembles the module, entry, and block function forms for compilation."
 
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.Interpreter.Values

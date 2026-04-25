@@ -1,6 +1,6 @@
 defmodule QuickBEAM.VM.Interpreter.Closures do
+  @moduledoc "Closure variable access: read and write shared capture cells and captured locals."
   @compile {:inline, read_cell: 1, write_cell: 2, read_captured_local: 4, write_captured_local: 5}
-  @moduledoc false
 
   alias QuickBEAM.VM.Heap
 

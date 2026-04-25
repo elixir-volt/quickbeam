@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Opcodes do
-  @moduledoc false
+  @moduledoc "QuickJS opcode table: numeric codes, stack effects, and format metadata for all JS bytecode instructions."
   # Generated from quickjs-opcode.h
   # Each entry: {name, byte_size, n_pop, n_push, format}
 

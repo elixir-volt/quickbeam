@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
-  @moduledoc false
+  @moduledoc "Per-opcode lowering: translates each QuickJS bytecode instruction into Erlang abstract-form expressions."
 
   alias QuickBEAM.VM.{Bytecode, GlobalEnv}
   alias QuickBEAM.VM.Compiler.Analysis.CFG

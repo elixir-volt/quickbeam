@@ -27,7 +27,7 @@ defmodule QuickBEAM.VM.Interpreter.Setup do
   end
 
   def store_function_atoms(%Bytecode.Function{} = fun, atoms) do
-    Process.put({:qb_fn_atoms, fun.byte_code}, atoms)
+    Heap.put_fn_atoms(fun.byte_code, atoms)
 
     for %Bytecode.Function{} = inner <- fun.constants do
       store_function_atoms(inner, atoms)

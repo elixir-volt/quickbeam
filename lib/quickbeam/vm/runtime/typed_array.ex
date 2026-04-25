@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.TypedArray do
-  @moduledoc false
+  @moduledoc "JS TypedArray built-ins: constructors and prototype methods for all numeric array types (Uint8Array through Float64Array)."
 
   import QuickBEAM.VM.Heap.Keys
 

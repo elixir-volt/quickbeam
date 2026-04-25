@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.Reflect do
-  @moduledoc false
+  @moduledoc "JS `Reflect` built-in: `apply`, `construct`, `has`, `ownKeys`, `defineProperty`, and other reflection methods."
 
   use QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Heap
