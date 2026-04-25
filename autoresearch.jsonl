@@ -1,1 +1,2 @@
 {"type":"config","name":"BEAM Web API Builtins (full suite)","metricName":"failing_tests","metricUnit":"","bestDirection":"lower"}
+{"run":33,"commit":"eb0c7fc","metric":54,"metrics":{"passing_tests":38},"status":"keep","description":"Baseline: 54 failing, 38 passing out of 92 web API tests in beam mode","timestamp":1777133327433,"segment":2,"confidence":null,"iterationTokens":154,"asi":{"hypothesis":"baseline"}}

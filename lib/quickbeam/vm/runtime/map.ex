@@ -14,25 +14,13 @@ defmodule QuickBEAM.VM.Runtime.Map do
       entries =
         case args do
           [list] when is_list(list) ->
-            Map.new(list, fn [k, v] -> {k, v} end)
+            Map.new(list, &entry_to_kv/1)
 
           [{:obj, r}] ->
             stored = Heap.get_obj(r, [])
 
             if is_list(stored) or match?({:qb_arr, _}, stored) do
-              Map.new(stored, fn
-                [k, v] ->
-                  {k, v}
-
-                {:obj, eref} ->
-                  case Heap.get_obj(eref, []) do
-                    [k, v | _] -> {k, v}
-                    _ -> {nil, nil}
-                  end
-
-                _ ->
-                  {nil, nil}
-              end)
+              Heap.to_list({:obj, r}) |> Enum.map(&entry_to_kv/1) |> Enum.into(%{})
             else
               %{}
             end
@@ -188,6 +176,32 @@ defmodule QuickBEAM.VM.Runtime.Map do
     items = Enum.map(order, fn key -> Heap.wrap([key, Map.get(data, key)]) end)
     Heap.wrap(items)
   end
+
+  defp entry_to_kv([k, v | _]), do: {k, v}
+  defp entry_to_kv([k]), do: {k, :undefined}
+  defp entry_to_kv({:obj, eref}) do
+    case Heap.get_obj(eref, []) do
+      [k, v | _] -> {k, v}
+      [k] -> {k, :undefined}
+      {:qb_arr, arr} ->
+        list = :array.to_list(arr)
+        case list do
+          [k, v | _] -> {k, v}
+          [k] -> {k, :undefined}
+          _ -> {nil, nil}
+        end
+      _ -> {nil, nil}
+    end
+  end
+  defp entry_to_kv({:qb_arr, arr}) do
+    list = :array.to_list(arr)
+    case list do
+      [k, v | _] -> {k, v}
+      [k] -> {k, :undefined}
+      _ -> {nil, nil}
+    end
+  end
+  defp entry_to_kv(_), do: {nil, nil}
 
   defp for_each([cb | _], {:obj, ref}) do
     obj = Heap.get_obj(ref, %{})

@@ -358,23 +358,37 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         end
 
       map when is_map(map) and is_map_key(map, proto()) ->
-        proto = Map.get(map, proto())
+        # For type-specialized objects (Map, Set, Date, etc.), check type methods first.
+        type_result =
+          cond do
+            Map.has_key?(map, map_data()) -> JSMap.proto_property(key)
+            Map.has_key?(map, set_data()) -> JSSet.proto_property(key)
+            Map.has_key?(map, date_ms()) -> JSDate.proto_property(key)
+            Map.has_key?(map, buffer()) and not Map.has_key?(map, typed_array()) -> ArrayBuffer.proto_property(key)
+            true -> :undefined
+          end
 
-        case proto do
-          {:obj, pref} ->
-            pmap = Heap.get_obj(pref, %{})
+        if type_result != :undefined do
+          type_result
+        else
+          proto = Map.get(map, proto())
 
-            if is_map(pmap) do
-              case Map.get(pmap, key, :undefined) do
-                :undefined -> get_prototype_raw(proto, key)
-                val -> val
+          case proto do
+            {:obj, pref} ->
+              pmap = Heap.get_obj(pref, %{})
+
+              if is_map(pmap) do
+                case Map.get(pmap, key, :undefined) do
+                  :undefined -> get_prototype_raw(proto, key)
+                  val -> val
+                end
+              else
+                get_from_prototype(proto, key)
               end
-            else
-              get_from_prototype(proto, key)
-            end
 
-          _ ->
-            get_from_prototype(proto, key)
+            _ ->
+              get_from_prototype(proto, key)
+          end
         end
 
       _ ->

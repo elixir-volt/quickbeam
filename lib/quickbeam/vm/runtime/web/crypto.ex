@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Crypto do
   import QuickBEAM.VM.Builtin, only: [build_object: 1]
 
   alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
 
   def bindings do
@@ -23,10 +24,16 @@ defmodule QuickBEAM.VM.Runtime.Web.Crypto do
             _ -> 0
           end
 
-        bytes = :crypto.strong_rand_bytes(len)
+        if len > 65536 do
+          JSThrow.type_error!("Failed to execute 'getRandomValues' on 'Crypto': The ArrayBufferView's byte length (#{len}) exceeds the number of bytes of entropy available via this API (65536).")
+        end
 
-        for i <- 0..(len - 1) do
-          Put.put_element(arr, i, :binary.at(bytes, i))
+        if len > 0 do
+          bytes = :crypto.strong_rand_bytes(len)
+
+          for i <- 0..(len - 1) do
+            Put.put_element(arr, i, :binary.at(bytes, i))
+          end
         end
 
         arr

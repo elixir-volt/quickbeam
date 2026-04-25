@@ -212,7 +212,9 @@ defmodule QuickBEAM do
           cached
       end
 
-    case Runtime.compile(runtime, code, Keyword.get(opts, :filename, "")) do
+    compile_code = maybe_wrap_async(code)
+
+    case Runtime.compile(runtime, compile_code, Keyword.get(opts, :filename, "")) do
       {:ok, bc} ->
         case BeamBytecode.decode(bc) do
           {:ok, parsed} ->
@@ -236,6 +238,96 @@ defmodule QuickBEAM do
       {:error, _} = err ->
         err
     end
+  end
+
+  defp maybe_wrap_async(code) do
+    if String.contains?(code, "await") do
+      wrap_as_async(String.trim(code))
+    else
+      code
+    end
+  end
+
+  # Wraps top-level code containing `await` in an async IIFE.
+  # Finds the last top-level statement and prepends `return`.
+  defp wrap_as_async(code) do
+    stmts = split_top_level_statements(code)
+
+    case stmts do
+      [] ->
+        code
+
+      _ ->
+        last = List.last(stmts)
+        rest = Enum.drop(stmts, -1)
+
+        last_with_return =
+          if needs_return?(last) do
+            stripped = last |> String.trim() |> String.trim_trailing(";")
+            "return #{stripped}"
+          else
+            last
+          end
+
+        body = (rest ++ [last_with_return]) |> Enum.join("\n")
+        "(async () => {\n#{body}\n})()"
+    end
+  end
+
+  # Heuristic: returns true if this statement should be prefixed with `return`.
+  # We return if it's an expression statement (not a declaration/control-flow).
+  @no_return_prefixes ~w[const let var function class return if for while do switch try throw import export async]
+
+  defp needs_return?(stmt) do
+    trimmed = String.trim_leading(stmt)
+    not Enum.any?(@no_return_prefixes, &String.starts_with?(trimmed, &1 <> " ")) and
+      not String.starts_with?(trimmed, "//") and
+      not String.starts_with?(trimmed, "/*") and
+      trimmed != ""
+  end
+
+  # Splits code into top-level statements by tracking brace/paren/bracket depth.
+  # Each statement is separated by `;` at depth 0, or by newlines in some cases.
+  defp split_top_level_statements(code) do
+    code
+    |> String.trim()
+    |> find_top_level_statement_ends()
+    |> Enum.filter(&(String.trim(&1) != ""))
+  end
+
+  defp find_top_level_statement_ends(code) do
+    find_stmts(code, 0, 0, 0, 0, [], [])
+  end
+
+  defp find_stmts(<<>>, _parens, _brackets, _braces, _in_str, current, acc) do
+    stmt = IO.iodata_to_binary(Enum.reverse(current))
+    if String.trim(stmt) != "", do: Enum.reverse([stmt | acc]), else: Enum.reverse(acc)
+  end
+
+  defp find_stmts(<<?;, rest::binary>>, 0, 0, 0, 0, current, acc) do
+    stmt = IO.iodata_to_binary(Enum.reverse([?; | current]))
+    find_stmts(rest, 0, 0, 0, 0, [], [stmt | acc])
+  end
+
+  defp find_stmts(<<c, rest::binary>>, parens, brackets, braces, in_str, current, acc) do
+    {p2, b2, br2, is2} =
+      case {c, in_str} do
+        {?', 0} -> {parens, brackets, braces, 1}
+        {?', 1} -> {parens, brackets, braces, 0}
+        {?", 0} -> {parens, brackets, braces, 2}
+        {?", 2} -> {parens, brackets, braces, 0}
+        {?`, 0} -> {parens, brackets, braces, 3}
+        {?`, 3} -> {parens, brackets, braces, 0}
+        {?(, 0} -> {parens + 1, brackets, braces, 0}
+        {?), 0} -> {max(parens - 1, 0), brackets, braces, 0}
+        {?[, 0} -> {parens, brackets + 1, braces, 0}
+        {?], 0} -> {parens, max(brackets - 1, 0), braces, 0}
+        {?{, 0} -> {parens, brackets, braces + 1, 0}
+        {?}, 0} -> {parens, brackets, max(braces - 1, 0), 0}
+        _ -> {parens, brackets, braces, in_str}
+      end
+
+    find_stmts(rest, p2, b2, br2, is2, [c | current], acc)
   end
 
   defp convert_beam_result({:error, {:js_throw, {:obj, _ref} = obj}}) do

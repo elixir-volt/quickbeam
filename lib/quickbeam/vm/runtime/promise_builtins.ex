@@ -9,7 +9,55 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
   alias QuickBEAM.VM.PromiseState
 
   def constructor do
-    fn _args, _this -> Heap.wrap(%{}) end
+    fn args, _this ->
+      case args do
+        [executor | _] when not is_nil(executor) and executor != :undefined ->
+          ref = make_ref()
+          Heap.put_obj(ref, promise_pending_obj(ref))
+
+          resolve_fn =
+            {:builtin, "resolve",
+             fn [val | _], _ ->
+               unless already_settled?(ref), do: PromiseState.resolve(ref, :resolved, val)
+               :undefined
+             end}
+
+          reject_fn =
+            {:builtin, "reject",
+             fn [val | _], _ ->
+               unless already_settled?(ref), do: PromiseState.resolve(ref, :rejected, val)
+               :undefined
+             end}
+
+          try do
+            QuickBEAM.VM.Interpreter.invoke_callback(executor, [resolve_fn, reject_fn])
+          catch
+            {:js_throw, err} ->
+              unless already_settled?(ref), do: PromiseState.resolve(ref, :rejected, err)
+          end
+
+          {:obj, ref}
+
+        _ ->
+          Heap.wrap(%{})
+      end
+    end
+  end
+
+  defp promise_pending_obj(ref) do
+    %{
+      promise_state() => :pending,
+      promise_value() => nil,
+      "then" => {:builtin, "then", fn args, _this -> PromiseState.promise_then(args, {:obj, ref}) end},
+      "catch" => {:builtin, "catch", fn args, _this -> PromiseState.promise_catch(args, {:obj, ref}) end}
+    }
+  end
+
+  defp already_settled?(ref) do
+    case Heap.get_obj(ref, %{}) do
+      %{promise_state() => state} when state in [:resolved, :rejected] -> true
+      _ -> false
+    end
   end
 
   def prototype do

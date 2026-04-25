@@ -78,16 +78,16 @@ defmodule QuickBEAM.VM.Runtime.Globals do
 
            fun_ctor
          end).(),
-      "RegExp" => register("RegExp", &Constructors.regexp/2),
-      "Date" => register("Date", &JSDate.constructor/2, module: JSDate),
+      "RegExp" => register("RegExp", &Constructors.regexp/2, auto_proto: true),
+      "Date" => register("Date", &JSDate.constructor/2, module: JSDate, auto_proto: true),
       "Promise" =>
         register("Promise", PromiseBuiltins.constructor(),
           module: PromiseBuiltins,
           prototype: PromiseBuiltins.prototype()
         ),
       "Symbol" => register("Symbol", Symbol.constructor(), module: Symbol),
-      "Map" => register("Map", JSMap.constructor()),
-      "Set" => register("Set", JSSet.constructor()),
+      "Map" => register("Map", JSMap.constructor(), auto_proto: true),
+      "Set" => register("Set", JSSet.constructor(), auto_proto: true),
       "WeakMap" => register("WeakMap", JSMap.weak_constructor()),
       "WeakSet" => register("WeakSet", JSSet.weak_constructor()),
       "WeakRef" => register("WeakRef", fn _, _ -> Runtime.new_object() end),
@@ -96,7 +96,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
       "DataView" => register("DataView", fn _, _ -> Runtime.new_object() end),
       "ArrayBuffer" =>
         (
-          ab_ctor = register("ArrayBuffer", &ArrayBuffer.constructor/2)
+          ab_ctor = register("ArrayBuffer", &ArrayBuffer.constructor/2, auto_proto: true)
 
           Heap.put_ctor_static(
             ab_ctor,
@@ -139,7 +139,11 @@ defmodule QuickBEAM.VM.Runtime.Globals do
       "isFinite" => builtin("isFinite", &GlobalNumeric.finite?/2),
       "eval" => builtin("eval", &Functions.js_eval/2),
       "require" => builtin("require", &Functions.js_require/2),
-      "structuredClone" => builtin("structuredClone", fn [val | _], _ -> val end),
+      "structuredClone" =>
+        builtin("structuredClone", fn
+          [val | _], _ -> QuickBEAM.VM.Runtime.StructuredClone.clone(val)
+          [], _ -> nil
+        end),
       "queueMicrotask" => builtin("queueMicrotask", &Functions.queue_microtask/2),
       "gc" => builtin("gc", fn _, _ -> :undefined end),
       "os" => Heap.wrap(%{"platform" => "elixir"}),

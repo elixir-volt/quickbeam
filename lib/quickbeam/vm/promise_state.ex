@@ -52,6 +52,16 @@ defmodule QuickBEAM.VM.PromiseState do
       nil ->
         :ok
 
+      {:resolve, nil, callback, val} ->
+        # queueMicrotask-style: fire and forget, errors silently discarded
+        try do
+          Interpreter.invoke_callback(callback, [val])
+        catch
+          {:js_throw, _} -> :ok
+        end
+
+        drain_microtasks()
+
       {:resolve, child_ref, callback, val} ->
         result =
           try do

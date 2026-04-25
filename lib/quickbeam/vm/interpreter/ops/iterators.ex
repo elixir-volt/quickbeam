@@ -93,6 +93,9 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
                   []
               end
 
+            s when is_binary(s) ->
+              spread_string_codepoints(s)
+
             _ ->
               []
           end
@@ -279,6 +282,22 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
           end
 
         run(pc + 1, frame, [0, next_fn, iter_obj | rest], gas, ctx)
+      end
+
+      defp spread_string_codepoints(<<>>), do: []
+
+      defp spread_string_codepoints(<<0xED, b2, b3, rest::binary>>)
+           when b2 in 0xA0..0xBF and b3 in 0x80..0xBF do
+        # WTF-8 lone surrogate - decode as-is (preserve WTF-8 bytes)
+        [<<0xED, b2, b3>> | spread_string_codepoints(rest)]
+      end
+
+      defp spread_string_codepoints(<<cp::utf8, rest::binary>>) do
+        [<<cp::utf8>> | spread_string_codepoints(rest)]
+      end
+
+      defp spread_string_codepoints(<<byte, rest::binary>>) do
+        [<<byte>> | spread_string_codepoints(rest)]
       end
     end
   end

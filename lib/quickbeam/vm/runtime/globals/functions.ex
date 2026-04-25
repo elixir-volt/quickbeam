@@ -39,6 +39,10 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
   end
 
   def queue_microtask([callback | _], _) do
+    unless QuickBEAM.VM.Builtin.callable?(callback) do
+      JSThrow.type_error!("Failed to execute 'queueMicrotask': The callback provided as parameter 1 is not a function.")
+    end
+
     Heap.enqueue_microtask({:resolve, nil, callback, :undefined})
     :undefined
   end

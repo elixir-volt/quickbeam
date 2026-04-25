@@ -348,25 +348,8 @@ defmodule QuickBEAM.VM.Interpreter do
         throw({:js_throw, val})
 
       %{promise_state() => :pending} ->
-        # Drain again in case resolution was queued
-        Promise.drain_microtasks()
-
-        case Heap.get_obj(ref, %{}) do
-          %{
-            promise_state() => :resolved,
-            promise_value() => val
-          } ->
-            val
-
-          %{
-            promise_state() => :rejected,
-            promise_value() => val
-          } ->
-            throw({:js_throw, val})
-
-          _ ->
-            obj
-        end
+        # Drain timers, then microtasks, then recheck
+        drain_pending(ref, obj, 0)
 
       _ ->
         obj
@@ -374,6 +357,38 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   def resolve_awaited(val), do: val
+
+  @max_timer_drain_ms 5000
+
+  defp drain_pending(_ref, obj, elapsed_ms) when elapsed_ms > @max_timer_drain_ms, do: obj
+
+  defp drain_pending(ref, obj, elapsed_ms) do
+    did_fire = QuickBEAM.VM.Runtime.Web.Timers.drain_timers()
+    Promise.drain_microtasks()
+
+    case Heap.get_obj(ref, %{}) do
+      %{promise_state() => :resolved, promise_value() => val} ->
+        val
+
+      %{promise_state() => :rejected, promise_value() => val} ->
+        throw({:js_throw, val})
+
+      %{promise_state() => :pending} ->
+        sleep_ms =
+          if did_fire do
+            0
+          else
+            QuickBEAM.VM.Runtime.Web.Timers.next_timer_delay_ms() || 1
+          end
+
+        if sleep_ms > 0, do: :timer.sleep(sleep_ms)
+
+        drain_pending(ref, obj, elapsed_ms + sleep_ms)
+
+      _ ->
+        obj
+    end
+  end
 
   defp list_iterator_next(pos_ref) do
     case Heap.get_obj_raw(pos_ref) do
