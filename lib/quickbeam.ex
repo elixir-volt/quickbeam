@@ -268,7 +268,7 @@ defmodule QuickBEAM do
             stripped = last2 |> String.trim() |> String.trim_trailing(";")
             "return #{stripped}"
           else
-            last2
+            maybe_wrap_block_return(last2)
           end
 
         body = (rest2 ++ [last_with_return]) |> Enum.join("\n")
@@ -279,6 +279,33 @@ defmodule QuickBEAM do
   # Heuristic: returns true if this statement should be prefixed with `return`.
   # We return if it's an expression statement (not a declaration/control-flow).
   @no_return_prefixes ~w[const let var function class return if for while do switch try throw import export async]
+
+  defp maybe_wrap_block_return(stmt) do
+    trimmed = String.trim(stmt)
+
+    if String.starts_with?(trimmed, "try ") or String.starts_with?(trimmed, "try{") do
+      inject_try_catch_returns(trimmed)
+    else
+      stmt
+    end
+  end
+
+  defp inject_try_catch_returns(try_stmt) do
+    # Find catch block and inject return before its last expression
+    case Regex.run(~r/^(try\s*\{.*\})\s*(catch\s*\([^)]*\)\s*\{)(.*)\}\s*$/s, try_stmt) do
+      [_, try_part, catch_header, catch_body] ->
+        last_catch_expr = catch_body |> String.trim() |> String.trim_trailing(";")
+
+        if last_catch_expr != "" and not String.starts_with?(last_catch_expr, "return ") do
+          "#{try_part} #{catch_header} return #{last_catch_expr}; }"
+        else
+          try_stmt
+        end
+
+      _ ->
+        try_stmt
+    end
+  end
 
   defp maybe_split_block_tail(rest, last) do
     trimmed = String.trim_leading(last)
@@ -422,7 +449,33 @@ defmodule QuickBEAM do
 
   defp global_gc_roots do
     cache = Heap.get_global_cache() || %{}
-    Map.values(cache)
+    channel_roots = broadcast_channel_gc_roots()
+    Map.values(cache) ++ channel_roots
+  end
+
+  defp broadcast_channel_gc_roots do
+    case Process.get(:qb_broadcast_channels) do
+      nil ->
+        []
+
+      channels when is_map(channels) ->
+        channels
+        |> Map.values()
+        |> List.flatten()
+        |> Enum.flat_map(fn
+          {_id, ref} when is_reference(ref) ->
+            case Process.get(ref) do
+              nil -> []
+              v -> [v]
+            end
+
+          _ ->
+            []
+        end)
+
+      _ ->
+        []
+    end
   end
 
   defp elixir_to_js(val) when is_map(val) do

@@ -6,6 +6,7 @@ defmodule QuickBEAM.VM.Runtime.WebAPIs do
   alias QuickBEAM.VM.Runtime.Web.{
     Abort,
     Blob,
+    BroadcastChannel,
     Crypto,
     Encoding,
     Events,
@@ -42,5 +43,6 @@ defmodule QuickBEAM.VM.Runtime.WebAPIs do
     |> Map.merge(Events.bindings())
     |> Map.merge(FormData.bindings())
     |> Map.merge(Streams.bindings())
+    |> Map.merge(BroadcastChannel.bindings())
   end
 end
