@@ -7,17 +7,25 @@ defmodule QuickBEAM.VM.Runtime.WebAPIs do
     Abort,
     Blob,
     BroadcastChannel,
+    Buffer,
+    Compression,
+    ConsoleAPI,
     Crypto,
     Encoding,
+    EventSourceAPI,
     Events,
     Fetch,
     FormData,
     Headers,
+    MessageChannel,
+    Navigator,
     Performance,
     Streams,
+    SubtleCrypto,
     TextEncoding,
     Timers,
-    URL
+    URL,
+    Worker
   }
 
   def register(name, constructor) do
@@ -44,5 +52,17 @@ defmodule QuickBEAM.VM.Runtime.WebAPIs do
     |> Map.merge(FormData.bindings())
     |> Map.merge(Streams.bindings())
     |> Map.merge(BroadcastChannel.bindings())
+    |> Map.merge(Buffer.bindings())
+    |> Map.merge(MessageChannel.bindings())
+    |> Map.merge(Navigator.bindings())
+    |> Map.merge(Compression.bindings())
+    |> Map.merge(ConsoleAPI.bindings())
+    |> Map.merge(Worker.bindings())
+    |> Map.merge(EventSourceAPI.bindings())
+    |> Map.merge(subtle_crypto_in_crypto())
+  end
+
+  defp subtle_crypto_in_crypto do
+    %{}
   end
 end

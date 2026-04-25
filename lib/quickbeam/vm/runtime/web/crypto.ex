@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Crypto do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
+  alias QuickBEAM.VM.Runtime.Web.SubtleCrypto
 
   def bindings do
     %{"crypto" => crypto_object()}
@@ -50,7 +51,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Crypto do
         |> IO.iodata_to_binary()
       end
 
-      val("subtle", Heap.wrap(%{}))
+      val("subtle", SubtleCrypto.build_subtle())
     end
   end
 end

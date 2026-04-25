@@ -507,12 +507,41 @@ defmodule QuickBEAM do
         Enum.map(list, &convert_beam_value/1)
 
       map when is_map(map) ->
-        map
-        |> Map.drop([key_order()])
-        |> Map.new(fn {k, v} -> {convert_beam_key(k), convert_beam_value(v)} end)
-        |> Map.reject(fn {k, _} ->
-          is_binary(k) and String.starts_with?(k, "__") and String.ends_with?(k, "__")
-        end)
+        # Buffer objects are converted to their UTF-8 string representation
+        if Map.get(map, "__is_buffer__") == true do
+          extract_buffer_bytes(map)
+        else
+          map
+          |> Map.drop([key_order()])
+          |> Map.new(fn {k, v} -> {convert_beam_key(k), convert_beam_value(v)} end)
+          |> Map.reject(fn {k, _} ->
+            is_binary(k) and String.starts_with?(k, "__") and String.ends_with?(k, "__")
+          end)
+        end
+    end
+  end
+
+  defp extract_buffer_bytes(map) do
+    case Map.get(map, "buffer") do
+      {:obj, buf_ref} ->
+        case Heap.get_obj(buf_ref) do
+          bm when is_map(bm) ->
+            ab = Map.get(bm, "__buffer__", <<>>)
+            offset = Map.get(map, "byteOffset", 0)
+            byte_len = Map.get(map, "byteLength", byte_size(ab))
+
+            if byte_size(ab) >= offset + byte_len and byte_len > 0 do
+              binary_part(ab, offset, byte_len)
+            else
+              ab
+            end
+
+          _ -> <<>>
+        end
+
+      _ ->
+        # Fallback: try reading from the typed array's direct buffer
+        Map.get(map, "__buffer__", <<>>)
     end
   end
 

@@ -58,29 +58,56 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             Heap.put_obj_raw(ref, {:shape, new_shape_id, new_offsets, new_vals, proto})
         end
 
-      data ->
-        if is_list(data) or match?({:qb_arr, _}, data) do
-          new_len = Runtime.to_int(val)
-          list = if is_list(data), do: data, else: Heap.obj_to_list(ref)
-          old_len = length(list)
+      {:qb_arr, _} ->
+        new_len = Runtime.to_int(val)
+        list = Heap.obj_to_list(ref)
+        old_len = length(list)
 
-          if new_len < old_len do
-            non_configurable_idx =
-              Enum.find(new_len..(old_len - 1), fn i ->
-                match?(%{configurable: false}, Heap.get_prop_desc(ref, Integer.to_string(i)))
-              end)
+        if new_len < old_len do
+          non_configurable_idx =
+            Enum.find(new_len..(old_len - 1), fn i ->
+              match?(%{configurable: false}, Heap.get_prop_desc(ref, Integer.to_string(i)))
+            end)
 
-            if non_configurable_idx do
-              Heap.put_obj(ref, Enum.take(list, non_configurable_idx + 1))
-              JSThrow.type_error!("Cannot delete property")
-            end
-
-            Heap.put_obj(ref, Enum.take(list, new_len))
-          else
-            padded = list ++ List.duplicate(:undefined, new_len - old_len)
-            Heap.put_obj(ref, padded)
+          if non_configurable_idx do
+            Heap.put_obj(ref, Enum.take(list, non_configurable_idx + 1))
+            JSThrow.type_error!("Cannot delete property")
           end
+
+          Heap.put_obj(ref, Enum.take(list, new_len))
+        else
+          padded = list ++ List.duplicate(:undefined, new_len - old_len)
+          Heap.put_obj(ref, padded)
         end
+
+      data when is_list(data) ->
+        new_len = Runtime.to_int(val)
+        list = data
+        old_len = length(list)
+
+        if new_len < old_len do
+          non_configurable_idx =
+            Enum.find(new_len..(old_len - 1), fn i ->
+              match?(%{configurable: false}, Heap.get_prop_desc(ref, Integer.to_string(i)))
+            end)
+
+          if non_configurable_idx do
+            Heap.put_obj(ref, Enum.take(list, non_configurable_idx + 1))
+            JSThrow.type_error!("Cannot delete property")
+          end
+
+          Heap.put_obj(ref, Enum.take(list, new_len))
+        else
+          padded = list ++ List.duplicate(:undefined, new_len - old_len)
+          Heap.put_obj(ref, padded)
+        end
+
+      map when is_map(map) ->
+        # Plain object: store "length" as a regular property
+        Heap.put_obj_key(ref, map, "length", val)
+
+      _ ->
+        :ok
     end
   end
 
