@@ -156,7 +156,9 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
         if iter_obj == :undefined do
           run(pc + 1, frame, [true, :undefined | stack], gas, ctx)
         else
-          result = Invocation.invoke_callback_or_throw(next_fn, [])
+          raw_result = Invocation.invoke_callback_or_throw(next_fn, [])
+
+          result = resolve_awaited(raw_result)
 
           ctx =
             case Heap.get_persistent_globals() do
@@ -258,6 +260,9 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
       # ── for-await-of ──
 
       defp run({@op_for_await_of_start, []}, pc, frame, [obj | rest], gas, ctx) do
+        sym_async_iter = {:symbol, "Symbol.asyncIterator"}
+        sym_iter = {:symbol, "Symbol.iterator"}
+
         {iter_obj, next_fn} =
           case obj do
             {:obj, ref} ->
@@ -269,6 +274,16 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
 
                 is_list(stored) ->
                   make_list_iterator(stored)
+
+                is_map(stored) and Map.has_key?(stored, sym_async_iter) ->
+                  async_iter_fn = Map.get(stored, sym_async_iter)
+                  iter = Invocation.invoke_callback_or_throw(async_iter_fn, [], obj)
+                  {iter, Get.get(iter, "next")}
+
+                is_map(stored) and Map.has_key?(stored, sym_iter) ->
+                  iter_fn = Map.get(stored, sym_iter)
+                  iter = Invocation.invoke_callback_or_throw(iter_fn, [], obj)
+                  {iter, Get.get(iter, "next")}
 
                 is_map(stored) and Map.has_key?(stored, "next") ->
                   {obj, Get.get(obj, "next")}

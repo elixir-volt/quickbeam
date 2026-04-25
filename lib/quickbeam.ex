@@ -228,7 +228,7 @@ defmodule QuickBEAM do
 
             Promise.drain_microtasks()
             converted = convert_beam_result(result)
-            Heap.gc(beam_gc_roots(result))
+            Heap.gc(beam_gc_roots(result) ++ global_gc_roots())
             converted
 
           {:error, _} = err ->
@@ -261,15 +261,17 @@ defmodule QuickBEAM do
         last = List.last(stmts)
         rest = Enum.drop(stmts, -1)
 
+        {rest2, last2} = maybe_split_block_tail(rest, last)
+
         last_with_return =
-          if needs_return?(last) do
-            stripped = last |> String.trim() |> String.trim_trailing(";")
+          if needs_return?(last2) do
+            stripped = last2 |> String.trim() |> String.trim_trailing(";")
             "return #{stripped}"
           else
-            last
+            last2
           end
 
-        body = (rest ++ [last_with_return]) |> Enum.join("\n")
+        body = (rest2 ++ [last_with_return]) |> Enum.join("\n")
         "(async () => {\n#{body}\n})()"
     end
   end
@@ -277,6 +279,63 @@ defmodule QuickBEAM do
   # Heuristic: returns true if this statement should be prefixed with `return`.
   # We return if it's an expression statement (not a declaration/control-flow).
   @no_return_prefixes ~w[const let var function class return if for while do switch try throw import export async]
+
+  defp maybe_split_block_tail(rest, last) do
+    trimmed = String.trim_leading(last)
+    starts_with_block = Enum.any?(~w[while for if switch do try], &String.starts_with?(trimmed, &1 <> " ") or String.starts_with?(trimmed, &1 <> "("))
+
+    if starts_with_block do
+      case split_block_and_tail(last) do
+        {block, tail} when tail != "" ->
+          {rest ++ [block], tail}
+
+        _ ->
+          {rest, last}
+      end
+    else
+      {rest, last}
+    end
+  end
+
+  defp split_block_and_tail(stmt) do
+    chars = String.to_charlist(stmt)
+    find_last_block_end(chars, 0, 0, 0, 0, [], 0, -1)
+  end
+
+  defp find_last_block_end([], _p, _b, _br, _s, acc, _pos, last_depth0_close) do
+    if last_depth0_close > 0 do
+      all = IO.iodata_to_binary(Enum.reverse(acc))
+      block = String.slice(all, 0, last_depth0_close)
+      tail = all |> String.slice(last_depth0_close, String.length(all)) |> String.trim()
+      {block, tail}
+    else
+      {"", ""}
+    end
+  end
+
+  defp find_last_block_end([c | rest], p, b, br, in_str, acc, pos, last_depth0_close) do
+    {p2, b2, br2, is2, new_last} =
+      case {c, in_str} do
+        {?', 0} -> {p, b, br, 1, last_depth0_close}
+        {?', 1} -> {p, b, br, 0, last_depth0_close}
+        {?", 0} -> {p, b, br, 2, last_depth0_close}
+        {?", 2} -> {p, b, br, 0, last_depth0_close}
+        {?`, 0} -> {p, b, br, 3, last_depth0_close}
+        {?`, 3} -> {p, b, br, 0, last_depth0_close}
+        {?(, 0} -> {p + 1, b, br, 0, last_depth0_close}
+        {?), 0} -> {max(p - 1, 0), b, br, 0, last_depth0_close}
+        {?[, 0} -> {p, b + 1, br, 0, last_depth0_close}
+        {?], 0} -> {p, max(b - 1, 0), br, 0, last_depth0_close}
+        {?{, 0} -> {p, b, br + 1, 0, last_depth0_close}
+        {?}, 0} ->
+          new_br = max(br - 1, 0)
+          new_last = if new_br == 0 and p == 0 and b == 0, do: pos + 1, else: last_depth0_close
+          {p, b, new_br, 0, new_last}
+        _ -> {p, b, br, in_str, last_depth0_close}
+      end
+
+    find_last_block_end(rest, p2, b2, br2, is2, [c | acc], pos + 1, new_last)
+  end
 
   defp needs_return?(stmt) do
     trimmed = String.trim_leading(stmt)
@@ -340,7 +399,16 @@ defmodule QuickBEAM do
   end
 
   defp convert_beam_result({:ok, {:obj, ref}}) do
-    {:ok, convert_beam_value({:obj, ref})}
+    case Heap.get_obj(ref) do
+      %{"__promise_state__" => :rejected, "__promise_value__" => val} ->
+        {:error, wrap_js_error(convert_beam_value(val))}
+
+      %{"__promise_state__" => :resolved, "__promise_value__" => val} ->
+        {:ok, convert_beam_value(val)}
+
+      _ ->
+        {:ok, convert_beam_value({:obj, ref})}
+    end
   end
 
   defp convert_beam_result({:ok, val}), do: {:ok, convert_beam_value(val)}
@@ -351,6 +419,11 @@ defmodule QuickBEAM do
   defp beam_gc_roots({:ok, value}), do: [value]
   defp beam_gc_roots({:error, {:js_throw, value}}), do: [value]
   defp beam_gc_roots(_), do: []
+
+  defp global_gc_roots do
+    cache = Heap.get_global_cache() || %{}
+    Map.values(cache)
+  end
 
   defp elixir_to_js(val) when is_map(val) do
     ref = make_ref()

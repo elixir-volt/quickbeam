@@ -17,14 +17,16 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
 
           resolve_fn =
             {:builtin, "resolve",
-             fn [val | _], _ ->
+             fn args, _ ->
+               val = List.first(args, :undefined)
                unless already_settled?(ref), do: PromiseState.resolve(ref, :resolved, val)
                :undefined
              end}
 
           reject_fn =
             {:builtin, "reject",
-             fn [val | _], _ ->
+             fn args, _ ->
+               val = List.first(args, :undefined)
                unless already_settled?(ref), do: PromiseState.resolve(ref, :rejected, val)
                :undefined
              end}

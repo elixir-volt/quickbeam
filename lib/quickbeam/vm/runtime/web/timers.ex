@@ -76,6 +76,12 @@ defmodule QuickBEAM.VM.Runtime.Web.Timers do
 
   # ── Builtin implementations ──
 
+  def enqueue_timeout(callback, delay_ms) do
+    id = next_id()
+    enqueue_timer(id, :timeout, callback, delay_ms, nil)
+    id
+  end
+
   defp set_timeout([callback | rest], _) do
     delay =
       case rest do

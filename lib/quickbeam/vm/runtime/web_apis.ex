@@ -8,9 +8,12 @@ defmodule QuickBEAM.VM.Runtime.WebAPIs do
     Blob,
     Crypto,
     Encoding,
+    Events,
     Fetch,
+    FormData,
     Headers,
     Performance,
+    Streams,
     TextEncoding,
     Timers,
     URL
@@ -36,5 +39,8 @@ defmodule QuickBEAM.VM.Runtime.WebAPIs do
     |> Map.merge(Blob.bindings())
     |> Map.merge(Crypto.bindings())
     |> Map.merge(Fetch.bindings())
+    |> Map.merge(Events.bindings())
+    |> Map.merge(FormData.bindings())
+    |> Map.merge(Streams.bindings())
   end
 end
