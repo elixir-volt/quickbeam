@@ -1,27 +1,21 @@
-# Autoresearch Ideas — 47 remaining failures (96.9% pass rate)
+# Autoresearch Ideas — 13 remaining failures (99.2% pass rate)
 
-## Total progress: 72 → 47 = 25 tests fixed
+## Total progress: 72 → 13 = 59 tests fixed (81.9% reduction)
 
-## Key fixes
-1. **Stale catch_stack** — refresh ctx from PD in catch clauses (4 tests)
-2. **delete this.y** — configurable:false for declared vars (1 test)
-3. **Function.prototype.constructor** — proto_property chain (1 test)
-4. **typeof proxy** — delegates to target + Proxy.revocable (1 test)
-5. **instanceof for arrays** — Array/Object.prototype check (1 test)
-6. **Class field capture** — eval_with_ctx setup_captured_locals (1 test)
-7. **private_in for accessors** — brand check (1 test)
-8. **Array proto setter** — OOB put_element + globals refresh (1 test)
-9. **make_*_ref 2-value push** — prop_name + cell (eliminates 23 crashes)
-10. **with_has_property?** — has_property instead of Get.get (14 tests!)
-11. **with_make_ref compiler fallback** — force interpreter for with-scope functions
+## Key fixes this session
+1. **put_ref_value global sync** — cell writes now always sync to ctx.globals/globalThis (-33 tests!)
+2. **Symbol.unscopables** — added symbol, unscopables check in with_has_property?, shaped object symbol-key storage (-1 test)
 
-## Remaining breakdown (47 failures, all with-scope)
-- **15** not a function — function calls through `with` scope use different opcodes
-- **6** p5 is not defined — var declarations inside `with` don't leak to outer scope
-- **6** undefined is not a constructor — constructor calls through `with`
-- **6** Expected ReferenceError — strict mode ref errors in `with`
-- **14** misc with-scope issues (unscopables, property access, scope close)
+## Remaining breakdown (13 failures)
+- **4** inc/dec putvalue strict mode — `delete` binding + strict access should throw ReferenceError
+- **3** S12.10_A1.7 — `this.p2='x2'` in callback doesn't propagate to caller's globals context
+- **3** unscopables binding deletion — complex Symbol.unscopables + delete + strict mode interaction
+- **1** has-property-err — Proxy `has` trap should throw
+- **1** unscopables-inc-dec — unscopables with inc/dec ops
+- **1** typed-array strict mode — strict mode binding deletion
 
-## Potential next steps
-- **Function calls in `with`**: The `with_get_var` resolves reads but function CALLS may use different bytecode paths. Need to check if `call_function` looks up through `with` scope.
-- **var creation in `with`**: When `p5 = 'x5'` runs inside `with(myObj)` and `myObj` doesn't have `p5`, it should create a global `p5`. The `with_put_var` fallthrough should handle this.
+## Remaining issues analysis
+- **Callback globals propagation** (3 tests): Function calls via Invocation.invoke create isolated contexts. Writes to `this.p2` modify globalThis in heap but don't sync back to caller's ctx.globals. Need globals refresh after call_method/call_function opcodes.
+- **Strict mode ReferenceError** (5 tests): Deleting a binding then accessing it in strict mode should throw ReferenceError. Need strict mode enforcement in with-scope set/get operations.
+- **Proxy has trap** (1 test): with_has_property? should support Proxy `has` trap.
+- **Unscopables + inc/dec** (2 tests): Complex interaction of unscopables check with increment/decrement and binding deletion.
