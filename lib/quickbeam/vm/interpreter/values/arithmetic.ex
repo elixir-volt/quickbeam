@@ -3,8 +3,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Arithmetic do
 
   import QuickBEAM.VM.Value, only: [is_object: 1]
 
-  alias QuickBEAM.VM.{Heap, JSThrow}
-  alias QuickBEAM.VM.Bytecode
+  alias QuickBEAM.VM.{Bytecode, Heap, JSThrow}
   alias QuickBEAM.VM.Interpreter.Values.Coercion
 
   def add({:bigint, a}, {:bigint, b}), do: {:bigint, a + b}

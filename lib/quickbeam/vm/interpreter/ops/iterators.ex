@@ -5,7 +5,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
     quote location: :keep do
       import Bitwise, only: [band: 2]
       alias QuickBEAM.VM.{Heap, Invocation, Runtime}
-      alias QuickBEAM.VM.Interpreter.{Context}
+      alias QuickBEAM.VM.Interpreter.Context
       alias QuickBEAM.VM.ObjectModel.{Copy, Get, Put}
 
       # ── for-in ──

@@ -3,8 +3,8 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Stack do
 
   defmacro __using__(_opts) do
     quote location: :keep do
-      alias QuickBEAM.VM.{Names}
       alias QuickBEAM.VM.Interpreter.Frame
+      alias QuickBEAM.VM.Names
       # ── Push constants ──
 
       defp run({op, [val]}, pc, frame, stack, gas, ctx)

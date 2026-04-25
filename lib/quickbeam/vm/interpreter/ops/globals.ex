@@ -4,10 +4,10 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
   defmacro __using__(_opts) do
     quote location: :keep do
       alias QuickBEAM.VM.{GlobalEnv, Heap, Names, Runtime}
-      alias QuickBEAM.VM.PromiseState, as: Promise
       alias QuickBEAM.VM.Interpreter.{Closures, Context, Frame}
       alias QuickBEAM.VM.JSThrow
       alias QuickBEAM.VM.ObjectModel.{Delete, Get, Put}
+      alias QuickBEAM.VM.PromiseState, as: Promise
 
       # ── Globals: get_var, put_var, define_var, eval ──
 

@@ -4,10 +4,8 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Value, only: [is_object: 1]
 
-  alias QuickBEAM.VM.{Heap, Invocation}
+  alias QuickBEAM.VM.{Bytecode, Heap, Invocation, Runtime}
   alias QuickBEAM.VM.ObjectModel.Get
-  alias QuickBEAM.VM.Runtime
-  alias QuickBEAM.VM.Bytecode
 
   def to_number(val) when is_number(val), do: val
   def to_number(true), do: 1
