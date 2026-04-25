@@ -27,7 +27,6 @@ defmodule QuickBEAM.VM.Heap do
             update_obj: 3,
             get_cell: 1,
             put_cell: 2,
-            get_var: 1,
             put_var: 2,
             delete_var: 1,
             get_ctx: 0,
@@ -60,7 +59,6 @@ defmodule QuickBEAM.VM.Heap do
             get_ctor_statics: 1,
             wrap: 1,
             to_list: 1,
-            obj_is_array?: 1,
             obj_to_list: 1,
             array_get: 2,
             array_size: 1,
@@ -260,7 +258,6 @@ defmodule QuickBEAM.VM.Heap do
 
   # ── Array helpers ──
 
-  defdelegate obj_is_array?(ref), to: Store
   defdelegate obj_to_list(ref), to: Store
   defdelegate array_get(ref, idx), to: Store
   defdelegate array_size(ref), to: Store
@@ -282,7 +279,6 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate get_ctor_statics(ctor), to: Store
   defdelegate put_ctor_statics(ctor, statics), to: Store
   defdelegate put_ctor_static(ctor, key, value), to: Store
-  defdelegate get_var(name), to: Store
   defdelegate put_var(name, value), to: Store
   defdelegate delete_var(name), to: Store
 
@@ -299,8 +295,6 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate put_fn_atoms(byte_code, atoms), to: Caches
   defdelegate get_capture_keys(byte_code), to: Caches
   defdelegate put_capture_keys(byte_code, tuple), to: Caches
-  defdelegate get_wrap_cache(keys_tuple), to: Caches
-  defdelegate put_wrap_cache(keys_tuple, shape_info), to: Caches
   defdelegate get_array_proto(), to: Caches
   defdelegate put_array_proto(proto), to: Caches
   defdelegate get_func_proto(), to: Caches
@@ -311,14 +305,10 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate put_regexp_result(ref, result), to: Caches
   defdelegate get_string_codepoints(s), to: Caches
   defdelegate put_string_codepoints(s, chars), to: Caches
-  defdelegate array?(val), to: Arrays
-  defdelegate array_length(arr), to: Arrays, as: :length
   defdelegate get_invoke_depth(), to: Caches
   defdelegate put_invoke_depth(depth), to: Caches
   defdelegate get_eval_restore_stack(), to: Caches
   defdelegate put_eval_restore_stack(stack), to: Caches
-  defdelegate get_home_object(key), to: Caches
-  defdelegate put_home_object(key, target), to: Caches
   defdelegate frozen?(ref), to: Store
   defdelegate freeze(ref), to: Store
   defdelegate get_prop_desc(ref, key), to: Store
