@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.Runtime.GlobalNumeric do
   @moduledoc "Global numeric functions: `parseInt`, `parseFloat`, `isNaN`, `isFinite`, and related utilities."
   alias QuickBEAM.VM.Interpreter.Values
 
+  @doc "Implements JavaScript `parseInt` semantics."
   def parse_int([string, radix | _], _) when is_binary(string) and is_number(radix) do
     base = trunc(radix)
     string = String.trim_leading(string)
@@ -49,6 +50,7 @@ defmodule QuickBEAM.VM.Runtime.GlobalNumeric do
   def parse_int([n | _], _) when is_number(n), do: trunc(n)
   def parse_int(_, _), do: :nan
 
+  @doc "Implements JavaScript `parseFloat` semantics."
   def parse_float([string | _], _) when is_binary(string) do
     string = String.trim(string)
 
@@ -70,6 +72,7 @@ defmodule QuickBEAM.VM.Runtime.GlobalNumeric do
   def parse_float([n | _], _) when is_number(n), do: n * 1.0
   def parse_float(_, _), do: :nan
 
+  @doc "Returns whether a VM number is JavaScript NaN."
   def nan?([:nan | _], _), do: true
   def nan?([:infinity | _], _), do: false
   def nan?([:neg_infinity | _], _), do: false
@@ -92,6 +95,7 @@ defmodule QuickBEAM.VM.Runtime.GlobalNumeric do
 
   def nan?(_, _), do: true
 
+  @doc "Returns whether a VM number is finite under JavaScript semantics."
   def finite?([n | _], _) when is_number(n), do: true
   def finite?([:infinity | _], _), do: false
   def finite?([:neg_infinity | _], _), do: false

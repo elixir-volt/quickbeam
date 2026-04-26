@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Interpreter.ClosureBuilder do
   alias QuickBEAM.VM.{Bytecode, Heap}
   alias QuickBEAM.VM.Interpreter.Context
 
+  @doc "Builds the runtime value represented by this module."
   def build(%Bytecode.Function{} = fun, locals, vrefs, l2v, %Context{} = ctx) do
     parent_arg_count = current_function_arg_count(ctx)
 
@@ -17,6 +18,7 @@ defmodule QuickBEAM.VM.Interpreter.ClosureBuilder do
 
   def build(other, _locals, _vrefs, _l2v, _ctx), do: other
 
+  @doc "Helper for closure construction: captures parent locals and var-refs into a `{:closure, captured, fun}` tuple."
   def inherit_parent_vrefs({:closure, captured, %Bytecode.Function{} = fun}, parent_vrefs)
       when is_tuple(parent_vrefs) do
     extra =
@@ -35,6 +37,7 @@ defmodule QuickBEAM.VM.Interpreter.ClosureBuilder do
 
   def inherit_parent_vrefs(closure, _parent_vrefs), do: closure
 
+  @doc "Helper for closure construction: captures parent locals and var-refs into a `{:closure, captured, fun}` tuple."
   def ctor_var_refs(%Bytecode.Function{} = fun, captured \\ %{}) do
     cell_ref = make_ref()
     Heap.put_cell(cell_ref, false)
@@ -48,6 +51,7 @@ defmodule QuickBEAM.VM.Interpreter.ClosureBuilder do
     end
   end
 
+  @doc "Helper for closure construction: captures parent locals and var-refs into a `{:closure, captured, fun}` tuple."
   def capture_key(%{closure_type: type, var_idx: idx}), do: capture_key(type, idx)
   def capture_key(type, idx), do: {type, idx}
 

@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.ObjectModel.{Class, Delete, Get, Private, Put}
 
+  @doc "Lowers a bytecode instruction or function into compiler IR."
   def lower(state, name_args) do
     case name_args do
       {{:ok, :object}, []} ->
@@ -137,8 +138,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
       {:ok,
        %{
          state
-         | body:
-             [State.compiler_call(state, :set_proto, [obj, proto]) | state.body],
+         | body: [State.compiler_call(state, :set_proto, [obj, proto]) | state.body],
            stack: [obj | state.stack],
            stack_types: [:object | state.stack_types]
        }}
@@ -164,8 +164,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
       {:ok,
        %{
          state
-         | body:
-             [Builder.remote_call(Class, :put_super_value, [proto_obj, this_obj, key, val]) | state.body]
+         | body: [
+             Builder.remote_call(Class, :put_super_value, [proto_obj, this_obj, key, val])
+             | state.body
+           ]
        }}
     end
   end
@@ -205,8 +207,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
       {:ok,
        %{
          state
-         | body:
-             [State.compiler_call(state, :put_private_field, [obj, key, val]) | state.body]
+         | body: [State.compiler_call(state, :put_private_field, [obj, key, val]) | state.body]
        }}
     end
   end
@@ -218,8 +219,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
       {:ok,
        %{
          state
-         | body:
-             [State.compiler_call(state, :define_private_field, [obj, key, val]) | state.body],
+         | body: [State.compiler_call(state, :define_private_field, [obj, key, val]) | state.body],
            stack: [obj | state.stack],
            stack_types: [:object | state.stack_types]
        }}

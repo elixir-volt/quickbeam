@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.Compiler do
   @type compiled_fun :: {module(), atom()}
   @type beam_file :: {:beam_file, module(), list(), list(), list(), list()}
 
+  @doc "Invokes the runtime object represented by this module."
   def invoke(fun, args) do
     depth = Heap.get_invoke_depth()
     Heap.put_invoke_depth(depth + 1)
@@ -28,6 +29,7 @@ defmodule QuickBEAM.VM.Compiler do
     result
   end
 
+  @doc "Compiles a bytecode function for optimized execution."
   def compile(%Bytecode.Function{} = fun) do
     module = module_name(fun)
     entry = ctx_entry_name()
@@ -49,6 +51,7 @@ defmodule QuickBEAM.VM.Compiler do
 
   def compile(_), do: {:error, :var_refs_not_supported}
 
+  @doc "Returns a disassembly of bytecode for diagnostics."
   def disasm(%Bytecode.Function{} = fun) do
     case disasm_compiled(fun) do
       {:ok, _} = ok -> ok

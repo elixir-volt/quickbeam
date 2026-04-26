@@ -10,6 +10,7 @@ defmodule QuickBEAM.VM.Compiler.GeneratorIterator do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.PromiseState, as: Promise
 
+  @doc "Builds the runtime value represented by this module."
   def build(gen_ref) do
     next_fn =
       {:builtin, "next",
@@ -28,6 +29,7 @@ defmodule QuickBEAM.VM.Compiler.GeneratorIterator do
     Heap.wrap(%{"next" => next_fn, "return" => return_fn})
   end
 
+  @doc "Builds async data for iterator protocol for compiled generator functions."
   def build_async(gen_ref) do
     next_fn =
       {:builtin, "next",

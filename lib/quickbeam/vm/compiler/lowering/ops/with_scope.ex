@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, State}
   alias QuickBEAM.VM.ObjectModel.{Delete, Get, Put}
 
+  @doc "Lowers a bytecode instruction or function into compiler IR."
   def lower(state, name_args) do
     case name_args do
       {{:ok, name}, [atom_idx, _target, _is_with]}
@@ -29,8 +30,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
              {:ok, val, state} <- State.pop(state) do
           key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
 
-          {:ok,
-           State.emit(state, Builder.remote_call(Put, :put, [obj, key, val]))}
+          {:ok, State.emit(state, Builder.remote_call(Put, :put, [obj, key, val]))}
         end
 
       {{:ok, :with_delete_var}, [atom_idx, _target, _is_with]} ->

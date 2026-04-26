@@ -12,8 +12,10 @@ defmodule QuickBEAM.VM.PredefinedAtoms do
            {idx, line |> String.split("\"") |> Enum.at(1)}
          end)
 
+  @doc "Looks up a predefined atom by index."
   def lookup(idx) when is_map_key(@table, idx), do: Map.fetch!(@table, idx)
   def lookup(_), do: nil
 
+  @doc "Returns the number of predefined atoms."
   def count, do: map_size(@table)
 end

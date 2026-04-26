@@ -551,6 +551,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   def pop_typed(_state), do: {:error, :stack_underflow}
 
+  @doc "Helper for lowering accumulator: tracks the operand stack, slot bindings, and emitted body forms during a block compilation."
   def pop(%{stack: [expr | rest], stack_types: [_type | type_rest]} = state),
     do: {:ok, expr, %{state | stack: rest, stack_types: type_rest}}
 

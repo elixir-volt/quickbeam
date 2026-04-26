@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, State}
   alias QuickBEAM.VM.ObjectModel.Get
 
+  @doc "Lowers a bytecode instruction or function into compiler IR."
   def lower(state, name_args) do
     case name_args do
       {{:ok, :for_in_start}, []} ->
@@ -65,8 +66,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
 
       {{:ok, :iterator_call}, [_method]} ->
         with {:ok, iter, state} <- State.pop(state) do
-          {:ok,
-           State.emit(state, State.compiler_call(state, :iterator_close, [iter]))}
+          {:ok, State.emit(state, State.compiler_call(state, :iterator_close, [iter]))}
         end
 
       {{:ok, :rest}, [start_idx]} ->
@@ -156,8 +156,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
     with {:ok, _catch_offset, _catch_type, state} <- State.pop_typed(state),
          {:ok, _next_fn, _next_type, state} <- State.pop_typed(state),
          {:ok, iter_obj, _iter_type, state} <- State.pop_typed(state) do
-      {:ok,
-       State.emit(state, State.compiler_call(state, :iterator_close, [iter_obj]))}
+      {:ok, State.emit(state, State.compiler_call(state, :iterator_close, [iter_obj]))}
     end
   end
 end

@@ -12,6 +12,7 @@ defmodule QuickBEAM.VM.Runtime.Boolean do
     this
   end
 
+  @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor do
     fn
       args, {:obj, _} = this ->

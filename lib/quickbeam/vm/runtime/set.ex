@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
   alias QuickBEAM.VM.ObjectModel.Get
   alias QuickBEAM.VM.Runtime
 
+  @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor do
     fn args, _this ->
       ref = make_ref()
@@ -20,6 +21,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
     end
   end
 
+  @doc "Helper for js `set` and `weakset` built-ins: constructor, `add`/`has`/`delete`, `foreach`, and iteration."
   def weak_constructor do
     fn args, _this ->
       ref = make_ref()
@@ -41,6 +43,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
     end
   end
 
+  @doc "Returns a prototype property value for the given JavaScript property key."
   def proto_property("has"), do: {:builtin, "has", &has/2}
   def proto_property("add"), do: {:builtin, "add", &add/2}
   def proto_property("delete"), do: {:builtin, "delete", &delete/2}

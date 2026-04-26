@@ -19,6 +19,7 @@ defmodule QuickBEAM.VM.Compiler.Optimizer do
     Opcodes.num(:get_loc8)
   ]
 
+  @doc "Optimizes bytecode before lowering or interpretation."
   def optimize(instructions, constants \\ []) do
     instructions
     |> fold_literals(constants)

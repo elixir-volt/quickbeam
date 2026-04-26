@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.GlobalEnv
 
+  @doc "Lowers a bytecode instruction or function into compiler IR."
   def lower(state, name_args) do
     case name_args do
       {{:ok, :get_var}, [atom_idx]} ->
@@ -139,8 +140,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
       {:ok,
        %{
          state
-         | body:
-             [State.compiler_call(state, :put_var_ref, [Builder.literal(idx), val]) | state.body]
+         | body: [
+             State.compiler_call(state, :put_var_ref, [Builder.literal(idx), val]) | state.body
+           ]
        }}
     end
   end
@@ -193,8 +195,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
       {:ok,
        %{
          state
-         | body:
-             [State.compiler_call(state, :put_ref_value, [val, ref]) | state.body]
+         | body: [State.compiler_call(state, :put_ref_value, [val, ref]) | state.body]
        }}
     end
   end

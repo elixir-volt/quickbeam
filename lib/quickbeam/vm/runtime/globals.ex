@@ -29,6 +29,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
   alias QuickBEAM.VM.Runtime.Map, as: JSMap
   alias QuickBEAM.VM.Runtime.Set, as: JSSet
 
+  @doc "Builds the runtime value represented by this module."
   def build do
     obj_proto = ensure_object_prototype()
     obj_ctor = register("Object", &Constructors.object/2, prototype: obj_proto)

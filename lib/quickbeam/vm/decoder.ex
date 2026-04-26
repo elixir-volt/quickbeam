@@ -24,6 +24,7 @@ defmodule QuickBEAM.VM.Decoder do
   @type instruction :: {non_neg_integer(), [term()]}
 
   @spec decode(binary()) :: {:ok, [instruction()]} | {:error, term()}
+  @doc "Decodes VM bytecode into structured instructions."
   def decode(byte_code, arg_count \\ 0) when is_binary(byte_code) do
     case build_offset_map(byte_code) do
       {:ok, offset_map} ->

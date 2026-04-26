@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
   @moduledoc "Object creation, field access, array element access, and misc object stubs."
 
+  @doc "Installs the Object creation, field access, array element access, and misc object stubs helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
       import Bitwise, only: [&&&: 2, bsr: 2]
@@ -99,7 +100,14 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
         run(pc + 1, frame, [val | rest], gas, ctx)
       end
 
-      defp run({@op_put_super_value, []}, pc, frame, [val, key, proto_obj, this_obj | rest], gas, ctx) do
+      defp run(
+             {@op_put_super_value, []},
+             pc,
+             frame,
+             [val, key, proto_obj, this_obj | rest],
+             gas,
+             ctx
+           ) do
         try do
           Class.put_super_value(proto_obj, this_obj, key, val)
           run(pc + 1, frame, rest, gas, ctx)
@@ -169,7 +177,12 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
         do: run(pc + 1, frame, stack, gas, ctx)
 
       defp run({@op_to_object, []}, _pc, frame, [nil | _rest], gas, ctx) do
-        throw_or_catch(frame, Heap.make_error("Cannot convert null to object", "TypeError"), gas, ctx)
+        throw_or_catch(
+          frame,
+          Heap.make_error("Cannot convert null to object", "TypeError"),
+          gas,
+          ctx
+        )
       end
 
       defp run({@op_to_object, []}, _pc, frame, [:undefined | _rest], gas, ctx) do
@@ -339,7 +352,10 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
 
       defp run({@op_throw_error, [atom_idx, reason]}, __pc, frame, _stack, gas, ctx) do
         name = Names.resolve_atom(ctx, atom_idx)
-        {error_type, message} = QuickBEAM.VM.Compiler.RuntimeHelpers.throw_error_message(name, reason)
+
+        {error_type, message} =
+          QuickBEAM.VM.Compiler.RuntimeHelpers.throw_error_message(name, reason)
+
         throw_or_catch(frame, Heap.make_error(message, error_type), gas, ctx)
       end
 
@@ -380,7 +396,12 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       defp run({@op_push_this, []}, _pc, frame, _stack, gas, %Context{this: this} = ctx)
            when this == :uninitialized or
                   (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized) do
-        throw_or_catch(frame, Heap.make_error("this is not initialized", "ReferenceError"), gas, ctx)
+        throw_or_catch(
+          frame,
+          Heap.make_error("this is not initialized", "ReferenceError"),
+          gas,
+          ctx
+        )
       end
 
       defp run({@op_push_this, []}, pc, frame, stack, gas, %Context{this: this} = ctx)
@@ -413,102 +434,113 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       # ── instanceof ──
 
       defp run({@op_instanceof, []}, pc, frame, [ctor, obj | rest], gas, ctx) do
-        catch_and_dispatch(pc, frame, rest, gas, ctx, fn ->
-          has_instance = Get.get(ctor, {:symbol, "Symbol.hasInstance"})
+        catch_and_dispatch(
+          pc,
+          frame,
+          rest,
+          gas,
+          ctx,
+          fn ->
+            has_instance = Get.get(ctor, {:symbol, "Symbol.hasInstance"})
 
-          if has_instance != :undefined and has_instance != nil and function_value?(has_instance) do
-            result = Invocation.invoke_with_receiver(has_instance, [obj], Runtime.gas_budget(), ctor)
-            Values.truthy?(result)
-          else
-            is_obj = function_value?(ctor) or is_object(ctor)
+            if has_instance != :undefined and has_instance != nil and
+                 function_value?(has_instance) do
+              result =
+                Invocation.invoke_with_receiver(has_instance, [obj], Runtime.gas_budget(), ctor)
 
-            unless is_obj do
-              throw(
-                {:js_throw,
-                 Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")}
-              )
-            end
+              Values.truthy?(result)
+            else
+              is_obj = function_value?(ctor) or is_object(ctor)
 
-            is_callable_ctor =
-              case ctor do
-                {:builtin, _, map} when is_map(map) -> false
-                {:obj, ref} -> Get.get({:obj, ref}, "call") != :undefined
-                _ -> true
+              unless is_obj do
+                throw(
+                  {:js_throw,
+                   Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")}
+                )
               end
 
-            unless is_callable_ctor do
-              throw(
-                {:js_throw,
-                 Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")}
-              )
-            end
+              is_callable_ctor =
+                case ctor do
+                  {:builtin, _, map} when is_map(map) -> false
+                  {:obj, ref} -> Get.get({:obj, ref}, "call") != :undefined
+                  _ -> true
+                end
 
-            obj_is_object = is_object(obj) or function_value?(obj)
+              unless is_callable_ctor do
+                throw(
+                  {:js_throw,
+                   Heap.make_error("Right-hand side of instanceof is not callable", "TypeError")}
+                )
+              end
 
-            if obj_is_object do
-              ctor_proto = Get.get(ctor, "prototype")
+              obj_is_object = is_object(obj) or function_value?(obj)
 
-              case ctor_proto do
-                {:obj, _} ->
-                  case obj do
-                    {:obj, ref} ->
-                      ctor_name =
-                        case ctor do
-                          {:builtin, n, _} -> n
-                          _ -> nil
-                        end
+              if obj_is_object do
+                ctor_proto = Get.get(ctor, "prototype")
 
-                      if ctor_name in ["Array", "Object"] do
-                        data = Heap.get_obj(ref)
-                        is_arr = match?({:qb_arr, _}, data) or is_list(data)
-
-                        if (is_arr and ctor_name == "Array") or ctor_name == "Object",
-                          do: true,
-                          else: check_prototype_chain(obj, ctor_proto)
-                      else
-                        check_prototype_chain(obj, ctor_proto)
-                      end
-
-                    _ ->
-                      is_fn = function_value?(obj)
-
-                      if is_fn do
+                case ctor_proto do
+                  {:obj, _} ->
+                    case obj do
+                      {:obj, ref} ->
                         ctor_name =
                           case ctor do
-                            {:builtin, name, _} -> name
+                            {:builtin, n, _} -> n
                             _ -> nil
                           end
 
-                        ctor_name == "Function" or ctor_name == "Object"
-                      else
-                        false
-                      end
-                  end
+                        if ctor_name in ["Array", "Object"] do
+                          data = Heap.get_obj(ref)
+                          is_arr = match?({:qb_arr, _}, data) or is_list(data)
 
-                _ ->
-                  if is_object(ctor) do
-                    throw(
-                      {:js_throw,
-                       Heap.make_error(
-                         "Right-hand side of instanceof is not callable",
-                         "TypeError"
-                       )}
-                    )
-                  else
-                    throw(
-                      {:js_throw,
-                       Heap.make_error(
-                         "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check",
-                         "TypeError"
-                       )}
-                    )
-                  end
+                          if (is_arr and ctor_name == "Array") or ctor_name == "Object",
+                            do: true,
+                            else: check_prototype_chain(obj, ctor_proto)
+                        else
+                          check_prototype_chain(obj, ctor_proto)
+                        end
+
+                      _ ->
+                        is_fn = function_value?(obj)
+
+                        if is_fn do
+                          ctor_name =
+                            case ctor do
+                              {:builtin, name, _} -> name
+                              _ -> nil
+                            end
+
+                          ctor_name == "Function" or ctor_name == "Object"
+                        else
+                          false
+                        end
+                    end
+
+                  _ ->
+                    if is_object(ctor) do
+                      throw(
+                        {:js_throw,
+                         Heap.make_error(
+                           "Right-hand side of instanceof is not callable",
+                           "TypeError"
+                         )}
+                      )
+                    else
+                      throw(
+                        {:js_throw,
+                         Heap.make_error(
+                           "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check",
+                           "TypeError"
+                         )}
+                      )
+                    end
+                end
+              else
+                false
               end
-            else
-              false
             end
-          end
-        end, true)
+          end,
+          true
+        )
       end
 
       # ── delete ──
@@ -605,23 +637,33 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       # ── in operator ──
 
       defp run({@op_in, []}, pc, frame, [obj, key | rest], gas, ctx) do
-        catch_and_dispatch(pc, frame, rest, gas, ctx, fn ->
-          unless is_object(obj) or match?({:builtin, _, _}, obj) or
-                   is_closure(obj) or match?(%Bytecode.Function{}, obj) or
-                   match?({:bound, _, _, _, _}, obj) or match?({:qb_arr, _}, obj) or
-                   is_list(obj) or is_map(obj) do
-            throw(
-              {:js_throw,
-               Heap.make_error(
-                 "Cannot use 'in' operator to search for '#{Values.stringify(key)}' in #{Values.stringify(obj)}",
-                 "TypeError"
-               )}
-            )
-          end
+        catch_and_dispatch(
+          pc,
+          frame,
+          rest,
+          gas,
+          ctx,
+          fn ->
+            unless is_object(obj) or match?({:builtin, _, _}, obj) or
+                     is_closure(obj) or match?(%Bytecode.Function{}, obj) or
+                     match?({:bound, _, _, _, _}, obj) or match?({:qb_arr, _}, obj) or
+                     is_list(obj) or is_map(obj) do
+              throw(
+                {:js_throw,
+                 Heap.make_error(
+                   "Cannot use 'in' operator to search for '#{Values.stringify(key)}' in #{Values.stringify(obj)}",
+                   "TypeError"
+                 )}
+              )
+            end
 
-          coerced_key = if is_binary(key) or is_integer(key), do: key, else: Values.stringify(key)
-          Put.has_property(obj, coerced_key)
-        end, false)
+            coerced_key =
+              if is_binary(key) or is_integer(key), do: key, else: Values.stringify(key)
+
+            Put.has_property(obj, coerced_key)
+          end,
+          false
+        )
       end
 
       # ── regexp literal ──

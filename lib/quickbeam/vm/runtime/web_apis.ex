@@ -30,6 +30,7 @@ defmodule QuickBEAM.VM.Runtime.WebAPIs do
     Worker
   }
 
+  @doc "Registers this runtime subsystem in the supplied global environment."
   def register(name, constructor), do: Constructors.register(name, constructor, %{}, nil)
 
   @providers [

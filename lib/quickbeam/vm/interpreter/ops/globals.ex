@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
   @moduledoc "Global variable access, ref values, eval, and with-statement opcodes."
 
+  @doc "Installs the Global variable access, ref values, eval, and with-statement opcodes helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
       alias QuickBEAM.VM.{GlobalEnv, Heap, Names, Runtime}
@@ -96,7 +97,12 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
 
             if is_map(stored) and not Map.has_key?(stored, name) do
               Heap.put_obj(ref, Map.put(stored, name, :undefined))
-              Heap.put_prop_desc(ref, name, %{writable: true, enumerable: true, configurable: false})
+
+              Heap.put_prop_desc(ref, name, %{
+                writable: true,
+                enumerable: true,
+                configurable: false
+              })
             end
 
           _ ->
@@ -188,7 +194,14 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
         run(pc + 1, frame, rest, gas, ctx)
       end
 
-      defp run({@op_get_ref_value, []}, pc, frame, [_prop_name, {:cell, _} = ref | _] = stack, gas, ctx) do
+      defp run(
+             {@op_get_ref_value, []},
+             pc,
+             frame,
+             [_prop_name, {:cell, _} = ref | _] = stack,
+             gas,
+             ctx
+           ) do
         run(pc + 1, frame, [Closures.read_cell(ref) | stack], gas, ctx)
       end
 
@@ -197,7 +210,14 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
         run(pc + 1, frame, [Get.get(obj, prop_name) | stack], gas, ctx)
       end
 
-      defp run({@op_put_ref_value, []}, pc, frame, [val, prop_name, {:cell, _} = ref | rest], gas, ctx) do
+      defp run(
+             {@op_put_ref_value, []},
+             pc,
+             frame,
+             [val, prop_name, {:cell, _} = ref | rest],
+             gas,
+             ctx
+           ) do
         Closures.write_cell(ref, val)
 
         ctx =
@@ -251,7 +271,9 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
                 Promise.resolved(Runtime.new_object())
 
               {:error, _} ->
-                Promise.rejected(Heap.make_error("Cannot find module '#{specifier}'", "TypeError"))
+                Promise.rejected(
+                  Heap.make_error("Cannot find module '#{specifier}'", "TypeError")
+                )
             end
           else
             Promise.rejected(Heap.make_error("Invalid module specifier", "TypeError"))
@@ -280,7 +302,14 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
 
       # ── with statement ──
 
-      defp run({@op_with_get_var, [atom_idx, target, _is_with]}, pc, frame, [obj | rest], gas, ctx) do
+      defp run(
+             {@op_with_get_var, [atom_idx, target, _is_with]},
+             pc,
+             frame,
+             [obj | rest],
+             gas,
+             ctx
+           ) do
         key = Names.resolve_atom(ctx, atom_idx)
 
         result =
@@ -322,7 +351,14 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
         end
       end
 
-      defp run({@op_with_delete_var, [atom_idx, target, _is_with]}, pc, frame, [obj | rest], gas, ctx) do
+      defp run(
+             {@op_with_delete_var, [atom_idx, target, _is_with]},
+             pc,
+             frame,
+             [obj | rest],
+             gas,
+             ctx
+           ) do
         key = Names.resolve_atom(ctx, atom_idx)
 
         if with_has_property?(obj, key) do
@@ -333,7 +369,14 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
         end
       end
 
-      defp run({@op_with_make_ref, [atom_idx, target, _is_with]}, pc, frame, [obj | rest], gas, ctx) do
+      defp run(
+             {@op_with_make_ref, [atom_idx, target, _is_with]},
+             pc,
+             frame,
+             [obj | rest],
+             gas,
+             ctx
+           ) do
         key = Names.resolve_atom(ctx, atom_idx)
 
         if with_has_property?(obj, key) do
@@ -345,7 +388,14 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
         end
       end
 
-      defp run({@op_with_get_ref, [atom_idx, target, _is_with]}, pc, frame, [obj | rest], gas, ctx) do
+      defp run(
+             {@op_with_get_ref, [atom_idx, target, _is_with]},
+             pc,
+             frame,
+             [obj | rest],
+             gas,
+             ctx
+           ) do
         key = Names.resolve_atom(ctx, atom_idx)
 
         if with_has_property?(obj, key) do

@@ -148,6 +148,7 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
+  @doc "Helper for unified js function invocation: dispatches to compiled modules, interpreter fallback, builtins, and native callbacks."
   def invoke_callback(fun, args), do: invoke_callback(active_ctx(), fun, args)
 
   def invoke_callback(ctx, fun, args) do

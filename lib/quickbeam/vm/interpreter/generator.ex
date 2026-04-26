@@ -7,12 +7,14 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.PromiseState, as: Promise
 
+  @doc "Invokes the runtime object represented by this module."
   def invoke(frame, gas, ctx) do
     gen_ref = make_ref()
     suspend(gen_ref, frame, gas, ctx)
     build_iterator(gen_ref, &next/2, &return_value/2)
   end
 
+  @doc "Invokes the runtime object asynchronously."
   def invoke_async(frame, gas, ctx) do
     result = Interpreter.run_frame(frame, [], gas, ctx)
     Promise.resolved(result)
@@ -21,6 +23,7 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
     {:js_throw, val} -> Promise.rejected(val)
   end
 
+  @doc "Invokes an async generator runtime object."
   def invoke_async_generator(frame, gas, ctx) do
     gen_ref = make_ref()
     suspend(gen_ref, frame, gas, ctx)

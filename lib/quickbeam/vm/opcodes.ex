@@ -348,10 +348,14 @@ defmodule QuickBEAM.VM.Opcodes do
 
   @name_to_num for {num, {name, _, _, _, _}} <- @opcodes, into: %{}, do: {name, num}
 
+  @doc "Returns opcode metadata indexed by opcode number."
   def table, do: @opcodes
+  @doc "Returns metadata for an opcode."
   def info(num) when is_integer(num), do: Map.get(@opcodes, num)
+  @doc "Returns the numeric opcode for an opcode name."
   def num(name) when is_atom(name), do: Map.get(@name_to_num, name)
 
+  @doc "Returns operand-format metadata for an opcode."
   def format_info(fmt), do: Map.get(@format_info, fmt)
 
   # Short-form opcodes expand to their canonical form
@@ -417,6 +421,7 @@ defmodule QuickBEAM.VM.Opcodes do
     put_loc_check8: :put_loc_check
   }
 
+  @doc "Expands compact opcode encodings into their canonical representation."
   def expand_short_form(name, args, arg_count \\ 0) do
     case Map.get(@short_forms, name) do
       nil ->

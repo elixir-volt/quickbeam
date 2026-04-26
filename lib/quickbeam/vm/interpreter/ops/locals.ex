@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Interpreter.Ops.Locals do
   @moduledoc "Args, locals, and closure variable reference opcodes."
 
+  @doc "Installs the Args, locals, and closure variable reference opcodes helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
       alias QuickBEAM.VM.{Heap, Names}
@@ -95,12 +96,15 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Locals do
       defp run({@op_get_loc_check, [idx]}, pc, frame, stack, gas, ctx) do
         raw = elem(elem(frame, Frame.locals()), idx)
         ensure_initialized_local!(ctx, idx, raw)
-        val = Closures.read_captured_local(
-          elem(frame, Frame.l2v()),
-          idx,
-          elem(frame, Frame.locals()),
-          elem(frame, Frame.var_refs())
-        )
+
+        val =
+          Closures.read_captured_local(
+            elem(frame, Frame.l2v()),
+            idx,
+            elem(frame, Frame.locals()),
+            elem(frame, Frame.var_refs())
+          )
+
         run(pc + 1, frame, [val | stack], gas, ctx)
       end
 

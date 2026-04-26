@@ -20,6 +20,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Events do
     }
   end
 
+  @doc "Builds an EventTarget object backed by VM heap state."
   def build_event_target(_args, _this) do
     listeners_ref = StateRef.new(%{})
 
@@ -90,6 +91,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Events do
   defp listener_once?({:obj, _} = opts), do: Get.get(opts, "once") == true
   defp listener_once?(_), do: false
 
+  @doc "Builds an Event object backed by VM heap state."
   def build_event(args, _this) do
     type = args |> List.first("") |> to_string()
     opts = arg(args, 1, nil)
@@ -128,6 +130,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Events do
     end
   end
 
+  @doc "Builds a CustomEvent object backed by VM heap state."
   def build_custom_event(args, this) do
     event = build_event(args, this)
 
@@ -142,6 +145,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Events do
     event
   end
 
+  @doc "Builds a DOMException object backed by VM heap state."
   def build_dom_exception(args, _this) do
     message = args |> List.first("") |> to_string()
     name = args |> Enum.at(1, "Error") |> to_string()
@@ -173,6 +177,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Events do
   defp get_dom_exception_proto, do: Runtime.global_class_proto("DOMException")
   defp build_error_proto, do: Runtime.global_class_proto("Error")
 
+  @doc "Creates a DOMException value with the given name and message."
   def make_dom_exception(message, name) do
     build_dom_exception([message, name], nil)
   end

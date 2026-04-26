@@ -196,6 +196,7 @@ defmodule QuickBEAM.VM.Runtime.Web.FormData do
     end
   end
 
+  @doc "Encodes FormData parts as a multipart/form-data payload."
   def encode_multipart(entries_ref) do
     fields =
       entries_ref

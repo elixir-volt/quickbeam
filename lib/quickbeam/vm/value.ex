@@ -27,7 +27,11 @@ defmodule QuickBEAM.VM.Value do
           | bigint()
 
   defguard is_object(v) when is_tuple(v) and tuple_size(v) == 2 and elem(v, 0) == :obj
-  defguard is_symbol(v) when is_tuple(v) and (tuple_size(v) == 2 or tuple_size(v) == 3) and elem(v, 0) == :symbol
+
+  defguard is_symbol(v)
+           when is_tuple(v) and (tuple_size(v) == 2 or tuple_size(v) == 3) and
+                  elem(v, 0) == :symbol
+
   defguard is_bigint(v) when is_tuple(v) and tuple_size(v) == 2 and elem(v, 0) == :bigint
   defguard is_closure(v) when is_tuple(v) and tuple_size(v) == 3 and elem(v, 0) == :closure
   defguard is_builtin(v) when is_tuple(v) and tuple_size(v) == 3 and elem(v, 0) == :builtin

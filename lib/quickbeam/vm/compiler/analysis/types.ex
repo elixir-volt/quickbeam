@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
 
   @line 1
 
+  @doc "Helper for abstract type inference: propagates js value types through basic blocks to enable guard elision."
   def infer_block_entry_types(fun, instructions, entries, stack_depths) do
     slot_count = fun.arg_count + fun.var_count
     initial = initial_type_state(fun, slot_count, Map.get(stack_depths, 0, 0))
@@ -31,6 +32,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
     )
   end
 
+  @doc "Helper for abstract type inference: propagates js value types through basic blocks to enable guard elision."
   def function_type(%Bytecode.Function{} = fun) do
     stack = Caches.get_function_type_stack()
 
@@ -57,7 +59,14 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
                      stack_depths,
                      fun.constants,
                      atoms,
-                     %{0 => initial_type_state(fun, fun.arg_count + fun.var_count, Map.get(stack_depths, 0, 0))},
+                     %{
+                       0 =>
+                         initial_type_state(
+                           fun,
+                           fun.arg_count + fun.var_count,
+                           Map.get(stack_depths, 0, 0)
+                         )
+                     },
                      :unknown,
                      0
                    ) do
@@ -290,6 +299,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
             :push_6 -> 6
             :push_7 -> 7
           end
+
         {:ok, {:continue, push_type(state, {:const, {:integer, @line, int_val}}), return_type}}
 
       {{:ok, name}, _} when name in [:push_true, :push_false] ->
@@ -401,8 +411,10 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
            ] ->
         with {:ok, type, state} <- pop_type(state) do
           slot_type = normalize_slot_type(type)
+
           {:ok,
-           {:continue, state |> put_slot_type(slot_idx, slot_type) |> put_slot_init(slot_idx, true),
+           {:continue,
+            state |> put_slot_type(slot_idx, slot_type) |> put_slot_init(slot_idx, true),
             return_type}}
         end
 
@@ -436,6 +448,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
            ] ->
         with {:ok, type, state} <- pop_type(state) do
           slot_type = normalize_slot_type(type)
+
           next_state =
             state
             |> put_slot_type(slot_idx, slot_type)
@@ -674,7 +687,9 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
 
                   if is_binary(key_str) do
                     new_offset = map_size(offsets)
-                    {:shaped_object, Map.put(offsets, key_str, new_offset), Map.put(value_map, key_str, val_expr)}
+
+                    {:shaped_object, Map.put(offsets, key_str, new_offset),
+                     Map.put(value_map, key_str, val_expr)}
                   else
                     :object
                   end
@@ -1006,12 +1021,17 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
   defp join_type({:const, _}, :number), do: :number
   defp join_type(:number, {:const, _}), do: :number
   defp join_type({:const, {:integer, _, _}}, {:const, {:integer, _, _}}), do: :integer
-  defp join_type({:const, {:atom, _, v}}, {:const, {:atom, _, v}}) when is_boolean(v), do: :boolean
+
+  defp join_type({:const, {:atom, _, v}}, {:const, {:atom, _, v}}) when is_boolean(v),
+    do: :boolean
+
   defp join_type({:const, {:bin, _, _}}, {:const, {:bin, _, _}}), do: :string
   defp join_type({:const, _}, _other), do: :unknown
   defp join_type(_other, {:const, _}), do: :unknown
+
   defp join_type({:shaped_object, offsets, vm}, {:shaped_object, offsets, vm}),
     do: {:shaped_object, offsets, vm}
+
   defp join_type({:shaped_object, _, _}, {:shaped_object, _, _}), do: :object
   defp join_type({:shaped_object, _, _}, :object), do: :object
   defp join_type(:object, {:shaped_object, _, _}), do: :object

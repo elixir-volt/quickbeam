@@ -8,6 +8,7 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
   alias QuickBEAM.VM.Runtime.Web.BinaryData
   alias QuickBEAM.VM.Runtime.Web.Buffer
 
+  @doc "Builds the SubtleCrypto object."
   def build_subtle do
     object do
       method "digest" do

@@ -9,6 +9,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
   @guardable_types [:integer, :number, :boolean, :string, :undefined, :null]
   @line 1
 
+  @doc "Lowers a bytecode instruction or function into compiler IR."
   def lower(fun, instructions) do
     entries = CFG.block_entries(instructions)
     slot_count = fun.arg_count + fun.var_count
@@ -960,7 +961,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
         lower_finally_inline(instructions, size, idx + 1, next_state)
 
       {:done, body} ->
-        {:ok, %{state | body: Enum.reverse(body), stack: state.stack, stack_types: state.stack_types}}
+        {:ok,
+         %{state | body: Enum.reverse(body), stack: state.stack, stack_types: state.stack_types}}
 
       {:error, _} = error ->
         error

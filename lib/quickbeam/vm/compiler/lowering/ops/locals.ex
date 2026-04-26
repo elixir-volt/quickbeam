@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Locals do
 
   @tdz :__tdz__
 
+  @doc "Lowers a bytecode instruction or function into compiler IR."
   def lower(state, name_args) do
     case name_args do
       {{:ok, :get_arg}, [slot_idx]} ->

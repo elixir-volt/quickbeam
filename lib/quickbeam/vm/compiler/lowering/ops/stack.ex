@@ -6,6 +6,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Captures, State}
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
 
+  @doc "Lowers a bytecode instruction or function into compiler IR."
   def lower(state, constants, arg_count, name_args) do
     case name_args do
       {{:ok, :push_i32}, [value]} ->
@@ -381,5 +382,4 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
           }}
 
   defp lower_perm5(_state), do: {:error, :stack_underflow}
-
 end

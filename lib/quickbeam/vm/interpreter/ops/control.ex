@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Interpreter.Ops.Control do
   @moduledoc "Control flow opcodes: if/goto/return, try/catch, gosub/ret, throw."
 
+  @doc "Installs the Control flow opcodes: if/goto/return, try/catch, gosub/ret, throw helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
       alias QuickBEAM.VM.Interpreter.{Context, Values}
@@ -38,7 +39,14 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Control do
 
       # ── try/catch ──
 
-      defp run({@op_catch, [target]}, pc, frame, stack, gas, %Context{catch_stack: catch_stack} = ctx) do
+      defp run(
+             {@op_catch, [target]},
+             pc,
+             frame,
+             stack,
+             gas,
+             %Context{catch_stack: catch_stack} = ctx
+           ) do
         ctx =
           Context.mark_dirty(%{
             ctx

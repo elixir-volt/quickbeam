@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
   @moduledoc "For-in, for-of, iterator_*, spread, and array construction opcodes."
 
+  @doc "Installs the For-in, for-of, iterator_*, spread, and array construction opcodes helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
       import Bitwise, only: [band: 2]
@@ -12,7 +13,12 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
 
       defp run({@op_for_in_start, []}, _pc, frame, [obj | _rest], gas, ctx)
            when obj == :uninitialized do
-        throw_or_catch(frame, Heap.make_error("this is not initialized", "ReferenceError"), gas, ctx)
+        throw_or_catch(
+          frame,
+          Heap.make_error("this is not initialized", "ReferenceError"),
+          gas,
+          ctx
+        )
       end
 
       defp run({@op_for_in_start, []}, pc, frame, [obj | rest], gas, ctx) do

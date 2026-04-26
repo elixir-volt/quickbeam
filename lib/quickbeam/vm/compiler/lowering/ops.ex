@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
   @moduledoc "Per-opcode lowering: translates each QuickJS bytecode instruction into Erlang abstract-form expressions."
 
   alias QuickBEAM.VM.Compiler.Analysis.CFG
+
   alias QuickBEAM.VM.Compiler.Lowering.Ops.{
     Arithmetic,
     Calls,
@@ -16,6 +17,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
     WithScope
   }
 
+  @doc "Lowers one bytecode instruction into compiler state changes."
   def lower_instruction(
         {op, args},
         idx,
@@ -36,7 +38,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
          :not_handled <- Arithmetic.lower(state, name_args),
          :not_handled <- Objects.lower(state, name_args),
          :not_handled <- Calls.lower(state, name_args),
-         :not_handled <- Control.lower(state, idx, next_entry, stack_depths, inline_targets, name_args),
+         :not_handled <-
+           Control.lower(state, idx, next_entry, stack_depths, inline_targets, name_args),
          :not_handled <- Iterators.lower(state, name_args),
          :not_handled <- Classes.lower(state, name_args),
          :not_handled <- Generators.lower(state, next_entry, stack_depths, name_args),

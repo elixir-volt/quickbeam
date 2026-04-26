@@ -9,6 +9,7 @@ defmodule QuickBEAM.VM.Runtime.Date do
 
   # ── Constructor ──
 
+  @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor(_args, nil) do
     ms = System.system_time(:millisecond)
 
@@ -290,6 +291,7 @@ defmodule QuickBEAM.VM.Runtime.Date do
 
   # ── Date.parse ──
 
+  @doc "Helper for js `date` built-in: constructor, parsing, formatting, and all get/set prototype methods."
   def parse_date_string(s) when is_binary(s) do
     s = String.trim(s)
     if s == "", do: :nan, else: do_parse(s)

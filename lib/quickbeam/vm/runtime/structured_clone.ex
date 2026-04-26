@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
 
   alias QuickBEAM.VM.{Heap, JSThrow, Runtime}
 
+  @doc "Clones a VM value using structured-clone semantics."
   def clone(val) do
     deep_clone(val)
   end

@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Interpreter.Ops.Classes do
   @moduledoc "Class definition, method definition, brand, and private field opcodes."
 
+  @doc "Installs the Class definition, method definition, brand, and private field opcodes helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
       alias QuickBEAM.VM.{Bytecode, Heap, Names}
@@ -59,7 +60,14 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Classes do
              gas,
              ctx
            ) do
-        run({@op_define_class, [atom_idx, flags]}, pc, frame, [ctor, parent_ctor | rest], gas, ctx)
+        run(
+          {@op_define_class, [atom_idx, flags]},
+          pc,
+          frame,
+          [ctor, parent_ctor | rest],
+          gas,
+          ctx
+        )
       end
 
       defp run(

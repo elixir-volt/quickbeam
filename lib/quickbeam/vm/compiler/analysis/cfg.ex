@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
 
   alias QuickBEAM.VM.Opcodes
 
+  @doc "Returns block entries metadata for compiler analysis."
   def block_entries(instructions) do
     entries =
       instructions
@@ -49,13 +50,16 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
     |> Enum.sort()
   end
 
+  @doc "Helper for control-flow graph analysis: identifies basic-block boundaries and inlineable branch targets."
   def next_entry(entries, start), do: Enum.find(entries, &(&1 > start))
 
+  @doc "Returns predecessor counts for compiler control-flow analysis."
   def predecessor_counts(instructions, entries) do
     predecessor_sources(instructions, entries)
     |> Enum.into(%{}, fn {target, preds} -> {target, length(preds)} end)
   end
 
+  @doc "Returns predecessor sources for compiler control-flow analysis."
   def predecessor_sources(instructions, entries) do
     t = List.to_tuple(instructions)
     size = tuple_size(t)
@@ -86,6 +90,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
     end)
   end
 
+  @doc "Helper for control-flow graph analysis: identifies basic-block boundaries and inlineable branch targets."
   def inlineable_entries(instructions, entries) do
     instructions
     |> predecessor_sources(entries)
@@ -104,6 +109,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
     end)
   end
 
+  @doc "Helper for control-flow graph analysis: identifies basic-block boundaries and inlineable branch targets."
   def opcode_name(op) do
     case Opcodes.info(op) do
       {name, _size, _pop, _push, _fmt} -> {:ok, name}
@@ -111,16 +117,19 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
     end
   end
 
+  @doc "Helper for control-flow graph analysis: identifies basic-block boundaries and inlineable branch targets."
   def matching_nip_catch(instructions, catch_idx) do
     t = List.to_tuple(instructions)
     find_nip_catch(t, catch_idx + 1, tuple_size(t))
   end
 
+  @doc "Returns block terminal metadata for compiler analysis."
   def block_terminal(instructions, start, next_entry) do
     t = List.to_tuple(instructions)
     do_block_terminal(t, tuple_size(t), start, next_entry)
   end
 
+  @doc "Returns block successors metadata for compiler analysis."
   def block_successors(instructions, entries, start) do
     next = next_entry(entries, start)
     t = List.to_tuple(instructions)

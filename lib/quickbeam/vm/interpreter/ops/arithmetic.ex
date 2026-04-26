@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Interpreter.Ops.Arithmetic do
   @moduledoc "Arithmetic, bitwise, comparison, and unary opcodes."
 
+  @doc "Installs the Arithmetic, bitwise, comparison, and unary opcodes helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
       alias QuickBEAM.VM.Interpreter.{Closures, Frame, Values}

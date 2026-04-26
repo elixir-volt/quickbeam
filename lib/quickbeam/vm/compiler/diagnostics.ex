@@ -5,8 +5,15 @@ defmodule QuickBEAM.VM.Compiler.Diagnostics do
   alias QuickBEAM.VM.Compiler
   alias QuickBEAM.VM.Compiler.Analysis.CFG
 
-  @unsupported_opcodes [:invalid, :with_get_var, :with_put_var, :with_delete_var, :with_make_ref,
-                         :with_get_ref, :with_get_ref_undef]
+  @unsupported_opcodes [
+    :invalid,
+    :with_get_var,
+    :with_put_var,
+    :with_delete_var,
+    :with_make_ref,
+    :with_get_ref,
+    :with_get_ref_undef
+  ]
 
   @doc "Check if a function can be compiled. Returns :ok or {:error, reasons}."
   def check(%Bytecode.Function{} = fun) do

@@ -8,6 +8,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   alias QuickBEAM.VM.ObjectModel.{Class, Functions}
   alias QuickBEAM.VM.PromiseState, as: Promise
 
+  @doc "Invokes the runtime object represented by this module."
   def invoke(%Bytecode.Function{} = fun, args), do: invoke(fun, args, nil)
   def invoke({:closure, _, %Bytecode.Function{}} = closure, args), do: invoke(closure, args, nil)
   def invoke(_, _), do: :error
@@ -20,6 +21,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
 
   def invoke(_, _, _), do: :error
 
+  @doc "Helper for compiled-function invocation: sets up call frames, handles `new`, generators, and tail-call dispatch."
   def invoke_with_receiver(%Bytecode.Function{} = fun, args, this_obj),
     do: invoke_with_receiver(fun, args, this_obj, nil)
 
@@ -41,6 +43,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
 
   def invoke_with_receiver(_, _, _, _), do: :error
 
+  @doc "Helper for compiled-function invocation: sets up call frames, handles `new`, generators, and tail-call dispatch."
   def invoke_constructor(%Bytecode.Function{} = fun, args, this_obj, new_target),
     do: invoke_constructor(fun, args, this_obj, new_target, nil)
 
@@ -302,6 +305,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   defp current_super(nil), do: :undefined
   defp current_super(home_object), do: Class.get_super(home_object)
 
+  @doc "Normalizes call arguments to the arity expected by compiled code."
   def normalize_args(_args, 0), do: []
   def normalize_args([a0 | _], 1), do: [a0]
   def normalize_args([], 1), do: [:undefined]

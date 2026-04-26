@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Interpreter.Ops.Generators do
   @moduledoc "Generator yield, yield_star, await, initial_yield, and return_async opcodes."
 
+  @doc "Installs the Generator yield, yield_star, await, initial_yield, and return_async opcodes helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
       # ── Generators ──

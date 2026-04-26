@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Types do
   @moduledoc "Small type and purity predicates used while lowering compiler IR."
 
+  @doc "Infers a coarse VM type for an Erlang abstract expression."
   def infer_expr_type({:integer, _, _}), do: :integer
   def infer_expr_type({:float, _, _}), do: :number
   def infer_expr_type({:char, _, _}), do: :integer
@@ -12,9 +13,11 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Types do
   def infer_expr_type({:atom, _, nil}), do: :null
   def infer_expr_type(_), do: :unknown
 
+  @doc "Returns whether a slot is definitely initialized."
   def definitely_initialized?(:unknown), do: false
   def definitely_initialized?(_), do: true
 
+  @doc "Returns whether an expression can be duplicated without side effects."
   def pure_expr?({:integer, _, _}), do: true
   def pure_expr?({:float, _, _}), do: true
   def pure_expr?({:char, _, _}), do: true

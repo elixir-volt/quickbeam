@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Control do
 
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, State}
 
+  @doc "Lowers a bytecode instruction or function into compiler IR."
   def lower(state, idx, next_entry, stack_depths, inline_targets, name_args) do
     case name_args do
       {{:ok, :if_false}, [target]} ->

@@ -4,12 +4,15 @@ defmodule QuickBEAM.VM.Interpreter.Closures do
 
   alias QuickBEAM.VM.Heap
 
+  @doc "Reads a captured closure cell."
   def read_cell({:cell, ref}), do: Heap.get_cell(ref)
   def read_cell(_), do: :undefined
 
+  @doc "Writes a captured closure cell."
   def write_cell({:cell, ref}, val), do: Heap.put_cell(ref, val)
   def write_cell(_, _), do: :ok
 
+  @doc "Reads a captured local variable value."
   def read_captured_local(l2v, idx, locals, var_refs) do
     case Map.get(l2v, idx) do
       nil ->
@@ -23,6 +26,7 @@ defmodule QuickBEAM.VM.Interpreter.Closures do
     end
   end
 
+  @doc "Writes a captured local variable value."
   def write_captured_local(l2v, idx, val, _locals, var_refs) do
     case Map.get(l2v, idx) do
       nil ->
@@ -36,6 +40,7 @@ defmodule QuickBEAM.VM.Interpreter.Closures do
     end
   end
 
+  @doc "Initializes captured locals for closure execution."
   def setup_captured_locals(%{locals: []}, locals, var_refs, _args) do
     vrefs = if is_tuple(var_refs), do: var_refs, else: List.to_tuple(var_refs)
     {locals, vrefs, %{}}

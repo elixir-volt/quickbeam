@@ -40,6 +40,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
     build_blob_object(content, mime_type)
   end
 
+  @doc "Builds file data for blob and file constructor builtins for beam mode."
   def build_file(args, _this) do
     [parts_val, name_val, opts_val] = argv(args, [nil, "", nil])
 
@@ -91,6 +92,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
 
   defp get_file_ctor, do: Runtime.global_constructor("File")
 
+  @doc "Builds blob object data for blob and file constructor builtins for beam mode."
   def build_blob_object(content, mime_type) do
     content_ref = make_ref()
     Heap.put_obj(content_ref, content)

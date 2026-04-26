@@ -36,6 +36,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Timers do
     Caches.put_timer_queue(Enum.reject(Caches.get_timer_queue(), &(&1.id == id)))
   end
 
+  @doc "Runs due timers from the process-local timer queue."
   def drain_timers do
     queue = Caches.get_timer_queue()
     now = now_ms()
@@ -65,6 +66,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Timers do
     end
   end
 
+  @doc "Returns milliseconds until the next queued timer should run."
   def next_timer_delay_ms do
     case Caches.get_timer_queue() do
       [] ->
@@ -79,6 +81,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Timers do
 
   # ── Builtin implementations ──
 
+  @doc "Adds a timeout callback to the process-local timer queue."
   def enqueue_timeout(callback, delay_ms) do
     id = next_id()
     enqueue_timer(id, :timeout, callback, delay_ms, nil)

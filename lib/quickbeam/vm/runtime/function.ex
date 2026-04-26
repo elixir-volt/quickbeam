@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.Runtime.Function do
   @moduledoc "JS `Function` prototype: `call`, `apply`, `bind`, and property access for name/length/fileName."
   alias QuickBEAM.VM.{Builtin, Bytecode, Heap, Invocation}
 
+  @doc "Builds the JavaScript prototype object for this runtime builtin."
   def prototype do
     Heap.wrap(%{
       "call" => {:builtin, "call", fn args, this -> fn_call(this, args, this) end},
@@ -12,6 +13,7 @@ defmodule QuickBEAM.VM.Runtime.Function do
 
   # ── Function prototype ──
 
+  @doc "Returns a prototype property value for the given JavaScript property key."
   def proto_property(fun, "call") do
     {:builtin, "call", fn args, this -> fn_call(fun, args, this) end}
   end

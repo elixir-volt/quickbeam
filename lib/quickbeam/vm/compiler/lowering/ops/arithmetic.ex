@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Arithmetic do
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.Interpreter.Values
 
+  @doc "Lowers a bytecode instruction or function into compiler IR."
   def lower(state, name_args) do
     case name_args do
       {{:ok, :neg}, []} ->

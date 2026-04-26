@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.TypedArray
 
+  @doc "Builds prototype data for object static methods."
   def build_prototype do
     ref = make_ref()
 

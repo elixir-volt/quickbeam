@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Runtime.Symbol do
 
   alias QuickBEAM.VM.Heap
 
+  @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor do
     fn args, _this ->
       desc =

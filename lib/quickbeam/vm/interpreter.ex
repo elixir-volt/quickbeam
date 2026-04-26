@@ -75,6 +75,7 @@ defmodule QuickBEAM.VM.Interpreter do
     do: Gas.check(frame, stack, gas, ctx, @gc_check_interval)
 
   @spec eval(Bytecode.Function.t()) :: {:ok, term()} | {:error, term()}
+  @doc "Evaluates bytecode in the interpreter."
   def eval(%Bytecode.Function{} = fun), do: eval(fun, [], %{})
 
   @spec eval(Bytecode.Function.t(), [term()], map()) :: {:ok, term()} | {:error, term()}
@@ -330,6 +331,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp unwrap_promise(val, _depth), do: val
 
+  @doc "Resolves an awaited value for async interpreter execution."
   def resolve_awaited({:obj, ref} = obj) do
     Promise.drain_microtasks()
 
@@ -1368,6 +1370,7 @@ defmodule QuickBEAM.VM.Interpreter do
     )
   end
 
+  @doc "Invokes a bytecode function through the interpreter fallback path."
   def invoke_function_fallback(%Bytecode.Function{} = fun, args, gas, ctx) do
     invoke_function(fun, args, gas, ctx)
   end
@@ -1379,6 +1382,7 @@ defmodule QuickBEAM.VM.Interpreter do
   def invoke_function_fallback({:bound, _, inner, _, _}, args, gas, _ctx),
     do: Invocation.invoke(inner, args, gas)
 
+  @doc "Invokes a closure through the interpreter fallback path."
   def invoke_closure_fallback({:closure, _, %Bytecode.Function{}} = closure, args, gas, ctx) do
     invoke_closure(closure, args, gas, ctx)
   end

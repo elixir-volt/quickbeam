@@ -4,11 +4,13 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
   alias QuickBEAM.VM.Compiler.Analysis.CFG
   alias QuickBEAM.VM.Opcodes
 
+  @doc "Helper for stack-depth inference: computes operand-stack depth at every basic-block entry."
   def infer_block_stack_depths(instructions, entries) do
     t = List.to_tuple(instructions)
     walk_block_stack_depths(t, tuple_size(t), entries, [{0, 0}], %{})
   end
 
+  @doc "Helper for stack-depth inference: computes operand-stack depth at every basic-block entry."
   def stack_effect(op, args) do
     case {CFG.opcode_name(op), args} do
       {{:ok, name}, [argc]} when name in [:call, :call0, :call1, :call2, :call3, :tail_call] ->
@@ -45,7 +47,8 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
         {:error, {:inconsistent_block_stack_depth, start, other_depth, depth}}
 
       :error ->
-        with {:ok, successors} <- simulate_block_stack_depths(instructions, size, entries, start, depth) do
+        with {:ok, successors} <-
+               simulate_block_stack_depths(instructions, size, entries, start, depth) do
           walk_block_stack_depths(
             instructions,
             size,
@@ -67,7 +70,8 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
     {:error, {:missing_terminator, idx}}
   end
 
-  defp do_simulate_block_stack_depths(_instructions, _size, idx, idx, depth), do: {:ok, [{idx, depth}]}
+  defp do_simulate_block_stack_depths(_instructions, _size, idx, idx, depth),
+    do: {:ok, [{idx, depth}]}
 
   defp do_simulate_block_stack_depths(instructions, size, idx, next_entry, depth) do
     {op, args} = elem(instructions, idx)
@@ -83,7 +87,13 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
 
         {{:ok, :catch}, [target]} ->
           with {:ok, successors} <-
-                 do_simulate_block_stack_depths(instructions, size, idx + 1, next_entry, next_depth) do
+                 do_simulate_block_stack_depths(
+                   instructions,
+                   size,
+                   idx + 1,
+                   next_entry,
+                   next_depth
+                 ) do
             {:ok, [{target, next_depth} | successors]}
           end
 

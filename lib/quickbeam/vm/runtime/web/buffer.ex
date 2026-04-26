@@ -68,6 +68,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
 
   # ── Buffer.from ──
 
+  @doc "Creates a Buffer value from supported JavaScript input types."
   def buffer_from([src | rest]) do
     bytes =
       case src do
@@ -783,6 +784,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
 
   # ── Extract raw bytes from various sources ──
 
+  @doc "Extracts raw bytes from a Buffer-like VM value."
   def extract_buf_bytes({:obj, ref}) do
     case Heap.get_obj(ref, %{}) do
       m when is_map(m) ->

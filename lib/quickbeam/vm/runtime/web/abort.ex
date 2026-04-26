@@ -104,6 +104,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Abort do
     ctor
   end
 
+  @doc "Builds an AbortSignal object backed by VM heap state."
   def build_signal do
     listeners_ref = StateRef.new(%{list: []})
 
@@ -151,6 +152,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Abort do
     end)
   end
 
+  @doc "Transitions an AbortSignal into the aborted state and dispatches listeners."
   def do_abort(signal, reason) do
     case signal do
       {:obj, _} ->
@@ -176,6 +178,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Abort do
     end
   end
 
+  @doc "Registers an abort listener on an AbortSignal state object."
   def add_abort_listener(signal, fun) do
     cb =
       {:builtin, "__abort_listener__",
@@ -206,6 +209,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Abort do
     StateRef.put(ref, %{list: listeners})
   end
 
+  @doc "Creates the standard abort error value."
   def make_abort_error do
     make_dom_exception("The operation was aborted.", "AbortError")
   end

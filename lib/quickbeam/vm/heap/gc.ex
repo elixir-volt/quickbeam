@@ -18,6 +18,7 @@ defmodule QuickBEAM.VM.Heap.GC do
     Process.delete(:qb_gc_needed)
   end
 
+  @doc "Helper for mark-and-sweep garbage collector for the js object heap."
   def gc(extra_roots \\ []) do
     module_roots = Registry.all_module_exports()
     persistent_roots = Context.get_persistent_globals() |> Map.values()

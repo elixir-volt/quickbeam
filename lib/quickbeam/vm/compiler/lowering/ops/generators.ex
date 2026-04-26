@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Generators do
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, State}
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
 
+  @doc "Lowers a bytecode instruction or function into compiler IR."
   def lower(state, next_entry, stack_depths, name_args) do
     case name_args do
       {{:ok, :initial_yield}, []} ->

@@ -6,8 +6,10 @@ defmodule QuickBEAM.VM.Interpreter.EvalEnv do
 
   require Frame
 
+  @doc "Helper for eval-time environment utilities: local name resolution, class binding seeding, and `this` context helpers."
   def resolve_local_name(name), do: Names.resolve_display_name(name)
 
+  @doc "Helper for eval-time environment utilities: local name resolution, class binding seeding, and `this` context helpers."
   def seed_class_binding(frame, ctx, atom_idx, ctor_closure) do
     case class_binding_local_index(ctx, atom_idx) do
       nil ->
@@ -26,6 +28,7 @@ defmodule QuickBEAM.VM.Interpreter.EvalEnv do
     end
   end
 
+  @doc "Returns the active func name for eval-time environment utilities: local name resolution, class binding seeding, and `this` context helpers."
   def current_func_name(%Context{current_func: func}) do
     case func do
       {:closure, _, %Bytecode.Function{name: name}} -> name
@@ -34,6 +37,7 @@ defmodule QuickBEAM.VM.Interpreter.EvalEnv do
     end
   end
 
+  @doc "Returns the active local name for eval-time environment utilities: local name resolution, class binding seeding, and `this` context helpers."
   def current_local_name(
         %Context{current_func: {:closure, _, %Bytecode.Function{locals: locals}}},
         idx

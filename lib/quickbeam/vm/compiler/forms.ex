@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
   @line 1
 
+  @doc "Compiles lowered Erlang forms into a loadable module."
   def compile_module(module, entry, ctx_entry, fun, arity, slot_count, block_forms) do
     forms = [
       {:attribute, @line, :module, module},

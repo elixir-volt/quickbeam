@@ -7,14 +7,19 @@ defmodule QuickBEAM.VM.PromiseState do
   alias QuickBEAM.VM.{Heap, Runtime}
   alias QuickBEAM.VM.Interpreter
 
+  @doc "Creates or returns a resolved Promise state value."
   def resolved(val), do: make_promise(:resolved, val)
+  @doc "Creates or returns a rejected Promise state value."
   def rejected(val), do: make_promise(:rejected, val)
 
+  @doc "Implements Promise.prototype.then state transitions."
   def promise_then(args, {:obj, promise_ref}), do: then_impl(args, promise_ref)
   def promise_then(_args, _this), do: resolved(:undefined)
 
+  @doc "Implements Promise.prototype.catch state transitions."
   def promise_catch(args, this), do: promise_then([nil, arg(args, 0, nil)], this)
 
+  @doc "Implements Promise.prototype.finally state transitions."
   def promise_finally([callback | _], {:obj, promise_ref}) do
     then_impl(
       [
@@ -33,6 +38,7 @@ defmodule QuickBEAM.VM.PromiseState do
 
   def promise_finally(_args, _this), do: resolved(:undefined)
 
+  @doc "Resolves a Promise state and drains queued reactions."
   def resolve(ref, state, val) do
     Heap.put_obj(ref, promise_obj(state, val, ref))
 
@@ -48,6 +54,7 @@ defmodule QuickBEAM.VM.PromiseState do
     end
   end
 
+  @doc "Runs queued microtasks until the queue is empty."
   def drain_microtasks do
     case Heap.dequeue_microtask() do
       nil ->

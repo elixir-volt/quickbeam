@@ -8,6 +8,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
 
+  @doc "Builds the JavaScript prototype object for this runtime builtin."
   def prototype do
     mod = __MODULE__
     methods = ~w(push pop shift unshift map filter reduce forEach indexOf
@@ -188,6 +189,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     make_array_iterator(this, :entries)
   end
 
+  @doc "Returns a prototype property value for the given JavaScript property key."
   def proto_property("constructor") do
     Runtime.global_bindings() |> Map.get("Array", :undefined)
   end

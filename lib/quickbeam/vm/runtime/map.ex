@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
 
+  @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor do
     fn args, _this ->
       ref = make_ref()
@@ -38,6 +39,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
     end
   end
 
+  @doc "Helper for js `map` and `weakmap` built-ins: constructor, `get`/`set`/`has`/`delete`, and iteration."
   def weak_constructor do
     fn args, _this ->
       ref = make_ref()
@@ -70,6 +72,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
     end
   end
 
+  @doc "Returns a prototype property value for the given JavaScript property key."
   def proto_property("get"), do: {:builtin, "get", &get/2}
   def proto_property("set"), do: {:builtin, "set", &set/2}
   def proto_property("has"), do: {:builtin, "has", &has/2}

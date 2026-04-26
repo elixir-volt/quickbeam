@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
   @moduledoc "Function creation, call, and constructor opcodes."
 
+  @doc "Installs the Function creation, call, and constructor opcodes helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
       alias QuickBEAM.VM.{Bytecode, Heap, Names}

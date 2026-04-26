@@ -7,12 +7,14 @@ defmodule QuickBEAM.VM.Stacktrace do
   alias QuickBEAM.VM.Execution.Trace
   alias QuickBEAM.VM.Runtime
 
+  @doc "Attaches a JavaScript stack string to an error object."
   def attach_stack({:obj, ref} = error_obj, filter_fun \\ nil) do
     stack = build_stack(error_obj, filter_fun)
     Heap.update_obj(ref, %{}, &Map.put(&1, "stack", stack))
     error_obj
   end
 
+  @doc "Builds a JavaScript stack string from current VM frames."
   def build_stack(error_obj, filter_fun \\ nil) do
     frames = current_frames(filter_fun)
 
@@ -25,6 +27,7 @@ defmodule QuickBEAM.VM.Stacktrace do
     end
   end
 
+  @doc "Returns the current VM stacktrace frames."
   def current_frames(filter_fun \\ nil) do
     frames = Trace.get_frames()
     limit = stack_trace_limit()

@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Classes do
 
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, State}
 
+  @doc "Lowers a bytecode instruction or function into compiler IR."
   def lower(state, name_args) do
     case name_args do
       {{:ok, :define_class}, [atom_idx, _flags]} ->
@@ -65,8 +66,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Classes do
       {:ok,
        %{
          state
-         | body:
-             [State.compiler_call(state, :check_brand, [obj, brand]) | state.body]
+         | body: [State.compiler_call(state, :check_brand, [obj, brand]) | state.body]
        }}
     else
       :error -> {:error, :check_brand_state_missing}

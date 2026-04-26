@@ -9,6 +9,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
 
+  @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def object([arg | _], _) do
     case arg do
       {:symbol, _, _} = symbol ->
@@ -46,6 +47,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
   def object(_, _), do: Runtime.new_object()
 
+  @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def array(args, _) do
     list =
       case args do
@@ -56,6 +58,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
     Heap.wrap(list)
   end
 
+  @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def string(args, {:obj, _} = this) do
     val = args |> arg(0, "") |> Runtime.stringify()
     QuickBEAM.VM.ObjectModel.Put.put(this, "__wrapped_string__", val)
@@ -64,6 +67,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
   def string(args, _), do: args |> arg(0, "") |> Runtime.stringify()
 
+  @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def number(args, {:obj, _} = this) do
     val = args |> arg(0, 0) |> Runtime.to_number()
     QuickBEAM.VM.ObjectModel.Put.put(this, "__wrapped_number__", val)
@@ -72,6 +76,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
   def number(args, _), do: args |> arg(0, 0) |> Runtime.to_number()
 
+  @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def function(args, _) do
     ctx = Heap.get_ctx()
 
@@ -113,6 +118,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
     end
   end
 
+  @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def bigint([n | _], _) when is_integer(n), do: {:bigint, n}
   def bigint([{:bigint, n} | _], _), do: {:bigint, n}
 
@@ -127,6 +133,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
     JSThrow.type_error!("Cannot convert to BigInt")
   end
 
+  @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def regexp([], this), do: regexp(["" | []], this)
 
   def regexp([pattern | rest], _) do
@@ -146,12 +153,14 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
     {:regexp, source, flags}
   end
 
+  @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def proxy([target, handler | _], _) do
     Heap.wrap(%{proxy_target() => target, proxy_handler() => handler})
   end
 
   def proxy(_, _), do: Runtime.new_object()
 
+  @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def finalization_registry([_callback | _], _), do: finalization_registry_object()
   def finalization_registry(_, _), do: finalization_registry_object()
 

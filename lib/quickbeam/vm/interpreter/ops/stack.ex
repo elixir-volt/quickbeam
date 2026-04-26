@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Interpreter.Ops.Stack do
   @moduledoc "Stack manipulation and constant-push opcodes."
 
+  @doc "Installs the Stack manipulation and constant-push opcodes helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
       alias QuickBEAM.VM.Interpreter.Frame

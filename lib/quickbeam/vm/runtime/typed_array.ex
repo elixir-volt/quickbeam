@@ -21,8 +21,10 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     "Float16Array" => :float16
   }
 
+  @doc "Returns typed-array type descriptors supported by the runtime."
   def types, do: @types
 
+  @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor(type) do
     fn args, _this ->
       {buf, offset, len, orig_buf} = parse_args(args, type)
@@ -88,15 +90,18 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   # ── Element access (public, used by ObjectModel.Put) ──
 
+  @doc "Returns whether a typed-array object is backed by immutable data."
   def immutable?({:obj, ref}) do
     is_immutable_buffer?(Heap.get_obj(ref, %{}))
   end
 
+  @doc "Reads an element from a typed-array value."
   def get_element({:obj, ref}, idx) do
     b = buf(ref)
     if b == nil, do: :undefined, else: read_element(b, idx, type(ref))
   end
 
+  @doc "Writes an element to a typed-array value."
   def set_element({:obj, ref}, idx, val) do
     ta = Heap.get_obj(ref, %{})
 

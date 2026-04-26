@@ -8,6 +8,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.PromiseState
 
+  @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor do
     fn args, _this ->
       case args do
@@ -64,6 +65,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
     end
   end
 
+  @doc "Builds the JavaScript prototype object for this runtime builtin."
   def prototype do
     object do
       prop("then", {:builtin, "then", &PromiseState.promise_then/2})

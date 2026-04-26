@@ -26,6 +26,7 @@ defmodule QuickBEAM.VM.Heap.Store do
     end
   end
 
+  @doc "Helper for low-level process-dictionary storage for js heap objects: objects, arrays, cells, atoms, and gc roots."
   def put_obj(ref, list) when is_list(list) do
     Process.put(ref, {:qb_arr, :array.from_list(list, :undefined)})
     track_alloc()

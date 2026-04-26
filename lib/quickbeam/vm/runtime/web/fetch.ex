@@ -122,6 +122,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
     end
   end
 
+  @doc "Builds a Request object backed by VM heap state."
   def build_request(args, _this) do
     url_val = arg(args, 0, "")
 
@@ -278,6 +279,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
     end
   end
 
+  @doc "Builds a Response object backed by VM heap state."
   def build_response(args, _this) do
     body = arg(args, 0, "")
 
