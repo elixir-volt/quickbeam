@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.Names do
 
   @js_atom_end QuickBEAM.VM.Opcodes.js_atom_end()
 
+  @doc "Resolves a bytecode constant-pool entry into a VM value."
   def resolve_const(cpool, idx) when is_tuple(cpool) and idx < tuple_size(cpool) do
     case elem(cpool, idx) do
       {:array, list} when is_list(list) ->
@@ -21,6 +22,7 @@ defmodule QuickBEAM.VM.Names do
 
   def resolve_const(_cpool, idx), do: {:const_ref, idx}
 
+  @doc "Resolves an atom-table index or tagged atom reference into a JavaScript property name."
   def resolve_atom(%Context{atoms: atoms}, idx), do: resolve_atom(atoms, idx)
 
   def resolve_atom(_atoms, :empty_string), do: ""
@@ -40,6 +42,7 @@ defmodule QuickBEAM.VM.Names do
   def resolve_atom(_atoms, {:atom, n}), do: "atom_#{n}"
   def resolve_atom(_atoms, other), do: inspect(other)
 
+  @doc "Resolves an optional display name for functions and diagnostics."
   def resolve_display_name(name, atoms \\ Heap.get_atoms())
 
   def resolve_display_name(name, _atoms) when is_binary(name), do: name
@@ -57,6 +60,7 @@ defmodule QuickBEAM.VM.Names do
     end
   end
 
+  @doc "Returns a function-like value with updated name metadata."
   def rename_function({:closure, captured, %Bytecode.Function{} = fun}, name),
     do: {:closure, captured, %{fun | name: name}}
 

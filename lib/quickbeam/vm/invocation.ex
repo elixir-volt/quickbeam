@@ -10,6 +10,7 @@ defmodule QuickBEAM.VM.Invocation do
   alias QuickBEAM.VM.Invocation.Context, as: InvokeContext
   alias QuickBEAM.VM.ObjectModel.{Class, Get}
 
+  @doc "Invokes a JavaScript callable with positional arguments and a gas budget."
   def invoke(fun, args, gas \\ Runtime.gas_budget())
 
   def invoke(%Bytecode.Function{} = fun, args, gas) do
@@ -45,6 +46,7 @@ defmodule QuickBEAM.VM.Invocation do
 
   def invoke({:bound, _, inner, _, _}, args, gas), do: invoke(inner, args, gas)
 
+  @doc "Invokes a JavaScript callable with an explicit `this` receiver."
   def invoke_with_receiver(fun, args, this_obj),
     do: invoke_with_receiver(fun, args, Runtime.gas_budget(), this_obj)
 
@@ -64,6 +66,7 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
+  @doc "Invokes a JavaScript constructor with `this` and `new.target` context."
   def invoke_constructor(fun, args, this_obj, new_target),
     do: invoke_constructor(fun, args, Runtime.gas_budget(), this_obj, new_target)
 
@@ -83,6 +86,7 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
+  @doc "Dispatches a callable to bytecode, closure, bound-function, or builtin execution."
   def dispatch(fun, args, gas, ctx, this) do
     case fun do
       %Bytecode.Function{} = bytecode_fun ->
@@ -99,6 +103,7 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
+  @doc "Invokes a callback and propagates JavaScript throws to the caller."
   def invoke_callback_or_throw(fun, args, this_obj \\ nil) do
     ctx = active_ctx()
 
@@ -123,6 +128,7 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
+  @doc "Invokes a callback, converting JavaScript throws to `:undefined`."
   def call_callback(fun, args), do: call_callback(active_ctx(), fun, args)
 
   def call_callback(ctx, fun, args) do
@@ -161,6 +167,7 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
+  @doc "Invokes a callable from compiler-generated runtime helper code."
   def invoke_runtime(fun, args), do: invoke_runtime(active_ctx(), fun, args)
 
   def invoke_runtime(
@@ -210,6 +217,7 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
+  @doc "Invokes a method from compiler-generated runtime helper code with an explicit receiver."
   def invoke_method_runtime(fun, this_obj, args),
     do: invoke_method_runtime(active_ctx(), fun, this_obj, args)
 
@@ -269,6 +277,7 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
+  @doc "Constructs a value from compiler-generated runtime helper code."
   def construct_runtime(ctor, new_target, args),
     do: construct_runtime(active_ctx(), ctor, new_target, args)
 

@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.GlobalEnv do
   alias QuickBEAM.VM.{Heap, Names, Runtime}
   alias QuickBEAM.VM.Interpreter.Context
 
+  @doc "Returns the active JavaScript global environment."
   def current do
     case Heap.get_ctx() do
       %Context{globals: globals} when globals != %{} -> globals
@@ -12,6 +13,7 @@ defmodule QuickBEAM.VM.GlobalEnv do
     end
   end
 
+  @doc "Returns cached builtin and persistent global bindings."
   def base_globals do
     case Heap.get_base_globals() do
       nil ->
@@ -26,6 +28,7 @@ defmodule QuickBEAM.VM.GlobalEnv do
     end
   end
 
+  @doc "Fetches a global binding by name or atom-table index."
   def fetch(%Context{} = ctx, atom_idx), do: fetch(ctx.globals, atom_idx, ctx.atoms)
 
   def fetch(globals, atom_idx) when is_map(globals),
@@ -41,6 +44,7 @@ defmodule QuickBEAM.VM.GlobalEnv do
 
   def get(atom_idx, default), do: get(current(), atom_idx, default, Heap.get_atoms())
 
+  @doc "Writes a global binding into a context and optionally persists it."
   def put(%Context{} = ctx, atom_idx, val, opts \\ []) do
     name = Names.resolve_atom(ctx, atom_idx)
     globals = Map.put(ctx.globals, name, val)
@@ -53,6 +57,7 @@ defmodule QuickBEAM.VM.GlobalEnv do
     %{ctx | globals: globals} |> Context.mark_dirty()
   end
 
+  @doc "Defines a hoisted `var` binding in the active global environment."
   def define_var(%Context{} = ctx, atom_idx) do
     name = Names.resolve_atom(ctx, atom_idx)
     Heap.put_var(name, :undefined)
@@ -61,6 +66,7 @@ defmodule QuickBEAM.VM.GlobalEnv do
     Context.mark_dirty(%{ctx | globals: globals})
   end
 
+  @doc "Clears temporary `var` tracking after declaration checks."
   def check_define_var(%Context{} = ctx, atom_idx) do
     Heap.delete_var(Names.resolve_atom(ctx, atom_idx))
     Context.mark_dirty(ctx)
@@ -72,6 +78,7 @@ defmodule QuickBEAM.VM.GlobalEnv do
     %{ctx | globals: globals} |> Context.mark_dirty()
   end
 
+  @doc "Resolves a name from the current atom table."
   def current_name(atom_idx), do: Names.resolve_atom(Heap.get_atoms(), atom_idx)
 
   defp fetch(globals, atom_idx, atoms) do
