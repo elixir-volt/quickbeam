@@ -36,6 +36,36 @@ defmodule QuickBEAM.JS.Parser.AST do
     defstruct type: :return_statement, argument: nil
   end
 
+  defmodule BreakStatement do
+    @moduledoc "Break statement with an optional label."
+    defstruct type: :break_statement, label: nil
+  end
+
+  defmodule LabeledStatement do
+    @moduledoc "Labeled statement."
+    defstruct type: :labeled_statement, label: nil, body: nil
+  end
+
+  defmodule IfStatement do
+    @moduledoc "If statement."
+    defstruct type: :if_statement, test: nil, consequent: nil, alternate: nil
+  end
+
+  defmodule WhileStatement do
+    @moduledoc "While loop statement."
+    defstruct type: :while_statement, test: nil, body: nil
+  end
+
+  defmodule DoWhileStatement do
+    @moduledoc "Do-while loop statement."
+    defstruct type: :do_while_statement, body: nil, test: nil
+  end
+
+  defmodule WithStatement do
+    @moduledoc "With statement."
+    defstruct type: :with_statement, object: nil, body: nil
+  end
+
   defmodule EmptyStatement do
     @moduledoc "Empty statement represented by a standalone semicolon."
     defstruct type: :empty_statement
@@ -85,6 +115,11 @@ defmodule QuickBEAM.JS.Parser.AST do
               method: false,
               shorthand: false,
               computed: false
+  end
+
+  defmodule SpreadElement do
+    @moduledoc "Spread element in array literals or call arguments."
+    defstruct type: :spread_element, argument: nil
   end
 
   defmodule ArrowFunctionExpression do
