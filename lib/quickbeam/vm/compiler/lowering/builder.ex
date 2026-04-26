@@ -6,6 +6,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
 
   @line 1
 
+  @doc "Returns the generated Erlang function name for a bytecode block."
   def block_name(idx), do: String.to_atom("block_#{idx}")
   def slot_name(idx, n), do: "Slot#{idx}_#{n}"
   def capture_name(idx, n), do: "Capture#{idx}_#{n}"
@@ -14,6 +15,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
   def slot_var(idx), do: var("Slot#{idx}")
   def stack_var(idx), do: var("Stack#{idx}")
   def capture_var(idx), do: var("Capture#{idx}")
+  @doc "Returns generated Erlang variables for all local slots."
   def slot_vars(0), do: []
   def slot_vars(count), do: Enum.map(0..(count - 1), &slot_var/1)
   def stack_vars(0), do: []
@@ -25,6 +27,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
   def var(name) when is_integer(name), do: {:var, @line, String.to_atom(Integer.to_string(name))}
   def var(name) when is_atom(name), do: {:var, @line, name}
 
+  @doc "Builds an Erlang abstract-format integer literal."
   def integer(value), do: {:integer, @line, value}
   def atom(value), do: {:atom, @line, value}
   def literal(value), do: :erl_parse.abstract(value)
@@ -35,6 +38,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
     remote_call(:erlang, :element, [integer(index), tuple])
   end
 
+  @doc "Builds an Erlang abstract-format map expression."
   def map_expr(entries) do
     {:map, @line, Enum.map(entries, fn {key, value} -> {:map_field_assoc, @line, key, value} end)}
   end
@@ -46,6 +50,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
     {:call, @line, {:remote, @line, literal(mod), {:atom, @line, fun}}, args}
   end
 
+  @doc "Builds an Erlang abstract-format local call expression."
   def local_call(fun, args), do: {:call, @line, {:atom, @line, fun}, args}
   def compiler_call(fun, args), do: remote_call(RuntimeHelpers, fun, [ctx_var() | args])
 
@@ -55,6 +60,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
     {:try, @line, try_body, [], [catch_clause(err_var, catch_body)], []}
   end
 
+  @doc "Builds a guard-style expression checking `undefined` or `null`."
   def undefined_or_null_expr(expr) do
     {:op, @line, :orelse, {:op, @line, :==, expr, atom(:undefined)},
      {:op, @line, :==, expr, atom(nil)}}
@@ -79,6 +85,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
   def branch_condition(_expr, {:function, _}), do: atom(true)
   def branch_condition(_expr, :self_fun), do: atom(true)
   def branch_condition(expr, _type), do: local_call(:op_truthy, [expr])
+  @doc "Builds a boolean case expression with false and true branches."
   def branch_case(expr, false_body, true_body), do: case_expr(expr, false_body, true_body)
 
   def atom_name(%{atoms: atoms}, atom_idx), do: resolve_atom_name(atom_idx, atoms)

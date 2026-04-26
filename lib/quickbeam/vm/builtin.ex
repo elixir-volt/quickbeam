@@ -86,6 +86,7 @@ defmodule QuickBEAM.VM.Builtin do
     end
   end
 
+  @doc "Emits fallback clauses for modules that define prototype or static properties."
   defmacro __before_compile__(env) do
     has_proto = Module.get_attribute(env.module, :__has_proto)
     has_static = Module.get_attribute(env.module, :__has_static)
@@ -110,6 +111,7 @@ defmodule QuickBEAM.VM.Builtin do
 
   # ── Module-level dispatch macros ──
 
+  @doc "Defines a prototype property as a JavaScript builtin function."
   defmacro proto(name, do: body) do
     quote do
       @__has_proto true
@@ -119,6 +121,7 @@ defmodule QuickBEAM.VM.Builtin do
     end
   end
 
+  @doc "Defines a constructor/static property as a JavaScript builtin function."
   defmacro static(name, do: body) do
     quote do
       @__has_static true
@@ -128,6 +131,7 @@ defmodule QuickBEAM.VM.Builtin do
     end
   end
 
+  @doc "Defines a constructor/static property as a fixed value."
   defmacro static_val(name, value) do
     quote do
       @__has_static true
@@ -137,6 +141,7 @@ defmodule QuickBEAM.VM.Builtin do
 
   # ── Named object macro ──
 
+  @doc "Defines a named builtin object exported by `object/0`."
   defmacro js_object(name, do: block) do
     entries = normalize_block(block)
     map_entries = Enum.map(entries, &build_map_entry/1)
@@ -150,6 +155,7 @@ defmodule QuickBEAM.VM.Builtin do
 
   # ── Inline map/list macros ──
 
+  @doc "Builds a raw map of builtin method/property entries."
   defmacro build_methods(do: block) do
     entries = normalize_block(block)
     map_entries = Enum.map(entries, &build_map_entry/1)
@@ -170,6 +176,7 @@ defmodule QuickBEAM.VM.Builtin do
     end
   end
 
+  @doc "Builds a heap-wrapped object from builtin method/property entries."
   defmacro build_object(do: block) do
     entries = normalize_block(block)
     map_entries = Enum.map(entries, &build_map_entry/1)
@@ -179,6 +186,7 @@ defmodule QuickBEAM.VM.Builtin do
     end
   end
 
+  @doc "Registers a JavaScript constructor and optional prototype definition."
   defmacro constructor(name, callback) do
     build_constructor(name, callback, [], nil)
   end
@@ -288,6 +296,7 @@ defmodule QuickBEAM.VM.Builtin do
 
   # ── Runtime helpers ──
 
+  @doc "Returns a positional argument with a JavaScript `:undefined` default."
   def arg(args, index, default \\ :undefined), do: Enum.at(args, index, default)
 
   def argv(args, defaults) do
@@ -296,6 +305,7 @@ defmodule QuickBEAM.VM.Builtin do
     |> Enum.map(fn {default, index} -> arg(args, index, default) end)
   end
 
+  @doc "Wraps a two-arity callback in the VM builtin tuple representation."
   def builtin(name, callback) when is_function(callback, 2), do: {:builtin, name, callback}
 
   def builtin_args(name, callback) when is_function(callback, 1) do
@@ -306,6 +316,7 @@ defmodule QuickBEAM.VM.Builtin do
     {:builtin, name, fn args, this -> callback.(this, args) end}
   end
 
+  @doc "Wraps a receiver-only callback in the VM builtin tuple representation."
   def builtin_this(name, callback) when is_function(callback, 1) do
     {:builtin, name, fn _args, this -> callback.(this) end}
   end
@@ -334,6 +345,7 @@ defmodule QuickBEAM.VM.Builtin do
   alias QuickBEAM.VM.Bytecode
   alias QuickBEAM.VM.JSThrow
 
+  @doc "Dispatches a VM callable value to its underlying Elixir callback."
   def call({:builtin, _, cb}, args, this), do: cb.(args, this)
 
   def call({:bound, _, inner, _, _}, args, this), do: call(inner, args, this)
@@ -347,6 +359,7 @@ defmodule QuickBEAM.VM.Builtin do
   def call(_, _, _),
     do: JSThrow.type_error!("not a function")
 
+  @doc "Returns whether a VM value can be called as a JavaScript function."
   def callable?(%Bytecode.Function{}), do: true
 
   def callable?({:closure, _, %Bytecode.Function{}}), do: true

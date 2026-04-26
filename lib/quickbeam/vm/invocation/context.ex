@@ -8,6 +8,7 @@ defmodule QuickBEAM.VM.Invocation.Context do
   @fast_ctx_key :qb_fast_ctx
   @missing :__qb_missing__
 
+  @doc "Returns the current fast-context process dictionary snapshot."
   def snapshot_fast_ctx, do: Process.get(@fast_ctx_key, @missing)
 
   def restore_fast_ctx(@missing), do: Process.delete(@fast_ctx_key)
@@ -32,6 +33,7 @@ defmodule QuickBEAM.VM.Invocation.Context do
     )
   end
 
+  @doc "Returns the raw fast-context tuple or the missing sentinel."
   def fast_ctx, do: Process.get(@fast_ctx_key, @missing)
 
   def attach_method_state(
@@ -52,6 +54,7 @@ defmodule QuickBEAM.VM.Invocation.Context do
     |> Context.mark_dirty()
   end
 
+  @doc "Returns the active atom table from fast context, full context, or heap fallback."
   def current_atoms do
     case fast_ctx() do
       {atoms, _globals, _current_func, _arg_buf, _this, _new_target, _home_object, _super} ->
@@ -65,6 +68,7 @@ defmodule QuickBEAM.VM.Invocation.Context do
     end
   end
 
+  @doc "Returns active globals from fast context, full context, or runtime fallback."
   def current_globals do
     case fast_ctx() do
       {_atoms, globals, _current_func, _arg_buf, _this, _new_target, _home_object, _super} ->
@@ -78,6 +82,7 @@ defmodule QuickBEAM.VM.Invocation.Context do
     end
   end
 
+  @doc "Returns the currently executing function value."
   def current_func do
     case fast_ctx() do
       {_atoms, _globals, current_func, _arg_buf, _this, _new_target, _home_object, _super} ->
@@ -91,6 +96,7 @@ defmodule QuickBEAM.VM.Invocation.Context do
     end
   end
 
+  @doc "Returns the current argument tuple used by compiled functions."
   def current_arg_buf do
     case fast_ctx() do
       {_atoms, _globals, _current_func, arg_buf, _this, _new_target, _home_object, _super} ->
@@ -104,6 +110,7 @@ defmodule QuickBEAM.VM.Invocation.Context do
     end
   end
 
+  @doc "Returns the active JavaScript `this` value."
   def current_this do
     case fast_ctx() do
       {_atoms, _globals, _current_func, _arg_buf, this, _new_target, _home_object, _super} ->
@@ -117,6 +124,7 @@ defmodule QuickBEAM.VM.Invocation.Context do
     end
   end
 
+  @doc "Returns the active JavaScript `new.target` value."
   def current_new_target do
     case fast_ctx() do
       {_atoms, _globals, _current_func, _arg_buf, _this, new_target, _home_object, _super} ->
@@ -130,6 +138,7 @@ defmodule QuickBEAM.VM.Invocation.Context do
     end
   end
 
+  @doc "Returns the current method home object used for `super` lookup."
   def current_home_object(current_func \\ current_func())
 
   def current_home_object(%Bytecode.Function{need_home_object: false}), do: :undefined
@@ -147,6 +156,7 @@ defmodule QuickBEAM.VM.Invocation.Context do
     end
   end
 
+  @doc "Returns the current superclass/prototype target used for `super` lookup."
   def current_super(home_object \\ current_home_object())
   def current_super(:undefined), do: :undefined
   def current_super(nil), do: :undefined
@@ -162,5 +172,6 @@ defmodule QuickBEAM.VM.Invocation.Context do
     end
   end
 
+  @doc "Returns the sentinel used when no fast context is installed."
   def missing, do: @missing
 end

@@ -25,6 +25,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   # ── Construction ──
 
+  @doc "Creates a lowering state with slot, stack, capture, and type metadata."
   def new(slot_count, stack_depth, opts \\ []) do
     slots =
       if slot_count == 0,
@@ -66,6 +67,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   # ── Core state accessors and emitters ──
 
+  @doc "Prepends one Erlang abstract-form expression to the accumulated body."
   def emit(state, expr), do: %{state | body: [expr | state.body]}
   def emit_all(state, exprs), do: %{state | body: Enum.reverse(exprs, state.body)}
 
@@ -78,7 +80,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     case Enum.at(cvs, idx) do
       %{closure_type: type, var_idx: var_idx} ->
         key = Builder.literal({type, var_idx})
-        {bound, state} = bind(state, Builder.temp_name(state.temp), compiler_call(state, :get_capture, [key]))
+
+        {bound, state} =
+          bind(state, Builder.temp_name(state.temp), compiler_call(state, :get_capture, [key]))
+
         {bound, state}
 
       nil ->
@@ -86,6 +91,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Builds a call to a compiler runtime helper using the current context expression."
   def compiler_call(state, fun, args),
     do: Builder.remote_call(RuntimeHelpers, fun, [ctx_expr(state) | args])
 
@@ -94,6 +100,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     {var, %{state | body: [Builder.match(var, expr) | state.body], temp: state.temp + 1}}
   end
 
+  @doc "Binds a new context expression and marks it as the current context."
   def update_ctx(state, expr) do
     {ctx, state} = bind(state, "Ctx#{state.temp}", expr)
     %{state | ctx: ctx}
@@ -112,6 +119,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     )
   end
 
+  @doc "Finishes the current block with an unconditional jump to another block."
   def goto(state, target, stack_depths) do
     with {:ok, call} <- block_jump_call(state, target, stack_depths) do
       {:done, Enum.reverse([call | state.body])}
@@ -145,6 +153,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers RegExp literal construction from pattern and flags stack values."
   def regexp_literal(state) do
     with {:ok, pattern, _pattern_type, state} <- pop_typed(state),
          {:ok, flags, _flags_type, state} <- pop_typed(state) do
@@ -167,6 +176,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers prefix increment of a local slot."
   def inc_slot(state, idx),
     do:
       update_slot(
@@ -177,6 +187,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
         if(slot_type(state, idx) == :integer, do: :integer, else: :number)
       )
 
+  @doc "Lowers prefix decrement of a local slot."
   def dec_slot(state, idx),
     do:
       update_slot(
@@ -187,6 +198,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
         if(slot_type(state, idx) == :integer, do: :integer, else: :number)
       )
 
+  @doc "Lowers property read and applies shaped-object fast paths when possible."
   def get_field_call(state, key_expr) do
     with {:ok, obj, type, state} <- pop_typed(state) do
       key_str = extract_literal_string(key_expr)
@@ -250,6 +262,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers property read while preserving both object and property result on the stack."
   def get_field2(state, key_expr) do
     with {:ok, obj, _type, state} <- pop_typed(state) do
       field = Builder.local_call(:op_get_field, [obj, key_expr])
@@ -263,6 +276,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers array element read while preserving receiver and element result on the stack."
   def get_array_el2(state) do
     with {:ok, idx, _idx_type, state} <- pop_typed(state),
          {:ok, obj, _obj_type, state} <- pop_typed(state) do
@@ -282,6 +296,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers function-name assignment from an atom-table index."
   def set_name_atom(state, atom_name) do
     with {:ok, fun, fun_type, state} <- pop_typed(state) do
       {:ok,
@@ -293,6 +308,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers function-name assignment from a computed property value."
   def set_name_computed(state) do
     with {:ok, fun, fun_type, state} <- pop_typed(state),
          {:ok, name, name_type, state} <- pop_typed(state) do
@@ -307,6 +323,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers method home-object attachment for `super` support."
   def set_home_object(state) do
     with {:ok, state, method} <- bind_stack_entry(state, 0),
          {:ok, state, target} <- bind_stack_entry(state, 1) do
@@ -316,6 +333,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers private brand attachment."
   def add_brand(state) do
     with {:ok, obj, state} <- pop(state),
          {:ok, brand, state} <- pop(state) do
@@ -326,10 +344,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def put_field_call(state, key_expr) do
     with {:ok, val, _val_type, state} <- pop_typed(state),
          {:ok, obj, _obj_type, state} <- pop_typed(state) do
-      {:ok, emit(state, Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put, [obj, key_expr, val]))}
+      {:ok,
+       emit(state, Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put, [obj, key_expr, val]))}
     end
   end
 
+  @doc "Lowers object field definition with an atom-table field name."
   def define_field_name_call(state, key_expr) do
     with {:ok, val, _val_type, state} <- pop_typed(state),
          {:ok, obj, obj_type, state} <- pop_typed(state) do
@@ -347,11 +367,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
       {:ok,
        state
-       |> emit(Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put_field, [obj, key_expr, val]))
+       |> emit(
+         Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put_field, [obj, key_expr, val])
+       )
        |> push(obj, new_type)}
     end
   end
 
+  @doc "Lowers method/getter/setter definition with an atom-table name."
   def define_method_call(state, method_name, flags) do
     with {:ok, method, _method_type, state} <- pop_typed(state),
          {:ok, target, _target_type, state} <- pop_typed(state) do
@@ -368,6 +391,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers method/getter/setter definition with a computed name."
   def define_method_computed_call(state, flags) do
     with {:ok, method, state} <- pop(state),
          {:ok, field_name, state} <- pop(state),
@@ -384,6 +408,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers class definition and constructor/prototype wiring."
   def define_class_call(state, atom_idx) do
     with {:ok, ctor, state} <- pop(state),
          {:ok, parent_ctor, state} <- pop(state) do
@@ -412,6 +437,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers array element assignment."
   def put_array_el_call(state) do
     with {:ok, val, _val_type, state} <- pop_typed(state),
          {:ok, idx, _idx_type, state} <- pop_typed(state),
@@ -420,6 +446,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers array element definition with descriptor metadata."
   def define_array_el_call(state) do
     with {:ok, val, _val_type, state} <- pop_typed(state),
          {:ok, idx, idx_type, state} <- pop_typed(state),
@@ -440,6 +467,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers conversion of an iterable or array-like value into an array object."
   def array_from_call(state, argc) do
     with {:ok, elems, _types, state} <- pop_n_typed(state, argc) do
       {:ok,
@@ -451,6 +479,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers the JavaScript `in` operator."
   def in_call(state) do
     with {:ok, obj, _obj_type, state} <- pop_typed(state),
          {:ok, key, _key_type, state} <- pop_typed(state) do
@@ -463,6 +492,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers array/object spread append into an aggregate literal."
   def append_call(state) do
     with {:ok, obj, _obj_type, state} <- pop_typed(state),
          {:ok, idx, _idx_type, state} <- pop_typed(state),
@@ -483,18 +513,24 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers object spread property copying."
   def copy_data_properties_call(state, mask) do
     target_idx = Bitwise.band(mask, 3)
     source_idx = Bitwise.band(Bitwise.bsr(mask, 2), 7)
 
     with {:ok, state, target} <- bind_stack_entry(state, target_idx),
          {:ok, state, source} <- bind_stack_entry(state, source_idx) do
-      {:ok, %{state | body: [compiler_call(state, :copy_data_properties, [target, source]) | state.body]}}
+      {:ok,
+       %{
+         state
+         | body: [compiler_call(state, :copy_data_properties, [target, source]) | state.body]
+       }}
     else
       :error -> {:error, {:copy_data_properties_missing, mask, target_idx, source_idx}}
     end
   end
 
+  @doc "Lowers the JavaScript `delete` operator."
   def delete_call(state) do
     with {:ok, key, _key_type, state} <- pop_typed(state),
          {:ok, obj, _obj_type, state} <- pop_typed(state) do
@@ -504,6 +540,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   # ── Stack ──
 
+  @doc "Pushes an expression and optional type onto the lowering operand stack."
   def push(state, expr), do: push(state, expr, Types.infer_expr_type(expr))
 
   def push(state, expr, type),
@@ -519,6 +556,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   def pop(_state), do: {:error, :stack_underflow}
 
+  @doc "Pops several operand-stack expressions preserving evaluation order."
   def pop_n(state, 0), do: {:ok, [], state}
 
   def pop_n(state, count) when count > 0 do
@@ -528,6 +566,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Pops several operand-stack expressions with their inferred types."
   def pop_n_typed(state, 0), do: {:ok, [], [], state}
 
   def pop_n_typed(state, count) when count > 0 do
@@ -537,6 +576,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Binds a stack entry to a temporary variable when it must be evaluated once."
   def bind_stack_entry(state, idx) do
     case Enum.fetch(state.stack, idx) do
       {:ok, expr} ->
@@ -548,6 +588,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Duplicates the top operand-stack expression."
   def duplicate_top(state) do
     with {:ok, expr, type, state} <- pop_typed(state) do
       {bound, state} = bind(state, Builder.temp_name(state.temp), expr)
@@ -561,6 +602,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Duplicates the top two operand-stack expressions."
   def duplicate_top_two(state) do
     with {:ok, first, first_type, state} <- pop_typed(state),
          {:ok, second, second_type, state} <- pop_typed(state) do
@@ -576,6 +618,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Reorders the top two operand-stack expressions for DUP-style bytecode operations."
   def insert_top_two(state) do
     with {:ok, first, first_type, state} <- pop_typed(state),
          {:ok, second, second_type, state} <- pop_typed(state) do
@@ -590,6 +633,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Reorders the top three operand-stack expressions for DUP-style bytecode operations."
   def insert_top_three(state) do
     with {:ok, first, first_type, state} <- pop_typed(state),
          {:ok, second, second_type, state} <- pop_typed(state),
@@ -605,6 +649,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Drops the top operand-stack expression."
   def drop_top(%{stack: [_ | rest], stack_types: [_ | type_rest]} = state),
     do: {:ok, %{state | stack: rest, stack_types: type_rest}}
 
@@ -615,6 +660,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   def swap_top(_state), do: {:error, :stack_underflow}
 
+  @doc "Permutes the top three operand-stack expressions."
   def permute_top_three(
         %{stack: [a, b, c | rest], stack_types: [ta, tb, tc | type_rest]} = state
       ),
@@ -624,6 +670,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   # ── Slots ──
 
+  @doc "Stores an expression and type in a local slot."
   def put_slot(state, idx, expr), do: put_slot(state, idx, expr, Types.infer_expr_type(expr))
 
   def put_slot(state, idx, expr, type) do
@@ -635,6 +682,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     }
   end
 
+  @doc "Marks a local slot as temporal-dead-zone uninitialized."
   def put_uninitialized_slot(state, idx, expr),
     do: put_uninitialized_slot(state, idx, expr, Types.infer_expr_type(expr))
 
@@ -647,6 +695,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     }
   end
 
+  @doc "Returns the generated expression currently bound to a local slot."
   def slot_expr(state, idx), do: Map.get(state.slots, idx, Builder.atom(:undefined))
   def slot_type(state, idx), do: Map.get(state.slot_types, idx, :unknown)
   def slot_initialized?(state, idx), do: Map.get(state.slot_inits, idx, false)
@@ -657,6 +706,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def capture_cell_expr(state, idx),
     do: Map.get(state.capture_cells, idx, Builder.atom(:undefined))
 
+  @doc "Lowers assignment to a local slot and returns the assigned value on the stack."
   def assign_slot(state, idx, keep?, wrapper \\ nil) do
     with {:ok, expr, type, state} <- pop_typed(state) do
       expr =
@@ -678,6 +728,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Updates a local slot with an expression, initialization flag, and inferred type."
   def update_slot(state, idx, expr),
     do: update_slot(state, idx, expr, false, Types.infer_expr_type(expr))
 
@@ -698,6 +749,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     {:ok, state}
   end
 
+  @doc "Returns local slot expressions in block-call argument order."
   def current_slots(state), do: ordered_values(state.slots)
   def current_capture_cells(state), do: ordered_values(state.capture_cells)
 
@@ -710,12 +762,21 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   def nip_catch(_state), do: {:error, :stack_underflow}
 
+  @doc "Lowers postfix increment/decrement of a local slot."
   def post_update(state, fun) do
     with {:ok, expr, type, state} <- pop_typed(state) do
       if type == :integer do
         op = if fun == :post_inc, do: :+, else: :-
-        {new_val, state} = bind(state, Builder.temp_name(state.temp), {:op, @line, op, expr, {:integer, @line, 1}})
-        {:ok, %{state | stack: [new_val, expr | state.stack], stack_types: [:integer, :integer | state.stack_types]}}
+
+        {new_val, state} =
+          bind(state, Builder.temp_name(state.temp), {:op, @line, op, expr, {:integer, @line, 1}})
+
+        {:ok,
+         %{
+           state
+           | stack: [new_val, expr | state.stack],
+             stack_types: [:integer, :integer | state.stack_types]
+         }}
       else
         {pair, state} =
           bind(state, Builder.temp_name(state.temp), compiler_call(state, fun, [expr]))
@@ -730,6 +791,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Evaluates an expression for side effects and pushes the resulting temporary."
   def effectful_push(state, expr),
     do: effectful_push(state, expr, Types.infer_expr_type(expr))
 
@@ -738,6 +800,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     {:ok, push(state, bound, type)}
   end
 
+  @doc "Lowers a unary operation through a runtime helper."
   def unary_call(state, mod, fun, extra_args \\ []) do
     with {:ok, expr, _type, state} <- pop_typed(state) do
       {:ok, push(state, Builder.remote_call(mod, fun, [expr | extra_args]))}
@@ -751,6 +814,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers a unary operation through a generated local helper."
   def unary_local_call(state, fun) do
     with {:ok, expr, type, state} <- pop_typed(state) do
       {result_expr, result_type} = specialize_unary(fun, expr, type)
@@ -765,6 +829,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers a binary operation through a generated local helper."
   def binary_local_call(state, fun) do
     with {:ok, right, right_type, state} <- pop_typed(state),
          {:ok, left, left_type, state} <- pop_typed(state) do
@@ -773,6 +838,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers a JavaScript function call."
   def invoke_call(state, argc) do
     with {:ok, args, arg_types, state} <- pop_n_typed(state, argc),
          {:ok, fun, fun_type, state} <- pop_typed(state) do
@@ -796,6 +862,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers a tail-position JavaScript function call."
   def invoke_tail_call(state, argc) do
     with {:ok, args, arg_types, state} <- pop_n_typed(state, argc),
          {:ok, fun, fun_type, %{stack: [], stack_types: []} = state} <- pop_typed(state) do
@@ -806,6 +873,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers a JavaScript method call with receiver handling."
   def invoke_method_call(state, argc) do
     with {:ok, args, _arg_types, state} <- pop_n_typed(state, argc),
          {:ok, fun, fun_type, state} <- pop_typed(state),
@@ -823,6 +891,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Lowers a tail-position JavaScript method call with receiver handling."
   def invoke_tail_method_call(state, argc) do
     with {:ok, args, _arg_types, state} <- pop_n_typed(state, argc),
          {:ok, fun, _fun_type, state} <- pop_typed(state),
@@ -842,6 +911,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Builds block-call arguments from context, slots, stack, and captures."
   def block_jump_call_values(target, stack_depths, ctx, slots, stack, capture_cells) do
     expected_depth = Map.get(stack_depths, target)
     actual_depth = length(stack)
@@ -861,6 +931,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Finishes the current block by returning the stack top."
   def return_top(state) do
     with {:ok, expr, _state} <- pop(state) do
       {:done, Enum.reverse([expr | state.body])}
@@ -873,6 +944,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Selects a specialized local unary operator when type information allows it."
   def specialize_unary(:op_neg, expr, :integer), do: {{:op, @line, :-, expr}, :integer}
   def specialize_unary(:op_neg, expr, :number), do: {{:op, @line, :-, expr}, :number}
   def specialize_unary(:op_plus, expr, type) when type in [:integer, :number], do: {expr, type}
