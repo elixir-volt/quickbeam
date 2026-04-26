@@ -97,8 +97,6 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
     end
   end
 
-  defp clone_object(other), do: other
-
   defp clone_date(map) do
     ms = Map.get(map, date_ms(), 0)
     new_ref = make_ref()
@@ -220,5 +218,4 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
 
   defp format_val({:closure, _, _}), do: "function"
   defp format_val(%QuickBEAM.VM.Bytecode.Function{}), do: "function"
-  defp format_val(_), do: "value"
 end

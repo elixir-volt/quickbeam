@@ -6,7 +6,6 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
 
   alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
-  alias QuickBEAM.VM.Runtime.WebAPIs
 
   @known_encodings ~w[utf8 utf-8 ascii latin1 binary base64 base64url hex ucs2 utf16le utf-16le ucs-2]
 
@@ -52,7 +51,10 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
       "indexOf" => {:builtin, "indexOf", fn args, this -> buf_index_of(this, args) end},
       "lastIndexOf" => {:builtin, "lastIndexOf", fn args, this -> buf_last_index_of(this, args) end},
       "includes" => {:builtin, "includes", fn args, this -> buf_includes(this, args) end},
-      "fill" => {:builtin, "fill", fn args, this -> buf_fill(this, args); this end},
+      "fill" => {:builtin, "fill", fn args, this ->
+        buf_fill(this, args)
+        this
+      end},
       "toJSON" => {:builtin, "toJSON", fn _args, this -> buf_to_json(this) end},
       "swap16" => {:builtin, "swap16", fn _args, this -> buf_swap16(this) end},
       "swap32" => {:builtin, "swap32", fn _args, this -> buf_swap32(this) end},
@@ -653,7 +655,6 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   defp max_uint(1), do: 0xFF
   defp max_uint(2), do: 0xFFFF
   defp max_uint(4), do: 0xFFFFFFFF
-  defp max_uint(8), do: 0xFFFFFFFFFFFFFFFF
 
   defp to_signed(n, bytes) do
     bits = bytes * 8
@@ -710,7 +711,10 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
       "indexOf" => {:builtin, "indexOf", fn args, _ -> buf_index_of(this, args) end},
       "lastIndexOf" => {:builtin, "lastIndexOf", fn args, _ -> buf_last_index_of(this, args) end},
       "includes" => {:builtin, "includes", fn args, _ -> buf_includes(this, args) end},
-      "fill" => {:builtin, "fill", fn args, _ -> buf_fill(this, args); this end},
+      "fill" => {:builtin, "fill", fn args, _ ->
+        buf_fill(this, args)
+        this
+      end},
       "toJSON" => {:builtin, "toJSON", fn _, _ -> buf_to_json(this) end},
       "swap16" => {:builtin, "swap16", fn _, _ -> buf_swap16(this) end},
       "swap32" => {:builtin, "swap32", fn _, _ -> buf_swap32(this) end},

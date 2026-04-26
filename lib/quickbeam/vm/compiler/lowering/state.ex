@@ -1087,7 +1087,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   defp binary_operator(:op_sub), do: :-
   defp binary_operator(:op_mul), do: :*
-  defp binary_operator(:op_mod), do: :rem
   defp binary_operator(:op_band), do: :band
   defp binary_operator(:op_bor), do: :bor
   defp binary_operator(:op_bxor), do: :bxor

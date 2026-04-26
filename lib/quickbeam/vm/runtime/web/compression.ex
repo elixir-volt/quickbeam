@@ -85,7 +85,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Compression do
     JSThrow.type_error!("DecompressionStream requires a format argument")
   end
 
-  defp build_transform_controller(chunks_ref, format, op) do
+  defp build_transform_controller(chunks_ref, _format, _op) do
     Heap.wrap(%{
       "enqueue" =>
         {:builtin, "enqueue",
@@ -118,15 +118,11 @@ defmodule QuickBEAM.VM.Runtime.Web.Compression do
 
             transformed = case op do
               :compress ->
-                case QuickBEAM.Compression.compress([format, bytes]) do
-                  {:bytes, b} -> b
-                  b when is_binary(b) -> b
-                end
+                {:bytes, b} = QuickBEAM.Compression.compress([format, bytes])
+                b
               :decompress ->
-                case QuickBEAM.Compression.decompress([format, bytes]) do
-                  {:bytes, b} -> b
-                  b when is_binary(b) -> b
-                end
+                {:bytes, b} = QuickBEAM.Compression.decompress([format, bytes])
+                b
             end
 
             state = Heap.get_obj(chunks_ref, %{})

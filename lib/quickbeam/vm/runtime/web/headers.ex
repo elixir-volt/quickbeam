@@ -194,19 +194,13 @@ defmodule QuickBEAM.VM.Runtime.Web.Headers do
     Heap.put_obj(store_ref, store)
   end
 
-  defp make_iterable_iterator(iter) do
+  defp make_iterable_iterator({:obj, ref} = iter) do
     sym_iter = {:symbol, "Symbol.iterator"}
 
-    case iter do
-      {:obj, ref} ->
-        Heap.update_obj(ref, %{}, fn m ->
-          Map.put(m, sym_iter, {:builtin, "[Symbol.iterator]", fn _, this -> this end})
-        end)
+    Heap.update_obj(ref, %{}, fn m ->
+      Map.put(m, sym_iter, {:builtin, "[Symbol.iterator]", fn _, this -> this end})
+    end)
 
-        iter
-
-      _ ->
-        iter
-    end
+    iter
   end
 end

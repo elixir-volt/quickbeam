@@ -339,17 +339,12 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
         end
       )
 
-    case iter do
-      {:obj, ref} ->
-        Heap.update_obj(ref, %{}, fn m ->
-          Map.put(m, sym_async_iter, {:builtin, "[Symbol.asyncIterator]", fn _, this -> this end})
-        end)
+    {:obj, ref} = iter
+    Heap.update_obj(ref, %{}, fn m ->
+      Map.put(m, sym_async_iter, {:builtin, "[Symbol.asyncIterator]", fn _, this -> this end})
+    end)
 
-        iter
-
-      _ ->
-        iter
-    end
+    iter
   end
 
   defp build_writable_stream(args, _this) do
@@ -503,10 +498,8 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
       end}
     })
 
-    readable = build_readable_stream([], nil)
+    _readable = build_readable_stream([], nil)
     writable = build_writable_stream([sink], nil)
-
-    # Override readable to read from our chunks_ref
     readable_from_chunks = build_readable_stream_from_ref(chunks_ref)
 
     Heap.wrap(%{

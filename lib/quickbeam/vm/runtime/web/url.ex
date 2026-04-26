@@ -469,20 +469,14 @@ defmodule QuickBEAM.VM.Runtime.Web.URL do
     Heap.put_obj(entries_ref, %{"entries" => entries})
   end
 
-  defp make_iterable_iterator(iter) do
+  defp make_iterable_iterator({:obj, ref} = iter) do
     sym_iter = {:symbol, "Symbol.iterator"}
 
-    case iter do
-      {:obj, ref} ->
-        Heap.update_obj(ref, %{}, fn m ->
-          Map.put(m, sym_iter, {:builtin, "[Symbol.iterator]", fn _, this -> this end})
-        end)
+    Heap.update_obj(ref, %{}, fn m ->
+      Map.put(m, sym_iter, {:builtin, "[Symbol.iterator]", fn _, this -> this end})
+    end)
 
-        iter
-
-      _ ->
-        iter
-    end
+    iter
   end
 
   defp extract_kv_pair({:obj, iref}) do

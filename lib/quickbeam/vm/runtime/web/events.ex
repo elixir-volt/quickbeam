@@ -154,14 +154,9 @@ defmodule QuickBEAM.VM.Runtime.Web.Events do
       _ -> nil
     end
 
-    case event do
-      {:obj, ref} ->
-        Heap.update_obj(ref, %{}, fn m -> Map.put(m, "detail", detail) end)
-        event
-
-      _ ->
-        event
-    end
+    {:obj, ref} = event
+    Heap.update_obj(ref, %{}, fn m -> Map.put(m, "detail", detail) end)
+    event
   end
 
   def build_dom_exception(args, _this) do

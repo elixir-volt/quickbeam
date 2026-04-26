@@ -149,15 +149,10 @@ defmodule QuickBEAM.VM.Runtime.Web.Abort do
       end
     )
     |> tap(fn signal ->
-      case signal do
-        {:obj, ref} ->
-          Heap.update_obj(ref, %{}, fn m ->
-            Map.put(m, "__listeners_ref__", {:obj, listeners_ref})
-          end)
-
-        _ ->
-          :ok
-      end
+      {:obj, ref} = signal
+      Heap.update_obj(ref, %{}, fn m ->
+        Map.put(m, "__listeners_ref__", {:obj, listeners_ref})
+      end)
     end)
   end
 

@@ -139,20 +139,14 @@ defmodule QuickBEAM.VM.Runtime.Web.FormData do
     |> Heap.wrap()
   end
 
-  defp make_iterable_iterator(iter) do
+  defp make_iterable_iterator({:obj, ref} = iter) do
     sym_iter = {:symbol, "Symbol.iterator"}
 
-    case iter do
-      {:obj, ref} ->
-        Heap.update_obj(ref, %{}, fn m ->
-          Map.put(m, sym_iter, {:builtin, "[Symbol.iterator]", fn _, this -> this end})
-        end)
+    Heap.update_obj(ref, %{}, fn m ->
+      Map.put(m, sym_iter, {:builtin, "[Symbol.iterator]", fn _, this -> this end})
+    end)
 
-        iter
-
-      _ ->
-        iter
-    end
+    iter
   end
 
   defp coerce_entry_value(value, filename_override) do
@@ -222,7 +216,7 @@ defmodule QuickBEAM.VM.Runtime.Web.FormData do
     end
   end
 
-  defp get_blob_content(_), do: ""
+
 
   def encode_multipart(entries_ref) do
     boundary = "----FormBoundary#{:crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)}"
@@ -230,18 +224,12 @@ defmodule QuickBEAM.VM.Runtime.Web.FormData do
 
     parts =
       Enum.map(entries, fn {name, value} ->
-        case value do
-          {:obj, _} = obj when true ->
-            filename = Get.get(obj, "name") || "blob"
-            mime = Get.get(obj, "type") || "application/octet-stream"
-            content = get_blob_content(obj)
+        {:obj, _} = obj = value
+        filename = Get.get(obj, "name") || "blob"
+        mime = Get.get(obj, "type") || "application/octet-stream"
+        content = get_blob_content(obj)
 
-            "Content-Disposition: form-data; name=\"#{name}\"; filename=\"#{filename}\"\r\nContent-Type: #{mime}\r\n\r\n#{content}"
-
-          _ ->
-            str = to_string(value)
-            "Content-Disposition: form-data; name=\"#{name}\"\r\n\r\n#{str}"
-        end
+        "Content-Disposition: form-data; name=\"#{name}\"; filename=\"#{filename}\"\r\nContent-Type: #{mime}\r\n\r\n#{content}"
       end)
 
     body =

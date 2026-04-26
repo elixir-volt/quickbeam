@@ -672,12 +672,9 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
 
     resp = build_response_obj(body_data, status, status_text, headers, response_ctor)
 
-    case resp do
-      {:obj, ref} ->
-        Heap.update_obj(ref, %{}, fn m -> Map.put(m, "url", url) end)
-        resp
-      _ -> resp
-    end
+    {:obj, ref} = resp
+    Heap.update_obj(ref, %{}, fn m -> Map.put(m, "url", url) end)
+    resp
   end
 
   defp json_parse(str) when is_binary(str) do

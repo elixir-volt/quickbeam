@@ -81,22 +81,17 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
     file_ctor = get_file_ctor()
     file_proto = if file_ctor, do: Heap.get_class_proto(file_ctor), else: nil
 
-    case blob_base do
-      {:obj, ref} ->
-        Heap.update_obj(ref, %{}, fn m ->
-          base = m
-          |> Map.put("name", file_name)
-          |> Map.put("lastModified", last_modified)
-          |> Map.put("constructor", file_ctor)
+    {:obj, ref} = blob_base
+    Heap.update_obj(ref, %{}, fn m ->
+      base = m
+      |> Map.put("name", file_name)
+      |> Map.put("lastModified", last_modified)
+      |> Map.put("constructor", file_ctor)
 
-          if file_proto, do: Map.put(base, "__proto__", file_proto), else: base
-        end)
+      if file_proto, do: Map.put(base, "__proto__", file_proto), else: base
+    end)
 
-        blob_base
-
-      _ ->
-        blob_base
-    end
+    blob_base
   end
 
   defp get_file_ctor do
