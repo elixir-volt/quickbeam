@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.PromiseState do
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Builtin, only: [arg: 3]
 
-  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.{Heap, Runtime}
   alias QuickBEAM.VM.Interpreter
 
   def resolved(val), do: make_promise(:resolved, val)
@@ -155,12 +155,7 @@ defmodule QuickBEAM.VM.PromiseState do
     end
   end
 
-  defp promise_proto do
-    case Heap.get_global_cache() do
-      %{"Promise" => ctor} -> Heap.get_class_proto(ctor)
-      _ -> nil
-    end
-  end
+  defp promise_proto, do: Runtime.global_class_proto("Promise")
 
   defp resolve_or_chain(child_ref, {:obj, r}) do
     case Heap.get_obj(r, %{}) do

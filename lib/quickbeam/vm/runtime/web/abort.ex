@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.Web.Abort do
   @moduledoc "AbortController and AbortSignal builtins for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, constructor: 2, object: 1]
 
   alias QuickBEAM.VM.{Heap, JSThrow}

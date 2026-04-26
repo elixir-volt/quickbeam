@@ -12,6 +12,17 @@ defmodule QuickBEAM.VM.Runtime do
     end
   end
 
+  defdelegate global_constructor(name), to: QuickBEAM.VM.Runtime.Constructors, as: :lookup
+  defdelegate global_class_proto(name), to: QuickBEAM.VM.Runtime.Constructors, as: :class_proto
+
+  defdelegate construct_global(name, args, fallback),
+    to: QuickBEAM.VM.Runtime.Constructors,
+    as: :construct
+
+  defdelegate construct_global(name, args, fallback, update_object),
+    to: QuickBEAM.VM.Runtime.Constructors,
+    as: :construct
+
   # ── Callback dispatch (used by higher-order array methods) ──
 
   def call_callback(fun, args), do: Invocation.call_callback(fun, args)

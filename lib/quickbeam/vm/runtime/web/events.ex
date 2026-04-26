@@ -1,9 +1,11 @@
 defmodule QuickBEAM.VM.Runtime.Web.Events do
   @moduledoc "EventTarget, Event, CustomEvent, and DOMException builtins for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, constructor: 3, object: 1]
 
-  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.{Heap, Runtime}
   alias QuickBEAM.VM.ObjectModel.Get
   alias QuickBEAM.VM.Runtime.Web.{Callback, StateRef}
   alias QuickBEAM.VM.Runtime.WebAPIs
@@ -167,31 +169,8 @@ defmodule QuickBEAM.VM.Runtime.Web.Events do
     end
   end
 
-  defp get_dom_exception_proto do
-    case Heap.get_global_cache() do
-      nil ->
-        nil
-
-      globals ->
-        case Map.get(globals, "DOMException") do
-          {:builtin, _, _} = ctor -> Heap.get_class_proto(ctor)
-          _ -> nil
-        end
-    end
-  end
-
-  defp build_error_proto do
-    case Heap.get_global_cache() do
-      nil ->
-        nil
-
-      globals ->
-        case Map.get(globals, "Error") do
-          {:builtin, _, _} = ctor -> Heap.get_class_proto(ctor)
-          _ -> nil
-        end
-    end
-  end
+  defp get_dom_exception_proto, do: Runtime.global_class_proto("DOMException")
+  defp build_error_proto, do: Runtime.global_class_proto("Error")
 
   def make_dom_exception(message, name) do
     build_dom_exception([message, name], nil)

@@ -1,11 +1,14 @@
 defmodule QuickBEAM.VM.Runtime.Web.Streams do
   @moduledoc "ReadableStream, WritableStream, and TransformStream builtins for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import QuickBEAM.VM.Builtin, only: [arg: 3, object: 1]
 
   alias QuickBEAM.VM.{Heap, PromiseState}
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
   alias QuickBEAM.VM.Runtime.Web.{Callback, IteratorResult}
+  alias QuickBEAM.VM.Runtime.Web.Streams.Bytes
   alias QuickBEAM.VM.Runtime.WebAPIs
 
   def bindings do
@@ -62,7 +65,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
         case chunks do
           [chunk | rest] ->
             Heap.put_obj(chunks_ref, Map.put(state, :chunks, rest))
-            chunk |> bytes_to_uint8array() |> IteratorResult.resolved_value()
+            chunk |> Bytes.uint8_array() |> IteratorResult.resolved_value()
 
           [] ->
             IteratorResult.resolved_done()
@@ -94,7 +97,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
         "write" =>
           {:builtin, "write",
            fn [chunk | _], _ ->
-             bytes = extract_bytes(chunk)
+             bytes = Bytes.extract(chunk)
              decoded = :unicode.characters_to_binary(bytes)
              state = Heap.get_obj(chunks_ref, %{})
              existing = Map.get(state, :chunks, [])
@@ -114,62 +117,6 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
     writable = build_writable_stream([sink], nil)
     Heap.wrap(%{"readable" => readable, "writable" => writable, "encoding" => label})
   end
-
-  defp bytes_to_uint8array(bytes) when is_binary(bytes) do
-    byte_list = :binary.bin_to_list(bytes)
-
-    case Heap.get_global_cache() do
-      nil ->
-        Heap.wrap(byte_list)
-
-      globals ->
-        case Map.get(globals, "Uint8Array") do
-          {:builtin, _, cb} -> cb.([byte_list], nil)
-          _ -> Heap.wrap(byte_list)
-        end
-    end
-  end
-
-  defp extract_bytes({:obj, ref}) do
-    case Heap.get_obj(ref, %{}) do
-      m when is_map(m) ->
-        cond do
-          Map.has_key?(m, "__typed_array__") ->
-            case Map.get(m, "buffer") do
-              {:obj, buf_ref} ->
-                case Heap.get_obj(buf_ref, %{}) do
-                  bm when is_map(bm) ->
-                    ab = Map.get(bm, "__buffer__", <<>>)
-                    off = Map.get(m, "byteOffset", 0)
-                    blen = Map.get(m, "byteLength", 0)
-
-                    if byte_size(ab) >= off + blen and blen > 0,
-                      do: binary_part(ab, off, blen),
-                      else: <<>>
-
-                  _ ->
-                    <<>>
-                end
-
-              _ ->
-                <<>>
-            end
-
-          Map.has_key?(m, "__buffer__") ->
-            Map.get(m, "__buffer__", <<>>)
-
-          true ->
-            <<>>
-        end
-
-      _ ->
-        <<>>
-    end
-  end
-
-  defp extract_bytes(b) when is_binary(b), do: b
-  defp extract_bytes({:bytes, b}), do: b
-  defp extract_bytes(_), do: <<>>
 
   defp build_readable_stream(args, _this) do
     source = arg(args, 0, nil)

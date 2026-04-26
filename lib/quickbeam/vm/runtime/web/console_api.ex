@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.Web.ConsoleAPI do
   @moduledoc "Enhanced console object with Logger-based output for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   require Logger
 
   import QuickBEAM.VM.Builtin, only: [arg: 3, object: 1]

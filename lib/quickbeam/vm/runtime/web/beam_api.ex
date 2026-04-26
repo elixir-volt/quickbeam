@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.Web.BeamAPI do
   @moduledoc "Beam object builtin for BEAM mode — provides Beam.self, Beam.onMessage, Beam.send, Beam.call, Beam.monitor, Beam.demonitor."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import QuickBEAM.VM.Builtin, only: [object: 1]
 
   import QuickBEAM.VM.Heap.Keys

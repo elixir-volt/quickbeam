@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.Web.URL do
   @moduledoc "URL and URLSearchParams builtins for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import QuickBEAM.VM.Builtin,
     only: [arg: 3, argv: 2, iterator_from: 1, object: 1, object: 2]
 

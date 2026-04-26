@@ -179,28 +179,39 @@ defmodule QuickBEAM.VM.Runtime.Map do
 
   defp entry_to_kv([k, v | _]), do: {k, v}
   defp entry_to_kv([k]), do: {k, :undefined}
+
   defp entry_to_kv({:obj, eref}) do
     case Heap.get_obj(eref, []) do
-      [k, v | _] -> {k, v}
-      [k] -> {k, :undefined}
+      [k, v | _] ->
+        {k, v}
+
+      [k] ->
+        {k, :undefined}
+
       {:qb_arr, arr} ->
         list = :array.to_list(arr)
+
         case list do
           [k, v | _] -> {k, v}
           [k] -> {k, :undefined}
           _ -> {nil, nil}
         end
-      _ -> {nil, nil}
+
+      _ ->
+        {nil, nil}
     end
   end
+
   defp entry_to_kv({:qb_arr, arr}) do
     list = :array.to_list(arr)
+
     case list do
       [k, v | _] -> {k, v}
       [k] -> {k, :undefined}
       _ -> {nil, nil}
     end
   end
+
   defp entry_to_kv(_), do: {nil, nil}
 
   defp for_each([cb | _], {:obj, ref}) do

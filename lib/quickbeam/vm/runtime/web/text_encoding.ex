@@ -1,11 +1,14 @@
 defmodule QuickBEAM.VM.Runtime.Web.TextEncoding do
   @moduledoc "TextEncoder and TextDecoder builtins for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import Bitwise
   import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, object: 1]
 
-  alias QuickBEAM.VM.{Heap, JSThrow, Runtime}
+  alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
+  alias QuickBEAM.VM.Runtime.Web.BinaryData
   alias QuickBEAM.VM.Runtime.WebAPIs
 
   @supported_encodings ~w[utf-8 utf8 unicode-1-1-utf-8]
@@ -331,31 +334,5 @@ defmodule QuickBEAM.VM.Runtime.Web.TextEncoding do
   defp normalize_encoding_label("unicode-1-1-utf-8"), do: "utf-8"
   defp normalize_encoding_label(other), do: other
 
-  defp make_uint8array(bytes) do
-    case Runtime.global_bindings()["Uint8Array"] do
-      {:builtin, _, cb} = ctor when is_function(cb, 2) ->
-        result = cb.([bytes], nil)
-
-        case result do
-          {:obj, ref} ->
-            class_proto = Heap.get_class_proto(ctor)
-
-            if class_proto do
-              map = Heap.get_obj(ref, %{})
-
-              if is_map(map) and not Map.has_key?(map, "__proto__") do
-                Heap.put_obj(ref, Map.put(map, "__proto__", class_proto))
-              end
-            end
-
-            result
-
-          _ ->
-            result
-        end
-
-      _ ->
-        Heap.wrap(bytes)
-    end
-  end
+  defp make_uint8array(bytes), do: BinaryData.uint8_array(bytes)
 end

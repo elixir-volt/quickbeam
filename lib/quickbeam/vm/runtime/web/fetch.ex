@@ -1,11 +1,15 @@
 defmodule QuickBEAM.VM.Runtime.Web.Fetch do
   @moduledoc "fetch, Request, and Response builtins for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import QuickBEAM.VM.Builtin,
     only: [arg: 3, argv: 2, constructor: 3, object: 1, object: 2]
 
-  alias QuickBEAM.VM.{Heap, JSThrow, PromiseState}
+  alias QuickBEAM.VM.{Heap, JSThrow, PromiseState, Runtime}
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
+  alias QuickBEAM.VM.Runtime.Web.BinaryData
+  alias QuickBEAM.VM.Runtime.Web.Fetch.JSON
   alias QuickBEAM.VM.Runtime.Web.Headers
   alias QuickBEAM.VM.Runtime.WebAPIs
 
@@ -75,7 +79,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
       {:builtin, "json",
        fn args, _ ->
          data = arg(args, 0, :undefined)
-         json_str = json_encode(data)
+         json_str = JSON.encode(data)
          headers = Headers.build_from_map(%{"content-type" => "application/json"})
          build_response_obj(json_str, 200, "OK", headers, response_ctor)
        end}
@@ -187,7 +191,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
               _ -> to_string(data)
             end
 
-          parsed = json_parse(str)
+          parsed = JSON.parse(str)
           PromiseState.resolved(parsed)
         end)
       end
@@ -246,7 +250,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
               _ -> to_string(data)
             end
 
-          PromiseState.resolved(json_parse(str))
+          PromiseState.resolved(JSON.parse(str))
         end)
       end
 
@@ -335,7 +339,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
               _ -> to_string(data)
             end
 
-          parsed = json_parse(str)
+          parsed = JSON.parse(str)
           PromiseState.resolved(parsed)
         end)
       end
@@ -464,54 +468,10 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
 
   defp extract_headers_map(_), do: %{}
 
-  defp get_request_ctor do
-    case Heap.get_global_cache() do
-      nil -> nil
-      globals -> Map.get(globals, "Request")
-    end
-  end
+  defp get_request_ctor, do: Runtime.global_constructor("Request")
+  defp get_response_ctor, do: Runtime.global_constructor("Response")
 
-  defp get_response_ctor do
-    case Heap.get_global_cache() do
-      nil -> nil
-      globals -> Map.get(globals, "Response")
-    end
-  end
-
-  defp make_array_buffer(data) when is_binary(data) do
-    byte_len = byte_size(data)
-
-    case Heap.get_global_cache() do
-      nil ->
-        Heap.wrap(%{"__buffer__" => data, "byteLength" => byte_len})
-
-      globals ->
-        case Map.get(globals, "ArrayBuffer") do
-          {:builtin, _, cb} = ctor ->
-            result = cb.([byte_len], nil)
-            proto = Heap.get_class_proto(ctor)
-
-            case result do
-              {:obj, ref} ->
-                Heap.update_obj(ref, %{}, fn m ->
-                  base = Map.put(m, "__buffer__", data)
-
-                  if proto != nil and not Map.has_key?(base, "__proto__"),
-                    do: Map.put(base, "__proto__", proto),
-                    else: base
-                end)
-
-                result
-
-              _ ->
-                result
-            end
-
-          _ ->
-            Heap.wrap(%{"__buffer__" => data, "byteLength" => byte_len})
-        end
-    end
-  end
+  defp make_array_buffer(data) when is_binary(data), do: BinaryData.array_buffer(data)
 
   defp coerce_string(:undefined, default), do: default
   defp coerce_string(nil, default), do: default
@@ -700,52 +660,4 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
     Heap.update_obj(ref, %{}, fn m -> Map.put(m, "url", url) end)
     resp
   end
-
-  defp json_parse(str) when is_binary(str) do
-    case Jason.decode(str) do
-      {:ok, val} -> from_elixir(val)
-      _ -> JSThrow.syntax_error!("Unexpected token in JSON")
-    end
-  end
-
-  defp json_encode(val) do
-    Jason.encode!(to_json_elixir(val))
-  end
-
-  defp from_elixir(val) when is_map(val) do
-    Heap.wrap(Map.new(val, fn {k, v} -> {k, from_elixir(v)} end))
-  end
-
-  defp from_elixir(val) when is_list(val) do
-    Heap.wrap(Enum.map(val, &from_elixir/1))
-  end
-
-  defp from_elixir(val), do: val
-
-  defp to_json_elixir({:obj, ref}) do
-    case Heap.get_obj(ref, %{}) do
-      map when is_map(map) ->
-        Map.new(
-          Enum.reject(map, fn {k, _} -> not is_binary(k) or String.starts_with?(k, "__") end),
-          fn {k, v} -> {k, to_json_elixir(v)} end
-        )
-
-      list when is_list(list) ->
-        Enum.map(list, &to_json_elixir/1)
-
-      _ ->
-        nil
-    end
-  end
-
-  defp to_json_elixir(v) when is_binary(v), do: v
-  defp to_json_elixir(v) when is_number(v), do: v
-  defp to_json_elixir(true), do: true
-  defp to_json_elixir(false), do: false
-  defp to_json_elixir(nil), do: nil
-  defp to_json_elixir(:undefined), do: nil
-  defp to_json_elixir(:nan), do: nil
-  defp to_json_elixir(:infinity), do: nil
-  defp to_json_elixir({:bigint, n}), do: n
-  defp to_json_elixir(_), do: nil
 end

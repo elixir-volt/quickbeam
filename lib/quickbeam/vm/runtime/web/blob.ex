@@ -1,11 +1,14 @@
 defmodule QuickBEAM.VM.Runtime.Web.Blob do
   @moduledoc "Blob and File constructor builtins for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, object: 1]
 
-  alias QuickBEAM.VM.{Heap, PromiseState}
+  alias QuickBEAM.VM.{Heap, PromiseState, Runtime}
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.Runtime.Web.BinaryData
   alias QuickBEAM.VM.Runtime.WebAPIs
 
   def bindings do
@@ -68,7 +71,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
 
     blob_base = build_blob_object(content, mime_type)
     file_ctor = get_file_ctor()
-    file_proto = if file_ctor, do: Heap.get_class_proto(file_ctor), else: nil
+    file_proto = Runtime.global_class_proto("File")
 
     {:obj, ref} = blob_base
 
@@ -85,19 +88,14 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
     blob_base
   end
 
-  defp get_file_ctor do
-    case Heap.get_global_cache() do
-      nil -> nil
-      globals -> Map.get(globals, "File")
-    end
-  end
+  defp get_file_ctor, do: Runtime.global_constructor("File")
 
   def build_blob_object(content, mime_type) do
     content_ref = make_ref()
     Heap.put_obj(content_ref, content)
 
     blob_ctor = get_blob_ctor()
-    blob_proto = if blob_ctor, do: Heap.get_class_proto(blob_ctor), else: nil
+    blob_proto = Runtime.global_class_proto("Blob")
 
     object do
       prop("size", byte_size(content))
@@ -140,12 +138,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
     end
   end
 
-  defp get_blob_ctor do
-    case Heap.get_global_cache() do
-      nil -> nil
-      globals -> Map.get(globals, "Blob")
-    end
-  end
+  defp get_blob_ctor, do: Runtime.global_constructor("Blob")
 
   defp normalize_slice_idx(idx, total) when is_integer(idx) do
     cond do
@@ -224,43 +217,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
 
   defp part_to_binary(v), do: Values.stringify(v)
 
-  defp make_array_buffer(data) when is_binary(data) do
-    byte_len = byte_size(data)
+  defp make_array_buffer(data) when is_binary(data), do: BinaryData.array_buffer(data)
 
-    case Heap.get_global_cache() do
-      nil ->
-        Heap.wrap(%{"__buffer__" => data, "byteLength" => byte_len})
-
-      globals ->
-        case Map.get(globals, "ArrayBuffer") do
-          {:builtin, _, cb} = ctor ->
-            result = cb.([byte_len], nil)
-            proto = Heap.get_class_proto(ctor)
-
-            case result do
-              {:obj, ref} ->
-                Heap.update_obj(ref, %{}, fn m ->
-                  base = Map.put(m, "__buffer__", data)
-
-                  if proto != nil and not Map.has_key?(base, "__proto__"),
-                    do: Map.put(base, "__proto__", proto),
-                    else: base
-                end)
-
-                result
-
-              _ ->
-                result
-            end
-
-          _ ->
-            Heap.wrap(%{"__buffer__" => data, "byteLength" => byte_len})
-        end
-    end
-  end
-
-  defp make_uint8_from_binary(data) when is_binary(data) do
-    bytes = :binary.bin_to_list(data)
-    Heap.wrap(bytes)
-  end
+  defp make_uint8_from_binary(data) when is_binary(data), do: BinaryData.uint8_array(data)
 end

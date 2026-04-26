@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
 
   alias QuickBEAM.VM.{Heap, JSThrow, PromiseState}
   alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.Runtime.Web.BinaryData
   alias QuickBEAM.VM.Runtime.Web.Buffer
 
   def build_subtle do
@@ -306,40 +307,7 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
 
   defp bytes_to_array_buffer({:bytes, bytes}), do: bytes_to_array_buffer(bytes)
 
-  defp bytes_to_array_buffer(bytes) when is_binary(bytes) do
-    byte_len = byte_size(bytes)
-
-    case Heap.get_global_cache() do
-      nil ->
-        Heap.wrap(%{"__buffer__" => bytes, "byteLength" => byte_len})
-
-      globals ->
-        case Map.get(globals, "ArrayBuffer") do
-          {:builtin, _, cb} = ctor ->
-            result = cb.([byte_len], nil)
-            proto = Heap.get_class_proto(ctor)
-
-            case result do
-              {:obj, ref} ->
-                Heap.update_obj(ref, %{}, fn m ->
-                  base = Map.put(m, "__buffer__", bytes)
-
-                  if proto != nil and not Map.has_key?(base, "__proto__"),
-                    do: Map.put(base, "__proto__", proto),
-                    else: base
-                end)
-
-                result
-
-              _ ->
-                result
-            end
-
-          _ ->
-            Heap.wrap(%{"__buffer__" => bytes, "byteLength" => byte_len})
-        end
-    end
-  end
+  defp bytes_to_array_buffer(bytes) when is_binary(bytes), do: BinaryData.array_buffer(bytes)
 
   defp wrap_key_result(%{"publicKey" => pub, "privateKey" => priv}) do
     Heap.wrap(%{
@@ -374,41 +342,7 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
     })
   end
 
-  defp bytes_to_uint8(bytes) when is_binary(bytes) do
-    byte_list = :binary.bin_to_list(bytes)
-
-    case Heap.get_global_cache() do
-      nil ->
-        Heap.wrap(byte_list)
-
-      globals ->
-        case Map.get(globals, "Uint8Array") do
-          {:builtin, _, cb} = ctor ->
-            result = cb.([byte_list], nil)
-            # Set __proto__ for instanceof checks
-            case result do
-              {:obj, ref} ->
-                class_proto = Heap.get_class_proto(ctor)
-
-                if class_proto do
-                  m = Heap.get_obj(ref, %{})
-
-                  if is_map(m) and not Map.has_key?(m, "__proto__") do
-                    Heap.put_obj(ref, Map.put(m, "__proto__", class_proto))
-                  end
-                end
-
-                result
-
-              _ ->
-                result
-            end
-
-          _ ->
-            Heap.wrap(byte_list)
-        end
-    end
-  end
+  defp bytes_to_uint8(bytes) when is_binary(bytes), do: BinaryData.uint8_array(bytes)
 
   defp unwrap_key({:obj, ref}) do
     case Heap.get_obj(ref, %{}) do

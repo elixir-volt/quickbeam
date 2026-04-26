@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.Web.EventSourceAPI do
   @moduledoc "EventSource constructor for BEAM mode — SSE client."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, object: 1]
 
   alias QuickBEAM.VM.Heap

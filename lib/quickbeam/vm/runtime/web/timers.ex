@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.Web.Timers do
   @moduledoc "setTimeout, clearTimeout, setInterval, clearInterval builtins for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   alias QuickBEAM.VM.Heap.Caches
   alias QuickBEAM.VM.Interpreter
 

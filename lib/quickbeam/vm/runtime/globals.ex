@@ -24,6 +24,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
   }
 
   alias QuickBEAM.VM.Runtime.Date, as: JSDate
+  alias QuickBEAM.VM.Runtime.Constructors, as: ConstructorRegistry
   alias QuickBEAM.VM.Runtime.Globals.{Constructors, Functions}
   alias QuickBEAM.VM.Runtime.Map, as: JSMap
   alias QuickBEAM.VM.Runtime.Set, as: JSSet
@@ -56,7 +57,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
         (
           ctor = register("Array", &Constructors.array/2)
           proto = QuickBEAM.VM.Runtime.Array.prototype()
-          Heap.put_ctor_static(ctor, "prototype", proto)
+          ConstructorRegistry.put_prototype(ctor, proto)
           Heap.put_array_proto(proto)
           ctor
         ),
@@ -166,27 +167,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
   defp builtin(name, fun), do: {:builtin, name, fun}
 
   defp register(name, constructor, opts \\ []) do
-    ctor = {:builtin, name, constructor}
-
-    case Keyword.get(opts, :module) do
-      nil -> :ok
-      mod -> Heap.put_ctor_static(ctor, :__module__, mod)
-    end
-
-    case Keyword.get(opts, :prototype) do
-      nil ->
-        if Keyword.get(opts, :auto_proto, false) do
-          proto = Heap.wrap(%{"constructor" => ctor})
-          Heap.put_class_proto(ctor, proto)
-          Heap.put_ctor_static(ctor, "prototype", proto)
-        end
-
-      proto ->
-        Heap.put_class_proto(ctor, proto)
-        Heap.put_ctor_static(ctor, "prototype", proto)
-    end
-
-    ctor
+    ConstructorRegistry.register(name, constructor, opts)
   end
 
   defp ensure_object_prototype do

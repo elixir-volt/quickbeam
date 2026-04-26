@@ -131,7 +131,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
         func_proto()
 
       [val | _] when is_list(val) ->
-        Heap.get_class_proto(Runtime.global_bindings()["Array"])
+        Runtime.global_class_proto("Array")
 
       [{:builtin, _, _} = b | _] ->
         case Map.get(Heap.get_ctor_statics(b), "__proto__") do

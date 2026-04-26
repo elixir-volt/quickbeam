@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.Web.Worker do
   @moduledoc "Worker constructor for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, object: 2]
 
   alias QuickBEAM.VM.Heap

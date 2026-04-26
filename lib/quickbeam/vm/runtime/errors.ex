@@ -1,11 +1,14 @@
 defmodule QuickBEAM.VM.Runtime.Errors do
   @moduledoc "JS Error constructors and prototype: `Error`, `TypeError`, `RangeError`, and the other standard error types."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import QuickBEAM.VM.Builtin, only: [arg: 3, object: 2]
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Runtime.Constructors
   alias QuickBEAM.VM.Stacktrace
 
   @error_types ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError)
@@ -44,8 +47,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
       end
     )
 
-    Heap.put_class_proto(error_ctor, {:obj, error_proto_ref})
-    Heap.put_ctor_static(error_ctor, "prototype", {:obj, error_proto_ref})
+    Constructors.put_prototype(error_ctor, {:obj, error_proto_ref})
 
     Heap.put_ctor_static(
       error_ctor,
@@ -85,8 +87,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
           end
         )
 
-        Heap.put_class_proto(ctor, {:obj, proto_ref})
-        Heap.put_ctor_static(ctor, "prototype", {:obj, proto_ref})
+        Constructors.put_prototype(ctor, {:obj, proto_ref})
         Heap.put_ctor_static(ctor, "__proto__", error_ctor)
         {name, ctor}
       end

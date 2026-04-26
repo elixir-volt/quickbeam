@@ -1,7 +1,9 @@
 defmodule QuickBEAM.VM.Runtime.WebAPIs do
   @moduledoc "Aggregates all Web API builtins for BEAM mode."
 
-  alias QuickBEAM.VM.Heap
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
+  alias QuickBEAM.VM.Runtime.Constructors
 
   alias QuickBEAM.VM.Runtime.Web.{
     Abort,
@@ -28,42 +30,36 @@ defmodule QuickBEAM.VM.Runtime.WebAPIs do
     Worker
   }
 
-  def register(name, constructor) do
-    ctor = {:builtin, name, constructor}
-    proto = Heap.wrap(%{"constructor" => ctor})
-    Heap.put_class_proto(ctor, proto)
-    Heap.put_ctor_static(ctor, "prototype", proto)
-    ctor
-  end
+  def register(name, constructor), do: Constructors.register(name, constructor, %{}, nil)
+
+  @providers [
+    TextEncoding,
+    URL,
+    Encoding,
+    Timers,
+    Headers,
+    Abort,
+    Performance,
+    Blob,
+    Crypto,
+    Fetch,
+    Events,
+    FormData,
+    Streams,
+    BroadcastChannel,
+    Buffer,
+    MessageChannel,
+    Navigator,
+    Compression,
+    ConsoleAPI,
+    Worker,
+    EventSourceAPI,
+    BeamAPI
+  ]
 
   def bindings do
-    %{}
-    |> Map.merge(TextEncoding.bindings())
-    |> Map.merge(URL.bindings())
-    |> Map.merge(Encoding.bindings())
-    |> Map.merge(Timers.bindings())
-    |> Map.merge(Headers.bindings())
-    |> Map.merge(Abort.bindings())
-    |> Map.merge(Performance.bindings())
-    |> Map.merge(Blob.bindings())
-    |> Map.merge(Crypto.bindings())
-    |> Map.merge(Fetch.bindings())
-    |> Map.merge(Events.bindings())
-    |> Map.merge(FormData.bindings())
-    |> Map.merge(Streams.bindings())
-    |> Map.merge(BroadcastChannel.bindings())
-    |> Map.merge(Buffer.bindings())
-    |> Map.merge(MessageChannel.bindings())
-    |> Map.merge(Navigator.bindings())
-    |> Map.merge(Compression.bindings())
-    |> Map.merge(ConsoleAPI.bindings())
-    |> Map.merge(Worker.bindings())
-    |> Map.merge(EventSourceAPI.bindings())
-    |> Map.merge(BeamAPI.bindings())
-    |> Map.merge(subtle_crypto_in_crypto())
-  end
-
-  defp subtle_crypto_in_crypto do
-    %{}
+    Enum.reduce(@providers, %{}, fn provider, bindings ->
+      Map.merge(bindings, provider.bindings())
+    end)
   end
 end

@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.Web.BroadcastChannel do
   @moduledoc "BroadcastChannel builtin for BEAM mode — in-process pub/sub via process dictionary."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import QuickBEAM.VM.Builtin, only: [arg: 3, object: 1]
 
   alias QuickBEAM.VM.Heap

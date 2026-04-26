@@ -56,6 +56,8 @@ defmodule QuickBEAM.VM.Builtin do
 
   defmacro __using__(_opts) do
     quote do
+      @behaviour QuickBEAM.VM.Runtime.BuiltinObject
+
       import QuickBEAM.VM.Builtin,
         only: [
           proto: 2,
@@ -192,17 +194,12 @@ defmodule QuickBEAM.VM.Builtin do
     proto_map_entries = Enum.map(proto_entries, &build_map_entry/1)
 
     quote do
-      ctor = {:builtin, unquote(name), unquote(callback)}
-
-      proto_map =
-        %{unquote_splicing(proto_map_entries)}
-        |> Map.put("constructor", ctor)
-        |> QuickBEAM.VM.Builtin.put_if_present("__proto__", unquote(parent))
-
-      proto = QuickBEAM.VM.Heap.wrap(proto_map)
-      QuickBEAM.VM.Heap.put_class_proto(ctor, proto)
-      QuickBEAM.VM.Heap.put_ctor_static(ctor, "prototype", proto)
-      ctor
+      QuickBEAM.VM.Runtime.Constructors.register(
+        unquote(name),
+        unquote(callback),
+        %{unquote_splicing(proto_map_entries)},
+        unquote(parent)
+      )
     end
   end
 

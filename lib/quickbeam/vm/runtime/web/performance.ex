@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.Web.Performance do
   @moduledoc "performance object builtin for BEAM mode, including mark/measure/getEntries."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import QuickBEAM.VM.Builtin, only: [arg: 3, constructor: 2, object: 1]
 
   alias QuickBEAM.VM.{Heap, JSThrow}

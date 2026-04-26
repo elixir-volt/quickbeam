@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.Web.Encoding do
   @moduledoc "atob and btoa builtins for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import Bitwise
 
   alias QuickBEAM.VM.Interpreter.Values
@@ -17,7 +19,9 @@ defmodule QuickBEAM.VM.Runtime.Web.Encoding do
     str = Values.stringify(arg)
 
     if has_non_latin1?(str) do
-      JSThrow.type_error!("Failed to execute 'btoa': The string to be encoded contains characters outside of the Latin1 range.")
+      JSThrow.type_error!(
+        "Failed to execute 'btoa': The string to be encoded contains characters outside of the Latin1 range."
+      )
     end
 
     bytes = for <<cp::utf8 <- str>>, do: cp &&& 0xFF
@@ -26,7 +30,9 @@ defmodule QuickBEAM.VM.Runtime.Web.Encoding do
 
   defp atob([arg | _], _) do
     if arg == :undefined do
-      JSThrow.type_error!("Failed to execute 'atob': The string to be decoded is not correctly encoded.")
+      JSThrow.type_error!(
+        "Failed to execute 'atob': The string to be decoded is not correctly encoded."
+      )
     end
 
     str = Values.stringify(arg)
@@ -38,7 +44,9 @@ defmodule QuickBEAM.VM.Runtime.Web.Encoding do
         latin1_to_js_string(decoded)
 
       :error ->
-        JSThrow.type_error!("Failed to execute 'atob': The string to be decoded is not correctly encoded.")
+        JSThrow.type_error!(
+          "Failed to execute 'atob': The string to be decoded is not correctly encoded."
+        )
     end
   end
 

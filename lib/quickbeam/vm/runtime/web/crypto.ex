@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.Web.Crypto do
   @moduledoc "crypto object builtin for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import Bitwise
   import QuickBEAM.VM.Builtin, only: [arg: 3, object: 1]
 

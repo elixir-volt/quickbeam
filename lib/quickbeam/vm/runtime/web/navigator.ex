@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.Web.Navigator do
   @moduledoc "navigator object with navigator.locks for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import QuickBEAM.VM.Builtin, only: [object: 1]
 
   alias QuickBEAM.VM.{Heap, JSThrow, PromiseState}

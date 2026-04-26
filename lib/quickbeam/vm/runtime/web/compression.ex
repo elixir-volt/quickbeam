@@ -1,9 +1,12 @@
 defmodule QuickBEAM.VM.Runtime.Web.Compression do
   @moduledoc "compression global object and CompressionStream/DecompressionStream for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, object: 1]
 
   alias QuickBEAM.VM.{Heap, JSThrow}
+  alias QuickBEAM.VM.Runtime.Web.BinaryData
   alias QuickBEAM.VM.Runtime.Web.Buffer
   alias QuickBEAM.VM.Runtime.Web.IteratorResult
   alias QuickBEAM.VM.Runtime.WebAPIs
@@ -208,39 +211,5 @@ defmodule QuickBEAM.VM.Runtime.Web.Compression do
 
   defp bytes_to_uint8({:bytes, bytes}), do: bytes_to_uint8(bytes)
 
-  defp bytes_to_uint8(bytes) when is_binary(bytes) do
-    byte_list = :binary.bin_to_list(bytes)
-
-    case Heap.get_global_cache() do
-      nil ->
-        Heap.wrap(byte_list)
-
-      globals ->
-        case Map.get(globals, "Uint8Array") do
-          {:builtin, _, cb} = ctor ->
-            result = cb.([byte_list], nil)
-
-            case result do
-              {:obj, ref} ->
-                class_proto = Heap.get_class_proto(ctor)
-
-                if class_proto do
-                  m = Heap.get_obj(ref, %{})
-
-                  if is_map(m) and not Map.has_key?(m, "__proto__") do
-                    Heap.put_obj(ref, Map.put(m, "__proto__", class_proto))
-                  end
-                end
-
-                result
-
-              _ ->
-                result
-            end
-
-          _ ->
-            Heap.wrap(byte_list)
-        end
-    end
-  end
+  defp bytes_to_uint8(bytes) when is_binary(bytes), do: BinaryData.uint8_array(bytes)
 end

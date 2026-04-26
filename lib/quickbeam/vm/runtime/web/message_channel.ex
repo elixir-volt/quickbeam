@@ -1,9 +1,11 @@
 defmodule QuickBEAM.VM.Runtime.Web.MessageChannel do
   @moduledoc "MessageChannel and MessagePort builtins for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, object: 1, object: 2]
 
-  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.{Heap, Runtime}
   alias QuickBEAM.VM.ObjectModel.Get
   alias QuickBEAM.VM.Runtime.StructuredClone
   alias QuickBEAM.VM.Runtime.Web.Callback
@@ -48,19 +50,15 @@ defmodule QuickBEAM.VM.Runtime.Web.MessageChannel do
       listeners: []
     })
 
-    port_ctor =
-      case Heap.get_global_cache() do
-        nil -> nil
-        globals -> Map.get(globals, "MessagePort")
-      end
-
-    build_port(my_q, peer_q, port_ctor)
+    build_port(my_q, peer_q, Runtime.global_constructor("MessagePort"))
   end
 
   defp build_port(my_q, peer_q, port_ctor) do
-    port_proto = if port_ctor, do: Heap.get_class_proto(port_ctor), else: nil
+    port_proto = Runtime.global_class_proto("MessagePort")
 
     object heap: false do
+      prop("constructor", port_ctor)
+
       method "postMessage" do
         data = arg(args, 0, :undefined)
         state = Heap.get_obj(my_q, %{})
@@ -219,19 +217,16 @@ defmodule QuickBEAM.VM.Runtime.Web.MessageChannel do
       "ports" => []
     }
 
-    me_ctor =
-      case Heap.get_global_cache() do
-        nil -> nil
-        globals -> Map.get(globals, "MessageEvent")
-      end
+    me_ctor = Runtime.global_constructor("MessageEvent")
 
     base =
       if me_ctor do
-        proto = Heap.get_class_proto(me_ctor)
-
         base
         |> Map.put("constructor", me_ctor)
-        |> QuickBEAM.VM.Builtin.put_if_present("__proto__", proto)
+        |> QuickBEAM.VM.Builtin.put_if_present(
+          "__proto__",
+          Runtime.global_class_proto("MessageEvent")
+        )
       else
         base
       end

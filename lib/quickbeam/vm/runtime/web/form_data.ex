@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.Web.FormData do
   @moduledoc "FormData constructor builtin for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, iterator_from: 1, object: 1]
 
   alias QuickBEAM.VM.Heap

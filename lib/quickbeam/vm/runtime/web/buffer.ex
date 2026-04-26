@@ -1,11 +1,15 @@
 defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   @moduledoc "Node.js Buffer class builtin for BEAM mode."
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
   import Bitwise
   import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, builtin_args: 2]
 
-  alias QuickBEAM.VM.{Heap, JSThrow}
+  alias QuickBEAM.VM.{Heap, JSThrow, Runtime}
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
+  alias QuickBEAM.VM.Runtime.Constructors
+  alias QuickBEAM.VM.Runtime.Web.Buffer.Encoding
 
   @known_encodings ~w[utf8 utf-8 ascii latin1 binary base64 base64url hex ucs2 utf16le utf-16le ucs-2]
 
@@ -17,8 +21,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   defp build_buffer_ctor do
     ctor = {:builtin, "Buffer", &build_buffer_from/2}
     proto = build_buffer_proto(ctor)
-    Heap.put_class_proto(ctor, proto)
-    Heap.put_ctor_static(ctor, "prototype", proto)
+    Constructors.put_prototype(ctor, proto)
 
     put_static_methods(ctor, %{
       "from" => &buffer_from/1,
@@ -57,18 +60,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   defp put_if_present(map, _key, nil), do: map
   defp put_if_present(map, key, value), do: Map.put(map, key, value)
 
-  defp get_uint8_proto do
-    case Heap.get_global_cache() do
-      nil ->
-        nil
-
-      globals ->
-        case Map.get(globals, "Uint8Array") do
-          {:builtin, _, _} = ctor -> Heap.get_class_proto(ctor)
-          _ -> nil
-        end
-    end
-  end
+  defp get_uint8_proto, do: Runtime.global_class_proto("Uint8Array")
 
   # Constructor call (new Buffer is deprecated but we still need to handle it)
   defp build_buffer_from(args, _this), do: buffer_from(args)
@@ -82,15 +74,30 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
           encoding = get_encoding(rest, 0)
 
           case encoding do
-            "hex" -> hex_decode(b)
-            "base64" -> base64_decode(b)
-            "base64url" -> base64url_decode(b)
-            "latin1" -> latin1_to_bytes(b)
-            "binary" -> latin1_to_bytes(b)
-            "ascii" -> ascii_bytes(b)
-            enc when enc in ["utf16le", "ucs2", "ucs-2", "utf-16le"] -> utf16le_encode(b)
+            "hex" ->
+              Encoding.decode(b, "hex")
+
+            "base64" ->
+              Encoding.decode(b, "base64")
+
+            "base64url" ->
+              Encoding.decode(b, "base64url")
+
+            "latin1" ->
+              Encoding.decode(b, "latin1")
+
+            "binary" ->
+              Encoding.decode(b, "latin1")
+
+            "ascii" ->
+              Encoding.decode(b, "ascii")
+
+            enc when enc in ["utf16le", "ucs2", "ucs-2", "utf-16le"] ->
+              Encoding.decode(b, "utf16le")
+
             # utf8
-            _ -> b
+            _ ->
+              b
           end
 
         {:bytes, bin} when is_binary(bin) ->
@@ -160,7 +167,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
           :binary.copy(<<byte_val>>, n)
 
         f when is_binary(f) ->
-          fill_with_string(n, f)
+          Encoding.fill(n, f)
 
         _ ->
           :binary.copy(<<0>>, n)
@@ -217,7 +224,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   defp buffer_compare([a, b | _]) do
     ba = extract_buf_bytes(a)
     bb = extract_buf_bytes(b)
-    compare_bytes(ba, bb)
+    Encoding.compare(ba, bb)
   end
 
   defp buffer_compare(_), do: 0
@@ -248,8 +255,8 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
 
     case enc do
       "hex" -> div(byte_size(str), 2)
-      "base64" -> base64_byte_length(str)
-      "base64url" -> base64url_byte_length(str)
+      "base64" -> Encoding.byte_length(str, "base64")
+      "base64url" -> Encoding.byte_length(str, "base64url")
       # 1 char = 1 byte (approx via UTF8 encoding)
       "latin1" -> byte_size(str) |> div(1)
       "binary" -> String.length(str)
@@ -308,13 +315,13 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
         Base.url_encode64(slice, padding: false)
 
       "latin1" ->
-        bytes_to_latin1(slice)
+        Encoding.encode(slice, "latin1")
 
       "binary" ->
-        bytes_to_latin1(slice)
+        Encoding.encode(slice, "latin1")
 
       "ascii" ->
-        bytes_to_ascii(slice)
+        Encoding.encode(slice, "ascii")
 
       enc when enc in ["utf16le", "ucs2", "ucs-2", "utf-16le"] ->
         :unicode.characters_to_binary(slice, {:utf16, :little}, :utf8)
@@ -347,12 +354,12 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
 
     write_bytes =
       case enc do
-        "hex" -> hex_decode(str_bin)
-        "base64" -> base64_decode(str_bin)
-        "base64url" -> base64url_decode(str_bin)
-        "latin1" -> latin1_to_bytes(str_bin)
-        "binary" -> latin1_to_bytes(str_bin)
-        "ascii" -> ascii_bytes(str_bin)
+        "hex" -> Encoding.decode(str_bin, "hex")
+        "base64" -> Encoding.decode(str_bin, "base64")
+        "base64url" -> Encoding.decode(str_bin, "base64url")
+        "latin1" -> Encoding.decode(str_bin, "latin1")
+        "binary" -> Encoding.decode(str_bin, "latin1")
+        "ascii" -> Encoding.decode(str_bin, "ascii")
         _ -> str_bin
       end
 
@@ -411,9 +418,9 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     a_start = to_int(Enum.at(rest, 2, 0))
     a_end = to_int(Enum.at(rest, 3, byte_size(a_bytes)))
 
-    a_slice = safe_slice(a_bytes, a_start, a_end)
-    b_slice = safe_slice(b_bytes, b_start, b_end)
-    compare_bytes(a_slice, b_slice)
+    a_slice = Encoding.safe_slice(a_bytes, a_start, a_end)
+    b_slice = Encoding.safe_slice(b_bytes, b_start, b_end)
+    Encoding.compare(a_slice, b_slice)
   end
 
   defp buf_equals(this, [other | _]) do
@@ -696,21 +703,17 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   defp wrap_buffer(bytes) when is_binary(bytes) do
     uint8_ctor = get_uint8_ctor()
     buf_ctor = get_buf_ctor()
-    buf_proto = if buf_ctor, do: Heap.get_class_proto(buf_ctor), else: nil
+    buf_proto = Runtime.global_class_proto("Buffer")
 
     case uint8_ctor do
       {:builtin, _, cb} ->
-        # TypedArray constructor expects a list of integers, not a raw binary
         byte_list = :binary.bin_to_list(bytes)
         result = cb.([byte_list], nil)
 
         case result do
           {:obj, ref} ->
             Heap.update_obj(ref, %{}, fn m ->
-              # Add buffer-specific methods directly on the instance
-              # (overriding TypedArray's toString etc.)
-              buffer_methods = build_instance_methods(ref)
-              base = Map.merge(m, buffer_methods)
+              base = Map.merge(m, build_instance_methods(ref))
               base = Map.put(base, "__is_buffer__", true)
               base = if buf_proto, do: Map.put(base, "__proto__", buf_proto), else: base
               if buf_ctor, do: Map.put(base, "constructor", buf_ctor), else: base
@@ -871,19 +874,9 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
      end}
   end
 
-  defp get_uint8_ctor do
-    case Heap.get_global_cache() do
-      nil -> nil
-      globals -> Map.get(globals, "Uint8Array")
-    end
-  end
+  defp get_uint8_ctor, do: Runtime.global_constructor("Uint8Array")
 
-  defp get_buf_ctor do
-    case Heap.get_global_cache() do
-      nil -> nil
-      globals -> Map.get(globals, "Buffer")
-    end
-  end
+  defp get_buf_ctor, do: Runtime.global_constructor("Buffer")
 
   # ── Extract raw bytes from various sources ──
 
@@ -1040,128 +1033,6 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   end
 
   # ── Encoding helpers ──
-
-  defp hex_decode(str) do
-    # Remove invalid chars and ensure even length
-    clean = str |> String.replace(~r/[^0-9a-fA-F]/, "") |> truncate_even()
-
-    case Base.decode16(clean, case: :mixed) do
-      {:ok, bytes} -> bytes
-      _ -> <<>>
-    end
-  end
-
-  defp truncate_even(str) do
-    len = byte_size(str)
-    if rem(len, 2) == 0, do: str, else: binary_part(str, 0, len - 1)
-  end
-
-  defp base64_decode(str) do
-    # Strip whitespace
-    clean = String.replace(str, ~r/[\s]/, "")
-    padded = pad_base64(clean)
-
-    case Base.decode64(padded) do
-      {:ok, bytes} -> bytes
-      _ -> <<>>
-    end
-  end
-
-  defp base64url_decode(str) do
-    clean = String.replace(str, ~r/[\s]/, "")
-
-    case Base.url_decode64(clean, padding: false) do
-      {:ok, bytes} ->
-        bytes
-
-      _ ->
-        padded = pad_base64(String.replace(clean, "-", "+") |> String.replace("_", "/"))
-
-        case Base.decode64(padded) do
-          {:ok, bytes} -> bytes
-          _ -> <<>>
-        end
-    end
-  end
-
-  defp pad_base64(str) do
-    case rem(byte_size(str), 4) do
-      0 -> str
-      1 -> str <> "==="
-      2 -> str <> "=="
-      3 -> str <> "="
-    end
-  end
-
-  defp latin1_to_bytes(str) do
-    str
-    |> String.to_charlist()
-    |> Enum.map(fn cp -> band(cp, 0xFF) end)
-    |> :erlang.list_to_binary()
-  end
-
-  defp ascii_bytes(str) do
-    str
-    |> String.to_charlist()
-    |> Enum.map(fn cp -> band(cp, 0x7F) end)
-    |> :erlang.list_to_binary()
-  end
-
-  defp utf16le_encode(str) do
-    :unicode.characters_to_binary(str, :utf8, {:utf16, :little})
-  end
-
-  defp bytes_to_latin1(bytes) do
-    bytes
-    |> :binary.bin_to_list()
-    |> Enum.map(fn byte ->
-      if byte < 128, do: <<byte>>, else: <<byte::utf8>>
-    end)
-    |> IO.iodata_to_binary()
-  end
-
-  defp bytes_to_ascii(bytes) do
-    bytes
-    |> :binary.bin_to_list()
-    |> Enum.map(fn byte -> <<band(byte, 0x7F)>> end)
-    |> IO.iodata_to_binary()
-  end
-
-  defp base64_byte_length(str) do
-    clean = String.replace(str, "=", "")
-    len = byte_size(clean)
-    div(len * 3, 4)
-  end
-
-  defp base64url_byte_length(str) do
-    clean = String.replace(str, ~r/[=]/, "")
-    len = byte_size(clean)
-    div(len * 3, 4)
-  end
-
-  defp fill_with_string(n, pattern) do
-    pat_bytes = pattern |> String.to_charlist() |> Enum.map(&band(&1, 0xFF))
-    pat_len = length(pat_bytes)
-
-    if pat_len == 0 do
-      :binary.copy(<<0>>, n)
-    else
-      Enum.map(0..(n - 1), fn i -> Enum.at(pat_bytes, rem(i, pat_len)) end)
-      |> :erlang.list_to_binary()
-    end
-  end
-
-  defp compare_bytes(a, b) when a < b, do: -1
-  defp compare_bytes(a, b) when a > b, do: 1
-  defp compare_bytes(a, a), do: 0
-  defp compare_bytes(a, b) when a == b, do: 0
-
-  defp safe_slice(bytes, start_i, end_i) do
-    total = byte_size(bytes)
-    s = max(0, min(start_i, total))
-    e = max(s, min(end_i, total))
-    binary_part(bytes, s, e - s)
-  end
 
   defp normalize_idx(v, total) when is_integer(v) do
     if v < 0, do: max(0, total + v), else: min(v, total)

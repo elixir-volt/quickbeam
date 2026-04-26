@@ -3,8 +3,7 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
 
   import QuickBEAM.VM.Heap.Keys
 
-  alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.JSThrow
+  alias QuickBEAM.VM.{Heap, JSThrow, Runtime}
 
   def clone(val) do
     deep_clone(val)
@@ -100,10 +99,7 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
   defp clone_date(map) do
     ms = Map.get(map, date_ms(), 0)
     new_ref = make_ref()
-    proto = get_ctor_proto("Date")
-    base = %{date_ms() => ms}
-    base = if proto, do: Map.put(base, "__proto__", proto), else: base
-    Heap.put_obj(new_ref, base)
+    Heap.put_obj(new_ref, with_proto(%{date_ms() => ms}, "Date"))
     {:obj, new_ref}
   end
 
@@ -111,10 +107,8 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
     buf = Map.get(map, buffer(), <<>>)
     new_buf = :binary.copy(buf)
     new_ref = make_ref()
-    proto = get_ctor_proto("ArrayBuffer")
     base = %{buffer() => new_buf, "byteLength" => byte_size(new_buf)}
-    base = if proto, do: Map.put(base, "__proto__", proto), else: base
-    Heap.put_obj(new_ref, base)
+    Heap.put_obj(new_ref, with_proto(base, "ArrayBuffer"))
     {:obj, new_ref}
   end
 
@@ -124,10 +118,8 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
     new_ref = make_ref()
 
     new_ab_ref = make_ref()
-    ab_proto = get_ctor_proto("ArrayBuffer")
     ab_base = %{buffer() => new_buf, "byteLength" => byte_size(new_buf)}
-    ab_base = if ab_proto, do: Map.put(ab_base, "__proto__", ab_proto), else: ab_base
-    Heap.put_obj(new_ab_ref, ab_base)
+    Heap.put_obj(new_ab_ref, with_proto(ab_base, "ArrayBuffer"))
 
     new_map =
       Map.merge(map, %{
@@ -148,10 +140,8 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
       end)
 
     new_ref = make_ref()
-    proto = get_ctor_proto("Map")
     base = %{map_data() => new_data, "size" => map_size(new_data)}
-    base = if proto, do: Map.put(base, "__proto__", proto), else: base
-    Heap.put_obj(new_ref, base)
+    Heap.put_obj(new_ref, with_proto(base, "Map"))
     {:obj, new_ref}
   end
 
@@ -165,18 +155,13 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
       end)
 
     new_ref = make_ref()
-    proto = get_ctor_proto("Set")
     base = %{set_data() => new_data, "size" => map_size(new_data)}
-    base = if proto, do: Map.put(base, "__proto__", proto), else: base
-    Heap.put_obj(new_ref, base)
+    Heap.put_obj(new_ref, with_proto(base, "Set"))
     {:obj, new_ref}
   end
 
-  defp get_ctor_proto(name) do
-    case Heap.get_global_cache() do
-      %{^name => ctor} -> Heap.get_class_proto(ctor)
-      _ -> nil
-    end
+  defp with_proto(map, ctor_name) do
+    QuickBEAM.VM.Builtin.put_if_present(map, "__proto__", Runtime.global_class_proto(ctor_name))
   end
 
   defp clone_plain_object(map) when is_map(map) do
@@ -199,20 +184,13 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
     flags = QuickBEAM.VM.ObjectModel.Get.regexp_flags(bc)
     new_ref = make_ref()
 
-    proto =
-      case Heap.get_global_cache() do
-        %{"RegExp" => ctor} -> Heap.get_class_proto(ctor)
-        _ -> nil
-      end
-
     map = %{
       "__regexp_inner__" => {:regexp, bc, src},
       "source" => src,
       "flags" => flags
     }
 
-    map = if proto, do: Map.put(map, "__proto__", proto), else: map
-    Heap.put_obj(new_ref, map)
+    Heap.put_obj(new_ref, with_proto(map, "RegExp"))
     {:obj, new_ref}
   end
 

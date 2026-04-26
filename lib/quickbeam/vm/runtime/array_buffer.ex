@@ -164,15 +164,15 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
   defp max_byte_length_option(_), do: nil
 
   defp read_array_buffer_species do
-    case Runtime.global_bindings()["ArrayBuffer"] do
-      {:builtin, _, _} = ctor ->
+    case Runtime.global_constructor("ArrayBuffer") do
+      nil ->
+        nil
+
+      ctor ->
         case Map.get(Heap.get_ctor_statics(ctor), {:symbol, "Symbol.species"}) do
           {:accessor, getter, _} when getter != nil -> Runtime.call_callback(getter, [])
           _ -> nil
         end
-
-      _ ->
-        nil
     end
   end
 end
