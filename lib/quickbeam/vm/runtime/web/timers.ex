@@ -6,6 +6,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Timers do
   alias QuickBEAM.VM.Heap.Caches
   alias QuickBEAM.VM.Interpreter
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     %{
       "setTimeout" => {:builtin, "setTimeout", &set_timeout/2},

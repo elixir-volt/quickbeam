@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Runtime.Web.BinaryData do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Runtime.Constructors
 
+  @doc "Constructs a JavaScript `Uint8Array` from a binary."
   def uint8_array(bytes) when is_binary(bytes) do
     bytes
     |> :binary.bin_to_list()
@@ -14,6 +15,7 @@ defmodule QuickBEAM.VM.Runtime.Web.BinaryData do
     Constructors.construct("Uint8Array", [bytes], fn -> Heap.wrap(bytes) end)
   end
 
+  @doc "Constructs a JavaScript `ArrayBuffer` containing `bytes`."
   def array_buffer(bytes) when is_binary(bytes) do
     byte_len = byte_size(bytes)
 

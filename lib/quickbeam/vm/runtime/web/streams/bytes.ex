@@ -4,8 +4,10 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams.Bytes do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Runtime.Web.BinaryData
 
+  @doc "Wraps stream chunk bytes as a JavaScript `Uint8Array`."
   def uint8_array(bytes) when is_binary(bytes), do: BinaryData.uint8_array(bytes)
 
+  @doc "Extracts raw bytes from stream chunk values."
   def extract({:obj, ref}) do
     case Heap.get_obj(ref, %{}) do
       map when is_map(map) -> extract_from_map(map)

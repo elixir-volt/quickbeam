@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.Console do
-  @moduledoc false
+  @moduledoc "Minimal core `console` builtin used outside the richer Web console API."
 
   use QuickBEAM.VM.Builtin
 

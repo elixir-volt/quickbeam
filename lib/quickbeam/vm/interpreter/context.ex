@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Interpreter.Context do
-  @moduledoc false
+  @moduledoc "Execution context carried through interpreter evaluation and builtin invocation."
   @type t :: %__MODULE__{
           this: term(),
           arg_buf: tuple(),
@@ -18,6 +18,7 @@ defmodule QuickBEAM.VM.Interpreter.Context do
 
   @default_gas 1_000_000_000
 
+  @doc "Returns the default gas budget for interpreter execution."
   def default_gas, do: @default_gas
 
   defstruct this: :undefined,
@@ -34,7 +35,10 @@ defmodule QuickBEAM.VM.Interpreter.Context do
             trace_enabled: false,
             pd_synced: false
 
+  @doc "Marks a context as needing synchronization with process-local fast context state."
   def mark_dirty(%__MODULE__{} = ctx), do: %{ctx | pd_synced: false}
+  @doc "Marks a context as synchronized with process-local fast context state."
   def mark_synced(%__MODULE__{} = ctx), do: %{ctx | pd_synced: true}
+  @doc "Returns whether a context is synchronized with process-local fast context state."
   def synced?(%__MODULE__{pd_synced: synced?}), do: synced?
 end

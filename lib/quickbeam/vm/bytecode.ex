@@ -28,7 +28,7 @@ defmodule QuickBEAM.VM.Bytecode do
   @tag_regexp Opcodes.bc_tag_regexp()
 
   defmodule Function do
-    @moduledoc false
+    @moduledoc "Decoded QuickJS function bytecode and metadata used by the VM interpreter."
     @type t :: %__MODULE__{}
     defstruct [
       :name,
@@ -61,7 +61,7 @@ defmodule QuickBEAM.VM.Bytecode do
   end
 
   defmodule VarDef do
-    @moduledoc false
+    @moduledoc "Decoded QuickJS local variable definition metadata."
     defstruct [
       :name,
       :scope_level,
@@ -75,12 +75,13 @@ defmodule QuickBEAM.VM.Bytecode do
   end
 
   defmodule ClosureVar do
-    @moduledoc false
+    @moduledoc "Decoded QuickJS closure capture metadata."
     defstruct [:name, :var_idx, :closure_type, :is_const, :is_lexical, :var_kind]
   end
 
   defstruct [:version, :atoms, :value]
 
+  @doc "Decodes a QuickJS bytecode binary into a `%QuickBEAM.VM.Bytecode{}` structure."
   @spec decode(binary()) :: {:ok, struct()} | {:error, term()}
   def decode(data) when is_binary(data) do
     with {:ok, version, rest} <- LEB128.read_u8(data),
@@ -573,6 +574,7 @@ defmodule QuickBEAM.VM.Bytecode do
   @pc2line_range 5
   @pc2line_op_first 1
 
+  @doc "Returns the byte offset of the instruction at `insn_index` within a function bytecode blob."
   def instruction_offset(byte_code, insn_index)
       when is_binary(byte_code) and is_integer(insn_index) do
     do_instruction_offset(byte_code, byte_size(byte_code), 0, 0, insn_index)
@@ -594,6 +596,7 @@ defmodule QuickBEAM.VM.Bytecode do
 
   defp do_instruction_offset(_bc, _len, pos, _idx, _target), do: pos
 
+  @doc "Resolves a decoded function instruction index to source line and column information."
   def source_position(%Function{} = fun, insn_index) do
     pc = instruction_offset(fun.byte_code, insn_index)
 

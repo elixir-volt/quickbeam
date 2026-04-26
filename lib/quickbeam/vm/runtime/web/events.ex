@@ -10,6 +10,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Events do
   alias QuickBEAM.VM.Runtime.Web.{Callback, StateRef}
   alias QuickBEAM.VM.Runtime.WebAPIs
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     %{
       "EventTarget" => WebAPIs.register("EventTarget", &build_event_target/2),

@@ -8,6 +8,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
   alias QuickBEAM.VM.{Heap, JSThrow, PromiseState}
   alias QuickBEAM.VM.ObjectModel.Get
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     %{"navigator" => build_navigator()}
   end

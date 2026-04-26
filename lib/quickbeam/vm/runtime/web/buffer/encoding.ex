@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer.Encoding do
 
   import Bitwise
 
+  @doc "Decodes a JavaScript Buffer string input using a Node-compatible encoding name."
   def decode(str, "hex"), do: hex_decode(str)
   def decode(str, "base64"), do: base64_decode(str)
   def decode(str, "base64url"), do: base64url_decode(str)
@@ -14,6 +15,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer.Encoding do
 
   def decode(str, _encoding), do: str
 
+  @doc "Encodes Buffer bytes as a JavaScript string using a Node-compatible encoding name."
   def encode(bytes, encoding) when encoding in ["latin1", "binary"], do: bytes_to_latin1(bytes)
   def encode(bytes, "ascii"), do: bytes_to_ascii(bytes)
   def encode(bytes, "hex"), do: Base.encode16(bytes, case: :lower)
@@ -21,6 +23,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer.Encoding do
   def encode(bytes, "base64url"), do: Base.url_encode64(bytes, padding: false)
   def encode(bytes, _encoding), do: bytes
 
+  @doc "Returns the byte length of a string under a Node-compatible Buffer encoding."
   def byte_length(str, "base64"), do: base64_byte_length(str)
   def byte_length(str, "base64url"), do: base64url_byte_length(str)
   def byte_length(str, encoding) when encoding in ["hex"], do: div(byte_size(str), 2)
@@ -30,23 +33,27 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer.Encoding do
 
   def byte_length(str, _encoding), do: byte_size(str)
 
+  @doc "Repeats a string pattern into a binary of exactly `n` bytes."
   def fill(n, pattern) do
-    pat_bytes = pattern |> String.to_charlist() |> Enum.map(&band(&1, 0xFF))
-    pat_len = length(pat_bytes)
+    pat_bytes = latin1_to_bytes(pattern)
+    pat_len = byte_size(pat_bytes)
 
     if pat_len == 0 do
       :binary.copy(<<0>>, n)
     else
-      Enum.map(0..(n - 1), fn i -> Enum.at(pat_bytes, rem(i, pat_len)) end)
-      |> :erlang.list_to_binary()
+      pat_bytes
+      |> :binary.copy(div(n + pat_len - 1, pat_len))
+      |> binary_part(0, n)
     end
   end
 
+  @doc "Compares two binaries using Buffer comparison ordering."
   def compare(a, b) when a < b, do: -1
   def compare(a, b) when a > b, do: 1
   def compare(a, a), do: 0
   def compare(a, b) when a == b, do: 0
 
+  @doc "Slices a binary after clamping start and end offsets to valid bounds."
   def safe_slice(bytes, start_i, end_i) do
     total = byte_size(bytes)
     start = max(0, min(start_i, total))
@@ -82,46 +89,34 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer.Encoding do
   defp decoded_or_empty(:error), do: <<>>
 
   defp latin1_to_bytes(str) do
-    str
-    |> String.to_charlist()
-    |> Enum.map(fn cp -> band(cp, 0xFF) end)
-    |> :erlang.list_to_binary()
+    for <<cp::utf8 <- str>>, into: <<>>, do: <<band(cp, 0xFF)>>
   end
 
   defp ascii_bytes(str) do
-    str
-    |> String.to_charlist()
-    |> Enum.map(fn cp -> band(cp, 0x7F) end)
-    |> :erlang.list_to_binary()
+    for <<cp::utf8 <- str>>, into: <<>>, do: <<band(cp, 0x7F)>>
   end
 
   defp utf16le_encode(str), do: :unicode.characters_to_binary(str, :utf8, {:utf16, :little})
 
   defp bytes_to_latin1(bytes) do
-    bytes
-    |> :binary.bin_to_list()
-    |> Enum.map(fn byte -> if byte < 128, do: <<byte>>, else: <<byte::utf8>> end)
-    |> IO.iodata_to_binary()
+    for <<byte <- bytes>>, into: "" do
+      if byte < 128, do: <<byte>>, else: <<byte::utf8>>
+    end
   end
 
   defp bytes_to_ascii(bytes) do
-    bytes
-    |> :binary.bin_to_list()
-    |> Enum.map(fn byte -> <<band(byte, 0x7F)>> end)
-    |> IO.iodata_to_binary()
+    for <<byte <- bytes>>, into: <<>>, do: <<band(byte, 0x7F)>>
   end
 
   defp base64_byte_length(str) do
     str
-    |> String.replace("=", "")
+    |> base64_decode()
     |> byte_size()
-    |> then(&div(&1 * 3, 4))
   end
 
   defp base64url_byte_length(str) do
     str
-    |> String.replace(~r/[=]/, "")
+    |> base64url_decode()
     |> byte_size()
-    |> then(&div(&1 * 3, 4))
   end
 end

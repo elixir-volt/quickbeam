@@ -1,8 +1,9 @@
 defmodule QuickBEAM.VM.Environment.Captures do
-  @moduledoc false
+  @moduledoc "Helpers for boxing, closing, and synchronizing captured lexical variables."
 
   alias QuickBEAM.VM.Heap
 
+  @doc "Ensures a captured value is represented by a heap cell."
   def ensure({:cell, _} = cell, _val), do: cell
 
   def ensure(_cell, val) do
@@ -11,6 +12,7 @@ defmodule QuickBEAM.VM.Environment.Captures do
     {:cell, ref}
   end
 
+  @doc "Closes over a captured value by copying it into a fresh heap cell."
   def close({:cell, ref}, val) do
     current = Heap.get_cell(ref)
     next_val = if current == :undefined, do: val, else: current
@@ -25,6 +27,7 @@ defmodule QuickBEAM.VM.Environment.Captures do
     {:cell, ref}
   end
 
+  @doc "Synchronizes a captured cell with a new local value."
   def sync({:cell, ref}, val) do
     Heap.put_cell(ref, val)
     :ok

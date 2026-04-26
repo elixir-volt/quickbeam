@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer.BinaryCodec do
 
   import Bitwise
 
+  @doc "Decodes an integer from a Buffer byte chunk using the requested signedness and endian mode."
   def decode_int(chunk, size, :unsigned, :big) do
     <<value::unsigned-big-integer-size(size)-unit(8)>> = chunk
     value
@@ -23,6 +24,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer.BinaryCodec do
     value
   end
 
+  @doc "Encodes an integer for Buffer writes using the requested signedness and endian mode."
   def encode_int(value, size, :unsigned, :big) do
     int_value = band(trunc(value), max_uint(size))
     <<int_value::unsigned-big-integer-size(size)-unit(8)>>
@@ -43,6 +45,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer.BinaryCodec do
     <<int_value::signed-little-integer-size(size)-unit(8)>>
   end
 
+  @doc "Decodes a 32-bit or 64-bit float from a Buffer byte chunk."
   def decode_float(chunk, 4, :big) do
     <<value::float-big-32>> = chunk
     value
@@ -63,6 +66,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer.BinaryCodec do
     value
   end
 
+  @doc "Encodes a 32-bit or 64-bit float for Buffer writes."
   def encode_float(value, 4, :big), do: <<value::float-big-32>>
   def encode_float(value, 4, :little), do: <<value::float-little-32>>
   def encode_float(value, 8, :big), do: <<value::float-big-64>>

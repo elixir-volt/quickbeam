@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
   alias QuickBEAM.VM.Runtime.Web.Streams.Bytes
   alias QuickBEAM.VM.Runtime.WebAPIs
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     %{
       "ReadableStream" => WebAPIs.register("ReadableStream", &build_readable_stream/2),

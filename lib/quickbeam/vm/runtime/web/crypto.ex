@@ -10,6 +10,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Crypto do
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
   alias QuickBEAM.VM.Runtime.Web.SubtleCrypto
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     %{"crypto" => crypto_object()}
   end

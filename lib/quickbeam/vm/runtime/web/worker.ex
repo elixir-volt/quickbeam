@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Worker do
 
   @workers_key :qb_beam_workers
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     %{"Worker" => WebAPIs.register("Worker", &build_worker/2)}
   end

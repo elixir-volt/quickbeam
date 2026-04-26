@@ -57,6 +57,7 @@ defmodule QuickBEAM.VM.Runtime.WebAPIs do
     BeamAPI
   ]
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     Enum.reduce(@providers, %{}, fn provider, bindings ->
       Map.merge(bindings, provider.bindings())

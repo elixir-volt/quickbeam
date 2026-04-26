@@ -12,6 +12,7 @@ defmodule QuickBEAM.VM.Runtime.Web.URL do
   alias QuickBEAM.VM.Runtime.Web.Callback
   alias QuickBEAM.VM.Runtime.WebAPIs
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     url_ctor = build_url_ctor()
 

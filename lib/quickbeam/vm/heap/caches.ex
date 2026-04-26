@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Heap.Caches do
-  @moduledoc false
+  @moduledoc "Process-local caches for decoded bytecode, prototypes, transient call state, and runtime metadata."
 
   # ── Bytecode caches ──
 

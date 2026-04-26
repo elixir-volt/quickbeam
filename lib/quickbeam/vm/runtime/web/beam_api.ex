@@ -12,6 +12,7 @@ defmodule QuickBEAM.VM.Runtime.Web.BeamAPI do
   @monitors_key :qb_beam_monitors
   @pending_messages_key :qb_beam_pending_messages
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     %{"Beam" => beam_object()}
   end

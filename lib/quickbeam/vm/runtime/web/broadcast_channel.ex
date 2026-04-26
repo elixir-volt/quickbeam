@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Runtime.Web.BroadcastChannel do
 
   @channels_key :qb_broadcast_channels
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     %{"BroadcastChannel" => WebAPIs.register("BroadcastChannel", &build_channel/2)}
   end

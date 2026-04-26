@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
   alias QuickBEAM.VM.Runtime.Web.BinaryData
   alias QuickBEAM.VM.Runtime.WebAPIs
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     %{
       "Blob" => WebAPIs.register("Blob", &build_blob/2),
@@ -159,13 +160,12 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
   defp extract_content(:undefined), do: ""
 
   defp extract_content({:obj, _} = arr) do
-    items = Heap.to_list(arr)
-    Enum.map_join(items, "", &part_to_binary/1)
+    arr
+    |> Heap.to_list()
+    |> parts_to_binary()
   end
 
-  defp extract_content(list) when is_list(list) do
-    Enum.map_join(list, "", &part_to_binary/1)
-  end
+  defp extract_content(list) when is_list(list), do: parts_to_binary(list)
 
   defp extract_content(_), do: ""
 
@@ -203,12 +203,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
         end
 
       list when is_list(list) ->
-        :erlang.list_to_binary(
-          Enum.map(list, fn
-            n when is_integer(n) -> n
-            _ -> 0
-          end)
-        )
+        bytes_from_list(list)
 
       _ ->
         Values.stringify(obj)
@@ -216,6 +211,19 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
   end
 
   defp part_to_binary(v), do: Values.stringify(v)
+
+  defp parts_to_binary(parts) do
+    for part <- parts, into: <<>>, do: part_to_binary(part)
+  end
+
+  defp bytes_from_list(list) do
+    for value <- list, into: <<>> do
+      case value do
+        n when is_integer(n) -> <<n>>
+        _ -> <<0>>
+      end
+    end
+  end
 
   defp make_array_buffer(data) when is_binary(data), do: BinaryData.array_buffer(data)
 

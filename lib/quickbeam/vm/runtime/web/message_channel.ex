@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Runtime.Web.MessageChannel do
   alias QuickBEAM.VM.Runtime.Web.Callback
   alias QuickBEAM.VM.Runtime.WebAPIs
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     port_ctor = WebAPIs.register("MessagePort", &build_port_stub/2)
 

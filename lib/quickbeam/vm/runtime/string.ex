@@ -593,16 +593,11 @@ defmodule QuickBEAM.VM.Runtime.String do
 
     len = Map.get(raw_map, "length", 0)
 
-    Enum.reduce(0..(len - 1), "", fn i, acc ->
-      part = Map.get(raw_map, Integer.to_string(i), "")
-
-      sub =
-        if i < length(subs),
-          do: Runtime.stringify(Enum.at(subs, i)),
-          else: ""
-
-      acc <> Runtime.stringify(part) <> sub
-    end)
+    for i <- 0..(len - 1), into: "" do
+      part = Runtime.stringify(Map.get(raw_map, Integer.to_string(i), ""))
+      sub = if i < length(subs), do: Runtime.stringify(Enum.at(subs, i)), else: ""
+      part <> sub
+    end
   end
 
   defp codepoints(s) do

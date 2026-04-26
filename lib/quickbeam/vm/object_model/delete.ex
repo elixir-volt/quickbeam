@@ -1,8 +1,9 @@
 defmodule QuickBEAM.VM.ObjectModel.Delete do
-  @moduledoc false
+  @moduledoc "Implements JavaScript [[Delete]] semantics for VM values."
 
   alias QuickBEAM.VM.Heap
 
+  @doc "Deletes a property according to JavaScript delete semantics."
   def delete_property(nil, key) do
     throw(
       {:js_throw,

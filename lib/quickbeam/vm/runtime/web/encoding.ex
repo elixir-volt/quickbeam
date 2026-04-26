@@ -3,11 +3,10 @@ defmodule QuickBEAM.VM.Runtime.Web.Encoding do
 
   @behaviour QuickBEAM.VM.Runtime.BindingProvider
 
-  import Bitwise
-
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.JSThrow
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     %{
       "btoa" => {:builtin, "btoa", &btoa/2},
@@ -24,8 +23,8 @@ defmodule QuickBEAM.VM.Runtime.Web.Encoding do
       )
     end
 
-    bytes = for <<cp::utf8 <- str>>, do: cp &&& 0xFF
-    Base.encode64(:erlang.list_to_binary(bytes))
+    bytes = for <<cp::utf8 <- str>>, into: <<>>, do: <<cp>>
+    Base.encode64(bytes)
   end
 
   defp atob([arg | _], _) do
@@ -37,9 +36,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Encoding do
 
     str = Values.stringify(arg)
 
-    stripped = :binary.replace(str, [" ", "\t", "\n", "\r", "\f"], "", [:global])
-
-    case Base.decode64(stripped, padding: false) do
+    case Base.decode64(str, ignore: :whitespace, padding: false) do
       {:ok, decoded} ->
         latin1_to_js_string(decoded)
 

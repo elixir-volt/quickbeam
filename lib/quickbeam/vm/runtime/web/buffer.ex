@@ -13,6 +13,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
 
   @known_encodings ~w[utf8 utf-8 ascii latin1 binary base64 base64url hex ucs2 utf16le utf-16le ucs-2]
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     ctor = build_buffer_ctor()
     %{"Buffer" => ctor}
@@ -202,7 +203,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
         _ -> []
       end
 
-    combined = Enum.map_join(items, "", &extract_buf_bytes/1)
+    combined = for item <- items, into: <<>>, do: extract_buf_bytes(item)
 
     final =
       case total_limit do
@@ -512,15 +513,9 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     len = byte_size(bytes)
     if rem(len, 2) != 0, do: JSThrow.range_error!("Buffer size must be a multiple of 16-bits")
 
-    swapped =
-      for i <- 0..(div(len, 2) - 1) do
-        a = :binary.at(bytes, i * 2)
-        b = :binary.at(bytes, i * 2 + 1)
-        {b, a}
-      end
-      |> Enum.flat_map(fn {a, b} -> [a, b] end)
+    swapped = for <<a, b <- bytes>>, into: <<>>, do: <<b, a>>
 
-    Enum.each(Enum.with_index(swapped), fn {byte, i} ->
+    Enum.each(Enum.with_index(:binary.bin_to_list(swapped)), fn {byte, i} ->
       Put.put_element(this, i, byte)
     end)
 
@@ -532,17 +527,9 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     len = byte_size(bytes)
     if rem(len, 4) != 0, do: JSThrow.range_error!("Buffer size must be a multiple of 32-bits")
 
-    swapped =
-      for i <- 0..(div(len, 4) - 1) do
-        a = :binary.at(bytes, i * 4)
-        b = :binary.at(bytes, i * 4 + 1)
-        c = :binary.at(bytes, i * 4 + 2)
-        d = :binary.at(bytes, i * 4 + 3)
-        [d, c, b, a]
-      end
-      |> List.flatten()
+    swapped = for <<a, b, c, d <- bytes>>, into: <<>>, do: <<d, c, b, a>>
 
-    Enum.each(Enum.with_index(swapped), fn {byte, i} ->
+    Enum.each(Enum.with_index(:binary.bin_to_list(swapped)), fn {byte, i} ->
       Put.put_element(this, i, byte)
     end)
 
@@ -555,13 +542,9 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     if rem(len, 8) != 0, do: JSThrow.range_error!("Buffer size must be a multiple of 64-bits")
 
     swapped =
-      for i <- 0..(div(len, 8) - 1) do
-        chunk = binary_part(bytes, i * 8, 8)
-        :binary.bin_to_list(chunk) |> Enum.reverse()
-      end
-      |> List.flatten()
+      for <<a, b, c, d, e, f, g, h <- bytes>>, into: <<>>, do: <<h, g, f, e, d, c, b, a>>
 
-    Enum.each(Enum.with_index(swapped), fn {byte, i} ->
+    Enum.each(Enum.with_index(:binary.bin_to_list(swapped)), fn {byte, i} ->
       Put.put_element(this, i, byte)
     end)
 
@@ -833,24 +816,11 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
           true ->
             len = Map.get(m, "length", 0) |> to_int()
 
-            Enum.map(0..(len - 1), fn i ->
-              case Map.get(m, i) do
-                n when is_integer(n) -> n
-                n when is_float(n) -> trunc(n) |> band(0xFF)
-                _ -> 0
-              end
-            end)
-            |> :erlang.list_to_binary()
+            array_like_to_bytes(m, len)
         end
 
       list when is_list(list) ->
-        :erlang.list_to_binary(
-          Enum.map(list, fn
-            n when is_integer(n) -> band(n, 0xFF)
-            n when is_float(n) -> band(trunc(n), 0xFF)
-            _ -> 0
-          end)
-        )
+        list_to_bytes_raw(list)
 
       _ ->
         <<>>
@@ -860,14 +830,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   def extract_buf_bytes(b) when is_binary(b), do: b
   def extract_buf_bytes({:bytes, b}) when is_binary(b), do: b
 
-  def extract_buf_bytes(list) when is_list(list) do
-    :erlang.list_to_binary(
-      Enum.map(list, fn
-        n when is_integer(n) -> band(n, 0xFF)
-        _ -> 0
-      end)
-    )
-  end
+  def extract_buf_bytes(list) when is_list(list), do: list_to_bytes_raw(list)
 
   def extract_buf_bytes(_), do: <<>>
 
@@ -920,14 +883,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
           _ ->
             len = Map.get(m, "length", 0) |> to_int()
 
-            Enum.map(0..(len - 1), fn i ->
-              case Map.get(m, i) do
-                n when is_integer(n) -> n
-                n when is_float(n) -> band(trunc(n), 0xFF)
-                _ -> 0
-              end
-            end)
-            |> :erlang.list_to_binary()
+            array_like_to_bytes(m, len)
         end
 
       _ ->
@@ -944,13 +900,18 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   defp list_to_bytes(_), do: <<>>
 
   defp list_to_bytes_raw(list) do
-    Enum.map(list, fn
-      n when is_integer(n) -> band(n, 0xFF)
-      n when is_float(n) -> band(trunc(n), 0xFF)
-      _ -> 0
-    end)
-    |> :erlang.list_to_binary()
+    for value <- list, into: <<>>, do: <<byte_value(value)>>
   end
+
+  defp array_like_to_bytes(_map, len) when len <= 0, do: <<>>
+
+  defp array_like_to_bytes(map, len) do
+    for index <- 0..(len - 1), into: <<>>, do: <<byte_value(Map.get(map, index))>>
+  end
+
+  defp byte_value(n) when is_integer(n), do: band(n, 0xFF)
+  defp byte_value(n) when is_float(n), do: band(trunc(n), 0xFF)
+  defp byte_value(_), do: 0
 
   # ── Encoding helpers ──
 

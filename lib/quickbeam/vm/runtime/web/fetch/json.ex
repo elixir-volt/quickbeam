@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch.JSON do
 
   alias QuickBEAM.VM.{Heap, JSThrow}
 
+  @doc "Parses a JSON string into QuickBEAM VM values."
   def parse(str) when is_binary(str) do
     case Jason.decode(str) do
       {:ok, val} -> from_elixir(val)
@@ -10,6 +11,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch.JSON do
     end
   end
 
+  @doc "Encodes a QuickBEAM VM value as a JSON string."
   def encode(val), do: Jason.encode!(to_elixir(val))
 
   defp from_elixir(val) when is_map(val) do

@@ -3,7 +3,6 @@ defmodule QuickBEAM.VM.Runtime.Web.TextEncoding do
 
   @behaviour QuickBEAM.VM.Runtime.BindingProvider
 
-  import Bitwise
   import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, object: 1]
 
   alias QuickBEAM.VM.{Heap, JSThrow}
@@ -13,6 +12,7 @@ defmodule QuickBEAM.VM.Runtime.Web.TextEncoding do
 
   @supported_encodings ~w[utf-8 utf8 unicode-1-1-utf-8]
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     %{
       "TextEncoder" => WebAPIs.register("TextEncoder", &build_text_encoder/2),
@@ -110,30 +110,8 @@ defmodule QuickBEAM.VM.Runtime.Web.TextEncoding do
     decode_js_codepoints_acc(rest, [0xFFFD | acc])
   end
 
-  # WTF-8 encoding: encode each codepoint to UTF-8 bytes, lone surrogates → FFFD bytes
-  defp codepoint_to_utf8_bytes(cp) when cp <= 0x7F, do: [cp]
-
-  defp codepoint_to_utf8_bytes(cp) when cp <= 0x7FF,
-    do: [0xC0 ||| cp >>> 6, 0x80 ||| (cp &&& 0x3F)]
-
-  defp codepoint_to_utf8_bytes(cp) when cp in 0xD800..0xDFFF do
-    # Lone surrogate → U+FFFD
-    [0xEF, 0xBF, 0xBD]
-  end
-
-  defp codepoint_to_utf8_bytes(cp) when cp <= 0xFFFF do
-    [0xE0 ||| cp >>> 12, 0x80 ||| (cp >>> 6 &&& 0x3F), 0x80 ||| (cp &&& 0x3F)]
-  end
-
-  defp codepoint_to_utf8_bytes(cp) when cp <= 0x10FFFF do
-    [
-      0xF0 ||| cp >>> 18,
-      0x80 ||| (cp >>> 12 &&& 0x3F),
-      0x80 ||| (cp >>> 6 &&& 0x3F),
-      0x80 ||| (cp &&& 0x3F)
-    ]
-  end
-
+  defp codepoint_to_utf8_bytes(cp) when cp in 0xD800..0xDFFF, do: [0xEF, 0xBF, 0xBD]
+  defp codepoint_to_utf8_bytes(cp) when cp in 0..0x10FFFF, do: :binary.bin_to_list(<<cp::utf8>>)
   defp codepoint_to_utf8_bytes(_), do: [0xEF, 0xBF, 0xBD]
 
   # ── encodeInto ──

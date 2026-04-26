@@ -71,6 +71,7 @@ defmodule QuickBEAM.VM.Heap do
 
   # ── Convenience constructors ──
 
+  @doc "Wraps maps, lists, arrays, and scalar data in a JavaScript object reference."
   def wrap(data) when is_map(data) do
     if is_map_key(data, "__proto__") do
       {proto, rest} = Map.pop!(data, "__proto__")
@@ -99,7 +100,7 @@ defmodule QuickBEAM.VM.Heap do
     end
   end
 
-  @doc "Create a shape-backed object with pre-sorted keys. Keys tuple is a compile-time constant."
+  @doc "Returns an object's prototype, falling back to the cached Array prototype for array values."
   def get_array_proto(ref) do
     case Store.get_obj_raw(ref) do
       {:shape, _, _, _, proto} when proto != nil -> proto
@@ -108,6 +109,7 @@ defmodule QuickBEAM.VM.Heap do
     end
   end
 
+  @doc "Wraps a list as a JavaScript iterator object with a `next` method."
   def wrap_iterator(list) when is_list(list) do
     pos_ref = make_ref()
     Process.put(pos_ref, {list, 0})
@@ -128,6 +130,7 @@ defmodule QuickBEAM.VM.Heap do
     wrap(%{"next" => next_fn})
   end
 
+  @doc "Fast-wraps a value tuple with a compile-time key tuple, using a cached shape when possible."
   def wrap_keyed(keys, vals) when is_tuple(keys) and is_tuple(vals) do
     case Caches.get_wrap_cache(keys) do
       {shape_id, offsets} ->
@@ -158,6 +161,7 @@ defmodule QuickBEAM.VM.Heap do
     {:obj, id}
   end
 
+  @doc "Converts JavaScript array-like VM values to Elixir lists."
   def to_list({:obj, ref}) do
     case Process.get(ref, []) do
       {:qb_arr, arr} ->
@@ -185,6 +189,7 @@ defmodule QuickBEAM.VM.Heap do
   def to_list(list) when is_list(list), do: list
   def to_list(_), do: []
 
+  @doc "Creates a JavaScript Error-like object with message, name, prototype, and stack metadata."
   def make_error(message, name) do
     proto =
       case find_error_proto(name) do
@@ -213,6 +218,7 @@ defmodule QuickBEAM.VM.Heap do
     end
   end
 
+  @doc "Returns an existing constructor prototype or lazily creates one for function constructors."
   def get_or_create_prototype(ctor) do
     case get_class_proto(ctor) do
       nil ->

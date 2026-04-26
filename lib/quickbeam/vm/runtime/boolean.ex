@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.Boolean do
-  @moduledoc false
+  @moduledoc "JavaScript `Boolean` constructor and prototype builtins."
 
   use QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Runtime

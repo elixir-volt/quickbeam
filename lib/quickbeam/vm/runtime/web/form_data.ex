@@ -10,6 +10,7 @@ defmodule QuickBEAM.VM.Runtime.Web.FormData do
   alias QuickBEAM.VM.Runtime.Web.Callback
   alias QuickBEAM.VM.Runtime.WebAPIs
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     %{"FormData" => WebAPIs.register("FormData", &build_form_data/2)}
   end

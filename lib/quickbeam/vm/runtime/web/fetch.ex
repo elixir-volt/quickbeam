@@ -13,6 +13,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
   alias QuickBEAM.VM.Runtime.Web.Headers
   alias QuickBEAM.VM.Runtime.WebAPIs
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     request_ctor = WebAPIs.register("Request", &build_request/2)
     response_ctor = build_response_ctor()
@@ -409,12 +410,12 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
           case item do
             {:obj, iref} ->
               case Heap.get_obj(iref, []) do
-                [k, v | _] -> [{String.downcase(to_string(k)), to_string(v)}]
+                [k, v | _] -> [{Headers.header_name(k), to_string(v)}]
                 _ -> []
               end
 
             [k, v | _] ->
-              [{String.downcase(to_string(k)), to_string(v)}]
+              [{Headers.header_name(k), to_string(v)}]
 
             _ ->
               []
@@ -428,7 +429,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
           case item do
             {:obj, iref} ->
               case Heap.get_obj(iref, []) do
-                [k, v | _] -> [{String.downcase(to_string(k)), to_string(v)}]
+                [k, v | _] -> [{Headers.header_name(k), to_string(v)}]
                 _ -> []
               end
 
@@ -451,10 +452,10 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
             |> Enum.reject(fn {k, _} -> not is_binary(k) or String.starts_with?(k, "__") end)
             |> Enum.map(fn {k, v} ->
               cond do
-                is_binary(v) -> {String.downcase(k), v}
+                is_binary(v) -> {Headers.header_name(k), v}
                 is_atom(v) -> nil
                 is_tuple(v) -> nil
-                true -> {String.downcase(k), to_string(v)}
+                true -> {Headers.header_name(k), to_string(v)}
               end
             end)
             |> Enum.reject(&is_nil/1)
@@ -640,7 +641,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
        ) do
     headers_map =
       resp_headers
-      |> Enum.map(fn [k, v] -> {String.downcase(to_string(k)), to_string(v)} end)
+      |> Enum.map(fn [k, v] -> {Headers.header_name(k), to_string(v)} end)
       |> Map.new()
 
     headers = Headers.build_from_map(headers_map)

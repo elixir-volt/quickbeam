@@ -3,14 +3,17 @@ defmodule QuickBEAM.VM.Runtime.Constructors do
 
   alias QuickBEAM.VM.{Heap, Runtime}
 
+  @doc "Registers a constructor without creating a prototype."
   def register(name, constructor), do: register(name, constructor, [])
 
+  @doc "Associates a constructor with its class prototype and static `prototype` property."
   def put_prototype(ctor, proto) do
     Heap.put_class_proto(ctor, proto)
     Heap.put_ctor_static(ctor, "prototype", proto)
     ctor
   end
 
+  @doc "Registers a constructor using options such as `:module`, `:prototype`, and `:auto_proto`."
   def register(name, constructor, opts) when is_list(opts) do
     ctor = {:builtin, name, constructor}
 
@@ -31,6 +34,7 @@ defmodule QuickBEAM.VM.Runtime.Constructors do
     ctor
   end
 
+  @doc "Registers a constructor with a freshly wrapped prototype map and optional parent prototype."
   def register(name, constructor, proto_properties, parent) when is_map(proto_properties) do
     ctor = {:builtin, name, constructor}
     register_proto(ctor, proto_properties, parent)
@@ -50,6 +54,7 @@ defmodule QuickBEAM.VM.Runtime.Constructors do
   defp put_module_static(nil, _ctor), do: :ok
   defp put_module_static(module, ctor), do: Heap.put_ctor_static(ctor, :__module__, module)
 
+  @doc "Looks up a constructor by JavaScript global name."
   def lookup(name) do
     case Map.get(Runtime.global_bindings(), name) do
       {:builtin, _, _} = ctor -> ctor
@@ -57,6 +62,7 @@ defmodule QuickBEAM.VM.Runtime.Constructors do
     end
   end
 
+  @doc "Returns the class prototype for the globally registered constructor `name`."
   def class_proto(name) do
     case lookup(name) do
       nil -> nil
@@ -64,8 +70,10 @@ defmodule QuickBEAM.VM.Runtime.Constructors do
     end
   end
 
+  @doc "Invokes a global constructor and falls back when it is not available."
   def construct(name, args, fallback), do: construct(name, args, fallback, & &1)
 
+  @doc "Invokes a global constructor and updates its object map before prototype patching."
   def construct(name, args, fallback, update_object) do
     case lookup(name) do
       {:builtin, _, cb} = ctor when is_function(cb, 2) ->

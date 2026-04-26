@@ -13,6 +13,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
 
   @error_types ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError)
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     error_proto_ref = make_ref()
     error_ctor = {:builtin, "Error", fn args, _this -> error_constructor("Error", args) end}

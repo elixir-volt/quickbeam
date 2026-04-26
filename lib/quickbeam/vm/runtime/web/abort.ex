@@ -10,6 +10,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Abort do
   alias QuickBEAM.VM.Runtime.Web.{Callback, StateRef}
   alias QuickBEAM.VM.Runtime.WebAPIs
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     %{
       "AbortController" => WebAPIs.register("AbortController", &build_abort_controller/2),

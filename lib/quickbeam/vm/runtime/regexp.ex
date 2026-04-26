@@ -17,6 +17,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     regexp_to_string(this)
   end
 
+  @doc "Executes compiled QuickJS regexp bytecode against a string via the native regexp engine."
   def nif_exec(bytecode, str, last_index) when is_binary(bytecode) and is_binary(str) do
     raw_bc = utf8_to_latin1(bytecode)
     # Unicode regexes expect UTF-8 input; non-unicode expect Latin-1
@@ -90,10 +91,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp regexp_to_string(_), do: "/(?:)/"
 
   defp utf8_to_latin1(bin) do
-    bin
-    |> :unicode.characters_to_list(:utf8)
-    |> Enum.map(fn cp -> Bitwise.band(cp, 0xFF) end)
-    |> :erlang.list_to_binary()
+    for <<cp::utf8 <- bin>>, into: <<>>, do: <<Bitwise.band(cp, 0xFF)>>
   rescue
     _ -> bin
   end

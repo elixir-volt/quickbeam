@@ -1,11 +1,12 @@
 defmodule QuickBEAM.VM.Interpreter.Gas do
-  @moduledoc false
+  @moduledoc "Interpreter gas accounting and periodic heap garbage-collection trigger."
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Frame
 
   require Frame
 
+  @doc "Consumes one gas unit and periodically runs garbage collection with interpreter roots."
   def check(frame, stack, gas, ctx, interval) do
     gas = gas - 1
 

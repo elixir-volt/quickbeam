@@ -16,6 +16,7 @@ defmodule QuickBEAM.VM.Runtime.Web.EventSourceAPI do
 
   @es_sources_key :qb_event_source_sources
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     %{"EventSource" => WebAPIs.register("EventSource", &build_event_source/2)}
   end

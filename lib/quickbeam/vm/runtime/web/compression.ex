@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Compression do
   alias QuickBEAM.VM.Runtime.Web.IteratorResult
   alias QuickBEAM.VM.Runtime.WebAPIs
 
+  @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
     %{
       "compression" => build_compression_global(),

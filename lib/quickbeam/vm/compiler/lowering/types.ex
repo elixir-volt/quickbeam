@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Types do
-  @moduledoc false
+  @moduledoc "Small type and purity predicates used while lowering compiler IR."
 
   def infer_expr_type({:integer, _, _}), do: :integer
   def infer_expr_type({:float, _, _}), do: :number

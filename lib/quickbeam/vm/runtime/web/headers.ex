@@ -5,14 +5,17 @@ defmodule QuickBEAM.VM.Runtime.Web.Headers do
 
   import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, iterator_from: 1, object: 1]
 
+  alias Mint.Core.Headers, as: MintHeaders
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Runtime.Web.Callback
   alias QuickBEAM.VM.Runtime.WebAPIs
 
+  @doc "Returns the global binding for the JavaScript `Headers` constructor."
   def bindings do
     %{"Headers" => WebAPIs.register("Headers", &build_headers/2)}
   end
 
+  @doc "Builds a `Headers` object backed by the supplied normalized header map."
   def build_from_map(initial_map) do
     store_ref = make_ref()
     Heap.put_obj(store_ref, initial_map)
@@ -106,16 +109,12 @@ defmodule QuickBEAM.VM.Runtime.Web.Headers do
 
     cond do
       is_list(raw) ->
-        raw
-        |> Enum.map(&extract_pair/1)
-        |> Enum.reject(&is_nil/1)
-        |> Map.new()
+        pairs_to_map(raw)
 
       match?({:qb_arr, _}, raw) ->
-        Heap.obj_to_list(ref)
-        |> Enum.map(&extract_pair/1)
-        |> Enum.reject(&is_nil/1)
-        |> Map.new()
+        ref
+        |> Heap.obj_to_list()
+        |> pairs_to_map()
 
       is_map(raw) ->
         case Map.get(raw, "__store__") do
@@ -124,8 +123,10 @@ defmodule QuickBEAM.VM.Runtime.Web.Headers do
 
           _ ->
             raw
-            |> Enum.reject(fn {k, _} -> not is_binary(k) or String.starts_with?(k, "__") end)
-            |> Enum.map(fn {k, v} -> {String.downcase(k), to_string(v)} end)
+            |> Enum.reject(fn {key, _value} ->
+              not is_binary(key) or String.starts_with?(key, "__")
+            end)
+            |> Enum.map(fn {key, value} -> {header_name(key), to_string(value)} end)
             |> Map.new()
         end
 
@@ -145,19 +146,26 @@ defmodule QuickBEAM.VM.Runtime.Web.Headers do
       end
 
     case list do
-      [k, v | _] -> {String.downcase(to_string(k)), to_string(v)}
+      [k, v | _] -> {header_name(k), to_string(v)}
       _ -> nil
     end
   end
 
   defp extract_pair(list) when is_list(list) do
     case list do
-      [k, v | _] -> {String.downcase(to_string(k)), to_string(v)}
+      [k, v | _] -> {header_name(k), to_string(v)}
       _ -> nil
     end
   end
 
   defp extract_pair(_), do: nil
+
+  defp pairs_to_map(pairs) do
+    pairs
+    |> Enum.map(&extract_pair/1)
+    |> Enum.reject(&is_nil/1)
+    |> Map.new()
+  end
 
   defp sorted_headers(store_ref) do
     store_ref
@@ -165,7 +173,8 @@ defmodule QuickBEAM.VM.Runtime.Web.Headers do
     |> Enum.sort_by(fn {name, _value} -> name end)
   end
 
-  defp header_name(value), do: value |> to_string() |> String.downcase()
+  @doc "Normalizes a header name using Mint's ASCII header canonicalization."
+  def header_name(value), do: value |> to_string() |> MintHeaders.lower_raw()
 
   defp append_header_value(nil, value), do: value
   defp append_header_value(existing, value), do: existing <> ", " <> value

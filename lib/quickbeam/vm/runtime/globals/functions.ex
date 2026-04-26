@@ -1,11 +1,12 @@
 defmodule QuickBEAM.VM.Runtime.Globals.Functions do
-  @moduledoc false
+  @moduledoc "Implementations for global JavaScript functions such as `eval`, `require`, and `queueMicrotask`."
 
   alias QuickBEAM.VM.{Bytecode, Heap}
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
 
+  @doc "Implements global `eval` for source strings by compiling and evaluating them in the current runtime."
   def js_eval([code | _], _) when is_binary(code) do
     ctx = Heap.get_ctx()
 
@@ -31,6 +32,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
 
   def js_eval(_, _), do: :undefined
 
+  @doc "Implements the CommonJS-like `require` global backed by registered VM modules."
   def js_require([name | _], _) do
     case Heap.get_module(name) do
       nil -> JSThrow.error!("Cannot find module '#{name}'")
@@ -38,6 +40,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
     end
   end
 
+  @doc "Implements `queueMicrotask` by enqueuing a callback in the VM microtask queue."
   def queue_microtask([callback | _], _) do
     unless QuickBEAM.VM.Builtin.callable?(callback) do
       JSThrow.type_error!(

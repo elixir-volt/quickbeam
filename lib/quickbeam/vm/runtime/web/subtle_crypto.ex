@@ -294,14 +294,14 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
   defp extract_bytes(b) when is_binary(b), do: b
   defp extract_bytes({:obj, _} = obj), do: Buffer.extract_buf_bytes(obj)
 
-  defp extract_bytes(list) when is_list(list),
-    do:
-      :erlang.list_to_binary(
-        Enum.map(list, fn
-          n when is_integer(n) -> n
-          _ -> 0
-        end)
-      )
+  defp extract_bytes(list) when is_list(list) do
+    for value <- list, into: <<>> do
+      case value do
+        n when is_integer(n) -> <<n>>
+        _ -> <<0>>
+      end
+    end
+  end
 
   defp extract_bytes(_), do: <<>>
 
