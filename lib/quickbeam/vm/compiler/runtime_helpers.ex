@@ -17,6 +17,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   @tdz :__tdz__
 
+  @doc "Returns a dirty interpreter context suitable for entry into compiled code."
   def entry_ctx do
     case Heap.get_ctx() do
       %Context{} = ctx ->
@@ -31,6 +32,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
+  @doc "Raises a JavaScript ReferenceError when a local is still in the temporal dead zone."
   def ensure_initialized_local!(_ctx \\ nil, val) do
     if val == @tdz do
       throw(
@@ -42,6 +44,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     val
   end
 
+  @doc "Returns whether a value is JavaScript `undefined`."
   def undefined?(_ctx \\ nil, val), do: val == :undefined
   def null?(_ctx \\ nil, val), do: val == nil
   def typeof_is_undefined(_ctx \\ nil, val), do: val == :undefined or val == nil
@@ -50,6 +53,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def strict_neq(_ctx \\ nil, a, b), do: not Values.strict_eq(a, b)
 
   def bit_not(_ctx \\ nil, a), do: Values.to_int32(bnot(Values.to_int32(a)))
+  @doc "Applies JavaScript logical NOT."
   def lnot(_ctx \\ nil, a), do: not Values.truthy?(a)
 
   def inc(_ctx \\ nil, a), do: Values.add(a, 1)
@@ -60,6 +64,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     {Values.add(num, 1), num}
   end
 
+  @doc "Applies JavaScript postfix decrement and returns `{new_value, old_value}`."
   def post_dec(_ctx \\ nil, a) do
     num = Values.to_number(a)
     {Values.sub(num, 1), num}
@@ -69,6 +74,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def close_capture_cell(_ctx \\ nil, cell, val), do: Captures.close(cell, val)
   def sync_capture_cell(_ctx \\ nil, cell, val), do: Captures.sync(cell, val)
 
+  @doc "Resolves an awaited JavaScript value for compiled async code."
   def await(_ctx \\ nil, val), do: QuickBEAM.VM.Interpreter.resolve_awaited(val)
 
   def context_struct(%Context{} = ctx), do: ctx
@@ -77,6 +83,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     struct(Context, Map.merge(Map.from_struct(%Context{}), map))
   end
 
+  @doc "Returns the atom table from a context-like value."
   def context_atoms(%{atoms: atoms}), do: atoms
   def context_atoms(_), do: {}
   def context_globals(%{globals: globals}), do: globals
@@ -85,6 +92,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def context_current_func(_), do: :undefined
   def context_arg_buf(%{arg_buf: arg_buf}), do: arg_buf
   def context_arg_buf(_), do: {}
+  @doc "Returns the JavaScript `this` value from a context-like value."
   def context_this(%{this: this}), do: this
   def context_this(_), do: :undefined
   def context_new_target(%{new_target: new_target}), do: new_target
@@ -98,6 +106,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def ensure_context(_),
     do: %Context{atoms: Heap.get_atoms(), globals: GlobalEnv.base_globals()}
 
+  @doc "Returns the home object associated with the current function."
   def context_home_object(ctx, current_func) do
     case Map.get(ctx, :home_object, :undefined) do
       :undefined -> QuickBEAM.VM.ObjectModel.Functions.current_home_object(current_func)
@@ -119,6 +128,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   # ── Variables ──
 
+  @doc "Reads a variable binding or throws a JavaScript ReferenceError when absent."
   def get_var(ctx, name) when is_binary(name), do: fetch_ctx_var(ctx, name)
 
   def get_var(ctx, atom_idx),
@@ -131,6 +141,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
+  @doc "Reads a global binding and returns `:undefined` when absent."
   def get_global_undef(globals, name), do: Map.get(globals, name, :undefined)
 
   def get_var_undef(ctx, name) when is_binary(name),
@@ -139,6 +150,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def get_var_undef(ctx, atom_idx),
     do: get_var_undef(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
 
+  @doc "Resolves an atom-table entry to its runtime value."
   def push_atom_value(ctx, atom_idx),
     do: Names.resolve_atom(context_atoms(ctx), atom_idx)
 
@@ -147,6 +159,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def private_symbol(ctx, atom_idx),
     do: Private.private_symbol(Names.resolve_atom(context_atoms(ctx), atom_idx))
 
+  @doc "Reads the value referenced by a compiled variable reference."
   def get_var_ref(ctx, idx), do: read_var_ref(current_var_ref(ctx, idx))
   def get_var_ref_check(ctx, idx), do: checked_var_ref(ctx, idx)
 
@@ -157,6 +170,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
+  @doc "Invokes a callable stored in a variable reference."
   def invoke_var_ref(ctx, idx, args),
     do: Invocation.invoke_runtime(ctx, get_var_ref(ctx, idx), args)
 
@@ -165,6 +179,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def invoke_var_ref1(ctx, idx, arg0),
     do: Invocation.invoke_runtime(ctx, get_var_ref(ctx, idx), [arg0])
 
+  @doc "Invokes a callable variable reference with two arguments."
   def invoke_var_ref2(ctx, idx, arg0, arg1),
     do: Invocation.invoke_runtime(ctx, get_var_ref(ctx, idx), [arg0, arg1])
 
@@ -174,6 +189,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def invoke_var_ref_check(ctx, idx, args),
     do: Invocation.invoke_runtime(ctx, checked_var_ref(ctx, idx), args)
 
+  @doc "Checks and invokes a callable variable reference with no arguments."
   def invoke_var_ref_check0(ctx, idx),
     do: Invocation.invoke_runtime(ctx, checked_var_ref(ctx, idx), [])
 
@@ -183,6 +199,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def invoke_var_ref_check2(ctx, idx, arg0, arg1),
     do: Invocation.invoke_runtime(ctx, checked_var_ref(ctx, idx), [arg0, arg1])
 
+  @doc "Checks and invokes a callable variable reference with three arguments."
   def invoke_var_ref_check3(ctx, idx, arg0, arg1, arg2),
     do: Invocation.invoke_runtime(ctx, checked_var_ref(ctx, idx), [arg0, arg1, arg2])
 
@@ -191,6 +208,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     :ok
   end
 
+  @doc "Writes a value through a compiled variable reference and returns the value."
   def set_var_ref(ctx, idx, val) do
     put_var_ref(ctx, idx, val)
     val
@@ -205,6 +223,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     :ok
   end
 
+  @doc "Writes a captured variable and returns the value."
   def set_capture(ctx, key, val) do
     put_capture(ctx, key, val)
     val
@@ -218,6 +237,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     {:cell, ref}
   end
 
+  @doc "Returns or creates a mutable reference cell for an existing variable reference."
   def make_var_ref_ref(ctx, idx) do
     case current_var_ref(ctx, idx) do
       {:cell, _} = cell ->
@@ -289,6 +309,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     val
   end
 
+  @doc "Creates a mutable reference cell for a local slot value."
   def make_loc_ref(_ctx \\ nil, _idx) do
     ref = make_ref()
     Heap.put_cell(ref, :undefined)
@@ -302,6 +323,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     {:cell, ref}
   end
 
+  @doc "Reads the value from a reference cell or direct value."
   def get_ref_value(_ctx \\ nil, ref)
   def get_ref_value(_ctx, {:cell, _} = cell), do: Closures.read_cell(cell)
   def get_ref_value(_ctx, _), do: :undefined
@@ -315,6 +337,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def put_ref_value(_ctx, val, _), do: val
 
+  @doc "Reads a variable from a compiled context or throws when absent."
   def fetch_ctx_var(ctx, name) do
     case GlobalEnv.fetch(context_globals(ctx), name) do
       {:found, val} -> val
@@ -324,6 +347,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   # ── Objects ──
 
+  @doc "Reads a JavaScript property value."
   def get_field(obj, key) when is_binary(key), do: Get.get(obj, key)
 
   def get_field(obj, atom_idx),
@@ -338,6 +362,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
+  @doc "Writes a JavaScript property value."
   def put_field(_ctx, obj, key, val) when is_binary(key), do: put_field(obj, key, val)
 
   def put_field(ctx, obj, atom_idx, val),
@@ -351,6 +376,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def put_field(obj, atom_idx, val),
     do: put_field(obj, Names.resolve_atom(InvokeContext.current_atoms(), atom_idx), val)
 
+  @doc "Writes a JavaScript array element."
   def put_array_el(_ctx \\ nil, obj, idx, val) do
     Put.put_element(obj, idx, val)
     :ok
@@ -371,6 +397,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def define_field(obj, atom_idx, val),
     do: define_field(obj, Names.resolve_atom(InvokeContext.current_atoms(), atom_idx), val)
 
+  @doc "Writes an existing private class field or throws when absent."
   def put_private_field(_ctx, obj, key, val) do
     case Private.put_field!(obj, key, val) do
       :ok -> :ok
@@ -385,6 +412,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
+  @doc "Assigns a JavaScript function display name."
   def set_function_name(_ctx \\ nil, fun, name), do: Functions.rename(fun, name)
 
   def set_function_name_atom(ctx, fun, atom_idx),
@@ -393,6 +421,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def set_function_name_atom(fun, atom_idx),
     do: Functions.set_name_atom(fun, atom_idx, InvokeContext.current_atoms())
 
+  @doc "Assigns a function display name from a computed property value."
   def set_function_name_computed(_ctx \\ nil, fun, name_val),
     do: Functions.set_name_computed(fun, name_val)
 
@@ -416,6 +445,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
+  @doc "Copies enumerable object-spread properties."
   def copy_data_properties(_ctx \\ nil, target, source) do
     Copy.copy_data_properties(target, source)
     target
@@ -427,6 +457,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     Heap.wrap(init)
   end
 
+  @doc "Converts an iterable or array-like value to a JavaScript array object."
   def array_from(_ctx \\ nil, list), do: Heap.wrap(list)
 
   def delete_property(_ctx \\ nil, obj, key), do: Delete.delete_property(obj, key)
@@ -443,6 +474,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   # ── Functions ──
 
+  @doc "Constructs a JavaScript value from compiled code."
   def construct_runtime(ctx, ctor, new_target, args),
     do: Invocation.construct_runtime(ctx, ctor, new_target, args)
 
@@ -533,6 +565,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     result
   end
 
+  @doc "Invokes a JavaScript callable from compiled code."
   def invoke_runtime(ctx, fun, args), do: Invocation.invoke_runtime(ctx, fun, args)
   def invoke_runtime(fun, args), do: Invocation.invoke_runtime(fun, args)
 
@@ -542,6 +575,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def invoke_method_runtime(fun, this_obj, args),
     do: Invocation.invoke_method_runtime(fun, this_obj, args)
 
+  @doc "Invokes a tail-position JavaScript method from compiled code."
   def invoke_tail_method(ctx, fun, this_obj, args),
     do: Invocation.invoke_method_runtime(ctx, fun, this_obj, args)
 
@@ -573,6 +607,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     )
   end
 
+  @doc "Defines a method, getter, or setter from compiled code."
   def define_method(_ctx, target, method, name, flags) when is_binary(name),
     do: define_method(target, method, name, flags)
 
@@ -597,6 +632,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
         flags
       )
 
+  @doc "Defines a computed-name method, getter, or setter from compiled code."
   def define_method_computed(_ctx \\ nil, target, method, field_name, flags),
     do: Methods.define_method_computed(target, method, field_name, flags)
 
@@ -609,6 +645,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
+  @doc "Throws a JavaScript error value."
   def throw_error(ctx, atom_idx, reason) do
     name = Names.resolve_atom(context_atoms(ctx), atom_idx)
     {error_type, message} = throw_error_message(name, reason)
@@ -626,6 +663,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
+  @doc "Applies a superclass constructor for `super(...)`."
   def apply_super(ctx, fun, new_target, args),
     do: Invocation.construct_runtime(ctx, fun, new_target, args)
 
@@ -656,6 +694,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
+  @doc "Creates special object forms used by compiled object/class bytecode."
   def special_object(ctx, type) do
     current_func = context_current_func(ctx)
     arg_buf = context_arg_buf(ctx)
@@ -706,6 +745,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
+  @doc "Updates the active `this` value in a context."
   def update_this(ctx, this_val), do: Context.mark_dirty(%{ctx | this: this_val})
 
   def update_this(this_val) do
@@ -716,6 +756,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
+  @doc "Applies JavaScript `instanceof` semantics."
   def instanceof({:obj, _} = obj, ctor) do
     ctor_proto = Get.get(ctor, "prototype")
     prototype_chain_contains?(obj, ctor_proto)
@@ -725,22 +766,24 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def get_length(obj), do: Get.length_of(obj)
 
+  @doc "Loads a registered VM module by name."
   def import_module(ctx, specifier) do
     if is_binary(specifier) and Map.get(ctx, :runtime_pid) != nil do
       QuickBEAM.VM.PromiseState.resolved(QuickBEAM.VM.Runtime.new_object())
     else
-      QuickBEAM.VM.PromiseState.rejected(Heap.make_error("Cannot import #{specifier}", "TypeError"))
+      QuickBEAM.VM.PromiseState.rejected(
+        Heap.make_error("Cannot import #{specifier}", "TypeError")
+      )
     end
   end
 
   def import_module(specifier) do
-    QuickBEAM.VM.PromiseState.rejected(
-      Heap.make_error("Cannot import #{specifier}", "TypeError")
-    )
+    QuickBEAM.VM.PromiseState.rejected(Heap.make_error("Cannot import #{specifier}", "TypeError"))
   end
 
   # ── Iterators ──
 
+  @doc "Creates iterator state for a JavaScript `for...of` loop."
   def for_of_start(ctx, obj) do
     case obj do
       list when is_list(list) ->
@@ -819,8 +862,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
       other ->
         throw(
-          {:js_throw,
-           Heap.make_error("#{Values.stringify(other)} is not iterable", "TypeError")}
+          {:js_throw, Heap.make_error("#{Values.stringify(other)} is not iterable", "TypeError")}
         )
     end
   end
@@ -903,12 +945,12 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
       other ->
         throw(
-          {:js_throw,
-           Heap.make_error("#{Values.stringify(other)} is not iterable", "TypeError")}
+          {:js_throw, Heap.make_error("#{Values.stringify(other)} is not iterable", "TypeError")}
         )
     end
   end
 
+  @doc "Advances JavaScript `for...of` iterator state."
   def for_of_next(_ctx, _next_fn, :undefined), do: {true, :undefined, :undefined}
 
   def for_of_next(_ctx, _next_fn, {:list_iter, [head | tail]}),
@@ -947,6 +989,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
+  @doc "Creates key iteration state for a JavaScript `for...in` loop."
   def for_in_start(_ctx \\ nil, obj), do: {:for_in_iterator, enumerable_keys(obj)}
 
   def for_in_next(_ctx \\ nil, iter)
@@ -961,6 +1004,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def for_in_next(_ctx, iter), do: {true, :undefined, iter}
 
+  @doc "Closes an iterator by calling its `return` method when present."
   def iterator_close(_ctx, :undefined), do: :ok
   def iterator_close(_ctx, {:list_iter, _}), do: :ok
 
@@ -987,6 +1031,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     :ok
   end
 
+  @doc "Collects remaining values from an iterator into a list."
   def collect_iterator(%Context{} = ctx, iter, next_fn) do
     do_collect(ctx, iter, next_fn, [])
   end
@@ -995,6 +1040,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     do_collect_ctxless(iter, next_fn, [])
   end
 
+  @doc "Appends spread values into an array-like target."
   def append_spread(_ctx \\ nil, arr, idx, obj), do: Copy.append_spread(arr, idx, obj)
 
   def rest(ctx, start_idx) do
@@ -1012,6 +1058,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   # ── Misc ──
 
+  @doc "Returns whether a value is either `undefined` or `null`."
   def undefined_or_null?(val), do: val == :undefined or val == nil
 
   def set_name_computed(_ctx \\ nil, fun, name_val),
