@@ -25,24 +25,15 @@ defmodule QuickBEAM.VM.Runtime.Web.Encoding do
   end
 
   defp atob([arg | _], _) do
-    # Per WebIDL: undefined doesn't coerce — it throws directly
     if arg == :undefined do
       JSThrow.type_error!("Failed to execute 'atob': The string to be decoded is not correctly encoded.")
     end
 
     str = Values.stringify(arg)
 
-    # Strip ASCII whitespace per HTML spec
     stripped = :binary.replace(str, [" ", "\t", "\n", "\r", "\f"], "", [:global])
 
-    # Validate: only valid base64 chars
-    unless valid_base64?(stripped) do
-      JSThrow.type_error!("Failed to execute 'atob': The string to be decoded is not correctly encoded.")
-    end
-
-    padded = pad_base64(stripped)
-
-    case Base.decode64(padded) do
+    case Base.decode64(stripped, padding: false) do
       {:ok, decoded} ->
         latin1_to_js_string(decoded)
 
@@ -51,37 +42,11 @@ defmodule QuickBEAM.VM.Runtime.Web.Encoding do
     end
   end
 
-  defp has_non_latin1?(str) do
-    String.to_charlist(str) |> Enum.any?(&(&1 > 255))
-  end
-
-  defp valid_base64?(<<>>), do: true
-  defp valid_base64?(<<c, rest::binary>>) when c in ?A..?Z or c in ?a..?z or c in ?0..?9 or c == ?+ or c == ?/ do
-    valid_base64?(rest)
-  end
-  defp valid_base64?(<<"=", rest::binary>>), do: all_padding?(rest)
-  defp valid_base64?(_), do: false
-
-  defp all_padding?(<<>>), do: true
-  defp all_padding?(<<"=", rest::binary>>), do: all_padding?(rest)
-  defp all_padding?(_), do: false
-
-  defp pad_base64(str) do
-    case rem(byte_size(str), 4) do
-      0 -> str
-      1 -> str <> "==="
-      2 -> str <> "=="
-      3 -> str <> "="
-    end
-  end
+  defp has_non_latin1?(<<>>), do: false
+  defp has_non_latin1?(<<cp::utf8, rest::binary>>) when cp <= 255, do: has_non_latin1?(rest)
+  defp has_non_latin1?(_), do: true
 
   defp latin1_to_js_string(binary) do
-    binary
-    |> :erlang.binary_to_list()
-    |> Enum.map(fn byte ->
-      if byte < 128, do: <<byte>>, else: <<byte::utf8>>
-    end)
-    |> IO.iodata_to_binary()
+    for <<byte <- binary>>, into: "", do: <<byte::utf8>>
   end
-
 end

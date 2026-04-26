@@ -40,14 +40,16 @@ defmodule QuickBEAM.VM.Runtime.Web.Crypto do
       end
 
       method "randomUUID" do
-        <<b0::32, b1::16, _::4, b2::12, _::2, b3::14, b4::48>> =
+        <<a::binary-4, b::binary-2, c::binary-2, d::binary-2, e::binary-6>> =
           :crypto.strong_rand_bytes(16)
 
-        :io_lib.format(
-          "~8.16.0b-~4.16.0b-4~3.16.0b-~4.16.0b-~12.16.0b",
-          [b0, b1, b2, 0x8000 ||| b3, b4]
-        )
-        |> IO.iodata_to_binary()
+        <<c1, c2>> = c
+        c_fixed = <<(c1 &&& 0x0F ||| 0x40), c2>>
+        <<d1, d2>> = d
+        d_fixed = <<(d1 &&& 0x3F ||| 0x80), d2>>
+
+        [a, b, c_fixed, d_fixed, e]
+        |> Enum.map_join("-", &Base.encode16(&1, case: :lower))
       end
 
       val("subtle", SubtleCrypto.build_subtle())

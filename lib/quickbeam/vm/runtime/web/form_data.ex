@@ -217,34 +217,35 @@ defmodule QuickBEAM.VM.Runtime.Web.FormData do
   end
 
   def encode_multipart(entries_ref) do
-    boundary = "----FormBoundary#{:crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)}"
+    boundary = "----FormBoundary" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
     entries = load_fd_entries(entries_ref)
 
-    parts =
-      Enum.map(entries, fn {name, value} ->
-        case value do
-          {:obj, _} = obj ->
-            filename = Get.get(obj, "name") || "blob"
-            mime = Get.get(obj, "type") || "application/octet-stream"
-            content = get_blob_content(obj)
-
-            "Content-Disposition: form-data; name=\"#{name}\"; filename=\"#{filename}\"\r\nContent-Type: #{mime}\r\n\r\n#{content}"
-
-          str when is_binary(str) ->
-            "Content-Disposition: form-data; name=\"#{name}\"\r\n\r\n#{str}"
-
-          other ->
-            "Content-Disposition: form-data; name=\"#{name}\"\r\n\r\n#{QuickBEAM.VM.Interpreter.Values.stringify(other)}"
-        end
-      end)
-
     body =
-      Enum.map_join(parts, "", fn part ->
-        "--#{boundary}\r\n#{part}\r\n"
-      end) <> "--#{boundary}--\r\n"
+      entries
+      |> Enum.map_join("", fn {name, value} ->
+        "--#{boundary}\r\n#{encode_part(name, value)}\r\n"
+      end)
+      |> Kernel.<>("--#{boundary}--\r\n")
 
     {body, "multipart/form-data; boundary=#{boundary}"}
   end
+
+  defp encode_part(name, {:obj, _} = obj) do
+    filename = Get.get(obj, "name") || "blob"
+    mime = Get.get(obj, "type") || "application/octet-stream"
+    content = get_blob_content(obj)
+    "Content-Disposition: form-data; name=#{quote_param(name)}; filename=#{quote_param(filename)}\r\nContent-Type: #{mime}\r\n\r\n#{content}"
+  end
+
+  defp encode_part(name, value) when is_binary(value) do
+    "Content-Disposition: form-data; name=#{quote_param(name)}\r\n\r\n#{value}"
+  end
+
+  defp encode_part(name, value) do
+    "Content-Disposition: form-data; name=#{quote_param(name)}\r\n\r\n#{QuickBEAM.VM.Interpreter.Values.stringify(value)}"
+  end
+
+  defp quote_param(s), do: "\"#{s}\""
 
   defp load_fd_entries(ref) do
     case Heap.get_obj(ref, %{}) do
