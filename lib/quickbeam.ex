@@ -510,7 +510,6 @@ defmodule QuickBEAM do
         Enum.map(list, &convert_beam_value/1)
 
       map when is_map(map) ->
-        # Buffer objects are converted to their UTF-8 string representation
         if Map.get(map, "__is_buffer__") == true do
           extract_buffer_bytes(map)
         else
@@ -523,6 +522,9 @@ defmodule QuickBEAM do
         end
     end
   end
+
+  defp convert_beam_value(list) when is_list(list), do: Enum.map(list, &convert_beam_value/1)
+  defp convert_beam_value(v), do: v
 
   defp deliver_pending_beam_messages(runtime) do
     # First, deliver messages queued via send_message (which may register monitors)
@@ -618,9 +620,6 @@ defmodule QuickBEAM do
         Map.get(map, "__buffer__", <<>>)
     end
   end
-
-  defp convert_beam_value(list) when is_list(list), do: Enum.map(list, &convert_beam_value/1)
-  defp convert_beam_value(v), do: v
 
   defp convert_beam_key(k) when is_binary(k), do: k
   defp convert_beam_key(k) when is_integer(k), do: Integer.to_string(k)

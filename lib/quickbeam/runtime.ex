@@ -557,6 +557,10 @@ defmodule QuickBEAM.Runtime do
      end)}
   end
 
+  def handle_call(:take_pending_messages, _from, state) do
+    {:reply, state.beam_pending_msgs, %{state | beam_pending_msgs: []}}
+  end
+
   # ── NIF dispatch callbacks ──
 
   defp nif_eval(state, code, timeout, filename \\ ""),
@@ -580,10 +584,6 @@ defmodule QuickBEAM.Runtime do
 
   defp nif_send_message(state, message),
     do: QuickBEAM.Native.send_message(state.resource, message)
-
-  def handle_call(:take_pending_messages, _from, state) do
-    {:reply, state.beam_pending_msgs, %{state | beam_pending_msgs: []}}
-  end
 
   @impl true
   def handle_info({:console, level, message}, state) do

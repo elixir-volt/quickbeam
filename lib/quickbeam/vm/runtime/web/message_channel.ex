@@ -3,10 +3,10 @@ defmodule QuickBEAM.VM.Runtime.Web.MessageChannel do
 
   import QuickBEAM.VM.Builtin, only: [build_methods: 1]
 
-  alias QuickBEAM.VM.{Heap, Invocation, PromiseState}
+  alias QuickBEAM.VM.{Heap, Invocation}
   alias QuickBEAM.VM.ObjectModel.Get
-  alias QuickBEAM.VM.Runtime.WebAPIs
   alias QuickBEAM.VM.Runtime.StructuredClone
+  alias QuickBEAM.VM.Runtime.WebAPIs
 
   def bindings do
     port_ctor = WebAPIs.register("MessagePort", &build_port_stub/2)
@@ -193,7 +193,7 @@ defmodule QuickBEAM.VM.Runtime.Web.MessageChannel do
     end
   end
 
-  defp dispatch_event(event, handler, listeners, q_ref) do
+  defp dispatch_event(event, handler, _listeners, q_ref) do
     # Schedule via microtask to ensure async delivery
     Heap.enqueue_microtask({:resolve, nil,
       {:builtin, "deliver",

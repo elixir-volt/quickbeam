@@ -5,7 +5,6 @@ defmodule QuickBEAM.VM.Runtime.Web.BeamAPI do
 
   import QuickBEAM.VM.Heap.Keys
   alias QuickBEAM.VM.{Heap, Invocation, JSThrow, PromiseState}
-  alias QuickBEAM.VM.ObjectModel.Get
 
   @on_message_key :qb_beam_on_message
   @monitors_key :qb_beam_monitors
@@ -93,10 +92,10 @@ defmodule QuickBEAM.VM.Runtime.Web.BeamAPI do
                     result = GenServer.call(runtime_pid, {:beam_call, handler_name, flat_args}, 30_000)
                     PromiseState.resolved(result)
                   catch
-                    :exit, _ -> PromiseState.rejected(Heap.make_error("Handler not found: #{handler_name}"))
+                    :exit, _ -> PromiseState.rejected(Heap.make_error("Handler not found: #{handler_name}", "Error"))
                   end
                 else
-                  PromiseState.rejected(Heap.make_error("Handler not found: #{handler_name}"))
+                  PromiseState.rejected(Heap.make_error("Handler not found: #{handler_name}", "Error"))
                 end
             end
 

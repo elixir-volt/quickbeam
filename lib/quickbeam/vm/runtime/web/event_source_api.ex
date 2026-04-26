@@ -3,8 +3,7 @@ defmodule QuickBEAM.VM.Runtime.Web.EventSourceAPI do
 
   import QuickBEAM.VM.Builtin, only: [build_methods: 1]
 
-  alias QuickBEAM.VM.{Heap, Invocation, PromiseState}
-  alias QuickBEAM.VM.ObjectModel.{Get, Put}
+  alias QuickBEAM.VM.{Heap, Invocation}
   alias QuickBEAM.VM.Runtime.WebAPIs
 
   # readyState values
@@ -111,15 +110,24 @@ defmodule QuickBEAM.VM.Runtime.Web.EventSourceAPI do
 
     onopen_acc = {:accessor,
       {:builtin, "get onopen", fn _, _ -> Heap.get_obj(onopen_ref, nil) end},
-      {:builtin, "set onopen", fn [h | _], _ -> Heap.put_obj(onopen_ref, h); :undefined end}}
+      {:builtin, "set onopen", fn [h | _], _ ->
+        Heap.put_obj(onopen_ref, h)
+        :undefined
+      end}}
 
     onmessage_acc = {:accessor,
       {:builtin, "get onmessage", fn _, _ -> Heap.get_obj(onmessage_ref, nil) end},
-      {:builtin, "set onmessage", fn [h | _], _ -> Heap.put_obj(onmessage_ref, h); :undefined end}}
+      {:builtin, "set onmessage", fn [h | _], _ ->
+        Heap.put_obj(onmessage_ref, h)
+        :undefined
+      end}}
 
     onerror_acc = {:accessor,
       {:builtin, "get onerror", fn _, _ -> Heap.get_obj(onerror_ref, nil) end},
-      {:builtin, "set onerror", fn [h | _], _ -> Heap.put_obj(onerror_ref, h); :undefined end}}
+      {:builtin, "set onerror", fn [h | _], _ ->
+        Heap.put_obj(onerror_ref, h)
+        :undefined
+      end}}
 
     methods = build_methods do
       method "addEventListener" do
@@ -185,12 +193,17 @@ defmodule QuickBEAM.VM.Runtime.Web.EventSourceAPI do
     Heap.wrap(%{})
   end
 
-  defp schedule_sse_delivery(es_id, state_ref, onopen_ref, onmessage_ref, onerror_ref, listeners_ref, last_event_id_ref) do
+  defp schedule_sse_delivery(
+         es_id, state_ref, onopen_ref, onmessage_ref, onerror_ref, listeners_ref, last_event_id_ref
+       ) do
     # Poll for messages from the SSE task via process mailbox
     Heap.enqueue_microtask({:resolve, nil,
       {:builtin, "sse_poll",
        fn _, _ ->
-         poll_sse_messages(es_id, state_ref, onopen_ref, onmessage_ref, onerror_ref, listeners_ref, last_event_id_ref, 100)
+         poll_sse_messages(
+           es_id, state_ref, onopen_ref, onmessage_ref, onerror_ref,
+           listeners_ref, last_event_id_ref, 100
+         )
          :undefined
        end},
       :undefined})
@@ -248,7 +261,10 @@ defmodule QuickBEAM.VM.Runtime.Web.EventSourceAPI do
       end)
 
       if msgs != [] do
-        poll_sse_messages(es_id, state_ref, onopen_ref, onmessage_ref, onerror_ref, listeners_ref, last_event_id_ref, max_polls - 1)
+        poll_sse_messages(
+          es_id, state_ref, onopen_ref, onmessage_ref, onerror_ref,
+          listeners_ref, last_event_id_ref, max_polls - 1
+        )
       end
     end
   end

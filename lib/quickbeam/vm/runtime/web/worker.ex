@@ -211,10 +211,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Worker do
     end
   end
 
-  defp store_and_deliver(child_rt, data) do
-    # Deliver data directly to the worker's JS context
-    # Since worker_loop runs in the worker spawn process,
-    # we can call deliver_beam_message directly (it stores in THIS process's dict)
+  defp store_and_deliver(_child_rt, data) do
     alias QuickBEAM.VM.Runtime.Web.BeamAPI
     BeamAPI.deliver_beam_message(data)
   end

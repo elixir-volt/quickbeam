@@ -5,7 +5,6 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
 
   alias QuickBEAM.VM.{Heap, JSThrow, PromiseState}
   alias QuickBEAM.VM.ObjectModel.Get
-  alias QuickBEAM.VM.Runtime.StructuredClone
 
   def bindings do
     %{"navigator" => build_navigator()}
@@ -112,10 +111,8 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
 
         # If result is a pending promise, hold the lock in a background process
         case check_pending_promise(result) do
-          {:pending, ref} ->
-            # Spawn a process to hold the lock until the promise resolves
+          {:pending, _ref} ->
             spawn(fn ->
-              deadline = System.monotonic_time(:millisecond) + 30_000
               wait_and_release(name, caller_pid, 30_000)
             end)
             # Return a promise that will resolve when the callback completes
@@ -161,9 +158,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
   end
   defp check_pending_promise(_), do: :not_promise
 
-  defp wait_and_release(name, holder_pid, release_after_ms) do
-    # Hold the lock for release_after_ms then release it
-    # Use the lock holder process's own PID
+  defp wait_and_release(name, _holder_pid, release_after_ms) do
     try do
       grant = QuickBEAM.LocksAPI.request_lock([name, "exclusive", false], self())
       if grant == "granted" do

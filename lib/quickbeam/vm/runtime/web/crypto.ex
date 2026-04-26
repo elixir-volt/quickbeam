@@ -4,7 +4,6 @@ defmodule QuickBEAM.VM.Runtime.Web.Crypto do
   import Bitwise
   import QuickBEAM.VM.Builtin, only: [build_object: 1]
 
-  alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
   alias QuickBEAM.VM.Runtime.Web.SubtleCrypto

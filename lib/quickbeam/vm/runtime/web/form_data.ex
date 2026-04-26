@@ -216,20 +216,26 @@ defmodule QuickBEAM.VM.Runtime.Web.FormData do
     end
   end
 
-
-
   def encode_multipart(entries_ref) do
     boundary = "----FormBoundary#{:crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)}"
     entries = load_fd_entries(entries_ref)
 
     parts =
       Enum.map(entries, fn {name, value} ->
-        {:obj, _} = obj = value
-        filename = Get.get(obj, "name") || "blob"
-        mime = Get.get(obj, "type") || "application/octet-stream"
-        content = get_blob_content(obj)
+        case value do
+          {:obj, _} = obj ->
+            filename = Get.get(obj, "name") || "blob"
+            mime = Get.get(obj, "type") || "application/octet-stream"
+            content = get_blob_content(obj)
 
-        "Content-Disposition: form-data; name=\"#{name}\"; filename=\"#{filename}\"\r\nContent-Type: #{mime}\r\n\r\n#{content}"
+            "Content-Disposition: form-data; name=\"#{name}\"; filename=\"#{filename}\"\r\nContent-Type: #{mime}\r\n\r\n#{content}"
+
+          str when is_binary(str) ->
+            "Content-Disposition: form-data; name=\"#{name}\"\r\n\r\n#{str}"
+
+          other ->
+            "Content-Disposition: form-data; name=\"#{name}\"\r\n\r\n#{QuickBEAM.VM.Interpreter.Values.stringify(other)}"
+        end
       end)
 
     body =

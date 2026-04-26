@@ -233,29 +233,14 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
 
   defp normalize_algo(algo) when is_binary(algo), do: %{"name" => algo}
 
-  defp normalize_algo({:obj, ref} = obj) do
-    # Use Get.get for each key to handle VM special cases (e.g., "length")
+  defp normalize_algo({:obj, _ref} = obj) do
     extract_algo_from_obj(obj)
   end
 
   defp normalize_algo(nil), do: %{}
   defp normalize_algo(_), do: %{}
 
-  defp extract_algo_map(m) do
-    keys = ["name", "hash", "namedCurve", "length", "iv", "salt", "iterations", "additionalData", "tagLength", "public"]
-
-    Enum.reduce(keys, %{}, fn key, acc ->
-      case Map.get(m, key) do
-        nil -> acc
-        :undefined -> acc
-        val -> Map.put(acc, key, resolve_nested(val))
-      end
-    end)
-  end
-
-  defp extract_algo_from_obj({:obj, ref} = obj) do
-    # Can't rely on Map.get for "length" due to VM Put.put specialcase
-    # Use Get.get which handles property access correctly
+  defp extract_algo_from_obj({:obj, _ref} = obj) do
     keys = ["name", "hash", "namedCurve", "length", "iv", "salt", "iterations", "additionalData", "tagLength", "public"]
 
     Enum.reduce(keys, %{}, fn key, acc ->

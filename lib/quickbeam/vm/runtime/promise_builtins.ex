@@ -179,7 +179,6 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
         {:ok, v} -> PromiseState.resolved(v)
         {:err, v} -> PromiseState.rejected(v)
         nil ->
-          # Create a new pending promise; attach handlers to each input
           race_ref = make_ref()
           Heap.put_obj(race_ref, %{promise_state() => :pending, promise_value() => nil})
           race_promise = {:obj, race_ref}
