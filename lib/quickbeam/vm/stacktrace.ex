@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Stacktrace do
   @moduledoc "JS stack-trace capture and formatting: attaches `stack` to Error objects and supports `Error.prepareStackTrace`."
 
-  import QuickBEAM.VM.Builtin, only: [build_object: 1]
+  import QuickBEAM.VM.Builtin, only: [object: 1]
 
   alias QuickBEAM.VM.{Bytecode, Heap}
   alias QuickBEAM.VM.Execution.Trace
@@ -99,7 +99,7 @@ defmodule QuickBEAM.VM.Stacktrace do
   end
 
   defp callsite_object(frame) do
-    build_object do
+    object do
       method "getFileName" do
         frame.file_name
       end

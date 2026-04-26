@@ -1,10 +1,11 @@
 defmodule QuickBEAM.VM.Runtime.Web.FormData do
   @moduledoc "FormData constructor builtin for BEAM mode."
 
-  import QuickBEAM.VM.Builtin, only: [build_methods: 1]
+  import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, iterator_from: 1, object: 1]
 
-  alias QuickBEAM.VM.{Heap, Invocation}
+  alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.Runtime.Web.Callback
   alias QuickBEAM.VM.Runtime.WebAPIs
 
   def bindings do
@@ -15,138 +16,108 @@ defmodule QuickBEAM.VM.Runtime.Web.FormData do
     entries_ref = make_ref()
     Heap.put_obj(entries_ref, %{list: []})
 
-    sym_iter = {:symbol, "Symbol.iterator"}
+    object do
+      method "append" do
+        [name, value, filename] = argv(args, [nil, nil, nil])
+        entry = {to_string(name), coerce_entry_value(value, filename)}
+        save_fd_entries(entries_ref, load_fd_entries(entries_ref) ++ [entry])
+        :undefined
+      end
 
-    entries_fn =
-      {:builtin, "entries",
-       fn _args, _this ->
-         entries = load_fd_entries(entries_ref)
-         items = Enum.map(entries, fn {k, v} -> Heap.wrap([k, v]) end)
-         iter = Heap.wrap_iterator(items)
-         make_iterable_iterator(iter)
-       end}
+      method "get" do
+        name = args |> arg(0, nil) |> to_string()
 
-    keys_fn =
-      {:builtin, "keys",
-       fn _args, _this ->
-         entries = load_fd_entries(entries_ref)
-         keys = Enum.map(entries, fn {k, _} -> k end)
-         iter = Heap.wrap_iterator(keys)
-         make_iterable_iterator(iter)
-       end}
-
-    values_fn =
-      {:builtin, "values",
-       fn _args, _this ->
-         entries = load_fd_entries(entries_ref)
-         vals = Enum.map(entries, fn {_, v} -> v end)
-         iter = Heap.wrap_iterator(vals)
-         make_iterable_iterator(iter)
-       end}
-
-    iter_fn =
-      {:builtin, "[Symbol.iterator]",
-       fn _args, _this ->
-         entries = load_fd_entries(entries_ref)
-         items = Enum.map(entries, fn {k, v} -> Heap.wrap([k, v]) end)
-         iter = Heap.wrap_iterator(items)
-         make_iterable_iterator(iter)
-       end}
-
-    base_methods =
-      build_methods do
-        method "append" do
-          [name, value | rest] = args ++ [nil, nil, nil]
-          n = to_string(name)
-          filename_override = List.first(rest)
-          entry_val = coerce_entry_value(value, filename_override)
-          entries = load_fd_entries(entries_ref)
-          save_fd_entries(entries_ref, entries ++ [{n, entry_val}])
-          :undefined
-        end
-
-        method "get" do
-          [name | _] = args
-          n = to_string(name)
-          entries = load_fd_entries(entries_ref)
-
-          case Enum.find(entries, fn {k, _} -> k == n end) do
-            {_, v} -> v
-            nil -> nil
-          end
-        end
-
-        method "getAll" do
-          [name | _] = args
-          n = to_string(name)
-
-          entries_ref
-          |> load_fd_entries()
-          |> Enum.filter(fn {k, _} -> k == n end)
-          |> Enum.map(fn {_, v} -> v end)
-          |> Heap.wrap()
-        end
-
-        method "set" do
-          [name, value | rest] = args ++ [nil, nil, nil]
-          n = to_string(name)
-          filename_override = List.first(rest)
-          entry_val = coerce_entry_value(value, filename_override)
-          filtered = entries_ref |> load_fd_entries() |> Enum.reject(fn {k, _} -> k == n end)
-          save_fd_entries(entries_ref, filtered ++ [{n, entry_val}])
-          :undefined
-        end
-
-        method "delete" do
-          [name | _] = args
-          n = to_string(name)
-          updated = entries_ref |> load_fd_entries() |> Enum.reject(fn {k, _} -> k == n end)
-          save_fd_entries(entries_ref, updated)
-          :undefined
-        end
-
-        method "has" do
-          [name | _] = args
-          n = to_string(name)
-          Enum.any?(load_fd_entries(entries_ref), fn {k, _} -> k == n end)
-        end
-
-        method "forEach" do
-          [callback | _] = args ++ [nil]
-          entries = load_fd_entries(entries_ref)
-
-          Enum.each(entries, fn {k, v} ->
-            try do
-              Invocation.invoke_with_receiver(callback, [v, k, this], :undefined)
-            rescue
-              _ -> :ok
-            catch
-              _, _ -> :ok
-            end
-          end)
-
-          :undefined
+        case Enum.find(load_fd_entries(entries_ref), fn {key, _value} -> key == name end) do
+          {_key, value} -> value
+          nil -> nil
         end
       end
 
-    Map.merge(base_methods, %{
-      "entries" => entries_fn,
-      "keys" => keys_fn,
-      "values" => values_fn,
-      sym_iter => iter_fn,
-      "__fd_ref__" => entries_ref
-    })
-    |> Heap.wrap()
+      method "getAll" do
+        name = args |> arg(0, nil) |> to_string()
+
+        entries_ref
+        |> load_fd_entries()
+        |> Enum.filter(fn {key, _value} -> key == name end)
+        |> Enum.map(fn {_key, value} -> value end)
+        |> Heap.wrap()
+      end
+
+      method "set" do
+        [name, value, filename] = argv(args, [nil, nil, nil])
+        name = to_string(name)
+        entry = {name, coerce_entry_value(value, filename)}
+
+        entries =
+          entries_ref
+          |> load_fd_entries()
+          |> Enum.reject(fn {key, _value} -> key == name end)
+
+        save_fd_entries(entries_ref, entries ++ [entry])
+        :undefined
+      end
+
+      method "delete" do
+        name = args |> arg(0, nil) |> to_string()
+
+        entries =
+          entries_ref
+          |> load_fd_entries()
+          |> Enum.reject(fn {key, _value} -> key == name end)
+
+        save_fd_entries(entries_ref, entries)
+        :undefined
+      end
+
+      method "has" do
+        name = args |> arg(0, nil) |> to_string()
+        Enum.any?(load_fd_entries(entries_ref), fn {key, _value} -> key == name end)
+      end
+
+      method "forEach" do
+        callback = arg(args, 0, nil)
+
+        Enum.each(load_fd_entries(entries_ref), fn {key, value} ->
+          Callback.safe_invoke(callback, [value, key, this])
+        end)
+
+        :undefined
+      end
+
+      method "entries" do
+        entries_ref
+        |> load_fd_entries()
+        |> entry_pairs()
+        |> iterator_from()
+      end
+
+      method "keys" do
+        entries_ref
+        |> load_fd_entries()
+        |> Enum.map(&elem(&1, 0))
+        |> iterator_from()
+      end
+
+      method "values" do
+        entries_ref
+        |> load_fd_entries()
+        |> Enum.map(&elem(&1, 1))
+        |> iterator_from()
+      end
+
+      symbol_method "Symbol.iterator" do
+        entries_ref
+        |> load_fd_entries()
+        |> entry_pairs()
+        |> iterator_from()
+      end
+
+      prop("__fd_ref__", entries_ref)
+    end
   end
 
-  defp make_iterable_iterator({:obj, ref} = iter) do
-    sym_iter = {:symbol, "Symbol.iterator"}
-
-    Heap.update_obj(ref, %{}, fn m ->
-      Map.put(m, sym_iter, {:builtin, "[Symbol.iterator]", fn _, this -> this end})
-    end)
-
-    iter
+  defp entry_pairs(entries) do
+    Enum.map(entries, fn {key, value} -> Heap.wrap([key, value]) end)
   end
 
   defp coerce_entry_value(value, filename_override) do
@@ -196,6 +167,7 @@ defmodule QuickBEAM.VM.Runtime.Web.FormData do
     case Get.get(blob, "text") do
       {:builtin, "text", cb} ->
         promise = cb.([], blob)
+
         case promise do
           {:obj, pref} ->
             case Heap.get_obj(pref, %{}) do
@@ -204,11 +176,16 @@ defmodule QuickBEAM.VM.Runtime.Web.FormData do
                   {:resolved, v} when is_binary(v) -> v
                   _ -> ""
                 end
-              _ -> ""
+
+              _ ->
+                ""
             end
 
-          v when is_binary(v) -> v
-          _ -> ""
+          v when is_binary(v) ->
+            v
+
+          _ ->
+            ""
         end
 
       _ ->
@@ -217,35 +194,29 @@ defmodule QuickBEAM.VM.Runtime.Web.FormData do
   end
 
   def encode_multipart(entries_ref) do
-    boundary = "----FormBoundary" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
-    entries = load_fd_entries(entries_ref)
+    fields =
+      entries_ref
+      |> load_fd_entries()
+      |> Enum.map(fn {name, value} ->
+        case value do
+          {:obj, _} = obj ->
+            filename = Get.get(obj, "name") || "blob"
+            mime = Get.get(obj, "type") || "application/octet-stream"
+            {name, {get_blob_content(obj), filename: filename, content_type: mime}}
 
-    body =
-      entries
-      |> Enum.map_join("", fn {name, value} ->
-        "--#{boundary}\r\n#{encode_part(name, value)}\r\n"
+          str when is_binary(str) ->
+            {name, str}
+
+          other ->
+            {name, QuickBEAM.VM.Interpreter.Values.stringify(other)}
+        end
       end)
-      |> Kernel.<>("--#{boundary}--\r\n")
 
-    {body, "multipart/form-data; boundary=#{boundary}"}
+    %{body: body, content_type: content_type} = Req.Utils.encode_form_multipart(fields)
+    # Capitalize headers to match browser FormData behavior
+    binary = body |> IO.iodata_to_binary() |> capitalize_multipart_headers()
+    {binary, content_type}
   end
-
-  defp encode_part(name, {:obj, _} = obj) do
-    filename = Get.get(obj, "name") || "blob"
-    mime = Get.get(obj, "type") || "application/octet-stream"
-    content = get_blob_content(obj)
-    "Content-Disposition: form-data; name=#{quote_param(name)}; filename=#{quote_param(filename)}\r\nContent-Type: #{mime}\r\n\r\n#{content}"
-  end
-
-  defp encode_part(name, value) when is_binary(value) do
-    "Content-Disposition: form-data; name=#{quote_param(name)}\r\n\r\n#{value}"
-  end
-
-  defp encode_part(name, value) do
-    "Content-Disposition: form-data; name=#{quote_param(name)}\r\n\r\n#{QuickBEAM.VM.Interpreter.Values.stringify(value)}"
-  end
-
-  defp quote_param(s), do: "\"#{s}\""
 
   defp load_fd_entries(ref) do
     case Heap.get_obj(ref, %{}) do
@@ -256,5 +227,11 @@ defmodule QuickBEAM.VM.Runtime.Web.FormData do
 
   defp save_fd_entries(ref, entries) do
     Heap.put_obj(ref, %{list: entries})
+  end
+
+  defp capitalize_multipart_headers(body) do
+    body
+    |> String.replace("content-disposition:", "Content-Disposition:")
+    |> String.replace("content-type:", "Content-Type:")
   end
 end

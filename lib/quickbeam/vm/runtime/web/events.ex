@@ -1,10 +1,11 @@
 defmodule QuickBEAM.VM.Runtime.Web.Events do
   @moduledoc "EventTarget, Event, CustomEvent, and DOMException builtins for BEAM mode."
 
-  import QuickBEAM.VM.Builtin, only: [build_methods: 1]
+  import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, constructor: 3, object: 1]
 
-  alias QuickBEAM.VM.{Heap, Invocation}
+  alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.Runtime.Web.{Callback, StateRef}
   alias QuickBEAM.VM.Runtime.WebAPIs
 
   def bindings do
@@ -17,90 +18,78 @@ defmodule QuickBEAM.VM.Runtime.Web.Events do
   end
 
   def build_event_target(_args, _this) do
-    listeners_ref = make_ref()
-    Heap.put_obj(listeners_ref, %{})
+    listeners_ref = StateRef.new(%{})
 
-    Heap.wrap(
-      build_methods do
-        method "addEventListener" do
-          [type, callback | rest] = args ++ [nil, nil, nil]
-          opts = List.first(rest)
-          t = to_string(type)
-
-          once =
-            case opts do
-              {:obj, _} -> Get.get(opts, "once") == true
-              true -> false
-              _ -> false
-            end
-
-          listener_entry = %{"callback" => callback, "once" => once}
-          listeners = Heap.get_obj(listeners_ref, %{})
-          existing = Map.get(listeners, t, [])
-          updated = Map.put(listeners, t, existing ++ [listener_entry])
-          Heap.put_obj(listeners_ref, updated)
-          :undefined
-        end
-
-        method "removeEventListener" do
-          [type, callback | _] = args ++ [nil, nil]
-          t = to_string(type)
-          listeners = Heap.get_obj(listeners_ref, %{})
-          existing = Map.get(listeners, t, [])
-
-          updated_list =
-            Enum.reject(existing, fn entry ->
-              Map.get(entry, "callback") == callback
-            end)
-
-          Heap.put_obj(listeners_ref, Map.put(listeners, t, updated_list))
-          :undefined
-        end
-
-        method "dispatchEvent" do
-          event = List.first(args)
-          type = event |> Get.get("type") |> to_string()
-          listeners = Heap.get_obj(listeners_ref, %{})
-          type_listeners = Map.get(listeners, type, [])
-
-          stop_ref = make_ref()
-          Process.put(stop_ref, false)
-
-          survivors =
-            Enum.reject(type_listeners, fn entry ->
-              if Process.get(stop_ref) do
-                false
-              else
-                cb = Map.get(entry, "callback")
-                once = Map.get(entry, "once", false)
-
-                try do
-                  Invocation.invoke_with_receiver(cb, [event], :undefined)
-                rescue
-                  _ -> :ok
-                catch
-                  _, _ -> :ok
-                end
-
-                if Get.get(event, "__stop_immediate__") == true do
-                  Process.put(stop_ref, true)
-                end
-
-                once
-              end
-            end)
-
-          updated = Map.put(listeners, type, survivors)
-          Heap.put_obj(listeners_ref, updated)
-          not (Get.get(event, "defaultPrevented") == true)
-        end
+    object do
+      method "addEventListener" do
+        [type, callback, opts] = argv(args, [nil, nil, nil])
+        add_listener(listeners_ref, type, callback, opts)
+        :undefined
       end
-    )
+
+      method "removeEventListener" do
+        [type, callback] = argv(args, [nil, nil])
+        remove_listener(listeners_ref, type, callback)
+        :undefined
+      end
+
+      method "dispatchEvent" do
+        event = arg(args, 0, nil)
+        dispatch_event(listeners_ref, event)
+      end
+    end
   end
+
+  defp add_listener(listeners_ref, type, callback, opts) do
+    type = to_string(type)
+    entry = %{"callback" => callback, "once" => listener_once?(opts)}
+
+    StateRef.update(listeners_ref, %{}, fn listeners ->
+      Map.update(listeners, type, [entry], &(&1 ++ [entry]))
+    end)
+  end
+
+  defp remove_listener(listeners_ref, type, callback) do
+    type = to_string(type)
+
+    StateRef.update(listeners_ref, %{}, fn listeners ->
+      listeners
+      |> Map.get(type, [])
+      |> Enum.reject(&(Map.get(&1, "callback") == callback))
+      |> then(&Map.put(listeners, type, &1))
+    end)
+  end
+
+  defp dispatch_event(listeners_ref, event) do
+    type = event |> Get.get("type") |> to_string()
+    listeners = StateRef.get(listeners_ref, %{})
+    type_listeners = Map.get(listeners, type, [])
+
+    {survivors, _stopped?} =
+      Enum.reduce(type_listeners, {[], false}, fn
+        entry, {survivors, true} ->
+          {[entry | survivors], true}
+
+        entry, {survivors, false} ->
+          callback = Map.get(entry, "callback")
+          Callback.safe_invoke(callback, [event])
+
+          keep? = not Map.get(entry, "once", false)
+          survivors = if keep?, do: [entry | survivors], else: survivors
+          stopped? = Get.get(event, "__stop_immediate__") == true
+          {survivors, stopped?}
+      end)
+
+    StateRef.put(listeners_ref, Map.put(listeners, type, Enum.reverse(survivors)))
+    Get.get(event, "defaultPrevented") != true
+  end
+
+  defp listener_once?({:obj, _} = opts), do: Get.get(opts, "once") == true
+  defp listener_once?(_), do: false
 
   def build_event(args, _this) do
     type = args |> List.first("") |> to_string()
-    opts = Enum.at(args, 1)
+    opts = arg(args, 1, nil)
 
     {bubbles, cancelable} =
       case opts do
@@ -113,46 +102,37 @@ defmodule QuickBEAM.VM.Runtime.Web.Events do
           {false, false}
       end
 
-    stop_ref = make_ref()
-    Heap.put_obj(stop_ref, false)
+    object do
+      prop("type", type)
+      prop("bubbles", bubbles)
+      prop("cancelable", cancelable)
+      prop("defaultPrevented", false)
+      prop("__stop_immediate__", false)
 
-    Heap.wrap(
-      build_methods do
-        val("type", type)
-        val("bubbles", bubbles)
-        val("cancelable", cancelable)
-        val("defaultPrevented", false)
-        val("__stop_immediate__", false)
-
-        method "stopPropagation" do
-          :undefined
-        end
-
-        method "stopImmediatePropagation" do
-          Heap.update_obj(elem(this, 1), %{}, fn m ->
-            Map.put(m, "__stop_immediate__", true)
-          end)
-
-          :undefined
-        end
-
-        method "preventDefault" do
-          Heap.update_obj(elem(this, 1), %{}, fn m ->
-            Map.put(m, "defaultPrevented", true)
-          end)
-
-          :undefined
-        end
+      method "stopPropagation" do
+        :undefined
       end
-    )
+
+      method "stopImmediatePropagation" do
+        put_event_flag(this, "__stop_immediate__", true)
+        :undefined
+      end
+
+      method "preventDefault" do
+        put_event_flag(this, "defaultPrevented", true)
+        :undefined
+      end
+    end
   end
 
   def build_custom_event(args, this) do
     event = build_event(args, this)
-    detail = case Enum.at(args, 1) do
-      {:obj, _} = opts -> Get.get(opts, "detail")
-      _ -> nil
-    end
+
+    detail =
+      case arg(args, 1, nil) do
+        {:obj, _} = opts -> Get.get(opts, "detail")
+        _ -> nil
+      end
 
     {:obj, ref} = event
     Heap.update_obj(ref, %{}, fn m -> Map.put(m, "detail", detail) end)
@@ -165,25 +145,33 @@ defmodule QuickBEAM.VM.Runtime.Web.Events do
 
     dom_exc_proto = get_dom_exception_proto()
 
-    Heap.wrap(%{
-      "message" => message,
-      "name" => name,
-      "code" => 0,
-      "__proto__" => dom_exc_proto
-    })
+    object do
+      prop("message", message)
+      prop("name", name)
+      prop("code", 0)
+      prop("__proto__", dom_exc_proto)
+    end
   end
 
+  defp put_event_flag({:obj, ref}, key, value) do
+    Heap.update_obj(ref, %{}, &Map.put(&1, key, value))
+  end
+
+  defp put_event_flag(_, _key, _value), do: :ok
+
   defp build_dom_exception_ctor do
-    ctor = {:builtin, "DOMException", &build_dom_exception/2}
-    proto = Heap.wrap(%{"constructor" => ctor, "__proto__" => build_error_proto()})
-    Heap.put_class_proto(ctor, proto)
-    Heap.put_ctor_static(ctor, "prototype", proto)
-    ctor
+    constructor "DOMException", &build_dom_exception/2 do
+      proto do
+        extends(build_error_proto())
+      end
+    end
   end
 
   defp get_dom_exception_proto do
     case Heap.get_global_cache() do
-      nil -> nil
+      nil ->
+        nil
+
       globals ->
         case Map.get(globals, "DOMException") do
           {:builtin, _, _} = ctor -> Heap.get_class_proto(ctor)

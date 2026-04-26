@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Runtime.Errors do
   @moduledoc "JS Error constructors and prototype: `Error`, `TypeError`, `RangeError`, and the other standard error types."
 
-  import QuickBEAM.VM.Builtin, only: [build_methods: 1]
+  import QuickBEAM.VM.Builtin, only: [arg: 3, object: 2]
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
@@ -36,11 +36,11 @@ defmodule QuickBEAM.VM.Runtime.Errors do
 
     Heap.put_obj(
       error_proto_ref,
-      build_methods do
-        val("name", "Error")
-        val("message", "")
-        val("constructor", error_ctor)
-        val("toString", error_tostring)
+      object heap: false do
+        prop("name", "Error")
+        prop("message", "")
+        prop("constructor", error_ctor)
+        prop("toString", error_tostring)
       end
     )
 
@@ -56,7 +56,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
            JSThrow.type_error!("Cannot convert undefined to object")
 
          [obj | rest], _ ->
-           filter_fun = List.first(rest)
+           filter_fun = arg(rest, 0, nil)
 
            case obj do
              {:obj, _} -> Stacktrace.attach_stack(obj, filter_fun)
@@ -77,11 +77,11 @@ defmodule QuickBEAM.VM.Runtime.Errors do
 
         Heap.put_obj(
           proto_ref,
-          build_methods do
-            val("__proto__", {:obj, error_proto_ref})
-            val("name", name)
-            val("message", "")
-            val("constructor", ctor)
+          object heap: false do
+            prop("__proto__", {:obj, error_proto_ref})
+            prop("name", name)
+            prop("message", "")
+            prop("constructor", ctor)
           end
         )
 
@@ -95,7 +95,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
   end
 
   defp error_constructor(name, args) do
-    msg = List.first(args, "")
+    msg = arg(args, 0, "")
     error = Heap.make_error(Runtime.stringify(msg), name)
     Stacktrace.attach_stack(error)
   end

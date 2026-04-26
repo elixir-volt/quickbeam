@@ -613,9 +613,9 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp fill({:obj, ref}, args) do
     list = Heap.obj_to_list(ref)
-    val = Enum.at(args, 0, :undefined)
-    start_idx = Enum.at(args, 1) || 0
-    end_idx = Enum.at(args, 2) || length(list)
+    val = arg(args, 0, :undefined)
+    start_idx = arg(args, 1, nil) || 0
+    end_idx = arg(args, 2, nil) || length(list)
 
     new_list =
       Enum.with_index(list, fn item, idx ->
@@ -629,7 +629,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp fill({:qb_arr, arr}, args), do: fill(:array.to_list(arr), args)
 
   defp fill(list, args) when is_list(list) do
-    val = Enum.at(args, 0, :undefined)
+    val = arg(args, 0, :undefined)
     List.duplicate(val, length(list))
   end
 
@@ -723,9 +723,9 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp copy_within({:obj, ref}, args) do
     list = Heap.obj_to_list(ref)
     len = length(list)
-    target = Runtime.normalize_index(Runtime.to_int(Enum.at(args, 0, 0)), len)
-    start_idx = Runtime.normalize_index(Runtime.to_int(Enum.at(args, 1, 0)), len)
-    end_idx = Runtime.normalize_index(Runtime.to_int(Enum.at(args, 2) || len), len)
+    target = Runtime.normalize_index(Runtime.to_int(arg(args, 0, 0)), len)
+    start_idx = Runtime.normalize_index(Runtime.to_int(arg(args, 1, 0)), len)
+    end_idx = Runtime.normalize_index(Runtime.to_int(arg(args, 2, nil) || len), len)
     slice = Enum.slice(list, start_idx, end_idx - start_idx)
 
     new_list =
@@ -850,8 +850,8 @@ defmodule QuickBEAM.VM.Runtime.Array do
          end
        end}
 
-    build_object do
-      val("next", next_fn)
+    object do
+      prop("next", next_fn)
     end
   end
 

@@ -147,16 +147,16 @@ defmodule QuickBEAM.VM.Invocation do
   def invoke_callback(ctx, fun, args) do
     case fun do
       %Bytecode.Function{} = bytecode_fun ->
-        callback_invoke(bytecode_fun, args, ctx, fn -> List.first(args, :undefined) end)
+        callback_invoke(bytecode_fun, args, ctx, fn -> Builtin.arg(args, 0, :undefined) end)
 
       {:closure, _, %Bytecode.Function{}} = closure ->
-        callback_invoke(closure, args, ctx, fn -> List.first(args, :undefined) end)
+        callback_invoke(closure, args, ctx, fn -> Builtin.arg(args, 0, :undefined) end)
 
       _ ->
         try do
           Builtin.call(fun, args, nil)
         catch
-          {:js_throw, _} -> List.first(args, :undefined)
+          {:js_throw, _} -> Builtin.arg(args, 0, :undefined)
         end
     end
   end

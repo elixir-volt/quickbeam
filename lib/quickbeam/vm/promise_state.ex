@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.PromiseState do
   @moduledoc "Promise lifecycle: create resolved/rejected promises, chain `.then`/`.catch`/`.finally`, and flush microtasks."
 
   import QuickBEAM.VM.Heap.Keys
+  import QuickBEAM.VM.Builtin, only: [arg: 3]
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter
@@ -12,7 +13,7 @@ defmodule QuickBEAM.VM.PromiseState do
   def promise_then(args, {:obj, promise_ref}), do: then_impl(args, promise_ref)
   def promise_then(_args, _this), do: resolved(:undefined)
 
-  def promise_catch(args, this), do: promise_then([nil, List.first(args)], this)
+  def promise_catch(args, this), do: promise_then([nil, arg(args, 0, nil)], this)
 
   def promise_finally([callback | _], {:obj, promise_ref}) do
     then_impl(
@@ -112,12 +113,12 @@ defmodule QuickBEAM.VM.PromiseState do
   end
 
   defp catch_fn(promise_ref) do
-    {:builtin, "catch", fn args, _this -> then_impl([nil, List.first(args)], promise_ref) end}
+    {:builtin, "catch", fn args, _this -> then_impl([nil, arg(args, 0, nil)], promise_ref) end}
   end
 
   defp then_impl(args, promise_ref) do
-    on_fulfilled = Enum.at(args, 0)
-    on_rejected = Enum.at(args, 1)
+    on_fulfilled = arg(args, 0, nil)
+    on_rejected = arg(args, 1, nil)
 
     case Heap.get_obj(promise_ref, %{}) do
       %{promise_state() => state, promise_value() => val} when state in [:resolved, :rejected] ->

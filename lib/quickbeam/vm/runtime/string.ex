@@ -107,7 +107,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   proto "localeCompare" do
-    other = List.first(args, "")
+    other = arg(args, 0, "")
     other_str = if is_binary(other), do: other, else: Runtime.stringify(other)
 
     cond do

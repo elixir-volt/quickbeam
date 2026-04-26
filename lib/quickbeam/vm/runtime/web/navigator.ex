@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Runtime.Web.Navigator do
   @moduledoc "navigator object with navigator.locks for BEAM mode."
 
-  import QuickBEAM.VM.Builtin, only: [build_object: 1]
+  import QuickBEAM.VM.Builtin, only: [object: 1]
 
   alias QuickBEAM.VM.{Heap, JSThrow, PromiseState}
   alias QuickBEAM.VM.ObjectModel.Get
@@ -11,17 +11,17 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
   end
 
   defp build_navigator do
-    build_object do
-      val("userAgent", "QuickBEAM/1.0")
-      val("platform", "BEAM")
-      val("language", "en-US")
-      val("onLine", true)
-      val("locks", build_locks())
+    object do
+      prop("userAgent", "QuickBEAM/1.0")
+      prop("platform", "BEAM")
+      prop("language", "en-US")
+      prop("onLine", true)
+      prop("locks", build_locks())
     end
   end
 
   defp build_locks do
-    build_object do
+    object do
       method "request" do
         case args do
           [name | rest] ->
@@ -47,18 +47,21 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
         held_list = Map.get(result, :held, [])
         pending_list = Map.get(result, :pending, [])
 
-        held_js = Enum.map(held_list, fn lock ->
-          Heap.wrap(%{"name" => lock.name, "mode" => lock.mode})
-        end)
+        held_js =
+          Enum.map(held_list, fn lock ->
+            Heap.wrap(%{"name" => lock.name, "mode" => lock.mode})
+          end)
 
-        pending_js = Enum.map(pending_list, fn req ->
-          Heap.wrap(%{"name" => req.name, "mode" => req.mode})
-        end)
+        pending_js =
+          Enum.map(pending_list, fn req ->
+            Heap.wrap(%{"name" => req.name, "mode" => req.mode})
+          end)
 
-        query_result = Heap.wrap(%{
-          "held" => held_js,
-          "pending" => pending_js
-        })
+        query_result =
+          Heap.wrap(%{
+            "held" => held_js,
+            "pending" => pending_js
+          })
 
         PromiseState.resolved(query_result)
       end
@@ -68,10 +71,11 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
   defp parse_lock_opts(rest) do
     case rest do
       [opts, cb | _] when not is_function(opts) ->
-        mode = case Get.get(opts, "mode") do
-          m when is_binary(m) -> m
-          _ -> "exclusive"
-        end
+        mode =
+          case Get.get(opts, "mode") do
+            m when is_binary(m) -> m
+            _ -> "exclusive"
+          end
 
         if_avail = Get.get(opts, "ifAvailable") == true
         {mode, if_avail, cb}
@@ -115,6 +119,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
             spawn(fn ->
               wait_and_release(name, caller_pid, 30_000)
             end)
+
             # Return a promise that will resolve when the callback completes
             result
 
@@ -133,6 +138,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
 
       "not_available" ->
         lock_null = nil
+
         result =
           try do
             QuickBEAM.VM.Interpreter.invoke_callback(callback, [lock_null])
@@ -149,6 +155,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
 
   defp check_pending_promise({:obj, ref}) do
     import QuickBEAM.VM.Heap.Keys
+
     case Heap.get_obj(ref, %{}) do
       %{promise_state() => :pending} -> {:pending, ref}
       %{promise_state() => :resolved, promise_value() => v} -> {:resolved, v}
@@ -156,11 +163,13 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
       _ -> :not_promise
     end
   end
+
   defp check_pending_promise(_), do: :not_promise
 
   defp wait_and_release(name, _holder_pid, release_after_ms) do
     try do
       grant = QuickBEAM.LocksAPI.request_lock([name, "exclusive", false], self())
+
       if grant == "granted" do
         Process.sleep(release_after_ms)
         QuickBEAM.LocksAPI.release_lock([name], self())
@@ -174,16 +183,24 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
     case val do
       {:obj, ref} ->
         import QuickBEAM.VM.Heap.Keys
+
         case Heap.get_obj(ref, %{}) do
-          %{promise_state() => :resolved, promise_value() => v} -> v
+          %{promise_state() => :resolved, promise_value() => v} ->
+            v
+
           %{promise_state() => :rejected, promise_value() => v} ->
             throw({:js_throw, v})
+
           %{promise_state() => :pending} ->
             # Block waiting for resolution
             wait_for_promise(ref, 5000)
-          _ -> val
+
+          _ ->
+            val
         end
-      _ -> val
+
+      _ ->
+        val
     end
   end
 
@@ -201,10 +218,15 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
     QuickBEAM.VM.PromiseState.drain_microtasks()
 
     case Heap.get_obj(ref, %{}) do
-      %{promise_state() => :resolved, promise_value() => v} -> v
-      %{promise_state() => :rejected, promise_value() => v} -> throw({:js_throw, v})
+      %{promise_state() => :resolved, promise_value() => v} ->
+        v
+
+      %{promise_state() => :rejected, promise_value() => v} ->
+        throw({:js_throw, v})
+
       _ ->
         now = System.monotonic_time(:millisecond)
+
         if now >= deadline do
           JSThrow.type_error!("Lock callback timed out")
         else

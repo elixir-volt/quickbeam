@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   @moduledoc "Node.js Buffer class builtin for BEAM mode."
 
   import Bitwise
-  import QuickBEAM.VM.Builtin, only: [build_methods: 1]
+  import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, builtin_args: 2]
 
   alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
@@ -20,95 +20,48 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     Heap.put_class_proto(ctor, proto)
     Heap.put_ctor_static(ctor, "prototype", proto)
 
-    # Static methods
-    Heap.put_ctor_static(ctor, "from", {:builtin, "Buffer.from", fn args, _ -> buffer_from(args) end})
-    Heap.put_ctor_static(ctor, "alloc", {:builtin, "Buffer.alloc", fn args, _ -> buffer_alloc(args) end})
-    Heap.put_ctor_static(ctor, "allocUnsafe", {:builtin, "Buffer.allocUnsafe", fn args, _ -> buffer_alloc_unsafe(args) end})
-    Heap.put_ctor_static(ctor, "allocUnsafeSlow", {:builtin, "Buffer.allocUnsafeSlow", fn args, _ -> buffer_alloc_unsafe(args) end})
-    Heap.put_ctor_static(ctor, "concat", {:builtin, "Buffer.concat", fn args, _ -> buffer_concat(args) end})
-    Heap.put_ctor_static(ctor, "compare", {:builtin, "Buffer.compare", fn args, _ -> buffer_compare(args) end})
-    Heap.put_ctor_static(ctor, "isBuffer", {:builtin, "Buffer.isBuffer", fn args, _ -> buffer_is_buffer(args) end})
-    Heap.put_ctor_static(ctor, "isEncoding", {:builtin, "Buffer.isEncoding", fn args, _ -> buffer_is_encoding(args) end})
-    Heap.put_ctor_static(ctor, "byteLength", {:builtin, "Buffer.byteLength", fn args, _ -> buffer_byte_length(args) end})
+    put_static_methods(ctor, %{
+      "from" => &buffer_from/1,
+      "alloc" => &buffer_alloc/1,
+      "allocUnsafe" => &buffer_alloc_unsafe/1,
+      "allocUnsafeSlow" => &buffer_alloc_unsafe/1,
+      "concat" => &buffer_concat/1,
+      "compare" => &buffer_compare/1,
+      "isBuffer" => &buffer_is_buffer/1,
+      "isEncoding" => &buffer_is_encoding/1,
+      "byteLength" => &buffer_byte_length/1
+    })
 
     ctor
   end
 
+  defp put_static_methods(ctor, methods) do
+    Enum.each(methods, fn {name, callback} ->
+      Heap.put_ctor_static(ctor, name, builtin_args("Buffer." <> name, callback))
+    end)
+  end
+
   defp build_buffer_proto(ctor) do
     proto_ref = make_ref()
-    methods = build_methods do
-      val("constructor", ctor)
-    end
 
-    proto_map = Map.merge(methods, %{
-      "toString" => {:builtin, "toString", fn args, this -> buf_to_string(this, args) end},
-      "write" => {:builtin, "write", fn args, this -> buf_write(this, args) end},
-      "slice" => {:builtin, "slice", fn args, this -> buf_slice(this, args) end},
-      "subarray" => {:builtin, "subarray", fn args, this -> buf_slice(this, args) end},
-      "copy" => {:builtin, "copy", fn args, this -> buf_copy(this, args) end},
-      "compare" => {:builtin, "compare", fn args, this -> buf_compare_instance(this, args) end},
-      "equals" => {:builtin, "equals", fn args, this -> buf_equals(this, args) end},
-      "indexOf" => {:builtin, "indexOf", fn args, this -> buf_index_of(this, args) end},
-      "lastIndexOf" => {:builtin, "lastIndexOf", fn args, this -> buf_last_index_of(this, args) end},
-      "includes" => {:builtin, "includes", fn args, this -> buf_includes(this, args) end},
-      "fill" => {:builtin, "fill", fn args, this ->
-        buf_fill(this, args)
-        this
-      end},
-      "toJSON" => {:builtin, "toJSON", fn _args, this -> buf_to_json(this) end},
-      "swap16" => {:builtin, "swap16", fn _args, this -> buf_swap16(this) end},
-      "swap32" => {:builtin, "swap32", fn _args, this -> buf_swap32(this) end},
-      "swap64" => {:builtin, "swap64", fn _args, this -> buf_swap64(this) end},
-      "readUInt8" => {:builtin, "readUInt8", fn args, this -> buf_read_uint(this, args, 1, :unsigned, :big) end},
-      "readUInt16BE" => {:builtin, "readUInt16BE", fn args, this -> buf_read_uint(this, args, 2, :unsigned, :big) end},
-      "readUInt16LE" => {:builtin, "readUInt16LE", fn args, this -> buf_read_uint(this, args, 2, :unsigned, :little) end},
-      "readUInt32BE" => {:builtin, "readUInt32BE", fn args, this -> buf_read_uint(this, args, 4, :unsigned, :big) end},
-      "readUInt32LE" => {:builtin, "readUInt32LE", fn args, this -> buf_read_uint(this, args, 4, :unsigned, :little) end},
-      "readInt8" => {:builtin, "readInt8", fn args, this -> buf_read_uint(this, args, 1, :signed, :big) end},
-      "readInt16BE" => {:builtin, "readInt16BE", fn args, this -> buf_read_uint(this, args, 2, :signed, :big) end},
-      "readInt16LE" => {:builtin, "readInt16LE", fn args, this -> buf_read_uint(this, args, 2, :signed, :little) end},
-      "readInt32BE" => {:builtin, "readInt32BE", fn args, this -> buf_read_uint(this, args, 4, :signed, :big) end},
-      "readInt32LE" => {:builtin, "readInt32LE", fn args, this -> buf_read_uint(this, args, 4, :signed, :little) end},
-      "readBigUInt64BE" => {:builtin, "readBigUInt64BE", fn args, this -> buf_read_uint(this, args, 8, :unsigned, :big) end},
-      "readBigUInt64LE" => {:builtin, "readBigUInt64LE", fn args, this -> buf_read_uint(this, args, 8, :unsigned, :little) end},
-      "readBigInt64BE" => {:builtin, "readBigInt64BE", fn args, this -> buf_read_uint(this, args, 8, :signed, :big) end},
-      "readBigInt64LE" => {:builtin, "readBigInt64LE", fn args, this -> buf_read_uint(this, args, 8, :signed, :little) end},
-      "readFloatBE" => {:builtin, "readFloatBE", fn args, this -> buf_read_float(this, args, 4, :big) end},
-      "readFloatLE" => {:builtin, "readFloatLE", fn args, this -> buf_read_float(this, args, 4, :little) end},
-      "readDoubleBE" => {:builtin, "readDoubleBE", fn args, this -> buf_read_float(this, args, 8, :big) end},
-      "readDoubleLE" => {:builtin, "readDoubleLE", fn args, this -> buf_read_float(this, args, 8, :little) end},
-      "writeUInt8" => {:builtin, "writeUInt8", fn args, this -> buf_write_uint(this, args, 1, :unsigned, :big) end},
-      "writeUInt16BE" => {:builtin, "writeUInt16BE", fn args, this -> buf_write_uint(this, args, 2, :unsigned, :big) end},
-      "writeUInt16LE" => {:builtin, "writeUInt16LE", fn args, this -> buf_write_uint(this, args, 2, :unsigned, :little) end},
-      "writeUInt32BE" => {:builtin, "writeUInt32BE", fn args, this -> buf_write_uint(this, args, 4, :unsigned, :big) end},
-      "writeUInt32LE" => {:builtin, "writeUInt32LE", fn args, this -> buf_write_uint(this, args, 4, :unsigned, :little) end},
-      "writeInt8" => {:builtin, "writeInt8", fn args, this -> buf_write_uint(this, args, 1, :signed, :big) end},
-      "writeInt16BE" => {:builtin, "writeInt16BE", fn args, this -> buf_write_uint(this, args, 2, :signed, :big) end},
-      "writeInt16LE" => {:builtin, "writeInt16LE", fn args, this -> buf_write_uint(this, args, 2, :signed, :little) end},
-      "writeInt32BE" => {:builtin, "writeInt32BE", fn args, this -> buf_write_uint(this, args, 4, :signed, :big) end},
-      "writeInt32LE" => {:builtin, "writeInt32LE", fn args, this -> buf_write_uint(this, args, 4, :signed, :little) end},
-      "writeFloatBE" => {:builtin, "writeFloatBE", fn args, this -> buf_write_float(this, args, 4, :big) end},
-      "writeFloatLE" => {:builtin, "writeFloatLE", fn args, this -> buf_write_float(this, args, 4, :little) end},
-      "writeDoubleBE" => {:builtin, "writeDoubleBE", fn args, this -> buf_write_float(this, args, 8, :big) end},
-      "writeDoubleLE" => {:builtin, "writeDoubleLE", fn args, this -> buf_write_float(this, args, 8, :little) end},
-      "__is_buffer__" => true
-    })
+    proto_map =
+      nil
+      |> buffer_methods()
+      |> Map.merge(%{"constructor" => ctor, "__is_buffer__" => true})
+      |> put_if_present("__proto__", get_uint8_proto())
 
-    # Inherit typed array proto methods (forEach, map, every, etc.)
-    uint8_proto = get_uint8_proto()
-    final_map = if uint8_proto do
-      Map.put(proto_map, "__proto__", uint8_proto)
-    else
-      proto_map
-    end
-
-    Heap.put_obj(proto_ref, final_map)
+    Heap.put_obj(proto_ref, proto_map)
     {:obj, proto_ref}
   end
 
+  defp put_if_present(map, _key, nil), do: map
+  defp put_if_present(map, key, value), do: Map.put(map, key, value)
+
   defp get_uint8_proto do
     case Heap.get_global_cache() do
-      nil -> nil
+      nil ->
+        nil
+
       globals ->
         case Map.get(globals, "Uint8Array") do
           {:builtin, _, _} = ctor -> Heap.get_class_proto(ctor)
@@ -123,54 +76,61 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   # ── Buffer.from ──
 
   def buffer_from([src | rest]) do
-    bytes = case src do
-      b when is_binary(b) ->
-        encoding = get_encoding(rest, 0)
-        case encoding do
-          "hex" -> hex_decode(b)
-          "base64" -> base64_decode(b)
-          "base64url" -> base64url_decode(b)
-          "latin1" -> latin1_to_bytes(b)
-          "binary" -> latin1_to_bytes(b)
-          "ascii" -> ascii_bytes(b)
-          enc when enc in ["utf16le", "ucs2", "ucs-2", "utf-16le"] -> utf16le_encode(b)
-          _ -> b  # utf8
-        end
+    bytes =
+      case src do
+        b when is_binary(b) ->
+          encoding = get_encoding(rest, 0)
 
-      {:bytes, bin} when is_binary(bin) -> bin
+          case encoding do
+            "hex" -> hex_decode(b)
+            "base64" -> base64_decode(b)
+            "base64url" -> base64url_decode(b)
+            "latin1" -> latin1_to_bytes(b)
+            "binary" -> latin1_to_bytes(b)
+            "ascii" -> ascii_bytes(b)
+            enc when enc in ["utf16le", "ucs2", "ucs-2", "utf-16le"] -> utf16le_encode(b)
+            # utf8
+            _ -> b
+          end
 
-      {:obj, _} = arr ->
-        case get_obj_type(arr) do
-          :array_buffer ->
-            ab_data = extract_ab(arr)
-            offset = to_int(Enum.at(rest, 0, 0))
-            ab_len = byte_size(ab_data)
-            len = to_int(Enum.at(rest, 1, ab_len - offset))
-            start = min(offset, ab_len)
-            actual_len = min(len, ab_len - start)
-            if actual_len > 0, do: binary_part(ab_data, start, actual_len), else: <<>>
+        {:bytes, bin} when is_binary(bin) ->
+          bin
 
-          :typed_array ->
-            extract_typed_bytes(arr)
+        {:obj, _} = arr ->
+          case get_obj_type(arr) do
+            :array_buffer ->
+              ab_data = extract_ab(arr)
+              offset = to_int(Enum.at(rest, 0, 0))
+              ab_len = byte_size(ab_data)
+              len = to_int(Enum.at(rest, 1, ab_len - offset))
+              start = min(offset, ab_len)
+              actual_len = min(len, ab_len - start)
+              if actual_len > 0, do: binary_part(ab_data, start, actual_len), else: <<>>
 
-          :json_buffer ->
-            data = Get.get(arr, "data")
-            list_to_bytes(data)
+            :typed_array ->
+              extract_typed_bytes(arr)
 
-          :array_like ->
-            list_to_bytes(arr)
+            :json_buffer ->
+              data = Get.get(arr, "data")
+              list_to_bytes(data)
 
-          _ ->
-            <<>>
-        end
+            :array_like ->
+              list_to_bytes(arr)
 
-      {:qb_arr, _} = arr ->
-        items = Heap.to_list(arr)
-        list_to_bytes_raw(items)
+            _ ->
+              <<>>
+          end
 
-      list when is_list(list) -> list_to_bytes_raw(list)
-      _ -> <<>>
-    end
+        {:qb_arr, _} = arr ->
+          items = Heap.to_list(arr)
+          list_to_bytes_raw(items)
+
+        list when is_list(list) ->
+          list_to_bytes_raw(list)
+
+        _ ->
+          <<>>
+      end
 
     wrap_buffer(bytes)
   end
@@ -186,18 +146,25 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     fill = Enum.at(rest, 0, 0)
     _enc = get_encoding(rest, 2)
 
-    bytes = case fill do
-      0 -> :binary.copy(<<0>>, n)
-      f when is_integer(f) ->
-        byte_val = band(f, 0xFF)
-        :binary.copy(<<byte_val>>, n)
-      f when is_float(f) ->
-        byte_val = band(trunc(f), 0xFF)
-        :binary.copy(<<byte_val>>, n)
-      f when is_binary(f) ->
-        fill_with_string(n, f)
-      _ -> :binary.copy(<<0>>, n)
-    end
+    bytes =
+      case fill do
+        0 ->
+          :binary.copy(<<0>>, n)
+
+        f when is_integer(f) ->
+          byte_val = band(f, 0xFF)
+          :binary.copy(<<byte_val>>, n)
+
+        f when is_float(f) ->
+          byte_val = band(trunc(f), 0xFF)
+          :binary.copy(<<byte_val>>, n)
+
+        f when is_binary(f) ->
+          fill_with_string(n, f)
+
+        _ ->
+          :binary.copy(<<0>>, n)
+      end
 
     wrap_buffer(bytes)
   end
@@ -214,26 +181,31 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   # ── Buffer.concat ──
 
   defp buffer_concat([list | rest]) do
-    total_limit = case rest do
-      [n | _] when is_integer(n) -> n
-      [n | _] when is_float(n) -> trunc(n)
-      _ -> nil
-    end
+    total_limit =
+      case rest do
+        [n | _] when is_integer(n) -> n
+        [n | _] when is_float(n) -> trunc(n)
+        _ -> nil
+      end
 
-    items = case list do
-      {:obj, _} -> Heap.to_list(list)
-      l when is_list(l) -> l
-      _ -> []
-    end
+    items =
+      case list do
+        {:obj, _} -> Heap.to_list(list)
+        l when is_list(l) -> l
+        _ -> []
+      end
 
     combined = Enum.map_join(items, "", &extract_buf_bytes/1)
 
-    final = case total_limit do
-      nil -> combined
-      n ->
-        limit = min(n, byte_size(combined))
-        binary_part(combined, 0, limit)
-    end
+    final =
+      case total_limit do
+        nil ->
+          combined
+
+        n ->
+          limit = min(n, byte_size(combined))
+          binary_part(combined, 0, limit)
+      end
 
     wrap_buffer(final)
   end
@@ -273,14 +245,17 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
 
   defp buffer_byte_length([str | rest]) when is_binary(str) do
     enc = get_encoding(rest, 0)
+
     case enc do
       "hex" -> div(byte_size(str), 2)
       "base64" -> base64_byte_length(str)
       "base64url" -> base64url_byte_length(str)
-      "latin1" -> byte_size(str) |> div(1)  # 1 char = 1 byte (approx via UTF8 encoding)
+      # 1 char = 1 byte (approx via UTF8 encoding)
+      "latin1" -> byte_size(str) |> div(1)
       "binary" -> String.length(str)
       enc when enc in ["utf16le", "ucs2", "ucs-2", "utf-16le"] -> String.length(str) * 2
-      _ -> byte_size(str)  # UTF-8
+      # UTF-8
+      _ -> byte_size(str)
     end
   end
 
@@ -294,66 +269,92 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
 
   defp buf_to_string(this, args) do
     bytes = extract_buf_bytes(this)
-    enc = case args do
-      [e | _] when is_binary(e) -> String.downcase(e)
-      _ -> "utf-8"
-    end
 
-    start_idx = case args do
-      [_, s | _] when is_integer(s) -> max(0, s)
-      [_, s | _] when is_float(s) -> max(0, trunc(s))
-      _ -> 0
-    end
+    enc =
+      case args do
+        [e | _] when is_binary(e) -> String.downcase(e)
+        _ -> "utf-8"
+      end
 
-    end_idx = case args do
-      [_, _, e | _] when is_integer(e) -> min(e, byte_size(bytes))
-      [_, _, e | _] when is_float(e) -> min(trunc(e), byte_size(bytes))
-      _ -> byte_size(bytes)
-    end
+    start_idx =
+      case args do
+        [_, s | _] when is_integer(s) -> max(0, s)
+        [_, s | _] when is_float(s) -> max(0, trunc(s))
+        _ -> 0
+      end
 
-    slice = if start_idx < byte_size(bytes) and end_idx > start_idx do
-      binary_part(bytes, start_idx, end_idx - start_idx)
-    else
-      <<>>
-    end
+    end_idx =
+      case args do
+        [_, _, e | _] when is_integer(e) -> min(e, byte_size(bytes))
+        [_, _, e | _] when is_float(e) -> min(trunc(e), byte_size(bytes))
+        _ -> byte_size(bytes)
+      end
+
+    slice =
+      if start_idx < byte_size(bytes) and end_idx > start_idx do
+        binary_part(bytes, start_idx, end_idx - start_idx)
+      else
+        <<>>
+      end
 
     case enc do
-      "hex" -> Base.encode16(slice, case: :lower)
-      "base64" -> Base.encode64(slice)
-      "base64url" -> Base.url_encode64(slice, padding: false)
-      "latin1" -> bytes_to_latin1(slice)
-      "binary" -> bytes_to_latin1(slice)
-      "ascii" -> bytes_to_ascii(slice)
+      "hex" ->
+        Base.encode16(slice, case: :lower)
+
+      "base64" ->
+        Base.encode64(slice)
+
+      "base64url" ->
+        Base.url_encode64(slice, padding: false)
+
+      "latin1" ->
+        bytes_to_latin1(slice)
+
+      "binary" ->
+        bytes_to_latin1(slice)
+
+      "ascii" ->
+        bytes_to_ascii(slice)
+
       enc when enc in ["utf16le", "ucs2", "ucs-2", "utf-16le"] ->
         :unicode.characters_to_binary(slice, {:utf16, :little}, :utf8)
-      _ -> slice  # utf8 — already binary
+
+      # utf8 — already binary
+      _ ->
+        slice
     end
   end
 
   defp buf_write(this, args) do
-    [str | rest] = args ++ [""]
-    offset = to_int(Enum.at(rest, 0, 0))
+    [str, offset_arg, max_len_arg, enc_arg] = argv(args, ["", 0, nil, "utf-8"])
+    offset = to_int(offset_arg)
     buf_len = get_buf_len(this)
-    _max_len = case Enum.at(rest, 1) do
-      n when is_integer(n) -> n
-      n when is_float(n) -> trunc(n)
-      _ -> buf_len - offset
-    end
-    enc = case Enum.at(rest, 2) do
-      e when is_binary(e) -> String.downcase(e)
-      _ -> "utf-8"
-    end
+
+    _max_len =
+      case max_len_arg do
+        n when is_integer(n) -> n
+        n when is_float(n) -> trunc(n)
+        _ -> buf_len - offset
+      end
+
+    enc =
+      case enc_arg do
+        e when is_binary(e) -> String.downcase(e)
+        _ -> "utf-8"
+      end
 
     str_bin = if is_binary(str), do: str, else: to_string(str)
-    write_bytes = case enc do
-      "hex" -> hex_decode(str_bin)
-      "base64" -> base64_decode(str_bin)
-      "base64url" -> base64url_decode(str_bin)
-      "latin1" -> latin1_to_bytes(str_bin)
-      "binary" -> latin1_to_bytes(str_bin)
-      "ascii" -> ascii_bytes(str_bin)
-      _ -> str_bin
-    end
+
+    write_bytes =
+      case enc do
+        "hex" -> hex_decode(str_bin)
+        "base64" -> base64_decode(str_bin)
+        "base64url" -> base64url_decode(str_bin)
+        "latin1" -> latin1_to_bytes(str_bin)
+        "binary" -> latin1_to_bytes(str_bin)
+        "ascii" -> ascii_bytes(str_bin)
+        _ -> str_bin
+      end
 
     available = max(0, buf_len - offset)
     actual_write = min(byte_size(write_bytes), available)
@@ -369,15 +370,17 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     bytes = extract_buf_bytes(this)
     total = byte_size(bytes)
 
-    start_idx = normalize_idx(Enum.at(args, 0, 0), total)
-    end_idx = normalize_idx(Enum.at(args, 1, total), total)
+    start_idx = args |> arg(0, 0) |> normalize_idx(total)
+    end_idx = args |> arg(1, total) |> normalize_idx(total)
 
     len = max(0, end_idx - start_idx)
-    sliced = if start_idx <= total and len > 0 do
-      binary_part(bytes, start_idx, min(len, total - start_idx))
-    else
-      <<>>
-    end
+
+    sliced =
+      if start_idx <= total and len > 0 do
+        binary_part(bytes, start_idx, min(len, total - start_idx))
+      else
+        <<>>
+      end
 
     wrap_buffer(sliced)
   end
@@ -423,13 +426,14 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     search_from = max(0, min(offset, byte_size(bytes)))
     haystack = binary_part(bytes, search_from, byte_size(bytes) - search_from)
 
-    needle_bytes = case needle do
-      n when is_integer(n) -> <<band(n, 0xFF)>>
-      n when is_float(n) -> <<band(trunc(n), 0xFF)>>
-      s when is_binary(s) -> s
-      {:obj, _} -> extract_buf_bytes(needle)
-      _ -> <<>>
-    end
+    needle_bytes =
+      case needle do
+        n when is_integer(n) -> <<band(n, 0xFF)>>
+        n when is_float(n) -> <<band(trunc(n), 0xFF)>>
+        s when is_binary(s) -> s
+        {:obj, _} -> extract_buf_bytes(needle)
+        _ -> <<>>
+      end
 
     case :binary.match(haystack, needle_bytes) do
       {pos, _} -> pos + search_from
@@ -443,15 +447,17 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     search_to = max(0, min(offset, byte_size(bytes)))
     haystack = binary_part(bytes, 0, search_to)
 
-    needle_bytes = case needle do
-      n when is_integer(n) -> <<band(n, 0xFF)>>
-      n when is_float(n) -> <<band(trunc(n), 0xFF)>>
-      s when is_binary(s) -> s
-      {:obj, _} -> extract_buf_bytes(needle)
-      _ -> <<>>
-    end
+    needle_bytes =
+      case needle do
+        n when is_integer(n) -> <<band(n, 0xFF)>>
+        n when is_float(n) -> <<band(trunc(n), 0xFF)>>
+        s when is_binary(s) -> s
+        {:obj, _} -> extract_buf_bytes(needle)
+        _ -> <<>>
+      end
 
     positions = :binary.matches(haystack, needle_bytes)
+
     case List.last(positions) do
       {pos, _} -> pos
       nil -> -1
@@ -463,17 +469,18 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   end
 
   defp buf_fill(this, args) do
-    [fill_val | rest] = args ++ [0]
     buf_len = get_buf_len(this)
-    offset = to_int(Enum.at(rest, 0, 0))
-    end_pos = to_int(Enum.at(rest, 1, buf_len))
+    [fill_val, offset_arg, end_arg] = argv(args, [0, 0, buf_len])
+    offset = to_int(offset_arg)
+    end_pos = to_int(end_arg)
 
-    fill_bytes = case fill_val do
-      n when is_integer(n) -> <<band(n, 0xFF)>>
-      n when is_float(n) -> <<band(trunc(n), 0xFF)>>
-      s when is_binary(s) -> if byte_size(s) > 0, do: s, else: <<0>>
-      _ -> <<0>>
-    end
+    fill_bytes =
+      case fill_val do
+        n when is_integer(n) -> <<band(n, 0xFF)>>
+        n when is_float(n) -> <<band(trunc(n), 0xFF)>>
+        s when is_binary(s) -> if byte_size(s) > 0, do: s, else: <<0>>
+        _ -> <<0>>
+      end
 
     actual_end = min(end_pos, buf_len)
     len = max(0, actual_end - offset)
@@ -497,15 +504,19 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     bytes = extract_buf_bytes(this)
     len = byte_size(bytes)
     if rem(len, 2) != 0, do: JSThrow.range_error!("Buffer size must be a multiple of 16-bits")
-    swapped = for i <- 0..(div(len, 2) - 1) do
-      a = :binary.at(bytes, i * 2)
-      b = :binary.at(bytes, i * 2 + 1)
-      {b, a}
-    end |> Enum.flat_map(fn {a, b} -> [a, b] end)
+
+    swapped =
+      for i <- 0..(div(len, 2) - 1) do
+        a = :binary.at(bytes, i * 2)
+        b = :binary.at(bytes, i * 2 + 1)
+        {b, a}
+      end
+      |> Enum.flat_map(fn {a, b} -> [a, b] end)
 
     Enum.each(Enum.with_index(swapped), fn {byte, i} ->
       Put.put_element(this, i, byte)
     end)
+
     this
   end
 
@@ -513,17 +524,21 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     bytes = extract_buf_bytes(this)
     len = byte_size(bytes)
     if rem(len, 4) != 0, do: JSThrow.range_error!("Buffer size must be a multiple of 32-bits")
-    swapped = for i <- 0..(div(len, 4) - 1) do
-      a = :binary.at(bytes, i * 4)
-      b = :binary.at(bytes, i * 4 + 1)
-      c = :binary.at(bytes, i * 4 + 2)
-      d = :binary.at(bytes, i * 4 + 3)
-      [d, c, b, a]
-    end |> List.flatten()
+
+    swapped =
+      for i <- 0..(div(len, 4) - 1) do
+        a = :binary.at(bytes, i * 4)
+        b = :binary.at(bytes, i * 4 + 1)
+        c = :binary.at(bytes, i * 4 + 2)
+        d = :binary.at(bytes, i * 4 + 3)
+        [d, c, b, a]
+      end
+      |> List.flatten()
 
     Enum.each(Enum.with_index(swapped), fn {byte, i} ->
       Put.put_element(this, i, byte)
     end)
+
     this
   end
 
@@ -531,19 +546,23 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     bytes = extract_buf_bytes(this)
     len = byte_size(bytes)
     if rem(len, 8) != 0, do: JSThrow.range_error!("Buffer size must be a multiple of 64-bits")
-    swapped = for i <- 0..(div(len, 8) - 1) do
-      chunk = binary_part(bytes, i * 8, 8)
-      :binary.bin_to_list(chunk) |> Enum.reverse()
-    end |> List.flatten()
+
+    swapped =
+      for i <- 0..(div(len, 8) - 1) do
+        chunk = binary_part(bytes, i * 8, 8)
+        :binary.bin_to_list(chunk) |> Enum.reverse()
+      end
+      |> List.flatten()
 
     Enum.each(Enum.with_index(swapped), fn {byte, i} ->
       Put.put_element(this, i, byte)
     end)
+
     this
   end
 
   defp buf_read_uint(this, args, size, sign, endian) do
-    offset = to_int(Enum.at(args, 0, 0))
+    offset = args |> arg(0, 0) |> to_int()
     bytes = extract_buf_bytes(this)
 
     if byte_size(bytes) < offset + size do
@@ -555,7 +574,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   end
 
   defp buf_read_float(this, args, size, endian) do
-    offset = to_int(Enum.at(args, 0, 0))
+    offset = args |> arg(0, 0) |> to_int()
     bytes = extract_buf_bytes(this)
 
     if byte_size(bytes) < offset + size do
@@ -567,24 +586,28 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   end
 
   defp buf_write_uint(this, args, size, sign, endian) do
-    [val | rest] = args ++ [0]
-    offset = to_int(Enum.at(rest, 0, 0))
+    [val, offset_arg] = argv(args, [0, 0])
+    offset = to_int(offset_arg)
     n = to_number(val)
     encoded = encode_int(n, size, sign, endian)
+
     Enum.each(0..(size - 1), fn i ->
       Put.put_element(this, offset + i, :binary.at(encoded, i))
     end)
+
     offset + size
   end
 
   defp buf_write_float(this, args, size, endian) do
-    [val | rest] = args ++ [0]
-    offset = to_int(Enum.at(rest, 0, 0))
+    [val, offset_arg] = argv(args, [0, 0])
+    offset = to_int(offset_arg)
     n = to_float(val)
     encoded = encode_float(n, size, endian)
+
     Enum.each(0..(size - 1), fn i ->
       Put.put_element(this, offset + i, :binary.at(encoded, i))
     end)
+
     offset + size
   end
 
@@ -634,14 +657,17 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     <<n::float-big-32>> = chunk
     n
   end
+
   defp decode_float(chunk, 4, :little) do
     <<n::float-little-32>> = chunk
     n
   end
+
   defp decode_float(chunk, 8, :big) do
     <<n::float-big-64>> = chunk
     n
   end
+
   defp decode_float(chunk, 8, :little) do
     <<n::float-little-64>> = chunk
     n
@@ -689,65 +715,160 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
               base = if buf_proto, do: Map.put(base, "__proto__", buf_proto), else: base
               if buf_ctor, do: Map.put(base, "constructor", buf_ctor), else: base
             end)
+
             result
-          _ -> result
+
+          _ ->
+            result
         end
 
       _ ->
-        Heap.wrap(%{"__buffer__" => bytes, "byteLength" => byte_size(bytes), "__is_buffer__" => true})
+        Heap.wrap(%{
+          "__buffer__" => bytes,
+          "byteLength" => byte_size(bytes),
+          "__is_buffer__" => true
+        })
     end
   end
 
-  defp build_instance_methods(ref) do
-    this = {:obj, ref}
-    %{
-      "toString" => {:builtin, "toString", fn args, _ -> buf_to_string(this, args) end},
-      "write" => {:builtin, "write", fn args, _ -> buf_write(this, args) end},
-      "slice" => {:builtin, "slice", fn args, _ -> buf_slice(this, args) end},
-      "subarray" => {:builtin, "subarray", fn args, _ -> buf_slice(this, args) end},
-      "copy" => {:builtin, "copy", fn args, _ -> buf_copy(this, args) end},
-      "compare" => {:builtin, "compare", fn args, _ -> buf_compare_instance(this, args) end},
-      "equals" => {:builtin, "equals", fn args, _ -> buf_equals(this, args) end},
-      "indexOf" => {:builtin, "indexOf", fn args, _ -> buf_index_of(this, args) end},
-      "lastIndexOf" => {:builtin, "lastIndexOf", fn args, _ -> buf_last_index_of(this, args) end},
-      "includes" => {:builtin, "includes", fn args, _ -> buf_includes(this, args) end},
-      "fill" => {:builtin, "fill", fn args, _ ->
-        buf_fill(this, args)
-        this
-      end},
-      "toJSON" => {:builtin, "toJSON", fn _, _ -> buf_to_json(this) end},
-      "swap16" => {:builtin, "swap16", fn _, _ -> buf_swap16(this) end},
-      "swap32" => {:builtin, "swap32", fn _, _ -> buf_swap32(this) end},
-      "swap64" => {:builtin, "swap64", fn _, _ -> buf_swap64(this) end},
-      "readUInt8" => {:builtin, "readUInt8", fn args, _ -> buf_read_uint(this, args, 1, :unsigned, :big) end},
-      "readUInt16BE" => {:builtin, "readUInt16BE", fn args, _ -> buf_read_uint(this, args, 2, :unsigned, :big) end},
-      "readUInt16LE" => {:builtin, "readUInt16LE", fn args, _ -> buf_read_uint(this, args, 2, :unsigned, :little) end},
-      "readUInt32BE" => {:builtin, "readUInt32BE", fn args, _ -> buf_read_uint(this, args, 4, :unsigned, :big) end},
-      "readUInt32LE" => {:builtin, "readUInt32LE", fn args, _ -> buf_read_uint(this, args, 4, :unsigned, :little) end},
-      "readInt8" => {:builtin, "readInt8", fn args, _ -> buf_read_uint(this, args, 1, :signed, :big) end},
-      "readInt16BE" => {:builtin, "readInt16BE", fn args, _ -> buf_read_uint(this, args, 2, :signed, :big) end},
-      "readInt16LE" => {:builtin, "readInt16LE", fn args, _ -> buf_read_uint(this, args, 2, :signed, :little) end},
-      "readInt32BE" => {:builtin, "readInt32BE", fn args, _ -> buf_read_uint(this, args, 4, :signed, :big) end},
-      "readInt32LE" => {:builtin, "readInt32LE", fn args, _ -> buf_read_uint(this, args, 4, :signed, :little) end},
-      "readFloatBE" => {:builtin, "readFloatBE", fn args, _ -> buf_read_float(this, args, 4, :big) end},
-      "readFloatLE" => {:builtin, "readFloatLE", fn args, _ -> buf_read_float(this, args, 4, :little) end},
-      "readDoubleBE" => {:builtin, "readDoubleBE", fn args, _ -> buf_read_float(this, args, 8, :big) end},
-      "readDoubleLE" => {:builtin, "readDoubleLE", fn args, _ -> buf_read_float(this, args, 8, :little) end},
-      "writeUInt8" => {:builtin, "writeUInt8", fn args, _ -> buf_write_uint(this, args, 1, :unsigned, :big) end},
-      "writeUInt16BE" => {:builtin, "writeUInt16BE", fn args, _ -> buf_write_uint(this, args, 2, :unsigned, :big) end},
-      "writeUInt16LE" => {:builtin, "writeUInt16LE", fn args, _ -> buf_write_uint(this, args, 2, :unsigned, :little) end},
-      "writeUInt32BE" => {:builtin, "writeUInt32BE", fn args, _ -> buf_write_uint(this, args, 4, :unsigned, :big) end},
-      "writeUInt32LE" => {:builtin, "writeUInt32LE", fn args, _ -> buf_write_uint(this, args, 4, :unsigned, :little) end},
-      "writeInt8" => {:builtin, "writeInt8", fn args, _ -> buf_write_uint(this, args, 1, :signed, :big) end},
-      "writeInt16BE" => {:builtin, "writeInt16BE", fn args, _ -> buf_write_uint(this, args, 2, :signed, :big) end},
-      "writeInt16LE" => {:builtin, "writeInt16LE", fn args, _ -> buf_write_uint(this, args, 2, :signed, :little) end},
-      "writeInt32BE" => {:builtin, "writeInt32BE", fn args, _ -> buf_write_uint(this, args, 4, :signed, :big) end},
-      "writeInt32LE" => {:builtin, "writeInt32LE", fn args, _ -> buf_write_uint(this, args, 4, :signed, :little) end},
-      "writeFloatBE" => {:builtin, "writeFloatBE", fn args, _ -> buf_write_float(this, args, 4, :big) end},
-      "writeFloatLE" => {:builtin, "writeFloatLE", fn args, _ -> buf_write_float(this, args, 4, :little) end},
-      "writeDoubleBE" => {:builtin, "writeDoubleBE", fn args, _ -> buf_write_float(this, args, 8, :big) end},
-      "writeDoubleLE" => {:builtin, "writeDoubleLE", fn args, _ -> buf_write_float(this, args, 8, :little) end}
-    }
+  defp build_instance_methods(ref), do: buffer_methods({:obj, ref})
+
+  defp buffer_methods(bound_this) do
+    %{}
+    |> Map.merge(receiver_methods(bound_this))
+    |> Map.merge(this_methods(bound_this))
+    |> Map.merge(integer_read_methods(bound_this))
+    |> Map.merge(float_read_methods(bound_this))
+    |> Map.merge(integer_write_methods(bound_this))
+    |> Map.merge(float_write_methods(bound_this))
+  end
+
+  defp receiver_methods(bound_this) do
+    [
+      {"toString", &buf_to_string/2},
+      {"write", &buf_write/2},
+      {"slice", &buf_slice/2},
+      {"subarray", &buf_slice/2},
+      {"copy", &buf_copy/2},
+      {"compare", &buf_compare_instance/2},
+      {"equals", &buf_equals/2},
+      {"indexOf", &buf_index_of/2},
+      {"lastIndexOf", &buf_last_index_of/2},
+      {"includes", &buf_includes/2}
+    ]
+    |> Map.new(fn {name, callback} -> {name, receiver_builtin(name, callback, bound_this)} end)
+    |> Map.put("fill", fill_builtin(bound_this))
+  end
+
+  defp this_methods(bound_this) do
+    [
+      {"toJSON", &buf_to_json/1},
+      {"swap16", &buf_swap16/1},
+      {"swap32", &buf_swap32/1},
+      {"swap64", &buf_swap64/1}
+    ]
+    |> Map.new(fn {name, callback} -> {name, this_builtin(name, callback, bound_this)} end)
+  end
+
+  defp integer_read_methods(bound_this) do
+    [
+      {"readUInt8", 1, :unsigned, :big},
+      {"readUInt16BE", 2, :unsigned, :big},
+      {"readUInt16LE", 2, :unsigned, :little},
+      {"readUInt32BE", 4, :unsigned, :big},
+      {"readUInt32LE", 4, :unsigned, :little},
+      {"readInt8", 1, :signed, :big},
+      {"readInt16BE", 2, :signed, :big},
+      {"readInt16LE", 2, :signed, :little},
+      {"readInt32BE", 4, :signed, :big},
+      {"readInt32LE", 4, :signed, :little},
+      {"readBigUInt64BE", 8, :unsigned, :big},
+      {"readBigUInt64LE", 8, :unsigned, :little},
+      {"readBigInt64BE", 8, :signed, :big},
+      {"readBigInt64LE", 8, :signed, :little}
+    ]
+    |> Map.new(fn {name, size, signed, endian} ->
+      {name,
+       receiver_builtin(
+         name,
+         fn this, args -> buf_read_uint(this, args, size, signed, endian) end,
+         bound_this
+       )}
+    end)
+  end
+
+  defp float_read_methods(bound_this) do
+    [
+      {"readFloatBE", 4, :big},
+      {"readFloatLE", 4, :little},
+      {"readDoubleBE", 8, :big},
+      {"readDoubleLE", 8, :little}
+    ]
+    |> Map.new(fn {name, size, endian} ->
+      {name,
+       receiver_builtin(
+         name,
+         fn this, args -> buf_read_float(this, args, size, endian) end,
+         bound_this
+       )}
+    end)
+  end
+
+  defp integer_write_methods(bound_this) do
+    [
+      {"writeUInt8", 1, :unsigned, :big},
+      {"writeUInt16BE", 2, :unsigned, :big},
+      {"writeUInt16LE", 2, :unsigned, :little},
+      {"writeUInt32BE", 4, :unsigned, :big},
+      {"writeUInt32LE", 4, :unsigned, :little},
+      {"writeInt8", 1, :signed, :big},
+      {"writeInt16BE", 2, :signed, :big},
+      {"writeInt16LE", 2, :signed, :little},
+      {"writeInt32BE", 4, :signed, :big},
+      {"writeInt32LE", 4, :signed, :little}
+    ]
+    |> Map.new(fn {name, size, signed, endian} ->
+      {name,
+       receiver_builtin(
+         name,
+         fn this, args -> buf_write_uint(this, args, size, signed, endian) end,
+         bound_this
+       )}
+    end)
+  end
+
+  defp float_write_methods(bound_this) do
+    [
+      {"writeFloatBE", 4, :big},
+      {"writeFloatLE", 4, :little},
+      {"writeDoubleBE", 8, :big},
+      {"writeDoubleLE", 8, :little}
+    ]
+    |> Map.new(fn {name, size, endian} ->
+      {name,
+       receiver_builtin(
+         name,
+         fn this, args -> buf_write_float(this, args, size, endian) end,
+         bound_this
+       )}
+    end)
+  end
+
+  defp receiver_builtin(name, callback, bound_this) do
+    {:builtin, name, fn args, this -> callback.(bound_this || this, args) end}
+  end
+
+  defp this_builtin(name, callback, bound_this) do
+    {:builtin, name, fn _args, this -> callback.(bound_this || this) end}
+  end
+
+  defp fill_builtin(bound_this) do
+    {:builtin, "fill",
+     fn args, this ->
+       this = bound_this || this
+       buf_fill(this, args)
+       this
+     end}
   end
 
   defp get_uint8_ctor do
@@ -778,49 +899,69 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
                     ab_buf = Map.get(bm, "__buffer__", <<>>)
                     offset = Map.get(m, "byteOffset", 0)
                     byte_len = Map.get(m, "byteLength", 0)
+
                     if byte_size(ab_buf) >= offset + byte_len and byte_len > 0 do
                       binary_part(ab_buf, offset, byte_len)
                     else
                       Map.get(m, "__buffer__", <<>>)
                     end
-                  _ -> <<>>
+
+                  _ ->
+                    <<>>
                 end
-              _ -> Map.get(m, "__buffer__", <<>>)
+
+              _ ->
+                Map.get(m, "__buffer__", <<>>)
             end
+
           Map.has_key?(m, "__buffer__") ->
             Map.get(m, "__buffer__", <<>>)
+
           true ->
             len = Map.get(m, "length", 0) |> to_int()
+
             Enum.map(0..(len - 1), fn i ->
               case Map.get(m, i) do
                 n when is_integer(n) -> n
                 n when is_float(n) -> trunc(n) |> band(0xFF)
                 _ -> 0
               end
-            end) |> :erlang.list_to_binary()
+            end)
+            |> :erlang.list_to_binary()
         end
-      list when is_list(list) -> :erlang.list_to_binary(Enum.map(list, fn
-        n when is_integer(n) -> band(n, 0xFF)
-        n when is_float(n) -> band(trunc(n), 0xFF)
-        _ -> 0
-      end))
-      _ -> <<>>
+
+      list when is_list(list) ->
+        :erlang.list_to_binary(
+          Enum.map(list, fn
+            n when is_integer(n) -> band(n, 0xFF)
+            n when is_float(n) -> band(trunc(n), 0xFF)
+            _ -> 0
+          end)
+        )
+
+      _ ->
+        <<>>
     end
   end
 
   def extract_buf_bytes(b) when is_binary(b), do: b
   def extract_buf_bytes({:bytes, b}) when is_binary(b), do: b
+
   def extract_buf_bytes(list) when is_list(list) do
-    :erlang.list_to_binary(Enum.map(list, fn
-      n when is_integer(n) -> band(n, 0xFF)
-      _ -> 0
-    end))
+    :erlang.list_to_binary(
+      Enum.map(list, fn
+        n when is_integer(n) -> band(n, 0xFF)
+        _ -> 0
+      end)
+    )
   end
+
   def extract_buf_bytes(_), do: <<>>
 
   defp get_obj_type({:obj, ref}) do
     case Heap.get_obj(ref, %{}) do
-      {:qb_arr, _} -> :array_like
+      {:qb_arr, _} ->
+        :array_like
 
       m when is_map(m) ->
         cond do
@@ -830,7 +971,8 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
           true -> :array_like
         end
 
-      _ -> :other
+      _ ->
+        :other
     end
   end
 
@@ -851,24 +993,32 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
                 ab = Map.get(bm, "__buffer__", <<>>)
                 offset = Map.get(m, "byteOffset", 0)
                 byte_len = Map.get(m, "byteLength", 0)
+
                 if byte_size(ab) >= offset + byte_len and byte_len > 0 do
                   binary_part(ab, offset, byte_len)
                 else
                   <<>>
                 end
-              _ -> <<>>
+
+              _ ->
+                <<>>
             end
+
           _ ->
             len = Map.get(m, "length", 0) |> to_int()
+
             Enum.map(0..(len - 1), fn i ->
               case Map.get(m, i) do
                 n when is_integer(n) -> n
                 n when is_float(n) -> band(trunc(n), 0xFF)
                 _ -> 0
               end
-            end) |> :erlang.list_to_binary()
+            end)
+            |> :erlang.list_to_binary()
         end
-      _ -> <<>>
+
+      _ ->
+        <<>>
     end
   end
 
@@ -885,7 +1035,8 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
       n when is_integer(n) -> band(n, 0xFF)
       n when is_float(n) -> band(trunc(n), 0xFF)
       _ -> 0
-    end) |> :erlang.list_to_binary()
+    end)
+    |> :erlang.list_to_binary()
   end
 
   # ── Encoding helpers ──
@@ -893,6 +1044,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   defp hex_decode(str) do
     # Remove invalid chars and ensure even length
     clean = str |> String.replace(~r/[^0-9a-fA-F]/, "") |> truncate_even()
+
     case Base.decode16(clean, case: :mixed) do
       {:ok, bytes} -> bytes
       _ -> <<>>
@@ -908,6 +1060,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     # Strip whitespace
     clean = String.replace(str, ~r/[\s]/, "")
     padded = pad_base64(clean)
+
     case Base.decode64(padded) do
       {:ok, bytes} -> bytes
       _ -> <<>>
@@ -916,10 +1069,14 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
 
   defp base64url_decode(str) do
     clean = String.replace(str, ~r/[\s]/, "")
+
     case Base.url_decode64(clean, padding: false) do
-      {:ok, bytes} -> bytes
+      {:ok, bytes} ->
+        bytes
+
       _ ->
         padded = pad_base64(String.replace(clean, "-", "+") |> String.replace("_", "/"))
+
         case Base.decode64(padded) do
           {:ok, bytes} -> bytes
           _ -> <<>>
@@ -985,6 +1142,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   defp fill_with_string(n, pattern) do
     pat_bytes = pattern |> String.to_charlist() |> Enum.map(&band(&1, 0xFF))
     pat_len = length(pat_bytes)
+
     if pat_len == 0 do
       :binary.copy(<<0>>, n)
     else
@@ -1008,6 +1166,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   defp normalize_idx(v, total) when is_integer(v) do
     if v < 0, do: max(0, total + v), else: min(v, total)
   end
+
   defp normalize_idx(v, total) when is_float(v), do: normalize_idx(trunc(v), total)
   defp normalize_idx(:undefined, total), do: total
   defp normalize_idx(nil, total), do: total

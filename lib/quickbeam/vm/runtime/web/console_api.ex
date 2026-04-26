@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.Runtime.Web.ConsoleAPI do
 
   require Logger
 
-  import QuickBEAM.VM.Builtin, only: [build_object: 1]
+  import QuickBEAM.VM.Builtin, only: [arg: 3, object: 1]
 
   alias QuickBEAM.VM.{Heap, Runtime}
 
@@ -15,7 +15,7 @@ defmodule QuickBEAM.VM.Runtime.Web.ConsoleAPI do
   end
 
   defp console_object do
-    build_object do
+    object do
       method "log" do
         msg = format_args(args)
         Logger.info(msg)
@@ -55,69 +55,88 @@ defmodule QuickBEAM.VM.Runtime.Web.ConsoleAPI do
       method "assert" do
         case args do
           [cond_val | rest] ->
-            falsy = cond_val == false or cond_val == nil or cond_val == :undefined or cond_val == 0 or cond_val == ""
+            falsy =
+              cond_val == false or cond_val == nil or cond_val == :undefined or cond_val == 0 or
+                cond_val == ""
+
             if falsy do
               msg = if rest == [], do: "", else: format_args(rest)
               Logger.error("Assertion failed: #{msg}")
             end
+
           _ ->
             Logger.error("Assertion failed:")
         end
+
         :undefined
       end
 
       method "time" do
-        label = case args do
-          [l | _] when is_binary(l) -> l
-          _ -> "default"
-        end
+        label =
+          case args do
+            [l | _] when is_binary(l) -> l
+            _ -> "default"
+          end
+
         timers = Process.get(@timer_key, %{})
         Process.put(@timer_key, Map.put(timers, label, System.monotonic_time(:millisecond)))
         :undefined
       end
 
       method "timeEnd" do
-        label = case args do
-          [l | _] when is_binary(l) -> l
-          _ -> "default"
-        end
+        label =
+          case args do
+            [l | _] when is_binary(l) -> l
+            _ -> "default"
+          end
+
         timers = Process.get(@timer_key, %{})
         now = System.monotonic_time(:millisecond)
+
         case Map.get(timers, label) do
           nil ->
             Logger.warning("Timer '#{label}' does not exist")
+
           start ->
             elapsed = now - start
             Logger.info("#{label}: #{elapsed}ms")
             Process.put(@timer_key, Map.delete(timers, label))
         end
+
         :undefined
       end
 
       method "timeLog" do
-        label = case args do
-          [l | _] when is_binary(l) -> l
-          _ -> "default"
-        end
+        label =
+          case args do
+            [l | _] when is_binary(l) -> l
+            _ -> "default"
+          end
+
         timers = Process.get(@timer_key, %{})
         now = System.monotonic_time(:millisecond)
+
         case Map.get(timers, label) do
           nil ->
             Logger.warning("Timer '#{label}' does not exist")
+
           start ->
             elapsed = now - start
             Logger.info("#{label}: #{elapsed}ms")
         end
+
         :undefined
       end
 
       method "count" do
-        label = case args do
-          [l | _] when is_binary(l) -> l
-          [:undefined | _] -> "default"
-          [nil | _] -> "default"
-          _ -> "default"
-        end
+        label =
+          case args do
+            [l | _] when is_binary(l) -> l
+            [:undefined | _] -> "default"
+            [nil | _] -> "default"
+            _ -> "default"
+          end
+
         counts = Process.get(@count_key, %{})
         n = Map.get(counts, label, 0) + 1
         Process.put(@count_key, Map.put(counts, label, n))
@@ -126,28 +145,32 @@ defmodule QuickBEAM.VM.Runtime.Web.ConsoleAPI do
       end
 
       method "countReset" do
-        label = case args do
-          [l | _] when is_binary(l) -> l
-          _ -> "default"
-        end
+        label =
+          case args do
+            [l | _] when is_binary(l) -> l
+            _ -> "default"
+          end
+
         counts = Process.get(@count_key, %{})
+
         if Map.has_key?(counts, label) do
           Process.put(@count_key, Map.put(counts, label, 0))
         else
           Logger.warning("Count for '#{label}' does not exist")
         end
+
         :undefined
       end
 
       method "dir" do
-        obj = List.first(args, :undefined)
+        obj = arg(args, 0, :undefined)
         json = inspect_js_value(obj)
         Logger.info(json)
         :undefined
       end
 
       method "table" do
-        obj = List.first(args, :undefined)
+        obj = arg(args, 0, :undefined)
         Logger.info(inspect_js_value(obj))
         :undefined
       end
@@ -195,9 +218,11 @@ defmodule QuickBEAM.VM.Runtime.Web.ConsoleAPI do
             |> Enum.filter(fn {k, _v} -> is_binary(k) end)
             |> Enum.map_join(",\n  ", fn {k, v} -> "\"#{k}\": #{Runtime.stringify(v)}" end)
             |> then(fn content -> "{\n  #{content}\n}" end)
+
           _ ->
             Runtime.stringify(val)
         end
+
       _ ->
         Runtime.stringify(val)
     end

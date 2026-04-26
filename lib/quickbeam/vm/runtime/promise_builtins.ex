@@ -18,7 +18,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
           resolve_fn =
             {:builtin, "resolve",
              fn args, _ ->
-               val = List.first(args, :undefined)
+               val = arg(args, 0, :undefined)
                unless already_settled?(ref), do: PromiseState.resolve(ref, :resolved, val)
                :undefined
              end}
@@ -26,7 +26,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
           reject_fn =
             {:builtin, "reject",
              fn args, _ ->
-               val = List.first(args, :undefined)
+               val = arg(args, 0, :undefined)
                unless already_settled?(ref), do: PromiseState.resolve(ref, :rejected, val)
                :undefined
              end}
@@ -50,8 +50,10 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
     %{
       promise_state() => :pending,
       promise_value() => nil,
-      "then" => {:builtin, "then", fn args, _this -> PromiseState.promise_then(args, {:obj, ref}) end},
-      "catch" => {:builtin, "catch", fn args, _this -> PromiseState.promise_catch(args, {:obj, ref}) end}
+      "then" =>
+        {:builtin, "then", fn args, _this -> PromiseState.promise_then(args, {:obj, ref}) end},
+      "catch" =>
+        {:builtin, "catch", fn args, _this -> PromiseState.promise_catch(args, {:obj, ref}) end}
     }
   end
 
@@ -63,10 +65,10 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
   end
 
   def prototype do
-    build_object do
-      val("then", {:builtin, "then", &PromiseState.promise_then/2})
-      val("catch", {:builtin, "catch", &PromiseState.promise_catch/2})
-      val("finally", {:builtin, "finally", &PromiseState.promise_finally/2})
+    object do
+      prop("then", {:builtin, "then", &PromiseState.promise_then/2})
+      prop("catch", {:builtin, "catch", &PromiseState.promise_catch/2})
+      prop("finally", {:builtin, "finally", &PromiseState.promise_finally/2})
     end
   end
 
@@ -78,7 +80,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
   end
 
   static "reject" do
-    PromiseState.rejected(List.first(args, :undefined))
+    args |> arg(0, :undefined) |> PromiseState.rejected()
   end
 
   static "all" do
@@ -165,19 +167,26 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
       PromiseState.resolved(:undefined)
     else
       # Check if any already resolved
-      already = Enum.find_value(items, fn
-        {:obj, r} ->
-          case Heap.get_obj(r, %{}) do
-            %{promise_state() => :resolved, promise_value() => v} -> {:ok, v}
-            %{promise_state() => :rejected, promise_value() => v} -> {:err, v}
-            _ -> nil
-          end
-        val -> {:ok, val}
-      end)
+      already =
+        Enum.find_value(items, fn
+          {:obj, r} ->
+            case Heap.get_obj(r, %{}) do
+              %{promise_state() => :resolved, promise_value() => v} -> {:ok, v}
+              %{promise_state() => :rejected, promise_value() => v} -> {:err, v}
+              _ -> nil
+            end
+
+          val ->
+            {:ok, val}
+        end)
 
       case already do
-        {:ok, v} -> PromiseState.resolved(v)
-        {:err, v} -> PromiseState.rejected(v)
+        {:ok, v} ->
+          PromiseState.resolved(v)
+
+        {:err, v} ->
+          PromiseState.rejected(v)
+
         nil ->
           race_ref = make_ref()
           Heap.put_obj(race_ref, %{promise_state() => :pending, promise_value() => nil})
@@ -186,27 +195,37 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
           Enum.each(items, fn item ->
             case item do
               {:obj, _} ->
-                on_fulfilled = {:builtin, "__race_fulfilled",
-                  fn args, _ ->
-                    val = List.first(args, :undefined)
-                    case Heap.get_obj(race_ref, %{}) do
-                      %{promise_state() => :pending} ->
-                        PromiseState.resolve(race_ref, :resolved, val)
-                      _ -> :ok
-                    end
-                    val
-                  end}
+                on_fulfilled =
+                  {:builtin, "__race_fulfilled",
+                   fn args, _ ->
+                     val = arg(args, 0, :undefined)
 
-                on_rejected = {:builtin, "__race_rejected",
-                  fn args, _ ->
-                    reason = List.first(args, :undefined)
-                    case Heap.get_obj(race_ref, %{}) do
-                      %{promise_state() => :pending} ->
-                        PromiseState.resolve(race_ref, :rejected, reason)
-                      _ -> :ok
-                    end
-                    throw({:js_throw, reason})
-                  end}
+                     case Heap.get_obj(race_ref, %{}) do
+                       %{promise_state() => :pending} ->
+                         PromiseState.resolve(race_ref, :resolved, val)
+
+                       _ ->
+                         :ok
+                     end
+
+                     val
+                   end}
+
+                on_rejected =
+                  {:builtin, "__race_rejected",
+                   fn args, _ ->
+                     reason = arg(args, 0, :undefined)
+
+                     case Heap.get_obj(race_ref, %{}) do
+                       %{promise_state() => :pending} ->
+                         PromiseState.resolve(race_ref, :rejected, reason)
+
+                       _ ->
+                         :ok
+                     end
+
+                     throw({:js_throw, reason})
+                   end}
 
                 PromiseState.promise_then([on_fulfilled, on_rejected], item)
 
@@ -214,7 +233,9 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
                 case Heap.get_obj(race_ref, %{}) do
                   %{promise_state() => :pending} ->
                     PromiseState.resolve(race_ref, :resolved, item)
-                  _ -> :ok
+
+                  _ ->
+                    :ok
                 end
             end
           end)

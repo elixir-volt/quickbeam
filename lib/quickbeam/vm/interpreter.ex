@@ -1,6 +1,6 @@
 defmodule QuickBEAM.VM.Interpreter do
   import Bitwise, only: [&&&: 2]
-  import QuickBEAM.VM.Builtin, only: [build_methods: 1, build_object: 1]
+  import QuickBEAM.VM.Builtin, only: [object: 1]
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Value, only: [is_object: 1, is_closure: 1]
 
@@ -60,10 +60,7 @@ defmodule QuickBEAM.VM.Interpreter do
   """
 
   @compile {:inline,
-            put_local: 3,
-            list_iterator_next: 1,
-            make_list_iterator: 1,
-            check_prototype_chain: 2}
+            put_local: 3, list_iterator_next: 1, make_list_iterator: 1, check_prototype_chain: 2}
 
   for {num, {name, _, _, _, _}} <- QuickBEAM.VM.Opcodes.table() do
     Module.put_attribute(__MODULE__, :"op_#{name}", num)
@@ -285,8 +282,10 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
-  defp current_strict_mode?(%{current_func: {:closure, _, %Bytecode.Function{is_strict_mode: s}}}),
-    do: s
+  defp current_strict_mode?(%{
+         current_func: {:closure, _, %Bytecode.Function{is_strict_mode: s}}
+       }),
+       do: s
 
   defp current_strict_mode?(%{current_func: %Bytecode.Function{is_strict_mode: s}}), do: s
   defp current_strict_mode?(_), do: false
@@ -440,7 +439,7 @@ defmodule QuickBEAM.VM.Interpreter do
     pos_ref = make_ref()
     Heap.put_obj_raw(pos_ref, items)
     next_fn = {:builtin, "next", fn _, _ -> list_iterator_next(pos_ref) end}
-    {build_object(do: val("next", next_fn)), next_fn}
+    {object(do: prop("next", next_fn)), next_fn}
   end
 
   defp eval_code(code, caller_frame, gas, ctx, var_objs, keep_declared?) do
@@ -1011,7 +1010,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp run_eval_or_call(pc, frame, rest, gas, ctx, fun, args, scope_idx, var_objs) do
     case eval_or_call(
            fun,
-           List.first(args, :undefined),
+           Builtin.arg(args, 0, :undefined),
            args,
            scope_idx,
            frame,
@@ -1140,8 +1139,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
               :deleted ->
                 throw(
-                  {:js_throw,
-                   Heap.make_error("[Symbol.iterator] is not a function", "TypeError")}
+                  {:js_throw, Heap.make_error("[Symbol.iterator] is not a function", "TypeError")}
                 )
 
               custom_fn ->
@@ -1155,8 +1153,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
               :deleted ->
                 throw(
-                  {:js_throw,
-                   Heap.make_error("[Symbol.iterator] is not a function", "TypeError")}
+                  {:js_throw, Heap.make_error("[Symbol.iterator] is not a function", "TypeError")}
                 )
 
               custom_fn ->
@@ -1225,8 +1222,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
       other ->
         throw(
-          {:js_throw,
-           Heap.make_error("#{Values.stringify(other)} is not iterable", "TypeError")}
+          {:js_throw, Heap.make_error("#{Values.stringify(other)} is not iterable", "TypeError")}
         )
     end
   end
@@ -1341,9 +1337,17 @@ defmodule QuickBEAM.VM.Interpreter do
     {args, [fun | rest]} = Enum.split(stack, argc)
     gas = check_gas(pc, frame, rest, gas, ctx)
 
-    catch_and_dispatch(pc, frame, rest, gas, ctx, fn ->
-      dispatch_call(fun, Enum.reverse(args), gas, ctx, nil)
-    end, true)
+    catch_and_dispatch(
+      pc,
+      frame,
+      rest,
+      gas,
+      ctx,
+      fn ->
+        dispatch_call(fun, Enum.reverse(args), gas, ctx, nil)
+      end,
+      true
+    )
   end
 
   defp call_method(pc, frame, stack, argc, gas, ctx) do
@@ -1351,9 +1355,17 @@ defmodule QuickBEAM.VM.Interpreter do
     gas = check_gas(pc, frame, rest, gas, ctx)
     method_ctx = Context.mark_dirty(%{ctx | this: obj})
 
-    catch_and_dispatch(pc, frame, rest, gas, ctx, fn ->
-      dispatch_call(fun, Enum.reverse(args), gas, method_ctx, obj)
-    end, true)
+    catch_and_dispatch(
+      pc,
+      frame,
+      rest,
+      gas,
+      ctx,
+      fn ->
+        dispatch_call(fun, Enum.reverse(args), gas, method_ctx, obj)
+      end,
+      true
+    )
   end
 
   def invoke_function_fallback(%Bytecode.Function{} = fun, args, gas, ctx) do

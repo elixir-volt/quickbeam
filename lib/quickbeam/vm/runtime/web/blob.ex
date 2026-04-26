@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Runtime.Web.Blob do
   @moduledoc "Blob and File constructor builtins for BEAM mode."
 
-  import QuickBEAM.VM.Builtin, only: [build_methods: 1]
+  import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, object: 1]
 
   alias QuickBEAM.VM.{Heap, PromiseState}
   alias QuickBEAM.VM.Interpreter.Values
@@ -16,12 +16,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
   end
 
   def build_blob(args, _this) do
-    {parts_val, opts_val} =
-      case args do
-        [p, o | _] -> {p, o}
-        [p | _] -> {p, nil}
-        _ -> {nil, nil}
-      end
+    [parts_val, opts_val] = argv(args, [nil, nil])
 
     content = extract_content(parts_val)
 
@@ -42,13 +37,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
   end
 
   def build_file(args, _this) do
-    {parts_val, name_val, opts_val} =
-      case args do
-        [p, n, o | _] -> {p, n, o}
-        [p, n | _] -> {p, n, nil}
-        [p | _] -> {p, "", nil}
-        _ -> {nil, "", nil}
-      end
+    [parts_val, name_val, opts_val] = argv(args, [nil, "", nil])
 
     content = extract_content(parts_val)
     file_name = to_string(name_val)
@@ -82,11 +71,13 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
     file_proto = if file_ctor, do: Heap.get_class_proto(file_ctor), else: nil
 
     {:obj, ref} = blob_base
+
     Heap.update_obj(ref, %{}, fn m ->
-      base = m
-      |> Map.put("name", file_name)
-      |> Map.put("lastModified", last_modified)
-      |> Map.put("constructor", file_ctor)
+      base =
+        m
+        |> Map.put("name", file_name)
+        |> Map.put("lastModified", last_modified)
+        |> Map.put("constructor", file_ctor)
 
       if file_proto, do: Map.put(base, "__proto__", file_proto), else: base
     end)
@@ -108,47 +99,45 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
     blob_ctor = get_blob_ctor()
     blob_proto = if blob_ctor, do: Heap.get_class_proto(blob_ctor), else: nil
 
-    Heap.wrap(
-      build_methods do
-        val("size", byte_size(content))
-        val("type", mime_type)
-        val("constructor", blob_ctor)
-        val("__proto__", blob_proto)
+    object do
+      prop("size", byte_size(content))
+      prop("type", mime_type)
+      prop("constructor", blob_ctor)
+      prop("__proto__", blob_proto)
 
-        method "text" do
-          raw = Heap.get_obj(content_ref, "")
-          PromiseState.resolved(raw)
-        end
-
-        method "arrayBuffer" do
-          raw = Heap.get_obj(content_ref, "")
-          buf = make_array_buffer(raw)
-          PromiseState.resolved(buf)
-        end
-
-        method "bytes" do
-          raw = Heap.get_obj(content_ref, "")
-          make_uint8_from_binary(raw)
-        end
-
-        method "slice" do
-          raw = Heap.get_obj(content_ref, "")
-          total = byte_size(raw)
-
-          start_idx = normalize_slice_idx(List.first(args, 0), total)
-          end_idx = normalize_slice_idx(Enum.at(args, 1, total), total)
-          new_mime = Enum.at(args, 2, mime_type) |> to_string()
-
-          slice_len = max(0, end_idx - start_idx)
-          sliced = binary_part(raw, min(start_idx, total), min(slice_len, total - start_idx))
-          build_blob_object(sliced, new_mime)
-        end
-
-        method "stream" do
-          :undefined
-        end
+      method "text" do
+        raw = Heap.get_obj(content_ref, "")
+        PromiseState.resolved(raw)
       end
-    )
+
+      method "arrayBuffer" do
+        raw = Heap.get_obj(content_ref, "")
+        buf = make_array_buffer(raw)
+        PromiseState.resolved(buf)
+      end
+
+      method "bytes" do
+        raw = Heap.get_obj(content_ref, "")
+        make_uint8_from_binary(raw)
+      end
+
+      method "slice" do
+        raw = Heap.get_obj(content_ref, "")
+        total = byte_size(raw)
+
+        start_idx = args |> arg(0, 0) |> normalize_slice_idx(total)
+        end_idx = args |> arg(1, total) |> normalize_slice_idx(total)
+        new_mime = args |> arg(2, mime_type) |> to_string()
+
+        slice_len = max(0, end_idx - start_idx)
+        sliced = binary_part(raw, min(start_idx, total), min(slice_len, total - start_idx))
+        build_blob_object(sliced, new_mime)
+      end
+
+      method "stream" do
+        :undefined
+      end
+    end
   end
 
   defp get_blob_ctor do
@@ -166,7 +155,9 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
     end
   end
 
-  defp normalize_slice_idx(idx, total) when is_float(idx), do: normalize_slice_idx(trunc(idx), total)
+  defp normalize_slice_idx(idx, total) when is_float(idx),
+    do: normalize_slice_idx(trunc(idx), total)
+
   defp normalize_slice_idx(:undefined, total), do: total
   defp normalize_slice_idx(nil, total), do: total
   defp normalize_slice_idx(_, _), do: 0
@@ -219,10 +210,12 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
         end
 
       list when is_list(list) ->
-        :erlang.list_to_binary(Enum.map(list, fn
-          n when is_integer(n) -> n
-          _ -> 0
-        end))
+        :erlang.list_to_binary(
+          Enum.map(list, fn
+            n when is_integer(n) -> n
+            _ -> 0
+          end)
+        )
 
       _ ->
         Values.stringify(obj)
@@ -248,6 +241,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Blob do
               {:obj, ref} ->
                 Heap.update_obj(ref, %{}, fn m ->
                   base = Map.put(m, "__buffer__", data)
+
                   if proto != nil and not Map.has_key?(base, "__proto__"),
                     do: Map.put(base, "__proto__", proto),
                     else: base

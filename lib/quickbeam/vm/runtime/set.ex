@@ -14,8 +14,8 @@ defmodule QuickBEAM.VM.Runtime.Set do
   def constructor do
     fn args, _this ->
       ref = make_ref()
-      items = Heap.to_list(List.first(args)) |> Enum.uniq()
-      Heap.put_obj(ref, build_object(ref, items))
+      items = args |> arg(0, nil) |> Heap.to_list() |> Enum.uniq()
+      Heap.put_obj(ref, set_object(ref, items))
       {:obj, ref}
     end
   end
@@ -58,9 +58,9 @@ defmodule QuickBEAM.VM.Runtime.Set do
     JSThrow.type_error!("invalid value used as #{kind} key")
   end
 
-  defp build_object(set_ref, items) do
+  defp set_object(set_ref, items) do
     methods =
-      build_methods do
+      object heap: false do
         method "values" do
           values_iterator(set_ref)
         end
@@ -122,8 +122,8 @@ defmodule QuickBEAM.VM.Runtime.Set do
           disjoint?(set_ref, hd(args))
         end
 
-        val(set_data(), items)
-        val("size", length(items))
+        prop(set_data(), items)
+        prop("size", length(items))
       end
 
     Map.put(methods, {:symbol, "Symbol.iterator"}, methods["values"])
@@ -162,8 +162,8 @@ defmodule QuickBEAM.VM.Runtime.Set do
          end
        end}
 
-    build_object do
-      val("next", next_fn)
+    object do
+      prop("next", next_fn)
     end
   end
 

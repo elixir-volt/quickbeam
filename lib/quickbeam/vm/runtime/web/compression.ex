@@ -1,24 +1,26 @@
 defmodule QuickBEAM.VM.Runtime.Web.Compression do
   @moduledoc "compression global object and CompressionStream/DecompressionStream for BEAM mode."
 
-  import QuickBEAM.VM.Builtin, only: [build_object: 1]
+  import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, object: 1]
 
   alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.Runtime.Web.Buffer
+  alias QuickBEAM.VM.Runtime.Web.IteratorResult
   alias QuickBEAM.VM.Runtime.WebAPIs
 
   def bindings do
     %{
       "compression" => build_compression_global(),
       "CompressionStream" => WebAPIs.register("CompressionStream", &build_compression_stream/2),
-      "DecompressionStream" => WebAPIs.register("DecompressionStream", &build_decompression_stream/2)
+      "DecompressionStream" =>
+        WebAPIs.register("DecompressionStream", &build_decompression_stream/2)
     }
   end
 
   defp build_compression_global do
-    build_object do
+    object do
       method "compress" do
-        [format, data | _] = args ++ [nil, nil]
+        [format, data] = argv(args, [nil, nil])
         format_str = to_string(format)
         validate_format!(format_str)
         bytes = Buffer.extract_buf_bytes(data)
@@ -34,7 +36,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Compression do
       end
 
       method "decompress" do
-        [format, data | _] = args ++ [nil, nil]
+        [format, data] = argv(args, [nil, nil])
         format_str = to_string(format)
         validate_format!(format_str)
         bytes = Buffer.extract_buf_bytes(data)
@@ -76,7 +78,9 @@ defmodule QuickBEAM.VM.Runtime.Web.Compression do
     Heap.put_obj(chunks_ref, %{chunks: [], closed: false})
 
     controller = build_transform_controller(chunks_ref, format_str, :decompress)
-    {readable, writable} = build_transform_streams(chunks_ref, format_str, :decompress, controller)
+
+    {readable, writable} =
+      build_transform_streams(chunks_ref, format_str, :decompress, controller)
 
     Heap.wrap(%{"readable" => readable, "writable" => writable})
   end
@@ -106,86 +110,93 @@ defmodule QuickBEAM.VM.Runtime.Web.Compression do
   end
 
   defp build_transform_streams(chunks_ref, format, op, _controller) do
-    import QuickBEAM.VM.Builtin, only: [build_methods: 1]
     alias QuickBEAM.VM.PromiseState
 
-    writable = Heap.wrap(build_methods do
-      method "getWriter" do
-        Heap.wrap(build_methods do
-          method "write" do
-            [chunk | _] = args ++ [nil]
-            bytes = Buffer.extract_buf_bytes(chunk)
+    writable =
+      object do
+        method "getWriter" do
+          object do
+            method "write" do
+              chunk = arg(args, 0, nil)
+              bytes = Buffer.extract_buf_bytes(chunk)
 
-            transformed = case op do
-              :compress ->
-                {:bytes, b} = QuickBEAM.Compression.compress([format, bytes])
-                b
-              :decompress ->
-                {:bytes, b} = QuickBEAM.Compression.decompress([format, bytes])
-                b
+              transformed =
+                case op do
+                  :compress ->
+                    {:bytes, b} = QuickBEAM.Compression.compress([format, bytes])
+                    b
+
+                  :decompress ->
+                    {:bytes, b} = QuickBEAM.Compression.decompress([format, bytes])
+                    b
+                end
+
+              state = Heap.get_obj(chunks_ref, %{})
+              existing = Map.get(state, :chunks, [])
+              Heap.put_obj(chunks_ref, Map.put(state, :chunks, existing ++ [transformed]))
+              PromiseState.resolved(:undefined)
             end
 
-            state = Heap.get_obj(chunks_ref, %{})
-            existing = Map.get(state, :chunks, [])
-            Heap.put_obj(chunks_ref, Map.put(state, :chunks, existing ++ [transformed]))
-            PromiseState.resolved(:undefined)
-          end
+            method "close" do
+              state = Heap.get_obj(chunks_ref, %{})
+              Heap.put_obj(chunks_ref, Map.put(state, :closed, true))
+              PromiseState.resolved(:undefined)
+            end
 
-          method "close" do
-            state = Heap.get_obj(chunks_ref, %{})
-            Heap.put_obj(chunks_ref, Map.put(state, :closed, true))
-            PromiseState.resolved(:undefined)
-          end
+            method "abort" do
+              PromiseState.resolved(:undefined)
+            end
 
-          method "abort" do
-            PromiseState.resolved(:undefined)
-          end
-
-          method "releaseLock" do
-            :undefined
-          end
-        end)
-      end
-
-      method "abort" do
-        PromiseState.resolved(:undefined)
-      end
-    end)
-
-    readable = Heap.wrap(build_methods do
-      method "getReader" do
-        Heap.wrap(build_methods do
-          method "read" do
-            state = Heap.get_obj(chunks_ref, %{})
-            chunks = Map.get(state, :chunks, [])
-
-            case chunks do
-              [chunk | rest] ->
-                Heap.put_obj(chunks_ref, Map.put(state, :chunks, rest))
-                val = case chunk do
-                  b when is_binary(b) -> bytes_to_uint8({:bytes, b})
-                  _ -> chunk
-                end
-                PromiseState.resolved(Heap.wrap(%{"value" => val, "done" => false}))
-              [] ->
-                if Map.get(state, :closed, false) do
-                  PromiseState.resolved(Heap.wrap(%{"value" => :undefined, "done" => true}))
-                else
-                  PromiseState.resolved(Heap.wrap(%{"value" => :undefined, "done" => true}))
-                end
+            method "releaseLock" do
+              :undefined
             end
           end
+        end
 
-          method "releaseLock" do
-            :undefined
-          end
-
-          method "cancel" do
-            PromiseState.resolved(:undefined)
-          end
-        end)
+        method "abort" do
+          PromiseState.resolved(:undefined)
+        end
       end
-    end)
+
+    readable =
+      object do
+        method "getReader" do
+          object do
+            method "read" do
+              state = Heap.get_obj(chunks_ref, %{})
+              chunks = Map.get(state, :chunks, [])
+
+              case chunks do
+                [chunk | rest] ->
+                  Heap.put_obj(chunks_ref, Map.put(state, :chunks, rest))
+
+                  val =
+                    case chunk do
+                      b when is_binary(b) -> bytes_to_uint8({:bytes, b})
+                      _ -> chunk
+                    end
+
+                  IteratorResult.resolved_value(val)
+
+                [] ->
+                  if Map.get(state, :closed, false) do
+                    IteratorResult.resolved_done()
+                  else
+                    IteratorResult.resolved_done()
+                  end
+              end
+            end
+
+            method "releaseLock" do
+              :undefined
+            end
+
+            method "cancel" do
+              PromiseState.resolved(:undefined)
+            end
+          end
+        end
+      end
 
     {readable, writable}
   end
@@ -196,27 +207,39 @@ defmodule QuickBEAM.VM.Runtime.Web.Compression do
   defp validate_format!(fmt), do: JSThrow.type_error!("Unsupported compression format: #{fmt}")
 
   defp bytes_to_uint8({:bytes, bytes}), do: bytes_to_uint8(bytes)
+
   defp bytes_to_uint8(bytes) when is_binary(bytes) do
     byte_list = :binary.bin_to_list(bytes)
+
     case Heap.get_global_cache() do
-      nil -> Heap.wrap(byte_list)
+      nil ->
+        Heap.wrap(byte_list)
+
       globals ->
         case Map.get(globals, "Uint8Array") do
           {:builtin, _, cb} = ctor ->
             result = cb.([byte_list], nil)
+
             case result do
               {:obj, ref} ->
                 class_proto = Heap.get_class_proto(ctor)
+
                 if class_proto do
                   m = Heap.get_obj(ref, %{})
+
                   if is_map(m) and not Map.has_key?(m, "__proto__") do
                     Heap.put_obj(ref, Map.put(m, "__proto__", class_proto))
                   end
                 end
+
                 result
-              _ -> result
+
+              _ ->
+                result
             end
-          _ -> Heap.wrap(byte_list)
+
+          _ ->
+            Heap.wrap(byte_list)
         end
     end
   end

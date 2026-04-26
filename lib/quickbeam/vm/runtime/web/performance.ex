@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Runtime.Web.Performance do
   @moduledoc "performance object builtin for BEAM mode, including mark/measure/getEntries."
 
-  import QuickBEAM.VM.Builtin, only: [build_object: 1, build_methods: 1]
+  import QuickBEAM.VM.Builtin, only: [arg: 3, constructor: 2, object: 1]
 
   alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.ObjectModel.Get
@@ -20,16 +20,16 @@ defmodule QuickBEAM.VM.Runtime.Web.Performance do
     perf_mark_ctor = make_perf_mark_ctor()
     perf_measure_ctor = make_perf_measure_ctor()
 
-    build_object do
-      val("timeOrigin", time_origin_ms)
+    object do
+      prop("timeOrigin", time_origin_ms)
 
       method "now" do
         (:erlang.system_time(:microsecond) - time_origin_us) / 1000.0
       end
 
       method "mark" do
-        name = args |> List.first() |> to_string()
-        opts = Enum.at(args, 1)
+        name = args |> arg(0, nil) |> to_string()
+        opts = arg(args, 1, nil)
 
         now = (:erlang.system_time(:microsecond) - time_origin_us) / 1000.0
 
@@ -63,7 +63,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Performance do
       end
 
       method "measure" do
-        name = args |> List.first("unnamed") |> to_string()
+        name = args |> arg(0, "unnamed") |> to_string()
         entries = load_entries(entries_ref)
         rest = Enum.drop(args, 1)
 
@@ -75,6 +75,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Performance do
               start_opt = Get.get(opts, "start")
               end_opt = Get.get(opts, "end")
               dur_opt = Get.get(opts, "duration")
+
               det =
                 case Get.get(opts, "detail") do
                   :undefined -> nil
@@ -88,6 +89,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Performance do
 
             [start_mark | [end_mark | _]] when start_mark != nil and start_mark != :undefined ->
               st = resolve_mark_name(start_mark, entries, now, "start")
+
               et =
                 case end_mark do
                   nil -> now
@@ -106,7 +108,10 @@ defmodule QuickBEAM.VM.Runtime.Web.Performance do
           end
 
         duration = end_time - start_time
-        measure = make_perf_entry("measure", name, start_time, duration, detail, perf_measure_ctor)
+
+        measure =
+          make_perf_entry("measure", name, start_time, duration, detail, perf_measure_ctor)
+
         store_entries(entries_ref, entries ++ [measure])
         measure
       end
@@ -116,7 +121,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Performance do
       end
 
       method "getEntriesByType" do
-        type = args |> List.first() |> to_string()
+        type = args |> arg(0, nil) |> to_string()
 
         result =
           entries_ref
@@ -127,8 +132,8 @@ defmodule QuickBEAM.VM.Runtime.Web.Performance do
       end
 
       method "getEntriesByName" do
-        name = args |> List.first() |> to_string()
-        type_filter = Enum.at(args, 1)
+        name = args |> arg(0, nil) |> to_string()
+        type_filter = arg(args, 1, nil)
 
         result =
           entries_ref
@@ -150,7 +155,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Performance do
       end
 
       method "clearMarks" do
-        name_filter = List.first(args)
+        name_filter = arg(args, 0, nil)
 
         updated =
           entries_ref
@@ -172,7 +177,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Performance do
       end
 
       method "clearMeasures" do
-        name_filter = List.first(args)
+        name_filter = arg(args, 0, nil)
 
         updated =
           entries_ref
@@ -200,51 +205,37 @@ defmodule QuickBEAM.VM.Runtime.Web.Performance do
   end
 
   defp make_perf_mark_ctor do
-    ctor = {:builtin, "PerformanceMark", fn _args, _this -> :undefined end}
-    proto = Heap.wrap(%{"constructor" => ctor})
-    Heap.put_class_proto(ctor, proto)
-    Heap.put_ctor_static(ctor, "prototype", proto)
-    ctor
+    constructor("PerformanceMark", fn _args, _this -> :undefined end)
   end
 
   defp make_perf_measure_ctor do
-    ctor = {:builtin, "PerformanceMeasure", fn _args, _this -> :undefined end}
-    proto = Heap.wrap(%{"constructor" => ctor})
-    Heap.put_class_proto(ctor, proto)
-    Heap.put_ctor_static(ctor, "prototype", proto)
-    ctor
+    constructor("PerformanceMeasure", fn _args, _this -> :undefined end)
   end
 
   defp make_perf_entry(entry_type, name, start_time, duration, detail, ctor) do
     proto = Heap.get_class_proto(ctor)
 
-    base_map =
-      build_methods do
-        method "toJSON" do
-          det = Get.get(this, "detail")
+    object do
+      prop("name", name)
+      prop("entryType", entry_type)
+      prop("startTime", start_time)
+      prop("duration", duration)
+      prop("detail", detail)
+      prop("constructor", ctor)
+      prop("__proto__", proto)
 
-          Heap.wrap(%{
-            "name" => Get.get(this, "name"),
-            "entryType" => Get.get(this, "entryType"),
-            "startTime" => Get.get(this, "startTime"),
-            "duration" => Get.get(this, "duration"),
-            "detail" => det
-          })
-        end
+      method "toJSON" do
+        det = Get.get(this, "detail")
+
+        Heap.wrap(%{
+          "name" => Get.get(this, "name"),
+          "entryType" => Get.get(this, "entryType"),
+          "startTime" => Get.get(this, "startTime"),
+          "duration" => Get.get(this, "duration"),
+          "detail" => det
+        })
       end
-
-    data =
-      Map.merge(base_map, %{
-        "name" => name,
-        "entryType" => entry_type,
-        "startTime" => start_time,
-        "duration" => duration,
-        "detail" => detail,
-        "constructor" => ctor,
-        "__proto__" => proto
-      })
-
-    Heap.wrap(data)
+    end
   end
 
   defp resolve_measure_opts(start_opt, end_opt, dur_opt, entries, now) do
@@ -302,8 +293,16 @@ defmodule QuickBEAM.VM.Runtime.Web.Performance do
         {et - dur, et}
 
       _ ->
-        st = if start_opt != :undefined and start_opt != nil, do: resolve_time_opt(start_opt, entries, "start"), else: 0.0
-        et = if end_opt != :undefined and end_opt != nil, do: resolve_time_opt(end_opt, entries, "end"), else: now
+        st =
+          if start_opt != :undefined and start_opt != nil,
+            do: resolve_time_opt(start_opt, entries, "start"),
+            else: 0.0
+
+        et =
+          if end_opt != :undefined and end_opt != nil,
+            do: resolve_time_opt(end_opt, entries, "end"),
+            else: now
+
         {st, et}
     end
   end

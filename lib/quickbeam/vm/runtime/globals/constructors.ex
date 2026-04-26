@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   @moduledoc "Global constructor built-ins: `Object`, `Array`, `String`, `Boolean`, and other wrapper constructors."
 
   import QuickBEAM.VM.Heap.Keys
-  import QuickBEAM.VM.Builtin, only: [build_object: 1]
+  import QuickBEAM.VM.Builtin, only: [arg: 3, object: 1]
 
   alias QuickBEAM.VM.{Bytecode, Heap}
   alias QuickBEAM.VM.Interpreter
@@ -57,20 +57,20 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   end
 
   def string(args, {:obj, _} = this) do
-    val = Runtime.stringify(List.first(args, ""))
+    val = args |> arg(0, "") |> Runtime.stringify()
     QuickBEAM.VM.ObjectModel.Put.put(this, "__wrapped_string__", val)
     this
   end
 
-  def string(args, _), do: Runtime.stringify(List.first(args, ""))
+  def string(args, _), do: args |> arg(0, "") |> Runtime.stringify()
 
   def number(args, {:obj, _} = this) do
-    val = Runtime.to_number(List.first(args, 0))
+    val = args |> arg(0, 0) |> Runtime.to_number()
     QuickBEAM.VM.ObjectModel.Put.put(this, "__wrapped_number__", val)
     this
   end
 
-  def number(args, _), do: Runtime.to_number(List.first(args, 0))
+  def number(args, _), do: args |> arg(0, 0) |> Runtime.to_number()
 
   def function(args, _) do
     ctx = Heap.get_ctx()
@@ -152,20 +152,11 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
   def proxy(_, _), do: Runtime.new_object()
 
-  def finalization_registry([_callback | _], _) do
-    build_object do
-      method "register" do
-        :undefined
-      end
+  def finalization_registry([_callback | _], _), do: finalization_registry_object()
+  def finalization_registry(_, _), do: finalization_registry_object()
 
-      method "unregister" do
-        :undefined
-      end
-    end
-  end
-
-  def finalization_registry(_, _) do
-    build_object do
+  defp finalization_registry_object do
+    object do
       method "register" do
         :undefined
       end

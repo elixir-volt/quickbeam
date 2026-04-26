@@ -1,9 +1,10 @@
 defmodule QuickBEAM.VM.Runtime.Web.Worker do
   @moduledoc "Worker constructor for BEAM mode."
 
-  import QuickBEAM.VM.Builtin, only: [build_methods: 1]
+  import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, object: 2]
 
-  alias QuickBEAM.VM.{Heap, Invocation}
+  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.Runtime.Web.Callback
   alias QuickBEAM.VM.Runtime.WebAPIs
 
   @workers_key :qb_beam_workers
@@ -13,10 +14,11 @@ defmodule QuickBEAM.VM.Runtime.Web.Worker do
   end
 
   defp build_worker([script | _], _this) do
-    script_str = case script do
-      s when is_binary(s) -> s
-      _ -> to_string(script)
-    end
+    script_str =
+      case script do
+        s when is_binary(s) -> s
+        _ -> to_string(script)
+      end
 
     parent_pid = self()
     worker_ref = make_ref()
@@ -39,65 +41,75 @@ defmodule QuickBEAM.VM.Runtime.Web.Worker do
     # Register as a "message source" to be polled during drain_pending
     register_worker_source(worker_ref, onmessage_ref, listeners_ref)
 
-    onmessage_acc = {:accessor,
-      {:builtin, "get onmessage", fn _, _ -> Process.get(onmessage_ref, nil) end},
-      {:builtin, "set onmessage", fn [h | _], _ ->
-         Process.put(onmessage_ref, h)
-         :undefined
-       end}}
-
-    onerror_acc = {:accessor,
-      {:builtin, "get onerror", fn _, _ -> Process.get(onerror_ref, nil) end},
-      {:builtin, "set onerror", fn [h | _], _ ->
-         Process.put(onerror_ref, h)
-         :undefined
-       end}}
-
-    methods = build_methods do
+    object heap: true do
       method "postMessage" do
-        [data | _] = args ++ [:undefined]
+        data = arg(args, 0, :undefined)
         workers = Process.get(@workers_key, %{})
+
         case Map.get(workers, worker_ref) do
-          pid when is_pid(pid) ->
-            send(pid, {:parent_post, data})
+          pid when is_pid(pid) -> send(pid, {:parent_post, data})
           _ -> :ok
         end
+
         :undefined
       end
 
       method "terminate" do
         workers = Process.get(@workers_key, %{})
+
         case Map.get(workers, worker_ref) do
           pid when is_pid(pid) ->
             Process.exit(pid, :kill)
             Process.put(@workers_key, Map.delete(workers, worker_ref))
-          _ -> :ok
+
+          _ ->
+            :ok
         end
+
         unregister_worker_source(worker_ref)
         :undefined
       end
 
       method "addEventListener" do
-        [type, callback | _] = args ++ ["message", nil]
+        [type, callback] = argv(args, ["message", nil])
+
         if to_string(type) == "message" do
           listeners = Process.get(listeners_ref, [])
           Process.put(listeners_ref, listeners ++ [callback])
         end
+
         :undefined
       end
 
       method "removeEventListener" do
-        [_type, callback | _] = args ++ ["message", nil]
+        [_type, callback] = argv(args, ["message", nil])
         listeners = Process.get(listeners_ref, [])
         Process.put(listeners_ref, Enum.reject(listeners, &(&1 == callback)))
         :undefined
       end
-    end
 
-    Heap.wrap(Map.merge(methods, %{
-      "onmessage" => onmessage_acc,
-      "onerror" => onerror_acc
-    }))
+      accessor "onmessage" do
+        get do
+          Process.get(onmessage_ref, nil)
+        end
+
+        set do
+          Process.put(onmessage_ref, arg(args, 0, nil))
+          :undefined
+        end
+      end
+
+      accessor "onerror" do
+        get do
+          Process.get(onerror_ref, nil)
+        end
+
+        set do
+          Process.put(onerror_ref, arg(args, 0, nil))
+          :undefined
+        end
+      end
+    end
   end
 
   # ── Worker message sources (polled during drain_pending) ──
@@ -117,6 +129,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Worker do
   @doc "Drain all pending worker messages. Called from drain_pending loop."
   def drain_all_worker_messages do
     sources = Process.get(@sources_key, [])
+
     Enum.each(sources, fn {worker_ref, onmessage_ref, listeners_ref} ->
       drain_worker_source(worker_ref, onmessage_ref, listeners_ref)
     end)
@@ -138,20 +151,10 @@ defmodule QuickBEAM.VM.Runtime.Web.Worker do
     event = Heap.wrap(%{"type" => "message", "data" => data})
 
     if handler != nil and handler != :undefined do
-      safe_invoke(handler, [event])
+      Callback.safe_invoke(handler, [event])
     end
 
-    Enum.each(listeners, fn cb -> safe_invoke(cb, [event]) end)
-  end
-
-  defp safe_invoke(cb, args) do
-    try do
-      Invocation.invoke_with_receiver(cb, args, :undefined)
-    rescue
-      _ -> :ok
-    catch
-      _, _ -> :ok
-    end
+    Enum.each(listeners, &Callback.safe_invoke(&1, [event]))
   end
 
   # ── Worker process ──

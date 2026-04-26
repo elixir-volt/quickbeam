@@ -29,7 +29,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       ref = make_ref()
 
       methods =
-        build_methods do
+        object heap: false do
           method("set", do: set(ref, args))
           method("subarray", do: subarray(ref, args))
           method("join", do: join(ref, args))
@@ -67,7 +67,12 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
                case this do
                  {:obj, iter_ref} ->
                    l = Map.get(Heap.get_obj(iter_ref, %{}), "length", 0)
-                   list = if l > 0, do: (for i <- 0..(l - 1), do: get_element({:obj, iter_ref}, i)), else: []
+
+                   list =
+                     if l > 0,
+                       do: for(i <- 0..(l - 1), do: get_element({:obj, iter_ref}, i)),
+                       else: []
+
                    Heap.wrap_iterator(list)
 
                  _ ->
@@ -180,8 +185,8 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp subarray(ref, args) do
     l = len(ref)
     t = type(ref)
-    s = max(0, min(to_idx(Enum.at(args, 0, 0)), l))
-    e = min(to_idx(Enum.at(args, 1, l)), l)
+    s = max(0, min(to_idx(arg(args, 0, 0)), l))
+    e = min(to_idx(arg(args, 1, l)), l)
     new_len = max(0, e - s)
     es = elem_size(t)
 
@@ -252,8 +257,8 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp reduce(ref, args, this) do
     {b, l, t} = {buf(ref), len(ref), type(ref)}
-    cb = List.first(args)
-    init = Enum.at(args, 1)
+    cb = arg(args, 0, nil)
+    init = arg(args, 1, nil)
     {start, acc} = if init != nil, do: {0, init}, else: {1, read_element(b, 0, t)}
 
     Enum.reduce(start..max(start, l - 1), acc, fn i, a ->
@@ -297,8 +302,8 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp slice(ref, args) do
     l = len(ref)
     t = type(ref)
-    s = max(0, to_idx(Enum.at(args, 0, 0)))
-    e = min(l, to_idx(Enum.at(args, 1, l)))
+    s = max(0, to_idx(arg(args, 0, 0)))
+    e = min(l, to_idx(arg(args, 1, l)))
     new_len = max(0, e - s)
     es = elem_size(t)
     new_buf = if new_len > 0, do: binary_part(buf(ref), s * es, new_len * es), else: <<>>

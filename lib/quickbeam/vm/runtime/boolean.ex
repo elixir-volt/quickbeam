@@ -15,12 +15,12 @@ defmodule QuickBEAM.VM.Runtime.Boolean do
   def constructor do
     fn
       args, {:obj, _} = this ->
-        val = Runtime.truthy?(List.first(args, false))
+        val = args |> arg(0, false) |> Runtime.truthy?()
         QuickBEAM.VM.ObjectModel.Put.put(this, "__wrapped_boolean__", val)
         this
 
       args, _ ->
-        Runtime.truthy?(List.first(args, false))
+        args |> arg(0, false) |> Runtime.truthy?()
     end
   end
 end

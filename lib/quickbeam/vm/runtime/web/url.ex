@@ -1,15 +1,18 @@
 defmodule QuickBEAM.VM.Runtime.Web.URL do
   @moduledoc "URL and URLSearchParams builtins for BEAM mode."
 
-  import QuickBEAM.VM.Builtin, only: [build_methods: 1]
+  import QuickBEAM.VM.Builtin,
+    only: [arg: 3, argv: 2, iterator_from: 1, object: 1, object: 2]
 
-  alias QuickBEAM.VM.{Heap, Invocation}
+  alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.Runtime.Web.Callback
   alias QuickBEAM.VM.Runtime.WebAPIs
 
   def bindings do
     url_ctor = build_url_ctor()
+
     %{
       "URL" => url_ctor,
       "URLSearchParams" => WebAPIs.register("URLSearchParams", &build_url_search_params/2)
@@ -82,114 +85,141 @@ defmodule QuickBEAM.VM.Runtime.Web.URL do
 
     search_params_obj = make_search_params_object(c["search"] || "", url_ref)
 
-    setters = %{
-      "href" =>
-        {:accessor,
-         {:builtin, "get href", fn _, _ -> (Heap.get_obj(url_ref, %{}) || %{})["href"] || "" end},
-         {:builtin, "set href",
-          fn args, _ ->
-            new_val = args |> List.first() |> to_string()
-            case QuickBEAM.URL.parse([new_val]) do
-              %{"ok" => true, "components" => new_c} ->
-                Heap.put_obj(url_ref, new_c)
-              _ -> :ok
-            end
-            :undefined
-          end}},
-      "protocol" =>
-        {:accessor,
-         {:builtin, "get protocol", fn _, _ -> (Heap.get_obj(url_ref, %{}) || %{})["protocol"] || "" end},
-         {:builtin, "set protocol",
-          fn args, _ ->
-            update_url_component(url_ref, "protocol", args |> List.first() |> to_string())
-          end}},
-      "username" =>
-        {:accessor,
-         {:builtin, "get username", fn _, _ -> (Heap.get_obj(url_ref, %{}) || %{})["username"] || "" end},
-         {:builtin, "set username",
-          fn args, _ ->
-            update_url_component(url_ref, "username", args |> List.first() |> to_string())
-          end}},
-      "password" =>
-        {:accessor,
-         {:builtin, "get password", fn _, _ -> (Heap.get_obj(url_ref, %{}) || %{})["password"] || "" end},
-         {:builtin, "set password",
-          fn args, _ ->
-            update_url_component(url_ref, "password", args |> List.first() |> to_string())
-          end}},
-      "hostname" =>
-        {:accessor,
-         {:builtin, "get hostname", fn _, _ -> (Heap.get_obj(url_ref, %{}) || %{})["hostname"] || "" end},
-         {:builtin, "set hostname",
-          fn args, _ ->
-            update_url_component(url_ref, "hostname", args |> List.first() |> to_string())
-          end}},
-      "port" =>
-        {:accessor,
-         {:builtin, "get port", fn _, _ -> (Heap.get_obj(url_ref, %{}) || %{})["port"] || "" end},
-         {:builtin, "set port",
-          fn args, _ ->
-            update_url_component(url_ref, "port", args |> List.first() |> to_string())
-          end}},
-      "pathname" =>
-        {:accessor,
-         {:builtin, "get pathname", fn _, _ -> (Heap.get_obj(url_ref, %{}) || %{})["pathname"] || "" end},
-         {:builtin, "set pathname",
-          fn args, _ ->
-            update_url_component(url_ref, "pathname", args |> List.first() |> to_string())
-          end}},
-      "search" =>
-        {:accessor,
-         {:builtin, "get search", fn _, _ -> (Heap.get_obj(url_ref, %{}) || %{})["search"] || "" end},
-         {:builtin, "set search",
-          fn args, _ ->
-            new_search = args |> List.first() |> to_string()
-            update_url_component(url_ref, "search", new_search)
-            new_search_norm = if String.starts_with?(new_search, "?"), do: new_search, else: "?" <> new_search
-            new_search_query = if new_search == "" or new_search == "?", do: "", else: new_search_norm
-            sync_search_params_from_url(search_params_obj, new_search_query)
-          end}},
-      "hash" =>
-        {:accessor,
-         {:builtin, "get hash", fn _, _ -> (Heap.get_obj(url_ref, %{}) || %{})["hash"] || "" end},
-         {:builtin, "set hash",
-          fn args, _ ->
-            new_hash = args |> List.first() |> to_string()
-            update_url_component(url_ref, "hash", new_hash)
-          end}},
-      "host" =>
-        {:accessor,
-         {:builtin, "get host",
-          fn _, _ ->
-            c = Heap.get_obj(url_ref, %{}) || %{}
-            hostname = c["hostname"] || ""
-            port = c["port"] || ""
-            if port == "", do: hostname, else: "#{hostname}:#{port}"
-          end},
-         nil},
-      "origin" =>
-        {:accessor,
-         {:builtin, "get origin", fn _, _ -> (Heap.get_obj(url_ref, %{}) || %{})["origin"] || "" end},
-         nil}
-    }
+    object do
+      prop("searchParams", search_params_obj)
 
-    methods =
-      build_methods do
-        method "toString" do
-          (Heap.get_obj(url_ref, %{}) || %{})["href"] || ""
+      accessor "href" do
+        get do
+          url_component(url_ref, "href")
         end
 
-        method "toJSON" do
-          (Heap.get_obj(url_ref, %{}) || %{})["href"] || ""
+        set do
+          new_value = args |> arg(0, nil) |> to_string()
+
+          case QuickBEAM.URL.parse([new_value]) do
+            %{"ok" => true, "components" => components} -> Heap.put_obj(url_ref, components)
+            _ -> :ok
+          end
+
+          :undefined
         end
       end
 
-    all_props =
-      Map.merge(methods, setters)
-      |> Map.put("searchParams", search_params_obj)
+      accessor "protocol" do
+        get do
+          url_component(url_ref, "protocol")
+        end
 
-    Heap.wrap(all_props)
+        set do
+          update_url_component(url_ref, "protocol", args |> arg(0, nil) |> to_string())
+        end
+      end
+
+      accessor "username" do
+        get do
+          url_component(url_ref, "username")
+        end
+
+        set do
+          update_url_component(url_ref, "username", args |> arg(0, nil) |> to_string())
+        end
+      end
+
+      accessor "password" do
+        get do
+          url_component(url_ref, "password")
+        end
+
+        set do
+          update_url_component(url_ref, "password", args |> arg(0, nil) |> to_string())
+        end
+      end
+
+      accessor "hostname" do
+        get do
+          url_component(url_ref, "hostname")
+        end
+
+        set do
+          update_url_component(url_ref, "hostname", args |> arg(0, nil) |> to_string())
+        end
+      end
+
+      accessor "port" do
+        get do
+          url_component(url_ref, "port")
+        end
+
+        set do
+          update_url_component(url_ref, "port", args |> arg(0, nil) |> to_string())
+        end
+      end
+
+      accessor "pathname" do
+        get do
+          url_component(url_ref, "pathname")
+        end
+
+        set do
+          update_url_component(url_ref, "pathname", args |> arg(0, nil) |> to_string())
+        end
+      end
+
+      accessor "search" do
+        get do
+          url_component(url_ref, "search")
+        end
+
+        set do
+          new_search = args |> arg(0, nil) |> to_string()
+          update_url_component(url_ref, "search", new_search)
+          sync_search_params_from_url(search_params_obj, normalized_search(new_search))
+        end
+      end
+
+      accessor "hash" do
+        get do
+          url_component(url_ref, "hash")
+        end
+
+        set do
+          update_url_component(url_ref, "hash", args |> arg(0, nil) |> to_string())
+        end
+      end
+
+      accessor "host" do
+        get do
+          components = Heap.get_obj(url_ref, %{}) || %{}
+          hostname = components["hostname"] || ""
+          port = components["port"] || ""
+          if port == "", do: hostname, else: "#{hostname}:#{port}"
+        end
+      end
+
+      accessor "origin" do
+        get do
+          url_component(url_ref, "origin")
+        end
+      end
+
+      method "toString" do
+        url_component(url_ref, "href")
+      end
+
+      method "toJSON" do
+        url_component(url_ref, "href")
+      end
+    end
   end
+
+  defp url_component(url_ref, component) do
+    (Heap.get_obj(url_ref, %{}) || %{})[component] || ""
+  end
+
+  defp normalized_search(""), do: ""
+  defp normalized_search("?"), do: ""
+  defp normalized_search("?" <> _ = search), do: search
+  defp normalized_search(search), do: "?" <> search
 
   defp update_url_component(url_ref, component, new_val) do
     c = Heap.get_obj(url_ref, %{}) || %{}
@@ -201,8 +231,11 @@ defmodule QuickBEAM.VM.Runtime.Web.URL do
 
   defp recompose_url(c) do
     href = build_href_from_components(c)
+
     case QuickBEAM.URL.parse([href]) do
-      %{"ok" => true, "components" => new_c} -> new_c
+      %{"ok" => true, "components" => new_c} ->
+        new_c
+
       _ ->
         # Fallback: just update href from components string
         Map.put(c, "href", href)
@@ -219,16 +252,18 @@ defmodule QuickBEAM.VM.Runtime.Web.URL do
   defp sync_search_params_from_url(search_params_obj, new_search) do
     case Get.get(search_params_obj, "__entries__") do
       {:obj, ref} ->
-        query = case new_search do
-          "?" <> q -> q
-          q -> q
-        end
+        query =
+          case new_search do
+            "?" <> q -> q
+            q -> q
+          end
 
-        entries = if query == "" do
-          []
-        else
-          QuickBEAM.URL.dissect_query([query])
-        end
+        entries =
+          if query == "" do
+            []
+          else
+            QuickBEAM.URL.dissect_query([query])
+          end
 
         Heap.put_obj(ref, %{"entries" => entries})
 
@@ -240,7 +275,7 @@ defmodule QuickBEAM.VM.Runtime.Web.URL do
   end
 
   defp build_url_search_params(args, _this) do
-    init = List.first(args, "")
+    init = arg(args, 0, "")
     make_search_params_from_input(init, nil)
   end
 
@@ -258,10 +293,12 @@ defmodule QuickBEAM.VM.Runtime.Web.URL do
     entries =
       case input do
         s when is_binary(s) and s != "" ->
-          q = case s do
-            "?" <> rest -> rest
-            other -> other
-          end
+          q =
+            case s do
+              "?" <> rest -> rest
+              other -> other
+            end
+
           if q == "", do: [], else: QuickBEAM.URL.dissect_query([q])
 
         {:obj, _} = obj ->
@@ -291,157 +328,134 @@ defmodule QuickBEAM.VM.Runtime.Web.URL do
     entries_ref = make_ref()
     Heap.put_obj(entries_ref, %{"entries" => entries})
 
-    sym_iter = {:symbol, "Symbol.iterator"}
+    object heap: false do
+      method "get" do
+        name = args |> arg(0, nil) |> to_string()
 
-    entries_fn =
-      {:builtin, "entries",
-       fn _args, _this ->
-         es = load_entries_ref(entries_ref)
-         items = Enum.map(es, fn [k, v] -> Heap.wrap([k, v]) end)
-         make_iterable_iterator(Heap.wrap_iterator(items))
-       end}
-
-    keys_fn =
-      {:builtin, "keys",
-       fn _args, _this ->
-         es = load_entries_ref(entries_ref)
-         make_iterable_iterator(Heap.wrap_iterator(Enum.map(es, fn [k, _] -> k end)))
-       end}
-
-    values_fn =
-      {:builtin, "values",
-       fn _args, _this ->
-         es = load_entries_ref(entries_ref)
-         make_iterable_iterator(Heap.wrap_iterator(Enum.map(es, fn [_, v] -> v end)))
-       end}
-
-    iter_fn =
-      {:builtin, "[Symbol.iterator]",
-       fn _args, _this ->
-         es = load_entries_ref(entries_ref)
-         items = Enum.map(es, fn [k, v] -> Heap.wrap([k, v]) end)
-         make_iterable_iterator(Heap.wrap_iterator(items))
-       end}
-
-    base_methods =
-      build_methods do
-        method "get" do
-          [name | _] = args
-          es = load_entries_ref(entries_ref)
-
-          case Enum.find(es, fn [k, _] -> k == to_string(name) end) do
-            [_, v] -> v
-            nil -> nil
-          end
-        end
-
-        method "getAll" do
-          [name | _] = args
-
-          load_entries_ref(entries_ref)
-          |> Enum.filter(fn [k, _] -> k == to_string(name) end)
-          |> Enum.map(fn [_, v] -> v end)
-          |> Heap.wrap()
-        end
-
-        method "set" do
-          [name, val | _] = args
-          n = to_string(name)
-          v = to_string(val)
-          es = load_entries_ref(entries_ref) |> Enum.reject(fn [k, _] -> k == n end)
-          save_entries_ref(entries_ref, es ++ [[n, v]])
-          sync_url_search(url_ref, entries_ref)
-          :undefined
-        end
-
-        method "append" do
-          [name, val | _] = args
-          n = to_string(name)
-          v = to_string(val)
-          save_entries_ref(entries_ref, load_entries_ref(entries_ref) ++ [[n, v]])
-          sync_url_search(url_ref, entries_ref)
-          :undefined
-        end
-
-        method "delete" do
-          [name | rest] = args
-          n = to_string(name)
-
-          updated =
-            case rest do
-              [val | _] when val != :undefined and val != nil ->
-                v = to_string(val)
-                load_entries_ref(entries_ref) |> Enum.reject(fn [k, ev] -> k == n and ev == v end)
-
-              _ ->
-                load_entries_ref(entries_ref) |> Enum.reject(fn [k, _] -> k == n end)
-            end
-
-          save_entries_ref(entries_ref, updated)
-          sync_url_search(url_ref, entries_ref)
-          :undefined
-        end
-
-        method "has" do
-          [name | _] = args
-          n = to_string(name)
-          Enum.any?(load_entries_ref(entries_ref), fn [k, _] -> k == n end)
-        end
-
-        method "sort" do
-          es = load_entries_ref(entries_ref)
-          sorted = Enum.sort_by(es, fn [k, _] -> k end)
-          save_entries_ref(entries_ref, sorted)
-          sync_url_search(url_ref, entries_ref)
-          :undefined
-        end
-
-        method "toString" do
-          result = QuickBEAM.URL.compose_query([load_entries_ref(entries_ref)])
-          IO.iodata_to_binary(result)
-        end
-
-        method "keys" do
-          es = load_entries_ref(entries_ref)
-          make_iterable_iterator(Heap.wrap_iterator(Enum.map(es, fn [k, _] -> k end)))
-        end
-
-        method "values" do
-          es = load_entries_ref(entries_ref)
-          make_iterable_iterator(Heap.wrap_iterator(Enum.map(es, fn [_, v] -> v end)))
-        end
-
-        method "forEach" do
-          [callback | _] = args ++ [nil]
-          es = load_entries_ref(entries_ref)
-
-          Enum.each(es, fn [k, v] ->
-            try do
-              Invocation.invoke_with_receiver(callback, [v, k, this], :undefined)
-            rescue
-              _ -> :ok
-            catch
-              _, _ -> :ok
-            end
-          end)
-
-          :undefined
+        case Enum.find(load_entries_ref(entries_ref), fn [key, _] -> key == name end) do
+          [_, value] -> value
+          nil -> nil
         end
       end
 
-    size_accessor =
-      {:accessor,
-       {:builtin, "get size", fn _, _ -> length(load_entries_ref(entries_ref)) end},
-       nil}
+      method "getAll" do
+        name = args |> arg(0, nil) |> to_string()
 
-    Map.merge(base_methods, %{
-      "size" => size_accessor,
-      "entries" => entries_fn,
-      "keys" => keys_fn,
-      "values" => values_fn,
-      sym_iter => iter_fn,
-      "__entries__" => {:obj, entries_ref}
-    })
+        entries_ref
+        |> load_entries_ref()
+        |> Enum.filter(fn [key, _] -> key == name end)
+        |> Enum.map(fn [_, value] -> value end)
+        |> Heap.wrap()
+      end
+
+      method "set" do
+        [name, value] = argv(args, [nil, nil])
+        name = to_string(name)
+        value = to_string(value)
+
+        entries =
+          entries_ref
+          |> load_entries_ref()
+          |> Enum.reject(fn [key, _] -> key == name end)
+
+        save_entries_ref(entries_ref, entries ++ [[name, value]])
+        sync_url_search(url_ref, entries_ref)
+        :undefined
+      end
+
+      method "append" do
+        [name, value] = argv(args, [nil, nil])
+        entry = [to_string(name), to_string(value)]
+        save_entries_ref(entries_ref, load_entries_ref(entries_ref) ++ [entry])
+        sync_url_search(url_ref, entries_ref)
+        :undefined
+      end
+
+      method "delete" do
+        [name, value] = argv(args, [nil, :undefined])
+        name = to_string(name)
+
+        entries =
+          case value do
+            value when value != :undefined and value != nil ->
+              value = to_string(value)
+
+              entries_ref
+              |> load_entries_ref()
+              |> Enum.reject(fn [key, entry_value] -> key == name and entry_value == value end)
+
+            _ ->
+              entries_ref |> load_entries_ref() |> Enum.reject(fn [key, _] -> key == name end)
+          end
+
+        save_entries_ref(entries_ref, entries)
+        sync_url_search(url_ref, entries_ref)
+        :undefined
+      end
+
+      method "has" do
+        name = args |> arg(0, nil) |> to_string()
+        Enum.any?(load_entries_ref(entries_ref), fn [key, _] -> key == name end)
+      end
+
+      method "sort" do
+        entries = entries_ref |> load_entries_ref() |> Enum.sort_by(fn [key, _] -> key end)
+        save_entries_ref(entries_ref, entries)
+        sync_url_search(url_ref, entries_ref)
+        :undefined
+      end
+
+      method "toString" do
+        result = QuickBEAM.URL.compose_query([load_entries_ref(entries_ref)])
+        IO.iodata_to_binary(result)
+      end
+
+      method "entries" do
+        entries_ref
+        |> load_entries_ref()
+        |> search_param_pairs()
+        |> iterator_from()
+      end
+
+      method "keys" do
+        entries_ref
+        |> load_entries_ref()
+        |> Enum.map(fn [key, _] -> key end)
+        |> iterator_from()
+      end
+
+      method "values" do
+        entries_ref
+        |> load_entries_ref()
+        |> Enum.map(fn [_, value] -> value end)
+        |> iterator_from()
+      end
+
+      method "forEach" do
+        callback = arg(args, 0, nil)
+
+        Enum.each(load_entries_ref(entries_ref), fn [key, value] ->
+          Callback.safe_invoke(callback, [value, key, this])
+        end)
+
+        :undefined
+      end
+
+      symbol_method "Symbol.iterator" do
+        entries_ref
+        |> load_entries_ref()
+        |> search_param_pairs()
+        |> iterator_from()
+      end
+
+      accessor "size" do
+        get do
+          length(load_entries_ref(entries_ref))
+        end
+      end
+
+      prop("__entries__", {:obj, entries_ref})
+    end
     |> Heap.wrap()
   end
 
@@ -469,14 +483,8 @@ defmodule QuickBEAM.VM.Runtime.Web.URL do
     Heap.put_obj(entries_ref, %{"entries" => entries})
   end
 
-  defp make_iterable_iterator({:obj, ref} = iter) do
-    sym_iter = {:symbol, "Symbol.iterator"}
-
-    Heap.update_obj(ref, %{}, fn m ->
-      Map.put(m, sym_iter, {:builtin, "[Symbol.iterator]", fn _, this -> this end})
-    end)
-
-    iter
+  defp search_param_pairs(entries) do
+    Enum.map(entries, fn [key, value] -> Heap.wrap([key, value]) end)
   end
 
   defp extract_kv_pair({:obj, iref}) do

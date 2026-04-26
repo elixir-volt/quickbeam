@@ -1,10 +1,11 @@
 defmodule QuickBEAM.VM.Runtime.Web.Abort do
   @moduledoc "AbortController and AbortSignal builtins for BEAM mode."
 
-  import QuickBEAM.VM.Builtin, only: [build_methods: 1]
+  import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, constructor: 2, object: 1]
 
-  alias QuickBEAM.VM.{Heap, Invocation, JSThrow}
+  alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
+  alias QuickBEAM.VM.Runtime.Web.{Callback, StateRef}
   alias QuickBEAM.VM.Runtime.WebAPIs
 
   def bindings do
@@ -17,33 +18,28 @@ defmodule QuickBEAM.VM.Runtime.Web.Abort do
   defp build_abort_controller(_args, _this) do
     signal = build_signal()
 
-    Heap.wrap(
-      build_methods do
-        val("signal", signal)
+    object do
+      prop("signal", signal)
 
-        method "abort" do
-          sig = Get.get(this, "signal")
-          reason = List.first(args, :undefined)
-          actual_reason = if reason == :undefined, do: make_abort_error(), else: reason
-          do_abort(sig, actual_reason)
-          :undefined
-        end
+      method "abort" do
+        sig = Get.get(this, "signal")
+        reason = arg(args, 0, :undefined)
+        actual_reason = if reason == :undefined, do: make_abort_error(), else: reason
+        do_abort(sig, actual_reason)
+        :undefined
       end
-    )
+    end
   end
 
   defp build_abort_signal_static do
-    ctor = {:builtin, "AbortSignal", fn _args, _this -> build_signal() end}
-    proto = Heap.wrap(%{"constructor" => ctor})
-    Heap.put_class_proto(ctor, proto)
-    Heap.put_ctor_static(ctor, "prototype", proto)
+    ctor = constructor("AbortSignal", fn _args, _this -> build_signal() end)
 
     Heap.put_ctor_static(
       ctor,
       "abort",
       {:builtin, "abort",
        fn args, _ ->
-         reason = List.first(args, :undefined)
+         reason = arg(args, 0, :undefined)
          actual_reason = if reason == :undefined, do: make_abort_error(), else: reason
          signal = build_signal()
          do_abort(signal, actual_reason)
@@ -56,7 +52,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Abort do
       "timeout",
       {:builtin, "timeout",
        fn args, _ ->
-         ms = args |> List.first(0) |> coerce_number()
+         ms = args |> arg(0, 0) |> coerce_number()
          signal = build_signal()
 
          abort_callback =
@@ -76,7 +72,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Abort do
       "any",
       {:builtin, "any",
        fn args, _ ->
-         signals_val = List.first(args, [])
+         signals_val = arg(args, 0, [])
 
          signals =
            case signals_val do
@@ -106,50 +102,46 @@ defmodule QuickBEAM.VM.Runtime.Web.Abort do
   end
 
   def build_signal do
-    listeners_ref = make_ref()
-    Heap.put_obj(listeners_ref, %{list: []})
+    listeners_ref = StateRef.new(%{list: []})
 
-    Heap.wrap(
-      build_methods do
-        val("aborted", false)
-        val("reason", :undefined)
+    object do
+      prop("aborted", false)
+      prop("reason", :undefined)
 
-        method "addEventListener" do
-          [type | rest] = args ++ [nil, nil]
-          callback = List.first(rest)
+      method "addEventListener" do
+        [type, callback] = argv(args, [nil, nil])
 
-          if to_string(type) == "abort" do
-            existing = load_listeners(listeners_ref)
-            store_listeners(listeners_ref, existing ++ [callback])
-          end
-
-          :undefined
+        if to_string(type) == "abort" do
+          store_listeners(listeners_ref, load_listeners(listeners_ref) ++ [callback])
         end
 
-        method "removeEventListener" do
-          [type, callback | _] = args ++ [nil, nil]
-
-          if to_string(type) == "abort" do
-            existing = load_listeners(listeners_ref)
-            store_listeners(listeners_ref, Enum.reject(existing, &(&1 == callback)))
-          end
-
-          :undefined
-        end
-
-        method "throwIfAborted" do
-          if Get.get(this, "aborted") == true do
-            reason = Get.get(this, "reason")
-            JSThrow.error!("Signal aborted")
-            throw({:js_throw, reason})
-          end
-
-          :undefined
-        end
+        :undefined
       end
-    )
+
+      method "removeEventListener" do
+        [type, callback] = argv(args, [nil, nil])
+
+        if to_string(type) == "abort" do
+          listeners = Enum.reject(load_listeners(listeners_ref), &(&1 == callback))
+          store_listeners(listeners_ref, listeners)
+        end
+
+        :undefined
+      end
+
+      method "throwIfAborted" do
+        if Get.get(this, "aborted") == true do
+          reason = Get.get(this, "reason")
+          JSThrow.error!("Signal aborted")
+          throw({:js_throw, reason})
+        end
+
+        :undefined
+      end
+    end
     |> tap(fn signal ->
       {:obj, ref} = signal
+
       Heap.update_obj(ref, %{}, fn m ->
         Map.put(m, "__listeners_ref__", {:obj, listeners_ref})
       end)
@@ -169,15 +161,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Abort do
             {:obj, lref} ->
               listeners = load_listeners(lref)
 
-              Enum.each(listeners, fn cb ->
-                try do
-                  Invocation.invoke_with_receiver(cb, [], :undefined)
-                rescue
-                  _ -> :ok
-                catch
-                  _, _ -> :ok
-                end
-              end)
+              Enum.each(listeners, &Callback.safe_invoke(&1, []))
 
             _ ->
               :ok
@@ -209,14 +193,14 @@ defmodule QuickBEAM.VM.Runtime.Web.Abort do
   end
 
   defp load_listeners(ref) do
-    case Heap.get_obj(ref, %{}) do
+    case StateRef.get(ref, %{}) do
       %{list: list} when is_list(list) -> list
       _ -> []
     end
   end
 
   defp store_listeners(ref, listeners) do
-    Heap.put_obj(ref, %{list: listeners})
+    StateRef.put(ref, %{list: listeners})
   end
 
   def make_abort_error do

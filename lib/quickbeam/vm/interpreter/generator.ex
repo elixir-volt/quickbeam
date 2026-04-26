@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Interpreter.Generator do
   @moduledoc "Generator and async function execution: suspends/resumes frames and wraps results in iterator or Promise objects."
 
-  import QuickBEAM.VM.Builtin, only: [build_object: 1]
+  import QuickBEAM.VM.Builtin, only: [object: 1]
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter
@@ -143,9 +143,9 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
          [], _this -> return_impl.(gen_ref, :undefined)
        end}
 
-    build_object do
-      val("next", next_fn)
-      val("return", return_fn)
+    object do
+      prop("next", next_fn)
+      prop("return", return_fn)
     end
   end
 end

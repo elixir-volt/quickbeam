@@ -1,9 +1,10 @@
 defmodule QuickBEAM.VM.Runtime.Web.BroadcastChannel do
   @moduledoc "BroadcastChannel builtin for BEAM mode — in-process pub/sub via process dictionary."
 
-  import QuickBEAM.VM.Builtin, only: [build_methods: 1]
+  import QuickBEAM.VM.Builtin, only: [arg: 3, object: 1]
 
-  alias QuickBEAM.VM.{Heap, Invocation}
+  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.Runtime.Web.Callback
   alias QuickBEAM.VM.Runtime.WebAPIs
 
   @channels_key :qb_broadcast_channels
@@ -20,53 +21,46 @@ defmodule QuickBEAM.VM.Runtime.Web.BroadcastChannel do
     channel_id = make_ref()
     register_channel(channel_name, channel_id, listener_ref)
 
-    Heap.wrap(
-      build_methods do
-        val("name", channel_name)
+    object do
+      prop("name", channel_name)
 
-        method "postMessage" do
-          data = List.first(args, :undefined)
+      method "postMessage" do
+        data = arg(args, 0, :undefined)
+        deliver_message(channel_name, channel_id, data)
+        :undefined
+      end
 
-          channel_name
-          |> get_channel_listeners()
-          |> Enum.each(fn {id, lref} ->
-            if id != channel_id do
-              handler = Process.get(lref)
+      method "close" do
+        unregister_channel(channel_name, channel_id)
+        :undefined
+      end
 
-              if handler != nil and handler != false do
-                event = Heap.wrap(%{"data" => data, "type" => "message"})
-
-                try do
-                  Invocation.invoke_with_receiver(handler, [event], :undefined)
-                rescue
-                  _ -> :ok
-                catch
-                  _, _ -> :ok
-                end
-              end
-            end
-          end)
-
-          :undefined
+      accessor "onmessage" do
+        get do
+          Heap.get_obj(listener_ref, nil)
         end
 
-        method "close" do
-          unregister_channel(channel_name, channel_id)
+        set do
+          Heap.put_obj(listener_ref, arg(args, 0, nil))
           :undefined
         end
       end
-      |> Map.merge(%{
-        "onmessage" =>
-          {:accessor,
-           {:builtin, "get onmessage", fn _, _ -> Heap.get_obj(listener_ref, nil) end},
-           {:builtin, "set onmessage",
-            fn args, _ ->
-              handler = List.first(args, nil)
-              Heap.put_obj(listener_ref, handler)
-              :undefined
-            end}}
-      })
-    )
+    end
+  end
+
+  defp deliver_message(channel_name, channel_id, data) do
+    channel_name
+    |> get_channel_listeners()
+    |> Enum.each(fn {id, listener_ref} ->
+      if id != channel_id do
+        handler = Heap.get_obj(listener_ref, nil)
+
+        if handler not in [nil, false, :undefined] do
+          event = Heap.wrap(%{"data" => data, "type" => "message"})
+          Callback.safe_invoke(handler, [event])
+        end
+      end
+    end)
   end
 
   defp register_channel(name, id, ref) do

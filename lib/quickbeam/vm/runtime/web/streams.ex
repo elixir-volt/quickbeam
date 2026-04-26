@@ -1,10 +1,11 @@
 defmodule QuickBEAM.VM.Runtime.Web.Streams do
   @moduledoc "ReadableStream, WritableStream, and TransformStream builtins for BEAM mode."
 
-  import QuickBEAM.VM.Builtin, only: [build_methods: 1]
+  import QuickBEAM.VM.Builtin, only: [arg: 3, object: 1]
 
-  alias QuickBEAM.VM.{Heap, Invocation, PromiseState}
+  alias QuickBEAM.VM.{Heap, PromiseState}
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
+  alias QuickBEAM.VM.Runtime.Web.{Callback, IteratorResult}
   alias QuickBEAM.VM.Runtime.WebAPIs
 
   def bindings do
@@ -21,21 +22,26 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
     chunks_ref = make_ref()
     Heap.put_obj(chunks_ref, %{chunks: [], closed: false})
 
-    sink = Heap.wrap(%{
-      "write" => {:builtin, "write", fn [chunk | _], _ ->
-        str = if is_binary(chunk), do: chunk, else: to_string(chunk)
-        bytes = :unicode.characters_to_binary(str)
-        state = Heap.get_obj(chunks_ref, %{})
-        existing = Map.get(state, :chunks, [])
-        Heap.put_obj(chunks_ref, Map.put(state, :chunks, existing ++ [bytes]))
-        :undefined
-      end},
-      "close" => {:builtin, "close", fn _, _ ->
-        state = Heap.get_obj(chunks_ref, %{})
-        Heap.put_obj(chunks_ref, Map.put(state, :closed, true))
-        :undefined
-      end}
-    })
+    sink =
+      Heap.wrap(%{
+        "write" =>
+          {:builtin, "write",
+           fn [chunk | _], _ ->
+             str = if is_binary(chunk), do: chunk, else: to_string(chunk)
+             bytes = :unicode.characters_to_binary(str)
+             state = Heap.get_obj(chunks_ref, %{})
+             existing = Map.get(state, :chunks, [])
+             Heap.put_obj(chunks_ref, Map.put(state, :chunks, existing ++ [bytes]))
+             :undefined
+           end},
+        "close" =>
+          {:builtin, "close",
+           fn _, _ ->
+             state = Heap.get_obj(chunks_ref, %{})
+             Heap.put_obj(chunks_ref, Map.put(state, :closed, true))
+             :undefined
+           end}
+      })
 
     readable = build_readable_stream_from_ref_encoded(chunks_ref)
     writable = build_writable_stream([sink], nil)
@@ -48,60 +54,61 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
   end
 
   defp build_uint8_reader(chunks_ref) do
-    Heap.wrap(
-      build_methods do
-        method "read" do
-          state = Heap.get_obj(chunks_ref, %{})
-          chunks = Map.get(state, :chunks, [])
-          case chunks do
-            [chunk | rest] ->
-              Heap.put_obj(chunks_ref, Map.put(state, :chunks, rest))
-              val = bytes_to_uint8array(chunk)
-              PromiseState.resolved(Heap.wrap(%{"value" => val, "done" => false}))
-            [] ->
-              if Map.get(state, :closed, false) do
-                PromiseState.resolved(Heap.wrap(%{"value" => :undefined, "done" => true}))
-              else
-                PromiseState.resolved(Heap.wrap(%{"value" => :undefined, "done" => true}))
-              end
-          end
-        end
+    object do
+      method "read" do
+        state = Heap.get_obj(chunks_ref, %{})
+        chunks = Map.get(state, :chunks, [])
 
-        method "releaseLock" do
-          :undefined
-        end
+        case chunks do
+          [chunk | rest] ->
+            Heap.put_obj(chunks_ref, Map.put(state, :chunks, rest))
+            chunk |> bytes_to_uint8array() |> IteratorResult.resolved_value()
 
-        method "cancel" do
-          PromiseState.resolved(:undefined)
+          [] ->
+            IteratorResult.resolved_done()
         end
       end
-    )
+
+      method "releaseLock" do
+        :undefined
+      end
+
+      method "cancel" do
+        PromiseState.resolved(:undefined)
+      end
+    end
   end
 
   defp build_text_decoder_stream(args, _this) do
-    label = case args do
-      [l | _] when is_binary(l) -> String.downcase(l)
-      _ -> "utf-8"
-    end
+    label =
+      case args do
+        [l | _] when is_binary(l) -> String.downcase(l)
+        _ -> "utf-8"
+      end
 
     chunks_ref = make_ref()
     Heap.put_obj(chunks_ref, %{chunks: [], closed: false})
 
-    sink = Heap.wrap(%{
-      "write" => {:builtin, "write", fn [chunk | _], _ ->
-        bytes = extract_bytes(chunk)
-        decoded = :unicode.characters_to_binary(bytes)
-        state = Heap.get_obj(chunks_ref, %{})
-        existing = Map.get(state, :chunks, [])
-        Heap.put_obj(chunks_ref, Map.put(state, :chunks, existing ++ [decoded]))
-        :undefined
-      end},
-      "close" => {:builtin, "close", fn _, _ ->
-        state = Heap.get_obj(chunks_ref, %{})
-        Heap.put_obj(chunks_ref, Map.put(state, :closed, true))
-        :undefined
-      end}
-    })
+    sink =
+      Heap.wrap(%{
+        "write" =>
+          {:builtin, "write",
+           fn [chunk | _], _ ->
+             bytes = extract_bytes(chunk)
+             decoded = :unicode.characters_to_binary(bytes)
+             state = Heap.get_obj(chunks_ref, %{})
+             existing = Map.get(state, :chunks, [])
+             Heap.put_obj(chunks_ref, Map.put(state, :chunks, existing ++ [decoded]))
+             :undefined
+           end},
+        "close" =>
+          {:builtin, "close",
+           fn _, _ ->
+             state = Heap.get_obj(chunks_ref, %{})
+             Heap.put_obj(chunks_ref, Map.put(state, :closed, true))
+             :undefined
+           end}
+      })
 
     readable = build_readable_stream_from_ref(chunks_ref)
     writable = build_writable_stream([sink], nil)
@@ -110,8 +117,11 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
 
   defp bytes_to_uint8array(bytes) when is_binary(bytes) do
     byte_list = :binary.bin_to_list(bytes)
+
     case Heap.get_global_cache() do
-      nil -> Heap.wrap(byte_list)
+      nil ->
+        Heap.wrap(byte_list)
+
       globals ->
         case Map.get(globals, "Uint8Array") do
           {:builtin, _, cb} -> cb.([byte_list], nil)
@@ -132,17 +142,28 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
                     ab = Map.get(bm, "__buffer__", <<>>)
                     off = Map.get(m, "byteOffset", 0)
                     blen = Map.get(m, "byteLength", 0)
+
                     if byte_size(ab) >= off + blen and blen > 0,
                       do: binary_part(ab, off, blen),
                       else: <<>>
-                  _ -> <<>>
+
+                  _ ->
+                    <<>>
                 end
-              _ -> <<>>
+
+              _ ->
+                <<>>
             end
-          Map.has_key?(m, "__buffer__") -> Map.get(m, "__buffer__", <<>>)
-          true -> <<>>
+
+          Map.has_key?(m, "__buffer__") ->
+            Map.get(m, "__buffer__", <<>>)
+
+          true ->
+            <<>>
         end
-      _ -> <<>>
+
+      _ ->
+        <<>>
     end
   end
 
@@ -151,7 +172,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
   defp extract_bytes(_), do: <<>>
 
   defp build_readable_stream(args, _this) do
-    source = List.first(args)
+    source = arg(args, 0, nil)
 
     chunks_ref = make_ref()
     Heap.put_obj(chunks_ref, %{chunks: [], closed: false, locked: false})
@@ -164,7 +185,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
 
         if start_fn != :undefined and start_fn != nil do
           try do
-            Invocation.invoke_with_receiver(start_fn, [controller], :undefined)
+            Callback.invoke(start_fn, [controller])
           rescue
             _ -> :ok
           catch
@@ -219,127 +240,111 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
          PromiseState.resolved(:undefined)
        end}
 
-    Heap.wrap(
-      build_methods do
-        val("locked", false)
-      end
-      |> Map.merge(%{
-        "getReader" => reader_fn,
-        sym_async_iter => async_iter_fn,
-        "pipeThrough" => pipe_through_fn,
-        "pipeTo" => pipe_to_fn
-      })
-    )
+    object do
+      prop("locked", false)
+      prop("getReader", reader_fn)
+      prop(sym_async_iter, async_iter_fn)
+      prop("pipeThrough", pipe_through_fn)
+      prop("pipeTo", pipe_to_fn)
+    end
   end
 
   defp get_writer(ws) do
     case ws do
       {:obj, _} ->
         write_fn = Get.get(ws, "getWriter")
+
         case write_fn do
           {:builtin, _, cb} -> cb.([], ws)
           _ -> nil
         end
-      _ -> nil
+
+      _ ->
+        nil
     end
   end
 
   defp build_controller(chunks_ref) do
-    Heap.wrap(
-      build_methods do
-        method "enqueue" do
-          value = List.first(args, :undefined)
-          state = Heap.get_obj(chunks_ref, %{})
+    object do
+      method "enqueue" do
+        value = arg(args, 0, :undefined)
+        state = Heap.get_obj(chunks_ref, %{})
 
-          unless Map.get(state, :closed, false) do
-            chunks = Map.get(state, :chunks, [])
-            Heap.put_obj(chunks_ref, Map.put(state, :chunks, chunks ++ [value]))
-          end
-
-          :undefined
+        unless Map.get(state, :closed, false) do
+          chunks = Map.get(state, :chunks, [])
+          Heap.put_obj(chunks_ref, Map.put(state, :chunks, chunks ++ [value]))
         end
 
-        method "close" do
-          state = Heap.get_obj(chunks_ref, %{})
-          Heap.put_obj(chunks_ref, Map.put(state, :closed, true))
-          :undefined
-        end
-
-        method "error" do
-          err_reason = List.first(args)
-          state = Heap.get_obj(chunks_ref, %{})
-          Heap.put_obj(chunks_ref, Map.merge(state, %{closed: true, error: err_reason}))
-          :undefined
-        end
+        :undefined
       end
-    )
+
+      method "close" do
+        state = Heap.get_obj(chunks_ref, %{})
+        Heap.put_obj(chunks_ref, Map.put(state, :closed, true))
+        :undefined
+      end
+
+      method "error" do
+        err_reason = arg(args, 0, nil)
+        state = Heap.get_obj(chunks_ref, %{})
+        Heap.put_obj(chunks_ref, Map.merge(state, %{closed: true, error: err_reason}))
+        :undefined
+      end
+    end
   end
 
   defp build_reader(chunks_ref) do
-    Heap.wrap(
-      build_methods do
-        method "read" do
-          state = Heap.get_obj(chunks_ref, %{})
-          chunks = Map.get(state, :chunks, [])
+    object do
+      method "read" do
+        state = Heap.get_obj(chunks_ref, %{})
+        chunks = Map.get(state, :chunks, [])
 
-          case chunks do
-            [chunk | rest] ->
-              Heap.put_obj(chunks_ref, Map.put(state, :chunks, rest))
-              result = Heap.wrap(%{"value" => chunk, "done" => false})
-              PromiseState.resolved(result)
+        case chunks do
+          [chunk | rest] ->
+            Heap.put_obj(chunks_ref, Map.put(state, :chunks, rest))
+            IteratorResult.resolved_value(chunk)
 
-            [] ->
-              if Map.get(state, :closed, false) do
-                result = Heap.wrap(%{"value" => :undefined, "done" => true})
-                PromiseState.resolved(result)
-              else
-                result = Heap.wrap(%{"value" => :undefined, "done" => true})
-                PromiseState.resolved(result)
-              end
-          end
-        end
-
-        method "releaseLock" do
-          :undefined
-        end
-
-        method "cancel" do
-          PromiseState.resolved(:undefined)
+          [] ->
+            IteratorResult.resolved_done()
         end
       end
-    )
+
+      method "releaseLock" do
+        :undefined
+      end
+
+      method "cancel" do
+        PromiseState.resolved(:undefined)
+      end
+    end
   end
 
   defp build_stream_async_iterator(chunks_ref) do
     sym_async_iter = {:symbol, "Symbol.asyncIterator"}
 
     iter =
-      Heap.wrap(
-        build_methods do
-          method "next" do
-            state = Heap.get_obj(chunks_ref, %{})
-            chunks = Map.get(state, :chunks, [])
+      object do
+        method "next" do
+          state = Heap.get_obj(chunks_ref, %{})
+          chunks = Map.get(state, :chunks, [])
 
-            case chunks do
-              [chunk | rest] ->
-                Heap.put_obj(chunks_ref, Map.put(state, :chunks, rest))
-                result = Heap.wrap(%{"value" => chunk, "done" => false})
-                PromiseState.resolved(result)
+          case chunks do
+            [chunk | rest] ->
+              Heap.put_obj(chunks_ref, Map.put(state, :chunks, rest))
+              IteratorResult.resolved_value(chunk)
 
-              [] ->
-                result = Heap.wrap(%{"value" => :undefined, "done" => true})
-                PromiseState.resolved(result)
-            end
-          end
-
-          method "return" do
-            result = Heap.wrap(%{"value" => :undefined, "done" => true})
-            PromiseState.resolved(result)
+            [] ->
+              IteratorResult.resolved_done()
           end
         end
-      )
+
+        method "return" do
+          IteratorResult.resolved_done()
+        end
+      end
 
     {:obj, ref} = iter
+
     Heap.update_obj(ref, %{}, fn m ->
       Map.put(m, sym_async_iter, {:builtin, "[Symbol.asyncIterator]", fn _, this -> this end})
     end)
@@ -348,155 +353,179 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
   end
 
   defp build_writable_stream(args, _this) do
-    sink = List.first(args)
+    sink = arg(args, 0, nil)
     locked_ref = make_ref()
     Heap.put_obj(locked_ref, false)
 
-    write_fn = case sink do
-      {:obj, _} ->
-        case Get.get(sink, "write") do
-          f when f != :undefined and f != nil -> f
-          _ -> nil
-        end
-      _ -> nil
-    end
+    write_fn =
+      case sink do
+        {:obj, _} ->
+          case Get.get(sink, "write") do
+            f when f != :undefined and f != nil -> f
+            _ -> nil
+          end
 
-    close_fn = case sink do
-      {:obj, _} ->
-        case Get.get(sink, "close") do
-          f when f != :undefined and f != nil -> f
-          _ -> nil
-        end
-      _ -> nil
-    end
+        _ ->
+          nil
+      end
+
+    close_fn =
+      case sink do
+        {:obj, _} ->
+          case Get.get(sink, "close") do
+            f when f != :undefined and f != nil -> f
+            _ -> nil
+          end
+
+        _ ->
+          nil
+      end
 
     ws_ref = make_ref()
     Heap.put_obj(ws_ref, %{locked: false})
 
-    locked_accessor = {:accessor,
-      {:builtin, "get locked", fn _, _ ->
-         state = Heap.get_obj(ws_ref, %{})
-         Map.get(state, :locked, false)
-       end},
-      nil}
+    object do
+      accessor "locked" do
+        get do
+          ws_ref
+          |> Heap.get_obj(%{})
+          |> Map.get(:locked, false)
+        end
+      end
 
-    Heap.wrap(
-      %{
-        "locked" => locked_accessor,
-        "getWriter" => {:builtin, "getWriter", fn _, _ ->
-          state = Heap.get_obj(ws_ref, %{})
-          Heap.put_obj(ws_ref, Map.put(state, :locked, true))
+      method "getWriter" do
+        state = Heap.get_obj(ws_ref, %{})
+        Heap.put_obj(ws_ref, Map.put(state, :locked, true))
 
-          Heap.wrap(
-            build_methods do
-              method "write" do
-                chunk = List.first(args, :undefined)
-                if write_fn != nil do
-                  try do
-                    Invocation.invoke_with_receiver(write_fn, [chunk], :undefined)
-                  rescue
-                    _ -> :ok
-                  catch
-                    _, _ -> :ok
-                  end
-                end
-                PromiseState.resolved(:undefined)
-              end
+        object do
+          method "write" do
+            chunk = arg(args, 0, :undefined)
 
-              method "close" do
-                if close_fn != nil do
-                  try do
-                    Invocation.invoke_with_receiver(close_fn, [], :undefined)
-                  rescue
-                    _ -> :ok
-                  catch
-                    _, _ -> :ok
-                  end
-                end
-                PromiseState.resolved(:undefined)
-              end
-
-              method "abort" do
-                PromiseState.resolved(:undefined)
-              end
-
-              method "releaseLock" do
-                state2 = Heap.get_obj(ws_ref, %{})
-                Heap.put_obj(ws_ref, Map.put(state2, :locked, false))
-                :undefined
+            if write_fn != nil do
+              try do
+                Callback.invoke(write_fn, [chunk])
+              rescue
+                _ -> :ok
+              catch
+                _, _ -> :ok
               end
             end
-          )
-        end},
-        "abort" => {:builtin, "abort", fn _, _ -> PromiseState.resolved(:undefined) end},
-        "close" => {:builtin, "close", fn _, _ -> PromiseState.resolved(:undefined) end}
-      }
-    )
+
+            PromiseState.resolved(:undefined)
+          end
+
+          method "close" do
+            if close_fn != nil do
+              try do
+                Callback.invoke(close_fn, [])
+              rescue
+                _ -> :ok
+              catch
+                _, _ -> :ok
+              end
+            end
+
+            PromiseState.resolved(:undefined)
+          end
+
+          method "abort" do
+            PromiseState.resolved(:undefined)
+          end
+
+          method "releaseLock" do
+            state2 = Heap.get_obj(ws_ref, %{})
+            Heap.put_obj(ws_ref, Map.put(state2, :locked, false))
+            :undefined
+          end
+        end
+      end
+
+      method "abort" do
+        PromiseState.resolved(:undefined)
+      end
+
+      method "close" do
+        PromiseState.resolved(:undefined)
+      end
+    end
   end
 
   defp build_transform_stream(args, _this) do
-    transformer = List.first(args)
+    transformer = arg(args, 0, nil)
     chunks_ref = make_ref()
     Heap.put_obj(chunks_ref, %{chunks: [], closed: false, locked: false})
 
-    transform_fn = case transformer do
-      {:obj, _} ->
-        case Get.get(transformer, "transform") do
-          f when f != :undefined and f != nil -> f
-          _ -> nil
-        end
-      _ -> nil
-    end
+    transform_fn =
+      case transformer do
+        {:obj, _} ->
+          case Get.get(transformer, "transform") do
+            f when f != :undefined and f != nil -> f
+            _ -> nil
+          end
 
-    flush_fn = case transformer do
-      {:obj, _} ->
-        case Get.get(transformer, "flush") do
-          f when f != :undefined and f != nil -> f
-          _ -> nil
-        end
-      _ -> nil
-    end
+        _ ->
+          nil
+      end
+
+    flush_fn =
+      case transformer do
+        {:obj, _} ->
+          case Get.get(transformer, "flush") do
+            f when f != :undefined and f != nil -> f
+            _ -> nil
+          end
+
+        _ ->
+          nil
+      end
 
     controller = build_controller(chunks_ref)
 
-    sink = Heap.wrap(%{
-      "write" => {:builtin, "write", fn [chunk | _], _ ->
-        if transform_fn != nil do
-          try do
-            Invocation.invoke_with_receiver(transform_fn, [chunk, controller], :undefined)
-          rescue
-            _ ->
-              state = Heap.get_obj(chunks_ref, %{})
-              chunks = Map.get(state, :chunks, [])
-              Heap.put_obj(chunks_ref, Map.put(state, :chunks, chunks ++ [chunk]))
-          catch
-            _, _ ->
-              state = Heap.get_obj(chunks_ref, %{})
-              chunks = Map.get(state, :chunks, [])
-              Heap.put_obj(chunks_ref, Map.put(state, :chunks, chunks ++ [chunk]))
-          end
-        else
-          state = Heap.get_obj(chunks_ref, %{})
-          chunks = Map.get(state, :chunks, [])
-          Heap.put_obj(chunks_ref, Map.put(state, :chunks, chunks ++ [chunk]))
-        end
-        :undefined
-      end},
-      "close" => {:builtin, "close", fn _, _ ->
-        if flush_fn != nil do
-          try do
-            Invocation.invoke_with_receiver(flush_fn, [controller], :undefined)
-          rescue
-            _ -> :ok
-          catch
-            _, _ -> :ok
-          end
-        end
-        state = Heap.get_obj(chunks_ref, %{})
-        Heap.put_obj(chunks_ref, Map.put(state, :closed, true))
-        :undefined
-      end}
-    })
+    sink =
+      Heap.wrap(%{
+        "write" =>
+          {:builtin, "write",
+           fn [chunk | _], _ ->
+             if transform_fn != nil do
+               try do
+                 Callback.invoke(transform_fn, [chunk, controller])
+               rescue
+                 _ ->
+                   state = Heap.get_obj(chunks_ref, %{})
+                   chunks = Map.get(state, :chunks, [])
+                   Heap.put_obj(chunks_ref, Map.put(state, :chunks, chunks ++ [chunk]))
+               catch
+                 _, _ ->
+                   state = Heap.get_obj(chunks_ref, %{})
+                   chunks = Map.get(state, :chunks, [])
+                   Heap.put_obj(chunks_ref, Map.put(state, :chunks, chunks ++ [chunk]))
+               end
+             else
+               state = Heap.get_obj(chunks_ref, %{})
+               chunks = Map.get(state, :chunks, [])
+               Heap.put_obj(chunks_ref, Map.put(state, :chunks, chunks ++ [chunk]))
+             end
+
+             :undefined
+           end},
+        "close" =>
+          {:builtin, "close",
+           fn _, _ ->
+             if flush_fn != nil do
+               try do
+                 Callback.invoke(flush_fn, [controller])
+               rescue
+                 _ -> :ok
+               catch
+                 _, _ -> :ok
+               end
+             end
+
+             state = Heap.get_obj(chunks_ref, %{})
+             Heap.put_obj(chunks_ref, Map.put(state, :closed, true))
+             :undefined
+           end}
+      })
 
     _readable = build_readable_stream([], nil)
     writable = build_writable_stream([sink], nil)
@@ -530,15 +559,19 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
          writable = Get.get(ts, "writable")
          readable = Get.get(ts, "readable")
 
-         writer = case writable do
-           {:obj, _} ->
-             write_fn = Get.get(writable, "getWriter")
-             case write_fn do
-               {:builtin, _, cb} -> cb.([], writable)
-               _ -> nil
-             end
-           _ -> nil
-         end
+         writer =
+           case writable do
+             {:obj, _} ->
+               write_fn = Get.get(writable, "getWriter")
+
+               case write_fn do
+                 {:builtin, _, cb} -> cb.([], writable)
+                 _ -> nil
+               end
+
+             _ ->
+               nil
+           end
 
          drain_loop(reader, writer)
          readable
@@ -548,31 +581,32 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
       {:builtin, "pipeTo",
        fn [ws | _], _this ->
          reader = build_reader(chunks_ref)
-         writer = case ws do
-           {:obj, _} ->
-             write_fn = Get.get(ws, "getWriter")
-             case write_fn do
-               {:builtin, _, cb} -> cb.([], ws)
-               _ -> nil
-             end
-           _ -> nil
-         end
+
+         writer =
+           case ws do
+             {:obj, _} ->
+               write_fn = Get.get(ws, "getWriter")
+
+               case write_fn do
+                 {:builtin, _, cb} -> cb.([], ws)
+                 _ -> nil
+               end
+
+             _ ->
+               nil
+           end
 
          drain_loop(reader, writer)
          PromiseState.resolved(:undefined)
        end}
 
-    Heap.wrap(
-      build_methods do
-        val("locked", false)
-      end
-      |> Map.merge(%{
-        "getReader" => reader_fn,
-        sym_async_iter => async_iter_fn,
-        "pipeThrough" => pipe_through_fn,
-        "pipeTo" => pipe_to_fn
-      })
-    )
+    object do
+      prop("locked", false)
+      prop("getReader", reader_fn)
+      prop(sym_async_iter, async_iter_fn)
+      prop("pipeThrough", pipe_through_fn)
+      prop("pipeTo", pipe_to_fn)
+    end
   end
 
   defp drain_loop(reader, writer) do
@@ -580,38 +614,48 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
   end
 
   defp drain_loop_impl(_reader, _writer, 0), do: :ok
+
   defp drain_loop_impl(reader, writer, n) do
     read_fn = Get.get(reader, "read")
-    result = case read_fn do
-      {:builtin, _, cb} ->
-        prom = cb.([], reader)
-        resolve_promise(prom)
-      _ -> %{"done" => true}
-    end
 
-    done = case result do
-      {:obj, ref} -> Heap.get_obj(ref, %{}) |> Map.get("done", false)
-      %{"done" => d} -> d
-      _ -> true
-    end
+    result =
+      case read_fn do
+        {:builtin, _, cb} ->
+          prom = cb.([], reader)
+          resolve_promise(prom)
+
+        _ ->
+          %{"done" => true}
+      end
+
+    done =
+      case result do
+        {:obj, ref} -> Heap.get_obj(ref, %{}) |> Map.get("done", false)
+        %{"done" => d} -> d
+        _ -> true
+      end
 
     if done do
       if writer != nil do
         close_fn = Get.get(writer, "close")
+
         case close_fn do
           {:builtin, _, cb} -> cb.([], writer)
           _ -> :ok
         end
       end
+
       :ok
     else
-      value = case result do
-        {:obj, ref} -> Heap.get_obj(ref, %{}) |> Map.get("value", :undefined)
-        _ -> :undefined
-      end
+      value =
+        case result do
+          {:obj, ref} -> Heap.get_obj(ref, %{}) |> Map.get("value", :undefined)
+          _ -> :undefined
+        end
 
       if writer != nil do
         write_fn = Get.get(writer, "write")
+
         case write_fn do
           {:builtin, _, cb} -> cb.([value], writer)
           _ -> :ok
@@ -624,11 +668,12 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
 
   defp resolve_promise({:obj, ref}) do
     import QuickBEAM.VM.Heap.Keys
+
     case Heap.get_obj(ref, %{}) do
       %{promise_state() => :resolved, promise_value() => val} -> val
       _ -> %{"done" => true}
     end
   end
-  defp resolve_promise(v), do: v
 
+  defp resolve_promise(v), do: v
 end

@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.Runtime.Web.TextEncoding do
   @moduledoc "TextEncoder and TextDecoder builtins for BEAM mode."
 
   import Bitwise
-  import QuickBEAM.VM.Builtin, only: [build_methods: 1]
+  import QuickBEAM.VM.Builtin, only: [arg: 3, argv: 2, object: 1]
 
   alias QuickBEAM.VM.{Heap, JSThrow, Runtime}
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
@@ -18,78 +18,63 @@ defmodule QuickBEAM.VM.Runtime.Web.TextEncoding do
   end
 
   defp build_text_encoder(_args, _this) do
-    Heap.wrap(
-      build_methods do
-        val("encoding", "utf-8")
+    object do
+      prop("encoding", "utf-8")
 
-        method "encode" do
-          str =
-            case args do
-              [:undefined | _] -> ""
-              [nil | _] -> ""
-              [s | _] when is_binary(s) -> s
-              _ -> ""
-            end
+      method "encode" do
+        str =
+          case arg(args, 0, "") do
+            value when is_binary(value) -> value
+            _ -> ""
+          end
 
-          bytes = encode_wtf8(str)
-          make_uint8array(bytes)
-        end
-
-        method "encodeInto" do
-          {str, dest} =
-            case args do
-              [s, d | _] when is_binary(s) -> {s, d}
-              [_, d | _] -> {"", d}
-              _ -> {"", nil}
-            end
-
-          encode_into(str, dest)
-        end
+        bytes = encode_wtf8(str)
+        make_uint8array(bytes)
       end
-    )
+
+      method "encodeInto" do
+        [source, dest] = argv(args, ["", nil])
+        str = if is_binary(source), do: source, else: ""
+        encode_into(str, dest)
+      end
+    end
   end
 
   defp build_text_decoder(args, _this) do
     label =
-      case args do
-        [l | _] when is_binary(l) -> String.downcase(l)
+      case arg(args, 0, nil) do
+        label when is_binary(label) -> String.downcase(label)
         _ -> "utf-8"
       end
 
     label = normalize_encoding_label(label)
 
     unless label in @supported_encodings do
-      JSThrow.range_error!("The encoding label provided ('#{hd(args)}') is invalid.")
+      JSThrow.range_error!(
+        "The encoding label provided ('#{arg(args, 0, :undefined)}') is invalid."
+      )
     end
 
     fatal =
-      case args do
-        [_, opts | _] ->
-          case Get.get(opts, "fatal") do
-            true -> true
-            _ -> false
-          end
-
-        _ ->
-          false
+      case Get.get(arg(args, 1, nil), "fatal") do
+        true -> true
+        _ -> false
       end
 
-    Heap.wrap(
-      build_methods do
-        val("encoding", "utf-8")
-        val("fatal", fatal)
+    object do
+      prop("encoding", "utf-8")
+      prop("fatal", fatal)
 
-        method "decode" do
-          bytes = extract_bytes(args)
+      method "decode" do
+        bytes = extract_bytes(args)
 
-          if fatal do
-            strict_decode_utf8!(bytes)
-          else
-            lenient_decode_utf8(bytes)
-          end
+        if fatal do
+          strict_decode_utf8!(bytes)
+        else
+          lenient_decode_utf8(bytes)
         end
       end
-    )
+    end
   end
 
   # ── UTF-8 encoding with WTF-8 handling for surrogates ──
@@ -124,22 +109,28 @@ defmodule QuickBEAM.VM.Runtime.Web.TextEncoding do
 
   # WTF-8 encoding: encode each codepoint to UTF-8 bytes, lone surrogates → FFFD bytes
   defp codepoint_to_utf8_bytes(cp) when cp <= 0x7F, do: [cp]
-  defp codepoint_to_utf8_bytes(cp) when cp <= 0x7FF, do: [0xC0 ||| (cp >>> 6), 0x80 ||| (cp &&& 0x3F)]
+
+  defp codepoint_to_utf8_bytes(cp) when cp <= 0x7FF,
+    do: [0xC0 ||| cp >>> 6, 0x80 ||| (cp &&& 0x3F)]
+
   defp codepoint_to_utf8_bytes(cp) when cp in 0xD800..0xDFFF do
     # Lone surrogate → U+FFFD
     [0xEF, 0xBF, 0xBD]
   end
+
   defp codepoint_to_utf8_bytes(cp) when cp <= 0xFFFF do
-    [0xE0 ||| (cp >>> 12), 0x80 ||| ((cp >>> 6) &&& 0x3F), 0x80 ||| (cp &&& 0x3F)]
+    [0xE0 ||| cp >>> 12, 0x80 ||| (cp >>> 6 &&& 0x3F), 0x80 ||| (cp &&& 0x3F)]
   end
+
   defp codepoint_to_utf8_bytes(cp) when cp <= 0x10FFFF do
     [
-      0xF0 ||| (cp >>> 18),
-      0x80 ||| ((cp >>> 12) &&& 0x3F),
-      0x80 ||| ((cp >>> 6) &&& 0x3F),
+      0xF0 ||| cp >>> 18,
+      0x80 ||| (cp >>> 12 &&& 0x3F),
+      0x80 ||| (cp >>> 6 &&& 0x3F),
       0x80 ||| (cp &&& 0x3F)
     ]
   end
+
   defp codepoint_to_utf8_bytes(_), do: [0xEF, 0xBF, 0xBD]
 
   # ── encodeInto ──
@@ -173,7 +164,13 @@ defmodule QuickBEAM.VM.Runtime.Web.TextEncoding do
       # For supplementary codepoints (already merged): 4 bytes, read += 2.
       chars_consumed = if cp > 0xFFFF, do: 2, else: 1
 
-      encode_into_loop(rest, dest_len, read + chars_consumed, written + byte_len, Enum.reverse(bytes) ++ acc)
+      encode_into_loop(
+        rest,
+        dest_len,
+        read + chars_consumed,
+        written + byte_len,
+        Enum.reverse(bytes) ++ acc
+      )
     end
   end
 

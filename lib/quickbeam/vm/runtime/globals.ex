@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Runtime.Globals do
   @moduledoc "JS global scope: constructors, global functions, and the binding map."
 
-  import QuickBEAM.VM.Builtin, only: [build_object: 1]
+  import QuickBEAM.VM.Builtin, only: [object: 1]
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Runtime
@@ -148,7 +148,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
       "gc" => builtin("gc", fn _, _ -> :undefined end),
       "os" => Heap.wrap(%{"platform" => "elixir"}),
       "qjs" =>
-        build_object do
+        object do
           method "getStringKind" do
             s = hd(args)
             if is_binary(s) and byte_size(s) > 256, do: 1, else: 0

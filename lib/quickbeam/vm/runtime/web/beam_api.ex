@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Runtime.Web.BeamAPI do
   @moduledoc "Beam object builtin for BEAM mode — provides Beam.self, Beam.onMessage, Beam.send, Beam.call, Beam.monitor, Beam.demonitor."
 
-  import QuickBEAM.VM.Builtin, only: [build_object: 1]
+  import QuickBEAM.VM.Builtin, only: [object: 1]
 
   import QuickBEAM.VM.Heap.Keys
   alias QuickBEAM.VM.{Heap, Invocation, JSThrow, PromiseState}
@@ -15,7 +15,7 @@ defmodule QuickBEAM.VM.Runtime.Web.BeamAPI do
   end
 
   defp beam_object do
-    build_object do
+    object do
       method "self" do
         ctx = Heap.get_ctx()
         runtime_pid = if ctx, do: Map.get(ctx, :runtime_pid), else: nil
@@ -89,13 +89,20 @@ defmodule QuickBEAM.VM.Runtime.Web.BeamAPI do
                 # Try via GenServer
                 if runtime_pid do
                   try do
-                    result = GenServer.call(runtime_pid, {:beam_call, handler_name, flat_args}, 30_000)
+                    result =
+                      GenServer.call(runtime_pid, {:beam_call, handler_name, flat_args}, 30_000)
+
                     PromiseState.resolved(result)
                   catch
-                    :exit, _ -> PromiseState.rejected(Heap.make_error("Handler not found: #{handler_name}", "Error"))
+                    :exit, _ ->
+                      PromiseState.rejected(
+                        Heap.make_error("Handler not found: #{handler_name}", "Error")
+                      )
                   end
                 else
-                  PromiseState.rejected(Heap.make_error("Handler not found: #{handler_name}", "Error"))
+                  PromiseState.rejected(
+                    Heap.make_error("Handler not found: #{handler_name}", "Error")
+                  )
                 end
             end
 
@@ -166,6 +173,7 @@ defmodule QuickBEAM.VM.Runtime.Web.BeamAPI do
 
   defp drain_beam_messages do
     handler = Process.get(@on_message_key)
+
     receive do
       {:beam_message, msg} ->
         if handler, do: deliver_message(handler, msg)
@@ -173,15 +181,20 @@ defmodule QuickBEAM.VM.Runtime.Web.BeamAPI do
 
       {:DOWN, ref, :process, _pid, reason} ->
         monitors = Process.get(@monitors_key, %{})
+
         case Map.get(monitors, ref) do
-          nil -> :ok
+          nil ->
+            :ok
+
           callback ->
-            reason_str = case reason do
-              :normal -> "normal"
-              :killed -> "killed"
-              other when is_atom(other) -> Atom.to_string(other)
-              _ -> inspect(reason)
-            end
+            reason_str =
+              case reason do
+                :normal -> "normal"
+                :killed -> "killed"
+                other when is_atom(other) -> Atom.to_string(other)
+                _ -> inspect(reason)
+              end
+
             try do
               Invocation.invoke_with_receiver(callback, [reason_str], :undefined)
             rescue
@@ -189,9 +202,11 @@ defmodule QuickBEAM.VM.Runtime.Web.BeamAPI do
             catch
               _, _ -> :ok
             end
+
             monitors2 = Process.get(@monitors_key, %{})
             Process.put(@monitors_key, Map.delete(monitors2, ref))
         end
+
         drain_beam_messages()
 
       _other ->
@@ -217,7 +232,8 @@ defmodule QuickBEAM.VM.Runtime.Web.BeamAPI do
           is_binary(k) and String.starts_with?(k, "__") and String.ends_with?(k, "__")
         end)
 
-      _ -> nil
+      _ ->
+        nil
     end
   end
 
@@ -238,6 +254,7 @@ defmodule QuickBEAM.VM.Runtime.Web.BeamAPI do
   @doc "Called from the Elixir side to deliver a message to JS"
   def deliver_beam_message(js_msg) do
     handler = Process.get(@on_message_key)
+
     if handler do
       deliver_message(handler, js_msg)
     else

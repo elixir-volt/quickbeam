@@ -1,7 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.Web.Fetch do
   @moduledoc "fetch, Request, and Response builtins for BEAM mode."
 
-  import QuickBEAM.VM.Builtin, only: [build_methods: 1]
+  import QuickBEAM.VM.Builtin,
+    only: [arg: 3, argv: 2, constructor: 3, object: 1, object: 2]
 
   alias QuickBEAM.VM.{Heap, JSThrow, PromiseState}
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
@@ -15,8 +16,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
     fetch_fn =
       {:builtin, "fetch",
        fn args, _ ->
-         [url_or_req | rest] = args ++ [nil]
-         opts_val = List.first(rest)
+         [url_or_req, opts_val] = argv(args, [nil, nil])
 
          {url, method, headers_map, body_val, signal} =
            extract_fetch_args(url_or_req, opts_val)
@@ -36,13 +36,16 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
            task_pid =
              spawn(fn ->
                try do
-                 result = QuickBEAM.Fetch.fetch([%{
-                   "fetchId" => fetch_id,
-                   "url" => url,
-                   "method" => method,
-                   "headers" => Enum.map(actual_headers, fn {k, v} -> [k, v] end),
-                   "body" => actual_body
-                 }])
+                 result =
+                   QuickBEAM.Fetch.fetch([
+                     %{
+                       "fetchId" => fetch_id,
+                       "url" => url,
+                       "method" => method,
+                       "headers" => Enum.map(actual_headers, fn {k, v} -> [k, v] end),
+                       "body" => actual_body
+                     }
+                   ])
 
                  send(parent, {result_ref, {:ok, result}})
                rescue
@@ -55,6 +58,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
            if signal != nil do
              alias QuickBEAM.VM.Runtime.Web.Abort, as: AbortMod
              parent = self()
+
              AbortMod.add_abort_listener(signal, fn _reason ->
                Process.exit(task_pid, :kill)
                send(parent, {result_ref, {:aborted, Get.get(signal, "reason")}})
@@ -70,7 +74,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
       "json",
       {:builtin, "json",
        fn args, _ ->
-         data = List.first(args, :undefined)
+         data = arg(args, 0, :undefined)
          json_str = json_encode(data)
          headers = Headers.build_from_map(%{"content-type" => "application/json"})
          build_response_obj(json_str, 200, "OK", headers, response_ctor)
@@ -82,8 +86,8 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
       "redirect",
       {:builtin, "redirect",
        fn args, _ ->
-         url = args |> List.first("") |> to_string()
-         status = args |> Enum.at(1, 302) |> coerce_int(302)
+         url = args |> arg(0, "") |> to_string()
+         status = args |> arg(1, 302) |> coerce_int(302)
          headers = Headers.build_from_map(%{"location" => url})
          build_response_obj("", status, "", headers, response_ctor)
        end}
@@ -107,15 +111,14 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
   end
 
   defp build_response_ctor do
-    ctor = {:builtin, "Response", &build_response/2}
-    proto = Heap.wrap(%{"constructor" => ctor})
-    Heap.put_class_proto(ctor, proto)
-    Heap.put_ctor_static(ctor, "prototype", proto)
-    ctor
+    constructor "Response", &build_response/2 do
+      proto do
+      end
+    end
   end
 
   def build_request(args, _this) do
-    url_val = List.first(args, "")
+    url_val = arg(args, 0, "")
 
     {url_str, method, headers_val, body_val} =
       case url_val do
@@ -129,7 +132,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
         _ ->
           u = to_string(url_val)
 
-          opts = Enum.at(args, 1)
+          opts = arg(args, 1, nil)
 
           {m, h, b} =
             case opts do
@@ -157,74 +160,11 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
 
     request_ctor = get_request_ctor()
 
-    Heap.wrap(
-      build_methods do
-        val("url", url_str)
-        val("method", method)
-        val("headers", headers)
-        val("bodyUsed", false)
-
-        method "text" do
-          consume_body(body_ref, this, fn data ->
-            case data do
-              nil -> PromiseState.resolved("")
-              :undefined -> PromiseState.resolved("")
-              s when is_binary(s) -> PromiseState.resolved(s)
-              _ -> PromiseState.resolved(to_string(data))
-            end
-          end)
-        end
-
-        method "json" do
-          consume_body(body_ref, this, fn data ->
-            str =
-              case data do
-                nil -> ""
-                :undefined -> ""
-                s when is_binary(s) -> s
-                _ -> to_string(data)
-              end
-
-            parsed = json_parse(str)
-            PromiseState.resolved(parsed)
-          end)
-        end
-
-        method "arrayBuffer" do
-          consume_body(body_ref, this, fn data ->
-            bin =
-              case data do
-                nil -> ""
-                :undefined -> ""
-                s when is_binary(s) -> s
-                _ -> to_string(data)
-              end
-
-            buf = make_array_buffer(bin)
-            PromiseState.resolved(buf)
-          end)
-        end
-
-        method "clone" do
-          body_data = (Heap.get_obj(body_ref, %{}) || %{}) |> Map.get(:data)
-          new_body_ref = make_ref()
-          Heap.put_obj(new_body_ref, %{consumed: false, data: body_data})
-
-          Heap.wrap(
-            build_request_map(url_str, method, headers, new_body_ref, request_ctor)
-          )
-        end
-      end
-    )
-  end
-
-  defp build_request_map(url, method, headers, body_ref, request_ctor) do
-    build_methods do
-      val("url", url)
-      val("method", method)
-      val("headers", headers)
-      val("bodyUsed", false)
-      val("constructor", request_ctor)
+    object do
+      prop("url", url_str)
+      prop("method", method)
+      prop("headers", headers)
+      prop("bodyUsed", false)
 
       method "text" do
         consume_body(body_ref, this, fn data ->
@@ -239,24 +179,87 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
 
       method "json" do
         consume_body(body_ref, this, fn data ->
-          str = case data do
-            nil -> ""
-            :undefined -> ""
-            s when is_binary(s) -> s
-            _ -> to_string(data)
+          str =
+            case data do
+              nil -> ""
+              :undefined -> ""
+              s when is_binary(s) -> s
+              _ -> to_string(data)
+            end
+
+          parsed = json_parse(str)
+          PromiseState.resolved(parsed)
+        end)
+      end
+
+      method "arrayBuffer" do
+        consume_body(body_ref, this, fn data ->
+          bin =
+            case data do
+              nil -> ""
+              :undefined -> ""
+              s when is_binary(s) -> s
+              _ -> to_string(data)
+            end
+
+          buf = make_array_buffer(bin)
+          PromiseState.resolved(buf)
+        end)
+      end
+
+      method "clone" do
+        body_data = (Heap.get_obj(body_ref, %{}) || %{}) |> Map.get(:data)
+        new_body_ref = make_ref()
+        Heap.put_obj(new_body_ref, %{consumed: false, data: body_data})
+
+        Heap.wrap(build_request_map(url_str, method, headers, new_body_ref, request_ctor))
+      end
+    end
+  end
+
+  defp build_request_map(url, method, headers, body_ref, request_ctor) do
+    object heap: false do
+      prop("url", url)
+      prop("method", method)
+      prop("headers", headers)
+      prop("bodyUsed", false)
+      prop("constructor", request_ctor)
+
+      method "text" do
+        consume_body(body_ref, this, fn data ->
+          case data do
+            nil -> PromiseState.resolved("")
+            :undefined -> PromiseState.resolved("")
+            s when is_binary(s) -> PromiseState.resolved(s)
+            _ -> PromiseState.resolved(to_string(data))
           end
+        end)
+      end
+
+      method "json" do
+        consume_body(body_ref, this, fn data ->
+          str =
+            case data do
+              nil -> ""
+              :undefined -> ""
+              s when is_binary(s) -> s
+              _ -> to_string(data)
+            end
+
           PromiseState.resolved(json_parse(str))
         end)
       end
 
       method "arrayBuffer" do
         consume_body(body_ref, this, fn data ->
-          bin = case data do
-            nil -> ""
-            :undefined -> ""
-            s when is_binary(s) -> s
-            _ -> to_string(data)
-          end
+          bin =
+            case data do
+              nil -> ""
+              :undefined -> ""
+              s when is_binary(s) -> s
+              _ -> to_string(data)
+            end
+
           PromiseState.resolved(make_array_buffer(bin))
         end)
       end
@@ -271,10 +274,10 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
   end
 
   def build_response(args, _this) do
-    body = List.first(args, "")
+    body = arg(args, 0, "")
 
     {status, status_text, headers_init} =
-      case Enum.at(args, 1) do
+      case arg(args, 1, nil) do
         {:obj, _} = o ->
           s = o |> Get.get("status") |> coerce_int(200)
           st = o |> Get.get("statusText") |> coerce_string("OK")
@@ -299,84 +302,82 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
     body_ref = make_ref()
     Heap.put_obj(body_ref, %{consumed: false, data: body})
 
-    Heap.wrap(
-      build_methods do
-        val("status", status)
-        val("statusText", status_text)
-        val("ok", status >= 200 and status < 300)
-        val("headers", headers)
-        val("bodyUsed", false)
-        val("redirected", false)
-        val("url", "")
-        val("constructor", response_ctor)
+    object do
+      prop("status", status)
+      prop("statusText", status_text)
+      prop("ok", status >= 200 and status < 300)
+      prop("headers", headers)
+      prop("bodyUsed", false)
+      prop("redirected", false)
+      prop("url", "")
+      prop("constructor", response_ctor)
 
-        method "text" do
-          consume_body(body_ref, this, fn data ->
-            case data do
-              nil -> PromiseState.resolved("")
-              :undefined -> PromiseState.resolved("")
-              {:bytes, b} when is_binary(b) -> PromiseState.resolved(b)
-              s when is_binary(s) -> PromiseState.resolved(s)
-              _ -> PromiseState.resolved(to_string(data))
-            end
-          end)
-        end
-
-        method "json" do
-          consume_body(body_ref, this, fn data ->
-            str =
-              case data do
-                nil -> ""
-                :undefined -> ""
-                {:bytes, b} when is_binary(b) -> b
-                s when is_binary(s) -> s
-                _ -> to_string(data)
-              end
-
-            parsed = json_parse(str)
-            PromiseState.resolved(parsed)
-          end)
-        end
-
-        method "arrayBuffer" do
-          consume_body(body_ref, this, fn data ->
-            bin =
-              case data do
-                nil -> ""
-                :undefined -> ""
-                {:bytes, b} when is_binary(b) -> b
-                s when is_binary(s) -> s
-                _ -> to_string(data)
-              end
-
-            PromiseState.resolved(make_array_buffer(bin))
-          end)
-        end
-
-        method "bytes" do
-          consume_body(body_ref, this, fn data ->
-            bin =
-              case data do
-                nil -> ""
-                :undefined -> ""
-                {:bytes, b} when is_binary(b) -> b
-                s when is_binary(s) -> s
-                _ -> to_string(data)
-              end
-
-            bytes = :binary.bin_to_list(bin)
-            PromiseState.resolved(Heap.wrap(bytes))
-          end)
-        end
-
-        method "clone" do
-          body_data = (Heap.get_obj(body_ref, %{}) || %{}) |> Map.get(:data)
-          new_body_ref = make_ref()
-          Heap.put_obj(new_body_ref, %{consumed: false, data: body_data})
-          build_response_obj(body_data, status, status_text, headers, response_ctor)
-        end
+      method "text" do
+        consume_body(body_ref, this, fn data ->
+          case data do
+            nil -> PromiseState.resolved("")
+            :undefined -> PromiseState.resolved("")
+            {:bytes, b} when is_binary(b) -> PromiseState.resolved(b)
+            s when is_binary(s) -> PromiseState.resolved(s)
+            _ -> PromiseState.resolved(to_string(data))
+          end
+        end)
       end
-    )
+
+      method "json" do
+        consume_body(body_ref, this, fn data ->
+          str =
+            case data do
+              nil -> ""
+              :undefined -> ""
+              {:bytes, b} when is_binary(b) -> b
+              s when is_binary(s) -> s
+              _ -> to_string(data)
+            end
+
+          parsed = json_parse(str)
+          PromiseState.resolved(parsed)
+        end)
+      end
+
+      method "arrayBuffer" do
+        consume_body(body_ref, this, fn data ->
+          bin =
+            case data do
+              nil -> ""
+              :undefined -> ""
+              {:bytes, b} when is_binary(b) -> b
+              s when is_binary(s) -> s
+              _ -> to_string(data)
+            end
+
+          PromiseState.resolved(make_array_buffer(bin))
+        end)
+      end
+
+      method "bytes" do
+        consume_body(body_ref, this, fn data ->
+          bin =
+            case data do
+              nil -> ""
+              :undefined -> ""
+              {:bytes, b} when is_binary(b) -> b
+              s when is_binary(s) -> s
+              _ -> to_string(data)
+            end
+
+          bytes = :binary.bin_to_list(bin)
+          PromiseState.resolved(Heap.wrap(bytes))
+        end)
+      end
+
+      method "clone" do
+        body_data = (Heap.get_obj(body_ref, %{}) || %{}) |> Map.get(:data)
+        new_body_ref = make_ref()
+        Heap.put_obj(new_body_ref, %{consumed: false, data: body_data})
+        build_response_obj(body_data, status, status_text, headers, response_ctor)
+      end
+    end
   end
 
   defp consume_body(body_ref, this, fun) do
@@ -494,6 +495,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
               {:obj, ref} ->
                 Heap.update_obj(ref, %{}, fn m ->
                   base = Map.put(m, "__buffer__", data)
+
                   if proto != nil and not Map.has_key?(base, "__proto__"),
                     do: Map.put(base, "__proto__", proto),
                     else: base
@@ -534,6 +536,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
 
       url_val ->
         u = to_string(url_val)
+
         {m, h_obj, b, sig} =
           case opts_val do
             {:obj, _} ->
@@ -577,16 +580,27 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
         case Get.get(obj, "text") do
           {:builtin, "text", cb} ->
             promise = cb.([], obj)
+
             case promise do
               {:obj, pref} ->
                 case Heap.get_obj(pref, %{}) do
-                  %{"__promise_state__" => :resolved, "__promise_value__" => v} when is_binary(v) -> v
-                  _ -> ""
+                  %{"__promise_state__" => :resolved, "__promise_value__" => v}
+                  when is_binary(v) ->
+                    v
+
+                  _ ->
+                    ""
                 end
-              v when is_binary(v) -> v
-              _ -> ""
+
+              v when is_binary(v) ->
+                v
+
+              _ ->
+                ""
             end
-          _ -> ""
+
+          _ ->
+            ""
         end
 
       _ ->
@@ -654,7 +668,16 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
 
   defp prepare_body(body, headers_map), do: {to_string(body), headers_map}
 
-  defp build_response_from_fetch(%{"status" => status, "statusText" => st, "headers" => resp_headers, "body" => body, "url" => url}, response_ctor) do
+  defp build_response_from_fetch(
+         %{
+           "status" => status,
+           "statusText" => st,
+           "headers" => resp_headers,
+           "body" => body,
+           "url" => url
+         },
+         response_ctor
+       ) do
     headers_map =
       resp_headers
       |> Enum.map(fn [k, v] -> {String.downcase(to_string(k)), to_string(v)} end)
@@ -664,11 +687,12 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
     status = if is_integer(status), do: status, else: 200
     status_text = to_string(st)
 
-    body_data = case body do
-      {:bytes, b} -> b
-      b when is_binary(b) -> b
-      _ -> ""
-    end
+    body_data =
+      case body do
+        {:bytes, b} -> b
+        b when is_binary(b) -> b
+        _ -> ""
+      end
 
     resp = build_response_obj(body_data, status, status_text, headers, response_ctor)
 

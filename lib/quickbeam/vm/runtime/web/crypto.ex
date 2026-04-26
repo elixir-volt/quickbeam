@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Crypto do
   @moduledoc "crypto object builtin for BEAM mode."
 
   import Bitwise
-  import QuickBEAM.VM.Builtin, only: [build_object: 1]
+  import QuickBEAM.VM.Builtin, only: [arg: 3, object: 1]
 
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
@@ -13,9 +13,9 @@ defmodule QuickBEAM.VM.Runtime.Web.Crypto do
   end
 
   defp crypto_object do
-    build_object do
+    object do
       method "getRandomValues" do
-        [arr | _] = args
+        arr = arg(args, 0, nil)
 
         len =
           case Get.get(arr, "length") do
@@ -25,7 +25,9 @@ defmodule QuickBEAM.VM.Runtime.Web.Crypto do
           end
 
         if len > 65_536 do
-          JSThrow.type_error!("Failed to execute 'getRandomValues' on 'Crypto': The ArrayBufferView's byte length (#{len}) exceeds the number of bytes of entropy available via this API (65_536).")
+          JSThrow.type_error!(
+            "Failed to execute 'getRandomValues' on 'Crypto': The ArrayBufferView's byte length (#{len}) exceeds the number of bytes of entropy available via this API (65_536)."
+          )
         end
 
         if len > 0 do
@@ -44,15 +46,15 @@ defmodule QuickBEAM.VM.Runtime.Web.Crypto do
           :crypto.strong_rand_bytes(16)
 
         <<c1, c2>> = c
-        c_fixed = <<(c1 &&& 0x0F ||| 0x40), c2>>
+        c_fixed = <<(c1 &&& 0x0F) ||| 0x40, c2>>
         <<d1, d2>> = d
-        d_fixed = <<(d1 &&& 0x3F ||| 0x80), d2>>
+        d_fixed = <<(d1 &&& 0x3F) ||| 0x80, d2>>
 
         [a, b, c_fixed, d_fixed, e]
         |> Enum.map_join("-", &Base.encode16(&1, case: :lower))
       end
 
-      val("subtle", SubtleCrypto.build_subtle())
+      prop("subtle", SubtleCrypto.build_subtle())
     end
   end
 end

@@ -16,7 +16,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
     Heap.put_obj(
       ref,
-      build_methods do
+      object heap: false do
         method "toString" do
           "[object Object]"
         end
@@ -184,11 +184,11 @@ defmodule QuickBEAM.VM.Runtime.Object do
            end}
 
         proto =
-          build_object do
-            val("call", call_fn)
-            val("apply", apply_fn)
-            val("bind", bind_fn)
-            val("constructor", :undefined)
+          object do
+            prop("call", call_fn)
+            prop("apply", apply_fn)
+            prop("bind", bind_fn)
+            prop("constructor", :undefined)
           end
 
         Heap.put_func_proto(proto)
