@@ -112,15 +112,27 @@ defmodule QuickBEAM.JS.Parser do
       match_value?(state, ";") ->
         {%AST.EmptyStatement{}, advance(state)}
 
+      match_value?(state, "{") ->
+        parse_block_statement(state)
+
       keyword?(state, "var") or keyword?(state, "let") or keyword?(state, "const") ->
         parse_variable_declaration(state)
 
       keyword?(state, "return") ->
         parse_return_statement(state)
 
+      function_start?(state) ->
+        parse_function_declaration(state)
+
       true ->
         parse_expression_statement(state)
     end
+  end
+
+  defp parse_block_statement(state) do
+    state = advance(state)
+    {body, state} = parse_statement_list(state, [])
+    {%AST.BlockStatement{body: body}, expect_value(state, "}")}
   end
 
   defp parse_variable_declaration(state) do
@@ -172,6 +184,47 @@ defmodule QuickBEAM.JS.Parser do
       {argument, state} = parse_expression(state, 0)
       {%AST.ReturnStatement{argument: argument}, consume_semicolon(state)}
     end
+  end
+
+  defp parse_function_declaration(state) do
+    {async?, state} = consume_async_modifier(state)
+    state = expect_keyword(state, "function")
+    {generator?, state} = consume_generator_marker(state)
+    {id, state} = parse_binding_identifier(state)
+    {params, state} = parse_formal_parameters(state)
+    {body, state} = parse_block_statement(state)
+
+    {%AST.FunctionDeclaration{
+       id: id,
+       params: params,
+       body: body,
+       async: async?,
+       generator: generator?
+     }, state}
+  end
+
+  defp parse_function_expression(state) do
+    {async?, state} = consume_async_modifier(state)
+    state = expect_keyword(state, "function")
+    {generator?, state} = consume_generator_marker(state)
+
+    {id, state} =
+      if current(state).type == :identifier do
+        parse_binding_identifier(state)
+      else
+        {nil, state}
+      end
+
+    {params, state} = parse_formal_parameters(state)
+    {body, state} = parse_block_statement(state)
+
+    {%AST.FunctionExpression{
+       id: id,
+       params: params,
+       body: body,
+       async: async?,
+       generator: generator?
+     }, state}
   end
 
   defp parse_expression_statement(state) do
@@ -273,6 +326,12 @@ defmodule QuickBEAM.JS.Parser do
         {expr, state} = parse_expression(state, 0)
         {expr, expect_value(state, ")")}
 
+      match_value?(state, "[") ->
+        parse_array_expression(state)
+
+      match_value?(state, "{") ->
+        parse_object_expression(state)
+
       match_value?(state, @update_ops) ->
         state = advance(state)
         {argument, state} = parse_prefix(state)
@@ -286,12 +345,158 @@ defmodule QuickBEAM.JS.Parser do
       token.type in [:number, :string, :boolean, :null] ->
         {%AST.Literal{value: token.value, raw: token.raw}, advance(state)}
 
+      function_start?(state) ->
+        parse_function_expression(state)
+
+      token.value == "yield" ->
+        parse_yield_expression(state)
+
+      token.value == "await" ->
+        parse_await_expression(state)
+
+      token.type == :identifier and peek_value(state) == "=>" ->
+        state = advance(state)
+        state = advance(state)
+        {body, state} = parse_arrow_body(state)
+
+        {%AST.ArrowFunctionExpression{params: [%AST.Identifier{name: token.value}], body: body},
+         state}
+
       token.type == :identifier or token.value in ["this", "super"] ->
         {%AST.Identifier{name: token.value}, advance(state)}
 
       true ->
         {%AST.Literal{value: nil, raw: ""},
          add_error(state, token, "expected expression") |> recover_expression()}
+    end
+  end
+
+  defp parse_array_expression(state) do
+    state = advance(state)
+    {elements, state} = parse_array_elements(state, [])
+    {%AST.ArrayExpression{elements: elements}, state}
+  end
+
+  defp parse_array_elements(state, acc) do
+    cond do
+      eof?(state) ->
+        {Enum.reverse(acc), add_error(state, current(state), "unterminated array literal")}
+
+      match_value?(state, "]") ->
+        {Enum.reverse(acc), advance(state)}
+
+      match_value?(state, ",") ->
+        parse_array_elements(advance(state), [nil | acc])
+
+      true ->
+        {element, state} = parse_expression(state, 2)
+
+        cond do
+          match_value?(state, ",") -> parse_array_elements(advance(state), [element | acc])
+          match_value?(state, "]") -> {Enum.reverse([element | acc]), advance(state)}
+          true -> {Enum.reverse([element | acc]), expect_value(state, "]")}
+        end
+    end
+  end
+
+  defp parse_object_expression(state) do
+    state = advance(state)
+    {properties, state} = parse_object_properties(state, [])
+    {%AST.ObjectExpression{properties: properties}, state}
+  end
+
+  defp parse_object_properties(state, acc) do
+    cond do
+      eof?(state) ->
+        {Enum.reverse(acc), add_error(state, current(state), "unterminated object literal")}
+
+      match_value?(state, "}") ->
+        {Enum.reverse(acc), advance(state)}
+
+      true ->
+        {property, state} = parse_object_property(state)
+
+        cond do
+          match_value?(state, ",") -> parse_object_properties(advance(state), [property | acc])
+          match_value?(state, "}") -> {Enum.reverse([property | acc]), advance(state)}
+          true -> {Enum.reverse([property | acc]), expect_value(state, "}")}
+        end
+    end
+  end
+
+  defp parse_object_property(state) do
+    {key, state} = parse_property_key(state)
+
+    cond do
+      match_value?(state, ":") ->
+        state = advance(state)
+        {value, state} = parse_expression(state, 2)
+        {%AST.Property{key: key, value: value}, state}
+
+      match_value?(state, "(") ->
+        {params, state} = parse_formal_parameters(state)
+        {body, state} = parse_block_statement(state)
+
+        value = %AST.FunctionExpression{
+          id: property_function_name(key),
+          params: params,
+          body: body
+        }
+
+        {%AST.Property{key: key, value: value, method: true}, state}
+
+      match?(%AST.Identifier{}, key) ->
+        {%AST.Property{key: key, value: key, shorthand: true}, state}
+
+      true ->
+        {%AST.Property{key: key, value: key}, state}
+    end
+  end
+
+  defp parse_property_key(state) do
+    token = current(state)
+
+    case token.type do
+      :identifier -> {%AST.Identifier{name: token.value}, advance(state)}
+      :keyword -> {%AST.Identifier{name: token.value}, advance(state)}
+      :string -> {%AST.Literal{value: token.value, raw: token.raw}, advance(state)}
+      :number -> {%AST.Literal{value: token.value, raw: token.raw}, advance(state)}
+      _ -> {%AST.Identifier{name: ""}, add_error(state, token, "expected property key")}
+    end
+  end
+
+  defp property_function_name(%AST.Identifier{} = id), do: id
+  defp property_function_name(_), do: nil
+
+  defp parse_yield_expression(state) do
+    state = advance(state)
+
+    cond do
+      eof?(state) or current(state).before_line_terminator? or statement_end?(state) ->
+        {%AST.YieldExpression{}, state}
+
+      match_value?(state, "*") ->
+        state = advance(state)
+        {argument, state} = parse_expression(state, 0)
+        {%AST.YieldExpression{argument: argument, delegate: true}, state}
+
+      true ->
+        {argument, state} = parse_expression(state, 0)
+        {%AST.YieldExpression{argument: argument}, state}
+    end
+  end
+
+  defp parse_await_expression(state) do
+    state = advance(state)
+    {argument, state} = parse_prefix(state)
+    {%AST.AwaitExpression{argument: argument}, state}
+  end
+
+  defp parse_arrow_body(state) do
+    if match_value?(state, "{") do
+      parse_block_statement(state)
+    else
+      parse_expression(state, 0)
     end
   end
 
@@ -336,6 +541,46 @@ defmodule QuickBEAM.JS.Parser do
     %AST.BinaryExpression{operator: operator, left: left, right: right}
   end
 
+  defp parse_formal_parameters(state) do
+    state = expect_value(state, "(")
+    parse_parameter_list(state, [])
+  end
+
+  defp parse_parameter_list(state, acc) do
+    cond do
+      eof?(state) ->
+        {Enum.reverse(acc), add_error(state, current(state), "unterminated parameter list")}
+
+      match_value?(state, ")") ->
+        {Enum.reverse(acc), advance(state)}
+
+      true ->
+        {param, state} = parse_binding_identifier(state)
+
+        cond do
+          match_value?(state, ",") -> parse_parameter_list(advance(state), [param | acc])
+          match_value?(state, ")") -> {Enum.reverse([param | acc]), advance(state)}
+          true -> {Enum.reverse([param | acc]), expect_value(state, ")")}
+        end
+    end
+  end
+
+  defp consume_async_modifier(state) do
+    if keyword?(state, "async") and peek_value(state) == "function" do
+      {true, advance(state)}
+    else
+      {false, state}
+    end
+  end
+
+  defp consume_generator_marker(state) do
+    if match_value?(state, "*"), do: {true, advance(state)}, else: {false, state}
+  end
+
+  defp function_start?(state) do
+    keyword?(state, "function") or (keyword?(state, "async") and peek_value(state) == "function")
+  end
+
   defp consume_semicolon(state) do
     cond do
       match_value?(state, ";") -> advance(state)
@@ -351,6 +596,12 @@ defmodule QuickBEAM.JS.Parser do
     if match_value?(state, value),
       do: advance(state),
       else: add_error(state, current(state), "expected #{value}")
+  end
+
+  defp expect_keyword(state, keyword) do
+    if keyword?(state, keyword),
+      do: advance(state),
+      else: add_error(state, current(state), "expected #{keyword}")
   end
 
   defp recover_expression(state) do
@@ -376,6 +627,13 @@ defmodule QuickBEAM.JS.Parser do
 
   defp current(%__MODULE__{tokens: tokens, index: index}),
     do: Enum.at(tokens, index) || List.last(tokens)
+
+  defp peek_value(%__MODULE__{tokens: tokens, index: index}) do
+    case Enum.at(tokens, index + 1) do
+      nil -> nil
+      token -> token.value
+    end
+  end
 
   defp advance(%__MODULE__{} = state),
     do: %{state | index: min(state.index + 1, length(state.tokens) - 1)}

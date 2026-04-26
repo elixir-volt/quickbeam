@@ -41,6 +41,67 @@ defmodule QuickBEAM.JS.Parser.AST do
     defstruct type: :empty_statement
   end
 
+  defmodule BlockStatement do
+    @moduledoc "Block statement containing a statement list."
+    defstruct type: :block_statement, body: []
+  end
+
+  defmodule FunctionDeclaration do
+    @moduledoc "Function declaration."
+    defstruct type: :function_declaration,
+              id: nil,
+              params: [],
+              body: nil,
+              async: false,
+              generator: false
+  end
+
+  defmodule FunctionExpression do
+    @moduledoc "Function expression."
+    defstruct type: :function_expression,
+              id: nil,
+              params: [],
+              body: nil,
+              async: false,
+              generator: false
+  end
+
+  defmodule ArrayExpression do
+    @moduledoc "Array literal expression."
+    defstruct type: :array_expression, elements: []
+  end
+
+  defmodule ObjectExpression do
+    @moduledoc "Object literal expression."
+    defstruct type: :object_expression, properties: []
+  end
+
+  defmodule Property do
+    @moduledoc "Object literal property."
+    defstruct type: :property,
+              key: nil,
+              value: nil,
+              kind: :init,
+              method: false,
+              shorthand: false,
+              computed: false
+  end
+
+  defmodule ArrowFunctionExpression do
+    @moduledoc "Arrow function expression."
+    defstruct type: :arrow_function_expression, params: [], body: nil, async: false
+  end
+
+  defmodule YieldExpression do
+    @moduledoc "Yield expression."
+    defstruct type: :yield_expression, argument: nil, delegate: false
+  end
+
+  defmodule AwaitExpression do
+    @moduledoc "Await expression."
+    defstruct type: :await_expression, argument: nil
+  end
+
   defmodule BinaryExpression do
     @moduledoc "Binary operator expression."
     defstruct type: :binary_expression, operator: nil, left: nil, right: nil
