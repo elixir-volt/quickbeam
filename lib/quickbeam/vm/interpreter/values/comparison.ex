@@ -6,6 +6,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Comparison do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Values.Coercion
 
+  @doc "Applies JavaScript less-than semantics."
   def lt({:bigint, a}, {:bigint, b}), do: a < b
   def lt({:bigint, _}, :nan), do: false
   def lt(:nan, {:bigint, _}), do: false
@@ -59,6 +60,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Comparison do
       else: numeric_compare(Coercion.to_number(pa), Coercion.to_number(pb), &Kernel.</2)
   end
 
+  @doc "Applies JavaScript less-than-or-equal semantics."
   def lte({:bigint, a}, {:bigint, b}), do: a <= b
   def lte({:bigint, _}, :nan), do: false
   def lte(:nan, {:bigint, _}), do: false
@@ -87,6 +89,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Comparison do
       else: numeric_compare(Coercion.to_number(pa), Coercion.to_number(pb), &Kernel.<=/2)
   end
 
+  @doc "Applies JavaScript greater-than semantics."
   def gt({:bigint, a}, {:bigint, b}), do: a > b
   def gt({:bigint, _}, :nan), do: false
   def gt(:nan, {:bigint, _}), do: false
@@ -127,6 +130,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Comparison do
       else: numeric_compare(Coercion.to_number(pa), Coercion.to_number(pb), &Kernel.>/2)
   end
 
+  @doc "Applies JavaScript greater-than-or-equal semantics."
   def gte({:bigint, a}, {:bigint, b}), do: a >= b
   def gte({:bigint, _}, :nan), do: false
   def gte(:nan, {:bigint, _}), do: false
@@ -167,6 +171,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Comparison do
       else: numeric_compare(Coercion.to_number(pa), Coercion.to_number(pb), &Kernel.>=/2)
   end
 
+  @doc "Compares numeric VM values while handling JavaScript NaN and infinity sentinels."
   def numeric_compare(:nan, _, _), do: false
   def numeric_compare(_, :nan, _), do: false
   def numeric_compare(:infinity, :infinity, op), do: op.(1, 1)

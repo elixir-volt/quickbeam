@@ -6,6 +6,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Bitwise do
   alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.Interpreter.Values.Coercion
 
+  @doc "Applies JavaScript bitwise AND semantics."
   def band({:bigint, a}, {:bigint, b}), do: {:bigint, Bitwise.band(a, b)}
   def band({:obj, _} = a, b), do: band(Coercion.to_numeric(a), b)
   def band(a, {:obj, _} = b), do: band(a, Coercion.to_numeric(b))
@@ -13,6 +14,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Bitwise do
   def band(_, {:bigint, _}), do: throw_bigint_mix_error()
   def band(a, b), do: Bitwise.band(Coercion.to_int32(a), Coercion.to_int32(b))
 
+  @doc "Applies JavaScript bitwise OR semantics."
   def bor({:bigint, a}, {:bigint, b}), do: {:bigint, Bitwise.bor(a, b)}
   def bor({:obj, _} = a, b), do: bor(Coercion.to_numeric(a), b)
   def bor(a, {:obj, _} = b), do: bor(a, Coercion.to_numeric(b))
@@ -20,6 +22,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Bitwise do
   def bor(_, {:bigint, _}), do: throw_bigint_mix_error()
   def bor(a, b), do: Bitwise.bor(Coercion.to_int32(a), Coercion.to_int32(b))
 
+  @doc "Applies JavaScript bitwise XOR semantics."
   def bxor({:bigint, a}, {:bigint, b}), do: {:bigint, Bitwise.bxor(a, b)}
   def bxor({:obj, _} = a, b), do: bxor(Coercion.to_numeric(a), b)
   def bxor(a, {:obj, _} = b), do: bxor(a, Coercion.to_numeric(b))
@@ -27,10 +30,12 @@ defmodule QuickBEAM.VM.Interpreter.Values.Bitwise do
   def bxor(_, {:bigint, _}), do: throw_bigint_mix_error()
   def bxor(a, b), do: Bitwise.bxor(Coercion.to_int32(a), Coercion.to_int32(b))
 
+  @doc "Applies JavaScript bitwise NOT semantics."
   def bnot({:bigint, a}), do: {:bigint, -(a + 1)}
   def bnot({:obj, _} = a), do: bnot(Coercion.to_numeric(a))
   def bnot(a), do: Coercion.to_int32(Bitwise.bnot(Coercion.to_int32(a)))
 
+  @doc "Applies JavaScript left-shift semantics."
   def shl({:bigint, a}, {:bigint, b}) when b >= 0 and b <= 1_000_000,
     do: {:bigint, Bitwise.bsl(a, b)}
 
@@ -46,8 +51,10 @@ defmodule QuickBEAM.VM.Interpreter.Values.Bitwise do
   def shl(_, {:bigint, _}), do: throw_bigint_mix_error()
 
   def shl(a, b),
-    do: Coercion.to_int32(Bitwise.bsl(Coercion.to_int32(a), Bitwise.band(Coercion.to_int32(b), 31)))
+    do:
+      Coercion.to_int32(Bitwise.bsl(Coercion.to_int32(a), Bitwise.band(Coercion.to_int32(b), 31)))
 
+  @doc "Applies JavaScript signed right-shift semantics."
   def sar({:bigint, a}, {:bigint, b}), do: {:bigint, Bitwise.bsr(a, b)}
   def sar({:obj, _} = a, b), do: sar(Coercion.to_numeric(a), b)
   def sar(a, {:obj, _} = b), do: sar(a, Coercion.to_numeric(b))
@@ -55,6 +62,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Bitwise do
   def sar(_, {:bigint, _}), do: throw_bigint_mix_error()
   def sar(a, b), do: Bitwise.bsr(Coercion.to_int32(a), Bitwise.band(Coercion.to_int32(b), 31))
 
+  @doc "Applies JavaScript unsigned right-shift semantics."
   def shr({:obj, _} = a, b), do: shr(Coercion.to_numeric(a), b)
   def shr(a, {:obj, _} = b), do: shr(a, Coercion.to_numeric(b))
 

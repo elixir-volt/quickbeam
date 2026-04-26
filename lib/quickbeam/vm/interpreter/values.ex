@@ -35,6 +35,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   # --- Truthiness ---
 
+  @doc "Returns JavaScript truthiness for a VM value."
   def truthy?(nil), do: false
   def truthy?(:undefined), do: false
   def truthy?(false), do: false
@@ -47,10 +48,12 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def truthy?({:bigint, _}), do: true
   def truthy?(_), do: true
 
+  @doc "Returns the inverse of JavaScript truthiness for a VM value."
   def falsy?(val), do: not truthy?(val)
 
   # --- Type query ---
 
+  @doc "Implements the JavaScript `typeof` operator for VM values."
   def typeof(:undefined), do: "undefined"
   def typeof(:nan), do: "number"
   def typeof(:infinity), do: "number"
@@ -80,6 +83,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   # --- Hot coercion (kept inline) ---
 
+  @doc "Coerces a VM value using JavaScript ToNumber semantics."
   def to_number(val) when is_number(val), do: val
   def to_number(true), do: 1
   def to_number(false), do: 0
@@ -119,11 +123,14 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def to_number({:builtin, _, _} = f), do: to_number(Coercion.fn_to_primitive(f))
   def to_number(_), do: :nan
 
+  @doc "Coerces a VM value using JavaScript ToInt32 semantics."
   def to_int32(val), do: Coercion.to_int32(val)
+  @doc "Coerces a VM value using JavaScript ToUint32 semantics."
   def to_uint32(val), do: Coercion.to_uint32(val)
 
   # --- Hot stringify (kept inline) ---
 
+  @doc "Coerces a VM value to a JavaScript string."
   def stringify(:undefined), do: "undefined"
   def stringify(nil), do: "null"
   def stringify(true), do: "true"
@@ -138,37 +145,61 @@ defmodule QuickBEAM.VM.Interpreter.Values do
 
   # --- Arithmetic (delegated) ---
 
+  @doc "Applies JavaScript addition semantics."
   defdelegate add(a, b), to: Arithmetic
+  @doc "Applies JavaScript subtraction semantics."
   defdelegate sub(a, b), to: Arithmetic
+  @doc "Applies JavaScript multiplication semantics."
   defdelegate mul(a, b), to: Arithmetic
+  @doc "Applies JavaScript division semantics."
   defdelegate js_div(a, b), to: Arithmetic
+  @doc "Applies JavaScript remainder semantics."
   defdelegate mod(a, b), to: Arithmetic
+  @doc "Applies JavaScript exponentiation semantics."
   defdelegate pow(a, b), to: Arithmetic
+  @doc "Applies JavaScript unary negation semantics."
   defdelegate neg(a), to: Arithmetic
+  @doc "Compatibility wrapper for JavaScript division semantics."
   def div(a, b), do: Arithmetic.js_div(a, b)
 
   # --- Comparisons (delegated) ---
 
+  @doc "Applies JavaScript less-than comparison semantics."
   defdelegate lt(a, b), to: Comparison
+  @doc "Applies JavaScript less-than-or-equal comparison semantics."
   defdelegate lte(a, b), to: Comparison
+  @doc "Applies JavaScript greater-than comparison semantics."
   defdelegate gt(a, b), to: Comparison
+  @doc "Applies JavaScript greater-than-or-equal comparison semantics."
   defdelegate gte(a, b), to: Comparison
 
   # --- Equality (delegated) ---
 
+  @doc "Applies JavaScript strict equality semantics."
   defdelegate strict_eq(a, b), to: Equality
+  @doc "Applies JavaScript abstract equality semantics."
   defdelegate eq(a, b), to: Equality
+  @doc "Applies JavaScript abstract inequality semantics."
   defdelegate neq(a, b), to: Equality
+  @doc "Applies the core JavaScript abstract equality algorithm."
   defdelegate abstract_eq(a, b), to: Equality
 
   # --- Bitwise (delegated) ---
 
+  @doc "Applies JavaScript bitwise AND semantics."
   defdelegate band(a, b), to: Bitwise
+  @doc "Applies JavaScript bitwise OR semantics."
   defdelegate bor(a, b), to: Bitwise
+  @doc "Applies JavaScript bitwise XOR semantics."
   defdelegate bxor(a, b), to: Bitwise
+  @doc "Applies JavaScript bitwise NOT semantics."
   defdelegate bnot(a), to: Bitwise
+  @doc "Applies JavaScript left-shift semantics."
   defdelegate shl(a, b), to: Bitwise
+  @doc "Applies JavaScript signed right-shift semantics."
   defdelegate sar(a, b), to: Bitwise
+  @doc "Applies JavaScript unsigned right-shift semantics."
   defdelegate shr(a, b), to: Bitwise
+  @doc "Returns whether a numeric value is JavaScript negative zero."
   defdelegate neg_zero?(val), to: Arithmetic
 end

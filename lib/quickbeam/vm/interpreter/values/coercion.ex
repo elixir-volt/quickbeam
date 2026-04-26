@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
   alias QuickBEAM.VM.{Bytecode, Heap, Invocation, Runtime}
   alias QuickBEAM.VM.ObjectModel.Get
 
+  @doc "Coerces a VM value using JavaScript ToNumber semantics."
   def to_number(val) when is_number(val), do: val
   def to_number(true), do: 1
   def to_number(false), do: 0
@@ -47,6 +48,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
   def to_number({:builtin, _, _} = f), do: to_number(fn_to_primitive(f))
   def to_number(_), do: :nan
 
+  @doc "Parses a JavaScript numeric string literal into a VM number value."
   def parse_numeric(""), do: 0
   def parse_numeric("0x" <> rest), do: parse_int_or_nan(rest, 16)
   def parse_numeric("0X" <> rest), do: parse_int_or_nan(rest, 16)
@@ -71,6 +73,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
     end
   end
 
+  @doc "Parses an integer in a radix and returns `:nan` on invalid input."
   def parse_int_or_nan(s, base) do
     case Integer.parse(s, base) do
       {i, ""} -> i
@@ -78,6 +81,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
     end
   end
 
+  @doc "Coerces a VM value using JavaScript ToInt32 semantics."
   def to_int32(val) when is_integer(val), do: wrap_int32(val)
   def to_int32(val) when is_float(val), do: wrap_int32(trunc(val))
   def to_int32(true), do: 1
@@ -99,6 +103,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
   def to_int32({:obj, _} = obj), do: to_int32(to_number(obj))
   def to_int32(_), do: 0
 
+  @doc "Coerces a VM value using JavaScript ToUint32 semantics."
   def to_uint32(val) when is_integer(val), do: Bitwise.band(val, 0xFFFFFFFF)
   def to_uint32(val) when is_float(val), do: Bitwise.band(trunc(val), 0xFFFFFFFF)
   def to_uint32(true), do: 1
@@ -120,11 +125,13 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
   def to_uint32({:obj, _} = obj), do: to_uint32(to_number(obj))
   def to_uint32(_), do: 0
 
+  @doc "Wraps an integer into JavaScript signed 32-bit range."
   def wrap_int32(n) do
     n = Bitwise.band(n, 0xFFFFFFFF)
     if n >= 0x80000000, do: n - 0x100000000, else: n
   end
 
+  @doc "Coerces a VM value using JavaScript ToString semantics."
   def to_string_val(:undefined), do: "undefined"
   def to_string_val(nil), do: "null"
   def to_string_val(true), do: "true"
@@ -178,9 +185,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
             to_string_val(Map.get(map, wrapped_key))
 
           (fun = Map.get(map, "toString")) != nil and fun != :undefined ->
-            to_string_val(
-              Invocation.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj)
-            )
+            to_string_val(Invocation.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj))
 
           true ->
             "[object Object]"
@@ -193,6 +198,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
 
   def to_string_val(_), do: "[object]"
 
+  @doc "Coerces an object value using JavaScript ToPrimitive semantics."
   def to_primitive(val) when is_number(val) or is_binary(val) or is_boolean(val) or is_atom(val),
     do: val
 
@@ -261,8 +267,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
             ) ||
             call_to_primitive(data, obj, "toString") ||
             if(not has_own_method?(data, "toString"),
-              do:
-                proto_to_primitive(data, obj, "toString") || get_to_primitive(obj, "toString")
+              do: proto_to_primitive(data, obj, "toString") || get_to_primitive(obj, "toString")
             ) ||
             throw(
               {:js_throw,
@@ -275,6 +280,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
     end
   end
 
+  @doc "Converts a function-like VM value to its primitive string representation."
   def fn_to_primitive(fun) do
     statics = Heap.get_ctor_statics(fun)
     vo = Map.get(statics, "valueOf")
@@ -296,6 +302,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
     result || to_string_val(fun)
   end
 
+  @doc "Coerces a VM value using JavaScript ToNumeric semantics."
   def to_numeric({:obj, _} = obj) do
     case to_primitive(obj) do
       {:bigint, _} = b ->
@@ -311,6 +318,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
     end
   end
 
+  @doc "Compatibility wrapper for primitive coercion."
   def coerce_to_primitive(val) do
     cond do
       is_object(val) -> to_primitive(val)

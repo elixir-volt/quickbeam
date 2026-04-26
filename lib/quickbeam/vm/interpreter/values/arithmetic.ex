@@ -6,6 +6,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Arithmetic do
   alias QuickBEAM.VM.{Bytecode, Heap, JSThrow}
   alias QuickBEAM.VM.Interpreter.Values.Coercion
 
+  @doc "Applies JavaScript addition semantics including string concatenation and BigInt checks."
   def add({:bigint, a}, {:bigint, b}), do: {:bigint, a + b}
 
   def add({:symbol, _}, _),
@@ -106,6 +107,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Arithmetic do
   defp numeric_add(_, :neg_infinity), do: :neg_infinity
   defp numeric_add(_, _), do: :nan
 
+  @doc "Applies JavaScript subtraction semantics."
   def sub({:bigint, a}, {:bigint, b}), do: {:bigint, a - b}
   def sub({:bigint, _}, b) when is_number(b), do: throw_bigint_mix_error()
   def sub(a, {:bigint, _}) when is_number(a), do: throw_bigint_mix_error()
@@ -121,6 +123,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Arithmetic do
 
   def sub(a, b), do: numeric_add(Coercion.to_number(a), neg(Coercion.to_number(b)))
 
+  @doc "Applies JavaScript multiplication semantics."
   def mul({:bigint, a}, {:bigint, b}), do: {:bigint, a * b}
   def mul({:bigint, _}, b) when is_number(b), do: throw_bigint_mix_error()
   def mul(a, {:bigint, _}) when is_number(a), do: throw_bigint_mix_error()
@@ -155,6 +158,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Arithmetic do
     if sign_a * sign_b > 0, do: :infinity, else: :neg_infinity
   end
 
+  @doc "Applies JavaScript division semantics."
   def js_div({:bigint, a}, {:bigint, b}) when b != 0, do: {:bigint, Kernel.div(a, b)}
 
   def js_div({:bigint, _}, {:bigint, 0}),
@@ -218,6 +222,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Arithmetic do
   defp div_by_neg_zero(a) when a < 0, do: :infinity
   defp div_by_neg_zero(_), do: :nan
 
+  @doc "Applies JavaScript remainder semantics."
   def mod({:bigint, a}, {:bigint, b}) when b != 0, do: {:bigint, rem(a, b)}
 
   def mod({:bigint, _}, {:bigint, 0}),
@@ -264,10 +269,12 @@ defmodule QuickBEAM.VM.Interpreter.Values.Arithmetic do
 
   defp numeric_mod(_, _), do: :nan
 
+  @doc "Applies JavaScript exponentiation semantics."
   def pow({:bigint, a}, {:bigint, b}) when b >= 0, do: {:bigint, Integer.pow(a, b)}
   def pow(a, b) when is_number(a) and is_number(b), do: :math.pow(a, b)
   def pow(_, _), do: :nan
 
+  @doc "Applies JavaScript unary negation semantics."
   def neg({:bigint, a}), do: {:bigint, -a}
   def neg(0), do: -0.0
   def neg(:infinity), do: :neg_infinity
@@ -284,6 +291,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Arithmetic do
 
   def neg(a), do: neg(Coercion.to_number(a))
 
+  @doc "Adds numbers while preserving JavaScript infinity and NaN sentinels."
   def safe_add(a, b) do
     try do
       a + b
@@ -293,6 +301,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Arithmetic do
     end
   end
 
+  @doc "Multiplies numbers while preserving JavaScript infinity and NaN sentinels."
   def safe_mul(a, b) do
     try do
       a * b
@@ -302,6 +311,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Arithmetic do
     end
   end
 
+  @doc "Returns whether a float is JavaScript negative zero."
   def neg_zero?(b), do: is_float(b) and b == 0.0 and hd(:erlang.float_to_list(b)) == ?-
 
   defp neg_sign?(n), do: n < 0 or neg_zero?(n)
