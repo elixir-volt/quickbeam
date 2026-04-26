@@ -110,8 +110,29 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
               throw({:js_throw, err})
           end
 
-        QuickBEAM.LocksAPI.release_lock([name], caller_pid)
-        PromiseState.resolved(await_if_promise(result))
+        # If result is a pending promise, hold the lock in a background process
+        case check_pending_promise(result) do
+          {:pending, ref} ->
+            # Spawn a process to hold the lock until the promise resolves
+            spawn(fn ->
+              deadline = System.monotonic_time(:millisecond) + 30_000
+              wait_and_release(name, caller_pid, 30_000)
+            end)
+            # Return a promise that will resolve when the callback completes
+            result
+
+          {:resolved, val} ->
+            QuickBEAM.LocksAPI.release_lock([name], caller_pid)
+            PromiseState.resolved(val)
+
+          {:rejected, err} ->
+            QuickBEAM.LocksAPI.release_lock([name], caller_pid)
+            PromiseState.rejected(err)
+
+          :not_promise ->
+            QuickBEAM.LocksAPI.release_lock([name], caller_pid)
+            PromiseState.resolved(result)
+        end
 
       "not_available" ->
         lock_null = nil
@@ -126,6 +147,31 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
 
       _ ->
         PromiseState.rejected(Heap.make_error("Lock request failed", "DOMException"))
+    end
+  end
+
+  defp check_pending_promise({:obj, ref}) do
+    import QuickBEAM.VM.Heap.Keys
+    case Heap.get_obj(ref, %{}) do
+      %{promise_state() => :pending} -> {:pending, ref}
+      %{promise_state() => :resolved, promise_value() => v} -> {:resolved, v}
+      %{promise_state() => :rejected, promise_value() => v} -> {:rejected, v}
+      _ -> :not_promise
+    end
+  end
+  defp check_pending_promise(_), do: :not_promise
+
+  defp wait_and_release(name, holder_pid, release_after_ms) do
+    # Hold the lock for release_after_ms then release it
+    # Use the lock holder process's own PID
+    try do
+      grant = QuickBEAM.LocksAPI.request_lock([name, "exclusive", false], self())
+      if grant == "granted" do
+        Process.sleep(release_after_ms)
+        QuickBEAM.LocksAPI.release_lock([name], self())
+      end
+    catch
+      _, _ -> :ok
     end
   end
 
