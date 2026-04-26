@@ -253,6 +253,7 @@ defmodule QuickBEAM.VM.Heap do
   defp proto_cache_key(%{byte_code: bc}), do: bc
   defp proto_cache_key(ctor), do: ctor
 
+  @doc "Returns heap object data, reconstructing shaped objects as maps."
   defdelegate get_obj(ref), to: Store
   defdelegate get_obj(ref, default), to: Store
   defdelegate get_obj_raw(ref), to: Store
@@ -264,6 +265,7 @@ defmodule QuickBEAM.VM.Heap do
 
   # ── Array helpers ──
 
+  @doc "Returns a heap object as a list when it stores array-like data."
   defdelegate obj_to_list(ref), to: Store
   defdelegate array_get(ref, idx), to: Store
   defdelegate array_size(ref), to: Store
@@ -272,6 +274,7 @@ defmodule QuickBEAM.VM.Heap do
 
   # ── Closure cells ──
 
+  @doc "Reads a closure/capture cell value."
   defdelegate get_cell(ref), to: Store
   defdelegate put_cell(ref, value), to: Store
 
@@ -280,6 +283,7 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate get_class_proto(ctor), to: Store
   defdelegate put_class_proto(ctor, proto), to: Store
   defdelegate get_parent_ctor(ctor), to: Store
+  @doc "Stores the parent constructor associated with a class constructor."
   defdelegate put_parent_ctor(ctor, parent), to: Store
   defdelegate delete_parent_ctor(ctor), to: Store
   defdelegate get_ctor_statics(ctor), to: Store
@@ -290,6 +294,7 @@ defmodule QuickBEAM.VM.Heap do
 
   # ── Interpreter context ──
 
+  @doc "Returns the active interpreter context stored in the process dictionary."
   defdelegate get_ctx(), to: Context
   defdelegate put_ctx(ctx), to: Context
   defdelegate get_decoded(byte_code), to: Caches
@@ -298,6 +303,7 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate put_compiled(key, compiled), to: Caches
   defdelegate get_fn_atoms(byte_code), to: Caches
   defdelegate get_fn_atoms(byte_code, default), to: Caches
+  @doc "Caches the atom table for a bytecode function."
   defdelegate put_fn_atoms(byte_code, atoms), to: Caches
   defdelegate get_capture_keys(byte_code), to: Caches
   defdelegate put_capture_keys(byte_code, tuple), to: Caches
@@ -306,6 +312,7 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate get_func_proto(), to: Caches
   defdelegate put_func_proto(proto), to: Caches
   defdelegate get_builtin_names(), to: Caches
+  @doc "Stores builtin-name metadata."
   defdelegate put_builtin_names(names), to: Caches
   defdelegate get_regexp_result(ref), to: Caches
   defdelegate put_regexp_result(ref, result), to: Caches
@@ -314,6 +321,7 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate get_invoke_depth(), to: Caches
   defdelegate put_invoke_depth(depth), to: Caches
   defdelegate get_eval_restore_stack(), to: Caches
+  @doc "Stores the eval restore stack for the current process."
   defdelegate put_eval_restore_stack(stack), to: Caches
   defdelegate frozen?(ref), to: Store
   defdelegate freeze(ref), to: Store
@@ -322,6 +330,7 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate get_object_prototype(), to: Context
   defdelegate put_object_prototype(proto), to: Context
   defdelegate get_global_cache(), to: Context
+  @doc "Stores cached global bindings and invalidates derived base globals."
   defdelegate put_global_cache(bindings), to: Context
   defdelegate get_base_globals(), to: Context
   defdelegate put_base_globals(globals), to: Context
@@ -330,6 +339,7 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate get_persistent_globals(), to: Context
   defdelegate put_persistent_globals(globals), to: Context
   defdelegate get_handler_globals(), to: Context
+  @doc "Stores host-provided handler globals and invalidates derived base globals."
   defdelegate put_handler_globals(globals), to: Context
   defdelegate get_runtime_mode(runtime), to: Context
   defdelegate put_runtime_mode(runtime, mode), to: Context
@@ -338,6 +348,7 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate get_promise_waiters(ref), to: Async
   defdelegate put_promise_waiters(ref, waiters), to: Async
   defdelegate delete_promise_waiters(ref), to: Async
+  @doc "Registers a compiled module and its exports in the process-local registry."
   defdelegate register_module(name, exports), to: Registry
   defdelegate get_module(name), to: Registry
   defdelegate all_module_exports(), to: Registry
@@ -346,6 +357,7 @@ defmodule QuickBEAM.VM.Heap do
 
   # ── Garbage collection ──
 
+  @doc "Returns the allocation threshold that triggers the first heap GC pass."
   defdelegate gc_initial_threshold(), to: GC
   defdelegate gc_needed?(), to: GC
   defdelegate mark_and_sweep(roots), to: GC
@@ -394,5 +406,6 @@ defmodule QuickBEAM.VM.Heap do
     :ok
   end
 
+  @doc "Runs heap garbage collection using the active VM roots plus extra roots."
   defdelegate gc(extra_roots \\ []), to: GC
 end
