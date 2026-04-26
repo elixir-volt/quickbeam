@@ -8,6 +8,7 @@ defmodule QuickBEAM.VM.ObjectModel.Class do
   alias QuickBEAM.VM.Names
   alias QuickBEAM.VM.ObjectModel.{Functions, Get, Put}
 
+  @doc "Returns the superclass/prototype target associated with a class, method, or constructor value."
   def get_super(func) do
     case func do
       {:obj, ref} ->
@@ -30,6 +31,7 @@ defmodule QuickBEAM.VM.ObjectModel.Class do
     end
   end
 
+  @doc "Applies JavaScript constructor return rules by keeping object-like returns and otherwise preserving `this`."
   def coalesce_this_result(result, this_obj) do
     case result do
       {:obj, _} = obj -> obj
@@ -39,6 +41,7 @@ defmodule QuickBEAM.VM.ObjectModel.Class do
     end
   end
 
+  @doc "Extracts the underlying bytecode function from closure values."
   def raw_function({:closure, _, %Bytecode.Function{} = fun}), do: fun
   def raw_function(%Bytecode.Function{} = fun), do: fun
   def raw_function(other), do: other
@@ -79,6 +82,7 @@ defmodule QuickBEAM.VM.ObjectModel.Class do
     {proto_obj, ctor_closure}
   end
 
+  @doc "Classifies an explicit constructor return value according to JavaScript class semantics."
   def check_ctor_return(val) do
     cond do
       val == :undefined -> {true, val}
@@ -87,6 +91,7 @@ defmodule QuickBEAM.VM.ObjectModel.Class do
     end
   end
 
+  @doc "Reads a property through the `super` lookup path using `this` as the getter receiver."
   def get_super_value(proto_obj, this_obj, key) do
     case find_super_property(proto_obj, key) do
       {:accessor, getter, _} when getter != nil ->
@@ -100,6 +105,7 @@ defmodule QuickBEAM.VM.ObjectModel.Class do
     end
   end
 
+  @doc "Writes a property through the `super` lookup path using `this` as the setter receiver."
   def put_super_value(proto_obj, this_obj, key, val) do
     case find_super_setter(proto_obj, key) do
       nil -> Put.put(this_obj, key, val)
@@ -109,6 +115,7 @@ defmodule QuickBEAM.VM.ObjectModel.Class do
     :ok
   end
 
+  @doc "Defines an unnamed class with a constructor name resolved from the atom table."
   def define_class_name(ctor_closure, atom_idx, atoms \\ Heap.get_atoms()) do
     define_class(ctor_closure, :undefined, Names.resolve_atom(atoms, atom_idx))
   end

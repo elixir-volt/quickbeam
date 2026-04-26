@@ -34,6 +34,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
+  @doc "Writes a field using the fast shape path when possible."
   def put_field({:obj, ref}, key, val) do
     case Process.get(ref) do
       {:shape, shape_id, offsets, vals, proto} ->
@@ -44,6 +45,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
+  @doc "Writes a JavaScript property while respecting arrays, proxies, descriptors, accessors, and constructor statics."
   def put({:obj, ref} = _obj, "length", val) do
     case Heap.get_obj_raw(ref) do
       {:shape, shape_id, offsets, vals, proto} ->
@@ -236,6 +238,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
+  @doc "Defines or replaces a JavaScript getter property."
   def put_getter({:obj, ref}, key, fun) do
     update_getter(ref, key, fun)
   end
@@ -252,6 +255,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   def put_getter(target, key, fun, _enumerable),
     do: Heap.put_ctor_static(target, key, {:accessor, fun, nil})
 
+  @doc "Defines or replaces a JavaScript setter property."
   def put_setter({:obj, ref}, key, fun) do
     update_setter(ref, key, fun)
   end
@@ -321,6 +325,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
+  @doc "Returns whether a value has a property in its own or prototype chain."
   def has_property({:obj, ref}, key) do
     map = Heap.get_obj(ref, %{})
 
@@ -359,6 +364,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   def has_property(_, _), do: false
 
+  @doc "Reads an indexed JavaScript element."
   def get_element({:obj, ref} = obj, idx) do
     case Heap.get_obj(ref) do
       %{typed_array() => true} when is_integer(idx) ->
@@ -475,6 +481,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   def get_element(_, _), do: :undefined
 
+  @doc "Writes an indexed JavaScript element."
   def put_element({:obj, ref} = obj, key, val) do
     case Heap.get_obj(ref) do
       %{typed_array() => true} when is_integer(key) ->
@@ -489,7 +496,8 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
               Heap.array_set(ref, i, val)
             end
 
-          _ -> :ok
+          _ ->
+            :ok
         end
 
       list when is_list(list) ->
@@ -527,6 +535,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   def put_element(_, _, _), do: :ok
 
+  @doc "Defines an array element and descriptor metadata."
   def define_array_el(obj, idx, val) do
     obj2 =
       case obj do
@@ -574,6 +583,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     {idx, obj2}
   end
 
+  @doc "Returns a list with an index updated, padding holes with `:undefined` as needed."
   def set_list_at(list, i, val) when is_integer(i) and i >= 0 and i < length(list),
     do: List.replace_at(list, i, val)
 

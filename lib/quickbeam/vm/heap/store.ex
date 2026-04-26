@@ -6,6 +6,7 @@ defmodule QuickBEAM.VM.Heap.Store do
 
   # ── Raw storage (bypasses shape→map reconstruction) ──
 
+  @doc "Returns raw heap storage for an object reference without shape reconstruction."
   def get_obj_raw(ref), do: Process.get(ref)
   def put_obj_raw(ref, val), do: Process.put(ref, val)
 
@@ -35,6 +36,7 @@ defmodule QuickBEAM.VM.Heap.Store do
     track_alloc()
   end
 
+  @doc "Writes one key into object storage while preserving shape metadata when possible."
   def put_obj_key(ref, key, val), do: put_obj_key(ref, get_obj_raw(ref), key, val)
 
   def put_obj_key(ref, {:shape, shape_id, offsets, vals, proto}, key, val) do
@@ -66,6 +68,7 @@ defmodule QuickBEAM.VM.Heap.Store do
     Process.put(ref, %{key => val})
   end
 
+  @doc "Updates heap object data with a function after reconstructing shaped objects as maps."
   def update_obj(ref, default, fun) do
     current = Process.get(ref, default)
 
@@ -81,6 +84,7 @@ defmodule QuickBEAM.VM.Heap.Store do
 
   # ── Array helpers ──
 
+  @doc "Returns whether a heap object reference stores array data."
   def obj_is_array?(ref) do
     case Process.get(ref) do
       {:qb_arr, _} -> true
@@ -96,6 +100,7 @@ defmodule QuickBEAM.VM.Heap.Store do
     end
   end
 
+  @doc "Reads an element from heap array storage by object reference."
   def array_get(ref, idx) do
     case Process.get(ref) do
       {:qb_arr, _} = arr when idx >= 0 -> Arrays.get(arr, idx)
@@ -111,6 +116,7 @@ defmodule QuickBEAM.VM.Heap.Store do
     end
   end
 
+  @doc "Appends values to heap array storage and returns the new length."
   def array_push(ref, values) do
     case Process.get(ref) do
       {:qb_arr, arr} ->
@@ -128,6 +134,7 @@ defmodule QuickBEAM.VM.Heap.Store do
     end
   end
 
+  @doc "Writes an element in heap array storage by object reference."
   def array_set(ref, idx, val) do
     case Process.get(ref) do
       {:qb_arr, arr} -> Process.put(ref, {:qb_arr, :array.set(idx, val, arr)})
@@ -137,6 +144,7 @@ defmodule QuickBEAM.VM.Heap.Store do
 
   # ── Closure cells ──
 
+  @doc "Reads a closure/capture cell value."
   def get_cell(ref), do: Process.get({:qb_cell, ref}, :undefined)
   def put_cell(ref, val), do: Process.put({:qb_cell, ref}, val)
 
@@ -146,6 +154,7 @@ defmodule QuickBEAM.VM.Heap.Store do
     do: Process.get({:qb_class_proto, ctor}) || Process.get({:qb_class_proto, raw})
 
   def get_class_proto(ctor), do: Process.get({:qb_class_proto, ctor})
+  @doc "Stores the prototype object associated with a constructor."
   def put_class_proto(ctor, proto), do: Process.put({:qb_class_proto, ctor}, proto)
 
   def get_parent_ctor({:closure, _, raw} = ctor),
@@ -155,6 +164,7 @@ defmodule QuickBEAM.VM.Heap.Store do
   def put_parent_ctor(ctor, parent), do: Process.put({:qb_parent_ctor, ctor}, parent)
   def delete_parent_ctor(ctor), do: Process.delete({:qb_parent_ctor, ctor})
 
+  @doc "Returns static properties associated with a constructor value."
   def get_ctor_statics(ctor), do: Process.get({:qb_ctor_statics, ctor}, %{})
   def put_ctor_statics(ctor, statics), do: Process.put({:qb_ctor_statics, ctor}, statics)
 
@@ -179,6 +189,7 @@ defmodule QuickBEAM.VM.Heap.Store do
     put_ctor_statics(ctor, Map.put(statics, key, val))
   end
 
+  @doc "Reads a process-local VM variable slot."
   def get_var(name), do: Process.get({:qb_var, name})
   def put_var(name, val), do: Process.put({:qb_var, name}, val)
   def delete_var(name), do: Process.delete({:qb_var, name})
@@ -187,6 +198,7 @@ defmodule QuickBEAM.VM.Heap.Store do
     Process.get(:qb_has_frozen, false) and Process.get({:qb_frozen, ref}, false)
   end
 
+  @doc "Marks a heap object as frozen."
   def freeze(ref) do
     Process.put(:qb_has_frozen, true)
     Process.put({:qb_frozen, ref}, true)
@@ -197,6 +209,7 @@ defmodule QuickBEAM.VM.Heap.Store do
 
   # ── Object ID allocation ──
 
+  @doc "Allocates a new monotonically increasing heap object id."
   def next_id, do: :erlang.unique_integer([:positive, :monotonic])
 
   defp track_alloc do

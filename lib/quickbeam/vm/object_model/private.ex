@@ -6,6 +6,7 @@ defmodule QuickBEAM.VM.ObjectModel.Private do
   alias QuickBEAM.VM.{Bytecode, Heap}
   alias QuickBEAM.VM.ObjectModel.Functions
 
+  @doc "Creates an internal symbol for a JavaScript private name."
   def private_symbol(name) when is_binary(name), do: {:private_symbol, name, make_ref()}
 
   def get_field({:obj, ref}, key) do
@@ -23,6 +24,7 @@ defmodule QuickBEAM.VM.ObjectModel.Private do
 
   def get_field(_, _key), do: :missing
 
+  @doc "Returns whether a target has a private field."
   def has_field?(target, key), do: get_field(target, key) != :missing
 
   def has_brand?(target, brand), do: brand_match?(target, brand)
@@ -35,6 +37,7 @@ defmodule QuickBEAM.VM.ObjectModel.Private do
     end
   end
 
+  @doc "Defines or overwrites a private field on an object or constructor."
   def define_field!({:obj, ref}, key, val) do
     Heap.update_obj(ref, %{}, &Map.put(&1, {:private, key}, val))
     :ok
@@ -57,6 +60,7 @@ defmodule QuickBEAM.VM.ObjectModel.Private do
 
   def define_field!(_, _key, _val), do: :error
 
+  @doc "Returns the private brands attached to a target."
   def brands({:obj, ref}), do: Map.get(Heap.get_obj(ref, %{}), :__brands__, [])
 
   def brands({:closure, _, %Bytecode.Function{}} = ctor),
@@ -68,6 +72,7 @@ defmodule QuickBEAM.VM.ObjectModel.Private do
   def brands({:builtin, _, _} = ctor), do: Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
   def brands(_), do: []
 
+  @doc "Attaches a private brand to an object or constructor."
   def add_brand({:obj, ref}, brand) do
     Heap.update_obj(ref, %{}, fn map ->
       existing = Map.get(map, :__brands__, [])
@@ -94,6 +99,7 @@ defmodule QuickBEAM.VM.ObjectModel.Private do
 
   def add_brand(_obj, _brand), do: :ok
 
+  @doc "Checks that a target carries a private brand."
   def ensure_brand(target, brand) do
     if brand_match?(target, brand), do: :ok, else: :error
   end

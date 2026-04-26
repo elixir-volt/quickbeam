@@ -6,6 +6,7 @@ defmodule QuickBEAM.VM.ObjectModel.Methods do
   alias QuickBEAM.VM.{Heap, Names}
   alias QuickBEAM.VM.ObjectModel.{Functions, Put}
 
+  @doc "Defines a named method, getter, or setter on a target object."
   def define_method(target, method, name, flags) when is_binary(name) do
     method_type = band(flags, 3)
     enumerable = band(flags, 4) != 0
@@ -34,6 +35,7 @@ defmodule QuickBEAM.VM.ObjectModel.Methods do
   def define_method(target, method, atom_idx, flags),
     do: define_method(target, method, Names.resolve_atom(Heap.get_atoms(), atom_idx), flags)
 
+  @doc "Defines a computed-name method, getter, or setter on a target object."
   def define_method_computed(target, method, field_name, flags) do
     method_type = band(flags, 3)
     enumerable = band(flags, 4) != 0
@@ -59,5 +61,6 @@ defmodule QuickBEAM.VM.ObjectModel.Methods do
     target
   end
 
+  @doc "Records the home object used by a method for `super` lookups."
   def set_home_object(method, target), do: Functions.put_home_object(method, target)
 end

@@ -42,6 +42,7 @@ defmodule QuickBEAM.VM.Heap.Shapes do
     tuple_size(shape_table())
   end
 
+  @doc "Returns shape metadata for a shape id."
   def get_shape(id) do
     elem(shape_table(), id)
   end
@@ -61,6 +62,7 @@ defmodule QuickBEAM.VM.Heap.Shapes do
 
   # ── Public API ──
 
+  @doc "Returns the canonical empty object shape id."
   def empty_shape_id, do: @empty_shape
 
   @doc "Return the offset for `key` in `shape_id`, or `:error`."

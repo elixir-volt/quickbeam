@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.Heap.Context do
 
   alias QuickBEAM.VM.Interpreter.Context
 
+  @doc "Returns the active interpreter context stored in the process dictionary."
   def get_ctx do
     case Process.get(:qb_ctx, :__qb_missing__) do
       :__qb_missing__ ->
@@ -28,6 +29,7 @@ defmodule QuickBEAM.VM.Heap.Context do
     end
   end
 
+  @doc "Stores or clears the active interpreter context."
   def put_ctx(nil), do: Process.delete(:qb_ctx)
   def put_ctx(ctx), do: Process.put(:qb_ctx, ctx)
 
@@ -36,6 +38,7 @@ defmodule QuickBEAM.VM.Heap.Context do
 
   def get_global_cache, do: Process.get(:qb_global_bindings_cache)
 
+  @doc "Stores cached global bindings and invalidates derived base globals."
   def put_global_cache(bindings) do
     Process.delete(:qb_base_globals_cache)
     Process.put(:qb_global_bindings_cache, bindings)
@@ -44,6 +47,7 @@ defmodule QuickBEAM.VM.Heap.Context do
   def get_base_globals, do: Process.get(:qb_base_globals_cache)
   def put_base_globals(globals), do: Process.put(:qb_base_globals_cache, globals)
 
+  @doc "Returns the current bytecode atom table."
   def get_atoms, do: Process.get(:qb_atoms, {})
   def put_atoms(atoms), do: Process.put(:qb_atoms, atoms)
 
@@ -53,6 +57,7 @@ defmodule QuickBEAM.VM.Heap.Context do
     Process.put(:qb_persistent_globals, globals)
   end
 
+  @doc "Returns host-provided handler globals."
   def get_handler_globals, do: Process.get(:qb_handler_globals)
 
   def put_handler_globals(globals) do
@@ -61,5 +66,6 @@ defmodule QuickBEAM.VM.Heap.Context do
   end
 
   def get_runtime_mode(runtime), do: Process.get({:qb_runtime_mode, runtime})
+  @doc "Stores the mode associated with a runtime process."
   def put_runtime_mode(runtime, mode), do: Process.put({:qb_runtime_mode, runtime}, mode)
 end

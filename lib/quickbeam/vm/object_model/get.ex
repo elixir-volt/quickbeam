@@ -26,6 +26,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   alias QuickBEAM.VM.Runtime.Date, as: JSDate
   alias QuickBEAM.VM.Runtime.String, as: JSString
 
+  @doc "Reads a JavaScript property, including own lookup, prototype lookup, and getter invocation."
   def get(value, key) when is_binary(key) do
     case get_own(value, key) do
       :undefined ->
@@ -67,6 +68,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   def get(_, _), do: :undefined
 
+  @doc "Invokes a getter function with the provided receiver."
   def call_getter(fun, this_obj) do
     Invocation.invoke_with_receiver(fun, [], this_obj)
   end
@@ -80,6 +82,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   def regexp_flags(_), do: ""
 
+  @doc "Returns the JavaScript UTF-16 code-unit length of a string."
   def string_length(s) do
     if byte_size(s) == String.length(s) do
       byte_size(s)
@@ -92,6 +95,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     end
   end
 
+  @doc "Returns the JavaScript `length` value for array-like, string, and function values."
   def length_of(obj) do
     case obj do
       {:obj, ref} ->
@@ -361,11 +365,20 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         # For type-specialized objects (Map, Set, Date, etc.), check type methods first.
         type_result =
           cond do
-            Map.has_key?(map, map_data()) -> JSMap.proto_property(key)
-            Map.has_key?(map, set_data()) -> JSSet.proto_property(key)
-            Map.has_key?(map, date_ms()) -> JSDate.proto_property(key)
-            Map.has_key?(map, buffer()) and not Map.has_key?(map, typed_array()) -> ArrayBuffer.proto_property(key)
-            true -> :undefined
+            Map.has_key?(map, map_data()) ->
+              JSMap.proto_property(key)
+
+            Map.has_key?(map, set_data()) ->
+              JSSet.proto_property(key)
+
+            Map.has_key?(map, date_ms()) ->
+              JSDate.proto_property(key)
+
+            Map.has_key?(map, buffer()) and not Map.has_key?(map, typed_array()) ->
+              ArrayBuffer.proto_property(key)
+
+            true ->
+              :undefined
           end
 
         if type_result != :undefined do

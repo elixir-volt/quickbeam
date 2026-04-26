@@ -72,6 +72,7 @@ defmodule QuickBEAM.VM.Heap.Registry do
   - `:qb_timer_next_id` — monotonic counter for timer IDs
   """
 
+  @doc "Registers a compiled module and its exports in the process-local registry."
   def register_module(name, exports) do
     Process.put({:qb_module, name}, exports)
     existing = Process.get(:qb_module_list, [])
@@ -80,6 +81,7 @@ defmodule QuickBEAM.VM.Heap.Registry do
 
   def get_module(name), do: Process.get({:qb_module, name})
 
+  @doc "Returns all registered module exports."
   def all_module_exports do
     Process.get(:qb_module_list, [])
     |> Enum.map(&Process.get({:qb_module, &1}))

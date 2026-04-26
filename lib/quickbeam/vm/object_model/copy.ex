@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   alias QuickBEAM.VM.{Heap, Runtime}
   alias QuickBEAM.VM.ObjectModel.Get
 
+  @doc "Appends values from a spread source into an array-like target and returns the next index."
   def append_spread(arr, idx, obj) do
     src_list = spread_source_to_list(obj)
     arr_list = spread_target_to_list(arr)
@@ -26,6 +27,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
     {new_idx, merged_obj}
   end
 
+  @doc "Copies enumerable string properties from a source object to a target object."
   def copy_data_properties(target, source, exclude \\ nil) do
     src_props = enumerable_string_props(source)
 
@@ -71,6 +73,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
     :ok
   end
 
+  @doc "Returns enumerable own string properties as a map of property names to values."
   def enumerable_string_props({:obj, ref} = source_obj) do
     case Heap.get_obj_raw(ref) do
       {:shape, shape_id, _offsets, vals, _proto} ->
@@ -111,6 +114,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
     end)
   end
 
+  @doc "Returns enumerable property keys in JavaScript enumeration order."
   def enumerable_keys({:obj, ref} = obj) do
     case Heap.get_obj_raw(ref) do
       {:shape, shape_id, _offsets, _vals, proto} ->
@@ -167,6 +171,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
     end
   end
 
+  @doc "Converts a spread source value into the list of values to append."
   def spread_source_to_list({:qb_arr, arr}), do: :array.to_list(arr)
   def spread_source_to_list(list) when is_list(list), do: list
 
@@ -202,6 +207,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
 
   def spread_source_to_list(_), do: []
 
+  @doc "Converts a spread target value into its current list representation."
   def spread_target_to_list({:qb_arr, arr}), do: :array.to_list(arr)
   def spread_target_to_list(list) when is_list(list), do: list
   def spread_target_to_list({:obj, _} = obj), do: Heap.to_list(obj)
