@@ -55,59 +55,31 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer.Encoding do
   end
 
   defp hex_decode(str) do
-    clean = str |> String.replace(~r/[^0-9a-fA-F]/, "") |> truncate_even()
-
-    case Base.decode16(clean, case: :mixed) do
-      {:ok, bytes} -> bytes
-      _ -> <<>>
-    end
+    str
+    |> even_bytes()
+    |> Base.decode16(case: :mixed)
+    |> decoded_or_empty()
   end
 
-  defp truncate_even(str) do
+  defp even_bytes(str) do
     len = byte_size(str)
-    if rem(len, 2) == 0, do: str, else: binary_part(str, 0, len - 1)
+    binary_part(str, 0, len - rem(len, 2))
   end
 
   defp base64_decode(str) do
     str
-    |> String.replace(~r/[\s]/, "")
-    |> pad_base64()
-    |> Base.decode64()
-    |> case do
-      {:ok, bytes} -> bytes
-      _ -> <<>>
-    end
+    |> Base.decode64(ignore: :whitespace, padding: false)
+    |> decoded_or_empty()
   end
 
   defp base64url_decode(str) do
-    clean = String.replace(str, ~r/[\s]/, "")
-
-    case Base.url_decode64(clean, padding: false) do
-      {:ok, bytes} -> bytes
-      _ -> decode_padded_base64url(clean)
-    end
-  end
-
-  defp decode_padded_base64url(str) do
     str
-    |> String.replace("-", "+")
-    |> String.replace("_", "/")
-    |> pad_base64()
-    |> Base.decode64()
-    |> case do
-      {:ok, bytes} -> bytes
-      _ -> <<>>
-    end
+    |> Base.url_decode64(ignore: :whitespace, padding: false)
+    |> decoded_or_empty()
   end
 
-  defp pad_base64(str) do
-    case rem(byte_size(str), 4) do
-      0 -> str
-      1 -> str <> "==="
-      2 -> str <> "=="
-      3 -> str <> "="
-    end
-  end
+  defp decoded_or_empty({:ok, bytes}), do: bytes
+  defp decoded_or_empty(:error), do: <<>>
 
   defp latin1_to_bytes(str) do
     str

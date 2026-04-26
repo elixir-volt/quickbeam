@@ -9,7 +9,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   alias QuickBEAM.VM.{Heap, JSThrow, Runtime}
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
   alias QuickBEAM.VM.Runtime.Constructors
-  alias QuickBEAM.VM.Runtime.Web.Buffer.Encoding
+  alias QuickBEAM.VM.Runtime.Web.Buffer.{BinaryCodec, Encoding}
 
   @known_encodings ~w[utf8 utf-8 ascii latin1 binary base64 base64url hex ucs2 utf16le utf-16le ucs-2]
 
@@ -577,7 +577,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     end
 
     chunk = binary_part(bytes, offset, size)
-    decode_int(chunk, size, sign, endian)
+    BinaryCodec.decode_int(chunk, size, sign, endian)
   end
 
   defp buf_read_float(this, args, size, endian) do
@@ -589,14 +589,14 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     end
 
     chunk = binary_part(bytes, offset, size)
-    decode_float(chunk, size, endian)
+    BinaryCodec.decode_float(chunk, size, endian)
   end
 
   defp buf_write_uint(this, args, size, sign, endian) do
     [val, offset_arg] = argv(args, [0, 0])
     offset = to_int(offset_arg)
     n = to_number(val)
-    encoded = encode_int(n, size, sign, endian)
+    encoded = BinaryCodec.encode_int(n, size, sign, endian)
 
     Enum.each(0..(size - 1), fn i ->
       Put.put_element(this, offset + i, :binary.at(encoded, i))
@@ -609,93 +609,13 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     [val, offset_arg] = argv(args, [0, 0])
     offset = to_int(offset_arg)
     n = to_float(val)
-    encoded = encode_float(n, size, endian)
+    encoded = BinaryCodec.encode_float(n, size, endian)
 
     Enum.each(0..(size - 1), fn i ->
       Put.put_element(this, offset + i, :binary.at(encoded, i))
     end)
 
     offset + size
-  end
-
-  # ── Binary encoding/decoding ──
-
-  defp decode_int(chunk, size, :unsigned, :big) do
-    <<n::unsigned-big-integer-size(size)-unit(8)>> = chunk
-    n
-  end
-
-  defp decode_int(chunk, size, :signed, :big) do
-    <<n::signed-big-integer-size(size)-unit(8)>> = chunk
-    n
-  end
-
-  defp decode_int(chunk, size, :unsigned, :little) do
-    <<n::unsigned-little-integer-size(size)-unit(8)>> = chunk
-    n
-  end
-
-  defp decode_int(chunk, size, :signed, :little) do
-    <<n::signed-little-integer-size(size)-unit(8)>> = chunk
-    n
-  end
-
-  defp encode_int(n, size, :unsigned, :big) do
-    int_val = band(trunc(n), max_uint(size))
-    <<int_val::unsigned-big-integer-size(size)-unit(8)>>
-  end
-
-  defp encode_int(n, size, :signed, :big) do
-    int_val = to_signed(trunc(n), size)
-    <<int_val::signed-big-integer-size(size)-unit(8)>>
-  end
-
-  defp encode_int(n, size, :unsigned, :little) do
-    int_val = band(trunc(n), max_uint(size))
-    <<int_val::unsigned-little-integer-size(size)-unit(8)>>
-  end
-
-  defp encode_int(n, size, :signed, :little) do
-    int_val = to_signed(trunc(n), size)
-    <<int_val::signed-little-integer-size(size)-unit(8)>>
-  end
-
-  defp decode_float(chunk, 4, :big) do
-    <<n::float-big-32>> = chunk
-    n
-  end
-
-  defp decode_float(chunk, 4, :little) do
-    <<n::float-little-32>> = chunk
-    n
-  end
-
-  defp decode_float(chunk, 8, :big) do
-    <<n::float-big-64>> = chunk
-    n
-  end
-
-  defp decode_float(chunk, 8, :little) do
-    <<n::float-little-64>> = chunk
-    n
-  end
-
-  defp encode_float(n, 4, :big), do: <<n::float-big-32>>
-  defp encode_float(n, 4, :little), do: <<n::float-little-32>>
-  defp encode_float(n, 8, :big), do: <<n::float-big-64>>
-  defp encode_float(n, 8, :little), do: <<n::float-little-64>>
-
-  defp max_uint(1), do: 0xFF
-  defp max_uint(2), do: 0xFFFF
-  defp max_uint(4), do: 0xFFFFFFFF
-
-  defp to_signed(n, bytes) do
-    bits = bytes * 8
-    max_pos = 1 <<< (bits - 1)
-    mod = 1 <<< bits
-    n = rem(n, mod)
-    n = if n < 0, do: n + mod, else: n
-    if n >= max_pos, do: n - mod, else: n
   end
 
   # ── Wrap buffer as Uint8Array-like object ──
