@@ -232,13 +232,13 @@ defmodule QuickBEAM.JS.Parser.Lexer do
     lexer =
       cond do
         number_prefix?(lexer, ?x, ?X) ->
-          lexer |> advance_bytes(2) |> advance_while(&(hex_digit?(&1) or &1 == ?_))
+          lexer |> advance_bytes(2) |> advance_hex_digits()
 
         number_prefix?(lexer, ?b, ?B) ->
-          lexer |> advance_bytes(2) |> advance_while(&(&1 in [?0, ?1, ?_]))
+          lexer |> advance_bytes(2) |> advance_binary_digits()
 
         number_prefix?(lexer, ?o, ?O) ->
-          lexer |> advance_bytes(2) |> advance_while(&(&1 in ?0..?7 or &1 == ?_))
+          lexer |> advance_bytes(2) |> advance_octal_digits()
 
         true ->
           scan_decimal(lexer)
@@ -253,11 +253,11 @@ defmodule QuickBEAM.JS.Parser.Lexer do
 
   defp scan_decimal(lexer) do
     start = lexer.offset
-    lexer = advance_while(lexer, &(&1 in ?0..?9 or &1 == ?_))
+    lexer = advance_decimal_digits(lexer)
 
     lexer =
       if decimal_fraction_start?(lexer, start) do
-        lexer |> advance() |> advance_while(&(&1 in ?0..?9 or &1 == ?_))
+        lexer |> advance() |> advance_decimal_digits()
       else
         lexer
       end
@@ -265,11 +265,70 @@ defmodule QuickBEAM.JS.Parser.Lexer do
     if current(lexer) in [?e, ?E] do
       exponent = advance(lexer)
       exponent = if current(exponent) in [?+, ?-], do: advance(exponent), else: exponent
-      advance_while(exponent, &(&1 in ?0..?9 or &1 == ?_))
+      advance_decimal_digits(exponent)
     else
       lexer
     end
   end
+
+  defp advance_decimal_digits(%{source: source, offset: start, length: length} = lexer) do
+    offset = decimal_digits_end(source, start, length)
+    %{lexer | offset: offset, column: lexer.column + offset - start}
+  end
+
+  defp decimal_digits_end(source, offset, length) when offset < length do
+    case :binary.at(source, offset) do
+      byte when byte in ?0..?9 or byte == ?_ -> decimal_digits_end(source, offset + 1, length)
+      _byte -> offset
+    end
+  end
+
+  defp decimal_digits_end(_source, offset, _length), do: offset
+
+  defp advance_hex_digits(%{source: source, offset: start, length: length} = lexer) do
+    offset = hex_digits_end(source, start, length)
+    %{lexer | offset: offset, column: lexer.column + offset - start}
+  end
+
+  defp hex_digits_end(source, offset, length) when offset < length do
+    case :binary.at(source, offset) do
+      byte when byte in ?0..?9 or byte in ?a..?f or byte in ?A..?F or byte == ?_ ->
+        hex_digits_end(source, offset + 1, length)
+
+      _byte ->
+        offset
+    end
+  end
+
+  defp hex_digits_end(_source, offset, _length), do: offset
+
+  defp advance_binary_digits(%{source: source, offset: start, length: length} = lexer) do
+    offset = binary_digits_end(source, start, length)
+    %{lexer | offset: offset, column: lexer.column + offset - start}
+  end
+
+  defp binary_digits_end(source, offset, length) when offset < length do
+    case :binary.at(source, offset) do
+      byte when byte in [?0, ?1, ?_] -> binary_digits_end(source, offset + 1, length)
+      _byte -> offset
+    end
+  end
+
+  defp binary_digits_end(_source, offset, _length), do: offset
+
+  defp advance_octal_digits(%{source: source, offset: start, length: length} = lexer) do
+    offset = octal_digits_end(source, start, length)
+    %{lexer | offset: offset, column: lexer.column + offset - start}
+  end
+
+  defp octal_digits_end(source, offset, length) when offset < length do
+    case :binary.at(source, offset) do
+      byte when byte in ?0..?7 or byte == ?_ -> octal_digits_end(source, offset + 1, length)
+      _byte -> offset
+    end
+  end
+
+  defp octal_digits_end(_source, offset, _length), do: offset
 
   defp decimal_fraction_start?(lexer, start) do
     current(lexer) == ?. and not leading_zero_member_access?(lexer, start)
@@ -909,7 +968,6 @@ defmodule QuickBEAM.JS.Parser.Lexer do
 
   defp division_rhs_start?(_offset, _lexer), do: false
 
-  defp hex_digit?(ch), do: ch in ?0..?9 or ch in ?a..?f or ch in ?A..?F
   defp string_line_terminator?(ch), do: ch in [?\n, ?\r]
   defp line_terminator?(ch), do: ch in [?\n, ?\r, 0x2028, 0x2029]
   defp unicode_trivia?(ch), do: line_terminator?(ch) or ch in [0x00A0, 0xFEFF]
