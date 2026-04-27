@@ -61,8 +61,8 @@ defmodule QuickBEAM.JS.Parser.Statements do
           %Token{type: :keyword, value: "export"} ->
             parse_export_declaration(state)
 
-          %Token{type: :keyword, value: "let"} when state.source_type == :script ->
-            if peek_value(state) == "=" do
+          %Token{type: :keyword, value: "let"} = token when state.source_type == :script ->
+            if token.raw != "let" or peek_value(state) == "=" do
               parse_expression_statement(state)
             else
               parse_variable_declaration(state)
@@ -75,10 +75,10 @@ defmodule QuickBEAM.JS.Parser.Statements do
             parse_using_declaration(state, false)
 
           %Token{type: :keyword, value: "await"} ->
-            if using_after_await?(state) do
-              parse_using_declaration(state, true)
-            else
-              parse_expression_statement(state)
+            cond do
+              using_after_await?(state) -> parse_using_declaration(state, true)
+              label_start?(state) -> parse_labeled_statement(state)
+              true -> parse_expression_statement(state)
             end
 
           %Token{type: :keyword, value: "return"} ->
@@ -180,6 +180,10 @@ defmodule QuickBEAM.JS.Parser.Statements do
         peek(state).type == :identifier and peek(state).value == "using" and
           peek_value(state, 2) != "[" and not peek(state).before_line_terminator? and
           not peek(state, 2).before_line_terminator?
+      end
+
+      defp for_let_declaration_start?(state) do
+        peek_value(state) in ["[", "{"] or identifier_like?(peek(state))
       end
 
       defp parse_declarators(state, acc, allow_in? \\ true) do
@@ -307,6 +311,11 @@ defmodule QuickBEAM.JS.Parser.Statements do
             init = %AST.VariableDeclaration{kind: :await_using, declarations: declarations}
             parse_for_after_init(state, init, true)
 
+          keyword?(state, "let") and state.source_type == :script and
+              not for_let_declaration_start?(state) ->
+            {init, state} = parse_expression_no_in(state, 0)
+            parse_for_after_init(state, init, await?)
+
           keyword?(state, "var") or keyword?(state, "let") or keyword?(state, "const") ->
             {kind, state} = consume_keyword_value(state)
             {declarations, state} = parse_declarators(state, [], false)
@@ -325,7 +334,8 @@ defmodule QuickBEAM.JS.Parser.Statements do
             init = %AST.VariableDeclaration{kind: kind, declarations: declarations}
             parse_for_after_init(state, init, await?)
 
-          identifier_like?(current(state)) and peek_value(state) in ["in", "of"] ->
+          identifier_like?(current(state)) and peek_value(state) in ["in", "of"] and
+              peek_value(state, 2) != "=>" ->
             {init, state} = parse_binding_identifier(state)
             parse_for_after_init(state, init, await?)
 
