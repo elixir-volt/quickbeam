@@ -272,8 +272,7 @@ defmodule QuickBEAM.JS.Parser.Lexer do
   end
 
   defp decimal_fraction_start?(lexer, start) do
-    current(lexer) == ?. and peek(lexer, 1) != ?. and
-      not leading_zero_member_access?(lexer, start)
+    current(lexer) == ?. and not leading_zero_member_access?(lexer, start)
   end
 
   defp leading_zero_member_access?(lexer, start) do
