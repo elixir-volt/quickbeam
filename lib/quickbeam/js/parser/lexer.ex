@@ -799,16 +799,37 @@ defmodule QuickBEAM.JS.Parser.Lexer do
 
   defp horizontal_space_end(_source, offset, _length), do: offset
 
-  defp skip_hashbang_comment(lexer) do
-    lexer
-    |> advance_bytes(2)
-    |> advance_until(fn ch -> ch == nil or line_terminator?(ch) end)
+  defp skip_hashbang_comment(%{source: source, offset: offset, length: length} = lexer) do
+    skip_to_line_end(lexer, source, offset + 2, length)
   end
 
-  defp skip_line_comment(lexer) do
-    lexer
-    |> advance_bytes(2)
-    |> advance_until(fn ch -> ch == nil or line_terminator?(ch) end)
+  defp skip_line_comment(%{source: source, offset: offset, length: length} = lexer) do
+    skip_to_line_end(lexer, source, offset + 2, length)
+  end
+
+  defp skip_to_line_end(lexer, source, offset, length) when offset < length do
+    byte = :binary.at(source, offset)
+
+    cond do
+      byte == ?\n or byte == ?\r ->
+        %{lexer | offset: offset, column: lexer.column + offset - lexer.offset}
+
+      byte < 0x80 ->
+        skip_to_line_end(lexer, source, offset + 1, length)
+
+      true ->
+        ch = codepoint_at(source, offset, length)
+
+        if line_terminator?(ch) do
+          %{lexer | offset: offset, column: lexer.column + offset - lexer.offset}
+        else
+          skip_to_line_end(lexer, source, offset + utf8_size(ch), length)
+        end
+    end
+  end
+
+  defp skip_to_line_end(lexer, _source, offset, _length) do
+    %{lexer | offset: offset, column: lexer.column + offset - lexer.offset}
   end
 
   defp skip_block_comment(%{source: source, offset: offset, length: length} = lexer) do
@@ -871,10 +892,6 @@ defmodule QuickBEAM.JS.Parser.Lexer do
   defp add_error(lexer, message) do
     error = %Error{message: message, line: lexer.line, column: lexer.column, offset: lexer.offset}
     %{lexer | errors: [error | lexer.errors]}
-  end
-
-  defp advance_until(lexer, pred) do
-    if pred.(current(lexer)), do: lexer, else: lexer |> advance() |> advance_until(pred)
   end
 
   defp advance_while(lexer, pred) do
