@@ -107,8 +107,13 @@ defmodule QuickBEAM.JS.Parser.Predicates do
 
       defp identifier_like?(_), do: false
 
-      defp match_value?(state, values) when is_list(values), do: current(state).value in values
-      defp match_value?(state, value), do: current(state).value == value
+      defp match_value?(state, values) when is_list(values),
+        do: Enum.any?(values, &match_value?(state, &1))
+
+      defp match_value?(state, value) do
+        token = current(state)
+        token.type in [:punctuator, :keyword, :identifier] and token.value == value
+      end
 
       defp operator_value(%Token{type: :keyword, value: value})
            when value in ["in", "instanceof", "typeof", "void", "delete"], do: value
