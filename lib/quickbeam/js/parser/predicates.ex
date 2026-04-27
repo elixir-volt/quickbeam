@@ -94,6 +94,8 @@ defmodule QuickBEAM.JS.Parser.Predicates do
           "of",
           "await",
           "yield",
+          "let",
+          "static",
           "implements",
           "interface",
           "package",

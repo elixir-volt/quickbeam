@@ -205,6 +205,8 @@ defmodule QuickBEAM.JS.Parser.Validation.Strict do
       "eval",
       "arguments",
       "yield",
+      "let",
+      "static",
       "implements",
       "interface",
       "package",
