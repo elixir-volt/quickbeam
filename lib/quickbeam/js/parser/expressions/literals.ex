@@ -275,7 +275,7 @@ defmodule QuickBEAM.JS.Parser.Expressions.Literals do
 
         cond do
           eof?(state) or current(state).before_line_terminator? or statement_end?(state) or
-              match_value?(state, [",", "]", ")"]) ->
+              match_value?(state, [",", "]", ")", ":"]) ->
             {%AST.YieldExpression{}, state}
 
           match_value?(state, "*") ->
