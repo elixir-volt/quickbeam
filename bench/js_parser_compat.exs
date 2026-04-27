@@ -3,7 +3,7 @@ defmodule ParserCompatBench do
 
   @default_sample_limit 20_000
   @default_error_limit 40
-  @language_glob "test/test262/test/language/**/*.js"
+  @default_test262_glob "test/test262/test/language/**/*.js"
   @test_language_path "test/vm/test_language.js"
 
   def run do
@@ -18,7 +18,7 @@ defmodule ParserCompatBench do
   end
 
   defp sample_files do
-    @language_glob
+    test262_glob()
     |> Path.wildcard()
     |> Enum.sort()
     |> Enum.reject(&negative_test?/1)
@@ -172,6 +172,8 @@ defmodule ParserCompatBench do
     |> Enum.take(6)
     |> Path.join()
   end
+
+  defp test262_glob, do: System.get_env("TEST262_GLOB", @default_test262_glob)
 
   defp sample_limit, do: env_integer("TEST262_SAMPLE_LIMIT", @default_sample_limit)
   defp sample_offset, do: env_integer("TEST262_SAMPLE_OFFSET", 0)

@@ -29,8 +29,9 @@ Run the compatibility loop with:
 Useful optional environment variables:
 
 ```sh
-TEST262_SAMPLE_LIMIT=24000 ./autoresearch.sh   # broaden the deterministic sample
-TEST262_SAMPLE_OFFSET=20000 ./autoresearch.sh  # inspect a later slice
+TEST262_SAMPLE_LIMIT=24000 ./autoresearch.sh   # broaden the deterministic language sample
+TEST262_SAMPLE_OFFSET=20000 ./autoresearch.sh  # inspect a later language slice
+TEST262_GLOB='test/test262/test/**/*.js' ./autoresearch.sh  # broaden beyond language tests
 TEST262_ERROR_LIMIT=80 ./autoresearch.sh       # print more failing files
 ```
 
