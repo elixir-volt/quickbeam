@@ -1,7 +1,7 @@
 defmodule ParserCompatBench do
   @moduledoc false
 
-  @default_sample_limit 12_000
+  @default_sample_limit 16_000
   @default_error_limit 40
   @language_glob "test/test262/test/language/**/*.js"
   @test_language_path "test/vm/test_language.js"
