@@ -108,8 +108,10 @@ defmodule QuickBEAM.JS.Parser.Predicates do
 
       defp identifier_like?(_), do: false
 
-      defp match_value?(state, values) when is_list(values),
-        do: Enum.any?(values, &match_value?(state, &1))
+      defp match_value?(state, values) when is_list(values) do
+        token = current(state)
+        token.type in [:punctuator, :keyword, :identifier] and token.value in values
+      end
 
       defp match_value?(state, value) do
         token = current(state)
