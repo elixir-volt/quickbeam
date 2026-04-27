@@ -491,7 +491,7 @@ defmodule QuickBEAM.JS.Parser.Lexer do
         raw = slice(lexer.source, start, lexer.offset)
         token_at(lexer, :string, acc |> Enum.reverse() |> IO.iodata_to_binary(), raw, start)
 
-      line_terminator?(current(lexer)) ->
+      string_line_terminator?(current(lexer)) ->
         raw = slice(lexer.source, start, lexer.offset)
         lexer = add_error(lexer, "unterminated string literal")
         token_at(lexer, :string, acc |> Enum.reverse() |> IO.iodata_to_binary(), raw, start)
@@ -858,6 +858,7 @@ defmodule QuickBEAM.JS.Parser.Lexer do
   defp division_rhs_start?(_offset, _lexer), do: false
 
   defp hex_digit?(ch), do: ch in ?0..?9 or ch in ?a..?f or ch in ?A..?F
+  defp string_line_terminator?(ch), do: ch in [?\n, ?\r]
   defp line_terminator?(ch), do: ch in [?\n, ?\r, 0x2028, 0x2029]
   defp unicode_trivia?(ch), do: line_terminator?(ch) or ch in [0x00A0, 0xFEFF]
   defp utf8_size(ch) when ch < 0x80, do: 1
