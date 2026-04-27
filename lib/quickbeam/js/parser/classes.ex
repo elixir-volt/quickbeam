@@ -39,12 +39,9 @@ defmodule QuickBEAM.JS.Parser.Classes do
 
         state = expect_value(state, "{")
         {body, state} = parse_class_elements(state, [])
-        state = validate_duplicate_constructors(state, body)
+        state = Validation.validate_duplicate_constructors(state, body)
         {id, super_class, body, state}
       end
-
-      defp validate_duplicate_constructors(state, body),
-        do: Validation.validate_duplicate_constructors(state, body)
 
       defp parse_class_elements(state, acc) do
         cond do
@@ -69,7 +66,7 @@ defmodule QuickBEAM.JS.Parser.Classes do
         cond do
           static? and match_value?(state, "{") ->
             {block, state} = parse_block_statement(state)
-            state = validate_strict_body_bindings(state, block)
+            state = Validation.validate_strict_body_bindings(state, block)
             {%AST.StaticBlock{body: block.body}, state}
 
           async_method_start?(state) ->
@@ -89,7 +86,9 @@ defmodule QuickBEAM.JS.Parser.Classes do
               {body, state} = parse_function_body(state, false, false)
 
               state =
-                state |> validate_strict_params(params) |> validate_strict_body_bindings(body)
+                state
+                |> Validation.validate_strict_params(params)
+                |> Validation.validate_strict_body_bindings(body)
 
               value = %AST.FunctionExpression{
                 id: property_function_name(key),
@@ -127,9 +126,9 @@ defmodule QuickBEAM.JS.Parser.Classes do
 
         state =
           state
-          |> validate_generator_params(true, params)
-          |> validate_strict_params(params)
-          |> validate_strict_body_bindings(body)
+          |> Validation.validate_generator_params(true, params)
+          |> Validation.validate_strict_params(params)
+          |> Validation.validate_strict_body_bindings(body)
 
         value = %AST.FunctionExpression{
           id: property_function_name(key),
@@ -155,10 +154,10 @@ defmodule QuickBEAM.JS.Parser.Classes do
 
         state =
           state
-          |> validate_async_params(true, params)
-          |> validate_generator_params(generator?, params)
-          |> validate_strict_params(params)
-          |> validate_strict_body_bindings(body)
+          |> Validation.validate_async_params(true, params)
+          |> Validation.validate_generator_params(generator?, params)
+          |> Validation.validate_strict_params(params)
+          |> Validation.validate_strict_body_bindings(body)
 
         value = %AST.FunctionExpression{
           id: property_function_name(key),
@@ -182,7 +181,11 @@ defmodule QuickBEAM.JS.Parser.Classes do
         {key, computed?, state} = parse_class_key_with_computed(state)
         {params, state} = parse_formal_parameters(state)
         {body, state} = parse_block_statement(state)
-        state = state |> validate_strict_params(params) |> validate_strict_body_bindings(body)
+
+        state =
+          state
+          |> Validation.validate_strict_params(params)
+          |> Validation.validate_strict_body_bindings(body)
 
         value = %AST.FunctionExpression{
           id: property_function_name(key),

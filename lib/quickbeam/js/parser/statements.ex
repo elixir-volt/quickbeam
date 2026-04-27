@@ -11,20 +11,20 @@ defmodule QuickBEAM.JS.Parser.Statements do
 
         state =
           state
-          |> validate_module_declarations(body)
-          |> validate_nested_module_declarations(body)
-          |> validate_yield_context(body)
-          |> validate_await_context(body)
-          |> validate_new_target_context(body)
-          |> validate_import_meta_context(body)
-          |> validate_super_context(body)
-          |> validate_class_super_calls(body)
-          |> validate_duplicate_private_names(body)
-          |> validate_declared_private_names(body)
-          |> validate_duplicate_proto_initializers(body)
-          |> validate_duplicate_lexical_bindings(body)
-          |> validate_strict_program_bindings(body)
-          |> validate_control_flow(body)
+          |> Validation.validate_module_declarations(body)
+          |> Validation.validate_nested_module_declarations(body)
+          |> Validation.validate_yield_context(body)
+          |> Validation.validate_await_context(body)
+          |> Validation.validate_new_target_context(body)
+          |> Validation.validate_import_meta_context(body)
+          |> Validation.validate_super_context(body)
+          |> Validation.validate_class_super_calls(body)
+          |> Validation.validate_duplicate_private_names(body)
+          |> Validation.validate_declared_private_names(body)
+          |> Validation.validate_duplicate_proto_initializers(body)
+          |> Validation.validate_duplicate_lexical_bindings(body)
+          |> Validation.validate_strict_program_bindings(body)
+          |> Validation.validate_control_flow(body)
 
         {%AST.Program{source_type: state.source_type, body: body}, state}
       end
@@ -123,7 +123,7 @@ defmodule QuickBEAM.JS.Parser.Statements do
       defp parse_block_statement(state) do
         state = advance(state)
         {body, state} = parse_statement_list(state, [])
-        state = validate_duplicate_lexical_bindings(state, body)
+        state = Validation.validate_duplicate_lexical_bindings(state, body)
         {%AST.BlockStatement{body: body}, expect_value(state, "}")}
       end
 
@@ -475,12 +475,9 @@ defmodule QuickBEAM.JS.Parser.Statements do
           end
 
         {body, state} = parse_block_statement(state)
-        state = validate_catch_param_bindings(state, param, body)
+        state = Validation.validate_catch_param_bindings(state, param, body)
         {%AST.CatchClause{param: param, body: body}, state}
       end
-
-      defp validate_catch_param_bindings(state, param, body),
-        do: Validation.validate_catch_param_bindings(state, param, body)
 
       defp parse_function_declaration(state, require_name? \\ true) do
         {async?, state} = consume_async_modifier(state)
@@ -505,10 +502,10 @@ defmodule QuickBEAM.JS.Parser.Statements do
 
         state =
           state
-          |> validate_async_params(async?, params)
-          |> validate_generator_params(generator?, params)
-          |> validate_strict_function_name(id, body)
-          |> validate_strict_function_params(params, body)
+          |> Validation.validate_async_params(async?, params)
+          |> Validation.validate_generator_params(generator?, params)
+          |> Validation.validate_strict_function_name(id, body)
+          |> Validation.validate_strict_function_params(params, body)
 
         {%AST.FunctionDeclaration{
            id: id,

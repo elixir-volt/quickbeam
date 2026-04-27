@@ -97,7 +97,6 @@ defmodule QuickBEAM.JS.Parser do
   use QuickBEAM.JS.Parser.Statements
   use QuickBEAM.JS.Parser.Modules
   use QuickBEAM.JS.Parser.Patterns
-  use QuickBEAM.JS.Parser.ValidationDelegates
   use QuickBEAM.JS.Parser.Classes
   use QuickBEAM.JS.Parser.Expressions
 end

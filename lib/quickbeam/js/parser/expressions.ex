@@ -23,10 +23,10 @@ defmodule QuickBEAM.JS.Parser.Expressions do
 
         state =
           state
-          |> validate_async_params(async?, params)
-          |> validate_generator_params(generator?, params)
-          |> validate_strict_function_name(id, body)
-          |> validate_strict_function_params(params, body)
+          |> Validation.validate_async_params(async?, params)
+          |> Validation.validate_generator_params(generator?, params)
+          |> Validation.validate_strict_function_name(id, body)
+          |> Validation.validate_strict_function_params(params, body)
 
         {%AST.FunctionExpression{
            id: id,
@@ -110,7 +110,7 @@ defmodule QuickBEAM.JS.Parser.Expressions do
 
           postfix_update_operator?(current(state)) ->
             token = current(state)
-            state = validate_update_target(state, left)
+            state = Validation.validate_update_target(state, left)
 
             {%AST.UpdateExpression{operator: token.value, argument: left, prefix: false},
              advance(state)}
@@ -121,7 +121,7 @@ defmodule QuickBEAM.JS.Parser.Expressions do
       end
 
       defp parse_optional_chain_tail(state, left) do
-        state = validate_optional_chain_base(state, left)
+        state = Validation.validate_optional_chain_base(state, left)
 
         cond do
           match_value?(state, "(") ->
@@ -170,7 +170,7 @@ defmodule QuickBEAM.JS.Parser.Expressions do
             else
               next_min = if associativity == :left, do: precedence + 1, else: precedence
               {right, state} = parse_expression(state, next_min)
-              state = validate_assignment_target(state, operator, left)
+              state = Validation.validate_assignment_target(state, operator, left)
               expr = binary_node(operator, left, right)
               parse_binary_tail(state, expr, min_precedence)
             end
@@ -208,15 +208,6 @@ defmodule QuickBEAM.JS.Parser.Expressions do
            do: true
 
       defp unary_operator?(_token), do: false
-
-      defp validate_optional_chain_base(state, left),
-        do: Validation.validate_optional_chain_base(state, left)
-
-      defp validate_assignment_target(state, operator, left),
-        do: Validation.validate_assignment_target(state, operator, left)
-
-      defp validate_update_target(state, argument),
-        do: Validation.validate_update_target(state, argument)
 
       defp optional_chain?(%AST.MemberExpression{optional: true}), do: true
       defp optional_chain?(%AST.CallExpression{optional: true}), do: true
@@ -262,7 +253,7 @@ defmodule QuickBEAM.JS.Parser.Expressions do
             {params, state} = parse_formal_parameters(state)
             state = expect_value(state, "=>")
             {body, state} = parse_arrow_body(state)
-            state = validate_arrow_params(state, params, body)
+            state = Validation.validate_arrow_params(state, params, body)
             {%AST.ArrowFunctionExpression{params: params, body: body}, state}
 
           match_value?(state, "(") ->
@@ -333,7 +324,7 @@ defmodule QuickBEAM.JS.Parser.Expressions do
             state = advance(state)
             {body, state} = parse_arrow_body(state)
             params = [%AST.Identifier{name: token.value}]
-            state = validate_arrow_params(state, params, body)
+            state = Validation.validate_arrow_params(state, params, body)
 
             {%AST.ArrowFunctionExpression{params: params, body: body}, state}
 
@@ -562,7 +553,9 @@ defmodule QuickBEAM.JS.Parser.Expressions do
         {body, state} = parse_arrow_body(state, true)
 
         state =
-          state |> validate_async_params(true, params) |> validate_arrow_params(params, body)
+          state
+          |> Validation.validate_async_params(true, params)
+          |> Validation.validate_arrow_params(params, body)
 
         {%AST.ArrowFunctionExpression{params: params, body: body, async: true}, state}
       end
@@ -686,8 +679,8 @@ defmodule QuickBEAM.JS.Parser.Expressions do
 
         state =
           state
-          |> validate_generator_params(true, params)
-          |> validate_strict_function_params(params, body)
+          |> Validation.validate_generator_params(true, params)
+          |> Validation.validate_strict_function_params(params, body)
 
         value = %AST.FunctionExpression{
           id: property_function_name(key),
@@ -708,9 +701,9 @@ defmodule QuickBEAM.JS.Parser.Expressions do
 
         state =
           state
-          |> validate_async_params(true, params)
-          |> validate_generator_params(generator?, params)
-          |> validate_strict_function_params(params, body)
+          |> Validation.validate_async_params(true, params)
+          |> Validation.validate_generator_params(generator?, params)
+          |> Validation.validate_strict_function_params(params, body)
 
         value = %AST.FunctionExpression{
           id: property_function_name(key),
@@ -735,7 +728,7 @@ defmodule QuickBEAM.JS.Parser.Expressions do
           match_value?(state, "(") ->
             {params, state} = parse_formal_parameters(state)
             {body, state} = parse_function_body(state, false, false)
-            state = validate_strict_function_params(state, params, body)
+            state = Validation.validate_strict_function_params(state, params, body)
 
             value = %AST.FunctionExpression{
               id: property_function_name(key),
@@ -765,7 +758,7 @@ defmodule QuickBEAM.JS.Parser.Expressions do
         {key, computed?, state} = parse_property_key_with_computed(state)
         {params, state} = parse_formal_parameters(state)
         {body, state} = parse_function_body(state, false, false)
-        state = validate_strict_function_params(state, params, body)
+        state = Validation.validate_strict_function_params(state, params, body)
 
         value = %AST.FunctionExpression{
           id: property_function_name(key),
