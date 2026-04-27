@@ -556,34 +556,74 @@ defmodule QuickBEAM.JS.Parser.Lexer do
   defp scan_string(lexer, quote) do
     start = lexer.offset
     lexer = advance(lexer)
-    scan_string_body(lexer, quote, start, [])
+    scan_string_body(lexer, quote, start, lexer.offset, [])
   end
 
-  defp scan_string_body(lexer, quote, start, acc) do
-    cond do
-      eof?(lexer) ->
-        raw = slice(lexer.source, start, lexer.offset)
-        lexer = add_error(lexer, "unterminated string literal")
-        token_at(lexer, :string, acc |> Enum.reverse() |> IO.iodata_to_binary(), raw, start)
+  defp scan_string_body(
+         %{source: source, offset: offset, length: length} = lexer,
+         quote,
+         start,
+         span_start,
+         acc
+       ) do
+    if offset >= length do
+      raw = slice(source, start, offset)
+      lexer = add_error(lexer, "unterminated string literal")
+      token_at(lexer, :string, finish_string(acc, source, span_start, offset), raw, start)
+    else
+      byte = :binary.at(source, offset)
 
-      current(lexer) == quote ->
-        lexer = advance(lexer)
-        raw = slice(lexer.source, start, lexer.offset)
-        token_at(lexer, :string, acc |> Enum.reverse() |> IO.iodata_to_binary(), raw, start)
+      cond do
+        byte == quote ->
+          lexer = advance(lexer)
+          raw = slice(source, start, lexer.offset)
+          token_at(lexer, :string, finish_string(acc, source, span_start, offset), raw, start)
 
-      string_line_terminator?(current(lexer)) ->
-        raw = slice(lexer.source, start, lexer.offset)
-        lexer = add_error(lexer, "unterminated string literal")
-        token_at(lexer, :string, acc |> Enum.reverse() |> IO.iodata_to_binary(), raw, start)
+        byte in [?\n, ?\r] ->
+          raw = slice(source, start, offset)
+          lexer = add_error(lexer, "unterminated string literal")
+          token_at(lexer, :string, finish_string(acc, source, span_start, offset), raw, start)
 
-      current(lexer) == ?\\ ->
-        {escaped, lexer} = scan_escape(advance(lexer))
-        scan_string_body(lexer, quote, start, [escaped | acc])
+        byte == ?\\ ->
+          acc = prepend_string_span(acc, source, span_start, offset)
+          {escaped, lexer} = scan_escape(advance(lexer))
+          scan_string_body(lexer, quote, start, lexer.offset, [escaped | acc])
 
-      true ->
-        ch = current(lexer)
-        scan_string_body(advance(lexer), quote, start, [<<ch::utf8>> | acc])
+        byte >= 0x80 ->
+          ch = codepoint_at(source, offset, length)
+
+          if ch in [0x2028, 0x2029] do
+            acc = prepend_string_span(acc, source, span_start, offset)
+
+            scan_string_body(advance(lexer), quote, start, advance(lexer).offset, [
+              <<ch::utf8>> | acc
+            ])
+          else
+            scan_string_body(advance(lexer), quote, start, span_start, acc)
+          end
+
+        true ->
+          scan_string_body(
+            %{lexer | offset: offset + 1, column: lexer.column + 1},
+            quote,
+            start,
+            span_start,
+            acc
+          )
+      end
     end
+  end
+
+  defp prepend_string_span(acc, _source, same, same), do: acc
+
+  defp prepend_string_span(acc, source, span_start, span_end),
+    do: [binary_part(source, span_start, span_end - span_start) | acc]
+
+  defp finish_string(acc, source, span_start, span_end) do
+    acc
+    |> prepend_string_span(source, span_start, span_end)
+    |> Enum.reverse()
+    |> IO.iodata_to_binary()
   end
 
   defp scan_escape(lexer) do
@@ -973,7 +1013,6 @@ defmodule QuickBEAM.JS.Parser.Lexer do
 
   defp division_rhs_start?(_offset, _lexer), do: false
 
-  defp string_line_terminator?(ch), do: ch in [?\n, ?\r]
   defp line_terminator?(ch), do: ch in [?\n, ?\r, 0x2028, 0x2029]
   defp unicode_trivia?(ch), do: line_terminator?(ch) or ch in [0x00A0, 0xFEFF]
   defp utf8_size(ch) when ch < 0x80, do: 1

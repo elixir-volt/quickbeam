@@ -1,1 +1,0 @@
-- Consider a maintainable combined validation traversal for context-sensitive expression checks (`yield`, `await`, `new.target`, `import.meta`, `super`) to reduce repeated AST walks, but avoid parser-state flags that add hot-path churn.
