@@ -628,15 +628,15 @@ defmodule QuickBEAM.JS.Parser.Lexer do
 
   defp scan_escape(lexer) do
     case current(lexer) do
-      ?n -> {"\n", advance(lexer)}
-      ?r -> {"\r", advance(lexer)}
-      ?t -> {"\t", advance(lexer)}
-      ?b -> {"\b", advance(lexer)}
-      ?f -> {"\f", advance(lexer)}
-      ?v -> {<<11>>, advance(lexer)}
-      ?0 -> {<<0>>, advance(lexer)}
-      ?x -> scan_fixed_string_escape(advance(lexer), 2)
-      ?u -> scan_unicode_string_escape(advance(lexer))
+      ?n -> {"\n", advance_ascii(lexer, 1)}
+      ?r -> {"\r", advance_ascii(lexer, 1)}
+      ?t -> {"\t", advance_ascii(lexer, 1)}
+      ?b -> {"\b", advance_ascii(lexer, 1)}
+      ?f -> {"\f", advance_ascii(lexer, 1)}
+      ?v -> {<<11>>, advance_ascii(lexer, 1)}
+      ?0 -> {<<0>>, advance_ascii(lexer, 1)}
+      ?x -> scan_fixed_string_escape(advance_ascii(lexer, 1), 2)
+      ?u -> scan_unicode_string_escape(advance_ascii(lexer, 1))
       ch when ch in [?\n, ?\r, 0x2028, 0x2029] -> {"", consume_line_terminator(lexer)}
       ch when is_integer(ch) -> {<<ch::utf8>>, advance(lexer)}
       nil -> {"", lexer}
