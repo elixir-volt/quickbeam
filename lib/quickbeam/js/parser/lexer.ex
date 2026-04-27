@@ -659,7 +659,7 @@ defmodule QuickBEAM.JS.Parser.Lexer do
 
     cond do
       byte in [?\s, ?\t, ?\v, ?\f] ->
-        lexer |> advance() |> skip_trivia()
+        lexer |> skip_horizontal_space() |> skip_trivia()
 
       byte == ?\n or byte == ?\r ->
         lexer |> consume_line_terminator() |> skip_trivia()
@@ -680,6 +680,20 @@ defmodule QuickBEAM.JS.Parser.Lexer do
         lexer
     end
   end
+
+  defp skip_horizontal_space(%{source: source, offset: offset, length: length} = lexer) do
+    finish = horizontal_space_end(source, offset, length)
+    %{lexer | offset: finish, column: lexer.column + finish - offset}
+  end
+
+  defp horizontal_space_end(source, offset, length) when offset < length do
+    case :binary.at(source, offset) do
+      byte when byte in [?\s, ?\t, ?\v, ?\f] -> horizontal_space_end(source, offset + 1, length)
+      _byte -> offset
+    end
+  end
+
+  defp horizontal_space_end(_source, offset, _length), do: offset
 
   defp skip_hashbang_comment(lexer) do
     lexer
