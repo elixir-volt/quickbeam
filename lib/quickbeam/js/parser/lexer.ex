@@ -23,7 +23,7 @@ defmodule QuickBEAM.JS.Parser.Lexer do
   ])
 
   @identifier_like_keywords MapSet.new(~w[
-    async get set of yield implements interface package private protected public
+    async get set of implements interface package private protected public
   ])
 
   @doc "Creates a lexer state for a source string."
