@@ -708,7 +708,8 @@ defmodule QuickBEAM.JS.Parser.Lexer do
 
       punctuator ->
         start = lexer.offset
-        lexer = advance_bytes(lexer, byte_size(punctuator))
+        size = byte_size(punctuator)
+        lexer = %{lexer | offset: start + size, column: lexer.column + size}
         token_at(lexer, :punctuator, punctuator, punctuator, start)
     end
   end
