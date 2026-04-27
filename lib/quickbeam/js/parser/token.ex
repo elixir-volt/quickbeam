@@ -18,6 +18,8 @@ defmodule QuickBEAM.JS.Parser.Token do
           | :keyword
           | :number
           | :string
+          | :regexp
+          | :template
           | :boolean
           | :null
           | :punctuator

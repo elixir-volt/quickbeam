@@ -11,6 +11,11 @@ defmodule QuickBEAM.JS.Parser.AST do
     defstruct type: :identifier, name: nil
   end
 
+  defmodule PrivateIdentifier do
+    @moduledoc "Private class field or method name."
+    defstruct type: :private_identifier, name: nil
+  end
+
   defmodule Literal do
     @moduledoc "Literal value such as a number, string, boolean, or null."
     defstruct type: :literal, value: nil, raw: nil
@@ -31,14 +36,88 @@ defmodule QuickBEAM.JS.Parser.AST do
     defstruct type: :variable_declarator, id: nil, init: nil
   end
 
+  defmodule ImportDeclaration do
+    @moduledoc "Static ES module import declaration."
+    defstruct type: :import_declaration, specifiers: [], source: nil, attributes: nil
+  end
+
+  defmodule ImportSpecifier do
+    @moduledoc "Named import specifier."
+    defstruct type: :import_specifier, imported: nil, local: nil
+  end
+
+  defmodule ImportDefaultSpecifier do
+    @moduledoc "Default import specifier."
+    defstruct type: :import_default_specifier, local: nil
+  end
+
+  defmodule ImportNamespaceSpecifier do
+    @moduledoc "Namespace import specifier."
+    defstruct type: :import_namespace_specifier, local: nil
+  end
+
+  defmodule ExportNamedDeclaration do
+    @moduledoc "Named ES module export declaration."
+    defstruct type: :export_named_declaration,
+              declaration: nil,
+              specifiers: [],
+              source: nil,
+              attributes: nil
+  end
+
+  defmodule ExportDefaultDeclaration do
+    @moduledoc "Default ES module export declaration."
+    defstruct type: :export_default_declaration, declaration: nil
+  end
+
+  defmodule ExportAllDeclaration do
+    @moduledoc "Namespace re-export declaration."
+    defstruct type: :export_all_declaration, exported: nil, source: nil, attributes: nil
+  end
+
+  defmodule ExportSpecifier do
+    @moduledoc "Named export specifier."
+    defstruct type: :export_specifier, local: nil, exported: nil
+  end
+
+  defmodule ArrayPattern do
+    @moduledoc "Array destructuring binding pattern."
+    defstruct type: :array_pattern, elements: []
+  end
+
+  defmodule ObjectPattern do
+    @moduledoc "Object destructuring binding pattern."
+    defstruct type: :object_pattern, properties: []
+  end
+
+  defmodule RestElement do
+    @moduledoc "Rest element in a binding pattern."
+    defstruct type: :rest_element, argument: nil
+  end
+
+  defmodule AssignmentPattern do
+    @moduledoc "Binding pattern element with a default initializer."
+    defstruct type: :assignment_pattern, left: nil, right: nil
+  end
+
   defmodule ReturnStatement do
     @moduledoc "Return statement."
     defstruct type: :return_statement, argument: nil
   end
 
+  defmodule ThrowStatement do
+    @moduledoc "Throw statement."
+    defstruct type: :throw_statement, argument: nil
+  end
+
   defmodule BreakStatement do
     @moduledoc "Break statement with an optional label."
     defstruct type: :break_statement, label: nil
+  end
+
+  defmodule ContinueStatement do
+    @moduledoc "Continue statement with an optional label."
+    defstruct type: :continue_statement, label: nil
   end
 
   defmodule LabeledStatement do
@@ -56,6 +135,21 @@ defmodule QuickBEAM.JS.Parser.AST do
     defstruct type: :while_statement, test: nil, body: nil
   end
 
+  defmodule ForStatement do
+    @moduledoc "For loop statement."
+    defstruct type: :for_statement, init: nil, test: nil, update: nil, body: nil
+  end
+
+  defmodule ForInStatement do
+    @moduledoc "For-in loop statement."
+    defstruct type: :for_in_statement, left: nil, right: nil, body: nil
+  end
+
+  defmodule ForOfStatement do
+    @moduledoc "For-of loop statement."
+    defstruct type: :for_of_statement, left: nil, right: nil, body: nil, await: false
+  end
+
   defmodule DoWhileStatement do
     @moduledoc "Do-while loop statement."
     defstruct type: :do_while_statement, body: nil, test: nil
@@ -66,9 +160,34 @@ defmodule QuickBEAM.JS.Parser.AST do
     defstruct type: :with_statement, object: nil, body: nil
   end
 
+  defmodule SwitchStatement do
+    @moduledoc "Switch statement."
+    defstruct type: :switch_statement, discriminant: nil, cases: []
+  end
+
+  defmodule SwitchCase do
+    @moduledoc "Switch case clause."
+    defstruct type: :switch_case, test: nil, consequent: []
+  end
+
+  defmodule TryStatement do
+    @moduledoc "Try/catch/finally statement."
+    defstruct type: :try_statement, block: nil, handler: nil, finalizer: nil
+  end
+
+  defmodule CatchClause do
+    @moduledoc "Catch clause with an optional binding parameter."
+    defstruct type: :catch_clause, param: nil, body: nil
+  end
+
   defmodule EmptyStatement do
     @moduledoc "Empty statement represented by a standalone semicolon."
     defstruct type: :empty_statement
+  end
+
+  defmodule DebuggerStatement do
+    @moduledoc "Debugger statement."
+    defstruct type: :debugger_statement
   end
 
   defmodule BlockStatement do
@@ -84,6 +203,36 @@ defmodule QuickBEAM.JS.Parser.AST do
               body: nil,
               async: false,
               generator: false
+  end
+
+  defmodule ClassDeclaration do
+    @moduledoc "Class declaration."
+    defstruct type: :class_declaration, id: nil, super_class: nil, body: []
+  end
+
+  defmodule ClassExpression do
+    @moduledoc "Class expression."
+    defstruct type: :class_expression, id: nil, super_class: nil, body: []
+  end
+
+  defmodule MethodDefinition do
+    @moduledoc "Class method definition."
+    defstruct type: :method_definition,
+              key: nil,
+              value: nil,
+              kind: :method,
+              static: false,
+              computed: false
+  end
+
+  defmodule FieldDefinition do
+    @moduledoc "Class field definition."
+    defstruct type: :field_definition, key: nil, value: nil, static: false, computed: false
+  end
+
+  defmodule StaticBlock do
+    @moduledoc "Class static initialization block."
+    defstruct type: :static_block, body: []
   end
 
   defmodule FunctionExpression do
@@ -174,11 +323,40 @@ defmodule QuickBEAM.JS.Parser.AST do
 
   defmodule CallExpression do
     @moduledoc "Function or method call expression."
-    defstruct type: :call_expression, callee: nil, arguments: []
+    defstruct type: :call_expression, callee: nil, arguments: [], optional: false
+  end
+
+  defmodule NewExpression do
+    @moduledoc "Constructor call expression created with `new`."
+    defstruct type: :new_expression, callee: nil, arguments: []
+  end
+
+  defmodule MetaProperty do
+    @moduledoc "Meta-property expression such as `import.meta`."
+    defstruct type: :meta_property, meta: nil, property: nil
+  end
+
+  defmodule TemplateElement do
+    @moduledoc "Static segment of a template literal."
+    defstruct type: :template_element, value: nil, raw: nil, tail: false
+  end
+
+  defmodule TemplateLiteral do
+    @moduledoc "Template literal with static quasis and embedded expressions."
+    defstruct type: :template_literal, quasis: [], expressions: []
+  end
+
+  defmodule TaggedTemplateExpression do
+    @moduledoc "Tagged template literal expression."
+    defstruct type: :tagged_template_expression, tag: nil, quasi: nil
   end
 
   defmodule MemberExpression do
     @moduledoc "Property access expression."
-    defstruct type: :member_expression, object: nil, property: nil, computed: false
+    defstruct type: :member_expression,
+              object: nil,
+              property: nil,
+              computed: false,
+              optional: false
   end
 end

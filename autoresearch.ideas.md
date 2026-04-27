@@ -1,0 +1,1 @@
+- Improve for-in declaration initializer recovery so `for (var key = first in object)` is parsed as a recoverable ForInStatement diagnostic instead of falling back to classic-for errors after consuming `in` as a binary operator.
