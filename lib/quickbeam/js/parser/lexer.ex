@@ -767,23 +767,27 @@ defmodule QuickBEAM.JS.Parser.Lexer do
     byte = :binary.at(source, offset)
 
     cond do
-      byte in [?\s, ?\t, ?\v, ?\f] ->
+      byte == ?\s or byte == ?\t ->
         lexer |> skip_horizontal_space() |> skip_trivia()
 
       byte == ?\n or byte == ?\r ->
         lexer |> consume_line_terminator() |> skip_trivia()
+
+      byte == ?/ ->
+        case byte_at(source, offset + 1, lexer.length) do
+          ?/ -> lexer |> skip_line_comment() |> skip_trivia()
+          ?* -> lexer |> skip_block_comment() |> skip_trivia()
+          _ -> lexer
+        end
+
+      byte == ?\v or byte == ?\f ->
+        lexer |> skip_horizontal_space() |> skip_trivia()
 
       byte >= 0x80 and unicode_trivia?(current(lexer)) ->
         lexer |> advance() |> skip_trivia()
 
       offset == 0 and byte == ?# and byte_at(source, offset + 1, lexer.length) == ?! ->
         lexer |> skip_hashbang_comment() |> skip_trivia()
-
-      byte == ?/ and byte_at(source, offset + 1, lexer.length) == ?/ ->
-        lexer |> skip_line_comment() |> skip_trivia()
-
-      byte == ?/ and byte_at(source, offset + 1, lexer.length) == ?* ->
-        lexer |> skip_block_comment() |> skip_trivia()
 
       true ->
         lexer
