@@ -259,6 +259,9 @@ defmodule QuickBEAM.JS.Parser.Expressions.Literals do
           token.type == :number ->
             {%AST.Literal{value: token.value, raw: token.raw}, false, advance(state)}
 
+          token.type in [:boolean, :null] ->
+            {%AST.Identifier{name: token.raw}, false, advance(state)}
+
           true ->
             {%AST.Identifier{name: ""}, false, add_error(state, token, "expected property key")}
         end

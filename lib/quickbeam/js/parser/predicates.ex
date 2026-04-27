@@ -26,7 +26,8 @@ defmodule QuickBEAM.JS.Parser.Predicates do
 
       defp accessor_key_start?(state) do
         (peek(state).type in [:identifier, :keyword] and peek_value(state, 2) == "(") or
-          (peek(state).type in [:string, :number] and peek_value(state, 2) == "(") or
+          (peek(state).type in [:string, :number, :boolean, :null] and
+             peek_value(state, 2) == "(") or
           (peek_value(state) == "#" and identifier_like?(peek(state, 2)) and
              peek_value(state, 3) == "(") or peek_value(state) == "["
       end
@@ -34,12 +35,14 @@ defmodule QuickBEAM.JS.Parser.Predicates do
       defp async_method_start?(state) do
         match_value?(state, "async") and not peek(state).before_line_terminator? and
           ((identifier_like?(peek(state)) and peek_value(state, 2) == "(") or
-             (peek(state).type in [:string, :number] and peek_value(state, 2) == "(") or
+             (peek(state).type in [:string, :number, :boolean, :null] and
+                peek_value(state, 2) == "(") or
              (peek_value(state) == "#" and identifier_like?(peek(state, 2)) and
                 peek_value(state, 3) == "(") or
              (peek_value(state) == "*" and identifier_like?(peek(state, 2)) and
                 peek_value(state, 3) == "(") or
-             (peek_value(state) == "*" and peek(state, 2).type in [:string, :number] and
+             (peek_value(state) == "*" and
+                peek(state, 2).type in [:string, :number, :boolean, :null] and
                 peek_value(state, 3) == "(") or
              (peek_value(state) == "*" and peek_value(state, 2) == "#" and
                 identifier_like?(peek(state, 3)) and peek_value(state, 4) == "(") or
