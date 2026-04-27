@@ -5,15 +5,15 @@ defmodule QuickBEAM.JS.Parser.Validation do
 
   defdelegate validate_catch_param_bindings(state, param, body), to: Validation.Bindings
   defdelegate validate_duplicate_lexical_bindings(state, body), to: Validation.Bindings
-  defdelegate validate_control_flow(state, body), to: Validation.Bindings
-  defdelegate validate_async_params(state, async?, params), to: Validation.Bindings
-  defdelegate validate_generator_params(state, generator?, params), to: Validation.Bindings
-  defdelegate validate_strict_function_name(state, id, body), to: Validation.Bindings
-  defdelegate validate_strict_program_bindings(state, body), to: Validation.Bindings
-  defdelegate validate_arrow_params(state, params, body), to: Validation.Bindings
-  defdelegate validate_strict_function_params(state, params, body), to: Validation.Bindings
-  defdelegate validate_strict_params(state, params), to: Validation.Bindings
-  defdelegate validate_strict_body_bindings(state, body), to: Validation.Bindings
+  defdelegate validate_control_flow(state, body), to: Validation.ControlFlow
+  defdelegate validate_async_params(state, async?, params), to: Validation.Strict
+  defdelegate validate_generator_params(state, generator?, params), to: Validation.Strict
+  defdelegate validate_strict_function_name(state, id, body), to: Validation.Strict
+  defdelegate validate_strict_program_bindings(state, body), to: Validation.Strict
+  defdelegate validate_arrow_params(state, params, body), to: Validation.Strict
+  defdelegate validate_strict_function_params(state, params, body), to: Validation.Strict
+  defdelegate validate_strict_params(state, params), to: Validation.Strict
+  defdelegate validate_strict_body_bindings(state, body), to: Validation.Strict
 
   defdelegate validate_module_declarations(state, body), to: Validation.Modules
   defdelegate validate_nested_module_declarations(state, body), to: Validation.Modules

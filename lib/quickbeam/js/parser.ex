@@ -94,6 +94,7 @@ defmodule QuickBEAM.JS.Parser do
   end
 
   use QuickBEAM.JS.Parser.State
+  use QuickBEAM.JS.Parser.Predicates
   use QuickBEAM.JS.Parser.Statements
   use QuickBEAM.JS.Parser.Modules
   use QuickBEAM.JS.Parser.Patterns
