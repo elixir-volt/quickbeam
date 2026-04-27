@@ -554,8 +554,8 @@ defmodule QuickBEAM.JS.Parser.Lexer do
         hex = binary_part(rest, 0, finish)
 
         case Integer.parse(hex, 16) do
-          {codepoint, ""} when codepoint in 0..0xD7FF or codepoint in 0xE000..0x10FFFF ->
-            {<<codepoint::utf8>>, advance_bytes(lexer, finish + 1)}
+          {codepoint, ""} when codepoint in 0..0x10FFFF ->
+            {string_escape_value(codepoint), advance_bytes(lexer, finish + 1)}
 
           _ ->
             {"", add_error(lexer, "invalid string escape")}

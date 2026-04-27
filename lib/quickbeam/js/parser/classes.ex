@@ -108,7 +108,18 @@ defmodule QuickBEAM.JS.Parser.Classes do
               {value, state} =
                 if match_value?(state, "=") do
                   state = advance(state)
-                  parse_expression(state, 0)
+                  previous_await_allowed? = state.await_allowed?
+                  previous_yield_allowed? = state.yield_allowed?
+
+                  {value, state} =
+                    parse_expression(%{state | await_allowed?: false, yield_allowed?: false}, 0)
+
+                  {value,
+                   %{
+                     state
+                     | await_allowed?: previous_await_allowed?,
+                       yield_allowed?: previous_yield_allowed?
+                   }}
                 else
                   {nil, state}
                 end
