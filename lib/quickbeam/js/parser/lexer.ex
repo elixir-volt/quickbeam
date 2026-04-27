@@ -187,15 +187,15 @@ defmodule QuickBEAM.JS.Parser.Lexer do
           <<"\\u", hex::binary-size(4)>> ->
             case Integer.parse(hex, 16) do
               {codepoint, ""} when codepoint in 0..0xD7FF or codepoint in 0xE000..0x10FFFF ->
-                scan_identifier_parts(advance_bytes(lexer, 6), [<<codepoint::utf8>> | acc])
+                scan_identifier_parts(advance_ascii(lexer, 6), [<<codepoint::utf8>> | acc])
 
               _ ->
-                {add_error(lexer, "invalid unicode escape in identifier") |> advance_bytes(2),
+                {add_error(lexer, "invalid unicode escape in identifier") |> advance_ascii(2),
                  acc}
             end
 
           _ ->
-            {add_error(lexer, "invalid unicode escape in identifier") |> advance_bytes(2), acc}
+            {add_error(lexer, "invalid unicode escape in identifier") |> advance_ascii(2), acc}
         end
     end
   end
@@ -215,14 +215,14 @@ defmodule QuickBEAM.JS.Parser.Lexer do
 
         case Integer.parse(hex, 16) do
           {codepoint, ""} when codepoint in 0..0xD7FF or codepoint in 0xE000..0x10FFFF ->
-            scan_identifier_parts(advance_bytes(lexer, finish + 4), [<<codepoint::utf8>> | acc])
+            scan_identifier_parts(advance_ascii(lexer, finish + 4), [<<codepoint::utf8>> | acc])
 
           _ ->
-            {add_error(lexer, "invalid unicode escape in identifier") |> advance_bytes(3), acc}
+            {add_error(lexer, "invalid unicode escape in identifier") |> advance_ascii(3), acc}
         end
 
       :nomatch ->
-        {add_error(lexer, "invalid unicode escape in identifier") |> advance_bytes(3), acc}
+        {add_error(lexer, "invalid unicode escape in identifier") |> advance_ascii(3), acc}
     end
   end
 
@@ -232,13 +232,13 @@ defmodule QuickBEAM.JS.Parser.Lexer do
     lexer =
       cond do
         number_prefix?(lexer, ?x, ?X) ->
-          lexer |> advance_bytes(2) |> advance_hex_digits()
+          lexer |> advance_ascii(2) |> advance_hex_digits()
 
         number_prefix?(lexer, ?b, ?B) ->
-          lexer |> advance_bytes(2) |> advance_binary_digits()
+          lexer |> advance_ascii(2) |> advance_binary_digits()
 
         number_prefix?(lexer, ?o, ?O) ->
-          lexer |> advance_bytes(2) |> advance_octal_digits()
+          lexer |> advance_ascii(2) |> advance_octal_digits()
 
         true ->
           scan_decimal(lexer)
@@ -457,7 +457,7 @@ defmodule QuickBEAM.JS.Parser.Lexer do
         advance(lexer)
 
       current(lexer) == ?$ and peek(lexer, 1) == ?{ ->
-        lexer |> advance_bytes(2) |> scan_template_expr(start, 1) |> scan_template_body(start)
+        lexer |> advance_ascii(2) |> scan_template_expr(start, 1) |> scan_template_body(start)
 
       true ->
         lexer |> advance() |> scan_template_body(start)
@@ -669,7 +669,7 @@ defmodule QuickBEAM.JS.Parser.Lexer do
 
         case Integer.parse(hex, 16) do
           {codepoint, ""} when codepoint in 0..0x10FFFF ->
-            {string_escape_value(codepoint), advance_bytes(lexer, finish + 1)}
+            {string_escape_value(codepoint), advance_ascii(lexer, finish + 1)}
 
           _ ->
             {"", add_error(lexer, "invalid string escape")}
@@ -686,7 +686,7 @@ defmodule QuickBEAM.JS.Parser.Lexer do
 
       case Integer.parse(hex, 16) do
         {codepoint, ""} when codepoint in 0..0xFFFF ->
-          {:ok, codepoint, advance_bytes(lexer, digits)}
+          {:ok, codepoint, advance_ascii(lexer, digits)}
 
         _ ->
           :error
@@ -842,7 +842,7 @@ defmodule QuickBEAM.JS.Parser.Lexer do
     case :binary.match(rest, "*/") do
       :nomatch ->
         lexer
-        |> advance_bytes(2)
+        |> advance_ascii(2)
         |> add_error("unterminated block comment")
 
       {finish, 2} ->
@@ -903,6 +903,9 @@ defmodule QuickBEAM.JS.Parser.Lexer do
 
   defp advance_bytes(lexer, 0), do: lexer
   defp advance_bytes(lexer, count), do: lexer |> advance() |> advance_bytes(count - 1)
+
+  defp advance_ascii(lexer, count),
+    do: %{lexer | offset: lexer.offset + count, column: lexer.column + count}
 
   defp advance(%{offset: offset, length: length} = lexer) when offset >= length, do: lexer
 
