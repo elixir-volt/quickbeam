@@ -18,6 +18,7 @@ defmodule QuickBEAM.JS.Parser.Modules do
              consume_semicolon(state)}
 
           true ->
+            state = consume_import_phase_modifier(state)
             state = consume_import_defer_modifier(state)
             {specifiers, state} = parse_import_specifiers(state, [])
             state = expect_identifier_value(state, "from")
@@ -29,6 +30,15 @@ defmodule QuickBEAM.JS.Parser.Modules do
                source: source,
                attributes: attributes
              }, consume_semicolon(state)}
+        end
+      end
+
+      defp consume_import_phase_modifier(state) do
+        if current(state).value == "source" and
+             (peek_value(state) != "from" or peek_value(state, 2) == "from") do
+          advance(state)
+        else
+          state
         end
       end
 
