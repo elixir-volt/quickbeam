@@ -1,0 +1,3 @@
+- Try reducing Token struct allocation overhead: e.g. store token_start_line/column inline instead of in lexer state to avoid map update per token, or use a more compact representation.
+- Consider storing tokens in an ETS table or a binary-encoded array instead of a tuple for parser access — may reduce GC pressure for large files.
+- Profile parser-level hot paths (parse_postfix_tail at 398K, parse_binary_tail at 278K, identifier_like? at 337K) for possible structural improvements.
