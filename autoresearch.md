@@ -48,7 +48,7 @@ The benchmark prints:
 ## Source Type Rules
 `bench/js_parser_compat.exs` parses files as modules when any of these are true:
 - Test262 metadata has `flags: [... module ...]`
-- path contains `/module-code/`
+- path contains `/module-code/`, except fixtures whose filename explicitly marks `script-code`
 - source has top-level-looking static `import` / `export` syntax
 
 Everything else is parsed as script source. This is benchmark setup only; do not edit Test262 files.

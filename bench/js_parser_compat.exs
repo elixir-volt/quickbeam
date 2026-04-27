@@ -48,6 +48,7 @@ defmodule ParserCompatBench do
   defp source_type(path, source) do
     cond do
       metadata_module?(source) -> :module
+      script_code_fixture?(path) -> :script
       String.contains?(path, "/module-code/") -> :module
       static_module_syntax?(source) -> :module
       true -> :script
@@ -57,6 +58,8 @@ defmodule ParserCompatBench do
   defp metadata_module?(source) do
     Regex.match?(~r/flags:\s*\[[^\]]*\bmodule\b/, source)
   end
+
+  defp script_code_fixture?(path), do: String.contains?(Path.basename(path), "script-code")
 
   defp static_module_syntax?(source) do
     Regex.match?(~r/^\s*import\s+(?:[\w*{]|["'])/m, source) or
