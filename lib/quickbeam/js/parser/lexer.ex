@@ -295,7 +295,11 @@ defmodule QuickBEAM.JS.Parser.Lexer do
         parse_prefixed_int(normalized, 2, 8)
 
       String.contains?(normalized, [".", "e", "E"]) ->
-        normalized |> String.replace("_", "") |> Float.parse() |> elem(0)
+        normalized
+        |> String.replace("_", "")
+        |> normalize_float_literal()
+        |> Float.parse()
+        |> elem(0)
 
       true ->
         normalized |> String.replace("_", "") |> Integer.parse() |> elem(0)
@@ -303,6 +307,9 @@ defmodule QuickBEAM.JS.Parser.Lexer do
   rescue
     _ -> :nan
   end
+
+  defp normalize_float_literal(<<".", _::binary>> = raw), do: "0" <> raw
+  defp normalize_float_literal(raw), do: raw
 
   defp parse_prefixed_int(raw, trim, base) do
     raw
@@ -618,7 +625,8 @@ defmodule QuickBEAM.JS.Parser.Lexer do
       <<"&&", _::binary>> -> "&&"
       <<"||", _::binary>> -> "||"
       <<"??", _::binary>> -> "??"
-      <<"?.", _::binary>> -> "?."
+      <<"?.", next, _::binary>> when next not in ?0..?9 -> "?."
+      <<"?.">> -> "?."
       <<"**", _::binary>> -> "**"
       <<"<<", _::binary>> -> "<<"
       <<">>", _::binary>> -> ">>"

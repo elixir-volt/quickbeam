@@ -32,7 +32,7 @@ defmodule QuickBEAM.JS.Parser.Expressions.Core do
 
           match_value?(state, "?.") ->
             state =
-              if match?(%AST.NewExpression{}, left),
+              if match?(%AST.NewExpression{arguments: []}, left),
                 do: add_error(state, current(state), "optional chain not allowed after new"),
                 else: state
 
