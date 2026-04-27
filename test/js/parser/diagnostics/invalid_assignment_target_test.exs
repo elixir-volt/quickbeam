@@ -12,17 +12,12 @@ defmodule QuickBEAM.JS.Parser.Diagnostics.InvalidAssignmentTargetTest do
     assert Enum.any?(errors, &(&1.message == "invalid assignment target"))
   end
 
-  test "ports QuickJS call expression assignment target diagnostics" do
-    assert {:error, %AST.Program{body: [%AST.ExpressionStatement{}]}, errors} =
+  test "ports Annex B sloppy call expression assignment target syntax" do
+    assert {:ok, %AST.Program{body: [%AST.ExpressionStatement{}]}} =
              Parser.parse("call() = value;")
-
-    assert Enum.any?(errors, &(&1.message == "invalid assignment target"))
   end
 
-  test "ports QuickJS call expression update target diagnostics" do
-    assert {:error, %AST.Program{body: [%AST.ExpressionStatement{}]}, errors} =
-             Parser.parse("call()++;")
-
-    assert Enum.any?(errors, &(&1.message == "invalid assignment target"))
+  test "ports Annex B sloppy call expression update target syntax" do
+    assert {:ok, %AST.Program{body: [%AST.ExpressionStatement{}]}} = Parser.parse("call()++;")
   end
 end

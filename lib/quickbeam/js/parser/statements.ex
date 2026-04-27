@@ -348,7 +348,7 @@ defmodule QuickBEAM.JS.Parser.Statements do
       defp parse_for_after_init(state, init, await?) do
         cond do
           keyword?(state, "in") ->
-            state = validate_for_in_of_initializer(state, init)
+            state = validate_for_in_initializer(state, init)
             state = advance(state)
             {right, state} = parse_expression(state, 0)
             state = expect_value(state, ")")
@@ -375,6 +375,15 @@ defmodule QuickBEAM.JS.Parser.Statements do
           state
         end
       end
+
+      defp validate_for_in_initializer(
+             state,
+             %AST.VariableDeclaration{kind: :var, declarations: _declarations}
+           ),
+           do: state
+
+      defp validate_for_in_initializer(state, init),
+        do: validate_for_in_of_initializer(state, init)
 
       defp validate_for_in_of_initializer(state, %AST.VariableDeclaration{
              declarations: declarations

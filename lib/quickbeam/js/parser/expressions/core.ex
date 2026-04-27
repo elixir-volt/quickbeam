@@ -153,7 +153,7 @@ defmodule QuickBEAM.JS.Parser.Expressions.Core do
             state = advance(state)
 
             if operator == "?" do
-              parse_conditional_tail(state, left, precedence)
+              parse_conditional_tail(state, left, precedence, min_precedence)
             else
               next_min = if associativity == :left, do: precedence + 1, else: precedence
 
@@ -222,7 +222,7 @@ defmodule QuickBEAM.JS.Parser.Expressions.Core do
       defp optional_chain?(%AST.SpreadElement{argument: argument}), do: optional_chain?(argument)
       defp optional_chain?(_expression), do: false
 
-      defp parse_conditional_tail(state, test, precedence) do
+      defp parse_conditional_tail(state, test, precedence, min_precedence) do
         {consequent, state} = parse_expression(state, 0)
         state = expect_value(state, ":")
         {alternate, state} = parse_expression(state, precedence)
@@ -230,7 +230,7 @@ defmodule QuickBEAM.JS.Parser.Expressions.Core do
         parse_binary_tail(
           state,
           %AST.ConditionalExpression{test: test, consequent: consequent, alternate: alternate},
-          0
+          min_precedence
         )
       end
 

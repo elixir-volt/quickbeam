@@ -44,6 +44,7 @@ defmodule QuickBEAM.JS.Parser.Predicates do
              (peek_value(state) == "*" and
                 peek(state, 2).type in [:string, :number, :boolean, :null] and
                 peek_value(state, 3) == "(") or
+             (peek_value(state) == "*" and peek_value(state, 2) == "[") or
              (peek_value(state) == "*" and peek_value(state, 2) == "#" and
                 identifier_like?(peek(state, 3)) and peek_value(state, 4) == "(") or
              peek_value(state) == "[")

@@ -51,6 +51,7 @@ defmodule QuickBEAM.JS.Parser.Validation.Targets do
 
   defp valid_assignment_target?(_operator, %AST.Identifier{}), do: true
   defp valid_assignment_target?(_operator, %AST.MemberExpression{}), do: true
+  defp valid_assignment_target?(_operator, %AST.CallExpression{}), do: true
   defp valid_assignment_target?("=", %AST.ObjectExpression{}), do: true
   defp valid_assignment_target?("=", %AST.ArrayExpression{}), do: true
   defp valid_assignment_target?("=", %AST.ObjectPattern{}), do: true
@@ -59,6 +60,7 @@ defmodule QuickBEAM.JS.Parser.Validation.Targets do
 
   defp valid_update_target?(%AST.Identifier{}), do: true
   defp valid_update_target?(%AST.MemberExpression{}), do: true
+  defp valid_update_target?(%AST.CallExpression{}), do: true
   defp valid_update_target?(_target), do: false
 
   defp optional_chain?(%AST.MemberExpression{optional: true}), do: true
