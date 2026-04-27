@@ -64,6 +64,16 @@ defmodule QuickBEAM.JS.Parser.Statements do
           %Token{type: :keyword, value: value} when value in ["var", "let", "const"] ->
             parse_variable_declaration(state)
 
+          %Token{type: :identifier, value: "using"} ->
+            parse_using_declaration(state, false)
+
+          %Token{type: :keyword, value: "await"} ->
+            if using_after_await?(state) do
+              parse_using_declaration(state, true)
+            else
+              parse_expression_statement(state)
+            end
+
           %Token{type: :keyword, value: "return"} ->
             parse_return_statement(state)
 
@@ -142,6 +152,27 @@ defmodule QuickBEAM.JS.Parser.Statements do
       end
 
       defp validate_const_initializers(state, _kind, _declarations), do: state
+
+      defp parse_using_declaration(state, await?) do
+        state = if await?, do: advance(state), else: state
+        state = expect_identifier_value(state, "using")
+        {declarations, state} = parse_declarators(state, [])
+        state = validate_using_initializers(state, declarations)
+        state = consume_semicolon(state)
+        kind = if await?, do: :await_using, else: :using
+        {%AST.VariableDeclaration{kind: kind, declarations: declarations}, state}
+      end
+
+      defp validate_using_initializers(state, declarations) do
+        if Enum.any?(declarations, &is_nil(&1.init)),
+          do: add_error(state, current(state), "missing initializer in using declaration"),
+          else: state
+      end
+
+      defp using_after_await?(state) do
+        peek(state).type == :identifier and peek(state).value == "using" and
+          not peek(state).before_line_terminator? and not peek(state, 2).before_line_terminator?
+      end
 
       defp parse_declarators(state, acc) do
         {id, state} = parse_binding_pattern(state)
@@ -258,6 +289,14 @@ defmodule QuickBEAM.JS.Parser.Statements do
           match_value?(state, ";") ->
             parse_classic_for_tail(state, nil)
 
+          keyword?(state, "await") and using_after_await?(state) ->
+            state = advance(state)
+            state = expect_identifier_value(state, "using")
+            {declarations, state} = parse_declarators(state, [])
+            state = validate_using_initializers(state, declarations)
+            init = %AST.VariableDeclaration{kind: :await_using, declarations: declarations}
+            parse_for_after_init(state, init, true)
+
           keyword?(state, "var") or keyword?(state, "let") or keyword?(state, "const") ->
             {kind, state} = consume_keyword_value(state)
             {declarations, state} = parse_declarators(state, [])
@@ -267,6 +306,14 @@ defmodule QuickBEAM.JS.Parser.Statements do
               declarations: declarations
             }
 
+            parse_for_after_init(state, init, await?)
+
+          current(state).type == :identifier and current(state).value == "using" ->
+            state = advance(state)
+            {declarations, state} = parse_declarators(state, [])
+            state = validate_using_initializers(state, declarations)
+            kind = if await?, do: :await_using, else: :using
+            init = %AST.VariableDeclaration{kind: kind, declarations: declarations}
             parse_for_after_init(state, init, await?)
 
           identifier_like?(current(state)) and peek_value(state) in ["in", "of"] ->
