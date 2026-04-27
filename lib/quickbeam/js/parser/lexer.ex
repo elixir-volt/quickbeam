@@ -693,23 +693,37 @@ defmodule QuickBEAM.JS.Parser.Lexer do
     |> advance_until(fn ch -> ch == nil or line_terminator?(ch) end)
   end
 
-  defp skip_block_comment(lexer) do
-    lexer = advance_bytes(lexer, 2)
-    skip_block_comment_body(lexer)
+  defp skip_block_comment(%{source: source, offset: offset, length: length} = lexer) do
+    start = offset + 2
+    rest = binary_part(source, start, length - start)
+
+    case :binary.match(rest, "*/") do
+      :nomatch ->
+        lexer
+        |> advance_bytes(2)
+        |> add_error("unterminated block comment")
+
+      {finish, 2} ->
+        skipped = binary_part(source, offset, finish + 4)
+        {line_delta, column} = comment_position(skipped, lexer.column)
+
+        %{
+          lexer
+          | offset: offset + byte_size(skipped),
+            line: lexer.line + line_delta,
+            column: column,
+            pending_line_terminator?: lexer.pending_line_terminator? or line_delta > 0
+        }
+    end
   end
 
-  defp skip_block_comment_body(lexer) do
-    cond do
-      eof?(lexer) ->
-        add_error(lexer, "unterminated block comment")
-
-      byte_at(lexer.source, lexer.offset, lexer.length) == ?* and
-          byte_at(lexer.source, lexer.offset + 1, lexer.length) == ?/ ->
-        advance_bytes(lexer, 2)
-
-      true ->
-        lexer |> advance() |> skip_block_comment_body()
-    end
+  defp comment_position(skipped, initial_column) do
+    skipped
+    |> :binary.bin_to_list()
+    |> Enum.reduce({0, initial_column}, fn
+      byte, {lines, _column} when byte in [?\n, ?\r] -> {lines + 1, 0}
+      _byte, {lines, column} -> {lines, column + 1}
+    end)
   end
 
   defp token_at(lexer, type, value, raw, start) do
