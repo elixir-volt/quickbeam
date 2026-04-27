@@ -52,18 +52,20 @@ defmodule QuickBEAM.JS.Parser.Lexer do
   end
 
   defp collect(lexer, acc) do
-    {token, lexer} = next(lexer)
-    acc = [token | acc]
+    lexer = skip_trivia(lexer)
+    lexer = %{lexer | token_start_line: lexer.line, token_start_column: lexer.column}
 
-    if token.type == :eof do
-      tokens = Enum.reverse(acc)
+    if eof?(lexer) do
+      {eof_token, lexer} = token(lexer, :eof, :eof, "", lexer.offset)
+      tokens = Enum.reverse([eof_token | acc])
 
       case lexer.errors do
         [] -> {:ok, tokens}
         errors -> {:error, tokens, Enum.reverse(errors)}
       end
     else
-      collect(lexer, acc)
+      {token, lexer} = scan_token(lexer)
+      collect(lexer, [token | acc])
     end
   end
 
