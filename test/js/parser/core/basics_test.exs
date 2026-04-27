@@ -46,7 +46,7 @@ defmodule QuickBEAM.JS.Parser.Core.BasicsTest do
   end
 
   test "reports syntax errors while returning a partial AST" do
-    assert {:error, %AST.Program{}, [error | _]} = Parser.parse("let = 1")
+    assert {:error, %AST.Program{}, [error | _]} = Parser.parse("const;")
     assert error.message == "expected binding identifier"
   end
 end

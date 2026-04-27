@@ -61,6 +61,13 @@ defmodule QuickBEAM.JS.Parser.Statements do
           %Token{type: :keyword, value: "export"} ->
             parse_export_declaration(state)
 
+          %Token{type: :keyword, value: "let"} when state.source_type == :script ->
+            if peek_value(state) == "=" do
+              parse_expression_statement(state)
+            else
+              parse_variable_declaration(state)
+            end
+
           %Token{type: :keyword, value: value} when value in ["var", "let", "const"] ->
             parse_variable_declaration(state)
 

@@ -84,4 +84,25 @@ defmodule QuickBEAM.JS.Parser.ControlFlow.AwaitUsingTest do
               ]
             }} = Parser.parse("async function f() { await using[x]; }")
   end
+
+  test "ports QuickJS await using split across lines before let assignment" do
+    assert {:ok,
+            %AST.Program{
+              body: [
+                %AST.FunctionDeclaration{
+                  body: %AST.BlockStatement{
+                    body: [
+                      %AST.ExpressionStatement{expression: %AST.AwaitExpression{}},
+                      %AST.ExpressionStatement{
+                        expression: %AST.AssignmentExpression{
+                          left: %AST.Identifier{name: "let"}
+                        }
+                      }
+                      | _
+                    ]
+                  }
+                }
+              ]
+            }} = Parser.parse("async function f() { await using\nlet = value; var using, let; }")
+  end
 end

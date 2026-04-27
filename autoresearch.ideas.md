@@ -1,1 +1,2 @@
 - Improve for-in declaration initializer recovery so `for (var key = first in object)` is parsed as a recoverable ForInStatement diagnostic instead of falling back to classic-for errors after consuming `in` as a binary operator.
+- Revisit excluding Test262 `_FIXTURE.js` support files from the compatibility sample only after identifying why the replacement sample caused `./autoresearch.sh` to time out; fixture files are not standalone tests but changing sample selection can expose parser hangs and changes benchmark comparability.
