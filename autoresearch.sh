@@ -19,10 +19,22 @@ else
   parser_test_ms=0
 fi
 
-compat_output=$(mix run bench/js_parser_compat.exs 2>&1)
-printf '%s\n' "$compat_output"
+case "${PARSER_BENCH:-compat}" in
+  compat)
+    bench_output=$(mix run bench/js_parser_compat.exs 2>&1)
+    ;;
+  perf)
+    bench_output=$(mix run bench/js_parser_perf.exs 2>&1)
+    ;;
+  *)
+    echo "unknown PARSER_BENCH=${PARSER_BENCH}" >&2
+    exit 2
+    ;;
+esac
+
+printf '%s\n' "$bench_output"
 
 printf 'METRIC quickjs_parser_tests=%s\n' "$quickjs_parser_tests"
 printf 'METRIC parser_tests=%s\n' "$parser_tests"
 printf 'METRIC parser_test_ms=%s\n' "$parser_test_ms"
-printf '%s\n' "$compat_output" | grep '^METRIC '
+printf '%s\n' "$bench_output" | grep '^METRIC '
