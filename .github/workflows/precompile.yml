@@ -15,6 +15,7 @@ jobs:
       matrix:
         include:
           - { target: x86_64-linux-gnu,       os: ubuntu-latest }
+          - { target: aarch64-linux-gnu,      os: ubuntu-latest }
           - { target: aarch64-macos-none,     os: macos-latest }
 
     steps:
@@ -30,7 +31,11 @@ jobs:
           elixir-version: '1.18'
 
       - name: Build NIF
+        shell: bash
         run: |
+          IFS=- read -r TARGET_ARCH TARGET_OS TARGET_ABI <<< "${{ matrix.target }}"
+          export TARGET_ARCH TARGET_OS TARGET_ABI
+
           mix local.hex --force
           mix local.rebar --force
           mix deps.get

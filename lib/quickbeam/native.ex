@@ -129,7 +129,7 @@ defmodule QuickBEAM.Native do
     base_url: "https://github.com/elixir-volt/quickbeam/releases/download/v#{@version}",
     version: @version,
     force_build: System.get_env("QUICKBEAM_BUILD") in ["1", "true"],
-    targets: ~w(x86_64-linux-gnu aarch64-macos-none),
+    targets: ~w(x86_64-linux-gnu aarch64-linux-gnu aarch64-macos-none),
     zig_code_path: "quickbeam.zig",
     optimize: :env,
     c: [
