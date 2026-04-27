@@ -717,8 +717,13 @@ defmodule QuickBEAM.JS.Parser.Lexer do
     end
   end
 
-  defp comment_position(skipped, initial_column),
-    do: comment_position(skipped, 0, initial_column)
+  defp comment_position(skipped, initial_column) do
+    if :binary.match(skipped, ["\n", "\r"]) == :nomatch do
+      {0, initial_column + byte_size(skipped)}
+    else
+      comment_position(skipped, 0, initial_column)
+    end
+  end
 
   defp comment_position(<<>>, lines, column), do: {lines, column}
 
