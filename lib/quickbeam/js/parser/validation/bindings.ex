@@ -800,22 +800,6 @@ defmodule QuickBEAM.JS.Parser.Validation.Bindings do
   defp binding_names(nil), do: []
   defp binding_names(_param), do: []
 
-  def validate_duplicate_constructors(state, body) do
-    constructors = Enum.count(body, &match?(%AST.MethodDefinition{kind: :constructor}, &1))
-
-    if constructors > 1 do
-      add_error(state, current(state), "duplicate constructor")
-    else
-      state
-    end
-  end
-
-  def validate_optional_chain_base(state, %AST.Identifier{name: "super"}) do
-    add_error(state, current(state), "optional chain not allowed on super")
-  end
-
-  def validate_optional_chain_base(state, _left), do: state
-
   defp current(state), do: token_at(state, state.index)
 
   defp token_at(%{token_count: token_count, last_token: last_token}, index)
