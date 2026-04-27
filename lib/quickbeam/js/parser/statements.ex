@@ -182,13 +182,16 @@ defmodule QuickBEAM.JS.Parser.Statements do
           not peek(state, 2).before_line_terminator?
       end
 
-      defp parse_declarators(state, acc) do
+      defp parse_declarators(state, acc, allow_in? \\ true) do
         {id, state} = parse_binding_pattern(state)
 
         {init, state} =
           if match_value?(state, "=") do
             state = advance(state)
-            parse_expression(state, 2)
+
+            if allow_in?,
+              do: parse_expression(state, 2),
+              else: parse_expression_no_in(state, 2)
           else
             {nil, state}
           end
@@ -196,7 +199,7 @@ defmodule QuickBEAM.JS.Parser.Statements do
         declarator = %AST.VariableDeclarator{id: id, init: init}
 
         if match_value?(state, ",") do
-          parse_declarators(advance(state), [declarator | acc])
+          parse_declarators(advance(state), [declarator | acc], allow_in?)
         else
           {Enum.reverse([declarator | acc]), state}
         end
@@ -300,13 +303,13 @@ defmodule QuickBEAM.JS.Parser.Statements do
           keyword?(state, "await") and using_after_await?(state) ->
             state = advance(state)
             state = expect_identifier_value(state, "using")
-            {declarations, state} = parse_declarators(state, [])
+            {declarations, state} = parse_declarators(state, [], false)
             init = %AST.VariableDeclaration{kind: :await_using, declarations: declarations}
             parse_for_after_init(state, init, true)
 
           keyword?(state, "var") or keyword?(state, "let") or keyword?(state, "const") ->
             {kind, state} = consume_keyword_value(state)
-            {declarations, state} = parse_declarators(state, [])
+            {declarations, state} = parse_declarators(state, [], false)
 
             init = %AST.VariableDeclaration{
               kind: String.to_atom(kind),
@@ -317,7 +320,7 @@ defmodule QuickBEAM.JS.Parser.Statements do
 
           current(state).type == :identifier and current(state).value == "using" ->
             state = advance(state)
-            {declarations, state} = parse_declarators(state, [])
+            {declarations, state} = parse_declarators(state, [], false)
             kind = if await?, do: :await_using, else: :using
             init = %AST.VariableDeclaration{kind: kind, declarations: declarations}
             parse_for_after_init(state, init, await?)
@@ -327,7 +330,7 @@ defmodule QuickBEAM.JS.Parser.Statements do
             parse_for_after_init(state, init, await?)
 
           true ->
-            {init, state} = parse_expression(state, 0)
+            {init, state} = parse_expression_no_in(state, 0)
             parse_for_after_init(state, init, await?)
         end
       end

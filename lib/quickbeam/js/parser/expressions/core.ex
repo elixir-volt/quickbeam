@@ -16,6 +16,11 @@ defmodule QuickBEAM.JS.Parser.Expressions.Core do
         parse_expression_tail(state, left, min_precedence)
       end
 
+      defp parse_expression_no_in(state, min_precedence) do
+        {left, state} = parse_prefix(state)
+        parse_expression_tail_no_in(state, left, min_precedence)
+      end
+
       defp parse_expression_tail(state, left, min_precedence) do
         state = parse_postfix_tail(state, left)
 
@@ -127,21 +132,39 @@ defmodule QuickBEAM.JS.Parser.Expressions.Core do
       end
 
       defp parse_binary_tail(state, left, min_precedence) do
+        parse_binary_tail(state, left, min_precedence, true)
+      end
+
+      defp parse_expression_tail_no_in(state, left, min_precedence) do
+        state = parse_postfix_tail(state, left)
+
+        case state do
+          {left, state} -> parse_binary_tail(state, left, min_precedence, false)
+        end
+      end
+
+      defp parse_binary_tail(state, left, min_precedence, allow_in?) do
         token = current(state)
         operator = operator_value(token)
 
         case Map.get(@precedence, operator) do
-          {precedence, associativity} when precedence >= min_precedence ->
+          {precedence, associativity}
+          when precedence >= min_precedence and (allow_in? or operator != "in") ->
             state = advance(state)
 
             if operator == "?" do
               parse_conditional_tail(state, left, precedence)
             else
               next_min = if associativity == :left, do: precedence + 1, else: precedence
-              {right, state} = parse_expression(state, next_min)
+
+              {right, state} =
+                if allow_in?,
+                  do: parse_expression(state, next_min),
+                  else: parse_expression_no_in(state, next_min)
+
               state = Validation.validate_assignment_target(state, operator, left)
               expr = binary_node(operator, left, right)
-              parse_binary_tail(state, expr, min_precedence)
+              parse_binary_tail(state, expr, min_precedence, allow_in?)
             end
 
           _ ->
