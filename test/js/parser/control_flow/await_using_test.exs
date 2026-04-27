@@ -62,4 +62,26 @@ defmodule QuickBEAM.JS.Parser.ControlFlow.AwaitUsingTest do
               ]
             }} = Parser.parse("async function f() { for (await using resource of values) {} }")
   end
+
+  test "ports QuickJS await using element access expression syntax" do
+    assert {:ok,
+            %AST.Program{
+              body: [
+                %AST.FunctionDeclaration{
+                  body: %AST.BlockStatement{
+                    body: [
+                      %AST.ExpressionStatement{
+                        expression: %AST.AwaitExpression{
+                          argument: %AST.MemberExpression{
+                            object: %AST.Identifier{name: "using"},
+                            computed: true
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }} = Parser.parse("async function f() { await using[x]; }")
+  end
 end

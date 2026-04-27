@@ -171,7 +171,8 @@ defmodule QuickBEAM.JS.Parser.Statements do
 
       defp using_after_await?(state) do
         peek(state).type == :identifier and peek(state).value == "using" and
-          not peek(state).before_line_terminator? and not peek(state, 2).before_line_terminator?
+          peek_value(state, 2) != "[" and not peek(state).before_line_terminator? and
+          not peek(state, 2).before_line_terminator?
       end
 
       defp parse_declarators(state, acc) do
