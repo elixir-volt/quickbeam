@@ -717,14 +717,16 @@ defmodule QuickBEAM.JS.Parser.Lexer do
     end
   end
 
-  defp comment_position(skipped, initial_column) do
-    skipped
-    |> :binary.bin_to_list()
-    |> Enum.reduce({0, initial_column}, fn
-      byte, {lines, _column} when byte in [?\n, ?\r] -> {lines + 1, 0}
-      _byte, {lines, column} -> {lines, column + 1}
-    end)
-  end
+  defp comment_position(skipped, initial_column),
+    do: comment_position(skipped, 0, initial_column)
+
+  defp comment_position(<<>>, lines, column), do: {lines, column}
+
+  defp comment_position(<<byte, rest::binary>>, lines, _column) when byte in [?\n, ?\r],
+    do: comment_position(rest, lines + 1, 0)
+
+  defp comment_position(<<_byte, rest::binary>>, lines, column),
+    do: comment_position(rest, lines, column + 1)
 
   defp token_at(lexer, type, value, raw, start) do
     token = %Token{
