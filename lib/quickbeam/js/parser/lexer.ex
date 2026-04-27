@@ -340,30 +340,35 @@ defmodule QuickBEAM.JS.Parser.Lexer do
   end
 
   defp parse_number(raw) do
-    normalized = String.trim_trailing(raw, "n")
-
-    cond do
-      String.starts_with?(normalized, ["0x", "0X"]) ->
-        parse_prefixed_int(normalized, 2, 16)
-
-      String.starts_with?(normalized, ["0b", "0B"]) ->
-        parse_prefixed_int(normalized, 2, 2)
-
-      String.starts_with?(normalized, ["0o", "0O"]) ->
-        parse_prefixed_int(normalized, 2, 8)
-
-      String.contains?(normalized, [".", "e", "E"]) ->
-        normalized
-        |> String.replace("_", "")
-        |> normalize_float_literal()
-        |> Float.parse()
-        |> elem(0)
-
-      true ->
-        normalized |> String.replace("_", "") |> Integer.parse() |> elem(0)
-    end
+    raw
+    |> String.trim_trailing("n")
+    |> parse_normalized_number()
   rescue
     _ -> :nan
+  end
+
+  defp parse_normalized_number(<<"0", prefix, _rest::binary>> = normalized)
+       when prefix in [?x, ?X],
+       do: parse_prefixed_int(normalized, 2, 16)
+
+  defp parse_normalized_number(<<"0", prefix, _rest::binary>> = normalized)
+       when prefix in [?b, ?B],
+       do: parse_prefixed_int(normalized, 2, 2)
+
+  defp parse_normalized_number(<<"0", prefix, _rest::binary>> = normalized)
+       when prefix in [?o, ?O],
+       do: parse_prefixed_int(normalized, 2, 8)
+
+  defp parse_normalized_number(normalized) do
+    if String.contains?(normalized, [".", "e", "E"]) do
+      normalized
+      |> String.replace("_", "")
+      |> normalize_float_literal()
+      |> Float.parse()
+      |> elem(0)
+    else
+      normalized |> String.replace("_", "") |> Integer.parse() |> elem(0)
+    end
   end
 
   defp normalize_float_literal(<<".", _::binary>> = raw), do: "0" <> raw
