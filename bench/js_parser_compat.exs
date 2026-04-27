@@ -1,9 +1,9 @@
 defmodule ParserCompatBench do
   @moduledoc false
 
-  @default_sample_limit 20_000
+  @default_sample_limit 60_000
   @default_error_limit 40
-  @default_test262_glob "test/test262/test/language/**/*.js"
+  @default_test262_glob "test/test262/test/**/*.js"
   @test_language_path "test/vm/test_language.js"
 
   def run do

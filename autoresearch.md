@@ -6,7 +6,7 @@ Close accepted-syntax compatibility gaps in the experimental hand-written JavaSc
 This segment is compatibility-focused. Do not cheat by suppressing diagnostics, skipping validation, weakening tests, changing Test262 inputs, or special-casing benchmark files/strings. Fix the grammar/lexer behavior and add focused regression tests for each gap.
 
 ## Primary Metric
-- **`test262_language_sample_errors`** (lower is better): total parser errors across a deterministic sample of the first 20000 non-negative `test/test262/test/language/**/*.js` files, excluding Test262 support fixtures after selecting the sample window.
+- **`test262_language_sample_errors`** (lower is better): total parser errors across the deterministic standalone non-negative `test/test262/test/**/*.js` corpus, excluding Test262 support fixtures after selecting the sample window.
 
 ## Secondary Metrics
 - `test262_language_sample_error_files` — sampled files with parser errors.
@@ -29,9 +29,8 @@ Run the compatibility loop with:
 Useful optional environment variables:
 
 ```sh
-TEST262_SAMPLE_LIMIT=24000 ./autoresearch.sh   # broaden the deterministic language sample
-TEST262_SAMPLE_OFFSET=20000 ./autoresearch.sh  # inspect a later language slice
-TEST262_GLOB='test/test262/test/**/*.js' ./autoresearch.sh  # broaden beyond language tests
+TEST262_GLOB='test/test262/test/language/**/*.js' ./autoresearch.sh  # restrict to language tests
+TEST262_SAMPLE_OFFSET=20000 ./autoresearch.sh  # inspect a later slice
 TEST262_ERROR_LIMIT=80 ./autoresearch.sh       # print more failing files
 ```
 
@@ -84,6 +83,6 @@ Benchmark inputs are read-only:
 6. Keep only changes that reduce the primary metric without regressing `test_language_errors`, parser tests, or QuickJS-port coverage.
 
 ## Current Known Gap Clusters
-The first 20000-file candidate window is parse-clean after excluding Test262 support fixtures. Inspect the current `ERROR_MESSAGE` and `ERROR_FILE` output before choosing the next gap.
+The full standalone non-negative Test262 corpus available in this checkout is parse-clean after excluding Test262 support fixtures. Inspect the current `ERROR_MESSAGE` and `ERROR_FILE` output before choosing any future gap.
 
-When the 20000-file sample reaches zero, expand the default sample limit again or target a later slice using `TEST262_SAMPLE_OFFSET`.
+If new Test262 files are added, rerun the benchmark and target a later slice using `TEST262_SAMPLE_OFFSET` if needed.
