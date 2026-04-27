@@ -325,32 +325,28 @@ defmodule QuickBEAM.JS.Parser.Lexer do
 
   defp validate_number_literal(lexer, raw) do
     normalized = String.trim_trailing(raw, "n")
+    prefixed? = prefixed_number?(raw)
 
     cond do
-      String.ends_with?(raw, "n") and
-        not String.starts_with?(raw, ["0x", "0X", "0b", "0B", "0o", "0O"]) and
-          String.contains?(raw, [".", "e", "E"]) ->
+      String.ends_with?(raw, "n") and not prefixed? and String.contains?(raw, [".", "e", "E"]) ->
         add_error(lexer, "invalid bigint literal")
 
       String.ends_with?(raw, ".") and identifier_start?(current(lexer)) ->
         add_error(lexer, "invalid number literal")
 
-      normalized in ["0x", "0X", "0b", "0B", "0o", "0O"] ->
+      bare_number_prefix?(normalized) ->
         add_error(lexer, "invalid number literal")
 
-      String.starts_with?(raw, ["0x", "0X", "0b", "0B", "0o", "0O"]) and
-          identifier_part?(current(lexer)) ->
+      prefixed? and identifier_part?(current(lexer)) ->
         add_error(lexer, "invalid number literal")
 
-      not String.starts_with?(raw, ["0x", "0X", "0b", "0B", "0o", "0O"]) and
-          String.match?(normalized, ~r/[eE][+-]?(_|$)/) ->
+      not prefixed? and String.match?(normalized, ~r/[eE][+-]?(_|$)/) ->
         add_error(lexer, "invalid number literal")
 
-      not String.starts_with?(raw, ["0x", "0X", "0b", "0B", "0o", "0O"]) and
-          String.match?(raw, ~r/^0[0-9]*_/) ->
+      not prefixed? and String.match?(raw, ~r/^0[0-9]*_/) ->
         add_error(lexer, "invalid numeric separator")
 
-      String.match?(raw, ~r/^(0[xX]|0[bB]|0[oO])_/) ->
+      prefixed_numeric_separator_after_prefix?(raw) ->
         add_error(lexer, "invalid numeric separator")
 
       String.starts_with?(normalized, "_") or String.ends_with?(normalized, "_") ->
@@ -363,6 +359,20 @@ defmodule QuickBEAM.JS.Parser.Lexer do
         lexer
     end
   end
+
+  defp prefixed_number?(<<"0", prefix, _rest::binary>>) when prefix in [?x, ?X, ?b, ?B, ?o, ?O],
+    do: true
+
+  defp prefixed_number?(_raw), do: false
+
+  defp bare_number_prefix?(prefix) when prefix in ["0x", "0X", "0b", "0B", "0o", "0O"], do: true
+  defp bare_number_prefix?(_raw), do: false
+
+  defp prefixed_numeric_separator_after_prefix?(<<"0", prefix, "_", _rest::binary>>)
+       when prefix in [?x, ?X, ?b, ?B, ?o, ?O],
+       do: true
+
+  defp prefixed_numeric_separator_after_prefix?(_raw), do: false
 
   defp scan_template(lexer) do
     start = lexer.offset
