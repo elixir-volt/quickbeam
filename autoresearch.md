@@ -51,7 +51,7 @@ The benchmark prints:
 - path contains `/module-code/`, except fixtures whose filename explicitly marks `script-code`
 - source has top-level-looking static `import` / `export` syntax
 
-Everything else is parsed as script source. This is benchmark setup only; do not edit Test262 files.
+The deterministic sample excludes files ending in `_FIXTURE.js` after selecting the sample window because Test262 uses them as support inputs for other tests, not standalone accepted-syntax tests. Everything else is parsed as script source. This is benchmark setup only; do not edit Test262 files.
 
 ## Files in Scope
 - `lib/quickbeam/js/parser.ex`

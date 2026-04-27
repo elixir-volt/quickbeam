@@ -24,6 +24,7 @@ defmodule ParserCompatBench do
     |> Enum.reject(&negative_test?/1)
     |> Enum.drop(sample_offset())
     |> Enum.take(sample_limit())
+    |> Enum.reject(&support_fixture?/1)
   end
 
   defp parse_sample_file(path) do
@@ -69,6 +70,8 @@ defmodule ParserCompatBench do
   defp negative_test?(path) do
     path |> File.read!() |> String.contains?("negative:")
   end
+
+  defp support_fixture?(path), do: String.ends_with?(path, "_FIXTURE.js")
 
   defp print_summary(test_language_result, sample_results) do
     test_language_errors = test_language_result.errors
