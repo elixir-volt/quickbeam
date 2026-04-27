@@ -1,0 +1,2 @@
+- Explore a run-based string literal scanner that copies spans between quote/backslash/line-terminator boundaries instead of appending one codepoint per recursion step. Preserve escape handling, Unicode line terminator diagnostics, raw slicing, and focused string-literal tests.
+- Consider a maintainable combined validation traversal for context-sensitive expression checks (`yield`, `await`, `new.target`, `import.meta`, `super`) to reduce repeated AST walks, but avoid parser-state flags that add hot-path churn.
