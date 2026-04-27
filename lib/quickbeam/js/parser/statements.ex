@@ -293,7 +293,6 @@ defmodule QuickBEAM.JS.Parser.Statements do
             state = advance(state)
             state = expect_identifier_value(state, "using")
             {declarations, state} = parse_declarators(state, [])
-            state = validate_using_initializers(state, declarations)
             init = %AST.VariableDeclaration{kind: :await_using, declarations: declarations}
             parse_for_after_init(state, init, true)
 
@@ -311,7 +310,6 @@ defmodule QuickBEAM.JS.Parser.Statements do
           current(state).type == :identifier and current(state).value == "using" ->
             state = advance(state)
             {declarations, state} = parse_declarators(state, [])
-            state = validate_using_initializers(state, declarations)
             kind = if await?, do: :await_using, else: :using
             init = %AST.VariableDeclaration{kind: kind, declarations: declarations}
             parse_for_after_init(state, init, await?)

@@ -44,4 +44,22 @@ defmodule QuickBEAM.JS.Parser.ControlFlow.AwaitUsingTest do
                "async function f() { for (await using resource = value; i < 1; i++) {} }"
              )
   end
+
+  test "ports QuickJS await using declaration in for-of head" do
+    assert {:ok,
+            %AST.Program{
+              body: [
+                %AST.FunctionDeclaration{
+                  body: %AST.BlockStatement{
+                    body: [
+                      %AST.ForOfStatement{
+                        left: %AST.VariableDeclaration{kind: :await_using},
+                        await: true
+                      }
+                    ]
+                  }
+                }
+              ]
+            }} = Parser.parse("async function f() { for (await using resource of values) {} }")
+  end
 end
