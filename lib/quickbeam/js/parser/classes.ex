@@ -61,6 +61,7 @@ defmodule QuickBEAM.JS.Parser.Classes do
       end
 
       defp parse_class_element(state) do
+        state = consume_class_element_decorators(state)
         {static?, state} = consume_class_static_modifier(state)
 
         cond do
@@ -204,6 +205,16 @@ defmodule QuickBEAM.JS.Parser.Classes do
 
       defp class_method_kind(%AST.Identifier{name: "constructor"}, false), do: :constructor
       defp class_method_kind(_key, _static?), do: :method
+
+      defp consume_class_element_decorators(state) do
+        if match_value?(state, "@") do
+          state = advance(state)
+          {_decorator, state} = parse_expression(state, 0)
+          consume_class_element_decorators(state)
+        else
+          state
+        end
+      end
 
       defp consume_class_static_modifier(state) do
         if match_value?(state, "static") and peek_value(state) not in ["(", ";", "="] do
