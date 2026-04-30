@@ -97,6 +97,7 @@ defmodule QuickBEAM.VM.Compiler.Optimizer do
   defp fold_binary(:strict_neq, left, right), do: {:ok, left !== right}
   defp fold_binary(_name, _left, _right), do: :error
 
+  defp fold_unary(:neg, 0), do: :error
   defp fold_unary(:neg, value) when is_integer(value), do: {:ok, -value}
   defp fold_unary(:plus, value) when is_integer(value), do: {:ok, value}
   defp fold_unary(:lnot, value) when is_boolean(value), do: {:ok, not value}

@@ -946,7 +946,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   end
 
   @doc "Selects a specialized local unary operator when type information allows it."
-  def specialize_unary(:op_neg, expr, :integer), do: {{:op, @line, :-, expr}, :integer}
+  def specialize_unary(:op_neg, expr, :integer),
+    do: {Builder.local_call(:op_neg, [expr]), :number}
+
   def specialize_unary(:op_neg, expr, :number), do: {{:op, @line, :-, expr}, :number}
   def specialize_unary(:op_plus, expr, type) when type in [:integer, :number], do: {expr, type}
   def specialize_unary(fun, expr, _type), do: {Builder.local_call(fun, [expr]), :unknown}

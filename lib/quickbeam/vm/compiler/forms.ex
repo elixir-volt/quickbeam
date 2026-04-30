@@ -185,6 +185,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
     {:function, @line, :op_neg, 1,
      [
+       {:clause, @line, [{:integer, @line, 0}], [], [{:float, @line, -0.0}]},
        {:clause, @line, [a], [[integer_guard(a)]], [{:op, @line, :-, a}]},
        {:clause, @line, [a], [[float_guard(a)]], [{:op, @line, :-, a}]},
        {:clause, @line, [a], [], [remote_call(Values, :neg, [a])]}
