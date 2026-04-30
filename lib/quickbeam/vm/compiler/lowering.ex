@@ -724,8 +724,15 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
       {:done, body} ->
         {:ok, body}
 
-      {:error, _} = error ->
-        error
+      {:error, reason} ->
+        {:error, {:lowering_failed, idx, opcode_name(instruction), reason}}
+    end
+  end
+
+  defp opcode_name({op, _args}) do
+    case CFG.opcode_name(op) do
+      {:ok, name} -> name
+      {:error, _} -> :unknown
     end
   end
 

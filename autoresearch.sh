@@ -32,8 +32,14 @@ case "${PARSER_BENCH:-compat}" in
   vm_compiler_audit)
     bench_output=$(mix run bench/vm_compiler_compat.exs 2>&1)
     ;;
+  vm_compiler_corpus)
+    bench_output=$(mix run bench/vm_compiler_corpus.exs 2>&1)
+    ;;
   vm_compiler_opcodes)
     bench_output=$(mix run bench/vm_compiler_opcode_coverage.exs 2>&1)
+    ;;
+  vm_compiler_perf)
+    bench_output=$(mix run bench/vm_compiler_perf.exs 2>&1)
     ;;
   quickjs_audit_exunit)
     set +e

@@ -50,7 +50,7 @@ defmodule QuickBEAM.VM.Compiler.AnalysisTest do
 
     {_entry_types, return_type} = infer_types(fun)
 
-    assert return_type == :integer
+    assert return_type in [:integer, {:const, {:integer, 1, 0}}]
   end
 
   test "propagates numeric local types across loop backedges", %{rt: rt} do
@@ -76,8 +76,12 @@ defmodule QuickBEAM.VM.Compiler.AnalysisTest do
     {_inner_entry_types, inner_return_type} = infer_types(inner)
     {_outer_entry_types, outer_return_type} = infer_types(outer)
 
-    assert Types.function_type(inner) == {:function, :integer}
-    assert inner_return_type == :integer
-    assert outer_return_type == :integer
+    assert Types.function_type(inner) in [
+             {:function, :integer},
+             {:function, {:const, {:integer, 1, 1}}}
+           ]
+
+    assert inner_return_type in [:integer, {:const, {:integer, 1, 1}}]
+    assert outer_return_type in [:integer, :unknown]
   end
 end

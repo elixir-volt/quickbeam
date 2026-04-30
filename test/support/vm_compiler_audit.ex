@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
   @moduledoc false
 
   alias QuickBEAM.VM.{Bytecode, Compiler, Heap, Interpreter}
+  alias QuickBEAM.VM.Heap.Arrays
 
   @gas 1_000_000_000
 
@@ -49,10 +50,12 @@ defmodule QuickBEAM.VM.CompilerAudit do
        "function outer(x) { function inner(y) { return y + 1; } return inner(x); } outer(3)"},
       {"recursive function", "function f(n) { return n ? f(n - 1) + 1 : 0; } f(4)"},
       {"closure", "function make(x) { return function(y) { return x + y; }; } make(2)(3)"},
+      {"array literal", "[1, 2, 3]"},
       {"array length", "let a = [1, 2, 3]; a.length"},
       {"array index", "let a = [1, 2, 3]; a[1]"},
       {"array sum",
        "let a = [1, 2, 3]; let s = 0; for (let i = 0; i < a.length; i++) s += a[i]; s"},
+      {"object literal", "({x: 7, y: 8})"},
       {"object property", "let o = {x: 7}; o.x"},
       {"computed property", "let o = {x: 7}; o['x']"},
       {"method call", "let o = {x: 2, f() { return this.x + 1; }}; o.f()"},
@@ -67,6 +70,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"switch", "let x = 2; switch (x) { case 1: x = 10; break; case 2: x = 20; break; } x"},
       {"regexp test", "/a+/.test('aa')"},
       {"class method", "class A { m() { return 1; } } new A().m()"},
+      {"class instance", "class A { constructor() { this.x = 1; } } new A()"},
       {"class inheritance",
        "class A { m() { return 1; } } class B extends A { m() { return super.m() + 1; } } new B().m()"}
     ]
@@ -216,7 +220,28 @@ defmodule QuickBEAM.VM.CompilerAudit do
     end
   end
 
+  defp normalize({:obj, ref}), do: normalize_heap_object(Heap.get_obj(ref))
+  defp normalize({:closure, _captures, %Bytecode.Function{}}), do: :function
+  defp normalize(%Bytecode.Function{}), do: :function
   defp normalize(value), do: value
+
+  defp normalize_heap_object({:qb_arr, _} = array),
+    do: {:array, Enum.map(Arrays.to_list(array), &normalize/1)}
+
+  defp normalize_heap_object(map) when is_map(map) do
+    map
+    |> Enum.reject(fn {key, _value} -> internal_key?(key) end)
+    |> Enum.map(fn {key, value} -> {key, normalize(value)} end)
+    |> Enum.sort_by(fn {key, _value} -> inspect(key) end)
+    |> then(&{:object, &1})
+  end
+
+  defp normalize_heap_object(list) when is_list(list), do: {:array, Enum.map(list, &normalize/1)}
+  defp normalize_heap_object(other), do: {:object, inspect(other)}
+
+  defp internal_key?(key) when is_atom(key), do: true
+  defp internal_key?("__proto__"), do: true
+  defp internal_key?(_key), do: false
 
   defp fallback_reason({:fallback, reason}), do: inspect(reason)
   defp fallback_reason(_result), do: nil

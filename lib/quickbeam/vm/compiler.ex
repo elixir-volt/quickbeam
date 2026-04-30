@@ -83,20 +83,26 @@ defmodule QuickBEAM.VM.Compiler do
     entry = entry_name()
     ctx_entry = ctx_entry_name()
 
-    with {:ok, instructions} <- Decoder.decode(fun.byte_code, fun.arg_count),
+    with {:decode, {:ok, instructions}} <- {:decode, Decoder.decode(fun.byte_code, fun.arg_count)},
          optimized = Optimizer.optimize(instructions, fun.constants),
-         {:ok, {slot_count, block_forms}} <- Lowering.lower(fun, optimized),
-         {:ok, _module, binary} <-
-           Forms.compile_module(
-             module,
-             entry,
-             ctx_entry,
-             fun,
-             fun.arg_count,
-             slot_count,
-             block_forms
-           ) do
+         {:lower, {:ok, {slot_count, block_forms}}} <- {:lower, Lowering.lower(fun, optimized)},
+         {:forms, {:ok, _module, binary}} <-
+           {:forms,
+            Forms.compile_module(
+              module,
+              entry,
+              ctx_entry,
+              fun,
+              fun.arg_count,
+              slot_count,
+              block_forms
+            )} do
       {:ok, module, ctx_entry, binary}
+    else
+      {:decode, {:error, reason}} -> {:error, {:decode_failed, reason}}
+      {:lower, {:error, reason}} -> {:error, reason}
+      {:forms, {:error, reason}} -> {:error, {:beam_compile_failed, reason}}
+      {:forms, {:error, module, errors}} -> {:error, {:beam_compile_failed, module, errors}}
     end
   end
 
