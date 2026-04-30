@@ -19,6 +19,13 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"division", "8 / 2"},
       {"modulo", "7 % 3"},
       {"negative zero", "-0"},
+      {"negative zero reciprocal", "1 / -0"},
+      {"negative zero sign", "Object.is(-0, 0)"},
+      {"unary plus string", "+'3'"},
+      {"bitwise not", "~1"},
+      {"left shift", "1 << 4"},
+      {"signed right shift", "-8 >> 1"},
+      {"unsigned right shift", "-1 >>> 0"},
       {"string concat", "'a' + 'b'"},
       {"mixed concat", "'a' + 1"},
       {"less than", "1 < 2"},
@@ -50,10 +57,18 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"computed property", "let o = {x: 7}; o['x']"},
       {"method call", "let o = {x: 2, f() { return this.x + 1; }}; o.f()"},
       {"destructuring", "let {x} = {x: 9}; x"},
+      {"delete property", "let o = {x: 1}; delete o.x; o.x === undefined"},
+      {"in operator", "'x' in {x: 1}"},
+      {"optional chaining", "let o = null; o?.x === undefined"},
+      {"for of array", "let s = 0; for (const x of [1, 2, 3]) s += x; s"},
+      {"for in object", "let s = ''; for (const k in {a: 1, b: 2}) s += k; s.length"},
+      {"template literal", "let x = 2; `${x + 1}`"},
       {"try catch", "try { throw 3; } catch (e) { e + 1; }"},
       {"switch", "let x = 2; switch (x) { case 1: x = 10; break; case 2: x = 20; break; } x"},
       {"regexp test", "/a+/.test('aa')"},
-      {"class method", "class A { m() { return 1; } } new A().m()"}
+      {"class method", "class A { m() { return 1; } } new A().m()"},
+      {"class inheritance",
+       "class A { m() { return 1; } } class B extends A { m() { return super.m() + 1; } } new B().m()"}
     ]
   end
 

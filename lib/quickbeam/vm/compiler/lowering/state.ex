@@ -986,13 +986,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       do: {{:op, @line, binary_operator(fun), left, right}, :integer}
 
   def specialize_binary(fun, left, left_type, right, right_type)
-      when fun in [:op_sub, :op_mul, :op_div, :op_lt, :op_lte, :op_gt, :op_gte] and
+      when fun in [:op_sub, :op_mul, :op_lt, :op_lte, :op_gt, :op_gte] and
              left_type in [:integer, :number] and right_type in [:integer, :number] do
     {type, op} =
       case fun do
         :op_sub -> {:number, :-}
         :op_mul -> {:number, :*}
-        :op_div -> {:number, :/}
         :op_lt -> {:boolean, :<}
         :op_lte -> {:boolean, :"=<"}
         :op_gt -> {:boolean, :>}
