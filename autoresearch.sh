@@ -29,6 +29,9 @@ case "${PARSER_BENCH:-compat}" in
   quickjs_audit)
     bench_output=$(mix run bench/js_parser_quickjs_audit.exs 2>&1)
     ;;
+  vm_compiler_audit)
+    bench_output=$(mix run bench/vm_compiler_compat.exs 2>&1)
+    ;;
   quickjs_audit_exunit)
     set +e
     bench_output=$(mix test test/js/parser/quickjs_acceptance_audit_test.exs --only quickjs_acceptance_audit --formatter ExUnit.CLIFormatter 2>&1)
