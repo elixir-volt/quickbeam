@@ -5,10 +5,17 @@ defmodule QuickBEAM.JS.Parser.Diagnostics.ReservedNamesTest do
   alias QuickBEAM.JS.Parser
   alias QuickBEAM.JS.Parser.AST
 
-  test "ports QuickJS reserved binding name syntax errors" do
+  test "ports QuickJS sloppy future reserved binding names" do
     for name <- ~w[let static] do
-      assert {:error, %AST.Program{}, errors} = Parser.parse("var #{name};")
-      assert Enum.any?(errors, &(&1.message == "expected binding identifier"))
+      assert {:ok, %AST.Program{body: [%AST.VariableDeclaration{}]}} =
+               Parser.parse("var #{name};")
+    end
+  end
+
+  test "ports QuickJS strict future reserved binding name diagnostics" do
+    for name <- ~w[let static] do
+      assert {:error, %AST.Program{}, errors} = Parser.parse(~s|"use strict"; var #{name};|)
+      assert Enum.any?(errors, &(&1.message == "restricted binding name in strict mode"))
     end
   end
 

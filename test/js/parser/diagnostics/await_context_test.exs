@@ -10,6 +10,17 @@ defmodule QuickBEAM.JS.Parser.Diagnostics.AwaitContextTest do
              Parser.parse("await value;", source_type: :module)
   end
 
+  test "ports QuickJS module await regexp expression syntax" do
+    assert {:ok,
+            %AST.Program{
+              body: [
+                %AST.ExpressionStatement{
+                  expression: %AST.AwaitExpression{argument: %AST.Literal{raw: "/x.y/g"}}
+                }
+              ]
+            }} = Parser.parse("await /x.y/g;", source_type: :module)
+  end
+
   test "ports QuickJS script await identifier syntax" do
     assert {:ok,
             %AST.Program{

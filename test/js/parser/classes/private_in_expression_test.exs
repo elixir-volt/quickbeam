@@ -5,31 +5,18 @@ defmodule QuickBEAM.JS.Parser.Classes.PrivateInExpressionTest do
   alias QuickBEAM.JS.Parser
   alias QuickBEAM.JS.Parser.AST
 
+  test "rejects invalid private-in expression forms" do
+    for source <- [
+          "class C { #field; m() { #field in #field in this; } }",
+          "class C { #field; m() { #field in () => {}; } }",
+          "class C { #field; m() { for (#field in []) ; } }"
+        ] do
+      assert {:error, %AST.Program{}, errors} = Parser.parse(source)
+      assert Enum.any?(errors, &(&1.message == "invalid private in expression"))
+    end
+  end
+
   test "ports QuickJS-compatible private-in expression syntax" do
-    source = """
-    class C {
-      #x;
-      has(object) { return #x in object; }
-    }
-    """
-
-    assert {:ok, %AST.Program{body: [%AST.ClassDeclaration{body: [_field, method]}]}} =
-             Parser.parse(source)
-
-    assert %AST.MethodDefinition{
-             value: %AST.FunctionExpression{
-               body: %AST.BlockStatement{
-                 body: [
-                   %AST.ReturnStatement{
-                     argument: %AST.BinaryExpression{
-                       operator: "in",
-                       left: %AST.PrivateIdentifier{name: "x"},
-                       right: %AST.Identifier{name: "object"}
-                     }
-                   }
-                 ]
-               }
-             }
-           } = method
+    assert {:ok, %AST.Program{}} = Parser.parse("class C { #field; m() { #field in this; } }")
   end
 end

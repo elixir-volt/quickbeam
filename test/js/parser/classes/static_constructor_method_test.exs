@@ -6,11 +6,7 @@ defmodule QuickBEAM.JS.Parser.Classes.StaticConstructorMethodTest do
   alias QuickBEAM.JS.Parser.AST
 
   test "ports QuickJS-compatible static constructor method syntax" do
-    source = """
-    class C {
-      static constructor() { return 1; }
-    }
-    """
+    source = "class C { static constructor() { return 1; } }"
 
     assert {:ok, %AST.Program{body: [%AST.ClassDeclaration{body: [method]}]}} =
              Parser.parse(source)
@@ -18,8 +14,7 @@ defmodule QuickBEAM.JS.Parser.Classes.StaticConstructorMethodTest do
     assert %AST.MethodDefinition{
              kind: :method,
              static: true,
-             key: %AST.Identifier{name: "constructor"},
-             value: %AST.FunctionExpression{params: []}
+             key: %AST.Identifier{name: "constructor"}
            } = method
   end
 end

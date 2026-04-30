@@ -5,20 +5,10 @@ defmodule QuickBEAM.JS.Parser.Classes.ConstructorAccessorNotDuplicateTest do
   alias QuickBEAM.JS.Parser
   alias QuickBEAM.JS.Parser.AST
 
-  test "ports QuickJS-compatible constructor plus constructor accessor syntax" do
-    source = """
-    class C {
-      constructor() {}
-      get constructor() { return 1; }
-    }
-    """
+  test "ports QuickJS rejection of constructor plus constructor accessor syntax" do
+    source = "class C { constructor() {} get constructor() { return 1; } }"
 
-    assert {:ok, %AST.Program{body: [%AST.ClassDeclaration{body: [constructor, getter]}]}} =
-             Parser.parse(source)
-
-    assert %AST.MethodDefinition{kind: :constructor, key: %AST.Identifier{name: "constructor"}} =
-             constructor
-
-    assert %AST.MethodDefinition{kind: :get, key: %AST.Identifier{name: "constructor"}} = getter
+    assert {:error, %AST.Program{}, errors} = Parser.parse(source)
+    assert Enum.any?(errors, &(&1.message == "invalid method name"))
   end
 end

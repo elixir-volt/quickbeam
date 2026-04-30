@@ -5,8 +5,15 @@ defmodule QuickBEAM.JS.Parser.Functions.AsyncDestructuredArrowTest do
   alias QuickBEAM.JS.Parser
   alias QuickBEAM.JS.Parser.AST
 
-  test "ports QuickJS-compatible async destructured arrow parameters" do
+  test "rejects await expressions in async destructured arrow parameters" do
     source = "handler = async ({ value = await fallback() }, ...rest) => value;"
+
+    assert {:error, %AST.Program{}, errors} = Parser.parse(source)
+    assert Enum.any?(errors, &(&1.message == "await parameter not allowed in async function"))
+  end
+
+  test "ports QuickJS-compatible async destructured arrow parameters without await defaults" do
+    source = "handler = async ({ value = fallback() }, ...rest) => value;"
 
     assert {:ok, %AST.Program{body: [statement]}} = Parser.parse(source)
 

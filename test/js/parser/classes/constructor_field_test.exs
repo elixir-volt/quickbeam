@@ -5,27 +5,13 @@ defmodule QuickBEAM.JS.Parser.Classes.ConstructorFieldTest do
   alias QuickBEAM.JS.Parser
   alias QuickBEAM.JS.Parser.AST
 
-  test "ports QuickJS-compatible class field named constructor" do
-    source = """
-    class C {
-      constructor = 1;
-      static constructor = 2;
-    }
-    """
-
-    assert {:ok, %AST.Program{body: [%AST.ClassDeclaration{body: [field, static_field]}]}} =
-             Parser.parse(source)
-
-    assert %AST.FieldDefinition{
-             key: %AST.Identifier{name: "constructor"},
-             value: %AST.Literal{value: 1},
-             static: false
-           } = field
-
-    assert %AST.FieldDefinition{
-             key: %AST.Identifier{name: "constructor"},
-             value: %AST.Literal{value: 2},
-             static: true
-           } = static_field
+  test "ports QuickJS rejection of class fields named constructor" do
+    for source <- [
+          "class C { constructor = 1; }",
+          "class C { static constructor = 2; }"
+        ] do
+      assert {:error, %AST.Program{}, errors} = Parser.parse(source)
+      assert Enum.any?(errors, &(&1.message == "invalid field name"))
+    end
   end
 end

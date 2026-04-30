@@ -5,27 +5,13 @@ defmodule QuickBEAM.JS.Parser.Classes.ConstructorAccessorTest do
   alias QuickBEAM.JS.Parser
   alias QuickBEAM.JS.Parser.AST
 
-  test "ports QuickJS-compatible class accessor named constructor" do
-    source = """
-    class C {
-      get constructor() { return 1; }
-      set constructor(value) { this.value = value; }
-    }
-    """
-
-    assert {:ok, %AST.Program{body: [%AST.ClassDeclaration{body: [getter, setter]}]}} =
-             Parser.parse(source)
-
-    assert %AST.MethodDefinition{
-             kind: :get,
-             key: %AST.Identifier{name: "constructor"},
-             static: false
-           } = getter
-
-    assert %AST.MethodDefinition{
-             kind: :set,
-             key: %AST.Identifier{name: "constructor"},
-             static: false
-           } = setter
+  test "ports QuickJS rejection of class accessors named constructor" do
+    for source <- [
+          "class C { get constructor() { return 1; } }",
+          "class C { set constructor(value) { this.value = value; } }"
+        ] do
+      assert {:error, %AST.Program{}, errors} = Parser.parse(source)
+      assert Enum.any?(errors, &(&1.message == "invalid method name"))
+    end
   end
 end
