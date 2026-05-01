@@ -71,7 +71,8 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   def invoke_constructor(_, _, _, _, _), do: :error
 
   defp invoke_target(current_func, %Bytecode.Function{} = fun, args, ctx_overrides, base_ctx) do
-    key = {fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants)}
+    atoms = Heap.get_fn_atoms(fun.byte_code, Heap.get_atoms())
+    key = {fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants), :erlang.phash2(atoms)}
     normalized_args = normalize_args(args, fun.arg_count)
 
     case Heap.get_compiled(key) do
@@ -83,14 +84,31 @@ defmodule QuickBEAM.VM.Compiler.Runner do
         :error
 
       nil ->
-        compile_and_invoke(fun, current_func, args, normalized_args, ctx_overrides, base_ctx, key)
+        compile_and_invoke(
+          fun,
+          current_func,
+          args,
+          normalized_args,
+          ctx_overrides,
+          base_ctx,
+          key,
+          atoms
+        )
     end
   end
 
-  defp compile_and_invoke(fun, current_func, args, normalized_args, ctx_overrides, base_ctx, key) do
+  defp compile_and_invoke(
+         fun,
+         current_func,
+         args,
+         normalized_args,
+         ctx_overrides,
+         base_ctx,
+         key,
+         atoms
+       ) do
     case Compiler.compile(fun) do
       {:ok, compiled} ->
-        atoms = Heap.get_fn_atoms(fun.byte_code, Heap.get_atoms())
         Heap.put_compiled(key, {:compiled, compiled, atoms})
         ctx = invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun, atoms)
         {:ok, invoke_compiled(fun, compiled, ctx, normalized_args)}

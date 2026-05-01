@@ -36,7 +36,8 @@ defmodule QuickBEAM.VM.Compiler do
 
   @doc "Compiles a bytecode function for optimized execution."
   def compile(%Bytecode.Function{} = fun) do
-    module = module_name(fun)
+    atoms = Heap.get_fn_atoms(fun.byte_code, Heap.get_atoms())
+    module = module_name(fun, atoms)
     entry = ctx_entry_name()
 
     case :code.is_loaded(module) do
@@ -84,7 +85,8 @@ defmodule QuickBEAM.VM.Compiler do
   end
 
   defp compile_binary(%Bytecode.Function{} = fun) do
-    module = module_name(fun)
+    atoms = Heap.get_fn_atoms(fun.byte_code, Heap.get_atoms())
+    module = module_name(fun, atoms)
     entry = entry_name()
     ctx_entry = ctx_entry_name()
 
@@ -111,9 +113,9 @@ defmodule QuickBEAM.VM.Compiler do
     end
   end
 
-  defp module_name(fun) do
+  defp module_name(fun, atoms) do
     hash =
-      fun
+      {fun, atoms}
       |> :erlang.term_to_binary()
       |> then(&:crypto.hash(:sha256, &1))
       |> binary_part(0, 8)

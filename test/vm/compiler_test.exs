@@ -45,6 +45,11 @@ defmodule QuickBEAM.VM.CompilerTest do
     end
   end
 
+  defp compiled_key(%Bytecode.Function{} = fun) do
+    atoms = Heap.get_fn_atoms(fun.byte_code, Heap.get_atoms())
+    {fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants), :erlang.phash2(atoms)}
+  end
+
   defp beam_extfuncs({:beam_file, _module, _exports, _attributes, _compile_info, code}) do
     for {:function, _name, _arity, _label, instructions} <- code,
         {op, _argc, {:extfunc, mod, fun, arity}} <- instructions,
@@ -463,7 +468,7 @@ defmodule QuickBEAM.VM.CompilerTest do
 
       assert match?(
                {:compiled, _, _},
-               Heap.get_compiled({fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants)})
+               Heap.get_compiled(compiled_key(fun))
              )
     end
 
@@ -493,7 +498,7 @@ defmodule QuickBEAM.VM.CompilerTest do
 
       assert match?(
                {:compiled, _, _},
-               Heap.get_compiled({ctor.byte_code, ctor.arg_count, :erlang.phash2(ctor.constants)})
+               Heap.get_compiled(compiled_key(ctor))
              )
     end
 
@@ -509,6 +514,14 @@ defmodule QuickBEAM.VM.CompilerTest do
 
       assert {:ok, "ab"} = Compiler.invoke(ascii, [])
       assert {:ok, 1} = Compiler.invoke(astral, [])
+    end
+
+    test "compiled cache keys include atom tables", %{rt: rt} do
+      pad_start = compile_and_decode(rt, "'x'.padStart(3,'a')").value
+      assert {:ok, "aax"} = Compiler.invoke(pad_start, [])
+
+      pad_end = compile_and_decode(rt, "'x'.padEnd(3,'a')").value
+      assert {:ok, "xaa"} = Compiler.invoke(pad_end, [])
     end
 
     test "compiles object spread", %{rt: rt} do
@@ -1171,7 +1184,7 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert 9 == Interpreter.invoke(fun, [4, 5], 1_000)
 
       assert {:compiled, {_mod, :run_ctx}, _atoms} =
-               Heap.get_compiled({fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants)})
+               Heap.get_compiled(compiled_key(fun))
     end
 
     test "branchy functions also use the compiled cache", %{rt: rt} do
@@ -1181,7 +1194,7 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert 1 == Interpreter.invoke(fun, [5], 1_000)
 
       assert {:compiled, {_mod, :run_ctx}, _atoms} =
-               Heap.get_compiled({fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants)})
+               Heap.get_compiled(compiled_key(fun))
     end
   end
 end

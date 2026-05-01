@@ -779,7 +779,9 @@ cases = [
   {"spread ascii string", "[...'ab'].join('')"},
   {"spread astral string", "[...'😀'].length"},
   {"delete array element missing", "let a=[1]; delete a[0]; 0 in a"},
-  {"delete array element read", "let a=[1]; delete a[0]; a[0] === undefined"}
+  {"delete array element read", "let a=[1]; delete a[0]; a[0] === undefined"},
+  {"atom cache distinct pad start", "'x'.padStart(3,'a')"},
+  {"atom cache distinct pad end", "'x'.padEnd(3,'a')"}
 ]
 
 auto_cases = [
