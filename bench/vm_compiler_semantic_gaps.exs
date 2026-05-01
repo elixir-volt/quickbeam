@@ -526,6 +526,8 @@ cases = [
    ~S|Promise.race([Promise.reject(1), Promise.resolve(2)]).catch(e=>e+1)|},
   {"promise race resolve then",
    ~S|Promise.race([Promise.resolve(2), Promise.reject(1)]).then(x=>x+1)|},
+  {"promise all reject catch",
+   ~S|Promise.all([Promise.resolve(1), Promise.reject(2)]).catch(e=>e+1)|},
   {"promise any type", "typeof Promise.any"},
   {"promise resolve thenable",
    "async function f(){ return await Promise.resolve({then(r){r(5)}}) } f()"},

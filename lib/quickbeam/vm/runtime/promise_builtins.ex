@@ -113,9 +113,27 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
   defp promise_all(arr) do
     items = Heap.to_list(arr)
 
-    results = Enum.map(items, &unwrap_value/1)
+    case first_rejection(items) do
+      {:rejected, reason} ->
+        PromiseState.rejected(reason)
 
-    PromiseState.resolved(Heap.wrap(results))
+      :none ->
+        results = Enum.map(items, &unwrap_value/1)
+        PromiseState.resolved(Heap.wrap(results))
+    end
+  end
+
+  defp first_rejection(items) do
+    Enum.find_value(items, :none, fn
+      {:obj, ref} ->
+        case Heap.get_obj(ref, %{}) do
+          %{promise_state() => :rejected, promise_value() => reason} -> {:rejected, reason}
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end)
   end
 
   defp promise_all_settled(arr) do

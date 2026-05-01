@@ -1564,10 +1564,17 @@ defmodule QuickBEAM.VM.CompilerTest do
           ~S|Promise.race([Promise.resolve(2), Promise.reject(1)]).then(x=>x+1)|
         ).value
 
+      all_reject =
+        compile_and_decode(
+          rt,
+          ~S|Promise.all([Promise.resolve(1), Promise.reject(2)]).catch(e=>e+1)|
+        ).value
+
       assert {:ok, "fulfilled:2"} = Compiler.invoke(all_settled, [])
       assert {:ok, 3} = Compiler.invoke(any, [])
       assert {:ok, 2} = Compiler.invoke(race_reject, [])
       assert {:ok, 3} = Compiler.invoke(race_resolve, [])
+      assert {:ok, 3} = Compiler.invoke(all_reject, [])
     end
 
     test "normalizes compiled async rejections for promise chains", %{rt: rt} do
