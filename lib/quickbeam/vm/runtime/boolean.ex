@@ -5,12 +5,21 @@ defmodule QuickBEAM.VM.Runtime.Boolean do
   alias QuickBEAM.VM.Runtime
 
   proto "toString" do
-    Atom.to_string(this)
+    Atom.to_string(unwrap_boolean(this))
   end
 
   proto "valueOf" do
-    this
+    unwrap_boolean(this)
   end
+
+  defp unwrap_boolean({:obj, ref}) do
+    case QuickBEAM.VM.Heap.get_obj(ref, %{}) do
+      %{"__wrapped_boolean__" => value} -> value
+      _ -> true
+    end
+  end
+
+  defp unwrap_boolean(value), do: Runtime.truthy?(value)
 
   @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor do

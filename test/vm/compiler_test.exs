@@ -409,6 +409,22 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 3} = Compiler.invoke(field_order, [])
     end
 
+    test "compiles boxed primitive prototype methods", %{rt: rt} do
+      number_value = compile_and_decode(rt, "new Number(3).valueOf()").value
+      number_string = compile_and_decode(rt, "new Number(10).toString(16)").value
+      string_value = compile_and_decode(rt, "new String('x').valueOf()").value
+      string_concat = compile_and_decode(rt, "new String('x').concat('y')").value
+      boolean_value = compile_and_decode(rt, "new Boolean(false).valueOf()").value
+      boolean_string = compile_and_decode(rt, "new Boolean(false).toString()").value
+
+      assert {:ok, 3} = Compiler.invoke(number_value, [])
+      assert {:ok, "a"} = Compiler.invoke(number_string, [])
+      assert {:ok, "x"} = Compiler.invoke(string_value, [])
+      assert {:ok, "xy"} = Compiler.invoke(string_concat, [])
+      assert {:ok, false} = Compiler.invoke(boolean_value, [])
+      assert {:ok, "false"} = Compiler.invoke(boolean_string, [])
+    end
+
     test "compiles Symbol and BigInt runtime edges", %{rt: rt} do
       symbol_for = compile_and_decode(rt, "Symbol.for('x')===Symbol.for('x')").value
       symbol_key = compile_and_decode(rt, "Symbol.keyFor(Symbol.for('x'))").value

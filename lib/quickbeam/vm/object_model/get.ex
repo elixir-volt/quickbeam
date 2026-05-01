@@ -144,6 +144,42 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   # ── Own property lookup ──
 
+  defp wrapped_shape_proto_property(offsets, key) do
+    cond do
+      Map.has_key?(offsets, "__wrapped_number__") -> Number.proto_property(key)
+      Map.has_key?(offsets, "__wrapped_string__") -> JSString.proto_property(key)
+      Map.has_key?(offsets, "__wrapped_boolean__") -> Boolean.proto_property(key)
+      true -> :undefined
+    end
+  end
+
+  defp wrapped_proto_property(map, key) do
+    cond do
+      Map.has_key?(map, "__wrapped_symbol__") ->
+        get_own(Map.fetch!(map, "__wrapped_symbol__"), key)
+
+      Map.has_key?(map, "__wrapped_number__") ->
+        Number.proto_property(key)
+
+      Map.has_key?(map, "__wrapped_string__") ->
+        JSString.proto_property(key)
+
+      Map.has_key?(map, "__wrapped_boolean__") ->
+        Boolean.proto_property(key)
+
+      true ->
+        :undefined
+    end
+  end
+
+  defp get_map_property(map, key, receiver) do
+    case Map.fetch(map, key) do
+      {:ok, {:accessor, getter, _setter}} when getter != nil -> call_getter(getter, receiver)
+      {:ok, val} -> val
+      :error -> :undefined
+    end
+  end
+
   defp get_own({:obj, ref}, key) do
     case Heap.get_obj_raw(ref) do
       {:shape, _shape_id, _offsets, _vals, proto} when key == "__proto__" ->
@@ -152,7 +188,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
       {:shape, _shape_id, offsets, vals, _proto} ->
         case Map.fetch(offsets, key) do
           {:ok, offset} -> elem(vals, offset)
-          :error -> :undefined
+          :error -> wrapped_shape_proto_property(offsets, key)
         end
 
       nil ->
@@ -195,18 +231,9 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         end
 
       map when is_map(map) ->
-        case Map.fetch(map, key) do
-          {:ok, {:accessor, getter, _setter}} when getter != nil ->
-            call_getter(getter, {:obj, ref})
-
-          {:ok, val} ->
-            val
-
-          :error ->
-            case Map.get(map, "__wrapped_symbol__") do
-              sym when sym != nil -> get_own(sym, key)
-              _ -> :undefined
-            end
+        case wrapped_proto_property(map, key) do
+          :undefined -> get_map_property(map, key, {:obj, ref})
+          val -> val
         end
     end
   end

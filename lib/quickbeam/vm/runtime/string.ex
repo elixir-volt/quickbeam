@@ -126,15 +126,15 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   proto "concat" do
-    this <> Enum.map_join(args, &Runtime.stringify/1)
+    unwrap_string(this) <> Enum.map_join(args, &Runtime.stringify/1)
   end
 
   proto "toString" do
-    this
+    unwrap_string(this)
   end
 
   proto "valueOf" do
-    this
+    unwrap_string(this)
   end
 
   proto "at" do
@@ -142,6 +142,15 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   # ── Implementations ──
+
+  defp unwrap_string({:obj, ref}) do
+    case QuickBEAM.VM.Heap.get_obj(ref, %{}) do
+      %{"__wrapped_string__" => value} -> value
+      _ -> ""
+    end
+  end
+
+  defp unwrap_string(value), do: Runtime.stringify(value)
 
   defp string_at(s, [idx | _]) when is_binary(s) do
     i = if is_number(idx), do: trunc(idx), else: 0
