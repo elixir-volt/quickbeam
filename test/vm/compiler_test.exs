@@ -1539,6 +1539,30 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(fun, [])
     end
 
+    test "enforces proxy ownKeys invariants", %{rt: rt} do
+      missing =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:false}); let p=new Proxy(t,{ownKeys(){return []}}); try{Reflect.ownKeys(p)}catch(e){e.name}|
+        ).value
+
+      included =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:false}); let p=new Proxy(t,{ownKeys(){return ["x"]}}); Reflect.ownKeys(p).length|
+        ).value
+
+      configurable =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:true}); let p=new Proxy(t,{ownKeys(){return []}}); Reflect.ownKeys(p).length|
+        ).value
+
+      assert {:ok, "TypeError"} = Compiler.invoke(missing, [])
+      assert {:ok, 1} = Compiler.invoke(included, [])
+      assert {:ok, 0} = Compiler.invoke(configurable, [])
+    end
+
     test "enforces proxy set invariants", %{rt: rt} do
       mismatch =
         compile_and_decode(

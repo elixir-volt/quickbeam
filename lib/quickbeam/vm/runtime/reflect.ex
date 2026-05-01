@@ -5,7 +5,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
 
   import QuickBEAM.VM.Heap.Keys
 
-  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.ObjectModel.{Delete, Get, Put}
@@ -83,15 +83,36 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
         if own_keys_trap == :undefined or own_keys_trap == nil do
           own_keys_for(target)
         else
-          own_keys_trap
-          |> Runtime.call_callback([target])
-          |> Heap.to_list()
+          trap_keys =
+            own_keys_trap
+            |> Runtime.call_callback([target])
+            |> Heap.to_list()
+
+          validate_proxy_own_keys_invariant(target, trap_keys)
         end
 
       map ->
         own_keys(map)
     end
   end
+
+  defp validate_proxy_own_keys_invariant(target, trap_keys) do
+    missing_key =
+      target
+      |> own_keys_for()
+      |> Enum.find(fn key ->
+        match?(%{configurable: false}, target_prop_desc(target, key)) and key not in trap_keys
+      end)
+
+    if missing_key do
+      JSThrow.type_error!("proxy ownKeys trap violates invariant")
+    else
+      trap_keys
+    end
+  end
+
+  defp target_prop_desc({:obj, ref}, key), do: Heap.get_prop_desc(ref, key)
+  defp target_prop_desc(_, _), do: nil
 
   defp own_keys(map) when is_map(map) do
     map
