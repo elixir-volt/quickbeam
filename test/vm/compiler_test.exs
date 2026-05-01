@@ -220,10 +220,18 @@ defmodule QuickBEAM.VM.CompilerTest do
 
     test "reads default Object prototype methods", %{rt: rt} do
       has_own = compile_and_decode(rt, "({x:1}).hasOwnProperty('x')").value
+      has_own_false = compile_and_decode(rt, "({}).hasOwnProperty('x')").value
       to_string = compile_and_decode(rt, "({}).toString()").value
+      value_of = compile_and_decode(rt, "let o={x:1}; o.valueOf()===o").value
+      enumerable = compile_and_decode(rt, "({x:1}).propertyIsEnumerable('x')").value
+      is_prototype = compile_and_decode(rt, "({}).isPrototypeOf({})").value
 
       assert {:ok, true} = Compiler.invoke(has_own, [])
+      assert {:ok, false} = Compiler.invoke(has_own_false, [])
       assert {:ok, "[object Object]"} = Compiler.invoke(to_string, [])
+      assert {:ok, true} = Compiler.invoke(value_of, [])
+      assert {:ok, true} = Compiler.invoke(enumerable, [])
+      assert {:ok, false} = Compiler.invoke(is_prototype, [])
     end
 
     test "compiles typed array includes", %{rt: rt} do
