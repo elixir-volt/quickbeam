@@ -529,6 +529,8 @@ cases = [
    ~S|Promise.race([Promise.reject(1), Promise.resolve(2)]).catch(e=>e+1)|},
   {"promise race resolve then",
    ~S|Promise.race([Promise.resolve(2), Promise.reject(1)]).then(x=>x+1)|},
+  {"promise race empty pending", ~S|Promise.race([])|},
+  {"promise race empty then pending", ~S|Promise.race([]).then(()=>1)|},
   {"promise all reject catch",
    ~S|Promise.all([Promise.resolve(1), Promise.reject(2)]).catch(e=>e+1)|},
   {"promise any type", "typeof Promise.any"},

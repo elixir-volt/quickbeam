@@ -12,6 +12,9 @@ defmodule QuickBEAM.VM.PromiseState do
   @doc "Creates or returns a rejected Promise state value."
   def rejected(val), do: make_promise(:rejected, val)
 
+  @doc "Creates a pending Promise state value."
+  def pending, do: make_promise(:pending, nil)
+
   @doc "Returns promise values as-is, otherwise wraps a value in a resolved Promise."
   def adopt({:obj, ref} = promise) do
     case Heap.get_obj(ref, %{}) do

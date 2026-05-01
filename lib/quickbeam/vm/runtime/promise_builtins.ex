@@ -208,7 +208,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
     items = Heap.to_list(arr)
 
     if items == [] do
-      PromiseState.resolved(:undefined)
+      PromiseState.pending()
     else
       # Check if any already resolved
       already =
