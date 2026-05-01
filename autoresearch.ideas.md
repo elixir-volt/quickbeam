@@ -1,15 +1,19 @@
-- Target remaining hard VM compiler opcode families with broad semantic cases rather than file-specific fixtures:
-  - dynamic scope/ref ops: `with_make_ref`, `with_get_ref_undef`, `make_*_ref`, `get_ref_value`, `put_ref_value` (plain `with_get_var`/`with_delete_var`, `with_put_var`, `with_get_ref`, `apply_eval`, and uninvoked `import` bytecode are covered; multiple naive property-reference lowering models for `with_make_ref`/`put_ref_value` were probed and reverted because invoked `with` assignment/update/miss/unscopable cases still mismatched interpreter results)
-  - remaining stack/control edges: `nip1` plus rare `nop`/`invalid` forms (`dup1`, `nip`, `perm3/5`, `rot3l/3r/4l/5l`, `swap2`, `goto16`, and generic `goto` are covered; generic `goto` is covered with a bounded long-branch threshold case)
-  - async/generator invocation semantics: uninvoked async/generator/import bytecode, lexical-this `put_var_ref_check_init`, and uninvoked `for await` iterator-result bytecode are covered for compile/opcode coverage, but invoked `await`, `yield`, `yield_star`, `return_async`, and dynamic `import()` still need semantic alignment before they can be correctness-audited
+- Remaining audited compiler opcode gaps are now rare or intentionally unsupported forms:
+  - `with_get_ref_undef`: no natural source form found in current corpus/probes; QuickJS may reserve it for hard-to-trigger call/reference shapes.
+  - `nip1` and `nop`: probe attempts with `for-of`, `try/finally`, nested finally, optional chains, and iterator-close shapes did not emit clean coverage forms.
+  - `invalid`: keep unsupported; do not fabricate invalid bytecode just for coverage.
+- Dynamic ref bytecode is compile-covered through safe uninvoked nested definitions:
+  - `with_make_ref`, `make_arg_ref`, `make_loc_ref`, `make_var_ref`, `make_var_ref_ref`, `get_ref_value`, and `put_ref_value` are covered.
+  - Invoked `with` assignment/update/miss/unscopable behavior is **not** solved; multiple naive lowering models were tried and reverted because they mismatched interpreter results.
+- Large local frames now use tuple-mode compiled block arguments above the slot threshold, so generic `get_loc`, `put_loc`, and `set_loc` coverage is no longer blocked by BEAM arity limits.
+- Async/generator invocation semantics remain deferred:
+  - uninvoked async/generator/import bytecode, lexical-this `put_var_ref_check_init`, and uninvoked `for await` iterator-result bytecode are covered for compile/opcode coverage
+  - invoked `await`, `yield`, `yield_star`, `return_async`, and dynamic `import()` still need semantic alignment before they can be correctness-audited
 - Improve `vm_compiler_opcode_coverage` to report total opcode universe, percent coverage, and missing opcodes by family so coverage improvements are easier to triage.
 - Fix semantic gaps before adding these cases to the invoked audited corpus:
-  - `with` assignment/update needs branch-aware/property-reference lowering compatible with `insert3`/`perm4`/`put_ref_value`; QuickJS bytecode keeps `key,obj` pairs on the stack and branches over fallback `make_var_ref`, so linear lowering is insufficient. A process-dictionary pending-ref bridge made simple property-hit assignment work, but failed update and global/unscopable fallback cases, so it was reverted again.
+  - branch-aware `with` reference lowering compatible with `insert3`/`perm4`/`put_ref_value`, including fallback to global/captured refs and `Symbol.unscopables`
   - derived constructors returning primitives should surface the same JS throw as the interpreter rather than crashing
-  - invoked async/generator top-level results currently normalize differently between compiler and interpreter
-  - invoked dynamic `import()` currently diverges in rejected promise error stack/message handling
-  - invoked computed class values still diverge because the interpreter reports an unimplemented opcode for at least one top-level object-literal class-expression shape; uninvoked computed class bytecode and `define_class_computed` stack shape are covered
-  - custom iterator loop coverage currently matches compiler/interpreter at `0`, which suggests a shared iterator runtime semantic gap outside the compiler-differential objective
-  - non-strict argument-object aliasing cases cover `put_arg*` against the interpreter oracle, but currently return the original argument values after parameter writes; verify separately if product-correctness becomes the target
-- Large local frames now use tuple-mode compiled block arguments above the slot threshold, so generic `get_loc`, `put_loc`, and `set_loc` coverage is no longer blocked by BEAM arity limits.
+  - invoked computed class values still diverge because the interpreter reports an unimplemented opcode for at least one top-level object-literal class-expression shape
+  - custom iterator loop coverage currently matches compiler/interpreter at `0`, suggesting a shared iterator runtime semantic gap outside the compiler-differential objective
+  - non-strict argument-object aliasing cases cover `put_arg*` against the interpreter oracle, but currently return original argument values after parameter writes; verify separately if product-correctness becomes the target
 - If corpus expansion exposes semantic bugs, prefer routing risky BEAM-specialized arithmetic/bitwise paths through JS runtime helpers over preserving unsafe raw BEAM operations.
