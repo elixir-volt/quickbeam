@@ -241,6 +241,16 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 8} = Compiler.invoke(fun, [callback, 4])
     end
 
+    test "uses global this for direct function calls", %{rt: rt} do
+      sloppy = compile_and_decode(rt, "function f(){ return this===globalThis}; f()").value
+
+      strict =
+        compile_and_decode(rt, "function f(){'use strict'; return this===undefined}; f()").value
+
+      assert {:ok, true} = Compiler.invoke(sloppy, [])
+      assert {:ok, false} = Compiler.invoke(strict, [])
+    end
+
     test "fuses captured var-ref calls into one runtime helper", %{rt: rt} do
       outer =
         compile_and_decode(rt, "(function(f){ return function(x){ return f(x) } })")

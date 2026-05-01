@@ -789,7 +789,9 @@ cases = [
   {"object prototype hasOwnProperty", "({x:1}).hasOwnProperty('x')"},
   {"object prototype toString", "({}).toString()"},
   {"typed array includes hit", "new Uint8Array([1,2,3]).includes(2)"},
-  {"typed array includes miss", "new Uint8Array([1,2,3]).includes(4)"}
+  {"typed array includes miss", "new Uint8Array([1,2,3]).includes(4)"},
+  {"sloppy direct call this", "function f(){ return this===globalThis}; f()"},
+  {"strict direct call this", "function f(){'use strict'; return this===undefined}; f()"}
 ]
 
 auto_cases = [

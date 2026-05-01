@@ -286,7 +286,14 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   defp base_ctx(%Context{} = ctx), do: ensure_globals(ctx)
 
   defp base_ctx(nil) do
-    %Context{atoms: Heap.get_atoms(), globals: base_globals(), trace_enabled: false}
+    globals = base_globals()
+
+    %Context{
+      atoms: Heap.get_atoms(),
+      globals: globals,
+      this: Map.get(globals, "globalThis", :undefined),
+      trace_enabled: false
+    }
   end
 
   defp base_ctx(map) when is_map(map) do
