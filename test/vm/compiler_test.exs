@@ -1539,6 +1539,24 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(fun, [])
     end
 
+    test "supports direct primitive string iterators", %{rt: rt} do
+      astral =
+        compile_and_decode(
+          rt,
+          ~S|let it="😀a"[Symbol.iterator](); it.next().value + it.next().value|
+        ).value
+
+      self_iter =
+        compile_and_decode(rt, ~S|let it="ab"[Symbol.iterator](); it[Symbol.iterator]() === it|).value
+
+      done =
+        compile_and_decode(rt, ~S|let it="a"[Symbol.iterator](); it.next(); it.next().done|).value
+
+      assert {:ok, "😀a"} = Compiler.invoke(astral, [])
+      assert {:ok, true} = Compiler.invoke(self_iter, [])
+      assert {:ok, true} = Compiler.invoke(done, [])
+    end
+
     test "compiles queueMicrotask interactions", %{rt: rt} do
       deferred_state =
         compile_and_decode(rt, "let state={x:0}; queueMicrotask(()=>{state.x=1}); state.x").value

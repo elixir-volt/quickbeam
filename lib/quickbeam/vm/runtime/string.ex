@@ -141,6 +141,13 @@ defmodule QuickBEAM.VM.Runtime.String do
     string_at(this, args)
   end
 
+  proto {:symbol, "Symbol.iterator"} do
+    this
+    |> unwrap_string()
+    |> String.codepoints()
+    |> iterator_from()
+  end
+
   # ── Implementations ──
 
   defp unwrap_string({:obj, ref}) do
