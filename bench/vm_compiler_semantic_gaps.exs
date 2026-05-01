@@ -71,7 +71,28 @@ cases = [
   {"nullish assignment", "let x=null; x ??= 3; x"},
   {"logical assignment", "let x=0; x ||= 4; x"},
   {"regexp exec group", "/(a+)/.exec('aa')[1]"},
-  {"typed array value", "let a=new Uint8Array(2); a[0]=255; a[0]"}
+  {"typed array value", "let a=new Uint8Array(2); a[0]=255; a[0]"},
+  {"map set get", "let m=new Map(); m.set('x', 2); m.get('x')"},
+  {"set has", "let s=new Set(); s.add(3); s.has(3)"},
+  {"string includes", "'quickbeam'.includes('beam')"},
+  {"array map length", "[1,2,3].map(function(x){return x+1}).length"},
+  {"array reduce sum", "[1,2,3].reduce(function(a,b){return a+b},0)"},
+  {"object keys length", "Object.keys({a:1,b:2}).length"},
+  {"json stringify object", "JSON.stringify({a:1})"},
+  {"date now type", "typeof Date.now()"},
+  {"bigint addition", "1n + 2n"},
+  {"bigint compare", "2n > 1n"},
+  {"symbol property", "let s=Symbol('x'); let o={[s]:3}; o[s]"},
+  {"class static field", "class A { static x=3; static m(){return this.x} } A.m()"},
+  {"private method", "class A { #m(){return 4} m(){return this.#m()} } new A().m()"},
+  {"static super method",
+   "class A { static m(){return 1} } class B extends A { static m(){return super.m()+2} } B.m()"},
+  {"try finally return override", "function f(){ try { return 1 } finally { return 2 } } f()"},
+  {"catch binding", "try { throw 5 } catch(e) { e+1 }"},
+  {"for in keys", "let s=''; for (let k in {a:1,b:2}) s+=k; s.length"},
+  {"for of destructuring", "let s=0; for (let [x] of [[1],[2]]) s+=x; s"},
+  {"spread constructor", "function A(a,b){this.v=a+b}; new A(...[1,2]).v"},
+  {"rest parameter", "function f(...xs){ return xs.length + xs[0] } f(3,4)"}
 ]
 
 results =
