@@ -1692,6 +1692,15 @@ defmodule QuickBEAM.VM.CompilerTest do
           ~S|Promise.reject(1).finally(function(){throw 2}).catch(function(e){return e})|
         ).value
 
+      resolve_rejection =
+        compile_and_decode(rt, ~S|Promise.resolve(Promise.reject(1)).catch(e=>e+1)|).value
+
+      constructor_resolve_rejection =
+        compile_and_decode(rt, ~S|new Promise(resolve=>resolve(Promise.reject(1))).catch(e=>e+1)|).value
+
+      constructor_resolve_pending =
+        compile_and_decode(rt, ~S|new Promise(resolve=>resolve(Promise.race([])))|).value
+
       assert {:ok, 3} = Compiler.invoke(all_reject, [])
       assert {:ok, 3} = Compiler.invoke(any_all_reject, [])
       assert {:ok, "AggregateError"} = Compiler.invoke(any_empty, [])
@@ -1706,6 +1715,10 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 2} = Compiler.invoke(finally_throw, [])
       assert {:ok, 2} = Compiler.invoke(finally_rejected_promise, [])
       assert {:ok, 2} = Compiler.invoke(finally_rejected_callback, [])
+      assert {:ok, 2} = Compiler.invoke(resolve_rejection, [])
+      assert {:ok, 2} = Compiler.invoke(constructor_resolve_rejection, [])
+      assert {:ok, {:obj, ref}} = Compiler.invoke(constructor_resolve_pending, [])
+      assert %{"__promise_state__" => :pending} = Heap.get_obj(ref)
     end
 
     test "normalizes compiled async rejections for promise chains", %{rt: rt} do

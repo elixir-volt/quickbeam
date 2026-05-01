@@ -20,7 +20,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
             {:builtin, "resolve",
              fn args, _ ->
                val = arg(args, 0, :undefined)
-               unless already_settled?(ref), do: PromiseState.resolve(ref, :resolved, val)
+               unless already_settled?(ref), do: PromiseState.resolve_adopt(ref, val)
                :undefined
              end}
 
@@ -76,7 +76,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
 
   static "resolve" do
     case args do
-      [val | _] -> PromiseState.resolved(val)
+      [val | _] -> PromiseState.adopt(val)
       [] -> PromiseState.resolved(:undefined)
     end
   end

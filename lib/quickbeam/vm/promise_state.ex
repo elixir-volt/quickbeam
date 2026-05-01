@@ -46,6 +46,9 @@ defmodule QuickBEAM.VM.PromiseState do
 
   def promise_finally(_args, _this), do: resolved(:undefined)
 
+  @doc "Resolves a Promise state with normal Promise-resolution adoption."
+  def resolve_adopt(ref, val), do: resolve_or_chain(ref, val)
+
   @doc "Resolves a Promise state and drains queued reactions."
   def resolve(ref, state, val) do
     Heap.put_obj(ref, promise_obj(state, val, ref))
