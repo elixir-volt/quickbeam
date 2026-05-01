@@ -7,13 +7,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
   @doc "Lowers a bytecode instruction or function into compiler IR."
   def lower(state, next_entry, stack_depths, name_args) do
     case name_args do
-      {{:ok, :with_get_var}, [atom_idx, _target, _is_with]} ->
-        with {:ok, obj, _type, state} <- State.pop_typed(state) do
-          key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
-          val = Builder.remote_call(Get, :get, [obj, key])
-
-          {:ok, State.push(state, val)}
-        end
+      {{:ok, :with_get_var}, [atom_idx, target, _is_with]} ->
+        lower_with_get_var(state, next_entry, stack_depths, atom_idx, target)
 
       {{:ok, :with_get_ref}, [atom_idx, target, _is_with]} ->
         lower_with_get_ref(state, next_entry, stack_depths, atom_idx, target)
@@ -26,13 +21,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
           {:ok, state |> State.push(Builder.atom(:undefined)) |> State.push(val)}
         end
 
-      {{:ok, :with_put_var}, [atom_idx, _target, _is_with]} ->
-        with {:ok, obj, state} <- State.pop(state),
-             {:ok, val, state} <- State.pop(state) do
-          key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
-
-          {:ok, State.emit(state, Builder.remote_call(Put, :put, [obj, key, val]))}
-        end
+      {{:ok, :with_put_var}, [atom_idx, target, _is_with]} ->
+        lower_with_put_var(state, next_entry, stack_depths, atom_idx, target)
 
       {{:ok, :with_delete_var}, [atom_idx, _target, _is_with]} ->
         with {:ok, obj, state} <- State.pop(state) do
@@ -49,6 +39,30 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
 
       _ ->
         :not_handled
+    end
+  end
+
+  defp lower_with_get_var(state, next_entry, stack_depths, atom_idx, target) do
+    with {:ok, obj, _type, state} <- State.pop_typed(state) do
+      key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+      val = Builder.remote_call(Get, :get, [obj, key])
+      target_state = State.push(state, val)
+
+      branch_with_has_property(state, target_state, next_entry, stack_depths, obj, key, target)
+    end
+  end
+
+  defp lower_with_put_var(state, next_entry, stack_depths, atom_idx, target) do
+    with {:ok, obj, next_state} <- State.pop(state),
+         {:ok, val, target_state} <- State.pop(next_state),
+         key = State.compiler_call(next_state, :push_atom_value, [Builder.literal(atom_idx)]),
+         {:ok, target_call} <- State.block_jump_call(target_state, target, stack_depths),
+         {:ok, next_call} <- State.block_jump_call(next_state, next_entry, stack_depths) do
+      condition = State.compiler_call(next_state, :with_has_property, [obj, key])
+      put = Builder.remote_call(Put, :put, [obj, key, val])
+      branch = Builder.branch_case(condition, [next_call], [put, target_call])
+
+      {:done, Enum.reverse([branch | state.body])}
     end
   end
 

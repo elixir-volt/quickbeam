@@ -1051,6 +1051,26 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert [3, 2] = array_ref |> Heap.get_obj() |> QuickBEAM.VM.Heap.Arrays.to_list()
     end
 
+    test "compiles with-scope property reads with fallback branches", %{rt: rt} do
+      direct_read = compile_and_decode(rt, "let o={x:2}; with(o){ x }").value
+      base_read = compile_and_decode(rt, "let o={a:{m(){return 7}}}; with(o){ a.m() }").value
+      fallback_read = compile_and_decode(rt, "let o={}; let x=1; with(o){ x }").value
+
+      assert {:ok, 2} = Compiler.invoke(direct_read, [])
+      assert {:ok, 7} = Compiler.invoke(base_read, [])
+      assert {:ok, 1} = Compiler.invoke(fallback_read, [])
+    end
+
+    test "keeps eval-scope with assignments compilable", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "function f(){ var x=1; function g(){ eval(''); x=2; return x }; return g() } f()"
+        ).value
+
+      assert {:ok, 2} = Compiler.invoke(fun, [])
+    end
+
     test "resumes compiled generators at first yield", %{rt: rt} do
       fun =
         compile_and_decode(rt, "function* g(){ yield 1; return 2 } let it=g(); it.next().value").value

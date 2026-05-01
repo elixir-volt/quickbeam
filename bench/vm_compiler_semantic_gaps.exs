@@ -768,7 +768,14 @@ cases = [
   {"performance now finite", "Number.isFinite(performance.now())"},
   {"async object method resolved", "let o={async m(){return await 11}}; o.m()"},
   {"async class method resolved", "class A { async m(){return await 12} } new A().m()"},
-  {"async object method this", "let o={x:3, async m(){return await this.x}}; o.m()"}
+  {"async object method this", "let o={x:3, async m(){return await this.x}}; o.m()"},
+  {"with object base read method", "let o={a:{m(){return 7}}}; with(o){ a.m() }"},
+  {"with object property read", "let o={x:2}; with(o){ x }"},
+  {"with lexical fallback read", "let o={}; let x=1; with(o){ x }"},
+  {"with unscopables fallback read",
+   "var x=1; let o={x:2,[Symbol.unscopables]:{x:true}}; with(o){ x }"},
+  {"eval with ref assignment",
+   "function f(){ var x=1; function g(){ eval(''); x=2; return x }; return g() } f()"}
 ]
 
 results =
