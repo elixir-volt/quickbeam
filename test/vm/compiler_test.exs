@@ -1710,6 +1710,18 @@ defmodule QuickBEAM.VM.CompilerTest do
       constructor_resolve_thenable =
         compile_and_decode(rt, ~S|new Promise(resolve=>resolve({then(r){r(5)}})).then(x=>x+1)|).value
 
+      all_thenable =
+        compile_and_decode(rt, ~S|Promise.all([{then(r){r(5)}}]).then(a=>a[0]+1)|).value
+
+      race_thenable =
+        compile_and_decode(rt, ~S|Promise.race([{then(r){r(5)}}]).then(x=>x+1)|).value
+
+      any_thenable =
+        compile_and_decode(rt, ~S|Promise.any([{then(r){r(5)}}]).then(x=>x+1)|).value
+
+      all_settled_thenable =
+        compile_and_decode(rt, ~S|Promise.allSettled([{then(r){r(5)}}]).then(r=>r[0].value+1)|).value
+
       throwing_then_getter =
         compile_and_decode(
           rt,
@@ -1740,6 +1752,10 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 6} = Compiler.invoke(resolve_thenable, [])
       assert {:ok, 6} = Compiler.invoke(resolve_throwing_thenable, [])
       assert {:ok, 6} = Compiler.invoke(constructor_resolve_thenable, [])
+      assert {:ok, 6} = Compiler.invoke(all_thenable, [])
+      assert {:ok, 6} = Compiler.invoke(race_thenable, [])
+      assert {:ok, 6} = Compiler.invoke(any_thenable, [])
+      assert {:ok, 6} = Compiler.invoke(all_settled_thenable, [])
       assert {:ok, 6} = Compiler.invoke(throwing_then_getter, [])
       assert {:ok, 5} = Compiler.invoke(noncallable_then, [])
     end

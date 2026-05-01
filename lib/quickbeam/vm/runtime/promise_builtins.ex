@@ -110,8 +110,10 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
 
   defp unwrap_value(val), do: val
 
+  defp promise_inputs(arr), do: arr |> Heap.to_list() |> Enum.map(&PromiseState.adopt/1)
+
   defp promise_all(arr) do
-    items = Heap.to_list(arr)
+    items = promise_inputs(arr)
 
     cond do
       rejection = first_rejection(items) ->
@@ -148,7 +150,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
   end
 
   defp promise_all_settled(arr) do
-    items = Heap.to_list(arr)
+    items = promise_inputs(arr)
 
     if pending_input?(items) do
       PromiseState.pending()
@@ -178,7 +180,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
   end
 
   defp promise_any(arr) do
-    items = Heap.to_list(arr)
+    items = promise_inputs(arr)
 
     case first_fulfillment(items) do
       {:fulfilled, value} ->
@@ -226,7 +228,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
   end
 
   defp promise_race(arr) do
-    items = Heap.to_list(arr)
+    items = promise_inputs(arr)
 
     if items == [] do
       PromiseState.pending()
