@@ -98,6 +98,49 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
+  static "preventExtensions" do
+    case hd(args) do
+      {:obj, ref} = obj ->
+        Heap.prevent_extensions(ref)
+        obj
+
+      obj ->
+        obj
+    end
+  end
+
+  static "isExtensible" do
+    case hd(args) do
+      {:obj, ref} -> Heap.extensible?(ref)
+      _ -> false
+    end
+  end
+
+  static "seal" do
+    case hd(args) do
+      {:obj, ref} = obj ->
+        Heap.prevent_extensions(ref)
+        obj
+
+      obj ->
+        obj
+    end
+  end
+
+  static "isFrozen" do
+    case hd(args) do
+      {:obj, ref} -> Heap.frozen?(ref)
+      _ -> true
+    end
+  end
+
+  static "isSealed" do
+    case hd(args) do
+      {:obj, ref} -> not Heap.extensible?(ref)
+      _ -> true
+    end
+  end
+
   static "is" do
     [a, b | _] = args
 

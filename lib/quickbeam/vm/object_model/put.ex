@@ -126,6 +126,9 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
           key == "__proto__" ->
             Heap.put_obj_raw(ref, {:shape, shape_id, offsets, vals, val})
 
+          not Heap.extensible?(ref) and not Map.has_key?(offsets, key) ->
+            :ok
+
           is_symbol(key) ->
             map = Heap.Shapes.to_map(shape_id, vals, proto)
             Heap.put_obj(ref, Map.put(map, key, val))
@@ -160,6 +163,9 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
       map when is_map(map) ->
         cond do
           Heap.frozen?(ref) ->
+            :ok
+
+          not Map.has_key?(map, key) and not Heap.extensible?(ref) ->
             :ok
 
           not Map.has_key?(map, key) ->

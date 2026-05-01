@@ -218,6 +218,33 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "1a,2b,zc"} = Compiler.invoke(entries, [])
     end
 
+    test "supports Object extensibility helpers", %{rt: rt} do
+      prevent_identity =
+        compile_and_decode(rt, "let o={x:1}; Object.preventExtensions(o)===o").value
+
+      extensible = compile_and_decode(rt, "Object.isExtensible({})").value
+
+      prevented =
+        compile_and_decode(rt, "let o={}; Object.preventExtensions(o); Object.isExtensible(o)").value
+
+      existing_write =
+        compile_and_decode(rt, "let o={x:1}; Object.preventExtensions(o); o.x=2; o.x").value
+
+      new_write =
+        compile_and_decode(rt, "let o={x:1}; Object.preventExtensions(o); o.y=2; o.y===undefined").value
+
+      sealed = compile_and_decode(rt, "let o={}; Object.seal(o); Object.isSealed(o)").value
+      frozen = compile_and_decode(rt, "let o=Object.freeze({}); Object.isFrozen(o)").value
+
+      assert {:ok, true} = Compiler.invoke(prevent_identity, [])
+      assert {:ok, true} = Compiler.invoke(extensible, [])
+      assert {:ok, false} = Compiler.invoke(prevented, [])
+      assert {:ok, 2} = Compiler.invoke(existing_write, [])
+      assert {:ok, true} = Compiler.invoke(new_write, [])
+      assert {:ok, true} = Compiler.invoke(sealed, [])
+      assert {:ok, true} = Compiler.invoke(frozen, [])
+    end
+
     test "reads default Object prototype methods", %{rt: rt} do
       has_own = compile_and_decode(rt, "({x:1}).hasOwnProperty('x')").value
       has_own_false = compile_and_decode(rt, "({}).hasOwnProperty('x')").value

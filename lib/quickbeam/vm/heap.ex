@@ -33,6 +33,8 @@ defmodule QuickBEAM.VM.Heap do
             put_ctx: 1,
             frozen?: 1,
             freeze: 1,
+            extensible?: 1,
+            prevent_extensions: 1,
             get_decoded: 1,
             put_decoded: 2,
             get_compiled: 1,
@@ -328,6 +330,8 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate put_eval_restore_stack(stack), to: Caches
   defdelegate frozen?(ref), to: Store
   defdelegate freeze(ref), to: Store
+  defdelegate extensible?(ref), to: Store
+  defdelegate prevent_extensions(ref), to: Store
   defdelegate get_prop_desc(ref, key), to: Store
   defdelegate put_prop_desc(ref, key, desc), to: Store
   defdelegate get_object_prototype(), to: Context
@@ -379,6 +383,7 @@ defmodule QuickBEAM.VM.Heap do
         {:qb_module, _} -> Process.delete(key)
         {:qb_prop_desc, _, _} -> Process.delete(key)
         {:qb_frozen, _} -> Process.delete(key)
+        {:qb_non_extensible, _} -> Process.delete(key)
         {:qb_var, _} -> Process.delete(key)
         {:qb_key_order, _} -> Process.delete(key)
         {:qb_runtime_mode, _} -> Process.delete(key)

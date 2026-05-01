@@ -203,6 +203,17 @@ defmodule QuickBEAM.VM.Heap.Store do
   def freeze(ref) do
     Process.put(:qb_has_frozen, true)
     Process.put({:qb_frozen, ref}, true)
+    prevent_extensions(ref)
+  end
+
+  def extensible?(ref) do
+    not (Process.get(:qb_has_non_extensible, false) and
+           Process.get({:qb_non_extensible, ref}, false))
+  end
+
+  def prevent_extensions(ref) do
+    Process.put(:qb_has_non_extensible, true)
+    Process.put({:qb_non_extensible, ref}, true)
   end
 
   def get_prop_desc(ref, key), do: Process.get({:qb_prop_desc, ref, key})
