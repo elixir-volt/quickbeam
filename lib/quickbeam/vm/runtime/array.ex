@@ -189,6 +189,10 @@ defmodule QuickBEAM.VM.Runtime.Array do
     make_array_iterator(this, :entries)
   end
 
+  proto {:symbol, "Symbol.iterator"} do
+    make_array_iterator(this, :values)
+  end
+
   @doc "Returns a prototype property value for the given JavaScript property key."
   def proto_property("constructor") do
     Runtime.global_bindings() |> Map.get("Array", :undefined)
@@ -854,6 +858,10 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
     object do
       prop("next", next_fn)
+
+      symbol_method "Symbol.iterator" do
+        this
+      end
     end
   end
 

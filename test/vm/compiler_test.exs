@@ -1539,6 +1539,24 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(fun, [])
     end
 
+    test "supports array Symbol.iterator", %{rt: rt} do
+      sum =
+        compile_and_decode(
+          rt,
+          ~S|let it=[1,2][Symbol.iterator](); it.next().value + it.next().value|
+        ).value
+
+      symbol_identity =
+        compile_and_decode(rt, ~S|let it=[1][Symbol.iterator](); it[Symbol.iterator]() === it|).value
+
+      values_identity =
+        compile_and_decode(rt, ~S|let it=[1].values(); it[Symbol.iterator]() === it|).value
+
+      assert {:ok, 3} = Compiler.invoke(sum, [])
+      assert {:ok, true} = Compiler.invoke(symbol_identity, [])
+      assert {:ok, true} = Compiler.invoke(values_identity, [])
+    end
+
     test "supports boxed string iterators", %{rt: rt} do
       object_box =
         compile_and_decode(
