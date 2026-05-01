@@ -127,7 +127,14 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
         if trap == :undefined or trap == nil do
           extensible?(target)
         else
-          Values.truthy?(Invocation.invoke_callback_or_throw(trap, [target]))
+          trap_result = Values.truthy?(Invocation.invoke_callback_or_throw(trap, [target]))
+          target_result = extensible?(target)
+
+          if trap_result == target_result do
+            trap_result
+          else
+            JSThrow.type_error!("proxy isExtensible trap violates invariant")
+          end
         end
 
       _ ->

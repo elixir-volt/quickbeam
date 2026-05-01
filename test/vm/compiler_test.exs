@@ -420,6 +420,24 @@ defmodule QuickBEAM.VM.CompilerTest do
           ~S|let t={}; let p=new Proxy(t,{preventExtensions(){return false}}); Reflect.preventExtensions(p)|
         ).value
 
+      proxy_extensible_false_mismatch =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; let p=new Proxy(t,{isExtensible(){return false}}); try{Reflect.isExtensible(p)}catch(e){e.name}|
+        ).value
+
+      proxy_extensible_true_mismatch =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.preventExtensions(t); let p=new Proxy(t,{isExtensible(){return true}}); try{Reflect.isExtensible(p)}catch(e){e.name}|
+        ).value
+
+      proxy_extensible_match =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.preventExtensions(t); let p=new Proxy(t,{isExtensible(){return false}}); Reflect.isExtensible(p)|
+        ).value
+
       object_define_blocked =
         compile_and_decode(
           rt,
@@ -438,6 +456,9 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "TypeError"} = Compiler.invoke(proxy_prevent_invariant, [])
       assert {:ok, true} = Compiler.invoke(proxy_prevent_trap, [])
       assert {:ok, false} = Compiler.invoke(proxy_prevent_false, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(proxy_extensible_false_mismatch, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(proxy_extensible_true_mismatch, [])
+      assert {:ok, false} = Compiler.invoke(proxy_extensible_match, [])
       assert {:ok, "TypeError"} = Compiler.invoke(object_define_blocked, [])
     end
 
