@@ -778,8 +778,17 @@ cases = [
    "function f(){ var x=1; function g(){ eval(''); x=2; return x }; return g() } f()"}
 ]
 
+auto_cases = [
+  {"auto mode arithmetic", "function inc(x){ return x + 1 } inc(2)"},
+  {"auto mode method receiver", "let o={x:3, inc(y){ return this.x + y }}; o.inc(4)"},
+  {"auto mode throw", "try { throw new Error('boom') } catch (e) { e.message }"}
+]
+
 results =
-  Enum.map(cases, fn {name, source} -> QuickBEAM.VM.CompilerAudit.run_case(name, source) end)
+  Enum.map(cases, fn {name, source} -> QuickBEAM.VM.CompilerAudit.run_case(name, source) end) ++
+    Enum.map(auto_cases, fn {name, source} ->
+      QuickBEAM.VM.CompilerAudit.run_auto_case(name, source)
+    end)
 
 summary = QuickBEAM.VM.CompilerAudit.summary(results)
 failures = summary.fallbacks + summary.crashes + summary.mismatches + summary.input_errors

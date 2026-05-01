@@ -317,6 +317,20 @@ defmodule QuickBEAM.VM.CompilerAudit do
     Enum.map(cases(), fn {name, source} -> run_case(name, source) end)
   end
 
+  def run_auto_case(name, source) do
+    nif = eval_result(source, :nif)
+    auto = eval_result(source, :auto)
+
+    %{
+      name: name,
+      source: source,
+      status: classify(nif, auto),
+      interpreter: nif,
+      compiler: auto,
+      fallback_reason: nil
+    }
+  end
+
   def run_case(name, source) do
     with {:ok, parsed} <- compile_source(source) do
       fun = parsed.value
@@ -373,6 +387,23 @@ defmodule QuickBEAM.VM.CompilerAudit do
     after
       QuickBEAM.stop(rt)
     end
+  end
+
+  defp eval_result(source, mode) do
+    isolated(fn ->
+      {:ok, rt} = QuickBEAM.start(apis: false)
+
+      try do
+        opts = if mode == :auto, do: [mode: :auto], else: []
+
+        case QuickBEAM.eval(rt, source, opts) do
+          {:ok, value} -> {:ok, normalize(value)}
+          {:error, reason} -> {:error, normalize(reason)}
+        end
+      after
+        QuickBEAM.stop(rt)
+      end
+    end)
   end
 
   defp interpreter_result(fun, atoms) do
