@@ -1803,6 +1803,38 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 2} = Compiler.invoke(configurable, [])
     end
 
+    test "supports Map and Set iterators", %{rt: rt} do
+      map_symbol =
+        compile_and_decode(
+          rt,
+          ~S|let m=new Map(); m.set("a",1); let it=m[Symbol.iterator](); let e=it.next().value; e[0]+e[1]|
+        ).value
+
+      map_entries =
+        compile_and_decode(
+          rt,
+          ~S|let m=new Map(); m.set("a",1); let it=m.entries(); let e=it.next().value; e[0]+e[1]|
+        ).value
+
+      map_identity =
+        compile_and_decode(rt, ~S|let it=new Map().entries(); it[Symbol.iterator]()===it|).value
+
+      set_identity =
+        compile_and_decode(rt, ~S|let it=new Set([2]).values(); it[Symbol.iterator]()===it|).value
+
+      set_entries =
+        compile_and_decode(
+          rt,
+          ~S|let it=new Set([2]).entries(); let e=it.next().value; e[0]+e[1]|
+        ).value
+
+      assert {:ok, "a1"} = Compiler.invoke(map_symbol, [])
+      assert {:ok, "a1"} = Compiler.invoke(map_entries, [])
+      assert {:ok, true} = Compiler.invoke(map_identity, [])
+      assert {:ok, true} = Compiler.invoke(set_identity, [])
+      assert {:ok, 4} = Compiler.invoke(set_entries, [])
+    end
+
     test "supports array Symbol.iterator", %{rt: rt} do
       sum =
         compile_and_decode(

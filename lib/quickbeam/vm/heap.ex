@@ -127,7 +127,10 @@ defmodule QuickBEAM.VM.Heap do
          end
        end}
 
-    wrap(%{"next" => next_fn})
+    wrap(%{
+      "next" => next_fn,
+      {:symbol, "Symbol.iterator"} => {:builtin, "[Symbol.iterator]", fn _, this -> this end}
+    })
   end
 
   @doc "Fast-wraps a value tuple with a compile-time key tuple, using a cached shape when possible."
