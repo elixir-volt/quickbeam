@@ -158,6 +158,8 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"catch rethrow avoided", "let x = 0; try { throw 5; } catch (e) { x = e; } x"},
       {"object mutation", "let o = {}; o.x = 1; o.y = o.x + 2; o"},
       {"array mutation", "let a = []; a[0] = 1; a[2] = 3; a"},
+      {"array element call", "let a=[function(){return 3}]; a[0]()"},
+      {"array element increment", "let a=[1]; a[0]++"},
       {"method this update",
        "let o = {x: 1, inc() { this.x++; return this.x; }}; o.inc() + o.inc()"},
       {"closure mutation",
