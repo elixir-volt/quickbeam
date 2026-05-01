@@ -17,6 +17,8 @@ defmodule QuickBEAM.VM.Heap.Caches do
 
   def get_fn_atoms(function_or_byte_code, default \\ nil)
 
+  def get_fn_atoms(%Bytecode.Function{atoms: atoms}, _default) when not is_nil(atoms), do: atoms
+
   def get_fn_atoms(%Bytecode.Function{} = fun, default) do
     Process.get({:qb_fn_atoms, function_atom_key(fun)}, get_fn_atoms(fun.byte_code, default))
   end

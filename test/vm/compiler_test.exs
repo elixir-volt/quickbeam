@@ -553,6 +553,14 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 12} = Compiler.invoke(fun, [-12])
     end
 
+    test "keeps atom tables distinct for identical top-level bytecode", %{rt: rt} do
+      abc = compile_and_decode(rt, "new String('abc').length").value
+      emoji = compile_and_decode(rt, "new String('😀').length").value
+
+      assert {:ok, 3} = Compiler.invoke(abc, [])
+      assert {:ok, 2} = Compiler.invoke(emoji, [])
+    end
+
     test "keeps atom tables distinct for same bytecode callbacks", %{rt: rt} do
       find = compile_and_decode(rt, "[1,2,3].find(x=>x>1)").value
       some = compile_and_decode(rt, "[1,2,3].some(x=>x>2)").value

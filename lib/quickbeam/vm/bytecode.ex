@@ -45,6 +45,7 @@ defmodule QuickBEAM.VM.Bytecode do
       locals: [],
       closure_vars: [],
       constants: [],
+      atoms: nil,
       byte_code: <<>>,
       has_prototype: false,
       has_simple_parameter_list: false,
@@ -89,12 +90,24 @@ defmodule QuickBEAM.VM.Bytecode do
          <<_checksum::little-unsigned-32, rest2::binary>> <- rest,
          {:ok, atoms, rest3} <- read_atoms(rest2),
          {:ok, value, _rest4} <- read_object(rest3, atoms) do
-      {:ok, %__MODULE__{version: version, atoms: atoms, value: value}}
+      {:ok, %__MODULE__{version: version, atoms: atoms, value: attach_atoms(value, atoms)}}
     else
       {:error, _} = err -> err
       _ -> {:error, :unexpected_end}
     end
   end
+
+  defp attach_atoms(%Function{} = fun, atoms) do
+    constants =
+      Enum.map(fun.constants, fn
+        %Function{} = inner -> attach_atoms(inner, atoms)
+        other -> other
+      end)
+
+    %{fun | atoms: atoms, constants: constants}
+  end
+
+  defp attach_atoms(other, _atoms), do: other
 
   # ── Atom table ──
   # Matches JS_ReadObjectAtoms: reads idx_to_atom_count entries.
