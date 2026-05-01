@@ -1,7 +1,12 @@
 - Target remaining hard VM compiler opcode families with broad semantic cases rather than file-specific fixtures:
-  - async/generator: `await`, `yield`, `yield_star`, `initial_yield`, `return_async`, `for_await_of_start`
-  - dynamic scope/ref ops: `eval`, `apply_eval`, `with_*`, `make_*_ref`, `get_ref_value`, `put_ref_value`
-  - private/class/super edges: `define_private_field`, `get_private_field`, `put_private_field`, `private_in`, `private_symbol`, computed class methods, `get_super_value`, `put_super_value`
-  - stack permutation/control edges: `dup1/2/3`, `insert*`, `nip*`, `perm*`, `rot*`, `swap2`, `gosub`/`ret`/finally
+  - async/generator: `await`, `yield`, `yield_star`, `initial_yield`, `return_async`, `for_await_of_start` (probed; current compiler result diverges from interpreter for promise/generator values)
+  - dynamic scope/ref ops: `apply_eval`, `with_make_ref`, `with_put_var`, `with_get_ref`, `with_get_ref_undef`, `make_*_ref`, `get_ref_value`, `put_ref_value` (plain `with_get_var`/`with_delete_var` are now covered only for safe property-present cases)
+  - stack permutation/control edges: `dup1/3`, `perm*`, `rot*`, `swap2`, wide `goto/if_*`, and non-trivial `gosub`/`ret`/finally paths
+  - mutable captured refs: `put_var_ref*`, `set_var_ref*`, and `make_*_ref` variants beyond the captured-argument read cases now covered
 - Improve `vm_compiler_opcode_coverage` to report total opcode universe, percent coverage, and missing opcodes by family so coverage improvements are measurable.
+- Fix semantic gaps before adding these cases to the audited corpus:
+  - array elision (`[,1,,2].length`) currently compiles to an array with incorrect length
+  - `with` assignment needs `with_make_ref`/branch-aware lowering
+  - derived constructors returning primitives should surface the same JS throw as the interpreter rather than crashing
+  - async/generator top-level results currently normalize differently between compiler and interpreter
 - If corpus expansion exposes semantic bugs, prefer routing risky BEAM-specialized arithmetic/bitwise paths through JS runtime helpers over preserving unsafe raw BEAM operations.

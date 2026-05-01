@@ -178,6 +178,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"object destructuring", "let {x: y} = {x: 3}; y"},
       {"for of destructuring", "let s=0; for (const [x] of [[1],[2]]) s += x; s"},
       {"computed object key", "let k = 'x'; let o = {[k]: 5}; o.x"},
+      {"computed function name", "let k='x'; let o = { [k]: function(){} }; o.x.name"},
       {"template expression", "let x = 4; `a${x + 1}`"},
       {"regexp replace", "'aa'.replace(/a/g, 'b')"},
       {"array map", "[1, 2, 3].map(x => x + 1).join(',')"},
