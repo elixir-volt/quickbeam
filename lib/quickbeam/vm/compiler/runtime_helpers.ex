@@ -136,20 +136,38 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     do: fetch_ctx_var(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
 
   def get_global(globals, name) do
-    case Map.fetch(globals, name) do
+    case fetch_global_binding(globals, name) do
       {:ok, val} -> val
       :error -> JSThrow.reference_error!("#{name} is not defined")
     end
   end
 
   @doc "Reads a global binding and returns `:undefined` when absent."
-  def get_global_undef(globals, name), do: Map.get(globals, name, :undefined)
+  def get_global_undef(globals, name) do
+    case fetch_global_binding(globals, name) do
+      {:ok, val} -> val
+      :error -> :undefined
+    end
+  end
 
   def get_var_undef(ctx, name) when is_binary(name),
     do: GlobalEnv.get(context_globals(ctx), name, :undefined)
 
   def get_var_undef(ctx, atom_idx),
     do: get_var_undef(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
+
+  defp fetch_global_binding(globals, name) do
+    persistent = Heap.get_persistent_globals() || %{}
+    builtins = Heap.get_builtin_names() || MapSet.new()
+
+    cond do
+      not MapSet.member?(builtins, name) and Map.has_key?(persistent, name) ->
+        Map.fetch(persistent, name)
+
+      true ->
+        Map.fetch(globals, name)
+    end
+  end
 
   def delete_var(ctx, atom_idx) do
     name = Names.resolve_atom(context_atoms(ctx), atom_idx)

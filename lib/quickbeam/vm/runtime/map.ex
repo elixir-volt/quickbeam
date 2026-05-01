@@ -12,26 +12,27 @@ defmodule QuickBEAM.VM.Runtime.Map do
     fn args, _this ->
       ref = make_ref()
 
-      entries =
+      {entries, order} =
         case args do
           [list] when is_list(list) ->
-            Map.new(list, &entry_to_kv/1)
+            entries_from_list(list)
 
           [{:obj, r}] ->
             stored = Heap.get_obj(r, [])
 
             if is_list(stored) or match?({:qb_arr, _}, stored) do
-              Heap.to_list({:obj, r}) |> Map.new(&entry_to_kv/1)
+              entries_from_list(Heap.to_list({:obj, r}))
             else
-              %{}
+              {%{}, []}
             end
 
           _ ->
-            %{}
+            {%{}, []}
         end
 
       Heap.put_obj(ref, %{
         map_data() => entries,
+        key_order() => order,
         "size" => map_size(entries)
       })
 
@@ -104,6 +105,22 @@ defmodule QuickBEAM.VM.Runtime.Map do
 
   defp normalize_key(k) when is_float(k) and k == trunc(k), do: trunc(k)
   defp normalize_key(k), do: k
+
+  defp entries_from_list(entries) do
+    pairs =
+      Enum.map(entries, fn entry ->
+        {key, value} = entry_to_kv(entry)
+        {normalize_key(key), value}
+      end)
+
+    order =
+      pairs
+      |> Enum.map(fn {key, _value} -> key end)
+      |> Enum.uniq()
+      |> Enum.reverse()
+
+    {Map.new(pairs), order}
+  end
 
   defp get([key | _], {:obj, ref}) do
     data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})

@@ -1837,6 +1837,27 @@ defmodule QuickBEAM.VM.CompilerTest do
           ~S|let m=new Map(); m.set("a",1); let it=m.entries(); let e=it.next().value; e[0]+e[1]|
         ).value
 
+      map_ctor =
+        compile_and_decode(
+          rt,
+          ~S|let it=new Map([["a",1]])[Symbol.iterator](); let e=it.next().value; e[0]+e[1]|
+        ).value
+
+      map_order =
+        compile_and_decode(
+          rt,
+          ~S|let it=new Map([["a",1],["b",2]]).keys(); it.next().value + it.next().value|
+        ).value
+
+      map_for_each =
+        compile_and_decode(
+          rt,
+          ~S|let m=new Map([[1,2],[3,4]]); let s=0; m.forEach((v,k)=>s+=v+k); s|
+        ).value
+
+      array_global_callback =
+        compile_and_decode(rt, ~S|let s=0; [1,2].forEach(x=>s+=x); s|).value
+
       map_identity =
         compile_and_decode(rt, ~S|let it=new Map().entries(); it[Symbol.iterator]()===it|).value
 
@@ -1851,6 +1872,10 @@ defmodule QuickBEAM.VM.CompilerTest do
 
       assert {:ok, "a1"} = Compiler.invoke(map_symbol, [])
       assert {:ok, "a1"} = Compiler.invoke(map_entries, [])
+      assert {:ok, "a1"} = Compiler.invoke(map_ctor, [])
+      assert {:ok, "ab"} = Compiler.invoke(map_order, [])
+      assert {:ok, 10} = Compiler.invoke(map_for_each, [])
+      assert {:ok, 3} = Compiler.invoke(array_global_callback, [])
       assert {:ok, true} = Compiler.invoke(map_identity, [])
       assert {:ok, true} = Compiler.invoke(set_identity, [])
       assert {:ok, 4} = Compiler.invoke(set_entries, [])
