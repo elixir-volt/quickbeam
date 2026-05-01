@@ -12,10 +12,27 @@ cases = [
    "var x=1; let o={x:2, [Symbol.unscopables]: {x:true}}; with(o){ x=3; } [x,o.x]"},
   {"async function invocation", "async function f(){ return 1 } f()"},
   {"generator next value", "function* g(){ yield 1; return 2 } let it=g(); it.next().value"},
-  {"dynamic import rejection", "import('x')"}
+  {"dynamic import rejection", "import('x')"},
+  {"derived constructor undefined return",
+   "class A { constructor(){ this.a = 1 } } class B extends A { constructor(){ super(); return undefined } } new B().a"},
+  {"derived constructor object return",
+   "class A { constructor(){ this.a = 1 } } class B extends A { constructor(){ super(); return {b:2} } } new B().b"},
+  {"with captured assignment",
+   "var out; function f(){ let x=1; function g(){ let o={}; with(o){ x=2 } return x } return g() } f()"},
+  {"with local fallback read", "let o={}; let x=1; with(o){ x }"},
+  {"with delete property", "let o={x:1}; with(o){ delete x; } 'x' in o"},
+  {"async await value", "async function f(){ return await 2 } f()"},
+  {"async await resolved promise", "async function f(){ return await Promise.resolve(3) } f()"},
+  {"generator two next values",
+   "function* g(){ yield 1; yield 2; return 3 } let it=g(); it.next().value + it.next().value"},
+  {"generator return value",
+   "function* g(){ yield 1; return 3 } let it=g(); it.next(); it.next().value"},
+  {"async caught throw", "async function f(){ try { throw 4 } catch(e) { return e } } f()"}
 ]
 
-results = Enum.map(cases, fn {name, source} -> QuickBEAM.VM.CompilerAudit.run_case(name, source) end)
+results =
+  Enum.map(cases, fn {name, source} -> QuickBEAM.VM.CompilerAudit.run_case(name, source) end)
+
 summary = QuickBEAM.VM.CompilerAudit.summary(results)
 failures = summary.fallbacks + summary.crashes + summary.mismatches + summary.input_errors
 
