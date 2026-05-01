@@ -274,6 +274,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"unused async generator", "async function* g(){ yield 1; await 2; } 1"},
       {"unused async yield star", "async function* g(){ yield* [1,2]; } 1"},
       {"unused dynamic import", "function f(){ return import('x') } 1"},
+      {"unused for await", "async function f(){ for await (const x of [1]) {} return 1 } 1"},
       {"unused with method call", "function f(){ let o={m(){return 1}}; with(o){ m() } } 1"},
       {"eval var increment", "function f(){ var x=1; eval(''); x++; return x } f()"},
       {"eval var decrement", "function f(){ var x=1; eval(''); x--; return x } f()"},

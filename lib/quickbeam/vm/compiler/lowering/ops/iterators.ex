@@ -20,9 +20,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
         lower_for_of_next(state, iter_idx)
 
       {{:ok, :for_await_of_start}, []} ->
-        with {:ok, obj, _type, state} <- State.pop_typed(state) do
-          State.effectful_push(state, State.compiler_call(state, :for_of_start, [obj]))
-        end
+        lower_for_await_of_start(state)
 
       {{:ok, :iterator_close}, []} ->
         lower_iterator_close(state)
@@ -78,6 +76,28 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
 
       _ ->
         :not_handled
+    end
+  end
+
+  defp lower_for_await_of_start(state) do
+    with {:ok, obj, _type, state} <- State.pop_typed(state) do
+      {pair, state} =
+        State.bind(
+          state,
+          Builder.temp_name(state.temp),
+          State.compiler_call(state, :for_of_start, [obj])
+        )
+
+      {:ok,
+       %{
+         state
+         | stack: [
+             Builder.integer(0),
+             Builder.tuple_element(pair, 2),
+             Builder.tuple_element(pair, 1) | state.stack
+           ],
+           stack_types: [:integer, :function, :object | state.stack_types]
+       }}
     end
   end
 
