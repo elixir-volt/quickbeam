@@ -357,9 +357,21 @@ defmodule QuickBEAM.VM.CompilerTest do
           "let o={}; Reflect.defineProperty(o,'x',{value:2, enumerable:false}); Object.keys(o).length"
         ).value
 
+      prevent_extensions =
+        compile_and_decode(
+          rt,
+          "let o={}; Reflect.preventExtensions(o) && !Reflect.isExtensible(o)"
+        ).value
+
+      prevent_primitive = compile_and_decode(rt, "Reflect.preventExtensions(1)").value
+      extensible_primitive = compile_and_decode(rt, "Reflect.isExtensible(1)").value
+
       assert {:ok, true} = Compiler.invoke(delete_property, [])
       assert {:ok, 2} = Compiler.invoke(define_property, [])
       assert {:ok, 0} = Compiler.invoke(non_enumerable, [])
+      assert {:ok, true} = Compiler.invoke(prevent_extensions, [])
+      assert {:ok, false} = Compiler.invoke(prevent_primitive, [])
+      assert {:ok, false} = Compiler.invoke(extensible_primitive, [])
     end
 
     test "compiles Proxy construct traps", %{rt: rt} do
@@ -1838,9 +1850,30 @@ defmodule QuickBEAM.VM.CompilerTest do
           ~S|let t=Object.freeze({x:1}); let p=new Proxy(t,{ownKeys(){return ["x"]}}); Reflect.ownKeys(p).length|
         ).value
 
+      prevented_missing =
+        compile_and_decode(
+          rt,
+          ~S|let t={x:1}; Object.preventExtensions(t); let p=new Proxy(t,{ownKeys(){return []}}); try{Reflect.ownKeys(p)}catch(e){e.name}|
+        ).value
+
+      prevented_extra =
+        compile_and_decode(
+          rt,
+          ~S|let t={x:1}; Object.preventExtensions(t); let p=new Proxy(t,{ownKeys(){return ["x","y"]}}); try{Reflect.ownKeys(p)}catch(e){e.name}|
+        ).value
+
+      prevented_exact =
+        compile_and_decode(
+          rt,
+          ~S|let t={x:1}; Object.preventExtensions(t); let p=new Proxy(t,{ownKeys(){return ["x"]}}); Reflect.ownKeys(p).length|
+        ).value
+
       assert {:ok, "TypeError"} = Compiler.invoke(missing, [])
       assert {:ok, "TypeError"} = Compiler.invoke(extra, [])
       assert {:ok, 1} = Compiler.invoke(exact, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(prevented_missing, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(prevented_extra, [])
+      assert {:ok, 1} = Compiler.invoke(prevented_exact, [])
     end
 
     test "rejects duplicate proxy ownKeys trap results", %{rt: rt} do

@@ -62,6 +62,24 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       true
     end
 
+    method "preventExtensions" do
+      case hd(args) do
+        {:obj, ref} ->
+          Heap.prevent_extensions(ref)
+          true
+
+        _ ->
+          false
+      end
+    end
+
+    method "isExtensible" do
+      case hd(args) do
+        {:obj, ref} -> Heap.extensible?(ref)
+        _ -> false
+      end
+    end
+
     method "has" do
       [obj, key | _] = args
       Put.has_property(obj, key)
@@ -124,7 +142,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
   end
 
   defp non_extensible_key_mismatch?({:obj, ref}, target_keys, trap_keys) do
-    Heap.frozen?(ref) and Enum.sort(target_keys) != Enum.sort(trap_keys)
+    not Heap.extensible?(ref) and Enum.sort(target_keys) != Enum.sort(trap_keys)
   end
 
   defp non_extensible_key_mismatch?(_, _, _), do: false
