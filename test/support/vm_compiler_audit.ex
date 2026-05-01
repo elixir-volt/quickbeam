@@ -120,6 +120,9 @@ defmodule QuickBEAM.VM.CompilerAudit do
     long_if_body = Enum.map_join(1..300, ";", fn _ -> "x=x+1" end)
     long_else_body = Enum.map_join(1..1000, ";", fn _ -> "x=x+1" end)
 
+    custom_iterator =
+      "let it={ [Symbol.iterator](){ return { i:0, next(){ return this.i++ < 2 ? {value:this.i, done:false} : {done:true}; } } } };"
+
     high_value_cases = [
       {"call zero args", "function f(){ return 3; } f()"},
       {"call two args", "function f(a, b){ return a * 10 + b; } f(2, 3)"},
@@ -207,6 +210,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"array destructuring", "let [a,,b] = [1,2,3]; b"},
       {"object destructuring", "let {x: y} = {x: 3}; y"},
       {"for of destructuring", "let s=0; for (const [x] of [[1],[2]]) s += x; s"},
+      {"custom iterator loop", custom_iterator <> "let s=0; for (let x of it) s+=x; s"},
       {"computed object key", "let k = 'x'; let o = {[k]: 5}; o.x"},
       {"computed function name", "let k='x'; let o = { [k]: function(){} }; o.x.name"},
       {"template expression", "let x = 4; `a${x + 1}`"},
