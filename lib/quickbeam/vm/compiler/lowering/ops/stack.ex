@@ -176,6 +176,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
       %Bytecode.Function{} ->
         lower_fclosure(state, constants, arg_count, idx)
 
+      {:template_object, _elems, _raw} = value ->
+        {:ok,
+         State.push(
+           state,
+           State.compiler_call(state, :materialize_constant, [Builder.literal(value)]),
+           :object
+         )}
+
       _ ->
         {:error, {:unsupported_const, idx}}
     end

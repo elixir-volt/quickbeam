@@ -1,12 +1,14 @@
 - Target remaining hard VM compiler opcode families with broad semantic cases rather than file-specific fixtures:
   - async/generator: `await`, `yield`, `yield_star`, `initial_yield`, `return_async`, `for_await_of_start` (probed; current compiler result diverges from interpreter for promise/generator values)
-  - dynamic scope/ref ops: `apply_eval`, `with_make_ref`, `with_put_var`, `with_get_ref`, `with_get_ref_undef`, `make_*_ref`, `get_ref_value`, `put_ref_value` (plain `with_get_var`/`with_delete_var` are now covered only for safe property-present cases)
-  - stack permutation/control edges: `dup1/3`, `perm*`, `rot*`, `swap2`, wide `goto/if_*`, and non-trivial `gosub`/`ret`/finally paths
-  - mutable captured refs: `put_var_ref*`, `set_var_ref*`, and `make_*_ref` variants beyond the captured-argument read cases now covered
+  - dynamic scope/ref ops: `apply_eval`, `with_make_ref`, `with_put_var`, `with_get_ref`, `with_get_ref_undef`, `make_*_ref`, `get_ref_value`, `put_ref_value` (plain `with_get_var`/`with_delete_var` are covered only for safe property-present cases; `with_get_ref` probes currently crash)
+  - remaining stack/control edges: `dup1`, `nip1`, `perm5`, `rot3l/3r/4l/5l`, `swap2`, generic `goto`, and non-trivial `gosub`/`ret`/finally paths
+  - remaining local/argument mutation forms: `add_loc`, `inc_loc`, `dec_loc`, `put_arg*`, `put_loc`, `set_loc*`; very-wide local probes hit BEAM arity limits, so avoid keeping them until lowering handles large frames differently
 - Improve `vm_compiler_opcode_coverage` to report total opcode universe, percent coverage, and missing opcodes by family so coverage improvements are measurable.
 - Fix semantic gaps before adding these cases to the audited corpus:
-  - array elision (`[,1,,2].length`) currently compiles to an array with incorrect length
   - `with` assignment needs `with_make_ref`/branch-aware lowering
   - derived constructors returning primitives should surface the same JS throw as the interpreter rather than crashing
   - async/generator top-level results currently normalize differently between compiler and interpreter
+  - tagged template member-call constants and computed class values expose lowering gaps
+  - array elision is now covered after binding object-literal field targets once; keep an eye on future aggregate literal regressions
+  - custom iterator loop coverage currently matches compiler/interpreter at `0`, which suggests a shared iterator runtime semantic gap outside the compiler-differential objective
 - If corpus expansion exposes semantic bugs, prefer routing risky BEAM-specialized arithmetic/bitwise paths through JS runtime helpers over preserving unsafe raw BEAM operations.

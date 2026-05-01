@@ -123,6 +123,8 @@ defmodule QuickBEAM.VM.CompilerAudit do
     custom_iterator =
       "let it={ [Symbol.iterator](){ return { i:0, next(){ return this.i++ < 2 ? {value:this.i, done:false} : {done:true}; } } } };"
 
+    many_string_globals = Enum.map_join(0..299, ";", fn idx -> "let s#{idx}='#{idx}'" end)
+
     high_value_cases = [
       {"call zero args", "function f(){ return 3; } f()"},
       {"call two args", "function f(a, b){ return a * 10 + b; } f(2, 3)"},
@@ -214,6 +216,10 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"computed object key", "let k = 'x'; let o = {[k]: 5}; o.x"},
       {"computed function name", "let k='x'; let o = { [k]: function(){} }; o.x.name"},
       {"template expression", "let x = 4; `a${x + 1}`"},
+      {"tagged array element",
+       "function tag(strings){return strings.raw[0]}; let a=[tag]; a[0]`x`"},
+      {"wide tagged template constant",
+       many_string_globals <> "; function tag(strings){return strings.raw[0]}; tag`x`"},
       {"regexp replace", "'aa'.replace(/a/g, 'b')"},
       {"array map", "[1, 2, 3].map(x => x + 1).join(',')"},
       {"optional call", "let o = { f() { return 7; } }; o.f?.()"},
