@@ -806,7 +806,12 @@ cases = [
   {"event constructor type", "new Event('tick', {bubbles:true}).type"},
   {"event constructor bubbles", "new Event('tick', {bubbles:true}).bubbles"},
   {"regexp dotAll test", "/a.b/s.test('a\\nb')"},
-  {"regexp flags unicode dotAll", "/./su.flags"}
+  {"regexp flags unicode dotAll", "/./su.flags"},
+  {"symbol registry equality", "Symbol.for('x')===Symbol.for('x')"},
+  {"symbol registry keyFor", "Symbol.keyFor(Symbol.for('x'))"},
+  {"symbol description", "Symbol('x').description"},
+  {"bigint toString", "(10n).toString()"},
+  {"bigint add", "1n + 2n"}
 ]
 
 auto_cases = [

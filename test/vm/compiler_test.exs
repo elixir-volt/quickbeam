@@ -286,6 +286,20 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, false} = Compiler.invoke(strict, [])
     end
 
+    test "compiles Symbol and BigInt runtime edges", %{rt: rt} do
+      symbol_for = compile_and_decode(rt, "Symbol.for('x')===Symbol.for('x')").value
+      symbol_key = compile_and_decode(rt, "Symbol.keyFor(Symbol.for('x'))").value
+      symbol_description = compile_and_decode(rt, "Symbol('x').description").value
+      bigint_to_string = compile_and_decode(rt, "(10n).toString()").value
+      bigint_add = compile_and_decode(rt, "1n + 2n").value
+
+      assert {:ok, true} = Compiler.invoke(symbol_for, [])
+      assert {:ok, "x"} = Compiler.invoke(symbol_key, [])
+      assert {:ok, "x"} = Compiler.invoke(symbol_description, [])
+      assert {:ok, "10"} = Compiler.invoke(bigint_to_string, [])
+      assert {:ok, {:bigint, 3}} = Compiler.invoke(bigint_add, [])
+    end
+
     test "compiles TDZ and nested private-brand edges", %{rt: rt} do
       typeof_tdz = compile_and_decode(rt, "try { typeof x } catch(e) { e.name } let x=1").value
       assert {:ok, "undefined"} = Compiler.invoke(typeof_tdz, [])
