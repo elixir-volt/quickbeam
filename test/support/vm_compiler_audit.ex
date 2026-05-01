@@ -118,6 +118,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
 
     long_assignment_sequence = Enum.map_join(1..500, ",", fn _ -> "x=x+1" end)
     long_if_body = Enum.map_join(1..300, ";", fn _ -> "x=x+1" end)
+    long_else_body = Enum.map_join(1..1000, ";", fn _ -> "x=x+1" end)
 
     high_value_cases = [
       {"call zero args", "function f(){ return 3; } f()"},
@@ -159,6 +160,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
        "let x = 3; let y = 0; switch (x) { case 1: y = 1; break; default: y = 9; } y"},
       {"wide if false", "let x=0; if (x===0) { #{long_if_body}; } x"},
       {"wide logical or", "let x=1; x || (#{long_assignment_sequence}); x"},
+      {"wide goto", "let x=0; if (x===0) { x=1; } else { #{long_else_body}; } x"},
       {"try finally", "let x = 1; try { x = 2; } finally { x = x + 3; } x"},
       {"catch rethrow avoided", "let x = 0; try { throw 5; } catch (e) { x = e; } x"},
       {"object mutation", "let o = {}; o.x = 1; o.y = o.x + 2; o"},
