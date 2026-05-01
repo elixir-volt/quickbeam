@@ -785,7 +785,9 @@ cases = [
   {"object keys numeric order", "Object.keys({2:1,1:1,a:1}).join(',')"},
   {"object values numeric order", "Object.values({2:'b',1:'a',z:'c'}).join(',')"},
   {"object entries numeric order",
-   "Object.entries({2:'b',1:'a',z:'c'}).map(e=>e[0]+e[1]).join(',')"}
+   "Object.entries({2:'b',1:'a',z:'c'}).map(e=>e[0]+e[1]).join(',')"},
+  {"object prototype hasOwnProperty", "({x:1}).hasOwnProperty('x')"},
+  {"object prototype toString", "({}).toString()"}
 ]
 
 auto_cases = [

@@ -218,6 +218,14 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "1a,2b,zc"} = Compiler.invoke(entries, [])
     end
 
+    test "reads default Object prototype methods", %{rt: rt} do
+      has_own = compile_and_decode(rt, "({x:1}).hasOwnProperty('x')").value
+      to_string = compile_and_decode(rt, "({}).toString()").value
+
+      assert {:ok, true} = Compiler.invoke(has_own, [])
+      assert {:ok, "[object Object]"} = Compiler.invoke(to_string, [])
+    end
+
     test "compiles function calls through arguments", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(f,x){return f(x)})") |> user_function()
       callback = {:builtin, "double", fn [x], _ -> x * 2 end}

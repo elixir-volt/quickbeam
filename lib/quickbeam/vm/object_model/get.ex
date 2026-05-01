@@ -357,6 +357,9 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
                 get_prototype_raw(proto, key)
             end
 
+          nil ->
+            get_default_object_prototype({:obj, ref}, key)
+
           _ ->
             get_from_prototype(proto, key)
         end
@@ -431,7 +434,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
             get(Map.get(map, proto()), key)
 
           true ->
-            :undefined
+            get_default_object_prototype({:obj, ref}, key)
         end
 
       _ ->
@@ -494,6 +497,15 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     do: Function.proto_property(fun, key)
 
   defp get_from_prototype(_, _), do: :undefined
+
+  defp get_default_object_prototype(obj, key) do
+    proto = Heap.get_object_prototype() || Object.build_prototype()
+
+    case proto do
+      {:obj, _} = proto when proto != obj -> get(proto, key)
+      _ -> :undefined
+    end
+  end
 
   defp fallback_to_function_proto(:undefined, fun, key), do: Function.proto_property(fun, key)
   defp fallback_to_function_proto(val, _fun, _key), do: val
