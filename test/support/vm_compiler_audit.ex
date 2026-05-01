@@ -250,6 +250,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"function expression name", "let f = function(){}; f.name"},
       {"named class expression", "let C = class {}; C.name"},
       {"eval expression", "eval('1+2')"},
+      {"eval spread", "eval(...['1+2'])"},
       {"direct eval arguments", "function f(){ return eval('arguments[0]') } f(7)"},
       {"eval var increment", "function f(){ var x=1; eval(''); x++; return x } f()"},
       {"eval var decrement", "function f(){ var x=1; eval(''); x--; return x } f()"},
