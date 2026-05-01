@@ -234,6 +234,27 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, false} = Compiler.invoke(miss, [])
     end
 
+    test "compiles Reflect property mutation helpers", %{rt: rt} do
+      delete_property =
+        compile_and_decode(rt, "let o={x:1}; Reflect.deleteProperty(o,'x'); o.x===undefined").value
+
+      define_property =
+        compile_and_decode(
+          rt,
+          "let o={}; Reflect.defineProperty(o,'x',{value:2, enumerable:true}); o.x"
+        ).value
+
+      non_enumerable =
+        compile_and_decode(
+          rt,
+          "let o={}; Reflect.defineProperty(o,'x',{value:2, enumerable:false}); Object.keys(o).length"
+        ).value
+
+      assert {:ok, true} = Compiler.invoke(delete_property, [])
+      assert {:ok, 2} = Compiler.invoke(define_property, [])
+      assert {:ok, 0} = Compiler.invoke(non_enumerable, [])
+    end
+
     test "compiles runtime constructor and regexp feature calls", %{rt: rt} do
       url_can_parse = compile_and_decode(rt, "URL.canParse('https://x.test/')").value
       event_type = compile_and_decode(rt, "new Event('tick', {bubbles:true}).type").value

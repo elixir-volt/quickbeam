@@ -4,8 +4,9 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
   use QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter
-  alias QuickBEAM.VM.ObjectModel.{Get, Put}
+  alias QuickBEAM.VM.ObjectModel.{Delete, Get, Put}
   alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Runtime.Object
 
   js_object "Reflect" do
     method "apply" do
@@ -43,6 +44,16 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
     method "set" do
       [obj, key, val | _] = args
       Put.put(obj, key, val)
+      true
+    end
+
+    method "deleteProperty" do
+      [obj, key | _] = args
+      Delete.delete_property(obj, key)
+    end
+
+    method "defineProperty" do
+      Object.static_property("defineProperty") |> Runtime.call_callback(args)
       true
     end
 
