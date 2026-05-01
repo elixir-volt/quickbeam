@@ -1558,10 +1558,31 @@ defmodule QuickBEAM.VM.CompilerTest do
           ~S|function* g(){ yield* "😀a" } let it=g(); it.next().value.length|
         ).value
 
+      sent =
+        compile_and_decode(
+          rt,
+          "function* g(){ yield* [1,2]; return 3 } let it=g(); it.next(); it.next(8).value"
+        ).value
+
+      returned_early =
+        compile_and_decode(
+          rt,
+          "function* g(){ yield* [1,2]; return 3 } let it=g(); it.next(); it.return(9).value"
+        ).value
+
+      custom_return =
+        compile_and_decode(
+          rt,
+          "let state={closed:0}; let iter={ [Symbol.iterator](){return this}, next(){return {value:1,done:false}}, return(v){state.closed=v; return {value:9,done:true}}}; function* g(){ yield* iter; return state.closed } let it=g(); it.next(); it.return(7).value"
+        ).value
+
       assert {:ok, 1} = Compiler.invoke(first, [])
       assert {:ok, 2} = Compiler.invoke(second, [])
       assert {:ok, 3} = Compiler.invoke(returned, [])
       assert {:ok, 2} = Compiler.invoke(astral, [])
+      assert {:ok, 2} = Compiler.invoke(sent, [])
+      assert {:ok, 9} = Compiler.invoke(returned_early, [])
+      assert {:ok, 7} = Compiler.invoke(custom_return, [])
     end
 
     test "returns resolved values from compiled async functions", %{rt: rt} do

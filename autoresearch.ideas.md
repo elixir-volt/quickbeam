@@ -10,7 +10,7 @@
   - uninvoked async/generator/import bytecode, lexical-this `put_var_ref_check_init`, and uninvoked `for await` iterator-result bytecode are covered for compile/opcode coverage
   - invoked simple generator `.next()`, multi-`next`, return-value, `.return()`, and sync delegated `yield*` over arrays/strings now have clean semantic audit coverage
   - invoked async function return, await-value, await-resolved-promise, nested await, chained promise, caught throw, rejected-promise catch, multi-await, and Promise.all flows now have clean semantic audit coverage
-  - sync `yield_star` now has semantic guardrails for array and string delegation; `async_yield_star` still needs semantic alignment before it can be correctness-audited
+  - sync `yield_star` now has semantic guardrails for array/string delegation, sent values, early `.return()`, and custom iterator return side effects; `async_yield_star` still needs semantic alignment before it can be correctness-audited
   - dynamic `import()` rejection message/stack now matches for the curated no-runtime invalid-specifier case; runtime-backed module loading should still be broadened separately
 - `vm_compiler_opcode_coverage` now reports total opcode universe, coverage percentage, missing count, and grouped missing opcodes; keep these diagnostics current if opcode metadata changes.
 - Fix semantic gaps before adding these cases to the invoked audited corpus:
