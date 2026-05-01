@@ -226,6 +226,14 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "[object Object]"} = Compiler.invoke(to_string, [])
     end
 
+    test "compiles typed array includes", %{rt: rt} do
+      hit = compile_and_decode(rt, "new Uint8Array([1,2,3]).includes(2)").value
+      miss = compile_and_decode(rt, "new Uint8Array([1,2,3]).includes(4)").value
+
+      assert {:ok, true} = Compiler.invoke(hit, [])
+      assert {:ok, false} = Compiler.invoke(miss, [])
+    end
+
     test "compiles function calls through arguments", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(f,x){return f(x)})") |> user_function()
       callback = {:builtin, "double", fn [x], _ -> x * 2 end}

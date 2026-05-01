@@ -787,7 +787,9 @@ cases = [
   {"object entries numeric order",
    "Object.entries({2:'b',1:'a',z:'c'}).map(e=>e[0]+e[1]).join(',')"},
   {"object prototype hasOwnProperty", "({x:1}).hasOwnProperty('x')"},
-  {"object prototype toString", "({}).toString()"}
+  {"object prototype toString", "({}).toString()"},
+  {"typed array includes hit", "new Uint8Array([1,2,3]).includes(2)"},
+  {"typed array includes miss", "new Uint8Array([1,2,3]).includes(4)"}
 ]
 
 auto_cases = [
