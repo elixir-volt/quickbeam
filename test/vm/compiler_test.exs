@@ -494,6 +494,30 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert_compiled.("Object('x').valueOf()", "x")
     end
 
+    test "compiles Symbol.hasInstance overrides", %{rt: rt} do
+      class_override =
+        compile_and_decode(
+          rt,
+          "class C{}; Object.defineProperty(C, Symbol.hasInstance, {value(){return true}}); ({} instanceof C)"
+        ).value
+
+      function_override =
+        compile_and_decode(
+          rt,
+          "function C(){}; Object.defineProperty(C, Symbol.hasInstance, {value(){return true}}); ({} instanceof C)"
+        ).value
+
+      false_override =
+        compile_and_decode(
+          rt,
+          "function C(){}; Object.defineProperty(C, Symbol.hasInstance, {value(){return false}}); new C() instanceof C"
+        ).value
+
+      assert {:ok, true} = Compiler.invoke(class_override, [])
+      assert {:ok, true} = Compiler.invoke(function_override, [])
+      assert {:ok, false} = Compiler.invoke(false_override, [])
+    end
+
     test "compiles Symbol and BigInt runtime edges", %{rt: rt} do
       symbol_for = compile_and_decode(rt, "Symbol.for('x')===Symbol.for('x')").value
       symbol_key = compile_and_decode(rt, "Symbol.keyFor(Symbol.for('x'))").value

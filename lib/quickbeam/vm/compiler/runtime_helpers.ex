@@ -838,12 +838,24 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   @doc "Applies JavaScript `instanceof` semantics."
-  def instanceof({:obj, _} = obj, ctor) do
+  def instanceof(obj, ctor) do
+    has_instance = Get.get(ctor, {:symbol, "Symbol.hasInstance"})
+
+    if has_instance != :undefined and has_instance != nil and Builtin.callable?(has_instance) do
+      has_instance
+      |> Invocation.invoke_with_receiver([obj], Runtime.gas_budget(), ctor)
+      |> Values.truthy?()
+    else
+      ordinary_instanceof(obj, ctor)
+    end
+  end
+
+  defp ordinary_instanceof({:obj, _} = obj, ctor) do
     ctor_proto = Get.get(ctor, "prototype")
     prototype_chain_contains?(obj, ctor_proto)
   end
 
-  def instanceof(_obj, _ctor), do: false
+  defp ordinary_instanceof(_obj, _ctor), do: false
 
   def get_length(obj), do: Get.length_of(obj)
 

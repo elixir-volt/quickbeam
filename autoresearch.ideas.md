@@ -28,7 +28,8 @@
   - `Promise.reject` caught through `await` still differs from the interpreter oracle for some shapes.
   - `yield*`/delegated generator paths still return `undefined` in compiled mode for value/return cases.
   - direct eval declaration cases and missing/unsupported builtins often mismatch only by stack/source diagnostics; preserve stack comparisons rather than weakening the audit.
-  - `queueMicrotask`, proxy invariant enforcement, tag-call captured side effects/`raw` template strings, static block captured lexical writes, iterator close with captured lexical writes, Symbol.hasInstance, and astral string edge cases beyond basic for-of/spread need product investigation before inclusion.
+  - `queueMicrotask`, proxy invariant enforcement, tag-call captured side effects/`raw` template strings, static block captured lexical writes, iterator close with captured lexical writes, and astral string edge cases beyond basic for-of/spread need product investigation before inclusion.
   - Static block object-state/constructor side effects and static-field ordering now have clean guardrails; direct captured lexical writes still diverge.
   - Boxed primitive constructor/prototype basics (`Number`, `String`, `Boolean` valueOf/toString/concat and boxed string UTF-16 length) now have clean guardrails after unwrapping wrapper objects before prototype dispatch.
+  - Symbol.hasInstance overrides on functions/classes now have clean guardrails, including false overrides on constructed instances.
   - Reflect basics (`construct`, `apply`, `get`, `set`, `has`, `ownKeys`, `deleteProperty`, `defineProperty`) and basic Proxy `get`/`has`/callable `apply`/`construct`/`ownKeys` traps now have clean guardrails; remaining Proxy work should focus on invariant enforcement.

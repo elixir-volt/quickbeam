@@ -66,6 +66,9 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     end
   end
 
+  def get(value, {:symbol, _} = sym_key), do: get_own(value, sym_key)
+  def get(value, {:symbol, _, _} = sym_key), do: get_own(value, sym_key)
+
   def get(_, _), do: :undefined
 
   @doc "Invokes a getter function with the provided receiver."
