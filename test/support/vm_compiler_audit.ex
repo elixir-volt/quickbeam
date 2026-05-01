@@ -126,6 +126,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"return arg1", "function f(a,b){return b;} f(1,2)"},
       {"return arg2", "function f(a,b,c){return c;} f(1,2,3)"},
       {"return arg3", "function f(a,b,c,d){return d;} f(1,2,3,4)"},
+      {"return arg4", "function f(a,b,c,d,e){return e;} f(1,2,3,4,5)"},
       {"set arg1", "function f(a,b){ b=5; return b;} f(1,2)"},
       {"set arg2", "function f(a,b,c){ c=5; return c;} f(1,2,3)"},
       {"set arg3", "function f(a,b,c,d){ d=5; return d;} f(1,2,3,4)"},
