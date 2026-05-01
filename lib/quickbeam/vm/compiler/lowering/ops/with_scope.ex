@@ -5,7 +5,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
   alias QuickBEAM.VM.ObjectModel.{Delete, Get, Put}
 
   @doc "Lowers a bytecode instruction or function into compiler IR."
-  def lower(state, name_args) do
+  def lower(state, next_entry, stack_depths, name_args) do
     case name_args do
       {{:ok, name}, [atom_idx, _target, _is_with]}
       when name in [:with_get_var, :with_get_ref, :with_get_ref_undef] ->
@@ -43,14 +43,54 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
           )
         end
 
-      {{:ok, :with_make_ref}, [atom_idx, _target, _is_with]} ->
-        with {:ok, obj, state} <- State.pop(state) do
-          key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
-          {:ok, state |> State.push(obj, :object) |> State.push(key, :string)}
-        end
+      {{:ok, :with_make_ref}, [atom_idx, target, _is_with]} ->
+        lower_with_make_ref(state, next_entry, stack_depths, atom_idx, target)
 
       _ ->
         :not_handled
+    end
+  end
+
+  defp lower_with_make_ref(state, next_entry, stack_depths, atom_idx, target) do
+    with {:ok, obj, state} <- State.pop(state) do
+      key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+      target_state = state |> State.push(obj, :object) |> State.push(key, :string)
+
+      branch_with_has_property(state, target_state, next_entry, stack_depths, obj, key, target)
+    end
+  end
+
+  defp branch_with_has_property(state, target_state, next_entry, stack_depths, obj, key, target) do
+    branch_with_has_property(
+      state,
+      target_state,
+      state,
+      next_entry,
+      stack_depths,
+      obj,
+      key,
+      target
+    )
+  end
+
+  defp branch_with_has_property(
+         state,
+         target_state,
+         next_state,
+         next_entry,
+         stack_depths,
+         obj,
+         key,
+         target
+       ) do
+    with {:ok, target_call} <- State.block_jump_call(target_state, target, stack_depths),
+         {:ok, next_call} <- State.block_jump_call(next_state, next_entry, stack_depths) do
+      condition = State.compiler_call(state, :with_has_property, [obj, key])
+
+      body =
+        Enum.reverse([Builder.branch_case(condition, [next_call], [target_call]) | state.body])
+
+      {:done, body}
     end
   end
 end

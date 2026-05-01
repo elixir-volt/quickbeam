@@ -372,14 +372,19 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def get_ref_value(_ctx, key, obj) when is_binary(key), do: Get.get(obj, key)
   def get_ref_value(_ctx, _key, _), do: :undefined
 
-  def put_ref_value(_ctx \\ nil, val, ref)
+  def put_ref_value(_ctx \\ nil, val, key, ref)
 
-  def put_ref_value(_ctx, val, {:cell, _} = cell) do
+  def put_ref_value(_ctx, val, _key, {:cell, _} = cell) do
     Closures.write_cell(cell, val)
     val
   end
 
-  def put_ref_value(_ctx, val, _), do: val
+  def put_ref_value(_ctx, val, key, obj) when is_binary(key) do
+    Put.put(obj, key, val)
+    val
+  end
+
+  def put_ref_value(_ctx, val, _key, _), do: val
 
   @doc "Reads a variable from a compiled context or throws when absent."
   def fetch_ctx_var(ctx, name) do
@@ -824,6 +829,21 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def import_module(specifier) do
     QuickBEAM.VM.PromiseState.rejected(Heap.make_error("Cannot import #{specifier}", "TypeError"))
   end
+
+  def with_has_property(_ctx, {:obj, _} = obj, key) do
+    if Put.has_property(obj, key) do
+      unscopables = Get.get(obj, {:symbol, "Symbol.unscopables"})
+
+      case unscopables do
+        {:obj, _} -> not Values.truthy?(Get.get(unscopables, key))
+        _ -> true
+      end
+    else
+      false
+    end
+  end
+
+  def with_has_property(_ctx, _obj, _key), do: false
 
   # ── Iterators ──
 

@@ -1032,6 +1032,14 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "B"} = Compiler.invoke(fun, [])
     end
 
+    test "compiles with-scope property assignment references", %{rt: rt} do
+      assignment = compile_and_decode(rt, "let o={x:1}; with(o){ x=2; } o.x").value
+      update = compile_and_decode(rt, "let o={x:1}; with(o){ x++; } o.x").value
+
+      assert {:ok, 2} = Compiler.invoke(assignment, [])
+      assert {:ok, 2} = Compiler.invoke(update, [])
+    end
+
     test "compiles derived constructors returning objects", %{rt: rt} do
       fun =
         compile_and_decode(

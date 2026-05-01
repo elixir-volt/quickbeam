@@ -158,6 +158,9 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
       {{:ok, :catch}, [target]} ->
         {:catch, target, idx}
 
+      {{:ok, :with_make_ref}, [_atom_idx, target, _is_with]} ->
+        {:branch, target, idx}
+
       {{:ok, name}, [target]} when name in [:goto, :goto8, :goto16] ->
         {:goto, target, idx}
 
@@ -176,10 +179,21 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
     do: Map.update(preds, target, [pred_end], &[pred_end | &1])
 
   defp protected_target?(instructions, target) do
-    Enum.any?(instructions, fn {op, args} ->
+    instructions
+    |> Enum.with_index()
+    |> Enum.any?(fn {{op, args}, idx} ->
       case {opcode_name(op), args} do
-        {{:ok, name}, [^target]} when name in [:catch, :gosub] -> true
-        _ -> false
+        {{:ok, name}, [^target]} when name in [:catch, :gosub] ->
+          true
+
+        {{:ok, :with_make_ref}, [_atom_idx, ^target, _is_with]} ->
+          true
+
+        {{:ok, :with_make_ref}, [_atom_idx, _branch_target, _is_with]} ->
+          target == idx + 1
+
+        _ ->
+          false
       end
     end)
   end

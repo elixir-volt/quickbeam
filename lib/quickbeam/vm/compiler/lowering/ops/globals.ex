@@ -201,12 +201,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
 
   defp lower_put_ref_value(state) do
     with {:ok, val, state} <- State.pop(state),
-         {:ok, _key, state} <- State.pop(state),
+         {:ok, key, state} <- State.pop(state),
          {:ok, ref, state} <- State.pop(state) do
       {:ok,
        %{
          state
-         | body: [State.compiler_call(state, :put_ref_value, [val, ref]) | state.body]
+         | body: [State.compiler_call(state, :put_ref_value, [val, key, ref]) | state.body]
        }}
     end
   end
