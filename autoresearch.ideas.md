@@ -8,14 +8,15 @@
 - Large local frames now use tuple-mode compiled block arguments above the slot threshold, so generic `get_loc`, `put_loc`, and `set_loc` coverage is no longer blocked by BEAM arity limits.
 - Async/generator invocation semantics remain partially deferred:
   - uninvoked async/generator/import bytecode, lexical-this `put_var_ref_check_init`, and uninvoked `for await` iterator-result bytecode are covered for compile/opcode coverage
-  - invoked simple generator `.next()` now resumes through `initial_yield`/`yield` correctly
-  - `yield_star`, `async_yield_star`, invoked async function promise-vs-unwrapped return behavior, and broader `await` semantics still need semantic alignment before they can be correctness-audited
+  - invoked simple generator `.next()`, multi-`next`, return-value, and `.return()` paths now have clean semantic audit coverage through `initial_yield`/`yield`
+  - invoked async function return, await-value, await-resolved-promise, nested await, chained promise, caught throw, and rejected-promise catch flows now have clean semantic audit coverage
+  - `yield_star` and `async_yield_star` still need semantic alignment before they can be correctness-audited
   - dynamic `import()` rejection message/stack now matches for the curated no-runtime invalid-specifier case; runtime-backed module loading should still be broadened separately
 - `vm_compiler_opcode_coverage` now reports total opcode universe, coverage percentage, missing count, and grouped missing opcodes; keep these diagnostics current if opcode metadata changes.
 - Fix semantic gaps before adding these cases to the invoked audited corpus:
-  - branch-aware `with` reference lowering is now implemented for `with_make_ref` property hits and global/unscopables fallback writes; captured/local fallback refs still need careful validation before broad invoked corpus expansion
-  - derived constructors returning primitives should surface the same JS throw and stack location as the interpreter rather than crashing; a simple catch/normalize attempt was discarded because stack location still diverged
-  - invoked computed class values still diverge because the interpreter reports an unimplemented opcode for at least one top-level object-literal class-expression shape
-  - custom iterator loop coverage currently matches compiler/interpreter at `0`, suggesting a shared iterator runtime semantic gap outside the compiler-differential objective
+  - branch-aware `with` reference lowering is now implemented for `with_make_ref` property hits and global/unscopables fallback writes; captured fallback/update/unscopables cases now have audit coverage, but with-object method-call resolution still diverges (`with(o){ m() }` can raise `ReferenceError` in compiled mode)
+  - derived constructors returning primitives, undefined, objects, and `new.target` propagation now have semantic audit coverage
+  - computed class values now have invoked semantic audit coverage for the simple object-literal case
+  - custom iterator loop value now has semantic audit coverage, but broader iterator correctness still deserves product-level tests because earlier coverage-only probes suggested shared runtime gaps
   - non-strict argument-object aliasing cases cover `put_arg*` against the interpreter oracle, but currently return original argument values after parameter writes; verify separately if product-correctness becomes the target
 - If corpus expansion exposes semantic bugs, prefer routing risky BEAM-specialized arithmetic/bitwise paths through JS runtime helpers over preserving unsafe raw BEAM operations.

@@ -47,7 +47,31 @@ cases = [
    "class A { constructor(){ this.v = new.target.name } } class B extends A { constructor(){ super() } } new B().v"},
   {"computed class value invoked", "let o={ [class C{}]: 1 }; 1"},
   {"custom iterator loop value",
-   "let it={ [Symbol.iterator](){ return { i:0, next(){ return this.i++ < 1 ? {value:7, done:false} : {done:true}; } } } }; let s=0; for (let x of it) s+=x; s"}
+   "let it={ [Symbol.iterator](){ return { i:0, next(){ return this.i++ < 1 ? {value:7, done:false} : {done:true}; } } } }; let s=0; for (let x of it) s+=x; s"},
+  {"with fallback delete global", "var x=1; let o={}; with(o){ delete x } x"},
+  {"with unscopables read fallback",
+   "var x=1; let o={x:2,[Symbol.unscopables]:{x:true}}; with(o){ x }"},
+  {"async multiple awaits sum",
+   "async function f(){ let a=await 1; let b=await 2; return a+b } f()"},
+  {"async promise all length",
+   "async function f(){ let r = await Promise.all([Promise.resolve(1), Promise.resolve(2)]); return r.length } f()"},
+  {"generator next done flag", "function* g(){ yield 1 } let it=g(); it.next(); it.next().done"},
+  {"generator send ignored first",
+   "function* g(){ let x = yield 1; return x } let it=g(); it.next(5).value"},
+  {"generator send second",
+   "function* g(){ let x = yield 1; return x } let it=g(); it.next(); it.next(7).value"},
+  {"derived super argument",
+   "class A { constructor(x){ this.x=x } } class B extends A { constructor(){ super(5) } } new B().x"},
+  {"super method call",
+   "class A { m(){ return 1 } } class B extends A { m(){ return super.m()+1 } } new B().m()"},
+  {"private field method", "class A { #x=1; m(){ return this.#x } } new A().m()"},
+  {"array destructuring default", "let [a=3] = []; a"},
+  {"object spread override", "let o={...{x:1}, x:2}; o.x"},
+  {"optional chain method", "let o={x:1,m(){return this.x}}; o?.m()"},
+  {"nullish assignment", "let x=null; x ??= 3; x"},
+  {"logical assignment", "let x=0; x ||= 4; x"},
+  {"regexp exec group", "/(a+)/.exec('aa')[1]"},
+  {"typed array value", "let a=new Uint8Array(2); a[0]=255; a[0]"}
 ]
 
 results =
