@@ -270,6 +270,8 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"unused async yield star", "async function* g(){ yield* [1,2]; } 1"},
       {"eval var increment", "function f(){ var x=1; eval(''); x++; return x } f()"},
       {"eval var decrement", "function f(){ var x=1; eval(''); x--; return x } f()"},
+      {"eval captured var assignment",
+       "function f(){ var x=1; function g(){ eval(''); x=2; return x }; return g() } f()"},
       {"with delete", "let o={x:1}; with(o){ delete x; } 'x' in o"},
       {"derived constructor return object",
        "class A{}; class B extends A { constructor(){ super(); return {x:1}; } } new B().x"},
