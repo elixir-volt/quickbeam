@@ -28,10 +28,10 @@
   - `Promise.reject` caught through `await` still differs from the interpreter oracle for some shapes.
   - `yield*`/delegated generator paths still return `undefined` in compiled mode for value/return cases.
   - direct eval declaration cases and missing/unsupported builtins often mismatch only by stack/source diagnostics; preserve stack comparisons rather than weakening the audit.
-  - proxy invariant enforcement, tag-call captured side effects/`raw` template strings, static block captured lexical writes, iterator close with captured lexical writes, boxed string iterator lookup, and yield* edge cases need product investigation before inclusion.
+  - proxy invariant enforcement, tag-call captured side effects/`raw` template strings, static block captured lexical writes, iterator close with captured lexical writes, array prototype `Symbol.iterator`, and yield* edge cases need product investigation before inclusion.
   - Static block object-state/constructor side effects and static-field ordering now have clean guardrails; direct captured lexical writes still diverge.
   - Boxed primitive constructor/prototype basics (`Number`, `String`, `Boolean` valueOf/toString/concat and boxed string UTF-16 length) now have clean guardrails after unwrapping wrapper objects before prototype dispatch.
-  - Astral string guardrails now cover Array.from, spread, for-of element lengths, and direct primitive `String.prototype[Symbol.iterator]` use by codepoint. Boxed string iterator lookup and yield* over strings still diverge.
+  - Astral string guardrails now cover Array.from, spread, for-of element lengths, direct primitive `String.prototype[Symbol.iterator]` use, and boxed string iterator lookup by codepoint. Array prototype `Symbol.iterator` and yield* over strings still diverge.
   - Captured local reads now refresh from capture cells after nested calls, guarding direct assignment, increment, compound assignment, and transitive nested-call families. Captured argument cells disagree with the interpreter oracle, and top-level/static-block plus iterator-close captured lexical writes still diverge.
   - queueMicrotask now has clean guardrails for deferred state, promise-observed state after microtask drain, and swallowed task errors.
   - Top-level compiled promise continuations now drain and unwrap resolved promises, so direct `Promise.reject(...).catch(...)` and throw-through-then catch chains have clean guardrails. Rejected async returns/caught rejected-await shapes still differ from the interpreter oracle and need separate normalization work.

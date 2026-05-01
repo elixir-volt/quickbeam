@@ -1539,6 +1539,23 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(fun, [])
     end
 
+    test "supports boxed string iterators", %{rt: rt} do
+      object_box =
+        compile_and_decode(
+          rt,
+          ~S|let it=Object("ab")[Symbol.iterator](); it.next().value + it.next().value|
+        ).value
+
+      constructor_box =
+        compile_and_decode(
+          rt,
+          ~S|let it=new String("😀a"); let iter=it[Symbol.iterator](); iter.next().value + iter.next().value|
+        ).value
+
+      assert {:ok, "ab"} = Compiler.invoke(object_box, [])
+      assert {:ok, "😀a"} = Compiler.invoke(constructor_box, [])
+    end
+
     test "supports direct primitive string iterators", %{rt: rt} do
       astral =
         compile_and_decode(

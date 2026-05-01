@@ -48,28 +48,29 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   def get(value, key) when is_integer(key),
     do: get(value, Integer.to_string(key))
 
-  def get({:obj, ref} = value, {:symbol, _} = sym_key) do
-    data = Heap.get_obj_raw(ref)
-
-    map_data =
-      case data do
-        map when is_map(map) -> map
-        {:shape, _, _, _, _} -> Heap.get_obj(ref, %{})
-        _ -> %{}
-      end
-
-    case is_map(map_data) && Map.get(map_data, sym_key) do
-      {:accessor, getter, _} when getter != nil -> call_getter(getter, value)
-      nil -> :undefined
-      false -> :undefined
-      val -> val
-    end
-  end
+  def get({:obj, _} = value, {:symbol, _} = sym_key), do: get_symbol(value, sym_key)
+  def get({:obj, _} = value, {:symbol, _, _} = sym_key), do: get_symbol(value, sym_key)
 
   def get(value, {:symbol, _} = sym_key), do: get_own(value, sym_key)
   def get(value, {:symbol, _, _} = sym_key), do: get_own(value, sym_key)
 
   def get(_, _), do: :undefined
+
+  defp get_symbol(value, sym_key) do
+    case get_own(value, sym_key) do
+      :undefined ->
+        case get_prototype_raw(value, sym_key) do
+          {:accessor, getter, _} when getter != nil -> call_getter(getter, value)
+          val -> val
+        end
+
+      {:accessor, getter, _} when getter != nil ->
+        call_getter(getter, value)
+
+      val ->
+        val
+    end
+  end
 
   @doc "Invokes a getter function with the provided receiver."
   def call_getter(fun, this_obj) do
