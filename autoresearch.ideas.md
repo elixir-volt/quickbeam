@@ -1,8 +1,7 @@
-- Remaining parity clusters in later script audit windows:
-  - strict function/arrow body early errors: `"use strict"` with non-simple params, nested strict function declarations with reserved bindings
-  - async/generator strict-context errors for `await`/`yield` identifiers in async/generator functions and class methods
-  - direct assignment target edge cases for arrow/yield/parenthesized object expressions
-  - destructuring assignment rest/nested invalid target edge cases
-  - precise class field initializer early errors for `arguments`/`super`
-- Expand the NIF-vs-BEAM parser audit harness into a checked script or Mix task that compares acceptance across script and module inputs without relying on Test262 raw flags incorrectly.
-- Revisit Token struct allocation/performance ideas after parity work: compact token representation, avoiding per-token lexer state map updates, and parser hot-path profiling.
+- Target remaining hard VM compiler opcode families with broad semantic cases rather than file-specific fixtures:
+  - async/generator: `await`, `yield`, `yield_star`, `initial_yield`, `return_async`, `for_await_of_start`
+  - dynamic scope/ref ops: `eval`, `apply_eval`, `with_*`, `make_*_ref`, `get_ref_value`, `put_ref_value`
+  - private/class/super edges: `define_private_field`, `get_private_field`, `put_private_field`, `private_in`, `private_symbol`, computed class methods, `get_super_value`, `put_super_value`
+  - stack permutation/control edges: `dup1/2/3`, `insert*`, `nip*`, `perm*`, `rot*`, `swap2`, `gosub`/`ret`/finally
+- Improve `vm_compiler_opcode_coverage` to report total opcode universe, percent coverage, and missing opcodes by family so coverage improvements are measurable.
+- If corpus expansion exposes semantic bugs, prefer routing risky BEAM-specialized arithmetic/bitwise paths through JS runtime helpers over preserving unsafe raw BEAM operations.
