@@ -253,6 +253,8 @@ defmodule QuickBEAM.VM.CompilerAudit do
        "class A { set x(v){ this.y=v } } class B extends A { m(){ super.x = 3; return this.y; } } new B().m()"},
       {"super compound assignment",
        "class A { get x(){return 1} set x(v){this.y=v} } class B extends A { m(){ super.x += 2; return this.y } } new B().m()"},
+      {"super post increment return",
+       "class A { get x(){return 1} set x(v){this.y=v} } class B extends A { m(){ return super.x++ } } new B().m()"},
       {"computed class method", "let k='m'; class A { [k](){ return 1; } } new A().m()"},
       {"computed static method", "let k='m'; class A { static [k](){ return 1; } } A.m()"},
       {"object proto literal", "let p={x:1}; let o={__proto__:p}; o.x"},
