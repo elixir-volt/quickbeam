@@ -22,9 +22,8 @@
   - non-strict argument-object aliasing cases cover `put_arg*` against the interpreter oracle, but currently return original argument values after parameter writes; verify separately if product-correctness becomes the target
 - If corpus expansion exposes semantic bugs, prefer routing risky BEAM-specialized arithmetic/bitwise paths through JS runtime helpers over preserving unsafe raw BEAM operations.
 - Fresh semantic divergences seen during coverage broadening; fix before adding to clean audit:
-  - `Array.prototype.indexOf` can return `true` in compiled mode where interpreter returns numeric index.
   - nested `try/finally` throw/catch control flow can produce different final values.
   - `Promise.reject` caught through `await` still differs from the interpreter oracle for some shapes.
   - `yield*`/delegated generator paths still return `undefined` in compiled mode for value/return cases.
   - direct eval declaration cases and missing/unsupported builtins often mismatch only by stack/source diagnostics; preserve stack comparisons rather than weakening the audit.
-  - `queueMicrotask`, `String.prototype.replaceAll` literal/context-order behavior, RegExp unicode/dotAll, Reflect/Proxy constructor/apply/ownKeys, object prototype helper methods, typed-array includes/indexOf, Date/URL/Number context-order behavior, Event constructor, URL.canParse, nested private-brand handling, tag-call `this` binding, static block side effects, strict/sloppy `this` binding, TDZ typeof, iterator close, object key ordering, Symbol.hasInstance, astral string iteration, padEnd, Math.min no-args, and boxed primitive constructor cases need product investigation before inclusion.
+  - `queueMicrotask`, RegExp unicode/dotAll, Reflect/Proxy constructor/apply/ownKeys, object prototype helper methods, typed-array includes/indexOf, Event constructor, URL.canParse, nested private-brand handling, tag-call `this` binding, static block side effects, strict/sloppy `this` binding, TDZ typeof, iterator close, Symbol.hasInstance, astral string edge cases beyond spread, and boxed primitive constructor cases need product investigation before inclusion.

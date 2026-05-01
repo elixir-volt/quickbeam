@@ -203,6 +203,21 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert %{"x" => 5} = Heap.get_obj(ref)
     end
 
+    test "enumerates numeric object literal keys", %{rt: rt} do
+      keys = compile_and_decode(rt, "Object.keys({2:1,1:1,a:1}).join(',')").value
+      values = compile_and_decode(rt, "Object.values({2:'b',1:'a',z:'c'}).join(',')").value
+
+      entries =
+        compile_and_decode(
+          rt,
+          "Object.entries({2:'b',1:'a',z:'c'}).map(e=>e[0]+e[1]).join(',')"
+        ).value
+
+      assert {:ok, "1,2,a"} = Compiler.invoke(keys, [])
+      assert {:ok, "a,b,c"} = Compiler.invoke(values, [])
+      assert {:ok, "1a,2b,zc"} = Compiler.invoke(entries, [])
+    end
+
     test "compiles function calls through arguments", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(f,x){return f(x)})") |> user_function()
       callback = {:builtin, "double", fn [x], _ -> x * 2 end}

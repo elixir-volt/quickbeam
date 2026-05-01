@@ -781,7 +781,11 @@ cases = [
   {"delete array element missing", "let a=[1]; delete a[0]; 0 in a"},
   {"delete array element read", "let a=[1]; delete a[0]; a[0] === undefined"},
   {"atom cache distinct pad start", "'x'.padStart(3,'a')"},
-  {"atom cache distinct pad end", "'x'.padEnd(3,'a')"}
+  {"atom cache distinct pad end", "'x'.padEnd(3,'a')"},
+  {"object keys numeric order", "Object.keys({2:1,1:1,a:1}).join(',')"},
+  {"object values numeric order", "Object.values({2:'b',1:'a',z:'c'}).join(',')"},
+  {"object entries numeric order",
+   "Object.entries({2:'b',1:'a',z:'c'}).map(e=>e[0]+e[1]).join(',')"}
 ]
 
 auto_cases = [

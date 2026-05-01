@@ -8,6 +8,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   alias QuickBEAM.VM.Bytecode
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Values
+  alias QuickBEAM.VM.ObjectModel.Get
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.TypedArray
 
@@ -353,35 +354,74 @@ defmodule QuickBEAM.VM.Runtime.Object do
         array_indices(list)
 
       map when is_map(map) ->
-        raw =
-          case Map.get(map, key_order()) do
-            order when is_list(order) -> Enum.reverse(order)
-            _ -> Map.keys(map)
-          end
-
-        Runtime.sort_numeric_keys(raw)
-        |> Enum.filter(fn k ->
-          not String.starts_with?(k, "__") and
-            Map.has_key?(map, k) and
-            not match?(%{enumerable: false}, Heap.get_prop_desc(ref, k))
-        end)
+        map
+        |> enumerable_key_pairs()
+        |> Enum.map(fn {key, _raw_key} -> key end)
+        |> Runtime.sort_numeric_keys()
+        |> Enum.filter(fn key -> enumerable_object_key?(ref, map, key) end)
 
       _ ->
         []
     end
   end
 
-  defp values([{:obj, ref} | _]) do
-    map = Heap.get_obj(ref, %{})
-    Heap.wrap(Enum.map(enumerable_keys(ref), fn k -> Map.get(map, k) end))
+  defp enumerable_key_pairs(map) do
+    raw =
+      case Map.get(map, key_order()) do
+        order when is_list(order) -> Enum.reverse(order)
+        _ -> Map.keys(map)
+      end
+
+    Enum.flat_map(raw, fn
+      key when is_binary(key) -> [{key, key}]
+      key when is_integer(key) and key >= 0 -> [{Integer.to_string(key), key}]
+      _ -> []
+    end)
+  end
+
+  defp enumerable_object_key?(ref, map, key) do
+    raw_key = if Map.has_key?(map, key), do: key, else: parse_array_index_key(key)
+
+    is_binary(key) and not String.starts_with?(key, "__") and
+      raw_key != :error and Map.has_key?(map, raw_key) and
+      not match?(%{enumerable: false}, Heap.get_prop_desc(ref, raw_key))
+  end
+
+  defp parse_array_index_key(key) do
+    case Integer.parse(key) do
+      {idx, ""} when idx >= 0 -> idx
+      _ -> :error
+    end
+  end
+
+  defp enumerable_value(obj, map, key) when is_map(map) do
+    raw_key = parse_array_index_key(key)
+
+    cond do
+      Map.has_key?(map, key) -> Map.get(map, key)
+      raw_key != :error and Map.has_key?(map, raw_key) -> Map.get(map, raw_key)
+      true -> Get.get(obj, key)
+    end
+  end
+
+  defp enumerable_value(obj, _data, key), do: Get.get(obj, key)
+
+  defp values([{:obj, ref} = obj | _]) do
+    data = Heap.get_obj(ref, %{})
+    Heap.wrap(Enum.map(enumerable_keys(ref), fn key -> enumerable_value(obj, data, key) end))
   end
 
   defp values([map | _]) when is_map(map), do: Map.values(map)
   defp values(_), do: []
 
-  defp entries([{:obj, ref} | _]) do
-    map = Heap.get_obj(ref, %{})
-    pairs = Enum.map(enumerable_keys(ref), fn k -> Heap.wrap([k, Map.get(map, k)]) end)
+  defp entries([{:obj, ref} = obj | _]) do
+    data = Heap.get_obj(ref, %{})
+
+    pairs =
+      Enum.map(enumerable_keys(ref), fn key ->
+        Heap.wrap([key, enumerable_value(obj, data, key)])
+      end)
+
     Heap.wrap(pairs)
   end
 
