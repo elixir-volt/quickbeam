@@ -127,6 +127,13 @@ missing_groups =
   |> Enum.group_by(family_for)
   |> Enum.sort_by(fn {family, _opcodes} -> family end)
 
+known_blockers = %{
+  invalid: "intentional sentinel; do not fabricate invalid bytecode for coverage",
+  nip1: "rare stack permutation; no natural source form found in corpus/probes",
+  nop: "optimizer padding opcode; no natural retained bytecode found in corpus/probes",
+  with_get_ref_undef: "with-reference variant; no natural source form found in corpus/probes"
+}
+
 IO.puts(
   "compiler_opcode_functions=#{length(rows)} compiler_opcode_unique=#{length(opcode_counts)} compiler_opcode_total=#{length(all_opcodes)} compiler_opcode_missing=#{length(missing_opcodes)} compiler_opcode_coverage_percent=#{coverage_percent} compiler_opcode_unsupported=#{length(unsupported_counts)} compiler_compile_error_groups=#{length(compile_errors)}"
 )
@@ -147,6 +154,10 @@ for {family, opcodes} <- missing_groups do
   )
 end
 
+for opcode <- missing_opcodes, note = Map.get(known_blockers, opcode) do
+  IO.puts("COMPILER_MISSING_OPCODE_NOTE opcode=#{opcode} note=#{note}")
+end
+
 for {reason, count} <- compile_errors do
   IO.puts("COMPILER_COMPILE_ERROR count=#{count} reason=#{reason}")
 end
@@ -156,6 +167,6 @@ IO.puts("METRIC compiler_opcode_unique=#{length(opcode_counts)}")
 IO.puts("METRIC compiler_opcode_total=#{length(all_opcodes)}")
 IO.puts("METRIC compiler_opcode_missing=#{length(missing_opcodes)}")
 IO.puts("METRIC compiler_opcode_coverage_percent=#{coverage_percent}")
-IO.puts("METRIC compiler_opcode_report_fields=8")
+IO.puts("METRIC compiler_opcode_report_fields=9")
 IO.puts("METRIC compiler_opcode_unsupported=#{length(unsupported_counts)}")
 IO.puts("METRIC compiler_compile_error_groups=#{length(compile_errors)}")

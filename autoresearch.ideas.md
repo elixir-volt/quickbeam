@@ -9,7 +9,7 @@
 - Async/generator invocation semantics remain deferred:
   - uninvoked async/generator/import bytecode, lexical-this `put_var_ref_check_init`, and uninvoked `for await` iterator-result bytecode are covered for compile/opcode coverage
   - invoked `await`, `yield`, `yield_star`, `return_async`, and dynamic `import()` still need semantic alignment before they can be correctness-audited
-- Improve `vm_compiler_opcode_coverage` to report total opcode universe, percent coverage, and missing opcodes by family so coverage improvements are easier to triage.
+- `vm_compiler_opcode_coverage` now reports total opcode universe, coverage percentage, missing count, and grouped missing opcodes; keep these diagnostics current if opcode metadata changes.
 - Fix semantic gaps before adding these cases to the invoked audited corpus:
   - branch-aware `with` reference lowering compatible with `insert3`/`perm4`/`put_ref_value`, including fallback to global/captured refs and `Symbol.unscopables`
   - derived constructors returning primitives should surface the same JS throw as the interpreter rather than crashing
