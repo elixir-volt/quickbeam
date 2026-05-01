@@ -393,6 +393,16 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, :undefined} = Compiler.invoke(fun, [Heap.wrap(%{"x" => 7})])
     end
 
+    test "compiles array element delete as a hole", %{rt: rt} do
+      missing = compile_and_decode(rt, "let a=[1]; delete a[0]; 0 in a").value
+      read = compile_and_decode(rt, "let a=[1]; delete a[0]; a[0] === undefined").value
+      length = compile_and_decode(rt, "let a=[1,2]; delete a[0]; a.length").value
+
+      assert {:ok, false} = Compiler.invoke(missing, [])
+      assert {:ok, true} = Compiler.invoke(read, [])
+      assert {:ok, 2} = Compiler.invoke(length, [])
+    end
+
     test "compiles instanceof", %{rt: rt} do
       fun =
         compile_and_decode(rt, "(function(obj, ctor){ return obj instanceof ctor })")

@@ -23,7 +23,6 @@
 - If corpus expansion exposes semantic bugs, prefer routing risky BEAM-specialized arithmetic/bitwise paths through JS runtime helpers over preserving unsafe raw BEAM operations.
 - Fresh semantic divergences seen during coverage broadening; fix before adding to clean audit:
   - `Array.prototype.indexOf` can return `true` in compiled mode where interpreter returns numeric index.
-  - `delete a[0]` can leave compiled `0 in a` true where interpreter removes the element.
   - nested `try/finally` throw/catch control flow can produce different final values.
   - `Promise.reject` caught through `await` still differs from the interpreter oracle for some shapes.
   - `yield*`/delegated generator paths still return `undefined` in compiled mode for value/return cases.

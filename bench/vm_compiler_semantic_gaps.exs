@@ -777,7 +777,9 @@ cases = [
   {"eval with ref assignment",
    "function f(){ var x=1; function g(){ eval(''); x=2; return x }; return g() } f()"},
   {"spread ascii string", "[...'ab'].join('')"},
-  {"spread astral string", "[...'😀'].length"}
+  {"spread astral string", "[...'😀'].length"},
+  {"delete array element missing", "let a=[1]; delete a[0]; 0 in a"},
+  {"delete array element read", "let a=[1]; delete a[0]; a[0] === undefined"}
 ]
 
 auto_cases = [
