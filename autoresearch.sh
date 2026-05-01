@@ -41,6 +41,9 @@ case "${PARSER_BENCH:-compat}" in
   vm_compiler_perf)
     bench_output=$(mix run bench/vm_compiler_perf.exs 2>&1)
     ;;
+  vm_compiler_semantics)
+    bench_output=$(mix run bench/vm_compiler_semantic_gaps.exs 2>&1)
+    ;;
   quickjs_audit_exunit)
     set +e
     bench_output=$(mix test test/js/parser/quickjs_acceptance_audit_test.exs --only quickjs_acceptance_audit --formatter ExUnit.CLIFormatter 2>&1)
