@@ -1539,6 +1539,30 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(fun, [])
     end
 
+    test "enforces proxy set invariants", %{rt: rt} do
+      mismatch =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:false, writable:false}); let p=new Proxy(t,{set(){return true}}); try{p.x=2; 0}catch(e){e.name}|
+        ).value
+
+      same =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:false, writable:false}); let p=new Proxy(t,{set(){return true}}); p.x=1; p.x|
+        ).value
+
+      false_trap =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:false, writable:false}); let p=new Proxy(t,{set(){return false}}); p.x=2; p.x|
+        ).value
+
+      assert {:ok, "TypeError"} = Compiler.invoke(mismatch, [])
+      assert {:ok, 1} = Compiler.invoke(same, [])
+      assert {:ok, 1} = Compiler.invoke(false_trap, [])
+    end
+
     test "enforces proxy get invariants", %{rt: rt} do
       mismatch =
         compile_and_decode(

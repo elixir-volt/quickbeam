@@ -141,7 +141,12 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         set_trap = Get.get(handler, "set")
 
         if set_trap != :undefined do
-          Runtime.call_callback(set_trap, [target, key, val])
+          validate_proxy_set_invariant(
+            target,
+            key,
+            val,
+            Runtime.call_callback(set_trap, [target, key, val])
+          )
         else
           put(target, key, val)
         end
@@ -589,6 +594,28 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   def set_list_at(list, i, val) when is_integer(i) and i >= 0,
     do: list ++ List.duplicate(:undefined, max(0, i - length(list))) ++ [val]
+
+  defp validate_proxy_set_invariant({:obj, target_ref} = target, key, val, trap_result) do
+    if Values.truthy?(trap_result) do
+      desc = Heap.get_prop_desc(target_ref, key)
+      target_value = Get.get(target, key)
+
+      cond do
+        match?(%{configurable: false, writable: false}, desc) and val !== target_value ->
+          JSThrow.type_error!("proxy set trap violates invariant")
+
+        match?(%{configurable: false}, desc) and match?({:accessor, _, nil}, target_value) ->
+          JSThrow.type_error!("proxy set trap violates invariant")
+
+        true ->
+          trap_result
+      end
+    else
+      trap_result
+    end
+  end
+
+  defp validate_proxy_set_invariant(_target, _key, _val, trap_result), do: trap_result
 
   defp sync_global_this?(obj, key, val) when is_binary(key) do
     case Heap.get_ctx() do
