@@ -37,7 +37,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
          :not_handled <- Globals.lower(state, name_args),
          :not_handled <- Arithmetic.lower(state, name_args),
          :not_handled <- Objects.lower(state, name_args),
-         :not_handled <- Calls.lower(state, name_args),
+         :not_handled <- Calls.lower(state, idx, name_args),
          :not_handled <-
            Control.lower(state, idx, next_entry, stack_depths, inline_targets, name_args),
          :not_handled <- Iterators.lower(state, name_args),

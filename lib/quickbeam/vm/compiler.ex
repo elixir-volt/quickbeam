@@ -12,9 +12,14 @@ defmodule QuickBEAM.VM.Compiler do
     depth = Heap.get_invoke_depth()
     Heap.put_invoke_depth(depth + 1)
 
-    result = Runner.invoke(fun, args)
-
-    Heap.put_invoke_depth(depth)
+    result =
+      try do
+        Runner.invoke(fun, args)
+      catch
+        {:js_throw, error} -> {:error, {:js_throw, error}}
+      after
+        Heap.put_invoke_depth(depth)
+      end
 
     if depth == 0 and Heap.gc_needed?() do
       extra =

@@ -876,7 +876,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
-  def invoke_constructor_call(state, argc) do
+  def invoke_constructor_call(state, argc, pc) do
     with {:ok, args, _arg_types, state} <- pop_n_typed(state, argc),
          {:ok, new_target, _new_target_type, state} <- pop_typed(state),
          {:ok, ctor, _ctor_type, state} <- pop_typed(state) do
@@ -885,7 +885,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
         compiler_call(state, :construct_runtime, [
           ctor,
           new_target,
-          Builder.list_expr(Enum.reverse(args))
+          Builder.list_expr(Enum.reverse(args)),
+          Builder.integer(pc)
         ]),
         :object
       )

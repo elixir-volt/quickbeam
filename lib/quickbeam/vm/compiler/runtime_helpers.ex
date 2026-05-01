@@ -528,8 +528,39 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def construct_runtime(ctx, ctor, new_target, args),
     do: Invocation.construct_runtime(ctx, ctor, new_target, args)
 
+  def construct_runtime(ctx, ctor, new_target, args, call_pc) do
+    previous = Process.get(:qb_constructor_call_stack)
+    Process.put(:qb_constructor_call_stack, compiled_stack(ctx, call_pc))
+
+    try do
+      construct_runtime(ctx, ctor, new_target, args)
+    after
+      if previous,
+        do: Process.put(:qb_constructor_call_stack, previous),
+        else: Process.delete(:qb_constructor_call_stack)
+    end
+  end
+
   def construct_runtime(ctor, new_target, args),
     do: Invocation.construct_runtime(ctor, new_target, args)
+
+  def check_ctor_return(ctx, val) do
+    case Class.check_ctor_return(val) do
+      {replace_with_this?, checked_val} ->
+        {replace_with_this?, checked_val}
+
+      :error ->
+        throw(
+          {:js_throw,
+           make_error_with_ctx(
+             ctx,
+             "Derived constructors may only return object or undefined",
+             "TypeError",
+             Process.get(:qb_constructor_call_stack)
+           )}
+        )
+    end
+  end
 
   def init_ctor(ctx) do
     current_func = context_current_func(ctx)
@@ -841,22 +872,28 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     QuickBEAM.VM.PromiseState.rejected(Heap.make_error("Invalid module specifier", "TypeError"))
   end
 
-  defp make_error_with_ctx(ctx, message, name) do
+  defp make_error_with_ctx(ctx, message, name, stack_override \\ nil) do
     previous_ctx = Heap.get_ctx()
     Heap.put_ctx(ensure_context(ctx))
 
     try do
       Heap.make_error(message, name)
-      |> ensure_compiled_stack(ctx)
+      |> ensure_compiled_stack(ctx, stack_override)
     after
       if previous_ctx, do: Heap.put_ctx(previous_ctx), else: Heap.put_ctx(nil)
     end
   end
 
-  defp ensure_compiled_stack({:obj, ref} = error, ctx) do
+  defp ensure_compiled_stack({:obj, ref} = error, ctx, stack_override) do
+    stack = stack_override || compiled_stack(ctx)
+
     case Get.get(error, "stack") do
       "" ->
-        Heap.update_obj(ref, %{}, &Map.put(&1, "stack", compiled_stack(ctx)))
+        Heap.update_obj(ref, %{}, &Map.put(&1, "stack", stack))
+        error
+
+      _ when stack_override != nil ->
+        Heap.update_obj(ref, %{}, &Map.put(&1, "stack", stack))
         error
 
       _ ->
@@ -864,7 +901,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
-  defp ensure_compiled_stack(error, _ctx), do: error
+  defp ensure_compiled_stack(error, _ctx, _stack_override), do: error
 
   defp compiled_stack(ctx) do
     case context_current_func(ctx) do
@@ -877,6 +914,19 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
       _ ->
         ""
     end
+  end
+
+  defp compiled_stack(ctx, pc) do
+    case context_current_func(ctx) do
+      %Bytecode.Function{} = fun -> stack_for_pc(fun, pc)
+      {:closure, _captures, %Bytecode.Function{} = fun} -> stack_for_pc(fun, pc)
+      _ -> ""
+    end
+  end
+
+  defp stack_for_pc(%Bytecode.Function{} = fun, pc) do
+    {line, col} = Bytecode.source_position(fun, pc)
+    "    at #{fun.filename}:#{line}:#{col}"
   end
 
   def with_has_property(_ctx, {:obj, _} = obj, key) do

@@ -379,7 +379,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
     isolated(fn ->
       case Interpreter.eval(fun, [], %{gas: @gas}, atoms) do
         {:ok, value} -> {:ok, normalize(value)}
-        {:error, reason} -> {:error, reason}
+        {:error, reason} -> {:error, normalize(reason)}
       end
     end)
   end
@@ -393,7 +393,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
           case Compiler.invoke(fun, []) do
             {:ok, value} -> {:ok, normalize(value)}
             :error -> {:fallback, :invoke_returned_error}
-            {:error, reason} -> {:error, reason}
+            {:error, reason} -> {:error, normalize(reason)}
           end
 
         {:error, reason} ->
@@ -457,6 +457,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
     end
   end
 
+  defp normalize({:js_throw, value}), do: {:js_throw, normalize(value)}
   defp normalize({:obj, ref}), do: normalize_heap_object(Heap.get_obj(ref))
   defp normalize({:closure, _captures, %Bytecode.Function{}}), do: :function
   defp normalize({:builtin, name, callback}) when is_function(callback), do: {:builtin, name}

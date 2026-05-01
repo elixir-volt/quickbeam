@@ -4,10 +4,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Calls do
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, State}
 
   @doc "Lowers a bytecode instruction or function into compiler IR."
-  def lower(state, name_args) do
+  def lower(state, idx, name_args) do
     case name_args do
       {{:ok, :call_constructor}, [argc]} ->
-        State.invoke_constructor_call(state, argc)
+        State.invoke_constructor_call(state, argc, idx)
 
       {{:ok, :call}, [argc]} ->
         State.invoke_call(state, argc)
