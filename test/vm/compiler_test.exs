@@ -1710,6 +1710,15 @@ defmodule QuickBEAM.VM.CompilerTest do
       constructor_resolve_thenable =
         compile_and_decode(rt, ~S|new Promise(resolve=>resolve({then(r){r(5)}})).then(x=>x+1)|).value
 
+      throwing_then_getter =
+        compile_and_decode(
+          rt,
+          ~S|let o={}; Object.defineProperty(o,"then",{get(){throw 5}}); Promise.resolve(o).catch(e=>e+1)|
+        ).value
+
+      noncallable_then =
+        compile_and_decode(rt, ~S|Promise.resolve({then:5}).then(x=>x.then)|).value
+
       assert {:ok, 3} = Compiler.invoke(all_reject, [])
       assert {:ok, 3} = Compiler.invoke(any_all_reject, [])
       assert {:ok, "AggregateError"} = Compiler.invoke(any_empty, [])
@@ -1731,6 +1740,8 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 6} = Compiler.invoke(resolve_thenable, [])
       assert {:ok, 6} = Compiler.invoke(resolve_throwing_thenable, [])
       assert {:ok, 6} = Compiler.invoke(constructor_resolve_thenable, [])
+      assert {:ok, 6} = Compiler.invoke(throwing_then_getter, [])
+      assert {:ok, 5} = Compiler.invoke(noncallable_then, [])
     end
 
     test "normalizes compiled async rejections for promise chains", %{rt: rt} do
