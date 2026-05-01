@@ -6,7 +6,6 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   alias QuickBEAM.VM.Compiler.GeneratorIterator
   alias QuickBEAM.VM.Interpreter.Context
   alias QuickBEAM.VM.ObjectModel.{Class, Functions}
-  alias QuickBEAM.VM.PromiseState, as: Promise
 
   @doc "Invokes the runtime object represented by this module."
   def invoke(%Bytecode.Function{} = fun, args), do: invoke(fun, args, nil)
@@ -135,11 +134,10 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   end
 
   defp compiled_async_invoke(compiled, ctx, args) do
-    result = apply_compiled(compiled, ctx, args)
-    Promise.resolved(result)
+    apply_compiled(compiled, ctx, args)
   catch
-    {:generator_return, val} -> Promise.resolved(val)
-    {:js_throw, val} -> Promise.rejected(val)
+    {:generator_return, val} -> val
+    {:js_throw, _} = thrown -> throw(thrown)
   end
 
   defp compiled_async_gen_invoke(compiled, ctx, args) do

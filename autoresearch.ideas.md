@@ -6,13 +6,15 @@
   - `with_make_ref`, `make_arg_ref`, `make_loc_ref`, `make_var_ref`, `make_var_ref_ref`, `get_ref_value`, and `put_ref_value` are covered.
   - Invoked `with` assignment/update/miss/unscopable behavior is **not** solved; multiple naive lowering models were tried and reverted because they mismatched interpreter results.
 - Large local frames now use tuple-mode compiled block arguments above the slot threshold, so generic `get_loc`, `put_loc`, and `set_loc` coverage is no longer blocked by BEAM arity limits.
-- Async/generator invocation semantics remain deferred:
+- Async/generator invocation semantics remain partially deferred:
   - uninvoked async/generator/import bytecode, lexical-this `put_var_ref_check_init`, and uninvoked `for await` iterator-result bytecode are covered for compile/opcode coverage
-  - invoked `await`, `yield`, `yield_star`, `return_async`, and dynamic `import()` still need semantic alignment before they can be correctness-audited
+  - invoked simple generator `.next()` now resumes through `initial_yield`/`yield` correctly
+  - `yield_star`, `async_yield_star`, invoked async function promise-vs-unwrapped return behavior, and broader `await` semantics still need semantic alignment before they can be correctness-audited
+  - dynamic `import()` rejection message/stack now matches for the curated no-runtime invalid-specifier case; runtime-backed module loading should still be broadened separately
 - `vm_compiler_opcode_coverage` now reports total opcode universe, coverage percentage, missing count, and grouped missing opcodes; keep these diagnostics current if opcode metadata changes.
 - Fix semantic gaps before adding these cases to the invoked audited corpus:
   - branch-aware `with` reference lowering is now implemented for `with_make_ref` property hits and global/unscopables fallback writes; captured/local fallback refs still need careful validation before broad invoked corpus expansion
-  - derived constructors returning primitives should surface the same JS throw as the interpreter rather than crashing
+  - derived constructors returning primitives should surface the same JS throw and stack location as the interpreter rather than crashing; a simple catch/normalize attempt was discarded because stack location still diverged
   - invoked computed class values still diverge because the interpreter reports an unimplemented opcode for at least one top-level object-literal class-expression shape
   - custom iterator loop coverage currently matches compiler/interpreter at `0`, suggesting a shared iterator runtime semantic gap outside the compiler-differential objective
   - non-strict argument-object aliasing cases cover `put_arg*` against the interpreter oracle, but currently return original argument values after parameter writes; verify separately if product-correctness becomes the target

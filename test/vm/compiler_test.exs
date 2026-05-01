@@ -1058,6 +1058,12 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(fun, [])
     end
 
+    test "returns resolved values from compiled async functions", %{rt: rt} do
+      fun = compile_and_decode(rt, "async function f(){ return 1 } f()").value
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
     test "compiles derived constructors returning objects", %{rt: rt} do
       fun =
         compile_and_decode(
