@@ -251,6 +251,8 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"named class expression", "let C = class {}; C.name"},
       {"eval expression", "eval('1+2')"},
       {"direct eval arguments", "function f(){ return eval('arguments[0]') } f(7)"},
+      {"eval var increment", "function f(){ var x=1; eval(''); x++; return x } f()"},
+      {"eval var decrement", "function f(){ var x=1; eval(''); x--; return x } f()"},
       {"with delete", "let o={x:1}; with(o){ delete x; } 'x' in o"},
       {"derived constructor return object",
        "class A{}; class B extends A { constructor(){ super(); return {x:1}; } } new B().x"},
