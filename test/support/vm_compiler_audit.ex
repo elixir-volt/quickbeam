@@ -166,6 +166,8 @@ defmodule QuickBEAM.VM.CompilerAudit do
        "function f(){ let a=1,b=2,c=3; function g(){ return c; } return g(); } f()"},
       {"capture fourth local",
        "function f(){ let a=1,b=2,c=3,d=4; function g(){ return d; } return g(); } f()"},
+      {"capture arguments",
+       "function f(a,b,c,d){ function g(){ return a+b+c+d; } return g(); } f(1,2,3,4)"},
       {"constructor fields", "function A(x) { this.x = x; } let a = new A(4); a.x"},
       {"class static", "class A { static x = 3; static m() { return this.x + 1; } } A.m()"},
       {"spread call", "function f(a, b, c) { return a + b + c; } f(...[1, 2, 3])"},
