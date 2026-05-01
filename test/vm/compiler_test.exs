@@ -459,10 +459,20 @@ defmodule QuickBEAM.VM.CompilerTest do
           "let receiver; function tag(){receiver=this; return 1}; tag`x`; receiver===globalThis"
         ).value
 
+      tag_raw =
+        compile_and_decode(
+          rt,
+          "function tag(strings){return strings.raw[0]}; tag`a\\\\nb`"
+        ).value
+
+      string_raw = compile_and_decode(rt, "String.raw`a\\\\nb`").value
+
       assert {:ok, true} = Compiler.invoke(tag_this, [])
       assert {:ok, 2} = Compiler.invoke(tag_length, [])
       assert {:ok, "a2b"} = Compiler.invoke(tag_expr, [])
       assert {:ok, true} = Compiler.invoke(tag_receiver, [])
+      assert {:ok, "a\\\\nb"} = Compiler.invoke(tag_raw, [])
+      assert {:ok, "a\\\\nb"} = Compiler.invoke(string_raw, [])
     end
 
     test "compiles static block object and constructor side effects", %{rt: rt} do

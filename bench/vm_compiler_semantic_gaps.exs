@@ -1012,6 +1012,8 @@ cases = [
   {"tagged template strings length", "function tag(strings){return strings.length}; tag`a${1}b`"},
   {"tagged template expression",
    "function tag(strings, v){return strings[0]+v+strings[1]}; tag`a${2}b`"},
+  {"tagged template raw string", "function tag(strings){return strings.raw[0]}; tag`a\\\\nb`"},
+  {"String.raw template", "String.raw`a\\\\nb`"},
   {"iterator close lexical side effect",
    "let closed=0; let it={ [Symbol.iterator](){return this}, next(){return {value:1,done:false}}, return(){closed=1; return {done:true}}}; for (let x of it) { break; } closed"},
   {"nested finally throw catch",
