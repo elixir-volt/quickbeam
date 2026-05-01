@@ -1539,6 +1539,23 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(fun, [])
     end
 
+    test "normalizes compiled async rejections for promise chains", %{rt: rt} do
+      thrown = compile_and_decode(rt, "async function f(){throw 1} f().catch(e=>e+1)").value
+
+      rejected_await =
+        compile_and_decode(
+          rt,
+          "async function f(){return await Promise.reject(1)} f().catch(e=>e+1)"
+        ).value
+
+      fulfilled_then =
+        compile_and_decode(rt, "async function f(){return 1} f().then(x=>x+1)").value
+
+      assert {:ok, 2} = Compiler.invoke(thrown, [])
+      assert {:ok, 2} = Compiler.invoke(rejected_await, [])
+      assert {:ok, 2} = Compiler.invoke(fulfilled_then, [])
+    end
+
     test "enforces frozen target proxy ownKeys invariants", %{rt: rt} do
       missing =
         compile_and_decode(
