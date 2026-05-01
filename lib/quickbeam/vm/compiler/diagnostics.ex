@@ -7,12 +7,7 @@ defmodule QuickBEAM.VM.Compiler.Diagnostics do
 
   @unsupported_opcodes [
     :invalid,
-    :with_get_var,
-    :with_put_var,
-    :with_delete_var,
-    :with_make_ref,
-    :with_get_ref,
-    :with_get_ref_undef
+    :with_make_ref
   ]
 
   @doc "Check if a function can be compiled. Returns :ok or {:error, reasons}."
