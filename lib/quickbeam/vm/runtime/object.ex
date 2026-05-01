@@ -8,6 +8,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   alias QuickBEAM.VM.Bytecode
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Values
+  alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.TypedArray
@@ -537,7 +538,40 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp property_present?(_existing, _prop_name), do: false
 
-  defp define_property([{:obj, ref} = obj, key, {:obj, desc_ref} | _]) do
+  defp define_proxy_property(proxy, proxy_map, key, prop_name, desc_obj) do
+    target = Map.fetch!(proxy_map, proxy_target())
+    handler = Map.fetch!(proxy_map, proxy_handler())
+    trap = Get.get(handler, "defineProperty")
+
+    cond do
+      trap == :undefined or trap == nil ->
+        define_property([target, key, desc_obj])
+        proxy
+
+      not Values.truthy?(Invocation.invoke_callback_or_throw(trap, [target, prop_name, desc_obj])) ->
+        throw(
+          {:js_throw, Heap.make_error("proxy defineProperty trap returned false", "TypeError")}
+        )
+
+      proxy_define_property_invariant_violation?(target, prop_name) ->
+        throw(
+          {:js_throw,
+           Heap.make_error("proxy defineProperty trap violates invariant", "TypeError")}
+        )
+
+      true ->
+        proxy
+    end
+  end
+
+  defp proxy_define_property_invariant_violation?({:obj, target_ref}, prop_name) do
+    existing = Heap.get_obj(target_ref, %{})
+    non_extensible_new_property?(target_ref, existing, prop_name)
+  end
+
+  defp proxy_define_property_invariant_violation?(_target, _prop_name), do: false
+
+  defp define_property([{:obj, ref} = obj, key, {:obj, desc_ref} = desc_obj | _]) do
     desc = Heap.get_obj(desc_ref, %{})
 
     prop_name =
@@ -549,6 +583,10 @@ defmodule QuickBEAM.VM.Runtime.Object do
       end
 
     existing = Heap.get_obj(ref, %{})
+
+    if is_map(existing) and Map.has_key?(existing, proxy_target()) do
+      throw({:early_return, define_proxy_property(obj, existing, key, prop_name, desc_obj)})
+    end
 
     if non_extensible_new_property?(ref, existing, prop_name) do
       throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
