@@ -97,10 +97,10 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
   end
 
   defp validate_proxy_own_keys_invariant(target, trap_keys) do
+    target_keys = own_keys_for(target)
+
     missing_key =
-      target
-      |> own_keys_for()
-      |> Enum.find(fn key ->
+      Enum.find(target_keys, fn key ->
         match?(%{configurable: false}, target_prop_desc(target, key)) and key not in trap_keys
       end)
 
@@ -111,6 +111,9 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       missing_key ->
         JSThrow.type_error!("proxy ownKeys trap violates invariant")
 
+      non_extensible_key_mismatch?(target, target_keys, trap_keys) ->
+        JSThrow.type_error!("proxy ownKeys trap violates invariant")
+
       true ->
         trap_keys
     end
@@ -119,6 +122,12 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
   defp duplicate_key?(keys) do
     Enum.uniq(keys) != keys
   end
+
+  defp non_extensible_key_mismatch?({:obj, ref}, target_keys, trap_keys) do
+    Heap.frozen?(ref) and Enum.sort(target_keys) != Enum.sort(trap_keys)
+  end
+
+  defp non_extensible_key_mismatch?(_, _, _), do: false
 
   defp target_prop_desc({:obj, ref}, key), do: Heap.get_prop_desc(ref, key)
   defp target_prop_desc(_, _), do: nil
