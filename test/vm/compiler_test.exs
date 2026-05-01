@@ -262,6 +262,27 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 4} = Compiler.invoke(prototype, [])
     end
 
+    test "compiles Proxy ownKeys traps", %{rt: rt} do
+      trap_length =
+        compile_and_decode(
+          rt,
+          "let p=new Proxy({a:1},{ownKeys(){return ['x','y']}}); Reflect.ownKeys(p).length"
+        ).value
+
+      default_keys =
+        compile_and_decode(rt, "let p=new Proxy({a:1,b:2},{}); Reflect.ownKeys(p).length").value
+
+      symbol_key =
+        compile_and_decode(
+          rt,
+          "let s=Symbol('s'); let p=new Proxy({},{ownKeys(){return [s]}}); Reflect.ownKeys(p)[0]===s"
+        ).value
+
+      assert {:ok, 2} = Compiler.invoke(trap_length, [])
+      assert {:ok, 2} = Compiler.invoke(default_keys, [])
+      assert {:ok, true} = Compiler.invoke(symbol_key, [])
+    end
+
     test "compiles Reflect.ownKeys without internal object metadata", %{rt: rt} do
       plain = compile_and_decode(rt, "let o={a:1,b:2}; Reflect.ownKeys(o).length").value
 

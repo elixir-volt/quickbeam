@@ -69,9 +69,27 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
 
     method "ownKeys" do
       case hd(args) do
-        {:obj, ref} -> Heap.wrap(own_keys(Heap.get_obj(ref, %{})))
+        {:obj, _} = obj -> Heap.wrap(own_keys_for(obj))
         _ -> Heap.wrap([])
       end
+    end
+  end
+
+  defp own_keys_for({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      %{proxy_target() => target, proxy_handler() => handler} ->
+        own_keys_trap = Get.get(handler, "ownKeys")
+
+        if own_keys_trap == :undefined or own_keys_trap == nil do
+          own_keys_for(target)
+        else
+          own_keys_trap
+          |> Runtime.call_callback([target])
+          |> Heap.to_list()
+        end
+
+      map ->
+        own_keys(map)
     end
   end
 
