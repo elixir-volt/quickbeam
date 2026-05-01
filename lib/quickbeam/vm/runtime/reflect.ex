@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
 
   alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.Interpreter
+  alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.ObjectModel.{Delete, Get, Put}
   alias QuickBEAM.VM.Runtime
@@ -68,18 +69,14 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
 
     method "preventExtensions" do
       case hd(args) do
-        {:obj, ref} ->
-          Heap.prevent_extensions(ref)
-          true
-
-        _ ->
-          false
+        {:obj, _} = obj -> prevent_extensions(obj)
+        _ -> false
       end
     end
 
     method "isExtensible" do
       case hd(args) do
-        {:obj, ref} -> Heap.extensible?(ref)
+        {:obj, _} = obj -> extensible?(obj)
         _ -> false
       end
     end
@@ -94,6 +91,47 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
         {:obj, _} = obj -> Heap.wrap(own_keys_for(obj))
         _ -> Heap.wrap([])
       end
+    end
+  end
+
+  defp prevent_extensions({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      %{proxy_target() => target, proxy_handler() => handler} ->
+        trap = Get.get(handler, "preventExtensions")
+
+        cond do
+          trap == :undefined or trap == nil ->
+            prevent_extensions(target)
+
+          not Values.truthy?(Invocation.invoke_callback_or_throw(trap, [target])) ->
+            false
+
+          extensible?(target) ->
+            JSThrow.type_error!("proxy preventExtensions trap violates invariant")
+
+          true ->
+            true
+        end
+
+      _ ->
+        Heap.prevent_extensions(ref)
+        true
+    end
+  end
+
+  defp extensible?({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      %{proxy_target() => target, proxy_handler() => handler} ->
+        trap = Get.get(handler, "isExtensible")
+
+        if trap == :undefined or trap == nil do
+          extensible?(target)
+        else
+          Values.truthy?(Invocation.invoke_callback_or_throw(trap, [target]))
+        end
+
+      _ ->
+        Heap.extensible?(ref)
     end
   end
 

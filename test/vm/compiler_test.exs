@@ -396,6 +396,30 @@ defmodule QuickBEAM.VM.CompilerTest do
           ~S|let o={x:1}; Object.preventExtensions(o); Reflect.defineProperty(o,"x",{value:2}) && o.x|
         ).value
 
+      proxy_prevent_default =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; let p=new Proxy(t,{}); Reflect.preventExtensions(p) && !Reflect.isExtensible(t)|
+        ).value
+
+      proxy_prevent_invariant =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; let p=new Proxy(t,{preventExtensions(){return true}}); try{Reflect.preventExtensions(p)}catch(e){e.name}|
+        ).value
+
+      proxy_prevent_trap =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; let p=new Proxy(t,{preventExtensions(){Object.preventExtensions(t); return true}}); Reflect.preventExtensions(p) && !Reflect.isExtensible(t)|
+        ).value
+
+      proxy_prevent_false =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; let p=new Proxy(t,{preventExtensions(){return false}}); Reflect.preventExtensions(p)|
+        ).value
+
       object_define_blocked =
         compile_and_decode(
           rt,
@@ -410,6 +434,10 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, false} = Compiler.invoke(extensible_primitive, [])
       assert {:ok, false} = Compiler.invoke(reflect_define_blocked, [])
       assert {:ok, 2} = Compiler.invoke(reflect_define_existing, [])
+      assert {:ok, true} = Compiler.invoke(proxy_prevent_default, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(proxy_prevent_invariant, [])
+      assert {:ok, true} = Compiler.invoke(proxy_prevent_trap, [])
+      assert {:ok, false} = Compiler.invoke(proxy_prevent_false, [])
       assert {:ok, "TypeError"} = Compiler.invoke(object_define_blocked, [])
     end
 
