@@ -366,10 +366,11 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     {:cell, ref}
   end
 
-  @doc "Reads the value from a reference cell or direct value."
-  def get_ref_value(_ctx \\ nil, ref)
-  def get_ref_value(_ctx, {:cell, _} = cell), do: Closures.read_cell(cell)
-  def get_ref_value(_ctx, _), do: :undefined
+  @doc "Reads the value from a reference cell or object-property reference."
+  def get_ref_value(_ctx \\ nil, key, ref)
+  def get_ref_value(_ctx, _key, {:cell, _} = cell), do: Closures.read_cell(cell)
+  def get_ref_value(_ctx, key, obj) when is_binary(key), do: Get.get(obj, key)
+  def get_ref_value(_ctx, _key, _), do: :undefined
 
   def put_ref_value(_ctx \\ nil, val, ref)
 

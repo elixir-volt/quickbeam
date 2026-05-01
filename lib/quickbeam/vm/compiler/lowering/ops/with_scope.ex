@@ -43,8 +43,11 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
           )
         end
 
-      {{:ok, :with_make_ref}, _args} ->
-        {:error, {:unsupported_opcode, :with_make_ref}}
+      {{:ok, :with_make_ref}, [atom_idx, _target, _is_with]} ->
+        with {:ok, obj, state} <- State.pop(state) do
+          key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+          {:ok, state |> State.push(obj, :object) |> State.push(key, :string)}
+        end
 
       _ ->
         :not_handled
