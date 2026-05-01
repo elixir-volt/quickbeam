@@ -1557,11 +1557,18 @@ defmodule QuickBEAM.VM.CompilerTest do
       returned_resolution =
         compile_and_decode(rt, "async function f(){return Promise.resolve(3)} f()").value
 
+      caught_rejected_await =
+        compile_and_decode(
+          rt,
+          "async function f(){try{return await Promise.reject(1)}catch(e){return e+1}} f()"
+        ).value
+
       assert {:ok, 2} = Compiler.invoke(thrown, [])
       assert {:ok, 2} = Compiler.invoke(rejected_await, [])
       assert {:ok, 2} = Compiler.invoke(fulfilled_then, [])
       assert {:ok, 2} = Compiler.invoke(returned_rejection, [])
       assert {:ok, 3} = Compiler.invoke(returned_resolution, [])
+      assert {:ok, 2} = Compiler.invoke(caught_rejected_await, [])
     end
 
     test "enforces frozen target proxy ownKeys invariants", %{rt: rt} do

@@ -23,8 +23,12 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Generators do
       end
 
       defp run({@op_await, []}, pc, frame, [val | rest], gas, ctx) do
-        resolved = resolve_awaited(val)
-        run(pc + 1, frame, [resolved | rest], gas, ctx)
+        try do
+          resolved = resolve_awaited(val)
+          run(pc + 1, frame, [resolved | rest], gas, ctx)
+        catch
+          {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
+        end
       end
 
       defp run({@op_return_async, []}, _pc, _frame, [val | _], _gas, _ctx) do
