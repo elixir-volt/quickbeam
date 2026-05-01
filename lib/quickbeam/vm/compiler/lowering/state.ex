@@ -20,22 +20,47 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     :closure_vars,
     :atoms,
     :arg_count,
-    :return_type
+    :return_type,
+    :frame_mode
   ]
 
   # ── Construction ──
 
   @doc "Creates a lowering state with slot, stack, capture, and type metadata."
   def new(slot_count, stack_depth, opts \\ []) do
+    frame_mode = Keyword.get(opts, :frame_mode, :args)
+
     slots =
-      if slot_count == 0,
-        do: %{},
-        else: Map.new(0..(slot_count - 1), fn idx -> {idx, Builder.slot_var(idx)} end)
+      cond do
+        slot_count == 0 ->
+          %{}
+
+        frame_mode == :tuple ->
+          slots_tuple = Builder.var("Slots")
+
+          Map.new(0..(slot_count - 1), fn idx ->
+            {idx, Builder.tuple_element(slots_tuple, idx + 1)}
+          end)
+
+        true ->
+          Map.new(0..(slot_count - 1), fn idx -> {idx, Builder.slot_var(idx)} end)
+      end
 
     capture_cells =
-      if slot_count == 0,
-        do: %{},
-        else: Map.new(0..(slot_count - 1), fn idx -> {idx, Builder.capture_var(idx)} end)
+      cond do
+        slot_count == 0 ->
+          %{}
+
+        frame_mode == :tuple ->
+          captures_tuple = Builder.var("Captures")
+
+          Map.new(0..(slot_count - 1), fn idx ->
+            {idx, Builder.tuple_element(captures_tuple, idx + 1)}
+          end)
+
+        true ->
+          Map.new(0..(slot_count - 1), fn idx -> {idx, Builder.capture_var(idx)} end)
+      end
 
     stack =
       if stack_depth == 0,
@@ -61,7 +86,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       closure_vars: Keyword.get(opts, :closure_vars, []),
       atoms: Keyword.get(opts, :atoms),
       arg_count: arg_count,
-      return_type: Keyword.get(opts, :return_type, :unknown)
+      return_type: Keyword.get(opts, :return_type, :unknown),
+      frame_mode: frame_mode
     }
   end
 
@@ -115,7 +141,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       ctx_expr(state),
       current_slots(state),
       state.stack,
-      current_capture_cells(state)
+      current_capture_cells(state),
+      state.frame_mode
     )
   end
 
@@ -915,7 +942,15 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   end
 
   @doc "Builds block-call arguments from context, slots, stack, and captures."
-  def block_jump_call_values(target, stack_depths, ctx, slots, stack, capture_cells) do
+  def block_jump_call_values(
+        target,
+        stack_depths,
+        ctx,
+        slots,
+        stack,
+        capture_cells,
+        frame_mode \\ :args
+      ) do
     expected_depth = Map.get(stack_depths, target)
     actual_depth = length(stack)
 
@@ -927,10 +962,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
         {:error, {:stack_depth_mismatch, target, expected_depth, actual_depth}}
 
       true ->
-        {:ok,
-         Builder.local_call(Builder.block_name(target), [
-           ctx | slots ++ stack ++ capture_cells
-         ])}
+        args =
+          case frame_mode do
+            :tuple -> [ctx, Builder.tuple_expr(slots), Builder.tuple_expr(capture_cells) | stack]
+            _ -> [ctx | slots ++ stack ++ capture_cells]
+          end
+
+        {:ok, Builder.local_call(Builder.block_name(target), args)}
     end
   end
 

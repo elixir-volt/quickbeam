@@ -125,6 +125,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
       "let it={ [Symbol.iterator](){ return { i:0, next(){ return this.i++ < 2 ? {value:this.i, done:false} : {done:true}; } } } };"
 
     many_string_globals = Enum.map_join(0..299, ";", fn idx -> "let s#{idx}='#{idx}'" end)
+    many_var_locals = Enum.map_join(0..260, ";", fn idx -> "var a#{idx}=#{rem(idx, 10)}" end)
 
     high_value_cases = [
       {"call zero args", "function f(){ return 3; } f()"},
@@ -148,6 +149,8 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"set local2", "function f(){ var a0=0; var a1=1; var a2=2; a2=7; return a2 } f()"},
       {"set local8",
        "function f(){ var a0=0; var a1=1; var a2=2; var a3=3; var a4=4; a4=7; return a4 } f()"},
+      {"generic local read", "function f(){ #{many_var_locals}; eval(''); return a260 } f()"},
+      {"generic local write", "function f(){ #{many_var_locals}; a260=7; return a260 } f()"},
       {"var local add", "function f(){ var x=1,y=2; x += y; return x } f()"},
       {"typeof number", "typeof 1"},
       {"typeof function", "typeof function(){}"},

@@ -7,12 +7,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
   alias QuickBEAM.VM.Heap
 
   @guardable_types [:integer, :number, :boolean, :string, :undefined, :null]
+  @large_frame_slot_threshold 200
   @line 1
 
   @doc "Lowers a bytecode instruction or function into compiler IR."
   def lower(fun, instructions) do
     entries = CFG.block_entries(instructions)
     slot_count = fun.arg_count + fun.var_count
+    frame_mode = if slot_count > @large_frame_slot_threshold, do: :tuple, else: :args
     constants = fun.constants
     instrs = List.to_tuple(instructions)
     size = tuple_size(instrs)
@@ -33,6 +35,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
              start,
              fun.arg_count,
              slot_count,
+             frame_mode,
              instrs,
              size,
              entries,
@@ -57,6 +60,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          start,
          arg_count,
          slot_count,
+         frame_mode,
          instructions,
          size,
          entries,
@@ -69,11 +73,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
        ) do
     next_entry = CFG.next_entry(entries, start)
 
-    args =
-      [Builder.ctx_var() | Builder.slot_vars(slot_count)] ++
-        Builder.stack_vars(stack_depth) ++ Builder.capture_vars(slot_count)
+    args = block_args(slot_count, stack_depth, frame_mode)
 
-    fast_guards = block_clause_guards(slot_count, stack_depth, entry_type_state)
+    fast_guards = block_clause_guards(slot_count, stack_depth, entry_type_state, frame_mode)
 
     with {:ok, fast_body} <-
            lower_block(
@@ -86,6 +88,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
                fun,
                arg_count,
                slot_count,
+               frame_mode,
                stack_depth,
                return_type,
                entry_type_state,
@@ -111,6 +114,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
                      fun,
                      arg_count,
                      slot_count,
+                     frame_mode,
                      stack_depth,
                      return_type,
                      entry_type_state,
@@ -133,20 +137,29 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
           error
 
         clauses ->
-          {:function, @line, Builder.block_name(start), 1 + slot_count + stack_depth + slot_count,
-           clauses}
+          {:function, @line, Builder.block_name(start), length(args), clauses}
       end
     end
   end
 
-  defp block_state(fun, arg_count, slot_count, stack_depth, return_type, entry_type_state, typed?) do
+  defp block_state(
+         fun,
+         arg_count,
+         slot_count,
+         frame_mode,
+         stack_depth,
+         return_type,
+         entry_type_state,
+         typed?
+       ) do
     state_opts =
       [
         locals: fun.locals,
         closure_vars: fun.closure_vars,
         atoms: Heap.get_fn_atoms(fun.byte_code),
         arg_count: arg_count,
-        return_type: return_type
+        return_type: return_type,
+        frame_mode: frame_mode
       ] ++
         case {entry_type_state, typed?} do
           {nil, _} ->
@@ -166,9 +179,22 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
     State.new(slot_count, stack_depth, state_opts)
   end
 
-  defp block_clause_guards(_slot_count, _stack_depth, nil), do: []
+  defp block_args(_slot_count, stack_depth, :tuple) do
+    [Builder.ctx_var(), Builder.var("Slots"), Builder.var("Captures")] ++
+      Builder.stack_vars(stack_depth)
+  end
 
-  defp block_clause_guards(slot_count, stack_depth, entry_type_state) do
+  defp block_args(slot_count, stack_depth, _frame_mode) do
+    [Builder.ctx_var() | Builder.slot_vars(slot_count)] ++
+      Builder.stack_vars(stack_depth) ++ Builder.capture_vars(slot_count)
+  end
+
+  defp block_clause_guards(_slot_count, _stack_depth, nil, _frame_mode), do: []
+
+  defp block_clause_guards(_slot_count, stack_depth, entry_type_state, :tuple),
+    do: stack_guards(stack_depth, entry_type_state)
+
+  defp block_clause_guards(slot_count, stack_depth, entry_type_state, _frame_mode) do
     slot_guards =
       if slot_count == 0 do
         []
@@ -183,14 +209,15 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
             do: guard
       end
 
-    stack_guards =
-      for {type, idx} <- Enum.with_index(entry_type_state.stack_types || []),
-          idx < stack_depth,
-          guard = type_guard(Builder.stack_var(idx), type),
-          guard != nil,
-          do: guard
+    slot_guards ++ stack_guards(stack_depth, entry_type_state)
+  end
 
-    slot_guards ++ stack_guards
+  defp stack_guards(stack_depth, entry_type_state) do
+    for {type, idx} <- Enum.with_index(entry_type_state.stack_types || []),
+        idx < stack_depth,
+        guard = type_guard(Builder.stack_var(idx), type),
+        guard != nil,
+        do: guard
   end
 
   defp type_guard(_expr, type) when type not in @guardable_types, do: nil

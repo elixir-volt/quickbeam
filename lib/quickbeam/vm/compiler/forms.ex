@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Invocation
 
+  @large_frame_slot_threshold 200
   @line 1
 
   @doc "Compiles lowered Erlang forms into a loadable module."
@@ -42,7 +43,14 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     capture_cells =
       if slot_count == 0, do: [], else: Enum.map(1..slot_count, fn _ -> atom(:undefined) end)
 
-    body = [local_call(block_name(0), [ctx | slot_vars(arity) ++ locals ++ capture_cells])]
+    body_args =
+      if large_frame?(slot_count) do
+        [ctx, tuple_expr(slot_vars(arity) ++ locals), tuple_expr(capture_cells)]
+      else
+        [ctx | slot_vars(arity) ++ locals ++ capture_cells]
+      end
+
+    body = [local_call(block_name(0), body_args)]
 
     {:function, @line, ctx_entry, arity + 1, [{:clause, @line, args, [], body}]}
   end
@@ -283,6 +291,8 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   defp slot_var(idx), do: var("Slot#{idx}")
   defp slot_vars(0), do: []
   defp slot_vars(count), do: Enum.map(0..(count - 1), &slot_var/1)
+  defp tuple_expr(values), do: {:tuple, @line, values}
+  defp large_frame?(slot_count), do: slot_count > @large_frame_slot_threshold
   defp var(name) when is_binary(name), do: {:var, @line, String.to_atom(name)}
   defp atom(value), do: {:atom, @line, value}
 
