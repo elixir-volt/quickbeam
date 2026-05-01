@@ -358,6 +358,20 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "a2b"} = Compiler.invoke(tag_expr, [])
     end
 
+    test "compiles static block object and constructor side effects", %{rt: rt} do
+      object_state =
+        compile_and_decode(rt, "let state={x:0}; class A{ static { state.x=1 } }; state.x").value
+
+      receiver_prop = compile_and_decode(rt, "class A{ static { this.x=2 } }; A.x").value
+
+      field_order =
+        compile_and_decode(rt, "class A{ static x=1; static { this.x+=2 } }; A.x").value
+
+      assert {:ok, 1} = Compiler.invoke(object_state, [])
+      assert {:ok, 2} = Compiler.invoke(receiver_prop, [])
+      assert {:ok, 3} = Compiler.invoke(field_order, [])
+    end
+
     test "compiles Symbol and BigInt runtime edges", %{rt: rt} do
       symbol_for = compile_and_decode(rt, "Symbol.for('x')===Symbol.for('x')").value
       symbol_key = compile_and_decode(rt, "Symbol.keyFor(Symbol.for('x'))").value
