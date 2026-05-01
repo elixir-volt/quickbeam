@@ -602,6 +602,13 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 8} = Compiler.invoke(inner, [4])
     end
 
+    test "reads fresh values from captured local cells", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "function f(){let x=0; function r(){x=1}; r(); return x}; f()").value
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
     test "keeps capture keys distinct for same bytecode closures", %{rt: rt} do
       inline =
         compile_and_decode(

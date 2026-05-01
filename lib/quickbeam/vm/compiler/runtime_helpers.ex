@@ -73,6 +73,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def ensure_capture_cell(_ctx \\ nil, cell, val), do: Captures.ensure(cell, val)
   def close_capture_cell(_ctx \\ nil, cell, val), do: Captures.close(cell, val)
   def sync_capture_cell(_ctx \\ nil, cell, val), do: Captures.sync(cell, val)
+  def read_capture_cell(_ctx \\ nil, cell, slot_val), do: Captures.read(cell, slot_val)
 
   @doc "Resolves an awaited JavaScript value for compiled async code."
   def await(_ctx \\ nil, val), do: QuickBEAM.VM.Interpreter.resolve_awaited(val)

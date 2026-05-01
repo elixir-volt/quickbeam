@@ -451,6 +451,7 @@ cases = [
    "async function f(){ return await Promise.resolve(1).finally(()=>{}) } f()"},
   {"promise finally rejected catch",
    "async function f(){ return await Promise.reject(2).finally(()=>{}).catch(e=>e+1) } f()"},
+  {"captured local freshness", "function f(){let x=0; function r(){x=1}; r(); return x}; f()"},
   {"queueMicrotask deferred state", "let state={x:0}; queueMicrotask(()=>{state.x=1}); state.x"},
   {"queueMicrotask promise observer",
    "let state={x:0}; queueMicrotask(()=>{state.x=1}); Promise.resolve().then(()=>state.x)"},

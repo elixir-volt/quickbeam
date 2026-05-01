@@ -1,56 +1,29 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Locals do
   @moduledoc "Local and argument slot opcodes: get_loc, put_loc, set_loc, get_arg, put_arg, set_arg, etc."
 
-  alias QuickBEAM.VM.Compiler.Lowering.{Builder, State}
+  alias QuickBEAM.VM.Compiler.Lowering.{Builder, Captures, State}
+  alias QuickBEAM.VM.Compiler.RuntimeHelpers
 
   @tdz :__tdz__
 
   @doc "Lowers a bytecode instruction or function into compiler IR."
   def lower(state, name_args) do
     case name_args do
-      {{:ok, :get_arg}, [slot_idx]} ->
-        {:ok,
-         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
-
-      {{:ok, :get_arg0}, [slot_idx]} ->
-        {:ok,
-         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
-
-      {{:ok, :get_arg1}, [slot_idx]} ->
-        {:ok,
-         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
-
-      {{:ok, :get_arg2}, [slot_idx]} ->
-        {:ok,
-         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
-
-      {{:ok, :get_arg3}, [slot_idx]} ->
-        {:ok,
-         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
-
-      {{:ok, :get_loc}, [slot_idx]} ->
-        {:ok,
-         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
-
-      {{:ok, :get_loc0}, [slot_idx]} ->
-        {:ok,
-         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
-
-      {{:ok, :get_loc1}, [slot_idx]} ->
-        {:ok,
-         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
-
-      {{:ok, :get_loc2}, [slot_idx]} ->
-        {:ok,
-         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
-
-      {{:ok, :get_loc3}, [slot_idx]} ->
-        {:ok,
-         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
-
-      {{:ok, :get_loc8}, [slot_idx]} ->
-        {:ok,
-         State.push(state, State.slot_expr(state, slot_idx), State.slot_type(state, slot_idx))}
+      {{:ok, name}, [slot_idx]}
+      when name in [
+             :get_arg,
+             :get_arg0,
+             :get_arg1,
+             :get_arg2,
+             :get_arg3,
+             :get_loc,
+             :get_loc0,
+             :get_loc1,
+             :get_loc2,
+             :get_loc3,
+             :get_loc8
+           ] ->
+        push_slot(state, slot_idx)
 
       {{:ok, :get_loc0_loc1}, [slot0, slot1]} ->
         {:ok,
@@ -159,6 +132,24 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Locals do
     end
   end
 
+  defp push_slot(state, slot_idx) do
+    expr = State.slot_expr(state, slot_idx)
+    type = State.slot_type(state, slot_idx)
+
+    if Captures.slot_captured?(state, slot_idx) do
+      State.effectful_push(
+        state,
+        Builder.remote_call(RuntimeHelpers, :read_capture_cell, [
+          State.capture_cell_expr(state, slot_idx),
+          expr
+        ]),
+        type
+      )
+    else
+      {:ok, State.push(state, expr, type)}
+    end
+  end
+
   defp lower_get_loc_check(state, slot_idx) do
     slot_expr = State.slot_expr(state, slot_idx)
     slot_type = State.slot_type(state, slot_idx)
@@ -170,7 +161,18 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Locals do
         State.compiler_call(state, :ensure_initialized_local!, [slot_expr])
       end
 
-    {:ok, State.push(state, expr, slot_type)}
+    if Captures.slot_captured?(state, slot_idx) do
+      State.effectful_push(
+        state,
+        Builder.remote_call(RuntimeHelpers, :read_capture_cell, [
+          State.capture_cell_expr(state, slot_idx),
+          expr
+        ]),
+        slot_type
+      )
+    else
+      {:ok, State.push(state, expr, slot_type)}
+    end
   end
 
   defp lower_put_loc_check(state, slot_idx) do
