@@ -27,5 +27,5 @@
   - `Promise.reject` caught through `await` still differs from the interpreter oracle for some shapes.
   - `yield*`/delegated generator paths still return `undefined` in compiled mode for value/return cases.
   - direct eval declaration cases and missing/unsupported builtins often mismatch only by stack/source diagnostics; preserve stack comparisons rather than weakening the audit.
-  - `queueMicrotask`, Reflect.construct/proxy callable apply/ownKeys, tag-call `this` binding, static block side effects, iterator close, Symbol.hasInstance, astral string edge cases beyond spread, and boxed primitive constructor cases need product investigation before inclusion.
+  - `queueMicrotask`, Reflect.construct/proxy callable apply/ownKeys, tag-call captured side effects/`raw` template strings, static block side effects, iterator close, Symbol.hasInstance, astral string edge cases beyond spread, and boxed primitive constructor cases need product investigation before inclusion.
   - Reflect property basics (`apply`, `get`, `set`, `has`, `deleteProperty`, `defineProperty`) and basic Proxy `get`/`has` traps now have clean guardrails; remaining Reflect/Proxy work should focus on construct, callable proxy apply, ownKeys ordering, and proxy invariants.

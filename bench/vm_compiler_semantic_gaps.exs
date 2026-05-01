@@ -828,7 +828,11 @@ cases = [
   {"symbol registry keyFor", "Symbol.keyFor(Symbol.for('x'))"},
   {"symbol description", "Symbol('x').description"},
   {"bigint toString", "(10n).toString()"},
-  {"bigint add", "1n + 2n"}
+  {"bigint add", "1n + 2n"},
+  {"tagged template this", "function tag(){return this===globalThis}; tag`x`"},
+  {"tagged template strings length", "function tag(strings){return strings.length}; tag`a${1}b`"},
+  {"tagged template expression",
+   "function tag(strings, v){return strings[0]+v+strings[1]}; tag`a${2}b`"}
 ]
 
 auto_cases = [

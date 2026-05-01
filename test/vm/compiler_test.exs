@@ -341,6 +341,23 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, false} = Compiler.invoke(weakset_delete, [])
     end
 
+    test "compiles tagged template call semantics", %{rt: rt} do
+      tag_this = compile_and_decode(rt, "function tag(){return this===globalThis}; tag`x`").value
+
+      tag_length =
+        compile_and_decode(rt, "function tag(strings){return strings.length}; tag`a${1}b`").value
+
+      tag_expr =
+        compile_and_decode(
+          rt,
+          "function tag(strings, v){return strings[0]+v+strings[1]}; tag`a${2}b`"
+        ).value
+
+      assert {:ok, true} = Compiler.invoke(tag_this, [])
+      assert {:ok, 2} = Compiler.invoke(tag_length, [])
+      assert {:ok, "a2b"} = Compiler.invoke(tag_expr, [])
+    end
+
     test "compiles Symbol and BigInt runtime edges", %{rt: rt} do
       symbol_for = compile_and_decode(rt, "Symbol.for('x')===Symbol.for('x')").value
       symbol_key = compile_and_decode(rt, "Symbol.keyFor(Symbol.for('x'))").value
