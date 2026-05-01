@@ -8,7 +8,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   alias QuickBEAM.VM.Bytecode
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Values
-  alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.ObjectModel.{Get, Put}
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.TypedArray
 
@@ -441,7 +441,9 @@ defmodule QuickBEAM.VM.Runtime.Object do
     raw_key = parse_array_index_key(key)
 
     cond do
+      match?({:accessor, _, _}, Map.get(map, key)) -> Get.get(obj, key)
       Map.has_key?(map, key) -> Map.get(map, key)
+      raw_key != :error and match?({:accessor, _, _}, Map.get(map, raw_key)) -> Get.get(obj, key)
       raw_key != :error and Map.has_key?(map, raw_key) -> Map.get(map, raw_key)
       true -> Get.get(obj, key)
     end
@@ -476,21 +478,39 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp assign([target | sources]) do
     Enum.reduce(sources, target, fn
-      {:obj, ref}, {:obj, tref} ->
-        src_map = Heap.get_obj(ref, %{})
-        tgt_map = Heap.get_obj(tref, %{})
-        Heap.put_obj(tref, Map.merge(tgt_map, src_map))
-        {:obj, tref}
+      {:obj, ref}, {:obj, _} = target_obj ->
+        ref
+        |> enumerable_assign_entries()
+        |> Enum.each(fn {key, value} -> Put.put(target_obj, key, value) end)
 
-      map, {:obj, tref} when is_map(map) ->
-        tgt_map = Heap.get_obj(tref, %{})
-        Heap.put_obj(tref, Map.merge(tgt_map, map))
-        {:obj, tref}
+        target_obj
+
+      map, {:obj, _} = target_obj when is_map(map) ->
+        map
+        |> Enum.reject(fn {key, _value} -> assign_internal_key?(key) end)
+        |> Enum.each(fn {key, value} -> Put.put(target_obj, key, value) end)
+
+        target_obj
 
       _, acc ->
         acc
     end)
   end
+
+  defp enumerable_assign_entries(ref) do
+    data = Heap.get_obj(ref, %{})
+
+    enumerable_keys(ref)
+    |> Enum.map(fn key -> {key, enumerable_value({:obj, ref}, data, key)} end)
+  end
+
+  defp assign_internal_key?(key) when key in [proto(), map_data(), set_data(), typed_array()],
+    do: true
+
+  defp assign_internal_key?(key) when is_binary(key),
+    do: String.starts_with?(key, "__") and String.ends_with?(key, "__")
+
+  defp assign_internal_key?(_), do: false
 
   defp define_property([{:obj, ref} = obj, key, {:obj, desc_ref} | _]) do
     desc = Heap.get_obj(desc_ref, %{})

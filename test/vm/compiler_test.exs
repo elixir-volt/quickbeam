@@ -236,6 +236,21 @@ defmodule QuickBEAM.VM.CompilerTest do
       sealed = compile_and_decode(rt, "let o={}; Object.seal(o); Object.isSealed(o)").value
       frozen = compile_and_decode(rt, "let o=Object.freeze({}); Object.isFrozen(o)").value
 
+      assign_new =
+        compile_and_decode(
+          rt,
+          "let o={x:1}; Object.preventExtensions(o); Object.assign(o,{y:2}); o.y===undefined"
+        ).value
+
+      assign_existing =
+        compile_and_decode(
+          rt,
+          "let o={x:1}; Object.preventExtensions(o); Object.assign(o,{x:2}); o.x"
+        ).value
+
+      assign_frozen =
+        compile_and_decode(rt, "let o=Object.freeze({x:1}); Object.assign(o,{x:2}); o.x").value
+
       assert {:ok, true} = Compiler.invoke(prevent_identity, [])
       assert {:ok, true} = Compiler.invoke(extensible, [])
       assert {:ok, false} = Compiler.invoke(prevented, [])
@@ -243,6 +258,9 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, true} = Compiler.invoke(new_write, [])
       assert {:ok, true} = Compiler.invoke(sealed, [])
       assert {:ok, true} = Compiler.invoke(frozen, [])
+      assert {:ok, true} = Compiler.invoke(assign_new, [])
+      assert {:ok, 2} = Compiler.invoke(assign_existing, [])
+      assert {:ok, 1} = Compiler.invoke(assign_frozen, [])
     end
 
     test "reads default Object prototype methods", %{rt: rt} do
