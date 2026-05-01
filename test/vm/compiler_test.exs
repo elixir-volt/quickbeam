@@ -462,6 +462,24 @@ defmodule QuickBEAM.VM.CompilerTest do
           ~S|let t={}; Object.preventExtensions(t); let p=new Proxy(t,{defineProperty(){return true}}); Reflect.defineProperty(p,"x",{value:1})|
         ).value
 
+      proxy_delete_trap =
+        compile_and_decode(
+          rt,
+          ~S|let called=0; let p=new Proxy({x:1},{deleteProperty(t,k){called=1; return delete t[k]}}); delete p.x; called+":"+(p.x===undefined)|
+        ).value
+
+      proxy_delete_false =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({x:1},{deleteProperty(){return false}}); delete p.x|
+        ).value
+
+      proxy_delete_invariant =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:false}); let p=new Proxy(t,{deleteProperty(){return true}}); try{delete p.x}catch(e){e.name}|
+        ).value
+
       object_define_blocked =
         compile_and_decode(
           rt,
@@ -487,6 +505,9 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, false} = Compiler.invoke(proxy_define_false, [])
       assert {:ok, "TypeError"} = Compiler.invoke(proxy_define_object_false, [])
       assert {:ok, false} = Compiler.invoke(proxy_define_nonextensible, [])
+      assert {:ok, "1:true"} = Compiler.invoke(proxy_delete_trap, [])
+      assert {:ok, false} = Compiler.invoke(proxy_delete_false, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(proxy_delete_invariant, [])
       assert {:ok, "TypeError"} = Compiler.invoke(object_define_blocked, [])
     end
 

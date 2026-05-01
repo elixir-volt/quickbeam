@@ -561,40 +561,8 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       defp run({@op_delete, []}, pc, frame, [key, obj | rest], gas, ctx) do
         result =
           case obj do
-            {:obj, ref} ->
-              map = Heap.get_obj(ref, %{})
-
-              if is_map(map) do
-                desc = Heap.get_prop_desc(ref, key)
-
-                if match?(%{configurable: false}, desc) do
-                  false
-                else
-                  new_map = Map.delete(map, key)
-                  Heap.put_obj(ref, new_map)
-                  true
-                end
-              else
-                key_str = if is_binary(key), do: key, else: Values.stringify(key)
-
-                cond do
-                  key_str == "length" ->
-                    false
-
-                  match?({:qb_arr, _}, map) or is_list(map) ->
-                    case Integer.parse(key_str) do
-                      {idx, ""} when idx >= 0 ->
-                        Heap.array_set(ref, idx, :undefined)
-                        true
-
-                      _ ->
-                        true
-                    end
-
-                  true ->
-                    true
-                end
-              end
+            {:obj, _} = obj ->
+              Delete.delete_property(obj, key)
 
             {:closure, _, _} = fun ->
               delete_static(fun, key)
