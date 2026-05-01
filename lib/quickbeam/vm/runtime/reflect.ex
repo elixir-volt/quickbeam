@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
   use QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter
+  alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.ObjectModel.{Delete, Get, Put}
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.Object
@@ -31,9 +32,10 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
     end
 
     method "construct" do
-      [target, args_array | _] = args
+      [target, args_array | rest] = args
       call_args = Heap.to_list(args_array)
-      Runtime.call_callback(target, call_args)
+      new_target = arg(rest, 0, target)
+      Invocation.construct_runtime(target, new_target, call_args)
     end
 
     method "get" do

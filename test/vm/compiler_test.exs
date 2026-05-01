@@ -242,6 +242,26 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, false} = Compiler.invoke(miss, [])
     end
 
+    test "compiles Reflect.construct helpers", %{rt: rt} do
+      simple = compile_and_decode(rt, "function C(x){this.x=x}; Reflect.construct(C,[3]).x").value
+
+      new_target =
+        compile_and_decode(
+          rt,
+          "function C(){this.v=new.target===D}; function D(){}; Reflect.construct(C,[],D).v"
+        ).value
+
+      prototype =
+        compile_and_decode(
+          rt,
+          "function C(){}; function D(){}; D.prototype={y:4}; Reflect.construct(C,[],D).y"
+        ).value
+
+      assert {:ok, 3} = Compiler.invoke(simple, [])
+      assert {:ok, true} = Compiler.invoke(new_target, [])
+      assert {:ok, 4} = Compiler.invoke(prototype, [])
+    end
+
     test "compiles Reflect read and apply helpers", %{rt: rt} do
       reflect_apply =
         compile_and_decode(rt, "Reflect.apply(function(x){return x+1}, null, [2])").value
