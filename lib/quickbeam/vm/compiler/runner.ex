@@ -1,8 +1,6 @@
 defmodule QuickBEAM.VM.Compiler.Runner do
   @moduledoc "Compiled-function invocation: sets up call frames, handles `new`, generators, and tail-call dispatch."
 
-  import QuickBEAM.VM.Heap.Keys, only: [promise_state: 0]
-
   alias QuickBEAM.VM.{Bytecode, GlobalEnv, Heap, PromiseState}
   alias QuickBEAM.VM.Compiler
   alias QuickBEAM.VM.Compiler.GeneratorIterator
@@ -154,20 +152,11 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   end
 
   defp compiled_async_invoke(compiled, ctx, args) do
-    PromiseState.resolved(apply_compiled(compiled, ctx, args))
+    PromiseState.adopt(apply_compiled(compiled, ctx, args))
   catch
-    {:generator_return, val} -> async_return(val)
+    {:generator_return, val} -> PromiseState.adopt(val)
     {:js_throw, error} -> PromiseState.rejected(error)
   end
-
-  defp async_return({:obj, ref} = promise) do
-    case Heap.get_obj(ref, %{}) do
-      %{promise_state() => state} when state in [:resolved, :rejected, :pending] -> promise
-      _ -> PromiseState.resolved(promise)
-    end
-  end
-
-  defp async_return(val), do: PromiseState.resolved(val)
 
   defp compiled_async_gen_invoke(compiled, ctx, args) do
     gen_ref = make_ref()

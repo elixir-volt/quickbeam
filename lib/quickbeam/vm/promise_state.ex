@@ -12,6 +12,16 @@ defmodule QuickBEAM.VM.PromiseState do
   @doc "Creates or returns a rejected Promise state value."
   def rejected(val), do: make_promise(:rejected, val)
 
+  @doc "Returns promise values as-is, otherwise wraps a value in a resolved Promise."
+  def adopt({:obj, ref} = promise) do
+    case Heap.get_obj(ref, %{}) do
+      %{promise_state() => state} when state in [:resolved, :rejected, :pending] -> promise
+      _ -> resolved(promise)
+    end
+  end
+
+  def adopt(val), do: resolved(val)
+
   @doc "Implements Promise.prototype.then state transitions."
   def promise_then(args, {:obj, promise_ref}), do: then_impl(args, promise_ref)
   def promise_then(_args, _this), do: resolved(:undefined)
