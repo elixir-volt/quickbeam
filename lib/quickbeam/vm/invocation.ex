@@ -309,6 +309,9 @@ defmodule QuickBEAM.VM.Invocation do
 
     result =
       case ctor do
+        {:obj, _} = obj ->
+          construct_proxy_runtime(ctx, obj, new_target, args)
+
         %Bytecode.Function{} = fun ->
           case Runner.invoke_constructor(fun, args, this_obj, new_target, ctx) do
             {:ok, value} -> value
@@ -335,6 +338,34 @@ defmodule QuickBEAM.VM.Invocation do
       end
 
     Class.coalesce_this_result(result, this_obj)
+  end
+
+  defp construct_proxy_runtime(ctx, {:obj, ref} = proxy, new_target, args) do
+    case Heap.get_obj(ref, %{}) do
+      %{proxy_target() => target, proxy_handler() => handler} ->
+        construct_trap = Get.get(handler, "construct")
+
+        if construct_trap == :undefined or construct_trap == nil do
+          construct_runtime(ctx, target, new_target, args)
+        else
+          result =
+            dispatch(construct_trap, [target, Heap.wrap(args), new_target], ctx.gas, ctx, handler)
+
+          case result do
+            {:obj, _} ->
+              result
+
+            _ ->
+              throw(
+                {:js_throw,
+                 Heap.make_error("proxy construct trap must return an object", "TypeError")}
+              )
+          end
+        end
+
+      _ ->
+        proxy
+    end
   end
 
   defp dispatch_proxy_call({:obj, ref} = obj, args, ctx, this) do

@@ -57,88 +57,137 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
           fn ->
             rev_args = Enum.reverse(args)
 
-            raw_ctor =
-              case ctor do
-                {:closure, _, %Bytecode.Function{} = f} ->
-                  f
+            case proxy_construct_result(ctx, ctor, new_target, rev_args) do
+              {:ok, result} ->
+                result
 
-                {:bound, _, inner, _, _} ->
-                  inner
-
-                %Bytecode.Function{} = f ->
-                  f
-
-                {:builtin, _, cb} when is_function(cb) ->
-                  ctor
-
-                {:builtin, _, map} when is_map(map) ->
-                  throw(
-                    {:js_throw,
-                     Heap.make_error(
-                       "#{Values.stringify(ctor)} is not a constructor",
-                       "TypeError"
-                     )}
-                  )
-
-                _ ->
-                  throw(
-                    {:js_throw,
-                     Heap.make_error(
-                       "#{Values.stringify(ctor)} is not a constructor",
-                       "TypeError"
-                     )}
-                  )
-              end
-
-            case raw_ctor do
-              %Bytecode.Function{func_kind: fk}
-              when fk in [@func_generator, @func_async_generator] ->
-                name = raw_ctor.name || "anonymous"
-                JSThrow.type_error!("#{name} is not a constructor")
-
-              _ ->
-                :ok
+              :not_proxy_constructor ->
+                construct_non_proxy(ctor, new_target, rev_args, gas, ctx)
             end
+          end,
+          true
+        )
+      end
 
-            this_ref = make_ref()
+      defp proxy_construct_result(ctx, {:obj, ref} = ctor, new_target, args) do
+        case Heap.get_obj(ref, %{}) do
+          %{proxy_target() => _target, proxy_handler() => _handler} ->
+            {:ok, QuickBEAM.VM.Invocation.construct_runtime(ctx, ctor, new_target, args)}
 
-            raw_new_target =
-              case new_target do
-                {:closure, _, %Bytecode.Function{} = f} -> f
-                %Bytecode.Function{} = f -> f
-                _ -> nil
-              end
+          _ ->
+            :not_proxy_constructor
+        end
+      end
 
-            proto =
-              if raw_new_target != nil and raw_new_target != raw_ctor do
-                Heap.get_class_proto(raw_new_target) || Heap.get_class_proto(raw_ctor) ||
-                  Heap.get_or_create_prototype(ctor)
-              else
-                Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
-              end
+      defp proxy_construct_result(_ctx, _ctor, _new_target, _args), do: :not_proxy_constructor
 
-            init = if proto, do: %{proto() => proto}, else: %{}
-            Heap.put_obj(this_ref, init)
-            fresh_this = {:obj, this_ref}
+      defp construct_non_proxy(ctor, new_target, rev_args, gas, ctx) do
+        raw_ctor =
+          case ctor do
+            {:closure, _, %Bytecode.Function{} = f} ->
+              f
 
-            this_obj =
-              case raw_ctor do
-                %Bytecode.Function{is_derived_class_constructor: true} ->
-                  {:uninitialized, fresh_this}
+            {:bound, _, inner, _, _} ->
+              inner
 
-                _ ->
-                  fresh_this
-              end
+            %Bytecode.Function{} = f ->
+              f
 
-            ctor_ctx = Context.mark_dirty(%{ctx | this: this_obj, new_target: new_target})
+            {:builtin, _, cb} when is_function(cb) ->
+              ctor
 
-            result =
-              case ctor do
+            {:builtin, _, map} when is_map(map) ->
+              throw(
+                {:js_throw,
+                 Heap.make_error(
+                   "#{Values.stringify(ctor)} is not a constructor",
+                   "TypeError"
+                 )}
+              )
+
+            _ ->
+              throw(
+                {:js_throw,
+                 Heap.make_error(
+                   "#{Values.stringify(ctor)} is not a constructor",
+                   "TypeError"
+                 )}
+              )
+          end
+
+        case raw_ctor do
+          %Bytecode.Function{func_kind: fk}
+          when fk in [@func_generator, @func_async_generator] ->
+            name = raw_ctor.name || "anonymous"
+            JSThrow.type_error!("#{name} is not a constructor")
+
+          _ ->
+            :ok
+        end
+
+        this_ref = make_ref()
+
+        raw_new_target =
+          case new_target do
+            {:closure, _, %Bytecode.Function{} = f} -> f
+            %Bytecode.Function{} = f -> f
+            _ -> nil
+          end
+
+        proto =
+          if raw_new_target != nil and raw_new_target != raw_ctor do
+            Heap.get_class_proto(raw_new_target) || Heap.get_class_proto(raw_ctor) ||
+              Heap.get_or_create_prototype(ctor)
+          else
+            Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
+          end
+
+        init = if proto, do: %{proto() => proto}, else: %{}
+        Heap.put_obj(this_ref, init)
+        fresh_this = {:obj, this_ref}
+
+        this_obj =
+          case raw_ctor do
+            %Bytecode.Function{is_derived_class_constructor: true} ->
+              {:uninitialized, fresh_this}
+
+            _ ->
+              fresh_this
+          end
+
+        ctor_ctx = Context.mark_dirty(%{ctx | this: this_obj, new_target: new_target})
+
+        result =
+          case ctor do
+            %Bytecode.Function{} = f ->
+              do_invoke(
+                f,
+                {:closure, %{}, f},
+                rev_args,
+                ClosureBuilder.ctor_var_refs(f),
+                gas,
+                ctor_ctx
+              )
+
+            {:closure, captured, %Bytecode.Function{} = f} ->
+              do_invoke(
+                f,
+                {:closure, captured, f},
+                rev_args,
+                ClosureBuilder.ctor_var_refs(f, captured),
+                gas,
+                ctor_ctx
+              )
+
+            {:bound, _, _, orig_fun, bound_args} ->
+              all_args = bound_args ++ rev_args
+
+              case orig_fun do
                 %Bytecode.Function{} = f ->
                   do_invoke(
                     f,
                     {:closure, %{}, f},
-                    rev_args,
+                    all_args,
                     ClosureBuilder.ctor_var_refs(f),
                     gas,
                     ctor_ctx
@@ -148,103 +197,76 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
                   do_invoke(
                     f,
                     {:closure, captured, f},
-                    rev_args,
+                    all_args,
                     ClosureBuilder.ctor_var_refs(f, captured),
                     gas,
                     ctor_ctx
                   )
 
-                {:bound, _, _, orig_fun, bound_args} ->
-                  all_args = bound_args ++ rev_args
-
-                  case orig_fun do
-                    %Bytecode.Function{} = f ->
-                      do_invoke(
-                        f,
-                        {:closure, %{}, f},
-                        all_args,
-                        ClosureBuilder.ctor_var_refs(f),
-                        gas,
-                        ctor_ctx
-                      )
-
-                    {:closure, captured, %Bytecode.Function{} = f} ->
-                      do_invoke(
-                        f,
-                        {:closure, captured, f},
-                        all_args,
-                        ClosureBuilder.ctor_var_refs(f, captured),
-                        gas,
-                        ctor_ctx
-                      )
-
-                    {:builtin, _, cb} when is_function(cb, 2) ->
-                      cb.(all_args, this_obj)
-
-                    _ ->
-                      this_obj
-                  end
-
-                {:builtin, name, cb} when is_function(cb, 2) ->
-                  obj = cb.(rev_args, this_obj)
-
-                  if name in ~w(Number String Boolean) do
-                    existing = Heap.get_obj(this_ref, %{})
-                    val_fn = {:builtin, "valueOf", fn _, _ -> obj end}
-
-                    to_str_fn =
-                      {:builtin, "toString", fn _, _ -> Values.stringify(obj) end}
-
-                    Heap.put_obj(
-                      this_ref,
-                      existing
-                      |> Map.merge(%{"valueOf" => val_fn, "toString" => to_str_fn})
-                      |> Map.put(primitive_value(), obj)
-                    )
-                  end
-
-                  if name in ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError) do
-                    case obj do
-                      {:obj, ref} ->
-                        existing = Heap.get_obj(ref, %{})
-
-                        if is_map(existing) and not Map.has_key?(existing, "name") do
-                          Heap.put_obj(ref, Map.put(existing, "name", name))
-                        end
-
-                      _ ->
-                        :ok
-                    end
-                  end
-
-                  obj
+                {:builtin, _, cb} when is_function(cb, 2) ->
+                  cb.(all_args, this_obj)
 
                 _ ->
                   this_obj
               end
 
-            result = Class.coalesce_this_result(result, this_obj)
+            {:builtin, name, cb} when is_function(cb, 2) ->
+              obj = cb.(rev_args, this_obj)
 
-            if match?({:uninitialized, _}, result) do
-              JSThrow.reference_error!("this is not initialized")
-            end
+              if name in ~w(Number String Boolean) do
+                existing = Heap.get_obj(this_ref, %{})
+                val_fn = {:builtin, "valueOf", fn _, _ -> obj end}
 
-            case {result, Heap.get_class_proto(raw_ctor)} do
-              {{:obj, rref}, {:obj, _} = proto2} ->
-                rmap = Heap.get_obj(rref, %{})
+                to_str_fn =
+                  {:builtin, "toString", fn _, _ -> Values.stringify(obj) end}
 
-                unless Map.has_key?(rmap, proto()) do
-                  Heap.put_obj(rref, Map.put(rmap, proto(), proto2))
+                Heap.put_obj(
+                  this_ref,
+                  existing
+                  |> Map.merge(%{"valueOf" => val_fn, "toString" => to_str_fn})
+                  |> Map.put(primitive_value(), obj)
+                )
+              end
+
+              if name in ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError) do
+                case obj do
+                  {:obj, ref} ->
+                    existing = Heap.get_obj(ref, %{})
+
+                    if is_map(existing) and not Map.has_key?(existing, "name") do
+                      Heap.put_obj(ref, Map.put(existing, "name", name))
+                    end
+
+                  _ ->
+                    :ok
                 end
+              end
 
-              _ ->
-                :ok
+              obj
+
+            _ ->
+              this_obj
+          end
+
+        result = Class.coalesce_this_result(result, this_obj)
+
+        if match?({:uninitialized, _}, result) do
+          JSThrow.reference_error!("this is not initialized")
+        end
+
+        case {result, Heap.get_class_proto(raw_ctor)} do
+          {{:obj, rref}, {:obj, _} = proto2} ->
+            rmap = Heap.get_obj(rref, %{})
+
+            unless Map.has_key?(rmap, proto()) do
+              Heap.put_obj(rref, Map.put(rmap, proto(), proto2))
             end
 
-            result
-          end,
-          true
-        )
+          _ ->
+            :ok
+        end
+
+        result
       end
 
       defp run({@op_init_ctor, []}, pc, frame, stack, gas, %Context{arg_buf: arg_buf} = ctx) do

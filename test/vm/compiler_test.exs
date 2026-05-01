@@ -314,6 +314,27 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 0} = Compiler.invoke(non_enumerable, [])
     end
 
+    test "compiles Proxy construct traps", %{rt: rt} do
+      construct_trap =
+        compile_and_decode(
+          rt,
+          "let F=new Proxy(function(x){this.x=x},{construct(t,args){return {x:7}}}); new F(1).x"
+        ).value
+
+      default_construct =
+        compile_and_decode(rt, "let F=new Proxy(function(x){this.x=x},{}); new F(3).x").value
+
+      reflect_construct =
+        compile_and_decode(
+          rt,
+          "let F=new Proxy(function(x){this.x=x},{construct(t,args){return {x:8}}}); Reflect.construct(F,[1]).x"
+        ).value
+
+      assert {:ok, 7} = Compiler.invoke(construct_trap, [])
+      assert {:ok, 3} = Compiler.invoke(default_construct, [])
+      assert {:ok, 8} = Compiler.invoke(reflect_construct, [])
+    end
+
     test "compiles callable Proxy apply traps", %{rt: rt} do
       apply_trap =
         compile_and_decode(
