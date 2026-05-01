@@ -23,7 +23,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Generators do
                Builder.tuple_expr([
                  Builder.atom(:generator_yield_star),
                  val,
-                 yield_continuation(state, next_entry, stack_depths)
+                 yield_star_continuation(state, next_entry)
                ])
              ])
              | state.body
@@ -38,7 +38,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Generators do
                Builder.tuple_expr([
                  Builder.atom(:generator_yield_star),
                  val,
-                 yield_continuation(state, next_entry, stack_depths)
+                 yield_star_continuation(state, next_entry)
                ])
              ])
              | state.body
@@ -119,6 +119,23 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Generators do
     else
       {:fun, 1, {:clauses, [{:clause, 1, [arg_var], [], [Builder.atom(:undefined)]}]}}
     end
+  end
+
+  defp yield_star_continuation(state, next_entry) do
+    arg_var = Builder.var("YieldArg")
+    false_var = Builder.atom(false)
+
+    ctx = State.ctx_expr(state)
+    slots = State.current_slots(state)
+    stack = [false_var, arg_var | State.current_stack(state)]
+    captures = State.current_capture_cells(state)
+
+    call =
+      Builder.local_call(Builder.block_name(next_entry), [
+        ctx | slots ++ stack ++ captures
+      ])
+
+    {:fun, 1, {:clauses, [{:clause, 1, [arg_var], [], [call]}]}}
   end
 
   defp yield_continuation(state, next_entry, stack_depths) do

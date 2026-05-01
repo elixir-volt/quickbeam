@@ -1161,6 +1161,23 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
+  def iterator_next_result(_ctx \\ nil, next_fn, iter_obj, val)
+
+  def iterator_next_result(_ctx, _next_fn, :undefined, _val),
+    do: {Heap.wrap(%{"done" => true, "value" => :undefined}), :undefined}
+
+  def iterator_next_result(_ctx, _next_fn, {:list_iter, [head | tail]}, _val),
+    do: {Heap.wrap(%{"done" => false, "value" => head}), {:list_iter, tail}}
+
+  def iterator_next_result(_ctx, _next_fn, {:list_iter, []}, _val),
+    do: {Heap.wrap(%{"done" => true, "value" => :undefined}), :undefined}
+
+  def iterator_next_result(_ctx, next_fn, iter_obj, val) do
+    result = Runtime.call_callback(next_fn, [val])
+    next_iter = if Get.get(result, "done") == true, do: :undefined, else: iter_obj
+    {result, next_iter}
+  end
+
   @doc "Creates key iteration state for a JavaScript `for...in` loop."
   def for_in_start(_ctx \\ nil, obj), do: {:for_in_iterator, enumerable_keys(obj)}
 

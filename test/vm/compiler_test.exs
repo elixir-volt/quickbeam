@@ -1533,6 +1533,37 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(fun, [])
     end
 
+    test "delegates compiled generator yield star", %{rt: rt} do
+      first =
+        compile_and_decode(
+          rt,
+          "function* g(){ yield* [1,2]; return 3 } let it=g(); it.next().value"
+        ).value
+
+      second =
+        compile_and_decode(
+          rt,
+          "function* g(){ yield* [1,2]; return 3 } let it=g(); it.next(); it.next().value"
+        ).value
+
+      returned =
+        compile_and_decode(
+          rt,
+          "function* g(){ yield* [1,2]; return 3 } let it=g(); it.next(); it.next(); it.next().value"
+        ).value
+
+      astral =
+        compile_and_decode(
+          rt,
+          ~S|function* g(){ yield* "😀a" } let it=g(); it.next().value.length|
+        ).value
+
+      assert {:ok, 1} = Compiler.invoke(first, [])
+      assert {:ok, 2} = Compiler.invoke(second, [])
+      assert {:ok, 3} = Compiler.invoke(returned, [])
+      assert {:ok, 2} = Compiler.invoke(astral, [])
+    end
+
     test "returns resolved values from compiled async functions", %{rt: rt} do
       fun = compile_and_decode(rt, "async function f(){ return 1 } f()").value
 

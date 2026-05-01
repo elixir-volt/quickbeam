@@ -8,9 +8,9 @@
 - Large local frames now use tuple-mode compiled block arguments above the slot threshold, so generic `get_loc`, `put_loc`, and `set_loc` coverage is no longer blocked by BEAM arity limits.
 - Async/generator invocation semantics remain partially deferred:
   - uninvoked async/generator/import bytecode, lexical-this `put_var_ref_check_init`, and uninvoked `for await` iterator-result bytecode are covered for compile/opcode coverage
-  - invoked simple generator `.next()`, multi-`next`, return-value, and `.return()` paths now have clean semantic audit coverage through `initial_yield`/`yield`
+  - invoked simple generator `.next()`, multi-`next`, return-value, `.return()`, and sync delegated `yield*` over arrays/strings now have clean semantic audit coverage
   - invoked async function return, await-value, await-resolved-promise, nested await, chained promise, caught throw, rejected-promise catch, multi-await, and Promise.all flows now have clean semantic audit coverage
-  - `yield_star` and `async_yield_star` still need semantic alignment before they can be correctness-audited
+  - sync `yield_star` now has semantic guardrails for array and string delegation; `async_yield_star` still needs semantic alignment before it can be correctness-audited
   - dynamic `import()` rejection message/stack now matches for the curated no-runtime invalid-specifier case; runtime-backed module loading should still be broadened separately
 - `vm_compiler_opcode_coverage` now reports total opcode universe, coverage percentage, missing count, and grouped missing opcodes; keep these diagnostics current if opcode metadata changes.
 - Fix semantic gaps before adding these cases to the invoked audited corpus:
@@ -26,12 +26,12 @@
 - Fresh semantic divergences seen during coverage broadening; fix before adding to clean audit:
   - nested `try/finally` throw/catch control flow can produce different final values.
   - `Promise.reject` caught through `await` still differs from the interpreter oracle for some shapes.
-  - `yield*`/delegated generator paths still return `undefined` in compiled mode for value/return cases.
+  - `async yield*`/delegated async-generator paths still need product investigation before inclusion.
   - direct eval declaration cases and missing/unsupported builtins often mismatch only by stack/source diagnostics; preserve stack comparisons rather than weakening the audit.
-  - broader proxy invariant refinements, tag-call captured side effects/`raw` template strings, static block captured lexical writes, iterator close with captured lexical writes, and yield* edge cases need product investigation before inclusion.
+  - broader proxy invariant refinements, tag-call captured side effects/`raw` template strings, static block captured lexical writes, iterator close with captured lexical writes, and async `yield*` edge cases need product investigation before inclusion.
   - Static block object-state/constructor side effects and static-field ordering now have clean guardrails; direct captured lexical writes still diverge.
   - Boxed primitive constructor/prototype basics (`Number`, `String`, `Boolean` valueOf/toString/concat and boxed string UTF-16 length) now have clean guardrails after unwrapping wrapper objects before prototype dispatch.
-  - Astral string guardrails now cover Array.from, spread, for-of element lengths, direct primitive `String.prototype[Symbol.iterator]` use, and boxed string iterator lookup by codepoint. Array prototype `Symbol.iterator` and iterator self-identity now have clean guardrails; yield* over strings still diverges.
+  - Astral string guardrails now cover Array.from, spread, for-of element lengths, direct primitive `String.prototype[Symbol.iterator]` use, boxed string iterator lookup, and sync `yield*` over strings by codepoint. Array prototype `Symbol.iterator` and iterator self-identity also have clean guardrails.
   - Captured local reads now refresh from capture cells after nested calls, guarding direct assignment, increment, compound assignment, and transitive nested-call families. Captured argument cells disagree with the interpreter oracle, and top-level/static-block plus iterator-close captured lexical writes still diverge.
   - queueMicrotask now has clean guardrails for deferred state, promise-observed state after microtask drain, and swallowed task errors.
   - Top-level compiled promise continuations now drain and unwrap resolved promises, so direct `Promise.reject(...).catch(...)` and throw-through-then catch chains have clean guardrails. Compiled/interpreted async throw, rejected-await chains, direct returned Promise adoption, caught rejected-await `try/catch`, and Promise `all`/`allSettled`/`any`/`race` rejection/pending flows now have clean guardrails, including `Promise.any` AggregateError-style all-rejected/empty cases, `Promise.race([])` pending state, and pending input propagation through `all`/`allSettled`/`any`.

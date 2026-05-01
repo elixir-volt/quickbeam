@@ -46,21 +46,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
         end
 
       {{:ok, :iterator_next}, []} ->
-        with {:ok, iter, state} <- State.pop(state) do
-          next_fn =
-            Builder.remote_call(Get, :get, [
-              iter,
-              Builder.literal("next")
-            ])
-
-          State.effectful_push(
-            state,
-            Builder.remote_call(QuickBEAM.VM.Runtime, :call_callback, [
-              next_fn,
-              Builder.list_expr([])
-            ])
-          )
-        end
+        lower_iterator_next(state)
 
       {{:ok, :iterator_call}, [_method]} ->
         with {:ok, iter, state} <- State.pop(state) do
@@ -76,6 +62,50 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
 
       _ ->
         :not_handled
+    end
+  end
+
+  defp lower_iterator_next(
+         %{
+           stack: [val, catch_offset, next_fn, iter_obj | rest],
+           stack_types: [_val_type, catch_type, next_type, iter_type | type_rest]
+         } = state
+       ) do
+    {pair, state} =
+      State.bind(
+        state,
+        Builder.temp_name(state.temp),
+        State.compiler_call(state, :iterator_next_result, [next_fn, iter_obj, val])
+      )
+
+    {:ok,
+     %{
+       state
+       | stack: [
+           Builder.tuple_element(pair, 1),
+           catch_offset,
+           next_fn,
+           Builder.tuple_element(pair, 2) | rest
+         ],
+         stack_types: [:object, catch_type, next_type, iter_type | type_rest]
+     }}
+  end
+
+  defp lower_iterator_next(state) do
+    with {:ok, iter, state} <- State.pop(state) do
+      next_fn =
+        Builder.remote_call(Get, :get, [
+          iter,
+          Builder.literal("next")
+        ])
+
+      State.effectful_push(
+        state,
+        Builder.remote_call(QuickBEAM.VM.Runtime, :call_callback, [
+          next_fn,
+          Builder.list_expr([])
+        ])
+      )
     end
   end
 
