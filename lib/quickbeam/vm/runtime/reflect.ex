@@ -58,8 +58,12 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
     end
 
     method "defineProperty" do
-      Object.static_property("defineProperty") |> Runtime.call_callback(args)
-      true
+      try do
+        Object.static_property("defineProperty") |> Invocation.invoke_callback_or_throw(args)
+        true
+      catch
+        {:js_throw, _reason} -> false
+      end
     end
 
     method "preventExtensions" do

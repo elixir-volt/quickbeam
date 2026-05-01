@@ -512,6 +512,31 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp assign_internal_key?(_), do: false
 
+  defp non_extensible_new_property?(ref, existing, prop_name) do
+    not Heap.extensible?(ref) and not property_present?(existing, prop_name)
+  end
+
+  defp property_present?(map, prop_name) when is_map(map) do
+    raw_key = parse_array_index_key(prop_name)
+    Map.has_key?(map, prop_name) or (raw_key != :error and Map.has_key?(map, raw_key))
+  end
+
+  defp property_present?(list, prop_name) when is_list(list) do
+    case Integer.parse(prop_name) do
+      {idx, ""} when idx >= 0 -> idx < length(list)
+      _ -> false
+    end
+  end
+
+  defp property_present?({:qb_arr, arr}, prop_name) do
+    case Integer.parse(prop_name) do
+      {idx, ""} when idx >= 0 -> idx < :array.size(arr)
+      _ -> false
+    end
+  end
+
+  defp property_present?(_existing, _prop_name), do: false
+
   defp define_property([{:obj, ref} = obj, key, {:obj, desc_ref} | _]) do
     desc = Heap.get_obj(desc_ref, %{})
 
@@ -524,6 +549,10 @@ defmodule QuickBEAM.VM.Runtime.Object do
       end
 
     existing = Heap.get_obj(ref, %{})
+
+    if non_extensible_new_property?(ref, existing, prop_name) do
+      throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
+    end
 
     if is_list(existing) or match?({:qb_arr, _}, existing) do
       case Integer.parse(prop_name) do

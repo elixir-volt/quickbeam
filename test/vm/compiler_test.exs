@@ -384,12 +384,33 @@ defmodule QuickBEAM.VM.CompilerTest do
       prevent_primitive = compile_and_decode(rt, "Reflect.preventExtensions(1)").value
       extensible_primitive = compile_and_decode(rt, "Reflect.isExtensible(1)").value
 
+      reflect_define_blocked =
+        compile_and_decode(
+          rt,
+          ~S|let o={}; Object.preventExtensions(o); Reflect.defineProperty(o,"x",{value:1})|
+        ).value
+
+      reflect_define_existing =
+        compile_and_decode(
+          rt,
+          ~S|let o={x:1}; Object.preventExtensions(o); Reflect.defineProperty(o,"x",{value:2}) && o.x|
+        ).value
+
+      object_define_blocked =
+        compile_and_decode(
+          rt,
+          ~S|let o={}; Object.preventExtensions(o); try{Object.defineProperty(o,"x",{value:1}); 0}catch(e){e.name}|
+        ).value
+
       assert {:ok, true} = Compiler.invoke(delete_property, [])
       assert {:ok, 2} = Compiler.invoke(define_property, [])
       assert {:ok, 0} = Compiler.invoke(non_enumerable, [])
       assert {:ok, true} = Compiler.invoke(prevent_extensions, [])
       assert {:ok, false} = Compiler.invoke(prevent_primitive, [])
       assert {:ok, false} = Compiler.invoke(extensible_primitive, [])
+      assert {:ok, false} = Compiler.invoke(reflect_define_blocked, [])
+      assert {:ok, 2} = Compiler.invoke(reflect_define_existing, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(object_define_blocked, [])
     end
 
     test "compiles Proxy construct traps", %{rt: rt} do
