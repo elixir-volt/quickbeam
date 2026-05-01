@@ -1539,6 +1539,37 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(fun, [])
     end
 
+    test "compiles promise combinator rejection flows", %{rt: rt} do
+      all_settled =
+        compile_and_decode(
+          rt,
+          ~S|Promise.allSettled([Promise.resolve(1), Promise.reject(2)]).then(r=>r[0].status + ":" + r[1].reason)|
+        ).value
+
+      any =
+        compile_and_decode(
+          rt,
+          ~S|Promise.any([Promise.reject(1), Promise.resolve(2)]).then(x=>x+1)|
+        ).value
+
+      race_reject =
+        compile_and_decode(
+          rt,
+          ~S|Promise.race([Promise.reject(1), Promise.resolve(2)]).catch(e=>e+1)|
+        ).value
+
+      race_resolve =
+        compile_and_decode(
+          rt,
+          ~S|Promise.race([Promise.resolve(2), Promise.reject(1)]).then(x=>x+1)|
+        ).value
+
+      assert {:ok, "fulfilled:2"} = Compiler.invoke(all_settled, [])
+      assert {:ok, 3} = Compiler.invoke(any, [])
+      assert {:ok, 2} = Compiler.invoke(race_reject, [])
+      assert {:ok, 3} = Compiler.invoke(race_resolve, [])
+    end
+
     test "normalizes compiled async rejections for promise chains", %{rt: rt} do
       thrown = compile_and_decode(rt, "async function f(){throw 1} f().catch(e=>e+1)").value
 
