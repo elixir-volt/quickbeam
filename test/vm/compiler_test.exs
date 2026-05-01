@@ -1701,6 +1701,15 @@ defmodule QuickBEAM.VM.CompilerTest do
       constructor_resolve_pending =
         compile_and_decode(rt, ~S|new Promise(resolve=>resolve(Promise.race([])))|).value
 
+      resolve_thenable =
+        compile_and_decode(rt, ~S|Promise.resolve({then(r){r(5)}}).then(x=>x+1)|).value
+
+      resolve_throwing_thenable =
+        compile_and_decode(rt, ~S|Promise.resolve({then(){throw 5}}).catch(e=>e+1)|).value
+
+      constructor_resolve_thenable =
+        compile_and_decode(rt, ~S|new Promise(resolve=>resolve({then(r){r(5)}})).then(x=>x+1)|).value
+
       assert {:ok, 3} = Compiler.invoke(all_reject, [])
       assert {:ok, 3} = Compiler.invoke(any_all_reject, [])
       assert {:ok, "AggregateError"} = Compiler.invoke(any_empty, [])
@@ -1719,6 +1728,9 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 2} = Compiler.invoke(constructor_resolve_rejection, [])
       assert {:ok, {:obj, ref}} = Compiler.invoke(constructor_resolve_pending, [])
       assert %{"__promise_state__" => :pending} = Heap.get_obj(ref)
+      assert {:ok, 6} = Compiler.invoke(resolve_thenable, [])
+      assert {:ok, 6} = Compiler.invoke(resolve_throwing_thenable, [])
+      assert {:ok, 6} = Compiler.invoke(constructor_resolve_thenable, [])
     end
 
     test "normalizes compiled async rejections for promise chains", %{rt: rt} do
