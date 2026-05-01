@@ -1441,7 +1441,7 @@ defmodule QuickBEAM.VM.Interpreter do
             l2v
           )
 
-        fn_atoms = Heap.get_fn_atoms(fun.byte_code, Heap.get_atoms())
+        fn_atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
         Heap.put_atoms(fn_atoms)
 
         inner_ctx =

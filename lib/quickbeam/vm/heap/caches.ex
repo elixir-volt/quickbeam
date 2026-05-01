@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Heap.Caches do
   @moduledoc "Process-local caches for decoded bytecode, prototypes, transient call state, and runtime metadata."
 
+  alias QuickBEAM.VM.Bytecode
+
   # ── Bytecode caches ──
 
   @doc "Returns cached decoded instructions for a bytecode binary."
@@ -13,11 +15,24 @@ defmodule QuickBEAM.VM.Heap.Caches do
   def get_compiled(key), do: Process.get({:qb_compiled, key})
   def put_compiled(key, compiled), do: Process.put({:qb_compiled, key}, compiled)
 
-  def get_fn_atoms(byte_code, default \\ nil),
-    do: Process.get({:qb_fn_atoms, byte_code}, default)
+  def get_fn_atoms(function_or_byte_code, default \\ nil)
+
+  def get_fn_atoms(%Bytecode.Function{} = fun, default) do
+    Process.get({:qb_fn_atoms, function_atom_key(fun)}, get_fn_atoms(fun.byte_code, default))
+  end
+
+  def get_fn_atoms(byte_code, default), do: Process.get({:qb_fn_atoms, byte_code}, default)
 
   @doc "Caches the atom table for a bytecode function."
+  def put_fn_atoms(%Bytecode.Function{} = fun, atoms) do
+    Process.put({:qb_fn_atoms, function_atom_key(fun)}, atoms)
+    Process.put({:qb_fn_atoms, fun.byte_code}, atoms)
+  end
+
   def put_fn_atoms(byte_code, atoms), do: Process.put({:qb_fn_atoms, byte_code}, atoms)
+
+  defp function_atom_key(%Bytecode.Function{} = fun),
+    do: {fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants)}
 
   def get_capture_keys(byte_code), do: Process.get({:qb_capture_keys, byte_code})
   def put_capture_keys(byte_code, tuple), do: Process.put({:qb_capture_keys, byte_code}, tuple)

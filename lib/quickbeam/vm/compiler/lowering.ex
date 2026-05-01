@@ -156,7 +156,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
       [
         locals: fun.locals,
         closure_vars: fun.closure_vars,
-        atoms: Heap.get_fn_atoms(fun.byte_code),
+        atoms: Heap.get_fn_atoms(fun),
         arg_count: arg_count,
         return_type: return_type,
         frame_mode: frame_mode

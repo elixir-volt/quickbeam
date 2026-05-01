@@ -176,7 +176,7 @@ defmodule QuickBEAM.VM.Invocation do
         {:closure, _, %Bytecode.Function{need_home_object: false} = inner} = closure,
         args
       ) do
-    atoms = Heap.get_fn_atoms(inner.byte_code, ctx.atoms)
+    atoms = Heap.get_fn_atoms(inner, ctx.atoms)
 
     key =
       {inner.byte_code, inner.arg_count, :erlang.phash2(inner.constants), :erlang.phash2(atoms)}

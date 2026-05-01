@@ -36,7 +36,7 @@ defmodule QuickBEAM.VM.Compiler do
 
   @doc "Compiles a bytecode function for optimized execution."
   def compile(%Bytecode.Function{} = fun) do
-    atoms = Heap.get_fn_atoms(fun.byte_code, Heap.get_atoms())
+    atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
     module = module_name(fun, atoms)
     entry = ctx_entry_name()
 
@@ -85,7 +85,7 @@ defmodule QuickBEAM.VM.Compiler do
   end
 
   defp compile_binary(%Bytecode.Function{} = fun) do
-    atoms = Heap.get_fn_atoms(fun.byte_code, Heap.get_atoms())
+    atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
     module = module_name(fun, atoms)
     entry = entry_name()
     ctx_entry = ctx_entry_name()

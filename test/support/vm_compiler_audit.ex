@@ -458,7 +458,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
   end
 
   defp cache_function_atoms(%Bytecode.Function{} = fun, atoms) do
-    Process.put({:qb_fn_atoms, fun.byte_code}, atoms)
+    Heap.put_fn_atoms(fun, atoms)
 
     Enum.each(fun.constants, fn
       %Bytecode.Function{} = inner -> cache_function_atoms(inner, atoms)

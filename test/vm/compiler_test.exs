@@ -30,7 +30,7 @@ defmodule QuickBEAM.VM.CompilerTest do
   end
 
   defp cache_function_atoms(%Bytecode.Function{} = fun, atoms) do
-    Process.put({:qb_fn_atoms, fun.byte_code}, atoms)
+    Heap.put_fn_atoms(fun, atoms)
 
     Enum.each(fun.constants, fn
       %Bytecode.Function{} = inner -> cache_function_atoms(inner, atoms)
@@ -46,7 +46,7 @@ defmodule QuickBEAM.VM.CompilerTest do
   end
 
   defp compiled_key(%Bytecode.Function{} = fun) do
-    atoms = Heap.get_fn_atoms(fun.byte_code, Heap.get_atoms())
+    atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
     {fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants), :erlang.phash2(atoms)}
   end
 
@@ -461,6 +461,18 @@ defmodule QuickBEAM.VM.CompilerTest do
       fun = compile_and_decode(rt, "(function(x){return Math.abs(x)})") |> user_function()
 
       assert {:ok, 12} = Compiler.invoke(fun, [-12])
+    end
+
+    test "keeps atom tables distinct for same bytecode callbacks", %{rt: rt} do
+      find = compile_and_decode(rt, "[1,2,3].find(x=>x>1)").value
+      some = compile_and_decode(rt, "[1,2,3].some(x=>x>2)").value
+      every = compile_and_decode(rt, "[1,2,3].every(x=>x>0)").value
+      reduce = compile_and_decode(rt, "[1,2,3].reduce((a,b)=>a+b,0)").value
+
+      assert {:ok, 2} = Compiler.invoke(find, [])
+      assert {:ok, true} = Compiler.invoke(some, [])
+      assert {:ok, true} = Compiler.invoke(every, [])
+      assert {:ok, 6} = Compiler.invoke(reduce, [])
     end
 
     test "compiles array writes with indexed reads", %{rt: rt} do

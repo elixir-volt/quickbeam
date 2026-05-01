@@ -190,6 +190,8 @@ cases = [
   {"array sort", "[3,1,2].sort()[0]"},
   {"array every", "[1,2,3].every(x=>x>0)"},
   {"array some", "[1,2,3].some(x=>x>2)"},
+  {"array callbacks with repeated bytecode",
+   "let a=[1,2,3]; a.find(x=>x>1) + (a.some(x=>x>2)?10:0) + (a.every(x=>x>0)?100:0) + a.reduce((a,b)=>a+b,0)"},
   {"array fill", "let a=[0,0,0]; a.fill(5,1); a[1]"},
   {"array copyWithin", "let a=[1,2,3]; a.copyWithin(1,0,1); a[1]"},
   {"array at", "[1,2,3].at(-1)"},
