@@ -416,6 +416,11 @@ defmodule QuickBEAM.VM.CompilerTest do
       string_concat = compile_and_decode(rt, "new String('x').concat('y')").value
       boolean_value = compile_and_decode(rt, "new Boolean(false).valueOf()").value
       boolean_string = compile_and_decode(rt, "new Boolean(false).toString()").value
+      number_fixed = compile_and_decode(rt, "new Number(1.25).toFixed(1)").value
+      number_precision = compile_and_decode(rt, "new Number(1.25).toPrecision(2)").value
+      boolean_true_string = compile_and_decode(rt, "new Boolean(true).toString()").value
+      object_number = compile_and_decode(rt, "Object(4).valueOf()").value
+      object_string = compile_and_decode(rt, "Object('x').valueOf()").value
 
       assert {:ok, 3} = Compiler.invoke(number_value, [])
       assert {:ok, "a"} = Compiler.invoke(number_string, [])
@@ -423,6 +428,11 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "xy"} = Compiler.invoke(string_concat, [])
       assert {:ok, false} = Compiler.invoke(boolean_value, [])
       assert {:ok, "false"} = Compiler.invoke(boolean_string, [])
+      assert {:ok, "1.3"} = Compiler.invoke(number_fixed, [])
+      assert {:ok, "1.3"} = Compiler.invoke(number_precision, [])
+      assert {:ok, "true"} = Compiler.invoke(boolean_true_string, [])
+      assert {:ok, 4} = Compiler.invoke(object_number, [])
+      assert {:ok, "x"} = Compiler.invoke(object_string, [])
     end
 
     test "compiles Symbol and BigInt runtime edges", %{rt: rt} do
