@@ -218,6 +218,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"array map", "[1, 2, 3].map(x => x + 1).join(',')"},
       {"optional call", "let o = { f() { return 7; } }; o.f?.()"},
       {"nullish assignment", "let x = null; x ??= 4; x"},
+      {"logical field assignment", "let o={x:0}; o.x ||= 2; o.x"},
       {"pre decrement", "let x = 3; --x"},
       {"post decrement", "let x = 3; x--"},
       {"delete var", "var x = 1; delete x"},
