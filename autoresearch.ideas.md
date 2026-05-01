@@ -4,7 +4,7 @@
   - `invalid`: keep unsupported; do not fabricate invalid bytecode just for coverage.
 - Dynamic ref bytecode is compile-covered through safe uninvoked nested definitions:
   - `with_make_ref`, `make_arg_ref`, `make_loc_ref`, `make_var_ref`, `make_var_ref_ref`, `get_ref_value`, and `put_ref_value` are covered.
-  - Invoked `with` assignment/update/miss/unscopable behavior is **not** solved; multiple naive lowering models were tried and reverted because they mismatched interpreter results.
+  - Invoked `with` assignment/update/miss/unscopable behavior has clean coverage for direct assignment/update/delete/fallback and method-reference calls; nested/base reads that require branch-aware `with_get_var` still diverge.
 - Large local frames now use tuple-mode compiled block arguments above the slot threshold, so generic `get_loc`, `put_loc`, and `set_loc` coverage is no longer blocked by BEAM arity limits.
 - Async/generator invocation semantics remain partially deferred:
   - uninvoked async/generator/import bytecode, lexical-this `put_var_ref_check_init`, and uninvoked `for await` iterator-result bytecode are covered for compile/opcode coverage
@@ -14,7 +14,7 @@
   - dynamic `import()` rejection message/stack now matches for the curated no-runtime invalid-specifier case; runtime-backed module loading should still be broadened separately
 - `vm_compiler_opcode_coverage` now reports total opcode universe, coverage percentage, missing count, and grouped missing opcodes; keep these diagnostics current if opcode metadata changes.
 - Fix semantic gaps before adding these cases to the invoked audited corpus:
-  - branch-aware `with` reference lowering is now implemented for `with_make_ref` property hits and global/unscopables fallback writes; captured fallback/update/unscopables cases now have audit coverage, but with-object method-call resolution still diverges (`with(o){ m() }` can raise `ReferenceError` in compiled mode)
+  - branch-aware `with` reference lowering is now implemented for `with_make_ref` property hits/global fallback writes and `with_get_ref` method-reference calls; direct with-object method calls now have audit coverage, but `with_get_var` base reads still need careful handling (`with(o){ a.m() }`, property read/update shapes)
   - derived constructors returning primitives, undefined, objects, and `new.target` propagation now have semantic audit coverage
   - computed class values now have invoked semantic audit coverage for the simple object-literal case
   - custom iterator loop value, for-in keys, for-of destructuring, and generator send/done paths now have semantic audit coverage, but broader iterator correctness still deserves product-level tests because earlier coverage-only probes suggested shared runtime gaps
