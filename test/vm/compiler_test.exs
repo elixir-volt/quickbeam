@@ -319,6 +319,28 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, false} = Compiler.invoke(strict, [])
     end
 
+    test "compiles Map and Set mutation helpers", %{rt: rt} do
+      map_set_get = compile_and_decode(rt, "let m=new Map(); m.set(1,2).set(3,4); m.get(3)").value
+      map_delete = compile_and_decode(rt, "let m=new Map([[1,2]]); m.delete(1); m.has(1)").value
+      map_size = compile_and_decode(rt, "let m=new Map([[1,2],[3,4]]); m.size").value
+      set_size = compile_and_decode(rt, "let s=new Set([1,2,2]); s.size").value
+      set_delete = compile_and_decode(rt, "let s=new Set([1]); s.delete(1); s.has(1)").value
+
+      weakmap_delete =
+        compile_and_decode(rt, "let k={}; let m=new WeakMap([[k,1]]); m.delete(k); m.has(k)").value
+
+      weakset_delete =
+        compile_and_decode(rt, "let k={}; let s=new WeakSet([k]); s.delete(k); s.has(k)").value
+
+      assert {:ok, 4} = Compiler.invoke(map_set_get, [])
+      assert {:ok, false} = Compiler.invoke(map_delete, [])
+      assert {:ok, 2} = Compiler.invoke(map_size, [])
+      assert {:ok, 2} = Compiler.invoke(set_size, [])
+      assert {:ok, false} = Compiler.invoke(set_delete, [])
+      assert {:ok, false} = Compiler.invoke(weakmap_delete, [])
+      assert {:ok, false} = Compiler.invoke(weakset_delete, [])
+    end
+
     test "compiles Symbol and BigInt runtime edges", %{rt: rt} do
       symbol_for = compile_and_decode(rt, "Symbol.for('x')===Symbol.for('x')").value
       symbol_key = compile_and_decode(rt, "Symbol.keyFor(Symbol.for('x'))").value
