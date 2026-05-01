@@ -282,6 +282,8 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"with delete", "let o={x:1}; with(o){ delete x; } 'x' in o"},
       {"derived constructor return object",
        "class A{}; class B extends A { constructor(){ super(); return {x:1}; } } new B().x"},
+      {"unused derived super arrow",
+       "class A{}; class B extends A { constructor(){ let f=()=>super(); f(); } } 1"},
       {"arguments write", "function f(){ arguments[0] = 3; return arguments[0]; } f(1)"},
       {"arguments alias put arg2",
        "function f(a,b,c){ arguments; c=2; return arguments[2] } f(1,3,4)"},
