@@ -459,6 +459,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
 
   defp normalize({:obj, ref}), do: normalize_heap_object(Heap.get_obj(ref))
   defp normalize({:closure, _captures, %Bytecode.Function{}}), do: :function
+  defp normalize({:builtin, name, callback}) when is_function(callback), do: {:builtin, name}
   defp normalize(%Bytecode.Function{}), do: :function
   defp normalize(value), do: value
 

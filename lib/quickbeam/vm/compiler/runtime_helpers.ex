@@ -818,17 +818,65 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   @doc "Loads a registered VM module by name."
   def import_module(ctx, specifier) do
-    if is_binary(specifier) and Map.get(ctx, :runtime_pid) != nil do
-      QuickBEAM.VM.PromiseState.resolved(QuickBEAM.VM.Runtime.new_object())
-    else
-      QuickBEAM.VM.PromiseState.rejected(
-        Heap.make_error("Cannot import #{specifier}", "TypeError")
-      )
+    cond do
+      is_binary(specifier) and Map.get(ctx, :runtime_pid) != nil ->
+        case QuickBEAM.Runtime.load_module(ctx.runtime_pid, specifier, "") do
+          :ok ->
+            QuickBEAM.VM.PromiseState.resolved(QuickBEAM.VM.Runtime.new_object())
+
+          {:error, _} ->
+            QuickBEAM.VM.PromiseState.rejected(
+              make_error_with_ctx(ctx, "Cannot find module '#{specifier}'", "TypeError")
+            )
+        end
+
+      true ->
+        QuickBEAM.VM.PromiseState.rejected(
+          make_error_with_ctx(ctx, "Invalid module specifier", "TypeError")
+        )
     end
   end
 
-  def import_module(specifier) do
-    QuickBEAM.VM.PromiseState.rejected(Heap.make_error("Cannot import #{specifier}", "TypeError"))
+  def import_module(_specifier) do
+    QuickBEAM.VM.PromiseState.rejected(Heap.make_error("Invalid module specifier", "TypeError"))
+  end
+
+  defp make_error_with_ctx(ctx, message, name) do
+    previous_ctx = Heap.get_ctx()
+    Heap.put_ctx(ensure_context(ctx))
+
+    try do
+      Heap.make_error(message, name)
+      |> ensure_compiled_stack(ctx)
+    after
+      if previous_ctx, do: Heap.put_ctx(previous_ctx), else: Heap.put_ctx(nil)
+    end
+  end
+
+  defp ensure_compiled_stack({:obj, ref} = error, ctx) do
+    case Get.get(error, "stack") do
+      "" ->
+        Heap.update_obj(ref, %{}, &Map.put(&1, "stack", compiled_stack(ctx)))
+        error
+
+      _ ->
+        error
+    end
+  end
+
+  defp ensure_compiled_stack(error, _ctx), do: error
+
+  defp compiled_stack(ctx) do
+    case context_current_func(ctx) do
+      %Bytecode.Function{} = fun ->
+        "    at #{fun.filename}:#{fun.line_num}:#{fun.col_num}"
+
+      {:closure, _captures, %Bytecode.Function{} = fun} ->
+        "    at #{fun.filename}:#{fun.line_num}:#{fun.col_num}"
+
+      _ ->
+        ""
+    end
   end
 
   def with_has_property(_ctx, {:obj, _} = obj, key) do

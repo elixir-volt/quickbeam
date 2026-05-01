@@ -11,7 +11,7 @@
   - invoked `await`, `yield`, `yield_star`, `return_async`, and dynamic `import()` still need semantic alignment before they can be correctness-audited
 - `vm_compiler_opcode_coverage` now reports total opcode universe, coverage percentage, missing count, and grouped missing opcodes; keep these diagnostics current if opcode metadata changes.
 - Fix semantic gaps before adding these cases to the invoked audited corpus:
-  - branch-aware `with` reference lowering compatible with `insert3`/`perm4`/`put_ref_value`, including fallback to global/captured refs and `Symbol.unscopables`
+  - branch-aware `with` reference lowering is now implemented for `with_make_ref` property hits and global/unscopables fallback writes; captured/local fallback refs still need careful validation before broad invoked corpus expansion
   - derived constructors returning primitives should surface the same JS throw as the interpreter rather than crashing
   - invoked computed class values still diverge because the interpreter reports an unimplemented opcode for at least one top-level object-literal class-expression shape
   - custom iterator loop coverage currently matches compiler/interpreter at `0`, suggesting a shared iterator runtime semantic gap outside the compiler-differential objective
