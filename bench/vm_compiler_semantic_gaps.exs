@@ -53,6 +53,8 @@ cases = [
   {"computed class value invoked", "let o={ [class C{}]: 1 }; 1"},
   {"custom iterator loop value",
    "let it={ [Symbol.iterator](){ return { i:0, next(){ return this.i++ < 1 ? {value:7, done:false} : {done:true}; } } } }; let s=0; for (let x of it) s+=x; s"},
+  {"for-of iterator return receiver",
+   "let state={closed:0}; let it={ [Symbol.iterator](){return this}, next(){return {value:1,done:false}}, return(){state.closed=1; return {done:true}}}; for (let x of it) { break; } state.closed"},
   {"with fallback delete global", "var x=1; let o={}; with(o){ delete x } x"},
   {"with unscopables read fallback",
    "var x=1; let o={x:2,[Symbol.unscopables]:{x:true}}; with(o){ x }"},

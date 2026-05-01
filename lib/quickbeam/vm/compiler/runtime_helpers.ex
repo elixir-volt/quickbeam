@@ -987,9 +987,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
             cond do
               Map.has_key?(map, sym_iter) ->
-                iter_fn = Map.get(map, sym_iter)
-                iter_obj = Invocation.call_callback(ctx, iter_fn, [])
-                {iter_obj, Get.get(iter_obj, "next")}
+                invoke_custom_iter(ctx, Map.get(map, sym_iter), obj_ref)
 
               Map.has_key?(map, "next") ->
                 {obj_ref, Get.get(obj_ref, "next")}
@@ -1070,9 +1068,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
             cond do
               Map.has_key?(map, sym_iter) ->
-                iter_fn = Map.get(map, sym_iter)
-                iter_obj = Runtime.call_callback(iter_fn, [])
-                {iter_obj, Get.get(iter_obj, "next")}
+                invoke_custom_iter_ctxless(Map.get(map, sym_iter), obj_ref)
 
               Map.has_key?(map, "next") ->
                 {obj_ref, Get.get(obj_ref, "next")}
@@ -1175,7 +1171,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     return_fn = Get.get(iter_obj, "return")
 
     if return_fn != :undefined and return_fn != nil do
-      Invocation.call_callback(ctx, return_fn, [])
+      Invocation.invoke_method_runtime(ctx, return_fn, iter_obj, [])
     end
 
     :ok
@@ -1188,7 +1184,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     return_fn = Get.get(iter_obj, "return")
 
     if return_fn != :undefined and return_fn != nil do
-      Runtime.call_callback(return_fn, [])
+      Invocation.invoke_method_runtime(return_fn, iter_obj, [])
     end
 
     :ok

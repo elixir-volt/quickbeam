@@ -764,6 +764,15 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "abc"} = Compiler.invoke(fun, ["abc"])
     end
 
+    test "calls custom iterator methods with the iterator receiver", %{rt: rt} do
+      source =
+        "let state={closed:0}; let it={ [Symbol.iterator](){return this}, next(){return {value:1,done:false}}, return(){state.closed=1; return {done:true}}}; for (let x of it) { break; } state.closed"
+
+      fun = compile_and_decode(rt, source).value
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
     test "compiles try catch around explicit throws", %{rt: rt} do
       fun =
         compile_and_decode(rt, "(function(e){ try { throw e } catch(err) { return err } })")
