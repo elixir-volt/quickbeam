@@ -234,6 +234,20 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, false} = Compiler.invoke(miss, [])
     end
 
+    test "compiles Reflect read and apply helpers", %{rt: rt} do
+      reflect_apply =
+        compile_and_decode(rt, "Reflect.apply(function(x){return x+1}, null, [2])").value
+
+      reflect_get = compile_and_decode(rt, "Reflect.get({x:1}, 'x')").value
+      reflect_set = compile_and_decode(rt, "let o={}; Reflect.set(o,'x',2); o.x").value
+      reflect_has = compile_and_decode(rt, "Reflect.has({x:1}, 'x')").value
+
+      assert {:ok, 3} = Compiler.invoke(reflect_apply, [])
+      assert {:ok, 1} = Compiler.invoke(reflect_get, [])
+      assert {:ok, 2} = Compiler.invoke(reflect_set, [])
+      assert {:ok, true} = Compiler.invoke(reflect_has, [])
+    end
+
     test "compiles Reflect property mutation helpers", %{rt: rt} do
       delete_property =
         compile_and_decode(rt, "let o={x:1}; Reflect.deleteProperty(o,'x'); o.x===undefined").value
@@ -253,6 +267,17 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, true} = Compiler.invoke(delete_property, [])
       assert {:ok, 2} = Compiler.invoke(define_property, [])
       assert {:ok, 0} = Compiler.invoke(non_enumerable, [])
+    end
+
+    test "compiles basic Proxy get and has traps", %{rt: rt} do
+      proxy_get =
+        compile_and_decode(rt, "let p=new Proxy({},{get(t,k){return k==='x'?3:undefined}}); p.x").value
+
+      proxy_has =
+        compile_and_decode(rt, "let p=new Proxy({}, {has(){return false}}); 'x' in p").value
+
+      assert {:ok, 3} = Compiler.invoke(proxy_get, [])
+      assert {:ok, false} = Compiler.invoke(proxy_has, [])
     end
 
     test "compiles runtime constructor and regexp feature calls", %{rt: rt} do
