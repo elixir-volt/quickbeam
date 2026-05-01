@@ -111,6 +111,11 @@ defmodule QuickBEAM.VM.CompilerAudit do
         {"binary #{left} #{op} #{right}", "#{left} #{op} #{right}"}
       end
 
+    many_function_declarations =
+      0..299
+      |> Enum.map_join(";", fn idx -> "function f#{idx}(){return #{idx}}" end)
+      |> then(&(&1 <> "; f299()"))
+
     high_value_cases = [
       {"call zero args", "function f(){ return 3; } f()"},
       {"call two args", "function f(a, b){ return a * 10 + b; } f(2, 3)"},
@@ -174,7 +179,9 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"post decrement", "let x = 3; x--"},
       {"delete var", "var x = 1; delete x"},
       {"bigint addition", "1n + 2n"},
+      {"int16 literal", "128"},
       {"large int32 literal", "2147483647"},
+      {"many function declarations", many_function_declarations},
       {"private field get", "class A { #x = 1; m(){ return this.#x; } } new A().m()"},
       {"private field set", "class A { #x; m(){ this.#x = 4; return this.#x; } } new A().m()"},
       {"private method", "class A { #m(){ return 4; } m(){ return this.#m(); } } new A().m()"},
