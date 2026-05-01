@@ -8,7 +8,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Generators do
   def lower(state, next_entry, stack_depths, name_args) do
     case name_args do
       {{:ok, :initial_yield}, []} ->
-        yield_throw(state, Builder.atom(:undefined), next_entry, stack_depths)
+        initial_yield_throw(state, next_entry, stack_depths)
 
       {{:ok, :yield}, []} ->
         with {:ok, val, _type, state} <- State.pop_typed(state) do
@@ -72,6 +72,20 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Generators do
     end
   end
 
+  defp initial_yield_throw(state, next_entry, stack_depths) do
+    {:done,
+     Enum.reverse([
+       Builder.remote_call(:erlang, :throw, [
+         Builder.tuple_expr([
+           Builder.atom(:generator_yield),
+           Builder.atom(:undefined),
+           initial_yield_continuation(state, next_entry, stack_depths)
+         ])
+       ])
+       | state.body
+     ])}
+  end
+
   defp yield_throw(state, val, next_entry, stack_depths) do
     {:done,
      Enum.reverse([
@@ -84,6 +98,27 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Generators do
        ])
        | state.body
      ])}
+  end
+
+  defp initial_yield_continuation(state, next_entry, stack_depths) do
+    arg_var = Builder.var("YieldArg")
+    ctx = State.ctx_expr(state)
+    slots = State.current_slots(state)
+    stack = State.current_stack(state)
+    captures = State.current_capture_cells(state)
+
+    expected_depth = Map.get(stack_depths, next_entry)
+
+    if expected_depth && expected_depth == length(stack) do
+      call =
+        Builder.local_call(Builder.block_name(next_entry), [
+          ctx | slots ++ stack ++ captures
+        ])
+
+      {:fun, 1, {:clauses, [{:clause, 1, [arg_var], [], [call]}]}}
+    else
+      {:fun, 1, {:clauses, [{:clause, 1, [arg_var], [], [Builder.atom(:undefined)]}]}}
+    end
   end
 
   defp yield_continuation(state, next_entry, stack_depths) do

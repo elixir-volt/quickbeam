@@ -118,16 +118,10 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
         {{:ok, :return_async}, []} ->
           {:ok, []}
 
-        {{:ok, :initial_yield}, []} ->
-          {:ok, []}
+        {{:ok, name}, []} when name in [:initial_yield, :yield] ->
+          if is_nil(next_entry), do: {:ok, []}, else: {:ok, [{next_entry, next_depth}]}
 
-        {{:ok, :yield}, []} ->
-          {:ok, []}
-
-        {{:ok, :yield_star}, []} ->
-          {:ok, []}
-
-        {{:ok, :async_yield_star}, []} ->
+        {{:ok, name}, []} when name in [:yield_star, :async_yield_star] ->
           {:ok, []}
 
         {{:ok, :gosub}, [_target]} ->

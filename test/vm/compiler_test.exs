@@ -1051,6 +1051,13 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert [3, 2] = array_ref |> Heap.get_obj() |> QuickBEAM.VM.Heap.Arrays.to_list()
     end
 
+    test "resumes compiled generators at first yield", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "function* g(){ yield 1; return 2 } let it=g(); it.next().value").value
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
     test "compiles derived constructors returning objects", %{rt: rt} do
       fun =
         compile_and_decode(

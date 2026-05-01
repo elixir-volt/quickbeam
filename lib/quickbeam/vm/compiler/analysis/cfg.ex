@@ -192,6 +192,9 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
         {{:ok, :with_make_ref}, [_atom_idx, _branch_target, _is_with]} ->
           target == idx + 1
 
+        {{:ok, name}, []} when name in [:initial_yield, :yield] ->
+          target == idx + 1
+
         _ ->
           false
       end
