@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   import Bitwise, only: [band: 2]
   import QuickBEAM.VM.Heap.Keys
 
-  alias QuickBEAM.VM.{Bytecode, Heap}
+  alias QuickBEAM.VM.{Bytecode, Heap, JSThrow}
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.Runtime
 
@@ -219,7 +219,11 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         get_trap = get_own(handler, "get")
 
         if get_trap != :undefined do
-          Runtime.call_callback(get_trap, [target, key])
+          validate_proxy_get_invariant(
+            target,
+            key,
+            Runtime.call_callback(get_trap, [target, key])
+          )
         else
           get_own(target, key)
         end
@@ -377,6 +381,25 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_own({:symbol, desc, _}, "description"), do: desc
   defp get_own({:bound, _, _, _, _} = b, key), do: Function.proto_property(b, key)
   defp get_own(_, _), do: :undefined
+
+  defp validate_proxy_get_invariant({:obj, target_ref} = target, key, trap_result) do
+    desc = Heap.get_prop_desc(target_ref, key)
+    target_value = get_own(target, key)
+
+    cond do
+      match?(%{configurable: false, writable: false}, desc) and trap_result !== target_value ->
+        JSThrow.type_error!("proxy get trap violates invariant")
+
+      match?(%{configurable: false}, desc) and match?({:accessor, nil, _}, target_value) and
+          trap_result != :undefined ->
+        JSThrow.type_error!("proxy get trap violates invariant")
+
+      true ->
+        trap_result
+    end
+  end
+
+  defp validate_proxy_get_invariant(_target, _key, trap_result), do: trap_result
 
   # ── Prototype chain ──
 
