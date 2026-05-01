@@ -27,7 +27,27 @@ cases = [
    "function* g(){ yield 1; yield 2; return 3 } let it=g(); it.next().value + it.next().value"},
   {"generator return value",
    "function* g(){ yield 1; return 3 } let it=g(); it.next(); it.next().value"},
-  {"async caught throw", "async function f(){ try { throw 4 } catch(e) { return e } } f()"}
+  {"async caught throw", "async function f(){ try { throw 4 } catch(e) { return e } } f()"},
+  {"with fallback method call", "function m(){return 3}; let o={}; with(o){ m() }"},
+  {"with missing property delete", "let o={}; with(o){ delete x }"},
+  {"with captured update",
+   "function f(){ let x=1; function g(){ let o={}; with(o){ x++ } return x } return g() } f()"},
+  {"with captured unscopables fallback",
+   "function f(){ let x=1; function g(){ let o={x:2,[Symbol.unscopables]:{x:true}}; with(o){ x=3 } return [x,o.x] } return g() } f()"},
+  {"async await chained promise",
+   "async function f(){ return await Promise.resolve(1).then(function(v){ return v+1 }) } f()"},
+  {"async nested await",
+   "async function f(){ return await Promise.resolve(await Promise.resolve(4)) } f()"},
+  {"async rejection catch",
+   "async function f(){ return await Promise.reject('err').catch(function(e){ return e + '!' }) } f()"},
+  {"generator third next value",
+   "function* g(){ yield 1; yield 2; return 3 } let it=g(); it.next(); it.next(); it.next().value"},
+  {"generator return method", "function* g(){ yield 1; yield 2 } let it=g(); it.return(9).value"},
+  {"derived constructor new target",
+   "class A { constructor(){ this.v = new.target.name } } class B extends A { constructor(){ super() } } new B().v"},
+  {"computed class value invoked", "let o={ [class C{}]: 1 }; 1"},
+  {"custom iterator loop value",
+   "let it={ [Symbol.iterator](){ return { i:0, next(){ return this.i++ < 1 ? {value:7, done:false} : {done:true}; } } } }; let s=0; for (let x of it) s+=x; s"}
 ]
 
 results =
