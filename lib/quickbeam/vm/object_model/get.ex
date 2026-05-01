@@ -103,7 +103,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
           {:shape, _, offsets, vals, _} ->
             case Map.fetch(offsets, "length") do
               {:ok, off} -> elem(vals, off)
-              :error -> map_size(offsets)
+              :error -> wrapped_shape_length(offsets, vals)
             end
 
           {:qb_arr, arr} ->
@@ -113,7 +113,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
             length(list)
 
           map when is_map(map) ->
-            Map.get(map, "length", map_size(map))
+            Map.get(map, "length", wrapped_map_length(map))
 
           _ ->
             0
@@ -143,6 +143,20 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   end
 
   # ── Own property lookup ──
+
+  defp wrapped_shape_length(offsets, vals) do
+    case Map.fetch(offsets, "__wrapped_string__") do
+      {:ok, off} -> string_length(elem(vals, off))
+      :error -> map_size(offsets)
+    end
+  end
+
+  defp wrapped_map_length(map) do
+    case Map.fetch(map, "__wrapped_string__") do
+      {:ok, value} -> string_length(value)
+      :error -> map_size(map)
+    end
+  end
 
   defp wrapped_shape_proto_property(offsets, key) do
     cond do

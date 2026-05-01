@@ -410,29 +410,25 @@ defmodule QuickBEAM.VM.CompilerTest do
     end
 
     test "compiles boxed primitive prototype methods", %{rt: rt} do
-      number_value = compile_and_decode(rt, "new Number(3).valueOf()").value
-      number_string = compile_and_decode(rt, "new Number(10).toString(16)").value
-      string_value = compile_and_decode(rt, "new String('x').valueOf()").value
-      string_concat = compile_and_decode(rt, "new String('x').concat('y')").value
-      boolean_value = compile_and_decode(rt, "new Boolean(false).valueOf()").value
-      boolean_string = compile_and_decode(rt, "new Boolean(false).toString()").value
-      number_fixed = compile_and_decode(rt, "new Number(1.25).toFixed(1)").value
-      number_precision = compile_and_decode(rt, "new Number(1.25).toPrecision(2)").value
-      boolean_true_string = compile_and_decode(rt, "new Boolean(true).toString()").value
-      object_number = compile_and_decode(rt, "Object(4).valueOf()").value
-      object_string = compile_and_decode(rt, "Object('x').valueOf()").value
+      assert_compiled = fn source, expected ->
+        fun = compile_and_decode(rt, source).value
+        assert {:ok, expected} == Compiler.invoke(fun, [])
+      end
 
-      assert {:ok, 3} = Compiler.invoke(number_value, [])
-      assert {:ok, "a"} = Compiler.invoke(number_string, [])
-      assert {:ok, "x"} = Compiler.invoke(string_value, [])
-      assert {:ok, "xy"} = Compiler.invoke(string_concat, [])
-      assert {:ok, false} = Compiler.invoke(boolean_value, [])
-      assert {:ok, "false"} = Compiler.invoke(boolean_string, [])
-      assert {:ok, "1.3"} = Compiler.invoke(number_fixed, [])
-      assert {:ok, "1.3"} = Compiler.invoke(number_precision, [])
-      assert {:ok, "true"} = Compiler.invoke(boolean_true_string, [])
-      assert {:ok, 4} = Compiler.invoke(object_number, [])
-      assert {:ok, "x"} = Compiler.invoke(object_string, [])
+      assert_compiled.("new Number(3).valueOf()", 3)
+      assert_compiled.("new Number(10).toString(16)", "a")
+      assert_compiled.("new String('x').valueOf()", "x")
+      assert_compiled.("new String('x').concat('y')", "xy")
+      assert_compiled.("new String('abc').length", 3)
+      assert_compiled.("Object('abc').length", 3)
+      assert_compiled.("new String('😀').length", 2)
+      assert_compiled.("new Boolean(false).valueOf()", false)
+      assert_compiled.("new Boolean(false).toString()", "false")
+      assert_compiled.("new Number(1.25).toFixed(1)", "1.3")
+      assert_compiled.("new Number(1.25).toPrecision(2)", "1.3")
+      assert_compiled.("new Boolean(true).toString()", "true")
+      assert_compiled.("Object(4).valueOf()", 4)
+      assert_compiled.("Object('x').valueOf()", "x")
     end
 
     test "compiles Symbol and BigInt runtime edges", %{rt: rt} do
