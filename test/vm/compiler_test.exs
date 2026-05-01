@@ -265,6 +265,24 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, false} = Compiler.invoke(strict, [])
     end
 
+    test "compiles TDZ and nested private-brand edges", %{rt: rt} do
+      typeof_tdz = compile_and_decode(rt, "try { typeof x } catch(e) { e.name } let x=1").value
+      assert {:ok, "undefined"} = Compiler.invoke(typeof_tdz, [])
+
+      private_in =
+        compile_and_decode(rt, "class A{ #x; static has(o){return #x in o} } A.has(new A())").value
+
+      assert {:ok, true} = Compiler.invoke(private_in, [])
+
+      nested_private =
+        compile_and_decode(
+          rt,
+          "class A{ #x=1; m(){ class B{ n(o){ return o.#x } } return new B().n(this) } } new A().m()"
+        ).value
+
+      assert {:ok, 1} = Compiler.invoke(nested_private, [])
+    end
+
     test "fuses captured var-ref calls into one runtime helper", %{rt: rt} do
       outer =
         compile_and_decode(rt, "(function(f){ return function(x){ return f(x) } })")
