@@ -1248,10 +1248,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   defp capture_keys_tuple(%Bytecode.Function{closure_vars: vars} = fun) do
-    case Heap.get_capture_keys(fun.byte_code) do
+    case Heap.get_capture_keys(fun) do
       nil ->
         tuple = vars |> Enum.map(&closure_capture_key/1) |> List.to_tuple()
-        Heap.put_capture_keys(fun.byte_code, tuple)
+        Heap.put_capture_keys(fun, tuple)
         tuple
 
       cached ->

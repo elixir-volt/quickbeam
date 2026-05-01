@@ -47,7 +47,7 @@ defmodule QuickBEAM.VM.CompilerTest do
 
   defp compiled_key(%Bytecode.Function{} = fun) do
     atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
-    {fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants), :erlang.phash2(atoms)}
+    {fun.byte_code, fun.arg_count, :erlang.phash2(fun), :erlang.phash2(atoms)}
   end
 
   defp beam_extfuncs({:beam_file, _module, _exports, _attributes, _compile_info, code}) do
@@ -440,6 +440,23 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, {:closure, _, _} = mid} = Compiler.invoke(outer, [callback])
       assert {:ok, {:closure, _, _} = inner} = Compiler.invoke(mid, [])
       assert {:ok, 8} = Compiler.invoke(inner, [4])
+    end
+
+    test "keeps capture keys distinct for same bytecode closures", %{rt: rt} do
+      inline =
+        compile_and_decode(
+          rt,
+          "function f(){let a=1,b=2; let g=()=>a; let h=()=>b; return g()+h()} f()"
+        ).value
+
+      returned =
+        compile_and_decode(
+          rt,
+          "function f(){let a=1,b=2; return [()=>a,()=>b]} let p=f(); p[0]()+p[1]()"
+        ).value
+
+      assert {:ok, 3} = Compiler.invoke(inline, [])
+      assert {:ok, 3} = Compiler.invoke(returned, [])
     end
 
     test "compiles method calls with receiver", %{rt: rt} do

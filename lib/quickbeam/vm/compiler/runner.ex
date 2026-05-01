@@ -72,7 +72,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
 
   defp invoke_target(current_func, %Bytecode.Function{} = fun, args, ctx_overrides, base_ctx) do
     atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
-    key = {fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants), :erlang.phash2(atoms)}
+    key = {fun.byte_code, fun.arg_count, :erlang.phash2(fun), :erlang.phash2(atoms)}
     normalized_args = normalize_args(args, fun.arg_count)
 
     case Heap.get_compiled(key) do

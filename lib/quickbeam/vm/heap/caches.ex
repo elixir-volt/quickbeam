@@ -32,9 +32,16 @@ defmodule QuickBEAM.VM.Heap.Caches do
   def put_fn_atoms(byte_code, atoms), do: Process.put({:qb_fn_atoms, byte_code}, atoms)
 
   defp function_atom_key(%Bytecode.Function{} = fun),
-    do: {fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants)}
+    do: {fun.byte_code, fun.arg_count, :erlang.phash2(fun)}
+
+  def get_capture_keys(%Bytecode.Function{} = fun),
+    do: Process.get({:qb_capture_keys, function_atom_key(fun)}, get_capture_keys(fun.byte_code))
 
   def get_capture_keys(byte_code), do: Process.get({:qb_capture_keys, byte_code})
+
+  def put_capture_keys(%Bytecode.Function{} = fun, tuple),
+    do: Process.put({:qb_capture_keys, function_atom_key(fun)}, tuple)
+
   def put_capture_keys(byte_code, tuple), do: Process.put({:qb_capture_keys, byte_code}, tuple)
 
   @doc "Returns cached object-shape wrapping metadata for a key tuple."
