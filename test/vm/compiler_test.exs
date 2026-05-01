@@ -262,6 +262,23 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 4} = Compiler.invoke(prototype, [])
     end
 
+    test "compiles Reflect.ownKeys without internal object metadata", %{rt: rt} do
+      plain = compile_and_decode(rt, "let o={a:1,b:2}; Reflect.ownKeys(o).length").value
+
+      symbol =
+        compile_and_decode(
+          rt,
+          "let s=Symbol('s'); let o={a:1}; o[s]=2; Reflect.ownKeys(o).length"
+        ).value
+
+      numeric =
+        compile_and_decode(rt, "let o={}; o[2]='b'; o[1]='a'; o.x='x'; Reflect.ownKeys(o).length").value
+
+      assert {:ok, 2} = Compiler.invoke(plain, [])
+      assert {:ok, 2} = Compiler.invoke(symbol, [])
+      assert {:ok, 3} = Compiler.invoke(numeric, [])
+    end
+
     test "compiles Reflect read and apply helpers", %{rt: rt} do
       reflect_apply =
         compile_and_decode(rt, "Reflect.apply(function(x){return x+1}, null, [2])").value

@@ -2,6 +2,9 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
   @moduledoc "JS `Reflect` built-in: `apply`, `construct`, `has`, `ownKeys`, `defineProperty`, and other reflection methods."
 
   use QuickBEAM.VM.Builtin
+
+  import QuickBEAM.VM.Heap.Keys
+
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.Invocation
@@ -66,9 +69,30 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
 
     method "ownKeys" do
       case hd(args) do
-        {:obj, ref} -> Heap.wrap(Map.keys(Heap.get_obj(ref, %{})))
+        {:obj, ref} -> Heap.wrap(own_keys(Heap.get_obj(ref, %{})))
         _ -> Heap.wrap([])
       end
     end
   end
+
+  defp own_keys(map) when is_map(map) do
+    map
+    |> Map.keys()
+    |> Enum.reject(&internal_key?/1)
+    |> Enum.map(&normalize_key/1)
+  end
+
+  defp own_keys(_), do: []
+
+  defp internal_key?(key)
+       when key in [key_order(), proto(), map_data(), proxy_target(), proxy_handler(), set_data()],
+       do: true
+
+  defp internal_key?(key) when is_binary(key),
+    do: String.starts_with?(key, "__") and String.ends_with?(key, "__")
+
+  defp internal_key?(_), do: false
+
+  defp normalize_key(key) when is_integer(key) and key >= 0, do: Integer.to_string(key)
+  defp normalize_key(key), do: key
 end
