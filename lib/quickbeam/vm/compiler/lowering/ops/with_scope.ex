@@ -7,22 +7,23 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
   @doc "Lowers a bytecode instruction or function into compiler IR."
   def lower(state, next_entry, stack_depths, name_args) do
     case name_args do
-      {{:ok, name}, [atom_idx, _target, _is_with]}
-      when name in [:with_get_var, :with_get_ref, :with_get_ref_undef] ->
+      {{:ok, :with_get_var}, [atom_idx, _target, _is_with]} ->
         with {:ok, obj, _type, state} <- State.pop_typed(state) do
           key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
           val = Builder.remote_call(Get, :get, [obj, key])
 
-          case name do
-            :with_get_var ->
-              {:ok, State.push(state, val)}
+          {:ok, State.push(state, val)}
+        end
 
-            :with_get_ref ->
-              {:ok, state |> State.push(obj) |> State.push(val)}
+      {{:ok, :with_get_ref}, [atom_idx, target, _is_with]} ->
+        lower_with_get_ref(state, next_entry, stack_depths, atom_idx, target)
 
-            :with_get_ref_undef ->
-              {:ok, state |> State.push(Builder.atom(:undefined)) |> State.push(val)}
-          end
+      {{:ok, :with_get_ref_undef}, [atom_idx, _target, _is_with]} ->
+        with {:ok, obj, _type, state} <- State.pop_typed(state) do
+          key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+          val = Builder.remote_call(Get, :get, [obj, key])
+
+          {:ok, state |> State.push(Builder.atom(:undefined)) |> State.push(val)}
         end
 
       {{:ok, :with_put_var}, [atom_idx, _target, _is_with]} ->
@@ -48,6 +49,16 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
 
       _ ->
         :not_handled
+    end
+  end
+
+  defp lower_with_get_ref(state, next_entry, stack_depths, atom_idx, target) do
+    with {:ok, obj, _type, state} <- State.pop_typed(state) do
+      key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+      val = Builder.remote_call(Get, :get, [obj, key])
+      target_state = state |> State.push(obj) |> State.push(val)
+
+      branch_with_has_property(state, target_state, next_entry, stack_depths, obj, key, target)
     end
   end
 
