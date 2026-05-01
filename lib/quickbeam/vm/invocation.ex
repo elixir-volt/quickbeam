@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Invocation do
   @moduledoc "Unified JS function invocation: dispatches to compiled modules, interpreter fallback, builtins, and native callbacks."
 
-  import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
+  import QuickBEAM.VM.Heap.Keys, only: [proto: 0, proxy_handler: 0, proxy_target: 0]
 
   alias QuickBEAM.VM.{Builtin, Bytecode, Compiler, GlobalEnv, Heap, Runtime}
   alias QuickBEAM.VM.Compiler.Runner
@@ -98,6 +98,9 @@ defmodule QuickBEAM.VM.Invocation do
       {:bound, _, inner, _, _} ->
         invoke(inner, args, gas)
 
+      {:obj, _} = obj ->
+        dispatch_proxy_call(obj, args, ctx, this)
+
       other ->
         Builtin.call(other, args, this)
     end
@@ -122,6 +125,9 @@ defmodule QuickBEAM.VM.Invocation do
           {:ok, value} -> value
           :error -> Interpreter.invoke_function_fallback(bytecode_fun, args, ctx.gas, ctx)
         end
+
+      {:obj, _} = obj ->
+        dispatch_proxy_call(obj, args, ctx, this_obj)
 
       other ->
         Builtin.call(other, args, this_obj)
@@ -215,6 +221,9 @@ defmodule QuickBEAM.VM.Invocation do
       {:bound, _, inner, _, _} ->
         invoke_runtime(ctx, inner, args)
 
+      {:obj, _} = obj ->
+        dispatch_proxy_call(obj, args, ctx, nil)
+
       other ->
         Builtin.call(other, args, nil)
     end
@@ -275,6 +284,9 @@ defmodule QuickBEAM.VM.Invocation do
       {:bound, _, inner, _, _} ->
         invoke_method_runtime(ctx, inner, this_obj, args)
 
+      {:obj, _} = obj ->
+        dispatch_proxy_call(obj, args, ctx, this_obj)
+
       other ->
         Builtin.call(other, args, this_obj)
     end
@@ -323,6 +335,28 @@ defmodule QuickBEAM.VM.Invocation do
       end
 
     Class.coalesce_this_result(result, this_obj)
+  end
+
+  defp dispatch_proxy_call({:obj, ref} = obj, args, ctx, this) do
+    case Heap.get_obj(ref, %{}) do
+      %{proxy_target() => target, proxy_handler() => handler} ->
+        apply_trap = Get.get(handler, "apply")
+
+        if apply_trap == :undefined or apply_trap == nil do
+          dispatch(target, args, ctx.gas, ctx, this)
+        else
+          dispatch(
+            apply_trap,
+            [target, this || :undefined, Heap.wrap(args)],
+            ctx.gas,
+            ctx,
+            handler
+          )
+        end
+
+      _ ->
+        Builtin.call(obj, args, this)
+    end
   end
 
   defp maybe_gc(result, extra_roots) do

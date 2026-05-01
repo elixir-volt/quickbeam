@@ -314,6 +314,27 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 0} = Compiler.invoke(non_enumerable, [])
     end
 
+    test "compiles callable Proxy apply traps", %{rt: rt} do
+      apply_trap =
+        compile_and_decode(
+          rt,
+          "let f=new Proxy(function(x){return x+1},{apply(t,thisArg,args){return 5}}); f(1)"
+        ).value
+
+      default_apply =
+        compile_and_decode(rt, "let f=new Proxy(function(x){return x+1},{}); f(1)").value
+
+      args_apply =
+        compile_and_decode(
+          rt,
+          "let f=new Proxy(function(x){return x+1},{apply(t,thisArg,args){return args[0]+2}}); f(3)"
+        ).value
+
+      assert {:ok, 5} = Compiler.invoke(apply_trap, [])
+      assert {:ok, 2} = Compiler.invoke(default_apply, [])
+      assert {:ok, 5} = Compiler.invoke(args_apply, [])
+    end
+
     test "compiles basic Proxy get and has traps", %{rt: rt} do
       proxy_get =
         compile_and_decode(rt, "let p=new Proxy({},{get(t,k){return k==='x'?3:undefined}}); p.x").value
