@@ -603,10 +603,25 @@ defmodule QuickBEAM.VM.CompilerTest do
     end
 
     test "reads fresh values from captured local cells", %{rt: rt} do
-      fun =
+      direct =
         compile_and_decode(rt, "function f(){let x=0; function r(){x=1}; r(); return x}; f()").value
 
-      assert {:ok, 1} = Compiler.invoke(fun, [])
+      increment =
+        compile_and_decode(rt, "function f(){let x=1; function r(){x++}; r(); return x}; f()").value
+
+      compound =
+        compile_and_decode(rt, "function f(){let x=1; function r(){x+=2}; r(); return x}; f()").value
+
+      nested =
+        compile_and_decode(
+          rt,
+          "function f(){let x=0; function r(){x=1}; function s(){r()}; s(); return x}; f()"
+        ).value
+
+      assert {:ok, 1} = Compiler.invoke(direct, [])
+      assert {:ok, 2} = Compiler.invoke(increment, [])
+      assert {:ok, 3} = Compiler.invoke(compound, [])
+      assert {:ok, 1} = Compiler.invoke(nested, [])
     end
 
     test "keeps capture keys distinct for same bytecode closures", %{rt: rt} do
