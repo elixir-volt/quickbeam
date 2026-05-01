@@ -977,7 +977,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     do: {Builder.local_call(:op_mod, [left, right]), :number}
 
   def specialize_binary(fun, left, left_type, right, right_type)
-      when fun in [:op_band, :op_bor, :op_bxor, :op_shl, :op_sar] and
+      when fun in [:op_band, :op_bor, :op_bxor] and
              left_type in [:integer, :number] and right_type in [:integer, :number],
       do: {{:op, @line, binary_operator(fun), left, right}, :integer}
 

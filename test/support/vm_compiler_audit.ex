@@ -76,6 +76,92 @@ defmodule QuickBEAM.VM.CompilerAudit do
     ]
   end
 
+  def corpus_cases do
+    binary_ops = [
+      "+",
+      "-",
+      "*",
+      "/",
+      "%",
+      "<",
+      "<=",
+      ">",
+      ">=",
+      "===",
+      "!==",
+      "&",
+      "|",
+      "^",
+      "<<",
+      ">>",
+      ">>>",
+      "**",
+      "==",
+      "!="
+    ]
+
+    values = ["-3", "-1", "0", "1", "2", "5", "'2'", "true", "false", "null"]
+
+    binary_cases =
+      for op <- binary_ops,
+          left <- values,
+          right <- values,
+          not (op in ["/", "%"] and right == "0"),
+          not (op == "**" and String.starts_with?(left, "-")) do
+        {"binary #{left} #{op} #{right}", "#{left} #{op} #{right}"}
+      end
+
+    high_value_cases = [
+      {"call zero args", "function f(){ return 3; } f()"},
+      {"call two args", "function f(a, b){ return a * 10 + b; } f(2, 3)"},
+      {"call three args", "function f(a, b, c){ return a + b * c; } f(2, 3, 4)"},
+      {"call four args", "function f(a, b, c, d){ return a + b + c + d; } f(1, 2, 3, 4)"},
+      {"argument aliases",
+       "function f(a, b, c, d){ a = 4; b = b + 1; return a + b + c + d; } f(1, 2, 3, 4)"},
+      {"many locals",
+       "let a0=0,a1=1,a2=2,a3=3,a4=4,a5=5,a6=6,a7=7,a8=8; a0+a1+a2+a3+a4+a5+a6+a7+a8"},
+      {"typeof number", "typeof 1"},
+      {"typeof function", "typeof function(){}"},
+      {"logical not", "!0"},
+      {"is null branch", "let x = null; x === null ? 1 : 2"},
+      {"instanceof class", "class A {} let a = new A(); a instanceof A"},
+      {"power operator", "2 ** 5"},
+      {"bitwise and var", "let x = 7; x &= 3; x"},
+      {"bitwise or var", "let x = 4; x |= 3; x"},
+      {"bitwise xor var", "let x = 7; x ^= 3; x"},
+      {"lte branch", "let x = 2; x <= 2 ? 1 : 0"},
+      {"gte branch", "let x = 2; x >= 3 ? 1 : 0"},
+      {"strict neq", "1 !== '1'"},
+      {"loose neq", "1 != '1'"},
+      {"nested loops",
+       "let s = 0; for (let i = 0; i < 4; i++) { for (let j = 0; j < 3; j++) s += i + j; } s"},
+      {"switch default",
+       "let x = 3; let y = 0; switch (x) { case 1: y = 1; break; default: y = 9; } y"},
+      {"try finally", "let x = 1; try { x = 2; } finally { x = x + 3; } x"},
+      {"catch rethrow avoided", "let x = 0; try { throw 5; } catch (e) { x = e; } x"},
+      {"object mutation", "let o = {}; o.x = 1; o.y = o.x + 2; o"},
+      {"array mutation", "let a = []; a[0] = 1; a[2] = 3; a"},
+      {"method this update",
+       "let o = {x: 1, inc() { this.x++; return this.x; }}; o.inc() + o.inc()"},
+      {"closure mutation",
+       "function make(){ let x = 0; return function(){ x++; return x; }; } let f = make(); f() + f()"},
+      {"constructor fields", "function A(x) { this.x = x; } let a = new A(4); a.x"},
+      {"class static", "class A { static x = 3; static m() { return this.x + 1; } } A.m()"},
+      {"spread call", "function f(a, b, c) { return a + b + c; } f(...[1, 2, 3])"},
+      {"rest args", "function f(...xs) { return xs[0] + xs.length; } f(4, 5)"},
+      {"default param", "function f(x = 3) { return x; } f() + f(2)"},
+      {"destructured param", "function f({x}, [y]) { return x + y; } f({x: 1}, [2])"},
+      {"computed object key", "let k = 'x'; let o = {[k]: 5}; o.x"},
+      {"template expression", "let x = 4; `a${x + 1}`"},
+      {"regexp replace", "'aa'.replace(/a/g, 'b')"},
+      {"array map", "[1, 2, 3].map(x => x + 1).join(',')"},
+      {"optional call", "let o = { f() { return 7; } }; o.f?.()"},
+      {"nullish assignment", "let x = null; x ??= 4; x"}
+    ]
+
+    cases() ++ binary_cases ++ high_value_cases
+  end
+
   def run_all do
     Enum.map(cases(), fn {name, source} -> run_case(name, source) end)
   end
@@ -202,9 +288,9 @@ defmodule QuickBEAM.VM.CompilerAudit do
     if equivalent?(expected, actual), do: :compiled, else: :mismatch
   end
 
+  defp classify({:crash, _}, {:crash, _}), do: :compiled
   defp classify(_interpreter, {:fallback, _reason}), do: :fallback
   defp classify(_interpreter, {:crash, _reason}), do: :crash
-  defp classify({:crash, _}, {:crash, _}), do: :compiled
 
   defp classify(interpreter, compiler),
     do: if(interpreter == compiler, do: :compiled, else: :mismatch)

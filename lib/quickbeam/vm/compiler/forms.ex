@@ -61,8 +61,8 @@ defmodule QuickBEAM.VM.Compiler.Forms do
       guarded_binary_helper(:op_band, :band, Values, :band),
       guarded_binary_helper(:op_bor, :bor, Values, :bor),
       guarded_binary_helper(:op_bxor, :bxor, Values, :bxor),
-      guarded_binary_helper(:op_shl, :bsl, Values, :shl),
-      guarded_binary_helper(:op_sar, :bsr, Values, :sar),
+      unary_fallback_helper2(:op_shl, Values, :shl),
+      unary_fallback_helper2(:op_sar, Values, :sar),
       unary_fallback_helper2(:op_shr, Values, :shr),
       eq_helper(),
       neq_helper(),
@@ -175,7 +175,6 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
     {:function, @line, :op_mod, 2,
      [
-       {:clause, @line, [a, b], [integer_nonzero_guards(a, b)], [{:op, @line, :rem, a, b}]},
        {:clause, @line, [a, b], [], [remote_call(Values, :mod, [a, b])]}
      ]}
   end
@@ -271,9 +270,6 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
   defp number_nonzero_guards(a, b),
     do: [number_guard(a), number_guard(b), nonzero_guard(b)]
-
-  defp integer_nonzero_guards(a, b),
-    do: [integer_guard(a), integer_guard(b), nonzero_guard(b)]
 
   defp integer_guard(expr), do: {:call, @line, {:atom, @line, :is_integer}, [expr]}
   defp number_guard(expr), do: {:call, @line, {:atom, @line, :is_number}, [expr]}

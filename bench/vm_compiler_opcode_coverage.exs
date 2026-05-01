@@ -35,7 +35,7 @@ collect_functions = fn parsed ->
 end
 
 rows =
-  for {case_name, source} <- QuickBEAM.VM.CompilerAudit.cases(), reduce: [] do
+  for {case_name, source} <- QuickBEAM.VM.CompilerAudit.corpus_cases(), reduce: [] do
     acc ->
       case compile_source.(source) do
         {:ok, parsed} ->
