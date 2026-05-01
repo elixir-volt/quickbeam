@@ -1574,7 +1574,18 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 3} = Compiler.invoke(any, [])
       assert {:ok, 2} = Compiler.invoke(race_reject, [])
       assert {:ok, 3} = Compiler.invoke(race_resolve, [])
+
+      any_all_reject =
+        compile_and_decode(
+          rt,
+          ~S|Promise.any([Promise.reject(1), Promise.reject(2)]).catch(e=>e.errors[0]+e.errors[1])|
+        ).value
+
+      any_empty = compile_and_decode(rt, ~S|Promise.any([]).catch(e=>e.name)|).value
+
       assert {:ok, 3} = Compiler.invoke(all_reject, [])
+      assert {:ok, 3} = Compiler.invoke(any_all_reject, [])
+      assert {:ok, "AggregateError"} = Compiler.invoke(any_empty, [])
     end
 
     test "normalizes compiled async rejections for promise chains", %{rt: rt} do

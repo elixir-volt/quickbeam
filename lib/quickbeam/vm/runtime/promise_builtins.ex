@@ -165,19 +165,43 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
   defp promise_any(arr) do
     items = Heap.to_list(arr)
 
-    result =
-      Enum.find_value(items, fn
-        {:obj, r} ->
-          case Heap.get_obj(r, %{}) do
-            %{promise_state() => :resolved, promise_value() => v} -> v
-            _ -> nil
+    case first_fulfillment(items) do
+      {:fulfilled, value} -> PromiseState.resolved(value)
+      :none -> PromiseState.rejected(aggregate_error(items))
+    end
+  end
+
+  defp first_fulfillment(items) do
+    Enum.find_value(items, :none, fn
+      {:obj, ref} ->
+        case Heap.get_obj(ref, %{}) do
+          %{promise_state() => :resolved, promise_value() => value} -> {:fulfilled, value}
+          _ -> nil
+        end
+
+      value ->
+        {:fulfilled, value}
+    end)
+  end
+
+  defp aggregate_error(items) do
+    reasons =
+      items
+      |> Enum.map(fn
+        {:obj, ref} ->
+          case Heap.get_obj(ref, %{}) do
+            %{promise_state() => :rejected, promise_value() => reason} -> reason
+            _ -> :undefined
           end
 
-        val ->
-          val
+        _ ->
+          :undefined
       end)
+      |> Heap.wrap()
 
-    PromiseState.resolved(result || :undefined)
+    {:obj, ref} = error = Heap.make_error("All promises were rejected", "AggregateError")
+    Heap.put_obj(ref, Map.put(Heap.get_obj(ref, %{}), "errors", reasons))
+    error
   end
 
   defp promise_race(arr) do
