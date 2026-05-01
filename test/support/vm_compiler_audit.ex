@@ -156,7 +156,24 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"regexp replace", "'aa'.replace(/a/g, 'b')"},
       {"array map", "[1, 2, 3].map(x => x + 1).join(',')"},
       {"optional call", "let o = { f() { return 7; } }; o.f?.()"},
-      {"nullish assignment", "let x = null; x ??= 4; x"}
+      {"nullish assignment", "let x = null; x ??= 4; x"},
+      {"pre decrement", "let x = 3; --x"},
+      {"post decrement", "let x = 3; x--"},
+      {"delete var", "var x = 1; delete x"},
+      {"bigint addition", "1n + 2n"},
+      {"private field get", "class A { #x = 1; m(){ return this.#x; } } new A().m()"},
+      {"private in", "class A { #x; static has(o){ return #x in o; } } A.has(new A())"},
+      {"super setter",
+       "class A { set x(v){ this.y=v } } class B extends A { m(){ super.x = 3; return this.y; } } new B().m()"},
+      {"computed class method", "let k='m'; class A { [k](){ return 1; } } new A().m()"},
+      {"computed static method", "let k='m'; class A { static [k](){ return 1; } } A.m()"},
+      {"object proto literal", "let p={x:1}; let o={__proto__:p}; o.x"},
+      {"function expression name", "let f = function(){}; f.name"},
+      {"named class expression", "let C = class {}; C.name"},
+      {"eval expression", "eval('1+2')"},
+      {"arguments write", "function f(){ arguments[0] = 3; return arguments[0]; } f(1)"},
+      {"object spread", "let a={x:1}; let b={...a, y:2}; b.y"},
+      {"try finally return", "function f(){ try { return 1; } finally { return 2; } } f()"}
     ]
 
     cases() ++ binary_cases ++ high_value_cases

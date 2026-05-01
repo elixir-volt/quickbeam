@@ -150,6 +150,19 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def get_var_undef(ctx, atom_idx),
     do: get_var_undef(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
 
+  def delete_var(ctx, atom_idx) do
+    name = Names.resolve_atom(context_atoms(ctx), atom_idx)
+    builtins = Heap.get_builtin_names() || MapSet.new()
+
+    case Map.fetch(context_globals(ctx), name) do
+      {:ok, _value} ->
+        MapSet.member?(builtins, name)
+
+      :error ->
+        true
+    end
+  end
+
   @doc "Resolves an atom-table entry to its runtime value."
   def push_atom_value(ctx, atom_idx),
     do: Names.resolve_atom(context_atoms(ctx), atom_idx)

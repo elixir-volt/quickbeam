@@ -113,8 +113,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
       {{:ok, :put_ref_value}, []} ->
         lower_put_ref_value(state)
 
-      {{:ok, :delete_var}, [_atom_idx]} ->
-        {:ok, State.push(state, Builder.atom(true), :boolean)}
+      {{:ok, :delete_var}, [atom_idx]} ->
+        {:ok,
+         State.push(
+           state,
+           State.compiler_call(state, :delete_var, [Builder.literal(atom_idx)]),
+           :boolean
+         )}
 
       _ ->
         :not_handled
