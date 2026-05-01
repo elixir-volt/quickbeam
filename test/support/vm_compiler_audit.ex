@@ -118,6 +118,12 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"call four args", "function f(a, b, c, d){ return a + b + c + d; } f(1, 2, 3, 4)"},
       {"argument aliases",
        "function f(a, b, c, d){ a = 4; b = b + 1; return a + b + c + d; } f(1, 2, 3, 4)"},
+      {"return arg1", "function f(a,b){return b;} f(1,2)"},
+      {"return arg2", "function f(a,b,c){return c;} f(1,2,3)"},
+      {"return arg3", "function f(a,b,c,d){return d;} f(1,2,3,4)"},
+      {"set arg1", "function f(a,b){ b=5; return b;} f(1,2)"},
+      {"set arg2", "function f(a,b,c){ c=5; return c;} f(1,2,3)"},
+      {"set arg3", "function f(a,b,c,d){ d=5; return d;} f(1,2,3,4)"},
       {"many locals",
        "let a0=0,a1=1,a2=2,a3=3,a4=4,a5=5,a6=6,a7=7,a8=8; a0+a1+a2+a3+a4+a5+a6+a7+a8"},
       {"typeof number", "typeof 1"},
@@ -173,6 +179,8 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"eval expression", "eval('1+2')"},
       {"arguments write", "function f(){ arguments[0] = 3; return arguments[0]; } f(1)"},
       {"object spread", "let a={x:1}; let b={...a, y:2}; b.y"},
+      {"compound array assignment", "let a=[1]; (a[0] += 2)"},
+      {"computed method name", "let f = {[('x')](){return 1}}.x; f.name"},
       {"try finally return", "function f(){ try { return 1; } finally { return 2; } } f()"}
     ]
 
