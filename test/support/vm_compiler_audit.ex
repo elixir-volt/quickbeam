@@ -144,6 +144,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
        "let a0=0,a1=1,a2=2,a3=3,a4=4,a5=5,a6=6,a7=7,a8=8; a0+a1+a2+a3+a4+a5+a6+a7+a8"},
       {"many function locals",
        "function f(){ let a0=0,a1=1,a2=2,a3=3,a4=4,a5=5,a6=6,a7=7,a8=8,a9=9; return a9; } f()"},
+      {"var local add", "function f(){ var x=1,y=2; x += y; return x } f()"},
       {"typeof number", "typeof 1"},
       {"typeof function", "typeof function(){}"},
       {"typeof missing", "typeof missing === 'undefined'"},
