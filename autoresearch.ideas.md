@@ -18,6 +18,16 @@
   - derived constructors returning primitives, undefined, objects, and `new.target` propagation now have semantic audit coverage
   - computed class values now have invoked semantic audit coverage for the simple object-literal case
   - custom iterator loop value, for-in keys, for-of destructuring, and generator send/done paths now have semantic audit coverage, but broader iterator correctness still deserves product-level tests because earlier coverage-only probes suggested shared runtime gaps
-  - broad builtin/class/runtime semantic audit coverage now includes Map/Set, string includes, array map/reduce, Object.keys, JSON.stringify, Date.now type, BigInt, Symbol property keys, static/private/super class methods, try/finally, catch binding, object spread, optional chaining, logical/nullish assignment, RegExp exec, typed arrays, spread constructors, and rest parameters
+  - broad builtin/class/runtime semantic audit coverage now includes Map/Set/WeakMap/WeakSet, strings, arrays, Object/Reflect/Proxy, JSON, Date, Web APIs, BigInt, Symbol property keys, static/private/super/computed class members, try/finally, catch binding/no-binding, object/spread/destructuring, optional chaining, logical/nullish assignment, RegExp exec/matchAll, typed arrays, spread constructors, rest/default parameters, arguments object basics, operators/coercion, and loop/control-flow variants
   - non-strict argument-object aliasing cases cover `put_arg*` against the interpreter oracle, but currently return original argument values after parameter writes; verify separately if product-correctness becomes the target
 - If corpus expansion exposes semantic bugs, prefer routing risky BEAM-specialized arithmetic/bitwise paths through JS runtime helpers over preserving unsafe raw BEAM operations.
+- Fresh semantic divergences seen during coverage broadening; fix before adding to clean audit:
+  - `Array.prototype.indexOf` can return `true` in compiled mode where interpreter returns numeric index.
+  - `delete a[0]` can leave compiled `0 in a` true where interpreter removes the element.
+  - nested `try/finally` throw/catch control flow can produce different final values.
+  - async object/class methods can return internal Promise objects instead of resolved public values.
+  - `Promise.reject` caught through `await` still differs from the interpreter oracle for some shapes.
+  - `yield*`/delegated generator paths still return `undefined` in compiled mode for value/return cases.
+  - spread string iteration (`[...'ab']`) can produce an empty compiled result.
+  - direct eval declaration cases and missing/unsupported builtins often mismatch only by stack/source diagnostics; preserve stack comparisons rather than weakening the audit.
+  - `queueMicrotask`, `String.prototype.replaceAll`, RegExp unicode/dotAll, Reflect/Proxy constructor/apply/ownKeys, and boxed primitive constructor cases need product investigation before inclusion.
