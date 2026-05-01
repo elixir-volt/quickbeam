@@ -765,7 +765,10 @@ cases = [
   {"blob arraybuffer type", "typeof new Blob(['x']).arrayBuffer"},
   {"crypto random values same object",
    "let a=new Uint8Array(1); crypto.getRandomValues(a) === a"},
-  {"performance now finite", "Number.isFinite(performance.now())"}
+  {"performance now finite", "Number.isFinite(performance.now())"},
+  {"async object method resolved", "let o={async m(){return await 11}}; o.m()"},
+  {"async class method resolved", "class A { async m(){return await 12} } new A().m()"},
+  {"async object method this", "let o={x:3, async m(){return await this.x}}; o.m()"}
 ]
 
 results =

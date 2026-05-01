@@ -425,9 +425,10 @@ defmodule QuickBEAM.VM.Invocation do
   defp compiled_closure_callable?(_), do: false
 
   defp compiled_method_callable?(
-         %Bytecode.Function{need_home_object: false, func_kind: 0},
+         %Bytecode.Function{need_home_object: false, func_kind: kind},
          {:obj, _}
-       ),
+       )
+       when kind in [0, 2],
        do: true
 
   defp compiled_method_callable?(_, _), do: false
