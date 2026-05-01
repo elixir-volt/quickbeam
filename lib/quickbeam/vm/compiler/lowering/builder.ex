@@ -91,6 +91,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
   def atom_name(%{atoms: atoms}, atom_idx), do: resolve_atom_name(atom_idx, atoms)
 
   defp resolve_local_name(name, _atoms) when is_binary(name), do: name
+  defp resolve_local_name({:tagged_int, value}, _atoms), do: value
   defp resolve_local_name({:predefined, idx}, _atoms), do: PredefinedAtoms.lookup(idx)
 
   defp resolve_local_name(idx, atoms)
