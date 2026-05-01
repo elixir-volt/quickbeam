@@ -1517,6 +1517,24 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(fun, [])
     end
 
+    test "compiles queueMicrotask interactions", %{rt: rt} do
+      deferred_state =
+        compile_and_decode(rt, "let state={x:0}; queueMicrotask(()=>{state.x=1}); state.x").value
+
+      promise_observer =
+        compile_and_decode(
+          rt,
+          "let state={x:0}; queueMicrotask(()=>{state.x=1}); Promise.resolve().then(()=>state.x)"
+        ).value
+
+      thrown_task =
+        compile_and_decode(rt, "let state={x:0}; queueMicrotask(()=>{throw 1}); state.x").value
+
+      assert {:ok, 0} = Compiler.invoke(deferred_state, [])
+      assert {:ok, 1} = Compiler.invoke(promise_observer, [])
+      assert {:ok, 0} = Compiler.invoke(thrown_task, [])
+    end
+
     test "drains top-level promise continuations", %{rt: rt} do
       rejected_catch = compile_and_decode(rt, "Promise.reject(1).catch(e=>e+1)").value
 
