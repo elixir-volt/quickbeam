@@ -1539,6 +1539,23 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(fun, [])
     end
 
+    test "rejects duplicate proxy ownKeys trap results", %{rt: rt} do
+      duplicate =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({}, {ownKeys(){return ["x", "x"]}}); try{Reflect.ownKeys(p)}catch(e){e.name}|
+        ).value
+
+      distinct =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({}, {ownKeys(){return ["x", "y"]}}); Reflect.ownKeys(p).length|
+        ).value
+
+      assert {:ok, "TypeError"} = Compiler.invoke(duplicate, [])
+      assert {:ok, 2} = Compiler.invoke(distinct, [])
+    end
+
     test "enforces proxy ownKeys invariants", %{rt: rt} do
       missing =
         compile_and_decode(

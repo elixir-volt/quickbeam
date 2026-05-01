@@ -104,11 +104,20 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
         match?(%{configurable: false}, target_prop_desc(target, key)) and key not in trap_keys
       end)
 
-    if missing_key do
-      JSThrow.type_error!("proxy ownKeys trap violates invariant")
-    else
-      trap_keys
+    cond do
+      duplicate_key?(trap_keys) ->
+        JSThrow.type_error!("proxy ownKeys trap violates invariant")
+
+      missing_key ->
+        JSThrow.type_error!("proxy ownKeys trap violates invariant")
+
+      true ->
+        trap_keys
     end
+  end
+
+  defp duplicate_key?(keys) do
+    Enum.uniq(keys) != keys
   end
 
   defp target_prop_desc({:obj, ref}, key), do: Heap.get_prop_desc(ref, key)
