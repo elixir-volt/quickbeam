@@ -451,6 +451,8 @@ cases = [
    "async function f(){ return await Promise.resolve(1).finally(()=>{}) } f()"},
   {"promise finally rejected catch",
    "async function f(){ return await Promise.reject(2).finally(()=>{}).catch(e=>e+1) } f()"},
+  {"promise reject catch", "Promise.reject(1).catch(e=>e+1)"},
+  {"promise then throw catch", "Promise.resolve(1).then(()=>{throw 2}).catch(e=>e+1)"},
   {"promise any type", "typeof Promise.any"},
   {"promise resolve thenable",
    "async function f(){ return await Promise.resolve({then(r){r(5)}}) } f()"},

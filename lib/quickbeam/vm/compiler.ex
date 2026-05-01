@@ -1,7 +1,9 @@
 defmodule QuickBEAM.VM.Compiler do
   @moduledoc "JIT compiler entry point: lowers bytecode to BEAM modules, caches them, and invokes compiled functions."
 
-  alias QuickBEAM.VM.{Bytecode, Decoder, Heap}
+  import QuickBEAM.VM.Heap.Keys, only: [promise_state: 0, promise_value: 0]
+
+  alias QuickBEAM.VM.{Bytecode, Decoder, Heap, PromiseState}
   alias QuickBEAM.VM.Compiler.{Forms, Lowering, Optimizer, Runner}
 
   @type compiled_fun :: {module(), atom()}
@@ -21,6 +23,8 @@ defmodule QuickBEAM.VM.Compiler do
         Heap.put_invoke_depth(depth)
       end
 
+    result = if depth == 0, do: settle_top_level_result(result), else: result
+
     if depth == 0 and Heap.gc_needed?() do
       extra =
         case result do
@@ -33,6 +37,27 @@ defmodule QuickBEAM.VM.Compiler do
 
     result
   end
+
+  defp settle_top_level_result({:ok, value}) do
+    PromiseState.drain_microtasks()
+    {:ok, unwrap_resolved_promise(value)}
+  end
+
+  defp settle_top_level_result(result), do: result
+
+  defp unwrap_resolved_promise(value, depth \\ 0)
+
+  defp unwrap_resolved_promise({:obj, ref}, depth) when depth < 10 do
+    case Heap.get_obj(ref, %{}) do
+      %{promise_state() => :resolved, promise_value() => value} ->
+        unwrap_resolved_promise(value, depth + 1)
+
+      _ ->
+        {:obj, ref}
+    end
+  end
+
+  defp unwrap_resolved_promise(value, _depth), do: value
 
   @doc "Compiles a bytecode function for optimized execution."
   def compile(%Bytecode.Function{} = fun) do

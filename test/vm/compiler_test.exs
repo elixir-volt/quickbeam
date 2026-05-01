@@ -1517,6 +1517,23 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(fun, [])
     end
 
+    test "drains top-level promise continuations", %{rt: rt} do
+      rejected_catch = compile_and_decode(rt, "Promise.reject(1).catch(e=>e+1)").value
+
+      thrown_catch =
+        compile_and_decode(rt, "Promise.resolve(1).then(()=>{throw 2}).catch(e=>e+1)").value
+
+      awaited_chain =
+        compile_and_decode(
+          rt,
+          "async function f(){ return await Promise.reject(1).catch(e=>e+1)} f()"
+        ).value
+
+      assert {:ok, 2} = Compiler.invoke(rejected_catch, [])
+      assert {:ok, [1]} = Compiler.invoke(thrown_catch, [])
+      assert {:ok, 2} = Compiler.invoke(awaited_chain, [])
+    end
+
     test "returns resolved values from compiled async methods", %{rt: rt} do
       object_method = compile_and_decode(rt, "let o={async m(){return await 11}}; o.m()").value
 
