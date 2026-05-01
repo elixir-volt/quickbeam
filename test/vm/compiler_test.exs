@@ -234,6 +234,20 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, false} = Compiler.invoke(miss, [])
     end
 
+    test "compiles runtime constructor and regexp feature calls", %{rt: rt} do
+      url_can_parse = compile_and_decode(rt, "URL.canParse('https://x.test/')").value
+      event_type = compile_and_decode(rt, "new Event('tick', {bubbles:true}).type").value
+      event_bubbles = compile_and_decode(rt, "new Event('tick', {bubbles:true}).bubbles").value
+      dot_all = compile_and_decode(rt, "/a.b/s.test('a\\nb')").value
+      regexp_flags = compile_and_decode(rt, "/./su.flags").value
+
+      assert {:ok, true} = Compiler.invoke(url_can_parse, [])
+      assert {:ok, "tick"} = Compiler.invoke(event_type, [])
+      assert {:ok, true} = Compiler.invoke(event_bubbles, [])
+      assert {:ok, true} = Compiler.invoke(dot_all, [])
+      assert {:ok, "su"} = Compiler.invoke(regexp_flags, [])
+    end
+
     test "compiles function calls through arguments", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(f,x){return f(x)})") |> user_function()
       callback = {:builtin, "double", fn [x], _ -> x * 2 end}

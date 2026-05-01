@@ -791,7 +791,13 @@ cases = [
   {"typed array includes hit", "new Uint8Array([1,2,3]).includes(2)"},
   {"typed array includes miss", "new Uint8Array([1,2,3]).includes(4)"},
   {"sloppy direct call this", "function f(){ return this===globalThis}; f()"},
-  {"strict direct call this", "function f(){'use strict'; return this===undefined}; f()"}
+  {"strict direct call this", "function f(){'use strict'; return this===undefined}; f()"},
+  {"url canParse true", "URL.canParse('https://x.test/')"},
+  {"url canParse false", "URL.canParse('not a url')"},
+  {"event constructor type", "new Event('tick', {bubbles:true}).type"},
+  {"event constructor bubbles", "new Event('tick', {bubbles:true}).bubbles"},
+  {"regexp dotAll test", "/a.b/s.test('a\\nb')"},
+  {"regexp flags unicode dotAll", "/./su.flags"}
 ]
 
 auto_cases = [
