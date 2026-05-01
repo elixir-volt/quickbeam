@@ -116,6 +116,9 @@ defmodule QuickBEAM.VM.CompilerAudit do
       |> Enum.map_join(";", fn idx -> "function f#{idx}(){return #{idx}}" end)
       |> then(&(&1 <> "; f299()"))
 
+    long_assignment_sequence = Enum.map_join(1..500, ",", fn _ -> "x=x+1" end)
+    long_if_body = Enum.map_join(1..300, ";", fn _ -> "x=x+1" end)
+
     high_value_cases = [
       {"call zero args", "function f(){ return 3; } f()"},
       {"call two args", "function f(a, b){ return a * 10 + b; } f(2, 3)"},
@@ -154,12 +157,15 @@ defmodule QuickBEAM.VM.CompilerAudit do
        "let s = 0; for (let i = 0; i < 4; i++) { for (let j = 0; j < 3; j++) s += i + j; } s"},
       {"switch default",
        "let x = 3; let y = 0; switch (x) { case 1: y = 1; break; default: y = 9; } y"},
+      {"wide if false", "let x=0; if (x===0) { #{long_if_body}; } x"},
+      {"wide logical or", "let x=1; x || (#{long_assignment_sequence}); x"},
       {"try finally", "let x = 1; try { x = 2; } finally { x = x + 3; } x"},
       {"catch rethrow avoided", "let x = 0; try { throw 5; } catch (e) { x = e; } x"},
       {"object mutation", "let o = {}; o.x = 1; o.y = o.x + 2; o"},
       {"array mutation", "let a = []; a[0] = 1; a[2] = 3; a"},
       {"array element call", "let a=[function(){return 3}]; a[0]()"},
       {"array element increment", "let a=[1]; a[0]++"},
+      {"array elision length", "let a=[,1,,2]; a.length"},
       {"method this update",
        "let o = {x: 1, inc() { this.x++; return this.x; }}; o.inc() + o.inc()"},
       {"closure mutation",

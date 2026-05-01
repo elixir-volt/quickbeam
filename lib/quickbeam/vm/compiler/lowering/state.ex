@@ -365,6 +365,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
             :object
         end
 
+      {obj, state} = bind(state, Builder.temp_name(state.temp), obj)
+
       {:ok,
        state
        |> emit(
