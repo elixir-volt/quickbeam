@@ -129,6 +129,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"set arg1", "function f(a,b){ b=5; return b;} f(1,2)"},
       {"set arg2", "function f(a,b,c){ c=5; return c;} f(1,2,3)"},
       {"set arg3", "function f(a,b,c,d){ d=5; return d;} f(1,2,3,4)"},
+      {"set arg4 strict", "function f(a,b,c,d,e){ 'use strict'; e=6; return e; } f(1,2,3,4,5)"},
       {"many locals",
        "let a0=0,a1=1,a2=2,a3=3,a4=4,a5=5,a6=6,a7=7,a8=8; a0+a1+a2+a3+a4+a5+a6+a7+a8"},
       {"many function locals",
