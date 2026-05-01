@@ -6,6 +6,7 @@ defmodule QuickBEAM.VM.PromiseState do
 
   alias QuickBEAM.VM.{Heap, Runtime}
   alias QuickBEAM.VM.Interpreter
+  alias QuickBEAM.VM.Invocation
 
   @doc "Creates or returns a resolved Promise state value."
   def resolved(val), do: make_promise(:resolved, val)
@@ -36,14 +37,8 @@ defmodule QuickBEAM.VM.PromiseState do
   def promise_finally([callback | _], {:obj, promise_ref}) do
     then_impl(
       [
-        fn value ->
-          run_finally(callback)
-          value
-        end,
-        fn reason ->
-          run_finally(callback)
-          throw({:js_throw, reason})
-        end
+        fn value -> finalize(callback, :resolved, value) end,
+        fn reason -> finalize(callback, :rejected, reason) end
       ],
       promise_ref
     )
@@ -167,13 +162,36 @@ defmodule QuickBEAM.VM.PromiseState do
     end
   end
 
-  defp run_finally(callback) do
-    if callable?(callback) do
-      Interpreter.invoke_callback(callback, [])
-    else
-      :undefined
+  defp finalize(callback, state, value) do
+    result =
+      if callable?(callback) do
+        try do
+          Invocation.invoke_callback_or_throw(callback, [])
+        catch
+          {:js_throw, err} -> {:rejected, err}
+        end
+      else
+        :undefined
+      end
+
+    case result do
+      {:rejected, reason} ->
+        {:rejected, reason}
+
+      {:obj, ref} = promise ->
+        case Heap.get_obj(ref, %{}) do
+          %{promise_state() => :rejected, promise_value() => reason} -> {:rejected, reason}
+          %{promise_state() => :pending} -> promise
+          _ -> finally_original(state, value)
+        end
+
+      _ ->
+        finally_original(state, value)
     end
   end
+
+  defp finally_original(:resolved, value), do: value
+  defp finally_original(:rejected, reason), do: {:rejected, reason}
 
   defp promise_proto, do: Runtime.global_class_proto("Promise")
 

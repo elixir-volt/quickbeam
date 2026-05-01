@@ -1645,6 +1645,24 @@ defmodule QuickBEAM.VM.CompilerTest do
       any_pending =
         compile_and_decode(rt, ~S|Promise.any([Promise.race([]), Promise.reject(1)])|).value
 
+      finally_throw =
+        compile_and_decode(
+          rt,
+          ~S|Promise.resolve(1).finally(function(){throw 2}).catch(function(e){return e})|
+        ).value
+
+      finally_rejected_promise =
+        compile_and_decode(
+          rt,
+          ~S|Promise.resolve(1).finally(function(){return Promise.reject(2)}).catch(function(e){return e})|
+        ).value
+
+      finally_rejected_callback =
+        compile_and_decode(
+          rt,
+          ~S|Promise.reject(1).finally(function(){throw 2}).catch(function(e){return e})|
+        ).value
+
       assert {:ok, 3} = Compiler.invoke(all_reject, [])
       assert {:ok, 3} = Compiler.invoke(any_all_reject, [])
       assert {:ok, "AggregateError"} = Compiler.invoke(any_empty, [])
@@ -1656,6 +1674,9 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert %{"__promise_state__" => :pending} = Heap.get_obj(ref)
       assert {:ok, {:obj, ref}} = Compiler.invoke(any_pending, [])
       assert %{"__promise_state__" => :pending} = Heap.get_obj(ref)
+      assert {:ok, 2} = Compiler.invoke(finally_throw, [])
+      assert {:ok, 2} = Compiler.invoke(finally_rejected_promise, [])
+      assert {:ok, 2} = Compiler.invoke(finally_rejected_callback, [])
     end
 
     test "normalizes compiled async rejections for promise chains", %{rt: rt} do
