@@ -775,7 +775,9 @@ cases = [
   {"with unscopables fallback read",
    "var x=1; let o={x:2,[Symbol.unscopables]:{x:true}}; with(o){ x }"},
   {"eval with ref assignment",
-   "function f(){ var x=1; function g(){ eval(''); x=2; return x }; return g() } f()"}
+   "function f(){ var x=1; function g(){ eval(''); x=2; return x }; return g() } f()"},
+  {"spread ascii string", "[...'ab'].join('')"},
+  {"spread astral string", "[...'😀'].length"}
 ]
 
 auto_cases = [

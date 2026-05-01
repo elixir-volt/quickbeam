@@ -27,6 +27,5 @@
   - nested `try/finally` throw/catch control flow can produce different final values.
   - `Promise.reject` caught through `await` still differs from the interpreter oracle for some shapes.
   - `yield*`/delegated generator paths still return `undefined` in compiled mode for value/return cases.
-  - spread string iteration (`[...'ab']`) can produce an empty compiled result.
   - direct eval declaration cases and missing/unsupported builtins often mismatch only by stack/source diagnostics; preserve stack comparisons rather than weakening the audit.
   - `queueMicrotask`, `String.prototype.replaceAll` literal/context-order behavior, RegExp unicode/dotAll, Reflect/Proxy constructor/apply/ownKeys, object prototype helper methods, typed-array includes/indexOf, Date/URL/Number context-order behavior, Event constructor, URL.canParse, nested private-brand handling, tag-call `this` binding, static block side effects, strict/sloppy `this` binding, TDZ typeof, iterator close, object key ordering, Symbol.hasInstance, astral string iteration, padEnd, Math.min no-args, and boxed primitive constructor cases need product investigation before inclusion.

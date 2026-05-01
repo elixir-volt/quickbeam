@@ -493,6 +493,14 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 3} = Compiler.invoke(fun, [Heap.wrap([1, 2, 3])])
     end
 
+    test "compiles string array spread", %{rt: rt} do
+      ascii = compile_and_decode(rt, "[...'ab'].join('')").value
+      astral = compile_and_decode(rt, "[...'😀'].length").value
+
+      assert {:ok, "ab"} = Compiler.invoke(ascii, [])
+      assert {:ok, 1} = Compiler.invoke(astral, [])
+    end
+
     test "compiles object spread", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(o){ return {...o}.x })") |> user_function()
 

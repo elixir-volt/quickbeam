@@ -174,6 +174,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   @doc "Converts a spread source value into the list of values to append."
   def spread_source_to_list({:qb_arr, arr}), do: :array.to_list(arr)
   def spread_source_to_list(list) when is_list(list), do: list
+  def spread_source_to_list(string) when is_binary(string), do: String.codepoints(string)
 
   def spread_source_to_list({:obj, ref}) do
     case Heap.get_obj(ref) do
