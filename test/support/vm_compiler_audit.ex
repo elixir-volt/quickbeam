@@ -119,6 +119,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
     long_assignment_sequence = Enum.map_join(1..500, ",", fn _ -> "x=x+1" end)
     long_if_body = Enum.map_join(1..300, ";", fn _ -> "x=x+1" end)
     long_else_body = Enum.map_join(1..1000, ";", fn _ -> "x=x+1" end)
+    very_long_else_body = Enum.map_join(1..2500, ";", fn _ -> "x=x+1" end)
 
     custom_iterator =
       "let it={ [Symbol.iterator](){ return { i:0, next(){ return this.i++ < 2 ? {value:this.i, done:false} : {done:true}; } } } };"
@@ -170,6 +171,7 @@ defmodule QuickBEAM.VM.CompilerAudit do
       {"wide if false", "let x=0; if (x===0) { #{long_if_body}; } x"},
       {"wide logical or", "let x=1; x || (#{long_assignment_sequence}); x"},
       {"wide goto", "let x=0; if (x===0) { x=1; } else { #{long_else_body}; } x"},
+      {"generic goto", "let x=0; if (x===0) { x=1; } else { #{very_long_else_body}; } x"},
       {"try finally", "let x = 1; try { x = 2; } finally { x = x + 3; } x"},
       {"catch rethrow avoided", "let x = 0; try { throw 5; } catch (e) { x = e; } x"},
       {"object mutation", "let o = {}; o.x = 1; o.y = o.x + 2; o"},
