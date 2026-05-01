@@ -203,11 +203,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
     with {:ok, val, state} <- State.pop(state),
          {:ok, key, state} <- State.pop(state),
          {:ok, ref, state} <- State.pop(state) do
-      {:ok,
-       %{
-         state
-         | body: [State.compiler_call(state, :put_ref_value, [val, key, ref]) | state.body]
-       }}
+      {:ok, State.update_ctx(state, State.compiler_call(state, :put_ref_value, [val, key, ref]))}
     end
   end
 

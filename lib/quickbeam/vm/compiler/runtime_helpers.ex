@@ -273,11 +273,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   def make_var_ref(ctx, atom_idx) do
-    name = Names.resolve_atom(context_atoms(ctx), atom_idx)
-    val = Map.get(context_globals(ctx), name, :undefined)
-    ref = make_ref()
-    Heap.put_cell(ref, val)
-    {:cell, ref}
+    {:global_ref, Names.resolve_atom(context_atoms(ctx), atom_idx)}
   end
 
   @doc "Returns or creates a mutable reference cell for an existing variable reference."
@@ -369,22 +365,27 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   @doc "Reads the value from a reference cell or object-property reference."
   def get_ref_value(_ctx \\ nil, key, ref)
   def get_ref_value(_ctx, _key, {:cell, _} = cell), do: Closures.read_cell(cell)
+  def get_ref_value(ctx, _key, {:global_ref, name}), do: get_var_undef(ctx, name)
   def get_ref_value(_ctx, key, obj) when is_binary(key), do: Get.get(obj, key)
   def get_ref_value(_ctx, _key, _), do: :undefined
 
-  def put_ref_value(_ctx \\ nil, val, key, ref)
+  def put_ref_value(ctx \\ nil, val, key, ref)
 
-  def put_ref_value(_ctx, val, _key, {:cell, _} = cell) do
+  def put_ref_value(ctx, val, _key, {:cell, _} = cell) do
     Closures.write_cell(cell, val)
-    val
+    ctx
   end
 
-  def put_ref_value(_ctx, val, key, obj) when is_binary(key) do
+  def put_ref_value(ctx, val, _key, {:global_ref, name}) do
+    GlobalEnv.put(ensure_context(ctx), name, val)
+  end
+
+  def put_ref_value(ctx, val, key, obj) when is_binary(key) do
     Put.put(obj, key, val)
-    val
+    ctx
   end
 
-  def put_ref_value(_ctx, val, _key, _), do: val
+  def put_ref_value(ctx, _val, _key, _), do: ctx
 
   @doc "Reads a variable from a compiled context or throws when absent."
   def fetch_ctx_var(ctx, name) do

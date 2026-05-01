@@ -1036,8 +1036,19 @@ defmodule QuickBEAM.VM.CompilerTest do
       assignment = compile_and_decode(rt, "let o={x:1}; with(o){ x=2; } o.x").value
       update = compile_and_decode(rt, "let o={x:1}; with(o){ x++; } o.x").value
 
+      global_fallback = compile_and_decode(rt, "var x=1; let o={}; with(o){ x=2; } x").value
+
+      unscopables_fallback =
+        compile_and_decode(
+          rt,
+          "var x=1; let o={x:2, [Symbol.unscopables]: {x:true}}; with(o){ x=3; } [x,o.x]"
+        ).value
+
       assert {:ok, 2} = Compiler.invoke(assignment, [])
       assert {:ok, 2} = Compiler.invoke(update, [])
+      assert {:ok, 2} = Compiler.invoke(global_fallback, [])
+      assert {:ok, {:obj, array_ref}} = Compiler.invoke(unscopables_fallback, [])
+      assert [3, 2] = array_ref |> Heap.get_obj() |> QuickBEAM.VM.Heap.Arrays.to_list()
     end
 
     test "compiles derived constructors returning objects", %{rt: rt} do
