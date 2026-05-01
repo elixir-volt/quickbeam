@@ -1585,10 +1585,24 @@ defmodule QuickBEAM.VM.CompilerTest do
 
       race_empty = compile_and_decode(rt, ~S|Promise.race([])|).value
 
+      all_pending = compile_and_decode(rt, ~S|Promise.all([Promise.race([])])|).value
+
+      all_settled_pending =
+        compile_and_decode(rt, ~S|Promise.allSettled([Promise.race([])])|).value
+
+      any_pending =
+        compile_and_decode(rt, ~S|Promise.any([Promise.race([]), Promise.reject(1)])|).value
+
       assert {:ok, 3} = Compiler.invoke(all_reject, [])
       assert {:ok, 3} = Compiler.invoke(any_all_reject, [])
       assert {:ok, "AggregateError"} = Compiler.invoke(any_empty, [])
       assert {:ok, {:obj, ref}} = Compiler.invoke(race_empty, [])
+      assert %{"__promise_state__" => :pending} = Heap.get_obj(ref)
+      assert {:ok, {:obj, ref}} = Compiler.invoke(all_pending, [])
+      assert %{"__promise_state__" => :pending} = Heap.get_obj(ref)
+      assert {:ok, {:obj, ref}} = Compiler.invoke(all_settled_pending, [])
+      assert %{"__promise_state__" => :pending} = Heap.get_obj(ref)
+      assert {:ok, {:obj, ref}} = Compiler.invoke(any_pending, [])
       assert %{"__promise_state__" => :pending} = Heap.get_obj(ref)
     end
 
