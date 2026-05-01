@@ -453,9 +453,16 @@ defmodule QuickBEAM.VM.CompilerTest do
           "function tag(strings, v){return strings[0]+v+strings[1]}; tag`a${2}b`"
         ).value
 
+      tag_receiver =
+        compile_and_decode(
+          rt,
+          "let receiver; function tag(){receiver=this; return 1}; tag`x`; receiver===globalThis"
+        ).value
+
       assert {:ok, true} = Compiler.invoke(tag_this, [])
       assert {:ok, 2} = Compiler.invoke(tag_length, [])
       assert {:ok, "a2b"} = Compiler.invoke(tag_expr, [])
+      assert {:ok, true} = Compiler.invoke(tag_receiver, [])
     end
 
     test "compiles static block object and constructor side effects", %{rt: rt} do
@@ -958,9 +965,14 @@ defmodule QuickBEAM.VM.CompilerTest do
       source =
         "let state={closed:0}; let it={ [Symbol.iterator](){return this}, next(){return {value:1,done:false}}, return(){state.closed=1; return {done:true}}}; for (let x of it) { break; } state.closed"
 
+      lexical_source =
+        "let closed=0; let it={ [Symbol.iterator](){return this}, next(){return {value:1,done:false}}, return(){closed=1; return {done:true}}}; for (let x of it) { break; } closed"
+
       fun = compile_and_decode(rt, source).value
+      lexical = compile_and_decode(rt, lexical_source).value
 
       assert {:ok, 1} = Compiler.invoke(fun, [])
+      assert {:ok, 1} = Compiler.invoke(lexical, [])
     end
 
     test "closes custom iterators during destructuring", %{rt: rt} do
@@ -1050,7 +1062,14 @@ defmodule QuickBEAM.VM.CompilerTest do
         )
         |> user_function()
 
+      nested_throw =
+        compile_and_decode(
+          rt,
+          "let x=0; try { try { throw 1 } finally { x=2 } } catch(e) { x += e } x"
+        ).value
+
       assert {:ok, 2} = Compiler.invoke(fun, [])
+      assert {:ok, 3} = Compiler.invoke(nested_throw, [])
     end
 
     test "compiles try finally around returns", %{rt: rt} do

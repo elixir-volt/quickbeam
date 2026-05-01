@@ -1007,9 +1007,15 @@ cases = [
   {"bigint toString", "(10n).toString()"},
   {"bigint add", "1n + 2n"},
   {"tagged template this", "function tag(){return this===globalThis}; tag`x`"},
+  {"tagged template captured receiver",
+   "let receiver; function tag(){receiver=this; return 1}; tag`x`; receiver===globalThis"},
   {"tagged template strings length", "function tag(strings){return strings.length}; tag`a${1}b`"},
   {"tagged template expression",
-   "function tag(strings, v){return strings[0]+v+strings[1]}; tag`a${2}b`"}
+   "function tag(strings, v){return strings[0]+v+strings[1]}; tag`a${2}b`"},
+  {"iterator close lexical side effect",
+   "let closed=0; let it={ [Symbol.iterator](){return this}, next(){return {value:1,done:false}}, return(){closed=1; return {done:true}}}; for (let x of it) { break; } closed"},
+  {"nested finally throw catch",
+   "let x=0; try { try { throw 1 } finally { x=2 } } catch(e) { x += e } x"}
 ]
 
 auto_cases = [
