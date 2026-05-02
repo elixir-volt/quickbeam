@@ -727,6 +727,9 @@ defmodule QuickBEAM.VM.Runtime.Object do
     data = Heap.get_obj(ref, %{})
 
     cond do
+      is_map(data) and Map.has_key?(data, proxy_target()) ->
+        proxy_own_property_descriptor(data, prop_name)
+
       is_list(data) or match?({:qb_arr, _}, data) ->
         case Integer.parse(prop_name) do
           {idx, ""} when idx >= 0 ->
@@ -828,6 +831,62 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp get_own_property_descriptor(_), do: :undefined
+
+  defp proxy_own_property_descriptor(proxy_map, prop_name) do
+    target = Map.fetch!(proxy_map, proxy_target())
+    handler = Map.fetch!(proxy_map, proxy_handler())
+    trap = Get.get(handler, "getOwnPropertyDescriptor")
+
+    cond do
+      trap == :undefined or trap == nil ->
+        get_own_property_descriptor([target, prop_name])
+
+      true ->
+        result = Invocation.invoke_callback_or_throw(trap, [target, prop_name])
+        validate_proxy_descriptor_result(target, prop_name, result)
+    end
+  end
+
+  defp validate_proxy_descriptor_result(target, prop_name, :undefined) do
+    case target_descriptor_flags(target, prop_name) do
+      %{configurable: false} ->
+        proxy_descriptor_invariant_error()
+
+      _ ->
+        :undefined
+    end
+  end
+
+  defp validate_proxy_descriptor_result(target, prop_name, {:obj, result_ref} = result) do
+    result_desc = Heap.get_obj(result_ref, %{})
+
+    cond do
+      not target_extensible?(target) and target_descriptor_flags(target, prop_name) == nil ->
+        proxy_descriptor_invariant_error()
+
+      Map.get(result_desc, "configurable") == false and
+          not match?(%{configurable: false}, target_descriptor_flags(target, prop_name)) ->
+        proxy_descriptor_invariant_error()
+
+      true ->
+        result
+    end
+  end
+
+  defp validate_proxy_descriptor_result(_target, _prop_name, _result), do: :undefined
+
+  defp target_descriptor_flags({:obj, ref}, prop_name), do: Heap.get_prop_desc(ref, prop_name)
+  defp target_descriptor_flags(_target, _prop_name), do: nil
+
+  defp target_extensible?({:obj, ref}), do: Heap.extensible?(ref)
+  defp target_extensible?(_target), do: true
+
+  defp proxy_descriptor_invariant_error do
+    throw(
+      {:js_throw,
+       Heap.make_error("proxy getOwnPropertyDescriptor trap violates invariant", "TypeError")}
+    )
+  end
 
   defp data_descriptor_obj(val, desc) do
     desc_ref = make_ref()
