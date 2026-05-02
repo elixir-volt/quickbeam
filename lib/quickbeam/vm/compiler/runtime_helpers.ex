@@ -52,6 +52,15 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def strict_neq(_ctx \\ nil, a, b), do: not Values.strict_eq(a, b)
 
   def bit_not(_ctx \\ nil, a), do: Values.bnot(a)
+
+  def in_operator(_ctx \\ nil, key, obj) do
+    unless object_like?(obj) do
+      JSThrow.type_error!("right-hand side of 'in' should be an object")
+    end
+
+    QuickBEAM.VM.ObjectModel.Put.has_property(obj, Names.normalize_property_key(key))
+  end
+
   @doc "Applies JavaScript logical NOT."
   def lnot(_ctx \\ nil, a), do: not Values.truthy?(a)
 
@@ -901,6 +910,16 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def import_module(_specifier) do
     QuickBEAM.VM.PromiseState.rejected(Heap.make_error("Invalid module specifier", "TypeError"))
   end
+
+  defp object_like?({:obj, _}), do: true
+  defp object_like?({:qb_arr, _}), do: true
+  defp object_like?(value) when is_map(value), do: true
+  defp object_like?(value) when is_list(value), do: true
+  defp object_like?({:builtin, _, _}), do: true
+  defp object_like?(%Bytecode.Function{}), do: true
+  defp object_like?({:closure, _, %Bytecode.Function{}}), do: true
+  defp object_like?({:bound, _, _, _, _}), do: true
+  defp object_like?(_), do: false
 
   defp make_error_with_ctx(ctx, message, name, stack_override \\ nil) do
     previous_ctx = Heap.get_ctx()

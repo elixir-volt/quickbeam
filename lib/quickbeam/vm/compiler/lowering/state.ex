@@ -512,12 +512,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def in_call(state) do
     with {:ok, obj, _obj_type, state} <- pop_typed(state),
          {:ok, key, _key_type, state} <- pop_typed(state) do
-      {:ok,
-       push(
-         state,
-         Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :has_property, [obj, key]),
-         :boolean
-       )}
+      {:ok, push(state, compiler_call(state, :in_operator, [key, obj]), :boolean)}
     end
   end
 
