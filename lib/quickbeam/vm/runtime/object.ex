@@ -218,10 +218,15 @@ defmodule QuickBEAM.VM.Runtime.Object do
         Invocation.invoke_callback_or_throw(trap, [target])
       end
 
-    if not target_extensible_for_prototype?(target) and result != get_own_prototype(target) do
-      proxy_prototype_invariant_error()
-    else
-      result
+    cond do
+      not prototype_value?(result) ->
+        proxy_prototype_invariant_error()
+
+      not target_extensible_for_prototype?(target) and result != get_own_prototype(target) ->
+        proxy_prototype_invariant_error()
+
+      true ->
+        result
     end
   end
 
@@ -243,6 +248,10 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
     success?
   end
+
+  defp prototype_value?(nil), do: true
+  defp prototype_value?({:obj, _}), do: true
+  defp prototype_value?(_), do: false
 
   defp get_own_prototype({:obj, ref}), do: Map.get(Heap.get_obj(ref, %{}), proto(), nil)
   defp get_own_prototype(_), do: nil
