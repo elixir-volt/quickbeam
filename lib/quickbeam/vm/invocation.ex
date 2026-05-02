@@ -301,8 +301,13 @@ defmodule QuickBEAM.VM.Invocation do
     raw_new_target = unwrap_new_target(new_target)
 
     ctor_proto =
-      constructor_prototype(raw_new_target) || constructor_prototype(raw_ctor) ||
-        Heap.get_object_prototype()
+      if raw_new_target != nil and raw_new_target != raw_ctor do
+        Heap.get_class_proto(raw_new_target) ||
+          normalize_constructor_prototype(Get.get(new_target, "prototype")) ||
+          Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
+      else
+        Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
+      end
 
     init = if ctor_proto, do: %{proto() => ctor_proto}, else: %{}
     this_obj = Heap.wrap(init)
@@ -507,15 +512,6 @@ defmodule QuickBEAM.VM.Invocation do
   defp unwrap_new_target({:closure, _, %Bytecode.Function{} = fun}), do: fun
   defp unwrap_new_target(%Bytecode.Function{} = fun), do: fun
   defp unwrap_new_target(_), do: nil
-
-  defp constructor_prototype(nil), do: nil
-
-  defp constructor_prototype(target) do
-    case Heap.get_class_proto(target) do
-      {:obj, _} = proto_obj -> proto_obj
-      _ -> normalize_constructor_prototype(Get.get(target, "prototype"))
-    end
-  end
 
   defp normalize_constructor_prototype({:obj, _} = object_proto), do: object_proto
   defp normalize_constructor_prototype(_), do: nil

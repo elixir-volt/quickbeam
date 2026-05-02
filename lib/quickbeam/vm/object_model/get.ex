@@ -337,7 +337,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_own({:regexp, _, _}, key), do: RegExp.proto_property(key)
 
   defp get_own(%Bytecode.Function{} = f, "prototype") do
-    Heap.get_or_create_prototype({:closure, %{}, f})
+    Heap.get_or_create_prototype(f)
   end
 
   defp get_own(%Bytecode.Function{} = f, key) do
