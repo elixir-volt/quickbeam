@@ -530,6 +530,12 @@ defmodule QuickBEAM.VM.CompilerTest do
           ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:false}); let p=new Proxy(t,{deleteProperty(){return true}}); try{delete p.x}catch(e){e.name}|
         ).value
 
+      static_lexical_write =
+        compile_and_decode(rt, ~S|let x=0; class A{ static { x=1 } }; x|).value
+
+      static_var_write =
+        compile_and_decode(rt, ~S|var x=0; class A{ static { x=1 } }; x|).value
+
       object_define_blocked =
         compile_and_decode(
           rt,
@@ -558,6 +564,8 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "1:true"} = Compiler.invoke(proxy_delete_trap, [])
       assert {:ok, false} = Compiler.invoke(proxy_delete_false, [])
       assert {:ok, "TypeError"} = Compiler.invoke(proxy_delete_invariant, [])
+      assert {:ok, 1} = Compiler.invoke(static_lexical_write, [])
+      assert {:ok, 1} = Compiler.invoke(static_var_write, [])
       assert {:ok, "TypeError"} = Compiler.invoke(object_define_blocked, [])
     end
 

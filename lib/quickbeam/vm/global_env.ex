@@ -47,7 +47,7 @@ defmodule QuickBEAM.VM.GlobalEnv do
   @doc "Writes a global binding into a context and optionally persists it."
   def put(%Context{} = ctx, atom_idx, val, opts \\ []) do
     name = Names.resolve_atom(ctx, atom_idx)
-    globals = Map.put(ctx.globals, name, val)
+    globals = ctx.globals |> Map.merge(Heap.get_persistent_globals() || %{}) |> Map.put(name, val)
 
     if Keyword.get(opts, :persist, true) do
       Heap.put_persistent_globals(globals)

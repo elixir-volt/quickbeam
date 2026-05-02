@@ -53,6 +53,8 @@ cases = [
   {"computed class value invoked", "let o={ [class C{}]: 1 }; 1"},
   {"static block object side effect",
    "let state={x:0}; class A{ static { state.x=1 } }; state.x"},
+  {"static block lexical write", "let x=0; class A{ static { x=1 } }; x"},
+  {"static block var write", "var x=0; class A{ static { x=1 } }; x"},
   {"static block constructor side effect", "class A{ static { this.x=2 } }; A.x"},
   {"static block field order", "class A{ static x=1; static { this.x+=2 } }; A.x"},
   {"custom iterator loop value",
