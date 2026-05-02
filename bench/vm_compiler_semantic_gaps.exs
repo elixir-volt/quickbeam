@@ -218,6 +218,8 @@ cases = [
   {"nan compare", "Number.isNaN(NaN)"},
   {"error message", "try { throw new Error('boom') } catch(e) { e.message }"},
   {"finally mutation", "let x=1; try { x=2 } finally { x=3 } x"},
+  {"finally fallthrough continues",
+   "let x=0; try { x=1 } finally { x=2 } if (x !== 2) throw new Error('bad'); x"},
   {"switch fallthrough", "let x=0; switch(1){case 1:x++; case 2:x++;} x"},
   {"labeled break", "let x=0; outer: while(true){ x=1; break outer; x=2 } x"},
   {"do while", "let x=0; do { x++ } while(x<3); x"},

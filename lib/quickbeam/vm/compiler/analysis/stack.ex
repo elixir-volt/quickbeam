@@ -136,7 +136,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
               {:ok, []}
 
             {{:ok, :gosub}, [_target]} ->
-              {:ok, []}
+              if is_nil(next_entry), do: {:ok, []}, else: {:ok, [{next_entry, next_depth}]}
 
             {{:ok, :ret}, []} ->
               {:ok, []}
