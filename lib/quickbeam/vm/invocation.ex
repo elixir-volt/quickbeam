@@ -298,6 +298,8 @@ defmodule QuickBEAM.VM.Invocation do
 
   def construct_runtime(ctx, ctor, new_target, args) do
     with_ctx(ctx, fn ->
+      validate_constructor!(ctor)
+
       raw_ctor = unwrap_constructor_target(ctor)
       raw_new_target = unwrap_new_target(new_target)
 
@@ -371,7 +373,13 @@ defmodule QuickBEAM.VM.Invocation do
         end
 
       _ ->
-        proxy
+        throw(
+          {:js_throw,
+           Heap.make_error(
+             "#{QuickBEAM.VM.Interpreter.Values.stringify(proxy)} is not a constructor",
+             "TypeError"
+           )}
+        )
     end
   end
 
@@ -506,6 +514,22 @@ defmodule QuickBEAM.VM.Invocation do
        do: true
 
   defp compiled_method_callable?(_, _), do: false
+
+  defp validate_constructor!(%Bytecode.Function{}), do: :ok
+  defp validate_constructor!({:closure, _, %Bytecode.Function{}}), do: :ok
+  defp validate_constructor!({:bound, _, _inner, _orig_fun, _bound_args}), do: :ok
+  defp validate_constructor!({:builtin, _name, cb}) when is_function(cb, 2), do: :ok
+  defp validate_constructor!({:obj, _}), do: :ok
+
+  defp validate_constructor!(ctor) do
+    throw(
+      {:js_throw,
+       Heap.make_error(
+         "#{QuickBEAM.VM.Interpreter.Values.stringify(ctor)} is not a constructor",
+         "TypeError"
+       )}
+    )
+  end
 
   defp unwrap_constructor_target({:closure, _, %Bytecode.Function{} = fun}), do: fun
   defp unwrap_constructor_target({:bound, _, inner, _, _}), do: unwrap_constructor_target(inner)
