@@ -451,6 +451,15 @@ defmodule QuickBEAM.VM.CompilerTest do
       object_has_own_null =
         compile_and_decode(rt, ~S|try{Object.hasOwn(null,"x")}catch(e){e.name}|).value
 
+      has_own_property_string =
+        compile_and_decode(rt, ~S|Object.prototype.hasOwnProperty.call("ab","1")|).value
+
+      property_is_enumerable_missing =
+        compile_and_decode(rt, ~S|({}).propertyIsEnumerable("x")|).value
+
+      property_is_enumerable_string =
+        compile_and_decode(rt, ~S|Object.prototype.propertyIsEnumerable.call("ab","1")|).value
+
       prevent_primitive = compile_and_decode(rt, "Reflect.preventExtensions(1)").value
       extensible_primitive = compile_and_decode(rt, "Reflect.isExtensible(1)").value
 
@@ -701,6 +710,9 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "TypeError"} = Compiler.invoke(from_entries_bad_entry, [])
       assert {:ok, true} = Compiler.invoke(object_has_own_string, [])
       assert {:ok, "TypeError"} = Compiler.invoke(object_has_own_null, [])
+      assert {:ok, true} = Compiler.invoke(has_own_property_string, [])
+      assert {:ok, false} = Compiler.invoke(property_is_enumerable_missing, [])
+      assert {:ok, true} = Compiler.invoke(property_is_enumerable_string, [])
       assert {:ok, false} = Compiler.invoke(prevent_primitive, [])
       assert {:ok, false} = Compiler.invoke(extensible_primitive, [])
       assert {:ok, "TypeError"} = Compiler.invoke(reflect_define_primitive, [])

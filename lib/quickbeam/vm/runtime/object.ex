@@ -59,15 +59,27 @@ defmodule QuickBEAM.VM.Runtime.Object do
     proto
   end
 
-  defp has_own_property([key | _], {:obj, r}) do
-    data = Heap.get_obj(r, %{})
-    is_map(data) and Map.has_key?(data, key)
+  defp has_own_property([_key | _], target) when target in [nil, :undefined] do
+    throw({:js_throw, Heap.make_error("hasOwnProperty called on null or undefined", "TypeError")})
+  end
+
+  defp has_own_property([key | _], target) do
+    prop_name = if is_binary(key) or is_symbol(key), do: key, else: Values.stringify(key)
+    own_property?(target, prop_name)
   end
 
   defp has_own_property(_, _), do: false
 
-  defp property_enumerable?([key | _], {:obj, r}) do
-    not match?(%{enumerable: false}, Heap.get_prop_desc(r, key))
+  defp property_enumerable?([_key | _], target) when target in [nil, :undefined] do
+    throw(
+      {:js_throw,
+       Heap.make_error("propertyIsEnumerable called on null or undefined", "TypeError")}
+    )
+  end
+
+  defp property_enumerable?([key | _], target) do
+    prop_name = if is_binary(key) or is_symbol(key), do: key, else: Values.stringify(key)
+    own_property?(target, prop_name) and enumerable_property?(target, prop_name)
   end
 
   defp property_enumerable?(_, _), do: false
@@ -272,6 +284,12 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp own_property?(_target, _key), do: false
+
+  defp enumerable_property?({:obj, ref}, key),
+    do: not match?(%{enumerable: false}, Heap.get_prop_desc(ref, key))
+
+  defp enumerable_property?(string, key) when is_binary(string), do: key != "length"
+  defp enumerable_property?(_target, _key), do: true
 
   static "getPrototypeOf" do
     case args do
