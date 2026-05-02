@@ -911,16 +911,23 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     with {:ok, args, _arg_types, state} <- pop_n_typed(state, argc),
          {:ok, fun, fun_type, state} <- pop_typed(state),
          {:ok, obj, _obj_type, state} <- pop_typed(state) do
-      effectful_push(
-        state,
+      expr =
         Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_method_runtime, [
           ctx_expr(state),
           fun,
           obj,
           Builder.list_expr(Enum.reverse(args))
-        ]),
-        function_return_type(fun_type, state.return_type)
-      )
+        ])
+
+      {result, state} = bind(state, Builder.temp_name(state.temp), expr)
+
+      state =
+        update_ctx(
+          state,
+          Builder.remote_call(QuickBEAM.VM.GlobalEnv, :refresh, [ctx_expr(state)])
+        )
+
+      {:ok, push(state, result, function_return_type(fun_type, state.return_type))}
     end
   end
 
