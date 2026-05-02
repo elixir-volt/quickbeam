@@ -195,6 +195,12 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     builtins = Heap.get_builtin_names() || MapSet.new()
 
     case Map.fetch(context_globals(ctx), name) do
+      {:ok, _value} when name in ["NaN", "undefined", "Infinity", "globalThis"] ->
+        false
+
+      {:ok, {:builtin, _, _}} ->
+        true
+
       {:ok, _value} ->
         MapSet.member?(builtins, name)
 
@@ -550,7 +556,45 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   @doc "Converts an iterable or array-like value to a JavaScript array object."
   def array_from(_ctx \\ nil, list), do: Heap.wrap(list)
 
-  def delete_property(_ctx \\ nil, obj, key), do: Delete.delete_property(obj, key)
+  def delete_property(ctx \\ nil, obj, key)
+
+  def delete_property(_ctx, {:builtin, _name, map} = fun, key) when is_map(map),
+    do: delete_static(fun, key)
+
+  def delete_property(_ctx, {:builtin, _name, _} = fun, key), do: delete_static(fun, key)
+  def delete_property(_ctx, {:closure, _, _} = fun, key), do: delete_static(fun, key)
+  def delete_property(_ctx, %Bytecode.Function{} = fun, key), do: delete_static(fun, key)
+  def delete_property(_ctx, obj, key), do: Delete.delete_property(obj, key)
+
+  defp delete_static(fun, key) do
+    key_str = if is_binary(key), do: key, else: Values.stringify(key)
+    statics = Heap.get_ctor_statics(fun)
+
+    if Map.has_key?(statics, key_str) do
+      Heap.put_ctor_statics(fun, Map.delete(statics, key_str))
+      true
+    else
+      case fun do
+        {:builtin, _, _} ->
+          val = Get.get(fun, key_str)
+
+          cond do
+            val == :undefined ->
+              true
+
+            is_number(val) or val == :infinity or val == :neg_infinity or val == :nan ->
+              false
+
+            true ->
+              Heap.put_ctor_statics(fun, Map.put(statics, key_str, :deleted))
+              true
+          end
+
+        _ ->
+          true
+      end
+    end
+  end
 
   def set_proto(_ctx \\ nil, obj, proto)
 
