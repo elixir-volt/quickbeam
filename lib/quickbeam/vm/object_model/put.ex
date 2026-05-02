@@ -126,6 +126,9 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
           key == "__proto__" ->
             Heap.put_obj_raw(ref, {:shape, shape_id, offsets, vals, val})
 
+          not Map.has_key?(offsets, key) and proto_has_setter_property?(proto, key) ->
+            set(proto, key, val, obj)
+
           not Heap.extensible?(ref) and not Map.has_key?(offsets, key) ->
             :ok
 
@@ -164,6 +167,9 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         cond do
           Heap.frozen?(ref) ->
             :ok
+
+          not Map.has_key?(map, key) and proto_has_setter_property?(Map.get(map, proto()), key) ->
+            set(Map.get(map, proto()), key, val, obj)
 
           not Map.has_key?(map, key) and not Heap.extensible?(ref) ->
             :ok
@@ -215,8 +221,41 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
           set(proxy_target, key, val, receiver)
         end
 
+      {:shape, _shape_id, offsets, vals, proto_obj} ->
+        case Map.fetch(offsets, key) do
+          {:ok, offset} ->
+            case elem(vals, offset) do
+              {:accessor, _, setter} when setter != nil ->
+                invoke_setter(setter, val, receiver)
+
+              _ ->
+                if match?(%{writable: false}, Heap.get_prop_desc(ref, key)) do
+                  false
+                else
+                  put(receiver, key, val)
+                  true
+                end
+            end
+
+          :error ->
+            if proto_has_property?(proto_obj, key) do
+              set(proto_obj, key, val, receiver)
+            else
+              put(receiver, key, val)
+              true
+            end
+        end
+
       map when is_map(map) ->
         case Map.get(map, key) do
+          nil ->
+            if proto_has_property?(Map.get(map, proto()), key) do
+              set(Map.get(map, proto()), key, val, receiver)
+            else
+              put(receiver, key, val)
+              true
+            end
+
           {:accessor, _, setter} when setter != nil ->
             invoke_setter(setter, val, receiver)
 
@@ -351,6 +390,39 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   defp invoke_setter(fun, val, this_obj) do
     Invocation.invoke_with_receiver(fun, [val], this_obj)
   end
+
+  defp proto_has_property?(nil, _key), do: false
+  defp proto_has_property?(:undefined, _key), do: false
+
+  defp proto_has_property?({:obj, ref} = obj, key) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        Map.has_key?(map, key) or proto_has_property?(Map.get(map, proto()), key)
+
+      _ ->
+        has_property(obj, key)
+    end
+  end
+
+  defp proto_has_property?(proto_obj, key), do: has_property(proto_obj, key)
+
+  defp proto_has_setter_property?(nil, _key), do: false
+  defp proto_has_setter_property?(:undefined, _key), do: false
+
+  defp proto_has_setter_property?({:obj, ref}, key) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        case Map.get(map, key) do
+          {:accessor, _, setter} when setter != nil -> true
+          _ -> proto_has_setter_property?(Map.get(map, proto()), key)
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp proto_has_setter_property?(_proto_obj, _key), do: false
 
   defp proto_has_setter?(idx) do
     case find_array_proto_accessor(Integer.to_string(idx)) do

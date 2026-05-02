@@ -557,6 +557,12 @@ defmodule QuickBEAM.VM.CompilerTest do
       reflect_set_data_receiver =
         compile_and_decode(rt, ~S|let o={x:1}; let r={}; Reflect.set(o,"x",5,r); r.x+":"+o.x|).value
 
+      reflect_set_proto_setter_receiver =
+        compile_and_decode(
+          rt,
+          ~S|let p={set x(v){this.y=v}}; let o=Object.create(p); let r={}; Reflect.set(o,"x",5,r); r.y|
+        ).value
+
       reflect_get_descriptor =
         compile_and_decode(rt, ~S|let o={x:1}; Reflect.getOwnPropertyDescriptor(o,"x").value|).value
 
@@ -639,6 +645,7 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 1} = Compiler.invoke(static_var_write, [])
       assert {:ok, 5} = Compiler.invoke(reflect_set_receiver, [])
       assert {:ok, "5:1"} = Compiler.invoke(reflect_set_data_receiver, [])
+      assert {:ok, 5} = Compiler.invoke(reflect_set_proto_setter_receiver, [])
       assert {:ok, 1} = Compiler.invoke(reflect_get_descriptor, [])
       assert {:ok, 2} = Compiler.invoke(reflect_get_descriptor_proxy, [])
       assert {:ok, true} = Compiler.invoke(reflect_get_prototype, [])
