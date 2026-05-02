@@ -469,6 +469,18 @@ defmodule QuickBEAM.VM.CompilerTest do
       object_to_string_string =
         compile_and_decode(rt, ~S|Object.prototype.toString.call("x")|).value
 
+      object_to_string_map =
+        compile_and_decode(rt, ~S|Object.prototype.toString.call(new Map())|).value
+
+      object_to_string_set =
+        compile_and_decode(rt, ~S|Object.prototype.toString.call(new Set())|).value
+
+      object_to_string_date =
+        compile_and_decode(rt, ~S|Object.prototype.toString.call(new Date(0))|).value
+
+      object_to_string_regexp =
+        compile_and_decode(rt, ~S|Object.prototype.toString.call(/a/)|).value
+
       prevent_primitive = compile_and_decode(rt, "Reflect.preventExtensions(1)").value
       extensible_primitive = compile_and_decode(rt, "Reflect.isExtensible(1)").value
 
@@ -725,6 +737,10 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "[object Array]"} = Compiler.invoke(object_to_string_array, [])
       assert {:ok, "[object Null]"} = Compiler.invoke(object_to_string_null, [])
       assert {:ok, "[object String]"} = Compiler.invoke(object_to_string_string, [])
+      assert {:ok, "[object Map]"} = Compiler.invoke(object_to_string_map, [])
+      assert {:ok, "[object Set]"} = Compiler.invoke(object_to_string_set, [])
+      assert {:ok, "[object Date]"} = Compiler.invoke(object_to_string_date, [])
+      assert {:ok, "[object RegExp]"} = Compiler.invoke(object_to_string_regexp, [])
       assert {:ok, false} = Compiler.invoke(prevent_primitive, [])
       assert {:ok, false} = Compiler.invoke(extensible_primitive, [])
       assert {:ok, "TypeError"} = Compiler.invoke(reflect_define_primitive, [])

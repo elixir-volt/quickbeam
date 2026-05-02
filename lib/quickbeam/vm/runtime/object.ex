@@ -91,6 +91,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp object_to_string(value) when is_boolean(value), do: "[object Boolean]"
   defp object_to_string({:symbol, _}), do: "[object Symbol]"
   defp object_to_string({:symbol, _, _}), do: "[object Symbol]"
+  defp object_to_string({:regexp, _, _}), do: "[object RegExp]"
   defp object_to_string(%Bytecode.Function{}), do: "[object Function]"
 
   defp object_to_string({tag, _, %Bytecode.Function{}}) when tag in [:closure, :bound],
@@ -105,6 +106,11 @@ defmodule QuickBEAM.VM.Runtime.Object do
       %{"__wrapped_string__" => _} -> "[object String]"
       %{"__wrapped_number__" => _} -> "[object Number]"
       %{"__wrapped_boolean__" => _} -> "[object Boolean]"
+      %{map_data() => _, :weak => true} -> "[object WeakMap]"
+      %{map_data() => _} -> "[object Map]"
+      %{set_data() => _, :weak => true} -> "[object WeakSet]"
+      %{set_data() => _} -> "[object Set]"
+      %{date_ms() => _} -> "[object Date]"
       _ -> "[object Object]"
     end
   end
