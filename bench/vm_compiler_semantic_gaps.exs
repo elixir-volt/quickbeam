@@ -661,6 +661,8 @@ cases = [
   {"reflect set data receiver", "let o={x:1}; let r={}; Reflect.set(o,'x',5,r); r.x+':' + o.x"},
   {"reflect set prototype setter receiver",
    "let p={set x(v){this.y=v}}; let o=Object.create(p); let r={}; Reflect.set(o,'x',5,r); r.y"},
+  {"reflect set nonextensible receiver",
+   "let o={x:1}; let r={}; Object.preventExtensions(r); Reflect.set(o,'x',5,r)"},
   {"reflect getOwnPropertyDescriptor",
    "let o={x:1}; Reflect.getOwnPropertyDescriptor(o,'x').value"},
   {"reflect getOwnPropertyDescriptor proxy",

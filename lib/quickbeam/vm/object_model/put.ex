@@ -232,8 +232,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
                 if match?(%{writable: false}, Heap.get_prop_desc(ref, key)) do
                   false
                 else
-                  put(receiver, key, val)
-                  true
+                  write_receiver(receiver, key, val)
                 end
             end
 
@@ -241,8 +240,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             if proto_has_property?(proto_obj, key) do
               set(proto_obj, key, val, receiver)
             else
-              put(receiver, key, val)
-              true
+              write_receiver(receiver, key, val)
             end
         end
 
@@ -252,12 +250,68 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             if proto_has_property?(Map.get(map, proto()), key) do
               set(Map.get(map, proto()), key, val, receiver)
             else
-              put(receiver, key, val)
-              true
+              write_receiver(receiver, key, val)
             end
 
           {:accessor, _, setter} when setter != nil ->
             invoke_setter(setter, val, receiver)
+
+          _ ->
+            if match?(%{writable: false}, Heap.get_prop_desc(ref, key)) do
+              false
+            else
+              write_receiver(receiver, key, val)
+            end
+        end
+
+      _ ->
+        write_receiver(receiver, key, val)
+    end
+  end
+
+  def set(target, key, val, _receiver), do: put(target, key, val)
+
+  defp write_receiver({:obj, ref} = receiver, key, val) do
+    case Heap.get_obj_raw(ref) do
+      {:shape, _shape_id, offsets, vals, _proto} ->
+        case Map.fetch(offsets, key) do
+          {:ok, offset} ->
+            case elem(vals, offset) do
+              {:accessor, _, setter} when setter != nil ->
+                invoke_setter(setter, val, receiver)
+                true
+
+              _ ->
+                if match?(%{writable: false}, Heap.get_prop_desc(ref, key)) do
+                  false
+                else
+                  put(receiver, key, val)
+                  true
+                end
+            end
+
+          :error ->
+            if Heap.extensible?(ref) do
+              put(receiver, key, val)
+              true
+            else
+              false
+            end
+        end
+
+      map when is_map(map) ->
+        case Map.get(map, key) do
+          nil ->
+            if Heap.extensible?(ref) do
+              put(receiver, key, val)
+              true
+            else
+              false
+            end
+
+          {:accessor, _, setter} when setter != nil ->
+            invoke_setter(setter, val, receiver)
+            true
 
           _ ->
             if match?(%{writable: false}, Heap.get_prop_desc(ref, key)) do
@@ -274,7 +328,10 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
-  def set(target, key, val, _receiver), do: put(target, key, val)
+  defp write_receiver(receiver, key, val) do
+    put(receiver, key, val)
+    true
+  end
 
   def put(target, key, val, true), do: put(target, key, val)
 
