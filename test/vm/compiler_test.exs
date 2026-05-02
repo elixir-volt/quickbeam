@@ -481,6 +481,12 @@ defmodule QuickBEAM.VM.CompilerTest do
       object_to_string_regexp =
         compile_and_decode(rt, ~S|Object.prototype.toString.call(/a/)|).value
 
+      object_to_string_custom_tag =
+        compile_and_decode(
+          rt,
+          ~S|Object.prototype.toString.call({[Symbol.toStringTag]:"Custom"})|
+        ).value
+
       object_value_of_null =
         compile_and_decode(rt, ~S|try{Object.prototype.valueOf.call(null)}catch(e){e.name}|).value
 
@@ -756,6 +762,7 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "[object Set]"} = Compiler.invoke(object_to_string_set, [])
       assert {:ok, "[object Date]"} = Compiler.invoke(object_to_string_date, [])
       assert {:ok, "[object RegExp]"} = Compiler.invoke(object_to_string_regexp, [])
+      assert {:ok, "[object Custom]"} = Compiler.invoke(object_to_string_custom_tag, [])
       assert {:ok, "TypeError"} = Compiler.invoke(object_value_of_null, [])
       assert {:ok, "object"} = Compiler.invoke(object_value_of_string, [])
       assert {:ok, true} = Compiler.invoke(object_is_prototype_of_direct, [])

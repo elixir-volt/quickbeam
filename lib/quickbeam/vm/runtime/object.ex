@@ -135,20 +135,24 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp object_to_string({:builtin, _, _}), do: "[object Function]"
 
-  defp object_to_string({:obj, ref}) do
-    case Heap.get_obj(ref, %{}) do
-      list when is_list(list) -> "[object Array]"
-      {:qb_arr, _} -> "[object Array]"
-      %{"__wrapped_string__" => _} -> "[object String]"
-      %{"__wrapped_number__" => _} -> "[object Number]"
-      %{"__wrapped_boolean__" => _} -> "[object Boolean]"
-      %{map_data() => _, :weak => true} -> "[object WeakMap]"
-      %{map_data() => _} -> "[object Map]"
-      %{set_data() => _, :weak => true} -> "[object WeakSet]"
-      %{set_data() => _} -> "[object Set]"
-      %{date_ms() => _} -> "[object Date]"
-      _ -> "[object Object]"
-    end
+  defp object_to_string({:obj, ref} = obj) do
+    tag =
+      case Heap.get_obj(ref, %{}) do
+        list when is_list(list) -> "Array"
+        {:qb_arr, _} -> "Array"
+        %{"__wrapped_string__" => _} -> "String"
+        %{"__wrapped_number__" => _} -> "Number"
+        %{"__wrapped_boolean__" => _} -> "Boolean"
+        %{map_data() => _, :weak => true} -> "WeakMap"
+        %{map_data() => _} -> "Map"
+        %{set_data() => _, :weak => true} -> "WeakSet"
+        %{set_data() => _} -> "Set"
+        %{date_ms() => _} -> "Date"
+        _ -> "Object"
+      end
+
+    custom_tag = Get.get(obj, {:symbol, "Symbol.toStringTag"})
+    "[object #{if is_binary(custom_tag), do: custom_tag, else: tag}]"
   end
 
   defp object_to_string(_value), do: "[object Object]"

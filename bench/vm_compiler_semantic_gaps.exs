@@ -804,6 +804,8 @@ cases = [
   {"object toString set", ~S|Object.prototype.toString.call(new Set())|},
   {"object toString date", ~S|Object.prototype.toString.call(new Date(0))|},
   {"object toString regexp", ~S|Object.prototype.toString.call(/a/)|},
+  {"object toString custom tag",
+   ~S|Object.prototype.toString.call({[Symbol.toStringTag]:"Custom"})|},
   {"object valueOf null", ~S|try{Object.prototype.valueOf.call(null)}catch(e){e.name}|},
   {"object valueOf string object", ~S|typeof Object.prototype.valueOf.call("x")|},
   {"object isPrototypeOf direct", ~S|let p={}; let o=Object.create(p); p.isPrototypeOf(o)|},
