@@ -340,6 +340,10 @@ defmodule QuickBEAM.VM.Runtime.Object do
     get_own_property_descriptor(args)
   end
 
+  static "getOwnPropertyDescriptors" do
+    get_own_property_descriptors(args)
+  end
+
   static "fromEntries" do
     from_entries(args)
   end
@@ -497,6 +501,64 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp get_own_property_names(_) do
     Heap.wrap([])
   end
+
+  defp get_own_property_descriptors([{:obj, _} = obj | _]) do
+    ref = make_ref()
+
+    descriptors =
+      obj
+      |> own_property_descriptor_keys()
+      |> Enum.reduce(%{}, fn key, acc ->
+        case get_own_property_descriptor([obj, key]) do
+          :undefined -> acc
+          desc -> Map.put(acc, key, desc)
+        end
+      end)
+
+    Heap.put_obj(ref, descriptors)
+    {:obj, ref}
+  end
+
+  defp get_own_property_descriptors(_), do: Heap.wrap(%{})
+
+  defp own_property_descriptor_keys({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      %{proxy_target() => target, proxy_handler() => handler} ->
+        trap = Get.get(handler, "ownKeys")
+
+        if trap == :undefined or trap == nil do
+          own_property_descriptor_keys(target)
+        else
+          trap
+          |> Runtime.call_callback([target])
+          |> Heap.to_list()
+        end
+
+      {:qb_arr, arr} ->
+        for(i <- 0..(:array.size(arr) - 1), do: Integer.to_string(i)) ++ ["length"]
+
+      list when is_list(list) ->
+        array_indices(list) ++ ["length"]
+
+      map when is_map(map) ->
+        map
+        |> Map.keys()
+        |> Enum.reject(&descriptor_internal_key?/1)
+
+      _ ->
+        []
+    end
+  end
+
+  defp own_property_descriptor_keys(_), do: []
+
+  defp descriptor_internal_key?(key) when key in [proto(), proxy_target(), proxy_handler()],
+    do: true
+
+  defp descriptor_internal_key?(key) when is_binary(key),
+    do: String.starts_with?(key, "__") and String.ends_with?(key, "__")
+
+  defp descriptor_internal_key?(_), do: false
 
   defp enumerable_keys(ref) do
     data = Heap.get_obj(ref, %{})

@@ -578,6 +578,15 @@ defmodule QuickBEAM.VM.CompilerTest do
           ~S|let p=new Proxy({x:1},{getOwnPropertyDescriptor(){return {value:2, configurable:true}}}); Reflect.getOwnPropertyDescriptor(p,"x").value|
         ).value
 
+      object_get_descriptors =
+        compile_and_decode(rt, ~S|let o={x:1}; Object.getOwnPropertyDescriptors(o).x.value|).value
+
+      object_get_descriptors_proxy =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({x:1},{getOwnPropertyDescriptor(){return {value:2, configurable:true}}}); Object.getOwnPropertyDescriptors(p).x.value|
+        ).value
+
       reflect_get_prototype =
         compile_and_decode(
           rt,
@@ -655,6 +664,8 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, false} = Compiler.invoke(reflect_set_receiver_nonextensible, [])
       assert {:ok, 1} = Compiler.invoke(reflect_get_descriptor, [])
       assert {:ok, 2} = Compiler.invoke(reflect_get_descriptor_proxy, [])
+      assert {:ok, 1} = Compiler.invoke(object_get_descriptors, [])
+      assert {:ok, 2} = Compiler.invoke(object_get_descriptors_proxy, [])
       assert {:ok, true} = Compiler.invoke(reflect_get_prototype, [])
       assert {:ok, "true:1"} = Compiler.invoke(reflect_set_prototype, [])
       assert {:ok, "TypeError"} = Compiler.invoke(reflect_get_prototype_primitive, [])
