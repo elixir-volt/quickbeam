@@ -48,9 +48,9 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
     end
 
     method "set" do
-      [obj, key, val | _] = args
-      Put.put(obj, key, val)
-      true
+      [obj, key, val | rest] = args
+      receiver = arg(rest, 0, obj)
+      Values.truthy?(Put.set(obj, key, val, receiver))
     end
 
     method "deleteProperty" do

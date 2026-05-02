@@ -658,6 +658,7 @@ cases = [
   {"reflect apply type", "typeof Reflect.apply"},
   {"reflect get receiver", "let o={get x(){return this.y}}; Reflect.get(o,'x',{y:4})"},
   {"reflect set receiver", "let o={set x(v){this.y=v}}; let r={}; Reflect.set(o,'x',5,r); r.y"},
+  {"reflect set data receiver", "let o={x:1}; let r={}; Reflect.set(o,'x',5,r); r.x+':' + o.x"},
   {"reflect getOwnPropertyDescriptor",
    "let o={x:1}; Reflect.getOwnPropertyDescriptor(o,'x').value"},
   {"reflect getOwnPropertyDescriptor proxy",

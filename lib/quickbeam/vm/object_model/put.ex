@@ -196,6 +196,47 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   def put(_, _, _), do: :ok
 
+  @doc "Writes a property using an explicit receiver, for Reflect.set semantics."
+  def set({:obj, ref}, key, val, receiver) do
+    key = normalize_key(key)
+
+    case Heap.get_obj_raw(ref) do
+      %{proxy_target() => proxy_target, proxy_handler() => handler} ->
+        set_trap = Get.get(handler, "set")
+
+        if set_trap != :undefined do
+          validate_proxy_set_invariant(
+            proxy_target,
+            key,
+            val,
+            Runtime.call_callback(set_trap, [proxy_target, key, val, receiver])
+          )
+        else
+          set(proxy_target, key, val, receiver)
+        end
+
+      map when is_map(map) ->
+        case Map.get(map, key) do
+          {:accessor, _, setter} when setter != nil ->
+            invoke_setter(setter, val, receiver)
+
+          _ ->
+            if match?(%{writable: false}, Heap.get_prop_desc(ref, key)) do
+              false
+            else
+              put(receiver, key, val)
+              true
+            end
+        end
+
+      _ ->
+        put(receiver, key, val)
+        true
+    end
+  end
+
+  def set(target, key, val, _receiver), do: put(target, key, val)
+
   def put(target, key, val, true), do: put(target, key, val)
 
   def put({:obj, ref}, key, val, false) do
