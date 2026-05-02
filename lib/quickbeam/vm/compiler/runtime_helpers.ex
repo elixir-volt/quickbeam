@@ -1493,14 +1493,27 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   defp prototype_chain_contains?(_, :undefined), do: false
   defp prototype_chain_contains?(_, nil), do: false
 
-  defp prototype_chain_contains?({:obj, ref}, target) do
+  defp prototype_chain_contains?({:obj, ref} = obj, target) do
     case Heap.get_obj(ref, %{}) do
+      {:shape, _, _, _, parent} ->
+        parent == target or prototype_chain_contains?(parent, target)
+
       map when is_map(map) ->
-        case Map.get(map, proto()) do
-          ^target -> true
-          nil -> false
-          :undefined -> false
-          parent -> prototype_chain_contains?(parent, target)
+        if Map.has_key?(map, proto()) do
+          case Map.get(map, proto()) do
+            ^target -> true
+            nil -> false
+            :undefined -> false
+            parent -> prototype_chain_contains?(parent, target)
+          end
+        else
+          parent = Heap.get_object_prototype()
+
+          cond do
+            obj == parent -> false
+            parent == target -> true
+            true -> prototype_chain_contains?(parent, target)
+          end
         end
 
       {:qb_arr, _} ->
