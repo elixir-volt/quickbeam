@@ -57,6 +57,7 @@ defmodule QuickBEAM.VM.Heap do
             get_array_props: 1,
             get_array_prop: 2,
             put_array_prop: 3,
+            delete_array_prop: 2,
             get_class_proto: 1,
             put_class_proto: 2,
             get_parent_ctor: 1,
@@ -340,6 +341,7 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate get_array_props(ref), to: Store
   defdelegate get_array_prop(ref, key), to: Store
   defdelegate put_array_prop(ref, key, val), to: Store
+  defdelegate delete_array_prop(ref, key), to: Store
   defdelegate get_object_prototype(), to: Context
   defdelegate put_object_prototype(proto), to: Context
   defdelegate get_global_cache(), to: Context

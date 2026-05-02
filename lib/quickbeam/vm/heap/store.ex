@@ -227,6 +227,10 @@ defmodule QuickBEAM.VM.Heap.Store do
     Process.put({:qb_array_props, ref}, Map.put(get_array_props(ref), key, val))
   end
 
+  def delete_array_prop(ref, key) do
+    Process.put({:qb_array_props, ref}, Map.delete(get_array_props(ref), key))
+  end
+
   # ── Object ID allocation ──
 
   @doc "Allocates a new monotonically increasing heap object id."

@@ -234,6 +234,7 @@ cases = [
    "let o={get x(){return 2}}; Object.getOwnPropertyDescriptor(o,'x').get.call(o)"},
   {"define getter", "let o={}; Object.defineProperty(o,'x',{get(){return 4}}); o.x"},
   {"delete property result", "let o={x:1}; delete o.x"},
+  {"delete array expando", "let a=[1,2,3]; a.x = 10; delete a.x; a.x"},
   {"in prototype", "let p={x:1}; let o=Object.create(p); 'x' in o"},
   {"instanceof class", "class A{}; new A() instanceof A"},
   {"new bound function", "function A(x){this.x=x}; let B=A.bind(null,5); new B().x"},

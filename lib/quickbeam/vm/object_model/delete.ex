@@ -92,6 +92,7 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
         true
 
       _ ->
+        Heap.delete_array_prop(ref, key)
         true
     end
   end
