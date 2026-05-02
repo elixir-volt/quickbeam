@@ -558,6 +558,19 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def delete_property(ctx \\ nil, obj, key)
 
+  def delete_property(ctx, obj, key) when is_map(ctx) or is_struct(ctx) do
+    key_str = if is_binary(key), do: key, else: Values.stringify(key)
+
+    if obj == context_this(ctx) and Map.has_key?(context_globals(ctx), key_str) do
+      case Map.fetch!(context_globals(ctx), key_str) do
+        {:builtin, _, _} -> true
+        _ -> false
+      end
+    else
+      delete_property(nil, obj, key)
+    end
+  end
+
   def delete_property(_ctx, {:builtin, _name, map} = fun, key) when is_map(map),
     do: delete_static(fun, key)
 
