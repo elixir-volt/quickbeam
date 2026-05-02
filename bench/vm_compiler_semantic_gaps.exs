@@ -790,6 +790,8 @@ cases = [
   {"object create properties",
    ~S|let o=Object.create({}, {x:{value:2, enumerable:true}}); o.x+":"+Object.keys(o).length|},
   {"object create invalid prototype", ~S|try{Object.create(1)}catch(e){e.name}|},
+  {"object fromEntries map", ~S|let m=new Map([["x",1]]); Object.fromEntries(m).x|},
+  {"object fromEntries invalid entry", ~S|try{Object.fromEntries([1])}catch(e){e.name}|},
   {"reflect prevent extensions primitive", "Reflect.preventExtensions(1)"},
   {"reflect isExtensible primitive", "Reflect.isExtensible(1)"},
   {"reflect defineProperty nonextensible new",

@@ -494,28 +494,14 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
-  defp from_entries([{:obj, ref} | _]) do
-    entries =
-      case Heap.obj_to_list(ref) do
-        list when is_list(list) -> list
-        _ -> []
-      end
-
+  defp from_entries([iterable | _]) do
+    entries = entries_from_iterable(iterable)
     result_ref = make_ref()
 
     map =
-      Enum.reduce(entries, %{}, fn
-        {:obj, eref}, acc ->
-          case Heap.obj_to_list(eref) do
-            [k, v | _] -> Map.put(acc, Runtime.stringify(k), v)
-            _ -> acc
-          end
-
-        [k, v | _], acc ->
-          Map.put(acc, Runtime.stringify(k), v)
-
-        _, acc ->
-          acc
+      Enum.reduce(entries, %{}, fn entry, acc ->
+        [key, value | _] = entry_pair(entry)
+        Map.put(acc, Runtime.stringify(key), value)
       end)
 
     Heap.put_obj(result_ref, map)
@@ -523,6 +509,68 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp from_entries(_), do: Runtime.new_object()
+
+  defp entries_from_iterable({:obj, ref} = iterable) do
+    iterator_method = Get.get(iterable, {:symbol, "Symbol.iterator"})
+
+    if iterator_method != :undefined and iterator_method != nil do
+      iterator = invoke_with_this(iterator_method, [], iterable)
+      collect_iterator_values(iterator, [])
+    else
+      case Heap.obj_to_list(ref) do
+        list when is_list(list) -> list
+        _ -> []
+      end
+    end
+  end
+
+  defp entries_from_iterable(_iterable) do
+    throw({:js_throw, Heap.make_error("Object.fromEntries requires an iterable", "TypeError")})
+  end
+
+  defp collect_iterator_values(iterator, acc) do
+    next_fn = Get.get(iterator, "next")
+    result = invoke_with_this(next_fn, [], iterator)
+
+    if Get.get(result, "done") == true do
+      Enum.reverse(acc)
+    else
+      value = Get.get(result, "value")
+      collect_iterator_values(iterator, [value | acc])
+    end
+  end
+
+  defp entry_pair({:obj, _} = entry) do
+    case Heap.to_list(entry) do
+      [_, _ | _] = pair ->
+        pair
+
+      _ ->
+        throw({:js_throw, Heap.make_error("Iterator value is not an entry object", "TypeError")})
+    end
+  end
+
+  defp entry_pair([_, _ | _] = entry), do: entry
+
+  defp entry_pair(_entry) do
+    throw({:js_throw, Heap.make_error("Iterator value is not an entry object", "TypeError")})
+  end
+
+  defp invoke_with_this(fun, args, this) do
+    case fun do
+      {:builtin, _, callback} when is_function(callback) ->
+        callback.(args, this)
+
+      %Bytecode.Function{} = function ->
+        Invocation.invoke_with_receiver(function, args, Runtime.gas_budget(), this)
+
+      {:closure, _, %Bytecode.Function{}} = closure ->
+        Invocation.invoke_with_receiver(closure, args, Runtime.gas_budget(), this)
+
+      _ ->
+        Runtime.call_callback(fun, args)
+    end
+  end
 
   defp keys([{:obj, ref} | _]) do
     data = Heap.get_obj(ref, %{})
