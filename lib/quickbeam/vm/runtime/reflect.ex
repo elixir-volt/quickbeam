@@ -58,6 +58,13 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       Delete.delete_property(obj, key)
     end
 
+    method "getOwnPropertyDescriptor" do
+      [obj, key | _] = args
+
+      Object.static_property("getOwnPropertyDescriptor")
+      |> Invocation.invoke_callback_or_throw([obj, key])
+    end
+
     method "getPrototypeOf" do
       [obj | _] = args
       Object.static_property("getPrototypeOf") |> Invocation.invoke_callback_or_throw([obj])

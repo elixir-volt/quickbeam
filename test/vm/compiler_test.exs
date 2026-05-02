@@ -548,6 +548,15 @@ defmodule QuickBEAM.VM.CompilerTest do
       static_var_write =
         compile_and_decode(rt, ~S|var x=0; class A{ static { x=1 } }; x|).value
 
+      reflect_get_descriptor =
+        compile_and_decode(rt, ~S|let o={x:1}; Reflect.getOwnPropertyDescriptor(o,"x").value|).value
+
+      reflect_get_descriptor_proxy =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({x:1},{getOwnPropertyDescriptor(){return {value:2, configurable:true}}}); Reflect.getOwnPropertyDescriptor(p,"x").value|
+        ).value
+
       reflect_get_prototype =
         compile_and_decode(
           rt,
@@ -613,6 +622,8 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "TypeError"} = Compiler.invoke(proxy_get_descriptor_invariant, [])
       assert {:ok, 1} = Compiler.invoke(static_lexical_write, [])
       assert {:ok, 1} = Compiler.invoke(static_var_write, [])
+      assert {:ok, 1} = Compiler.invoke(reflect_get_descriptor, [])
+      assert {:ok, 2} = Compiler.invoke(reflect_get_descriptor_proxy, [])
       assert {:ok, true} = Compiler.invoke(reflect_get_prototype, [])
       assert {:ok, "true:1"} = Compiler.invoke(reflect_set_prototype, [])
       assert {:ok, true} = Compiler.invoke(proxy_get_prototype, [])
