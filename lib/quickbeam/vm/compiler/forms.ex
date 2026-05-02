@@ -225,6 +225,8 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
     {:function, @line, :op_eq, 2,
      [
+       {:clause, @line, [{:atom, @line, :nan}, b], [], [{:atom, @line, false}]},
+       {:clause, @line, [a, {:atom, @line, :nan}], [], [{:atom, @line, false}]},
        {:clause, @line, [same, same], [], [{:atom, @line, true}]},
        {:clause, @line, [a, b], [number_guards(a, b)], [{:op, @line, :==, a, b}]},
        {:clause, @line, [a, b],
