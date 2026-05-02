@@ -877,12 +877,36 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
-  defp ordinary_instanceof({:obj, _} = obj, ctor) do
-    ctor_proto = Get.get(ctor, "prototype")
-    prototype_chain_contains?(obj, ctor_proto)
-  end
+  defp ordinary_instanceof(obj, ctor) do
+    unless Builtin.callable?(ctor) or is_object(ctor) do
+      JSThrow.type_error!("Right-hand side of instanceof is not callable")
+    end
 
-  defp ordinary_instanceof(_obj, _ctor), do: false
+    unless callable_instanceof_target?(ctor) do
+      JSThrow.type_error!("Right-hand side of instanceof is not callable")
+    end
+
+    cond do
+      Builtin.callable?(obj) ->
+        builtin_name(ctor) in ["Function", "Object"]
+
+      is_object(obj) ->
+        ctor_proto = Get.get(ctor, "prototype")
+
+        case ctor_proto do
+          {:obj, _} ->
+            special_builtin_instance?(obj, ctor) or prototype_chain_contains?(obj, ctor_proto)
+
+          _ ->
+            JSThrow.type_error!(
+              "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check"
+            )
+        end
+
+      true ->
+        false
+    end
+  end
 
   def get_length(obj), do: Get.length_of(obj)
 
@@ -920,6 +944,23 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   defp object_like?({:closure, _, %Bytecode.Function{}}), do: true
   defp object_like?({:bound, _, _, _, _}), do: true
   defp object_like?(_), do: false
+
+  defp callable_instanceof_target?({:builtin, _, map}) when is_map(map), do: false
+  defp callable_instanceof_target?({:obj, ref}), do: Get.get({:obj, ref}, "call") != :undefined
+  defp callable_instanceof_target?(ctor), do: Builtin.callable?(ctor)
+
+  defp builtin_name({:builtin, name, _}), do: name
+  defp builtin_name(_), do: nil
+
+  defp special_builtin_instance?({:obj, ref}, ctor) do
+    case builtin_name(ctor) do
+      "Array" -> match?({:qb_arr, _}, Heap.get_obj(ref)) or is_list(Heap.get_obj(ref))
+      "Object" -> true
+      _ -> false
+    end
+  end
+
+  defp special_builtin_instance?(_, _), do: false
 
   defp make_error_with_ctx(ctx, message, name, stack_override \\ nil) do
     previous_ctx = Heap.get_ctx()
