@@ -67,7 +67,14 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
 
     method "getPrototypeOf" do
       [obj | _] = args
-      Object.static_property("getPrototypeOf") |> Invocation.invoke_callback_or_throw([obj])
+
+      case obj do
+        {:obj, _} ->
+          Object.static_property("getPrototypeOf") |> Invocation.invoke_callback_or_throw([obj])
+
+        _ ->
+          JSThrow.type_error!("Reflect.getPrototypeOf called on non-object")
+      end
     end
 
     method "setPrototypeOf" do
@@ -85,7 +92,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
           end
 
         _ ->
-          false
+          JSThrow.type_error!("Reflect.setPrototypeOf called on non-object")
       end
     end
 

@@ -203,8 +203,19 @@ defmodule QuickBEAM.VM.Runtime.Object do
       [val | _] when is_function(val) ->
         func_proto()
 
+      [val | _] when is_integer(val) or is_float(val) ->
+        Runtime.global_class_proto("Number")
+
+      [val | _] when is_binary(val) ->
+        Runtime.global_class_proto("String")
+
+      [val | _] when is_boolean(val) ->
+        Runtime.global_class_proto("Boolean")
+
       _ ->
-        nil
+        throw(
+          {:js_throw, Heap.make_error("Object.getPrototypeOf called on non-object", "TypeError")}
+        )
     end
   end
 
@@ -361,6 +372,20 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   static "setPrototypeOf" do
+    case args do
+      [_obj, new_proto | _] ->
+        unless prototype_value?(new_proto) do
+          throw(
+            {:js_throw,
+             Heap.make_error("Object prototype may only be an object or null", "TypeError")}
+          )
+        end
+
+        set_prototype_of(args)
+    end
+  end
+
+  defp set_prototype_of(args) do
     case args do
       [{:obj, ref} = obj, new_proto | _] ->
         case Heap.get_obj(ref, %{}) do

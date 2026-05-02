@@ -665,6 +665,8 @@ cases = [
   {"reflect getPrototypeOf",
    "let p={x:1}; let o=Object.create(p); Reflect.getPrototypeOf(o)===p"},
   {"reflect setPrototypeOf", "let p={x:1}; let o={}; Reflect.setPrototypeOf(o,p)+':' + o.x"},
+  {"reflect getPrototypeOf primitive", "try{Reflect.getPrototypeOf(1)}catch(e){e.name}"},
+  {"object setPrototypeOf bad prototype", "try{Object.setPrototypeOf({},1)}catch(e){e.name}"},
   {"proxy getPrototypeOf",
    "let p={x:1}; let q=new Proxy({}, {getPrototypeOf(){return p}}); Object.getPrototypeOf(q)===p"},
   {"proxy setPrototypeOf",

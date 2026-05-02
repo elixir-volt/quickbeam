@@ -566,6 +566,12 @@ defmodule QuickBEAM.VM.CompilerTest do
       reflect_set_prototype =
         compile_and_decode(rt, ~S|let p={x:1}; let o={}; Reflect.setPrototypeOf(o,p)+":"+o.x|).value
 
+      reflect_get_prototype_primitive =
+        compile_and_decode(rt, ~S|try{Reflect.getPrototypeOf(1)}catch(e){e.name}|).value
+
+      object_set_prototype_bad_proto =
+        compile_and_decode(rt, ~S|try{Object.setPrototypeOf({},1)}catch(e){e.name}|).value
+
       proxy_get_prototype =
         compile_and_decode(
           rt,
@@ -626,6 +632,8 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 2} = Compiler.invoke(reflect_get_descriptor_proxy, [])
       assert {:ok, true} = Compiler.invoke(reflect_get_prototype, [])
       assert {:ok, "true:1"} = Compiler.invoke(reflect_set_prototype, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(reflect_get_prototype_primitive, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(object_set_prototype_bad_proto, [])
       assert {:ok, true} = Compiler.invoke(proxy_get_prototype, [])
       assert {:ok, true} = Compiler.invoke(proxy_set_prototype, [])
       assert {:ok, "TypeError"} = Compiler.invoke(proxy_get_prototype_primitive, [])
