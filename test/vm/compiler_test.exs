@@ -434,6 +434,12 @@ defmodule QuickBEAM.VM.CompilerTest do
       prevent_primitive = compile_and_decode(rt, "Reflect.preventExtensions(1)").value
       extensible_primitive = compile_and_decode(rt, "Reflect.isExtensible(1)").value
 
+      reflect_define_primitive =
+        compile_and_decode(rt, ~S|try{Reflect.defineProperty(1,"x",{value:1})}catch(e){e.name}|).value
+
+      object_define_primitive =
+        compile_and_decode(rt, ~S|try{Object.defineProperty(1,"x",{value:1})}catch(e){e.name}|).value
+
       reflect_define_blocked =
         compile_and_decode(
           rt,
@@ -671,6 +677,8 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, true} = Compiler.invoke(prevent_extensions, [])
       assert {:ok, false} = Compiler.invoke(prevent_primitive, [])
       assert {:ok, false} = Compiler.invoke(extensible_primitive, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(reflect_define_primitive, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(object_define_primitive, [])
       assert {:ok, false} = Compiler.invoke(reflect_define_blocked, [])
       assert {:ok, 2} = Compiler.invoke(reflect_define_existing, [])
       assert {:ok, true} = Compiler.invoke(proxy_prevent_default, [])

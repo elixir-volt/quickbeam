@@ -967,7 +967,9 @@ defmodule QuickBEAM.VM.Runtime.Object do
     b
   end
 
-  defp define_property([obj | _]), do: obj
+  defp define_property([_target | _]) do
+    throw({:js_throw, Heap.make_error("Object.defineProperty called on non-object", "TypeError")})
+  end
 
   defp define_callable_property(fun, key, desc_ref) do
     desc = Heap.get_obj(desc_ref, %{})

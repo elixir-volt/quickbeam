@@ -97,11 +97,17 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
     end
 
     method "defineProperty" do
-      try do
-        Object.static_property("defineProperty") |> Invocation.invoke_callback_or_throw(args)
-        true
-      catch
-        {:js_throw, _reason} -> false
+      case hd(args) do
+        {:obj, _} ->
+          try do
+            Object.static_property("defineProperty") |> Invocation.invoke_callback_or_throw(args)
+            true
+          catch
+            {:js_throw, _reason} -> false
+          end
+
+        _ ->
+          JSThrow.type_error!("Reflect.defineProperty called on non-object")
       end
     end
 
