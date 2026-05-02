@@ -90,8 +90,8 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   static "freeze" do
     case hd(args) do
-      {:obj, ref} = obj ->
-        Heap.freeze(ref)
+      {:obj, _ref} = obj ->
+        freeze_object(obj)
         obj
 
       obj ->
@@ -119,8 +119,8 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   static "seal" do
     case hd(args) do
-      {:obj, ref} = obj ->
-        Heap.prevent_extensions(ref)
+      {:obj, _ref} = obj ->
+        seal_object(obj)
         obj
 
       obj ->
@@ -141,6 +141,39 @@ defmodule QuickBEAM.VM.Runtime.Object do
       _ -> true
     end
   end
+
+  defp freeze_object({:obj, ref} = obj) do
+    seal_object(obj)
+
+    for key <- own_property_descriptor_keys(obj) do
+      desc =
+        Heap.get_prop_desc(ref, key) || %{writable: true, enumerable: true, configurable: true}
+
+      current = Heap.get_obj(ref, %{}) |> property_value_for_descriptor(key)
+
+      if match?({:accessor, _, _}, current) do
+        Heap.put_prop_desc(ref, key, Map.put(desc, :configurable, false))
+      else
+        Heap.put_prop_desc(ref, key, %{desc | writable: false, configurable: false})
+      end
+    end
+
+    Heap.freeze(ref)
+  end
+
+  defp seal_object({:obj, ref} = obj) do
+    for key <- own_property_descriptor_keys(obj) do
+      desc =
+        Heap.get_prop_desc(ref, key) || %{writable: true, enumerable: true, configurable: true}
+
+      Heap.put_prop_desc(ref, key, Map.put(desc, :configurable, false))
+    end
+
+    Heap.prevent_extensions(ref)
+  end
+
+  defp property_value_for_descriptor(map, key) when is_map(map), do: Map.get(map, key)
+  defp property_value_for_descriptor(_data, _key), do: :undefined
 
   static "is" do
     [a, b | _] = args
@@ -708,6 +741,32 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp property_present?(_existing, _prop_name), do: false
 
+  defp incompatible_existing_descriptor?(ref, existing, prop_name, desc) when is_map(existing) do
+    current_desc = Heap.get_prop_desc(ref, prop_name)
+    current_value = Map.get(existing, prop_name, :undefined)
+
+    cond do
+      current_desc == nil ->
+        false
+
+      current_desc.configurable == false and Map.get(desc, "configurable") == true ->
+        true
+
+      current_desc.configurable == false and current_desc.writable == false and
+          Map.get(desc, "writable") == true ->
+        true
+
+      current_desc.writable == false and Map.has_key?(desc, "value") and
+          Map.get(desc, "value") != current_value ->
+        true
+
+      true ->
+        false
+    end
+  end
+
+  defp incompatible_existing_descriptor?(_ref, _existing, _prop_name, _desc), do: false
+
   defp define_proxy_property(proxy, proxy_map, key, prop_name, desc_obj) do
     target = Map.fetch!(proxy_map, proxy_target())
     handler = Map.fetch!(proxy_map, proxy_handler())
@@ -758,7 +817,8 @@ defmodule QuickBEAM.VM.Runtime.Object do
       throw({:early_return, define_proxy_property(obj, existing, key, prop_name, desc_obj)})
     end
 
-    if non_extensible_new_property?(ref, existing, prop_name) do
+    if non_extensible_new_property?(ref, existing, prop_name) or
+         incompatible_existing_descriptor?(ref, existing, prop_name, desc) do
       throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
     end
 
