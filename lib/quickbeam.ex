@@ -108,6 +108,7 @@ defmodule QuickBEAM do
         case System.get_env("QUICKBEAM_MODE") do
           "beam" -> Keyword.put(opts, :mode, :beam)
           "auto" -> Keyword.put(opts, :mode, :auto)
+          "beam_compiler" -> Keyword.put(opts, :mode, :beam_compiler)
           _ -> opts
         end
       end
@@ -152,7 +153,7 @@ defmodule QuickBEAM do
   @spec eval(runtime(), String.t(), keyword()) :: js_result()
   def eval(runtime, code, opts \\ []) do
     case resolve_mode(runtime, opts) do
-      mode when mode in [:beam, :auto] -> eval_beam(runtime, code, opts, mode)
+      mode when mode in [:beam, :auto, :beam_compiler] -> eval_beam(runtime, code, opts, mode)
       _ -> Runtime.eval(runtime, code, opts)
     end
   end
@@ -237,7 +238,8 @@ defmodule QuickBEAM do
     end
   end
 
-  defp eval_beam_bytecode(parsed, runtime, handler_globals, :auto) do
+  defp eval_beam_bytecode(parsed, runtime, handler_globals, mode)
+       when mode in [:auto, :beam_compiler] do
     opts = %{gas: 1_000_000_000, runtime_pid: runtime, globals: handler_globals}
     ctx = QuickBEAM.VM.Interpreter.Setup.build_eval_context(opts, parsed.atoms, opts.gas)
 
@@ -247,9 +249,11 @@ defmodule QuickBEAM do
 
     case BeamCompiler.invoke(parsed.value, []) do
       {:ok, _} = ok -> ok
-      :error -> Interpreter.eval(parsed.value, [], opts, parsed.atoms)
+      :error when mode == :auto -> Interpreter.eval(parsed.value, [], opts, parsed.atoms)
+      :error -> {:error, {:beam_compiler_unsupported, :top_level}}
       {:error, {:js_throw, _}} = error -> error
-      {:error, _} -> Interpreter.eval(parsed.value, [], opts, parsed.atoms)
+      {:error, _} when mode == :auto -> Interpreter.eval(parsed.value, [], opts, parsed.atoms)
+      {:error, reason} -> {:error, {:beam_compiler_error, reason}}
     end
   end
 

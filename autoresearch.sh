@@ -41,6 +41,9 @@ case "${PARSER_BENCH:-compat}" in
   vm_compiler_perf)
     bench_output=$(mix run bench/vm_compiler_perf.exs 2>&1)
     ;;
+  vm_compiler_test262)
+    bench_output=$(MIX_ENV=test mix run bench/vm_compiler_test262.exs 2>&1)
+    ;;
   vm_compiler_semantics)
     bench_output=$(mix run bench/vm_compiler_semantic_gaps.exs 2>&1)
     ;;

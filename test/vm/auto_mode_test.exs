@@ -34,4 +34,24 @@ defmodule QuickBEAM.VM.AutoModeTest do
       QuickBEAM.stop(rt)
     end
   end
+
+  test "evaluates through strict beam compiler mode" do
+    {:ok, rt} = QuickBEAM.start(mode: :beam_compiler, apis: false)
+
+    try do
+      assert {:ok, 6} = QuickBEAM.eval(rt, "function f(x){ return x * 2 } f(3)")
+    after
+      QuickBEAM.stop(rt)
+    end
+  end
+
+  test "supports explicit beam compiler mode option on a NIF runtime" do
+    {:ok, rt} = QuickBEAM.start(apis: false)
+
+    try do
+      assert {:ok, 9} = QuickBEAM.eval(rt, "let o={x:4}; o.x + 5", mode: :beam_compiler)
+    after
+      QuickBEAM.stop(rt)
+    end
+  end
 end
