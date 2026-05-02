@@ -34,6 +34,7 @@ cases = [
    "(-Number.MAX_VALUE + Number.MAX_VALUE) + Number.MAX_VALUE"},
   {"division overflow to infinity", "Number.MAX_VALUE / 0.9"},
   {"division overflow to negative infinity", "Number.MAX_VALUE / -0.9"},
+  {"array constructor typeof object", "typeof new Array()"},
   {"constructor identity after prototype write",
    "function E(){}; E.prototype.toString = function(){ return 'E'; }; let e = new E(); e.constructor === E"},
   {"thrown custom constructor identity",

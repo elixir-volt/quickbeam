@@ -258,7 +258,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
           {{:obj, rref}, {:obj, _} = proto2} ->
             rmap = Heap.get_obj(rref, %{})
 
-            unless Map.has_key?(rmap, proto()) do
+            if is_map(rmap) and not Map.has_key?(rmap, proto()) do
               Heap.put_obj(rref, Map.put(rmap, proto(), proto2))
             end
 
