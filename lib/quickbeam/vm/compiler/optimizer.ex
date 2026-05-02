@@ -29,24 +29,60 @@ defmodule QuickBEAM.VM.Compiler.Optimizer do
   end
 
   defp fold_literals(instructions, constants) do
+    branch_targets = branch_targets(instructions)
+
     instructions
     |> Enum.with_index()
     |> Enum.reduce(instructions, fn {{_op, _args}, idx}, acc ->
-      maybe_fold_at(acc, idx, constants)
+      maybe_fold_at(acc, idx, constants, branch_targets)
     end)
   end
 
-  defp maybe_fold_at(instructions, idx, constants) do
+  defp maybe_fold_at(instructions, idx, constants, branch_targets) do
     case Enum.slice(instructions, idx, 3) do
       [a, b, c] ->
-        fold_binary_window(instructions, idx, a, b, c, constants)
+        if crosses_branch_target?(idx, 3, branch_targets) do
+          instructions
+        else
+          fold_binary_window(instructions, idx, a, b, c, constants)
+        end
 
       _ ->
         case Enum.slice(instructions, idx, 2) do
-          [a, b] -> fold_unary_window(instructions, idx, a, b, constants)
-          _ -> instructions
+          [a, b] ->
+            if crosses_branch_target?(idx, 2, branch_targets) do
+              instructions
+            else
+              fold_unary_window(instructions, idx, a, b, constants)
+            end
+
+          _ ->
+            instructions
         end
     end
+  end
+
+  defp branch_targets(instructions) do
+    instructions
+    |> Enum.flat_map(fn
+      {op, [target]} ->
+        case CFG.opcode_name(op) do
+          {:ok, name}
+          when name in [:goto, :goto8, :goto16, :if_true, :if_true8, :if_false, :if_false8] ->
+            [target]
+
+          _ ->
+            []
+        end
+
+      _ ->
+        []
+    end)
+    |> MapSet.new()
+  end
+
+  defp crosses_branch_target?(idx, width, targets) do
+    Enum.any?((idx + 1)..(idx + width - 1), &MapSet.member?(targets, &1))
   end
 
   defp fold_binary_window(instructions, idx, a, b, c, constants) do
