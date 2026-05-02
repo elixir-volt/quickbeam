@@ -170,6 +170,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
       :undefined ->
         {:ok, State.push(state, Builder.atom(:undefined), :undefined)}
 
+      {:bigint, value} ->
+        {:ok,
+         State.push(state, Builder.tuple_expr([Builder.atom(:bigint), Builder.integer(value)]))}
+
       %Bytecode.Function{} = fun when fun.closure_vars == [] ->
         {:ok, State.push(state, Builder.literal(fun), AnalysisTypes.function_type(fun))}
 
