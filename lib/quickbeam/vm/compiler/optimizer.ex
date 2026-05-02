@@ -177,12 +177,18 @@ defmodule QuickBEAM.VM.Compiler.Optimizer do
   end
 
   defp simplify_constant_branches(instructions) do
+    branch_targets = branch_targets(instructions)
+
     instructions
     |> Enum.with_index()
     |> Enum.reduce(instructions, fn {{_op, _args}, idx}, acc ->
-      case Enum.slice(acc, idx, 2) do
-        [cond_insn, branch_insn] -> simplify_branch_window(acc, idx, cond_insn, branch_insn)
-        _ -> acc
+      if MapSet.member?(branch_targets, idx) or MapSet.member?(branch_targets, idx + 1) do
+        acc
+      else
+        case Enum.slice(acc, idx, 2) do
+          [cond_insn, branch_insn] -> simplify_branch_window(acc, idx, cond_insn, branch_insn)
+          _ -> acc
+        end
       end
     end)
   end

@@ -26,6 +26,8 @@ cases = [
    "let x = new Boolean(false); let y = new Boolean(true); (x || y) === x"},
   {"nan abstract equality is false", "Number.NaN == Number.NaN"},
   {"nan abstract inequality is true", "Number.NaN != Number.NaN"},
+  {"coalesce conditional keeps left stack", "undefined ?? true ? 0 : 42"},
+  {"coalesce conditional preserves non-nullish false", "false ?? true ? 0 : 42"},
   {"addition overflow to infinity", "Number.MAX_VALUE + Number.MAX_VALUE"},
   {"subtraction overflow to negative infinity", "-Number.MAX_VALUE - Number.MAX_VALUE"},
   {"left associative addition overflow",
