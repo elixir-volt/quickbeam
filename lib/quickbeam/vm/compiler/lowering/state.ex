@@ -541,16 +541,21 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def copy_data_properties_call(state, mask) do
     target_idx = Bitwise.band(mask, 3)
     source_idx = Bitwise.band(Bitwise.bsr(mask, 2), 7)
+    exclude_idx = Bitwise.band(Bitwise.bsr(mask, 5), 7)
 
     with {:ok, state, target} <- bind_stack_entry(state, target_idx),
-         {:ok, state, source} <- bind_stack_entry(state, source_idx) do
+         {:ok, state, source} <- bind_stack_entry(state, source_idx),
+         {:ok, state, exclude} <- bind_stack_entry(state, exclude_idx) do
       {:ok,
        %{
          state
-         | body: [compiler_call(state, :copy_data_properties, [target, source]) | state.body]
+         | body: [
+             compiler_call(state, :copy_data_properties, [target, source, exclude]) | state.body
+           ]
        }}
     else
-      :error -> {:error, {:copy_data_properties_missing, mask, target_idx, source_idx}}
+      :error ->
+        {:error, {:copy_data_properties_missing, mask, target_idx, source_idx, exclude_idx}}
     end
   end
 

@@ -154,6 +154,8 @@ cases = [
    "class A { static m(){return 1} } class B extends A { static m(){return super.m()+2} } B.m()"},
   {"try finally return override", "function f(){ try { return 1 } finally { return 2 } } f()"},
   {"catch binding", "try { throw 5 } catch(e) { e+1 }"},
+  {"catch object rest excludes bound keys",
+   "try { throw {x:1,y:2,a:5,b:3} } catch({a,b,...rest}) { [a,b,rest.x,rest.y,rest.a,rest.b] }"},
   {"for in keys", "let s=''; for (let k in {a:1,b:2}) s+=k; s.length"},
   {"for of destructuring", "let s=0; for (let [x] of [[1],[2]]) s+=x; s"},
   {"spread constructor", "function A(a,b){this.v=a+b}; new A(...[1,2]).v"},

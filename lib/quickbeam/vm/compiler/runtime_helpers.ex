@@ -542,8 +542,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   @doc "Copies enumerable object-spread properties."
-  def copy_data_properties(_ctx \\ nil, target, source) do
-    Copy.copy_data_properties(target, source)
+  def copy_data_properties(_ctx \\ nil, target, source, exclude \\ nil) do
+    Copy.copy_data_properties(target, source, exclude)
     target
   end
 
