@@ -68,10 +68,14 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
 
       case obj do
         {:obj, _} ->
-          Object.static_property("setPrototypeOf")
-          |> Invocation.invoke_callback_or_throw([obj, proto])
+          try do
+            Object.static_property("setPrototypeOf")
+            |> Invocation.invoke_callback_or_throw([obj, proto])
 
-          true
+            true
+          catch
+            {:js_throw, _reason} -> false
+          end
 
         _ ->
           false

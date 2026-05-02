@@ -171,7 +171,13 @@ defmodule QuickBEAM.VM.Runtime.Object do
   static "getPrototypeOf" do
     case args do
       [{:obj, ref} | _] ->
-        Map.get(Heap.get_obj(ref, %{}), proto(), nil)
+        case Heap.get_obj(ref, %{}) do
+          %{proxy_target() => target, proxy_handler() => handler} ->
+            proxy_get_prototype_of(target, handler)
+
+          map ->
+            Map.get(map, proto(), nil)
+        end
 
       [{:qb_arr, _} | _] ->
         func_proto()
@@ -200,6 +206,59 @@ defmodule QuickBEAM.VM.Runtime.Object do
       _ ->
         nil
     end
+  end
+
+  defp proxy_get_prototype_of(target, handler) do
+    trap = Get.get(handler, "getPrototypeOf")
+
+    result =
+      if trap == :undefined or trap == nil do
+        get_own_prototype(target)
+      else
+        Invocation.invoke_callback_or_throw(trap, [target])
+      end
+
+    if not target_extensible_for_prototype?(target) and result != get_own_prototype(target) do
+      proxy_prototype_invariant_error()
+    else
+      result
+    end
+  end
+
+  defp proxy_set_prototype_of(target, handler, new_proto) do
+    trap = Get.get(handler, "setPrototypeOf")
+
+    success? =
+      if trap == :undefined or trap == nil do
+        set_own_prototype(target, new_proto)
+        true
+      else
+        Values.truthy?(Invocation.invoke_callback_or_throw(trap, [target, new_proto]))
+      end
+
+    if success? and not target_extensible_for_prototype?(target) and
+         new_proto != get_own_prototype(target) do
+      proxy_prototype_invariant_error()
+    end
+
+    success?
+  end
+
+  defp get_own_prototype({:obj, ref}), do: Map.get(Heap.get_obj(ref, %{}), proto(), nil)
+  defp get_own_prototype(_), do: nil
+
+  defp set_own_prototype({:obj, ref}, new_proto) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) -> Heap.put_obj(ref, Map.put(map, proto(), new_proto))
+      _ -> :ok
+    end
+  end
+
+  defp target_extensible_for_prototype?({:obj, ref}), do: Heap.extensible?(ref)
+  defp target_extensible_for_prototype?(_), do: true
+
+  defp proxy_prototype_invariant_error do
+    throw({:js_throw, Heap.make_error("proxy prototype trap violates invariant", "TypeError")})
   end
 
   defp func_proto do
@@ -294,10 +353,25 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   static "setPrototypeOf" do
     case args do
-      [{:obj, ref} = obj, proto | _] ->
-        map = Heap.get_obj(ref, %{})
-        if is_map(map), do: Heap.put_obj(ref, Map.put(map, proto(), proto))
-        obj
+      [{:obj, ref} = obj, new_proto | _] ->
+        case Heap.get_obj(ref, %{}) do
+          %{proxy_target() => target, proxy_handler() => handler} ->
+            if proxy_set_prototype_of(target, handler, new_proto) do
+              obj
+            else
+              throw(
+                {:js_throw,
+                 Heap.make_error("proxy setPrototypeOf trap returned false", "TypeError")}
+              )
+            end
+
+          map when is_map(map) ->
+            Heap.put_obj(ref, Map.put(map, proto(), new_proto))
+            obj
+
+          _ ->
+            obj
+        end
 
       [obj | _] ->
         obj
