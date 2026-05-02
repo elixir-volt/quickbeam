@@ -130,14 +130,14 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   static "isFrozen" do
     case hd(args) do
-      {:obj, ref} -> Heap.frozen?(ref)
+      {:obj, _ref} = obj -> frozen_object?(obj)
       _ -> true
     end
   end
 
   static "isSealed" do
     case hd(args) do
-      {:obj, ref} -> not Heap.extensible?(ref)
+      {:obj, _ref} = obj -> sealed_object?(obj)
       _ -> true
     end
   end
@@ -170,6 +170,28 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
 
     Heap.prevent_extensions(ref)
+  end
+
+  defp frozen_object?({:obj, ref} = obj) do
+    not Heap.extensible?(ref) and
+      Enum.all?(own_property_descriptor_keys(obj), fn key ->
+        desc = Heap.get_prop_desc(ref, key) || %{writable: true, configurable: true}
+        current = Heap.get_obj(ref, %{}) |> property_value_for_descriptor(key)
+
+        if match?({:accessor, _, _}, current) do
+          desc.configurable == false
+        else
+          desc.configurable == false and desc.writable == false
+        end
+      end)
+  end
+
+  defp sealed_object?({:obj, ref} = obj) do
+    not Heap.extensible?(ref) and
+      Enum.all?(own_property_descriptor_keys(obj), fn key ->
+        desc = Heap.get_prop_desc(ref, key) || %{configurable: true}
+        desc.configurable == false
+      end)
   end
 
   defp property_value_for_descriptor(map, key) when is_map(map), do: Map.get(map, key)

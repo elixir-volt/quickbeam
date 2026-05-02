@@ -599,6 +599,15 @@ defmodule QuickBEAM.VM.CompilerTest do
           ~S|let o={x:1}; Object.freeze(o); try{Object.defineProperty(o,"x",{value:2})}catch(e){e.name}|
         ).value
 
+      manual_frozen =
+        compile_and_decode(
+          rt,
+          ~S|let o={}; Object.defineProperty(o,"x",{value:1,writable:false,configurable:false}); Object.preventExtensions(o); Object.isFrozen(o)|
+        ).value
+
+      prevent_extensions_not_sealed =
+        compile_and_decode(rt, ~S|let o={x:1}; Object.preventExtensions(o); Object.isSealed(o)|).value
+
       reflect_get_prototype =
         compile_and_decode(
           rt,
@@ -680,6 +689,8 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 2} = Compiler.invoke(object_get_descriptors_proxy, [])
       assert {:ok, false} = Compiler.invoke(freeze_descriptor, [])
       assert {:ok, "TypeError"} = Compiler.invoke(freeze_define_blocked, [])
+      assert {:ok, true} = Compiler.invoke(manual_frozen, [])
+      assert {:ok, false} = Compiler.invoke(prevent_extensions_not_sealed, [])
       assert {:ok, true} = Compiler.invoke(reflect_get_prototype, [])
       assert {:ok, "true:1"} = Compiler.invoke(reflect_set_prototype, [])
       assert {:ok, "TypeError"} = Compiler.invoke(reflect_get_prototype_primitive, [])
