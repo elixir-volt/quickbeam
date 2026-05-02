@@ -171,7 +171,6 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
     {:function, @line, :op_div, 2,
      [
-       {:clause, @line, [a, b], [number_nonzero_guards(a, b)], [{:op, @line, :/, a, b}]},
        {:clause, @line, [a, b], [], [remote_call(Values, :js_div, [a, b])]}
      ]}
   end
@@ -274,16 +273,10 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   defp number_guards(a, b), do: [number_guard(a), number_guard(b)]
   defp binary_guards(a, b), do: [binary_guard(a), binary_guard(b)]
 
-  defp number_nonzero_guards(a, b),
-    do: [number_guard(a), number_guard(b), nonzero_guard(b)]
-
   defp integer_guard(expr), do: {:call, @line, {:atom, @line, :is_integer}, [expr]}
   defp number_guard(expr), do: {:call, @line, {:atom, @line, :is_number}, [expr]}
   defp float_guard(expr), do: {:call, @line, {:atom, @line, :is_float}, [expr]}
   defp binary_guard(expr), do: {:call, @line, {:atom, @line, :is_binary}, [expr]}
-
-  defp nonzero_guard(expr),
-    do: {:op, @line, :"/=", expr, {:integer, @line, 0}}
 
   defp block_name(idx), do: String.to_atom("block_#{idx}")
   defp slot_var(idx), do: var("Slot#{idx}")
