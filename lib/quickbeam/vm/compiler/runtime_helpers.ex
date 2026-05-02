@@ -64,16 +64,29 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   @doc "Applies JavaScript logical NOT."
   def lnot(_ctx \\ nil, a), do: not Values.truthy?(a)
 
-  def inc(_ctx \\ nil, a), do: Values.add(a, 1)
-  def dec(_ctx \\ nil, a), do: Values.sub(a, 1)
+  def inc(ctx \\ nil, value)
+  def inc(_ctx, {:bigint, n}), do: {:bigint, n + 1}
+  def inc(_ctx, a) when is_number(a), do: Values.add(a, 1)
+  def inc(_ctx, a), do: Values.add(Values.to_number(a), 1)
 
-  def post_inc(_ctx \\ nil, a) do
+  def dec(ctx \\ nil, value)
+  def dec(_ctx, {:bigint, n}), do: {:bigint, n - 1}
+  def dec(_ctx, a) when is_number(a), do: Values.sub(a, 1)
+  def dec(_ctx, a), do: Values.sub(Values.to_number(a), 1)
+
+  def post_inc(ctx \\ nil, value)
+  def post_inc(_ctx, {:bigint, n} = old), do: {{:bigint, n + 1}, old}
+
+  def post_inc(_ctx, a) do
     num = Values.to_number(a)
     {Values.add(num, 1), num}
   end
 
   @doc "Applies JavaScript postfix decrement and returns `{new_value, old_value}`."
-  def post_dec(_ctx \\ nil, a) do
+  def post_dec(ctx \\ nil, value)
+  def post_dec(_ctx, {:bigint, n} = old), do: {{:bigint, n - 1}, old}
+
+  def post_dec(_ctx, a) do
     num = Values.to_number(a)
     {Values.sub(num, 1), num}
   end
