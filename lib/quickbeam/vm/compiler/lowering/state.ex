@@ -999,9 +999,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   def specialize_binary(:op_add, left, left_type, right, right_type)
       when left_type in [:integer, :number] and right_type in [:integer, :number],
-      do:
-        {{:op, @line, :+, left, right},
-         if(left_type == :integer and right_type == :integer, do: :integer, else: :number)}
+      do: {Builder.local_call(:op_add, [left, right]), :number}
 
   def specialize_binary(:op_add, left, :string, right, :string),
     do: {binary_concat(left, right), :string}
@@ -1027,7 +1025,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       do: {{:op, @line, binary_operator(fun), left, right}, :integer}
 
   def specialize_binary(fun, left, left_type, right, right_type)
-      when fun in [:op_sub, :op_mul, :op_lt, :op_lte, :op_gt, :op_gte] and
+      when fun in [:op_lt, :op_lte, :op_gt, :op_gte] and
              left_type in [:integer, :number] and right_type in [:integer, :number] do
     {type, op} =
       case fun do

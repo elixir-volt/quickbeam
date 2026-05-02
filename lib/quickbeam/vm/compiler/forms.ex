@@ -59,7 +59,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     [
       add_helper(),
       guarded_binary_helper(:op_sub, :-, Values, :sub),
-      number_guarded_binary_helper(:op_mul, :*, Values, :mul),
+      guarded_binary_helper(:op_mul, :*, Values, :mul),
       div_helper(),
       number_guarded_binary_helper(:op_lt, :<, Values, :lt),
       number_guarded_binary_helper(:op_lte, :"=<", Values, :lte),
@@ -138,7 +138,6 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     {:function, @line, :op_add, 2,
      [
        {:clause, @line, [a, b], [integer_guards(a, b)], [{:op, @line, :+, a, b}]},
-       {:clause, @line, [a, b], [float_guards(a, b)], [{:op, @line, :+, a, b}]},
        {:clause, @line, [a, b], [binary_guards(a, b)], [binary_concat(a, b)]},
        {:clause, @line, [a, b], [], [remote_call(Values, :add, [a, b])]}
      ]}
@@ -273,7 +272,6 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
   defp integer_guards(a, b), do: [integer_guard(a), integer_guard(b)]
   defp number_guards(a, b), do: [number_guard(a), number_guard(b)]
-  defp float_guards(a, b), do: [float_guard(a), float_guard(b)]
   defp binary_guards(a, b), do: [binary_guard(a), binary_guard(b)]
 
   defp number_nonzero_guards(a, b),
