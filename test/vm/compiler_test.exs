@@ -431,6 +431,15 @@ defmodule QuickBEAM.VM.CompilerTest do
           "let o={}; Reflect.preventExtensions(o) && !Reflect.isExtensible(o)"
         ).value
 
+      object_create_props =
+        compile_and_decode(
+          rt,
+          ~S|let o=Object.create({}, {x:{value:2, enumerable:true}}); o.x+":"+Object.keys(o).length|
+        ).value
+
+      object_create_bad_proto =
+        compile_and_decode(rt, ~S|try{Object.create(1)}catch(e){e.name}|).value
+
       prevent_primitive = compile_and_decode(rt, "Reflect.preventExtensions(1)").value
       extensible_primitive = compile_and_decode(rt, "Reflect.isExtensible(1)").value
 
@@ -675,6 +684,8 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 2} = Compiler.invoke(define_property, [])
       assert {:ok, 0} = Compiler.invoke(non_enumerable, [])
       assert {:ok, true} = Compiler.invoke(prevent_extensions, [])
+      assert {:ok, "2:1"} = Compiler.invoke(object_create_props, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(object_create_bad_proto, [])
       assert {:ok, false} = Compiler.invoke(prevent_primitive, [])
       assert {:ok, false} = Compiler.invoke(extensible_primitive, [])
       assert {:ok, "TypeError"} = Compiler.invoke(reflect_define_primitive, [])

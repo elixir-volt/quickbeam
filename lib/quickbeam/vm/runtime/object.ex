@@ -217,9 +217,29 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   static "create" do
     case args do
-      [nil | _] -> Heap.wrap(%{})
-      [proto | _] -> Heap.wrap(%{proto() => proto})
-      _ -> Runtime.new_object()
+      [nil | rest] ->
+        create_with_properties(nil, rest)
+
+      [{:obj, _} = proto_value | rest] ->
+        create_with_properties(proto_value, rest)
+
+      [_invalid_proto | _] ->
+        throw(
+          {:js_throw,
+           Heap.make_error("Object prototype may only be an Object or null", "TypeError")}
+        )
+
+      _ ->
+        Runtime.new_object()
+    end
+  end
+
+  defp create_with_properties(proto_value, rest) do
+    obj = Heap.wrap(%{proto() => proto_value})
+
+    case rest do
+      [{:obj, _} = props | _] -> define_properties([obj, props])
+      _ -> obj
     end
   end
 
