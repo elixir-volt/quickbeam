@@ -128,6 +128,10 @@ run_case = fn source, meta, mode ->
 
           try do
             QuickBEAM.eval(rt, full, mode: mode)
+          rescue
+            error -> {:crash, {:error, error, __STACKTRACE__}}
+          catch
+            kind, reason -> {:crash, {kind, reason, __STACKTRACE__}}
           after
             QuickBEAM.stop(rt)
           end
