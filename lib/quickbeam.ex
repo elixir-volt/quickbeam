@@ -247,7 +247,7 @@ defmodule QuickBEAM do
     QuickBEAM.VM.Interpreter.Setup.store_function_atoms(parsed.value, parsed.atoms)
     Heap.put_ctx(QuickBEAM.VM.Interpreter.Context.mark_synced(ctx))
 
-    case BeamCompiler.invoke(parsed.value, []) do
+    case BeamCompiler.invoke(parsed.value, [], ctx) do
       {:ok, _} = ok -> ok
       :error when mode == :auto -> Interpreter.eval(parsed.value, [], opts, parsed.atoms)
       :error -> {:error, {:beam_compiler_unsupported, :top_level}}

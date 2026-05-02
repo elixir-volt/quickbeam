@@ -10,13 +10,15 @@ defmodule QuickBEAM.VM.Compiler do
   @type beam_file :: {:beam_file, module(), list(), list(), list(), list()}
 
   @doc "Invokes the runtime object represented by this module."
-  def invoke(fun, args) do
+  def invoke(fun, args), do: invoke(fun, args, nil)
+
+  def invoke(fun, args, base_ctx) do
     depth = Heap.get_invoke_depth()
     Heap.put_invoke_depth(depth + 1)
 
     result =
       try do
-        Runner.invoke(fun, args)
+        Runner.invoke(fun, args, base_ctx)
       catch
         {:js_throw, error} -> {:error, {:js_throw, error}}
       after

@@ -225,7 +225,7 @@ defmodule QuickBEAM.VM.Invocation do
         dispatch_proxy_call(obj, args, ctx, nil)
 
       other ->
-        Builtin.call(other, args, nil)
+        with_ctx(ctx, fn -> Builtin.call(other, args, nil) end)
     end
   end
 
@@ -297,52 +297,54 @@ defmodule QuickBEAM.VM.Invocation do
     do: construct_runtime(active_ctx(), ctor, new_target, args)
 
   def construct_runtime(ctx, ctor, new_target, args) do
-    raw_ctor = unwrap_constructor_target(ctor)
-    raw_new_target = unwrap_new_target(new_target)
+    with_ctx(ctx, fn ->
+      raw_ctor = unwrap_constructor_target(ctor)
+      raw_new_target = unwrap_new_target(new_target)
 
-    ctor_proto =
-      if raw_new_target != nil and raw_new_target != raw_ctor do
-        Heap.get_class_proto(raw_new_target) ||
-          normalize_constructor_prototype(Get.get(new_target, "prototype")) ||
+      ctor_proto =
+        if raw_new_target != nil and raw_new_target != raw_ctor do
+          Heap.get_class_proto(raw_new_target) ||
+            normalize_constructor_prototype(Get.get(new_target, "prototype")) ||
+            Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
+        else
           Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
-      else
-        Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
-      end
+        end
 
-    init = if ctor_proto, do: %{proto() => ctor_proto}, else: %{}
-    this_obj = Heap.wrap(init)
+      init = if ctor_proto, do: %{proto() => ctor_proto}, else: %{}
+      this_obj = Heap.wrap(init)
 
-    result =
-      case ctor do
-        {:obj, _} = obj ->
-          construct_proxy_runtime(ctx, obj, new_target, args)
+      result =
+        case ctor do
+          {:obj, _} = obj ->
+            construct_proxy_runtime(ctx, obj, new_target, args)
 
-        %Bytecode.Function{} = fun ->
-          case Runner.invoke_constructor(fun, args, this_obj, new_target, ctx) do
-            {:ok, value} -> value
-            :error -> invoke_constructor(fun, args, ctx.gas, this_obj, new_target)
-          end
+          %Bytecode.Function{} = fun ->
+            case Runner.invoke_constructor(fun, args, this_obj, new_target, ctx) do
+              {:ok, value} -> value
+              :error -> invoke_constructor(fun, args, ctx.gas, this_obj, new_target)
+            end
 
-        {:closure, _, %Bytecode.Function{}} = closure ->
-          case Runner.invoke_constructor(closure, args, this_obj, new_target, ctx) do
-            {:ok, value} ->
-              value
+          {:closure, _, %Bytecode.Function{}} = closure ->
+            case Runner.invoke_constructor(closure, args, this_obj, new_target, ctx) do
+              {:ok, value} ->
+                value
 
-            :error ->
-              invoke_constructor(closure, args, ctx.gas, this_obj, new_target)
-          end
+              :error ->
+                invoke_constructor(closure, args, ctx.gas, this_obj, new_target)
+            end
 
-        {:bound, _, _inner, orig_fun, bound_args} ->
-          construct_runtime(orig_fun, new_target, bound_args ++ args)
+          {:bound, _, _inner, orig_fun, bound_args} ->
+            construct_runtime(orig_fun, new_target, bound_args ++ args)
 
-        {:builtin, _name, cb} when is_function(cb, 2) ->
-          cb.(args, this_obj)
+          {:builtin, _name, cb} when is_function(cb, 2) ->
+            cb.(args, this_obj)
 
-        _ ->
-          this_obj
-      end
+          _ ->
+            this_obj
+        end
 
-    Class.coalesce_this_result(result, this_obj)
+      Class.coalesce_this_result(result, this_obj)
+    end)
   end
 
   defp construct_proxy_runtime(ctx, {:obj, ref} = proxy, new_target, args) do
@@ -512,6 +514,17 @@ defmodule QuickBEAM.VM.Invocation do
   defp unwrap_new_target({:closure, _, %Bytecode.Function{} = fun}), do: fun
   defp unwrap_new_target(%Bytecode.Function{} = fun), do: fun
   defp unwrap_new_target(_), do: nil
+
+  defp with_ctx(ctx, fun) do
+    previous = Heap.get_ctx()
+    Heap.put_ctx(ctx)
+
+    try do
+      fun.()
+    after
+      if previous, do: Heap.put_ctx(previous), else: Heap.put_ctx(nil)
+    end
+  end
 
   defp normalize_constructor_prototype({:obj, _} = object_proto), do: object_proto
   defp normalize_constructor_prototype(_), do: nil
