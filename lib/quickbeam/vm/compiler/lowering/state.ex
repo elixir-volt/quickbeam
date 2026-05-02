@@ -21,7 +21,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     :atoms,
     :arg_count,
     :return_type,
-    :frame_mode
+    :frame_mode,
+    :force_capture_slots
   ]
 
   # ── Construction ──
@@ -87,7 +88,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       atoms: Keyword.get(opts, :atoms),
       arg_count: arg_count,
       return_type: Keyword.get(opts, :return_type, :unknown),
-      frame_mode: frame_mode
+      frame_mode: frame_mode,
+      force_capture_slots: Keyword.get(opts, :force_capture_slots, false)
     }
   end
 

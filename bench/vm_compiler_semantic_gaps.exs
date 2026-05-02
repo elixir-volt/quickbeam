@@ -155,6 +155,8 @@ cases = [
   {"try finally return override", "function f(){ try { return 1 } finally { return 2 } } f()"},
   {"catch throw finally return override",
    "function f(){ try { throw 'try' } catch(e) { throw 'catch' } finally { return 'finally' } } f()"},
+  {"catch sees local writes before throw",
+   "function f(){ var result=0; try { result += 4; throw result } catch(e){} finally { return result } } f()"},
   {"catch binding", "try { throw 5 } catch(e) { e+1 }"},
   {"catch object rest excludes bound keys",
    "try { throw {x:1,y:2,a:5,b:3} } catch({a,b,...rest}) { [a,b,rest.x,rest.y,rest.a,rest.b] }"},

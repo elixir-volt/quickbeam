@@ -18,6 +18,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
     constants = fun.constants
     instrs = List.to_tuple(instructions)
     size = tuple_size(instrs)
+    force_capture_slots = has_catch?(instructions)
 
     with {:ok, stack_depths} <- Stack.infer_block_stack_depths(instructions, entries),
          {:ok, {entry_types, return_type}} <-
@@ -44,7 +45,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
              constants,
              inline_targets,
              Map.get(entry_types, start),
-             return_type
+             return_type,
+             force_capture_slots
            )}
         end
 
@@ -53,6 +55,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
         {_start, error} -> error
       end
     end
+  end
+
+  defp has_catch?(instructions) do
+    Enum.any?(instructions, fn {op, _args} ->
+      match?({:ok, :catch}, CFG.opcode_name(op))
+    end)
   end
 
   defp block_form(
@@ -69,7 +77,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          constants,
          inline_targets,
          entry_type_state,
-         return_type
+         return_type,
+         force_capture_slots
        ) do
     next_entry = CFG.next_entry(entries, start)
 
@@ -92,7 +101,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
                stack_depth,
                return_type,
                entry_type_state,
-               true
+               true,
+               force_capture_slots
              ),
              stack_depths,
              constants,
@@ -118,7 +128,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
                      stack_depth,
                      return_type,
                      entry_type_state,
-                     false
+                     false,
+                     force_capture_slots
                    ),
                    stack_depths,
                    constants,
@@ -150,7 +161,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          stack_depth,
          return_type,
          entry_type_state,
-         typed?
+         typed?,
+         force_capture_slots
        ) do
     state_opts =
       [
@@ -159,7 +171,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
         atoms: Heap.get_fn_atoms(fun),
         arg_count: arg_count,
         return_type: return_type,
-        frame_mode: frame_mode
+        frame_mode: frame_mode,
+        force_capture_slots: force_capture_slots
       ] ++
         case {entry_type_state, typed?} do
           {nil, _} ->

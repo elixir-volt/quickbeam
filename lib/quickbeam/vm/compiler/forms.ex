@@ -14,7 +14,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
       {:attribute, @line, :module, module},
       {:attribute, @line, :export, [{entry, arity}, {ctx_entry, arity + 1}]},
       entry_form(entry, ctx_entry, arity),
-      ctx_entry_form(ctx_entry, arity, slot_count)
+      ctx_entry_form(ctx_entry, arity, slot_count, force_capture_slots?(fun))
       | helper_forms(fun) ++ block_forms
     ]
 
@@ -31,7 +31,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     {:function, @line, entry, arity, [{:clause, @line, args, [], body}]}
   end
 
-  defp ctx_entry_form(ctx_entry, arity, slot_count) do
+  defp ctx_entry_form(ctx_entry, arity, slot_count, force_capture_slots?) do
     ctx = var("Ctx")
     args = [ctx | slot_vars(arity)]
 
@@ -40,8 +40,22 @@ defmodule QuickBEAM.VM.Compiler.Forms do
         do: [],
         else: Enum.map(arity..(slot_count - 1), fn _ -> atom(:undefined) end)
 
+    initial_slots = slot_vars(arity) ++ locals
+
     capture_cells =
-      if slot_count == 0, do: [], else: Enum.map(1..slot_count, fn _ -> atom(:undefined) end)
+      cond do
+        slot_count == 0 ->
+          []
+
+        force_capture_slots? ->
+          Enum.map(
+            initial_slots,
+            &remote_call(RuntimeHelpers, :ensure_capture_cell, [ctx, atom(:undefined), &1])
+          )
+
+        true ->
+          Enum.map(1..slot_count, fn _ -> atom(:undefined) end)
+      end
 
     body_args =
       if large_frame?(slot_count) do
@@ -53,6 +67,20 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     body = [local_call(block_name(0), body_args)]
 
     {:function, @line, ctx_entry, arity + 1, [{:clause, @line, args, [], body}]}
+  end
+
+  defp force_capture_slots?(fun) do
+    fun.byte_code
+    |> QuickBEAM.VM.Decoder.decode(fun.arg_count)
+    |> case do
+      {:ok, instructions} ->
+        Enum.any?(instructions, fn {op, _args} ->
+          match?({:ok, :catch}, QuickBEAM.VM.Compiler.Analysis.CFG.opcode_name(op))
+        end)
+
+      {:error, _} ->
+        false
+    end
   end
 
   defp helper_forms(_fun) do
