@@ -231,13 +231,13 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
       {:qb_arr, _} = arr ->
         case Heap.get_regexp_result(ref) do
           %{^key => val} -> val
-          _ -> get_own(arr, key)
+          _ -> array_own_property(ref, arr, key)
         end
 
       list when is_list(list) ->
         case Heap.get_regexp_result(ref) do
           %{^key => val} -> val
-          _ -> get_own(list, key)
+          _ -> array_own_property(ref, list, key)
         end
 
       %{date_ms() => _} = map ->
@@ -400,6 +400,13 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   end
 
   defp validate_proxy_get_invariant(_target, _key, trap_result), do: trap_result
+
+  defp array_own_property(ref, array_data, key) do
+    case get_own(array_data, key) do
+      :undefined -> Heap.get_array_prop(ref, key)
+      value -> value
+    end
+  end
 
   # ── Prototype chain ──
 

@@ -375,11 +375,14 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
       k when is_binary(k) ->
         case PropertyKey.array_index(k) do
           {:ok, idx} -> put_element({:obj, ref}, idx, val)
-          :error -> :ok
+          :error -> Heap.put_array_prop(ref, k, val)
         end
 
       k when is_integer(k) and k >= 0 ->
         put_element({:obj, ref}, k, val)
+
+      k when is_symbol(k) ->
+        Heap.put_array_prop(ref, k, val)
 
       _ ->
         :ok

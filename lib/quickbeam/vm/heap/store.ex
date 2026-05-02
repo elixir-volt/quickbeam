@@ -219,6 +219,14 @@ defmodule QuickBEAM.VM.Heap.Store do
   def get_prop_desc(ref, key), do: Process.get({:qb_prop_desc, ref, key})
   def put_prop_desc(ref, key, desc), do: Process.put({:qb_prop_desc, ref, key}, desc)
 
+  def get_array_props(ref), do: Process.get({:qb_array_props, ref}, %{})
+
+  def get_array_prop(ref, key), do: Map.get(get_array_props(ref), key, :undefined)
+
+  def put_array_prop(ref, key, val) do
+    Process.put({:qb_array_props, ref}, Map.put(get_array_props(ref), key, val))
+  end
+
   # ── Object ID allocation ──
 
   @doc "Allocates a new monotonically increasing heap object id."
