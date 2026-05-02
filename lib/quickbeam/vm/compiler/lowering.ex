@@ -935,19 +935,26 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          inline_targets,
          target
        ) do
-    with {:ok, inlined_state} <- lower_finally_inline(instructions, size, target, state) do
-      lower_block(
-        instructions,
-        size,
-        idx + 1,
-        next_entry,
-        arg_count,
-        inlined_state,
-        stack_depths,
-        constants,
-        entries,
-        inline_targets
-      )
+    case lower_finally_inline(instructions, size, target, state) do
+      {:ok, inlined_state} ->
+        lower_block(
+          instructions,
+          size,
+          idx + 1,
+          next_entry,
+          arg_count,
+          inlined_state,
+          stack_depths,
+          constants,
+          entries,
+          inline_targets
+        )
+
+      {:done, terminal_state} ->
+        {:ok, Enum.reverse(terminal_state.body)}
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -995,7 +1002,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
         lower_finally_inline(instructions, size, idx + 1, next_state)
 
       {:done, body} ->
-        {:ok,
+        {:done,
          %{state | body: Enum.reverse(body), stack: state.stack, stack_types: state.stack_types}}
 
       {:error, _} = error ->

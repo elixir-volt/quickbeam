@@ -153,6 +153,8 @@ cases = [
   {"static super method",
    "class A { static m(){return 1} } class B extends A { static m(){return super.m()+2} } B.m()"},
   {"try finally return override", "function f(){ try { return 1 } finally { return 2 } } f()"},
+  {"catch throw finally return override",
+   "function f(){ try { throw 'try' } catch(e) { throw 'catch' } finally { return 'finally' } } f()"},
   {"catch binding", "try { throw 5 } catch(e) { e+1 }"},
   {"catch object rest excludes bound keys",
    "try { throw {x:1,y:2,a:5,b:3} } catch({a,b,...rest}) { [a,b,rest.x,rest.y,rest.a,rest.b] }"},
