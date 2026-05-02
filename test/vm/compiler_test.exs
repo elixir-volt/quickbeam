@@ -599,6 +599,18 @@ defmodule QuickBEAM.VM.CompilerTest do
           ~S|let o={x:1}; Object.freeze(o); try{Object.defineProperty(o,"x",{value:2})}catch(e){e.name}|
         ).value
 
+      nonconfig_accessor_change =
+        compile_and_decode(
+          rt,
+          ~S|let o={}; Object.defineProperty(o,"x",{get(){return 1},configurable:false}); try{Object.defineProperty(o,"x",{get(){return 2}})}catch(e){e.name}|
+        ).value
+
+      nonconfig_data_to_accessor =
+        compile_and_decode(
+          rt,
+          ~S|let o={}; Object.defineProperty(o,"x",{value:1,configurable:false}); try{Object.defineProperty(o,"x",{get(){return 1}})}catch(e){e.name}|
+        ).value
+
       manual_frozen =
         compile_and_decode(
           rt,
@@ -689,6 +701,8 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 2} = Compiler.invoke(object_get_descriptors_proxy, [])
       assert {:ok, false} = Compiler.invoke(freeze_descriptor, [])
       assert {:ok, "TypeError"} = Compiler.invoke(freeze_define_blocked, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(nonconfig_accessor_change, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(nonconfig_data_to_accessor, [])
       assert {:ok, true} = Compiler.invoke(manual_frozen, [])
       assert {:ok, false} = Compiler.invoke(prevent_extensions_not_sealed, [])
       assert {:ok, true} = Compiler.invoke(reflect_get_prototype, [])

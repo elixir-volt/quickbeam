@@ -774,6 +774,17 @@ defmodule QuickBEAM.VM.Runtime.Object do
       current_desc.configurable == false and Map.get(desc, "configurable") == true ->
         true
 
+      current_desc.configurable == false and Map.has_key?(desc, "enumerable") and
+          Map.get(desc, "enumerable") != current_desc.enumerable ->
+        true
+
+      current_desc.configurable == false and
+          accessor_data_descriptor_conflict?(current_value, desc) ->
+        true
+
+      current_desc.configurable == false and accessor_descriptor_conflict?(current_value, desc) ->
+        true
+
       current_desc.configurable == false and current_desc.writable == false and
           Map.get(desc, "writable") == true ->
         true
@@ -788,6 +799,21 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp incompatible_existing_descriptor?(_ref, _existing, _prop_name, _desc), do: false
+
+  defp accessor_data_descriptor_conflict?({:accessor, _, _}, desc) do
+    Map.has_key?(desc, "value") or Map.has_key?(desc, "writable")
+  end
+
+  defp accessor_data_descriptor_conflict?(_data_value, desc) do
+    Map.has_key?(desc, "get") or Map.has_key?(desc, "set")
+  end
+
+  defp accessor_descriptor_conflict?({:accessor, old_get, old_set}, desc) do
+    (Map.has_key?(desc, "get") and Map.get(desc, "get") != old_get) or
+      (Map.has_key?(desc, "set") and Map.get(desc, "set") != old_set)
+  end
+
+  defp accessor_descriptor_conflict?(_data_value, _desc), do: false
 
   defp define_proxy_property(proxy, proxy_map, key, prop_name, desc_obj) do
     target = Map.fetch!(proxy_map, proxy_target())
