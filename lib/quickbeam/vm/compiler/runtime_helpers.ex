@@ -1,7 +1,6 @@
 defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   @moduledoc "Runtime support for JIT-compiled code."
 
-  import Bitwise, only: [bnot: 1]
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
   import QuickBEAM.VM.Value, only: [is_object: 1]
 
@@ -52,7 +51,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def strict_neq(_ctx \\ nil, a, b), do: not Values.strict_eq(a, b)
 
-  def bit_not(_ctx \\ nil, a), do: Values.to_int32(bnot(Values.to_int32(a)))
+  def bit_not(_ctx \\ nil, a), do: Values.bnot(a)
   @doc "Applies JavaScript logical NOT."
   def lnot(_ctx \\ nil, a), do: not Values.truthy?(a)
 

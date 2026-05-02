@@ -123,6 +123,8 @@ cases = [
   {"bigint addition", "1n + 2n"},
   {"bigint constant addition", "0xFEDCBA9876543210n + 0x1234n"},
   {"bigint constant string concatenation", "'' + 123456789000000000000000n"},
+  {"bigint bitwise not", "~0n"},
+  {"bigint object bitwise not", "~Object(0n)"},
   {"bigint compare", "2n > 1n"},
   {"symbol property", "let s=Symbol('x'); let o={[s]:3}; o[s]"},
   {"class static field", "class A { static x=3; static m(){return this.x} } A.m()"},
