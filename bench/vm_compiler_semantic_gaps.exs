@@ -116,6 +116,8 @@ cases = [
   {"instanceof primitive rhs throws",
    "try { true instanceof true; false } catch (e) { e.name === 'TypeError' }"},
   {"function instanceof Function", "function f(){}; f instanceof Function"},
+  {"instanceof object constructor prototype getter",
+   "Object.defineProperty(Function.prototype, 'prototype', {get(){return Array.prototype}}); [] instanceof Function.prototype"},
   {"new primitive throws", "try { new true; false } catch(e){ e.name === 'TypeError' }"},
   {"new builtin namespace throws", "try { new Math; false } catch(e){ e.name === 'TypeError' }"},
   {"new boxed primitive object throws",

@@ -943,25 +943,20 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
       JSThrow.type_error!("Right-hand side of instanceof is not callable")
     end
 
-    cond do
-      Builtin.callable?(obj) ->
-        builtin_name(ctor) in ["Function", "Object"]
+    if object_like?(obj) do
+      ctor_proto = Get.get(ctor, "prototype")
 
-      is_object(obj) ->
-        ctor_proto = Get.get(ctor, "prototype")
+      case ctor_proto do
+        {:obj, _} ->
+          special_builtin_instance?(obj, ctor) or prototype_chain_contains?(obj, ctor_proto)
 
-        case ctor_proto do
-          {:obj, _} ->
-            special_builtin_instance?(obj, ctor) or prototype_chain_contains?(obj, ctor_proto)
-
-          _ ->
-            JSThrow.type_error!(
-              "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check"
-            )
-        end
-
-      true ->
-        false
+        _ ->
+          JSThrow.type_error!(
+            "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check"
+          )
+      end
+    else
+      false
     end
   end
 
@@ -1008,6 +1003,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   defp builtin_name({:builtin, name, _}), do: name
   defp builtin_name(_), do: nil
+
+  defp special_builtin_instance?(obj, ctor) when not is_object(obj) do
+    Builtin.callable?(obj) and builtin_name(ctor) in ["Function", "Object"]
+  end
 
   defp special_builtin_instance?({:obj, ref}, ctor) do
     case builtin_name(ctor) do
@@ -1504,8 +1503,26 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
           parent -> prototype_chain_contains?(parent, target)
         end
 
+      {:qb_arr, _} ->
+        parent = Heap.get_array_proto(ref)
+        parent == target or prototype_chain_contains?(parent, target)
+
+      list when is_list(list) ->
+        parent = Heap.get_array_proto(ref)
+        parent == target or prototype_chain_contains?(parent, target)
+
       _ ->
         false
+    end
+  end
+
+  defp prototype_chain_contains?(fun, target) when is_tuple(fun) or is_struct(fun) do
+    parent = Class.get_super(fun)
+
+    cond do
+      parent == target -> true
+      parent in [nil, :undefined] -> false
+      true -> prototype_chain_contains?(parent, target)
     end
   end
 
