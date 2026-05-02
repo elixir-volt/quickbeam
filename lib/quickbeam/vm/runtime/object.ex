@@ -243,6 +243,36 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
+  defp own_property?({:obj, ref}, key), do: own_property?(Heap.get_obj(ref, %{}), key)
+
+  defp own_property?(map, key) when is_map(map) do
+    raw_key = parse_array_index_key(key)
+    Map.has_key?(map, key) or (raw_key != :error and Map.has_key?(map, raw_key))
+  end
+
+  defp own_property?(list, key) when is_list(list) do
+    case Integer.parse(to_string(key)) do
+      {idx, ""} when idx >= 0 -> idx < length(list)
+      _ -> key == "length"
+    end
+  end
+
+  defp own_property?({:qb_arr, arr}, key) do
+    case Integer.parse(to_string(key)) do
+      {idx, ""} when idx >= 0 -> idx < :array.size(arr)
+      _ -> key == "length"
+    end
+  end
+
+  defp own_property?(string, key) when is_binary(string) do
+    case Integer.parse(to_string(key)) do
+      {idx, ""} when idx >= 0 -> idx < Get.string_length(string)
+      _ -> key == "length"
+    end
+  end
+
+  defp own_property?(_target, _key), do: false
+
   static "getPrototypeOf" do
     case args do
       [{:obj, ref} | _] ->
@@ -440,10 +470,14 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   static "hasOwn" do
     case args do
-      [{:obj, ref}, key | _] ->
-        prop_name = if is_binary(key), do: key, else: Values.stringify(key)
-        map = Heap.get_obj(ref, %{})
-        is_map(map) and Map.has_key?(map, prop_name)
+      [target, _key | _] when target in [nil, :undefined] ->
+        throw(
+          {:js_throw, Heap.make_error("Object.hasOwn called on null or undefined", "TypeError")}
+        )
+
+      [target, key | _] ->
+        prop_name = if is_binary(key) or is_symbol(key), do: key, else: Values.stringify(key)
+        own_property?(target, prop_name)
 
       _ ->
         false

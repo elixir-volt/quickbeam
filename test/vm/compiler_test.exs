@@ -446,6 +446,11 @@ defmodule QuickBEAM.VM.CompilerTest do
       from_entries_bad_entry =
         compile_and_decode(rt, ~S|try{Object.fromEntries([1])}catch(e){e.name}|).value
 
+      object_has_own_string = compile_and_decode(rt, ~S|Object.hasOwn("ab","1")|).value
+
+      object_has_own_null =
+        compile_and_decode(rt, ~S|try{Object.hasOwn(null,"x")}catch(e){e.name}|).value
+
       prevent_primitive = compile_and_decode(rt, "Reflect.preventExtensions(1)").value
       extensible_primitive = compile_and_decode(rt, "Reflect.isExtensible(1)").value
 
@@ -694,6 +699,8 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "TypeError"} = Compiler.invoke(object_create_bad_proto, [])
       assert {:ok, 1} = Compiler.invoke(from_entries_map, [])
       assert {:ok, "TypeError"} = Compiler.invoke(from_entries_bad_entry, [])
+      assert {:ok, true} = Compiler.invoke(object_has_own_string, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(object_has_own_null, [])
       assert {:ok, false} = Compiler.invoke(prevent_primitive, [])
       assert {:ok, false} = Compiler.invoke(extensible_primitive, [])
       assert {:ok, "TypeError"} = Compiler.invoke(reflect_define_primitive, [])
