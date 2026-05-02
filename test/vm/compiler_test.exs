@@ -460,6 +460,15 @@ defmodule QuickBEAM.VM.CompilerTest do
       property_is_enumerable_string =
         compile_and_decode(rt, ~S|Object.prototype.propertyIsEnumerable.call("ab","1")|).value
 
+      object_to_string_array =
+        compile_and_decode(rt, ~S|Object.prototype.toString.call([])|).value
+
+      object_to_string_null =
+        compile_and_decode(rt, ~S|Object.prototype.toString.call(null)|).value
+
+      object_to_string_string =
+        compile_and_decode(rt, ~S|Object.prototype.toString.call("x")|).value
+
       prevent_primitive = compile_and_decode(rt, "Reflect.preventExtensions(1)").value
       extensible_primitive = compile_and_decode(rt, "Reflect.isExtensible(1)").value
 
@@ -713,6 +722,9 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, true} = Compiler.invoke(has_own_property_string, [])
       assert {:ok, false} = Compiler.invoke(property_is_enumerable_missing, [])
       assert {:ok, true} = Compiler.invoke(property_is_enumerable_string, [])
+      assert {:ok, "[object Array]"} = Compiler.invoke(object_to_string_array, [])
+      assert {:ok, "[object Null]"} = Compiler.invoke(object_to_string_null, [])
+      assert {:ok, "[object String]"} = Compiler.invoke(object_to_string_string, [])
       assert {:ok, false} = Compiler.invoke(prevent_primitive, [])
       assert {:ok, false} = Compiler.invoke(extensible_primitive, [])
       assert {:ok, "TypeError"} = Compiler.invoke(reflect_define_primitive, [])

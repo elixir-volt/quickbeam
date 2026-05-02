@@ -21,7 +21,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
       ref,
       object heap: false do
         method "toString" do
-          "[object Object]"
+          object_to_string(this)
         end
 
         method "valueOf" do
@@ -83,6 +83,33 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp property_enumerable?(_, _), do: false
+
+  defp object_to_string(nil), do: "[object Null]"
+  defp object_to_string(:undefined), do: "[object Undefined]"
+  defp object_to_string(value) when is_binary(value), do: "[object String]"
+  defp object_to_string(value) when is_number(value), do: "[object Number]"
+  defp object_to_string(value) when is_boolean(value), do: "[object Boolean]"
+  defp object_to_string({:symbol, _}), do: "[object Symbol]"
+  defp object_to_string({:symbol, _, _}), do: "[object Symbol]"
+  defp object_to_string(%Bytecode.Function{}), do: "[object Function]"
+
+  defp object_to_string({tag, _, %Bytecode.Function{}}) when tag in [:closure, :bound],
+    do: "[object Function]"
+
+  defp object_to_string({:builtin, _, _}), do: "[object Function]"
+
+  defp object_to_string({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      list when is_list(list) -> "[object Array]"
+      {:qb_arr, _} -> "[object Array]"
+      %{"__wrapped_string__" => _} -> "[object String]"
+      %{"__wrapped_number__" => _} -> "[object Number]"
+      %{"__wrapped_boolean__" => _} -> "[object Boolean]"
+      _ -> "[object Object]"
+    end
+  end
+
+  defp object_to_string(_value), do: "[object Object]"
 
   static "keys" do
     keys(args)
