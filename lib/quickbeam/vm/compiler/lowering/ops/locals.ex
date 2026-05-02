@@ -136,18 +136,17 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Locals do
     expr = State.slot_expr(state, slot_idx)
     type = State.slot_type(state, slot_idx)
 
-    if Captures.slot_captured?(state, slot_idx) do
-      State.effectful_push(
-        state,
+    value =
+      if Captures.slot_captured?(state, slot_idx) do
         Builder.remote_call(RuntimeHelpers, :read_capture_cell, [
           State.capture_cell_expr(state, slot_idx),
           expr
-        ]),
-        type
-      )
-    else
-      {:ok, State.push(state, expr, type)}
-    end
+        ])
+      else
+        expr
+      end
+
+    State.effectful_push(state, value, type)
   end
 
   defp lower_get_loc_check(state, slot_idx) do
@@ -161,18 +160,17 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Locals do
         State.compiler_call(state, :ensure_initialized_local!, [slot_expr])
       end
 
-    if Captures.slot_captured?(state, slot_idx) do
-      State.effectful_push(
-        state,
+    value =
+      if Captures.slot_captured?(state, slot_idx) do
         Builder.remote_call(RuntimeHelpers, :read_capture_cell, [
           State.capture_cell_expr(state, slot_idx),
           expr
-        ]),
-        slot_type
-      )
-    else
-      {:ok, State.push(state, expr, slot_type)}
-    end
+        ])
+      else
+        expr
+      end
+
+    State.effectful_push(state, value, slot_type)
   end
 
   defp lower_put_loc_check(state, slot_idx) do

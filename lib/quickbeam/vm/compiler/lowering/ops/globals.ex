@@ -12,26 +12,24 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
         name = Builder.atom_name(state, atom_idx)
 
         if is_binary(name) do
-          {:ok, State.push(state, inline_get_var(state, name))}
+          State.effectful_push(state, inline_get_var(state, name))
         else
-          {:ok,
-           State.push(
-             state,
-             State.compiler_call(state, :get_var, [Builder.literal(name)])
-           )}
+          State.effectful_push(
+            state,
+            State.compiler_call(state, :get_var, [Builder.literal(name)])
+          )
         end
 
       {{:ok, :get_var_undef}, [atom_idx]} ->
         name = Builder.atom_name(state, atom_idx)
 
         if is_binary(name) do
-          {:ok, State.push(state, inline_get_var_undef(state, name))}
+          State.effectful_push(state, inline_get_var_undef(state, name))
         else
-          {:ok,
-           State.push(
-             state,
-             State.compiler_call(state, :get_var_undef, [Builder.literal(name)])
-           )}
+          State.effectful_push(
+            state,
+            State.compiler_call(state, :get_var_undef, [Builder.literal(name)])
+          )
         end
 
       {{:ok, :put_var}, [atom_idx]} ->
@@ -66,11 +64,11 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
       {{:ok, name}, [idx]}
       when name in [:get_var_ref, :get_var_ref0, :get_var_ref1, :get_var_ref2, :get_var_ref3] ->
         {expr, state} = State.inline_get_var_ref(state, idx)
-        {:ok, State.push(state, expr)}
+        State.effectful_push(state, expr)
 
       {{:ok, :get_var_ref_check}, [idx]} ->
         {expr, state} = State.inline_get_var_ref(state, idx)
-        {:ok, State.push(state, expr)}
+        State.effectful_push(state, expr)
 
       {{:ok, name}, [idx]}
       when name in [
