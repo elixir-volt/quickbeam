@@ -25,7 +25,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
         end
 
         method "valueOf" do
-          this
+          object_value_of(this)
         end
 
         method "hasOwnProperty" do
@@ -33,7 +33,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
         end
 
         method "isPrototypeOf" do
-          false
+          is_prototype_of(args, this)
         end
 
         method "propertyIsEnumerable" do
@@ -83,6 +83,42 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp property_enumerable?(_, _), do: false
+
+  defp object_value_of(value) when value in [nil, :undefined] do
+    throw(
+      {:js_throw,
+       Heap.make_error("Object.prototype.valueOf called on null or undefined", "TypeError")}
+    )
+  end
+
+  defp object_value_of({:obj, _} = obj), do: obj
+
+  defp object_value_of(value) when is_binary(value),
+    do: Heap.wrap(%{"__wrapped_string__" => value})
+
+  defp object_value_of(value) when is_number(value),
+    do: Heap.wrap(%{"__wrapped_number__" => value})
+
+  defp object_value_of(value) when is_boolean(value),
+    do: Heap.wrap(%{"__wrapped_boolean__" => value})
+
+  defp object_value_of({:symbol, _, _} = value), do: Heap.wrap(%{"__wrapped_symbol__" => value})
+  defp object_value_of({:symbol, _} = value), do: Heap.wrap(%{"__wrapped_symbol__" => value})
+  defp object_value_of(value), do: value
+
+  defp is_prototype_of([{:obj, ref} | _], {:obj, proto_ref}) do
+    prototype_chain_contains?(Map.get(Heap.get_obj(ref, %{}), proto()), proto_ref)
+  end
+
+  defp is_prototype_of(_, _), do: false
+
+  defp prototype_chain_contains?({:obj, ref}, target_ref) when ref == target_ref, do: true
+
+  defp prototype_chain_contains?({:obj, ref}, target_ref) do
+    prototype_chain_contains?(Map.get(Heap.get_obj(ref, %{}), proto()), target_ref)
+  end
+
+  defp prototype_chain_contains?(_, _), do: false
 
   defp object_to_string(nil), do: "[object Null]"
   defp object_to_string(:undefined), do: "[object Undefined]"

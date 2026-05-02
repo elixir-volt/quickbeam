@@ -481,6 +481,21 @@ defmodule QuickBEAM.VM.CompilerTest do
       object_to_string_regexp =
         compile_and_decode(rt, ~S|Object.prototype.toString.call(/a/)|).value
 
+      object_value_of_null =
+        compile_and_decode(rt, ~S|try{Object.prototype.valueOf.call(null)}catch(e){e.name}|).value
+
+      object_value_of_string =
+        compile_and_decode(rt, ~S|typeof Object.prototype.valueOf.call("x")|).value
+
+      object_is_prototype_of_direct =
+        compile_and_decode(rt, ~S|let p={}; let o=Object.create(p); p.isPrototypeOf(o)|).value
+
+      object_is_prototype_of_chain =
+        compile_and_decode(
+          rt,
+          ~S|let a={}; let b=Object.create(a); let c=Object.create(b); a.isPrototypeOf(c)|
+        ).value
+
       prevent_primitive = compile_and_decode(rt, "Reflect.preventExtensions(1)").value
       extensible_primitive = compile_and_decode(rt, "Reflect.isExtensible(1)").value
 
@@ -741,6 +756,10 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "[object Set]"} = Compiler.invoke(object_to_string_set, [])
       assert {:ok, "[object Date]"} = Compiler.invoke(object_to_string_date, [])
       assert {:ok, "[object RegExp]"} = Compiler.invoke(object_to_string_regexp, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(object_value_of_null, [])
+      assert {:ok, "object"} = Compiler.invoke(object_value_of_string, [])
+      assert {:ok, true} = Compiler.invoke(object_is_prototype_of_direct, [])
+      assert {:ok, true} = Compiler.invoke(object_is_prototype_of_chain, [])
       assert {:ok, false} = Compiler.invoke(prevent_primitive, [])
       assert {:ok, false} = Compiler.invoke(extensible_primitive, [])
       assert {:ok, "TypeError"} = Compiler.invoke(reflect_define_primitive, [])
