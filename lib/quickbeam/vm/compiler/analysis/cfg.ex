@@ -159,7 +159,13 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
         {:catch, target, idx}
 
       {{:ok, name}, [_atom_idx, target, _is_with]}
-      when name in [:with_make_ref, :with_get_ref, :with_get_var, :with_put_var] ->
+      when name in [
+             :with_make_ref,
+             :with_get_ref,
+             :with_get_ref_undef,
+             :with_get_var,
+             :with_put_var
+           ] ->
         {:branch, target, idx}
 
       {{:ok, name}, [target]} when name in [:goto, :goto8, :goto16] ->
@@ -188,11 +194,23 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
           true
 
         {{:ok, name}, [_atom_idx, ^target, _is_with]}
-        when name in [:with_make_ref, :with_get_ref, :with_get_var, :with_put_var] ->
+        when name in [
+               :with_make_ref,
+               :with_get_ref,
+               :with_get_ref_undef,
+               :with_get_var,
+               :with_put_var
+             ] ->
           true
 
         {{:ok, name}, [_atom_idx, _branch_target, _is_with]}
-        when name in [:with_make_ref, :with_get_ref, :with_get_var, :with_put_var] ->
+        when name in [
+               :with_make_ref,
+               :with_get_ref,
+               :with_get_ref_undef,
+               :with_get_var,
+               :with_put_var
+             ] ->
           target == idx + 1
 
         {{:ok, name}, []} when name in [:initial_yield, :yield] ->

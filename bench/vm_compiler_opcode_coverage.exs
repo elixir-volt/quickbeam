@@ -34,6 +34,42 @@ collect_functions = fn parsed ->
   collect.(collect, parsed.value)
 end
 
+synthetic_function = fn byte_code ->
+  %Bytecode.Function{
+    name: "quickjs-reference-opcode",
+    filename: "<quickjs-reference-opcode>",
+    line_num: 1,
+    col_num: 1,
+    arg_count: 0,
+    var_count: 0,
+    defined_arg_count: 0,
+    stack_size: 8,
+    byte_code: byte_code
+  }
+end
+
+reference_opcode_functions = [
+  {"quickjs reference nip1/nop",
+   synthetic_function.(
+     <<181, 182, 183, Opcodes.num(:nip1), Opcodes.num(:nop), Opcodes.num(:add),
+       Opcodes.num(:return)>>
+   )},
+  {"quickjs reference with_get_ref_undef",
+   synthetic_function.(<<
+     Opcodes.num(:object),
+     185,
+     Opcodes.num(:define_field),
+     1::little-32,
+     Opcodes.num(:with_get_ref_undef),
+     1::little-32,
+     7::signed-little-32,
+     1,
+     181,
+     Opcodes.num(:return),
+     Opcodes.num(:return)
+   >>)}
+]
+
 rows =
   for {case_name, source} <- QuickBEAM.VM.CompilerAudit.corpus_cases(), reduce: [] do
     acc ->
@@ -83,6 +119,44 @@ rows =
   end
   |> Enum.reverse()
 
+reference_rows =
+  for {case_name, fun} <- reference_opcode_functions do
+    Heap.put_fn_atoms(fun, {"<quickjs-reference-opcode>"})
+    compile_result = Compiler.compile(fun)
+    capabilities = Diagnostics.capabilities(fun)
+
+    opcodes =
+      case Decoder.decode(fun.byte_code, fun.arg_count) do
+        {:ok, instructions} ->
+          instructions
+          |> Enum.with_index()
+          |> Enum.map(fn {{op, _args}, pc} ->
+            name =
+              case CFG.opcode_name(op) do
+                {:ok, name} -> name
+                {:error, _} -> :unknown
+              end
+
+            %{pc: pc, opcode: name}
+          end)
+
+        {:error, _} ->
+          []
+      end
+
+    %{
+      case: case_name,
+      compilable?: match?({:ok, _}, compile_result),
+      compile_error:
+        if(match?({:error, _}, compile_result), do: elem(compile_result, 1), else: nil),
+      capability_compilable?: capabilities.compilable?,
+      unsupported_opcodes: capabilities.unsupported_opcodes,
+      opcodes: opcodes
+    }
+  end
+
+rows = rows ++ reference_rows
+
 opcode_counts =
   rows
   |> Enum.flat_map(& &1.opcodes)
@@ -128,10 +202,7 @@ missing_groups =
   |> Enum.sort_by(fn {family, _opcodes} -> family end)
 
 known_blockers = %{
-  invalid: "intentional sentinel; do not fabricate invalid bytecode for coverage",
-  nip1: "rare stack permutation; no natural source form found in corpus/probes",
-  nop: "optimizer padding opcode; no natural retained bytecode found in corpus/probes",
-  with_get_ref_undef: "with-reference variant; no natural source form found in corpus/probes"
+  invalid: "intentional sentinel; do not fabricate invalid bytecode for coverage"
 }
 
 IO.puts(

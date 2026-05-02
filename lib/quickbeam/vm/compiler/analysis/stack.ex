@@ -154,13 +154,14 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
         with_fallthrough(next_entry, [{target, depth}, {next_entry, depth - 1}])
 
       {{:ok, name}, [_atom_idx, target, _is_with]}
-      when name in [:with_get_ref, :with_make_ref] and depth >= 1 ->
+      when name in [:with_get_ref, :with_get_ref_undef, :with_make_ref] and depth >= 1 ->
         with_fallthrough(next_entry, [{target, depth + 1}, {next_entry, depth - 1}])
 
       {{:ok, :with_put_var}, [_atom_idx, target, _is_with]} when depth >= 2 ->
         with_fallthrough(next_entry, [{target, depth - 2}, {next_entry, depth - 1}])
 
-      {{:ok, name}, args} when name in [:with_get_var, :with_get_ref, :with_make_ref] ->
+      {{:ok, name}, args}
+      when name in [:with_get_var, :with_get_ref, :with_get_ref_undef, :with_make_ref] ->
         {:error, {:stack_underflow_at, name, args, depth, 1}}
 
       {{:ok, :with_put_var}, args} ->

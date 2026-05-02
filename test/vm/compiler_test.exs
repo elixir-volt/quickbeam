@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.CompilerTest do
 
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
 
-  alias QuickBEAM.VM.{Bytecode, Compiler, Heap, Interpreter}
+  alias QuickBEAM.VM.{Bytecode, Compiler, Heap, Interpreter, Opcodes}
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.ObjectModel.Get
 
@@ -68,7 +68,57 @@ defmodule QuickBEAM.VM.CompilerTest do
     end)
   end
 
+  defp synthetic_function(byte_code, atoms \\ {"<synthetic>"}) do
+    %Bytecode.Function{
+      name: "synthetic",
+      filename: "<synthetic>",
+      line_num: 1,
+      col_num: 1,
+      arg_count: 0,
+      var_count: 0,
+      defined_arg_count: 0,
+      stack_size: 8,
+      atoms: atoms,
+      byte_code: byte_code
+    }
+  end
+
   describe "compile/1" do
+    test "lowers QuickJS reference stack opcodes" do
+      nip1 =
+        synthetic_function(
+          <<181, 182, 183, Opcodes.num(:nip1), Opcodes.num(:add), Opcodes.num(:return)>>
+        )
+
+      nop = synthetic_function(<<Opcodes.num(:nop), 184, Opcodes.num(:return)>>)
+
+      assert {:ok, 5} = Compiler.invoke(nip1, [])
+      assert {:ok, 4} = Compiler.invoke(nop, [])
+    end
+
+    test "lowers QuickJS with_get_ref_undef branch semantics" do
+      atoms = {"<synthetic>", "f"}
+
+      byte_code = <<
+        Opcodes.num(:object),
+        185,
+        Opcodes.num(:define_field),
+        1::little-32,
+        Opcodes.num(:with_get_ref_undef),
+        1::little-32,
+        7::signed-little-32,
+        1,
+        181,
+        Opcodes.num(:return),
+        Opcodes.num(:return)
+      >>
+
+      fun = synthetic_function(byte_code, atoms)
+      Heap.put_fn_atoms(fun, atoms)
+
+      assert {:ok, 5} = Compiler.invoke(fun, [])
+    end
+
     test "compiles a straight-line arithmetic function", %{rt: rt} do
       fun = compile_and_decode(rt, "(function(a,b){return a+b})") |> user_function()
 

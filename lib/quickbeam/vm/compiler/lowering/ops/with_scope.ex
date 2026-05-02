@@ -13,13 +13,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
       {{:ok, :with_get_ref}, [atom_idx, target, _is_with]} ->
         lower_with_get_ref(state, next_entry, stack_depths, atom_idx, target)
 
-      {{:ok, :with_get_ref_undef}, [atom_idx, _target, _is_with]} ->
-        with {:ok, obj, _type, state} <- State.pop_typed(state) do
-          key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
-          val = Builder.remote_call(Get, :get, [obj, key])
-
-          {:ok, state |> State.push(Builder.atom(:undefined)) |> State.push(val)}
-        end
+      {{:ok, :with_get_ref_undef}, [atom_idx, target, _is_with]} ->
+        lower_with_get_ref_undef(state, next_entry, stack_depths, atom_idx, target)
 
       {{:ok, :with_put_var}, [atom_idx, target, _is_with]} ->
         lower_with_put_var(state, next_entry, stack_depths, atom_idx, target)
@@ -71,6 +66,16 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
       key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
       val = Builder.remote_call(Get, :get, [obj, key])
       target_state = state |> State.push(obj) |> State.push(val)
+
+      branch_with_has_property(state, target_state, next_entry, stack_depths, obj, key, target)
+    end
+  end
+
+  defp lower_with_get_ref_undef(state, next_entry, stack_depths, atom_idx, target) do
+    with {:ok, obj, _type, state} <- State.pop_typed(state) do
+      key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+      val = Builder.remote_call(Get, :get, [obj, key])
+      target_state = state |> State.push(Builder.atom(:undefined), :undefined) |> State.push(val)
 
       branch_with_has_property(state, target_state, next_entry, stack_depths, obj, key, target)
     end
