@@ -1,117 +1,111 @@
 # Benchmarks
 
-Comparing QuickBEAM (Zig NIF, native term bridge) against QuickJSEx 0.3.1
-(Rust/Rustler NIF, JSON serialization).
+Benchmarks are grouped by purpose and follow the same conventions:
 
-## Running
+- scripts live directly under `bench/*.exs`
+- shared helpers live under `bench/support/*.exs`
+- tunables come from environment variables
+- machine-readable values are printed as `METRIC name=value`
+- Benchee scripts accept `BENCH_WARMUP`, `BENCH_TIME`, and `BENCH_MEMORY_TIME`
 
-Build with ReleaseFast optimization (matches QuickJSEx's precompiled release build):
+Most scripts run with the normal app environment:
+
+```sh
+mix run bench/<script>.exs
+```
+
+QuickJSEx comparison scripts need the `:bench` Mix environment because QuickJSEx
+and Benchee are bench-only dependencies:
+
+```sh
+MIX_ENV=bench mix run bench/eval_roundtrip.exs
+```
+
+For release-style measurements, compile first with fast Zig output:
 
 ```sh
 ZIGLER_RELEASE_MODE=fast MIX_ENV=bench mix compile --force
 ```
 
-Run individual benchmarks:
+## Runtime bridge benchmarks
+
+These compare QuickBEAM's NIF bridge with QuickJSEx:
 
 ```sh
 MIX_ENV=bench mix run bench/eval_roundtrip.exs
 MIX_ENV=bench mix run bench/call_with_data.exs
 MIX_ENV=bench mix run bench/beam_call.exs
-MIX_ENV=bench mix run bench/vm_compiler.exs
-MIX_ENV=bench mix run bench/preact_vm.exs
+MIX_ENV=bench mix run bench/shared_context.exs
 MIX_ENV=bench mix run bench/startup.exs
 MIX_ENV=bench mix run bench/concurrent.exs
 ```
 
-### Preact VM benchmark
+## Parser benchmarks and audits
+
+```sh
+mix run bench/js_parser_compat.exs
+mix run bench/js_parser_perf.exs
+mix run bench/js_parser_quickjs_audit.exs
+```
+
+Useful environment variables:
+
+- `TEST262_GLOB` — file glob, default `test/test262/test/**/*.js`
+- `TEST262_SAMPLE_OFFSET` — offset into the sorted file list
+- `TEST262_SAMPLE_LIMIT` — number of files to inspect
+- `TEST262_ERROR_LIMIT` — number of parser errors printed by the compat script
+- `PARSER_PERF_REPEAT` — repeated perf runs; the best run is reported
+- `AUDIT_OFFSET`, `AUDIT_LIMIT` — QuickJS acceptance audit window
+
+## VM compiler audits
+
+```sh
+mix run bench/vm_compiler_compat.exs
+mix run bench/vm_compiler_corpus.exs
+mix run bench/vm_compiler_opcode_coverage.exs
+mix run bench/vm_compiler_semantic_gaps.exs
+MIX_ENV=test mix run bench/vm_compiler_test262.exs
+mix run bench/vm_compiler_perf.exs
+```
+
+Useful environment variables:
+
+- `COMPILER_PERF_ITERATIONS` — invoke iterations per compiler perf workload
+- `TEST262_CATEGORY` — comma-separated category filter for compiler Test262 audit
+- `TEST262_LIMIT` — max compiler Test262 cases
+- `TEST262_CASE_TIMEOUT` — per-case timeout in milliseconds
+
+## Preact VM workload
+
+```sh
+MIX_ENV=bench mix run bench/preact_vm.exs
+mix run bench/preact_vm_profile.exs
+```
 
 `bench/preact_vm.exs` bundles `bench/assets/preact_ssr.js` with Bun and compares
-steady-state `QuickBEAM.VM.Interpreter.invoke/3` against
+native QuickJS, `QuickBEAM.VM.Interpreter.invoke/3`, and
 `QuickBEAM.VM.Compiler.invoke/2` on a real Preact component tree workload.
-Each Benchee worker builds its own VM/runtime state once, so measurements stay
-in-process and do not include cross-process heap setup on every iteration.
 
-`bench/preact_vm_profile.exs` writes supporting artifacts to `/tmp/`:
+`bench/preact_vm_profile.exs` writes diagnostic artifacts to `/tmp/`:
 
 - `preact_vm_render_app_quickjs.txt`
 - `preact_vm_render_app_opcodes.txt`
 - `preact_vm_beam_disasm.txt`
 - `preact_vm_profile_summary.txt` when `:eprof` is unavailable locally
 
-## Results
+## Autoresearch entrypoint
 
-Apple M1 Pro, Elixir 1.18.4, OTP 27, Zig 0.15.2 (ReleaseFast).
+`autoresearch.sh` dispatches to the parser/compiler benchmark scripts through
+`PARSER_BENCH` and appends common parser test metrics. Supported values:
 
-### 1. Eval round-trip
-
-Minimal eval (`1 + 2`) — measures bridge overhead, not JS speed.
-
-| | ips | median |
-|---|---|---|
-| QuickBEAM | 83.1K | 11.5 μs |
-| QuickJSEx | 83.3K | 11.2 μs |
-
-**Parity.** Both hit the same GenServer + dirty IO NIF floor.
-
-### 2. Function call with data
-
-Call a JS function with Elixir data, get structured result back.
-QuickBEAM uses direct JSValue↔BEAM term conversion; QuickJSEx uses JSON.
-
-| | ips | median | vs QuickJSEx |
-|---|---|---|---|
-| **Small map** (6 keys) | 62.7K | 13.5 μs | **2.2x faster** |
-| **Medium map** (20 keys, nested) | 16.7K | 51.9 μs | **2.4x faster** |
-| **Large array** (100 objects × 13 fields) | 4.6K | 196.6 μs | **4.0x faster** |
-
-Advantage grows with data size — JSON serialization cost is O(n), native conversion has lower constant factors.
-
-### 3. beam.callSync (JS → BEAM)
-
-JS calls an Elixir handler and gets a result back. QuickJSEx cannot do this.
-
-| | ips | median | overhead vs pure JS |
-|---|---|---|---|
-| Pure JS compute | 89.8K | 10.8 μs | — |
-| beam.callSync echo | 57.0K | 16.2 μs | +5.4 μs |
-| beam.callSync compute | 57.8K | 16.0 μs | +5.2 μs |
-
-~5 μs overhead per BEAM round-trip. The handler runs an Elixir function and returns the result — fast enough for tight loops.
-
-### 4. Runtime startup
-
-| | ips | median |
-|---|---|---|
-| QuickBEAM start+stop | 1.55K | 591 μs |
-| QuickJSEx start+stop | 1.47K | 631 μs |
-| QuickBEAM start+eval+stop | 1.65K | 597 μs |
-| QuickJSEx start+eval+stop | 1.47K | 638 μs |
-
-**~600 μs per runtime.** Fast enough for per-request isolation if needed.
-
-### 5. Shared context — preloaded function calls
-
-The typical pattern: load JS once, call functions repeatedly. Same context persists across calls.
-
-| | QuickBEAM | QuickJSEx | Speedup |
-|---|---|---|---|
-| `call(fn)` — no args | 12.0 μs | 31.2 μs | **2.6x** |
-| `call(fn, scalar)` | 11.1 μs | 29.6 μs | **2.6x** |
-| `call(fn, 50 objects)` | 97.0 μs | 301.8 μs | **3.1x** |
-
-Even with zero data, QuickBEAM's `call` path is 2.6x faster — QuickJSEx
-JSON-encodes the function name and args.
-
-### 6. Concurrent throughput
-
-N runtimes each computing `fib(25)` in parallel via Task.async.
-
-| Runtimes | QuickBEAM ips | QuickJSEx ips | Speedup |
-|---|---|---|---|
-| 1 | 290 | 211 | **1.38x** |
-| 2 | 274 | 200 | **1.37x** |
-| 4 | 178 | 130 | **1.37x** |
-| 8 | 141 | 106 | **1.34x** |
-| 10 | 122 | 91 | **1.35x** |
-
-Consistent 1.35x advantage. Both scale linearly — each runtime runs on its own dirty IO scheduler thread.
+- `compat`
+- `perf`
+- `quickjs_audit`
+- `quickjs_audit_exunit`
+- `quickjs_audit_sweep`
+- `vm_compiler_audit`
+- `vm_compiler_corpus`
+- `vm_compiler_opcodes`
+- `vm_compiler_perf`
+- `vm_compiler_semantics`
+- `vm_compiler_test262`

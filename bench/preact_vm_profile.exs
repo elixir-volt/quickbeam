@@ -1,3 +1,5 @@
+Code.require_file("support/common.exs", __DIR__)
+
 Code.require_file("support/preact_vm.exs", __DIR__)
 
 source = Bench.PreactVM.bundle_source!()
@@ -24,7 +26,7 @@ File.write!(
 
 File.write!("/tmp/preact_vm_beam_disasm.txt", inspect(beam, pretty: true, limit: :infinity))
 
-iterations = System.get_env("PROFILE_ITERS", "200") |> String.to_integer()
+iterations = Bench.Support.env_integer("PROFILE_ITERS", 200)
 
 case :code.which(:eprof) do
   path when is_list(path) ->

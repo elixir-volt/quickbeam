@@ -1,3 +1,5 @@
+Code.require_file("support/common.exs", __DIR__)
+
 # Benchmark: NIF (QuickJS native) vs BEAM compiler vs BEAM interpreter
 # on Preact SSR — real-world workload.
 #
@@ -32,11 +34,7 @@ Benchee.run(
     "VM.Compiler" => fn _ -> beam_run.(&Bench.PreactVM.run_compiler!/2) end,
     "VM.Interpreter" => fn _ -> beam_run.(&Bench.PreactVM.run_interpreter!/2) end
   },
-  inputs: %{"preact_ssr" => nil},
-  warmup: System.get_env("BENCH_WARMUP", "2") |> String.to_integer(),
-  time: System.get_env("BENCH_TIME", "5") |> String.to_integer(),
-  memory_time: System.get_env("BENCH_MEMORY_TIME", "2") |> String.to_integer(),
-  print: [configuration: false]
+  Bench.Support.benchee_options(inputs: %{"preact_ssr" => nil})
 )
 
 QuickBEAM.stop(nif_rt)

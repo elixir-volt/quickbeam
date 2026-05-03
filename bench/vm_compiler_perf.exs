@@ -1,8 +1,9 @@
 Mix.Task.run("app.start")
+Code.require_file("support/common.exs", __DIR__)
 
 alias QuickBEAM.VM.{Bytecode, Compiler, Heap, Interpreter}
 
-iterations = String.to_integer(System.get_env("COMPILER_PERF_ITERATIONS") || "2000")
+iterations = Bench.Support.env_integer("COMPILER_PERF_ITERATIONS", 2000)
 gas = 1_000_000_000
 
 workload_specs = [
@@ -39,16 +40,7 @@ prepare_function = fn rt, source ->
   fun
 end
 
-measure = fn fun ->
-  {total_us, _} =
-    :timer.tc(fn ->
-      for _ <- 1..iterations do
-        fun.()
-      end
-    end)
-
-  total_us / iterations
-end
+measure = fn fun -> Bench.Support.average_us(fun, iterations) end
 
 Heap.reset()
 {:ok, rt} = QuickBEAM.start(apis: false)
@@ -91,10 +83,12 @@ try do
   avg_compiler_us = Enum.sum(Enum.map(results, & &1.compiler_us)) / max(length(results), 1)
   avg_interpreter_us = Enum.sum(Enum.map(results, & &1.interpreter_us)) / max(length(results), 1)
 
-  IO.puts("METRIC compiler_perf_workloads=#{length(results)}")
-  IO.puts("METRIC compiler_avg_invoke_us=#{Float.round(avg_compiler_us, 3)}")
-  IO.puts("METRIC interpreter_avg_invoke_us=#{Float.round(avg_interpreter_us, 3)}")
-  IO.puts("METRIC compiler_avg_speedup=#{Float.round(avg_speedup, 3)}")
+  Bench.Support.metrics(
+    compiler_perf_workloads: length(results),
+    compiler_avg_invoke_us: Float.round(avg_compiler_us, 3),
+    interpreter_avg_invoke_us: Float.round(avg_interpreter_us, 3),
+    compiler_avg_speedup: Float.round(avg_speedup, 3)
+  )
 after
   QuickBEAM.stop(rt)
 end
