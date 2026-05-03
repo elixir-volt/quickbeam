@@ -1,5 +1,5 @@
 - Add Test262-derived executable windows for `QuickBEAM.JS.BytecodeCompiler` after harness/module/async filtering is explicit; use QuickJS as oracle and avoid noisy monolithic sweeps.
-- Investigate full closure support as a larger milestone: free-variable analysis, var refs/closure cells, bytecode writer metadata, and QuickJS loadability.
 - Add scoped/block lexical model before deeper `let`/`const`/TDZ semantics; current simple slots flatten scope and can mis-handle shadowing.
-- Consider demand-driven bytecode writer roundtrip expansion for classes, try/catch, regexp, and closure metadata once frontend starts emitting those constructs.
-- RegExp literal support needs VM interpreter/runtime alignment before frontend compilation: lowering via `RegExp(pattern)` produced QuickJS-valid code but interpreter returned `false` for `/a+/.test("aa")`, so do not enable until the RegExp runtime path is audited.
+- Expand bytecode writer roundtrips for advanced class/prototype semantics, try/finally, regexp constants, and closure metadata as those constructs move beyond the current simplified subsets.
+- RegExp literal support needs VM interpreter/runtime alignment before frontend compilation: lowering via `RegExp(pattern)` produced QuickJS-valid code but interpreter/runtime paths were inconsistent, and compile-time NIF regexp bytecode generation was unsafe from the audit task path. Revisit with isolated VM/runtime tests first.
+- Real closure capture metadata is unsafe with the current writer/interpreter assumptions: a first attempt adding var_ref/closure_var metadata for immediate parent captures made the stable frontend audit segfault. Revisit only with a focused QuickJS bytecode roundtrip plan and native-load/interpreter isolation.
