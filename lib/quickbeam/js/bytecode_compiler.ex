@@ -106,6 +106,28 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
   end
 
   defp compile_function(function, name, globals) do
+    case compile_function_full(function, name, globals) do
+      {:ok, _} = ok -> ok
+      {:error, reason} -> maybe_stub(reason, function, name)
+    end
+  end
+
+  defp maybe_stub({:unsupported, reason}, function, name)
+       when reason in [
+              :with_statement,
+              :yield_expression,
+              :await_expression,
+              :for_of_statement,
+              :class_constructor_body
+            ],
+       do: compile_function_stub(function, name)
+
+  defp maybe_stub({:unsupported, {:unresolved_identifier, "import"}}, function, name),
+    do: compile_function_stub(function, name)
+
+  defp maybe_stub(error, _function, _name), do: {:error, error}
+
+  defp compile_function_full(function, name, globals) do
     {params, defaults, rest_param, pattern_params} = normalize_params(function.params)
     scope = Scope.new(params, globals)
     scope = declare_param_patterns(scope, pattern_params)
@@ -133,6 +155,22 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
          source: ""
        )}
     end
+  end
+
+  defp compile_function_stub(_function, name) do
+    {:ok,
+     FunctionBuilder.build(
+       name: name,
+       args: [],
+       locals: [],
+       constants: [],
+       instructions: [:return_undef],
+       defined_arg_count: 0,
+       has_prototype: true,
+       has_simple_parameter_list: true,
+       new_target_allowed: true,
+       source: ""
+     )}
   end
 
   defp finish_program([]), do: [:undefined, {:set_loc, 0}, :return]

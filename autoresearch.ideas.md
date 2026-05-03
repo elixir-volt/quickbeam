@@ -1,7 +1,6 @@
 - Add Test262-derived executable windows for `QuickBEAM.JS.BytecodeCompiler` after harness/module/async filtering is explicit; use QuickJS as oracle and avoid noisy monolithic sweeps.
-- Full mutable closure capture remains future work: current frontend supports value-captured function expressions/declarations through explicit capture params and `Function.prototype.bind`, but not mutable shared closure cells.
+- Full mutable closure capture remains future work and is the last remaining mismatch (1 case): current frontend supports value-captured closures but not mutable shared closure cells.
 - `instanceof` works as an opcode but class factories don't produce real prototypes, so `a instanceof A` returns false; needs real class/prototype semantics.
-- `try { return 1 } finally { return 2 }` — finally-over-return completion semantics are a mismatch in both interpreter and native-load; needs completion-value propagation through finally blocks.
 - `arguments` object requires mutable var_ref aliasing for sloppy-mode parameter aliasing; blocked on mutable closure infrastructure.
 - Private class fields/methods require full private name tracking; 7+ corpus cases.
 - `eval` as a runtime feature requires special compilation; 7 corpus cases.

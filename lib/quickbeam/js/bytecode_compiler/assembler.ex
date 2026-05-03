@@ -45,6 +45,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
       {:get_field2, name} -> [name]
       {:put_field, name} -> [name]
       {:set_name, name} -> [name]
+      {:throw_error, _type, atom_idx} -> [atom_idx]
       _ -> []
     end)
     |> Enum.uniq()
@@ -111,6 +112,8 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
               :set_name
             ],
        do: 5
+
+  defp instruction_size({:throw_error, _type, _atom}, _width), do: 6
 
   defp instruction_size(instruction, _width), do: byte_size(encode_instruction(instruction))
 
@@ -280,6 +283,10 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
   defp encode_instruction(:nip_catch, _atoms), do: <<Opcodes.num(:nip_catch)>>
   defp encode_instruction(:ret, _atoms), do: <<Opcodes.num(:ret)>>
   defp encode_instruction(:throw, _atoms), do: <<Opcodes.num(:throw)>>
+
+  defp encode_instruction({:throw_error, type, atom_idx}, atoms),
+    do: <<Opcodes.num(:throw_error), atom_index!(atoms, atom_idx)::little-32, type>>
+
   defp encode_instruction(:drop, _atoms), do: <<Opcodes.num(:drop)>>
   defp encode_instruction(:set_proto, _atoms), do: <<Opcodes.num(:set_proto)>>
 
