@@ -282,6 +282,10 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
   defp encode_instruction(:nip, _atoms), do: <<Opcodes.num(:nip)>>
   defp encode_instruction(:nip_catch, _atoms), do: <<Opcodes.num(:nip_catch)>>
   defp encode_instruction(:ret, _atoms), do: <<Opcodes.num(:ret)>>
+
+  defp encode_instruction({:special_object, type}, _atoms),
+    do: <<Opcodes.num(:special_object), type>>
+
   defp encode_instruction(:throw, _atoms), do: <<Opcodes.num(:throw)>>
 
   defp encode_instruction({:throw_error, type, atom_idx}, atoms),

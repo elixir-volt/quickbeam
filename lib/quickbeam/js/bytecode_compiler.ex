@@ -131,12 +131,16 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
     {params, defaults, rest_param, pattern_params} = normalize_params(function.params)
     scope = Scope.new(params, globals)
     scope = declare_param_patterns(scope, pattern_params)
+    uses_arguments? = references_arguments?(function.body) and function.params == []
+    scope = if uses_arguments?, do: Scope.declare_local(scope, "<arguments>"), else: scope
 
     with {:ok, scope} <- Declarations.declare_program_locals(function.body.body, scope),
          {:ok, instructions, constants} <- compile_param_patterns(pattern_params, scope, [], []),
          {:ok, instructions, constants} <- compile_rest_param(rest_param, instructions, constants),
          {:ok, instructions, constants} <-
            compile_param_defaults(defaults, scope, instructions, constants, globals),
+         {:ok, instructions, constants} <-
+           compile_arguments_prologue(uses_arguments?, scope, instructions, constants),
          {:ok, instructions, constants} <-
            compile_function_body(function.body.body, scope, instructions, constants, globals) do
       instructions = ensure_function_return(instructions)
@@ -171,6 +175,36 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
        new_target_allowed: true,
        source: ""
      )}
+  end
+
+  defp references_arguments?(%AST.BlockStatement{body: body}), do: references_arguments?(body)
+
+  defp references_arguments?(statements) when is_list(statements) do
+    Enum.any?(statements, &references_arguments?/1)
+  end
+
+  defp references_arguments?(%AST.Identifier{name: "arguments"}), do: true
+
+  defp references_arguments?(%{__struct__: _} = node) do
+    node
+    |> Map.from_struct()
+    |> Map.values()
+    |> Enum.any?(&references_arguments?/1)
+  end
+
+  defp references_arguments?(_), do: false
+
+  defp compile_arguments_prologue(false, _scope, instructions, constants),
+    do: {:ok, instructions, constants}
+
+  defp compile_arguments_prologue(true, scope, instructions, constants) do
+    case Scope.resolve(scope, "<arguments>") do
+      {:loc, loc} ->
+        {:ok, instructions ++ [{:special_object, 1}, {:put_loc, loc}], constants}
+
+      _ ->
+        {:ok, instructions, constants}
+    end
   end
 
   defp finish_program([]), do: [:undefined, {:set_loc, 0}, :return]

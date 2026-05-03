@@ -61,6 +61,13 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
   def compile(%AST.Identifier{name: "NaN"}, _scope, instructions, constants, _callbacks),
     do: {:ok, instructions ++ [{:get_var, "NaN"}], constants}
 
+  def compile(%AST.Identifier{name: "arguments"}, scope, instructions, constants, callbacks) do
+    case callbacks.resolve.(scope, "<arguments>") do
+      {:loc, _} = slot -> {:ok, instructions ++ [Slots.read(slot)], constants}
+      _ -> {:error, {:unsupported, {:unresolved_identifier, "arguments"}}}
+    end
+  end
+
   def compile(%AST.Identifier{name: name}, scope, instructions, constants, callbacks) do
     case callbacks.resolve.(scope, name) do
       :error -> compile_global_identifier(name, instructions, constants)
@@ -1160,7 +1167,33 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
   defp nameable_value?(_), do: false
 
   defp compile_global_identifier(name, instructions, constants)
-       when name in ["Object", "Math", "Array", "String", "Number", "Boolean"] do
+       when name in [
+              "Object",
+              "Math",
+              "Array",
+              "String",
+              "Number",
+              "Boolean",
+              "eval",
+              "Error",
+              "TypeError",
+              "RangeError",
+              "JSON",
+              "Date",
+              "RegExp",
+              "Promise",
+              "Map",
+              "Set",
+              "WeakMap",
+              "WeakSet",
+              "parseInt",
+              "parseFloat",
+              "isNaN",
+              "isFinite",
+              "encodeURIComponent",
+              "decodeURIComponent",
+              "Infinity"
+            ] do
     {:ok, instructions ++ [{:get_var, name}], constants}
   end
 
