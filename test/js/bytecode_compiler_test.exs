@@ -195,6 +195,7 @@ defmodule QuickBEAM.JS.BytecodeCompilerTest do
       assert_compiles_to("function f(a,b,c,d,e){ 'use strict'; e=6; return e; } f(1,2,3,4,5)", 6)
       assert_compiles_to("function f(a, b, c) { return a + b + c; } f(...[1, 2, 3])", 6)
       assert_compiles_to("function f(x = 3) { return x; } f() + f(2)", 5)
+      assert_compiles_to("function f(...xs) { return xs[0] + xs.length; } f(4, 5)", 6)
       assert_compiles_to("function make(x){ return function(y){ return x + y; }; } make(2)(3)", 5)
 
       assert_compiles_to(

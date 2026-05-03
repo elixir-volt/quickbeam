@@ -99,4 +99,5 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Captures do
 
   defp identifier_name(%AST.Identifier{name: name}), do: name
   defp identifier_name(%AST.AssignmentPattern{left: left}), do: identifier_name(left)
+  defp identifier_name(%AST.RestElement{argument: argument}), do: identifier_name(argument)
 end

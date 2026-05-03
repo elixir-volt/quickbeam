@@ -18,7 +18,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler.FunctionBuilder do
       col_num: 1,
       arg_count: length(args),
       var_count: length(locals),
-      defined_arg_count: length(args),
+      defined_arg_count: Keyword.get(opts, :defined_arg_count, length(args)),
       stack_size: Assembler.stack_size(instructions),
       locals: Enum.map(args ++ locals, &var_def/1),
       constants: Keyword.fetch!(opts, :constants),

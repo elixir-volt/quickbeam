@@ -99,12 +99,13 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
   end
 
   defp compile_function(function, name, globals) do
-    {params, defaults} = normalize_params(function.params)
+    {params, defaults, rest_param} = normalize_params(function.params)
     scope = Scope.new(params, globals)
 
     with {:ok, scope} <- Declarations.declare_program_locals(function.body.body, scope),
+         {:ok, instructions, constants} <- compile_rest_param(rest_param, [], []),
          {:ok, instructions, constants} <-
-           compile_param_defaults(defaults, scope, [], [], globals),
+           compile_param_defaults(defaults, scope, instructions, constants, globals),
          {:ok, instructions, constants} <-
            compile_statements(function.body.body, scope, instructions, constants, globals) do
       instructions = ensure_function_return(instructions)
@@ -116,8 +117,9 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
          locals: scope.local_names,
          constants: Enum.reverse(constants),
          instructions: instructions,
+         defined_arg_count: defined_arg_count(params, rest_param),
          has_prototype: true,
-         has_simple_parameter_list: true,
+         has_simple_parameter_list: defaults == [] and rest_param == nil,
          new_target_allowed: true,
          source: ""
        )}
@@ -153,16 +155,31 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
   defp top_level_globals(scope), do: Enum.drop(scope.local_names, 1)
 
   defp normalize_params(params) do
-    Enum.map_reduce(params, [], fn
-      %AST.Identifier{name: name}, defaults ->
-        {name, defaults}
+    Enum.reduce(params, {[], [], nil}, fn
+      %AST.Identifier{name: name}, {names, defaults, nil} ->
+        {names ++ [name], defaults, nil}
 
-      %AST.AssignmentPattern{left: %AST.Identifier{name: name}, right: default}, defaults ->
-        {name, defaults ++ [{name, default}]}
+      %AST.AssignmentPattern{left: %AST.Identifier{name: name}, right: default},
+      {names, defaults, nil} ->
+        {names ++ [name], defaults ++ [{name, default}], nil}
 
-      param, _defaults ->
+      %AST.RestElement{argument: %AST.Identifier{name: name}}, {names, defaults, nil} ->
+        {names ++ [name], defaults, {length(names), length(names)}}
+
+      param, _acc ->
         raise FunctionClauseError, function: :identifier_name!, arity: 1, args: [param]
     end)
+  end
+
+  defp defined_arg_count(params, nil), do: length(params)
+  defp defined_arg_count(_params, {start, _index}), do: start
+
+  defp compile_rest_param(nil, instructions, constants), do: {:ok, instructions, constants}
+
+  defp compile_rest_param({start, index}, instructions, constants) do
+    {:ok,
+     instructions ++ [{:rest, start}, QuickBEAM.JS.BytecodeCompiler.Slots.put({:arg, index})],
+     constants}
   end
 
   defp compile_param_defaults([], _scope, instructions, constants, _globals),
