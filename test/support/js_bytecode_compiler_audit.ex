@@ -20,7 +20,9 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
       {"float constant", "1.5"},
       {"unary negation", "let x = 2; -x"},
       {"logical not", "!false"},
-      {"conditional expression", "let x = 1; x === 1 ? 2 : 3"}
+      {"conditional expression", "let x = 1; x === 1 ? 2 : 3"},
+      {"array length", "let a = [1, 2, 3]; a.length"},
+      {"array index", "let a = [1, 2, 3]; a[1]"}
     ]
   end
 

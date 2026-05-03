@@ -122,6 +122,9 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
     <<Opcodes.num(String.to_atom("call#{argc}"))>>
   end
 
+  defp encode_instruction({:array_from, count}) when count in 0..65_535,
+    do: <<Opcodes.num(:array_from), count::little-16>>
+
   defp encode_instruction({:jump, _label}), do: <<Opcodes.num(:goto8), 0>>
   defp encode_instruction({:jump_if_false, _label}), do: <<Opcodes.num(:if_false8), 0>>
   defp encode_instruction(:undefined), do: <<Opcodes.num(:undefined)>>
@@ -138,6 +141,8 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
   defp encode_instruction(:not), do: <<Opcodes.num(:not)>>
   defp encode_instruction(:lnot), do: <<Opcodes.num(:lnot)>>
   defp encode_instruction(:typeof), do: <<Opcodes.num(:typeof)>>
+  defp encode_instruction(:get_array_el), do: <<Opcodes.num(:get_array_el)>>
+  defp encode_instruction(:get_length), do: <<Opcodes.num(:get_length)>>
   defp encode_instruction(:lt), do: <<Opcodes.num(:lt)>>
   defp encode_instruction(:lte), do: <<Opcodes.num(:lte)>>
   defp encode_instruction(:gt), do: <<Opcodes.num(:gt)>>

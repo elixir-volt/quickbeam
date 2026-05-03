@@ -430,6 +430,48 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
     end
   end
 
+  defp compile_expression(
+         %AST.ArrayExpression{elements: elements},
+         scope,
+         instructions,
+         constants
+       ) do
+    with {:ok, instructions, constants} <-
+           compile_array_elements(elements, scope, instructions, constants) do
+      {:ok, instructions ++ [{:array_from, length(elements)}], constants}
+    end
+  end
+
+  defp compile_expression(
+         %AST.MemberExpression{object: object, property: property, computed: true},
+         scope,
+         instructions,
+         constants
+       ) do
+    with {:ok, instructions, constants} <-
+           compile_expression(object, scope, instructions, constants),
+         {:ok, instructions, constants} <-
+           compile_expression(property, scope, instructions, constants) do
+      {:ok, instructions ++ [:get_array_el], constants}
+    end
+  end
+
+  defp compile_expression(
+         %AST.MemberExpression{
+           object: object,
+           property: %AST.Identifier{name: "length"},
+           computed: false
+         },
+         scope,
+         instructions,
+         constants
+       ) do
+    with {:ok, instructions, constants} <-
+           compile_expression(object, scope, instructions, constants) do
+      {:ok, instructions ++ [:get_length], constants}
+    end
+  end
+
   defp compile_expression(%AST.FunctionExpression{} = expression, _scope, instructions, constants) do
     with {:ok, function} <- compile_function(expression, function_name(expression.id)) do
       {:ok, instructions ++ [{:closure, length(constants)}], [function | constants]}
@@ -452,6 +494,22 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
 
   defp compile_expression(expression, _scope, _instructions, _constants),
     do: {:error, {:unsupported, expression.type}}
+
+  defp compile_array_elements([], _scope, instructions, constants),
+    do: {:ok, instructions, constants}
+
+  defp compile_array_elements([nil | rest], _scope, _instructions, _constants),
+    do: {:error, {:unsupported, {:array_hole, length(rest)}}}
+
+  defp compile_array_elements([%AST.SpreadElement{} | _rest], _scope, _instructions, _constants),
+    do: {:error, {:unsupported, :array_spread}}
+
+  defp compile_array_elements([element | rest], scope, instructions, constants) do
+    with {:ok, instructions, constants} <-
+           compile_expression(element, scope, instructions, constants) do
+      compile_array_elements(rest, scope, instructions, constants)
+    end
+  end
 
   defp compile_call_args([], _scope, instructions, constants), do: {:ok, instructions, constants}
 
