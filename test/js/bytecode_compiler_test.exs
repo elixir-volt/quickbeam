@@ -125,6 +125,7 @@ defmodule QuickBEAM.JS.BytecodeCompilerTest do
 
     test "compiles simple throw/catch" do
       assert_compiles_to("try { throw 3; } catch (e) { e + 1; }", 4)
+      assert_compiles_to("let x = 0; try { x = 1; } finally { x = x + 1; } x", 2)
     end
 
     test "compiles simple classes" do

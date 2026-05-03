@@ -72,6 +72,7 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
       {"for in object keys",
        "let o = {a: 1, b: 2}; let s = ''; for (let k in o) { s = s + k; } s.length"},
       {"simple throw catch", "try { throw 3; } catch (e) { e + 1; }"},
+      {"simple try finally", "let x = 0; try { x = 1; } finally { x = x + 1; } x"},
       {"simple class method", "class A { m() { return 1; } } new A().m()"},
       {"simple class constructor", "class A { constructor() { this.x = 1; } } new A().x"},
       {"simple class inheritance",

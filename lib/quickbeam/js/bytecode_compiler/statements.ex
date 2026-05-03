@@ -301,6 +301,24 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
 
   def compile(
         %AST.TryStatement{
+          block: %AST.BlockStatement{body: body},
+          handler: nil,
+          finalizer: %AST.BlockStatement{body: finalizer}
+        },
+        scope,
+        instructions,
+        constants,
+        _opts,
+        callbacks
+      ) do
+    with {:ok, instructions, constants} <-
+           compile_non_tail(body, scope, instructions, constants, [tail?: false], callbacks) do
+      compile_non_tail(finalizer, scope, instructions, constants, [tail?: false], callbacks)
+    end
+  end
+
+  def compile(
+        %AST.TryStatement{
           block: %AST.BlockStatement{body: [%AST.ThrowStatement{argument: argument}]},
           handler: %AST.CatchClause{
             param: %AST.Identifier{name: name},
