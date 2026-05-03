@@ -254,7 +254,9 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
   defp encode_instruction(:dup2, _atoms), do: <<Opcodes.num(:dup2)>>
   defp encode_instruction(:perm3, _atoms), do: <<Opcodes.num(:perm3)>>
   defp encode_instruction(:perm4, _atoms), do: <<Opcodes.num(:perm4)>>
+  defp encode_instruction(:nip, _atoms), do: <<Opcodes.num(:nip)>>
   defp encode_instruction(:drop, _atoms), do: <<Opcodes.num(:drop)>>
+  defp encode_instruction(:set_proto, _atoms), do: <<Opcodes.num(:set_proto)>>
   defp encode_instruction(:add, _atoms), do: <<Opcodes.num(:add)>>
   defp encode_instruction(:sub, _atoms), do: <<Opcodes.num(:sub)>>
   defp encode_instruction(:mul, _atoms), do: <<Opcodes.num(:mul)>>

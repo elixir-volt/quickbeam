@@ -1034,6 +1034,19 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
   end
 
   defp compile_object_property(
+         %AST.Property{computed: false, key: %AST.Identifier{name: "__proto__"}, value: value},
+         scope,
+         instructions,
+         constants,
+         callbacks
+       ) do
+    with {:ok, instructions, constants} <-
+           callbacks.compile_expression.(value, scope, instructions, constants) do
+      {:ok, instructions ++ [:set_proto], constants}
+    end
+  end
+
+  defp compile_object_property(
          %AST.Property{} = property,
          scope,
          instructions,

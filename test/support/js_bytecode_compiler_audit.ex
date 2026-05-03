@@ -47,6 +47,7 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
       {"array index", "let a = [1, 2, 3]; a[1]"},
       {"object property", "let o = {x: 1, y: 2}; o.x + o.y"},
       {"object spread", "let a={x:1}; let b={...a, y:2}; b.y"},
+      {"object proto literal", "let p={x:1}; let o={__proto__:p}; o.x"},
       {"object shorthand", "let x = 1; ({x}).x"},
       {"object destructuring", "let {x} = {x: 9}; x"},
       {"object destructuring multiple", "let {x, y} = {x: 2, y: 3}; x + y"},
