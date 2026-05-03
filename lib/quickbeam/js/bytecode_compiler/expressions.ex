@@ -43,9 +43,12 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
   def compile(%AST.Identifier{name: "undefined"}, _scope, instructions, constants, _callbacks),
     do: {:ok, instructions ++ [:undefined], constants}
 
+  def compile(%AST.Identifier{name: "NaN"}, _scope, instructions, constants, _callbacks),
+    do: {:ok, instructions ++ [{:get_var, "NaN"}], constants}
+
   def compile(%AST.Identifier{name: name}, scope, instructions, constants, callbacks) do
     case callbacks.resolve.(scope, name) do
-      :error -> {:error, {:unsupported, {:unresolved_identifier, name}}}
+      :error -> compile_global_identifier(name, instructions, constants)
       slot -> {:ok, instructions ++ [Slots.read(slot)], constants}
     end
   end
@@ -430,6 +433,14 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
 
   def compile(expression, _scope, _instructions, _constants, _callbacks),
     do: {:error, {:unsupported, expression.type}}
+
+  defp compile_global_identifier(name, instructions, constants)
+       when name in ["Object", "Math", "Array", "String", "Number", "Boolean"] do
+    {:ok, instructions ++ [{:get_var, name}], constants}
+  end
+
+  defp compile_global_identifier(name, _instructions, _constants),
+    do: {:error, {:unsupported, {:unresolved_identifier, name}}}
 
   defp compile_template_literal(
          [%AST.TemplateElement{value: value}],

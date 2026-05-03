@@ -39,6 +39,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
     instructions
     |> Enum.flat_map(fn
       {:define_field, name} -> [name]
+      {:get_var, name} -> [name]
       {:get_field, name} -> [name]
       {:get_field2, name} -> [name]
       {:put_field, name} -> [name]
@@ -96,7 +97,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
     do: jump_size(op, width || :short)
 
   defp instruction_size({op, _name}, _width)
-       when op in [:define_field, :get_field, :get_field2, :put_field],
+       when op in [:define_field, :get_var, :get_field, :get_field2, :put_field],
        do: 5
 
   defp instruction_size(instruction, _width), do: byte_size(encode_instruction(instruction))
@@ -196,6 +197,9 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
   defp encode_instruction({:define_field, name}, atoms),
     do: <<Opcodes.num(:define_field), atom_index!(atoms, name)::little-32>>
 
+  defp encode_instruction({:get_var, name}, atoms),
+    do: <<Opcodes.num(:get_var), atom_index!(atoms, name)::little-32>>
+
   defp encode_instruction({:get_field, name}, atoms),
     do: <<Opcodes.num(:get_field), atom_index!(atoms, name)::little-32>>
 
@@ -262,6 +266,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
 
   defp stack_effect({:call, argc}), do: {1 + argc, 1}
   defp stack_effect({:call_method, argc}), do: {2 + argc, 1}
+  defp stack_effect({:get_var, _name}), do: {0, 1}
   defp stack_effect({:array_from, count}), do: {count, 1}
   defp stack_effect({:define_field, _name}), do: {2, 1}
   defp stack_effect({:get_field, _name}), do: {1, 1}

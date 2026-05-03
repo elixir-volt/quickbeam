@@ -24,6 +24,8 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
       {"bitwise and assignment", "let x=7; x &= 3; x"},
       {"bitwise or assignment", "let x=4; x |= 3; x"},
       {"bitwise xor assignment", "let x=7; x ^= 3; x"},
+      {"object is", "Object.is(-0, 0)"},
+      {"math max", "Math.max(1, 2)"},
       {"in operator", "'x' in {x: 1}"},
       {"delete property", "let o={x:1}; delete o.x; o.x === undefined"},
       {"computed delete property", "let o={x:1}; delete o['x']; o.x === undefined"},
