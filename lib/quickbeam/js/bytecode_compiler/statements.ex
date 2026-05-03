@@ -853,21 +853,24 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
 
   defp class_property(
          %AST.MethodDefinition{
-           kind: :method,
+           kind: kind,
            static: false,
            computed: computed,
            key: key,
            value: value
          },
          super_name
-       ) do
+       )
+       when kind in [:method, :get, :set] do
+    property_kind = if kind == :method, do: :init, else: kind
+
     {:ok,
      [
        %AST.Property{
          type: :property,
          key: key,
          value: rewrite_super(value, super_name),
-         kind: :init,
+         kind: property_kind,
          method: false,
          shorthand: false,
          computed: computed

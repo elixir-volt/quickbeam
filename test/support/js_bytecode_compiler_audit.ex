@@ -52,6 +52,8 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
       {"object property", "let o = {x: 1, y: 2}; o.x + o.y"},
       {"object spread", "let a={x:1}; let b={...a, y:2}; b.y"},
       {"object proto literal", "let p={x:1}; let o={__proto__:p}; o.x"},
+      {"object getter", "let o = { get x() { return 4; } }; o.x"},
+      {"class getter", "class A { get x(){ return 4; } } new A().x"},
       {"logical member or-assign", "let o={x:0}; o.x ||= 2; o.x"},
       {"logical member and-assign", "let o={x:1}; o.x &&= 2; o.x"},
       {"logical member nullish-assign", "let o={x:null}; o.x ??= 2; o.x"},

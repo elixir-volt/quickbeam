@@ -45,6 +45,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
       {:get_field2, name} -> [name]
       {:put_field, name} -> [name]
       {:set_name, name} -> [name]
+      {:define_method, name, _flags} -> [name]
       {:throw_error, _type, atom_idx} -> [atom_idx]
       _ -> []
     end)
@@ -114,6 +115,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
        do: 5
 
   defp instruction_size({:throw_error, _type, _atom}, _width), do: 6
+  defp instruction_size({:define_method, _name, _flags}, _width), do: 6
 
   defp instruction_size(instruction, _width), do: byte_size(encode_instruction(instruction))
 
@@ -315,6 +317,9 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
   defp encode_instruction({:set_name, name}, atoms),
     do: <<Opcodes.num(:set_name), atom_index!(atoms, name)::little-32>>
 
+  defp encode_instruction({:define_method, name, flags}, atoms),
+    do: <<Opcodes.num(:define_method), atom_index!(atoms, name)::little-32, flags>>
+
   defp encode_instruction(:set_name_computed, _atoms), do: <<Opcodes.num(:set_name_computed)>>
   defp encode_instruction(:add, _atoms), do: <<Opcodes.num(:add)>>
   defp encode_instruction(:sub, _atoms), do: <<Opcodes.num(:sub)>>
@@ -376,6 +381,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
   defp stack_effect({:get_field2, _name}), do: {1, 2}
   defp stack_effect({:put_field, _name}), do: {2, 0}
   defp stack_effect({:set_name, _name}), do: {1, 1}
+  defp stack_effect({:define_method, _name, _flags}), do: {2, 1}
   defp stack_effect(:set_name_computed), do: {2, 2}
   defp stack_effect({:catch, _label}), do: {0, 1}
   defp stack_effect({:gosub, _label}), do: {0, 0}

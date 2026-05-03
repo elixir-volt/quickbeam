@@ -1510,6 +1510,27 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
   end
 
   defp compile_object_property(
+         %AST.Property{
+           kind: kind,
+           computed: false,
+           key: %AST.Identifier{name: name},
+           value: value
+         },
+         scope,
+         instructions,
+         constants,
+         callbacks
+       )
+       when kind in [:get, :set] do
+    flags = if(kind == :get, do: 1, else: 2) + 4
+
+    with {:ok, instructions, constants} <-
+           callbacks.compile_expression.(value, scope, instructions, constants) do
+      {:ok, instructions ++ [{:define_method, name, flags}], constants}
+    end
+  end
+
+  defp compile_object_property(
          %AST.Property{} = property,
          scope,
          instructions,
