@@ -73,9 +73,18 @@ defmodule QuickBEAM.VM.GlobalEnv do
   end
 
   def refresh(%Context{} = ctx) do
-    globals = Map.merge(ctx.globals, Heap.get_persistent_globals() || %{})
-    Heap.put_base_globals(globals)
-    %{ctx | globals: globals} |> Context.mark_dirty()
+    case Heap.get_persistent_globals() do
+      nil ->
+        ctx
+
+      persistent when map_size(persistent) == 0 ->
+        ctx
+
+      persistent ->
+        globals = Map.merge(ctx.globals, persistent)
+        Heap.put_base_globals(globals)
+        %{ctx | globals: globals} |> Context.mark_dirty()
+    end
   end
 
   @doc "Resolves a name from the current atom table."
