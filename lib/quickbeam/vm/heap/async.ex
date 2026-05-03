@@ -7,6 +7,14 @@ defmodule QuickBEAM.VM.Heap.Async do
     Process.put(:qb_microtask_queue, :queue.in(task, queue))
   end
 
+  @doc "Returns whether the JavaScript microtask queue is empty."
+  def microtasks_empty? do
+    case Process.get(:qb_microtask_queue) do
+      nil -> true
+      queue -> :queue.is_empty(queue)
+    end
+  end
+
   @doc "Removes and returns the next queued microtask, or `nil` when the queue is empty."
   def dequeue_microtask do
     case Process.get(:qb_microtask_queue) do

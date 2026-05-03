@@ -359,6 +359,7 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate get_runtime_mode(runtime), to: Context
   defdelegate put_runtime_mode(runtime, mode), to: Context
   defdelegate enqueue_microtask(task), to: Async
+  defdelegate microtasks_empty?(), to: Async
   defdelegate dequeue_microtask(), to: Async
   defdelegate get_promise_waiters(ref), to: Async
   defdelegate put_promise_waiters(ref, waiters), to: Async

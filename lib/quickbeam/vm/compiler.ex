@@ -41,7 +41,10 @@ defmodule QuickBEAM.VM.Compiler do
   end
 
   defp settle_top_level_result({:ok, value}) do
-    PromiseState.drain_microtasks()
+    unless Heap.microtasks_empty?() do
+      PromiseState.drain_microtasks()
+    end
+
     {:ok, unwrap_resolved_promise(value)}
   end
 
