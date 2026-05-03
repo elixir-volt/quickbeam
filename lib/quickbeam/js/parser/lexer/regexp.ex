@@ -1,6 +1,8 @@
 defmodule QuickBEAM.JS.Parser.Lexer.Regexp do
   @moduledoc "Regular-expression literal validation helpers for the JavaScript lexer."
 
+  @dialyzer :no_match
+
   def regexp_flags_error(flags) do
     chars = String.graphemes(flags)
 
@@ -31,20 +33,20 @@ defmodule QuickBEAM.JS.Parser.Lexer.Regexp do
       {index, 2} ->
         spec_start = index + 2
 
-        cond do
-          modifier_group_exempt?(pattern, spec_start) ->
-            regexp_modifier_group_error(pattern, spec_start + 1)
+        if modifier_group_exempt?(pattern, spec_start) do
+          regexp_modifier_group_error(pattern, spec_start + 1)
+        else
+          {spec, next_offset} = read_regexp_modifier_spec(pattern, spec_start)
 
-          {spec, next_offset} = read_regexp_modifier_spec(pattern, spec_start) ->
-            if next_offset > 0 and :binary.at(pattern, next_offset - 1) == ?) do
-              "invalid group"
+          if next_offset > 0 and :binary.at(pattern, next_offset - 1) == ?) do
+            "invalid group"
+          else
+            if valid_regexp_modifier_spec?(spec) do
+              regexp_modifier_group_error(pattern, next_offset)
             else
-              if valid_regexp_modifier_spec?(spec) do
-                regexp_modifier_group_error(pattern, next_offset)
-              else
-                "invalid group"
-              end
+              "invalid group"
             end
+          end
         end
     end
   end

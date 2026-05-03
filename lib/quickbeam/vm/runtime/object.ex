@@ -33,7 +33,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
         end
 
         method "isPrototypeOf" do
-          is_prototype_of(args, this)
+          prototype_of?(args, this)
         end
 
         method "propertyIsEnumerable" do
@@ -106,11 +106,11 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp object_value_of({:symbol, _} = value), do: Heap.wrap(%{"__wrapped_symbol__" => value})
   defp object_value_of(value), do: value
 
-  defp is_prototype_of([{:obj, ref} | _], {:obj, proto_ref}) do
+  defp prototype_of?([{:obj, ref} | _], {:obj, proto_ref}) do
     prototype_chain_contains?(Map.get(Heap.get_obj(ref, %{}), proto()), proto_ref)
   end
 
-  defp is_prototype_of(_, _), do: false
+  defp prototype_of?(_, _), do: false
 
   defp prototype_chain_contains?({:obj, ref}, target_ref) when ref == target_ref, do: true
 
@@ -1144,19 +1144,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp define_property([{:builtin, _, _} = b, key, {:obj, desc_ref} | _]) do
-    desc = Heap.get_obj(desc_ref, %{})
-    prop_key = if is_binary(key), do: key, else: key
-
-    getter = Map.get(desc, "get")
-    setter = Map.get(desc, "set")
-
-    if getter != nil or setter != nil do
-      Heap.put_ctor_static(b, prop_key, {:accessor, getter, setter})
-    else
-      val = Map.get(desc, "value", :undefined)
-      Heap.put_ctor_static(b, prop_key, val)
-    end
-
+    define_static_property(b, key, desc_ref)
     b
   end
 
@@ -1165,6 +1153,11 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp define_callable_property(fun, key, desc_ref) do
+    define_static_property(fun, key, desc_ref)
+    fun
+  end
+
+  defp define_static_property(target, key, desc_ref) do
     desc = Heap.get_obj(desc_ref, %{})
     prop_key = if is_binary(key), do: key, else: key
 
@@ -1172,13 +1165,11 @@ defmodule QuickBEAM.VM.Runtime.Object do
     setter = Map.get(desc, "set")
 
     if getter != nil or setter != nil do
-      Heap.put_ctor_static(fun, prop_key, {:accessor, getter, setter})
+      Heap.put_ctor_static(target, prop_key, {:accessor, getter, setter})
     else
       val = Map.get(desc, "value", :undefined)
-      Heap.put_ctor_static(fun, prop_key, val)
+      Heap.put_ctor_static(target, prop_key, val)
     end
-
-    fun
   end
 
   defp define_properties([obj, {:obj, props_ref} | _]) do
@@ -1310,13 +1301,11 @@ defmodule QuickBEAM.VM.Runtime.Object do
     handler = Map.fetch!(proxy_map, proxy_handler())
     trap = Get.get(handler, "getOwnPropertyDescriptor")
 
-    cond do
-      trap == :undefined or trap == nil ->
-        get_own_property_descriptor([target, prop_name])
-
-      true ->
-        result = Invocation.invoke_callback_or_throw(trap, [target, prop_name])
-        validate_proxy_descriptor_result(target, prop_name, result)
+    if trap == :undefined or trap == nil do
+      get_own_property_descriptor([target, prop_name])
+    else
+      result = Invocation.invoke_callback_or_throw(trap, [target, prop_name])
+      validate_proxy_descriptor_result(target, prop_name, result)
     end
   end
 

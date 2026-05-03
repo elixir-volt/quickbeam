@@ -26,13 +26,11 @@ defmodule QuickBEAM.JS.Parser.Validation.Strict.Params do
   def validate_async_params(state, true, params) do
     names = identifier_param_names(params)
 
-    cond do
-      Enum.any?(names, &(&1 == "await")) or Enum.any?(params, &contains_await_identifier?/1) or
-          Enum.any?(params, &contains_await_expression?/1) ->
-        add_error(state, current(state), "await parameter not allowed in async function")
-
-      true ->
-        state
+    if Enum.any?(names, &(&1 == "await")) or Enum.any?(params, &contains_await_identifier?/1) or
+         Enum.any?(params, &contains_await_expression?/1) do
+      add_error(state, current(state), "await parameter not allowed in async function")
+    else
+      state
     end
   end
 

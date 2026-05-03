@@ -827,14 +827,12 @@ defmodule QuickBEAM.JS.Parser.Statements do
       end
 
       defp parse_switch_consequent(state, acc) do
-        cond do
-          eof?(state) or match_value?(state, "}") or keyword?(state, "case") or
-              keyword?(state, "default") ->
-            {Enum.reverse(acc), state}
-
-          true ->
-            {statement, state} = parse_statement(state)
-            parse_switch_consequent(state, [statement | acc])
+        if eof?(state) or match_value?(state, "}") or keyword?(state, "case") or
+             keyword?(state, "default") do
+          {Enum.reverse(acc), state}
+        else
+          {statement, state} = parse_statement(state)
+          parse_switch_consequent(state, [statement | acc])
         end
       end
 

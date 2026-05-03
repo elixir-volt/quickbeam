@@ -69,15 +69,16 @@ defmodule QuickBEAM.JS.Parser do
   def parse(source, opts \\ []) when is_binary(source) do
     source_type = Keyword.get(opts, :source_type, :script)
 
-    with {:ok, tokens} <- Lexer.tokenize(source) do
-      state = new_state(tokens, source_type: source_type)
-      {program, state} = parse_program(state)
+    case Lexer.tokenize(source) do
+      {:ok, tokens} ->
+        state = new_state(tokens, source_type: source_type)
+        {program, state} = parse_program(state)
 
-      case state.errors do
-        [] -> {:ok, program}
-        errors -> {:error, program, Enum.reverse(errors)}
-      end
-    else
+        case state.errors do
+          [] -> {:ok, program}
+          errors -> {:error, program, Enum.reverse(errors)}
+        end
+
       {:error, tokens, errors} ->
         state = new_state(tokens, source_type: source_type, errors: errors)
         {program, state} = parse_program(state)

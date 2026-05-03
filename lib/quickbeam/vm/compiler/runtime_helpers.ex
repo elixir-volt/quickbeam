@@ -9,8 +9,21 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   alias QuickBEAM.VM.Environment.Captures
   alias QuickBEAM.VM.Interpreter.{Closures, Context, Values}
   alias QuickBEAM.VM.Invocation.Context, as: InvokeContext
-  alias QuickBEAM.VM.ObjectModel.{Class, Copy, Delete, Functions, Get, Methods, Private, Put}
+
+  alias QuickBEAM.VM.ObjectModel.{
+    Class,
+    Copy,
+    Delete,
+    Functions,
+    Get,
+    Methods,
+    Private,
+    Put,
+    Static
+  }
+
   alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Runtime.Collections
 
   # ── Coercion ──
 
@@ -185,12 +198,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     persistent = Heap.get_persistent_globals() || %{}
     builtins = Heap.get_builtin_names() || MapSet.new()
 
-    cond do
-      not MapSet.member?(builtins, name) and Map.has_key?(persistent, name) ->
-        Map.fetch(persistent, name)
-
-      true ->
-        Map.fetch(globals, name)
+    if not MapSet.member?(builtins, name) and Map.has_key?(persistent, name) do
+      Map.fetch(persistent, name)
+    else
+      Map.fetch(globals, name)
     end
   end
 
@@ -576,42 +587,12 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   def delete_property(_ctx, {:builtin, _name, map} = fun, key) when is_map(map),
-    do: delete_static(fun, key)
+    do: Static.delete_static(fun, key)
 
-  def delete_property(_ctx, {:builtin, _name, _} = fun, key), do: delete_static(fun, key)
-  def delete_property(_ctx, {:closure, _, _} = fun, key), do: delete_static(fun, key)
-  def delete_property(_ctx, %Bytecode.Function{} = fun, key), do: delete_static(fun, key)
+  def delete_property(_ctx, {:builtin, _name, _} = fun, key), do: Static.delete_static(fun, key)
+  def delete_property(_ctx, {:closure, _, _} = fun, key), do: Static.delete_static(fun, key)
+  def delete_property(_ctx, %Bytecode.Function{} = fun, key), do: Static.delete_static(fun, key)
   def delete_property(_ctx, obj, key), do: Delete.delete_property(obj, key)
-
-  defp delete_static(fun, key) do
-    key_str = if is_binary(key), do: key, else: Values.stringify(key)
-    statics = Heap.get_ctor_statics(fun)
-
-    if Map.has_key?(statics, key_str) do
-      Heap.put_ctor_statics(fun, Map.delete(statics, key_str))
-      true
-    else
-      case fun do
-        {:builtin, _, _} ->
-          val = Get.get(fun, key_str)
-
-          cond do
-            val == :undefined ->
-              true
-
-            is_number(val) or val == :infinity or val == :neg_infinity or val == :nan ->
-              false
-
-            true ->
-              Heap.put_ctor_statics(fun, Map.put(statics, key_str, :deleted))
-              true
-          end
-
-        _ ->
-          true
-      end
-    end
-  end
 
   def set_proto(_ctx \\ nil, obj, proto)
 
@@ -981,22 +962,20 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   @doc "Loads a registered VM module by name."
   def import_module(ctx, specifier) do
-    cond do
-      is_binary(specifier) and Map.get(ctx, :runtime_pid) != nil ->
-        case QuickBEAM.Runtime.load_module(ctx.runtime_pid, specifier, "") do
-          :ok ->
-            QuickBEAM.VM.PromiseState.resolved(QuickBEAM.VM.Runtime.new_object())
+    if is_binary(specifier) and Map.get(ctx, :runtime_pid) != nil do
+      case QuickBEAM.Runtime.load_module(ctx.runtime_pid, specifier, "") do
+        :ok ->
+          QuickBEAM.VM.PromiseState.resolved(QuickBEAM.VM.Runtime.new_object())
 
-          {:error, _} ->
-            QuickBEAM.VM.PromiseState.rejected(
-              make_error_with_ctx(ctx, "Cannot find module '#{specifier}'", "TypeError")
-            )
-        end
-
-      true ->
-        QuickBEAM.VM.PromiseState.rejected(
-          make_error_with_ctx(ctx, "Invalid module specifier", "TypeError")
-        )
+        {:error, _} ->
+          QuickBEAM.VM.PromiseState.rejected(
+            make_error_with_ctx(ctx, "Cannot find module '#{specifier}'", "TypeError")
+          )
+      end
+    else
+      QuickBEAM.VM.PromiseState.rejected(
+        make_error_with_ctx(ctx, "Invalid module specifier", "TypeError")
+      )
     end
   end
 
@@ -1064,8 +1043,6 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
-  defp ensure_compiled_stack(error, _ctx, _stack_override), do: error
-
   defp compiled_stack(ctx) do
     case context_current_func(ctx) do
       %Bytecode.Function{} = fun ->
@@ -1092,20 +1069,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     "    at #{fun.filename}:#{line}:#{col}"
   end
 
-  def with_has_property(_ctx, {:obj, _} = obj, key) do
-    if Put.has_property(obj, key) do
-      unscopables = Get.get(obj, {:symbol, "Symbol.unscopables"})
-
-      case unscopables do
-        {:obj, _} -> not Values.truthy?(Get.get(unscopables, key))
-        _ -> true
-      end
-    else
-      false
-    end
-  end
-
-  def with_has_property(_ctx, _obj, _key), do: false
+  def with_has_property(_ctx, obj, key), do: Static.with_has_property?(obj, key)
 
   # ── Iterators ──
 
@@ -1515,9 +1479,6 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
-  defp prototype_chain_contains?(_, :undefined), do: false
-  defp prototype_chain_contains?(_, nil), do: false
-
   defp prototype_chain_contains?({:obj, ref} = obj, target) do
     case Heap.get_obj(ref, %{}) do
       {:shape, _, _, _, parent} ->
@@ -1582,25 +1543,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   defp enumerable_keys(obj), do: Copy.enumerable_keys(obj)
 
-  defp check_array_proto_iterator({:obj, _ref}, _raw_ref) do
-    sym_iter = {:symbol, "Symbol.iterator"}
-
-    case Heap.get_array_proto() do
-      {:obj, proto_ref} ->
-        proto_data = Heap.get_obj(proto_ref, %{})
-
-        case is_map(proto_data) && Map.get(proto_data, sym_iter) do
-          nil -> :deleted
-          false -> :deleted
-          :deleted -> :deleted
-          {:builtin, "[Symbol.iterator]", _} -> :default
-          other -> other
-        end
-
-      _ ->
-        :default
-    end
-  end
+  defp check_array_proto_iterator({:obj, _ref}, _raw_ref),
+    do: Collections.array_proto_iterator_status()
 
   defp invoke_custom_iter(_ctx, iter_fn, obj) do
     iter_obj = Invocation.invoke_with_receiver(iter_fn, [], Runtime.gas_budget(), obj)

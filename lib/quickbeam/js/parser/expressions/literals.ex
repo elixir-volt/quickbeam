@@ -7,6 +7,10 @@ defmodule QuickBEAM.JS.Parser.Expressions.Literals do
       alias QuickBEAM.JS.Parser.{Lexer, Token, Validation}
 
       defp parse_private_identifier_expression(state) do
+        parse_private_identifier_from_hash(state)
+      end
+
+      defp parse_private_identifier_from_hash(state) do
         hash = current(state)
         state = advance(state)
         token = current(state)
@@ -400,15 +404,7 @@ defmodule QuickBEAM.JS.Parser.Expressions.Literals do
 
         cond do
           match_value?(state, "#") ->
-            hash = current(state)
-            state = advance(state)
-            token = current(state)
-
-            if private_identifier_token?(hash, token) do
-              {%AST.PrivateIdentifier{name: token.value}, advance(state)}
-            else
-              {%AST.PrivateIdentifier{name: ""}, add_error(state, token, "expected private name")}
-            end
+            parse_private_identifier_from_hash(state)
 
           token.type in [:identifier, :keyword, :boolean, :null] ->
             {%AST.Identifier{name: to_string(token.value)}, advance(state)}

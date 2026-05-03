@@ -139,7 +139,6 @@ defmodule QuickBEAM.VM.Compiler do
       {:decode, {:error, reason}} -> {:error, {:decode_failed, reason}}
       {:lower, {:error, reason}} -> {:error, reason}
       {:forms, {:error, reason}} -> {:error, {:beam_compile_failed, reason}}
-      {:forms, {:error, module, errors}} -> {:error, {:beam_compile_failed, module, errors}}
     end
   end
 

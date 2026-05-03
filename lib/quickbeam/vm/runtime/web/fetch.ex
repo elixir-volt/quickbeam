@@ -173,54 +173,38 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
       prop("bodyUsed", false)
 
       method "text" do
-        consume_body(body_ref, this, fn data ->
-          case data do
-            nil -> PromiseState.resolved("")
-            :undefined -> PromiseState.resolved("")
-            s when is_binary(s) -> PromiseState.resolved(s)
-            _ -> PromiseState.resolved(to_string(data))
-          end
-        end)
+        consume_body(body_ref, this, &resolve_body_text/1)
       end
 
       method "json" do
         consume_body(body_ref, this, fn data ->
-          str =
-            case data do
-              nil -> ""
-              :undefined -> ""
-              s when is_binary(s) -> s
-              _ -> to_string(data)
-            end
-
-          parsed = JSON.parse(str)
-          PromiseState.resolved(parsed)
+          data
+          |> body_text()
+          |> JSON.parse()
+          |> PromiseState.resolved()
         end)
       end
 
       method "arrayBuffer" do
         consume_body(body_ref, this, fn data ->
-          bin =
-            case data do
-              nil -> ""
-              :undefined -> ""
-              s when is_binary(s) -> s
-              _ -> to_string(data)
-            end
-
-          buf = make_array_buffer(bin)
-          PromiseState.resolved(buf)
+          data
+          |> body_text()
+          |> make_array_buffer()
+          |> PromiseState.resolved()
         end)
       end
 
       method "clone" do
-        body_data = (Heap.get_obj(body_ref, %{}) || %{}) |> Map.get(:data)
-        new_body_ref = make_ref()
-        Heap.put_obj(new_body_ref, %{consumed: false, data: body_data})
-
-        Heap.wrap(build_request_map(url_str, method, headers, new_body_ref, request_ctor))
+        clone_request(url_str, method, headers, body_ref, request_ctor)
       end
     end
+  end
+
+  defp clone_request(url, method, headers, body_ref, request_ctor) do
+    body_data = (Heap.get_obj(body_ref, %{}) || %{}) |> Map.get(:data)
+    new_body_ref = make_ref()
+    Heap.put_obj(new_body_ref, %{consumed: false, data: body_data})
+    Heap.wrap(build_request_map(url, method, headers, new_body_ref, request_ctor))
   end
 
   defp build_request_map(url, method, headers, body_ref, request_ctor) do
@@ -232,49 +216,23 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
       prop("constructor", request_ctor)
 
       method "text" do
-        consume_body(body_ref, this, fn data ->
-          case data do
-            nil -> PromiseState.resolved("")
-            :undefined -> PromiseState.resolved("")
-            s when is_binary(s) -> PromiseState.resolved(s)
-            _ -> PromiseState.resolved(to_string(data))
-          end
-        end)
+        consume_body(body_ref, this, &resolve_body_text/1)
       end
 
       method "json" do
         consume_body(body_ref, this, fn data ->
-          str =
-            case data do
-              nil -> ""
-              :undefined -> ""
-              s when is_binary(s) -> s
-              _ -> to_string(data)
-            end
-
-          PromiseState.resolved(JSON.parse(str))
+          PromiseState.resolved(JSON.parse(body_text(data)))
         end)
       end
 
       method "arrayBuffer" do
         consume_body(body_ref, this, fn data ->
-          bin =
-            case data do
-              nil -> ""
-              :undefined -> ""
-              s when is_binary(s) -> s
-              _ -> to_string(data)
-            end
-
-          PromiseState.resolved(make_array_buffer(bin))
+          PromiseState.resolved(make_array_buffer(body_text(data)))
         end)
       end
 
       method "clone" do
-        body_data = (Heap.get_obj(body_ref, %{}) || %{}) |> Map.get(:data)
-        new_body_ref = make_ref()
-        Heap.put_obj(new_body_ref, %{consumed: false, data: body_data})
-        Heap.wrap(build_request_map(url, method, headers, new_body_ref, request_ctor))
+        clone_request(url, method, headers, body_ref, request_ctor)
       end
     end
   end
@@ -320,61 +278,28 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
       prop("constructor", response_ctor)
 
       method "text" do
-        consume_body(body_ref, this, fn data ->
-          case data do
-            nil -> PromiseState.resolved("")
-            :undefined -> PromiseState.resolved("")
-            {:bytes, b} when is_binary(b) -> PromiseState.resolved(b)
-            s when is_binary(s) -> PromiseState.resolved(s)
-            _ -> PromiseState.resolved(to_string(data))
-          end
-        end)
+        consume_body(body_ref, this, &resolve_body_text/1)
       end
 
       method "json" do
         consume_body(body_ref, this, fn data ->
-          str =
-            case data do
-              nil -> ""
-              :undefined -> ""
-              {:bytes, b} when is_binary(b) -> b
-              s when is_binary(s) -> s
-              _ -> to_string(data)
-            end
-
-          parsed = JSON.parse(str)
-          PromiseState.resolved(parsed)
+          PromiseState.resolved(JSON.parse(body_text(data)))
         end)
       end
 
       method "arrayBuffer" do
         consume_body(body_ref, this, fn data ->
-          bin =
-            case data do
-              nil -> ""
-              :undefined -> ""
-              {:bytes, b} when is_binary(b) -> b
-              s when is_binary(s) -> s
-              _ -> to_string(data)
-            end
-
-          PromiseState.resolved(make_array_buffer(bin))
+          PromiseState.resolved(make_array_buffer(body_text(data)))
         end)
       end
 
       method "bytes" do
         consume_body(body_ref, this, fn data ->
-          bin =
-            case data do
-              nil -> ""
-              :undefined -> ""
-              {:bytes, b} when is_binary(b) -> b
-              s when is_binary(s) -> s
-              _ -> to_string(data)
-            end
-
-          bytes = :binary.bin_to_list(bin)
-          PromiseState.resolved(Heap.wrap(bytes))
+          data
+          |> body_text()
+          |> :binary.bin_to_list()
+          |> Heap.wrap()
+          |> PromiseState.resolved()
         end)
       end
 
@@ -386,6 +311,14 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
       end
     end
   end
+
+  defp resolve_body_text(data), do: PromiseState.resolved(body_text(data))
+
+  defp body_text(nil), do: ""
+  defp body_text(:undefined), do: ""
+  defp body_text({:bytes, data}) when is_binary(data), do: data
+  defp body_text(data) when is_binary(data), do: data
+  defp body_text(data), do: to_string(data)
 
   defp consume_body(body_ref, this, fun) do
     case Heap.get_obj(body_ref, %{}) do

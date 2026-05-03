@@ -9,27 +9,25 @@ defmodule QuickBEAM.JS.Parser.Modules do
       defp parse_import_declaration(state) do
         state = advance(state)
 
-        cond do
-          current(state).type == :string ->
-            source = %AST.Literal{value: current(state).value, raw: current(state).raw}
-            {attributes, state} = parse_import_attributes(advance(state))
+        if current(state).type == :string do
+          source = %AST.Literal{value: current(state).value, raw: current(state).raw}
+          {attributes, state} = parse_import_attributes(advance(state))
 
-            {%AST.ImportDeclaration{source: source, attributes: attributes},
-             consume_semicolon(state)}
+          {%AST.ImportDeclaration{source: source, attributes: attributes},
+           consume_semicolon(state)}
+        else
+          state = consume_import_phase_modifier(state)
+          state = consume_import_defer_modifier(state)
+          {specifiers, state} = parse_import_specifiers(state, [])
+          state = expect_identifier_value(state, "from")
+          {source, state} = parse_module_source(state)
+          {attributes, state} = parse_import_attributes(state)
 
-          true ->
-            state = consume_import_phase_modifier(state)
-            state = consume_import_defer_modifier(state)
-            {specifiers, state} = parse_import_specifiers(state, [])
-            state = expect_identifier_value(state, "from")
-            {source, state} = parse_module_source(state)
-            {attributes, state} = parse_import_attributes(state)
-
-            {%AST.ImportDeclaration{
-               specifiers: specifiers,
-               source: source,
-               attributes: attributes
-             }, consume_semicolon(state)}
+          {%AST.ImportDeclaration{
+             specifiers: specifiers,
+             source: source,
+             attributes: attributes
+           }, consume_semicolon(state)}
         end
       end
 
@@ -94,32 +92,30 @@ defmodule QuickBEAM.JS.Parser.Modules do
       end
 
       defp parse_named_import_specifiers(state, acc) do
-        cond do
-          match_value?(state, "}") ->
-            {Enum.reverse(acc), advance(state)}
+        if match_value?(state, "}") do
+          {Enum.reverse(acc), advance(state)}
+        else
+          {imported, state} = parse_property_key(state)
 
-          true ->
-            {imported, state} = parse_property_key(state)
-
-            {local, state} =
-              if identifier_like?(current(state)) and current(state).value == "as" do
-                parse_binding_identifier(advance(state))
-              else
-                {imported, state}
-              end
-
-            spec = %AST.ImportSpecifier{imported: imported, local: local}
-
-            cond do
-              match_value?(state, ",") ->
-                parse_named_import_specifiers(advance(state), [spec | acc])
-
-              match_value?(state, "}") ->
-                {Enum.reverse([spec | acc]), advance(state)}
-
-              true ->
-                {Enum.reverse([spec | acc]), expect_value(state, "}")}
+          {local, state} =
+            if identifier_like?(current(state)) and current(state).value == "as" do
+              parse_binding_identifier(advance(state))
+            else
+              {imported, state}
             end
+
+          spec = %AST.ImportSpecifier{imported: imported, local: local}
+
+          cond do
+            match_value?(state, ",") ->
+              parse_named_import_specifiers(advance(state), [spec | acc])
+
+            match_value?(state, "}") ->
+              {Enum.reverse([spec | acc]), advance(state)}
+
+            true ->
+              {Enum.reverse([spec | acc]), expect_value(state, "}")}
+          end
         end
       end
 
@@ -204,27 +200,25 @@ defmodule QuickBEAM.JS.Parser.Modules do
       end
 
       defp parse_export_specifiers(state, acc) do
-        cond do
-          match_value?(state, "}") ->
-            {Enum.reverse(acc), advance(state)}
+        if match_value?(state, "}") do
+          {Enum.reverse(acc), advance(state)}
+        else
+          {local, state} = parse_property_key(state)
 
-          true ->
-            {local, state} = parse_property_key(state)
-
-            {exported, state} =
-              if identifier_like?(current(state)) and current(state).value == "as" do
-                parse_property_key(advance(state))
-              else
-                {local, state}
-              end
-
-            spec = %AST.ExportSpecifier{local: local, exported: exported}
-
-            cond do
-              match_value?(state, ",") -> parse_export_specifiers(advance(state), [spec | acc])
-              match_value?(state, "}") -> {Enum.reverse([spec | acc]), advance(state)}
-              true -> {Enum.reverse([spec | acc]), expect_value(state, "}")}
+          {exported, state} =
+            if identifier_like?(current(state)) and current(state).value == "as" do
+              parse_property_key(advance(state))
+            else
+              {local, state}
             end
+
+          spec = %AST.ExportSpecifier{local: local, exported: exported}
+
+          cond do
+            match_value?(state, ",") -> parse_export_specifiers(advance(state), [spec | acc])
+            match_value?(state, "}") -> {Enum.reverse([spec | acc]), advance(state)}
+            true -> {Enum.reverse([spec | acc]), expect_value(state, "}")}
+          end
         end
       end
 

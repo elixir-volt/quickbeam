@@ -9,6 +9,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
   alias QuickBEAM.VM.{Heap, JSThrow, Runtime}
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
   alias QuickBEAM.VM.Runtime.Constructors
+  alias QuickBEAM.VM.Runtime.Web.BinaryData
   alias QuickBEAM.VM.Runtime.Web.Buffer.{BinaryCodec, Encoding}
 
   @known_encodings ~w[utf8 utf-8 ascii latin1 binary base64 base64url hex ucs2 utf16le utf-16le ucs-2]
@@ -435,14 +436,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     search_from = max(0, min(offset, byte_size(bytes)))
     haystack = binary_part(bytes, search_from, byte_size(bytes) - search_from)
 
-    needle_bytes =
-      case needle do
-        n when is_integer(n) -> <<band(n, 0xFF)>>
-        n when is_float(n) -> <<band(trunc(n), 0xFF)>>
-        s when is_binary(s) -> s
-        {:obj, _} -> extract_buf_bytes(needle)
-        _ -> <<>>
-      end
+    needle_bytes = needle_bytes(needle)
 
     case :binary.match(haystack, needle_bytes) do
       {pos, _} -> pos + search_from
@@ -456,14 +450,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
     search_to = max(0, min(offset, byte_size(bytes)))
     haystack = binary_part(bytes, 0, search_to)
 
-    needle_bytes =
-      case needle do
-        n when is_integer(n) -> <<band(n, 0xFF)>>
-        n when is_float(n) -> <<band(trunc(n), 0xFF)>>
-        s when is_binary(s) -> s
-        {:obj, _} -> extract_buf_bytes(needle)
-        _ -> <<>>
-      end
+    needle_bytes = needle_bytes(needle)
 
     positions = :binary.matches(haystack, needle_bytes)
 
@@ -472,6 +459,12 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
       nil -> -1
     end
   end
+
+  defp needle_bytes(n) when is_integer(n), do: <<band(n, 0xFF)>>
+  defp needle_bytes(n) when is_float(n), do: <<band(trunc(n), 0xFF)>>
+  defp needle_bytes(s) when is_binary(s), do: s
+  defp needle_bytes({:obj, _} = obj), do: extract_buf_bytes(obj)
+  defp needle_bytes(_), do: <<>>
 
   defp buf_includes(this, [needle | rest]) do
     buf_index_of(this, [needle | rest]) != -1
@@ -790,27 +783,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Buffer do
       m when is_map(m) ->
         cond do
           Map.has_key?(m, "__typed_array__") ->
-            case Map.get(m, "buffer") do
-              {:obj, buf_ref} ->
-                case Heap.get_obj(buf_ref, %{}) do
-                  bm when is_map(bm) ->
-                    ab_buf = Map.get(bm, "__buffer__", <<>>)
-                    offset = Map.get(m, "byteOffset", 0)
-                    byte_len = Map.get(m, "byteLength", 0)
-
-                    if byte_size(ab_buf) >= offset + byte_len and byte_len > 0 do
-                      binary_part(ab_buf, offset, byte_len)
-                    else
-                      Map.get(m, "__buffer__", <<>>)
-                    end
-
-                  _ ->
-                    <<>>
-                end
-
-              _ ->
-                Map.get(m, "__buffer__", <<>>)
-            end
+            BinaryData.typed_array_bytes(m)
 
           Map.has_key?(m, "__buffer__") ->
             Map.get(m, "__buffer__", <<>>)

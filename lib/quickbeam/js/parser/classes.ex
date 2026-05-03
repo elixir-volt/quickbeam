@@ -486,21 +486,19 @@ defmodule QuickBEAM.JS.Parser.Classes do
       end
 
       defp parse_class_key_with_computed(state) do
-        cond do
-          match_value?(state, "#") ->
-            hash = current(state)
-            state = advance(state)
-            token = current(state)
+        if match_value?(state, "#") do
+          hash = current(state)
+          state = advance(state)
+          token = current(state)
 
-            if private_identifier_token?(hash, token) do
-              {%AST.PrivateIdentifier{name: token.value}, false, advance(state)}
-            else
-              {%AST.PrivateIdentifier{name: ""}, false,
-               add_error(state, token, "expected private name")}
-            end
-
-          true ->
-            parse_property_key_with_computed(state)
+          if private_identifier_token?(hash, token) do
+            {%AST.PrivateIdentifier{name: token.value}, false, advance(state)}
+          else
+            {%AST.PrivateIdentifier{name: ""}, false,
+             add_error(state, token, "expected private name")}
+          end
+        else
+          parse_property_key_with_computed(state)
         end
       end
     end

@@ -4,8 +4,8 @@ defmodule QuickBEAM.VM.Runtime.Map do
   import QuickBEAM.VM.Heap.Keys
 
   alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Runtime.Collections
 
   @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor do
@@ -53,7 +53,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
               {:obj, eref}, acc ->
                 case Heap.get_obj(eref, []) do
                   [k, v | _] ->
-                    validate_weak_key!(k, "WeakMap")
+                    Collections.validate_weak_key!(k, "WeakMap")
                     Map.put(acc, k, v)
 
                   _ ->
@@ -96,13 +96,6 @@ defmodule QuickBEAM.VM.Runtime.Map do
 
   def proto_property(_), do: :undefined
 
-  defp validate_weak_key!({:obj, _}, _), do: :ok
-  defp validate_weak_key!({:symbol, _, _}, _), do: :ok
-
-  defp validate_weak_key!(_, kind) do
-    JSThrow.type_error!("invalid value used as #{kind} key")
-  end
-
   defp normalize_key(k) when is_float(k) and k == trunc(k), do: trunc(k)
   defp normalize_key(k), do: k
 
@@ -129,7 +122,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
 
   defp set([key, val | _], {:obj, ref}) do
     obj = Heap.get_obj(ref, %{})
-    if Map.get(obj, :weak), do: validate_weak_key!(key, "WeakMap")
+    if Map.get(obj, :weak), do: Collections.validate_weak_key!(key, "WeakMap")
     key = normalize_key(key)
     data = Map.get(obj, map_data(), %{})
     order = Map.get(obj, key_order(), [])

@@ -22,8 +22,21 @@ defmodule QuickBEAM.VM.Interpreter do
   alias QuickBEAM.JSError
   alias QuickBEAM.VM.Invocation.Context, as: InvokeContext
   alias QuickBEAM.VM.JSThrow
-  alias QuickBEAM.VM.ObjectModel.{Class, Copy, Delete, Functions, Get, Methods, Private, Put}
+
+  alias QuickBEAM.VM.ObjectModel.{
+    Class,
+    Copy,
+    Delete,
+    Functions,
+    Get,
+    Methods,
+    Private,
+    Put,
+    Static
+  }
+
   alias QuickBEAM.VM.PromiseState, as: Promise
+  alias QuickBEAM.VM.Runtime.Collections
 
   alias __MODULE__.{
     ClosureBuilder,
@@ -404,25 +417,7 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
-  defp array_proto_iterator(_obj) do
-    sym_iter = {:symbol, "Symbol.iterator"}
-
-    case Heap.get_array_proto() do
-      {:obj, proto_ref} ->
-        proto_data = Heap.get_obj(proto_ref, %{})
-
-        case is_map(proto_data) && Map.get(proto_data, sym_iter) do
-          nil -> :deleted
-          false -> :deleted
-          :deleted -> :deleted
-          {:builtin, "[Symbol.iterator]", _} -> :default
-          other -> other
-        end
-
-      _ ->
-        :default
-    end
-  end
+  defp array_proto_iterator(_obj), do: Collections.array_proto_iterator_status()
 
   defp invoke_custom_iterator(iter_fn, obj) do
     iter_obj = Invocation.invoke_with_receiver(iter_fn, [], Runtime.gas_budget(), obj)
@@ -939,50 +934,9 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
-  defp with_has_property?({:obj, _} = obj, key) do
-    if Put.has_property(obj, key) do
-      unscopables = Get.get(obj, {:symbol, "Symbol.unscopables"})
+  defp with_has_property?(obj, key), do: Static.with_has_property?(obj, key)
 
-      case unscopables do
-        {:obj, _} -> not Values.truthy?(Get.get(unscopables, key))
-        _ -> true
-      end
-    else
-      false
-    end
-  end
-
-  defp with_has_property?(_, _), do: false
-
-  defp delete_static(fun, key) do
-    key_str = if is_binary(key), do: key, else: Values.stringify(key)
-    statics = Heap.get_ctor_statics(fun)
-
-    if Map.has_key?(statics, key_str) do
-      Heap.put_ctor_statics(fun, Map.delete(statics, key_str))
-      true
-    else
-      case fun do
-        {:builtin, _, _} ->
-          val = Get.get(fun, key_str)
-
-          cond do
-            val == :undefined ->
-              true
-
-            is_number(val) or val == :infinity or val == :neg_infinity or val == :nan ->
-              false
-
-            true ->
-              Heap.put_ctor_statics(fun, Map.put(statics, key_str, :deleted))
-              true
-          end
-
-        _ ->
-          true
-      end
-    end
-  end
+  defp delete_static(fun, key), do: Static.delete_static(fun, key)
 
   defp ensure_initialized_local!(ctx, idx, val) do
     if val == :__tdz__ or
@@ -1294,15 +1248,11 @@ defmodule QuickBEAM.VM.Interpreter do
   defp pending_constructor_this(other), do: other
 
   defp super_constructor_this(fun, pending_this) do
-    case unwrap_constructor_target(fun) do
+    case Invocation.unwrap_constructor_target(fun) do
       %Bytecode.Function{is_derived_class_constructor: true} -> {:uninitialized, pending_this}
       _ -> pending_this
     end
   end
-
-  defp unwrap_constructor_target({:closure, _, %Bytecode.Function{} = f}), do: f
-  defp unwrap_constructor_target({:bound, _, inner, _, _}), do: unwrap_constructor_target(inner)
-  defp unwrap_constructor_target(other), do: other
 
   defp put_arg_value(ctx, idx, val, arg_buf) do
     padded = Tuple.to_list(arg_buf)

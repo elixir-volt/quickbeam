@@ -383,7 +383,7 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
-  defp dispatch_proxy_call({:obj, ref} = obj, args, ctx, this) do
+  defp dispatch_proxy_call({:obj, ref}, args, ctx, this) do
     case Heap.get_obj(ref, %{}) do
       %{proxy_target() => target, proxy_handler() => handler} ->
         apply_trap = Get.get(handler, "apply")
@@ -401,7 +401,7 @@ defmodule QuickBEAM.VM.Invocation do
         end
 
       _ ->
-        Builtin.call(obj, args, this)
+        QuickBEAM.VM.JSThrow.type_error!("not a function")
     end
   end
 
@@ -531,9 +531,9 @@ defmodule QuickBEAM.VM.Invocation do
     )
   end
 
-  defp unwrap_constructor_target({:closure, _, %Bytecode.Function{} = fun}), do: fun
-  defp unwrap_constructor_target({:bound, _, inner, _, _}), do: unwrap_constructor_target(inner)
-  defp unwrap_constructor_target(other), do: other
+  def unwrap_constructor_target({:closure, _, %Bytecode.Function{} = fun}), do: fun
+  def unwrap_constructor_target({:bound, _, inner, _, _}), do: unwrap_constructor_target(inner)
+  def unwrap_constructor_target(other), do: other
 
   defp unwrap_new_target({:closure, _, %Bytecode.Function{} = fun}), do: fun
   defp unwrap_new_target(%Bytecode.Function{} = fun), do: fun

@@ -252,8 +252,6 @@ defmodule QuickBEAM do
       :error when mode == :auto -> Interpreter.eval(parsed.value, [], opts, parsed.atoms)
       :error -> {:error, {:beam_compiler_unsupported, :top_level}}
       {:error, {:js_throw, _}} = error -> error
-      {:error, _} when mode == :auto -> Interpreter.eval(parsed.value, [], opts, parsed.atoms)
-      {:error, reason} -> {:error, {:beam_compiler_error, reason}}
     end
   end
 

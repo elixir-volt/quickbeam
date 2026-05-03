@@ -238,10 +238,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
     not Heap.extensible?(ref) and Enum.sort(target_keys) != Enum.sort(trap_keys)
   end
 
-  defp non_extensible_key_mismatch?(_, _, _), do: false
-
   defp target_prop_desc({:obj, ref}, key), do: Heap.get_prop_desc(ref, key)
-  defp target_prop_desc(_, _), do: nil
 
   defp own_keys(map) when is_map(map) do
     map

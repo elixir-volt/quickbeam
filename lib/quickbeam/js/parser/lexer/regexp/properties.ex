@@ -134,12 +134,10 @@ defmodule QuickBEAM.JS.Parser.Lexer.Regexp.Properties do
   defp regexp_property_error("", _allow_string_properties?), do: "unknown unicode property name"
 
   defp regexp_property_error(property, allow_string_properties?) do
-    cond do
-      allow_string_properties? and MapSet.member?(@unicode_string_properties, property) ->
-        nil
-
-      true ->
-        regexp_codepoint_property_error(property)
+    if allow_string_properties? and MapSet.member?(@unicode_string_properties, property) do
+      nil
+    else
+      regexp_codepoint_property_error(property)
     end
   end
 

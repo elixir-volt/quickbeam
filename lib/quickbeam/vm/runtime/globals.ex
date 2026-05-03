@@ -23,8 +23,8 @@ defmodule QuickBEAM.VM.Runtime.Globals do
     TypedArray
   }
 
-  alias QuickBEAM.VM.Runtime.Date, as: JSDate
   alias QuickBEAM.VM.Runtime.Constructors, as: ConstructorRegistry
+  alias QuickBEAM.VM.Runtime.Date, as: JSDate
   alias QuickBEAM.VM.Runtime.Globals.{Constructors, Functions}
   alias QuickBEAM.VM.Runtime.Map, as: JSMap
   alias QuickBEAM.VM.Runtime.Set, as: JSSet

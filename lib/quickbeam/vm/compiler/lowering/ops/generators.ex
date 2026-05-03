@@ -107,6 +107,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Generators do
     stack = State.current_stack(state)
     captures = State.current_capture_cells(state)
 
+    continuation_fun(arg_var, ctx, slots, stack, captures, next_entry, stack_depths)
+  end
+
+  defp continuation_fun(arg_var, ctx, slots, stack, captures, next_entry, stack_depths) do
     expected_depth = Map.get(stack_depths, next_entry)
 
     if expected_depth && expected_depth == length(stack) do
@@ -147,17 +151,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Generators do
     stack = [false_var, arg_var | State.current_stack(state)]
     captures = State.current_capture_cells(state)
 
-    expected_depth = Map.get(stack_depths, next_entry)
-
-    if expected_depth && expected_depth == length(stack) do
-      call =
-        Builder.local_call(Builder.block_name(next_entry), [
-          ctx | slots ++ stack ++ captures
-        ])
-
-      {:fun, 1, {:clauses, [{:clause, 1, [arg_var], [], [call]}]}}
-    else
-      {:fun, 1, {:clauses, [{:clause, 1, [arg_var], [], [Builder.atom(:undefined)]}]}}
-    end
+    continuation_fun(arg_var, ctx, slots, stack, captures, next_entry, stack_depths)
   end
 end

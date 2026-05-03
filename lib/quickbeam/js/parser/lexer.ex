@@ -188,30 +188,27 @@ defmodule QuickBEAM.JS.Parser.Lexer do
   end
 
   defp scan_identifier_escape(lexer, acc) do
-    cond do
-      unicode_brace_escape?(lexer) ->
-        scan_braced_identifier_escape(lexer, acc)
-
-      true ->
-        case binary_part(lexer.source, lexer.offset, min(6, lexer.length - lexer.offset)) do
-          <<"\\u", hex::binary-size(4)>> ->
-            case Integer.parse(hex, 16) do
-              {codepoint, ""} when codepoint in 0..0xD7FF or codepoint in 0xE000..0x10FFFF ->
-                if valid_identifier_escape?(codepoint, acc) do
-                  scan_identifier_parts(advance_ascii(lexer, 6), [<<codepoint::utf8>> | acc])
-                else
-                  {add_error(lexer, "invalid unicode escape in identifier") |> advance_ascii(2),
-                   acc}
-                end
-
-              _ ->
+    if unicode_brace_escape?(lexer) do
+      scan_braced_identifier_escape(lexer, acc)
+    else
+      case binary_part(lexer.source, lexer.offset, min(6, lexer.length - lexer.offset)) do
+        <<"\\u", hex::binary-size(4)>> ->
+          case Integer.parse(hex, 16) do
+            {codepoint, ""} when codepoint in 0..0xD7FF or codepoint in 0xE000..0x10FFFF ->
+              if valid_identifier_escape?(codepoint, acc) do
+                scan_identifier_parts(advance_ascii(lexer, 6), [<<codepoint::utf8>> | acc])
+              else
                 {add_error(lexer, "invalid unicode escape in identifier") |> advance_ascii(2),
                  acc}
-            end
+              end
 
-          _ ->
-            {add_error(lexer, "invalid unicode escape in identifier") |> advance_ascii(2), acc}
-        end
+            _ ->
+              {add_error(lexer, "invalid unicode escape in identifier") |> advance_ascii(2), acc}
+          end
+
+        _ ->
+          {add_error(lexer, "invalid unicode escape in identifier") |> advance_ascii(2), acc}
+      end
     end
   end
 
@@ -727,12 +724,10 @@ defmodule QuickBEAM.JS.Parser.Lexer do
   end
 
   defp scan_unicode_string_escape(lexer) do
-    cond do
-      current(lexer) == ?{ ->
-        scan_braced_string_escape(advance(lexer))
-
-      true ->
-        scan_fixed_string_escape(lexer, 4)
+    if current(lexer) == ?{ do
+      scan_braced_string_escape(advance(lexer))
+    else
+      scan_fixed_string_escape(lexer, 4)
     end
   end
 

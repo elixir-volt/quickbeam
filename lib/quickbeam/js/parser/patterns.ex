@@ -14,6 +14,16 @@ defmodule QuickBEAM.JS.Parser.Patterns do
         end
       end
 
+      defp maybe_assignment_pattern(state, left) do
+        if match_value?(state, "=") do
+          state = advance(state)
+          {right, state} = parse_expression(state, 2)
+          {%AST.AssignmentPattern{left: left, right: right}, state}
+        else
+          {left, state}
+        end
+      end
+
       defp parse_binding_identifier(state) do
         token = current(state)
 
@@ -100,14 +110,7 @@ defmodule QuickBEAM.JS.Parser.Patterns do
                   {key, state}
               end
 
-            {value, state} =
-              if match_value?(state, "=") do
-                state = advance(state)
-                {right, state} = parse_expression(state, 2)
-                {%AST.AssignmentPattern{left: value, right: right}, state}
-              else
-                {value, state}
-              end
+            {value, state} = maybe_assignment_pattern(state, value)
 
             property = %AST.Property{
               key: key,
@@ -162,14 +165,7 @@ defmodule QuickBEAM.JS.Parser.Patterns do
           true ->
             {element, state} = parse_binding_pattern(state)
 
-            {element, state} =
-              if match_value?(state, "=") do
-                state = advance(state)
-                {right, state} = parse_expression(state, 2)
-                {%AST.AssignmentPattern{left: element, right: right}, state}
-              else
-                {element, state}
-              end
+            {element, state} = maybe_assignment_pattern(state, element)
 
             cond do
               match_value?(state, ",") ->

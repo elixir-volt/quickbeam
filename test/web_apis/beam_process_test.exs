@@ -169,7 +169,8 @@ defmodule QuickBEAM.WebAPIs.BeamProcessTest do
   end
 
   describe "Process.monitor" do
-    @tag :skip  # Requires inter-process Beam.monitor — not available in single-process BEAM mode
+    # Requires inter-process Beam.monitor — not available in single-process BEAM mode
+    @tag :skip
     test "callback fires when monitored process exits normally", %{rt: rt} do
       pid = spawn(fn -> Process.sleep(50) end)
 

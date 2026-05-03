@@ -193,27 +193,7 @@ defmodule QuickBEAM.VM.Runtime.Web.TextEncoding do
 
           # TypedArray
           Map.has_key?(map, "__typed_array__") ->
-            case Map.get(map, "buffer") do
-              {:obj, buf_ref} ->
-                case Heap.get_obj(buf_ref, %{}) do
-                  m when is_map(m) ->
-                    ab_buf = Map.get(m, "__buffer__", <<>>)
-                    offset = Map.get(map, "byteOffset", 0)
-                    byte_len = Map.get(map, "byteLength", 0)
-
-                    if byte_size(ab_buf) >= offset + byte_len and byte_len > 0 do
-                      binary_part(ab_buf, offset, byte_len)
-                    else
-                      Map.get(map, "__buffer__", <<>>)
-                    end
-
-                  _ ->
-                    Map.get(map, "__buffer__", <<>>)
-                end
-
-              _ ->
-                Map.get(map, "__buffer__", <<>>)
-            end
+            BinaryData.typed_array_bytes(map)
 
           true ->
             <<>>

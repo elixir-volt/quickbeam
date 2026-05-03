@@ -10,6 +10,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.Get
   alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Runtime.Collections
 
   @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor do
@@ -30,7 +31,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
         case args do
           [source | _] ->
             Heap.to_list(source)
-            |> Enum.each(&validate_weak_key!(&1, "WeakSet"))
+            |> Enum.each(&Collections.validate_weak_key!(&1, "WeakSet"))
 
             Heap.to_list(source)
 
@@ -54,13 +55,6 @@ defmodule QuickBEAM.VM.Runtime.Set do
   def proto_property({:symbol, "Symbol.iterator"}), do: proto_property("values")
   def proto_property("forEach"), do: {:builtin, "forEach", &for_each/2}
   def proto_property(_), do: :undefined
-
-  defp validate_weak_key!({:obj, _}, _), do: :ok
-  defp validate_weak_key!({:symbol, _, _}, _), do: :ok
-
-  defp validate_weak_key!(_, kind) do
-    JSThrow.type_error!("invalid value used as #{kind} key")
-  end
 
   defp set_object(set_ref, items) do
     methods =
@@ -397,7 +391,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
 
   defp add([value | _], {:obj, ref}) do
     obj = Heap.get_obj(ref, %{})
-    if Map.get(obj, :weak), do: validate_weak_key!(value, "WeakSet")
+    if Map.get(obj, :weak), do: Collections.validate_weak_key!(value, "WeakSet")
     items = Map.get(obj, set_data(), [])
 
     unless value in items do

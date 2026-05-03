@@ -332,22 +332,23 @@ defmodule QuickBEAM.VM.CompilerAudit do
   end
 
   def run_case(name, source) do
-    with {:ok, parsed} <- compile_source(source) do
-      fun = parsed.value
-      compiler = compiler_result(fun, parsed.atoms)
-      interpreter = interpreter_result(fun, parsed.atoms)
+    case compile_source(source) do
+      {:ok, parsed} ->
+        fun = parsed.value
+        compiler = compiler_result(fun, parsed.atoms)
+        interpreter = interpreter_result(fun, parsed.atoms)
 
-      status = classify(interpreter, compiler)
+        status = classify(interpreter, compiler)
 
-      %{
-        name: name,
-        source: source,
-        status: status,
-        interpreter: interpreter,
-        compiler: compiler,
-        fallback_reason: fallback_reason(compiler)
-      }
-    else
+        %{
+          name: name,
+          source: source,
+          status: status,
+          interpreter: interpreter,
+          compiler: compiler,
+          fallback_reason: fallback_reason(compiler)
+        }
+
       {:error, reason} ->
         %{
           name: name,
@@ -380,9 +381,9 @@ defmodule QuickBEAM.VM.CompilerAudit do
     {:ok, rt} = QuickBEAM.start(apis: false)
 
     try do
-      with {:ok, bytecode} <- QuickBEAM.compile(rt, source),
-           {:ok, parsed} <- Bytecode.decode(bytecode) do
-        {:ok, parsed}
+      case QuickBEAM.compile(rt, source) do
+        {:ok, bytecode} -> Bytecode.decode(bytecode)
+        error -> error
       end
     after
       QuickBEAM.stop(rt)
@@ -481,10 +482,10 @@ defmodule QuickBEAM.VM.CompilerAudit do
   defp equivalent?(a, b), do: a === b
 
   defp normalize(value) when is_float(value) do
-    cond do
-      value != value -> :nan
-      value == 0.0 and :erlang.float_to_binary(value) == "-0.00000000000000000000e+00" -> -0.0
-      true -> value
+    if value == 0.0 and :erlang.float_to_binary(value) == "-0.00000000000000000000e+00" do
+      -0.0
+    else
+      value
     end
   end
 

@@ -48,12 +48,10 @@ defmodule QuickBEAM.JS.Parser.Expressions.Templates do
       end
 
       defp valid_unicode_escape?(raw, index) do
-        cond do
-          index < byte_size(raw) and byte_at(raw, index) == ?{ ->
-            valid_braced_unicode_escape?(raw, index + 1)
-
-          true ->
-            valid_hex_escape?(raw, index, 4)
+        if index < byte_size(raw) and byte_at(raw, index) == ?{ do
+          valid_braced_unicode_escape?(raw, index + 1)
+        else
+          valid_hex_escape?(raw, index, 4)
         end
       end
 
@@ -209,12 +207,14 @@ defmodule QuickBEAM.JS.Parser.Expressions.Templates do
       end
 
       defp parse_expression_source(source) do
-        with {:ok, tokens} <- Lexer.tokenize(source) do
-          state = new_state(tokens)
-          {expression, _state} = parse_expression(state, 0)
-          {:ok, expression}
-        else
-          _ -> :error
+        case Lexer.tokenize(source) do
+          {:ok, tokens} ->
+            state = new_state(tokens)
+            {expression, _state} = parse_expression(state, 0)
+            {:ok, expression}
+
+          _ ->
+            :error
         end
       end
 

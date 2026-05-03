@@ -1038,8 +1038,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
              left_type in [:integer, :number] and right_type in [:integer, :number] do
     {type, op} =
       case fun do
-        :op_sub -> {:number, :-}
-        :op_mul -> {:number, :*}
         :op_lt -> {:boolean, :<}
         :op_lte -> {:boolean, :"=<"}
         :op_gt -> {:boolean, :>}
@@ -1212,8 +1210,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   defp binary_operator(:op_band), do: :band
   defp binary_operator(:op_bor), do: :bor
   defp binary_operator(:op_bxor), do: :bxor
-  defp binary_operator(:op_shl), do: :bsl
-  defp binary_operator(:op_sar), do: :bsr
 
   defp binary_concat(left, right) do
     {:bin, @line,

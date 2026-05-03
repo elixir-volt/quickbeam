@@ -167,26 +167,8 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
          build_stream_async_iterator(chunks_ref)
        end}
 
-    pipe_through_fn =
-      {:builtin, "pipeThrough",
-       fn [ts | _], _this ->
-         reader = build_reader(chunks_ref)
-         writable = Get.get(ts, "writable")
-         readable = Get.get(ts, "readable")
-
-         writer = get_writer(writable)
-         drain_loop(reader, writer)
-         readable
-       end}
-
-    pipe_to_fn =
-      {:builtin, "pipeTo",
-       fn [ws | _], _this ->
-         reader = build_reader(chunks_ref)
-         writer = get_writer(ws)
-         drain_loop(reader, writer)
-         PromiseState.resolved(:undefined)
-       end}
+    pipe_through_fn = pipe_through_fn(chunks_ref)
+    pipe_to_fn = pipe_to_fn(chunks_ref)
 
     object do
       prop("locked", false)
@@ -195,6 +177,30 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
       prop("pipeThrough", pipe_through_fn)
       prop("pipeTo", pipe_to_fn)
     end
+  end
+
+  defp pipe_through_fn(chunks_ref) do
+    {:builtin, "pipeThrough",
+     fn [ts | _], _this ->
+       reader = build_reader(chunks_ref)
+       writable = Get.get(ts, "writable")
+       readable = Get.get(ts, "readable")
+       writer = get_writer(writable)
+
+       drain_loop(reader, writer)
+       readable
+     end}
+  end
+
+  defp pipe_to_fn(chunks_ref) do
+    {:builtin, "pipeTo",
+     fn [ws | _], _this ->
+       reader = build_reader(chunks_ref)
+       writer = get_writer(ws)
+
+       drain_loop(reader, writer)
+       PromiseState.resolved(:undefined)
+     end}
   end
 
   defp get_writer(ws) do
@@ -500,53 +506,8 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
          build_stream_async_iterator(chunks_ref)
        end}
 
-    pipe_through_fn =
-      {:builtin, "pipeThrough",
-       fn [ts | _], _this ->
-         reader = build_reader(chunks_ref)
-         writable = Get.get(ts, "writable")
-         readable = Get.get(ts, "readable")
-
-         writer =
-           case writable do
-             {:obj, _} ->
-               write_fn = Get.get(writable, "getWriter")
-
-               case write_fn do
-                 {:builtin, _, cb} -> cb.([], writable)
-                 _ -> nil
-               end
-
-             _ ->
-               nil
-           end
-
-         drain_loop(reader, writer)
-         readable
-       end}
-
-    pipe_to_fn =
-      {:builtin, "pipeTo",
-       fn [ws | _], _this ->
-         reader = build_reader(chunks_ref)
-
-         writer =
-           case ws do
-             {:obj, _} ->
-               write_fn = Get.get(ws, "getWriter")
-
-               case write_fn do
-                 {:builtin, _, cb} -> cb.([], ws)
-                 _ -> nil
-               end
-
-             _ ->
-               nil
-           end
-
-         drain_loop(reader, writer)
-         PromiseState.resolved(:undefined)
-       end}
+    pipe_through_fn = pipe_through_fn(chunks_ref)
+    pipe_to_fn = pipe_to_fn(chunks_ref)
 
     object do
       prop("locked", false)

@@ -32,52 +32,16 @@ defmodule QuickBEAM.VM.Runtime.Web.EventSourceAPI do
       unless Map.get(state, :readyState) == @closed do
         msgs = drain_sse_messages(es_id, [])
 
-        Enum.each(msgs, fn msg ->
-          case msg do
-            {:eventsource_open, ^es_id} ->
-              Heap.put_obj(state_ref, Map.put(state, :readyState, @open))
-              handler = Heap.get_obj(onopen_ref, nil)
-              event = Heap.wrap(%{"type" => "open"})
-              fire_handler(handler, event)
-              fire_listeners(listeners_ref, "open", event)
-
-            {:eventsource_event, ^es_id, sse_event} ->
-              event_type = Map.get(sse_event, :type, "message")
-              data = Map.get(sse_event, :data, "")
-              event_id = Map.get(sse_event, :id)
-
-              if event_id, do: Heap.put_obj(last_event_id_ref, event_id)
-              last_id = Heap.get_obj(last_event_id_ref, "")
-
-              event =
-                Heap.wrap(%{
-                  "type" => event_type,
-                  "data" => data,
-                  "origin" => "",
-                  "lastEventId" => last_id
-                })
-
-              if event_type == "message" do
-                handler = Heap.get_obj(onmessage_ref, nil)
-                fire_handler(handler, event)
-              end
-
-              fire_listeners(listeners_ref, event_type, event)
-
-            {:eventsource_error, ^es_id, _reason} ->
-              cur_state = Heap.get_obj(state_ref, %{})
-
-              if Map.get(cur_state, :readyState) != @closed do
-                handler = Heap.get_obj(onerror_ref, nil)
-                event = Heap.wrap(%{"type" => "error"})
-                fire_handler(handler, event)
-                fire_listeners(listeners_ref, "error", event)
-              end
-
-            _ ->
-              :ok
-          end
-        end)
+        handle_sse_messages(
+          msgs,
+          es_id,
+          state_ref,
+          onopen_ref,
+          onmessage_ref,
+          onerror_ref,
+          listeners_ref,
+          last_event_id_ref
+        )
       end
     end)
   end
@@ -275,52 +239,16 @@ defmodule QuickBEAM.VM.Runtime.Web.EventSourceAPI do
     else
       msgs = drain_sse_messages(es_id, [])
 
-      Enum.each(msgs, fn msg ->
-        case msg do
-          {:eventsource_open, ^es_id} ->
-            Heap.put_obj(state_ref, Map.put(state, :readyState, @open))
-            handler = Heap.get_obj(onopen_ref, nil)
-            event = Heap.wrap(%{"type" => "open"})
-            fire_handler(handler, event)
-            fire_listeners(listeners_ref, "open", event)
-
-          {:eventsource_event, ^es_id, sse_event} ->
-            event_type = Map.get(sse_event, :type, "message")
-            data = Map.get(sse_event, :data, "")
-            event_id = Map.get(sse_event, :id)
-
-            if event_id, do: Heap.put_obj(last_event_id_ref, event_id)
-            last_id = Heap.get_obj(last_event_id_ref, "")
-
-            event =
-              Heap.wrap(%{
-                "type" => event_type,
-                "data" => data,
-                "origin" => "",
-                "lastEventId" => last_id
-              })
-
-            if event_type == "message" do
-              handler = Heap.get_obj(onmessage_ref, nil)
-              fire_handler(handler, event)
-            end
-
-            fire_listeners(listeners_ref, event_type, event)
-
-          {:eventsource_error, ^es_id, _reason} ->
-            new_state = Map.get(state, :readyState, @connecting)
-
-            if new_state != @closed do
-              handler = Heap.get_obj(onerror_ref, nil)
-              event = Heap.wrap(%{"type" => "error"})
-              fire_handler(handler, event)
-              fire_listeners(listeners_ref, "error", event)
-            end
-
-          _ ->
-            :ok
-        end
-      end)
+      handle_sse_messages(
+        msgs,
+        es_id,
+        state_ref,
+        onopen_ref,
+        onmessage_ref,
+        onerror_ref,
+        listeners_ref,
+        last_event_id_ref
+      )
 
       if msgs != [] do
         poll_sse_messages(
@@ -336,6 +264,113 @@ defmodule QuickBEAM.VM.Runtime.Web.EventSourceAPI do
       end
     end
   end
+
+  defp handle_sse_messages(
+         msgs,
+         es_id,
+         state_ref,
+         onopen_ref,
+         onmessage_ref,
+         onerror_ref,
+         listeners_ref,
+         last_event_id_ref
+       ) do
+    Enum.each(msgs, fn msg ->
+      handle_sse_message(
+        msg,
+        es_id,
+        state_ref,
+        onopen_ref,
+        onmessage_ref,
+        onerror_ref,
+        listeners_ref,
+        last_event_id_ref
+      )
+    end)
+  end
+
+  defp handle_sse_message(
+         {:eventsource_open, es_id},
+         es_id,
+         state_ref,
+         onopen_ref,
+         _onmessage_ref,
+         _onerror_ref,
+         listeners_ref,
+         _last_event_id_ref
+       ) do
+    state = Heap.get_obj(state_ref, %{})
+    Heap.put_obj(state_ref, Map.put(state, :readyState, @open))
+    handler = Heap.get_obj(onopen_ref, nil)
+    event = Heap.wrap(%{"type" => "open"})
+    fire_handler(handler, event)
+    fire_listeners(listeners_ref, "open", event)
+  end
+
+  defp handle_sse_message(
+         {:eventsource_event, es_id, sse_event},
+         es_id,
+         _state_ref,
+         _onopen_ref,
+         onmessage_ref,
+         _onerror_ref,
+         listeners_ref,
+         last_event_id_ref
+       ) do
+    event_type = Map.get(sse_event, :type, "message")
+    data = Map.get(sse_event, :data, "")
+    event_id = Map.get(sse_event, :id)
+
+    if event_id, do: Heap.put_obj(last_event_id_ref, event_id)
+    last_id = Heap.get_obj(last_event_id_ref, "")
+
+    event =
+      Heap.wrap(%{
+        "type" => event_type,
+        "data" => data,
+        "origin" => "",
+        "lastEventId" => last_id
+      })
+
+    if event_type == "message" do
+      handler = Heap.get_obj(onmessage_ref, nil)
+      fire_handler(handler, event)
+    end
+
+    fire_listeners(listeners_ref, event_type, event)
+  end
+
+  defp handle_sse_message(
+         {:eventsource_error, es_id, _reason},
+         es_id,
+         state_ref,
+         _onopen_ref,
+         _onmessage_ref,
+         onerror_ref,
+         listeners_ref,
+         _last_event_id_ref
+       ) do
+    state = Heap.get_obj(state_ref, %{})
+
+    if Map.get(state, :readyState) != @closed do
+      handler = Heap.get_obj(onerror_ref, nil)
+      event = Heap.wrap(%{"type" => "error"})
+      fire_handler(handler, event)
+      fire_listeners(listeners_ref, "error", event)
+    end
+  end
+
+  defp handle_sse_message(
+         _msg,
+         _es_id,
+         _state_ref,
+         _onopen_ref,
+         _onmessage_ref,
+         _onerror_ref,
+         _listeners_ref,
+         _last_event_id_ref
+       ),
+       do: :ok
 
   defp drain_sse_messages(es_id, acc) do
     receive do

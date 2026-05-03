@@ -27,22 +27,20 @@ defmodule QuickBEAM.JS.Parser.Lexer.Regexp.Groups do
       {index, 3} ->
         name_start = index + 3
 
-        cond do
-          name_start < byte_size(pattern) and :binary.at(pattern, name_start) in [?=, ?!] ->
-            collect_regexp_group_names(pattern, name_start + 1, names)
+        if name_start < byte_size(pattern) and :binary.at(pattern, name_start) in [?=, ?!] do
+          collect_regexp_group_names(pattern, name_start + 1, names)
+        else
+          case read_regexp_group_name(pattern, name_start) do
+            {:ok, name, next_offset} ->
+              cond do
+                not valid_regexp_group_name?(name) -> {:error, "invalid group name"}
+                name in names -> {:error, "duplicate group name"}
+                true -> collect_regexp_group_names(pattern, next_offset, [name | names])
+              end
 
-          true ->
-            case read_regexp_group_name(pattern, name_start) do
-              {:ok, name, next_offset} ->
-                cond do
-                  not valid_regexp_group_name?(name) -> {:error, "invalid group name"}
-                  name in names -> {:error, "duplicate group name"}
-                  true -> collect_regexp_group_names(pattern, next_offset, [name | names])
-                end
-
-              :error ->
-                {:error, "invalid group name"}
-            end
+            :error ->
+              {:error, "invalid group name"}
+          end
         end
     end
   end

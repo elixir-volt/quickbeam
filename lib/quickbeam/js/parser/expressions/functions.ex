@@ -144,20 +144,20 @@ defmodule QuickBEAM.JS.Parser.Expressions.Functions do
             {argument, state} = parse_expression(state, 2)
             arg = %AST.SpreadElement{argument: argument}
 
-            cond do
-              match_value?(state, ",") -> parse_arguments(advance(state), [arg | acc])
-              match_value?(state, ")") -> {Enum.reverse([arg | acc]), advance(state)}
-              true -> {Enum.reverse([arg | acc]), expect_value(state, ")")}
-            end
+            continue_arguments(state, arg, acc)
 
           true ->
             {arg, state} = parse_expression(state, 2)
 
-            cond do
-              match_value?(state, ",") -> parse_arguments(advance(state), [arg | acc])
-              match_value?(state, ")") -> {Enum.reverse([arg | acc]), advance(state)}
-              true -> {Enum.reverse([arg | acc]), expect_value(state, ")")}
-            end
+            continue_arguments(state, arg, acc)
+        end
+      end
+
+      defp continue_arguments(state, arg, acc) do
+        cond do
+          match_value?(state, ",") -> parse_arguments(advance(state), [arg | acc])
+          match_value?(state, ")") -> {Enum.reverse([arg | acc]), advance(state)}
+          true -> {Enum.reverse([arg | acc]), expect_value(state, ")")}
         end
       end
 
@@ -185,14 +185,7 @@ defmodule QuickBEAM.JS.Parser.Expressions.Functions do
           true ->
             {param, state} = parse_binding_pattern(state)
 
-            {param, state} =
-              if match_value?(state, "=") do
-                state = advance(state)
-                {right, state} = parse_expression(state, 2)
-                {%AST.AssignmentPattern{left: param, right: right}, state}
-              else
-                {param, state}
-              end
+            {param, state} = maybe_assignment_pattern(state, param)
 
             cond do
               match_value?(state, ",") -> parse_parameter_list(advance(state), [param | acc])
