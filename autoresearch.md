@@ -1,100 +1,118 @@
-# Autoresearch: JavaScript Parser Compatibility
+# Autoresearch: JS Bytecode Compiler Frontier
 
 ## Objective
-Close accepted-syntax compatibility gaps in the experimental hand-written JavaScript lexer/parser (`lib/quickbeam/js/parser*`) against QuickJS/Test262-style JavaScript while preserving VM/Web API behavior and the focused parser test suite.
+Expand the separate frontend compiler:
 
-This segment is compatibility-focused. Do not cheat by suppressing diagnostics, skipping validation, weakening tests, changing Test262 inputs, or special-casing benchmark files/strings. Fix the grammar/lexer behavior and add focused regression tests for each gap.
+```text
+QuickBEAM.JS.Parser AST -> QuickBEAM.JS.BytecodeCompiler -> %QuickBEAM.VM.Bytecode{} -> QuickBEAM.VM.Bytecode.Writer -> QuickJS-loadable bytecode binary
+```
+
+The goal is to reduce unsupported/mismatching cases in a curated JavaScript bytecode compiler frontier while preserving the already-clean compatibility audit. QuickJS is the reference implementation: every frontier case is evaluated natively with QuickJS through QuickBEAM, then compared against the new compiler's interpreter path, BEAM compiler path, and native `load_bytecode/2` path.
+
+Do not cheat by special-casing benchmark strings, suppressing unsupported errors, editing benchmark inputs to make the metric easier, bypassing QuickJS validation, or fabricating loadability. Fix generic bytecode compiler, writer, scope, or VM semantics.
 
 ## Primary Metric
-- **`test262_language_sample_errors`** (lower is better): total parser errors across the deterministic standalone non-negative `test/test262/test/**/*.js` corpus, excluding Test262 support fixtures after selecting the sample window.
+- **`js_bytecode_frontier_failures`** (lower is better): count of frontier cases that are unsupported, compile errors, mismatches against QuickJS, or not QuickJS-loadable.
 
 ## Secondary Metrics
-- `test262_language_sample_error_files` — sampled files with parser errors.
-- `test262_language_sample_unique_errors` — unique diagnostic messages in sampled files.
-- `test262_language_sample_files` — sample size; default should stay 12000.
-- `test262_language_sample_module_files` — files parsed with `source_type: :module` by metadata/static-module detection.
-- `test_language_errors` — parser errors on `test/vm/test_language.js`; must stay 0.
-- `test_language_parse_ok` — must stay 1.
-- `quickjs_parser_tests` — QuickJS-port coverage signal; must not regress intentionally.
-- `parser_tests` — focused parser test count.
-- `parser_test_ms` — focused parser suite duration.
+- `js_bytecode_frontier_cases` — fixed frontier size for this phase.
+- `js_bytecode_frontier_compiled` — frontier cases that compile to `%QuickBEAM.VM.Bytecode{}`.
+- `js_bytecode_frontier_unsupported` — compiler gaps returning `{:unsupported, ...}`.
+- `js_bytecode_frontier_mismatches` — cases that compile but disagree with QuickJS/interpreter/BEAM compiler/native-load.
+- `js_bytecode_frontier_native_loadable` — compiled frontier cases whose emitted binary loads through QuickJS with the expected result.
+- `js_bytecode_compiler_cases` — stable regression audit size.
+- `js_bytecode_compiler_failures` — must stay `0`.
+- `js_bytecode_compiler_mismatches` — must stay `0`.
+- `js_bytecode_compiler_native_loadable` — must equal `js_bytecode_compiler_cases`.
 
 ## Commands
-Run the accepted-syntax compatibility loop with:
+Run the frontier loop with:
 
 ```sh
 ./autoresearch.sh
 ```
 
-Run QuickJS-vs-parser acceptance parity with the generated ExUnit wrapper:
+Useful options:
 
 ```sh
-PARSER_BENCH=quickjs_audit_exunit AUDIT_OFFSET=30000 AUDIT_LIMIT=2000 ./autoresearch.sh
-```
-
-Useful optional environment variables:
-
-```sh
-TEST262_GLOB='test/test262/test/language/**/*.js' ./autoresearch.sh  # restrict accepted-syntax tests
-TEST262_SAMPLE_OFFSET=20000 ./autoresearch.sh  # inspect a later accepted-syntax slice
-TEST262_ERROR_LIMIT=80 ./autoresearch.sh       # print more accepted-syntax failing files
-AUDIT_GLOB='test/test262/test/language/**/*.js' PARSER_BENCH=quickjs_audit_exunit ./autoresearch.sh
-AUDIT_OFFSET=32000 AUDIT_LIMIT=2000 AUDIT_FILE_TIMEOUT=5000 PARSER_BENCH=quickjs_audit_exunit ./autoresearch.sh
+JS_BYTECODE_FRONTIER_FAILURE_LIMIT=20 ./autoresearch.sh
 ```
 
 `autoresearch.sh` runs:
-1. `mix test test/js/parser --formatter ExUnit.CLIFormatter`
-2. one selected benchmark:
-   - `mix run bench/js_parser_compat.exs` for `PARSER_BENCH=compat`
-   - `mix run bench/js_parser_perf.exs` for `PARSER_BENCH=perf`
-   - `mix run bench/js_parser_quickjs_audit.exs` for legacy `PARSER_BENCH=quickjs_audit`
-   - `mix test test/js/parser/quickjs_acceptance_audit_test.exs --only quickjs_acceptance_audit` for `PARSER_BENCH=quickjs_audit_exunit`
 
-The benchmark prints:
-- summary CSV rows for `test_language` and the Test262 sample
-- top `ERROR_MESSAGE` clusters
-- top `ERROR_DIR` clusters
-- `ERROR_FILE ...` examples with source type and first diagnostic
-- structured `METRIC ...` lines for autoresearch
+1. `mix test test/js/bytecode_compiler_test.exs`
+2. `mix run bench/js_bytecode_compiler_frontier.exs`
+3. `mix run bench/js_bytecode_compiler_compat.exs`
 
-## Source Type Rules
-`bench/js_parser_compat.exs` parses files as modules when any of these are true:
-- Test262 metadata has `flags: [... module ...]`
-- path contains `/module-code/`, except fixtures whose filename explicitly marks `script-code`
-- source has top-level-looking static `import` / `export` syntax
+All scripts emit structured `METRIC name=value` lines.
 
-The deterministic sample excludes files ending in `_FIXTURE.js` after selecting the sample window because Test262 uses them as support inputs for other tests, not standalone accepted-syntax tests. Everything else is parsed as script source. This is benchmark setup only; do not edit Test262 files.
+## QuickJS/Test Infrastructure
+Yes, rely on QuickJS infrastructure here:
+
+- `QuickBEAM.eval/2` is the oracle for each source string.
+- `QuickBEAM.JS.BytecodeCompiler.compile/1` must produce a bytecode function.
+- `QuickBEAM.VM.Interpreter.eval/4` must match QuickJS.
+- `QuickBEAM.VM.Compiler.invoke/2` must match QuickJS.
+- `QuickBEAM.JS.BytecodeCompiler.compile_to_binary/1` followed by `QuickBEAM.load_bytecode/2` must match QuickJS.
+
+This gives stronger validation than a parser-only benchmark: it checks semantics and bytecode serialization, not just acceptance. Test262 can be used later by adding curated executable Test262-derived cases to the frontier, but avoid a monolithic Test262 sweep until scope/closures/errors are mature enough to avoid noisy failures.
 
 ## Files in Scope
-- `lib/quickbeam/js/parser.ex`
-- `lib/quickbeam/js/parser/lexer.ex`
-- `lib/quickbeam/js/parser/ast.ex`
-- `lib/quickbeam/js/parser/token.ex`
-- `lib/quickbeam/js/parser/error.ex`
-- `test/js/parser/`
-- `bench/js_parser_compat.exs`
-- `autoresearch.sh`
-- `autoresearch.md`
-
-Benchmark inputs are read-only:
-- `test/vm/test_language.js`
-- `test/test262/test/language/**/*.js`
+- `lib/quickbeam/js/bytecode_compiler.ex` — public API/orchestration.
+- `lib/quickbeam/js/bytecode_compiler/*.ex` — compiler passes, emitter, scope, assembler.
+- `lib/quickbeam/vm/bytecode.ex` — neutral bytecode structures.
+- `lib/quickbeam/vm/bytecode/writer.ex` — QuickJS binary serialization.
+- `lib/quickbeam/vm/opcodes.ex` — opcode metadata boundary only if required.
+- `lib/quickbeam/vm/compiler/**` — only for real BEAM-compiler mismatches exposed by compiled bytecode.
+- `lib/quickbeam/vm/interpreter/**` — only for real interpreter mismatches exposed by compiled bytecode.
+- `test/js/bytecode_compiler_test.exs` — focused regression tests.
+- `test/support/js_bytecode_compiler_audit.ex` — stable compatibility audit.
+- `bench/js_bytecode_compiler_compat.exs` — stable audit runner.
+- `bench/js_bytecode_compiler_frontier.exs` — frontier benchmark for this autoresearch session.
+- `autoresearch.sh`, `autoresearch.md`, `autoresearch.checks.sh`, `autoresearch.ideas.md`.
 
 ## Off Limits
-- Zig/C/NIF files.
-- External parser generators or native parser replacements.
-- New dependencies for the parser compatibility loop.
-- Benchmark overfitting or exact string/file special cases.
+- Do not modify QuickJS/Test262 inputs to improve the metric.
+- Do not couple `QuickBEAM.JS.BytecodeCompiler` to `QuickBEAM.VM.Compiler` internals.
+- Do not make the existing VM compiler the frontend compiler.
+- Do not default-enable experimental compiler paths globally.
+- Do not add external parser/compiler dependencies.
+- Do not weaken `mix lint`, ExDNA clone budget, or warning settings.
+- Do not special-case exact frontier source strings or names.
 
-## Experiment Workflow
-1. Run `./autoresearch.sh` or inspect current `ERROR_MESSAGE` / `ERROR_FILE` output.
-2. Pick the broadest real syntax gap visible in the sample.
-3. Add focused tests under `test/js/parser/<area>/..._test.exs` with `@moduletag :quickjs_port`.
-4. Fix parser/lexer behavior generally.
-5. Run `mix format`, `mix compile --warnings-as-errors`, `mix test test/js/parser`, then `./autoresearch.sh`.
-6. Keep only changes that reduce the primary metric without regressing `test_language_errors`, parser tests, or QuickJS-port coverage.
+## Constraints
+- Preserve existing stable audit cleanliness:
+  ```text
+  js_bytecode_compiler_failures=0
+  js_bytecode_compiler_mismatches=0
+  js_bytecode_compiler_native_loadable=js_bytecode_compiler_cases
+  ```
+- Keep emitted binaries QuickJS-loadable.
+- Use QuickJS as reference but write idiomatic Elixir.
+- Keep the compiler namespace separate:
+  ```text
+  QuickBEAM.JS.BytecodeCompiler
+  ```
+- Shared boundaries with existing VM compiler should remain limited to neutral bytecode/opcode/writer infrastructure unless fixing a real VM compiler mismatch.
 
-## Current Known Gap Clusters
-The full standalone non-negative Test262 corpus available in this checkout is parse-clean after excluding Test262 support fixtures. Inspect the current `ERROR_MESSAGE` and `ERROR_FILE` output before choosing any future gap.
+## Current Frontier Themes
+The frontier intentionally covers the next semantic clusters:
 
-If new Test262 files are added, rerun the benchmark and target a later slice using `TEST262_SAMPLE_OFFSET` if needed.
+- block scope and shadowing;
+- `var` vs `let` behavior;
+- closures/captured variables;
+- nested function declarations;
+- switch;
+- try/catch/finally/throw;
+- constructors and prototype methods;
+- builtin method side effects;
+- logical assignment;
+- delete/in;
+- for-in.
+
+When a cluster is fixed, add focused tests and consider moving representative cases into `test/support/js_bytecode_compiler_audit.ex` so they become permanent regression coverage.
+
+## What's Been Tried
+- Existing compiler work reached a clean 53-case stable audit before this frontier phase.
+- The frontend compiler already supports literals, locals, assignments, compound/update assignments, arithmetic/comparison/unary/logical/sequence expressions, conditionals, `if`, `while`, `do while`, `for`, `break`/`continue`, functions, returns, generic calls, arrays, object literals, shorthand/computed keys, property reads/writes, computed writes, method calls, basic `this`, and QuickJS-loadable binary output.
+- Existing BEAM compiler shaped-object stale reads after writes were fixed by invalidating shaped object slot types after compiled `put_field` / `put_array_el`.

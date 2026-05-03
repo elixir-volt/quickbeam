@@ -75,7 +75,10 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
       unsupported: Map.get(frequencies, :unsupported, 0),
       mismatches: Map.get(frequencies, :mismatch, 0),
       native_loadable:
-        Enum.count(results, &(&1.native_load == &1.expected and &1.status != :unsupported)),
+        Enum.count(
+          results,
+          &(Map.get(&1, :native_load) == &1.expected and &1.status != :unsupported)
+        ),
       failures: length(results) - Map.get(frequencies, :pass, 0)
     }
   end
