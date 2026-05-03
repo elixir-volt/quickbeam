@@ -1,11 +1,9 @@
 - Add Test262-derived executable windows for `QuickBEAM.JS.BytecodeCompiler` after harness/module/async filtering is explicit; use QuickJS as oracle and avoid noisy monolithic sweeps.
 - Full mutable closure capture remains future work: current frontend supports value-captured function expressions/declarations through explicit capture params and `Function.prototype.bind`, but not mutable shared closure cells.
-- A logical member assignment attempt (`o.x ||= y`) matched the interpreter but exposed a BEAM compiler mismatch, so revisit only after inspecting compiler lowering for branch stack shapes (`get_field2`, `if_true`, `insert2`, `put_field`, `nip`).
-- For-of destructuring and array-pattern for-of lowering compile and pass interpreter/native but BEAM compiler returns `:error`; revisit with compiler stack-shape diagnostics.
-- `instanceof` works as an opcode but class factories don't produce real prototypes, so `a instanceof A` returns false; blocked until class/prototype semantics improve.
-- `try { return 1 } finally { return 2 }` — finally-over-return completion semantics are a mismatch in both interpreter and native-load.
+- `instanceof` works as an opcode but class factories don't produce real prototypes, so `a instanceof A` returns false; needs real class/prototype semantics.
+- `try { return 1 } finally { return 2 }` — finally-over-return completion semantics are a mismatch in both interpreter and native-load; needs completion-value propagation through finally blocks.
 - `arguments` object requires mutable var_ref aliasing for sloppy-mode parameter aliasing; blocked on mutable closure infrastructure.
-- Private class fields/methods require full private name tracking; 7+ corpus cases blocked.
-- `eval` as a runtime feature requires special compilation; 7 corpus cases blocked.
-- `with` statement requires dynamic scope resolution; 6 corpus cases blocked.
-- `yield`/generator/async function support requires fundamental generator/coroutine lowering; 4+ corpus cases blocked.
+- Private class fields/methods require full private name tracking; 7+ corpus cases.
+- `eval` as a runtime feature requires special compilation; 7 corpus cases.
+- `with` statement requires dynamic scope resolution; 6 corpus cases.
+- `yield`/generator/async function support requires fundamental generator/coroutine lowering; 4+ corpus cases.

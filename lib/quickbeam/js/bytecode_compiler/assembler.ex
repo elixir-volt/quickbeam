@@ -98,6 +98,8 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
   defp instruction_size({op, _label}, width) when op in [:jump, :jump_if_false, :jump_if_true],
     do: jump_size(op, width || :short)
 
+  defp instruction_size({op, _label}, _width) when op in [:catch, :gosub], do: 5
+
   defp instruction_size({op, _name}, _width)
        when op in [
               :define_field,
@@ -123,6 +125,16 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
 
   defp encode_instruction({:jump_if_true, label}, offset, labels, width, _atoms),
     do: encode_jump(:if_true8, :if_true, label, offset, labels, width || :short)
+
+  defp encode_instruction({:catch, label}, offset, labels, _width, _atoms) do
+    diff = Map.fetch!(labels, label) - (offset + 1)
+    <<Opcodes.num(:catch), diff::signed-little-32>>
+  end
+
+  defp encode_instruction({:gosub, label}, offset, labels, _width, _atoms) do
+    diff = Map.fetch!(labels, label) - (offset + 1)
+    <<Opcodes.num(:gosub), diff::signed-little-32>>
+  end
 
   defp encode_instruction(instruction, _offset, _labels, _width, atoms),
     do: encode_instruction(instruction, atoms)
@@ -265,6 +277,9 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
   defp encode_instruction(:perm3, _atoms), do: <<Opcodes.num(:perm3)>>
   defp encode_instruction(:perm4, _atoms), do: <<Opcodes.num(:perm4)>>
   defp encode_instruction(:nip, _atoms), do: <<Opcodes.num(:nip)>>
+  defp encode_instruction(:nip_catch, _atoms), do: <<Opcodes.num(:nip_catch)>>
+  defp encode_instruction(:ret, _atoms), do: <<Opcodes.num(:ret)>>
+  defp encode_instruction(:throw, _atoms), do: <<Opcodes.num(:throw)>>
   defp encode_instruction(:drop, _atoms), do: <<Opcodes.num(:drop)>>
   defp encode_instruction(:set_proto, _atoms), do: <<Opcodes.num(:set_proto)>>
 
@@ -333,6 +348,10 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
   defp stack_effect({:put_field, _name}), do: {2, 0}
   defp stack_effect({:set_name, _name}), do: {1, 1}
   defp stack_effect(:set_name_computed), do: {2, 2}
+  defp stack_effect({:catch, _label}), do: {0, 1}
+  defp stack_effect({:gosub, _label}), do: {0, 0}
+  defp stack_effect(:nip_catch), do: {2, 1}
+  defp stack_effect(:ret), do: {1, 0}
 
   defp stack_effect({_op, _arg} = instruction),
     do: instruction |> encode_instruction() |> opcode_stack_effect()

@@ -211,10 +211,10 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
         scope,
         instructions,
         constants,
-        _opts,
+        opts,
         callbacks
       ) do
-    compile_return(statement, scope, instructions, constants, callbacks)
+    compile_return(statement, scope, instructions, constants, opts, callbacks)
   end
 
   def compile(
@@ -365,9 +365,43 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
         _opts,
         callbacks
       ) do
+    finally_label = callbacks.unique_label.(:finally)
+    catch_label = callbacks.unique_label.(:catch_finally)
+    done_label = callbacks.unique_label.(:try_finally_done)
+
     with {:ok, instructions, constants} <-
-           compile_non_tail(body, scope, instructions, constants, [tail?: false], callbacks) do
-      compile_non_tail(finalizer, scope, instructions, constants, [tail?: false], callbacks)
+           compile_non_tail(
+             body,
+             scope,
+             instructions ++ [{:catch, catch_label}],
+             constants,
+             [tail?: false, finally_label: finally_label],
+             callbacks
+           ),
+         {:ok, finally_instructions, constants} <-
+           compile_non_tail(
+             finalizer,
+             scope,
+             [],
+             constants,
+             [tail?: false],
+             callbacks
+           ) do
+      {:ok,
+       instructions ++
+         [
+           :drop,
+           :undefined,
+           {:gosub, finally_label},
+           :drop,
+           {:jump, done_label},
+           {:label, catch_label},
+           {:gosub, finally_label},
+           :throw,
+           {:label, finally_label}
+         ] ++
+         finally_instructions ++
+         [:ret, {:label, done_label}], constants}
     end
   end
 
@@ -1488,20 +1522,32 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
          _scope,
          instructions,
          constants,
+         opts,
          _callbacks
-       ),
-       do: {:ok, instructions ++ [:undefined, :return], constants}
+       ) do
+    case Keyword.get(opts, :finally_label) do
+      nil ->
+        {:ok, instructions ++ [:undefined, :return], constants}
+
+      label ->
+        {:ok, instructions ++ [:undefined, :nip_catch, {:gosub, label}, :return], constants}
+    end
+  end
 
   defp compile_return(
          %AST.ReturnStatement{argument: argument},
          scope,
          instructions,
          constants,
+         opts,
          callbacks
        ) do
     with {:ok, instructions, constants} <-
            callbacks.compile_expression.(argument, scope, instructions, constants) do
-      {:ok, instructions ++ [:return], constants}
+      case Keyword.get(opts, :finally_label) do
+        nil -> {:ok, instructions ++ [:return], constants}
+        label -> {:ok, instructions ++ [:nip_catch, {:gosub, label}, :return], constants}
+      end
     end
   end
 end
