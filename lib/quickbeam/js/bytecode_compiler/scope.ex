@@ -22,6 +22,8 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Scope do
     end
   end
 
+  def names(%__MODULE__{} = scope), do: Map.keys(scope.args) ++ scope.local_names
+
   def resolve(%__MODULE__{} = scope, name) when is_binary(name) do
     cond do
       Map.has_key?(scope.args, name) -> {:arg, Map.fetch!(scope.args, name)}

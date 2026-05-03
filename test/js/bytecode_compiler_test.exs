@@ -180,6 +180,13 @@ defmodule QuickBEAM.JS.BytecodeCompilerTest do
     end
 
     test "compiles function control flow" do
+      assert_compiles_to("function make(x){ return function(y){ return x + y; }; } make(2)(3)", 5)
+
+      assert_compiles_to(
+        "function make(){ let x = 2; return function(y){ return x + y; }; } make()(3)",
+        5
+      )
+
       assert_compiles_to("function f(x){ if (x) return 1; return 2; } f(true)", 1)
       assert_compiles_to("function f(){ while (true) { return 5; } } f()", 5)
       assert_compiles_to("function f(){ for(;;){ break; } return 1; } f()", 1)

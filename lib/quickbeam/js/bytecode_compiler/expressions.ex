@@ -1,7 +1,7 @@
 defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
   @moduledoc false
 
-  alias QuickBEAM.JS.BytecodeCompiler.{Emitter, Operators, Slots}
+  alias QuickBEAM.JS.BytecodeCompiler.{Emitter, Operators, Scope, Slots}
   alias QuickBEAM.JS.Parser.AST
 
   def compile(expression, %Emitter{} = emitter) do
@@ -467,9 +467,19 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
     end
   end
 
-  def compile(%AST.FunctionExpression{} = expression, _scope, instructions, constants, callbacks) do
+  def compile(%AST.FunctionExpression{} = expression, scope, instructions, constants, callbacks) do
+    captures = captured_names(expression, scope)
+    expression = prepend_capture_params(expression, captures)
+
     with {:ok, function} <- callbacks.compile_function.(expression, function_name(expression.id)) do
-      {:ok, instructions ++ [{:closure, length(constants)}], [function | constants]}
+      instructions = instructions ++ [{:closure, length(constants)}]
+      constants = [function | constants]
+
+      if captures == [] do
+        {:ok, instructions, constants}
+      else
+        bind_captures(captures, scope, instructions, constants)
+      end
     end
   end
 
@@ -548,6 +558,88 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
 
   def compile(expression, _scope, _instructions, _constants, _callbacks),
     do: {:error, {:unsupported, expression.type}}
+
+  defp captured_names(%AST.FunctionExpression{} = expression, %Scope{} = scope) do
+    declared =
+      expression.params
+      |> Enum.map(&identifier_name/1)
+      |> Kernel.++(function_local_names(expression.body.body))
+      |> MapSet.new()
+
+    available = Scope.names(scope)
+
+    expression.body.body
+    |> collect_identifiers([])
+    |> Enum.reject(&MapSet.member?(declared, &1))
+    |> Enum.filter(&(&1 in available))
+    |> Enum.uniq()
+  end
+
+  defp captured_names(_expression, _scope), do: []
+
+  defp prepend_capture_params(expression, []), do: expression
+
+  defp prepend_capture_params(%AST.FunctionExpression{params: params} = expression, captures) do
+    capture_params = Enum.map(captures, &%AST.Identifier{type: :identifier, name: &1})
+    %{expression | params: capture_params ++ params}
+  end
+
+  defp bind_captures(captures, scope, instructions, constants) do
+    Enum.reduce_while(
+      captures,
+      {:ok, instructions ++ [{:get_field2, "bind"}, :undefined], constants},
+      fn name, {:ok, ins, consts} ->
+        case Scope.resolve(scope, name) do
+          :error -> {:halt, {:error, {:unsupported, {:unresolved_identifier, name}}}}
+          slot -> {:cont, {:ok, ins ++ [Slots.read(slot)], consts}}
+        end
+      end
+    )
+    |> case do
+      {:ok, instructions, constants} ->
+        {:ok, instructions ++ [{:call_method, length(captures) + 1}], constants}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp function_local_names(statements), do: collect_declaration_names(statements, [])
+
+  defp collect_declaration_names([], acc), do: acc
+
+  defp collect_declaration_names(
+         [%AST.VariableDeclaration{declarations: declarations} | rest],
+         acc
+       ) do
+    names = Enum.flat_map(declarations, &pattern_names(&1.id))
+    collect_declaration_names(rest, names ++ acc)
+  end
+
+  defp collect_declaration_names([%AST.FunctionDeclaration{id: id} | rest], acc),
+    do: collect_declaration_names(rest, [identifier_name(id) | acc])
+
+  defp collect_declaration_names([_statement | rest], acc),
+    do: collect_declaration_names(rest, acc)
+
+  defp pattern_names(%AST.Identifier{} = identifier), do: [identifier_name(identifier)]
+  defp pattern_names(_pattern), do: []
+
+  defp collect_identifiers(list, acc) when is_list(list),
+    do: Enum.reduce(list, acc, &collect_identifiers/2)
+
+  defp collect_identifiers(%AST.Identifier{name: name}, acc), do: [name | acc]
+
+  defp collect_identifiers(%_{} = node, acc) do
+    node
+    |> Map.from_struct()
+    |> Map.values()
+    |> collect_identifiers(acc)
+  end
+
+  defp collect_identifiers(_value, acc), do: acc
+
+  defp identifier_name(%AST.Identifier{name: name}), do: name
 
   defp compile_logical_assignment(
          operator,
