@@ -760,6 +760,9 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
   defp class_property(%AST.MethodDefinition{}, _super_name),
     do: {:error, {:unsupported, :class_element}}
 
+  defp class_property(%AST.FieldDefinition{}, _super_name),
+    do: {:error, {:unsupported, :class_element}}
+
   defp rewrite_super(value, nil), do: value
 
   defp rewrite_super(%AST.FunctionExpression{body: body} = function, super_name),
