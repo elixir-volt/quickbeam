@@ -308,6 +308,26 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
   end
 
   def compile(
+        %AST.CallExpression{
+          callee: %AST.MemberExpression{object: object, property: property, computed: true},
+          arguments: args
+        },
+        scope,
+        instructions,
+        constants,
+        callbacks
+      ) do
+    with {:ok, instructions, constants} <-
+           callbacks.compile_expression.(object, scope, instructions, constants),
+         {:ok, instructions, constants} <-
+           callbacks.compile_expression.(property, scope, instructions, constants),
+         {:ok, instructions, constants} <-
+           compile_call_args(args, scope, instructions ++ [:get_array_el2], constants, callbacks) do
+      {:ok, instructions ++ [{:call_method, length(args)}], constants}
+    end
+  end
+
+  def compile(
         %AST.CallExpression{callee: callee, arguments: args},
         scope,
         instructions,

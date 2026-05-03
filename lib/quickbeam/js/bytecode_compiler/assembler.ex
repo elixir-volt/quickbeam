@@ -232,6 +232,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
   defp encode_instruction(:lnot, _atoms), do: <<Opcodes.num(:lnot)>>
   defp encode_instruction(:typeof, _atoms), do: <<Opcodes.num(:typeof)>>
   defp encode_instruction(:get_array_el, _atoms), do: <<Opcodes.num(:get_array_el)>>
+  defp encode_instruction(:get_array_el2, _atoms), do: <<Opcodes.num(:get_array_el2)>>
   defp encode_instruction(:put_array_el, _atoms), do: <<Opcodes.num(:put_array_el)>>
   defp encode_instruction(:get_length, _atoms), do: <<Opcodes.num(:get_length)>>
 
