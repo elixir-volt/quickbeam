@@ -17,6 +17,21 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
     end
   end
 
+  def compile(
+        %AST.Literal{value: %{pattern: pattern}, raw: raw},
+        _scope,
+        instructions,
+        constants,
+        _callbacks
+      )
+      when is_binary(pattern) and is_binary(raw) do
+    with {:ok, bytecode} <- regexp_bytecode(raw, pattern) do
+      {pattern_instruction, constants} = add_constant(pattern, constants)
+      {bytecode_instruction, constants} = add_constant(bytecode, constants)
+      {:ok, instructions ++ [pattern_instruction, bytecode_instruction, :regexp], constants}
+    end
+  end
+
   def compile(%AST.Literal{value: value}, _scope, instructions, constants, _callbacks)
       when is_integer(value) do
     {:ok, instructions ++ [{:push_int, value}], constants}
@@ -472,6 +487,25 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
 
   def compile(expression, _scope, _instructions, _constants, _callbacks),
     do: {:error, {:unsupported, expression.type}}
+
+  defp regexp_bytecode(raw, pattern) do
+    with {:ok, rt} <- QuickBEAM.start(apis: false) do
+      try do
+        with {:ok, binary} <- QuickBEAM.compile(rt, raw),
+             {:ok, %{value: %{constants: constants}}} <- QuickBEAM.VM.Bytecode.decode(binary),
+             bytecode when is_binary(bytecode) <-
+               Enum.find(constants, &regexp_bytecode_constant?(&1, pattern)) do
+          {:ok, bytecode}
+        else
+          _ -> {:error, {:unsupported, :regexp_literal}}
+        end
+      after
+        QuickBEAM.stop(rt)
+      end
+    end
+  end
+
+  defp regexp_bytecode_constant?(value, pattern), do: is_binary(value) and value != pattern
 
   defp compile_direct_call(callee, args, scope, instructions, constants, callbacks) do
     with {:ok, instructions, constants} <-

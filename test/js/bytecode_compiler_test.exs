@@ -130,6 +130,10 @@ defmodule QuickBEAM.JS.BytecodeCompilerTest do
       )
     end
 
+    test "compiles regexp literals" do
+      assert_compiles_to("/a+/.test('aa')", true)
+    end
+
     test "compiles update and compound assignments" do
       assert_compiles_to("let x=1; x++; x", 2)
       assert_compiles_to("let x=1; ++x", 2)
