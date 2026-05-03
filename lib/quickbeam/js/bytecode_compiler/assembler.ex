@@ -38,7 +38,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
   def atoms(instructions) do
     instructions
     |> Enum.flat_map(fn
-      {:define_field, name} -> [name]
+      {:define_field, name} when is_binary(name) -> [name]
       {:get_var, name} -> [name]
       {:put_var, name} -> [name]
       {:get_field, name} -> [name]
@@ -300,6 +300,9 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
     {_name, _size, pops, pushes, _format} = Opcodes.info(op)
     {pops, pushes}
   end
+
+  defp atom_index!(_atoms, index) when is_integer(index) and index >= 0,
+    do: Bitwise.bor(0x80000000, index)
 
   defp atom_index!(atoms, name) do
     local_idx = atoms |> Tuple.to_list() |> Enum.find_index(&(&1 == name))

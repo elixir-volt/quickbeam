@@ -417,9 +417,19 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
   end
 
   def compile(%AST.ArrayExpression{elements: elements}, scope, instructions, constants, callbacks) do
-    with {:ok, instructions, constants} <-
-           compile_array_elements(elements, scope, instructions, constants, callbacks) do
-      {:ok, instructions ++ [{:array_from, length(elements)}], constants}
+    if Enum.any?(elements, &is_nil/1) do
+      compile_sparse_array(
+        elements,
+        scope,
+        instructions ++ [{:array_from, 0}],
+        constants,
+        callbacks
+      )
+    else
+      with {:ok, instructions, constants} <-
+             compile_array_elements(elements, scope, instructions, constants, callbacks) do
+        {:ok, instructions ++ [{:array_from, length(elements)}], constants}
+      end
     end
   end
 
@@ -916,11 +926,29 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
        ),
        do: {:error, {:unsupported, {:logical_operator, operator}}}
 
+  defp compile_sparse_array(elements, scope, instructions, constants, callbacks) do
+    elements
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, instructions, constants}, fn
+      {nil, _index}, {:ok, instructions, constants} ->
+        {:cont, {:ok, instructions, constants}}
+
+      {%AST.SpreadElement{}, _index}, {:ok, _instructions, _constants} ->
+        {:halt, {:error, {:unsupported, :array_spread}}}
+
+      {element, index}, {:ok, instructions, constants} ->
+        case callbacks.compile_expression.(element, scope, instructions, constants) do
+          {:ok, instructions, constants} ->
+            {:cont, {:ok, instructions ++ [{:define_field, index}], constants}}
+
+          {:error, _} = error ->
+            {:halt, error}
+        end
+    end)
+  end
+
   defp compile_array_elements([], _scope, instructions, constants, _callbacks),
     do: {:ok, instructions, constants}
-
-  defp compile_array_elements([nil | rest], _scope, _instructions, _constants, _callbacks),
-    do: {:error, {:unsupported, {:array_hole, length(rest)}}}
 
   defp compile_array_elements(
          [%AST.SpreadElement{} | _rest],

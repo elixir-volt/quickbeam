@@ -94,6 +94,7 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
       {"logical assignment and", "let x = 1; x &&= 3; x"},
       {"logical assignment nullish", "let x = null; x ??= 4; x"},
       {"array write", "let a=[1]; a[0]=3; a[0]"},
+      {"array elision length", "let a=[,1,,2]; a.length"},
       {"computed object write", "let o={x:1}; o[\"x\"]=2; o.x"},
       {"function if return", "function f(x){ if (x) return 1; return 2; } f(true)"},
       {"function loop return", "function f(){ while (true) { return 5; } } f()"},

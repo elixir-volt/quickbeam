@@ -165,6 +165,7 @@ defmodule QuickBEAM.JS.BytecodeCompilerTest do
 
     test "compiles computed array writes" do
       assert_compiles_to("let a=[1]; a[0]=3; a[0]", 3)
+      assert_compiles_to("let a=[,1,,2]; a.length", 4)
     end
 
     test "compiles computed object writes" do
