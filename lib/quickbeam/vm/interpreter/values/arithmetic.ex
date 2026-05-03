@@ -271,8 +271,23 @@ defmodule QuickBEAM.VM.Interpreter.Values.Arithmetic do
 
   @doc "Applies JavaScript exponentiation semantics."
   def pow({:bigint, a}, {:bigint, b}) when b >= 0, do: {:bigint, Integer.pow(a, b)}
-  def pow(a, b) when is_number(a) and is_number(b), do: :math.pow(a, b)
-  def pow(_, _), do: :nan
+  def pow(a, b), do: numeric_pow(Coercion.to_number(a), Coercion.to_number(b))
+
+  defp numeric_pow(:nan, _), do: :nan
+  defp numeric_pow(_, :nan), do: :nan
+
+  defp numeric_pow(a, b) when is_number(a) and is_number(b) and a == 0 and b < 0,
+    do: :infinity
+
+  defp numeric_pow(a, b) when is_number(a) and is_number(b) do
+    try do
+      :math.pow(a, b)
+    rescue
+      ArithmeticError -> :nan
+    end
+  end
+
+  defp numeric_pow(_, _), do: :nan
 
   @doc "Applies JavaScript unary negation semantics."
   def neg({:bigint, a}), do: {:bigint, -a}

@@ -84,6 +84,8 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
       {"post decrement", "let x=1; x--; x"},
       {"compound add", "let x=3; x += 4; x"},
       {"compound multiply", "let x=6; x *= 7; x"},
+      {"exponent", "2 ** 3"},
+      {"compound exponent", "let x=2; x **= 3; x"},
       {"logical assignment or", "let x = 0; x ||= 2; x"},
       {"logical assignment and", "let x = 1; x &&= 3; x"},
       {"logical assignment nullish", "let x = null; x ??= 4; x"},

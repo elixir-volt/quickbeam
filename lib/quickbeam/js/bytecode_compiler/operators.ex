@@ -4,6 +4,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Operators do
   def binary("+"), do: {:ok, :add}
   def binary("-"), do: {:ok, :sub}
   def binary("*"), do: {:ok, :mul}
+  def binary("**"), do: {:ok, :pow}
   def binary("/"), do: {:ok, :div}
   def binary("%"), do: {:ok, :mod}
   def binary("<<"), do: {:ok, :shl}
@@ -26,6 +27,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Operators do
   def compound("+="), do: {:ok, :add}
   def compound("-="), do: {:ok, :sub}
   def compound("*="), do: {:ok, :mul}
+  def compound("**="), do: {:ok, :pow}
   def compound("/="), do: {:ok, :div}
   def compound("%="), do: {:ok, :mod}
   def compound("<<="), do: {:ok, :shl}
