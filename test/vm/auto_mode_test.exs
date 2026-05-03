@@ -102,4 +102,32 @@ defmodule QuickBEAM.VM.AutoModeTest do
       QuickBEAM.stop(rt)
     end
   end
+
+  test "compiled nested catch in finally resumes the original throw" do
+    {:ok, rt} = QuickBEAM.start(apis: false)
+
+    code = """
+    let seen = "";
+    try {
+      try {
+        throw "outer";
+      } finally {
+        try {
+          throw "inner";
+        } catch (e) {
+          seen += e;
+        }
+      }
+    } catch (e) {
+      seen += e;
+    }
+    seen
+    """
+
+    try do
+      assert {:ok, "innerouter"} = QuickBEAM.eval(rt, code, mode: :beam_compiler)
+    after
+      QuickBEAM.stop(rt)
+    end
+  end
 end

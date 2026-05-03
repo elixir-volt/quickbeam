@@ -958,21 +958,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
            stack_depths,
            constants,
            entries,
-           inline_targets
+           inline_targets,
+           target,
+           {:block, idx + 1, next_entry, arg_count}
          ) do
-      {:ok, inlined_state} ->
-        lower_block(
-          instructions,
-          size,
-          idx + 1,
-          next_entry,
-          arg_count,
-          inlined_state,
-          stack_depths,
-          constants,
-          entries,
-          inline_targets
-        )
+      {:ok, body} when is_list(body) ->
+        {:ok, body}
 
       {:done, body} when is_list(body) ->
         {:ok, body}
@@ -993,7 +984,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          _stack_depths,
          _constants,
          _entries,
-         _inline_targets
+         _inline_targets,
+         _finally_entry,
+         _continuation
        )
        when idx >= size do
     {:error, {:missing_ret, idx}}
@@ -1007,7 +1000,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          stack_depths,
          constants,
          entries,
-         inline_targets
+         inline_targets,
+         finally_entry,
+         continuation
        ) do
     instruction = elem(instructions, idx)
 
@@ -1015,10 +1010,16 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
       {op, []} ->
         case CFG.opcode_name(op) do
           {:ok, :ret} ->
-            case State.pop(state) do
-              {:ok, _return_addr, state} -> {:ok, state}
-              {:error, _} = error -> error
-            end
+            resume_finally_continuation(
+              instructions,
+              size,
+              state,
+              stack_depths,
+              constants,
+              entries,
+              inline_targets,
+              continuation
+            )
 
           {:ok, name} when name in [:catch, :gosub, :goto, :goto8, :goto16] ->
             {:error, {:unsupported_finally_opcode, name, idx}}
@@ -1033,20 +1034,64 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
               stack_depths,
               constants,
               entries,
-              inline_targets
+              inline_targets,
+              finally_entry,
+              continuation
             )
         end
 
       {op, _args} ->
         case CFG.opcode_name(op) do
           {:ok, :gosub} ->
-            {:error, {:unsupported_finally_opcode, :gosub, idx}}
+            state = State.push(state, Builder.atom(:return_addr), :unknown)
+
+            lower_finally_inline(
+              instructions,
+              size,
+              hd(elem(instruction, 1)),
+              state,
+              stack_depths,
+              constants,
+              entries,
+              inline_targets,
+              hd(elem(instruction, 1)),
+              {:finally, idx + 1, finally_entry, continuation}
+            )
 
           {:ok, :catch} ->
-            {:error, {:unsupported_finally_opcode, :catch, idx}}
+            lower_finally_catch(
+              instructions,
+              size,
+              idx,
+              state,
+              stack_depths,
+              constants,
+              entries,
+              inline_targets,
+              finally_entry,
+              continuation,
+              hd(elem(instruction, 1))
+            )
 
           {:ok, name} when name in [:goto, :goto8, :goto16] ->
-            State.goto(state, hd(elem(instruction, 1)), stack_depths)
+            target = hd(elem(instruction, 1))
+
+            if finally_internal_target?(instructions, size, finally_entry, target) do
+              lower_finally_inline(
+                instructions,
+                size,
+                target,
+                state,
+                stack_depths,
+                constants,
+                entries,
+                inline_targets,
+                finally_entry,
+                continuation
+              )
+            else
+              State.goto(state, target, stack_depths)
+            end
 
           _ ->
             lower_finally_instruction(
@@ -1058,9 +1103,171 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
               stack_depths,
               constants,
               entries,
-              inline_targets
+              inline_targets,
+              finally_entry,
+              continuation
             )
         end
+    end
+  end
+
+  defp lower_finally_catch(
+         instructions,
+         size,
+         idx,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets,
+         finally_entry,
+         continuation,
+         target
+       ) do
+    with :ok <- ensure_catch_region_supported(instructions, idx, target),
+         {saved_stack, state} <- freeze_stack(state),
+         {:ok, try_body} <-
+           lower_finally_body(
+             instructions,
+             size,
+             idx + 1,
+             %{
+               state
+               | body: [],
+                 stack: [Builder.literal(target) | saved_stack],
+                 stack_types: [:integer | state.stack_types]
+             },
+             stack_depths,
+             constants,
+             entries,
+             inline_targets,
+             finally_entry,
+             continuation
+           ),
+         {:ok, catch_body} <-
+           lower_finally_body(
+             instructions,
+             size,
+             target,
+             %{
+               state
+               | body: [],
+                 temp: state.temp + (idx + 1) * 1000,
+                 stack: [Builder.var("Caught#{idx}") | saved_stack],
+                 stack_types: [:unknown | state.stack_types]
+             },
+             stack_depths,
+             constants,
+             entries,
+             inline_targets,
+             finally_entry,
+             continuation
+           ) do
+      {:done,
+       Enum.reverse([
+         Builder.try_catch_expr(try_body, Builder.var("Caught#{idx}"), catch_body) | state.body
+       ])}
+    end
+  end
+
+  defp lower_finally_body(
+         instructions,
+         size,
+         idx,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets,
+         finally_entry,
+         continuation
+       ) do
+    case lower_finally_inline(
+           instructions,
+           size,
+           idx,
+           state,
+           stack_depths,
+           constants,
+           entries,
+           inline_targets,
+           finally_entry,
+           continuation
+         ) do
+      {:ok, body} when is_list(body) -> {:ok, body}
+      {:done, body} when is_list(body) -> {:ok, body}
+      {:done, terminal_state} -> {:ok, Enum.reverse(terminal_state.body)}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp finally_internal_target?(instructions, size, finally_entry, target) do
+    target >= finally_entry and
+      finally_region_contains?(instructions, size, finally_entry, target)
+  end
+
+  defp finally_region_contains?(_instructions, _size, idx, target) when idx > target, do: false
+
+  defp finally_region_contains?(instructions, size, idx, target) when idx < size do
+    {op, _args} = elem(instructions, idx)
+
+    case CFG.opcode_name(op) do
+      {:ok, :ret} -> idx == target
+      _ -> idx == target or finally_region_contains?(instructions, size, idx + 1, target)
+    end
+  end
+
+  defp finally_region_contains?(_instructions, _size, _idx, _target), do: false
+
+  defp resume_finally_continuation(
+         instructions,
+         size,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets,
+         {:block, idx, next_entry, arg_count}
+       ) do
+    with {:ok, _return_addr, state} <- State.pop(state) do
+      lower_block(
+        instructions,
+        size,
+        idx,
+        next_entry,
+        arg_count,
+        state,
+        stack_depths,
+        constants,
+        entries,
+        inline_targets
+      )
+    end
+  end
+
+  defp resume_finally_continuation(
+         instructions,
+         size,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets,
+         {:finally, idx, finally_entry, continuation}
+       ) do
+    with {:ok, _return_addr, state} <- State.pop(state) do
+      lower_finally_inline(
+        instructions,
+        size,
+        idx,
+        state,
+        stack_depths,
+        constants,
+        entries,
+        inline_targets,
+        finally_entry,
+        continuation
+      )
     end
   end
 
@@ -1073,7 +1280,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          stack_depths,
          constants,
          entries,
-         inline_targets
+         inline_targets,
+         finally_entry,
+         continuation
        ) do
     case Ops.lower_instruction(
            instruction,
@@ -1095,7 +1304,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
           stack_depths,
           constants,
           entries,
-          inline_targets
+          inline_targets,
+          finally_entry,
+          continuation
         )
 
       {:done, body} ->
