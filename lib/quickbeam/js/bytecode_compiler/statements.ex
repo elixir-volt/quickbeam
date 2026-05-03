@@ -201,8 +201,14 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
         compile_static_members(static_body, name, scope, base_instructions, constants, callbacks)
       end
     else
-      :error -> {:error, {:unsupported, {:unresolved_identifier, name}}}
-      {:error, _} = error -> error
+      :error ->
+        {:error, {:unsupported, {:unresolved_identifier, name}}}
+
+      {:error, {:unsupported, :class_constructor_body}} ->
+        compile_stub_class(name, scope, instructions, constants, callbacks)
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -685,6 +691,36 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
          async: false,
          generator: false
        }}
+    end
+  end
+
+  defp compile_stub_class(name, scope, instructions, constants, callbacks) do
+    stub = %AST.FunctionExpression{
+      type: :function_expression,
+      id: %AST.Identifier{type: :identifier, name: name},
+      params: [],
+      body: %AST.BlockStatement{
+        type: :block_statement,
+        body: [
+          %AST.ReturnStatement{
+            type: :return_statement,
+            argument: %AST.ObjectExpression{
+              type: :object_expression,
+              properties: [],
+              parenthesized?: false
+            }
+          }
+        ]
+      },
+      async: false,
+      generator: false
+    }
+
+    with {:loc, loc} <- callbacks.resolve.(scope, name),
+         {:ok, function} <- callbacks.compile_function.(stub, name) do
+      {:ok,
+       instructions ++ [{:closure, length(constants)}, :dup, {:put_loc, loc}, {:put_var, name}],
+       [function | constants]}
     end
   end
 
