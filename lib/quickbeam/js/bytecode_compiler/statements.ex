@@ -274,6 +274,42 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
   end
 
   def compile(
+        %AST.ForInStatement{
+          left: %AST.VariableDeclaration{
+            declarations: [%AST.VariableDeclarator{id: %AST.Identifier{name: name}}]
+          },
+          right: %AST.ObjectExpression{properties: properties},
+          body: body
+        },
+        scope,
+        instructions,
+        constants,
+        _opts,
+        callbacks
+      ) do
+    end_label = callbacks.unique_label.(:for_in_end)
+
+    with {:loc, value_loc} <- callbacks.resolve.(scope, name),
+         {:ok, keys} <- object_literal_keys(properties),
+         {:ok, instructions, constants} <-
+           compile_static_for_in_keys(
+             keys,
+             body,
+             value_loc,
+             scope,
+             instructions,
+             constants,
+             end_label,
+             callbacks
+           ) do
+      {:ok, instructions ++ [{:label, end_label}], constants}
+    else
+      :error -> {:error, {:unsupported, :for_in_binding}}
+      {:error, _} = error -> error
+    end
+  end
+
+  def compile(
         %AST.ForOfStatement{
           left: %AST.VariableDeclaration{
             declarations: [%AST.VariableDeclarator{id: %AST.Identifier{name: name}}]
@@ -411,6 +447,73 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
 
   defp compile_if_alternate(alternate, scope, instructions, constants, opts, callbacks),
     do: compile(alternate, scope, instructions, constants, opts, callbacks)
+
+  defp object_literal_keys(properties) do
+    Enum.reduce_while(properties, {:ok, []}, fn
+      %AST.Property{computed: false, key: %AST.Identifier{name: name}}, {:ok, keys} ->
+        {:cont, {:ok, [name | keys]}}
+
+      %AST.Property{computed: false, key: %AST.Literal{value: value}}, {:ok, keys}
+      when is_binary(value) or is_number(value) ->
+        {:cont, {:ok, [to_string(value) | keys]}}
+
+      _property, _acc ->
+        {:halt, {:error, {:unsupported, :for_in_property_key}}}
+    end)
+    |> case do
+      {:ok, keys} -> {:ok, Enum.reverse(keys)}
+      error -> error
+    end
+  end
+
+  defp compile_static_for_in_keys(
+         [],
+         _body,
+         _value_loc,
+         _scope,
+         instructions,
+         constants,
+         _end_label,
+         _callbacks
+       ),
+       do: {:ok, instructions, constants}
+
+  defp compile_static_for_in_keys(
+         [key | keys],
+         body,
+         value_loc,
+         scope,
+         instructions,
+         constants,
+         end_label,
+         callbacks
+       ) do
+    continue_label = callbacks.unique_label.(:for_in_continue)
+    {instruction, constants} = add_constant(key, constants)
+
+    with {:ok, instructions, constants} <-
+           compile(
+             body,
+             scope,
+             instructions ++ [instruction, {:put_loc, value_loc}],
+             constants,
+             [tail?: false, break_label: end_label, continue_label: continue_label],
+             callbacks
+           ) do
+      compile_static_for_in_keys(
+        keys,
+        body,
+        value_loc,
+        scope,
+        instructions ++ [{:label, continue_label}],
+        constants,
+        end_label,
+        callbacks
+      )
+    end
+  end
+
+  defp add_constant(value, constants), do: {{:constant, length(constants)}, [value | constants]}
 
   defp validate_simple_switch(cases) do
     if Enum.all?(cases, &simple_switch_case?/1) do

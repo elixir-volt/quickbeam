@@ -66,6 +66,7 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
       {"simple switch",
        "let x = 2; switch (x) { case 1: x = 10; break; case 2: x = 20; break; } x"},
       {"for of array", "let s = 0; for (const x of [1, 2, 3]) s += x; s"},
+      {"for in static object", "let s = ''; for (const k in {a: 1, b: 2}) s += k; s.length"},
       {"post increment", "let x=1; x++; x"},
       {"pre increment", "let x=1; ++x"},
       {"post decrement", "let x=1; x--; x"},
