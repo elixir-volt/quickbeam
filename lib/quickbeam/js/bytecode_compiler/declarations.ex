@@ -56,6 +56,16 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Declarations do
     declare_statements(rest, scope)
   end
 
+  defp declare_statements(
+         [
+           %AST.TryStatement{handler: %AST.CatchClause{param: %AST.Identifier{name: name}}}
+           | rest
+         ],
+         scope
+       ) do
+    declare_statements(rest, Scope.declare_local(scope, name))
+  end
+
   defp declare_statements([_statement | rest], scope), do: declare_statements(rest, scope)
 
   defp declare_pattern(%AST.Identifier{name: name}, scope), do: Scope.declare_local(scope, name)

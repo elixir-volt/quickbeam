@@ -274,6 +274,38 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
   end
 
   def compile(
+        %AST.TryStatement{
+          block: %AST.BlockStatement{body: [%AST.ThrowStatement{argument: argument}]},
+          handler: %AST.CatchClause{
+            param: %AST.Identifier{name: name},
+            body: handler_body
+          },
+          finalizer: nil
+        },
+        scope,
+        instructions,
+        constants,
+        opts,
+        callbacks
+      ) do
+    with {:loc, loc} <- callbacks.resolve.(scope, name),
+         {:ok, instructions, constants} <-
+           callbacks.compile_expression.(argument, scope, instructions, constants) do
+      compile(
+        handler_body,
+        scope,
+        instructions ++ [{:put_loc, loc}],
+        constants,
+        opts,
+        callbacks
+      )
+    else
+      :error -> {:error, {:unsupported, {:unresolved_identifier, name}}}
+      {:error, _} = error -> error
+    end
+  end
+
+  def compile(
         %AST.ForInStatement{
           left: %AST.VariableDeclaration{
             declarations: [%AST.VariableDeclarator{id: %AST.Identifier{name: name}}]

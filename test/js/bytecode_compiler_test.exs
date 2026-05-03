@@ -116,6 +116,10 @@ defmodule QuickBEAM.JS.BytecodeCompilerTest do
       assert_compiles_to("let s = ''; for (const k in {a: 1, b: 2}) s += k; s.length", 2)
     end
 
+    test "compiles simple throw/catch" do
+      assert_compiles_to("try { throw 3; } catch (e) { e + 1; }", 4)
+    end
+
     test "compiles update and compound assignments" do
       assert_compiles_to("let x=1; x++; x", 2)
       assert_compiles_to("let x=1; ++x", 2)
