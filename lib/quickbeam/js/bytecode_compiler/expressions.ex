@@ -555,7 +555,8 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
         constants,
         callbacks
       ) do
-    with {:ok, instructions, constants} <-
+    with {:ok, args} <- expand_call_args(args),
+         {:ok, instructions, constants} <-
            callbacks.compile_expression.(object, scope, instructions, constants),
          {:ok, instructions, constants} <-
            compile_call_args(
@@ -579,7 +580,8 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
         constants,
         callbacks
       ) do
-    with {:ok, instructions, constants} <-
+    with {:ok, args} <- expand_call_args(args),
+         {:ok, instructions, constants} <-
            callbacks.compile_expression.(object, scope, instructions, constants),
          {:ok, instructions, constants} <-
            callbacks.compile_expression.(property, scope, instructions, constants),
@@ -606,7 +608,8 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
         constants,
         callbacks
       ) do
-    with {:ok, instructions, constants} <-
+    with {:ok, args} <- expand_call_args(args),
+         {:ok, instructions, constants} <-
            callbacks.compile_expression.(callee, scope, instructions, constants),
          {:ok, instructions, constants} <-
            compile_call_args(args, scope, instructions ++ [:dup], constants, callbacks) do
@@ -748,7 +751,8 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
   defp regexp_bytecode_constant?(value, pattern), do: is_binary(value) and value != pattern
 
   defp compile_direct_call(callee, args, scope, instructions, constants, callbacks) do
-    with {:ok, instructions, constants} <-
+    with {:ok, args} <- expand_call_args(args),
+         {:ok, instructions, constants} <-
            callbacks.compile_expression.(callee, scope, instructions, constants),
          {:ok, instructions, constants} <-
            compile_call_args(args, scope, instructions, constants, callbacks) do
@@ -1028,6 +1032,27 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
        do: {:ok, value}
 
   defp property_key(%AST.Property{}), do: {:error, {:unsupported, :object_property_key}}
+
+  defp expand_call_args(args) do
+    Enum.reduce_while(args, {:ok, []}, fn
+      %AST.SpreadElement{argument: %AST.ArrayExpression{elements: elements}}, {:ok, acc} ->
+        if Enum.any?(elements, &(is_nil(&1) or match?(%AST.SpreadElement{}, &1))) do
+          {:halt, {:error, {:unsupported, :spread_element}}}
+        else
+          {:cont, {:ok, Enum.reverse(elements) ++ acc}}
+        end
+
+      %AST.SpreadElement{}, {:ok, _acc} ->
+        {:halt, {:error, {:unsupported, :spread_element}}}
+
+      arg, {:ok, acc} ->
+        {:cont, {:ok, [arg | acc]}}
+    end)
+    |> case do
+      {:ok, reversed} -> {:ok, Enum.reverse(reversed)}
+      {:error, _} = error -> error
+    end
+  end
 
   defp compile_call_args([], _scope, instructions, constants, _callbacks),
     do: {:ok, instructions, constants}

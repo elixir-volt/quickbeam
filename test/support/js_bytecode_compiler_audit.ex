@@ -104,6 +104,7 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
       {"function arg4 write", "function f(a,b,c,d,e){ e=6; return e; } f(1,2,3,4,5)"},
       {"function arg4 strict write",
        "function f(a,b,c,d,e){ 'use strict'; e=6; return e; } f(1,2,3,4,5)"},
+      {"array spread call", "function f(a, b, c) { return a + b + c; } f(...[1, 2, 3])"},
       {"function block var", "function f(){ if (true) { var x = 1; } return x; } f()"},
       {"function block let hidden",
        "function f(){ if (true) { let x = 1; } return typeof x; } f()"},
