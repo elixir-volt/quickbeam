@@ -1,9 +1,9 @@
 - Add Test262-derived executable windows for broader coverage.
-- `eval` execution (3 mismatches): eval compiles as global but interpreter/BEAM compiler return undefined. Audit harness lacks runtime_pid for interpreter eval.
+- `eval` execution (3 mismatches): eval compiles as global but interpreter/BEAM compiler return undefined. Audit harness lacks runtime_pid.
 - Derived constructor return object (1 mismatch): stub class returns empty object.
-- `arguments` aliasing (4 unsupported): interpreter's special_object 1 creates snapshot not aliased view. var_ref infrastructure exists but heap aliasing doesn't.
-- Private class fields/methods (4 cases) + private method key (1 case) = 5 private unsupported: needs define_class/private_symbol/brand/get-put_private_field.
-- Super setter/compound/postinc (3 cases) + super destructuring targets (2 cases) = 5 super-write unsupported: need prototype-chain write semantics (put_super_value).
+- Super setter/compound/postinc (3 cases) + super destructuring targets (2 cases) = 5 super-write unsupported: rewrite_super only handles reads, not writes. Factory approach can't redirect setter calls to `this`. Need put_super_value or targeted super-setter dispatch.
+- Private class fields (3 class_element) + private method/getter keys (2 object_property_key) = 5 private unsupported: needs define_class/private_symbol infrastructure.
 - `instanceof` (1 unsupported): class factories lack real prototypes.
 - `Symbol.iterator` (1 unsupported): custom iterable for-of needs iterator protocol.
 - `with(o){ delete x; }` parse error (1 case).
+- `test/vm/test_language.js` throw_statement (1 unsupported): full JS file needing many features.
