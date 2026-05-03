@@ -1,6 +1,7 @@
 defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
   @moduledoc false
 
+  alias QuickBEAM.JS.BytecodeCompiler.Slots
   alias QuickBEAM.JS.Parser.AST
 
   def compile_all([], _scope, instructions, constants, _callbacks),
@@ -78,9 +79,9 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
          {:ok, instructions, constants} <-
            callbacks.compile_expression.(right, scope, instructions, constants) do
       if Keyword.fetch!(opts, :tail?) do
-        {:ok, instructions ++ [write_slot(slot), {:set_loc, 0}], constants}
+        {:ok, instructions ++ [Slots.write(slot), {:set_loc, 0}], constants}
       else
-        {:ok, instructions ++ [put_slot(slot)], constants}
+        {:ok, instructions ++ [Slots.put(slot)], constants}
       end
     else
       :error -> {:error, {:unsupported, {:unresolved_identifier, name}}}
@@ -384,12 +385,6 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
       {:ok, instructions ++ [:return], constants}
     end
   end
-
-  defp write_slot({:loc, index}), do: {:set_loc, index}
-  defp write_slot({:arg, index}), do: {:set_arg, index}
-
-  defp put_slot({:loc, index}), do: {:put_loc, index}
-  defp put_slot({:arg, index}), do: {:put_arg, index}
 
   defp property_assignment_statement_suffix(callbacks, scope, property) do
     case callbacks.resolve.(scope, "<ret>") do

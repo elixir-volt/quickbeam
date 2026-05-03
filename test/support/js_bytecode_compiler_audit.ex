@@ -31,7 +31,12 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
       {"logical and", "let x=0; true && (x=1); x"},
       {"logical or", "let x=0; false || (x=1); x"},
       {"nullish null", "null ?? 3"},
-      {"nullish value", "0 ?? 3"}
+      {"nullish value", "0 ?? 3"},
+      {"post increment", "let x=1; x++; x"},
+      {"pre increment", "let x=1; ++x"},
+      {"post decrement", "let x=1; x--; x"},
+      {"compound add", "let x=3; x += 4; x"},
+      {"compound multiply", "let x=6; x *= 7; x"}
     ]
   end
 

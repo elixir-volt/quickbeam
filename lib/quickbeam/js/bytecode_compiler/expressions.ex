@@ -1,7 +1,7 @@
 defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
   @moduledoc false
 
-  alias QuickBEAM.JS.BytecodeCompiler.Operators
+  alias QuickBEAM.JS.BytecodeCompiler.{Operators, Slots}
   alias QuickBEAM.JS.Parser.AST
 
   def compile(%AST.Literal{value: value}, _scope, instructions, constants, _callbacks)
@@ -27,7 +27,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
   def compile(%AST.Identifier{name: name}, scope, instructions, constants, callbacks) do
     case callbacks.resolve.(scope, name) do
       :error -> {:error, {:unsupported, {:unresolved_identifier, name}}}
-      slot -> {:ok, instructions ++ [read_slot(slot)], constants}
+      slot -> {:ok, instructions ++ [Slots.read(slot)], constants}
     end
   end
 
@@ -115,7 +115,55 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
     with slot when slot != :error <- callbacks.resolve.(scope, name),
          {:ok, instructions, constants} <-
            callbacks.compile_expression.(right, scope, instructions, constants) do
-      {:ok, instructions ++ [write_slot(slot)], constants}
+      {:ok, instructions ++ [Slots.write(slot)], constants}
+    else
+      :error -> {:error, {:unsupported, {:unresolved_identifier, name}}}
+      {:error, _} = error -> error
+    end
+  end
+
+  def compile(
+        %AST.AssignmentExpression{
+          operator: operator,
+          left: %AST.Identifier{name: name},
+          right: right
+        },
+        scope,
+        instructions,
+        constants,
+        callbacks
+      ) do
+    with {:ok, op} <- Operators.compound(operator),
+         slot when slot != :error <- callbacks.resolve.(scope, name),
+         {:ok, instructions, constants} <-
+           callbacks.compile_expression.(
+             right,
+             scope,
+             instructions ++ [Slots.read(slot)],
+             constants
+           ) do
+      {:ok, instructions ++ [op, Slots.write(slot)], constants}
+    else
+      :error -> {:error, {:unsupported, {:unresolved_identifier, name}}}
+      {:error, _} = error -> error
+    end
+  end
+
+  def compile(
+        %AST.UpdateExpression{
+          operator: operator,
+          argument: %AST.Identifier{name: name},
+          prefix: prefix?
+        },
+        scope,
+        instructions,
+        constants,
+        callbacks
+      ) do
+    with {:ok, op} <- Operators.update(operator, prefix?),
+         slot when slot != :error <- callbacks.resolve.(scope, name) do
+      suffix = update_suffix(slot, prefix?)
+      {:ok, instructions ++ [Slots.read(slot), op | suffix], constants}
     else
       :error -> {:error, {:unsupported, {:unresolved_identifier, name}}}
       {:error, _} = error -> error
@@ -346,11 +394,8 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
 
   defp add_constant(value, constants), do: {{:constant, length(constants)}, [value | constants]}
 
-  defp read_slot({:arg, index}), do: {:get_arg, index}
-  defp read_slot({:loc, index}), do: {:get_loc, index}
-
-  defp write_slot({:loc, index}), do: {:set_loc, index}
-  defp write_slot({:arg, index}), do: {:set_arg, index}
+  defp update_suffix(slot, true), do: [:dup, Slots.put(slot)]
+  defp update_suffix(slot, false), do: [Slots.put(slot)]
 
   defp function_name(nil), do: nil
   defp function_name(%AST.Identifier{name: name}), do: name
