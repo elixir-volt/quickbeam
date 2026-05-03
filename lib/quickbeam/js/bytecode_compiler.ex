@@ -99,11 +99,13 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
   end
 
   defp compile_function(function, name, globals) do
-    {params, defaults, rest_param} = normalize_params(function.params)
+    {params, defaults, rest_param, pattern_params} = normalize_params(function.params)
     scope = Scope.new(params, globals)
+    scope = declare_param_patterns(scope, pattern_params)
 
     with {:ok, scope} <- Declarations.declare_program_locals(function.body.body, scope),
-         {:ok, instructions, constants} <- compile_rest_param(rest_param, [], []),
+         {:ok, instructions, constants} <- compile_param_patterns(pattern_params, scope, [], []),
+         {:ok, instructions, constants} <- compile_rest_param(rest_param, instructions, constants),
          {:ok, instructions, constants} <-
            compile_param_defaults(defaults, scope, instructions, constants, globals),
          {:ok, instructions, constants} <-
@@ -155,24 +157,137 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
   defp top_level_globals(scope), do: Enum.drop(scope.local_names, 1)
 
   defp normalize_params(params) do
-    Enum.reduce(params, {[], [], nil}, fn
-      %AST.Identifier{name: name}, {names, defaults, nil} ->
-        {names ++ [name], defaults, nil}
+    Enum.reduce(params, {[], [], nil, []}, fn
+      %AST.Identifier{name: name}, {names, defaults, nil, patterns} ->
+        {names ++ [name], defaults, nil, patterns}
 
       %AST.AssignmentPattern{left: %AST.Identifier{name: name}, right: default},
-      {names, defaults, nil} ->
-        {names ++ [name], defaults ++ [{name, default}], nil}
+      {names, defaults, nil, patterns} ->
+        {names ++ [name], defaults ++ [{name, default}], nil, patterns}
 
-      %AST.RestElement{argument: %AST.Identifier{name: name}}, {names, defaults, nil} ->
-        {names ++ [name], defaults, {length(names), length(names)}}
+      %AST.RestElement{argument: %AST.Identifier{name: name}}, {names, defaults, nil, patterns} ->
+        {names ++ [name], defaults, {length(names), length(names)}, patterns}
+
+      %AST.ObjectPattern{} = pattern, {names, defaults, nil, patterns} ->
+        name = synthetic_param_name(length(names))
+        {names ++ [name], defaults, nil, patterns ++ [{length(names), name, pattern}]}
+
+      %AST.ArrayPattern{} = pattern, {names, defaults, nil, patterns} ->
+        name = synthetic_param_name(length(names))
+        {names ++ [name], defaults, nil, patterns ++ [{length(names), name, pattern}]}
 
       param, _acc ->
         raise FunctionClauseError, function: :identifier_name!, arity: 1, args: [param]
     end)
   end
 
+  defp synthetic_param_name(index), do: "<param:#{index}>"
+
   defp defined_arg_count(params, nil), do: length(params)
   defp defined_arg_count(_params, {start, _index}), do: start
+
+  defp declare_param_patterns(scope, pattern_params) do
+    Enum.reduce(pattern_params, scope, fn {_index, _name, pattern}, scope ->
+      pattern
+      |> pattern_names()
+      |> Enum.reduce(scope, &Scope.declare_local(&2, &1))
+    end)
+  end
+
+  defp pattern_names(%AST.ObjectPattern{properties: properties}) do
+    Enum.flat_map(properties, fn
+      %AST.Property{value: value} -> pattern_names(value)
+      _property -> []
+    end)
+  end
+
+  defp pattern_names(%AST.ArrayPattern{elements: elements}) do
+    elements
+    |> Enum.reject(&is_nil/1)
+    |> Enum.flat_map(&pattern_names/1)
+  end
+
+  defp pattern_names(%AST.Identifier{name: name}), do: [name]
+  defp pattern_names(_pattern), do: []
+
+  defp compile_param_patterns([], _scope, instructions, constants),
+    do: {:ok, instructions, constants}
+
+  defp compile_param_patterns([{index, _name, pattern} | rest], scope, instructions, constants) do
+    with {:ok, instructions, constants} <-
+           compile_param_pattern(pattern, {:arg, index}, scope, instructions, constants) do
+      compile_param_patterns(rest, scope, instructions, constants)
+    end
+  end
+
+  defp compile_param_pattern(
+         %AST.ObjectPattern{properties: properties},
+         slot,
+         scope,
+         instructions,
+         constants
+       ) do
+    Enum.reduce_while(properties, {:ok, instructions, constants}, fn
+      %AST.Property{
+        computed: false,
+        key: %AST.Identifier{name: key},
+        value: %AST.Identifier{name: name}
+      },
+      {:ok, instructions, constants} ->
+        case Scope.resolve(scope, name) do
+          {:loc, loc} ->
+            {:cont,
+             {:ok,
+              instructions ++
+                [
+                  QuickBEAM.JS.BytecodeCompiler.Slots.read(slot),
+                  {:get_field, key},
+                  {:put_loc, loc}
+                ], constants}}
+
+          :error ->
+            {:halt, {:error, {:unsupported, {:unresolved_identifier, name}}}}
+        end
+
+      _property, {:ok, _instructions, _constants} ->
+        {:halt, {:error, {:unsupported, :destructured_parameter}}}
+    end)
+  end
+
+  defp compile_param_pattern(
+         %AST.ArrayPattern{elements: elements},
+         slot,
+         scope,
+         instructions,
+         constants
+       ) do
+    elements
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, instructions, constants}, fn
+      {nil, _index}, {:ok, instructions, constants} ->
+        {:cont, {:ok, instructions, constants}}
+
+      {%AST.Identifier{name: name}, index}, {:ok, instructions, constants} ->
+        case Scope.resolve(scope, name) do
+          {:loc, loc} ->
+            {:cont,
+             {:ok,
+              instructions ++
+                [
+                  QuickBEAM.JS.BytecodeCompiler.Slots.read(slot),
+                  {:push_int, index},
+                  :get_array_el,
+                  {:put_loc, loc}
+                ], constants}}
+
+          :error ->
+            {:halt, {:error, {:unsupported, {:unresolved_identifier, name}}}}
+        end
+
+      {_element, _index}, {:ok, _instructions, _constants} ->
+        {:halt, {:error, {:unsupported, :destructured_parameter}}}
+    end)
+  end
 
   defp compile_rest_param(nil, instructions, constants), do: {:ok, instructions, constants}
 

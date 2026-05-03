@@ -112,6 +112,7 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
       {"array spread call", "function f(a, b, c) { return a + b + c; } f(...[1, 2, 3])"},
       {"default parameter", "function f(x = 3) { return x; } f() + f(2)"},
       {"rest parameter", "function f(...xs) { return xs[0] + xs.length; } f(4, 5)"},
+      {"destructured parameters", "function f({x}, [y]) { return x + y; } f({x: 1}, [2])"},
       {"function block var", "function f(){ if (true) { var x = 1; } return x; } f()"},
       {"function block let hidden",
        "function f(){ if (true) { let x = 1; } return typeof x; } f()"},

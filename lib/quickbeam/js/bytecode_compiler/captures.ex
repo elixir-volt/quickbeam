@@ -10,7 +10,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Captures do
       ) do
     declared =
       params
-      |> Enum.map(&identifier_name/1)
+      |> Enum.flat_map(&pattern_names/1)
       |> Kernel.++(self_name(function))
       |> Kernel.++(function_local_names(body))
       |> MapSet.new()
@@ -81,6 +81,21 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Captures do
 
   defp pattern_names(%AST.Identifier{} = identifier), do: [identifier_name(identifier)]
   defp pattern_names(%AST.AssignmentPattern{left: left}), do: pattern_names(left)
+  defp pattern_names(%AST.RestElement{argument: argument}), do: pattern_names(argument)
+
+  defp pattern_names(%AST.ObjectPattern{properties: properties}) do
+    Enum.flat_map(properties, fn
+      %AST.Property{value: value} -> pattern_names(value)
+      _property -> []
+    end)
+  end
+
+  defp pattern_names(%AST.ArrayPattern{elements: elements}) do
+    elements
+    |> Enum.reject(&is_nil/1)
+    |> Enum.flat_map(&pattern_names/1)
+  end
+
   defp pattern_names(_pattern), do: []
 
   defp collect_identifiers(list, acc) when is_list(list),
