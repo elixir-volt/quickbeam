@@ -17,9 +17,9 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
   @doc "Invokes the runtime object asynchronously."
   def invoke_async(frame, gas, ctx) do
     result = Interpreter.run_frame(frame, [], gas, ctx)
-    Promise.resolved(result)
+    Promise.adopt(result)
   catch
-    {:generator_return, val} -> Promise.resolved(val)
+    {:generator_return, val} -> Promise.adopt(val)
     {:js_throw, val} -> Promise.rejected(val)
   end
 

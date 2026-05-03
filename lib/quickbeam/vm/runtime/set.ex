@@ -51,6 +51,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
   def proto_property("values"), do: {:builtin, "values", &values/2}
   def proto_property("keys"), do: proto_property("values")
   def proto_property("entries"), do: {:builtin, "entries", &entries/2}
+  def proto_property({:symbol, "Symbol.iterator"}), do: proto_property("values")
   def proto_property("forEach"), do: {:builtin, "forEach", &for_each/2}
   def proto_property(_), do: :undefined
 
@@ -167,6 +168,10 @@ defmodule QuickBEAM.VM.Runtime.Set do
 
     object do
       prop("next", next_fn)
+
+      symbol_method "Symbol.iterator" do
+        this
+      end
     end
   end
 
@@ -174,7 +179,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
     set_ref
     |> data()
     |> Enum.map(fn value -> Heap.wrap([value, value]) end)
-    |> Heap.wrap()
+    |> Heap.wrap_iterator()
   end
 
   defp add_value(set_ref, value) do

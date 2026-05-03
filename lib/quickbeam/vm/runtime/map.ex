@@ -12,26 +12,27 @@ defmodule QuickBEAM.VM.Runtime.Map do
     fn args, _this ->
       ref = make_ref()
 
-      entries =
+      {entries, order} =
         case args do
           [list] when is_list(list) ->
-            Map.new(list, &entry_to_kv/1)
+            entries_from_list(list)
 
           [{:obj, r}] ->
             stored = Heap.get_obj(r, [])
 
             if is_list(stored) or match?({:qb_arr, _}, stored) do
-              Heap.to_list({:obj, r}) |> Map.new(&entry_to_kv/1)
+              entries_from_list(Heap.to_list({:obj, r}))
             else
-              %{}
+              {%{}, []}
             end
 
           _ ->
-            %{}
+            {%{}, []}
         end
 
       Heap.put_obj(ref, %{
         map_data() => entries,
+        key_order() => order,
         "size" => map_size(entries)
       })
 
@@ -81,6 +82,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
   def proto_property("keys"), do: {:builtin, "keys", &keys/2}
   def proto_property("values"), do: {:builtin, "values", &values/2}
   def proto_property("entries"), do: {:builtin, "entries", &entries/2}
+  def proto_property({:symbol, "Symbol.iterator"}), do: proto_property("entries")
   def proto_property("forEach"), do: {:builtin, "forEach", &for_each/2}
 
   def proto_property("size") do
@@ -103,6 +105,22 @@ defmodule QuickBEAM.VM.Runtime.Map do
 
   defp normalize_key(k) when is_float(k) and k == trunc(k), do: trunc(k)
   defp normalize_key(k), do: k
+
+  defp entries_from_list(entries) do
+    pairs =
+      Enum.map(entries, fn entry ->
+        {key, value} = entry_to_kv(entry)
+        {normalize_key(key), value}
+      end)
+
+    order =
+      pairs
+      |> Enum.map(fn {key, _value} -> key end)
+      |> Enum.uniq()
+      |> Enum.reverse()
+
+    {Map.new(pairs), order}
+  end
 
   defp get([key | _], {:obj, ref}) do
     data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
@@ -162,14 +180,14 @@ defmodule QuickBEAM.VM.Runtime.Map do
 
   defp keys(_, {:obj, ref}) do
     order = Heap.get_obj(ref, %{}) |> Map.get(key_order(), []) |> Enum.reverse()
-    Heap.wrap(order)
+    Heap.wrap_iterator(order)
   end
 
   defp values(_, {:obj, ref}) do
     obj = Heap.get_obj(ref, %{})
     data = Map.get(obj, map_data(), %{})
     order = Map.get(obj, key_order(), []) |> Enum.reverse()
-    Heap.wrap(Enum.map(order, &Map.get(data, &1)))
+    Heap.wrap_iterator(Enum.map(order, &Map.get(data, &1)))
   end
 
   defp entries(_, {:obj, ref}) do
@@ -177,7 +195,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
     data = Map.get(obj, map_data(), %{})
     order = Map.get(obj, key_order(), []) |> Enum.reverse()
     items = Enum.map(order, fn key -> Heap.wrap([key, Map.get(data, key)]) end)
-    Heap.wrap(items)
+    Heap.wrap_iterator(items)
   end
 
   defp entry_to_kv([k, v | _]), do: {k, v}

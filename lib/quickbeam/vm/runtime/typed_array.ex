@@ -42,6 +42,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
           method("some", do: some(ref, args, this))
           method("reduce", do: reduce(ref, args, this))
           method("indexOf", do: index_of(ref, args))
+          method("includes", do: includes(ref, args))
           method("find", do: find(ref, args, this))
           method("sort", do: sort(ref))
           method("reverse", do: reverse(ref))
@@ -278,6 +279,14 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       if read_element(b, i, t) == target, do: i
     end)
   end
+
+  defp includes(ref, [target | _]) do
+    {b, l, t} = {buf(ref), len(ref), type(ref)}
+
+    Enum.any?(0..max(0, l - 1), fn i -> read_element(b, i, t) == target end)
+  end
+
+  defp includes(_ref, _args), do: false
 
   defp find(ref, [cb | _], this) do
     {b, l, t} = {buf(ref), len(ref), type(ref)}

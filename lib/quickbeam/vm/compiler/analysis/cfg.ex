@@ -158,6 +158,16 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
       {{:ok, :catch}, [target]} ->
         {:catch, target, idx}
 
+      {{:ok, name}, [_atom_idx, target, _is_with]}
+      when name in [
+             :with_make_ref,
+             :with_get_ref,
+             :with_get_ref_undef,
+             :with_get_var,
+             :with_put_var
+           ] ->
+        {:branch, target, idx}
+
       {{:ok, name}, [target]} when name in [:goto, :goto8, :goto16] ->
         {:goto, target, idx}
 
@@ -176,13 +186,122 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
     do: Map.update(preds, target, [pred_end], &[pred_end | &1])
 
   defp protected_target?(instructions, target) do
-    Enum.any?(instructions, fn {op, args} ->
+    instructions
+    |> Enum.with_index()
+    |> Enum.any?(fn {{op, args}, idx} ->
       case {opcode_name(op), args} do
-        {{:ok, name}, [^target]} when name in [:catch, :gosub] -> true
-        _ -> false
+        {{:ok, name}, [^target]} when name in [:catch, :gosub] ->
+          true
+
+        {{:ok, name}, [^target]}
+        when name in [:if_false, :if_false8, :if_true, :if_true8, :goto, :goto8, :goto16] ->
+          finally_control_target?(instructions, target)
+
+        {{:ok, name}, [_branch_target]}
+        when name in [:if_false, :if_false8, :if_true, :if_true8] ->
+          target == idx + 1 and finally_region_index?(instructions, idx)
+
+        {{:ok, name}, [_atom_idx, ^target, _is_with]}
+        when name in [
+               :with_make_ref,
+               :with_get_ref,
+               :with_get_ref_undef,
+               :with_get_var,
+               :with_put_var
+             ] ->
+          true
+
+        {{:ok, name}, [_atom_idx, _branch_target, _is_with]}
+        when name in [
+               :with_make_ref,
+               :with_get_ref,
+               :with_get_ref_undef,
+               :with_get_var,
+               :with_put_var
+             ] ->
+          target == idx + 1
+
+        {{:ok, name}, []} when name in [:initial_yield, :yield] ->
+          target == idx + 1
+
+        _ ->
+          false
       end
     end)
   end
+
+  defp finally_control_target?(instructions, target) do
+    t = List.to_tuple(instructions)
+    size = tuple_size(t)
+
+    instructions
+    |> Enum.with_index()
+    |> Enum.any?(fn
+      {{op, [finally_entry]}, _idx} ->
+        case opcode_name(op) do
+          {:ok, :gosub} -> finally_region_control_target?(t, size, finally_entry, target)
+          _ -> false
+        end
+
+      _ ->
+        false
+    end)
+  end
+
+  defp finally_region_index?(instructions, idx) do
+    t = List.to_tuple(instructions)
+    size = tuple_size(t)
+
+    instructions
+    |> Enum.with_index()
+    |> Enum.any?(fn
+      {{op, [finally_entry]}, _idx} ->
+        case opcode_name(op) do
+          {:ok, :gosub} -> finally_region_contains_index?(t, size, finally_entry, idx)
+          _ -> false
+        end
+
+      _ ->
+        false
+    end)
+  end
+
+  defp finally_region_contains_index?(_instructions, _size, idx, target_idx)
+       when idx > target_idx,
+       do: false
+
+  defp finally_region_contains_index?(instructions, size, idx, target_idx) when idx < size do
+    {op, _args} = elem(instructions, idx)
+
+    case opcode_name(op) do
+      {:ok, :ret} ->
+        idx == target_idx
+
+      _ ->
+        idx == target_idx or
+          finally_region_contains_index?(instructions, size, idx + 1, target_idx)
+    end
+  end
+
+  defp finally_region_contains_index?(_instructions, _size, _idx, _target_idx), do: false
+
+  defp finally_region_control_target?(instructions, size, idx, target) when idx < size do
+    {op, args} = elem(instructions, idx)
+
+    case {opcode_name(op), args} do
+      {{:ok, :ret}, []} ->
+        false
+
+      {{:ok, name}, [^target]}
+      when name in [:if_false, :if_false8, :if_true, :if_true8, :goto, :goto8, :goto16] ->
+        true
+
+      _ ->
+        finally_region_control_target?(instructions, size, idx + 1, target)
+    end
+  end
+
+  defp finally_region_control_target?(_instructions, _size, _idx, _target), do: false
 
   defp find_nip_catch(instructions, idx, size) when is_tuple(instructions) do
     find_nip_catch_t(instructions, idx, size, 0)

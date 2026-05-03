@@ -33,6 +33,8 @@ defmodule QuickBEAM.VM.Heap do
             put_ctx: 1,
             frozen?: 1,
             freeze: 1,
+            extensible?: 1,
+            prevent_extensions: 1,
             get_decoded: 1,
             put_decoded: 2,
             get_compiled: 1,
@@ -52,6 +54,10 @@ defmodule QuickBEAM.VM.Heap do
             put_regexp_result: 2,
             get_string_codepoints: 1,
             put_string_codepoints: 2,
+            get_array_props: 1,
+            get_array_prop: 2,
+            put_array_prop: 3,
+            delete_array_prop: 2,
             get_class_proto: 1,
             put_class_proto: 2,
             get_parent_ctor: 1,
@@ -127,7 +133,10 @@ defmodule QuickBEAM.VM.Heap do
          end
        end}
 
-    wrap(%{"next" => next_fn})
+    wrap(%{
+      "next" => next_fn,
+      {:symbol, "Symbol.iterator"} => {:builtin, "[Symbol.iterator]", fn _, this -> this end}
+    })
   end
 
   @doc "Fast-wraps a value tuple with a compile-time key tuple, using a cached shape when possible."
@@ -325,8 +334,14 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate put_eval_restore_stack(stack), to: Caches
   defdelegate frozen?(ref), to: Store
   defdelegate freeze(ref), to: Store
+  defdelegate extensible?(ref), to: Store
+  defdelegate prevent_extensions(ref), to: Store
   defdelegate get_prop_desc(ref, key), to: Store
   defdelegate put_prop_desc(ref, key, desc), to: Store
+  defdelegate get_array_props(ref), to: Store
+  defdelegate get_array_prop(ref, key), to: Store
+  defdelegate put_array_prop(ref, key, val), to: Store
+  defdelegate delete_array_prop(ref, key), to: Store
   defdelegate get_object_prototype(), to: Context
   defdelegate put_object_prototype(proto), to: Context
   defdelegate get_global_cache(), to: Context
@@ -376,6 +391,7 @@ defmodule QuickBEAM.VM.Heap do
         {:qb_module, _} -> Process.delete(key)
         {:qb_prop_desc, _, _} -> Process.delete(key)
         {:qb_frozen, _} -> Process.delete(key)
+        {:qb_non_extensible, _} -> Process.delete(key)
         {:qb_var, _} -> Process.delete(key)
         {:qb_key_order, _} -> Process.delete(key)
         {:qb_runtime_mode, _} -> Process.delete(key)

@@ -7,15 +7,18 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
   alias QuickBEAM.VM.Heap
 
   @guardable_types [:integer, :number, :boolean, :string, :undefined, :null]
+  @large_frame_slot_threshold 200
   @line 1
 
   @doc "Lowers a bytecode instruction or function into compiler IR."
   def lower(fun, instructions) do
     entries = CFG.block_entries(instructions)
     slot_count = fun.arg_count + fun.var_count
+    frame_mode = if slot_count > @large_frame_slot_threshold, do: :tuple, else: :args
     constants = fun.constants
     instrs = List.to_tuple(instructions)
     size = tuple_size(instrs)
+    force_capture_slots = has_catch?(instructions)
 
     with {:ok, stack_depths} <- Stack.infer_block_stack_depths(instructions, entries),
          {:ok, {entry_types, return_type}} <-
@@ -33,6 +36,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
              start,
              fun.arg_count,
              slot_count,
+             frame_mode,
              instrs,
              size,
              entries,
@@ -41,7 +45,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
              constants,
              inline_targets,
              Map.get(entry_types, start),
-             return_type
+             return_type,
+             force_capture_slots
            )}
         end
 
@@ -52,11 +57,18 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
     end
   end
 
+  defp has_catch?(instructions) do
+    Enum.any?(instructions, fn {op, _args} ->
+      match?({:ok, :catch}, CFG.opcode_name(op))
+    end)
+  end
+
   defp block_form(
          fun,
          start,
          arg_count,
          slot_count,
+         frame_mode,
          instructions,
          size,
          entries,
@@ -65,15 +77,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          constants,
          inline_targets,
          entry_type_state,
-         return_type
+         return_type,
+         force_capture_slots
        ) do
     next_entry = CFG.next_entry(entries, start)
 
-    args =
-      [Builder.ctx_var() | Builder.slot_vars(slot_count)] ++
-        Builder.stack_vars(stack_depth) ++ Builder.capture_vars(slot_count)
+    args = block_args(slot_count, stack_depth, frame_mode)
 
-    fast_guards = block_clause_guards(slot_count, stack_depth, entry_type_state)
+    fast_guards = block_clause_guards(slot_count, stack_depth, entry_type_state, frame_mode)
 
     with {:ok, fast_body} <-
            lower_block(
@@ -86,10 +97,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
                fun,
                arg_count,
                slot_count,
+               frame_mode,
                stack_depth,
                return_type,
                entry_type_state,
-               true
+               true,
+               force_capture_slots
              ),
              stack_depths,
              constants,
@@ -111,10 +124,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
                      fun,
                      arg_count,
                      slot_count,
+                     frame_mode,
                      stack_depth,
                      return_type,
                      entry_type_state,
-                     false
+                     false,
+                     force_capture_slots
                    ),
                    stack_depths,
                    constants,
@@ -133,20 +148,31 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
           error
 
         clauses ->
-          {:function, @line, Builder.block_name(start), 1 + slot_count + stack_depth + slot_count,
-           clauses}
+          {:function, @line, Builder.block_name(start), length(args), clauses}
       end
     end
   end
 
-  defp block_state(fun, arg_count, slot_count, stack_depth, return_type, entry_type_state, typed?) do
+  defp block_state(
+         fun,
+         arg_count,
+         slot_count,
+         frame_mode,
+         stack_depth,
+         return_type,
+         entry_type_state,
+         typed?,
+         force_capture_slots
+       ) do
     state_opts =
       [
         locals: fun.locals,
         closure_vars: fun.closure_vars,
-        atoms: Heap.get_fn_atoms(fun.byte_code),
+        atoms: Heap.get_fn_atoms(fun),
         arg_count: arg_count,
-        return_type: return_type
+        return_type: return_type,
+        frame_mode: frame_mode,
+        force_capture_slots: force_capture_slots
       ] ++
         case {entry_type_state, typed?} do
           {nil, _} ->
@@ -166,9 +192,22 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
     State.new(slot_count, stack_depth, state_opts)
   end
 
-  defp block_clause_guards(_slot_count, _stack_depth, nil), do: []
+  defp block_args(_slot_count, stack_depth, :tuple) do
+    [Builder.ctx_var(), Builder.var("Slots"), Builder.var("Captures")] ++
+      Builder.stack_vars(stack_depth)
+  end
 
-  defp block_clause_guards(slot_count, stack_depth, entry_type_state) do
+  defp block_args(slot_count, stack_depth, _frame_mode) do
+    [Builder.ctx_var() | Builder.slot_vars(slot_count)] ++
+      Builder.stack_vars(stack_depth) ++ Builder.capture_vars(slot_count)
+  end
+
+  defp block_clause_guards(_slot_count, _stack_depth, nil, _frame_mode), do: []
+
+  defp block_clause_guards(_slot_count, stack_depth, entry_type_state, :tuple),
+    do: stack_guards(stack_depth, entry_type_state)
+
+  defp block_clause_guards(slot_count, stack_depth, entry_type_state, _frame_mode) do
     slot_guards =
       if slot_count == 0 do
         []
@@ -183,14 +222,15 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
             do: guard
       end
 
-    stack_guards =
-      for {type, idx} <- Enum.with_index(entry_type_state.stack_types || []),
-          idx < stack_depth,
-          guard = type_guard(Builder.stack_var(idx), type),
-          guard != nil,
-          do: guard
+    slot_guards ++ stack_guards(stack_depth, entry_type_state)
+  end
 
-    slot_guards ++ stack_guards
+  defp stack_guards(stack_depth, entry_type_state) do
+    for {type, idx} <- Enum.with_index(entry_type_state.stack_types || []),
+        idx < stack_depth,
+        guard = type_guard(Builder.stack_var(idx), type),
+        guard != nil,
+        do: guard
   end
 
   defp type_guard(_expr, type) when type not in @guardable_types, do: nil
@@ -724,8 +764,15 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
       {:done, body} ->
         {:ok, body}
 
-      {:error, _} = error ->
-        error
+      {:error, reason} ->
+        {:error, {:lowering_failed, idx, opcode_name(instruction), reason}}
+    end
+  end
+
+  defp opcode_name({op, _args}) do
+    case CFG.opcode_name(op) do
+      {:ok, name} -> name
+      {:error, _} -> :unknown
     end
   end
 
@@ -901,14 +948,295 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          inline_targets,
          target
        ) do
-    with {:ok, inlined_state} <- lower_finally_inline(instructions, size, target, state) do
+    state = State.push(state, Builder.atom(:return_addr), :unknown)
+
+    case lower_finally_inline(
+           instructions,
+           size,
+           target,
+           state,
+           stack_depths,
+           constants,
+           entries,
+           inline_targets,
+           target,
+           {:block, idx + 1, next_entry, arg_count}
+         ) do
+      {:ok, body} when is_list(body) ->
+        {:ok, body}
+
+      {:done, body} when is_list(body) ->
+        {:ok, body}
+
+      {:done, terminal_state} ->
+        {:ok, Enum.reverse(terminal_state.body)}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp lower_finally_inline(
+         _instructions,
+         size,
+         idx,
+         _state,
+         _stack_depths,
+         _constants,
+         _entries,
+         _inline_targets,
+         _finally_entry,
+         _continuation
+       )
+       when idx >= size do
+    {:error, {:missing_ret, idx}}
+  end
+
+  defp lower_finally_inline(
+         instructions,
+         size,
+         idx,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets,
+         finally_entry,
+         continuation
+       ) do
+    instruction = elem(instructions, idx)
+
+    case instruction do
+      {op, []} ->
+        case CFG.opcode_name(op) do
+          {:ok, :ret} ->
+            resume_finally_continuation(
+              instructions,
+              size,
+              state,
+              stack_depths,
+              constants,
+              entries,
+              inline_targets,
+              continuation
+            )
+
+          {:ok, name} when name in [:catch, :gosub, :goto, :goto8, :goto16] ->
+            {:error, {:unsupported_finally_opcode, name, idx}}
+
+          _ ->
+            lower_finally_instruction(
+              instructions,
+              size,
+              instruction,
+              idx,
+              state,
+              stack_depths,
+              constants,
+              entries,
+              inline_targets,
+              finally_entry,
+              continuation
+            )
+        end
+
+      {op, _args} ->
+        case CFG.opcode_name(op) do
+          {:ok, :gosub} ->
+            state = State.push(state, Builder.atom(:return_addr), :unknown)
+
+            lower_finally_inline(
+              instructions,
+              size,
+              hd(elem(instruction, 1)),
+              state,
+              stack_depths,
+              constants,
+              entries,
+              inline_targets,
+              hd(elem(instruction, 1)),
+              {:finally, idx + 1, finally_entry, continuation}
+            )
+
+          {:ok, :catch} ->
+            lower_finally_catch(
+              instructions,
+              size,
+              idx,
+              state,
+              stack_depths,
+              constants,
+              entries,
+              inline_targets,
+              finally_entry,
+              continuation,
+              hd(elem(instruction, 1))
+            )
+
+          {:ok, name} when name in [:goto, :goto8, :goto16] ->
+            target = hd(elem(instruction, 1))
+
+            if finally_internal_target?(instructions, size, finally_entry, target) do
+              lower_finally_inline(
+                instructions,
+                size,
+                target,
+                state,
+                stack_depths,
+                constants,
+                entries,
+                inline_targets,
+                finally_entry,
+                continuation
+              )
+            else
+              State.goto(state, target, stack_depths)
+            end
+
+          _ ->
+            lower_finally_instruction(
+              instructions,
+              size,
+              instruction,
+              idx,
+              state,
+              stack_depths,
+              constants,
+              entries,
+              inline_targets,
+              finally_entry,
+              continuation
+            )
+        end
+    end
+  end
+
+  defp lower_finally_catch(
+         instructions,
+         size,
+         idx,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets,
+         finally_entry,
+         continuation,
+         target
+       ) do
+    with :ok <- ensure_catch_region_supported(instructions, idx, target),
+         {saved_stack, state} <- freeze_stack(state),
+         {:ok, try_body} <-
+           lower_finally_body(
+             instructions,
+             size,
+             idx + 1,
+             %{
+               state
+               | body: [],
+                 stack: [Builder.literal(target) | saved_stack],
+                 stack_types: [:integer | state.stack_types]
+             },
+             stack_depths,
+             constants,
+             entries,
+             inline_targets,
+             finally_entry,
+             continuation
+           ),
+         {:ok, catch_body} <-
+           lower_finally_body(
+             instructions,
+             size,
+             target,
+             %{
+               state
+               | body: [],
+                 temp: state.temp + (idx + 1) * 1000,
+                 stack: [Builder.var("Caught#{idx}") | saved_stack],
+                 stack_types: [:unknown | state.stack_types]
+             },
+             stack_depths,
+             constants,
+             entries,
+             inline_targets,
+             finally_entry,
+             continuation
+           ) do
+      {:done,
+       Enum.reverse([
+         Builder.try_catch_expr(try_body, Builder.var("Caught#{idx}"), catch_body) | state.body
+       ])}
+    end
+  end
+
+  defp lower_finally_body(
+         instructions,
+         size,
+         idx,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets,
+         finally_entry,
+         continuation
+       ) do
+    case lower_finally_inline(
+           instructions,
+           size,
+           idx,
+           state,
+           stack_depths,
+           constants,
+           entries,
+           inline_targets,
+           finally_entry,
+           continuation
+         ) do
+      {:ok, body} when is_list(body) -> {:ok, body}
+      {:done, body} when is_list(body) -> {:ok, body}
+      {:done, terminal_state} -> {:ok, Enum.reverse(terminal_state.body)}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp finally_internal_target?(instructions, size, finally_entry, target) do
+    target >= finally_entry and
+      finally_region_contains?(instructions, size, finally_entry, target)
+  end
+
+  defp finally_region_contains?(_instructions, _size, idx, target) when idx > target, do: false
+
+  defp finally_region_contains?(instructions, size, idx, target) when idx < size do
+    {op, _args} = elem(instructions, idx)
+
+    case CFG.opcode_name(op) do
+      {:ok, :ret} -> idx == target
+      _ -> idx == target or finally_region_contains?(instructions, size, idx + 1, target)
+    end
+  end
+
+  defp finally_region_contains?(_instructions, _size, _idx, _target), do: false
+
+  defp resume_finally_continuation(
+         instructions,
+         size,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets,
+         {:block, idx, next_entry, arg_count}
+       ) do
+    with {:ok, _return_addr, state} <- State.pop(state) do
       lower_block(
         instructions,
         size,
-        idx + 1,
+        idx,
         next_entry,
         arg_count,
-        inlined_state,
+        state,
         stack_depths,
         constants,
         entries,
@@ -917,51 +1245,72 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
     end
   end
 
-  defp lower_finally_inline(_instructions, size, idx, _state) when idx >= size do
-    {:error, {:missing_ret, idx}}
-  end
-
-  defp lower_finally_inline(instructions, size, idx, state) do
-    instruction = elem(instructions, idx)
-
-    case instruction do
-      {op, []} ->
-        case CFG.opcode_name(op) do
-          {:ok, :ret} ->
-            {:ok, state}
-
-          {:ok, name} when name in [:catch, :gosub, :goto, :goto8, :goto16] ->
-            {:error, {:unsupported_finally_opcode, name, idx}}
-
-          _ ->
-            lower_finally_instruction(instructions, size, instruction, idx, state)
-        end
-
-      {op, _args} ->
-        case CFG.opcode_name(op) do
-          {:ok, :gosub} ->
-            {:error, {:unsupported_finally_opcode, :gosub, idx}}
-
-          {:ok, :catch} ->
-            {:error, {:unsupported_finally_opcode, :catch, idx}}
-
-          {:ok, name}
-          when name in [:if_false, :if_false8, :if_true, :if_true8, :goto, :goto8, :goto16] ->
-            {:error, {:unsupported_finally_opcode, name, idx}}
-
-          _ ->
-            lower_finally_instruction(instructions, size, instruction, idx, state)
-        end
+  defp resume_finally_continuation(
+         instructions,
+         size,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets,
+         {:finally, idx, finally_entry, continuation}
+       ) do
+    with {:ok, _return_addr, state} <- State.pop(state) do
+      lower_finally_inline(
+        instructions,
+        size,
+        idx,
+        state,
+        stack_depths,
+        constants,
+        entries,
+        inline_targets,
+        finally_entry,
+        continuation
+      )
     end
   end
 
-  defp lower_finally_instruction(instructions, size, instruction, idx, state) do
-    case Ops.lower_instruction(instruction, idx, nil, 0, state, %{}, [], [], MapSet.new()) do
+  defp lower_finally_instruction(
+         instructions,
+         size,
+         instruction,
+         idx,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets,
+         finally_entry,
+         continuation
+       ) do
+    case Ops.lower_instruction(
+           instruction,
+           idx,
+           CFG.next_entry(entries, idx),
+           0,
+           state,
+           stack_depths,
+           constants,
+           entries,
+           inline_targets
+         ) do
       {:ok, next_state} ->
-        lower_finally_inline(instructions, size, idx + 1, next_state)
+        lower_finally_inline(
+          instructions,
+          size,
+          idx + 1,
+          next_state,
+          stack_depths,
+          constants,
+          entries,
+          inline_targets,
+          finally_entry,
+          continuation
+        )
 
       {:done, body} ->
-        {:ok,
+        {:done,
          %{state | body: Enum.reverse(body), stack: state.stack, stack_types: state.stack_types}}
 
       {:error, _} = error ->

@@ -17,7 +17,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
     initial = initial_type_state(fun, slot_count, Map.get(stack_depths, 0, 0))
     t = List.to_tuple(instructions)
     size = tuple_size(t)
-    atoms = Heap.get_fn_atoms(fun.byte_code)
+    atoms = Heap.get_fn_atoms(fun)
 
     iterate_block_entry_types(
       t,
@@ -48,7 +48,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
             t = List.to_tuple(instructions)
             size = tuple_size(t)
 
-            atoms = Heap.get_fn_atoms(fun.byte_code)
+            atoms = Heap.get_fn_atoms(fun)
 
             with {:ok, stack_depths} <- Stack.infer_block_stack_depths(instructions, entries),
                  {:ok, {_entry_types, return_type}} <-

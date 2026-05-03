@@ -25,6 +25,9 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
       {{:ok, :array_from}, [argc]} ->
         {:ok, argc, 1}
 
+      {{:ok, :eval}, [argc | _scope_args]} ->
+        {:ok, argc + 1, 1}
+
       {{:ok, _name}, _} ->
         case Opcodes.info(op) do
           {_name, _size, pop_count, push_count, _fmt} -> {:ok, pop_count, push_count}
@@ -76,71 +79,108 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
   defp do_simulate_block_stack_depths(instructions, size, idx, next_entry, depth) do
     {op, args} = elem(instructions, idx)
 
-    with {:ok, next_depth} <- apply_stack_effect(op, args, depth) do
-      case {CFG.opcode_name(op), args} do
-        {{:ok, name}, [target]} when name in [:if_false, :if_false8, :if_true, :if_true8] ->
-          if is_nil(next_entry) do
-            {:error, {:missing_fallthrough_block, target, name}}
-          else
-            {:ok, [{target, next_depth}, {next_entry, next_depth}]}
+    case simulate_variable_stack_branch(op, args, next_entry, depth) do
+      {:ok, successors} ->
+        {:ok, successors}
+
+      {:error, _} = error ->
+        error
+
+      :not_branch ->
+        with {:ok, next_depth} <- apply_stack_effect(op, args, depth) do
+          case {CFG.opcode_name(op), args} do
+            {{:ok, name}, [target]} when name in [:if_false, :if_false8, :if_true, :if_true8] ->
+              if is_nil(next_entry) do
+                {:error, {:missing_fallthrough_block, target, name}}
+              else
+                {:ok, [{target, next_depth}, {next_entry, next_depth}]}
+              end
+
+            {{:ok, :catch}, [target]} ->
+              with {:ok, successors} <-
+                     do_simulate_block_stack_depths(
+                       instructions,
+                       size,
+                       idx + 1,
+                       next_entry,
+                       next_depth
+                     ) do
+                {:ok, [{target, next_depth} | successors]}
+              end
+
+            {{:ok, name}, [target]} when name in [:goto, :goto8, :goto16] ->
+              {:ok, [{target, next_depth}]}
+
+            {{:ok, name}, [_argc]} when name in [:tail_call, :tail_call_method] ->
+              {:ok, []}
+
+            {{:ok, :return}, []} ->
+              {:ok, []}
+
+            {{:ok, :return_undef}, []} ->
+              {:ok, []}
+
+            {{:ok, :throw}, []} ->
+              {:ok, []}
+
+            {{:ok, :throw_error}, _} ->
+              {:ok, []}
+
+            {{:ok, :return_async}, []} ->
+              {:ok, []}
+
+            {{:ok, name}, []} when name in [:initial_yield, :yield] ->
+              if is_nil(next_entry), do: {:ok, []}, else: {:ok, [{next_entry, next_depth}]}
+
+            {{:ok, name}, []} when name in [:yield_star, :async_yield_star] ->
+              {:ok, []}
+
+            {{:ok, :gosub}, [target]} ->
+              successors = [{target, next_depth + 1}]
+
+              successors =
+                if is_nil(next_entry),
+                  do: successors,
+                  else: [{next_entry, next_depth} | successors]
+
+              {:ok, successors}
+
+            {{:ok, :ret}, []} ->
+              if next_depth >= 1, do: {:ok, []}, else: {:error, :stack_underflow}
+
+            _ ->
+              do_simulate_block_stack_depths(instructions, size, idx + 1, next_entry, next_depth)
           end
-
-        {{:ok, :catch}, [target]} ->
-          with {:ok, successors} <-
-                 do_simulate_block_stack_depths(
-                   instructions,
-                   size,
-                   idx + 1,
-                   next_entry,
-                   next_depth
-                 ) do
-            {:ok, [{target, next_depth} | successors]}
-          end
-
-        {{:ok, name}, [target]} when name in [:goto, :goto8, :goto16] ->
-          {:ok, [{target, next_depth}]}
-
-        {{:ok, name}, [_argc]} when name in [:tail_call, :tail_call_method] ->
-          {:ok, []}
-
-        {{:ok, :return}, []} ->
-          {:ok, []}
-
-        {{:ok, :return_undef}, []} ->
-          {:ok, []}
-
-        {{:ok, :throw}, []} ->
-          {:ok, []}
-
-        {{:ok, :throw_error}, _} ->
-          {:ok, []}
-
-        {{:ok, :return_async}, []} ->
-          {:ok, []}
-
-        {{:ok, :initial_yield}, []} ->
-          {:ok, []}
-
-        {{:ok, :yield}, []} ->
-          {:ok, []}
-
-        {{:ok, :yield_star}, []} ->
-          {:ok, []}
-
-        {{:ok, :async_yield_star}, []} ->
-          {:ok, []}
-
-        {{:ok, :gosub}, [_target]} ->
-          {:ok, []}
-
-        {{:ok, :ret}, []} ->
-          {:ok, []}
-
-        _ ->
-          do_simulate_block_stack_depths(instructions, size, idx + 1, next_entry, next_depth)
-      end
+        end
     end
   end
+
+  defp simulate_variable_stack_branch(op, args, next_entry, depth) do
+    case {CFG.opcode_name(op), args} do
+      {{:ok, :with_get_var}, [_atom_idx, target, _is_with]} when depth >= 1 ->
+        with_fallthrough(next_entry, [{target, depth}, {next_entry, depth - 1}])
+
+      {{:ok, name}, [_atom_idx, target, _is_with]}
+      when name in [:with_get_ref, :with_get_ref_undef, :with_make_ref] and depth >= 1 ->
+        with_fallthrough(next_entry, [{target, depth + 1}, {next_entry, depth - 1}])
+
+      {{:ok, :with_put_var}, [_atom_idx, target, _is_with]} when depth >= 2 ->
+        with_fallthrough(next_entry, [{target, depth - 2}, {next_entry, depth - 1}])
+
+      {{:ok, name}, args}
+      when name in [:with_get_var, :with_get_ref, :with_get_ref_undef, :with_make_ref] ->
+        {:error, {:stack_underflow_at, name, args, depth, 1}}
+
+      {{:ok, :with_put_var}, args} ->
+        {:error, {:stack_underflow_at, :with_put_var, args, depth, 2}}
+
+      _ ->
+        :not_branch
+    end
+  end
+
+  defp with_fallthrough(nil, _successors), do: {:error, :missing_fallthrough_block}
+  defp with_fallthrough(_next_entry, successors), do: {:ok, successors}
 
   defp apply_stack_effect(op, args, depth) do
     with {:ok, pop_count, push_count} <- stack_effect(op, args),

@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Invocation do
   @moduledoc "Unified JS function invocation: dispatches to compiled modules, interpreter fallback, builtins, and native callbacks."
 
-  import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
+  import QuickBEAM.VM.Heap.Keys, only: [proto: 0, proxy_handler: 0, proxy_target: 0]
 
   alias QuickBEAM.VM.{Builtin, Bytecode, Compiler, GlobalEnv, Heap, Runtime}
   alias QuickBEAM.VM.Compiler.Runner
@@ -98,6 +98,9 @@ defmodule QuickBEAM.VM.Invocation do
       {:bound, _, inner, _, _} ->
         invoke(inner, args, gas)
 
+      {:obj, _} = obj ->
+        dispatch_proxy_call(obj, args, ctx, this)
+
       other ->
         Builtin.call(other, args, this)
     end
@@ -122,6 +125,9 @@ defmodule QuickBEAM.VM.Invocation do
           {:ok, value} -> value
           :error -> Interpreter.invoke_function_fallback(bytecode_fun, args, ctx.gas, ctx)
         end
+
+      {:obj, _} = obj ->
+        dispatch_proxy_call(obj, args, ctx, this_obj)
 
       other ->
         Builtin.call(other, args, this_obj)
@@ -176,7 +182,9 @@ defmodule QuickBEAM.VM.Invocation do
         {:closure, _, %Bytecode.Function{need_home_object: false} = inner} = closure,
         args
       ) do
-    key = {inner.byte_code, inner.arg_count}
+    atoms = Heap.get_fn_atoms(inner, ctx.atoms)
+
+    key = {inner.byte_code, inner.arg_count, :erlang.phash2(inner), :erlang.phash2(atoms)}
 
     case Heap.get_compiled(key) do
       {:compiled, {mod, name}, atoms} ->
@@ -213,8 +221,11 @@ defmodule QuickBEAM.VM.Invocation do
       {:bound, _, inner, _, _} ->
         invoke_runtime(ctx, inner, args)
 
+      {:obj, _} = obj ->
+        dispatch_proxy_call(obj, args, ctx, nil)
+
       other ->
-        Builtin.call(other, args, nil)
+        with_ctx(ctx, fn -> Builtin.call(other, args, nil) end)
     end
   end
 
@@ -273,6 +284,9 @@ defmodule QuickBEAM.VM.Invocation do
       {:bound, _, inner, _, _} ->
         invoke_method_runtime(ctx, inner, this_obj, args)
 
+      {:obj, _} = obj ->
+        dispatch_proxy_call(obj, args, ctx, this_obj)
+
       other ->
         Builtin.call(other, args, this_obj)
     end
@@ -283,44 +297,112 @@ defmodule QuickBEAM.VM.Invocation do
     do: construct_runtime(active_ctx(), ctor, new_target, args)
 
   def construct_runtime(ctx, ctor, new_target, args) do
-    raw_ctor = unwrap_constructor_target(ctor)
-    raw_new_target = unwrap_new_target(new_target)
+    with_ctx(ctx, fn ->
+      validate_constructor!(ctor)
 
-    ctor_proto =
-      constructor_prototype(raw_new_target) || constructor_prototype(raw_ctor) ||
-        Heap.get_object_prototype()
+      raw_ctor = unwrap_constructor_target(ctor)
+      raw_new_target = unwrap_new_target(new_target)
 
-    init = if ctor_proto, do: %{proto() => ctor_proto}, else: %{}
-    this_obj = Heap.wrap(init)
+      ctor_proto =
+        if raw_new_target != nil and raw_new_target != raw_ctor do
+          Heap.get_class_proto(raw_new_target) ||
+            normalize_constructor_prototype(Get.get(new_target, "prototype")) ||
+            Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
+        else
+          Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
+        end
 
-    result =
-      case ctor do
-        %Bytecode.Function{} = fun ->
-          case Runner.invoke_constructor(fun, args, this_obj, new_target, ctx) do
-            {:ok, value} -> value
-            :error -> invoke_constructor(fun, args, ctx.gas, this_obj, new_target)
+      init = if ctor_proto, do: %{proto() => ctor_proto}, else: %{}
+      this_obj = Heap.wrap(init)
+
+      result =
+        case ctor do
+          {:obj, _} = obj ->
+            construct_proxy_runtime(ctx, obj, new_target, args)
+
+          %Bytecode.Function{} = fun ->
+            case Runner.invoke_constructor(fun, args, this_obj, new_target, ctx) do
+              {:ok, value} -> value
+              :error -> invoke_constructor(fun, args, ctx.gas, this_obj, new_target)
+            end
+
+          {:closure, _, %Bytecode.Function{}} = closure ->
+            case Runner.invoke_constructor(closure, args, this_obj, new_target, ctx) do
+              {:ok, value} ->
+                value
+
+              :error ->
+                invoke_constructor(closure, args, ctx.gas, this_obj, new_target)
+            end
+
+          {:bound, _, _inner, orig_fun, bound_args} ->
+            construct_runtime(orig_fun, new_target, bound_args ++ args)
+
+          {:builtin, _name, cb} when is_function(cb, 2) ->
+            cb.(args, this_obj)
+
+          _ ->
+            this_obj
+        end
+
+      Class.coalesce_this_result(result, this_obj)
+    end)
+  end
+
+  defp construct_proxy_runtime(ctx, {:obj, ref} = proxy, new_target, args) do
+    case Heap.get_obj(ref, %{}) do
+      %{proxy_target() => target, proxy_handler() => handler} ->
+        construct_trap = Get.get(handler, "construct")
+
+        if construct_trap == :undefined or construct_trap == nil do
+          construct_runtime(ctx, target, new_target, args)
+        else
+          result =
+            dispatch(construct_trap, [target, Heap.wrap(args), new_target], ctx.gas, ctx, handler)
+
+          case result do
+            {:obj, _} ->
+              result
+
+            _ ->
+              throw(
+                {:js_throw,
+                 Heap.make_error("proxy construct trap must return an object", "TypeError")}
+              )
           end
+        end
 
-        {:closure, _, %Bytecode.Function{}} = closure ->
-          case Runner.invoke_constructor(closure, args, this_obj, new_target, ctx) do
-            {:ok, value} ->
-              value
+      _ ->
+        throw(
+          {:js_throw,
+           Heap.make_error(
+             "#{QuickBEAM.VM.Interpreter.Values.stringify(proxy)} is not a constructor",
+             "TypeError"
+           )}
+        )
+    end
+  end
 
-            :error ->
-              invoke_constructor(closure, args, ctx.gas, this_obj, new_target)
-          end
+  defp dispatch_proxy_call({:obj, ref} = obj, args, ctx, this) do
+    case Heap.get_obj(ref, %{}) do
+      %{proxy_target() => target, proxy_handler() => handler} ->
+        apply_trap = Get.get(handler, "apply")
 
-        {:bound, _, _inner, orig_fun, bound_args} ->
-          construct_runtime(orig_fun, new_target, bound_args ++ args)
+        if apply_trap == :undefined or apply_trap == nil do
+          dispatch(target, args, ctx.gas, ctx, this)
+        else
+          dispatch(
+            apply_trap,
+            [target, this || :undefined, Heap.wrap(args)],
+            ctx.gas,
+            ctx,
+            handler
+          )
+        end
 
-        {:builtin, _name, cb} when is_function(cb, 2) ->
-          cb.(args, this_obj)
-
-        _ ->
-          this_obj
-      end
-
-    Class.coalesce_this_result(result, this_obj)
+      _ ->
+        Builtin.call(obj, args, this)
+    end
   end
 
   defp maybe_gc(result, extra_roots) do
@@ -425,12 +507,29 @@ defmodule QuickBEAM.VM.Invocation do
   defp compiled_closure_callable?(_), do: false
 
   defp compiled_method_callable?(
-         %Bytecode.Function{need_home_object: false, func_kind: 0},
+         %Bytecode.Function{need_home_object: false, func_kind: kind},
          {:obj, _}
-       ),
+       )
+       when kind in [0, 2],
        do: true
 
   defp compiled_method_callable?(_, _), do: false
+
+  defp validate_constructor!(%Bytecode.Function{}), do: :ok
+  defp validate_constructor!({:closure, _, %Bytecode.Function{}}), do: :ok
+  defp validate_constructor!({:bound, _, _inner, _orig_fun, _bound_args}), do: :ok
+  defp validate_constructor!({:builtin, _name, cb}) when is_function(cb, 2), do: :ok
+  defp validate_constructor!({:obj, _}), do: :ok
+
+  defp validate_constructor!(ctor) do
+    throw(
+      {:js_throw,
+       Heap.make_error(
+         "#{QuickBEAM.VM.Interpreter.Values.stringify(ctor)} is not a constructor",
+         "TypeError"
+       )}
+    )
+  end
 
   defp unwrap_constructor_target({:closure, _, %Bytecode.Function{} = fun}), do: fun
   defp unwrap_constructor_target({:bound, _, inner, _, _}), do: unwrap_constructor_target(inner)
@@ -440,12 +539,14 @@ defmodule QuickBEAM.VM.Invocation do
   defp unwrap_new_target(%Bytecode.Function{} = fun), do: fun
   defp unwrap_new_target(_), do: nil
 
-  defp constructor_prototype(nil), do: nil
+  defp with_ctx(ctx, fun) do
+    previous = Heap.get_ctx()
+    Heap.put_ctx(ctx)
 
-  defp constructor_prototype(target) do
-    case Heap.get_class_proto(target) do
-      {:obj, _} = proto_obj -> proto_obj
-      _ -> normalize_constructor_prototype(Get.get(target, "prototype"))
+    try do
+      fun.()
+    after
+      if previous, do: Heap.put_ctx(previous), else: Heap.put_ctx(nil)
     end
   end
 

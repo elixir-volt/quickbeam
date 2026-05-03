@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Invocation
 
+  @large_frame_slot_threshold 200
   @line 1
 
   @doc "Compiles lowered Erlang forms into a loadable module."
@@ -13,7 +14,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
       {:attribute, @line, :module, module},
       {:attribute, @line, :export, [{entry, arity}, {ctx_entry, arity + 1}]},
       entry_form(entry, ctx_entry, arity),
-      ctx_entry_form(ctx_entry, arity, slot_count)
+      ctx_entry_form(ctx_entry, arity, slot_count, force_capture_slots?(fun))
       | helper_forms(fun) ++ block_forms
     ]
 
@@ -30,7 +31,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     {:function, @line, entry, arity, [{:clause, @line, args, [], body}]}
   end
 
-  defp ctx_entry_form(ctx_entry, arity, slot_count) do
+  defp ctx_entry_form(ctx_entry, arity, slot_count, force_capture_slots?) do
     ctx = var("Ctx")
     args = [ctx | slot_vars(arity)]
 
@@ -39,19 +40,54 @@ defmodule QuickBEAM.VM.Compiler.Forms do
         do: [],
         else: Enum.map(arity..(slot_count - 1), fn _ -> atom(:undefined) end)
 
-    capture_cells =
-      if slot_count == 0, do: [], else: Enum.map(1..slot_count, fn _ -> atom(:undefined) end)
+    initial_slots = slot_vars(arity) ++ locals
 
-    body = [local_call(block_name(0), [ctx | slot_vars(arity) ++ locals ++ capture_cells])]
+    capture_cells =
+      cond do
+        slot_count == 0 ->
+          []
+
+        force_capture_slots? ->
+          Enum.map(
+            initial_slots,
+            &remote_call(RuntimeHelpers, :ensure_capture_cell, [ctx, atom(:undefined), &1])
+          )
+
+        true ->
+          Enum.map(1..slot_count, fn _ -> atom(:undefined) end)
+      end
+
+    body_args =
+      if large_frame?(slot_count) do
+        [ctx, tuple_expr(slot_vars(arity) ++ locals), tuple_expr(capture_cells)]
+      else
+        [ctx | slot_vars(arity) ++ locals ++ capture_cells]
+      end
+
+    body = [local_call(block_name(0), body_args)]
 
     {:function, @line, ctx_entry, arity + 1, [{:clause, @line, args, [], body}]}
+  end
+
+  defp force_capture_slots?(fun) do
+    fun.byte_code
+    |> QuickBEAM.VM.Decoder.decode(fun.arg_count)
+    |> case do
+      {:ok, instructions} ->
+        Enum.any?(instructions, fn {op, _args} ->
+          match?({:ok, :catch}, QuickBEAM.VM.Compiler.Analysis.CFG.opcode_name(op))
+        end)
+
+      {:error, _} ->
+        false
+    end
   end
 
   defp helper_forms(_fun) do
     [
       add_helper(),
       guarded_binary_helper(:op_sub, :-, Values, :sub),
-      number_guarded_binary_helper(:op_mul, :*, Values, :mul),
+      guarded_binary_helper(:op_mul, :*, Values, :mul),
       div_helper(),
       number_guarded_binary_helper(:op_lt, :<, Values, :lt),
       number_guarded_binary_helper(:op_lte, :"=<", Values, :lte),
@@ -61,8 +97,8 @@ defmodule QuickBEAM.VM.Compiler.Forms do
       guarded_binary_helper(:op_band, :band, Values, :band),
       guarded_binary_helper(:op_bor, :bor, Values, :bor),
       guarded_binary_helper(:op_bxor, :bxor, Values, :bxor),
-      guarded_binary_helper(:op_shl, :bsl, Values, :shl),
-      guarded_binary_helper(:op_sar, :bsr, Values, :sar),
+      unary_fallback_helper2(:op_shl, Values, :shl),
+      unary_fallback_helper2(:op_sar, Values, :sar),
       unary_fallback_helper2(:op_shr, Values, :shr),
       eq_helper(),
       neq_helper(),
@@ -130,7 +166,6 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     {:function, @line, :op_add, 2,
      [
        {:clause, @line, [a, b], [integer_guards(a, b)], [{:op, @line, :+, a, b}]},
-       {:clause, @line, [a, b], [float_guards(a, b)], [{:op, @line, :+, a, b}]},
        {:clause, @line, [a, b], [binary_guards(a, b)], [binary_concat(a, b)]},
        {:clause, @line, [a, b], [], [remote_call(Values, :add, [a, b])]}
      ]}
@@ -164,7 +199,6 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
     {:function, @line, :op_div, 2,
      [
-       {:clause, @line, [a, b], [number_nonzero_guards(a, b)], [{:op, @line, :/, a, b}]},
        {:clause, @line, [a, b], [], [remote_call(Values, :js_div, [a, b])]}
      ]}
   end
@@ -175,7 +209,6 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
     {:function, @line, :op_mod, 2,
      [
-       {:clause, @line, [a, b], [integer_nonzero_guards(a, b)], [{:op, @line, :rem, a, b}]},
        {:clause, @line, [a, b], [], [remote_call(Values, :mod, [a, b])]}
      ]}
   end
@@ -185,6 +218,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
     {:function, @line, :op_neg, 1,
      [
+       {:clause, @line, [{:integer, @line, 0}], [], [{:float, @line, -0.0}]},
        {:clause, @line, [a], [[integer_guard(a)]], [{:op, @line, :-, a}]},
        {:clause, @line, [a], [[float_guard(a)]], [{:op, @line, :-, a}]},
        {:clause, @line, [a], [], [remote_call(Values, :neg, [a])]}
@@ -219,6 +253,8 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
     {:function, @line, :op_eq, 2,
      [
+       {:clause, @line, [{:atom, @line, :nan}, b], [], [{:atom, @line, false}]},
+       {:clause, @line, [a, {:atom, @line, :nan}], [], [{:atom, @line, false}]},
        {:clause, @line, [same, same], [], [{:atom, @line, true}]},
        {:clause, @line, [a, b], [number_guards(a, b)], [{:op, @line, :==, a, b}]},
        {:clause, @line, [a, b],
@@ -265,27 +301,19 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
   defp integer_guards(a, b), do: [integer_guard(a), integer_guard(b)]
   defp number_guards(a, b), do: [number_guard(a), number_guard(b)]
-  defp float_guards(a, b), do: [float_guard(a), float_guard(b)]
   defp binary_guards(a, b), do: [binary_guard(a), binary_guard(b)]
-
-  defp number_nonzero_guards(a, b),
-    do: [number_guard(a), number_guard(b), nonzero_guard(b)]
-
-  defp integer_nonzero_guards(a, b),
-    do: [integer_guard(a), integer_guard(b), nonzero_guard(b)]
 
   defp integer_guard(expr), do: {:call, @line, {:atom, @line, :is_integer}, [expr]}
   defp number_guard(expr), do: {:call, @line, {:atom, @line, :is_number}, [expr]}
   defp float_guard(expr), do: {:call, @line, {:atom, @line, :is_float}, [expr]}
   defp binary_guard(expr), do: {:call, @line, {:atom, @line, :is_binary}, [expr]}
 
-  defp nonzero_guard(expr),
-    do: {:op, @line, :"/=", expr, {:integer, @line, 0}}
-
   defp block_name(idx), do: String.to_atom("block_#{idx}")
   defp slot_var(idx), do: var("Slot#{idx}")
   defp slot_vars(0), do: []
   defp slot_vars(count), do: Enum.map(0..(count - 1), &slot_var/1)
+  defp tuple_expr(values), do: {:tuple, @line, values}
+  defp large_frame?(slot_count), do: slot_count > @large_frame_slot_threshold
   defp var(name) when is_binary(name), do: {:var, @line, String.to_atom(name)}
   defp atom(value), do: {:atom, @line, value}
 

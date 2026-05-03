@@ -9,24 +9,33 @@ defmodule QuickBEAM.VM.Runtime.Number do
   # ── Number.prototype ──
 
   proto "toString" do
-    to_string_with_radix(this, args)
+    to_string_with_radix(unwrap_number(this), args)
   end
 
   proto "toFixed" do
-    to_fixed(this, args)
+    to_fixed(unwrap_number(this), args)
   end
 
   proto "valueOf" do
-    this
+    unwrap_number(this)
   end
 
   proto "toExponential" do
-    to_exponential(this, args)
+    to_exponential(unwrap_number(this), args)
   end
 
   proto "toPrecision" do
-    to_precision(this, args)
+    to_precision(unwrap_number(this), args)
   end
+
+  defp unwrap_number({:obj, ref}) do
+    case QuickBEAM.VM.Heap.get_obj(ref, %{}) do
+      %{"__wrapped_number__" => value} -> value
+      _ -> :nan
+    end
+  end
+
+  defp unwrap_number(value), do: value
 
   # ── Number static ──
 

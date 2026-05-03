@@ -128,6 +128,7 @@ defmodule QuickBEAM.VM.Heap.GC do
 
   defp ephemeral_key?({:qb_prop_desc, _, _}), do: true
   defp ephemeral_key?({:qb_frozen, _}), do: true
+  defp ephemeral_key?({:qb_non_extensible, _}), do: true
   defp ephemeral_key?({:qb_var, _}), do: true
   defp ephemeral_key?({:qb_key_order, _}), do: true
   defp ephemeral_key?(_), do: false

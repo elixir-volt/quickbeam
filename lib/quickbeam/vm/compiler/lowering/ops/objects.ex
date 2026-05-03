@@ -90,7 +90,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
         {:ok, state}
 
       {{:ok, :to_object}, []} ->
-        {:ok, state}
+        State.unary_call(state, RuntimeHelpers, :to_object)
 
       {{:ok, :to_propkey}, []} ->
         {:ok, state}
@@ -178,7 +178,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
         State.bind(
           state,
           Builder.temp_name(state.temp),
-          Builder.remote_call(Class, :check_ctor_return, [val])
+          State.compiler_call(state, :check_ctor_return, [val])
         )
 
       {:ok,

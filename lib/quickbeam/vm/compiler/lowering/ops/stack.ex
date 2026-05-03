@@ -170,11 +170,23 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
       :undefined ->
         {:ok, State.push(state, Builder.atom(:undefined), :undefined)}
 
+      {:bigint, value} ->
+        {:ok,
+         State.push(state, Builder.tuple_expr([Builder.atom(:bigint), Builder.integer(value)]))}
+
       %Bytecode.Function{} = fun when fun.closure_vars == [] ->
         {:ok, State.push(state, Builder.literal(fun), AnalysisTypes.function_type(fun))}
 
       %Bytecode.Function{} ->
         lower_fclosure(state, constants, arg_count, idx)
+
+      {:template_object, _elems, _raw} = value ->
+        {:ok,
+         State.push(
+           state,
+           State.compiler_call(state, :materialize_constant, [Builder.literal(value)]),
+           :object
+         )}
 
       _ ->
         {:error, {:unsupported_const, idx}}

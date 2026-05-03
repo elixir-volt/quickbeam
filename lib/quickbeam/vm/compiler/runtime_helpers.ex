@@ -1,7 +1,6 @@
 defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   @moduledoc "Runtime support for JIT-compiled code."
 
-  import Bitwise, only: [bnot: 1]
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
   import QuickBEAM.VM.Value, only: [is_object: 1]
 
@@ -44,6 +43,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     val
   end
 
+  def to_object(:undefined), do: JSThrow.type_error!("Cannot convert undefined to object")
+  def to_object(nil), do: JSThrow.type_error!("Cannot convert null to object")
+  def to_object(value), do: value
+
   @doc "Returns whether a value is JavaScript `undefined`."
   def undefined?(_ctx \\ nil, val), do: val == :undefined
   def null?(_ctx \\ nil, val), do: val == nil
@@ -52,20 +55,42 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def strict_neq(_ctx \\ nil, a, b), do: not Values.strict_eq(a, b)
 
-  def bit_not(_ctx \\ nil, a), do: Values.to_int32(bnot(Values.to_int32(a)))
+  def bit_not(_ctx \\ nil, a), do: Values.bnot(a)
+
+  def in_operator(_ctx \\ nil, key, obj) do
+    unless object_like?(obj) do
+      JSThrow.type_error!("right-hand side of 'in' should be an object")
+    end
+
+    QuickBEAM.VM.ObjectModel.Put.has_property(obj, Names.normalize_property_key(key))
+  end
+
   @doc "Applies JavaScript logical NOT."
   def lnot(_ctx \\ nil, a), do: not Values.truthy?(a)
 
-  def inc(_ctx \\ nil, a), do: Values.add(a, 1)
-  def dec(_ctx \\ nil, a), do: Values.sub(a, 1)
+  def inc(ctx \\ nil, value)
+  def inc(_ctx, {:bigint, n}), do: {:bigint, n + 1}
+  def inc(_ctx, a) when is_number(a), do: Values.add(a, 1)
+  def inc(_ctx, a), do: Values.add(Values.to_number(a), 1)
 
-  def post_inc(_ctx \\ nil, a) do
+  def dec(ctx \\ nil, value)
+  def dec(_ctx, {:bigint, n}), do: {:bigint, n - 1}
+  def dec(_ctx, a) when is_number(a), do: Values.sub(a, 1)
+  def dec(_ctx, a), do: Values.sub(Values.to_number(a), 1)
+
+  def post_inc(ctx \\ nil, value)
+  def post_inc(_ctx, {:bigint, n} = old), do: {{:bigint, n + 1}, old}
+
+  def post_inc(_ctx, a) do
     num = Values.to_number(a)
     {Values.add(num, 1), num}
   end
 
   @doc "Applies JavaScript postfix decrement and returns `{new_value, old_value}`."
-  def post_dec(_ctx \\ nil, a) do
+  def post_dec(ctx \\ nil, value)
+  def post_dec(_ctx, {:bigint, n} = old), do: {{:bigint, n - 1}, old}
+
+  def post_dec(_ctx, a) do
     num = Values.to_number(a)
     {Values.sub(num, 1), num}
   end
@@ -73,6 +98,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def ensure_capture_cell(_ctx \\ nil, cell, val), do: Captures.ensure(cell, val)
   def close_capture_cell(_ctx \\ nil, cell, val), do: Captures.close(cell, val)
   def sync_capture_cell(_ctx \\ nil, cell, val), do: Captures.sync(cell, val)
+  def read_capture_cell(_ctx \\ nil, cell, slot_val), do: Captures.read(cell, slot_val)
 
   @doc "Resolves an awaited JavaScript value for compiled async code."
   def await(_ctx \\ nil, val), do: QuickBEAM.VM.Interpreter.resolve_awaited(val)
@@ -135,14 +161,19 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     do: fetch_ctx_var(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
 
   def get_global(globals, name) do
-    case Map.fetch(globals, name) do
+    case fetch_global_binding(globals, name) do
       {:ok, val} -> val
       :error -> JSThrow.reference_error!("#{name} is not defined")
     end
   end
 
   @doc "Reads a global binding and returns `:undefined` when absent."
-  def get_global_undef(globals, name), do: Map.get(globals, name, :undefined)
+  def get_global_undef(globals, name) do
+    case fetch_global_binding(globals, name) do
+      {:ok, val} -> val
+      :error -> :undefined
+    end
+  end
 
   def get_var_undef(ctx, name) when is_binary(name),
     do: GlobalEnv.get(context_globals(ctx), name, :undefined)
@@ -150,9 +181,71 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def get_var_undef(ctx, atom_idx),
     do: get_var_undef(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
 
+  defp fetch_global_binding(globals, name) do
+    persistent = Heap.get_persistent_globals() || %{}
+    builtins = Heap.get_builtin_names() || MapSet.new()
+
+    cond do
+      not MapSet.member?(builtins, name) and Map.has_key?(persistent, name) ->
+        Map.fetch(persistent, name)
+
+      true ->
+        Map.fetch(globals, name)
+    end
+  end
+
+  def delete_var(ctx, atom_idx) do
+    name = Names.resolve_atom(context_atoms(ctx), atom_idx)
+    builtins = Heap.get_builtin_names() || MapSet.new()
+
+    case Map.fetch(context_globals(ctx), name) do
+      {:ok, _value} when name in ["NaN", "undefined", "Infinity", "globalThis"] ->
+        false
+
+      {:ok, {:builtin, _, _}} ->
+        true
+
+      {:ok, _value} ->
+        MapSet.member?(builtins, name)
+
+      :error ->
+        true
+    end
+  end
+
   @doc "Resolves an atom-table entry to its runtime value."
   def push_atom_value(ctx, atom_idx),
     do: Names.resolve_atom(context_atoms(ctx), atom_idx)
+
+  def materialize_constant(_ctx, {:template_object, elems, raw}) do
+    elems = template_elements(elems)
+    raw_elements = template_raw_elements(raw, elems)
+
+    raw_ref = make_ref()
+    Heap.put_obj(raw_ref, template_object_map(raw_elements))
+
+    ref = make_ref()
+    Heap.put_obj(ref, Map.put(template_object_map(elems), "raw", {:obj, raw_ref}))
+    {:obj, ref}
+  end
+
+  def materialize_constant(_ctx, value), do: value
+
+  defp template_elements({:array, elems}) when is_list(elems), do: elems
+  defp template_elements(elems) when is_list(elems), do: elems
+  defp template_elements(value), do: [value]
+
+  defp template_raw_elements(:undefined, elems), do: elems
+  defp template_raw_elements({:template_object, raw, _}, _elems), do: template_elements(raw)
+  defp template_raw_elements(raw, _elems), do: template_elements(raw)
+
+  defp template_object_map(elems) do
+    elems
+    |> Enum.with_index()
+    |> Enum.reduce(%{"length" => length(elems)}, fn {value, idx}, acc ->
+      Map.put(acc, Integer.to_string(idx), value)
+    end)
+  end
 
   def private_symbol(_ctx, name) when is_binary(name), do: Private.private_symbol(name)
 
@@ -230,11 +323,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   def make_var_ref(ctx, atom_idx) do
-    name = Names.resolve_atom(context_atoms(ctx), atom_idx)
-    val = Map.get(context_globals(ctx), name, :undefined)
-    ref = make_ref()
-    Heap.put_cell(ref, val)
-    {:cell, ref}
+    {:global_ref, Names.resolve_atom(context_atoms(ctx), atom_idx)}
   end
 
   @doc "Returns or creates a mutable reference cell for an existing variable reference."
@@ -323,19 +412,30 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     {:cell, ref}
   end
 
-  @doc "Reads the value from a reference cell or direct value."
-  def get_ref_value(_ctx \\ nil, ref)
-  def get_ref_value(_ctx, {:cell, _} = cell), do: Closures.read_cell(cell)
-  def get_ref_value(_ctx, _), do: :undefined
+  @doc "Reads the value from a reference cell or object-property reference."
+  def get_ref_value(_ctx \\ nil, key, ref)
+  def get_ref_value(_ctx, _key, {:cell, _} = cell), do: Closures.read_cell(cell)
+  def get_ref_value(ctx, _key, {:global_ref, name}), do: get_var_undef(ctx, name)
+  def get_ref_value(_ctx, key, obj) when is_binary(key), do: Get.get(obj, key)
+  def get_ref_value(_ctx, _key, _), do: :undefined
 
-  def put_ref_value(_ctx \\ nil, val, ref)
+  def put_ref_value(ctx \\ nil, val, key, ref)
 
-  def put_ref_value(_ctx, val, {:cell, _} = cell) do
+  def put_ref_value(ctx, val, _key, {:cell, _} = cell) do
     Closures.write_cell(cell, val)
-    val
+    ctx
   end
 
-  def put_ref_value(_ctx, val, _), do: val
+  def put_ref_value(ctx, val, _key, {:global_ref, name}) do
+    GlobalEnv.put(ensure_context(ctx), name, val)
+  end
+
+  def put_ref_value(ctx, val, key, obj) when is_binary(key) do
+    Put.put(obj, key, val)
+    ctx
+  end
+
+  def put_ref_value(ctx, _val, _key, _), do: ctx
 
   @doc "Reads a variable from a compiled context or throws when absent."
   def fetch_ctx_var(ctx, name) do
@@ -446,8 +546,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   @doc "Copies enumerable object-spread properties."
-  def copy_data_properties(_ctx \\ nil, target, source) do
-    Copy.copy_data_properties(target, source)
+  def copy_data_properties(_ctx \\ nil, target, source, exclude \\ nil) do
+    Copy.copy_data_properties(target, source, exclude)
     target
   end
 
@@ -460,7 +560,58 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   @doc "Converts an iterable or array-like value to a JavaScript array object."
   def array_from(_ctx \\ nil, list), do: Heap.wrap(list)
 
-  def delete_property(_ctx \\ nil, obj, key), do: Delete.delete_property(obj, key)
+  def delete_property(ctx \\ nil, obj, key)
+
+  def delete_property(ctx, obj, key) when is_map(ctx) or is_struct(ctx) do
+    key_str = if is_binary(key), do: key, else: Values.stringify(key)
+
+    if obj == context_this(ctx) and Map.has_key?(context_globals(ctx), key_str) do
+      case Map.fetch!(context_globals(ctx), key_str) do
+        {:builtin, _, _} -> true
+        _ -> false
+      end
+    else
+      delete_property(nil, obj, key)
+    end
+  end
+
+  def delete_property(_ctx, {:builtin, _name, map} = fun, key) when is_map(map),
+    do: delete_static(fun, key)
+
+  def delete_property(_ctx, {:builtin, _name, _} = fun, key), do: delete_static(fun, key)
+  def delete_property(_ctx, {:closure, _, _} = fun, key), do: delete_static(fun, key)
+  def delete_property(_ctx, %Bytecode.Function{} = fun, key), do: delete_static(fun, key)
+  def delete_property(_ctx, obj, key), do: Delete.delete_property(obj, key)
+
+  defp delete_static(fun, key) do
+    key_str = if is_binary(key), do: key, else: Values.stringify(key)
+    statics = Heap.get_ctor_statics(fun)
+
+    if Map.has_key?(statics, key_str) do
+      Heap.put_ctor_statics(fun, Map.delete(statics, key_str))
+      true
+    else
+      case fun do
+        {:builtin, _, _} ->
+          val = Get.get(fun, key_str)
+
+          cond do
+            val == :undefined ->
+              true
+
+            is_number(val) or val == :infinity or val == :neg_infinity or val == :nan ->
+              false
+
+            true ->
+              Heap.put_ctor_statics(fun, Map.put(statics, key_str, :deleted))
+              true
+          end
+
+        _ ->
+          true
+      end
+    end
+  end
 
   def set_proto(_ctx \\ nil, obj, proto)
 
@@ -478,8 +629,39 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def construct_runtime(ctx, ctor, new_target, args),
     do: Invocation.construct_runtime(ctx, ctor, new_target, args)
 
+  def construct_runtime(ctx, ctor, new_target, args, call_pc) do
+    previous = Process.get(:qb_constructor_call_stack)
+    Process.put(:qb_constructor_call_stack, compiled_stack(ctx, call_pc))
+
+    try do
+      construct_runtime(ctx, ctor, new_target, args)
+    after
+      if previous,
+        do: Process.put(:qb_constructor_call_stack, previous),
+        else: Process.delete(:qb_constructor_call_stack)
+    end
+  end
+
   def construct_runtime(ctor, new_target, args),
     do: Invocation.construct_runtime(ctor, new_target, args)
+
+  def check_ctor_return(ctx, val) do
+    case Class.check_ctor_return(val) do
+      {replace_with_this?, checked_val} ->
+        {replace_with_this?, checked_val}
+
+      :error ->
+        throw(
+          {:js_throw,
+           make_error_with_ctx(
+             ctx,
+             "Derived constructors may only return object or undefined",
+             "TypeError",
+             Process.get(:qb_constructor_call_stack)
+           )}
+        )
+    end
+  end
 
   def init_ctor(ctx) do
     current_func = context_current_func(ctx)
@@ -757,29 +939,173 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   @doc "Applies JavaScript `instanceof` semantics."
-  def instanceof({:obj, _} = obj, ctor) do
-    ctor_proto = Get.get(ctor, "prototype")
-    prototype_chain_contains?(obj, ctor_proto)
+  def instanceof(obj, ctor) do
+    has_instance = Get.get(ctor, {:symbol, "Symbol.hasInstance"})
+
+    if has_instance != :undefined and has_instance != nil and Builtin.callable?(has_instance) do
+      has_instance
+      |> Invocation.invoke_with_receiver([obj], Runtime.gas_budget(), ctor)
+      |> Values.truthy?()
+    else
+      ordinary_instanceof(obj, ctor)
+    end
   end
 
-  def instanceof(_obj, _ctor), do: false
+  defp ordinary_instanceof(obj, ctor) do
+    unless Builtin.callable?(ctor) or is_object(ctor) do
+      JSThrow.type_error!("Right-hand side of instanceof is not callable")
+    end
+
+    unless callable_instanceof_target?(ctor) do
+      JSThrow.type_error!("Right-hand side of instanceof is not callable")
+    end
+
+    if object_like?(obj) do
+      ctor_proto = Get.get(ctor, "prototype")
+
+      case ctor_proto do
+        {:obj, _} ->
+          special_builtin_instance?(obj, ctor) or prototype_chain_contains?(obj, ctor_proto)
+
+        _ ->
+          JSThrow.type_error!(
+            "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check"
+          )
+      end
+    else
+      false
+    end
+  end
 
   def get_length(obj), do: Get.length_of(obj)
 
   @doc "Loads a registered VM module by name."
   def import_module(ctx, specifier) do
-    if is_binary(specifier) and Map.get(ctx, :runtime_pid) != nil do
-      QuickBEAM.VM.PromiseState.resolved(QuickBEAM.VM.Runtime.new_object())
-    else
-      QuickBEAM.VM.PromiseState.rejected(
-        Heap.make_error("Cannot import #{specifier}", "TypeError")
-      )
+    cond do
+      is_binary(specifier) and Map.get(ctx, :runtime_pid) != nil ->
+        case QuickBEAM.Runtime.load_module(ctx.runtime_pid, specifier, "") do
+          :ok ->
+            QuickBEAM.VM.PromiseState.resolved(QuickBEAM.VM.Runtime.new_object())
+
+          {:error, _} ->
+            QuickBEAM.VM.PromiseState.rejected(
+              make_error_with_ctx(ctx, "Cannot find module '#{specifier}'", "TypeError")
+            )
+        end
+
+      true ->
+        QuickBEAM.VM.PromiseState.rejected(
+          make_error_with_ctx(ctx, "Invalid module specifier", "TypeError")
+        )
     end
   end
 
-  def import_module(specifier) do
-    QuickBEAM.VM.PromiseState.rejected(Heap.make_error("Cannot import #{specifier}", "TypeError"))
+  def import_module(_specifier) do
+    QuickBEAM.VM.PromiseState.rejected(Heap.make_error("Invalid module specifier", "TypeError"))
   end
+
+  defp object_like?({:obj, _}), do: true
+  defp object_like?({:qb_arr, _}), do: true
+  defp object_like?(value) when is_map(value), do: true
+  defp object_like?(value) when is_list(value), do: true
+  defp object_like?({:builtin, _, _}), do: true
+  defp object_like?(%Bytecode.Function{}), do: true
+  defp object_like?({:closure, _, %Bytecode.Function{}}), do: true
+  defp object_like?({:bound, _, _, _, _}), do: true
+  defp object_like?(_), do: false
+
+  defp callable_instanceof_target?({:builtin, _, map}) when is_map(map), do: false
+  defp callable_instanceof_target?({:obj, ref}), do: Get.get({:obj, ref}, "call") != :undefined
+  defp callable_instanceof_target?(ctor), do: Builtin.callable?(ctor)
+
+  defp builtin_name({:builtin, name, _}), do: name
+  defp builtin_name(_), do: nil
+
+  defp special_builtin_instance?(obj, ctor) when not is_object(obj) do
+    Builtin.callable?(obj) and builtin_name(ctor) in ["Function", "Object"]
+  end
+
+  defp special_builtin_instance?({:obj, ref}, ctor) do
+    case builtin_name(ctor) do
+      "Array" -> match?({:qb_arr, _}, Heap.get_obj(ref)) or is_list(Heap.get_obj(ref))
+      "Object" -> true
+      _ -> false
+    end
+  end
+
+  defp special_builtin_instance?(_, _), do: false
+
+  defp make_error_with_ctx(ctx, message, name, stack_override \\ nil) do
+    previous_ctx = Heap.get_ctx()
+    Heap.put_ctx(ensure_context(ctx))
+
+    try do
+      Heap.make_error(message, name)
+      |> ensure_compiled_stack(ctx, stack_override)
+    after
+      if previous_ctx, do: Heap.put_ctx(previous_ctx), else: Heap.put_ctx(nil)
+    end
+  end
+
+  defp ensure_compiled_stack({:obj, ref} = error, ctx, stack_override) do
+    stack = stack_override || compiled_stack(ctx)
+
+    case Get.get(error, "stack") do
+      "" ->
+        Heap.update_obj(ref, %{}, &Map.put(&1, "stack", stack))
+        error
+
+      _ when stack_override != nil ->
+        Heap.update_obj(ref, %{}, &Map.put(&1, "stack", stack))
+        error
+
+      _ ->
+        error
+    end
+  end
+
+  defp ensure_compiled_stack(error, _ctx, _stack_override), do: error
+
+  defp compiled_stack(ctx) do
+    case context_current_func(ctx) do
+      %Bytecode.Function{} = fun ->
+        "    at #{fun.filename}:#{fun.line_num}:#{fun.col_num}"
+
+      {:closure, _captures, %Bytecode.Function{} = fun} ->
+        "    at #{fun.filename}:#{fun.line_num}:#{fun.col_num}"
+
+      _ ->
+        ""
+    end
+  end
+
+  defp compiled_stack(ctx, pc) do
+    case context_current_func(ctx) do
+      %Bytecode.Function{} = fun -> stack_for_pc(fun, pc)
+      {:closure, _captures, %Bytecode.Function{} = fun} -> stack_for_pc(fun, pc)
+      _ -> ""
+    end
+  end
+
+  defp stack_for_pc(%Bytecode.Function{} = fun, pc) do
+    {line, col} = Bytecode.source_position(fun, pc)
+    "    at #{fun.filename}:#{line}:#{col}"
+  end
+
+  def with_has_property(_ctx, {:obj, _} = obj, key) do
+    if Put.has_property(obj, key) do
+      unscopables = Get.get(obj, {:symbol, "Symbol.unscopables"})
+
+      case unscopables do
+        {:obj, _} -> not Values.truthy?(Get.get(unscopables, key))
+        _ -> true
+      end
+    else
+      false
+    end
+  end
+
+  def with_has_property(_ctx, _obj, _key), do: false
 
   # ── Iterators ──
 
@@ -824,9 +1150,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
             cond do
               Map.has_key?(map, sym_iter) ->
-                iter_fn = Map.get(map, sym_iter)
-                iter_obj = Invocation.call_callback(ctx, iter_fn, [])
-                {iter_obj, Get.get(iter_obj, "next")}
+                invoke_custom_iter(ctx, Map.get(map, sym_iter), obj_ref)
 
               Map.has_key?(map, "next") ->
                 {obj_ref, Get.get(obj_ref, "next")}
@@ -907,9 +1231,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
             cond do
               Map.has_key?(map, sym_iter) ->
-                iter_fn = Map.get(map, sym_iter)
-                iter_obj = Runtime.call_callback(iter_fn, [])
-                {iter_obj, Get.get(iter_obj, "next")}
+                invoke_custom_iter_ctxless(Map.get(map, sym_iter), obj_ref)
 
               Map.has_key?(map, "next") ->
                 {obj_ref, Get.get(obj_ref, "next")}
@@ -989,16 +1311,41 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
+  def iterator_next_result(_ctx \\ nil, next_fn, iter_obj, val)
+
+  def iterator_next_result(_ctx, _next_fn, :undefined, _val),
+    do: {Heap.wrap(%{"done" => true, "value" => :undefined}), :undefined}
+
+  def iterator_next_result(_ctx, _next_fn, {:list_iter, [head | tail]}, _val),
+    do: {Heap.wrap(%{"done" => false, "value" => head}), {:list_iter, tail}}
+
+  def iterator_next_result(_ctx, _next_fn, {:list_iter, []}, _val),
+    do: {Heap.wrap(%{"done" => true, "value" => :undefined}), :undefined}
+
+  def iterator_next_result(_ctx, next_fn, iter_obj, val) do
+    result = Runtime.call_callback(next_fn, [val])
+    next_iter = if Get.get(result, "done") == true, do: :undefined, else: iter_obj
+    {result, next_iter}
+  end
+
   @doc "Creates key iteration state for a JavaScript `for...in` loop."
-  def for_in_start(_ctx \\ nil, obj), do: {:for_in_iterator, enumerable_keys(obj)}
+  def for_in_start(_ctx \\ nil, obj), do: {:for_in_iterator, enumerable_keys(obj), obj}
 
   def for_in_next(_ctx \\ nil, iter)
 
-  def for_in_next(_ctx, {:for_in_iterator, [key | rest_keys]}) do
-    {false, key, {:for_in_iterator, rest_keys}}
+  def for_in_next(ctx, {:for_in_iterator, [key | rest_keys], obj}) do
+    if Put.has_property(obj, key) do
+      {false, key, {:for_in_iterator, rest_keys, obj}}
+    else
+      for_in_next(ctx, {:for_in_iterator, rest_keys, obj})
+    end
   end
 
   def for_in_next(_ctx, {:for_in_iterator, []} = iter) do
+    {true, :undefined, iter}
+  end
+
+  def for_in_next(_ctx, {:for_in_iterator, [], _obj} = iter) do
     {true, :undefined, iter}
   end
 
@@ -1012,7 +1359,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     return_fn = Get.get(iter_obj, "return")
 
     if return_fn != :undefined and return_fn != nil do
-      Invocation.call_callback(ctx, return_fn, [])
+      Invocation.invoke_method_runtime(ctx, return_fn, iter_obj, [])
     end
 
     :ok
@@ -1025,7 +1372,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     return_fn = Get.get(iter_obj, "return")
 
     if return_fn != :undefined and return_fn != nil do
-      Runtime.call_callback(return_fn, [])
+      Invocation.invoke_method_runtime(return_fn, iter_obj, [])
     end
 
     :ok
@@ -1085,10 +1432,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   defp capture_keys_tuple(%Bytecode.Function{closure_vars: vars} = fun) do
-    case Heap.get_capture_keys(fun.byte_code) do
+    case Heap.get_capture_keys(fun) do
       nil ->
         tuple = vars |> Enum.map(&closure_capture_key/1) |> List.to_tuple()
-        Heap.put_capture_keys(fun.byte_code, tuple)
+        Heap.put_capture_keys(fun, tuple)
         tuple
 
       cached ->
@@ -1171,18 +1518,49 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   defp prototype_chain_contains?(_, :undefined), do: false
   defp prototype_chain_contains?(_, nil), do: false
 
-  defp prototype_chain_contains?({:obj, ref}, target) do
+  defp prototype_chain_contains?({:obj, ref} = obj, target) do
     case Heap.get_obj(ref, %{}) do
+      {:shape, _, _, _, parent} ->
+        parent == target or prototype_chain_contains?(parent, target)
+
       map when is_map(map) ->
-        case Map.get(map, proto()) do
-          ^target -> true
-          nil -> false
-          :undefined -> false
-          parent -> prototype_chain_contains?(parent, target)
+        if Map.has_key?(map, proto()) do
+          case Map.get(map, proto()) do
+            ^target -> true
+            nil -> false
+            :undefined -> false
+            parent -> prototype_chain_contains?(parent, target)
+          end
+        else
+          parent = Heap.get_object_prototype()
+
+          cond do
+            obj == parent -> false
+            parent == target -> true
+            true -> prototype_chain_contains?(parent, target)
+          end
         end
+
+      {:qb_arr, _} ->
+        parent = Heap.get_array_proto(ref)
+        parent == target or prototype_chain_contains?(parent, target)
+
+      list when is_list(list) ->
+        parent = Heap.get_array_proto(ref)
+        parent == target or prototype_chain_contains?(parent, target)
 
       _ ->
         false
+    end
+  end
+
+  defp prototype_chain_contains?(fun, target) when is_tuple(fun) or is_struct(fun) do
+    parent = Class.get_super(fun)
+
+    cond do
+      parent == target -> true
+      parent in [nil, :undefined] -> false
+      true -> prototype_chain_contains?(parent, target)
     end
   end
 

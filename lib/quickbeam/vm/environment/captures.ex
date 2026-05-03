@@ -27,6 +27,10 @@ defmodule QuickBEAM.VM.Environment.Captures do
     {:cell, ref}
   end
 
+  @doc "Reads the current value of a captured cell, falling back to the provided slot value."
+  def read({:cell, ref}, _slot_val), do: Heap.get_cell(ref)
+  def read(_cell, slot_val), do: slot_val
+
   @doc "Synchronizes a captured cell with a new local value."
   def sync({:cell, ref}, val) do
     Heap.put_cell(ref, val)

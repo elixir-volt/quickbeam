@@ -126,6 +126,12 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
           key == "__proto__" ->
             Heap.put_obj_raw(ref, {:shape, shape_id, offsets, vals, val})
 
+          not Map.has_key?(offsets, key) and proto_has_setter_property?(proto, key) ->
+            set(proto, key, val, obj)
+
+          not Heap.extensible?(ref) and not Map.has_key?(offsets, key) ->
+            :ok
+
           is_symbol(key) ->
             map = Heap.Shapes.to_map(shape_id, vals, proto)
             Heap.put_obj(ref, Map.put(map, key, val))
@@ -141,7 +147,12 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         set_trap = Get.get(handler, "set")
 
         if set_trap != :undefined do
-          Runtime.call_callback(set_trap, [target, key, val])
+          validate_proxy_set_invariant(
+            target,
+            key,
+            val,
+            Runtime.call_callback(set_trap, [target, key, val])
+          )
         else
           put(target, key, val)
         end
@@ -155,6 +166,12 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
       map when is_map(map) ->
         cond do
           Heap.frozen?(ref) ->
+            :ok
+
+          not Map.has_key?(map, key) and proto_has_setter_property?(Map.get(map, proto()), key) ->
+            set(Map.get(map, proto()), key, val, obj)
+
+          not Map.has_key?(map, key) and not Heap.extensible?(ref) ->
             :ok
 
           not Map.has_key?(map, key) ->
@@ -184,6 +201,137 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   def put({:builtin, _, _} = b, key, val), do: Heap.put_ctor_static(b, key, val)
 
   def put(_, _, _), do: :ok
+
+  @doc "Writes a property using an explicit receiver, for Reflect.set semantics."
+  def set({:obj, ref}, key, val, receiver) do
+    key = normalize_key(key)
+
+    case Heap.get_obj_raw(ref) do
+      %{proxy_target() => proxy_target, proxy_handler() => handler} ->
+        set_trap = Get.get(handler, "set")
+
+        if set_trap != :undefined do
+          validate_proxy_set_invariant(
+            proxy_target,
+            key,
+            val,
+            Runtime.call_callback(set_trap, [proxy_target, key, val, receiver])
+          )
+        else
+          set(proxy_target, key, val, receiver)
+        end
+
+      {:shape, _shape_id, offsets, vals, proto_obj} ->
+        case Map.fetch(offsets, key) do
+          {:ok, offset} ->
+            case elem(vals, offset) do
+              {:accessor, _, setter} when setter != nil ->
+                invoke_setter(setter, val, receiver)
+
+              _ ->
+                if match?(%{writable: false}, Heap.get_prop_desc(ref, key)) do
+                  false
+                else
+                  write_receiver(receiver, key, val)
+                end
+            end
+
+          :error ->
+            if proto_has_property?(proto_obj, key) do
+              set(proto_obj, key, val, receiver)
+            else
+              write_receiver(receiver, key, val)
+            end
+        end
+
+      map when is_map(map) ->
+        case Map.get(map, key) do
+          nil ->
+            if proto_has_property?(Map.get(map, proto()), key) do
+              set(Map.get(map, proto()), key, val, receiver)
+            else
+              write_receiver(receiver, key, val)
+            end
+
+          {:accessor, _, setter} when setter != nil ->
+            invoke_setter(setter, val, receiver)
+
+          _ ->
+            if match?(%{writable: false}, Heap.get_prop_desc(ref, key)) do
+              false
+            else
+              write_receiver(receiver, key, val)
+            end
+        end
+
+      _ ->
+        write_receiver(receiver, key, val)
+    end
+  end
+
+  def set(target, key, val, _receiver), do: put(target, key, val)
+
+  defp write_receiver({:obj, ref} = receiver, key, val) do
+    case Heap.get_obj_raw(ref) do
+      {:shape, _shape_id, offsets, vals, _proto} ->
+        case Map.fetch(offsets, key) do
+          {:ok, offset} ->
+            case elem(vals, offset) do
+              {:accessor, _, setter} when setter != nil ->
+                invoke_setter(setter, val, receiver)
+                true
+
+              _ ->
+                if match?(%{writable: false}, Heap.get_prop_desc(ref, key)) do
+                  false
+                else
+                  put(receiver, key, val)
+                  true
+                end
+            end
+
+          :error ->
+            if Heap.extensible?(ref) do
+              put(receiver, key, val)
+              true
+            else
+              false
+            end
+        end
+
+      map when is_map(map) ->
+        case Map.get(map, key) do
+          nil ->
+            if Heap.extensible?(ref) do
+              put(receiver, key, val)
+              true
+            else
+              false
+            end
+
+          {:accessor, _, setter} when setter != nil ->
+            invoke_setter(setter, val, receiver)
+            true
+
+          _ ->
+            if match?(%{writable: false}, Heap.get_prop_desc(ref, key)) do
+              false
+            else
+              put(receiver, key, val)
+              true
+            end
+        end
+
+      _ ->
+        put(receiver, key, val)
+        true
+    end
+  end
+
+  defp write_receiver(receiver, key, val) do
+    put(receiver, key, val)
+    true
+  end
 
   def put(target, key, val, true), do: put(target, key, val)
 
@@ -227,11 +375,14 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
       k when is_binary(k) ->
         case PropertyKey.array_index(k) do
           {:ok, idx} -> put_element({:obj, ref}, idx, val)
-          :error -> :ok
+          :error -> Heap.put_array_prop(ref, k, val)
         end
 
       k when is_integer(k) and k >= 0 ->
         put_element({:obj, ref}, k, val)
+
+      k when is_symbol(k) ->
+        Heap.put_array_prop(ref, k, val)
 
       _ ->
         :ok
@@ -299,6 +450,39 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   defp invoke_setter(fun, val, this_obj) do
     Invocation.invoke_with_receiver(fun, [val], this_obj)
   end
+
+  defp proto_has_property?(nil, _key), do: false
+  defp proto_has_property?(:undefined, _key), do: false
+
+  defp proto_has_property?({:obj, ref} = obj, key) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        Map.has_key?(map, key) or proto_has_property?(Map.get(map, proto()), key)
+
+      _ ->
+        has_property(obj, key)
+    end
+  end
+
+  defp proto_has_property?(proto_obj, key), do: has_property(proto_obj, key)
+
+  defp proto_has_setter_property?(nil, _key), do: false
+  defp proto_has_setter_property?(:undefined, _key), do: false
+
+  defp proto_has_setter_property?({:obj, ref}, key) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        case Map.get(map, key) do
+          {:accessor, _, setter} when setter != nil -> true
+          _ -> proto_has_setter_property?(Map.get(map, proto()), key)
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp proto_has_setter_property?(_proto_obj, _key), do: false
 
   defp proto_has_setter?(idx) do
     case find_array_proto_accessor(Integer.to_string(idx)) do
@@ -589,6 +773,28 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   def set_list_at(list, i, val) when is_integer(i) and i >= 0,
     do: list ++ List.duplicate(:undefined, max(0, i - length(list))) ++ [val]
+
+  defp validate_proxy_set_invariant({:obj, target_ref} = target, key, val, trap_result) do
+    if Values.truthy?(trap_result) do
+      desc = Heap.get_prop_desc(target_ref, key)
+      target_value = Get.get(target, key)
+
+      cond do
+        match?(%{configurable: false, writable: false}, desc) and val !== target_value ->
+          JSThrow.type_error!("proxy set trap violates invariant")
+
+        match?(%{configurable: false}, desc) and match?({:accessor, _, nil}, target_value) ->
+          JSThrow.type_error!("proxy set trap violates invariant")
+
+        true ->
+          trap_result
+      end
+    else
+      trap_result
+    end
+  end
+
+  defp validate_proxy_set_invariant(_target, _key, _val, trap_result), do: trap_result
 
   defp sync_global_this?(obj, key, val) when is_binary(key) do
     case Heap.get_ctx() do

@@ -37,13 +37,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
          :not_handled <- Globals.lower(state, name_args),
          :not_handled <- Arithmetic.lower(state, name_args),
          :not_handled <- Objects.lower(state, name_args),
-         :not_handled <- Calls.lower(state, name_args),
+         :not_handled <- Calls.lower(state, idx, name_args),
          :not_handled <-
            Control.lower(state, idx, next_entry, stack_depths, inline_targets, name_args),
          :not_handled <- Iterators.lower(state, name_args),
          :not_handled <- Classes.lower(state, name_args),
          :not_handled <- Generators.lower(state, next_entry, stack_depths, name_args),
-         :not_handled <- WithScope.lower(state, name_args) do
+         :not_handled <- WithScope.lower(state, next_entry, stack_depths, name_args) do
       case name_args do
         {{:ok, :invalid}, _} ->
           {:error, {:unsupported_opcode, :invalid}}

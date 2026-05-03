@@ -20,22 +20,48 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     :closure_vars,
     :atoms,
     :arg_count,
-    :return_type
+    :return_type,
+    :frame_mode,
+    :force_capture_slots
   ]
 
   # ── Construction ──
 
   @doc "Creates a lowering state with slot, stack, capture, and type metadata."
   def new(slot_count, stack_depth, opts \\ []) do
+    frame_mode = Keyword.get(opts, :frame_mode, :args)
+
     slots =
-      if slot_count == 0,
-        do: %{},
-        else: Map.new(0..(slot_count - 1), fn idx -> {idx, Builder.slot_var(idx)} end)
+      cond do
+        slot_count == 0 ->
+          %{}
+
+        frame_mode == :tuple ->
+          slots_tuple = Builder.var("Slots")
+
+          Map.new(0..(slot_count - 1), fn idx ->
+            {idx, Builder.tuple_element(slots_tuple, idx + 1)}
+          end)
+
+        true ->
+          Map.new(0..(slot_count - 1), fn idx -> {idx, Builder.slot_var(idx)} end)
+      end
 
     capture_cells =
-      if slot_count == 0,
-        do: %{},
-        else: Map.new(0..(slot_count - 1), fn idx -> {idx, Builder.capture_var(idx)} end)
+      cond do
+        slot_count == 0 ->
+          %{}
+
+        frame_mode == :tuple ->
+          captures_tuple = Builder.var("Captures")
+
+          Map.new(0..(slot_count - 1), fn idx ->
+            {idx, Builder.tuple_element(captures_tuple, idx + 1)}
+          end)
+
+        true ->
+          Map.new(0..(slot_count - 1), fn idx -> {idx, Builder.capture_var(idx)} end)
+      end
 
     stack =
       if stack_depth == 0,
@@ -61,7 +87,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       closure_vars: Keyword.get(opts, :closure_vars, []),
       atoms: Keyword.get(opts, :atoms),
       arg_count: arg_count,
-      return_type: Keyword.get(opts, :return_type, :unknown)
+      return_type: Keyword.get(opts, :return_type, :unknown),
+      frame_mode: frame_mode,
+      force_capture_slots: Keyword.get(opts, :force_capture_slots, false)
     }
   end
 
@@ -115,7 +143,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       ctx_expr(state),
       current_slots(state),
       state.stack,
-      current_capture_cells(state)
+      current_capture_cells(state),
+      state.frame_mode
     )
   end
 
@@ -365,6 +394,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
             :object
         end
 
+      {obj, state} = bind(state, Builder.temp_name(state.temp), obj)
+
       {:ok,
        state
        |> emit(
@@ -483,12 +514,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def in_call(state) do
     with {:ok, obj, _obj_type, state} <- pop_typed(state),
          {:ok, key, _key_type, state} <- pop_typed(state) do
-      {:ok,
-       push(
-         state,
-         Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :has_property, [obj, key]),
-         :boolean
-       )}
+      {:ok, push(state, compiler_call(state, :in_operator, [key, obj]), :boolean)}
     end
   end
 
@@ -517,16 +543,21 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def copy_data_properties_call(state, mask) do
     target_idx = Bitwise.band(mask, 3)
     source_idx = Bitwise.band(Bitwise.bsr(mask, 2), 7)
+    exclude_idx = Bitwise.band(Bitwise.bsr(mask, 5), 7)
 
     with {:ok, state, target} <- bind_stack_entry(state, target_idx),
-         {:ok, state, source} <- bind_stack_entry(state, source_idx) do
+         {:ok, state, source} <- bind_stack_entry(state, source_idx),
+         {:ok, state, exclude} <- bind_stack_entry(state, exclude_idx) do
       {:ok,
        %{
          state
-         | body: [compiler_call(state, :copy_data_properties, [target, source]) | state.body]
+         | body: [
+             compiler_call(state, :copy_data_properties, [target, source, exclude]) | state.body
+           ]
        }}
     else
-      :error -> {:error, {:copy_data_properties_missing, mask, target_idx, source_idx}}
+      :error ->
+        {:error, {:copy_data_properties_missing, mask, target_idx, source_idx, exclude_idx}}
     end
   end
 
@@ -847,7 +878,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
-  def invoke_constructor_call(state, argc) do
+  def invoke_constructor_call(state, argc, pc) do
     with {:ok, args, _arg_types, state} <- pop_n_typed(state, argc),
          {:ok, new_target, _new_target_type, state} <- pop_typed(state),
          {:ok, ctor, _ctor_type, state} <- pop_typed(state) do
@@ -856,7 +887,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
         compiler_call(state, :construct_runtime, [
           ctor,
           new_target,
-          Builder.list_expr(Enum.reverse(args))
+          Builder.list_expr(Enum.reverse(args)),
+          Builder.integer(pc)
         ]),
         :object
       )
@@ -879,16 +911,23 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     with {:ok, args, _arg_types, state} <- pop_n_typed(state, argc),
          {:ok, fun, fun_type, state} <- pop_typed(state),
          {:ok, obj, _obj_type, state} <- pop_typed(state) do
-      effectful_push(
-        state,
+      expr =
         Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_method_runtime, [
           ctx_expr(state),
           fun,
           obj,
           Builder.list_expr(Enum.reverse(args))
-        ]),
-        function_return_type(fun_type, state.return_type)
-      )
+        ])
+
+      {result, state} = bind(state, Builder.temp_name(state.temp), expr)
+
+      state =
+        update_ctx(
+          state,
+          Builder.remote_call(QuickBEAM.VM.GlobalEnv, :refresh, [ctx_expr(state)])
+        )
+
+      {:ok, push(state, result, function_return_type(fun_type, state.return_type))}
     end
   end
 
@@ -913,7 +952,15 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   end
 
   @doc "Builds block-call arguments from context, slots, stack, and captures."
-  def block_jump_call_values(target, stack_depths, ctx, slots, stack, capture_cells) do
+  def block_jump_call_values(
+        target,
+        stack_depths,
+        ctx,
+        slots,
+        stack,
+        capture_cells,
+        frame_mode \\ :args
+      ) do
     expected_depth = Map.get(stack_depths, target)
     actual_depth = length(stack)
 
@@ -925,10 +972,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
         {:error, {:stack_depth_mismatch, target, expected_depth, actual_depth}}
 
       true ->
-        {:ok,
-         Builder.local_call(Builder.block_name(target), [
-           ctx | slots ++ stack ++ capture_cells
-         ])}
+        args =
+          case frame_mode do
+            :tuple -> [ctx, Builder.tuple_expr(slots), Builder.tuple_expr(capture_cells) | stack]
+            _ -> [ctx | slots ++ stack ++ capture_cells]
+          end
+
+        {:ok, Builder.local_call(Builder.block_name(target), args)}
     end
   end
 
@@ -946,7 +996,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   end
 
   @doc "Selects a specialized local unary operator when type information allows it."
-  def specialize_unary(:op_neg, expr, :integer), do: {{:op, @line, :-, expr}, :integer}
+  def specialize_unary(:op_neg, expr, :integer),
+    do: {Builder.local_call(:op_neg, [expr]), :number}
+
   def specialize_unary(:op_neg, expr, :number), do: {{:op, @line, :-, expr}, :number}
   def specialize_unary(:op_plus, expr, type) when type in [:integer, :number], do: {expr, type}
   def specialize_unary(fun, expr, _type), do: {Builder.local_call(fun, [expr]), :unknown}
@@ -956,9 +1008,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   def specialize_binary(:op_add, left, left_type, right, right_type)
       when left_type in [:integer, :number] and right_type in [:integer, :number],
-      do:
-        {{:op, @line, :+, left, right},
-         if(left_type == :integer and right_type == :integer, do: :integer, else: :number)}
+      do: {Builder.local_call(:op_add, [left, right]), :number}
 
   def specialize_binary(:op_add, left, :string, right, :string),
     do: {binary_concat(left, right), :string}
@@ -975,7 +1025,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     do: {Builder.local_call(:op_mod, [left, right]), :number}
 
   def specialize_binary(fun, left, left_type, right, right_type)
-      when fun in [:op_band, :op_bor, :op_bxor, :op_shl, :op_sar] and
+      when fun in [:op_band, :op_bor, :op_bxor] and
              left_type in [:integer, :number] and right_type in [:integer, :number],
       do: {{:op, @line, binary_operator(fun), left, right}, :integer}
 
@@ -984,13 +1034,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       do: {{:op, @line, binary_operator(fun), left, right}, :integer}
 
   def specialize_binary(fun, left, left_type, right, right_type)
-      when fun in [:op_sub, :op_mul, :op_div, :op_lt, :op_lte, :op_gt, :op_gte] and
+      when fun in [:op_lt, :op_lte, :op_gt, :op_gte] and
              left_type in [:integer, :number] and right_type in [:integer, :number] do
     {type, op} =
       case fun do
         :op_sub -> {:number, :-}
         :op_mul -> {:number, :*}
-        :op_div -> {:number, :/}
         :op_lt -> {:boolean, :<}
         :op_lte -> {:boolean, :"=<"}
         :op_gt -> {:boolean, :>}

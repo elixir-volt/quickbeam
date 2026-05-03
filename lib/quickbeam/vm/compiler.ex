@@ -1,20 +1,31 @@
 defmodule QuickBEAM.VM.Compiler do
   @moduledoc "JIT compiler entry point: lowers bytecode to BEAM modules, caches them, and invokes compiled functions."
 
-  alias QuickBEAM.VM.{Bytecode, Decoder, Heap}
+  import QuickBEAM.VM.Heap.Keys, only: [promise_state: 0, promise_value: 0]
+
+  alias QuickBEAM.VM.{Bytecode, Decoder, Heap, PromiseState}
   alias QuickBEAM.VM.Compiler.{Forms, Lowering, Optimizer, Runner}
 
   @type compiled_fun :: {module(), atom()}
   @type beam_file :: {:beam_file, module(), list(), list(), list(), list()}
 
   @doc "Invokes the runtime object represented by this module."
-  def invoke(fun, args) do
+  def invoke(fun, args), do: invoke(fun, args, nil)
+
+  def invoke(fun, args, base_ctx) do
     depth = Heap.get_invoke_depth()
     Heap.put_invoke_depth(depth + 1)
 
-    result = Runner.invoke(fun, args)
+    result =
+      try do
+        Runner.invoke(fun, args, base_ctx)
+      catch
+        {:js_throw, error} -> {:error, {:js_throw, error}}
+      after
+        Heap.put_invoke_depth(depth)
+      end
 
-    Heap.put_invoke_depth(depth)
+    result = if depth == 0, do: settle_top_level_result(result), else: result
 
     if depth == 0 and Heap.gc_needed?() do
       extra =
@@ -29,9 +40,31 @@ defmodule QuickBEAM.VM.Compiler do
     result
   end
 
+  defp settle_top_level_result({:ok, value}) do
+    PromiseState.drain_microtasks()
+    {:ok, unwrap_resolved_promise(value)}
+  end
+
+  defp settle_top_level_result(result), do: result
+
+  defp unwrap_resolved_promise(value, depth \\ 0)
+
+  defp unwrap_resolved_promise({:obj, ref}, depth) when depth < 10 do
+    case Heap.get_obj(ref, %{}) do
+      %{promise_state() => :resolved, promise_value() => value} ->
+        unwrap_resolved_promise(value, depth + 1)
+
+      _ ->
+        {:obj, ref}
+    end
+  end
+
+  defp unwrap_resolved_promise(value, _depth), do: value
+
   @doc "Compiles a bytecode function for optimized execution."
   def compile(%Bytecode.Function{} = fun) do
-    module = module_name(fun)
+    atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
+    module = module_name(fun, atoms)
     entry = ctx_entry_name()
 
     case :code.is_loaded(module) do
@@ -79,30 +112,37 @@ defmodule QuickBEAM.VM.Compiler do
   end
 
   defp compile_binary(%Bytecode.Function{} = fun) do
-    module = module_name(fun)
+    atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
+    module = module_name(fun, atoms)
     entry = entry_name()
     ctx_entry = ctx_entry_name()
 
-    with {:ok, instructions} <- Decoder.decode(fun.byte_code, fun.arg_count),
+    with {:decode, {:ok, instructions}} <- {:decode, Decoder.decode(fun.byte_code, fun.arg_count)},
          optimized = Optimizer.optimize(instructions, fun.constants),
-         {:ok, {slot_count, block_forms}} <- Lowering.lower(fun, optimized),
-         {:ok, _module, binary} <-
-           Forms.compile_module(
-             module,
-             entry,
-             ctx_entry,
-             fun,
-             fun.arg_count,
-             slot_count,
-             block_forms
-           ) do
+         {:lower, {:ok, {slot_count, block_forms}}} <- {:lower, Lowering.lower(fun, optimized)},
+         {:forms, {:ok, _module, binary}} <-
+           {:forms,
+            Forms.compile_module(
+              module,
+              entry,
+              ctx_entry,
+              fun,
+              fun.arg_count,
+              slot_count,
+              block_forms
+            )} do
       {:ok, module, ctx_entry, binary}
+    else
+      {:decode, {:error, reason}} -> {:error, {:decode_failed, reason}}
+      {:lower, {:error, reason}} -> {:error, reason}
+      {:forms, {:error, reason}} -> {:error, {:beam_compile_failed, reason}}
+      {:forms, {:error, module, errors}} -> {:error, {:beam_compile_failed, module, errors}}
     end
   end
 
-  defp module_name(fun) do
+  defp module_name(fun, atoms) do
     hash =
-      fun
+      {fun, atoms}
       |> :erlang.term_to_binary()
       |> then(&:crypto.hash(:sha256, &1))
       |> binary_part(0, 8)

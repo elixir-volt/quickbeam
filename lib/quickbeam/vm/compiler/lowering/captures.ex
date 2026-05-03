@@ -52,6 +52,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Captures do
   end
 
   @doc "Returns whether a local slot is captured by a closure."
+  def slot_captured?(%{force_capture_slots: true}, _idx), do: true
+
   def slot_captured?(%{locals: locals}, idx) when is_list(locals) do
     case Enum.at(locals, idx) do
       %{is_captured: true} -> true

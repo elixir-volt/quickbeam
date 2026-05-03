@@ -39,7 +39,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Classes do
   defp lower_define_class_computed(state, atom_idx) do
     with {:ok, ctor, state} <- State.pop(state),
          {:ok, parent_ctor, state} <- State.pop(state),
-         {:ok, _computed_name, state} <- State.pop(state) do
+         {:ok, computed_name, state} <- State.pop(state) do
       {pair, state} =
         State.bind(
           state,
@@ -54,8 +54,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Classes do
       {:ok,
        %{
          state
-         | stack: [Builder.tuple_element(pair, 1), Builder.tuple_element(pair, 2) | state.stack],
-           stack_types: [:object, :function | state.stack_types]
+         | stack: [
+             Builder.tuple_element(pair, 1),
+             Builder.tuple_element(pair, 2),
+             computed_name | state.stack
+           ],
+           stack_types: [:object, :function, :string | state.stack_types]
        }}
     end
   end

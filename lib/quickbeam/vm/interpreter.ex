@@ -833,6 +833,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp materialize_constant({:template_object, elems, raw}) when is_list(elems) do
     raw_list =
       case raw do
+        {:template_object, nested_raw, _} -> template_constant_elements(nested_raw)
         {:array, l} when is_list(l) -> l
         l when is_list(l) -> l
         :undefined -> elems
@@ -872,6 +873,10 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp materialize_constant(val), do: val
+
+  defp template_constant_elements({:array, elems}) when is_list(elems), do: elems
+  defp template_constant_elements(elems) when is_list(elems), do: elems
+  defp template_constant_elements(value), do: [value]
 
   defp function_value?({:closure, _, _}), do: true
   defp function_value?(%Bytecode.Function{}), do: true
@@ -1441,7 +1446,7 @@ defmodule QuickBEAM.VM.Interpreter do
             l2v
           )
 
-        fn_atoms = Heap.get_fn_atoms(fun.byte_code, Heap.get_atoms())
+        fn_atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
         Heap.put_atoms(fn_atoms)
 
         inner_ctx =

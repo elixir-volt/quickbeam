@@ -12,26 +12,24 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
         name = Builder.atom_name(state, atom_idx)
 
         if is_binary(name) do
-          {:ok, State.push(state, inline_get_var(state, name))}
+          State.effectful_push(state, inline_get_var(state, name))
         else
-          {:ok,
-           State.push(
-             state,
-             State.compiler_call(state, :get_var, [Builder.literal(name)])
-           )}
+          State.effectful_push(
+            state,
+            State.compiler_call(state, :get_var, [Builder.literal(name)])
+          )
         end
 
       {{:ok, :get_var_undef}, [atom_idx]} ->
         name = Builder.atom_name(state, atom_idx)
 
         if is_binary(name) do
-          {:ok, State.push(state, inline_get_var_undef(state, name))}
+          State.effectful_push(state, inline_get_var_undef(state, name))
         else
-          {:ok,
-           State.push(
-             state,
-             State.compiler_call(state, :get_var_undef, [Builder.literal(name)])
-           )}
+          State.effectful_push(
+            state,
+            State.compiler_call(state, :get_var_undef, [Builder.literal(name)])
+          )
         end
 
       {{:ok, :put_var}, [atom_idx]} ->
@@ -66,11 +64,11 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
       {{:ok, name}, [idx]}
       when name in [:get_var_ref, :get_var_ref0, :get_var_ref1, :get_var_ref2, :get_var_ref3] ->
         {expr, state} = State.inline_get_var_ref(state, idx)
-        {:ok, State.push(state, expr)}
+        State.effectful_push(state, expr)
 
       {{:ok, :get_var_ref_check}, [idx]} ->
         {expr, state} = State.inline_get_var_ref(state, idx)
-        {:ok, State.push(state, expr)}
+        State.effectful_push(state, expr)
 
       {{:ok, name}, [idx]}
       when name in [
@@ -88,24 +86,20 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
       when name in [:set_var_ref, :set_var_ref0, :set_var_ref1, :set_var_ref2, :set_var_ref3] ->
         lower_set_var_ref(state, idx)
 
-      {{:ok, :make_loc_ref}, [_atom_idx, var_idx]} ->
-        lower_make_loc_ref(state, var_idx)
+      {{:ok, :make_loc_ref}, [atom_idx, var_idx]} ->
+        lower_make_loc_ref(state, atom_idx, var_idx)
 
-      {{:ok, :make_arg_ref}, [_atom_idx, var_idx]} ->
-        lower_make_arg_ref(state, var_idx)
+      {{:ok, :make_arg_ref}, [atom_idx, var_idx]} ->
+        lower_make_arg_ref(state, atom_idx, var_idx)
 
       {{:ok, :make_var_ref}, [atom_idx]} ->
-        State.effectful_push(
-          state,
-          State.compiler_call(state, :make_var_ref, [Builder.literal(atom_idx)]),
-          :unknown
-        )
+        lower_make_var_ref(state, atom_idx)
 
-      {{:ok, :make_var_ref}, [_atom_idx, var_idx]} ->
-        lower_make_loc_ref(state, var_idx)
+      {{:ok, :make_var_ref}, [atom_idx, var_idx]} ->
+        lower_make_loc_ref(state, atom_idx, var_idx)
 
-      {{:ok, :make_var_ref_ref}, [_atom_idx, var_idx]} ->
-        lower_make_var_ref_ref(state, var_idx)
+      {{:ok, :make_var_ref_ref}, [atom_idx, var_idx]} ->
+        lower_make_var_ref_ref(state, atom_idx, var_idx)
 
       {{:ok, :get_ref_value}, []} ->
         lower_get_ref_value(state)
@@ -113,8 +107,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
       {{:ok, :put_ref_value}, []} ->
         lower_put_ref_value(state)
 
-      {{:ok, :delete_var}, [_atom_idx]} ->
-        {:ok, State.push(state, Builder.atom(true), :boolean)}
+      {{:ok, :delete_var}, [atom_idx]} ->
+        {:ok,
+         State.push(
+           state,
+           State.compiler_call(state, :delete_var, [Builder.literal(atom_idx)]),
+           :boolean
+         )}
 
       _ ->
         :not_handled
@@ -156,47 +155,53 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
     end
   end
 
-  defp lower_make_loc_ref(state, idx) do
-    State.effectful_push(
-      state,
-      State.compiler_call(state, :make_loc_ref, [Builder.literal(idx)]),
-      :unknown
-    )
+  defp lower_make_loc_ref(state, atom_idx, idx) do
+    ref = State.compiler_call(state, :make_loc_ref, [Builder.literal(idx)])
+    key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+
+    {:ok, state |> State.push(ref, :unknown) |> State.push(key, :string)}
   end
 
-  defp lower_make_arg_ref(state, idx) do
-    State.effectful_push(
-      state,
-      State.compiler_call(state, :make_arg_ref, [Builder.literal(idx)]),
-      :unknown
-    )
+  defp lower_make_arg_ref(state, atom_idx, idx) do
+    ref = State.compiler_call(state, :make_arg_ref, [Builder.literal(idx)])
+    key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+
+    {:ok, state |> State.push(ref, :unknown) |> State.push(key, :string)}
   end
 
-  defp lower_make_var_ref_ref(state, idx) do
-    State.effectful_push(
-      state,
-      State.compiler_call(state, :make_var_ref_ref, [Builder.literal(idx)]),
-      :unknown
-    )
+  defp lower_make_var_ref(state, atom_idx) do
+    ref = State.compiler_call(state, :make_var_ref, [Builder.literal(atom_idx)])
+    key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+
+    {:ok, state |> State.push(ref, :unknown) |> State.push(key, :string)}
+  end
+
+  defp lower_make_var_ref_ref(state, atom_idx, idx) do
+    ref = State.compiler_call(state, :make_var_ref_ref, [Builder.literal(idx)])
+    key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+
+    {:ok, state |> State.push(ref, :unknown) |> State.push(key, :string)}
   end
 
   defp lower_get_ref_value(state) do
-    with {:ok, ref, state} <- State.pop(state) do
-      State.effectful_push(
-        state,
-        State.compiler_call(state, :get_ref_value, [ref])
-      )
+    with {:ok, key, key_type, state} <- State.pop_typed(state),
+         {:ok, ref, ref_type, state} <- State.pop_typed(state) do
+      value = State.compiler_call(state, :get_ref_value, [key, ref])
+
+      {:ok,
+       %{
+         state
+         | stack: [value, key, ref | state.stack],
+           stack_types: [:unknown, key_type, ref_type | state.stack_types]
+       }}
     end
   end
 
   defp lower_put_ref_value(state) do
     with {:ok, val, state} <- State.pop(state),
+         {:ok, key, state} <- State.pop(state),
          {:ok, ref, state} <- State.pop(state) do
-      {:ok,
-       %{
-         state
-         | body: [State.compiler_call(state, :put_ref_value, [val, ref]) | state.body]
-       }}
+      {:ok, State.update_ctx(state, State.compiler_call(state, :put_ref_value, [val, key, ref]))}
     end
   end
 

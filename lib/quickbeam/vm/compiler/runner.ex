@@ -1,12 +1,11 @@
 defmodule QuickBEAM.VM.Compiler.Runner do
   @moduledoc "Compiled-function invocation: sets up call frames, handles `new`, generators, and tail-call dispatch."
 
-  alias QuickBEAM.VM.{Bytecode, GlobalEnv, Heap}
+  alias QuickBEAM.VM.{Bytecode, GlobalEnv, Heap, PromiseState}
   alias QuickBEAM.VM.Compiler
   alias QuickBEAM.VM.Compiler.GeneratorIterator
   alias QuickBEAM.VM.Interpreter.Context
   alias QuickBEAM.VM.ObjectModel.{Class, Functions}
-  alias QuickBEAM.VM.PromiseState, as: Promise
 
   @doc "Invokes the runtime object represented by this module."
   def invoke(%Bytecode.Function{} = fun, args), do: invoke(fun, args, nil)
@@ -72,7 +71,8 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   def invoke_constructor(_, _, _, _, _), do: :error
 
   defp invoke_target(current_func, %Bytecode.Function{} = fun, args, ctx_overrides, base_ctx) do
-    key = {fun.byte_code, fun.arg_count, :erlang.phash2(fun.constants)}
+    atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
+    key = {fun.byte_code, fun.arg_count, :erlang.phash2(fun), :erlang.phash2(atoms)}
     normalized_args = normalize_args(args, fun.arg_count)
 
     case Heap.get_compiled(key) do
@@ -84,14 +84,31 @@ defmodule QuickBEAM.VM.Compiler.Runner do
         :error
 
       nil ->
-        compile_and_invoke(fun, current_func, args, normalized_args, ctx_overrides, base_ctx, key)
+        compile_and_invoke(
+          fun,
+          current_func,
+          args,
+          normalized_args,
+          ctx_overrides,
+          base_ctx,
+          key,
+          atoms
+        )
     end
   end
 
-  defp compile_and_invoke(fun, current_func, args, normalized_args, ctx_overrides, base_ctx, key) do
+  defp compile_and_invoke(
+         fun,
+         current_func,
+         args,
+         normalized_args,
+         ctx_overrides,
+         base_ctx,
+         key,
+         atoms
+       ) do
     case Compiler.compile(fun) do
       {:ok, compiled} ->
-        atoms = Heap.get_fn_atoms(fun.byte_code, Heap.get_atoms())
         Heap.put_compiled(key, {:compiled, compiled, atoms})
         ctx = invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun, atoms)
         {:ok, invoke_compiled(fun, compiled, ctx, normalized_args)}
@@ -135,11 +152,10 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   end
 
   defp compiled_async_invoke(compiled, ctx, args) do
-    result = apply_compiled(compiled, ctx, args)
-    Promise.resolved(result)
+    PromiseState.adopt(apply_compiled(compiled, ctx, args))
   catch
-    {:generator_return, val} -> Promise.resolved(val)
-    {:js_throw, val} -> Promise.rejected(val)
+    {:generator_return, val} -> PromiseState.adopt(val)
+    {:js_throw, error} -> PromiseState.rejected(error)
   end
 
   defp compiled_async_gen_invoke(compiled, ctx, args) do
@@ -270,7 +286,14 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   defp base_ctx(%Context{} = ctx), do: ensure_globals(ctx)
 
   defp base_ctx(nil) do
-    %Context{atoms: Heap.get_atoms(), globals: base_globals(), trace_enabled: false}
+    globals = base_globals()
+
+    %Context{
+      atoms: Heap.get_atoms(),
+      globals: globals,
+      this: Map.get(globals, "globalThis", :undefined),
+      trace_enabled: false
+    }
   end
 
   defp base_ctx(map) when is_map(map) do

@@ -20,7 +20,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
             {:builtin, "resolve",
              fn args, _ ->
                val = arg(args, 0, :undefined)
-               unless already_settled?(ref), do: PromiseState.resolve(ref, :resolved, val)
+               unless already_settled?(ref), do: PromiseState.resolve_adopt(ref, val)
                :undefined
              end}
 
@@ -76,7 +76,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
 
   static "resolve" do
     case args do
-      [val | _] -> PromiseState.resolved(val)
+      [val | _] -> PromiseState.adopt(val)
       [] -> PromiseState.resolved(:undefined)
     end
   end
@@ -110,63 +110,128 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
 
   defp unwrap_value(val), do: val
 
+  defp promise_inputs(arr), do: arr |> Heap.to_list() |> Enum.map(&PromiseState.adopt/1)
+
   defp promise_all(arr) do
-    items = Heap.to_list(arr)
+    items = promise_inputs(arr)
 
-    results = Enum.map(items, &unwrap_value/1)
+    cond do
+      rejection = first_rejection(items) ->
+        {:rejected, reason} = rejection
+        PromiseState.rejected(reason)
 
-    PromiseState.resolved(Heap.wrap(results))
+      pending_input?(items) ->
+        PromiseState.pending()
+
+      true ->
+        results = Enum.map(items, &unwrap_value/1)
+        PromiseState.resolved(Heap.wrap(results))
+    end
+  end
+
+  defp first_rejection(items) do
+    Enum.find_value(items, fn
+      {:obj, ref} ->
+        case Heap.get_obj(ref, %{}) do
+          %{promise_state() => :rejected, promise_value() => reason} -> {:rejected, reason}
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp pending_input?(items) do
+    Enum.any?(items, fn
+      {:obj, ref} -> match?(%{promise_state() => :pending}, Heap.get_obj(ref, %{}))
+      _ -> false
+    end)
   end
 
   defp promise_all_settled(arr) do
-    items = Heap.to_list(arr)
+    items = promise_inputs(arr)
 
-    results =
-      Enum.map(items, fn item ->
-        {status, val} =
-          case item do
-            {:obj, r} ->
-              case Heap.get_obj(r, %{}) do
-                %{promise_state() => :resolved, promise_value() => v} -> {"fulfilled", v}
-                %{promise_state() => :rejected, promise_value() => v} -> {"rejected", v}
-                _ -> {"fulfilled", item}
-              end
+    if pending_input?(items) do
+      PromiseState.pending()
+    else
+      results =
+        Enum.map(items, fn item ->
+          {status, val} =
+            case item do
+              {:obj, r} ->
+                case Heap.get_obj(r, %{}) do
+                  %{promise_state() => :resolved, promise_value() => v} -> {"fulfilled", v}
+                  %{promise_state() => :rejected, promise_value() => v} -> {"rejected", v}
+                  _ -> {"fulfilled", item}
+                end
 
-            _ ->
-              {"fulfilled", item}
-          end
+              _ ->
+                {"fulfilled", item}
+            end
 
-        if status == "fulfilled",
-          do: Heap.wrap(%{"status" => status, "value" => val}),
-          else: Heap.wrap(%{"status" => status, "reason" => val})
-      end)
+          if status == "fulfilled",
+            do: Heap.wrap(%{"status" => status, "value" => val}),
+            else: Heap.wrap(%{"status" => status, "reason" => val})
+        end)
 
-    PromiseState.resolved(Heap.wrap(results))
+      PromiseState.resolved(Heap.wrap(results))
+    end
   end
 
   defp promise_any(arr) do
-    items = Heap.to_list(arr)
+    items = promise_inputs(arr)
 
-    result =
-      Enum.find_value(items, fn
-        {:obj, r} ->
-          case Heap.get_obj(r, %{}) do
-            %{promise_state() => :resolved, promise_value() => v} -> v
-            _ -> nil
+    case first_fulfillment(items) do
+      {:fulfilled, value} ->
+        PromiseState.resolved(value)
+
+      :none ->
+        if(pending_input?(items),
+          do: PromiseState.pending(),
+          else: PromiseState.rejected(aggregate_error(items))
+        )
+    end
+  end
+
+  defp first_fulfillment(items) do
+    Enum.find_value(items, :none, fn
+      {:obj, ref} ->
+        case Heap.get_obj(ref, %{}) do
+          %{promise_state() => :resolved, promise_value() => value} -> {:fulfilled, value}
+          _ -> nil
+        end
+
+      value ->
+        {:fulfilled, value}
+    end)
+  end
+
+  defp aggregate_error(items) do
+    reasons =
+      items
+      |> Enum.map(fn
+        {:obj, ref} ->
+          case Heap.get_obj(ref, %{}) do
+            %{promise_state() => :rejected, promise_value() => reason} -> reason
+            _ -> :undefined
           end
 
-        val ->
-          val
+        _ ->
+          :undefined
       end)
+      |> Heap.wrap()
 
-    PromiseState.resolved(result || :undefined)
+    {:obj, ref} = error = Heap.make_error("All promises were rejected", "AggregateError")
+    Heap.put_obj(ref, Map.put(Heap.get_obj(ref, %{}), "errors", reasons))
+    error
   end
 
   defp promise_race(arr) do
-    items = Heap.to_list(arr)
+    items = promise_inputs(arr)
 
     if items == [] do
-      PromiseState.resolved(:undefined)
+      PromiseState.pending()
     else
       # Check if any already resolved
       already =

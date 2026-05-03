@@ -107,6 +107,8 @@ defmodule QuickBEAM do
       else
         case System.get_env("QUICKBEAM_MODE") do
           "beam" -> Keyword.put(opts, :mode, :beam)
+          "auto" -> Keyword.put(opts, :mode, :auto)
+          "beam_compiler" -> Keyword.put(opts, :mode, :beam_compiler)
           _ -> opts
         end
       end
@@ -150,10 +152,9 @@ defmodule QuickBEAM do
   """
   @spec eval(runtime(), String.t(), keyword()) :: js_result()
   def eval(runtime, code, opts \\ []) do
-    if resolve_mode(runtime, opts) == :beam do
-      eval_beam(runtime, code, opts)
-    else
-      Runtime.eval(runtime, code, opts)
+    case resolve_mode(runtime, opts) do
+      mode when mode in [:beam, :auto, :beam_compiler] -> eval_beam(runtime, code, opts, mode)
+      _ -> Runtime.eval(runtime, code, opts)
     end
   end
 
@@ -181,7 +182,7 @@ defmodule QuickBEAM do
     end
   end
 
-  defp eval_beam(runtime, code, opts) do
+  defp eval_beam(runtime, code, opts, mode) do
     # Deliver any pending BEAM messages before running JS
     deliver_pending_beam_messages(runtime)
 
@@ -221,13 +222,7 @@ defmodule QuickBEAM do
       {:ok, bc} ->
         case BeamBytecode.decode(bc) do
           {:ok, parsed} ->
-            result =
-              Interpreter.eval(
-                parsed.value,
-                [],
-                %{gas: 1_000_000_000, runtime_pid: runtime, globals: handler_globals},
-                parsed.atoms
-              )
+            result = eval_beam_bytecode(parsed, runtime, handler_globals, mode)
 
             Promise.drain_microtasks()
             converted = convert_beam_result(result)
@@ -241,6 +236,34 @@ defmodule QuickBEAM do
       {:error, _} = err ->
         err
     end
+  end
+
+  defp eval_beam_bytecode(parsed, runtime, handler_globals, mode)
+       when mode in [:auto, :beam_compiler] do
+    opts = %{gas: 1_000_000_000, runtime_pid: runtime, globals: handler_globals}
+    ctx = QuickBEAM.VM.Interpreter.Setup.build_eval_context(opts, parsed.atoms, opts.gas)
+
+    Heap.put_atoms(parsed.atoms)
+    QuickBEAM.VM.Interpreter.Setup.store_function_atoms(parsed.value, parsed.atoms)
+    Heap.put_ctx(QuickBEAM.VM.Interpreter.Context.mark_synced(ctx))
+
+    case BeamCompiler.invoke(parsed.value, [], ctx) do
+      {:ok, _} = ok -> ok
+      :error when mode == :auto -> Interpreter.eval(parsed.value, [], opts, parsed.atoms)
+      :error -> {:error, {:beam_compiler_unsupported, :top_level}}
+      {:error, {:js_throw, _}} = error -> error
+      {:error, _} when mode == :auto -> Interpreter.eval(parsed.value, [], opts, parsed.atoms)
+      {:error, reason} -> {:error, {:beam_compiler_error, reason}}
+    end
+  end
+
+  defp eval_beam_bytecode(parsed, runtime, handler_globals, _mode) do
+    Interpreter.eval(
+      parsed.value,
+      [],
+      %{gas: 1_000_000_000, runtime_pid: runtime, globals: handler_globals},
+      parsed.atoms
+    )
   end
 
   defp maybe_wrap_async(code) do
@@ -312,7 +335,12 @@ defmodule QuickBEAM do
 
   defp maybe_split_block_tail(rest, last) do
     trimmed = String.trim_leading(last)
-    starts_with_block = Enum.any?(~w[while for if switch do try], &String.starts_with?(trimmed, &1 <> " ") or String.starts_with?(trimmed, &1 <> "("))
+
+    starts_with_block =
+      Enum.any?(
+        ~w[while for if switch do try],
+        &(String.starts_with?(trimmed, &1 <> " ") or String.starts_with?(trimmed, &1 <> "("))
+      )
 
     if starts_with_block do
       case split_block_and_tail(last) do
@@ -346,22 +374,46 @@ defmodule QuickBEAM do
   defp find_last_block_end([c | rest], p, b, br, in_str, acc, pos, last_depth0_close) do
     {p2, b2, br2, is2, new_last} =
       case {c, in_str} do
-        {?', 0} -> {p, b, br, 1, last_depth0_close}
-        {?', 1} -> {p, b, br, 0, last_depth0_close}
-        {?", 0} -> {p, b, br, 2, last_depth0_close}
-        {?", 2} -> {p, b, br, 0, last_depth0_close}
-        {?`, 0} -> {p, b, br, 3, last_depth0_close}
-        {?`, 3} -> {p, b, br, 0, last_depth0_close}
-        {?(, 0} -> {p + 1, b, br, 0, last_depth0_close}
-        {?), 0} -> {max(p - 1, 0), b, br, 0, last_depth0_close}
-        {?[, 0} -> {p, b + 1, br, 0, last_depth0_close}
-        {?], 0} -> {p, max(b - 1, 0), br, 0, last_depth0_close}
-        {?{, 0} -> {p, b, br + 1, 0, last_depth0_close}
+        {?', 0} ->
+          {p, b, br, 1, last_depth0_close}
+
+        {?', 1} ->
+          {p, b, br, 0, last_depth0_close}
+
+        {?", 0} ->
+          {p, b, br, 2, last_depth0_close}
+
+        {?", 2} ->
+          {p, b, br, 0, last_depth0_close}
+
+        {?`, 0} ->
+          {p, b, br, 3, last_depth0_close}
+
+        {?`, 3} ->
+          {p, b, br, 0, last_depth0_close}
+
+        {?(, 0} ->
+          {p + 1, b, br, 0, last_depth0_close}
+
+        {?), 0} ->
+          {max(p - 1, 0), b, br, 0, last_depth0_close}
+
+        {?[, 0} ->
+          {p, b + 1, br, 0, last_depth0_close}
+
+        {?], 0} ->
+          {p, max(b - 1, 0), br, 0, last_depth0_close}
+
+        {?{, 0} ->
+          {p, b, br + 1, 0, last_depth0_close}
+
         {?}, 0} ->
           new_br = max(br - 1, 0)
           new_last = if new_br == 0 and p == 0 and b == 0, do: pos + 1, else: last_depth0_close
           {p, b, new_br, 0, new_last}
-        _ -> {p, b, br, in_str, last_depth0_close}
+
+        _ ->
+          {p, b, br, in_str, last_depth0_close}
       end
 
     find_last_block_end(rest, p2, b2, br2, is2, [c | acc], pos + 1, new_last)
@@ -369,6 +421,7 @@ defmodule QuickBEAM do
 
   defp needs_return?(stmt) do
     trimmed = String.trim_leading(stmt)
+
     not Enum.any?(@no_return_prefixes, &String.starts_with?(trimmed, &1 <> " ")) and
       not String.starts_with?(trimmed, "//") and
       not String.starts_with?(trimmed, "/*") and
@@ -533,6 +586,7 @@ defmodule QuickBEAM do
 
       if msgs != [] do
         alias QuickBEAM.VM.Runtime.Web.BeamAPI
+
         Enum.each(msgs, fn msg ->
           elixir_msg = convert_msg_to_js(msg)
           BeamAPI.deliver_beam_message(elixir_msg)
@@ -553,15 +607,19 @@ defmodule QuickBEAM do
     receive do
       {:DOWN, ref, :process, _pid, reason} ->
         monitors = Process.get(monitors_key, %{})
+
         case Map.get(monitors, ref) do
-          nil -> :ok
+          nil ->
+            :ok
+
           callback ->
-            reason_str = case reason do
-              :normal -> "normal"
-              :killed -> "killed"
-              a when is_atom(a) -> Atom.to_string(a)
-              _ -> inspect(reason)
-            end
+            reason_str =
+              case reason do
+                :normal -> "normal"
+                :killed -> "killed"
+                a when is_atom(a) -> Atom.to_string(a)
+                _ -> inspect(reason)
+              end
 
             try do
               QuickBEAM.VM.Invocation.invoke_with_receiver(callback, [reason_str], :undefined)
@@ -573,6 +631,7 @@ defmodule QuickBEAM do
 
             Process.put(monitors_key, Map.delete(monitors, ref))
         end
+
         drain_down_messages()
     after
       0 -> :ok
@@ -612,7 +671,8 @@ defmodule QuickBEAM do
               ab
             end
 
-          _ -> <<>>
+          _ ->
+            <<>>
         end
 
       _ ->

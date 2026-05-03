@@ -29,7 +29,7 @@ defmodule QuickBEAM.VM.Interpreter.Setup do
 
   @doc "Stores atom tables for a function and all nested functions."
   def store_function_atoms(%Bytecode.Function{} = fun, atoms) do
-    Heap.put_fn_atoms(fun.byte_code, atoms)
+    Heap.put_fn_atoms(fun, atoms)
 
     for %Bytecode.Function{} = inner <- fun.constants do
       store_function_atoms(inner, atoms)
