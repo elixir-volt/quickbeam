@@ -7,11 +7,11 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
   `QuickBEAM.JS.Parser` AST and emits `%QuickBEAM.VM.Bytecode{}` values.
   """
 
-  alias QuickBEAM.JS.BytecodeCompiler.{Assembler, Scope}
+  alias QuickBEAM.JS.BytecodeCompiler.{Declarations, FunctionBuilder, Operators, Scope}
   alias QuickBEAM.JS.Parser
   alias QuickBEAM.JS.Parser.AST
   alias QuickBEAM.VM.Bytecode
-  alias QuickBEAM.VM.Bytecode.{Function, VarDef, Writer}
+  alias QuickBEAM.VM.Bytecode.Writer
 
   @ret_name {:predefined, 82}
 
@@ -24,13 +24,13 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
 
   def compile(%AST.Program{source_type: :script} = program) do
     with {:ok, fun} <- compile_program(program) do
-      atoms = collect_atoms(fun)
+      atoms = FunctionBuilder.collect_atoms(fun)
 
       {:ok,
        %Bytecode{
          version: QuickBEAM.VM.Opcodes.bc_version(),
          atoms: atoms,
-         value: attach_atoms(fun, atoms)
+         value: FunctionBuilder.attach_atoms(fun, atoms)
        }}
     end
   end
@@ -56,12 +56,12 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
   defp compile_program(%AST.Program{body: body}) do
     scope = Scope.declare_local(Scope.new(), "<ret>")
 
-    with {:ok, scope} <- declare_program_locals(body, scope),
+    with {:ok, scope} <- Declarations.declare_program_locals(body, scope),
          {:ok, instructions, constants} <- compile_statements(body, scope, [], []) do
       instructions = finish_program(instructions)
 
       {:ok,
-       build_function(
+       FunctionBuilder.build(
          name: nil,
          args: [],
          locals: [@ret_name | Enum.drop(scope.local_names, 1)],
@@ -74,36 +74,6 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
        )}
     end
   end
-
-  defp declare_program_locals([], scope), do: {:ok, scope}
-
-  defp declare_program_locals(
-         [%AST.VariableDeclaration{declarations: declarations} | rest],
-         scope
-       ) do
-    scope = Enum.reduce(declarations, scope, fn %{id: id}, acc -> declare_pattern(id, acc) end)
-    declare_program_locals(rest, scope)
-  end
-
-  defp declare_program_locals(
-         [%AST.FunctionDeclaration{id: %AST.Identifier{name: name}} | rest],
-         scope
-       ) do
-    declare_program_locals(rest, Scope.declare_local(scope, name))
-  end
-
-  defp declare_program_locals(
-         [%AST.ForStatement{init: %AST.VariableDeclaration{declarations: declarations}} | rest],
-         scope
-       ) do
-    scope = Enum.reduce(declarations, scope, fn %{id: id}, acc -> declare_pattern(id, acc) end)
-    declare_program_locals(rest, scope)
-  end
-
-  defp declare_program_locals([_ | rest], scope), do: declare_program_locals(rest, scope)
-
-  defp declare_pattern(%AST.Identifier{name: name}, scope), do: Scope.declare_local(scope, name)
-  defp declare_pattern(_pattern, scope), do: scope
 
   defp compile_statements([], _scope, instructions, constants), do: {:ok, instructions, constants}
 
@@ -482,7 +452,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
          instructions,
          constants
        ) do
-    with {:ok, op} <- binary_operator(operator),
+    with {:ok, op} <- Operators.binary(operator),
          {:ok, instructions, constants} <-
            compile_expression(left, scope, instructions, constants),
          {:ok, instructions, constants} <-
@@ -497,7 +467,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
          instructions,
          constants
        ) do
-    with {:ok, op} <- unary_operator(operator),
+    with {:ok, op} <- Operators.unary(operator),
          {:ok, instructions, constants} <-
            compile_expression(argument, scope, instructions, constants) do
       {:ok, instructions ++ [op], constants}
@@ -763,12 +733,12 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
     params = Enum.map(function.params, &identifier_name!/1)
     scope = Scope.new(params)
 
-    with {:ok, scope} <- declare_program_locals(function.body.body, scope),
+    with {:ok, scope} <- Declarations.declare_program_locals(function.body.body, scope),
          {:ok, instructions, constants} <- compile_statements(function.body.body, scope, [], []) do
       instructions = ensure_function_return(instructions)
 
       {:ok,
-       build_function(
+       FunctionBuilder.build(
          name: name,
          args: params,
          locals: scope.local_names,
@@ -782,51 +752,6 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
     end
   end
 
-  defp build_function(opts) do
-    instructions = Keyword.fetch!(opts, :instructions)
-    stack_size = Assembler.stack_size(instructions)
-    args = Keyword.fetch!(opts, :args)
-    locals = Keyword.fetch!(opts, :locals)
-    extra_atoms = Assembler.atoms(instructions)
-
-    function = %Function{
-      name: Keyword.fetch!(opts, :name),
-      filename: "<elixir-bytecode-compiler>",
-      line_num: 1,
-      col_num: 1,
-      arg_count: length(args),
-      var_count: length(locals),
-      defined_arg_count: length(args),
-      stack_size: stack_size,
-      locals: Enum.map(args ++ locals, &var_def/1),
-      constants: Keyword.fetch!(opts, :constants),
-      extra_atoms: extra_atoms,
-      byte_code: <<>>,
-      has_prototype: Keyword.fetch!(opts, :has_prototype),
-      has_simple_parameter_list: Keyword.fetch!(opts, :has_simple_parameter_list),
-      new_target_allowed: Keyword.fetch!(opts, :new_target_allowed),
-      arguments_allowed: true,
-      is_strict_mode: false,
-      has_debug_info: false,
-      source: Keyword.fetch!(opts, :source)
-    }
-
-    atoms = collect_atoms(function)
-    %{function | byte_code: Assembler.encode(instructions, atoms)}
-  end
-
-  defp var_def(name) do
-    %VarDef{
-      name: name,
-      scope_level: 0,
-      scope_next: 0,
-      var_kind: 0,
-      is_const: false,
-      is_lexical: false,
-      is_captured: false
-    }
-  end
-
   defp finish_program([]), do: [:undefined, {:set_loc, 0}, :return]
   defp finish_program(instructions), do: instructions ++ [:return]
 
@@ -837,27 +762,6 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
       do: instructions,
       else: instructions ++ [:return_undef]
   end
-
-  defp binary_operator("+"), do: {:ok, :add}
-  defp binary_operator("-"), do: {:ok, :sub}
-  defp binary_operator("*"), do: {:ok, :mul}
-  defp binary_operator("/"), do: {:ok, :div}
-  defp binary_operator("%"), do: {:ok, :mod}
-  defp binary_operator("<"), do: {:ok, :lt}
-  defp binary_operator("<="), do: {:ok, :lte}
-  defp binary_operator(">"), do: {:ok, :gt}
-  defp binary_operator(">="), do: {:ok, :gte}
-  defp binary_operator("=="), do: {:ok, :eq}
-  defp binary_operator("!="), do: {:ok, :neq}
-  defp binary_operator("==="), do: {:ok, :strict_eq}
-  defp binary_operator("!=="), do: {:ok, :strict_neq}
-  defp binary_operator(operator), do: {:error, {:unsupported, {:binary_operator, operator}}}
-
-  defp unary_operator("-"), do: {:ok, :neg}
-  defp unary_operator("+"), do: {:ok, :plus}
-  defp unary_operator("!"), do: {:ok, :lnot}
-  defp unary_operator("typeof"), do: {:ok, :typeof}
-  defp unary_operator(operator), do: {:error, {:unsupported, {:unary_operator, operator}}}
 
   defp add_constant(value, constants), do: {{:constant, length(constants)}, [value | constants]}
 
@@ -885,36 +789,4 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
 
   defp function_name(nil), do: nil
   defp function_name(%AST.Identifier{name: name}), do: name
-
-  defp collect_atoms(%Function{} = function) do
-    function
-    |> do_collect_atoms([])
-    |> Enum.reject(&(match?({:predefined, _}, &1) or is_nil(&1)))
-    |> Enum.uniq()
-    |> List.to_tuple()
-  end
-
-  defp do_collect_atoms(%Function{} = function, acc) do
-    acc = [function.name, function.filename | acc]
-    acc = Enum.reduce(function.extra_atoms || [], acc, &[&1 | &2])
-    acc = Enum.reduce(function.locals, acc, fn %VarDef{name: name}, acc -> [name | acc] end)
-
-    Enum.reduce(function.constants, acc, fn
-      %Function{} = inner, acc -> do_collect_atoms(inner, acc)
-      value, acc when is_binary(value) -> [value | acc]
-      _value, acc -> acc
-    end)
-  end
-
-  defp attach_atoms(%Function{} = function, atoms) do
-    function
-    |> Map.put(:atoms, atoms)
-    |> Map.update!(:constants, &attach_constant_atoms(&1, atoms))
-  end
-
-  defp attach_constant_atoms(constants, atoms) do
-    for constant <- constants do
-      if match?(%Function{}, constant), do: attach_atoms(constant, atoms), else: constant
-    end
-  end
 end
