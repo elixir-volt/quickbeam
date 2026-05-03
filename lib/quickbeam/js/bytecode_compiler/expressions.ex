@@ -445,16 +445,38 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
          constants,
          callbacks
        ) do
+    with {:ok, instructions, constants} <-
+           compile_object_property(property, scope, instructions, constants, callbacks) do
+      compile_object_properties(rest, scope, instructions, constants, callbacks)
+    end
+  end
+
+  defp compile_object_property(
+         %AST.Property{computed: true, key: key, value: value},
+         scope,
+         instructions,
+         constants,
+         callbacks
+       ) do
+    with {:ok, instructions, constants} <-
+           callbacks.compile_expression.(key, scope, instructions, constants),
+         {:ok, instructions, constants} <-
+           callbacks.compile_expression.(value, scope, instructions, constants) do
+      {:ok, instructions ++ [:define_array_el, :drop], constants}
+    end
+  end
+
+  defp compile_object_property(
+         %AST.Property{} = property,
+         scope,
+         instructions,
+         constants,
+         callbacks
+       ) do
     with {:ok, key} <- property_key(property),
          {:ok, instructions, constants} <-
            callbacks.compile_expression.(property.value, scope, instructions, constants) do
-      compile_object_properties(
-        rest,
-        scope,
-        instructions ++ [{:define_field, key}],
-        constants,
-        callbacks
-      )
+      {:ok, instructions ++ [{:define_field, key}], constants}
     end
   end
 
