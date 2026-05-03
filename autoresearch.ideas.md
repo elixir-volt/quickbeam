@@ -1,8 +1,9 @@
 - Add Test262-derived executable windows for `QuickBEAM.JS.BytecodeCompiler` after harness/module/async filtering is explicit.
-- Full mutable closure capture is the last remaining mismatch (1 case): value-captured closures work but mutable shared cells don't.
-- `instanceof` works as an opcode but class factories lack real prototypes (1 case).
-- `arguments` object requires mutable var_ref aliasing for sloppy-mode parameter aliasing (5 cases).
-- Private class fields/methods require full private name tracking (5 cases + 4 super getter/setter cases + 1 private method key = 10 class_element).
-- `eval` requires special compilation with eval opcode and scope handling (7 cases).
-- Class constructor body extraction needs broader statement recognition beyond `this.prop = value` patterns (2 cases).
-- `Symbol.iterator` for custom iterable for-of loops (1 case).
+- Full mutable closure capture (1 mismatch): value-captured closures work but mutable shared cells don't.
+- `eval` execution (3 mismatches): eval as global compiles but interpreter/BEAM compiler can't execute eval code. Needs eval opcode or runtime eval dispatch.
+- `arguments` aliasing (4 unsupported): parameterless functions support arguments object, but sloppy-mode parameter aliasing requires var_ref.
+- Private class fields/methods (5 cases) + super getter/setter (4 cases) + private method key (1 case) = 10 class_element unsupported.
+- `instanceof` (1 case): class factories lack real prototypes.
+- `Symbol.iterator` (1 case): custom iterable for-of needs iterator protocol.
+- Class constructor body (2 cases): needs broader statement recognition beyond `this.prop = value`.
+- Parser `with` statement error (1 case): parse_error for `with(o){ delete x; }`.
