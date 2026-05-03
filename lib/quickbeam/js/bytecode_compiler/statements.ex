@@ -615,6 +615,11 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
     end
   end
 
+  defp nameable_expression?(%AST.FunctionExpression{id: nil}), do: true
+  defp nameable_expression?(%AST.ArrowFunctionExpression{}), do: true
+  defp nameable_expression?(%AST.ClassExpression{id: nil}), do: true
+  defp nameable_expression?(_), do: false
+
   defp static_member?(%AST.MethodDefinition{static: true}), do: true
   defp static_member?(%AST.FieldDefinition{static: true}), do: true
   defp static_member?(_), do: false
@@ -1206,6 +1211,11 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
     with {:loc, loc} <- callbacks.resolve.(scope, name),
          {:ok, instructions, constants} <-
            callbacks.compile_expression.(init, scope, instructions, constants) do
+      instructions =
+        if nameable_expression?(init),
+          do: instructions ++ [{:set_name, name}],
+          else: instructions
+
       {:ok, instructions ++ [{:put_loc, loc}], constants}
     else
       :error -> {:error, {:unsupported, {:unresolved_identifier, name}}}

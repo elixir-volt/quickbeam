@@ -44,6 +44,7 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
       {:get_field, name} -> [name]
       {:get_field2, name} -> [name]
       {:put_field, name} -> [name]
+      {:set_name, name} -> [name]
       _ -> []
     end)
     |> Enum.uniq()
@@ -98,7 +99,15 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
     do: jump_size(op, width || :short)
 
   defp instruction_size({op, _name}, _width)
-       when op in [:define_field, :get_var, :put_var, :get_field, :get_field2, :put_field],
+       when op in [
+              :define_field,
+              :get_var,
+              :put_var,
+              :get_field,
+              :get_field2,
+              :put_field,
+              :set_name
+            ],
        do: 5
 
   defp instruction_size(instruction, _width), do: byte_size(encode_instruction(instruction))
@@ -258,6 +267,11 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
   defp encode_instruction(:nip, _atoms), do: <<Opcodes.num(:nip)>>
   defp encode_instruction(:drop, _atoms), do: <<Opcodes.num(:drop)>>
   defp encode_instruction(:set_proto, _atoms), do: <<Opcodes.num(:set_proto)>>
+
+  defp encode_instruction({:set_name, name}, atoms),
+    do: <<Opcodes.num(:set_name), atom_index!(atoms, name)::little-32>>
+
+  defp encode_instruction(:set_name_computed, _atoms), do: <<Opcodes.num(:set_name_computed)>>
   defp encode_instruction(:add, _atoms), do: <<Opcodes.num(:add)>>
   defp encode_instruction(:sub, _atoms), do: <<Opcodes.num(:sub)>>
   defp encode_instruction(:mul, _atoms), do: <<Opcodes.num(:mul)>>
@@ -317,6 +331,8 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Assembler do
   defp stack_effect({:get_field, _name}), do: {1, 1}
   defp stack_effect({:get_field2, _name}), do: {1, 2}
   defp stack_effect({:put_field, _name}), do: {2, 0}
+  defp stack_effect({:set_name, _name}), do: {1, 1}
+  defp stack_effect(:set_name_computed), do: {2, 2}
 
   defp stack_effect({_op, _arg} = instruction),
     do: instruction |> encode_instruction() |> opcode_stack_effect()
