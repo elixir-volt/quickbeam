@@ -65,6 +65,11 @@ defmodule QuickBEAM.JS.BytecodeCompilerTest do
       assert_compiles_to("0 ?? 3", 0)
     end
 
+    test "compiles sequence expressions" do
+      assert_compiles_to("let x=0; (x=1, x+2)", 3)
+      assert_compiles_to("let x=0; let y=(x=1, x+2); y+x", 4)
+    end
+
     test "compiles update and compound assignments" do
       assert_compiles_to("let x=1; x++; x", 2)
       assert_compiles_to("let x=1; ++x", 2)

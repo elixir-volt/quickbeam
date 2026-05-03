@@ -88,6 +88,16 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
   end
 
   def compile(
+        %AST.SequenceExpression{expressions: expressions},
+        scope,
+        instructions,
+        constants,
+        callbacks
+      ) do
+    compile_sequence_expressions(expressions, scope, instructions, constants, callbacks)
+  end
+
+  def compile(
         %AST.ConditionalExpression{test: test, consequent: consequent, alternate: alternate},
         scope,
         instructions,
@@ -367,6 +377,25 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
 
   def compile(expression, _scope, _instructions, _constants, _callbacks),
     do: {:error, {:unsupported, expression.type}}
+
+  defp compile_sequence_expressions([], _scope, _instructions, _constants, _callbacks),
+    do: {:error, {:unsupported, :empty_sequence}}
+
+  defp compile_sequence_expressions([expression], scope, instructions, constants, callbacks),
+    do: callbacks.compile_expression.(expression, scope, instructions, constants)
+
+  defp compile_sequence_expressions(
+         [expression | rest],
+         scope,
+         instructions,
+         constants,
+         callbacks
+       ) do
+    with {:ok, instructions, constants} <-
+           callbacks.compile_expression.(expression, scope, instructions, constants) do
+      compile_sequence_expressions(rest, scope, instructions ++ [:drop], constants, callbacks)
+    end
+  end
 
   defp compile_logical_expression("&&", left, right, scope, instructions, constants, callbacks) do
     end_label = callbacks.unique_label.(:logical_and_end)

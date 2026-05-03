@@ -38,6 +38,8 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
       {"logical or", "let x=0; false || (x=1); x"},
       {"nullish null", "null ?? 3"},
       {"nullish value", "0 ?? 3"},
+      {"sequence expression", "let x=0; (x=1, x+2)"},
+      {"sequence declaration", "let x=0; let y=(x=1, x+2); y+x"},
       {"post increment", "let x=1; x++; x"},
       {"pre increment", "let x=1; ++x"},
       {"post decrement", "let x=1; x--; x"},
