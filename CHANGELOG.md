@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.8
+
+- Fix precompiled NIF workflow for Linux ARM target
+
 ## 0.10.7
 
 - Add Linux ARM precompiled NIF target

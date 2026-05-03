@@ -3,6 +3,7 @@ name: Build precompiled NIFs
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -33,13 +34,32 @@ jobs:
       - name: Build NIF
         shell: bash
         run: |
-          IFS=- read -r TARGET_ARCH TARGET_OS TARGET_ABI <<< "${{ matrix.target }}"
-          export TARGET_ARCH TARGET_OS TARGET_ABI
-
           mix local.hex --force
           mix local.rebar --force
           mix deps.get
-          QUICKBEAM_BUILD=1 mix compile
+
+          if [ "${{ matrix.target }}" = "aarch64-linux-gnu" ]; then
+            mix deps.compile
+            QUICKBEAM_PRECOMPILE_TARGET="${{ matrix.target }}" QUICKBEAM_BUILD=1 mix run --no-compile -e '
+              [arch, os, abi] =
+                System.fetch_env!("QUICKBEAM_PRECOMPILE_TARGET")
+                |> String.split("-")
+                |> Enum.map(&String.to_atom/1)
+
+              parent = self()
+              callback = fn file -> send(parent, {:precompiled, file}) end
+              Application.put_env(:zigler, :precompiling, {arch, os, abi, callback})
+              Code.compile_file("lib/quickbeam/native.ex")
+
+              receive do
+                {:precompiled, file} -> IO.puts("Precompiled #{file}")
+              after
+                120_000 -> raise "precompile timed out"
+              end
+            '
+          else
+            QUICKBEAM_BUILD=1 mix compile
+          fi
 
       - name: Package artifact
         run: |
@@ -47,9 +67,15 @@ jobs:
           BASENAME="Elixir.QuickBEAM.Native"
 
           # Find the built library (could be .so or .dylib)
-          LIB_FILE=$(find priv/lib -name "*${BASENAME}.*" \
-            \( -name "*.so" -o -name "*.dylib" \) \
-            -not -name "*.[0-9]*" | sort | head -1)
+          LIB_FILE=$(find priv/lib _build/*/lib/quickbeam/priv/lib lib/quickbeam/lib \
+            -name "*${BASENAME}*${{ matrix.target }}*" \
+            \( -name "*.so" -o -name "*.dylib" \) 2>/dev/null | sort | head -1)
+
+          if [ -z "$LIB_FILE" ]; then
+            LIB_FILE=$(find priv/lib _build/*/lib/quickbeam/priv/lib lib/quickbeam/lib \
+              -name "*${BASENAME}.*" \
+              \( -name "*.so" -o -name "*.dylib" \) 2>/dev/null | sort | head -1)
+          fi
 
           if [ -z "$LIB_FILE" ]; then
             echo "ERROR: Could not find built library"
@@ -67,6 +93,7 @@ jobs:
           echo "Packaged: ${ARTIFACT_NAME}"
 
       - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
           files: artifacts/*.tar.gz
