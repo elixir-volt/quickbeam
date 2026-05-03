@@ -102,8 +102,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
   defp resolve_atom_name(atom_idx, atoms), do: resolve_local_name(atom_idx, atoms)
 
   defp comparison_branch_condition(fun, left, right, fallback_expr) do
-    lhs = var(:BranchLhs)
-    rhs = var(:BranchRhs)
+    id = System.unique_integer([:positive])
+    lhs = var(:"BranchLhs#{id}")
+    rhs = var(:"BranchRhs#{id}")
 
     {:case, @line, tuple_expr([left, right]),
      [

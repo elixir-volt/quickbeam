@@ -948,7 +948,18 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          inline_targets,
          target
        ) do
-    case lower_finally_inline(instructions, size, target, state) do
+    state = State.push(state, Builder.atom(:return_addr), :unknown)
+
+    case lower_finally_inline(
+           instructions,
+           size,
+           target,
+           state,
+           stack_depths,
+           constants,
+           entries,
+           inline_targets
+         ) do
       {:ok, inlined_state} ->
         lower_block(
           instructions,
@@ -963,6 +974,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
           inline_targets
         )
 
+      {:done, body} when is_list(body) ->
+        {:ok, body}
+
       {:done, terminal_state} ->
         {:ok, Enum.reverse(terminal_state.body)}
 
@@ -971,24 +985,56 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
     end
   end
 
-  defp lower_finally_inline(_instructions, size, idx, _state) when idx >= size do
+  defp lower_finally_inline(
+         _instructions,
+         size,
+         idx,
+         _state,
+         _stack_depths,
+         _constants,
+         _entries,
+         _inline_targets
+       )
+       when idx >= size do
     {:error, {:missing_ret, idx}}
   end
 
-  defp lower_finally_inline(instructions, size, idx, state) do
+  defp lower_finally_inline(
+         instructions,
+         size,
+         idx,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets
+       ) do
     instruction = elem(instructions, idx)
 
     case instruction do
       {op, []} ->
         case CFG.opcode_name(op) do
           {:ok, :ret} ->
-            {:ok, state}
+            case State.pop(state) do
+              {:ok, _return_addr, state} -> {:ok, state}
+              {:error, _} = error -> error
+            end
 
           {:ok, name} when name in [:catch, :gosub, :goto, :goto8, :goto16] ->
             {:error, {:unsupported_finally_opcode, name, idx}}
 
           _ ->
-            lower_finally_instruction(instructions, size, instruction, idx, state)
+            lower_finally_instruction(
+              instructions,
+              size,
+              instruction,
+              idx,
+              state,
+              stack_depths,
+              constants,
+              entries,
+              inline_targets
+            )
         end
 
       {op, _args} ->
@@ -999,20 +1045,58 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
           {:ok, :catch} ->
             {:error, {:unsupported_finally_opcode, :catch, idx}}
 
-          {:ok, name}
-          when name in [:if_false, :if_false8, :if_true, :if_true8, :goto, :goto8, :goto16] ->
-            {:error, {:unsupported_finally_opcode, name, idx}}
+          {:ok, name} when name in [:goto, :goto8, :goto16] ->
+            State.goto(state, hd(elem(instruction, 1)), stack_depths)
 
           _ ->
-            lower_finally_instruction(instructions, size, instruction, idx, state)
+            lower_finally_instruction(
+              instructions,
+              size,
+              instruction,
+              idx,
+              state,
+              stack_depths,
+              constants,
+              entries,
+              inline_targets
+            )
         end
     end
   end
 
-  defp lower_finally_instruction(instructions, size, instruction, idx, state) do
-    case Ops.lower_instruction(instruction, idx, nil, 0, state, %{}, [], [], MapSet.new()) do
+  defp lower_finally_instruction(
+         instructions,
+         size,
+         instruction,
+         idx,
+         state,
+         stack_depths,
+         constants,
+         entries,
+         inline_targets
+       ) do
+    case Ops.lower_instruction(
+           instruction,
+           idx,
+           CFG.next_entry(entries, idx),
+           0,
+           state,
+           stack_depths,
+           constants,
+           entries,
+           inline_targets
+         ) do
       {:ok, next_state} ->
-        lower_finally_inline(instructions, size, idx + 1, next_state)
+        lower_finally_inline(
+          instructions,
+          size,
+          idx + 1,
+          next_state,
+          stack_depths,
+          constants,
+          entries,
+          inline_targets
+        )
 
       {:done, body} ->
         {:done,

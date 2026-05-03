@@ -135,11 +135,18 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
             {{:ok, name}, []} when name in [:yield_star, :async_yield_star] ->
               {:ok, []}
 
-            {{:ok, :gosub}, [_target]} ->
-              if is_nil(next_entry), do: {:ok, []}, else: {:ok, [{next_entry, next_depth}]}
+            {{:ok, :gosub}, [target]} ->
+              successors = [{target, next_depth + 1}]
+
+              successors =
+                if is_nil(next_entry),
+                  do: successors,
+                  else: [{next_entry, next_depth} | successors]
+
+              {:ok, successors}
 
             {{:ok, :ret}, []} ->
-              {:ok, []}
+              if next_depth >= 1, do: {:ok, []}, else: {:error, :stack_underflow}
 
             _ ->
               do_simulate_block_stack_depths(instructions, size, idx + 1, next_entry, next_depth)

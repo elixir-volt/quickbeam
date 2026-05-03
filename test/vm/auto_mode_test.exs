@@ -54,4 +54,52 @@ defmodule QuickBEAM.VM.AutoModeTest do
       QuickBEAM.stop(rt)
     end
   end
+
+  test "compiled finally runs before loop continue" do
+    {:ok, rt} = QuickBEAM.start(apis: false)
+
+    code = """
+    let seen = "";
+    let i = 0;
+    while (i < 3) {
+      try {
+        i++;
+        if (i < 3) continue;
+      } finally {
+        seen += "f";
+      }
+      seen += "x";
+    }
+    seen
+    """
+
+    try do
+      assert {:ok, "fffx"} = QuickBEAM.eval(rt, code, mode: :beam_compiler)
+    after
+      QuickBEAM.stop(rt)
+    end
+  end
+
+  test "compiled finally runs before loop break" do
+    {:ok, rt} = QuickBEAM.start(apis: false)
+
+    code = """
+    let seen = "";
+    for (let i = 0; i < 3; i++) {
+      try {
+        break;
+      } finally {
+        seen += "f";
+      }
+      seen += "x";
+    }
+    seen
+    """
+
+    try do
+      assert {:ok, "f"} = QuickBEAM.eval(rt, code, mode: :beam_compiler)
+    after
+      QuickBEAM.stop(rt)
+    end
+  end
 end
