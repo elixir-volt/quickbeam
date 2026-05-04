@@ -1,7 +1,7 @@
 - Add Test262-derived executable windows for broader coverage.
 - Direct eval with scope access (1 mismatch): `eval('arguments[0]')` needs caller scope.
 - Derived constructor return object (1 mismatch): stub class returns empty object.
-- **Interpreter accessor-on-heap bug** blocks all 5 super-write cases: accessor properties (`{:accessor, nil, setter}`) correctly defined by `define_method` disappear from heap objects between function return and subsequent property lookup. `find_super_setter` and `Object.getOwnPropertyDescriptor` both see the wrong data. The heap ref is valid, `define_method` resolves the correct atom, but `Heap.get_obj(ref)` returns a map where the accessor key has been replaced. This happens purely in the interpreter path (BEAM compiler disabled). The atom table fix and Get.get fix did not resolve it.
+- Super-write (5 unsupported): put_super_value works in interpreter+compiler after accessor fix, but native load needs define_class infrastructure. The factory approach can't produce QuickJS-compatible class hierarchies.
 - Private class fields (3 class_element) + private method/getter keys (2 object_property_key) = 5 private unsupported.
 - `instanceof` (1): class factories lack real prototypes.
 - `Symbol.iterator` (1): custom iterable for-of needs iterator protocol.
