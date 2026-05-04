@@ -21,7 +21,6 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
   alias QuickBEAM.VM.Bytecode
   alias QuickBEAM.VM.Bytecode.Writer
 
-  @ret_name {:predefined, 82}
 
   @type compile_error :: {:unsupported, term()} | {:parse_error, term()}
 
