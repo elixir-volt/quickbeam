@@ -2,17 +2,13 @@
 
 ### Unsupported (2)
 - `with(o){ delete x; }` — needs with-scope semantics (`with_get_var`, `with_put_var`, `with_delete_var`)
-- `test/vm/test_language.js` — needs `object_pattern_property` with AssignmentPattern defaults + declarations support for patterns with defaults
+- `test/vm/test_language.js` — needs declarations for AssignmentPattern defaults in function params, `async` class fields in factory path
 
 ### Mismatches (4)
-- `Symbol.iterator` custom iterable — interpreter's `for_of_start` doesn't call Symbol.iterator on custom objects
+- `Symbol.iterator` custom iterable — interpreter+BEAM correct (3), but native_load fails ("not a function" — for_of_start uses internal atom lookup for Symbol.iterator)
 - `eval('arguments[0]')` — inherent limitation of indirect eval (no access to caller scope)
 - Computed super destructuring `({[p]: super.x} = {a:1})` — native load fails (atom reference leak in bytecode writer)
-- Derived constructor `super(); return {x:1}` — needs super() call support in define_class path + check_ctor_return runtime semantics
+- Derived constructor `super(); return {x:1}` — factory path can't mark is_derived_class_constructor, needs super() in define_class path
 
-### Infrastructure added (not reducing failures yet)
-- `check_ctor_return` opcode in assembler (ready for when super() works in define_class path)
-- `bytecode_compiler_derived_ctor` flag for constructor return semantics
-- Object destructuring default value pattern handler (ready for when declarations handle patterns)
-- All unresolved identifiers emit `get_var` (prevents unknown globals from blocking compilation)
-- Large integer handling (>Int32 → float constant)
+### All 4 mismatches blocked by native_load issues
+Interpreter and BEAM compiler now produce correct results for 2/4 mismatch cases (Symbol.iterator, possibly computed super). The metric doesn't improve because native_load must also match.
