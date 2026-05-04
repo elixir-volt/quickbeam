@@ -71,17 +71,19 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Statements do
         opts,
         callbacks
       ) do
-    with slot when slot != :error <- callbacks.resolve.(scope, name),
-         {:ok, instructions, constants} <-
+    with {:ok, instructions, constants} <-
            callbacks.compile_expression.(right, scope, instructions, constants) do
-      if Keyword.fetch!(opts, :tail?) do
-        {:ok, instructions ++ [Slots.write(slot), {:set_loc, 0}], constants}
+      slot = callbacks.resolve.(scope, name)
+
+      if slot == :error do
+        {:ok, instructions ++ [{:put_var, name}], constants}
       else
-        {:ok, instructions ++ [Slots.put(slot)], constants}
+        if Keyword.fetch!(opts, :tail?) do
+          {:ok, instructions ++ [Slots.write(slot), {:set_loc, 0}], constants}
+        else
+          {:ok, instructions ++ [Slots.put(slot)], constants}
+        end
       end
-    else
-      :error -> {:error, {:unsupported, {:unresolved_identifier, name}}}
-      {:error, _} = error -> error
     end
   end
 

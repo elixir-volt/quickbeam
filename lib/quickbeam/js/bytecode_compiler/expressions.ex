@@ -601,8 +601,11 @@ defmodule QuickBEAM.JS.BytecodeCompiler.Expressions do
     with {:ok, instructions, constants} <-
            callbacks.compile_expression.(right, scope, instructions, constants) do
       case callbacks.resolve.(scope, name) do
-        :error -> {:ok, instructions ++ [{:put_var, name}], constants}
-        slot -> {:ok, instructions ++ [Slots.write(slot)], constants}
+        :error ->
+          {:ok, instructions ++ [{:put_var, name}], constants}
+
+        slot ->
+          {:ok, instructions ++ [Slots.write(slot)], constants}
       end
     end
   end
