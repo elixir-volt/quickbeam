@@ -1,8 +1,6 @@
-- Add Test262-derived executable windows for broader coverage.
-- Direct eval with scope access (1 mismatch): `eval('arguments[0]')` needs caller scope.
-- Derived constructor return object (1 mismatch): `super(); return {x:1}` in constructor.
-- Computed super destructuring target (1 mismatch): `({[p]: super.x} = ...)` native load fails.
-- Private class fields (3 class_element) + private method/getter keys (2 object_property_key) = 5 private unsupported.
-- `Symbol.iterator` (1 unsupported): custom iterable for-of needs iterator protocol.
-- `with(o){ delete x; }` parse error (1): parser ASI issue.
-- `test/vm/test_language.js` throw_statement (1): full JS file needing many features.
+- Symbol.iterator (1 unsupported): needs `Symbol` global, iterator protocol for `for..of`.
+- `with(o){ delete x; }` parse error (1): parser ASI issue at column 34.
+- `test/vm/test_language.js` throw_statement (1): full JS file needing many features simultaneously.
+- Direct eval scope mismatch (1): `eval('arguments[0]')` needs caller scope — inherent to indirect eval.
+- Derived constructor return mismatch (1): `super(); return {x:1}` needs special constructor return semantics.
+- Computed super destructuring target mismatch (1): `({[p]: super.x} = {a:1})` native load fails.
