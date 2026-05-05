@@ -27,61 +27,6 @@ defmodule QuickBEAM.VM.Bytecode do
   @tag_template_object Opcodes.bc_tag_template_object()
   @tag_regexp Opcodes.bc_tag_regexp()
 
-  defmodule Function do
-    @moduledoc "Decoded QuickJS function bytecode and metadata used by the VM interpreter."
-    @type t :: %__MODULE__{}
-    defstruct [
-      :name,
-      :filename,
-      line_num: 1,
-      col_num: 1,
-      pc2line: <<>>,
-      source: <<>>,
-      arg_count: 0,
-      var_count: 0,
-      defined_arg_count: 0,
-      stack_size: 0,
-      var_ref_count: 0,
-      locals: [],
-      closure_vars: [],
-      constants: [],
-      atoms: nil,
-      extra_atoms: [],
-      byte_code: <<>>,
-      instructions: nil,
-      has_prototype: false,
-      has_simple_parameter_list: false,
-      is_derived_class_constructor: false,
-      need_home_object: false,
-      func_kind: 0,
-      new_target_allowed: false,
-      super_call_allowed: false,
-      super_allowed: false,
-      arguments_allowed: false,
-      is_strict_mode: false,
-      has_debug_info: false
-    ]
-  end
-
-  defmodule VarDef do
-    @moduledoc "Decoded QuickJS local variable definition metadata."
-    defstruct [
-      :name,
-      :scope_level,
-      :scope_next,
-      :var_kind,
-      :is_const,
-      :is_lexical,
-      :is_captured,
-      :var_ref_idx
-    ]
-  end
-
-  defmodule ClosureVar do
-    @moduledoc "Decoded QuickJS closure capture metadata."
-    defstruct [:name, :var_idx, :closure_type, :is_const, :is_lexical, :var_kind]
-  end
-
   defstruct [:version, :atoms, :value]
 
   @doc "Decodes a QuickJS bytecode binary into a `%QuickBEAM.VM.Bytecode{}` structure."
@@ -92,17 +37,18 @@ defmodule QuickBEAM.VM.Bytecode do
          <<_checksum::little-unsigned-32, rest2::binary>> <- rest,
          {:ok, atoms, rest3} <- read_atoms(rest2),
          {:ok, value, _rest4} <- read_object(rest3, atoms) do
-      {:ok, %__MODULE__{version: version, atoms: atoms, value: attach_atoms(value, atoms)}}
+      {:ok,
+       %QuickBEAM.VM.Program{version: version, atoms: atoms, value: attach_atoms(value, atoms)}}
     else
       {:error, _} = err -> err
       _ -> {:error, :unexpected_end}
     end
   end
 
-  defp attach_atoms(%Function{} = fun, atoms) do
+  defp attach_atoms(%QuickBEAM.VM.Function{} = fun, atoms) do
     constants =
       Enum.map(fun.constants, fn
-        %Function{} = inner -> attach_atoms(inner, atoms)
+        %QuickBEAM.VM.Function{} = inner -> attach_atoms(inner, atoms)
         other -> other
       end)
 
@@ -407,7 +353,8 @@ defmodule QuickBEAM.VM.Bytecode do
 
         {debug_info, rest} = read_debug_info(rest, flags_map.has_debug_info, atoms)
 
-        fun = %Function{
+        fun = %QuickBEAM.VM.Function{
+          id: :erlang.unique_integer([:positive, :monotonic]),
           name: func_name,
           arg_count: arg_count,
           var_count: var_count,
@@ -500,7 +447,7 @@ defmodule QuickBEAM.VM.Bytecode do
           {nil, rest}
         end
 
-      vd = %VarDef{
+      vd = %QuickBEAM.VM.VarDef{
         name: name,
         scope_level: scope_level,
         scope_next: scope_next,
@@ -534,7 +481,7 @@ defmodule QuickBEAM.VM.Bytecode do
       is_lexical = band(bsr(flags, 4), 1) == 1
       var_kind = band(bsr(flags, 5), 0xF)
 
-      cv = %ClosureVar{
+      cv = %QuickBEAM.VM.ClosureVar{
         name: name,
         var_idx: var_idx,
         closure_type: closure_type,
@@ -612,17 +559,22 @@ defmodule QuickBEAM.VM.Bytecode do
   defp do_instruction_offset(_bc, _len, pos, _idx, _target), do: pos
 
   @doc "Resolves a decoded function instruction index to source line and column information."
-  def source_position(%Function{} = fun, insn_index) do
-    pc = instruction_offset(fun.byte_code, insn_index)
+  def source_position(%QuickBEAM.VM.Function{byte_code: byte_code} = fun, insn_index)
+      when is_binary(byte_code) do
+    pc = instruction_offset(byte_code, insn_index)
 
     fun
     |> decode_pc2line(pc)
     |> maybe_apply_source_hint(fun)
   end
 
-  defp decode_pc2line(%Function{pc2line: <<>>} = fun, _pc), do: {fun.line_num, fun.col_num}
+  def source_position(%QuickBEAM.VM.Function{} = fun, _insn_index),
+    do: {fun.line_num, fun.col_num}
 
-  defp decode_pc2line(%Function{} = fun, target_pc) do
+  defp decode_pc2line(%QuickBEAM.VM.Function{pc2line: <<>>} = fun, _pc),
+    do: {fun.line_num, fun.col_num}
+
+  defp decode_pc2line(%QuickBEAM.VM.Function{} = fun, target_pc) do
     do_decode_pc2line(fun.pc2line, target_pc, 0, fun.line_num, fun.col_num)
   end
 
@@ -652,7 +604,8 @@ defmodule QuickBEAM.VM.Bytecode do
     end
   end
 
-  defp maybe_apply_source_hint(pos, %Function{source: source}) when is_binary(source) do
+  defp maybe_apply_source_hint(pos, %QuickBEAM.VM.Function{source: source})
+       when is_binary(source) do
     case Regex.scan(~r/line\s+(\d+),\s*column\s+(\d+)/, source, capture: :all_but_first) do
       [[hint_line, hint_col]] ->
         hint = {String.to_integer(hint_line), String.to_integer(hint_col)}

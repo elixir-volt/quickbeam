@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.ObjectModel.Private do
 
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
 
-  alias QuickBEAM.VM.{Bytecode, Heap}
+  alias QuickBEAM.VM.{Heap}
   alias QuickBEAM.VM.ObjectModel.Functions
 
   @doc "Creates an internal symbol for a JavaScript private name."
@@ -13,10 +13,10 @@ defmodule QuickBEAM.VM.ObjectModel.Private do
     Map.get(Heap.get_obj(ref, %{}), {:private, key}, :missing)
   end
 
-  def get_field({:closure, _, %Bytecode.Function{}} = ctor, key),
+  def get_field({:closure, _, %QuickBEAM.VM.Function{}} = ctor, key),
     do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :missing)
 
-  def get_field(%Bytecode.Function{} = ctor, key),
+  def get_field(%QuickBEAM.VM.Function{} = ctor, key),
     do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :missing)
 
   def get_field({:builtin, _, _} = ctor, key),
@@ -43,12 +43,12 @@ defmodule QuickBEAM.VM.ObjectModel.Private do
     :ok
   end
 
-  def define_field!({:closure, _, %Bytecode.Function{}} = ctor, key, val) do
+  def define_field!({:closure, _, %QuickBEAM.VM.Function{}} = ctor, key, val) do
     Heap.put_ctor_static(ctor, {:private, key}, val)
     :ok
   end
 
-  def define_field!(%Bytecode.Function{} = ctor, key, val) do
+  def define_field!(%QuickBEAM.VM.Function{} = ctor, key, val) do
     Heap.put_ctor_static(ctor, {:private, key}, val)
     :ok
   end
@@ -63,10 +63,10 @@ defmodule QuickBEAM.VM.ObjectModel.Private do
   @doc "Returns the private brands attached to a target."
   def brands({:obj, ref}), do: Map.get(Heap.get_obj(ref, %{}), :__brands__, [])
 
-  def brands({:closure, _, %Bytecode.Function{}} = ctor),
+  def brands({:closure, _, %QuickBEAM.VM.Function{}} = ctor),
     do: Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
 
-  def brands(%Bytecode.Function{} = ctor),
+  def brands(%QuickBEAM.VM.Function{} = ctor),
     do: Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
 
   def brands({:builtin, _, _} = ctor), do: Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
@@ -82,12 +82,12 @@ defmodule QuickBEAM.VM.ObjectModel.Private do
     :ok
   end
 
-  def add_brand({:closure, _, %Bytecode.Function{}} = ctor, brand) do
+  def add_brand({:closure, _, %QuickBEAM.VM.Function{}} = ctor, brand) do
     add_ctor_brand(ctor, brand)
     :ok
   end
 
-  def add_brand(%Bytecode.Function{} = ctor, brand) do
+  def add_brand(%QuickBEAM.VM.Function{} = ctor, brand) do
     add_ctor_brand(ctor, brand)
     :ok
   end

@@ -5,7 +5,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
   defmacro __using__(_opts) do
     quote location: :keep do
       import Bitwise, only: [&&&: 2, bsr: 2]
-      alias QuickBEAM.VM.{Builtin, Bytecode, Heap, Invocation, Names, Runtime}
+      alias QuickBEAM.VM.{Builtin, Heap, Invocation, Names, Runtime}
       alias QuickBEAM.VM.Interpreter.{Context, Values}
       alias QuickBEAM.VM.ObjectModel.{Class, Copy, Delete, Functions, Get, Private, Put}
 
@@ -567,7 +567,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
             {:closure, _, _} = fun ->
               delete_static(fun, key)
 
-            %Bytecode.Function{} = fun ->
+            %QuickBEAM.VM.Function{} = fun ->
               delete_static(fun, key)
 
             {:builtin, _, _} = fun ->
@@ -613,7 +613,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
           ctx,
           fn ->
             unless is_object(obj) or match?({:builtin, _, _}, obj) or
-                     is_closure(obj) or match?(%Bytecode.Function{}, obj) or
+                     is_closure(obj) or match?(%QuickBEAM.VM.Function{}, obj) or
                      match?({:bound, _, _, _, _}, obj) or match?({:qb_arr, _}, obj) or
                      is_list(obj) or is_map(obj) do
               throw(

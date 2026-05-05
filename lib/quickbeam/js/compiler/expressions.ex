@@ -1581,7 +1581,7 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
 
     closure_vars =
       Enum.map(captures, fn name ->
-        %QuickBEAM.VM.Bytecode.ClosureVar{
+        %QuickBEAM.VM.ClosureVar{
           name: name,
           var_idx: Map.fetch!(capture_var_refs, name),
           closure_type: 0,

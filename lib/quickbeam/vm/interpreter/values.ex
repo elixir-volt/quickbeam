@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Interpreter.Values do
   @moduledoc "JS type coercion, arithmetic, comparison, and equality operations."
 
-  alias QuickBEAM.VM.{Bytecode, Heap}
+  alias QuickBEAM.VM.{Heap}
   alias QuickBEAM.VM.Interpreter.Values.{Arithmetic, Bitwise, Coercion, Comparison, Equality}
 
   import QuickBEAM.VM.Value, only: [is_object: 1]
@@ -31,8 +31,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
             sar: 2,
             shr: 2}
 
-  alias QuickBEAM.VM.Bytecode
-
+  
   # --- Truthiness ---
 
   @doc "Returns JavaScript truthiness for a VM value."
@@ -63,8 +62,8 @@ defmodule QuickBEAM.VM.Interpreter.Values do
   def typeof(false), do: "boolean"
   def typeof(val) when is_number(val), do: "number"
   def typeof(val) when is_binary(val), do: "string"
-  def typeof(%Bytecode.Function{}), do: "function"
-  def typeof({:closure, _, %Bytecode.Function{}}), do: "function"
+  def typeof(%QuickBEAM.VM.Function{}), do: "function"
+  def typeof({:closure, _, %QuickBEAM.VM.Function{}}), do: "function"
   def typeof({:symbol, _}), do: "symbol"
   def typeof({:symbol, _, _}), do: "symbol"
   def typeof({:bound, _, _, _, _}), do: "function"
@@ -118,7 +117,7 @@ defmodule QuickBEAM.VM.Interpreter.Values do
       )
 
   def to_number({:closure, _, _} = f), do: to_number(Coercion.fn_to_primitive(f))
-  def to_number(%Bytecode.Function{} = f), do: to_number(Coercion.fn_to_primitive(f))
+  def to_number(%QuickBEAM.VM.Function{} = f), do: to_number(Coercion.fn_to_primitive(f))
   def to_number({:bound, _, _, _, _} = f), do: to_number(Coercion.fn_to_primitive(f))
   def to_number({:builtin, _, _} = f), do: to_number(Coercion.fn_to_primitive(f))
   def to_number(_), do: :nan

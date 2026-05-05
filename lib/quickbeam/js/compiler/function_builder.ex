@@ -1,9 +1,7 @@
 defmodule QuickBEAM.JS.Compiler.FunctionBuilder do
   @moduledoc false
 
-  alias QuickBEAM.VM.Bytecode.Function
   alias QuickBEAM.VM.Instructions
-  alias QuickBEAM.VM.Bytecode.VarDef
 
   def build(opts) do
     instructions = Keyword.fetch!(opts, :instructions)
@@ -11,7 +9,8 @@ defmodule QuickBEAM.JS.Compiler.FunctionBuilder do
     locals = Keyword.fetch!(opts, :locals)
     extra_atoms = Instructions.collect_atoms(instructions)
 
-    function = %Function{
+    function = %QuickBEAM.VM.Function{
+      id: :erlang.unique_integer([:positive, :monotonic]),
       name: Keyword.fetch!(opts, :name),
       filename: "<elixir-js-compiler>",
       line_num: 1,
@@ -25,7 +24,6 @@ defmodule QuickBEAM.JS.Compiler.FunctionBuilder do
       closure_vars: Keyword.get(opts, :closure_vars, []),
       constants: Keyword.fetch!(opts, :constants),
       extra_atoms: extra_atoms,
-      byte_code: <<>>,
       has_prototype: Keyword.fetch!(opts, :has_prototype),
       has_simple_parameter_list: Keyword.fetch!(opts, :has_simple_parameter_list),
       new_target_allowed: Keyword.fetch!(opts, :new_target_allowed),
@@ -42,12 +40,14 @@ defmodule QuickBEAM.JS.Compiler.FunctionBuilder do
     |> attach_own_constant_atoms()
   end
 
-  defp attach_own_constant_atoms(%Function{atoms: atoms, constants: constants} = function) do
+  defp attach_own_constant_atoms(
+         %QuickBEAM.VM.Function{atoms: atoms, constants: constants} = function
+       ) do
     constants =
       for c <- constants do
         case c do
-          %Function{atoms: nil} -> attach_atoms(c, atoms)
-          %Function{} -> c
+          %QuickBEAM.VM.Function{atoms: nil} -> attach_atoms(c, atoms)
+          %QuickBEAM.VM.Function{} -> c
           _ -> c
         end
       end
@@ -55,7 +55,7 @@ defmodule QuickBEAM.JS.Compiler.FunctionBuilder do
     %{function | constants: constants}
   end
 
-  def collect_atoms(%Function{} = function) do
+  def collect_atoms(%QuickBEAM.VM.Function{} = function) do
     function
     |> do_collect_atoms([])
     |> Enum.reject(&(match?({:predefined, _}, &1) or is_nil(&1)))
@@ -63,14 +63,14 @@ defmodule QuickBEAM.JS.Compiler.FunctionBuilder do
     |> List.to_tuple()
   end
 
-  def attach_atoms(%Function{} = function, atoms) do
+  def attach_atoms(%QuickBEAM.VM.Function{} = function, atoms) do
     function
     |> Map.put(:atoms, atoms)
     |> Map.update!(:constants, &attach_constant_atoms(&1, atoms))
   end
 
   def var_def(name) do
-    %VarDef{
+    %QuickBEAM.VM.VarDef{
       name: name,
       scope_level: 0,
       scope_next: 0,
@@ -81,13 +81,17 @@ defmodule QuickBEAM.JS.Compiler.FunctionBuilder do
     }
   end
 
-  defp do_collect_atoms(%Function{} = function, acc) do
+  defp do_collect_atoms(%QuickBEAM.VM.Function{} = function, acc) do
     acc = [function.name, function.filename | acc]
     acc = Enum.reduce(function.extra_atoms || [], acc, &[&1 | &2])
-    acc = Enum.reduce(function.locals, acc, fn %VarDef{name: name}, acc -> [name | acc] end)
+
+    acc =
+      Enum.reduce(function.locals, acc, fn %QuickBEAM.VM.VarDef{name: name}, acc ->
+        [name | acc]
+      end)
 
     Enum.reduce(function.constants, acc, fn
-      %Function{} = inner, acc -> do_collect_atoms(inner, acc)
+      %QuickBEAM.VM.Function{} = inner, acc -> do_collect_atoms(inner, acc)
       value, acc when is_binary(value) -> [value | acc]
       _value, acc -> acc
     end)
@@ -96,8 +100,8 @@ defmodule QuickBEAM.JS.Compiler.FunctionBuilder do
   defp attach_constant_atoms(constants, atoms) do
     for constant <- constants do
       case constant do
-        %Function{atoms: own} when own != nil and own != {} -> constant
-        %Function{} -> attach_atoms(constant, atoms)
+        %QuickBEAM.VM.Function{atoms: own} when own != nil and own != {} -> constant
+        %QuickBEAM.VM.Function{} -> attach_atoms(constant, atoms)
         _ -> constant
       end
     end

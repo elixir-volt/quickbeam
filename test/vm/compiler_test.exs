@@ -29,23 +29,23 @@ defmodule QuickBEAM.VM.CompilerTest do
     parsed
   end
 
-  defp cache_function_atoms(%Bytecode.Function{} = fun, atoms) do
+  defp cache_function_atoms(%QuickBEAM.VM.Function{} = fun, atoms) do
     Heap.put_fn_atoms(fun, atoms)
 
     Enum.each(fun.constants, fn
-      %Bytecode.Function{} = inner -> cache_function_atoms(inner, atoms)
+      %QuickBEAM.VM.Function{} = inner -> cache_function_atoms(inner, atoms)
       _ -> :ok
     end)
   end
 
   defp user_function(parsed) do
-    case for %Bytecode.Function{} = fun <- parsed.value.constants, do: fun do
+    case for %QuickBEAM.VM.Function{} = fun <- parsed.value.constants, do: fun do
       [fun | _] -> fun
       [] -> parsed.value
     end
   end
 
-  defp compiled_key(%Bytecode.Function{} = fun) do
+  defp compiled_key(%QuickBEAM.VM.Function{} = fun) do
     atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
 
     code_key =
@@ -77,7 +77,7 @@ defmodule QuickBEAM.VM.CompilerTest do
   end
 
   defp synthetic_function(byte_code, atoms \\ {"<synthetic>"}) do
-    %Bytecode.Function{
+    %QuickBEAM.VM.Function{
       name: "synthetic",
       filename: "<synthetic>",
       line_num: 1,
@@ -1064,8 +1064,8 @@ defmodule QuickBEAM.VM.CompilerTest do
         compile_and_decode(rt, "(function(f){ return function(x){ return f(x) } })")
         |> user_function()
 
-      inner = Enum.find(outer.constants, &match?(%Bytecode.Function{closure_vars: [_ | _]}, &1))
-      assert %Bytecode.Function{} = inner
+      inner = Enum.find(outer.constants, &match?(%QuickBEAM.VM.Function{closure_vars: [_ | _]}, &1))
+      assert %QuickBEAM.VM.Function{} = inner
 
       assert {:ok, beam_file} = Compiler.disasm(inner)
       block = beam_function_instructions(beam_file, :block_0)
@@ -1390,14 +1390,14 @@ defmodule QuickBEAM.VM.CompilerTest do
 
       ctor =
         Enum.find(outer.constants, fn
-          %Bytecode.Function{source: source} when is_binary(source) ->
+          %QuickBEAM.VM.Function{source: source} when is_binary(source) ->
             String.contains?(source, "constructor")
 
           _ ->
             false
         end)
 
-      assert %Bytecode.Function{var_ref_count: 0} = ctor
+      assert %QuickBEAM.VM.Function{var_ref_count: 0} = ctor
 
       closure = {:closure, %{}, ctor}
 

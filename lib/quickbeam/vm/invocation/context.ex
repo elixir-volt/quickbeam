@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Invocation.Context do
   @moduledoc "Fast-context snapshot and restoration: serialises the interpreter context into/out of process dictionary for JIT calls."
 
-  alias QuickBEAM.VM.{Bytecode, Heap, Runtime}
+  alias QuickBEAM.VM.{Heap, Runtime}
   alias QuickBEAM.VM.Interpreter.Context
   alias QuickBEAM.VM.ObjectModel.{Class, Functions}
 
@@ -37,12 +37,12 @@ defmodule QuickBEAM.VM.Invocation.Context do
   def fast_ctx, do: Process.get(@fast_ctx_key, @missing)
 
   def attach_method_state(
-        %Context{current_func: %Bytecode.Function{need_home_object: false}} = ctx
+        %Context{current_func: %QuickBEAM.VM.Function{need_home_object: false}} = ctx
       ),
       do: ctx
 
   def attach_method_state(
-        %Context{current_func: {:closure, _, %Bytecode.Function{need_home_object: false}}} = ctx
+        %Context{current_func: {:closure, _, %QuickBEAM.VM.Function{need_home_object: false}}} = ctx
       ),
       do: ctx
 
@@ -141,9 +141,9 @@ defmodule QuickBEAM.VM.Invocation.Context do
   @doc "Returns the current method home object used for `super` lookup."
   def current_home_object(current_func \\ current_func())
 
-  def current_home_object(%Bytecode.Function{need_home_object: false}), do: :undefined
+  def current_home_object(%QuickBEAM.VM.Function{need_home_object: false}), do: :undefined
 
-  def current_home_object({:closure, _, %Bytecode.Function{need_home_object: false}}),
+  def current_home_object({:closure, _, %QuickBEAM.VM.Function{need_home_object: false}}),
     do: :undefined
 
   def current_home_object(current_func) do

@@ -342,8 +342,7 @@ defmodule QuickBEAM.VM.Builtin do
 
   # ── Runtime dispatch ──
 
-  alias QuickBEAM.VM.Bytecode
-  alias QuickBEAM.VM.JSThrow
+    alias QuickBEAM.VM.JSThrow
 
   @doc "Dispatches a VM callable value to its underlying Elixir callback."
   def call({:builtin, _, cb}, args, this), do: cb.(args, this)
@@ -360,9 +359,9 @@ defmodule QuickBEAM.VM.Builtin do
     do: JSThrow.type_error!("not a function")
 
   @doc "Returns whether a VM value can be called as a JavaScript function."
-  def callable?(%Bytecode.Function{}), do: true
+  def callable?(%QuickBEAM.VM.Function{}), do: true
 
-  def callable?({:closure, _, %Bytecode.Function{}}), do: true
+  def callable?({:closure, _, %QuickBEAM.VM.Function{}}), do: true
 
   def callable?({:builtin, _, _}), do: true
 

@@ -80,39 +80,39 @@ defmodule Bench.PreactVM do
     beam
   end
 
-  def find_function(%Bytecode{} = root, name) do
+  def find_function(%QuickBEAM.VM.Program{} = root, name) do
     cond do
       root.name == name ->
         root
 
       true ->
         Enum.find_value(root.cpool, fn
-          %Bytecode{} = inner -> find_function(inner, name)
+          %QuickBEAM.VM.Program{} = inner -> find_function(inner, name)
           _ -> nil
         end)
     end
   end
 
-  def find_vm_function(%QuickBEAM.VM.Bytecode.Function{} = root, pred) do
+  def find_vm_function(%QuickBEAM.VM.Function{} = root, pred) do
     cond do
       pred.(root) ->
         root
 
       true ->
         Enum.find_value(root.constants, fn
-          %QuickBEAM.VM.Bytecode.Function{} = inner -> find_vm_function(inner, pred)
+          %QuickBEAM.VM.Function{} = inner -> find_vm_function(inner, pred)
           _ -> nil
         end)
     end
   end
 
-  def opcode_histogram(%Bytecode{} = fun) do
+  def opcode_histogram(%QuickBEAM.VM.Program{} = fun) do
     fun.opcodes
     |> Enum.frequencies_by(&elem(&1, 1))
     |> Enum.sort_by(fn {_op, count} -> -count end)
   end
 
-  def opcode_histogram(%QuickBEAM.VM.Bytecode.Function{} = fun) do
+  def opcode_histogram(%QuickBEAM.VM.Function{} = fun) do
     {:ok, ops} = QuickBEAM.VM.Decoder.decode(fun.byte_code, fun.arg_count)
 
     ops
@@ -123,11 +123,11 @@ defmodule Bench.PreactVM do
   defp cache_function_atoms(parsed) do
     cache_fun =
       fn
-        %QuickBEAM.VM.Bytecode.Function{} = fun, atoms, recur ->
+        %QuickBEAM.VM.Function{} = fun, atoms, recur ->
           Process.put({:qb_fn_atoms, fun.byte_code}, atoms)
 
           Enum.each(fun.constants, fn
-            %QuickBEAM.VM.Bytecode.Function{} = inner -> recur.(inner, atoms, recur)
+            %QuickBEAM.VM.Function{} = inner -> recur.(inner, atoms, recur)
             _ -> :ok
           end)
 

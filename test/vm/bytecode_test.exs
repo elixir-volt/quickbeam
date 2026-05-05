@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.BytecodeTest do
   use ExUnit.Case, async: true
 
-  alias QuickBEAM.VM.Bytecode
+  alias QuickBEAM.VM.{Bytecode, Function}
 
   setup do
     {:ok, rt} = QuickBEAM.start()
@@ -31,7 +31,7 @@ defmodule QuickBEAM.VM.BytecodeTest do
     # For simple expressions, the top-level function IS the eval wrapper.
     # The actual code is in the top-level function itself.
     # For function expressions, the user function is in the cpool.
-    inner = for %Bytecode.Function{} = f <- fun.constants, do: f
+    inner = for %QuickBEAM.VM.Function{} = f <- fun.constants, do: f
 
     case inner do
       [first | _] -> first
@@ -48,7 +48,7 @@ defmodule QuickBEAM.VM.BytecodeTest do
 
     test "top-level is always a Function", %{rt: rt} do
       parsed = compile_and_decode(rt, "42")
-      assert is_struct(parsed.value, Bytecode.Function)
+      assert is_struct(parsed.value, Function)
     end
   end
 
@@ -56,7 +56,7 @@ defmodule QuickBEAM.VM.BytecodeTest do
     test "integer literal", %{rt: rt} do
       parsed = compile_and_decode(rt, "42")
       fun = parsed.value
-      assert is_struct(fun, Bytecode.Function)
+      assert is_struct(fun, Function)
       assert fun.arg_count == 0
       assert byte_size(fun.byte_code) > 0
     end
@@ -64,7 +64,7 @@ defmodule QuickBEAM.VM.BytecodeTest do
     test "string literal", %{rt: rt} do
       parsed = compile_and_decode(rt, ~s|"hello"|)
       fun = parsed.value
-      assert is_struct(fun, Bytecode.Function)
+      assert is_struct(fun, Function)
       # String literals are pushed by bytecode ops, not stored in cpool for simple cases
       assert fun.stack_size > 0
       assert byte_size(fun.byte_code) > 0
@@ -73,7 +73,7 @@ defmodule QuickBEAM.VM.BytecodeTest do
     test "boolean, null, undefined", %{rt: rt} do
       for code <- ["true", "null", "undefined"] do
         parsed = compile_and_decode(rt, code)
-        assert is_struct(parsed.value, Bytecode.Function)
+        assert is_struct(parsed.value, Function)
       end
     end
   end
@@ -102,7 +102,7 @@ defmodule QuickBEAM.VM.BytecodeTest do
     test "closure", %{rt: rt} do
       parsed = compile_and_decode(rt, "(function(){let x=1;return function(){return x}})")
       outer = user_function(parsed)
-      inner_funs = for %Bytecode.Function{} = f <- outer.constants, do: f
+      inner_funs = for %QuickBEAM.VM.Function{} = f <- outer.constants, do: f
       assert inner_funs != []
 
       inner = hd(inner_funs)
@@ -128,7 +128,7 @@ defmodule QuickBEAM.VM.BytecodeTest do
     test "array literal", %{rt: rt} do
       parsed = compile_and_decode(rt, "(function(){return [1,2,3]})")
       fun = user_function(parsed)
-      assert is_struct(fun, Bytecode.Function)
+      assert is_struct(fun, Function)
     end
   end
 
@@ -142,7 +142,7 @@ defmodule QuickBEAM.VM.BytecodeTest do
     test "try/catch", %{rt: rt} do
       parsed = compile_and_decode(rt, "(function(){try{throw 1}catch(e){return e}})")
       fun = user_function(parsed)
-      assert is_struct(fun, Bytecode.Function)
+      assert is_struct(fun, Function)
     end
 
     test "for/in", %{rt: rt} do
@@ -156,7 +156,7 @@ defmodule QuickBEAM.VM.BytecodeTest do
     test "arrow functions in map", %{rt: rt} do
       parsed = compile_and_decode(rt, "(function(){return [1,2,3].map(x=>x*2)})")
       fun = user_function(parsed)
-      inner_funs = for %Bytecode.Function{} = f <- fun.constants, do: f
+      inner_funs = for %QuickBEAM.VM.Function{} = f <- fun.constants, do: f
       assert inner_funs != []
     end
 
@@ -165,7 +165,7 @@ defmodule QuickBEAM.VM.BytecodeTest do
         compile_and_decode(rt, "(function(){class A{constructor(x){this.x=x}} return new A(1)})")
 
       fun = user_function(parsed)
-      assert is_struct(fun, Bytecode.Function)
+      assert is_struct(fun, Function)
     end
 
     test "destructuring", %{rt: rt} do

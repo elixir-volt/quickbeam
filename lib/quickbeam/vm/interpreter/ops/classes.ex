@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Classes do
   @doc "Installs the Class definition, method definition, brand, and private field opcodes helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
-      alias QuickBEAM.VM.{Bytecode, Heap, Names}
+      alias QuickBEAM.VM.{Heap, Names}
       alias QuickBEAM.VM.Interpreter.{Context, EvalEnv, Frame}
       alias QuickBEAM.VM.ObjectModel.{Class, Methods, Private}
 
@@ -24,7 +24,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Classes do
 
         ctor_closure =
           case ctor do
-            %Bytecode.Function{} = f ->
+            %QuickBEAM.VM.Function{} = f ->
               base = build_closure(f, locals, vrefs, l2v, ctx)
               inherit_parent_vrefs(base, vrefs)
 

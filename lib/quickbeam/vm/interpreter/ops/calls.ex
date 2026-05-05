@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
   @doc "Installs the Function creation, call, and constructor opcodes helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
-      alias QuickBEAM.VM.{Bytecode, Heap, Names}
+      alias QuickBEAM.VM.{Heap, Names}
       alias QuickBEAM.VM.Interpreter.{ClosureBuilder, Context, Frame, Values}
       alias QuickBEAM.VM.JSThrow
       alias QuickBEAM.VM.ObjectModel.{Class, Get}
@@ -84,13 +84,13 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
       defp construct_non_proxy(ctor, new_target, rev_args, gas, ctx) do
         raw_ctor =
           case ctor do
-            {:closure, _, %Bytecode.Function{} = f} ->
+            {:closure, _, %QuickBEAM.VM.Function{} = f} ->
               f
 
             {:bound, _, inner, _, _} ->
               inner
 
-            %Bytecode.Function{} = f ->
+            %QuickBEAM.VM.Function{} = f ->
               f
 
             {:builtin, _, cb} when is_function(cb) ->
@@ -116,7 +116,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
           end
 
         case raw_ctor do
-          %Bytecode.Function{func_kind: fk}
+          %QuickBEAM.VM.Function{func_kind: fk}
           when fk in [@func_generator, @func_async_generator] ->
             name = raw_ctor.name || "anonymous"
             JSThrow.type_error!("#{name} is not a constructor")
@@ -129,8 +129,8 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
 
         raw_new_target =
           case new_target do
-            {:closure, _, %Bytecode.Function{} = f} -> f
-            %Bytecode.Function{} = f -> f
+            {:closure, _, %QuickBEAM.VM.Function{} = f} -> f
+            %QuickBEAM.VM.Function{} = f -> f
             _ -> nil
           end
 
@@ -148,7 +148,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
 
         this_obj =
           case raw_ctor do
-            %Bytecode.Function{is_derived_class_constructor: true} ->
+            %QuickBEAM.VM.Function{is_derived_class_constructor: true} ->
               {:uninitialized, fresh_this}
 
             _ ->
@@ -159,7 +159,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
 
         result =
           case ctor do
-            %Bytecode.Function{} = f ->
+            %QuickBEAM.VM.Function{} = f ->
               do_invoke(
                 f,
                 {:closure, %{}, f},
@@ -169,7 +169,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
                 ctor_ctx
               )
 
-            {:closure, captured, %Bytecode.Function{} = f} ->
+            {:closure, captured, %QuickBEAM.VM.Function{} = f} ->
               do_invoke(
                 f,
                 {:closure, captured, f},
@@ -183,7 +183,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
               all_args = bound_args ++ rev_args
 
               case orig_fun do
-                %Bytecode.Function{} = f ->
+                %QuickBEAM.VM.Function{} = f ->
                   do_invoke(
                     f,
                     {:closure, %{}, f},
@@ -193,7 +193,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
                     ctor_ctx
                   )
 
-                {:closure, captured, %Bytecode.Function{} = f} ->
+                {:closure, captured, %QuickBEAM.VM.Function{} = f} ->
                   do_invoke(
                     f,
                     {:closure, captured, f},
@@ -272,8 +272,8 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
       defp run({@op_init_ctor, []}, pc, frame, stack, gas, %Context{arg_buf: arg_buf} = ctx) do
         raw =
           case ctx.current_func do
-            {:closure, _, %Bytecode.Function{} = f} -> f
-            %Bytecode.Function{} = f -> f
+            {:closure, _, %QuickBEAM.VM.Function{} = f} -> f
+            %QuickBEAM.VM.Function{} = f -> f
             other -> other
           end
 
@@ -294,7 +294,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
             nil ->
               pending_this
 
-            %Bytecode.Function{} = f ->
+            %QuickBEAM.VM.Function{} = f ->
               do_invoke(
                 f,
                 {:closure, %{}, f},
@@ -304,7 +304,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
                 parent_ctx
               )
 
-            {:closure, captured, %Bytecode.Function{} = f} ->
+            {:closure, captured, %QuickBEAM.VM.Function{} = f} ->
               do_invoke(
                 f,
                 {:closure, captured, f},

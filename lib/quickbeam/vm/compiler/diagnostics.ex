@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Diagnostics do
   @moduledoc "Introspection tools for compiler mode: capability checking, helper call analysis."
 
-  alias QuickBEAM.VM.{Bytecode, Decoder}
+  alias QuickBEAM.VM.{Decoder}
   alias QuickBEAM.VM.Compiler
   alias QuickBEAM.VM.Compiler.Analysis.CFG
 
@@ -10,7 +10,7 @@ defmodule QuickBEAM.VM.Compiler.Diagnostics do
   ]
 
   @doc "Check if a function can be compiled. Returns :ok or {:error, reasons}."
-  def check(%Bytecode.Function{} = fun) do
+  def check(%QuickBEAM.VM.Function{} = fun) do
     case Compiler.compile(fun) do
       {:ok, _} -> :ok
       {:error, _} = error -> error
@@ -20,7 +20,7 @@ defmodule QuickBEAM.VM.Compiler.Diagnostics do
   def check(_), do: {:error, :var_refs_not_supported}
 
   @doc "Explain why a function can/cannot be compiled, with details."
-  def explain(%Bytecode.Function{} = fun) do
+  def explain(%QuickBEAM.VM.Function{} = fun) do
     compile_result = Compiler.compile(fun)
 
     {compilable?, error} =
@@ -75,7 +75,7 @@ defmodule QuickBEAM.VM.Compiler.Diagnostics do
   - `:has_var_refs` — whether the function uses captured variable references
   - `:opcode_count` — total number of instructions
   """
-  def capabilities(%Bytecode.Function{} = fun) do
+  def capabilities(%QuickBEAM.VM.Function{} = fun) do
     case instructions(fun) do
       {:ok, instructions} ->
         unsupported =
@@ -116,7 +116,7 @@ defmodule QuickBEAM.VM.Compiler.Diagnostics do
     do: %{compilable?: false, unsupported_opcodes: [], has_var_refs: true, opcode_count: 0}
 
   @doc "Count helper calls in compiled output."
-  def helper_call_counts(%Bytecode.Function{} = fun) do
+  def helper_call_counts(%QuickBEAM.VM.Function{} = fun) do
     case Compiler.disasm(fun) do
       {:ok, beam_file} ->
         beam_file
@@ -145,10 +145,10 @@ defmodule QuickBEAM.VM.Compiler.Diagnostics do
     :with_get_ref
   ]
 
-  defp instructions(%Bytecode.Function{instructions: instructions}) when is_tuple(instructions),
+  defp instructions(%QuickBEAM.VM.Function{instructions: instructions}) when is_tuple(instructions),
     do: {:ok, Tuple.to_list(instructions)}
 
-  defp instructions(%Bytecode.Function{} = fun), do: Decoder.decode(fun.byte_code, fun.arg_count)
+  defp instructions(%QuickBEAM.VM.Function{} = fun), do: Decoder.decode(fun.byte_code, fun.arg_count)
 
   defp known_unsupported?(name), do: name == :invalid or name in @with_scope_opcodes
 end

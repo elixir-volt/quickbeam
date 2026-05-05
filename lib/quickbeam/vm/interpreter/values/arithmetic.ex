@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Arithmetic do
 
   import QuickBEAM.VM.Value, only: [is_object: 1]
 
-  alias QuickBEAM.VM.{Bytecode, Heap, JSThrow}
+  alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.Interpreter.Values.Coercion
 
   @doc "Applies JavaScript addition semantics including string concatenation and BigInt checks."
@@ -88,8 +88,8 @@ defmodule QuickBEAM.VM.Interpreter.Values.Arithmetic do
   def add(_, {:bigint, _}), do: throw_bigint_mix_error()
   def add({:closure, _, _} = a, b), do: add(Coercion.fn_to_primitive(a), b)
   def add(a, {:closure, _, _} = b), do: add(a, Coercion.fn_to_primitive(b))
-  def add(%Bytecode.Function{} = a, b), do: add(Coercion.fn_to_primitive(a), b)
-  def add(a, %Bytecode.Function{} = b), do: add(a, Coercion.fn_to_primitive(b))
+  def add(%QuickBEAM.VM.Function{} = a, b), do: add(Coercion.fn_to_primitive(a), b)
+  def add(a, %QuickBEAM.VM.Function{} = b), do: add(a, Coercion.fn_to_primitive(b))
   def add({:bound, _, _, _, _} = a, b), do: add(Coercion.fn_to_primitive(a), b)
   def add(a, {:bound, _, _, _, _} = b), do: add(a, Coercion.fn_to_primitive(b))
   def add({:builtin, _, _} = a, b), do: add(Coercion.fn_to_primitive(a), b)

@@ -2,7 +2,7 @@ defmodule QuickBEAM.JS.CompilerAudit do
   @moduledoc false
 
   alias QuickBEAM.JS.Compiler, as: JSCompiler
-  alias QuickBEAM.VM.{Bytecode, Heap, Interpreter}
+  alias QuickBEAM.VM.{Heap, Interpreter}
   alias QuickBEAM.VM.Compiler, as: VMCompiler
   alias QuickBEAM.VM.Heap.Arrays
 
@@ -266,9 +266,9 @@ defmodule QuickBEAM.JS.CompilerAudit do
   defp normalize(:infinity), do: :Infinity
   defp normalize({:js_throw, value}), do: {:js_throw, normalize(value)}
   defp normalize({:obj, ref}), do: normalize_heap_object(Heap.get_obj(ref))
-  defp normalize({:closure, _captures, %Bytecode.Function{}}), do: :function
+  defp normalize({:closure, _captures, %QuickBEAM.VM.Function{}}), do: :function
   defp normalize({:builtin, name, callback}) when is_function(callback), do: {:builtin, name}
-  defp normalize(%Bytecode.Function{}), do: :function
+  defp normalize(%QuickBEAM.VM.Function{}), do: :function
   defp normalize(%QuickBEAM.JSError{} = error), do: {:js_error, error.name, error.message}
   defp normalize(value) when is_list(value), do: {:array, Enum.map(value, &normalize/1)}
 

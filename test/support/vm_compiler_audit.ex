@@ -458,11 +458,11 @@ defmodule QuickBEAM.VM.CompilerAudit do
     :ok
   end
 
-  defp cache_function_atoms(%Bytecode.Function{} = fun, atoms) do
+  defp cache_function_atoms(%QuickBEAM.VM.Function{} = fun, atoms) do
     Heap.put_fn_atoms(fun, atoms)
 
     Enum.each(fun.constants, fn
-      %Bytecode.Function{} = inner -> cache_function_atoms(inner, atoms)
+      %QuickBEAM.VM.Function{} = inner -> cache_function_atoms(inner, atoms)
       _ -> :ok
     end)
   end
@@ -491,9 +491,9 @@ defmodule QuickBEAM.VM.CompilerAudit do
 
   defp normalize({:js_throw, value}), do: {:js_throw, normalize(value)}
   defp normalize({:obj, ref}), do: normalize_heap_object(Heap.get_obj(ref))
-  defp normalize({:closure, _captures, %Bytecode.Function{}}), do: :function
+  defp normalize({:closure, _captures, %QuickBEAM.VM.Function{}}), do: :function
   defp normalize({:builtin, name, callback}) when is_function(callback), do: {:builtin, name}
-  defp normalize(%Bytecode.Function{}), do: :function
+  defp normalize(%QuickBEAM.VM.Function{}), do: :function
   defp normalize(value), do: value
 
   defp normalize_heap_object({:qb_arr, _} = array),

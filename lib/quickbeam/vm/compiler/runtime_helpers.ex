@@ -591,7 +591,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def delete_property(_ctx, {:builtin, _name, _} = fun, key), do: Static.delete_static(fun, key)
   def delete_property(_ctx, {:closure, _, _} = fun, key), do: Static.delete_static(fun, key)
-  def delete_property(_ctx, %Bytecode.Function{} = fun, key), do: Static.delete_static(fun, key)
+  def delete_property(_ctx, %QuickBEAM.VM.Function{} = fun, key), do: Static.delete_static(fun, key)
   def delete_property(_ctx, obj, key), do: Delete.delete_property(obj, key)
 
   def set_proto(_ctx \\ nil, obj, proto)
@@ -649,8 +649,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
     raw =
       case current_func do
-        {:closure, _, %Bytecode.Function{} = f} -> f
-        %Bytecode.Function{} = f -> f
+        {:closure, _, %QuickBEAM.VM.Function{} = f} -> f
+        %QuickBEAM.VM.Function{} = f -> f
         other -> other
       end
 
@@ -671,7 +671,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
         nil ->
           pending_this
 
-        %Bytecode.Function{} = f ->
+        %QuickBEAM.VM.Function{} = f ->
           case Runner.invoke_constructor(
                  {:closure, %{}, f},
                  args,
@@ -691,7 +691,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
               )
           end
 
-        {:closure, _, %Bytecode.Function{}} = closure ->
+        {:closure, _, %QuickBEAM.VM.Function{}} = closure ->
           case Runner.invoke_constructor(
                  closure,
                  args,
@@ -745,7 +745,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def define_class(ctx, ctor, parent_ctor, atom_idx) do
     ctor_closure =
       case ctor do
-        %Bytecode.Function{} = fun -> {:closure, %{}, fun}
+        %QuickBEAM.VM.Function{} = fun -> {:closure, %{}, fun}
         other -> other
       end
 
@@ -759,7 +759,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def define_class(ctor, parent_ctor, atom_idx) do
     ctor_closure =
       case ctor do
-        %Bytecode.Function{} = fun -> {:closure, %{}, fun}
+        %QuickBEAM.VM.Function{} = fun -> {:closure, %{}, fun}
         other -> other
       end
 
@@ -988,8 +988,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   defp object_like?(value) when is_map(value), do: true
   defp object_like?(value) when is_list(value), do: true
   defp object_like?({:builtin, _, _}), do: true
-  defp object_like?(%Bytecode.Function{}), do: true
-  defp object_like?({:closure, _, %Bytecode.Function{}}), do: true
+  defp object_like?(%QuickBEAM.VM.Function{}), do: true
+  defp object_like?({:closure, _, %QuickBEAM.VM.Function{}}), do: true
   defp object_like?({:bound, _, _, _, _}), do: true
   defp object_like?(_), do: false
 
@@ -1045,10 +1045,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   defp compiled_stack(ctx) do
     case context_current_func(ctx) do
-      %Bytecode.Function{} = fun ->
+      %QuickBEAM.VM.Function{} = fun ->
         "    at #{fun.filename}:#{fun.line_num}:#{fun.col_num}"
 
-      {:closure, _captures, %Bytecode.Function{} = fun} ->
+      {:closure, _captures, %QuickBEAM.VM.Function{} = fun} ->
         "    at #{fun.filename}:#{fun.line_num}:#{fun.col_num}"
 
       _ ->
@@ -1058,13 +1058,13 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   defp compiled_stack(ctx, pc) do
     case context_current_func(ctx) do
-      %Bytecode.Function{} = fun -> stack_for_pc(fun, pc)
-      {:closure, _captures, %Bytecode.Function{} = fun} -> stack_for_pc(fun, pc)
+      %QuickBEAM.VM.Function{} = fun -> stack_for_pc(fun, pc)
+      {:closure, _captures, %QuickBEAM.VM.Function{} = fun} -> stack_for_pc(fun, pc)
       _ -> ""
     end
   end
 
-  defp stack_for_pc(%Bytecode.Function{} = fun, pc) do
+  defp stack_for_pc(%QuickBEAM.VM.Function{} = fun, pc) do
     {line, col} = Bytecode.source_position(fun, pc)
     "    at #{fun.filename}:#{line}:#{col}"
   end
@@ -1381,7 +1381,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   defp current_var_ref(ctx, idx) do
     case context_current_func(ctx) do
-      {:closure, captured, %Bytecode.Function{} = fun} ->
+      {:closure, captured, %QuickBEAM.VM.Function{} = fun} ->
         case capture_keys_tuple(fun) do
           keys when idx >= 0 and idx < tuple_size(keys) ->
             Map.get(captured, elem(keys, idx), :undefined)
@@ -1395,7 +1395,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
-  defp capture_keys_tuple(%Bytecode.Function{closure_vars: vars} = fun) do
+  defp capture_keys_tuple(%QuickBEAM.VM.Function{closure_vars: vars} = fun) do
     case Heap.get_capture_keys(fun) do
       nil ->
         tuple = vars |> Enum.map(&closure_capture_key/1) |> List.to_tuple()
@@ -1445,7 +1445,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   defp var_ref_name(ctx, idx) do
     case context_current_func(ctx) do
-      {:closure, _, %Bytecode.Function{closure_vars: vars}}
+      {:closure, _, %QuickBEAM.VM.Function{closure_vars: vars}}
       when idx >= 0 and idx < length(vars) ->
         vars
         |> Enum.at(idx)

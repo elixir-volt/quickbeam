@@ -9,14 +9,12 @@ defmodule QuickBEAM.VM.Bytecode.Writer do
 
   import Bitwise
 
-  alias QuickBEAM.VM.Bytecode
-  alias QuickBEAM.VM.Bytecode.{ClosureVar, Function, VarDef}
   alias QuickBEAM.VM.Opcodes
 
   @js_atom_end Opcodes.js_atom_end()
 
-  @spec encode(Bytecode.t()) :: {:ok, binary()} | {:error, term()}
-  def encode(%Bytecode{value: value}) do
+  @spec encode(QuickBEAM.VM.Program.t()) :: {:ok, binary()} | {:error, term()}
+  def encode(%QuickBEAM.VM.Program{value: value}) do
     with {:ok, atoms} <- collect_atoms(value),
          {:ok, payload} <- write_object(value, atoms) do
       body =
@@ -33,16 +31,16 @@ defmodule QuickBEAM.VM.Bytecode.Writer do
     {:ok, atoms}
   end
 
-  defp do_collect_atoms(%Function{} = function, acc) do
+  defp do_collect_atoms(%QuickBEAM.VM.Function{} = function, acc) do
     acc = collect_atom(function.name, acc)
     acc = collect_atom(function.filename, acc)
     acc = Enum.reduce(function.extra_atoms || [], acc, &collect_atom/2)
 
     acc =
-      Enum.reduce(function.locals, acc, fn %VarDef{name: name}, acc -> collect_atom(name, acc) end)
+      Enum.reduce(function.locals, acc, fn %QuickBEAM.VM.VarDef{name: name}, acc -> collect_atom(name, acc) end)
 
     acc =
-      Enum.reduce(function.closure_vars, acc, fn %ClosureVar{name: name}, acc ->
+      Enum.reduce(function.closure_vars, acc, fn %QuickBEAM.VM.ClosureVar{name: name}, acc ->
         collect_atom(name, acc)
       end)
 
@@ -123,10 +121,10 @@ defmodule QuickBEAM.VM.Bytecode.Writer do
     end
   end
 
-  defp write_object(%Function{} = function, atoms), do: write_function(function, atoms)
+  defp write_object(%QuickBEAM.VM.Function{} = function, atoms), do: write_function(function, atoms)
   defp write_object(value, _atoms), do: {:error, {:unsupported_value, value}}
 
-  defp write_function(%Function{} = function, atoms) do
+  defp write_function(%QuickBEAM.VM.Function{} = function, atoms) do
     with {:ok, constants} <- map_values(function.constants, &write_object(&1, atoms)) do
       flags = function_flags(function)
 
@@ -173,7 +171,7 @@ defmodule QuickBEAM.VM.Bytecode.Writer do
   defp set_flag(flags, bit, true), do: flags ||| 1 <<< bit
   defp set_flag(flags, _bit, _), do: flags
 
-  defp write_vardef(%VarDef{} = vardef, atoms) do
+  defp write_vardef(%QuickBEAM.VM.VarDef{} = vardef, atoms) do
     flags =
       (vardef.var_kind || 0)
       |> set_flag(4, vardef.is_const)
@@ -189,7 +187,7 @@ defmodule QuickBEAM.VM.Bytecode.Writer do
     ]
   end
 
-  defp write_closure_var(%ClosureVar{} = var, atoms) do
+  defp write_closure_var(%QuickBEAM.VM.ClosureVar{} = var, atoms) do
     flags =
       (var.closure_type || 0)
       |> set_flag(3, var.is_const)
@@ -199,9 +197,9 @@ defmodule QuickBEAM.VM.Bytecode.Writer do
     [write_atom(var.name, atoms), write_signed(var.var_idx || 0), write_signed(flags)]
   end
 
-  defp write_debug_info(%Function{has_debug_info: false}, _atoms), do: []
+  defp write_debug_info(%QuickBEAM.VM.Function{has_debug_info: false}, _atoms), do: []
 
-  defp write_debug_info(%Function{} = function, atoms) do
+  defp write_debug_info(%QuickBEAM.VM.Function{} = function, atoms) do
     [
       write_atom(function.filename, atoms),
       write_signed(function.line_num || 1),

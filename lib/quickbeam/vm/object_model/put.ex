@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Value, only: [is_symbol: 1]
 
-  alias QuickBEAM.VM.{Bytecode, Heap, Names, Runtime}
+  alias QuickBEAM.VM.{Heap, Names, Runtime}
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.JSThrow
@@ -176,9 +176,9 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
-  def put(%Bytecode.Function{} = f, key, val), do: Heap.put_ctor_static(f, key, val)
+  def put(%QuickBEAM.VM.Function{} = f, key, val), do: Heap.put_ctor_static(f, key, val)
 
-  def put({:closure, _, %Bytecode.Function{}} = c, key, val),
+  def put({:closure, _, %QuickBEAM.VM.Function{}} = c, key, val),
     do: Heap.put_ctor_static(c, key, val)
 
   def put({:builtin, _, _} = b, key, val), do: Heap.put_ctor_static(b, key, val)
@@ -342,9 +342,9 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
-  def put(%Bytecode.Function{} = f, key, val, _enumerable), do: Heap.put_ctor_static(f, key, val)
+  def put(%QuickBEAM.VM.Function{} = f, key, val, _enumerable), do: Heap.put_ctor_static(f, key, val)
 
-  def put({:closure, _, %Bytecode.Function{}} = c, key, val, _enumerable),
+  def put({:closure, _, %QuickBEAM.VM.Function{}} = c, key, val, _enumerable),
     do: Heap.put_ctor_static(c, key, val)
 
   def put({:builtin, _, _} = b, key, val, _enumerable), do: Heap.put_ctor_static(b, key, val)
@@ -741,11 +741,11 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
           {:obj, ref}
 
-        %Bytecode.Function{} = ctor ->
+        %QuickBEAM.VM.Function{} = ctor ->
           Heap.put_ctor_static(ctor, Names.normalize_property_key(idx), val)
           ctor
 
-        {:closure, _, %Bytecode.Function{}} = ctor ->
+        {:closure, _, %QuickBEAM.VM.Function{}} = ctor ->
           Heap.put_ctor_static(ctor, Names.normalize_property_key(idx), val)
           ctor
 

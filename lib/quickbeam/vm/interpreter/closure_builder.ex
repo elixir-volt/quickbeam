@@ -1,11 +1,11 @@
 defmodule QuickBEAM.VM.Interpreter.ClosureBuilder do
   @moduledoc "Closure construction: captures parent locals and var-refs into a `{:closure, captured, fun}` tuple."
 
-  alias QuickBEAM.VM.{Bytecode, Heap}
+  alias QuickBEAM.VM.{Heap}
   alias QuickBEAM.VM.Interpreter.Context
 
   @doc "Builds the runtime value represented by this module."
-  def build(%Bytecode.Function{} = fun, locals, vrefs, l2v, %Context{} = ctx) do
+  def build(%QuickBEAM.VM.Function{} = fun, locals, vrefs, l2v, %Context{} = ctx) do
     parent_arg_count = current_function_arg_count(ctx)
 
     captured =
@@ -19,7 +19,7 @@ defmodule QuickBEAM.VM.Interpreter.ClosureBuilder do
   def build(other, _locals, _vrefs, _l2v, _ctx), do: other
 
   @doc "Helper for closure construction: captures parent locals and var-refs into a `{:closure, captured, fun}` tuple."
-  def inherit_parent_vrefs({:closure, captured, %Bytecode.Function{} = fun}, parent_vrefs)
+  def inherit_parent_vrefs({:closure, captured, %QuickBEAM.VM.Function{} = fun}, parent_vrefs)
       when is_tuple(parent_vrefs) do
     extra =
       if tuple_size(parent_vrefs) == 0 do
@@ -38,7 +38,7 @@ defmodule QuickBEAM.VM.Interpreter.ClosureBuilder do
   def inherit_parent_vrefs(closure, _parent_vrefs), do: closure
 
   @doc "Helper for closure construction: captures parent locals and var-refs into a `{:closure, captured, fun}` tuple."
-  def ctor_var_refs(%Bytecode.Function{} = fun, captured \\ %{}) do
+  def ctor_var_refs(%QuickBEAM.VM.Function{} = fun, captured \\ %{}) do
     cell_ref = make_ref()
     Heap.put_cell(cell_ref, false)
 
@@ -99,10 +99,10 @@ defmodule QuickBEAM.VM.Interpreter.ClosureBuilder do
   end
 
   defp current_function_arg_count(%Context{
-         current_func: {:closure, _, %Bytecode.Function{arg_count: n}}
+         current_func: {:closure, _, %QuickBEAM.VM.Function{arg_count: n}}
        }),
        do: n
 
-  defp current_function_arg_count(%Context{current_func: %Bytecode.Function{arg_count: n}}), do: n
+  defp current_function_arg_count(%Context{current_func: %QuickBEAM.VM.Function{arg_count: n}}), do: n
   defp current_function_arg_count(%Context{arg_buf: arg_buf}), do: tuple_size(arg_buf)
 end

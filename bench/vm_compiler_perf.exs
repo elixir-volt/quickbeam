@@ -25,13 +25,13 @@ workload_specs = [
 prepare_function = fn rt, source ->
   {:ok, bytecode} = QuickBEAM.compile(rt, source)
   {:ok, parsed} = Bytecode.decode(bytecode)
-  fun = hd(for %Bytecode.Function{} = f <- parsed.value.constants, do: f)
+  fun = hd(for %QuickBEAM.VM.Function{} = f <- parsed.value.constants, do: f)
 
-  store_atoms = fn store_atoms, %Bytecode.Function{} = fun ->
+  store_atoms = fn store_atoms, %QuickBEAM.VM.Function{} = fun ->
     Process.put({:qb_fn_atoms, fun.byte_code}, parsed.atoms)
 
     Enum.each(fun.constants, fn
-      %Bytecode.Function{} = inner -> store_atoms.(store_atoms, inner)
+      %QuickBEAM.VM.Function{} = inner -> store_atoms.(store_atoms, inner)
       _ -> :ok
     end)
   end

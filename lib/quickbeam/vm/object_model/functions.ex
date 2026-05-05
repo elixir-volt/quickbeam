@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.ObjectModel.Functions do
   @moduledoc "Function object helpers for names, home objects, and super method dispatch metadata."
 
-  alias QuickBEAM.VM.{Bytecode, Heap, Names}
+  alias QuickBEAM.VM.{Heap, Names}
   alias QuickBEAM.VM.Heap.Caches
 
   @doc "Converts a JavaScript property name value into a function display name."
@@ -33,11 +33,18 @@ defmodule QuickBEAM.VM.ObjectModel.Functions do
   end
 
   @doc "Returns the stable cache key used for a function's home object."
-  def home_object_key({:closure, _, %Bytecode.Function{byte_code: byte_code}}), do: byte_code
-  def home_object_key(%Bytecode.Function{byte_code: byte_code}), do: byte_code
+  def home_object_key({:closure, _, %QuickBEAM.VM.Function{} = fun}), do: home_object_key(fun)
+
+  def home_object_key(%QuickBEAM.VM.Function{id: id}) when is_integer(id), do: {:function, id}
+
+  def home_object_key(%QuickBEAM.VM.Function{byte_code: byte_code})
+      when is_binary(byte_code) and byte_size(byte_code) > 0,
+      do: {:byte_code, byte_code}
+
+  def home_object_key(%QuickBEAM.VM.Function{} = fun), do: {:function, :erlang.phash2(fun)}
   def home_object_key(_), do: nil
 
-  defp needs_home_object?({:closure, _, %Bytecode.Function{need_home_object: true}}), do: true
-  defp needs_home_object?(%Bytecode.Function{need_home_object: true}), do: true
+  defp needs_home_object?({:closure, _, %QuickBEAM.VM.Function{need_home_object: true}}), do: true
+  defp needs_home_object?(%QuickBEAM.VM.Function{need_home_object: true}), do: true
   defp needs_home_object?(_), do: false
 end

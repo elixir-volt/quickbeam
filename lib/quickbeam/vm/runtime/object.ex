@@ -5,8 +5,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Value, only: [is_symbol: 1]
-  alias QuickBEAM.VM.Bytecode
-  alias QuickBEAM.VM.Heap
+    alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
@@ -128,9 +127,9 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp object_to_string({:symbol, _}), do: "[object Symbol]"
   defp object_to_string({:symbol, _, _}), do: "[object Symbol]"
   defp object_to_string({:regexp, _, _}), do: "[object RegExp]"
-  defp object_to_string(%Bytecode.Function{}), do: "[object Function]"
+  defp object_to_string(%QuickBEAM.VM.Function{}), do: "[object Function]"
 
-  defp object_to_string({tag, _, %Bytecode.Function{}}) when tag in [:closure, :bound],
+  defp object_to_string({tag, _, %QuickBEAM.VM.Function{}}) when tag in [:closure, :bound],
     do: "[object Function]"
 
   defp object_to_string({:builtin, _, _}), do: "[object Function]"
@@ -393,7 +392,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
           parent -> parent
         end
 
-      [%Bytecode.Function{} | _] ->
+      [%QuickBEAM.VM.Function{} | _] ->
         func_proto()
 
       [val | _] when is_function(val) ->
@@ -686,10 +685,10 @@ defmodule QuickBEAM.VM.Runtime.Object do
       {:builtin, _, callback} when is_function(callback) ->
         callback.(args, this)
 
-      %Bytecode.Function{} = function ->
+      %QuickBEAM.VM.Function{} = function ->
         Invocation.invoke_with_receiver(function, args, Runtime.gas_budget(), this)
 
-      {:closure, _, %Bytecode.Function{}} = closure ->
+      {:closure, _, %QuickBEAM.VM.Function{}} = closure ->
         Invocation.invoke_with_receiver(closure, args, Runtime.gas_budget(), this)
 
       _ ->
@@ -1134,12 +1133,12 @@ defmodule QuickBEAM.VM.Runtime.Object do
     {:early_return, val} -> val
   end
 
-  defp define_property([{tag, _, %Bytecode.Function{}} = fun, key, {:obj, desc_ref} | _])
+  defp define_property([{tag, _, %QuickBEAM.VM.Function{}} = fun, key, {:obj, desc_ref} | _])
        when tag == :closure do
     define_callable_property(fun, key, desc_ref)
   end
 
-  defp define_property([%Bytecode.Function{} = fun, key, {:obj, desc_ref} | _]) do
+  defp define_property([%QuickBEAM.VM.Function{} = fun, key, {:obj, desc_ref} | _]) do
     define_callable_property(fun, key, desc_ref)
   end
 

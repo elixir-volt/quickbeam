@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.Compiler do
 
   import QuickBEAM.VM.Heap.Keys, only: [promise_state: 0, promise_value: 0]
 
-  alias QuickBEAM.VM.{Bytecode, Decoder, Heap, PromiseState}
+  alias QuickBEAM.VM.{Decoder, Heap, PromiseState}
   alias QuickBEAM.VM.Compiler.{Forms, Lowering, Optimizer, Runner}
 
   @type compiled_fun :: {module(), atom()}
@@ -65,7 +65,7 @@ defmodule QuickBEAM.VM.Compiler do
   defp unwrap_resolved_promise(value, _depth), do: value
 
   @doc "Compiles a bytecode function for optimized execution."
-  def compile(%Bytecode.Function{} = fun) do
+  def compile(%QuickBEAM.VM.Function{} = fun) do
     atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
     module = module_name(fun, atoms)
     entry = ctx_entry_name()
@@ -88,7 +88,7 @@ defmodule QuickBEAM.VM.Compiler do
   def compile(_), do: {:error, :var_refs_not_supported}
 
   @doc "Returns a disassembly of bytecode for diagnostics."
-  def disasm(%Bytecode.Function{} = fun) do
+  def disasm(%QuickBEAM.VM.Function{} = fun) do
     case disasm_compiled(fun) do
       {:ok, _} = ok -> ok
       {:error, _} = error -> disasm_single_nested(fun.constants, error)
@@ -97,7 +97,7 @@ defmodule QuickBEAM.VM.Compiler do
 
   def disasm(_), do: {:error, :var_refs_not_supported}
 
-  defp disasm_compiled(%Bytecode.Function{} = fun) do
+  defp disasm_compiled(%QuickBEAM.VM.Function{} = fun) do
     with {:ok, _module, _entry, binary} <- compile_binary(fun),
          {:beam_file, _, _, _, _, _} = beam_file <- :beam_disasm.file(binary) do
       {:ok, beam_file}
@@ -108,13 +108,13 @@ defmodule QuickBEAM.VM.Compiler do
   end
 
   defp disasm_single_nested(constants, original_error) do
-    case Enum.filter(constants, &match?(%Bytecode.Function{}, &1)) do
-      [%Bytecode.Function{} = fun] -> disasm(fun)
+    case Enum.filter(constants, &match?(%QuickBEAM.VM.Function{}, &1)) do
+      [%QuickBEAM.VM.Function{} = fun] -> disasm(fun)
       _ -> original_error
     end
   end
 
-  defp compile_binary(%Bytecode.Function{} = fun) do
+  defp compile_binary(%QuickBEAM.VM.Function{} = fun) do
     atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
     module = module_name(fun, atoms)
     entry = entry_name()
@@ -142,10 +142,10 @@ defmodule QuickBEAM.VM.Compiler do
     end
   end
 
-  defp instructions(%Bytecode.Function{instructions: instructions}) when is_tuple(instructions),
+  defp instructions(%QuickBEAM.VM.Function{instructions: instructions}) when is_tuple(instructions),
     do: {:ok, Tuple.to_list(instructions)}
 
-  defp instructions(%Bytecode.Function{} = fun), do: Decoder.decode(fun.byte_code, fun.arg_count)
+  defp instructions(%QuickBEAM.VM.Function{} = fun), do: Decoder.decode(fun.byte_code, fun.arg_count)
 
   defp module_name(fun, atoms) do
     hash =

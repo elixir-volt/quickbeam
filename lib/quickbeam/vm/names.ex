@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Names do
   @moduledoc "Atom-pool resolution: maps bytecode constant indices to JS atom strings and resolves display names."
 
-  alias QuickBEAM.VM.{Bytecode, Heap, PredefinedAtoms}
+  alias QuickBEAM.VM.{Heap, PredefinedAtoms}
   alias QuickBEAM.VM.Interpreter.Context
   alias QuickBEAM.VM.Interpreter.Values
 
@@ -61,10 +61,10 @@ defmodule QuickBEAM.VM.Names do
   end
 
   @doc "Returns a function-like value with updated name metadata."
-  def rename_function({:closure, captured, %Bytecode.Function{} = fun}, name),
+  def rename_function({:closure, captured, %QuickBEAM.VM.Function{} = fun}, name),
     do: {:closure, captured, %{fun | name: name}}
 
-  def rename_function(%Bytecode.Function{} = fun, name), do: %{fun | name: name}
+  def rename_function(%QuickBEAM.VM.Function{} = fun, name), do: %{fun | name: name}
   def rename_function({:builtin, _, cb}, name), do: {:builtin, name, cb}
   def rename_function(other, _name), do: other
 

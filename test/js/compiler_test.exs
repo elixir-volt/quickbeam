@@ -246,14 +246,9 @@ defmodule QuickBEAM.JS.CompilerTest do
       assert_compiles_to("let a=[function(){return 4}]; a[0]()", 4)
     end
 
-    test "does not materialize binaries" do
-      assert {:error, {:unsupported, :binary_materialization_removed}} =
-               JSCompiler.compile_to_binary("function f(a){ return a + 1; } f(2)")
-    end
-
     test "keeps the new frontend compiler separate from the VM compiler" do
       assert {:ok, bytecode} = JSCompiler.compile("1 + 2")
-      assert %QuickBEAM.VM.Bytecode{} = bytecode
+      assert %QuickBEAM.VM.Program{} = bytecode
       assert {:ok, 3} = VMCompiler.invoke(bytecode.value, [])
     end
 

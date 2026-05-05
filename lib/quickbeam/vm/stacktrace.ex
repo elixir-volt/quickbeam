@@ -61,10 +61,10 @@ defmodule QuickBEAM.VM.Stacktrace do
     }
   end
 
-  defp bytecode_fun({:closure, _, %Bytecode.Function{} = fun}), do: fun
-  defp bytecode_fun(%Bytecode.Function{} = fun), do: fun
+  defp bytecode_fun({:closure, _, %QuickBEAM.VM.Function{} = fun}), do: fun
+  defp bytecode_fun(%QuickBEAM.VM.Function{} = fun), do: fun
 
-  defp function_name(%Bytecode.Function{name: name}) when is_binary(name) and name != "", do: name
+  defp function_name(%QuickBEAM.VM.Function{name: name}) when is_binary(name) and name != "", do: name
   defp function_name(_), do: nil
 
   defp prepare_stack_trace, do: error_static("prepareStackTrace", :undefined)

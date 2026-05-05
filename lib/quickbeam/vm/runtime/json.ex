@@ -5,8 +5,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
   import QuickBEAM.VM.Heap.Keys
 
-  alias QuickBEAM.VM.Bytecode
-  alias QuickBEAM.VM.Heap
+    alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.Get
   alias QuickBEAM.VM.Runtime
@@ -191,7 +190,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   defp to_json(nil), do: :null
   defp to_json(:undefined), do: :null
   defp to_json({:closure, _, _}), do: :undefined
-  defp to_json(%Bytecode.Function{}), do: :undefined
+  defp to_json(%QuickBEAM.VM.Function{}), do: :undefined
   defp to_json({:builtin, _, _}), do: :undefined
   defp to_json({:bound, _, _, _, _}), do: :undefined
   defp to_json(:nan), do: :null

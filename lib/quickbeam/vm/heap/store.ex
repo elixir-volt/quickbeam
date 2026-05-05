@@ -151,44 +151,51 @@ defmodule QuickBEAM.VM.Heap.Store do
 
   # ── Class metadata ──
 
-  def get_class_proto({:closure, _, raw} = ctor),
-    do: Process.get({:qb_class_proto, ctor}) || Process.get({:qb_class_proto, raw})
-
-  def get_class_proto(ctor), do: Process.get({:qb_class_proto, ctor})
+  def get_class_proto(ctor), do: Process.get({:qb_class_proto, ctor_key(ctor)})
   @doc "Stores the prototype object associated with a constructor."
-  def put_class_proto(ctor, proto), do: Process.put({:qb_class_proto, ctor}, proto)
+  def put_class_proto(ctor, proto), do: Process.put({:qb_class_proto, ctor_key(ctor)}, proto)
 
-  def get_parent_ctor({:closure, _, raw} = ctor),
-    do: Process.get({:qb_parent_ctor, ctor}) || Process.get({:qb_parent_ctor, raw})
-
-  def get_parent_ctor(ctor), do: Process.get({:qb_parent_ctor, ctor})
-  def put_parent_ctor(ctor, parent), do: Process.put({:qb_parent_ctor, ctor}, parent)
-  def delete_parent_ctor(ctor), do: Process.delete({:qb_parent_ctor, ctor})
+  def get_parent_ctor(ctor), do: Process.get({:qb_parent_ctor, ctor_key(ctor)})
+  def put_parent_ctor(ctor, parent), do: Process.put({:qb_parent_ctor, ctor_key(ctor)}, parent)
+  def delete_parent_ctor(ctor), do: Process.delete({:qb_parent_ctor, ctor_key(ctor)})
 
   @doc "Returns static properties associated with a constructor value."
-  def get_ctor_statics(ctor), do: Process.get({:qb_ctor_statics, ctor}, %{})
-  def put_ctor_statics(ctor, statics), do: Process.put({:qb_ctor_statics, ctor}, statics)
+  def get_ctor_statics(ctor), do: Process.get({:qb_ctor_statics, ctor_key(ctor)}, %{})
+
+  def put_ctor_statics(ctor, statics),
+    do: Process.put({:qb_ctor_statics, ctor_key(ctor)}, statics)
 
   def put_ctor_static({:closure, _, _} = ctor, "prototype", {:obj, _} = val) do
     statics = get_ctor_statics(ctor)
     put_ctor_statics(ctor, Map.put(statics, "prototype", val))
-    Process.put({:qb_class_proto, ctor}, val)
+    Process.put({:qb_class_proto, ctor_key(ctor)}, val)
   end
 
   def put_ctor_static(
-        %{__struct__: QuickBEAM.VM.Bytecode.Function} = ctor,
+        %{__struct__: QuickBEAM.VM.Function} = ctor,
         "prototype",
         {:obj, _} = val
       ) do
     statics = get_ctor_statics(ctor)
     put_ctor_statics(ctor, Map.put(statics, "prototype", val))
-    Process.put({:qb_class_proto, ctor}, val)
+    Process.put({:qb_class_proto, ctor_key(ctor)}, val)
   end
 
   def put_ctor_static(ctor, key, val) do
     statics = get_ctor_statics(ctor)
     put_ctor_statics(ctor, Map.put(statics, key, val))
   end
+
+  defp ctor_key({:closure, _captured, %QuickBEAM.VM.Function{} = fun}), do: ctor_key(fun)
+
+  defp ctor_key(%QuickBEAM.VM.Function{id: id}) when is_integer(id), do: {:function, id}
+
+  defp ctor_key(%QuickBEAM.VM.Function{byte_code: byte_code})
+       when is_binary(byte_code) and byte_size(byte_code) > 0,
+       do: {:byte_code, byte_code}
+
+  defp ctor_key(%QuickBEAM.VM.Function{} = fun), do: {:function, :erlang.phash2(fun)}
+  defp ctor_key(ctor), do: ctor
 
   @doc "Reads a process-local VM variable slot."
   def get_var(name), do: Process.get({:qb_var, name})

@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.Invocation do
 
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0, proxy_handler: 0, proxy_target: 0]
 
-  alias QuickBEAM.VM.{Builtin, Bytecode, Compiler, GlobalEnv, Heap, Runtime}
+  alias QuickBEAM.VM.{Builtin, Compiler, GlobalEnv, Heap, Runtime}
   alias QuickBEAM.VM.Compiler.Runner
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.Interpreter.Context
@@ -13,7 +13,7 @@ defmodule QuickBEAM.VM.Invocation do
   @doc "Invokes a JavaScript callable with positional arguments and a gas budget."
   def invoke(fun, args, gas \\ Runtime.gas_budget())
 
-  def invoke(%Bytecode.Function{} = fun, args, gas) do
+  def invoke(%QuickBEAM.VM.Function{} = fun, args, gas) do
     track_invoke_depth()
 
     result =
@@ -25,7 +25,7 @@ defmodule QuickBEAM.VM.Invocation do
     maybe_gc(result, [fun | args])
   end
 
-  def invoke({:closure, _, %Bytecode.Function{} = inner} = closure, args, gas) do
+  def invoke({:closure, _, %QuickBEAM.VM.Function{} = inner} = closure, args, gas) do
     track_invoke_depth()
 
     result =
@@ -89,10 +89,10 @@ defmodule QuickBEAM.VM.Invocation do
   @doc "Dispatches a callable to bytecode, closure, bound-function, or builtin execution."
   def dispatch(fun, args, gas, ctx, this) do
     case fun do
-      %Bytecode.Function{} = bytecode_fun ->
+      %QuickBEAM.VM.Function{} = bytecode_fun ->
         Interpreter.invoke_function_fallback(bytecode_fun, args, gas, ctx)
 
-      {:closure, _, %Bytecode.Function{}} = closure ->
+      {:closure, _, %QuickBEAM.VM.Function{}} = closure ->
         Interpreter.invoke_closure_fallback(closure, args, gas, ctx)
 
       {:bound, _, inner, _, _} ->
@@ -111,16 +111,16 @@ defmodule QuickBEAM.VM.Invocation do
     ctx = active_ctx()
 
     case fun do
-      {:closure, _, %Bytecode.Function{need_home_object: false}} = closure ->
+      {:closure, _, %QuickBEAM.VM.Function{need_home_object: false}} = closure ->
         case Runner.invoke(closure, args, ctx) do
           {:ok, value} -> value
           :error -> Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
         end
 
-      {:closure, _, %Bytecode.Function{}} = closure ->
+      {:closure, _, %QuickBEAM.VM.Function{}} = closure ->
         Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
 
-      %Bytecode.Function{} = bytecode_fun ->
+      %QuickBEAM.VM.Function{} = bytecode_fun ->
         case Runner.invoke(bytecode_fun, args, ctx) do
           {:ok, value} -> value
           :error -> Interpreter.invoke_function_fallback(bytecode_fun, args, ctx.gas, ctx)
@@ -139,10 +139,10 @@ defmodule QuickBEAM.VM.Invocation do
 
   def call_callback(ctx, fun, args) do
     case fun do
-      %Bytecode.Function{} = bytecode_fun ->
+      %QuickBEAM.VM.Function{} = bytecode_fun ->
         callback_invoke(bytecode_fun, args, ctx)
 
-      {:closure, _, %Bytecode.Function{}} = closure ->
+      {:closure, _, %QuickBEAM.VM.Function{}} = closure ->
         callback_invoke(closure, args, ctx)
 
       other ->
@@ -159,10 +159,10 @@ defmodule QuickBEAM.VM.Invocation do
 
   def invoke_callback(ctx, fun, args) do
     case fun do
-      %Bytecode.Function{} = bytecode_fun ->
+      %QuickBEAM.VM.Function{} = bytecode_fun ->
         callback_invoke(bytecode_fun, args, ctx, fn -> Builtin.arg(args, 0, :undefined) end)
 
-      {:closure, _, %Bytecode.Function{}} = closure ->
+      {:closure, _, %QuickBEAM.VM.Function{}} = closure ->
         callback_invoke(closure, args, ctx, fn -> Builtin.arg(args, 0, :undefined) end)
 
       _ ->
@@ -179,12 +179,13 @@ defmodule QuickBEAM.VM.Invocation do
 
   def invoke_runtime(
         %Context{} = ctx,
-        {:closure, _, %Bytecode.Function{need_home_object: false} = inner} = closure,
+        {:closure, _, %QuickBEAM.VM.Function{need_home_object: false} = inner} = closure,
         args
       ) do
     atoms = Heap.get_fn_atoms(inner, ctx.atoms)
 
-    key = {inner.byte_code, inner.arg_count, :erlang.phash2(inner), :erlang.phash2(atoms)}
+    key =
+      {function_code_key(inner), inner.arg_count, :erlang.phash2(inner), :erlang.phash2(atoms)}
 
     case Heap.get_compiled(key) do
       {:compiled, {mod, name}, atoms} ->
@@ -209,13 +210,13 @@ defmodule QuickBEAM.VM.Invocation do
 
   defp invoke_runtime_full(ctx, fun, args) do
     case fun do
-      %Bytecode.Function{} = bytecode_fun ->
+      %QuickBEAM.VM.Function{} = bytecode_fun ->
         case Runner.invoke(bytecode_fun, args, ctx) do
           {:ok, value} -> value
           :error -> Interpreter.invoke_function_fallback(bytecode_fun, args, ctx.gas, ctx)
         end
 
-      {:closure, _, %Bytecode.Function{} = inner} = closure ->
+      {:closure, _, %QuickBEAM.VM.Function{} = inner} = closure ->
         invoke_closure(closure, inner, args, ctx)
 
       {:bound, _, inner, _, _} ->
@@ -235,7 +236,7 @@ defmodule QuickBEAM.VM.Invocation do
 
   def invoke_method_runtime(ctx, fun, this_obj, args) do
     case fun do
-      %Bytecode.Function{} = bytecode_fun ->
+      %QuickBEAM.VM.Function{} = bytecode_fun ->
         if compiled_method_callable?(bytecode_fun, this_obj) do
           case Runner.invoke_with_receiver(bytecode_fun, args, this_obj, ctx) do
             {:ok, value} ->
@@ -258,7 +259,7 @@ defmodule QuickBEAM.VM.Invocation do
           )
         end
 
-      {:closure, _, %Bytecode.Function{} = inner} = closure ->
+      {:closure, _, %QuickBEAM.VM.Function{} = inner} = closure ->
         if compiled_method_callable?(inner, this_obj) do
           case Runner.invoke_with_receiver(closure, args, this_obj, ctx) do
             {:ok, value} ->
@@ -320,13 +321,13 @@ defmodule QuickBEAM.VM.Invocation do
           {:obj, _} = obj ->
             construct_proxy_runtime(ctx, obj, new_target, args)
 
-          %Bytecode.Function{} = fun ->
+          %QuickBEAM.VM.Function{} = fun ->
             case Runner.invoke_constructor(fun, args, this_obj, new_target, ctx) do
               {:ok, value} -> value
               :error -> invoke_constructor(fun, args, ctx.gas, this_obj, new_target)
             end
 
-          {:closure, _, %Bytecode.Function{}} = closure ->
+          {:closure, _, %QuickBEAM.VM.Function{}} = closure ->
             case Runner.invoke_constructor(closure, args, this_obj, new_target, ctx) do
               {:ok, value} ->
                 value
@@ -441,7 +442,13 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
-  defp invoke_receiver_target(%Bytecode.Function{} = fun, args, gas, this_obj) do
+  defp function_code_key(%QuickBEAM.VM.Function{instructions: instructions})
+       when is_tuple(instructions),
+       do: {:instructions, :erlang.phash2(instructions)}
+
+  defp function_code_key(%QuickBEAM.VM.Function{} = fun), do: {:byte_code, fun.byte_code}
+
+  defp invoke_receiver_target(%QuickBEAM.VM.Function{} = fun, args, gas, this_obj) do
     if compiled_method_callable?(fun, this_obj) do
       case Runner.invoke_with_receiver(fun, args, this_obj) do
         {:ok, value} -> value
@@ -453,7 +460,7 @@ defmodule QuickBEAM.VM.Invocation do
   end
 
   defp invoke_receiver_target(
-         {:closure, _, %Bytecode.Function{} = inner} = closure,
+         {:closure, _, %QuickBEAM.VM.Function{} = inner} = closure,
          args,
          gas,
          this_obj
@@ -473,7 +480,7 @@ defmodule QuickBEAM.VM.Invocation do
 
   defp callback_invoke(fun, args, ctx, on_throw \\ fn -> :undefined end)
 
-  defp callback_invoke(%Bytecode.Function{} = fun, args, ctx, on_throw) do
+  defp callback_invoke(%QuickBEAM.VM.Function{} = fun, args, ctx, on_throw) do
     try do
       case Runner.invoke(fun, args, ctx) do
         {:ok, value} -> value
@@ -484,7 +491,12 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
-  defp callback_invoke({:closure, _, %Bytecode.Function{} = inner} = closure, args, ctx, on_throw) do
+  defp callback_invoke(
+         {:closure, _, %QuickBEAM.VM.Function{} = inner} = closure,
+         args,
+         ctx,
+         on_throw
+       ) do
     try do
       invoke_closure(closure, inner, args, ctx)
     catch
@@ -492,7 +504,7 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
-  defp invoke_closure(closure, %Bytecode.Function{need_home_object: false}, args, ctx) do
+  defp invoke_closure(closure, %QuickBEAM.VM.Function{need_home_object: false}, args, ctx) do
     case Runner.invoke(closure, args, ctx) do
       {:ok, value} -> value
       :error -> Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
@@ -503,11 +515,11 @@ defmodule QuickBEAM.VM.Invocation do
     Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
   end
 
-  defp compiled_closure_callable?(%Bytecode.Function{need_home_object: false}), do: true
+  defp compiled_closure_callable?(%QuickBEAM.VM.Function{need_home_object: false}), do: true
   defp compiled_closure_callable?(_), do: false
 
   defp compiled_method_callable?(
-         %Bytecode.Function{need_home_object: false, func_kind: kind},
+         %QuickBEAM.VM.Function{need_home_object: false, func_kind: kind},
          {:obj, _}
        )
        when kind in [0, 2],
@@ -515,8 +527,8 @@ defmodule QuickBEAM.VM.Invocation do
 
   defp compiled_method_callable?(_, _), do: false
 
-  defp validate_constructor!(%Bytecode.Function{}), do: :ok
-  defp validate_constructor!({:closure, _, %Bytecode.Function{}}), do: :ok
+  defp validate_constructor!(%QuickBEAM.VM.Function{}), do: :ok
+  defp validate_constructor!({:closure, _, %QuickBEAM.VM.Function{}}), do: :ok
   defp validate_constructor!({:bound, _, _inner, _orig_fun, _bound_args}), do: :ok
   defp validate_constructor!({:builtin, _name, cb}) when is_function(cb, 2), do: :ok
   defp validate_constructor!({:obj, _}), do: :ok
@@ -531,12 +543,12 @@ defmodule QuickBEAM.VM.Invocation do
     )
   end
 
-  def unwrap_constructor_target({:closure, _, %Bytecode.Function{} = fun}), do: fun
+  def unwrap_constructor_target({:closure, _, %QuickBEAM.VM.Function{} = fun}), do: fun
   def unwrap_constructor_target({:bound, _, inner, _, _}), do: unwrap_constructor_target(inner)
   def unwrap_constructor_target(other), do: other
 
-  defp unwrap_new_target({:closure, _, %Bytecode.Function{} = fun}), do: fun
-  defp unwrap_new_target(%Bytecode.Function{} = fun), do: fun
+  defp unwrap_new_target({:closure, _, %QuickBEAM.VM.Function{} = fun}), do: fun
+  defp unwrap_new_target(%QuickBEAM.VM.Function{} = fun), do: fun
   defp unwrap_new_target(_), do: nil
 
   defp with_ctx(ctx, fun) do

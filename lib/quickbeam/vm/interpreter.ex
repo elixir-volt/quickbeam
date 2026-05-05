@@ -67,7 +67,7 @@ defmodule QuickBEAM.VM.Interpreter do
     - null:      `nil`
     - undefined: `:undefined`
     - object:    `{:obj, reference()}`
-    - function:  `%Bytecode.Function{}` | `{:closure, map(), %Bytecode.Function{}}`
+    - function:  `%QuickBEAM.VM.Function{}` | `{:closure, map(), %QuickBEAM.VM.Function{}}`
     - symbol:    `{:symbol, desc}` | `{:symbol, desc, ref}`
     - bigint:    `{:bigint, integer()}`
   """
@@ -87,22 +87,22 @@ defmodule QuickBEAM.VM.Interpreter do
   defp check_gas(_pc, frame, stack, gas, ctx),
     do: Gas.check(frame, stack, gas, ctx, @gc_check_interval)
 
-  @spec eval(Bytecode.Function.t()) :: {:ok, term()} | {:error, term()}
+  @spec eval(QuickBEAM.VM.Function.t()) :: {:ok, term()} | {:error, term()}
   @doc "Evaluates bytecode in the interpreter."
-  def eval(%Bytecode.Function{} = fun), do: eval(fun, [], %{})
+  def eval(%QuickBEAM.VM.Function{} = fun), do: eval(fun, [], %{})
 
-  @spec eval(Bytecode.Function.t(), [term()], map()) :: {:ok, term()} | {:error, term()}
-  def eval(%Bytecode.Function{} = fun, args, opts), do: eval(fun, args, opts, {})
+  @spec eval(QuickBEAM.VM.Function.t(), [term()], map()) :: {:ok, term()} | {:error, term()}
+  def eval(%QuickBEAM.VM.Function{} = fun, args, opts), do: eval(fun, args, opts, {})
 
-  @spec eval(Bytecode.Function.t(), [term()], map(), tuple()) :: {:ok, term()} | {:error, term()}
-  def eval(%Bytecode.Function{} = fun, args, opts, atoms) do
+  @spec eval(QuickBEAM.VM.Function.t(), [term()], map(), tuple()) :: {:ok, term()} | {:error, term()}
+  def eval(%QuickBEAM.VM.Function{} = fun, args, opts, atoms) do
     case eval_with_ctx(fun, args, opts, atoms) do
       {:ok, value, _ctx} -> {:ok, value}
       {:error, _} = err -> err
     end
   end
 
-  defp eval_with_ctx(%Bytecode.Function{} = fun, args, opts, atoms) do
+  defp eval_with_ctx(%QuickBEAM.VM.Function{} = fun, args, opts, atoms) do
     gas = Map.get(opts, :gas, Context.default_gas())
 
     ctx = Setup.build_eval_context(opts, atoms, gas)
@@ -216,7 +216,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp derived_this_uninitialized?(%Context{
          this: this,
-         current_func: {:closure, _, %Bytecode.Function{is_derived_class_constructor: true}}
+         current_func: {:closure, _, %QuickBEAM.VM.Function{is_derived_class_constructor: true}}
        })
        when this == :uninitialized or
               (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized),
@@ -224,7 +224,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp derived_this_uninitialized?(%Context{
          this: this,
-         current_func: %Bytecode.Function{is_derived_class_constructor: true}
+         current_func: %QuickBEAM.VM.Function{is_derived_class_constructor: true}
        })
        when this == :uninitialized or
               (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized),
@@ -233,13 +233,13 @@ defmodule QuickBEAM.VM.Interpreter do
   defp derived_this_uninitialized?(_), do: false
 
   defp current_var_ref_name(
-         %Context{current_func: {:closure, _, %Bytecode.Function{closure_vars: vars}}},
+         %Context{current_func: {:closure, _, %QuickBEAM.VM.Function{closure_vars: vars}}},
          idx
        )
        when idx >= 0 and idx < length(vars),
        do: vars |> Enum.at(idx) |> Map.get(:name) |> Names.resolve_display_name()
 
-  defp current_var_ref_name(%Context{current_func: %Bytecode.Function{closure_vars: vars}}, idx)
+  defp current_var_ref_name(%Context{current_func: %QuickBEAM.VM.Function{closure_vars: vars}}, idx)
        when idx >= 0 and idx < length(vars),
        do: vars |> Enum.at(idx) |> Map.get(:name) |> Names.resolve_display_name()
 
@@ -297,11 +297,11 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp current_strict_mode?(%{
-         current_func: {:closure, _, %Bytecode.Function{is_strict_mode: s}}
+         current_func: {:closure, _, %QuickBEAM.VM.Function{is_strict_mode: s}}
        }),
        do: s
 
-  defp current_strict_mode?(%{current_func: %Bytecode.Function{is_strict_mode: s}}), do: s
+  defp current_strict_mode?(%{current_func: %QuickBEAM.VM.Function{is_strict_mode: s}}), do: s
   defp current_strict_mode?(_), do: false
 
   defp maybe_refresh_error_stack({:obj, ref} = error) do
@@ -553,7 +553,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp captured_var_objects(_), do: []
 
-  defp collect_captured_globals({:closure, captured, %Bytecode.Function{closure_vars: cvs}}) do
+  defp collect_captured_globals({:closure, captured, %QuickBEAM.VM.Function{closure_vars: cvs}}) do
     Enum.reduce(cvs, %{}, fn cv, acc ->
       case Names.resolve_display_name(cv.name) do
         name when is_binary(name) ->
@@ -582,7 +582,7 @@ defmodule QuickBEAM.VM.Interpreter do
       if func_name && Map.has_key?(new_globals, func_name) do
         old_val =
           case ctx.current_func do
-            {:closure, _, %Bytecode.Function{} = f} -> Heap.get_parent_ctor(f)
+            {:closure, _, %QuickBEAM.VM.Function{} = f} -> Heap.get_parent_ctor(f)
             _ -> nil
           end
 
@@ -598,10 +598,10 @@ defmodule QuickBEAM.VM.Interpreter do
     l2v = elem(caller_frame, Frame.l2v())
 
     case ctx.current_func do
-      {:closure, _, %Bytecode.Function{locals: local_defs}} ->
+      {:closure, _, %QuickBEAM.VM.Function{locals: local_defs}} ->
         do_write_back(local_defs, vrefs, l2v, new_globals, ctx, original_globals, declared_names)
 
-      %Bytecode.Function{locals: local_defs} ->
+      %QuickBEAM.VM.Function{locals: local_defs} ->
         do_write_back(local_defs, vrefs, l2v, new_globals, ctx, original_globals, declared_names)
 
       _ ->
@@ -641,7 +641,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp write_back_captured_vars(
-         {:closure, captured, %Bytecode.Function{closure_vars: cvs}},
+         {:closure, captured, %QuickBEAM.VM.Function{closure_vars: cvs}},
          new_globals,
          original_globals,
          declared_names
@@ -662,7 +662,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp write_back_captured_vars(_, _, _, _), do: :ok
 
   defp apply_transient_captured_vars(
-         {:closure, captured, %Bytecode.Function{closure_vars: cvs}},
+         {:closure, captured, %QuickBEAM.VM.Function{closure_vars: cvs}},
          new_globals,
          declared_names
        ) do
@@ -696,7 +696,7 @@ defmodule QuickBEAM.VM.Interpreter do
     Heap.put_eval_restore_stack(keep)
   end
 
-  defp eval_declared_names(%Bytecode.Function{} = fun, atoms) do
+  defp eval_declared_names(%QuickBEAM.VM.Function{} = fun, atoms) do
     local_names =
       fun.locals
       |> Enum.map(&Names.resolve_display_name(&1.name))
@@ -772,10 +772,10 @@ defmodule QuickBEAM.VM.Interpreter do
     locals = elem(frame, Frame.locals())
 
     case ctx.current_func do
-      {:closure, _, %Bytecode.Function{locals: local_defs, arg_count: ac}} ->
+      {:closure, _, %QuickBEAM.VM.Function{locals: local_defs, arg_count: ac}} ->
         build_local_map(local_defs, ac, locals, ctx)
 
-      %Bytecode.Function{locals: local_defs, arg_count: ac} ->
+      %QuickBEAM.VM.Function{locals: local_defs, arg_count: ac} ->
         build_local_map(local_defs, ac, locals, ctx)
 
       _ ->
@@ -874,7 +874,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp template_constant_elements(value), do: [value]
 
   defp function_value?({:closure, _, _}), do: true
-  defp function_value?(%Bytecode.Function{}), do: true
+  defp function_value?(%QuickBEAM.VM.Function{}), do: true
   defp function_value?({:builtin, _, _}), do: true
   defp function_value?({:bound, _, _, _, _}), do: true
   defp function_value?(_), do: false
@@ -1012,7 +1012,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp callable?(fun) do
     is_function(fun) or match?({:fn, _, _}, fun) or match?({:bound, _, _}, fun) or
-      match?(%Bytecode.Function{}, fun) or match?({:closure, _, %Bytecode.Function{}}, fun)
+      match?(%QuickBEAM.VM.Function{}, fun) or match?({:closure, _, %QuickBEAM.VM.Function{}}, fun)
   end
 
   defp run_arg_update(pc, frame, stack, gas, %Context{arg_buf: arg_buf} = ctx, idx, val) do
@@ -1209,10 +1209,10 @@ defmodule QuickBEAM.VM.Interpreter do
 
     result =
       case fun do
-        %Bytecode.Function{} = f ->
+        %QuickBEAM.VM.Function{} = f ->
           do_invoke(f, {:closure, %{}, f}, args, ClosureBuilder.ctor_var_refs(f), gas, ctor_ctx)
 
-        {:closure, captured, %Bytecode.Function{} = f} ->
+        {:closure, captured, %QuickBEAM.VM.Function{} = f} ->
           do_invoke(
             f,
             {:closure, captured, f},
@@ -1249,7 +1249,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp super_constructor_this(fun, pending_this) do
     case Invocation.unwrap_constructor_target(fun) do
-      %Bytecode.Function{is_derived_class_constructor: true} -> {:uninitialized, pending_this}
+      %QuickBEAM.VM.Function{is_derived_class_constructor: true} -> {:uninitialized, pending_this}
       _ -> pending_this
     end
   end
@@ -1326,7 +1326,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   @doc "Invokes a bytecode function through the interpreter fallback path."
-  def invoke_function_fallback(%Bytecode.Function{} = fun, args, gas, ctx) do
+  def invoke_function_fallback(%QuickBEAM.VM.Function{} = fun, args, gas, ctx) do
     invoke_function(fun, args, gas, ctx)
   end
 
@@ -1338,18 +1338,18 @@ defmodule QuickBEAM.VM.Interpreter do
     do: Invocation.invoke(inner, args, gas)
 
   @doc "Invokes a closure through the interpreter fallback path."
-  def invoke_closure_fallback({:closure, _, %Bytecode.Function{}} = closure, args, gas, ctx) do
+  def invoke_closure_fallback({:closure, _, %QuickBEAM.VM.Function{}} = closure, args, gas, ctx) do
     invoke_closure(closure, args, gas, ctx)
   end
 
   def invoke_closure_fallback(other, args, gas, ctx),
     do: invoke_function_fallback(other, args, gas, ctx)
 
-  defp invoke_function(%Bytecode.Function{} = fun, args, gas, ctx) do
+  defp invoke_function(%QuickBEAM.VM.Function{} = fun, args, gas, ctx) do
     do_invoke(fun, {:closure, %{}, fun}, args, [], gas, ctx)
   end
 
-  defp invoke_closure({:closure, captured, %Bytecode.Function{} = fun} = self, args, gas, ctx) do
+  defp invoke_closure({:closure, captured, %QuickBEAM.VM.Function{} = fun} = self, args, gas, ctx) do
     var_refs =
       for cv <- fun.closure_vars do
         Map.get(captured, ClosureBuilder.capture_key(cv), :undefined)
@@ -1358,14 +1358,14 @@ defmodule QuickBEAM.VM.Interpreter do
     do_invoke(fun, self, args, var_refs, gas, ctx)
   end
 
-  defp function_instructions(%Bytecode.Function{instructions: instructions})
+  defp function_instructions(%QuickBEAM.VM.Function{instructions: instructions})
        when is_tuple(instructions),
        do: {:ok, Tuple.to_list(instructions)}
 
-  defp function_instructions(%Bytecode.Function{} = fun),
+  defp function_instructions(%QuickBEAM.VM.Function{} = fun),
     do: Decoder.decode(fun.byte_code, fun.arg_count)
 
-  defp do_invoke(%Bytecode.Function{} = fun, self_ref, args, var_refs, gas, ctx) do
+  defp do_invoke(%QuickBEAM.VM.Function{} = fun, self_ref, args, var_refs, gas, ctx) do
     Heap.put_ctx(ctx)
 
     insns =

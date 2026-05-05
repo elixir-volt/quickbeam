@@ -1,39 +1,39 @@
 defmodule QuickBEAM.VM.Compiler.Runner do
   @moduledoc "Compiled-function invocation: sets up call frames, handles `new`, generators, and tail-call dispatch."
 
-  alias QuickBEAM.VM.{Bytecode, GlobalEnv, Heap, PromiseState}
+  alias QuickBEAM.VM.{GlobalEnv, Heap, PromiseState}
   alias QuickBEAM.VM.Compiler
   alias QuickBEAM.VM.Compiler.GeneratorIterator
   alias QuickBEAM.VM.Interpreter.Context
   alias QuickBEAM.VM.ObjectModel.{Class, Functions}
 
   @doc "Invokes the runtime object represented by this module."
-  def invoke(%Bytecode.Function{} = fun, args), do: invoke(fun, args, nil)
-  def invoke({:closure, _, %Bytecode.Function{}} = closure, args), do: invoke(closure, args, nil)
+  def invoke(%QuickBEAM.VM.Function{} = fun, args), do: invoke(fun, args, nil)
+  def invoke({:closure, _, %QuickBEAM.VM.Function{}} = closure, args), do: invoke(closure, args, nil)
   def invoke(_, _), do: :error
 
-  def invoke(%Bytecode.Function{} = fun, args, base_ctx),
+  def invoke(%QuickBEAM.VM.Function{} = fun, args, base_ctx),
     do: invoke_target(fun, fun, args, %{}, base_ctx)
 
-  def invoke({:closure, _, %Bytecode.Function{} = fun} = closure, args, base_ctx),
+  def invoke({:closure, _, %QuickBEAM.VM.Function{} = fun} = closure, args, base_ctx),
     do: invoke_target(closure, fun, args, %{}, base_ctx)
 
   def invoke(_, _, _), do: :error
 
   @doc "Helper for compiled-function invocation: sets up call frames, handles `new`, generators, and tail-call dispatch."
-  def invoke_with_receiver(%Bytecode.Function{} = fun, args, this_obj),
+  def invoke_with_receiver(%QuickBEAM.VM.Function{} = fun, args, this_obj),
     do: invoke_with_receiver(fun, args, this_obj, nil)
 
-  def invoke_with_receiver({:closure, _, %Bytecode.Function{}} = closure, args, this_obj),
+  def invoke_with_receiver({:closure, _, %QuickBEAM.VM.Function{}} = closure, args, this_obj),
     do: invoke_with_receiver(closure, args, this_obj, nil)
 
   def invoke_with_receiver(_, _, _), do: :error
 
-  def invoke_with_receiver(%Bytecode.Function{} = fun, args, this_obj, base_ctx),
+  def invoke_with_receiver(%QuickBEAM.VM.Function{} = fun, args, this_obj, base_ctx),
     do: invoke_target(fun, fun, args, %{this: this_obj}, base_ctx)
 
   def invoke_with_receiver(
-        {:closure, _, %Bytecode.Function{} = fun} = closure,
+        {:closure, _, %QuickBEAM.VM.Function{} = fun} = closure,
         args,
         this_obj,
         base_ctx
@@ -43,11 +43,11 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   def invoke_with_receiver(_, _, _, _), do: :error
 
   @doc "Helper for compiled-function invocation: sets up call frames, handles `new`, generators, and tail-call dispatch."
-  def invoke_constructor(%Bytecode.Function{} = fun, args, this_obj, new_target),
+  def invoke_constructor(%QuickBEAM.VM.Function{} = fun, args, this_obj, new_target),
     do: invoke_constructor(fun, args, this_obj, new_target, nil)
 
   def invoke_constructor(
-        {:closure, _, %Bytecode.Function{}} = closure,
+        {:closure, _, %QuickBEAM.VM.Function{}} = closure,
         args,
         this_obj,
         new_target
@@ -56,11 +56,11 @@ defmodule QuickBEAM.VM.Compiler.Runner do
 
   def invoke_constructor(_, _, _, _), do: :error
 
-  def invoke_constructor(%Bytecode.Function{} = fun, args, this_obj, new_target, base_ctx),
+  def invoke_constructor(%QuickBEAM.VM.Function{} = fun, args, this_obj, new_target, base_ctx),
     do: invoke_target(fun, fun, args, %{this: this_obj, new_target: new_target}, base_ctx)
 
   def invoke_constructor(
-        {:closure, _, %Bytecode.Function{} = fun} = closure,
+        {:closure, _, %QuickBEAM.VM.Function{} = fun} = closure,
         args,
         this_obj,
         new_target,
@@ -70,7 +70,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
 
   def invoke_constructor(_, _, _, _, _), do: :error
 
-  defp invoke_target(current_func, %Bytecode.Function{} = fun, args, ctx_overrides, base_ctx) do
+  defp invoke_target(current_func, %QuickBEAM.VM.Function{} = fun, args, ctx_overrides, base_ctx) do
     atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
     key = {function_code_key(fun), fun.arg_count, :erlang.phash2(fun), :erlang.phash2(atoms)}
     normalized_args = normalize_args(args, fun.arg_count)
@@ -119,17 +119,17 @@ defmodule QuickBEAM.VM.Compiler.Runner do
     end
   end
 
-  defp invoke_compiled(%Bytecode.Function{func_kind: 1}, compiled, ctx, args) do
+  defp invoke_compiled(%QuickBEAM.VM.Function{func_kind: 1}, compiled, ctx, args) do
     # Generator: wrap in yield/suspend protocol
     compiled_gen_invoke(compiled, ctx, args)
   end
 
-  defp invoke_compiled(%Bytecode.Function{func_kind: 2}, compiled, ctx, args) do
+  defp invoke_compiled(%QuickBEAM.VM.Function{func_kind: 2}, compiled, ctx, args) do
     # Async: wrap in promise
     compiled_async_invoke(compiled, ctx, args)
   end
 
-  defp invoke_compiled(%Bytecode.Function{func_kind: 3}, compiled, ctx, args) do
+  defp invoke_compiled(%QuickBEAM.VM.Function{func_kind: 3}, compiled, ctx, args) do
     # Async generator
     compiled_async_gen_invoke(compiled, ctx, args)
   end
@@ -313,10 +313,10 @@ defmodule QuickBEAM.VM.Compiler.Runner do
 
   defp trace_enabled(%Context{} = ctx), do: ctx.trace_enabled
 
-  defp home_object_and_super(%Bytecode.Function{need_home_object: false}),
+  defp home_object_and_super(%QuickBEAM.VM.Function{need_home_object: false}),
     do: {:undefined, :undefined}
 
-  defp home_object_and_super({:closure, _, %Bytecode.Function{need_home_object: false}}),
+  defp home_object_and_super({:closure, _, %QuickBEAM.VM.Function{need_home_object: false}}),
     do: {:undefined, :undefined}
 
   defp home_object_and_super(current_func) do
@@ -328,11 +328,11 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   defp current_super(nil), do: :undefined
   defp current_super(home_object), do: Class.get_super(home_object)
 
-  defp function_code_key(%Bytecode.Function{instructions: instructions})
+  defp function_code_key(%QuickBEAM.VM.Function{instructions: instructions})
        when is_tuple(instructions),
        do: {:instructions, :erlang.phash2(instructions)}
 
-  defp function_code_key(%Bytecode.Function{} = fun), do: {:byte_code, fun.byte_code}
+  defp function_code_key(%QuickBEAM.VM.Function{} = fun), do: {:byte_code, fun.byte_code}
 
   @doc "Normalizes call arguments to the arity expected by compiled code."
   def normalize_args(_args, 0), do: []

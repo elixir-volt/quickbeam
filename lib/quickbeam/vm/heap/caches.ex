@@ -1,8 +1,6 @@
 defmodule QuickBEAM.VM.Heap.Caches do
   @moduledoc "Process-local caches for decoded bytecode, prototypes, transient call state, and runtime metadata."
 
-  alias QuickBEAM.VM.Bytecode
-
   # ── Bytecode caches ──
 
   @doc "Returns cached decoded instructions for a bytecode binary."
@@ -17,44 +15,35 @@ defmodule QuickBEAM.VM.Heap.Caches do
 
   def get_fn_atoms(function_or_byte_code, default \\ nil)
 
-  def get_fn_atoms(%Bytecode.Function{atoms: atoms}, _default) when not is_nil(atoms), do: atoms
+  def get_fn_atoms(%QuickBEAM.VM.Function{atoms: atoms}, _default) when not is_nil(atoms), do: atoms
 
-  def get_fn_atoms(%Bytecode.Function{} = fun, default) do
-    Process.get({:qb_fn_atoms, function_atom_key(fun)}, bytecode_atoms(fun, default))
+  def get_fn_atoms(%QuickBEAM.VM.Function{} = fun, default) do
+    Process.get({:qb_fn_atoms, function_atom_key(fun)}, default)
   end
 
   def get_fn_atoms(byte_code, default), do: Process.get({:qb_fn_atoms, byte_code}, default)
 
   @doc "Caches the atom table for a bytecode function."
-  def put_fn_atoms(%Bytecode.Function{} = fun, atoms) do
+  def put_fn_atoms(%QuickBEAM.VM.Function{} = fun, atoms) do
     Process.put({:qb_fn_atoms, function_atom_key(fun)}, atoms)
 
-    if is_binary(fun.byte_code) and byte_size(fun.byte_code) > 0 do
-      Process.put({:qb_fn_atoms, fun.byte_code}, atoms)
-    end
   end
 
   def put_fn_atoms(byte_code, atoms), do: Process.put({:qb_fn_atoms, byte_code}, atoms)
 
-  defp function_atom_key(%Bytecode.Function{instructions: instructions} = fun)
+  defp function_atom_key(%QuickBEAM.VM.Function{instructions: instructions} = fun)
        when is_tuple(instructions),
        do: {:instructions, :erlang.phash2(instructions), fun.arg_count, :erlang.phash2(fun)}
 
-  defp function_atom_key(%Bytecode.Function{} = fun),
-    do: {:byte_code, fun.byte_code, fun.arg_count, :erlang.phash2(fun)}
+  defp function_atom_key(%QuickBEAM.VM.Function{} = fun),
+    do: {:function, fun.arg_count, :erlang.phash2(fun)}
 
-  defp bytecode_atoms(%Bytecode.Function{byte_code: byte_code}, default)
-       when is_binary(byte_code) and byte_size(byte_code) > 0,
-       do: get_fn_atoms(byte_code, default)
-
-  defp bytecode_atoms(%Bytecode.Function{}, default), do: default
-
-  def get_capture_keys(%Bytecode.Function{} = fun),
-    do: Process.get({:qb_capture_keys, function_atom_key(fun)}, get_capture_keys(fun.byte_code))
+  def get_capture_keys(%QuickBEAM.VM.Function{} = fun),
+    do: Process.get({:qb_capture_keys, function_atom_key(fun)})
 
   def get_capture_keys(byte_code), do: Process.get({:qb_capture_keys, byte_code})
 
-  def put_capture_keys(%Bytecode.Function{} = fun, tuple),
+  def put_capture_keys(%QuickBEAM.VM.Function{} = fun, tuple),
     do: Process.put({:qb_capture_keys, function_atom_key(fun)}, tuple)
 
   def put_capture_keys(byte_code, tuple), do: Process.put({:qb_capture_keys, byte_code}, tuple)

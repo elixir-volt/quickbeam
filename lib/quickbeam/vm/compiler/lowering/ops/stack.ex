@@ -1,8 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
   @moduledoc "Stack manipulation opcodes: push constants, dup, drop, swap, rot, perm, insert, nip, nop."
 
-  alias QuickBEAM.VM.Bytecode
-  alias QuickBEAM.VM.Compiler.Analysis.Types, as: AnalysisTypes
+    alias QuickBEAM.VM.Compiler.Analysis.Types, as: AnalysisTypes
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Captures, State}
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
 
@@ -174,10 +173,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
         {:ok,
          State.push(state, Builder.tuple_expr([Builder.atom(:bigint), Builder.integer(value)]))}
 
-      %Bytecode.Function{} = fun when fun.closure_vars == [] ->
+      %QuickBEAM.VM.Function{} = fun when fun.closure_vars == [] ->
         {:ok, State.push(state, Builder.literal(fun), AnalysisTypes.function_type(fun))}
 
-      %Bytecode.Function{} ->
+      %QuickBEAM.VM.Function{} ->
         lower_fclosure(state, constants, arg_count, idx)
 
       {:template_object, _elems, _raw} = value ->
@@ -195,10 +194,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
 
   defp lower_fclosure(state, constants, arg_count, const_idx) do
     case Enum.at(constants, const_idx) do
-      %Bytecode.Function{closure_vars: []} = fun ->
+      %QuickBEAM.VM.Function{closure_vars: []} = fun ->
         {:ok, State.push(state, Builder.literal(fun), AnalysisTypes.function_type(fun))}
 
-      %Bytecode.Function{} = fun ->
+      %QuickBEAM.VM.Function{} = fun ->
         with {:ok, state, entries} <-
                lower_closure_entries(state, arg_count, fun.closure_vars, []) do
           closure =

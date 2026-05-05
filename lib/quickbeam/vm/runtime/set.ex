@@ -4,8 +4,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
   import QuickBEAM.VM.Heap.Keys
   use QuickBEAM.VM.Builtin
 
-  alias QuickBEAM.VM.Bytecode
-  alias QuickBEAM.VM.Heap
+    alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.Get
@@ -274,10 +273,10 @@ defmodule QuickBEAM.VM.Runtime.Set do
       {:builtin, _, callback} when is_function(callback) ->
         callback.(args, this)
 
-      %Bytecode.Function{} = function ->
+      %QuickBEAM.VM.Function{} = function ->
         Interpreter.invoke_with_receiver(function, args, Runtime.gas_budget(), this)
 
-      {:closure, _, %Bytecode.Function{}} = closure ->
+      {:closure, _, %QuickBEAM.VM.Function{}} = closure ->
         Interpreter.invoke_with_receiver(closure, args, Runtime.gas_budget(), this)
 
       _ ->

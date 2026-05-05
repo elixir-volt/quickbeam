@@ -19,11 +19,11 @@ defmodule QuickBEAM.JS.Compiler do
 
   alias QuickBEAM.JS.Parser
   alias QuickBEAM.JS.Parser.AST
-  alias QuickBEAM.VM.Bytecode
+  alias QuickBEAM.VM.Program
 
   @type compile_error :: {:unsupported, term()} | {:parse_error, term()}
 
-  @spec compile(binary() | struct()) :: {:ok, Bytecode.t()} | {:error, compile_error()}
+  @spec compile(binary() | struct()) :: {:ok, Program.t()} | {:error, compile_error()}
   def compile(source) when is_binary(source) do
     with {:ok, ast} <- parse(source), do: compile(ast)
   end
@@ -33,7 +33,7 @@ defmodule QuickBEAM.JS.Compiler do
       atoms = FunctionBuilder.collect_atoms(fun)
 
       {:ok,
-       %Bytecode{
+       %Program{
          version: QuickBEAM.VM.Opcodes.bc_version(),
          atoms: atoms,
          value: FunctionBuilder.attach_atoms(fun, atoms)
@@ -44,11 +44,8 @@ defmodule QuickBEAM.JS.Compiler do
   def compile(%AST.Program{source_type: source_type}),
     do: {:error, {:unsupported, {:source_type, source_type}}}
 
-  def compile_to_binary(_source),
-    do: {:error, {:unsupported, :binary_materialization_removed}}
-
   def compile_to_function(source) do
-    with {:ok, %Bytecode{value: value}} <- compile(source), do: {:ok, value}
+    with {:ok, %Program{value: value}} <- compile(source), do: {:ok, value}
   end
 
   defp parse(source) do
@@ -182,7 +179,7 @@ defmodule QuickBEAM.JS.Compiler do
           |> Enum.map(fn {vn, _idx} ->
             ploc = Enum.at(locs, Map.get(priv_refs, vn, 0))
 
-            %QuickBEAM.VM.Bytecode.ClosureVar{
+            %QuickBEAM.VM.ClosureVar{
               name: vn,
               var_idx: ploc,
               closure_type: 0,

@@ -56,7 +56,7 @@ defmodule QuickBEAM.VM.Heap.GC do
   end
 
   defp mark(
-         [{:closure, captured, %QuickBEAM.VM.Bytecode.Function{} = fun} = closure | rest],
+         [{:closure, captured, %QuickBEAM.VM.Function{} = fun} = closure | rest],
          visited
        ) do
     related = [
@@ -77,7 +77,7 @@ defmodule QuickBEAM.VM.Heap.GC do
     mark(related ++ statics ++ rest, visited)
   end
 
-  defp mark([%QuickBEAM.VM.Bytecode.Function{} = fun | rest], visited) do
+  defp mark([%QuickBEAM.VM.Function{} = fun | rest], visited) do
     related = [Store.get_class_proto(fun), Store.get_parent_ctor(fun)]
     statics = Map.values(Store.get_ctor_statics(fun))
     mark(Map.values(Map.from_struct(fun)) ++ related ++ statics ++ rest, visited)

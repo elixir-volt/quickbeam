@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Interpreter.EvalEnv do
   @moduledoc "Eval-time environment utilities: local name resolution, class binding seeding, and `this` context helpers."
 
-  alias QuickBEAM.VM.{Bytecode, Names}
+  alias QuickBEAM.VM.{Names}
   alias QuickBEAM.VM.Interpreter.{Closures, Context, Frame}
 
   require Frame
@@ -31,21 +31,21 @@ defmodule QuickBEAM.VM.Interpreter.EvalEnv do
   @doc "Returns the active func name for eval-time environment utilities: local name resolution, class binding seeding, and `this` context helpers."
   def current_func_name(%Context{current_func: func}) do
     case func do
-      {:closure, _, %Bytecode.Function{name: name}} -> name
-      %Bytecode.Function{name: name} -> name
+      {:closure, _, %QuickBEAM.VM.Function{name: name}} -> name
+      %QuickBEAM.VM.Function{name: name} -> name
       _ -> nil
     end
   end
 
   @doc "Returns the active local name for eval-time environment utilities: local name resolution, class binding seeding, and `this` context helpers."
   def current_local_name(
-        %Context{current_func: {:closure, _, %Bytecode.Function{locals: locals}}},
+        %Context{current_func: {:closure, _, %QuickBEAM.VM.Function{locals: locals}}},
         idx
       )
       when idx >= 0 and idx < length(locals),
       do: locals |> Enum.at(idx) |> Map.get(:name) |> resolve_local_name()
 
-  def current_local_name(%Context{current_func: %Bytecode.Function{locals: locals}}, idx)
+  def current_local_name(%Context{current_func: %QuickBEAM.VM.Function{locals: locals}}, idx)
       when idx >= 0 and idx < length(locals),
       do: locals |> Enum.at(idx) |> Map.get(:name) |> resolve_local_name()
 
@@ -57,7 +57,7 @@ defmodule QuickBEAM.VM.Interpreter.EvalEnv do
     current_func
     |> current_bytecode_function()
     |> case do
-      %Bytecode.Function{locals: locals} ->
+      %QuickBEAM.VM.Function{locals: locals} ->
         locals
         |> Enum.with_index()
         |> Enum.filter(fn {%{name: name, scope_level: scope_level, is_lexical: is_lexical}, _idx} ->
@@ -76,8 +76,8 @@ defmodule QuickBEAM.VM.Interpreter.EvalEnv do
 
   defp class_binding_local_index(_, _), do: nil
 
-  defp current_bytecode_function({:closure, _, %Bytecode.Function{} = fun}), do: fun
-  defp current_bytecode_function(%Bytecode.Function{} = fun), do: fun
+  defp current_bytecode_function({:closure, _, %QuickBEAM.VM.Function{} = fun}), do: fun
+  defp current_bytecode_function(%QuickBEAM.VM.Function{} = fun), do: fun
   defp current_bytecode_function(_), do: nil
 
   defp put_local(frame, idx, val),

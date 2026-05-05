@@ -1097,7 +1097,7 @@ defmodule QuickBEAM.JS.Compiler.Statements do
         closure_vars =
           Enum.zip(private_names, private_locs)
           |> Enum.map(fn {pn, ploc} ->
-            %QuickBEAM.VM.Bytecode.ClosureVar{
+            %QuickBEAM.VM.ClosureVar{
               name: "##{pn}",
               var_idx: ploc,
               closure_type: 0,

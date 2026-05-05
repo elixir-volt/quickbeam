@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Value, only: [is_object: 1]
 
-  alias QuickBEAM.VM.{Bytecode, Heap, Invocation, Runtime}
+  alias QuickBEAM.VM.{Heap, Invocation, Runtime}
   alias QuickBEAM.VM.ObjectModel.Get
 
   @doc "Coerces a VM value using JavaScript ToNumber semantics."
@@ -43,7 +43,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
       )
 
   def to_number({:closure, _, _} = f), do: to_number(fn_to_primitive(f))
-  def to_number(%Bytecode.Function{} = f), do: to_number(fn_to_primitive(f))
+  def to_number(%QuickBEAM.VM.Function{} = f), do: to_number(fn_to_primitive(f))
   def to_number({:bound, _, _, _, _} = f), do: to_number(fn_to_primitive(f))
   def to_number({:builtin, _, _} = f), do: to_number(fn_to_primitive(f))
   def to_number(_), do: :nan
@@ -148,8 +148,8 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
   def to_string_val(s) when is_binary(s), do: s
   def to_string_val({:closure, _, %{source: src}}) when is_binary(src) and src != "", do: src
   def to_string_val({:closure, _, _}), do: "function () { [native code] }"
-  def to_string_val(%Bytecode.Function{source: src}) when is_binary(src) and src != "", do: src
-  def to_string_val(%Bytecode.Function{}), do: "function () { [native code] }"
+  def to_string_val(%QuickBEAM.VM.Function{source: src}) when is_binary(src) and src != "", do: src
+  def to_string_val(%QuickBEAM.VM.Function{}), do: "function () { [native code] }"
   def to_string_val({:builtin, name, _}), do: "function #{name}() { [native code] }"
   def to_string_val({:bound, _, _, _, _}), do: "function () { [native code] }"
 
@@ -207,8 +207,8 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
   def to_primitive({:closure, _, %{source: src}}) when is_binary(src) and src != "", do: src
   def to_primitive({:closure, _, _}), do: "function () { [native code] }"
 
-  def to_primitive(%Bytecode.Function{source: src}) when is_binary(src) and src != "", do: src
-  def to_primitive(%Bytecode.Function{}), do: "function () { [native code] }"
+  def to_primitive(%QuickBEAM.VM.Function{source: src}) when is_binary(src) and src != "", do: src
+  def to_primitive(%QuickBEAM.VM.Function{}), do: "function () { [native code] }"
   def to_primitive({:builtin, name, _}), do: "function #{name}() { [native code] }"
   def to_primitive({:bound, _, _, _, _}), do: "function () { [native code] }"
 
@@ -330,11 +330,11 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
   defp callable?({:closure, _, _}), do: true
   defp callable?({:builtin, _, cb}) when is_function(cb), do: true
   defp callable?({:bound, _, _, _, _}), do: true
-  defp callable?(%Bytecode.Function{}), do: true
+  defp callable?(%QuickBEAM.VM.Function{}), do: true
   defp callable?(_), do: false
 
   defp function_like?({:closure, _, _}), do: true
-  defp function_like?(%Bytecode.Function{}), do: true
+  defp function_like?(%QuickBEAM.VM.Function{}), do: true
   defp function_like?({:bound, _, _, _, _}), do: true
   defp function_like?({:builtin, _, _}), do: true
   defp function_like?(_), do: false

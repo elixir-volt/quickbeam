@@ -23,7 +23,7 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
     JSThrow.type_error!("#{format_val(f)} could not be cloned.")
   end
 
-  defp deep_clone(%QuickBEAM.VM.Bytecode.Function{} = f) do
+  defp deep_clone(%QuickBEAM.VM.Function{} = f) do
     JSThrow.type_error!("#{format_val(f)} could not be cloned.")
   end
 
@@ -196,5 +196,5 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
   end
 
   defp format_val({:closure, _, _}), do: "function"
-  defp format_val(%QuickBEAM.VM.Bytecode.Function{}), do: "function"
+  defp format_val(%QuickBEAM.VM.Function{}), do: "function"
 end

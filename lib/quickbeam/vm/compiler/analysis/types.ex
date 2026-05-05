@@ -1,8 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Analysis.Types do
   @moduledoc "Abstract type inference: propagates JS value types through basic blocks to enable guard elision."
 
-  alias QuickBEAM.VM.Bytecode
-  alias QuickBEAM.VM.Compiler.Analysis.{CFG, Stack}
+    alias QuickBEAM.VM.Compiler.Analysis.{CFG, Stack}
   alias QuickBEAM.VM.Compiler.Lowering.Types, as: LoweringTypes
   alias QuickBEAM.VM.Decoder
   alias QuickBEAM.VM.Heap
@@ -33,7 +32,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
   end
 
   @doc "Helper for abstract type inference: propagates js value types through basic blocks to enable guard elision."
-  def function_type(%Bytecode.Function{} = fun) do
+  def function_type(%QuickBEAM.VM.Function{} = fun) do
     stack = Caches.get_function_type_stack()
 
     key = function_type_key(fun)
@@ -1006,14 +1005,14 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
       value when is_binary(value) -> :string
       nil -> :null
       :undefined -> :undefined
-      %Bytecode.Function{} = fun -> function_type(fun)
+      %QuickBEAM.VM.Function{} = fun -> function_type(fun)
       _ -> :unknown
     end
   end
 
   defp closure_type(constants, idx) do
     case Enum.at(constants, idx) do
-      %Bytecode.Function{} = fun -> function_type(fun)
+      %QuickBEAM.VM.Function{} = fun -> function_type(fun)
       _ -> :function
     end
   end
@@ -1075,17 +1074,17 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
 
   defp resolve_atom_name(_name, _atoms), do: nil
 
-  defp function_type_key(%Bytecode.Function{instructions: instructions})
+  defp function_type_key(%QuickBEAM.VM.Function{instructions: instructions})
        when is_tuple(instructions),
        do: {:instructions, :erlang.phash2(instructions)}
 
-  defp function_type_key(%Bytecode.Function{} = fun), do: {:byte_code, fun.byte_code}
+  defp function_type_key(%QuickBEAM.VM.Function{} = fun), do: {:byte_code, fun.byte_code}
 
-  defp function_instructions(%Bytecode.Function{instructions: instructions})
+  defp function_instructions(%QuickBEAM.VM.Function{instructions: instructions})
        when is_tuple(instructions),
        do: {:ok, Tuple.to_list(instructions)}
 
-  defp function_instructions(%Bytecode.Function{} = fun),
+  defp function_instructions(%QuickBEAM.VM.Function{} = fun),
     do: Decoder.decode(fun.byte_code, fun.arg_count)
 
   defp initially_initialized?(fun, idx) when idx < fun.arg_count, do: true

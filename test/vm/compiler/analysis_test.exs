@@ -28,7 +28,7 @@ defmodule QuickBEAM.VM.Compiler.AnalysisTest do
   defp compile_function(rt, code) do
     parsed = compile_parsed(rt, code)
 
-    case for %Bytecode.Function{} = fun <- parsed.value.constants, do: fun do
+    case for %QuickBEAM.VM.Function{} = fun <- parsed.value.constants, do: fun do
       [fun | _] -> fun
       [] -> parsed.value
     end
@@ -70,8 +70,8 @@ defmodule QuickBEAM.VM.Compiler.AnalysisTest do
     parsed =
       compile_parsed(rt, "(function(){ function f(){ return 1 } let x = f(); return x + 1 })")
 
-    [outer] = for %Bytecode.Function{} = fun <- parsed.value.constants, do: fun
-    [inner] = for %Bytecode.Function{} = fun <- outer.constants, do: fun
+    [outer] = for %QuickBEAM.VM.Function{} = fun <- parsed.value.constants, do: fun
+    [inner] = for %QuickBEAM.VM.Function{} = fun <- outer.constants, do: fun
 
     {_inner_entry_types, inner_return_type} = infer_types(inner)
     {_outer_entry_types, outer_return_type} = infer_types(outer)

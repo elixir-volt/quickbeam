@@ -21,11 +21,11 @@ compile_source = fn source ->
 end
 
 collect_functions = fn parsed ->
-  collect = fn collect, %Bytecode.Function{} = fun ->
+  collect = fn collect, %QuickBEAM.VM.Function{} = fun ->
     [
       fun
       | Enum.flat_map(fun.constants, fn
-          %Bytecode.Function{} = inner -> collect.(collect, inner)
+          %QuickBEAM.VM.Function{} = inner -> collect.(collect, inner)
           _ -> []
         end)
     ]
@@ -35,7 +35,7 @@ collect_functions = fn parsed ->
 end
 
 synthetic_function = fn byte_code ->
-  %Bytecode.Function{
+  %QuickBEAM.VM.Function{
     name: "quickjs-reference-opcode",
     filename: "<quickjs-reference-opcode>",
     line_num: 1,

@@ -258,6 +258,10 @@ defmodule QuickBEAM.VM.Heap do
 
   # ── Objects ──
 
+  defp proto_cache_key({:closure, _, %QuickBEAM.VM.Function{} = fun}),
+    do: {:function, :erlang.phash2(fun)}
+
+  defp proto_cache_key(%QuickBEAM.VM.Function{} = fun), do: {:function, :erlang.phash2(fun)}
   defp proto_cache_key({:closure, _, %{byte_code: bc}}), do: bc
   defp proto_cache_key(%{byte_code: bc}), do: bc
   defp proto_cache_key(ctor), do: ctor

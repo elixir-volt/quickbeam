@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   import Bitwise, only: [band: 2]
   import QuickBEAM.VM.Heap.Keys
 
-  alias QuickBEAM.VM.{Bytecode, Heap, JSThrow}
+  alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.Runtime
 
@@ -135,10 +135,10 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
       string when is_binary(string) ->
         string_length(string)
 
-      %Bytecode.Function{} = fun ->
+      %QuickBEAM.VM.Function{} = fun ->
         fun.defined_arg_count
 
-      {:closure, _, %Bytecode.Function{} = fun} ->
+      {:closure, _, %QuickBEAM.VM.Function{} = fun} ->
         fun.defined_arg_count
 
       {:bound, len, _, _, _} ->
@@ -339,15 +339,15 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp get_own({:regexp, _, _}, key), do: RegExp.proto_property(key)
 
-  defp get_own(%Bytecode.Function{} = f, "prototype") do
+  defp get_own(%QuickBEAM.VM.Function{} = f, "prototype") do
     Heap.get_or_create_prototype(f)
   end
 
-  defp get_own(%Bytecode.Function{} = f, key) do
+  defp get_own(%QuickBEAM.VM.Function{} = f, key) do
     Map.get(Heap.get_ctor_statics(f), key, :undefined)
   end
 
-  defp get_own({:closure, _, %Bytecode.Function{}} = c, "prototype") do
+  defp get_own({:closure, _, %QuickBEAM.VM.Function{}} = c, "prototype") do
     case Map.get(Heap.get_ctor_statics(c), "prototype", :not_set) do
       :not_set -> Heap.get_or_create_prototype(c)
       {:accessor, getter, _} when getter != nil -> call_getter(getter, c)
@@ -355,7 +355,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     end
   end
 
-  defp get_own({:closure, _, %Bytecode.Function{} = f} = c, key) do
+  defp get_own({:closure, _, %QuickBEAM.VM.Function{} = f} = c, key) do
     case Map.get(Heap.get_ctor_statics(c), key, :undefined) do
       :undefined -> Map.get(Heap.get_ctor_statics(f), key, :undefined)
       {:accessor, getter, _} when getter != nil -> call_getter(getter, c)
@@ -536,21 +536,21 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_from_prototype(true, key), do: Boolean.proto_property(key)
   defp get_from_prototype(false, key), do: Boolean.proto_property(key)
 
-  defp get_from_prototype(%Bytecode.Function{} = f, key) when key in ["length", "name"],
+  defp get_from_prototype(%QuickBEAM.VM.Function{} = f, key) when key in ["length", "name"],
     do: Function.proto_property(f, key)
 
-  defp get_from_prototype(%Bytecode.Function{} = f, key) do
+  defp get_from_prototype(%QuickBEAM.VM.Function{} = f, key) do
     case Heap.get_parent_ctor(f) do
       nil -> Function.proto_property(f, key)
       parent -> fallback_to_function_proto(get(parent, key), f, key)
     end
   end
 
-  defp get_from_prototype({:closure, _, %Bytecode.Function{}} = c, key)
+  defp get_from_prototype({:closure, _, %QuickBEAM.VM.Function{}} = c, key)
        when key in ["length", "name"],
        do: Function.proto_property(c, key)
 
-  defp get_from_prototype({:closure, _, %Bytecode.Function{} = f} = c, key) do
+  defp get_from_prototype({:closure, _, %QuickBEAM.VM.Function{} = f} = c, key) do
     case Heap.get_parent_ctor(f) do
       nil -> Function.proto_property(c, key)
       parent -> fallback_to_function_proto(get(parent, key), c, key)

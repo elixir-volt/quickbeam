@@ -1,6 +1,6 @@
 defmodule QuickBEAM.VM.Runtime.Function do
   @moduledoc "JS `Function` prototype: `call`, `apply`, `bind`, and property access for name/length/fileName."
-  alias QuickBEAM.VM.{Builtin, Bytecode, Heap, Invocation}
+  alias QuickBEAM.VM.{Builtin, Heap, Invocation}
 
   @doc "Builds the JavaScript prototype object for this runtime builtin."
   def prototype do
@@ -26,21 +26,21 @@ defmodule QuickBEAM.VM.Runtime.Function do
     {:builtin, "bind", fn args, this -> fn_bind(fun, args, this) end}
   end
 
-  def proto_property(%Bytecode.Function{} = f, "name"), do: f.name || ""
-  def proto_property(%Bytecode.Function{} = f, "length"), do: f.defined_arg_count
-  def proto_property(%Bytecode.Function{} = f, "fileName"), do: f.filename || ""
-  def proto_property(%Bytecode.Function{} = f, "lineNumber"), do: f.line_num
-  def proto_property(%Bytecode.Function{} = f, "columnNumber"), do: f.col_num
+  def proto_property(%QuickBEAM.VM.Function{} = f, "name"), do: f.name || ""
+  def proto_property(%QuickBEAM.VM.Function{} = f, "length"), do: f.defined_arg_count
+  def proto_property(%QuickBEAM.VM.Function{} = f, "fileName"), do: f.filename || ""
+  def proto_property(%QuickBEAM.VM.Function{} = f, "lineNumber"), do: f.line_num
+  def proto_property(%QuickBEAM.VM.Function{} = f, "columnNumber"), do: f.col_num
 
-  def proto_property({:closure, _, %Bytecode.Function{} = f}, "name"),
+  def proto_property({:closure, _, %QuickBEAM.VM.Function{} = f}, "name"),
     do: f.name || ""
 
-  def proto_property({:closure, _, %Bytecode.Function{} = f}, "length"),
+  def proto_property({:closure, _, %QuickBEAM.VM.Function{} = f}, "length"),
     do: f.defined_arg_count
 
-  def proto_property({:closure, _, %Bytecode.Function{} = f}, "fileName"), do: f.filename || ""
-  def proto_property({:closure, _, %Bytecode.Function{} = f}, "lineNumber"), do: f.line_num
-  def proto_property({:closure, _, %Bytecode.Function{} = f}, "columnNumber"), do: f.col_num
+  def proto_property({:closure, _, %QuickBEAM.VM.Function{} = f}, "fileName"), do: f.filename || ""
+  def proto_property({:closure, _, %QuickBEAM.VM.Function{} = f}, "lineNumber"), do: f.line_num
+  def proto_property({:closure, _, %QuickBEAM.VM.Function{} = f}, "columnNumber"), do: f.col_num
 
   def proto_property({:bound, _, inner, _, _}, key) when key not in ["length", "name"],
     do: proto_property(inner, key)
@@ -54,8 +54,8 @@ defmodule QuickBEAM.VM.Runtime.Function do
     {:builtin, "toString",
      fn _, _ ->
        case fun do
-         {:closure, _, %Bytecode.Function{source: src}} when is_binary(src) and src != "" -> src
-         %Bytecode.Function{source: src} when is_binary(src) and src != "" -> src
+         {:closure, _, %QuickBEAM.VM.Function{source: src}} when is_binary(src) and src != "" -> src
+         %QuickBEAM.VM.Function{source: src} when is_binary(src) and src != "" -> src
          {:builtin, name, _} -> "function #{name}() { [native code] }"
          {:bound, _, _, _, _} -> "function () { [native code] }"
          _ -> "function () { [native code] }"
@@ -104,15 +104,15 @@ defmodule QuickBEAM.VM.Runtime.Function do
   defp fn_bind(fun, [this_arg | bound_args], _this) do
     orig_len =
       case fun do
-        %Bytecode.Function{defined_arg_count: n} -> n
-        {:closure, _, %Bytecode.Function{defined_arg_count: n}} -> n
+        %QuickBEAM.VM.Function{defined_arg_count: n} -> n
+        {:closure, _, %QuickBEAM.VM.Function{defined_arg_count: n}} -> n
         _ -> 0
       end
 
     orig_name =
       case fun do
-        %Bytecode.Function{name: n} when is_binary(n) -> n
-        {:closure, _, %Bytecode.Function{name: n}} when is_binary(n) -> n
+        %QuickBEAM.VM.Function{name: n} when is_binary(n) -> n
+        {:closure, _, %QuickBEAM.VM.Function{name: n}} when is_binary(n) -> n
         {:builtin, n, _} -> n
         _ -> ""
       end
@@ -124,10 +124,10 @@ defmodule QuickBEAM.VM.Runtime.Function do
 
   defp invoke_fun(fun, args, this_arg) do
     case fun do
-      %Bytecode.Function{} ->
+      %QuickBEAM.VM.Function{} ->
         Invocation.invoke_with_receiver(fun, args, this_arg)
 
-      {:closure, _, %Bytecode.Function{}} ->
+      {:closure, _, %QuickBEAM.VM.Function{}} ->
         Invocation.invoke_with_receiver(fun, args, this_arg)
 
       other ->

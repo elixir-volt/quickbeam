@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.ObjectModel.Class do
 
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
 
-  alias QuickBEAM.VM.{Bytecode, Heap}
+  alias QuickBEAM.VM.{Heap}
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.Names
   alias QuickBEAM.VM.ObjectModel.{Functions, Get, Put}
@@ -17,10 +17,10 @@ defmodule QuickBEAM.VM.ObjectModel.Class do
           _ -> :undefined
         end
 
-      {:closure, _, %Bytecode.Function{} = fun} ->
+      {:closure, _, %QuickBEAM.VM.Function{} = fun} ->
         Heap.get_parent_ctor(fun) || :undefined
 
-      %Bytecode.Function{} = fun ->
+      %QuickBEAM.VM.Function{} = fun ->
         Heap.get_parent_ctor(fun) || :undefined
 
       {:builtin, _, _} = builtin ->
@@ -35,15 +35,15 @@ defmodule QuickBEAM.VM.ObjectModel.Class do
   def coalesce_this_result(result, this_obj) do
     case result do
       {:obj, _} = obj -> obj
-      %Bytecode.Function{} = fun -> fun
-      {:closure, _, %Bytecode.Function{}} = closure -> closure
+      %QuickBEAM.VM.Function{} = fun -> fun
+      {:closure, _, %QuickBEAM.VM.Function{}} = closure -> closure
       _ -> this_obj
     end
   end
 
   @doc "Extracts the underlying bytecode function from closure values."
-  def raw_function({:closure, _, %Bytecode.Function{} = fun}), do: fun
-  def raw_function(%Bytecode.Function{} = fun), do: fun
+  def raw_function({:closure, _, %QuickBEAM.VM.Function{} = fun}), do: fun
+  def raw_function(%QuickBEAM.VM.Function{} = fun), do: fun
   def raw_function(other), do: other
 
   def define_class(ctor_closure, parent_ctor, class_name \\ nil) do
@@ -121,8 +121,8 @@ defmodule QuickBEAM.VM.ObjectModel.Class do
   end
 
   defp object_like?({:obj, _}), do: true
-  defp object_like?(%Bytecode.Function{}), do: true
-  defp object_like?({:closure, _, %Bytecode.Function{}}), do: true
+  defp object_like?(%QuickBEAM.VM.Function{}), do: true
+  defp object_like?({:closure, _, %QuickBEAM.VM.Function{}}), do: true
   defp object_like?({:builtin, _, _}), do: true
   defp object_like?({:bound, _, _, _, _}), do: true
   defp object_like?(_), do: false
@@ -147,7 +147,7 @@ defmodule QuickBEAM.VM.ObjectModel.Class do
     end
   end
 
-  defp find_super_property({:closure, _, %Bytecode.Function{} = fun} = ctor, key) do
+  defp find_super_property({:closure, _, %QuickBEAM.VM.Function{} = fun} = ctor, key) do
     statics = Heap.get_ctor_statics(ctor)
 
     case Map.fetch(statics, key) do
@@ -162,7 +162,7 @@ defmodule QuickBEAM.VM.ObjectModel.Class do
     end
   end
 
-  defp find_super_property(%Bytecode.Function{} = fun, key) do
+  defp find_super_property(%QuickBEAM.VM.Function{} = fun, key) do
     statics = Heap.get_ctor_statics(fun)
 
     case Map.fetch(statics, key) do

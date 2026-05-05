@@ -1,11 +1,10 @@
 defmodule QuickBEAM.VM.Value do
   @moduledoc "Type definitions and guards for JS values in the BEAM VM."
 
-  alias QuickBEAM.VM.Bytecode
-
+  
   @type heap_ref :: reference() | pos_integer()
   @type object :: {:obj, heap_ref()}
-  @type closure :: {:closure, map(), Bytecode.Function.t()}
+  @type closure :: {:closure, map(), QuickBEAM.VM.Function.t()}
   @type builtin :: {:builtin, binary(), function() | map()}
   @type bound :: {:bound, non_neg_integer(), term(), term(), list()}
   @type symbol :: {:symbol, binary()} | {:symbol, binary(), reference()}
