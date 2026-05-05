@@ -1,26 +1,57 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-bytecode_test_output=$(mix test test/js/bytecode_compiler_test.exs --formatter ExUnit.CLIFormatter 2>&1)
-printf '%s\n' "$bytecode_test_output"
+category="${AUTORESEARCH_TEST262_CATEGORY:-language/expressions/object}"
+error_limit="${TEST262_ERROR_LIMIT:-12}"
+case_timeout="${TEST262_CASE_TIMEOUT:-5000}"
 
-case "${JS_BYTECODE_BENCH:-existing}" in
-  existing)
-    bench_output=$(mix run bench/js_bytecode_compiler_existing_corpus.exs 2>&1)
-    ;;
-  frontier)
-    bench_output=$(mix run bench/js_bytecode_compiler_frontier.exs 2>&1)
-    ;;
-  *)
-    echo "unknown JS_BYTECODE_BENCH=${JS_BYTECODE_BENCH}" >&2
-    exit 2
-    ;;
-esac
+export QUICKBEAM_BUILD=1
+export TEST262_CATEGORY="$category"
+export TEST262_ERROR_LIMIT="$error_limit"
+export TEST262_CASE_TIMEOUT="$case_timeout"
 
-printf '%s\n' "$bench_output"
+if [[ -n "${TEST262_LIMIT:-}" ]]; then
+  export TEST262_LIMIT
+fi
 
-compat_output=$(mix run bench/js_bytecode_compiler_compat.exs 2>&1)
-printf '%s\n' "$compat_output"
+start_ms=$(python3 - <<'PY'
+import time
+print(int(time.time() * 1000))
+PY
+)
 
-printf '%s\n' "$bench_output" | grep '^METRIC '
-printf '%s\n' "$compat_output" | grep '^METRIC '
+output=$(mix run bench/vm_compiler_test262.exs)
+printf '%s\n' "$output"
+
+metric() {
+  local name="$1"
+  printf '%s\n' "$output" | awk -F= -v key="METRIC ${name}" '$1 == key {print $2}' | tail -1
+}
+
+cases=$(metric compiler_test262_cases)
+pass=$(metric compiler_test262_pass)
+failures=$(metric compiler_test262_failures)
+compiler_errors=$(metric compiler_test262_compiler_errors)
+compiler_crashes=$(metric compiler_test262_compiler_crashes)
+compiler_fails=$(metric compiler_test262_compiler_fails)
+both_fail=$(metric compiler_test262_both_fail)
+interpreter_fail_compiler_pass=$(metric compiler_test262_interpreter_fail_compiler_pass)
+
+end_ms=$(python3 - <<'PY'
+import time
+print(int(time.time() * 1000))
+PY
+)
+elapsed_ms=$((end_ms - start_ms))
+
+printf 'ASI active_category=%s\n' "$category"
+printf 'ASI case_timeout_ms=%s\n' "$case_timeout"
+printf 'METRIC compatibility_failures=%s\n' "$failures"
+printf 'METRIC compatibility_pass=%s\n' "$pass"
+printf 'METRIC compatibility_cases=%s\n' "$cases"
+printf 'METRIC compiler_errors=%s\n' "$compiler_errors"
+printf 'METRIC compiler_crashes=%s\n' "$compiler_crashes"
+printf 'METRIC compiler_fails=%s\n' "$compiler_fails"
+printf 'METRIC both_fail=%s\n' "$both_fail"
+printf 'METRIC interpreter_fail_compiler_pass=%s\n' "$interpreter_fail_compiler_pass"
+printf 'METRIC elapsed_ms=%s\n' "$elapsed_ms"
