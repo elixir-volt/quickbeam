@@ -91,11 +91,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Calls do
 
           State.effectful_push(
             state,
-            Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_runtime, [
-              State.ctx_expr(state),
-              eval_ref,
-              Builder.list_expr(call_args)
-            ])
+            State.compiler_call(state, :eval_or_call, [eval_ref, Builder.list_expr(call_args)])
           )
         end
 

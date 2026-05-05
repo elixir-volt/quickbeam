@@ -123,13 +123,8 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
   def compile(%AST.Identifier{name: "NaN"}, _scope, instructions, constants, _callbacks),
     do: {:ok, instructions ++ [{:get_var, "NaN"}], constants}
 
-  def compile(%AST.Identifier{name: "arguments"}, scope, instructions, constants, callbacks) do
-    case {scope.arguments_alias, callbacks.resolve.(scope, "<arguments>")} do
-      {count, _} when is_integer(count) -> {:ok, instructions ++ [:undefined], constants}
-      {_, {:loc, _} = slot} -> {:ok, instructions ++ [Slots.read(slot)], constants}
-      _ -> {:error, {:unsupported, {:unresolved_identifier, "arguments"}}}
-    end
-  end
+  def compile(%AST.Identifier{name: "arguments"}, _scope, instructions, constants, _callbacks),
+    do: {:ok, instructions ++ [{:get_var, "arguments"}], constants}
 
   def compile(
         %AST.MemberExpression{
@@ -268,8 +263,7 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
       ) do
     case callbacks.resolve.(scope, name) do
       :error ->
-        {instruction, constants} = add_constant("undefined", constants)
-        {:ok, instructions ++ [instruction], constants}
+        {:ok, instructions ++ [{:get_var_undef, name}, :typeof], constants}
 
       _slot ->
         compile(
@@ -1267,7 +1261,8 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
     with {:ok, rt} <- QuickBEAM.start(apis: false) do
       try do
         with {:ok, binary} <- QuickBEAM.compile(rt, raw),
-             {:ok, %{value: %{constants: constants}}} <- QuickBEAM.VM.BytecodeParser.decode(binary),
+             {:ok, %{value: %{constants: constants}}} <-
+               QuickBEAM.VM.BytecodeParser.decode(binary),
              bytecode when is_binary(bytecode) <-
                Enum.find(constants, &regexp_bytecode_constant?(&1, pattern)) do
           {:ok, bytecode}
@@ -1286,6 +1281,23 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
     case Scope.resolve(scope, name) do
       :error -> true
       _slot -> false
+    end
+  end
+
+  defp compile_direct_call(
+         %AST.Identifier{name: "eval"} = callee,
+         args,
+         scope,
+         instructions,
+         constants,
+         callbacks
+       ) do
+    with {:ok, args} <- expand_call_args(args),
+         {:ok, instructions, constants} <-
+           callbacks.compile_expression.(callee, scope, instructions, constants),
+         {:ok, instructions, constants} <-
+           compile_call_args(args, scope, instructions, constants, callbacks) do
+      {:ok, instructions ++ [{:eval, length(args), 0}], constants}
     end
   end
 

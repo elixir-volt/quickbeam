@@ -443,8 +443,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp eval_code(code, caller_frame, gas, ctx, var_objs, keep_declared?) do
-    with {:ok, bc} <- QuickBEAM.Runtime.compile(ctx.runtime_pid, code),
-         {:ok, parsed} <- BytecodeParser.decode(bc) do
+    with {:ok, parsed} <- compile_eval_code(ctx.runtime_pid, code) do
       declared_names = eval_declared_names(parsed.value, parsed.atoms)
       eval_globals = collect_caller_locals(caller_frame, ctx)
       captured_globals = collect_captured_globals(ctx.current_func)
@@ -521,6 +520,15 @@ defmodule QuickBEAM.VM.Interpreter do
 
       _ ->
         {:undefined, %{}}
+    end
+  end
+
+  defp compile_eval_code(nil, code), do: QuickBEAM.JS.Compiler.compile(code)
+
+  defp compile_eval_code(runtime_pid, code) do
+    with {:ok, bc} <- QuickBEAM.Runtime.compile(runtime_pid, code),
+         {:ok, parsed} <- BytecodeParser.decode(bc) do
+      {:ok, parsed}
     end
   end
 
@@ -997,7 +1005,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp eval_or_call_result(fun, code, args, scope_idx, frame, gas, ctx, var_objs) do
     cond do
-      fun == ctx.globals["eval"] and is_binary(code) and ctx.runtime_pid != nil ->
+      fun == ctx.globals["eval"] and is_binary(code) ->
         keep_declared? = scope_idx > 0
         {value, transient_globals} = eval_code(code, frame, gas, ctx, var_objs, keep_declared?)
         {value, Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, transient_globals)})}
@@ -1398,6 +1406,12 @@ defmodule QuickBEAM.VM.Interpreter do
             ctx
             | current_func: self_ref,
               arg_buf: List.to_tuple(args),
+              globals:
+                Map.put(
+                  ctx.globals,
+                  "arguments",
+                  Heap.wrap(args)
+                ),
               catch_stack: [],
               atoms: fn_atoms
           }

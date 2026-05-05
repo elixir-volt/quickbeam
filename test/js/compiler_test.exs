@@ -255,6 +255,10 @@ defmodule QuickBEAM.JS.CompilerTest do
     test "emits get_var for unresolved globals" do
       assert {:ok, _bytecode} = JSCompiler.compile("missing")
     end
+
+    test "compiles direct eval with caller arguments" do
+      assert_compiles_to("function f(){ return eval('arguments[0]') } f(7)", 7)
+    end
   end
 
   defp assert_compiles_to(source, expected) do

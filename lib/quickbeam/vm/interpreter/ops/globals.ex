@@ -13,56 +13,66 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
       # ── Globals: get_var, put_var, define_var, eval ──
 
       defp run({@op_get_var_undef, [atom_idx]}, pc, frame, stack, gas, ctx) do
-        val = GlobalEnv.get(ctx, atom_idx, :undefined)
+        if Names.resolve_atom(ctx, atom_idx) == "arguments" do
+          arguments = Map.get(ctx.globals, "arguments", Heap.wrap(Tuple.to_list(ctx.arg_buf)))
+          run(pc + 1, frame, [arguments | stack], gas, ctx)
+        else
+          val = GlobalEnv.get(ctx, atom_idx, :undefined)
 
-        val =
-          if val == :undefined do
-            name = Names.resolve_atom(ctx, atom_idx)
-            global_this = Map.get(ctx.globals, "globalThis")
+          val =
+            if val == :undefined do
+              name = Names.resolve_atom(ctx, atom_idx)
+              global_this = Map.get(ctx.globals, "globalThis")
 
-            case global_this do
-              {:obj, _} -> Get.get(global_this, name)
-              _ -> :undefined
+              case global_this do
+                {:obj, _} -> Get.get(global_this, name)
+                _ -> :undefined
+              end
+            else
+              val
             end
-          else
-            val
-          end
 
-        run(pc + 1, frame, [val | stack], gas, ctx)
+          run(pc + 1, frame, [val | stack], gas, ctx)
+        end
       end
 
       defp run({@op_get_var, [atom_idx]}, pc, frame, stack, gas, ctx) do
-        case GlobalEnv.fetch(ctx, atom_idx) do
-          {:found, val} ->
-            run(pc + 1, frame, [val | stack], gas, ctx)
+        if Names.resolve_atom(ctx, atom_idx) == "arguments" do
+          arguments = Map.get(ctx.globals, "arguments", Heap.wrap(Tuple.to_list(ctx.arg_buf)))
+          run(pc + 1, frame, [arguments | stack], gas, ctx)
+        else
+          case GlobalEnv.fetch(ctx, atom_idx) do
+            {:found, val} ->
+              run(pc + 1, frame, [val | stack], gas, ctx)
 
-          :not_found ->
-            name = Names.resolve_atom(ctx, atom_idx)
-            global_this = Map.get(ctx.globals, "globalThis")
+            :not_found ->
+              name = Names.resolve_atom(ctx, atom_idx)
+              global_this = Map.get(ctx.globals, "globalThis")
 
-            case global_this do
-              {:obj, _} ->
-                val = Get.get(global_this, name)
+              case global_this do
+                {:obj, _} ->
+                  val = Get.get(global_this, name)
 
-                if val != :undefined do
-                  run(pc + 1, frame, [val | stack], gas, ctx)
-                else
+                  if val != :undefined do
+                    run(pc + 1, frame, [val | stack], gas, ctx)
+                  else
+                    throw_or_catch(
+                      frame,
+                      Heap.make_error("#{name} is not defined", "ReferenceError"),
+                      gas,
+                      ctx
+                    )
+                  end
+
+                _ ->
                   throw_or_catch(
                     frame,
                     Heap.make_error("#{name} is not defined", "ReferenceError"),
                     gas,
                     ctx
                   )
-                end
-
-              _ ->
-                throw_or_catch(
-                  frame,
-                  Heap.make_error("#{name} is not defined", "ReferenceError"),
-                  gas,
-                  ctx
-                )
-            end
+              end
+          end
         end
       end
 

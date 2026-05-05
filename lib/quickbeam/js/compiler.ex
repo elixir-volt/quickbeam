@@ -206,6 +206,7 @@ defmodule QuickBEAM.JS.Compiler do
          has_prototype: true,
          has_simple_parameter_list: defaults == [] and rest_param == nil,
          new_target_allowed: true,
+         func_kind: function_kind(function),
          source: ""
        )}
     else
@@ -235,6 +236,11 @@ defmodule QuickBEAM.JS.Compiler do
 
     {defs, Enum.count(var_refs)}
   end
+
+  defp function_kind(%{async: true, generator: true}), do: 3
+  defp function_kind(%{async: true}), do: 2
+  defp function_kind(%{generator: true}), do: 1
+  defp function_kind(_), do: 0
 
   defp compile_function_stub(_function, name) do
     {:ok,

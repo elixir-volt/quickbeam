@@ -168,10 +168,13 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   # ── Variables ──
 
   @doc "Reads a variable binding or throws a JavaScript ReferenceError when absent."
+  def get_var(ctx, "arguments"),
+    do: Map.get(context_globals(ctx), "arguments", Heap.wrap(Tuple.to_list(ctx.arg_buf)))
+
   def get_var(ctx, name) when is_binary(name), do: fetch_ctx_var(ctx, name)
 
   def get_var(ctx, atom_idx),
-    do: fetch_ctx_var(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
+    do: get_var(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
 
   def get_global(globals, name) do
     case fetch_global_binding(globals, name) do
@@ -187,12 +190,6 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
       :error -> :undefined
     end
   end
-
-  def get_var_undef(ctx, name) when is_binary(name),
-    do: GlobalEnv.get(context_globals(ctx), name, :undefined)
-
-  def get_var_undef(ctx, atom_idx),
-    do: get_var_undef(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
 
   defp fetch_global_binding(globals, name) do
     persistent = Heap.get_persistent_globals() || %{}
@@ -359,6 +356,15 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def get_var(atom_idx),
     do: get_var(Names.resolve_atom(InvokeContext.current_atoms(), atom_idx))
+
+  def get_var_undef(ctx, "arguments"),
+    do: Map.get(context_globals(ctx), "arguments", Heap.wrap(Tuple.to_list(ctx.arg_buf)))
+
+  def get_var_undef(ctx, name) when is_binary(name),
+    do: get_global_undef(context_globals(ctx), name)
+
+  def get_var_undef(ctx, atom_idx),
+    do: get_var_undef(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
 
   def get_var_undef(name) when is_binary(name), do: GlobalEnv.get(name, :undefined)
 
@@ -734,6 +740,46 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   @doc "Invokes a JavaScript callable from compiled code."
   def invoke_runtime(ctx, fun, args), do: Invocation.invoke_runtime(ctx, fun, args)
   def invoke_runtime(fun, args), do: Invocation.invoke_runtime(fun, args)
+
+  def eval_or_call(ctx, fun, [code | _] = args) when is_binary(code) do
+    if fun == ctx.globals["eval"] do
+      eval_source(ctx, code)
+    else
+      Invocation.invoke_runtime(ctx, fun, args)
+    end
+  end
+
+  def eval_or_call(ctx, fun, args), do: Invocation.invoke_runtime(ctx, fun, args)
+
+  defp eval_source(ctx, code) do
+    with {:ok, program} <- QuickBEAM.JS.Compiler.compile(code) do
+      globals =
+        ctx.globals
+        |> Map.put("arguments", Heap.wrap(Tuple.to_list(ctx.arg_buf)))
+
+      case QuickBEAM.VM.Interpreter.eval(
+             program.value,
+             [],
+             %{
+               gas: ctx.gas,
+               runtime_pid: ctx.runtime_pid,
+               globals: globals,
+               this: ctx.this,
+               arg_buf: ctx.arg_buf,
+               current_func: ctx.current_func,
+               new_target: ctx.new_target
+             },
+             program.atoms
+           ) do
+        {:ok, value} -> value
+        {:error, {:js_throw, value}} -> throw({:js_throw, value})
+        _ -> :undefined
+      end
+    else
+      {:error, msg} when is_binary(msg) -> throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
+      _ -> :undefined
+    end
+  end
 
   def invoke_method_runtime(ctx, fun, this_obj, args),
     do: Invocation.invoke_method_runtime(ctx, fun, this_obj, args)

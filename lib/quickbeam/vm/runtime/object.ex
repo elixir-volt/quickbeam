@@ -5,7 +5,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Value, only: [is_symbol: 1]
-    alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
@@ -1166,7 +1166,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     if getter != nil or setter != nil do
       Heap.put_ctor_static(target, prop_key, {:accessor, getter, setter})
     else
-      val = Map.get(desc, "value", :undefined)
+      val = Map.get(desc, "value", Get.get(target, prop_key))
       Heap.put_ctor_static(target, prop_key, val)
     end
   end

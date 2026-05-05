@@ -194,7 +194,13 @@ defmodule QuickBEAM.VM.Invocation do
         fast_ctx = %{
           ctx
           | current_func: closure,
-            arg_buf: List.to_tuple(nargs),
+            arg_buf: List.to_tuple(args),
+            globals:
+              Map.put(
+                ctx.globals,
+                "arguments",
+                Heap.wrap(args)
+              ),
             atoms: atoms || ctx.atoms,
             pd_synced: false
         }

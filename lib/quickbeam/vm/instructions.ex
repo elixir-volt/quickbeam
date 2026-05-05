@@ -10,6 +10,7 @@ defmodule QuickBEAM.VM.Instructions do
     |> Enum.flat_map(fn
       {:define_field, name} when is_binary(name) -> [name]
       {:get_var, name} -> [name]
+      {:get_var_undef, name} -> [name]
       {:put_var, name} -> [name]
       {:get_field, name} -> [name]
       {:get_field2, name} -> [name]
@@ -109,6 +110,7 @@ defmodule QuickBEAM.VM.Instructions do
   defp to_op({name, atom}, _labels, atoms, _arg_count)
        when name in [
               :get_var,
+              :get_var_undef,
               :put_var,
               :get_field,
               :get_field2,
@@ -168,6 +170,7 @@ defmodule QuickBEAM.VM.Instructions do
   defp stack_effect({:call_method, argc}), do: {2 + argc, 1}
   defp stack_effect({:call_constructor, argc}), do: {2 + argc, 1}
   defp stack_effect({:get_var, _name}), do: {0, 1}
+  defp stack_effect({:get_var_undef, _name}), do: {0, 1}
   defp stack_effect({:put_var, _name}), do: {1, 0}
   defp stack_effect({:array_from, count}), do: {count, 1}
   defp stack_effect({:define_field, _name}), do: {2, 1}

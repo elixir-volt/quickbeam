@@ -28,6 +28,7 @@ defmodule QuickBEAM.JS.Compiler.FunctionBuilder do
       has_simple_parameter_list: Keyword.fetch!(opts, :has_simple_parameter_list),
       new_target_allowed: Keyword.fetch!(opts, :new_target_allowed),
       arguments_allowed: true,
+      func_kind: Keyword.get(opts, :func_kind, 0),
       is_strict_mode: false,
       has_debug_info: false,
       source: Keyword.fetch!(opts, :source)
