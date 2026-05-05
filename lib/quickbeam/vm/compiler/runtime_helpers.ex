@@ -607,7 +607,11 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def set_proto(_ctx, {:obj, ref} = _obj, proto) do
     map = Heap.get_obj(ref, %{})
-    if is_map(map), do: Heap.put_obj(ref, Map.put(map, proto(), proto))
+
+    if is_map(map) and (is_object(proto) or proto == nil) do
+      Heap.put_obj(ref, Map.put(map, proto(), proto))
+    end
+
     :ok
   end
 

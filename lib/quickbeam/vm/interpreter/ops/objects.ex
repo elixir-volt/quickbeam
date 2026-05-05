@@ -265,7 +265,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
           {:obj, ref} ->
             map = Heap.get_obj(ref, %{})
 
-            if is_map(map) do
+            if is_map(map) and (is_object(proto) or proto == nil) do
               Heap.put_obj(ref, Map.put(map, proto(), proto))
             end
 

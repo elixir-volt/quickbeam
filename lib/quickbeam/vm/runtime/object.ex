@@ -1240,7 +1240,12 @@ defmodule QuickBEAM.VM.Runtime.Object do
         end
 
       is_map(data) ->
+        prop_desc = Heap.get_prop_desc(ref, prop_name)
+
         case Map.get(data, prop_name) do
+          _ when prop_name == proto() and prop_desc == nil ->
+            :undefined
+
           nil ->
             :undefined
 
