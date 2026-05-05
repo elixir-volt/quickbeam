@@ -140,7 +140,10 @@ defmodule QuickBEAM.JS.Compiler.Statements do
         _opts,
         callbacks
       ) do
-    captures = Captures.captured_names(declaration, scope)
+    captures =
+      declaration
+      |> Captures.captured_names(scope)
+      |> Enum.reject(&top_level_function_capture?(scope, &1))
 
     if captures != [] and references_arguments?(declaration.body) do
       with {:ok, function} <-
@@ -163,6 +166,11 @@ defmodule QuickBEAM.JS.Compiler.Statements do
         bind_function_declaration(scope, name, instructions, constants)
       end
     end
+  end
+
+  defp top_level_function_capture?(scope, name) do
+    Map.has_key?(scope.locals, "<ret>") and
+      MapSet.member?(Process.get(:compiler_top_level_function_names, MapSet.new()), name)
   end
 
   defp bind_function_declaration(scope, name, instructions, constants) do

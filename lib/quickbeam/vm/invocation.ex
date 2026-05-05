@@ -533,7 +533,22 @@ defmodule QuickBEAM.VM.Invocation do
 
   defp compiled_method_callable?(_, _), do: false
 
+  defp validate_constructor!(%QuickBEAM.VM.Function{func_kind: kind, name: name})
+       when kind in [1, 2, 3],
+       do:
+         throw(
+           {:js_throw, Heap.make_error("#{name || "function"} is not a constructor", "TypeError")}
+         )
+
   defp validate_constructor!(%QuickBEAM.VM.Function{}), do: :ok
+
+  defp validate_constructor!({:closure, _, %QuickBEAM.VM.Function{func_kind: kind, name: name}})
+       when kind in [1, 2, 3],
+       do:
+         throw(
+           {:js_throw, Heap.make_error("#{name || "function"} is not a constructor", "TypeError")}
+         )
+
   defp validate_constructor!({:closure, _, %QuickBEAM.VM.Function{}}), do: :ok
   defp validate_constructor!({:bound, _, _inner, _orig_fun, _bound_args}), do: :ok
   defp validate_constructor!({:builtin, _name, cb}) when is_function(cb, 2), do: :ok

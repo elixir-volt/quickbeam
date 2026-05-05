@@ -19,9 +19,8 @@ defmodule QuickBEAM.JS.Parser.Validation.Strict do
         state,
         %AST.Identifier{name: name},
         %AST.BlockStatement{} = body
-      )
-      when name in ["eval", "arguments"] do
-    if strict_directive_body?(body.body) do
+      ) do
+    if restricted_strict_name?(name) and strict_directive_body?(body.body) do
       add_error(state, current(state), "restricted binding name in strict mode")
     else
       state
@@ -108,6 +107,7 @@ defmodule QuickBEAM.JS.Parser.Validation.Strict do
       |> validate_strict_no_octal_escape(body.body)
       |> validate_strict_no_restricted_assignment(body.body)
       |> validate_strict_no_call_assignment_targets(body.body)
+      |> validate_strict_no_yield_references(body.body)
       |> validate_strict_no_restricted_shorthands(body.body)
     else
       state
@@ -762,9 +762,52 @@ defmodule QuickBEAM.JS.Parser.Validation.Strict do
   defp strict_yield_reference_statement?(%AST.ExpressionStatement{expression: expression}),
     do: strict_yield_reference_expression?(expression)
 
+  defp strict_yield_reference_statement?(%AST.ReturnStatement{argument: argument}),
+    do: strict_yield_reference_expression?(argument)
+
+  defp strict_yield_reference_statement?(%AST.IfStatement{
+         test: test,
+         consequent: consequent,
+         alternate: alternate
+       }),
+       do:
+         strict_yield_reference_expression?(test) or
+           strict_yield_reference_statement?(consequent) or
+           strict_yield_reference_statement?(alternate)
+
+  defp strict_yield_reference_statement?(%AST.BlockStatement{body: body}),
+    do: Enum.any?(body, &strict_yield_reference_statement?/1)
+
   defp strict_yield_reference_statement?(_statement), do: false
 
-  defp strict_yield_reference_expression?(%AST.Identifier{name: "yield"}), do: true
+  defp strict_yield_reference_expression?(%AST.Identifier{name: name}),
+    do: restricted_strict_name?(name) and name not in ["eval", "arguments"]
+
+  defp strict_yield_reference_expression?(%AST.UnaryExpression{argument: argument}),
+    do: strict_yield_reference_expression?(argument)
+
+  defp strict_yield_reference_expression?(%AST.CallExpression{
+         callee: callee,
+         arguments: arguments
+       }),
+       do:
+         strict_yield_reference_expression?(callee) or
+           Enum.any?(arguments, &strict_yield_reference_expression?/1)
+
+  defp strict_yield_reference_expression?(%AST.FunctionExpression{
+         body: %AST.BlockStatement{body: body}
+       }),
+       do: Enum.any?(body, &strict_yield_reference_statement?/1)
+
+  defp strict_yield_reference_expression?(%AST.ConditionalExpression{
+         test: test,
+         consequent: consequent,
+         alternate: alternate
+       }),
+       do:
+         strict_yield_reference_expression?(test) or
+           strict_yield_reference_expression?(consequent) or
+           strict_yield_reference_expression?(alternate)
 
   defp strict_yield_reference_expression?(%AST.BinaryExpression{left: left, right: right}),
     do: strict_yield_reference_expression?(left) or strict_yield_reference_expression?(right)
@@ -881,6 +924,14 @@ defmodule QuickBEAM.JS.Parser.Validation.Strict do
        }),
        do: restricted_strict_name?(name)
 
+  defp strict_restricted_function_name_expression?(%AST.CallExpression{
+         callee: callee,
+         arguments: arguments
+       }),
+       do:
+         strict_restricted_function_name_expression?(callee) or
+           Enum.any?(arguments, &strict_restricted_function_name_expression?/1)
+
   defp strict_restricted_function_name_expression?(%AST.AssignmentExpression{
          left: left,
          right: right
@@ -925,6 +976,14 @@ defmodule QuickBEAM.JS.Parser.Validation.Strict do
 
   defp strict_restricted_param_expression?(%AST.Property{value: value}),
     do: strict_restricted_param_expression?(value)
+
+  defp strict_restricted_param_expression?(%AST.CallExpression{
+         callee: callee,
+         arguments: arguments
+       }),
+       do:
+         strict_restricted_param_expression?(callee) or
+           Enum.any?(arguments, &strict_restricted_param_expression?/1)
 
   defp strict_restricted_param_expression?(%AST.AssignmentExpression{left: left, right: right}),
     do: strict_restricted_param_expression?(left) or strict_restricted_param_expression?(right)

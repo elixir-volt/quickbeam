@@ -776,10 +776,19 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
         _ -> :undefined
       end
     else
-      {:error, msg} when is_binary(msg) -> throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
-      _ -> :undefined
+      {:error, {:parse_error, errors}} ->
+        throw({:js_throw, Heap.make_error(parse_error_message(errors), "SyntaxError")})
+
+      {:error, msg} when is_binary(msg) ->
+        throw({:js_throw, Heap.make_error(msg, "SyntaxError")})
+
+      _ ->
+        :undefined
     end
   end
+
+  defp parse_error_message([%{message: message} | _]), do: message
+  defp parse_error_message(_errors), do: "Syntax error"
 
   def invoke_method_runtime(ctx, fun, this_obj, args),
     do: Invocation.invoke_method_runtime(ctx, fun, this_obj, args)

@@ -6,7 +6,8 @@ defmodule QuickBEAM.JS.Compiler.Scope do
             locals: %{},
             local_names: [],
             var_refs: %{},
-            arguments_alias: nil
+            arguments_alias: nil,
+            self_bindings: MapSet.new()
 
   def new(args \\ [], globals \\ []) do
     args = Enum.with_index(args) |> Map.new()
@@ -18,6 +19,11 @@ defmodule QuickBEAM.JS.Compiler.Scope do
 
   def with_arguments_alias(%__MODULE__{} = scope, param_count),
     do: %{scope | arguments_alias: param_count}
+
+  def with_self_binding(%__MODULE__{} = scope, name) when is_binary(name),
+    do: %{scope | self_bindings: MapSet.put(scope.self_bindings, name)}
+
+  def self_binding?(%__MODULE__{} = scope, name), do: MapSet.member?(scope.self_bindings, name)
 
   def declare_local(%__MODULE__{} = scope, name) when is_binary(name) do
     if Map.has_key?(scope.locals, name) do

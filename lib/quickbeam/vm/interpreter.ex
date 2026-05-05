@@ -512,6 +512,9 @@ defmodule QuickBEAM.VM.Interpreter do
           {:undefined, %{}}
       end
     else
+      {:error, {:parse_error, errors}} ->
+        JSThrow.syntax_error!(parse_error_message(errors))
+
       {:error, msg} when is_binary(msg) ->
         JSThrow.syntax_error!(msg)
 
@@ -522,6 +525,9 @@ defmodule QuickBEAM.VM.Interpreter do
         {:undefined, %{}}
     end
   end
+
+  defp parse_error_message([%{message: message} | _]), do: message
+  defp parse_error_message(_errors), do: "Syntax error"
 
   defp compile_eval_code(nil, code), do: QuickBEAM.JS.Compiler.compile(code)
 

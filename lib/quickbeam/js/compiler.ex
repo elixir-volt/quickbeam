@@ -57,37 +57,52 @@ defmodule QuickBEAM.JS.Compiler do
 
   defp compile_program(%AST.Program{body: body}) do
     scope = Scope.declare_local(Scope.new(), "<ret>")
+    previous_top_level_function_names = Process.get(:compiler_top_level_function_names)
+    Process.put(:compiler_top_level_function_names, top_level_function_names(body))
 
-    with {:ok, scope} <- Declarations.declare_program_locals(body, scope),
-         {:ok, instructions, constants} <-
-           compile_statements(body, scope, [], [], top_level_globals(scope)) do
-      instructions = finish_program(instructions)
-      var_refs = Process.get(:compiler_var_refs) || %{}
-      local_names = scope.local_names
+    result =
+      with {:ok, scope} <- Declarations.declare_program_locals(body, scope),
+           {:ok, instructions, constants} <-
+             compile_statements(body, scope, [], [], top_level_globals(scope)) do
+        instructions = finish_program(instructions)
+        var_refs = Process.get(:compiler_var_refs) || %{}
+        local_names = scope.local_names
 
-      {local_defs, var_ref_count} =
-        if map_size(var_refs) > 0 do
-          build_local_defs(local_names, var_refs)
-        else
-          {nil, 0}
-        end
+        {local_defs, var_ref_count} =
+          if map_size(var_refs) > 0 do
+            build_local_defs(local_names, var_refs)
+          else
+            {nil, 0}
+          end
 
-      build_opts =
-        [
-          name: nil,
-          args: [],
-          locals: local_names,
-          var_ref_count: var_ref_count,
-          constants: Enum.reverse(constants),
-          instructions: instructions,
-          has_prototype: false,
-          has_simple_parameter_list: false,
-          new_target_allowed: false,
-          source: ""
-        ] ++ if(local_defs, do: [local_defs: local_defs], else: [])
+        build_opts =
+          [
+            name: nil,
+            args: [],
+            locals: local_names,
+            var_ref_count: var_ref_count,
+            constants: Enum.reverse(constants),
+            instructions: instructions,
+            has_prototype: false,
+            has_simple_parameter_list: false,
+            new_target_allowed: false,
+            source: ""
+          ] ++ if(local_defs, do: [local_defs: local_defs], else: [])
 
-      {:ok, FunctionBuilder.build(build_opts)}
-    end
+        {:ok, FunctionBuilder.build(build_opts)}
+      end
+
+    Process.put(:compiler_top_level_function_names, previous_top_level_function_names)
+    result
+  end
+
+  defp top_level_function_names(body) do
+    body
+    |> Enum.flat_map(fn
+      %AST.FunctionDeclaration{id: %AST.Identifier{name: name}} -> [name]
+      _ -> []
+    end)
+    |> MapSet.new()
   end
 
   defp compile_statements(statements, scope, instructions, constants, globals) do
@@ -132,9 +147,26 @@ defmodule QuickBEAM.JS.Compiler do
 
   defp compile_function_full(function, name, globals) do
     {params, defaults, rest_param, pattern_params} = normalize_params(function.params)
-    scope = Scope.new(params, globals)
+
+    self_capture_names = Process.get(:compiler_self_capture_names) || MapSet.new()
+    Process.delete(:compiler_self_capture_names)
+
+    scope =
+      params
+      |> Scope.new(globals)
+      |> then(fn scope ->
+        Enum.reduce(self_capture_names, scope, &Scope.with_self_binding(&2, &1))
+      end)
+
     self_binding_name = function_self_binding_name(function)
-    scope = if self_binding_name, do: Scope.declare_local(scope, self_binding_name), else: scope
+
+    scope =
+      if self_binding_name,
+        do:
+          scope
+          |> Scope.declare_local(self_binding_name)
+          |> Scope.with_self_binding(self_binding_name),
+        else: scope
 
     scope =
       function
@@ -167,7 +199,28 @@ defmodule QuickBEAM.JS.Compiler do
     prev_var_refs = Process.get(:compiler_var_refs)
     Process.put(:compiler_var_refs, %{})
 
-    with {:ok, scope} <- Declarations.declare_program_locals(function.body.body, scope),
+    prev_self_bindings = Process.get(:compiler_current_self_bindings)
+
+    current_self_bindings =
+      if self_binding_name,
+        do: MapSet.put(self_capture_names, self_binding_name),
+        else: self_capture_names
+
+    strict_self_binding? = self_binding_name != nil and strict_body?(function.body.body)
+    prev_strict_self_bindings = Process.get(:compiler_strict_self_bindings)
+
+    if strict_self_binding?,
+      do: Process.put(:compiler_strict_self_bindings, current_self_bindings),
+      else: Process.delete(:compiler_strict_self_bindings)
+
+    Process.put(:compiler_current_self_bindings, current_self_bindings)
+
+    body =
+      if strict_self_binding?,
+        do: protect_strict_self_assignments(function.body.body, self_binding_name),
+        else: protect_self_assignments(function.body.body, self_binding_name)
+
+    with {:ok, scope} <- Declarations.declare_program_locals(body, scope),
          {:ok, instructions, constants} <- compile_param_patterns(pattern_params, scope, [], []),
          {:ok, instructions, constants} <- compile_rest_param(rest_param, instructions, constants),
          {:ok, instructions, constants} <-
@@ -177,7 +230,7 @@ defmodule QuickBEAM.JS.Compiler do
          {:ok, instructions, constants} <-
            compile_param_defaults(defaults, scope, instructions, constants, globals),
          {:ok, instructions, constants} <-
-           compile_function_body(function.body.body, scope, instructions, constants, globals) do
+           compile_function_body(body, scope, instructions, constants, globals) do
       instructions =
         instructions
         |> ensure_function_return()
@@ -185,6 +238,8 @@ defmodule QuickBEAM.JS.Compiler do
 
       var_refs = Process.get(:compiler_var_refs, %{})
       Process.put(:compiler_var_refs, prev_var_refs)
+      restore_current_self_bindings(prev_self_bindings)
+      restore_strict_self_bindings(prev_strict_self_bindings)
 
       {local_defs, var_ref_count} =
         build_local_defs(params ++ scope.local_names, var_refs)
@@ -231,6 +286,8 @@ defmodule QuickBEAM.JS.Compiler do
     else
       error ->
         Process.put(:compiler_var_refs, prev_var_refs)
+        restore_current_self_bindings(prev_self_bindings)
+        restore_strict_self_bindings(prev_strict_self_bindings)
         error
     end
   end
@@ -278,6 +335,116 @@ defmodule QuickBEAM.JS.Compiler do
        source: ""
      )}
   end
+
+  defp restore_current_self_bindings(nil), do: Process.delete(:compiler_current_self_bindings)
+
+  defp restore_current_self_bindings(bindings),
+    do: Process.put(:compiler_current_self_bindings, bindings)
+
+  defp restore_strict_self_bindings(nil), do: Process.delete(:compiler_strict_self_bindings)
+
+  defp restore_strict_self_bindings(bindings),
+    do: Process.put(:compiler_strict_self_bindings, bindings)
+
+  defp strict_body?([
+         %AST.ExpressionStatement{expression: %AST.Literal{value: "use strict"}} | _
+       ]),
+       do: true
+
+  defp strict_body?(_body), do: false
+
+  defp protect_strict_self_assignments(body, nil), do: body
+
+  defp protect_strict_self_assignments(value, self_name) when is_list(value),
+    do: Enum.map(value, &protect_strict_self_assignments(&1, self_name))
+
+  defp protect_strict_self_assignments(
+         %AST.ExpressionStatement{
+           expression: %AST.AssignmentExpression{
+             operator: "=",
+             left: %AST.Identifier{name: name}
+           }
+         },
+         name
+       ) do
+    %AST.ThrowStatement{
+      type: :throw_statement,
+      argument: %AST.NewExpression{
+        type: :new_expression,
+        callee: %AST.Identifier{type: :identifier, name: "TypeError"},
+        arguments: []
+      }
+    }
+  end
+
+  defp protect_strict_self_assignments(%AST.ArrowFunctionExpression{} = node, self_name),
+    do: %{node | body: protect_strict_self_assignments(node.body, self_name)}
+
+  defp protect_strict_self_assignments(%AST.FunctionExpression{} = node, self_name) do
+    if function_self_binding_name(node) == self_name do
+      node
+    else
+      %{node | body: protect_strict_self_assignments(node.body, self_name)}
+    end
+  end
+
+  defp protect_strict_self_assignments(%{__struct__: _} = node, self_name) do
+    updates =
+      node
+      |> Map.from_struct()
+      |> Enum.map(fn {key, value} -> {key, protect_strict_self_assignments(value, self_name)} end)
+      |> Map.new()
+
+    struct(node, updates)
+  end
+
+  defp protect_strict_self_assignments(value, _self_name), do: value
+
+  defp protect_self_assignments(body, nil), do: body
+
+  defp protect_self_assignments(value, self_name) when is_list(value),
+    do: Enum.map(value, &protect_self_assignments(&1, self_name))
+
+  defp protect_self_assignments(
+         %AST.AssignmentExpression{
+           operator: "=",
+           left: %AST.Identifier{name: name},
+           right: right
+         },
+         name
+       ),
+       do: protect_self_assignments(right, name)
+
+  defp protect_self_assignments(%AST.ArrowFunctionExpression{} = node, self_name),
+    do: %{node | body: protect_self_assignments(node.body, self_name)}
+
+  defp protect_self_assignments(%AST.FunctionExpression{} = node, self_name) do
+    if function_self_binding_name(node) == self_name do
+      node
+    else
+      %{node | body: protect_self_assignments(node.body, self_name)}
+    end
+  end
+
+  defp protect_self_assignments(%AST.FunctionDeclaration{} = node, self_name) do
+    if function_self_binding_name(node) == self_name do
+      node
+    else
+      %{node | body: protect_self_assignments(node.body, self_name)}
+    end
+  end
+
+  defp protect_self_assignments(%{__struct__: _} = node, self_name) do
+    updates =
+      node
+      |> Map.from_struct()
+      |> Enum.map(fn {key, value} -> {key, protect_self_assignments(value, self_name)} end)
+      |> Map.new()
+
+    struct(node, updates)
+  end
+
+  defp protect_self_assignments(value, _self_name), do: value
 
   defp function_self_binding_name(%AST.FunctionExpression{id: %AST.Identifier{name: name}}),
     do: name

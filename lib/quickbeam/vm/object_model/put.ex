@@ -342,7 +342,8 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
-  def put(%QuickBEAM.VM.Function{} = f, key, val, _enumerable), do: Heap.put_ctor_static(f, key, val)
+  def put(%QuickBEAM.VM.Function{} = f, key, val, _enumerable),
+    do: Heap.put_ctor_static(f, key, val)
 
   def put({:closure, _, %QuickBEAM.VM.Function{}} = c, key, val, _enumerable),
     do: Heap.put_ctor_static(c, key, val)

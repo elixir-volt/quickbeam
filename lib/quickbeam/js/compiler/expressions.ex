@@ -213,7 +213,11 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
 
     with {:ok, instructions, constants} <-
            callbacks.compile_expression.(object, scope, instructions, constants) do
-      {:ok, instructions ++ [property_instruction, :delete], constants}
+      if optional_chain?(object) do
+        emit_optional_delete(instructions, [property_instruction, :delete], constants, callbacks)
+      else
+        {:ok, instructions ++ [property_instruction, :delete], constants}
+      end
     end
   end
 
@@ -228,10 +232,23 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
         callbacks
       ) do
     with {:ok, instructions, constants} <-
-           callbacks.compile_expression.(object, scope, instructions, constants),
-         {:ok, instructions, constants} <-
-           callbacks.compile_expression.(property, scope, instructions, constants) do
-      {:ok, instructions ++ [:delete], constants}
+           callbacks.compile_expression.(object, scope, instructions, constants) do
+      if optional_chain?(object) do
+        with {:ok, property_instructions, constants} <-
+               callbacks.compile_expression.(property, scope, [], constants) do
+          emit_optional_delete(
+            instructions,
+            property_instructions ++ [:delete],
+            constants,
+            callbacks
+          )
+        end
+      else
+        with {:ok, instructions, constants} <-
+               callbacks.compile_expression.(property, scope, instructions, constants) do
+          {:ok, instructions ++ [:delete], constants}
+        end
+      end
     end
   end
 
@@ -616,12 +633,26 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
       ) do
     with {:ok, instructions, constants} <-
            callbacks.compile_expression.(right, scope, instructions, constants) do
-      case callbacks.resolve.(scope, name) do
-        :error ->
+      cond do
+        strict_self_binding?(name) ->
+          {:ok,
+           instructions ++
+             [
+               :drop,
+               {:get_var, "TypeError"},
+               {:get_var, "TypeError"},
+               {:call_constructor, 0},
+               :throw
+             ], constants}
+
+        self_binding?(scope, name) ->
+          {:ok, instructions, constants}
+
+        callbacks.resolve.(scope, name) == :error ->
           {:ok, instructions ++ [{:put_var, name}], constants}
 
-        slot ->
-          {:ok, instructions ++ [Slots.write(slot)], constants}
+        true ->
+          {:ok, instructions ++ [Slots.write(callbacks.resolve.(scope, name))], constants}
       end
     end
   end
@@ -932,9 +963,18 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
       compile_mutable_closure(expression, captures, instructions, constants, callbacks)
     else
       expression = Captures.prepend_params(expression, captures)
+      prev_self_capture_names = Process.get(:compiler_self_capture_names)
+
+      self_capture_names =
+        captures
+        |> Enum.filter(&Scope.self_binding?(scope, &1))
+        |> MapSet.new()
+
+      Process.put(:compiler_self_capture_names, self_capture_names)
 
       with {:ok, function} <-
              callbacks.compile_function.(expression, function_name(expression.id)) do
+        restore_self_capture_names(prev_self_capture_names)
         instructions = instructions ++ [{:closure, length(constants)}]
         constants = [function | constants]
 
@@ -1292,6 +1332,27 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
 
   defp regexp_bytecode_constant?(value, pattern), do: is_binary(value) and value != pattern
 
+  defp optional_chain?(%AST.MemberExpression{optional: true}), do: true
+  defp optional_chain?(%AST.MemberExpression{object: object}), do: optional_chain?(object)
+  defp optional_chain?(_expression), do: false
+
+  defp emit_optional_delete(instructions, delete_instructions, constants, callbacks) do
+    delete_label = callbacks.unique_label.(:optional_delete)
+    end_label = callbacks.unique_label.(:optional_delete_end)
+
+    {:ok,
+     instructions ++
+       [
+         :dup,
+         :is_undefined_or_null,
+         {:jump_if_false, delete_label},
+         :drop,
+         true,
+         {:jump, end_label},
+         {:label, delete_label}
+       ] ++ delete_instructions ++ [{:label, end_label}], constants}
+  end
+
   defp callbacks_delete_identifier_result(scope, name) do
     case Scope.resolve(scope, name) do
       :error -> true
@@ -1308,30 +1369,39 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
          callbacks
        )
        when is_binary(code) do
-    case simple_eval_var_declarations(code) do
-      {:ok, declarations} ->
-        compile_simple_eval_var_declarations(
-          declarations,
-          scope,
-          instructions,
-          constants,
-          callbacks
-        )
+    cond do
+      simple_eval_strict_self_assignment?(code) ->
+        {:ok,
+         instructions ++
+           [{:get_var, "TypeError"}, {:get_var, "TypeError"}, {:call_constructor, 0}, :throw],
+         constants}
 
-      :error ->
-        case simple_eval_expression(code) do
-          {:ok, expression} ->
-            callbacks.compile_expression.(expression, scope, instructions, constants)
-
-          :error ->
-            compile_direct_eval_call(
-              callee,
-              [%AST.Literal{value: code}],
+      true ->
+        case simple_eval_var_declarations(code) do
+          {:ok, declarations} ->
+            compile_simple_eval_var_declarations(
+              declarations,
               scope,
               instructions,
               constants,
               callbacks
             )
+
+          :error ->
+            case simple_eval_expression(code) do
+              {:ok, expression} ->
+                callbacks.compile_expression.(expression, scope, instructions, constants)
+
+              :error ->
+                compile_direct_eval_call(
+                  callee,
+                  [%AST.Literal{value: code}],
+                  scope,
+                  instructions,
+                  constants,
+                  callbacks
+                )
+            end
         end
     end
   end
@@ -1345,6 +1415,16 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
          callbacks
        ) do
     compile_direct_eval_call(callee, args, scope, instructions, constants, callbacks)
+  end
+
+  defp simple_eval_strict_self_assignment?(code) do
+    with {:ok, %AST.Program{body: [%AST.ExpressionStatement{expression: expression}]}} <-
+           QuickBEAM.JS.Parser.parse(code),
+         %AST.AssignmentExpression{operator: "=", left: %AST.Identifier{name: name}} <- expression do
+      strict_self_binding?(name)
+    else
+      _ -> false
+    end
   end
 
   defp compile_direct_call(callee, args, scope, instructions, constants, callbacks) do
@@ -1368,8 +1448,12 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
   end
 
   defp simple_eval_expression(code) do
-    with {:ok, %AST.Program{body: [%AST.ExpressionStatement{expression: expression}]}} <-
-           QuickBEAM.JS.Parser.parse(code) do
+    with {:ok,
+          %AST.Program{
+            body: [%AST.ExpressionStatement{expression: %AST.Identifier{name: name} = expression}]
+          }} <-
+           QuickBEAM.JS.Parser.parse(code),
+         false <- name in ["undefined", "NaN"] do
       {:ok, expression}
     else
       _ -> :error
@@ -1722,6 +1806,17 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
          _callbacks
        ),
        do: {:error, {:unsupported, :assignment_expression}}
+
+  defp strict_self_binding?(name),
+    do: MapSet.member?(Process.get(:compiler_strict_self_bindings, MapSet.new()), name)
+
+  defp self_binding?(scope, name) do
+    Scope.self_binding?(scope, name) or
+      MapSet.member?(Process.get(:compiler_current_self_bindings, MapSet.new()), name)
+  end
+
+  defp restore_self_capture_names(nil), do: Process.delete(:compiler_self_capture_names)
+  defp restore_self_capture_names(names), do: Process.put(:compiler_self_capture_names, names)
 
   defp compile_mutable_closure(expression, captures, instructions, constants, callbacks) do
     parent_var_refs = Process.get(:compiler_var_refs, %{})
