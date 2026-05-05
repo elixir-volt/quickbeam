@@ -28,7 +28,7 @@ prepare_function = fn rt, source ->
   fun = hd(for %QuickBEAM.VM.Function{} = f <- parsed.value.constants, do: f)
 
   store_atoms = fn store_atoms, %QuickBEAM.VM.Function{} = fun ->
-    Process.put({:qb_fn_atoms, fun.byte_code}, parsed.atoms)
+    Heap.put_fn_atoms(fun, parsed.atoms)
 
     Enum.each(fun.constants, fn
       %QuickBEAM.VM.Function{} = inner -> store_atoms.(store_atoms, inner)

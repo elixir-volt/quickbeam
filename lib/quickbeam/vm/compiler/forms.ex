@@ -74,7 +74,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
       if is_tuple(fun.instructions) do
         {:ok, Tuple.to_list(fun.instructions)}
       else
-        QuickBEAM.VM.Decoder.decode(fun.byte_code, fun.arg_count)
+        {:error, :missing_instructions}
       end
 
     case instructions do

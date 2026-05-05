@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
   import QuickBEAM.VM.Value, only: [is_object: 1]
 
-  alias QuickBEAM.VM.{Builtin, Bytecode, GlobalEnv, Heap, Invocation, JSThrow, Names}
+  alias QuickBEAM.VM.{Builtin, GlobalEnv, Heap, Invocation, JSThrow, Names, SourcePosition}
   alias QuickBEAM.VM.Compiler.Runner
   alias QuickBEAM.VM.Environment.Captures
   alias QuickBEAM.VM.Interpreter.{Closures, Context, Values}
@@ -591,7 +591,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def delete_property(_ctx, {:builtin, _name, _} = fun, key), do: Static.delete_static(fun, key)
   def delete_property(_ctx, {:closure, _, _} = fun, key), do: Static.delete_static(fun, key)
-  def delete_property(_ctx, %QuickBEAM.VM.Function{} = fun, key), do: Static.delete_static(fun, key)
+
+  def delete_property(_ctx, %QuickBEAM.VM.Function{} = fun, key),
+    do: Static.delete_static(fun, key)
+
   def delete_property(_ctx, obj, key), do: Delete.delete_property(obj, key)
 
   def set_proto(_ctx \\ nil, obj, proto)
@@ -1065,7 +1068,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   defp stack_for_pc(%QuickBEAM.VM.Function{} = fun, pc) do
-    {line, col} = Bytecode.source_position(fun, pc)
+    {line, col} = SourcePosition.source_position(fun, pc)
     "    at #{fun.filename}:#{line}:#{col}"
   end
 

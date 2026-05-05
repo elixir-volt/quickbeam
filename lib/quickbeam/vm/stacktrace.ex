@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.Stacktrace do
 
   import QuickBEAM.VM.Builtin, only: [object: 1]
 
-  alias QuickBEAM.VM.{Bytecode, Heap}
+  alias QuickBEAM.VM.{Heap, SourcePosition}
   alias QuickBEAM.VM.Execution.Trace
   alias QuickBEAM.VM.Runtime
 
@@ -50,7 +50,7 @@ defmodule QuickBEAM.VM.Stacktrace do
 
   defp frame_info(%{fun: fun_term, pc: pc}) do
     fun = bytecode_fun(fun_term)
-    {line, col} = Bytecode.source_position(fun, pc)
+    {line, col} = SourcePosition.source_position(fun, pc)
 
     %{
       function: fun_term,
@@ -64,7 +64,9 @@ defmodule QuickBEAM.VM.Stacktrace do
   defp bytecode_fun({:closure, _, %QuickBEAM.VM.Function{} = fun}), do: fun
   defp bytecode_fun(%QuickBEAM.VM.Function{} = fun), do: fun
 
-  defp function_name(%QuickBEAM.VM.Function{name: name}) when is_binary(name) and name != "", do: name
+  defp function_name(%QuickBEAM.VM.Function{name: name}) when is_binary(name) and name != "",
+    do: name
+
   defp function_name(_), do: nil
 
   defp prepare_stack_trace, do: error_static("prepareStackTrace", :undefined)

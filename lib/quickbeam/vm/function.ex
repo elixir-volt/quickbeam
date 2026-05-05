@@ -21,7 +21,6 @@ defmodule QuickBEAM.VM.Function do
     constants: [],
     atoms: nil,
     extra_atoms: [],
-    byte_code: nil,
     instructions: nil,
     has_prototype: false,
     has_simple_parameter_list: false,

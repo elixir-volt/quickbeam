@@ -9,7 +9,10 @@ defmodule QuickBEAM.VM.Compiler.Runner do
 
   @doc "Invokes the runtime object represented by this module."
   def invoke(%QuickBEAM.VM.Function{} = fun, args), do: invoke(fun, args, nil)
-  def invoke({:closure, _, %QuickBEAM.VM.Function{}} = closure, args), do: invoke(closure, args, nil)
+
+  def invoke({:closure, _, %QuickBEAM.VM.Function{}} = closure, args),
+    do: invoke(closure, args, nil)
+
   def invoke(_, _), do: :error
 
   def invoke(%QuickBEAM.VM.Function{} = fun, args, base_ctx),
@@ -328,11 +331,11 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   defp current_super(nil), do: :undefined
   defp current_super(home_object), do: Class.get_super(home_object)
 
+  defp function_code_key(%QuickBEAM.VM.Function{id: id}) when is_integer(id), do: {:function, id}
+
   defp function_code_key(%QuickBEAM.VM.Function{instructions: instructions})
        when is_tuple(instructions),
        do: {:instructions, :erlang.phash2(instructions)}
-
-  defp function_code_key(%QuickBEAM.VM.Function{} = fun), do: {:byte_code, fun.byte_code}
 
   @doc "Normalizes call arguments to the arity expected by compiled code."
   def normalize_args(_args, 0), do: []

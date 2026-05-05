@@ -35,8 +35,6 @@ defmodule QuickBEAM.VM.Heap do
             freeze: 1,
             extensible?: 1,
             prevent_extensions: 1,
-            get_decoded: 1,
-            put_decoded: 2,
             get_compiled: 1,
             put_compiled: 2,
             get_fn_atoms: 1,
@@ -258,12 +256,9 @@ defmodule QuickBEAM.VM.Heap do
 
   # ── Objects ──
 
-  defp proto_cache_key({:closure, _, %QuickBEAM.VM.Function{} = fun}),
-    do: {:function, :erlang.phash2(fun)}
-
+  defp proto_cache_key({:closure, _, %QuickBEAM.VM.Function{} = fun}), do: proto_cache_key(fun)
+  defp proto_cache_key(%QuickBEAM.VM.Function{id: id}) when is_integer(id), do: {:function, id}
   defp proto_cache_key(%QuickBEAM.VM.Function{} = fun), do: {:function, :erlang.phash2(fun)}
-  defp proto_cache_key({:closure, _, %{byte_code: bc}}), do: bc
-  defp proto_cache_key(%{byte_code: bc}), do: bc
   defp proto_cache_key(ctor), do: ctor
 
   @doc "Returns heap object data, reconstructing shaped objects as maps."
@@ -310,16 +305,14 @@ defmodule QuickBEAM.VM.Heap do
   @doc "Returns the active interpreter context stored in the process dictionary."
   defdelegate get_ctx(), to: Context
   defdelegate put_ctx(ctx), to: Context
-  defdelegate get_decoded(byte_code), to: Caches
-  defdelegate put_decoded(byte_code, instructions), to: Caches
   defdelegate get_compiled(key), to: Caches
   defdelegate put_compiled(key, compiled), to: Caches
-  defdelegate get_fn_atoms(byte_code), to: Caches
-  defdelegate get_fn_atoms(byte_code, default), to: Caches
-  @doc "Caches the atom table for a bytecode function."
-  defdelegate put_fn_atoms(byte_code, atoms), to: Caches
-  defdelegate get_capture_keys(byte_code), to: Caches
-  defdelegate put_capture_keys(byte_code, tuple), to: Caches
+  defdelegate get_fn_atoms(function_or_key), to: Caches
+  defdelegate get_fn_atoms(function_or_key, default), to: Caches
+  @doc "Caches the atom table for a VM function."
+  defdelegate put_fn_atoms(function_or_key, atoms), to: Caches
+  defdelegate get_capture_keys(function_or_key), to: Caches
+  defdelegate put_capture_keys(function_or_key, tuple), to: Caches
   defdelegate get_array_proto(), to: Caches
   defdelegate put_array_proto(proto), to: Caches
   defdelegate get_func_proto(), to: Caches

@@ -23,7 +23,7 @@ defmodule QuickBEAM.VM.CompilerDifferentialTest do
     {:ok, bc} = QuickBEAM.compile(rt, js)
     {:ok, parsed} = Bytecode.decode(bc)
     fun = hd(for %QuickBEAM.VM.Function{} = f <- parsed.value.constants, do: f)
-    Process.put({:qb_fn_atoms, fun.byte_code}, parsed.atoms)
+    Heap.put_fn_atoms(fun, parsed.atoms)
     fun
   end
 

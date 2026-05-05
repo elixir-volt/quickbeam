@@ -351,39 +351,41 @@ defmodule QuickBEAM.VM.Bytecode do
       else
         <<byte_code::binary-size(byte_code_len), rest::binary>> = rest
 
-        {debug_info, rest} = read_debug_info(rest, flags_map.has_debug_info, atoms)
+        with {:ok, instructions} <- QuickBEAM.VM.Decoder.decode(byte_code, arg_count) do
+          {debug_info, rest} = read_debug_info(rest, flags_map.has_debug_info, atoms)
 
-        fun = %QuickBEAM.VM.Function{
-          id: :erlang.unique_integer([:positive, :monotonic]),
-          name: func_name,
-          arg_count: arg_count,
-          var_count: var_count,
-          defined_arg_count: defined_arg_count,
-          stack_size: stack_size,
-          var_ref_count: var_ref_count,
-          locals: locals,
-          closure_vars: closure_vars,
-          constants: cpool,
-          byte_code: byte_code,
-          filename: debug_info.filename,
-          line_num: debug_info.line_num,
-          col_num: debug_info.col_num,
-          pc2line: debug_info.pc2line,
-          source: debug_info.source,
-          is_strict_mode: strict > 0,
-          has_prototype: flags_map.has_prototype,
-          has_simple_parameter_list: flags_map.has_simple_parameter_list,
-          is_derived_class_constructor: flags_map.is_derived_class_constructor,
-          need_home_object: flags_map.need_home_object,
-          func_kind: flags_map.func_kind,
-          new_target_allowed: flags_map.new_target_allowed,
-          super_call_allowed: flags_map.super_call_allowed,
-          super_allowed: flags_map.super_allowed,
-          arguments_allowed: flags_map.arguments_allowed,
-          has_debug_info: flags_map.has_debug_info
-        }
+          fun = %QuickBEAM.VM.Function{
+            id: :erlang.unique_integer([:positive, :monotonic]),
+            name: func_name,
+            arg_count: arg_count,
+            var_count: var_count,
+            defined_arg_count: defined_arg_count,
+            stack_size: stack_size,
+            var_ref_count: var_ref_count,
+            locals: locals,
+            closure_vars: closure_vars,
+            constants: cpool,
+            instructions: List.to_tuple(instructions),
+            filename: debug_info.filename,
+            line_num: debug_info.line_num,
+            col_num: debug_info.col_num,
+            pc2line: debug_info.pc2line,
+            source: debug_info.source,
+            is_strict_mode: strict > 0,
+            has_prototype: flags_map.has_prototype,
+            has_simple_parameter_list: flags_map.has_simple_parameter_list,
+            is_derived_class_constructor: flags_map.is_derived_class_constructor,
+            need_home_object: flags_map.need_home_object,
+            func_kind: flags_map.func_kind,
+            new_target_allowed: flags_map.new_target_allowed,
+            super_call_allowed: flags_map.super_call_allowed,
+            super_allowed: flags_map.super_allowed,
+            arguments_allowed: flags_map.arguments_allowed,
+            has_debug_info: flags_map.has_debug_info
+          }
 
-        {:ok, fun, rest}
+          {:ok, fun, rest}
+        end
       end
     end
   end
@@ -531,90 +533,4 @@ defmodule QuickBEAM.VM.Bytecode do
       _ -> {%{filename: nil, line_num: 1, col_num: 1, pc2line: <<>>, source: <<>>}, data}
     end
   end
-
-  @pc2line_base -1
-  @pc2line_range 5
-  @pc2line_op_first 1
-
-  @doc "Returns the byte offset of the instruction at `insn_index` within a function bytecode blob."
-  def instruction_offset(byte_code, insn_index)
-      when is_binary(byte_code) and is_integer(insn_index) do
-    do_instruction_offset(byte_code, byte_size(byte_code), 0, 0, insn_index)
-  end
-
-  defp do_instruction_offset(_bc, _len, pos, idx, target) when idx >= target, do: pos
-
-  defp do_instruction_offset(bc, len, pos, idx, target) when pos < len do
-    op = :binary.at(bc, pos)
-
-    case Opcodes.info(op) do
-      {_name, size, _n_pop, _n_push, _fmt} ->
-        do_instruction_offset(bc, len, pos + size, idx + 1, target)
-
-      _ ->
-        pos
-    end
-  end
-
-  defp do_instruction_offset(_bc, _len, pos, _idx, _target), do: pos
-
-  @doc "Resolves a decoded function instruction index to source line and column information."
-  def source_position(%QuickBEAM.VM.Function{byte_code: byte_code} = fun, insn_index)
-      when is_binary(byte_code) do
-    pc = instruction_offset(byte_code, insn_index)
-
-    fun
-    |> decode_pc2line(pc)
-    |> maybe_apply_source_hint(fun)
-  end
-
-  def source_position(%QuickBEAM.VM.Function{} = fun, _insn_index),
-    do: {fun.line_num, fun.col_num}
-
-  defp decode_pc2line(%QuickBEAM.VM.Function{pc2line: <<>>} = fun, _pc),
-    do: {fun.line_num, fun.col_num}
-
-  defp decode_pc2line(%QuickBEAM.VM.Function{} = fun, target_pc) do
-    do_decode_pc2line(fun.pc2line, target_pc, 0, fun.line_num, fun.col_num)
-  end
-
-  defp do_decode_pc2line(<<>>, _target_pc, _pc, line_num, col_num), do: {line_num, col_num}
-
-  defp do_decode_pc2line(data, target_pc, pc, line_num, col_num) do
-    <<op_byte, rest::binary>> = data
-
-    {next_pc, next_line, next_col, rest2} =
-      if op_byte == 0 do
-        {:ok, diff_pc, rest1} = LEB128.read_unsigned(rest)
-        {:ok, diff_line, rest2} = LEB128.read_signed(rest1)
-        {:ok, diff_col, rest3} = LEB128.read_signed(rest2)
-        {pc + diff_pc, line_num + diff_line, col_num + diff_col, rest3}
-      else
-        op = op_byte - @pc2line_op_first
-        {:ok, diff_col, rest3} = LEB128.read_signed(rest)
-
-        {pc + div(op, @pc2line_range), line_num + rem(op, @pc2line_range) + @pc2line_base,
-         col_num + diff_col, rest3}
-      end
-
-    if target_pc < next_pc do
-      {line_num, col_num}
-    else
-      do_decode_pc2line(rest2, target_pc, next_pc, next_line, next_col)
-    end
-  end
-
-  defp maybe_apply_source_hint(pos, %QuickBEAM.VM.Function{source: source})
-       when is_binary(source) do
-    case Regex.scan(~r/line\s+(\d+),\s*column\s+(\d+)/, source, capture: :all_but_first) do
-      [[hint_line, hint_col]] ->
-        hint = {String.to_integer(hint_line), String.to_integer(hint_col)}
-        if pos > hint, do: hint, else: pos
-
-      _ ->
-        pos
-    end
-  end
-
-  defp maybe_apply_source_hint(pos, _fun), do: pos
 end

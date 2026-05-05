@@ -1,52 +1,43 @@
 defmodule QuickBEAM.VM.Heap.Caches do
-  @moduledoc "Process-local caches for decoded bytecode, prototypes, transient call state, and runtime metadata."
+  @moduledoc "Process-local caches for prototypes, transient call state, and runtime metadata."
 
-  # ── Bytecode caches ──
-
-  @doc "Returns cached decoded instructions for a bytecode binary."
-  def get_decoded(byte_code), do: Process.get({:qb_decoded, byte_code})
-
-  def put_decoded(byte_code, instructions),
-    do: Process.put({:qb_decoded, byte_code}, instructions)
+  # ── Compiler caches ──
 
   @doc "Returns cached compiled code for a compiler cache key."
   def get_compiled(key), do: Process.get({:qb_compiled, key})
   def put_compiled(key, compiled), do: Process.put({:qb_compiled, key}, compiled)
 
-  def get_fn_atoms(function_or_byte_code, default \\ nil)
+  def get_fn_atoms(function_or_key, default \\ nil)
 
-  def get_fn_atoms(%QuickBEAM.VM.Function{atoms: atoms}, _default) when not is_nil(atoms), do: atoms
+  def get_fn_atoms(%QuickBEAM.VM.Function{atoms: atoms}, _default) when not is_nil(atoms),
+    do: atoms
 
   def get_fn_atoms(%QuickBEAM.VM.Function{} = fun, default) do
     Process.get({:qb_fn_atoms, function_atom_key(fun)}, default)
   end
 
-  def get_fn_atoms(byte_code, default), do: Process.get({:qb_fn_atoms, byte_code}, default)
+  def get_fn_atoms(key, default), do: Process.get({:qb_fn_atoms, key}, default)
 
-  @doc "Caches the atom table for a bytecode function."
+  @doc "Caches the atom table for a VM function."
   def put_fn_atoms(%QuickBEAM.VM.Function{} = fun, atoms) do
     Process.put({:qb_fn_atoms, function_atom_key(fun)}, atoms)
-
   end
 
-  def put_fn_atoms(byte_code, atoms), do: Process.put({:qb_fn_atoms, byte_code}, atoms)
+  def put_fn_atoms(key, atoms), do: Process.put({:qb_fn_atoms, key}, atoms)
 
-  defp function_atom_key(%QuickBEAM.VM.Function{instructions: instructions} = fun)
-       when is_tuple(instructions),
-       do: {:instructions, :erlang.phash2(instructions), fun.arg_count, :erlang.phash2(fun)}
+  defp function_atom_key(%QuickBEAM.VM.Function{id: id}) when is_integer(id), do: {:function, id}
 
-  defp function_atom_key(%QuickBEAM.VM.Function{} = fun),
-    do: {:function, fun.arg_count, :erlang.phash2(fun)}
+  defp function_atom_key(%QuickBEAM.VM.Function{} = fun), do: {:function, :erlang.phash2(fun)}
 
   def get_capture_keys(%QuickBEAM.VM.Function{} = fun),
     do: Process.get({:qb_capture_keys, function_atom_key(fun)})
 
-  def get_capture_keys(byte_code), do: Process.get({:qb_capture_keys, byte_code})
+  def get_capture_keys(key), do: Process.get({:qb_capture_keys, key})
 
   def put_capture_keys(%QuickBEAM.VM.Function{} = fun, tuple),
     do: Process.put({:qb_capture_keys, function_atom_key(fun)}, tuple)
 
-  def put_capture_keys(byte_code, tuple), do: Process.put({:qb_capture_keys, byte_code}, tuple)
+  def put_capture_keys(key, tuple), do: Process.put({:qb_capture_keys, key}, tuple)
 
   @doc "Returns cached object-shape wrapping metadata for a key tuple."
   def get_wrap_cache(keys_tuple), do: Process.get({:qb_wrap_cache, keys_tuple})

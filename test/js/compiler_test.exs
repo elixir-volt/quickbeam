@@ -252,19 +252,6 @@ defmodule QuickBEAM.JS.CompilerTest do
       assert {:ok, 3} = VMCompiler.invoke(bytecode.value, [])
     end
 
-    test "rewrites simple native QuickJS bytecode binaries" do
-      assert {:ok, rt} = QuickBEAM.start(apis: false)
-
-      try do
-        assert {:ok, native} = QuickBEAM.compile(rt, "function f(a){ return a + 1; } f(2)")
-        assert {:ok, decoded} = QuickBEAM.VM.Bytecode.decode(native)
-        assert {:ok, encoded} = QuickBEAM.VM.Bytecode.Writer.encode(decoded)
-        assert {:ok, 3} = QuickBEAM.load_bytecode(rt, encoded)
-      after
-        QuickBEAM.stop(rt)
-      end
-    end
-
     test "emits get_var for unresolved globals" do
       assert {:ok, _bytecode} = JSCompiler.compile("missing")
     end

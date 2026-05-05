@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.AnalysisTest do
   use ExUnit.Case, async: true
 
-  alias QuickBEAM.VM.{Bytecode, Decoder, Heap}
+  alias QuickBEAM.VM.{Bytecode, Heap}
   alias QuickBEAM.VM.Compiler.Analysis.{CFG, Stack, Types}
 
   setup do
@@ -35,7 +35,7 @@ defmodule QuickBEAM.VM.Compiler.AnalysisTest do
   end
 
   defp infer_types(fun) do
-    {:ok, instructions} = Decoder.decode(fun.byte_code, fun.arg_count)
+    instructions = Tuple.to_list(fun.instructions)
     entries = CFG.block_entries(instructions)
     {:ok, stack_depths} = Stack.infer_block_stack_depths(instructions, entries)
 

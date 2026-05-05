@@ -37,10 +37,6 @@ defmodule QuickBEAM.VM.ObjectModel.Functions do
 
   def home_object_key(%QuickBEAM.VM.Function{id: id}) when is_integer(id), do: {:function, id}
 
-  def home_object_key(%QuickBEAM.VM.Function{byte_code: byte_code})
-      when is_binary(byte_code) and byte_size(byte_code) > 0,
-      do: {:byte_code, byte_code}
-
   def home_object_key(%QuickBEAM.VM.Function{} = fun), do: {:function, :erlang.phash2(fun)}
   def home_object_key(_), do: nil
 

@@ -1,7 +1,6 @@
 defmodule QuickBEAM.VM.Compiler.Diagnostics do
   @moduledoc "Introspection tools for compiler mode: capability checking, helper call analysis."
 
-  alias QuickBEAM.VM.{Decoder}
   alias QuickBEAM.VM.Compiler
   alias QuickBEAM.VM.Compiler.Analysis.CFG
 
@@ -145,10 +144,11 @@ defmodule QuickBEAM.VM.Compiler.Diagnostics do
     :with_get_ref
   ]
 
-  defp instructions(%QuickBEAM.VM.Function{instructions: instructions}) when is_tuple(instructions),
-    do: {:ok, Tuple.to_list(instructions)}
+  defp instructions(%QuickBEAM.VM.Function{instructions: instructions})
+       when is_tuple(instructions),
+       do: {:ok, Tuple.to_list(instructions)}
 
-  defp instructions(%QuickBEAM.VM.Function{} = fun), do: Decoder.decode(fun.byte_code, fun.arg_count)
+  defp instructions(%QuickBEAM.VM.Function{}), do: {:error, :missing_instructions}
 
   defp known_unsupported?(name), do: name == :invalid or name in @with_scope_opcodes
 end

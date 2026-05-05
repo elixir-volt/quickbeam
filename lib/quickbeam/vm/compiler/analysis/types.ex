@@ -1,9 +1,8 @@
 defmodule QuickBEAM.VM.Compiler.Analysis.Types do
   @moduledoc "Abstract type inference: propagates JS value types through basic blocks to enable guard elision."
 
-    alias QuickBEAM.VM.Compiler.Analysis.{CFG, Stack}
+  alias QuickBEAM.VM.Compiler.Analysis.{CFG, Stack}
   alias QuickBEAM.VM.Compiler.Lowering.Types, as: LoweringTypes
-  alias QuickBEAM.VM.Decoder
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Heap.Caches
   alias QuickBEAM.VM.PredefinedAtoms
@@ -1074,18 +1073,17 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
 
   defp resolve_atom_name(_name, _atoms), do: nil
 
+  defp function_type_key(%QuickBEAM.VM.Function{id: id}) when is_integer(id), do: {:function, id}
+
   defp function_type_key(%QuickBEAM.VM.Function{instructions: instructions})
        when is_tuple(instructions),
        do: {:instructions, :erlang.phash2(instructions)}
-
-  defp function_type_key(%QuickBEAM.VM.Function{} = fun), do: {:byte_code, fun.byte_code}
 
   defp function_instructions(%QuickBEAM.VM.Function{instructions: instructions})
        when is_tuple(instructions),
        do: {:ok, Tuple.to_list(instructions)}
 
-  defp function_instructions(%QuickBEAM.VM.Function{} = fun),
-    do: Decoder.decode(fun.byte_code, fun.arg_count)
+  defp function_instructions(%QuickBEAM.VM.Function{}), do: {:error, :missing_instructions}
 
   defp initially_initialized?(fun, idx) when idx < fun.arg_count, do: true
 

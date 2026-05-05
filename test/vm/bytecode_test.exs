@@ -58,7 +58,7 @@ defmodule QuickBEAM.VM.BytecodeTest do
       fun = parsed.value
       assert is_struct(fun, Function)
       assert fun.arg_count == 0
-      assert byte_size(fun.byte_code) > 0
+      assert tuple_size(fun.instructions) > 0
     end
 
     test "string literal", %{rt: rt} do
@@ -67,7 +67,7 @@ defmodule QuickBEAM.VM.BytecodeTest do
       assert is_struct(fun, Function)
       # String literals are pushed by bytecode ops, not stored in cpool for simple cases
       assert fun.stack_size > 0
-      assert byte_size(fun.byte_code) > 0
+      assert tuple_size(fun.instructions) > 0
     end
 
     test "boolean, null, undefined", %{rt: rt} do
@@ -86,7 +86,7 @@ defmodule QuickBEAM.VM.BytecodeTest do
       assert fun.arg_count == 2
       assert fun.var_count == 0
       assert fun.stack_size > 0
-      assert byte_size(fun.byte_code) > 0
+      assert tuple_size(fun.instructions) > 0
     end
 
     test "function with locals", %{rt: rt} do

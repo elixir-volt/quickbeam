@@ -112,10 +112,10 @@ defmodule Bench.PreactVM do
     |> Enum.sort_by(fn {_op, count} -> -count end)
   end
 
-  def opcode_histogram(%QuickBEAM.VM.Function{} = fun) do
-    {:ok, ops} = QuickBEAM.VM.Decoder.decode(fun.byte_code, fun.arg_count)
-
-    ops
+  def opcode_histogram(%QuickBEAM.VM.Function{instructions: instructions})
+      when is_tuple(instructions) do
+    instructions
+    |> Tuple.to_list()
     |> Enum.frequencies_by(fn {op, _args} -> elem(QuickBEAM.VM.Opcodes.info(op), 0) end)
     |> Enum.sort_by(fn {_op, count} -> -count end)
   end
@@ -124,7 +124,7 @@ defmodule Bench.PreactVM do
     cache_fun =
       fn
         %QuickBEAM.VM.Function{} = fun, atoms, recur ->
-          Process.put({:qb_fn_atoms, fun.byte_code}, atoms)
+          QuickBEAM.VM.Heap.put_fn_atoms(fun, atoms)
 
           Enum.each(fun.constants, fn
             %QuickBEAM.VM.Function{} = inner -> recur.(inner, atoms, recur)

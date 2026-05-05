@@ -48,12 +48,7 @@ defmodule QuickBEAM.VM.CompilerTest do
   defp compiled_key(%QuickBEAM.VM.Function{} = fun) do
     atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
 
-    code_key =
-      if is_tuple(fun.instructions) do
-        {:instructions, :erlang.phash2(fun.instructions)}
-      else
-        {:byte_code, fun.byte_code}
-      end
+    code_key = {:function, fun.id}
 
     {code_key, fun.arg_count, :erlang.phash2(fun), :erlang.phash2(atoms)}
   end
@@ -77,7 +72,10 @@ defmodule QuickBEAM.VM.CompilerTest do
   end
 
   defp synthetic_function(byte_code, atoms \\ {"<synthetic>"}) do
+    {:ok, instructions} = QuickBEAM.VM.Decoder.decode(byte_code, 0)
+
     %QuickBEAM.VM.Function{
+      id: :erlang.unique_integer([:positive, :monotonic]),
       name: "synthetic",
       filename: "<synthetic>",
       line_num: 1,
@@ -87,7 +85,7 @@ defmodule QuickBEAM.VM.CompilerTest do
       defined_arg_count: 0,
       stack_size: 8,
       atoms: atoms,
-      byte_code: byte_code
+      instructions: List.to_tuple(instructions)
     }
   end
 
@@ -1064,7 +1062,9 @@ defmodule QuickBEAM.VM.CompilerTest do
         compile_and_decode(rt, "(function(f){ return function(x){ return f(x) } })")
         |> user_function()
 
-      inner = Enum.find(outer.constants, &match?(%QuickBEAM.VM.Function{closure_vars: [_ | _]}, &1))
+      inner =
+        Enum.find(outer.constants, &match?(%QuickBEAM.VM.Function{closure_vars: [_ | _]}, &1))
+
       assert %QuickBEAM.VM.Function{} = inner
 
       assert {:ok, beam_file} = Compiler.disasm(inner)

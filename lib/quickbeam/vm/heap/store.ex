@@ -190,10 +190,6 @@ defmodule QuickBEAM.VM.Heap.Store do
 
   defp ctor_key(%QuickBEAM.VM.Function{id: id}) when is_integer(id), do: {:function, id}
 
-  defp ctor_key(%QuickBEAM.VM.Function{byte_code: byte_code})
-       when is_binary(byte_code) and byte_size(byte_code) > 0,
-       do: {:byte_code, byte_code}
-
   defp ctor_key(%QuickBEAM.VM.Function{} = fun), do: {:function, :erlang.phash2(fun)}
   defp ctor_key(ctor), do: ctor
 

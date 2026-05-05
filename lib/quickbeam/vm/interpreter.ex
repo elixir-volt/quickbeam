@@ -9,7 +9,6 @@ defmodule QuickBEAM.VM.Interpreter do
   alias QuickBEAM.VM.{
     Builtin,
     Bytecode,
-    Decoder,
     GlobalEnv,
     Heap,
     Invocation,
@@ -94,7 +93,8 @@ defmodule QuickBEAM.VM.Interpreter do
   @spec eval(QuickBEAM.VM.Function.t(), [term()], map()) :: {:ok, term()} | {:error, term()}
   def eval(%QuickBEAM.VM.Function{} = fun, args, opts), do: eval(fun, args, opts, {})
 
-  @spec eval(QuickBEAM.VM.Function.t(), [term()], map(), tuple()) :: {:ok, term()} | {:error, term()}
+  @spec eval(QuickBEAM.VM.Function.t(), [term()], map(), tuple()) ::
+          {:ok, term()} | {:error, term()}
   def eval(%QuickBEAM.VM.Function{} = fun, args, opts, atoms) do
     case eval_with_ctx(fun, args, opts, atoms) do
       {:ok, value, _ctx} -> {:ok, value}
@@ -239,7 +239,10 @@ defmodule QuickBEAM.VM.Interpreter do
        when idx >= 0 and idx < length(vars),
        do: vars |> Enum.at(idx) |> Map.get(:name) |> Names.resolve_display_name()
 
-  defp current_var_ref_name(%Context{current_func: %QuickBEAM.VM.Function{closure_vars: vars}}, idx)
+  defp current_var_ref_name(
+         %Context{current_func: %QuickBEAM.VM.Function{closure_vars: vars}},
+         idx
+       )
        when idx >= 0 and idx < length(vars),
        do: vars |> Enum.at(idx) |> Map.get(:name) |> Names.resolve_display_name()
 
@@ -1012,7 +1015,8 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp callable?(fun) do
     is_function(fun) or match?({:fn, _, _}, fun) or match?({:bound, _, _}, fun) or
-      match?(%QuickBEAM.VM.Function{}, fun) or match?({:closure, _, %QuickBEAM.VM.Function{}}, fun)
+      match?(%QuickBEAM.VM.Function{}, fun) or
+      match?({:closure, _, %QuickBEAM.VM.Function{}}, fun)
   end
 
   defp run_arg_update(pc, frame, stack, gas, %Context{arg_buf: arg_buf} = ctx, idx, val) do
@@ -1362,34 +1366,12 @@ defmodule QuickBEAM.VM.Interpreter do
        when is_tuple(instructions),
        do: {:ok, Tuple.to_list(instructions)}
 
-  defp function_instructions(%QuickBEAM.VM.Function{} = fun),
-    do: Decoder.decode(fun.byte_code, fun.arg_count)
+  defp function_instructions(%QuickBEAM.VM.Function{}), do: {:error, :missing_instructions}
 
   defp do_invoke(%QuickBEAM.VM.Function{} = fun, self_ref, args, var_refs, gas, ctx) do
     Heap.put_ctx(ctx)
 
-    insns =
-      if fun.instructions do
-        fun.instructions
-      else
-        cache_key = {fun.byte_code, fun.arg_count}
-
-        case Heap.get_decoded(cache_key) do
-          nil ->
-            case Decoder.decode(fun.byte_code, fun.arg_count) do
-              {:ok, instructions} ->
-                t = List.to_tuple(instructions)
-                Heap.put_decoded(cache_key, t)
-                t
-
-              {:error, _} = err ->
-                throw(err)
-            end
-
-          cached ->
-            cached
-        end
-      end
+    insns = fun.instructions
 
     case insns do
       insns when is_tuple(insns) ->

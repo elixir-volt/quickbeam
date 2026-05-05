@@ -34,8 +34,26 @@ collect_functions = fn parsed ->
   collect.(collect, parsed.value)
 end
 
+opcode_rows = fn %QuickBEAM.VM.Function{instructions: instructions} when is_tuple(instructions) ->
+  instructions
+  |> Tuple.to_list()
+  |> Enum.with_index()
+  |> Enum.map(fn {{op, _args}, pc} ->
+    name =
+      case CFG.opcode_name(op) do
+        {:ok, name} -> name
+        {:error, _} -> :unknown
+      end
+
+    %{pc: pc, opcode: name}
+  end)
+end
+
 synthetic_function = fn byte_code ->
+  {:ok, instructions} = Decoder.decode(byte_code, 0)
+
   %QuickBEAM.VM.Function{
+    id: :erlang.unique_integer([:positive, :monotonic]),
     name: "quickjs-reference-opcode",
     filename: "<quickjs-reference-opcode>",
     line_num: 1,
@@ -44,7 +62,7 @@ synthetic_function = fn byte_code ->
     var_count: 0,
     defined_arg_count: 0,
     stack_size: 8,
-    byte_code: byte_code
+    instructions: List.to_tuple(instructions)
   }
 end
 
@@ -81,24 +99,7 @@ rows =
             compile_result = Compiler.compile(fun)
             capabilities = Diagnostics.capabilities(fun)
 
-            opcodes =
-              case Decoder.decode(fun.byte_code, fun.arg_count) do
-                {:ok, instructions} ->
-                  instructions
-                  |> Enum.with_index()
-                  |> Enum.map(fn {{op, _args}, pc} ->
-                    name =
-                      case CFG.opcode_name(op) do
-                        {:ok, name} -> name
-                        {:error, _} -> :unknown
-                      end
-
-                    %{pc: pc, opcode: name}
-                  end)
-
-                {:error, _} ->
-                  []
-              end
+            opcodes = opcode_rows.(fun)
 
             row = %{
               case: case_name,
@@ -125,24 +126,7 @@ reference_rows =
     compile_result = Compiler.compile(fun)
     capabilities = Diagnostics.capabilities(fun)
 
-    opcodes =
-      case Decoder.decode(fun.byte_code, fun.arg_count) do
-        {:ok, instructions} ->
-          instructions
-          |> Enum.with_index()
-          |> Enum.map(fn {{op, _args}, pc} ->
-            name =
-              case CFG.opcode_name(op) do
-                {:ok, name} -> name
-                {:error, _} -> :unknown
-              end
-
-            %{pc: pc, opcode: name}
-          end)
-
-        {:error, _} ->
-          []
-      end
+    opcodes = opcode_rows.(fun)
 
     %{
       case: case_name,

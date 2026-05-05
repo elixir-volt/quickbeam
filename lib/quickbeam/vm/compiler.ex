@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.Compiler do
 
   import QuickBEAM.VM.Heap.Keys, only: [promise_state: 0, promise_value: 0]
 
-  alias QuickBEAM.VM.{Decoder, Heap, PromiseState}
+  alias QuickBEAM.VM.{Heap, PromiseState}
   alias QuickBEAM.VM.Compiler.{Forms, Lowering, Optimizer, Runner}
 
   @type compiled_fun :: {module(), atom()}
@@ -142,10 +142,11 @@ defmodule QuickBEAM.VM.Compiler do
     end
   end
 
-  defp instructions(%QuickBEAM.VM.Function{instructions: instructions}) when is_tuple(instructions),
-    do: {:ok, Tuple.to_list(instructions)}
+  defp instructions(%QuickBEAM.VM.Function{instructions: instructions})
+       when is_tuple(instructions),
+       do: {:ok, Tuple.to_list(instructions)}
 
-  defp instructions(%QuickBEAM.VM.Function{} = fun), do: Decoder.decode(fun.byte_code, fun.arg_count)
+  defp instructions(%QuickBEAM.VM.Function{}), do: {:error, :missing_instructions}
 
   defp module_name(fun, atoms) do
     hash =
