@@ -146,17 +146,23 @@ defmodule QuickBEAM.VM.Heap do
         {:obj, id}
 
       nil ->
-        map = :maps.from_list(:lists.zip(Tuple.to_list(keys), Tuple.to_list(vals)))
+        keys_list = Tuple.to_list(keys)
+        vals_list = Tuple.to_list(vals)
+        map = :maps.from_list(:lists.zip(keys_list, vals_list))
 
-        case Shapes.from_map(map) do
-          {:ok, shape_id, offsets, _} ->
-            Caches.put_wrap_cache(keys, {shape_id, offsets})
-            id = Store.next_id()
-            Store.put_obj_raw(id, {:shape, shape_id, offsets, vals, nil})
-            {:obj, id}
+        if Enum.all?(keys_list, &is_binary/1) do
+          {shape_id, offsets} =
+            Enum.reduce(keys_list, {Shapes.empty_shape_id(), %{}}, fn key, {shape_id, _offsets} ->
+              {next_shape_id, next_offsets, _offset} = Shapes.transition(shape_id, key)
+              {next_shape_id, next_offsets}
+            end)
 
-          :ineligible ->
-            wrap(map)
+          Caches.put_wrap_cache(keys, {shape_id, offsets})
+          id = Store.next_id()
+          Store.put_obj_raw(id, {:shape, shape_id, offsets, vals, nil})
+          {:obj, id}
+        else
+          wrap(map)
         end
     end
   end

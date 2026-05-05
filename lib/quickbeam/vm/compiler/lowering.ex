@@ -357,16 +357,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
           {:ok, :object} ->
             case collect_define_fields(instructions, size, idx + 1, arg_count, state) do
               {:ok, map_pairs, skip_to, state} ->
-                sorted_pairs =
-                  Enum.sort_by(map_pairs, fn {k, _v} -> extract_key_string(k) || "" end)
-
-                keys_list = Enum.map(sorted_pairs, &elem(&1, 0))
-                vals_list = Enum.map(sorted_pairs, &elem(&1, 1))
+                keys_list = Enum.map(map_pairs, &elem(&1, 0))
+                vals_list = Enum.map(map_pairs, &elem(&1, 1))
                 keys_tuple = {:tuple, @line, keys_list}
                 vals_tuple = {:tuple, @line, vals_list}
 
                 ct_offsets =
-                  sorted_pairs
+                  map_pairs
                   |> Enum.with_index()
                   |> Enum.reduce(%{}, fn {{k_expr, _v}, i}, acc ->
                     key_str = extract_key_string(k_expr)
@@ -374,7 +371,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
                   end)
 
                 value_map =
-                  Map.new(sorted_pairs, fn {k_expr, v_expr} ->
+                  Map.new(map_pairs, fn {k_expr, v_expr} ->
                     {extract_key_string(k_expr), v_expr}
                   end)
 

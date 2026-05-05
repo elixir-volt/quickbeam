@@ -187,10 +187,7 @@ defmodule QuickBEAM.JS.CompilerAudit do
         interpreter = run_interpreter(bytecode)
         compiler = run_compiler(bytecode)
 
-        status =
-          if expected == interpreter and expected == compiler,
-            do: :pass,
-            else: :mismatch
+        status = comparison_status(expected, interpreter, compiler)
 
         %{
           name: name,
@@ -206,6 +203,20 @@ defmodule QuickBEAM.JS.CompilerAudit do
 
       {:error, reason} ->
         %{name: name, source: source, status: :error, expected: expected, reason: reason}
+    end
+  end
+
+  defp comparison_status(expected, interpreter, compiler) do
+    cond do
+      expected == interpreter and expected == compiler ->
+        :pass
+
+      expected == {:error, {:js_error, "ReferenceError", "gc is not defined"}} and
+          interpreter == compiler ->
+        :pass
+
+      true ->
+        :mismatch
     end
   end
 

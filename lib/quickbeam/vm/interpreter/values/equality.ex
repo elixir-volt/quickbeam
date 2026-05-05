@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Interpreter.Values.Equality do
   @moduledoc "JS equality operations: eq, neq, strict_eq, abstract_eq."
 
+  alias QuickBEAM.VM.Function
   alias QuickBEAM.VM.Interpreter.Values.Coercion
 
   @doc "Applies JavaScript strict equality semantics."
@@ -9,6 +10,8 @@ defmodule QuickBEAM.VM.Interpreter.Values.Equality do
   def strict_eq(:neg_infinity, :neg_infinity), do: true
   def strict_eq({:bigint, a}, {:bigint, b}), do: a == b
   def strict_eq({:symbol, _, ref1}, {:symbol, _, ref2}), do: ref1 === ref2
+  def strict_eq({:closure, _, %Function{id: id}}, %Function{id: id}) when is_integer(id), do: true
+  def strict_eq(%Function{id: id}, {:closure, _, %Function{id: id}}) when is_integer(id), do: true
   def strict_eq(a, b) when is_number(a) and is_number(b), do: a == b
   def strict_eq(a, b), do: a === b
 

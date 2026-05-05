@@ -799,8 +799,9 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp own_property_descriptor_keys(_), do: []
 
-  defp descriptor_internal_key?(key) when key in [proto(), proxy_target(), proxy_handler()],
-    do: true
+  defp descriptor_internal_key?(key)
+       when key in [key_order(), proto(), proxy_target(), proxy_handler()],
+       do: true
 
   defp descriptor_internal_key?(key) when is_binary(key),
     do: String.starts_with?(key, "__") and String.ends_with?(key, "__")
@@ -843,8 +844,9 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp enumerable_object_key?(ref, map, key) do
     raw_key = if Map.has_key?(map, key), do: key, else: parse_array_index_key(key)
 
-    is_binary(key) and not String.starts_with?(key, "__") and
-      raw_key != :error and Map.has_key?(map, raw_key) and
+    raw_key = if raw_key != :error and Map.has_key?(map, raw_key), do: raw_key, else: key
+
+    is_binary(key) and not String.starts_with?(key, "__") and Map.has_key?(map, raw_key) and
       not match?(%{enumerable: false}, Heap.get_prop_desc(ref, raw_key))
   end
 
@@ -1112,10 +1114,10 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
       new_get = if getter != nil, do: getter, else: old_get
       new_set = if setter != nil, do: setter, else: old_set
-      Heap.put_obj(ref, Map.put(existing, prop_name, {:accessor, new_get, new_set}))
+      Heap.put_obj_key(ref, existing, prop_name, {:accessor, new_get, new_set})
     else
       val = Map.get(desc, "value", Map.get(existing, prop_name, :undefined))
-      Heap.put_obj(ref, Map.put(existing, prop_name, val))
+      Heap.put_obj_key(ref, existing, prop_name, val)
     end
 
     writable = Map.get(desc, "writable", true)

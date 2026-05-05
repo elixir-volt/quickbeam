@@ -15,6 +15,8 @@ defmodule QuickBEAM.VM.Heap.Shapes do
   non-plain deopt back to regular maps.
   """
 
+  import QuickBEAM.VM.Heap.Keys, only: [key_order: 0]
+
   @empty_shape 0
 
   # ── Shape registry (per-process) ──
@@ -177,7 +179,7 @@ defmodule QuickBEAM.VM.Heap.Shapes do
   @doc "Reconstruct a plain map from a shape-backed representation."
   def to_map(shape_id, vals, proto) do
     keys = keys(shape_id)
-    map = keys_vals_to_map(keys, vals, 0, %{})
+    map = keys_vals_to_map(keys, vals, 0, %{key_order() => Enum.reverse(keys)})
     if proto, do: Map.put(map, "__proto__", proto), else: map
   end
 
