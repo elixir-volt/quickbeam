@@ -47,7 +47,15 @@ defmodule QuickBEAM.VM.CompilerTest do
 
   defp compiled_key(%Bytecode.Function{} = fun) do
     atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
-    {fun.byte_code, fun.arg_count, :erlang.phash2(fun), :erlang.phash2(atoms)}
+
+    code_key =
+      if is_tuple(fun.instructions) do
+        {:instructions, :erlang.phash2(fun.instructions)}
+      else
+        {:byte_code, fun.byte_code}
+      end
+
+    {code_key, fun.arg_count, :erlang.phash2(fun), :erlang.phash2(atoms)}
   end
 
   defp beam_extfuncs({:beam_file, _module, _exports, _attributes, _compile_info, code}) do

@@ -20,7 +20,7 @@ defmodule QuickBEAM.VM.Heap.Caches do
   def get_fn_atoms(%Bytecode.Function{atoms: atoms}, _default) when not is_nil(atoms), do: atoms
 
   def get_fn_atoms(%Bytecode.Function{} = fun, default) do
-    Process.get({:qb_fn_atoms, function_atom_key(fun)}, get_fn_atoms(fun.byte_code, default))
+    Process.get({:qb_fn_atoms, function_atom_key(fun)}, bytecode_atoms(fun, default))
   end
 
   def get_fn_atoms(byte_code, default), do: Process.get({:qb_fn_atoms, byte_code}, default)
@@ -28,13 +28,26 @@ defmodule QuickBEAM.VM.Heap.Caches do
   @doc "Caches the atom table for a bytecode function."
   def put_fn_atoms(%Bytecode.Function{} = fun, atoms) do
     Process.put({:qb_fn_atoms, function_atom_key(fun)}, atoms)
-    Process.put({:qb_fn_atoms, fun.byte_code}, atoms)
+
+    if is_binary(fun.byte_code) and byte_size(fun.byte_code) > 0 do
+      Process.put({:qb_fn_atoms, fun.byte_code}, atoms)
+    end
   end
 
   def put_fn_atoms(byte_code, atoms), do: Process.put({:qb_fn_atoms, byte_code}, atoms)
 
+  defp function_atom_key(%Bytecode.Function{instructions: instructions} = fun)
+       when is_tuple(instructions),
+       do: {:instructions, :erlang.phash2(instructions), fun.arg_count, :erlang.phash2(fun)}
+
   defp function_atom_key(%Bytecode.Function{} = fun),
-    do: {fun.byte_code, fun.arg_count, :erlang.phash2(fun)}
+    do: {:byte_code, fun.byte_code, fun.arg_count, :erlang.phash2(fun)}
+
+  defp bytecode_atoms(%Bytecode.Function{byte_code: byte_code}, default)
+       when is_binary(byte_code) and byte_size(byte_code) > 0,
+       do: get_fn_atoms(byte_code, default)
+
+  defp bytecode_atoms(%Bytecode.Function{}, default), do: default
 
   def get_capture_keys(%Bytecode.Function{} = fun),
     do: Process.get({:qb_capture_keys, function_atom_key(fun)}, get_capture_keys(fun.byte_code))

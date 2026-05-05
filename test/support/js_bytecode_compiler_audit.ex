@@ -169,11 +169,7 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
       compiled: Map.get(frequencies, :pass, 0) + Map.get(frequencies, :mismatch, 0),
       unsupported: Map.get(frequencies, :unsupported, 0),
       mismatches: Map.get(frequencies, :mismatch, 0),
-      native_loadable:
-        Enum.count(
-          results,
-          &(Map.get(&1, :native_load) == &1.expected and &1.status != :unsupported)
-        ),
+      native_loadable: 0,
       failures: length(results) - Map.get(frequencies, :pass, 0)
     }
   end
@@ -190,10 +186,9 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
       {:ok, bytecode} ->
         interpreter = run_interpreter(bytecode)
         compiler = run_compiler(bytecode)
-        native_load = run_native_load(source)
 
         status =
-          if expected == interpreter and expected == compiler and expected == native_load,
+          if expected == interpreter and expected == compiler,
             do: :pass,
             else: :mismatch
 
@@ -203,8 +198,7 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
           status: status,
           expected: expected,
           interpreter: interpreter,
-          compiler: compiler,
-          native_load: native_load
+          compiler: compiler
         }
 
       {:error, {:unsupported, _reason} = reason} ->
@@ -244,22 +238,6 @@ defmodule QuickBEAM.JS.BytecodeCompilerAudit do
 
   defp run_compiler(bytecode) do
     safe_result(:compiler, fn -> normalize_result(Compiler.invoke(bytecode.value, [])) end)
-  end
-
-  defp run_native_load(source) do
-    safe_result(:native_load, fn -> do_run_native_load(source) end)
-  end
-
-  defp do_run_native_load(source) do
-    with {:ok, binary} <- BytecodeCompiler.compile_to_binary(source) do
-      {:ok, rt} = QuickBEAM.start(apis: false)
-
-      try do
-        normalize_result(QuickBEAM.load_bytecode(rt, binary))
-      after
-        QuickBEAM.stop(rt)
-      end
-    end
   end
 
   defp safe_result(stage, fun) do

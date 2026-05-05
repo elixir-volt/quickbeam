@@ -245,17 +245,9 @@ defmodule QuickBEAM.JS.BytecodeCompilerTest do
       assert_compiles_to("let a=[function(){return 4}]; a[0]()", 4)
     end
 
-    test "emits QuickJS-loadable bytecode binaries" do
-      assert {:ok, binary} =
+    test "does not materialize QuickJS bytecode binaries" do
+      assert {:error, {:unsupported, :quickjs_bytecode_materialization_removed}} =
                BytecodeCompiler.compile_to_binary("function f(a){ return a + 1; } f(2)")
-
-      assert {:ok, rt} = QuickBEAM.start(apis: false)
-
-      try do
-        assert {:ok, 3} = QuickBEAM.load_bytecode(rt, binary)
-      after
-        QuickBEAM.stop(rt)
-      end
     end
 
     test "keeps the new frontend compiler separate from the VM compiler" do

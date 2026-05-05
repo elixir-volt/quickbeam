@@ -119,7 +119,7 @@ defmodule QuickBEAM.VM.Interpreter do
     ctx = Context.mark_synced(ctx)
 
     try do
-      case Decoder.decode(fun.byte_code, fun.arg_count) do
+      case function_instructions(fun) do
         {:ok, instructions} ->
           instructions = List.to_tuple(instructions)
           locals = :erlang.make_tuple(max(fun.arg_count + fun.var_count, 1), :undefined)
@@ -703,7 +703,7 @@ defmodule QuickBEAM.VM.Interpreter do
       |> Enum.filter(&is_binary/1)
 
     instruction_names =
-      case Decoder.decode(fun.byte_code, fun.arg_count) do
+      case function_instructions(fun) do
         {:ok, insns} ->
           insns
           |> Enum.reduce([], fn
@@ -1357,6 +1357,13 @@ defmodule QuickBEAM.VM.Interpreter do
 
     do_invoke(fun, self, args, var_refs, gas, ctx)
   end
+
+  defp function_instructions(%Bytecode.Function{instructions: instructions})
+       when is_tuple(instructions),
+       do: {:ok, Tuple.to_list(instructions)}
+
+  defp function_instructions(%Bytecode.Function{} = fun),
+    do: Decoder.decode(fun.byte_code, fun.arg_count)
 
   defp do_invoke(%Bytecode.Function{} = fun, self_ref, args, var_refs, gas, ctx) do
     Heap.put_ctx(ctx)

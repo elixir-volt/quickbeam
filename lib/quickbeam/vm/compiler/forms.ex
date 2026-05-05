@@ -70,9 +70,14 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   end
 
   defp force_capture_slots?(fun) do
-    fun.byte_code
-    |> QuickBEAM.VM.Decoder.decode(fun.arg_count)
-    |> case do
+    instructions =
+      if is_tuple(fun.instructions) do
+        {:ok, Tuple.to_list(fun.instructions)}
+      else
+        QuickBEAM.VM.Decoder.decode(fun.byte_code, fun.arg_count)
+      end
+
+    case instructions do
       {:ok, instructions} ->
         Enum.any?(instructions, fn {op, _args} ->
           match?({:ok, :catch}, QuickBEAM.VM.Compiler.Analysis.CFG.opcode_name(op))

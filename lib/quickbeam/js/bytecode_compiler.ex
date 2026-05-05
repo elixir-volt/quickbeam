@@ -1,10 +1,11 @@
 defmodule QuickBEAM.JS.BytecodeCompiler do
   @moduledoc """
-  Experimental JavaScript AST-to-QuickJS-bytecode compiler.
+  Experimental JavaScript AST-to-QuickBEAM VM instruction compiler.
 
   This compiler is intentionally separate from `QuickBEAM.VM.Compiler`, which
-  lowers existing QuickJS bytecode to BEAM code. This module starts from
-  `QuickBEAM.JS.Parser` AST and emits `%QuickBEAM.VM.Bytecode{}` values.
+  lowers VM instructions to BEAM code. This module starts from
+  `QuickBEAM.JS.Parser` AST and emits `%QuickBEAM.VM.Bytecode{}` values with
+  pre-resolved VM instructions, not materialized QuickJS bytecode binaries.
   """
 
   alias QuickBEAM.JS.BytecodeCompiler.{
@@ -19,7 +20,6 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
   alias QuickBEAM.JS.Parser
   alias QuickBEAM.JS.Parser.AST
   alias QuickBEAM.VM.Bytecode
-  alias QuickBEAM.VM.Bytecode.Writer
 
   @type compile_error :: {:unsupported, term()} | {:parse_error, term()}
 
@@ -44,9 +44,8 @@ defmodule QuickBEAM.JS.BytecodeCompiler do
   def compile(%AST.Program{source_type: source_type}),
     do: {:error, {:unsupported, {:source_type, source_type}}}
 
-  def compile_to_binary(source) do
-    with {:ok, bytecode} <- compile(source), do: Writer.encode(bytecode)
-  end
+  def compile_to_binary(_source),
+    do: {:error, {:unsupported, :quickjs_bytecode_materialization_removed}}
 
   def compile_to_function(source) do
     with {:ok, %Bytecode{value: value}} <- compile(source), do: {:ok, value}

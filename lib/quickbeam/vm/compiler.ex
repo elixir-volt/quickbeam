@@ -120,7 +120,7 @@ defmodule QuickBEAM.VM.Compiler do
     entry = entry_name()
     ctx_entry = ctx_entry_name()
 
-    with {:decode, {:ok, instructions}} <- {:decode, Decoder.decode(fun.byte_code, fun.arg_count)},
+    with {:instructions, {:ok, instructions}} <- {:instructions, instructions(fun)},
          optimized = Optimizer.optimize(instructions, fun.constants),
          {:lower, {:ok, {slot_count, block_forms}}} <- {:lower, Lowering.lower(fun, optimized)},
          {:forms, {:ok, _module, binary}} <-
@@ -136,11 +136,16 @@ defmodule QuickBEAM.VM.Compiler do
             )} do
       {:ok, module, ctx_entry, binary}
     else
-      {:decode, {:error, reason}} -> {:error, {:decode_failed, reason}}
+      {:instructions, {:error, reason}} -> {:error, {:decode_failed, reason}}
       {:lower, {:error, reason}} -> {:error, reason}
       {:forms, {:error, reason}} -> {:error, {:beam_compile_failed, reason}}
     end
   end
+
+  defp instructions(%Bytecode.Function{instructions: instructions}) when is_tuple(instructions),
+    do: {:ok, Tuple.to_list(instructions)}
+
+  defp instructions(%Bytecode.Function{} = fun), do: Decoder.decode(fun.byte_code, fun.arg_count)
 
   defp module_name(fun, atoms) do
     hash =

@@ -72,7 +72,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
 
   defp invoke_target(current_func, %Bytecode.Function{} = fun, args, ctx_overrides, base_ctx) do
     atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
-    key = {fun.byte_code, fun.arg_count, :erlang.phash2(fun), :erlang.phash2(atoms)}
+    key = {function_code_key(fun), fun.arg_count, :erlang.phash2(fun), :erlang.phash2(atoms)}
     normalized_args = normalize_args(args, fun.arg_count)
 
     case Heap.get_compiled(key) do
@@ -327,6 +327,12 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   defp current_super(:undefined), do: :undefined
   defp current_super(nil), do: :undefined
   defp current_super(home_object), do: Class.get_super(home_object)
+
+  defp function_code_key(%Bytecode.Function{instructions: instructions})
+       when is_tuple(instructions),
+       do: {:instructions, :erlang.phash2(instructions)}
+
+  defp function_code_key(%Bytecode.Function{} = fun), do: {:byte_code, fun.byte_code}
 
   @doc "Normalizes call arguments to the arity expected by compiled code."
   def normalize_args(_args, 0), do: []

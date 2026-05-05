@@ -30,7 +30,7 @@ defmodule QuickBEAM.VM.Compiler.Diagnostics do
       end
 
     {opcode_count, all_opcode_names} =
-      case Decoder.decode(fun.byte_code, fun.arg_count) do
+      case instructions(fun) do
         {:ok, instructions} ->
           names =
             for {op, _args} <- instructions,
@@ -76,7 +76,7 @@ defmodule QuickBEAM.VM.Compiler.Diagnostics do
   - `:opcode_count` — total number of instructions
   """
   def capabilities(%Bytecode.Function{} = fun) do
-    case Decoder.decode(fun.byte_code, fun.arg_count) do
+    case instructions(fun) do
       {:ok, instructions} ->
         unsupported =
           instructions
@@ -144,6 +144,11 @@ defmodule QuickBEAM.VM.Compiler.Diagnostics do
     :with_delete_var,
     :with_get_ref
   ]
+
+  defp instructions(%Bytecode.Function{instructions: instructions}) when is_tuple(instructions),
+    do: {:ok, Tuple.to_list(instructions)}
+
+  defp instructions(%Bytecode.Function{} = fun), do: Decoder.decode(fun.byte_code, fun.arg_count)
 
   defp known_unsupported?(name), do: name == :invalid or name in @with_scope_opcodes
 end

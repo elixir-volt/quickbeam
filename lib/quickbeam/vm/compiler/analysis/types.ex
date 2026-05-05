@@ -36,13 +36,15 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
   def function_type(%Bytecode.Function{} = fun) do
     stack = Caches.get_function_type_stack()
 
-    if MapSet.member?(stack, fun.byte_code) do
+    key = function_type_key(fun)
+
+    if MapSet.member?(stack, key) do
       :function
     else
-      Caches.put_function_type_stack(MapSet.put(stack, fun.byte_code))
+      Caches.put_function_type_stack(MapSet.put(stack, key))
 
       try do
-        case Decoder.decode(fun.byte_code, fun.arg_count) do
+        case function_instructions(fun) do
           {:ok, instructions} ->
             entries = CFG.block_entries(instructions)
             t = List.to_tuple(instructions)
@@ -1072,6 +1074,19 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Types do
        do: elem(atoms, idx)
 
   defp resolve_atom_name(_name, _atoms), do: nil
+
+  defp function_type_key(%Bytecode.Function{instructions: instructions})
+       when is_tuple(instructions),
+       do: {:instructions, :erlang.phash2(instructions)}
+
+  defp function_type_key(%Bytecode.Function{} = fun), do: {:byte_code, fun.byte_code}
+
+  defp function_instructions(%Bytecode.Function{instructions: instructions})
+       when is_tuple(instructions),
+       do: {:ok, Tuple.to_list(instructions)}
+
+  defp function_instructions(%Bytecode.Function{} = fun),
+    do: Decoder.decode(fun.byte_code, fun.arg_count)
 
   defp initially_initialized?(fun, idx) when idx < fun.arg_count, do: true
 
