@@ -200,7 +200,8 @@ defmodule QuickBEAM.VM.Runtime.Globals do
 
            case Heap.get_ctor_statics(ctor)["prototype"] do
              {:obj, proto_ref} ->
-               for name <- ~w(get set has delete clear keys values entries forEach) do
+               for name <-
+                     ~w(get set has delete clear keys values entries forEach getOrInsert getOrInsertComputed) do
                  Heap.put_obj_key(proto_ref, name, JSMap.proto_property(name))
 
                  Heap.put_prop_desc(proto_ref, name, %{

@@ -135,6 +135,10 @@ defmodule QuickBEAM.VM.Runtime.Map do
   def proto_property("entries"), do: {:builtin, "entries", &entries/2}
   def proto_property({:symbol, "Symbol.iterator"}), do: proto_property("entries")
   def proto_property("forEach"), do: {:builtin, "forEach", &for_each/2}
+  def proto_property("getOrInsert"), do: {:builtin, "getOrInsert", &get_or_insert/2}
+
+  def proto_property("getOrInsertComputed"),
+    do: {:builtin, "getOrInsertComputed", &get_or_insert_computed/2}
 
   def proto_property("size") do
     {:builtin, "size",
@@ -149,6 +153,18 @@ defmodule QuickBEAM.VM.Runtime.Map do
 
   defp normalize_key(k) when is_float(k) and k == trunc(k), do: trunc(k)
   defp normalize_key(k), do: k
+
+  defp require_strong_map_ref!({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) and is_map_key(map, map_data()) and not is_map_key(map, :weak) ->
+        ref
+
+      _ ->
+        JSThrow.type_error!("Method requires a Map")
+    end
+  end
+
+  defp require_strong_map_ref!(_), do: JSThrow.type_error!("Method requires a Map")
 
   defp entries_from_list(entries) do
     pairs =
@@ -169,6 +185,61 @@ defmodule QuickBEAM.VM.Runtime.Map do
   defp get([key | _], {:obj, ref}) do
     data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
     Map.get(data, normalize_key(key), :undefined)
+  end
+
+  defp get_or_insert([key, value | _], this) do
+    ref = require_strong_map_ref!(this)
+    key = normalize_key(key)
+    obj = Heap.get_obj(ref, %{})
+    data = Map.get(obj, map_data(), %{})
+
+    case Map.fetch(data, key) do
+      {:ok, existing} ->
+        existing
+
+      :error ->
+        insert_map_entry(ref, obj, key, value)
+        value
+    end
+  end
+
+  defp get_or_insert(_, this), do: require_strong_map_ref!(this)
+
+  defp get_or_insert_computed([key, callback | _], this) do
+    ref = require_strong_map_ref!(this)
+
+    unless Builtin.callable?(callback) do
+      JSThrow.type_error!("callbackfn is not a function")
+    end
+
+    key = normalize_key(key)
+    obj = Heap.get_obj(ref, %{})
+    data = Map.get(obj, map_data(), %{})
+
+    case Map.fetch(data, key) do
+      {:ok, existing} ->
+        existing
+
+      :error ->
+        value = Invocation.invoke_with_receiver(callback, [key], :undefined)
+        obj = Heap.get_obj(ref, %{})
+        insert_map_entry(ref, obj, key, value)
+        value
+    end
+  end
+
+  defp get_or_insert_computed(_, this), do: require_strong_map_ref!(this)
+
+  defp insert_map_entry(ref, obj, key, value) do
+    data = Map.get(obj, map_data(), %{})
+    order = Map.get(obj, key_order(), [])
+    order = if Map.has_key?(data, key), do: order, else: [key | order]
+    new_data = Map.put(data, key, value)
+
+    Heap.put_obj(
+      ref,
+      Map.merge(obj, %{map_data() => new_data, "size" => map_size(new_data), key_order() => order})
+    )
   end
 
   defp set([key, val | _], {:obj, ref}) do

@@ -353,6 +353,13 @@ defmodule QuickBEAM.VM.Builtin do
   def named_meta("has"), do: meta("has", [length: 1, constructable: false], :proto)
   def named_meta("delete"), do: meta("delete", [length: 1, constructable: false], :proto)
   def named_meta("clear"), do: meta("clear", [length: 0, constructable: false], :proto)
+
+  def named_meta("getOrInsert"),
+    do: meta("getOrInsert", [length: 2, constructable: false], :proto)
+
+  def named_meta("getOrInsertComputed"),
+    do: meta("getOrInsertComputed", [length: 2, constructable: false], :proto)
+
   def named_meta("add"), do: meta("add", [length: 1, constructable: false], :proto)
   def named_meta("difference"), do: meta("difference", [length: 1, constructable: false], :proto)
 
