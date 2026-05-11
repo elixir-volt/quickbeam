@@ -145,6 +145,8 @@ defmodule QuickBEAM.VM.Runtime.Set do
   defp other_has(other, value) do
     has_fn = Get.get(other, "has")
 
+    value = normalize_set_value(value)
+
     case has_fn do
       {:builtin, _, fun} when is_function(fun) -> fun.([value], other) == true
       fun -> Runtime.call_callback(fun, [value]) == true
@@ -165,7 +167,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
     if Get.get(result, "done") == true do
       Enum.reverse(acc)
     else
-      value = Get.get(result, "value")
+      value = result |> Get.get("value") |> normalize_set_value()
       collect_iterator(iterator, [value | acc])
     end
   end
