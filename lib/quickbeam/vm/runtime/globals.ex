@@ -271,6 +271,19 @@ defmodule QuickBEAM.VM.Runtime.Globals do
                :ok
            end
 
+           sym_species = {:symbol, "Symbol.species"}
+
+           Heap.put_ctor_static(
+             ctor,
+             sym_species,
+             {:accessor, {:builtin, "get [Symbol.species]", fn _args, this -> this end}, nil}
+           )
+
+           Heap.put_ctor_prop_desc(ctor, sym_species, %{
+             enumerable: false,
+             configurable: true
+           })
+
            ctor
          end).(),
       "WeakMap" => register("WeakMap", JSMap.weak_constructor()),
