@@ -1143,9 +1143,9 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp copy_within(value, _args) when is_boolean(value), do: primitive_object(value)
 
-  defp copy_within({:obj, ref}, args) do
+  defp copy_within({:obj, ref} = obj, args) do
     list = Heap.obj_to_list(ref)
-    len = length(list)
+    len = copy_within_length!(obj, ref, list)
     target = normalize_copy_index(arg(args, 0, 0), len)
     start_idx = normalize_copy_index(arg(args, 1, 0), len)
 
@@ -1171,6 +1171,20 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   defp copy_within(_, _), do: :undefined
+
+  defp copy_within_length!(obj, ref, list) do
+    case Heap.get_obj(ref) do
+      map when is_map(map) ->
+        case Get.get(obj, "length") do
+          {:symbol, _} -> JSThrow.type_error!("Cannot convert a Symbol value to a number")
+          {:symbol, _, _} -> JSThrow.type_error!("Cannot convert a Symbol value to a number")
+          length -> max(Runtime.to_int(length), 0)
+        end
+
+      _ ->
+        length(list)
+    end
+  end
 
   defp normalize_copy_index(:infinity, len), do: len
   defp normalize_copy_index(:neg_infinity, _len), do: 0
