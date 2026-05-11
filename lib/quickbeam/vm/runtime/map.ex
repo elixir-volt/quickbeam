@@ -81,12 +81,13 @@ defmodule QuickBEAM.VM.Runtime.Map do
           map
 
         [iterable | _] ->
-          adder = Get.get(map, "set")
+          prototype_adder = Get.get(Runtime.global_class_proto("Map"), "set")
 
-          unless Builtin.callable?(adder) do
+          unless Builtin.callable?(prototype_adder) do
             JSThrow.type_error!("Map.prototype.set is not callable")
           end
 
+          adder = Get.get(map, "set")
           construct_from_iterable(iterable, map, adder)
           map
       end
