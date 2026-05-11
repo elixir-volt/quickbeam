@@ -391,16 +391,37 @@ defmodule QuickBEAM.VM.Runtime.Set do
     |> Heap.wrap_iterator()
   end
 
-  defp for_each([callback | _], this) do
-    ref = require_setlike_ref!(this)
-    items = Heap.get_obj(ref, %{}) |> Map.get(set_data(), [])
+  defp for_each([callback | rest], this) do
+    ref = require_strong_set_ref!(this)
 
-    Enum.each(items, fn value ->
-      Runtime.call_callback(callback, [value, value, {:obj, ref}])
-    end)
+    unless QuickBEAM.VM.Builtin.callable?(callback) do
+      JSThrow.type_error!("callbackfn is not a function")
+    end
 
-    :undefined
+    this_arg = List.first(rest) || :undefined
+    for_each_live(ref, callback, this_arg, 0)
   end
 
-  defp for_each(_, this), do: require_setlike_ref!(this)
+  defp for_each(_, this) do
+    require_strong_set_ref!(this)
+    JSThrow.type_error!("callbackfn is not a function")
+  end
+
+  defp for_each_live(ref, callback, this_arg, index) do
+    items = Heap.get_obj(ref, %{}) |> Map.get(set_data(), [])
+
+    if index >= length(items) do
+      :undefined
+    else
+      value = Enum.at(items, index)
+
+      QuickBEAM.VM.Invocation.invoke_with_receiver(
+        callback,
+        [value, value, {:obj, ref}],
+        this_arg
+      )
+
+      for_each_live(ref, callback, this_arg, index + 1)
+    end
+  end
 end
