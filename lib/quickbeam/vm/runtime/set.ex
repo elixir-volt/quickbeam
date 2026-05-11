@@ -46,6 +46,9 @@ defmodule QuickBEAM.VM.Runtime.Set do
     end
   end
 
+  @doc "Returns the SetData size for Set.prototype.size."
+  def size(this), do: this |> require_strong_set_ref!() |> data() |> length()
+
   @doc "Returns a prototype property value for the given JavaScript property key."
   def proto_property("has"), do: {:builtin, "has", &has/2}
   def proto_property("add"), do: {:builtin, "add", &add/2}

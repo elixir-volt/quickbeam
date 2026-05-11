@@ -259,6 +259,14 @@ defmodule QuickBEAM.VM.Runtime.Globals do
                  configurable: true
                })
 
+               Heap.put_obj_key(
+                 proto_ref,
+                 "size",
+                 {:accessor, {:builtin, "get size", fn _args, this -> JSSet.size(this) end}, nil}
+               )
+
+               Heap.put_prop_desc(proto_ref, "size", %{enumerable: false, configurable: true})
+
                QuickBEAM.VM.ObjectModel.Put.put({:obj, proto_ref}, "constructor", ctor)
 
                Heap.put_prop_desc(proto_ref, "constructor", %{
