@@ -11,6 +11,8 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   @compile {:inline, has_property: 2, get_element: 2, set_list_at: 3}
 
+  @max_array_length 4_294_967_295
+
   defp shape_put(ref, shape_id, offsets, vals, proto, key, val) do
     case Map.fetch(offsets, key) do
       {:ok, offset} when offset < tuple_size(vals) ->
@@ -102,6 +104,17 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
       true ->
         padded = list ++ List.duplicate(:undefined, new_len - old_len)
         Heap.put_obj(ref, padded)
+    end
+  end
+
+  defp array_length_value!(value) do
+    length = Runtime.to_number(value)
+
+    if not is_number(length) or length < 0 or length != trunc(length) or
+         length > @max_array_length do
+      JSThrow.range_error!("Invalid array length")
+    else
+      trunc(length)
     end
   end
 
@@ -271,10 +284,10 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         end
 
       {:qb_arr, _} = array ->
-        resize_array(ref, array, Runtime.to_int(val))
+        resize_array(ref, array, array_length_value!(val))
 
       data when is_list(data) ->
-        resize_array(ref, data, Runtime.to_int(val))
+        resize_array(ref, data, array_length_value!(val))
 
       map when is_map(map) ->
         # Plain object: store "length" as a regular property
