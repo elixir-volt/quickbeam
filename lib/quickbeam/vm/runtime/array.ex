@@ -948,6 +948,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     end_idx =
       case Enum.drop(args, 2) do
         [] -> len
+        [:undefined | _] -> len
         [end_value | _] -> normalize_copy_index(end_value, len)
       end
 
@@ -1047,27 +1048,34 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp make_array_iterator(arr, mode) do
     list_fn = array_iterator_list_fn(arr)
-    idx_ref = :atomics.new(1, signed: false)
+    idx_ref = :atomics.new(2, signed: false)
 
     next_fn =
       {:builtin, "next",
        fn _args, _this ->
          i = :atomics.get(idx_ref, 1)
+         done = :atomics.get(idx_ref, 2) == 1
          list = list_fn.()
 
-         if i >= length(list) do
-           Heap.wrap(%{"value" => :undefined, "done" => true})
-         else
-           :atomics.put(idx_ref, 1, i + 1)
+         cond do
+           done ->
+             Heap.wrap(%{"value" => :undefined, "done" => true})
 
-           value =
-             case mode do
-               :values -> Enum.at(list, i, :undefined)
-               :keys -> i
-               :entries -> Heap.wrap([i, Enum.at(list, i, :undefined)])
-             end
+           i >= length(list) ->
+             :atomics.put(idx_ref, 2, 1)
+             Heap.wrap(%{"value" => :undefined, "done" => true})
 
-           Heap.wrap(%{"value" => value, "done" => false})
+           true ->
+             :atomics.put(idx_ref, 1, i + 1)
+
+             value =
+               case mode do
+                 :values -> Enum.at(list, i, :undefined)
+                 :keys -> i
+                 :entries -> Heap.wrap([i, Enum.at(list, i, :undefined)])
+               end
+
+             Heap.wrap(%{"value" => value, "done" => false})
          end
        end}
 
