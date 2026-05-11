@@ -147,7 +147,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
         JSThrow.type_error!("set-like object keys must be callable")
 
       true ->
-        :ok
+        %{object: other, size: size, has: has_fn, keys: keys_fn}
     end
   end
 
@@ -155,7 +155,10 @@ defmodule QuickBEAM.VM.Runtime.Set do
 
   defp other_has(other, value) do
     has_fn = Get.get(other, "has")
+    other_has_with(has_fn, other, value)
+  end
 
+  defp other_has_with(has_fn, other, value) do
     value = normalize_set_value(value)
 
     case has_fn do
@@ -263,9 +266,11 @@ defmodule QuickBEAM.VM.Runtime.Set do
   defp subset?(_, this), do: require_strong_set_ref!(this)
 
   defp set_subset?(set_ref, other) do
-    validate_set_like!(other)
-    other_items = other_data(other)
-    Enum.all?(data(set_ref), &(&1 in other_items))
+    record = validate_set_like!(other)
+    items = data(set_ref)
+
+    length(items) <= record.size and
+      Enum.all?(items, &other_has_with(record.has, record.object, &1))
   end
 
   defp superset?([other | _], this), do: this |> require_strong_set_ref!() |> set_superset?(other)
