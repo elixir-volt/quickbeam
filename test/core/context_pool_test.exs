@@ -55,6 +55,40 @@ defmodule QuickBEAM.Core.ContextPoolTest do
     QuickBEAM.Context.stop(ctx)
   end
 
+  test "beam mode contexts persist and reset state" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 1, mode: :beam)
+    {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool, apis: false)
+
+    assert {:ok, 3} = QuickBEAM.Context.eval(ctx, "var x = 1; x + 2")
+    assert {:ok, 1} = QuickBEAM.Context.eval(ctx, "x")
+    assert :ok = QuickBEAM.Context.reset(ctx)
+    assert {:ok, "undefined"} = QuickBEAM.Context.eval(ctx, "typeof x")
+
+    QuickBEAM.Context.stop(ctx)
+  end
+
+  test "beam mode contexts are isolated" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 1, mode: :beam)
+    {:ok, ctx1} = QuickBEAM.Context.start_link(pool: pool, apis: false)
+    {:ok, ctx2} = QuickBEAM.Context.start_link(pool: pool, apis: false)
+
+    assert {:ok, 42} = QuickBEAM.Context.eval(ctx1, "globalThis.x = 42")
+    assert {:ok, 42} = QuickBEAM.Context.eval(ctx1, "x")
+    assert {:ok, "undefined"} = QuickBEAM.Context.eval(ctx2, "typeof x")
+
+    QuickBEAM.Context.stop(ctx1)
+    QuickBEAM.Context.stop(ctx2)
+  end
+
+  test "beam compiler mode contexts evaluate code" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 1, mode: :beam_compiler)
+    {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool, apis: false)
+
+    assert {:ok, 3} = QuickBEAM.Context.eval(ctx, "1 + 2")
+
+    QuickBEAM.Context.stop(ctx)
+  end
+
   test "Beam.call handler" do
     {:ok, pool} = QuickBEAM.ContextPool.start_link()
 

@@ -2166,6 +2166,31 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
   end
 
   defp compile_object_property(
+         %AST.Property{
+           computed: false,
+           shorthand: true,
+           key: %AST.Identifier{name: "__proto__"},
+           value: value
+         },
+         scope,
+         instructions,
+         constants,
+         callbacks
+       ) do
+    {key_instruction, constants} = add_constant("__proto__", constants)
+
+    with {:ok, instructions, constants} <-
+           callbacks.compile_expression.(
+             value,
+             scope,
+             instructions ++ [key_instruction],
+             constants
+           ) do
+      {:ok, instructions ++ [:define_array_el, :drop], constants}
+    end
+  end
+
+  defp compile_object_property(
          %AST.Property{computed: false, key: %AST.Identifier{name: "__proto__"}, value: value},
          scope,
          instructions,

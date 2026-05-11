@@ -8,9 +8,8 @@ defmodule QuickBEAM.VM.Runtime.Object do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Invocation
-  alias QuickBEAM.VM.ObjectModel.{Get, Put}
+  alias QuickBEAM.VM.ObjectModel.{Define, Get, OwnProperty, PropertyDescriptor, PropertyKey, Put}
   alias QuickBEAM.VM.Runtime
-  alias QuickBEAM.VM.Runtime.TypedArray
 
   @doc "Builds prototype data for object static methods."
   def build_prototype do
@@ -20,6 +19,10 @@ defmodule QuickBEAM.VM.Runtime.Object do
       ref,
       object heap: false do
         method "toString" do
+          object_to_string(this)
+        end
+
+        method "toLocaleString" do
           object_to_string(this)
         end
 
@@ -45,6 +48,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
     for key <- [
           "toString",
+          "toLocaleString",
           "valueOf",
           "hasOwnProperty",
           "isPrototypeOf",
@@ -64,10 +68,18 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp has_own_property([key | _], target) do
     prop_name = if is_binary(key) or is_symbol(key), do: key, else: Values.stringify(key)
-    own_property?(target, prop_name)
+    OwnProperty.present?(target, prop_name) or function_descriptor_present?(target, prop_name)
   end
 
   defp has_own_property(_, _), do: false
+
+  defp function_descriptor_present?(%QuickBEAM.VM.Function{} = target, key),
+    do: OwnProperty.descriptor(target, key) != :undefined
+
+  defp function_descriptor_present?({:closure, _, %QuickBEAM.VM.Function{}} = target, key),
+    do: OwnProperty.descriptor(target, key) != :undefined
+
+  defp function_descriptor_present?(_, _), do: false
 
   defp property_enumerable?([_key | _], target) when target in [nil, :undefined] do
     throw(
@@ -78,7 +90,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp property_enumerable?([key | _], target) do
     prop_name = if is_binary(key) or is_symbol(key), do: key, else: Values.stringify(key)
-    own_property?(target, prop_name) and enumerable_property?(target, prop_name)
+    OwnProperty.present?(target, prop_name) and OwnProperty.enumerable?(target, prop_name)
   end
 
   defp property_enumerable?(_, _), do: false
@@ -109,6 +121,19 @@ defmodule QuickBEAM.VM.Runtime.Object do
     prototype_chain_contains?(Map.get(Heap.get_obj(ref, %{}), proto()), proto_ref)
   end
 
+  defp prototype_of?([{:builtin, _, _} | _], {:obj, proto_ref}) do
+    case func_proto() do
+      {:obj, ^proto_ref} ->
+        true
+
+      {:obj, ref} ->
+        prototype_chain_contains?(Map.get(Heap.get_obj(ref, %{}), proto()), proto_ref)
+
+      _ ->
+        false
+    end
+  end
+
   defp prototype_of?(_, _), do: false
 
   defp prototype_chain_contains?({:obj, ref}, target_ref) when ref == target_ref, do: true
@@ -137,17 +162,38 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp object_to_string({:obj, ref} = obj) do
     tag =
       case Heap.get_obj(ref, %{}) do
-        list when is_list(list) -> "Array"
-        {:qb_arr, _} -> "Array"
-        %{"__wrapped_string__" => _} -> "String"
-        %{"__wrapped_number__" => _} -> "Number"
-        %{"__wrapped_boolean__" => _} -> "Boolean"
-        %{map_data() => _, :weak => true} -> "WeakMap"
-        %{map_data() => _} -> "Map"
-        %{set_data() => _, :weak => true} -> "WeakSet"
-        %{set_data() => _} -> "Set"
-        %{date_ms() => _} -> "Date"
-        _ -> "Object"
+        list when is_list(list) ->
+          if Heap.get_array_prop(ref, "__arguments__") == true, do: "Arguments", else: "Array"
+
+        {:qb_arr, _} ->
+          if Heap.get_array_prop(ref, "__arguments__") == true, do: "Arguments", else: "Array"
+
+        %{"__wrapped_string__" => _} ->
+          "String"
+
+        %{"__wrapped_number__" => _} ->
+          "Number"
+
+        %{"__wrapped_boolean__" => _} ->
+          "Boolean"
+
+        %{map_data() => _, :weak => true} ->
+          "WeakMap"
+
+        %{map_data() => _} ->
+          "Map"
+
+        %{set_data() => _, :weak => true} ->
+          "WeakSet"
+
+        %{set_data() => _} ->
+          "Set"
+
+        %{date_ms() => _} ->
+          "Date"
+
+        _ ->
+          "Object"
       end
 
     custom_tag = Get.get(obj, {:symbol, "Symbol.toStringTag"})
@@ -156,52 +202,59 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp object_to_string(_value), do: "[object Object]"
 
-  static "keys" do
+  static "keys", length: 1 do
     keys(args)
   end
 
-  static "values" do
+  static "values", length: 1 do
     values(args)
   end
 
-  static "entries" do
+  static "entries", length: 1 do
     entries(args)
   end
 
-  static "assign" do
+  static "assign", length: 2, constructable: false do
     assign(args)
   end
 
-  static "freeze" do
+  static "freeze", length: 1 do
     case hd(args) do
       {:obj, _ref} = obj ->
         freeze_object(obj)
         obj
 
+      callable when is_tuple(callable) or is_struct(callable) ->
+        freeze_callable(callable)
+        callable
+
       obj ->
         obj
     end
   end
 
-  static "preventExtensions" do
+  static "preventExtensions", length: 1 do
     case hd(args) do
-      {:obj, ref} = obj ->
-        Heap.prevent_extensions(ref)
-        obj
+      {:obj, _ref} = obj ->
+        if prevent_extensions_object(obj) do
+          obj
+        else
+          throw({:js_throw, Heap.make_error("Cannot prevent extensions", "TypeError")})
+        end
 
       obj ->
         obj
     end
   end
 
-  static "isExtensible" do
+  static "isExtensible", length: 1 do
     case hd(args) do
       {:obj, ref} -> Heap.extensible?(ref)
       _ -> false
     end
   end
 
-  static "seal" do
+  static "seal", length: 1 do
     case hd(args) do
       {:obj, _ref} = obj ->
         seal_object(obj)
@@ -212,24 +265,89 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
-  static "isFrozen" do
+  static "isFrozen", length: 1 do
     case hd(args) do
       {:obj, _ref} = obj -> frozen_object?(obj)
       _ -> true
     end
   end
 
-  static "isSealed" do
+  static "isSealed", length: 1 do
     case hd(args) do
       {:obj, _ref} = obj -> sealed_object?(obj)
       _ -> true
     end
   end
 
-  defp freeze_object({:obj, ref} = obj) do
-    seal_object(obj)
+  defp freeze_callable(callable) do
+    for key <- OwnProperty.descriptor_keys(callable) do
+      case OwnProperty.descriptor(callable, key) do
+        :undefined ->
+          :ok
 
-    for key <- own_property_descriptor_keys(obj) do
+        desc ->
+          current =
+            Heap.get_ctor_prop_desc(callable, key) ||
+              %{writable: true, enumerable: true, configurable: true}
+
+          attrs =
+            if Get.get(desc, "writable") == :undefined do
+              Map.put(current, :configurable, false)
+            else
+              %{current | writable: false, configurable: false}
+            end
+
+          Heap.put_ctor_prop_desc(callable, key, attrs)
+      end
+    end
+  end
+
+  defp freeze_object({:obj, ref} = obj) do
+    case Heap.get_obj(ref, %{}) do
+      %{typed_array() => true} ->
+        throw({:js_throw, Heap.make_error("Cannot freeze typed array", "TypeError")})
+
+      %{proxy_target() => _target, proxy_handler() => _handler} ->
+        freeze_proxy_object(obj, ref)
+
+      _ ->
+        freeze_ordinary_object(obj, ref)
+    end
+  end
+
+  defp freeze_proxy_object(obj, ref) do
+    unless prevent_extensions_object(obj) do
+      throw({:js_throw, Heap.make_error("Cannot freeze object", "TypeError")})
+    end
+
+    for key <- OwnProperty.descriptor_keys(obj) do
+      case OwnProperty.descriptor(obj, key) do
+        :undefined ->
+          :ok
+
+        desc ->
+          raw_desc = %{"configurable" => false}
+
+          raw_desc =
+            if Get.get(desc, "writable") != :undefined do
+              Map.put(raw_desc, "writable", false)
+            else
+              raw_desc
+            end
+
+          Define.property(obj, key, Heap.wrap(raw_desc), raw_desc)
+      end
+    end
+
+    Heap.freeze(ref)
+  end
+
+  defp freeze_ordinary_object({:obj, ref} = obj, _ref) do
+    unless seal_object(obj) do
+      throw({:js_throw, Heap.make_error("Cannot freeze object", "TypeError")})
+    end
+
+    for key <- OwnProperty.descriptor_keys(obj) do
       desc =
         Heap.get_prop_desc(ref, key) || %{writable: true, enumerable: true, configurable: true}
 
@@ -245,20 +363,48 @@ defmodule QuickBEAM.VM.Runtime.Object do
     Heap.freeze(ref)
   end
 
+  defp prevent_extensions_object({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      %{proxy_target() => target, proxy_handler() => handler} ->
+        trap = Get.get(handler, "preventExtensions")
+
+        cond do
+          trap == :undefined or trap == nil ->
+            prevent_extensions_object(target)
+
+          not Values.truthy?(Invocation.invoke_callback_or_throw(trap, [target])) ->
+            false
+
+          Heap.extensible?(target) ->
+            throw(
+              {:js_throw,
+               Heap.make_error("proxy preventExtensions trap violates invariant", "TypeError")}
+            )
+
+          true ->
+            true
+        end
+
+      _ ->
+        Heap.prevent_extensions(ref)
+        true
+    end
+  end
+
   defp seal_object({:obj, ref} = obj) do
-    for key <- own_property_descriptor_keys(obj) do
+    for key <- OwnProperty.descriptor_keys(obj) do
       desc =
         Heap.get_prop_desc(ref, key) || %{writable: true, enumerable: true, configurable: true}
 
       Heap.put_prop_desc(ref, key, Map.put(desc, :configurable, false))
     end
 
-    Heap.prevent_extensions(ref)
+    prevent_extensions_object(obj)
   end
 
   defp frozen_object?({:obj, ref} = obj) do
     not Heap.extensible?(ref) and
-      Enum.all?(own_property_descriptor_keys(obj), fn key ->
+      Enum.all?(OwnProperty.descriptor_keys(obj), fn key ->
         desc = Heap.get_prop_desc(ref, key) || %{writable: true, configurable: true}
         current = Heap.get_obj(ref, %{}) |> property_value_for_descriptor(key)
 
@@ -272,7 +418,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp sealed_object?({:obj, ref} = obj) do
     not Heap.extensible?(ref) and
-      Enum.all?(own_property_descriptor_keys(obj), fn key ->
+      Enum.all?(OwnProperty.descriptor_keys(obj), fn key ->
         desc = Heap.get_prop_desc(ref, key) || %{configurable: true}
         desc.configurable == false
       end)
@@ -281,7 +427,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp property_value_for_descriptor(map, key) when is_map(map), do: Map.get(map, key)
   defp property_value_for_descriptor(_data, _key), do: :undefined
 
-  static "is" do
+  static "is", length: 2 do
     [a, b | _] = args
 
     cond do
@@ -299,7 +445,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
-  static "create" do
+  static "create", length: 2, constructable: false do
     case args do
       [nil | rest] ->
         create_with_properties(nil, rest)
@@ -322,56 +468,24 @@ defmodule QuickBEAM.VM.Runtime.Object do
     obj = Heap.wrap(%{proto() => proto_value})
 
     case rest do
-      [{:obj, _} = props | _] -> define_properties([obj, props])
-      _ -> obj
+      [] -> obj
+      [:undefined | _] -> obj
+      [props | _] -> define_properties([obj, props])
     end
   end
 
-  defp own_property?({:obj, ref}, key), do: own_property?(Heap.get_obj(ref, %{}), key)
-
-  defp own_property?(map, key) when is_map(map) do
-    raw_key = parse_array_index_key(key)
-    Map.has_key?(map, key) or (raw_key != :error and Map.has_key?(map, raw_key))
-  end
-
-  defp own_property?(list, key) when is_list(list) do
-    case Integer.parse(to_string(key)) do
-      {idx, ""} when idx >= 0 -> idx < length(list)
-      _ -> key == "length"
-    end
-  end
-
-  defp own_property?({:qb_arr, arr}, key) do
-    case Integer.parse(to_string(key)) do
-      {idx, ""} when idx >= 0 -> idx < :array.size(arr)
-      _ -> key == "length"
-    end
-  end
-
-  defp own_property?(string, key) when is_binary(string) do
-    case Integer.parse(to_string(key)) do
-      {idx, ""} when idx >= 0 -> idx < Get.string_length(string)
-      _ -> key == "length"
-    end
-  end
-
-  defp own_property?(_target, _key), do: false
-
-  defp enumerable_property?({:obj, ref}, key),
-    do: not match?(%{enumerable: false}, Heap.get_prop_desc(ref, key))
-
-  defp enumerable_property?(string, key) when is_binary(string), do: key != "length"
-  defp enumerable_property?(_target, _key), do: true
-
-  static "getPrototypeOf" do
+  static "getPrototypeOf", length: 1 do
     case args do
       [{:obj, ref} | _] ->
         case Heap.get_obj(ref, %{}) do
           %{proxy_target() => target, proxy_handler() => handler} ->
             proxy_get_prototype_of(target, handler)
 
-          map ->
-            Map.get(map, proto(), nil)
+          map when is_map(map) ->
+            get_own_prototype({:obj, ref})
+
+          _ ->
+            nil
         end
 
       [{:qb_arr, _} | _] ->
@@ -459,7 +573,16 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp prototype_value?({:obj, _}), do: true
   defp prototype_value?(_), do: false
 
-  defp get_own_prototype({:obj, ref}), do: Map.get(Heap.get_obj(ref, %{}), proto(), nil)
+  defp get_own_prototype({:obj, ref}) do
+    map = Heap.get_obj(ref, %{})
+
+    cond do
+      Map.has_key?(map, :__internal_proto__) -> Map.get(map, :__internal_proto__)
+      Heap.get_prop_desc(ref, proto()) -> Heap.get_object_prototype()
+      true -> Map.get(map, proto(), nil)
+    end
+  end
+
   defp get_own_prototype(_), do: nil
 
   defp set_own_prototype({:obj, ref}, new_proto) do
@@ -519,31 +642,31 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
-  static "defineProperty" do
+  static "defineProperty", length: 3, constructable: false do
     define_property(args)
   end
 
-  static "defineProperties" do
+  static "defineProperties", length: 2, constructable: false do
     define_properties(args)
   end
 
-  static "getOwnPropertyNames" do
+  static "getOwnPropertyNames", length: 1 do
     get_own_property_names(args)
   end
 
-  static "getOwnPropertyDescriptor" do
+  static "getOwnPropertyDescriptor", length: 2 do
     get_own_property_descriptor(args)
   end
 
-  static "getOwnPropertyDescriptors" do
+  static "getOwnPropertyDescriptors", length: 1 do
     get_own_property_descriptors(args)
   end
 
-  static "fromEntries" do
+  static "fromEntries", length: 1 do
     from_entries(args)
   end
 
-  static "getOwnPropertySymbols" do
+  static "getOwnPropertySymbols", length: 1 do
     case args do
       [{:obj, ref} | _] ->
         data = Heap.get_obj(ref, %{})
@@ -558,7 +681,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
-  static "hasOwn" do
+  static "hasOwn", length: 2 do
     case args do
       [target, _key | _] when target in [nil, :undefined] ->
         throw(
@@ -567,14 +690,14 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
       [target, key | _] ->
         prop_name = if is_binary(key) or is_symbol(key), do: key, else: Values.stringify(key)
-        own_property?(target, prop_name)
+        OwnProperty.present?(target, prop_name)
 
       _ ->
         false
     end
   end
 
-  static "setPrototypeOf" do
+  static "setPrototypeOf", length: 2 do
     case args do
       [_obj, new_proto | _] ->
         unless prototype_value?(new_proto) do
@@ -619,27 +742,53 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp from_entries([iterable | _]) do
-    entries = entries_from_iterable(iterable)
-    result_ref = make_ref()
+    source_entries = entries_from_iterable(iterable)
 
-    map =
-      Enum.reduce(entries, %{}, fn entry, acc ->
-        [key, value | _] = entry_pair(entry)
-        Map.put(acc, Runtime.stringify(key), value)
-      end)
+    result =
+      case QuickBEAM.VM.Runtime.Constructors.class_proto("Object") do
+        {:obj, _} = proto ->
+          ref = make_ref()
+          Heap.put_obj(ref, %{proto() => proto, key_order() => []})
+          {:obj, ref}
 
-    Heap.put_obj(result_ref, map)
-    {:obj, result_ref}
+        _ ->
+          Runtime.new_object()
+      end
+
+    {:obj, result_ref} = result
+
+    order = add_from_entries(source_entries, result_ref, [])
+
+    Heap.put_obj_key(result_ref, key_order(), order)
+
+    result
   end
 
-  defp from_entries(_), do: Runtime.new_object()
+  defp from_entries(_) do
+    throw({:js_throw, Heap.make_error("Object.fromEntries requires an iterable", "TypeError")})
+  end
+
+  defp from_entries_property_key({:obj, _} = key) do
+    case Get.get(key, {:symbol, "Symbol.toPrimitive"}) do
+      primitive_fn when primitive_fn not in [nil, :undefined] ->
+        primitive =
+          Invocation.invoke_with_receiver(primitive_fn, ["string"], Runtime.gas_budget(), key)
+
+        PropertyKey.normalize(primitive)
+
+      _ ->
+        PropertyKey.normalize(key)
+    end
+  end
+
+  defp from_entries_property_key(key), do: PropertyKey.normalize(key)
 
   defp entries_from_iterable({:obj, ref} = iterable) do
     iterator_method = Get.get(iterable, {:symbol, "Symbol.iterator"})
 
     if iterator_method != :undefined and iterator_method != nil do
       iterator = invoke_with_this(iterator_method, [], iterable)
-      collect_iterator_values(iterator, [])
+      {:iterator, iterator}
     else
       case Heap.obj_to_list(ref) do
         list when is_list(list) -> list
@@ -652,17 +801,62 @@ defmodule QuickBEAM.VM.Runtime.Object do
     throw({:js_throw, Heap.make_error("Object.fromEntries requires an iterable", "TypeError")})
   end
 
-  defp collect_iterator_values(iterator, acc) do
+  defp add_from_entries({:iterator, iterator}, result_ref, order) do
     next_fn = Get.get(iterator, "next")
+
+    unless QuickBEAM.VM.Builtin.callable?(next_fn) do
+      throw({:js_throw, Heap.make_error("Iterator next is not callable", "TypeError")})
+    end
+
     result = invoke_with_this(next_fn, [], iterator)
 
+    unless match?({:obj, _}, result) or is_map(result) do
+      throw({:js_throw, Heap.make_error("Iterator result is not an object", "TypeError")})
+    end
+
     if Get.get(result, "done") == true do
-      Enum.reverse(acc)
+      order
     else
-      value = Get.get(result, "value")
-      collect_iterator_values(iterator, [value | acc])
+      entry = Get.get(result, "value")
+
+      try do
+        [key, value | _] = entry_pair(entry)
+        prop_key = from_entries_property_key(key)
+        Heap.put_obj_key(result_ref, prop_key, value)
+
+        next_order =
+          if is_binary(prop_key) and prop_key not in order, do: [prop_key | order], else: order
+
+        add_from_entries({:iterator, iterator}, result_ref, next_order)
+      catch
+        {:js_throw, _} = thrown ->
+          close_iterator(iterator)
+          throw(thrown)
+      end
     end
   end
+
+  defp add_from_entries(entries, result_ref, order) when is_list(entries) do
+    Enum.reduce(entries, order, fn entry, acc ->
+      [key, value | _] = entry_pair(entry)
+      prop_key = from_entries_property_key(key)
+      Heap.put_obj_key(result_ref, prop_key, value)
+
+      if is_binary(prop_key) and prop_key not in acc, do: [prop_key | acc], else: acc
+    end)
+  end
+
+  defp close_iterator(iterator) do
+    case Get.get(iterator, "return") do
+      return_fn when return_fn not in [nil, :undefined] ->
+        invoke_with_this(return_fn, [], iterator)
+
+      _ ->
+        :undefined
+    end
+  end
+
+  defp entry_pair([_, _ | _] = entry), do: entry
 
   defp entry_pair({:obj, _} = entry) do
     case Heap.to_list(entry) do
@@ -670,14 +864,35 @@ defmodule QuickBEAM.VM.Runtime.Object do
         pair
 
       _ ->
-        throw({:js_throw, Heap.make_error("Iterator value is not an entry object", "TypeError")})
+        case Heap.get_obj(entry, %{}) do
+          %{"__wrapped_string__" => <<key::utf8, value::utf8, _::binary>>} ->
+            [<<key::utf8>>, <<value::utf8>>]
+
+          _ ->
+            entry_pair_from_properties(entry)
+        end
     end
   end
 
-  defp entry_pair([_, _ | _] = entry), do: entry
-
   defp entry_pair(_entry) do
     throw({:js_throw, Heap.make_error("Iterator value is not an entry object", "TypeError")})
+  end
+
+  defp entry_pair_from_properties(entry) do
+    key = Get.get(entry, "0")
+
+    if key == :undefined do
+      throw({:js_throw, Heap.make_error("Iterator value is not an entry object", "TypeError")})
+    end
+
+    value = Get.get(entry, "1")
+
+    if value == :undefined do
+      _ = from_entries_property_key(key)
+      throw({:js_throw, Heap.make_error("Iterator value is not an entry object", "TypeError")})
+    end
+
+    [key, value]
   end
 
   defp invoke_with_this(fun, args, this) do
@@ -700,7 +915,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     data = Heap.get_obj(ref, %{})
 
     if is_list(data) or match?({:qb_arr, _}, data) do
-      Heap.wrap(array_indices(data))
+      Heap.wrap(enumerable_keys(ref))
     else
       keys_from_map(ref, data)
     end
@@ -734,15 +949,18 @@ defmodule QuickBEAM.VM.Runtime.Object do
           array_indices(list) ++ ["length"]
 
         map when is_map(map) ->
-          Map.keys(map)
-          |> Enum.filter(&is_binary/1)
-          |> Enum.reject(fn k -> String.starts_with?(k, "__") and String.ends_with?(k, "__") end)
+          OwnProperty.descriptor_keys({:obj, ref})
 
         _ ->
           []
       end
 
     Heap.wrap(names)
+  end
+
+  defp get_own_property_names([target | _])
+       when is_tuple(target) or is_struct(target) do
+    Heap.wrap(OwnProperty.descriptor_keys(target))
   end
 
   defp get_own_property_names(_) do
@@ -754,7 +972,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
     descriptors =
       obj
-      |> own_property_descriptor_keys()
+      |> OwnProperty.descriptor_keys()
       |> Enum.reduce(%{}, fn key, acc ->
         case get_own_property_descriptor([obj, key]) do
           :undefined -> acc
@@ -768,52 +986,27 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp get_own_property_descriptors(_), do: Heap.wrap(%{})
 
-  defp own_property_descriptor_keys({:obj, ref}) do
-    case Heap.get_obj(ref, %{}) do
-      %{proxy_target() => target, proxy_handler() => handler} ->
-        trap = Get.get(handler, "ownKeys")
-
-        if trap == :undefined or trap == nil do
-          own_property_descriptor_keys(target)
-        else
-          trap
-          |> Runtime.call_callback([target])
-          |> Heap.to_list()
-        end
-
-      {:qb_arr, arr} ->
-        for(i <- 0..(:array.size(arr) - 1), do: Integer.to_string(i)) ++ ["length"]
-
-      list when is_list(list) ->
-        array_indices(list) ++ ["length"]
-
-      map when is_map(map) ->
-        map
-        |> Map.keys()
-        |> Enum.reject(&descriptor_internal_key?/1)
-
-      _ ->
-        []
-    end
-  end
-
-  defp own_property_descriptor_keys(_), do: []
-
-  defp descriptor_internal_key?(key)
-       when key in [key_order(), proto(), proxy_target(), proxy_handler()],
-       do: true
-
-  defp descriptor_internal_key?(key) when is_binary(key),
-    do: String.starts_with?(key, "__") and String.ends_with?(key, "__")
-
-  defp descriptor_internal_key?(_), do: false
-
   defp enumerable_keys(ref) do
     data = Heap.get_obj(ref, %{})
 
     case data do
+      {:qb_arr, arr} ->
+        (array_prop_keys(ref) ++
+           (arr
+            |> :array.sparse_to_orddict()
+            |> Enum.map(fn {index, _value} -> Integer.to_string(index) end)
+            |> Enum.reject(fn key ->
+              match?(%{enumerable: false}, Heap.get_prop_desc(ref, key))
+            end)))
+        |> Runtime.sort_numeric_keys()
+
       list when is_list(list) ->
-        array_indices(list)
+        (array_indices(list) ++ array_prop_keys(ref)) |> Runtime.sort_numeric_keys()
+
+      map when is_map(map) and is_map_key(map, proxy_target()) ->
+        {:obj, ref}
+        |> OwnProperty.descriptor_keys()
+        |> Enum.filter(&proxy_enumerable_key?({:obj, ref}, &1))
 
       map when is_map(map) ->
         map
@@ -827,12 +1020,32 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
+  defp proxy_enumerable_key?(obj, key) do
+    case OwnProperty.descriptor(obj, key) do
+      :undefined -> false
+      {:obj, desc_ref} -> Values.truthy?(Get.get({:obj, desc_ref}, "enumerable"))
+      _ -> false
+    end
+  end
+
+  defp array_prop_keys(ref) do
+    ref
+    |> Heap.get_array_props()
+    |> Map.keys()
+    |> Enum.filter(fn key ->
+      is_binary(key) and not (String.starts_with?(key, "__") and String.ends_with?(key, "__")) and
+        not match?(%{enumerable: false}, Heap.get_prop_desc(ref, key))
+    end)
+  end
+
   defp enumerable_key_pairs(map) do
     raw =
       case Map.get(map, key_order()) do
         order when is_list(order) -> Enum.reverse(order)
-        _ -> Map.keys(map)
+        _ -> []
       end
+
+    raw = raw ++ (Map.keys(map) -- raw)
 
     Enum.flat_map(raw, fn
       key when is_binary(key) -> [{key, key}]
@@ -850,12 +1063,14 @@ defmodule QuickBEAM.VM.Runtime.Object do
       not match?(%{enumerable: false}, Heap.get_prop_desc(ref, raw_key))
   end
 
-  defp parse_array_index_key(key) do
+  defp parse_array_index_key(key) when is_binary(key) do
     case Integer.parse(key) do
       {idx, ""} when idx >= 0 -> idx
       _ -> :error
     end
   end
+
+  defp parse_array_index_key(_key), do: :error
 
   defp enumerable_value(obj, map, key) when is_map(map) do
     raw_key = parse_array_index_key(key)
@@ -879,13 +1094,51 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp values([map | _]) when is_map(map), do: Map.values(map)
   defp values(_), do: []
 
-  defp entries([{:obj, ref} = obj | _]) do
-    data = Heap.get_obj(ref, %{})
+  defp entries([target | _]) when target in [nil, :undefined] do
+    throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
+  end
 
+  defp entries([{:obj, _ref} = obj | _]) do
     pairs =
-      Enum.map(enumerable_keys(ref), fn key ->
-        Heap.wrap([key, enumerable_value(obj, data, key)])
+      obj
+      |> OwnProperty.descriptor_keys()
+      |> Enum.filter(&is_binary/1)
+      |> Enum.reduce([], fn key, acc ->
+        case OwnProperty.descriptor(obj, key) do
+          :undefined ->
+            acc
+
+          desc ->
+            if Get.get(desc, "enumerable") == true do
+              [Heap.wrap([key, Get.get(obj, key)]) | acc]
+            else
+              acc
+            end
+        end
       end)
+      |> Enum.reverse()
+
+    Heap.wrap(pairs)
+  end
+
+  defp entries([callable | _]) when is_tuple(callable) or is_struct(callable) do
+    pairs =
+      callable
+      |> OwnProperty.descriptor_keys()
+      |> Enum.reduce([], fn key, acc ->
+        case OwnProperty.descriptor(callable, key) do
+          :undefined ->
+            acc
+
+          desc ->
+            if Get.get(desc, "enumerable") == true do
+              [Heap.wrap([key, Get.get(callable, key)]) | acc]
+            else
+              acc
+            end
+        end
+      end)
+      |> Enum.reverse()
 
     Heap.wrap(pairs)
   end
@@ -894,21 +1147,45 @@ defmodule QuickBEAM.VM.Runtime.Object do
     Enum.map(Map.to_list(map), fn {k, v} -> [k, v] end)
   end
 
+  defp entries([string | _]) when is_binary(string) do
+    string
+    |> String.graphemes()
+    |> Enum.with_index()
+    |> Enum.map(fn {char, index} -> Heap.wrap([Integer.to_string(index), char]) end)
+    |> Heap.wrap()
+  end
+
   defp entries(_), do: []
 
+  defp assign([target | _sources]) when target in [nil, :undefined] do
+    throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
+  end
+
   defp assign([target | sources]) do
-    Enum.reduce(sources, target, fn
+    target_obj = to_assign_target(target)
+
+    Enum.reduce(sources, target_obj, fn
+      source, target_obj when source in [nil, :undefined] ->
+        target_obj
+
       {:obj, ref}, {:obj, _} = target_obj ->
         ref
         |> enumerable_assign_entries()
-        |> Enum.each(fn {key, value} -> Put.put(target_obj, key, value) end)
+        |> Enum.each(fn {key, value} -> assign_put(target_obj, key, value) end)
+
+        target_obj
+
+      source, {:obj, _} = target_obj when is_binary(source) ->
+        source
+        |> string_assign_entries()
+        |> Enum.each(fn {key, value} -> assign_put(target_obj, key, value) end)
 
         target_obj
 
       map, {:obj, _} = target_obj when is_map(map) ->
         map
         |> Enum.reject(fn {key, _value} -> assign_internal_key?(key) end)
-        |> Enum.each(fn {key, value} -> Put.put(target_obj, key, value) end)
+        |> Enum.each(fn {key, value} -> assign_put(target_obj, key, value) end)
 
         target_obj
 
@@ -917,12 +1194,129 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end)
   end
 
+  defp assign_put({:obj, ref} = target_obj, key, value) do
+    cond do
+      target_accessor_setter?(ref, key) ->
+        Put.put(target_obj, key, value)
+
+      target_readonly?(ref, key) or target_string_index?(ref, key) ->
+        throw({:js_throw, Heap.make_error("Cannot assign to read only property", "TypeError")})
+
+      not target_has_own?(ref, key) and not Heap.extensible?(ref) ->
+        throw({:js_throw, Heap.make_error("Cannot add property", "TypeError")})
+
+      true ->
+        Put.put(target_obj, key, value)
+    end
+  end
+
+  defp target_accessor_setter?(ref, key) do
+    case target_own_value(ref, key) do
+      {:accessor, _, setter} when setter != nil -> true
+      _ -> false
+    end
+  end
+
+  defp target_readonly?(ref, key), do: match?(%{writable: false}, Heap.get_prop_desc(ref, key))
+
+  defp target_string_index?(ref, key) do
+    case Heap.get_obj_raw(ref) do
+      map when is_map(map) and is_binary(key) ->
+        case {Map.get(map, "__wrapped_string__"), Integer.parse(key)} do
+          {string, {index, ""}} when is_binary(string) and index >= 0 ->
+            index < Get.string_length(string)
+
+          _ ->
+            false
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp target_has_own?(ref, key), do: target_own_value(ref, key) != :missing
+
+  defp target_own_value(ref, key) do
+    case Heap.get_obj_raw(ref) do
+      {:shape, _shape_id, offsets, vals, _proto} ->
+        case Map.fetch(offsets, key) do
+          {:ok, offset} -> elem(vals, offset)
+          :error -> :missing
+        end
+
+      map when is_map(map) ->
+        case Map.fetch(map, key) do
+          {:ok, value} -> value
+          :error -> :missing
+        end
+
+      _ ->
+        :missing
+    end
+  end
+
+  defp to_assign_target({:obj, _} = object), do: object
+  defp to_assign_target(target), do: object_value_of(target)
+
+  defp string_assign_entries(string) do
+    string
+    |> String.graphemes()
+    |> Enum.with_index()
+    |> Enum.map(fn {char, index} -> {Integer.to_string(index), char} end)
+  end
+
   defp enumerable_assign_entries(ref) do
     data = Heap.get_obj(ref, %{})
 
-    enumerable_keys(ref)
-    |> Enum.map(fn key -> {key, enumerable_value({:obj, ref}, data, key)} end)
+    if is_map(data) and Map.has_key?(data, proxy_target()) do
+      proxy_assign_entries({:obj, ref}, data)
+    else
+      (enumerable_keys(ref) ++ enumerable_symbol_keys(ref, data))
+      |> Enum.map(fn key -> {key, enumerable_value({:obj, ref}, data, key)} end)
+    end
   end
+
+  defp proxy_assign_entries(source_obj, %{proxy_target() => target, proxy_handler() => handler}) do
+    keys =
+      case Get.get(handler, "ownKeys") do
+        trap when trap != nil and trap != :undefined ->
+          trap |> Runtime.call_callback([target]) |> Heap.to_list()
+
+        _ ->
+          enumerable_keys(elem(target, 1))
+      end
+
+    descriptor_trap = Get.get(handler, "getOwnPropertyDescriptor")
+
+    keys
+    |> Enum.filter(fn key ->
+      (is_binary(key) or is_symbol(key)) and
+        proxy_assign_enumerable?(target, descriptor_trap, key)
+    end)
+    |> Enum.map(fn key -> {key, Get.get(source_obj, key)} end)
+  end
+
+  defp proxy_assign_enumerable?(target, descriptor_trap, key) do
+    descriptor =
+      if descriptor_trap != nil and descriptor_trap != :undefined do
+        Runtime.call_callback(descriptor_trap, [target, key])
+      else
+        get_own_property_descriptor([target, key])
+      end
+
+    descriptor != :undefined and Get.get(descriptor, "enumerable") == true
+  end
+
+  defp enumerable_symbol_keys(ref, data) when is_map(data) do
+    data
+    |> Map.keys()
+    |> Enum.filter(fn key ->
+      is_symbol(key) and not match?(%{enumerable: false}, Heap.get_prop_desc(ref, key))
+    end)
+  end
+
+  defp enumerable_symbol_keys(_ref, _data), do: []
 
   defp assign_internal_key?(key) when key in [proto(), map_data(), set_data(), typed_array()],
     do: true
@@ -932,207 +1326,18 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp assign_internal_key?(_), do: false
 
-  defp non_extensible_new_property?(ref, existing, prop_name) do
-    not Heap.extensible?(ref) and not property_present?(existing, prop_name)
-  end
-
-  defp property_present?(map, prop_name) when is_map(map) do
-    raw_key = parse_array_index_key(prop_name)
-    Map.has_key?(map, prop_name) or (raw_key != :error and Map.has_key?(map, raw_key))
-  end
-
-  defp property_present?(list, prop_name) when is_list(list) do
-    case Integer.parse(prop_name) do
-      {idx, ""} when idx >= 0 -> idx < length(list)
-      _ -> false
-    end
-  end
-
-  defp property_present?({:qb_arr, arr}, prop_name) do
-    case Integer.parse(prop_name) do
-      {idx, ""} when idx >= 0 -> idx < :array.size(arr)
-      _ -> false
-    end
-  end
-
-  defp property_present?(_existing, _prop_name), do: false
-
-  defp incompatible_existing_descriptor?(ref, existing, prop_name, desc) when is_map(existing) do
-    current_desc = Heap.get_prop_desc(ref, prop_name)
-    current_value = Map.get(existing, prop_name, :undefined)
-
-    cond do
-      current_desc == nil ->
-        false
-
-      current_desc.configurable == false and Map.get(desc, "configurable") == true ->
-        true
-
-      current_desc.configurable == false and Map.has_key?(desc, "enumerable") and
-          Map.get(desc, "enumerable") != current_desc.enumerable ->
-        true
-
-      current_desc.configurable == false and
-          accessor_data_descriptor_conflict?(current_value, desc) ->
-        true
-
-      current_desc.configurable == false and accessor_descriptor_conflict?(current_value, desc) ->
-        true
-
-      current_desc.configurable == false and current_desc.writable == false and
-          Map.get(desc, "writable") == true ->
-        true
-
-      current_desc.writable == false and Map.has_key?(desc, "value") and
-          Map.get(desc, "value") != current_value ->
-        true
-
-      true ->
-        false
-    end
-  end
-
-  defp incompatible_existing_descriptor?(_ref, _existing, _prop_name, _desc), do: false
-
-  defp accessor_data_descriptor_conflict?({:accessor, _, _}, desc) do
-    Map.has_key?(desc, "value") or Map.has_key?(desc, "writable")
-  end
-
-  defp accessor_data_descriptor_conflict?(_data_value, desc) do
-    Map.has_key?(desc, "get") or Map.has_key?(desc, "set")
-  end
-
-  defp accessor_descriptor_conflict?({:accessor, old_get, old_set}, desc) do
-    (Map.has_key?(desc, "get") and Map.get(desc, "get") != old_get) or
-      (Map.has_key?(desc, "set") and Map.get(desc, "set") != old_set)
-  end
-
-  defp accessor_descriptor_conflict?(_data_value, _desc), do: false
-
-  defp define_proxy_property(proxy, proxy_map, key, prop_name, desc_obj) do
-    target = Map.fetch!(proxy_map, proxy_target())
-    handler = Map.fetch!(proxy_map, proxy_handler())
-    trap = Get.get(handler, "defineProperty")
-
-    cond do
-      trap == :undefined or trap == nil ->
-        define_property([target, key, desc_obj])
-        proxy
-
-      not Values.truthy?(Invocation.invoke_callback_or_throw(trap, [target, prop_name, desc_obj])) ->
-        throw(
-          {:js_throw, Heap.make_error("proxy defineProperty trap returned false", "TypeError")}
-        )
-
-      proxy_define_property_invariant_violation?(target, prop_name) ->
-        throw(
-          {:js_throw,
-           Heap.make_error("proxy defineProperty trap violates invariant", "TypeError")}
-        )
-
-      true ->
-        proxy
-    end
-  end
-
-  defp proxy_define_property_invariant_violation?({:obj, target_ref}, prop_name) do
-    existing = Heap.get_obj(target_ref, %{})
-    non_extensible_new_property?(target_ref, existing, prop_name)
-  end
-
-  defp proxy_define_property_invariant_violation?(_target, _prop_name), do: false
-
-  defp define_property([{:obj, ref} = obj, key, {:obj, desc_ref} = desc_obj | _]) do
+  defp define_property([{:obj, _} = obj, key, {:obj, desc_ref} = desc_obj | _]) do
     desc = Heap.get_obj(desc_ref, %{})
+    Define.property(obj, key, desc_obj, desc)
+  end
 
-    prop_name =
-      case key do
-        k when is_binary(k) -> k
-        {:symbol, _} -> key
-        {:symbol, _, _} -> key
-        _ -> Values.stringify(key)
-      end
-
-    existing = Heap.get_obj(ref, %{})
-
-    if is_map(existing) and Map.has_key?(existing, proxy_target()) do
-      throw({:early_return, define_proxy_property(obj, existing, key, prop_name, desc_obj)})
-    end
-
-    if non_extensible_new_property?(ref, existing, prop_name) or
-         incompatible_existing_descriptor?(ref, existing, prop_name, desc) do
-      throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
-    end
-
-    if is_list(existing) or match?({:qb_arr, _}, existing) do
-      case Integer.parse(prop_name) do
-        {idx, ""} when idx >= 0 ->
-          writable = Map.get(desc, "writable", true)
-          enumerable = Map.get(desc, "enumerable", true)
-          configurable = Map.get(desc, "configurable", true)
-
-          Heap.put_prop_desc(ref, prop_name, %{
-            writable: writable,
-            enumerable: enumerable,
-            configurable: configurable
-          })
-
-          if Map.has_key?(desc, "value") do
-            Heap.array_set(ref, idx, Map.get(desc, "value"))
-          end
-
-          throw({:early_return, obj})
-
-        _ ->
-          :ok
-      end
-    end
-
-    if is_map(existing) and Map.get(existing, typed_array()) do
-      case Integer.parse(prop_name) do
-        {idx, ""} when idx >= 0 ->
-          val = Map.get(desc, "value")
-          if val != nil, do: TypedArray.set_element(obj, idx, val)
-          throw({:early_return, obj})
-
-        _ ->
-          :ok
-      end
-    end
-
-    getter = Map.get(desc, "get")
-    setter = Map.get(desc, "set")
-
-    if getter != nil or setter != nil do
-      existing_desc = Map.get(existing, prop_name)
-
-      {old_get, old_set} =
-        case existing_desc do
-          {:accessor, g, s} -> {g, s}
-          _ -> {nil, nil}
-        end
-
-      new_get = if getter != nil, do: getter, else: old_get
-      new_set = if setter != nil, do: setter, else: old_set
-      Heap.put_obj_key(ref, existing, prop_name, {:accessor, new_get, new_set})
+  defp define_property([{:obj, _} = obj, key, desc_obj | _])
+       when is_tuple(desc_obj) or is_struct(desc_obj) do
+    if descriptor_object?(desc_obj) do
+      Define.property(obj, key, desc_obj, %{})
     else
-      val = Map.get(desc, "value", Map.get(existing, prop_name, :undefined))
-      Heap.put_obj_key(ref, existing, prop_name, val)
+      throw({:js_throw, Heap.make_error("Property description must be an object", "TypeError")})
     end
-
-    writable = Map.get(desc, "writable", true)
-    enumerable = Map.get(desc, "enumerable", true)
-    configurable = Map.get(desc, "configurable", true)
-
-    Heap.put_prop_desc(ref, prop_name, %{
-      writable: writable,
-      enumerable: enumerable,
-      configurable: configurable
-    })
-
-    obj
-  catch
-    {:early_return, val} -> val
   end
 
   defp define_property([{tag, _, %QuickBEAM.VM.Function{}} = fun, key, {:obj, desc_ref} | _])
@@ -1153,14 +1358,30 @@ defmodule QuickBEAM.VM.Runtime.Object do
     throw({:js_throw, Heap.make_error("Object.defineProperty called on non-object", "TypeError")})
   end
 
+  defp descriptor_object?({:builtin, _, _}), do: true
+  defp descriptor_object?({:closure, _, %QuickBEAM.VM.Function{}}), do: true
+  defp descriptor_object?(%QuickBEAM.VM.Function{}), do: true
+  defp descriptor_object?(_), do: false
+
   defp define_callable_property(fun, key, desc_ref) do
     define_static_property(fun, key, desc_ref)
     fun
   end
 
+  defp callable_own_keys(callable) do
+    callable
+    |> Heap.get_ctor_statics()
+    |> Map.keys()
+    |> Enum.filter(&is_binary/1)
+    |> Enum.reject(fn key -> String.starts_with?(key, "__") and String.ends_with?(key, "__") end)
+  end
+
   defp define_static_property(target, key, desc_ref) do
+    desc_obj = {:obj, desc_ref}
     desc = Heap.get_obj(desc_ref, %{})
     prop_key = if is_binary(key), do: key, else: key
+
+    reject_incompatible_static_descriptor!(target, prop_key, desc)
 
     getter = Map.get(desc, "get")
     setter = Map.get(desc, "set")
@@ -1171,198 +1392,101 @@ defmodule QuickBEAM.VM.Runtime.Object do
       val = Map.get(desc, "value", Get.get(target, prop_key))
       Heap.put_ctor_static(target, prop_key, val)
     end
+
+    existing_flags =
+      Heap.get_prop_desc(target, prop_key) || Heap.get_ctor_prop_desc(target, prop_key)
+
+    attrs =
+      PropertyDescriptor.attrs(
+        writable: PropertyDescriptor.attribute(desc_obj, desc, "writable", existing_flags, false),
+        enumerable:
+          PropertyDescriptor.attribute(desc_obj, desc, "enumerable", existing_flags, false),
+        configurable:
+          PropertyDescriptor.attribute(desc_obj, desc, "configurable", existing_flags, false)
+      )
+
+    Heap.put_prop_desc(target, prop_key, attrs)
+    Heap.put_ctor_prop_desc(target, prop_key, attrs)
   end
 
-  defp define_properties([obj, {:obj, props_ref} | _]) do
-    props = Heap.get_obj(props_ref, %{})
+  defp reject_incompatible_static_descriptor!(target, prop_key, desc) do
+    case Heap.get_prop_desc(target, prop_key) || Heap.get_ctor_prop_desc(target, prop_key) do
+      %{configurable: false} = current ->
+        cond do
+          Map.get(desc, "configurable") == true ->
+            throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
 
-    if is_map(props) do
-      for {key, desc} <- props, is_binary(key) do
-        define_property([obj, key, desc])
-      end
+          Map.has_key?(desc, "enumerable") and Map.get(desc, "enumerable") != current.enumerable ->
+            throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
+
+          current.writable == false and Map.get(desc, "writable") == true ->
+            throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
+
+          true ->
+            :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp define_properties([target, _props | _]) when target in [nil, :undefined] do
+    throw(
+      {:js_throw, Heap.make_error("Object.defineProperties called on non-object", "TypeError")}
+    )
+  end
+
+  defp define_properties([target, _props | _])
+       when not is_tuple(target) and not is_struct(target) do
+    throw(
+      {:js_throw, Heap.make_error("Object.defineProperties called on non-object", "TypeError")}
+    )
+  end
+
+  defp define_properties([obj, {:obj, props_ref} = props | _]) do
+    for key <- enumerable_keys(props_ref) do
+      define_property([obj, key, Get.get(props, key)])
     end
 
     obj
   end
 
-  defp define_properties([obj | _]), do: obj
+  defp define_properties([obj, props | _]) when is_tuple(props) or is_struct(props) do
+    if descriptor_object?(props) do
+      for key <- callable_own_keys(props) do
+        define_property([obj, key, Get.get(props, key)])
+      end
 
-  defp get_own_property_descriptor([{:obj, ref}, key | _]) do
-    prop_name = if is_binary(key), do: key, else: Values.stringify(key)
-    data = Heap.get_obj(ref, %{})
-
-    cond do
-      is_map(data) and Map.has_key?(data, proxy_target()) ->
-        proxy_own_property_descriptor(data, prop_name)
-
-      is_list(data) or match?({:qb_arr, _}, data) ->
-        case Integer.parse(prop_name) do
-          {idx, ""} when idx >= 0 ->
-            val = Heap.array_get(ref, idx)
-
-            if val == :undefined and Heap.get_prop_desc(ref, prop_name) == nil do
-              :undefined
-            else
-              data_desc =
-                Heap.get_prop_desc(ref, prop_name) ||
-                  %{writable: true, enumerable: true, configurable: true}
-
-              data_descriptor_obj(val, data_desc)
-            end
-
-          _ ->
-            :undefined
-        end
-
-      is_map(data) and Map.get(data, typed_array()) ->
-        case Integer.parse(prop_name) do
-          {idx, ""} when idx >= 0 ->
-            val = TypedArray.get_element({:obj, ref}, idx)
-
-            if val == :undefined do
-              :undefined
-            else
-              immutable = TypedArray.immutable?({:obj, ref})
-              desc_ref = make_ref()
-
-              Heap.put_obj(desc_ref, %{
-                "value" => val,
-                "writable" => not immutable,
-                "enumerable" => true,
-                "configurable" => not immutable
-              })
-
-              {:obj, desc_ref}
-            end
-
-          _ ->
-            :undefined
-        end
-
-      is_map(data) ->
-        case Map.get(data, prop_name) do
-          nil ->
-            :undefined
-
-          {:accessor, getter, setter} ->
-            desc = Heap.get_prop_desc(ref, prop_name) || %{enumerable: true, configurable: true}
-            desc_ref = make_ref()
-
-            Heap.put_obj(desc_ref, %{
-              "get" => getter || :undefined,
-              "set" => setter || :undefined,
-              "enumerable" => desc.enumerable,
-              "configurable" => desc.configurable
-            })
-
-            {:obj, desc_ref}
-
-          val ->
-            data_desc =
-              Heap.get_prop_desc(ref, prop_name) ||
-                %{writable: true, enumerable: true, configurable: true}
-
-            data_descriptor_obj(val, data_desc)
-        end
-
-      true ->
-        :undefined
+      obj
+    else
+      obj
     end
   end
 
-  defp get_own_property_descriptor([{:builtin, _, _} = b, key | _]) do
-    prop_key = if is_binary(key), do: key, else: key
-    statics = Heap.get_ctor_statics(b)
+  defp define_properties([_obj, props | _]) when props in [nil, :undefined] do
+    throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
+  end
 
-    case Map.get(statics, prop_key) do
-      {:accessor, getter, setter} ->
-        desc_ref = make_ref()
-
-        Heap.put_obj(desc_ref, %{
-          "get" => getter || :undefined,
-          "set" => setter || :undefined,
-          "enumerable" => false,
-          "configurable" => true
-        })
-
-        {:obj, desc_ref}
-
-      nil ->
-        :undefined
-
-      val ->
-        data_descriptor_obj(val, %{writable: true, enumerable: true, configurable: true})
+  defp define_properties([obj, props | _]) when is_binary(props) do
+    if props == "" do
+      obj
+    else
+      throw({:js_throw, Heap.make_error("Property description must be an object", "TypeError")})
     end
+  end
+
+  defp define_properties([obj | _]), do: obj
+
+  defp get_own_property_descriptor([target, _key | _]) when target in [nil, :undefined] do
+    throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
+  end
+
+  defp get_own_property_descriptor([target, key | _]) do
+    OwnProperty.descriptor(target, key)
   end
 
   defp get_own_property_descriptor(_), do: :undefined
-
-  defp proxy_own_property_descriptor(proxy_map, prop_name) do
-    target = Map.fetch!(proxy_map, proxy_target())
-    handler = Map.fetch!(proxy_map, proxy_handler())
-    trap = Get.get(handler, "getOwnPropertyDescriptor")
-
-    if trap == :undefined or trap == nil do
-      get_own_property_descriptor([target, prop_name])
-    else
-      result = Invocation.invoke_callback_or_throw(trap, [target, prop_name])
-      validate_proxy_descriptor_result(target, prop_name, result)
-    end
-  end
-
-  defp validate_proxy_descriptor_result(target, prop_name, :undefined) do
-    case target_descriptor_flags(target, prop_name) do
-      %{configurable: false} ->
-        proxy_descriptor_invariant_error()
-
-      _ ->
-        :undefined
-    end
-  end
-
-  defp validate_proxy_descriptor_result(target, prop_name, {:obj, result_ref} = result) do
-    result_desc = Heap.get_obj(result_ref, %{})
-
-    cond do
-      not target_extensible?(target) and target_descriptor_flags(target, prop_name) == nil ->
-        proxy_descriptor_invariant_error()
-
-      Map.get(result_desc, "configurable") == false and
-          not match?(%{configurable: false}, target_descriptor_flags(target, prop_name)) ->
-        proxy_descriptor_invariant_error()
-
-      true ->
-        result
-    end
-  end
-
-  defp validate_proxy_descriptor_result(_target, _prop_name, _result), do: :undefined
-
-  defp target_descriptor_flags({:obj, ref}, prop_name), do: Heap.get_prop_desc(ref, prop_name)
-  defp target_descriptor_flags(_target, _prop_name), do: nil
-
-  defp target_extensible?({:obj, ref}), do: Heap.extensible?(ref)
-  defp target_extensible?(_target), do: true
-
-  defp proxy_descriptor_invariant_error do
-    throw(
-      {:js_throw,
-       Heap.make_error("proxy getOwnPropertyDescriptor trap violates invariant", "TypeError")}
-    )
-  end
-
-  defp data_descriptor_obj(val, desc) do
-    desc_ref = make_ref()
-
-    Heap.put_obj(desc_ref, %{
-      "value" => val,
-      "writable" => desc.writable,
-      "enumerable" => desc.enumerable,
-      "configurable" => desc.configurable
-    })
-
-    {:obj, desc_ref}
-  end
 
   defp array_indices(list) do
     list |> Enum.with_index() |> Enum.map(fn {_, i} -> Integer.to_string(i) end)

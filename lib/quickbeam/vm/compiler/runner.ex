@@ -214,7 +214,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
       | atoms: atoms || current_atoms(base_ctx),
         current_func: current_func,
         arg_buf: List.to_tuple(args),
-        globals: Map.put(base_ctx.globals, "arguments", Heap.wrap(args)),
+        globals: Map.put(base_ctx.globals, "arguments", Heap.wrap_arguments(args)),
         trace_enabled: trace_enabled(base_ctx),
         home_object: home_object,
         super: super
@@ -237,7 +237,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
       | atoms: atoms || current_atoms(base_ctx),
         current_func: current_func,
         arg_buf: List.to_tuple(args),
-        globals: Map.put(base_ctx.globals, "arguments", Heap.wrap(args)),
+        globals: Map.put(base_ctx.globals, "arguments", Heap.wrap_arguments(args)),
         trace_enabled: trace_enabled(base_ctx),
         home_object: home_object,
         super: super,
@@ -262,7 +262,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
       | atoms: atoms || current_atoms(base_ctx),
         current_func: current_func,
         arg_buf: List.to_tuple(args),
-        globals: Map.put(base_ctx.globals, "arguments", Heap.wrap(args)),
+        globals: Map.put(base_ctx.globals, "arguments", Heap.wrap_arguments(args)),
         trace_enabled: trace_enabled(base_ctx),
         home_object: home_object,
         super: super,
@@ -272,7 +272,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
     |> Context.mark_dirty()
   end
 
-  defp build_invocation_ctx(%Context{} = base_ctx, current_func, args, _fun, atoms, overrides) do
+  defp build_invocation_ctx(%Context{} = base_ctx, current_func, args, fun, atoms, overrides) do
     {home_object, super} = home_object_and_super(current_func)
 
     %Context{
@@ -280,15 +280,22 @@ defmodule QuickBEAM.VM.Compiler.Runner do
       | atoms: atoms || current_atoms(base_ctx),
         current_func: current_func,
         arg_buf: List.to_tuple(args),
-        globals: Map.put(base_ctx.globals, "arguments", Heap.wrap(args)),
+        globals: Map.put(base_ctx.globals, "arguments", Heap.wrap_arguments(args)),
         trace_enabled: trace_enabled(base_ctx),
         home_object: home_object,
         super: super,
-        this: Keyword.get(overrides, :this, base_ctx.this),
+        this: invocation_this(overrides, base_ctx, fun),
         new_target: Keyword.get(overrides, :new_target, base_ctx.new_target)
     }
     |> Context.mark_dirty()
   end
+
+  defp invocation_this(overrides, _base_ctx, %QuickBEAM.VM.Function{is_strict_mode: true}) do
+    if Keyword.has_key?(overrides, :this), do: Keyword.fetch!(overrides, :this), else: :undefined
+  end
+
+  defp invocation_this(overrides, base_ctx, _fun),
+    do: Keyword.get(overrides, :this, base_ctx.this)
 
   defp base_ctx(%Context{} = ctx), do: ensure_globals(ctx)
 

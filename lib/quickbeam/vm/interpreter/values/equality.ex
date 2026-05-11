@@ -86,6 +86,12 @@ defmodule QuickBEAM.VM.Interpreter.Values.Equality do
   def abstract_eq({:bigint, _} = a, {:obj, _} = b), do: abstract_eq(a, Coercion.to_primitive(b))
   def abstract_eq({:obj, _} = a, {:bigint, _} = b), do: abstract_eq(Coercion.to_primitive(a), b)
 
+  def abstract_eq({:obj, _} = obj, b) when b in [:infinity, :neg_infinity, :nan],
+    do: abstract_eq(Coercion.to_primitive(obj), b)
+
+  def abstract_eq(a, {:obj, _} = obj) when a in [:infinity, :neg_infinity, :nan],
+    do: abstract_eq(a, Coercion.to_primitive(obj))
+
   def abstract_eq({:obj, _} = obj, b) when is_number(b) or is_binary(b) do
     prim = Coercion.to_primitive(obj)
 
@@ -112,6 +118,13 @@ defmodule QuickBEAM.VM.Interpreter.Values.Equality do
     do: abstract_eq(Coercion.to_primitive(a), b)
 
   def abstract_eq({:obj, ref1}, {:obj, ref2}), do: ref1 === ref2
+
+  def abstract_eq({:closure, _, %Function{}} = a, {:closure, _, %Function{}} = b),
+    do: strict_eq(a, b)
+
+  def abstract_eq({:closure, _, %Function{}} = a, %Function{} = b), do: strict_eq(a, b)
+  def abstract_eq(%Function{} = a, {:closure, _, %Function{}} = b), do: strict_eq(a, b)
+  def abstract_eq(%Function{} = a, %Function{} = b), do: strict_eq(a, b)
   def abstract_eq({:symbol, _, ref1}, {:symbol, _, ref2}), do: ref1 === ref2
   def abstract_eq({:symbol, a}, {:symbol, b}), do: a === b
   def abstract_eq(_, _), do: false

@@ -41,7 +41,7 @@ defmodule QuickBEAM.VM.Heap.GC do
         Map.values(map) ++ Map.keys(map)
 
       {:qb_arr, arr} ->
-        :array.to_list(arr)
+        :array.sparse_to_list(arr)
 
       list when is_list(list) ->
         list

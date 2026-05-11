@@ -17,6 +17,14 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     regexp_to_string(this)
   end
 
+  def proto_accessor("source"),
+    do: {:accessor, {:builtin, "get source", fn _, this -> regexp_source(this) end}, nil}
+
+  def proto_accessor("global"), do: regexp_flag_accessor("global", "g")
+  def proto_accessor("ignoreCase"), do: regexp_flag_accessor("ignoreCase", "i")
+  def proto_accessor("multiline"), do: regexp_flag_accessor("multiline", "m")
+  def proto_accessor(_), do: :undefined
+
   @doc "Executes compiled QuickJS regexp bytecode against a string via the native regexp engine."
   def nif_exec(bytecode, str, last_index) when is_binary(bytecode) and is_binary(str) do
     raw_bc = utf8_to_latin1(bytecode)
@@ -89,6 +97,20 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp regexp_to_string(_), do: "/(?:)/"
+
+  defp regexp_source({:regexp, _bytecode, source}) when is_binary(source), do: source
+  defp regexp_source(_), do: "(?:)"
+
+  defp regexp_flag_accessor(name, flag) do
+    {:accessor,
+     {:builtin, "get #{name}",
+      fn _, this ->
+        case this do
+          {:regexp, bytecode, _source} -> String.contains?(Get.regexp_flags(bytecode), flag)
+          _ -> false
+        end
+      end}, nil}
+  end
 
   defp utf8_to_latin1(bin) do
     for <<cp::utf8 <- bin>>, into: <<>>, do: <<Bitwise.band(cp, 0xFF)>>

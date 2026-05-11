@@ -4,6 +4,8 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   import QuickBEAM.VM.Heap.Keys,
     only: [key_order: 0, map_data: 0, proto: 0, proxy_handler: 0, proxy_target: 0, set_data: 0]
 
+  import QuickBEAM.VM.Value, only: [is_symbol: 1]
+
   alias QuickBEAM.VM.{Heap, Runtime}
   alias QuickBEAM.VM.ObjectModel.Get
 
@@ -36,9 +38,9 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
         {:obj, eref} ->
           exclude_keys =
             case Heap.get_obj(eref) do
-              {:qb_arr, arr} -> :array.to_list(arr) |> Enum.map(&to_string/1)
-              list when is_list(list) -> Enum.map(list, &to_string/1)
-              map when is_map(map) -> Map.keys(map) |> Enum.filter(&is_binary/1)
+              {:qb_arr, arr} -> :array.to_list(arr) |> Enum.map(&property_key/1)
+              list when is_list(list) -> Enum.map(list, &property_key/1)
+              map when is_map(map) -> enumerable_copy_keys(map) |> Enum.map(&property_key/1)
               _ -> []
             end
 
@@ -57,7 +59,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
         merged =
           case Map.get(merged, key_order()) do
             order when is_list(order) ->
-              new_keys = Map.keys(src_props) -- Enum.map(order, &to_string/1)
+              new_keys = Map.keys(src_props) -- order
               Map.put(merged, key_order(), Enum.reverse(new_keys) ++ order)
 
             _ ->
@@ -73,15 +75,17 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
     :ok
   end
 
-  @doc "Returns enumerable own string properties as a map of property names to values."
+  @doc "Returns enumerable own string and symbol properties as a map of property names to values."
   def enumerable_string_props({:obj, ref} = source_obj) do
     case Heap.get_obj_raw(ref) do
       {:shape, shape_id, _offsets, vals, _proto} ->
         map = shape_enumerable_map(shape_id, vals)
         resolve_accessors(map, source_obj)
 
-      {:qb_arr, _} ->
-        Enum.reduce(0..max(Heap.array_size(ref) - 1, 0), %{}, fn i, acc ->
+      {:qb_arr, arr} ->
+        arr
+        |> :array.sparse_to_orddict()
+        |> Enum.reduce(%{}, fn {i, _value}, acc ->
           Map.put(acc, Integer.to_string(i), Get.get(source_obj, Integer.to_string(i)))
         end)
 
@@ -90,13 +94,14 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
           Map.put(acc, Integer.to_string(i), Get.get(source_obj, Integer.to_string(i)))
         end)
 
+      %{proxy_target() => _target, proxy_handler() => _handler} = proxy_map ->
+        proxy_enumerable_string_props(source_obj, proxy_map)
+
       map when is_map(map) ->
         map
         |> Map.keys()
-        |> Enum.filter(&is_binary/1)
-        |> Enum.reject(fn key ->
-          String.starts_with?(key, "__") and String.ends_with?(key, "__")
-        end)
+        |> Enum.filter(&enumerable_key_candidate?/1)
+        |> Enum.reject(fn key -> match?(%{enumerable: false}, Heap.get_prop_desc(ref, key)) end)
         |> Enum.reduce(%{}, fn key, acc -> Map.put(acc, key, Get.get(source_obj, key)) end)
 
       _ ->
@@ -106,6 +111,40 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
 
   def enumerable_string_props(map) when is_map(map), do: map
   def enumerable_string_props(_), do: %{}
+
+  defp proxy_enumerable_string_props(source_obj, %{
+         proxy_target() => target,
+         proxy_handler() => handler
+       }) do
+    keys =
+      case Get.get(handler, "ownKeys") do
+        trap when trap != nil and trap != :undefined ->
+          trap
+          |> Runtime.call_callback([target])
+          |> Heap.to_list()
+
+        _ ->
+          []
+      end
+
+    descriptor_trap = Get.get(handler, "getOwnPropertyDescriptor")
+
+    Enum.reduce(keys, %{}, fn key, acc ->
+      descriptor =
+        if descriptor_trap != nil and descriptor_trap != :undefined do
+          Runtime.call_callback(descriptor_trap, [target, key])
+        else
+          :undefined
+        end
+
+      if property_key?(key) and descriptor != :undefined and
+           Get.get(descriptor, "enumerable") == true do
+        Map.put(acc, key, Get.get(source_obj, key))
+      else
+        acc
+      end
+    end)
+  end
 
   defp shape_enumerable_map(shape_id, vals) do
     shape_id
@@ -146,6 +185,8 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   def enumerable_keys(string) when is_binary(string),
     do: numeric_index_keys(Get.string_length(string))
 
+  def enumerable_keys({:bound, _, _, _, _} = fun), do: enumerable_callable_keys(fun)
+
   def enumerable_keys(_), do: []
 
   defp enumerable_keys_from_raw(obj, ref, raw) do
@@ -161,7 +202,14 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
         end
 
       {:qb_arr, arr} ->
-        numeric_index_keys(:array.size(arr))
+        (array_prop_keys(ref) ++
+           (arr
+            |> :array.sparse_to_orddict()
+            |> Enum.map(fn {index, _value} -> Integer.to_string(index) end)
+            |> Enum.reject(fn key ->
+              match?(%{enumerable: false}, Heap.get_prop_desc(ref, key))
+            end)))
+        |> Runtime.sort_numeric_keys()
 
       list when is_list(list) ->
         numeric_index_keys(length(list))
@@ -231,16 +279,45 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
     end
   end
 
+  defp array_prop_keys(ref) do
+    ref
+    |> Heap.get_array_props()
+    |> Map.keys()
+    |> Enum.filter(fn key ->
+      is_binary(key) and not String.starts_with?(key, "__") and
+        not match?(%{enumerable: false}, Heap.get_prop_desc(ref, key))
+    end)
+  end
+
   defp enumerable_object_keys(map, ref) do
     raw_keys =
       case Map.get(map, key_order()) do
         order when is_list(order) -> Enum.reverse(order)
-        _ -> Map.keys(map)
+        _ -> []
       end
+
+    raw_keys = raw_keys ++ (Map.keys(map) -- raw_keys)
 
     raw_keys
     |> Enum.filter(&enumerable_key_candidate?/1)
     |> Enum.reject(fn key -> match?(%{enumerable: false}, Heap.get_prop_desc(ref, key)) end)
+  end
+
+  defp enumerable_callable_keys(fun) do
+    own_keys =
+      fun
+      |> Heap.get_ctor_statics()
+      |> Map.keys()
+      |> Enum.filter(&is_binary/1)
+      |> Enum.filter(fn key -> not match?(%{enumerable: false}, Heap.get_prop_desc(fun, key)) end)
+
+    proto_keys =
+      case Heap.get_func_proto() do
+        {:obj, _} = proto -> enumerable_keys(proto)
+        _ -> []
+      end
+
+    Runtime.sort_numeric_keys(own_keys ++ Enum.reject(proto_keys, &(&1 in own_keys)))
   end
 
   defp enumerable_proto_keys({:obj, ref}) do
@@ -260,7 +337,26 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   defp enumerable_key_candidate?(key) when is_binary(key),
     do: not (String.starts_with?(key, "__") and String.ends_with?(key, "__"))
 
+  defp enumerable_key_candidate?(key) when is_symbol(key), do: true
   defp enumerable_key_candidate?(_), do: false
+
+  defp property_key?(key), do: is_binary(key) or is_symbol(key)
+
+  defp property_key(key) when is_symbol(key), do: key
+  defp property_key(key), do: to_string(key)
+
+  defp enumerable_copy_keys(map) do
+    string_keys =
+      map
+      |> Map.keys()
+      |> Enum.filter(&is_binary/1)
+      |> Enum.reject(fn key ->
+        String.starts_with?(key, "__") and String.ends_with?(key, "__")
+      end)
+
+    symbol_keys = Map.keys(map) |> Enum.filter(&is_symbol/1)
+    string_keys ++ symbol_keys
+  end
 
   defp numeric_index_keys(size) when size <= 0, do: []
   defp numeric_index_keys(size), do: Enum.map(0..(size - 1), &Integer.to_string/1)

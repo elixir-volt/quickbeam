@@ -78,7 +78,13 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Classes do
              gas,
              ctx
            ) do
-        Methods.define_method(target, method_closure, Names.resolve_atom(ctx, atom_idx), flags)
+        method_name =
+          case atom_idx do
+            {:tagged_int, _} -> QuickBEAM.VM.ObjectModel.PropertyKey.normalize(atom_idx)
+            _ -> Names.resolve_atom(ctx, atom_idx)
+          end
+
+        Methods.define_method(target, method_closure, method_name, flags)
         run(pc + 1, frame, [target | rest], gas, ctx)
       end
 

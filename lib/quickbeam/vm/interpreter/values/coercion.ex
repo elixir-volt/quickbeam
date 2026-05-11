@@ -187,11 +187,8 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
           wrapped_key != nil ->
             to_string_val(Map.get(map, wrapped_key))
 
-          (fun = Map.get(map, "toString")) != nil and fun != :undefined ->
-            to_string_val(Invocation.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj))
-
           true ->
-            "[object Object]"
+            object_to_string_primitive(obj, map)
         end
 
       _ ->
@@ -200,6 +197,26 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
   end
 
   def to_string_val(_), do: "[object]"
+
+  defp object_to_string_primitive(obj, map) do
+    with :object <- call_string_hint_method(obj, map, "toString"),
+         :object <- call_string_hint_method(obj, map, "valueOf") do
+      throw({:js_throw, Heap.make_error("Cannot convert object to primitive value", "TypeError")})
+    else
+      value -> to_string_val(value)
+    end
+  end
+
+  defp call_string_hint_method(obj, map, name) do
+    fun = Map.get(map, name) || Get.get(obj, name)
+
+    if callable?(fun) do
+      result = Invocation.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj)
+      if is_object(result), do: :object, else: result
+    else
+      :object
+    end
+  end
 
   @doc "Coerces an object value using JavaScript ToPrimitive semantics."
   def to_primitive(val) when is_number(val) or is_binary(val) or is_boolean(val) or is_atom(val),

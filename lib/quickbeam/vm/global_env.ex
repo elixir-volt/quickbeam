@@ -49,6 +49,8 @@ defmodule QuickBEAM.VM.GlobalEnv do
     name = Names.resolve_atom(ctx, atom_idx)
     globals = ctx.globals |> Map.merge(Heap.get_persistent_globals() || %{}) |> Map.put(name, val)
 
+    sync_global_this_property(globals, name, val)
+
     if Keyword.get(opts, :persist, true) do
       Heap.put_persistent_globals(globals)
       Heap.put_base_globals(globals)
@@ -62,6 +64,7 @@ defmodule QuickBEAM.VM.GlobalEnv do
     name = Names.resolve_atom(ctx, atom_idx)
     Heap.put_var(name, :undefined)
     globals = Map.put_new(ctx.globals, name, :undefined)
+    sync_global_this_property(globals, name, Map.get(globals, name))
     Heap.put_persistent_globals(globals)
     Context.mark_dirty(%{ctx | globals: globals})
   end
@@ -70,6 +73,21 @@ defmodule QuickBEAM.VM.GlobalEnv do
   def check_define_var(%Context{} = ctx, atom_idx) do
     Heap.delete_var(Names.resolve_atom(ctx, atom_idx))
     Context.mark_dirty(ctx)
+  end
+
+  defp sync_global_this_property(_globals, "globalThis", _val), do: :ok
+
+  defp sync_global_this_property(globals, name, val) do
+    case Map.get(globals, "globalThis") do
+      {:obj, ref} ->
+        case Heap.get_obj(ref, %{}) do
+          map when is_map(map) -> Heap.put_obj_key(ref, map, name, val)
+          _ -> :ok
+        end
+
+      _ ->
+        :ok
+    end
   end
 
   def refresh(%Context{} = ctx) do

@@ -16,8 +16,10 @@ defmodule QuickBEAM.VM.Runtime.Globals do
     GlobalNumeric,
     JSON,
     Math,
+    Number,
     Object,
     PromiseBuiltins,
+    RegExp,
     Reflect,
     Symbol,
     TypedArray
@@ -25,6 +27,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
 
   alias QuickBEAM.VM.Runtime.Constructors, as: ConstructorRegistry
   alias QuickBEAM.VM.Runtime.Date, as: JSDate
+  alias QuickBEAM.VM.Runtime.String, as: JSString
   alias QuickBEAM.VM.Runtime.Globals.{Constructors, Functions}
   alias QuickBEAM.VM.Runtime.Map, as: JSMap
   alias QuickBEAM.VM.Runtime.Set, as: JSSet
@@ -32,7 +35,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
   @doc "Builds the runtime value represented by this module."
   def build do
     obj_proto = ensure_object_prototype()
-    obj_ctor = register("Object", &Constructors.object/2, prototype: obj_proto)
+    obj_ctor = register("Object", &Constructors.object/2, module: Object, prototype: obj_proto)
 
     # Set constructor on Object.prototype
     {:obj, proto_ref} = obj_proto
@@ -47,7 +50,35 @@ defmodule QuickBEAM.VM.Runtime.Globals do
     |> Map.merge(Errors.bindings())
     |> tap(&Heap.put_global_cache/1)
     |> Map.merge(WebAPIs.bindings())
+    |> tap(&install_global_this_properties/1)
     |> tap(&Heap.put_global_cache/1)
+  end
+
+  defp install_global_this_properties(%{"globalThis" => {:obj, ref}} = bindings) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        globals = Map.delete(bindings, "globalThis")
+        Heap.put_obj(ref, Map.merge(globals, map))
+        install_global_property_descriptors(ref, globals)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp install_global_this_properties(_), do: :ok
+
+  defp install_global_property_descriptors(ref, globals) do
+    Enum.each(globals, fn
+      {key, {:builtin, _, _}} ->
+        Heap.put_prop_desc(ref, key, %{writable: true, enumerable: false, configurable: true})
+
+      {key, _value} when key in ["NaN", "Infinity", "undefined"] ->
+        Heap.put_prop_desc(ref, key, %{writable: false, enumerable: false, configurable: false})
+
+      {_key, _value} ->
+        :ok
+    end)
   end
 
   # ── Binding map ──
@@ -62,10 +93,66 @@ defmodule QuickBEAM.VM.Runtime.Globals do
           Heap.put_array_proto(proto)
           ctor
         ),
-      "String" => register("String", &Constructors.string/2, auto_proto: true),
-      "Number" => register("Number", &Constructors.number/2, auto_proto: true),
+      "String" =>
+        (fn ->
+           ctor = register("String", &Constructors.string/2, module: JSString, auto_proto: true)
+
+           install_prototype_methods(
+             ctor,
+             JSString,
+             ~w(charAt charCodeAt codePointAt indexOf lastIndexOf includes startsWith endsWith slice substring substr split trim trimStart trimEnd toUpperCase toLowerCase repeat padStart padEnd replace replaceAll match matchAll localeCompare search normalize concat toString valueOf at isWellFormed toWellFormed)
+           )
+
+           case Heap.get_ctor_statics(ctor)["prototype"] do
+             {:obj, proto_ref} ->
+               QuickBEAM.VM.ObjectModel.Put.put({:obj, proto_ref}, "constructor", ctor)
+
+               Heap.put_prop_desc(proto_ref, "constructor", %{
+                 writable: true,
+                 enumerable: false,
+                 configurable: true
+               })
+
+             _ ->
+               :ok
+           end
+
+           Heap.put_prop_desc(ctor, "prototype", %{
+             writable: false,
+             enumerable: false,
+             configurable: false
+           })
+
+           ctor
+         end).(),
+      "Number" =>
+        (fn ->
+           ctor = register("Number", &Constructors.number/2, module: Number, auto_proto: true)
+
+           install_prototype_methods(
+             ctor,
+             Number,
+             ~w(toString toFixed valueOf toExponential toPrecision toLocaleString)
+           )
+
+           case Heap.get_ctor_statics(ctor)["prototype"] do
+             {:obj, proto_ref} ->
+               QuickBEAM.VM.ObjectModel.Put.put({:obj, proto_ref}, "constructor", ctor)
+
+               Heap.put_prop_desc(proto_ref, "constructor", %{
+                 writable: true,
+                 enumerable: false,
+                 configurable: true
+               })
+
+             _ ->
+               :ok
+           end
+
+           ctor
+         end).(),
       "BigInt" => register("BigInt", &Constructors.bigint/2),
-      "Boolean" => register("Boolean", Boolean.constructor(), auto_proto: true),
+      "Boolean" => register("Boolean", Boolean.constructor(), module: Boolean, auto_proto: true),
       "Function" =>
         (fn ->
            fun_ctor =
@@ -78,18 +165,113 @@ defmodule QuickBEAM.VM.Runtime.Globals do
            if match?({:obj, _}, proto),
              do: QuickBEAM.VM.ObjectModel.Put.put(proto, "constructor", fun_ctor)
 
+           Heap.put_prop_desc(fun_ctor, "prototype", %{
+             writable: false,
+             enumerable: false,
+             configurable: false
+           })
+
            fun_ctor
          end).(),
-      "RegExp" => register("RegExp", &Constructors.regexp/2, auto_proto: true),
-      "Date" => register("Date", &JSDate.constructor/2, module: JSDate, auto_proto: true),
+      "RegExp" =>
+        (fn ->
+           ctor = register("RegExp", &Constructors.regexp/2, module: RegExp, auto_proto: true)
+           install_prototype_methods(ctor, RegExp, ~w(exec test toString))
+           install_regexp_prototype_accessors(ctor)
+           ctor
+         end).(),
+      "Date" =>
+        (fn ->
+           ctor = register("Date", &JSDate.constructor/2, module: JSDate, auto_proto: true)
+           install_date_prototype_methods(ctor)
+           ctor
+         end).(),
       "Promise" =>
         register("Promise", PromiseBuiltins.constructor(),
           module: PromiseBuiltins,
           prototype: PromiseBuiltins.prototype()
         ),
       "Symbol" => register("Symbol", Symbol.constructor(), module: Symbol),
-      "Map" => register("Map", JSMap.constructor(), auto_proto: true),
-      "Set" => register("Set", JSSet.constructor(), auto_proto: true),
+      "Map" =>
+        (fn ->
+           ctor = register("Map", JSMap.constructor(), auto_proto: true)
+           group_by = {:builtin, "groupBy", fn args, _this -> JSMap.group_by(args) end}
+           Heap.put_ctor_static(ctor, "groupBy", group_by)
+
+           case Heap.get_ctor_statics(ctor)["prototype"] do
+             {:obj, proto_ref} ->
+               for name <- ~w(get set has delete clear keys values entries forEach) do
+                 Heap.put_obj_key(proto_ref, name, JSMap.proto_property(name))
+
+                 Heap.put_prop_desc(proto_ref, name, %{
+                   writable: true,
+                   enumerable: false,
+                   configurable: true
+                 })
+               end
+
+               sym_iter = {:symbol, "Symbol.iterator"}
+               Heap.put_obj_key(proto_ref, sym_iter, JSMap.proto_property(sym_iter))
+
+               Heap.put_prop_desc(proto_ref, sym_iter, %{
+                 writable: true,
+                 enumerable: false,
+                 configurable: true
+               })
+
+               QuickBEAM.VM.ObjectModel.Put.put({:obj, proto_ref}, "constructor", ctor)
+
+               Heap.put_prop_desc(proto_ref, "constructor", %{
+                 writable: true,
+                 enumerable: false,
+                 configurable: true
+               })
+
+             _ ->
+               :ok
+           end
+
+           ctor
+         end).(),
+      "Set" =>
+        (fn ->
+           ctor = register("Set", JSSet.constructor(), auto_proto: true)
+
+           case Heap.get_ctor_statics(ctor)["prototype"] do
+             {:obj, proto_ref} ->
+               for name <- ~w(has add delete clear values keys entries forEach) do
+                 Heap.put_obj_key(proto_ref, name, JSSet.proto_property(name))
+
+                 Heap.put_prop_desc(proto_ref, name, %{
+                   writable: true,
+                   enumerable: false,
+                   configurable: true
+                 })
+               end
+
+               sym_iter = {:symbol, "Symbol.iterator"}
+               Heap.put_obj_key(proto_ref, sym_iter, JSSet.proto_property(sym_iter))
+
+               Heap.put_prop_desc(proto_ref, sym_iter, %{
+                 writable: true,
+                 enumerable: false,
+                 configurable: true
+               })
+
+               QuickBEAM.VM.ObjectModel.Put.put({:obj, proto_ref}, "constructor", ctor)
+
+               Heap.put_prop_desc(proto_ref, "constructor", %{
+                 writable: true,
+                 enumerable: false,
+                 configurable: true
+               })
+
+             _ ->
+               :ok
+           end
+
+           ctor
+         end).(),
       "WeakMap" => register("WeakMap", JSMap.weak_constructor()),
       "WeakSet" => register("WeakSet", JSSet.weak_constructor()),
       "WeakRef" => register("WeakRef", fn _, _ -> Runtime.new_object() end),
@@ -140,6 +322,10 @@ defmodule QuickBEAM.VM.Runtime.Globals do
       "isNaN" => builtin("isNaN", &GlobalNumeric.nan?/2),
       "isFinite" => builtin("isFinite", &GlobalNumeric.finite?/2),
       "eval" => builtin("eval", &Functions.js_eval/2),
+      "decodeURI" => builtin("decodeURI", &Functions.decode_uri/2),
+      "decodeURIComponent" => builtin("decodeURIComponent", &Functions.decode_uri_component/2),
+      "encodeURI" => builtin("encodeURI", &Functions.encode_uri/2),
+      "encodeURIComponent" => builtin("encodeURIComponent", &Functions.encode_uri_component/2),
       "require" => builtin("require", &Functions.js_require/2),
       "structuredClone" =>
         builtin("structuredClone", fn
@@ -178,6 +364,63 @@ defmodule QuickBEAM.VM.Runtime.Globals do
     end
   end
 
+  defp install_date_prototype_methods(ctor) do
+    install_prototype_methods(ctor, JSDate, JSDate.proto_property_names())
+
+    case Heap.get_ctor_statics(ctor)["prototype"] do
+      {:obj, proto_ref} ->
+        sym_key = {:symbol, "Symbol.toPrimitive"}
+
+        to_prim =
+          {:builtin, "[Symbol.toPrimitive]",
+           fn args, this ->
+             JSDate.symbol_to_primitive(this, args)
+           end}
+
+        Heap.put_obj_key(proto_ref, sym_key, to_prim)
+
+        Heap.put_prop_desc(proto_ref, sym_key, %{
+          writable: false,
+          enumerable: false,
+          configurable: true
+        })
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp install_prototype_methods(ctor, module, names) do
+    case Heap.get_ctor_statics(ctor)["prototype"] do
+      {:obj, proto_ref} ->
+        for name <- names do
+          Heap.put_obj_key(proto_ref, name, module.proto_property(name))
+
+          Heap.put_prop_desc(proto_ref, name, %{
+            writable: true,
+            enumerable: false,
+            configurable: true
+          })
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp install_regexp_prototype_accessors(ctor) do
+    case Heap.get_ctor_statics(ctor)["prototype"] do
+      {:obj, proto_ref} ->
+        for name <- ~w(source global ignoreCase multiline) do
+          Heap.put_obj_key(proto_ref, name, RegExp.proto_accessor(name))
+          Heap.put_prop_desc(proto_ref, name, %{enumerable: false, configurable: true})
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
   defp typed_arrays do
     ta_base =
       {:builtin, "TypedArray",
@@ -194,6 +437,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
     for {name, type} <- TypedArray.types(), into: %{} do
       ctor = register(name, TypedArray.constructor(type), auto_proto: true)
       Heap.put_ctor_static(ctor, "__proto__", ta_base)
+      Heap.put_ctor_static(ctor, "BYTES_PER_ELEMENT", TypedArray.elem_size(type))
       {name, ctor}
     end
   end

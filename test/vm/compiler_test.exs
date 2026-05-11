@@ -295,7 +295,7 @@ defmodule QuickBEAM.VM.CompilerTest do
       assign_new =
         compile_and_decode(
           rt,
-          "let o={x:1}; Object.preventExtensions(o); Object.assign(o,{y:2}); o.y===undefined"
+          "let o={x:1}; try { Object.preventExtensions(o); Object.assign(o,{y:2}); 'no' } catch(e) { e.name }"
         ).value
 
       assign_existing =
@@ -305,7 +305,10 @@ defmodule QuickBEAM.VM.CompilerTest do
         ).value
 
       assign_frozen =
-        compile_and_decode(rt, "let o=Object.freeze({x:1}); Object.assign(o,{x:2}); o.x").value
+        compile_and_decode(
+          rt,
+          "let o=Object.freeze({x:1}); try { Object.assign(o,{x:2}); 'no' } catch(e) { e.name }"
+        ).value
 
       assert {:ok, true} = Compiler.invoke(prevent_identity, [])
       assert {:ok, true} = Compiler.invoke(extensible, [])
@@ -314,9 +317,9 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, true} = Compiler.invoke(new_write, [])
       assert {:ok, true} = Compiler.invoke(sealed, [])
       assert {:ok, true} = Compiler.invoke(frozen, [])
-      assert {:ok, true} = Compiler.invoke(assign_new, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(assign_new, [])
       assert {:ok, 2} = Compiler.invoke(assign_existing, [])
-      assert {:ok, 1} = Compiler.invoke(assign_frozen, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(assign_frozen, [])
     end
 
     test "reads default Object prototype methods", %{rt: rt} do
@@ -899,14 +902,14 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 8} = Compiler.invoke(fun, [callback, 4])
     end
 
-    test "uses global this for direct function calls", %{rt: rt} do
+    test "uses strict this for direct function calls", %{rt: rt} do
       sloppy = compile_and_decode(rt, "function f(){ return this===globalThis}; f()").value
 
       strict =
         compile_and_decode(rt, "function f(){'use strict'; return this===undefined}; f()").value
 
       assert {:ok, true} = Compiler.invoke(sloppy, [])
-      assert {:ok, false} = Compiler.invoke(strict, [])
+      assert {:ok, true} = Compiler.invoke(strict, [])
     end
 
     test "compiles Map and Set mutation helpers", %{rt: rt} do

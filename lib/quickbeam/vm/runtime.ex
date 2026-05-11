@@ -60,7 +60,18 @@ defmodule QuickBEAM.VM.Runtime do
   @doc "Coerces simple runtime helper inputs to an integer, defaulting unsupported values to zero."
   def to_int(n) when is_integer(n), do: n
   def to_int(n) when is_float(n), do: trunc(n)
-  def to_int(_), do: 0
+  def to_int(true), do: 1
+  def to_int(false), do: 0
+  def to_int(nil), do: 0
+  def to_int(:undefined), do: 0
+  def to_int(:nan), do: 0
+  def to_int(:infinity), do: 0
+  def to_int(:neg_infinity), do: 0
+
+  def to_int(val) do
+    n = to_number(val)
+    if is_number(n), do: trunc(n), else: 0
+  end
 
   @doc "Coerces simple runtime helper inputs to a float-like value."
   def to_float(n) when is_float(n), do: n

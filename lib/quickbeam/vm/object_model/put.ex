@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Value, only: [is_symbol: 1]
 
-  alias QuickBEAM.VM.{Heap, Names, Runtime}
+  alias QuickBEAM.VM.{Heap, Runtime}
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.JSThrow
@@ -47,54 +47,115 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
+  defp resize_array(ref, {:qb_arr, arr}, new_len) do
+    old_len = :array.size(arr)
+    virtual_len = virtual_array_length(ref)
+
+    cond do
+      virtual_len != nil and new_len >= old_len ->
+        put_virtual_array_length(ref, old_len, new_len)
+
+      new_len > old_len and huge_length_growth?(old_len, new_len) ->
+        Heap.put_array_prop(ref, "length", new_len)
+
+      new_len < old_len ->
+        non_configurable_idx = non_configurable_array_index(ref, new_len, old_len)
+
+        if non_configurable_idx do
+          kept_len = non_configurable_idx + 1
+          delete_array_index_metadata(ref, kept_len, old_len)
+          Heap.put_obj_raw(ref, {:qb_arr, resize_sparse_array(arr, kept_len, old_len)})
+          JSThrow.type_error!("Cannot delete property")
+        end
+
+        delete_array_index_metadata(ref, new_len, old_len)
+        Heap.put_obj_raw(ref, {:qb_arr, resize_sparse_array(arr, new_len, old_len)})
+
+      true ->
+        Heap.put_obj_raw(ref, {:qb_arr, resize_sparse_array(arr, new_len, old_len)})
+    end
+  end
+
   defp resize_array(ref, list, new_len) do
     old_len = length(list)
+    virtual_len = virtual_array_length(ref)
 
-    if new_len < old_len do
-      non_configurable_idx =
-        Enum.find(new_len..(old_len - 1), fn i ->
-          match?(%{configurable: false}, Heap.get_prop_desc(ref, Integer.to_string(i)))
-        end)
+    cond do
+      virtual_len != nil and new_len >= old_len ->
+        put_virtual_array_length(ref, old_len, new_len)
 
-      if non_configurable_idx do
-        Heap.put_obj(ref, Enum.take(list, non_configurable_idx + 1))
-        JSThrow.type_error!("Cannot delete property")
-      end
+      new_len > old_len and huge_length_growth?(old_len, new_len) ->
+        Heap.put_array_prop(ref, "length", new_len)
 
-      Heap.put_obj(ref, Enum.take(list, new_len))
-    else
-      padded = list ++ List.duplicate(:undefined, new_len - old_len)
-      Heap.put_obj(ref, padded)
+      new_len < old_len ->
+        non_configurable_idx = non_configurable_array_index(ref, new_len, old_len)
+
+        if non_configurable_idx do
+          delete_array_index_metadata(ref, non_configurable_idx + 1, old_len)
+          Heap.put_obj(ref, Enum.take(list, non_configurable_idx + 1))
+          JSThrow.type_error!("Cannot delete property")
+        end
+
+        delete_array_index_metadata(ref, new_len, old_len)
+        Heap.put_obj(ref, Enum.take(list, new_len))
+
+      true ->
+        padded = list ++ List.duplicate(:undefined, new_len - old_len)
+        Heap.put_obj(ref, padded)
     end
+  end
+
+  defp virtual_array_length(ref) do
+    case Heap.get_array_prop(ref, "length") do
+      len when is_integer(len) -> len
+      _ -> nil
+    end
+  end
+
+  defp put_virtual_array_length(ref, old_len, new_len) do
+    if new_len == old_len do
+      Heap.delete_array_prop(ref, "length")
+    else
+      Heap.put_array_prop(ref, "length", new_len)
+    end
+  end
+
+  defp huge_length_growth?(old_len, new_len), do: new_len - old_len > 1_000_000
+
+  defp resize_sparse_array(arr, new_len, old_len) when new_len < old_len do
+    cleared =
+      new_len..(old_len - 1)
+      |> Enum.reduce(arr, fn index, acc -> :array.reset(index, acc) end)
+
+    :array.resize(new_len, cleared)
+  end
+
+  defp resize_sparse_array(arr, new_len, _old_len), do: :array.resize(new_len, arr)
+
+  defp non_configurable_array_index(ref, new_len, old_len) do
+    Enum.find(new_len..(old_len - 1), fn i ->
+      match?(%{configurable: false}, Heap.get_prop_desc(ref, Integer.to_string(i)))
+    end)
+  end
+
+  defp delete_array_index_metadata(_ref, from, to) when from >= to, do: :ok
+
+  defp delete_array_index_metadata(ref, from, to) do
+    Enum.each(from..(to - 1), fn i ->
+      key = Integer.to_string(i)
+      Heap.delete_prop_desc(ref, key)
+      Heap.delete_array_prop(ref, key)
+    end)
   end
 
   @doc "Writes a JavaScript property while respecting arrays, proxies, descriptors, accessors, and constructor statics."
   def put({:obj, ref} = _obj, "length", val) do
-    case Heap.get_obj_raw(ref) do
-      {:shape, shape_id, offsets, vals, proto} ->
-        case Map.fetch(offsets, "length") do
-          {:ok, offset} ->
-            new_vals = Heap.Shapes.put_val(vals, offset, val)
-            Heap.put_obj_raw(ref, {:shape, shape_id, offsets, new_vals, proto})
-
-          :error ->
-            {new_shape_id, new_offsets, offset} = Heap.Shapes.transition(shape_id, "length")
-            new_vals = Heap.Shapes.put_val(vals, offset, val)
-            Heap.put_obj_raw(ref, {:shape, new_shape_id, new_offsets, new_vals, proto})
-        end
-
-      {:qb_arr, _} ->
-        resize_array(ref, Heap.obj_to_list(ref), Runtime.to_int(val))
-
-      data when is_list(data) ->
-        resize_array(ref, data, Runtime.to_int(val))
-
-      map when is_map(map) ->
-        # Plain object: store "length" as a regular property
-        Heap.put_obj_key(ref, map, "length", val)
+    case Heap.get_prop_desc(ref, "length") do
+      %{writable: false} ->
+        :ok
 
       _ ->
-        :ok
+        put_length({:obj, ref}, val)
     end
   end
 
@@ -113,6 +174,9 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
           not Map.has_key?(offsets, key) and proto_has_setter_property?(proto, key) ->
             set(proto, key, val, obj)
+
+          not Map.has_key?(offsets, key) and proto_has_getter_only_property?(proto, key) ->
+            :ok
 
           not Heap.extensible?(ref) and not Map.has_key?(offsets, key) ->
             :ok
@@ -150,21 +214,25 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
       map when is_map(map) ->
         cond do
+          match?({:accessor, _, setter} when setter != nil, Map.get(map, key)) ->
+            {:accessor, _, setter} = Map.get(map, key)
+            invoke_setter(setter, val, obj)
+
           Heap.frozen?(ref) ->
             :ok
 
           not Map.has_key?(map, key) and proto_has_setter_property?(Map.get(map, proto()), key) ->
             set(Map.get(map, proto()), key, val, obj)
 
+          not Map.has_key?(map, key) and
+              proto_has_getter_only_property?(Map.get(map, proto()), key) ->
+            :ok
+
           not Map.has_key?(map, key) and not Heap.extensible?(ref) ->
             :ok
 
           not Map.has_key?(map, key) ->
             Heap.put_obj_key(ref, map, key, val)
-
-          match?({:accessor, _, setter} when setter != nil, Map.get(map, key)) ->
-            {:accessor, _, setter} = Map.get(map, key)
-            invoke_setter(setter, val, obj)
 
           match?(%{writable: false}, Heap.get_prop_desc(ref, key)) ->
             :ok
@@ -178,14 +246,44 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
-  def put(%QuickBEAM.VM.Function{} = f, key, val), do: Heap.put_ctor_static(f, key, val)
+  def put(%QuickBEAM.VM.Function{} = f, key, val), do: put_callable_property(f, key, val)
 
   def put({:closure, _, %QuickBEAM.VM.Function{}} = c, key, val),
-    do: Heap.put_ctor_static(c, key, val)
+    do: put_callable_property(c, key, val)
 
-  def put({:builtin, _, _} = b, key, val), do: Heap.put_ctor_static(b, key, val)
+  def put({:builtin, _, _} = b, key, val), do: put_callable_property(b, key, val)
+  def put({:bound, _, _, _, _} = b, key, val), do: put_callable_property(b, key, val)
 
   def put(_, _, _), do: :ok
+
+  defp put_length({:obj, ref}, val) do
+    case Heap.get_obj_raw(ref) do
+      {:shape, shape_id, offsets, vals, proto} ->
+        case Map.fetch(offsets, "length") do
+          {:ok, offset} ->
+            new_vals = Heap.Shapes.put_val(vals, offset, val)
+            Heap.put_obj_raw(ref, {:shape, shape_id, offsets, new_vals, proto})
+
+          :error ->
+            {new_shape_id, new_offsets, offset} = Heap.Shapes.transition(shape_id, "length")
+            new_vals = Heap.Shapes.put_val(vals, offset, val)
+            Heap.put_obj_raw(ref, {:shape, new_shape_id, new_offsets, new_vals, proto})
+        end
+
+      {:qb_arr, _} = array ->
+        resize_array(ref, array, Runtime.to_int(val))
+
+      data when is_list(data) ->
+        resize_array(ref, data, Runtime.to_int(val))
+
+      map when is_map(map) ->
+        # Plain object: store "length" as a regular property
+        Heap.put_obj_key(ref, map, "length", val)
+
+      _ ->
+        :ok
+    end
+  end
 
   @doc "Writes a property using an explicit receiver, for Reflect.set semantics."
   def set({:obj, ref}, key, val, receiver) do
@@ -345,30 +443,108 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   end
 
   def put(%QuickBEAM.VM.Function{} = f, key, val, _enumerable),
-    do: Heap.put_ctor_static(f, key, val)
+    do: put_callable_property(f, key, val)
 
   def put({:closure, _, %QuickBEAM.VM.Function{}} = c, key, val, _enumerable),
-    do: Heap.put_ctor_static(c, key, val)
+    do: put_callable_property(c, key, val)
 
-  def put({:builtin, _, _} = b, key, val, _enumerable), do: Heap.put_ctor_static(b, key, val)
+  def put({:builtin, _, _} = b, key, val, _enumerable), do: put_callable_property(b, key, val)
+  def put({:bound, _, _, _, _} = b, key, val, _enumerable), do: put_callable_property(b, key, val)
 
   def put(_, _, _, _), do: :ok
 
+  defp put_callable_property(callable, key, val) do
+    statics = Heap.get_ctor_statics(callable)
+    own? = Map.has_key?(statics, key)
+
+    cond do
+      key in ["length", "name"] and (not own? or Map.get(statics, key) == :deleted) ->
+        reject_failed_write!()
+
+      key in ["caller", "arguments"] and restricted_function_property?(callable) ->
+        JSThrow.type_error!("'caller' and 'arguments' are restricted function properties")
+
+      match?(%{writable: false}, callable_prop_desc(callable, key)) or
+        inherited_object_property_readonly?(callable, key) or
+          inherited_object_getter_only?(callable, key) ->
+        :ok
+
+      not own? and function_proto_has_setter?(key) ->
+        invoke_function_proto_setter(callable, key, val)
+
+      not own? and function_proto_has_getter_only?(key) ->
+        :ok
+
+      true ->
+        Heap.put_ctor_static(callable, key, val)
+    end
+  end
+
   defp normalize_key(k), do: PropertyKey.normalize(k)
 
+  defp callable_prop_desc(callable, key),
+    do: Heap.get_prop_desc(callable, key) || Heap.get_ctor_prop_desc(callable, key)
+
+  defp inherited_object_property_readonly?(callable, key) do
+    own? = Map.has_key?(Heap.get_ctor_statics(callable), key)
+
+    object_proto_readonly? =
+      case Heap.get_object_prototype() do
+        {:obj, _} = proto ->
+          case QuickBEAM.VM.ObjectModel.OwnProperty.descriptor(proto, key) do
+            {:obj, desc_ref} -> Get.get({:obj, desc_ref}, "writable") == false
+            _ -> false
+          end
+
+        _ ->
+          false
+      end
+
+    not own? and object_proto_readonly?
+  end
+
+  defp inherited_object_getter_only?(callable, key) do
+    not Map.has_key?(Heap.get_ctor_statics(callable), key) and
+      proto_has_getter_only_property?(Heap.get_object_prototype(), key)
+  end
+
+  defp put_array_named_property(obj, ref, key, val) do
+    case Heap.get_array_prop(ref, key) do
+      {:accessor, _getter, setter} when setter != nil ->
+        Invocation.invoke_with_receiver(setter, [val], obj)
+
+      {:accessor, _getter, nil} ->
+        :ok
+
+      _ ->
+        cond do
+          match?(%{writable: false}, Heap.get_prop_desc(ref, key)) ->
+            :ok
+
+          not array_named_property_present?(ref, key) and proto_has_named_setter?(key) ->
+            invoke_named_proto_setter(obj, key, val)
+
+          true ->
+            Heap.put_array_prop(ref, key, val)
+        end
+    end
+  end
+
   defp put_array_key(ref, key, val) do
+    obj = {:obj, ref}
+
     case key do
       k when is_binary(k) ->
         case PropertyKey.array_index(k) do
           {:ok, idx} -> put_element({:obj, ref}, idx, val)
-          :error -> Heap.put_array_prop(ref, k, val)
+          :error -> put_array_named_property(obj, ref, k, val)
         end
 
       k when is_integer(k) and k >= 0 ->
         put_element({:obj, ref}, k, val)
 
       k when is_symbol(k) ->
-        Heap.put_array_prop(ref, k, val)
+        put_array_named_property(obj, ref, k, val)
 
       _ ->
         :ok
@@ -443,6 +619,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   end
 
   defp invoke_setter(fun, val, this_obj) do
+    Process.put(:qb_setter_invoked, true)
     Invocation.invoke_with_receiver(fun, [val], this_obj)
   end
 
@@ -488,6 +665,87 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   defp proto_has_setter_property?(_proto_obj, _key), do: false
 
+  defp proto_has_getter_only_property?(nil, _key), do: false
+  defp proto_has_getter_only_property?(:undefined, _key), do: false
+
+  defp proto_has_getter_only_property?({:obj, ref}, key) do
+    case Heap.get_obj_raw(ref) do
+      {:shape, _shape_id, offsets, vals, parent_proto} ->
+        case Map.fetch(offsets, key) do
+          {:ok, off} -> match?({:accessor, getter, nil} when getter != nil, elem(vals, off))
+          :error -> proto_has_getter_only_property?(parent_proto, key)
+        end
+
+      map when is_map(map) ->
+        case Map.get(map, key) do
+          {:accessor, getter, nil} when getter != nil -> true
+          _ -> proto_has_getter_only_property?(Map.get(map, proto()), key)
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp proto_has_getter_only_property?(_proto_obj, _key), do: false
+
+  defp function_proto_has_setter?(key) do
+    case function_proto_property(key) do
+      {:accessor, _, setter} when setter != nil -> true
+      _ -> false
+    end
+  end
+
+  defp function_proto_has_getter_only?(key) do
+    case function_proto_property(key) do
+      {:accessor, getter, nil} when getter != nil -> true
+      _ -> false
+    end
+  end
+
+  defp invoke_function_proto_setter(callable, key, val) do
+    case function_proto_property(key) do
+      {:accessor, _, setter} when setter != nil -> invoke_setter(setter, val, callable)
+      _ -> :ok
+    end
+  end
+
+  defp function_proto_property(key) do
+    case Heap.get_func_proto() do
+      {:obj, ref} ->
+        case Heap.get_obj(ref, %{}) do
+          map when is_map(map) -> Map.get(map, key)
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp array_named_property_present?(ref, key) do
+    case Heap.get_array_prop(ref, key) do
+      :undefined -> false
+      _ -> true
+    end
+  end
+
+  defp proto_has_named_setter?(key) when is_binary(key) do
+    case find_array_proto_accessor(key) do
+      {:accessor, _, setter} when setter != nil -> true
+      _ -> false
+    end
+  end
+
+  defp proto_has_named_setter?(_), do: false
+
+  defp invoke_named_proto_setter(obj, key, val) do
+    case find_array_proto_accessor(key) do
+      {:accessor, _, setter} when setter != nil -> invoke_setter(setter, val, obj)
+      _ -> :ok
+    end
+  end
+
   defp proto_has_setter?(idx) do
     case find_array_proto_accessor(Integer.to_string(idx)) do
       {:accessor, _, setter} when setter != nil -> true
@@ -531,7 +789,14 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         end
 
       _ when is_map(map) ->
-        Map.has_key?(map, key) or Get.get({:obj, ref}, key) != :undefined
+        QuickBEAM.VM.ObjectModel.OwnProperty.present?({:obj, ref}, key) or
+          has_property(Map.get(map, proto()), key)
+
+      list when is_list(list) ->
+        QuickBEAM.VM.ObjectModel.OwnProperty.present?({:obj, ref}, key)
+
+      {:qb_arr, _} ->
+        QuickBEAM.VM.ObjectModel.OwnProperty.present?({:obj, ref}, key)
 
       _ ->
         Get.get({:obj, ref}, key) != :undefined
@@ -539,6 +804,10 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   end
 
   def has_property({:builtin, _, _} = b, key) do
+    Get.get(b, key) != :undefined
+  end
+
+  def has_property({:bound, _, _, _, _} = b, key) do
     Get.get(b, key) != :undefined
   end
 
@@ -552,24 +821,53 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   def has_property(_, _), do: false
 
+  defp array_index_value(obj, ref, key, fallback) do
+    case Heap.get_array_prop(ref, key) do
+      {:accessor, getter, _} when getter != nil -> Get.call_getter(getter, obj)
+      {:accessor, nil, _} -> :undefined
+      :undefined -> fallback.()
+      value -> value
+    end
+  end
+
   @doc "Reads an indexed JavaScript element."
   def get_element({:obj, ref} = obj, idx) do
     case Heap.get_obj(ref) do
       %{typed_array() => true} when is_integer(idx) ->
         Runtime.TypedArray.get_element(obj, idx)
 
-      {:qb_arr, arr} when is_integer(idx) ->
-        if idx >= 0 and idx < :array.size(arr),
-          do: :array.get(idx, arr),
-          else: :undefined
+      {:qb_arr, arr} ->
+        case PropertyKey.array_index(idx) do
+          {:ok, index} ->
+            array_index_value(obj, ref, Integer.to_string(index), fn ->
+              if index < :array.size(arr), do: :array.get(index, arr), else: :undefined
+            end)
 
-      list when is_list(list) and is_integer(idx) ->
-        Enum.at(list, idx, :undefined)
+          :error ->
+            Get.get(obj, PropertyKey.normalize(idx))
+        end
+
+      list when is_list(list) ->
+        case PropertyKey.array_index(idx) do
+          {:ok, index} ->
+            array_index_value(obj, ref, Integer.to_string(index), fn ->
+              Enum.at(list, index, :undefined)
+            end)
+
+          :error ->
+            Get.get(obj, PropertyKey.normalize(idx))
+        end
 
       map when is_map(map) ->
-        key = if is_integer(idx), do: Integer.to_string(idx), else: idx
+        key = PropertyKey.normalize(idx)
 
         case Map.fetch(map, key) do
+          {:ok, {:accessor, getter, _}} when getter != nil ->
+            Get.call_getter(getter, obj)
+
+          {:ok, {:accessor, nil, _}} ->
+            :undefined
+
           {:ok, val} ->
             val
 
@@ -602,6 +900,12 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   def get_element(obj, idx) when is_list(obj) and is_integer(idx),
     do: Enum.at(obj, idx, :undefined)
+
+  def get_element(%QuickBEAM.VM.Function{} = fun, key),
+    do: Get.get(fun, PropertyKey.normalize(key))
+
+  def get_element({:closure, _, %QuickBEAM.VM.Function{}} = closure, key),
+    do: Get.get(closure, PropertyKey.normalize(key))
 
   def get_element(obj, idx) when is_map(obj), do: Map.get(obj, idx, :undefined)
 
@@ -670,39 +974,48 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   def get_element(_, _), do: :undefined
 
   @doc "Writes an indexed JavaScript element."
+  def put_element({:builtin, _, _} = builtin, key, val) do
+    put(builtin, PropertyKey.normalize(key), val)
+  end
+
+  def put_element(%QuickBEAM.VM.Function{} = fun, key, val) do
+    put(fun, PropertyKey.normalize(key), val)
+  end
+
+  def put_element({:closure, _, %QuickBEAM.VM.Function{}} = closure, key, val) do
+    put(closure, PropertyKey.normalize(key), val)
+  end
+
   def put_element({:obj, ref} = obj, key, val) do
     case Heap.get_obj(ref) do
       %{typed_array() => true} when is_integer(key) ->
         Runtime.TypedArray.set_element(obj, key, val)
 
       {:qb_arr, arr} ->
-        case key do
-          i when is_integer(i) and i >= 0 ->
-            if i >= :array.size(arr) and proto_has_setter?(i) do
-              invoke_proto_setter(obj, i, val)
-            else
-              Heap.array_set(ref, i, val)
-            end
+        case PropertyKey.array_index(key) do
+          {:ok, i} ->
+            put_array_index(obj, ref, arr, i, val)
 
-          _ ->
-            :ok
+          :error ->
+            case PropertyKey.normalize(key) do
+              "length" -> put(obj, "length", val)
+              prop_key -> put_array_named_property(obj, ref, prop_key, val)
+            end
         end
 
       list when is_list(list) ->
-        case key do
-          i when is_integer(i) and i >= 0 and i < length(list) ->
-            Heap.put_obj(ref, List.replace_at(list, i, val))
+        case PropertyKey.array_index(key) do
+          {:ok, i} when i < length(list) ->
+            put_list_index(obj, ref, list, i, val)
 
-          i when is_integer(i) and i >= 0 ->
-            if proto_has_setter?(i) do
-              invoke_proto_setter(obj, i, val)
-            else
-              padded = list ++ List.duplicate(:undefined, i - length(list)) ++ [val]
-              Heap.put_obj(ref, padded)
+          {:ok, i} ->
+            put_list_index(obj, ref, list, i, val)
+
+          :error ->
+            case PropertyKey.normalize(key) do
+              "length" -> put(obj, "length", val)
+              prop_key -> put_array_named_property(obj, ref, prop_key, val)
             end
-
-          _ ->
-            :ok
         end
 
       map when is_map(map) ->
@@ -714,7 +1027,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             _ -> Values.stringify(key)
           end
 
-        Heap.put_obj_key(ref, map, str_key, val)
+        if set(obj, str_key, val, obj) == false, do: reject_failed_write!()
 
       nil ->
         :ok
@@ -722,6 +1035,58 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   end
 
   def put_element(_, _, _), do: :ok
+
+  defp put_array_index(obj, ref, arr, i, val) do
+    key = Integer.to_string(i)
+
+    case Heap.get_array_prop(ref, key) do
+      {:accessor, _getter, setter} when setter != nil ->
+        Invocation.invoke_with_receiver(setter, [val], obj)
+
+      {:accessor, _getter, nil} ->
+        reject_failed_write!()
+
+      _ ->
+        cond do
+          match?(%{writable: false}, Heap.get_prop_desc(ref, key)) ->
+            reject_failed_write!()
+
+          i >= :array.size(arr) and proto_has_setter?(i) ->
+            invoke_proto_setter(obj, i, val)
+
+          true ->
+            Heap.array_set(ref, i, val)
+        end
+    end
+  end
+
+  defp put_list_index(obj, ref, list, i, val) do
+    key = Integer.to_string(i)
+
+    case Heap.get_array_prop(ref, key) do
+      {:accessor, _getter, setter} when setter != nil ->
+        Invocation.invoke_with_receiver(setter, [val], obj)
+
+      {:accessor, _getter, nil} ->
+        reject_failed_write!()
+
+      _ ->
+        cond do
+          match?(%{writable: false}, Heap.get_prop_desc(ref, key)) ->
+            reject_failed_write!()
+
+          proto_has_setter?(i) ->
+            invoke_proto_setter(obj, i, val)
+
+          i < length(list) ->
+            Heap.put_obj(ref, List.replace_at(list, i, val))
+
+          true ->
+            padded = list ++ List.duplicate(:undefined, i - length(list)) ++ [val]
+            Heap.put_obj(ref, padded)
+        end
+    end
+  end
 
   @doc "Defines an array element and descriptor metadata."
   def define_array_el(obj, idx, val) do
@@ -744,7 +1109,19 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
               Heap.put_obj(ref, set_list_at(stored, i, val))
 
             is_map(stored) ->
-              Heap.put_obj_key(ref, stored, Names.normalize_property_key(idx), val)
+              key = PropertyKey.normalize(idx)
+
+              stored =
+                if key == proto() and Heap.get_prop_desc(ref, key) == nil and
+                     Map.has_key?(stored, proto()) do
+                  Map.put(stored, :__internal_proto__, Map.get(stored, proto()))
+                else
+                  stored
+                end
+
+              Heap.put_obj_key(ref, stored, key, val)
+
+              Heap.put_prop_desc(ref, key, %{writable: true, enumerable: true, configurable: true})
 
             true ->
               :ok
@@ -753,15 +1130,15 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
           {:obj, ref}
 
         %QuickBEAM.VM.Function{} = ctor ->
-          Heap.put_ctor_static(ctor, Names.normalize_property_key(idx), val)
+          Heap.put_ctor_static(ctor, PropertyKey.normalize(idx), val)
           ctor
 
         {:closure, _, %QuickBEAM.VM.Function{}} = ctor ->
-          Heap.put_ctor_static(ctor, Names.normalize_property_key(idx), val)
+          Heap.put_ctor_static(ctor, PropertyKey.normalize(idx), val)
           ctor
 
         {:builtin, _, _} = ctor ->
-          Heap.put_ctor_static(ctor, Names.normalize_property_key(idx), val)
+          Heap.put_ctor_static(ctor, PropertyKey.normalize(idx), val)
           ctor
 
         _ ->
@@ -777,6 +1154,28 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   def set_list_at(list, i, val) when is_integer(i) and i >= 0,
     do: list ++ List.duplicate(:undefined, max(0, i - length(list))) ++ [val]
+
+  defp restricted_function_property?({:bound, _, _, _, _}), do: true
+
+  defp restricted_function_property?(%QuickBEAM.VM.Function{is_strict_mode: true}), do: true
+
+  defp restricted_function_property?({:closure, _, %QuickBEAM.VM.Function{is_strict_mode: true}}),
+    do: true
+
+  defp restricted_function_property?(_), do: false
+
+  defp reject_failed_write! do
+    if strict_mode?(), do: JSThrow.type_error!("Cannot assign to read only property")
+    :ok
+  end
+
+  defp strict_mode? do
+    case Heap.get_ctx() do
+      %{current_func: {:closure, _, %QuickBEAM.VM.Function{is_strict_mode: true}}} -> true
+      %{current_func: %QuickBEAM.VM.Function{is_strict_mode: true}} -> true
+      _ -> false
+    end
+  end
 
   defp validate_proxy_set_invariant({:obj, target_ref} = target, key, val, trap_result) do
     if Values.truthy?(trap_result) do

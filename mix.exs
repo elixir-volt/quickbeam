@@ -72,7 +72,7 @@ defmodule QuickBEAM.MixProject do
       {:zigler, "~> 0.15.2", runtime: false, optional: true},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:ex_dna, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:ex_dna, "~> 1.5", only: [:dev, :test], runtime: false},
       {:jason, "~> 1.4"},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:oxc, ">= 0.7.0"},
@@ -84,8 +84,8 @@ defmodule QuickBEAM.MixProject do
       {:benchee, "~> 1.3", only: :bench, runtime: false},
       {:quickjs_ex, "~> 0.3.1", only: :bench, runtime: false},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
-      {:reach, "~> 1.6", only: :dev, runtime: false},
-      {:ex_ast, "~> 0.3", only: [:dev, :test]}
+      {:reach, "~> 2.2", only: :dev, runtime: false},
+      {:ex_ast, "~> 0.10", only: [:dev, :test]}
     ]
   end
 

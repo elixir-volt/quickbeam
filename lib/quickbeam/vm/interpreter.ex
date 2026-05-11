@@ -116,7 +116,7 @@ defmodule QuickBEAM.VM.Interpreter do
       Heap.put_builtin_names(MapSet.new(Map.keys(Runtime.global_bindings())))
     end
 
-    ctx = Context.mark_synced(ctx)
+    ctx = Context.mark_synced(%{ctx | current_func: fun})
 
     try do
       case function_instructions(fun) do
@@ -183,20 +183,64 @@ defmodule QuickBEAM.VM.Interpreter do
     if refresh_globals? do
       persistent = Heap.get_persistent_globals() || %{}
       refreshed_ctx = Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
+      refreshed_ctx = refresh_call_arg_buf(refreshed_ctx)
 
       case call_result do
         {:ok, result} -> run(pc + 1, frame, [result | rest], gas, refreshed_ctx)
         {:throw, val} -> throw_or_catch(frame, val, gas, refreshed_ctx)
       end
     else
+      updated_ctx = refresh_call_arg_buf(ctx)
+
       case call_result do
-        {:ok, result} -> run(pc + 1, frame, [result | rest], gas, ctx)
-        {:throw, val} -> throw_or_catch(frame, val, gas, ctx)
+        {:ok, result} -> run(pc + 1, frame, [result | rest], gas, updated_ctx)
+        {:throw, val} -> throw_or_catch(frame, val, gas, updated_ctx)
       end
     end
   end
 
   # ── Helpers ──
+
+  defp sync_setter_globals_to_frame(frame, ctx) do
+    if Process.delete(:qb_setter_invoked) do
+      sync_global_writes_to_frame(frame, ctx)
+    else
+      frame
+    end
+  end
+
+  defp sync_global_writes_to_frame(frame, ctx) do
+    case ctx.current_func do
+      {:closure, _, %QuickBEAM.VM.Function{locals: local_defs, arg_count: arg_count}} ->
+        sync_global_writes_to_frame(frame, ctx, local_defs, arg_count)
+
+      %QuickBEAM.VM.Function{locals: local_defs, arg_count: arg_count} ->
+        sync_global_writes_to_frame(frame, ctx, local_defs, arg_count)
+
+      _ ->
+        frame
+    end
+  end
+
+  defp sync_global_writes_to_frame(frame, ctx, local_defs, arg_count) do
+    locals = elem(frame, Frame.locals())
+
+    updated =
+      local_defs
+      |> Enum.with_index()
+      |> Enum.reduce(locals, fn {vd, idx}, acc ->
+        name = Names.resolve_display_name(vd.name)
+
+        if idx >= arg_count and is_binary(name) and Map.has_key?(ctx.globals, name) and
+             idx < tuple_size(acc) do
+          put_elem(acc, idx, Map.fetch!(ctx.globals, name))
+        else
+          acc
+        end
+      end)
+
+    put_elem(frame, Frame.locals(), updated)
+  end
 
   defp clean_eval_globals(pre_eval_globals) do
     post = Heap.get_persistent_globals() || %{}
@@ -247,6 +291,13 @@ defmodule QuickBEAM.VM.Interpreter do
        do: vars |> Enum.at(idx) |> Map.get(:name) |> Names.resolve_display_name()
 
   defp current_var_ref_name(_, _), do: nil
+
+  defp refresh_call_arg_buf(ctx) do
+    case Heap.get_ctx() do
+      %{arg_buf: arg_buf} when is_tuple(arg_buf) -> Context.mark_dirty(%{ctx | arg_buf: arg_buf})
+      _ -> ctx
+    end
+  end
 
   defp put_local(f, idx, val),
     do: put_elem(f, Frame.locals(), put_elem(elem(f, Frame.locals()), idx, val))
@@ -445,6 +496,8 @@ defmodule QuickBEAM.VM.Interpreter do
   defp eval_code(code, caller_frame, gas, ctx, var_objs, keep_declared?) do
     with {:ok, parsed} <- compile_eval_code(ctx.runtime_pid, code) do
       declared_names = eval_declared_names(parsed.value, parsed.atoms)
+      assigned_names = eval_simple_assigned_names(code)
+      reject_eval_lexical_conflicts!(ctx, declared_names)
       eval_globals = collect_caller_locals(caller_frame, ctx)
       captured_globals = collect_captured_globals(ctx.current_func)
 
@@ -464,7 +517,7 @@ defmodule QuickBEAM.VM.Interpreter do
       eval_ctx_globals =
         base_globals
         |> Map.merge(scoped_globals)
-        |> Map.put("arguments", Heap.wrap(Tuple.to_list(ctx.arg_buf)))
+        |> Map.put("arguments", Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf)))
 
       visible_declared_names =
         base_globals
@@ -473,7 +526,7 @@ defmodule QuickBEAM.VM.Interpreter do
         |> Map.keys()
         |> Enum.filter(&is_binary/1)
         |> MapSet.new()
-        |> MapSet.intersection(declared_names)
+        |> MapSet.intersection(MapSet.union(declared_names, assigned_names))
 
       eval_opts = %{
         gas: gas,
@@ -525,6 +578,28 @@ defmodule QuickBEAM.VM.Interpreter do
         {:undefined, %{}}
     end
   end
+
+  defp eval_simple_assigned_names(code) do
+    case QuickBEAM.JS.Parser.parse(code) do
+      {:ok, %QuickBEAM.JS.Parser.AST.Program{body: body}} ->
+        body
+        |> Enum.flat_map(&eval_simple_assigned_names_from_statement/1)
+        |> MapSet.new()
+
+      _ ->
+        MapSet.new()
+    end
+  end
+
+  defp eval_simple_assigned_names_from_statement(%QuickBEAM.JS.Parser.AST.ExpressionStatement{
+         expression: %QuickBEAM.JS.Parser.AST.AssignmentExpression{
+           operator: "=",
+           left: %QuickBEAM.JS.Parser.AST.Identifier{name: name}
+         }
+       }),
+       do: [name]
+
+  defp eval_simple_assigned_names_from_statement(_), do: []
 
   defp parse_error_message([%{message: message} | _]), do: message
   defp parse_error_message(_errors), do: "Syntax error"
@@ -748,6 +823,36 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp eval_declared_names(_, _), do: MapSet.new()
+
+  defp reject_eval_lexical_conflicts!(ctx, declared_names) do
+    if not current_strict_mode?(ctx) do
+      conflict? =
+        ctx
+        |> current_lexical_names()
+        |> MapSet.disjoint?(declared_names)
+        |> Kernel.not()
+
+      if conflict?, do: JSThrow.syntax_error!("Identifier has already been declared")
+    end
+  end
+
+  defp current_lexical_names(%Context{
+         current_func: {:closure, _, %QuickBEAM.VM.Function{locals: locals}}
+       }),
+       do: lexical_names(locals)
+
+  defp current_lexical_names(%Context{current_func: %QuickBEAM.VM.Function{locals: locals}}),
+    do: lexical_names(locals)
+
+  defp current_lexical_names(_ctx), do: MapSet.new()
+
+  defp lexical_names(locals) do
+    locals
+    |> Enum.filter(& &1.is_lexical)
+    |> Enum.map(&Names.resolve_display_name(&1.name))
+    |> Enum.filter(&is_binary/1)
+    |> MapSet.new()
+  end
 
   defp resolve_declared_atom({:predefined, idx}, _atoms),
     do: PredefinedAtoms.lookup(idx)
@@ -1416,7 +1521,7 @@ defmodule QuickBEAM.VM.Interpreter do
                 Map.put(
                   ctx.globals,
                   "arguments",
-                  Heap.wrap(args)
+                  Heap.wrap_arguments(args)
                 ),
               catch_stack: [],
               atoms: fn_atoms

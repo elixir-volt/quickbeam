@@ -548,29 +548,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
         {:ok, Builder.literal(""), state}
 
       {:ok, n} when n in [:get_arg0, :get_arg1, :get_arg2, :get_arg3] ->
-        slot_idx =
-          case n do
-            :get_arg0 -> 0
-            :get_arg1 -> 1
-            :get_arg2 -> 2
-            :get_arg3 -> 3
-          end
-
-        {:ok, State.slot_expr(state, slot_idx), state}
+        {:ok, State.slot_expr(state, compact_slot_index(n, args)), state}
 
       {:ok, :get_arg} ->
         {:ok, State.slot_expr(state, hd(args)), state}
 
       {:ok, n} when n in [:get_loc0, :get_loc1, :get_loc2, :get_loc3] ->
-        slot_idx =
-          case n do
-            :get_loc0 -> 0
-            :get_loc1 -> 1
-            :get_loc2 -> 2
-            :get_loc3 -> 3
-          end
-
-        {:ok, State.slot_expr(state, slot_idx), state}
+        {:ok, State.slot_expr(state, compact_slot_index(n, args)), state}
 
       {:ok, :get_loc} ->
         {:ok, State.slot_expr(state, hd(args)), state}
@@ -582,6 +566,16 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
         :error
     end
   end
+
+  defp compact_slot_index(_op, [idx | _]), do: idx
+  defp compact_slot_index(:get_arg0, []), do: 0
+  defp compact_slot_index(:get_arg1, []), do: 1
+  defp compact_slot_index(:get_arg2, []), do: 2
+  defp compact_slot_index(:get_arg3, []), do: 3
+  defp compact_slot_index(:get_loc0, []), do: 0
+  defp compact_slot_index(:get_loc1, []), do: 1
+  defp compact_slot_index(:get_loc2, []), do: 2
+  defp compact_slot_index(:get_loc3, []), do: 3
 
   defp lower_instruction(
          {op, [target]} = instruction,

@@ -17,9 +17,9 @@ defmodule QuickBEAM.VM.Invocation do
     track_invoke_depth()
 
     result =
-      case Compiler.invoke(fun, args) do
+      case Compiler.invoke(fun, args, call_context(fun)) do
         {:ok, result} -> result
-        :error -> Interpreter.invoke_function_fallback(fun, args, gas, active_ctx())
+        :error -> Interpreter.invoke_function_fallback(fun, args, gas, call_context(fun))
       end
 
     maybe_gc(result, [fun | args])
@@ -30,12 +30,12 @@ defmodule QuickBEAM.VM.Invocation do
 
     result =
       if compiled_closure_callable?(inner) do
-        case Runner.invoke(closure, args) do
+        case Runner.invoke(closure, args, call_context(inner)) do
           {:ok, result} -> result
-          :error -> Interpreter.invoke_closure_fallback(closure, args, gas, active_ctx())
+          :error -> Interpreter.invoke_closure_fallback(closure, args, gas, call_context(inner))
         end
       else
-        Interpreter.invoke_closure_fallback(closure, args, gas, active_ctx())
+        Interpreter.invoke_closure_fallback(closure, args, gas, call_context(inner))
       end
 
     maybe_gc(result, [closure | args])
@@ -90,10 +90,20 @@ defmodule QuickBEAM.VM.Invocation do
   def dispatch(fun, args, gas, ctx, this) do
     case fun do
       %QuickBEAM.VM.Function{} = bytecode_fun ->
-        Interpreter.invoke_function_fallback(bytecode_fun, args, gas, ctx)
+        Interpreter.invoke_function_fallback(
+          bytecode_fun,
+          args,
+          gas,
+          dispatch_context(bytecode_fun, ctx, this)
+        )
 
-      {:closure, _, %QuickBEAM.VM.Function{}} = closure ->
-        Interpreter.invoke_closure_fallback(closure, args, gas, ctx)
+      {:closure, _, %QuickBEAM.VM.Function{} = inner} = closure ->
+        Interpreter.invoke_closure_fallback(
+          closure,
+          args,
+          gas,
+          dispatch_context(inner, ctx, this)
+        )
 
       {:bound, _, inner, _, _} ->
         invoke(inner, args, gas)
@@ -191,17 +201,19 @@ defmodule QuickBEAM.VM.Invocation do
       {:compiled, {mod, name}, atoms} ->
         nargs = Runner.normalize_args(args, inner.arg_count)
 
+        base_ctx = runtime_call_context(inner, ctx)
+
         fast_ctx = %{
-          ctx
+          base_ctx
           | current_func: closure,
             arg_buf: List.to_tuple(args),
             globals:
               Map.put(
-                ctx.globals,
+                base_ctx.globals,
                 "arguments",
-                Heap.wrap(args)
+                Heap.wrap_arguments(args)
               ),
-            atoms: atoms || ctx.atoms,
+            atoms: atoms || base_ctx.atoms,
             pd_synced: false
         }
 
@@ -217,13 +229,18 @@ defmodule QuickBEAM.VM.Invocation do
   defp invoke_runtime_full(ctx, fun, args) do
     case fun do
       %QuickBEAM.VM.Function{} = bytecode_fun ->
-        case Runner.invoke(bytecode_fun, args, ctx) do
-          {:ok, value} -> value
-          :error -> Interpreter.invoke_function_fallback(bytecode_fun, args, ctx.gas, ctx)
+        call_ctx = runtime_call_context(bytecode_fun, ctx)
+
+        case Runner.invoke(bytecode_fun, args, call_ctx) do
+          {:ok, value} ->
+            value
+
+          :error ->
+            Interpreter.invoke_function_fallback(bytecode_fun, args, call_ctx.gas, call_ctx)
         end
 
       {:closure, _, %QuickBEAM.VM.Function{} = inner} = closure ->
-        invoke_closure(closure, inner, args, ctx)
+        invoke_closure(closure, inner, args, runtime_call_context(inner, ctx))
 
       {:bound, _, inner, _, _} ->
         invoke_runtime(ctx, inner, args)
@@ -295,7 +312,7 @@ defmodule QuickBEAM.VM.Invocation do
         dispatch_proxy_call(obj, args, ctx, this_obj)
 
       other ->
-        Builtin.call(other, args, this_obj)
+        with_ctx(ctx, fn -> Builtin.call(other, args, this_obj) end)
     end
   end
 
@@ -306,6 +323,7 @@ defmodule QuickBEAM.VM.Invocation do
   def construct_runtime(ctx, ctor, new_target, args) do
     with_ctx(ctx, fn ->
       validate_constructor!(ctor)
+      validate_constructor!(new_target)
 
       raw_ctor = unwrap_constructor_target(ctor)
       raw_new_target = unwrap_new_target(new_target)
@@ -352,7 +370,10 @@ defmodule QuickBEAM.VM.Invocation do
             this_obj
         end
 
-      Class.coalesce_this_result(result, this_obj)
+      case raw_ctor do
+        {:builtin, "Object", _} -> result
+        _ -> Class.coalesce_this_result(result, this_obj)
+      end
     end)
   end
 
@@ -365,7 +386,7 @@ defmodule QuickBEAM.VM.Invocation do
           construct_runtime(ctx, target, new_target, args)
         else
           result =
-            dispatch(construct_trap, [target, Heap.wrap(args), new_target], ctx.gas, ctx, handler)
+            dispatch(construct_trap, [target, Heap.wrap_arguments(args), new_target], ctx.gas, ctx, handler)
 
           case result do
             {:obj, _} ->
@@ -400,7 +421,7 @@ defmodule QuickBEAM.VM.Invocation do
         else
           dispatch(
             apply_trap,
-            [target, this || :undefined, Heap.wrap(args)],
+            [target, this || :undefined, Heap.wrap_arguments(args)],
             ctx.gas,
             ctx,
             handler
@@ -426,6 +447,22 @@ defmodule QuickBEAM.VM.Invocation do
   defp track_invoke_depth do
     Heap.put_invoke_depth(Heap.get_invoke_depth() + 1)
   end
+
+  defp call_context(%QuickBEAM.VM.Function{is_strict_mode: true}) do
+    Context.mark_dirty(%{active_ctx() | this: :undefined})
+  end
+
+  defp call_context(_fun), do: active_ctx()
+
+  defp dispatch_context(%QuickBEAM.VM.Function{is_strict_mode: true}, ctx, nil),
+    do: Context.mark_dirty(%{ctx | this: :undefined})
+
+  defp dispatch_context(_fun, ctx, _this), do: ctx
+
+  defp runtime_call_context(%QuickBEAM.VM.Function{is_strict_mode: true}, ctx),
+    do: Context.mark_dirty(%{ctx | this: :undefined})
+
+  defp runtime_call_context(_fun, ctx), do: ctx
 
   defp active_ctx do
     base_globals = GlobalEnv.base_globals()
@@ -540,6 +577,14 @@ defmodule QuickBEAM.VM.Invocation do
            {:js_throw, Heap.make_error("#{name || "function"} is not a constructor", "TypeError")}
          )
 
+  defp validate_constructor!(%QuickBEAM.VM.Function{has_prototype: false, name: name} = fun) do
+    unless class_constructor_source?(fun) do
+      throw(
+        {:js_throw, Heap.make_error("#{name || "function"} is not a constructor", "TypeError")}
+      )
+    end
+  end
+
   defp validate_constructor!(%QuickBEAM.VM.Function{}), do: :ok
 
   defp validate_constructor!({:closure, _, %QuickBEAM.VM.Function{func_kind: kind, name: name}})
@@ -549,9 +594,29 @@ defmodule QuickBEAM.VM.Invocation do
            {:js_throw, Heap.make_error("#{name || "function"} is not a constructor", "TypeError")}
          )
 
+  defp validate_constructor!(
+         {:closure, _, %QuickBEAM.VM.Function{has_prototype: false, name: name} = fun}
+       ) do
+    unless class_constructor_source?(fun) do
+      throw(
+        {:js_throw, Heap.make_error("#{name || "function"} is not a constructor", "TypeError")}
+      )
+    end
+  end
+
   defp validate_constructor!({:closure, _, %QuickBEAM.VM.Function{}}), do: :ok
   defp validate_constructor!({:bound, _, _inner, _orig_fun, _bound_args}), do: :ok
-  defp validate_constructor!({:builtin, _name, cb}) when is_function(cb, 2), do: :ok
+
+  defp validate_constructor!({:builtin, name, cb}) when is_function(cb, 2) do
+    case QuickBEAM.VM.Builtin.named_meta(name) do
+      %QuickBEAM.VM.Builtin.Meta{constructable?: false} ->
+        throw({:js_throw, Heap.make_error("#{name} is not a constructor", "TypeError")})
+
+      _ ->
+        :ok
+    end
+  end
+
   defp validate_constructor!({:obj, _}), do: :ok
 
   defp validate_constructor!(ctor) do
@@ -563,6 +628,12 @@ defmodule QuickBEAM.VM.Invocation do
        )}
     )
   end
+
+  defp class_constructor_source?(%QuickBEAM.VM.Function{source: source}) when is_binary(source) do
+    source |> String.trim_leading() |> String.starts_with?("class")
+  end
+
+  defp class_constructor_source?(_), do: false
 
   def unwrap_constructor_target({:closure, _, %QuickBEAM.VM.Function{} = fun}), do: fun
   def unwrap_constructor_target({:bound, _, inner, _, _}), do: unwrap_constructor_target(inner)

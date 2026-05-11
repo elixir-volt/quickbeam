@@ -113,6 +113,13 @@ defmodule QuickBEAM.VM.Heap do
     end
   end
 
+  @doc "Wraps a function arguments list as an arguments object."
+  def wrap_arguments(args) when is_list(args) do
+    {:obj, ref} = obj = wrap(args)
+    put_array_prop(ref, "__arguments__", true)
+    obj
+  end
+
   @doc "Wraps a list as a JavaScript iterator object with a `next` method."
   def wrap_iterator(list) when is_list(list) do
     pos_ref = make_ref()
@@ -213,6 +220,12 @@ defmodule QuickBEAM.VM.Heap do
     base = %{"message" => message, "name" => name, "stack" => ""}
     error = if proto, do: wrap(Map.put(base, "__proto__", proto)), else: wrap(base)
 
+    with {:obj, ref} <- error do
+      for key <- ["message", "name", "stack"] do
+        put_prop_desc(ref, key, %{writable: true, enumerable: false, configurable: true})
+      end
+    end
+
     if get_ctx() != nil,
       do: QuickBEAM.VM.Stacktrace.attach_stack(error),
       else: error
@@ -249,6 +262,13 @@ defmodule QuickBEAM.VM.Heap do
 
             proto = wrap(proto_map)
             Process.put(key, proto)
+
+            put_prop_desc(ctor, "prototype", %{
+              writable: true,
+              enumerable: false,
+              configurable: false
+            })
+
             proto
 
           existing ->
@@ -303,6 +323,8 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate get_ctor_statics(ctor), to: Store
   defdelegate put_ctor_statics(ctor, statics), to: Store
   defdelegate put_ctor_static(ctor, key, value), to: Store
+  defdelegate get_ctor_prop_desc(ctor, key), to: Store
+  defdelegate put_ctor_prop_desc(ctor, key, desc), to: Store
   defdelegate put_var(name, value), to: Store
   defdelegate delete_var(name), to: Store
 
@@ -341,6 +363,7 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate prevent_extensions(ref), to: Store
   defdelegate get_prop_desc(ref, key), to: Store
   defdelegate put_prop_desc(ref, key, desc), to: Store
+  defdelegate delete_prop_desc(ref, key), to: Store
   defdelegate get_array_props(ref), to: Store
   defdelegate get_array_prop(ref, key), to: Store
   defdelegate put_array_prop(ref, key, val), to: Store
@@ -383,48 +406,34 @@ defmodule QuickBEAM.VM.Heap do
 
   @doc "Clear all heap state. Used in test setup."
   def reset do
-    for key <- Process.get_keys() do
-      case key do
-        id when is_integer(id) and id > 0 -> Process.delete(key)
-        {:qb_cell, _} -> Process.delete(key)
-        {:qb_class_proto, _} -> Process.delete(key)
-        {:qb_func_proto, _} -> Process.delete(key)
-        {:qb_decoded, _} -> Process.delete(key)
-        {:qb_compiled, _} -> Process.delete(key)
-        {:qb_promise_waiters, _} -> Process.delete(key)
-        {:qb_module, _} -> Process.delete(key)
-        {:qb_prop_desc, _, _} -> Process.delete(key)
-        {:qb_frozen, _} -> Process.delete(key)
-        {:qb_non_extensible, _} -> Process.delete(key)
-        {:qb_var, _} -> Process.delete(key)
-        {:qb_key_order, _} -> Process.delete(key)
-        {:qb_runtime_mode, _} -> Process.delete(key)
-        {:qb_alloc_count, _} -> Process.delete(key)
-        {:qb_gc_threshold, _} -> Process.delete(key)
-        {:qb_symbol_registry, _} -> Process.delete(key)
-        {:qb_ctor_statics, _} -> Process.delete(key)
-        {:qb_parent_ctor, _} -> Process.delete(key)
-        :qb_persistent_globals -> Process.delete(key)
-        :qb_handler_globals -> Process.delete(key)
-        :qb_atoms -> Process.delete(key)
-        :qb_module_list -> Process.delete(key)
-        :qb_ctx -> Process.delete(key)
-        :qb_gc_needed -> Process.delete(key)
-        :qb_alloc_count -> Process.delete(key)
-        :qb_next_id -> Process.delete(key)
-        :qb_object_prototype -> Process.delete(key)
-        :qb_global_bindings_cache -> Process.delete(key)
-        :qb_base_globals_cache -> Process.delete(key)
-        :qb_microtask_queue -> Process.delete(key)
-        :qb_shape_table -> Process.delete(key)
-        :qb_shape_empty -> Process.delete(key)
-        :qb_shape_next_id -> Process.delete(key)
-        _ -> :ok
-      end
+    for key <- Process.get_keys(), heap_process_key?(key) do
+      Process.delete(key)
     end
 
     :ok
   end
+
+  defp heap_process_key?(id) when is_integer(id) and id > 0, do: true
+  defp heap_process_key?(ref) when is_reference(ref), do: true
+
+  defp heap_process_key?(key) when is_atom(key) do
+    key
+    |> Atom.to_string()
+    |> String.starts_with?("Elixir.QuickBEAM.VM.")
+    |> case do
+      true -> false
+      false -> String.starts_with?(Atom.to_string(key), "qb_")
+    end
+  end
+
+  defp heap_process_key?(key) when is_tuple(key) and tuple_size(key) > 0 do
+    case elem(key, 0) do
+      atom when is_atom(atom) -> String.starts_with?(Atom.to_string(atom), "qb_")
+      _ -> false
+    end
+  end
+
+  defp heap_process_key?(_), do: false
 
   @doc "Runs heap garbage collection using the active VM roots plus extra roots."
   defdelegate gc(extra_roots \\ []), to: GC

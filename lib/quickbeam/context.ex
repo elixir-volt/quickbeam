@@ -215,6 +215,20 @@ defmodule QuickBEAM.Context do
     end
   end
 
+  defp install_builtins(%{pool_resource: {:beam_worker, _, _}} = state, apis) do
+    js_sources = QuickBEAM.JS.polyfills_for(apis)
+
+    for js <- js_sources, do: sync_eval_source(state, js)
+
+    if :node in apis do
+      sync_eval_source(state, @node_js)
+    end
+
+    if apis != [] do
+      sync_eval_source(state, @beam_js)
+    end
+  end
+
   defp install_builtins(state, apis) do
     js_sources = QuickBEAM.JS.polyfills_for(apis)
 
@@ -285,11 +299,25 @@ defmodule QuickBEAM.Context do
     end
   end
 
+  defp sync_eval_source(%{pool_resource: {:beam_worker, worker, _}}, code) do
+    QuickBEAM.ContextPool.BeamWorker.eval(worker, code, 0, "")
+  end
+
+  defp beam_context?(%{pool_resource: {:beam_worker, _, _}}), do: true
+  defp beam_context?(_), do: false
+
   defp load_script(state, path) do
     case QuickBEAM.Script.read(path) do
       {:ok, code} ->
-        ref = QuickBEAM.Native.pool_eval(state.pool_resource, state.context_id, code, 0)
-        await_eval_ref(ref, state)
+        if beam_context?(state) do
+          case sync_eval_source(state, code) do
+            {:ok, _} -> {:ok, state}
+            {:error, reason} -> {:error, {:script_error, reason}}
+          end
+        else
+          ref = QuickBEAM.Native.pool_eval(state.pool_resource, state.context_id, code, 0)
+          await_eval_ref(ref, state)
+        end
 
       {:error, reason} ->
         {:error, {:script_not_found, path, reason}}
@@ -319,7 +347,25 @@ defmodule QuickBEAM.Context do
 
   # ── NIF dispatch callbacks ──
 
-  defp nif_eval(state, code, timeout, _filename \\ ""),
+  defp nif_eval(state, code, timeout, filename \\ "")
+
+  defp nif_eval(
+         %{pool_resource: {:beam_worker, worker, _}} = _state,
+         code,
+         timeout,
+         filename
+       ) do
+    ref = make_ref()
+    caller = self()
+
+    Task.start(fn ->
+      send(caller, {ref, QuickBEAM.ContextPool.BeamWorker.eval(worker, code, timeout, filename)})
+    end)
+
+    ref
+  end
+
+  defp nif_eval(state, code, timeout, _filename),
     do: QuickBEAM.Native.pool_eval(state.pool_resource, state.context_id, code, timeout)
 
   defp nif_call(state, fn_name, args, timeout),
@@ -343,6 +389,23 @@ defmodule QuickBEAM.Context do
 
   defp nif_dom_html(state),
     do: QuickBEAM.Native.pool_dom_html(state.pool_resource, state.context_id)
+
+  defp nif_reset(%{pool_resource: {:beam_worker, worker, _}}) do
+    ref = make_ref()
+    caller = self()
+
+    Task.start(fn ->
+      result =
+        case QuickBEAM.ContextPool.BeamWorker.reset(worker) do
+          :ok -> {:ok, :ok}
+          other -> other
+        end
+
+      send(caller, {ref, result})
+    end)
+
+    ref
+  end
 
   defp nif_reset(state),
     do: QuickBEAM.Native.pool_reset_context(state.pool_resource, state.context_id)
@@ -485,7 +548,13 @@ defmodule QuickBEAM.Context do
 
     shutdown_websockets(state)
 
-    QuickBEAM.Native.pool_destroy_context(state.pool_resource, state.context_id)
+    if beam_context?(state) do
+      {:beam_worker, worker, _} = state.pool_resource
+      GenServer.stop(worker)
+    else
+      QuickBEAM.Native.pool_destroy_context(state.pool_resource, state.context_id)
+    end
+
     :ok
   end
 

@@ -32,6 +32,20 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
 
   def js_eval(_, _), do: :undefined
 
+  def decode_uri([value | _], _), do: URI.decode(to_string_value(value))
+  def decode_uri(_, _), do: :undefined
+
+  def decode_uri_component([value | _], _), do: URI.decode_www_form(to_string_value(value))
+  def decode_uri_component(_, _), do: :undefined
+
+  def encode_uri([value | _], _), do: URI.encode(to_string_value(value), &URI.char_unreserved?/1)
+  def encode_uri(_, _), do: :undefined
+
+  def encode_uri_component([value | _], _), do: URI.encode_www_form(to_string_value(value))
+  def encode_uri_component(_, _), do: :undefined
+
+  defp to_string_value(value), do: QuickBEAM.VM.Interpreter.Values.stringify(value)
+
   defp eval_without_runtime(code) do
     task =
       Task.async(fn ->

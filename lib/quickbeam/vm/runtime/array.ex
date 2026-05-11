@@ -11,7 +11,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   @doc "Builds the JavaScript prototype object for this runtime builtin."
   def prototype do
     mod = __MODULE__
-    methods = ~w(push pop shift unshift map filter reduce forEach indexOf
+    methods = ~w(push pop shift unshift map filter reduce reduceRight forEach indexOf
       lastIndexOf toString includes slice splice join concat reverse sort
       flat find findIndex some every fill copyWithin entries keys values
       at flatMap)
@@ -48,7 +48,44 @@ defmodule QuickBEAM.VM.Runtime.Array do
          end}
       )
 
-    Heap.wrap(proto_map)
+    proto = Heap.wrap(proto_map)
+    {:obj, ref} = proto
+
+    for name <- methods do
+      Heap.put_prop_desc(ref, name, %{writable: true, enumerable: false, configurable: true})
+    end
+
+    Heap.put_prop_desc(ref, sym_iter, %{writable: true, enumerable: false, configurable: true})
+
+    unscopables_map = %{
+      "copyWithin" => true,
+      "entries" => true,
+      "fill" => true,
+      "find" => true,
+      "findIndex" => true,
+      "flat" => true,
+      "flatMap" => true,
+      "includes" => true,
+      "keys" => true,
+      "values" => true,
+      "at" => true,
+      "findLast" => true,
+      "findLastIndex" => true,
+      "toReversed" => true,
+      "toSorted" => true,
+      "toSpliced" => true
+    }
+
+    sym_unscopables = {:symbol, "Symbol.unscopables"}
+    Heap.put_obj_key(ref, sym_unscopables, Heap.wrap(unscopables_map))
+
+    Heap.put_prop_desc(ref, sym_unscopables, %{
+      writable: false,
+      enumerable: false,
+      configurable: true
+    })
+
+    proto
   end
 
   # ── Array.prototype dispatch ──
@@ -79,6 +116,10 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   proto "reduce" do
     reduce(this, args)
+  end
+
+  proto "reduceRight" do
+    this |> Heap.to_list() |> Enum.reverse() |> reduce(args)
   end
 
   proto "forEach" do
@@ -158,6 +199,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   proto "at" do
+    require_object_coercible!(this)
     array_at(this, args)
   end
 
@@ -222,10 +264,17 @@ defmodule QuickBEAM.VM.Runtime.Array do
   # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_array({:obj, ref}, depth) do
     case Heap.get_obj(ref) do
-      {:qb_arr, _} -> true
-      list when is_list(list) -> true
-      %{proxy_target() => target} -> is_array(target, depth + 1)
-      _ -> false
+      {:qb_arr, _} ->
+        true
+
+      list when is_list(list) ->
+        Heap.get_array_prop(ref, "__arguments__") != true
+
+      %{proxy_target() => target} ->
+        is_array(target, depth + 1)
+
+      _ ->
+        false
     end
   end
 
@@ -237,7 +286,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   static "of" do
-    args
+    Heap.wrap(args)
   end
 
   # ── Mutation helpers ──
@@ -696,20 +745,34 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp from(args) do
     {source, map_fn} =
       case args do
-        [s, f | _] -> {s, f}
+        [s, f | _] when f != :undefined and f != nil -> {s, f}
+        [s, _ | _] -> {s, nil}
         [s] -> {s, nil}
         _ -> {nil, nil}
       end
 
+    if length(args) >= 2 do
+      raw_mapfn = Enum.at(args, 1)
+
+      if raw_mapfn != :undefined and not QuickBEAM.VM.Builtin.callable?(raw_mapfn) do
+        throw({:js_throw, Heap.make_error("mapFn is not a function", "TypeError")})
+      end
+    end
+
     list = coerce_to_list(source)
 
-    if map_fn do
-      Enum.map(Enum.with_index(list), fn {val, idx} ->
-        Runtime.call_callback(map_fn, [val, idx])
-      end)
-    else
-      list
-    end
+    result =
+      if map_fn do
+        this_arg = Enum.at(args, 2, :undefined)
+
+        Enum.map(Enum.with_index(list), fn {val, idx} ->
+          QuickBEAM.VM.Invocation.invoke_with_receiver(map_fn, [val, idx], this_arg)
+        end)
+      else
+        list
+      end
+
+    Heap.wrap(result)
   end
 
   defp coerce_to_list({:obj, ref}) do
@@ -724,6 +787,15 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp coerce_to_list({:qb_arr, arr}), do: :array.to_list(arr)
   defp coerce_to_list(l) when is_list(l), do: l
   defp coerce_to_list(s) when is_binary(s), do: String.codepoints(s)
+
+  defp coerce_to_list(nil),
+    do: throw({:js_throw, Heap.make_error("Cannot convert null to object", "TypeError")})
+
+  defp coerce_to_list(:undefined),
+    do: throw({:js_throw, Heap.make_error("Cannot convert undefined to object", "TypeError")})
+
+  defp coerce_to_list(n) when is_number(n), do: []
+  defp coerce_to_list(b) when is_boolean(b), do: []
   defp coerce_to_list(_), do: []
 
   defp copy_within({:obj, ref}, args) do
@@ -748,6 +820,14 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp copy_within(_, _), do: :undefined
 
+  defp require_object_coercible!(nil),
+    do: throw({:js_throw, Heap.make_error("Cannot convert null to object", "TypeError")})
+
+  defp require_object_coercible!(:undefined),
+    do: throw({:js_throw, Heap.make_error("Cannot convert undefined to object", "TypeError")})
+
+  defp require_object_coercible!(_), do: :ok
+
   defp array_at({:obj, ref}, [idx | _]) do
     list = Heap.obj_to_list(ref)
     array_at(list, [idx])
@@ -756,7 +836,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp array_at({:qb_arr, arr}, args), do: array_at(:array.to_list(arr), args)
 
   defp array_at(list, [idx | _]) when is_list(list) do
-    i = if is_number(idx), do: trunc(idx), else: 0
+    i = Runtime.to_int(idx)
     i = if i < 0, do: length(list) + i, else: i
     if i >= 0 and i < length(list), do: Enum.at(list, i), else: :undefined
   end

@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Builtin, only: [arg: 3, object: 1]
+  import QuickBEAM.VM.Value, only: [is_builtin: 1, is_closure: 1]
 
   alias QuickBEAM.VM.{BytecodeParser, Heap}
   alias QuickBEAM.VM.Interpreter
@@ -20,32 +21,59 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
       {:obj, _} = obj ->
         obj
 
-      value when is_binary(value) ->
-        ref = make_ref()
-        Heap.put_obj(ref, %{"__wrapped_string__" => value})
-        {:obj, ref}
+      %QuickBEAM.VM.Function{} = value ->
+        value
 
-      value when is_number(value) ->
-        ref = make_ref()
-        Heap.put_obj(ref, %{"__wrapped_number__" => value})
-        {:obj, ref}
+      value when is_closure(value) or is_builtin(value) ->
+        value
+
+      {:bound, _, _, _, _} = value ->
+        value
+
+      value when is_binary(value) ->
+        wrap_primitive("String", "__wrapped_string__", value)
+
+      value when is_number(value) or value in [:nan, :infinity, :neg_infinity] ->
+        wrap_primitive("Number", "__wrapped_number__", value)
 
       value when is_boolean(value) ->
-        ref = make_ref()
-        Heap.put_obj(ref, %{"__wrapped_boolean__" => value})
-        {:obj, ref}
+        wrap_primitive("Boolean", "__wrapped_boolean__", value)
 
       {:bigint, _} = value ->
-        ref = make_ref()
-        Heap.put_obj(ref, %{"__wrapped_bigint__" => value})
-        {:obj, ref}
+        wrap_primitive("BigInt", "__wrapped_bigint__", value)
 
       _ ->
-        Runtime.new_object()
+        ordinary_object()
     end
   end
 
-  def object(_, _), do: Runtime.new_object()
+  def object(_, _), do: ordinary_object()
+
+  defp ordinary_object do
+    ref = make_ref()
+
+    data =
+      case QuickBEAM.VM.Runtime.Constructors.class_proto("Object") do
+        {:obj, _} = proto -> %{"__proto__" => proto}
+        _ -> %{}
+      end
+
+    Heap.put_obj(ref, data)
+    {:obj, ref}
+  end
+
+  defp wrap_primitive(constructor_name, slot, value) do
+    ref = make_ref()
+
+    data =
+      case QuickBEAM.VM.Runtime.Constructors.class_proto(constructor_name) do
+        {:obj, _} = proto -> %{slot => value, "__proto__" => proto}
+        _ -> %{slot => value}
+      end
+
+    Heap.put_obj(ref, data)
+    {:obj, ref}
+  end
 
   @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def array(args, _) do
@@ -84,13 +112,14 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
       {params, body} =
         case Enum.reverse(args) do
           [body | param_parts] ->
-            {Enum.join(Enum.reverse(param_parts), ","), body}
+            {Enum.join(Enum.reverse(Enum.map(param_parts, &stringify_arg/1)), ","),
+             stringify_arg(body)}
 
           [] ->
             {"", ""}
         end
 
-      code = "(function(" <> params <> "){" <> body <> "})"
+      code = "(function anonymous(" <> params <> "){" <> body <> "})"
 
       case QuickBEAM.Runtime.compile(ctx.runtime_pid, code) do
         {:ok, bytecode} ->
@@ -118,7 +147,9 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
     end
   end
 
-  @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
+  defp stringify_arg(val) when is_binary(val), do: val
+  defp stringify_arg(val), do: QuickBEAM.VM.Interpreter.Values.stringify(val)
+
   def bigint([n | _], _) when is_integer(n), do: {:bigint, n}
   def bigint([{:bigint, n} | _], _), do: {:bigint, n}
 

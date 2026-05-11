@@ -48,6 +48,12 @@ defmodule QuickBEAM.VM.Runtime.Errors do
       end
     )
 
+    Heap.put_prop_desc(error_proto_ref, "toString", %{
+      writable: true,
+      enumerable: false,
+      configurable: true
+    })
+
     Constructors.put_prototype(error_ctor, {:obj, error_proto_ref})
 
     Heap.put_ctor_static(

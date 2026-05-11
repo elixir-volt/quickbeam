@@ -48,6 +48,8 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
         case result do
           :ok ->
             ctx = sync_global_this_write(ctx, obj, name, val)
+            ctx = refresh_persistent_globals(ctx)
+            frame = sync_setter_globals_to_frame(frame, ctx)
             run(pc + 1, frame, rest, gas, ctx)
 
           {:throw, error} ->
@@ -57,7 +59,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
 
       defp run({@op_define_field, [atom_idx]}, pc, frame, [val, obj | rest], gas, ctx) do
         try do
-          Put.put(obj, Names.resolve_atom(ctx, atom_idx), val)
+          Put.define_array_el(obj, Names.resolve_atom(ctx, atom_idx), val)
           run(pc + 1, frame, [obj | rest], gas, ctx)
         catch
           {:js_throw, error} ->
@@ -265,7 +267,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
           {:obj, ref} ->
             map = Heap.get_obj(ref, %{})
 
-            if is_map(map) do
+            if is_map(map) and (is_object(proto) or proto == nil) do
               Heap.put_obj(ref, Map.put(map, proto(), proto))
             end
 
@@ -289,11 +291,11 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
           case type do
             0 ->
               args_list = Tuple.to_list(arg_buf)
-              Heap.wrap(args_list)
+              Heap.wrap_arguments(args_list)
 
             1 ->
               args_list = Tuple.to_list(arg_buf)
-              Heap.wrap(args_list)
+              Heap.wrap_arguments(args_list)
 
             2 ->
               current_func
@@ -404,6 +406,34 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
         )
       end
 
+      defp run(
+             {@op_push_this, []},
+             pc,
+             frame,
+             stack,
+             gas,
+             %Context{
+               this: :undefined,
+               current_func: %QuickBEAM.VM.Function{is_strict_mode: true}
+             } = ctx
+           ) do
+        run(pc + 1, frame, [:undefined | stack], gas, ctx)
+      end
+
+      defp run(
+             {@op_push_this, []},
+             pc,
+             frame,
+             stack,
+             gas,
+             %Context{
+               this: :undefined,
+               current_func: {:closure, _, %QuickBEAM.VM.Function{is_strict_mode: true}}
+             } = ctx
+           ) do
+        run(pc + 1, frame, [:undefined | stack], gas, ctx)
+      end
+
       defp run({@op_push_this, []}, pc, frame, stack, gas, %Context{this: this} = ctx)
            when this == :undefined or this == nil do
         global_this = Map.get(ctx.globals, "globalThis", :undefined)
@@ -476,63 +506,56 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
               obj_is_object = is_object(obj) or function_value?(obj)
 
               if obj_is_object do
-                ctor_proto = Get.get(ctor, "prototype")
+                builtin_instance? =
+                  case {obj, ctor} do
+                    {{:obj, ref}, {:builtin, "Array", _}} ->
+                      data = Heap.get_obj(ref)
+                      match?({:qb_arr, _}, data) or is_list(data)
 
-                case ctor_proto do
-                  {:obj, _} ->
-                    case obj do
-                      {:obj, ref} ->
-                        ctor_name =
-                          case ctor do
-                            {:builtin, n, _} -> n
-                            _ -> nil
-                          end
+                    {{:obj, ref}, {:builtin, "BigInt", _}} ->
+                      Map.has_key?(Heap.get_obj(ref, %{}), "__wrapped_bigint__")
 
-                        if ctor_name in ["Array", "Object"] do
-                          data = Heap.get_obj(ref)
-                          is_arr = match?({:qb_arr, _}, data) or is_list(data)
+                    {{:obj, ref}, {:builtin, "Date", _}} ->
+                      Map.has_key?(Heap.get_obj(ref, %{}), date_ms())
 
-                          if (is_arr and ctor_name == "Array") or ctor_name == "Object",
-                            do: true,
-                            else: check_prototype_chain(obj, ctor_proto)
-                        else
-                          check_prototype_chain(obj, ctor_proto)
-                        end
+                    {{:obj, _}, {:builtin, "Object", _}} ->
+                      true
 
-                      _ ->
-                        is_fn = function_value?(obj)
+                    {value, {:builtin, name, _}} ->
+                      function_value?(value) and name in ["Function", "Object"]
 
-                        if is_fn do
-                          ctor_name =
-                            case ctor do
-                              {:builtin, name, _} -> name
-                              _ -> nil
-                            end
+                    _ ->
+                      false
+                  end
 
-                          ctor_name == "Function" or ctor_name == "Object"
-                        else
-                          false
-                        end
-                    end
+                if builtin_instance? do
+                  true
+                else
+                  ctor_proto = Get.get(ctor, "prototype")
 
-                  _ ->
-                    if is_object(ctor) do
-                      throw(
-                        {:js_throw,
-                         Heap.make_error(
-                           "Right-hand side of instanceof is not callable",
-                           "TypeError"
-                         )}
-                      )
-                    else
-                      throw(
-                        {:js_throw,
-                         Heap.make_error(
-                           "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check",
-                           "TypeError"
-                         )}
-                      )
-                    end
+                  case ctor_proto do
+                    {:obj, _} ->
+                      check_prototype_chain(obj, ctor_proto)
+
+                    _ ->
+                      if is_object(ctor) do
+                        throw(
+                          {:js_throw,
+                           Heap.make_error(
+                             "Right-hand side of instanceof is not callable",
+                             "TypeError"
+                           )}
+                        )
+                      else
+                        throw(
+                          {:js_throw,
+                           Heap.make_error(
+                             "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check",
+                             "TypeError"
+                           )}
+                        )
+                      end
+                  end
                 end
               else
                 false
@@ -577,7 +600,11 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
               true
           end
 
-        run(pc + 1, frame, [result | rest], gas, ctx)
+        if result == false and current_strict_mode?(ctx) do
+          throw_or_catch(frame, Heap.make_error("Cannot delete property", "TypeError"), gas, ctx)
+        else
+          run(pc + 1, frame, [result | rest], gas, ctx)
+        end
       end
 
       @non_configurable_globals MapSet.new(~w(NaN undefined Infinity globalThis))
@@ -626,7 +653,12 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
             end
 
             coerced_key =
-              if is_binary(key) or is_integer(key), do: key, else: Values.stringify(key)
+              case key do
+                {:symbol, _} -> key
+                {:symbol, _, _} -> key
+                key when is_binary(key) or is_integer(key) -> key
+                _ -> Values.stringify(key)
+              end
 
             Put.has_property(obj, coerced_key)
           end,

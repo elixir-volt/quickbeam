@@ -18,16 +18,32 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     "Int32Array" => :int32,
     "Float32Array" => :float32,
     "Float64Array" => :float64,
-    "Float16Array" => :float16
+    "Float16Array" => :float16,
+    "BigInt64Array" => :bigint64,
+    "BigUint64Array" => :biguint64
   }
 
   @doc "Returns typed-array type descriptors supported by the runtime."
   def types, do: @types
 
+  @doc "Returns the byte width for a typed-array element type."
+  def elem_size(:uint8), do: 1
+  def elem_size(:int8), do: 1
+  def elem_size(:uint8_clamped), do: 1
+  def elem_size(:uint16), do: 2
+  def elem_size(:int16), do: 2
+  def elem_size(:uint32), do: 4
+  def elem_size(:int32), do: 4
+  def elem_size(:float16), do: 2
+  def elem_size(:float32), do: 4
+  def elem_size(:float64), do: 8
+  def elem_size(:bigint64), do: 8
+  def elem_size(:biguint64), do: 8
+
   @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor(type) do
     fn args, _this ->
-      {buf, offset, len, orig_buf} = parse_args(args, type)
+      {buf, offset, len, orig_buf, length_tracking?} = parse_args(args, type)
       ref = make_ref()
 
       methods =
@@ -63,6 +79,9 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
           "byteLength" => len * elem_size(type),
           "byteOffset" => offset,
           "BYTES_PER_ELEMENT" => elem_size(type),
+          "__length_tracking__" => length_tracking?,
+          "__fixed_length__" => len,
+          "__fixed_byte_length__" => len * elem_size(type),
           "buffer" => orig_buf || make_buffer_ref(buf),
           sym_iter =>
             {:builtin, "[Symbol.iterator]",
@@ -85,9 +104,22 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
         })
 
       Heap.put_obj(ref, obj)
+      register_buffer_view(orig_buf, ref)
       {:obj, ref}
     end
   end
+
+  defp register_buffer_view({:obj, buf_ref}, view_ref) do
+    case Heap.get_obj(buf_ref, %{}) do
+      map when is_map(map) ->
+        Heap.put_obj(buf_ref, Map.update(map, "__views__", [view_ref], &[view_ref | &1]))
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp register_buffer_view(_, _), do: :ok
 
   # ── Element access (public, used by ObjectModel.Put) ──
 
@@ -100,6 +132,22 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   def get_element({:obj, ref}, idx) do
     b = buf(ref)
     if b == nil, do: :undefined, else: read_element(b, idx, type(ref))
+  end
+
+  @doc "Returns the currently addressable element count for a typed-array value."
+  def element_count({:obj, ref}) do
+    s = state(ref)
+
+    if Map.get(s, "__length_tracking__") do
+      div(max(byte_size(buf(ref) || <<>>), 0), elem_size(type(ref)))
+    else
+      Map.get(s, "length", 0)
+    end
+  end
+
+  @doc "Returns the currently addressable byte length for a typed-array value."
+  def current_byte_length({:obj, ref}) do
+    element_count({:obj, ref}) * elem_size(type(ref))
   end
 
   @doc "Writes an element to a typed-array value."
@@ -145,12 +193,23 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
             else
               ab_buf = Map.get(m, buffer(), <<>>)
               offset = Map.get(s, "byteOffset", 0)
-              byte_len = Map.get(s, "byteLength", byte_size(ab_buf) - offset)
+              byte_len = current_view_byte_length(s, ab_buf, offset)
 
-              if offset == 0 and byte_len == byte_size(ab_buf) do
-                ab_buf
-              else
-                binary_part(ab_buf, offset, min(byte_len, byte_size(ab_buf) - offset))
+              cond do
+                byte_len == 0 ->
+                  nil
+
+                offset == 0 and byte_len == byte_size(ab_buf) ->
+                  ab_buf
+
+                offset + byte_len <= byte_size(ab_buf) ->
+                  binary_part(ab_buf, offset, byte_len)
+
+                offset < byte_size(ab_buf) ->
+                  binary_part(ab_buf, offset, byte_size(ab_buf) - offset)
+
+                true ->
+                  nil
               end
             end
 
@@ -163,8 +222,19 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     end
   end
 
-  defp len(ref), do: Map.get(state(ref), "length", 0)
+  defp len(ref), do: element_count({:obj, ref})
   defp type(ref), do: Map.get(state(ref), type_key(), :uint8)
+
+  defp current_view_byte_length(s, ab_buf, offset) do
+    available = max(byte_size(ab_buf) - offset, 0)
+
+    if Map.get(s, "__length_tracking__") do
+      available
+    else
+      fixed = Map.get(s, "byteLength", available)
+      if available < fixed, do: 0, else: fixed
+    end
+  end
 
   # ── Method implementations ──
 
@@ -479,50 +549,44 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
         cond do
           match?({:qb_arr, _}, buf) ->
             list = :array.to_list(elem(buf, 1))
-            {list_to_buffer(list, type), 0, length(list), nil}
+            {list_to_buffer(list, type), 0, length(list), nil, false}
 
           is_list(buf) ->
-            {list_to_buffer(buf, type), 0, length(buf), nil}
+            {list_to_buffer(buf, type), 0, length(buf), nil, false}
 
           is_map(buf) and Map.has_key?(buf, buffer()) ->
             bin = Map.get(buf, buffer())
-            off = Enum.at(rest, 0) || 0
-            len = Enum.at(rest, 1) || div(byte_size(bin) - off, elem_size(type))
-            {bin, off, len, buf_obj}
+            off = to_idx(Enum.at(rest, 0) || 0)
+            length_arg = Enum.at(rest, 1)
+            length_tracking? = length_arg in [nil, :undefined]
+
+            len =
+              if length_tracking?,
+                do: div(byte_size(bin) - off, elem_size(type)),
+                else: to_idx(length_arg)
+
+            {bin, off, len, buf_obj, length_tracking?}
 
           true ->
-            {<<>>, 0, 0, nil}
+            {<<>>, 0, 0, nil, false}
         end
 
       [n | _] when is_integer(n) ->
-        {:binary.copy(<<0>>, n * elem_size(type)), 0, n, nil}
+        {:binary.copy(<<0>>, n * elem_size(type)), 0, n, nil, false}
 
       [{:qb_arr, arr} | _] ->
         list = :array.to_list(arr)
-        {list_to_buffer(list, type), 0, length(list), nil}
+        {list_to_buffer(list, type), 0, length(list), nil, false}
 
       [list | _] when is_list(list) ->
-        {list_to_buffer(list, type), 0, length(list), nil}
+        {list_to_buffer(list, type), 0, length(list), nil, false}
 
       _ ->
-        {<<>>, 0, 0, nil}
+        {<<>>, 0, 0, nil, false}
     end
   end
 
   # ── Element read/write ──
-
-  defp elem_size(:uint8), do: 1
-  defp elem_size(:int8), do: 1
-  defp elem_size(:uint8_clamped), do: 1
-  defp elem_size(:uint16), do: 2
-  defp elem_size(:int16), do: 2
-  defp elem_size(:uint32), do: 4
-  defp elem_size(:int32), do: 4
-  defp elem_size(:float16), do: 2
-  defp elem_size(:float32), do: 4
-  defp elem_size(:float64), do: 8
-  defp elem_size(:bigint64), do: 8
-  defp elem_size(:biguint64), do: 8
 
   defp read_element(buf, pos, :uint8) when pos < byte_size(buf), do: :binary.at(buf, pos)
   defp read_element(buf, pos, :uint8_clamped) when pos < byte_size(buf), do: :binary.at(buf, pos)
@@ -561,6 +625,16 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp read_element(buf, pos, :float64) when pos * 8 + 7 < byte_size(buf) do
     <<f::little-float-64>> = :binary.part(buf, pos * 8, 8)
     f
+  end
+
+  defp read_element(buf, pos, :bigint64) when pos * 8 + 7 < byte_size(buf) do
+    <<n::little-signed-64>> = :binary.part(buf, pos * 8, 8)
+    {:bigint, n}
+  end
+
+  defp read_element(buf, pos, :biguint64) when pos * 8 + 7 < byte_size(buf) do
+    <<n::little-unsigned-64>> = :binary.part(buf, pos * 8, 8)
+    {:bigint, n}
   end
 
   defp read_element(_, _, _), do: :undefined
@@ -606,6 +680,18 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     <<pre::binary, (val || 0.0) * 1.0::little-float-32, rest::binary>>
   end
 
+  defp write_element(buf, pos, val, :bigint64) when pos * 8 + 7 < byte_size(buf) do
+    bp = pos * 8
+    <<pre::binary-size(bp), _::64, rest::binary>> = buf
+    <<pre::binary, bigint_value(val)::little-signed-64, rest::binary>>
+  end
+
+  defp write_element(buf, pos, val, :biguint64) when pos * 8 + 7 < byte_size(buf) do
+    bp = pos * 8
+    <<pre::binary-size(bp), _::64, rest::binary>> = buf
+    <<pre::binary, bigint_value(val)::little-unsigned-64, rest::binary>>
+  end
+
   defp write_element(buf, pos, val, type) do
     es = elem_size(type)
     bp = pos * es
@@ -617,6 +703,10 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       buf
     end
   end
+
+  defp bigint_value({:bigint, n}), do: n
+  defp bigint_value(n) when is_integer(n), do: n
+  defp bigint_value(_), do: 0
 
   defp list_to_buffer(list, type) do
     es = elem_size(type)

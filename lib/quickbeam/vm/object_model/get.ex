@@ -30,11 +30,16 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   def get(value, key) when is_binary(key) do
     case get_own(value, key) do
       :undefined ->
-        result = get_prototype_raw(value, key)
+        if explicit_undefined_own?(value, key) do
+          :undefined
+        else
+          result = get_prototype_raw(value, key)
 
-        case result do
-          {:accessor, getter, _} when getter != nil -> call_getter(getter, value)
-          _ -> result
+          case result do
+            {:accessor, getter, _} when getter != nil -> call_getter(getter, value)
+            {:accessor, nil, _} -> :undefined
+            _ -> result
+          end
         end
 
       {:accessor, getter, _} when getter != nil ->
@@ -64,6 +69,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
       :undefined ->
         case get_prototype_raw(value, sym_key) do
           {:accessor, getter, _} when getter != nil -> call_getter(getter, value)
+          {:accessor, nil, _} -> :undefined
           val -> val
         end
 
@@ -114,10 +120,10 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
             end
 
           {:qb_arr, arr} ->
-            :array.size(arr)
+            virtual_array_length(ref) || :array.size(arr)
 
           list when is_list(list) ->
-            length(list)
+            virtual_array_length(ref) || length(list)
 
           map when is_map(map) ->
             Map.get(map, "length", wrapped_map_length(map))
@@ -144,12 +150,25 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
       {:bound, len, _, _, _} ->
         len
 
+      {:builtin, name, _} ->
+        case QuickBEAM.VM.Builtin.named_meta(name) do
+          %QuickBEAM.VM.Builtin.Meta{length: length} -> length
+          _ -> :undefined
+        end
+
       _ ->
         :undefined
     end
   end
 
   # ── Own property lookup ──
+
+  defp virtual_array_length(ref) do
+    case Heap.get_array_prop(ref, "length") do
+      len when is_integer(len) -> len
+      _ -> nil
+    end
+  end
 
   defp wrapped_shape_length(offsets, vals) do
     case Map.fetch(offsets, "__wrapped_string__") do
@@ -165,12 +184,39 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     end
   end
 
-  defp wrapped_shape_proto_property(offsets, key) do
+  defp wrapped_shape_proto_property(offsets, vals, key) do
     cond do
-      Map.has_key?(offsets, "__wrapped_number__") -> Number.proto_property(key)
-      Map.has_key?(offsets, "__wrapped_string__") -> JSString.proto_property(key)
-      Map.has_key?(offsets, "__wrapped_boolean__") -> Boolean.proto_property(key)
-      true -> :undefined
+      Map.has_key?(offsets, "__wrapped_number__") ->
+        Number.proto_property(key)
+
+      Map.has_key?(offsets, "__wrapped_string__") ->
+        offset = Map.fetch!(offsets, "__wrapped_string__")
+        wrapped_string_property(elem(vals, offset), key)
+
+      Map.has_key?(offsets, "__wrapped_boolean__") ->
+        Boolean.proto_property(key)
+
+      true ->
+        :undefined
+    end
+  end
+
+  defp prototype_object_property(%{"constructor" => {:builtin, "Date", _}}, key),
+    do: JSDate.proto_property(key)
+
+  defp prototype_object_property(_map, _key), do: :undefined
+
+  defp wrapped_string_property(string, "length") when is_binary(string), do: string_length(string)
+
+  defp wrapped_string_property(string, key) when is_binary(string) do
+    case PropertyKey.array_index(key) do
+      {:ok, idx} ->
+        string
+        |> String.graphemes()
+        |> Enum.at(idx, :undefined)
+
+      :error ->
+        JSString.proto_property(key)
     end
   end
 
@@ -183,10 +229,13 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         Number.proto_property(key)
 
       Map.has_key?(map, "__wrapped_string__") ->
-        JSString.proto_property(key)
+        wrapped_string_property(Map.fetch!(map, "__wrapped_string__"), key)
 
       Map.has_key?(map, "__wrapped_boolean__") ->
         Boolean.proto_property(key)
+
+      Map.has_key?(map, "__wrapped_bigint__") ->
+        get_own(Map.fetch!(map, "__wrapped_bigint__"), key)
 
       true ->
         :undefined
@@ -209,7 +258,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
       {:shape, _shape_id, offsets, vals, _proto} ->
         case Map.fetch(offsets, key) do
           {:ok, offset} -> elem(vals, offset)
-          :error -> wrapped_shape_proto_property(offsets, key)
+          :error -> wrapped_shape_proto_property(offsets, vals, key)
         end
 
       nil ->
@@ -225,7 +274,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
           validate_proxy_get_invariant(
             target,
             key,
-            Runtime.call_callback(get_trap, [target, key])
+            Runtime.call_callback(get_trap, [target, key, {:obj, ref}])
           )
         else
           get_own(target, key)
@@ -249,6 +298,13 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
           val -> val
         end
 
+      %{typed_array() => true} = map ->
+        case key do
+          "length" -> TypedArray.element_count({:obj, ref})
+          "byteLength" -> TypedArray.current_byte_length({:obj, ref})
+          _ -> typed_array_property({:obj, ref}, map, key)
+        end
+
       %{buffer() => _} = map ->
         case Map.get(map, key) do
           nil -> ArrayBuffer.proto_property(key)
@@ -256,9 +312,15 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         end
 
       map when is_map(map) ->
-        case wrapped_proto_property(map, key) do
-          :undefined -> get_map_property(map, key, {:obj, ref})
-          val -> val
+        case prototype_object_property(map, key) do
+          :undefined ->
+            case wrapped_proto_property(map, key) do
+              :undefined -> get_map_property(map, key, {:obj, ref})
+              val -> val
+            end
+
+          val ->
+            val
         end
     end
   end
@@ -316,6 +378,13 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp get_own({:builtin, name, _}, "name"), do: name
 
+  defp get_own({:builtin, name, _}, "length") do
+    case QuickBEAM.VM.Builtin.named_meta(name) do
+      %QuickBEAM.VM.Builtin.Meta{length: length} -> length
+      _ -> :undefined
+    end
+  end
+
   defp get_own({:builtin, _, _} = b, key) do
     statics = Heap.get_ctor_statics(b)
 
@@ -327,10 +396,18 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         val
 
       :error ->
-        case Map.get(statics, :__module__) do
-          nil -> :undefined
-          mod -> mod.static_property(key)
-        end
+        static_val =
+          case Map.get(statics, :__module__) do
+            mod when is_atom(mod) ->
+              if function_exported?(mod, :static_property, 1),
+                do: mod.static_property(key),
+                else: :undefined
+
+            _ ->
+              :undefined
+          end
+
+        if static_val == :undefined, do: Function.proto_property(b, key), else: static_val
     end
   end
 
@@ -343,8 +420,20 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     Heap.get_or_create_prototype(f)
   end
 
+  defp get_own(%QuickBEAM.VM.Function{is_strict_mode: true}, key)
+       when key in ["caller", "arguments"] do
+    JSThrow.type_error!(
+      "'caller' and 'arguments' are restricted function properties and cannot be accessed in this context."
+    )
+  end
+
   defp get_own(%QuickBEAM.VM.Function{} = f, key) do
-    Map.get(Heap.get_ctor_statics(f), key, :undefined)
+    case Map.get(Heap.get_ctor_statics(f), key, :not_found) do
+      :not_found when key in ["length", "name"] -> Function.proto_property(f, key)
+      :not_found -> :undefined
+      :deleted -> :undefined
+      val -> val
+    end
   end
 
   defp get_own({:closure, _, %QuickBEAM.VM.Function{}} = c, "prototype") do
@@ -355,11 +444,31 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     end
   end
 
+  defp get_own({:closure, _, %QuickBEAM.VM.Function{is_strict_mode: true}}, key)
+       when key in ["caller", "arguments"] do
+    JSThrow.type_error!(
+      "'caller' and 'arguments' are restricted function properties and cannot be accessed in this context."
+    )
+  end
+
   defp get_own({:closure, _, %QuickBEAM.VM.Function{} = f} = c, key) do
-    case Map.get(Heap.get_ctor_statics(c), key, :undefined) do
-      :undefined -> Map.get(Heap.get_ctor_statics(f), key, :undefined)
-      {:accessor, getter, _} when getter != nil -> call_getter(getter, c)
-      val -> val
+    case Map.get(Heap.get_ctor_statics(c), key, :not_found) do
+      :not_found ->
+        case Map.get(Heap.get_ctor_statics(f), key, :not_found) do
+          :not_found when key in ["length", "name"] -> Function.proto_property(c, key)
+          :not_found -> :undefined
+          :deleted -> :undefined
+          val -> val
+        end
+
+      :deleted ->
+        :undefined
+
+      {:accessor, getter, _} when getter != nil ->
+        call_getter(getter, c)
+
+      val ->
+        val
     end
   end
 
@@ -382,8 +491,24 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_own({:symbol, _, _} = s, "valueOf"), do: {:builtin, "valueOf", fn _, _ -> s end}
   defp get_own({:symbol, desc}, "description"), do: desc
   defp get_own({:symbol, desc, _}, "description"), do: desc
-  defp get_own({:bound, _, _, _, _} = b, key), do: Function.proto_property(b, key)
+
+  defp get_own({:bound, _, _, _, _} = b, key) do
+    case Map.get(Heap.get_ctor_statics(b), key, :undefined) do
+      :undefined -> Function.proto_property(b, key)
+      {:accessor, getter, _} when getter != nil -> call_getter(getter, b)
+      {:accessor, nil, _} -> :undefined
+      val -> val
+    end
+  end
+
   defp get_own(_, _), do: :undefined
+
+  defp typed_array_property(obj, map, key) do
+    case Integer.parse(key) do
+      {idx, ""} when idx >= 0 -> TypedArray.get_element(obj, idx)
+      _ -> get_map_property(map, key, obj)
+    end
+  end
 
   defp validate_proxy_get_invariant({:obj, target_ref} = target, key, trap_result) do
     desc = Heap.get_prop_desc(target_ref, key)
@@ -404,9 +529,16 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp validate_proxy_get_invariant(_target, _key, trap_result), do: trap_result
 
+  defp array_own_property(ref, array_data, "length") do
+    case Heap.get_array_prop(ref, "length") do
+      len when is_integer(len) -> len
+      _ -> get_own(array_data, "length")
+    end
+  end
+
   defp array_own_property(ref, array_data, key) do
-    case get_own(array_data, key) do
-      :undefined -> Heap.get_array_prop(ref, key)
+    case Heap.get_array_prop(ref, key) do
+      :undefined -> get_own(array_data, key)
       value -> value
     end
   end
@@ -465,7 +597,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         if type_result != :undefined do
           type_result
         else
-          proto = Map.get(map, proto())
+          proto = Map.get(map, :__internal_proto__, Map.get(map, proto()))
 
           case proto do
             {:obj, pref} ->
@@ -492,13 +624,23 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp get_prototype_raw(value, key), do: get_from_prototype(value, key)
 
+  defp explicit_undefined_own?({:obj, ref}, key) do
+    case Heap.get_obj_raw(ref) do
+      {:shape, _shape_id, offsets, _vals, _proto} -> Map.has_key?(offsets, key)
+      map when is_map(map) -> not Map.has_key?(map, proxy_target()) and Map.has_key?(map, key)
+      _ -> false
+    end
+  end
+
+  defp explicit_undefined_own?(_value, _key), do: false
+
   defp get_from_prototype({:obj, ref}, key) do
     case Heap.get_obj(ref) do
       {:qb_arr, _} ->
-        Array.proto_property(key)
+        array_proto_property(key)
 
       list when is_list(list) ->
-        Array.proto_property(key)
+        array_proto_property(key)
 
       map when is_map(map) ->
         cond do
@@ -507,6 +649,9 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
           Map.has_key?(map, set_data()) ->
             JSSet.proto_property(key)
+
+          Map.has_key?(map, :__internal_proto__) ->
+            get(Map.get(map, :__internal_proto__), key)
 
           Map.has_key?(map, proto()) ->
             get(Map.get(map, proto()), key)
@@ -524,57 +669,81 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     Map.get(Runtime.global_bindings(), "Array", :undefined)
   end
 
-  defp get_from_prototype({:qb_arr, _}, key), do: Array.proto_property(key)
+  defp get_from_prototype({:qb_arr, _}, key), do: array_proto_property(key)
 
   defp get_from_prototype(list, "constructor") when is_list(list) do
     Map.get(Runtime.global_bindings(), "Array", :undefined)
   end
 
-  defp get_from_prototype(list, key) when is_list(list), do: Array.proto_property(key)
+  defp get_from_prototype(list, key) when is_list(list), do: array_proto_property(key)
+
   defp get_from_prototype(s, key) when is_binary(s), do: JSString.proto_property(key)
   defp get_from_prototype(n, key) when is_number(n), do: Number.proto_property(key)
   defp get_from_prototype(true, key), do: Boolean.proto_property(key)
   defp get_from_prototype(false, key), do: Boolean.proto_property(key)
 
-  defp get_from_prototype(%QuickBEAM.VM.Function{} = f, key) when key in ["length", "name"],
-    do: Function.proto_property(f, key)
+  defp get_from_prototype(%QuickBEAM.VM.Function{} = f, key) when key in ["length", "name"] do
+    if Map.get(Heap.get_ctor_statics(f), key) == :deleted,
+      do: fallback_to_function_proto(:undefined, f, key),
+      else: Function.proto_property(f, key)
+  end
 
   defp get_from_prototype(%QuickBEAM.VM.Function{} = f, key) do
     case Heap.get_parent_ctor(f) do
-      nil -> Function.proto_property(f, key)
+      nil -> fallback_to_function_proto(:undefined, f, key)
       parent -> fallback_to_function_proto(get(parent, key), f, key)
     end
   end
 
   defp get_from_prototype({:closure, _, %QuickBEAM.VM.Function{}} = c, key)
-       when key in ["length", "name"],
-       do: Function.proto_property(c, key)
+       when key in ["length", "name"] do
+    if Map.get(Heap.get_ctor_statics(c), key) == :deleted,
+      do: fallback_to_function_proto(:undefined, c, key),
+      else: Function.proto_property(c, key)
+  end
 
   defp get_from_prototype({:closure, _, %QuickBEAM.VM.Function{} = f} = c, key) do
     case Heap.get_parent_ctor(f) do
-      nil -> Function.proto_property(c, key)
+      nil -> fallback_to_function_proto(:undefined, c, key)
       parent -> fallback_to_function_proto(get(parent, key), c, key)
     end
   end
 
+  defp get_from_prototype({:bound, _, _, _, _} = b, key),
+    do: fallback_to_function_proto(Function.proto_property(b, key), b, key)
+
   defp get_from_prototype({:builtin, "Error", _}, _key),
     do: :undefined
 
-  defp get_from_prototype({:builtin, "Array", _}, key), do: Array.static_property(key)
-  defp get_from_prototype({:builtin, "Object", _}, key), do: Object.static_property(key)
-  defp get_from_prototype({:builtin, "Map", _}, _key), do: :undefined
-  defp get_from_prototype({:builtin, "Set", _}, _key), do: :undefined
+  defp get_from_prototype({:builtin, "Array", _} = fun, key),
+    do: fallback_to_function_proto(Array.static_property(key), fun, key)
 
-  defp get_from_prototype({:builtin, "Number", _}, key),
-    do: Number.static_property(key)
+  defp get_from_prototype({:builtin, "Object", _} = fun, key),
+    do: fallback_to_function_proto(Object.static_property(key), fun, key)
 
-  defp get_from_prototype({:builtin, "String", _}, key),
-    do: JSString.static_property(key)
+  defp get_from_prototype({:builtin, "Map", _} = fun, key),
+    do: fallback_to_function_proto(:undefined, fun, key)
+
+  defp get_from_prototype({:builtin, "Set", _} = fun, key),
+    do: fallback_to_function_proto(:undefined, fun, key)
+
+  defp get_from_prototype({:builtin, "Number", _} = fun, key),
+    do: fallback_to_function_proto(Number.static_property(key), fun, key)
+
+  defp get_from_prototype({:builtin, "String", _} = fun, key),
+    do: fallback_to_function_proto(JSString.static_property(key), fun, key)
 
   defp get_from_prototype({:builtin, name, _} = fun, key) when is_binary(name),
-    do: Function.proto_property(fun, key)
+    do: fallback_to_function_proto(Function.proto_property(fun, key), fun, key)
 
   defp get_from_prototype(_, _), do: :undefined
+
+  defp array_proto_property(key) do
+    case Heap.get_array_proto() do
+      {:obj, _} = proto -> fallback_to_object_proto(get_own(proto, key), proto, key)
+      _ -> Array.proto_property(key)
+    end
+  end
 
   defp get_default_object_prototype(obj, key) do
     proto = Heap.get_object_prototype() || Object.build_prototype()
@@ -585,6 +754,15 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     end
   end
 
-  defp fallback_to_function_proto(:undefined, fun, key), do: Function.proto_property(fun, key)
+  defp fallback_to_function_proto(:undefined, fun, key) do
+    case Heap.get_func_proto() do
+      {:obj, _} = proto -> fallback_to_object_proto(get_own(proto, key), fun, key)
+      _ -> fallback_to_object_proto(Function.proto_property(fun, key), fun, key)
+    end
+  end
+
   defp fallback_to_function_proto(val, _fun, _key), do: val
+
+  defp fallback_to_object_proto(:undefined, fun, key), do: get_default_object_prototype(fun, key)
+  defp fallback_to_object_proto(val, _fun, _key), do: val
 end

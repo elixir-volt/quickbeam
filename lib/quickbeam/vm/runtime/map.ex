@@ -7,6 +7,57 @@ defmodule QuickBEAM.VM.Runtime.Map do
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.Collections
 
+  alias QuickBEAM.VM.{Builtin, Invocation, JSThrow}
+
+  @doc "Implements Map.groupBy(items, callbackfn)."
+  def group_by(args) do
+    items = Builtin.arg(args, 0, :undefined)
+    callback = Builtin.arg(args, 1, :undefined)
+
+    if items in [nil, :undefined] do
+      JSThrow.type_error!("Cannot convert undefined or null to object")
+    end
+
+    unless Builtin.callable?(callback) do
+      JSThrow.type_error!("callbackfn is not a function")
+    end
+
+    list = Heap.to_list(items)
+    ref = make_ref()
+    groups = %{}
+    order = []
+
+    {groups, order} =
+      list
+      |> Enum.with_index()
+      |> Enum.reduce({groups, order}, fn {val, idx}, {g, ord} ->
+        key = Invocation.invoke_with_receiver(callback, [val, idx], :undefined)
+        normalized_key = if key == -0.0, do: 0, else: key
+
+        case Map.fetch(g, normalized_key) do
+          {:ok, existing} ->
+            {Map.put(g, normalized_key, existing ++ [val]), ord}
+
+          :error ->
+            {Map.put(g, normalized_key, [val]), ord ++ [normalized_key]}
+        end
+      end)
+
+    result_entries =
+      Enum.map(order, fn key -> {key, Heap.wrap(Map.get(groups, key, []))} end)
+
+    result_map = Enum.into(result_entries, %{})
+    result_order = Enum.map(result_entries, fn {k, _} -> k end)
+
+    Heap.put_obj(ref, %{
+      map_data() => result_map,
+      key_order() => Enum.reverse(result_order),
+      proto() => Runtime.global_class_proto("Map")
+    })
+
+    {:obj, ref}
+  end
+
   @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor do
     fn args, _this ->

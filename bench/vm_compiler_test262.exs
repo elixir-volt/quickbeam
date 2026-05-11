@@ -115,29 +115,61 @@ compiler_error? = fn
   _ -> false
 end
 
+case_timeout = String.to_integer(System.get_env("TEST262_CASE_TIMEOUT", "5000"))
+use_context_pool? = System.get_env("TEST262_CONTEXT_POOL") in ["1", "true", "TRUE"]
+
+pooled_contexts =
+  if use_context_pool? do
+    for mode <- [:beam, :beam_compiler], into: %{} do
+      {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 1, mode: mode)
+      {:ok, context} = QuickBEAM.Context.start_link(pool: pool, apis: false)
+      {mode, {pool, context}}
+    end
+  else
+    %{}
+  end
+
+run_raw_case = fn full, mode ->
+  if use_context_pool? do
+    {_pool, context} = Map.fetch!(pooled_contexts, mode)
+
+    try do
+      QuickBEAM.Context.eval(context, full, timeout: case_timeout)
+    after
+      QuickBEAM.Context.reset(context)
+    end
+  else
+    {:ok, rt} = QuickBEAM.start(apis: false)
+
+    try do
+      QuickBEAM.eval(rt, full, mode: mode)
+    after
+      QuickBEAM.stop(rt)
+    end
+  end
+end
+
 run_case = fn source, meta, mode ->
   includes = Map.get(meta, "includes", [])
+  flags = Map.get(meta, "flags", [])
   negative? = meta["negative"] != nil
-  full = QuickBEAM.Test262.harness_source(includes) <> "\n" <> source
+  strict_prefix = if "onlyStrict" in flags, do: "\"use strict\";\n", else: ""
+  full = strict_prefix <> QuickBEAM.Test262.harness_source(includes) <> "\n" <> source
 
   raw =
     try do
       task =
         Task.async(fn ->
-          {:ok, rt} = QuickBEAM.start(apis: false)
-
           try do
-            QuickBEAM.eval(rt, full, mode: mode)
+            run_raw_case.(full, mode)
           rescue
             error -> {:crash, {:error, error, __STACKTRACE__}}
           catch
             kind, reason -> {:crash, {kind, reason, __STACKTRACE__}}
-          after
-            QuickBEAM.stop(rt)
           end
         end)
 
-      Task.await(task, String.to_integer(System.get_env("TEST262_CASE_TIMEOUT", "5000")))
+      Task.await(task, case_timeout + 1_000)
     catch
       kind, reason -> {:crash, {kind, reason, __STACKTRACE__}}
     end
@@ -209,3 +241,8 @@ IO.puts("METRIC compiler_test262_both_fail=#{count.(:both_fail)}")
 IO.puts(
   "METRIC compiler_test262_interpreter_fail_compiler_pass=#{count.(:interpreter_fail_compiler_pass)}"
 )
+
+for {_mode, {pool, context}} <- pooled_contexts do
+  QuickBEAM.Context.stop(context)
+  GenServer.stop(pool)
+end

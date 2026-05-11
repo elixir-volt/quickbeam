@@ -6,6 +6,13 @@ defmodule QuickBEAM.VM.Runtime.Number do
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.GlobalNumeric
 
+  # ── Number statics ──
+
+  static "isSafeInteger", length: 1 do
+    val = hd(args)
+    is_number(val) and val == trunc(val * 1.0) and abs(val) <= 9_007_199_254_740_991
+  end
+
   # ── Number.prototype ──
 
   proto "toString" do
@@ -26,6 +33,10 @@ defmodule QuickBEAM.VM.Runtime.Number do
 
   proto "toPrecision" do
     to_precision(unwrap_number(this), args)
+  end
+
+  proto "toLocaleString" do
+    to_string_with_radix(unwrap_number(this), [])
   end
 
   defp unwrap_number({:obj, ref}) do

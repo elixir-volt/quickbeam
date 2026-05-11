@@ -93,8 +93,14 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
             %QuickBEAM.VM.Function{} = f ->
               f
 
-            {:builtin, _, cb} when is_function(cb) ->
-              ctor
+            {:builtin, name, cb} when is_function(cb) ->
+              case QuickBEAM.VM.Builtin.named_meta(name) do
+                %QuickBEAM.VM.Builtin.Meta{constructable?: false} ->
+                  JSThrow.type_error!("#{name} is not a constructor")
+
+                _ ->
+                  ctor
+              end
 
             {:builtin, _, map} when is_map(map) ->
               throw(
@@ -120,6 +126,11 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
           when fk in [@func_generator, @func_async_generator] ->
             name = raw_ctor.name || "anonymous"
             JSThrow.type_error!("#{name} is not a constructor")
+
+          %QuickBEAM.VM.Function{has_prototype: false, name: name} = fun ->
+            unless class_constructor_source?(fun) do
+              JSThrow.type_error!("#{name || "function"} is not a constructor")
+            end
 
           _ ->
             :ok
@@ -358,6 +369,13 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
           true
         )
       end
+
+      defp class_constructor_source?(%QuickBEAM.VM.Function{source: source})
+           when is_binary(source) do
+        source |> String.trim_leading() |> String.starts_with?("class")
+      end
+
+      defp class_constructor_source?(_), do: false
     end
   end
 end

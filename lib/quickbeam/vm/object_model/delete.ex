@@ -37,7 +37,12 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
         if match?(%{configurable: false}, desc) do
           false
         else
-          Heap.put_obj(ref, Map.delete(map, key))
+          updated =
+            map
+            |> Map.delete(key)
+            |> remove_key_order_entry(key)
+
+          Heap.put_obj(ref, updated)
           true
         end
 
@@ -52,7 +57,36 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
     end
   end
 
+  def delete_property({:builtin, _name, _} = builtin, key) do
+    delete_static_property(builtin, key)
+  end
+
+  def delete_property(target, key) when is_tuple(target) or is_struct(target) do
+    delete_static_property(target, key)
+  end
+
   def delete_property(_obj, _key), do: true
+
+  defp remove_key_order_entry(map, key) when is_binary(key) or is_integer(key) do
+    case Map.get(map, key_order()) do
+      order when is_list(order) -> Map.put(map, key_order(), List.delete(order, key))
+      _ -> map
+    end
+  end
+
+  defp remove_key_order_entry(map, _key), do: map
+
+  defp delete_static_property(target, key) do
+    if match?(
+         %{configurable: false},
+         Heap.get_prop_desc(target, key) || Heap.get_ctor_prop_desc(target, key)
+       ) do
+      false
+    else
+      Heap.put_ctor_static(target, key, :deleted)
+      true
+    end
+  end
 
   defp delete_proxy_property(target, handler, key) do
     trap = Get.get(handler, "deleteProperty")
@@ -88,12 +122,29 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
 
     case Integer.parse(key) do
       {idx, ""} when idx >= 0 ->
-        Heap.array_set(ref, idx, :undefined)
-        true
+        if match?(%{configurable: false}, Heap.get_prop_desc(ref, key)) do
+          false
+        else
+          if Heap.get_array_prop(ref, "__arguments__") == true do
+            deleted = Heap.get_array_prop(ref, "__deleted_args__")
+            deleted = if match?(%MapSet{}, deleted), do: deleted, else: MapSet.new()
+            Heap.put_array_prop(ref, "__deleted_args__", MapSet.put(deleted, idx))
+          end
+
+          Heap.array_set(ref, idx, :undefined)
+          Heap.delete_prop_desc(ref, key)
+          Heap.delete_array_prop(ref, key)
+          true
+        end
 
       _ ->
-        Heap.delete_array_prop(ref, key)
-        true
+        if match?(%{configurable: false}, Heap.get_prop_desc(ref, key)) do
+          false
+        else
+          Heap.delete_array_prop(ref, key)
+          Heap.delete_prop_desc(ref, key)
+          true
+        end
     end
   end
 end

@@ -11,122 +11,125 @@ defmodule QuickBEAM.VM.Runtime.String do
   # ── Dispatch ──
 
   proto "charAt" do
-    char_at(this, args)
+    char_at(coerce_string_this(this), args)
   end
 
   proto "charCodeAt" do
-    char_code_at(this, args)
+    char_code_at(coerce_string_this(this), args)
   end
 
   proto "codePointAt" do
-    code_point_at(this, args)
+    code_point_at(coerce_string_this(this), args)
   end
 
   proto "indexOf" do
-    index_of(this, args)
+    index_of(coerce_string_this(this), args)
   end
 
   proto "lastIndexOf" do
-    last_index_of(this, args)
+    last_index_of(coerce_string_this(this), args)
   end
 
   proto "includes" do
-    includes(this, args)
+    includes(coerce_string_this(this), args)
   end
 
   proto "startsWith" do
-    starts_with(this, args)
+    starts_with(coerce_string_this(this), args)
   end
 
   proto "endsWith" do
-    ends_with(this, args)
+    ends_with(coerce_string_this(this), args)
   end
 
   proto "slice" do
-    slice(this, args)
+    slice(coerce_string_this(this), args)
   end
 
   proto "substring" do
-    substring(this, args)
+    substring(coerce_string_this(this), args)
   end
 
   proto "substr" do
-    substr(this, args)
+    substr(coerce_string_this(this), args)
   end
 
   proto "split" do
-    split(this, args)
+    split(coerce_string_this(this), args)
   end
 
   proto "trim" do
-    String.trim(this)
+    String.trim(coerce_string_this(this))
   end
 
   proto "trimStart" do
-    String.trim_leading(this)
+    String.trim_leading(coerce_string_this(this))
   end
 
   proto "trimEnd" do
-    String.trim_trailing(this)
+    String.trim_trailing(coerce_string_this(this))
   end
 
   proto "toUpperCase" do
-    :string.uppercase(this) |> IO.iodata_to_binary()
+    s = coerce_string_this(this)
+    :string.uppercase(s) |> IO.iodata_to_binary()
   end
 
   proto "toLowerCase" do
-    :string.lowercase(this) |> IO.iodata_to_binary()
+    s = coerce_string_this(this)
+    :string.lowercase(s) |> IO.iodata_to_binary()
   end
 
   proto "repeat" do
-    String.duplicate(this, Runtime.to_int(hd(args)))
+    String.duplicate(coerce_string_this(this), Runtime.to_int(hd(args)))
   end
 
   proto "padStart" do
-    pad(this, args, :start)
+    pad(coerce_string_this(this), args, :start)
   end
 
   proto "padEnd" do
-    pad(this, args, :end)
+    pad(coerce_string_this(this), args, :end)
   end
 
   proto "replace" do
-    replace(this, args)
+    replace(coerce_string_this(this), args)
   end
 
   proto "replaceAll" do
-    replace_all(this, args)
+    replace_all(coerce_string_this(this), args)
   end
 
   proto "match" do
-    match(this, args)
+    match(coerce_string_this(this), args)
   end
 
   proto "matchAll" do
-    match_all(this, args)
+    match_all(coerce_string_this(this), args)
   end
 
   proto "localeCompare" do
+    s = coerce_string_this(this)
     other = arg(args, 0, "")
     other_str = if is_binary(other), do: other, else: Runtime.stringify(other)
 
     cond do
-      this < other_str -> -1
-      this > other_str -> 1
+      s < other_str -> -1
+      s > other_str -> 1
       true -> 0
     end
   end
 
   proto "search" do
-    search(this, args)
+    search(coerce_string_this(this), args)
   end
 
   proto "normalize" do
-    this
+    coerce_string_this(this)
   end
 
   proto "concat" do
-    unwrap_string(this) <> Enum.map_join(args, &Runtime.stringify/1)
+    coerce_string_this(this) <> Enum.map_join(args, &Runtime.stringify/1)
   end
 
   proto "toString" do
@@ -138,7 +141,17 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   proto "at" do
-    string_at(this, args)
+    string_at(coerce_string_this(this), args)
+  end
+
+  proto "isWellFormed" do
+    s = coerce_string_this(this)
+    not has_lone_surrogate?(s)
+  end
+
+  proto "toWellFormed" do
+    s = coerce_string_this(this)
+    replace_lone_surrogates(s)
   end
 
   proto {:symbol, "Symbol.iterator"} do
@@ -160,13 +173,35 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp unwrap_string(value), do: Runtime.stringify(value)
 
   defp string_at(s, [idx | _]) when is_binary(s) do
-    i = if is_number(idx), do: trunc(idx), else: 0
+    i = Runtime.to_int(idx)
     len = String.length(s)
     i = if i < 0, do: len + i, else: i
     if i >= 0 and i < len, do: String.at(s, i) || :undefined, else: :undefined
   end
 
+  defp string_at(s, _) when is_binary(s), do: String.at(s, 0) || :undefined
   defp string_at(_, _), do: :undefined
+
+  defp coerce_string_this(nil),
+    do: throw({:js_throw, Heap.make_error("Cannot read properties of null", "TypeError")})
+
+  defp coerce_string_this(:undefined),
+    do: throw({:js_throw, Heap.make_error("Cannot read properties of undefined", "TypeError")})
+
+  defp coerce_string_this({:symbol, _}),
+    do:
+      throw(
+        {:js_throw, Heap.make_error("Cannot convert a Symbol value to a string", "TypeError")}
+      )
+
+  defp coerce_string_this({:symbol, _, _}),
+    do:
+      throw(
+        {:js_throw, Heap.make_error("Cannot convert a Symbol value to a string", "TypeError")}
+      )
+
+  defp coerce_string_this(s) when is_binary(s), do: s
+  defp coerce_string_this(val), do: QuickBEAM.VM.Interpreter.Values.stringify(val)
 
   defp char_at(s, [idx | _]) when is_binary(s) do
     i = Runtime.to_int(idx)
@@ -204,12 +239,27 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   defp code_point_at(_, _), do: :undefined
 
-  defp index_of(s, [sub | rest]) when is_binary(s) and is_binary(sub) do
+  defp index_of(s, [sub | rest]) when is_binary(s) do
+    sub = if is_binary(sub), do: sub, else: Runtime.stringify(sub)
+
     from =
       case rest do
-        [:infinity | _] -> String.length(s)
-        [f | _] when is_number(f) -> max(0, Runtime.to_int(f))
-        _ -> 0
+        [:infinity | _] ->
+          String.length(s)
+
+        [f | _] ->
+          n = Runtime.to_number(f)
+
+          case n do
+            :infinity -> String.length(s)
+            :neg_infinity -> 0
+            :nan -> 0
+            n when is_number(n) -> max(0, trunc(n))
+            _ -> 0
+          end
+
+        _ ->
+          0
       end
 
     if sub == "" do
@@ -237,11 +287,13 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   defp index_of(_, _), do: -1
 
-  defp last_index_of(s, [sub | rest]) when is_binary(s) and is_binary(sub) do
+  defp last_index_of(s, [sub | rest]) when is_binary(s) do
+    sub = if is_binary(sub), do: sub, else: Runtime.stringify(sub)
+
     from =
       case rest do
         [:neg_infinity | _] -> 0
-        [f | _] when is_number(f) -> max(0, min(Runtime.to_int(f), String.length(s)))
+        [f | _] -> max(0, min(Runtime.to_int(f), String.length(s)))
         _ -> String.length(s)
       end
 
@@ -271,10 +323,19 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   defp last_index_of(_, _), do: -1
 
-  defp includes(s, [sub | _]) when is_binary(s) and is_binary(sub), do: String.contains?(s, sub)
+  defp includes(s, [sub | rest]) when is_binary(s) do
+    reject_regexp_search!(sub)
+    sub_str = if is_binary(sub), do: sub, else: Runtime.stringify(sub)
+    pos = if rest != [], do: max(Runtime.to_int(hd(rest)), 0), else: 0
+    String.contains?(String.slice(s, pos..-1//1), sub_str)
+  end
+
   defp includes(_, _), do: false
 
-  defp starts_with(s, [sub | rest]) when is_binary(s) and is_binary(sub) do
+  defp starts_with(s, [sub | rest]) when is_binary(s) do
+    reject_regexp_search!(sub)
+    sub = if is_binary(sub), do: sub, else: Runtime.stringify(sub)
+
     pos =
       case rest do
         [p | _] -> Runtime.to_int(p)
@@ -286,8 +347,74 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   defp starts_with(_, _), do: false
 
-  defp ends_with(s, [sub | _]) when is_binary(s) and is_binary(sub), do: String.ends_with?(s, sub)
+  defp ends_with(s, [sub | rest]) when is_binary(s) do
+    reject_regexp_search!(sub)
+    sub_str = if is_binary(sub), do: sub, else: Runtime.stringify(sub)
+
+    target =
+      if rest != [] do
+        pos = min(max(Runtime.to_int(hd(rest)), 0), String.length(s))
+        String.slice(s, 0, pos)
+      else
+        s
+      end
+
+    String.ends_with?(target, sub_str)
+  end
+
   defp ends_with(_, _), do: false
+
+  defp has_lone_surrogate?(s) do
+    s
+    |> :unicode.characters_to_list(:utf8)
+    |> case do
+      chars when is_list(chars) ->
+        Enum.any?(chars, fn
+          cp when cp >= 0xD800 and cp <= 0xDFFF -> true
+          _ -> false
+        end)
+
+      _ ->
+        false
+    end
+  end
+
+  defp replace_lone_surrogates(s) do
+    s
+    |> :unicode.characters_to_list(:utf8)
+    |> case do
+      chars when is_list(chars) ->
+        chars
+        |> Enum.map(fn
+          cp when cp >= 0xD800 and cp <= 0xDFFF -> 0xFFFD
+          cp -> cp
+        end)
+        |> List.to_string()
+
+      _ ->
+        s
+    end
+  end
+
+  defp reject_regexp_search!({:regexp, _, _}) do
+    throw(
+      {:js_throw, Heap.make_error("First argument must not be a regular expression", "TypeError")}
+    )
+  end
+
+  defp reject_regexp_search!({:obj, ref}) do
+    map = Heap.get_obj(ref, %{})
+
+    if Map.get(map, {:symbol, "Symbol.match"}) != nil and
+         Map.get(map, {:symbol, "Symbol.match"}) != :undefined do
+      throw(
+        {:js_throw,
+         Heap.make_error("First argument must not be a regular expression", "TypeError")}
+      )
+    end
+  end
+
+  defp reject_regexp_search!(_), do: :ok
 
   defp slice(s, args) when is_binary(s) do
     len = String.length(s)
@@ -595,8 +722,39 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   static "fromCodePoint" do
     Enum.map_join(args, fn n ->
-      cp = Runtime.to_int(n)
-      if cp >= 0 and cp <= 0x10FFFF, do: <<cp::utf8>>, else: ""
+      num = Runtime.to_number(n)
+
+      cond do
+        num in [:nan, :infinity, :neg_infinity] ->
+          throw(
+            {:js_throw,
+             Heap.make_error("Invalid code point " <> Runtime.stringify(n), "RangeError")}
+          )
+
+        is_number(num) and num != trunc(num * 1.0) ->
+          throw(
+            {:js_throw,
+             Heap.make_error("Invalid code point " <> Runtime.stringify(n), "RangeError")}
+          )
+
+        is_number(num) and (num < 0 or num > 0x10FFFF) ->
+          throw(
+            {:js_throw,
+             Heap.make_error("Invalid code point " <> Runtime.stringify(n), "RangeError")}
+          )
+
+        is_number(num) ->
+          <<trunc(num)::utf8>>
+
+        match?({:symbol, _}, n) or match?({:symbol, _, _}, n) ->
+          throw(
+            {:js_throw, Heap.make_error("Cannot convert a Symbol value to a number", "TypeError")}
+          )
+
+        true ->
+          cp = Runtime.to_int(n)
+          if cp >= 0 and cp <= 0x10FFFF, do: <<cp::utf8>>, else: ""
+      end
     end)
   end
 

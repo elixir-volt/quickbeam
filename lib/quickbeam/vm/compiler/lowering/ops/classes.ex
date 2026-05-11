@@ -12,6 +12,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Classes do
       {{:ok, :define_class_computed}, [atom_idx, _flags]} ->
         lower_define_class_computed(state, atom_idx)
 
+      {{:ok, :define_method}, [{:tagged_int, _} = atom_idx, flags]} ->
+        State.define_method_call(
+          state,
+          QuickBEAM.VM.ObjectModel.PropertyKey.normalize(atom_idx),
+          flags
+        )
+
       {{:ok, :define_method}, [atom_idx, flags]} ->
         State.define_method_call(state, Builder.atom_name(state, atom_idx), flags)
 

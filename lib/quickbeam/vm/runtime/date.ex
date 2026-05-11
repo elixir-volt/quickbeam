@@ -5,9 +5,98 @@ defmodule QuickBEAM.VM.Runtime.Date do
   use QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Heap
 
+  alias QuickBEAM.VM.Interpreter.Values
+  alias QuickBEAM.VM.{Invocation, JSThrow}
+
+  alias QuickBEAM.VM.Interpreter.Values.Coercion
+
   @epoch_gs 719_528 * 86_400
 
+  defp coerce_date_value(obj) do
+    prim = Coercion.to_primitive(obj)
+
+    case prim do
+      s when is_binary(s) -> parse_date_string(s)
+      n when is_number(n) -> trunc(n)
+      true -> 1
+      false -> 0
+      nil -> 0
+      :undefined -> :nan
+      {:symbol, _} -> JSThrow.type_error!("Cannot convert a Symbol value to a number")
+      {:symbol, _, _} -> JSThrow.type_error!("Cannot convert a Symbol value to a number")
+      :nan -> :nan
+      :infinity -> :nan
+      :neg_infinity -> :nan
+      _ -> :nan
+    end
+  end
+
+  @doc "Implements Date.prototype[Symbol.toPrimitive](hint)."
+  def symbol_to_primitive(this, args) do
+    unless match?({:obj, _}, this) do
+      JSThrow.type_error!("Date.prototype[Symbol.toPrimitive] requires that 'this' be an Object")
+    end
+
+    hint = List.first(args, "default")
+
+    try_first =
+      case hint do
+        "string" -> :string
+        "default" -> :string
+        "number" -> :number
+        _ -> JSThrow.type_error!("Invalid hint: " <> Values.stringify(hint))
+      end
+
+    ordinary_to_primitive(this, try_first)
+  end
+
+  defp ordinary_to_primitive({:obj, _} = obj, :string) do
+    case try_method(obj, "toString") do
+      nil ->
+        case try_method(obj, "valueOf") do
+          nil -> JSThrow.type_error!("Cannot convert object to primitive value")
+          val -> val
+        end
+
+      val ->
+        val
+    end
+  end
+
+  defp ordinary_to_primitive({:obj, _} = obj, :number) do
+    case try_method(obj, "valueOf") do
+      nil ->
+        case try_method(obj, "toString") do
+          nil -> JSThrow.type_error!("Cannot convert object to primitive value")
+          val -> val
+        end
+
+      val ->
+        val
+    end
+  end
+
+  defp try_method(obj, method_name) do
+    method = QuickBEAM.VM.ObjectModel.Get.get(obj, method_name)
+
+    if QuickBEAM.VM.Builtin.callable?(method) do
+      result = Invocation.invoke_with_receiver(method, [], obj)
+
+      case result do
+        {:obj, _} -> nil
+        _ -> result
+      end
+    else
+      nil
+    end
+  end
+
   # ── Constructor ──
+
+  @doc "Returns Date.prototype method names declared by this module."
+  def proto_property_names do
+    ~w(getTime valueOf getFullYear getMonth getDate getHours getMinutes getSeconds getMilliseconds getUTCFullYear getUTCMonth getUTCDate getUTCDay getUTCHours getUTCMinutes getUTCSeconds getUTCMilliseconds getDay getTimezoneOffset setTime setFullYear setMonth setDate setHours setMinutes setSeconds setMilliseconds setUTCHours setUTCMinutes setUTCSeconds setUTCMilliseconds setUTCFullYear setUTCMonth setUTCDate toISOString toJSON toString toDateString toTimeString toUTCString toLocaleTimeString toLocaleDateString toLocaleString)
+  end
 
   @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor(_args, nil) do
@@ -22,14 +111,53 @@ defmodule QuickBEAM.VM.Runtime.Date do
   def constructor(args, _this) do
     ms =
       case args do
-        [] -> System.system_time(:millisecond)
-        [val] when is_number(val) -> trunc(val)
-        [s] when is_binary(s) -> parse_date_string(s)
-        [_ | _] when length(args) >= 2 -> local_from_components(args)
-        _ -> System.system_time(:millisecond)
+        [] ->
+          System.system_time(:millisecond)
+
+        [:nan] ->
+          :nan
+
+        [:infinity] ->
+          :nan
+
+        [:neg_infinity] ->
+          :nan
+
+        [val] when is_number(val) ->
+          trunc(val)
+
+        [true] ->
+          1
+
+        [false] ->
+          0
+
+        [nil] ->
+          :nan
+
+        [:undefined] ->
+          :nan
+
+        [s] when is_binary(s) ->
+          parse_date_string(s)
+
+        [{:obj, ref} = obj] ->
+          case Heap.get_obj(ref, %{}) do
+            %{date_ms() => ms} -> ms
+            _ -> coerce_date_value(obj)
+          end
+
+        [_ | _] when length(args) >= 2 ->
+          local_from_components(args)
+
+        _ ->
+          System.system_time(:millisecond)
       end
 
-    Heap.wrap(%{date_ms() => ms})
+    Heap.wrap(%{
+      date_ms() => ms,
+      proto() => QuickBEAM.VM.Runtime.Constructors.class_proto("Date")
+    })
   end
 
   # ── Statics ──
@@ -50,31 +178,52 @@ defmodule QuickBEAM.VM.Runtime.Date do
   proto("getSeconds", do: dt_field(this, :second))
   proto("getMilliseconds", do: with_ms(this, &rem(&1, 1000)))
   proto("getUTCFullYear", do: dt_field(this, :year))
+  proto("getUTCMonth", do: dt_field(this, :month, &(&1 - 1)))
+  proto("getUTCDate", do: dt_field(this, :day))
+  proto("getUTCDay", do: with_dt(this, &(Date.day_of_week(&1) |> rem(7))))
+  proto("getUTCHours", do: dt_field(this, :hour))
+  proto("getUTCMinutes", do: dt_field(this, :minute))
+  proto("getUTCSeconds", do: dt_field(this, :second))
+  proto("getUTCMilliseconds", do: with_ms(this, &rem(&1, 1000)))
   proto("getDay", do: with_dt(this, &(Date.day_of_week(&1) |> rem(7))))
-  proto("getTimezoneOffset", do: tz_offset_minutes())
+
+  proto("getTimezoneOffset",
+    do:
+      (
+        ms = get_ms(this)
+        if ms == :nan, do: :nan, else: tz_offset_minutes()
+      )
+  )
 
   # ── Setters ──
 
-  proto("setTime", do: put_ms(this, hd(args)))
-  proto("setFullYear", do: set_fields(this, [:year], args))
-  proto("setMonth", do: set_field(this, :month, trunc(hd(args)) + 1))
-  proto("setDate", do: set_fields(this, [:day], args))
-  proto("setHours", do: set_fields(this, [:hour, :minute, :second], args))
-  proto("setMinutes", do: set_fields(this, [:minute, :second], args))
-  proto("setSeconds", do: set_fields(this, [:second], args))
-  proto("setMilliseconds", do: set_ms_field(this, args))
-  proto("setUTCHours", do: set_fields(this, [:hour, :minute, :second], args))
-  proto("setUTCMinutes", do: set_fields(this, [:minute, :second], args))
-  proto("setUTCSeconds", do: set_fields(this, [:second], args))
-  proto("setUTCMilliseconds", do: set_ms_field(this, args))
-  proto("setUTCFullYear", do: set_fields(this, [:year], args))
-  proto("setUTCMonth", do: set_field(this, :month, trunc(hd(args)) + 1))
-  proto("setUTCDate", do: set_fields(this, [:day], args))
+  proto("setTime",
+    do:
+      (
+        get_ms(this)
+        put_ms(this, QuickBEAM.VM.Runtime.to_number(hd(args)))
+      )
+  )
+
+  proto("setFullYear", do: set_full_year(this, args))
+  proto("setMonth", do: set_month(this, args))
+  proto("setDate", do: set_date_field(this, args))
+  proto("setHours", do: set_time_fields(this, [:hour, :minute, :second, :ms], args))
+  proto("setMinutes", do: set_time_fields(this, [:minute, :second, :ms], args))
+  proto("setSeconds", do: set_time_fields(this, [:second, :ms], args))
+  proto("setMilliseconds", do: set_time_fields(this, [:ms], args))
+  proto("setUTCHours", do: set_time_fields(this, [:hour, :minute, :second, :ms], args))
+  proto("setUTCMinutes", do: set_time_fields(this, [:minute, :second, :ms], args))
+  proto("setUTCSeconds", do: set_time_fields(this, [:second, :ms], args))
+  proto("setUTCMilliseconds", do: set_time_fields(this, [:ms], args))
+  proto("setUTCFullYear", do: set_full_year(this, args))
+  proto("setUTCMonth", do: set_month(this, args))
+  proto("setUTCDate", do: set_date_field(this, args))
 
   # ── Formatting ──
 
-  proto("toISOString", do: fmt_dt(this, &DateTime.to_iso8601/1))
-  proto("toJSON", do: fmt_dt(this, &DateTime.to_iso8601/1))
+  proto("toISOString", do: to_iso_string(this))
+  proto("toJSON", do: to_json(this, args))
 
   proto("toString",
     do: fmt_dt(this, &Calendar.strftime(&1, "%a %b %d %Y %H:%M:%S GMT+0000 (UTC)"))
@@ -92,9 +241,23 @@ defmodule QuickBEAM.VM.Runtime.Date do
   defp get_ms({:obj, ref}) do
     case Heap.get_obj(ref, %{}) do
       %{date_ms() => ms} -> ms
-      _ -> :nan
+      _ -> throw({:js_throw, Heap.make_error("this is not a Date object", "TypeError")})
     end
   end
+
+  defp get_ms({:symbol, _}),
+    do: throw({:js_throw, Heap.make_error("this is not a Date object", "TypeError")})
+
+  defp get_ms({:symbol, _, _}),
+    do: throw({:js_throw, Heap.make_error("this is not a Date object", "TypeError")})
+
+  defp get_ms({:bigint, _}),
+    do: throw({:js_throw, Heap.make_error("this is not a Date object", "TypeError")})
+
+  defp get_ms(val)
+       when val in [nil, :undefined] or is_number(val) or is_binary(val) or
+              is_boolean(val) or is_atom(val),
+       do: throw({:js_throw, Heap.make_error("this is not a Date object", "TypeError")})
 
   defp get_ms(_), do: :nan
 
@@ -128,6 +291,46 @@ defmodule QuickBEAM.VM.Runtime.Date do
     end
   end
 
+  defp to_iso_string(this) do
+    ms = get_ms(this)
+
+    case ms_to_dt(ms) do
+      nil ->
+        throw({:js_throw, Heap.make_error("Invalid time value", "RangeError")})
+
+      dt ->
+        millis = rem(abs(trunc(ms)), 1000)
+
+        Calendar.strftime(dt, "%Y-%m-%dT%H:%M:%S") <>
+          "." <> String.pad_leading(Integer.to_string(millis), 3, "0") <> "Z"
+    end
+  end
+
+  defp to_json(this, _args) do
+    tv = QuickBEAM.VM.Interpreter.Values.Coercion.to_primitive(this)
+
+    non_finite? =
+      case tv do
+        n when is_number(n) -> false
+        :nan -> true
+        :infinity -> true
+        :neg_infinity -> true
+        _ -> false
+      end
+
+    if non_finite? do
+      nil
+    else
+      to_iso_fn = QuickBEAM.VM.ObjectModel.Get.get(this, "toISOString")
+
+      if QuickBEAM.VM.Builtin.callable?(to_iso_fn) do
+        QuickBEAM.VM.Invocation.invoke_with_receiver(to_iso_fn, [], this)
+      else
+        throw({:js_throw, Heap.make_error("toISOString is not a function", "TypeError")})
+      end
+    end
+  end
+
   defp fmt_dt(this, fun) do
     case ms_to_dt(get_ms(this)) do
       nil -> "Invalid Date"
@@ -151,42 +354,162 @@ defmodule QuickBEAM.VM.Runtime.Date do
   end
 
   defp put_ms({:obj, ref}, ms) when is_number(ms) do
-    Heap.put_obj(ref, Map.put(Heap.get_obj(ref, %{}), date_ms(), trunc(ms)))
-    trunc(ms)
+    val = if abs(ms) > 8.64e15, do: :nan, else: trunc(ms)
+    Heap.put_obj(ref, Map.put(Heap.get_obj(ref, %{}), date_ms(), val))
+    val
+  end
+
+  defp put_ms({:obj, ref}, :nan) do
+    Heap.put_obj(ref, Map.put(Heap.get_obj(ref, %{}), date_ms(), :nan))
+    :nan
   end
 
   defp put_ms(_, _), do: :nan
 
-  defp set_field(this, field, value) do
-    case ms_to_dt(get_ms(this)) do
-      nil -> :nan
-      dt -> put_ms(this, DateTime.to_unix(Map.put(dt, field, trunc(value)), :millisecond))
-    end
-  rescue
-    _ -> :nan
-  end
+  defp set_full_year(this, args) do
+    ms = get_ms(this)
+    coerced_args = Enum.map(args, &to_num/1)
+    base_ms = if ms == :nan, do: 0, else: ms
 
-  defp set_fields(this, fields, values) do
-    case ms_to_dt(get_ms(this)) do
+    case ms_to_dt(base_ms) do
       nil ->
         :nan
 
       dt ->
-        new_dt =
-          Enum.zip(fields, values)
-          |> Enum.reduce(dt, fn {field, val}, acc ->
-            if is_number(val), do: Map.put(acc, field, trunc(val)), else: acc
-          end)
+        year = Enum.at(coerced_args, 0, 0)
+        month = if length(args) >= 2, do: Enum.at(coerced_args, 1, 0), else: dt.month - 1
+        day = if length(args) >= 3, do: Enum.at(coerced_args, 2, 1), else: dt.day
+        time_ms = rem(trunc(base_ms), 86_400_000)
 
-        put_ms(this, DateTime.to_unix(new_dt, :millisecond))
+        new_ms = make_date(year, month, day, time_ms)
+        put_ms(this, new_ms)
     end
   rescue
     _ -> :nan
   end
 
-  defp set_ms_field(this, args) do
-    with_ms(this, &put_ms(this, div(&1, 1000) * 1000 + trunc(hd(args))))
+  defp make_date(year, month, day, time_ms)
+       when year in [:nan, :infinity, :neg_infinity] or
+              month in [:nan, :infinity, :neg_infinity] or
+              day in [:nan, :infinity, :neg_infinity] or
+              time_ms in [:nan, :infinity, :neg_infinity],
+       do: :nan
+
+  defp make_date(year, month, day, time_ms) do
+    y = trunc(year)
+    m = trunc(month)
+    d = trunc(day)
+
+    {adj_year, adj_month} =
+      if m >= 0 do
+        {y + div(m, 12), rem(m, 12)}
+      else
+        full = div(m - 11, 12)
+        {y + full, m - full * 12}
+      end
+
+    base = Date.new!(trunc(adj_year), adj_month + 1, 1)
+    target = Date.add(base, d - 1)
+    days_from_epoch = Date.diff(target, ~D[1970-01-01])
+    result = days_from_epoch * 86_400_000 + time_ms
+    if abs(result) > 8.64e15, do: :nan, else: result
+  rescue
+    _ -> :nan
   end
+
+  defp set_date_field(this, args) do
+    ms = get_ms(this)
+    coerced = Enum.map(args, &to_num/1)
+    if ms == :nan, do: :nan, else: do_set_date_field(this, coerced, ms)
+  end
+
+  defp do_set_date_field(this, coerced, base_ms) do
+    case ms_to_dt(base_ms) do
+      nil ->
+        :nan
+
+      dt ->
+        day = Enum.at(coerced, 0, dt.day)
+        time_ms = rem(trunc(base_ms), 86_400_000)
+        make_date(dt.year, dt.month - 1, day, time_ms) |> then(&put_ms(this, &1))
+    end
+  rescue
+    _ -> :nan
+  end
+
+  defp set_month(this, args) do
+    ms = get_ms(this)
+    coerced_args = Enum.map(args, &to_num/1)
+    if ms == :nan, do: :nan, else: do_set_month(this, coerced_args, ms)
+  end
+
+  defp do_set_month(this, coerced_args, base_ms) do
+    case ms_to_dt(base_ms) do
+      nil ->
+        :nan
+
+      dt ->
+        month = Enum.at(coerced_args, 0, 0)
+        day = if length(coerced_args) >= 2, do: Enum.at(coerced_args, 1, 1), else: dt.day
+        time_ms = rem(trunc(base_ms), 86_400_000)
+        make_date(dt.year, month, day, time_ms) |> then(&put_ms(this, &1))
+    end
+  rescue
+    _ -> :nan
+  end
+
+  defp to_num(val) when is_number(val), do: val
+  defp to_num(:nan), do: :nan
+  defp to_num(:infinity), do: :infinity
+  defp to_num(:neg_infinity), do: :neg_infinity
+  defp to_num(nil), do: 0
+  defp to_num(:undefined), do: :nan
+  defp to_num(true), do: 1
+  defp to_num(false), do: 0
+  defp to_num(val), do: QuickBEAM.VM.Runtime.to_number(val)
+
+  defp set_time_fields(this, possible_fields, args) do
+    ms = get_ms(this)
+    coerced = Enum.map(args, &to_num/1)
+    if ms == :nan, do: :nan, else: do_set_time_fields(this, possible_fields, coerced, ms)
+  end
+
+  defp do_set_time_fields(this, possible_fields, args, base_ms) do
+    case ms_to_dt(base_ms) do
+      nil ->
+        :nan
+
+      dt ->
+        base_hour = dt.hour
+        base_min = dt.minute
+        base_sec = dt.second
+        base_ms_part = rem(trunc(base_ms), 1000)
+
+        {h, m, s, ms_val} =
+          Enum.zip(possible_fields, args)
+          |> Enum.reduce({base_hour, base_min, base_sec, base_ms_part}, fn
+            {:hour, v}, {_, mi, se, ms} -> {to_num(v), mi, se, ms}
+            {:minute, v}, {ho, _, se, ms} -> {ho, to_num(v), se, ms}
+            {:second, v}, {ho, mi, _, ms} -> {ho, mi, to_num(v), ms}
+            {:ms, v}, {ho, mi, se, _} -> {ho, mi, se, to_num(v)}
+          end)
+
+        day_ms = trunc(base_ms) - rem(trunc(base_ms), 86_400_000)
+
+        new_ms =
+          day_ms + trunc(h) * 3_600_000 + trunc(m) * 60_000 + trunc(s) * 1000 + trunc(ms_val)
+
+        time_clip(put_ms(this, new_ms))
+    end
+  rescue
+    _ -> :nan
+  end
+
+  defp time_clip(:nan), do: :nan
+  defp time_clip(ms) when is_number(ms) and abs(ms) > 8.64e15, do: put_ms_nan()
+  defp time_clip(ms), do: ms
+
+  defp put_ms_nan, do: :nan
 
   defp tz_offset_minutes do
     {utc, local} = {:calendar.universal_time(), :calendar.local_time()}
@@ -201,28 +524,18 @@ defmodule QuickBEAM.VM.Runtime.Date do
   # ── Date component → ms ──
 
   defp utc_from_components(args) do
-    with {:ok, components} <- extract_components(args) do
-      utc_ms(components)
+    if args == [] do
+      :nan
+    else
+      with {:ok, components} <- extract_components(args) do
+        utc_ms(components)
+      end
     end
   end
 
   defp local_from_components(args) do
     with {:ok, {year, month, day, hour, minute, second, ms_part}} <- extract_components(args) do
-      local_erl = {{year, month, max(day, 1)}, {hour, minute, second}}
-
-      case :calendar.local_time_to_universal_time_dst(local_erl) do
-        [utc_erl | _] ->
-          local_ndt = NaiveDateTime.from_erl!(local_erl)
-          utc_ndt = NaiveDateTime.from_erl!(utc_erl)
-          offset_min = div(NaiveDateTime.diff(local_ndt, utc_ndt, :second) + 30, 60)
-
-          DateTime.to_unix(DateTime.from_naive!(local_ndt, "Etc/UTC"), :millisecond) -
-            offset_min * 60_000 + ms_part
-
-        [] ->
-          utc_ms({year, month, max(day, 1), hour, minute, second, ms_part}) -
-            tz_offset_minutes() * -60_000
-      end
+      utc_ms({year, month, day, hour, minute, second, ms_part})
     end
   rescue
     _ -> :nan
@@ -235,17 +548,13 @@ defmodule QuickBEAM.VM.Runtime.Date do
     vals =
       padded
       |> Enum.take(count)
-      |> Enum.map(fn
-        v when v in [:nan, :NaN, :infinity, :neg_infinity] -> :nan
-        v when is_number(v) -> v
-        _ -> :nan
-      end)
+      |> Enum.map(&to_num/1)
 
     if Enum.any?(vals, &(&1 == :nan)) do
       :nan
     else
-      y = Enum.at(vals, 0, 0)
-      year = if y >= 0 and y <= 99, do: 1900 + trunc(y), else: trunc(y)
+      y = trunc(Enum.at(vals, 0, 0) * 1.0)
+      year = if y >= 0 and y <= 99, do: 1900 + y, else: y
 
       {:ok,
        {year, trunc(Enum.at(vals, 1, 0)) + 1, trunc(Enum.at(vals, 2, 1)),

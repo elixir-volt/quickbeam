@@ -385,25 +385,31 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     with {:ok, val, _val_type, state} <- pop_typed(state),
          {:ok, obj, obj_type, state} <- pop_typed(state) do
       key_str = extract_literal_string(key_expr)
-
-      new_type =
-        case {obj_type, key_str} do
-          {{:shaped_object, offsets}, k} when is_binary(k) ->
-            new_offset = map_size(offsets)
-            {:shaped_object, Map.put(offsets, k, new_offset)}
-
-          _ ->
-            :object
-        end
-
       {obj, state} = bind(state, Builder.temp_name(state.temp), obj)
 
-      {:ok,
-       state
-       |> emit(
-         Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put_field, [obj, key_expr, val])
-       )
-       |> push(obj, new_type)}
+      if key_str == "__proto__" do
+        {:ok,
+         state
+         |> emit(compiler_call(state, :define_field, [obj, key_expr, val]))
+         |> push(obj, :object)}
+      else
+        new_type =
+          case {obj_type, key_str} do
+            {{:shaped_object, offsets}, k} when is_binary(k) ->
+              new_offset = map_size(offsets)
+              {:shaped_object, Map.put(offsets, k, new_offset)}
+
+            _ ->
+              :object
+          end
+
+        {:ok,
+         state
+         |> emit(
+           Builder.remote_call(QuickBEAM.VM.ObjectModel.Put, :put_field, [obj, key_expr, val])
+         )
+         |> push(obj, new_type)}
+      end
     end
   end
 
@@ -750,12 +756,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
           do: compiler_call(state, wrapper, [expr]),
           else: expr
 
-      {slot_expr, state} =
-        if keep? or not Types.pure_expr?(expr) or Captures.slot_captured?(state, idx) do
-          bind(state, Builder.slot_name(idx, state.temp), expr)
-        else
-          {expr, state}
-        end
+      {slot_expr, state} = bind(state, Builder.slot_name(idx, state.temp), expr)
 
       state = put_slot(state, idx, slot_expr, type)
       state = Captures.sync_capture_cell(state, idx, slot_expr)

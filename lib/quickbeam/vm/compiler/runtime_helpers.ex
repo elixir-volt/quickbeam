@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   @moduledoc "Runtime support for JIT-compiled code."
 
-  import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
+  import QuickBEAM.VM.Heap.Keys, only: [date_ms: 0, proto: 0]
   import QuickBEAM.VM.Value, only: [is_object: 1]
 
   alias QuickBEAM.VM.{Builtin, GlobalEnv, Heap, Invocation, JSThrow, Names, SourcePosition}
@@ -169,7 +169,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   @doc "Reads a variable binding or throws a JavaScript ReferenceError when absent."
   def get_var(ctx, "arguments"),
-    do: Map.get(context_globals(ctx), "arguments", Heap.wrap(Tuple.to_list(ctx.arg_buf)))
+    do:
+      Map.get(context_globals(ctx), "arguments", Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf)))
 
   def get_var(ctx, name) when is_binary(name), do: fetch_ctx_var(ctx, name)
 
@@ -193,9 +194,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   defp fetch_global_binding(globals, name) do
     persistent = Heap.get_persistent_globals() || %{}
-    builtins = Heap.get_builtin_names() || MapSet.new()
 
-    if not MapSet.member?(builtins, name) and Map.has_key?(persistent, name) do
+    if Map.has_key?(persistent, name) do
       Map.fetch(persistent, name)
     else
       Map.fetch(globals, name)
@@ -358,7 +358,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     do: get_var(Names.resolve_atom(InvokeContext.current_atoms(), atom_idx))
 
   def get_var_undef(ctx, "arguments"),
-    do: Map.get(context_globals(ctx), "arguments", Heap.wrap(Tuple.to_list(ctx.arg_buf)))
+    do:
+      Map.get(context_globals(ctx), "arguments", Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf)))
 
   def get_var_undef(ctx, name) when is_binary(name),
     do: get_global_undef(context_globals(ctx), name)
@@ -479,6 +480,19 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
+  defp with_runtime_ctx(nil, fun), do: fun.()
+
+  defp with_runtime_ctx(ctx, fun) do
+    prev = Heap.get_ctx()
+    Heap.put_ctx(ctx)
+
+    try do
+      fun.()
+    after
+      if prev, do: Heap.put_ctx(prev), else: Heap.put_ctx(nil)
+    end
+  end
+
   @doc "Writes a JavaScript property value."
   def put_field(_ctx, obj, key, val) when is_binary(key), do: put_field(obj, key, val)
 
@@ -494,8 +508,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     do: put_field(obj, Names.resolve_atom(InvokeContext.current_atoms(), atom_idx), val)
 
   @doc "Writes a JavaScript array element."
-  def put_array_el(_ctx \\ nil, obj, idx, val) do
-    Put.put_element(obj, idx, val)
+  def put_array_el(ctx \\ nil, obj, idx, val) do
+    with_runtime_ctx(ctx, fn -> Put.put_element(obj, idx, val) end)
     :ok
   end
 
@@ -505,6 +519,11 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def define_field(ctx, obj, atom_idx, val),
     do: define_field(obj, Names.resolve_atom(context_atoms(ctx), atom_idx), val)
+
+  def define_field(obj, "__proto__", val) do
+    Put.define_array_el(obj, "__proto__", val)
+    obj
+  end
 
   def define_field(obj, key, val) when is_binary(key) do
     Put.put(obj, key, val)
@@ -588,7 +607,12 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
         _ -> false
       end
     else
-      delete_property(nil, obj, key)
+      result = delete_property(nil, obj, key)
+
+      if result == false and current_strict_mode?(ctx),
+        do: JSThrow.type_error!("Cannot delete property")
+
+      result
     end
   end
 
@@ -607,7 +631,11 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def set_proto(_ctx, {:obj, ref} = _obj, proto) do
     map = Heap.get_obj(ref, %{})
-    if is_map(map), do: Heap.put_obj(ref, Map.put(map, proto(), proto))
+
+    if is_map(map) and (is_object(proto) or proto == nil) do
+      Heap.put_obj(ref, Map.put(map, proto(), proto))
+    end
+
     :ok
   end
 
@@ -760,9 +788,11 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   defp compile_eval_source(ctx, code) do
     with {:ok, program} <- QuickBEAM.JS.Compiler.compile(code) do
+      reject_eval_lexical_conflicts!(ctx, program.value)
+
       globals =
         ctx.globals
-        |> Map.put("arguments", Heap.wrap(Tuple.to_list(ctx.arg_buf)))
+        |> Map.put("arguments", Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf)))
 
       case QuickBEAM.VM.Interpreter.eval(
              program.value,
@@ -812,6 +842,54 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     end
   end
 
+  defp reject_eval_lexical_conflicts!(ctx, %QuickBEAM.VM.Function{} = eval_fun) do
+    unless current_strict_mode?(ctx) do
+      declared = declared_names(eval_fun)
+      lexical = current_lexical_names(ctx)
+
+      if not MapSet.disjoint?(declared, lexical) do
+        JSThrow.syntax_error!("Identifier has already been declared")
+      end
+    end
+  end
+
+  defp declared_names(%QuickBEAM.VM.Function{locals: locals}) do
+    locals
+    |> Enum.map(&Names.resolve_display_name(&1.name))
+    |> Enum.filter(&is_binary/1)
+    |> MapSet.new()
+  end
+
+  defp current_lexical_names(%Context{
+         current_func: {:closure, _, %QuickBEAM.VM.Function{locals: locals}}
+       }),
+       do: lexical_names(locals)
+
+  defp current_lexical_names(%Context{current_func: %QuickBEAM.VM.Function{locals: locals}}),
+    do: lexical_names(locals)
+
+  defp current_lexical_names(_ctx), do: MapSet.new()
+
+  defp lexical_names(locals) do
+    locals
+    |> Enum.filter(& &1.is_lexical)
+    |> Enum.map(&Names.resolve_display_name(&1.name))
+    |> Enum.filter(&is_binary/1)
+    |> MapSet.new()
+  end
+
+  defp current_strict_mode?(%Context{
+         current_func: {:closure, _, %QuickBEAM.VM.Function{is_strict_mode: strict}}
+       }),
+       do: strict
+
+  defp current_strict_mode?(%Context{
+         current_func: %QuickBEAM.VM.Function{is_strict_mode: strict}
+       }),
+       do: strict
+
+  defp current_strict_mode?(_ctx), do: false
+
   defp parse_error_message([%{message: message} | _]), do: message
   defp parse_error_message(_errors), do: "Syntax error"
 
@@ -857,6 +935,15 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def define_method(_ctx, target, method, name, flags) when is_binary(name),
     do: define_method(target, method, name, flags)
 
+  def define_method(_ctx, target, method, {:tagged_int, _} = atom_idx, flags),
+    do:
+      Methods.define_method(
+        target,
+        method,
+        QuickBEAM.VM.ObjectModel.PropertyKey.normalize(atom_idx),
+        flags
+      )
+
   def define_method(ctx, target, method, atom_idx, flags),
     do:
       Methods.define_method(
@@ -868,6 +955,15 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def define_method(target, method, name, flags) when is_binary(name),
     do: Methods.define_method(target, method, name, flags)
+
+  def define_method(target, method, {:tagged_int, _} = atom_idx, flags),
+    do:
+      Methods.define_method(
+        target,
+        method,
+        QuickBEAM.VM.ObjectModel.PropertyKey.normalize(atom_idx),
+        flags
+      )
 
   def define_method(target, method, atom_idx, flags),
     do:
@@ -946,8 +1042,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     arg_buf = context_arg_buf(ctx)
 
     case type do
-      0 -> Heap.wrap(Tuple.to_list(arg_buf))
-      1 -> Heap.wrap(Tuple.to_list(arg_buf))
+      0 -> Heap.wrap_arguments(Tuple.to_list(arg_buf))
+      1 -> Heap.wrap_arguments(Tuple.to_list(arg_buf))
       2 -> current_func
       3 -> context_new_target(ctx)
       4 -> context_home_object(ctx, current_func)
@@ -962,8 +1058,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     case InvokeContext.fast_ctx() do
       {_atoms, _globals, current_func, arg_buf, _this, new_target, home_object, _super} ->
         case type do
-          0 -> Heap.wrap(Tuple.to_list(arg_buf))
-          1 -> Heap.wrap(Tuple.to_list(arg_buf))
+          0 -> Heap.wrap_arguments(Tuple.to_list(arg_buf))
+          1 -> Heap.wrap_arguments(Tuple.to_list(arg_buf))
           2 -> current_func
           3 -> new_target
           4 -> home_object
@@ -978,8 +1074,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
         arg_buf = InvokeContext.current_arg_buf()
 
         case type do
-          0 -> Heap.wrap(Tuple.to_list(arg_buf))
-          1 -> Heap.wrap(Tuple.to_list(arg_buf))
+          0 -> Heap.wrap_arguments(Tuple.to_list(arg_buf))
+          1 -> Heap.wrap_arguments(Tuple.to_list(arg_buf))
           2 -> current_func
           3 -> InvokeContext.current_new_target()
           4 -> InvokeContext.current_home_object(current_func)
@@ -1024,20 +1120,25 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
       JSThrow.type_error!("Right-hand side of instanceof is not callable")
     end
 
-    if object_like?(obj) do
-      ctor_proto = Get.get(ctor, "prototype")
+    cond do
+      not object_like?(obj) ->
+        false
 
-      case ctor_proto do
-        {:obj, _} ->
-          special_builtin_instance?(obj, ctor) or prototype_chain_contains?(obj, ctor_proto)
+      special_builtin_instance?(obj, ctor) ->
+        true
 
-        _ ->
-          JSThrow.type_error!(
-            "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check"
-          )
-      end
-    else
-      false
+      true ->
+        ctor_proto = Get.get(ctor, "prototype")
+
+        case ctor_proto do
+          {:obj, _} ->
+            prototype_chain_contains?(obj, ctor_proto)
+
+          _ ->
+            JSThrow.type_error!(
+              "Function has non-object prototype '#{Values.stringify(ctor_proto)}' in instanceof check"
+            )
+        end
     end
   end
 
@@ -1090,6 +1191,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   defp special_builtin_instance?({:obj, ref}, ctor) do
     case builtin_name(ctor) do
       "Array" -> match?({:qb_arr, _}, Heap.get_obj(ref)) or is_list(Heap.get_obj(ref))
+      "BigInt" -> Map.has_key?(Heap.get_obj(ref, %{}), "__wrapped_bigint__")
+      "Date" -> Map.has_key?(Heap.get_obj(ref, %{}), date_ms())
       "Object" -> true
       _ -> false
     end

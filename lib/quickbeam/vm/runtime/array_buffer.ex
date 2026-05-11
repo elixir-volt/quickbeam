@@ -66,7 +66,9 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
               old_buf <> :binary.copy(<<0>>, new_size - byte_size(old_buf))
             end
 
-          Heap.put_obj(ref, Map.merge(map, %{buffer() => new_buf, "byteLength" => new_size}))
+          resized = Map.merge(map, %{buffer() => new_buf, "byteLength" => new_size})
+          Heap.put_obj(ref, resized)
+          update_typed_array_views(resized, new_size)
         end
 
         :undefined
@@ -75,6 +77,38 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
         :undefined
     end
   end
+
+  defp update_typed_array_views(%{"__views__" => views}, new_size) when is_list(views) do
+    for view_ref <- views do
+      case Heap.get_obj(view_ref, %{}) do
+        %{typed_array() => true} = view ->
+          offset = Map.get(view, "byteOffset", 0)
+          elem_size = Map.get(view, "BYTES_PER_ELEMENT", 1)
+          available = max(new_size - offset, 0)
+
+          {length, byte_length} =
+            if Map.get(view, "__length_tracking__") do
+              {div(available, elem_size), available}
+            else
+              fixed_byte_length =
+                Map.get(view, "__fixed_byte_length__", Map.get(view, "byteLength", 0))
+
+              if available < fixed_byte_length do
+                {0, 0}
+              else
+                {Map.get(view, "__fixed_length__", Map.get(view, "length", 0)), fixed_byte_length}
+              end
+            end
+
+          Heap.put_obj(view_ref, %{view | "length" => length, "byteLength" => byte_length})
+
+        _ ->
+          :ok
+      end
+    end
+  end
+
+  defp update_typed_array_views(_, _), do: :ok
 
   proto "slice" do
     do_slice(this, args)

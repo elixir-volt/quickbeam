@@ -120,7 +120,8 @@ defmodule QuickBEAM.VM.Compiler do
     entry = entry_name()
     ctx_entry = ctx_entry_name()
 
-    with {:instructions, {:ok, instructions}} <- {:instructions, instructions(fun)},
+    with :ok <- reject_mapped_arguments(fun),
+         {:instructions, {:ok, instructions}} <- {:instructions, instructions(fun)},
          optimized = Optimizer.optimize(instructions, fun.constants),
          {:lower, {:ok, {slot_count, block_forms}}} <- {:lower, Lowering.lower(fun, optimized)},
          {:forms, {:ok, _module, binary}} <-
@@ -136,11 +137,19 @@ defmodule QuickBEAM.VM.Compiler do
             )} do
       {:ok, module, ctx_entry, binary}
     else
+      {:error, :mapped_arguments} -> {:error, :mapped_arguments}
       {:instructions, {:error, reason}} -> {:error, {:decode_failed, reason}}
       {:lower, {:error, reason}} -> {:error, reason}
       {:forms, {:error, reason}} -> {:error, {:beam_compile_failed, reason}}
     end
   end
+
+  defp reject_mapped_arguments(%QuickBEAM.VM.Function{arg_count: arg_count, source: source})
+       when arg_count > 0 and is_binary(source) do
+    if String.contains?(source, "arguments"), do: {:error, :mapped_arguments}, else: :ok
+  end
+
+  defp reject_mapped_arguments(_fun), do: :ok
 
   defp instructions(%QuickBEAM.VM.Function{instructions: instructions})
        when is_tuple(instructions),
