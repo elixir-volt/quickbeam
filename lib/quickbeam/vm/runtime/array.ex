@@ -1135,6 +1135,12 @@ defmodule QuickBEAM.VM.Runtime.Array do
     end
   end
 
+  defp copy_within(nil, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp copy_within(:undefined, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
   defp copy_within(value, _args) when is_boolean(value), do: primitive_object(value)
 
   defp copy_within({:obj, ref}, args) do
