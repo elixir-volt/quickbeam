@@ -887,16 +887,25 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
     this_arg = Enum.at(args, 2, :undefined)
 
-    {result, construct_args} =
+    result =
       cond do
         array_like_source?(source) ->
           len = array_like_length(source)
-          {array_like_from(source, map_fn, this_arg), [len]}
+          {:list, array_like_from(source, map_fn, this_arg), [len]}
+
+        iterable_source?(source) and constructable_from?(constructor) and
+            not match?({:builtin, "Array", _}, constructor) ->
+          target = QuickBEAM.VM.Invocation.construct_runtime(constructor, constructor, [])
+          iterator_method = Get.get(source, {:symbol, "Symbol.iterator"})
+          iterator = QuickBEAM.VM.Invocation.invoke_with_receiver(iterator_method, [], source)
+          count = iterator_to_target(iterator, target, map_fn, this_arg, 0)
+          Put.put(target, "length", count)
+          {:target, target}
 
         iterable_source?(source) ->
           iterator_method = Get.get(source, {:symbol, "Symbol.iterator"})
           iterator = QuickBEAM.VM.Invocation.invoke_with_receiver(iterator_method, [], source)
-          {iterator_to_list(iterator, [], map_fn, this_arg, 0), []}
+          {:list, iterator_to_list(iterator, [], map_fn, this_arg, 0), []}
 
         true ->
           list = coerce_to_list(source)
@@ -910,10 +919,13 @@ defmodule QuickBEAM.VM.Runtime.Array do
               list
             end
 
-          {result, [length(result)]}
+          {:list, result, [length(result)]}
       end
 
-    from_result(result, constructor, construct_args)
+    case result do
+      {:target, target} -> target
+      {:list, list, construct_args} -> from_result(list, constructor, construct_args)
+    end
   end
 
   defp from_result(list, {:builtin, "Array", _}, _construct_args), do: Heap.wrap(list)
@@ -1036,6 +1048,49 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   defp iterator_to_list(iterator, acc), do: iterator_to_list(iterator, acc, nil, :undefined, 0)
+
+  defp iterator_to_target(iterator, target, map_fn, this_arg, index) do
+    next_fn = Get.get(iterator, "next")
+
+    unless QuickBEAM.VM.Builtin.callable?(next_fn) do
+      JSThrow.type_error!("Iterator next is not callable")
+    end
+
+    result = QuickBEAM.VM.Invocation.invoke_with_receiver(next_fn, [], iterator)
+
+    unless match?({:obj, _}, result) or is_map(result) do
+      JSThrow.type_error!("Iterator result is not an object")
+    end
+
+    if Get.get(result, "done") == true do
+      index
+    else
+      value = Get.get(result, "value")
+
+      mapped =
+        if map_fn do
+          try do
+            QuickBEAM.VM.Invocation.invoke_with_receiver(map_fn, [value, index], this_arg)
+          catch
+            {:js_throw, _} = thrown ->
+              close_iterator(iterator)
+              throw(thrown)
+          end
+        else
+          value
+        end
+
+      try do
+        create_data_property_or_throw(target, Integer.to_string(index), mapped)
+      catch
+        {:js_throw, _} = thrown ->
+          close_iterator(iterator)
+          throw(thrown)
+      end
+
+      iterator_to_target(iterator, target, map_fn, this_arg, index + 1)
+    end
+  end
 
   defp close_iterator(iterator) do
     return_fn = Get.get(iterator, "return")
