@@ -489,7 +489,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
     end
 
     this_arg = List.first(rest) || :undefined
-    for_each_live(ref, callback, this_arg, 0)
+    for_each_live(ref, callback, this_arg, data(ref))
   end
 
   defp for_each(_, this) do
@@ -497,21 +497,26 @@ defmodule QuickBEAM.VM.Runtime.Set do
     JSThrow.type_error!("callbackfn is not a function")
   end
 
-  defp for_each_live(ref, callback, this_arg, index) do
-    items = Heap.get_obj(ref, %{}) |> Map.get(set_data(), [])
+  defp for_each_live(_ref, _callback, _this_arg, []), do: :undefined
 
-    if index >= length(items) do
-      :undefined
-    else
-      value = Enum.at(items, index)
-
+  defp for_each_live(ref, callback, this_arg, [value | _]) do
+    if value in data(ref) do
       QuickBEAM.VM.Invocation.invoke_with_receiver(
         callback,
         [value, value, {:obj, ref}],
         this_arg
       )
+    end
 
-      for_each_live(ref, callback, this_arg, index + 1)
+    for_each_live(ref, callback, this_arg, values_after_current(ref, value))
+  end
+
+  defp values_after_current(ref, value) do
+    items = data(ref)
+
+    case Enum.find_index(items, &(&1 == value)) do
+      nil -> items
+      index -> Enum.drop(items, index + 1)
     end
   end
 end
