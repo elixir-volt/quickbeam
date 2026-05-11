@@ -35,6 +35,17 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
     proto_map = Map.put(proto_map, sym_iter, Map.fetch!(proto_map, "values"))
 
+    for name <- ~w(entries keys values) do
+      method = Map.fetch!(proto_map, name)
+      Heap.put_ctor_static(method, "length", 0)
+
+      Heap.put_ctor_prop_desc(method, "length", %{
+        writable: false,
+        enumerable: false,
+        configurable: true
+      })
+    end
+
     proto = Heap.wrap(proto_map)
     {:obj, ref} = proto
 
@@ -905,10 +916,16 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp copy_within({:obj, ref}, args) do
     list = Heap.obj_to_list(ref)
     len = length(list)
-    target = Runtime.normalize_index(Runtime.to_int(arg(args, 0, 0)), len)
-    start_idx = Runtime.normalize_index(Runtime.to_int(arg(args, 1, 0)), len)
-    end_idx = Runtime.normalize_index(Runtime.to_int(arg(args, 2, nil) || len), len)
-    slice = Enum.slice(list, start_idx, end_idx - start_idx)
+    target = normalize_copy_index(arg(args, 0, 0), len)
+    start_idx = normalize_copy_index(arg(args, 1, 0), len)
+
+    end_idx =
+      case Enum.drop(args, 2) do
+        [] -> len
+        [end_value | _] -> normalize_copy_index(end_value, len)
+      end
+
+    slice = Enum.slice(list, start_idx, max(end_idx - start_idx, 0))
 
     new_list =
       list
@@ -923,6 +940,10 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   defp copy_within(_, _), do: :undefined
+
+  defp normalize_copy_index(:infinity, len), do: len
+  defp normalize_copy_index(:neg_infinity, _len), do: 0
+  defp normalize_copy_index(value, len), do: Runtime.normalize_index(Runtime.to_int(value), len)
 
   defp require_object_coercible!(nil),
     do: throw({:js_throw, Heap.make_error("Cannot convert null to object", "TypeError")})
