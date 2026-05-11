@@ -108,23 +108,36 @@ defmodule QuickBEAM.VM.Runtime.Set do
     end
   end
 
-  defp validate_set_like!(other) do
+  defp validate_set_like!({:obj, _} = other) do
     size = other_size(other)
+    has_fn = Get.get(other, "has")
+    keys_fn = Get.get(other, "keys")
 
     cond do
       size == :nan or size == :NaN ->
         JSThrow.type_error!("can't convert to number: .size is NaN")
 
-      is_number(size) and size < 0 ->
-        JSThrow.range_error!("invalid .size: must be non-negative")
-
       size == :neg_infinity ->
         JSThrow.range_error!("invalid .size: must be non-negative")
+
+      not is_number(size) ->
+        JSThrow.type_error!("set-like object size must be a number")
+
+      size < 0 ->
+        JSThrow.range_error!("invalid .size: must be non-negative")
+
+      not QuickBEAM.VM.Builtin.callable?(has_fn) ->
+        JSThrow.type_error!("set-like object has must be callable")
+
+      not QuickBEAM.VM.Builtin.callable?(keys_fn) ->
+        JSThrow.type_error!("set-like object keys must be callable")
 
       true ->
         :ok
     end
   end
+
+  defp validate_set_like!(_), do: JSThrow.type_error!("set-like object must be an object")
 
   defp other_has(other, value) do
     has_fn = Get.get(other, "has")
@@ -215,6 +228,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
   defp subset?(_, this), do: require_strong_set_ref!(this)
 
   defp set_subset?(set_ref, other) do
+    validate_set_like!(other)
     other_items = other_data(other)
     Enum.all?(data(set_ref), &(&1 in other_items))
   end
@@ -223,6 +237,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
   defp superset?(_, this), do: require_strong_set_ref!(this)
 
   defp set_superset?(set_ref, other) do
+    validate_set_like!(other)
     items = data(set_ref)
     size = other_size(other)
 
@@ -238,6 +253,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
   defp disjoint?(_, this), do: require_strong_set_ref!(this)
 
   defp set_disjoint?(set_ref, other) do
+    validate_set_like!(other)
     items = data(set_ref)
     size = other_size(other)
 
