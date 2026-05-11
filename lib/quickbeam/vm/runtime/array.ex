@@ -1135,6 +1135,8 @@ defmodule QuickBEAM.VM.Runtime.Array do
     end
   end
 
+  defp copy_within(value, _args) when is_boolean(value), do: primitive_object(value)
+
   defp copy_within({:obj, ref}, args) do
     list = Heap.obj_to_list(ref)
     len = length(list)
