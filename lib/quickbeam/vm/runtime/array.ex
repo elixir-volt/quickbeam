@@ -264,18 +264,27 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   defp is_array({:obj, ref}, depth) do
-    case Heap.get_obj(ref) do
-      {:qb_arr, _} ->
+    cond do
+      Heap.get_array_prop(ref, "__arguments__") == true ->
+        false
+
+      Heap.get_array_proto() == {:obj, ref} ->
         true
 
-      list when is_list(list) ->
-        Heap.get_array_prop(ref, "__arguments__") != true
+      true ->
+        case Heap.get_obj(ref) do
+          {:qb_arr, _} ->
+            true
 
-      %{proxy_target() => target} ->
-        is_array(target, depth + 1)
+          list when is_list(list) ->
+            true
 
-      _ ->
-        false
+          %{proxy_target() => target} ->
+            is_array(target, depth + 1)
+
+          _ ->
+            false
+        end
     end
   end
 
