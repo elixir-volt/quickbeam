@@ -111,8 +111,14 @@ defmodule QuickBEAM.VM.Runtime.Set do
 
   defp other_size(other) do
     case other do
-      {:obj, _} -> Get.get(other, "size")
-      _ -> 0
+      {:obj, _} ->
+        case Get.get(other, "size") do
+          {:bigint, _} -> JSThrow.type_error!("set-like object size must be a number")
+          size -> Runtime.to_number(size)
+        end
+
+      _ ->
+        0
     end
   end
 
