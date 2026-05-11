@@ -321,7 +321,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
     if Get.get(result, "done") == true do
       true
     else
-      value = Get.get(result, "value")
+      value = result |> Get.get("value") |> normalize_set_value()
       in_set = value in set_data
 
       case mode do
