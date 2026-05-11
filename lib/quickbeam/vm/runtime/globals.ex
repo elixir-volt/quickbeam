@@ -87,10 +87,35 @@ defmodule QuickBEAM.VM.Runtime.Globals do
     %{
       "Array" =>
         (
-          ctor = register("Array", &Constructors.array/2)
+          ctor = register("Array", &Constructors.array/2, module: QuickBEAM.VM.Runtime.Array)
           proto = QuickBEAM.VM.Runtime.Array.prototype()
           ConstructorRegistry.put_prototype(ctor, proto)
           Heap.put_array_proto(proto)
+
+          sym_species = {:symbol, "Symbol.species"}
+
+          Heap.put_ctor_static(
+            ctor,
+            sym_species,
+            {:accessor, {:builtin, "get [Symbol.species]", fn _args, this -> this end}, nil}
+          )
+
+          Heap.put_ctor_prop_desc(ctor, sym_species, %{enumerable: false, configurable: true})
+
+          Heap.put_ctor_static(ctor, "length", 1)
+
+          Heap.put_ctor_prop_desc(ctor, "length", %{
+            writable: false,
+            enumerable: false,
+            configurable: true
+          })
+
+          Heap.put_ctor_prop_desc(ctor, "prototype", %{
+            writable: false,
+            enumerable: false,
+            configurable: false
+          })
+
           ctor
         ),
       "String" =>

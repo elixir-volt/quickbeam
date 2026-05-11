@@ -100,6 +100,7 @@ defmodule QuickBEAM.VM.Builtin do
   def named_meta("Function"), do: meta("Function", [length: 1, constructable: true], :constructor)
   def named_meta("String"), do: meta("String", [length: 1, constructable: true], :constructor)
   def named_meta("Number"), do: meta("Number", [length: 1, constructable: true], :constructor)
+  def named_meta("Array"), do: meta("Array", [length: 1, constructable: true], :constructor)
   def named_meta("Boolean"), do: meta("Boolean", [length: 1, constructable: true], :constructor)
   def named_meta("RegExp"), do: meta("RegExp", [length: 2, constructable: true], :constructor)
   def named_meta("Date"), do: meta("Date", [length: 7, constructable: true], :constructor)
