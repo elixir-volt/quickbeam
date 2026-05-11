@@ -769,7 +769,13 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp every(nil, _), do: JSThrow.type_error!("Cannot convert undefined or null to object")
   defp every(:undefined, _), do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
-  defp every({:obj, ref}, args), do: every(Heap.obj_to_list(ref), args)
+  defp every({:obj, _} = obj, args), do: every_array_like(obj, args)
+
+  defp every(value, args) when is_boolean(value) or is_number(value) or is_binary(value) do
+    value
+    |> primitive_object()
+    |> every_array_like(args)
+  end
 
   defp every({:qb_arr, arr}, args), do: every(:array.to_list(arr), args)
 
@@ -784,6 +790,43 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   defp every(_, _), do: JSThrow.type_error!("callbackfn is not a function")
+
+  defp every_array_like(this, [fun | _]) do
+    unless QuickBEAM.VM.Builtin.callable?(fun) do
+      JSThrow.type_error!("callbackfn is not a function")
+    end
+
+    len = array_like_length(this)
+
+    if len == 0 do
+      true
+    else
+      Enum.all?(0..(len - 1), fn idx ->
+        value = Get.get(this, Integer.to_string(idx))
+
+        Runtime.truthy?(
+          QuickBEAM.VM.Invocation.invoke_with_receiver(fun, [value, idx, this], :undefined)
+        )
+      end)
+    end
+  end
+
+  defp every_array_like(_this, _args), do: JSThrow.type_error!("callbackfn is not a function")
+
+  defp primitive_object(value),
+    do: QuickBEAM.VM.Runtime.Globals.Constructors.object([value], nil)
+
+  defp array_like_length({:obj, ref}) do
+    case Heap.get_obj(ref) do
+      {:qb_arr, arr} -> :array.size(arr)
+      list when is_list(list) -> length(list)
+      _ -> max(Runtime.to_int(Get.get({:obj, ref}, "length")), 0)
+    end
+  end
+
+  defp array_like_length({:qb_arr, arr}), do: :array.size(arr)
+  defp array_like_length(list) when is_list(list), do: length(list)
+  defp array_like_length(value), do: max(Runtime.to_int(Get.get(value, "length")), 0)
 
   defp some({:obj, ref}, args), do: some(Heap.obj_to_list(ref), args)
 
