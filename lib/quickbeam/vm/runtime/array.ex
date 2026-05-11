@@ -789,17 +789,21 @@ defmodule QuickBEAM.VM.Runtime.Array do
       end
     end
 
-    list = coerce_to_list(source)
+    this_arg = Enum.at(args, 2, :undefined)
 
     result =
-      if map_fn do
-        this_arg = Enum.at(args, 2, :undefined)
-
-        Enum.map(Enum.with_index(list), fn {val, idx} ->
-          QuickBEAM.VM.Invocation.invoke_with_receiver(map_fn, [val, idx], this_arg)
-        end)
+      if array_like_source?(source) do
+        array_like_from(source, map_fn, this_arg)
       else
-        list
+        list = coerce_to_list(source)
+
+        if map_fn do
+          Enum.map(Enum.with_index(list), fn {val, idx} ->
+            QuickBEAM.VM.Invocation.invoke_with_receiver(map_fn, [val, idx], this_arg)
+          end)
+        else
+          list
+        end
       end
 
     Heap.wrap(result)
@@ -808,16 +812,20 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp coerce_to_list({:obj, ref} = obj) do
     iterator_method = Get.get(obj, {:symbol, "Symbol.iterator"})
 
-    if QuickBEAM.VM.Builtin.callable?(iterator_method) do
-      iterator = QuickBEAM.VM.Invocation.invoke_with_receiver(iterator_method, [], obj)
-      iterator_to_list(iterator, [])
-    else
-      case Heap.get_obj(ref) do
-        {:qb_arr, arr} -> :array.to_list(arr)
-        l when is_list(l) -> l
-        map when is_map(map) -> Heap.to_list({:obj, ref})
-        _ -> []
-      end
+    cond do
+      QuickBEAM.VM.Builtin.callable?(iterator_method) ->
+        iterator = QuickBEAM.VM.Invocation.invoke_with_receiver(iterator_method, [], obj)
+        iterator_to_list(iterator, [])
+
+      iterator_method not in [nil, :undefined] ->
+        JSThrow.type_error!("object is not iterable")
+
+      true ->
+        case Heap.get_obj(ref) do
+          {:qb_arr, arr} -> :array.to_list(arr)
+          l when is_list(l) -> l
+          _ -> array_like_to_list(obj)
+        end
     end
   end
 
@@ -834,6 +842,46 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp coerce_to_list(n) when is_number(n), do: []
   defp coerce_to_list(b) when is_boolean(b), do: []
   defp coerce_to_list(_), do: []
+
+  defp array_like_source?({:obj, _} = obj) do
+    iterator_method = Get.get(obj, {:symbol, "Symbol.iterator"})
+
+    cond do
+      QuickBEAM.VM.Builtin.callable?(iterator_method) -> false
+      iterator_method not in [nil, :undefined] -> false
+      true -> true
+    end
+  end
+
+  defp array_like_source?(_), do: false
+
+  defp array_like_to_list(obj) do
+    len = max(Runtime.to_int(Get.get(obj, "length")), 0)
+
+    if len == 0 do
+      []
+    else
+      for index <- 0..(len - 1), do: Get.get(obj, Integer.to_string(index))
+    end
+  end
+
+  defp array_like_from(obj, map_fn, this_arg) do
+    len = max(Runtime.to_int(Get.get(obj, "length")), 0)
+
+    if len == 0 do
+      []
+    else
+      for index <- 0..(len - 1) do
+        value = Get.get(obj, Integer.to_string(index))
+
+        if map_fn do
+          QuickBEAM.VM.Invocation.invoke_with_receiver(map_fn, [value, index], this_arg)
+        else
+          value
+        end
+      end
+    end
+  end
 
   defp iterator_to_list(iterator, acc) do
     next_fn = Get.get(iterator, "next")
