@@ -76,14 +76,34 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   end
 
   @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
-  def array(args, _) do
-    list =
-      case args do
-        [n] when is_integer(n) and n >= 0 -> List.duplicate(:undefined, n)
-        _ -> args
-      end
+  @max_array_length 4_294_967_295
+  @max_materialized_array_length 100_000
 
-    Heap.wrap(list)
+  def array(args, _) do
+    case args do
+      [length] when is_number(length) or length in [:nan, :infinity, :neg_infinity] ->
+        array_with_length(length)
+
+      _ ->
+        Heap.wrap(args)
+    end
+  end
+
+  defp array_with_length(length_value) do
+    length = Runtime.to_number(length_value)
+
+    cond do
+      not is_number(length) or length < 0 or length != trunc(length) or length > @max_array_length ->
+        JSThrow.range_error!("Invalid array length")
+
+      length <= @max_materialized_array_length ->
+        Heap.wrap(List.duplicate(:undefined, trunc(length)))
+
+      true ->
+        {:obj, ref} = array = Heap.wrap([])
+        Heap.put_array_prop(ref, "length", trunc(length))
+        array
+    end
   end
 
   @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
