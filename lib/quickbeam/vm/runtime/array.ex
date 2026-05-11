@@ -556,11 +556,21 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   @max_safe_integer 9_007_199_254_740_991
 
+  defp concat(nil, _args), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp concat(:undefined, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
   defp concat(this, args) do
-    [this | args]
+    [concat_receiver(this) | args]
     |> Enum.reduce([], &concat_item/2)
     |> Heap.wrap()
   end
+
+  defp concat_receiver({:obj, _} = obj), do: obj
+  defp concat_receiver({:qb_arr, _} = arr), do: arr
+  defp concat_receiver(list) when is_list(list), do: list
+  defp concat_receiver(value), do: QuickBEAM.VM.Runtime.Globals.Constructors.object([value], nil)
 
   defp concat_item(value, acc) do
     if concat_spreadable?(value) do
