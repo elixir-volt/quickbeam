@@ -581,6 +581,9 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
             Map.has_key?(map, map_data()) ->
               JSMap.proto_property(key)
 
+            Map.has_key?(map, set_data()) and Map.has_key?(map, :weak) ->
+              JSSet.weak_proto_property(key)
+
             Map.has_key?(map, set_data()) ->
               JSSet.proto_property(key)
 
@@ -646,6 +649,9 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         cond do
           Map.has_key?(map, map_data()) ->
             JSMap.proto_property(key)
+
+          Map.has_key?(map, set_data()) and Map.has_key?(map, :weak) ->
+            JSSet.weak_proto_property(key)
 
           Map.has_key?(map, set_data()) ->
             JSSet.proto_property(key)

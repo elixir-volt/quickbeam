@@ -71,6 +71,11 @@ defmodule QuickBEAM.VM.Runtime.Set do
   def proto_property("isDisjointFrom"), do: {:builtin, "isDisjointFrom", &disjoint?/2}
   def proto_property(_), do: :undefined
 
+  def weak_proto_property("has"), do: {:builtin, "has", &weak_has/2}
+  def weak_proto_property("add"), do: {:builtin, "add", &weak_add/2}
+  def weak_proto_property("delete"), do: {:builtin, "delete", &weak_delete/2}
+  def weak_proto_property(_), do: :undefined
+
   defp set_object(_set_ref, items) do
     %{
       set_data() => items,
@@ -358,15 +363,15 @@ defmodule QuickBEAM.VM.Runtime.Set do
   defp require_strong_set_ref!(_), do: JSThrow.type_error!("Method requires a Set")
 
   defp has([value | _], this) do
-    ref = require_setlike_ref!(this)
+    ref = require_strong_set_ref!(this)
     items = Heap.get_obj(ref, %{}) |> Map.get(set_data(), [])
     normalize_set_value(value) in items
   end
 
-  defp has(_, this), do: require_setlike_ref!(this)
+  defp has(_, this), do: require_strong_set_ref!(this)
 
   defp add([value | _], this) do
-    ref = require_setlike_ref!(this)
+    ref = require_strong_set_ref!(this)
     obj = Heap.get_obj(ref, %{})
     if Map.get(obj, :weak), do: Collections.validate_weak_key!(value, "WeakSet")
     value = normalize_set_value(value)
@@ -385,10 +390,10 @@ defmodule QuickBEAM.VM.Runtime.Set do
     {:obj, ref}
   end
 
-  defp add(_, this), do: require_setlike_ref!(this)
+  defp add(_, this), do: require_strong_set_ref!(this)
 
   defp delete([value | _], this) do
-    ref = require_setlike_ref!(this)
+    ref = require_strong_set_ref!(this)
     obj = Heap.get_obj(ref, %{})
     value = normalize_set_value(value)
     items = Map.get(obj, set_data(), [])
@@ -403,17 +408,51 @@ defmodule QuickBEAM.VM.Runtime.Set do
     value in items
   end
 
-  defp delete(_, this), do: require_setlike_ref!(this)
+  defp delete(_, this), do: require_strong_set_ref!(this)
+
+  defp weak_has([value | _], this) do
+    ref = require_setlike_ref!(this)
+    items = Heap.get_obj(ref, %{}) |> Map.get(set_data(), [])
+    value in items
+  end
+
+  defp weak_has(_, this), do: require_setlike_ref!(this)
+
+  defp weak_add([value | _], this) do
+    ref = require_setlike_ref!(this)
+    obj = Heap.get_obj(ref, %{})
+    if Map.get(obj, :weak), do: Collections.validate_weak_key!(value, "WeakSet")
+    items = Map.get(obj, set_data(), [])
+
+    unless value in items do
+      Heap.put_obj(ref, %{obj | set_data() => items ++ [value], "size" => length(items) + 1})
+    end
+
+    {:obj, ref}
+  end
+
+  defp weak_add(_, this), do: require_setlike_ref!(this)
+
+  defp weak_delete([value | _], this) do
+    ref = require_setlike_ref!(this)
+    obj = Heap.get_obj(ref, %{})
+    items = Map.get(obj, set_data(), [])
+    new_items = List.delete(items, value)
+    Heap.put_obj(ref, %{obj | set_data() => new_items, "size" => length(new_items)})
+    value in items
+  end
+
+  defp weak_delete(_, this), do: require_setlike_ref!(this)
 
   defp clear(_, this) do
-    ref = require_setlike_ref!(this)
+    ref = require_strong_set_ref!(this)
     obj = Heap.get_obj(ref, %{})
     Heap.put_obj(ref, %{obj | set_data() => [], "size" => 0})
     :undefined
   end
 
   defp values(_, this) do
-    ref = require_setlike_ref!(this)
+    ref = require_strong_set_ref!(this)
 
     ref
     |> Heap.get_obj(%{})
@@ -422,7 +461,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
   end
 
   defp entries(_, this) do
-    ref = require_setlike_ref!(this)
+    ref = require_strong_set_ref!(this)
 
     ref
     |> Heap.get_obj(%{})
