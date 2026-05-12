@@ -110,6 +110,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
 
     method "getOwnPropertyDescriptor" do
       [obj, key | _] = args
+      require_object!(obj, "Reflect.getOwnPropertyDescriptor")
 
       Object.static_property("getOwnPropertyDescriptor")
       |> Invocation.invoke_callback_or_throw([obj, key])
