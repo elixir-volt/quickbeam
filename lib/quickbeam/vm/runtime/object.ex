@@ -10,6 +10,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.ObjectModel.{Define, Get, OwnProperty, PropertyDescriptor, PropertyKey, Put}
   alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Runtime.String, as: JSString
 
   @doc "Builds prototype data for object static methods."
   def build_prototype do
@@ -1168,9 +1169,8 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp entries([string | _]) when is_binary(string) do
     string
-    |> String.graphemes()
-    |> Enum.with_index()
-    |> Enum.map(fn {char, index} -> Heap.wrap([Integer.to_string(index), char]) end)
+    |> string_indexed_entries()
+    |> Enum.map(fn {index, char} -> Heap.wrap([index, char]) end)
     |> Heap.wrap()
   end
 
@@ -1278,12 +1278,9 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp to_assign_target({:obj, _} = object), do: object
   defp to_assign_target(target), do: object_value_of(target)
 
-  defp string_assign_entries(string) do
-    string
-    |> String.graphemes()
-    |> Enum.with_index()
-    |> Enum.map(fn {char, index} -> {Integer.to_string(index), char} end)
-  end
+  defp string_assign_entries(string), do: string_indexed_entries(string)
+
+  defp string_indexed_entries(string), do: JSString.utf16_indexed_entries(string)
 
   defp enumerable_assign_entries(ref) do
     data = Heap.get_obj(ref, %{})

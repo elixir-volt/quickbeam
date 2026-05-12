@@ -851,7 +851,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
       {:qb_arr, _} ->
         QuickBEAM.VM.ObjectModel.OwnProperty.present?({:obj, ref}, key) or
-          has_property(Heap.get_array_proto(ref), key)
+          has_array_prototype_property?(ref, key)
 
       _ ->
         Get.get({:obj, ref}, key) != :undefined
@@ -883,6 +883,10 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     do: key >= 0 and key < length(obj)
 
   def has_property(_, _), do: false
+
+  defp has_array_prototype_property?(ref, key) do
+    has_property(Heap.get_array_proto(ref), key) or has_property(Heap.get_object_prototype(), key)
+  end
 
   defp array_index_beyond_length?(obj, ref, index) do
     case Heap.get_array_prop(ref, "length") do

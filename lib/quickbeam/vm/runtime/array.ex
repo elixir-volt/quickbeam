@@ -636,20 +636,24 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp concat_species_from_constructor(:undefined), do: :array
 
   defp concat_species_from_constructor({:obj, _} = constructor) do
+    concat_species_from_constructor_object(constructor)
+  end
+
+  defp concat_species_from_constructor(constructor) do
+    if constructable_from?(constructor) do
+      concat_species_from_constructor_object(constructor)
+    else
+      JSThrow.type_error!("object.constructor is not a constructor")
+    end
+  end
+
+  defp concat_species_from_constructor_object(constructor) do
     species = Get.get(constructor, {:symbol, "Symbol.species"})
 
     cond do
       species in [nil, :undefined] -> :array
       constructable_from?(species) -> species
       true -> JSThrow.type_error!("object.constructor[Symbol.species] is not a constructor")
-    end
-  end
-
-  defp concat_species_from_constructor(constructor) do
-    if constructable_from?(constructor) do
-      constructor
-    else
-      JSThrow.type_error!("object.constructor is not a constructor")
     end
   end
 

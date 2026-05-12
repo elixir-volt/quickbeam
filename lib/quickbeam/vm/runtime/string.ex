@@ -163,6 +163,59 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   # ── Implementations ──
 
+  @doc "Returns the JavaScript UTF-16 code-unit length of a string."
+  def utf16_length(string) when is_binary(string) do
+    if byte_size(string) == String.length(string) do
+      byte_size(string)
+    else
+      string
+      |> String.to_charlist()
+      |> Enum.reduce(0, fn cp, acc ->
+        if cp > 0xFFFF, do: acc + 2, else: acc + 1
+      end)
+    end
+  end
+
+  @doc "Returns the string value for a JavaScript UTF-16 code-unit index."
+  def utf16_code_unit_at(string, index) when is_binary(string) do
+    string
+    |> utf16_code_units()
+    |> Enum.at(index, :undefined)
+  end
+
+  @doc "Returns enumerable string index/value pairs using JavaScript UTF-16 indexing."
+  def utf16_indexed_entries(string) when is_binary(string) do
+    string
+    |> utf16_code_units()
+    |> Enum.with_index()
+    |> Enum.map(fn {char, index} -> {Integer.to_string(index), char} end)
+  end
+
+  def utf16_code_units(string) when is_binary(string) do
+    string
+    |> String.to_charlist()
+    |> Enum.flat_map(fn
+      cp when cp > 0xFFFF ->
+        cp = cp - 0x10000
+
+        [
+          surrogate_binary(div(cp, 0x400) + 0xD800),
+          surrogate_binary(rem(cp, 0x400) + 0xDC00)
+        ]
+
+      cp ->
+        [<<cp::utf8>>]
+    end)
+  rescue
+    UnicodeConversionError -> String.graphemes(string)
+  end
+
+  defp surrogate_binary(unit) do
+    <<Bitwise.bor(0xE0, Bitwise.bsr(unit, 12)),
+      Bitwise.bor(0x80, Bitwise.band(Bitwise.bsr(unit, 6), 0x3F)),
+      Bitwise.bor(0x80, Bitwise.band(unit, 0x3F))>>
+  end
+
   defp unwrap_string({:obj, ref}) do
     case QuickBEAM.VM.Heap.get_obj(ref, %{}) do
       %{"__wrapped_string__" => value} -> value

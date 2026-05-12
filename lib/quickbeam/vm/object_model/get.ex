@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.ObjectModel.Get do
   @moduledoc "JS property resolution: own properties, prototype chain, getters."
 
-  import Bitwise, only: [band: 2, bor: 2, bsr: 2]
+  import Bitwise, only: [band: 2]
   import QuickBEAM.VM.Heap.Keys
 
   alias QuickBEAM.VM.{Heap, JSThrow}
@@ -126,17 +126,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   def regexp_flags(_), do: ""
 
   @doc "Returns the JavaScript UTF-16 code-unit length of a string."
-  def string_length(s) do
-    if byte_size(s) == String.length(s) do
-      byte_size(s)
-    else
-      s
-      |> String.to_charlist()
-      |> Enum.reduce(0, fn cp, acc ->
-        if cp > 0xFFFF, do: acc + 2, else: acc + 1
-      end)
-    end
-  end
+  def string_length(s), do: JSString.utf16_length(s)
 
   @doc "Returns the JavaScript `length` value for array-like, string, and function values."
   def length_of(obj) do
@@ -248,34 +238,9 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp wrapped_string_property(string, key) when is_binary(string) do
     case PropertyKey.array_index(key) do
-      {:ok, idx} -> utf16_code_unit_at(string, idx)
+      {:ok, idx} -> JSString.utf16_code_unit_at(string, idx)
       :error -> JSString.proto_property(key)
     end
-  end
-
-  defp utf16_code_unit_at(string, index) do
-    string
-    |> utf16_code_units()
-    |> Enum.at(index, :undefined)
-  end
-
-  defp utf16_code_units(string) do
-    string
-    |> String.to_charlist()
-    |> Enum.flat_map(fn
-      cp when cp > 0xFFFF ->
-        cp = cp - 0x10000
-        [surrogate_binary(div(cp, 0x400) + 0xD800), surrogate_binary(rem(cp, 0x400) + 0xDC00)]
-
-      cp ->
-        [<<cp::utf8>>]
-    end)
-  rescue
-    UnicodeConversionError -> String.graphemes(string)
-  end
-
-  defp surrogate_binary(unit) do
-    <<bor(0xE0, bsr(unit, 12)), bor(0x80, band(bsr(unit, 6), 0x3F)), bor(0x80, band(unit, 0x3F))>>
   end
 
   defp wrapped_proto_property(map, key) do
@@ -866,12 +831,19 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     case Heap.get_array_proto() do
       {:obj, _} = proto ->
         case get(proto, key) do
-          :undefined -> Array.proto_property(key)
+          :undefined -> fallback_array_proto_property(proto, key)
           val -> val
         end
 
       _ ->
         Array.proto_property(key)
+    end
+  end
+
+  defp fallback_array_proto_property(proto, key) do
+    case Array.proto_property(key) do
+      :undefined -> get_default_object_prototype(proto, key)
+      val -> val
     end
   end
 

@@ -448,7 +448,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
       {idx, ""} when idx >= 0 ->
         if idx < Get.string_length(string) do
           PropertyDescriptor.data_object(
-            string |> String.graphemes() |> Enum.at(idx),
+            QuickBEAM.VM.Runtime.String.utf16_code_unit_at(string, idx),
             PropertyDescriptor.attrs(writable: false, enumerable: true, configurable: false)
           )
         end
