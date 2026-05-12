@@ -3,6 +3,9 @@ defmodule QuickBEAM.VM.ObjectModel.PropertyDescriptor do
 
   use QuickBEAM.VM.Builtin
 
+  import QuickBEAM.VM.Heap.Keys, only: [key_order: 0]
+
+  alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.ObjectModel.{Get, HasProperty}
 
@@ -15,21 +18,23 @@ defmodule QuickBEAM.VM.ObjectModel.PropertyDescriptor do
   end
 
   def data_object(value, attrs) do
-    object do
-      val("value", value)
-      val("writable", attrs.writable)
-      val("enumerable", attrs.enumerable)
-      val("configurable", attrs.configurable)
-    end
+    Heap.wrap(%{
+      "value" => value,
+      "writable" => attrs.writable,
+      "enumerable" => attrs.enumerable,
+      "configurable" => attrs.configurable,
+      key_order() => ["configurable", "enumerable", "writable", "value"]
+    })
   end
 
   def accessor_object(getter, setter, attrs) do
-    object do
-      val("get", getter || :undefined)
-      val("set", setter || :undefined)
-      val("enumerable", attrs.enumerable)
-      val("configurable", attrs.configurable)
-    end
+    Heap.wrap(%{
+      "get" => getter || :undefined,
+      "set" => setter || :undefined,
+      "enumerable" => attrs.enumerable,
+      "configurable" => attrs.configurable,
+      key_order() => ["configurable", "enumerable", "set", "get"]
+    })
   end
 
   def present?(source_obj, raw_desc, "value") do
