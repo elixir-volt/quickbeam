@@ -577,14 +577,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
   defp require_entry_pair([k]), do: {k, :undefined}
 
   defp require_entry_pair({:obj, _} = entry) do
-    key = Get.get(entry, "0")
-    value = Get.get(entry, "1")
-
-    if key == :undefined and value == :undefined and Heap.to_list(entry) == [] do
-      JSThrow.type_error!("Iterator value is not an entry object")
-    else
-      {key, value}
-    end
+    {Get.get(entry, "0"), Get.get(entry, "1")}
   end
 
   defp require_entry_pair({:qb_arr, arr}), do: require_entry_pair(:array.to_list(arr))
