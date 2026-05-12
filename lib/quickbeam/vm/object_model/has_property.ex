@@ -20,7 +20,7 @@ defmodule QuickBEAM.VM.ObjectModel.HasProperty do
         end
 
       map when is_map(map) ->
-        OwnProperty.present?(obj, key) or has_property?(Map.get(map, proto()), key)
+        OwnProperty.present?(obj, key) or prototype_has_property?(obj, map, key)
 
       list when is_list(list) ->
         OwnProperty.present?(obj, key)
@@ -49,6 +49,29 @@ defmodule QuickBEAM.VM.ObjectModel.HasProperty do
     do: key >= 0 and key < length(list)
 
   def has_property?(_, _), do: false
+
+  defp prototype_has_property?({:obj, ref}, map, key) do
+    cond do
+      Map.has_key?(map, :__internal_proto__) ->
+        has_property?(Map.get(map, :__internal_proto__), key)
+
+      Map.has_key?(map, proto()) ->
+        has_property?(Map.get(map, proto()), key)
+
+      object_prototype_ref?(ref) ->
+        false
+
+      true ->
+        has_property?(Heap.get_object_prototype(), key)
+    end
+  end
+
+  defp object_prototype_ref?(ref) do
+    case Heap.get_object_prototype() do
+      {:obj, proto_ref} -> ref == proto_ref
+      _ -> false
+    end
+  end
 
   defp has_array_prototype_property?(ref, key) do
     has_property?(Heap.get_array_proto(ref), key) or
