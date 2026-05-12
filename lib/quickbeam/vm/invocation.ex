@@ -679,10 +679,14 @@ defmodule QuickBEAM.VM.Invocation do
     do: QuickBEAM.VM.Runtime.Test262Host.realm_intrinsic(new_target, :weak_set)
 
   defp realm_default_prototype({:builtin, "WeakRef", _}, new_target),
-    do: QuickBEAM.VM.Runtime.Test262Host.realm_intrinsic(new_target, :weak_ref)
+    do:
+      QuickBEAM.VM.Runtime.Test262Host.realm_intrinsic(new_target, :weak_ref) ||
+        Runtime.global_class_proto("WeakRef")
 
   defp realm_default_prototype({:builtin, "FinalizationRegistry", _}, new_target),
-    do: QuickBEAM.VM.Runtime.Test262Host.realm_intrinsic(new_target, :finalization_registry)
+    do:
+      QuickBEAM.VM.Runtime.Test262Host.realm_intrinsic(new_target, :finalization_registry) ||
+        Runtime.global_class_proto("FinalizationRegistry")
 
   defp realm_default_prototype(_ctor, new_target),
     do: QuickBEAM.VM.Runtime.Test262Host.realm_intrinsic(new_target, :object)

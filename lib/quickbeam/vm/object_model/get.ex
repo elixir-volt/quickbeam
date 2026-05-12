@@ -490,7 +490,11 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_own({:regexp, _, _}, key), do: regexp_prototype_property(key)
 
   defp get_own(%QuickBEAM.VM.Function{} = f, "prototype") do
-    Heap.get_or_create_prototype(f)
+    case Map.get(Heap.get_ctor_statics(f), "prototype", :not_set) do
+      :not_set -> Heap.get_or_create_prototype(f)
+      {:accessor, getter, _} when getter != nil -> call_getter(getter, f)
+      val -> val
+    end
   end
 
   defp get_own(%QuickBEAM.VM.Function{is_strict_mode: true}, key)
