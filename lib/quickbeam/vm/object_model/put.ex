@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.JSThrow
-  alias QuickBEAM.VM.ObjectModel.{ArrayPrototype, Get, PropertyKey}
+  alias QuickBEAM.VM.ObjectModel.{Get, HasProperty, PropertyKey}
 
   @compile {:inline, has_property: 2, get_element: 2, set_list_at: 3}
 
@@ -826,63 +826,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   end
 
   @doc "Returns whether a value has a property in its own or prototype chain."
-  def has_property({:obj, ref}, key) do
-    map = Heap.get_obj(ref, %{})
-
-    case map do
-      %{
-        proxy_target() => target,
-        proxy_handler() => handler
-      } ->
-        has_trap = Get.get(handler, "has")
-
-        if has_trap != :undefined do
-          Values.truthy?(Invocation.invoke_callback_or_throw(has_trap, [target, key]))
-        else
-          has_property(target, key)
-        end
-
-      _ when is_map(map) ->
-        QuickBEAM.VM.ObjectModel.OwnProperty.present?({:obj, ref}, key) or
-          has_property(Map.get(map, proto()), key)
-
-      list when is_list(list) ->
-        QuickBEAM.VM.ObjectModel.OwnProperty.present?({:obj, ref}, key)
-
-      {:qb_arr, _} ->
-        QuickBEAM.VM.ObjectModel.OwnProperty.present?({:obj, ref}, key) or
-          ArrayPrototype.has_property?(ref, key)
-
-      _ ->
-        Get.get({:obj, ref}, key) != :undefined
-    end
-  end
-
-  def has_property(%QuickBEAM.VM.Function{} = fun, key) do
-    Get.get(fun, key) != :undefined
-  end
-
-  def has_property({:closure, _, %QuickBEAM.VM.Function{}} = closure, key) do
-    Get.get(closure, key) != :undefined
-  end
-
-  def has_property({:builtin, _, _} = b, key) do
-    Get.get(b, key) != :undefined
-  end
-
-  def has_property({:bound, _, _, _, _} = b, key) do
-    Get.get(b, key) != :undefined
-  end
-
-  def has_property(obj, key) when is_map(obj), do: Map.has_key?(obj, key)
-
-  def has_property({:qb_arr, arr}, key) when is_integer(key),
-    do: key >= 0 and key < :array.size(arr)
-
-  def has_property(obj, key) when is_list(obj) and is_integer(key),
-    do: key >= 0 and key < length(obj)
-
-  def has_property(_, _), do: false
+  def has_property(value, key), do: HasProperty.has_property?(value, key)
 
   defp array_index_beyond_length?(obj, ref, index) do
     case Heap.get_array_prop(ref, "length") do
