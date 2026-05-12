@@ -620,8 +620,17 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     else
       _ ->
         case Heap.get_array_prop(ref, key) do
-          :undefined -> get_own(array_data, key)
-          value -> value
+          :undefined ->
+            own_value = get_own(array_data, key)
+
+            if own_value == :undefined and Heap.get_prop_desc(ref, key) == nil do
+              get_from_prototype({:obj, ref}, key)
+            else
+              own_value
+            end
+
+          value ->
+            value
         end
     end
   end

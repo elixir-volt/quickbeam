@@ -896,10 +896,23 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   defp array_index_value(obj, ref, key, fallback) do
     case Heap.get_array_prop(ref, key) do
-      {:accessor, getter, _} when getter != nil -> Get.call_getter(getter, obj)
-      {:accessor, nil, _} -> :undefined
-      :undefined -> fallback.()
-      value -> value
+      {:accessor, getter, _} when getter != nil ->
+        Get.call_getter(getter, obj)
+
+      {:accessor, nil, _} ->
+        :undefined
+
+      :undefined ->
+        value = fallback.()
+
+        if value == :undefined and Heap.get_prop_desc(ref, key) == nil do
+          Get.get(obj, key)
+        else
+          value
+        end
+
+      value ->
+        value
     end
   end
 

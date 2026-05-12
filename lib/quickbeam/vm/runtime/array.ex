@@ -602,21 +602,23 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp concat_receiver(list) when is_list(list), do: list
   defp concat_receiver(value), do: QuickBEAM.VM.Runtime.Globals.Constructors.object([value], nil)
 
-  defp concat_result(receiver, values) do
-    case concat_species_constructor(receiver) do
-      :array ->
-        Heap.wrap(values)
+  defp concat_result(receiver, entries) do
+    target =
+      case concat_species_constructor(receiver) do
+        :array -> Heap.wrap([])
+        constructor -> QuickBEAM.VM.Invocation.construct_runtime(constructor, constructor, [0])
+      end
 
-      constructor ->
-        target = QuickBEAM.VM.Invocation.construct_runtime(constructor, constructor, [0])
+    Enum.with_index(entries, fn
+      {:present, value}, index ->
+        create_data_property_or_throw(target, Integer.to_string(index), value)
 
-        Enum.with_index(values, fn value, index ->
-          create_data_property_or_throw(target, Integer.to_string(index), value)
-        end)
+      :hole, _index ->
+        :ok
+    end)
 
-        Put.put(target, "length", length(values))
-        target
-    end
+    Put.put(target, "length", length(entries))
+    target
   end
 
   defp concat_species_constructor(receiver) do
@@ -653,7 +655,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     if concat_spreadable?(value) do
       acc ++ concat_spread_values(value, length(acc))
     else
-      acc ++ [value]
+      acc ++ [{:present, value}]
     end
   end
 
@@ -697,7 +699,15 @@ defmodule QuickBEAM.VM.Runtime.Array do
     if len == 0 do
       []
     else
-      for index <- 0..(len - 1), do: Get.get(value, Integer.to_string(index))
+      for index <- 0..(len - 1) do
+        key = Integer.to_string(index)
+
+        if Put.has_property(value, key) do
+          {:present, Get.get(value, key)}
+        else
+          :hole
+        end
+      end
     end
   end
 
