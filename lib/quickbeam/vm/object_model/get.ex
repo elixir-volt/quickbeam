@@ -806,10 +806,17 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp get_from_prototype(list, key) when is_list(list), do: array_proto_property(key)
 
-  defp get_from_prototype(s, key) when is_binary(s), do: JSString.proto_property(key)
-  defp get_from_prototype(n, key) when is_number(n), do: Number.proto_property(key)
-  defp get_from_prototype(true, key), do: Boolean.proto_property(key)
-  defp get_from_prototype(false, key), do: Boolean.proto_property(key)
+  defp get_from_prototype(s, key) when is_binary(s),
+    do: primitive_or_object_proto(JSString.proto_property(key), key)
+
+  defp get_from_prototype(n, key) when is_number(n),
+    do: primitive_or_object_proto(Number.proto_property(key), key)
+
+  defp get_from_prototype(true, key),
+    do: primitive_or_object_proto(Boolean.proto_property(key), key)
+
+  defp get_from_prototype(false, key),
+    do: primitive_or_object_proto(Boolean.proto_property(key), key)
 
   defp get_from_prototype(%QuickBEAM.VM.Function{} = f, key) when key in ["length", "name"] do
     if Map.get(Heap.get_ctor_statics(f), key) == :deleted,
@@ -866,6 +873,9 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     do: fallback_to_function_proto(Function.proto_property(fun, key), fun, key)
 
   defp get_from_prototype(_, _), do: :undefined
+
+  defp primitive_or_object_proto(:undefined, key), do: get_own(Heap.get_object_prototype(), key)
+  defp primitive_or_object_proto(value, _key), do: value
 
   defp array_proto_property(key) do
     case Heap.get_array_proto() do
