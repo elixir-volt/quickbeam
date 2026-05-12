@@ -563,9 +563,16 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   end
 
   defp array_own_property(ref, array_data, key) do
-    case Heap.get_array_prop(ref, key) do
-      :undefined -> get_own(array_data, key)
-      value -> value
+    with {:ok, idx} <- PropertyKey.array_index(key),
+         len when is_integer(len) <- virtual_array_length(ref),
+         true <- idx >= len do
+      :undefined
+    else
+      _ ->
+        case Heap.get_array_prop(ref, key) do
+          :undefined -> get_own(array_data, key)
+          value -> value
+        end
     end
   end
 
@@ -778,8 +785,14 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp array_proto_property(key) do
     case Heap.get_array_proto() do
-      {:obj, _} = proto -> fallback_to_object_proto(get_own(proto, key), proto, key)
-      _ -> Array.proto_property(key)
+      {:obj, _} = proto ->
+        case get(proto, key) do
+          :undefined -> Array.proto_property(key)
+          val -> val
+        end
+
+      _ ->
+        Array.proto_property(key)
     end
   end
 

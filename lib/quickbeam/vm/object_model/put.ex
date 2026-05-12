@@ -838,6 +838,19 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   def has_property(_, _), do: false
 
+  defp array_index_beyond_length?(obj, ref, index) do
+    case Heap.get_array_prop(ref, "length") do
+      len when is_integer(len) ->
+        index >= len
+
+      _ ->
+        case Get.length_of(obj) do
+          len when is_integer(len) -> index >= len
+          _ -> false
+        end
+    end
+  end
+
   defp array_index_value(obj, ref, key, fallback) do
     case Heap.get_array_prop(ref, key) do
       {:accessor, getter, _} when getter != nil -> Get.call_getter(getter, obj)
@@ -856,9 +869,15 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
       {:qb_arr, arr} ->
         case PropertyKey.array_index(idx) do
           {:ok, index} ->
-            array_index_value(obj, ref, Integer.to_string(index), fn ->
-              if index < :array.size(arr), do: :array.get(index, arr), else: :undefined
-            end)
+            key = Integer.to_string(index)
+
+            if array_index_beyond_length?(obj, ref, index) do
+              Get.get(obj, key)
+            else
+              array_index_value(obj, ref, key, fn ->
+                if index < :array.size(arr), do: :array.get(index, arr), else: :undefined
+              end)
+            end
 
           :error ->
             Get.get(obj, PropertyKey.normalize(idx))
@@ -867,9 +886,15 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
       list when is_list(list) ->
         case PropertyKey.array_index(idx) do
           {:ok, index} ->
-            array_index_value(obj, ref, Integer.to_string(index), fn ->
-              Enum.at(list, index, :undefined)
-            end)
+            key = Integer.to_string(index)
+
+            if array_index_beyond_length?(obj, ref, index) do
+              Get.get(obj, key)
+            else
+              array_index_value(obj, ref, key, fn ->
+                Enum.at(list, index, :undefined)
+              end)
+            end
 
           :error ->
             Get.get(obj, PropertyKey.normalize(idx))
