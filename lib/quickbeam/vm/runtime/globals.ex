@@ -435,7 +435,51 @@ defmodule QuickBEAM.VM.Runtime.Globals do
 
            ctor
          end).(),
-      "WeakSet" => register("WeakSet", JSSet.weak_constructor()),
+      "WeakSet" =>
+        (fn ->
+           ctor = register("WeakSet", JSSet.weak_constructor(), auto_proto: true)
+
+           Heap.put_ctor_prop_desc(ctor, "prototype", %{
+             writable: false,
+             enumerable: false,
+             configurable: false
+           })
+
+           case Heap.get_ctor_statics(ctor)["prototype"] do
+             {:obj, proto_ref} ->
+               Heap.put_obj_key(proto_ref, "__proto__", Heap.get_object_prototype())
+
+               Heap.put_prop_desc(proto_ref, "constructor", %{
+                 writable: true,
+                 enumerable: false,
+                 configurable: true
+               })
+
+               for name <- ~w(add has delete) do
+                 Heap.put_obj_key(proto_ref, name, JSSet.weak_proto_property(name))
+
+                 Heap.put_prop_desc(proto_ref, name, %{
+                   writable: true,
+                   enumerable: false,
+                   configurable: true
+                 })
+               end
+
+               sym_to_string_tag = {:symbol, "Symbol.toStringTag"}
+               Heap.put_obj_key(proto_ref, sym_to_string_tag, "WeakSet")
+
+               Heap.put_prop_desc(proto_ref, sym_to_string_tag, %{
+                 writable: false,
+                 enumerable: false,
+                 configurable: true
+               })
+
+             _ ->
+               :ok
+           end
+
+           ctor
+         end).(),
       "WeakRef" => register("WeakRef", fn _, _ -> Runtime.new_object() end),
       "FinalizationRegistry" =>
         register("FinalizationRegistry", &Constructors.finalization_registry/2),

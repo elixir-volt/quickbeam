@@ -26,8 +26,16 @@ defmodule QuickBEAM.VM.Runtime.Set do
 
   @doc "Helper for js `set` and `weakset` built-ins: constructor, `add`/`has`/`delete`, `foreach`, and iteration."
   def weak_constructor do
-    fn args, _this ->
-      ref = make_ref()
+    fn args, this ->
+      {ref, instance_proto} =
+        case this do
+          {:obj, this_ref} ->
+            existing = Heap.get_obj(this_ref, %{})
+            {this_ref, Map.get(existing, proto(), Runtime.global_class_proto("WeakSet"))}
+
+          _ ->
+            {make_ref(), Runtime.global_class_proto("WeakSet")}
+        end
 
       items =
         case args do
@@ -41,7 +49,13 @@ defmodule QuickBEAM.VM.Runtime.Set do
             []
         end
 
-      Heap.put_obj(ref, %{set_data() => items, "size" => length(items), :weak => true})
+      Heap.put_obj(ref, %{
+        set_data() => items,
+        "size" => length(items),
+        :weak => true,
+        proto() => instance_proto
+      })
+
       {:obj, ref}
     end
   end
