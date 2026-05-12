@@ -390,7 +390,43 @@ defmodule QuickBEAM.VM.Runtime.Globals do
 
            ctor
          end).(),
-      "WeakMap" => register("WeakMap", JSMap.weak_constructor()),
+      "WeakMap" =>
+        (fn ->
+           ctor = register("WeakMap", JSMap.weak_constructor(), auto_proto: true)
+
+           case Heap.get_ctor_statics(ctor)["prototype"] do
+             {:obj, proto_ref} ->
+               Heap.put_prop_desc(proto_ref, "constructor", %{
+                 writable: true,
+                 enumerable: false,
+                 configurable: true
+               })
+
+               for name <- ~w(get set has delete) do
+                 Heap.put_obj_key(proto_ref, name, JSMap.weak_proto_property(name))
+
+                 Heap.put_prop_desc(proto_ref, name, %{
+                   writable: true,
+                   enumerable: false,
+                   configurable: true
+                 })
+               end
+
+               sym_to_string_tag = {:symbol, "Symbol.toStringTag"}
+               Heap.put_obj_key(proto_ref, sym_to_string_tag, "WeakMap")
+
+               Heap.put_prop_desc(proto_ref, sym_to_string_tag, %{
+                 writable: false,
+                 enumerable: false,
+                 configurable: true
+               })
+
+             _ ->
+               :ok
+           end
+
+           ctor
+         end).(),
       "WeakSet" => register("WeakSet", JSSet.weak_constructor()),
       "WeakRef" => register("WeakRef", fn _, _ -> Runtime.new_object() end),
       "FinalizationRegistry" =>

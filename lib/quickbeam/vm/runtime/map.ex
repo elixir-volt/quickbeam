@@ -122,7 +122,13 @@ defmodule QuickBEAM.VM.Runtime.Map do
             %{}
         end
 
-      Heap.put_obj(ref, %{map_data() => init, "size" => map_size(init), :weak => true})
+      Heap.put_obj(ref, %{
+        map_data() => init,
+        "size" => map_size(init),
+        :weak => true,
+        proto() => Runtime.global_class_proto("WeakMap")
+      })
+
       {:obj, ref}
     end
   end
