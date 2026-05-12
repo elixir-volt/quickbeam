@@ -864,7 +864,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp array_like_length({:obj, ref}) do
     if Heap.get_array_prop(ref, "__arguments__") == true do
-      max(Runtime.to_int(Get.get({:obj, ref}, "length")), 0)
+      to_length(Get.get({:obj, ref}, "length"))
     else
       case Heap.get_obj(ref) do
         {:qb_arr, arr} ->
@@ -874,14 +874,24 @@ defmodule QuickBEAM.VM.Runtime.Array do
           length(list)
 
         _ ->
-          max(Runtime.to_int(Get.get({:obj, ref}, "length")), 0)
+          to_length(Get.get({:obj, ref}, "length"))
       end
     end
   end
 
   defp array_like_length({:qb_arr, arr}), do: :array.size(arr)
   defp array_like_length(list) when is_list(list), do: length(list)
-  defp array_like_length(value), do: max(Runtime.to_int(Get.get(value, "length")), 0)
+  defp array_like_length(value), do: to_length(Get.get(value, "length"))
+
+  defp to_length(value) do
+    case Runtime.to_number(value) do
+      :infinity -> @max_safe_integer
+      :neg_infinity -> 0
+      :nan -> 0
+      number when is_number(number) -> min(max(trunc(number), 0), @max_safe_integer)
+      _ -> 0
+    end
+  end
 
   defp some({:obj, ref}, args), do: some(Heap.obj_to_list(ref), args)
 
