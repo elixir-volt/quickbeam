@@ -99,37 +99,33 @@ defmodule QuickBEAM.VM.Runtime.Map do
     fn args, _this ->
       ref = make_ref()
 
-      init =
-        case args do
-          [{:obj, _} = entries | _] ->
-            Heap.to_list(entries)
-            |> Enum.reduce(%{}, fn
-              {:obj, eref}, acc ->
-                case Heap.get_obj(eref, []) do
-                  [k, v | _] ->
-                    Collections.validate_weak_key!(k, "WeakMap")
-                    Map.put(acc, k, v)
-
-                  _ ->
-                    acc
-                end
-
-              _, acc ->
-                acc
-            end)
-
-          _ ->
-            %{}
-        end
-
       Heap.put_obj(ref, %{
-        map_data() => init,
-        "size" => map_size(init),
+        map_data() => %{},
+        "size" => 0,
         :weak => true,
         proto() => Runtime.global_class_proto("WeakMap")
       })
 
-      {:obj, ref}
+      map = {:obj, ref}
+
+      case args do
+        [] ->
+          map
+
+        [iterable | _] when iterable in [nil, :undefined] ->
+          map
+
+        [iterable | _] ->
+          prototype_adder = Get.get(Runtime.global_class_proto("WeakMap"), "set")
+
+          unless Builtin.callable?(prototype_adder) do
+            JSThrow.type_error!("WeakMap.prototype.set is not callable")
+          end
+
+          adder = Get.get(map, "set")
+          construct_from_iterable(iterable, map, adder)
+          map
+      end
     end
   end
 

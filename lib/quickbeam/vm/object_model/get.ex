@@ -671,9 +671,13 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         end
 
       map when is_map(map) and is_map_key(map, proto()) ->
-        # For type-specialized objects (Map, Set, Date, etc.), check type methods first.
+        proto_result = direct_prototype_property(map, key)
+
         type_result =
           cond do
+            proto_result != :undefined ->
+              proto_result
+
             Map.has_key?(map, map_data()) and Map.has_key?(map, :weak) ->
               JSMap.weak_proto_property(key)
 
@@ -725,6 +729,19 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   end
 
   defp get_prototype_raw(value, key), do: get_from_prototype(value, key)
+
+  defp direct_prototype_property(map, key) do
+    case Map.get(map, :__internal_proto__, Map.get(map, proto())) do
+      {:obj, proto_ref} ->
+        case Heap.get_obj(proto_ref, %{}) do
+          proto_map when is_map(proto_map) -> Map.get(proto_map, key, :undefined)
+          _ -> :undefined
+        end
+
+      _ ->
+        :undefined
+    end
+  end
 
   defp explicit_undefined_own?({:obj, ref}, key) do
     case Heap.get_obj_raw(ref) do
