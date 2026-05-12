@@ -4,11 +4,35 @@ defmodule QuickBEAM.VM.Runtime.FinalizationRegistry do
   import QuickBEAM.VM.Heap.Keys
   use QuickBEAM.VM.Builtin
 
+  alias QuickBEAM.VM.Builtin.Definition
   alias QuickBEAM.VM.{Builtin, Heap, JSThrow, Runtime}
   alias QuickBEAM.VM.Runtime.Collections
 
   @cleanup "__finalization_registry_cleanup__"
   @cells "__finalization_registry_cells__"
+
+  @method_descriptor %{writable: true, enumerable: false, configurable: true}
+  @tag_descriptor %{writable: false, enumerable: false, configurable: true}
+
+  @doc "Returns declarative installation metadata for FinalizationRegistry."
+  def builtin_definition do
+    %Definition{
+      name: "FinalizationRegistry",
+      constructor: constructor(),
+      length: 1,
+      phase: :weak_refs,
+      realm_intrinsic: :finalization_registry,
+      prototype_properties: [
+        %{key: "register", value: proto_property("register"), descriptor: @method_descriptor},
+        %{key: "unregister", value: proto_property("unregister"), descriptor: @method_descriptor},
+        %{
+          key: {:symbol, "Symbol.toStringTag"},
+          value: "FinalizationRegistry",
+          descriptor: @tag_descriptor
+        }
+      ]
+    }
+  end
 
   @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor do

@@ -4,12 +4,35 @@ defmodule QuickBEAM.VM.Runtime.WeakRef do
   import QuickBEAM.VM.Heap.Keys
   use QuickBEAM.VM.Builtin
 
+  alias QuickBEAM.VM.Builtin.Definition
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.Collections
 
   @target "__weak_ref_target__"
+
+  @method_descriptor %{writable: true, enumerable: false, configurable: true}
+  @tag_descriptor %{writable: false, enumerable: false, configurable: true}
+
+  @doc "Returns declarative installation metadata for WeakRef."
+  def builtin_definition do
+    %Definition{
+      name: "WeakRef",
+      constructor: constructor(),
+      length: 1,
+      phase: :weak_refs,
+      realm_intrinsic: :weak_ref,
+      prototype_properties: [
+        %{key: "deref", value: proto_property("deref"), descriptor: @method_descriptor},
+        %{
+          key: {:symbol, "Symbol.toStringTag"},
+          value: "WeakRef",
+          descriptor: @tag_descriptor
+        }
+      ]
+    }
+  end
 
   @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor do
