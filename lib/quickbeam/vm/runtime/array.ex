@@ -6,7 +6,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   import QuickBEAM.VM.Heap.Keys
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
-  alias QuickBEAM.VM.ObjectModel.{Define, Get, Put}
+  alias QuickBEAM.VM.ObjectModel.{Define, Delete, Get, Put}
   alias QuickBEAM.VM.PromiseState
   alias QuickBEAM.VM.Runtime
 
@@ -1144,8 +1144,42 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp copy_within(value, _args) when is_boolean(value), do: primitive_object(value)
 
   defp copy_within({:obj, ref} = obj, args) do
-    list = Heap.obj_to_list(ref)
-    len = copy_within_length!(obj, ref, list)
+    case Heap.get_obj(ref) do
+      map when is_map(map) ->
+        copy_within_object(obj, args)
+
+      _ ->
+        list = Heap.obj_to_list(ref)
+        len = copy_within_length!(obj, ref, list)
+        target = normalize_copy_index(arg(args, 0, 0), len)
+        start_idx = normalize_copy_index(arg(args, 1, 0), len)
+
+        end_idx =
+          case Enum.drop(args, 2) do
+            [] -> len
+            [:undefined | _] -> len
+            [end_value | _] -> normalize_copy_index(end_value, len)
+          end
+
+        slice = Enum.slice(list, start_idx, max(end_idx - start_idx, 0))
+
+        new_list =
+          list
+          |> Enum.with_index()
+          |> Enum.map(fn {item, i} ->
+            offset = i - target
+            if i >= target and offset < length(slice), do: Enum.at(slice, offset), else: item
+          end)
+
+        Heap.put_obj(ref, new_list)
+        {:obj, ref}
+    end
+  end
+
+  defp copy_within(_, _), do: :undefined
+
+  defp copy_within_object(obj, args) do
+    len = copy_within_length!(obj)
     target = normalize_copy_index(arg(args, 0, 0), len)
     start_idx = normalize_copy_index(arg(args, 1, 0), len)
 
@@ -1156,21 +1190,31 @@ defmodule QuickBEAM.VM.Runtime.Array do
         [end_value | _] -> normalize_copy_index(end_value, len)
       end
 
-    slice = Enum.slice(list, start_idx, max(end_idx - start_idx, 0))
+    count = max(end_idx - start_idx, 0)
 
-    new_list =
-      list
-      |> Enum.with_index()
-      |> Enum.map(fn {item, i} ->
-        offset = i - target
-        if i >= target and offset < length(slice), do: Enum.at(slice, offset), else: item
-      end)
+    Enum.reduce(0..max(count - 1, -1), obj, fn offset, acc ->
+      from_key = Integer.to_string(start_idx + offset)
+      to_key = Integer.to_string(target + offset)
 
-    Heap.put_obj(ref, new_list)
-    {:obj, ref}
+      if Put.has_property(acc, from_key) do
+        Put.put(acc, to_key, Get.get(acc, from_key))
+      else
+        unless Delete.delete_property(acc, to_key) do
+          JSThrow.type_error!("Cannot delete property")
+        end
+      end
+
+      acc
+    end)
   end
 
-  defp copy_within(_, _), do: :undefined
+  defp copy_within_length!(obj) do
+    case Get.get(obj, "length") do
+      {:symbol, _} -> JSThrow.type_error!("Cannot convert a Symbol value to a number")
+      {:symbol, _, _} -> JSThrow.type_error!("Cannot convert a Symbol value to a number")
+      length -> max(Runtime.to_int(length), 0)
+    end
+  end
 
   defp copy_within_length!(obj, ref, list) do
     case Heap.get_obj(ref) do
