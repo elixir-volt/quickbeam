@@ -607,12 +607,32 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   defp concat_spreadable?(value) do
-    spreadable = Get.get(value, {:symbol, "Symbol.isConcatSpreadable"})
+    spreadable = concat_spreadable_flag(value)
 
     if spreadable != :undefined do
       Runtime.truthy?(spreadable)
     else
       is_array(value)
+    end
+  end
+
+  defp concat_spreadable_flag(value) do
+    sym = {:symbol, "Symbol.isConcatSpreadable"}
+
+    case Get.get(value, sym) do
+      :undefined -> inherited_concat_spreadable_flag(value, sym)
+      other -> other
+    end
+  end
+
+  defp inherited_concat_spreadable_flag(value, sym) do
+    if QuickBEAM.VM.Builtin.callable?(value) do
+      case Heap.get_func_proto() do
+        {:obj, _} = proto -> Get.get(proto, sym)
+        _ -> :undefined
+      end
+    else
+      :undefined
     end
   end
 
