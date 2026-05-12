@@ -6,26 +6,28 @@ defmodule QuickBEAM.VM.ObjectModel.Static do
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
 
   def delete_static(fun, key) do
-    key_str = if is_binary(key), do: key, else: Values.stringify(key)
+    prop_key =
+      if is_binary(key) or match?({:symbol, _}, key), do: key, else: Values.stringify(key)
+
     statics = Heap.get_ctor_statics(fun)
 
     cond do
       match?(
         %{configurable: false},
-        Heap.get_prop_desc(fun, key_str) || Heap.get_ctor_prop_desc(fun, key_str)
+        Heap.get_prop_desc(fun, prop_key) || Heap.get_ctor_prop_desc(fun, prop_key)
       ) ->
         false
 
-      Map.has_key?(statics, key_str) and match?({:builtin, _, _}, fun) ->
-        Heap.put_ctor_statics(fun, Map.put(statics, key_str, :deleted))
+      Map.has_key?(statics, prop_key) and match?({:builtin, _, _}, fun) ->
+        Heap.put_ctor_statics(fun, Map.put(statics, prop_key, :deleted))
         true
 
-      Map.has_key?(statics, key_str) ->
-        Heap.put_ctor_statics(fun, Map.delete(statics, key_str))
+      Map.has_key?(statics, prop_key) ->
+        Heap.put_ctor_statics(fun, Map.delete(statics, prop_key))
         true
 
       true ->
-        delete_missing_static(fun, key_str, statics)
+        delete_missing_static(fun, prop_key, statics)
     end
   end
 

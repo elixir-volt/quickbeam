@@ -131,6 +131,13 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   def enumerable?({:builtin, "Object", _}, "assign"), do: false
   def enumerable?({:builtin, _, _}, key) when key in ["length", "name"], do: false
 
+  def enumerable?({:builtin, _, _} = target, key) do
+    case descriptor(target, key) do
+      {:obj, desc_ref} -> QuickBEAM.VM.ObjectModel.Get.get({:obj, desc_ref}, "enumerable") == true
+      _ -> false
+    end
+  end
+
   def enumerable?(target, key)
       when key in ["length", "name", "prototype"] and (is_tuple(target) or is_struct(target)),
       do: false
@@ -272,6 +279,9 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
       end
 
     case Map.get(statics, prop_key, fallback) do
+      :deleted ->
+        :undefined
+
       {:accessor, getter, setter} ->
         PropertyDescriptor.accessor_object(
           getter,

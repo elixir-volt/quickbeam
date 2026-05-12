@@ -515,6 +515,9 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
       key in ["caller", "arguments"] and restricted_function_property?(callable) ->
         JSThrow.type_error!("'caller' and 'arguments' are restricted function properties")
 
+      match?({:accessor, _, nil}, Map.get(statics, key)) ->
+        reject_failed_write!()
+
       match?(%{writable: false}, callable_prop_desc(callable, key)) or
         inherited_object_property_readonly?(callable, key) or
           inherited_object_getter_only?(callable, key) ->
