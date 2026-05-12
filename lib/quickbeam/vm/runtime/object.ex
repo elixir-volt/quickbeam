@@ -1263,6 +1263,10 @@ defmodule QuickBEAM.VM.Runtime.Object do
     define_callable_property(fun, key, desc_ref)
   end
 
+  defp define_property([{:bound, _, _, _, _} = fun, key, {:obj, desc_ref} | _]) do
+    define_callable_property(fun, key, desc_ref)
+  end
+
   defp define_property([%QuickBEAM.VM.Function{} = fun, key, {:obj, desc_ref} | _]) do
     define_callable_property(fun, key, desc_ref)
   end

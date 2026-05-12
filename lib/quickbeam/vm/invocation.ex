@@ -647,6 +647,7 @@ defmodule QuickBEAM.VM.Invocation do
   def unwrap_constructor_target(other), do: other
 
   defp unwrap_new_target({:closure, _, %QuickBEAM.VM.Function{} = fun}), do: fun
+  defp unwrap_new_target({:bound, _, _, _, _} = bound), do: bound
   defp unwrap_new_target(%QuickBEAM.VM.Function{} = fun), do: fun
   defp unwrap_new_target({:builtin, _, _} = builtin), do: builtin
   defp unwrap_new_target(_), do: nil
