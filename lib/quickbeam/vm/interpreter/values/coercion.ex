@@ -48,6 +48,13 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
   def to_number({:builtin, _, _} = f), do: to_number(fn_to_primitive(f))
   def to_number(_), do: :nan
 
+  def to_number({:obj, _} = obj, hint) do
+    prim = to_primitive(obj, hint)
+    if is_object(prim), do: :nan, else: to_number(prim)
+  end
+
+  def to_number(val, _hint), do: to_number(val)
+
   @doc "Parses a JavaScript numeric string literal into a VM number value."
   def parse_numeric(""), do: 0
   def parse_numeric("0x" <> rest), do: parse_int_or_nan(rest, 16)
@@ -219,7 +226,12 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
   def to_primitive({:builtin, name, _}), do: "function #{name}() { [native code] }"
   def to_primitive({:bound, _, _, _, _}), do: "function () { [native code] }"
 
-  def to_primitive({:obj, ref} = obj) do
+  def to_primitive({:obj, _} = obj), do: object_to_primitive(obj, "default")
+
+  def to_primitive({:obj, _} = obj, hint), do: object_to_primitive(obj, hint)
+  def to_primitive(value, _hint), do: to_primitive(value)
+
+  defp object_to_primitive({:obj, ref} = obj, hint) do
     data = Heap.get_obj(ref, %{})
 
     if is_map(data) do
@@ -248,8 +260,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
               )
             end
 
-            result =
-              Invocation.invoke_with_receiver(to_prim, ["default"], Runtime.gas_budget(), obj)
+            result = Invocation.invoke_with_receiver(to_prim, [hint], Runtime.gas_budget(), obj)
 
             if is_object(result) do
               throw(

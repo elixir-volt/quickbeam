@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.Runtime do
 
   alias QuickBEAM.VM.{Heap, Invocation}
   alias QuickBEAM.VM.Interpreter.{Context, Values}
+  alias QuickBEAM.VM.Interpreter.Values.Coercion
   alias QuickBEAM.VM.Runtime.Globals
 
   @doc "Returns the current runtime global binding map, building and caching it when needed."
@@ -84,6 +85,8 @@ defmodule QuickBEAM.VM.Runtime do
   @doc "Coerces a VM value to a JavaScript number-like value."
   def to_number({:bigint, n}), do: n
   def to_number(val), do: Values.to_number(val)
+  def to_number({:bigint, n}, _hint), do: n
+  def to_number(val, hint), do: Coercion.to_number(val, hint)
 
   @doc "Normalizes a possibly-negative index against a sequence length."
   def normalize_index(idx, len) when idx < 0, do: max(len + idx, 0)

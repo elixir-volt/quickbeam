@@ -110,13 +110,14 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   end
 
   defp array_length_value!(value) do
-    length = Runtime.to_number(value)
+    new_len = Runtime.to_number(value, "number")
+    number_len = Runtime.to_number(value, "number")
 
-    if not is_number(length) or length < 0 or length != trunc(length) or
-         length > @max_array_length do
+    if not is_number(new_len) or not is_number(number_len) or new_len < 0 or
+         new_len != trunc(new_len) or new_len > @max_array_length or number_len != new_len do
       JSThrow.range_error!("Invalid array length")
     else
-      trunc(length)
+      trunc(new_len)
     end
   end
 
@@ -301,6 +302,23 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   def put(_, _, _), do: :ok
 
   defp put_length_property(obj, ref, val) do
+    case Heap.get_obj_raw(ref) do
+      {:qb_arr, _} = array -> put_array_length_property(ref, array, val)
+      data when is_list(data) -> put_array_length_property(ref, data, val)
+      _ -> put_ordinary_length_property(obj, ref, val)
+    end
+  end
+
+  defp put_array_length_property(ref, array, val) do
+    new_len = array_length_value!(val)
+
+    case Heap.get_prop_desc(ref, "length") do
+      %{writable: false} -> reject_failed_write!()
+      _ -> resize_array(ref, array, new_len)
+    end
+  end
+
+  defp put_ordinary_length_property(obj, ref, val) do
     case Heap.get_prop_desc(ref, "length") do
       %{writable: false} -> :ok
       _ -> put_length(obj, val)
@@ -339,8 +357,24 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   @doc "Writes a property using an explicit receiver, for Reflect.set semantics."
   def set({:obj, ref}, key, val, receiver) do
     key = normalize_key(key)
+    raw = Heap.get_obj_raw(ref)
 
-    case Heap.get_obj_raw(ref) do
+    case {key, raw} do
+      {"length", {:qb_arr, _} = array} ->
+        set_array_length_property(ref, array, val)
+
+      {"length", data} when is_list(data) ->
+        set_array_length_property(ref, data, val)
+
+      _ ->
+        set_property(ref, raw, key, val, receiver)
+    end
+  end
+
+  def set(target, key, val, _receiver), do: put(target, key, val)
+
+  defp set_property(ref, raw, key, val, receiver) do
+    case raw do
       %{proxy_target() => proxy_target, proxy_handler() => handler} ->
         set_trap = Get.get(handler, "set")
 
@@ -403,7 +437,18 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
-  def set(target, key, val, _receiver), do: put(target, key, val)
+  defp set_array_length_property(ref, array, val) do
+    new_len = array_length_value!(val)
+
+    case Heap.get_prop_desc(ref, "length") do
+      %{writable: false} ->
+        false
+
+      _ ->
+        resize_array(ref, array, new_len)
+        true
+    end
+  end
 
   defp write_receiver({:obj, ref} = receiver, key, val) do
     case Heap.get_obj_raw(ref) do
