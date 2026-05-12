@@ -67,12 +67,12 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
           kept_len = non_configurable_idx + 1
           delete_array_index_metadata(ref, kept_len, old_len)
           Heap.put_obj_raw(ref, {:qb_arr, resize_sparse_array(arr, kept_len, old_len)})
-          JSThrow.type_error!("Cannot delete property")
+          reject_failed_write!()
+        else
+          delete_array_index_metadata(ref, new_len, old_len)
+          delete_sparse_array_props_from(ref, new_len)
+          Heap.put_obj_raw(ref, {:qb_arr, resize_sparse_array(arr, new_len, old_len)})
         end
-
-        delete_array_index_metadata(ref, new_len, old_len)
-        delete_sparse_array_props_from(ref, new_len)
-        Heap.put_obj_raw(ref, {:qb_arr, resize_sparse_array(arr, new_len, old_len)})
 
       true ->
         Heap.put_obj_raw(ref, {:qb_arr, resize_sparse_array(arr, new_len, old_len)})
@@ -96,12 +96,12 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         if non_configurable_idx do
           delete_array_index_metadata(ref, non_configurable_idx + 1, old_len)
           Heap.put_obj(ref, Enum.take(list, non_configurable_idx + 1))
-          JSThrow.type_error!("Cannot delete property")
+          reject_failed_write!()
+        else
+          delete_array_index_metadata(ref, new_len, old_len)
+          delete_sparse_array_props_from(ref, new_len)
+          Heap.put_obj(ref, Enum.take(list, new_len))
         end
-
-        delete_array_index_metadata(ref, new_len, old_len)
-        delete_sparse_array_props_from(ref, new_len)
-        Heap.put_obj(ref, Enum.take(list, new_len))
 
       true ->
         padded = list ++ List.duplicate(:undefined, new_len - old_len)
