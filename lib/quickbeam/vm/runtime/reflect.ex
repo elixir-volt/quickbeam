@@ -122,9 +122,10 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
     end
 
     method "set" do
-      [obj, key, val | rest] = args
+      [obj, key | rest] = args
       require_object!(obj, "Reflect.set")
-      receiver = arg(rest, 0, obj)
+      val = arg(rest, 0, :undefined)
+      receiver = arg(rest, 1, obj)
       Values.truthy?(Put.set(obj, key, val, receiver))
     end
 
