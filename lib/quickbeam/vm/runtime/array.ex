@@ -1028,23 +1028,19 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
     result =
       cond do
-        array_like_source?(source) ->
-          len = array_like_length(source)
-          {:list, array_like_from(source, map_fn, this_arg), [len]}
-
-        iterable_source?(source) and constructable_from?(constructor) and
+        iterator_source?(source) and constructable_from?(constructor) and
             not match?({:builtin, "Array", _}, constructor) ->
           target = QuickBEAM.VM.Invocation.construct_runtime(constructor, constructor, [])
-          iterator_method = Get.get(source, {:symbol, "Symbol.iterator"})
-          iterator = QuickBEAM.VM.Invocation.invoke_with_receiver(iterator_method, [], source)
-          count = iterator_to_target(iterator, target, map_fn, this_arg, 0)
+          count = iterator_to_target(array_from_iterator(source), target, map_fn, this_arg, 0)
           Put.put(target, "length", count)
           {:target, target}
 
-        iterable_source?(source) ->
-          iterator_method = Get.get(source, {:symbol, "Symbol.iterator"})
-          iterator = QuickBEAM.VM.Invocation.invoke_with_receiver(iterator_method, [], source)
-          {:list, iterator_to_list(iterator, [], map_fn, this_arg, 0), []}
+        iterator_source?(source) ->
+          {:list, iterator_to_list(array_from_iterator(source), [], map_fn, this_arg, 0), []}
+
+        array_like_source?(source) ->
+          len = array_like_length(source)
+          {:list, array_like_from(source, map_fn, this_arg), [len]}
 
         true ->
           list = coerce_to_list(source)
@@ -1146,6 +1142,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
     cond do
       QuickBEAM.VM.Builtin.callable?(iterator_method) -> false
+      iterator_like_source?(obj) -> false
       iterator_method not in [nil, :undefined] -> false
       true -> true
     end
@@ -1153,13 +1150,33 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp array_like_source?(_), do: false
 
-  defp iterable_source?({:obj, _} = obj),
-    do: QuickBEAM.VM.Builtin.callable?(Get.get(obj, {:symbol, "Symbol.iterator"}))
+  defp iterator_source?({:obj, _} = obj) do
+    QuickBEAM.VM.Builtin.callable?(Get.get(obj, {:symbol, "Symbol.iterator"})) or
+      iterator_like_source?(obj)
+  end
 
-  defp iterable_source?({:qb_arr, _}), do: true
-  defp iterable_source?(list) when is_list(list), do: true
-  defp iterable_source?(text) when is_binary(text), do: true
-  defp iterable_source?(_), do: false
+  defp iterator_source?({:qb_arr, _}), do: true
+  defp iterator_source?(list) when is_list(list), do: true
+  defp iterator_source?(_), do: false
+
+  defp array_from_iterator({:obj, _} = obj) do
+    iterator_method = Get.get(obj, {:symbol, "Symbol.iterator"})
+
+    if QuickBEAM.VM.Builtin.callable?(iterator_method) do
+      QuickBEAM.VM.Invocation.invoke_with_receiver(iterator_method, [], obj)
+    else
+      obj
+    end
+  end
+
+  defp array_from_iterator(value), do: value
+
+  defp iterator_like_source?({:obj, _} = obj),
+    do:
+      QuickBEAM.VM.Builtin.callable?(Get.get(obj, "next")) and
+        Get.get(obj, "length") in [nil, :undefined]
+
+  defp iterator_like_source?(_), do: false
 
   defp array_like_to_list(obj) do
     len = max(Runtime.to_int(Get.get(obj, "length")), 0)
