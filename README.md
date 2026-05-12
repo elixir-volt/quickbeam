@@ -433,7 +433,16 @@ files = [
 
 ## npm packages
 
-QuickBEAM ships with a built-in npm client — no Node.js required.
+QuickBEAM can use [`npm_ex`](https://hex.pm/packages/npm) to install npm packages without Node.js. Add it when you want Mix-powered npm installs:
+
+```elixir
+def deps do
+  [
+    {:quickbeam, "~> 0.7.1"},
+    {:npm, "~> 0.7.0"}
+  ]
+end
+```
 
 ```sh
 mix npm.install sanitize-html
