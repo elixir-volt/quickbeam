@@ -476,7 +476,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         |> Enum.reverse()
       end
 
-    Heap.wrap(result)
+    wrap_filter_result(this, result)
   end
 
   defp filter_array_like(this, _args) do
@@ -486,6 +486,39 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp filter_this_arg([value | _]), do: value
   defp filter_this_arg(_), do: :undefined
+
+  defp wrap_filter_result(receiver, result) do
+    target = filter_target(receiver)
+
+    result
+    |> Enum.with_index()
+    |> Enum.each(fn {value, index} ->
+      create_data_property_or_throw(target, Integer.to_string(index), value)
+    end)
+
+    Put.put(target, "length", length(result))
+    target
+  end
+
+  defp filter_target(receiver) do
+    case concat_species_constructor(receiver) do
+      :array ->
+        Heap.wrap([])
+
+      constructor ->
+        ensure_object_result(
+          QuickBEAM.VM.Invocation.construct_runtime(constructor, constructor, [0])
+        )
+    end
+  end
+
+  defp ensure_object_result({:obj, _} = obj), do: obj
+  defp ensure_object_result(%QuickBEAM.VM.Function{} = fun), do: fun
+  defp ensure_object_result({:closure, _, %QuickBEAM.VM.Function{}} = closure), do: closure
+  defp ensure_object_result({:builtin, _, _} = builtin), do: builtin
+
+  defp ensure_object_result(_),
+    do: JSThrow.type_error!("Species constructor did not return an object")
 
   defp reduce({:obj, ref}, [fun | rest]) do
     list = Heap.obj_to_list(ref)
