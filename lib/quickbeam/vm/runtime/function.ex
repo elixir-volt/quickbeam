@@ -22,6 +22,8 @@ defmodule QuickBEAM.VM.Runtime.Function do
 
     proto =
       Heap.wrap(%{
+        "length" => 0,
+        "name" => "",
         "call" => {:builtin, "call", fn args, this -> fn_call(this, args, this) end},
         "apply" => {:builtin, "apply", fn args, this -> fn_apply(this, args, this) end},
         "bind" =>
@@ -53,6 +55,10 @@ defmodule QuickBEAM.VM.Runtime.Function do
 
     for name <- ~w(call apply bind toString) do
       Heap.put_prop_desc(ref, name, %{writable: true, enumerable: false, configurable: true})
+    end
+
+    for name <- ~w(length name) do
+      Heap.put_prop_desc(ref, name, %{writable: false, enumerable: false, configurable: true})
     end
 
     Heap.put_prop_desc(ref, {:symbol, "Symbol.hasInstance"}, %{
