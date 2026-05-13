@@ -595,6 +595,14 @@ defmodule QuickBEAM.VM.Runtime.Globals do
              JSDate.symbol_to_primitive(this, args)
            end}
 
+        Heap.put_ctor_static(to_prim, "length", 1)
+
+        Heap.put_ctor_prop_desc(to_prim, "length", %{
+          writable: false,
+          enumerable: false,
+          configurable: true
+        })
+
         Heap.put_obj_key(proto_ref, sym_key, to_prim)
 
         Heap.put_prop_desc(proto_ref, sym_key, %{
