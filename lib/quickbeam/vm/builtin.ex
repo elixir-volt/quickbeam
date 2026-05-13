@@ -371,6 +371,11 @@ defmodule QuickBEAM.VM.Builtin do
   def named_meta("every"), do: meta("every", [length: 1, constructable: false], :proto)
   def named_meta("find"), do: meta("find", [length: 1, constructable: false], :proto)
   def named_meta("findIndex"), do: meta("findIndex", [length: 1, constructable: false], :proto)
+  def named_meta("findLast"), do: meta("findLast", [length: 1, constructable: false], :proto)
+
+  def named_meta("findLastIndex"),
+    do: meta("findLastIndex", [length: 1, constructable: false], :proto)
+
   def named_meta("sort"), do: meta("sort", [length: 1, constructable: false], :proto)
   def named_meta("reverse"), do: meta("reverse", [length: 0, constructable: false], :proto)
   def named_meta("join"), do: meta("join", [length: 1, constructable: false], :proto)
