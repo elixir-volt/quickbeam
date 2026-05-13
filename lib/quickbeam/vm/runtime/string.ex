@@ -336,9 +336,20 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp coerce_string_this(s) when is_binary(s), do: s
 
   defp coerce_string_this({:obj, _} = obj) do
-    obj
-    |> Coercion.to_primitive("string")
-    |> QuickBEAM.VM.Interpreter.Values.stringify()
+    case Coercion.to_primitive(obj, "string") do
+      {:symbol, _} ->
+        throw(
+          {:js_throw, Heap.make_error("Cannot convert a Symbol value to a string", "TypeError")}
+        )
+
+      {:symbol, _, _} ->
+        throw(
+          {:js_throw, Heap.make_error("Cannot convert a Symbol value to a string", "TypeError")}
+        )
+
+      value ->
+        QuickBEAM.VM.Interpreter.Values.stringify(value)
+    end
   end
 
   defp coerce_string_this(val), do: QuickBEAM.VM.Interpreter.Values.stringify(val)
