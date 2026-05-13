@@ -313,14 +313,12 @@ defmodule QuickBEAM.VM.Runtime.Function do
   defp bound_length(n, argc) when is_number(n), do: max(0, n - argc)
 
   defp invoke_fun(fun, args, this_arg) do
-    this_arg = coerce_function_this(fun, this_arg)
-
     case fun do
       %QuickBEAM.VM.Function{} ->
-        Invocation.invoke_with_receiver(fun, args, this_arg)
+        Invocation.invoke_with_receiver(fun, args, coerce_function_this(fun, this_arg))
 
       {:closure, _, %QuickBEAM.VM.Function{}} ->
-        Invocation.invoke_with_receiver(fun, args, this_arg)
+        Invocation.invoke_with_receiver(fun, args, coerce_function_this(fun, this_arg))
 
       other ->
         Builtin.call(other, args, this_arg)
