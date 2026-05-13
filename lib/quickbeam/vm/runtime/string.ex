@@ -129,7 +129,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   proto "normalize" do
-    coerce_string_this(this)
+    normalize_string(coerce_string_this(this), args)
   end
 
   proto "concat" do
@@ -266,6 +266,38 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   defp unwrap_string(value), do: Runtime.stringify(value)
+
+  defp normalize_string(s, args) do
+    form =
+      case args do
+        [] -> "NFC"
+        [:undefined | _] -> "NFC"
+        [value | _] -> stringify_search_string(value)
+      end
+
+    case form do
+      "NFC" ->
+        :unicode.characters_to_nfc_binary(s)
+
+      "NFD" ->
+        :unicode.characters_to_nfd_binary(s)
+
+      "NFKC" ->
+        :unicode.characters_to_nfkc_binary(s)
+
+      "NFKD" ->
+        :unicode.characters_to_nfkd_binary(s)
+
+      _ ->
+        throw(
+          {:js_throw,
+           Heap.make_error(
+             "The normalization form should be one of NFC, NFD, NFKC, NFKD",
+             "RangeError"
+           )}
+        )
+    end
+  end
 
   defp locale_compare_key(value) when is_binary(value) do
     case :unicode.characters_to_nfc_binary(value) do
