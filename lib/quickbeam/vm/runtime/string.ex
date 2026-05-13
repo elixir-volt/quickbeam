@@ -177,6 +177,8 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   @doc "Returns the string value for a JavaScript UTF-16 code-unit index."
+  def utf16_code_unit_at(_string, index) when index < 0, do: :undefined
+
   def utf16_code_unit_at(string, index) when is_binary(string) do
     string
     |> utf16_code_units()
@@ -193,22 +195,58 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   def utf16_code_units(string) when is_binary(string) do
     string
-    |> String.to_charlist()
-    |> Enum.flat_map(fn
-      cp when cp > 0xFFFF ->
-        cp = cp - 0x10000
-
-        [
-          surrogate_binary(div(cp, 0x400) + 0xD800),
-          surrogate_binary(rem(cp, 0x400) + 0xDC00)
-        ]
-
-      cp ->
-        [<<cp::utf8>>]
-    end)
-  rescue
-    UnicodeConversionError -> String.graphemes(string)
+    |> utf16_code_unit_values()
+    |> Enum.map(&surrogate_or_utf8/1)
   end
+
+  def utf16_code_unit_values(string) when is_binary(string) do
+    do_utf16_code_unit_values(string, [])
+  end
+
+  defp do_utf16_code_unit_values(<<>>, acc), do: Enum.reverse(acc)
+
+  defp do_utf16_code_unit_values(<<cp, rest::binary>>, acc) when cp < 0x80,
+    do: do_utf16_code_unit_values(rest, [cp | acc])
+
+  defp do_utf16_code_unit_values(<<b1, b2, rest::binary>>, acc) when b1 >= 0xC0 and b1 < 0xE0 do
+    cp = Bitwise.bor(Bitwise.band(b2, 0x3F), Bitwise.bsl(Bitwise.band(b1, 0x1F), 6))
+    do_utf16_code_unit_values(rest, [cp | acc])
+  end
+
+  defp do_utf16_code_unit_values(<<b1, b2, b3, rest::binary>>, acc)
+       when b1 >= 0xE0 and b1 < 0xF0 do
+    cp =
+      Bitwise.bor(
+        Bitwise.bsl(Bitwise.band(b1, 0x0F), 12),
+        Bitwise.bor(Bitwise.bsl(Bitwise.band(b2, 0x3F), 6), Bitwise.band(b3, 0x3F))
+      )
+
+    do_utf16_code_unit_values(rest, [cp | acc])
+  end
+
+  defp do_utf16_code_unit_values(<<b1, b2, b3, b4, rest::binary>>, acc)
+       when b1 >= 0xF0 do
+    cp =
+      Bitwise.bor(
+        Bitwise.bsl(Bitwise.band(b1, 0x07), 18),
+        Bitwise.bor(
+          Bitwise.bsl(Bitwise.band(b2, 0x3F), 12),
+          Bitwise.bor(Bitwise.bsl(Bitwise.band(b3, 0x3F), 6), Bitwise.band(b4, 0x3F))
+        )
+      ) - 0x10000
+
+    high = div(cp, 0x400) + 0xD800
+    low = rem(cp, 0x400) + 0xDC00
+    do_utf16_code_unit_values(rest, [low, high | acc])
+  end
+
+  defp do_utf16_code_unit_values(<<_invalid, rest::binary>>, acc),
+    do: do_utf16_code_unit_values(rest, acc)
+
+  defp surrogate_or_utf8(unit) when unit >= 0xD800 and unit <= 0xDFFF,
+    do: surrogate_binary(unit)
+
+  defp surrogate_or_utf8(unit), do: <<unit::utf8>>
 
   defp surrogate_binary(unit) do
     <<Bitwise.bor(0xE0, Bitwise.bsr(unit, 12)),
@@ -256,12 +294,11 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp coerce_string_this(val), do: QuickBEAM.VM.Interpreter.Values.stringify(val)
 
   defp char_at(s, [idx | _]) when is_binary(s) do
-    i = Runtime.to_int(idx)
+    i = to_integer_or_infinity(idx)
 
-    if i < 0 or i >= String.length(s) do
-      ""
-    else
-      String.at(s, i)
+    case if(is_integer(i), do: utf16_code_unit_at(s, i), else: :undefined) do
+      unit when is_binary(unit) -> unit
+      _ -> ""
     end
   end
 
@@ -269,26 +306,31 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp char_at(_, _), do: ""
 
   defp char_code_at(s, [idx | _]) when is_binary(s) do
-    i = Runtime.to_int(idx)
-    chars = codepoints(s)
+    i = to_integer_or_infinity(idx)
+    units = utf16_code_unit_values(s)
 
-    if i >= 0 and i < tuple_size(chars) do
-      case elem(chars, i) do
-        cp when cp >= 0xF0000 and cp <= 0xF07FF -> cp - 0xF0000 + 0xD800
-        cp -> cp
-      end
-    else
-      :nan
-    end
+    if is_integer(i) and i >= 0 and i < length(units), do: Enum.at(units, i), else: :nan
   end
 
   defp char_code_at(s, _) when is_binary(s), do: char_code_at(s, [0])
   defp char_code_at(_, _), do: :nan
 
   defp code_point_at(s, [idx | _]) when is_binary(s) do
-    i = Runtime.to_int(idx)
-    chars = codepoints(s)
-    if i >= 0 and i < tuple_size(chars), do: elem(chars, i), else: :undefined
+    i = to_integer_or_infinity(idx)
+    units = utf16_code_unit_values(s)
+
+    if is_integer(i) and i >= 0 and i < length(units) do
+      unit = Enum.at(units, i)
+      next = Enum.at(units, i + 1)
+
+      if unit >= 0xD800 and unit <= 0xDBFF and next != nil and next >= 0xDC00 and next <= 0xDFFF do
+        (unit - 0xD800) * 0x400 + (next - 0xDC00) + 0x10000
+      else
+        unit
+      end
+    else
+      :undefined
+    end
   end
 
   defp code_point_at(_, _), do: :undefined
@@ -417,6 +459,10 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   defp ends_with(_, _), do: false
+
+  defp to_integer_or_infinity(:infinity), do: :infinity
+  defp to_integer_or_infinity(:neg_infinity), do: :neg_infinity
+  defp to_integer_or_infinity(value), do: Runtime.to_int(value)
 
   defp string_position(:infinity, len), do: len
   defp string_position(:neg_infinity, _len), do: 0
@@ -856,18 +902,6 @@ defmodule QuickBEAM.VM.Runtime.String do
       part = Runtime.stringify(Map.get(raw_map, Integer.to_string(i), ""))
       sub = if i < length(subs), do: Runtime.stringify(Enum.at(subs, i)), else: ""
       part <> sub
-    end
-  end
-
-  defp codepoints(s) do
-    case Heap.get_string_codepoints(s) do
-      nil ->
-        chars = s |> String.to_charlist() |> List.to_tuple()
-        Heap.put_string_codepoints(s, chars)
-        chars
-
-      chars ->
-        chars
     end
   end
 end
