@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
   alias QuickBEAM.VM.Runtime.Array
   alias QuickBEAM.VM.Runtime.Errors
   alias QuickBEAM.VM.Runtime.FinalizationRegistry, as: JSFinalizationRegistry
+  alias QuickBEAM.VM.Runtime.Globals.Functions
   alias QuickBEAM.VM.Runtime.Map, as: JSMap
   alias QuickBEAM.VM.Runtime.Set, as: JSSet
   alias QuickBEAM.VM.Runtime.WeakRef, as: JSWeakRef
@@ -84,6 +85,7 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
         "Object" => object_ctor,
         "Array" => array_ctor,
         "Function" => function_ctor,
+        "eval" => {:builtin, "eval", &Functions.js_eval/2},
         "Proxy" => proxy_ctor,
         "Map" => map_ctor,
         "Set" => set_ctor,
