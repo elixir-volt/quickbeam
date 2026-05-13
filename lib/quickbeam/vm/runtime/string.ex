@@ -723,22 +723,50 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp has_lone_surrogate_units?([_unit | rest]), do: has_lone_surrogate_units?(rest)
   defp has_lone_surrogate_units?([]), do: false
 
-  defp replace_lone_surrogates(s) do
-    s
-    |> :unicode.characters_to_list(:utf8)
-    |> case do
-      chars when is_list(chars) ->
-        chars
-        |> Enum.map(fn
-          cp when cp >= 0xD800 and cp <= 0xDFFF -> 0xFFFD
-          cp -> cp
-        end)
-        |> List.to_string()
+  defp replace_lone_surrogates(s), do: replace_lone_surrogates(s, [])
+
+  defp replace_lone_surrogates(<<0xED, b2, b3, rest::binary>>, acc) do
+    case decode_wtf8_surrogate(b2, b3) do
+      {:ok, high} when high >= 0xD800 and high <= 0xDBFF ->
+        case rest do
+          <<0xED, lb2, lb3, tail::binary>> ->
+            case decode_wtf8_surrogate(lb2, lb3) do
+              {:ok, low} when low >= 0xDC00 and low <= 0xDFFF ->
+                replace_lone_surrogates(tail, [
+                  surrogate_binary(low),
+                  surrogate_binary(high) | acc
+                ])
+
+              _ ->
+                replace_lone_surrogates(rest, ["�" | acc])
+            end
+
+          _ ->
+            replace_lone_surrogates(rest, ["�" | acc])
+        end
+
+      {:ok, low} when low >= 0xDC00 and low <= 0xDFFF ->
+        replace_lone_surrogates(rest, ["�" | acc])
 
       _ ->
-        s
+        replace_lone_surrogates(rest, [<<0xED, b2, b3>> | acc])
     end
   end
+
+  defp replace_lone_surrogates(<<cp::utf8, rest::binary>>, acc),
+    do: replace_lone_surrogates(rest, [<<cp::utf8>> | acc])
+
+  defp replace_lone_surrogates(<<_byte, rest::binary>>, acc),
+    do: replace_lone_surrogates(rest, ["�" | acc])
+
+  defp replace_lone_surrogates(<<>>, acc), do: acc |> Enum.reverse() |> IO.iodata_to_binary()
+
+  defp decode_wtf8_surrogate(b2, b3)
+       when b2 >= 0xA0 and b2 <= 0xBF and b3 >= 0x80 and b3 <= 0xBF do
+    {:ok, 0xD000 + (b2 - 0x80) * 0x40 + (b3 - 0x80)}
+  end
+
+  defp decode_wtf8_surrogate(_, _), do: :error
 
   defp reject_regexp_search!({:regexp, _, _, _} = regexp),
     do: reject_regexp_matcher!(regexp, true)
