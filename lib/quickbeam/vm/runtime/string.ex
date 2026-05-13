@@ -944,15 +944,10 @@ defmodule QuickBEAM.VM.Runtime.String do
             )
 
           :none ->
+            s = coerce_string_this(this)
+            search_string = stringify_search_string(pattern)
             replacement_arg = replace_all_replacement_arg(replacement)
-
-            string_replace_all_literal(
-              coerce_string_this(this),
-              stringify_search_string(pattern),
-              replacement_arg,
-              0,
-              []
-            )
+            string_replace_all_literal(s, search_string, replacement_arg, 0, [])
         end
     end
   end
@@ -1282,7 +1277,7 @@ defmodule QuickBEAM.VM.Runtime.String do
         Runtime.gas_budget(),
         :undefined
       )
-      |> Runtime.stringify()
+      |> stringify_search_string()
     else
       replacement
       |> stringify_search_string()
