@@ -284,7 +284,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
           result
         end
       else
-        case ordinary_to_primitive(obj, ["valueOf", "toString"]) do
+        case ordinary_to_primitive(obj, ordinary_method_order(hint)) do
           {:ok, value} ->
             value
 
@@ -296,7 +296,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
         end
       end
     else
-      case ordinary_to_primitive(obj, ["valueOf", "toString"]) do
+      case ordinary_to_primitive(obj, ordinary_method_order(hint)) do
         {:ok, value} -> value
         :none -> obj
       end
@@ -368,6 +368,9 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
     throw({:js_throw, Heap.make_error("Cannot convert object to primitive value", "TypeError")})
   end
 
+  defp ordinary_method_order("string"), do: ["toString", "valueOf"]
+  defp ordinary_method_order(_hint), do: ["valueOf", "toString"]
+
   defp ordinary_to_primitive(_obj, []), do: :none
 
   defp ordinary_to_primitive(obj, [method | rest]) do
@@ -380,7 +383,11 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
   defp get_to_primitive(obj, method) do
     case Get.get(obj, method) do
       fun when fun != nil and fun != :undefined ->
-        unwrap_primitive(Invocation.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj))
+        if callable?(fun) do
+          unwrap_primitive(Invocation.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj))
+        else
+          :none
+        end
 
       _ ->
         :none
