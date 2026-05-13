@@ -57,7 +57,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   proto "split" do
-    split(coerce_string_this(this), args)
+    split_dispatch(this, args)
   end
 
   proto "trim" do
@@ -737,6 +737,28 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   defp substr(s, _), do: s
+
+  defp split_dispatch(this, [separator | rest]) do
+    case split_method(separator) do
+      {:ok, splitter} ->
+        Invocation.invoke_with_receiver(
+          splitter,
+          [coerce_string_this(this), List.first(rest, :undefined)],
+          Runtime.gas_budget(),
+          separator
+        )
+
+      :none ->
+        s = coerce_string_this(this)
+        limit = split_limit(rest)
+        if limit == 0, do: [], else: split(s, [separator | rest])
+    end
+  end
+
+  defp split_dispatch(this, []), do: split(coerce_string_this(this), [])
+
+  defp split_method(value) when is_tuple(value), do: get_method(value, {:symbol, "Symbol.split"})
+  defp split_method(_), do: :none
 
   defp split(s, [{:regexp, bytecode, source, _ref} | rest])
        when is_binary(s) and is_binary(bytecode),
