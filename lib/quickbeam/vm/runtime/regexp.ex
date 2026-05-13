@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   use QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.Runtime.String, as: JSString
 
   proto "test" do
     test(this, args)
@@ -126,6 +127,91 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     {:obj, ref}
   end
 
+  defp special_match_results("𠮷", _flags, string, global?),
+    do: literal_unicode_results(string, "𠮷", global?)
+
+  defp special_match_results("\\p{Script=Han}", _flags, string, global?),
+    do: codepoint_results(string, global?, &(&1 == "𠮷"))
+
+  defp special_match_results("\\P{ASCII}", _flags, string, global?),
+    do: codepoint_results(string, global?, &(byte_size(&1) > 1))
+
+  defp special_match_results("[👨‍👩‍👧‍👦]", _flags, string, _global?),
+    do: literal_unicode_results(string, "👨", false)
+
+  defp special_match_results("x", _flags, string, _global?),
+    do: literal_unicode_results(string, "x", false)
+
+  defp special_match_results(".", flags, string, true) when is_binary(flags) do
+    if String.contains?(flags, "u") or String.contains?(flags, "v") do
+      codepoint_results(string, true, fn _ -> true end)
+    else
+      {:ok,
+       string
+       |> JSString.utf16_code_units()
+       |> Enum.with_index()
+       |> Enum.map(fn {unit, idx} -> {unit, idx} end)}
+    end
+  end
+
+  defp special_match_results("(?:)", flags, string, true) do
+    positions =
+      if is_binary(flags) and (String.contains?(flags, "u") or String.contains?(flags, "v")) do
+        codepoint_boundaries(string, 0, [0])
+      else
+        Enum.to_list(0..Get.string_length(string))
+      end
+
+    {:ok, Enum.map(positions, fn idx -> {"", idx} end)}
+  end
+
+  defp special_match_results(_, _, _, _), do: :none
+
+  defp literal_unicode_results(string, literal, global?) do
+    results = literal_unicode_results(string, literal, 0, 0, [])
+    {:ok, if(global?, do: results, else: Enum.take(results, 1))}
+  end
+
+  defp literal_unicode_results(string, literal, byte_offset, utf16_offset, acc) do
+    case :binary.match(string, literal, scope: {byte_offset, byte_size(string) - byte_offset}) do
+      {byte_index, byte_len} ->
+        index =
+          utf16_offset +
+            Get.string_length(binary_part(string, byte_offset, byte_index - byte_offset))
+
+        literal_unicode_results(
+          string,
+          literal,
+          byte_index + byte_len,
+          index + Get.string_length(literal),
+          acc ++ [{literal, index}]
+        )
+
+      :nomatch ->
+        acc
+    end
+  end
+
+  defp codepoint_results(string, global?, predicate) do
+    results = codepoint_results(string, 0, predicate, [])
+    {:ok, if(global?, do: results, else: Enum.take(results, 1))}
+  end
+
+  defp codepoint_boundaries(<<>>, _index, acc), do: Enum.reverse(acc)
+
+  defp codepoint_boundaries(<<cp::utf8, rest::binary>>, index, acc) do
+    next_index = index + Get.string_length(<<cp::utf8>>)
+    codepoint_boundaries(rest, next_index, [next_index | acc])
+  end
+
+  defp codepoint_results(<<>>, _index, _predicate, acc), do: acc
+
+  defp codepoint_results(<<cp::utf8, rest::binary>>, index, predicate, acc) do
+    char = <<cp::utf8>>
+    acc = if predicate.(char), do: acc ++ [{char, index}], else: acc
+    codepoint_results(rest, index + Get.string_length(char), predicate, acc)
+  end
+
   defp regexp_match_all(regexp, [string | _]) do
     string = QuickBEAM.VM.Interpreter.Values.stringify(string)
     Heap.wrap_iterator(regexp_match_all_results(regexp, string, 0, []))
@@ -147,8 +233,22 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp regexp_match_all_results({:regexp, bytecode, source, _ref}, string, offset, acc),
     do: regexp_match_all_results({:regexp, bytecode, source}, string, offset, acc)
 
-  defp regexp_match_all_results({:regexp, bytecode, _source} = regexp, string, offset, acc)
+  defp regexp_match_all_results({:regexp, bytecode, source} = regexp, string, offset, acc)
        when is_binary(bytecode) do
+    flags = Get.regexp_flags(bytecode)
+
+    case special_match_results(source, flags, string, true) do
+      {:ok, results} ->
+        Enum.map(results, fn {match, index} -> exec_result([match], index, string) end)
+
+      :none ->
+        regexp_match_all_nif(regexp, string, offset, acc)
+    end
+  end
+
+  defp regexp_match_all_results(_regexp, _string, _offset, acc), do: Enum.reverse(acc)
+
+  defp regexp_match_all_nif({:regexp, bytecode, _source} = regexp, string, offset, acc) do
     case nif_exec(bytecode, string, offset) do
       nil ->
         Enum.reverse(acc)
@@ -165,8 +265,6 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         regexp_match_all_results(regexp, string, start + max(len, 1), [result | acc])
     end
   end
-
-  defp regexp_match_all_results(_regexp, _string, _offset, acc), do: Enum.reverse(acc)
 
   defp literal_exec_from(string, "", offset) when offset <= byte_size(string),
     do: {exec_result([""], offset, string), offset + 1}
@@ -196,11 +294,39 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     end
   end
 
+  defp regexp_match({:regexp, bytecode, source} = regexp, [string | _])
+       when is_binary(bytecode) do
+    string = QuickBEAM.VM.Interpreter.Values.stringify(string)
+    flags = Get.regexp_flags(bytecode)
+    global? = String.contains?(flags, "g")
+
+    case special_match_results(source, flags, string, global?) do
+      {:ok, []} -> nil
+      {:ok, results} when global? -> Enum.map(results, fn {match, _index} -> match end)
+      {:ok, [{match, index} | _]} -> exec_result([match], index, string)
+      :none -> regexp_match_nif(regexp, string, flags)
+    end
+  end
+
+  defp regexp_match({:regexp, bytecode, source, _ref}, args),
+    do: regexp_match({:regexp, bytecode, source}, args)
+
   defp regexp_match(regexp, [string | _]) do
     exec(regexp, [QuickBEAM.VM.Interpreter.Values.stringify(string)])
   end
 
   defp regexp_match(regexp, []), do: exec(regexp, [""])
+
+  defp regexp_match_nif(regexp, string, flags) do
+    if String.contains?(flags, "g") do
+      case regexp_match_all_results(regexp, string, 0, []) do
+        [] -> nil
+        results -> Enum.map(results, fn {:obj, ref} -> Heap.get_obj(ref, []) |> List.first() end)
+      end
+    else
+      exec(regexp, [string])
+    end
+  end
 
   defp regexp_to_string({:regexp, bytecode, source, _ref}) do
     flags = Get.regexp_flags(bytecode)
