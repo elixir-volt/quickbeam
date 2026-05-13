@@ -324,7 +324,7 @@ defmodule QuickBEAM.VM.Runtime.Date do
   end
 
   defp to_json(this, _args) do
-    tv = QuickBEAM.VM.Interpreter.Values.Coercion.to_primitive(this)
+    tv = QuickBEAM.VM.Interpreter.Values.Coercion.to_primitive(this, "number")
 
     non_finite? =
       case tv do
