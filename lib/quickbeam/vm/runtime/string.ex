@@ -480,7 +480,7 @@ defmodule QuickBEAM.VM.Runtime.String do
         _ -> 0
       end
 
-    String.starts_with?(String.slice(s, pos..-1//1), sub)
+    String.starts_with?(String.slice(s, max(pos, 0)..-1//1), sub)
   end
 
   defp starts_with(_, _), do: false
@@ -708,6 +708,12 @@ defmodule QuickBEAM.VM.Runtime.String do
     utf16_slice(s, start_idx, end_idx - start_idx)
   end
 
+  defp substring(s, [start, :undefined | _]) when is_binary(s) do
+    len = Get.string_length(s)
+    start_idx = substring_index(start, len)
+    utf16_slice(s, start_idx, len - start_idx)
+  end
+
   defp substring(s, [start, end_ | _]) when is_binary(s) do
     len = Get.string_length(s)
     a = substring_index(start, len)
@@ -743,15 +749,15 @@ defmodule QuickBEAM.VM.Runtime.String do
       {:ok, splitter} ->
         Invocation.invoke_with_receiver(
           splitter,
-          [coerce_string_this(this), List.first(rest, :undefined)],
+          [this, List.first(rest, :undefined)],
           Runtime.gas_budget(),
           separator
         )
 
       :none ->
         s = coerce_string_this(this)
-        limit = split_limit(rest)
-        if limit == 0, do: [], else: split(s, [separator | rest])
+        _limit = split_limit(rest)
+        split(s, [separator | rest])
     end
   end
 
@@ -776,6 +782,11 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp split(s, [{:regexp, nil, "\\d+"} | rest]) when is_binary(s),
     do: split_digit_runs(s, rest)
 
+  defp split(s, [{:regexp, nil, "$", _ref} | rest]) when is_binary(s),
+    do: split_end_anchor(s, rest)
+
+  defp split(s, [{:regexp, nil, "$"} | rest]) when is_binary(s), do: split_end_anchor(s, rest)
+
   defp split(s, [{:regexp, nil, source, _ref} | rest]) when is_binary(s) and is_binary(source),
     do: split(s, [source | rest])
 
@@ -790,6 +801,9 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   defp split(s, [{:regexp, _bytecode, "\\d+"} | rest]) when is_binary(s),
     do: split_digit_runs(s, rest)
+
+  defp split(s, [{:regexp, _bytecode, "$"} | rest]) when is_binary(s),
+    do: split_end_anchor(s, rest)
 
   defp split(s, [{:regexp, bytecode, _source} | rest])
        when is_binary(s) and is_binary(bytecode) do
@@ -848,6 +862,13 @@ defmodule QuickBEAM.VM.Runtime.String do
     else
       parts = Regex.split(~r/\d+/, s)
       if limit == :infinity, do: parts, else: Enum.take(parts, limit)
+    end
+  end
+
+  defp split_end_anchor(s, rest) do
+    case split_limit(rest) do
+      0 -> []
+      _ -> [s]
     end
   end
 
