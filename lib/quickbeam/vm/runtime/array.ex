@@ -897,6 +897,11 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp flat_map(_, _), do: :undefined
 
+  defp fill(nil, _args), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp fill(:undefined, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
   defp fill({:obj, ref} = obj, args) do
     case Heap.get_obj(ref) do
       list when is_list(list) ->
