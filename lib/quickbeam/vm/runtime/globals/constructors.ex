@@ -125,7 +125,12 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   def number(args, _), do: args |> arg(0, 0) |> Runtime.to_number()
 
   @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
-  def function(args, _) do
+  def function(args, _), do: dynamic_function(args, "function")
+  def generator_function(args, _), do: dynamic_function(args, "function*")
+  def async_function(args, _), do: dynamic_function(args, "async function")
+  def async_generator_function(args, _), do: dynamic_function(args, "async function*")
+
+  defp dynamic_function(args, prefix) do
     ctx = Heap.get_ctx()
 
     if ctx && ctx.runtime_pid do
@@ -139,7 +144,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
             {"", ""}
         end
 
-      code = "(function anonymous(" <> params <> "\n) {\n" <> body <> "\n})"
+      code = "(" <> prefix <> " anonymous(" <> params <> "\n) {\n" <> body <> "\n})"
 
       case QuickBEAM.Runtime.compile(ctx.runtime_pid, code) do
         {:ok, bytecode} ->

@@ -831,6 +831,9 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_from_prototype(false, key),
     do: primitive_or_object_proto(Boolean.proto_property(key), key)
 
+  defp get_from_prototype(%QuickBEAM.VM.Function{} = f, "constructor"),
+    do: function_kind_constructor(f)
+
   defp get_from_prototype(%QuickBEAM.VM.Function{} = f, key) when key in ["length", "name"] do
     if Map.get(Heap.get_ctor_statics(f), key) == :deleted,
       do: fallback_to_function_proto(:undefined, f, key),
@@ -843,6 +846,9 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
       parent -> fallback_to_function_proto(get(parent, key), f, key)
     end
   end
+
+  defp get_from_prototype({:closure, _, %QuickBEAM.VM.Function{} = f}, "constructor"),
+    do: function_kind_constructor(f)
 
   defp get_from_prototype({:closure, _, %QuickBEAM.VM.Function{} = f} = c, key)
        when key in ["length", "name"] do
@@ -923,6 +929,22 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
       _ -> :undefined
     end
   end
+
+  defp function_kind_constructor(%QuickBEAM.VM.Function{func_kind: 1}),
+    do:
+      {:builtin, "GeneratorFunction",
+       &QuickBEAM.VM.Runtime.Globals.Constructors.generator_function/2}
+
+  defp function_kind_constructor(%QuickBEAM.VM.Function{func_kind: 2}),
+    do: {:builtin, "AsyncFunction", &QuickBEAM.VM.Runtime.Globals.Constructors.async_function/2}
+
+  defp function_kind_constructor(%QuickBEAM.VM.Function{func_kind: 3}),
+    do:
+      {:builtin, "AsyncGeneratorFunction",
+       &QuickBEAM.VM.Runtime.Globals.Constructors.async_generator_function/2}
+
+  defp function_kind_constructor(_),
+    do: fallback_to_function_proto(:undefined, :undefined, "constructor")
 
   defp fallback_to_function_proto(:undefined, fun, key) do
     case Heap.get_func_proto() do
