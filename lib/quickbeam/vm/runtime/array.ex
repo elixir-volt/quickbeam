@@ -883,6 +883,9 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp every(:undefined, _), do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
   defp every({:obj, _} = obj, args), do: every_array_like(obj, args)
+  defp every({:builtin, _, _} = obj, args), do: every_array_like(obj, args)
+  defp every({:regexp, _, _, _} = obj, args), do: every_array_like(obj, args)
+  defp every({:regexp, _, _} = obj, args), do: every_array_like(obj, args)
 
   defp every(callable, args) do
     if QuickBEAM.VM.Builtin.callable?(callable) do
