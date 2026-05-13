@@ -12,6 +12,7 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
   alias QuickBEAM.VM.Runtime.Globals.Functions
   alias QuickBEAM.VM.Runtime.Map, as: JSMap
   alias QuickBEAM.VM.Runtime.Set, as: JSSet
+  alias QuickBEAM.VM.Runtime.String, as: JSString
   alias QuickBEAM.VM.Runtime.WeakRef, as: JSWeakRef
 
   def object do
@@ -40,6 +41,7 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
     string_proto = Heap.wrap(%{"__proto__" => object_proto})
     string_ctor = realm_constructor("String", &Constructors.string/2, string_proto)
     Heap.put_obj_key(elem(string_proto, 1), "constructor", string_ctor)
+    install_realm_string_methods(string_proto)
 
     date_proto = Heap.wrap(%{"__proto__" => object_proto})
     date_ctor = realm_constructor("Date", &JSDate.constructor/2, date_proto)
@@ -162,6 +164,13 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
     ctor = {:builtin, name, cb}
     ConstructorRegistry.put_prototype(ctor, proto)
     ctor
+  end
+
+  defp install_realm_string_methods({:obj, ref}) do
+    for name <- ~w(toString valueOf) do
+      Heap.put_obj_key(ref, name, JSString.proto_property(name))
+      Heap.put_prop_desc(ref, name, %{writable: true, enumerable: false, configurable: true})
+    end
   end
 
   defp realm_proxy_constructor do

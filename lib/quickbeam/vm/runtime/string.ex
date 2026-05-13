@@ -268,14 +268,26 @@ defmodule QuickBEAM.VM.Runtime.String do
       Bitwise.bor(0x80, Bitwise.band(unit, 0x3F))>>
   end
 
+  defp unwrap_string(value) when is_binary(value), do: value
+
   defp unwrap_string({:obj, ref}) do
     case QuickBEAM.VM.Heap.get_obj(ref, %{}) |> WrappedPrimitive.value(:string) do
       {:ok, value} -> value
-      :error -> ""
+      :error -> string_value_type_error!()
     end
   end
 
-  defp unwrap_string(value), do: Runtime.stringify(value)
+  defp unwrap_string(_), do: string_value_type_error!()
+
+  defp string_value_type_error!,
+    do:
+      throw(
+        {:js_throw,
+         Heap.make_error(
+           "String.prototype.toString requires that 'this' be a String",
+           "TypeError"
+         )}
+      )
 
   defp normalize_string(s, args) do
     form =
