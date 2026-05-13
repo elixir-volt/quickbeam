@@ -926,15 +926,32 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   defp match(s, [pattern | _]) when is_binary(s) do
-    pattern = if pattern == :undefined, do: "", else: stringify_search_string(pattern)
-
-    literal_match_result(s, pattern)
+    pattern
+    |> regexp_create()
+    |> invoke_created_match(s)
   end
 
   defp match(_, _), do: nil
 
   defp regexp_create(:undefined), do: {:regexp, nil, ""}
+
+  defp regexp_create({:regexp, _bytecode, source}) when is_binary(source),
+    do: {:regexp, nil, source}
+
+  defp regexp_create({:regexp, _bytecode, source, _ref}) when is_binary(source),
+    do: {:regexp, nil, source}
+
   defp regexp_create(value), do: {:regexp, nil, stringify_search_string(value)}
+
+  defp invoke_created_match(regexp, s) do
+    case get_method(regexp, {:symbol, "Symbol.match"}) do
+      {:ok, matcher} ->
+        Invocation.invoke_with_receiver(matcher, [s], Runtime.gas_budget(), regexp)
+
+      :none ->
+        literal_regexp_match_result(regexp, s)
+    end
+  end
 
   defp literal_regexp_match_result({:regexp, nil, source}, s), do: literal_match_result(s, source)
   defp literal_regexp_match_result(_regexp, _s), do: nil
