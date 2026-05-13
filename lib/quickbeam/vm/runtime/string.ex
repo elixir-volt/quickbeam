@@ -1210,7 +1210,10 @@ defmodule QuickBEAM.VM.Runtime.String do
     Enum.with_index(captures, 1)
     |> Enum.reduce(rep, fn {capture, index}, acc ->
       value = if capture == :undefined, do: "", else: capture
-      String.replace(acc, "$#{index}", value)
+
+      acc
+      |> String.replace("$0#{index}", value)
+      |> String.replace("$#{index}", value)
     end)
   end
 
