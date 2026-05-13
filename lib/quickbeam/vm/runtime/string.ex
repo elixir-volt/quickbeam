@@ -1042,7 +1042,10 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   defp match_all_literal(_regexp, _s), do: wrap_match_all_results([])
 
-  defp literal_match_results("", s), do: [match_result([""], 0, s)]
+  defp literal_match_results("", s) do
+    0..Get.string_length(s)
+    |> Enum.map(&match_result([""], &1, s))
+  end
 
   defp literal_match_results(source, s) do
     do_literal_match_results(source, s, 0, [])
@@ -1064,11 +1067,7 @@ defmodule QuickBEAM.VM.Runtime.String do
     end
   end
 
-  defp wrap_match_all_results(results) do
-    ref = make_ref()
-    Heap.put_obj(ref, results)
-    {:obj, ref}
-  end
+  defp wrap_match_all_results(results), do: Heap.wrap_iterator(results)
 
   # ── String static methods ──
 
