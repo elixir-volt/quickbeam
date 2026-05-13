@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   use QuickBEAM.VM.Builtin
 
   alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.ObjectModel.{Get, WrappedPrimitive}
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.RegExp
@@ -506,25 +507,28 @@ defmodule QuickBEAM.VM.Runtime.String do
     end
   end
 
-  defp reject_regexp_search!({:regexp, _, _}) do
-    throw(
-      {:js_throw, Heap.make_error("First argument must not be a regular expression", "TypeError")}
-    )
-  end
+  defp reject_regexp_search!({:regexp, _, _, _} = regexp),
+    do: reject_regexp_matcher!(regexp, true)
 
-  defp reject_regexp_search!({:obj, ref}) do
-    map = Heap.get_obj(ref, %{})
+  defp reject_regexp_search!({:regexp, _, _} = regexp), do: reject_regexp_matcher!(regexp, true)
+  defp reject_regexp_search!({:obj, _} = obj), do: reject_regexp_matcher!(obj, false)
+  defp reject_regexp_search!(_), do: :ok
 
-    if Map.get(map, {:symbol, "Symbol.match"}) != nil and
-         Map.get(map, {:symbol, "Symbol.match"}) != :undefined do
+  defp reject_regexp_matcher!(obj, regexp_fallback) do
+    matcher = Get.get(obj, {:symbol, "Symbol.match"})
+
+    is_regexp =
+      if matcher != nil and matcher != :undefined,
+        do: Values.truthy?(matcher),
+        else: regexp_fallback
+
+    if is_regexp do
       throw(
         {:js_throw,
          Heap.make_error("First argument must not be a regular expression", "TypeError")}
       )
     end
   end
-
-  defp reject_regexp_search!(_), do: :ok
 
   defp slice(s, args) when is_binary(s) do
     len = String.length(s)
