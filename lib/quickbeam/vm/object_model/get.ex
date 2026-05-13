@@ -379,15 +379,19 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         end
 
       map when is_map(map) ->
-        case prototype_object_property(map, key) do
-          :undefined ->
-            case wrapped_proto_property(map, key) do
-              :undefined -> get_map_property(map, key, {:obj, ref})
-              val -> val
-            end
+        if Heap.get_prop_desc(ref, key) == :deleted do
+          :undefined
+        else
+          case prototype_object_property(map, key) do
+            :undefined ->
+              case wrapped_proto_property(map, key) do
+                :undefined -> get_map_property(map, key, {:obj, ref})
+                val -> val
+              end
 
-          val ->
-            val
+            val ->
+              val
+          end
         end
     end
   end

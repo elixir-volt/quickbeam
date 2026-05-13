@@ -6,7 +6,7 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Invocation
-  alias QuickBEAM.VM.ObjectModel.{Get, Semantics}
+  alias QuickBEAM.VM.ObjectModel.{Get, Semantics, WrappedPrimitive}
 
   @doc "Deletes a property according to JavaScript delete semantics."
   def delete_property(nil, key) do
@@ -47,6 +47,7 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
               |> remove_key_order_entry(key)
 
             Heap.put_obj(ref, updated)
+            mark_wrapped_virtual_delete(ref, map, key)
             true
           end
 
@@ -71,6 +72,15 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
   end
 
   def delete_property(_obj, _key), do: true
+
+  defp mark_wrapped_virtual_delete(ref, map, key) when is_binary(key) do
+    if WrappedPrimitive.type(map) != nil and
+         key in ~w(toString valueOf toFixed toExponential toPrecision toLocaleString) do
+      Heap.put_prop_desc(ref, key, :deleted)
+    end
+  end
+
+  defp mark_wrapped_virtual_delete(_ref, _map, _key), do: :ok
 
   defp delete_ordinary_key(map, key) when is_integer(key) and key >= 0 do
     map |> Map.delete(key) |> Map.delete(Integer.to_string(key))
