@@ -76,9 +76,11 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
     )
 
     function_proto = QuickBEAM.VM.Runtime.Function.prototype()
+    realm_id = make_ref()
 
     function_ctor =
       realm_function_constructor(
+        realm_id,
         object_proto,
         function_proto,
         array_proto,
@@ -119,7 +121,15 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
         "ReferenceError" => Map.fetch!(error_bindings, "ReferenceError")
       })
 
+    Process.put({:qb_realm_global, realm_id}, global)
     Heap.wrap(%{"global" => global})
+  end
+
+  def realm_global(function) do
+    case Process.get({:qb_realm_intrinsics, function}) do
+      %{realm_id: realm_id} -> Process.get({:qb_realm_global, realm_id})
+      _ -> nil
+    end
   end
 
   def realm_intrinsic(constructor, intrinsic) do
@@ -175,6 +185,7 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
   end
 
   defp realm_function_constructor(
+         realm_id,
          object_proto,
          function_proto,
          array_proto,
@@ -189,11 +200,17 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
          finalization_registry_proto
        ) do
     cb = fn _args, _this ->
-      fun = {:builtin, "anonymous", fn _, this -> this end}
+      fun =
+        {:builtin, "anonymous",
+         fn _, this ->
+           if this in [nil, :undefined], do: Process.get({:qb_realm_global, realm_id}), else: this
+         end}
+
       Heap.put_class_proto(fun, object_proto)
       Heap.put_ctor_static(fun, "prototype", :undefined)
 
       Process.put({:qb_realm_intrinsics, fun}, %{
+        realm_id: realm_id,
         object_proto: object_proto,
         array_proto: array_proto,
         boolean_proto: boolean_proto,
@@ -214,6 +231,7 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
     ConstructorRegistry.put_prototype(ctor, function_proto)
 
     Process.put({:qb_realm_intrinsics, ctor}, %{
+      realm_id: realm_id,
       object_proto: object_proto,
       array_proto: array_proto,
       boolean_proto: boolean_proto,
