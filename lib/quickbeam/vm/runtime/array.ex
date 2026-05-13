@@ -896,15 +896,34 @@ defmodule QuickBEAM.VM.Runtime.Array do
         Runtime.stringify(a) < Runtime.stringify(b)
       end)
 
-  defp flat({:obj, _} = obj, _args), do: flat_array_like(obj)
+  defp flat(nil, _), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+  defp flat(:undefined, _), do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
-  defp flat({:qb_arr, arr}, args), do: flat(:array.to_list(arr), args)
+  defp flat({:obj, ref} = obj, args) do
+    depth = flat_depth(args)
 
-  defp flat(list, _) when is_list(list), do: Enum.flat_map(list, &flat_item/1)
+    case Heap.get_obj(ref) do
+      {:qb_arr, arr} -> flatten_array(:array.to_list(arr), depth)
+      list when is_list(list) -> flatten_array(list, depth)
+      _ -> flat_array_like(obj, depth)
+    end
+  end
 
+  defp flat({:qb_arr, arr}, args), do: flatten_array(:array.to_list(arr), flat_depth(args))
+  defp flat(list, args) when is_list(list), do: flatten_array(list, flat_depth(args))
   defp flat(_, _), do: []
 
-  defp flat_array_like(obj) do
+  defp flat_depth([]), do: 1
+  defp flat_depth([:undefined | _]), do: 1
+  defp flat_depth([value | _]), do: normalize_flat_depth(to_integer_or_infinity(value))
+  defp flat_depth(_), do: 1
+
+  defp normalize_flat_depth(:infinity), do: :infinity
+  defp normalize_flat_depth(:neg_infinity), do: 0
+  defp normalize_flat_depth(value) when value < 0, do: 0
+  defp normalize_flat_depth(value), do: value
+
+  defp flat_array_like(obj, depth) do
     len = array_like_length(obj)
 
     if len == 0 do
@@ -915,7 +934,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         key = Integer.to_string(idx)
 
         if HasProperty.has_property?(obj, key) do
-          obj |> Get.get(key) |> flat_item()
+          obj |> Get.get(key) |> flat_item(depth)
         else
           []
         end
@@ -923,18 +942,38 @@ defmodule QuickBEAM.VM.Runtime.Array do
     end
   end
 
-  defp flat_item({:qb_arr, arr}), do: :array.to_list(arr)
-  defp flat_item(a) when is_list(a), do: a
+  defp flatten_array(list, depth), do: Enum.flat_map(list, &flat_item(&1, depth))
 
-  defp flat_item({:obj, ref} = obj) do
-    case Heap.get_obj(ref) do
-      {:qb_arr, arr} -> :array.to_list(arr)
-      a when is_list(a) -> a
-      _ -> [obj]
+  defp flat_item(value, 0), do: [value]
+
+  defp flat_item(value, :infinity) do
+    case flattenable_array(value) do
+      {:ok, list} -> flatten_array(list, :infinity)
+      :error -> [value]
     end
   end
 
-  defp flat_item(val), do: [val]
+  defp flat_item(value, depth) do
+    case flattenable_array(value) do
+      {:ok, list} -> flatten_array(list, depth - 1)
+      :error -> [value]
+    end
+  end
+
+  defp flat_item(value), do: flat_item(value, 1)
+
+  defp flattenable_array({:qb_arr, arr}), do: {:ok, :array.to_list(arr)}
+  defp flattenable_array(a) when is_list(a), do: {:ok, a}
+
+  defp flattenable_array({:obj, ref}) do
+    case Heap.get_obj(ref) do
+      {:qb_arr, arr} -> {:ok, :array.to_list(arr)}
+      a when is_list(a) -> {:ok, a}
+      _ -> :error
+    end
+  end
+
+  defp flattenable_array(_), do: :error
 
   defp flat_map(nil, _), do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
