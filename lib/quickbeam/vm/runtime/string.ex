@@ -1296,13 +1296,14 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   defp replace_capture_substitutions(rep, captures) do
-    Enum.with_index(captures, 1)
+    captures
+    |> Enum.with_index(1)
+    |> Enum.reverse()
     |> Enum.reduce(rep, fn {capture, index}, acc ->
       value = if capture == :undefined, do: "", else: capture
 
-      acc
-      |> String.replace("$0#{index}", value)
-      |> String.replace("$#{index}", value)
+      acc = if index < 10, do: String.replace(acc, "$0#{index}", value), else: acc
+      String.replace(acc, "$#{index}", value)
     end)
   end
 
