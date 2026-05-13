@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Runtime.Date do
   alias QuickBEAM.VM.Interpreter.Values.Coercion
 
   @epoch_gs 719_528 * 86_400
+  @time_clip_limit 8_640_000_000_000_000
 
   defp coerce_date_value(obj) do
     prim = Coercion.to_primitive(obj)
@@ -585,8 +586,15 @@ defmodule QuickBEAM.VM.Runtime.Date do
   end
 
   defp local_from_components(args) do
-    with {:ok, {year, month, day, hour, minute, second, ms_part}} <- extract_components(args) do
-      utc_ms({year, month, day, hour, minute, second, ms_part})
+    with {:ok, components} <- extract_components(args),
+         ms when is_integer(ms) <- utc_ms_raw(components) do
+      offset_ms = tz_offset_minutes() * 60_000
+
+      if abs(ms) >= @time_clip_limit - 86_400_000 do
+        time_clip_value(ms + offset_ms)
+      else
+        time_clip_value(ms)
+      end
     end
   rescue
     _ -> :nan
@@ -630,9 +638,30 @@ defmodule QuickBEAM.VM.Runtime.Date do
             second * 1000.0 + ms_part * 1.0
 
         time_ms = trunc(time_ms)
-        if abs(time_ms) > 8_640_000_000_000_000, do: :nan, else: time_ms
+        time_clip_value(time_ms)
     end
   end
+
+  defp utc_ms_raw({year, month, day, hour, minute, second, ms_part}) do
+    year = year + div(month - 1, 12)
+    month = rem(rem(month - 1, 12) + 12, 12) + 1
+
+    case make_day(year, month) do
+      :nan ->
+        :nan
+
+      base_days ->
+        day_f = (day - 1 + base_days) * 1.0
+
+        (((day_f * 24 + hour * 1.0) * 60 + minute * 1.0) * 60_000 +
+           second * 1000.0 + ms_part * 1.0)
+        |> trunc()
+    end
+  end
+
+  defp time_clip_value(ms) when is_number(ms) and abs(ms) > @time_clip_limit, do: :nan
+  defp time_clip_value(ms) when is_number(ms), do: trunc(ms)
+  defp time_clip_value(_), do: :nan
 
   defp make_day(year, month) when year >= 0 do
     :calendar.date_to_gregorian_days(year, month, 1) - 719_528
