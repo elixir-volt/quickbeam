@@ -383,6 +383,8 @@ defmodule QuickBEAM.VM.Runtime.Date do
 
   defp put_ms(_, _), do: :nan
 
+  defp set_full_year(this, []), do: put_ms(this, :nan)
+
   defp set_full_year(this, args) do
     ms = get_ms(this)
     coerced_args = Enum.map(args, &to_num/1)
@@ -434,6 +436,8 @@ defmodule QuickBEAM.VM.Runtime.Date do
     _ -> :nan
   end
 
+  defp set_date_field(this, []), do: put_ms(this, :nan)
+
   defp set_date_field(this, args) do
     ms = get_ms(this)
     coerced = Enum.map(args, &to_num/1)
@@ -453,6 +457,8 @@ defmodule QuickBEAM.VM.Runtime.Date do
   rescue
     _ -> :nan
   end
+
+  defp set_month(this, []), do: put_ms(this, :nan)
 
   defp set_month(this, args) do
     ms = get_ms(this)
@@ -484,6 +490,8 @@ defmodule QuickBEAM.VM.Runtime.Date do
   defp to_num(true), do: 1
   defp to_num(false), do: 0
   defp to_num(val), do: QuickBEAM.VM.Runtime.to_number(val)
+
+  defp set_time_fields(this, _possible_fields, []), do: put_ms(this, :nan)
 
   defp set_time_fields(this, possible_fields, args) do
     ms = get_ms(this)
