@@ -228,7 +228,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
           module: PromiseBuiltins,
           prototype: PromiseBuiltins.prototype()
         ),
-      "Symbol" => register("Symbol", Symbol.constructor(), module: Symbol),
+      "Symbol" => register("Symbol", Symbol.constructor(), module: Symbol, auto_proto: true),
       "Map" =>
         (fn ->
            ctor = register("Map", JSMap.constructor(), auto_proto: true)

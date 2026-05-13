@@ -269,7 +269,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     case WrappedPrimitive.type(map) do
       :symbol ->
         {:ok, value} = WrappedPrimitive.value(map, :symbol)
-        get_own(value, key)
+        get(value, key)
 
       :number ->
         Number.proto_property(key)
@@ -837,16 +837,19 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_from_prototype(list, key) when is_list(list), do: array_proto_property(key)
 
   defp get_from_prototype(s, key) when is_binary(s),
-    do: primitive_or_object_proto(JSString.proto_property(key), key)
+    do: primitive_or_class_proto(JSString.proto_property(key), key, "String")
 
   defp get_from_prototype(n, key) when is_number(n),
-    do: primitive_or_object_proto(Number.proto_property(key), key)
+    do: primitive_or_class_proto(Number.proto_property(key), key, "Number")
 
   defp get_from_prototype(true, key),
-    do: primitive_or_object_proto(Boolean.proto_property(key), key)
+    do: primitive_or_class_proto(Boolean.proto_property(key), key, "Boolean")
 
   defp get_from_prototype(false, key),
-    do: primitive_or_object_proto(Boolean.proto_property(key), key)
+    do: primitive_or_class_proto(Boolean.proto_property(key), key, "Boolean")
+
+  defp get_from_prototype({:symbol, _, _}, key), do: primitive_class_proto(key, "Symbol")
+  defp get_from_prototype({:symbol, _}, key), do: primitive_class_proto(key, "Symbol")
 
   defp get_from_prototype(%QuickBEAM.VM.Function{} = f, "constructor"),
     do: function_kind_constructor(f)
@@ -915,8 +918,23 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp get_from_prototype(_, _), do: :undefined
 
-  defp primitive_or_object_proto(:undefined, key), do: get_own(Heap.get_object_prototype(), key)
-  defp primitive_or_object_proto(value, _key), do: value
+  defp primitive_or_class_proto(:undefined, key, class_name),
+    do: primitive_class_proto(key, class_name)
+
+  defp primitive_or_class_proto(value, _key, _class_name), do: value
+
+  defp primitive_class_proto(key, class_name) do
+    case Runtime.global_class_proto(class_name) do
+      {:obj, _} = proto ->
+        case get(proto, key) do
+          :undefined -> get_own(Heap.get_object_prototype(), key)
+          value -> value
+        end
+
+      _ ->
+        get_own(Heap.get_object_prototype(), key)
+    end
+  end
 
   defp array_proto_property(key) do
     case Heap.get_array_proto() do
