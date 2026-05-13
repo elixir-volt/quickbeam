@@ -402,6 +402,13 @@ defmodule QuickBEAM.VM.Runtime.Array do
     do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
   defp filter({:obj, _} = obj, args), do: filter_array_like(obj, args)
+
+  defp filter(value, args) when is_boolean(value) or is_number(value) or is_binary(value) do
+    value
+    |> primitive_object()
+    |> filter_array_like(args)
+  end
+
   defp filter({:builtin, _, _} = obj, args), do: filter_array_like(obj, args)
   defp filter({:regexp, _, _, _} = obj, args), do: filter_array_like(obj, args)
   defp filter({:regexp, _, _} = obj, args), do: filter_array_like(obj, args)
@@ -425,7 +432,15 @@ defmodule QuickBEAM.VM.Runtime.Array do
     |> Enum.map(fn {val, _} -> val end)
   end
 
-  defp filter(_, _), do: JSThrow.type_error!("callbackfn is not a function")
+  defp filter(callable, args) do
+    if QuickBEAM.VM.Builtin.callable?(callable) do
+      filter_array_like(callable, args)
+    else
+      filter_non_callable(callable, args)
+    end
+  end
+
+  defp filter_non_callable(_, _), do: JSThrow.type_error!("callbackfn is not a function")
 
   defp filter_array_like(this, [fun | rest]) do
     len = array_like_length(this)
