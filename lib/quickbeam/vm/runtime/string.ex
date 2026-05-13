@@ -1000,13 +1000,21 @@ defmodule QuickBEAM.VM.Runtime.String do
     end
   end
 
-  defp match_all(s, [{:regexp, bytecode, source, _ref} | _])
-       when is_binary(s) and is_binary(bytecode),
-       do: match_all(s, [{:regexp, bytecode, source}])
+  defp match_all(s, [{:regexp, bytecode, source, _ref} = re | _])
+       when is_binary(s) and is_binary(bytecode) do
+    flags = regexp_match_all_flags(re)
+
+    if not (is_binary(flags) and String.contains?(flags, "g")) do
+      throw({:js_throw, Heap.make_error("matchAll requires a global RegExp", "TypeError")})
+    end
+
+    results = match_all_with_captures(s, {:regexp, bytecode, source}, 0, [])
+    wrap_match_all_results(results)
+  end
 
   defp match_all(s, [{:regexp, bytecode, _source} = re | _])
        when is_binary(s) and is_binary(bytecode) do
-    flags = Get.get(re, "flags")
+    flags = regexp_match_all_flags(re)
 
     if not (is_binary(flags) and String.contains?(flags, "g")) do
       throw({:js_throw, Heap.make_error("matchAll requires a global RegExp", "TypeError")})
@@ -1041,6 +1049,19 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   defp match_all_literal(_regexp, _s), do: wrap_match_all_results([])
+
+  defp regexp_match_all_flags(regexp) do
+    case Runtime.global_class_proto("RegExp") do
+      {:obj, ref} = proto ->
+        case Heap.get_obj(ref, %{}) do
+          map when is_map(map) and is_map_key(map, "flags") -> Get.get(proto, "flags")
+          _ -> Get.get(regexp, "flags")
+        end
+
+      _ ->
+        Get.get(regexp, "flags")
+    end
+  end
 
   defp literal_match_results("", s) do
     0..Get.string_length(s)

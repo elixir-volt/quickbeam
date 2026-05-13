@@ -523,23 +523,23 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   end
 
   defp get_own({:regexp, bytecode, _source, ref}, "flags") do
-    case Map.get(Process.get({:qb_regexp_props, ref}, %{}), "flags", :undefined) do
-      :undefined -> regexp_flags(bytecode)
-      value -> value
+    case Map.fetch(Process.get({:qb_regexp_props, ref}, %{}), "flags") do
+      {:ok, value} -> value
+      :error -> regexp_flags(bytecode)
     end
   end
 
   defp get_own({:regexp, _bytecode, source, ref}, "source") when is_binary(source) do
-    case Map.get(Process.get({:qb_regexp_props, ref}, %{}), "source", :undefined) do
-      :undefined -> source
-      value -> value
+    case Map.fetch(Process.get({:qb_regexp_props, ref}, %{}), "source") do
+      {:ok, value} -> value
+      :error -> source
     end
   end
 
   defp get_own({:regexp, _, _, ref}, "lastIndex") do
-    case Map.get(Process.get({:qb_regexp_props, ref}, %{}), "lastIndex", :undefined) do
-      :undefined -> 0
-      value -> value
+    case Map.fetch(Process.get({:qb_regexp_props, ref}, %{}), "lastIndex") do
+      {:ok, value} -> value
+      :error -> 0
     end
   end
 
@@ -548,9 +548,9 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_own({:regexp, _, _}, "lastIndex"), do: 0
 
   defp get_own({:regexp, _, _, ref}, key) do
-    case Map.get(Process.get({:qb_regexp_props, ref}, %{}), key, :undefined) do
-      :undefined -> regexp_prototype_property(key)
-      value -> value
+    case Map.fetch(Process.get({:qb_regexp_props, ref}, %{}), key) do
+      {:ok, value} -> value
+      :error -> regexp_prototype_property(key)
     end
   end
 
@@ -818,6 +818,10 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
       _ ->
         :undefined
     end
+  end
+
+  defp explicit_undefined_own?({:regexp, _, _, ref}, key) do
+    Map.has_key?(Process.get({:qb_regexp_props, ref}, %{}), key)
   end
 
   defp explicit_undefined_own?({:obj, ref}, key) do
