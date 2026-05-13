@@ -10,15 +10,7 @@ defmodule QuickBEAM.VM.Runtime.Function do
       {:builtin, "[Symbol.hasInstance]",
        fn args, this ->
          obj = Builtin.arg(args, 0, :undefined)
-
-         if Builtin.callable?(this) do
-           case obj do
-             {:obj, _} -> Invocation.invoke_callback_or_throw(this, [obj]) |> truthy?()
-             _ -> false
-           end
-         else
-           false
-         end
+         ordinary_has_instance(this, obj)
        end}
 
     proto =
@@ -81,7 +73,59 @@ defmodule QuickBEAM.VM.Runtime.Function do
     proto
   end
 
-  defp truthy?(val), do: QuickBEAM.VM.Interpreter.Values.truthy?(val)
+  defp ordinary_has_instance({:bound, _, _, target, _}, obj),
+    do: ordinary_has_instance(target, obj)
+
+  defp ordinary_has_instance(callable, obj) do
+    cond do
+      not Builtin.callable?(callable) ->
+        false
+
+      not object_like?(obj) ->
+        false
+
+      true ->
+        prototype = Get.get(callable, "prototype")
+
+        unless object_like?(prototype),
+          do: QuickBEAM.VM.JSThrow.type_error!("Function has non-object prototype")
+
+        prototype_chain_contains?(obj, prototype, MapSet.new())
+    end
+  end
+
+  defp prototype_chain_contains?(obj, prototype, seen) do
+    case object_get_prototype_of(obj) do
+      nil ->
+        false
+
+      ^prototype ->
+        true
+
+      {:obj, ref} = next ->
+        if MapSet.member?(seen, ref),
+          do: false,
+          else: prototype_chain_contains?(next, prototype, MapSet.put(seen, ref))
+
+      next when is_tuple(next) or is_struct(next) ->
+        prototype_chain_contains?(next, prototype, seen)
+
+      _ ->
+        false
+    end
+  end
+
+  defp object_get_prototype_of(obj) do
+    QuickBEAM.VM.Runtime.Object.static_property("getPrototypeOf")
+    |> Invocation.invoke_callback_or_throw([obj])
+  end
+
+  defp object_like?({:obj, _}), do: true
+  defp object_like?({:closure, _, %QuickBEAM.VM.Function{}}), do: true
+  defp object_like?({:builtin, _, _}), do: true
+  defp object_like?({:bound, _, _, _, _}), do: true
+  defp object_like?(%QuickBEAM.VM.Function{}), do: true
+  defp object_like?(_), do: false
 
   # ── Function prototype ──
 

@@ -59,6 +59,12 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   def get({:obj, _} = value, {:symbol, _} = sym_key), do: get_symbol(value, sym_key)
   def get({:obj, _} = value, {:symbol, _, _} = sym_key), do: get_symbol(value, sym_key)
 
+  def get(value, {:symbol, "Symbol.hasInstance"} = sym_key),
+    do: get_callable_symbol(value, sym_key)
+
+  def get(value, {:symbol, "Symbol.hasInstance", _} = sym_key),
+    do: get_callable_symbol(value, sym_key)
+
   def get(value, {:symbol, _} = sym_key), do: get_own(value, sym_key)
   def get(value, {:symbol, _, _} = sym_key), do: get_own(value, sym_key)
 
@@ -91,6 +97,17 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
       _ ->
         false
+    end
+  end
+
+  defp get_callable_symbol(value, sym_key) do
+    if QuickBEAM.VM.Builtin.callable?(value) do
+      case get_own(value, sym_key) do
+        :undefined -> fallback_to_function_proto(:undefined, value, sym_key)
+        val -> val
+      end
+    else
+      get_own(value, sym_key)
     end
   end
 
