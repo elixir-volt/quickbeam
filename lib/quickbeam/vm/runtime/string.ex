@@ -380,7 +380,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp includes(s, [sub | rest]) when is_binary(s) do
     reject_regexp_search!(sub)
     sub_str = if is_binary(sub), do: sub, else: Runtime.stringify(sub)
-    pos = if rest != [], do: max(Runtime.to_int(hd(rest)), 0), else: 0
+    pos = if rest != [], do: string_position(hd(rest), String.length(s)), else: 0
     String.contains?(String.slice(s, pos..-1//1), sub_str)
   end
 
@@ -417,6 +417,16 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   defp ends_with(_, _), do: false
+
+  defp string_position(:infinity, len), do: len
+  defp string_position(:neg_infinity, _len), do: 0
+
+  defp string_position(value, len) do
+    value
+    |> Runtime.to_int()
+    |> max(0)
+    |> min(len)
+  end
 
   defp has_lone_surrogate?(s) do
     s
