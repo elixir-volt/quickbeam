@@ -822,8 +822,25 @@ defmodule QuickBEAM.VM.Runtime.String do
     |> List.duplicate(repeats)
     |> List.flatten()
     |> Enum.take(target)
-    |> IO.iodata_to_binary()
+    |> utf16_units_to_binary()
   end
+
+  defp utf16_units_to_binary(units) do
+    units
+    |> Enum.flat_map(&utf16_code_unit_values/1)
+    |> utf16_values_to_binary([])
+  end
+
+  defp utf16_values_to_binary([high, low | rest], acc)
+       when high >= 0xD800 and high <= 0xDBFF and low >= 0xDC00 and low <= 0xDFFF do
+    cp = 0x10000 + (high - 0xD800) * 0x400 + (low - 0xDC00)
+    utf16_values_to_binary(rest, [<<cp::utf8>> | acc])
+  end
+
+  defp utf16_values_to_binary([unit | rest], acc),
+    do: utf16_values_to_binary(rest, [surrogate_or_utf8(unit) | acc])
+
+  defp utf16_values_to_binary([], acc), do: acc |> Enum.reverse() |> IO.iodata_to_binary()
 
   defp replace(s, [pattern, replacement | _]) when is_binary(s) do
     case pattern do
