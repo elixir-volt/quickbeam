@@ -115,9 +115,18 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
   @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def string(args, {:obj, _} = this) do
-    val = args |> arg(0, "") |> Runtime.stringify()
-    QuickBEAM.VM.ObjectModel.Put.put(this, WrappedPrimitive.slot(:string), val)
-    this
+    case arg(args, 0, "") do
+      {:symbol, _} ->
+        JSThrow.type_error!("Cannot convert a Symbol value to a string")
+
+      {:symbol, _, _} ->
+        JSThrow.type_error!("Cannot convert a Symbol value to a string")
+
+      value ->
+        val = Runtime.stringify(value)
+        QuickBEAM.VM.ObjectModel.Put.put(this, WrappedPrimitive.slot(:string), val)
+        this
+    end
   end
 
   def string(args, _), do: args |> arg(0, "") |> Runtime.stringify()

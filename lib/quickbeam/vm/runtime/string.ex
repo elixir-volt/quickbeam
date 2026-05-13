@@ -1942,7 +1942,10 @@ defmodule QuickBEAM.VM.Runtime.String do
       0..(len - 1)
       |> Enum.map_join(fn i ->
         part = raw |> Get.get(Integer.to_string(i)) |> raw_to_string()
-        sub = if i < length(subs), do: Enum.at(subs, i) |> raw_to_string(), else: ""
+
+        sub =
+          if i < len - 1 and i < length(subs), do: Enum.at(subs, i) |> raw_to_string(), else: ""
+
         part <> sub
       end)
     end
