@@ -500,6 +500,18 @@ defmodule QuickBEAM.VM.Runtime.Array do
     target
   end
 
+  defp wrap_flat_result(receiver, result) do
+    target = filter_target(receiver)
+
+    result
+    |> Enum.with_index()
+    |> Enum.each(fn {value, index} ->
+      create_data_property_or_throw(target, Integer.to_string(index), value)
+    end)
+
+    target
+  end
+
   defp filter_target(receiver) do
     case concat_species_constructor(receiver) do
       :array ->
@@ -909,7 +921,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         _ -> flat_array_like(obj, depth)
       end
 
-    wrap_filter_result(obj, result)
+    wrap_flat_result(obj, result)
   end
 
   defp flat({:qb_arr, arr}, args),
@@ -1017,7 +1029,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         end)
       end
 
-    wrap_filter_result(this, result)
+    wrap_flat_result(this, result)
   end
 
   defp flat_map_array_like(this, _args) do
