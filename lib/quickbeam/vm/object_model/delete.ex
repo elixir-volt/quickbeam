@@ -27,33 +27,38 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
   end
 
   def delete_property({:obj, ref}, key) do
-    case Heap.get_obj(ref, %{}) do
-      %{proxy_target() => target, proxy_handler() => handler} ->
-        delete_proxy_property(target, handler, key)
+    if key in ["caller", "arguments"] and Heap.get_func_proto() == {:obj, ref} do
+      Heap.put_prop_desc(ref, key, :deleted)
+      true
+    else
+      case Heap.get_obj(ref, %{}) do
+        %{proxy_target() => target, proxy_handler() => handler} ->
+          delete_proxy_property(target, handler, key)
 
-      map when is_map(map) ->
-        desc = Heap.get_prop_desc(ref, key)
+        map when is_map(map) ->
+          desc = Heap.get_prop_desc(ref, key)
 
-        if match?(%{configurable: false}, desc) do
-          false
-        else
-          updated =
-            map
-            |> delete_ordinary_key(key)
-            |> remove_key_order_entry(key)
+          if match?(%{configurable: false}, desc) do
+            false
+          else
+            updated =
+              map
+              |> delete_ordinary_key(key)
+              |> remove_key_order_entry(key)
 
-          Heap.put_obj(ref, updated)
+            Heap.put_obj(ref, updated)
+            true
+          end
+
+        {:qb_arr, _} ->
+          delete_array_property(ref, key)
+
+        list when is_list(list) ->
+          delete_array_property(ref, key)
+
+        _ ->
           true
-        end
-
-      {:qb_arr, _} ->
-        delete_array_property(ref, key)
-
-      list when is_list(list) ->
-        delete_array_property(ref, key)
-
-      _ ->
-        true
+      end
     end
   end
 

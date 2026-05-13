@@ -202,7 +202,7 @@ defmodule QuickBEAM.VM.ObjectModel.Define do
     current_value = Map.get(existing, prop_name, :undefined)
 
     cond do
-      current_desc == nil ->
+      current_desc in [nil, :deleted] ->
         false
 
       current_desc.configurable == false and Map.get(desc, "configurable") == true ->

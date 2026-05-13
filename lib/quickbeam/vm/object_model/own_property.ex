@@ -20,7 +20,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   def present?({:obj, ref}, key) do
     cond do
       key in ["caller", "arguments"] and Heap.get_func_proto() == {:obj, ref} ->
-        true
+        Heap.get_prop_desc(ref, key) != :deleted
 
       key == proto() and Heap.get_prop_desc(ref, key) == nil ->
         false
@@ -255,7 +255,8 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
     data = Heap.get_obj(ref, %{})
 
     cond do
-      prop_name in ["caller", "arguments"] and Heap.get_func_proto() == {:obj, ref} ->
+      prop_name in ["caller", "arguments"] and Heap.get_func_proto() == {:obj, ref} and
+          Heap.get_prop_desc(ref, prop_name) != :deleted ->
         thrower =
           {:builtin, "ThrowTypeError",
            fn _args, _this ->
