@@ -230,21 +230,6 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
             {:builtin, name, cb} when is_function(cb, 2) ->
               obj = cb.(rev_args, this_obj)
 
-              if name in ~w(String Boolean) do
-                existing = Heap.get_obj(this_ref, %{})
-                val_fn = {:builtin, "valueOf", fn _, _ -> obj end}
-
-                to_str_fn =
-                  {:builtin, "toString", fn _, _ -> Values.stringify(obj) end}
-
-                Heap.put_obj(
-                  this_ref,
-                  existing
-                  |> Map.merge(%{"valueOf" => val_fn, "toString" => to_str_fn})
-                  |> Map.put(primitive_value(), obj)
-                )
-              end
-
               if name in ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError) do
                 case obj do
                   {:obj, ref} ->

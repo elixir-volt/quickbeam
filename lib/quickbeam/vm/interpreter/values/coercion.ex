@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
   import QuickBEAM.VM.Value, only: [is_object: 1]
 
   alias QuickBEAM.VM.{Heap, Invocation, Runtime}
-  alias QuickBEAM.VM.ObjectModel.{Get, WrappedPrimitive}
+  alias QuickBEAM.VM.ObjectModel.Get
 
   @doc "Coerces a VM value using JavaScript ToNumber semantics."
   def to_number(val) when is_number(val), do: val
@@ -171,64 +171,67 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
   def to_string_val({:symbol, desc}), do: "Symbol(#{desc})"
   def to_string_val({:symbol, desc, _ref}), do: "Symbol(#{desc})"
   def to_string_val(s) when is_binary(s), do: s
-  def to_string_val({:closure, _, %{source: src}}) when is_binary(src) and src != "", do: src
-  def to_string_val({:closure, _, _}), do: "function () { [native code] }"
+  def to_string_val({:closure, _, _} = fun), do: callable_to_string_primitive(fun)
+  def to_string_val(%QuickBEAM.VM.Function{} = fun), do: callable_to_string_primitive(fun)
+  def to_string_val({:builtin, _, _} = fun), do: callable_to_string_primitive(fun)
+  def to_string_val({:bound, _, _, _, _} = fun), do: callable_to_string_primitive(fun)
 
-  def to_string_val(%QuickBEAM.VM.Function{source: src}) when is_binary(src) and src != "",
-    do: src
-
-  def to_string_val(%QuickBEAM.VM.Function{}), do: "function () { [native code] }"
-  def to_string_val({:builtin, name, _}), do: "function #{name}() { [native code] }"
-  def to_string_val({:bound, _, _, _, _}), do: "function () { [native code] }"
-
-  def to_string_val({:obj, ref} = obj) do
-    data = Heap.get_obj(ref, %{})
-
-    case data do
-      {:qb_arr, arr} ->
-        :array.to_list(arr)
-        |> Enum.map(&to_string_val/1)
-        |> Enum.join(",")
-
-      list when is_list(list) ->
-        Enum.map_join(list, ",", fn
-          :undefined -> ""
-          nil -> ""
-          v -> to_string_val(v)
-        end)
-
-      map when is_map(map) ->
-        case WrappedPrimitive.value(map) do
-          {:ok, value} -> to_string_val(value)
-          :error -> object_to_string_primitive(obj, map)
-        end
-
-      _ ->
-        "[object Object]"
-    end
-  end
+  def to_string_val({:obj, ref} = obj),
+    do: object_to_string_primitive(obj, Heap.get_obj(ref, %{}))
 
   def to_string_val(_), do: "[object]"
 
-  defp object_to_string_primitive(obj, map) do
-    with :object <- call_string_hint_method(obj, map, "toString"),
-         :object <- call_string_hint_method(obj, map, "valueOf") do
+  defp object_to_string_primitive(obj, data) do
+    with :object <- call_string_hint_method(obj, data, "toString"),
+         :object <- call_string_hint_method(obj, data, "valueOf") do
       throw({:js_throw, Heap.make_error("Cannot convert object to primitive value", "TypeError")})
     else
       value -> to_string_val(value)
     end
   end
 
-  defp call_string_hint_method(obj, map, name) do
-    fun = Map.get(map, name) || Get.get(obj, name)
+  defp callable_to_string_primitive(fun) do
+    with :object <- call_string_hint_method(fun, %{}, "toString"),
+         :object <- call_string_hint_method(fun, %{}, "valueOf") do
+      to_string_val_without_overrides(fun)
+    else
+      value -> to_string_val(value)
+    end
+  end
+
+  defp to_string_val_without_overrides({:closure, _, %{source: src}})
+       when is_binary(src) and src != "",
+       do: src
+
+  defp to_string_val_without_overrides({:closure, _, _}), do: "function () { [native code] }"
+
+  defp to_string_val_without_overrides(%QuickBEAM.VM.Function{source: src})
+       when is_binary(src) and src != "",
+       do: src
+
+  defp to_string_val_without_overrides(%QuickBEAM.VM.Function{}),
+    do: "function () { [native code] }"
+
+  defp to_string_val_without_overrides({:builtin, name, _}),
+    do: "function #{name}() { [native code] }"
+
+  defp to_string_val_without_overrides({:bound, _, _, _, _}), do: "function () { [native code] }"
+
+  defp call_string_hint_method(obj, data, name) do
+    fun = own_or_inherited_method(obj, data, name)
 
     if callable?(fun) do
       result = Invocation.invoke_with_receiver(fun, [], Runtime.gas_budget(), obj)
-      if is_object(result), do: :object, else: result
+      if object_like?(result), do: :object, else: result
     else
       :object
     end
   end
+
+  defp own_or_inherited_method(obj, data, name) when is_map(data),
+    do: Map.get(data, name) || Get.get(obj, name)
+
+  defp own_or_inherited_method(obj, _data, name), do: Get.get(obj, name)
 
   @doc "Coerces an object value using JavaScript ToPrimitive semantics."
   def to_primitive(val) when is_number(val) or is_binary(val) or is_boolean(val) or is_atom(val),
@@ -253,49 +256,39 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
     data = Heap.get_obj(ref, %{})
 
     if is_map(data) do
-      case WrappedPrimitive.value(data) do
-        {:ok, value} ->
-          value
+      sym_key = {:symbol, "Symbol.toPrimitive"}
 
-        :error ->
-          sym_key = {:symbol, "Symbol.toPrimitive"}
+      raw_prim = Map.get(data, sym_key) || Get.get(obj, sym_key)
 
-          raw_prim = Map.get(data, sym_key) || Get.get(obj, sym_key)
+      to_prim =
+        case raw_prim do
+          {:accessor, getter, _} when getter != nil ->
+            Get.call_getter(getter, obj)
 
-          to_prim =
-            case raw_prim do
-              {:accessor, getter, _} when getter != nil ->
-                Get.call_getter(getter, obj)
+          other ->
+            other
+        end
 
-              other ->
-                other
-            end
+      if to_prim != nil and to_prim != :undefined do
+        if not callable?(to_prim) do
+          throw({:js_throw, Heap.make_error("Symbol.toPrimitive is not a function", "TypeError")})
+        end
 
-          if to_prim != nil and to_prim != :undefined do
-            if not callable?(to_prim) do
-              throw(
-                {:js_throw, Heap.make_error("Symbol.toPrimitive is not a function", "TypeError")}
-              )
-            end
+        result = Invocation.invoke_with_receiver(to_prim, [hint], Runtime.gas_budget(), obj)
 
-            result = Invocation.invoke_with_receiver(to_prim, [hint], Runtime.gas_budget(), obj)
-
-            if is_object(result) do
-              throw(
-                {:js_throw,
-                 Heap.make_error("Cannot convert object to primitive value", "TypeError")}
-              )
-            else
-              result
-            end
-          else
-            get_to_primitive(obj, "valueOf") ||
-              get_to_primitive(obj, "toString") ||
-              throw(
-                {:js_throw,
-                 Heap.make_error("Cannot convert object to primitive value", "TypeError")}
-              )
-          end
+        if object_like?(result) do
+          throw(
+            {:js_throw, Heap.make_error("Cannot convert object to primitive value", "TypeError")}
+          )
+        else
+          result
+        end
+      else
+        get_to_primitive(obj, "valueOf") ||
+          get_to_primitive(obj, "toString") ||
+          throw(
+            {:js_throw, Heap.make_error("Cannot convert object to primitive value", "TypeError")}
+          )
       end
     else
       get_to_primitive(obj, "valueOf") ||
@@ -363,6 +356,8 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
   defp function_like?({:builtin, _, _}), do: true
   defp function_like?(_), do: false
 
+  defp object_like?(value), do: is_object(value) or function_like?(value)
+
   defp get_to_primitive(obj, method) do
     case Get.get(obj, method) do
       fun when fun != nil and fun != :undefined ->
@@ -373,8 +368,9 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
     end
   end
 
-  defp unwrap_primitive({:obj, _}), do: nil
-  defp unwrap_primitive(val), do: val
+  defp unwrap_primitive(val) do
+    if object_like?(val), do: nil, else: val
+  end
 
   defp format_float(n) do
     short = :erlang.float_to_binary(n, [:short])
