@@ -46,6 +46,13 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
     end
   end
 
+  def object([], {:obj, ref} = object) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) and is_map_key(map, proto()) -> object
+      _ -> ordinary_object()
+    end
+  end
+
   def object(_, _), do: ordinary_object()
 
   defp ordinary_object do
