@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   import QuickBEAM.VM.Value, only: [is_symbol: 1]
 
   alias QuickBEAM.VM.{Heap, Runtime}
-  alias QuickBEAM.VM.ObjectModel.{Get, Semantics}
+  alias QuickBEAM.VM.ObjectModel.{Get, Semantics, WrappedPrimitive}
 
   @doc "Appends values from a spread source into an array-like target and returns the next index."
   def append_spread(arr, idx, obj) do
@@ -162,8 +162,11 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   @doc "Returns enumerable property keys in JavaScript enumeration order."
   def enumerable_keys({:obj, ref} = obj) do
     case Heap.get_obj_raw(ref) do
-      {:shape, shape_id, _offsets, _vals, proto} ->
-        own_keys = Heap.Shapes.keys(shape_id) |> Enum.filter(&enumerable_key_candidate?/1)
+      {:shape, shape_id, offsets, vals, proto} ->
+        own_keys =
+          shape_virtual_string_keys(offsets, vals) ++
+            (Heap.Shapes.keys(shape_id) |> Enum.filter(&enumerable_key_candidate?/1))
+
         proto_keys = enumerable_proto_keys(proto)
         Runtime.sort_numeric_keys(own_keys ++ Enum.reject(proto_keys, &(&1 in own_keys)))
 
@@ -289,11 +292,28 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
         _ -> []
       end
 
-    raw_keys = raw_keys ++ (Map.keys(map) -- raw_keys)
+    raw_keys = wrapped_string_keys(map) ++ raw_keys ++ (Map.keys(map) -- raw_keys)
 
     raw_keys
     |> Enum.filter(&enumerable_key_candidate?/1)
     |> Enum.reject(fn key -> match?(%{enumerable: false}, Heap.get_prop_desc(ref, key)) end)
+  end
+
+  defp wrapped_string_keys(map) do
+    case WrappedPrimitive.value(map, :string) do
+      {:ok, string} when is_binary(string) -> numeric_index_keys(Get.string_length(string))
+      _ -> []
+    end
+  end
+
+  defp shape_virtual_string_keys(offsets, vals) do
+    case Map.fetch(offsets, WrappedPrimitive.slot(:string)) do
+      {:ok, offset} when offset < tuple_size(vals) and is_binary(elem(vals, offset)) ->
+        numeric_index_keys(Get.string_length(elem(vals, offset)))
+
+      _ ->
+        []
+    end
   end
 
   defp enumerable_callable_keys(fun) do
