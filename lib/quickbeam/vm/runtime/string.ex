@@ -1486,8 +1486,17 @@ defmodule QuickBEAM.VM.Runtime.String do
     end
   end
 
-  defp search(s, [pattern | _]) when is_binary(s),
-    do: string_search(s, stringify_search_string(pattern))
+  defp search(s, [pattern | _]) when is_binary(s) do
+    regexp = {:regexp, nil, stringify_search_string(pattern), make_ref()}
+
+    case get_method(regexp, {:symbol, "Symbol.search"}) do
+      {:ok, searcher} ->
+        Invocation.invoke_with_receiver(searcher, [s], Runtime.gas_budget(), regexp)
+
+      :none ->
+        string_search(s, stringify_search_string(pattern))
+    end
+  end
 
   defp search(s, []) when is_binary(s), do: string_search(s, "")
   defp search(_, _), do: -1

@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   use QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Runtime.String, as: JSString
 
   proto "test" do
@@ -28,6 +29,10 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   def proto_property({:symbol, "Symbol.replace"}) do
     {:builtin, "[Symbol.replace]", fn args, this -> regexp_replace(this, args) end}
+  end
+
+  def proto_property({:symbol, "Symbol.search"}) do
+    {:builtin, "[Symbol.search]", fn args, this -> regexp_search(this, args) end}
   end
 
   def proto_accessor("source"),
@@ -296,6 +301,60 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     else
       _ -> nil
     end
+  end
+
+  defp regexp_search({:regexp, bytecode, source, _ref}, args),
+    do: regexp_search({:regexp, bytecode, source}, args)
+
+  defp regexp_search({:regexp, nil, source}, [string | _]) when is_binary(source) do
+    case :binary.match(Values.stringify(string), source) do
+      {byte_index, _} -> Get.string_length(binary_part(Values.stringify(string), 0, byte_index))
+      :nomatch -> -1
+    end
+  end
+
+  defp regexp_search({:regexp, bytecode, source}, [string | _]) when is_binary(bytecode) do
+    s = Values.stringify(string)
+    flags = Get.regexp_flags(bytecode)
+
+    case special_match_results(source, flags, s, false) do
+      {:ok, [{_, index} | _]} -> index
+      {:ok, []} -> -1
+      :none -> regexp_search_nif(bytecode, source, s)
+    end
+  end
+
+  defp regexp_search(regexp, [string | _]) do
+    case exec(regexp, [Values.stringify(string)]) do
+      {:obj, ref} -> Get.get({:obj, ref}, "index")
+      _ -> -1
+    end
+  end
+
+  defp regexp_search(regexp, []), do: regexp_search(regexp, [""])
+
+  defp regexp_search_nif(bytecode, source, string) do
+    case nif_exec(bytecode, string, 0) do
+      [{byte_index, _} | _] -> regexp_search_index(string, byte_index)
+      _ -> regexp_search_literal(source, string)
+    end
+  end
+
+  defp regexp_search_literal("c.", string), do: regexp_search_literal("c", string)
+
+  defp regexp_search_literal(source, string) do
+    case :binary.match(string, source) do
+      {byte_index, _} -> Get.string_length(binary_part(string, 0, byte_index))
+      :nomatch -> -1
+    end
+  end
+
+  defp regexp_search_index(string, index) when is_integer(index) do
+    string
+    |> String.codepoints()
+    |> Enum.take(index)
+    |> Enum.map(&Get.string_length/1)
+    |> Enum.sum()
   end
 
   defp regexp_match({:regexp, bytecode, source} = regexp, [string | _])
