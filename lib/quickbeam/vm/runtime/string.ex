@@ -334,6 +334,13 @@ defmodule QuickBEAM.VM.Runtime.String do
       )
 
   defp coerce_string_this(s) when is_binary(s), do: s
+
+  defp coerce_string_this({:obj, _} = obj) do
+    obj
+    |> Coercion.to_primitive("string")
+    |> QuickBEAM.VM.Interpreter.Values.stringify()
+  end
+
   defp coerce_string_this(val), do: QuickBEAM.VM.Interpreter.Values.stringify(val)
 
   defp char_at(s, [idx | _]) when is_binary(s) do
