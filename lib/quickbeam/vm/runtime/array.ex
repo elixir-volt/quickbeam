@@ -500,9 +500,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     target
   end
 
-  defp wrap_flat_result(receiver, result) do
-    target = filter_target(receiver)
-
+  defp populate_flat_result(target, result) do
     result
     |> Enum.with_index()
     |> Enum.each(fn {value, index} ->
@@ -914,14 +912,20 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp flat({:obj, ref} = obj, args) do
     depth = flat_depth(args)
 
-    result =
+    {target, result} =
       case Heap.get_obj(ref) do
-        {:qb_arr, arr} -> flatten_array(:array.to_list(arr), depth)
-        list when is_list(list) -> flatten_array(list, depth)
-        _ -> flat_array_like(obj, depth)
+        {:qb_arr, arr} ->
+          {filter_target(obj), flatten_array(:array.to_list(arr), depth)}
+
+        list when is_list(list) ->
+          {filter_target(obj), flatten_array(list, depth)}
+
+        _ ->
+          len = array_like_length(obj)
+          {filter_target(obj), flat_array_like(obj, depth, len)}
       end
 
-    wrap_flat_result(obj, result)
+    populate_flat_result(target, result)
   end
 
   defp flat({:qb_arr, arr}, args),
@@ -940,9 +944,9 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp normalize_flat_depth(value) when value < 0, do: 0
   defp normalize_flat_depth(value), do: value
 
-  defp flat_array_like(obj, depth) do
-    len = array_like_length(obj)
+  defp flat_array_like(obj, depth), do: flat_array_like(obj, depth, array_like_length(obj))
 
+  defp flat_array_like(obj, depth, len) do
     if len == 0 do
       []
     else
@@ -966,6 +970,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp flat_item(value, :infinity) do
     case flattenable_array(value) do
       {:ok, list} -> flatten_array(list, :infinity)
+      {:array_like, obj} -> flat_array_like(obj, :infinity)
       :error -> [value]
     end
   end
@@ -973,6 +978,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp flat_item(value, depth) do
     case flattenable_array(value) do
       {:ok, list} -> flatten_array(list, depth - 1)
+      {:array_like, obj} -> flat_array_like(obj, depth - 1)
       :error -> [value]
     end
   end
@@ -982,11 +988,11 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp flattenable_array({:qb_arr, arr}), do: {:ok, :array.to_list(arr)}
   defp flattenable_array(a) when is_list(a), do: {:ok, a}
 
-  defp flattenable_array({:obj, ref}) do
+  defp flattenable_array({:obj, ref} = obj) do
     case Heap.get_obj(ref) do
       {:qb_arr, arr} -> {:ok, :array.to_list(arr)}
       a when is_list(a) -> {:ok, a}
-      _ -> :error
+      _ -> if(is_array(obj), do: {:array_like, obj}, else: :error)
     end
   end
 
@@ -1008,6 +1014,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     end
 
     this_arg = filter_this_arg(rest)
+    target = filter_target(this)
 
     result =
       if len == 0 do
@@ -1029,7 +1036,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         end)
       end
 
-    wrap_flat_result(this, result)
+    populate_flat_result(target, result)
   end
 
   defp flat_map_array_like(this, _args) do
