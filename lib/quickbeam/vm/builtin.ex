@@ -317,6 +317,12 @@ defmodule QuickBEAM.VM.Builtin do
   def named_meta("toLowerCase"),
     do: meta("toLowerCase", [length: 0, constructable: false], :proto)
 
+  def named_meta("toLocaleUpperCase"),
+    do: meta("toLocaleUpperCase", [length: 0, constructable: false], :proto)
+
+  def named_meta("toLocaleLowerCase"),
+    do: meta("toLocaleLowerCase", [length: 0, constructable: false], :proto)
+
   def named_meta("repeat"), do: meta("repeat", [length: 1, constructable: false], :proto)
   def named_meta("padStart"), do: meta("padStart", [length: 1, constructable: false], :proto)
   def named_meta("padEnd"), do: meta("padEnd", [length: 1, constructable: false], :proto)

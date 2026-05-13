@@ -344,6 +344,8 @@ defmodule QuickBEAM.VM.Runtime.String do
       )
 
   defp coerce_string_this(s) when is_binary(s), do: s
+  defp coerce_string_this({:regexp, _, _} = regexp), do: regexp_to_string_value(regexp)
+  defp coerce_string_this({:regexp, _, _, _} = regexp), do: regexp_to_string_value(regexp)
 
   defp coerce_string_this({:obj, _} = obj) do
     case Coercion.to_primitive(obj, "string") do

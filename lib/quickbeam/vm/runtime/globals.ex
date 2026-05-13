@@ -137,7 +137,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
            install_prototype_methods(
              ctor,
              JSString,
-             ~w(charAt charCodeAt codePointAt indexOf lastIndexOf includes startsWith endsWith slice substring substr split trim trimStart trimEnd toUpperCase toLowerCase repeat padStart padEnd replace replaceAll match matchAll localeCompare search normalize concat toString valueOf at isWellFormed toWellFormed)
+             ~w(charAt charCodeAt codePointAt indexOf lastIndexOf includes startsWith endsWith slice substring substr split trim trimStart trimEnd toUpperCase toLowerCase toLocaleUpperCase toLocaleLowerCase repeat padStart padEnd replace replaceAll match matchAll localeCompare search normalize concat toString valueOf at isWellFormed toWellFormed)
            )
 
            case Heap.get_ctor_statics(ctor)["prototype"] do
