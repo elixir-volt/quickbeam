@@ -8,6 +8,9 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
 
+  @doc "Returns prototype method names installed on ArrayBuffer.prototype."
+  def proto_property_names, do: ~w(transfer resize slice sliceToImmutable)
+
   @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor(args, _this \\ nil) do
     {byte_length, max_byte_length} =

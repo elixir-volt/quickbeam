@@ -567,6 +567,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
       "ArrayBuffer" =>
         (
           ab_ctor = register("ArrayBuffer", &ArrayBuffer.constructor/2, auto_proto: true)
+          install_prototype_methods(ab_ctor, ArrayBuffer, ArrayBuffer.proto_property_names())
 
           Heap.put_ctor_static(
             ab_ctor,
