@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Values
+  alias QuickBEAM.VM.Interpreter.Values.Coercion
   alias QuickBEAM.VM.ObjectModel.{Get, WrappedPrimitive}
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.RegExp
@@ -472,6 +473,9 @@ defmodule QuickBEAM.VM.Runtime.String do
       throw(
         {:js_throw, Heap.make_error("Cannot convert a Symbol value to a string", "TypeError")}
       )
+
+  defp stringify_search_string({:obj, _} = value),
+    do: value |> Coercion.to_primitive("string") |> stringify_search_string()
 
   defp stringify_search_string(value) when is_binary(value), do: value
   defp stringify_search_string(value), do: Runtime.stringify(value)
