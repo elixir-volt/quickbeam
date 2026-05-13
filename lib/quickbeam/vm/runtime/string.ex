@@ -811,10 +811,13 @@ defmodule QuickBEAM.VM.Runtime.String do
     end
   end
 
-  defp match(s, [pattern | _]) when is_binary(s) and is_binary(pattern) do
-    case QuickBEAM.Native.regexp_compile(Regex.escape(pattern), 0) do
-      bytecode when is_binary(bytecode) -> match(s, [{:regexp, bytecode, pattern}])
-      _ -> nil
+  defp match(s, [pattern | _]) when is_binary(s) do
+    pattern = stringify_search_string(pattern)
+
+    cond do
+      pattern == "" -> [""]
+      :binary.match(s, pattern) != :nomatch -> [pattern]
+      true -> nil
     end
   end
 
