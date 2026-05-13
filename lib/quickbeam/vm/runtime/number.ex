@@ -93,7 +93,7 @@ defmodule QuickBEAM.VM.Runtime.Number do
   # ── toString(radix) ──
 
   defp to_string_with_radix(n, [radix | _]) when is_number(n) do
-    r = Runtime.to_int(radix)
+    r = to_integer_or_throw(radix)
 
     cond do
       r == 10 ->
@@ -250,7 +250,7 @@ defmodule QuickBEAM.VM.Runtime.Number do
   defp to_fixed(:neg_infinity, _), do: "-Infinity"
 
   defp to_fixed(n, [digits | _]) when is_number(n) do
-    d = Runtime.to_int(digits)
+    d = to_integer_or_throw(digits)
     if d < 0 or d > 100, do: JSThrow.range_error!("fractionDigits out of range")
     :erlang.float_to_binary(n * 1.0, decimals: d)
   end
@@ -260,7 +260,7 @@ defmodule QuickBEAM.VM.Runtime.Number do
   # ── toExponential(digits) ──
 
   defp to_exponential(n, [digits | _]) when is_number(n) do
-    d = Runtime.to_int(digits)
+    d = to_integer_or_throw(digits)
     if d < 0 or d > 100, do: JSThrow.range_error!("fractionDigits out of range")
     f = js_round_significant(abs(n * 1.0), d + 1)
     sign = if n < 0, do: "-", else: ""
@@ -281,12 +281,12 @@ defmodule QuickBEAM.VM.Runtime.Number do
   defp to_precision(n, [:undefined | _]) when is_number(n) or n == :nan, do: Runtime.stringify(n)
 
   defp to_precision(:nan, [prec | _]) do
-    Runtime.to_int(prec)
+    to_integer_or_throw(prec)
     "NaN"
   end
 
   defp to_precision(n, [prec | _]) when is_number(n) do
-    p = Runtime.to_int(prec)
+    p = to_integer_or_throw(prec)
     if p < 1 or p > 100, do: JSThrow.range_error!("precision out of range")
     f = n * 1.0
 
@@ -335,6 +335,11 @@ defmodule QuickBEAM.VM.Runtime.Number do
     rounded = :erlang.trunc(scaled + 0.5)
     rounded / factor
   end
+
+  defp to_integer_or_throw({:bigint, _}),
+    do: JSThrow.type_error!("Cannot convert BigInt to number")
+
+  defp to_integer_or_throw(value), do: Runtime.to_int(value)
 
   defp format_exponent(exp) when exp >= 0, do: "+" <> Integer.to_string(exp)
   defp format_exponent(exp), do: Integer.to_string(exp)
