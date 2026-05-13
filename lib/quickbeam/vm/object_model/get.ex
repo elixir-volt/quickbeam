@@ -839,6 +839,9 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_from_prototype(n, key) when is_number(n),
     do: primitive_or_class_proto(Number.proto_property(key), key, "Number")
 
+  defp get_from_prototype(n, key) when n in [:nan, :infinity, :neg_infinity],
+    do: primitive_or_class_proto(Number.proto_property(key), key, "Number")
+
   defp get_from_prototype(true, key),
     do: primitive_or_class_proto(Boolean.proto_property(key), key, "Boolean")
 
