@@ -791,6 +791,14 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   defp replace_all(s, _), do: s
 
+  defp match(s, [{:regexp, nil, source} | _]) when is_binary(s) and is_binary(source) do
+    cond do
+      source == "" -> [""]
+      :binary.match(s, source) != :nomatch -> [source]
+      true -> nil
+    end
+  end
+
   defp match(s, [{:regexp, bytecode, _source} = re | _])
        when is_binary(s) and is_binary(bytecode) do
     flags = Get.regexp_flags(bytecode)

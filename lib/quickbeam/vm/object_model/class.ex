@@ -39,6 +39,8 @@ defmodule QuickBEAM.VM.ObjectModel.Class do
       {:closure, _, %QuickBEAM.VM.Function{}} = closure -> closure
       {:builtin, _, _} = builtin -> builtin
       {:bound, _, _, _, _} = bound -> bound
+      {:regexp, _, _} = regexp -> regexp
+      {:regexp, _, _, _} = regexp -> regexp
       _ -> this_obj
     end
   end
