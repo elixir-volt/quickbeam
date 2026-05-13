@@ -18,7 +18,8 @@ defmodule QuickBEAM.VM.ObjectModel.Static do
       ) ->
         false
 
-      Map.has_key?(statics, prop_key) and match?({:builtin, _, _}, fun) ->
+      Map.has_key?(statics, prop_key) and
+          (match?({:builtin, _, _}, fun) or prop_key in ["name", "length"]) ->
         Heap.put_ctor_statics(fun, Map.put(statics, prop_key, :deleted))
         true
 

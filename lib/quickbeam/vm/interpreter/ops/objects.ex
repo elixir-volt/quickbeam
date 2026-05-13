@@ -602,6 +602,9 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
             {:builtin, _, _} = fun ->
               delete_static(fun, key)
 
+            {:bound, _, _, _, _} = fun ->
+              delete_static(fun, key)
+
             _ ->
               true
           end

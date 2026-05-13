@@ -320,6 +320,10 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
     callable_descriptor(target, key)
   end
 
+  def descriptor({:bound, _, _, _, _} = target, key) do
+    callable_descriptor(target, key)
+  end
+
   def descriptor(target, key) when is_tuple(target) or is_struct(target) do
     prop_key = if is_binary(key), do: key, else: key
 
@@ -383,7 +387,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
 
   defp callable_name(%QuickBEAM.VM.Function{name: n}) when is_binary(n), do: n
   defp callable_name({:closure, _, %QuickBEAM.VM.Function{name: n}}) when is_binary(n), do: n
-  defp callable_name({:bound, _, {:builtin, n, _}, _, _}), do: "bound " <> n
+  defp callable_name({:bound, _, {:builtin, n, _}, _, _}), do: n
   defp callable_name({:builtin, n, _}) when is_binary(n), do: n
   defp callable_name(_), do: ""
 
