@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.Runtime.Function do
   @moduledoc "JS `Function` prototype: `call`, `apply`, `bind`, and property access for name/length/fileName."
   alias QuickBEAM.VM.{Builtin, Heap, Invocation}
   alias QuickBEAM.VM.ObjectModel.{Get, WrappedPrimitive}
+  alias QuickBEAM.VM.Runtime.Test262Host
 
   @doc "Builds the JavaScript prototype object for this runtime builtin."
   def prototype do
@@ -282,20 +283,30 @@ defmodule QuickBEAM.VM.Runtime.Function do
     else
       case this_arg do
         value when is_binary(value) or is_number(value) or is_boolean(value) ->
-          WrappedPrimitive.wrap(value)
+          wrap_function_this(fun, value)
 
         {:bigint, _} = value ->
-          WrappedPrimitive.wrap(value)
+          wrap_function_this(fun, value)
 
         {:symbol, _} = value ->
-          WrappedPrimitive.wrap(value)
+          wrap_function_this(fun, value)
 
         {:symbol, _, _} = value ->
-          WrappedPrimitive.wrap(value)
+          wrap_function_this(fun, value)
 
         _ ->
           this_arg
       end
+    end
+  end
+
+  defp wrap_function_this(fun, value) do
+    type = WrappedPrimitive.type_for_value(value)
+    proto = Test262Host.realm_intrinsic(fun, type)
+
+    case proto do
+      {:obj, _} -> Heap.wrap(%{WrappedPrimitive.slot(type) => value, "__proto__" => proto})
+      _ -> WrappedPrimitive.wrap(value)
     end
   end
 end
