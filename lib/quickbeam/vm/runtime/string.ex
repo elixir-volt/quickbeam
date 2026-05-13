@@ -792,19 +792,19 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   defp pad(s, [len | rest], dir) when is_binary(s) do
-    fill =
-      case rest do
-        [] -> " "
-        [:undefined | _] -> " "
-        [f | _] -> stringify_search_string(f)
-      end
-
     target = Runtime.to_int(len) - Get.string_length(s)
 
-    cond do
-      target <= 0 -> s
-      fill == "" -> s
-      true -> pad_str(s, target, fill, dir)
+    if target <= 0 do
+      s
+    else
+      fill =
+        case rest do
+          [] -> " "
+          [:undefined | _] -> " "
+          [f | _] -> stringify_search_string(f)
+        end
+
+      if fill == "", do: s, else: pad_str(s, target, fill, dir)
     end
   end
 
