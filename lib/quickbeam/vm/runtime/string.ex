@@ -340,25 +340,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp index_of(s, [sub | rest]) when is_binary(s) do
     sub = stringify_search_string(sub)
 
-    from =
-      case rest do
-        [:infinity | _] ->
-          String.length(s)
-
-        [f | _] ->
-          n = Runtime.to_number(f)
-
-          case n do
-            :infinity -> String.length(s)
-            :neg_infinity -> 0
-            :nan -> 0
-            n when is_number(n) -> max(0, trunc(n))
-            _ -> 0
-          end
-
-        _ ->
-          0
-      end
+    from = if rest != [], do: string_position(hd(rest), Get.string_length(s)), else: 0
 
     if sub == "" do
       min(from, String.length(s))
@@ -480,9 +462,19 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp stringify_search_string(value) when is_binary(value), do: value
   defp stringify_search_string(value), do: Runtime.stringify(value)
 
-  defp to_integer_or_infinity(:infinity), do: :infinity
-  defp to_integer_or_infinity(:neg_infinity), do: :neg_infinity
-  defp to_integer_or_infinity(value), do: Runtime.to_int(value)
+  defp to_integer_or_infinity({:bigint, _}) do
+    throw({:js_throw, Heap.make_error("Cannot convert a BigInt value to a number", "TypeError")})
+  end
+
+  defp to_integer_or_infinity(value) do
+    case Runtime.to_number(value) do
+      :infinity -> :infinity
+      :neg_infinity -> :neg_infinity
+      :nan -> 0
+      number when is_number(number) -> trunc(number)
+      _ -> 0
+    end
+  end
 
   defp slice_index(value, len) do
     case to_integer_or_infinity(value) do
@@ -523,10 +515,11 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp string_position(:neg_infinity, _len), do: 0
 
   defp string_position(value, len) do
-    value
-    |> Runtime.to_int()
-    |> max(0)
-    |> min(len)
+    case to_integer_or_infinity(value) do
+      :infinity -> len
+      :neg_infinity -> 0
+      index -> index |> max(0) |> min(len)
+    end
   end
 
   defp has_lone_surrogate?(s) do
