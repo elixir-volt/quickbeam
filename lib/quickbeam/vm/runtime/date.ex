@@ -575,7 +575,7 @@ defmodule QuickBEAM.VM.Runtime.Date do
       |> Enum.take(count)
       |> Enum.map(&to_num/1)
 
-    if Enum.any?(vals, &(&1 == :nan)) do
+    if Enum.any?(vals, &(&1 in [:nan, :infinity, :neg_infinity])) do
       :nan
     else
       y = trunc(Enum.at(vals, 0, 0) * 1.0)
