@@ -783,6 +783,31 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   defp decode_wtf8_surrogate(_, _), do: :error
 
+  defp raw_to_length(value) do
+    case Runtime.to_number(value) do
+      :nan -> 0
+      :undefined -> 0
+      :neg_infinity -> 0
+      :infinity -> 9_007_199_254_740_991
+      number when is_number(number) -> number |> trunc() |> max(0) |> min(9_007_199_254_740_991)
+      _ -> 0
+    end
+  end
+
+  defp raw_to_string({:symbol, _}),
+    do:
+      throw(
+        {:js_throw, Heap.make_error("Cannot convert a Symbol value to a string", "TypeError")}
+      )
+
+  defp raw_to_string({:symbol, _, _}),
+    do:
+      throw(
+        {:js_throw, Heap.make_error("Cannot convert a Symbol value to a string", "TypeError")}
+      )
+
+  defp raw_to_string(value), do: stringify_search_string(value)
+
   defp reject_regexp_search!({:regexp, _, _, _} = regexp),
     do: reject_regexp_matcher!(regexp, true)
 
@@ -1899,24 +1924,27 @@ defmodule QuickBEAM.VM.Runtime.String do
   static "raw" do
     [strings | subs] = args
 
-    map =
+    raw =
       case strings do
-        {:obj, ref} -> Heap.get_obj(ref, %{})
-        _ -> %{}
+        {:obj, _} -> Get.get(strings, "raw")
+        _ -> strings
       end
 
-    raw_map =
-      case Map.get(map, "raw") do
-        {:obj, rref} -> Heap.get_obj(rref, %{})
-        _ -> map
-      end
+    if raw in [nil, :undefined] do
+      throw({:js_throw, Heap.make_error("Cannot convert raw to object", "TypeError")})
+    end
 
-    len = Map.get(raw_map, "length", 0)
+    len = raw |> Get.get("length") |> raw_to_length()
 
-    for i <- 0..(len - 1), into: "" do
-      part = Runtime.stringify(Map.get(raw_map, Integer.to_string(i), ""))
-      sub = if i < length(subs), do: Runtime.stringify(Enum.at(subs, i)), else: ""
-      part <> sub
+    if len == 0 do
+      ""
+    else
+      0..(len - 1)
+      |> Enum.map_join(fn i ->
+        part = raw |> Get.get(Integer.to_string(i)) |> raw_to_string()
+        sub = if i < length(subs), do: Enum.at(subs, i) |> raw_to_string(), else: ""
+        part <> sub
+      end)
     end
   end
 end
