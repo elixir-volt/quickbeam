@@ -15,7 +15,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     mod = __MODULE__
     methods = ~w(push pop shift unshift map filter reduce reduceRight forEach indexOf
       lastIndexOf toString includes slice splice join concat reverse sort
-      flat find findIndex some every fill copyWithin entries keys values
+      flat find findIndex findLast findLastIndex some every fill copyWithin entries keys values
       at flatMap)
 
     proto_map =
@@ -176,6 +176,14 @@ defmodule QuickBEAM.VM.Runtime.Array do
     find_index(this, args)
   end
 
+  proto "findLast" do
+    find_last(this, args)
+  end
+
+  proto "findLastIndex" do
+    find_last_index(this, args)
+  end
+
   proto "every" do
     every(this, args)
   end
@@ -199,14 +207,6 @@ defmodule QuickBEAM.VM.Runtime.Array do
   proto "at" do
     require_object_coercible!(this)
     array_at(this, args)
-  end
-
-  proto "findLast" do
-    find_last(this, args)
-  end
-
-  proto "findLastIndex" do
-    find_last_index(this, args)
   end
 
   proto "toReversed" do
@@ -1040,6 +1040,21 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp find_index(value, args), do: find_array_like(find_receiver(value), args, :index)
 
+  defp find_last(nil, _), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp find_last(:undefined, _),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp find_last(value, args), do: find_array_like(find_receiver(value), args, :last_value)
+
+  defp find_last_index(nil, _),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp find_last_index(:undefined, _),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp find_last_index(value, args), do: find_array_like(find_receiver(value), args, :last_index)
+
   defp find_receiver(value) when is_boolean(value) or is_number(value) or is_binary(value),
     do: primitive_object(value)
 
@@ -1055,7 +1070,8 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
     this_arg = filter_this_arg(rest)
 
-    Enum.find_value(0..max(len - 1, -1), default_find_result(result_kind), fn idx ->
+    find_indexes(len, result_kind)
+    |> Enum.find_value(default_find_result(result_kind), fn idx ->
       value = find_value_at(this, idx)
 
       if Runtime.truthy?(
@@ -1074,10 +1090,18 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp find_value_at(list, idx) when is_list(list), do: Enum.at(list, idx, :undefined)
   defp find_value_at(value, idx), do: Get.get(value, Integer.to_string(idx))
 
+  defp find_indexes(0, _result_kind), do: []
+  defp find_indexes(len, kind) when kind in [:last_value, :last_index], do: (len - 1)..0//-1
+  defp find_indexes(len, _kind), do: 0..(len - 1)
+
   defp default_find_result(:value), do: :undefined
+  defp default_find_result(:last_value), do: :undefined
   defp default_find_result(:index), do: -1
+  defp default_find_result(:last_index), do: -1
   defp find_result(:value, value, _idx), do: value
+  defp find_result(:last_value, value, _idx), do: value
   defp find_result(:index, _value, idx), do: idx
+  defp find_result(:last_index, _value, idx), do: idx
 
   defp every(nil, _), do: JSThrow.type_error!("Cannot convert undefined or null to object")
   defp every(:undefined, _), do: JSThrow.type_error!("Cannot convert undefined or null to object")
@@ -1701,36 +1725,6 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   defp array_at(_, _), do: :undefined
-
-  defp find_last({:obj, ref}, args), do: find_last(Heap.obj_to_list(ref), args)
-
-  defp find_last({:qb_arr, arr}, args), do: find_last(:array.to_list(arr), args)
-
-  defp find_last(list, [cb | _]) when is_list(list) do
-    list
-    |> Enum.reverse()
-    |> Enum.find(:undefined, fn item ->
-      Runtime.call_callback(cb, [item]) |> Runtime.truthy?()
-    end)
-  end
-
-  defp find_last(_, _), do: :undefined
-
-  defp find_last_index({:obj, ref}, args),
-    do: find_last_index(Heap.obj_to_list(ref), args)
-
-  defp find_last_index({:qb_arr, arr}, args), do: find_last_index(:array.to_list(arr), args)
-
-  defp find_last_index(list, [cb | _]) when is_list(list) do
-    list
-    |> Enum.with_index()
-    |> Enum.reverse()
-    |> Enum.find_value(-1, fn {item, idx} ->
-      if Runtime.call_callback(cb, [item, idx]) |> Runtime.truthy?(), do: idx
-    end)
-  end
-
-  defp find_last_index(_, _), do: -1
 
   defp to_reversed({:obj, ref}) do
     list = Heap.obj_to_list(ref)
