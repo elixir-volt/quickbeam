@@ -593,27 +593,40 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   # ── Search ──
 
-  defp index_of({:obj, ref}, args), do: index_of(Heap.obj_to_list(ref), args)
+  defp index_of(nil, _), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp index_of(:undefined, _),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
   defp index_of({:qb_arr, arr}, args), do: index_of(:array.to_list(arr), args)
+  defp index_of(value, args), do: index_of_array_like(find_receiver(value), args)
 
-  defp index_of(list, [val | rest]) when is_list(list) do
-    from =
-      case rest do
-        [f] when is_integer(f) and f >= 0 -> f
-        _ -> 0
-      end
+  defp index_of_array_like(this, [search_element | rest]) do
+    len = array_like_length(this)
 
-    list
-    |> Enum.drop(from)
-    |> Enum.find_index(&Runtime.strict_equal?(&1, val))
-    |> then(fn
-      nil -> -1
-      idx -> idx + from
+    case search_start(rest, len) do
+      :past_end ->
+        -1
+
+      start ->
+        find_index_in_range(start, len, fn idx ->
+          key = Integer.to_string(idx)
+
+          HasProperty.has_property?(this, key) and
+            Runtime.strict_equal?(find_value_at(this, idx), search_element)
+        end)
+    end
+  end
+
+  defp index_of_array_like(_this, _args), do: -1
+
+  defp find_index_in_range(start, len, predicate) when start < len do
+    Enum.find_value(start..(len - 1), -1, fn idx ->
+      if predicate.(idx), do: idx
     end)
   end
 
-  defp index_of(_, _), do: -1
+  defp find_index_in_range(_start, _len, _predicate), do: -1
 
   defp last_index_of({:obj, ref}, args), do: last_index_of(Heap.obj_to_list(ref), args)
 
@@ -628,21 +641,49 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp last_index_of(_, _), do: -1
 
-  defp includes({:obj, ref}, args), do: includes(Heap.obj_to_list(ref), args)
+  defp includes(nil, _), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp includes(:undefined, _),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
   defp includes({:qb_arr, arr}, args), do: includes(:array.to_list(arr), args)
+  defp includes(value, args), do: includes_array_like(find_receiver(value), args)
 
-  defp includes(list, [val | rest]) when is_list(list) do
-    from =
-      case rest do
-        [f] when is_integer(f) and f >= 0 -> f
-        _ -> 0
-      end
+  defp includes_array_like(this, [search_element | rest]) do
+    len = array_like_length(this)
 
-    list |> Enum.drop(from) |> Enum.any?(&Runtime.strict_equal?(&1, val))
+    case search_start(rest, len) do
+      :past_end ->
+        false
+
+      start ->
+        find_index_in_range(start, len, fn idx ->
+          same_value_zero?(find_value_at(this, idx), search_element)
+        end) != -1
+    end
   end
 
-  defp includes(_, _), do: false
+  defp includes_array_like(this, []), do: includes_array_like(this, [:undefined])
+  defp includes_array_like(_this, _args), do: false
+
+  defp search_start(_rest, 0), do: :past_end
+  defp search_start([value | _], len), do: search_start_from(to_integer_or_infinity(value), len)
+  defp search_start(_rest, _len), do: 0
+
+  defp search_start_from(:infinity, _len), do: :past_end
+  defp search_start_from(:neg_infinity, _len), do: 0
+  defp search_start_from(value, len) when value >= 0 and value < len, do: value
+  defp search_start_from(value, len) when value >= len, do: :past_end
+  defp search_start_from(value, len), do: max(len + value, 0)
+
+  defp same_value_zero?(left, right) do
+    Runtime.strict_equal?(left, right) or (is_number(left) and is_number(right) and left == right) or
+      (nan_number?(left) and nan_number?(right))
+  end
+
+  defp nan_number?(value) when is_float(value), do: value != value
+  defp nan_number?(:nan), do: true
+  defp nan_number?(_), do: false
 
   # ── Slice / splice ──
 
