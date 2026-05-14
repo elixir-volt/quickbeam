@@ -652,18 +652,68 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp find_index_in_range(_start, _len, _predicate), do: -1
 
-  defp last_index_of({:obj, ref}, args), do: last_index_of(Heap.obj_to_list(ref), args)
+  defp last_index_of(nil, _),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp last_index_of(:undefined, _),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
   defp last_index_of({:qb_arr, arr}, args), do: last_index_of(:array.to_list(arr), args)
+  defp last_index_of(value, args), do: last_index_of_array_like(find_receiver(value), args)
 
-  defp last_index_of(list, [val | _]) when is_list(list) do
-    list
-    |> Enum.with_index()
-    |> Enum.reverse()
-    |> Enum.find_value(-1, fn {el, i} -> if Runtime.strict_equal?(el, val), do: i end)
+  defp last_index_of_array_like(list, [search_element | rest]) when is_list(list) do
+    len = length(list)
+
+    case last_search_start(rest, len) do
+      :before_start ->
+        -1
+
+      start ->
+        list
+        |> Enum.with_index()
+        |> Enum.take(start + 1)
+        |> Enum.reverse()
+        |> Enum.find_value(-1, fn {value, idx} ->
+          if strict_equal_for_index?(value, search_element), do: idx
+        end)
+    end
   end
 
-  defp last_index_of(_, _), do: -1
+  defp last_index_of_array_like(this, [search_element | rest]) do
+    len = array_like_length(this)
+
+    case last_search_start(rest, len) do
+      :before_start ->
+        -1
+
+      start ->
+        Enum.find_value(start..0//-1, -1, fn idx ->
+          key = Integer.to_string(idx)
+
+          if HasProperty.has_property?(this, key) and
+               strict_equal_for_index?(find_value_at(this, idx), search_element) do
+            idx
+          end
+        end)
+    end
+  end
+
+  defp last_index_of_array_like(this, []), do: last_index_of_array_like(this, [:undefined])
+  defp last_index_of_array_like(_this, _args), do: -1
+
+  defp last_search_start(_rest, 0), do: :before_start
+
+  defp last_search_start([value | _], len),
+    do: last_search_start_from(to_integer_or_infinity(value), len)
+
+  defp last_search_start(_rest, len), do: len - 1
+
+  defp last_search_start_from(:infinity, len), do: len - 1
+  defp last_search_start_from(:neg_infinity, _len), do: :before_start
+  defp last_search_start_from(value, len) when value >= 0, do: min(value, len - 1)
+
+  defp last_search_start_from(value, len),
+    do: if(len + value < 0, do: :before_start, else: len + value)
 
   defp includes(nil, _), do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
