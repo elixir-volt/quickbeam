@@ -19,7 +19,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     methods = ~w(push pop shift unshift map filter reduce reduceRight forEach indexOf
       lastIndexOf toString toLocaleString includes slice splice join concat reverse sort
       flat find findIndex findLast findLastIndex some every fill copyWithin entries keys values
-      at flatMap)
+      at flatMap toReversed toSorted toSpliced)
 
     proto_map =
       Enum.reduce(methods, %{}, fn name, acc ->
