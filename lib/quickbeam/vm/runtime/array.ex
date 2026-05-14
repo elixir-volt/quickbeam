@@ -1021,37 +1021,127 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp splice(:undefined, _args),
     do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
-  defp splice({:obj, ref}, args) do
-    list = Heap.obj_to_list(ref)
-    {removed, new_list} = do_splice(list, args)
-    Heap.put_obj(ref, new_list)
+  defp splice(value, args) do
+    receiver = find_receiver(value)
+    len = array_like_length(receiver)
+    actual_start = splice_start(args, len)
+    actual_delete_count = splice_delete_count(args, len, actual_start)
+    insert = Enum.drop(args, 2)
+    insert_count = length(insert)
+    new_len = len - actual_delete_count + insert_count
+
+    if new_len > @max_array_length do
+      JSThrow.type_error!("Invalid array length")
+    end
+
+    removed = splice_removed_target(receiver, actual_delete_count)
+    copy_splice_removed(receiver, removed, actual_start, actual_delete_count)
+    Put.put(removed, "length", actual_delete_count)
+
+    cond do
+      insert_count < actual_delete_count ->
+        shift_splice_left(receiver, actual_start, len, actual_delete_count, insert_count)
+
+      insert_count > actual_delete_count ->
+        shift_splice_right(receiver, actual_start, len, actual_delete_count, insert_count)
+
+      true ->
+        :ok
+    end
+
+    insert
+    |> Enum.with_index(actual_start)
+    |> Enum.each(fn {item, index} -> Put.put(receiver, Integer.to_string(index), item) end)
+
+    put_length_or_throw(receiver, new_len)
     removed
   end
 
-  defp splice({:qb_arr, arr}, args), do: splice(:array.to_list(arr), args)
+  defp splice_start([], _len), do: 0
 
-  defp splice(list, args) when is_list(list) do
-    {removed, _} = do_splice(list, args)
-    removed
+  defp splice_start([start | _], len) do
+    start |> to_integer_or_infinity() |> slice_relative_index(len)
   end
 
-  defp splice(_, _), do: []
+  defp splice_delete_count(args, len, actual_start) do
+    case args do
+      [] ->
+        0
 
-  defp do_splice(list, [start | rest]) do
-    s = Runtime.normalize_index(start, length(list))
+      [_start] ->
+        len - actual_start
 
-    {delete_count, insert} =
-      case rest do
-        [] -> {length(list) - s, []}
-        [dc | ins] -> {max(min(Runtime.to_int(dc), length(list) - s), 0), ins}
+      [_start, delete_count | _] ->
+        delete_count |> to_integer_or_infinity() |> clamp_splice_delete(len - actual_start)
+    end
+  end
+
+  defp clamp_splice_delete(:neg_infinity, _max), do: 0
+  defp clamp_splice_delete(:infinity, max_delete), do: max_delete
+  defp clamp_splice_delete(value, max_delete), do: value |> max(0) |> min(max_delete)
+
+  defp splice_removed_target(receiver, count), do: slice_target(receiver, count)
+
+  defp copy_splice_removed(_receiver, _removed, _actual_start, 0), do: :ok
+
+  defp copy_splice_removed(receiver, removed, actual_start, actual_delete_count) do
+    0..(actual_delete_count - 1)
+    |> Enum.each(fn index ->
+      from = actual_start + index
+      from_key = Integer.to_string(from)
+
+      if HasProperty.has_property?(receiver, from_key) do
+        create_data_property_or_throw(
+          removed,
+          Integer.to_string(index),
+          find_value_at(receiver, from)
+        )
       end
-
-    {before, after_start} = Enum.split(list, s)
-    {removed, remaining} = Enum.split(after_start, delete_count)
-    {removed, before ++ insert ++ remaining}
+    end)
   end
 
-  defp do_splice(list, _), do: {[], list}
+  defp shift_splice_left(receiver, actual_start, len, actual_delete_count, insert_count) do
+    last_moved = len - actual_delete_count - 1
+
+    if actual_start <= last_moved do
+      actual_start..last_moved
+      |> Enum.each(fn from ->
+        from_key = Integer.to_string(from + actual_delete_count)
+        to_key = Integer.to_string(from + insert_count)
+
+        if HasProperty.has_property?(receiver, from_key) do
+          Put.put(receiver, to_key, Get.get(receiver, from_key))
+        else
+          delete_or_throw(receiver, to_key)
+        end
+      end)
+    end
+
+    delete_start = len - actual_delete_count + insert_count
+
+    if delete_start < len do
+      delete_start..(len - 1)
+      |> Enum.each(fn index -> delete_or_throw(receiver, Integer.to_string(index)) end)
+    end
+  end
+
+  defp shift_splice_right(receiver, actual_start, len, actual_delete_count, insert_count) do
+    last_moved = len - actual_delete_count - 1
+
+    if actual_start <= last_moved do
+      last_moved..actual_start//-1
+      |> Enum.each(fn from ->
+        from_key = Integer.to_string(from + actual_delete_count)
+        to_key = Integer.to_string(from + insert_count)
+
+        if HasProperty.has_property?(receiver, from_key) do
+          Put.put(receiver, to_key, Get.get(receiver, from_key))
+        else
+          delete_or_throw(receiver, to_key)
+        end
+      end)
+    end
+  end
 
   # ── Transform ──
 
