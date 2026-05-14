@@ -271,11 +271,19 @@ defmodule QuickBEAM.VM.Runtime.Function do
   end
 
   defp caller_after([current, caller | rest], fun) do
-    if raw_function(current) == fun, do: caller, else: caller_after([caller | rest], fun)
+    cond do
+      raw_function(current) != fun -> caller_after([caller | rest], fun)
+      predefined_frame?(caller) -> caller_after([caller | rest], fun)
+      true -> caller
+    end
   end
 
   defp caller_after([_], _fun), do: nil
   defp caller_after([], _fun), do: nil
+
+  defp predefined_frame?(%QuickBEAM.VM.Function{name: {:predefined, _}}), do: true
+  defp predefined_frame?({:closure, _, %QuickBEAM.VM.Function{name: {:predefined, _}}}), do: true
+  defp predefined_frame?(_), do: false
 
   defp raw_function({:closure, _, %QuickBEAM.VM.Function{} = fun}), do: fun
   defp raw_function(fun), do: fun
