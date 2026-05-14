@@ -307,6 +307,7 @@ defmodule QuickBEAM.VM.Builtin do
   def named_meta("startsWith"), do: meta("startsWith", [length: 1, constructable: false], :proto)
   def named_meta("endsWith"), do: meta("endsWith", [length: 1, constructable: false], :proto)
   def named_meta("slice"), do: meta("slice", [length: 2, constructable: false], :proto)
+  def named_meta("splice"), do: meta("splice", [length: 2, constructable: false], :proto)
   def named_meta("substring"), do: meta("substring", [length: 2, constructable: false], :proto)
   def named_meta("substr"), do: meta("substr", [length: 2, constructable: false], :proto)
   def named_meta("split"), do: meta("split", [length: 2, constructable: false], :proto)
