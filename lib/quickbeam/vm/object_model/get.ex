@@ -226,6 +226,13 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
           list when is_list(list) ->
             array_prototype_length(ref) || virtual_array_length(ref) || length(list)
 
+          %{typed_array() => true} ->
+            obj = {:obj, ref}
+
+            if TypedArray.out_of_bounds?(obj),
+              do: 0,
+              else: TypedArray.element_count(obj)
+
           map when is_map(map) ->
             if array_prototype_map?(map) do
               array_prototype_length(ref) || 0
@@ -463,10 +470,17 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         Map.get(map, key, :undefined)
 
       %{typed_array() => true} = map ->
+        obj = {:obj, ref}
+
         case key do
-          "length" -> TypedArray.element_count({:obj, ref})
-          "byteLength" -> TypedArray.current_byte_length({:obj, ref})
-          _ -> typed_array_property({:obj, ref}, map, key)
+          "length" ->
+            if TypedArray.out_of_bounds?(obj), do: 0, else: TypedArray.element_count(obj)
+
+          "byteLength" ->
+            if TypedArray.out_of_bounds?(obj), do: 0, else: TypedArray.current_byte_length(obj)
+
+          _ ->
+            typed_array_property(obj, map, key)
         end
 
       %{buffer() => _} = map ->

@@ -2750,7 +2750,50 @@ defmodule QuickBEAM.VM.Runtime.Array do
     obj
   end
 
-  defp copy_within_object(obj, args) do
+  defp copy_within_object({:obj, ref} = obj, args) do
+    case Heap.get_obj(ref, %{}) do
+      %{typed_array() => true} -> copy_within_typed_array(obj, args)
+      _ -> copy_within_ordinary_object(obj, args)
+    end
+  end
+
+  defp copy_within_object(obj, args), do: copy_within_ordinary_object(obj, args)
+
+  defp copy_within_typed_array(obj, args) do
+    if QuickBEAM.VM.Runtime.TypedArray.out_of_bounds?(obj) do
+      obj
+    else
+      len = QuickBEAM.VM.Runtime.TypedArray.element_count(obj)
+      target = normalize_copy_index(arg(args, 0, 0), len)
+      start_idx = normalize_copy_index(arg(args, 1, 0), len)
+
+      end_idx =
+        case Enum.drop(args, 2) do
+          [] -> len
+          [:undefined | _] -> len
+          [end_value | _] -> normalize_copy_index(end_value, len)
+        end
+
+      count = max(min(end_idx - start_idx, len - target), 0)
+
+      if count > 0 do
+        {from, to, step} =
+          if start_idx < target and target < start_idx + count,
+            do: {start_idx + count - 1, target + count - 1, -1},
+            else: {start_idx, target, 1}
+
+        Enum.reduce(0..(count - 1)//1, {from, to}, fn _offset, {from_idx, to_idx} ->
+          value = QuickBEAM.VM.Runtime.TypedArray.get_element(obj, from_idx)
+          QuickBEAM.VM.Runtime.TypedArray.set_element(obj, to_idx, value)
+          {from_idx + step, to_idx + step}
+        end)
+      end
+
+      obj
+    end
+  end
+
+  defp copy_within_ordinary_object(obj, args) do
     len = copy_within_length!(obj)
     target = normalize_copy_index(arg(args, 0, 0), len)
     start_idx = normalize_copy_index(arg(args, 1, 0), len)
@@ -2764,20 +2807,24 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
     count = max(end_idx - start_idx, 0)
 
-    Enum.reduce(0..max(count - 1, -1), obj, fn offset, acc ->
-      from_key = Integer.to_string(start_idx + offset)
-      to_key = Integer.to_string(target + offset)
+    if count > 0 do
+      Enum.reduce(0..(count - 1)//1, obj, fn offset, acc ->
+        from_key = Integer.to_string(start_idx + offset)
+        to_key = Integer.to_string(target + offset)
 
-      if HasProperty.has_property?(acc, from_key) do
-        Put.put(acc, to_key, Get.get(acc, from_key))
-      else
-        unless Delete.delete_property(acc, to_key) do
-          JSThrow.type_error!("Cannot delete property")
+        if HasProperty.has_property?(acc, from_key) do
+          Put.put(acc, to_key, Get.get(acc, from_key))
+        else
+          unless Delete.delete_property(acc, to_key) do
+            JSThrow.type_error!("Cannot delete property")
+          end
         end
-      end
 
-      acc
-    end)
+        acc
+      end)
+    end
+
+    obj
   end
 
   defp copy_within_length!(obj) do
