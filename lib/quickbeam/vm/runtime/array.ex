@@ -399,9 +399,15 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   defp put_length_or_throw({:obj, ref} = receiver, length) do
-    case Heap.get_prop_desc(ref, "length") do
-      %{writable: false} -> JSThrow.type_error!("Cannot assign to read only property")
-      _ -> Put.put(receiver, "length", length)
+    case {Heap.get_prop_desc(ref, "length"), Heap.get_obj_raw(ref)} do
+      {%{writable: false}, _} ->
+        JSThrow.type_error!("Cannot assign to read only property")
+
+      {_, %{"length" => {:accessor, _getter, nil}}} ->
+        JSThrow.type_error!("Cannot assign to read only property")
+
+      _ ->
+        Put.put(receiver, "length", length)
     end
   end
 
