@@ -1158,7 +1158,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
     removed = splice_removed_target(receiver, actual_delete_count)
     copy_splice_removed(receiver, removed, actual_start, actual_delete_count)
-    Put.put(removed, "length", actual_delete_count)
+    set_splice_removed_length(removed, actual_delete_count)
 
     cond do
       insert_count < actual_delete_count ->
@@ -1178,6 +1178,18 @@ defmodule QuickBEAM.VM.Runtime.Array do
     put_length_or_throw(receiver, new_len)
     removed
   end
+
+  defp set_splice_removed_length({:obj, ref} = removed, length) do
+    case Heap.get_obj(ref, %{}) do
+      %{proxy_target() => _target, proxy_handler() => _handler} ->
+        Put.set(removed, "length", length, removed)
+
+      _ ->
+        Put.put(removed, "length", length)
+    end
+  end
+
+  defp set_splice_removed_length(removed, length), do: Put.put(removed, "length", length)
 
   defp splice_start([], _len), do: 0
 

@@ -458,10 +458,10 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     raw = Heap.get_obj_raw(ref)
 
     case {key, raw} do
-      {"length", {:qb_arr, _} = array} ->
+      {"length", {:qb_arr, _} = array} when receiver == {:obj, ref} ->
         set_array_length_property(ref, array, val)
 
-      {"length", data} when is_list(data) ->
+      {"length", data} when is_list(data) and receiver == {:obj, ref} ->
         set_array_length_property(ref, data, val)
 
       _ ->
@@ -553,8 +553,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   defp write_receiver({:obj, ref} = receiver, key, val) do
     case Heap.get_obj_raw(ref) do
       %{proxy_target() => _target, proxy_handler() => _handler} ->
-        _current = OwnProperty.descriptor(receiver, key)
-        desc = %{"value" => val, "writable" => true, "enumerable" => true, "configurable" => true}
+        desc = receiver_write_descriptor(receiver, key, val)
         Define.property(receiver, key, Heap.wrap(desc), desc)
         true
 
@@ -617,6 +616,16 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
       true
     else
       false
+    end
+  end
+
+  defp receiver_write_descriptor(receiver, key, val) do
+    case OwnProperty.descriptor(receiver, key) do
+      :undefined ->
+        %{"value" => val, "writable" => true, "enumerable" => true, "configurable" => true}
+
+      _descriptor ->
+        %{"value" => val}
     end
   end
 
