@@ -80,12 +80,24 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   end
 
   defp array_prototype_length(ref) do
+    stored_length = Heap.get_array_prop(ref, "length")
+
     case Heap.get_obj_raw(ref) do
       {:shape, _, offsets, _, _} ->
-        if array_prototype_shape?(offsets), do: array_prototype_index_length(Map.keys(offsets))
+        if array_prototype_shape?(offsets),
+          do:
+            if(is_integer(stored_length),
+              do: stored_length,
+              else: array_prototype_index_length(Map.keys(offsets))
+            )
 
       map when is_map(map) ->
-        if array_prototype_map?(map), do: array_prototype_index_length(Map.keys(map))
+        if array_prototype_map?(map),
+          do:
+            if(is_integer(stored_length),
+              do: stored_length,
+              else: array_prototype_index_length(Map.keys(map))
+            )
 
       _ ->
         nil
@@ -196,7 +208,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         case Heap.get_obj_raw(ref) do
           {:shape, _, offsets, vals, _} ->
             if array_prototype_shape?(offsets) do
-              array_prototype_index_length(Map.keys(offsets))
+              array_prototype_length(ref) || 0
             else
               case Map.fetch(offsets, "length") do
                 {:ok, off} ->
@@ -215,7 +227,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
           map when is_map(map) ->
             if array_prototype_map?(map) do
-              array_prototype_index_length(Map.keys(map))
+              array_prototype_length(ref) || 0
             else
               case Map.fetch(map, "length") do
                 {:ok, _} -> get_map_property(map, "length", {:obj, ref})
@@ -406,7 +418,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
       {:shape, _shape_id, offsets, vals, _proto} ->
         if key == "length" and Map.has_key?(offsets, "constructor") and
              Map.has_key?(offsets, "push") and Map.has_key?(offsets, "pop") do
-          0
+          array_prototype_length(ref) || 0
         else
           case Map.fetch(offsets, key) do
             {:ok, offset} -> elem(vals, offset)
@@ -465,7 +477,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
       map when is_map(map) and key == "length" ->
         if Map.has_key?(map, "constructor") and Map.has_key?(map, "push") and
              Map.has_key?(map, "pop") do
-          0
+          array_prototype_length(ref) || 0
         else
           case prototype_object_property(map, key) do
             :undefined -> get_wrapped_or_map_property(map, key, {:obj, ref})

@@ -27,6 +27,10 @@ defmodule QuickBEAM.VM.ObjectModel.Define do
     fields = descriptor_fields(desc_obj, desc)
     validate_descriptor_fields!(fields)
 
+    if array_prototype_length_property?(existing, prop_name) do
+      throw({:early_return, define_array_prototype_length!(obj, ref, desc, fields)})
+    end
+
     case ArrayExotic.define_own_property(obj, ref, existing, prop_name, desc_obj, desc, fields) do
       :not_array -> :ok
       defined_obj -> throw({:early_return, defined_obj})
@@ -45,6 +49,63 @@ defmodule QuickBEAM.VM.ObjectModel.Define do
       {:symbol, _, _} -> key
       _ -> Values.stringify(key)
     end
+  end
+
+  defp array_prototype_length_property?({:shape, _shape_id, offsets, _vals, _proto}, "length") do
+    Map.has_key?(offsets, "constructor") and Map.has_key?(offsets, "push") and
+      Map.has_key?(offsets, "pop")
+  end
+
+  defp array_prototype_length_property?(map, "length") when is_map(map) do
+    Map.has_key?(map, "constructor") and Map.has_key?(map, "push") and Map.has_key?(map, "pop")
+  end
+
+  defp array_prototype_length_property?(_, _), do: false
+
+  defp define_array_prototype_length!(obj, ref, desc, fields) do
+    current =
+      Heap.get_prop_desc(ref, "length") ||
+        PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: false)
+
+    cond do
+      Map.get(desc, "configurable") == true ->
+        throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
+
+      Map.get(desc, "enumerable") == true ->
+        throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
+
+      current.writable == false and Map.get(desc, "writable") == true ->
+        throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
+
+      current.writable == false and fields.value_present ->
+        throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
+
+      true ->
+        if fields.value_present do
+          Heap.put_array_prop(ref, "length", array_length_value!(fields.value))
+        end
+
+        writable = Map.get(desc, "writable", current.writable)
+
+        Heap.put_prop_desc(ref, "length", %{
+          writable: writable,
+          enumerable: false,
+          configurable: false
+        })
+
+        obj
+    end
+  end
+
+  defp array_length_value!(value) do
+    number_len = Values.to_number(value)
+    new_len = Values.to_uint32(value)
+
+    if number_len == :nan or new_len != trunc(new_len) or new_len != number_len do
+      throw({:js_throw, Heap.make_error("Invalid array length", "RangeError")})
+    end
+
+    new_len
   end
 
   defp proxy_property(proxy, proxy_map, key, prop_name, desc_obj) do

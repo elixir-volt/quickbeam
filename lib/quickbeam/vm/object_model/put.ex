@@ -183,6 +183,16 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   @doc "Writes a JavaScript property while respecting arrays, proxies, descriptors, accessors, and constructor statics."
   def put({:obj, ref} = obj, "length", val) do
     case Heap.get_obj_raw(ref) do
+      {:shape, _shape_id, offsets, _vals, _proto}
+      when is_map_key(offsets, "constructor") and is_map_key(offsets, "push") and
+             is_map_key(offsets, "pop") ->
+        put_array_prototype_length(ref, val)
+
+      map
+      when is_map(map) and is_map_key(map, "constructor") and is_map_key(map, "push") and
+             is_map_key(map, "pop") ->
+        put_array_prototype_length(ref, val)
+
       map when is_map(map) ->
         case Map.get(map, "length") do
           {:accessor, _getter, setter} when setter != nil ->
@@ -320,6 +330,26 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   end
 
   def put(_, _, _), do: :ok
+
+  defp put_array_prototype_length(ref, val) do
+    new_len = array_length_value!(val)
+
+    case Heap.get_prop_desc(ref, "length") do
+      %{writable: false} ->
+        reject_failed_write!()
+
+      _ ->
+        Heap.put_array_prop(ref, "length", new_len)
+
+        if Heap.get_prop_desc(ref, "length") == nil do
+          Heap.put_prop_desc(ref, "length", %{
+            writable: true,
+            enumerable: false,
+            configurable: false
+          })
+        end
+    end
+  end
 
   defp put_length_property(obj, ref, val) do
     case Heap.get_obj_raw(ref) do

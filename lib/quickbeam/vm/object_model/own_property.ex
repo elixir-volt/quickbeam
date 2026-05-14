@@ -22,6 +22,9 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
       key in ["caller", "arguments"] and Heap.get_func_proto() == {:obj, ref} ->
         Heap.get_prop_desc(ref, key) != :deleted
 
+      key == "length" and array_prototype_object?(Heap.get_obj_raw(ref)) ->
+        true
+
       key == proto() and Heap.get_prop_desc(ref, key) == nil ->
         false
 
@@ -298,6 +301,9 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
           PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: true)
         )
 
+      array_prototype_object?(data) and prop_name == "length" ->
+        array_prototype_length_descriptor(ref, data)
+
       is_map(data) and Map.has_key?(data, proxy_target()) ->
         proxy_descriptor(data, prop_name)
 
@@ -394,6 +400,53 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   end
 
   def descriptor(_target, _key), do: :undefined
+
+  defp array_prototype_object?({:shape, _shape_id, offsets, _vals, _proto}) do
+    Map.has_key?(offsets, "constructor") and Map.has_key?(offsets, "push") and
+      Map.has_key?(offsets, "pop")
+  end
+
+  defp array_prototype_object?(map) when is_map(map) do
+    Map.has_key?(map, "constructor") and Map.has_key?(map, "push") and Map.has_key?(map, "pop")
+  end
+
+  defp array_prototype_object?(_), do: false
+
+  defp array_prototype_length_descriptor(ref, data) do
+    value =
+      case Heap.get_array_prop(ref, "length") do
+        len when is_integer(len) -> len
+        _ -> array_prototype_index_length(data)
+      end
+
+    desc =
+      Heap.get_prop_desc(ref, "length") ||
+        PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: false)
+
+    PropertyDescriptor.data_object(value, desc)
+  end
+
+  defp array_prototype_index_length({:shape, _shape_id, offsets, _vals, _proto}),
+    do: array_prototype_index_length(Map.keys(offsets))
+
+  defp array_prototype_index_length(map) when is_map(map),
+    do: array_prototype_index_length(Map.keys(map))
+
+  defp array_prototype_index_length(keys) do
+    Enum.reduce(keys, 0, fn
+      key, length when is_integer(key) and key >= 0 ->
+        max(length, key + 1)
+
+      key, length when is_binary(key) ->
+        case Integer.parse(key) do
+          {index, ""} when index >= 0 -> max(length, index + 1)
+          _ -> length
+        end
+
+      _key, length ->
+        length
+    end)
+  end
 
   defp callable_descriptor(target, key) do
     prop_key = if is_binary(key), do: key, else: key

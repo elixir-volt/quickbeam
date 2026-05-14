@@ -26,7 +26,27 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
     )
   end
 
-  def delete_property({:obj, ref}, key) do
+  def delete_property({:obj, ref}, "length" = key) do
+    if array_prototype_object?(Heap.get_obj_raw(ref)) do
+      false
+    else
+      delete_object_property({:obj, ref}, key)
+    end
+  end
+
+  def delete_property({:obj, ref}, key), do: delete_object_property({:obj, ref}, key)
+
+  def delete_property({:builtin, _name, _} = builtin, key) do
+    delete_static_property(builtin, key)
+  end
+
+  def delete_property(target, key) when is_tuple(target) or is_struct(target) do
+    delete_static_property(target, key)
+  end
+
+  def delete_property(_obj, _key), do: true
+
+  defp delete_object_property({:obj, ref}, key) do
     if key in ["caller", "arguments"] and Heap.get_func_proto() == {:obj, ref} do
       Heap.put_prop_desc(ref, key, :deleted)
       true
@@ -65,15 +85,16 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
     end
   end
 
-  def delete_property({:builtin, _name, _} = builtin, key) do
-    delete_static_property(builtin, key)
+  defp array_prototype_object?({:shape, _shape_id, offsets, _vals, _proto}) do
+    Map.has_key?(offsets, "constructor") and Map.has_key?(offsets, "push") and
+      Map.has_key?(offsets, "pop")
   end
 
-  def delete_property(target, key) when is_tuple(target) or is_struct(target) do
-    delete_static_property(target, key)
+  defp array_prototype_object?(map) when is_map(map) do
+    Map.has_key?(map, "constructor") and Map.has_key?(map, "push") and Map.has_key?(map, "pop")
   end
 
-  def delete_property(_obj, _key), do: true
+  defp array_prototype_object?(_), do: false
 
   defp wrapped_string_virtual_non_configurable?(map, "length") do
     match?({:ok, string} when is_binary(string), WrappedPrimitive.value(map, :string))
