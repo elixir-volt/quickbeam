@@ -985,11 +985,43 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   defp find_array_proto_accessor(str_key) do
     with %{globals: globals} <- Heap.get_ctx(),
          array_ctor when array_ctor != nil <- Map.get(globals, "Array"),
-         {:obj, proto_ref} <- Map.get(Heap.get_ctor_statics(array_ctor), "prototype"),
-         map when is_map(map) <- Heap.get_obj(proto_ref, nil) do
-      Map.get(map, str_key)
+         {:obj, _} = proto <- Map.get(Heap.get_ctor_statics(array_ctor), "prototype") do
+      find_proto_accessor(proto, str_key)
     else
       _ -> nil
+    end
+  end
+
+  defp find_proto_accessor(nil, _key), do: nil
+  defp find_proto_accessor(:undefined, _key), do: nil
+
+  defp find_proto_accessor({:obj, ref}, key) do
+    case Heap.get_obj_raw(ref) do
+      {:shape, _shape_id, offsets, vals, parent_proto} ->
+        case Map.fetch(offsets, key) do
+          {:ok, off} -> elem(vals, off)
+          :error -> find_proto_accessor(parent_proto, key)
+        end
+
+      map when is_map(map) ->
+        case Map.get(map, key) do
+          nil -> find_proto_accessor(next_proto(ref, map), key)
+          value -> value
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp next_proto(ref, map) do
+    Map.get(map, proto()) || object_proto_fallback(ref)
+  end
+
+  defp object_proto_fallback(ref) do
+    case Heap.get_object_prototype() do
+      {:obj, ^ref} -> nil
+      proto -> proto
     end
   end
 
@@ -1279,6 +1311,10 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             Heap.put_array_prop(ref, key, val)
 
           i >= :array.size(arr) and proto_has_setter?(i) ->
+            invoke_proto_setter(obj, i, val)
+
+          Heap.array_get(ref, i) == :undefined and Heap.get_prop_desc(ref, key) == nil and
+              proto_has_setter?(i) ->
             invoke_proto_setter(obj, i, val)
 
           i >= :array.size(arr) and huge_length_growth?(:array.size(arr), i + 1) ->
