@@ -17,7 +17,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   def prototype do
     mod = __MODULE__
     methods = ~w(push pop shift unshift map filter reduce reduceRight forEach indexOf
-      lastIndexOf toString includes slice splice join concat reverse sort
+      lastIndexOf toString toLocaleString includes slice splice join concat reverse sort
       flat find findIndex findLast findLastIndex some every fill copyWithin entries keys values
       at flatMap)
 
@@ -136,7 +136,19 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   proto "toString" do
-    join(this, [","])
+    if this in [nil, :undefined] do
+      JSThrow.type_error!("Cannot convert undefined or null to object")
+    else
+      join(this, [","])
+    end
+  end
+
+  proto "toLocaleString" do
+    if this in [nil, :undefined] do
+      JSThrow.type_error!("Cannot convert undefined or null to object")
+    else
+      join(this, [","])
+    end
   end
 
   proto "includes" do
@@ -387,6 +399,11 @@ defmodule QuickBEAM.VM.Runtime.Array do
     end
   end
 
+  defp shift(nil, _args), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp shift(:undefined, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
   defp shift({:obj, ref}, _) do
     list = Heap.obj_to_list(ref)
 
@@ -401,6 +418,11 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   defp shift(_, _), do: :undefined
+
+  defp unshift(nil, _args), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp unshift(:undefined, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
   defp unshift({:obj, ref}, args) do
     list = Heap.obj_to_list(ref)
@@ -876,6 +898,11 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   # ── Slice / splice ──
 
+  defp slice(nil, _args), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp slice(:undefined, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
   defp slice({:obj, ref}, args), do: slice(Heap.obj_to_list(ref), args)
 
   defp slice({:qb_arr, arr}, args), do: slice(:array.to_list(arr), args)
@@ -886,6 +913,11 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   defp slice(_, _), do: []
+
+  defp splice(nil, _args), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp splice(:undefined, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
   defp splice({:obj, ref}, args) do
     list = Heap.obj_to_list(ref)
@@ -1089,6 +1121,11 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp concat_length(list) when is_list(list), do: length(list)
   defp concat_length(value), do: max(Runtime.to_int(Get.get(value, "length")), 0)
 
+  defp reverse(nil, _args), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp reverse(:undefined, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
   defp reverse({:obj, ref}, _) do
     list = Heap.obj_to_list(ref)
     Heap.put_obj(ref, Enum.reverse(list))
@@ -1099,6 +1136,11 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp reverse(list, _) when is_list(list), do: Enum.reverse(list)
   defp reverse(_, _), do: []
+
+  defp sort(nil, _args), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp sort(:undefined, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
   defp sort({:obj, ref}, [_compare_fn | _] = args) do
     list = Heap.obj_to_list(ref)
@@ -1591,17 +1633,44 @@ defmodule QuickBEAM.VM.Runtime.Array do
     end
   end
 
-  defp some({:obj, ref}, args), do: some(Heap.obj_to_list(ref), args)
+  defp some(nil, _args), do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
-  defp some({:qb_arr, arr}, args), do: some(:array.to_list(arr), args)
+  defp some(:undefined, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
-  defp some(list, [fun | _]) when is_list(list) do
-    Enum.any?(Enum.with_index(list), fn {val, idx} ->
-      Runtime.truthy?(Runtime.call_callback(fun, [val, idx, list]))
-    end)
+  defp some(value, args), do: some_array_like(find_receiver(value), args)
+
+  defp some_array_like(this, [fun | rest]) do
+    len = array_like_length(this)
+
+    unless QuickBEAM.VM.Builtin.callable?(fun) do
+      JSThrow.type_error!("callbackfn is not a function")
+    end
+
+    this_arg = filter_this_arg(rest)
+
+    if len == 0 do
+      false
+    else
+      Enum.any?(0..(len - 1), fn idx ->
+        key = Integer.to_string(idx)
+
+        HasProperty.has_property?(this, key) and
+          Runtime.truthy?(
+            QuickBEAM.VM.Invocation.invoke_with_receiver(
+              fun,
+              [find_value_at(this, idx), idx, this],
+              this_arg
+            )
+          )
+      end)
+    end
   end
 
-  defp some(_, _), do: false
+  defp some_array_like(this, _args) do
+    _len = array_like_length(this)
+    JSThrow.type_error!("callbackfn is not a function")
+  end
 
   # ── Array.from ──
 
