@@ -47,8 +47,22 @@ defmodule QuickBEAM.VM.ObjectModel.HasProperty do
   def has_property?({:qb_arr, arr}, key) when is_integer(key),
     do: key >= 0 and key < :array.size(arr)
 
+  def has_property?({:qb_arr, arr}, key) when is_binary(key) do
+    case Integer.parse(key) do
+      {idx, ""} when idx >= 0 -> idx < :array.size(arr)
+      _ -> false
+    end
+  end
+
   def has_property?(list, key) when is_list(list) and is_integer(key),
     do: key >= 0 and key < length(list)
+
+  def has_property?(list, key) when is_list(list) and is_binary(key) do
+    case Integer.parse(key) do
+      {idx, ""} when idx >= 0 -> idx < length(list)
+      _ -> false
+    end
+  end
 
   def has_property?(_, _), do: false
 

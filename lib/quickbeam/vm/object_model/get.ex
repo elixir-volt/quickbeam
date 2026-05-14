@@ -533,6 +533,8 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
     case Map.fetch(statics, key) do
       {:ok, :deleted} -> :undefined
+      {:ok, {:accessor, getter, _}} when getter != nil -> call_getter(getter, b)
+      {:ok, {:accessor, nil, _}} -> :undefined
       {:ok, val} -> val
       :error -> Map.get(map, key, :undefined)
     end
@@ -576,6 +578,12 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
     case Map.fetch(statics, key) do
       {:ok, :deleted} ->
+        :undefined
+
+      {:ok, {:accessor, getter, _}} when getter != nil ->
+        call_getter(getter, b)
+
+      {:ok, {:accessor, nil, _}} ->
         :undefined
 
       {:ok, val} ->

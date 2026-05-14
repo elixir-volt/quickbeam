@@ -31,6 +31,10 @@ defmodule QuickBEAM.VM.Runtime.StructuredClone do
     JSThrow.type_error!("function #{name} could not be cloned.")
   end
 
+  defp deep_clone({:regexp, bc, src, _ref}) do
+    clone_regexp(bc, src)
+  end
+
   defp deep_clone({:regexp, bc, src}) do
     clone_regexp(bc, src)
   end
