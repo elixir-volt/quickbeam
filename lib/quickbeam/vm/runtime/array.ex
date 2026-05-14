@@ -1154,8 +1154,8 @@ defmodule QuickBEAM.VM.Runtime.Array do
     lower_key = Integer.to_string(lower)
     upper_key = Integer.to_string(upper)
     lower_exists = HasProperty.has_property?(receiver, lower_key)
-    upper_exists = HasProperty.has_property?(receiver, upper_key)
     lower_value = if lower_exists, do: Get.get(receiver, lower_key), else: :undefined
+    upper_exists = HasProperty.has_property?(receiver, upper_key)
     upper_value = if upper_exists, do: Get.get(receiver, upper_key), else: :undefined
 
     cond do
