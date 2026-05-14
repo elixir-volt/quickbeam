@@ -1087,6 +1087,9 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     )
   end
 
+  def get_element({:builtin, _, _} = b, key) when is_integer(key),
+    do: Get.get(b, Integer.to_string(key))
+
   def get_element(obj, key) when is_binary(key) do
     Get.get(obj, key)
   end

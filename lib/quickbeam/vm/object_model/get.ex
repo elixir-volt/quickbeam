@@ -583,7 +583,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         cond do
           static_val != :undefined -> static_val
           function_prototype_has_own?(key) -> :undefined
-          true -> Function.proto_property(b, key)
+          true -> fallback_to_object_proto(Function.proto_property(b, key), b, key)
         end
     end
   end
