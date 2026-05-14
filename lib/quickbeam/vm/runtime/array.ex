@@ -456,14 +456,40 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp unshift(:undefined, _args),
     do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
-  defp unshift({:obj, ref}, args) do
-    list = Heap.obj_to_list(ref)
-    new_list = args ++ list
-    Heap.put_obj(ref, new_list)
-    length(new_list)
-  end
+  defp unshift(value, _args) when is_binary(value),
+    do: JSThrow.type_error!("Cannot assign to read only property")
 
-  defp unshift(_, _), do: 0
+  defp unshift(value, args) do
+    receiver = find_receiver(value)
+    len = array_like_length(receiver)
+    arg_count = length(args)
+    new_len = len + arg_count
+
+    if new_len > @max_safe_integer do
+      JSThrow.type_error!("Invalid array length")
+    end
+
+    if arg_count > 0 and len > 0 do
+      (len - 1)..0//-1
+      |> Enum.each(fn from ->
+        from_key = Integer.to_string(from)
+        to_key = Integer.to_string(from + arg_count)
+
+        if HasProperty.has_property?(receiver, from_key) do
+          Put.put(receiver, to_key, Get.get(receiver, from_key))
+        else
+          delete_or_throw(receiver, to_key)
+        end
+      end)
+    end
+
+    args
+    |> Enum.with_index()
+    |> Enum.each(fn {item, index} -> Put.put(receiver, Integer.to_string(index), item) end)
+
+    put_length_or_throw(receiver, new_len)
+    new_len
+  end
 
   # ── Higher-order ──
 
