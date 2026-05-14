@@ -935,16 +935,58 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp slice(:undefined, _args),
     do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
-  defp slice({:obj, ref}, args), do: slice(Heap.obj_to_list(ref), args)
+  defp slice(value, args) do
+    receiver = find_receiver(value)
+    len = array_like_length(receiver)
+    start_idx = slice_start(args, len)
+    end_idx = slice_end(args, len)
+    count = max(end_idx - start_idx, 0)
+    target = slice_target(receiver, count)
 
-  defp slice({:qb_arr, arr}, args), do: slice(:array.to_list(arr), args)
+    if count > 0 do
+      0..(count - 1)
+      |> Enum.each(fn offset ->
+        from = start_idx + offset
+        key = Integer.to_string(from)
 
-  defp slice(list, args) when is_list(list) do
-    {start_idx, end_idx} = slice_args(list, args)
-    list |> Enum.slice(start_idx, max(end_idx - start_idx, 0))
+        if HasProperty.has_property?(receiver, key) do
+          create_data_property_or_throw(
+            target,
+            Integer.to_string(offset),
+            find_value_at(receiver, from)
+          )
+        end
+      end)
+    end
+
+    Put.put(target, "length", count)
+    target
   end
 
-  defp slice(_, _), do: []
+  defp slice_target(receiver, count) do
+    case concat_species_constructor(receiver) do
+      :array ->
+        Heap.wrap([])
+
+      constructor ->
+        ensure_object_result(
+          QuickBEAM.VM.Invocation.construct_runtime(constructor, constructor, [count])
+        )
+    end
+  end
+
+  defp slice_start(args, len) do
+    args |> Enum.at(0, 0) |> to_integer_or_infinity() |> slice_relative_index(len)
+  end
+
+  defp slice_end(args, len) do
+    args |> Enum.at(1, len) |> to_integer_or_infinity() |> slice_relative_index(len)
+  end
+
+  defp slice_relative_index(:neg_infinity, _len), do: 0
+  defp slice_relative_index(:infinity, len), do: len
+  defp slice_relative_index(index, len) when index < 0, do: max(len + index, 0)
+  defp slice_relative_index(index, len), do: min(index, len)
 
   defp splice(nil, _args), do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
@@ -2365,23 +2407,4 @@ defmodule QuickBEAM.VM.Runtime.Array do
     do: fn -> String.codepoints(string) end
 
   defp array_iterator_list_fn(_), do: fn -> [] end
-
-  # ── Internal ──
-
-  defp slice_args(list, [start, end_]) do
-    s = Runtime.normalize_index(start, length(list))
-
-    e =
-      if end_ < 0, do: max(length(list) + end_, 0), else: min(Runtime.to_int(end_), length(list))
-
-    {s, e}
-  end
-
-  defp slice_args(list, [start]) do
-    {Runtime.normalize_index(start, length(list)), length(list)}
-  end
-
-  defp slice_args(list, []) do
-    {0, length(list)}
-  end
 end
