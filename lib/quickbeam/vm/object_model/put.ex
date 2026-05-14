@@ -1124,12 +1124,15 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
               :error when is_binary(key) or is_binary(idx) ->
                 Get.get(obj, if(is_binary(key), do: key, else: idx))
 
+              :error when is_tuple(key) ->
+                Get.get(obj, key)
+
               :error ->
                 :undefined
             end
         end
 
-      {:shape, _, _, _, _} when is_binary(idx) or is_integer(idx) ->
+      {:shape, _, _, _, _} when is_binary(idx) or is_integer(idx) or is_tuple(idx) ->
         Get.get(obj, if(is_integer(idx), do: Integer.to_string(idx), else: idx))
 
       _ ->

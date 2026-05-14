@@ -340,6 +340,19 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp prototype_object_property(_map, _key), do: :undefined
 
+  defp date_proto_property(map, key) do
+    case Map.get(map, proto()) do
+      {:obj, _} = proto ->
+        case get(proto, key) do
+          :undefined -> JSDate.proto_property(key)
+          val -> val
+        end
+
+      _ ->
+        JSDate.proto_property(key)
+    end
+  end
+
   defp wrapped_string_property(string, "length") when is_binary(string), do: string_length(string)
 
   defp wrapped_string_property(string, key) when is_binary(string) do
@@ -467,7 +480,10 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         end
 
       %{date_ms() => _} = map ->
-        Map.get(map, key, :undefined)
+        case get_map_property(map, key, {:obj, ref}) do
+          :undefined -> date_proto_property(map, key)
+          val -> val
+        end
 
       %{typed_array() => true} = map ->
         obj = {:obj, ref}

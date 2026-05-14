@@ -38,7 +38,7 @@ defmodule QuickBEAM.VM.Runtime.Date do
       JSThrow.type_error!("Date.prototype[Symbol.toPrimitive] requires that 'this' be an Object")
     end
 
-    hint = List.first(args, "default")
+    hint = List.first(args, :undefined)
 
     try_first =
       case hint do
@@ -91,6 +91,12 @@ defmodule QuickBEAM.VM.Runtime.Date do
       nil
     end
   end
+
+  def proto_property({:symbol, "Symbol.toPrimitive"}),
+    do: {:builtin, "[Symbol.toPrimitive]", fn args, this -> symbol_to_primitive(this, args) end}
+
+  def proto_property({:symbol, "Symbol.toPrimitive", _}),
+    do: proto_property({:symbol, "Symbol.toPrimitive"})
 
   # ── Constructor ──
 
