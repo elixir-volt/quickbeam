@@ -144,11 +144,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   proto "toLocaleString" do
-    if this in [nil, :undefined] do
-      JSThrow.type_error!("Cannot convert undefined or null to object")
-    else
-      join(this, [","])
-    end
+    to_locale_string(this)
   end
 
   proto "includes" do
@@ -1168,6 +1164,42 @@ defmodule QuickBEAM.VM.Runtime.Array do
         |> array_element_to_string()
       end)
     end
+  end
+
+  defp to_locale_string(nil),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp to_locale_string(:undefined),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp to_locale_string(value) do
+    receiver = find_receiver(value)
+    len = array_like_length(receiver)
+
+    if len == 0 do
+      ""
+    else
+      0..(len - 1)
+      |> Enum.map_join(",", fn index ->
+        receiver
+        |> find_value_at(index)
+        |> array_element_to_locale_string()
+      end)
+    end
+  end
+
+  defp array_element_to_locale_string(value) when value in [nil, :undefined], do: ""
+
+  defp array_element_to_locale_string(value) do
+    locale_string_fn = Get.get(value, "toLocaleString")
+
+    unless QuickBEAM.VM.Builtin.callable?(locale_string_fn) do
+      JSThrow.type_error!("toLocaleString is not callable")
+    end
+
+    value
+    |> then(&QuickBEAM.VM.Invocation.invoke_with_receiver(locale_string_fn, [], &1))
+    |> Runtime.stringify()
   end
 
   defp join_separator([:undefined | _]), do: ","
