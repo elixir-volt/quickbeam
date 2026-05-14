@@ -279,10 +279,26 @@ fn convert_object_to_map(ctx: *qjs.JSContext, val: qjs.JSValue, state: *ConvertS
         qjs.JS_FreeAtom(ctx, tab[i].atom);
     }
 
-    if (make_map_from_arrays(state.opts.env, keys.ptr, vals.ptr, plen)) |result| {
-        return result;
+    // ERTS 15.0–15.2.2 (OTP 27.0–27.2) enif_make_map_from_arrays segfaults
+    // when called from a non-scheduler thread with >128 unique keys
+    // on an enif_alloc_env-allocated env. Fixed in OTP 27.3 (ERTS 15.2.7+)
+    // via OTP-20098. Iterative enif_make_map_put avoids the affected path.
+    if (plen <= 128) {
+        if (make_map_from_arrays(state.opts.env, keys.ptr, vals.ptr, plen)) |result| {
+            return result;
+        }
+        return empty_map(state.opts);
     }
-    return empty_map(state.opts);
+
+    var acc = empty_map(state.opts);
+    for (0..plen) |i| {
+        var new_map: e.ErlNifTerm = std.mem.zeroes(e.ErlNifTerm);
+        if (e.enif_make_map_put(state.opts.env, acc, keys[i], vals[i], &new_map) == 0) {
+            return acc;
+        }
+        acc = new_map;
+    }
+    return acc;
 }
 
 fn obj_identity(val: qjs.JSValue) ?*anyopaque {

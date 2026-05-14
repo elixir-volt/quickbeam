@@ -186,6 +186,37 @@ defmodule QuickBEAM.Core.SerializationTest do
     end
   end
 
+  describe "large objects" do
+    test "object with 200 keys returns correctly", %{rt: rt} do
+      code = """
+      const o = {};
+      for (let i = 0; i < 200; i++) o['k' + i] = i;
+      JSON.stringify(o);
+      """
+
+      {:ok, json} = QuickBEAM.eval(rt, code)
+      decoded = Jason.decode!(json)
+      assert map_size(decoded) == 200
+      assert decoded["k0"] == 0
+      assert decoded["k99"] == 99
+      assert decoded["k199"] == 199
+    end
+
+    test "object with 200 keys converts to map", %{rt: rt} do
+      code = """
+      const o = {};
+      for (let i = 0; i < 200; i++) o['k' + i] = i;
+      o
+      """
+
+      {:ok, result} = QuickBEAM.eval(rt, code)
+      assert is_map(result)
+      assert map_size(result) == 200
+      assert result["k0"] == 0
+      assert result["k199"] == 199
+    end
+  end
+
   describe "large binaries" do
     test "1MB Uint8Array", %{rt: rt} do
       assert {:ok, bin} =
