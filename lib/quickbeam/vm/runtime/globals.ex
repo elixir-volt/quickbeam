@@ -2,16 +2,15 @@ defmodule QuickBEAM.VM.Runtime.Globals do
   @moduledoc "JS global scope: constructors, global functions, and the binding map."
 
   alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.Runtime
 
   alias QuickBEAM.VM.Runtime.WebAPIs
 
   alias QuickBEAM.VM.Runtime.{
     ArrayBufferInstaller,
     ArrayInstaller,
-    Boolean,
     CollectionInstaller,
     Console,
+    CoreConstructorInstaller,
     DateInstaller,
     Errors,
     FunctionInstaller,
@@ -21,12 +20,10 @@ defmodule QuickBEAM.VM.Runtime.Globals do
     Math,
     NumberInstaller,
     Object,
-    PromiseBuiltins,
     ProxyInstaller,
     Reflect,
     RegExpInstaller,
     StringInstaller,
-    Symbol,
     Test262Host,
     TypedArrayInstaller
   }
@@ -50,6 +47,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
     |> Map.put("Object", obj_ctor)
     |> Map.merge(TypedArrayInstaller.bindings())
     |> Map.merge(CollectionInstaller.bindings())
+    |> Map.merge(CoreConstructorInstaller.bindings())
     |> Map.merge(Errors.bindings())
     |> tap(&Heap.put_global_cache/1)
     |> Map.merge(WebAPIs.bindings())
@@ -65,18 +63,9 @@ defmodule QuickBEAM.VM.Runtime.Globals do
       "Array" => ArrayInstaller.constructor(),
       "String" => StringInstaller.constructor(),
       "Number" => NumberInstaller.constructor(),
-      "BigInt" => register("BigInt", &Constructors.bigint/2, auto_proto: true),
-      "Boolean" => register("Boolean", Boolean.constructor(), module: Boolean, auto_proto: true),
       "Function" => FunctionInstaller.constructor(),
       "RegExp" => RegExpInstaller.constructor(),
       "Date" => DateInstaller.constructor(),
-      "Promise" =>
-        register("Promise", PromiseBuiltins.constructor(),
-          module: PromiseBuiltins,
-          prototype: PromiseBuiltins.prototype()
-        ),
-      "Symbol" => register("Symbol", Symbol.constructor(), module: Symbol, auto_proto: true),
-      "DataView" => register("DataView", fn _, _ -> Runtime.new_object() end),
       "ArrayBuffer" => ArrayBufferInstaller.constructor(),
       "Proxy" => ProxyInstaller.constructor(),
       "Math" => Math.object(),
@@ -90,7 +79,7 @@ defmodule QuickBEAM.VM.Runtime.Globals do
 
   # ── Registration helpers ──
 
-  defp register(name, constructor, opts \\ []) do
+  defp register(name, constructor, opts) do
     ConstructorRegistry.register(name, constructor, opts)
   end
 
