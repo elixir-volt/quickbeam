@@ -331,28 +331,55 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   # ── Mutation helpers ──
 
-  defp push({:obj, ref}, args) do
-    Heap.array_push(ref, args)
+  defp push(nil, _args), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp push(:undefined, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp push(value, args) do
+    receiver = find_receiver(value)
+    len = array_like_length(receiver)
+    new_len = len + length(args)
+
+    if new_len > @max_array_length do
+      JSThrow.type_error!("Invalid array length")
+    end
+
+    Enum.each(Enum.with_index(args, len), fn {item, index} ->
+      Put.put(receiver, Integer.to_string(index), item)
+    end)
+
+    Put.put(receiver, "length", new_len)
+    new_len
   end
 
-  defp push({:qb_arr, arr}, args), do: :array.size(arr) + length(args)
-  defp push(list, args) when is_list(list), do: length(list ++ args)
+  defp pop(nil, _args), do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
-  defp pop({:obj, ref}, _) do
-    list = Heap.obj_to_list(ref)
+  defp pop(:undefined, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
-    case List.pop_at(list, -1) do
-      {nil, _} ->
-        :undefined
+  defp pop(value, _args) do
+    receiver = find_receiver(value)
+    len = array_like_length(receiver)
 
-      {last, rest} ->
-        Heap.put_obj(ref, rest)
-        last
+    if len == 0 do
+      Put.put(receiver, "length", 0)
+      :undefined
+    else
+      index = len - 1
+      key = Integer.to_string(index)
+
+      element =
+        if HasProperty.has_property?(receiver, key), do: Get.get(receiver, key), else: :undefined
+
+      unless Delete.delete_property(receiver, key) do
+        JSThrow.type_error!("Cannot delete property")
+      end
+
+      Put.put(receiver, "length", index)
+      element
     end
   end
-
-  defp pop([_ | _] = list, _), do: List.last(list)
-  defp pop(_, _), do: :undefined
 
   defp shift({:obj, ref}, _) do
     list = Heap.obj_to_list(ref)
