@@ -1582,16 +1582,16 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
     cond do
       lower_exists and upper_exists ->
-        Put.put(receiver, lower_key, upper_value)
-        Put.put(receiver, upper_key, lower_value)
+        reverse_put(receiver, lower, lower_key, upper_value)
+        reverse_put(receiver, upper, upper_key, lower_value)
 
       upper_exists ->
-        Put.put(receiver, lower_key, upper_value)
+        reverse_put(receiver, lower, lower_key, upper_value)
         delete_or_throw(receiver, upper_key)
 
       lower_exists ->
         delete_or_throw(receiver, lower_key)
-        Put.put(receiver, upper_key, lower_value)
+        reverse_put(receiver, upper, upper_key, lower_value)
 
       true ->
         :ok
@@ -1599,6 +1599,15 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
     reverse_pairs(receiver, lower + 1, upper - 1)
   end
+
+  defp reverse_put({:obj, ref} = receiver, index, _key, value) do
+    case Heap.get_obj(ref, %{}) do
+      %{typed_array() => true} -> Put.put_element(receiver, index, value)
+      _ -> Put.put(receiver, Integer.to_string(index), value)
+    end
+  end
+
+  defp reverse_put(receiver, _index, key, value), do: Put.put(receiver, key, value)
 
   defp delete_or_throw(receiver, key) do
     unless Delete.delete_property(receiver, key) do
