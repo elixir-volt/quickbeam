@@ -335,6 +335,10 @@ defmodule QuickBEAM.VM.Runtime.Date do
   defp iso_year(year),
     do: "+" <> String.pad_leading(Integer.to_string(year), 6, "0")
 
+  defp to_json(this, _args) when this in [nil, :undefined] do
+    JSThrow.type_error!("Cannot convert undefined or null to object")
+  end
+
   defp to_json(this, _args) do
     tv = QuickBEAM.VM.Interpreter.Values.Coercion.to_primitive(this, "number")
 

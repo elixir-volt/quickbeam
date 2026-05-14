@@ -238,6 +238,8 @@ defmodule QuickBEAM.VM.Interpreter.Values.Coercion do
     do: val
 
   def to_primitive({:bigint, _} = val), do: val
+  def to_primitive({:symbol, _} = val), do: val
+  def to_primitive({:symbol, _, _} = val), do: val
 
   def to_primitive({:closure, _, %{source: src}}) when is_binary(src) and src != "", do: src
   def to_primitive({:closure, _, _}), do: "function () { [native code] }"
