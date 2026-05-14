@@ -16,13 +16,16 @@ defmodule QuickBEAM.VM.ObjectModel.WrappedPrimitive do
     string: "String",
     number: "Number",
     boolean: "Boolean",
-    bigint: "BigInt"
+    bigint: "BigInt",
+    symbol: "Symbol"
   }
 
   @tags %{
     string: "String",
     number: "Number",
-    boolean: "Boolean"
+    boolean: "Boolean",
+    bigint: "BigInt",
+    symbol: "Symbol"
   }
 
   def slot(type), do: Map.fetch!(@slots, type)
@@ -41,8 +44,6 @@ defmodule QuickBEAM.VM.ObjectModel.WrappedPrimitive do
       type -> wrap(type, value)
     end
   end
-
-  def wrap(:symbol, value), do: Heap.wrap(%{slot(:symbol) => value})
 
   def wrap(type, value) do
     slot = slot(type)

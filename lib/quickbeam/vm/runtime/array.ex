@@ -1972,6 +1972,10 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp find_receiver(value) when is_boolean(value) or is_number(value) or is_binary(value),
     do: primitive_object(value)
 
+  defp find_receiver({:symbol, _} = value), do: primitive_object(value)
+  defp find_receiver({:symbol, _, _} = value), do: primitive_object(value)
+  defp find_receiver({:bigint, _} = value), do: primitive_object(value)
+
   defp find_receiver({:qb_arr, arr}), do: :array.to_list(arr)
   defp find_receiver(value), do: value
 
