@@ -806,15 +806,30 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   # ── Transform ──
 
-  defp join({:obj, ref}, args), do: join(Heap.obj_to_list(ref), args)
-
+  defp join(nil, _), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+  defp join(:undefined, _), do: JSThrow.type_error!("Cannot convert undefined or null to object")
   defp join({:qb_arr, arr}, args), do: join(:array.to_list(arr), args)
 
-  defp join(list, [sep | _]) when is_list(list),
-    do: Enum.map_join(list, Runtime.stringify(sep), &array_element_to_string/1)
+  defp join(value, args) do
+    this = find_receiver(value)
+    len = array_like_length(this)
+    separator = join_separator(args)
 
-  defp join(list, []) when is_list(list), do: Enum.map_join(list, ",", &array_element_to_string/1)
-  defp join(_, _), do: ""
+    if len == 0 do
+      ""
+    else
+      0..(len - 1)
+      |> Enum.map_join(separator, fn idx ->
+        this
+        |> find_value_at(idx)
+        |> array_element_to_string()
+      end)
+    end
+  end
+
+  defp join_separator([:undefined | _]), do: ","
+  defp join_separator([]), do: ","
+  defp join_separator([sep | _]), do: Runtime.stringify(sep)
 
   defp array_element_to_string(:undefined), do: ""
   defp array_element_to_string(nil), do: ""
