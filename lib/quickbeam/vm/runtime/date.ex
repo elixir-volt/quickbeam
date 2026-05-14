@@ -435,13 +435,18 @@ defmodule QuickBEAM.VM.Runtime.Date do
         year = Enum.at(coerced_args, 0, 0)
         month = if length(args) >= 2, do: Enum.at(coerced_args, 1, 0), else: dt.month - 1
         day = if length(args) >= 3, do: Enum.at(coerced_args, 2, 1), else: dt.day
-        time_ms = rem(trunc(base_ms), 86_400_000)
+        time_ms = time_within_day(base_ms)
 
         new_ms = make_date(year, month, day, time_ms)
         put_ms(this, new_ms)
     end
   rescue
     _ -> :nan
+  end
+
+  defp time_within_day(ms) do
+    ms = trunc(ms)
+    rem(rem(ms, 86_400_000) + 86_400_000, 86_400_000)
   end
 
   defp make_date(year, month, day, time_ms)
@@ -488,7 +493,7 @@ defmodule QuickBEAM.VM.Runtime.Date do
 
       dt ->
         day = Enum.at(coerced, 0, dt.day)
-        time_ms = rem(trunc(base_ms), 86_400_000)
+        time_ms = time_within_day(base_ms)
         make_date(dt.year, dt.month - 1, day, time_ms) |> then(&put_ms(this, &1))
     end
   rescue
@@ -511,7 +516,7 @@ defmodule QuickBEAM.VM.Runtime.Date do
       dt ->
         month = Enum.at(coerced_args, 0, 0)
         day = if length(coerced_args) >= 2, do: Enum.at(coerced_args, 1, 1), else: dt.day
-        time_ms = rem(trunc(base_ms), 86_400_000)
+        time_ms = time_within_day(base_ms)
         make_date(dt.year, month, day, time_ms) |> then(&put_ms(this, &1))
     end
   rescue
