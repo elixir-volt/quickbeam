@@ -413,6 +413,21 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp put_length_or_throw(receiver, length), do: Put.put(receiver, "length", length)
 
+  defp put_or_throw({:obj, ref} = receiver, key, value) do
+    case {Heap.get_prop_desc(ref, key), Heap.get_obj_raw(ref)} do
+      {%{writable: false}, _} ->
+        JSThrow.type_error!("Cannot assign to read only property")
+
+      {_, %{^key => {:accessor, _getter, nil}}} ->
+        JSThrow.type_error!("Cannot assign to read only property")
+
+      _ ->
+        Put.put(receiver, key, value)
+    end
+  end
+
+  defp put_or_throw(receiver, key, value), do: Put.put(receiver, key, value)
+
   defp shift(nil, _args), do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
   defp shift(:undefined, _args),
@@ -476,7 +491,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         to_key = Integer.to_string(from + arg_count)
 
         if HasProperty.has_property?(receiver, from_key) do
-          Put.put(receiver, to_key, Get.get(receiver, from_key))
+          put_or_throw(receiver, to_key, Get.get(receiver, from_key))
         else
           delete_or_throw(receiver, to_key)
         end
@@ -485,7 +500,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
     args
     |> Enum.with_index()
-    |> Enum.each(fn {item, index} -> Put.put(receiver, Integer.to_string(index), item) end)
+    |> Enum.each(fn {item, index} -> put_or_throw(receiver, Integer.to_string(index), item) end)
 
     put_length_or_throw(receiver, new_len)
     new_len
