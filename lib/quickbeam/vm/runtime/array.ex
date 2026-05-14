@@ -361,7 +361,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     end
 
     Enum.each(Enum.with_index(args, len), fn {item, index} ->
-      Put.put(receiver, Integer.to_string(index), item)
+      put_or_throw(receiver, Integer.to_string(index), item)
     end)
 
     put_length_or_throw(receiver, new_len)
