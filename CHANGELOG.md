@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.7
+
+- Fix `fs.readFileSync` without encoding to return `Buffer` instead of raw `Uint8Array`, so `.toString()` decodes as UTF-8
+- Load `Buffer` polyfill in `:node` runtimes (was only available in `:browser` runtimes)
+- Work around `enif_make_map_from_arrays` segfault on ERTS 15.0–15.2.2 (OTP 27.0–27.2) when returning JS objects with >128 keys
+
 ## 0.10.6
 
 - Update OXC dependency to 0.11
