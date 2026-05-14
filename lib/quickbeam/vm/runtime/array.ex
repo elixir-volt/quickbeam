@@ -1850,6 +1850,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
             value = find_value_at(this, idx)
 
             fun
+            |> flat_map_callback()
             |> QuickBEAM.VM.Invocation.invoke_with_receiver([value, idx, this], this_arg)
             |> flat_item()
           else
@@ -1865,6 +1866,13 @@ defmodule QuickBEAM.VM.Runtime.Array do
     _len = array_like_length(this)
     JSThrow.type_error!("mapperFunction must be callable")
   end
+
+  defp flat_map_callback(%QuickBEAM.VM.Function{} = fun), do: %{fun | is_strict_mode: true}
+
+  defp flat_map_callback({:closure, captured, %QuickBEAM.VM.Function{} = fun}),
+    do: {:closure, captured, %{fun | is_strict_mode: true}}
+
+  defp flat_map_callback(fun), do: fun
 
   defp fill(nil, _args), do: JSThrow.type_error!("Cannot convert undefined or null to object")
 

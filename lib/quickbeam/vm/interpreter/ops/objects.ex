@@ -425,11 +425,12 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
              stack,
              gas,
              %Context{
-               this: :undefined,
+               this: this,
                current_func: %QuickBEAM.VM.Function{is_strict_mode: true}
              } = ctx
-           ) do
-        run(pc + 1, frame, [:undefined | stack], gas, ctx)
+           )
+           when this in [:undefined, nil] do
+        run(pc + 1, frame, [this | stack], gas, ctx)
       end
 
       defp run(
@@ -439,11 +440,12 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
              stack,
              gas,
              %Context{
-               this: :undefined,
+               this: this,
                current_func: {:closure, _, %QuickBEAM.VM.Function{is_strict_mode: true}}
              } = ctx
-           ) do
-        run(pc + 1, frame, [:undefined | stack], gas, ctx)
+           )
+           when this in [:undefined, nil] do
+        run(pc + 1, frame, [this | stack], gas, ctx)
       end
 
       defp run({@op_push_this, []}, pc, frame, stack, gas, %Context{this: this} = ctx)
