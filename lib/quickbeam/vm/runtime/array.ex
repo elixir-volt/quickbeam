@@ -336,6 +336,9 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp push(:undefined, _args),
     do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
+  defp push(value, _args) when is_binary(value),
+    do: JSThrow.type_error!("Cannot assign to read only property")
+
   defp push(value, args) do
     receiver = find_receiver(value)
     len = array_like_length(receiver)
@@ -357,6 +360,9 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp pop(:undefined, _args),
     do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp pop(value, _args) when is_binary(value),
+    do: JSThrow.type_error!("Cannot assign to read only property")
 
   defp pop(value, _args) do
     receiver = find_receiver(value)
