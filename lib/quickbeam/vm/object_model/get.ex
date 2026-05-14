@@ -1011,6 +1011,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp get_from_prototype({:symbol, _, _}, key), do: primitive_class_proto(key, "Symbol")
   defp get_from_prototype({:symbol, _}, key), do: primitive_class_proto(key, "Symbol")
+  defp get_from_prototype({:bigint, _}, key), do: primitive_class_proto(key, "BigInt")
 
   defp get_from_prototype(%QuickBEAM.VM.Function{} = f, "constructor"),
     do: function_kind_constructor(f)
