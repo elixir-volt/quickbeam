@@ -690,10 +690,17 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp get_own(%QuickBEAM.VM.Function{} = f, key) do
     case Map.get(Heap.get_ctor_statics(f), key, :not_found) do
-      :not_found when key in ["length", "name"] -> Function.proto_property(f, key)
-      :not_found -> :undefined
-      :deleted -> :undefined
-      val -> val
+      :not_found when key in ["length", "name", "caller", "arguments"] ->
+        Function.proto_property(f, key)
+
+      :not_found ->
+        :undefined
+
+      :deleted ->
+        :undefined
+
+      val ->
+        val
     end
   end
 
@@ -716,10 +723,17 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     case Map.get(Heap.get_ctor_statics(c), key, :not_found) do
       :not_found ->
         case Map.get(Heap.get_ctor_statics(f), key, :not_found) do
-          :not_found when key in ["length", "name"] -> Function.proto_property(c, key)
-          :not_found -> :undefined
-          :deleted -> :undefined
-          val -> val
+          :not_found when key in ["length", "name", "caller", "arguments"] ->
+            Function.proto_property(c, key)
+
+          :not_found ->
+            :undefined
+
+          :deleted ->
+            :undefined
+
+          val ->
+            val
         end
 
       :deleted ->

@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Runtime.Function do
   @moduledoc "JS `Function` prototype: `call`, `apply`, `bind`, and property access for name/length/fileName."
   alias QuickBEAM.VM.{Builtin, Heap, Invocation}
+  alias QuickBEAM.VM.Execution.Trace
   alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor, WrappedPrimitive}
   alias QuickBEAM.VM.Runtime.Test262Host
 
@@ -220,7 +221,7 @@ defmodule QuickBEAM.VM.Runtime.Function do
   end
 
   def proto_property(fun, "caller") do
-    if strict_function?(fun) or bound_function?(fun) do
+    if strict_function?(fun) or bound_function?(fun) or strict_active_caller?(fun) do
       throw(
         {:js_throw,
          Heap.make_error(
@@ -259,6 +260,25 @@ defmodule QuickBEAM.VM.Runtime.Function do
   defp strict_function?(%QuickBEAM.VM.Function{is_strict_mode: true}), do: true
   defp strict_function?({:closure, _, %QuickBEAM.VM.Function{is_strict_mode: true}}), do: true
   defp strict_function?(_), do: false
+
+  defp strict_active_caller?(fun) do
+    fun = raw_function(fun)
+
+    Trace.get_frames()
+    |> Enum.map(& &1.fun)
+    |> caller_after(fun)
+    |> strict_function?()
+  end
+
+  defp caller_after([current, caller | rest], fun) do
+    if raw_function(current) == fun, do: caller, else: caller_after([caller | rest], fun)
+  end
+
+  defp caller_after([_], _fun), do: nil
+  defp caller_after([], _fun), do: nil
+
+  defp raw_function({:closure, _, %QuickBEAM.VM.Function{} = fun}), do: fun
+  defp raw_function(fun), do: fun
 
   defp bound_function?({:bound, _, _, _, _}), do: true
   defp bound_function?(_), do: false

@@ -136,7 +136,7 @@ defmodule QuickBEAM.VM.Interpreter do
               l2v
             )
 
-          if ctx.trace_enabled, do: Trace.push(fun)
+          Trace.push(fun)
 
           try do
             result = run(0, frame, args, gas, ctx)
@@ -146,7 +146,7 @@ defmodule QuickBEAM.VM.Interpreter do
             {:js_throw, val} -> {:error, {:js_throw, val}}
             {:error, _} = err -> err
           after
-            if ctx.trace_enabled, do: Trace.pop()
+            Trace.pop()
           end
 
         {:error, _} = err ->

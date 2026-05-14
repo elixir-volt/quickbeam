@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   alias QuickBEAM.VM.Compiler
   alias QuickBEAM.VM.Compiler.FunctionInfo
   alias QuickBEAM.VM.Compiler.GeneratorIterator
+  alias QuickBEAM.VM.Execution.Trace
   alias QuickBEAM.VM.GlobalEnv
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Context
@@ -140,8 +141,14 @@ defmodule QuickBEAM.VM.Compiler.Runner do
     compiled_async_gen_invoke(compiled, ctx, args)
   end
 
-  defp invoke_compiled(_fun, compiled, ctx, args) do
-    apply_compiled(compiled, ctx, args)
+  defp invoke_compiled(fun, compiled, ctx, args) do
+    Trace.push(fun)
+
+    try do
+      apply_compiled(compiled, ctx, args)
+    after
+      Trace.pop()
+    end
   end
 
   defp compiled_gen_invoke(compiled, ctx, args) do
