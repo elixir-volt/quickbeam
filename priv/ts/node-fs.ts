@@ -69,7 +69,7 @@ function readFileSync(path: string, options?: QBNodeEncoding | ReadOptions): str
   const result = Beam.callSync('__fs_read_file', path) as Uint8Array | null
   if (result === null) throw new Error(`ENOENT: no such file or directory, open '${path}'`)
   if (encoding) return new TextDecoder().decode(result)
-  return result
+  return Buffer.from(result)
 }
 
 function writeFileSync(path: string, data: string | Uint8Array, options?: QBNodeEncoding | WriteOptions): void {

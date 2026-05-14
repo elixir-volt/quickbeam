@@ -197,7 +197,7 @@ defmodule QuickBEAM.JS do
 
   @node_js Compiler.standalone(
              @ts_dir,
-             ~w[node-process node-path node-fs node-os node-child-process]
+             ~w[buffer node-process node-path node-fs node-os node-child-process]
            )
 
   def browser_js, do: @browser_js

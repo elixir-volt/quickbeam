@@ -200,6 +200,14 @@ defmodule QuickBEAM.Node.NodeAPIsTest do
       assert data == <<1, 2, 3>>
     end
 
+    test "readFileSync without encoding returns Buffer with correct toString", %{rt: rt, dir: dir} do
+      file = Path.join(dir, "text.txt")
+      File.write!(file, "hello world")
+
+      {:ok, result} = QuickBEAM.eval(rt, "fs.readFileSync(#{inspect(file)}).toString()")
+      assert result == "hello world"
+    end
+
     test "readFileSync throws on missing file", %{rt: rt} do
       result = QuickBEAM.eval(rt, "fs.readFileSync('/nonexistent/file.txt')")
       assert {:error, %{message: msg}} = result
