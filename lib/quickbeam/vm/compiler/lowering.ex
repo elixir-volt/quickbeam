@@ -682,7 +682,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          target
        ) do
     with :ok <- ensure_catch_region_supported(instructions, idx, target),
-         {saved_stack, state} <- freeze_stack(state),
+         {saved_stack, state} <- State.freeze_stack(state),
          {:ok, handler_call} <-
            State.block_jump_call_values(
              target,
@@ -908,7 +908,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
          target
        ) do
     with :ok <- ensure_catch_region_supported(instructions, idx, target),
-         {saved_stack, state} <- freeze_stack(state),
+         {saved_stack, state} <- State.freeze_stack(state),
          {:ok, try_body} <-
            lower_finally_body(
              instructions,
@@ -1099,18 +1099,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
       {:error, _} = error ->
         error
     end
-  end
-
-  defp freeze_stack(%{stack: []} = state), do: {[], state}
-
-  defp freeze_stack(state) do
-    state =
-      Enum.reduce(0..(length(state.stack) - 1), state, fn idx, state ->
-        {:ok, state, _bound} = State.bind_stack_entry(state, idx)
-        state
-      end)
-
-    {state.stack, state}
   end
 
   defp ensure_catch_region_supported(_instructions, _catch_idx, _target), do: :ok

@@ -635,6 +635,19 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
+  @doc "Binds every current stack entry so catch/finally continuations evaluate values once."
+  def freeze_stack(%{stack: []} = state), do: {[], state}
+
+  def freeze_stack(state) do
+    state =
+      Enum.reduce(0..(length(state.stack) - 1), state, fn idx, state ->
+        {:ok, state, _bound} = bind_stack_entry(state, idx)
+        state
+      end)
+
+    {state.stack, state}
+  end
+
   @doc "Duplicates the top operand-stack expression."
   def duplicate_top(state) do
     with {:ok, expr, type, state} <- pop_typed(state) do
