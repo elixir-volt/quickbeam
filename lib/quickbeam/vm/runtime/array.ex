@@ -229,7 +229,11 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   proto "toSorted" do
-    to_sorted(this)
+    to_sorted(this, args)
+  end
+
+  proto "toSpliced" do
+    to_spliced(this, args)
   end
 
   proto "values" do
@@ -2069,12 +2073,28 @@ defmodule QuickBEAM.VM.Runtime.Array do
     array
   end
 
-  defp mark_array_result_present(ref, index) do
-    Heap.put_prop_desc(ref, Integer.to_string(index), %{
+  defp mark_array_result_present(ref, index) when is_integer(index) do
+    mark_array_result_present(ref, Integer.to_string(index))
+  end
+
+  defp mark_array_result_present(ref, key) do
+    Heap.put_prop_desc(ref, key, %{
       writable: true,
       enumerable: true,
       configurable: true
     })
+  end
+
+  defp create_data_property_or_throw({:obj, ref} = target, key, value) do
+    desc = %{"value" => value, "writable" => true, "enumerable" => true, "configurable" => true}
+    result = Define.property(target, key, Heap.wrap(desc), desc)
+
+    if value == :undefined do
+      Heap.put_array_prop(ref, key, value)
+      mark_array_result_present(ref, key)
+    end
+
+    result
   end
 
   defp create_data_property_or_throw(target, key, value) do
@@ -2479,26 +2499,127 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp array_at(_, _), do: :undefined
 
-  defp to_reversed({:obj, ref}) do
-    list = Heap.obj_to_list(ref)
-    Heap.wrap(Enum.reverse(list))
+  defp to_reversed(nil), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp to_reversed(:undefined),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp to_reversed(value) do
+    receiver = find_receiver(value)
+    len = array_like_length(receiver)
+    target = copy_array_target(len)
+
+    if len > 0 do
+      0..(len - 1)
+      |> Enum.each(fn index ->
+        from = len - index - 1
+
+        create_data_property_or_throw(
+          target,
+          Integer.to_string(index),
+          find_value_at(receiver, from)
+        )
+      end)
+    end
+
+    Put.put(target, "length", len)
+    target
   end
 
-  defp to_reversed(_), do: :undefined
+  defp to_sorted(nil, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
-  defp to_sorted({:obj, ref}) do
-    list = Heap.obj_to_list(ref)
-    new_ref = make_ref()
+  defp to_sorted(:undefined, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
-    Heap.put_obj(
-      new_ref,
-      Enum.sort(list, fn a, b -> Runtime.stringify(a) <= Runtime.stringify(b) end)
-    )
+  defp to_sorted(value, args) do
+    compare_fn = sort_compare_fn(args)
+    receiver = find_receiver(value)
+    len = array_like_length(receiver)
+    target = copy_array_target(len)
 
-    {:obj, new_ref}
+    values =
+      if len == 0 do
+        []
+      else
+        0..(len - 1)
+        |> Enum.map(fn index -> {find_value_at(receiver, index), index} end)
+        |> sort_values(compare_fn)
+      end
+
+    values
+    |> Enum.with_index()
+    |> Enum.each(fn {{value, _original_index}, index} ->
+      create_data_property_or_throw(target, Integer.to_string(index), value)
+    end)
+
+    Put.put(target, "length", len)
+    target
   end
 
-  defp to_sorted(_), do: :undefined
+  defp to_spliced(nil, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp to_spliced(:undefined, _args),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp to_spliced(value, args) do
+    receiver = find_receiver(value)
+    len = array_like_length(receiver)
+    actual_start = splice_start(args, len)
+    actual_delete_count = splice_delete_count(args, len, actual_start)
+    insert = Enum.drop(args, 2)
+    new_len = len - actual_delete_count + length(insert)
+    target = copy_array_target(new_len)
+
+    copy_prefix(receiver, target, actual_start)
+
+    insert
+    |> Enum.with_index(actual_start)
+    |> Enum.each(fn {item, index} ->
+      create_data_property_or_throw(target, Integer.to_string(index), item)
+    end)
+
+    copy_suffix(receiver, target, actual_start, actual_delete_count, length(insert), len)
+    Put.put(target, "length", new_len)
+    target
+  end
+
+  defp copy_array_target(len) do
+    if len > @max_array_length do
+      JSThrow.range_error!("Invalid array length")
+    end
+
+    Heap.wrap([])
+  end
+
+  defp copy_prefix(_receiver, _target, 0), do: :ok
+
+  defp copy_prefix(receiver, target, count) do
+    0..(count - 1)
+    |> Enum.each(fn index ->
+      create_data_property_or_throw(
+        target,
+        Integer.to_string(index),
+        find_value_at(receiver, index)
+      )
+    end)
+  end
+
+  defp copy_suffix(_receiver, _target, actual_start, actual_delete_count, insert_count, len)
+       when actual_start + actual_delete_count >= len and insert_count >= 0,
+       do: :ok
+
+  defp copy_suffix(receiver, target, actual_start, actual_delete_count, insert_count, len) do
+    from_start = actual_start + actual_delete_count
+    to_start = actual_start + insert_count
+
+    from_start..(len - 1)
+    |> Enum.each(fn from ->
+      to = to_start + from - from_start
+      create_data_property_or_throw(target, Integer.to_string(to), find_value_at(receiver, from))
+    end)
+  end
 
   defp make_array_iterator(arr, mode) do
     list_fn = array_iterator_list_fn(arr)
