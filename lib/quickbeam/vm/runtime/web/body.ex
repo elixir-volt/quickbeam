@@ -19,6 +19,14 @@ defmodule QuickBEAM.VM.Runtime.Web.Body do
     |> body_data()
   end
 
+  @doc "Returns true when the body state carries a non-null payload."
+  def has_body?(body_ref) do
+    case Heap.get_obj(body_ref, %{}) do
+      %{data: data} -> not is_nil(data) and data != :undefined
+      _ -> false
+    end
+  end
+
   @doc "Creates a fresh unconsumed body state with the same payload."
   def clone(body_ref) do
     case Heap.get_obj(body_ref, %{}) do

@@ -730,7 +730,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   defp put_array_named_property(obj, ref, key, val) do
     case Heap.get_array_prop(ref, key) do
       {:accessor, _getter, setter} when setter != nil ->
-        Invocation.invoke_with_receiver(setter, [val], obj)
+        invoke_setter(setter, val, obj)
 
       {:accessor, _getter, nil} ->
         :ok
@@ -830,10 +830,10 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     do: QuickBEAM.VM.Heap.Store.put_property_preserving_order(map, key, value)
 
   defp invoke_setter(fun, val, this_obj) do
-    SetterState.mark_invoked()
-
     try do
-      Invocation.invoke_with_receiver(fun, [val], this_obj)
+      result = Invocation.invoke_with_receiver(fun, [val], this_obj)
+      SetterState.mark_invoked()
+      result
     rescue
       error ->
         SetterState.clear()
@@ -1265,7 +1265,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
     case Heap.get_array_prop(ref, key) do
       {:accessor, _getter, setter} when setter != nil ->
-        Invocation.invoke_with_receiver(setter, [val], obj)
+        invoke_setter(setter, val, obj)
 
       {:accessor, _getter, nil} ->
         reject_failed_write!()
@@ -1307,7 +1307,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
     case Heap.get_array_prop(ref, key) do
       {:accessor, _getter, setter} when setter != nil ->
-        Invocation.invoke_with_receiver(setter, [val], obj)
+        invoke_setter(setter, val, obj)
 
       {:accessor, _getter, nil} ->
         reject_failed_write!()

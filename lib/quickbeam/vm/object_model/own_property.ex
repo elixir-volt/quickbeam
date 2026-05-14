@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
 
   import QuickBEAM.VM.Heap.Keys
 
-  alias QuickBEAM.VM.{Heap, Invocation, Runtime}
+  alias QuickBEAM.VM.{Builtin, Heap, Invocation, Runtime}
 
   alias QuickBEAM.VM.ObjectModel.{
     ArrayExotic,
@@ -70,7 +70,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   end
 
   def present?({:builtin, _, _} = builtin, key) when key in ["name", "length"] do
-    not match?(%{^key => :deleted}, Heap.get_ctor_statics(builtin))
+    Builtin.callable?(builtin) and not match?(%{^key => :deleted}, Heap.get_ctor_statics(builtin))
   end
 
   def present?({:builtin, _, map} = builtin, key) do
@@ -219,9 +219,25 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   def descriptor_keys({:closure, _, %QuickBEAM.VM.Function{}} = fun),
     do: callable_descriptor_keys(fun)
 
-  def descriptor_keys({:builtin, _, map} = builtin), do: callable_descriptor_keys(builtin, map)
+  def descriptor_keys({:builtin, _, map} = builtin) do
+    if Builtin.callable?(builtin),
+      do: callable_descriptor_keys(builtin, map),
+      else: builtin_namespace_descriptor_keys(builtin, map)
+  end
+
   def descriptor_keys({:bound, _, _, _, _} = bound), do: callable_descriptor_keys(bound)
   def descriptor_keys(_), do: []
+
+  defp builtin_namespace_descriptor_keys(builtin, inline_map) do
+    statics = Heap.get_ctor_statics(builtin)
+    static_keys = statics |> Map.keys() |> Enum.filter(&callable_descriptor_key?/1)
+    inline_keys = if is_map(inline_map), do: Map.keys(inline_map), else: []
+    module_keys = module_static_keys(Map.get(statics, :__module__))
+
+    (static_keys ++ inline_keys ++ module_keys)
+    |> Enum.uniq()
+    |> Enum.filter(&(callable_descriptor_key?(&1) and present?(builtin, &1)))
+  end
 
   defp callable_descriptor_keys(callable, inline_map \\ nil) do
     statics = Heap.get_ctor_statics(callable)

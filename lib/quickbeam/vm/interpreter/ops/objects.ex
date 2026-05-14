@@ -47,7 +47,11 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
 
         case result do
           :ok ->
-            ctx = sync_global_this_write(ctx, obj, name, val)
+            ctx =
+              if QuickBEAM.VM.Execution.SetterState.invoked?(),
+                do: ctx,
+                else: sync_global_this_write(ctx, obj, name, val)
+
             ctx = refresh_persistent_globals(ctx)
             frame = sync_setter_globals_to_frame(frame, ctx)
             run(pc + 1, frame, rest, gas, ctx)

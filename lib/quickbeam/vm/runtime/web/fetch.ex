@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
     only: [arg: 3, argv: 2, constructor: 3, object: 1, object: 2]
 
   alias QuickBEAM.VM.{Heap, PromiseState, Runtime}
-  alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor, Put}
   alias QuickBEAM.VM.Runtime.Web.Body
   alias QuickBEAM.VM.Runtime.Web.Fetch.JSON
   alias QuickBEAM.VM.Runtime.Web.Headers
@@ -165,41 +165,49 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
 
     request_ctor = get_request_ctor()
 
-    object do
-      prop("url", url_str)
-      prop("method", method)
-      prop("headers", headers)
-      prop("body", Body.data(body_ref))
-      prop("__body_ref__", body_ref)
-      prop("bodyUsed", false)
+    request =
+      object do
+        prop("url", url_str)
+        prop("method", method)
+        prop("headers", headers)
+        prop("body", Body.data(body_ref))
+        prop("__body_ref__", body_ref)
+        prop("bodyUsed", false)
 
-      method "text" do
-        Body.consume(body_ref, this, &Body.text_response/1)
+        method "text" do
+          Body.consume(body_ref, this, &Body.text_response/1)
+        end
+
+        method "json" do
+          Body.consume(body_ref, this, fn data ->
+            data
+            |> Body.text()
+            |> JSON.parse()
+            |> PromiseState.resolved()
+          end)
+        end
+
+        method "arrayBuffer" do
+          Body.consume(body_ref, this, &Body.array_buffer_response/1)
+        end
+
+        method "clone" do
+          clone_request(url_str, method, headers, body_ref, request_ctor)
+        end
       end
 
-      method "json" do
-        Body.consume(body_ref, this, fn data ->
-          data
-          |> Body.text()
-          |> JSON.parse()
-          |> PromiseState.resolved()
-        end)
-      end
-
-      method "arrayBuffer" do
-        Body.consume(body_ref, this, &Body.array_buffer_response/1)
-      end
-
-      method "clone" do
-        clone_request(url_str, method, headers, body_ref, request_ctor)
-      end
-    end
+    protect_body_ref(request)
+    request
   end
 
   defp clone_request(url, method, headers, body_ref, request_ctor) do
-    Heap.wrap(
-      build_request_map(url, method, clone_headers(headers), Body.clone(body_ref), request_ctor)
-    )
+    request =
+      Heap.wrap(
+        build_request_map(url, method, clone_headers(headers), Body.clone(body_ref), request_ctor)
+      )
+
+    protect_body_ref(request)
+    request
   end
 
   defp build_request_map(url, method, headers, body_ref, request_ctor) do
@@ -319,10 +327,31 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
 
   defp consume_request_body(req_obj) do
     case Get.get(req_obj, "__body_ref__") do
-      ref when is_reference(ref) -> Body.consume_payload!(ref)
+      ref when is_reference(ref) -> consume_request_body_ref(req_obj, ref)
       _ -> Get.get(req_obj, "body")
     end
   end
+
+  defp consume_request_body_ref(req_obj, ref) do
+    if Body.has_body?(ref) do
+      data = Body.consume_payload!(ref)
+      Put.put(req_obj, "bodyUsed", true)
+      data
+    else
+      Body.data(ref)
+    end
+  end
+
+  defp protect_body_ref({:obj, ref} = request) do
+    Heap.put_prop_desc(ref, "__body_ref__", %{
+      PropertyDescriptor.hidden_readonly()
+      | configurable: false
+    })
+
+    request
+  end
+
+  defp protect_body_ref(request), do: request
 
   defp coerce_string(:undefined, default), do: default
   defp coerce_string(nil, default), do: default

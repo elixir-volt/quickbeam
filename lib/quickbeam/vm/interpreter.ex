@@ -202,7 +202,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp sync_setter_globals_to_frame(frame, ctx) do
     if SetterState.consume_invoked?() do
-      sync_global_writes_to_frame(frame, ctx)
+      sync_global_writes_to_frame(frame, Heap.get_ctx() || ctx)
     else
       frame
     end

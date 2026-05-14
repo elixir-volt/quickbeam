@@ -21,6 +21,30 @@ defmodule QuickBEAM.VM.BeamCompatTest do
            "#{code}\n  expected: #{inspect(expected)}\n  got:      #{inspect(result)}"
   end
 
+  describe "constructor and namespace object metadata" do
+    test "DataView has an ordinary prototype", %{rt: rt} do
+      ok(
+        rt,
+        "DataView.prototype && Object.getPrototypeOf(DataView.prototype) === Object.prototype",
+        true
+      )
+    end
+
+    test "namespace builtins do not report callable-only own keys", %{rt: rt} do
+      ok(
+        rt,
+        "Object.getOwnPropertyNames(Math).includes('length') || Object.getOwnPropertyNames(Math).includes('name')",
+        false
+      )
+
+      ok(
+        rt,
+        "Reflect.ownKeys(Reflect).includes('length') || Reflect.ownKeys(Reflect).includes('name')",
+        false
+      )
+    end
+  end
+
   # ── Basic types (mirrors quickbeam_test.exs "basic types") ──
 
   describe "basic types" do
@@ -951,6 +975,22 @@ defmodule QuickBEAM.VM.BeamCompatTest do
         rt,
         "(function(){ var o = {}; Object.defineProperty(o, 'x', { get: function() { return 42 } }); return o.x })()",
         42
+      )
+    end
+
+    test "nested writes inside global setter do not consume outer setter sync", %{rt: rt} do
+      ok(
+        rt,
+        "var x = 0; var sink = {}; Object.defineProperty(globalThis, 'p', { set(v) { x = v; sink.q = 1; } }); globalThis.p = 7; x",
+        7
+      )
+    end
+
+    test "array accessor setters sync global writes", %{rt: rt} do
+      ok(
+        rt,
+        "var x = 0; var a = []; Object.defineProperty(a, '0', { set(v) { x = v; } }); a[0] = 9; x",
+        9
       )
     end
   end

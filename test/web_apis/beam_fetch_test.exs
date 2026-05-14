@@ -233,6 +233,38 @@ defmodule QuickBEAM.WebAPIs.BeamFetchTest do
         """)
     end
 
+    test "fetch marks Request bodyUsed when it consumes a non-empty body", %{rt: rt, base: base} do
+      {:ok, true} =
+        QuickBEAM.eval(rt, """
+          const req = new Request("#{base}/echo", { method: "POST", body: "from request" });
+          await fetch(req);
+          req.bodyUsed;
+        """)
+    end
+
+    test "fetch does not consume bodyless Request objects", %{rt: rt, base: base} do
+      {:ok, true} =
+        QuickBEAM.eval(rt, """
+          const req = new Request("#{base}/hello");
+          await fetch(req);
+          const clone = req.clone();
+          req.bodyUsed === false && clone.bodyUsed === false;
+        """)
+    end
+
+    test "Request body internals cannot be deleted to revive consumed payload", %{
+      rt: rt,
+      base: base
+    } do
+      {:ok, "Body has already been consumed"} =
+        QuickBEAM.eval(rt, """
+          const req = new Request("#{base}/echo", { method: "POST", body: "from request" });
+          await req.text();
+          delete req.__body_ref__;
+          try { await fetch(req); "no error" } catch (e) { e.message }
+        """)
+    end
+
     test "Request.clone uses independent headers", %{rt: rt} do
       {:ok, true} =
         QuickBEAM.eval(rt, """

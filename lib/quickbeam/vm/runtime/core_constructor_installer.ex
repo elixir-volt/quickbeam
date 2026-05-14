@@ -25,9 +25,15 @@ defmodule QuickBEAM.VM.Runtime.CoreConstructorInstaller do
         auto_proto: true
       )
 
+    data_view =
+      ConstructorRegistry.register("DataView", fn _, _ -> Runtime.new_object() end,
+        auto_proto: true
+      )
+
     install_plain_prototype(big_int)
     install_boolean_prototype(boolean)
     install_plain_prototype(symbol)
+    install_plain_prototype(data_view)
 
     %{
       "BigInt" => big_int,
@@ -38,7 +44,7 @@ defmodule QuickBEAM.VM.Runtime.CoreConstructorInstaller do
           prototype: PromiseBuiltins.prototype()
         ),
       "Symbol" => symbol,
-      "DataView" => ConstructorRegistry.register("DataView", fn _, _ -> Runtime.new_object() end)
+      "DataView" => data_view
     }
   end
 
