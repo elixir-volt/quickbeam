@@ -1638,7 +1638,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     sorted
     |> Enum.with_index()
     |> Enum.each(fn {{value, _original_index}, index} ->
-      Put.put(receiver, Integer.to_string(index), value)
+      Put.put_element(receiver, index, value)
     end)
 
     sorted_count = length(sorted)
