@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
-  alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor}
+  alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor, WrappedPrimitive}
   alias QuickBEAM.VM.Runtime
 
   @method_lengths %{"parse" => 2, "stringify" => 3, "rawJSON" => 1, "isRawJSON" => 1}
@@ -185,15 +185,46 @@ defmodule QuickBEAM.VM.Runtime.JSON do
     elixir_val = to_elixir(result)
 
     opts =
-      case space do
-        n when is_integer(n) and n > 0 -> [pretty: [indent: String.duplicate(" ", min(n, 10))]]
-        s when is_binary(s) and s != "" -> [pretty: [indent: String.slice(s, 0, 10)]]
-        _ -> []
+      case json_space_string(space) do
+        "" -> []
+        indent -> [pretty: [indent: indent]]
       end
 
     case encode_raw_json(elixir_val, opts) do
       {:ok, json} -> json
       _ -> :undefined
+    end
+  end
+
+  defp json_space_string(n) when is_integer(n) and n > 0, do: String.duplicate(" ", min(n, 10))
+  defp json_space_string(n) when is_float(n) and n > 0, do: n |> trunc() |> json_space_string()
+  defp json_space_string(s) when is_binary(s), do: String.slice(s, 0, 10)
+
+  defp json_space_string({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) -> json_space_wrapped(map)
+      _ -> ""
+    end
+  end
+
+  defp json_space_string(_), do: ""
+
+  defp json_space_wrapped(map) do
+    cond do
+      match?({:ok, _}, WrappedPrimitive.value(map, :number)) ->
+        case WrappedPrimitive.value(map, :number) do
+          {:ok, n} -> json_space_string(n)
+          _ -> ""
+        end
+
+      match?({:ok, _}, WrappedPrimitive.value(map, :string)) ->
+        case WrappedPrimitive.value(map, :string) do
+          {:ok, s} -> json_space_string(s)
+          _ -> ""
+        end
+
+      true ->
+        ""
     end
   end
 
