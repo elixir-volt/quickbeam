@@ -210,7 +210,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
     end
 
     method "f16round" do
-      case Runtime.to_float(hd(args)) do
+      case Runtime.to_number(hd(args)) do
         :infinity -> :infinity
         :neg_infinity -> :neg_infinity
         :nan -> :nan
@@ -425,9 +425,42 @@ defmodule QuickBEAM.VM.Runtime.Math do
   defp extremum_value(:min, value, acc) when value < acc, do: value
   defp extremum_value(:min, _value, acc), do: acc
 
+  defp f16round(value) when value == 0, do: value
+
   defp f16round(value) do
-    <<f32::float-32>> = <<value::float-32>>
-    f32 * 1.0
+    sign = if value < 0 or Values.neg_zero?(value), do: -1, else: 1
+    abs_value = abs(value)
+
+    cond do
+      abs_value >= 65_520 ->
+        if sign < 0, do: :neg_infinity, else: :infinity
+
+      abs_value < :math.pow(2, -14) ->
+        rounded = round_ties_even(abs_value / :math.pow(2, -24)) * :math.pow(2, -24)
+        signed_value(sign, rounded)
+
+      true ->
+        exponent = floor(:math.log2(abs_value))
+        fraction = round_ties_even((abs_value / :math.pow(2, exponent) - 1) * 1024)
+        {exponent, fraction} = if fraction == 1024, do: {exponent + 1, 0}, else: {exponent, fraction}
+        rounded = (1 + fraction / 1024) * :math.pow(2, exponent)
+        signed_value(sign, rounded)
+    end
+  end
+
+  defp signed_value(sign, value) when value == 0, do: if(sign < 0, do: -0.0, else: 0)
+  defp signed_value(sign, value), do: sign * value
+
+  defp round_ties_even(value) do
+    floor = Float.floor(value)
+    fraction = value - floor
+
+    cond do
+      fraction < 0.5 -> trunc(floor)
+      fraction > 0.5 -> trunc(floor) + 1
+      rem(trunc(floor), 2) == 0 -> trunc(floor)
+      true -> trunc(floor) + 1
+    end
   end
 
   defp inverse_unit(:nan, _fun), do: :nan
