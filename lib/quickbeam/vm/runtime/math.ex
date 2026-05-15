@@ -429,7 +429,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
   defp math_log(:infinity, _fun), do: :infinity
   defp math_log(:neg_infinity, _fun), do: :nan
   defp math_log(n, _fun) when n < 0, do: :nan
-  defp math_log(0, _fun), do: :neg_infinity
+  defp math_log(n, _fun) when n == 0, do: :neg_infinity
   defp math_log(n, fun), do: fun.(n)
 
   defp math_atan2(:nan, _), do: :nan
