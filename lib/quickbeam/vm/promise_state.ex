@@ -251,32 +251,109 @@ defmodule QuickBEAM.VM.PromiseState do
   defp then_impl(args, promise_ref) do
     on_fulfilled = arg(args, 0, nil)
     on_rejected = arg(args, 1, nil)
+    {child_promise, child_ref} = new_reaction_promise(promise_ref)
 
     case Heap.get_obj(promise_ref, %{}) do
       %{promise_state() => state, promise_value() => val} when state in [:resolved, :rejected] ->
         handler = if state == :resolved, do: on_fulfilled, else: on_rejected
 
         if callable?(handler) do
-          child_ref = pending_child()
           Heap.enqueue_microtask({:resolve, child_ref, handler, val})
-          {:obj, child_ref}
+          child_promise
         else
-          make_promise(state, val)
+          resolve(child_ref, state, val)
+          child_promise
         end
 
       %{promise_state() => :pending} ->
-        child_ref = pending_child()
         waiters = Heap.get_promise_waiters(promise_ref)
 
         Heap.put_promise_waiters(promise_ref, [
           {on_fulfilled, on_rejected, child_ref} | waiters
         ])
 
-        {:obj, child_ref}
+        child_promise
 
       _ ->
         resolved(:undefined)
     end
+  end
+
+  defp new_reaction_promise(promise_ref) do
+    case promise_species_constructor(promise_ref) do
+      :default ->
+        child_ref = pending_child()
+        {{:obj, child_ref}, child_ref}
+
+      constructor ->
+        promise = construct_capability_promise(constructor)
+
+        case promise do
+          {:obj, child_ref} ->
+            {promise, child_ref}
+
+          _ ->
+            throw(
+              {:js_throw,
+               Heap.make_error("Promise capability did not return an object", "TypeError")}
+            )
+        end
+    end
+  end
+
+  defp promise_species_constructor(promise_ref) do
+    constructor = Get.get({:obj, promise_ref}, "constructor")
+
+    cond do
+      constructor == :undefined ->
+        :default
+
+      constructor == nil or not constructor_like?(constructor) ->
+        throw({:js_throw, Heap.make_error("Promise constructor is not an object", "TypeError")})
+
+      true ->
+        species = Get.get(constructor, {:symbol, "Symbol.species"})
+
+        if species in [:undefined, nil] do
+          :default
+        else
+          species
+        end
+    end
+  end
+
+  defp constructor_like?({:obj, _}), do: true
+  defp constructor_like?(value), do: Builtin.callable?(value)
+
+  defp construct_capability_promise(constructor) do
+    executor =
+      capability_executor(fn args ->
+        resolve = arg(args, 0, :undefined)
+        reject = arg(args, 1, :undefined)
+
+        unless Builtin.callable?(resolve) and Builtin.callable?(reject) do
+          throw(
+            {:js_throw,
+             Heap.make_error(
+               "Promise capability executor arguments must be callable",
+               "TypeError"
+             )}
+          )
+        end
+
+        :undefined
+      end)
+
+    Invocation.construct_runtime(constructor, constructor, [executor])
+  end
+
+  defp capability_executor(callback) when is_function(callback, 1) do
+    fun = {:builtin, "__promiseCapabilityExecutor", fn args, _ -> callback.(args) end}
+    Heap.put_ctor_static(fun, "length", 2)
+    Heap.put_ctor_static(fun, "name", "")
+    Heap.put_ctor_prop_desc(fun, "length", PropertyDescriptor.hidden_readonly())
+    Heap.put_ctor_prop_desc(fun, "name", PropertyDescriptor.hidden_readonly())
+    fun
   end
 
   defp finalize(callback, state, value) do
