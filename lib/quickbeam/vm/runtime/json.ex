@@ -211,17 +211,11 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
   defp json_space_wrapped(map) do
     cond do
-      match?({:ok, _}, WrappedPrimitive.value(map, :number)) ->
-        case WrappedPrimitive.value(map, :number) do
-          {:ok, n} -> json_space_string(n)
-          _ -> ""
-        end
+      WrappedPrimitive.type(map) == :number ->
+        map |> Heap.wrap() |> Runtime.to_number() |> json_space_string()
 
-      match?({:ok, _}, WrappedPrimitive.value(map, :string)) ->
-        case WrappedPrimitive.value(map, :string) do
-          {:ok, s} -> json_space_string(s)
-          _ -> ""
-        end
+      WrappedPrimitive.type(map) == :string ->
+        map |> Heap.wrap() |> Runtime.stringify() |> json_space_string()
 
       true ->
         ""
