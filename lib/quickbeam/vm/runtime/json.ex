@@ -496,7 +496,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
             entries =
               map
               |> Map.drop([key_order()])
-              |> Enum.reject(fn {k, v} -> v == :undefined or internal?(k) end)
+              |> Enum.reject(fn {k, v} -> v == :undefined or internal?(k) or symbol_key?(k) end)
 
             entries = order_json_entries(entries, order)
 
@@ -520,6 +520,8 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   defp to_json(:undefined), do: :null
 
   defp to_json({:bigint, _}), do: JSThrow.type_error!("Do not know how to serialize a BigInt")
+  defp to_json({:symbol, _}), do: :undefined
+  defp to_json({:symbol, _, _}), do: :undefined
   defp to_json({:regexp, _, _, _}), do: {:ordered_map, []}
 
   defp to_json({:closure, _, _}), do: :undefined
@@ -594,6 +596,10 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   defp json_array_like?({:qb_arr, _}), do: true
   defp json_array_like?(list) when is_list(list), do: true
   defp json_array_like?(_), do: false
+
+  defp symbol_key?({:symbol, _}), do: true
+  defp symbol_key?({:symbol, _, _}), do: true
+  defp symbol_key?(_), do: false
 
   defp apply_to_json_hook(value, key) when is_binary(key) do
     case value do
