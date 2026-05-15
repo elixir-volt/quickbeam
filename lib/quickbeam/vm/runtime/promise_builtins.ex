@@ -94,11 +94,13 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
   end
 
   static "all" do
-    wrap_static_result(this, promise_all(arg(args, 0, :undefined)))
+    iterable = observe_constructor_resolve(this, arg(args, 0, :undefined))
+    wrap_static_result(this, promise_all(iterable))
   end
 
   static "allSettled" do
-    wrap_static_result(this, promise_all_settled(arg(args, 0, :undefined)))
+    iterable = observe_constructor_resolve(this, arg(args, 0, :undefined))
+    wrap_static_result(this, promise_all_settled(iterable))
   end
 
   static "allKeyed" do
@@ -110,11 +112,13 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
   end
 
   static "any" do
-    wrap_static_result(this, promise_any(arg(args, 0, :undefined)))
+    iterable = observe_constructor_resolve(this, arg(args, 0, :undefined))
+    wrap_static_result(this, promise_any(iterable))
   end
 
   static "race" do
-    wrap_static_result(this, promise_race(arg(args, 0, :undefined)))
+    iterable = observe_constructor_resolve(this, arg(args, 0, :undefined))
+    wrap_static_result(this, promise_race(iterable))
   end
 
   static "try", length: 1 do
@@ -151,6 +155,21 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
     end
 
     promise
+  end
+
+  defp observe_constructor_resolve(constructor, iterable) do
+    values = Heap.to_list(iterable)
+    resolve = QuickBEAM.VM.ObjectModel.Get.get(constructor, "resolve")
+
+    unless QuickBEAM.VM.Builtin.callable?(resolve) do
+      JSThrow.type_error!("Promise resolve is not callable")
+    end
+
+    Enum.each(values, fn value ->
+      Invocation.invoke_with_receiver(resolve, [value], constructor)
+    end)
+
+    values
   end
 
   defp promise_resolve({:builtin, "Promise", _}, value), do: PromiseState.adopt(value)
