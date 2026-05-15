@@ -141,7 +141,9 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
         "TypeError" => Map.fetch!(error_bindings, "TypeError"),
         "RangeError" => Map.fetch!(error_bindings, "RangeError"),
         "SyntaxError" => Map.fetch!(error_bindings, "SyntaxError"),
-        "ReferenceError" => Map.fetch!(error_bindings, "ReferenceError")
+        "ReferenceError" => Map.fetch!(error_bindings, "ReferenceError"),
+        "EvalError" => Map.fetch!(error_bindings, "EvalError"),
+        "URIError" => Map.fetch!(error_bindings, "URIError")
       })
 
     Process.put({:qb_realm_global, realm_id}, global)
