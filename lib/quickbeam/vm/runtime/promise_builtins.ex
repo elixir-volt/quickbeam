@@ -724,8 +724,8 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
     case resolver.(values) do
       {:obj, ref} = promise ->
         case Heap.get_obj(ref, %{}) do
-          %{promise_state() => :resolved, promise_value() => {:obj, values_ref}} ->
-            values = Heap.get_obj(values_ref, [])
+          %{promise_state() => :resolved, promise_value() => {:obj, _} = values_obj} ->
+            values = Heap.to_list(values_obj)
 
             result =
               entries
