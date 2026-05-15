@@ -300,7 +300,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
               once_function(fn settled ->
                 fulfill_all_element(state_ref, resolve, reject, index, settled)
               end),
-              once_function(fn reason -> Invocation.invoke(reject, [reason]) end)
+              reject
             ],
             next_promise
           )
@@ -500,7 +500,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
           Invocation.invoke_with_receiver(
             then,
             [
-              once_function(fn settled -> Invocation.invoke(resolve, [settled]) end),
+              resolve,
               once_function(fn reason ->
                 reject_any_element_direct(state_ref, reject, index, reason)
               end)
@@ -588,10 +588,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
 
           Invocation.invoke_with_receiver(
             then,
-            [
-              once_function(fn settled -> Invocation.invoke(resolve, [settled]) end),
-              once_function(fn reason -> Invocation.invoke(reject, [reason]) end)
-            ],
+            [resolve, reject],
             next_promise
           )
 
