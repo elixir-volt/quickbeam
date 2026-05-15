@@ -165,11 +165,9 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
       JSThrow.type_error!("Promise resolve is not callable")
     end
 
-    Enum.each(values, fn value ->
+    Enum.map(values, fn value ->
       Invocation.invoke_with_receiver(resolve, [value], constructor)
     end)
-
-    values
   end
 
   defp promise_resolve({:builtin, "Promise", _}, value), do: PromiseState.adopt(value)
