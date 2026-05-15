@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
   import QuickBEAM.VM.Heap.Keys
 
   alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor}
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.Collections
 
@@ -558,7 +558,27 @@ defmodule QuickBEAM.VM.Runtime.Map do
          next_map_iterator_value(ref, state_ref, mode)
        end}
 
+    proto =
+      Heap.wrap(%{
+        "__proto__" => Heap.get_object_prototype(),
+        "next" => next_fn,
+        {:symbol, "Symbol.iterator"} => {:builtin, "[Symbol.iterator]", fn _, this -> this end},
+        {:symbol, "Symbol.toStringTag"} => "Map Iterator"
+      })
+
+    with {:obj, proto_ref} <- proto do
+      Heap.put_prop_desc(proto_ref, "next", PropertyDescriptor.method())
+      Heap.put_prop_desc(proto_ref, {:symbol, "Symbol.iterator"}, PropertyDescriptor.method())
+
+      Heap.put_prop_desc(
+        proto_ref,
+        {:symbol, "Symbol.toStringTag"},
+        PropertyDescriptor.hidden_readonly()
+      )
+    end
+
     Heap.wrap(%{
+      "__proto__" => proto,
       "next" => next_fn,
       {:symbol, "Symbol.iterator"} => {:builtin, "[Symbol.iterator]", fn _, this -> this end}
     })
