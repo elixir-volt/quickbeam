@@ -189,7 +189,8 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
       {false, value, next_iter} ->
         try do
           next_promise = Invocation.invoke_with_receiver(resolve, [value], constructor)
-          observed = observe_input_then(next_promise)
+          adopted = PromiseState.adopt(next_promise)
+          observed = observe_input_then(adopted)
           collect_combinator_inputs(next_iter, next_fn, resolve, constructor, [observed | acc])
         catch
           {:js_throw, reason} ->
