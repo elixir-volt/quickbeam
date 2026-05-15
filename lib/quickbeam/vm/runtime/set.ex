@@ -8,7 +8,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.JSThrow
-  alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor}
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.Collections
 
@@ -549,7 +549,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
     ref
     |> Heap.get_obj(%{})
     |> Map.get(set_data(), [])
-    |> Heap.wrap_iterator()
+    |> make_set_iterator("Set Iterator")
   end
 
   defp entries(_, this) do
@@ -559,7 +559,50 @@ defmodule QuickBEAM.VM.Runtime.Set do
     |> Heap.get_obj(%{})
     |> Map.get(set_data(), [])
     |> Enum.map(fn value -> Heap.wrap([value, value]) end)
-    |> Heap.wrap_iterator()
+    |> make_set_iterator("Set Iterator")
+  end
+
+  defp make_set_iterator(items, tag) do
+    pos_ref = make_ref()
+    Process.put(pos_ref, {items, 0})
+
+    next_fn =
+      {:builtin, "next",
+       fn _, _ ->
+         case Process.get(pos_ref) do
+           {items, idx} when idx < length(items) ->
+             Process.put(pos_ref, {items, idx + 1})
+             Heap.wrap(%{"value" => Enum.at(items, idx), "done" => false})
+
+           _ ->
+             Heap.wrap(%{"value" => :undefined, "done" => true})
+         end
+       end}
+
+    proto =
+      Heap.wrap(%{
+        "__proto__" => Heap.get_object_prototype(),
+        "next" => next_fn,
+        {:symbol, "Symbol.iterator"} => {:builtin, "[Symbol.iterator]", fn _, this -> this end},
+        {:symbol, "Symbol.toStringTag"} => tag
+      })
+
+    with {:obj, proto_ref} <- proto do
+      Heap.put_prop_desc(proto_ref, "next", PropertyDescriptor.method())
+      Heap.put_prop_desc(proto_ref, {:symbol, "Symbol.iterator"}, PropertyDescriptor.method())
+
+      Heap.put_prop_desc(
+        proto_ref,
+        {:symbol, "Symbol.toStringTag"},
+        PropertyDescriptor.hidden_readonly()
+      )
+    end
+
+    Heap.wrap(%{
+      "__proto__" => proto,
+      "next" => next_fn,
+      {:symbol, "Symbol.iterator"} => {:builtin, "[Symbol.iterator]", fn _, this -> this end}
+    })
   end
 
   defp for_each([callback | rest], this) do
