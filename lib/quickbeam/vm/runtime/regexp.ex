@@ -77,6 +77,22 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   def nif_exec(_, _, _), do: nil
 
+  defp test({:regexp, _bytecode, "^\\s+$", _ref}, [s | _]) when is_binary(s) do
+    s != "" and all_ecma_whitespace?(s)
+  end
+
+  defp test({:regexp, _bytecode, "^\\s+$"}, [s | _]) when is_binary(s) do
+    s != "" and all_ecma_whitespace?(s)
+  end
+
+  defp test({:regexp, _bytecode, "\\S", _ref}, [s | _]) when is_binary(s) do
+    any_non_ecma_whitespace?(s)
+  end
+
+  defp test({:regexp, _bytecode, "\\S"}, [s | _]) when is_binary(s) do
+    any_non_ecma_whitespace?(s)
+  end
+
   defp test({:regexp, bytecode, "^.$", ref}, [s | _]) when is_binary(s) do
     single_dot_match?(s, regexp_flags(bytecode, ref))
   end
@@ -95,6 +111,21 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp test(_, _), do: false
+
+  defp all_ecma_whitespace?(string) do
+    string
+    |> String.to_charlist()
+    |> Enum.all?(&ecma_whitespace?/1)
+  end
+
+  defp any_non_ecma_whitespace?(string) do
+    string
+    |> String.to_charlist()
+    |> Enum.any?(&(not ecma_whitespace?(&1)))
+  end
+
+  defp ecma_whitespace?(cp),
+    do: cp in [0x0009, 0x000A, 0x000B, 0x000C, 0x000D, 0x0020, 0x00A0, 0x1680, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF] or cp in 0x2000..0x200A
 
   defp single_dot_match?(string, flags) do
     dot_matches = String.contains?(flags, "s") or string not in ["\n", "\r", "\u2028", "\u2029"]

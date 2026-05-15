@@ -12,6 +12,7 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   @trim_leading_pattern ~r/^[\t\n\x{000B}\f\r \x{00A0}\x{1680}\x{2000}\x{2001}\x{2002}\x{2003}\x{2004}\x{2005}\x{2006}\x{2007}\x{2008}\x{2009}\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]+/u
   @trim_trailing_pattern ~r/[\t\n\x{000B}\f\r \x{00A0}\x{1680}\x{2000}\x{2001}\x{2002}\x{2003}\x{2004}\x{2005}\x{2006}\x{2007}\x{2008}\x{2009}\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]+$/u
+  @non_ecma_whitespace_run ~r/[^\t\n\x{000B}\f\r \x{00A0}\x{1680}\x{2000}\x{2001}\x{2002}\x{2003}\x{2004}\x{2005}\x{2006}\x{2007}\x{2008}\x{2009}\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]+/u
 
   # ── Dispatch ──
 
@@ -1465,6 +1466,14 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   defp special_regex_replace(s, "\\p{Script=Han}", _flags, replacement, global?),
     do: replace_unicode_matches(s, [{"𠮷", 0, 0}], "𠮷", replacement, global?)
+
+  defp special_regex_replace(s, "\\S+", _flags, replacement, true) do
+    {:ok, Regex.replace(@non_ecma_whitespace_run, s, Runtime.stringify(replacement))}
+  end
+
+  defp special_regex_replace(s, "\\S+", _flags, replacement, false) do
+    {:ok, Regex.replace(@non_ecma_whitespace_run, s, Runtime.stringify(replacement), global: false)}
+  end
 
   defp special_regex_replace(s, ".", flags, replacement, true) do
     if String.contains?(flags, "u") or String.contains?(flags, "v") do
