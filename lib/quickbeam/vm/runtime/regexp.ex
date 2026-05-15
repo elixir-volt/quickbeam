@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.Interpreter.Values
-  alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor}
   alias QuickBEAM.VM.Runtime.String, as: JSString
 
   static "escape", length: 1, constructable: false do
@@ -127,17 +127,33 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp ecma_whitespace?(cp),
-    do: cp in [0x0009, 0x000A, 0x000B, 0x000C, 0x000D, 0x0020, 0x00A0, 0x1680, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF] or cp in 0x2000..0x200A
+    do:
+      cp in [
+        0x0009,
+        0x000A,
+        0x000B,
+        0x000C,
+        0x000D,
+        0x0020,
+        0x00A0,
+        0x1680,
+        0x2028,
+        0x2029,
+        0x202F,
+        0x205F,
+        0x3000,
+        0xFEFF
+      ] or cp in 0x2000..0x200A
 
   defp single_dot_match?(string, flags) do
     dot_matches = String.contains?(flags, "s") or string not in ["\n", "\r", "\u2028", "\u2029"]
+
     single =
       if String.contains?(flags, "u") or String.contains?(flags, "v") do
         String.length(string) == 1 or lone_surrogate_wtf8?(string)
       else
         Get.string_length(string) == 1 or lone_surrogate_wtf8?(string)
       end
-
 
     dot_matches and single
   end
@@ -215,7 +231,10 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     indices = Heap.wrap(index_entries)
 
     {:obj, indices_ref} = indices
-    materialize_regexp_result_props(indices_ref, %{"groups" => regexp_index_groups(names, captures)})
+
+    materialize_regexp_result_props(indices_ref, %{
+      "groups" => regexp_index_groups(names, captures)
+    })
 
     Map.put(props, "indices", indices)
   end
@@ -230,7 +249,11 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
     names
     |> Enum.zip(values)
-    |> Enum.reduce(%{:__internal_proto__ => nil, key_order() => Enum.reverse(names)}, fn {name, value}, acc -> Map.put(acc, name, value) end)
+    |> Enum.reduce(%{:__internal_proto__ => nil, key_order() => Enum.reverse(names)}, fn {name,
+                                                                                          value},
+                                                                                         acc ->
+      Map.put(acc, name, value)
+    end)
     |> Heap.wrap()
   end
 
@@ -241,7 +264,11 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
     names
     |> Enum.zip(values)
-    |> Enum.reduce(%{:__internal_proto__ => nil, key_order() => Enum.reverse(names)}, fn {name, value}, acc -> Map.put(acc, name, value) end)
+    |> Enum.reduce(%{:__internal_proto__ => nil, key_order() => Enum.reverse(names)}, fn {name,
+                                                                                          value},
+                                                                                         acc ->
+      Map.put(acc, name, value)
+    end)
     |> Heap.wrap()
   end
 
@@ -431,10 +458,45 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   defp regexp_match_all(regexp, [string | _]) do
     string = QuickBEAM.VM.Interpreter.Values.stringify(string)
-    Heap.wrap_iterator(regexp_match_all_results(regexp, string, 0, []))
+    regexp_string_iterator(regexp_match_all_results(regexp, string, 0, []))
   end
 
   defp regexp_match_all(regexp, []), do: regexp_match_all(regexp, [""])
+
+  defp regexp_string_iterator(items) do
+    iter = Heap.wrap_iterator(items)
+
+    next_fn =
+      case iter do
+        {:obj, ref} -> Heap.get_obj(ref, %{}) |> Map.get("next")
+        _ -> :undefined
+      end
+
+    proto =
+      Heap.wrap(%{
+        "__proto__" => Heap.get_object_prototype(),
+        "next" => next_fn,
+        {:symbol, "Symbol.iterator"} => {:builtin, "[Symbol.iterator]", fn _, this -> this end},
+        {:symbol, "Symbol.toStringTag"} => "RegExp String Iterator"
+      })
+
+    with {:obj, proto_ref} <- proto do
+      Heap.put_prop_desc(proto_ref, "next", PropertyDescriptor.method())
+      Heap.put_prop_desc(proto_ref, {:symbol, "Symbol.iterator"}, PropertyDescriptor.method())
+
+      Heap.put_prop_desc(
+        proto_ref,
+        {:symbol, "Symbol.toStringTag"},
+        PropertyDescriptor.hidden_readonly()
+      )
+    end
+
+    with {:obj, ref} <- iter do
+      Heap.put_obj_key(ref, "__proto__", proto)
+    end
+
+    iter
+  end
 
   defp regexp_match_all_results({:regexp, nil, source}, string, offset, acc)
        when is_binary(source) do
@@ -664,7 +726,29 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   defp escape_codepoint(cp, _first) when cp in 0xD800..0xDFFF, do: unicode_escape(cp)
   defp escape_codepoint(cp, _first) when cp in [0x00A0], do: "\\x" <> hex2(cp)
-  defp escape_codepoint(cp, _first) when cp in [0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF], do: unicode_escape(cp)
+
+  defp escape_codepoint(cp, _first)
+       when cp in [
+              0x1680,
+              0x2000,
+              0x2001,
+              0x2002,
+              0x2003,
+              0x2004,
+              0x2005,
+              0x2006,
+              0x2007,
+              0x2008,
+              0x2009,
+              0x200A,
+              0x2028,
+              0x2029,
+              0x202F,
+              0x205F,
+              0x3000,
+              0xFEFF
+            ], do: unicode_escape(cp)
+
   defp escape_codepoint(cp, _first) when cp < 0x20, do: unicode_escape(cp)
   defp escape_codepoint(cp, _first), do: <<cp::utf8>>
 
