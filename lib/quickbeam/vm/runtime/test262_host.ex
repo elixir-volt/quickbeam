@@ -101,7 +101,14 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
 
     proxy_ctor = realm_proxy_constructor()
     error_bindings = Errors.bindings()
-    aggregate_error_proto = Heap.get_class_proto(Map.fetch!(error_bindings, "AggregateError"))
+
+    error_protos =
+      for name <-
+            ~w(EvalError RangeError ReferenceError SyntaxError TypeError URIError AggregateError),
+          into: %{},
+          do: {name, Heap.get_class_proto(Map.fetch!(error_bindings, name))}
+
+    aggregate_error_proto = Map.fetch!(error_protos, "AggregateError")
 
     function_ctor =
       realm_function_constructor(
@@ -119,7 +126,8 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
         weak_set_proto,
         weak_ref_proto,
         finalization_registry_proto,
-        aggregate_error_proto
+        aggregate_error_proto,
+        error_protos
       )
 
     global =
@@ -167,22 +175,56 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
 
   def realm_intrinsic(constructor, intrinsic) do
     case Process.get({:qb_realm_intrinsics, constructor}) do
-      %{array_proto: array_proto} when intrinsic == :array -> array_proto
-      %{boolean_proto: boolean_proto} when intrinsic == :boolean -> boolean_proto
-      %{number_proto: number_proto} when intrinsic == :number -> number_proto
-      %{bigint_proto: bigint_proto} when intrinsic == :bigint -> bigint_proto
-      %{string_proto: string_proto} when intrinsic == :string -> string_proto
-      %{date_proto: date_proto} when intrinsic == :date -> date_proto
-      %{map_proto: map_proto} when intrinsic == :map -> map_proto
-      %{set_proto: set_proto} when intrinsic == :set -> set_proto
-      %{weak_map_proto: weak_map_proto} when intrinsic == :weak_map -> weak_map_proto
-      %{weak_set_proto: weak_set_proto} when intrinsic == :weak_set -> weak_set_proto
-      %{weak_ref_proto: weak_ref_proto} when intrinsic == :weak_ref -> weak_ref_proto
-      %{finalization_registry_proto: proto} when intrinsic == :finalization_registry -> proto
-      %{aggregate_error_proto: proto} when intrinsic == :aggregate_error -> proto
-      %{object_proto: object_proto} when intrinsic == :object -> object_proto
-      %{function_proto: function_proto} when intrinsic == :function -> function_proto
-      _ -> nil
+      %{array_proto: array_proto} when intrinsic == :array ->
+        array_proto
+
+      %{boolean_proto: boolean_proto} when intrinsic == :boolean ->
+        boolean_proto
+
+      %{number_proto: number_proto} when intrinsic == :number ->
+        number_proto
+
+      %{bigint_proto: bigint_proto} when intrinsic == :bigint ->
+        bigint_proto
+
+      %{string_proto: string_proto} when intrinsic == :string ->
+        string_proto
+
+      %{date_proto: date_proto} when intrinsic == :date ->
+        date_proto
+
+      %{map_proto: map_proto} when intrinsic == :map ->
+        map_proto
+
+      %{set_proto: set_proto} when intrinsic == :set ->
+        set_proto
+
+      %{weak_map_proto: weak_map_proto} when intrinsic == :weak_map ->
+        weak_map_proto
+
+      %{weak_set_proto: weak_set_proto} when intrinsic == :weak_set ->
+        weak_set_proto
+
+      %{weak_ref_proto: weak_ref_proto} when intrinsic == :weak_ref ->
+        weak_ref_proto
+
+      %{finalization_registry_proto: proto} when intrinsic == :finalization_registry ->
+        proto
+
+      %{aggregate_error_proto: proto} when intrinsic == :aggregate_error ->
+        proto
+
+      %{error_protos: error_protos} when is_tuple(intrinsic) ->
+        Map.get(error_protos, elem(intrinsic, 1))
+
+      %{object_proto: object_proto} when intrinsic == :object ->
+        object_proto
+
+      %{function_proto: function_proto} when intrinsic == :function ->
+        function_proto
+
+      _ ->
+        nil
     end
   end
 
@@ -209,7 +251,8 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
          _boolean_proto,
          _number_proto,
          _bigint_proto
-       ), do: value
+       ),
+       do: value
 
   defp realm_object_value(value, _object_proto, boolean_proto, _number_proto, _bigint_proto)
        when is_boolean(value),
@@ -225,7 +268,8 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
          _boolean_proto,
          _number_proto,
          bigint_proto
-       ), do: Heap.wrap(%{WrappedPrimitive.slot(:bigint) => value, "__proto__" => bigint_proto})
+       ),
+       do: Heap.wrap(%{WrappedPrimitive.slot(:bigint) => value, "__proto__" => bigint_proto})
 
   defp realm_object_value(value, object_proto, _boolean_proto, _number_proto, _bigint_proto)
        when is_binary(value),
@@ -296,7 +340,8 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
          weak_set_proto,
          weak_ref_proto,
          finalization_registry_proto,
-         aggregate_error_proto
+         aggregate_error_proto,
+         error_protos
        ) do
     cb = fn args, this ->
       body = realm_function_body(args)
@@ -337,7 +382,8 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
           weak_set_proto,
           weak_ref_proto,
           finalization_registry_proto,
-          aggregate_error_proto
+          aggregate_error_proto,
+          error_protos
         )
       )
 
@@ -364,7 +410,8 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
         weak_set_proto,
         weak_ref_proto,
         finalization_registry_proto,
-        aggregate_error_proto
+        aggregate_error_proto,
+        error_protos
       )
     )
 
@@ -411,7 +458,8 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
          weak_set_proto,
          weak_ref_proto,
          finalization_registry_proto,
-         aggregate_error_proto
+         aggregate_error_proto,
+         error_protos
        ) do
     %{
       realm_id: realm_id,
@@ -428,7 +476,8 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
       weak_set_proto: weak_set_proto,
       weak_ref_proto: weak_ref_proto,
       finalization_registry_proto: finalization_registry_proto,
-      aggregate_error_proto: aggregate_error_proto
+      aggregate_error_proto: aggregate_error_proto,
+      error_protos: error_protos
     }
   end
 end

@@ -763,6 +763,12 @@ defmodule QuickBEAM.VM.Invocation do
       QuickBEAM.VM.Runtime.Test262Host.realm_intrinsic(new_target, :finalization_registry) ||
         Runtime.global_class_proto("FinalizationRegistry")
 
+  defp realm_default_prototype({:builtin, name, _}, new_target)
+       when name in ~w(EvalError RangeError ReferenceError SyntaxError TypeError URIError) do
+    QuickBEAM.VM.Runtime.Test262Host.realm_intrinsic(new_target, {:native_error, name}) ||
+      Runtime.global_class_proto(name)
+  end
+
   defp realm_default_prototype({:builtin, "AggregateError", _}, new_target),
     do:
       QuickBEAM.VM.Runtime.Test262Host.realm_intrinsic(new_target, :aggregate_error) ||
