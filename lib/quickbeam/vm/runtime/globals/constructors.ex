@@ -9,7 +9,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.JSThrow
-  alias QuickBEAM.VM.ObjectModel.WrappedPrimitive
+  alias QuickBEAM.VM.ObjectModel.{Get, WrappedPrimitive}
   alias QuickBEAM.VM.Runtime
 
   @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
@@ -249,6 +249,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
         case pattern do
           {:regexp, _bytecode, value} -> value
           {:regexp, _bytecode, value, _ref} -> value
+          {:obj, _} = obj -> regexp_object_source(obj)
           value when is_binary(value) -> value
           :undefined -> ""
           _ -> QuickBEAM.VM.Runtime.stringify(pattern)
@@ -288,7 +289,18 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
   defp regexp_value?({:regexp, _, _}), do: true
   defp regexp_value?({:regexp, _, _, _}), do: true
+
+  defp regexp_value?({:obj, _} = obj) do
+    regexp_like?(obj) and Get.get(obj, "constructor") == QuickBEAM.VM.Runtime.Constructors.lookup("RegExp")
+  end
+
   defp regexp_value?(_), do: false
+
+  defp regexp_like?({:obj, _} = obj) do
+    Runtime.truthy?(Get.get(obj, {:symbol, "Symbol.match"}))
+  end
+
+  defp regexp_like?(_), do: false
 
   defp regexp_flags_omitted?([]), do: true
   defp regexp_flags_omitted?([:undefined | _]), do: true
@@ -303,6 +315,10 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
   defp regexp_constructing?(_), do: false
 
+  defp regexp_object_source(obj) do
+    if regexp_like?(obj), do: Runtime.stringify(Get.get(obj, "source")), else: Runtime.stringify(obj)
+  end
+
   defp regexp_source_flags({:regexp, bytecode, _source}) do
     QuickBEAM.VM.ObjectModel.Get.regexp_flags(bytecode)
   end
@@ -312,6 +328,10 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
       {:ok, flags} -> flags
       :error -> QuickBEAM.VM.ObjectModel.Get.regexp_flags(bytecode)
     end
+  end
+
+  defp regexp_source_flags({:obj, _} = obj) do
+    if regexp_like?(obj), do: Runtime.stringify(Get.get(obj, "flags")), else: ""
   end
 
   defp regexp_source_flags(_), do: ""
