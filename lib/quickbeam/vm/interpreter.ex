@@ -357,6 +357,10 @@ defmodule QuickBEAM.VM.Interpreter do
   defp current_strict_mode?(%{current_func: %QuickBEAM.VM.Function{is_strict_mode: s}}), do: s
   defp current_strict_mode?(_), do: false
 
+  defp strict_function?({:closure, _, %QuickBEAM.VM.Function{is_strict_mode: strict}}), do: strict
+  defp strict_function?(%QuickBEAM.VM.Function{is_strict_mode: strict}), do: strict
+  defp strict_function?(_), do: false
+
   defp maybe_refresh_error_stack({:obj, ref} = error) do
     case Heap.get_obj(ref, %{}) do
       %{"name" => _, "message" => _} -> Stacktrace.attach_stack(error)
@@ -517,7 +521,10 @@ defmodule QuickBEAM.VM.Interpreter do
         eval_ctx_globals =
           base_globals
           |> Map.merge(scoped_globals)
-          |> Map.put("arguments", Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf)))
+          |> Map.put(
+            "arguments",
+            Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf), strict: current_strict_mode?(ctx))
+          )
 
         visible_declared_names =
           base_globals
@@ -1501,7 +1508,7 @@ defmodule QuickBEAM.VM.Interpreter do
                 Map.put(
                   ctx.globals,
                   "arguments",
-                  Heap.wrap_arguments(args)
+                  Heap.wrap_arguments(args, strict: strict_function?(self_ref))
                 ),
               catch_stack: [],
               atoms: fn_atoms

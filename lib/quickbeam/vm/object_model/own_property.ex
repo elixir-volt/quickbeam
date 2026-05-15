@@ -453,7 +453,8 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
       val ->
         PropertyDescriptor.data_object(
           val,
-          Heap.get_prop_desc(builtin, prop_key) || builtin_descriptor_attrs(module, prop_key, val)
+          Heap.get_prop_desc(builtin, prop_key) || Heap.get_ctor_prop_desc(builtin, prop_key) ||
+            builtin_descriptor_attrs(module, prop_key, val)
         )
     end
   end

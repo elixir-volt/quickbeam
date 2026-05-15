@@ -586,7 +586,13 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
      end}
   end
 
-  defp get_own({:builtin, name, _}, "name"), do: name
+  defp get_own({:builtin, name, _} = builtin, "name") do
+    case Heap.get_ctor_statics(builtin) do
+      %{"name" => :deleted} -> :undefined
+      %{"name" => value} -> value
+      _ -> name
+    end
+  end
 
   defp get_own({:builtin, _name, props}, key) when is_map(props) do
     Map.get(props, key, :undefined)
@@ -1086,6 +1092,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp get_from_prototype({:symbol, _, _}, key), do: primitive_class_proto(key, "Symbol")
   defp get_from_prototype({:symbol, _}, key), do: primitive_class_proto(key, "Symbol")
+
   defp get_from_prototype({:bigint, _} = receiver, key),
     do: primitive_or_class_proto(:undefined, key, "BigInt", receiver)
 

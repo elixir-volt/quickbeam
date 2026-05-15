@@ -171,7 +171,11 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   @doc "Reads a variable binding or throws a JavaScript ReferenceError when absent."
   def get_var(ctx, "arguments"),
     do:
-      Map.get(context_globals(ctx), "arguments", Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf)))
+      Map.get(
+        context_globals(ctx),
+        "arguments",
+        Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf), strict: current_strict_mode?(ctx))
+      )
 
   def get_var(ctx, name) when is_binary(name), do: fetch_ctx_var(ctx, name)
 
@@ -360,7 +364,11 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def get_var_undef(ctx, "arguments"),
     do:
-      Map.get(context_globals(ctx), "arguments", Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf)))
+      Map.get(
+        context_globals(ctx),
+        "arguments",
+        Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf), strict: current_strict_mode?(ctx))
+      )
 
   def get_var_undef(ctx, name) when is_binary(name),
     do: get_global_undef(context_globals(ctx), name)
@@ -803,7 +811,12 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
         globals =
           ctx.globals
-          |> Map.put("arguments", Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf)))
+          |> Map.put(
+            "arguments",
+            Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf),
+              strict: current_strict_mode?(ctx)
+            )
+          )
 
         case QuickBEAM.VM.Interpreter.eval(
                program.value,
@@ -883,6 +896,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
        do: strict
 
   defp current_strict_mode?(_ctx), do: false
+
+  defp strict_function?({:closure, _, %QuickBEAM.VM.Function{is_strict_mode: strict}}), do: strict
+  defp strict_function?(%QuickBEAM.VM.Function{is_strict_mode: strict}), do: strict
+  defp strict_function?(_), do: false
 
   defp parse_error_message([%{message: message} | _]), do: message
   defp parse_error_message(_errors), do: "Syntax error"
@@ -1036,8 +1053,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     arg_buf = context_arg_buf(ctx)
 
     case type do
-      0 -> Heap.wrap_arguments(Tuple.to_list(arg_buf))
-      1 -> Heap.wrap_arguments(Tuple.to_list(arg_buf))
+      0 -> Heap.wrap_arguments(Tuple.to_list(arg_buf), strict: strict_function?(current_func))
+      1 -> Heap.wrap_arguments(Tuple.to_list(arg_buf), strict: strict_function?(current_func))
       2 -> current_func
       3 -> context_new_target(ctx)
       4 -> context_home_object(ctx, current_func)
@@ -1052,8 +1069,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     case InvokeContext.fast_ctx() do
       {_atoms, _globals, current_func, arg_buf, _this, new_target, home_object, _super} ->
         case type do
-          0 -> Heap.wrap_arguments(Tuple.to_list(arg_buf))
-          1 -> Heap.wrap_arguments(Tuple.to_list(arg_buf))
+          0 -> Heap.wrap_arguments(Tuple.to_list(arg_buf), strict: strict_function?(current_func))
+          1 -> Heap.wrap_arguments(Tuple.to_list(arg_buf), strict: strict_function?(current_func))
           2 -> current_func
           3 -> new_target
           4 -> home_object
@@ -1068,8 +1085,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
         arg_buf = InvokeContext.current_arg_buf()
 
         case type do
-          0 -> Heap.wrap_arguments(Tuple.to_list(arg_buf))
-          1 -> Heap.wrap_arguments(Tuple.to_list(arg_buf))
+          0 -> Heap.wrap_arguments(Tuple.to_list(arg_buf), strict: strict_function?(current_func))
+          1 -> Heap.wrap_arguments(Tuple.to_list(arg_buf), strict: strict_function?(current_func))
           2 -> current_func
           3 -> InvokeContext.current_new_target()
           4 -> InvokeContext.current_home_object(current_func)

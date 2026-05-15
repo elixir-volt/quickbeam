@@ -224,7 +224,12 @@ defmodule QuickBEAM.VM.Compiler.Runner do
       | atoms: atoms || current_atoms(base_ctx),
         current_func: current_func,
         arg_buf: List.to_tuple(args),
-        globals: Map.put(base_ctx.globals, "arguments", Heap.wrap_arguments(args)),
+        globals:
+          Map.put(
+            base_ctx.globals,
+            "arguments",
+            Heap.wrap_arguments(args, strict: strict_function?(current_func))
+          ),
         trace_enabled: trace_enabled(base_ctx),
         home_object: home_object,
         super: super
@@ -247,7 +252,12 @@ defmodule QuickBEAM.VM.Compiler.Runner do
       | atoms: atoms || current_atoms(base_ctx),
         current_func: current_func,
         arg_buf: List.to_tuple(args),
-        globals: Map.put(base_ctx.globals, "arguments", Heap.wrap_arguments(args)),
+        globals:
+          Map.put(
+            base_ctx.globals,
+            "arguments",
+            Heap.wrap_arguments(args, strict: strict_function?(current_func))
+          ),
         trace_enabled: trace_enabled(base_ctx),
         home_object: home_object,
         super: super,
@@ -272,7 +282,12 @@ defmodule QuickBEAM.VM.Compiler.Runner do
       | atoms: atoms || current_atoms(base_ctx),
         current_func: current_func,
         arg_buf: List.to_tuple(args),
-        globals: Map.put(base_ctx.globals, "arguments", Heap.wrap_arguments(args)),
+        globals:
+          Map.put(
+            base_ctx.globals,
+            "arguments",
+            Heap.wrap_arguments(args, strict: strict_function?(current_func))
+          ),
         trace_enabled: trace_enabled(base_ctx),
         home_object: home_object,
         super: super,
@@ -290,7 +305,12 @@ defmodule QuickBEAM.VM.Compiler.Runner do
       | atoms: atoms || current_atoms(base_ctx),
         current_func: current_func,
         arg_buf: List.to_tuple(args),
-        globals: Map.put(base_ctx.globals, "arguments", Heap.wrap_arguments(args)),
+        globals:
+          Map.put(
+            base_ctx.globals,
+            "arguments",
+            Heap.wrap_arguments(args, strict: strict_function?(current_func))
+          ),
         trace_enabled: trace_enabled(base_ctx),
         home_object: home_object,
         super: super,
@@ -299,6 +319,10 @@ defmodule QuickBEAM.VM.Compiler.Runner do
     }
     |> Context.mark_dirty()
   end
+
+  defp strict_function?({:closure, _, %QuickBEAM.VM.Function{is_strict_mode: strict}}), do: strict
+  defp strict_function?(%QuickBEAM.VM.Function{is_strict_mode: strict}), do: strict
+  defp strict_function?(_), do: false
 
   defp invocation_this(overrides, _base_ctx, %QuickBEAM.VM.Function{is_strict_mode: true}) do
     if Keyword.has_key?(overrides, :this), do: Keyword.fetch!(overrides, :this), else: :undefined

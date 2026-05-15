@@ -15,7 +15,11 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
       defp run({@op_get_var_undef, [atom_idx]}, pc, frame, stack, gas, ctx) do
         if Names.resolve_atom(ctx, atom_idx) == "arguments" do
           arguments =
-            Map.get(ctx.globals, "arguments", Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf)))
+            Map.get(
+              ctx.globals,
+              "arguments",
+              Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf), strict: current_strict_mode?(ctx))
+            )
 
           run(pc + 1, frame, [arguments | stack], gas, ctx)
         else
@@ -41,7 +45,11 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
       defp run({@op_get_var, [atom_idx]}, pc, frame, stack, gas, ctx) do
         if Names.resolve_atom(ctx, atom_idx) == "arguments" do
           arguments =
-            Map.get(ctx.globals, "arguments", Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf)))
+            Map.get(
+              ctx.globals,
+              "arguments",
+              Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf), strict: current_strict_mode?(ctx))
+            )
 
           run(pc + 1, frame, [arguments | stack], gas, ctx)
         else

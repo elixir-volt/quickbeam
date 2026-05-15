@@ -17,6 +17,7 @@ defmodule QuickBEAM.VM.Heap do
   """
 
   alias QuickBEAM.VM.Heap.{Arrays, Async, Caches, Context, GC, Registry, Shapes, Store}
+  alias QuickBEAM.VM.ObjectModel.PropertyDescriptor
 
   @compile {:inline,
             get_obj: 1,
@@ -123,10 +124,52 @@ defmodule QuickBEAM.VM.Heap do
   end
 
   @doc "Wraps a function arguments list as an arguments object."
-  def wrap_arguments(args) when is_list(args) do
+  def wrap_arguments(args, _opts \\ []) when is_list(args) do
     {:obj, ref} = obj = wrap(args)
     put_array_prop(ref, "__arguments__", true)
+
+    thrower = throw_type_error_intrinsic()
+    put_array_prop(ref, "callee", {:accessor, thrower, thrower})
+
+    put_prop_desc(
+      ref,
+      "callee",
+      PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: false)
+    )
+
     obj
+  end
+
+  def throw_type_error_intrinsic do
+    case Process.get(:qb_throw_type_error_intrinsic) do
+      nil ->
+        thrower =
+          {:builtin, "ThrowTypeError",
+           fn _args, _this ->
+             throw({:js_throw, make_error("ThrowTypeError", "TypeError")})
+           end}
+
+        put_ctor_static(thrower, "length", 0)
+        put_ctor_static(thrower, "name", "")
+
+        put_ctor_prop_desc(
+          thrower,
+          "length",
+          PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: false)
+        )
+
+        put_ctor_prop_desc(
+          thrower,
+          "name",
+          PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: false)
+        )
+
+        Process.put(:qb_throw_type_error_intrinsic, thrower)
+        thrower
+
+      thrower ->
+        thrower
+    end
   end
 
   @doc "Wraps a list as a JavaScript iterator object with a `next` method."
@@ -240,6 +283,7 @@ defmodule QuickBEAM.VM.Heap do
       "__error_name__" => name,
       {:symbol, "Symbol.toStringTag"} => "Error"
     }
+
     error = if proto, do: wrap(Map.put(base, "__proto__", proto)), else: wrap(base)
 
     with {:obj, ref} <- error do
