@@ -347,6 +347,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
   defp replacer_property_list({:obj, ref} = replacer) do
     case Heap.get_obj(ref) do
+      %{proxy_target() => _target, "__proxy_revoked__" => true} -> JSThrow.type_error!("Cannot perform operation on a revoked proxy")
       {:qb_arr, _} -> {:ok, replacer |> Heap.to_list() |> property_list_items()}
       list when is_list(list) -> {:ok, property_list_items(list)}
       _ -> :not_array
@@ -394,6 +395,9 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
       list when is_list(list) ->
         Enum.map(list, &to_json/1)
+
+      %{proxy_target() => _target, "__proxy_revoked__" => true} ->
+        JSThrow.type_error!("Cannot perform operation on a revoked proxy")
 
       map when is_map(map) ->
         if Map.get(map, "__raw_json__") == true or Map.get(map, :__raw_json__) == true do
