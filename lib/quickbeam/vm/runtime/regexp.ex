@@ -77,6 +77,14 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   def nif_exec(_, _, _), do: nil
 
+  defp test({:regexp, bytecode, "^.$", ref}, [s | _]) when is_binary(s) do
+    single_dot_match?(s, regexp_flags(bytecode, ref))
+  end
+
+  defp test({:regexp, bytecode, "^.$"}, [s | _]) when is_binary(s) do
+    single_dot_match?(s, Get.regexp_flags(bytecode))
+  end
+
   defp test({:regexp, bytecode, _source}, [s | _]) when is_binary(bytecode) and is_binary(s) do
     nif_exec(bytecode, s, 0) != nil
   end
@@ -87,6 +95,24 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp test(_, _), do: false
+
+  defp single_dot_match?(string, flags) do
+    dot_matches = String.contains?(flags, "s") or string not in ["\n", "\r", "\u2028", "\u2029"]
+    single =
+      if String.contains?(flags, "u") or String.contains?(flags, "v") do
+        String.length(string) == 1 or lone_surrogate_wtf8?(string)
+      else
+        Get.string_length(string) == 1 or lone_surrogate_wtf8?(string)
+      end
+
+
+    dot_matches and single
+  end
+
+  defp lone_surrogate_wtf8?(<<0xED, high, low>>) when high in 0xA0..0xBF and low in 0x80..0xBF,
+    do: true
+
+  defp lone_surrogate_wtf8?(_), do: false
 
   defp exec({:regexp, bytecode, source, _ref}, args),
     do: exec({:regexp, bytecode, source}, args)
