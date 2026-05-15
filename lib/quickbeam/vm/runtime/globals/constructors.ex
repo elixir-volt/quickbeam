@@ -257,6 +257,8 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
         _ -> regexp_source_flags(pattern)
       end
 
+    validate_regexp_flags!(flags)
+
     ref = make_ref()
     RegexpState.put(ref, "flags", flags)
     RegexpState.put(ref, "lastIndex", 0)
@@ -287,6 +289,16 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   end
 
   defp regexp_source_flags(_), do: ""
+
+  defp validate_regexp_flags!(flags) when is_binary(flags) do
+    chars = String.graphemes(flags)
+    valid? = Enum.all?(chars, &(&1 in ~w(d g i m s u v y)))
+    unique? = Enum.uniq(chars) == chars
+
+    unless valid? and unique? do
+      JSThrow.syntax_error!("Invalid regular expression flags")
+    end
+  end
 
   @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def proxy([target, handler | _], _) do
