@@ -111,10 +111,12 @@ defmodule QuickBEAM.VM.Runtime.Math do
     end
 
     method "round" do
-      case Runtime.to_float(hd(args)) do
+      case Runtime.to_number(hd(args)) do
         :infinity -> :infinity
         :neg_infinity -> :neg_infinity
         :nan -> :nan
+        n when n == 0 -> n
+        n when n >= -0.5 and n < 0 -> -0.0
         n -> round(n)
       end
     end
@@ -168,13 +170,13 @@ defmodule QuickBEAM.VM.Runtime.Math do
     end
 
     method "sign" do
-      a = hd(args)
-
-      cond do
-        is_number(a) and a > 0 -> 1
-        is_number(a) and a < 0 -> -1
-        is_number(a) -> a
-        true -> :nan
+      case Runtime.to_number(hd(args)) do
+        :infinity -> 1
+        :neg_infinity -> -1
+        :nan -> :nan
+        n when n > 0 -> 1
+        n when n < 0 -> -1
+        n -> n
       end
     end
 
@@ -268,10 +270,11 @@ defmodule QuickBEAM.VM.Runtime.Math do
     end
 
     method "cbrt" do
-      case Runtime.to_float(hd(args)) do
+      case Runtime.to_number(hd(args)) do
         :infinity -> :infinity
         :neg_infinity -> :neg_infinity
         :nan -> :nan
+        f when f == 0 -> f
         f ->
           sign = if f < 0, do: -1, else: 1
           sign * :math.pow(abs(f), 1.0 / 3.0)
@@ -289,10 +292,11 @@ defmodule QuickBEAM.VM.Runtime.Math do
     end
 
     method "expm1" do
-      case Runtime.to_float(hd(args)) do
+      case Runtime.to_number(hd(args)) do
         :infinity -> :infinity
         :neg_infinity -> -1
         :nan -> :nan
+        n when n == 0 -> n
         n -> :math.exp(n) - 1
       end
     end
