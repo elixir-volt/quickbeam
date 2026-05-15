@@ -204,7 +204,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   defp apply_root_replacer(value, replacer) do
     if QuickBEAM.VM.Builtin.callable?(replacer) do
       wrapper = json_replacer_wrapper(value)
-      QuickBEAM.VM.Invocation.call_callback!(replacer, ["", value], wrapper)
+      QuickBEAM.VM.Invocation.invoke_with_receiver(replacer, ["", value], wrapper)
     else
       value
     end
@@ -557,7 +557,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   defp apply_property_replacer(value, key, holder) do
     case Process.get(@replacer_function_key) do
       nil -> value
-      replacer -> QuickBEAM.VM.Invocation.call_callback!(replacer, [key, value], holder)
+      replacer -> QuickBEAM.VM.Invocation.invoke_with_receiver(replacer, [key, value], holder)
     end
   end
 
