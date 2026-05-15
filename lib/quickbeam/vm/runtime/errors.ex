@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
   @behaviour QuickBEAM.VM.Runtime.BindingProvider
 
   import QuickBEAM.VM.Builtin, only: [arg: 3, object: 2]
+  import QuickBEAM.VM.Heap.Keys, only: [key_order: 0]
 
   alias QuickBEAM.VM.{Heap, Invocation}
   alias QuickBEAM.VM.JSThrow
@@ -14,7 +15,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
   alias QuickBEAM.VM.Runtime.Constructors
   alias QuickBEAM.VM.Stacktrace
 
-  @error_types ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError AggregateError)
+  @error_types ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError AggregateError SuppressedError)
 
   @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
@@ -145,6 +146,9 @@ defmodule QuickBEAM.VM.Runtime.Errors do
   defp construct_error("AggregateError", args, this_obj),
     do: aggregate_error_constructor(args, this_obj)
 
+  defp construct_error("SuppressedError", args, this_obj),
+    do: suppressed_error_constructor(args, this_obj)
+
   defp construct_error(name, args, this_obj), do: error_constructor(name, args, this_obj)
 
   defp error_constructor(name, args, this_obj) do
@@ -179,6 +183,25 @@ defmodule QuickBEAM.VM.Runtime.Errors do
     end
 
     maybe_install_cause(error, options)
+    Stacktrace.attach_stack(error)
+  end
+
+  defp suppressed_error_constructor(args, this_obj) do
+    error_arg = arg(args, 0, :undefined)
+    suppressed_arg = arg(args, 1, :undefined)
+    message_arg = arg(args, 2, :undefined)
+    message = if message_arg == :undefined, do: "", else: stringify_error_slot(message_arg)
+    error = make_error_object(message, "SuppressedError", this_obj)
+    if message_arg == :undefined, do: delete_message(error)
+
+    with {:obj, ref} <- error do
+      Heap.put_obj_key(ref, "error", error_arg)
+      Heap.put_prop_desc(ref, "error", PropertyDescriptor.method())
+      Heap.put_obj_key(ref, "suppressed", suppressed_arg)
+      Heap.put_prop_desc(ref, "suppressed", PropertyDescriptor.method())
+      Heap.put_obj_key(ref, key_order(), ["suppressed", "error", "message"])
+    end
+
     Stacktrace.attach_stack(error)
   end
 

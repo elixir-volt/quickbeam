@@ -104,7 +104,7 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
 
     error_protos =
       for name <-
-            ~w(EvalError RangeError ReferenceError SyntaxError TypeError URIError AggregateError),
+            ~w(EvalError RangeError ReferenceError SyntaxError TypeError URIError AggregateError SuppressedError),
           into: %{},
           do: {name, Heap.get_class_proto(Map.fetch!(error_bindings, name))}
 
@@ -156,7 +156,8 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
         "ReferenceError" => Map.fetch!(error_bindings, "ReferenceError"),
         "EvalError" => Map.fetch!(error_bindings, "EvalError"),
         "URIError" => Map.fetch!(error_bindings, "URIError"),
-        "AggregateError" => Map.fetch!(error_bindings, "AggregateError")
+        "AggregateError" => Map.fetch!(error_bindings, "AggregateError"),
+        "SuppressedError" => Map.fetch!(error_bindings, "SuppressedError")
       })
 
     Process.put({:qb_realm_global, realm_id}, global)

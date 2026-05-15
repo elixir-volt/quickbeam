@@ -108,12 +108,28 @@ defmodule QuickBEAM.VM.Builtin do
   def named_meta("Date"), do: meta("Date", [length: 7, constructable: true], :constructor)
   def named_meta("Promise"), do: meta("Promise", [length: 1, constructable: true], :constructor)
   def named_meta("Error"), do: meta("Error", [length: 1, constructable: true], :constructor)
-  def named_meta("AggregateError"), do: meta("AggregateError", [length: 2, constructable: true], :constructor)
-  def named_meta("EvalError"), do: meta("EvalError", [length: 1, constructable: true], :constructor)
-  def named_meta("RangeError"), do: meta("RangeError", [length: 1, constructable: true], :constructor)
-  def named_meta("ReferenceError"), do: meta("ReferenceError", [length: 1, constructable: true], :constructor)
-  def named_meta("SyntaxError"), do: meta("SyntaxError", [length: 1, constructable: true], :constructor)
-  def named_meta("TypeError"), do: meta("TypeError", [length: 1, constructable: true], :constructor)
+
+  def named_meta("AggregateError"),
+    do: meta("AggregateError", [length: 2, constructable: true], :constructor)
+
+  def named_meta("SuppressedError"),
+    do: meta("SuppressedError", [length: 3, constructable: true], :constructor)
+
+  def named_meta("EvalError"),
+    do: meta("EvalError", [length: 1, constructable: true], :constructor)
+
+  def named_meta("RangeError"),
+    do: meta("RangeError", [length: 1, constructable: true], :constructor)
+
+  def named_meta("ReferenceError"),
+    do: meta("ReferenceError", [length: 1, constructable: true], :constructor)
+
+  def named_meta("SyntaxError"),
+    do: meta("SyntaxError", [length: 1, constructable: true], :constructor)
+
+  def named_meta("TypeError"),
+    do: meta("TypeError", [length: 1, constructable: true], :constructor)
+
   def named_meta("URIError"), do: meta("URIError", [length: 1, constructable: true], :constructor)
   def named_meta("Map"), do: meta("Map", [length: 0, constructable: true], :constructor)
   def named_meta("Set"), do: meta("Set", [length: 0, constructable: true], :constructor)
@@ -482,7 +498,10 @@ defmodule QuickBEAM.VM.Builtin do
   def named_meta("all"), do: meta("all", [length: 1, constructable: false], :static)
   def named_meta("allKeyed"), do: meta("allKeyed", [length: 1, constructable: false], :static)
   def named_meta("allSettled"), do: meta("allSettled", [length: 1, constructable: false], :static)
-  def named_meta("allSettledKeyed"), do: meta("allSettledKeyed", [length: 1, constructable: false], :static)
+
+  def named_meta("allSettledKeyed"),
+    do: meta("allSettledKeyed", [length: 1, constructable: false], :static)
+
   def named_meta("any"), do: meta("any", [length: 1, constructable: false], :static)
   def named_meta("race"), do: meta("race", [length: 1, constructable: false], :static)
   def named_meta("isError"), do: meta("isError", [length: 1, constructable: false], :static)
