@@ -3086,7 +3086,30 @@ defmodule QuickBEAM.VM.Runtime.Array do
          end
        end}
 
+    proto =
+      object do
+        prop("next", next_fn)
+
+        symbol_method "Symbol.iterator" do
+          this
+        end
+      end
+
+    with {:obj, proto_ref} <- proto do
+      Heap.put_obj_key(proto_ref, "__proto__", Heap.get_object_prototype())
+      Heap.put_prop_desc(proto_ref, "next", PropertyDescriptor.method())
+      Heap.put_prop_desc(proto_ref, {:symbol, "Symbol.iterator"}, PropertyDescriptor.method())
+      Heap.put_obj_key(proto_ref, {:symbol, "Symbol.toStringTag"}, "Array Iterator")
+
+      Heap.put_prop_desc(
+        proto_ref,
+        {:symbol, "Symbol.toStringTag"},
+        PropertyDescriptor.hidden_readonly()
+      )
+    end
+
     object do
+      prop("__proto__", proto)
       prop("next", next_fn)
 
       symbol_method "Symbol.iterator" do

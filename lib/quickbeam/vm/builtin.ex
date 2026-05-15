@@ -505,6 +505,7 @@ defmodule QuickBEAM.VM.Builtin do
   def named_meta("any"), do: meta("any", [length: 1, constructable: false], :static)
   def named_meta("race"), do: meta("race", [length: 1, constructable: false], :static)
   def named_meta("isError"), do: meta("isError", [length: 1, constructable: false], :static)
+  def named_meta("next"), do: meta("next", [length: 0, constructable: false], :proto)
   def named_meta("delete"), do: meta("delete", [length: 1, constructable: false], :proto)
   def named_meta("clear"), do: meta("clear", [length: 0, constructable: false], :proto)
   def named_meta("deref"), do: meta("deref", [length: 0, constructable: false], :proto)
