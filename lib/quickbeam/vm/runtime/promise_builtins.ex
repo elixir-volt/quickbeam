@@ -153,7 +153,7 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
             Invocation.invoke(reject, [reason])
 
           %{promise_state() => :pending} ->
-            :undefined
+            PromiseState.promise_then([resolve, reject], result)
 
           _ ->
             Invocation.invoke(resolve, [result])
@@ -458,26 +458,37 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
 
   defp new_promise_capability(constructor) do
     captured = make_ref()
-    Heap.put_obj(captured, %{})
+    Heap.put_obj(captured, %{"resolve" => :undefined, "reject" => :undefined})
 
     executor =
       capability_executor(fn args ->
-        resolve = arg(args, 0, :undefined)
-        reject = arg(args, 1, :undefined)
+        current = Heap.get_obj(captured, %{})
 
-        unless QuickBEAM.VM.Builtin.callable?(resolve) and QuickBEAM.VM.Builtin.callable?(reject) do
-          JSThrow.type_error!("Promise capability executor arguments must be callable")
+        if current["resolve"] != :undefined or current["reject"] != :undefined do
+          JSThrow.type_error!("Promise capability executor already called")
         end
 
-        Heap.put_obj(captured, %{"resolve" => resolve, "reject" => reject})
+        Heap.put_obj(captured, %{
+          "resolve" => arg(args, 0, :undefined),
+          "reject" => arg(args, 1, :undefined)
+        })
+
         :undefined
       end)
 
     promise = Invocation.construct_runtime(constructor, constructor, [executor])
 
     case Heap.get_obj(captured, %{}) do
-      %{"resolve" => resolve, "reject" => reject} -> {promise, resolve, reject}
-      _ -> JSThrow.type_error!("Promise constructor did not provide resolving functions")
+      %{"resolve" => resolve, "reject" => reject}
+      when resolve != :undefined and reject != :undefined ->
+        unless QuickBEAM.VM.Builtin.callable?(resolve) and QuickBEAM.VM.Builtin.callable?(reject) do
+          JSThrow.type_error!("Promise capability executor arguments must be callable")
+        end
+
+        {promise, resolve, reject}
+
+      _ ->
+        JSThrow.type_error!("Promise constructor did not provide resolving functions")
     end
   end
 

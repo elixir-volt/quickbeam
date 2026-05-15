@@ -326,11 +326,33 @@ defmodule QuickBEAM.VM.PromiseState do
   defp constructor_like?(value), do: Builtin.callable?(value)
 
   defp construct_capability_promise(constructor) do
+    captured = make_ref()
+    Heap.put_obj(captured, %{"resolve" => :undefined, "reject" => :undefined})
+
     executor =
       capability_executor(fn args ->
-        resolve = arg(args, 0, :undefined)
-        reject = arg(args, 1, :undefined)
+        current = Heap.get_obj(captured, %{})
 
+        if current["resolve"] != :undefined or current["reject"] != :undefined do
+          throw(
+            {:js_throw,
+             Heap.make_error("Promise capability executor already called", "TypeError")}
+          )
+        end
+
+        Heap.put_obj(captured, %{
+          "resolve" => arg(args, 0, :undefined),
+          "reject" => arg(args, 1, :undefined)
+        })
+
+        :undefined
+      end)
+
+    promise = Invocation.construct_runtime(constructor, constructor, [executor])
+
+    case Heap.get_obj(captured, %{}) do
+      %{"resolve" => resolve, "reject" => reject}
+      when resolve != :undefined and reject != :undefined ->
         unless Builtin.callable?(resolve) and Builtin.callable?(reject) do
           throw(
             {:js_throw,
@@ -341,10 +363,14 @@ defmodule QuickBEAM.VM.PromiseState do
           )
         end
 
-        :undefined
-      end)
+        promise
 
-    Invocation.construct_runtime(constructor, constructor, [executor])
+      _ ->
+        throw(
+          {:js_throw,
+           Heap.make_error("Promise constructor did not provide resolving functions", "TypeError")}
+        )
+    end
   end
 
   defp capability_executor(callback) when is_function(callback, 1) do
