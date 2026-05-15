@@ -468,7 +468,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
             Runtime.call_callback(get_trap, [target, key, {:obj, ref}])
           )
         else
-          get_own(target, key)
+          get(target, key)
         end
 
       {:qb_arr, _} = arr ->

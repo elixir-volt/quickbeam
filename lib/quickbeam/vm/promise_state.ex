@@ -220,12 +220,10 @@ defmodule QuickBEAM.VM.PromiseState do
     end
   end
 
-  defp promise_obj(state, val, ref) do
+  defp promise_obj(state, val, _ref) do
     base = %{
       promise_state() => state,
-      promise_value() => val,
-      "then" => then_fn(ref),
-      "catch" => catch_fn(ref)
+      promise_value() => val
     }
 
     case promise_proto() do
@@ -238,14 +236,6 @@ defmodule QuickBEAM.VM.PromiseState do
     ref = make_ref()
     Heap.put_obj(ref, promise_obj(:pending, nil, ref))
     ref
-  end
-
-  defp then_fn(promise_ref) do
-    {:builtin, "then", fn args, _this -> then_impl(args, promise_ref) end}
-  end
-
-  defp catch_fn(promise_ref) do
-    {:builtin, "catch", fn args, _this -> then_impl([nil, arg(args, 0, nil)], promise_ref) end}
   end
 
   defp then_impl(args, promise_ref) do

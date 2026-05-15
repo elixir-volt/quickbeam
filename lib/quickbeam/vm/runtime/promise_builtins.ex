@@ -51,14 +51,10 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
     end
   end
 
-  defp promise_pending_obj(ref) do
+  defp promise_pending_obj(_ref) do
     %{
       promise_state() => :pending,
-      promise_value() => nil,
-      "then" =>
-        {:builtin, "then", fn args, _this -> PromiseState.promise_then(args, {:obj, ref}) end},
-      "catch" =>
-        {:builtin, "catch", fn args, _this -> PromiseState.promise_catch(args, {:obj, ref}) end}
+      promise_value() => nil
     }
     |> maybe_put_promise_proto()
   end
