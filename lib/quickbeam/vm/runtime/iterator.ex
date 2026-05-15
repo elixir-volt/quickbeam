@@ -232,20 +232,20 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   def drop(args, this) do
+    remaining = non_negative_integer_limit_or_close(this, Builtin.arg(args, 0, :undefined))
     iterator = iterator_record(this)
-    remaining = non_negative_integer_limit(Builtin.arg(args, 0, :undefined))
     helper_iterator(%{"kind" => :drop, "iterator" => iterator, "remaining" => remaining})
   end
 
   def take(args, this) do
+    remaining = non_negative_integer_limit_or_close(this, Builtin.arg(args, 0, :undefined))
     iterator = iterator_record(this)
-    remaining = non_negative_integer_limit(Builtin.arg(args, 0, :undefined))
     helper_iterator(%{"kind" => :take, "iterator" => iterator, "remaining" => remaining})
   end
 
   def filter(args, this) do
     predicate = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(predicate), do: JSThrow.type_error!("predicate must be callable")
+    unless Builtin.callable?(predicate), do: close_and_type_error(this, "predicate must be callable")
 
     helper_iterator(%{
       "kind" => :filter,
@@ -257,7 +257,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   def map(args, this) do
     mapper = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(mapper), do: JSThrow.type_error!("mapper must be callable")
+    unless Builtin.callable?(mapper), do: close_and_type_error(this, "mapper must be callable")
 
     helper_iterator(%{
       "kind" => :map,
@@ -269,7 +269,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   def flat_map(args, this) do
     mapper = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(mapper), do: JSThrow.type_error!("mapper must be callable")
+    unless Builtin.callable?(mapper), do: close_and_type_error(this, "mapper must be callable")
 
     helper_iterator(%{
       "kind" => :flat_map,
@@ -282,13 +282,13 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   def some(args, this) do
     predicate = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(predicate), do: JSThrow.type_error!("predicate must be callable")
+    unless Builtin.callable?(predicate), do: close_and_type_error(this, "predicate must be callable")
     some_loop(iterator_record(this), predicate, 0)
   end
 
   def reduce(args, this) do
     reducer = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(reducer), do: JSThrow.type_error!("reducer must be callable")
+    unless Builtin.callable?(reducer), do: close_and_type_error(this, "reducer must be callable")
 
     iterator = iterator_record(this)
 
@@ -308,20 +308,20 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   def for_each(args, this) do
     callback = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(callback), do: JSThrow.type_error!("callback must be callable")
+    unless Builtin.callable?(callback), do: close_and_type_error(this, "callback must be callable")
     for_each_loop(iterator_record(this), callback, 0)
     :undefined
   end
 
   def every(args, this) do
     predicate = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(predicate), do: JSThrow.type_error!("predicate must be callable")
+    unless Builtin.callable?(predicate), do: close_and_type_error(this, "predicate must be callable")
     every_loop(iterator_record(this), predicate, 0)
   end
 
   def find(args, this) do
     predicate = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(predicate), do: JSThrow.type_error!("predicate must be callable")
+    unless Builtin.callable?(predicate), do: close_and_type_error(this, "predicate must be callable")
     find_loop(iterator_record(this), predicate, 0)
   end
 
@@ -685,6 +685,21 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   defp helper_return(_), do: JSThrow.type_error!("Iterator helper expected")
 
+  defp close_and_type_error(this, message) do
+    close_iterator_like(this)
+    JSThrow.type_error!(message)
+  end
+
+  defp close_iterator_like(this) do
+    if object_like?(this) do
+      return_method = Get.get(this, "return")
+
+      if Builtin.callable?(return_method) do
+        Invocation.invoke_with_receiver(return_method, [], this)
+      end
+    end
+  end
+
   defp iterator_record(this) do
     unless object_like?(this), do: JSThrow.type_error!("Iterator receiver must be an object")
     next = Get.get(this, "next")
@@ -716,6 +731,16 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
       key_order() => ["done", "value"]
     })
   end
+
+  defp non_negative_integer_limit_or_close(this, value) do
+    non_negative_integer_limit(value)
+  catch
+    {:js_throw, _} = reason ->
+      close_iterator_like(this)
+      throw(reason)
+  end
+
+  defp non_negative_integer_limit(:undefined), do: JSThrow.range_error!("invalid limit")
 
   defp non_negative_integer_limit(value) do
     number = Runtime.to_number(value)
