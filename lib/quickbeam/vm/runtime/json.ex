@@ -94,21 +94,33 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   defp invalid_raw_json?(<<first::utf8, _::binary>>) when first in [0x09, 0x0A, 0x0D, 0x20], do: true
   defp invalid_raw_json?(json), do: json |> String.last() |> Kernel.in(["\t", "\n", "\r", " "])
 
-  defp parse([s | _]) when is_binary(s) do
+  defp parse([text | _]) do
+    json_text = json_parse_text(text)
+
     decoded =
       try do
-        :json.decode(s)
+        :json.decode(json_text)
       rescue
         _ -> JSThrow.syntax_error!("Unexpected end of JSON input")
       catch
         _, _ -> JSThrow.syntax_error!("Unexpected end of JSON input")
       end
 
-    to_js_root(decoded, s)
+    to_js_root(decoded, json_text)
   end
 
-  defp parse(_),
-    do: JSThrow.syntax_error!("Unexpected end of JSON input")
+  defp parse(_), do: parse([:undefined])
+
+  defp json_parse_text(text) when is_binary(text), do: text
+
+  defp json_parse_text({:symbol, _}), do: JSThrow.type_error!("Cannot convert a Symbol value to a string")
+  defp json_parse_text({:symbol, _, _}), do: JSThrow.type_error!("Cannot convert a Symbol value to a string")
+
+  defp json_parse_text(text), do: Runtime.stringify(text)
+
+  defp to_js_root(0, json_str) when is_binary(json_str) do
+    if Regex.match?(~r/^\s*-0(?:\.0*)?(?:[eE][+\-]?0+)?\s*$/, json_str), do: -0.0, else: 0
+  end
 
   defp to_js_root(val, json_str) when is_map(val) do
     keys =
