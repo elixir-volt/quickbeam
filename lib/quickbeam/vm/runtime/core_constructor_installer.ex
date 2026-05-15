@@ -35,14 +35,19 @@ defmodule QuickBEAM.VM.Runtime.CoreConstructorInstaller do
     install_plain_prototype(symbol)
     install_plain_prototype(data_view)
 
+    promise =
+      ConstructorRegistry.register("Promise", PromiseBuiltins.constructor(),
+        module: PromiseBuiltins,
+        prototype: PromiseBuiltins.prototype()
+      )
+
+    install_promise_prototype(promise)
+    InstallerHelpers.install_species(promise)
+
     %{
       "BigInt" => big_int,
       "Boolean" => boolean,
-      "Promise" =>
-        ConstructorRegistry.register("Promise", PromiseBuiltins.constructor(),
-          module: PromiseBuiltins,
-          prototype: PromiseBuiltins.prototype()
-        ),
+      "Promise" => promise,
       "Symbol" => symbol,
       "DataView" => data_view
     }
@@ -59,6 +64,13 @@ defmodule QuickBEAM.VM.Runtime.CoreConstructorInstaller do
     InstallerHelpers.with_prototype(ctor, fn proto_ref ->
       InstallerHelpers.install_object_parent(proto_ref)
       InstallerHelpers.install_methods(proto_ref, Boolean, ~w(toString valueOf))
+      InstallerHelpers.install_constructor_link(proto_ref, ctor)
+    end)
+  end
+
+  defp install_promise_prototype(ctor) do
+    InstallerHelpers.with_prototype(ctor, fn proto_ref ->
+      InstallerHelpers.install_object_parent(proto_ref)
       InstallerHelpers.install_constructor_link(proto_ref, ctor)
     end)
   end
