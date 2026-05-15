@@ -43,6 +43,7 @@ defmodule QuickBEAM.VM.Runtime.CoreConstructorInstaller do
         prototype: PromiseBuiltins.prototype()
       )
 
+    Heap.put_ctor_prop_desc(promise, "prototype", PropertyDescriptor.prototype())
     install_promise_prototype(promise)
     InstallerHelpers.install_species(promise)
 
