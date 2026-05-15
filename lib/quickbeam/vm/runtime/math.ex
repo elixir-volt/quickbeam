@@ -127,17 +127,11 @@ defmodule QuickBEAM.VM.Runtime.Math do
     end
 
     method "max" do
-      case args do
-        [] -> :neg_infinity
-        _ -> Enum.max(args)
-      end
+      extremum(args, :max)
     end
 
     method "min" do
-      case args do
-        [] -> :infinity
-        _ -> Enum.min(args)
-      end
+      extremum(args, :min)
     end
 
     method "sqrt" do
@@ -386,6 +380,40 @@ defmodule QuickBEAM.VM.Runtime.Math do
     val("MAX_SAFE_INTEGER", 9_007_199_254_740_991)
     val("MIN_SAFE_INTEGER", -9_007_199_254_740_991)
   end
+
+  defp extremum([], :max), do: :neg_infinity
+  defp extremum([], :min), do: :infinity
+
+  defp extremum(args, kind) do
+    args
+    |> Enum.map(&Runtime.to_number/1)
+    |> Enum.reduce(extremum_initial(kind), fn
+      :nan, _acc -> :nan
+      _value, :nan -> :nan
+      value, acc -> extremum_value(kind, value, acc)
+    end)
+  end
+
+  defp extremum_initial(:max), do: :neg_infinity
+  defp extremum_initial(:min), do: :infinity
+
+  defp extremum_value(:max, :infinity, _acc), do: :infinity
+  defp extremum_value(:max, :neg_infinity, acc), do: acc
+  defp extremum_value(:max, _value, :infinity), do: :infinity
+  defp extremum_value(:max, value, :neg_infinity), do: value
+  defp extremum_value(:max, value, acc) when value == 0 and acc == 0,
+    do: if(Values.neg_zero?(acc), do: value, else: acc)
+  defp extremum_value(:max, value, acc) when value > acc, do: value
+  defp extremum_value(:max, _value, acc), do: acc
+
+  defp extremum_value(:min, :neg_infinity, _acc), do: :neg_infinity
+  defp extremum_value(:min, :infinity, acc), do: acc
+  defp extremum_value(:min, _value, :neg_infinity), do: :neg_infinity
+  defp extremum_value(:min, value, :infinity), do: value
+  defp extremum_value(:min, value, acc) when value == 0 and acc == 0,
+    do: if(Values.neg_zero?(value), do: value, else: acc)
+  defp extremum_value(:min, value, acc) when value < acc, do: value
+  defp extremum_value(:min, _value, acc), do: acc
 
   defp f16round(value) do
     <<f32::float-32>> = <<value::float-32>>
