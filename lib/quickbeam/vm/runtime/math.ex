@@ -140,12 +140,18 @@ defmodule QuickBEAM.VM.Runtime.Math do
     end
 
     method "sqrt" do
-      :math.sqrt(Runtime.to_float(hd(args)))
+      case Runtime.to_float(hd(args)) do
+        :infinity -> :infinity
+        :neg_infinity -> :nan
+        :nan -> :nan
+        n when n < 0 -> :nan
+        n -> :math.sqrt(n)
+      end
     end
 
     method "pow" do
       [a, b | _] = args
-      :math.pow(Runtime.to_float(a), Runtime.to_float(b))
+      math_pow(Runtime.to_float(a), Runtime.to_float(b))
     end
 
     method "random" do
@@ -168,27 +174,27 @@ defmodule QuickBEAM.VM.Runtime.Math do
     end
 
     method "log" do
-      :math.log(Runtime.to_float(hd(args)))
+      math_log(Runtime.to_float(hd(args)), &:math.log/1)
     end
 
     method "log2" do
-      :math.log2(Runtime.to_float(hd(args)))
+      math_log(Runtime.to_float(hd(args)), &:math.log2/1)
     end
 
     method "log10" do
-      :math.log10(Runtime.to_float(hd(args)))
+      math_log(Runtime.to_float(hd(args)), &:math.log10/1)
     end
 
     method "sin" do
-      :math.sin(Runtime.to_float(hd(args)))
+      trig(Runtime.to_float(hd(args)), &:math.sin/1)
     end
 
     method "cos" do
-      :math.cos(Runtime.to_float(hd(args)))
+      trig(Runtime.to_float(hd(args)), &:math.cos/1)
     end
 
     method "tan" do
-      :math.tan(Runtime.to_float(hd(args)))
+      trig(Runtime.to_float(hd(args)), &:math.tan/1)
     end
 
     method "clz32" do
@@ -197,9 +203,14 @@ defmodule QuickBEAM.VM.Runtime.Math do
     end
 
     method "fround" do
-      f = Runtime.to_float(hd(args))
-      <<f32::float-32>> = <<f::float-32>>
-      f32 * 1.0
+      case Runtime.to_float(hd(args)) do
+        :infinity -> :infinity
+        :neg_infinity -> :neg_infinity
+        :nan -> :nan
+        f ->
+          <<f32::float-32>> = <<f::float-32>>
+          f32 * 1.0
+      end
     end
 
     method "imul" do
@@ -213,61 +224,97 @@ defmodule QuickBEAM.VM.Runtime.Math do
 
     method "atan2" do
       [a, b | _] = args
-      :math.atan2(Runtime.to_float(a), Runtime.to_float(b))
+      math_atan2(Runtime.to_float(a), Runtime.to_float(b))
     end
 
     method "asin" do
-      :math.asin(Runtime.to_float(hd(args)))
+      inverse_unit(Runtime.to_float(hd(args)), &:math.asin/1)
     end
 
     method "acos" do
-      :math.acos(Runtime.to_float(hd(args)))
+      inverse_unit(Runtime.to_float(hd(args)), &:math.acos/1)
     end
 
     method "atan" do
-      :math.atan(Runtime.to_float(hd(args)))
+      case Runtime.to_float(hd(args)) do
+        :infinity -> :math.pi() / 2
+        :neg_infinity -> -:math.pi() / 2
+        :nan -> :nan
+        n -> :math.atan(n)
+      end
     end
 
     method "exp" do
-      :math.exp(Runtime.to_float(hd(args)))
+      case Runtime.to_float(hd(args)) do
+        :infinity -> :infinity
+        :neg_infinity -> 0
+        :nan -> :nan
+        n -> :math.exp(n)
+      end
     end
 
     method "cbrt" do
-      f = Runtime.to_float(hd(args))
-      sign = if f < 0, do: -1, else: 1
-      sign * :math.pow(abs(f), 1.0 / 3.0)
+      case Runtime.to_float(hd(args)) do
+        :infinity -> :infinity
+        :neg_infinity -> :neg_infinity
+        :nan -> :nan
+        f ->
+          sign = if f < 0, do: -1, else: 1
+          sign * :math.pow(abs(f), 1.0 / 3.0)
+      end
     end
 
     method "log1p" do
-      :math.log(1 + Runtime.to_float(hd(args)))
+      math_log(1 + Runtime.to_float(hd(args)), &:math.log/1)
     end
 
     method "expm1" do
-      :math.exp(Runtime.to_float(hd(args))) - 1
+      case Runtime.to_float(hd(args)) do
+        :infinity -> :infinity
+        :neg_infinity -> -1
+        :nan -> :nan
+        n -> :math.exp(n) - 1
+      end
     end
 
     method "cosh" do
-      :math.cosh(Runtime.to_float(hd(args)))
+      hyperbolic(Runtime.to_float(hd(args)), &:math.cosh/1)
     end
 
     method "sinh" do
-      :math.sinh(Runtime.to_float(hd(args)))
+      signed_hyperbolic(Runtime.to_float(hd(args)), &:math.sinh/1)
     end
 
     method "tanh" do
-      :math.tanh(Runtime.to_float(hd(args)))
+      case Runtime.to_float(hd(args)) do
+        :infinity -> 1
+        :neg_infinity -> -1
+        :nan -> :nan
+        n -> :math.tanh(n)
+      end
     end
 
     method "acosh" do
-      :math.acosh(Runtime.to_float(hd(args)))
+      case Runtime.to_float(hd(args)) do
+        :infinity -> :infinity
+        :nan -> :nan
+        n when n < 1 -> :nan
+        n -> :math.acosh(n)
+      end
     end
 
     method "asinh" do
-      :math.asinh(Runtime.to_float(hd(args)))
+      signed_hyperbolic(Runtime.to_float(hd(args)), &:math.asinh/1)
     end
 
     method "atanh" do
-      :math.atanh(Runtime.to_float(hd(args)))
+      case Runtime.to_float(hd(args)) do
+        :nan -> :nan
+        n when n == 1 -> :infinity
+        n when n == -1 -> :neg_infinity
+        n when n < -1 or n > 1 -> :nan
+        n -> :math.atanh(n)
+      end
     end
 
     method "sumPrecise" do
@@ -310,6 +357,78 @@ defmodule QuickBEAM.VM.Runtime.Math do
     val("SQRT1_2", :math.sqrt(2) / 2)
     val("MAX_SAFE_INTEGER", 9_007_199_254_740_991)
     val("MIN_SAFE_INTEGER", -9_007_199_254_740_991)
+  end
+
+  defp inverse_unit(:nan, _fun), do: :nan
+  defp inverse_unit(:infinity, _fun), do: :nan
+  defp inverse_unit(:neg_infinity, _fun), do: :nan
+  defp inverse_unit(n, _fun) when n < -1 or n > 1, do: :nan
+  defp inverse_unit(n, fun), do: fun.(n)
+
+  defp trig(value, fun) do
+    case value do
+      :nan -> :nan
+      :infinity -> :nan
+      :neg_infinity -> :nan
+      n -> fun.(n)
+    end
+  end
+
+  defp hyperbolic(value, fun) do
+    case value do
+      :nan -> :nan
+      :infinity -> :infinity
+      :neg_infinity -> :infinity
+      n -> fun.(n)
+    end
+  end
+
+  defp signed_hyperbolic(value, fun) do
+    case value do
+      :nan -> :nan
+      :infinity -> :infinity
+      :neg_infinity -> :neg_infinity
+      n -> fun.(n)
+    end
+  end
+
+  defp math_log(:nan, _fun), do: :nan
+  defp math_log(:infinity, _fun), do: :infinity
+  defp math_log(:neg_infinity, _fun), do: :nan
+  defp math_log(n, _fun) when n < 0, do: :nan
+  defp math_log(0, _fun), do: :neg_infinity
+  defp math_log(n, fun), do: fun.(n)
+
+  defp math_atan2(:nan, _), do: :nan
+  defp math_atan2(_, :nan), do: :nan
+  defp math_atan2(:infinity, :infinity), do: :math.pi() / 4
+  defp math_atan2(:infinity, :neg_infinity), do: 3 * :math.pi() / 4
+  defp math_atan2(:neg_infinity, :infinity), do: -:math.pi() / 4
+  defp math_atan2(:neg_infinity, :neg_infinity), do: -3 * :math.pi() / 4
+  defp math_atan2(:infinity, _), do: :math.pi() / 2
+  defp math_atan2(:neg_infinity, _), do: -:math.pi() / 2
+  defp math_atan2(_, :infinity), do: 0
+  defp math_atan2(y, :neg_infinity) when is_number(y) and y >= 0, do: :math.pi()
+  defp math_atan2(_, :neg_infinity), do: -:math.pi()
+  defp math_atan2(y, x), do: :math.atan2(y, x)
+
+  defp math_pow(_base, 0), do: 1
+  defp math_pow(:nan, _exp), do: :nan
+  defp math_pow(_base, :nan), do: :nan
+  defp math_pow(:infinity, exp) when is_number(exp) and exp > 0, do: :infinity
+  defp math_pow(:infinity, exp) when is_number(exp) and exp < 0, do: 0
+  defp math_pow(:neg_infinity, exp) when is_number(exp) and exp > 0, do: :infinity
+  defp math_pow(:neg_infinity, exp) when is_number(exp) and exp < 0, do: 0
+  defp math_pow(base, :infinity) when abs(base) > 1, do: :infinity
+  defp math_pow(base, :infinity) when abs(base) < 1, do: 0
+  defp math_pow(base, :neg_infinity) when abs(base) > 1, do: 0
+  defp math_pow(base, :neg_infinity) when abs(base) < 1, do: :infinity
+  defp math_pow(base, exp) do
+    try do
+      :math.pow(base, exp)
+    rescue
+      ArithmeticError -> :nan
+    end
   end
 
   defp shewchuk_sum(list) do
