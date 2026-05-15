@@ -1277,6 +1277,10 @@ defmodule QuickBEAM.VM.Runtime.Object do
     regexp
   end
 
+  defp define_property([{:obj, _} = obj, key, desc | _]) when is_map(desc) do
+    Define.property(obj, key, Heap.wrap(desc), desc)
+  end
+
   defp define_property([{:obj, _} = obj, key, desc_obj | _])
        when is_tuple(desc_obj) or is_struct(desc_obj) do
     if descriptor_object?(desc_obj) do
@@ -1304,13 +1308,14 @@ defmodule QuickBEAM.VM.Runtime.Object do
     b
   end
 
-  defp define_property([_target | _]) do
+  defp define_property(_args) do
     throw({:js_throw, Heap.make_error("Object.defineProperty called on non-object", "TypeError")})
   end
 
   defp normalize_well_known_symbol({:symbol, "Symbol." <> _ = name, _ref}), do: {:symbol, name}
   defp normalize_well_known_symbol(key), do: key
 
+  defp descriptor_object?({:regexp, _, _, _}), do: true
   defp descriptor_object?({:builtin, _, _}), do: true
   defp descriptor_object?({:closure, _, %QuickBEAM.VM.Function{}}), do: true
   defp descriptor_object?(%QuickBEAM.VM.Function{}), do: true
@@ -1319,6 +1324,15 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp define_callable_property(fun, key, desc_ref) do
     define_static_property(fun, key, desc_ref)
     fun
+  end
+
+  defp callable_own_keys({:regexp, _, _, ref}) do
+    ref
+    |> RegexpState.get()
+    |> Map.keys()
+    |> Enum.filter(&is_binary/1)
+    |> Enum.reject(&(&1 in ["flags", "source", "lastIndex"]))
+    |> Enum.reject(fn key -> String.starts_with?(key, "__") and String.ends_with?(key, "__") end)
   end
 
   defp callable_own_keys(callable) do
