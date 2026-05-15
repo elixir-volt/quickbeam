@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.PromiseState do
   alias QuickBEAM.VM.{Builtin, Heap, Runtime}
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.Invocation
-  alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor}
+  alias QuickBEAM.VM.ObjectModel.{Class, Get, PropertyDescriptor}
 
   @doc "Creates or returns a resolved Promise state value."
   def resolved(val), do: make_promise(:resolved, val)
@@ -313,16 +313,28 @@ defmodule QuickBEAM.VM.PromiseState do
       true ->
         species = Get.get(constructor, {:symbol, "Symbol.species"})
 
-        if species in [:undefined, nil] do
-          :default
-        else
-          species
+        cond do
+          species in [:undefined, nil] and promise_subclass_constructor?(constructor) ->
+            constructor
+
+          species in [:undefined, nil] ->
+            :default
+
+          true ->
+            species
         end
     end
   end
 
   defp constructor_like?({:obj, _}), do: true
   defp constructor_like?(value), do: Builtin.callable?(value)
+
+  defp promise_subclass_constructor?(constructor) do
+    case Class.get_super(constructor) do
+      {:builtin, "Promise", _} -> true
+      _ -> false
+    end
+  end
 
   defp construct_capability_promise(constructor) do
     captured = make_ref()

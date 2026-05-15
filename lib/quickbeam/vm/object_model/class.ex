@@ -90,7 +90,15 @@ defmodule QuickBEAM.VM.ObjectModel.Class do
 
     proto_obj = {:obj, proto_ref}
     Heap.put_class_proto(raw, proto_obj)
-    Heap.put_ctor_statics(ctor_closure, %{"prototype" => proto_obj})
+
+    ctor_statics =
+      if parent_ctor != :undefined do
+        %{"prototype" => proto_obj, "__proto__" => parent_ctor}
+      else
+        %{"prototype" => proto_obj}
+      end
+
+    Heap.put_ctor_statics(ctor_closure, ctor_statics)
 
     if parent_ctor != :undefined do
       Heap.put_parent_ctor(raw, parent_ctor)
