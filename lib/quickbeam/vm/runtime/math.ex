@@ -478,10 +478,16 @@ defmodule QuickBEAM.VM.Runtime.Math do
   defp math_atan2(:neg_infinity, :neg_infinity), do: -3 * :math.pi() / 4
   defp math_atan2(:infinity, _), do: :math.pi() / 2
   defp math_atan2(:neg_infinity, _), do: -:math.pi() / 2
-  defp math_atan2(_, :infinity), do: 0
+  defp math_atan2(y, :infinity) when is_number(y) and y < 0, do: -0.0
+  defp math_atan2(y, :infinity) when is_number(y), do: if(Values.neg_zero?(y), do: -0.0, else: 0)
   defp math_atan2(y, :neg_infinity) when is_number(y) and y >= 0, do: :math.pi()
   defp math_atan2(_, :neg_infinity), do: -:math.pi()
-  defp math_atan2(y, x), do: :math.atan2(y, x)
+
+  defp math_atan2(y, x) do
+    if is_number(y) and is_number(x) and Values.neg_zero?(y) and x > 0,
+      do: -0.0,
+      else: :math.atan2(y, x)
+  end
 
   defp math_pow(_base, 0), do: 1
   defp math_pow(:nan, _exp), do: :nan

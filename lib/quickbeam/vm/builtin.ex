@@ -162,7 +162,20 @@ defmodule QuickBEAM.VM.Builtin do
              "tanh",
              "trunc"
            ],
-      do: meta(name, [constructable: false], :static)
+      do:
+        meta(
+          name,
+          [
+            length:
+              cond do
+                name in ["atan2", "hypot", "imul", "max", "min", "pow"] -> 2
+                name == "random" -> 0
+                true -> 1
+              end,
+            constructable: false
+          ],
+          :static
+        )
 
   def named_meta("getOwnPropertyDescriptor"),
     do: meta("getOwnPropertyDescriptor", [length: 2, constructable: false], :static)
