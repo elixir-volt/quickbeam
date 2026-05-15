@@ -1339,8 +1339,11 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
-  defp mark_undefined_array_write(ref, key, :undefined),
-    do: Heap.put_prop_desc(ref, key, PropertyDescriptor.enumerable_data())
+  defp mark_undefined_array_write(ref, key, :undefined) do
+    if Heap.get_prop_desc(ref, key) == nil do
+      Heap.put_prop_desc(ref, key, PropertyDescriptor.enumerable_data())
+    end
+  end
 
   defp mark_undefined_array_write(_ref, _key, _val), do: :ok
 
