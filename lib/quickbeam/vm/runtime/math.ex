@@ -5,7 +5,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
 
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
 
-  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.{Heap, Invocation}
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor}
   alias QuickBEAM.VM.Runtime
@@ -546,8 +546,16 @@ defmodule QuickBEAM.VM.Runtime.Math do
 
   defp sum_precise_values({:obj, ref} = iterable) do
     ensure_sum_iterable!(iterable, Heap.get_obj(ref, %{}))
-    {iter, next_fn} = Iterators.for_of_start(iterable)
-    collect_sum_values(iter, next_fn, [])
+
+    case Heap.get_array_prop(ref, {:symbol, "Symbol.iterator"}) do
+      custom_iter when custom_iter not in [:undefined, nil] ->
+        iter = Invocation.invoke_with_receiver(custom_iter, [], Runtime.gas_budget(), iterable)
+        collect_sum_values(iter, Get.get(iter, "next"), [])
+
+      _ ->
+        {iter, next_fn} = Iterators.for_of_start(iterable)
+        collect_sum_values(iter, next_fn, [])
+    end
   end
 
   defp sum_precise_values({:qb_arr, arr}), do: :array.to_list(arr)
