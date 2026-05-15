@@ -286,13 +286,20 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   defp to_elixir(:undefined), do: nil
   defp to_elixir(val), do: val
 
-  defp apply_replacer({:ordered_map, pairs}, {:obj, ref}) do
-    allowed = Heap.to_list({:obj, ref})
+  defp apply_replacer({:ordered_map, pairs}, {:obj, _} = replacer) do
+    case replacer_property_list(replacer) do
+      {:ok, allowed} ->
+        filtered =
+          for key <- allowed,
+              {pair_key, value} <- pairs,
+              pair_key == key do
+            {pair_key, value}
+          end
 
-    if allowed != [] and Enum.all?(allowed, &is_binary/1) do
-      {:ordered_map, Enum.filter(pairs, fn {k, _} -> k in allowed end)}
-    else
-      {:ordered_map, pairs}
+        {:ordered_map, filtered}
+
+      :not_array ->
+        {:ordered_map, pairs}
     end
   end
 
@@ -308,6 +315,43 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   end
 
   defp apply_replacer(result, _), do: result
+
+  defp replacer_property_list({:obj, ref} = replacer) do
+    case Heap.get_obj(ref) do
+      {:qb_arr, _} -> {:ok, replacer |> Heap.to_list() |> property_list_items()}
+      list when is_list(list) -> {:ok, property_list_items(list)}
+      _ -> :not_array
+    end
+  end
+
+  defp property_list_items(values) do
+    values
+    |> Enum.reduce([], fn value, acc ->
+      case property_list_item(value) do
+        nil -> acc
+        item -> if item in acc, do: acc, else: acc ++ [item]
+      end
+    end)
+  end
+
+  defp property_list_item(value) when is_binary(value), do: value
+  defp property_list_item(value) when is_integer(value), do: Integer.to_string(value)
+  defp property_list_item(value) when is_float(value), do: Runtime.stringify(value)
+
+  defp property_list_item({:obj, ref} = value) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        case WrappedPrimitive.type(map) do
+          type when type in [:string, :number] -> Runtime.stringify(value)
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp property_list_item(_), do: nil
 
   defp to_json({:obj, ref} = obj) do
     case Heap.get_obj(ref) do
