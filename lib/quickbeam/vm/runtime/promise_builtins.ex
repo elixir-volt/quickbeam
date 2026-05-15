@@ -93,6 +93,14 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
     promise_all_settled(hd(args))
   end
 
+  static "allKeyed" do
+    promise_all_keyed(hd(args))
+  end
+
+  static "allSettledKeyed" do
+    promise_all_settled_keyed(hd(args))
+  end
+
   static "any" do
     promise_any(hd(args))
   end
@@ -155,28 +163,73 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
     if pending_input?(items) do
       PromiseState.pending()
     else
-      results =
-        Enum.map(items, fn item ->
-          {status, val} =
-            case item do
-              {:obj, r} ->
-                case Heap.get_obj(r, %{}) do
-                  %{promise_state() => :resolved, promise_value() => v} -> {"fulfilled", v}
-                  %{promise_state() => :rejected, promise_value() => v} -> {"rejected", v}
-                  _ -> {"fulfilled", item}
-                end
-
-              _ ->
-                {"fulfilled", item}
-            end
-
-          if status == "fulfilled",
-            do: Heap.wrap(%{"status" => status, "value" => val}),
-            else: Heap.wrap(%{"status" => status, "reason" => val})
-        end)
-
+      results = Enum.map(items, &settled_result/1)
       PromiseState.resolved(Heap.wrap(results))
     end
+  end
+
+  defp promise_all_keyed(obj), do: keyed_promise_result(obj, &promise_all/1)
+  defp promise_all_settled_keyed(obj), do: keyed_promise_result(obj, &promise_all_settled/1)
+
+  defp keyed_promise_result(obj, resolver) do
+    entries = keyed_entries(obj)
+    values = Enum.map(entries, fn {_key, value} -> value end)
+
+    case resolver.(values) do
+      {:obj, ref} = promise ->
+        case Heap.get_obj(ref, %{}) do
+          %{promise_state() => :resolved, promise_value() => {:obj, values_ref}} ->
+            values = Heap.get_obj(values_ref, [])
+
+            result =
+              entries
+              |> Enum.zip(values)
+              |> Enum.reduce(%{}, fn {{key, _}, value}, acc -> Map.put(acc, key, value) end)
+              |> Heap.wrap()
+
+            PromiseState.resolved(result)
+
+          _ ->
+            promise
+        end
+
+      other ->
+        other
+    end
+  end
+
+  defp keyed_entries({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        map
+        |> Map.drop([promise_state(), promise_value(), "__proto__", :__internal_proto__, key_order()])
+        |> Enum.filter(fn {key, _} -> is_binary(key) end)
+        |> Enum.sort_by(fn {key, _} -> key end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp keyed_entries(_), do: []
+
+  defp settled_result(item) do
+    {status, val} =
+      case item do
+        {:obj, r} ->
+          case Heap.get_obj(r, %{}) do
+            %{promise_state() => :resolved, promise_value() => v} -> {"fulfilled", v}
+            %{promise_state() => :rejected, promise_value() => v} -> {"rejected", v}
+            _ -> {"fulfilled", item}
+          end
+
+        _ ->
+          {"fulfilled", item}
+      end
+
+    if status == "fulfilled",
+      do: Heap.wrap(%{"status" => status, "value" => val}),
+      else: Heap.wrap(%{"status" => status, "reason" => val})
   end
 
   defp promise_any(arr) do
