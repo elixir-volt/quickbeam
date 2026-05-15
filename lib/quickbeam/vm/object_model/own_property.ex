@@ -357,13 +357,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
 
       prop_name in ["caller", "arguments"] and Heap.get_func_proto() == {:obj, ref} and
           Heap.get_prop_desc(ref, prop_name) != :deleted ->
-        thrower =
-          {:builtin, "ThrowTypeError",
-           fn _args, _this ->
-             QuickBEAM.VM.JSThrow.type_error!(
-               "'caller' and 'arguments' are restricted function properties and cannot be accessed in this context."
-             )
-           end}
+        thrower = Heap.throw_type_error_intrinsic()
 
         PropertyDescriptor.accessor_object(
           thrower,
