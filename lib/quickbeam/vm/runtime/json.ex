@@ -449,9 +449,15 @@ defmodule QuickBEAM.VM.Runtime.JSON do
         proxy_to_json(obj)
 
       map when is_map(map) ->
-        if Map.get(map, "__raw_json__") == true or Map.get(map, :__raw_json__) == true do
-          {:raw_json, Map.get(map, "rawJSON")}
-        else
+        cond do
+          Map.get(map, "__raw_json__") == true or Map.get(map, :__raw_json__) == true ->
+            {:raw_json, Map.get(map, "rawJSON")}
+
+          match?({:ok, _}, json_boxed_primitive(map)) ->
+            {:ok, value} = json_boxed_primitive(map)
+            to_json(value)
+
+          true ->
         case Map.get(map, "toJSON") do
           fun when fun != nil and fun != :undefined ->
             result = Runtime.call_callback(fun, [])
@@ -501,6 +507,13 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   defp to_json(list) when is_list(list), do: Enum.map(list, &to_json/1)
   defp to_json({:accessor, _, _}), do: :undefined
   defp to_json(val), do: val
+
+  defp json_boxed_primitive(map) do
+    case WrappedPrimitive.type(map) do
+      type when type in [:string, :number, :boolean] -> WrappedPrimitive.value(map, type)
+      _ -> :error
+    end
+  end
 
   defp json_array_or_to_json(obj, values) do
     case Get.get(obj, "toJSON") do
