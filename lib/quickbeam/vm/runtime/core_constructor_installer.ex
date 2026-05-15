@@ -106,7 +106,13 @@ defmodule QuickBEAM.VM.Runtime.CoreConstructorInstaller do
 
     InstallerHelpers.with_prototype(ctor, fn proto_ref ->
       InstallerHelpers.install_constructor_link(proto_ref, ctor)
-      InstallerHelpers.install_methods(proto_ref, Iterator, ~w(drop filter every find))
+
+      InstallerHelpers.install_methods(
+        proto_ref,
+        Iterator,
+        ~w(drop filter flatMap forEach map every find)
+      )
+
       InstallerHelpers.install_symbol_iterator(proto_ref, Iterator)
       InstallerHelpers.install_to_string_tag(proto_ref, "Iterator")
     end)
