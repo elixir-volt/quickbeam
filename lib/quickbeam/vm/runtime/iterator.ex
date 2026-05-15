@@ -471,6 +471,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     result = iterator_next(iterator)
 
     if Get.get(result, "done") == true do
+      mark_helper_done(state_ref)
       result
     else
       next_remaining = if remaining == :infinity, do: :infinity, else: remaining - 1
@@ -480,9 +481,19 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   defp drop_next(state_ref, %{"iterator" => iterator, "remaining" => remaining} = state) do
-    skip_dropped(iterator, remaining)
-    Heap.put_obj(state_ref, %{state | "remaining" => 0})
-    iterator_next(iterator)
+    if skip_dropped(iterator, remaining) == :done do
+      mark_helper_done(state_ref)
+      iter_result(:undefined, true)
+    else
+      Heap.put_obj(state_ref, %{state | "remaining" => 0})
+      result = iterator_next(iterator)
+
+      if Get.get(result, "done") == true do
+        mark_helper_done(state_ref)
+      end
+
+      result
+    end
   end
 
   defp skip_dropped(_iterator, remaining) when is_number(remaining) and remaining <= 0, do: :ok
@@ -491,7 +502,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     result = iterator_next(iterator)
 
     if Get.get(result, "done") == true do
-      :ok
+      :done
     else
       next_remaining = if remaining == :infinity, do: :infinity, else: remaining - 1
       skip_dropped(iterator, next_remaining)
@@ -505,6 +516,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     result = iterator_next(iterator)
 
     if Get.get(result, "done") == true do
+      mark_helper_done(state_ref)
       result
     else
       value = Get.get(result, "value")
@@ -526,6 +538,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     result = iterator_next(iterator)
 
     if Get.get(result, "done") == true do
+      mark_helper_done(state_ref)
       result
     else
       value = Get.get(result, "value")
@@ -544,6 +557,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
         outer = iterator_next(state["iterator"])
 
         if Get.get(outer, "done") == true do
+          mark_helper_done(state_ref)
           outer
         else
           value = Get.get(outer, "value")
@@ -675,7 +689,15 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     case Heap.get_obj(ref, %{}) do
       %{"__iterator_helper_state__" => state_ref} ->
         state = Heap.get_obj(state_ref, %{})
-        iterator_return(state["iterator"])
+
+        if state["kind"] != :done do
+          mark_helper_done(state_ref)
+
+          if state["iterator"] != nil do
+            iterator_return(state["iterator"])
+          end
+        end
+
         iter_result(:undefined, true)
 
       _ ->
@@ -684,6 +706,8 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   defp helper_return(_), do: JSThrow.type_error!("Iterator helper expected")
+
+  defp mark_helper_done(state_ref), do: Heap.put_obj(state_ref, %{"kind" => :done})
 
   defp invoke_or_close(iterator, callback, args) do
     Invocation.invoke_with_receiver(callback, args, :undefined)
