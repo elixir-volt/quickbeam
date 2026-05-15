@@ -1454,8 +1454,8 @@ defmodule QuickBEAM.VM.Runtime.String do
 
       :none ->
         if global?,
-          do: regex_replace_all(s, bytecode, replacement, 0, []),
-          else: regex_replace_first(s, bytecode, replacement)
+          do: regex_replace_all(s, bytecode, source, replacement, 0, []),
+          else: regex_replace_first(s, bytecode, source, replacement)
     end
   end
 
@@ -1682,6 +1682,19 @@ defmodule QuickBEAM.VM.Runtime.String do
     end
   end
 
+  defp named_capture_values(source, capture_strings) when is_binary(source) and is_list(capture_strings) do
+    names =
+      ~r/\(\?<([^>]+)>/
+      |> Regex.scan(source, capture: :all_but_first)
+      |> Enum.map(fn [name] -> name end)
+
+    names
+    |> Enum.with_index()
+    |> Enum.reduce(%{}, fn {name, index}, acc ->
+      Map.put(acc, name, Enum.at(capture_strings, index, :undefined))
+    end)
+  end
+
   defp named_capture_values(regex, s) do
     case Regex.names(regex) do
       [] ->
@@ -1697,7 +1710,7 @@ defmodule QuickBEAM.VM.Runtime.String do
     end
   end
 
-  defp regex_replace_first(s, bytecode, replacement) do
+  defp regex_replace_first(s, bytecode, source, replacement) do
     case RegExp.nif_exec(bytecode, s, 0) do
       nil ->
         s
@@ -1710,6 +1723,7 @@ defmodule QuickBEAM.VM.Runtime.String do
           binary_part(s, match_start + match_len, byte_size(s) - match_start - match_len)
 
         capture_strings = capture_strings(s, captures)
+        named_captures = named_capture_values(source, capture_strings)
 
         before <>
           replacement_text(
@@ -1719,12 +1733,13 @@ defmodule QuickBEAM.VM.Runtime.String do
             after_str,
             capture_strings,
             match_start,
-            s
+            s,
+            named_captures
           ) <> after_str
     end
   end
 
-  defp regex_replace_all(s, bytecode, replacement, offset, acc) do
+  defp regex_replace_all(s, bytecode, source, replacement, offset, acc) do
     case RegExp.nif_exec(bytecode, s, offset) do
       nil ->
         IO.iodata_to_binary(acc ++ [binary_part(s, offset, byte_size(s) - offset)])
@@ -1738,6 +1753,7 @@ defmodule QuickBEAM.VM.Runtime.String do
           binary_part(s, match_start + match_len, byte_size(s) - match_start - match_len)
 
         capture_strings = capture_strings(s, captures)
+        named_captures = named_capture_values(source, capture_strings)
 
         rep =
           replacement_text(
@@ -1747,11 +1763,12 @@ defmodule QuickBEAM.VM.Runtime.String do
             after_str,
             capture_strings,
             match_start,
-            s
+            s,
+            named_captures
           )
 
         next_offset = match_start + max(match_len, 1)
-        regex_replace_all(s, bytecode, replacement, next_offset, acc ++ [before_match, rep])
+        regex_replace_all(s, bytecode, source, replacement, next_offset, acc ++ [before_match, rep])
     end
   end
 
@@ -1776,9 +1793,11 @@ defmodule QuickBEAM.VM.Runtime.String do
          named_captures
        ) do
     if Builtin.callable?(replacement) do
+      args = [matched | captures] ++ [index, input] ++ groups_replacer_args(named_captures)
+
       replacement
       |> Invocation.invoke_with_receiver(
-        [matched | captures] ++ [index, input],
+        args,
         Runtime.gas_budget(),
         :undefined
       )
@@ -1801,9 +1820,23 @@ defmodule QuickBEAM.VM.Runtime.String do
     |> String.replace("\0", "$")
   end
 
+  defp groups_replacer_args(named_captures) when map_size(named_captures) == 0, do: []
+
+  defp groups_replacer_args(named_captures) do
+    groups =
+      named_captures
+      |> Enum.reduce(%{:__internal_proto__ => nil}, fn {name, value}, acc -> Map.put(acc, name, value) end)
+      |> Heap.wrap()
+
+    [groups]
+  end
+
   defp replace_named_capture_substitutions(rep, named_captures) do
     Regex.replace(~r/\$<([^>]+)>/, rep, fn _match, name ->
-      Map.get(named_captures, name, "")
+      case Map.get(named_captures, name, "") do
+        :undefined -> ""
+        value -> value
+      end
     end)
   end
 
