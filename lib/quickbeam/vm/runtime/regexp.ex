@@ -2,6 +2,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   @moduledoc "JS `RegExp` built-in: `test`, `exec`, `toString`, and NIF-backed regex matching against JS bytecode patterns."
 
   use QuickBEAM.VM.Builtin
+  import QuickBEAM.VM.Heap.Keys, only: [key_order: 0]
+
   alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.Interpreter.Values
@@ -228,7 +230,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
     names
     |> Enum.zip(values)
-    |> Enum.reduce(%{:__internal_proto__ => nil}, fn {name, value}, acc -> Map.put(acc, name, value) end)
+    |> Enum.reduce(%{:__internal_proto__ => nil, key_order() => Enum.reverse(names)}, fn {name, value}, acc -> Map.put(acc, name, value) end)
     |> Heap.wrap()
   end
 
@@ -239,7 +241,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
     names
     |> Enum.zip(values)
-    |> Enum.reduce(%{:__internal_proto__ => nil}, fn {name, value}, acc -> Map.put(acc, name, value) end)
+    |> Enum.reduce(%{:__internal_proto__ => nil, key_order() => Enum.reverse(names)}, fn {name, value}, acc -> Map.put(acc, name, value) end)
     |> Heap.wrap()
   end
 

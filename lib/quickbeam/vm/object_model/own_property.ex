@@ -830,7 +830,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   end
 
   defp descriptor_internal_key?(key)
-       when key in [key_order(), proto(), proxy_target(), proxy_handler()],
+       when key in [key_order(), proto(), proxy_target(), proxy_handler(), :__internal_proto__],
        do: true
 
   defp descriptor_internal_key?(key) when is_binary(key),
