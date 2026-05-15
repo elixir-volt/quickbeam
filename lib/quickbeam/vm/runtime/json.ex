@@ -201,17 +201,22 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
   defp encode_raw_json(%Jason.OrderedObject{values: pairs} = object, opts) do
     with {:ok, json} <- Jason.encode(raw_placeholder(object), opts) do
-      {:ok, restore_raw_placeholders(json, pairs)}
+      {:ok, json |> restore_raw_placeholders(pairs) |> normalize_json_escapes()}
     end
   end
 
   defp encode_raw_json(list, opts) when is_list(list) do
     with {:ok, json} <- Jason.encode(raw_placeholder(list), opts) do
-      {:ok, restore_raw_placeholders(json, list)}
+      {:ok, json |> restore_raw_placeholders(list) |> normalize_json_escapes()}
     end
   end
 
-  defp encode_raw_json(value, opts), do: Jason.encode(value, opts)
+  defp encode_raw_json(value, opts) do
+    case Jason.encode(value, opts) do
+      {:ok, json} -> {:ok, normalize_json_escapes(json)}
+      other -> other
+    end
+  end
 
   defp raw_placeholder({:__raw_json__, json}), do: raw_token(json)
 
@@ -225,6 +230,10 @@ defmodule QuickBEAM.VM.Runtime.JSON do
     value
     |> raw_json_entries()
     |> Enum.reduce(json, fn {token, raw}, acc -> String.replace(acc, Jason.encode!(token), raw) end)
+  end
+
+  defp normalize_json_escapes(json) do
+    Regex.replace(~r/\\u[0-9A-Fa-f]{4}/, json, &String.downcase/1)
   end
 
   defp raw_json_entries({:__raw_json__, json}), do: [{raw_token(json), json}]
