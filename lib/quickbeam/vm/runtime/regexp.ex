@@ -3,10 +3,17 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   use QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Execution.RegexpState
-  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.ObjectModel.Get
   alias QuickBEAM.VM.Runtime.String, as: JSString
+
+  static "escape", length: 1, constructable: false do
+    case args do
+      [value | _] when is_binary(value) -> regexp_escape(value)
+      _ -> JSThrow.type_error!("RegExp.escape requires a string")
+    end
+  end
 
   proto "test" do
     test(this, args)
@@ -432,6 +439,48 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
       {:ok, flags} -> flags
       :error -> Get.regexp_flags(bytecode)
     end
+  end
+
+  defp regexp_escape(string) do
+    string
+    |> String.to_charlist()
+    |> Enum.with_index()
+    |> Enum.map_join(fn {cp, index} -> escape_codepoint(cp, index == 0) end)
+  end
+
+  defp escape_codepoint(cp, true) when cp in ?0..?9 or cp in ?A..?Z or cp in ?a..?z,
+    do: "\\x" <> hex2(cp)
+
+  defp escape_codepoint(cp, _first) when cp in ~c"^$\\.*+?()[]{}|/", do: "\\" <> <<cp::utf8>>
+  defp escape_codepoint(?\t, _first), do: "\\t"
+  defp escape_codepoint(?\n, _first), do: "\\n"
+  defp escape_codepoint(?\v, _first), do: "\\v"
+  defp escape_codepoint(?\f, _first), do: "\\f"
+  defp escape_codepoint(?\r, _first), do: "\\r"
+  defp escape_codepoint(?\s, _first), do: "\\x20"
+
+  defp escape_codepoint(cp, _first) when cp in ~c",-=<>#&!%:;@~'`\"",
+    do: "\\x" <> hex2(cp)
+
+  defp escape_codepoint(cp, _first) when cp < 0x20 or cp > 0x7E, do: unicode_escape(cp)
+  defp escape_codepoint(cp, _first), do: <<cp::utf8>>
+
+  defp hex2(cp) do
+    cp
+    |> Integer.to_string(16)
+    |> String.downcase()
+    |> String.pad_leading(2, "0")
+  end
+
+  defp unicode_escape(cp) when cp <= 0xFFFF do
+    "\\u" <> (Integer.to_string(cp, 16) |> String.downcase() |> String.pad_leading(4, "0"))
+  end
+
+  defp unicode_escape(cp) do
+    value = cp - 0x10000
+    high = 0xD800 + Bitwise.bsr(value, 10)
+    low = 0xDC00 + Bitwise.band(value, 0x3FF)
+    unicode_escape(high) <> unicode_escape(low)
   end
 
   defp utf8_to_latin1(bin) do
