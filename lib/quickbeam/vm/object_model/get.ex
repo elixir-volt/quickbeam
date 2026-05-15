@@ -778,6 +778,10 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp get_own(_, _), do: :undefined
 
+  defp regexp_instance_property(_regexp, key) when key in ["global", "ignoreCase", "multiline"] do
+    RegExp.proto_accessor(key)
+  end
+
   defp regexp_instance_property({:regexp, _, _, ref}, key) do
     case RegexpState.fetch(ref, proto()) do
       {:ok, instance_proto} ->

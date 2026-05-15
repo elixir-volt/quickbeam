@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   @moduledoc "JS `RegExp` built-in: `test`, `exec`, `toString`, and NIF-backed regex matching against JS bytecode patterns."
 
   use QuickBEAM.VM.Builtin
+  alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.ObjectModel.Get
@@ -398,8 +399,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     end
   end
 
-  defp regexp_to_string({:regexp, bytecode, source, _ref}) do
-    flags = Get.regexp_flags(bytecode)
+  defp regexp_to_string({:regexp, bytecode, source, ref}) do
+    flags = regexp_flags(bytecode, ref)
     "/#{source}/#{flags}"
   end
 
@@ -420,10 +421,17 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
       fn _, this ->
         case this do
           {:regexp, bytecode, _source} -> String.contains?(Get.regexp_flags(bytecode), flag)
-          {:regexp, bytecode, _source, _ref} -> String.contains?(Get.regexp_flags(bytecode), flag)
+          {:regexp, bytecode, _source, ref} -> String.contains?(regexp_flags(bytecode, ref), flag)
           _ -> false
         end
       end}, nil}
+  end
+
+  defp regexp_flags(bytecode, ref) do
+    case RegexpState.fetch(ref, "flags") do
+      {:ok, flags} -> flags
+      :error -> Get.regexp_flags(bytecode)
+    end
   end
 
   defp utf8_to_latin1(bin) do

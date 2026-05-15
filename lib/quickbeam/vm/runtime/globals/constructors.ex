@@ -253,8 +253,8 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
     flags =
       case rest do
-        [value | _] -> QuickBEAM.VM.Runtime.stringify(value)
-        _ -> ""
+        [value | _] when value != :undefined -> QuickBEAM.VM.Runtime.stringify(value)
+        _ -> regexp_source_flags(pattern)
       end
 
     ref = make_ref()
@@ -274,6 +274,19 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
     {:regexp, nil, source, ref}
   end
+
+  defp regexp_source_flags({:regexp, bytecode, _source}) do
+    QuickBEAM.VM.ObjectModel.Get.regexp_flags(bytecode)
+  end
+
+  defp regexp_source_flags({:regexp, bytecode, _source, ref}) do
+    case RegexpState.fetch(ref, "flags") do
+      {:ok, flags} -> flags
+      :error -> QuickBEAM.VM.ObjectModel.Get.regexp_flags(bytecode)
+    end
+  end
+
+  defp regexp_source_flags(_), do: ""
 
   @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def proxy([target, handler | _], _) do
