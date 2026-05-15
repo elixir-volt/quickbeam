@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.CoreConstructorInstaller do
   @moduledoc "Installs small core constructors that do not need dedicated installer modules."
 
+  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.ObjectModel.PropertyDescriptor
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.Boolean
   alias QuickBEAM.VM.Runtime.Constructors, as: ConstructorRegistry
@@ -71,6 +73,12 @@ defmodule QuickBEAM.VM.Runtime.CoreConstructorInstaller do
   defp install_promise_prototype(ctor) do
     InstallerHelpers.with_prototype(ctor, fn proto_ref ->
       InstallerHelpers.install_object_parent(proto_ref)
+
+      for name <- ~w(then catch finally) do
+        Heap.put_prop_desc(proto_ref, name, PropertyDescriptor.method())
+      end
+
+      InstallerHelpers.install_to_string_tag(proto_ref, "Promise")
       InstallerHelpers.install_constructor_link(proto_ref, ctor)
     end)
   end
