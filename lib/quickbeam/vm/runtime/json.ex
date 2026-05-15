@@ -13,6 +13,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   @method_lengths %{"parse" => 2, "stringify" => 3, "rawJSON" => 1, "isRawJSON" => 1}
   @property_list_key {__MODULE__, :property_list}
   @seen_refs_key {__MODULE__, :seen_refs}
+  @replacer_function_key {__MODULE__, :replacer_function}
 
   def install_metadata({:builtin, _name, map} = json) when is_map(map) do
     Enum.each(@method_lengths, fn {name, length} ->
@@ -179,6 +180,8 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
       previous_property_list = Process.get(@property_list_key)
       previous_seen_refs = Process.get(@seen_refs_key)
+      previous_replacer_function = Process.get(@replacer_function_key)
+      install_replacer_function(replacer)
       install_replacer_property_list(replacer)
       Process.put(@seen_refs_key, MapSet.new())
 
@@ -191,6 +194,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
       after
         restore_replacer_property_list(previous_property_list)
         restore_seen_refs(previous_seen_refs)
+        restore_replacer_function(previous_replacer_function)
       end
     end
   end
@@ -217,6 +221,15 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
     {:obj, ref}
   end
+
+  defp install_replacer_function(replacer) do
+    if QuickBEAM.VM.Builtin.callable?(replacer),
+      do: Process.put(@replacer_function_key, replacer),
+      else: Process.delete(@replacer_function_key)
+  end
+
+  defp restore_replacer_function(nil), do: Process.delete(@replacer_function_key)
+  defp restore_replacer_function(replacer), do: Process.put(@replacer_function_key, replacer)
 
   defp install_replacer_property_list({:obj, _} = replacer) do
     case replacer_property_list(replacer) do
@@ -352,7 +365,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
   defp apply_replacer({:ordered_map, pairs}, replacer)
        when replacer != nil and replacer != :undefined do
-    if QuickBEAM.VM.Builtin.callable?(replacer) do
+    if QuickBEAM.VM.Builtin.callable?(replacer) and Process.get(@replacer_function_key) == nil do
       filtered =
         Enum.reduce(pairs, [], fn {k, v}, acc ->
           result = Runtime.call_callback(replacer, [k, v])
@@ -424,10 +437,23 @@ defmodule QuickBEAM.VM.Runtime.JSON do
         %{}
 
       {:qb_arr, arr} ->
-        :array.to_list(arr) |> Enum.map(&to_json/1)
+        arr
+        |> :array.to_list()
+        |> Enum.with_index()
+        |> Enum.map(fn {value, index} ->
+          value
+          |> apply_property_replacer(Integer.to_string(index), obj)
+          |> to_json()
+        end)
 
       list when is_list(list) ->
-        Enum.map(list, &to_json/1)
+        list
+        |> Enum.with_index()
+        |> Enum.map(fn {value, index} ->
+          value
+          |> apply_property_replacer(Integer.to_string(index), obj)
+          |> to_json()
+        end)
 
       %{proxy_target() => _target, "__proxy_revoked__" => true} ->
         JSThrow.type_error!("Cannot perform operation on a revoked proxy")
@@ -461,7 +487,11 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
             pairs =
               entries
-              |> Enum.map(fn {k, v} -> {to_string(k), to_json(resolve_value(v, obj))} end)
+              |> Enum.map(fn {k, v} ->
+                key = to_string(k)
+                value = v |> resolve_value(obj) |> apply_property_replacer(key, obj) |> to_json()
+                {key, value}
+              end)
               |> Enum.reject(fn {_, v} -> v == :undefined end)
 
             {:ordered_map, pairs}
@@ -523,6 +553,13 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   defp json_array_like?({:qb_arr, _}), do: true
   defp json_array_like?(list) when is_list(list), do: true
   defp json_array_like?(_), do: false
+
+  defp apply_property_replacer(value, key, holder) do
+    case Process.get(@replacer_function_key) do
+      nil -> value
+      replacer -> QuickBEAM.VM.Invocation.call_callback!(replacer, [key, value], holder)
+    end
+  end
 
   defp with_json_ref(ref, fun) do
     seen_refs = Process.get(@seen_refs_key, MapSet.new())
