@@ -7,8 +7,9 @@ defmodule QuickBEAM.VM.Runtime.Math do
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Values
-  alias QuickBEAM.VM.ObjectModel.PropertyDescriptor
+  alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor}
   alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Semantics.Iterators
 
   @method_lengths %{
     "abs" => 1,
@@ -343,28 +344,10 @@ defmodule QuickBEAM.VM.Runtime.Math do
     end
 
     method "sumPrecise" do
-      list =
-        case hd(args) do
-          {:obj, ref} ->
-            data = Heap.get_obj(ref, [])
-
-            case data do
-              {:qb_arr, arr} -> :array.to_list(arr)
-              l when is_list(l) -> l
-              _ -> []
-            end
-
-          {:qb_arr, arr} ->
-            :array.to_list(arr)
-
-          l when is_list(l) ->
-            l
-
-          _ ->
-            []
-        end
-
-      shewchuk_sum(list)
+      case args do
+        [iterable | _] -> iterable |> sum_precise_values() |> shewchuk_sum()
+        [] -> QuickBEAM.VM.JSThrow.type_error!("Math.sumPrecise requires an iterable")
+      end
     end
 
     method "hypot" do
@@ -561,6 +544,45 @@ defmodule QuickBEAM.VM.Runtime.Math do
 
   defp odd_integer?(value), do: is_integer(value) or (is_float(value) and value == trunc(value) and rem(trunc(value), 2) != 0)
 
+  defp sum_precise_values({:obj, ref} = iterable) do
+    ensure_sum_iterable!(iterable, Heap.get_obj(ref, %{}))
+    {iter, next_fn} = Iterators.for_of_start(iterable)
+    collect_sum_values(iter, next_fn, [])
+  end
+
+  defp sum_precise_values({:qb_arr, arr}), do: :array.to_list(arr)
+  defp sum_precise_values(list) when is_list(list), do: list
+  defp sum_precise_values(_), do: QuickBEAM.VM.JSThrow.type_error!("Math.sumPrecise requires an iterable")
+
+  defp ensure_sum_iterable!(_iterable, {:qb_arr, _}), do: :ok
+  defp ensure_sum_iterable!(_iterable, list) when is_list(list), do: :ok
+
+  defp ensure_sum_iterable!(iterable, map) when is_map(map) do
+    sym_iter = {:symbol, "Symbol.iterator"}
+
+    unless Get.get(iterable, sym_iter) |> QuickBEAM.VM.Builtin.callable?() or
+             QuickBEAM.VM.Builtin.callable?(Get.get(iterable, "next")) do
+      QuickBEAM.VM.JSThrow.type_error!("Math.sumPrecise requires an iterable")
+    end
+  end
+
+  defp ensure_sum_iterable!(_iterable, _), do: QuickBEAM.VM.JSThrow.type_error!("Math.sumPrecise requires an iterable")
+
+  defp collect_sum_values(iter, next_fn, acc) do
+    case Iterators.for_of_next(next_fn, iter) do
+      {true, _value, _new_iter} ->
+        Enum.reverse(acc)
+
+      {false, value, new_iter} ->
+        unless sum_number?(value) do
+          Iterators.iterator_close(new_iter)
+          QuickBEAM.VM.JSThrow.type_error!("Math.sumPrecise requires numbers")
+        end
+
+        collect_sum_values(new_iter, next_fn, [value | acc])
+    end
+  end
+
   defp shewchuk_sum(list) do
     validate_sum_numbers!(list)
 
@@ -586,10 +608,12 @@ defmodule QuickBEAM.VM.Runtime.Math do
   end
 
   defp validate_sum_numbers!(list) do
-    unless Enum.all?(list, &(is_number(&1) or &1 in [:nan, :infinity, :neg_infinity])) do
+    unless Enum.all?(list, &sum_number?/1) do
       QuickBEAM.VM.JSThrow.type_error!("Math.sumPrecise requires numbers")
     end
   end
+
+  defp sum_number?(value), do: is_number(value) or value in [:nan, :infinity, :neg_infinity]
 
   defp all_negative_zero?([]), do: true
   defp all_negative_zero?(list), do: Enum.all?(list, &Values.neg_zero?/1)
