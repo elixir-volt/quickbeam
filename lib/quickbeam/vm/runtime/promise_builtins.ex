@@ -86,14 +86,11 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
   end
 
   static "resolve" do
-    case args do
-      [val | _] -> PromiseState.adopt(val)
-      [] -> PromiseState.resolved(:undefined)
-    end
+    promise_resolve(this, arg(args, 0, :undefined))
   end
 
   static "reject" do
-    args |> arg(0, :undefined) |> PromiseState.rejected()
+    promise_reject(this, arg(args, 0, :undefined))
   end
 
   static "all" do
@@ -126,6 +123,22 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
 
   static "withResolvers", length: 0 do
     with_resolvers(this)
+  end
+
+  defp promise_resolve({:builtin, "Promise", _}, value), do: PromiseState.adopt(value)
+
+  defp promise_resolve(constructor, value) do
+    {promise, resolve, _reject} = new_promise_capability(constructor)
+    Invocation.invoke(resolve, [value])
+    promise
+  end
+
+  defp promise_reject({:builtin, "Promise", _}, reason), do: PromiseState.rejected(reason)
+
+  defp promise_reject(constructor, reason) do
+    {promise, _resolve, reject} = new_promise_capability(constructor)
+    Invocation.invoke(reject, [reason])
+    promise
   end
 
   defp unwrap_value({:obj, r} = obj) do
@@ -343,18 +356,17 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
     Heap.put_obj(captured, %{})
 
     executor =
-      {:builtin, "",
-       fn args, _ ->
-         resolve = arg(args, 0, :undefined)
-         reject = arg(args, 1, :undefined)
+      capability_executor(fn args ->
+        resolve = arg(args, 0, :undefined)
+        reject = arg(args, 1, :undefined)
 
-         unless QuickBEAM.VM.Builtin.callable?(resolve) and QuickBEAM.VM.Builtin.callable?(reject) do
-           JSThrow.type_error!("Promise capability executor arguments must be callable")
-         end
+        unless QuickBEAM.VM.Builtin.callable?(resolve) and QuickBEAM.VM.Builtin.callable?(reject) do
+          JSThrow.type_error!("Promise capability executor arguments must be callable")
+        end
 
-         Heap.put_obj(captured, %{"resolve" => resolve, "reject" => reject})
-         :undefined
-       end}
+        Heap.put_obj(captured, %{"resolve" => resolve, "reject" => reject})
+        :undefined
+      end)
 
     promise = Invocation.construct_runtime(constructor, constructor, [executor])
 
@@ -362,6 +374,15 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
       %{"resolve" => resolve, "reject" => reject} -> {promise, resolve, reject}
       _ -> JSThrow.type_error!("Promise constructor did not provide resolving functions")
     end
+  end
+
+  defp capability_executor(callback) when is_function(callback, 1) do
+    fun = {:builtin, "__promiseCapabilityExecutor", fn args, _ -> callback.(args) end}
+    Heap.put_ctor_static(fun, "length", 2)
+    Heap.put_ctor_static(fun, "name", "")
+    Heap.put_ctor_prop_desc(fun, "length", PropertyDescriptor.hidden_readonly())
+    Heap.put_ctor_prop_desc(fun, "name", PropertyDescriptor.hidden_readonly())
+    fun
   end
 
   defp resolving_function(callback) when is_function(callback, 1) do

@@ -517,6 +517,9 @@ defmodule QuickBEAM.VM.Builtin do
   def named_meta("withResolvers"),
     do: meta("withResolvers", [length: 0, constructable: false], :static)
 
+  def named_meta("__promiseCapabilityExecutor"),
+    do: meta("__promiseCapabilityExecutor", [length: 2, constructable: false], :static)
+
   def named_meta("isError"), do: meta("isError", [length: 1, constructable: false], :static)
 
   def named_meta(name)
