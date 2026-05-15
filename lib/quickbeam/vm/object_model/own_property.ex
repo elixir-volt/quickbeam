@@ -391,11 +391,14 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
         )
 
       {:ok, value} ->
-        PropertyDescriptor.data_object(
-          value,
-          Heap.get_prop_desc(ref, key) ||
+        default_attrs =
+          if key == "lastIndex" do
+            PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: false)
+          else
             PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: true)
-        )
+          end
+
+        PropertyDescriptor.data_object(value, Heap.get_prop_desc(ref, key) || default_attrs)
 
       :error ->
         :undefined

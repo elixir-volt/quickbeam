@@ -328,7 +328,8 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
           |> RegexpState.get()
           |> Map.keys()
           |> Enum.filter(fn key ->
-            is_binary(key) and not match?(%{enumerable: false}, Heap.get_prop_desc(ref, key))
+            is_binary(key) and key not in ["flags", "source", "lastIndex"] and
+              not match?(%{enumerable: false}, Heap.get_prop_desc(ref, key))
           end)
       end
 

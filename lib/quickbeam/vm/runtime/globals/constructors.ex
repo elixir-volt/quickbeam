@@ -355,7 +355,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   defp invalid_regexp_source?(source) do
     starts_with_quantifier?(source) or dangling_escape?(source) or
       repeated_quantifier?(source) or adjacent_interval_quantifiers?(source) or invalid_class_range?(source) or
-      descending_character_range?(source)
+      descending_character_range?(source) or invalid_interval_quantifier?(source)
   end
 
   defp starts_with_quantifier?(<<first::binary-size(1), _::binary>>), do: first in ["*", "+", "?"]
@@ -376,6 +376,12 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
   defp adjacent_interval_quantifiers?(source) do
     Regex.match?(~r/\{\d+(?:,\d*)?\}\{\d+(?:,\d*)?\}/, source)
+  end
+
+  defp invalid_interval_quantifier?(source) do
+    ~r/\{(\d+),(\d+)\}/
+    |> Regex.scan(source, capture: :all_but_first)
+    |> Enum.any?(fn [min, max] -> String.to_integer(max) < String.to_integer(min) end)
   end
 
   defp invalid_class_range?(source) do
