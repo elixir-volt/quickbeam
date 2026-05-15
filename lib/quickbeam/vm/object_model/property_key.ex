@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.ObjectModel.PropertyKey do
 
   @doc "Normalize a JS value to a property key (string or symbol)."
   def normalize(k) when is_binary(k), do: k
+  def normalize({:symbol, "Symbol." <> _ = name, _ref}), do: {:symbol, name}
   def normalize(k) when is_symbol(k), do: k
   def normalize(k) when is_integer(k) and k >= 0, do: Integer.to_string(k)
   def normalize(k) when is_float(k), do: QuickBEAM.VM.Interpreter.Values.stringify(k)

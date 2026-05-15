@@ -1186,22 +1186,17 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     Get.get(obj, key)
   end
 
-  def get_element({:builtin, _, _} = b, {:symbol, _} = sym_key) do
-    case Map.get(Heap.get_ctor_statics(b), sym_key) do
-      {:accessor, getter, _} when getter != nil ->
-        Runtime.call_callback(getter, [])
+  def get_element({:builtin, _, _} = b, {:symbol, _} = sym_key), do: Get.get(b, sym_key)
 
-      nil ->
-        :undefined
-
-      val ->
-        val
-    end
-  end
+  def get_element({:builtin, _, _} = b, {:symbol, _, _} = sym_key),
+    do: Get.get(b, PropertyKey.normalize(sym_key))
 
   def get_element({:regexp, _, _, _} = regexp, key) do
     Get.get(regexp, PropertyKey.normalize(key))
   end
+
+  def get_element({:obj, _} = obj, {:symbol, _, _} = sym_key),
+    do: Get.get(obj, PropertyKey.normalize(sym_key))
 
   def get_element({:obj, ref}, {:symbol, _} = sym_key) do
     case Heap.get_obj(ref, %{}) do

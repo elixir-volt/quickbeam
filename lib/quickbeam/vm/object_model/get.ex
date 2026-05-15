@@ -58,16 +58,20 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     do: get(value, Integer.to_string(key))
 
   def get({:obj, _} = value, {:symbol, _} = sym_key), do: get_symbol(value, sym_key)
-  def get({:obj, _} = value, {:symbol, _, _} = sym_key), do: get_symbol(value, sym_key)
+
+  def get({:obj, _} = value, {:symbol, _, _} = sym_key),
+    do: get_symbol(value, PropertyKey.normalize(sym_key))
 
   def get(value, {:symbol, "Symbol.hasInstance"} = sym_key),
     do: get_callable_symbol(value, sym_key)
 
   def get(value, {:symbol, "Symbol.hasInstance", _} = sym_key),
-    do: get_callable_symbol(value, sym_key)
+    do: get_callable_symbol(value, PropertyKey.normalize(sym_key))
 
   def get(value, {:symbol, _} = sym_key), do: get_symbol_own(value, sym_key)
-  def get(value, {:symbol, _, _} = sym_key), do: get_symbol_own(value, sym_key)
+
+  def get(value, {:symbol, _, _} = sym_key),
+    do: get_symbol_own(value, PropertyKey.normalize(sym_key))
 
   def get(_, _), do: :undefined
 
