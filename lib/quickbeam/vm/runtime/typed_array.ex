@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Runtime.Array
 
   @types %{
     "Uint8Array" => :uint8,
@@ -83,24 +84,14 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
           "__fixed_length__" => len,
           "__fixed_byte_length__" => len * elem_size(type),
           "buffer" => orig_buf || make_buffer_ref(buf),
+          "entries" =>
+            {:builtin, "entries", fn _, this -> Array.make_array_iterator(this, :entries) end},
+          "keys" => {:builtin, "keys", fn _, this -> Array.make_array_iterator(this, :keys) end},
+          "values" =>
+            {:builtin, "values", fn _, this -> Array.make_array_iterator(this, :values) end},
           sym_iter =>
             {:builtin, "[Symbol.iterator]",
-             fn _args, this ->
-               case this do
-                 {:obj, iter_ref} ->
-                   l = Map.get(Heap.get_obj(iter_ref, %{}), "length", 0)
-
-                   list =
-                     if l > 0,
-                       do: for(i <- 0..(l - 1), do: get_element({:obj, iter_ref}, i)),
-                       else: []
-
-                   Heap.wrap_iterator(list)
-
-                 _ ->
-                   Heap.wrap_iterator([])
-               end
-             end}
+             fn _, this -> Array.make_array_iterator(this, :values) end}
         })
 
       Heap.put_obj(ref, obj)

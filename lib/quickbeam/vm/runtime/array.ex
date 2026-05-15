@@ -3053,7 +3053,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     end)
   end
 
-  defp make_array_iterator(arr, mode) do
+  def make_array_iterator(arr, mode) do
     list_fn = array_iterator_list_fn(arr)
     idx_ref = :atomics.new(2, signed: false)
 
