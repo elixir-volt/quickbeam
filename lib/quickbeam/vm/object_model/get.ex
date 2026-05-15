@@ -392,7 +392,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
       :bigint ->
         {:ok, value} = WrappedPrimitive.value(map, :bigint)
-        get_own(value, key)
+        get(value, key)
 
       _ ->
         :undefined
@@ -1081,7 +1081,8 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp get_from_prototype({:symbol, _, _}, key), do: primitive_class_proto(key, "Symbol")
   defp get_from_prototype({:symbol, _}, key), do: primitive_class_proto(key, "Symbol")
-  defp get_from_prototype({:bigint, _}, key), do: primitive_class_proto(key, "BigInt")
+  defp get_from_prototype({:bigint, _} = receiver, key),
+    do: primitive_or_class_proto(:undefined, key, "BigInt", receiver)
 
   defp get_from_prototype(%QuickBEAM.VM.Function{} = f, "constructor"),
     do: function_kind_constructor(f)
