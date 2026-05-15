@@ -6,7 +6,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   import QuickBEAM.VM.Heap.Keys, only: [key_order: 0]
 
   alias QuickBEAM.VM.{Builtin, Heap, Invocation, JSThrow}
-  alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor}
+  alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor, Put}
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Runtime
 
@@ -49,6 +49,8 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   def proto_property({:symbol, "Symbol.dispose"}), do: method("[Symbol.dispose]", 0, &dispose/2)
+  def proto_property({:symbol, "Symbol.toStringTag"}), do: iterator_proto_accessor(:to_string_tag)
+  def proto_property("constructor"), do: iterator_proto_accessor(:constructor)
 
   def proto_property("drop"), do: method("drop", 1, &drop/2)
   def proto_property("filter"), do: method("filter", 1, &filter/2)
@@ -75,6 +77,40 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   def from([value | _], _this), do: from_value(value)
   def from(_, _this), do: JSThrow.type_error!("Iterator.from requires an object")
+
+  def iterator_proto_accessor(:constructor) do
+    getter = {:builtin, "get constructor", fn _args, _this -> Runtime.global_constructor("Iterator") end}
+    setter = {:builtin, "set constructor", fn [value | _], this -> set_iterator_proto_slot(this, "constructor", value) end}
+    {:accessor, getter, setter}
+  end
+
+  def iterator_proto_accessor(:to_string_tag) do
+    getter = {:builtin, "get [Symbol.toStringTag]", fn _args, _this -> "Iterator" end}
+
+    setter =
+      {:builtin, "set [Symbol.toStringTag]", fn [value | _], this ->
+        set_iterator_proto_slot(this, {:symbol, "Symbol.toStringTag"}, value)
+      end}
+
+    {:accessor, getter, setter}
+  end
+
+  defp set_iterator_proto_slot({:obj, ref} = this, key, value) do
+    if this == Runtime.global_class_proto("Iterator") do
+      JSThrow.type_error!("Cannot set Iterator prototype intrinsic property")
+    end
+
+    if Heap.get_prop_desc(ref, key) == nil do
+      Heap.put_obj_key(ref, key, value)
+      Heap.put_prop_desc(ref, key, PropertyDescriptor.enumerable_data())
+    else
+      Put.set(this, key, value, this)
+    end
+
+    :undefined
+  end
+
+  defp set_iterator_proto_slot(_, _key, _value), do: JSThrow.type_error!("Iterator prototype setter receiver must be an object")
 
   def dispose(_args, this) do
     return_method = Get.get(this, "return")

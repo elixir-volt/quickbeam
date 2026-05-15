@@ -108,7 +108,8 @@ defmodule QuickBEAM.VM.Runtime.CoreConstructorInstaller do
     Heap.put_ctor_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
 
     InstallerHelpers.with_prototype(ctor, fn proto_ref ->
-      InstallerHelpers.install_constructor_link(proto_ref, ctor)
+      Heap.put_obj_key(proto_ref, "constructor", Iterator.proto_property("constructor"))
+      Heap.put_prop_desc(proto_ref, "constructor", PropertyDescriptor.accessor())
 
       InstallerHelpers.install_methods(
         proto_ref,
@@ -119,7 +120,8 @@ defmodule QuickBEAM.VM.Runtime.CoreConstructorInstaller do
       InstallerHelpers.install_symbol_iterator(proto_ref, Iterator)
       Heap.put_obj_key(proto_ref, {:symbol, "Symbol.dispose"}, Iterator.proto_property({:symbol, "Symbol.dispose"}))
       Heap.put_prop_desc(proto_ref, {:symbol, "Symbol.dispose"}, PropertyDescriptor.method())
-      InstallerHelpers.install_to_string_tag(proto_ref, "Iterator")
+      Heap.put_obj_key(proto_ref, {:symbol, "Symbol.toStringTag"}, Iterator.proto_property({:symbol, "Symbol.toStringTag"}))
+      Heap.put_prop_desc(proto_ref, {:symbol, "Symbol.toStringTag"}, PropertyDescriptor.accessor())
     end)
   end
 
