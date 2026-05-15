@@ -206,31 +206,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
   defp stringify([]), do: :undefined
 
-  defp apply_root_to_json({:bigint, _} = value) do
-    case Get.get(value, "toJSON") do
-      fun when fun != nil and fun != :undefined ->
-        if QuickBEAM.VM.Builtin.callable?(fun),
-          do: QuickBEAM.VM.Invocation.invoke_with_receiver(fun, [""], value),
-          else: value
-
-      _ ->
-        value
-    end
-  end
-
-  defp apply_root_to_json({:obj, _} = value) do
-    case Get.get(value, "toJSON") do
-      fun when fun != nil and fun != :undefined ->
-        if QuickBEAM.VM.Builtin.callable?(fun),
-          do: QuickBEAM.VM.Invocation.invoke_with_receiver(fun, [""], value),
-          else: value
-
-      _ ->
-        value
-    end
-  end
-
-  defp apply_root_to_json(value), do: value
+  defp apply_root_to_json(value), do: apply_to_json_hook(value, "")
 
   defp apply_root_replacer(value, replacer) do
     if QuickBEAM.VM.Builtin.callable?(replacer) do
@@ -489,12 +465,6 @@ defmodule QuickBEAM.VM.Runtime.JSON do
             to_json(value)
 
           true ->
-        case Map.get(map, "toJSON") do
-          fun when fun != nil and fun != :undefined ->
-            result = Runtime.call_callback(fun, [])
-            to_json(result)
-
-          _ ->
             order =
               case Map.get(map, key_order()) do
                 {:qb_arr, arr} -> :array.to_list(arr)
@@ -513,14 +483,13 @@ defmodule QuickBEAM.VM.Runtime.JSON do
               entries
               |> Enum.map(fn {k, v} ->
                 key = to_string(k)
-                replaced = v |> resolve_value(obj) |> apply_property_replacer(key, obj)
+                replaced = v |> resolve_value(obj) |> apply_to_json_hook(key) |> apply_property_replacer(key, obj)
                 value = if replaced == :undefined, do: :undefined, else: to_json(replaced)
                 {key, value}
               end)
               |> Enum.reject(fn {_, v} -> v == :undefined end)
 
             {:ordered_map, pairs}
-        end
         end
     end
     end)
@@ -553,28 +522,14 @@ defmodule QuickBEAM.VM.Runtime.JSON do
     end
   end
 
-  defp json_array_or_to_json(obj, values) do
-    case Get.get(obj, "toJSON") do
-      fun when fun != nil and fun != :undefined ->
-        if QuickBEAM.VM.Builtin.callable?(fun) do
-          case QuickBEAM.VM.Invocation.invoke_with_receiver(fun, [], obj) do
-            :undefined -> :undefined
-            result -> to_json(result)
-          end
-        else
-          json_array_values(obj, values)
-        end
-
-      _ ->
-        json_array_values(obj, values)
-    end
-  end
+  defp json_array_or_to_json(obj, values), do: json_array_values(obj, values)
 
   defp json_array_values(obj, values) do
     values
     |> Enum.with_index()
     |> Enum.map(fn {value, index} ->
-      replaced = apply_property_replacer(value, Integer.to_string(index), obj)
+      key = Integer.to_string(index)
+      replaced = value |> apply_to_json_hook(key) |> apply_property_replacer(key, obj)
       if replaced == :undefined, do: :null, else: to_json(replaced)
     end)
   end
@@ -617,6 +572,26 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   defp json_array_like?({:qb_arr, _}), do: true
   defp json_array_like?(list) when is_list(list), do: true
   defp json_array_like?(_), do: false
+
+  defp apply_to_json_hook(value, key) when is_binary(key) do
+    case value do
+      {:obj, _} -> invoke_to_json_hook(value, key)
+      {:bigint, _} -> invoke_to_json_hook(value, key)
+      _ -> value
+    end
+  end
+
+  defp invoke_to_json_hook(value, key) do
+    case Get.get(value, "toJSON") do
+      fun when fun != nil and fun != :undefined ->
+        if QuickBEAM.VM.Builtin.callable?(fun),
+          do: QuickBEAM.VM.Invocation.invoke_with_receiver(fun, [key], value),
+          else: value
+
+      _ ->
+        value
+    end
+  end
 
   defp apply_property_replacer(value, key, holder) do
     case Process.get(@replacer_function_key) do
