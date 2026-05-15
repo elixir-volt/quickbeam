@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
 
   use QuickBEAM.VM.Builtin
 
+  import Bitwise
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
 
   alias QuickBEAM.VM.{Heap, Invocation}
@@ -629,69 +630,115 @@ defmodule QuickBEAM.VM.Runtime.Math do
   defp all_negative_zero?(list), do: Enum.all?(list, &Values.neg_zero?/1)
 
   defp finite_sum(list) do
-    partials =
-      Enum.reduce(list, [], fn v, partials ->
-        x = Runtime.to_float(v)
-        grow(partials, x, [])
+    list
+    |> Enum.map(&Runtime.to_float/1)
+    |> exact_binary_sum()
+  end
+
+  defp exact_binary_sum([]), do: 0.0
+
+  defp exact_binary_sum(floats) do
+    decoded = Enum.map(floats, &decode_finite_float/1)
+    min_exp = decoded |> Enum.map(&elem(&1, 2)) |> Enum.min()
+
+    total =
+      Enum.reduce(decoded, 0, fn {sign, mantissa, exp}, acc ->
+        acc + sign * (mantissa <<< (exp - min_exp))
       end)
 
-    case partials do
-      [] -> 0.0
-      [x] -> x
-      _ -> partials |> Enum.reverse() |> finalize_partials()
-    end
+    exact_integer_to_float(total, min_exp)
   end
 
-  defp grow([], x, new_partials), do: if(x != 0.0, do: new_partials ++ [x], else: new_partials)
-
-  defp grow([p | rest], x, new_partials) do
-    {hi, lo} = two_sum(x, p)
-    new_partials = if lo != 0.0, do: new_partials ++ [lo], else: new_partials
-    grow(rest, hi, new_partials)
-  end
-
-  # CPython fsum-style finalization: detect halfway cases where
-  # remaining partials should break the tie
-  defp finalize_partials([]), do: 0.0
-  defp finalize_partials([x]), do: x
-
-  defp finalize_partials(partials) do
-    [hi | rest] = partials
-    {hi, lo, remaining} = fold_top(hi, rest)
+  defp decode_finite_float(float) do
+    <<sign_bit::1, exp_bits::11, fraction::52>> = <<float::float-64>>
+    sign = if sign_bit == 1, do: -1, else: 1
 
     cond do
-      lo == 0.0 ->
-        hi
-
-      remaining == [] ->
-        hi + lo
-
-      true ->
-        [next | _] = remaining
-        # lo is the rounding error. If remaining partials have the same sign
-        # as lo, the true value is farther from hi than lo suggests — round away
-        if (lo > 0 and next > 0) or (lo < 0 and next < 0) do
-          # Adjust lo to break tie in favor of rounding away from hi
-          nudged = lo + lo
-          result = hi + nudged
-          if result == hi + lo, do: hi + lo, else: result
-        else
-          hi + lo
-        end
+      exp_bits == 0 and fraction == 0 -> {sign, 0, 0}
+      exp_bits == 0 -> {sign, fraction, -1074}
+      true -> {sign, (1 <<< 52) + fraction, exp_bits - 1075}
     end
   end
 
-  defp fold_top(hi, []), do: {hi, 0.0, []}
+  defp exact_integer_to_float(0, _exp), do: 0.0
 
-  defp fold_top(hi, [lo | rest]) do
-    {s, t} = two_sum(hi, lo)
-    if t == 0.0, do: fold_top(s, rest), else: {s, t, rest}
+  defp exact_integer_to_float(total, exp) do
+    sign_bit = if total < 0, do: 1, else: 0
+    magnitude = abs(total)
+    bit_len = integer_bit_length(magnitude)
+    unbiased = exp + bit_len - 1
+
+    cond do
+      unbiased > 1023 ->
+        if sign_bit == 1, do: :neg_infinity, else: :infinity
+
+      unbiased < -1022 ->
+        subnormal_integer_to_float(sign_bit, magnitude, exp)
+
+      bit_len <= 53 ->
+        significand = magnitude <<< (53 - bit_len)
+        pack_float(sign_bit, unbiased + 1023, significand - (1 <<< 52))
+
+      true ->
+        normal_rounded_integer_to_float(sign_bit, magnitude, bit_len, unbiased)
+    end
   end
 
-  defp two_sum(a, b) do
-    s = a + b
-    v = s - a
-    t = a - (s - v) + (b - v)
-    {s, t}
+  defp normal_rounded_integer_to_float(sign_bit, magnitude, bit_len, unbiased) do
+    significand = round_shift_right(magnitude, bit_len - 53)
+
+    cond do
+      significand == 1 <<< 53 and unbiased == 1023 ->
+        if sign_bit == 1, do: :neg_infinity, else: :infinity
+
+      significand == 1 <<< 53 ->
+        pack_float(sign_bit, unbiased + 1024, 0)
+
+      true ->
+        pack_float(sign_bit, unbiased + 1023, significand - (1 <<< 52))
+    end
   end
+
+  defp subnormal_integer_to_float(sign_bit, magnitude, exp) do
+    shift = -(exp + 1074)
+    fraction = if shift <= 0, do: magnitude <<< -shift, else: round_shift_right(magnitude, shift)
+
+    cond do
+      fraction == 0 -> if sign_bit == 1, do: -0.0, else: 0.0
+      fraction >= 1 <<< 52 -> pack_float(sign_bit, 1, fraction - (1 <<< 52))
+      true -> pack_float(sign_bit, 0, fraction)
+    end
+  end
+
+  defp round_shift_right(value, shift) when shift <= 0, do: value <<< -shift
+
+  defp round_shift_right(value, shift) do
+    quotient = value >>> shift
+    remainder = value - (quotient <<< shift)
+    halfway = 1 <<< (shift - 1)
+
+    if remainder > halfway or (remainder == halfway and (quotient &&& 1) == 1),
+      do: quotient + 1,
+      else: quotient
+  end
+
+  defp pack_float(sign_bit, exp_bits, fraction) do
+    <<float::float-64>> = <<sign_bit::1, exp_bits::11, fraction::52>>
+    float
+  end
+
+  defp integer_bit_length(integer) do
+    bytes = :binary.encode_unsigned(integer)
+    <<first, _rest::binary>> = bytes
+    (:erlang.byte_size(bytes) - 1) * 8 + byte_bit_length(first)
+  end
+
+  defp byte_bit_length(byte) when byte >= 128, do: 8
+  defp byte_bit_length(byte) when byte >= 64, do: 7
+  defp byte_bit_length(byte) when byte >= 32, do: 6
+  defp byte_bit_length(byte) when byte >= 16, do: 5
+  defp byte_bit_length(byte) when byte >= 8, do: 4
+  defp byte_bit_length(byte) when byte >= 4, do: 3
+  defp byte_bit_length(byte) when byte >= 2, do: 2
+  defp byte_bit_length(_byte), do: 1
 end
