@@ -12,6 +12,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
   @method_lengths %{"parse" => 2, "stringify" => 3, "rawJSON" => 1, "isRawJSON" => 1}
   @property_list_key {__MODULE__, :property_list}
+  @seen_refs_key {__MODULE__, :seen_refs}
 
   def install_metadata({:builtin, _name, map} = json) when is_map(map) do
     Enum.each(@method_lengths, fn {name, length} ->
@@ -177,7 +178,9 @@ defmodule QuickBEAM.VM.Runtime.JSON do
       space = Enum.at(rest, 1)
 
       previous_property_list = Process.get(@property_list_key)
+      previous_seen_refs = Process.get(@seen_refs_key)
       install_replacer_property_list(replacer)
+      Process.put(@seen_refs_key, MapSet.new())
 
       try do
         result = to_json(val)
@@ -186,6 +189,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
         _ -> :undefined
       after
         restore_replacer_property_list(previous_property_list)
+        restore_seen_refs(previous_seen_refs)
       end
     end
   end
@@ -203,6 +207,9 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
   defp restore_replacer_property_list(nil), do: Process.delete(@property_list_key)
   defp restore_replacer_property_list(list), do: Process.put(@property_list_key, list)
+
+  defp restore_seen_refs(nil), do: Process.delete(@seen_refs_key)
+  defp restore_seen_refs(seen_refs), do: Process.put(@seen_refs_key, seen_refs)
 
   defp encode(result, replacer, space) do
     result = apply_replacer(result, replacer)
@@ -377,6 +384,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   defp property_list_item(_), do: nil
 
   defp to_json({:obj, ref} = obj) do
+    with_json_ref(ref, fn ->
     case Heap.get_obj(ref) do
       nil ->
         %{}
@@ -420,6 +428,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
         end
         end
     end
+    end)
   end
 
   defp to_json(nil), do: :null
@@ -435,6 +444,22 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   defp to_json(list) when is_list(list), do: Enum.map(list, &to_json/1)
   defp to_json({:accessor, _, _}), do: :undefined
   defp to_json(val), do: val
+
+  defp with_json_ref(ref, fun) do
+    seen_refs = Process.get(@seen_refs_key, MapSet.new())
+
+    if MapSet.member?(seen_refs, ref) do
+      JSThrow.type_error!("Converting circular structure to JSON")
+    else
+      Process.put(@seen_refs_key, MapSet.put(seen_refs, ref))
+
+      try do
+        fun.()
+      after
+        Process.put(@seen_refs_key, seen_refs)
+      end
+    end
+  end
 
   defp order_json_entries(entries, order) do
     case Process.get(@property_list_key) do
