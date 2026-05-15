@@ -2,6 +2,8 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
   @moduledoc "Minimal Test262 host hooks used by compatibility tests."
 
   alias QuickBEAM.VM.Heap
+  import QuickBEAM.VM.Heap.Keys, only: [buffer: 0]
+
   alias QuickBEAM.VM.Runtime.Array
   alias QuickBEAM.VM.Runtime.Boolean, as: JSBoolean
   alias QuickBEAM.VM.Runtime.Constructors, as: ConstructorRegistry
@@ -19,9 +21,28 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
 
   def object do
     Heap.wrap(%{
-      "createRealm" => {:builtin, "createRealm", fn _, _ -> create_realm() end}
+      "createRealm" => {:builtin, "createRealm", fn _, _ -> create_realm() end},
+      "detachArrayBuffer" =>
+        {:builtin, "detachArrayBuffer", fn args, _ -> detach_array_buffer(args) end}
     })
   end
+
+  defp detach_array_buffer([{:obj, ref} | _]) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        Heap.put_obj(
+          ref,
+          Map.merge(map, %{buffer() => <<>>, "byteLength" => 0, "__detached__" => true})
+        )
+
+      _ ->
+        :ok
+    end
+
+    :undefined
+  end
+
+  defp detach_array_buffer(_), do: :undefined
 
   def create_realm do
     object_proto = Heap.wrap(%{})
