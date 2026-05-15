@@ -90,27 +90,27 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
   end
 
   static "all" do
-    promise_all(hd(args))
+    promise_all(arg(args, 0, :undefined))
   end
 
   static "allSettled" do
-    promise_all_settled(hd(args))
+    promise_all_settled(arg(args, 0, :undefined))
   end
 
   static "allKeyed" do
-    promise_all_keyed(hd(args))
+    promise_all_keyed(arg(args, 0, :undefined))
   end
 
   static "allSettledKeyed" do
-    promise_all_settled_keyed(hd(args))
+    promise_all_settled_keyed(arg(args, 0, :undefined))
   end
 
   static "any" do
-    promise_any(hd(args))
+    promise_any(arg(args, 0, :undefined))
   end
 
   static "race" do
-    promise_race(hd(args))
+    promise_race(arg(args, 0, :undefined))
   end
 
   defp unwrap_value({:obj, r} = obj) do
@@ -206,7 +206,13 @@ defmodule QuickBEAM.VM.Runtime.PromiseBuiltins do
     case Heap.get_obj(ref, %{}) do
       map when is_map(map) ->
         map
-        |> Map.drop([promise_state(), promise_value(), "__proto__", :__internal_proto__, key_order()])
+        |> Map.drop([
+          promise_state(),
+          promise_value(),
+          "__proto__",
+          :__internal_proto__,
+          key_order()
+        ])
         |> Enum.filter(fn {key, _} -> is_binary(key) end)
         |> Enum.sort_by(fn {key, _} -> key end)
 
