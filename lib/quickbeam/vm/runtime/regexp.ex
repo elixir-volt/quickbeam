@@ -151,7 +151,19 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp exec({:regexp, nil, source}, [s | _]) when is_binary(source) and is_binary(s),
     do: literal_exec(s, source)
 
-  defp exec({:regexp, bytecode, _source}, [s | _]) when is_binary(bytecode) and is_binary(s) do
+  defp exec({:regexp, bytecode, source}, [s | _]) when is_binary(bytecode) and is_binary(s) do
+    case decoded_simple_escape(source) do
+      literal when is_binary(literal) ->
+        literal_exec_decoded(s, literal)
+
+      :error ->
+        exec_nif(bytecode, s)
+    end
+  end
+
+  defp exec(_, _), do: nil
+
+  defp exec_nif(bytecode, s) do
     case nif_exec(bytecode, s, 0) do
       nil ->
         nil
@@ -183,7 +195,9 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     end
   end
 
-  defp exec(_, _), do: nil
+  defp decoded_simple_escape("\\x" <> hex) when byte_size(hex) == 2, do: decode_hex_escape(hex, 2)
+  defp decoded_simple_escape("\\u" <> hex) when byte_size(hex) == 4, do: decode_hex_escape(hex, 4)
+  defp decoded_simple_escape(_), do: :error
 
   defp literal_exec(s, ""), do: exec_result([""], 0, s)
 
@@ -203,6 +217,18 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     end
   end
 
+  defp literal_exec(s, "\\x" <> hex) when byte_size(hex) == 2 do
+    literal_exec_decoded(s, decode_hex_escape(hex, 2))
+  end
+
+  defp literal_exec(s, "\\u" <> hex) when byte_size(hex) == 4 do
+    literal_exec_decoded(s, decode_hex_escape(hex, 4))
+  end
+
+  defp literal_exec(s, "\\" <> <<char::utf8>>) do
+    literal_exec_decoded(s, <<char::utf8>>)
+  end
+
   defp literal_exec(s, source) do
     case nested_capture_literal(source) do
       {literal, captures} ->
@@ -212,11 +238,30 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         end
 
       :error ->
-        case :binary.match(s, source) do
-          {index, _length} -> exec_result([source], index, s)
-          :nomatch -> nil
+        case nested_noncapturing_literal(source) do
+          literal when is_binary(literal) -> literal_exec_decoded(s, literal)
+          :error -> literal_exec_decoded(s, source)
         end
     end
+  end
+
+  defp literal_exec_decoded(_s, :error), do: nil
+
+  defp literal_exec_decoded(s, literal) do
+    case :binary.match(s, literal) do
+      {index, _length} -> exec_result([literal], index, s)
+      :nomatch -> nil
+    end
+  end
+
+  defp decode_hex_escape(hex, digits) do
+    case Integer.parse(hex, 16) do
+      {cp, ""} when digits == 2 -> <<cp>>
+      {cp, ""} -> <<cp::utf8>>
+      _ -> :error
+    end
+  rescue
+    _ -> :error
   end
 
   defp nested_capture_literal(source) do
@@ -226,6 +271,13 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
       _ ->
         :error
+    end
+  end
+
+  defp nested_noncapturing_literal(source) do
+    case Regex.run(~r/^((?:\(\?:)+)([A-Za-z]+)(\)+)$/, source) do
+      [_all, opens, literal, closes] when div(byte_size(opens), 3) == byte_size(closes) -> literal
+      _ -> :error
     end
   end
 
