@@ -27,6 +27,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
     "exp" => 1,
     "expm1" => 1,
     "floor" => 1,
+    "f16round" => 1,
     "fround" => 1,
     "hypot" => 2,
     "imul" => 2,
@@ -202,6 +203,15 @@ defmodule QuickBEAM.VM.Runtime.Math do
       if n == 0, do: 32, else: 31 - trunc(:math.log2(n))
     end
 
+    method "f16round" do
+      case Runtime.to_float(hd(args)) do
+        :infinity -> :infinity
+        :neg_infinity -> :neg_infinity
+        :nan -> :nan
+        f -> f16round(f)
+      end
+    end
+
     method "fround" do
       case Runtime.to_float(hd(args)) do
         :infinity -> :infinity
@@ -357,6 +367,11 @@ defmodule QuickBEAM.VM.Runtime.Math do
     val("SQRT1_2", :math.sqrt(2) / 2)
     val("MAX_SAFE_INTEGER", 9_007_199_254_740_991)
     val("MIN_SAFE_INTEGER", -9_007_199_254_740_991)
+  end
+
+  defp f16round(value) do
+    <<f32::float-32>> = <<value::float-32>>
+    f32 * 1.0
   end
 
   defp inverse_unit(:nan, _fun), do: :nan

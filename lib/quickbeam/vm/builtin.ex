@@ -140,6 +140,7 @@ defmodule QuickBEAM.VM.Builtin do
              "exp",
              "expm1",
              "floor",
+             "f16round",
              "fround",
              "hypot",
              "imul",
