@@ -545,7 +545,10 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     collect_padding_values(zip_outer_iterator(value), count, [])
   end
 
-  defp collect_padding_values(_iterator, 0, acc), do: Enum.reverse(acc)
+  defp collect_padding_values(iterator, 0, acc) do
+    iterator_return(iterator)
+    Enum.reverse(acc)
+  end
 
   defp collect_padding_values(iterator, count, acc) do
     result = iterator_next(iterator)
