@@ -37,6 +37,33 @@ defmodule QuickBEAM.VM.Heap.Store do
   def raw_fetch(map, key) when is_map(map), do: Map.fetch(map, key)
   def raw_fetch(_raw, _key), do: :error
 
+  def raw_has_key?(raw, key), do: match?({:ok, _}, raw_fetch(raw, key))
+
+  def raw_proto(raw) when is_tuple(raw), do: shape_proto(raw)
+  def raw_proto(map) when is_map(map), do: Map.get(map, proto())
+  def raw_proto(_raw), do: nil
+
+  def raw_accessor_setter(raw, key) do
+    case raw_fetch(raw, key) do
+      {:ok, {:accessor, _getter, setter}} when setter != nil -> {:ok, setter}
+      _ -> :error
+    end
+  end
+
+  def raw_getter_only?(raw, key) do
+    case raw_fetch(raw, key) do
+      {:ok, {:accessor, getter, nil}} when getter != nil -> true
+      _ -> false
+    end
+  end
+
+  def raw_accessor?(raw, key) do
+    case raw_fetch(raw, key) do
+      {:ok, {:accessor, _, _}} -> true
+      _ -> false
+    end
+  end
+
   # ── Object access (map-compatible, reconstructs shapes) ──
 
   def get_obj(ref) do

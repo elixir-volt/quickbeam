@@ -24,21 +24,14 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   @max_array_length 4_294_967_295
 
-  defp shape_put(ref, _shape_id, _offsets, _vals, _proto, key, val) do
-    Heap.put_obj_key(ref, key, val)
-  end
+  defp shape_put(ref, key, val), do: Heap.put_obj_key(ref, key, val)
 
   @doc "Writes a field using the fast shape path when possible."
   def put_field({:obj, ref}, key, val) do
     key = normalize_key(key)
+    raw = Heap.get_obj_raw(ref)
 
-    case Heap.get_obj_raw(ref) do
-      {:shape, shape_id, offsets, vals, proto} ->
-        shape_put(ref, shape_id, offsets, vals, proto, key, val)
-
-      _ ->
-        put({:obj, ref}, key, val)
-    end
+    if Heap.shape?(raw), do: shape_put(ref, key, val), else: put({:obj, ref}, key, val)
   end
 
   defp resize_array(ref, {:qb_arr, arr}, new_len) do
@@ -120,6 +113,13 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
+  defp array_prototype_raw?(raw) do
+    keys = if Heap.shape?(raw), do: Heap.shape_offsets(raw), else: raw
+
+    is_map(keys) and Map.has_key?(keys, "constructor") and Map.has_key?(keys, "push") and
+      Map.has_key?(keys, "pop")
+  end
+
   defp put_virtual_array_length(ref, old_len, new_len) do
     if new_len == old_len do
       Heap.delete_array_prop(ref, "length")
@@ -174,30 +174,25 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   @doc "Writes a JavaScript property while respecting arrays, proxies, descriptors, accessors, and constructor statics."
   def put({:obj, ref} = obj, "length", val) do
-    case Heap.get_obj_raw(ref) do
-      {:shape, _shape_id, offsets, _vals, _proto}
-      when is_map_key(offsets, "constructor") and is_map_key(offsets, "push") and
-             is_map_key(offsets, "pop") ->
+    raw = Heap.get_obj_raw(ref)
+
+    cond do
+      array_prototype_raw?(raw) ->
         put_array_prototype_length(ref, val)
 
-      map
-      when is_map(map) and is_map_key(map, "constructor") and is_map_key(map, "push") and
-             is_map_key(map, "pop") ->
-        put_array_prototype_length(ref, val)
-
-      map when is_map(map) ->
-        case Map.get(map, "length") do
-          {:accessor, _getter, setter} when setter != nil ->
+      is_map(raw) ->
+        case Heap.raw_fetch(raw, "length") do
+          {:ok, {:accessor, _getter, setter}} when setter != nil ->
             invoke_setter(setter, val, obj)
 
-          {:accessor, _getter, nil} ->
+          {:ok, {:accessor, _getter, nil}} ->
             reject_failed_write!()
 
           _ ->
             put_length_property(obj, ref, val)
         end
 
-      _ ->
+      true ->
         put_length_property(obj, ref, val)
     end
   end
@@ -207,38 +202,8 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     sync_global_this?(obj, key, val)
 
     case Heap.get_obj_raw(ref) do
-      {:shape, shape_id, offsets, vals, proto} ->
-        cond do
-          shape_accessor_setter?(offsets, vals, key) ->
-            {:ok, offset} = Map.fetch(offsets, key)
-            {:accessor, _getter, setter} = elem(vals, offset)
-            invoke_setter(setter, val, obj)
-
-          Heap.frozen?(ref) ->
-            :ok
-
-          key == "__proto__" ->
-            Heap.put_shape_proto(ref, val)
-
-          wrapped_shape_string_virtual_readonly?(offsets, vals, key) ->
-            :ok
-
-          not Map.has_key?(offsets, key) and proto_has_setter_property?(proto, key) ->
-            set(proto, key, val, obj)
-
-          not Map.has_key?(offsets, key) and proto_has_getter_only_property?(proto, key) ->
-            :ok
-
-          not Heap.extensible?(ref) and not Map.has_key?(offsets, key) ->
-            :ok
-
-          is_symbol(key) ->
-            map = Heap.Shapes.to_map(shape_id, vals, proto)
-            Heap.put_obj(ref, Map.put(map, key, val))
-
-          true ->
-            shape_put(ref, shape_id, offsets, vals, proto, key, val)
-        end
+      {:qb_arr, _} ->
+        put_array_key(ref, key, val)
 
       %{
         proxy_target() => target,
@@ -256,9 +221,6 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         else
           put(target, key, val)
         end
-
-      {:qb_arr, _} ->
-        put_array_key(ref, key, val)
 
       list when is_list(list) ->
         put_array_key(ref, key, val)
@@ -295,6 +257,9 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             Heap.put_obj_key(ref, map, key, val)
         end
 
+      raw when is_tuple(raw) ->
+        if Heap.shape?(raw), do: put_shape_object(obj, ref, raw, key, val), else: :ok
+
       _ ->
         :ok
     end
@@ -318,6 +283,45 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   end
 
   def put(_, _, _), do: :ok
+
+  defp put_shape_object(obj, ref, raw, key, val) do
+    case Heap.raw_accessor_setter(raw, key) do
+      {:ok, setter} ->
+        invoke_setter(setter, val, obj)
+
+      :error ->
+        cond do
+          Heap.frozen?(ref) ->
+            :ok
+
+          key == "__proto__" ->
+            Heap.put_shape_proto(ref, val)
+
+          wrapped_raw_string_virtual_readonly?(raw, key) ->
+            :ok
+
+          not Heap.raw_has_key?(raw, key) and
+              proto_has_setter_property?(Heap.shape_proto(raw), key) ->
+            set(Heap.shape_proto(raw), key, val, obj)
+
+          not Heap.raw_has_key?(raw, key) and
+              proto_has_getter_only_property?(Heap.shape_proto(raw), key) ->
+            :ok
+
+          not Heap.extensible?(ref) and not Heap.raw_has_key?(raw, key) ->
+            :ok
+
+          is_symbol(key) ->
+            raw
+            |> Heap.shape_to_map()
+            |> Map.put(key, val)
+            |> then(&Heap.put_obj(ref, &1))
+
+          true ->
+            shape_put(ref, key, val)
+        end
+    end
+  end
 
   defp put_array_prototype_length(ref, val) do
     new_len = array_length_value!(val)
@@ -365,27 +369,18 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   defp put_length({:obj, ref}, val) do
     case Heap.get_obj_raw(ref) do
-      {:shape, shape_id, offsets, vals, proto} ->
-        if wrapped_shape_string_virtual_readonly?(offsets, vals, "length") do
-          :ok
-        else
-          case Map.fetch(offsets, "length") do
-            {:ok, offset} ->
-              new_vals = Heap.Shapes.put_val(vals, offset, val)
-              Heap.put_obj_raw(ref, {:shape, shape_id, offsets, new_vals, proto})
-
-            :error ->
-              {new_shape_id, new_offsets, offset} = Heap.Shapes.transition(shape_id, "length")
-              new_vals = Heap.Shapes.put_val(vals, offset, val)
-              Heap.put_obj_raw(ref, {:shape, new_shape_id, new_offsets, new_vals, proto})
-          end
-        end
-
       {:qb_arr, _} = array ->
         resize_array(ref, array, array_length_value!(val))
 
       data when is_list(data) ->
         resize_array(ref, data, array_length_value!(val))
+
+      raw when is_tuple(raw) ->
+        if Heap.shape?(raw) and wrapped_raw_string_virtual_readonly?(raw, "length") do
+          :ok
+        else
+          shape_put(ref, "length", val)
+        end
 
       map when is_map(map) ->
         case WrappedPrimitive.value(map, :string) do
@@ -398,17 +393,16 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
-  defp wrapped_shape_string_virtual_readonly?(offsets, vals, "length") do
-    case Map.fetch(offsets, WrappedPrimitive.slot(:string)) do
-      {:ok, offset} when offset < tuple_size(vals) -> is_binary(elem(vals, offset))
-      _ -> false
-    end
+  defp wrapped_raw_string_virtual_readonly?(raw, "length") do
+    match?(
+      {:ok, string} when is_binary(string),
+      Heap.raw_fetch(raw, WrappedPrimitive.slot(:string))
+    )
   end
 
-  defp wrapped_shape_string_virtual_readonly?(offsets, vals, key) do
-    with {:ok, offset} when offset < tuple_size(vals) <-
-           Map.fetch(offsets, WrappedPrimitive.slot(:string)),
-         string when is_binary(string) <- elem(vals, offset),
+  defp wrapped_raw_string_virtual_readonly?(raw, key) do
+    with {:ok, string} when is_binary(string) <-
+           Heap.raw_fetch(raw, WrappedPrimitive.slot(:string)),
          index when is_integer(index) <- Semantics.parse_array_index_key(key) do
       index >= 0 and index < Get.string_length(string)
     else
@@ -466,28 +460,11 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
           set(proxy_target, key, val, receiver)
         end
 
-      {:shape, _shape_id, offsets, vals, proto_obj} ->
-        case Map.fetch(offsets, key) do
-          {:ok, offset} ->
-            case elem(vals, offset) do
-              {:accessor, _, setter} when setter != nil ->
-                invoke_setter(setter, val, receiver)
-                true
-
-              _ ->
-                if match?(%{writable: false}, Heap.get_prop_desc(ref, key)) do
-                  false
-                else
-                  write_receiver(receiver, key, val)
-                end
-            end
-
-          :error ->
-            if proto_has_property?(proto_obj, key) do
-              set(proto_obj, key, val, receiver)
-            else
-              write_receiver(receiver, key, val)
-            end
+      raw when is_tuple(raw) ->
+        if Heap.shape?(raw) do
+          set_shape_property(ref, raw, key, val, receiver)
+        else
+          write_receiver(receiver, key, val)
         end
 
       map when is_map(map) ->
@@ -516,6 +493,29 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     end
   end
 
+  defp set_shape_property(ref, raw, key, val, receiver) do
+    case Heap.raw_accessor_setter(raw, key) do
+      {:ok, setter} ->
+        invoke_setter(setter, val, receiver)
+        true
+
+      :error ->
+        cond do
+          Heap.raw_has_key?(raw, key) and match?(%{writable: false}, Heap.get_prop_desc(ref, key)) ->
+            false
+
+          Heap.raw_has_key?(raw, key) ->
+            write_receiver(receiver, key, val)
+
+          proto_has_property?(Heap.shape_proto(raw), key) ->
+            set(Heap.shape_proto(raw), key, val, receiver)
+
+          true ->
+            write_receiver(receiver, key, val)
+        end
+    end
+  end
+
   defp set_array_length_property(ref, array, val) do
     new_len = array_length_value!(val)
 
@@ -536,29 +536,28 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         Define.property(receiver, key, Heap.wrap(desc), desc)
         true
 
-      {:shape, _shape_id, offsets, vals, _proto} ->
-        case Map.fetch(offsets, key) do
-          {:ok, offset} ->
-            case elem(vals, offset) do
-              {:accessor, _, _} ->
-                false
+      raw when is_tuple(raw) ->
+        cond do
+          not Heap.shape?(raw) ->
+            put(receiver, key, val)
+            true
 
-              _ ->
-                if match?(%{writable: false}, Heap.get_prop_desc(ref, key)) do
-                  false
-                else
-                  put(receiver, key, val)
-                  true
-                end
-            end
+          Heap.raw_accessor?(raw, key) ->
+            false
 
-          :error ->
-            if Heap.extensible?(ref) do
-              put(receiver, key, val)
-              true
-            else
-              false
-            end
+          Heap.raw_has_key?(raw, key) and match?(%{writable: false}, Heap.get_prop_desc(ref, key)) ->
+            false
+
+          Heap.raw_has_key?(raw, key) ->
+            put(receiver, key, val)
+            true
+
+          Heap.extensible?(ref) ->
+            put(receiver, key, val)
+            true
+
+          true ->
+            false
         end
 
       map when is_map(map) ->
@@ -619,9 +618,9 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   def put({:obj, ref}, key, val, false) do
     case Heap.get_obj_raw(ref) do
-      {:shape, shape_id, offsets, vals, proto} ->
-        if not Heap.frozen?(ref) do
-          shape_put(ref, shape_id, offsets, vals, proto, key, val)
+      raw when is_tuple(raw) ->
+        if Heap.shape?(raw) and not Heap.frozen?(ref) do
+          shape_put(ref, key, val)
           Heap.put_prop_desc(ref, key, PropertyDescriptor.method())
         end
 
@@ -831,12 +830,13 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   defp proto_has_property?(:undefined, _key), do: false
 
   defp proto_has_property?({:obj, ref} = obj, key) do
-    case Heap.get_obj(ref, %{}) do
-      map when is_map(map) ->
-        Map.has_key?(map, key) or proto_has_property?(Map.get(map, proto()), key)
+    raw = Heap.get_obj_raw(ref)
 
-      _ ->
-        has_property(obj, key)
+    cond do
+      Heap.raw_has_key?(raw, key) -> true
+      is_map(raw) -> proto_has_property?(Map.get(raw, proto()), key)
+      Heap.shape?(raw) -> proto_has_property?(Heap.shape_proto(raw), key)
+      true -> has_property(obj, key)
     end
   end
 
@@ -846,56 +846,25 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   defp proto_has_setter_property?(:undefined, _key), do: false
 
   defp proto_has_setter_property?({:obj, ref}, key) do
-    case Heap.get_obj_raw(ref) do
-      {:shape, _shape_id, offsets, vals, parent_proto} ->
-        case Map.fetch(offsets, key) do
-          {:ok, off} ->
-            match?({:accessor, _, setter} when setter != nil, elem(vals, off))
+    raw = Heap.get_obj_raw(ref)
 
-          :error ->
-            proto_has_setter_property?(parent_proto, key)
-        end
-
-      map when is_map(map) ->
-        case Map.get(map, key) do
-          {:accessor, _, setter} when setter != nil -> true
-          _ -> proto_has_setter_property?(Map.get(map, proto()), key)
-        end
-
-      _ ->
-        false
+    case Heap.raw_accessor_setter(raw, key) do
+      {:ok, _setter} -> true
+      :error -> proto_has_setter_property?(Heap.raw_proto(raw), key)
     end
   end
 
   defp proto_has_setter_property?(_proto_obj, _key), do: false
 
-  defp shape_accessor_setter?(offsets, vals, key) do
-    case Map.fetch(offsets, key) do
-      {:ok, offset} -> match?({:accessor, _getter, setter} when setter != nil, elem(vals, offset))
-      :error -> false
-    end
-  end
-
   defp proto_has_getter_only_property?(nil, _key), do: false
   defp proto_has_getter_only_property?(:undefined, _key), do: false
 
   defp proto_has_getter_only_property?({:obj, ref}, key) do
-    case Heap.get_obj_raw(ref) do
-      {:shape, _shape_id, offsets, vals, parent_proto} ->
-        case Map.fetch(offsets, key) do
-          {:ok, off} -> match?({:accessor, getter, nil} when getter != nil, elem(vals, off))
-          :error -> proto_has_getter_only_property?(parent_proto, key)
-        end
+    raw = Heap.get_obj_raw(ref)
 
-      map when is_map(map) ->
-        case Map.get(map, key) do
-          {:accessor, getter, nil} when getter != nil -> true
-          _ -> proto_has_getter_only_property?(Map.get(map, proto()), key)
-        end
-
-      _ ->
-        false
-    end
+    if Heap.raw_getter_only?(raw, key),
+      do: true,
+      else: proto_has_getter_only_property?(Heap.raw_proto(raw), key)
   end
 
   defp proto_has_getter_only_property?(_proto_obj, _key), do: false
@@ -985,26 +954,16 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   defp find_proto_accessor(:undefined, _key), do: nil
 
   defp find_proto_accessor({:obj, ref}, key) do
-    case Heap.get_obj_raw(ref) do
-      {:shape, _shape_id, offsets, vals, parent_proto} ->
-        case Map.fetch(offsets, key) do
-          {:ok, off} -> elem(vals, off)
-          :error -> find_proto_accessor(parent_proto, key)
-        end
+    raw = Heap.get_obj_raw(ref)
 
-      map when is_map(map) ->
-        case Map.get(map, key) do
-          nil -> find_proto_accessor(next_proto(ref, map), key)
-          value -> value
-        end
-
-      _ ->
-        nil
+    case Heap.raw_fetch(raw, key) do
+      {:ok, value} -> value
+      :error -> find_proto_accessor(raw_next_proto(ref, raw), key)
     end
   end
 
-  defp next_proto(ref, map) do
-    Map.get(map, proto()) || object_proto_fallback(ref)
+  defp raw_next_proto(ref, raw) do
+    Heap.raw_proto(raw) || object_proto_fallback(ref)
   end
 
   defp object_proto_fallback(ref) do
@@ -1121,8 +1080,10 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             end
         end
 
-      {:shape, _, _, _, _} when is_binary(idx) or is_integer(idx) or is_tuple(idx) ->
-        Get.get(obj, if(is_integer(idx), do: Integer.to_string(idx), else: idx))
+      raw when is_tuple(raw) and (is_binary(idx) or is_integer(idx) or is_tuple(idx)) ->
+        if Heap.shape?(raw),
+          do: Get.get(obj, if(is_integer(idx), do: Integer.to_string(idx), else: idx)),
+          else: :undefined
 
       _ ->
         :undefined

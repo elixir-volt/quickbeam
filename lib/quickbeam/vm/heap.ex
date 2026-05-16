@@ -377,6 +377,11 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate shape_keys(raw), to: Store
   defdelegate shape_to_map(raw), to: Store
   defdelegate raw_fetch(raw, key), to: Store
+  defdelegate raw_has_key?(raw, key), to: Store
+  defdelegate raw_proto(raw), to: Store
+  defdelegate raw_accessor_setter(raw, key), to: Store
+  defdelegate raw_getter_only?(raw, key), to: Store
+  defdelegate raw_accessor?(raw, key), to: Store
   defdelegate put_obj(ref, value), to: Store
   defdelegate put_obj_raw(ref, value), to: Store
   defdelegate put_obj_key(ref, key, value), to: Store
