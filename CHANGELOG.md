@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.13
+
+- Bump OXC to 0.13 (adds `module_types` bundler option)
+
 ## 0.10.12
 
 - Fix `fs.readFileSync` without encoding to return `Buffer` instead of raw `Uint8Array`, so `.toString()` decodes as UTF-8

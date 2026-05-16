@@ -2,7 +2,7 @@ defmodule QuickBEAM.MixProject do
   use Mix.Project
 
 
-  @version "0.10.12"
+  @version "0.10.13"
 
   @source_url "https://github.com/elixir-volt/quickbeam"
 
@@ -71,7 +71,7 @@ defmodule QuickBEAM.MixProject do
       {:ex_dna, "~> 1.1", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false},
       {:jason, "~> 1.4"},
-      {:oxc, "~> 0.12.1"},
+      {:oxc, "~> 0.13.0"},
       {:npm, "~> 0.7.1", optional: true},
       {:mint_web_socket, "~> 1.0"},
       {:nimble_pool, "~> 1.1"},
