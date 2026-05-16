@@ -8,6 +8,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
       alias QuickBEAM.VM.{Heap, Invocation, Runtime}
       alias QuickBEAM.VM.Interpreter.Context
       alias QuickBEAM.VM.ObjectModel.{Copy, Get, Put}
+      alias QuickBEAM.VM.Semantics.Iterators
 
       # ── for-in ──
 
@@ -22,27 +23,12 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
       end
 
       defp run({@op_for_in_start, []}, pc, frame, [obj | rest], gas, ctx) do
-        keys = Copy.enumerable_keys(obj)
-        run(pc + 1, frame, [{:for_in_iterator, keys, obj} | rest], gas, ctx)
-      end
-
-      defp run(
-             {@op_for_in_next, []} = instr,
-             pc,
-             frame,
-             [{:for_in_iterator, [key | rest_keys], obj} | rest],
-             gas,
-             ctx
-           ) do
-        if QuickBEAM.VM.ObjectModel.HasProperty.has_property?(obj, key) do
-          run(pc + 1, frame, [false, key, {:for_in_iterator, rest_keys, obj} | rest], gas, ctx)
-        else
-          run(instr, pc, frame, [{:for_in_iterator, rest_keys, obj} | rest], gas, ctx)
-        end
+        run(pc + 1, frame, [Iterators.for_in_start(ctx, obj) | rest], gas, ctx)
       end
 
       defp run({@op_for_in_next, []}, pc, frame, [iter | rest], gas, ctx) do
-        run(pc + 1, frame, [true, :undefined, iter | rest], gas, ctx)
+        {done?, key, next_iter} = Iterators.for_in_next(ctx, iter)
+        run(pc + 1, frame, [done?, key, next_iter | rest], gas, ctx)
       end
 
       # ── spread / array construction ──
@@ -84,7 +70,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
       defp run({@op_for_of_start, []}, pc, frame, [obj | rest], gas, ctx) do
         result =
           try do
-            {:ok, for_of_start_iter(obj)}
+            {:ok, Iterators.for_of_start(ctx, obj)}
           catch
             {:js_throw, val} -> {:throw, val}
           end
@@ -103,29 +89,20 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
         iter_obj = Enum.at(stack, offset - 1)
         next_fn = Enum.at(stack, offset - 2)
 
-        if iter_obj == :undefined do
-          run(pc + 1, frame, [true, :undefined | stack], gas, ctx)
-        else
-          raw_result = Invocation.invoke_with_receiver(next_fn, [], iter_obj)
+        {done?, value, next_iter} = Iterators.for_of_next(ctx, next_fn, iter_obj)
 
-          result = resolve_awaited(raw_result)
-
-          ctx =
-            case Heap.get_persistent_globals() do
-              nil -> ctx
-              p when map_size(p) == 0 -> ctx
-              p -> Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, p)})
-            end
-
-          done = Get.get(result, "done")
-          value = Get.get(result, "value")
-
-          if done == true do
-            cleared = List.replace_at(stack, offset - 1, :undefined)
-            run(pc + 1, frame, [true, :undefined | cleared], gas, ctx)
-          else
-            run(pc + 1, frame, [false, value | stack], gas, ctx)
+        ctx =
+          case Heap.get_persistent_globals() do
+            nil -> ctx
+            p when map_size(p) == 0 -> ctx
+            p -> Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, p)})
           end
+
+        if done? do
+          cleared = List.replace_at(stack, offset - 1, next_iter)
+          run(pc + 1, frame, [true, :undefined | cleared], gas, ctx)
+        else
+          run(pc + 1, frame, [false, value | stack], gas, ctx)
         end
       end
 
@@ -137,10 +114,10 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
              gas,
              ctx
            ) do
-        result = Invocation.invoke_callback_or_throw(next_fn, [val])
+        {result, next_iter} = Iterators.iterator_next_result(ctx, next_fn, iter_obj, val)
         persistent = Heap.get_persistent_globals() || %{}
         ctx = Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
-        run(pc + 1, frame, [result, catch_offset, next_fn, iter_obj | rest], gas, ctx)
+        run(pc + 1, frame, [result, catch_offset, next_fn, next_iter | rest], gas, ctx)
       end
 
       defp run({@op_iterator_get_value_done, []}, pc, frame, [result | rest], gas, ctx) do
@@ -247,22 +224,6 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
           end
 
         run(pc + 1, frame, [0, next_fn, iter_obj | rest], gas, ctx)
-      end
-
-      defp spread_string_codepoints(<<>>), do: []
-
-      defp spread_string_codepoints(<<0xED, b2, b3, rest::binary>>)
-           when b2 in 0xA0..0xBF and b3 in 0x80..0xBF do
-        # WTF-8 lone surrogate - decode as-is (preserve WTF-8 bytes)
-        [<<0xED, b2, b3>> | spread_string_codepoints(rest)]
-      end
-
-      defp spread_string_codepoints(<<cp::utf8, rest::binary>>) do
-        [<<cp::utf8>> | spread_string_codepoints(rest)]
-      end
-
-      defp spread_string_codepoints(<<byte, rest::binary>>) do
-        [<<byte>> | spread_string_codepoints(rest)]
       end
     end
   end

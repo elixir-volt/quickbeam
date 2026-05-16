@@ -99,7 +99,7 @@ defmodule QuickBEAM.VM.Semantics.Iterators do
   end
 
   defp start_for_of(_ctx, value) when is_binary(value),
-    do: {{:list_iter, String.codepoints(value)}, :undefined}
+    do: {{:list_iter, string_codepoints(value)}, :undefined}
 
   defp start_for_of(_ctx, nil) do
     throw(
@@ -127,7 +127,7 @@ defmodule QuickBEAM.VM.Semantics.Iterators do
 
   defp collect_iterable_values(list) when is_list(list), do: list
   defp collect_iterable_values({:qb_arr, arr}), do: :array.to_list(arr)
-  defp collect_iterable_values(value) when is_binary(value), do: String.codepoints(value)
+  defp collect_iterable_values(value) when is_binary(value), do: string_codepoints(value)
 
   defp collect_iterable_values({:obj, ref} = obj) do
     case Heap.get_obj(ref) do
@@ -260,6 +260,21 @@ defmodule QuickBEAM.VM.Semantics.Iterators do
       {true, _, _} -> Heap.wrap(Enum.reverse(acc))
       {false, val, new_iter} -> do_collect(ctx, new_iter, next_fn, [val | acc])
     end
+  end
+
+  defp string_codepoints(<<>>), do: []
+
+  defp string_codepoints(<<0xED, b2, b3, rest::binary>>)
+       when b2 in 0xA0..0xBF and b3 in 0x80..0xBF do
+    [<<0xED, b2, b3>> | string_codepoints(rest)]
+  end
+
+  defp string_codepoints(<<cp::utf8, rest::binary>>) do
+    [<<cp::utf8>> | string_codepoints(rest)]
+  end
+
+  defp string_codepoints(<<byte, rest::binary>>) do
+    [<<byte>> | string_codepoints(rest)]
   end
 
   defp invoke_custom_iter(_ctx, iter_fn, obj) do

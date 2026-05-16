@@ -18,4 +18,8 @@ defmodule QuickBEAM.VM.Semantics.IteratorsTest do
            [...iterable][0];
            """) == 7
   end
+
+  test "for-of string iteration preserves astral code point width", %{rt: rt} do
+    assert_modes(rt, ~S|let out; for (const ch of "😀a") { out = ch.length; break; } out|, 2)
+  end
 end

@@ -34,7 +34,6 @@ defmodule QuickBEAM.VM.Interpreter do
   }
 
   alias QuickBEAM.VM.PromiseState, as: Promise
-  alias QuickBEAM.VM.Runtime.Collections
 
   alias __MODULE__.{
     ClosureBuilder,
@@ -472,21 +471,6 @@ defmodule QuickBEAM.VM.Interpreter do
       _ ->
         Heap.wrap(%{"value" => :undefined, "done" => true})
     end
-  end
-
-  defp array_proto_iterator(_obj), do: Collections.array_proto_iterator_status()
-
-  defp invoke_custom_iterator(iter_fn, obj) do
-    iter_obj = Invocation.invoke_with_receiver(iter_fn, [], Runtime.gas_budget(), obj)
-
-    unless is_object(iter_obj) do
-      throw(
-        {:js_throw,
-         Heap.make_error("Result of the Symbol.iterator method is not an object", "TypeError")}
-      )
-    end
-
-    {iter_obj, Get.get(iter_obj, "next")}
   end
 
   defp make_list_iterator(items) do
@@ -1180,110 +1164,6 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp run({op, args}, _pc, _frame, _stack, _gas, _ctx) do
     throw({:error, {:unimplemented_opcode, op, args}})
-  end
-
-  defp for_of_start_iter(obj) do
-    case obj do
-      list when is_list(list) ->
-        make_list_iterator(list)
-
-      {:obj, ref} ->
-        stored = Heap.get_obj(ref)
-
-        case stored do
-          {:qb_arr, arr} ->
-            case array_proto_iterator(obj) do
-              :default ->
-                make_list_iterator(:array.to_list(arr))
-
-              :deleted ->
-                throw(
-                  {:js_throw, Heap.make_error("[Symbol.iterator] is not a function", "TypeError")}
-                )
-
-              custom_fn ->
-                invoke_custom_iterator(custom_fn, obj)
-            end
-
-          list when is_list(list) ->
-            case array_proto_iterator(obj) do
-              :default ->
-                make_list_iterator(list)
-
-              :deleted ->
-                throw(
-                  {:js_throw, Heap.make_error("[Symbol.iterator] is not a function", "TypeError")}
-                )
-
-              custom_fn ->
-                invoke_custom_iterator(custom_fn, obj)
-            end
-
-          map when is_map(map) ->
-            sym_iter = {:symbol, "Symbol.iterator"}
-
-            cond do
-              Map.has_key?(map, sym_iter) ->
-                raw_iter = Map.get(map, sym_iter)
-
-                iter_fn =
-                  case raw_iter do
-                    {:accessor, getter, _} when getter != nil -> Get.call_getter(getter, obj)
-                    _ -> raw_iter
-                  end
-
-                iter_obj =
-                  Invocation.invoke_with_receiver(iter_fn, [], Runtime.gas_budget(), obj)
-
-                unless is_object(iter_obj) do
-                  throw(
-                    {:js_throw,
-                     Heap.make_error(
-                       "Result of the Symbol.iterator method is not an object",
-                       "TypeError"
-                     )}
-                  )
-                end
-
-                {iter_obj, Get.get(iter_obj, "next")}
-
-              Map.has_key?(map, "next") ->
-                {obj, Get.get(obj, "next")}
-
-              true ->
-                make_list_iterator([])
-            end
-
-          _ ->
-            make_list_iterator([])
-        end
-
-      s when is_binary(s) ->
-        make_list_iterator(String.codepoints(s))
-
-      nil ->
-        throw(
-          {:js_throw,
-           Heap.make_error(
-             "Cannot read properties of null (reading 'Symbol(Symbol.iterator)')",
-             "TypeError"
-           )}
-        )
-
-      :undefined ->
-        throw(
-          {:js_throw,
-           Heap.make_error(
-             "Cannot read properties of undefined (reading 'Symbol(Symbol.iterator)')",
-             "TypeError"
-           )}
-        )
-
-      other ->
-        throw(
-          {:js_throw, Heap.make_error("#{Values.stringify(other)} is not iterable", "TypeError")}
-        )
-    end
   end
 
   defp apply_args(arg_array) do
