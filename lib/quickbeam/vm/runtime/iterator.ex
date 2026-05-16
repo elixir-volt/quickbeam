@@ -79,8 +79,13 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   def from(_, _this), do: JSThrow.type_error!("Iterator.from requires an object")
 
   def iterator_proto_accessor(:constructor) do
-    getter = {:builtin, "get constructor", fn _args, _this -> Runtime.global_constructor("Iterator") end}
-    setter = {:builtin, "set constructor", fn [value | _], this -> set_iterator_proto_slot(this, "constructor", value) end}
+    getter =
+      {:builtin, "get constructor", fn _args, _this -> Runtime.global_constructor("Iterator") end}
+
+    setter =
+      {:builtin, "set constructor",
+       fn [value | _], this -> set_iterator_proto_slot(this, "constructor", value) end}
+
     {:accessor, getter, setter}
   end
 
@@ -88,9 +93,10 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     getter = {:builtin, "get [Symbol.toStringTag]", fn _args, _this -> "Iterator" end}
 
     setter =
-      {:builtin, "set [Symbol.toStringTag]", fn [value | _], this ->
-        set_iterator_proto_slot(this, {:symbol, "Symbol.toStringTag"}, value)
-      end}
+      {:builtin, "set [Symbol.toStringTag]",
+       fn [value | _], this ->
+         set_iterator_proto_slot(this, {:symbol, "Symbol.toStringTag"}, value)
+       end}
 
     {:accessor, getter, setter}
   end
@@ -110,7 +116,8 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     :undefined
   end
 
-  defp set_iterator_proto_slot(_, _key, _value), do: JSThrow.type_error!("Iterator prototype setter receiver must be an object")
+  defp set_iterator_proto_slot(_, _key, _value),
+    do: JSThrow.type_error!("Iterator prototype setter receiver must be an object")
 
   def dispose(_args, this) do
     return_method = Get.get(this, "return")
@@ -252,7 +259,9 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   def filter(args, this) do
     predicate = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(predicate), do: close_and_type_error(this, "predicate must be callable")
+
+    unless Builtin.callable?(predicate),
+      do: close_and_type_error(this, "predicate must be callable")
 
     helper_iterator(%{
       "kind" => :filter,
@@ -289,7 +298,10 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   def some(args, this) do
     predicate = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(predicate), do: close_and_type_error(this, "predicate must be callable")
+
+    unless Builtin.callable?(predicate),
+      do: close_and_type_error(this, "predicate must be callable")
+
     some_loop(iterator_direct_record(this), predicate, 0)
   end
 
@@ -315,20 +327,29 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   def for_each(args, this) do
     callback = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(callback), do: close_and_type_error(this, "callback must be callable")
+
+    unless Builtin.callable?(callback),
+      do: close_and_type_error(this, "callback must be callable")
+
     for_each_loop(iterator_direct_record(this), callback, 0)
     :undefined
   end
 
   def every(args, this) do
     predicate = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(predicate), do: close_and_type_error(this, "predicate must be callable")
+
+    unless Builtin.callable?(predicate),
+      do: close_and_type_error(this, "predicate must be callable")
+
     every_loop(iterator_direct_record(this), predicate, 0)
   end
 
   def find(args, this) do
     predicate = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(predicate), do: close_and_type_error(this, "predicate must be callable")
+
+    unless Builtin.callable?(predicate),
+      do: close_and_type_error(this, "predicate must be callable")
+
     find_loop(iterator_direct_record(this), predicate, 0)
   end
 
@@ -357,6 +378,24 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   defp helper_next_state(state_ref) do
     state = Heap.get_obj(state_ref, %{})
 
+    if state["executing"] == true do
+      JSThrow.type_error!("Iterator helper is already running")
+    end
+
+    Heap.put_obj(state_ref, Map.put(state, "executing", true))
+
+    try do
+      result = helper_next_kind(state_ref, Heap.get_obj(state_ref, %{}))
+      finish_helper_execution(state_ref)
+      result
+    catch
+      kind, reason ->
+        finish_helper_execution(state_ref)
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    end
+  end
+
+  defp helper_next_kind(state_ref, state) do
     case state["kind"] do
       :concat -> concat_next(state_ref, state)
       :zip -> zip_next(state_ref, state)
@@ -366,6 +405,14 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
       :map -> map_next(state_ref, state)
       :flat_map -> flat_map_next(state_ref, state)
       _ -> iter_result(:undefined, true)
+    end
+  end
+
+  defp finish_helper_execution(state_ref) do
+    state = Heap.get_obj(state_ref, %{})
+
+    if state["kind"] != :done do
+      Heap.put_obj(state_ref, Map.put(state, "executing", false))
     end
   end
 
@@ -384,7 +431,9 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   defp zip_options_object(:undefined), do: :undefined
-  defp zip_options_object(options) when is_nil(options), do: JSThrow.type_error!("Iterator.zip options must be an object")
+
+  defp zip_options_object(options) when is_nil(options),
+    do: JSThrow.type_error!("Iterator.zip options must be an object")
 
   defp zip_options_object(options) do
     if object_like?(options) do
@@ -427,7 +476,10 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   defp validate_padding_iterable(value) do
     unless object_like?(value), do: JSThrow.type_error!("Iterator.zip padding must be an object")
     method = Get.get(value, {:symbol, "Symbol.iterator"})
-    unless Builtin.callable?(method), do: JSThrow.type_error!("Iterator.zip padding must be iterable")
+
+    unless Builtin.callable?(method),
+      do: JSThrow.type_error!("Iterator.zip padding must be iterable")
+
     Heap.to_list(value)
   end
 
@@ -451,7 +503,10 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   defp concat_iterable_record(item) do
     unless object_like?(item), do: JSThrow.type_error!("Iterator.concat item must be an object")
     method = Get.get(item, {:symbol, "Symbol.iterator"})
-    unless Builtin.callable?(method), do: JSThrow.type_error!("Iterator.concat item is not iterable")
+
+    unless Builtin.callable?(method),
+      do: JSThrow.type_error!("Iterator.concat item is not iterable")
+
     %{"iterable" => item, "method" => method}
   end
 
@@ -521,7 +576,10 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     iter_result(:undefined, true)
   end
 
-  defp concat_next(state_ref, %{"active" => nil, "iterables" => iterables, "index" => index} = state) do
+  defp concat_next(
+         state_ref,
+         %{"active" => nil, "iterables" => iterables, "index" => index} = state
+       ) do
     %{"iterable" => iterable, "method" => method} = Enum.at(iterables, index)
     iterator = Invocation.invoke_with_receiver(method, [], iterable)
     unless object_like?(iterator), do: JSThrow.type_error!("iterator method returned non-object")
@@ -672,14 +730,18 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   defp flattenable_iterator_record(value) do
-    unless object_like?(value), do: JSThrow.type_error!("Iterator mapper result must be an object")
+    unless object_like?(value),
+      do: JSThrow.type_error!("Iterator mapper result must be an object")
 
     iterator_method = Get.get(value, {:symbol, "Symbol.iterator"})
 
     cond do
       Builtin.callable?(iterator_method) ->
         result = Invocation.invoke_with_receiver(iterator_method, [], value)
-        unless object_like?(result), do: JSThrow.type_error!("iterator method returned non-object")
+
+        unless object_like?(result),
+          do: JSThrow.type_error!("iterator method returned non-object")
+
         iterator_record(result)
 
       iterator_method in [:undefined, nil] ->
@@ -847,7 +909,10 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   defp iterator_record(this) do
     record = iterator_direct_record(this)
-    unless Builtin.callable?(record["next"]), do: JSThrow.type_error!("Iterator next is not callable")
+
+    unless Builtin.callable?(record["next"]),
+      do: JSThrow.type_error!("Iterator next is not callable")
+
     record
   end
 
