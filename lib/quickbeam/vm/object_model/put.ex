@@ -403,7 +403,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   defp wrapped_raw_string_virtual_readonly?(raw, key) do
     with {:ok, string} when is_binary(string) <-
            Heap.raw_fetch(raw, WrappedPrimitive.slot(:string)),
-         index when is_integer(index) <- Semantics.parse_array_index_key(key) do
+         {:ok, index} <- PropertyKey.array_index(key) do
       index >= 0 and index < Get.string_length(string)
     else
       _ -> false
@@ -416,7 +416,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   defp wrapped_string_virtual_readonly?(map, key) when is_map(map) do
     with {:ok, string} when is_binary(string) <- WrappedPrimitive.value(map, :string),
-         index when is_integer(index) <- Semantics.parse_array_index_key(key) do
+         {:ok, index} <- PropertyKey.array_index(key) do
       index >= 0 and index < Get.string_length(string)
     else
       _ -> false

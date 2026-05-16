@@ -11,7 +11,6 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
     Get,
     PropertyDescriptor,
     PropertyKey,
-    Semantics,
     WrappedPrimitive
   }
 
@@ -40,7 +39,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   def present?(%QuickBEAM.VM.Function{} = target, key), do: callable_present?(target, key)
 
   def present?(map, key) when is_map(map) do
-    raw_key = Semantics.parse_array_index_key(key)
+    raw_key = integer_property_key(key)
 
     Map.has_key?(map, key) or (raw_key != :error and Map.has_key?(map, raw_key)) or
       wrapped_string_length_present?(map, key) or wrapped_string_index_present?(map, key)
@@ -323,7 +322,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
 
   defp wrapped_string_index_present?(map, key) when is_map(map) do
     with {:ok, string} when is_binary(string) <- WrappedPrimitive.value(map, :string),
-         idx when is_integer(idx) <- Semantics.parse_array_index_key(key) do
+         {:ok, idx} <- PropertyKey.array_index(key) do
       idx < Get.string_length(string)
     else
       _ -> false
@@ -337,6 +336,13 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
 
       _ ->
         []
+    end
+  end
+
+  defp integer_property_key(key) do
+    case PropertyKey.array_index(key) do
+      {:ok, index} -> index
+      :error -> :error
     end
   end
 

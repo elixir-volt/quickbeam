@@ -204,8 +204,8 @@ defmodule QuickBEAM.VM.ObjectModel.Define do
 
   defp define_typed_array_index_property(obj, _ref, existing, prop_name, desc) do
     if is_map(existing) and Map.get(existing, typed_array()) do
-      case Integer.parse(prop_name) do
-        {idx, ""} when idx >= 0 ->
+      case PropertyKey.array_index(prop_name) do
+        {:ok, idx} ->
           if idx >= TypedArray.element_count(obj) do
             throw({:js_throw, Heap.make_error("Invalid typed array index", "TypeError")})
           end
@@ -290,25 +290,32 @@ defmodule QuickBEAM.VM.ObjectModel.Define do
   end
 
   defp property_present?(map, prop_name) when is_map(map) do
-    raw_key = Semantics.parse_array_index_key(prop_name)
+    raw_key = integer_property_key(prop_name)
     Map.has_key?(map, prop_name) or (raw_key != :error and Map.has_key?(map, raw_key))
   end
 
   defp property_present?(list, prop_name) when is_list(list) do
-    case Integer.parse(prop_name) do
-      {idx, ""} when idx >= 0 -> idx < length(list)
-      _ -> false
+    case PropertyKey.array_index(prop_name) do
+      {:ok, idx} -> idx < length(list)
+      :error -> false
     end
   end
 
   defp property_present?({:qb_arr, arr}, prop_name) do
-    case Integer.parse(prop_name) do
-      {idx, ""} when idx >= 0 -> idx < :array.size(arr)
-      _ -> false
+    case PropertyKey.array_index(prop_name) do
+      {:ok, idx} -> idx < :array.size(arr)
+      :error -> false
     end
   end
 
   defp property_present?(_existing, _prop_name), do: false
+
+  defp integer_property_key(key) do
+    case PropertyKey.array_index(key) do
+      {:ok, index} -> index
+      :error -> :error
+    end
+  end
 
   defp incompatible_existing_descriptor?(ref, existing, prop_name, desc) when is_map(existing) do
     current_desc = Heap.get_prop_desc(ref, prop_name)

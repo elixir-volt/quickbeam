@@ -1018,7 +1018,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp enumerable_object_key?(ref, map, key) do
-    raw_key = if Map.has_key?(map, key), do: key, else: Semantics.parse_array_index_key(key)
+    raw_key = if Map.has_key?(map, key), do: key, else: integer_property_key(key)
 
     raw_key = if raw_key != :error and Map.has_key?(map, raw_key), do: raw_key, else: key
 
@@ -1027,7 +1027,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp enumerable_value(obj, map, key) when is_map(map) do
-    raw_key = Semantics.parse_array_index_key(key)
+    raw_key = integer_property_key(key)
 
     cond do
       match?({:accessor, _, _}, Map.get(map, key)) -> Get.get(obj, key)
@@ -1039,6 +1039,13 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp enumerable_value(obj, _data, key), do: Get.get(obj, key)
+
+  defp integer_property_key(key) do
+    case PropertyKey.array_index(key) do
+      {:ok, index} -> index
+      :error -> :error
+    end
+  end
 
   defp values([{:obj, ref} = obj | _]) do
     data = Heap.get_obj(ref, %{})
@@ -1157,12 +1164,11 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp target_string_index?(ref, key) do
     case Heap.get_obj_raw(ref) do
       map when is_map(map) and is_binary(key) ->
-        case {WrappedPrimitive.value(map, :string), Integer.parse(key)} do
-          {{:ok, string}, {index, ""}} when is_binary(string) and index >= 0 ->
-            index < Get.string_length(string)
-
-          _ ->
-            false
+        with {:ok, string} when is_binary(string) <- WrappedPrimitive.value(map, :string),
+             {:ok, index} <- PropertyKey.array_index(key) do
+          index < Get.string_length(string)
+        else
+          _ -> false
         end
 
       _ ->

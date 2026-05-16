@@ -27,8 +27,8 @@ defmodule QuickBEAM.VM.ObjectModel.ArrayExotic do
   end
 
   def descriptor(ref, _data, prop_name) do
-    case Integer.parse(prop_name) do
-      {idx, ""} when idx >= 0 ->
+    case PropertyKey.array_index(prop_name) do
+      {:ok, idx} ->
         case Heap.get_array_prop(ref, prop_name) do
           {:accessor, getter, setter} ->
             PropertyDescriptor.accessor_object(getter, setter, descriptor_attrs(ref, prop_name))

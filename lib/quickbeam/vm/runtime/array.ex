@@ -14,6 +14,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     HasProperty,
     OwnProperty,
     PropertyDescriptor,
+    PropertyKey,
     Prototype,
     Put
   }
@@ -429,12 +430,12 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp get_array_hole_aware(receiver, key), do: Get.get(receiver, key)
 
   defp array_own_value_present?(ref, key) do
-    case Integer.parse(key) do
-      {idx, ""} when idx >= 0 ->
+    case PropertyKey.array_index(key) do
+      {:ok, idx} ->
         Heap.array_get(ref, idx) != :undefined or Heap.get_prop_desc(ref, key) != nil or
           Heap.get_array_prop(ref, key) != :undefined
 
-      _ ->
+      :error ->
         Heap.get_prop_desc(ref, key) != nil or Heap.get_array_prop(ref, key) != :undefined
     end
   end
@@ -838,16 +839,12 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp sort_reduce_indexes(indexes, :forward), do: Enum.sort(indexes)
   defp sort_reduce_indexes(indexes, :reverse), do: Enum.sort(indexes, :desc)
 
-  defp array_property_index(key) when is_integer(key) and key >= 0, do: [key]
-
-  defp array_property_index(key) when is_binary(key) do
-    case Integer.parse(key) do
-      {idx, ""} when idx >= 0 -> [idx]
-      _ -> []
+  defp array_property_index(key) do
+    case PropertyKey.array_index(key) do
+      {:ok, idx} -> [idx]
+      :error -> []
     end
   end
-
-  defp array_property_index(_key), do: []
 
   defp find_initial_accumulator(this, indexes) do
     case Enum.split_while(indexes, fn idx ->

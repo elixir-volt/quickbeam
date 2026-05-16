@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.ObjectModel.Semantics do
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Values
-  alias QuickBEAM.VM.ObjectModel.{PropertyDescriptor, PropertyKey}
+  alias QuickBEAM.VM.ObjectModel.PropertyDescriptor
   alias QuickBEAM.VM.Runtime
 
   def same_value?(a, b) when is_number(a) and is_number(b) and a == 0 and b == 0,
@@ -29,13 +29,6 @@ defmodule QuickBEAM.VM.ObjectModel.Semantics do
       configurable:
         PropertyDescriptor.attribute(desc_obj, desc, "configurable", existing_attrs, default)
     )
-  end
-
-  def parse_array_index_key(key) do
-    case PropertyKey.array_index(key) do
-      {:ok, index} -> index
-      :error -> :error
-    end
   end
 
   def enumerable_array_keys(ref, arr, side_keys) do

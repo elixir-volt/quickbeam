@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Invocation
-  alias QuickBEAM.VM.ObjectModel.{Get, Semantics, WrappedPrimitive}
+  alias QuickBEAM.VM.ObjectModel.{Get, PropertyKey, WrappedPrimitive}
 
   @doc "Deletes a property according to JavaScript delete semantics."
   def delete_property(nil, key) do
@@ -119,7 +119,7 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
 
   defp wrapped_string_virtual_non_configurable?(map, key) when is_map(map) do
     with {:ok, string} when is_binary(string) <- WrappedPrimitive.value(map, :string),
-         index when is_integer(index) <- Semantics.parse_array_index_key(key) do
+         {:ok, index} <- PropertyKey.array_index(key) do
       index >= 0 and index < QuickBEAM.VM.ObjectModel.Get.string_length(string)
     else
       _ -> false
@@ -149,9 +149,9 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
   end
 
   defp delete_ordinary_key(map, key) do
-    case Semantics.parse_array_index_key(key) do
+    case PropertyKey.array_index(key) do
       :error -> Map.delete(map, key)
-      index -> map |> Map.delete(key) |> Map.delete(index)
+      {:ok, index} -> map |> Map.delete(key) |> Map.delete(index)
     end
   end
 
@@ -222,8 +222,8 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
   defp delete_array_property(ref, key) do
     key = if is_binary(key), do: key, else: Values.stringify(key)
 
-    case Integer.parse(key) do
-      {idx, ""} when idx >= 0 ->
+    case PropertyKey.array_index(key) do
+      {:ok, idx} ->
         if match?(%{configurable: false}, Heap.get_prop_desc(ref, key)) do
           false
         else
