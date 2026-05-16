@@ -15,21 +15,17 @@ defmodule QuickBEAM.VM.Invocation do
   def invoke(fun, args, gas \\ Runtime.gas_budget())
 
   def invoke(%QuickBEAM.VM.Function{} = fun, args, gas) do
-    track_invoke_depth()
-
-    result =
+    with_invoke_depth([fun | args], fn ->
       case Compiler.invoke(fun, args, call_context(fun)) do
         {:ok, result} -> result
+        {:error, {:js_throw, error}} -> throw({:js_throw, error})
         :error -> Interpreter.invoke_function_fallback(fun, args, gas, call_context(fun))
       end
-
-    maybe_gc(result, [fun | args])
+    end)
   end
 
   def invoke({:closure, _, %QuickBEAM.VM.Function{} = inner} = closure, args, gas) do
-    track_invoke_depth()
-
-    result =
+    with_invoke_depth([closure | args], fn ->
       if compiled_closure_callable?(inner) do
         case Runner.invoke(closure, args, call_context(inner)) do
           {:ok, result} -> result
@@ -38,8 +34,7 @@ defmodule QuickBEAM.VM.Invocation do
       else
         Interpreter.invoke_closure_fallback(closure, args, gas, call_context(inner))
       end
-
-    maybe_gc(result, [closure | args])
+    end)
   end
 
   def invoke(other, args, _gas) when not is_tuple(other) or elem(other, 0) != :bound,
@@ -52,19 +47,21 @@ defmodule QuickBEAM.VM.Invocation do
     do: invoke_with_receiver(fun, args, Runtime.gas_budget(), this_obj)
 
   def invoke_with_receiver(fun, args, gas, this_obj) do
-    prev = Heap.get_ctx()
-    Heap.put_ctx(%{active_ctx() | this: this_obj} |> InvokeContext.attach_method_state())
+    with_invoke_depth([fun, this_obj | args], fn ->
+      prev = Heap.get_ctx()
+      Heap.put_ctx(%{active_ctx() | this: this_obj} |> InvokeContext.attach_method_state())
 
-    try do
-      invoke_receiver_target(fun, args, gas, this_obj)
-    after
-      if prev do
-        refreshed = GlobalEnv.refresh(prev)
-        Heap.put_ctx(refreshed)
-      else
-        Heap.put_ctx(nil)
+      try do
+        invoke_receiver_target(fun, args, gas, this_obj)
+      after
+        if prev do
+          refreshed = GlobalEnv.refresh(prev)
+          Heap.put_ctx(refreshed)
+        else
+          Heap.put_ctx(nil)
+        end
       end
-    end
+    end)
   end
 
   @doc "Invokes a JavaScript constructor with `this` and `new.target` context."
@@ -282,62 +279,64 @@ defmodule QuickBEAM.VM.Invocation do
     do: invoke_method_runtime(active_ctx(), fun, this_obj, args)
 
   def invoke_method_runtime(ctx, fun, this_obj, args) do
-    case fun do
-      %QuickBEAM.VM.Function{} = bytecode_fun ->
-        if compiled_method_callable?(bytecode_fun, this_obj) do
-          case Runner.invoke_with_receiver(bytecode_fun, args, this_obj, ctx) do
-            {:ok, value} ->
-              value
+    with_invoke_depth([fun, this_obj | args], fn ->
+      case fun do
+        %QuickBEAM.VM.Function{} = bytecode_fun ->
+          if compiled_method_callable?(bytecode_fun, this_obj) do
+            case Runner.invoke_with_receiver(bytecode_fun, args, this_obj, ctx) do
+              {:ok, value} ->
+                value
 
-            :error ->
-              Interpreter.invoke_function_fallback(
-                bytecode_fun,
-                args,
-                ctx.gas,
-                Context.mark_dirty(%{ctx | this: this_obj})
-              )
+              :error ->
+                Interpreter.invoke_function_fallback(
+                  bytecode_fun,
+                  args,
+                  ctx.gas,
+                  Context.mark_dirty(%{ctx | this: this_obj})
+                )
+            end
+          else
+            Interpreter.invoke_function_fallback(
+              bytecode_fun,
+              args,
+              ctx.gas,
+              Context.mark_dirty(%{ctx | this: this_obj})
+            )
           end
-        else
-          Interpreter.invoke_function_fallback(
-            bytecode_fun,
-            args,
-            ctx.gas,
-            Context.mark_dirty(%{ctx | this: this_obj})
-          )
-        end
 
-      {:closure, _, %QuickBEAM.VM.Function{} = inner} = closure ->
-        if compiled_method_callable?(inner, this_obj) do
-          case Runner.invoke_with_receiver(closure, args, this_obj, ctx) do
-            {:ok, value} ->
-              value
+        {:closure, _, %QuickBEAM.VM.Function{} = inner} = closure ->
+          if compiled_method_callable?(inner, this_obj) do
+            case Runner.invoke_with_receiver(closure, args, this_obj, ctx) do
+              {:ok, value} ->
+                value
 
-            :error ->
-              Interpreter.invoke_closure_fallback(
-                closure,
-                args,
-                ctx.gas,
-                Context.mark_dirty(%{ctx | this: this_obj})
-              )
+              :error ->
+                Interpreter.invoke_closure_fallback(
+                  closure,
+                  args,
+                  ctx.gas,
+                  Context.mark_dirty(%{ctx | this: this_obj})
+                )
+            end
+          else
+            Interpreter.invoke_closure_fallback(
+              closure,
+              args,
+              ctx.gas,
+              Context.mark_dirty(%{ctx | this: this_obj})
+            )
           end
-        else
-          Interpreter.invoke_closure_fallback(
-            closure,
-            args,
-            ctx.gas,
-            Context.mark_dirty(%{ctx | this: this_obj})
-          )
-        end
 
-      {:bound, _, inner, _, _} ->
-        invoke_method_runtime(ctx, inner, this_obj, args)
+        {:bound, _, inner, _, _} ->
+          invoke_method_runtime(ctx, inner, this_obj, args)
 
-      {:obj, _} = obj ->
-        dispatch_proxy_call(obj, args, ctx, this_obj)
+        {:obj, _} = obj ->
+          dispatch_proxy_call(obj, args, ctx, this_obj)
 
-      other ->
-        with_ctx(ctx, fn -> Builtin.call(other, args, this_obj) end)
-    end
+        other ->
+          with_ctx(ctx, fn -> Builtin.call(other, args, this_obj) end)
+      end
+    end)
   end
 
   @doc "Constructs a value from compiler-generated runtime helper code."
@@ -503,8 +502,21 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
+  defp with_invoke_depth(extra_roots, callback) when is_function(callback, 0) do
+    track_invoke_depth()
+
+    try do
+      result = callback.()
+      maybe_gc(result, extra_roots)
+    catch
+      kind, reason ->
+        maybe_gc(reason, extra_roots)
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    end
+  end
+
   defp maybe_gc(result, extra_roots) do
-    depth = Heap.get_invoke_depth() - 1
+    depth = max(Heap.get_invoke_depth() - 1, 0)
     Heap.put_invoke_depth(depth)
 
     if depth == 0 and Heap.gc_needed?() do
