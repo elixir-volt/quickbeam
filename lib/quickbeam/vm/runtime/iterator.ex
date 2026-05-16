@@ -600,14 +600,35 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
       {:obj, _} = obj ->
         obj
         |> OwnProperty.descriptor_keys()
-        |> Enum.reject(&(not is_binary(&1) or String.starts_with?(&1, "__")))
-        |> Enum.map(fn key -> {key, Get.get(obj, key)} end)
+        |> Enum.reduce([], fn key, acc ->
+          if internal_key?(key) do
+            acc
+          else
+            desc = OwnProperty.descriptor(obj, key)
+
+            if desc != :undefined and Get.get(desc, "enumerable") == true do
+              value = Get.get(obj, key)
+
+              if value == :undefined do
+                acc
+              else
+                [{key, value} | acc]
+              end
+            else
+              acc
+            end
+          end
+        end)
+        |> Enum.reverse()
 
       _ ->
         values = Heap.to_list(value)
         Enum.with_index(values, fn item, index -> {Integer.to_string(index), item} end)
     end
   end
+
+  defp internal_key?(key) when is_binary(key), do: String.starts_with?(key, "__")
+  defp internal_key?(_), do: false
 
   defp concat_iterable_record(item) do
     unless object_like?(item), do: JSThrow.type_error!("Iterator.concat item must be an object")
