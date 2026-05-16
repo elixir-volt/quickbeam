@@ -378,20 +378,24 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   defp helper_next_state(state_ref) do
     state = Heap.get_obj(state_ref, %{})
 
-    if state["executing"] == true do
-      JSThrow.type_error!("Iterator helper is already running")
-    end
+    if state["kind"] == :done do
+      iter_result(:undefined, true)
+    else
+      if state["executing"] == true do
+        JSThrow.type_error!("Iterator helper is already running")
+      end
 
-    Heap.put_obj(state_ref, Map.put(state, "executing", true))
+      Heap.put_obj(state_ref, Map.put(state, "executing", true))
 
-    try do
-      result = helper_next_kind(state_ref, Heap.get_obj(state_ref, %{}))
-      finish_helper_execution(state_ref)
-      result
-    catch
-      kind, reason ->
+      try do
+        result = helper_next_kind(state_ref, Heap.get_obj(state_ref, %{}))
         finish_helper_execution(state_ref)
-        :erlang.raise(kind, reason, __STACKTRACE__)
+        result
+      catch
+        kind, reason ->
+          finish_helper_execution(state_ref)
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
     end
   end
 
@@ -874,7 +878,8 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   defp helper_return(_), do: JSThrow.type_error!("Iterator helper expected")
 
-  defp mark_helper_done(state_ref), do: Heap.put_obj(state_ref, %{"kind" => :done})
+  defp mark_helper_done(state_ref),
+    do: Heap.put_obj(state_ref, %{"kind" => :done, "executing" => false})
 
   defp invoke_or_close(iterator, callback, args) do
     Invocation.invoke_with_receiver(callback, args, :undefined)
