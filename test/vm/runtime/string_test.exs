@@ -18,6 +18,25 @@ defmodule QuickBEAM.VM.Runtime.StringTest do
     assert beam!(rt, "'ab'.replace(/(a)(?<b>b)/, '$<b>')") == "b"
   end
 
+  test "RegExp constructed from named group source passes groups to functional replacer", %{
+    rt: rt
+  } do
+    assert_modes(
+      rt,
+      ~S|let re = new RegExp("(?<fst>.)(?<snd>.)", "g"); "abcd".replace(re, (match, fst, snd, offset, str, groups) => groups.snd + groups.fst)|,
+      "badc"
+    )
+
+    assert_modes(
+      rt,
+      """
+      let re = new RegExp("(?<fst>.)|(?<snd>.)", "");
+      "abcd".replace(re, (match, fst, snd, offset, str, groups) => String(groups.snd))
+      """,
+      "undefinedbcd"
+    )
+  end
+
   test "fromCodePoint preserves surrogate code points", %{rt: rt} do
     assert beam!(rt, "String.fromCodePoint(0xD800) === ''") == false
   end

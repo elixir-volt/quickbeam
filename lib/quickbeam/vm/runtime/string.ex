@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   use QuickBEAM.VM.Builtin
 
+  alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.{Builtin, Heap, Invocation, JSThrow}
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Interpreter.Values.Coercion
@@ -1560,6 +1561,13 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   def regex_replace(s, _, _), do: s
+
+  defp custom_regexp_exec?({:regexp, _, _, ref}) do
+    case RegexpState.fetch(ref, "exec") do
+      {:ok, exec} -> Builtin.callable?(exec)
+      :error -> false
+    end
+  end
 
   defp custom_regexp_exec?(regexp) do
     exec = Get.get(regexp, "exec")
