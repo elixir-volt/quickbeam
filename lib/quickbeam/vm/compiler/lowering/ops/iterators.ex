@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
   @moduledoc "Iterator and for-in/of opcodes."
 
+  alias QuickBEAM.VM.Compiler.Lowering.Effects, as: LoweringEffects
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, State}
   alias QuickBEAM.VM.ObjectModel.Get
 
@@ -54,7 +55,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
         end
 
       {{:ok, :rest}, [start_idx]} ->
-        State.effectful_push(
+        LoweringEffects.effectful_push(
           state,
           State.compiler_call(state, :rest, [Builder.literal(start_idx)]),
           :object
@@ -99,7 +100,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
           Builder.literal("next")
         ])
 
-      State.effectful_push(
+      LoweringEffects.effectful_push(
         state,
         Builder.remote_call(QuickBEAM.VM.Runtime, :call_callback, [
           next_fn,

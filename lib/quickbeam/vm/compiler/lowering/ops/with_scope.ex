@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
   @moduledoc "with-statement opcodes: with_get_var, with_put_var, with_delete_var, with_make_ref, with_get_ref, with_get_ref_undef."
 
+  alias QuickBEAM.VM.Compiler.Lowering.Effects, as: LoweringEffects
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, State}
   alias QuickBEAM.VM.ObjectModel.{Delete, Get, Put}
 
@@ -23,7 +24,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
         with {:ok, obj, state} <- Emit.pop(state) do
           key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
 
-          State.effectful_push(
+          LoweringEffects.effectful_push(
             state,
             Builder.remote_call(Delete, :delete_property, [obj, key])
           )

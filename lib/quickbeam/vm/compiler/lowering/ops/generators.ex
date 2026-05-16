@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Generators do
   @moduledoc "Generator and async opcodes: initial_yield, yield, yield_star, async_yield_star, await, return_async."
 
+  alias QuickBEAM.VM.Compiler.Lowering.Effects, as: LoweringEffects
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, Slots, State}
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
 
@@ -47,7 +48,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Generators do
 
       {{:ok, :await}, []} ->
         with {:ok, val, _type, state} <- Emit.pop_typed(state) do
-          State.effectful_push(
+          LoweringEffects.effectful_push(
             state,
             Builder.remote_call(RuntimeHelpers, :await, [
               State.ctx_expr(state),

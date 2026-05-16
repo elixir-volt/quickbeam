@@ -1,8 +1,17 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.State do
   @moduledoc "Lowering accumulator: tracks the operand stack, slot bindings, and emitted body forms during a block compilation."
 
-  alias QuickBEAM.VM.Compiler.Effects
-  alias QuickBEAM.VM.Compiler.Lowering.{Atoms, Builder, Captures, Emit, Literals, Slots, Types}
+  alias QuickBEAM.VM.Compiler.Lowering.{
+    Atoms,
+    Builder,
+    Captures,
+    Emit,
+    Effects,
+    Literals,
+    Slots,
+    Types
+  }
+
   alias QuickBEAM.VM.Compiler.{RuntimeABI, RuntimeHelpers}
   alias QuickBEAM.VM.Operands.CopyDataProperties
 
@@ -330,7 +339,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def put_field_call(state, key_expr) do
     with {:ok, val, _val_type, state} <- Emit.pop_typed(state),
          {:ok, obj, _obj_type, state} <- Emit.pop_typed(state) do
-      state = invalidate_shaped_aliases(state, obj)
+      state = Effects.invalidate_shaped_aliases(state, obj)
 
       {:ok, Emit.emit(state, abi_call(state, :put_field, [obj, key_expr, val]))}
     end
@@ -373,7 +382,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def define_method_call(state, method_name, flags) do
     with {:ok, method, _method_type, state} <- Emit.pop_typed(state),
          {:ok, target, _target_type, state} <- Emit.pop_typed(state) do
-      effectful_push(
+      Effects.effectful_push(
         state,
         compiler_call(state, :define_method, [
           target,
@@ -391,7 +400,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     with {:ok, method, state} <- Emit.pop(state),
          {:ok, field_name, state} <- Emit.pop(state),
          {:ok, target, state} <- Emit.pop(state) do
-      effectful_push(
+      Effects.effectful_push(
         state,
         compiler_call(state, :define_method_computed, [
           target,
@@ -437,7 +446,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     with {:ok, val, _val_type, state} <- Emit.pop_typed(state),
          {:ok, idx, _idx_type, state} <- Emit.pop_typed(state),
          {:ok, obj, _obj_type, state} <- Emit.pop_typed(state) do
-      state = invalidate_shaped_aliases(state, obj)
+      state = Effects.invalidate_shaped_aliases(state, obj)
       {:ok, Emit.emit(state, abi_call(state, :put_array_el, [obj, idx, val]))}
     end
   end
@@ -506,7 +515,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     with {:ok, state, target} <- Emit.bind_stack_entry(state, target_idx),
          {:ok, state, source} <- Emit.bind_stack_entry(state, source_idx),
          {:ok, state, exclude} <- Emit.bind_stack_entry(state, exclude_idx) do
-      state = apply_effect(state, :copy_data_properties, target)
+      state = Effects.apply_effect(state, :copy_data_properties, target)
 
       {:ok,
        %{
@@ -525,8 +534,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def delete_call(state) do
     with {:ok, key, _key_type, state} <- Emit.pop_typed(state),
          {:ok, obj, _obj_type, state} <- Emit.pop_typed(state) do
-      state = invalidate_shaped_aliases(state, obj)
-      effectful_push(state, compiler_call(state, :delete_property, [obj, key]), :boolean)
+      state = Effects.invalidate_shaped_aliases(state, obj)
+      Effects.effectful_push(state, compiler_call(state, :delete_property, [obj, key]), :boolean)
     end
   end
 
@@ -707,23 +716,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end
   end
 
-  @doc "Evaluates an expression for side effects and pushes the resulting temporary."
-  def effectful_push(state, expr),
-    do: effectful_push(state, expr, Types.infer_expr_type(expr))
-
-  def effectful_push(state, expr, type) do
-    {bound, state} = Emit.bind(state, Builder.temp_name(state.temp), expr)
-    {:ok, Emit.push(state, bound, type)}
-  end
-
-  def apply_effect(state, operation, obj \\ nil) do
-    if Effects.invalidates_shape_aliases?(operation) do
-      invalidate_shaped_aliases(state, obj)
-    else
-      state
-    end
-  end
-
   @doc "Lowers a unary operation through a runtime helper."
   def unary_call(state, mod, fun, extra_args \\ []) do
     with {:ok, expr, _type, state} <- Emit.pop_typed(state) do
@@ -774,7 +766,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     with {:ok, args, _arg_types, state} <- Emit.pop_n_typed(state, argc),
          {:ok, new_target, _new_target_type, state} <- Emit.pop_typed(state),
          {:ok, ctor, _ctor_type, state} <- Emit.pop_typed(state) do
-      effectful_push(
+      Effects.effectful_push(
         state,
         compiler_call(state, :construct_runtime, [
           ctor,
@@ -959,19 +951,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     end)
   end
 
-  defp invalidate_shaped_aliases(state, _obj) do
-    slot_types =
-      Map.new(state.slot_types, fn {idx, type} ->
-        if shaped_object_type?(type), do: {idx, :object}, else: {idx, type}
-      end)
-
-    %{state | slot_types: slot_types}
-  end
-
-  defp shaped_object_type?({:shaped_object, _offsets}), do: true
-  defp shaped_object_type?({:shaped_object, _offsets, _values}), do: true
-  defp shaped_object_type?(_type), do: false
-
   defp update_slot!(state, idx, expr, type) do
     {:ok, state} = update_slot(state, idx, expr, false, type)
     state
@@ -993,7 +972,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   end
 
   defp invoke_call_expr(%{return_type: return_type} = state, _fun, :self_fun, args, _arg_types) do
-    effectful_push(
+    Effects.effectful_push(
       state,
       Builder.local_call(:run_ctx, [ctx_expr(state) | normalize_self_call_args(state, args)]),
       return_type
@@ -1001,7 +980,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   end
 
   defp invoke_call_expr(state, fun, fun_type, args, _arg_types) do
-    effectful_push(
+    Effects.effectful_push(
       state,
       invoke_runtime_expr(state, fun, args),
       function_return_type(fun_type, state.return_type)

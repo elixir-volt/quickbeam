@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Calls do
   @moduledoc "Call, apply, eval, return, and closure opcodes."
 
+  alias QuickBEAM.VM.Compiler.Lowering.Effects, as: LoweringEffects
   import QuickBEAM.VM.OpcodeFamily, only: [is_call: 1]
 
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, State}
@@ -51,7 +52,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Calls do
         with {:ok, arg_array, state} <- Emit.pop(state),
              {:ok, this_obj, state} <- Emit.pop(state),
              {:ok, fun, state} <- Emit.pop(state) do
-          State.effectful_push(
+          LoweringEffects.effectful_push(
             state,
             Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_method_runtime, [
               State.ctx_expr(state),
@@ -65,7 +66,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Calls do
       {{:ok, :apply_eval}, [_scope_idx]} ->
         with {:ok, arg_array, state} <- Emit.pop(state),
              {:ok, fun, state} <- Emit.pop(state) do
-          State.effectful_push(
+          LoweringEffects.effectful_push(
             state,
             Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_runtime, [
               State.ctx_expr(state),
@@ -79,7 +80,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Calls do
         with {:ok, args, _types, state} <- Emit.pop_n_typed(state, argc + 1) do
           [eval_ref | call_args] = Enum.reverse(args)
 
-          State.effectful_push(
+          LoweringEffects.effectful_push(
             state,
             State.compiler_call(state, :eval_or_call, [eval_ref, Builder.list_expr(call_args)])
           )
@@ -88,7 +89,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Calls do
       {{:ok, :import}, []} ->
         with {:ok, _meta, state} <- Emit.pop(state),
              {:ok, specifier, state} <- Emit.pop(state) do
-          State.effectful_push(
+          LoweringEffects.effectful_push(
             state,
             State.compiler_call(state, :import_module, [specifier])
           )

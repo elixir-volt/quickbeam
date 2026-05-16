@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Classes do
   @moduledoc "Class definition opcodes: define_class, define_method, add_brand, check_brand, init_ctor."
 
+  alias QuickBEAM.VM.Compiler.Lowering.Effects, as: LoweringEffects
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, State}
 
   @doc "Lowers a VM instruction or function into compiler IR."
@@ -32,7 +33,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Classes do
         lower_check_brand(state)
 
       {{:ok, :init_ctor}, []} ->
-        State.effectful_push(
+        LoweringEffects.effectful_push(
           state,
           State.compiler_call(state, :init_ctor, []),
           :object

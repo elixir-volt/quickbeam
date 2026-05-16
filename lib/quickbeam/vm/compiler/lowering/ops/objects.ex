@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
   @moduledoc "Object and array manipulation opcodes: get/put_field, get/put_array_el, define_field, set_name, set_proto, get/put_super, private fields, delete, in, instanceof."
 
+  alias QuickBEAM.VM.Compiler.Lowering.Effects, as: LoweringEffects
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, State}
   alias QuickBEAM.VM.Compiler.{RuntimeABI, RuntimeHelpers}
   alias QuickBEAM.VM.ObjectModel.{Class, Private, Put}
@@ -149,7 +150,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
     with {:ok, key, state} <- Emit.pop(state),
          {:ok, proto, state} <- Emit.pop(state),
          {:ok, this_obj, state} <- Emit.pop(state) do
-      State.effectful_push(
+      LoweringEffects.effectful_push(
         state,
         Builder.remote_call(Class, :get_super_value, [proto, this_obj, key])
       )
@@ -175,7 +176,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
   defp lower_to_propkey2(state) do
     with {:ok, key, _key_type, state} <- Emit.pop_typed(state),
          {:ok, obj, obj_type, state} <- Emit.pop_typed(state) do
-      state = State.apply_effect(state, :to_property_key, obj)
+      state = LoweringEffects.apply_effect(state, :to_property_key, obj)
 
       {:ok,
        state
@@ -208,7 +209,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
   defp lower_get_private_field(state) do
     with {:ok, key, state} <- Emit.pop(state),
          {:ok, obj, state} <- Emit.pop(state) do
-      State.effectful_push(
+      LoweringEffects.effectful_push(
         state,
         State.compiler_call(state, :get_private_field, [obj, key])
       )

@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Locals do
   @moduledoc "Local and argument slot opcodes: get_loc, put_loc, set_loc, get_arg, put_arg, set_arg, etc."
 
+  alias QuickBEAM.VM.Compiler.Lowering.Effects, as: LoweringEffects
   import QuickBEAM.VM.OpcodeFamily, only: [is_get_slot: 1, is_put_slot: 1, is_set_slot: 1]
 
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Captures, Slots, State}
@@ -75,7 +76,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Locals do
         expr
       end
 
-    State.effectful_push(state, value, type)
+    LoweringEffects.effectful_push(state, value, type)
   end
 
   defp lower_get_loc_check(state, slot_idx) do
@@ -99,7 +100,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Locals do
         expr
       end
 
-    State.effectful_push(state, value, slot_type)
+    LoweringEffects.effectful_push(state, value, slot_type)
   end
 
   defp lower_put_loc_check(state, slot_idx) do
