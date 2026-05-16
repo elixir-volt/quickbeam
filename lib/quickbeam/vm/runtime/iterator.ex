@@ -232,12 +232,14 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   def drop(args, this) do
+    unless object_like?(this), do: JSThrow.type_error!("Iterator receiver must be an object")
     remaining = non_negative_integer_limit_or_close(this, Builtin.arg(args, 0, :undefined))
     iterator = iterator_record(this)
     helper_iterator(%{"kind" => :drop, "iterator" => iterator, "remaining" => remaining})
   end
 
   def take(args, this) do
+    unless object_like?(this), do: JSThrow.type_error!("Iterator receiver must be an object")
     remaining = non_negative_integer_limit_or_close(this, Builtin.arg(args, 0, :undefined))
     iterator = iterator_record(this)
     helper_iterator(%{"kind" => :take, "iterator" => iterator, "remaining" => remaining})
