@@ -19,6 +19,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     Get,
     Methods,
     Private,
+    PropertyKey,
     Put,
     Static
   }
@@ -56,6 +57,9 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
     val
   end
+
+  def to_property_key(value), do: PropertyKey.to_property_key(value)
+  def to_property_key(_ctx, value), do: PropertyKey.to_property_key(value)
 
   def to_object(:undefined), do: JSThrow.type_error!("Cannot convert undefined to object")
   def to_object(nil), do: JSThrow.type_error!("Cannot convert null to object")

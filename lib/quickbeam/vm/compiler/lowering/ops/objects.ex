@@ -93,10 +93,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
         State.unary_call(state, RuntimeHelpers, :to_object)
 
       {{:ok, :to_propkey}, []} ->
-        {:ok, state}
+        State.unary_call(state, RuntimeHelpers, :to_property_key)
 
       {{:ok, :to_propkey2}, []} ->
-        {:ok, state}
+        lower_to_propkey2(state)
 
       {{:ok, :get_length}, []} ->
         State.get_length_call(state)
@@ -169,6 +169,16 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
              | state.body
            ]
        }}
+    end
+  end
+
+  defp lower_to_propkey2(state) do
+    with {:ok, key, _key_type, state} <- State.pop_typed(state),
+         {:ok, obj, obj_type, state} <- State.pop_typed(state) do
+      {:ok,
+       state
+       |> State.push(obj, obj_type)
+       |> State.push(State.compiler_call(state, :to_property_key, [key]), :unknown)}
     end
   end
 

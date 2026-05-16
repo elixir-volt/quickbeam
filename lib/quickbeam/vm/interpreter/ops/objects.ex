@@ -6,7 +6,18 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
     quote location: :keep do
       alias QuickBEAM.VM.{Builtin, Heap, Invocation, Names, Runtime}
       alias QuickBEAM.VM.Interpreter.{Context, Values}
-      alias QuickBEAM.VM.ObjectModel.{Class, Copy, Delete, Functions, Get, Private, Put}
+
+      alias QuickBEAM.VM.ObjectModel.{
+        Class,
+        Copy,
+        Delete,
+        Functions,
+        Get,
+        Private,
+        PropertyKey,
+        Put
+      }
+
       alias QuickBEAM.VM.Operands.CopyDataProperties
 
       # ── Objects ──
@@ -216,8 +227,13 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       defp run({@op_to_object, []}, pc, frame, stack, gas, ctx),
         do: run(pc + 1, frame, stack, gas, ctx)
 
-      defp run({@op_to_propkey, []}, pc, frame, stack, gas, ctx),
-        do: run(pc + 1, frame, stack, gas, ctx)
+      defp run({@op_to_propkey, []}, pc, frame, [key | rest], gas, ctx) do
+        try do
+          run(pc + 1, frame, [PropertyKey.to_property_key(key) | rest], gas, ctx)
+        catch
+          {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
+        end
+      end
 
       defp run({@op_to_propkey2, []}, _pc, frame, [_key, obj | _rest], gas, ctx)
            when obj == nil or obj == :undefined do
@@ -231,8 +247,13 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
         )
       end
 
-      defp run({@op_to_propkey2, []}, pc, frame, stack, gas, ctx),
-        do: run(pc + 1, frame, stack, gas, ctx)
+      defp run({@op_to_propkey2, []}, pc, frame, [key, obj | rest], gas, ctx) do
+        try do
+          run(pc + 1, frame, [PropertyKey.to_property_key(key), obj | rest], gas, ctx)
+        catch
+          {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
+        end
+      end
 
       defp run({@op_check_ctor, []}, pc, frame, stack, gas, ctx),
         do: run(pc + 1, frame, stack, gas, ctx)

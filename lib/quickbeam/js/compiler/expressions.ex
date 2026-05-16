@@ -2169,6 +2169,7 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
        ) do
     with {:ok, instructions, constants} <-
            callbacks.compile_expression.(key, scope, instructions, constants),
+         instructions = instructions ++ [:to_propkey],
          {:ok, instructions, constants} <-
            callbacks.compile_expression.(value, scope, instructions, constants) do
       name_instr = if nameable_value?(value), do: [:set_name_computed], else: []
