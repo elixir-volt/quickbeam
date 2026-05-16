@@ -506,6 +506,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     with {:ok, state, target} <- bind_stack_entry(state, target_idx),
          {:ok, state, source} <- bind_stack_entry(state, source_idx),
          {:ok, state, exclude} <- bind_stack_entry(state, exclude_idx) do
+      state = apply_effect(state, :copy_data_properties, target)
+
       {:ok,
        %{
          state
