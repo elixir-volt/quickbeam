@@ -34,4 +34,17 @@ defmodule QuickBEAM.VM.Semantics.PropertyAccessTest do
       "key,get"
     )
   end
+
+  test "computed property key coercion invalidates compiler shape assumptions", %{rt: rt} do
+    assert {:ok, 3} =
+             QuickBEAM.eval(
+               rt,
+               """
+               let obj = { a: 1 };
+               let key = { toString() { obj.b = 2; return 'a'; } };
+               obj[key] + obj.b;
+               """,
+               mode: :beam_compiler
+             )
+  end
 end

@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.State do
   @moduledoc "Lowering accumulator: tracks the operand stack, slot bindings, and emitted body forms during a block compilation."
 
+  alias QuickBEAM.VM.Compiler.Effects
   alias QuickBEAM.VM.Compiler.Lowering.{Atoms, Builder, Captures, Literals, Types}
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.Operands.CopyDataProperties
@@ -807,6 +808,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def effectful_push(state, expr, type) do
     {bound, state} = bind(state, Builder.temp_name(state.temp), expr)
     {:ok, push(state, bound, type)}
+  end
+
+  def apply_effect(state, operation, obj \\ nil) do
+    if Effects.invalidates_shape_aliases?(operation) do
+      invalidate_shaped_aliases(state, obj)
+    else
+      state
+    end
   end
 
   @doc "Lowers a unary operation through a runtime helper."

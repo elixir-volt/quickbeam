@@ -175,6 +175,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
   defp lower_to_propkey2(state) do
     with {:ok, key, _key_type, state} <- State.pop_typed(state),
          {:ok, obj, obj_type, state} <- State.pop_typed(state) do
+      state = State.apply_effect(state, :to_property_key, obj)
+
       {:ok,
        state
        |> State.push(obj, obj_type)
