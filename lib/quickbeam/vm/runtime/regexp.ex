@@ -296,8 +296,27 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     end
   end
 
-  defp exec({:regexp, bytecode, source, _ref}, args),
-    do: exec({:regexp, bytecode, source}, args)
+  defp exec({:regexp, bytecode, source, ref} = regexp, [s | _])
+       when is_binary(bytecode) and is_binary(s) do
+    flags = regexp_flags(bytecode, ref)
+
+    if stateful_regexp?(flags) do
+      exec_stateful(regexp, s, flags)
+    else
+      exec({:regexp, bytecode, source}, [s])
+    end
+  end
+
+  defp exec({:regexp, nil, source, _ref} = regexp, [s | _])
+       when is_binary(source) and is_binary(s) do
+    flags = regexp_match_all_flags(regexp)
+
+    if stateful_regexp?(flags) do
+      exec_stateful(regexp, s, flags)
+    else
+      literal_exec(s, source)
+    end
+  end
 
   defp exec({:regexp, nil, source}, [s | _]) when is_binary(source) and is_binary(s),
     do: literal_exec(s, source)
@@ -313,6 +332,50 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp exec(_, _), do: nil
+
+  defp stateful_regexp?(flags), do: String.contains?(flags, "g") or String.contains?(flags, "y")
+
+  defp exec_stateful(regexp, string, flags) do
+    last_index = max(Runtime.to_int(Get.get(regexp, "lastIndex")), 0)
+
+    if last_index > Get.string_length(string) do
+      Put.put(regexp, "lastIndex", 0)
+      nil
+    else
+      case exec_at_index(regexp, string, flags, last_index) do
+        nil ->
+          Put.put(regexp, "lastIndex", 0)
+          nil
+
+        result ->
+          index = Get.get(result, "index")
+
+          if String.contains?(flags, "y") and index != last_index do
+            Put.put(regexp, "lastIndex", 0)
+            nil
+          else
+            match = Values.stringify(Get.get(result, "0"))
+            Put.put(regexp, "lastIndex", index + Get.string_length(match))
+            result
+          end
+      end
+    end
+  end
+
+  defp exec_at_index({:regexp, bytecode, source, _ref}, string, flags, last_index)
+       when is_binary(bytecode) do
+    case decoded_simple_escape(source) do
+      literal when is_binary(literal) -> literal_exec_decoded_from(string, literal, last_index)
+      :error -> exec_nif(bytecode, source, flags, string, last_index)
+    end
+  end
+
+  defp exec_at_index({:regexp, nil, source, _ref}, string, _flags, last_index) do
+    case literal_exec_from(string, source, last_index) do
+      nil -> nil
+      {result, _next_offset} -> result
+    end
+  end
 
   defp exec_global_prefix_lookbehind_def(regexp, string) do
     start_index = max(Runtime.to_int(Get.get(regexp, "lastIndex")), 0)
@@ -386,8 +449,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   defp word_source_match?("\\W", unit), do: not word_source_match?("\\w", unit)
 
-  defp exec_nif(bytecode, source, flags, s) do
-    case simple_named_literal_captures(source, s) do
+  defp exec_nif(bytecode, source, flags, s, last_index \\ 0) do
+    case if(last_index == 0, do: simple_named_literal_captures(source, s), else: :none) do
       {:ok, captures} ->
         strings = Enum.map(captures, fn {start, len} -> String.slice(s, start, len) end)
         {match_start, _} = hd(captures)
@@ -398,14 +461,15 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         {:obj, ref}
 
       :none ->
-        unicode_regex_fallback(source, flags, s) || exec_nif_native(bytecode, source, flags, s)
+        unicode_regex_fallback(source, flags, s, last_index) ||
+          exec_nif_native(bytecode, source, flags, s, last_index)
     end
   end
 
-  defp exec_nif_native(bytecode, source, flags, s) do
-    case nif_exec(bytecode, s, 0) do
+  defp exec_nif_native(bytecode, source, flags, s, last_index) do
+    case nif_exec(bytecode, s, last_index) do
       nil ->
-        unicode_regex_fallback(source, flags, s)
+        unicode_regex_fallback(source, flags, s, last_index)
 
       captures ->
         strings =
@@ -430,11 +494,11 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     end
   end
 
-  defp unicode_regex_fallback(source, flags, string) do
+  defp unicode_regex_fallback(source, flags, string, last_index) do
     if String.contains?(flags, "d") and String.contains?(flags, "u") do
       case Regex.compile(source, "u") do
         {:ok, regex} ->
-          case Regex.run(regex, string, return: :index, capture: :all) do
+          case Regex.run(regex, string, return: :index, capture: :all, offset: last_index) do
             nil -> nil
             captures -> unicode_regex_result(source, flags, string, captures)
           end
@@ -675,7 +739,11 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp literal_exec_decoded(_s, :error), do: nil
 
   defp literal_exec_decoded(s, literal) do
-    case :binary.match(s, literal) do
+    literal_exec_decoded_from(s, literal, 0)
+  end
+
+  defp literal_exec_decoded_from(s, literal, offset) do
+    case :binary.match(s, literal, scope: {offset, byte_size(s) - offset}) do
       {index, _length} -> exec_result([literal], index, s)
       :nomatch -> nil
     end

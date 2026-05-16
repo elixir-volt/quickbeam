@@ -21,4 +21,20 @@ defmodule QuickBEAM.VM.Runtime.RegExpTest do
   test "unicode indices fallback does not count lookbehind as a capture", %{rt: rt} do
     assert beam!(rt, "/(?<=a)b/du.exec('ab').indices.length") == 1
   end
+
+  test "global exec advances and resets lastIndex", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|let r = /a/g; let first = r.exec("ba"); let afterFirst = r.lastIndex; let second = r.exec("ba"); [first.index, afterFirst, second, r.lastIndex].join(",")|,
+      "1,2,,0"
+    )
+  end
+
+  test "sticky exec requires a match at lastIndex", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|let r = /a/y; r.lastIndex = 1; let first = r.exec("ba"); let afterFirst = r.lastIndex; r.lastIndex = 0; let second = r.exec("ba"); [first.index, afterFirst, second, r.lastIndex].join(",")|,
+      "1,2,,0"
+    )
+  end
 end
