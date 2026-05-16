@@ -362,11 +362,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
                   [key, offsets]},
                  [
                    {:clause, @line, [{:tuple, @line, [{:atom, @line, :ok}, off]}], [],
-                    [
-                      {:call, @line,
-                       {:remote, @line, {:atom, @line, :erlang}, {:atom, @line, :element}},
-                       [{:op, @line, :+, off, {:integer, @line, 1}}, vals]}
-                    ]},
+                    [remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [obj_tuple, key])]},
                    {:clause, @line, [{:atom, @line, :error}], [],
                     [remote_call(QuickBEAM.VM.ObjectModel.Get, :get, [obj_tuple, key])]}
                  ]}

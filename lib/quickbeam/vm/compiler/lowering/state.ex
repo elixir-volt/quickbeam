@@ -236,55 +236,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       case {type, key_str} do
         {{:shaped_object, _offsets, value_map}, key}
         when is_binary(key) and is_map_key(value_map, key) ->
-          val_expr = Map.fetch!(value_map, key)
-
-          if Types.pure_expr?(val_expr) do
-            {:ok, push(state, val_expr)}
-          else
-            {:ok, push(state, Builder.local_call(:op_get_field, [obj, key_expr]))}
-          end
+          {:ok, push(state, Builder.local_call(:op_get_field, [obj, key_expr]))}
 
         {{:shaped_object, offsets}, key} when is_binary(key) and is_map_key(offsets, key) ->
-          offset = Map.fetch!(offsets, key)
-
-          id_var = Builder.var(Builder.temp_name(state.temp))
-          vals_var = Builder.var(Builder.temp_name(state.temp + 1))
-          state = %{state | temp: state.temp + 2}
-
-          access_expr =
-            {:case, @line, obj,
-             [
-               {:clause, @line, [{:tuple, @line, [{:atom, @line, :obj}, id_var]}], [],
-                [
-                  {:case, @line,
-                   {:call, @line, {:remote, @line, {:atom, @line, :erlang}, {:atom, @line, :get}},
-                    [id_var]},
-                   [
-                     {:clause, @line,
-                      [
-                        {:tuple, @line,
-                         [
-                           {:atom, @line, :shape},
-                           {:var, @line, :_},
-                           {:var, @line, :_},
-                           vals_var,
-                           {:var, @line, :_}
-                         ]}
-                      ], [],
-                      [
-                        {:call, @line,
-                         {:remote, @line, {:atom, @line, :erlang}, {:atom, @line, :element}},
-                         [{:integer, @line, offset + 1}, vals_var]}
-                      ]},
-                     {:clause, @line, [{:var, @line, :_}], [],
-                      [Builder.local_call(:op_get_field, [obj, key_expr])]}
-                   ]}
-                ]},
-               {:clause, @line, [{:var, @line, :_}], [],
-                [Builder.local_call(:op_get_field, [obj, key_expr])]}
-             ]}
-
-          {:ok, push(state, access_expr)}
+          {:ok, push(state, Builder.local_call(:op_get_field, [obj, key_expr]))}
 
         _ ->
           {:ok, push(state, Builder.local_call(:op_get_field, [obj, key_expr]))}

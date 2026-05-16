@@ -228,6 +228,11 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     case Heap.get_obj_raw(ref) do
       {:shape, shape_id, offsets, vals, proto} ->
         cond do
+          shape_accessor_setter?(offsets, vals, key) ->
+            {:ok, offset} = Map.fetch(offsets, key)
+            {:accessor, _getter, setter} = elem(vals, offset)
+            invoke_setter(setter, val, obj)
+
           Heap.frozen?(ref) ->
             :ok
 
@@ -882,6 +887,13 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   end
 
   defp proto_has_setter_property?(_proto_obj, _key), do: false
+
+  defp shape_accessor_setter?(offsets, vals, key) do
+    case Map.fetch(offsets, key) do
+      {:ok, offset} -> match?({:accessor, _getter, setter} when setter != nil, elem(vals, offset))
+      :error -> false
+    end
+  end
 
   defp proto_has_getter_only_property?(nil, _key), do: false
   defp proto_has_getter_only_property?(:undefined, _key), do: false
