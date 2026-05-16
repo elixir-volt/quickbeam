@@ -128,7 +128,7 @@ defmodule QuickBEAM.VM.Invocation do
     ctx = active_ctx()
 
     case fun do
-      {:closure, _, %QuickBEAM.VM.Function{need_home_object: false}} = closure ->
+      {:closure, _, %QuickBEAM.VM.Function{need_home_object: false, closure_vars: []}} = closure ->
         case Runner.invoke(closure, args, ctx) do
           {:ok, value} -> value
           :error -> Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
@@ -627,7 +627,7 @@ defmodule QuickBEAM.VM.Invocation do
   defp compiled_closure_callable?(_), do: false
 
   defp compiled_method_callable?(
-         %QuickBEAM.VM.Function{need_home_object: false, func_kind: kind},
+         %QuickBEAM.VM.Function{need_home_object: false, func_kind: kind, closure_vars: []},
          {:obj, _}
        )
        when kind in [0, 2],

@@ -166,22 +166,6 @@ defmodule QuickBEAM.VM.Runtime.Set do
   defp normalize_set_value(value) when is_float(value) and value == 0.0, do: 0
   defp normalize_set_value(value), do: value
 
-  defp other_data(other) do
-    case other do
-      {:obj, ref} ->
-        map = Heap.get_obj(ref, %{})
-
-        case Map.get(map, set_data()) do
-          items when is_list(items) ->
-            items
-
-          _ ->
-            other
-            |> Get.get("keys")
-            |> iterate_setlike(other)
-        end
-    end
-  end
 
   defp other_size(other) do
     case Get.get(other, "size") do
@@ -221,17 +205,21 @@ defmodule QuickBEAM.VM.Runtime.Set do
 
   defp validate_set_like!(_), do: JSThrow.type_error!("set-like object must be an object")
 
-  defp other_has(other, value) do
-    has_fn = Get.get(other, "has")
-    other_has_with(has_fn, other, value)
-  end
-
   defp other_has_with(has_fn, other, value) do
     value = normalize_set_value(value)
 
     case has_fn do
       {:builtin, _, fun} when is_function(fun) -> fun.([value], other) == true
       fun -> Runtime.call_callback(fun, [value]) == true
+    end
+  end
+
+  defp other_data_from_record(%{object: {:obj, ref}} = record) do
+    map = Heap.get_obj(ref, %{})
+
+    case Map.get(map, set_data()) do
+      items when is_list(items) -> items
+      _ -> iterate_setlike(record.keys, record.object)
     end
   end
 
@@ -244,13 +232,17 @@ defmodule QuickBEAM.VM.Runtime.Set do
 
   defp collect_iterator(iterator, acc) do
     next_fn = Get.get(iterator, "next")
+    collect_iterator_loop(iterator, next_fn, acc)
+  end
+
+  defp collect_iterator_loop(iterator, next_fn, acc) do
     result = call_with_this(next_fn, [], iterator)
 
     if Get.get(result, "done") == true do
       Enum.reverse(acc)
     else
       value = result |> Get.get("value") |> normalize_set_value()
-      collect_iterator(iterator, [value | acc])
+      collect_iterator_loop(iterator, next_fn, [value | acc])
     end
   end
 
@@ -276,14 +268,14 @@ defmodule QuickBEAM.VM.Runtime.Set do
   defp difference(_, this), do: require_strong_set_ref!(this)
 
   defp set_difference(set_ref, other) do
-    validate_set_like!(other)
+    record = validate_set_like!(other)
     items = data(set_ref)
 
     result =
-      if length(items) <= other_size(other) do
-        Enum.reject(items, &other_has(other, &1))
+      if length(items) <= record.size do
+        Enum.reject(items, &other_has_with(record.has, record.object, &1))
       else
-        items -- other_data(other)
+        items -- other_data_from_record(record)
       end
 
     constructor().([result], nil)
@@ -295,15 +287,15 @@ defmodule QuickBEAM.VM.Runtime.Set do
   defp intersection(_, this), do: require_strong_set_ref!(this)
 
   defp set_intersection(set_ref, other) do
-    validate_set_like!(other)
+    record = validate_set_like!(other)
     items = data(set_ref)
 
     result =
-      if length(items) <= other_size(other) do
-        Enum.filter(items, &other_has(other, &1))
+      if length(items) <= record.size do
+        Enum.filter(items, &other_has_with(record.has, record.object, &1))
       else
-        other
-        |> other_data()
+        record
+        |> other_data_from_record()
         |> Enum.filter(&(&1 in items))
       end
 
@@ -314,8 +306,8 @@ defmodule QuickBEAM.VM.Runtime.Set do
   defp union(_, this), do: require_strong_set_ref!(this)
 
   defp set_union(set_ref, other) do
-    validate_set_like!(other)
-    constructor().([Enum.uniq(data(set_ref) ++ other_data(other))], nil)
+    record = validate_set_like!(other)
+    constructor().([Enum.uniq(data(set_ref) ++ other_data_from_record(record))], nil)
   end
 
   defp symmetric_difference([other | _], this),
@@ -324,9 +316,9 @@ defmodule QuickBEAM.VM.Runtime.Set do
   defp symmetric_difference(_, this), do: require_strong_set_ref!(this)
 
   defp set_symmetric_difference(set_ref, other) do
-    validate_set_like!(other)
+    record = validate_set_like!(other)
     items = data(set_ref)
-    other_items = other_data(other)
+    other_items = other_data_from_record(record)
     constructor().([(items -- other_items) ++ (other_items -- items)], nil)
   end
 
@@ -355,12 +347,11 @@ defmodule QuickBEAM.VM.Runtime.Set do
   defp superset?(_, this), do: require_strong_set_ref!(this)
 
   defp set_superset?(set_ref, other) do
-    validate_set_like!(other)
+    record = validate_set_like!(other)
     items = data(set_ref)
-    size = other_size(other)
 
-    if is_number(size) and length(items) >= size do
-      iterator = other |> Get.get("keys") |> call_with_this([], other)
+    if is_number(record.size) and length(items) >= record.size do
+      iterator = call_with_this(record.keys, [], record.object)
       iterate_check_all(iterator, items)
     else
       false
@@ -371,15 +362,14 @@ defmodule QuickBEAM.VM.Runtime.Set do
   defp disjoint?(_, this), do: require_strong_set_ref!(this)
 
   defp set_disjoint?(set_ref, other) do
-    validate_set_like!(other)
+    record = validate_set_like!(other)
     items = data(set_ref)
-    size = other_size(other)
 
-    if is_number(size) and length(items) > size do
-      iterator = other |> Get.get("keys") |> call_with_this([], other)
+    if is_number(record.size) and length(items) > record.size do
+      iterator = call_with_this(record.keys, [], record.object)
       iterate_check_none(iterator, items)
     else
-      not Enum.any?(items, fn value -> other_has(other, value) end)
+      not Enum.any?(items, fn value -> other_has_with(record.has, record.object, value) end)
     end
   end
 
