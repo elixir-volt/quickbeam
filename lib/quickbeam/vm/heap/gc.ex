@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.Heap.GC do
   alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.Heap.{Context, Registry, Store}
 
-  @gc_initial_threshold 5_000
+  @gc_initial_threshold 50_000
   @doc "Returns the allocation threshold that triggers the first heap GC pass."
   def gc_initial_threshold, do: @gc_initial_threshold
 
