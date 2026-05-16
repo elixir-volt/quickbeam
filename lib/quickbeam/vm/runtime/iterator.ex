@@ -724,6 +724,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   defp zip_step_strict([], _previous_open, acc, nil), do: Enum.reverse(acc)
+  defp zip_step_strict([], _previous_open, acc, :open), do: Enum.reverse(acc)
   defp zip_step_strict([], _previous_open, _acc, :done), do: :done
 
   defp zip_step_strict([iterator | rest], previous_open, acc, seen) do
