@@ -742,7 +742,11 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
         iter_result(:undefined, true)
 
       values ->
-        Heap.put_obj(state_ref, %{state | "open_iterators" => iterators})
+        Heap.put_obj(
+          state_ref,
+          Map.merge(state, %{"open_iterators" => iterators, "started" => true})
+        )
+
         zip_result(state["keys"], values)
     end
   end
@@ -754,7 +758,11 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
         iter_result(:undefined, true)
 
       values ->
-        Heap.put_obj(state_ref, %{state | "open_iterators" => iterators})
+        Heap.put_obj(
+          state_ref,
+          Map.merge(state, %{"open_iterators" => iterators, "started" => true})
+        )
+
         zip_result(state["keys"], values)
     end
   end
@@ -773,7 +781,10 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
         {_iterator, :done} -> []
       end)
 
-    Heap.put_obj(state_ref, %{state | "open_iterators" => open_iterators})
+    Heap.put_obj(
+      state_ref,
+      Map.merge(state, %{"open_iterators" => open_iterators, "started" => true})
+    )
 
     if Enum.all?(results, &(&1 == :done)) do
       iter_result(:undefined, true)
@@ -911,6 +922,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
       Heap.put_obj(state_ref, %{state | "index" => index + 1, "active" => nil})
       concat_next(state_ref, Heap.get_obj(state_ref, %{}))
     else
+      Heap.put_obj(state_ref, Map.put(state, "started", true))
       iter_result(Get.get(result, "value"), false)
     end
   end
@@ -1171,26 +1183,16 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
       %{"__iterator_helper_state__" => state_ref} ->
         state = Heap.get_obj(state_ref, %{})
 
-        if state["kind"] != :done do
-          mark_helper_done(state_ref)
+        cond do
+          state["kind"] == :done ->
+            :ok
 
-          cond do
-            state["kind"] == :flat_map and state["inner"] != nil ->
-              iterator_return(state["inner"])
-              iterator_return(state["iterator"])
+          state["started"] == true ->
+            close_started_helper(state_ref, state)
 
-            state["open_iterators"] != nil ->
-              close_iterators_for_completion(state["open_iterators"])
-
-            state["iterator"] != nil ->
-              iterator_return(state["iterator"])
-
-            state["active"] != nil ->
-              iterator_return(state["active"])
-
-            true ->
-              :ok
-          end
+          true ->
+            mark_helper_done(state_ref)
+            close_helper_state(state)
         end
 
         iter_result(:undefined, true)
@@ -1201,6 +1203,43 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   defp helper_return(_), do: JSThrow.type_error!("Iterator helper expected")
+
+  defp close_started_helper(state_ref, state) do
+    if state["executing"] == true do
+      JSThrow.type_error!("Iterator helper is already running")
+    else
+      Heap.put_obj(state_ref, Map.put(state, "executing", true))
+
+      try do
+        close_helper_state(state)
+        mark_helper_done(state_ref)
+      catch
+        kind, reason ->
+          finish_helper_execution(state_ref)
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
+    end
+  end
+
+  defp close_helper_state(state) do
+    cond do
+      state["kind"] == :flat_map and state["inner"] != nil ->
+        iterator_return(state["inner"])
+        iterator_return(state["iterator"])
+
+      state["open_iterators"] != nil ->
+        close_iterators_for_completion(state["open_iterators"])
+
+      state["iterator"] != nil ->
+        iterator_return(state["iterator"])
+
+      state["active"] != nil ->
+        iterator_return(state["active"])
+
+      true ->
+        :ok
+    end
+  end
 
   defp mark_helper_done(state_ref),
     do: Heap.put_obj(state_ref, %{"kind" => :done, "executing" => false})
