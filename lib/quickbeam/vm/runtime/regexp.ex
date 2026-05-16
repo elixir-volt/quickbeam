@@ -327,14 +327,14 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         {:obj, ref}
 
       :none ->
-        exec_nif_native(bytecode, source, flags, s)
+        unicode_regex_fallback(source, flags, s) || exec_nif_native(bytecode, source, flags, s)
     end
   end
 
   defp exec_nif_native(bytecode, source, flags, s) do
     case nif_exec(bytecode, s, 0) do
       nil ->
-        nil
+        unicode_regex_fallback(source, flags, s)
 
       captures ->
         strings =
@@ -357,6 +357,59 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
         {:obj, ref}
     end
+  end
+
+  defp unicode_regex_fallback(source, flags, string) do
+    if String.contains?(flags, "d") and String.contains?(flags, "u") do
+      case Regex.compile(source, "u") do
+        {:ok, regex} ->
+          case Regex.run(regex, string, return: :index, capture: :all) do
+            nil -> nil
+            captures -> unicode_regex_result(source, flags, string, captures)
+          end
+
+        {:error, _} ->
+          nil
+      end
+    else
+      nil
+    end
+  end
+
+  defp unicode_regex_result(source, flags, string, byte_captures) do
+    captures =
+      byte_captures
+      |> Enum.map(&byte_capture_to_utf16(string, &1))
+      |> pad_capture_indices(capture_count(source) + 1)
+
+    strings =
+      Enum.map(captures, fn
+        {start, len} -> capture_string(string, start, len, flags)
+        nil -> :undefined
+      end)
+    {match_start, _} = hd(captures)
+    ref = make_ref()
+    Heap.put_obj(ref, strings)
+    props = regexp_result_props(source, flags, captures, strings, match_start, string)
+    materialize_regexp_result_props(ref, props)
+    {:obj, ref}
+  end
+
+  defp byte_capture_to_utf16(_string, nil), do: nil
+
+  defp byte_capture_to_utf16(string, {start, len}) do
+    utf16_start = string |> binary_part(0, start) |> JSString.utf16_length()
+    utf16_end = string |> binary_part(0, start + len) |> JSString.utf16_length()
+    {utf16_start, utf16_end - utf16_start}
+  end
+
+  defp pad_capture_indices(captures, target) when length(captures) >= target, do: captures
+  defp pad_capture_indices(captures, target), do: captures ++ List.duplicate(nil, target - length(captures))
+
+  defp capture_count(source) do
+    ~r/\((?!\?[:=!<])|\(\?</
+    |> Regex.scan(source)
+    |> length()
   end
 
   defp capture_string(string, start, len, flags) do
