@@ -132,33 +132,63 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   defp test(_, _), do: false
 
-  @digit_bytes Enum.map(?0..?9, &<<&1>>)
-  @word_bytes ["_" | Enum.map(?0..?9, &<<&1>>) ++ Enum.map(?A..?Z, &<<&1>>) ++ Enum.map(?a..?z, &<<&1>>)]
-  @ws_bytes ["\t", "\n", "\v", "\f", "\r", " ", <<0xC2, 0xA0>>, <<0xE1, 0x9A, 0x80>>,
-             <<0xE2, 0x80, 0xA8>>, <<0xE2, 0x80, 0xA9>>, <<0xE2, 0x80, 0xAF>>,
-             <<0xE2, 0x81, 0x9F>>, <<0xE3, 0x80, 0x80>>, <<0xEF, 0xBB, 0xBF>>] ++
-            Enum.map(0x2000..0x200A, &<<&1::utf8>>)
-
-  defp class_escape_test("\\d", s), do: {:ok, :binary.match(s, @digit_bytes) != :nomatch}
-  defp class_escape_test("\\D", s), do: {:ok, s != "" and not all_digits?(s)}
-  defp class_escape_test("\\w", s), do: {:ok, :binary.match(s, @word_bytes) != :nomatch}
-  defp class_escape_test("\\W", s), do: {:ok, s != "" and not all_word?(s)}
-  defp class_escape_test("\\s", s), do: {:ok, :binary.match(s, @ws_bytes) != :nomatch}
-  defp class_escape_test("\\S", s), do: {:ok, s != "" and not all_ecma_whitespace?(s)}
+  defp class_escape_test("\\d", s), do: {:ok, any_pattern?(s, :digit)}
+  defp class_escape_test("\\D", s), do: {:ok, any_non_digit?(s)}
+  defp class_escape_test("\\w", s), do: {:ok, any_pattern?(s, :word)}
+  defp class_escape_test("\\W", s), do: {:ok, any_non_word?(s)}
+  defp class_escape_test("\\s", s), do: {:ok, any_ecma_whitespace?(s)}
+  defp class_escape_test("\\S", s), do: {:ok, any_non_ecma_whitespace?(s)}
   defp class_escape_test("^\\d+$", s), do: {:ok, s != "" and all_digits?(s)}
-  defp class_escape_test("^\\D+$", s), do: {:ok, s != "" and :binary.match(s, @digit_bytes) == :nomatch}
+  defp class_escape_test("^\\D+$", s), do: {:ok, s != "" and not any_pattern?(s, :digit)}
   defp class_escape_test("^\\w+$", s), do: {:ok, s != "" and all_word?(s)}
-  defp class_escape_test("^\\W+$", s), do: {:ok, s != "" and :binary.match(s, @word_bytes) == :nomatch}
+  defp class_escape_test("^\\W+$", s), do: {:ok, s != "" and not any_pattern?(s, :word)}
   defp class_escape_test("^\\s+$", s), do: {:ok, s != "" and all_ecma_whitespace?(s)}
-  defp class_escape_test("^\\S+$", s), do: {:ok, s != "" and :binary.match(s, @ws_bytes) == :nomatch}
+  defp class_escape_test("^\\S+$", s), do: {:ok, s != "" and not any_ecma_whitespace?(s)}
+
   defp class_escape_test(_, _), do: :none
+
+  defp any_pattern?(string, class), do: :binary.match(string, class_pattern(class)) != :nomatch
+
+  defp class_pattern(class) do
+    key = {__MODULE__, :class_pattern, class}
+
+    case :persistent_term.get(key, nil) do
+      nil ->
+        pattern = :binary.compile_pattern(class_bytes(class))
+        :persistent_term.put(key, pattern)
+        pattern
+
+      pattern ->
+        pattern
+    end
+  end
+
+  defp class_bytes(:digit), do: Enum.map(?0..?9, &<<&1>>)
+
+  defp class_bytes(:word) do
+    ["_" | Enum.map(?0..?9, &<<&1>>) ++ Enum.map(?A..?Z, &<<&1>>) ++ Enum.map(?a..?z, &<<&1>>)]
+  end
+
+  defp any_non_digit?(<<b, _rest::binary>>) when b not in ?0..?9, do: true
+  defp any_non_digit?(<<_b, rest::binary>>), do: any_non_digit?(rest)
+  defp any_non_digit?(<<>>), do: false
 
   defp all_digits?(<<>>), do: true
   defp all_digits?(<<b, rest::binary>>) when b in ?0..?9, do: all_digits?(rest)
   defp all_digits?(_), do: false
 
+  defp any_non_word?(<<b, _rest::binary>>)
+       when b != ?_ and b not in ?0..?9 and b not in ?A..?Z and b not in ?a..?z,
+       do: true
+
+  defp any_non_word?(<<_b, rest::binary>>), do: any_non_word?(rest)
+  defp any_non_word?(<<>>), do: false
+
   defp all_word?(<<>>), do: true
-  defp all_word?(<<b, rest::binary>>) when b == ?_ or b in ?0..?9 or b in ?A..?Z or b in ?a..?z, do: all_word?(rest)
+
+  defp all_word?(<<b, rest::binary>>) when b == ?_ or b in ?0..?9 or b in ?A..?Z or b in ?a..?z,
+    do: all_word?(rest)
+
   defp all_word?(_), do: false
 
   defp ascii_identifier?(<<first::utf8, rest::binary>>) do
@@ -182,6 +212,12 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     string
     |> String.to_charlist()
     |> Enum.all?(&ecma_whitespace?/1)
+  end
+
+  defp any_ecma_whitespace?(string) do
+    string
+    |> String.to_charlist()
+    |> Enum.any?(&ecma_whitespace?/1)
   end
 
   defp any_non_ecma_whitespace?(string) do
@@ -422,6 +458,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         {start, len} -> capture_string(string, start, len, flags)
         nil -> :undefined
       end)
+
     {match_start, _} = hd(captures)
     ref = make_ref()
     Heap.put_obj(ref, strings)
@@ -439,7 +476,9 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp pad_capture_indices(captures, target) when length(captures) >= target, do: captures
-  defp pad_capture_indices(captures, target), do: captures ++ List.duplicate(nil, target - length(captures))
+
+  defp pad_capture_indices(captures, target),
+    do: captures ++ List.duplicate(nil, target - length(captures))
 
   defp capture_count(source) do
     ~r/\((?!\?[:=!<])|\(\?<[^=!]/
