@@ -239,6 +239,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     Heap.wrap(%{
       "__proto__" => wrap_for_valid_iterator_prototype(),
       "next" => {:builtin, "next", fn _args, _this -> list_iterator_next(state_ref) end},
+      "return" => {:builtin, "return", fn _args, _this -> iter_result(:undefined, true) end},
       {:symbol, "Symbol.iterator"} => {:builtin, "[Symbol.iterator]", fn _args, this -> this end}
     })
   end
@@ -685,12 +686,9 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   defp zip_next(_state_ref, %{"iterators" => []}), do: iter_result(:undefined, true)
 
   defp zip_next(_state_ref, %{"iterators" => iterators, "mode" => :shortest} = state) do
-    results = zip_step_all(iterators)
-
-    if Enum.any?(results, &(Get.get(&1, "done") == true)) do
-      iter_result(:undefined, true)
-    else
-      zip_result(state["keys"], Enum.map(results, &Get.get(&1, "value")))
+    case zip_step_shortest(iterators, [], []) do
+      :done -> iter_result(:undefined, true)
+      results -> zip_result(state["keys"], Enum.map(results, &Get.get(&1, "value")))
     end
   end
 
@@ -726,6 +724,26 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
         end)
 
       zip_result(state["keys"], values)
+    end
+  end
+
+  defp zip_step_shortest([], _previous, acc), do: Enum.reverse(acc)
+
+  defp zip_step_shortest([iterator | rest], previous, acc) do
+    result =
+      try do
+        iterator_next(iterator)
+      catch
+        kind, reason ->
+          close_iterators_ignoring_errors(rest)
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
+
+    if Get.get(result, "done") == true do
+      close_iterators_for_completion(previous ++ rest)
+      :done
+    else
+      zip_step_shortest(rest, [iterator | previous], [result | acc])
     end
   end
 
@@ -1160,6 +1178,23 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
         _kind, _reason -> :ok
       end
     end)
+  end
+
+  defp close_iterators_for_completion(iterators) do
+    iterators
+    |> Enum.reverse()
+    |> Enum.reduce(nil, fn iterator, first_error ->
+      try do
+        iterator_return(iterator)
+        first_error
+      catch
+        kind, reason -> first_error || {kind, reason, __STACKTRACE__}
+      end
+    end)
+    |> case do
+      nil -> :ok
+      {kind, reason, stacktrace} -> :erlang.raise(kind, reason, stacktrace)
+    end
   end
 
   defp iter_result(value, done) do
