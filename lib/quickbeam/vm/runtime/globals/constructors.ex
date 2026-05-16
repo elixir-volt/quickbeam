@@ -399,7 +399,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   end
 
   defp invalid_class_range?(source) do
-    String.contains?(source, ["[{-", "--"])
+    String.contains?(source, "[{-")
   end
 
   defp invalid_modifiers?(source) do
