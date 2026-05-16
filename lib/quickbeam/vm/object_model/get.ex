@@ -22,7 +22,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   alias QuickBEAM.VM.Runtime.Map, as: JSMap
   alias QuickBEAM.VM.Runtime.Set, as: JSSet
 
-  alias QuickBEAM.VM.ObjectModel.{PropertyKey, WrappedPrimitive}
+  alias QuickBEAM.VM.ObjectModel.{PropertyKey, Semantics, WrappedPrimitive}
   alias QuickBEAM.VM.Runtime.ArrayBuffer
   alias QuickBEAM.VM.Runtime.Date, as: JSDate
   alias QuickBEAM.VM.Runtime.String, as: JSString
@@ -846,7 +846,8 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     target_value = get_own(target, key)
 
     cond do
-      match?(%{configurable: false, writable: false}, desc) and trap_result !== target_value ->
+      match?(%{configurable: false, writable: false}, desc) and
+          not Semantics.same_value?(trap_result, target_value) ->
         JSThrow.type_error!("proxy get trap violates invariant")
 
       match?(%{configurable: false}, desc) and match?({:accessor, nil, _}, target_value) and

@@ -439,6 +439,7 @@ defmodule QuickBEAM.VM.Invocation do
   defp construct_proxy_runtime(ctx, {:obj, ref} = proxy, new_target, args) do
     case Heap.get_obj(ref, %{}) do
       %{proxy_target() => target, proxy_handler() => handler} ->
+        validate_constructor!(target)
         construct_trap = Get.get(handler, "construct")
 
         if construct_trap == :undefined or construct_trap == nil do
@@ -479,6 +480,10 @@ defmodule QuickBEAM.VM.Invocation do
   defp dispatch_proxy_call({:obj, ref}, args, ctx, this) do
     case Heap.get_obj(ref, %{}) do
       %{proxy_target() => target, proxy_handler() => handler} ->
+        unless Builtin.callable?(target) do
+          QuickBEAM.VM.JSThrow.type_error!("not a function")
+        end
+
         apply_trap = Get.get(handler, "apply")
 
         if apply_trap == :undefined or apply_trap == nil do
@@ -705,7 +710,21 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
-  defp validate_constructor!({:obj, _}), do: :ok
+  defp validate_constructor!({:obj, ref} = ctor) do
+    case Heap.get_obj(ref, %{}) do
+      %{proxy_target() => target} ->
+        validate_constructor!(target)
+
+      _ ->
+        throw(
+          {:js_throw,
+           Heap.make_error(
+             "#{QuickBEAM.VM.Interpreter.Values.stringify(ctor)} is not a constructor",
+             "TypeError"
+           )}
+        )
+    end
+  end
 
   defp validate_constructor!(ctor) do
     throw(

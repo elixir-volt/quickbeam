@@ -14,7 +14,8 @@ defmodule QuickBEAM.VM.ObjectModel.HasProperty do
         has_trap = Get.get(handler, "has")
 
         if has_trap != :undefined do
-          Values.truthy?(Invocation.invoke_callback_or_throw(has_trap, [target, key]))
+          result = Values.truthy?(Invocation.invoke_callback_or_throw(has_trap, [target, key]))
+          validate_proxy_has_invariant(target, key, result)
         else
           has_property?(target, key)
         end
@@ -88,6 +89,23 @@ defmodule QuickBEAM.VM.ObjectModel.HasProperty do
       _ -> false
     end
   end
+
+  defp validate_proxy_has_invariant({:obj, target_ref} = target, key, false) do
+    desc = Heap.get_prop_desc(target_ref, key)
+
+    cond do
+      match?(%{configurable: false}, desc) ->
+        throw({:js_throw, Heap.make_error("proxy has trap violates invariant", "TypeError")})
+
+      OwnProperty.present?(target, key) and not Heap.extensible?(target_ref) ->
+        throw({:js_throw, Heap.make_error("proxy has trap violates invariant", "TypeError")})
+
+      true ->
+        false
+    end
+  end
+
+  defp validate_proxy_has_invariant(_target, _key, result), do: result
 
   defp has_array_prototype_property?(ref, key) do
     has_property?(Heap.get_array_proto(ref), key) or

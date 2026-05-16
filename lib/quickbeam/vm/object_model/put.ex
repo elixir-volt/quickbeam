@@ -216,7 +216,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             target,
             key,
             val,
-            Runtime.call_callback(set_trap, [target, key, val])
+            Runtime.call_callback(set_trap, [target, key, val, obj])
           )
         else
           put(target, key, val)
@@ -1409,10 +1409,12 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
       target_value = Get.get(target, key)
 
       cond do
-        match?(%{configurable: false, writable: false}, desc) and val !== target_value ->
+        match?(%{configurable: false, writable: false}, desc) and
+            not Semantics.same_value?(val, target_value) ->
           JSThrow.type_error!("proxy set trap violates invariant")
 
-        match?(%{configurable: false}, desc) and match?({:accessor, _, nil}, target_value) ->
+        match?(%{configurable: false}, desc) and
+            match?({:accessor, _, nil}, Heap.raw_fetch(target_ref, key)) ->
           JSThrow.type_error!("proxy set trap violates invariant")
 
         true ->
