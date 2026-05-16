@@ -217,13 +217,15 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   def enumerable?(string, key) when is_binary(string), do: key != "length"
   def enumerable?(_target, _key), do: true
 
-  def descriptor_keys({:obj, ref}) do
+  def descriptor_keys(target), do: own_keys(target)
+
+  def own_keys({:obj, ref}) do
     case Heap.get_obj(ref, %{}) do
       %{proxy_target() => target, proxy_handler() => handler} ->
         trap = Get.get(handler, "ownKeys")
 
         if trap == :undefined or trap == nil do
-          descriptor_keys(target)
+          own_keys(target)
         else
           trap
           |> Runtime.call_callback([target])
@@ -244,19 +246,19 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
     end
   end
 
-  def descriptor_keys(%QuickBEAM.VM.Function{} = fun), do: callable_descriptor_keys(fun)
+  def own_keys(%QuickBEAM.VM.Function{} = fun), do: callable_descriptor_keys(fun)
 
-  def descriptor_keys({:closure, _, %QuickBEAM.VM.Function{}} = fun),
+  def own_keys({:closure, _, %QuickBEAM.VM.Function{}} = fun),
     do: callable_descriptor_keys(fun)
 
-  def descriptor_keys({:builtin, _, map} = builtin) do
+  def own_keys({:builtin, _, map} = builtin) do
     if Builtin.callable?(builtin),
       do: callable_descriptor_keys(builtin, map),
       else: builtin_namespace_descriptor_keys(builtin, map)
   end
 
-  def descriptor_keys({:bound, _, _, _, _} = bound), do: callable_descriptor_keys(bound)
-  def descriptor_keys(_), do: []
+  def own_keys({:bound, _, _, _, _} = bound), do: callable_descriptor_keys(bound)
+  def own_keys(_), do: []
 
   defp builtin_namespace_descriptor_keys(builtin, inline_map) do
     statics = Heap.get_ctor_statics(builtin)
@@ -334,8 +336,11 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
 
   defp wrapped_string_index_keys(map) when is_map(map) do
     case WrappedPrimitive.value(map, :string) do
-      {:ok, string} when is_binary(string) -> array_indices(Get.string_length(string))
-      _ -> []
+      {:ok, string} when is_binary(string) ->
+        array_indices(Get.string_length(string)) ++ ["length"]
+
+      _ ->
+        []
     end
   end
 

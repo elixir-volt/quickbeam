@@ -58,7 +58,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
 
   def copy_data_properties(_target, _source, _exclude), do: :ok
 
-  defp copy_source_keys({:obj, _} = source), do: OwnProperty.descriptor_keys(source)
+  defp copy_source_keys({:obj, _} = source), do: OwnProperty.own_keys(source)
 
   defp copy_source_keys(source) when is_binary(source) do
     source

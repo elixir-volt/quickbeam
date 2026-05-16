@@ -17,8 +17,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
     OwnProperty,
     PropertyDescriptor,
     Prototype,
-    Put,
-    WrappedPrimitive
+    Put
   }
 
   alias QuickBEAM.VM.Runtime
@@ -404,35 +403,15 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
         sparse_array_keys(ref, list)
 
       map when is_map(map) ->
-        wrapped_string_keys(map, OwnProperty.descriptor_keys({:obj, ref}))
+        OwnProperty.own_keys({:obj, ref})
 
       _ ->
-        OwnProperty.descriptor_keys({:obj, ref})
+        OwnProperty.own_keys({:obj, ref})
     end
   end
 
   defp own_keys_for(target) when is_tuple(target) or is_struct(target) do
-    OwnProperty.descriptor_keys(target)
-  end
-
-  defp wrapped_string_keys(map, keys) do
-    case WrappedPrimitive.value(map, :string) do
-      {:ok, string} when is_binary(string) ->
-        string_keys =
-          if String.length(string) == 0,
-            do: [],
-            else: Enum.map(0..(String.length(string) - 1), &Integer.to_string/1)
-
-        side_keys =
-          Enum.reject(keys, fn key ->
-            internal_key?(key) or key in ["length", "toString", "valueOf"]
-          end)
-
-        ["length" | string_keys ++ side_keys]
-
-      _ ->
-        keys
-    end
+    OwnProperty.own_keys(target)
   end
 
   defp sparse_array_keys(ref, list) do
