@@ -25,11 +25,26 @@ defmodule QuickBEAM.VM.Runtime.Set do
             {make_ref(), Runtime.global_class_proto("Set")}
         end
 
-      items =
-        args |> arg(0, nil) |> Heap.to_list() |> Enum.map(&normalize_set_value/1) |> Enum.uniq()
+      Heap.put_obj(ref, set_object(ref, [], instance_proto))
+      set = {:obj, ref}
 
-      Heap.put_obj(ref, set_object(ref, items, instance_proto))
-      {:obj, ref}
+      case args do
+        [] ->
+          set
+
+        [source | _] when source in [nil, :undefined] ->
+          set
+
+        [source | _] ->
+          adder = Get.get(set, "add")
+
+          unless Builtin.callable?(adder) do
+            JSThrow.type_error!("Set.prototype.add is not callable")
+          end
+
+          construct_set_from_iterable(source, set, adder)
+          set
+      end
     end
   end
 
@@ -122,6 +137,53 @@ defmodule QuickBEAM.VM.Runtime.Set do
 
   defp set_entry_data, do: "__set_entry_data__"
   defp set_next_entry_id, do: "__set_next_entry_id__"
+
+  defp construct_set_from_iterable({:obj, _} = iterable, set, adder) do
+    iterator_method = Get.get(iterable, {:symbol, "Symbol.iterator"})
+
+    unless Builtin.callable?(iterator_method) do
+      JSThrow.type_error!("object is not iterable")
+    end
+
+    iterator = call_with_this(iterator_method, [], iterable)
+    construct_set_from_iterator(iterator, set, adder)
+  end
+
+  defp construct_set_from_iterable(list, set, adder) when is_list(list) do
+    Enum.each(list, &call_with_this(adder, [&1], set))
+  end
+
+  defp construct_set_from_iterable(_, _set, _adder),
+    do: JSThrow.type_error!("object is not iterable")
+
+  defp construct_set_from_iterator(iterator, set, adder) do
+    next_fn = Get.get(iterator, "next")
+
+    unless Builtin.callable?(next_fn) do
+      JSThrow.type_error!("Iterator next is not callable")
+    end
+
+    result = call_with_this(next_fn, [], iterator)
+
+    unless match?({:obj, _}, result) or is_map(result) do
+      call_iterator_return(iterator)
+      JSThrow.type_error!("Iterator result is not an object")
+    end
+
+    unless Get.get(result, "done") == true do
+      value = Get.get(result, "value")
+
+      try do
+        call_with_this(adder, [value], set)
+      catch
+        {:js_throw, _} = thrown ->
+          call_iterator_return(iterator)
+          throw(thrown)
+      end
+
+      construct_set_from_iterator(iterator, set, adder)
+    end
+  end
 
   defp construct_weak_set_from_iterable({:obj, _} = iterable, set, adder) do
     iterator_method = Get.get(iterable, {:symbol, "Symbol.iterator"})
@@ -541,7 +603,8 @@ defmodule QuickBEAM.VM.Runtime.Set do
   defp clear(_, this) do
     ref = require_strong_set_ref!(this)
     obj = Heap.get_obj(ref, %{})
-    Heap.put_obj(ref, %{obj | set_data() => [], "size" => 0})
+    entries = Enum.map(Map.get(obj, set_entry_data(), []), &clear_set_entry/1)
+    Heap.put_obj(ref, %{obj | set_data() => [], set_entry_data() => entries, "size" => 0})
     :undefined
   end
 
@@ -683,6 +746,8 @@ defmodule QuickBEAM.VM.Runtime.Set do
       _ -> []
     end)
   end
+
+  defp clear_set_entry({entry_id, value, _live}), do: {entry_id, value, false}
 
   defp delete_set_entry({entry_id, value, true}, value), do: {entry_id, value, false}
   defp delete_set_entry(entry, _value), do: entry
