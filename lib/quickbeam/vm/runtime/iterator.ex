@@ -365,16 +365,58 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   defp zip_state(iterables, keys, options) do
-    mode = if object_like?(options), do: Get.get(options, "mode"), else: :undefined
-    padding = if object_like?(options), do: Get.get(options, "padding"), else: :undefined
+    options = zip_options_object(options)
+    mode = zip_mode(options)
+    padding = zip_padding_values(options, mode)
 
     %{
       "kind" => :zip,
       "iterators" => Enum.map(iterables, &(from_value(&1) |> iterator_record())),
       "keys" => keys,
-      "mode" => if(mode == "longest", do: :longest, else: :shortest),
-      "padding" => padding_values(padding)
+      "mode" => mode,
+      "padding" => padding
     }
+  end
+
+  defp zip_options_object(:undefined), do: :undefined
+  defp zip_options_object(options) when is_nil(options), do: JSThrow.type_error!("Iterator.zip options must be an object")
+
+  defp zip_options_object(options) do
+    if object_like?(options) do
+      options
+    else
+      JSThrow.type_error!("Iterator.zip options must be an object")
+    end
+  end
+
+  defp zip_mode(:undefined), do: :shortest
+
+  defp zip_mode(options) do
+    case Get.get(options, "mode") do
+      :undefined -> :shortest
+      "shortest" -> :shortest
+      "longest" -> :longest
+      "strict" -> :strict
+      _ -> JSThrow.type_error!("invalid Iterator.zip mode")
+    end
+  end
+
+  defp zip_padding_values(_options, mode) when mode in [:shortest, :strict], do: []
+  defp zip_padding_values(:undefined, :longest), do: []
+
+  defp zip_padding_values(options, :longest) do
+    case Get.get(options, "padding") do
+      :undefined -> []
+      value when is_nil(value) -> JSThrow.type_error!("Iterator.zip padding must be an object")
+      value -> validate_padding_iterable(value)
+    end
+  end
+
+  defp validate_padding_iterable(value) do
+    unless object_like?(value), do: JSThrow.type_error!("Iterator.zip padding must be an object")
+    method = Get.get(value, {:symbol, "Symbol.iterator"})
+    unless Builtin.callable?(method), do: JSThrow.type_error!("Iterator.zip padding must be iterable")
+    Heap.to_list(value)
   end
 
   defp keyed_iterables(value) do
@@ -394,10 +436,6 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     end
   end
 
-  defp padding_values(:undefined), do: []
-  defp padding_values(nil), do: []
-  defp padding_values(value), do: Heap.to_list(value)
-
   defp concat_iterable_record(item) do
     unless object_like?(item), do: JSThrow.type_error!("Iterator.concat item must be an object")
     method = Get.get(item, {:symbol, "Symbol.iterator"})
@@ -414,6 +452,17 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
       iter_result(:undefined, true)
     else
       zip_result(state["keys"], Enum.map(results, &Get.get(&1, "value")))
+    end
+  end
+
+  defp zip_next(_state_ref, %{"iterators" => iterators, "mode" => :strict} = state) do
+    results = Enum.map(iterators, &iterator_next/1)
+    done_count = Enum.count(results, &(Get.get(&1, "done") == true))
+
+    cond do
+      done_count == 0 -> zip_result(state["keys"], Enum.map(results, &Get.get(&1, "value")))
+      done_count == length(results) -> iter_result(:undefined, true)
+      true -> JSThrow.type_error!("Iterator.zip strict mode length mismatch")
     end
   end
 
