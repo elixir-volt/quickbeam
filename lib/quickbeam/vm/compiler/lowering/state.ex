@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   alias QuickBEAM.VM.Compiler.Effects
   alias QuickBEAM.VM.Compiler.Lowering.{Atoms, Builder, Captures, Literals, Types}
-  alias QuickBEAM.VM.Compiler.RuntimeHelpers
+  alias QuickBEAM.VM.Compiler.{RuntimeABI, RuntimeHelpers}
   alias QuickBEAM.VM.Operands.CopyDataProperties
 
   @line 1
@@ -124,6 +124,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   @doc "Builds a call to a compiler runtime helper using the current context expression."
   def compiler_call(state, fun, args),
     do: Builder.remote_call(RuntimeHelpers, fun, [ctx_expr(state) | args])
+
+  def abi_call(state, fun, args),
+    do: Builder.remote_call(RuntimeABI, fun, [ctx_expr(state) | args])
 
   def bind(state, name, expr) do
     var = Builder.var(name)
@@ -270,7 +273,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
         bind(
           state,
           Builder.temp_name(state.temp),
-          compiler_call(state, :get_array_el2, [obj, idx])
+          abi_call(state, :get_array_el2, [obj, idx])
         )
 
       {:ok,
@@ -332,7 +335,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
          {:ok, obj, _obj_type, state} <- pop_typed(state) do
       state = invalidate_shaped_aliases(state, obj)
 
-      {:ok, emit(state, compiler_call(state, :put_field, [obj, key_expr, val]))}
+      {:ok, emit(state, abi_call(state, :put_field, [obj, key_expr, val]))}
     end
   end
 
@@ -438,7 +441,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
          {:ok, idx, _idx_type, state} <- pop_typed(state),
          {:ok, obj, _obj_type, state} <- pop_typed(state) do
       state = invalidate_shaped_aliases(state, obj)
-      {:ok, emit(state, compiler_call(state, :put_array_el, [obj, idx, val]))}
+      {:ok, emit(state, abi_call(state, :put_array_el, [obj, idx, val]))}
     end
   end
 
@@ -512,7 +515,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
        %{
          state
          | body: [
-             compiler_call(state, :copy_data_properties, [target, source, exclude]) | state.body
+             abi_call(state, :copy_data_properties, [target, source, exclude]) | state.body
            ]
        }}
     else

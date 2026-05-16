@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
   @moduledoc "Object and array manipulation opcodes: get/put_field, get/put_array_el, define_field, set_name, set_proto, get/put_super, private fields, delete, in, instanceof."
 
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, State}
-  alias QuickBEAM.VM.Compiler.RuntimeHelpers
+  alias QuickBEAM.VM.Compiler.{RuntimeABI, RuntimeHelpers}
   alias QuickBEAM.VM.ObjectModel.{Class, Private, Put}
 
   @doc "Lowers a VM instruction or function into compiler IR."
@@ -90,10 +90,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
         {:ok, state}
 
       {{:ok, :to_object}, []} ->
-        State.unary_call(state, RuntimeHelpers, :to_object)
+        State.unary_call(state, RuntimeABI, :to_object)
 
       {{:ok, :to_propkey}, []} ->
-        State.unary_call(state, RuntimeHelpers, :to_property_key)
+        State.unary_call(state, RuntimeABI, :to_property_key)
 
       {{:ok, :to_propkey2}, []} ->
         lower_to_propkey2(state)
@@ -181,7 +181,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
        state
        |> State.push(obj, obj_type)
        |> State.push(
-         State.compiler_call(state, :to_property_key_for_access, [obj, key]),
+         State.abi_call(state, :to_property_key_for_access, [obj, key]),
          :unknown
        )}
     end
