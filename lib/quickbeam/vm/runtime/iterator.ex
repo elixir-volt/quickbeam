@@ -479,7 +479,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   defp zip_state(iterables, keys, mode, padding_option) do
-    padding = zip_padding_values(padding_option, mode, keys)
+    padding = zip_padding_values(padding_option, mode, keys, length(iterables))
 
     %{
       "kind" => :zip,
@@ -525,25 +525,41 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     end
   end
 
-  defp zip_padding_values(_padding_option, mode, _keys) when mode in [:shortest, :strict], do: []
-  defp zip_padding_values(:undefined, :longest, _keys), do: []
+  defp zip_padding_values(_padding_option, mode, _keys, _count) when mode in [:shortest, :strict],
+    do: []
 
-  defp zip_padding_values(padding_option, :longest, keys),
-    do: validate_padding(padding_option, keys)
+  defp zip_padding_values(:undefined, :longest, _keys, _count), do: []
 
-  defp validate_padding(value, nil), do: validate_padding_iterable(value)
+  defp zip_padding_values(padding_option, :longest, keys, count),
+    do: validate_padding(padding_option, keys, count)
 
-  defp validate_padding(value, keys) do
+  defp validate_padding(value, nil, count), do: validate_padding_iterable(value, count)
+
+  defp validate_padding(value, keys, _count) do
     unless object_like?(value), do: JSThrow.type_error!("Iterator.zip padding must be an object")
     Enum.map(keys, &Get.get(value, &1))
   end
 
-  defp validate_padding_iterable(value) do
+  defp validate_padding_iterable(value, count) do
     unless object_like?(value), do: JSThrow.type_error!("Iterator.zip padding must be an object")
-    zip_outer_values(value)
+    collect_padding_values(zip_outer_iterator(value), count, [])
   end
 
-  defp zip_outer_values(value) do
+  defp collect_padding_values(_iterator, 0, acc), do: Enum.reverse(acc)
+
+  defp collect_padding_values(iterator, count, acc) do
+    result = iterator_next(iterator)
+
+    if Get.get(result, "done") == true do
+      Enum.reverse(acc)
+    else
+      collect_padding_values(iterator, count - 1, [Get.get(result, "value") | acc])
+    end
+  end
+
+  defp zip_outer_values(value), do: collect_zip_outer_values(zip_outer_iterator(value), [])
+
+  defp zip_outer_iterator(value) do
     unless object_like?(value),
       do: JSThrow.type_error!("Iterator.zip iterables must be an object")
 
@@ -554,7 +570,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
     iterator = Invocation.invoke_with_receiver(method, [], value)
     unless object_like?(iterator), do: JSThrow.type_error!("iterator method returned non-object")
-    collect_zip_outer_values(iterator_record(iterator), [])
+    iterator_record(iterator)
   end
 
   defp collect_zip_outer_values(iterator, acc) do
