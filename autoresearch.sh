@@ -20,7 +20,11 @@ print(int(time.time() * 1000))
 PY
 )
 
-output=$(mix run bench/vm_compiler_test262.exs)
+if [[ "${AUTORESEARCH_QUICKJS_PARITY:-}" == "1" ]]; then
+  output=$(mix run bench/quickjs_parity_residual.exs)
+else
+  output=$(mix run bench/vm_compiler_test262.exs)
+fi
 printf '%s\n' "$output"
 
 metric() {
