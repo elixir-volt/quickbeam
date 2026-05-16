@@ -30,8 +30,15 @@ defmodule QuickBEAM.VM.Heap.Context do
   end
 
   @doc "Stores or clears the active interpreter context."
-  def put_ctx(nil), do: Process.delete(:qb_ctx)
-  def put_ctx(ctx), do: Process.put(:qb_ctx, ctx)
+  def put_ctx(nil) do
+    Process.delete(:qb_ctx)
+    Process.delete(:qb_fast_ctx)
+  end
+
+  def put_ctx(ctx) do
+    Process.delete(:qb_fast_ctx)
+    Process.put(:qb_ctx, ctx)
+  end
 
   def get_object_prototype, do: Process.get(:qb_object_prototype)
   def put_object_prototype(proto), do: Process.put(:qb_object_prototype, proto)
@@ -54,6 +61,7 @@ defmodule QuickBEAM.VM.Heap.Context do
   def get_persistent_globals, do: Process.get(:qb_persistent_globals, %{})
 
   def put_persistent_globals(globals) do
+    Process.delete(:qb_base_globals_cache)
     Process.put(:qb_persistent_globals, globals)
   end
 

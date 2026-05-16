@@ -38,8 +38,14 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
   defp next(gen_ref, arg) do
     case Heap.get_obj(gen_ref) do
       %{state: :suspended} = s ->
+        prev_ctx = Heap.get_ctx()
         Heap.put_ctx(s.ctx)
-        resume_sync(gen_ref, s, arg)
+
+        try do
+          resume_sync(gen_ref, s, arg)
+        after
+          if prev_ctx, do: Heap.put_ctx(prev_ctx), else: Heap.put_ctx(nil)
+        end
 
       _ ->
         done_result(:undefined)
@@ -79,7 +85,7 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
         try do
           resume_async(gen_ref, s, arg)
         after
-          if prev_ctx, do: Heap.put_ctx(prev_ctx)
+          if prev_ctx, do: Heap.put_ctx(prev_ctx), else: Heap.put_ctx(nil)
         end
 
       _ ->
