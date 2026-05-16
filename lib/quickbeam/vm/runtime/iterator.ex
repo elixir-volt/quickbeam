@@ -480,12 +480,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     options = zip_options_object(options)
     mode = zip_mode(options)
     padding_option = zip_padding_option(options, mode)
-    iterables = zip_outer_values(source)
-    zip_state(iterables, keys, mode, padding_option)
-  end
-
-  defp zip_state(iterables, keys, mode, padding_option) do
-    iterators = Enum.map(iterables, &(from_value(&1) |> iterator_record()))
+    iterators = zip_iterator_records(source)
     zip_state_from_iterators(iterators, keys, mode, padding_option)
   end
 
@@ -579,7 +574,65 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     end
   end
 
-  defp zip_outer_values(value), do: collect_zip_outer_values(zip_outer_iterator(value), [])
+  defp zip_iterator_records(value) do
+    outer = zip_outer_iterator(value)
+    collect_zip_iterator_records(outer, [])
+  end
+
+  defp collect_zip_iterator_records(outer, acc) do
+    result =
+      try do
+        iterator_next(outer)
+      catch
+        kind, reason ->
+          close_iterators_ignoring_errors(Enum.reverse(acc))
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
+
+    if Get.get(result, "done") == true do
+      Enum.reverse(acc)
+    else
+      record =
+        try do
+          zip_flattenable_record(Get.get(result, "value"))
+        catch
+          kind, reason ->
+            close_iterators_ignoring_errors(Enum.reverse(acc))
+            close_iterators_ignoring_errors([outer])
+            :erlang.raise(kind, reason, __STACKTRACE__)
+        end
+
+      collect_zip_iterator_records(outer, [record | acc])
+    end
+  end
+
+  defp zip_flattenable_record(value) when is_list(value),
+    do: value |> from_value() |> iterator_record()
+
+  defp zip_flattenable_record(value) do
+    unless object_like?(value), do: JSThrow.type_error!("Iterator.zip item must be an object")
+
+    iterator_method = Get.get(value, {:symbol, "Symbol.iterator"})
+
+    iterator =
+      cond do
+        Builtin.callable?(iterator_method) ->
+          result = Invocation.invoke_with_receiver(iterator_method, [], value)
+
+          unless object_like?(result),
+            do: JSThrow.type_error!("iterator method returned non-object")
+
+          result
+
+        iterator_method in [:undefined, nil] ->
+          value
+
+        true ->
+          JSThrow.type_error!("iterator method is not callable")
+      end
+
+    iterator_record(iterator)
+  end
 
   defp zip_outer_iterator(value) do
     unless object_like?(value),
@@ -593,16 +646,6 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     iterator = Invocation.invoke_with_receiver(method, [], value)
     unless object_like?(iterator), do: JSThrow.type_error!("iterator method returned non-object")
     iterator_record(iterator)
-  end
-
-  defp collect_zip_outer_values(iterator, acc) do
-    result = iterator_next(iterator)
-
-    if Get.get(result, "done") == true do
-      Enum.reverse(acc)
-    else
-      collect_zip_outer_values(iterator, [Get.get(result, "value") | acc])
-    end
   end
 
   defp keyed_iterator_records(value) do
