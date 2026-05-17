@@ -287,6 +287,13 @@ defmodule QuickBEAM.JS.CompilerTest do
       assert_compiles_error_name(~S|let {} = null; "unreachable"|, "TypeError")
     end
 
+    test "reuses computed object binding keys for rest exclusions" do
+      assert_compiles_to(
+        ~S/let i = 0; let keys = ["a", "b"]; let { [keys[i++]]: v, ...rest } = { a: 1, b: 2 }; [i, v, rest.a, rest.b].join("|")/,
+        "1|1||2"
+      )
+    end
+
     test "preserves object property order in compiled mode" do
       assert_compiles_to(
         ~S|let a = { get: 2, set: 3, async: 4, get a(){ return this.get } }; JSON.stringify(a)|,

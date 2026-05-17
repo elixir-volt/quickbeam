@@ -163,11 +163,16 @@ defmodule QuickBEAM.JS.Compiler.Declarations do
   defp declare_pattern(%AST.Identifier{name: name}, scope), do: Scope.declare_local(scope, name)
 
   defp declare_pattern(%AST.ObjectPattern{properties: properties}, scope) do
-    Enum.reduce(properties, scope, fn
-      %AST.Property{value: value}, acc -> declare_pattern(value, acc)
-      %AST.RestElement{argument: argument}, acc -> declare_pattern(argument, acc)
-      _property, acc -> acc
-    end)
+    scope =
+      Enum.reduce(properties, scope, fn
+        %AST.Property{value: value}, acc -> declare_pattern(value, acc)
+        %AST.RestElement{argument: argument}, acc -> declare_pattern(argument, acc)
+        _property, acc -> acc
+      end)
+
+    properties
+    |> object_rest_computed_key_temps()
+    |> Enum.reduce(scope, &Scope.declare_local(&2, &1))
   end
 
   defp declare_pattern(%AST.ArrayPattern{elements: elements}, scope) do
@@ -185,4 +190,25 @@ defmodule QuickBEAM.JS.Compiler.Declarations do
   end
 
   defp declare_pattern(_pattern, scope), do: scope
+
+  defp object_rest_computed_key_temps(properties) do
+    {temps, _index, _has_rest?} =
+      Enum.reduce_while(properties, {[], 0, false}, fn
+        %AST.RestElement{}, {temps, index, _has_rest?} ->
+          {:halt, {temps, index, true}}
+
+        %AST.Property{computed: true}, {temps, index, false} ->
+          {:cont, {[object_rest_computed_key_temp(index) | temps], index + 1, false}}
+
+        %AST.Property{}, {temps, index, false} ->
+          {:cont, {temps, index + 1, false}}
+
+        _property, acc ->
+          {:cont, acc}
+      end)
+
+    Enum.reverse(temps)
+  end
+
+  defp object_rest_computed_key_temp(index), do: "<object_rest_key:#{index}>"
 end

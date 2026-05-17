@@ -2440,6 +2440,8 @@ defmodule QuickBEAM.JS.Compiler.Statements do
          callbacks,
          excluded
        ) do
+    excluded_key = object_pattern_property_key(property, length(excluded))
+
     with {:ok, instructions, constants} <-
            compile_object_pattern_property(
              property,
@@ -2447,7 +2449,8 @@ defmodule QuickBEAM.JS.Compiler.Statements do
              instructions,
              constants,
              callbacks,
-             true
+             true,
+             excluded_key
            ) do
       compile_object_pattern(
         rest,
@@ -2455,10 +2458,29 @@ defmodule QuickBEAM.JS.Compiler.Statements do
         instructions,
         constants,
         callbacks,
-        excluded ++ [object_pattern_property_key(property)]
+        excluded ++ [excluded_key]
       )
     end
   end
+
+  defp compile_object_pattern_property(
+         property,
+         scope,
+         instructions,
+         constants,
+         callbacks,
+         keep_object?
+       ),
+       do:
+         compile_object_pattern_property(
+           property,
+           scope,
+           instructions,
+           constants,
+           callbacks,
+           keep_object?,
+           nil
+         )
 
   defp compile_object_pattern_property(
          %AST.Property{
@@ -2470,7 +2492,8 @@ defmodule QuickBEAM.JS.Compiler.Statements do
          instructions,
          constants,
          callbacks,
-         keep_object?
+         keep_object?,
+         _excluded_key
        ) do
     case callbacks.resolve.(scope, name) do
       {:loc, loc} ->
@@ -2495,7 +2518,8 @@ defmodule QuickBEAM.JS.Compiler.Statements do
          instructions,
          constants,
          callbacks,
-         keep_object?
+         keep_object?,
+         _excluded_key
        ) do
     case callbacks.resolve.(scope, name) do
       {:loc, loc} ->
@@ -2533,7 +2557,8 @@ defmodule QuickBEAM.JS.Compiler.Statements do
          instructions,
          constants,
          callbacks,
-         keep_object?
+         keep_object?,
+         excluded_key
        ) do
     compile_object_pattern_property(
       %AST.Property{
@@ -2545,7 +2570,8 @@ defmodule QuickBEAM.JS.Compiler.Statements do
       instructions,
       constants,
       callbacks,
-      keep_object?
+      keep_object?,
+      excluded_key
     )
   end
 
@@ -2559,16 +2585,26 @@ defmodule QuickBEAM.JS.Compiler.Statements do
          instructions,
          constants,
          callbacks,
-         keep_object?
+         keep_object?,
+         excluded_key
        ) do
     case callbacks.resolve.(scope, name) do
       {:loc, loc} ->
         prefix = if keep_object?, do: [:dup], else: []
 
         suffix =
-          if keep_object?,
-            do: [:to_propkey, :get_array_el2, {:put_loc, loc}, :drop],
-            else: [:to_propkey, :get_array_el, {:put_loc, loc}]
+          cond do
+            keep_object? and match?({:computed_temp, _}, excluded_key) ->
+              {:computed_temp, temp_name} = excluded_key
+              {:loc, temp_loc} = callbacks.resolve.(scope, temp_name)
+              [:to_propkey, :dup, {:put_loc, temp_loc}, :get_array_el2, {:put_loc, loc}, :drop]
+
+            keep_object? ->
+              [:to_propkey, :get_array_el2, {:put_loc, loc}, :drop]
+
+            true ->
+              [:to_propkey, :get_array_el, {:put_loc, loc}]
+          end
 
         with {:ok, instructions, constants} <-
                callbacks.compile_expression.(
@@ -2591,7 +2627,8 @@ defmodule QuickBEAM.JS.Compiler.Statements do
          _instructions,
          _constants,
          _callbacks,
-         _keep_object?
+         _keep_object?,
+         _excluded_key
        ),
        do: {:error, {:unsupported, {:object_pattern_property, property.type}}}
 
@@ -2606,15 +2643,15 @@ defmodule QuickBEAM.JS.Compiler.Statements do
   end
 
   defp compile_object_rest_excluded_key(
-         {:computed, expression},
+         {:computed_temp, temp_name},
          scope,
          instructions,
          constants,
          callbacks
        ) do
-    with {:ok, instructions, constants} <-
-           callbacks.compile_expression.(expression, scope, instructions, constants) do
-      {:ok, instructions ++ [:to_propkey], constants}
+    case callbacks.resolve.(scope, temp_name) do
+      {:loc, loc} -> {:ok, instructions ++ [{:get_loc, loc}], constants}
+      :error -> {:error, {:unsupported, {:unresolved_identifier, temp_name}}}
     end
   end
 
@@ -2623,11 +2660,16 @@ defmodule QuickBEAM.JS.Compiler.Statements do
     {:ok, instructions ++ [key_instr], constants}
   end
 
-  defp object_pattern_property_key(%AST.Property{computed: true, key: key}), do: {:computed, key}
-  defp object_pattern_property_key(%AST.Property{key: %AST.Identifier{name: key}}), do: key
+  defp object_pattern_property_key(%AST.Property{computed: true}, index),
+    do: {:computed_temp, object_rest_computed_key_temp(index)}
 
-  defp object_pattern_property_key(%AST.Property{key: %AST.Literal{value: key}}),
+  defp object_pattern_property_key(%AST.Property{key: %AST.Identifier{name: key}}, _index),
+    do: key
+
+  defp object_pattern_property_key(%AST.Property{key: %AST.Literal{value: key}}, _index),
     do: to_string(key)
+
+  defp object_rest_computed_key_temp(index), do: "<object_rest_key:#{index}>"
 
   defp compile_return(
          %AST.ReturnStatement{argument: nil},
