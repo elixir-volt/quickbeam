@@ -46,6 +46,9 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
 
   def iterator_close(ctx, iter_obj), do: RuntimeHelpers.iterator_close(ctx, iter_obj)
 
+  def iterator_close_for_throw(ctx, iter_obj),
+    do: RuntimeHelpers.iterator_close_for_throw(ctx, iter_obj)
+
   def collect_iterator(ctx, iter, next_fn),
     do: RuntimeHelpers.collect_iterator(ctx, iter, next_fn)
 end

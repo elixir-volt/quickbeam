@@ -2,10 +2,11 @@ defmodule QuickBEAM.VM.Runtime.IteratorTest do
   use QuickBEAM.VMCase, async: true
 
   test "for-of closes active iterator on thrown body", %{rt: rt} do
-    assert beam!(
-             rt,
-             ~S|let closed=0; let it={ [Symbol.iterator](){return this}, next(){return {value:1,done:false}}, return(){closed=1; return {done:true}}}; try { for (let x of it) { throw new Error("x"); } } catch(e) {} closed|
-           ) == 1
+    assert_modes(
+      rt,
+      ~S|let closed=0; let it={ [Symbol.iterator](){return this}, next(){return {value:1,done:false}}, return(){closed=1; return {done:true}}}; try { for (let x of it) { throw new Error("x"); } } catch(e) {} closed|,
+      1
+    )
   end
 
   test "for-of closes active iterator when assignment head throws", %{rt: rt} do

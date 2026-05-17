@@ -1325,6 +1325,14 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   defdelegate iterator_close(ctx, iter_obj), to: Iterators
   defdelegate iterator_close(iter_obj), to: Iterators
 
+  def iterator_close_for_throw(ctx, iter_obj) do
+    try do
+      Iterators.iterator_close(ctx, iter_obj)
+    catch
+      {:js_throw, _error} -> :ok
+    end
+  end
+
   @doc "Collects remaining values from an iterator into a list."
   defdelegate collect_iterator(ctx, iter, next_fn), to: Iterators
   defdelegate collect_iterator(iter, next_fn), to: Iterators
