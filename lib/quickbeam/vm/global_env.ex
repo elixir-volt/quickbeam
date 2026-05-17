@@ -47,8 +47,19 @@ defmodule QuickBEAM.VM.GlobalEnv do
   @doc "Writes a global binding into a context and optionally persists it."
   def put(%Context{} = ctx, atom_idx, val, opts \\ []) do
     name = Names.resolve_atom(ctx, atom_idx)
+    init? = Keyword.get(opts, :init, false)
+    strict? = Keyword.get(opts, :strict, false)
+    current = current_binding(ctx, name)
 
-    if const_global?(name) and not Keyword.get(opts, :init, false) do
+    if current == :not_found and strict? and not init? do
+      JSThrow.reference_error!("#{name} is not defined")
+    end
+
+    if current == :__tdz__ and not init? do
+      JSThrow.reference_error!("Cannot access variable before initialization")
+    end
+
+    if const_global?(name) and not init? do
       JSThrow.type_error!("Assignment to constant variable")
     end
 
@@ -67,9 +78,10 @@ defmodule QuickBEAM.VM.GlobalEnv do
   @doc "Defines a hoisted `var` binding in the active global environment."
   def define_var(%Context{} = ctx, atom_idx, flags \\ 0) do
     name = Names.resolve_atom(ctx, atom_idx)
-    Heap.put_var(name, :undefined)
+    initial = if lexical_global_flags?(flags), do: :__tdz__, else: :undefined
+    Heap.put_var(name, initial)
     mark_const_global(name, const_global_flags?(flags))
-    globals = Map.put_new(ctx.globals, name, :undefined)
+    globals = Map.put_new(ctx.globals, name, initial)
     sync_global_this_property(globals, name, Map.get(globals, name))
     Heap.put_persistent_globals(globals)
     Context.mark_dirty(%{ctx | globals: globals})
@@ -80,6 +92,19 @@ defmodule QuickBEAM.VM.GlobalEnv do
     Heap.delete_var(Names.resolve_atom(ctx, atom_idx))
     Context.mark_dirty(ctx)
   end
+
+  defp current_binding(ctx, name) do
+    persistent = Heap.get_persistent_globals() || %{}
+
+    cond do
+      Map.has_key?(persistent, name) -> Map.get(persistent, name)
+      Map.has_key?(ctx.globals, name) -> Map.get(ctx.globals, name)
+      true -> :not_found
+    end
+  end
+
+  defp lexical_global_flags?(flags) when is_integer(flags), do: Bitwise.band(flags, 0x80) == 0x80
+  defp lexical_global_flags?(_flags), do: false
 
   defp const_global_flags?(flags) when is_integer(flags), do: Bitwise.band(flags, 0x82) == 0x80
   defp const_global_flags?(_flags), do: false

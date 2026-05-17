@@ -1214,7 +1214,7 @@ defmodule QuickBEAM.VM.CompilerTest do
 
     test "compiles TDZ and nested private-brand edges", %{rt: rt} do
       typeof_tdz = compile_and_decode(rt, "try { typeof x } catch(e) { e.name } let x=1").value
-      assert {:ok, "undefined"} = Compiler.invoke(typeof_tdz, [])
+      assert {:ok, "ReferenceError"} = Compiler.invoke(typeof_tdz, [])
 
       private_in =
         compile_and_decode(rt, "class A{ #x; static has(o){return #x in o} } A.has(new A())").value

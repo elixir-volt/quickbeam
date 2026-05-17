@@ -53,6 +53,34 @@ defmodule QuickBEAM.VM.Runtime.IteratorTest do
            ) == 1
   end
 
+  test "for-of destructuring assignment observes lexical TDZ", %{rt: rt} do
+    assert beam!(
+             rt,
+             ~S|var counter = 0; var caught; try { for ([x] of [[]]) { counter++; } } catch (e) { caught = e.name; } let x; [caught, counter].join(",")|
+           ) == "ReferenceError,0"
+
+    assert beam!(
+             rt,
+             ~S|var restCounter = 0; var restCaught; try { for ([...restTarget] of [[]]) { restCounter++; } } catch (e) { restCaught = e.name; } let restTarget; [restCaught, restCounter].join(",")|
+           ) == "ReferenceError,0"
+  end
+
+  test "strict for-of destructuring assignment rejects unresolvable targets", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|"use strict"; var counter = 0; var caught; try { for ([unresolvableTarget] of [[]]) { counter++; } } catch (e) { caught = e.name; } [caught, counter].join(",")|,
+      "ReferenceError,0"
+    )
+  end
+
+  test "for-of destructuring assignment preserves initialized lexical writes", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|let initializedTarget; for ([initializedTarget] of [[3]]) {} initializedTarget|,
+      3
+    )
+  end
+
   test "array rest destructuring closes inner iterator when target evaluation throws", %{rt: rt} do
     assert beam!(
              rt,

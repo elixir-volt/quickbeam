@@ -32,6 +32,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     :closure_vars,
     :atoms,
     :arg_count,
+    :strict_mode,
     :return_type,
     :frame_mode,
     :force_capture_slots
@@ -81,6 +82,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
         else: Enum.map(0..(stack_depth - 1), &Builder.stack_var/1)
 
     arg_count = Keyword.get(opts, :arg_count, 0)
+    strict_mode = Keyword.get(opts, :strict_mode, false)
     locals = Keyword.get(opts, :locals, [])
 
     %__MODULE__{
@@ -99,6 +101,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       closure_vars: Keyword.get(opts, :closure_vars, []),
       atoms: Keyword.get(opts, :atoms),
       arg_count: arg_count,
+      strict_mode: strict_mode,
       return_type: Keyword.get(opts, :return_type, :unknown),
       frame_mode: frame_mode,
       force_capture_slots: Keyword.get(opts, :force_capture_slots, false)

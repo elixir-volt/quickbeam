@@ -181,6 +181,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering do
         closure_vars: fun.closure_vars,
         atoms: Heap.get_fn_atoms(fun),
         arg_count: arg_count,
+        strict_mode: fun.is_strict_mode,
         return_type: return_type,
         frame_mode: frame_mode,
         force_capture_slots: force_capture_slots

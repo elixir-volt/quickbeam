@@ -412,6 +412,12 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
     {:function, @line, :op_typeof, 1,
      [
+       {:clause, @line, [{:atom, @line, :__tdz__}], [],
+        [
+          remote_call(QuickBEAM.VM.JSThrow, :reference_error!, [
+            :erl_parse.abstract("Cannot access variable before initialization")
+          ])
+        ]},
        {:clause, @line, [{:atom, @line, :undefined}], [], [:erl_parse.abstract("undefined")]},
        {:clause, @line, [{:atom, @line, nil}], [], [:erl_parse.abstract("object")]},
        {:clause, @line, [{:atom, @line, true}], [], [:erl_parse.abstract("boolean")]},

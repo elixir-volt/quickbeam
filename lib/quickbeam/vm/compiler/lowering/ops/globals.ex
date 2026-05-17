@@ -131,7 +131,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
            State.ctx_expr(state),
            Builder.literal(atom_idx),
            val,
-           Builder.literal(init: init?)
+           Builder.literal(init: init?, strict: state.strict_mode)
          ])
        )}
     end

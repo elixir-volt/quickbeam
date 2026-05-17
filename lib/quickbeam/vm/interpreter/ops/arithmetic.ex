@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Arithmetic do
   @doc "Installs the Arithmetic, bitwise, comparison, and unary opcodes helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
+      alias QuickBEAM.VM.Heap
       alias QuickBEAM.VM.Interpreter.{Closures, Frame, Values}
 
       # ── Arithmetic ──
@@ -162,6 +163,15 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Arithmetic do
 
       defp run({@op_lnot, []}, pc, frame, [a | rest], gas, ctx),
         do: run(pc + 1, frame, [not Values.truthy?(a) | rest], gas, ctx)
+
+      defp run({@op_typeof, []}, _pc, frame, [:__tdz__ | _rest], gas, ctx) do
+        throw_or_catch(
+          frame,
+          Heap.make_error("Cannot access variable before initialization", "ReferenceError"),
+          gas,
+          ctx
+        )
+      end
 
       defp run({@op_typeof, []}, pc, frame, [a | rest], gas, ctx),
         do: run(pc + 1, frame, [Values.typeof(a) | rest], gas, ctx)

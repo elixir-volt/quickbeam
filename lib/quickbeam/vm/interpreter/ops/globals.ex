@@ -68,6 +68,16 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
           run(pc + 1, frame, [arguments | stack], gas, ctx)
         else
           case GlobalEnv.fetch(ctx, atom_idx) do
+            {:found, :__tdz__} ->
+              name = Names.resolve_atom(ctx, atom_idx)
+
+              throw_or_catch(
+                frame,
+                Heap.make_error("#{name} is not initialized", "ReferenceError"),
+                gas,
+                ctx
+              )
+
             {:found, val} ->
               run(pc + 1, frame, [val | stack], gas, ctx)
 
@@ -115,6 +125,10 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
 
       defp resolve_delayed_define_value({:qb_delayed_get_var, atom_idx}, ctx) do
         case GlobalEnv.fetch(ctx, atom_idx) do
+          {:found, :__tdz__} ->
+            name = Names.resolve_atom(ctx, atom_idx)
+            JSThrow.reference_error!("#{name} is not initialized")
+
           {:found, val} ->
             val
 
@@ -138,18 +152,26 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
 
       defp run({op, [atom_idx]}, pc, frame, [val | rest], gas, ctx)
            when op in [@op_put_var, @op_put_var_init] do
-        new_ctx = GlobalEnv.put(ctx, atom_idx, val, init: op == @op_put_var_init)
+        try do
+          new_ctx =
+            GlobalEnv.put(ctx, atom_idx, val,
+              init: op == @op_put_var_init,
+              strict: current_strict_mode?(ctx)
+            )
 
-        case Map.get(ctx.globals, "globalThis") do
-          {:obj, _} = gt ->
-            name = Names.resolve_atom(ctx, atom_idx)
-            Put.put(gt, name, val)
+          case Map.get(ctx.globals, "globalThis") do
+            {:obj, _} = gt ->
+              name = Names.resolve_atom(ctx, atom_idx)
+              Put.put(gt, name, val)
 
-          _ ->
-            :ok
+            _ ->
+              :ok
+          end
+
+          run(pc + 1, frame, rest, gas, new_ctx)
+        catch
+          {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
         end
-
-        run(pc + 1, frame, rest, gas, new_ctx)
       end
 
       defp run({@op_define_func, [atom_idx, _flags]}, pc, frame, [fun | rest], gas, ctx) do
