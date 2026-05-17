@@ -314,6 +314,78 @@ defmodule QuickBEAM.JS.CompilerTest do
       assert_compiles_to(~S|let { a: [b], ...rest } = { a: [1], c: 2 }; b + rest.c|, 3)
     end
 
+    test "for-of compiles object assignment patterns" do
+      assert_compiles_to(
+        ~S|var x, counter = 0; for ({ ['x' + 'y']: x } of [{ x: 1, xy: 23, y: 2 }]) { counter += x; } counter|,
+        23
+      )
+
+      assert_compiles_to(
+        ~S|var a = "foo", b, rest; var counter = 0; for ({[a]:b, ...rest} of [{ foo: 1, bar: 2, baz: 3 }]) { counter += b + rest.bar + rest.baz; } counter|,
+        6
+      )
+
+      assert_compiles_to(
+        ~S|var a = 1, b, rest; for ({[a]:b, ...rest} of [{[a]: 1, bar: 2 }]) {} rest["1"]|,
+        :undefined
+      )
+
+      assert_compiles_to(
+        ~S|var a = [1], b, rest; for ({[a]:b, ...rest} of [{"1": 1, bar: 2 }]) {} rest["1"]|,
+        :undefined
+      )
+
+      assert_compiles_to(
+        ~S|var a = "1", b, rest; for ({[a]:b, ...rest} of [{"1": 1, bar: 2 }]) {} rest["1"]|,
+        :undefined
+      )
+
+      assert_compiles_to(
+        ~S|var a = 1.0, b, rest; for ({[a]:b, ...rest} of [{"1": 1, bar: 2 }]) {} rest["1"]|,
+        :undefined
+      )
+
+      assert_compiles_to(
+        ~S|var a = 1e0, b, rest; for ({[a]:b, ...rest} of [{"1": 1, bar: 2 }]) {} rest["1"]|,
+        :undefined
+      )
+
+      assert_compiles_to(
+        ~S|var a = 1, b, rest; for ({[a]:b, ...rest} of [{[a]: 1, bar: 2 }]) {} b + rest.bar|,
+        3
+      )
+
+      assert_compiles_to(
+        ~S|var a = [1], b, rest; for ({[a]:b, ...rest} of [{"1": 1, bar: 2 }]) {} b + rest.bar|,
+        3
+      )
+
+      assert_compiles_to(
+        ~S|var a = "1", b, rest; for ({[a]:b, ...rest} of [{"1": 1, bar: 2 }]) {} b + rest.bar|,
+        3
+      )
+
+      assert_compiles_to(
+        ~S|var a = 1.0, b, rest; for ({[a]:b, ...rest} of [{"1": 1, bar: 2 }]) {} b + rest.bar|,
+        3
+      )
+
+      assert_compiles_to(
+        ~S|var a = 1e0, b, rest; for ({[a]:b, ...rest} of [{"1": 1, bar: 2 }]) {} b + rest.bar|,
+        3
+      )
+
+      assert_compiles_to(
+        ~S|var x; for ({ ["x" + "y"]: x } of [{ x: 1, xy: 23, y: 2 }]) {} x|,
+        23
+      )
+
+      assert_compiles_to(
+        ~S|var a="foo", b, rest; for ({[a]:b, ...rest} of [{ foo: 1, bar: 2, baz: 3 }]) {} b + rest.bar + rest.baz|,
+        6
+      )
+    end
+
     test "for-of preserves completion values and assignment heads" do
       assert_compiles_to(~S|for (let x of []) { 1 }|, :undefined)
       assert_compiles_to(~S|for (let x of [0]) { 3 }|, 3)

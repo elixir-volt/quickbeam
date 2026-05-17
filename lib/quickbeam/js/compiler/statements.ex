@@ -692,6 +692,41 @@ defmodule QuickBEAM.JS.Compiler.Statements do
 
   def compile(
         %AST.ForOfStatement{
+          left: %AST.ObjectExpression{properties: properties},
+          right: right,
+          body: body,
+          await: false
+        },
+        scope,
+        instructions,
+        constants,
+        opts,
+        callbacks
+      ) do
+    instructions = maybe_reset_loop_completion(instructions, Keyword.fetch!(opts, :tail?))
+
+    with {:loc, value_loc} <- callbacks.resolve.(scope, "<for_of_value>"),
+         {:ok, instructions, constants} <-
+           callbacks.compile_expression.(right, scope, instructions, constants) do
+      compile_iterator_for_of_object_pattern(
+        body,
+        properties,
+        value_loc,
+        scope,
+        instructions,
+        constants,
+        callbacks,
+        Keyword.fetch!(opts, :tail?),
+        opts
+      )
+    else
+      :error -> {:error, {:unsupported, :for_of_binding}}
+      {:error, _} = error -> error
+    end
+  end
+
+  def compile(
+        %AST.ForOfStatement{
           left: %AST.Identifier{name: name},
           right: right,
           body: body,
@@ -2004,6 +2039,63 @@ defmodule QuickBEAM.JS.Compiler.Statements do
     end
   end
 
+  defp compile_iterator_for_of_object_pattern(
+         body,
+         properties,
+         value_loc,
+         scope,
+         instructions,
+         constants,
+         callbacks,
+         tail?,
+         inherited_opts
+       ) do
+    start_label = callbacks.unique_label.(:for_of_start)
+    end_label = callbacks.unique_label.(:for_of_end)
+    update_label = callbacks.unique_label.(:for_of_update)
+
+    with {:loc, iter_loc} <- callbacks.resolve.(scope, "<for_of_array>"),
+         {:loc, result_loc} <- callbacks.resolve.(scope, "<for_of_index>") do
+      {init, loop_head} =
+        for_of_iterator_setup(start_label, end_label, value_loc, iter_loc, result_loc)
+
+      with {:ok, instructions, constants} <-
+             compile_object_pattern(
+               properties,
+               scope,
+               instructions ++ init ++ loop_head ++ [{:get_loc, value_loc}, :to_object],
+               constants,
+               callbacks
+             ),
+           {:ok, instructions, constants} <-
+             compile(
+               body,
+               scope,
+               instructions,
+               constants,
+               loop_opts(
+                 Keyword.merge(Keyword.take(inherited_opts, [:break_labels, :continue_labels]),
+                   preserve_completion?: tail?
+                 ),
+                 tail?,
+                 end_label,
+                 update_label
+               )
+               |> Keyword.put(:iterator_close_loc, iter_loc),
+               callbacks
+             ) do
+        instructions = maybe_drop_loop_completion(instructions, tail?)
+
+        {:ok,
+         instructions
+         |> Kernel.++([{:label, update_label}, {:jump, start_label}, {:label, end_label}])
+         |> maybe_push_loop_completion(tail?), constants}
+      end
+    else
+      :error -> {:error, {:unsupported, :for_of_binding}}
+    end
+  end
+
   defp compile_iterator_for_of_destructuring(
          body,
          elements,
@@ -2638,6 +2730,16 @@ defmodule QuickBEAM.JS.Compiler.Statements do
     end
   end
 
+  defp compile_object_pattern(
+         [%AST.SpreadElement{} = rest],
+         scope,
+         instructions,
+         constants,
+         callbacks,
+         excluded
+       ),
+       do: compile_object_pattern_rest(rest, scope, instructions, constants, callbacks, excluded)
+
   defp compile_object_pattern([property], scope, instructions, constants, callbacks, _excluded),
     do:
       compile_object_pattern_property(property, scope, instructions, constants, callbacks, false)
@@ -2889,6 +2991,43 @@ defmodule QuickBEAM.JS.Compiler.Statements do
          _excluded_key
        ),
        do: {:error, {:unsupported, {:object_pattern_property, property.type}}}
+
+  defp compile_object_pattern_rest(
+         %AST.SpreadElement{argument: %AST.Identifier{name: name}},
+         scope,
+         instructions,
+         constants,
+         callbacks,
+         excluded
+       ) do
+    case callbacks.resolve.(scope, name) do
+      {:loc, loc} ->
+        with {:ok, instructions, constants} <-
+               compile_object_rest_excluded_keys(
+                 excluded,
+                 scope,
+                 instructions,
+                 constants,
+                 callbacks
+               ) do
+          {:ok,
+           instructions ++
+             [
+               {:array_from, length(excluded)},
+               :object,
+               :rot3r,
+               {:copy_data_properties, 6},
+               :drop,
+               :swap,
+               {:put_loc, loc},
+               :drop
+             ], constants}
+        end
+
+      :error ->
+        {:error, {:unsupported, {:unresolved_identifier, name}}}
+    end
+  end
 
   defp compile_object_rest_excluded_keys([], _scope, instructions, constants, _callbacks),
     do: {:ok, instructions, constants}
