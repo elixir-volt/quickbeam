@@ -32,6 +32,27 @@ defmodule QuickBEAM.VM.Runtime.IteratorTest do
            ) == "1,444,true"
   end
 
+  test "array rest destructuring surfaces iterator close errors on generator return", %{rt: rt} do
+    assert beam!(
+             rt,
+             ~S|var returnCountRest = 0; var iteratorRest = { return() { returnCountRest++; throw new Error("close"); } }; var iterableRest = {}; iterableRest[Symbol.iterator] = function() { return iteratorRest; }; function* gRest() { for ([...{}[yield]] of [iterableRest]) {} } var iterRest = gRest(); iterRest.next(); try { iterRest.return(); } catch (e) {} returnCountRest|
+           ) == 1
+  end
+
+  test "array rest destructuring rejects non-object close results on generator return", %{rt: rt} do
+    assert beam!(
+             rt,
+             ~S|var iteratorRestNull = { return() { return null; } }; var iterableRestNull = {}; iterableRestNull[Symbol.iterator] = function() { return iteratorRestNull; }; function* gRestNull() { for ([...{}[yield]] of [iterableRestNull]) {} } var iterRestNull = gRestNull(); iterRestNull.next(); try { iterRestNull.return(); "no"; } catch (e) { e.name; }|
+           ) == "TypeError"
+  end
+
+  test "array element destructuring closes inner iterator on generator return", %{rt: rt} do
+    assert beam!(
+             rt,
+             ~S|var returnCountElem = 0; var iteratorElem = { return() { returnCountElem++; throw new Error("close"); } }; var iterableElem = {}; iterableElem[Symbol.iterator] = function() { return iteratorElem; }; function* gElem() { for ([{}[yield]] of [iterableElem]) {} } var iterElem = gElem(); iterElem.next(); try { iterElem.return(); } catch (e) {} returnCountElem|
+           ) == 1
+  end
+
   test "for-of closes active iterator on thrown body", %{rt: rt} do
     assert_modes(
       rt,

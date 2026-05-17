@@ -174,6 +174,27 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Emit do
   end
 
   def nip_catch(
+        %{
+          stack: [val, _discard1, _discard2, _catch_offset, next_fn, iter_obj | rest],
+          stack_types: [
+            type,
+            _discard1_type,
+            _discard2_type,
+            _catch_type,
+            next_type,
+            iter_type | type_rest
+          ]
+        } = state
+      ) do
+    {:ok,
+     %{
+       state
+       | stack: [val, next_fn, iter_obj | rest],
+         stack_types: [type, next_type, iter_type | type_rest]
+     }}
+  end
+
+  def nip_catch(
         %{stack: [val, _catch_offset | rest], stack_types: [type, _ | type_rest]} = state
       ),
       do: {:ok, %{state | stack: [val | rest], stack_types: [type | type_rest]}}

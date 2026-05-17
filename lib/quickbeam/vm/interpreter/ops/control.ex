@@ -66,23 +66,41 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Control do
              %Context{catch_stack: [_ | rest_catch]} = ctx
            )
            when is_integer(catch_offset) or catch_offset == :undefined do
-        if QuickBEAM.VM.Builtin.callable?(next_fn) do
-          run(
-            pc + 1,
-            frame,
-            [a, next_fn, iter_obj | rest],
-            gas,
-            Context.mark_dirty(%{ctx | catch_stack: rest_catch})
-          )
-        else
-          run(
-            pc + 1,
-            frame,
-            [a, catch_offset, next_fn, iter_obj | rest],
-            gas,
-            Context.mark_dirty(%{ctx | catch_stack: rest_catch})
-          )
-        end
+        run_nip_catch_iterator(
+          pc,
+          frame,
+          a,
+          catch_offset,
+          next_fn,
+          iter_obj,
+          rest,
+          gas,
+          ctx,
+          rest_catch
+        )
+      end
+
+      defp run(
+             {@op_nip_catch, []},
+             pc,
+             frame,
+             [a, _discard1, _discard2, catch_offset, next_fn, iter_obj | rest],
+             gas,
+             %Context{catch_stack: [_ | rest_catch]} = ctx
+           )
+           when is_integer(catch_offset) or catch_offset == :undefined do
+        run_nip_catch_iterator(
+          pc,
+          frame,
+          a,
+          catch_offset,
+          next_fn,
+          iter_obj,
+          rest,
+          gas,
+          ctx,
+          rest_catch
+        )
       end
 
       defp run(
@@ -110,12 +128,62 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Control do
              gas,
              ctx
            )
-           when (is_integer(catch_offset) or catch_offset == :undefined) and
-                  tuple_size(next_fn) >= 3 do
+           when is_integer(catch_offset) or catch_offset == :undefined do
+        run_nip_catch_iterator(
+          pc,
+          frame,
+          a,
+          catch_offset,
+          next_fn,
+          iter_obj,
+          rest,
+          gas,
+          ctx,
+          ctx.catch_stack
+        )
+      end
+
+      defp run(
+             {@op_nip_catch, []},
+             pc,
+             frame,
+             [a, _discard1, _discard2, catch_offset, next_fn, iter_obj | rest],
+             gas,
+             ctx
+           )
+           when is_integer(catch_offset) or catch_offset == :undefined do
+        run_nip_catch_iterator(
+          pc,
+          frame,
+          a,
+          catch_offset,
+          next_fn,
+          iter_obj,
+          rest,
+          gas,
+          ctx,
+          ctx.catch_stack
+        )
+      end
+
+      defp run_nip_catch_iterator(
+             pc,
+             frame,
+             a,
+             catch_offset,
+             next_fn,
+             iter_obj,
+             rest,
+             gas,
+             ctx,
+             catch_stack
+           ) do
+        ctx = Context.mark_dirty(%{ctx | catch_stack: catch_stack})
+
         if QuickBEAM.VM.Builtin.callable?(next_fn) do
           run(pc + 1, frame, [a, next_fn, iter_obj | rest], gas, ctx)
         else
-          run(pc + 1, frame, [a, catch_offset, next_fn, iter_obj | rest], gas, ctx)
+          run(pc + 1, frame, [a, catch_offset, iter_obj, next_fn | rest], gas, ctx)
         end
       end
 
