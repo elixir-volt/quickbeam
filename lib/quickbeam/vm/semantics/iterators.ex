@@ -23,6 +23,14 @@ defmodule QuickBEAM.VM.Semantics.Iterators do
 
   def for_of_next(_next_fn, {:list_iter, []}), do: {true, :undefined, :undefined}
 
+  def for_of_next(_next_fn, {:array_iter, obj, index}) do
+    if index >= array_iteration_length(obj) do
+      {true, :undefined, :undefined}
+    else
+      {false, Get.get(obj, Integer.to_string(index)), {:array_iter, obj, index + 1}}
+    end
+  end
+
   def for_of_next(next_fn, iter_obj) do
     result = Invocation.invoke_with_receiver(next_fn, [], iter_obj)
 
@@ -46,6 +54,15 @@ defmodule QuickBEAM.VM.Semantics.Iterators do
 
   def iterator_next_result(_ctx, _next_fn, {:list_iter, []}, _val),
     do: {Heap.wrap(%{"done" => true, "value" => :undefined}), :undefined}
+
+  def iterator_next_result(_ctx, _next_fn, {:array_iter, obj, index}, _val) do
+    if index >= array_iteration_length(obj) do
+      {Heap.wrap(%{"done" => true, "value" => :undefined}), :undefined}
+    else
+      {Heap.wrap(%{"done" => false, "value" => Get.get(obj, Integer.to_string(index))}),
+       {:array_iter, obj, index + 1}}
+    end
+  end
 
   def iterator_next_result(_ctx, next_fn, iter_obj, val) do
     result = Invocation.invoke_with_receiver(next_fn, [val], iter_obj)
@@ -224,10 +241,10 @@ defmodule QuickBEAM.VM.Semantics.Iterators do
   defp iterator_type_error!(message),
     do: throw({:js_throw, Heap.make_error(message, "TypeError")})
 
-  defp array_like_for_of(ctx, obj_ref, values) do
+  defp array_like_for_of(ctx, obj_ref, _values) do
     case Collections.array_proto_iterator_status() do
       :default ->
-        {{:list_iter, values}, :undefined}
+        {{:array_iter, obj_ref, 0}, :undefined}
 
       :deleted ->
         throw({:js_throw, Heap.make_error("[Symbol.iterator] is not a function", "TypeError")})
@@ -313,6 +330,14 @@ defmodule QuickBEAM.VM.Semantics.Iterators do
 
   defp string_codepoints(<<byte, rest::binary>>) do
     [<<byte>> | string_codepoints(rest)]
+  end
+
+  defp array_iteration_length(obj_ref) do
+    case Runtime.to_number(Get.get(obj_ref, "length")) do
+      n when is_integer(n) and n >= 0 -> n
+      n when is_float(n) and n >= 0 -> trunc(n)
+      _ -> 0
+    end
   end
 
   defp invoke_custom_iter(_ctx, iter_fn, obj) do

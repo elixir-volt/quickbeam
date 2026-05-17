@@ -90,6 +90,14 @@ defmodule QuickBEAM.VM.Runtime.IteratorTest do
     assert_beam_error(rt, ~S|for (let x of {}) {}|, "TypeError")
   end
 
+  test "array for-of reads elements through property access", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|let array = []; let count = 0; Object.defineProperty(array, "0", { get() { throw new TypeError("boom"); } }); try { for (let value of array) { count++; } } catch (e) {} count|,
+      0
+    )
+  end
+
   test "for-of advances built-in list iterators", %{rt: rt} do
     assert_modes(rt, ~S|let out = ""; for (let ch of "abc") out += ch; out|, "abc")
   end

@@ -26,7 +26,7 @@ defmodule QuickBEAM.VM.Runtime.Collections do
           nil -> :deleted
           false -> :deleted
           :deleted -> :deleted
-          {:builtin, "[Symbol.iterator]", _} -> :default
+          {:builtin, name, _} when name in ["[Symbol.iterator]", "values"] -> :default
           other -> other
         end
 
