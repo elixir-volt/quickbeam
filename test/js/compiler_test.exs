@@ -283,6 +283,10 @@ defmodule QuickBEAM.JS.CompilerTest do
       )
     end
 
+    test "preserves RequireObjectCoercible checks for empty object bindings" do
+      assert_compiles_error_name(~S|let {} = null; "unreachable"|, "TypeError")
+    end
+
     test "preserves object property order in compiled mode" do
       assert_compiles_to(
         ~S|let a = { get: 2, set: 3, async: 4, get a(){ return this.get } }; JSON.stringify(a)|,
@@ -305,6 +309,24 @@ defmodule QuickBEAM.JS.CompilerTest do
                Interpreter.eval(bytecode.value, [], %{gas: 1_000_000}, bytecode.atoms)
 
       assert {:ok, ^expected} = VMCompiler.invoke(bytecode.value, [])
+    end)
+    |> Task.await(30_000)
+  end
+
+  defp assert_compiles_error_name(source, expected_name) do
+    Task.async(fn ->
+      Heap.reset()
+      assert {:ok, bytecode} = JSCompiler.compile(source)
+
+      assert {:error, {:js_throw, {:obj, interpreter_ref}}} =
+               Interpreter.eval(bytecode.value, [], %{gas: 1_000_000}, bytecode.atoms)
+
+      assert QuickBEAM.VM.ObjectModel.Get.get({:obj, interpreter_ref}, "name") == expected_name
+
+      Heap.reset()
+      assert {:ok, bytecode} = JSCompiler.compile(source)
+      assert {:error, {:js_throw, {:obj, compiled_ref}}} = VMCompiler.invoke(bytecode.value, [])
+      assert QuickBEAM.VM.ObjectModel.Get.get({:obj, compiled_ref}, "name") == expected_name
     end)
     |> Task.await(30_000)
   end

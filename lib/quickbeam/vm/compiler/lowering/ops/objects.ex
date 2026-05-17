@@ -95,7 +95,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
         {:ok, state}
 
       {{:ok, :to_object}, []} ->
-        Operators.unary_abi_call(state, :to_object)
+        lower_effectful_unary_abi_call(state, :to_object)
 
       {{:ok, :to_propkey}, []} ->
         Operators.unary_abi_call(state, :to_property_key)
@@ -174,6 +174,15 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
              | state.body
            ]
        }}
+    end
+  end
+
+  defp lower_effectful_unary_abi_call(state, fun) do
+    with {:ok, expr, _type, state} <- Emit.pop_typed(state) do
+      LoweringEffects.effectful_push(
+        state,
+        Builder.remote_call(QuickBEAM.VM.Compiler.RuntimeABI, fun, [state.ctx, expr])
+      )
     end
   end
 
