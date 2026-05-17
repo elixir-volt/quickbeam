@@ -40,13 +40,25 @@ defmodule QuickBEAM.JS.Compiler.Statements do
   end
 
   defp compile_all([statement | rest], scope, instructions, constants, opts, callbacks) do
-    opts = Keyword.put(opts, :tail?, false)
+    compile_opts = Keyword.put(opts, :tail?, Keyword.get(opts, :preserve_completion?, false))
+    rest_opts = Keyword.put(opts, :tail?, false)
 
     with {:ok, instructions, constants} <-
-           compile(statement, scope, instructions, constants, opts, callbacks) do
-      compile_all(rest, scope, instructions, constants, opts, callbacks)
+           compile(statement, scope, instructions, constants, compile_opts, callbacks) do
+      instructions = maybe_drop_preserved_completion(instructions, statement, compile_opts)
+      compile_all(rest, scope, instructions, constants, rest_opts, callbacks)
     end
   end
+
+  defp maybe_drop_preserved_completion(instructions, %AST.ExpressionStatement{}, opts) do
+    if Keyword.get(opts, :tail?) and Keyword.get(opts, :preserve_completion?) do
+      instructions ++ [:drop]
+    else
+      instructions
+    end
+  end
+
+  defp maybe_drop_preserved_completion(instructions, _statement, _opts), do: instructions
 
   def compile_non_tail(statements, %Emitter{} = emitter) do
     with {:ok, instructions, constants} <-
@@ -292,35 +304,28 @@ defmodule QuickBEAM.JS.Compiler.Statements do
   end
 
   def compile(
+        %AST.LabeledStatement{
+          label: %AST.Identifier{name: label},
+          body: %AST.DoWhileStatement{body: body, test: test}
+        },
+        scope,
+        instructions,
+        constants,
+        opts,
+        callbacks
+      ) do
+    compile_do_while(body, test, scope, instructions, constants, opts, callbacks, label)
+  end
+
+  def compile(
         %AST.DoWhileStatement{body: body, test: test},
         scope,
         instructions,
         constants,
-        _opts,
+        opts,
         callbacks
       ) do
-    start_label = callbacks.unique_label.(:do_start)
-    test_label = callbacks.unique_label.(:do_test)
-    end_label = callbacks.unique_label.(:do_end)
-
-    with {:ok, instructions, constants} <-
-           compile(
-             body,
-             scope,
-             instructions ++ [{:label, start_label}],
-             constants,
-             [tail?: false, break_label: end_label, continue_label: test_label],
-             callbacks
-           ),
-         {:ok, instructions, constants} <-
-           callbacks.compile_expression.(
-             test,
-             scope,
-             instructions ++ [{:label, test_label}],
-             constants
-           ) do
-      {:ok, instructions ++ [{:jump_if_true, start_label}, {:label, end_label}], constants}
-    end
+    compile_do_while(body, test, scope, instructions, constants, opts, callbacks, nil)
   end
 
   def compile(
@@ -633,7 +638,9 @@ defmodule QuickBEAM.JS.Compiler.Statements do
         instructions,
         constants,
         callbacks,
-        Keyword.fetch!(opts, :tail?)
+        Keyword.fetch!(opts, :tail?),
+        [],
+        opts
       )
     else
       :error -> {:error, {:unsupported, :for_of_binding}}
@@ -671,7 +678,8 @@ defmodule QuickBEAM.JS.Compiler.Statements do
         instructions,
         constants,
         callbacks,
-        Keyword.fetch!(opts, :tail?)
+        Keyword.fetch!(opts, :tail?),
+        opts
       )
     else
       :error -> {:error, {:unsupported, :for_of_binding}}
@@ -705,7 +713,9 @@ defmodule QuickBEAM.JS.Compiler.Statements do
             instructions,
             constants,
             callbacks,
-            Keyword.fetch!(opts, :tail?)
+            Keyword.fetch!(opts, :tail?),
+            [],
+            opts
           )
         end
 
@@ -721,7 +731,8 @@ defmodule QuickBEAM.JS.Compiler.Statements do
             constants,
             callbacks,
             Keyword.fetch!(opts, :tail?),
-            [{:get_loc, value_loc}, {:put_var, name}]
+            [{:get_loc, value_loc}, {:put_var, name}],
+            opts
           )
         end
 
@@ -767,15 +778,29 @@ defmodule QuickBEAM.JS.Compiler.Statements do
     end
   end
 
-  def compile(%AST.BreakStatement{}, _scope, instructions, constants, opts, _callbacks) do
-    case Keyword.fetch(opts, :break_label) do
+  def compile(
+        %AST.BreakStatement{label: label},
+        _scope,
+        instructions,
+        constants,
+        opts,
+        _callbacks
+      ) do
+    case resolve_jump_label(opts, :break_label, :break_labels, label) do
       {:ok, label} -> {:ok, instructions ++ [{:jump, label}], constants}
       :error -> {:error, {:unsupported, :break_outside_loop}}
     end
   end
 
-  def compile(%AST.ContinueStatement{}, _scope, instructions, constants, opts, _callbacks) do
-    case Keyword.fetch(opts, :continue_label) do
+  def compile(
+        %AST.ContinueStatement{label: label},
+        _scope,
+        instructions,
+        constants,
+        opts,
+        _callbacks
+      ) do
+    case resolve_jump_label(opts, :continue_label, :continue_labels, label) do
       {:ok, label} -> {:ok, instructions ++ [{:jump, label}], constants}
       :error -> {:error, {:unsupported, :continue_outside_loop}}
     end
@@ -1932,7 +1957,8 @@ defmodule QuickBEAM.JS.Compiler.Statements do
          constants,
          callbacks,
          tail?,
-         bind_value_ops \\ []
+         bind_value_ops,
+         inherited_opts
        ) do
     start_label = callbacks.unique_label.(:for_of_start)
     end_label = callbacks.unique_label.(:for_of_end)
@@ -1949,7 +1975,14 @@ defmodule QuickBEAM.JS.Compiler.Statements do
                scope,
                instructions ++ init ++ loop_head ++ bind_value_ops,
                constants,
-               [tail?: tail?, break_label: end_label, continue_label: update_label],
+               loop_opts(
+                 Keyword.merge(Keyword.take(inherited_opts, [:break_labels, :continue_labels]),
+                   preserve_completion?: tail?
+                 ),
+                 tail?,
+                 end_label,
+                 update_label
+               ),
                callbacks
              ) do
         instructions = maybe_drop_loop_completion(instructions, tail?)
@@ -1972,7 +2005,8 @@ defmodule QuickBEAM.JS.Compiler.Statements do
          instructions,
          constants,
          callbacks,
-         tail?
+         tail?,
+         inherited_opts
        ) do
     start_label = callbacks.unique_label.(:for_of_start)
     end_label = callbacks.unique_label.(:for_of_end)
@@ -1997,7 +2031,14 @@ defmodule QuickBEAM.JS.Compiler.Statements do
                scope,
                instructions,
                constants,
-               [tail?: tail?, break_label: end_label, continue_label: update_label],
+               loop_opts(
+                 Keyword.merge(Keyword.take(inherited_opts, [:break_labels, :continue_labels]),
+                   preserve_completion?: tail?
+                 ),
+                 tail?,
+                 end_label,
+                 update_label
+               ),
                callbacks
              ) do
         instructions = maybe_drop_loop_completion(instructions, tail?)
@@ -2012,6 +2053,36 @@ defmodule QuickBEAM.JS.Compiler.Statements do
     end
   end
 
+  defp loop_opts(opts, tail?, break_label, continue_label, label \\ nil) do
+    opts
+    |> Keyword.take([:break_labels, :continue_labels, :preserve_completion?])
+    |> Keyword.put(:tail?, tail?)
+    |> Keyword.put(:break_label, break_label)
+    |> Keyword.put(:continue_label, continue_label)
+    |> maybe_put_labeled_loop(label, break_label, continue_label)
+  end
+
+  defp maybe_put_labeled_loop(opts, nil, _break_label, _continue_label), do: opts
+
+  defp maybe_put_labeled_loop(opts, label, break_label, continue_label) do
+    break_labels = opts |> Keyword.get(:break_labels, %{}) |> Map.put(label, break_label)
+    continue_labels = opts |> Keyword.get(:continue_labels, %{}) |> Map.put(label, continue_label)
+
+    opts
+    |> Keyword.put(:break_labels, break_labels)
+    |> Keyword.put(:continue_labels, continue_labels)
+  end
+
+  defp resolve_jump_label(opts, default_key, _labeled_key, nil),
+    do: Keyword.fetch(opts, default_key)
+
+  defp resolve_jump_label(opts, _default_key, labeled_key, %AST.Identifier{name: name}) do
+    case Keyword.get(opts, labeled_key, %{}) do
+      %{^name => label} -> {:ok, label}
+      _ -> :error
+    end
+  end
+
   defp maybe_reset_loop_completion(instructions, false), do: instructions
 
   defp maybe_reset_loop_completion(instructions, true),
@@ -2022,6 +2093,45 @@ defmodule QuickBEAM.JS.Compiler.Statements do
 
   defp maybe_push_loop_completion(instructions, false), do: instructions
   defp maybe_push_loop_completion(instructions, true), do: instructions ++ [{:get_loc, 0}]
+
+  defp compile_do_while(body, test, scope, instructions, constants, opts, callbacks, label) do
+    start_label = callbacks.unique_label.(:do_start)
+    test_label = callbacks.unique_label.(:do_test)
+    end_label = callbacks.unique_label.(:do_end)
+
+    tail? = Keyword.fetch!(opts, :tail?)
+    instructions = maybe_reset_loop_completion(instructions, tail?)
+
+    with {:ok, instructions, constants} <-
+           compile(
+             body,
+             scope,
+             instructions ++ [{:label, start_label}],
+             constants,
+             loop_opts(
+               Keyword.put(opts, :preserve_completion?, tail?),
+               tail?,
+               end_label,
+               test_label,
+               label
+             ),
+             callbacks
+           ),
+         {:ok, instructions, constants} <-
+           callbacks.compile_expression.(
+             test,
+             scope,
+             instructions ++ [{:label, test_label}],
+             constants
+           ) do
+      instructions = maybe_drop_loop_completion(instructions, tail?)
+
+      {:ok,
+       instructions
+       |> Kernel.++([{:jump_if_true, start_label}, {:label, end_label}])
+       |> maybe_push_loop_completion(tail?), constants}
+    end
+  end
 
   defp compile_indexed_iteration(
          body,

@@ -156,6 +156,32 @@ defmodule QuickBEAM.JS.Compiler.Declarations do
   defp declare_nested_var_bindings(%AST.ForStatement{body: body}, scope),
     do: declare_nested_var_bindings_from(scope, body)
 
+  defp declare_nested_var_bindings(
+         %AST.ForOfStatement{
+           left: %AST.VariableDeclaration{kind: kind, declarations: declarations},
+           body: body
+         },
+         scope
+       ) do
+    scope
+    |> declare_for_binding_pattern(declarations, kind)
+    |> Scope.declare_local("<for_of_array>")
+    |> Scope.declare_local("<for_of_index>")
+    |> Scope.declare_local("<for_of_value>")
+    |> declare_nested_var_bindings_from(body)
+  end
+
+  defp declare_nested_var_bindings(%AST.ForOfStatement{body: body}, scope) do
+    scope
+    |> Scope.declare_local("<for_of_array>")
+    |> Scope.declare_local("<for_of_index>")
+    |> Scope.declare_local("<for_of_value>")
+    |> declare_nested_var_bindings_from(body)
+  end
+
+  defp declare_nested_var_bindings(%AST.LabeledStatement{body: body}, scope),
+    do: declare_nested_var_bindings_from(scope, body)
+
   defp declare_nested_var_bindings(%AST.WhileStatement{body: body}, scope),
     do: declare_nested_var_bindings_from(scope, body)
 
@@ -184,6 +210,10 @@ defmodule QuickBEAM.JS.Compiler.Declarations do
   defp declare_var_statements([statement | rest], scope) do
     scope = declare_nested_var_bindings(statement, scope)
     declare_var_statements(rest, scope)
+  end
+
+  defp declare_for_binding_pattern(scope, declarations, kind) do
+    Enum.reduce(declarations, scope, fn %{id: id}, acc -> declare_pattern(id, acc, kind) end)
   end
 
   defp declare_pattern(%AST.Identifier{name: name}, scope, kind),

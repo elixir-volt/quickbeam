@@ -314,6 +314,8 @@ defmodule QuickBEAM.JS.CompilerTest do
       assert_compiles_to(~S|for (let x of [0]) { 3 }|, 3)
       assert_compiles_to(~S|let x; for (x of [0]) { 4 }|, 4)
       assert_compiles_to(~S|let x; for (x of []) { 4 }|, :undefined)
+      assert_compiles_to(~S|for (let x of [0]) { 3; break }|, 3)
+      assert_compiles_to(~S|let x; for (x of [0]) { 3; break }|, 3)
     end
 
     test "block lexical patterns keep coercion checks without leaking bindings" do
