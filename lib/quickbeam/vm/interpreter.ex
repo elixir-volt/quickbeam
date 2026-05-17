@@ -241,13 +241,14 @@ defmodule QuickBEAM.VM.Interpreter do
     put_elem(frame, Frame.locals(), updated)
   end
 
-  defp clean_eval_globals(pre_eval_globals) do
+  defp clean_eval_globals(pre_eval_globals, preserved_globals \\ %{}) do
     post = Heap.get_persistent_globals() || %{}
+    preserved_existing = Map.take(preserved_globals, Map.keys(pre_eval_globals))
 
     cleaned =
       Enum.reduce(post, post, fn {key, _val}, acc ->
         case Map.fetch(pre_eval_globals, key) do
-          {:ok, old_val} -> Map.put(acc, key, old_val)
+          {:ok, old_val} -> Map.put(acc, key, Map.get(preserved_existing, key, old_val))
           :error -> Map.delete(acc, key)
         end
       end)
@@ -547,7 +548,7 @@ defmodule QuickBEAM.VM.Interpreter do
             apply_eval_transients(ctx.current_func, var_objs, transient_globals, keep_declared?)
             write_back_eval_vars(caller_frame, ctx, pre_eval_globals, var_objs, declared_names)
 
-            clean_eval_globals(pre_eval_globals)
+            clean_eval_globals(pre_eval_globals, transient_globals)
             {val, transient_globals}
 
           {:error, {:js_throw, val}} ->

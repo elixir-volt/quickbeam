@@ -18,4 +18,12 @@ defmodule QuickBEAM.VM.Semantics.EvalTest do
   test "direct eval delete preserves var binding", %{rt: rt} do
     assert_modes(rt, ~S/var x = 1; var d = eval("delete x"); d + "|" + x/, "false|1")
   end
+
+  test "direct eval assignments to global vars survive later calls", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|var assert = {}; assert.sameValue = function () {}; var s1 = "In getter"; var s2 = "In setter"; var s3 = "Modified by setter"; var o; eval("o = {get foo(){ return s1;},set foo(arg){return s2 = s3}};"); assert.sameValue(o.foo, s1); o.foo = 10; s2|,
+      "Modified by setter"
+    )
+  end
 end
