@@ -131,15 +131,11 @@ defmodule QuickBEAM.JS.Compiler.Statements do
         scope,
         instructions,
         constants,
-        opts,
+        _opts,
         callbacks
       )
       when kind in [:let, :const] do
-    if Keyword.get(opts, :block_scope?, false) do
-      compile_block_lexical_declarations(declarations, scope, instructions, constants, callbacks)
-    else
-      compile_variable_declarations(declarations, scope, instructions, constants, callbacks)
-    end
+    compile_variable_declarations(declarations, scope, instructions, constants, callbacks)
   end
 
   def compile(
@@ -729,12 +725,13 @@ defmodule QuickBEAM.JS.Compiler.Statements do
   end
 
   def compile(%AST.BlockStatement{body: body}, scope, instructions, constants, opts, callbacks) do
+    block_scope = enter_block_scope(scope)
     block_opts = Keyword.put(opts, :block_scope?, true)
 
     if Keyword.fetch!(opts, :tail?) do
-      compile_all(body, scope, instructions, constants, block_opts, callbacks)
+      compile_all(body, block_scope, instructions, constants, block_opts, callbacks)
     else
-      compile_non_tail(body, scope, instructions, constants, block_opts, callbacks)
+      compile_non_tail(body, block_scope, instructions, constants, block_opts, callbacks)
     end
   end
 
@@ -2179,16 +2176,6 @@ defmodule QuickBEAM.JS.Compiler.Statements do
     end)
   end
 
-  defp compile_block_lexical_declarations(declarations, scope, instructions, constants, callbacks) do
-    Enum.reduce_while(declarations, {:ok, instructions, constants}, fn declaration,
-                                                                       {:ok, ins, consts} ->
-      case compile_block_lexical_declarator(declaration, scope, ins, consts, callbacks) do
-        {:ok, ins, consts} -> {:cont, {:ok, ins, consts}}
-        {:error, _} = error -> {:halt, error}
-      end
-    end)
-  end
-
   defp compile_for_init(nil, _scope, instructions, constants, _callbacks),
     do: {:ok, instructions, constants}
 
@@ -2224,54 +2211,6 @@ defmodule QuickBEAM.JS.Compiler.Statements do
   defp compile_for_update(update, scope, instructions, constants, callbacks) do
     with {:ok, instructions, constants} <-
            callbacks.compile_expression.(update, scope, instructions, constants) do
-      {:ok, instructions ++ [{:put_loc, 0}], constants}
-    end
-  end
-
-  defp compile_block_lexical_declarator(
-         %AST.VariableDeclarator{init: nil},
-         _scope,
-         instructions,
-         constants,
-         _callbacks
-       ),
-       do: {:ok, instructions ++ [:undefined, {:put_loc, 0}], constants}
-
-  defp compile_block_lexical_declarator(
-         %AST.VariableDeclarator{id: %AST.ObjectPattern{}, init: init},
-         scope,
-         instructions,
-         constants,
-         callbacks
-       ) do
-    with {:ok, instructions, constants} <-
-           callbacks.compile_expression.(init, scope, instructions, constants) do
-      {:ok, instructions ++ [:to_object, :drop], constants}
-    end
-  end
-
-  defp compile_block_lexical_declarator(
-         %AST.VariableDeclarator{id: %AST.ArrayPattern{}, init: init},
-         scope,
-         instructions,
-         constants,
-         callbacks
-       ) do
-    with {:ok, instructions, constants} <-
-           callbacks.compile_expression.(init, scope, instructions, constants) do
-      {:ok, instructions ++ [:to_object, :drop], constants}
-    end
-  end
-
-  defp compile_block_lexical_declarator(
-         %AST.VariableDeclarator{init: init},
-         scope,
-         instructions,
-         constants,
-         callbacks
-       ) do
-    with {:ok, instructions, constants} <-
-           callbacks.compile_expression.(init, scope, instructions, constants) do
       {:ok, instructions ++ [{:put_loc, 0}], constants}
     end
   end
@@ -2832,6 +2771,20 @@ defmodule QuickBEAM.JS.Compiler.Statements do
 
   defp restore_process_value(key, nil), do: Process.delete(key)
   defp restore_process_value(key, value), do: Process.put(key, value)
+
+  defp enter_block_scope(scope) do
+    case Process.get(:compiler_block_scopes, []) do
+      [%{bindings: bindings} | rest] ->
+        Process.put(:compiler_block_scopes, rest)
+
+        Enum.reduce(bindings, scope, fn {name, hidden_name, kind}, acc ->
+          Scope.alias_local(acc, name, hidden_name, kind)
+        end)
+
+      [] ->
+        scope
+    end
+  end
 
   defp for_of_iterator_setup(start_label, end_label, value_loc, iter_loc, result_loc) do
     init = [

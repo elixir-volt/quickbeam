@@ -312,7 +312,14 @@ defmodule QuickBEAM.JS.CompilerTest do
     test "block lexical patterns keep coercion checks without leaking bindings" do
       assert_compiles_error_name(~S|{ let { a } = null; } "unreachable"|, "TypeError")
       assert_compiles_error_name(~S|{ let [a] = undefined; } "unreachable"|, "TypeError")
+      assert_compiles_to(~S|{ let { a } = { a: 1 }; a }|, 1)
+      assert_compiles_to(~S|{ let [a] = [1]; a }|, 1)
       assert_compiles_to(~S|{ let { a } = { a: 1 }; } typeof a|, "undefined")
+
+      assert_compiles_to(
+        ~S|let a = 2; let inner; { let { a } = { a: 1 }; inner = a; } inner + a|,
+        3
+      )
     end
 
     test "computed property reads perform ToPropertyKey" do

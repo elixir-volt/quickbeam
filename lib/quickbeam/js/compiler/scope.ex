@@ -41,6 +41,21 @@ defmodule QuickBEAM.JS.Compiler.Scope do
     end
   end
 
+  def alias_local(%__MODULE__{} = scope, name, hidden_name, kind \\ :let)
+      when is_binary(name) and is_binary(hidden_name) do
+    case Map.fetch(scope.locals, hidden_name) do
+      {:ok, index} ->
+        %{
+          scope
+          | locals: Map.put(scope.locals, name, index),
+            local_kinds: Map.put(scope.local_kinds, name, kind)
+        }
+
+      :error ->
+        scope
+    end
+  end
+
   def local_kind(%__MODULE__{} = scope, name), do: Map.get(scope.local_kinds, name)
 
   def names(%__MODULE__{} = scope) do

@@ -58,7 +58,11 @@ defmodule QuickBEAM.JS.Compiler do
   defp compile_program(%AST.Program{body: body}) do
     scope = Scope.declare_local(Scope.new(), "<ret>")
     previous_top_level_function_names = Process.get(:compiler_top_level_function_names)
+    previous_block_scopes = Process.get(:compiler_block_scopes)
+    previous_block_scope_id = Process.get(:compiler_block_scope_declaration_id)
     Process.put(:compiler_top_level_function_names, top_level_function_names(body))
+    Process.put(:compiler_block_scopes, [])
+    Process.put(:compiler_block_scope_declaration_id, 0)
 
     try do
       with {:ok, scope} <- Declarations.declare_program_locals(body, scope),
@@ -93,6 +97,8 @@ defmodule QuickBEAM.JS.Compiler do
       end
     after
       restore_process_value(:compiler_top_level_function_names, previous_top_level_function_names)
+      restore_process_value(:compiler_block_scopes, previous_block_scopes)
+      restore_process_value(:compiler_block_scope_declaration_id, previous_block_scope_id)
     end
   end
 
@@ -147,6 +153,11 @@ defmodule QuickBEAM.JS.Compiler do
 
   defp compile_function_full(function, name, globals) do
     {params, defaults, rest_param, pattern_params} = normalize_params(function.params)
+
+    previous_block_scopes = Process.get(:compiler_block_scopes)
+    previous_block_scope_id = Process.get(:compiler_block_scope_declaration_id)
+    Process.put(:compiler_block_scopes, [])
+    Process.put(:compiler_block_scope_declaration_id, 0)
 
     self_capture_names = Process.get(:compiler_self_capture_names) || MapSet.new()
     Process.delete(:compiler_self_capture_names)
@@ -296,6 +307,8 @@ defmodule QuickBEAM.JS.Compiler do
       restore_process_value(:compiler_var_refs, prev_var_refs)
       restore_current_self_bindings(prev_self_bindings)
       restore_strict_self_bindings(prev_strict_self_bindings)
+      restore_process_value(:compiler_block_scopes, previous_block_scopes)
+      restore_process_value(:compiler_block_scope_declaration_id, previous_block_scope_id)
     end
   end
 
