@@ -115,6 +115,17 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 3} = QuickBEAM.eval(rt, source, mode: :beam_compiler)
     end
 
+    test "keeps native dup1 stack shape for computed object rest", %{rt: rt} do
+      source = ~S"""
+      var a = "foo", b, rest;
+      for ({ [a]: b, ...rest } of [{ foo: 1, bar: 2, baz: 3 }]) {}
+      b + rest.bar + rest.baz
+      """
+
+      assert {:ok, 6} = QuickBEAM.eval(rt, source, mode: :beam)
+      assert {:ok, 6} = QuickBEAM.eval(rt, source, mode: :beam_compiler)
+    end
+
     test "lowers QuickJS with_get_ref_undef branch semantics" do
       atoms = {"<synthetic>", "f"}
 

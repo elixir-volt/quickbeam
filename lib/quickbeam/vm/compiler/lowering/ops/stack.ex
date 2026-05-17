@@ -263,8 +263,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
       {:ok,
        %{
          state
-         | stack: [a_bound, b_bound, a_bound | state.stack],
-           stack_types: [ta, tb, ta | state.stack_types]
+         | stack: [a_bound, b_bound, b_bound | state.stack],
+           stack_types: [ta, tb, tb | state.stack_types]
        }}
     end
   end

@@ -69,7 +69,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Stack do
         do: run(pc + 1, frame, [a | stack], gas, ctx)
 
       defp run({@op_dup1, []}, pc, frame, [a, b | rest], gas, ctx) do
-        run(pc + 1, frame, [a, b, a | rest], gas, ctx)
+        run(pc + 1, frame, [a, b, b | rest], gas, ctx)
       end
 
       defp run({@op_dup2, []}, pc, frame, [a, b | _rest] = stack, gas, ctx) do
