@@ -15,6 +15,14 @@ defmodule QuickBEAM.VM.Runtime.IteratorTest do
            ) == 1
   end
 
+  test "for-of rejects non-object iterator close result", %{rt: rt} do
+    assert_beam_error(
+      rt,
+      ~S|let iter = { [Symbol.iterator]() { return this; }, next() { return { value: 1, done: false }; }, return() { return null; } }; for (let x of iter) { break; }|,
+      "TypeError"
+    )
+  end
+
   test "Iterator.from wraps arbitrary self-iterables before helper validation", %{rt: rt} do
     assert beam!(rt, """
            let closed = 0;

@@ -247,7 +247,9 @@ defmodule QuickBEAM.VM.Semantics.Iterators do
     return_fn = Get.get(iter_obj, "return")
 
     if return_fn != :undefined and return_fn != nil do
-      Invocation.invoke_method_runtime(ctx, return_fn, iter_obj, [])
+      ctx
+      |> Invocation.invoke_method_runtime(return_fn, iter_obj, [])
+      |> validate_iterator_close_result!()
     end
 
     :ok
@@ -257,10 +259,17 @@ defmodule QuickBEAM.VM.Semantics.Iterators do
     return_fn = Get.get(iter_obj, "return")
 
     if return_fn != :undefined and return_fn != nil do
-      Invocation.invoke_method_runtime(return_fn, iter_obj, [])
+      return_fn
+      |> Invocation.invoke_method_runtime(iter_obj, [])
+      |> validate_iterator_close_result!()
     end
 
     :ok
+  end
+
+  defp validate_iterator_close_result!(result) do
+    unless is_object(result), do: iterator_type_error!("iterator return result is not an object")
+    result
   end
 
   defp do_collect(ctx, iter, next_fn, acc) do

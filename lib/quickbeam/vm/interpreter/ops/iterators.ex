@@ -148,22 +148,23 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
              gas,
              ctx
            ) do
-        ctx =
-          if iter_obj != :undefined do
-            return_fn = Get.get(iter_obj, "return")
-
-            if return_fn != :undefined and return_fn != nil do
-              Invocation.invoke_callback_or_throw(return_fn, [], iter_obj)
-              persistent = Heap.get_persistent_globals() || %{}
-              Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
-            else
-              ctx
-            end
-          else
-            ctx
+        result =
+          try do
+            Iterators.iterator_close(ctx, iter_obj)
+            {:ok, Heap.get_ctx() || ctx}
+          catch
+            {:js_throw, error} -> {:throw, error}
           end
 
-        run(pc + 1, frame, rest, gas, ctx)
+        case result do
+          {:ok, ctx} ->
+            persistent = Heap.get_persistent_globals() || %{}
+            ctx = Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
+            run(pc + 1, frame, rest, gas, ctx)
+
+          {:throw, error} ->
+            throw_or_catch(frame, error, gas, ctx)
+        end
       end
 
       defp run({@op_iterator_check_object, []}, pc, frame, stack, gas, ctx),
