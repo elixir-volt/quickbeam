@@ -321,6 +321,11 @@ defmodule QuickBEAM.JS.CompilerTest do
       assert_compiles_to(~S|let x; for (x of []) { 4 }|, :undefined)
       assert_compiles_to(~S|for (let x of [0]) { 3; break }|, 3)
       assert_compiles_to(~S|let x; for (x of [0]) { 3; break }|, 3)
+
+      assert_compiles_to(
+        ~S|let iter={ closed:0, [Symbol.iterator]() { return this; }, next() { return {value:1, done:false}; }, return() { this.closed++; return {}; } }; for (let x of iter) { break; } iter.closed|,
+        1
+      )
     end
 
     test "block lexical scopes stay aligned through nested blocks and with" do

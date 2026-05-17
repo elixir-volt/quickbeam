@@ -787,8 +787,11 @@ defmodule QuickBEAM.JS.Compiler.Statements do
         _callbacks
       ) do
     case resolve_jump_label(opts, :break_label, :break_labels, label) do
-      {:ok, label} -> {:ok, instructions ++ [{:jump, label}], constants}
-      :error -> {:error, {:unsupported, :break_outside_loop}}
+      {:ok, label} ->
+        {:ok, instructions ++ iterator_close_ops(opts) ++ [{:jump, label}], constants}
+
+      :error ->
+        {:error, {:unsupported, :break_outside_loop}}
     end
   end
 
@@ -801,8 +804,14 @@ defmodule QuickBEAM.JS.Compiler.Statements do
         _callbacks
       ) do
     case resolve_jump_label(opts, :continue_label, :continue_labels, label) do
-      {:ok, label} -> {:ok, instructions ++ [{:jump, label}], constants}
-      :error -> {:error, {:unsupported, :continue_outside_loop}}
+      {:ok, label} ->
+        close_ops =
+          if label == Keyword.get(opts, :continue_label), do: [], else: iterator_close_ops(opts)
+
+        {:ok, instructions ++ close_ops ++ [{:jump, label}], constants}
+
+      :error ->
+        {:error, {:unsupported, :continue_outside_loop}}
     end
   end
 
@@ -1976,7 +1985,8 @@ defmodule QuickBEAM.JS.Compiler.Statements do
                  tail?,
                  end_label,
                  update_label
-               ),
+               )
+               |> Keyword.put(:iterator_close_loc, iter_loc),
                callbacks
              ) do
         instructions = maybe_drop_loop_completion(instructions, tail?)
@@ -2032,7 +2042,8 @@ defmodule QuickBEAM.JS.Compiler.Statements do
                  tail?,
                  end_label,
                  update_label
-               ),
+               )
+               |> Keyword.put(:iterator_close_loc, iter_loc),
                callbacks
              ) do
         instructions = maybe_drop_loop_completion(instructions, tail?)
@@ -2044,6 +2055,13 @@ defmodule QuickBEAM.JS.Compiler.Statements do
       end
     else
       :error -> {:error, {:unsupported, :for_of_binding}}
+    end
+  end
+
+  defp iterator_close_ops(opts) do
+    case Keyword.get(opts, :iterator_close_loc) do
+      nil -> []
+      iter_loc -> [{:get_loc, iter_loc}, :undefined, :undefined, :iterator_close]
     end
   end
 
