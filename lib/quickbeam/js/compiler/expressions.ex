@@ -991,17 +991,20 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
 
       Process.put(:compiler_self_capture_names, self_capture_names)
 
-      with {:ok, function} <-
-             callbacks.compile_function.(expression, function_name(expression.id)) do
-        restore_self_capture_names(prev_self_capture_names)
-        instructions = instructions ++ [{:closure, length(constants)}]
-        constants = [function | constants]
+      try do
+        with {:ok, function} <-
+               callbacks.compile_function.(expression, function_name(expression.id)) do
+          instructions = instructions ++ [{:closure, length(constants)}]
+          constants = [function | constants]
 
-        if captures == [] do
-          {:ok, instructions, constants}
-        else
-          Captures.bind(captures, scope, instructions, constants)
+          if captures == [] do
+            {:ok, instructions, constants}
+          else
+            Captures.bind(captures, scope, instructions, constants)
+          end
         end
+      after
+        restore_self_capture_names(prev_self_capture_names)
       end
     end
   end
@@ -1986,6 +1989,9 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
   defp restore_self_capture_names(nil), do: Process.delete(:compiler_self_capture_names)
   defp restore_self_capture_names(names), do: Process.put(:compiler_self_capture_names, names)
 
+  defp restore_process_value(key, nil), do: Process.delete(key)
+  defp restore_process_value(key, value), do: Process.put(key, value)
+
   defp compile_mutable_closure(expression, captures, instructions, constants, callbacks) do
     parent_var_refs = Process.get(:compiler_var_refs, %{})
 
@@ -2011,15 +2017,17 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
     prev_closure_scope = Process.get(:compiler_closure_scope)
     Process.put(:compiler_closure_scope, capture_var_refs)
 
-    case callbacks.compile_function.(expression, function_name(expression.id)) do
-      {:ok, function} ->
-        Process.put(:compiler_closure_scope, prev_closure_scope)
-        function = %{function | closure_vars: closure_vars}
-        {:ok, instructions ++ [{:closure, length(constants)}], [function | constants]}
+    try do
+      case callbacks.compile_function.(expression, function_name(expression.id)) do
+        {:ok, function} ->
+          function = %{function | closure_vars: closure_vars}
+          {:ok, instructions ++ [{:closure, length(constants)}], [function | constants]}
 
-      {:error, _} = error ->
-        Process.put(:compiler_closure_scope, prev_closure_scope)
-        error
+        {:error, _} = error ->
+          error
+      end
+    after
+      restore_process_value(:compiler_closure_scope, prev_closure_scope)
     end
   end
 

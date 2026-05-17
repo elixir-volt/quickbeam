@@ -31,6 +31,23 @@ defmodule QuickBEAM.JS.Compiler.Statements do
     end
   end
 
+  defp compile_all([], _scope, instructions, constants, _opts, _callbacks),
+    do: {:ok, instructions, constants}
+
+  defp compile_all([statement], scope, instructions, constants, opts, callbacks) do
+    opts = Keyword.put(opts, :tail?, true)
+    compile(statement, scope, instructions, constants, opts, callbacks)
+  end
+
+  defp compile_all([statement | rest], scope, instructions, constants, opts, callbacks) do
+    opts = Keyword.put(opts, :tail?, false)
+
+    with {:ok, instructions, constants} <-
+           compile(statement, scope, instructions, constants, opts, callbacks) do
+      compile_all(rest, scope, instructions, constants, opts, callbacks)
+    end
+  end
+
   def compile_non_tail(statements, %Emitter{} = emitter) do
     with {:ok, instructions, constants} <-
            compile_non_tail(
@@ -715,7 +732,7 @@ defmodule QuickBEAM.JS.Compiler.Statements do
     block_opts = Keyword.put(opts, :block_scope?, true)
 
     if Keyword.fetch!(opts, :tail?) do
-      compile_all(body, scope, instructions, constants, callbacks)
+      compile_all(body, scope, instructions, constants, block_opts, callbacks)
     else
       compile_non_tail(body, scope, instructions, constants, block_opts, callbacks)
     end
@@ -842,14 +859,16 @@ defmodule QuickBEAM.JS.Compiler.Statements do
     prev_closure_scope = Process.get(:compiler_closure_scope)
     Process.put(:compiler_closure_scope, child_capture_var_refs)
 
-    case callbacks.compile_function.(declaration, name) do
-      {:ok, function} ->
-        Process.put(:compiler_closure_scope, prev_closure_scope)
-        {:ok, %{function | closure_vars: closure_vars, var_ref_count: length(closure_vars)}}
+    try do
+      case callbacks.compile_function.(declaration, name) do
+        {:ok, function} ->
+          {:ok, %{function | closure_vars: closure_vars, var_ref_count: length(closure_vars)}}
 
-      {:error, _} = error ->
-        Process.put(:compiler_closure_scope, prev_closure_scope)
-        error
+        {:error, _} = error ->
+          error
+      end
+    after
+      restore_process_value(:compiler_closure_scope, prev_closure_scope)
     end
   end
 
@@ -996,152 +1015,160 @@ defmodule QuickBEAM.JS.Compiler.Statements do
     has_explicit_ctor = Enum.any?(body, &match?(%AST.MethodDefinition{kind: :constructor}, &1))
 
     prev_derived = Process.get(:compiler_derived_ctor, false)
-
     prev_super = Process.get(:compiler_super_class)
+    prev_priv = Process.get(:compiler_class_private_scope)
+    prev_kinds = Process.get(:compiler_private_kinds)
 
     if is_derived and has_explicit_ctor do
       Process.put(:compiler_derived_ctor, true)
       Process.put(:compiler_super_class, super_class)
     end
 
-    with {:loc, loc} <- callbacks.resolve.(scope, name),
-         {:loc, proto_loc} <- callbacks.resolve.(scope, "<class_proto:#{name}>"),
-         {:ok, ctor_fn} <-
-           compile_class_ctor_with_private(body, name, field_names, scope, callbacks) do
-      Process.put(:compiler_derived_ctor, prev_derived)
-      Process.put(:compiler_super_class, prev_super)
+    try do
+      with {:loc, loc} <- callbacks.resolve.(scope, name),
+           {:loc, proto_loc} <- callbacks.resolve.(scope, "<class_proto:#{name}>"),
+           {:ok, ctor_fn} <-
+             compile_class_ctor_with_private(body, name, field_names, scope, callbacks) do
+        Process.put(:compiler_derived_ctor, prev_derived)
+        Process.put(:compiler_super_class, prev_super)
 
-      ctor_fn =
-        if is_derived and has_explicit_ctor do
-          %{ctor_fn | is_derived_class_constructor: true, super_call_allowed: true}
-        else
-          ctor_fn
-        end
+        ctor_fn =
+          if is_derived and has_explicit_ctor do
+            %{ctor_fn | is_derived_class_constructor: true, super_call_allowed: true}
+          else
+            ctor_fn
+          end
 
-      flags = if is_derived, do: 1, else: 0
+        flags = if is_derived, do: 1, else: 0
 
-      parent =
-        case super_class do
-          %AST.Identifier{name: p} -> [{:get_var, p}]
-          _ -> [:undefined]
-        end
+        parent =
+          case super_class do
+            %AST.Identifier{name: p} -> [{:get_var, p}]
+            _ -> [:undefined]
+          end
 
-      private_fields =
-        Enum.filter(body, &match?(%AST.FieldDefinition{key: %AST.PrivateIdentifier{}}, &1))
+        private_fields =
+          Enum.filter(body, &match?(%AST.FieldDefinition{key: %AST.PrivateIdentifier{}}, &1))
 
-      private_methods =
-        Enum.filter(body, fn
-          %AST.MethodDefinition{key: %AST.PrivateIdentifier{}, kind: k} when k != :constructor ->
-            true
-
-          _ ->
-            false
-        end)
-
-      field_names = Enum.map(private_fields, & &1.key.name) |> Enum.uniq()
-      method_names = Enum.map(private_methods, & &1.key.name) |> Enum.uniq()
-
-      private_kinds =
-        Enum.reduce(private_methods, %{}, fn m, acc ->
-          Map.put(acc, "##{m.key.name}", m.kind)
-        end)
-
-      instructions = instructions ++ [{:set_loc_uninitialized, loc}]
-
-      # private_symbol for fields
-      instructions =
-        Enum.reduce(field_names, instructions, fn pn, instr ->
-          case callbacks.resolve.(scope, "##{pn}") do
-            {:loc, ploc} ->
-              instr ++
-                [{:set_loc_uninitialized, ploc}, {:private_symbol, "##{pn}"}, {:put_loc, ploc}]
+        private_methods =
+          Enum.filter(body, fn
+            %AST.MethodDefinition{key: %AST.PrivateIdentifier{}, kind: k}
+            when k != :constructor ->
+              true
 
             _ ->
-              instr
+              false
+          end)
+
+        field_names = Enum.map(private_fields, & &1.key.name) |> Enum.uniq()
+        method_names = Enum.map(private_methods, & &1.key.name) |> Enum.uniq()
+
+        private_kinds =
+          Enum.reduce(private_methods, %{}, fn m, acc ->
+            Map.put(acc, "##{m.key.name}", m.kind)
+          end)
+
+        instructions = instructions ++ [{:set_loc_uninitialized, loc}]
+
+        # private_symbol for fields
+        instructions =
+          Enum.reduce(field_names, instructions, fn pn, instr ->
+            case callbacks.resolve.(scope, "##{pn}") do
+              {:loc, ploc} ->
+                instr ++
+                  [{:set_loc_uninitialized, ploc}, {:private_symbol, "##{pn}"}, {:put_loc, ploc}]
+
+              _ ->
+                instr
+            end
+          end)
+
+        # init method locals
+        instructions =
+          Enum.reduce(method_names, instructions, fn pn, instr ->
+            case callbacks.resolve.(scope, "##{pn}") do
+              {:loc, ploc} -> instr ++ [{:set_loc_uninitialized, ploc}]
+              _ -> instr
+            end
+          end)
+
+        instructions =
+          instructions ++
+            parent ++
+            [
+              {:set_loc_uninitialized, proto_loc},
+              {:constant, length(constants)},
+              {:define_class, name, flags}
+            ]
+
+        constants = [ctor_fn | constants]
+
+        # Set up private scope for method compilation
+        private_locs =
+          Enum.map(private_names, fn pn ->
+            case callbacks.resolve.(scope, "##{pn}") do
+              {:loc, l} -> l
+              _ -> 0
+            end
+          end)
+
+        private_refs =
+          private_names |> Enum.with_index() |> Map.new(fn {pn, i} -> {"##{pn}", i} end)
+
+        Process.put(:compiler_class_private_scope, {private_refs, private_locs})
+        Process.put(:compiler_private_kinds, private_kinds)
+        prev_vrefs = Process.get(:compiler_var_refs) || %{}
+
+        Process.put(
+          :compiler_var_refs,
+          Enum.reduce(private_names, prev_vrefs, fn pn, a -> Map.put(a, "##{pn}", map_size(a)) end)
+        )
+
+        {methods, statics} = partition_class_body(body)
+
+        result =
+          with {:ok, instructions, constants} <-
+                 emit_define_methods(methods, scope, instructions, constants, callbacks),
+               {:ok, instructions, constants} <-
+                 emit_private_methods(private_methods, scope, instructions, constants, callbacks) do
+            close_privates =
+              Enum.flat_map(private_names, fn pn ->
+                case callbacks.resolve.(scope, "##{pn}") do
+                  {:loc, l} -> [{:close_loc, l}]
+                  _ -> []
+                end
+              end)
+
+            instructions =
+              instructions ++
+                [
+                  :undefined,
+                  {:put_loc, proto_loc},
+                  :drop,
+                  {:set_loc, loc},
+                  {:close_loc, proto_loc}
+                ] ++
+                close_privates ++ [{:put_var, name}]
+
+            emit_define_statics(
+              statics,
+              loc,
+              scope,
+              instructions,
+              constants,
+              callbacks,
+              name,
+              super_class_name(super_class)
+            )
           end
-        end)
 
-      # init method locals
-      instructions =
-        Enum.reduce(method_names, instructions, fn pn, instr ->
-          case callbacks.resolve.(scope, "##{pn}") do
-            {:loc, ploc} -> instr ++ [{:set_loc_uninitialized, ploc}]
-            _ -> instr
-          end
-        end)
-
-      instructions =
-        instructions ++
-          parent ++
-          [
-            {:set_loc_uninitialized, proto_loc},
-            {:constant, length(constants)},
-            {:define_class, name, flags}
-          ]
-
-      constants = [ctor_fn | constants]
-
-      # Set up private scope for method compilation
-      private_locs =
-        Enum.map(private_names, fn pn ->
-          case callbacks.resolve.(scope, "##{pn}") do
-            {:loc, l} -> l
-            _ -> 0
-          end
-        end)
-
-      private_refs =
-        private_names |> Enum.with_index() |> Map.new(fn {pn, i} -> {"##{pn}", i} end)
-
-      prev_priv = Process.get(:compiler_class_private_scope)
-      Process.put(:compiler_class_private_scope, {private_refs, private_locs})
-      prev_kinds = Process.get(:compiler_private_kinds)
-      Process.put(:compiler_private_kinds, private_kinds)
-      prev_vrefs = Process.get(:compiler_var_refs) || %{}
-
-      Process.put(
-        :compiler_var_refs,
-        Enum.reduce(private_names, prev_vrefs, fn pn, a -> Map.put(a, "##{pn}", map_size(a)) end)
-      )
-
-      {methods, statics} = partition_class_body(body)
-
-      result =
-        with {:ok, instructions, constants} <-
-               emit_define_methods(methods, scope, instructions, constants, callbacks),
-             {:ok, instructions, constants} <-
-               emit_private_methods(private_methods, scope, instructions, constants, callbacks) do
-          close_privates =
-            Enum.flat_map(private_names, fn pn ->
-              case callbacks.resolve.(scope, "##{pn}") do
-                {:loc, l} -> [{:close_loc, l}]
-                _ -> []
-              end
-            end)
-
-          instructions =
-            instructions ++
-              [:undefined, {:put_loc, proto_loc}, :drop, {:set_loc, loc}, {:close_loc, proto_loc}] ++
-              close_privates ++ [{:put_var, name}]
-
-          emit_define_statics(
-            statics,
-            loc,
-            scope,
-            instructions,
-            constants,
-            callbacks,
-            name,
-            super_class_name(super_class)
-          )
-        end
-
-      # Don't restore var_refs — keep accumulated for compile_program to pick up
-      Process.put(:compiler_class_private_scope, prev_priv)
-      Process.put(:compiler_private_kinds, prev_kinds)
-      Process.put(:compiler_derived_ctor, prev_derived)
-      Process.put(:compiler_super_class, prev_super)
-      result
+        result
+      end
+    after
+      restore_process_value(:compiler_class_private_scope, prev_priv)
+      restore_process_value(:compiler_private_kinds, prev_kinds)
+      restore_process_value(:compiler_derived_ctor, prev_derived)
+      restore_process_value(:compiler_super_class, prev_super)
     end
   end
 
@@ -2209,6 +2236,32 @@ defmodule QuickBEAM.JS.Compiler.Statements do
          _callbacks
        ),
        do: {:ok, instructions ++ [:undefined, {:put_loc, 0}], constants}
+
+  defp compile_block_lexical_declarator(
+         %AST.VariableDeclarator{id: %AST.ObjectPattern{}, init: init},
+         scope,
+         instructions,
+         constants,
+         callbacks
+       ) do
+    with {:ok, instructions, constants} <-
+           callbacks.compile_expression.(init, scope, instructions, constants) do
+      {:ok, instructions ++ [:to_object, :drop], constants}
+    end
+  end
+
+  defp compile_block_lexical_declarator(
+         %AST.VariableDeclarator{id: %AST.ArrayPattern{}, init: init},
+         scope,
+         instructions,
+         constants,
+         callbacks
+       ) do
+    with {:ok, instructions, constants} <-
+           callbacks.compile_expression.(init, scope, instructions, constants) do
+      {:ok, instructions ++ [:to_object, :drop], constants}
+    end
+  end
 
   defp compile_block_lexical_declarator(
          %AST.VariableDeclarator{init: init},
