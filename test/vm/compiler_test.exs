@@ -126,6 +126,15 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 6} = QuickBEAM.eval(rt, source, mode: :beam_compiler)
     end
 
+    test "direct eval in compiled code preserves native for-of completions", %{rt: rt} do
+      assert {:ok, 6} =
+               QuickBEAM.eval(
+                 rt,
+                 ~S|eval('5; outer: do { for (var b of [0]) { 6; continue outer; } } while (false)')|,
+                 mode: :beam_compiler
+               )
+    end
+
     test "lowers QuickJS with_get_ref_undef branch semantics" do
       atoms = {"<synthetic>", "f"}
 

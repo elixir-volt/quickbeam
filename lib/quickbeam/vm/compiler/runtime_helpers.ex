@@ -861,44 +861,77 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   defp compile_eval_source(ctx, code) do
-    case QuickBEAM.JS.Compiler.compile(code) do
+    case compile_eval_program(ctx, code) do
       {:ok, program} ->
-        reject_eval_lexical_conflicts!(ctx, program.value)
+        run_eval_program(ctx, program)
 
-        globals =
-          ctx.globals
-          |> Map.put(
-            "arguments",
-            Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf),
-              strict: current_strict_mode?(ctx),
-              callee: context_current_func(ctx)
-            )
-          )
-
-        case QuickBEAM.VM.Interpreter.eval(
-               program.value,
-               [],
-               %{
-                 gas: ctx.gas,
-                 runtime_pid: ctx.runtime_pid,
-                 globals: globals,
-                 this: ctx.this,
-                 arg_buf: ctx.arg_buf,
-                 current_func: ctx.current_func,
-                 new_target: ctx.new_target
-               },
-               program.atoms
-             ) do
-          {:ok, value} -> value
-          {:error, {:js_throw, value}} -> throw({:js_throw, value})
-          _ -> :undefined
-        end
-
-      {:error, {:parse_error, errors}} ->
+      {:source_error, {:parse_error, errors}} ->
         throw({:js_throw, Heap.make_error(parse_error_message(errors), "SyntaxError")})
 
-      {:error, msg} ->
+      {:source_error, msg} ->
         throw({:js_throw, Heap.make_error(inspect(msg), "SyntaxError")})
+    end
+  end
+
+  defp compile_eval_program(%{runtime_pid: runtime_pid}, code)
+       when is_pid(runtime_pid) do
+    with {:ok, bytecode} <- QuickBEAM.Runtime.compile(runtime_pid, code, "<eval>"),
+         {:ok, program} <- QuickBEAM.VM.BytecodeParser.decode(bytecode) do
+      {:ok, program}
+    else
+      _ -> compile_source_eval_program(code)
+    end
+  end
+
+  defp compile_eval_program(%{runtime_pid: runtime_pid}, code)
+       when is_atom(runtime_pid) and not is_nil(runtime_pid) do
+    with {:ok, bytecode} <- QuickBEAM.Runtime.compile(runtime_pid, code, "<eval>"),
+         {:ok, program} <- QuickBEAM.VM.BytecodeParser.decode(bytecode) do
+      {:ok, program}
+    else
+      _ -> compile_source_eval_program(code)
+    end
+  end
+
+  defp compile_eval_program(_ctx, code), do: compile_source_eval_program(code)
+
+  defp compile_source_eval_program(code) do
+    case QuickBEAM.JS.Compiler.compile(code) do
+      {:ok, program} -> {:ok, program}
+      {:error, reason} -> {:source_error, reason}
+    end
+  end
+
+  defp run_eval_program(ctx, program) do
+    reject_eval_lexical_conflicts!(ctx, program.value)
+
+    globals =
+      ctx.globals
+      |> Map.put(
+        "arguments",
+        Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf),
+          strict: current_strict_mode?(ctx),
+          callee: context_current_func(ctx)
+        )
+      )
+
+    case QuickBEAM.VM.Interpreter.eval(
+           program.value,
+           [],
+           %{
+             gas: ctx.gas,
+             runtime_pid: ctx.runtime_pid,
+             globals: globals,
+             this: ctx.this,
+             arg_buf: ctx.arg_buf,
+             current_func: ctx.current_func,
+             new_target: ctx.new_target
+           },
+           program.atoms
+         ) do
+      {:ok, value} -> value
+      {:error, {:js_throw, value}} -> throw({:js_throw, value})
+      _ -> :undefined
     end
   end
 
