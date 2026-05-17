@@ -565,7 +565,13 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   end
 
   defp get_own(s, "length") when is_binary(s), do: string_length(s)
-  defp get_own(s, key) when is_binary(s), do: JSString.proto_property(key)
+
+  defp get_own(s, key) when is_binary(s) do
+    case PropertyKey.array_index(key) do
+      {:ok, index} when index < 4_294_967_295 -> JSString.utf16_code_unit_at(s, index)
+      _ -> JSString.proto_property(key)
+    end
+  end
 
   defp get_own(n, _) when is_number(n), do: :undefined
   defp get_own(true, _), do: :undefined

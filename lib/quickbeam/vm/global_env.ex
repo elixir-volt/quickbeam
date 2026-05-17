@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.GlobalEnv do
   @moduledoc "Global variable environment: resolves JS globals from the persistent heap and runtime bindings."
 
-  alias QuickBEAM.VM.{Heap, Names, Runtime}
+  alias QuickBEAM.VM.{Heap, JSThrow, Names, Runtime}
   alias QuickBEAM.VM.Interpreter.Context
 
   @doc "Returns the active JavaScript global environment."
@@ -47,6 +47,11 @@ defmodule QuickBEAM.VM.GlobalEnv do
   @doc "Writes a global binding into a context and optionally persists it."
   def put(%Context{} = ctx, atom_idx, val, opts \\ []) do
     name = Names.resolve_atom(ctx, atom_idx)
+
+    if const_global?(name) and not Keyword.get(opts, :init, false) do
+      JSThrow.type_error!("Assignment to constant variable")
+    end
+
     globals = ctx.globals |> Map.merge(Heap.get_persistent_globals() || %{}) |> Map.put(name, val)
 
     sync_global_this_property(globals, name, val)
@@ -60,9 +65,10 @@ defmodule QuickBEAM.VM.GlobalEnv do
   end
 
   @doc "Defines a hoisted `var` binding in the active global environment."
-  def define_var(%Context{} = ctx, atom_idx) do
+  def define_var(%Context{} = ctx, atom_idx, flags \\ 0) do
     name = Names.resolve_atom(ctx, atom_idx)
     Heap.put_var(name, :undefined)
+    mark_const_global(name, const_global_flags?(flags))
     globals = Map.put_new(ctx.globals, name, :undefined)
     sync_global_this_property(globals, name, Map.get(globals, name))
     Heap.put_persistent_globals(globals)
@@ -74,6 +80,14 @@ defmodule QuickBEAM.VM.GlobalEnv do
     Heap.delete_var(Names.resolve_atom(ctx, atom_idx))
     Context.mark_dirty(ctx)
   end
+
+  defp const_global_flags?(flags) when is_integer(flags), do: Bitwise.band(flags, 0x82) == 0x80
+  defp const_global_flags?(_flags), do: false
+
+  defp mark_const_global(name, true), do: Process.put({:qb_const_global, name}, true)
+  defp mark_const_global(name, false), do: Process.delete({:qb_const_global, name})
+
+  defp const_global?(name), do: Process.get({:qb_const_global, name}) == true
 
   defp sync_global_this_property(_globals, "globalThis", _val), do: :ok
 

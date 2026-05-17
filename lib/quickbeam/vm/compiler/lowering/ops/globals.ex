@@ -34,21 +34,22 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
         end
 
       {{:ok, :put_var}, [atom_idx]} ->
-        lower_put_var(state, atom_idx)
+        lower_put_var(state, atom_idx, false)
 
       {{:ok, :put_var_init}, [atom_idx]} ->
-        lower_put_var(state, atom_idx)
+        lower_put_var(state, atom_idx, true)
 
       {{:ok, :define_func}, [atom_idx, _flags]} ->
-        lower_put_var(state, atom_idx)
+        lower_put_var(state, atom_idx, true)
 
-      {{:ok, :define_var}, [atom_idx, _scope]} ->
+      {{:ok, :define_var}, [atom_idx, scope]} ->
         {:ok,
          State.update_ctx(
            state,
            Builder.remote_call(GlobalEnv, :define_var, [
              State.ctx_expr(state),
-             Builder.literal(atom_idx)
+             Builder.literal(atom_idx),
+             Builder.literal(scope)
            ])
          )}
 
@@ -121,7 +122,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
     end
   end
 
-  defp lower_put_var(state, atom_idx) do
+  defp lower_put_var(state, atom_idx, init?) do
     with {:ok, val, _type, state} <- Emit.pop_typed(state) do
       {:ok,
        State.update_ctx(
@@ -129,7 +130,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
          Builder.remote_call(GlobalEnv, :put, [
            State.ctx_expr(state),
            Builder.literal(atom_idx),
-           val
+           val,
+           Builder.literal(init: init?)
          ])
        )}
     end

@@ -27,6 +27,20 @@ defmodule QuickBEAM.VM.Compiler.DestructuringTest do
     )
   end
 
+  test "object rest assignment copies string indexes", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|var rest; for ({...rest} of ["foo"]) {} [rest["0"], rest["1"], rest["2"]].join("")|,
+      "foo"
+    )
+  end
+
+  test "object rest assignment target obeys const semantics", %{rt: rt} do
+    code = ~S|const rest = null; try { for ({...rest} of [{}]) {} "no"; } catch (e) { e.name; }|
+
+    assert_modes(rt, code, "TypeError")
+  end
+
   test "object rest binding skips getOwnPropertyDescriptor for computed and literal excluded keys",
        %{rt: rt} do
     code = """

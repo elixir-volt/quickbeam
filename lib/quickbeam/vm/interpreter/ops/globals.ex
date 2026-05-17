@@ -138,7 +138,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
 
       defp run({op, [atom_idx]}, pc, frame, [val | rest], gas, ctx)
            when op in [@op_put_var, @op_put_var_init] do
-        new_ctx = GlobalEnv.put(ctx, atom_idx, val)
+        new_ctx = GlobalEnv.put(ctx, atom_idx, val, init: op == @op_put_var_init)
 
         case Map.get(ctx.globals, "globalThis") do
           {:obj, _} = gt ->
@@ -157,8 +157,8 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
         run(pc + 1, frame, rest, gas, next_ctx)
       end
 
-      defp run({@op_define_var, [atom_idx, _scope]}, pc, frame, stack, gas, ctx) do
-        ctx = GlobalEnv.define_var(ctx, atom_idx)
+      defp run({@op_define_var, [atom_idx, scope]}, pc, frame, stack, gas, ctx) do
+        ctx = GlobalEnv.define_var(ctx, atom_idx, scope)
 
         case Map.get(ctx.globals, "globalThis") do
           {:obj, ref} ->

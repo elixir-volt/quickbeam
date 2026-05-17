@@ -68,7 +68,11 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
         do: following_string_keys(source, source_key),
         else: exclusions
 
-    {source, Heap.wrap([source_key | exclusions])}
+    if exclusions == [] do
+      {source_key, source}
+    else
+      {source, Heap.wrap([source_key | exclusions])}
+    end
   end
 
   defp normalize_computed_rest_operands(source, exclude), do: {source, exclude}
