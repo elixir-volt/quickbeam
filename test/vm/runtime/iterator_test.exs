@@ -16,6 +16,10 @@ defmodule QuickBEAM.VM.Runtime.IteratorTest do
            ) == 1
   end
 
+  test "for-of advances built-in list iterators", %{rt: rt} do
+    assert_modes(rt, ~S|let out = ""; for (let ch of "abc") out += ch; out|, "abc")
+  end
+
   test "for-of rejects non-object iterator close result", %{rt: rt} do
     assert_beam_error(
       rt,

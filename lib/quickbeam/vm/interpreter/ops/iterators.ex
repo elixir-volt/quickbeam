@@ -107,11 +107,12 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
             p -> Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, p)})
           end
 
+        updated_stack = List.replace_at(stack, offset - 1, next_iter)
+
         if done? do
-          cleared = List.replace_at(stack, offset - 1, next_iter)
-          run(pc + 1, frame, [true, :undefined | cleared], gas, ctx)
+          run(pc + 1, frame, [true, :undefined | updated_stack], gas, ctx)
         else
-          run(pc + 1, frame, [false, value | stack], gas, ctx)
+          run(pc + 1, frame, [false, value | updated_stack], gas, ctx)
         end
       end
 
