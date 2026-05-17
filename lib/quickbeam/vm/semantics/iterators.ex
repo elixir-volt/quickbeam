@@ -25,13 +25,12 @@ defmodule QuickBEAM.VM.Semantics.Iterators do
 
   def for_of_next(next_fn, iter_obj) do
     result = Invocation.invoke_with_receiver(next_fn, [], iter_obj)
-    done = Get.get(result, "done")
-    value = Get.get(result, "value")
+    unless is_object(result), do: iterator_type_error!("iterator result is not an object")
 
-    if done == true do
+    if Runtime.truthy?(Get.get(result, "done")) do
       {true, :undefined, :undefined}
     else
-      {false, value, iter_obj}
+      {false, Get.get(result, "value"), iter_obj}
     end
   end
 
@@ -48,7 +47,8 @@ defmodule QuickBEAM.VM.Semantics.Iterators do
 
   def iterator_next_result(_ctx, next_fn, iter_obj, val) do
     result = Invocation.invoke_callback_or_throw(next_fn, [val])
-    next_iter = if Get.get(result, "done") == true, do: :undefined, else: iter_obj
+    unless is_object(result), do: iterator_type_error!("iterator result is not an object")
+    next_iter = if Runtime.truthy?(Get.get(result, "done")), do: :undefined, else: iter_obj
     {result, next_iter}
   end
 

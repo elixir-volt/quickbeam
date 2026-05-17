@@ -16,6 +16,20 @@ defmodule QuickBEAM.VM.Runtime.IteratorTest do
            ) == 1
   end
 
+  test "for-of validates iterator result objects and done truthiness", %{rt: rt} do
+    assert_beam_error(
+      rt,
+      ~S|let iter = { [Symbol.iterator]() { return this; }, next() { return 1; } }; for (let x of iter) {}|,
+      "TypeError"
+    )
+
+    assert_modes(
+      rt,
+      ~S|let count = 0; let done = 1; let iter = { [Symbol.iterator]() { return this; }, next() { return { value: 1, done }; } }; for (let x of iter) count++; count|,
+      0
+    )
+  end
+
   test "for-of advances built-in list iterators", %{rt: rt} do
     assert_modes(rt, ~S|let out = ""; for (let ch of "abc") out += ch; out|, "abc")
   end
