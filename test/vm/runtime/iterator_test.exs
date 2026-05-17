@@ -25,6 +25,13 @@ defmodule QuickBEAM.VM.Runtime.IteratorTest do
     )
   end
 
+  test "array rest destructuring closes inner iterator on generator return", %{rt: rt} do
+    assert beam!(
+             rt,
+             ~S|var closed = 0; var iterator = { next() { throw new Error("boom"); }, return() { closed++; return {}; } }; var iterable = {}; iterable[Symbol.iterator] = function() { return iterator; }; function* g() { for ([...{}[yield]] of [iterable]) {} } var iter = g(); iter.next(); var result = iter.return(444); [closed, result.value, result.done].join(",")|
+           ) == "1,444,true"
+  end
+
   test "for-of closes active iterator on thrown body", %{rt: rt} do
     assert_modes(
       rt,

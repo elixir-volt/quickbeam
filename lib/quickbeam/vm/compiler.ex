@@ -123,7 +123,7 @@ defmodule QuickBEAM.VM.Compiler do
     ctx_entry = ctx_entry_name()
 
     with :ok <- reject_mapped_arguments(fun),
-         :ok <- reject_generator_yield_in_finally(fun),
+         :ok <- reject_generator_cleanup_resume(fun),
          {:instructions, {:ok, instructions}} <- {:instructions, instructions(fun)},
          optimized = Optimizer.optimize(instructions, fun.constants),
          {:lower, {:ok, {slot_count, block_forms}}} <- {:lower, Lowering.lower(fun, optimized)},
@@ -141,7 +141,7 @@ defmodule QuickBEAM.VM.Compiler do
       {:ok, module, ctx_entry, binary}
     else
       {:error, :mapped_arguments} -> {:error, :mapped_arguments}
-      {:error, :generator_yield_in_finally} -> {:error, :generator_yield_in_finally}
+      {:error, :generator_cleanup_resume} -> {:error, :generator_cleanup_resume}
       {:instructions, {:error, reason}} -> {:error, {:decode_failed, reason}}
       {:lower, {:error, reason}} -> {:error, reason}
       {:forms, {:error, reason}} -> {:error, {:beam_compile_failed, reason}}
@@ -155,39 +155,27 @@ defmodule QuickBEAM.VM.Compiler do
 
   defp reject_mapped_arguments(_fun), do: :ok
 
-  defp reject_generator_yield_in_finally(%QuickBEAM.VM.Function{func_kind: 1} = fun) do
+  defp reject_generator_cleanup_resume(%QuickBEAM.VM.Function{func_kind: 1} = fun) do
     instructions = fun |> instructions() |> elem(1)
 
-    if generator_yield_in_finally?(instructions),
-      do: {:error, :generator_yield_in_finally},
+    if generator_cleanup_resume?(instructions),
+      do: {:error, :generator_cleanup_resume},
       else: :ok
   end
 
-  defp reject_generator_yield_in_finally(_fun), do: :ok
+  defp reject_generator_cleanup_resume(_fun), do: :ok
 
-  defp generator_yield_in_finally?(instructions) do
-    instructions
-    |> Enum.with_index()
-    |> Enum.any?(fn
-      {{op, [target]}, _idx} ->
-        match?({:ok, :gosub}, CFG.opcode_name(op)) and
-          finally_region_has_yield?(instructions, target)
-
-      _ ->
-        false
-    end)
+  defp generator_cleanup_resume?(instructions) do
+    has_yield? = Enum.any?(instructions, &opcode?(&1, [:yield, :yield_star, :async_yield_star]))
+    has_cleanup? = Enum.any?(instructions, &opcode?(&1, [:iterator_close, :gosub]))
+    has_yield? and has_cleanup?
   end
 
-  defp finally_region_has_yield?(instructions, target) do
-    instructions
-    |> Enum.drop(target)
-    |> Enum.reduce_while(false, fn {op, _args}, _seen ->
-      case CFG.opcode_name(op) do
-        {:ok, :ret} -> {:halt, false}
-        {:ok, name} when name in [:yield, :yield_star, :async_yield_star] -> {:halt, true}
-        _ -> {:cont, false}
-      end
-    end)
+  defp opcode?({op, _args}, names) do
+    case CFG.opcode_name(op) do
+      {:ok, name} -> name in names
+      _ -> false
+    end
   end
 
   defp instructions(fun), do: QuickBEAM.VM.Compiler.FunctionInfo.instructions(fun)

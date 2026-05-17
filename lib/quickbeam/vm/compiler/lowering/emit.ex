@@ -160,6 +160,20 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Emit do
   def permute_top_three(_state), do: {:error, :stack_underflow}
 
   def nip_catch(
+        %{
+          stack: [val, _discard, _catch_offset, next_fn, iter_obj | rest],
+          stack_types: [type, _discard_type, _catch_type, next_type, iter_type | type_rest]
+        } = state
+      ) do
+    {:ok,
+     %{
+       state
+       | stack: [val, next_fn, iter_obj | rest],
+         stack_types: [type, next_type, iter_type | type_rest]
+     }}
+  end
+
+  def nip_catch(
         %{stack: [val, _catch_offset | rest], stack_types: [type, _ | type_rest]} = state
       ),
       do: {:ok, %{state | stack: [val | rest], stack_types: [type | type_rest]}}
