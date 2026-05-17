@@ -38,6 +38,20 @@ defmodule QuickBEAM.VM.Runtime.RegExpTest do
     )
   end
 
+  test "special global exec paths use UTF-16 lastIndex", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|let r = /\Bdef/g; r.lastIndex = 3; let result = r.exec("😀abcdef"); [result.index, r.lastIndex].join(",")|,
+      "5,8"
+    )
+
+    assert_modes(
+      rt,
+      ~S|let r = /(?<=^(\w+))def/g; r.lastIndex = 2; let result = r.exec("abcdef😀"); [result.index, r.lastIndex, result[1]].join(",")|,
+      "3,6,abc"
+    )
+  end
+
   test "special global exec paths reset large lastIndex", %{rt: rt} do
     assert_modes(
       rt,

@@ -459,16 +459,19 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
       set_last_index!(regexp, 0)
       nil
     else
-      case Regex.run(~r/def/, binary_part(string, start_index, byte_size(string) - start_index),
+      start_offset = utf16_index_to_byte_offset(string, start_index)
+
+      case Regex.run(~r/def/, binary_part(string, start_offset, byte_size(string) - start_offset),
              return: :index
            ) do
         [{relative, 3}] ->
-          index = start_index + relative
-          prefix = binary_part(string, 0, index)
+          byte_index = start_offset + relative
+          utf16_index = byte_offset_to_utf16_index(string, byte_index)
+          prefix = binary_part(string, 0, byte_index)
 
           if Regex.match?(~r/^\w+$/, prefix) do
-            set_last_index!(regexp, index + 3)
-            exec_result(["def", prefix], index, string)
+            set_last_index!(regexp, utf16_index + 3)
+            exec_result(["def", prefix], utf16_index, string)
           else
             set_last_index!(regexp, 0)
             nil
@@ -488,18 +491,21 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
       set_last_index!(regexp, 0)
       nil
     else
-      case Regex.run(~r/def/, binary_part(string, start_index, byte_size(string) - start_index),
+      start_offset = utf16_index_to_byte_offset(string, start_index)
+
+      case Regex.run(~r/def/, binary_part(string, start_offset, byte_size(string) - start_offset),
              return: :index
            ) do
         [{relative, 3}] ->
-          index = start_index + relative
-          previous = if index > 0, do: binary_part(string, index - 1, 1), else: ""
+          byte_index = start_offset + relative
+          utf16_index = byte_offset_to_utf16_index(string, byte_index)
+          previous = previous_utf8_char(string, byte_index)
 
           if Regex.match?(~r/\w/, previous) do
-            set_last_index!(regexp, index + 3)
-            exec_result(["def"], index, string)
+            set_last_index!(regexp, utf16_index + 3)
+            exec_result(["def"], utf16_index, string)
           else
-            set_last_index!(regexp, index + 1)
+            set_last_index!(regexp, utf16_index + 1)
             exec_global_non_boundary_def(regexp, string)
           end
 
@@ -511,7 +517,18 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp regexp_start_out_of_range?(:out_of_range, _string), do: true
-  defp regexp_start_out_of_range?(start_index, string), do: start_index > byte_size(string)
+
+  defp regexp_start_out_of_range?(start_index, string),
+    do: start_index > JSString.utf16_length(string)
+
+  defp previous_utf8_char(_string, byte_index) when byte_index <= 0, do: ""
+
+  defp previous_utf8_char(string, byte_index) do
+    string
+    |> binary_part(0, byte_index)
+    |> String.graphemes()
+    |> List.last("")
+  end
 
   defp exec_global_ascii_word(regexp, source, string) do
     start_index = regexp_last_index(regexp)
