@@ -257,14 +257,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
   defp lower_dup1(state) do
     with {:ok, a, ta, state} <- Emit.pop_typed(state),
          {:ok, b, tb, state} <- Emit.pop_typed(state) do
-      {b_bound, state} = Emit.bind(state, Builder.temp_name(state.temp), b)
       {a_bound, state} = Emit.bind(state, Builder.temp_name(state.temp), a)
+      {b_bound, state} = Emit.bind(state, Builder.temp_name(state.temp), b)
 
       {:ok,
        %{
          state
-         | stack: [a_bound, b_bound, a_bound, b_bound | state.stack],
-           stack_types: [ta, tb, ta, tb | state.stack_types]
+         | stack: [a_bound, b_bound, a_bound | state.stack],
+           stack_types: [ta, tb, ta | state.stack_types]
        }}
     end
   end

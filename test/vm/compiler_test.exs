@@ -102,6 +102,19 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 4} = Compiler.invoke(nop, [])
     end
 
+    test "keeps native dup1 stack shape for computed object assignment", %{rt: rt} do
+      source = ~S"""
+      var x, c = 0;
+      for ({ ["x" + "y"]: x } of [{ xy: 1 }, { xy: 2 }]) {
+        c += x;
+      }
+      c
+      """
+
+      assert {:ok, 3} = QuickBEAM.eval(rt, source, mode: :beam)
+      assert {:ok, 3} = QuickBEAM.eval(rt, source, mode: :beam_compiler)
+    end
+
     test "lowers QuickJS with_get_ref_undef branch semantics" do
       atoms = {"<synthetic>", "f"}
 
@@ -622,8 +635,11 @@ defmodule QuickBEAM.VM.CompilerTest do
           ~S|let a={}; let b=Object.create(a); let c=Object.create(b); a.isPrototypeOf(c)|
         ).value
 
-      prevent_primitive = compile_and_decode(rt, ~S|try{Reflect.preventExtensions(1)}catch(e){e.name}|).value
-      extensible_primitive = compile_and_decode(rt, ~S|try{Reflect.isExtensible(1)}catch(e){e.name}|).value
+      prevent_primitive =
+        compile_and_decode(rt, ~S|try{Reflect.preventExtensions(1)}catch(e){e.name}|).value
+
+      extensible_primitive =
+        compile_and_decode(rt, ~S|try{Reflect.isExtensible(1)}catch(e){e.name}|).value
 
       reflect_define_primitive =
         compile_and_decode(rt, ~S|try{Reflect.defineProperty(1,"x",{value:1})}catch(e){e.name}|).value
