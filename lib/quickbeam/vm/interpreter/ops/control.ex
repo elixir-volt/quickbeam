@@ -246,8 +246,9 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Control do
         {:js_throw, _close_error} -> ctx
       end
 
-      defp active_iterators_from_stack([_index, next_fn, iter_obj | rest], acc)
-           when next_fn != nil and iter_obj != :undefined do
+      defp active_iterators_from_stack([index, next_fn, iter_obj | rest], acc)
+           when (is_integer(index) or index == :undefined) and next_fn != nil and
+                  iter_obj != :undefined do
         active_iterators_from_stack(rest, [iter_obj | acc])
       end
 

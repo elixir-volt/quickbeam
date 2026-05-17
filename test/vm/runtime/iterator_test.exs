@@ -53,6 +53,22 @@ defmodule QuickBEAM.VM.Runtime.IteratorTest do
            ) == 1
   end
 
+  test "array rest destructuring closes inner iterator when target evaluation throws", %{rt: rt} do
+    assert beam!(
+             rt,
+             ~S|var returnCountThrowRest = 0; var caughtThrowRest; var iterableThrowRest = {}; var iteratorThrowRest = { next() { return { done: false }; }, return() { returnCountThrowRest++; return {}; } }; function ThrowRestError() {} function throwRest() { throw new ThrowRestError(); } iterableThrowRest[Symbol.iterator] = function() { return iteratorThrowRest; }; try { for ([...{}[throwRest()]] of [iterableThrowRest]) {} } catch (e) { caughtThrowRest = e instanceof ThrowRestError; } [caughtThrowRest, returnCountThrowRest].join(",")|
+           ) == "true,1"
+  end
+
+  test "array element destructuring closes inner iterator when target evaluation throws", %{
+    rt: rt
+  } do
+    assert beam!(
+             rt,
+             ~S|var returnCountThrowElem = 0; var caughtThrowElem; var iterableThrowElem = {}; var iteratorThrowElem = { next() { return { done: true }; }, return() { returnCountThrowElem++; return {}; } }; function ThrowElemError() {} function throwElem() { throw new ThrowElemError(); } iterableThrowElem[Symbol.iterator] = function() { return iteratorThrowElem; }; try { for ([{}[throwElem()]] of [iterableThrowElem]) {} } catch (e) { caughtThrowElem = e instanceof ThrowElemError; } [caughtThrowElem, returnCountThrowElem].join(",")|
+           ) == "true,1"
+  end
+
   test "for-of closes active iterator on thrown body", %{rt: rt} do
     assert_modes(
       rt,
