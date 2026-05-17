@@ -145,13 +145,20 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Generators do
 
   defp yield_continuation(state, next_entry, stack_depths) do
     arg_var = Builder.var("YieldArg")
-    false_var = Builder.atom(false)
 
     ctx = State.ctx_expr(state)
     slots = Slots.current_slots(state)
-    stack = [false_var, arg_var | State.current_stack(state)]
+    stack = resume_stack(arg_var, state)
     captures = Slots.current_capture_cells(state)
 
     continuation_fun(arg_var, ctx, slots, stack, captures, next_entry, stack_depths)
+  end
+
+  defp resume_stack(arg_var, state) do
+    [
+      Builder.remote_call(RuntimeHelpers, :generator_resume_return?, [arg_var]),
+      Builder.remote_call(RuntimeHelpers, :generator_resume_value, [arg_var])
+      | State.current_stack(state)
+    ]
   end
 end

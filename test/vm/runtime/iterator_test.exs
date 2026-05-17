@@ -9,6 +9,14 @@ defmodule QuickBEAM.VM.Runtime.IteratorTest do
     )
   end
 
+  test "for-of closes generators when loop exits abruptly", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|var closed = 0; function* values() { try { yield 1; } finally { closed++; } } for (var x of values()) { break; } closed|,
+      1
+    )
+  end
+
   test "for-of closes active iterator on thrown body", %{rt: rt} do
     assert_modes(
       rt,

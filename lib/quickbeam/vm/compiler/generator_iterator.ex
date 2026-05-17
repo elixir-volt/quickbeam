@@ -9,6 +9,7 @@ defmodule QuickBEAM.VM.Compiler.GeneratorIterator do
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.PromiseState, as: Promise
 
   @doc "Builds the runtime value represented by this module."
@@ -70,8 +71,18 @@ defmodule QuickBEAM.VM.Compiler.GeneratorIterator do
   end
 
   defp do_return(gen_ref, val) do
-    Heap.put_obj(gen_ref, %{state: :completed})
-    done(val)
+    case Heap.get_obj(gen_ref) do
+      %{state: :suspended, mode: :yield_star} ->
+        Heap.put_obj(gen_ref, %{state: :completed})
+        done(val)
+
+      %{state: :suspended, continuation: cont} when is_function(cont, 1) ->
+        resume(gen_ref, cont, RuntimeHelpers.generator_return_resume(val))
+
+      _ ->
+        Heap.put_obj(gen_ref, %{state: :completed})
+        done(val)
+    end
   end
 
   defp resume(gen_ref, cont, arg) do
@@ -84,7 +95,7 @@ defmodule QuickBEAM.VM.Compiler.GeneratorIterator do
       yield(val)
 
     {:generator_yield_star, val, next_cont} ->
-      Heap.put_obj(gen_ref, %{state: :suspended, continuation: next_cont})
+      Heap.put_obj(gen_ref, %{state: :suspended, continuation: next_cont, mode: :yield_star})
       val
 
     {:generator_return, val} ->

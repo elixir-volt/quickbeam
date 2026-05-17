@@ -30,6 +30,13 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   # ── Coercion ──
 
   @tdz :__tdz__
+  @generator_return_resume :__quickbeam_generator_return_resume__
+
+  def generator_return_resume(value), do: {@generator_return_resume, value}
+  def generator_resume_return?({@generator_return_resume, _value}), do: true
+  def generator_resume_return?(_value), do: false
+  def generator_resume_value({@generator_return_resume, value}), do: value
+  def generator_resume_value(value), do: value
 
   @doc "Returns a dirty interpreter context suitable for entry into compiled code."
   def entry_ctx do
