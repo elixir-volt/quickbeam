@@ -853,8 +853,14 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp typed_array_property(obj, map, key) do
     case PropertyKey.array_index(key) do
-      {:ok, idx} -> TypedArray.get_element(obj, idx)
-      :error -> get_map_property(map, key, obj)
+      {:ok, idx} ->
+        case get_map_property(map, key, obj) do
+          :undefined -> TypedArray.get_element(obj, idx)
+          value -> value
+        end
+
+      :error ->
+        get_map_property(map, key, obj)
     end
   end
 

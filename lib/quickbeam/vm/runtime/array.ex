@@ -3172,7 +3172,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
           count = QuickBEAM.VM.Runtime.TypedArray.element_count(obj)
 
           if count > 0 do
-            for i <- 0..(count - 1), do: QuickBEAM.VM.Runtime.TypedArray.get_element(obj, i)
+            for i <- 0..(count - 1), do: Get.get(obj, Integer.to_string(i))
           else
             []
           end
