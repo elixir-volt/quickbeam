@@ -332,15 +332,40 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
               )
           end
 
+        ctx =
+          if type in [0, 1] do
+            %{ctx | globals: Map.put(ctx.globals, {:qb_arguments_object, current_func, arg_buf}, val)}
+          else
+            ctx
+          end
+
         run(pc + 1, frame, [val | stack], gas, ctx)
       end
 
       defp special_object_arguments_object(ctx, frame, arg_buf, current_func) do
-        Heap.wrap_arguments(Tuple.to_list(arg_buf),
-          strict: current_strict_mode?(ctx),
-          callee: current_func,
-          mapped: special_object_mapped_argument_cells(ctx, frame)
-        )
+        case Map.fetch(ctx.globals, {:qb_arguments_object, current_func, arg_buf}) do
+          {:ok, arguments} ->
+            arguments
+
+          :error ->
+            key = {:qb_arguments_object, current_func, arg_buf}
+
+            case Process.get(key) do
+              nil ->
+                arguments =
+                  Heap.wrap_arguments(Tuple.to_list(arg_buf),
+                    strict: current_strict_mode?(ctx),
+                    callee: current_func,
+                    mapped: special_object_mapped_argument_cells(ctx, frame)
+                  )
+
+                Process.put(key, arguments)
+                arguments
+
+              arguments ->
+                arguments
+            end
+        end
       end
 
       defp special_object_mapped_argument_cells(ctx, frame) do

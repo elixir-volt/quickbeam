@@ -37,10 +37,16 @@ defmodule QuickBEAM.VM.Semantics.Iterators do
     unless iterator_result_object?(result),
       do: iterator_type_error!("iterator result is not an object")
 
-    if Runtime.truthy?(Get.get(result, "done")) do
-      {true, :undefined, :undefined}
-    else
-      {false, Get.get(result, "value"), iter_obj}
+    try do
+      if Runtime.truthy?(Get.get(result, "done")) do
+        {true, :undefined, :undefined}
+      else
+        {false, Get.get(result, "value"), iter_obj}
+      end
+    catch
+      {:js_throw, error} ->
+        close_iterator_for_throw(iter_obj)
+        throw({:js_throw, error})
     end
   end
 
@@ -70,8 +76,14 @@ defmodule QuickBEAM.VM.Semantics.Iterators do
     unless iterator_result_object?(result),
       do: iterator_type_error!("iterator result is not an object")
 
-    next_iter = if Runtime.truthy?(Get.get(result, "done")), do: :undefined, else: iter_obj
-    {result, next_iter}
+    try do
+      next_iter = if Runtime.truthy?(Get.get(result, "done")), do: :undefined, else: iter_obj
+      {result, next_iter}
+    catch
+      {:js_throw, error} ->
+        close_iterator_for_throw(iter_obj)
+        throw({:js_throw, error})
+    end
   end
 
   @doc "Collects values from an iterable according to ECMAScript iterator protocol."

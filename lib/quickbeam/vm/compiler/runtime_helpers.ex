@@ -198,10 +198,25 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
         arguments
 
       :error ->
-        Heap.wrap_arguments(Tuple.to_list(context_arg_buf(ctx)),
-          strict: current_strict_mode?(ctx),
-          callee: context_current_func(ctx)
-        )
+        current_func = context_current_func(ctx)
+        key = {:qb_compiled_arguments_object, current_func, context_arg_buf(ctx)}
+        fallback_key = {:qb_compiled_arguments_object, current_func}
+
+        case Process.get(key) || Process.get(fallback_key) do
+          nil ->
+            arguments =
+              Heap.wrap_arguments(Tuple.to_list(context_arg_buf(ctx)),
+                strict: current_strict_mode?(ctx),
+                callee: current_func
+              )
+
+            Process.put(key, arguments)
+            Process.put(fallback_key, arguments)
+            arguments
+
+          arguments ->
+            arguments
+        end
     end
   end
 
@@ -1366,7 +1381,11 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   defdelegate for_of_next(ctx, next_fn, iter_obj), to: Iterators
   defdelegate for_of_next(next_fn, iter_obj), to: Iterators
 
-  defdelegate iterator_next_result(ctx \\ nil, next_fn, iter_obj, val), to: Iterators
+  def iterator_next_result(ctx \\ nil, next_fn, iter_obj, val) do
+    {result, next_iter} = Iterators.iterator_next_result(ctx, next_fn, iter_obj, val)
+    Process.put({:qb_iterator_result_owner, result}, iter_obj)
+    {result, next_iter}
+  end
 
   def iterator_check_object(_ctx, value) do
     unless Iterators.iterator_result_object?(value) do
@@ -1396,12 +1415,32 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   @doc "Closes an iterator by calling its `return` method when present."
   def iterator_value_done(result) do
-    done = Get.get(result, "done")
+    try do
+      done = Get.get(result, "done")
 
-    if QuickBEAM.VM.Runtime.truthy?(done) do
-      {true, :undefined}
-    else
-      {false, Get.get(result, "value")}
+      if QuickBEAM.VM.Runtime.truthy?(done) do
+        {true, :undefined}
+      else
+        {false, Get.get(result, "value")}
+      end
+    catch
+      {:js_throw, error} ->
+        close_iterator_result_owner(result)
+        throw({:js_throw, error})
+    end
+  end
+
+  defp close_iterator_result_owner(result) do
+    case Process.get({:qb_iterator_result_owner, result}) do
+      nil ->
+        :ok
+
+      iter_obj ->
+        try do
+          Iterators.iterator_close(iter_obj)
+        catch
+          {:js_throw, _error} -> :ok
+        end
     end
   end
 

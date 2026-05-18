@@ -512,19 +512,36 @@ defmodule QuickBEAM.VM.Interpreter do
 
         merged_globals = Map.merge(base_globals, scoped_globals)
 
+        arguments_key = {:qb_arguments_object, ctx.current_func, ctx.arg_buf}
+
         {arguments_obj, created_arguments?} =
-          case Map.fetch(merged_globals, "arguments") do
+          case Map.fetch(merged_globals, arguments_key) do
             {:ok, arguments} ->
               {arguments, false}
 
             :error ->
-              arguments =
-                Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf),
-                  strict: current_strict_mode?(ctx),
-                  callee: ctx.current_func
-                )
+              case Map.fetch(merged_globals, "arguments") do
+                {:ok, arguments} ->
+                  {arguments, false}
 
-              {arguments, true}
+                :error ->
+                  key = {:qb_arguments_object, ctx.current_func, ctx.arg_buf}
+
+                  case Process.get(key) do
+                    nil ->
+                      arguments =
+                        Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf),
+                          strict: current_strict_mode?(ctx),
+                          callee: ctx.current_func
+                        )
+
+                      Process.put(key, arguments)
+                      {arguments, true}
+
+                    arguments ->
+                      {arguments, true}
+                  end
+              end
           end
 
         eval_ctx_globals = Map.put(merged_globals, "arguments", arguments_obj)
@@ -558,7 +575,7 @@ defmodule QuickBEAM.VM.Interpreter do
               post_eval_globals
               |> Map.merge(Map.get(final_ctx || %{}, :globals, %{}))
               |> Map.take(MapSet.to_list(visible_declared_names))
-              |> put_created_eval_arguments(created_arguments?, arguments_obj)
+              |> put_created_eval_arguments(created_arguments?, arguments_key, arguments_obj)
 
             apply_eval_transients(ctx.current_func, var_objs, transient_globals, keep_declared?)
             write_back_eval_vars(caller_frame, ctx, pre_eval_globals, var_objs, declared_names)
@@ -703,8 +720,8 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
-  defp put_created_eval_arguments(globals, true, arguments), do: Map.put(globals, "arguments", arguments)
-  defp put_created_eval_arguments(globals, false, _arguments), do: globals
+  defp put_created_eval_arguments(globals, true, key, arguments), do: Map.put(globals, key, arguments)
+  defp put_created_eval_arguments(globals, false, _key, _arguments), do: globals
 
   defp apply_eval_transients(current_func, var_objs, transient_globals, keep_declared?) do
     if transient_globals != %{} do

@@ -54,7 +54,13 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
 
               :error ->
                 arguments = make_arguments_object(ctx, frame)
-                {arguments, %{ctx | globals: Map.put(ctx.globals, "arguments", arguments)}}
+
+                globals =
+                  ctx.globals
+                  |> Map.put("arguments", arguments)
+                  |> Map.put({:qb_arguments_object, ctx.current_func, ctx.arg_buf}, arguments)
+
+                {arguments, %{ctx | globals: globals}}
             end
 
           run(pc + 1, frame, [arguments | stack], gas, ctx)
@@ -105,11 +111,29 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
       end
 
       defp make_arguments_object(ctx, frame) do
-        Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf),
-          strict: current_strict_mode?(ctx),
-          callee: ctx.current_func,
-          mapped: mapped_argument_cells(ctx, frame)
-        )
+        case Map.fetch(ctx.globals, {:qb_arguments_object, ctx.current_func, ctx.arg_buf}) do
+          {:ok, arguments} ->
+            arguments
+
+          :error ->
+            key = {:qb_arguments_object, ctx.current_func, ctx.arg_buf}
+
+            case Process.get(key) do
+              nil ->
+                arguments =
+                  Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf),
+                    strict: current_strict_mode?(ctx),
+                    callee: ctx.current_func,
+                    mapped: mapped_argument_cells(ctx, frame)
+                  )
+
+                Process.put(key, arguments)
+                arguments
+
+              arguments ->
+                arguments
+            end
+        end
       end
 
       defp mapped_argument_cells(ctx, frame) do

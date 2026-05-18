@@ -18,4 +18,12 @@ defmodule QuickBEAM.VM.Interpreter.GeneratorTest do
     assert beam!(rt, "function* g(){ yield 1; } let it = g(); it.next().value") == 1
     assert Heap.get_ctx() == nil
   end
+
+  test "compiled generators with cleanup fall back to interpreter semantics", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S"function* g(){ try { yield 1; } finally { yield 2; } } var it = g(); [it.next().value, it.return(9).value, it.next().value].join('|')",
+      "1|2|9"
+    )
+  end
 end

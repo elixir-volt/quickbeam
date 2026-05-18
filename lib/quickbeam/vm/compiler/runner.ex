@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   alias QuickBEAM.VM.Execution.Trace
   alias QuickBEAM.VM.GlobalEnv
   alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.Interpreter.Context
   alias QuickBEAM.VM.ObjectModel.{Class, Functions}
   alias QuickBEAM.VM.PromiseState
@@ -120,11 +121,21 @@ defmodule QuickBEAM.VM.Compiler.Runner do
         ctx = invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun, atoms)
         {:ok, invoke_compiled(fun, compiled, ctx, normalized_args)}
 
+      {:error, reason} when reason in [:generator_cleanup_resume, :mapped_arguments] ->
+        ctx = invocation_ctx(base_ctx, current_func, args, ctx_overrides, fun, atoms)
+        {:ok, interpreter_fallback(current_func, args, ctx)}
+
       {:error, _} ->
         Heap.put_compiled(key, :unsupported)
         :error
     end
   end
+
+  defp interpreter_fallback({:closure, _, %QuickBEAM.VM.Function{}} = closure, args, ctx),
+    do: Interpreter.invoke_closure_fallback(closure, args, ctx.gas, ctx)
+
+  defp interpreter_fallback(%QuickBEAM.VM.Function{} = fun, args, ctx),
+    do: Interpreter.invoke_function_fallback(fun, args, ctx.gas, ctx)
 
   defp invoke_compiled(%QuickBEAM.VM.Function{func_kind: 1}, compiled, ctx, args) do
     # Generator: wrap in yield/suspend protocol
