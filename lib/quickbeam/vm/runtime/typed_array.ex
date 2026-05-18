@@ -819,13 +819,22 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp last_index_of(_ref, _args), do: -1
 
-  defp includes(ref, [target | _]) do
-    {b, l, t} = {buf(ref), len(ref), type(ref)}
+  defp includes(ref, [target | rest]) do
+    l = len(ref)
+    start = relative_index(arg(rest, 0, 0), l)
 
-    Enum.any?(0..max(0, l - 1), fn i -> read_element(b, i, t) == target end)
+    if l == 0 or start >= l do
+      false
+    else
+      Enum.any?(start..(l - 1), fn i -> same_value_zero?(get_element({:obj, ref}, i), target) end)
+    end
   end
 
   defp includes(_ref, _args), do: false
+
+  defp same_value_zero?(:nan, :nan), do: true
+  defp same_value_zero?(a, b) when is_float(a) and is_float(b), do: a == b or (a != a and b != b)
+  defp same_value_zero?(a, b), do: a == b
 
   defp find(ref, [cb | rest], this) do
     callback!(cb)
