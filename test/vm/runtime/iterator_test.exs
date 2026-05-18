@@ -9,6 +9,14 @@ defmodule QuickBEAM.VM.Runtime.IteratorTest do
     )
   end
 
+  test "for-of returns from try and catch blocks close iterator state", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|function* values() { yield 1; throw new Error("unreachable"); } var i = 0; var fromTry = (function() { for (var x of values()) { try { i++; return 34; } catch (err) { return 0; } } })(); var fromCatch = (function() { for (var x of values()) { try { throw new Error("catch"); } catch (err) { i++; return 35; } } })(); [fromTry, fromCatch, i].join(",")|,
+      "34,35,2"
+    )
+  end
+
   test "for-of closes generators when loop exits abruptly", %{rt: rt} do
     assert_modes(
       rt,

@@ -61,6 +61,23 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Control do
              {@op_nip_catch, []},
              pc,
              frame,
+             [a, catch_target | rest],
+             gas,
+             %Context{catch_stack: [{catch_target, _} | rest_catch]} = ctx
+           ) do
+        run(
+          pc + 1,
+          frame,
+          [a | rest],
+          gas,
+          Context.mark_dirty(%{ctx | catch_stack: rest_catch})
+        )
+      end
+
+      defp run(
+             {@op_nip_catch, []},
+             pc,
+             frame,
              [a, discard, catch_offset, next_fn, iter_obj | rest],
              gas,
              %Context{catch_stack: [_ | rest_catch]} = ctx
