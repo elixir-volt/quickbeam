@@ -48,22 +48,62 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   @doc "Returns generic properties for typed-array constructor prototype objects."
   def prototype_properties do
     %{
-      "at" => {:builtin, "at", fn args, this -> at(this, args) end},
+      "at" => prototype_method("at", 1, fn args, this -> at(this, args) end),
+      "copyWithin" => prototype_ref_method("copyWithin", 2, &copy_within/3),
       "entries" =>
-        {:builtin, "entries", fn _args, this -> Array.make_array_iterator(this, :entries) end},
-      "keys" => {:builtin, "keys", fn _args, this -> Array.make_array_iterator(this, :keys) end},
+        prototype_method("entries", 0, fn _args, this ->
+          this = typed_array_object!(this)
+          Array.make_array_iterator(this, :entries)
+        end),
+      "keys" =>
+        prototype_method("keys", 0, fn _args, this ->
+          this = typed_array_object!(this)
+          Array.make_array_iterator(this, :keys)
+        end),
       "values" =>
-        {:builtin, "values", fn _args, this -> Array.make_array_iterator(this, :values) end},
+        prototype_method("values", 0, fn _args, this ->
+          this = typed_array_object!(this)
+          Array.make_array_iterator(this, :values)
+        end),
       {:symbol, "Symbol.iterator"} =>
-        {:builtin, "[Symbol.iterator]",
-         fn _args, this -> Array.make_array_iterator(this, :values) end},
-      "every" =>
-        {:builtin, "every",
-         fn args, this ->
-           {:obj, ref} = typed_array_object!(this)
-           every(ref, args, this)
-         end}
+        prototype_method("values", 0, fn _args, this ->
+          this = typed_array_object!(this)
+          Array.make_array_iterator(this, :values)
+        end),
+      "every" => prototype_ref_method("every", 1, &every/3),
+      "fill" => prototype_ref_method("fill", 1, fn ref, args, _this -> fill(ref, args) end),
+      "filter" => prototype_ref_method("filter", 1, &filter/3),
+      "find" => prototype_ref_method("find", 1, &find/3),
+      "forEach" => prototype_ref_method("forEach", 1, &for_each/3),
+      "includes" => prototype_ref_method("includes", 1, fn ref, args, _this -> includes(ref, args) end),
+      "indexOf" => prototype_ref_method("indexOf", 1, fn ref, args, _this -> index_of(ref, args) end),
+      "join" => prototype_ref_method("join", 1, fn ref, args, _this -> join(ref, args) end),
+      "map" => prototype_ref_method("map", 1, &map/3),
+      "reduce" => prototype_ref_method("reduce", 1, &reduce/3),
+      "reverse" => prototype_ref_method("reverse", 0, fn ref, _args, _this -> reverse(ref) end),
+      "set" => prototype_ref_method("set", 1, fn ref, args, _this -> set(ref, args) end),
+      "slice" => prototype_ref_method("slice", 2, fn ref, args, _this -> slice(ref, args) end),
+      "some" => prototype_ref_method("some", 1, &some/3),
+      "sort" => prototype_ref_method("sort", 1, fn ref, _args, _this -> sort(ref) end),
+      "subarray" => prototype_ref_method("subarray", 2, fn ref, args, _this -> subarray(ref, args) end),
+      "toString" => prototype_ref_method("toString", 0, fn ref, _args, _this -> join(ref, [","]) end)
     }
+  end
+
+  defp prototype_ref_method(name, length, callback) do
+    prototype_method(name, length, fn args, this ->
+      {:obj, ref} = typed_array_object!(this)
+      callback.(ref, args, this)
+    end)
+  end
+
+  defp prototype_method(name, length, callback) do
+    method = {:builtin, name, callback}
+    Heap.put_ctor_static(method, "length", length)
+    Heap.put_ctor_static(method, "name", name)
+    Heap.put_ctor_prop_desc(method, "length", PropertyDescriptor.hidden_readonly())
+    Heap.put_ctor_prop_desc(method, "name", PropertyDescriptor.hidden_readonly())
+    method
   end
 
   @doc "Returns properties installed on %TypedArray%.prototype."
@@ -202,6 +242,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
           method("set", do: set(ref, args))
           method("subarray", do: subarray(ref, args))
           method("at", do: at({:obj, ref}, args))
+          method("copyWithin", do: copy_within(ref, args, this))
           method("join", do: join(ref, args))
           method("forEach", do: for_each(ref, args, this))
           method("map", do: map(ref, args, this))
@@ -520,6 +561,50 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       "byteOffset" => 0,
       "buffer" => Map.get(state(ref), "buffer")
     })
+  end
+
+  defp copy_within(ref, args, _this) do
+    obj = {:obj, ref}
+
+    if out_of_bounds?(obj) do
+      JSThrow.type_error!("TypedArray is out of bounds")
+    end
+
+    l = len(ref)
+    target = relative_index(arg(args, 0, :undefined), l)
+    start = relative_index(arg(args, 1, :undefined), l)
+
+    final =
+      case Enum.at(args, 2, :undefined) do
+        :undefined -> l
+        value -> relative_index(value, l)
+      end
+
+    count = min(final - start, l - target)
+
+    if count > 0 do
+      t = type(ref)
+      b = buf(ref) || <<>>
+      values = for i <- 0..(count - 1), do: read_element(b, start + i, t)
+
+      new_buf =
+        values
+        |> Enum.with_index(target)
+        |> Enum.reduce(b, fn {value, index}, acc -> write_element(acc, index, value, t) end)
+
+      update_buffer(ref, new_buf)
+    end
+
+    obj
+  end
+
+  defp relative_index(value, len) do
+    case to_integer_or_infinity(value) do
+      :neg_infinity -> 0
+      :infinity -> len
+      index when index < 0 -> max(len + index, 0)
+      index -> min(index, len)
+    end
   end
 
   defp join(ref, args) do
