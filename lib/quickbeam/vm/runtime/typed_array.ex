@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor}
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.Array
+  alias QuickBEAM.VM.Semantics.Iterators
 
   @types %{
     "Uint8Array" => :uint8,
@@ -105,6 +106,69 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp typed_array_state!(obj) do
     {:obj, ref} = typed_array_object!(obj)
     Heap.get_obj(ref, %{})
+  end
+
+  def static_from(args, constructor) do
+    {source, map_fn, this_arg} = from_args(args)
+    values = typed_array_from_values(source, map_fn, this_arg)
+    Invocation.construct_runtime(constructor, constructor, [values])
+  end
+
+  def static_of(args, constructor) do
+    Invocation.construct_runtime(constructor, constructor, [args])
+  end
+
+  defp from_args([source, map_fn, this_arg | _]) when map_fn not in [nil, :undefined],
+    do: {source, map_fn, this_arg}
+
+  defp from_args([source, map_fn | _]) when map_fn not in [nil, :undefined],
+    do: {source, map_fn, :undefined}
+
+  defp from_args([source | _]), do: {source, nil, :undefined}
+  defp from_args(_), do: {nil, nil, :undefined}
+
+  defp typed_array_from_values(nil, _map_fn, _this_arg),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp typed_array_from_values(:undefined, _map_fn, _this_arg),
+    do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp typed_array_from_values(source, map_fn, this_arg) do
+    if map_fn not in [nil, :undefined] and not QuickBEAM.VM.Builtin.callable?(map_fn) do
+      JSThrow.type_error!("mapfn is not callable")
+    end
+
+    source
+    |> typed_array_source_values()
+    |> Enum.with_index()
+    |> Enum.map(fn {value, index} ->
+      if map_fn in [nil, :undefined] do
+        value
+      else
+        Invocation.invoke_with_receiver(map_fn, [value, index], this_arg)
+      end
+    end)
+  end
+
+  defp typed_array_source_values(source) do
+    iterator = Get.get(source, {:symbol, "Symbol.iterator"})
+
+    cond do
+      QuickBEAM.VM.Builtin.callable?(iterator) ->
+        Iterators.iterable_to_list(source)
+
+      iterator not in [nil, :undefined] ->
+        JSThrow.type_error!("@@iterator is not callable")
+
+      true ->
+        len = max(Runtime.to_int(Get.get(source, "length")), 0)
+
+        if len == 0 do
+          []
+        else
+          for index <- 0..(len - 1), do: Get.get(source, Integer.to_string(index))
+        end
+    end
   end
 
   defp typed_array_name(type) do
