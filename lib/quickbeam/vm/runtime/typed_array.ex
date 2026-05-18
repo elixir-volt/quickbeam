@@ -90,7 +90,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       "set" => prototype_ref_method("set", 1, fn ref, args, _this -> set(ref, args) end),
       "slice" => prototype_ref_method("slice", 2, fn ref, args, _this -> slice(ref, args) end),
       "some" => prototype_ref_method("some", 1, &some/3),
-      "sort" => prototype_ref_method("sort", 1, fn ref, _args, _this -> sort(ref) end),
+      "sort" => prototype_ref_method("sort", 1, fn ref, args, _this -> sort(ref, args) end),
       "subarray" => prototype_ref_method("subarray", 2, fn ref, args, _this -> subarray(ref, args) end),
       "toLocaleString" => prototype_ref_method("toLocaleString", 0, fn ref, _args, _this -> join(ref, [","]) end),
       "toReversed" => prototype_ref_method("toReversed", 0, fn ref, _args, _this -> to_reversed(ref) end),
@@ -274,7 +274,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
           method("findIndex", do: find_index(ref, args, this))
           method("findLast", do: find_last(ref, args, this))
           method("findLastIndex", do: find_last_index(ref, args, this))
-          method("sort", do: sort(ref))
+          method("sort", do: sort(ref, args))
           method("reverse", do: reverse(ref))
           method("slice", do: slice(ref, args))
           method("fill", do: fill(ref, args))
@@ -1004,15 +1004,29 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp find_last_index(_ref, _args, _this), do: JSThrow.type_error!("callbackfn is not callable")
 
-  defp sort(ref) do
+  defp sort(ref, args) do
     obj = {:obj, ref}
     if out_of_bounds?(obj), do: JSThrow.type_error!("TypedArray is out of bounds")
 
+    compare_fn = arg(args, 0, :undefined)
+
+    if compare_fn not in [nil, :undefined] and not QuickBEAM.VM.Builtin.callable?(compare_fn) do
+      JSThrow.type_error!("comparison function is not callable")
+    end
+
     {b, l, t} = {buf(ref), len(ref), type(ref)}
-    vals = if l == 0, do: [], else: Enum.map(0..(l - 1), &read_element(b, &1, t)) |> Enum.sort()
+    vals = if l == 0, do: [], else: Enum.map(0..(l - 1), &read_element(b, &1, t)) |> sort_values(compare_fn)
     new_buf = rebuild_buffer(vals, b, t)
     update_buffer(ref, new_buf)
     obj
+  end
+
+  defp sort_values(values, compare_fn) when compare_fn in [nil, :undefined], do: Enum.sort(values)
+
+  defp sort_values(values, compare_fn) do
+    Enum.sort(values, fn left, right ->
+      Runtime.to_number(Invocation.invoke_with_receiver(compare_fn, [left, right], :undefined)) < 0
+    end)
   end
 
   defp reverse(ref) do
