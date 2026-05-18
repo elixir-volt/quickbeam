@@ -20,10 +20,14 @@ limit =
     value -> String.to_integer(value)
   end
 
+offset = String.to_integer(System.get_env("TEST262_OFFSET", "0"))
+
 error_limit = String.to_integer(System.get_env("TEST262_ERROR_LIMIT", "40"))
 case_timeout = String.to_integer(System.get_env("TEST262_CASE_TIMEOUT", "5000"))
 progress_every = String.to_integer(System.get_env("TEST262_PROGRESS_EVERY", "0"))
+slow_ms = String.to_integer(System.get_env("TEST262_SLOW_MS", "0"))
 use_context_pool? = System.get_env("TEST262_CONTEXT_POOL", "1") not in ["0", "false", "FALSE"]
+use_beam_direct? = System.get_env("TEST262_BEAM_DIRECT", "1") not in ["0", "false", "FALSE"]
 
 if System.get_env("TEST262_COMPILER_CACHE", "1") not in ["0", "false", "FALSE"] do
   System.put_env("QUICKBEAM_COMPILER_CACHE", "1")
@@ -41,6 +45,7 @@ files =
   |> Enum.reject(&String.contains?(&1, "_FIXTURE"))
   |> Enum.sort()
 
+files = Enum.drop(files, offset)
 files = if limit == :infinity, do: files, else: Enum.take(files, limit)
 
 js_error? = fn
@@ -55,9 +60,21 @@ compiler_error? = fn
   _ -> false
 end
 
+beam_runtimes =
+  if use_beam_direct? do
+    for mode <- [:beam, :beam_compiler], into: %{} do
+      {:ok, runtime} = QuickBEAM.start(apis: false, mode: mode)
+      {mode, runtime}
+    end
+  else
+    %{}
+  end
+
 pooled_contexts =
   if use_context_pool? do
-    for mode <- [:native, :beam, :beam_compiler], into: %{} do
+    pool_modes = if use_beam_direct?, do: [:native], else: [:native, :beam, :beam_compiler]
+
+    for mode <- pool_modes, into: %{} do
       pool_mode = if mode == :native, do: :nif, else: mode
       {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 1, mode: pool_mode)
       {:ok, context} = QuickBEAM.Context.start_link(pool: pool, apis: false)
@@ -68,25 +85,37 @@ pooled_contexts =
   end
 
 run_raw_case = fn full, mode ->
-  if use_context_pool? do
-    {_pool, context} = Map.fetch!(pooled_contexts, mode)
+  cond do
+    use_beam_direct? and mode in [:beam, :beam_compiler] ->
+      runtime = Map.fetch!(beam_runtimes, mode)
 
-    try do
-      QuickBEAM.Context.eval(context, full, timeout: case_timeout)
-    after
-      QuickBEAM.Context.reset(context)
-    end
-  else
-    {:ok, rt} = QuickBEAM.start(apis: false)
-
-    try do
-      case mode do
-        :native -> QuickBEAM.eval(rt, full)
-        mode -> QuickBEAM.eval(rt, full, mode: mode)
+      try do
+        QuickBEAM.eval(runtime, full, mode: mode, timeout: case_timeout)
+      after
+        QuickBEAM.VM.Heap.reset()
+        QuickBEAM.reset(runtime)
       end
-    after
-      QuickBEAM.stop(rt)
-    end
+
+    use_context_pool? ->
+      {_pool, context} = Map.fetch!(pooled_contexts, mode)
+
+      try do
+        QuickBEAM.Context.eval(context, full, timeout: case_timeout)
+      after
+        QuickBEAM.Context.reset(context)
+      end
+
+    true ->
+      {:ok, rt} = QuickBEAM.start(apis: false)
+
+      try do
+        case mode do
+          :native -> QuickBEAM.eval(rt, full)
+          mode -> QuickBEAM.eval(rt, full, mode: mode)
+        end
+      after
+        QuickBEAM.stop(rt)
+      end
   end
 end
 
@@ -173,6 +202,7 @@ acc =
       IO.puts("PROGRESS quickjs_parity_all_seen=#{acc.seen}/#{length(files)}")
     end
 
+    started_at = System.monotonic_time(:millisecond)
     source = File.read!(file)
     meta = QuickBEAM.Test262.parse_metadata(source)
     relative = QuickBEAM.Test262.relative_path(file)
@@ -226,6 +256,12 @@ acc =
         end
       end
 
+    elapsed_ms = System.monotonic_time(:millisecond) - started_at
+
+    if slow_ms > 0 and elapsed_ms >= slow_ms do
+      IO.puts("SLOW quickjs_parity_all_case_ms=#{elapsed_ms} #{relative}")
+    end
+
     record_result.(result, acc)
   end)
 
@@ -263,4 +299,8 @@ IO.puts("METRIC interpreter_crashes=#{count.(:interpreter_crash)}")
 for {_mode, {pool, context}} <- pooled_contexts do
   QuickBEAM.Context.stop(context)
   GenServer.stop(pool)
+end
+
+for {_mode, runtime} <- beam_runtimes do
+  QuickBEAM.stop(runtime)
 end
