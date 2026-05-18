@@ -623,70 +623,119 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp typed_array_join_value(nil), do: ""
   defp typed_array_join_value(value), do: Runtime.stringify(value)
 
-  defp for_each(ref, [cb | _], this) do
-    {b, l, t} = {buf(ref), len(ref), type(ref)}
-    for i <- 0..(l - 1), do: call(cb, [read_element(b, i, t), i, this])
+  defp for_each(ref, [cb | rest], this) do
+    callback!(cb)
+    l = len(ref)
+    this_arg = arg(rest, 0, :undefined)
+
+    if l > 0 do
+      for i <- 0..(l - 1) do
+        Invocation.invoke_with_receiver(cb, [get_element({:obj, ref}, i), i, this], this_arg)
+      end
+    end
+
     :undefined
   end
 
-  defp map(ref, [cb | _], this) do
-    {b, l, t} = {buf(ref), len(ref), type(ref)}
+  defp for_each(_ref, _args, _this), do: JSThrow.type_error!("callbackfn is not callable")
 
-    new_buf =
-      Enum.reduce(0..(l - 1), b, fn i, acc ->
-        write_element(acc, i, call(cb, [read_element(acc, i, t), i, this]), t)
-      end)
+  defp map(ref, [cb | rest], this) do
+    callback!(cb)
+    l = len(ref)
+    t = type(ref)
+    this_arg = arg(rest, 0, :undefined)
 
-    elements = for i <- 0..(l - 1), do: read_element(new_buf, i, t)
+    elements =
+      if l == 0 do
+        []
+      else
+        for i <- 0..(l - 1) do
+          Invocation.invoke_with_receiver(cb, [get_element({:obj, ref}, i), i, this], this_arg)
+        end
+      end
+
     constructor(t).([elements], nil)
   end
 
-  defp filter(ref, [cb | _], this) do
-    {b, l, t} = {buf(ref), len(ref), type(ref)}
+  defp map(_ref, _args, _this), do: JSThrow.type_error!("callbackfn is not callable")
+
+  defp filter(ref, [cb | rest], this) do
+    callback!(cb)
+    l = len(ref)
+    t = type(ref)
+    this_arg = arg(rest, 0, :undefined)
 
     vals =
-      for i <- 0..(l - 1),
-          (
-            v = read_element(b, i, t)
-            Runtime.truthy?(call(cb, [v, i, this]))
-          ),
-          do: v
+      if l == 0 do
+        []
+      else
+        for i <- 0..(l - 1),
+            (
+              v = get_element({:obj, ref}, i)
+              Runtime.truthy?(Invocation.invoke_with_receiver(cb, [v, i, this], this_arg))
+            ),
+            do: v
+      end
 
     constructor(t).([vals], nil)
   end
 
-  defp every(ref, [cb | rest], this) do
-    unless QuickBEAM.VM.Builtin.callable?(cb) do
-      JSThrow.type_error!("callbackfn is not callable")
-    end
+  defp filter(_ref, _args, _this), do: JSThrow.type_error!("callbackfn is not callable")
 
-    {b, l, t} = {buf(ref), len(ref), type(ref)}
+  defp every(ref, [cb | rest], this) do
+    callback!(cb)
+    l = len(ref)
     this_arg = arg(rest, 0, :undefined)
 
     l == 0 or
       Enum.all?(0..(l - 1), fn index ->
         cb
-        |> Invocation.invoke_with_receiver([read_element(b, index, t), index, this], this_arg)
+        |> Invocation.invoke_with_receiver([get_element({:obj, ref}, index), index, this], this_arg)
         |> Runtime.truthy?()
       end)
   end
 
   defp every(_ref, _args, _this), do: JSThrow.type_error!("callbackfn is not callable")
 
-  defp some(ref, [cb | _], this) do
-    {b, l, t} = {buf(ref), len(ref), type(ref)}
-    Enum.any?(0..max(0, l - 1), &Runtime.truthy?(call(cb, [read_element(b, &1, t), &1, this])))
+  defp some(ref, [cb | rest], this) do
+    callback!(cb)
+    l = len(ref)
+    this_arg = arg(rest, 0, :undefined)
+
+    l > 0 and
+      Enum.any?(0..(l - 1), fn index ->
+        cb
+        |> Invocation.invoke_with_receiver([get_element({:obj, ref}, index), index, this], this_arg)
+        |> Runtime.truthy?()
+      end)
   end
 
-  defp reduce(ref, args, this) do
-    {b, l, t} = {buf(ref), len(ref), type(ref)}
-    cb = arg(args, 0, nil)
-    init = arg(args, 1, nil)
-    {start, acc} = if init != nil, do: {0, init}, else: {1, read_element(b, 0, t)}
+  defp some(_ref, _args, _this), do: JSThrow.type_error!("callbackfn is not callable")
 
-    Enum.reduce(start..max(start, l - 1), acc, fn i, a ->
-      call(cb, [a, read_element(b, i, t), i, this])
-    end)
+  defp reduce(ref, args, this) do
+    l = len(ref)
+    cb = arg(args, 0, nil)
+    callback!(cb)
+    init = arg(args, 1, :__missing__)
+
+    cond do
+      l == 0 and init == :__missing__ ->
+        JSThrow.type_error!("Reduce of empty typed array with no initial value")
+
+      l == 0 ->
+        init
+
+      true ->
+        {start, acc} = if init == :__missing__, do: {1, get_element({:obj, ref}, 0)}, else: {0, init}
+
+        if start >= l do
+          acc
+        else
+          Enum.reduce(start..(l - 1), acc, fn i, a ->
+            Invocation.invoke_with_receiver(cb, [a, get_element({:obj, ref}, i), i, this], :undefined)
+          end)
+        end
+    end
   end
 
   defp index_of(ref, [target | _]) do
@@ -705,14 +754,25 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp includes(_ref, _args), do: false
 
-  defp find(ref, [cb | _], this) do
-    {b, l, t} = {buf(ref), len(ref), type(ref)}
+  defp find(ref, [cb | rest], this) do
+    callback!(cb)
+    l = len(ref)
+    this_arg = arg(rest, 0, :undefined)
 
-    Enum.find_value(0..max(0, l - 1), :undefined, fn i ->
-      v = read_element(b, i, t)
-      if Runtime.truthy?(call(cb, [v, i, this])), do: v
-    end)
+    if l == 0 do
+      :undefined
+    else
+      Enum.find_value(0..(l - 1), :undefined, fn i ->
+        v = get_element({:obj, ref}, i)
+
+        if Runtime.truthy?(Invocation.invoke_with_receiver(cb, [v, i, this], this_arg)) do
+          v
+        end
+      end)
+    end
   end
+
+  defp find(_ref, _args, _this), do: JSThrow.type_error!("callbackfn is not callable")
 
   defp sort(ref) do
     {b, l, t} = {buf(ref), len(ref), type(ref)}
@@ -901,7 +961,12 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp bankers_round(n) when is_integer(n), do: n
   defp bankers_round(_), do: 0
 
-  defp call(cb, args), do: Runtime.call_callback(cb, args)
+  defp callback!(cb) do
+    unless QuickBEAM.VM.Builtin.callable?(cb) do
+      JSThrow.type_error!("callbackfn is not callable")
+    end
+  end
+
   defp to_idx(n) when is_integer(n), do: n
   defp to_idx(n) when is_float(n), do: trunc(n)
   defp to_idx(_), do: 0
