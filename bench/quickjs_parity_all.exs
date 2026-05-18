@@ -22,6 +22,8 @@ limit =
 
 error_limit = String.to_integer(System.get_env("TEST262_ERROR_LIMIT", "40"))
 case_timeout = String.to_integer(System.get_env("TEST262_CASE_TIMEOUT", "5000"))
+progress_every = String.to_integer(System.get_env("TEST262_PROGRESS_EVERY", "0"))
+use_context_pool? = System.get_env("TEST262_CONTEXT_POOL", "1") not in ["0", "false", "FALSE"]
 
 files =
   case selected_categories do
@@ -49,16 +51,38 @@ compiler_error? = fn
   _ -> false
 end
 
-run_raw_case = fn full, mode ->
-  {:ok, rt} = QuickBEAM.start(apis: false)
-
-  try do
-    case mode do
-      :native -> QuickBEAM.eval(rt, full)
-      mode -> QuickBEAM.eval(rt, full, mode: mode)
+pooled_contexts =
+  if use_context_pool? do
+    for mode <- [:native, :beam, :beam_compiler], into: %{} do
+      pool_mode = if mode == :native, do: :nif, else: mode
+      {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 1, mode: pool_mode)
+      {:ok, context} = QuickBEAM.Context.start_link(pool: pool, apis: false)
+      {mode, {pool, context}}
     end
-  after
-    QuickBEAM.stop(rt)
+  else
+    %{}
+  end
+
+run_raw_case = fn full, mode ->
+  if use_context_pool? do
+    {_pool, context} = Map.fetch!(pooled_contexts, mode)
+
+    try do
+      QuickBEAM.Context.eval(context, full, timeout: case_timeout)
+    after
+      QuickBEAM.Context.reset(context)
+    end
+  else
+    {:ok, rt} = QuickBEAM.start(apis: false)
+
+    try do
+      case mode do
+        :native -> QuickBEAM.eval(rt, full)
+        mode -> QuickBEAM.eval(rt, full, mode: mode)
+      end
+    after
+      QuickBEAM.stop(rt)
+    end
   end
 end
 
@@ -118,81 +142,109 @@ skipped? = fn meta ->
   "async" in flags or "module" in flags
 end
 
-results =
-  Enum.map(files, fn file ->
+initial = %{
+  seen: 0,
+  summary: %{},
+  failures: []
+}
+
+record = fn status, acc ->
+  %{acc | seen: acc.seen + 1, summary: Map.update(acc.summary, status, 1, &(&1 + 1))}
+end
+
+record_result = fn result, acc ->
+  acc = record.(result.status, acc)
+
+  if result.status not in [:pass, :native_rejected, :skipped] and
+       length(acc.failures) < error_limit do
+    %{acc | failures: [result | acc.failures]}
+  else
+    acc
+  end
+end
+
+acc =
+  Enum.reduce(files, initial, fn file, acc ->
+    if progress_every > 0 and acc.seen > 0 and rem(acc.seen, progress_every) == 0 do
+      IO.puts("PROGRESS quickjs_parity_all_seen=#{acc.seen}/#{length(files)}")
+    end
+
     source = File.read!(file)
     meta = QuickBEAM.Test262.parse_metadata(source)
     relative = QuickBEAM.Test262.relative_path(file)
 
-    if skipped?.(meta) do
-      %{
-        relative: relative,
-        status: :skipped,
-        native: :skipped,
-        interpreter: :skipped,
-        compiler: :skipped
-      }
-    else
-      native = run_case.(source, meta, :native)
-
-      if match?({:pass, _}, native) do
-        interpreter = run_case.(source, meta, :beam)
-        compiler = run_case.(source, meta, :beam_compiler)
-
-        status =
-          case {interpreter, compiler} do
-            {{:pass, _}, {:pass, _}} -> :pass
-            {{:pass, _}, {:compiler_error, _}} -> :compiler_error
-            {{:pass, _}, {:timeout, _}} -> :compiler_timeout
-            {{:pass, _}, {:crash, _}} -> :compiler_crash
-            {{:pass, _}, {:fail, _}} -> :compiler_fail
-            {{:fail, _}, {:pass, _}} -> :interpreter_fail_compiler_pass
-            {{:fail, _}, {:fail, _}} -> :both_fail
-            {{:timeout, _}, _} -> :interpreter_timeout
-            {{:crash, _}, _} -> :interpreter_crash
-            {{:compiler_error, _}, _} -> :interpreter_infra_error
-            _ -> :mismatch
-          end
-
+    result =
+      if skipped?.(meta) do
         %{
           relative: relative,
-          status: status,
-          native: native,
-          interpreter: interpreter,
-          compiler: compiler
+          status: :skipped,
+          native: :skipped,
+          interpreter: :skipped,
+          compiler: :skipped
         }
       else
-        %{
-          relative: relative,
-          status: :native_rejected,
-          native: native,
-          interpreter: :not_run,
-          compiler: :not_run
-        }
+        native = run_case.(source, meta, :native)
+
+        if match?({:pass, _}, native) do
+          interpreter = run_case.(source, meta, :beam)
+          compiler = run_case.(source, meta, :beam_compiler)
+
+          status =
+            case {interpreter, compiler} do
+              {{:pass, _}, {:pass, _}} -> :pass
+              {{:pass, _}, {:compiler_error, _}} -> :compiler_error
+              {{:pass, _}, {:timeout, _}} -> :compiler_timeout
+              {{:pass, _}, {:crash, _}} -> :compiler_crash
+              {{:pass, _}, {:fail, _}} -> :compiler_fail
+              {{:fail, _}, {:pass, _}} -> :interpreter_fail_compiler_pass
+              {{:fail, _}, {:fail, _}} -> :both_fail
+              {{:timeout, _}, _} -> :interpreter_timeout
+              {{:crash, _}, _} -> :interpreter_crash
+              {{:compiler_error, _}, _} -> :interpreter_infra_error
+              _ -> :mismatch
+            end
+
+          %{
+            relative: relative,
+            status: status,
+            native: native,
+            interpreter: interpreter,
+            compiler: compiler
+          }
+        else
+          %{
+            relative: relative,
+            status: :native_rejected,
+            native: native,
+            interpreter: :not_run,
+            compiler: :not_run
+          }
+        end
       end
-    end
+
+    record_result.(result, acc)
   end)
 
-summary = Enum.frequencies_by(results, & &1.status)
+summary = acc.summary
 count = fn status -> Map.get(summary, status, 0) end
-accepted = Enum.reject(results, &(&1.status in [:native_rejected, :skipped]))
-failures = Enum.reject(accepted, &(&1.status == :pass))
+accepted = acc.seen - count.(:native_rejected) - count.(:skipped)
+failures = accepted - count.(:pass)
 
 IO.puts(
-  "quickjs_parity_all_cases=#{length(results)} quickjs_parity_all_native_accepted=#{length(accepted)} quickjs_parity_all_pass=#{count.(:pass)} quickjs_parity_all_failures=#{length(failures)} quickjs_parity_all_native_rejected=#{count.(:native_rejected)} quickjs_parity_all_skipped=#{count.(:skipped)}"
+  "quickjs_parity_all_cases=#{acc.seen} quickjs_parity_all_native_accepted=#{accepted} quickjs_parity_all_pass=#{count.(:pass)} quickjs_parity_all_failures=#{failures} quickjs_parity_all_native_rejected=#{count.(:native_rejected)} quickjs_parity_all_skipped=#{count.(:skipped)}"
 )
 
-for result <- Enum.take(failures, error_limit) do
+for result <- Enum.reverse(acc.failures) do
   IO.puts("QUICKJS_PARITY_ALL_#{String.upcase(to_string(result.status))} #{result.relative}")
   IO.puts("  native=#{inspect(result.native, limit: 80)}")
   IO.puts("  interpreter=#{inspect(result.interpreter, limit: 80)}")
   IO.puts("  compiler=#{inspect(result.compiler, limit: 80)}")
 end
 
-IO.puts("METRIC quickjs_parity_all_cases=#{length(results)}")
-IO.puts("METRIC quickjs_parity_all_native_accepted=#{length(accepted)}")
+IO.puts("METRIC quickjs_parity_all_cases=#{acc.seen}")
+IO.puts("METRIC quickjs_parity_all_native_accepted=#{accepted}")
 IO.puts("METRIC quickjs_parity_all_pass=#{count.(:pass)}")
-IO.puts("METRIC quickjs_parity_all_failures=#{length(failures)}")
+IO.puts("METRIC quickjs_parity_all_failures=#{failures}")
 IO.puts("METRIC quickjs_parity_all_native_rejected=#{count.(:native_rejected)}")
 IO.puts("METRIC quickjs_parity_all_skipped=#{count.(:skipped)}")
 IO.puts("METRIC compiler_errors=#{count.(:compiler_error)}")
@@ -203,3 +255,8 @@ IO.puts("METRIC both_fail=#{count.(:both_fail)}")
 IO.puts("METRIC interpreter_fail_compiler_pass=#{count.(:interpreter_fail_compiler_pass)}")
 IO.puts("METRIC interpreter_timeouts=#{count.(:interpreter_timeout)}")
 IO.puts("METRIC interpreter_crashes=#{count.(:interpreter_crash)}")
+
+for {_mode, {pool, context}} <- pooled_contexts do
+  QuickBEAM.Context.stop(context)
+  GenServer.stop(pool)
+end
