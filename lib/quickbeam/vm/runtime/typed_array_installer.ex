@@ -46,7 +46,9 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayInstaller do
 
     Heap.put_obj(
       ta_base_ref,
-      Map.put(TypedArray.base_prototype_properties(), "__proto__", Heap.get_object_prototype())
+      TypedArray.base_prototype_properties()
+      |> Map.put("constructor", ta_base)
+      |> Map.put("__proto__", Heap.get_object_prototype())
     )
 
     for key <- Map.keys(TypedArray.prototype_properties()) do
@@ -56,6 +58,8 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayInstaller do
     for key <- ["buffer", "byteLength", "byteOffset", "length", {:symbol, "Symbol.toStringTag"}] do
       Heap.put_prop_desc(ta_base_ref, key, PropertyDescriptor.accessor())
     end
+
+    Heap.put_prop_desc(ta_base_ref, "constructor", PropertyDescriptor.constructor())
 
     ConstructorRegistry.put_prototype(ta_base, {:obj, ta_base_ref})
     Heap.put_ctor_prop_desc(ta_base, "prototype", PropertyDescriptor.prototype())

@@ -48,6 +48,12 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   @doc "Returns generic properties for typed-array constructor prototype objects."
   def prototype_properties do
+    values_method =
+      prototype_method("values", 0, fn _args, this ->
+        this = typed_array_object!(this)
+        Array.make_array_iterator(this, :values)
+      end)
+
     %{
       "at" => prototype_method("at", 1, fn args, this -> at(this, args) end),
       "copyWithin" => prototype_ref_method("copyWithin", 2, &copy_within/3),
@@ -61,16 +67,8 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
           this = typed_array_object!(this)
           Array.make_array_iterator(this, :keys)
         end),
-      "values" =>
-        prototype_method("values", 0, fn _args, this ->
-          this = typed_array_object!(this)
-          Array.make_array_iterator(this, :values)
-        end),
-      {:symbol, "Symbol.iterator"} =>
-        prototype_method("values", 0, fn _args, this ->
-          this = typed_array_object!(this)
-          Array.make_array_iterator(this, :values)
-        end),
+      "values" => values_method,
+      {:symbol, "Symbol.iterator"} => values_method,
       "every" => prototype_ref_method("every", 1, &every/3),
       "fill" => prototype_ref_method("fill", 1, fn ref, args, _this -> fill(ref, args) end),
       "filter" => prototype_ref_method("filter", 1, &filter/3),
