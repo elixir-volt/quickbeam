@@ -26,4 +26,12 @@ defmodule QuickBEAM.VM.Semantics.EvalTest do
       "Modified by setter"
     )
   end
+
+  test "top-level lexical declarations do not create global object properties", %{rt: rt} do
+    assert_modes(rt, ~S|let lexicalGlobal = 1; String(globalThis.lexicalGlobal)|, "undefined")
+  end
+
+  test "shadowed eval is an ordinary call in the source compiler", %{rt: rt} do
+    assert_modes(rt, ~S|function f(eval, x) { return eval("x"); } f(function(s) { return s; }, 2)|, "x")
+  end
 end

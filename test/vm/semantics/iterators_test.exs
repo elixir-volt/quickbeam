@@ -63,4 +63,11 @@ defmodule QuickBEAM.VM.Semantics.IteratorsTest do
              ~S|const array = [9]; Object.defineProperty(array, Symbol.iterator, { get() { return function* () { yield 1; }; } }); let out; for (const value of array) out = value; out|
            ) == 1
   end
+
+  test "iterator result value is not read when done is true", %{rt: rt} do
+    assert beam!(
+             rt,
+             ~S|let iterable = { [Symbol.iterator]() { return { next() { return { get done() { return true; }, get value() { throw new Error("bad"); } }; } }; } }; for (const value of iterable) { throw new Error("unreachable"); } "done"|
+           ) == "done"
+  end
 end

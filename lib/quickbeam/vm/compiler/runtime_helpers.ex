@@ -185,21 +185,25 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   # ── Variables ──
 
   @doc "Reads a variable binding or throws a JavaScript ReferenceError when absent."
-  def get_var(ctx, "arguments"),
-    do:
-      Map.get(
-        context_globals(ctx),
-        "arguments",
-        Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf),
-          strict: current_strict_mode?(ctx),
-          callee: context_current_func(ctx)
-        )
-      )
+  def get_var(ctx, "arguments"), do: arguments_object(ctx)
 
   def get_var(ctx, name) when is_binary(name), do: fetch_ctx_var(ctx, name)
 
   def get_var(ctx, atom_idx),
     do: get_var(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
+
+  defp arguments_object(ctx) do
+    case Map.fetch(context_globals(ctx), "arguments") do
+      {:ok, arguments} ->
+        arguments
+
+      :error ->
+        Heap.wrap_arguments(Tuple.to_list(context_arg_buf(ctx)),
+          strict: current_strict_mode?(ctx),
+          callee: context_current_func(ctx)
+        )
+    end
+  end
 
   def get_global(globals, name) do
     case fetch_global_binding(globals, name) do
@@ -382,16 +386,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def get_var(atom_idx),
     do: get_var(Names.resolve_atom(InvokeContext.current_atoms(), atom_idx))
 
-  def get_var_undef(ctx, "arguments"),
-    do:
-      Map.get(
-        context_globals(ctx),
-        "arguments",
-        Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf),
-          strict: current_strict_mode?(ctx),
-          callee: context_current_func(ctx)
-        )
-      )
+  def get_var_undef(ctx, "arguments"), do: arguments_object(ctx)
 
   def get_var_undef(ctx, name) when is_binary(name),
     do: get_global_undef(context_globals(ctx), name)
@@ -920,15 +915,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   defp run_eval_program(ctx, program) do
     reject_eval_lexical_conflicts!(ctx, program.value)
 
-    globals =
-      ctx.globals
-      |> Map.put(
-        "arguments",
-        Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf),
-          strict: current_strict_mode?(ctx),
-          callee: context_current_func(ctx)
-        )
-      )
+    arguments = arguments_object(ctx)
+    globals = Map.put(ctx.globals, "arguments", arguments)
 
     case QuickBEAM.VM.Interpreter.eval(
            program.value,
@@ -1130,6 +1118,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   @doc "Creates special object forms used by compiled object/class bytecode."
+  def special_object(ctx, type) when type in [0, 1], do: arguments_object(ctx)
+
   def special_object(ctx, type) do
     current_func = context_current_func(ctx)
 
@@ -1405,8 +1395,24 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   defdelegate for_in_next(ctx \\ nil, iter), to: Iterators
 
   @doc "Closes an iterator by calling its `return` method when present."
+  def iterator_value_done(result) do
+    done = Get.get(result, "done")
+
+    if QuickBEAM.VM.Runtime.truthy?(done) do
+      {true, :undefined}
+    else
+      {false, Get.get(result, "value")}
+    end
+  end
+
   defdelegate iterator_close(ctx, iter_obj), to: Iterators
   defdelegate iterator_close(iter_obj), to: Iterators
+
+  def iterator_close_refresh(ctx, iter_obj) do
+    Iterators.iterator_close(ctx, iter_obj)
+    persistent = Heap.get_persistent_globals() || %{}
+    %{ctx | globals: Map.merge(ctx.globals, persistent)} |> Context.mark_dirty()
+  end
 
   def iterator_close_for_throw(ctx, iter_obj) do
     try do

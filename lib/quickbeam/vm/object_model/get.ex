@@ -599,6 +599,18 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     end
   end
 
+  defp get_own({:builtin, name, _} = builtin, "prototype")
+       when name in ~w(Uint8Array Int8Array Uint8ClampedArray Uint16Array Int16Array Uint32Array Int32Array Float32Array Float64Array Float16Array BigInt64Array BigUint64Array) do
+    TypedArray.constructor_prototype(name, builtin)
+  end
+
+  defp get_own({:builtin, name, _}, "BYTES_PER_ELEMENT") do
+    case Map.fetch(TypedArray.types(), name) do
+      {:ok, type} -> TypedArray.elem_size(type)
+      :error -> :undefined
+    end
+  end
+
   defp get_own({:builtin, name, _}, "from")
        when name in ~w(Uint8Array Int8Array Uint8ClampedArray Uint16Array Int16Array Uint32Array Int32Array Float32Array Float64Array) do
     type = Map.get(TypedArray.types(), name, :uint8)
@@ -871,7 +883,13 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         end
 
       :error ->
-        get_map_property(map, key, obj)
+        own_value = get_map_property(map, key, obj)
+
+        if own_value == :undefined and Heap.get_prop_desc(elem(obj, 1), key) == nil do
+          get_from_prototype(obj, key)
+        else
+          own_value
+        end
     end
   end
 

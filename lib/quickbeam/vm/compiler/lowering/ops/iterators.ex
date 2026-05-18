@@ -31,19 +31,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
 
       {{:ok, :iterator_get_value_done}, []} ->
         with {:ok, result, state} <- Emit.pop(state) do
-          done =
-            Builder.remote_call(Get, :get, [
-              result,
-              Builder.literal("done")
-            ])
+          {pair, state} =
+            Emit.bind(
+              state,
+              Builder.temp_name(state.temp),
+              State.abi_call(state, :iterator_value_done, [result])
+            )
 
-          value =
-            Builder.remote_call(Get, :get, [
-              result,
-              Builder.literal("value")
-            ])
-
-          {:ok, state |> Emit.push(done) |> Emit.push(value)}
+          {:ok, state |> Emit.push(Builder.tuple_element(pair, 1)) |> Emit.push(Builder.tuple_element(pair, 2))}
         end
 
       {{:ok, :iterator_next}, []} ->
@@ -255,7 +250,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
     with {:ok, _catch_offset, _catch_type, state} <- Emit.pop_typed(state),
          {:ok, _next_fn, _next_type, state} <- Emit.pop_typed(state),
          {:ok, iter_obj, _iter_type, state} <- Emit.pop_typed(state) do
-      {:ok, Emit.emit(state, State.abi_call(state, :iterator_close, [iter_obj]))}
+      state = State.update_ctx(state, State.abi_call(state, :iterator_close_refresh, [iter_obj]))
+      {:ok, state}
     end
   end
 end

@@ -47,7 +47,15 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
 
       defp run_get_var(atom_idx, pc, frame, stack, gas, ctx) do
         if Names.resolve_atom(ctx, atom_idx) == "arguments" do
-          arguments = Map.get(ctx.globals, "arguments", make_arguments_object(ctx, frame))
+          {arguments, ctx} =
+            case Map.fetch(ctx.globals, "arguments") do
+              {:ok, arguments} ->
+                {arguments, ctx}
+
+              :error ->
+                arguments = make_arguments_object(ctx, frame)
+                {arguments, %{ctx | globals: Map.put(ctx.globals, "arguments", arguments)}}
+            end
 
           run(pc + 1, frame, [arguments | stack], gas, ctx)
         else
@@ -110,30 +118,43 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
           var_refs = elem(frame, Frame.var_refs())
           count = min(tuple_size(ctx.arg_buf), length(locals))
 
-          mapped =
-            if count == 0 do
-              %{}
-            else
-              0..(count - 1)//1
-              |> Enum.reduce(%{}, fn index, acc ->
-                case Enum.at(locals, index) do
-                  %{var_ref_idx: ref_idx}
-                  when is_integer(ref_idx) and ref_idx < tuple_size(var_refs) ->
+          if count == 0 do
+            %{}
+          else
+            last_parameter_index = last_parameter_index_by_var_ref(locals, count)
+
+            0..(count - 1)//1
+            |> Enum.reduce(%{}, fn index, acc ->
+              case Enum.at(locals, index) do
+                %{var_ref_idx: ref_idx}
+                when is_integer(ref_idx) and ref_idx < tuple_size(var_refs) ->
+                  if Map.get(last_parameter_index, ref_idx) == index do
                     case elem(var_refs, ref_idx) do
                       {:cell, _} = cell -> Map.put(acc, index, cell)
                       _ -> acc
                     end
-
-                  _ ->
+                  else
                     acc
-                end
-              end)
-            end
+                  end
 
-          mapped
+                _ ->
+                  acc
+              end
+            end)
+          end
         else
           %{}
         end
+      end
+
+      defp last_parameter_index_by_var_ref(locals, count) do
+        0..(count - 1)//1
+        |> Enum.reduce(%{}, fn index, acc ->
+          case Enum.at(locals, index) do
+            %{var_ref_idx: ref_idx} when is_integer(ref_idx) -> Map.put(acc, ref_idx, index)
+            _ -> acc
+          end
+        end)
       end
 
       defp mapped_arguments_object?(ctx) do
@@ -204,13 +225,13 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
               strict: current_strict_mode?(ctx)
             )
 
-          case Map.get(ctx.globals, "globalThis") do
-            {:obj, _} = gt ->
-              name = Names.resolve_atom(ctx, atom_idx)
-              Put.put(gt, name, val)
+          name = Names.resolve_atom(ctx, atom_idx)
 
-            _ ->
-              :ok
+          unless GlobalEnv.lexical_global?(name) do
+            case Map.get(ctx.globals, "globalThis") do
+              {:obj, _} = gt -> Put.put(gt, name, val)
+              _ -> :ok
+            end
           end
 
           run(pc + 1, frame, rest, gas, new_ctx)
@@ -227,23 +248,25 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
       defp run({@op_define_var, [atom_idx, scope]}, pc, frame, stack, gas, ctx) do
         ctx = GlobalEnv.define_var(ctx, atom_idx, scope)
 
-        case Map.get(ctx.globals, "globalThis") do
-          {:obj, ref} ->
-            name = Names.resolve_atom(ctx, atom_idx)
-            stored = Heap.get_obj(ref)
+        unless Bitwise.band(scope, 0x80) == 0x80 do
+          case Map.get(ctx.globals, "globalThis") do
+            {:obj, ref} ->
+              name = Names.resolve_atom(ctx, atom_idx)
+              stored = Heap.get_obj(ref)
 
-            if is_map(stored) and not Map.has_key?(stored, name) do
-              Heap.put_obj(ref, Map.put(stored, name, :undefined))
+              if is_map(stored) and not Map.has_key?(stored, name) do
+                Heap.put_obj(ref, Map.put(stored, name, :undefined))
 
-              Heap.put_prop_desc(ref, name, %{
-                writable: true,
-                enumerable: true,
-                configurable: false
-              })
-            end
+                Heap.put_prop_desc(ref, name, %{
+                  writable: true,
+                  enumerable: true,
+                  configurable: false
+                })
+              end
 
-          _ ->
-            :ok
+            _ ->
+              :ok
+          end
         end
 
         run(pc + 1, frame, stack, gas, ctx)

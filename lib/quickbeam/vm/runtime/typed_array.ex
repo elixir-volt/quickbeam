@@ -255,42 +255,8 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       {buf, offset, len, orig_buf, length_tracking?} = parse_args(args, type)
       ref = make_ref()
 
-      methods =
-        object heap: false do
-          method("set", do: set(receiver_ref!(this), args))
-          method("subarray", do: subarray(receiver_ref!(this), args))
-          method("at", do: at(this, args))
-          method("copyWithin", do: copy_within(receiver_ref!(this), args, this))
-          method("join", do: join(receiver_ref!(this), args))
-          method("forEach", do: for_each(receiver_ref!(this), args, this))
-          method("map", do: map(receiver_ref!(this), args, this))
-          method("filter", do: filter(receiver_ref!(this), args, this))
-          method("every", do: every(receiver_ref!(this), args, this))
-          method("some", do: some(receiver_ref!(this), args, this))
-          method("reduce", do: reduce(receiver_ref!(this), args, this))
-          method("reduceRight", do: reduce_right(receiver_ref!(this), args, this))
-          method("indexOf", do: index_of(receiver_ref!(this), args))
-          method("lastIndexOf", do: last_index_of(receiver_ref!(this), args))
-          method("includes", do: includes(receiver_ref!(this), args))
-          method("find", do: find(receiver_ref!(this), args, this))
-          method("findIndex", do: find_index(receiver_ref!(this), args, this))
-          method("findLast", do: find_last(receiver_ref!(this), args, this))
-          method("findLastIndex", do: find_last_index(receiver_ref!(this), args, this))
-          method("sort", do: sort(receiver_ref!(this), args))
-          method("reverse", do: reverse(receiver_ref!(this)))
-          method("slice", do: slice(receiver_ref!(this), args))
-          method("fill", do: fill(receiver_ref!(this), args))
-          method("toLocaleString", do: to_locale_string(receiver_ref!(this)))
-          method("toReversed", do: to_reversed(receiver_ref!(this)))
-          method("toSorted", do: to_sorted(receiver_ref!(this), args))
-          method("toString", do: join(receiver_ref!(this), [","]))
-          method("with", do: with_element(receiver_ref!(this), args))
-        end
-
-      sym_iter = {:symbol, "Symbol.iterator"}
-
       obj =
-        Map.merge(methods, %{
+        %{
           typed_array() => true,
           type_key() => type,
           buffer() => buf,
@@ -299,20 +265,12 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
           "byteLength" => len * elem_size(type),
           "byteOffset" => offset,
           "BYTES_PER_ELEMENT" => elem_size(type),
-          "__proto__" => Runtime.global_class_proto(typed_array_name(type)),
+          "__proto__" => class_proto_for(type),
           "__length_tracking__" => length_tracking?,
           "__fixed_length__" => len,
           "__fixed_byte_length__" => len * elem_size(type),
-          "buffer" => orig_buf || make_buffer_ref(buf),
-          "entries" =>
-            {:builtin, "entries", fn _, this -> Array.make_array_iterator(this, :entries) end},
-          "keys" => {:builtin, "keys", fn _, this -> Array.make_array_iterator(this, :keys) end},
-          "values" =>
-            {:builtin, "values", fn _, this -> Array.make_array_iterator(this, :values) end},
-          sym_iter =>
-            {:builtin, "[Symbol.iterator]",
-             fn _, this -> Array.make_array_iterator(this, :values) end}
-        })
+          "buffer" => orig_buf || make_buffer_ref(buf)
+        }
 
       Heap.put_obj(ref, obj)
       register_buffer_view(orig_buf, ref)
@@ -320,9 +278,39 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     end
   end
 
-  defp receiver_ref!(this) do
-    {:obj, ref} = typed_array_object!(this)
-    ref
+  def constructor_prototype(name, ctor) do
+    Runtime.global_class_proto(name) ||
+      cached_prototype({:qb_typed_array_constructor_proto, name}, fn ->
+        Heap.wrap(%{"constructor" => ctor, "__proto__" => abstract_prototype()})
+      end)
+  end
+
+  defp abstract_prototype do
+    cached_prototype(:qb_typed_array_abstract_proto, fn ->
+      Heap.wrap(
+        base_prototype_properties()
+        |> Map.put("constructor", {:builtin, "TypedArray", fn _args, _this -> JSThrow.type_error!("Abstract class TypedArray cannot be called") end})
+        |> Map.put("toString", QuickBEAM.VM.ObjectModel.Get.get(Heap.get_array_proto(), "toString"))
+        |> Map.put("__proto__", Heap.get_object_prototype())
+      )
+    end)
+  end
+
+  defp cached_prototype(key, build) do
+    case Process.get(key) do
+      nil ->
+        proto = build.()
+        Process.put(key, proto)
+        proto
+
+      proto ->
+        proto
+    end
+  end
+
+  defp class_proto_for(type) do
+    Runtime.global_class_proto(typed_array_name(type)) ||
+      constructor_prototype(typed_array_name(type), {:builtin, typed_array_name(type), constructor(type)})
   end
 
   defp register_buffer_view({:obj, buf_ref}, view_ref) do
@@ -1396,10 +1384,6 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     end
   end
 
-  defp to_idx(n) when is_integer(n), do: n
-  defp to_idx(n) when is_float(n), do: trunc(n)
-  defp to_idx(_), do: 0
-
   defp rebuild_buffer(vals, buf, type) do
     vals
     |> Enum.with_index()
@@ -1421,20 +1405,31 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
           is_map(buf) and Map.has_key?(buf, buffer()) ->
             bin = Map.get(buf, buffer())
-            off = to_idx(Enum.at(rest, 0) || 0)
-            length_arg = Enum.at(rest, 1)
+            es = elem_size(type)
+            off = to_index(Enum.at(rest, 0, :undefined))
+            length_arg = Enum.at(rest, 1, :undefined)
             length_tracking? = length_arg in [nil, :undefined]
+            available = byte_size(bin) - off
 
-            len =
-              if length_tracking?,
-                do: div(byte_size(bin) - off, elem_size(type)),
-                else: to_idx(length_arg)
+            cond do
+              rem(off, es) != 0 ->
+                JSThrow.range_error!("Invalid typed array byteOffset")
 
-            if not length_tracking? and off + len * elem_size(type) > byte_size(bin) do
-              JSThrow.range_error!("Invalid typed array length")
+              off > byte_size(bin) ->
+                JSThrow.range_error!("Invalid typed array byteOffset")
+
+              length_tracking? and rem(available, es) != 0 ->
+                JSThrow.range_error!("Invalid typed array length")
+
+              true ->
+                len = if length_tracking?, do: div(available, es), else: to_index(length_arg)
+
+                if not length_tracking? and len * es > available do
+                  JSThrow.range_error!("Invalid typed array length")
+                end
+
+                {bin, off, len, buf_obj, length_tracking?}
             end
-
-            {bin, off, len, buf_obj, length_tracking?}
 
           true ->
             list = object_source_to_list(buf_obj)
@@ -1442,6 +1437,10 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
         end
 
       [n | _] when is_integer(n) ->
+        if n < 0 do
+          JSThrow.range_error!("Invalid typed array length")
+        end
+
         {:binary.copy(<<0>>, n * elem_size(type)), 0, n, nil, false}
 
       [{:qb_arr, arr} | _] ->
@@ -1770,6 +1769,16 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       :nan -> 0
       number when is_number(number) -> trunc(number)
       _ -> 0
+    end
+  end
+
+  defp to_index(value) when value in [nil, :undefined], do: 0
+
+  defp to_index(value) do
+    case to_integer_or_infinity(value) do
+      index when index in [:infinity, :neg_infinity] -> JSThrow.range_error!("Invalid index")
+      index when index < 0 -> JSThrow.range_error!("Invalid index")
+      index -> index
     end
   end
 

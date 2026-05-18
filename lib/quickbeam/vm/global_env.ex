@@ -65,7 +65,9 @@ defmodule QuickBEAM.VM.GlobalEnv do
 
     globals = ctx.globals |> Map.merge(Heap.get_persistent_globals() || %{}) |> Map.put(name, val)
 
-    sync_global_this_property(globals, name, val)
+    unless lexical_global?(name) do
+      sync_global_this_property(globals, name, val)
+    end
 
     if Keyword.get(opts, :persist, true) do
       Heap.put_persistent_globals(globals)
@@ -78,11 +80,16 @@ defmodule QuickBEAM.VM.GlobalEnv do
   @doc "Defines a hoisted `var` binding in the active global environment."
   def define_var(%Context{} = ctx, atom_idx, flags \\ 0) do
     name = Names.resolve_atom(ctx, atom_idx)
-    initial = if lexical_global_flags?(flags), do: :__tdz__, else: :undefined
+    lexical? = lexical_global_flags?(flags)
+    initial = if lexical?, do: :__tdz__, else: :undefined
     Heap.put_var(name, initial)
     mark_const_global(name, const_global_flags?(flags))
+    mark_lexical_global(name, lexical?)
     globals = Map.put_new(ctx.globals, name, initial)
-    sync_global_this_property(globals, name, Map.get(globals, name))
+
+    unless lexical? do
+      sync_global_this_property(globals, name, Map.get(globals, name))
+    end
     Heap.put_persistent_globals(globals)
     Context.mark_dirty(%{ctx | globals: globals})
   end
@@ -113,6 +120,11 @@ defmodule QuickBEAM.VM.GlobalEnv do
   defp mark_const_global(name, false), do: Process.delete({:qb_const_global, name})
 
   defp const_global?(name), do: Process.get({:qb_const_global, name}) == true
+
+  defp mark_lexical_global(name, true), do: Process.put({:qb_lexical_global, name}, true)
+  defp mark_lexical_global(name, false), do: Process.delete({:qb_lexical_global, name})
+
+  def lexical_global?(name), do: Process.get({:qb_lexical_global, name}) == true
 
   defp sync_global_this_property(_globals, "globalThis", _val), do: :ok
 

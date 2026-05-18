@@ -41,6 +41,22 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayTest do
     )
   end
 
+  test "typed-array methods live on the shared prototype chain", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|[Uint8Array.prototype.hasOwnProperty("at"), Object.getPrototypeOf(Uint8Array.prototype).hasOwnProperty("at"), new Uint8Array().hasOwnProperty("values"), typeof Uint8Array.prototype.values].join(",")|,
+      "false,true,false,function"
+    )
+  end
+
+  test "typed-array ArrayBuffer views validate offsets and lengths", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|const ab = new ArrayBuffer(4); [(() => { try { new Uint16Array(ab, 1); } catch (e) { return e.name; } })(), (() => { try { new Uint16Array(ab, 2, 2); } catch (e) { return e.name; } })(), new Uint16Array(ab, 2, 1).length].join(",")|,
+      "RangeError,RangeError,1"
+    )
+  end
+
   test "defineProperty treats integer-index keys beyond array-index range as typed-array indexes",
        %{
          rt: rt

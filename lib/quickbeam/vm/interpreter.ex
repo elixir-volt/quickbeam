@@ -510,16 +510,24 @@ defmodule QuickBEAM.VM.Interpreter do
             do: Map.drop(eval_scope_globals, MapSet.to_list(declared_names)),
             else: eval_scope_globals
 
-        eval_ctx_globals =
-          base_globals
-          |> Map.merge(scoped_globals)
-          |> Map.put(
-            "arguments",
-            Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf),
-              strict: current_strict_mode?(ctx),
-              callee: ctx.current_func
-            )
-          )
+        merged_globals = Map.merge(base_globals, scoped_globals)
+
+        {arguments_obj, created_arguments?} =
+          case Map.fetch(merged_globals, "arguments") do
+            {:ok, arguments} ->
+              {arguments, false}
+
+            :error ->
+              arguments =
+                Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf),
+                  strict: current_strict_mode?(ctx),
+                  callee: ctx.current_func
+                )
+
+              {arguments, true}
+          end
+
+        eval_ctx_globals = Map.put(merged_globals, "arguments", arguments_obj)
 
         visible_declared_names =
           base_globals
@@ -550,6 +558,7 @@ defmodule QuickBEAM.VM.Interpreter do
               post_eval_globals
               |> Map.merge(Map.get(final_ctx || %{}, :globals, %{}))
               |> Map.take(MapSet.to_list(visible_declared_names))
+              |> put_created_eval_arguments(created_arguments?, arguments_obj)
 
             apply_eval_transients(ctx.current_func, var_objs, transient_globals, keep_declared?)
             write_back_eval_vars(caller_frame, ctx, pre_eval_globals, var_objs, declared_names)
@@ -693,6 +702,9 @@ defmodule QuickBEAM.VM.Interpreter do
       end
     end
   end
+
+  defp put_created_eval_arguments(globals, true, arguments), do: Map.put(globals, "arguments", arguments)
+  defp put_created_eval_arguments(globals, false, _arguments), do: globals
 
   defp apply_eval_transients(current_func, var_objs, transient_globals, keep_declared?) do
     if transient_globals != %{} do

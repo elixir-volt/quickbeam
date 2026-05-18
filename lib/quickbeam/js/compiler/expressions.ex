@@ -1391,49 +1391,23 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
          callbacks
        )
        when is_binary(code) do
-    if simple_eval_strict_self_assignment?(code) do
-      {:ok,
-       instructions ++
-         [{:get_var, "TypeError"}, {:get_var, "TypeError"}, {:call_constructor, 0}, :throw],
-       constants}
-    else
-      case simple_eval_var_declarations(code) do
-        {:ok, declarations} ->
-          if simple_eval_var_conflicts_with_lexical?(declarations, scope) do
-            {:ok,
-             instructions ++
-               [
-                 {:get_var, "SyntaxError"},
-                 {:get_var, "SyntaxError"},
-                 {:call_constructor, 0},
-                 :throw
-               ], constants}
-          else
-            compile_simple_eval_var_declarations(
-              declarations,
-              scope,
-              instructions,
-              constants,
-              callbacks
-            )
-          end
+    case {Scope.resolve(scope, "eval"), simple_eval_var_declarations(code)} do
+      {:error, {:ok, declarations}} ->
+        if simple_eval_var_conflicts_with_lexical?(declarations, scope) do
+          {:ok,
+           instructions ++
+             [
+               {:get_var, "SyntaxError"},
+               {:get_var, "SyntaxError"},
+               {:call_constructor, 0},
+               :throw
+             ], constants}
+        else
+          compile_simple_eval_var_declarations(declarations, scope, instructions, constants, callbacks)
+        end
 
-        :error ->
-          case simple_eval_expression(code) do
-            {:ok, expression} ->
-              callbacks.compile_expression.(expression, scope, instructions, constants)
-
-            :error ->
-              compile_direct_eval_call(
-                callee,
-                [%AST.Literal{value: code}],
-                scope,
-                instructions,
-                constants,
-                callbacks
-              )
-          end
-      end
+      _ ->
+        compile_eval_identifier_call(callee, [%AST.Literal{value: code}], scope, instructions, constants, callbacks)
     end
   end
 
@@ -1445,10 +1419,21 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
          constants,
          callbacks
        ) do
-    compile_direct_eval_call(callee, args, scope, instructions, constants, callbacks)
+    compile_eval_identifier_call(callee, args, scope, instructions, constants, callbacks)
   end
 
   defp compile_direct_call(callee, args, scope, instructions, constants, callbacks) do
+    compile_ordinary_call(callee, args, scope, instructions, constants, callbacks)
+  end
+
+  defp compile_eval_identifier_call(callee, args, scope, instructions, constants, callbacks) do
+    case Scope.resolve(scope, "eval") do
+      :error -> compile_direct_eval_call(callee, args, scope, instructions, constants, callbacks)
+      _slot -> compile_ordinary_call(callee, args, scope, instructions, constants, callbacks)
+    end
+  end
+
+  defp compile_ordinary_call(callee, args, scope, instructions, constants, callbacks) do
     with {:ok, args} <- expand_call_args(args),
          {:ok, instructions, constants} <-
            callbacks.compile_expression.(callee, scope, instructions, constants),
@@ -1467,36 +1452,6 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
       {:ok, instructions ++ [{:eval, length(args), 0}], constants}
     end
   end
-
-  defp simple_eval_strict_self_assignment?(code) do
-    with {:ok, %AST.Program{body: [%AST.ExpressionStatement{expression: expression}]}} <-
-           QuickBEAM.JS.Parser.parse(code),
-         %AST.AssignmentExpression{operator: "=", left: %AST.Identifier{name: name}} <- expression do
-      strict_self_binding?(name)
-    else
-      _ -> false
-    end
-  end
-
-  defp simple_eval_expression(code) do
-    with {:ok, %AST.Program{body: [%AST.ExpressionStatement{expression: expression}]}} <-
-           QuickBEAM.JS.Parser.parse(code),
-         true <- simple_eval_expression?(expression) do
-      {:ok, expression}
-    else
-      _ -> :error
-    end
-  end
-
-  defp simple_eval_expression?(%AST.Identifier{name: name}), do: name not in ["undefined", "NaN"]
-
-  defp simple_eval_expression?(%AST.UnaryExpression{
-         operator: "delete",
-         argument: %AST.Identifier{}
-       }),
-       do: true
-
-  defp simple_eval_expression?(_expression), do: false
 
   defp simple_eval_var_declarations(code) do
     with {:ok, program} <- QuickBEAM.JS.Parser.parse(code),

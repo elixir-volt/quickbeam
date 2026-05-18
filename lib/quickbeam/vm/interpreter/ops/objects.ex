@@ -320,11 +320,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
         val =
           case type do
             type when type in [0, 1] ->
-              Heap.wrap_arguments(Tuple.to_list(arg_buf),
-                strict: current_strict_mode?(ctx),
-                callee: current_func,
-                mapped: special_object_mapped_argument_cells(ctx, frame)
-              )
+              special_object_arguments_object(ctx, frame, arg_buf, current_func)
 
             _ ->
               Construction.special_object(
@@ -339,6 +335,14 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
         run(pc + 1, frame, [val | stack], gas, ctx)
       end
 
+      defp special_object_arguments_object(ctx, frame, arg_buf, current_func) do
+        Heap.wrap_arguments(Tuple.to_list(arg_buf),
+          strict: current_strict_mode?(ctx),
+          callee: current_func,
+          mapped: special_object_mapped_argument_cells(ctx, frame)
+        )
+      end
+
       defp special_object_mapped_argument_cells(ctx, frame) do
         if special_object_mapped_arguments?(ctx) do
           locals = special_object_function_locals(ctx)
@@ -348,14 +352,20 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
           if count == 0 do
             %{}
           else
+            last_parameter_index = special_object_last_parameter_index_by_var_ref(locals, count)
+
             0..(count - 1)//1
             |> Enum.reduce(%{}, fn index, acc ->
               case Enum.at(locals, index) do
                 %{var_ref_idx: ref_idx}
                 when is_integer(ref_idx) and ref_idx < tuple_size(var_refs) ->
-                  case elem(var_refs, ref_idx) do
-                    {:cell, _} = cell -> Map.put(acc, index, cell)
-                    _ -> acc
+                  if Map.get(last_parameter_index, ref_idx) == index do
+                    case elem(var_refs, ref_idx) do
+                      {:cell, _} = cell -> Map.put(acc, index, cell)
+                      _ -> acc
+                    end
+                  else
+                    acc
                   end
 
                 _ ->
@@ -366,6 +376,16 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
         else
           %{}
         end
+      end
+
+      defp special_object_last_parameter_index_by_var_ref(locals, count) do
+        0..(count - 1)//1
+        |> Enum.reduce(%{}, fn index, acc ->
+          case Enum.at(locals, index) do
+            %{var_ref_idx: ref_idx} when is_integer(ref_idx) -> Map.put(acc, ref_idx, index)
+            _ -> acc
+          end
+        end)
       end
 
       defp special_object_mapped_arguments?(ctx) do

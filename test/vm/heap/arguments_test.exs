@@ -24,4 +24,12 @@ defmodule QuickBEAM.VM.Heap.ArgumentsTest do
       "undefined"
     )
   end
+
+  test "duplicate sloppy parameter names map only the last occurrence", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|(function(a, a) { a = 7; return [arguments[0], arguments[1]].join(","); })(1, 2)|,
+      "1,7"
+    )
+  end
 end

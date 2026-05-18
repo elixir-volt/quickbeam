@@ -52,7 +52,11 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
 
   def for_in_next(ctx, iter), do: RuntimeHelpers.for_in_next(ctx, iter)
 
+  def iterator_value_done(_ctx, result), do: RuntimeHelpers.iterator_value_done(result)
+
   def iterator_close(ctx, iter_obj), do: RuntimeHelpers.iterator_close(ctx, iter_obj)
+
+  def iterator_close_refresh(ctx, iter_obj), do: RuntimeHelpers.iterator_close_refresh(ctx, iter_obj)
 
   def iterator_close_for_throw(ctx, iter_obj),
     do: RuntimeHelpers.iterator_close_for_throw(ctx, iter_obj)

@@ -18,12 +18,11 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayInstaller do
         ConstructorRegistry.register(
           name,
           TypedArray.constructor(type),
-          TypedArray.prototype_properties(),
+          %{},
           base_proto
         )
 
       Heap.put_ctor_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
-      mark_prototype_methods(ctor)
       install_static_methods(ctor)
       install_species(ctor)
       Heap.put_ctor_static(ctor, "__proto__", ta_base)
@@ -94,17 +93,5 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayInstaller do
 
     Heap.put_ctor_static(ctor, {:symbol, "Symbol.species"}, {:accessor, getter, nil})
     Heap.put_ctor_prop_desc(ctor, {:symbol, "Symbol.species"}, PropertyDescriptor.accessor())
-  end
-
-  defp mark_prototype_methods(ctor) do
-    case Heap.get_class_proto(ctor) do
-      {:obj, proto_ref} ->
-        for key <- Map.keys(TypedArray.prototype_properties()) do
-          Heap.put_prop_desc(proto_ref, key, PropertyDescriptor.method())
-        end
-
-      _ ->
-        :ok
-    end
   end
 end
