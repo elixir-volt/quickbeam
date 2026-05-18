@@ -25,6 +25,10 @@ case_timeout = String.to_integer(System.get_env("TEST262_CASE_TIMEOUT", "5000"))
 progress_every = String.to_integer(System.get_env("TEST262_PROGRESS_EVERY", "0"))
 use_context_pool? = System.get_env("TEST262_CONTEXT_POOL", "1") not in ["0", "false", "FALSE"]
 
+if System.get_env("TEST262_COMPILER_CACHE", "1") not in ["0", "false", "FALSE"] do
+  System.put_env("QUICKBEAM_COMPILER_CACHE", "1")
+end
+
 files =
   case selected_categories do
     :all ->

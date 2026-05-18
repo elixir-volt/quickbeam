@@ -77,7 +77,7 @@ defmodule QuickBEAM.VM.Compiler do
         {:ok, {module, entry}}
 
       false ->
-        with {:ok, ^module, ^entry, binary} <- compile_binary(fun),
+        with {:ok, binary} <- cached_or_compile_binary(module, fun),
              {:module, ^module} <- :code.load_binary(module, ~c"quickbeam_compiler", binary) do
           {:ok, {module, entry}}
         else
@@ -88,6 +88,52 @@ defmodule QuickBEAM.VM.Compiler do
   end
 
   def compile(_), do: {:error, :var_refs_not_supported}
+
+  defp cached_or_compile_binary(module, fun) do
+    case read_cached_binary(module) do
+      {:ok, binary} ->
+        {:ok, binary}
+
+      :miss ->
+        with {:ok, ^module, _entry, binary} <- compile_binary(fun) do
+          write_cached_binary(module, binary)
+          {:ok, binary}
+        end
+    end
+  end
+
+  defp read_cached_binary(module) do
+    with dir when is_binary(dir) <- compiler_cache_dir(),
+         path = compiler_cache_path(dir, module),
+         {:ok, binary} <- File.read(path) do
+      {:ok, binary}
+    else
+      _ -> :miss
+    end
+  end
+
+  defp write_cached_binary(module, binary) do
+    with dir when is_binary(dir) <- compiler_cache_dir(),
+         :ok <- File.mkdir_p(dir) do
+      File.write(compiler_cache_path(dir, module), binary)
+    else
+      _ -> :ok
+    end
+
+    :ok
+  end
+
+  defp compiler_cache_dir do
+    if System.get_env("QUICKBEAM_COMPILER_CACHE") in ["1", "true", "TRUE"] do
+      System.get_env("QUICKBEAM_COMPILER_CACHE_DIR") ||
+        Path.join(System.tmp_dir!(), "quickbeam-compiler-cache-v1")
+    end
+  end
+
+  defp compiler_cache_path(dir, module) do
+    module_name = module |> Atom.to_string() |> String.replace_prefix("Elixir.", "")
+    Path.join(dir, module_name <> ".beam")
+  end
 
   @doc "Returns a disassembly of bytecode for diagnostics."
   def disasm(%QuickBEAM.VM.Function{} = fun) do
@@ -182,7 +228,7 @@ defmodule QuickBEAM.VM.Compiler do
 
   defp module_name(fun, atoms) do
     hash =
-      {fun, atoms}
+      {stable_function_key(fun), atoms}
       |> :erlang.term_to_binary()
       |> then(&:crypto.hash(:sha256, &1))
       |> binary_part(0, 8)
@@ -190,6 +236,17 @@ defmodule QuickBEAM.VM.Compiler do
 
     Module.concat(QuickBEAM.VM.Compiled, "F#{hash}")
   end
+
+  defp stable_function_key(%QuickBEAM.VM.Function{} = fun) do
+    %{
+      fun
+      | id: 0,
+        constants: Enum.map(fun.constants, &stable_constant_key/1)
+    }
+  end
+
+  defp stable_constant_key(%QuickBEAM.VM.Function{} = fun), do: stable_function_key(fun)
+  defp stable_constant_key(value), do: value
 
   defp entry_name, do: :run
   defp ctx_entry_name, do: :run_ctx
