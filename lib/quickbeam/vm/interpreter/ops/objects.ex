@@ -371,6 +371,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       defp special_object_mapped_argument_cells(ctx, frame) do
         if special_object_mapped_arguments?(ctx) do
           locals = special_object_function_locals(ctx)
+          closure_ref_count = special_object_closure_ref_count(ctx)
           var_refs = elem(frame, Frame.var_refs())
           count = min(tuple_size(ctx.arg_buf), length(locals))
 
@@ -383,9 +384,9 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
             |> Enum.reduce(%{}, fn index, acc ->
               case Enum.at(locals, index) do
                 %{var_ref_idx: ref_idx}
-                when is_integer(ref_idx) and ref_idx < tuple_size(var_refs) ->
+                when is_integer(ref_idx) and closure_ref_count + ref_idx < tuple_size(var_refs) ->
                   if Map.get(last_parameter_index, ref_idx) == index do
-                    case elem(var_refs, ref_idx) do
+                    case elem(var_refs, closure_ref_count + ref_idx) do
                       {:cell, _} = cell -> Map.put(acc, index, cell)
                       _ -> acc
                     end
@@ -431,6 +432,13 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
           {:closure, _, %QuickBEAM.VM.Function{locals: locals}} -> locals
           %QuickBEAM.VM.Function{locals: locals} -> locals
           _ -> []
+        end
+      end
+
+      defp special_object_closure_ref_count(ctx) do
+        case ctx.current_func do
+          {:closure, captured, _} when is_map(captured) -> map_size(captured)
+          _ -> 0
         end
       end
 
