@@ -627,19 +627,13 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     parent = state(ref)
     byte_offset = Map.get(parent, offset(), 0) + s * es
 
-    Heap.wrap(%{
-      typed_array() => true,
-      type_key() => t,
-      buffer() => Map.get(parent, buffer(), <<>>),
-      offset() => byte_offset,
-      "length" => new_len,
-      "byteLength" => new_len * es,
-      "byteOffset" => byte_offset,
-      "__fixed_length__" => new_len,
-      "__fixed_byte_length__" => new_len * es,
-      "buffer" => Map.get(parent, "buffer"),
-      "__proto__" => Runtime.global_class_proto(typed_array_name(t))
-    })
+    typed_array_species_create_view(
+      {:obj, ref},
+      t,
+      Map.get(parent, "buffer"),
+      byte_offset,
+      new_len
+    )
   end
 
   defp copy_within(ref, args, _this) do
@@ -1145,25 +1139,33 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp species_constructor_object?(_), do: false
 
   defp typed_array_species_create(obj, default_type, length) do
+    case construct_typed_array_species(obj, default_type, [length]) do
+      {:obj, result_ref} = typed_result ->
+        if len(result_ref) < length do
+          JSThrow.type_error!("TypedArray species result is too short")
+        end
+
+        typed_result
+    end
+  end
+
+  defp typed_array_species_create_view(obj, default_type, buffer_obj, byte_offset, length) do
+    construct_typed_array_species(obj, default_type, [buffer_obj, byte_offset, length])
+  end
+
+  defp construct_typed_array_species(obj, default_type, args) do
     case get_species_ctor(obj) do
       nil ->
-        constructor(default_type).([length], nil)
+        constructor(default_type).(args, nil)
 
       ctor ->
         unless QuickBEAM.VM.Builtin.callable?(ctor) do
           JSThrow.type_error!("TypedArray species constructor is not a constructor")
         end
 
-        result = Invocation.construct_runtime(ctor, ctor, [length])
-
-        case typed_array_object!(result) do
-          {:obj, result_ref} = typed_result ->
-            if len(result_ref) < length do
-              JSThrow.type_error!("TypedArray species result is too short")
-            end
-
-            typed_result
-        end
+        ctor
+        |> Invocation.construct_runtime(ctor, args)
+        |> typed_array_object!()
     end
   end
 
