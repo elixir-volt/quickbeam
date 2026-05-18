@@ -75,19 +75,28 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       "fill" => prototype_ref_method("fill", 1, fn ref, args, _this -> fill(ref, args) end),
       "filter" => prototype_ref_method("filter", 1, &filter/3),
       "find" => prototype_ref_method("find", 1, &find/3),
+      "findIndex" => prototype_ref_method("findIndex", 1, &find_index/3),
+      "findLast" => prototype_ref_method("findLast", 1, &find_last/3),
+      "findLastIndex" => prototype_ref_method("findLastIndex", 1, &find_last_index/3),
       "forEach" => prototype_ref_method("forEach", 1, &for_each/3),
       "includes" => prototype_ref_method("includes", 1, fn ref, args, _this -> includes(ref, args) end),
       "indexOf" => prototype_ref_method("indexOf", 1, fn ref, args, _this -> index_of(ref, args) end),
       "join" => prototype_ref_method("join", 1, fn ref, args, _this -> join(ref, args) end),
+      "lastIndexOf" => prototype_ref_method("lastIndexOf", 1, fn ref, args, _this -> last_index_of(ref, args) end),
       "map" => prototype_ref_method("map", 1, &map/3),
       "reduce" => prototype_ref_method("reduce", 1, &reduce/3),
+      "reduceRight" => prototype_ref_method("reduceRight", 1, &reduce_right/3),
       "reverse" => prototype_ref_method("reverse", 0, fn ref, _args, _this -> reverse(ref) end),
       "set" => prototype_ref_method("set", 1, fn ref, args, _this -> set(ref, args) end),
       "slice" => prototype_ref_method("slice", 2, fn ref, args, _this -> slice(ref, args) end),
       "some" => prototype_ref_method("some", 1, &some/3),
       "sort" => prototype_ref_method("sort", 1, fn ref, _args, _this -> sort(ref) end),
       "subarray" => prototype_ref_method("subarray", 2, fn ref, args, _this -> subarray(ref, args) end),
-      "toString" => prototype_ref_method("toString", 0, fn ref, _args, _this -> join(ref, [","]) end)
+      "toLocaleString" => prototype_ref_method("toLocaleString", 0, fn ref, _args, _this -> join(ref, [","]) end),
+      "toReversed" => prototype_ref_method("toReversed", 0, fn ref, _args, _this -> to_reversed(ref) end),
+      "toSorted" => prototype_ref_method("toSorted", 1, fn ref, _args, _this -> to_sorted(ref) end),
+      "toString" => prototype_ref_method("toString", 0, fn ref, _args, _this -> join(ref, [","]) end),
+      "with" => prototype_ref_method("with", 2, fn ref, args, _this -> with_element(ref, args) end)
     }
   end
 
@@ -251,14 +260,23 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
           method("every", do: every(ref, args, this))
           method("some", do: some(ref, args, this))
           method("reduce", do: reduce(ref, args, this))
+          method("reduceRight", do: reduce_right(ref, args, this))
           method("indexOf", do: index_of(ref, args))
+          method("lastIndexOf", do: last_index_of(ref, args))
           method("includes", do: includes(ref, args))
           method("find", do: find(ref, args, this))
+          method("findIndex", do: find_index(ref, args, this))
+          method("findLast", do: find_last(ref, args, this))
+          method("findLastIndex", do: find_last_index(ref, args, this))
           method("sort", do: sort(ref))
           method("reverse", do: reverse(ref))
           method("slice", do: slice(ref, args))
           method("fill", do: fill(ref, args))
+          method("toLocaleString", do: join(ref, [","]))
+          method("toReversed", do: to_reversed(ref))
+          method("toSorted", do: to_sorted(ref))
           method("toString", do: join(ref, [","]))
+          method("with", do: with_element(ref, args))
         end
 
       sym_iter = {:symbol, "Symbol.iterator"}
@@ -738,13 +756,68 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     end
   end
 
-  defp index_of(ref, [target | _]) do
-    {b, l, t} = {buf(ref), len(ref), type(ref)}
+  defp reduce_right(ref, args, this) do
+    l = len(ref)
+    cb = arg(args, 0, nil)
+    callback!(cb)
+    init = arg(args, 1, :__missing__)
 
-    Enum.find_value(0..max(0, l - 1), -1, fn i ->
-      if read_element(b, i, t) == target, do: i
-    end)
+    cond do
+      l == 0 and init == :__missing__ ->
+        JSThrow.type_error!("Reduce of empty typed array with no initial value")
+
+      l == 0 ->
+        init
+
+      true ->
+        {start, acc} =
+          if init == :__missing__, do: {l - 2, get_element({:obj, ref}, l - 1)}, else: {l - 1, init}
+
+        if start < 0 do
+          acc
+        else
+          Enum.reduce(start..0//-1, acc, fn i, a ->
+            Invocation.invoke_with_receiver(cb, [a, get_element({:obj, ref}, i), i, this], :undefined)
+          end)
+        end
+    end
   end
+
+  defp index_of(ref, [target | rest]) do
+    l = len(ref)
+    start = relative_index(arg(rest, 0, 0), l)
+
+    if l == 0 or start >= l do
+      -1
+    else
+      Enum.find_value(start..(l - 1), -1, fn i ->
+        if get_element({:obj, ref}, i) == target, do: i
+      end)
+    end
+  end
+
+  defp index_of(_ref, _args), do: -1
+
+  defp last_index_of(ref, [target | rest]) do
+    l = len(ref)
+
+    if l == 0 do
+      -1
+    else
+      from = arg(rest, 0, l - 1)
+      start = if from < 0, do: l + to_idx(from), else: min(to_idx(from), l - 1)
+
+      if start < 0 do
+        -1
+      else
+        Enum.find_value(start..0//-1, -1, fn i ->
+          if get_element({:obj, ref}, i) == target, do: i
+        end)
+      end
+    end
+  end
+
+  defp last_index_of(_ref, _args), do: -1
 
   defp includes(ref, [target | _]) do
     {b, l, t} = {buf(ref), len(ref), type(ref)}
@@ -774,6 +847,66 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp find(_ref, _args, _this), do: JSThrow.type_error!("callbackfn is not callable")
 
+  defp find_index(ref, [cb | rest], this) do
+    callback!(cb)
+    l = len(ref)
+    this_arg = arg(rest, 0, :undefined)
+
+    if l == 0 do
+      -1
+    else
+      Enum.find_value(0..(l - 1), -1, fn i ->
+        v = get_element({:obj, ref}, i)
+
+        if Runtime.truthy?(Invocation.invoke_with_receiver(cb, [v, i, this], this_arg)) do
+          i
+        end
+      end)
+    end
+  end
+
+  defp find_index(_ref, _args, _this), do: JSThrow.type_error!("callbackfn is not callable")
+
+  defp find_last(ref, [cb | rest], this) do
+    callback!(cb)
+    l = len(ref)
+    this_arg = arg(rest, 0, :undefined)
+
+    if l == 0 do
+      :undefined
+    else
+      Enum.find_value((l - 1)..0//-1, :undefined, fn i ->
+        v = get_element({:obj, ref}, i)
+
+        if Runtime.truthy?(Invocation.invoke_with_receiver(cb, [v, i, this], this_arg)) do
+          v
+        end
+      end)
+    end
+  end
+
+  defp find_last(_ref, _args, _this), do: JSThrow.type_error!("callbackfn is not callable")
+
+  defp find_last_index(ref, [cb | rest], this) do
+    callback!(cb)
+    l = len(ref)
+    this_arg = arg(rest, 0, :undefined)
+
+    if l == 0 do
+      -1
+    else
+      Enum.find_value((l - 1)..0//-1, -1, fn i ->
+        v = get_element({:obj, ref}, i)
+
+        if Runtime.truthy?(Invocation.invoke_with_receiver(cb, [v, i, this], this_arg)) do
+          i
+        end
+      end)
+    end
+  end
+
+  defp find_last_index(_ref, _args, _this), do: JSThrow.type_error!("callbackfn is not callable")
+
   defp sort(ref) do
     {b, l, t} = {buf(ref), len(ref), type(ref)}
     vals = Enum.map(0..max(0, l - 1), &read_element(b, &1, t)) |> Enum.sort()
@@ -784,10 +917,53 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp reverse(ref) do
     {b, l, t} = {buf(ref), len(ref), type(ref)}
-    vals = Enum.map(0..max(0, l - 1), &read_element(b, &1, t)) |> Enum.reverse()
+    vals = if l == 0, do: [], else: Enum.map(0..(l - 1), &read_element(b, &1, t)) |> Enum.reverse()
     new_buf = rebuild_buffer(vals, b, t)
     update_buffer(ref, new_buf)
     {:obj, ref}
+  end
+
+  defp to_reversed(ref) do
+    l = len(ref)
+    t = type(ref)
+
+    vals =
+      if l == 0 do
+        []
+      else
+        Enum.map((l - 1)..0//-1, &get_element({:obj, ref}, &1))
+      end
+
+    constructor(t).([vals], nil)
+  end
+
+  defp to_sorted(ref) do
+    l = len(ref)
+    t = type(ref)
+    vals = if l == 0, do: [], else: Enum.map(0..(l - 1), &get_element({:obj, ref}, &1)) |> Enum.sort()
+    constructor(t).([vals], nil)
+  end
+
+  defp with_element(ref, args) do
+    l = len(ref)
+    t = type(ref)
+    relative = to_integer_or_infinity(arg(args, 0, :undefined))
+
+    index =
+      case relative do
+        :neg_infinity -> -1
+        :infinity -> l
+        n when n < 0 -> l + n
+        n -> n
+      end
+
+    if index < 0 or index >= l do
+      JSThrow.range_error!("Invalid index")
+    end
+
+    vals = if l == 0, do: [], else: Enum.map(0..(l - 1), &get_element({:obj, ref}, &1))
+    vals = List.replace_at(vals, index, arg(args, 1, :undefined))
+    constructor(t).([vals], nil)
   end
 
   defp slice(ref, args) do
