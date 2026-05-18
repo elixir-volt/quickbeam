@@ -25,6 +25,14 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayTest do
     )
   end
 
+  test "TypedArray.prototype.at validates borrowed receivers and BigInt indices", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|const a = new Uint8Array([10]); const b = new Uint8Array([20]); [a.at.call(b, 0), (() => { try { a.at.call({}, 0); } catch (e) { return e.name; } })(), (() => { try { a.at(0n); } catch (e) { return e.name; } })()].join(",")|,
+      "20,TypeError,TypeError"
+    )
+  end
+
   test "defineProperty treats integer-index keys beyond array-index range as typed-array indexes",
        %{
          rt: rt

@@ -257,34 +257,34 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
       methods =
         object heap: false do
-          method("set", do: set(ref, args))
-          method("subarray", do: subarray(ref, args))
-          method("at", do: at({:obj, ref}, args))
-          method("copyWithin", do: copy_within(ref, args, this))
-          method("join", do: join(ref, args))
-          method("forEach", do: for_each(ref, args, this))
-          method("map", do: map(ref, args, this))
-          method("filter", do: filter(ref, args, this))
-          method("every", do: every(ref, args, this))
-          method("some", do: some(ref, args, this))
-          method("reduce", do: reduce(ref, args, this))
-          method("reduceRight", do: reduce_right(ref, args, this))
-          method("indexOf", do: index_of(ref, args))
-          method("lastIndexOf", do: last_index_of(ref, args))
-          method("includes", do: includes(ref, args))
-          method("find", do: find(ref, args, this))
-          method("findIndex", do: find_index(ref, args, this))
-          method("findLast", do: find_last(ref, args, this))
-          method("findLastIndex", do: find_last_index(ref, args, this))
-          method("sort", do: sort(ref, args))
-          method("reverse", do: reverse(ref))
-          method("slice", do: slice(ref, args))
-          method("fill", do: fill(ref, args))
-          method("toLocaleString", do: to_locale_string(ref))
-          method("toReversed", do: to_reversed(ref))
-          method("toSorted", do: to_sorted(ref, args))
-          method("toString", do: join(ref, [","]))
-          method("with", do: with_element(ref, args))
+          method("set", do: set(receiver_ref!(this), args))
+          method("subarray", do: subarray(receiver_ref!(this), args))
+          method("at", do: at(this, args))
+          method("copyWithin", do: copy_within(receiver_ref!(this), args, this))
+          method("join", do: join(receiver_ref!(this), args))
+          method("forEach", do: for_each(receiver_ref!(this), args, this))
+          method("map", do: map(receiver_ref!(this), args, this))
+          method("filter", do: filter(receiver_ref!(this), args, this))
+          method("every", do: every(receiver_ref!(this), args, this))
+          method("some", do: some(receiver_ref!(this), args, this))
+          method("reduce", do: reduce(receiver_ref!(this), args, this))
+          method("reduceRight", do: reduce_right(receiver_ref!(this), args, this))
+          method("indexOf", do: index_of(receiver_ref!(this), args))
+          method("lastIndexOf", do: last_index_of(receiver_ref!(this), args))
+          method("includes", do: includes(receiver_ref!(this), args))
+          method("find", do: find(receiver_ref!(this), args, this))
+          method("findIndex", do: find_index(receiver_ref!(this), args, this))
+          method("findLast", do: find_last(receiver_ref!(this), args, this))
+          method("findLastIndex", do: find_last_index(receiver_ref!(this), args, this))
+          method("sort", do: sort(receiver_ref!(this), args))
+          method("reverse", do: reverse(receiver_ref!(this)))
+          method("slice", do: slice(receiver_ref!(this), args))
+          method("fill", do: fill(receiver_ref!(this), args))
+          method("toLocaleString", do: to_locale_string(receiver_ref!(this)))
+          method("toReversed", do: to_reversed(receiver_ref!(this)))
+          method("toSorted", do: to_sorted(receiver_ref!(this), args))
+          method("toString", do: join(receiver_ref!(this), [","]))
+          method("with", do: with_element(receiver_ref!(this), args))
         end
 
       sym_iter = {:symbol, "Symbol.iterator"}
@@ -318,6 +318,11 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       register_buffer_view(orig_buf, ref)
       {:obj, ref}
     end
+  end
+
+  defp receiver_ref!(this) do
+    {:obj, ref} = typed_array_object!(this)
+    ref
   end
 
   defp register_buffer_view({:obj, buf_ref}, view_ref) do
@@ -1749,6 +1754,8 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     |> Enum.with_index()
     |> Enum.reduce(buf, fn {val, i}, acc -> write_element(acc, i, val, type) end)
   end
+
+  defp to_integer_or_infinity({:bigint, _}), do: JSThrow.type_error!("Cannot convert BigInt to number")
 
   defp to_integer_or_infinity(value) do
     case Runtime.to_number(value) do
