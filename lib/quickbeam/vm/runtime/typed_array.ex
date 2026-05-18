@@ -9,6 +9,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor}
+  alias QuickBEAM.VM.Interpreter.Values.Coercion
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.Array
   alias QuickBEAM.VM.Semantics.Iterators
@@ -1073,26 +1074,26 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp write_element(buf, pos, :undefined, type), do: write_element(buf, pos, 0, type)
 
   defp write_element(buf, pos, val, :uint8_clamped) when pos < byte_size(buf) do
-    v = max(0, min(255, bankers_round(val || 0)))
+    v = max(0, min(255, bankers_round(integer_number(val))))
     <<pre::binary-size(pos), _::8, rest::binary>> = buf
     <<pre::binary, v::8, rest::binary>>
   end
 
   defp write_element(buf, pos, val, :uint8) when pos < byte_size(buf) do
-    v = trunc(val || 0) |> Bitwise.band(0xFF)
+    v = integer_number(val) |> Bitwise.band(0xFF)
     <<pre::binary-size(pos), _::8, rest::binary>> = buf
     <<pre::binary, v::8, rest::binary>>
   end
 
   defp write_element(buf, pos, val, :int8) when pos < byte_size(buf) do
     <<pre::binary-size(pos), _::8, rest::binary>> = buf
-    <<pre::binary, trunc(val || 0)::signed-8, rest::binary>>
+    <<pre::binary, integer_number(val)::signed-8, rest::binary>>
   end
 
   defp write_element(buf, pos, val, :int32) when pos * 4 + 3 < byte_size(buf) do
     bp = pos * 4
     <<pre::binary-size(bp), _::32, rest::binary>> = buf
-    <<pre::binary, trunc(val || 0)::little-signed-32, rest::binary>>
+    <<pre::binary, integer_number(val)::little-signed-32, rest::binary>>
   end
 
   defp write_element(buf, pos, val, :float64)
@@ -1105,11 +1106,11 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp write_element(buf, pos, val, :float64) when pos * 8 + 7 < byte_size(buf) do
     bp = pos * 8
     <<pre::binary-size(bp), _::64, rest::binary>> = buf
-    <<pre::binary, (val || 0.0) * 1.0::little-float-64, rest::binary>>
+    <<pre::binary, float_number(val)::little-float-64, rest::binary>>
   end
 
   defp write_element(buf, pos, val, :float16) when pos * 2 + 1 < byte_size(buf) do
-    half = encode_float16(val || 0)
+    half = encode_float16(float_or_special(val))
     <<pre::binary-size(pos * 2), _::16, rest::binary>> = buf
     <<pre::binary, half::16-little, rest::binary>>
   end
@@ -1124,7 +1125,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp write_element(buf, pos, val, :float32) when pos * 4 + 3 < byte_size(buf) do
     bp = pos * 4
     <<pre::binary-size(bp), _::32, rest::binary>> = buf
-    <<pre::binary, (val || 0.0) * 1.0::little-float-32, rest::binary>>
+    <<pre::binary, float_number(val)::little-float-32, rest::binary>>
   end
 
   defp write_element(buf, pos, val, :bigint64) when pos * 8 + 7 < byte_size(buf) do
@@ -1145,7 +1146,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
     if bp + es <= byte_size(buf) do
       <<pre::binary-size(bp), _::binary-size(es), rest::binary>> = buf
-      <<pre::binary, trunc(val || 0)::little-unsigned-size(es * 8), rest::binary>>
+      <<pre::binary, integer_number(val)::little-unsigned-size(es * 8), rest::binary>>
     else
       buf
     end
@@ -1159,9 +1160,72 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp float64_bits(:infinity), do: 0x7FF0000000000000
   defp float64_bits(:neg_infinity), do: 0xFFF0000000000000
 
+  defp integer_number(value) do
+    case Runtime.to_number(value) do
+      number when is_integer(number) -> number
+      number when is_float(number) -> trunc(number)
+      _ -> 0
+    end
+  end
+
+  defp float_number(value) do
+    case Runtime.to_number(value) do
+      number when is_integer(number) -> number * 1.0
+      number when is_float(number) -> number
+      _ -> 0.0
+    end
+  end
+
+  defp float_or_special(value) do
+    case Runtime.to_number(value) do
+      number when is_number(number) -> number
+      special -> special
+    end
+  end
+
   defp bigint_value({:bigint, n}), do: n
-  defp bigint_value(n) when is_integer(n), do: n
-  defp bigint_value(_), do: 0
+  defp bigint_value(true), do: 1
+  defp bigint_value(false), do: 0
+
+  defp bigint_value(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> parse_bigint_string()
+    |> case do
+      {:ok, n} -> n
+      :error -> JSThrow.syntax_error!("Cannot convert value to BigInt")
+    end
+  end
+
+  defp bigint_value({:obj, _} = value), do: value |> Coercion.to_primitive("number") |> bigint_value()
+  defp bigint_value(_), do: JSThrow.type_error!("Cannot convert value to BigInt")
+
+  defp parse_bigint_string(""), do: {:ok, 0}
+  defp parse_bigint_string("0x" <> digits), do: parse_bigint_digits(digits, 16)
+  defp parse_bigint_string("0X" <> digits), do: parse_bigint_digits(digits, 16)
+  defp parse_bigint_string("0o" <> digits), do: parse_bigint_digits(digits, 8)
+  defp parse_bigint_string("0O" <> digits), do: parse_bigint_digits(digits, 8)
+  defp parse_bigint_string("0b" <> digits), do: parse_bigint_digits(digits, 2)
+  defp parse_bigint_string("0B" <> digits), do: parse_bigint_digits(digits, 2)
+  defp parse_bigint_string("+" <> digits), do: parse_bigint_digits(digits, 10)
+
+  defp parse_bigint_string("-" <> digits) do
+    case parse_bigint_digits(digits, 10) do
+      {:ok, n} -> {:ok, -n}
+      :error -> :error
+    end
+  end
+
+  defp parse_bigint_string(digits), do: parse_bigint_digits(digits, 10)
+
+  defp parse_bigint_digits("", _base), do: :error
+
+  defp parse_bigint_digits(digits, base) do
+    case Integer.parse(digits, base) do
+      {n, ""} -> {:ok, n}
+      _ -> :error
+    end
+  end
 
   defp list_to_buffer(list, type) do
     es = elem_size(type)
