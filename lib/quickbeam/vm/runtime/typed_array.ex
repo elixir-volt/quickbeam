@@ -1072,33 +1072,24 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp slice(ref, args) do
     l = len(ref)
     t = type(ref)
-    s = max(0, to_idx(arg(args, 0, 0)))
-    e = min(l, to_idx(arg(args, 1, l)))
-    new_len = max(0, e - s)
-    es = elem_size(t)
-    new_buf = if new_len > 0, do: binary_part(buf(ref), s * es, new_len * es), else: <<>>
+    start = relative_index(arg(args, 0, 0), l)
 
-    species_ctor = get_species_ctor({:obj, ref})
-
-    if species_ctor do
-      result = Runtime.call_callback(species_ctor, [new_len])
-
-      case result do
-        {:obj, _result_ref} ->
-          for i <- 0..(new_len - 1) do
-            val = read_element(new_buf, i, t)
-            set_element(result, i, val)
-          end
-
-        _ ->
-          :ok
+    final =
+      case Enum.at(args, 1, :undefined) do
+        :undefined -> l
+        value -> relative_index(value, l)
       end
 
-      result
-    else
-      elements = for i <- 0..(new_len - 1), do: read_element(new_buf, i, t)
-      constructor(t).([elements], nil)
+    new_len = max(0, final - start)
+    result = typed_array_species_create({:obj, ref}, t, new_len)
+
+    if new_len > 0 do
+      for index <- 0..(new_len - 1) do
+        set_element(result, index, get_element({:obj, ref}, start + index))
+      end
     end
+
+    result
   end
 
   defp get_species_ctor({:obj, _ref} = obj) do
