@@ -11,9 +11,10 @@ defmodule QuickBEAM.VM.Runtime.ArrayTest do
       var every = array.every(function(value, index) { calls.push(index + ':' + value); return true; });
       var mapped = array.map(function(value) { return value + 1; });
       var filtered = array.filter(function(value) { return value > 1; });
-      [every, calls.join(','), mapped[100001], filtered[0]].join('|')
+      var some = array.some(function(value, index) { calls.push('s' + index + ':' + value); return false; });
+      [every, some, calls.join(','), mapped[100001], filtered[0]].join('|')
       """,
-      "true|0:1,100001:2|3|2"
+      "true|false|0:1,100001:2,s0:1,s100001:2|3|2"
     )
   end
 

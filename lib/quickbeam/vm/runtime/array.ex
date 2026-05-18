@@ -2335,22 +2335,18 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
     this_arg = filter_this_arg(rest)
 
-    if len == 0 do
-      false
-    else
-      Enum.any?(0..(len - 1), fn idx ->
-        key = Integer.to_string(idx)
+    Enum.any?(callback_iteration_indexes(this, len), fn idx ->
+      key = Integer.to_string(idx)
 
-        HasProperty.has_property?(this, key) and
-          Runtime.truthy?(
-            QuickBEAM.VM.Invocation.invoke_with_receiver(
-              fun,
-              [find_value_at(this, idx), idx, this],
-              this_arg
-            )
+      HasProperty.has_property?(this, key) and
+        Runtime.truthy?(
+          QuickBEAM.VM.Invocation.invoke_with_receiver(
+            fun,
+            [find_value_at(this, idx), idx, this],
+            this_arg
           )
-      end)
-    end
+        )
+    end)
   end
 
   defp some_array_like(this, _args) do
