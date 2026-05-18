@@ -124,6 +124,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
         {:accessor, accessor_getter("get byteLength", &prototype_byte_length/1), nil},
       "byteOffset" =>
         {:accessor, accessor_getter("get byteOffset", &prototype_byte_offset/1), nil},
+      "length" => {:accessor, accessor_getter("get length", &prototype_length/1), nil},
       {:symbol, "Symbol.toStringTag"} =>
         {:accessor, accessor_getter("get [Symbol.toStringTag]", &prototype_to_string_tag/1), nil}
     })
@@ -147,6 +148,11 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp prototype_byte_offset(this) do
     obj = typed_array_object!(this)
     if out_of_bounds?(obj), do: 0, else: Map.get(typed_array_state!(obj), "byteOffset", 0)
+  end
+
+  defp prototype_length(this) do
+    obj = typed_array_object!(this)
+    if out_of_bounds?(obj), do: 0, else: element_count(obj)
   end
 
   defp prototype_to_string_tag({:obj, ref}) do

@@ -53,7 +53,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayInstaller do
       Heap.put_prop_desc(ta_base_ref, key, PropertyDescriptor.method())
     end
 
-    for key <- ["buffer", "byteLength", "byteOffset", {:symbol, "Symbol.toStringTag"}] do
+    for key <- ["buffer", "byteLength", "byteOffset", "length", {:symbol, "Symbol.toStringTag"}] do
       Heap.put_prop_desc(ta_base_ref, key, PropertyDescriptor.accessor())
     end
 
