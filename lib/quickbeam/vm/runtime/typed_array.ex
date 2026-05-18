@@ -50,7 +50,8 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   def prototype_properties do
     values_method =
       prototype_method("values", 0, fn _args, this ->
-        this = typed_array_object!(this)
+        {:obj, ref} = this = typed_array_object!(this)
+        ensure_not_out_of_bounds(ref)
         Array.make_array_iterator(this, :values)
       end)
 
@@ -59,12 +60,14 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       "copyWithin" => prototype_ref_method("copyWithin", 2, &copy_within/3),
       "entries" =>
         prototype_method("entries", 0, fn _args, this ->
-          this = typed_array_object!(this)
+          {:obj, ref} = this = typed_array_object!(this)
+          ensure_not_out_of_bounds(ref)
           Array.make_array_iterator(this, :entries)
         end),
       "keys" =>
         prototype_method("keys", 0, fn _args, this ->
-          this = typed_array_object!(this)
+          {:obj, ref} = this = typed_array_object!(this)
+          ensure_not_out_of_bounds(ref)
           Array.make_array_iterator(this, :keys)
         end),
       "values" => values_method,
