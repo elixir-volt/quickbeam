@@ -550,24 +550,38 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     do: JSThrow.type_error!("TypedArray.prototype.at called on incompatible receiver")
 
   defp set(ref, args) do
-    {source, offset} =
-      case args do
-        [s, o | _] when is_number(o) -> {s, trunc(o)}
-        [s | _] -> {s, 0}
-        _ -> {nil, 0}
-      end
+    source = arg(args, 0, :undefined)
+    offset = args |> arg(1, 0) |> to_integer_or_infinity()
 
-    src_list = Heap.to_list(source)
+    if offset in [:infinity, :neg_infinity] or offset < 0 do
+      JSThrow.range_error!("offset is out of bounds")
+    end
+
+    src_list = typed_array_set_source_values(source)
+    target_len = len(ref)
+
+    if offset + length(src_list) > target_len do
+      JSThrow.range_error!("source is too large")
+    end
+
     t = type(ref)
 
     new_buf =
       src_list
       |> Enum.with_index(offset)
-      |> Enum.reduce(buf(ref), fn {v, i}, acc -> write_element(acc, i, v, t) end)
+      |> Enum.reduce(buf(ref) || <<>>, fn {v, i}, acc -> write_element(acc, i, v, t) end)
 
     update_buffer(ref, new_buf)
     :undefined
   end
+
+  defp typed_array_set_source_values(nil), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+  defp typed_array_set_source_values(:undefined), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+
+  defp typed_array_set_source_values({:obj, _} = source), do: typed_array_source_values(source)
+  defp typed_array_set_source_values({:qb_arr, arr}), do: :array.to_list(arr)
+  defp typed_array_set_source_values(source) when is_list(source), do: source
+  defp typed_array_set_source_values(source), do: Heap.to_list(source)
 
   defp subarray(ref, args) do
     l = len(ref)
