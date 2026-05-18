@@ -722,20 +722,14 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     t = type(ref)
     this_arg = arg(rest, 0, :undefined)
 
-    elements =
-      if l == 0 do
-        []
-      else
-        for i <- 0..(l - 1) do
-          Invocation.invoke_with_receiver(cb, [get_element({:obj, ref}, i), i, this], this_arg)
-        end
-      end
-
     result = typed_array_species_create({:obj, ref}, t, l)
 
-    elements
-    |> Enum.with_index()
-    |> Enum.each(fn {value, index} -> set_element(result, index, value) end)
+    if l > 0 do
+      for i <- 0..(l - 1) do
+        value = Invocation.invoke_with_receiver(cb, [get_element({:obj, ref}, i), i, this], this_arg)
+        set_element(result, i, value)
+      end
+    end
 
     result
   end
