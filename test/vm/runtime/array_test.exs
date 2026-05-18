@@ -61,4 +61,21 @@ defmodule QuickBEAM.VM.Runtime.ArrayTest do
              """
            ) == "true|true|true|[object Array Iterator]"
   end
+
+  test "array flat observes proxy has/get order", %{rt: rt} do
+    assert beam!(
+             rt,
+             ~S"""
+             var getCalls = [], hasCalls = [];
+             var handler = {
+               get: function(target, key, receiver) { getCalls.push(key); return Reflect.get(target, key, receiver); },
+               has: function(target, key) { hasCalls.push(key); return Reflect.has(target, key); }
+             };
+             var tier2 = new Proxy([4, 3], handler);
+             var tier1 = new Proxy([2, [3, [4, 2], 2], 5, tier2, 6], handler);
+             Array.prototype.flat.call(tier1, 3);
+             getCalls.join(',') + '|' + hasCalls.join(',')
+             """
+           ) == "length,constructor,0,1,2,3,length,0,1,4|0,1,2,3,0,1,4"
+  end
 end

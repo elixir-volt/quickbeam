@@ -16,6 +16,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
     HasProperty,
     OwnProperty,
     PropertyDescriptor,
+    PropertyKey,
     Prototype,
     Put
   }
@@ -225,10 +226,29 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
     end
   end
 
+  defp reflect_get_object(obj, raw, key, receiver) when is_list(raw),
+    do: reflect_get_array_object(obj, key, receiver)
+
+  defp reflect_get_object(obj, {:qb_arr, _}, key, receiver),
+    do: reflect_get_array_object(obj, key, receiver)
+
   defp reflect_get_object(obj, raw, key, receiver) do
     case Heap.raw_fetch(raw, key) do
       {:ok, value} -> reflect_get_value(value, receiver)
       :error -> reflect_get_from_prototype(Prototype.get(obj), key, receiver)
+    end
+  end
+
+  defp reflect_get_array_object(obj, key, receiver) do
+    case PropertyKey.normalize(key) do
+      "length" ->
+        Get.length_of(obj)
+
+      normalized_key ->
+        case PropertyKey.array_index(normalized_key) do
+          {:ok, _} -> Get.get(obj, normalized_key)
+          :error -> reflect_get_from_prototype(Prototype.get(obj), normalized_key, receiver)
+        end
     end
   end
 
