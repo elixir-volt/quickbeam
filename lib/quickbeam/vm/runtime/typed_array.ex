@@ -1108,16 +1108,27 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp get_species_ctor({:obj, _ref} = obj) do
     case Get.get(obj, "constructor") do
-      ctor when ctor in [nil, :undefined] ->
+      :undefined ->
         nil
 
       ctor ->
+        unless species_constructor_object?(ctor) do
+          JSThrow.type_error!("constructor is not an object")
+        end
+
         case Get.get(ctor, {:symbol, "Symbol.species"}) do
           species when species in [nil, :undefined] -> nil
           species -> species
         end
     end
   end
+
+  defp species_constructor_object?({:obj, _}), do: true
+  defp species_constructor_object?({:builtin, _, _}), do: true
+  defp species_constructor_object?({:closure, _, _}), do: true
+  defp species_constructor_object?({:bound, _, _, _, _}), do: true
+  defp species_constructor_object?(%QuickBEAM.VM.Function{}), do: true
+  defp species_constructor_object?(_), do: false
 
   defp typed_array_species_create(obj, default_type, length) do
     case get_species_ctor(obj) do
