@@ -394,9 +394,13 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       :ok
     else
       t = Map.get(ta, type_key(), :uint8)
-      new_buf = write_element(buf(ref) || <<>>, idx, val, t)
-      update_buffer(ref, new_buf)
-      delete_shadowed_views(ref, idx)
+      value = coerce_element_value(val, t)
+
+      unless out_of_bounds?({:obj, ref}) do
+        new_buf = write_element(buf(ref) || <<>>, idx, value, t)
+        update_buffer(ref, new_buf)
+        delete_shadowed_views(ref, idx)
+      end
     end
   end
 
