@@ -92,7 +92,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       "some" => prototype_ref_method("some", 1, &some/3),
       "sort" => prototype_ref_method("sort", 1, fn ref, args, _this -> sort(ref, args) end),
       "subarray" => prototype_ref_method("subarray", 2, fn ref, args, _this -> subarray(ref, args) end),
-      "toLocaleString" => prototype_ref_method("toLocaleString", 0, fn ref, _args, _this -> join(ref, [","]) end),
+      "toLocaleString" => prototype_ref_method("toLocaleString", 0, fn ref, _args, _this -> to_locale_string(ref) end),
       "toReversed" => prototype_ref_method("toReversed", 0, fn ref, _args, _this -> to_reversed(ref) end),
       "toSorted" => prototype_ref_method("toSorted", 1, fn ref, _args, _this -> to_sorted(ref) end),
       "toString" => prototype_ref_method("toString", 0, fn ref, _args, _this -> join(ref, [","]) end),
@@ -278,7 +278,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
           method("reverse", do: reverse(ref))
           method("slice", do: slice(ref, args))
           method("fill", do: fill(ref, args))
-          method("toLocaleString", do: join(ref, [","]))
+          method("toLocaleString", do: to_locale_string(ref))
           method("toReversed", do: to_reversed(ref))
           method("toSorted", do: to_sorted(ref))
           method("toString", do: join(ref, [","]))
@@ -703,6 +703,27 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp typed_array_join_value(:undefined), do: ""
   defp typed_array_join_value(nil), do: ""
   defp typed_array_join_value(value), do: typed_array_to_string(value)
+
+  defp to_locale_string(ref) do
+    l = len(ref)
+    b = buf(ref)
+    t = type(ref)
+
+    if l == 0 do
+      ""
+    else
+      Enum.map_join(0..(l - 1), ",", fn index ->
+        case read_element(b, index, t) do
+          value when value in [:undefined, nil] ->
+            ""
+
+          value ->
+            method = Get.get(value, "toLocaleString")
+            method |> Invocation.invoke_method_runtime(value, []) |> typed_array_to_string()
+        end
+      end)
+    end
+  end
 
   defp typed_array_to_string({:symbol, _}), do: JSThrow.type_error!("Cannot convert a Symbol value to a string")
   defp typed_array_to_string({:symbol, _, _}), do: JSThrow.type_error!("Cannot convert a Symbol value to a string")
