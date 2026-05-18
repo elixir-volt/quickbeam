@@ -557,36 +557,59 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       JSThrow.range_error!("offset is out of bounds")
     end
 
-    src_list = typed_array_set_source_values(source)
+    {source_len, source_getter} = typed_array_set_source(source)
     target_len = len(ref)
 
-    if offset + length(src_list) > target_len do
+    if offset + source_len > target_len do
       JSThrow.range_error!("source is too large")
     end
 
-    t = type(ref)
+    if source_len > 0 do
+      for index <- 0..(source_len - 1) do
+        set_element({:obj, ref}, offset + index, source_getter.(index))
+      end
+    end
 
-    new_buf =
-      src_list
-      |> Enum.with_index(offset)
-      |> Enum.reduce(buf(ref) || <<>>, fn {v, i}, acc -> write_element(acc, i, v, t) end)
-
-    update_buffer(ref, new_buf)
     :undefined
   end
 
-  defp typed_array_set_source_values(nil), do: JSThrow.type_error!("Cannot convert undefined or null to object")
-  defp typed_array_set_source_values(:undefined), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+  defp typed_array_set_source(nil), do: JSThrow.type_error!("Cannot convert undefined or null to object")
+  defp typed_array_set_source(:undefined), do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
-  defp typed_array_set_source_values({:obj, _} = source), do: typed_array_source_values(source)
-  defp typed_array_set_source_values({:qb_arr, arr}), do: :array.to_list(arr)
-  defp typed_array_set_source_values(source) when is_list(source), do: source
-  defp typed_array_set_source_values(source) when is_binary(source), do: String.graphemes(source)
-  defp typed_array_set_source_values(source) when is_number(source) or is_boolean(source), do: []
-  defp typed_array_set_source_values({:bigint, _}), do: []
-  defp typed_array_set_source_values({:symbol, _}), do: []
-  defp typed_array_set_source_values({:symbol, _, _}), do: []
-  defp typed_array_set_source_values(source), do: Heap.to_list(source)
+  defp typed_array_set_source({:obj, ref} = source) do
+    case Heap.get_obj(ref, %{}) do
+      %{typed_array() => true} ->
+        len = element_count(source)
+        values = if len == 0, do: [], else: for(index <- 0..(len - 1), do: get_element(source, index))
+        {len, &Enum.at(values, &1, :undefined)}
+
+      _ ->
+        len = max(Runtime.to_int(Get.get(source, "length")), 0)
+        {len, fn index -> Get.get(source, Integer.to_string(index)) end}
+    end
+  end
+
+  defp typed_array_set_source({:qb_arr, arr}) do
+    len = :array.size(arr)
+    {len, fn index -> :array.get(index, arr) end}
+  end
+
+  defp typed_array_set_source(source) when is_list(source), do: {length(source), &Enum.at(source, &1, :undefined)}
+
+  defp typed_array_set_source(source) when is_binary(source) do
+    chars = String.graphemes(source)
+    {length(chars), &Enum.at(chars, &1, :undefined)}
+  end
+
+  defp typed_array_set_source(source) when is_number(source) or is_boolean(source), do: {0, fn _ -> :undefined end}
+  defp typed_array_set_source({:bigint, _}), do: {0, fn _ -> :undefined end}
+  defp typed_array_set_source({:symbol, _}), do: {0, fn _ -> :undefined end}
+  defp typed_array_set_source({:symbol, _, _}), do: {0, fn _ -> :undefined end}
+
+  defp typed_array_set_source(source) do
+    values = Heap.to_list(source)
+    {length(values), &Enum.at(values, &1, :undefined)}
+  end
 
   defp subarray(ref, args) do
     l = len(ref)
