@@ -1662,7 +1662,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp write_element(buf, pos, :undefined, type), do: write_element(buf, pos, 0, type)
 
   defp write_element(buf, pos, val, :uint8_clamped) when pos < byte_size(buf) do
-    v = max(0, min(255, bankers_round(integer_number(val))))
+    v = val |> clamped_uint8_number() |> bankers_round()
     <<pre::binary-size(pos), _::8, rest::binary>> = buf
     <<pre::binary, v::8, rest::binary>>
   end
@@ -1747,6 +1747,16 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp float64_bits(n) when n in [:nan, :NaN], do: 0x7FF8000000000000
   defp float64_bits(:infinity), do: 0x7FF0000000000000
   defp float64_bits(:neg_infinity), do: 0xFFF0000000000000
+
+  defp clamped_uint8_number(value) do
+    case Runtime.to_number(value) do
+      :infinity -> 255
+      :neg_infinity -> 0
+      number when is_integer(number) -> max(0, min(255, number))
+      number when is_float(number) -> max(0.0, min(255.0, number))
+      _ -> 0
+    end
+  end
 
   defp integer_number(value) do
     case Runtime.to_number(value) do
