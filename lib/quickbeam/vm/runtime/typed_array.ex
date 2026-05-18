@@ -147,7 +147,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp prototype_byte_offset(this) do
     obj = typed_array_object!(this)
-    if out_of_bounds?(obj), do: 0, else: Map.get(typed_array_state!(obj), "byteOffset", 0)
+    if out_of_bounds?(obj), do: 0, else: Map.get(typed_array_state!(obj), offset(), 0)
   end
 
   defp prototype_length(this) do
@@ -355,7 +355,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
           m when is_map(m) ->
             byte_len = byte_size(Map.get(m, buffer(), Map.get(s, buffer(), <<>>)))
-            offset = Map.get(s, "byteOffset", 0)
+            offset = Map.get(s, offset(), 0)
 
             if Map.get(s, "__length_tracking__") do
               byte_len < offset
@@ -412,7 +412,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
           %{"__views__" => views} when is_list(views) ->
             Enum.each(views, fn view_ref ->
               view = Heap.get_obj(view_ref, %{})
-              offset = Map.get(view, "byteOffset", 0)
+              offset = Map.get(view, offset(), 0)
               elem_size = Map.get(view, "BYTES_PER_ELEMENT", 1)
 
               if rem(offset, elem_size) == 0 do
@@ -462,7 +462,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
               nil
             else
               ab_buf = Map.get(m, buffer(), Map.get(s, buffer(), <<>>))
-              offset = Map.get(s, "byteOffset", 0)
+              offset = Map.get(s, offset(), 0)
               byte_len = current_view_byte_length(s, ab_buf, offset)
 
               cond do
@@ -1161,7 +1161,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
         buf_map = Heap.get_obj(buf_ref, %{})
 
         if is_map(buf_map) do
-          offset = Map.get(s, "byteOffset", 0)
+          offset = Map.get(s, offset(), 0)
           ab_buf = Map.get(buf_map, buffer(), <<>>)
 
           before =
