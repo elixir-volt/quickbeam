@@ -17,6 +17,14 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayTest do
     )
   end
 
+  test "shared typed-array write invalidation uses byte ranges", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|const ab = new ArrayBuffer(8); const u16 = new Uint16Array(ab, 2); const u8 = new Uint8Array(ab); u8[4]; u16[1] = 7; u8[4]|,
+      7
+    )
+  end
+
   test "TypedArray.prototype.at reads relative elements", %{rt: rt} do
     assert_modes(
       rt,

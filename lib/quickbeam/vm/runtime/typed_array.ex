@@ -411,25 +411,31 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       unless out_of_bounds?({:obj, ref}) do
         new_buf = write_element(buf(ref) || <<>>, idx, value, t)
         update_buffer(ref, new_buf)
-        delete_shadowed_views(ref, idx)
+        delete_shadowed_views(ref, idx, elem_size(t))
       end
     end
   end
 
-  defp delete_shadowed_views(ref, idx) do
+  defp delete_shadowed_views(ref, idx, write_size) do
     case Heap.get_obj(ref, %{}) do
-      %{"buffer" => {:obj, buf_ref}} ->
+      %{"buffer" => {:obj, buf_ref}} = writer ->
+        write_start = Map.get(writer, offset(), 0) + idx * write_size
+        write_end = write_start + write_size
+
         case Heap.get_obj(buf_ref, %{}) do
           %{"__views__" => views} when is_list(views) ->
             Enum.each(views, fn view_ref ->
               view = Heap.get_obj(view_ref, %{})
-              offset = Map.get(view, offset(), 0)
-              elem_size = Map.get(view, "BYTES_PER_ELEMENT", 1)
+              view_offset = Map.get(view, offset(), 0)
+              view_size = Map.get(view, "BYTES_PER_ELEMENT", 1)
+              first = max(0, div(write_start - view_offset, view_size))
+              last = max(0, div(max(write_end - 1 - view_offset, 0), view_size))
 
-              if rem(offset, elem_size) == 0 do
-                view_idx = idx - div(offset, elem_size)
+              for view_idx <- first..last do
+                elem_start = view_offset + view_idx * view_size
+                elem_end = elem_start + view_size
 
-                if view_idx >= 0 do
+                if elem_start < write_end and elem_end > write_start do
                   Heap.delete_array_prop(view_ref, Integer.to_string(view_idx))
                 end
               end
