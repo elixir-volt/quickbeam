@@ -593,20 +593,18 @@ defmodule QuickBEAM.VM.Runtime.Array do
     this_arg = filter_this_arg(rest)
     target = map_target(this, len)
 
-    if len > 0 do
-      Enum.each(0..(len - 1), fn idx ->
-        key = Integer.to_string(idx)
+    Enum.each(callback_iteration_indexes(this, len), fn idx ->
+      key = Integer.to_string(idx)
 
-        if HasProperty.has_property?(this, key) do
-          value = find_value_at(this, idx)
+      if HasProperty.has_property?(this, key) do
+        value = find_value_at(this, idx)
 
-          mapped =
-            QuickBEAM.VM.Invocation.invoke_with_receiver(fun, [value, idx, this], this_arg)
+        mapped =
+          QuickBEAM.VM.Invocation.invoke_with_receiver(fun, [value, idx, this], this_arg)
 
-          create_data_property_or_throw(target, key, mapped)
-        end
-      end)
-    end
+        create_data_property_or_throw(target, key, mapped)
+      end
+    end)
 
     Put.put(target, "length", len)
     target
@@ -689,29 +687,26 @@ defmodule QuickBEAM.VM.Runtime.Array do
     this_arg = filter_this_arg(rest)
 
     result =
-      if len == 0 do
-        []
-      else
-        0..(len - 1)
-        |> Enum.reduce([], fn idx, acc ->
-          key = Integer.to_string(idx)
+      this
+      |> callback_iteration_indexes(len)
+      |> Enum.reduce([], fn idx, acc ->
+        key = Integer.to_string(idx)
 
-          if HasProperty.has_property?(this, key) do
-            value = Get.get(this, key)
+        if HasProperty.has_property?(this, key) do
+          value = Get.get(this, key)
 
-            if Runtime.truthy?(
-                 QuickBEAM.VM.Invocation.invoke_with_receiver(fun, [value, idx, this], this_arg)
-               ) do
-              [value | acc]
-            else
-              acc
-            end
+          if Runtime.truthy?(
+               QuickBEAM.VM.Invocation.invoke_with_receiver(fun, [value, idx, this], this_arg)
+             ) do
+            [value | acc]
           else
             acc
           end
-        end)
-        |> Enum.reverse()
-      end
+        else
+          acc
+        end
+      end)
+      |> Enum.reverse()
 
     wrap_filter_result(this, result)
   end
@@ -836,8 +831,85 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp reduce_indexes(_this, len, :forward), do: Enum.to_list(0..(len - 1))
   defp reduce_indexes(_this, len, :reverse), do: Enum.to_list((len - 1)..0//-1)
 
+  defp callback_iteration_indexes(_this, 0), do: []
+
+  defp callback_iteration_indexes(this, len) when len > 100_000 do
+    this
+    |> sparse_present_indexes(len)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp callback_iteration_indexes(_this, len), do: 0..(len - 1)
+
+  defp sparse_present_indexes(this, len), do: sparse_present_indexes(this, len, MapSet.new())
+
+  defp sparse_present_indexes({:obj, ref} = obj, len, seen) do
+    if MapSet.member?(seen, ref) do
+      []
+    else
+      own_sparse_indexes(obj, len) ++
+        sparse_present_indexes(Prototype.get(obj), len, MapSet.put(seen, ref))
+    end
+  end
+
+  defp sparse_present_indexes(_, _len, _seen), do: []
+
+  defp own_sparse_indexes({:obj, ref}, len) do
+    case Heap.get_obj(ref, %{}) do
+      {:qb_arr, arr} ->
+        array_sparse_indexes(arr) ++ numeric_array_prop_indexes(ref, len)
+
+      list when is_list(list) ->
+        list
+        |> Enum.with_index()
+        |> Enum.map(fn {_value, idx} -> idx end)
+        |> Enum.filter(&(&1 >= 0 and &1 < len))
+
+      map when is_map(map) ->
+        map
+        |> Map.keys()
+        |> Enum.flat_map(&array_property_index/1)
+        |> Enum.filter(&(&1 >= 0 and &1 < len))
+
+      _ ->
+        []
+    end
+  end
+
+  defp own_sparse_indexes(value, len) do
+    value
+    |> OwnProperty.descriptor_keys()
+    |> Enum.flat_map(&array_property_index/1)
+    |> Enum.filter(&(&1 >= 0 and &1 < len))
+  end
+
+  defp array_sparse_indexes(arr) do
+    arr
+    |> :array.sparse_to_orddict()
+    |> Enum.map(fn {idx, _value} -> idx end)
+  end
+
+  defp numeric_array_prop_indexes(ref, len) do
+    ref
+    |> Heap.get_array_props()
+    |> Map.keys()
+    |> Enum.flat_map(&array_property_index/1)
+    |> Enum.filter(&(&1 >= 0 and &1 < len))
+  end
+
   defp sort_reduce_indexes(indexes, :forward), do: Enum.sort(indexes)
   defp sort_reduce_indexes(indexes, :reverse), do: Enum.sort(indexes, :desc)
+
+  defp array_property_index(key) when is_binary(key) do
+    case Integer.parse(key) do
+      {idx, ""} when idx >= 0 ->
+        if Integer.to_string(idx) == key, do: [idx], else: []
+
+      _ ->
+        []
+    end
+  end
 
   defp array_property_index(key) do
     case PropertyKey.array_index(key) do
@@ -872,16 +944,14 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
     this_arg = filter_this_arg(rest)
 
-    if len > 0 do
-      Enum.each(0..(len - 1), fn idx ->
-        key = Integer.to_string(idx)
+    Enum.each(callback_iteration_indexes(this, len), fn idx ->
+      key = Integer.to_string(idx)
 
-        if HasProperty.has_property?(this, key) do
-          value = find_value_at(this, idx)
-          QuickBEAM.VM.Invocation.invoke_with_receiver(fun, [value, idx, this], this_arg)
-        end
-      end)
-    end
+      if HasProperty.has_property?(this, key) do
+        value = find_value_at(this, idx)
+        QuickBEAM.VM.Invocation.invoke_with_receiver(fun, [value, idx, this], this_arg)
+      end
+    end)
 
     :undefined
   end
@@ -926,11 +996,15 @@ defmodule QuickBEAM.VM.Runtime.Array do
         -1
 
       start ->
-        find_index_in_range(start, len, fn idx ->
+        this
+        |> index_of_indexes(len, start)
+        |> Enum.find_value(-1, fn idx ->
           key = Integer.to_string(idx)
 
-          HasProperty.has_property?(this, key) and
-            strict_equal_for_index?(find_value_at(this, idx), search_element)
+          if HasProperty.has_property?(this, key) and
+               strict_equal_for_index?(find_value_at(this, idx), search_element) do
+            idx
+          end
         end)
     end
   end
@@ -943,6 +1017,18 @@ defmodule QuickBEAM.VM.Runtime.Array do
       (Runtime.strict_equal?(left, right) or
          (is_number(left) and is_number(right) and left == right))
   end
+
+  defp index_of_indexes(_this, len, start) when start >= len, do: []
+
+  defp index_of_indexes(this, len, start) when len > 100_000 do
+    this
+    |> sparse_present_indexes(len)
+    |> Enum.filter(&(&1 >= start))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp index_of_indexes(_this, len, start), do: start..(len - 1)
 
   defp find_index_in_range(start, len, predicate) when start < len do
     Enum.find_value(start..(len - 1), -1, fn idx ->
@@ -1005,8 +1091,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp last_index_of_indexes(this, len, start) when len > 100_000 do
     this
-    |> OwnProperty.descriptor_keys()
-    |> Enum.flat_map(&array_property_index/1)
+    |> sparse_present_indexes(len)
     |> Enum.filter(&(&1 >= 0 and &1 <= start and &1 < len))
     |> Enum.uniq()
     |> Enum.sort(:desc)
@@ -2157,23 +2242,19 @@ defmodule QuickBEAM.VM.Runtime.Array do
         _ -> :undefined
       end
 
-    if len == 0 do
-      true
-    else
-      Enum.all?(0..(len - 1), fn idx ->
-        key = Integer.to_string(idx)
+    Enum.all?(callback_iteration_indexes(this, len), fn idx ->
+      key = Integer.to_string(idx)
 
-        if HasProperty.has_property?(this, key) do
-          value = Get.get(this, key)
+      if HasProperty.has_property?(this, key) do
+        value = Get.get(this, key)
 
-          Runtime.truthy?(
-            QuickBEAM.VM.Invocation.invoke_with_receiver(fun, [value, idx, this], this_arg)
-          )
-        else
-          true
-        end
-      end)
-    end
+        Runtime.truthy?(
+          QuickBEAM.VM.Invocation.invoke_with_receiver(fun, [value, idx, this], this_arg)
+        )
+      else
+        true
+      end
+    end)
   end
 
   defp every_array_like(this, _args) do
