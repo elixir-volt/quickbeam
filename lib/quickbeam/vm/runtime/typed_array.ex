@@ -565,6 +565,10 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       JSThrow.range_error!("offset is out of bounds")
     end
 
+    if out_of_bounds?({:obj, ref}) do
+      JSThrow.type_error!("TypedArray is out of bounds")
+    end
+
     target_len = len(ref)
     validate_typed_array_set_content_type!(type(ref), source)
 
