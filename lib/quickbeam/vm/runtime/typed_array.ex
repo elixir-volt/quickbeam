@@ -885,6 +885,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   end
 
   defp index_of(ref, [target | rest]) do
+    ensure_not_out_of_bounds(ref)
     l = len(ref)
 
     if l == 0 do
@@ -911,6 +912,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp index_of(_ref, _args), do: -1
 
   defp last_index_of(ref, [target | rest]) do
+    ensure_not_out_of_bounds(ref)
     l = len(ref)
 
     if l == 0 do
@@ -937,6 +939,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp last_index_of(_ref, _args), do: -1
 
   defp includes(ref, [target | rest]) do
+    ensure_not_out_of_bounds(ref)
     l = len(ref)
 
     if l == 0 do
