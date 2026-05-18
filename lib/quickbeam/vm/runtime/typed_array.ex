@@ -516,8 +516,12 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       end
 
     {b, l, t} = {buf(ref), len(ref), type(ref)}
-    Enum.map_join(0..max(0, l - 1), sep, &Integer.to_string(trunc(read_element(b, &1, t))))
+    Enum.map_join(0..max(0, l - 1), sep, &typed_array_join_value(read_element(b, &1, t)))
   end
+
+  defp typed_array_join_value(:undefined), do: ""
+  defp typed_array_join_value(nil), do: ""
+  defp typed_array_join_value(value), do: Runtime.stringify(value)
 
   defp for_each(ref, [cb | _], this) do
     {b, l, t} = {buf(ref), len(ref), type(ref)}
