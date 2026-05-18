@@ -126,7 +126,7 @@ defmodule QuickBEAM.VM.Compiler do
   defp compiler_cache_dir do
     if System.get_env("QUICKBEAM_COMPILER_CACHE") in ["1", "true", "TRUE"] do
       System.get_env("QUICKBEAM_COMPILER_CACHE_DIR") ||
-        Path.join(System.tmp_dir!(), "quickbeam-compiler-cache-v1")
+        Path.join(:filename.basedir(:user_cache, "quickbeam"), "compiler-cache/v1")
     end
   end
 
