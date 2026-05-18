@@ -681,6 +681,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   end
 
   defp join(ref, args) do
+    ensure_not_out_of_bounds(ref)
     l = len(ref)
     t = type(ref)
 
@@ -705,6 +706,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp typed_array_join_value(value), do: typed_array_to_string(value)
 
   defp to_locale_string(ref) do
+    ensure_not_out_of_bounds(ref)
     l = len(ref)
     b = buf(ref)
     t = type(ref)
@@ -731,6 +733,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp for_each(ref, [cb | rest], this) do
     callback!(cb)
+    ensure_not_out_of_bounds(ref)
     l = len(ref)
     this_arg = arg(rest, 0, :undefined)
 
@@ -796,6 +799,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp every(ref, [cb | rest], this) do
     callback!(cb)
+    ensure_not_out_of_bounds(ref)
     l = len(ref)
     this_arg = arg(rest, 0, :undefined)
 
@@ -811,6 +815,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp some(ref, [cb | rest], this) do
     callback!(cb)
+    ensure_not_out_of_bounds(ref)
     l = len(ref)
     this_arg = arg(rest, 0, :undefined)
 
@@ -825,6 +830,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp some(_ref, _args, _this), do: JSThrow.type_error!("callbackfn is not callable")
 
   defp reduce(ref, args, this) do
+    ensure_not_out_of_bounds(ref)
     l = len(ref)
     cb = arg(args, 0, nil)
     callback!(cb)
@@ -851,6 +857,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   end
 
   defp reduce_right(ref, args, this) do
+    ensure_not_out_of_bounds(ref)
     l = len(ref)
     cb = arg(args, 0, nil)
     callback!(cb)
@@ -967,6 +974,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp find(ref, [cb | rest], this) do
     callback!(cb)
+    ensure_not_out_of_bounds(ref)
     l = len(ref)
     this_arg = arg(rest, 0, :undefined)
 
@@ -987,6 +995,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp find_index(ref, [cb | rest], this) do
     callback!(cb)
+    ensure_not_out_of_bounds(ref)
     l = len(ref)
     this_arg = arg(rest, 0, :undefined)
 
@@ -1007,6 +1016,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp find_last(ref, [cb | rest], this) do
     callback!(cb)
+    ensure_not_out_of_bounds(ref)
     l = len(ref)
     this_arg = arg(rest, 0, :undefined)
 
@@ -1027,6 +1037,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp find_last_index(ref, [cb | rest], this) do
     callback!(cb)
+    ensure_not_out_of_bounds(ref)
     l = len(ref)
     this_arg = arg(rest, 0, :undefined)
 
@@ -1342,6 +1353,12 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp bankers_round(n) when is_integer(n), do: n
   defp bankers_round(_), do: 0
+
+  defp ensure_not_out_of_bounds(ref) do
+    if out_of_bounds?({:obj, ref}) do
+      JSThrow.type_error!("TypedArray is out of bounds")
+    end
+  end
 
   defp callback!(cb) do
     unless QuickBEAM.VM.Builtin.callable?(cb) do
