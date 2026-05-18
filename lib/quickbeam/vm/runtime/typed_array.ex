@@ -1005,19 +1005,25 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp find_last_index(_ref, _args, _this), do: JSThrow.type_error!("callbackfn is not callable")
 
   defp sort(ref) do
+    obj = {:obj, ref}
+    if out_of_bounds?(obj), do: JSThrow.type_error!("TypedArray is out of bounds")
+
     {b, l, t} = {buf(ref), len(ref), type(ref)}
-    vals = Enum.map(0..max(0, l - 1), &read_element(b, &1, t)) |> Enum.sort()
+    vals = if l == 0, do: [], else: Enum.map(0..(l - 1), &read_element(b, &1, t)) |> Enum.sort()
     new_buf = rebuild_buffer(vals, b, t)
     update_buffer(ref, new_buf)
-    {:obj, ref}
+    obj
   end
 
   defp reverse(ref) do
+    obj = {:obj, ref}
+    if out_of_bounds?(obj), do: JSThrow.type_error!("TypedArray is out of bounds")
+
     {b, l, t} = {buf(ref), len(ref), type(ref)}
     vals = if l == 0, do: [], else: Enum.map(0..(l - 1), &read_element(b, &1, t)) |> Enum.reverse()
     new_buf = rebuild_buffer(vals, b, t)
     update_buffer(ref, new_buf)
-    {:obj, ref}
+    obj
   end
 
   defp to_reversed(ref) do
