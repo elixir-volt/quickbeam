@@ -1777,6 +1777,9 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp regexp_replace(regexp, [string, replacement | _]) do
+    unless regexp_match_receiver?(regexp),
+      do: JSThrow.type_error!("RegExp replace receiver is not an object")
+
     JSString.regex_replace(QuickBEAM.VM.Interpreter.Values.stringify(string), regexp, replacement)
   end
 
