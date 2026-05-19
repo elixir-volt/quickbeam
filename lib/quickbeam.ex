@@ -5,12 +5,12 @@ defmodule QuickBEAM do
   alias QuickBEAM.JS.Error, as: JSError
   alias QuickBEAM.Native
   alias QuickBEAM.Runtime
-  alias QuickBEAM.VM.BytecodeParser, as: BeamBytecodeParser
-  alias QuickBEAM.VM.Compiler, as: BeamCompiler
+  alias QuickBEAM.VM.BytecodeParser, as: BEAMBytecodeParser
+  alias QuickBEAM.VM.Compiler, as: BEAMCompiler
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.PromiseState, as: Promise
-  alias QuickBEAM.VM.Runtime, as: BeamRuntime
+  alias QuickBEAM.VM.Runtime, as: BEAMRuntime
 
   @moduledoc """
   QuickJS-NG JavaScript engine embedded in the BEAM.
@@ -73,6 +73,12 @@ defmodule QuickBEAM do
   def child_spec(opts) do
     Runtime.child_spec(opts)
   end
+
+  @doc "Deletes cached BEAM compiler artifacts when `QUICKBEAM_COMPILER_CACHE` is enabled."
+  def clear_compiler_cache, do: BEAMCompiler.clear_cache()
+
+  @doc "Returns the BEAM compiler cache directory when disk caching is enabled."
+  def compiler_cache_dir, do: BEAMCompiler.cache_dir()
 
   @doc """
   Start a new JavaScript runtime.
@@ -220,7 +226,7 @@ defmodule QuickBEAM do
 
     case Runtime.compile(runtime, compile_code, Keyword.get(opts, :filename, "")) do
       {:ok, bc} ->
-        case BeamBytecodeParser.decode(bc) do
+        case BEAMBytecodeParser.decode(bc) do
           {:ok, parsed} ->
             result = eval_beam_bytecode(parsed, runtime, handler_globals, mode)
 
@@ -247,7 +253,7 @@ defmodule QuickBEAM do
     QuickBEAM.VM.Interpreter.Setup.store_function_atoms(parsed.value, parsed.atoms)
     Heap.put_ctx(QuickBEAM.VM.Interpreter.Context.mark_synced(ctx))
 
-    case BeamCompiler.invoke(parsed.value, [], ctx) do
+    case BEAMCompiler.invoke(parsed.value, [], ctx) do
       {:ok, _} = ok -> ok
       :error when mode == :auto -> Interpreter.eval(parsed.value, [], opts, parsed.atoms)
       :error -> {:error, {:beam_compiler_unsupported, :top_level}}
@@ -690,7 +696,7 @@ defmodule QuickBEAM do
 
     case Runtime.compile(runtime, wrapper) do
       {:ok, bc} ->
-        case BeamBytecodeParser.decode(bc) do
+        case BEAMBytecodeParser.decode(bc) do
           {:ok, parsed} ->
             case Interpreter.eval(
                    parsed.value,
@@ -748,7 +754,7 @@ defmodule QuickBEAM do
     handler_globals = Heap.get_handler_globals() || %{}
 
     globals =
-      BeamRuntime.global_bindings()
+      BEAMRuntime.global_bindings()
       |> Map.merge(handler_globals)
       |> Map.merge(Heap.get_persistent_globals())
 
@@ -818,8 +824,8 @@ defmodule QuickBEAM do
 
   defp disasm_beam(runtime, code, opts) do
     with {:ok, bytecode} <- Runtime.compile(runtime, code, Keyword.get(opts, :filename, "")),
-         {:ok, parsed} <- BeamBytecodeParser.decode(bytecode) do
-      BeamCompiler.disasm(parsed.value)
+         {:ok, parsed} <- BEAMBytecodeParser.decode(bytecode) do
+      BEAMCompiler.disasm(parsed.value)
     end
   end
 

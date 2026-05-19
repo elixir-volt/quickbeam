@@ -11,6 +11,8 @@ defmodule QuickBEAM.VM.Compiler do
   @type compiled_fun :: {module(), atom()}
   @type beam_file :: {:beam_file, module(), list(), list(), list(), list()}
 
+  @compiler_cache_version "v3"
+
   @doc "Invokes the runtime object represented by this module."
   def invoke(fun, args), do: invoke(fun, args, nil)
 
@@ -89,6 +91,23 @@ defmodule QuickBEAM.VM.Compiler do
 
   def compile(_), do: {:error, :var_refs_not_supported}
 
+  @doc "Returns the compiler cache directory when disk caching is enabled."
+  def cache_dir, do: compiler_cache_dir()
+
+  @doc "Deletes cached compiled BEAM modules from disk."
+  def clear_cache do
+    case compiler_cache_dir() do
+      dir when is_binary(dir) ->
+        case File.rm_rf(dir) do
+          {:ok, _} -> :ok
+          {:error, reason, path} -> {:error, {reason, path}}
+        end
+
+      nil ->
+        :ok
+    end
+  end
+
   defp cached_or_compile_binary(module, fun) do
     case read_cached_binary(module) do
       {:ok, binary} ->
@@ -126,7 +145,10 @@ defmodule QuickBEAM.VM.Compiler do
   defp compiler_cache_dir do
     if System.get_env("QUICKBEAM_COMPILER_CACHE") in ["1", "true", "TRUE"] do
       System.get_env("QUICKBEAM_COMPILER_CACHE_DIR") ||
-        Path.join(:filename.basedir(:user_cache, "quickbeam"), "compiler-cache/v2")
+        Path.join(
+          :filename.basedir(:user_cache, "quickbeam"),
+          "compiler-cache/#{@compiler_cache_version}"
+        )
     end
   end
 
@@ -228,7 +250,7 @@ defmodule QuickBEAM.VM.Compiler do
 
   defp module_name(fun, atoms) do
     hash =
-      {stable_function_key(fun), atoms}
+      {@compiler_cache_version, stable_function_key(fun), atoms}
       |> :erlang.term_to_binary()
       |> then(&:crypto.hash(:sha256, &1))
       |> binary_part(0, 8)
