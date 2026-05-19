@@ -1,21 +1,21 @@
-defmodule QuickBEAM.VM.Runtime.ProxyInstaller do
+defmodule QuickBEAM.VM.Runtime.Proxy do
   @moduledoc "Installs the Proxy constructor and Proxy.revocable helper."
 
   alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.Runtime.Constructors, as: ConstructorRegistry
   alias QuickBEAM.VM.Runtime.Globals.Constructors
 
-  @doc "Returns the global Proxy constructor binding."
-  def constructor do
-    ctor = ConstructorRegistry.register("Proxy", &Constructors.proxy/2)
+  use QuickBEAM.VM.Builtin
 
-    Heap.put_ctor_static(
-      ctor,
-      "revocable",
-      {:builtin, "revocable", &revocable/2}
-    )
+  builtin_definition("Proxy",
+    constructor: &Constructors.proxy/2,
+    length: 2,
+    phase: :fundamental,
+    module: __MODULE__,
+    after_install: &__MODULE__.install_builtin/1
+  )
 
-    ctor
+  def install_builtin(ctor) do
+    Heap.put_ctor_static(ctor, "revocable", {:builtin, "revocable", &revocable/2})
   end
 
   defp revocable([target, handler | _], _this) do

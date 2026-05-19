@@ -4,9 +4,36 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
   import QuickBEAM.VM.Heap.Keys
   use QuickBEAM.VM.Builtin
 
+  alias QuickBEAM.VM.Builtin.Definition
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Runtime.InstallerHelpers
+
+  def builtin_definitions do
+    for name <- ["ArrayBuffer", "SharedArrayBuffer"] do
+      %Definition{
+        name: name,
+        constructor: &__MODULE__.constructor/2,
+        length: 1,
+        phase: :fundamental,
+        module: __MODULE__,
+        after_install: &__MODULE__.install_builtin/1
+      }
+    end
+  end
+
+  def install_builtin(ctor) do
+    InstallerHelpers.with_prototype(ctor, fn proto_ref ->
+      InstallerHelpers.install_methods(proto_ref, __MODULE__, proto_property_names())
+    end)
+
+    Heap.put_ctor_static(
+      ctor,
+      {:symbol, "Symbol.species"},
+      {:accessor, {:builtin, "get [Symbol.species]", fn _, _ -> ctor end}, nil}
+    )
+  end
 
   @doc "Returns prototype method names installed on ArrayBuffer.prototype."
   def proto_property_names, do: ~w(transfer resize slice sliceToImmutable transferToImmutable)
