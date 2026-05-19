@@ -81,6 +81,14 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   def nif_exec(_, _, _), do: nil
 
+  defp test({:regexp, _bytecode, _source, _ref} = regexp, [s | _]) when is_binary(s) do
+    exec(regexp, [s]) != nil
+  end
+
+  defp test({:regexp, _bytecode, _source} = regexp, [s | _]) when is_binary(s) do
+    exec(regexp, [s]) != nil
+  end
+
   defp test({:regexp, _bytecode, "^\\s+$", _ref}, [s | _]) when is_binary(s) do
     s != "" and all_ecma_whitespace?(s)
   end
