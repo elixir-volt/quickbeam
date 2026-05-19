@@ -757,10 +757,18 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         {:obj, ref}
 
       :none ->
-        special_exec_fallback(source, flags, s, last_index) ||
-          named_backreference_fallback(source, flags, s, last_index) ||
-          unicode_regex_fallback(source, flags, s, last_index) ||
-          exec_nif_native(bytecode, source, flags, s, last_index)
+        case special_exec_fallback(source, flags, s, last_index) do
+          {:ok, result} ->
+            result
+
+          :nomatch ->
+            nil
+
+          :none ->
+            named_backreference_fallback(source, flags, s, last_index) ||
+              unicode_regex_fallback(source, flags, s, last_index) ||
+              exec_nif_native(bytecode, source, flags, s, last_index)
+        end
     end
   end
 
@@ -1501,12 +1509,12 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         results
         |> Enum.find(fn {_match, index} -> index >= last_index end)
         |> case do
-          {match, index} -> exec_result([match], index, string)
-          nil -> nil
+          {match, index} -> {:ok, exec_result([match], index, string)}
+          nil -> :nomatch
         end
 
       :none ->
-        nil
+        :none
     end
   end
 
