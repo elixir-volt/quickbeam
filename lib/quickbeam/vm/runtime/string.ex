@@ -1916,7 +1916,7 @@ defmodule QuickBEAM.VM.Runtime.String do
     before = binary_part(s, 0, match_start)
     matched = binary_part(s, match_start, match_len)
     after_str = binary_part(s, match_start + match_len, byte_size(s) - match_start - match_len)
-    capture_strings = pad_captures(capture_strings(s, captures), length(Regex.names(regex)))
+    capture_strings = pad_captures(capture_strings(s, captures), max(length(Regex.names(regex)), capture_count(regex.source)))
     named_captures = named_capture_values(regex, capture_strings, s, match_start)
 
     rep =
@@ -1971,6 +1971,12 @@ defmodule QuickBEAM.VM.Runtime.String do
           captures -> Map.new(captures, fn {name, value} -> {name, value || ""} end)
         end
     end
+  end
+
+  defp capture_count(source) do
+    ~r/\((?!\?[:=!<])|\(\?<[^=!]/
+    |> Regex.scan(source)
+    |> length()
   end
 
   defp named_capture_indices(source), do: named_capture_indices(source, 0, 0, [])
@@ -2042,7 +2048,7 @@ defmodule QuickBEAM.VM.Runtime.String do
         after_str =
           binary_part(s, match_start + match_len, byte_size(s) - match_start - match_len)
 
-        capture_strings = capture_strings(s, captures)
+        capture_strings = capture_strings(s, captures) |> pad_captures(capture_count(source))
         named_captures = named_capture_values(source, capture_strings)
 
         before <>
@@ -2072,7 +2078,7 @@ defmodule QuickBEAM.VM.Runtime.String do
         after_str =
           binary_part(s, match_start + match_len, byte_size(s) - match_start - match_len)
 
-        capture_strings = capture_strings(s, captures)
+        capture_strings = capture_strings(s, captures) |> pad_captures(capture_count(source))
         named_captures = named_capture_values(source, capture_strings)
 
         rep =
@@ -2166,7 +2172,7 @@ defmodule QuickBEAM.VM.Runtime.String do
        do: rep
 
   defp replace_named_capture_substitutions(rep, named_captures) do
-    Regex.replace(~r/\$<([^>]+)>/, rep, fn _match, name ->
+    Regex.replace(~r/\$<([^>]*)>/, rep, fn _match, name ->
       case Map.get(named_captures, name, "") do
         :undefined -> ""
         value -> value
