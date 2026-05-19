@@ -1526,7 +1526,16 @@ defmodule QuickBEAM.VM.Runtime.String do
 
           :none ->
             if global?,
-              do: regex_replace_all(s, bytecode, source, replacement, 0, []),
+              do:
+                regex_replace_all(
+                  s,
+                  bytecode,
+                  source,
+                  replacement,
+                  String.contains?(flags, "u") or String.contains?(flags, "v"),
+                  0,
+                  []
+                ),
               else: regex_replace_first(s, bytecode, source, replacement)
         end
       end
@@ -1551,7 +1560,16 @@ defmodule QuickBEAM.VM.Runtime.String do
 
       :none ->
         if global?,
-          do: regex_replace_all(s, bytecode, source, replacement, 0, []),
+          do:
+            regex_replace_all(
+              s,
+              bytecode,
+              source,
+              replacement,
+              String.contains?(flags, "u") or String.contains?(flags, "v"),
+              0,
+              []
+            ),
           else: regex_replace_first(s, bytecode, source, replacement)
     end
   end
@@ -2107,7 +2125,7 @@ defmodule QuickBEAM.VM.Runtime.String do
     end
   end
 
-  defp regex_replace_all(s, bytecode, source, replacement, offset, acc) do
+  defp regex_replace_all(s, bytecode, source, replacement, unicode?, offset, acc) do
     case RegExp.nif_exec(bytecode, s, offset) do
       nil ->
         IO.iodata_to_binary(acc ++ [binary_part(s, offset, byte_size(s) - offset)])
@@ -2135,18 +2153,56 @@ defmodule QuickBEAM.VM.Runtime.String do
             named_captures
           )
 
-        next_offset = match_start + max(match_len, 1)
+        next_offset = next_replace_offset(s, match_start, match_len, unicode?)
+        parts = append_zero_length_advance(acc ++ [before_match, rep], s, match_start, next_offset, match_len)
 
         regex_replace_all(
           s,
           bytecode,
           source,
           replacement,
+          unicode?,
           next_offset,
-          acc ++ [before_match, rep]
+          parts
         )
     end
   end
+
+  defp next_replace_offset(_s, match_start, match_len, _unicode?) when match_len > 0,
+    do: match_start + match_len
+
+  defp next_replace_offset(s, match_start, _match_len, unicode?) do
+    utf16_index = Get.string_length(binary_part(s, 0, match_start))
+    next_index = advance_string_index(s, utf16_index, unicode?)
+    utf16_index_to_byte_offset(s, next_index)
+  end
+
+  defp append_zero_length_advance(parts, _s, _match_start, _next_offset, match_len) when match_len > 0,
+    do: parts
+
+  defp append_zero_length_advance(parts, s, match_start, next_offset, _match_len)
+       when next_offset > match_start,
+       do: parts ++ [binary_part(s, match_start, next_offset - match_start)]
+
+  defp append_zero_length_advance(parts, _s, _match_start, _next_offset, _match_len), do: parts
+
+  defp utf16_index_to_byte_offset(string, index), do: utf16_index_to_byte_offset(string, index, 0)
+
+  defp utf16_index_to_byte_offset(_string, index, byte_offset) when index <= 0, do: byte_offset
+  defp utf16_index_to_byte_offset(<<>>, _index, byte_offset), do: byte_offset
+
+  defp utf16_index_to_byte_offset(<<cp::utf8, rest::binary>>, index, byte_offset) do
+    units = if cp >= 0x10000, do: 2, else: 1
+
+    if index <= units do
+      byte_offset + if(index == units, do: byte_size(<<cp::utf8>>), else: 0)
+    else
+      utf16_index_to_byte_offset(rest, index - units, byte_offset + byte_size(<<cp::utf8>>))
+    end
+  end
+
+  defp utf16_index_to_byte_offset(<<_byte, rest::binary>>, index, byte_offset),
+    do: utf16_index_to_byte_offset(rest, index - 1, byte_offset + 1)
 
   defp capture_strings(s, captures) do
     Enum.map(captures, fn
