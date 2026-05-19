@@ -153,7 +153,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   defp set_iterator_proto_slot({:obj, ref} = this, key, value) do
-    if this == Runtime.global_class_proto("Iterator") do
+    if this == Runtime.global_class_proto("Iterator") or iterator_proto_home_slot?(ref, key) do
       JSThrow.type_error!("Cannot set Iterator prototype intrinsic property")
     end
 
@@ -169,6 +169,32 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   defp set_iterator_proto_slot(_, _key, _value),
     do: JSThrow.type_error!("Iterator prototype setter receiver must be an object")
+
+  defp iterator_proto_home_slot?(ref, key) do
+    case Heap.raw_fetch(Heap.get_obj_raw(ref), key) do
+      {:ok, {:accessor, getter, setter}} ->
+        iterator_proto_home_accessor?(key, getter, setter)
+
+      _ ->
+        false
+    end
+  end
+
+  defp iterator_proto_home_accessor?(
+         "constructor",
+         {:builtin, "get constructor", _},
+         {:builtin, "set constructor", _}
+       ),
+       do: true
+
+  defp iterator_proto_home_accessor?(
+         {:symbol, "Symbol.toStringTag"},
+         {:builtin, "get [Symbol.toStringTag]", _},
+         {:builtin, "set [Symbol.toStringTag]", _}
+       ),
+       do: true
+
+  defp iterator_proto_home_accessor?(_, _, _), do: false
 
   def dispose(_args, this) do
     return_method = Get.get(this, "return")
