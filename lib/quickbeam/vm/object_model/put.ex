@@ -1217,6 +1217,10 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     put(closure, PropertyKey.normalize(key), val)
   end
 
+  def put_element({:bound, _, _, _, _} = bound, key, val) do
+    put(bound, PropertyKey.normalize(key), val)
+  end
+
   def put_element({:regexp, _, _, _} = regexp, key, val) do
     put(regexp, PropertyKey.normalize(key), val)
   end
