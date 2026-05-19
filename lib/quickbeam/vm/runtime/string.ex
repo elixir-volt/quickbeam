@@ -1589,7 +1589,9 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp replace_with_custom_exec(s, regexp, replacement) do
     exec = Get.get(regexp, "exec")
 
-    if Runtime.truthy?(Get.get(regexp, "global")) do
+    flags = regexp_flags_string(Get.get(regexp, "flags"))
+
+    if String.contains?(flags, "g") do
       Put.put(regexp, "lastIndex", 0)
       replace_global_with_custom_exec(s, regexp, exec, replacement, 0, [])
     else
