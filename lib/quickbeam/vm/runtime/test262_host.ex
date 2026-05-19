@@ -15,7 +15,7 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
   alias QuickBEAM.VM.Runtime.Globals.Functions
   alias QuickBEAM.VM.Runtime.Iterator, as: JSIterator
   alias QuickBEAM.VM.Runtime.Map, as: JSMap
-  alias QuickBEAM.VM.Runtime.PromiseBuiltins
+  alias QuickBEAM.VM.Runtime.Promise
   alias QuickBEAM.VM.Runtime.RegExp, as: JSRegExp
   alias QuickBEAM.VM.Runtime.Set, as: JSSet
   alias QuickBEAM.VM.Runtime.String, as: JSString
@@ -120,8 +120,8 @@ defmodule QuickBEAM.VM.Runtime.Test262Host do
     set_ctor = realm_constructor("Set", JSSet.constructor(), set_proto)
     Heap.put_obj_key(elem(set_proto, 1), "constructor", set_ctor)
 
-    promise_proto = PromiseBuiltins.prototype()
-    promise_ctor = realm_constructor("Promise", PromiseBuiltins.constructor(), promise_proto)
+    promise_proto = Promise.prototype()
+    promise_ctor = realm_constructor("Promise", Promise.constructor(), promise_proto)
     Heap.put_obj_key(elem(promise_proto, 1), "constructor", promise_ctor)
 
     weak_map_proto = Heap.wrap(%{"__proto__" => object_proto})

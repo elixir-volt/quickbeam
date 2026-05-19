@@ -6,7 +6,7 @@ defmodule QuickBEAM.VM.Runtime.Web.BeamAPI do
   import QuickBEAM.VM.Builtin, only: [object: 1]
 
   import QuickBEAM.VM.Heap.Keys
-  alias QuickBEAM.VM.{Heap, Invocation, JSThrow, PromiseState}
+  alias QuickBEAM.VM.{Heap, Invocation, JSThrow, Promise}
 
   @on_message_key :qb_beam_on_message
   @monitors_key :qb_beam_monitors
@@ -86,7 +86,7 @@ defmodule QuickBEAM.VM.Runtime.Web.BeamAPI do
             case Map.get(handler_globals, handler_name) do
               {:builtin, _, cb} ->
                 result = cb.(flat_args)
-                PromiseState.resolved(result)
+                Promise.resolved(result)
 
               _ ->
                 # Try via GenServer
@@ -95,15 +95,15 @@ defmodule QuickBEAM.VM.Runtime.Web.BeamAPI do
                     result =
                       GenServer.call(runtime_pid, {:beam_call, handler_name, flat_args}, 30_000)
 
-                    PromiseState.resolved(result)
+                    Promise.resolved(result)
                   catch
                     :exit, _ ->
-                      PromiseState.rejected(
+                      Promise.rejected(
                         Heap.make_error("Handler not found: #{handler_name}", "Error")
                       )
                   end
                 else
-                  PromiseState.rejected(
+                  Promise.rejected(
                     Heap.make_error("Handler not found: #{handler_name}", "Error")
                   )
                 end

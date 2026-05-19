@@ -18,7 +18,7 @@ defmodule QuickBEAM.VM.Compiler do
   alias QuickBEAM.VM.Compiler.{Forms, Lowering, Optimizer, Runner}
   alias QuickBEAM.VM.Compiler.Analysis.CFG
   alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.PromiseState
+  alias QuickBEAM.VM.Promise
 
   @type compiled_fun :: {module(), atom()}
   @type beam_file :: {:beam_file, module(), list(), list(), list(), list()}
@@ -58,7 +58,7 @@ defmodule QuickBEAM.VM.Compiler do
 
   defp settle_top_level_result({:ok, value}) do
     unless Heap.microtasks_empty?() do
-      PromiseState.drain_microtasks()
+      Promise.drain_microtasks()
     end
 
     {:ok, unwrap_resolved_promise(value)}

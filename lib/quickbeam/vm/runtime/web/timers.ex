@@ -59,7 +59,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Timers do
         end
       end)
 
-      QuickBEAM.VM.PromiseState.drain_microtasks()
+      QuickBEAM.VM.Promise.drain_microtasks()
       true
     else
       false

@@ -34,7 +34,7 @@ overhead on the hot path.
 │  Native globals (Zig)          │  TS polyfills        │
 │  ──────────────────────────    │  ────────────────    │
 │  Beam.call/callSync/send/self  │  fetch, WebSocket    │
-│  Beam.peek (JS_PromiseState)   │  Blob, File, Streams │
+│  Beam.peek (JS_Promise)   │  Blob, File, Streams │
 │  TextEncoder/Decoder           │  URL, Headers        │
 │  atob/btoa                     │  EventTarget, Events │
 │  console                       │  Worker              │

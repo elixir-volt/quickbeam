@@ -114,7 +114,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Compression do
   end
 
   defp build_transform_streams(chunks_ref, format, op, _controller) do
-    alias QuickBEAM.VM.PromiseState
+    alias QuickBEAM.VM.Promise
 
     writable =
       object do
@@ -138,17 +138,17 @@ defmodule QuickBEAM.VM.Runtime.Web.Compression do
               state = Heap.get_obj(chunks_ref, %{})
               existing = Map.get(state, :chunks, [])
               Heap.put_obj(chunks_ref, Map.put(state, :chunks, existing ++ [transformed]))
-              PromiseState.resolved(:undefined)
+              Promise.resolved(:undefined)
             end
 
             method "close" do
               state = Heap.get_obj(chunks_ref, %{})
               Heap.put_obj(chunks_ref, Map.put(state, :closed, true))
-              PromiseState.resolved(:undefined)
+              Promise.resolved(:undefined)
             end
 
             method "abort" do
-              PromiseState.resolved(:undefined)
+              Promise.resolved(:undefined)
             end
 
             method "releaseLock" do
@@ -158,7 +158,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Compression do
         end
 
         method "abort" do
-          PromiseState.resolved(:undefined)
+          Promise.resolved(:undefined)
         end
       end
 
@@ -196,7 +196,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Compression do
             end
 
             method "cancel" do
-              PromiseState.resolved(:undefined)
+              Promise.resolved(:undefined)
             end
           end
         end

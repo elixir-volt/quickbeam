@@ -8,7 +8,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
       alias QuickBEAM.VM.Interpreter.{Closures, Context, Frame}
       alias QuickBEAM.VM.JSThrow
       alias QuickBEAM.VM.ObjectModel.{Delete, Get, Put}
-      alias QuickBEAM.VM.PromiseState, as: Promise
+      alias QuickBEAM.VM.Promise, as: Promise
 
       # ── Globals: get_var, put_var, define_var, eval ──
 

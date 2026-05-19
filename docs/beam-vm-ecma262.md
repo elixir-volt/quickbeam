@@ -39,9 +39,9 @@ Owned by the BEAM VM:
 | §7.3 Operations on objects | `ObjectModel.*`, `Invocation` |
 | §7.4 Iterator operations | `Semantics.Iterators`, `Runtime.Iterator` |
 | §9 Execution contexts / environments | `Interpreter.Context`, `GlobalEnv`, `EvalEnv`, `Environment.Captures` |
-| §9.5 Jobs | `PromiseState`, heap async state |
+| §9.5 Jobs | `Promise`, heap async state |
 | §10 Object internal methods | `ObjectModel.Get`, `Put`, `Define`, `Delete`, `OwnProperty`, `HasProperty`, `ArrayExotic`, `Prototype` |
-| §18–28 Standard built-ins | `Runtime.Object`, `Function`, `Array`, `String`, `Number`, `Date`, `RegExp`, `Map`, `Set`, `TypedArray`, `PromiseBuiltins`, `Reflect`, etc. |
+| §18–28 Standard built-ins | `Runtime.Object`, `Function`, `Array`, `String`, `Number`, `Date`, `RegExp`, `Map`, `Set`, `TypedArray`, `Promise`, `Reflect`, etc. |
 | Host APIs | `Runtime.Web.*`, `Runtime.Test262Host`, BEAM/native integration helpers |
 
 ## Spec terminology glossary
@@ -57,7 +57,7 @@ Owned by the BEAM VM:
 | Completion Record | raw return value or `throw({:js_throw, value})` |
 | Reference Record | bytecode local/global/property operations plus helpers |
 | Realm Record | global bindings, intrinsic caches, globalThis, Test262 realm helpers |
-| Job Queue | promise/microtask state in `PromiseState` and heap async state |
+| Job Queue | promise/microtask state in `Promise` and heap async state |
 | Internal slots | heap maps and keys from `QuickBEAM.VM.Heap.Keys` |
 
 ## Internal slot storage

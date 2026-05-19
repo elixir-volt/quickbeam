@@ -33,7 +33,7 @@ defmodule QuickBEAM.VM.Interpreter do
     Static
   }
 
-  alias QuickBEAM.VM.PromiseState, as: Promise
+  alias QuickBEAM.VM.Promise, as: Promise
   alias QuickBEAM.VM.Semantics.Eval, as: EvalSemantics
 
   alias __MODULE__.{

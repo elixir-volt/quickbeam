@@ -9,7 +9,7 @@ defmodule QuickBEAM do
   alias QuickBEAM.VM.Compiler, as: BEAMCompiler
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter
-  alias QuickBEAM.VM.PromiseState, as: Promise
+  alias QuickBEAM.VM.Promise, as: Promise
   alias QuickBEAM.VM.Runtime, as: BEAMRuntime
 
   @moduledoc """

@@ -19,7 +19,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     Put
   }
 
-  alias QuickBEAM.VM.PromiseState
+  alias QuickBEAM.VM.Promise
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.InstallerHelpers
 
@@ -349,7 +349,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   static "fromAsync" do
-    PromiseState.resolved(from(args, this))
+    Promise.resolved(from(args, this))
   end
 
   defp of(args, {:builtin, "Array", _}), do: Heap.wrap(args)

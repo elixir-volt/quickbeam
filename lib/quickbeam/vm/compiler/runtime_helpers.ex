@@ -1229,22 +1229,22 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     if is_binary(specifier) and Map.get(ctx, :runtime_pid) != nil do
       case QuickBEAM.Runtime.load_module(ctx.runtime_pid, specifier, "") do
         :ok ->
-          QuickBEAM.VM.PromiseState.resolved(QuickBEAM.VM.Runtime.new_object())
+          QuickBEAM.VM.Promise.resolved(QuickBEAM.VM.Runtime.new_object())
 
         {:error, _} ->
-          QuickBEAM.VM.PromiseState.rejected(
+          QuickBEAM.VM.Promise.rejected(
             make_error_with_ctx(ctx, "Cannot find module '#{specifier}'", "TypeError")
           )
       end
     else
-      QuickBEAM.VM.PromiseState.rejected(
+      QuickBEAM.VM.Promise.rejected(
         make_error_with_ctx(ctx, "Invalid module specifier", "TypeError")
       )
     end
   end
 
   def import_module(_specifier) do
-    QuickBEAM.VM.PromiseState.rejected(Heap.make_error("Invalid module specifier", "TypeError"))
+    QuickBEAM.VM.Promise.rejected(Heap.make_error("Invalid module specifier", "TypeError"))
   end
 
   defp object_like?({:obj, _}), do: true

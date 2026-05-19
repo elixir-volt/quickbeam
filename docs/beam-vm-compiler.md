@@ -40,7 +40,7 @@ The compiler does not directly implement ECMA-262 grammar productions. Clauses 1
 - `QuickBEAM.VM.Semantics.*`;
 - `QuickBEAM.VM.Invocation`;
 - `QuickBEAM.VM.GlobalEnv`;
-- `QuickBEAM.VM.PromiseState`.
+- `QuickBEAM.VM.Promise`.
 
 ## Compiler clause map
 

@@ -5,7 +5,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
 
   import QuickBEAM.VM.Builtin, only: [arg: 3, object: 1]
 
-  alias QuickBEAM.VM.{Heap, PromiseState}
+  alias QuickBEAM.VM.{Heap, Promise}
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
   alias QuickBEAM.VM.Runtime.Web.{Callback, IteratorResult}
   alias QuickBEAM.VM.Runtime.Web.Streams.Bytes
@@ -78,7 +78,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
       end
 
       method "cancel" do
-        PromiseState.resolved(:undefined)
+        Promise.resolved(:undefined)
       end
     end
   end
@@ -199,7 +199,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
        writer = get_writer(ws)
 
        drain_loop(reader, writer)
-       PromiseState.resolved(:undefined)
+       Promise.resolved(:undefined)
      end}
   end
 
@@ -268,7 +268,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
       end
 
       method "cancel" do
-        PromiseState.resolved(:undefined)
+        Promise.resolved(:undefined)
       end
     end
   end
@@ -365,7 +365,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
               end
             end
 
-            PromiseState.resolved(:undefined)
+            Promise.resolved(:undefined)
           end
 
           method "close" do
@@ -379,11 +379,11 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
               end
             end
 
-            PromiseState.resolved(:undefined)
+            Promise.resolved(:undefined)
           end
 
           method "abort" do
-            PromiseState.resolved(:undefined)
+            Promise.resolved(:undefined)
           end
 
           method "releaseLock" do
@@ -395,11 +395,11 @@ defmodule QuickBEAM.VM.Runtime.Web.Streams do
       end
 
       method "abort" do
-        PromiseState.resolved(:undefined)
+        Promise.resolved(:undefined)
       end
 
       method "close" do
-        PromiseState.resolved(:undefined)
+        Promise.resolved(:undefined)
       end
     end
   end

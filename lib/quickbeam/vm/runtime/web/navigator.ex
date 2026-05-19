@@ -5,7 +5,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
 
   import QuickBEAM.VM.Builtin, only: [object: 1]
 
-  alias QuickBEAM.VM.{Heap, JSThrow, PromiseState}
+  alias QuickBEAM.VM.{Heap, JSThrow, Promise}
   alias QuickBEAM.VM.ObjectModel.Get
 
   @doc "Returns the JavaScript global bindings provided by this module."
@@ -66,7 +66,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
             "pending" => pending_js
           })
 
-        PromiseState.resolved(query_result)
+        Promise.resolved(query_result)
       end
     end
   end
@@ -127,13 +127,13 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
             result
 
           {:resolved, val} ->
-            release_then(name, caller_pid, PromiseState.resolved(val))
+            release_then(name, caller_pid, Promise.resolved(val))
 
           {:rejected, err} ->
-            release_then(name, caller_pid, PromiseState.rejected(err))
+            release_then(name, caller_pid, Promise.rejected(err))
 
           :not_promise ->
-            release_then(name, caller_pid, PromiseState.resolved(result))
+            release_then(name, caller_pid, Promise.resolved(result))
         end
 
       "not_available" ->
@@ -146,10 +146,10 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
             {:js_throw, err} -> throw({:js_throw, err})
           end
 
-        PromiseState.resolved(await_if_promise(result))
+        Promise.resolved(await_if_promise(result))
 
       _ ->
-        PromiseState.rejected(Heap.make_error("Lock request failed", "DOMException"))
+        Promise.rejected(Heap.make_error("Lock request failed", "DOMException"))
     end
   end
 
@@ -219,7 +219,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Navigator do
 
   defp wait_loop(ref, deadline) do
     import QuickBEAM.VM.Heap.Keys
-    QuickBEAM.VM.PromiseState.drain_microtasks()
+    QuickBEAM.VM.Promise.drain_microtasks()
 
     case Heap.get_obj(ref, %{}) do
       %{promise_state() => :resolved, promise_value() => v} ->

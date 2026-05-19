@@ -6,7 +6,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
   import QuickBEAM.VM.Builtin,
     only: [arg: 3, argv: 2, constructor: 3, object: 1, object: 2]
 
-  alias QuickBEAM.VM.{Heap, PromiseState, Runtime}
+  alias QuickBEAM.VM.{Heap, Promise, Runtime}
   alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor, Put}
   alias QuickBEAM.VM.Runtime.Web.Body
   alias QuickBEAM.VM.Runtime.Web.Fetch.JSON
@@ -28,7 +28,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
 
          if signal_aborted?(signal) do
            reason = Get.get(signal, "reason")
-           PromiseState.rejected(reason)
+           Promise.rejected(reason)
          else
            fetch_id = System.unique_integer([:positive])
            result_ref = make_ref()
@@ -183,7 +183,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
             data
             |> Body.text()
             |> JSON.parse()
-            |> PromiseState.resolved()
+            |> Promise.resolved()
           end)
         end
 
@@ -226,7 +226,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
 
       method "json" do
         Body.consume(body_ref, this, fn data ->
-          PromiseState.resolved(JSON.parse(Body.text(data)))
+          Promise.resolved(JSON.parse(Body.text(data)))
         end)
       end
 
@@ -285,7 +285,7 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
 
       method "json" do
         Body.consume(body_ref, this, fn data ->
-          PromiseState.resolved(JSON.parse(Body.text(data)))
+          Promise.resolved(JSON.parse(Body.text(data)))
         end)
       end
 
@@ -456,14 +456,14 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
     receive do
       {^result_ref, {:ok, resp}} ->
         build_response_from_fetch(resp, response_ctor)
-        |> PromiseState.resolved()
+        |> Promise.resolved()
 
       {^result_ref, {:error, error}} ->
         err = Heap.make_error("fetch failed: #{inspect(error)}", "TypeError")
-        PromiseState.rejected(err)
+        Promise.rejected(err)
 
       {^result_ref, {:aborted, reason}} ->
-        PromiseState.rejected(reason)
+        Promise.rejected(reason)
     after
       poll_interval ->
         QuickBEAM.VM.Runtime.Web.Timers.drain_timers()
@@ -471,14 +471,14 @@ defmodule QuickBEAM.VM.Runtime.Web.Fetch do
         if signal != nil and signal_aborted?(signal) do
           Process.exit(task_pid, :kill)
           reason = Get.get(signal, "reason")
-          PromiseState.rejected(reason)
+          Promise.rejected(reason)
         else
           remaining = timeout_ms - poll_interval
 
           if remaining <= 0 do
             Process.exit(task_pid, :kill)
             err = Heap.make_error("fetch timed out", "TypeError")
-            PromiseState.rejected(err)
+            Promise.rejected(err)
           else
             wait_for_fetch(result_ref, task_pid, signal, response_ctor, remaining)
           end

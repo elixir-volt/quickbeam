@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
 
   import QuickBEAM.VM.Builtin, only: [argv: 2, object: 1]
 
-  alias QuickBEAM.VM.{Heap, JSThrow, PromiseState}
+  alias QuickBEAM.VM.{Heap, JSThrow, Promise}
   alias QuickBEAM.VM.ObjectModel.Get
   alias QuickBEAM.VM.Runtime.Web.BinaryData
   alias QuickBEAM.VM.Runtime.Web.Buffer
@@ -23,7 +23,7 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
             e -> JSThrow.type_error!(Exception.message(e))
           end
 
-        PromiseState.resolved(bytes_to_array_buffer(result))
+        Promise.resolved(bytes_to_array_buffer(result))
       end
 
       method "generateKey" do
@@ -37,7 +37,7 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
             e -> JSThrow.type_error!(Exception.message(e))
           end
 
-        PromiseState.resolved(wrap_key_result(result))
+        Promise.resolved(wrap_key_result(result))
       end
 
       method "sign" do
@@ -53,7 +53,7 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
             e -> JSThrow.type_error!(Exception.message(e))
           end
 
-        PromiseState.resolved(bytes_to_array_buffer(result))
+        Promise.resolved(bytes_to_array_buffer(result))
       end
 
       method "verify" do
@@ -70,7 +70,7 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
             e -> JSThrow.type_error!(Exception.message(e))
           end
 
-        PromiseState.resolved(result)
+        Promise.resolved(result)
       end
 
       method "encrypt" do
@@ -86,7 +86,7 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
             e -> JSThrow.type_error!(Exception.message(e))
           end
 
-        PromiseState.resolved(bytes_to_array_buffer(result))
+        Promise.resolved(bytes_to_array_buffer(result))
       end
 
       method "decrypt" do
@@ -102,7 +102,7 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
             e -> JSThrow.type_error!(Exception.message(e))
           end
 
-        PromiseState.resolved(bytes_to_array_buffer(result))
+        Promise.resolved(bytes_to_array_buffer(result))
       end
 
       method "deriveBits" do
@@ -118,7 +118,7 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
             e -> JSThrow.type_error!(Exception.message(e))
           end
 
-        PromiseState.resolved(bytes_to_array_buffer(result))
+        Promise.resolved(bytes_to_array_buffer(result))
       end
 
       method "deriveKey" do
@@ -153,7 +153,7 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
           "data" => {:bytes, raw_key}
         }
 
-        PromiseState.resolved(wrap_crypto_key(derived_key))
+        Promise.resolved(wrap_crypto_key(derived_key))
       end
 
       method "importKey" do
@@ -200,7 +200,7 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
             key
           end
 
-        PromiseState.resolved(wrap_crypto_key(key))
+        Promise.resolved(wrap_crypto_key(key))
       end
 
       method "exportKey" do
@@ -226,7 +226,7 @@ defmodule QuickBEAM.VM.Runtime.Web.SubtleCrypto do
               JSThrow.type_error!("exportKey format #{format} not supported")
           end
 
-        PromiseState.resolved(result)
+        Promise.resolved(result)
       end
     end
   end

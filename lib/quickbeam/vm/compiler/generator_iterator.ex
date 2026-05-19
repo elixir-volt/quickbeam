@@ -10,7 +10,7 @@ defmodule QuickBEAM.VM.Compiler.GeneratorIterator do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
-  alias QuickBEAM.VM.PromiseState, as: Promise
+  alias QuickBEAM.VM.Promise, as: Promise
 
   @doc "Builds the runtime value represented by this module."
   def build(gen_ref) do

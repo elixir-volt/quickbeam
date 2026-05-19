@@ -1,4 +1,4 @@
-defmodule QuickBEAM.VM.PromiseState do
+defmodule QuickBEAM.VM.Promise do
   @moduledoc """
   Promise object state, reactions, and microtask draining.
 

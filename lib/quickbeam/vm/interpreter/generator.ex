@@ -5,7 +5,7 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter
-  alias QuickBEAM.VM.PromiseState, as: Promise
+  alias QuickBEAM.VM.Promise, as: Promise
 
   @doc "Invokes the runtime object represented by this module."
   def invoke(frame, gas, ctx) do
