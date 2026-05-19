@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   @moduledoc "JS `RegExp` built-in: `test`, `exec`, `toString`, and NIF-backed regex matching against JS bytecode patterns."
 
   use QuickBEAM.VM.Builtin
+  import Bitwise, only: [&&&: 2, |||: 2, >>>: 2]
   import QuickBEAM.VM.Heap.Keys, only: [key_order: 0]
 
   alias QuickBEAM.VM.Execution.RegexpState
@@ -890,11 +891,31 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   defp capture_string(string, start, len, flags) do
     if String.contains?(flags, "u") or String.contains?(flags, "v") do
-      String.slice(string, start, len)
+      string
+      |> JSString.utf16_code_unit_values()
+      |> Enum.slice(start, len)
+      |> utf16_values_to_binary([])
     else
       JSString.utf16_slice(string, start, len)
     end
   end
+
+  defp utf16_values_to_binary([high, low | rest], acc)
+       when high >= 0xD800 and high <= 0xDBFF and low >= 0xDC00 and low <= 0xDFFF do
+    cp = 0x10000 + (high - 0xD800) * 0x400 + (low - 0xDC00)
+    utf16_values_to_binary(rest, [<<cp::utf8>> | acc])
+  end
+
+  defp utf16_values_to_binary([unit | rest], acc),
+    do: utf16_values_to_binary(rest, [utf16_unit_to_binary(unit) | acc])
+
+  defp utf16_values_to_binary([], acc), do: acc |> Enum.reverse() |> IO.iodata_to_binary()
+
+  defp utf16_unit_to_binary(unit) when unit >= 0xD800 and unit <= 0xDFFF do
+    <<0xE0 ||| (unit >>> 12), 0x80 ||| ((unit >>> 6) &&& 0x3F), 0x80 ||| (unit &&& 0x3F)>>
+  end
+
+  defp utf16_unit_to_binary(unit), do: <<unit::utf8>>
 
   defp simple_named_captures(source, string) do
     case simple_named_lookbehind_captures(source, string) do
