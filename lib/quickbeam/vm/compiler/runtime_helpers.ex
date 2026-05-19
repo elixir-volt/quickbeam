@@ -27,8 +27,6 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     Copy,
     Functions,
     Get,
-    Methods,
-    Private,
     Static
   }
 
@@ -425,100 +423,6 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   @doc "Invokes a tail-position JavaScript method from compiled code."
   def invoke_tail_method(ctx, fun, this_obj, args),
     do: Invocation.invoke_method_runtime(ctx, fun, this_obj, args)
-
-  def define_class(ctx, ctor, parent_ctor, atom_idx) do
-    ctor_closure =
-      case ctor do
-        %QuickBEAM.VM.Function{} = fun -> {:closure, %{}, fun}
-        other -> other
-      end
-
-    Class.define_class(
-      ctor_closure,
-      parent_ctor,
-      Names.resolve_atom(context_atoms(ctx), atom_idx)
-    )
-  end
-
-  def define_class(ctor, parent_ctor, atom_idx) do
-    ctor_closure =
-      case ctor do
-        %QuickBEAM.VM.Function{} = fun -> {:closure, %{}, fun}
-        other -> other
-      end
-
-    Class.define_class(
-      ctor_closure,
-      parent_ctor,
-      Names.resolve_atom(InvokeContext.current_atoms(), atom_idx)
-    )
-  end
-
-  def define_class_computed(_ctx, ctor, parent_ctor, computed_name) do
-    ctor_closure =
-      case ctor do
-        %QuickBEAM.VM.Function{} = fun -> {:closure, %{}, fun}
-        other -> other
-      end
-
-    Class.define_class(ctor_closure, parent_ctor, Functions.function_name(computed_name))
-  end
-
-  @doc "Defines a method, getter, or setter from compiled code."
-  def define_method(_ctx, target, method, name, flags) when is_binary(name),
-    do: Methods.define_method(target, method, name, flags)
-
-  def define_method(_ctx, target, method, {:tagged_int, _} = atom_idx, flags),
-    do:
-      Methods.define_method(
-        target,
-        method,
-        QuickBEAM.VM.ObjectModel.PropertyKey.normalize(atom_idx),
-        flags
-      )
-
-  def define_method(ctx, target, method, atom_idx, flags),
-    do:
-      Methods.define_method(
-        target,
-        method,
-        Names.resolve_atom(context_atoms(ctx), atom_idx),
-        flags
-      )
-
-  def define_method(target, method, name, flags) when is_binary(name),
-    do: Methods.define_method(target, method, name, flags)
-
-  def define_method(target, method, {:tagged_int, _} = atom_idx, flags),
-    do:
-      Methods.define_method(
-        target,
-        method,
-        QuickBEAM.VM.ObjectModel.PropertyKey.normalize(atom_idx),
-        flags
-      )
-
-  def define_method(target, method, atom_idx, flags),
-    do:
-      Methods.define_method(
-        target,
-        method,
-        Names.resolve_atom(InvokeContext.current_atoms(), atom_idx),
-        flags
-      )
-
-  @doc "Defines a computed-name method, getter, or setter from compiled code."
-  def define_method_computed(_ctx \\ nil, target, method, field_name, flags),
-    do: Methods.define_method_computed(target, method, field_name, flags)
-
-  def add_brand(_ctx \\ nil, target, brand), do: Private.add_brand(target, brand)
-
-  def check_brand(_ctx, obj, brand) do
-    case Private.ensure_brand(obj, brand) do
-      :ok -> :ok
-      :error -> throw({:js_throw, Private.brand_error()})
-    end
-  end
 
   @doc "Throws a JavaScript error value."
   def throw_error(ctx, atom_idx, reason),

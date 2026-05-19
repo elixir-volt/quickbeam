@@ -25,7 +25,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
   """
 
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
-  alias QuickBEAM.VM.Compiler.RuntimeHelpers.{Bindings, Captures, Iterators, Properties}
+  alias QuickBEAM.VM.Compiler.RuntimeHelpers.{Bindings, Captures, Classes, Iterators, Properties}
 
   def push_this(ctx), do: RuntimeHelpers.push_this(ctx)
 
@@ -126,16 +126,16 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
     do: Properties.define_static_method(ctx, ctor, key, method)
 
   def define_method(ctx, target, method, name, flags),
-    do: RuntimeHelpers.define_method(ctx, target, method, name, flags)
+    do: Classes.define_method(ctx, target, method, name, flags)
 
   def define_method_computed(ctx, target, method, field_name, flags),
-    do: RuntimeHelpers.define_method_computed(ctx, target, method, field_name, flags)
+    do: Classes.define_method_computed(ctx, target, method, field_name, flags)
 
   def define_class(ctx, ctor, parent_ctor, atom_idx),
-    do: RuntimeHelpers.define_class(ctx, ctor, parent_ctor, atom_idx)
+    do: Classes.define_class(ctx, ctor, parent_ctor, atom_idx)
 
   def define_class_computed(ctx, ctor, parent_ctor, computed_name),
-    do: RuntimeHelpers.define_class_computed(ctx, ctor, parent_ctor, computed_name)
+    do: Classes.define_class_computed(ctx, ctor, parent_ctor, computed_name)
 
   def get_private_field(ctx, obj, key), do: Properties.get_private_field(ctx, obj, key)
 
@@ -145,7 +145,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
   def define_private_field(ctx, obj, key, value),
     do: Properties.define_private_field(ctx, obj, key, value)
 
-  def check_brand(ctx, obj, brand), do: RuntimeHelpers.check_brand(ctx, obj, brand)
+  def check_brand(ctx, obj, brand), do: Classes.check_brand(ctx, obj, brand)
 
   def set_function_name(ctx, fun, name), do: Properties.set_function_name(ctx, fun, name)
 
@@ -155,7 +155,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
   def set_home_object(ctx, method, target),
     do: Properties.set_home_object(ctx, method, target)
 
-  def add_brand(ctx, obj, brand), do: RuntimeHelpers.add_brand(ctx, obj, brand)
+  def add_brand(ctx, obj, brand), do: Classes.add_brand(ctx, obj, brand)
 
   def check_ctor_return(ctx, value), do: RuntimeHelpers.check_ctor_return(ctx, value)
 
