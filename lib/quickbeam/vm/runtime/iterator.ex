@@ -400,7 +400,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     predicate = Builtin.arg(args, 0, :undefined)
 
     unless Builtin.callable?(predicate),
-      do: JSThrow.type_error!("predicate must be callable")
+      do: close_and_type_error(this, "predicate must be callable")
 
     helper_iterator(%{
       "kind" => :filter,
@@ -412,7 +412,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   def map(args, this) do
     mapper = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(mapper), do: JSThrow.type_error!("mapper must be callable")
+    unless Builtin.callable?(mapper), do: close_and_type_error(this, "mapper must be callable")
 
     helper_iterator(%{
       "kind" => :map,
@@ -424,7 +424,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   def flat_map(args, this) do
     mapper = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(mapper), do: JSThrow.type_error!("mapper must be callable")
+    unless Builtin.callable?(mapper), do: close_and_type_error(this, "mapper must be callable")
 
     helper_iterator(%{
       "kind" => :flat_map,
