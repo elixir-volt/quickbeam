@@ -1531,6 +1531,9 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp terminal_special_match_results(@family_emoji_class, _flags, string),
     do: literal_unicode_results(string, @family_emoji_first, true)
 
+  defp terminal_special_match_results(".", flags, string) when is_binary(flags),
+    do: dot_results(flags, string, true)
+
   defp terminal_special_match_results(_, _, _), do: :none
 
   defp special_match_results(@han_ideograph, _flags, string, global?),
@@ -1553,17 +1556,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp special_match_results("x", _flags, string, _global?),
     do: literal_unicode_results(string, "x", false)
 
-  defp special_match_results(".", flags, string, true) when is_binary(flags) do
-    if String.contains?(flags, "u") or String.contains?(flags, "v") do
-      codepoint_results(string, true, fn _ -> true end)
-    else
-      {:ok,
-       string
-       |> JSString.utf16_code_units()
-       |> Enum.with_index()
-       |> Enum.map(fn {unit, idx} -> {unit, idx} end)}
-    end
-  end
+  defp special_match_results(".", flags, string, true) when is_binary(flags),
+    do: dot_results(flags, string, true)
 
   defp special_match_results("(?:)", flags, string, true) do
     positions =
@@ -1577,6 +1571,26 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp special_match_results(_, _, _, _), do: :none
+
+  defp dot_results(flags, string, true) do
+    if unicode_flags?(flags) do
+      codepoint_results(string, true, &(not line_terminator?(&1)))
+    else
+      {:ok,
+       string
+       |> JSString.utf16_code_units()
+       |> Enum.with_index()
+       |> Enum.reject(fn {unit, _idx} -> line_terminator?(unit) end)
+       |> Enum.map(fn {unit, idx} -> {unit, idx} end)}
+    end
+  end
+
+  defp line_terminator?("\n"), do: true
+  defp line_terminator?("\r"), do: true
+  defp line_terminator?(<<0x2028::utf8>>), do: true
+  defp line_terminator?(<<0x2029::utf8>>), do: true
+  defp line_terminator?(unit) when unit in [0x0A, 0x0D, 0x2028, 0x2029], do: true
+  defp line_terminator?(_), do: false
 
   defp literal_unicode_results(string, literal, global?) do
     results = literal_unicode_results(string, literal, 0, 0, [])
