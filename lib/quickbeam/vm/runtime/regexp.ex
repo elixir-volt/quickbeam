@@ -1619,6 +1619,36 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     flags = Get.regexp_flags(bytecode)
     global? = String.contains?(flags, "g")
 
+    case regexp_custom_exec(regexp, string) do
+      :default -> regexp_match_builtin(regexp, source, flags, string, global?)
+      result -> result
+    end
+  end
+
+  defp regexp_match({:regexp, bytecode, source, ref} = regexp, [string | _])
+       when is_binary(bytecode) do
+    string = QuickBEAM.VM.Interpreter.Values.stringify(string)
+    flags = regexp_flags(bytecode, ref)
+    global? = String.contains?(flags, "g")
+
+    case regexp_custom_exec(regexp, string) do
+      :default -> regexp_match_builtin(regexp, source, flags, string, global?)
+      result -> result
+    end
+  end
+
+  defp regexp_match(regexp, [string | _]) do
+    string = QuickBEAM.VM.Interpreter.Values.stringify(string)
+
+    case regexp_custom_exec(regexp, string) do
+      :default -> exec(regexp, [string])
+      result -> result
+    end
+  end
+
+  defp regexp_match(regexp, []), do: exec(regexp, [""])
+
+  defp regexp_match_builtin(regexp, source, flags, string, global?) do
     case special_match_results(source, flags, string, global?) do
       {:ok, []} -> nil
       {:ok, results} when global? -> Enum.map(results, fn {match, _index} -> match end)
@@ -1627,21 +1657,31 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     end
   end
 
-  defp regexp_match({:regexp, bytecode, source, _ref}, args),
-    do: regexp_match({:regexp, bytecode, source}, args)
-
-  defp regexp_match(regexp, [string | _]) do
-    exec(regexp, [QuickBEAM.VM.Interpreter.Values.stringify(string)])
-  end
-
-  defp regexp_match(regexp, []), do: exec(regexp, [""])
-
   defp regexp_replace(regexp, [string, replacement | _]) do
     JSString.regex_replace(QuickBEAM.VM.Interpreter.Values.stringify(string), regexp, replacement)
   end
 
   defp regexp_replace(regexp, [string | _]), do: regexp_replace(regexp, [string, :undefined])
   defp regexp_replace(regexp, []), do: regexp_replace(regexp, ["", :undefined])
+
+  defp regexp_custom_exec(regexp, string) do
+    case Get.get(regexp, "exec") do
+      {:builtin, "exec", _} ->
+        :default
+
+      exec_fun when exec_fun not in [nil, :undefined] ->
+        unless Builtin.callable?(exec_fun), do: JSThrow.type_error!("RegExp exec is not callable")
+
+        case Invocation.invoke_with_receiver(exec_fun, [string], Runtime.gas_budget(), regexp) do
+          nil -> nil
+          {:obj, _} = result -> result
+          _ -> JSThrow.type_error!("RegExp exec result must be an object or null")
+        end
+
+      _ ->
+        :default
+    end
+  end
 
   defp regexp_match_nif(regexp, string, flags) do
     if String.contains?(flags, "g") do
