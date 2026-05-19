@@ -1045,6 +1045,16 @@ defmodule QuickBEAM.VM.Runtime.String do
     end
   end
 
+  defp split(s, [{:obj, _} = splitter | rest]) when is_binary(s) do
+    limit = split_limit(rest)
+
+    cond do
+      limit == 0 -> []
+      s == "" -> split_empty_with_exec(s, splitter)
+      true -> split_with_exec_loop(s, splitter, limit, 0, 0, [])
+    end
+  end
+
   defp split(s, [sep | rest]) when is_binary(s) and is_binary(sep) do
     limit = split_limit(rest)
 
@@ -1064,6 +1074,86 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   defp split(s, []) when is_binary(s), do: [s]
   defp split(_, _), do: []
+
+  defp split_empty_with_exec(s, splitter) do
+    Put.put(splitter, "lastIndex", 0)
+
+    case split_exec_result(splitter, s) do
+      nil -> [""]
+      _ -> []
+    end
+  end
+
+  defp split_with_exec_loop(s, splitter, limit, q, p, acc) do
+    size = Get.string_length(s)
+
+    cond do
+      limited_split_done?(acc, limit) ->
+        acc
+
+      q >= size ->
+        append_split_part(acc, utf16_slice(s, p, size - p), limit)
+
+      true ->
+        Put.put(splitter, "lastIndex", q)
+
+        case split_exec_result(splitter, s) do
+          nil ->
+            split_with_exec_loop(s, splitter, limit, q + 1, p, acc)
+
+          {:obj, _} = result ->
+            e = raw_to_length(Get.get(splitter, "lastIndex"))
+
+            if e == p do
+              split_with_exec_loop(s, splitter, limit, q + 1, p, acc)
+            else
+              part = utf16_slice(s, p, max(q - p, 0))
+              acc = append_split_part(acc, part, limit)
+
+              if limited_split_done?(acc, limit) do
+                acc
+              else
+                captures = split_result_captures(result)
+                acc = append_split_parts(acc, captures, limit)
+                split_with_exec_loop(s, splitter, limit, e, e, acc)
+              end
+            end
+        end
+    end
+  end
+
+  defp split_exec_result({:obj, _} = splitter, s) do
+    exec = Get.get(splitter, "exec")
+
+    unless Builtin.callable?(exec), do: JSThrow.type_error!("RegExp exec is not callable")
+    custom_exec_result(exec, s, splitter)
+  end
+
+  defp split_exec_result(splitter, s), do: RegExp.exec_result(splitter, s)
+
+  defp split_result_captures(result) do
+    length = result |> Get.get("length") |> raw_to_length()
+
+    1..max(length - 1, 0)//1
+    |> Enum.map(fn index ->
+      case Get.get(result, Integer.to_string(index)) do
+        :undefined -> :undefined
+        value -> Runtime.stringify(value)
+      end
+    end)
+  end
+
+  defp append_split_parts(acc, parts, limit),
+    do: Enum.reduce_while(parts, acc, fn part, result ->
+      result = append_split_part(result, part, limit)
+      if limited_split_done?(result, limit), do: {:halt, result}, else: {:cont, result}
+    end)
+
+  defp append_split_part(acc, _part, limit) when is_integer(limit) and length(acc) >= limit, do: acc
+  defp append_split_part(acc, part, _limit), do: acc ++ [part]
+
+  defp limited_split_done?(_acc, :infinity), do: false
+  defp limited_split_done?(acc, limit), do: length(acc) >= limit
 
   defp split_limit([]), do: :infinity
   defp split_limit([:undefined | _]), do: :infinity
