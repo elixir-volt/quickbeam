@@ -215,6 +215,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     end
   end
 
+  defp test({:regexp, _, _, _} = regexp, []), do: test(regexp, ["undefined"])
+  defp test({:regexp, _, _} = regexp, []), do: test(regexp, ["undefined"])
   defp test({:regexp, _, _, _} = regexp, [s | _]), do: test(regexp, [Values.stringify(s)])
   defp test({:regexp, _, _} = regexp, [s | _]), do: test(regexp, [Values.stringify(s)])
 
