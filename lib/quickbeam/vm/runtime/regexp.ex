@@ -1423,8 +1423,14 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     unless regexp_match_receiver?(regexp), do: JSThrow.type_error!("RegExp.prototype.matchAll called on incompatible receiver")
 
     string = QuickBEAM.VM.Interpreter.Values.stringify(string)
+    flags = regexp_match_all_observable_flags(regexp)
     offset = regexp_last_index(regexp)
-    regexp_string_iterator(regexp_match_all_results(regexp, string, offset, []), regexp, string)
+
+    regexp_string_iterator(
+      regexp_match_all_results({regexp, String.contains?(flags, "g")}, string, offset, []),
+      regexp,
+      string
+    )
   end
 
   defp regexp_match_all(regexp, []), do: regexp_match_all(regexp, [""])
@@ -1529,10 +1535,12 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp regexp_match_all_flags({:regexp, bytecode, _source}) when is_binary(bytecode),
     do: Get.regexp_flags(bytecode)
 
-  defp regexp_match_all_flags(regexp) do
+  defp regexp_match_all_flags(regexp), do: regexp_match_all_observable_flags(regexp)
+
+  defp regexp_match_all_observable_flags(regexp) do
     case Get.get(regexp, "flags") do
       :undefined -> ""
-      flags -> Values.stringify(flags)
+      flags -> regexp_to_string_hint(flags)
     end
   end
 
@@ -1559,6 +1567,38 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp advance_string_index(_string, index, _unicode?), do: index + 1
+
+  defp regexp_match_all_results({{:regexp, nil, source}, global_override}, string, offset, acc)
+       when is_binary(source) do
+    case literal_exec_from(string, source, offset) do
+      nil ->
+        Enum.reverse(acc)
+
+      {result, next_offset} ->
+        if global_override,
+          do: regexp_match_all_results({{:regexp, nil, source}, global_override}, string, next_offset, [result | acc]),
+          else: Enum.reverse([result | acc])
+    end
+  end
+
+  defp regexp_match_all_results({{:regexp, bytecode, source, _ref}, global_override}, string, offset, acc),
+    do: regexp_match_all_results({{:regexp, bytecode, source}, global_override}, string, offset, acc)
+
+  defp regexp_match_all_results({{:regexp, bytecode, source} = regexp, global_override}, string, offset, acc)
+       when is_binary(bytecode) do
+    flags = Get.regexp_flags(bytecode)
+
+    case special_match_results(source, flags, string, global_override) do
+      {:ok, results} ->
+        results
+        |> Enum.filter(fn {_match, index} -> index >= offset end)
+        |> maybe_first_match_only(global_override)
+        |> Enum.map(fn {match, index} -> exec_result([match], index, string) end)
+
+      :none ->
+        regexp_match_all_nif({regexp, global_override}, string, offset, acc, global_override)
+    end
+  end
 
   defp regexp_match_all_results({:regexp, nil, source}, string, offset, acc)
        when is_binary(source) do
@@ -1596,6 +1636,27 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   defp maybe_first_match_only(results, true), do: results
   defp maybe_first_match_only(results, false), do: Enum.take(results, 1)
+
+  defp regexp_match_all_nif({{:regexp, bytecode, _source} = regexp, global_override}, string, offset, acc, global?) do
+    case nif_exec(bytecode, string, offset) do
+      nil ->
+        Enum.reverse(acc)
+
+      captures ->
+        strings =
+          Enum.map(captures, fn
+            {start, len} -> binary_part(string, start, len)
+            nil -> :undefined
+          end)
+
+        {start, len} = hd(captures)
+        result = exec_result(strings, start, string)
+
+        if global?,
+          do: regexp_match_all_results({regexp, global_override}, string, start + max(len, 1), [result | acc]),
+          else: Enum.reverse([result | acc])
+    end
+  end
 
   defp regexp_match_all_nif({:regexp, bytecode, _source} = regexp, string, offset, acc, global?) do
     case nif_exec(bytecode, string, offset) do
