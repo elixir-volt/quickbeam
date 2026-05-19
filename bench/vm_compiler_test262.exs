@@ -72,6 +72,12 @@ limit =
     value -> String.to_integer(value)
   end
 
+offset =
+  case System.get_env("TEST262_OFFSET") do
+    nil -> 0
+    value -> String.to_integer(value)
+  end
+
 skip_list =
   if QuickBEAM.Test262.available?(), do: QuickBEAM.Test262.load_skip_list(), else: MapSet.new()
 
@@ -101,6 +107,7 @@ cases =
     []
   end
 
+cases = Enum.drop(cases, offset)
 cases = if limit == :infinity, do: cases, else: Enum.take(cases, limit)
 
 js_error? = fn
