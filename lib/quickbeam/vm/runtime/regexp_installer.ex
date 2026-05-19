@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.RegExpInstaller do
   @moduledoc "Installs the RegExp constructor, prototype methods, accessors, and symbol hooks."
 
+  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.ObjectModel.PropertyDescriptor
   alias QuickBEAM.VM.Runtime.Constructors, as: ConstructorRegistry
   alias QuickBEAM.VM.Runtime.Globals.Constructors
   alias QuickBEAM.VM.Runtime.InstallerHelpers
@@ -24,6 +26,7 @@ defmodule QuickBEAM.VM.Runtime.RegExpInstaller do
         auto_proto: true
       )
 
+    Heap.put_ctor_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
     install_prototype_methods(ctor)
     install_prototype_accessors(ctor)
     install_symbol_properties(ctor)
