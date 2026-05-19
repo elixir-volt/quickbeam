@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.Runtime.GlobalBuilder do
   @moduledoc "Builds global bindings and post-build global metadata for a runtime realm."
 
   alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.Runtime.WebAPIs
+  alias QuickBEAM.VM.Host.WebAPIs
 
   alias QuickBEAM.VM.Runtime.{
     Errors,

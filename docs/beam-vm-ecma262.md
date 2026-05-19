@@ -42,7 +42,7 @@ Owned by the BEAM VM:
 | §9.5 Jobs | `Promise`, heap async state |
 | §10 Object internal methods | `ObjectModel.Get`, `Put`, `Define`, `Delete`, `OwnProperty`, `HasProperty`, `ArrayExotic`, `Prototype` |
 | §18–28 Standard built-ins | `Runtime.Object`, `Function`, `Array`, `String`, `Number`, `Date`, `RegExp`, `Map`, `Set`, `TypedArray`, `Promise`, `Reflect`, etc. |
-| Host APIs | `Runtime.Web.*`, `Runtime.Test262Host`, BEAM/native integration helpers |
+| Host APIs | `Host.Web.*`, `Host.Test262`, BEAM/native integration helpers |
 
 ## Spec terminology glossary
 

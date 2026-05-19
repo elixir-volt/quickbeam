@@ -1,18 +1,19 @@
 defmodule QuickBEAM.VM.Runtime.GlobalRegistry do
   @moduledoc "Builds the core global binding registry before post-install metadata hooks run."
 
+  alias QuickBEAM.VM.Host.Test262
+
   alias QuickBEAM.VM.Runtime.{
     Console,
     GlobalBindings,
     JSON,
     Math,
-    Reflect,
-    Test262Host
+    Reflect
   }
 
   def bindings do
     %{
-      "$262" => Test262Host.object(),
+      "$262" => Test262.object(),
       "Math" => Math.object() |> Math.install_metadata(),
       "JSON" => JSON.object() |> JSON.install_metadata(),
       "Reflect" => Reflect.object() |> Reflect.install_metadata(),

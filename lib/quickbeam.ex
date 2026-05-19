@@ -589,7 +589,7 @@ defmodule QuickBEAM do
       msgs = GenServer.call(runtime, :take_pending_messages, 1000)
 
       if msgs != [] do
-        alias QuickBEAM.VM.Runtime.Web.BeamAPI
+        alias QuickBEAM.VM.Host.Web.BeamAPI
 
         Enum.each(msgs, fn msg ->
           elixir_msg = convert_msg_to_js(msg)
@@ -605,7 +605,7 @@ defmodule QuickBEAM do
   end
 
   defp drain_down_messages do
-    alias QuickBEAM.VM.Runtime.Web.BeamAPI
+    alias QuickBEAM.VM.Host.Web.BeamAPI
     monitors_key = :qb_beam_monitors
 
     receive do
@@ -973,7 +973,7 @@ defmodule QuickBEAM do
       _globals ->
         # This process has BEAM state - deliver directly
         js_msg = convert_msg_to_js(message)
-        alias QuickBEAM.VM.Runtime.Web.BeamAPI
+        alias QuickBEAM.VM.Host.Web.BeamAPI
         BeamAPI.deliver_beam_message(js_msg)
         # Also drain any pending DOWN messages that may have been registered
         drain_down_messages()

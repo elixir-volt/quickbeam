@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.Runtime.Function do
   alias QuickBEAM.VM.Execution.Trace
   alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor, Put, WrappedPrimitive}
   alias QuickBEAM.VM.Runtime.Constructors, as: ConstructorRegistry
-  alias QuickBEAM.VM.Runtime.Test262Host
+  alias QuickBEAM.VM.Host.Test262
 
   builtin_definition("Function",
     constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.function/2,
@@ -400,7 +400,7 @@ defmodule QuickBEAM.VM.Runtime.Function do
         Invocation.invoke_with_receiver(fun, args, coerce_function_this(fun, this_arg))
 
       {:builtin, _, _} = builtin ->
-        if Test262Host.realm_global(builtin) do
+        if Test262.realm_global(builtin) do
           Builtin.call(builtin, args, coerce_function_this(builtin, this_arg))
         else
           Builtin.call(builtin, args, this_arg)
@@ -417,7 +417,7 @@ defmodule QuickBEAM.VM.Runtime.Function do
     else
       case this_arg do
         value when value in [nil, :undefined] ->
-          Test262Host.realm_global(fun) || value
+          Test262.realm_global(fun) || value
 
         value when is_binary(value) or is_number(value) or is_boolean(value) ->
           wrap_function_this(fun, value)
@@ -439,7 +439,7 @@ defmodule QuickBEAM.VM.Runtime.Function do
 
   defp wrap_function_this(fun, value) do
     type = WrappedPrimitive.type_for_value(value)
-    proto = Test262Host.realm_intrinsic(fun, type)
+    proto = Test262.realm_intrinsic(fun, type)
 
     case proto do
       {:obj, _} -> Heap.wrap(%{WrappedPrimitive.slot(type) => value, "__proto__" => proto})

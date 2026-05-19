@@ -94,10 +94,10 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
       defp constructor_target(_), do: nil
 
       defp realm_default_prototype({:builtin, "Number", _}, new_target),
-        do: QuickBEAM.VM.Runtime.Test262Host.realm_intrinsic(new_target, :number)
+        do: QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :number)
 
       defp realm_default_prototype({:builtin, "String", _}, new_target),
-        do: QuickBEAM.VM.Runtime.Test262Host.realm_intrinsic(new_target, :string)
+        do: QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :string)
 
       defp realm_default_prototype(_ctor, _new_target), do: nil
 

@@ -199,7 +199,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
         :ok
 
       nil ->
-        if QuickBEAM.VM.Runtime.Test262Host.realm_intrinsic(builtin, :object) do
+        if QuickBEAM.VM.Host.Test262.realm_intrinsic(builtin, :object) do
           :ok
         else
           JSThrow.type_error!("#{name} is not a constructor")
