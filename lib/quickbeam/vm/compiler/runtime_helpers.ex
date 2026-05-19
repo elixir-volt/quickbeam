@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
-  @moduledoc "Runtime support for JIT-compiled code."
+  @moduledoc "Runtime support for BEAM-compiled JavaScript bytecode."
 
   import QuickBEAM.VM.Heap.Keys, only: [date_ms: 0, proto: 0]
   import QuickBEAM.VM.Value, only: [is_object: 1]

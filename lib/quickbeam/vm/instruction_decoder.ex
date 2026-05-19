@@ -14,7 +14,7 @@ defmodule QuickBEAM.VM.InstructionDecoder do
 
   Returns a list of `{opcode_integer, args}` indexed by instruction position
   (NOT byte offset). Labels are resolved to instruction indices via a
-  byte-offset-to-index map. Opcodes are raw integer tags for O(1) BEAM JIT
+  byte-offset-to-index map. Opcodes are raw integer tags for O(1) BEAM-compiler
   jump-table dispatch.
   """
 

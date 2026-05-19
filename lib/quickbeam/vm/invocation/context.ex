@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Invocation.Context do
-  @moduledoc "Fast-context snapshot and restoration: serialises the interpreter context into/out of process dictionary for JIT calls."
+  @moduledoc "Fast-context snapshot and restoration for BEAM-compiled calls."
 
   alias QuickBEAM.VM.{Heap, Runtime}
   alias QuickBEAM.VM.Interpreter.Context
