@@ -1707,7 +1707,7 @@ defmodule QuickBEAM.VM.Runtime.String do
     end
   end
 
-  defp object_groups_arg(groups) when groups in [nil, :undefined], do: []
+  defp object_groups_arg(:undefined), do: []
   defp object_groups_arg(groups), do: [groups]
 
   defp substitute_object_replacement(rep, matched, before, after_str, captures, groups) do
@@ -1721,12 +1721,12 @@ defmodule QuickBEAM.VM.Runtime.String do
     |> String.replace("\0", "$")
   end
 
-  defp replace_object_named_substitutions(rep, groups) when groups in [nil, :undefined], do: rep
+  defp replace_object_named_substitutions(rep, :undefined), do: rep
+  defp replace_object_named_substitutions(_rep, nil), do: JSThrow.type_error!("Cannot convert null to object")
 
   defp replace_object_named_substitutions(rep, groups) do
     Regex.replace(~r/\$<([^>]+)>/, rep, fn _, name ->
       case Get.get(groups, name) do
-        nil -> ""
         :undefined -> ""
         value -> Runtime.stringify(value)
       end
