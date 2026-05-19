@@ -28,6 +28,16 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
 
   def push_this(ctx), do: RuntimeHelpers.push_this(ctx)
 
+  def ensure_capture_cell(ctx, cell, value),
+    do: RuntimeHelpers.ensure_capture_cell(ctx, cell, value)
+
+  def close_capture_cell(ctx, cell, value),
+    do: RuntimeHelpers.close_capture_cell(ctx, cell, value)
+
+  def sync_capture_cell(ctx, cell, value), do: RuntimeHelpers.sync_capture_cell(ctx, cell, value)
+
+  def get_capture(ctx, key), do: RuntimeHelpers.get_capture(ctx, key)
+
   def get_var(ctx, name), do: RuntimeHelpers.get_var(ctx, name)
 
   def get_var_undef(ctx, name), do: RuntimeHelpers.get_var_undef(ctx, name)

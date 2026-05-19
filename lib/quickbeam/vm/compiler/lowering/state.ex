@@ -126,7 +126,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
           Emit.bind(
             state,
             Builder.temp_name(state.temp),
-            compiler_call(state, :get_capture, [key])
+            abi_call(state, :get_capture, [key])
           )
 
         {bound, state}

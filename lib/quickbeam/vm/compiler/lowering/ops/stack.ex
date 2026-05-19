@@ -230,7 +230,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
       Emit.bind(
         state,
         Builder.temp_name(state.temp),
-        State.compiler_call(state, :ensure_capture_cell, [parent_ref, parent_ref])
+        State.abi_call(state, :ensure_capture_cell, [parent_ref, parent_ref])
       )
 
     key = Builder.literal({cv.closure_type, cv.var_idx})

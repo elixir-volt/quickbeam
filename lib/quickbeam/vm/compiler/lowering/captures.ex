@@ -9,7 +9,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Captures do
       Emit.bind(
         state,
         Builder.capture_name(idx, state.temp),
-        State.compiler_call(state, :ensure_capture_cell, [
+        State.abi_call(state, :ensure_capture_cell, [
           Slots.capture_cell_expr(state, idx),
           Slots.slot_expr(state, idx)
         ])
@@ -24,7 +24,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Captures do
       Emit.bind(
         state,
         Builder.capture_name(idx, state.temp),
-        State.compiler_call(state, :close_capture_cell, [
+        State.abi_call(state, :close_capture_cell, [
           Slots.capture_cell_expr(state, idx),
           Slots.slot_expr(state, idx)
         ])
@@ -39,7 +39,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Captures do
       %{
         state
         | body: [
-            State.compiler_call(state, :sync_capture_cell, [
+            State.abi_call(state, :sync_capture_cell, [
               Slots.capture_cell_expr(state, idx),
               expr
             ])

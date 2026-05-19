@@ -1244,11 +1244,11 @@ defmodule QuickBEAM.VM.CompilerTest do
       block = beam_function_instructions(beam_file, :block_0)
 
       assert Enum.any?(block, fn
-               {:call_ext, 2, {:extfunc, QuickBEAM.VM.Compiler.RuntimeHelpers, :get_capture, 2}} ->
+               {:call_ext, 2, {:extfunc, QuickBEAM.VM.Compiler.RuntimeABI, :get_capture, 2}} ->
                  true
 
-               {:call_ext_last, 2,
-                {:extfunc, QuickBEAM.VM.Compiler.RuntimeHelpers, :get_capture, 2}, _} ->
+               {:call_ext_last, 2, {:extfunc, QuickBEAM.VM.Compiler.RuntimeABI, :get_capture, 2},
+                _} ->
                  true
 
                _ ->
