@@ -1,6 +1,56 @@
 defmodule QuickBEAM.VM.Runtime.RegExpTest do
   use QuickBEAM.VMCase, async: true
 
+  test "RegExp internal flags stay separate from own flags property", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S<let r = /a/g; Object.defineProperty(r, "flags", {value: "", configurable: true}); let own = r.flags; let globalBefore = r.global; delete r.flags; [own, globalBefore, r.global].join("|")>,
+      "|true|true"
+    )
+  end
+
+  test "RegExp generic toString and custom exec validation", %{rt: rt} do
+    assert beam!(rt, ~S|RegExp.prototype.toString.call({source: "a", flags: "g"})|) == "/a/g"
+
+    assert_modes(
+      rt,
+      ~S|let r = {exec() { return undefined; }}; try { RegExp.prototype.test.call(r, "x"); "no" } catch (e) { e.name }|,
+      "TypeError"
+    )
+  end
+
+  test "String matchAll validates global flag before custom matcher", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|let r = {[Symbol.match]: true, flags: "", [Symbol.matchAll]() { throw "wrong"; }}; try { "abc".matchAll(r); "no" } catch (e) { e.name }|,
+      "TypeError"
+    )
+  end
+
+  test "String matchAll creates global regexps for string patterns", %{rt: rt} do
+    assert_modes(rt, ~S<let a = [..."aba".matchAll("a")]; [a.length, a[0].index, a[1].index].join("|")>, "2|0|2")
+  end
+
+  test "closed locals keep existing captured cell identity", %{rt: rt} do
+    assert_modes(rt, ~S<let f; { let y = 1; f = function() { return ++y; }; y = 2; } [f(), f()].join("|")>, "3|4")
+  end
+
+  test "RegExp split uses species clone and throwing lastIndex writes", %{rt: rt} do
+    assert beam!(rt, ~S<let re = /x/iy; re.constructor = function() {}; re.constructor[Symbol.species] = function() { return /[db]/y; }; RegExp.prototype[Symbol.split].call(re, "abcde").join("|")>) == "a|c|e"
+
+    assert_modes(
+      rt,
+      ~S<let r = /a/; Object.defineProperty(r, "lastIndex", {writable: false}); try { RegExp.prototype[Symbol.split].call(r, "a"); "no" } catch (e) { e.name }>,
+      "TypeError"
+    )
+  end
+
+  test "RegExp indexes use UTF-16 code units", %{rt: rt} do
+    assert_modes(rt, ~S<new RegExp("b").exec("💩b").index>, 2)
+    assert_modes(rt, ~S</b/.exec("💩b").index>, 2)
+    assert_modes(rt, ~S<[...new RegExp("b")[Symbol.matchAll]("💩b")][0].index>, 2)
+  end
+
   test "class escapes use unanchored membership semantics", %{rt: rt} do
     assert_modes(
       rt,

@@ -189,12 +189,17 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Locals do
 
           vref_idx ->
             vrefs = elem(frame, Frame.var_refs())
-            old_cell = elem(vrefs, vref_idx)
-            val = Closures.read_cell(old_cell)
-            new_ref = make_ref()
-            Heap.put_cell(new_ref, val)
-            frame = put_elem(frame, Frame.var_refs(), put_elem(vrefs, vref_idx, {:cell, new_ref}))
-            run(pc + 1, frame, stack, gas, ctx)
+            case elem(vrefs, vref_idx) do
+              {:cell, _} ->
+                run(pc + 1, frame, stack, gas, ctx)
+
+              old_cell ->
+                val = Closures.read_cell(old_cell)
+                new_ref = make_ref()
+                Heap.put_cell(new_ref, val)
+                frame = put_elem(frame, Frame.var_refs(), put_elem(vrefs, vref_idx, {:cell, new_ref}))
+                run(pc + 1, frame, stack, gas, ctx)
+            end
         end
       end
     end

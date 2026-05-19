@@ -54,33 +54,42 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
      fn args, this ->
        unless regexp_match_receiver?(this), do: JSThrow.type_error!("RegExp split receiver is not an object")
 
-       string = List.first(args, :undefined)
+       string = List.first(args, :undefined) |> regexp_to_string_hint()
        limit = args |> Enum.drop(1) |> List.first(:undefined)
        splitter = regexp_splitter(this)
        JSString.regexp_split(string, splitter, limit)
      end}
   end
 
-  defp regexp_splitter({:obj, _} = regexp) do
+  defp regexp_splitter(regexp) do
     flags = regexp_to_string_hint(Get.get(regexp, "flags"))
     new_flags = if String.contains?(flags, "y"), do: flags, else: flags <> "y"
+    constructor = regexp_species_constructor(regexp)
+    Invocation.construct_runtime(constructor, constructor, [regexp, new_flags])
+  end
+
+  defp regexp_species_constructor(regexp) do
+    default = QuickBEAM.VM.Runtime.Constructors.lookup("RegExp")
 
     case Get.get(regexp, "constructor") do
-      ctor when ctor in [nil, :undefined] ->
-        regexp
+      :undefined ->
+        default
 
-      ctor ->
-        species = Get.get(ctor, {:symbol, "Symbol.species"})
+      nil ->
+        JSThrow.type_error!("RegExp constructor is not an object")
 
-        case species do
-          nil -> regexp
-          :undefined -> regexp
-          constructor -> Invocation.construct_runtime(constructor, constructor, [regexp, new_flags])
+      constructor ->
+        unless regexp_constructor_object?(constructor), do: JSThrow.type_error!("RegExp constructor is not an object")
+
+        case Get.get(constructor, {:symbol, "Symbol.species"}) do
+          value when value in [nil, :undefined] -> default
+          species -> species
         end
     end
   end
 
-  defp regexp_splitter(regexp), do: regexp
+  defp regexp_constructor_object?({:obj, _}), do: true
+  defp regexp_constructor_object?(value), do: Builtin.callable?(value)
 
   def proto_accessor("source") do
     {:accessor,
@@ -224,7 +233,12 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     case Get.get(obj, "exec") do
       exec_fun when exec_fun not in [nil, :undefined] ->
         unless Builtin.callable?(exec_fun), do: JSThrow.type_error!("RegExp exec is not callable")
-        Invocation.invoke_with_receiver(exec_fun, [s], Runtime.gas_budget(), obj) != nil
+
+        case Invocation.invoke_with_receiver(exec_fun, [s], Runtime.gas_budget(), obj) do
+          nil -> false
+          {:obj, _} -> true
+          _ -> JSThrow.type_error!("RegExp exec method returned a non-object")
+        end
 
       _ ->
         JSThrow.type_error!("RegExp.prototype.test called on incompatible receiver")
@@ -497,14 +511,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
           set_last_index!(regexp, 0)
           nil
 
-        {result, index_units} ->
-          raw_index = Get.get(result, "index")
-
-          utf16_index =
-            case index_units do
-              :byte -> byte_offset_to_utf16_index(string, raw_index)
-              :utf16 -> raw_index
-            end
+        {result, :utf16} ->
+          utf16_index = Get.get(result, "index")
 
           if String.contains?(flags, "y") and utf16_index != last_index do
             set_last_index!(regexp, 0)
@@ -552,7 +560,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
       literal when is_binary(literal) ->
         case literal_exec_decoded_from(string, literal, byte_offset) do
           nil -> nil
-          result -> {result, :byte}
+          result -> {result, :utf16}
         end
 
       :error ->
@@ -566,7 +574,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp exec_at_index({:regexp, nil, source, _ref}, string, _flags, _last_index, byte_offset) do
     case literal_exec_from(string, source, byte_offset) do
       nil -> nil
-      {result, _next_offset} -> {result, :byte}
+      {result, _next_offset} -> {result, :utf16}
     end
   end
 
@@ -713,6 +721,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
           unicode_regex_fallback(source, flags, s, last_index)
 
       captures ->
+        captures = Enum.map(captures, &codepoint_capture_to_utf16(s, &1))
+
         strings =
           Enum.map(captures, fn
             {start, len} -> capture_string(s, start, len, flags)
@@ -926,6 +936,14 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     props = regexp_result_props(source, flags, captures, strings, match_start, string)
     materialize_regexp_result_props(ref, props)
     {:obj, ref}
+  end
+
+  defp codepoint_capture_to_utf16(_string, nil), do: nil
+
+  defp codepoint_capture_to_utf16(string, {start, len}) do
+    prefix = String.slice(string, 0, start) || ""
+    capture = String.slice(string, start, len) || ""
+    {JSString.utf16_length(prefix), JSString.utf16_length(capture)}
   end
 
   defp byte_capture_to_utf16(_string, nil), do: nil
@@ -1277,7 +1295,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     case nested_capture_literal(source) do
       {literal, captures} ->
         case :binary.match(s, literal) do
-          {index, _length} -> exec_result(List.duplicate(literal, captures + 1), index, s)
+          {index, _length} -> exec_result(List.duplicate(literal, captures + 1), byte_offset_to_utf16_index(s, index), s)
           :nomatch -> nil
         end
 
@@ -1300,7 +1318,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
       literal_exec_utf16_unit_from(s, literal, offset)
     else
       case :binary.match(s, literal, scope: {offset, byte_size(s) - offset}) do
-        {index, _length} -> exec_result([literal], index, s)
+        {index, _length} -> exec_result([literal], byte_offset_to_utf16_index(s, index), s)
         :nomatch -> nil
       end
     end
@@ -1309,13 +1327,15 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp literal_exec_utf16_unit_from(s, literal, offset) do
     [unit] = JSString.utf16_code_unit_values(literal)
 
+    utf16_offset = byte_offset_to_utf16_index(s, offset)
+
     s
     |> JSString.utf16_code_unit_values()
-    |> Enum.drop(offset)
+    |> Enum.drop(utf16_offset)
     |> Enum.find_index(&(&1 == unit))
     |> case do
       nil -> nil
-      index -> exec_result([literal], offset + index, s)
+      index -> exec_result([literal], utf16_offset + index, s)
     end
   end
 
@@ -1443,10 +1463,11 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     unless regexp_match_receiver?(regexp), do: JSThrow.type_error!("RegExp.prototype.matchAll called on incompatible receiver")
 
     string = QuickBEAM.VM.Interpreter.Values.stringify(string)
+    constructor = match_all_species_constructor(regexp)
     flags = regexp_match_all_observable_flags(regexp)
-    observe_match_all_is_regexp(regexp)
-    matcher = match_all_species_matcher(regexp, flags)
+    matcher = Invocation.construct_runtime(constructor, constructor, [regexp, flags])
     offset = regexp_last_index(regexp)
+    set_last_index!(matcher, offset)
 
     regexp_string_iterator(
       regexp_match_all_results({matcher, String.contains?(flags, "g")}, string, offset, []),
@@ -1559,38 +1580,31 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   defp regexp_match_all_flags(regexp), do: regexp_match_all_observable_flags(regexp)
 
-  defp observe_match_all_is_regexp({:obj, _} = regexp), do: Get.get(regexp, {:symbol, "Symbol.match"})
-  defp observe_match_all_is_regexp(_regexp), do: :undefined
+  defp match_all_species_constructor(regexp) do
+    default = QuickBEAM.VM.Runtime.Constructors.lookup("RegExp")
 
-  defp match_all_species_matcher(regexp, flags) do
     case Get.get(regexp, "constructor") do
       :undefined ->
-        regexp
+        default
+
+      nil ->
+        JSThrow.type_error!("RegExp constructor is not an object")
 
       {:obj, _} = ctor ->
         case Get.get(ctor, {:symbol, "Symbol.species"}) do
-          value when value in [nil, :undefined] ->
-            regexp
-
-          species ->
-            unless Builtin.callable?(species), do: JSThrow.type_error!("RegExp species is not a constructor")
-            Invocation.construct_runtime(species, species, [regexp, flags])
+          value when value in [nil, :undefined] -> default
+          species -> species
         end
 
       ctor ->
-        unless match_all_constructor_object?(ctor), do: JSThrow.type_error!("RegExp constructor is not an object")
+        unless Builtin.callable?(ctor), do: JSThrow.type_error!("RegExp constructor is not an object")
 
         case Get.get(ctor, {:symbol, "Symbol.species"}) do
-          value when value in [nil, :undefined] -> :ok
-          species -> unless Builtin.callable?(species), do: JSThrow.type_error!("RegExp species is not a constructor")
+          value when value in [nil, :undefined] -> default
+          species -> species
         end
-
-        regexp
     end
   end
-
-  defp match_all_constructor_object?({:obj, _}), do: true
-  defp match_all_constructor_object?(value), do: Builtin.callable?(value)
 
   defp regexp_match_all_observable_flags(regexp) do
     case Get.get(regexp, "flags") do
@@ -1737,26 +1751,29 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp literal_exec_from(string, "", offset) when offset <= byte_size(string),
     do: {exec_result([""], offset, string), offset + 1}
 
-  defp literal_exec_from(string, "\\d", offset) do
-    with true <- offset <= byte_size(string),
-         [{index, length}] <-
-           Regex.run(~r/\d/, binary_part(string, offset, byte_size(string) - offset),
-             return: :index
-           ) do
-      absolute = offset + index
-
-      {exec_result([binary_part(string, absolute, length)], absolute, string),
-       absolute + max(length, 1)}
-    else
-      _ -> nil
-    end
-  end
+  defp literal_exec_from(string, "\\d", offset), do: literal_exec_from_regex(string, ~r/\d/, offset)
+  defp literal_exec_from(string, "\\w", offset), do: literal_exec_from_regex(string, ~r/\w/u, offset)
 
   defp literal_exec_from(string, source, offset) do
     with true <- offset <= byte_size(string),
          {index, length} <-
            :binary.match(string, source, scope: {offset, byte_size(string) - offset}) do
-      {exec_result([binary_part(string, index, length)], index, string), index + max(length, 1)}
+      {exec_result([binary_part(string, index, length)], byte_offset_to_utf16_index(string, index), string), index + max(length, 1)}
+    else
+      _ -> nil
+    end
+  end
+
+  defp literal_exec_from_regex(string, regex, offset) do
+    with true <- offset <= byte_size(string),
+         [{index, length}] <-
+           Regex.run(regex, binary_part(string, offset, byte_size(string) - offset),
+             return: :index
+           ) do
+      absolute = offset + index
+
+      {exec_result([binary_part(string, absolute, length)], byte_offset_to_utf16_index(string, absolute), string),
+       absolute + max(length, 1)}
     else
       _ -> nil
     end
@@ -2046,7 +2063,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp regexp_flags(bytecode, ref) do
-    case RegexpState.fetch(ref, "flags") do
+    case RegexpState.fetch_internal(ref, "flags") do
       {:ok, flags} -> flags
       :error -> Get.regexp_flags(bytecode)
     end

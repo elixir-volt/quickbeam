@@ -270,7 +270,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
       validate_regexp_source!(source)
 
       ref = make_ref()
-      RegexpState.put(ref, "flags", canonical_regexp_flags(flags))
+      RegexpState.put_internal(ref, "flags", canonical_regexp_flags(flags))
       RegexpState.put(ref, "lastIndex", 0)
 
       case this do
@@ -284,12 +284,25 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
           :ok
       end
 
-      {:regexp, nil, source, ref}
+      case pattern do
+        {:regexp, bytecode, ^source} when is_binary(bytecode) ->
+          if compatible_regexp_clone_flags?(regexp_source_flags(pattern), flags),
+            do: {:regexp, bytecode, source, ref},
+            else: {:regexp, nil, source, ref}
+
+        {:regexp, bytecode, ^source, _pattern_ref} when is_binary(bytecode) ->
+          if compatible_regexp_clone_flags?(regexp_source_flags(pattern), flags),
+            do: {:regexp, bytecode, source, ref},
+            else: {:regexp, nil, source, ref}
+
+        _ ->
+          {:regexp, nil, source, ref}
+      end
     end
   end
 
   defp regexp_function_identity?(pattern, rest, this) do
-    regexp_value?(pattern) and regexp_flags_omitted?(rest) and not regexp_constructing?(this) and
+    not regexp_constructing?(this) and regexp_flags_omitted?(rest) and regexp_value?(pattern) and
       Get.get(pattern, "constructor") == QuickBEAM.VM.Runtime.Constructors.lookup("RegExp")
   end
 
@@ -335,7 +348,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   end
 
   defp regexp_source_flags({:regexp, bytecode, _source, ref}) do
-    case RegexpState.fetch(ref, "flags") do
+    case RegexpState.fetch_internal(ref, "flags") do
       {:ok, flags} -> flags
       :error -> QuickBEAM.VM.ObjectModel.Get.regexp_flags(bytecode)
     end
@@ -360,6 +373,12 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
   defp canonical_regexp_flags(flags),
     do: Enum.reduce(~w(d g i m s u v y), "", fn flag, acc -> if String.contains?(flags, flag), do: acc <> flag, else: acc end)
+
+  defp compatible_regexp_clone_flags?(original_flags, requested_flags) do
+    requested = canonical_regexp_flags(requested_flags)
+    original = canonical_regexp_flags(original_flags)
+    requested == original or requested == canonical_regexp_flags(original_flags <> "y")
+  end
 
   defp validate_regexp_source!(source) when is_binary(source) do
     if invalid_regexp_source?(source) do

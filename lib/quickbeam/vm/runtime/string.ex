@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   use QuickBEAM.VM.Builtin
 
+  alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.{Builtin, Heap, Invocation, JSThrow}
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Interpreter.Values.Coercion
@@ -990,14 +991,24 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp split_method(value) when is_tuple(value), do: get_method(value, {:symbol, "Symbol.split"})
   defp split_method(_), do: :none
 
-  defp split(s, [{:regexp, bytecode, source, _ref} = regexp | rest])
-       when is_binary(s) and is_binary(bytecode) do
+  defp split(s, [{:regexp, nil, source, _ref} = regexp | rest]) when is_binary(s) and is_binary(source) do
     limit = split_limit(rest)
 
     cond do
       limit == 0 -> []
       custom_split_exec?(regexp) -> split_with_exec_loop(s, regexp, limit, 0, 0, [])
-      true -> split(s, [{:regexp, bytecode, source} | rest])
+      true -> constructed_regex_split(s, source, limit)
+    end
+  end
+
+  defp split(s, [{:regexp, bytecode, _source, _ref} = regexp | rest])
+       when is_binary(s) and is_binary(bytecode) do
+    limit = split_limit(rest)
+
+    cond do
+      limit == 0 -> []
+      s == "" -> split_empty_with_exec(s, regexp)
+      true -> split_with_exec_loop(s, regexp, limit, 0, 0, [])
     end
   end
 
@@ -1088,8 +1099,19 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp split(s, []) when is_binary(s), do: [s]
   defp split(_, _), do: []
 
+  defp constructed_regex_split(s, source, limit) do
+    case Regex.compile(source) do
+      {:ok, regex} ->
+        parts = Regex.split(regex, s, include_captures: true, trim: false)
+        if limit == :infinity, do: parts, else: Enum.take(parts, limit)
+
+      {:error, _} ->
+        split(s, [source, limit])
+    end
+  end
+
   defp split_empty_with_exec(s, splitter) do
-    Put.put(splitter, "lastIndex", 0)
+    split_put_last_index!(splitter, 0)
 
     case split_exec_result(splitter, s) do
       nil -> [""]
@@ -1097,7 +1119,10 @@ defmodule QuickBEAM.VM.Runtime.String do
     end
   end
 
-  defp split_with_exec_loop(s, splitter, limit, q, p, acc) do
+  defp split_with_exec_loop(s, splitter, limit, q, p, acc),
+    do: split_with_exec_loop(s, splitter, limit, q, p, acc, split_unicode_matching?(splitter))
+
+  defp split_with_exec_loop(s, splitter, limit, q, p, acc, unicode?) do
     size = Get.string_length(s)
 
     cond do
@@ -1108,27 +1133,31 @@ defmodule QuickBEAM.VM.Runtime.String do
         append_split_part(acc, utf16_slice(s, p, size - p), limit)
 
       true ->
-        Put.put(splitter, "lastIndex", q)
+        split_put_last_index!(splitter, q)
 
         case split_exec_result(splitter, s) do
           nil ->
-            split_with_exec_loop(s, splitter, limit, q + 1, p, acc)
+            split_with_exec_loop(s, splitter, limit, split_advance_string_index(s, q, unicode?), p, acc, unicode?)
 
           {:obj, _} = result ->
-            e = min(raw_to_length(Get.get(splitter, "lastIndex")), size)
-
-            if e == p do
-              split_with_exec_loop(s, splitter, limit, q + 1, p, acc)
+            if split_default_exec?(splitter) and raw_to_length(Get.get(result, "index")) != q do
+              split_with_exec_loop(s, splitter, limit, split_advance_string_index(s, q, unicode?), p, acc, unicode?)
             else
-              part = utf16_slice(s, p, max(q - p, 0))
-              acc = append_split_part(acc, part, limit)
+              e = min(raw_to_length(Get.get(splitter, "lastIndex")), size)
 
-              if limited_split_done?(acc, limit) do
-                acc
+              if e == p do
+                split_with_exec_loop(s, splitter, limit, split_advance_string_index(s, q, unicode?), p, acc, unicode?)
               else
-                captures = split_result_captures(result)
-                acc = append_split_parts(acc, captures, limit)
-                split_with_exec_loop(s, splitter, limit, e, e, acc)
+                part = utf16_slice(s, p, max(q - p, 0))
+                acc = append_split_part(acc, part, limit)
+
+                if limited_split_done?(acc, limit) do
+                  acc
+                else
+                  captures = split_result_captures(result)
+                  acc = append_split_parts(acc, captures, limit)
+                  split_with_exec_loop(s, splitter, limit, e, e, acc, unicode?)
+                end
               end
             end
         end
@@ -1145,10 +1174,38 @@ defmodule QuickBEAM.VM.Runtime.String do
     String.contains?(flags, "u") or String.contains?(flags, "v")
   end
 
+  defp split_unicode_matching?(splitter) do
+    flags = Runtime.stringify(Get.get(splitter, "flags"))
+    String.contains?(flags, "u") or String.contains?(flags, "v")
+  end
+
+  defp split_advance_string_index(s, index, true) do
+    units = utf16_code_unit_values(s)
+    first = Enum.at(units, index, :undefined)
+    second = Enum.at(units, index + 1, :undefined)
+
+    if is_integer(first) and first >= 0xD800 and first <= 0xDBFF and is_integer(second) and second >= 0xDC00 and second <= 0xDFFF,
+      do: index + 2,
+      else: index + 1
+  end
+
+  defp split_advance_string_index(_s, index, false), do: index + 1
+
   defp custom_split_exec?(splitter) do
     exec = Get.get(splitter, "exec")
     Builtin.callable?(exec) and not match?({:builtin, "exec", _}, exec)
   end
+
+  defp split_default_exec?(splitter), do: not custom_split_exec?(splitter)
+
+  defp split_put_last_index!({:regexp, _, _, ref} = regexp, value) do
+    case Heap.get_prop_desc(ref, "lastIndex") do
+      %{writable: false} -> JSThrow.type_error!("Cannot assign to read only property")
+      _ -> Put.put(regexp, "lastIndex", value)
+    end
+  end
+
+  defp split_put_last_index!(splitter, value), do: Put.put(splitter, "lastIndex", value)
 
   defp split_exec_result({:obj, _} = splitter, s) do
     exec = Get.get(splitter, "exec")
@@ -1492,33 +1549,8 @@ defmodule QuickBEAM.VM.Runtime.String do
     end
   end
 
-  defp match(s, [{:regexp, nil, source, _ref} | _]) when is_binary(s) and is_binary(source) do
-    literal_match_result(s, source)
-  end
-
-  defp match(s, [{:regexp, nil, source} | _]) when is_binary(s) and is_binary(source) do
-    literal_match_result(s, source)
-  end
-
-  defp match(s, [{:regexp, bytecode, source, _ref} | rest])
-       when is_binary(s) and is_binary(bytecode),
-       do: match(s, [{:regexp, bytecode, source} | rest])
-
-  defp match(s, [{:regexp, bytecode, _source} = re | _])
-       when is_binary(s) and is_binary(bytecode) do
-    flags = Get.regexp_flags(bytecode)
-
-    cond do
-      String.contains?(flags, "g") ->
-        match_all_strings(s, re, 0, [])
-
-      String.contains?(flags, "d") ->
-        RegExp.exec_result(re, s)
-
-      true ->
-        RegExp.exec_result(re, s)
-    end
-  end
+  defp match(s, [{:regexp, _, _, _} = re | _]) when is_binary(s), do: match_regexp_value(s, re)
+  defp match(s, [{:regexp, _, _} = re | _]) when is_binary(s), do: match_regexp_value(s, re)
 
   defp match(s, [pattern | _]) when is_binary(s) do
     pattern
@@ -1527,6 +1559,32 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   defp match(_, _), do: nil
+
+  defp match_regexp_value(s, re) do
+    case get_method(re, {:symbol, "Symbol.match"}) do
+      {:ok, matcher} -> Invocation.invoke_with_receiver(matcher, [s], Runtime.gas_budget(), re)
+      :none -> direct_regexp_match(s, re)
+    end
+  end
+
+  defp direct_regexp_match(s, {:regexp, bytecode, source, _ref}) when is_binary(bytecode),
+    do: direct_regexp_match(s, {:regexp, bytecode, source})
+
+  defp direct_regexp_match(s, {:regexp, nil, source, _ref}) when is_binary(source),
+    do: literal_match_result(s, source)
+
+  defp direct_regexp_match(s, {:regexp, nil, source}) when is_binary(source),
+    do: literal_match_result(s, source)
+
+  defp direct_regexp_match(s, {:regexp, bytecode, _source} = re) when is_binary(bytecode) do
+    flags = Get.regexp_flags(bytecode)
+
+    cond do
+      String.contains?(flags, "g") -> match_all_strings(s, re, 0, [])
+      String.contains?(flags, "d") -> RegExp.exec_result(re, s)
+      true -> RegExp.exec_result(re, s)
+    end
+  end
 
   defp regexp_create(:undefined), do: {:regexp, nil, ""}
 
@@ -1815,7 +1873,6 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp custom_exec_result(exec, s, regexp) do
     case Invocation.invoke_with_receiver(exec, [s], Runtime.gas_budget(), regexp) do
       nil -> nil
-      :undefined -> nil
       {:obj, _} = result -> result
       _ -> JSThrow.type_error!("RegExp exec method returned a non-object")
     end
@@ -2438,22 +2495,8 @@ defmodule QuickBEAM.VM.Runtime.String do
     end
   end
 
-  defp search(s, [{:regexp, nil, source, _ref} | _]) when is_binary(s) and is_binary(source),
-    do: string_search(s, source)
-
-  defp search(s, [{:regexp, nil, source} | _]) when is_binary(s) and is_binary(source),
-    do: string_search(s, source)
-
-  defp search(s, [{:regexp, bytecode, source, _ref} | rest])
-       when is_binary(s) and is_binary(bytecode),
-       do: search(s, [{:regexp, bytecode, source} | rest])
-
-  defp search(s, [{:regexp, bytecode, source} | _]) when is_binary(s) and is_binary(bytecode) do
-    case RegExp.nif_exec(bytecode, s, 0) do
-      nil -> literal_regexp_search(s, source, Get.regexp_flags(bytecode))
-      [{start, _} | _] -> start
-    end
-  end
+  defp search(s, [{:regexp, _, _, _} = regexp | _]) when is_binary(s), do: search_regexp_value(s, regexp)
+  defp search(s, [{:regexp, _, _} = regexp | _]) when is_binary(s), do: search_regexp_value(s, regexp)
 
   defp search(s, [pattern | _]) when is_binary(s) do
     regexp = {:regexp, nil, stringify_search_string(pattern), make_ref()}
@@ -2469,6 +2512,32 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   defp search(s, []) when is_binary(s), do: string_search(s, "")
   defp search(_, _), do: -1
+
+  defp search_regexp_value(s, regexp) do
+    case get_method(regexp, {:symbol, "Symbol.search"}) do
+      {:ok, searcher} ->
+        Invocation.invoke_with_receiver(searcher, [s], Runtime.gas_budget(), regexp)
+
+      :none ->
+        direct_regexp_search(s, regexp)
+    end
+  end
+
+  defp direct_regexp_search(s, {:regexp, bytecode, source, _ref}) when is_binary(bytecode),
+    do: direct_regexp_search(s, {:regexp, bytecode, source})
+
+  defp direct_regexp_search(s, {:regexp, nil, source, _ref}) when is_binary(source),
+    do: string_search(s, source)
+
+  defp direct_regexp_search(s, {:regexp, nil, source}) when is_binary(source),
+    do: string_search(s, source)
+
+  defp direct_regexp_search(s, {:regexp, bytecode, source}) when is_binary(bytecode) do
+    case RegExp.nif_exec(bytecode, s, 0) do
+      nil -> literal_regexp_search(s, source, Get.regexp_flags(bytecode))
+      [{start, _} | _] -> start
+    end
+  end
 
   defp literal_regexp_search(s, source, flags) do
     if String.contains?(flags, "i") do
@@ -2494,9 +2563,11 @@ defmodule QuickBEAM.VM.Runtime.String do
     end
   end
 
-  defp match_all(s, []) when is_binary(s), do: invoke_created_match_all({:regexp, nil, ""}, s)
+  defp match_all(s, []) when is_binary(s), do: invoke_created_match_all(regexp_create_match_all(:undefined), s)
 
   defp match_all(s, [{:obj, _} = regexp | _]) when is_binary(s) do
+    if regexp_like?(regexp), do: require_global_match_all_flags!(regexp)
+
     case get_method(regexp, {:symbol, "Symbol.matchAll"}) do
       {:ok, matcher} ->
         Invocation.invoke_with_receiver(matcher, [s], Runtime.gas_budget(), regexp)
@@ -2546,7 +2617,7 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   defp match_all(s, [pattern | _]) when is_binary(s) do
     pattern
-    |> regexp_create()
+    |> regexp_create_match_all()
     |> invoke_created_match_all(s)
   end
 
@@ -2590,18 +2661,22 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   defp match_all_literal(_regexp, _s), do: wrap_match_all_results([])
 
-  defp regexp_match_all_flags(regexp) do
-    case Runtime.global_class_proto("RegExp") do
-      {:obj, ref} = proto ->
-        case Heap.get_obj(ref, %{}) do
-          map when is_map(map) and is_map_key(map, "flags") -> Get.get(proto, "flags")
-          _ -> Get.get(regexp, "flags")
-        end
+  defp regexp_create_match_all(value) do
+    source =
+      case value do
+        :undefined -> ""
+        {:regexp, _bytecode, pattern} when is_binary(pattern) -> pattern
+        {:regexp, _bytecode, pattern, _ref} when is_binary(pattern) -> pattern
+        _ -> stringify_search_string(value)
+      end
 
-      _ ->
-        Get.get(regexp, "flags")
-    end
+    ref = make_ref()
+    RegexpState.put_internal(ref, "flags", "g")
+    RegexpState.put(ref, "lastIndex", 0)
+    {:regexp, nil, source, ref}
   end
+
+  defp regexp_match_all_flags(regexp), do: Get.get(regexp, "flags")
 
   defp literal_match_results("", s) do
     0..Get.string_length(s)

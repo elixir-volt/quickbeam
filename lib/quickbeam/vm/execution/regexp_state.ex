@@ -10,6 +10,13 @@ defmodule QuickBEAM.VM.Execution.RegexpState do
     :ok
   end
 
+  def fetch_internal(ref, property), do: Map.fetch(get(ref), {:internal, property})
+
+  def put_internal(ref, property, value) do
+    Process.put(key(ref), Map.put(get(ref), {:internal, property}, value))
+    :ok
+  end
+
   def delete(ref, property) do
     Process.put(key(ref), Map.delete(get(ref), property))
     :ok
