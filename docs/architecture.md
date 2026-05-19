@@ -241,7 +241,25 @@ The BEAM VM layers are intentionally split by responsibility:
 | Standard built-ins | `Runtime.Object`, `Runtime.Array`, `Runtime.Promise`, `Runtime.TypedArray`, etc. |
 | Global realm bindings | `Runtime.Globals.*` |
 | Host APIs | `Host.Web.*`, `Host.BeamAPI`, `Host.Test262`, BEAM/native bridge helpers |
-| Compiler boundary | `Compiler.RuntimeABI`, `Compiler.RuntimeHelpers`, `Compiler.SemanticEffects` |
+| Compiler boundary | `Compiler.RuntimeABI`, `Compiler.RuntimeHelpers.*`, `Compiler.SemanticEffects` |
+
+Generated BEAM code calls spec-sensitive runtime behavior through
+`Compiler.RuntimeABI`. The ABI delegates to focused compiler support owners:
+
+- `Compiler.RuntimeHelpers.Bindings` — global/lexical binding lookup, variable references, and reference writes
+- `Compiler.RuntimeHelpers.Properties` — object fields, array elements, object literals, private fields, and property deletion
+- `Compiler.RuntimeHelpers.Classes` — class definition, method installation, and private brands
+- `Compiler.RuntimeHelpers.Calls` — calls, construction, `super(...)`, and direct eval
+- `Compiler.RuntimeHelpers.Captures` — capture cells and closure capture maps
+- `Compiler.RuntimeHelpers.Constants` — atom-table constants, private symbols, template objects, and RegExp literals
+- `Compiler.RuntimeHelpers.Iterators` — compiler-specific iterator close/rest/destructuring behavior
+- `Compiler.RuntimeHelpers.Errors` — compiled stack formatting and error construction
+- `Compiler.RuntimeHelpers.Context` — context-shape normalization and accessors
+
+`Compiler.RuntimeHelpers` remains for small shared primitive/runtime support that
+has not been split into a stronger owner. New generated-code semantics should go
+through `RuntimeABI`; compiler-private materialization should call the owning
+helper module directly.
 
 See `docs/beam-vm-ecma262.md` and `docs/beam-vm-compiler.md` for the detailed
 spec and compiler maps.
