@@ -49,6 +49,20 @@ defmodule QuickBEAM.VM.Runtime.RegExpTest do
     assert_modes(rt, ~S|/(?<𝒜>b)/u[Symbol.replace]("abc", "d$<𝒜>$`")|, "adbac")
   end
 
+  test "RegExp replacement advances empty global matches by observable unicode flag", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S<let r = /^|\udf06/g; Object.defineProperty(r, "unicode", {writable: true}); r.unicode = false; let s = r[Symbol.replace]("\ud834\udf06", "XXX"); [s.length, s.charCodeAt(3), s.slice(4)].join("|")>,
+      "7|55348|XXX"
+    )
+
+    assert_modes(
+      rt,
+      ~S<let r = /^|\udf06/g; Object.defineProperty(r, "unicode", {writable: true}); r.unicode = true; let s = r[Symbol.replace]("\ud834\udf06", "XXX"); [s.length, s.charCodeAt(3), s.charCodeAt(4)].join("|")>,
+      "5|55348|57094"
+    )
+  end
+
   test "RegExp split uses species clone and throwing lastIndex writes", %{rt: rt} do
     assert beam!(
              rt,

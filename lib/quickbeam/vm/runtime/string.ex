@@ -2060,6 +2060,18 @@ defmodule QuickBEAM.VM.Runtime.String do
      Regex.replace(@non_ecma_whitespace_run, s, Runtime.stringify(replacement), global: false)}
   end
 
+  defp special_regex_replace(s, "^|\\u" <> hex, flags, replacement, true)
+       when byte_size(hex) == 4 do
+    case Integer.parse(hex, 16) do
+      {unit, ""} ->
+        matches = anchored_or_utf16_unit_matches(s, unit, Runtime.truthy?(String.contains?(flags, "u") or String.contains?(flags, "v")))
+        {:ok, replace_utf16_spans(s, matches, replacement, 0, [])}
+
+      _ ->
+        :none
+    end
+  end
+
   defp special_regex_replace(s, ".", flags, replacement, true) do
     if String.contains?(flags, "u") or String.contains?(flags, "v") do
       matches = unicode_codepoint_matches(s, 0, 0, [])
@@ -2111,6 +2123,103 @@ defmodule QuickBEAM.VM.Runtime.String do
       acc ++ [{byte_offset, byte_len, index}]
     )
   end
+
+  defp anchored_or_utf16_unit_matches(s, unit, unicode?) do
+    units = utf16_code_unit_values(s)
+    start = advance_utf16_units(units, 0, unicode?)
+    [{0, 0} | utf16_unit_matches(units, unit, start, [])]
+  end
+
+  defp utf16_unit_matches(units, unit, index, acc) when index < length(units) do
+    if Enum.at(units, index) == unit do
+      utf16_unit_matches(units, unit, index + 1, acc ++ [{index, 1}])
+    else
+      utf16_unit_matches(units, unit, index + 1, acc)
+    end
+  end
+
+  defp utf16_unit_matches(_units, _unit, _index, acc), do: acc
+
+  defp advance_utf16_units(units, index, true) do
+    first = Enum.at(units, index)
+    second = Enum.at(units, index + 1)
+
+    if first in 0xD800..0xDBFF and second in 0xDC00..0xDFFF, do: index + 2, else: index + 1
+  end
+
+  defp advance_utf16_units(_units, index, _unicode?), do: index + 1
+
+  defp replace_utf16_spans(s, [], _replacement, offset, acc) do
+    IO.iodata_to_binary(acc ++ [utf16_slice_binary(s, offset, utf16_length(s) - offset)])
+  end
+
+  defp replace_utf16_spans(s, [{index, length} | rest], replacement, offset, acc) do
+    before_match = utf16_slice_binary(s, offset, index - offset)
+    before = utf16_slice_binary(s, 0, index)
+    matched = utf16_slice_binary(s, index, length)
+    after_str = utf16_slice_binary(s, index + length, utf16_length(s) - index - length)
+    rep = replacement_text(replacement, matched, before, after_str, [], index, s)
+    replace_utf16_spans(s, rest, replacement, index + length, acc ++ [before_match, rep])
+  end
+
+  defp utf16_slice_binary(_s, _start, length) when length <= 0, do: ""
+
+  defp utf16_slice_binary(s, start, length) do
+    s
+    |> utf16_slice_parts(start, start + length, 0, [])
+    |> Enum.reverse()
+    |> IO.iodata_to_binary()
+  end
+
+  defp utf16_slice_parts(<<>>, _start, _stop, _index, acc), do: acc
+
+  defp utf16_slice_parts(<<cp, rest::binary>>, start, stop, index, acc) when cp < 0x80 do
+    part = if index >= start and index < stop, do: <<cp>>, else: ""
+    utf16_slice_parts(rest, start, stop, index + 1, append_part(acc, part))
+  end
+
+  defp utf16_slice_parts(<<b1, b2, rest::binary>>, start, stop, index, acc)
+       when b1 >= 0xC0 and b1 < 0xE0 do
+    part = if index >= start and index < stop, do: <<b1, b2>>, else: ""
+    utf16_slice_parts(rest, start, stop, index + 1, append_part(acc, part))
+  end
+
+  defp utf16_slice_parts(<<b1, b2, b3, rest::binary>>, start, stop, index, acc)
+       when b1 >= 0xE0 and b1 < 0xF0 do
+    part = if index >= start and index < stop, do: <<b1, b2, b3>>, else: ""
+    utf16_slice_parts(rest, start, stop, index + 1, append_part(acc, part))
+  end
+
+  defp utf16_slice_parts(<<b1, b2, b3, b4, rest::binary>>, start, stop, index, acc)
+       when b1 >= 0xF0 do
+    cp =
+      Bitwise.bor(
+        Bitwise.bsl(Bitwise.band(b1, 0x07), 18),
+        Bitwise.bor(
+          Bitwise.bsl(Bitwise.band(b2, 0x3F), 12),
+          Bitwise.bor(Bitwise.bsl(Bitwise.band(b3, 0x3F), 6), Bitwise.band(b4, 0x3F))
+        )
+      ) - 0x10000
+
+    high = div(cp, 0x400) + 0xD800
+    low = rem(cp, 0x400) + 0xDC00
+
+    part =
+      cond do
+        index >= start and index + 2 <= stop -> <<b1, b2, b3, b4>>
+        index >= start and index < stop -> surrogate_binary(high)
+        index + 1 >= start and index + 1 < stop -> surrogate_binary(low)
+        true -> ""
+      end
+
+    utf16_slice_parts(rest, start, stop, index + 2, append_part(acc, part))
+  end
+
+  defp utf16_slice_parts(<<_byte, rest::binary>>, start, stop, index, acc),
+    do: utf16_slice_parts(rest, start, stop, index + 1, acc)
+
+  defp append_part(acc, ""), do: acc
+  defp append_part(acc, part), do: [part | acc]
 
   defp replace_match_spans(s, [], _replacement, offset, acc),
     do: IO.iodata_to_binary(acc ++ [binary_part(s, offset, byte_size(s) - offset)])
