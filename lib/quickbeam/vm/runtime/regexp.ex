@@ -93,16 +93,23 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   defp regexp_splitter(regexp) do
     constructor = regexp_species_constructor(regexp)
-    default = QuickBEAM.VM.Runtime.Constructors.lookup("RegExp")
+    flags = regexp_to_string_hint(Get.get(regexp, "flags"))
+    new_flags = if String.contains?(flags, "y"), do: flags, else: flags <> "y"
 
-    if constructor == default do
+    if default_regexp_constructor?(constructor) and fixed_last_index?(regexp) do
       regexp
     else
-      flags = regexp_to_string_hint(Get.get(regexp, "flags"))
-      new_flags = if String.contains?(flags, "y"), do: flags, else: flags <> "y"
       Invocation.construct_runtime(constructor, constructor, [regexp, new_flags])
     end
   end
+
+  defp default_regexp_constructor?(constructor),
+    do: constructor == QuickBEAM.VM.Runtime.Constructors.lookup("RegExp")
+
+  defp fixed_last_index?({:regexp, _bytecode, _source, ref}),
+    do: match?(%{writable: false}, Heap.get_prop_desc(ref, "lastIndex"))
+
+  defp fixed_last_index?(_), do: false
 
   defp regexp_species_constructor(regexp) do
     default = QuickBEAM.VM.Runtime.Constructors.lookup("RegExp")

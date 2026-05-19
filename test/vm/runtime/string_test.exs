@@ -50,6 +50,9 @@ defmodule QuickBEAM.VM.Runtime.StringTest do
     assert_modes(rt, ~S<"hello".split(new RegExp(), 1).join("|")>, "h")
     assert_modes(rt, ~S<"x".split(/\w/).join("|")>, "|")
     assert_modes(rt, ~S<"x".split(/\D/).join("|")>, "|")
+    assert_modes(rt, ~S<"hello".split(/l/).join("|")>, "he||o")
+    assert_modes(rt, ~S<"one two three".split(/ /, 2).join("|")>, "one|two")
+    assert_modes(rt, ~S<"x".split(/.?/).join("|")>, "|")
   end
 
   test "split stringifies plain object separators before applying limit", %{rt: rt} do
