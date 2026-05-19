@@ -571,7 +571,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         {:obj, ref}
 
       :none ->
-        unicode_regex_fallback(source, flags, s, last_index) ||
+        named_backreference_fallback(source, flags, s, last_index) ||
+          unicode_regex_fallback(source, flags, s, last_index) ||
           exec_nif_native(bytecode, source, flags, s, last_index)
     end
   end
@@ -601,6 +602,131 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         materialize_regexp_result_props(ref, props)
 
         {:obj, ref}
+    end
+  end
+
+  defp named_backreference_fallback(source, flags, string, last_index) do
+    if String.contains?(source, "\\k<") do
+      with {:ok, transformed} <- transform_named_backreferences(source),
+           {:ok, regex} <- Regex.compile(unescape_regexp_source(transformed), "u") do
+        case Regex.run(regex, string, return: :index, capture: :all, offset: last_index) do
+          nil -> nil
+          captures -> unicode_regex_result(source, flags, string, captures)
+        end
+      else
+        _ -> nil
+      end
+    else
+      nil
+    end
+  end
+
+  defp unescape_regexp_source(source), do: String.replace(source, "\\\\", "\\")
+
+  defp transform_named_backreferences(source) do
+    {:ok, transformed, _seen, _stack, _count} =
+      transform_named_backreferences(source, 0, [], %{}, [], 0)
+
+    {:ok, IO.iodata_to_binary(Enum.reverse(transformed))}
+  end
+
+  defp transform_named_backreferences(source, index, out, seen, stack, count)
+       when index >= byte_size(source),
+       do: {:ok, out, seen, stack, count}
+
+  defp transform_named_backreferences(source, index, out, seen, stack, count) do
+    cond do
+      starts_with_at?(source, index, "\\\\k<") ->
+        transform_named_backreference(source, index, index + 4, out, seen, stack, count)
+
+      starts_with_at?(source, index, "\\k<") ->
+        transform_named_backreference(source, index, index + 3, out, seen, stack, count)
+
+      starts_with_at?(source, index, "\\") ->
+        next_index = min(index + 2, byte_size(source))
+        transform_named_backreferences(source, next_index, [binary_part(source, index, next_index - index) | out], seen, stack, count)
+
+      starts_with_at?(source, index, "[") ->
+        next_index = skip_char_class(source, index + 1)
+        transform_named_backreferences(source, next_index, [binary_part(source, index, next_index - index) | out], seen, stack, count)
+
+      starts_with_at?(source, index, "(?<") and not starts_with_at?(source, index, "(?<=") and not starts_with_at?(source, index, "(?<!") ->
+        case read_until_gt(source, index + 3) do
+          {:ok, raw_name, next_index} ->
+            capture_index = count + 1
+            stack = [{decode_group_name(raw_name), capture_index} | stack]
+            transform_named_backreferences(source, next_index, ["(" | out], seen, stack, capture_index)
+
+          :error ->
+            transform_named_backreferences(source, index + 1, [binary_part(source, index, 1) | out], seen, stack, count)
+        end
+
+      starts_with_at?(source, index, "(") ->
+        {next_count, frame} =
+          if starts_with_at?(source, index, "(?"), do: {count, nil}, else: {count + 1, nil}
+
+        transform_named_backreferences(source, index + 1, ["(" | out], seen, [frame | stack], next_count)
+
+      starts_with_at?(source, index, ")") ->
+        {seen, stack} =
+          case stack do
+            [{name, capture_index} | rest] -> {Map.put(seen, name, capture_index), rest}
+            [_ | rest] -> {seen, rest}
+            [] -> {seen, []}
+          end
+
+        transform_named_backreferences(source, index + 1, [")" | out], seen, stack, count)
+
+      true ->
+        transform_named_backreferences(source, index + 1, [binary_part(source, index, 1) | out], seen, stack, count)
+    end
+  end
+
+  defp starts_with_at?(source, index, prefix),
+    do: index <= byte_size(source) and binary_part(source, index, byte_size(source) - index) |> String.starts_with?(prefix)
+
+  defp transform_named_backreference(source, index, name_index, out, seen, stack, count) do
+    case read_until_gt(source, name_index) do
+      {:ok, raw_name, next_index} ->
+        name = decode_group_name(raw_name)
+
+        replacement =
+          case Map.fetch(seen, name) do
+            {:ok, capture_index} -> [Integer.to_string(capture_index), "\\"]
+            :error -> []
+          end
+
+        transform_named_backreferences(source, next_index, replacement ++ out, seen, stack, count)
+
+      :error ->
+        transform_named_backreferences(source, index + 1, [binary_part(source, index, 1) | out], seen, stack, count)
+    end
+  end
+
+  defp skip_char_class(source, index) when index >= byte_size(source), do: index
+
+  defp skip_char_class(source, index) do
+    cond do
+      starts_with_at?(source, index, "\\") -> skip_char_class(source, min(index + 2, byte_size(source)))
+      starts_with_at?(source, index, "]") -> index + 1
+      true -> skip_char_class(source, index + 1)
+    end
+  end
+
+  defp read_until_gt(source, index), do: read_until_gt(source, index, [])
+
+  defp read_until_gt(source, index, _acc) when index >= byte_size(source), do: :error
+
+  defp read_until_gt(source, index, acc) do
+    cond do
+      starts_with_at?(source, index, "\\") and index + 1 < byte_size(source) ->
+        read_until_gt(source, index + 2, [binary_part(source, index, 2) | acc])
+
+      starts_with_at?(source, index, ">") ->
+        {:ok, IO.iodata_to_binary(Enum.reverse(acc)), index + 1}
+
+      true ->
+        read_until_gt(source, index + 1, [binary_part(source, index, 1) | acc])
     end
   end
 
