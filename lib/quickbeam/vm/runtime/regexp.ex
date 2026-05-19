@@ -1609,58 +1609,34 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     end
   end
 
-  defp regexp_search({:regexp, bytecode, source, _ref}, args),
-    do: regexp_search({:regexp, bytecode, source}, args)
+  defp regexp_search(regexp, args) do
+    unless regexp_match_receiver?(regexp),
+      do: JSThrow.type_error!("RegExp search receiver is not an object")
 
-  defp regexp_search({:regexp, nil, source}, [string | _]) when is_binary(source) do
-    case :binary.match(Values.stringify(string), source) do
-      {byte_index, _} -> Get.string_length(binary_part(Values.stringify(string), 0, byte_index))
-      :nomatch -> -1
+    string =
+      case args do
+        [value | _] -> Values.stringify(value)
+        [] -> Values.stringify(:undefined)
+      end
+
+    previous_last_index = Get.get(regexp, "lastIndex")
+
+    if previous_last_index != 0 do
+      set_last_index!(regexp, 0)
     end
-  end
 
-  defp regexp_search({:regexp, bytecode, source}, [string | _]) when is_binary(bytecode) do
-    s = Values.stringify(string)
-    flags = Get.regexp_flags(bytecode)
+    result = regexp_exec_for_match(regexp, string)
+    current_last_index = Get.get(regexp, "lastIndex")
 
-    case special_match_results(source, flags, s, false) do
-      {:ok, [{_, index} | _]} -> index
-      {:ok, []} -> -1
-      :none -> regexp_search_nif(bytecode, source, s)
+    if current_last_index != previous_last_index do
+      set_last_index!(regexp, previous_last_index)
     end
-  end
 
-  defp regexp_search(regexp, [string | _]) do
-    case exec(regexp, [Values.stringify(string)]) do
-      {:obj, ref} -> Get.get({:obj, ref}, "index")
-      _ -> -1
+    case result do
+      nil -> -1
+      {:obj, _} -> Get.get(result, "index")
+      _ -> JSThrow.type_error!("RegExp exec result must be an object or null")
     end
-  end
-
-  defp regexp_search(regexp, []), do: regexp_search(regexp, [""])
-
-  defp regexp_search_nif(bytecode, source, string) do
-    case nif_exec(bytecode, string, 0) do
-      [{byte_index, _} | _] -> regexp_search_index(string, byte_index)
-      _ -> regexp_search_literal(source, string)
-    end
-  end
-
-  defp regexp_search_literal("c.", string), do: regexp_search_literal("c", string)
-
-  defp regexp_search_literal(source, string) do
-    case :binary.match(string, source) do
-      {byte_index, _} -> Get.string_length(binary_part(string, 0, byte_index))
-      :nomatch -> -1
-    end
-  end
-
-  defp regexp_search_index(string, index) when is_integer(index) do
-    string
-    |> String.codepoints()
-    |> Enum.take(index)
-    |> Enum.map(&Get.string_length/1)
-    |> Enum.sum()
   end
 
   defp regexp_match(regexp, args) do
