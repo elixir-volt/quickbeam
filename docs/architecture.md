@@ -217,6 +217,34 @@ recursively removes affected entries and frees the owned refs. The
 `document_finalizer` frees all remaining entries before destroying the
 lexbor document.
 
+## BEAM VM mode
+
+QuickBEAM can also execute QuickJS bytecode on the BEAM. Native QuickJS-NG still
+parses and compiles JavaScript source, but decoded bytecode is executed by
+Elixir/BEAM modules.
+
+Pipeline:
+
+1. QuickJS-NG compiles source to bytecode.
+2. `QuickBEAM.VM.BytecodeParser` decodes functions, atoms, constants, and opcodes.
+3. `QuickBEAM.VM.Interpreter` executes decoded bytecode directly, or
+   `QuickBEAM.VM.Compiler` lowers bytecode to BEAM modules.
+4. Shared semantic modules implement ECMAScript values, object model, calls,
+   constructors, promises, standard built-ins, and host API glue.
+
+The BEAM VM layers are intentionally split by responsibility:
+
+| Layer | Modules |
+|---|---|
+| QuickJS bytecode | `BytecodeParser`, `InstructionDecoder`, `Opcodes`, `Interpreter.Ops.*`, `Compiler.Lowering.Ops.*` |
+| ECMA semantics | `Semantics.*`, `ObjectModel.*`, `Invocation`, `GlobalEnvironment`, `Promise` |
+| Standard built-ins | `Runtime.Object`, `Runtime.Array`, `Runtime.Promise`, `Runtime.TypedArray`, etc. |
+| Host APIs | `Host.Web.*`, `Host.Test262`, BEAM/native bridge helpers |
+| Compiler boundary | `Compiler.RuntimeABI`, `Compiler.RuntimeHelpers`, `Compiler.SemanticEffects` |
+
+See `docs/beam-vm-ecma262.md` and `docs/beam-vm-compiler.md` for the detailed
+spec and compiler maps.
+
 ## TypeScript toolchain
 
 OXC (Rust NIFs via `rustler_precompiled`) provides:
