@@ -1483,7 +1483,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   def regexp_split(s, regexp, limit \\ :undefined),
-    do: split(Values.stringify(s), [regexp, limit])
+    do: split(stringify_search_string(s), [regexp, limit])
 
   def regex_replace(s, {:regexp, nil, source, _ref} = regexp, replacement)
       when is_binary(source) do

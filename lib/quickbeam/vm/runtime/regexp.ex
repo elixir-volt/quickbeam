@@ -52,6 +52,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   def proto_property({:symbol, "Symbol.split"}) do
     {:builtin, "[Symbol.split]",
      fn args, this ->
+       unless regexp_match_receiver?(this), do: JSThrow.type_error!("RegExp split receiver is not an object")
+
        string = List.first(args, :undefined)
        limit = args |> Enum.drop(1) |> List.first(:undefined)
        JSString.regexp_split(string, this, limit)
