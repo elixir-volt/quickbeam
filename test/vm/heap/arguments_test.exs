@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Heap.ArgumentsTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "sloppy arguments callee resolves to the current function", %{rt: rt} do
     assert beam!(rt, """

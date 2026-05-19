@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.ObjectModel.PropertyKeyTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   alias QuickBEAM.VM.ObjectModel.PropertyKey
 

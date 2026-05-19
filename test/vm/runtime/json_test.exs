@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.JSONTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "array stringify reads elements through property access", %{rt: rt} do
     assert_modes(

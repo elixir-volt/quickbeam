@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Interpreter.GeneratorTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Context

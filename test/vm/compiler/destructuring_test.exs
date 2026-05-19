@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.DestructuringTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "object binding requires object coercible source", %{rt: rt} do
     assert_modes(

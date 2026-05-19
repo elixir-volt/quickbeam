@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.ArrayTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "array callbacks skip sparse holes without missing high indexes", %{rt: rt} do
     assert_modes(

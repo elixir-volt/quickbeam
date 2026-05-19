@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Semantics.PropertyAccessTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "nullish property reads throw in interpreter and compiler", %{rt: rt} do
     for mode <- [:beam, :beam_compiler] do

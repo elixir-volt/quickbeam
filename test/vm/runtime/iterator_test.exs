@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.IteratorTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "for-of returns through finally cleanup stack", %{rt: rt} do
     assert_modes(

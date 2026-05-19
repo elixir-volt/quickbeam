@@ -1,9 +1,9 @@
-defmodule QuickBEAM.VMCase do
+defmodule QuickBEAM.VM.TestCase do
   use ExUnit.CaseTemplate
 
   using do
     quote do
-      import QuickBEAM.VMCase
+      import QuickBEAM.VM.TestCase
     end
   end
 

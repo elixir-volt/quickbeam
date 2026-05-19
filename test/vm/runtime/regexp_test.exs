@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.RegExpTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "RegExp internal flags stay separate from own flags property", %{rt: rt} do
     assert_modes(

@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.StringTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "custom global RegExp exec replaces all matches", %{rt: rt} do
     assert beam!(rt, """

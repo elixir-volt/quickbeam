@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.ObjectModel.ProxyTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "set trap receives receiver for ordinary assignment", %{rt: rt} do
     assert_modes(

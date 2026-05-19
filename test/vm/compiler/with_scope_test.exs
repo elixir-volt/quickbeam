@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.WithScopeTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "with delete falls through when binding is absent", %{rt: rt} do
     assert_modes(

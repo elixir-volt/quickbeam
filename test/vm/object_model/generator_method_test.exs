@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.ObjectModel.GeneratorMethodTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "generator methods use shared generator function prototype", %{rt: rt} do
     assert_modes(

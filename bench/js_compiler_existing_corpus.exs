@@ -9,7 +9,7 @@ quickbeam_vm_cases =
   QuickBEAM.VM.CompilerAudit.cases() ++ QuickBEAM.VM.CompilerAudit.corpus_cases()
 
 file_cases = [
-  {"test/vm/test_language.js", File.read!("test/vm/test_language.js")}
+  {"test/vm/fixtures/test_language.js", File.read!("test/vm/fixtures/test_language.js")}
 ]
 
 cases =

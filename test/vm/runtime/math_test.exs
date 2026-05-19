@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.MathTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "abs coerces arguments with ToNumber", %{rt: rt} do
     assert_modes(

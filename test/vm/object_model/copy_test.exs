@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.ObjectModel.CopyTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "object spread skips non-enumerable getters", %{rt: rt} do
     assert beam!(rt, """

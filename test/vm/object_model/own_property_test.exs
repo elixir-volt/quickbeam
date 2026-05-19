@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.ObjectModel.OwnPropertyTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "Reflect.ownKeys returns array indexes, strings, then symbols in spec order", %{rt: rt} do
     assert beam!(rt, """

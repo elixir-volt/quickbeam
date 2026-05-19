@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Semantics.IteratorsTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "array spread rejects present non-callable iterator", %{rt: rt} do
     assert_beam_error(rt, "[...{ [Symbol.iterator]: 1 }]", "TypeError")

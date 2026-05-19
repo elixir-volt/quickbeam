@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.ObjectModel.DefineTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "object literal fields define own data properties instead of invoking inherited setters",
        %{rt: rt} do

@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.DataViewTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "BigInt setters reject Number values", %{rt: rt} do
     assert beam!(rt, """

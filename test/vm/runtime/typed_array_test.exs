@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.TypedArrayTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "for-of reads typed-array elements live during iteration", %{rt: rt} do
     assert_modes(

@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Compiler.CapturesTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "compiled calls refresh globals before invoking captured closures", %{rt: rt} do
     assert_modes(

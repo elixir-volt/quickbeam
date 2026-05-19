@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.SymbolTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "anonymous symbol has undefined description", %{rt: rt} do
     assert_modes(rt, ~S|Symbol().description === undefined|, true)

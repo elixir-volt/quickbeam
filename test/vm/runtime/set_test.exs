@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Runtime.SetTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "iteration visits delete-then-readd entries", %{rt: rt} do
     assert beam!(rt, """

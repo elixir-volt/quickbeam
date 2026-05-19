@@ -11,7 +11,7 @@ defmodule QuickBEAM.JSEngineTest do
     Heap.reset()
     {:ok, rt} = QuickBEAM.start()
 
-    assert_js = strip_exports(File.read!("test/vm/assert.js"))
+    assert_js = strip_exports(File.read!("test/vm/fixtures/assert.js"))
     QuickBEAM.eval(rt, assert_js, mode: :beam)
 
     qjs =
@@ -37,7 +37,7 @@ defmodule QuickBEAM.JSEngineTest do
     %{rt: rt}
   end
 
-  @js_dir Path.expand(".", __DIR__)
+  @js_dir Path.expand("../fixtures", __DIR__)
 
   for file <- ["test_builtin.js", "test_language.js"] do
     source = File.read!(Path.join(@js_dir, file))

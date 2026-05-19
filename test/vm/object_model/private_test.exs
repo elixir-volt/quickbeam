@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.ObjectModel.PrivateTest do
-  use QuickBEAM.VMCase, async: true
+  use QuickBEAM.VM.TestCase, async: true
 
   test "private in checks class brands in both BEAM modes", %{rt: rt} do
     assert_modes(

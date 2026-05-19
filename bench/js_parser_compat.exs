@@ -3,7 +3,7 @@ Code.require_file("support/test262_files.exs", __DIR__)
 defmodule Bench.JSParserCompat do
   @moduledoc false
 
-  @test_language_path "test/vm/test_language.js"
+  @test_language_path "test/vm/fixtures/test_language.js"
   @default_error_limit 40
 
   def run do
