@@ -52,6 +52,20 @@ defmodule QuickBEAM.VM.Runtime.StringTest do
     assert_modes(rt, ~S<"x".split(/\D/).join("|")>, "|")
   end
 
+  test "split stringifies plain object separators before applying limit", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S/let separator = {}; separator[Symbol.split] = null; separator.toString = () => "2"; "a2b2c".split(separator).join("|")/,
+      "a|b|c"
+    )
+
+    assert_modes(
+      rt,
+      ~S/let separator = {toString() { throw "ok"; }}; try { "foo".split(separator, 0); "no" } catch (e) { e }/,
+      "ok"
+    )
+  end
+
   test "fromCodePoint preserves surrogate code points", %{rt: rt} do
     assert beam!(rt, "String.fromCodePoint(0xD800) === ''") == false
   end

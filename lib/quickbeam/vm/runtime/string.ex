@@ -1079,12 +1079,16 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   defp split(s, [{:obj, _} = splitter | rest]) when is_binary(s) do
-    limit = split_limit(rest)
+    if regexp_like?(splitter) do
+      limit = split_limit(rest)
 
-    cond do
-      limit == 0 -> []
-      s == "" -> split_empty_with_exec(s, splitter)
-      true -> split_with_exec_loop(s, splitter, limit, 0, 0, [])
+      cond do
+        limit == 0 -> []
+        s == "" -> split_empty_with_exec(s, splitter)
+        true -> split_with_exec_loop(s, splitter, limit, 0, 0, [])
+      end
+    else
+      split(s, [stringify_search_string(splitter) | rest])
     end
   end
 
