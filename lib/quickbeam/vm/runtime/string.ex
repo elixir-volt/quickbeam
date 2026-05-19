@@ -9,7 +9,61 @@ defmodule QuickBEAM.VM.Runtime.String do
   alias QuickBEAM.VM.Interpreter.Values.Coercion
   alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor, Put, WrappedPrimitive}
   alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Runtime.InstallerHelpers
   alias QuickBEAM.VM.Runtime.RegExp
+
+  @prototype_methods ~w(charAt charCodeAt codePointAt indexOf lastIndexOf includes startsWith endsWith slice substring substr split trim trimStart trimEnd toUpperCase toLowerCase toLocaleUpperCase toLocaleLowerCase repeat padStart padEnd replace replaceAll match matchAll localeCompare search normalize concat toString valueOf at isWellFormed toWellFormed)
+
+  builtin_definition("String",
+    constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.string/2,
+    length: 1,
+    phase: :fundamental,
+    after_install: &__MODULE__.install_builtin/1
+  )
+
+  @doc "Installs String-specific prototype metadata."
+  def install_builtin(ctor) do
+    InstallerHelpers.with_prototype(ctor, fn proto_ref ->
+      InstallerHelpers.install_methods(proto_ref, __MODULE__, @prototype_methods)
+
+      proto_ref
+      |> Heap.get_obj(%{})
+      |> Map.put_new(WrappedPrimitive.slot(:string), "")
+      |> maybe_put_object_prototype()
+      |> then(&Heap.put_obj(proto_ref, &1))
+
+      InstallerHelpers.install_constructor_link(proto_ref, ctor)
+      install_iterator(proto_ref)
+    end)
+
+    Heap.put_ctor_static(ctor, "length", 1)
+    Heap.put_ctor_prop_desc(ctor, "length", PropertyDescriptor.hidden_readonly())
+    Heap.put_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
+  end
+
+  defp maybe_put_object_prototype(map) do
+    case Heap.get_object_prototype() do
+      {:obj, _} = object_proto -> Map.put(map, "__proto__", object_proto)
+      _ -> map
+    end
+  end
+
+  defp install_iterator(proto_ref) do
+    sym_iterator = {:symbol, "Symbol.iterator"}
+
+    iterator =
+      case proto_property(sym_iterator) do
+        {:builtin, _name, callback} -> {:builtin, "[Symbol.iterator]", callback}
+        other -> other
+      end
+
+    Heap.put_obj_key(proto_ref, sym_iterator, iterator)
+    Heap.put_prop_desc(proto_ref, sym_iterator, PropertyDescriptor.method())
+    Heap.put_ctor_static(iterator, "length", 0)
+    Heap.put_ctor_static(iterator, "name", "[Symbol.iterator]")
+    Heap.put_ctor_prop_desc(iterator, "length", PropertyDescriptor.hidden_readonly())
+    Heap.put_ctor_prop_desc(iterator, "name", PropertyDescriptor.hidden_readonly())
+  end
 
   @trim_leading_pattern ~r/^[\t\n\x{000B}\f\r \x{00A0}\x{1680}\x{2000}\x{2001}\x{2002}\x{2003}\x{2004}\x{2005}\x{2006}\x{2007}\x{2008}\x{2009}\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]+/u
   @trim_trailing_pattern ~r/[\t\n\x{000B}\f\r \x{00A0}\x{1680}\x{2000}\x{2001}\x{2002}\x{2003}\x{2004}\x{2005}\x{2006}\x{2007}\x{2008}\x{2009}\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]+$/u
@@ -1231,7 +1285,9 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp class_escape_match?(unit, "\\S"), do: not class_escape_match?(unit, "\\s")
 
   defp word_unit?(unit),
-    do: (unit >= "0" and unit <= "9") or (unit >= "A" and unit <= "Z") or (unit >= "a" and unit <= "z") or unit == "_"
+    do:
+      (unit >= "0" and unit <= "9") or (unit >= "A" and unit <= "Z") or
+        (unit >= "a" and unit <= "z") or unit == "_"
 
   defp unicode_regexp_bytecode?(bytecode) do
     flags = QuickBEAM.VM.ObjectModel.Get.regexp_flags(bytecode)
@@ -2103,7 +2159,13 @@ defmodule QuickBEAM.VM.Runtime.String do
        when byte_size(hex) == 4 do
     case Integer.parse(hex, 16) do
       {unit, ""} ->
-        matches = anchored_or_utf16_unit_matches(s, unit, Runtime.truthy?(String.contains?(flags, "u") or String.contains?(flags, "v")))
+        matches =
+          anchored_or_utf16_unit_matches(
+            s,
+            unit,
+            Runtime.truthy?(String.contains?(flags, "u") or String.contains?(flags, "v"))
+          )
+
         {:ok, replace_utf16_spans(s, matches, replacement, 0, [])}
 
       _ ->

@@ -411,7 +411,10 @@ defmodule QuickBEAM.VM.Builtin do
   def named_meta("substring"), do: meta("substring", [length: 2, constructable: false], :proto)
   def named_meta("substr"), do: meta("substr", [length: 2, constructable: false], :proto)
   def named_meta("split"), do: meta("split", [length: 2, constructable: false], :proto)
-  def named_meta("[Symbol.split]"), do: meta("[Symbol.split]", [length: 2, constructable: false], :proto)
+
+  def named_meta("[Symbol.split]"),
+    do: meta("[Symbol.split]", [length: 2, constructable: false], :proto)
+
   def named_meta("trim"), do: meta("trim", [length: 0, constructable: false], :proto)
   def named_meta("trimStart"), do: meta("trimStart", [length: 0, constructable: false], :proto)
   def named_meta("trimEnd"), do: meta("trimEnd", [length: 0, constructable: false], :proto)
@@ -432,14 +435,26 @@ defmodule QuickBEAM.VM.Builtin do
   def named_meta("padStart"), do: meta("padStart", [length: 1, constructable: false], :proto)
   def named_meta("padEnd"), do: meta("padEnd", [length: 1, constructable: false], :proto)
   def named_meta("replace"), do: meta("replace", [length: 2, constructable: false], :proto)
-  def named_meta("[Symbol.replace]"), do: meta("[Symbol.replace]", [length: 2, constructable: false], :proto)
+
+  def named_meta("[Symbol.replace]"),
+    do: meta("[Symbol.replace]", [length: 2, constructable: false], :proto)
+
   def named_meta("replaceAll"), do: meta("replaceAll", [length: 2, constructable: false], :proto)
   def named_meta("match"), do: meta("match", [length: 1, constructable: false], :proto)
-  def named_meta("[Symbol.match]"), do: meta("[Symbol.match]", [length: 1, constructable: false], :proto)
+
+  def named_meta("[Symbol.match]"),
+    do: meta("[Symbol.match]", [length: 1, constructable: false], :proto)
+
   def named_meta("matchAll"), do: meta("matchAll", [length: 1, constructable: false], :proto)
-  def named_meta("[Symbol.matchAll]"), do: meta("[Symbol.matchAll]", [length: 1, constructable: false], :proto)
+
+  def named_meta("[Symbol.matchAll]"),
+    do: meta("[Symbol.matchAll]", [length: 1, constructable: false], :proto)
+
   def named_meta("search"), do: meta("search", [length: 1, constructable: false], :proto)
-  def named_meta("[Symbol.search]"), do: meta("[Symbol.search]", [length: 1, constructable: false], :proto)
+
+  def named_meta("[Symbol.search]"),
+    do: meta("[Symbol.search]", [length: 1, constructable: false], :proto)
+
   def named_meta("normalize"), do: meta("normalize", [length: 0, constructable: false], :proto)
   def named_meta("concat"), do: meta("concat", [length: 1, constructable: false], :proto)
 
@@ -466,13 +481,26 @@ defmodule QuickBEAM.VM.Builtin do
     do: meta("[Symbol.iterator]", [length: 0, constructable: false], :proto)
 
   def named_meta("get flags"), do: meta("get flags", [length: 0, constructable: false], :proto)
-  def named_meta("get hasIndices"), do: meta("get hasIndices", [length: 0, constructable: false], :proto)
+
+  def named_meta("get hasIndices"),
+    do: meta("get hasIndices", [length: 0, constructable: false], :proto)
+
   def named_meta("get global"), do: meta("get global", [length: 0, constructable: false], :proto)
-  def named_meta("get ignoreCase"), do: meta("get ignoreCase", [length: 0, constructable: false], :proto)
-  def named_meta("get multiline"), do: meta("get multiline", [length: 0, constructable: false], :proto)
+
+  def named_meta("get ignoreCase"),
+    do: meta("get ignoreCase", [length: 0, constructable: false], :proto)
+
+  def named_meta("get multiline"),
+    do: meta("get multiline", [length: 0, constructable: false], :proto)
+
   def named_meta("get dotAll"), do: meta("get dotAll", [length: 0, constructable: false], :proto)
-  def named_meta("get unicode"), do: meta("get unicode", [length: 0, constructable: false], :proto)
-  def named_meta("get unicodeSets"), do: meta("get unicodeSets", [length: 0, constructable: false], :proto)
+
+  def named_meta("get unicode"),
+    do: meta("get unicode", [length: 0, constructable: false], :proto)
+
+  def named_meta("get unicodeSets"),
+    do: meta("get unicodeSets", [length: 0, constructable: false], :proto)
+
   def named_meta("get sticky"), do: meta("get sticky", [length: 0, constructable: false], :proto)
 
   def named_meta("exec"), do: meta("exec", [length: 1, constructable: false], :proto)
@@ -740,11 +768,13 @@ defmodule QuickBEAM.VM.Builtin do
     constructor = Keyword.fetch!(opts, :constructor)
     length = Keyword.get(opts, :length)
     phase = Keyword.get(opts, :phase, :runtime)
+    module = Keyword.get(opts, :module, __CALLER__.module)
     prototype_parent = Keyword.get(opts, :prototype_parent, :object)
     constructor_descriptor = Keyword.get(opts, :constructor_descriptor, %{})
     prototype_descriptor = Keyword.get(opts, :prototype_descriptor, %{})
     prototype_properties = Keyword.get(opts, :prototype_properties, [])
     realm_intrinsic = Keyword.get(opts, :realm_intrinsic)
+    after_install = Keyword.get(opts, :after_install)
     auto_install? = Keyword.get(opts, :auto_install?, true)
 
     quote do
@@ -754,6 +784,7 @@ defmodule QuickBEAM.VM.Builtin do
           constructor: unquote(constructor),
           length: unquote(length),
           phase: unquote(phase),
+          module: unquote(module),
           prototype_parent: unquote(prototype_parent),
           constructor_descriptor:
             Map.merge(
@@ -767,6 +798,7 @@ defmodule QuickBEAM.VM.Builtin do
             ),
           prototype_properties: unquote(prototype_properties),
           realm_intrinsic: unquote(realm_intrinsic),
+          after_install: unquote(after_install),
           auto_install?: unquote(auto_install?)
         })
       end

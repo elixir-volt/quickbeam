@@ -3,9 +3,58 @@ defmodule QuickBEAM.VM.Runtime.Number do
 
   use QuickBEAM.VM.Builtin
 
-  alias QuickBEAM.VM.{JSThrow, Runtime}
-  alias QuickBEAM.VM.ObjectModel.WrappedPrimitive
-  alias QuickBEAM.VM.Runtime.GlobalNumeric
+  alias QuickBEAM.VM.{Heap, JSThrow, Runtime}
+  alias QuickBEAM.VM.ObjectModel.{PropertyDescriptor, WrappedPrimitive}
+  alias QuickBEAM.VM.Runtime.{GlobalNumeric, InstallerHelpers}
+
+  @prototype_methods ~w(toString toFixed valueOf toExponential toPrecision toLocaleString)
+
+  builtin_definition("Number",
+    constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.number/2,
+    length: 1,
+    phase: :fundamental,
+    after_install: &__MODULE__.install_builtin/1
+  )
+
+  @doc "Installs Number-specific prototype and numeric constant metadata."
+  def install_builtin(ctor) do
+    InstallerHelpers.with_prototype(ctor, fn proto_ref ->
+      InstallerHelpers.install_methods(proto_ref, __MODULE__, @prototype_methods)
+
+      for name <- @prototype_methods do
+        case Heap.get_obj(proto_ref, %{}) do
+          %{^name => method} ->
+            length =
+              QuickBEAM.VM.Builtin.length(QuickBEAM.VM.Builtin.proto_meta(__MODULE__, name))
+
+            Heap.put_ctor_static(method, "length", length)
+            Heap.put_ctor_prop_desc(method, "length", PropertyDescriptor.hidden_readonly())
+
+          _ ->
+            :ok
+        end
+      end
+
+      proto_ref
+      |> Heap.get_obj(%{})
+      |> Map.put(WrappedPrimitive.slot(:number), 0)
+      |> maybe_put_object_prototype()
+      |> then(&Heap.put_obj(proto_ref, &1))
+
+      InstallerHelpers.install_constructor_link(proto_ref, ctor)
+    end)
+
+    Heap.put_ctor_static(ctor, "length", 1)
+    Heap.put_ctor_prop_desc(ctor, "length", PropertyDescriptor.hidden_readonly())
+    Heap.put_ctor_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
+  end
+
+  defp maybe_put_object_prototype(map) do
+    case Heap.get_object_prototype() do
+      {:obj, _} = object_proto -> Map.put(map, "__proto__", object_proto)
+      _ -> map
+    end
+  end
 
   # ── Number statics ──
 

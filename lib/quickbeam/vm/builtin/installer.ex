@@ -16,11 +16,16 @@ defmodule QuickBEAM.VM.Builtin.Installer do
 
   @doc "Installs a single builtin definition and returns its constructor."
   def install(%Definition{} = definition) do
-    ctor = Constructors.register(definition.name, definition.constructor, auto_proto: true)
+    ctor =
+      Constructors.register(definition.name, definition.constructor,
+        module: definition.module,
+        auto_proto: true
+      )
 
     install_constructor_length(ctor, definition)
     Heap.put_ctor_prop_desc(ctor, "prototype", definition.prototype_descriptor)
     install_prototype(ctor, definition)
+    run_after_install(ctor, definition)
 
     ctor
   end
@@ -57,4 +62,10 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     do: Heap.put_obj_key(proto_ref, "__proto__", Heap.get_object_prototype())
 
   defp install_prototype_parent(_proto_ref, nil), do: :ok
+
+  defp run_after_install(ctor, %Definition{after_install: after_install})
+       when is_function(after_install, 1),
+       do: after_install.(ctor)
+
+  defp run_after_install(_ctor, _definition), do: :ok
 end

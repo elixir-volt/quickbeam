@@ -20,11 +20,13 @@ defmodule QuickBEAM.VM.Builtin.Definition do
           constructor: (list(), term() -> term()),
           length: non_neg_integer() | nil,
           phase: atom(),
+          module: module() | nil,
           prototype_parent: :object | nil,
           constructor_descriptor: descriptor(),
           prototype_descriptor: descriptor(),
           prototype_properties: [prototype_property()],
           realm_intrinsic: atom() | nil,
+          after_install: (term() -> term()) | nil,
           auto_install?: boolean()
         }
 
@@ -35,10 +37,12 @@ defmodule QuickBEAM.VM.Builtin.Definition do
             constructor: nil,
             length: nil,
             phase: :runtime,
+            module: nil,
             prototype_parent: :object,
             constructor_descriptor: @constructor_descriptor,
             prototype_descriptor: @prototype_descriptor,
             prototype_properties: [],
             realm_intrinsic: nil,
+            after_install: nil,
             auto_install?: true
 end

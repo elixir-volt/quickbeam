@@ -21,9 +21,31 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   alias QuickBEAM.VM.PromiseState
   alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Runtime.InstallerHelpers
 
   @max_array_length 4_294_967_295
   @max_safe_integer 9_007_199_254_740_991
+
+  builtin_definition("Array",
+    constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.array/2,
+    length: 1,
+    phase: :fundamental,
+    after_install: &__MODULE__.install_builtin/1
+  )
+
+  @doc "Installs Array-specific prototype and constructor metadata."
+  def install_builtin(ctor) do
+    proto = prototype()
+    QuickBEAM.VM.Runtime.Constructors.put_prototype(ctor, proto)
+    Heap.put_array_proto(proto)
+
+    {:obj, proto_ref} = proto
+    InstallerHelpers.install_constructor_link(proto_ref, ctor)
+    InstallerHelpers.install_species(ctor)
+    Heap.put_ctor_static(ctor, "length", 1)
+    Heap.put_ctor_prop_desc(ctor, "length", PropertyDescriptor.hidden_readonly())
+    Heap.put_ctor_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
+  end
 
   @doc "Builds the JavaScript prototype object for this runtime builtin."
   def prototype do
