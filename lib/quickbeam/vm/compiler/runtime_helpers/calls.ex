@@ -118,7 +118,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers.Calls do
   end
 
   defp compile_eval_source(ctx, code) do
-    case compile_eval_program(ctx, code) do
+    case compile_eval_program(ctx, strict_eval_code(ctx, code)) do
       {:ok, program} ->
         run_eval_program(ctx, program)
 
@@ -128,6 +128,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers.Calls do
       {:source_error, message} ->
         throw({:js_throw, Heap.make_error(inspect(message), "SyntaxError")})
     end
+  end
+
+  defp strict_eval_code(ctx, code) do
+    if Bindings.current_strict_mode?(ctx), do: "\"use strict\";\n" <> code, else: code
   end
 
   defp compile_eval_program(%{runtime_pid: runtime_pid}, code) when is_pid(runtime_pid),

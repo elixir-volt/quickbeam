@@ -489,7 +489,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp eval_code(code, caller_frame, gas, ctx, var_objs, keep_declared?) do
-    case compile_eval_code(ctx.runtime_pid, code) do
+    case compile_eval_code(ctx.runtime_pid, strict_eval_code(ctx, code)) do
       {:ok, parsed} ->
         declared_names = eval_declared_names(parsed.value, parsed.atoms)
         _assigned_names = EvalSemantics.simple_assigned_names(code)
@@ -576,11 +576,13 @@ defmodule QuickBEAM.VM.Interpreter do
               |> Map.take(MapSet.to_list(visible_declared_names))
               |> put_created_eval_arguments(created_arguments?, arguments_key, arguments_obj)
 
+            returned_transients = filter_local_eval_transients(ctx, transient_globals)
+
             apply_eval_transients(ctx.current_func, var_objs, transient_globals, keep_declared?)
             write_back_eval_vars(caller_frame, ctx, pre_eval_globals, var_objs, declared_names)
 
-            clean_eval_globals(pre_eval_globals, transient_globals)
-            {val, transient_globals}
+            clean_eval_globals(pre_eval_globals, returned_transients)
+            {val, returned_transients}
 
           {:error, {:js_throw, val}} ->
             transient_globals =
@@ -588,10 +590,12 @@ defmodule QuickBEAM.VM.Interpreter do
               |> Map.take(MapSet.to_list(visible_declared_names))
               |> put_created_eval_arguments(created_arguments?, arguments_key, arguments_obj)
 
+            returned_transients = filter_local_eval_transients(ctx, transient_globals)
+
             apply_eval_transients(ctx.current_func, var_objs, transient_globals, keep_declared?)
             write_back_eval_vars(caller_frame, ctx, pre_eval_globals, var_objs, declared_names)
 
-            clean_eval_globals(pre_eval_globals, transient_globals)
+            clean_eval_globals(pre_eval_globals, returned_transients)
             throw({:js_throw, val})
 
           _ ->
@@ -612,8 +616,28 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
+  defp filter_local_eval_transients(%Context{current_func: current_func}, transients) do
+    case current_func do
+      %QuickBEAM.VM.Function{name: {:predefined, 81}} -> transients
+      {:closure, _, %QuickBEAM.VM.Function{name: {:predefined, 81}}} -> transients
+      %QuickBEAM.VM.Function{locals: locals} -> Map.drop(transients, local_names(locals))
+      {:closure, _, %QuickBEAM.VM.Function{locals: locals}} -> Map.drop(transients, local_names(locals))
+      _ -> transients
+    end
+  end
+
+  defp local_names(locals) do
+    locals
+    |> Enum.map(&Names.resolve_display_name(&1.name))
+    |> Enum.filter(&is_binary/1)
+  end
+
   defp parse_error_message([%{message: message} | _]), do: message
   defp parse_error_message(_errors), do: "Syntax error"
+
+  defp strict_eval_code(ctx, code) do
+    if current_strict_mode?(ctx), do: "\"use strict\";\n" <> code, else: code
+  end
 
   defp compile_eval_code(nil, code), do: QuickBEAM.JS.Compiler.compile(code)
 
