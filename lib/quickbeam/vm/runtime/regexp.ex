@@ -152,6 +152,20 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     end
   end
 
+  defp test({:obj, _} = obj, [s | _]) when is_binary(s) do
+    case Get.get(obj, "exec") do
+      exec_fun when exec_fun not in [nil, :undefined] ->
+        unless Builtin.callable?(exec_fun), do: JSThrow.type_error!("RegExp exec is not callable")
+        Invocation.invoke_with_receiver(exec_fun, [s], Runtime.gas_budget(), obj) != nil
+
+      _ ->
+        JSThrow.type_error!("RegExp.prototype.test called on incompatible receiver")
+    end
+  end
+
+  defp test(_receiver, [s | _]) when is_binary(s),
+    do: JSThrow.type_error!("RegExp.prototype.test called on incompatible receiver")
+
   defp test(_, _), do: false
 
   defp class_escape_test("\\d", s), do: {:ok, any_pattern?(s, :digit)}
