@@ -14,6 +14,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   }
 
   alias QuickBEAM.VM.Compiler.{RuntimeABI, RuntimeHelpers}
+  alias QuickBEAM.VM.Compiler.RuntimeHelpers.Constants
   alias QuickBEAM.VM.GlobalEnvironment
   alias QuickBEAM.VM.ObjectModel.PropertyKey
   alias QuickBEAM.VM.Operands.CopyDataProperties
@@ -143,6 +144,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def abi_call(state, fun, args),
     do: Builder.remote_call(RuntimeABI, fun, [ctx_expr(state) | args])
 
+  def constant_call(state, fun, args),
+    do: Builder.remote_call(Constants, fun, [ctx_expr(state) | args])
+
   @doc "Binds a new context expression and marks it as the current context."
   def update_ctx(state, expr) do
     {ctx, state} = Emit.bind(state, "Ctx#{state.temp}", expr)
@@ -201,7 +205,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def regexp_literal(state) do
     with {:ok, pattern, _pattern_type, state} <- Emit.pop_typed(state),
          {:ok, flags, _flags_type, state} <- Emit.pop_typed(state) do
-      {:ok, Emit.push(state, compiler_call(state, :regexp_literal, [pattern, flags]), :unknown)}
+      {:ok, Emit.push(state, constant_call(state, :regexp_literal, [pattern, flags]), :unknown)}
     end
   end
 

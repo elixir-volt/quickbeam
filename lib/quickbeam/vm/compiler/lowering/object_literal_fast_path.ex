@@ -139,7 +139,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ObjectLiteralFastPath do
         {:ok, Slots.slot_expr(state, compact_slot_index(name, args)), false, state}
 
       {:ok, :push_atom_value} ->
-        {:ok, State.compiler_call(state, :push_atom_value, [Builder.literal(hd(args))]), false,
+        {:ok, State.constant_call(state, :push_atom_value, [Builder.literal(hd(args))]), false,
          state}
 
       _ ->

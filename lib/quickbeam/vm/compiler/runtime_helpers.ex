@@ -15,6 +15,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   }
 
   alias QuickBEAM.VM.Compiler.Runner
+  alias QuickBEAM.VM.Compiler.RuntimeHelpers.Constants
   alias QuickBEAM.VM.Environment.Captures
   alias QuickBEAM.VM.Execution.ConstructorStack
   alias QuickBEAM.VM.Interpreter.{Closures, Context}
@@ -276,43 +277,9 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   @doc "Resolves an atom-table entry to its runtime value."
-  def push_atom_value(ctx, atom_idx),
-    do: Names.resolve_atom(context_atoms(ctx), atom_idx)
-
-  def materialize_constant(_ctx, {:template_object, elems, raw}) do
-    elems = template_elements(elems)
-    raw_elements = template_raw_elements(raw, elems)
-
-    raw_ref = make_ref()
-    Heap.put_obj(raw_ref, template_object_map(raw_elements))
-
-    ref = make_ref()
-    Heap.put_obj(ref, Map.put(template_object_map(elems), "raw", {:obj, raw_ref}))
-    {:obj, ref}
-  end
-
-  def materialize_constant(_ctx, value), do: value
-
-  defp template_elements({:array, elems}) when is_list(elems), do: elems
-  defp template_elements(elems) when is_list(elems), do: elems
-  defp template_elements(value), do: [value]
-
-  defp template_raw_elements(:undefined, elems), do: elems
-  defp template_raw_elements({:template_object, raw, _}, _elems), do: template_elements(raw)
-  defp template_raw_elements(raw, _elems), do: template_elements(raw)
-
-  defp template_object_map(elems) do
-    elems
-    |> Enum.with_index()
-    |> Enum.reduce(%{"length" => length(elems)}, fn {value, idx}, acc ->
-      Map.put(acc, Integer.to_string(idx), value)
-    end)
-  end
-
-  def private_symbol(_ctx, name) when is_binary(name), do: Private.private_symbol(name)
-
-  def private_symbol(ctx, atom_idx),
-    do: Private.private_symbol(Names.resolve_atom(context_atoms(ctx), atom_idx))
+  defdelegate push_atom_value(ctx, atom_idx), to: Constants
+  defdelegate materialize_constant(ctx, value), to: Constants
+  defdelegate private_symbol(ctx, atom_idx), to: Constants
 
   @doc "Reads the value referenced by a compiled variable reference."
   def get_var_ref(ctx, idx), do: read_var_ref(current_var_ref(ctx, idx))
@@ -424,12 +391,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def get_var_undef(atom_idx),
     do: get_var_undef(Names.resolve_atom(InvokeContext.current_atoms(), atom_idx))
 
-  def push_atom_value(atom_idx), do: Names.resolve_atom(InvokeContext.current_atoms(), atom_idx)
-
-  def private_symbol(name) when is_binary(name), do: Private.private_symbol(name)
-
-  def private_symbol(atom_idx),
-    do: Private.private_symbol(Names.resolve_atom(InvokeContext.current_atoms(), atom_idx))
+  defdelegate push_atom_value(atom_idx), to: Constants
+  defdelegate private_symbol(atom_idx), to: Constants
 
   def get_var_ref(idx), do: read_var_ref(current_var_ref(idx))
   def get_var_ref_check(idx), do: checked_var_ref(idx)
@@ -695,7 +658,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   def new_object(_ctx \\ nil), do: Construction.new_object()
 
-  def regexp_literal(_ctx \\ nil, pattern, flags), do: {:regexp, pattern, flags, make_ref()}
+  defdelegate regexp_literal(ctx \\ nil, pattern, flags), to: Constants
 
   @doc "Converts an iterable or array-like value to a JavaScript array object."
   def array_from(_ctx \\ nil, list) do

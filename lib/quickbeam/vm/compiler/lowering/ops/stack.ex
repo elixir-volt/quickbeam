@@ -65,7 +65,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
         {:ok,
          Emit.push(
            state,
-           State.compiler_call(state, :private_symbol, [
+           State.constant_call(state, :private_symbol, [
              Builder.literal(Builder.atom_name(state, atom_idx))
            ]),
            :unknown
@@ -166,7 +166,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
         {:ok,
          Emit.push(
            state,
-           State.compiler_call(state, :materialize_constant, [Builder.literal(value)]),
+           State.constant_call(state, :materialize_constant, [Builder.literal(value)]),
            :object
          )}
 

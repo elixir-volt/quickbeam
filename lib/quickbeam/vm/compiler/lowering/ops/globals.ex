@@ -165,28 +165,28 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
         Slots.slot_expr(state, idx)
       ])
 
-    key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+    key = State.constant_call(state, :push_atom_value, [Builder.literal(atom_idx)])
 
     {:ok, state |> Emit.push(ref, :unknown) |> Emit.push(key, :string)}
   end
 
   defp lower_make_arg_ref(state, atom_idx, idx) do
     ref = State.abi_call(state, :make_arg_ref, [Builder.literal(idx)])
-    key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+    key = State.constant_call(state, :push_atom_value, [Builder.literal(atom_idx)])
 
     {:ok, state |> Emit.push(ref, :unknown) |> Emit.push(key, :string)}
   end
 
   defp lower_make_var_ref(state, atom_idx) do
     ref = State.abi_call(state, :make_var_ref, [Builder.literal(atom_idx)])
-    key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+    key = State.constant_call(state, :push_atom_value, [Builder.literal(atom_idx)])
 
     {:ok, state |> Emit.push(ref, :unknown) |> Emit.push(key, :string)}
   end
 
   defp lower_make_var_ref_ref(state, atom_idx, idx) do
     ref = State.abi_call(state, :make_var_ref_ref, [Builder.literal(idx)])
-    key = State.compiler_call(state, :push_atom_value, [Builder.literal(atom_idx)])
+    key = State.constant_call(state, :push_atom_value, [Builder.literal(atom_idx)])
 
     {:ok, state |> Emit.push(ref, :unknown) |> Emit.push(key, :string)}
   end
