@@ -1971,9 +1971,19 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
      {:builtin, "get #{name}",
       fn _, this ->
         case this do
-          {:regexp, bytecode, _source} -> String.contains?(Get.regexp_flags(bytecode), flag)
-          {:regexp, bytecode, _source, ref} -> String.contains?(regexp_flags(bytecode, ref), flag)
-          _ -> false
+          {:regexp, bytecode, _source} ->
+            String.contains?(Get.regexp_flags(bytecode), flag)
+
+          {:regexp, bytecode, _source, ref} ->
+            String.contains?(regexp_flags(bytecode, ref), flag)
+
+          {:obj, _} = proto ->
+            if proto == Runtime.global_class_proto("RegExp"),
+              do: :undefined,
+              else: JSThrow.type_error!("RegExp.prototype.#{name} receiver is not a RegExp")
+
+          _ ->
+            JSThrow.type_error!("RegExp.prototype.#{name} receiver is not a RegExp")
         end
       end}, nil}
   end
