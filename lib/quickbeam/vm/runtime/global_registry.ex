@@ -8,7 +8,6 @@ defmodule QuickBEAM.VM.Runtime.GlobalRegistry do
     JSON,
     Math,
     Reflect,
-    RegExpInstaller,
     Test262Host
   }
 
@@ -16,7 +15,6 @@ defmodule QuickBEAM.VM.Runtime.GlobalRegistry do
     %{
       "$262" => Test262Host.object(),
       "Function" => FunctionInstaller.constructor(),
-      "RegExp" => RegExpInstaller.constructor(),
       "Math" => Math.object() |> Math.install_metadata(),
       "JSON" => JSON.object() |> JSON.install_metadata(),
       "Reflect" => Reflect.object() |> Reflect.install_metadata(),

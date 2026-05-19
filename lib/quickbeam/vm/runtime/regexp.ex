@@ -10,7 +10,36 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   alias QuickBEAM.VM.Interpreter.Values
   alias QuickBEAM.VM.Interpreter.Values.Coercion
   alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor, Put}
+  alias QuickBEAM.VM.Runtime.InstallerHelpers
   alias QuickBEAM.VM.Runtime.String, as: JSString
+
+  @accessors ~w(source flags hasIndices global ignoreCase multiline dotAll unicode unicodeSets sticky)
+  @prototype_methods ~w(exec test toString)
+  @symbol_methods [
+    {:symbol, "Symbol.match"},
+    {:symbol, "Symbol.matchAll"},
+    {:symbol, "Symbol.replace"},
+    {:symbol, "Symbol.search"},
+    {:symbol, "Symbol.split"}
+  ]
+
+  builtin_definition("RegExp",
+    constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.regexp/2,
+    length: 2,
+    phase: :fundamental,
+    after_install: &__MODULE__.install_builtin/1
+  )
+
+  def install_builtin(ctor) do
+    Heap.put_ctor_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
+    InstallerHelpers.install_species(ctor)
+
+    InstallerHelpers.with_prototype(ctor, fn proto_ref ->
+      InstallerHelpers.install_methods(proto_ref, __MODULE__, @prototype_methods)
+      InstallerHelpers.install_accessors_with(proto_ref, @accessors, &proto_accessor/1)
+      InstallerHelpers.install_methods(proto_ref, __MODULE__, @symbol_methods)
+    end)
+  end
 
   static "escape", length: 1, constructable: false do
     case args do
@@ -52,7 +81,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   def proto_property({:symbol, "Symbol.split"}) do
     {:builtin, "[Symbol.split]",
      fn args, this ->
-       unless regexp_match_receiver?(this), do: JSThrow.type_error!("RegExp split receiver is not an object")
+       unless regexp_match_receiver?(this),
+         do: JSThrow.type_error!("RegExp split receiver is not an object")
 
        string = List.first(args, :undefined) |> regexp_to_string_hint()
        limit = args |> Enum.drop(1) |> List.first(:undefined)
@@ -85,7 +115,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         JSThrow.type_error!("RegExp constructor is not an object")
 
       constructor ->
-        unless regexp_constructor_object?(constructor), do: JSThrow.type_error!("RegExp constructor is not an object")
+        unless regexp_constructor_object?(constructor),
+          do: JSThrow.type_error!("RegExp constructor is not an object")
 
         case Get.get(constructor, {:symbol, "Symbol.species"}) do
           value when value in [nil, :undefined] -> default
@@ -101,7 +132,9 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     {:accessor,
      {:builtin, "get source",
       fn _, this ->
-        unless regexp_match_receiver?(this), do: JSThrow.type_error!("RegExp.prototype.source receiver is not an object")
+        unless regexp_match_receiver?(this),
+          do: JSThrow.type_error!("RegExp.prototype.source receiver is not an object")
+
         regexp_source(this)
       end}, nil}
   end
@@ -110,7 +143,9 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     {:accessor,
      {:builtin, "get flags",
       fn _, this ->
-        unless regexp_match_receiver?(this), do: JSThrow.type_error!("RegExp.prototype.flags receiver is not an object")
+        unless regexp_match_receiver?(this),
+          do: JSThrow.type_error!("RegExp.prototype.flags receiver is not an object")
+
         regexp_flags_from_properties(this)
       end}, nil}
   end
@@ -706,6 +741,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
             {start, len} -> String.slice(s, start, len)
             nil -> :undefined
           end)
+
         {match_start, _} = hd(captures)
         ref = make_ref()
         Heap.put_obj(ref, strings)
@@ -821,28 +857,67 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
       starts_with_at?(source, index, "\\") ->
         next_index = min(index + 2, byte_size(source))
-        transform_named_backreferences(source, next_index, [binary_part(source, index, next_index - index) | out], seen, stack, count)
+
+        transform_named_backreferences(
+          source,
+          next_index,
+          [binary_part(source, index, next_index - index) | out],
+          seen,
+          stack,
+          count
+        )
 
       starts_with_at?(source, index, "[") ->
         next_index = skip_char_class(source, index + 1)
-        transform_named_backreferences(source, next_index, [binary_part(source, index, next_index - index) | out], seen, stack, count)
 
-      starts_with_at?(source, index, "(?<") and not starts_with_at?(source, index, "(?<=") and not starts_with_at?(source, index, "(?<!") ->
+        transform_named_backreferences(
+          source,
+          next_index,
+          [binary_part(source, index, next_index - index) | out],
+          seen,
+          stack,
+          count
+        )
+
+      starts_with_at?(source, index, "(?<") and not starts_with_at?(source, index, "(?<=") and
+          not starts_with_at?(source, index, "(?<!") ->
         case read_until_gt(source, index + 3) do
           {:ok, raw_name, next_index} ->
             capture_index = count + 1
             stack = [{decode_group_name(raw_name), capture_index} | stack]
-            transform_named_backreferences(source, next_index, ["(" | out], seen, stack, capture_index)
+
+            transform_named_backreferences(
+              source,
+              next_index,
+              ["(" | out],
+              seen,
+              stack,
+              capture_index
+            )
 
           :error ->
-            transform_named_backreferences(source, index + 1, [binary_part(source, index, 1) | out], seen, stack, count)
+            transform_named_backreferences(
+              source,
+              index + 1,
+              [binary_part(source, index, 1) | out],
+              seen,
+              stack,
+              count
+            )
         end
 
       starts_with_at?(source, index, "(") ->
         {next_count, frame} =
           if starts_with_at?(source, index, "(?"), do: {count, nil}, else: {count + 1, nil}
 
-        transform_named_backreferences(source, index + 1, ["(" | out], seen, [frame | stack], next_count)
+        transform_named_backreferences(
+          source,
+          index + 1,
+          ["(" | out],
+          seen,
+          [frame | stack],
+          next_count
+        )
 
       starts_with_at?(source, index, ")") ->
         {seen, stack} =
@@ -855,12 +930,21 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         transform_named_backreferences(source, index + 1, [")" | out], seen, stack, count)
 
       true ->
-        transform_named_backreferences(source, index + 1, [binary_part(source, index, 1) | out], seen, stack, count)
+        transform_named_backreferences(
+          source,
+          index + 1,
+          [binary_part(source, index, 1) | out],
+          seen,
+          stack,
+          count
+        )
     end
   end
 
   defp starts_with_at?(source, index, prefix),
-    do: index <= byte_size(source) and binary_part(source, index, byte_size(source) - index) |> String.starts_with?(prefix)
+    do:
+      index <= byte_size(source) and
+        binary_part(source, index, byte_size(source) - index) |> String.starts_with?(prefix)
 
   defp transform_named_backreference(source, index, name_index, out, seen, stack, count) do
     case read_until_gt(source, name_index) do
@@ -876,7 +960,14 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         transform_named_backreferences(source, next_index, replacement ++ out, seen, stack, count)
 
       :error ->
-        transform_named_backreferences(source, index + 1, [binary_part(source, index, 1) | out], seen, stack, count)
+        transform_named_backreferences(
+          source,
+          index + 1,
+          [binary_part(source, index, 1) | out],
+          seen,
+          stack,
+          count
+        )
     end
   end
 
@@ -884,9 +975,14 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   defp skip_char_class(source, index) do
     cond do
-      starts_with_at?(source, index, "\\") -> skip_char_class(source, min(index + 2, byte_size(source)))
-      starts_with_at?(source, index, "]") -> index + 1
-      true -> skip_char_class(source, index + 1)
+      starts_with_at?(source, index, "\\") ->
+        skip_char_class(source, min(index + 2, byte_size(source)))
+
+      starts_with_at?(source, index, "]") ->
+        index + 1
+
+      true ->
+        skip_char_class(source, index + 1)
     end
   end
 
@@ -994,7 +1090,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp utf16_values_to_binary([], acc), do: acc |> Enum.reverse() |> IO.iodata_to_binary()
 
   defp utf16_unit_to_binary(unit) when unit >= 0xD800 and unit <= 0xDFFF do
-    <<0xE0 ||| (unit >>> 12), 0x80 ||| ((unit >>> 6) &&& 0x3F), 0x80 ||| (unit &&& 0x3F)>>
+    <<0xE0 ||| unit >>> 12, 0x80 ||| (unit >>> 6 &&& 0x3F), 0x80 ||| (unit &&& 0x3F)>>
   end
 
   defp utf16_unit_to_binary(unit), do: <<unit::utf8>>
@@ -1231,9 +1327,13 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     ~r/\\u\{([0-9A-Fa-f]+)\}/
     |> Regex.replace(name, fn _all, hex -> decode_group_codepoint(hex) end)
     |> then(fn decoded ->
-      Regex.replace(~r/\\u([D-d][89A-Ba-b][0-9A-Fa-f]{2})\\u([D-d][C-Fc-f][0-9A-Fa-f]{2})/, decoded, fn _all, high, low ->
-        decode_group_surrogate_pair(high, low)
-      end)
+      Regex.replace(
+        ~r/\\u([D-d][89A-Ba-b][0-9A-Fa-f]{2})\\u([D-d][C-Fc-f][0-9A-Fa-f]{2})/,
+        decoded,
+        fn _all, high, low ->
+          decode_group_surrogate_pair(high, low)
+        end
+      )
     end)
     |> then(fn decoded ->
       Regex.replace(~r/\\u([0-9A-Fa-f]{4})/, decoded, fn _all, hex ->
@@ -1301,8 +1401,15 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     case nested_capture_literal(source) do
       {literal, captures} ->
         case :binary.match(s, literal) do
-          {index, _length} -> exec_result(List.duplicate(literal, captures + 1), byte_offset_to_utf16_index(s, index), s)
-          :nomatch -> nil
+          {index, _length} ->
+            exec_result(
+              List.duplicate(literal, captures + 1),
+              byte_offset_to_utf16_index(s, index),
+              s
+            )
+
+          :nomatch ->
+            nil
         end
 
       :error ->
@@ -1466,7 +1573,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp regexp_match_all(regexp, [string | _]) do
-    unless regexp_match_receiver?(regexp), do: JSThrow.type_error!("RegExp.prototype.matchAll called on incompatible receiver")
+    unless regexp_match_receiver?(regexp),
+      do: JSThrow.type_error!("RegExp.prototype.matchAll called on incompatible receiver")
 
     string = QuickBEAM.VM.Interpreter.Values.stringify(string)
     constructor = match_all_species_constructor(regexp)
@@ -1603,7 +1711,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         end
 
       ctor ->
-        unless Builtin.callable?(ctor), do: JSThrow.type_error!("RegExp constructor is not an object")
+        unless Builtin.callable?(ctor),
+          do: JSThrow.type_error!("RegExp constructor is not an object")
 
         case Get.get(ctor, {:symbol, "Symbol.species"}) do
           value when value in [nil, :undefined] -> default
@@ -1651,15 +1760,37 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
       {result, next_offset} ->
         if global_override,
-          do: regexp_match_all_results({{:regexp, nil, source}, global_override}, string, next_offset, [result | acc]),
+          do:
+            regexp_match_all_results(
+              {{:regexp, nil, source}, global_override},
+              string,
+              next_offset,
+              [result | acc]
+            ),
           else: Enum.reverse([result | acc])
     end
   end
 
-  defp regexp_match_all_results({{:regexp, bytecode, source, _ref}, global_override}, string, offset, acc),
-    do: regexp_match_all_results({{:regexp, bytecode, source}, global_override}, string, offset, acc)
+  defp regexp_match_all_results(
+         {{:regexp, bytecode, source, _ref}, global_override},
+         string,
+         offset,
+         acc
+       ),
+       do:
+         regexp_match_all_results(
+           {{:regexp, bytecode, source}, global_override},
+           string,
+           offset,
+           acc
+         )
 
-  defp regexp_match_all_results({{:regexp, bytecode, source} = regexp, global_override}, string, offset, acc)
+  defp regexp_match_all_results(
+         {{:regexp, bytecode, source} = regexp, global_override},
+         string,
+         offset,
+         acc
+       )
        when is_binary(bytecode) do
     flags = Get.regexp_flags(bytecode)
 
@@ -1712,7 +1843,13 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp maybe_first_match_only(results, true), do: results
   defp maybe_first_match_only(results, false), do: Enum.take(results, 1)
 
-  defp regexp_match_all_nif({{:regexp, bytecode, _source} = regexp, global_override}, string, offset, acc, global?) do
+  defp regexp_match_all_nif(
+         {{:regexp, bytecode, _source} = regexp, global_override},
+         string,
+         offset,
+         acc,
+         global?
+       ) do
     case nif_exec(bytecode, string, offset) do
       nil ->
         Enum.reverse(acc)
@@ -1728,7 +1865,10 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         result = exec_result(strings, start, string)
 
         if global?,
-          do: regexp_match_all_results({regexp, global_override}, string, start + max(len, 1), [result | acc]),
+          do:
+            regexp_match_all_results({regexp, global_override}, string, start + max(len, 1), [
+              result | acc
+            ]),
           else: Enum.reverse([result | acc])
     end
   end
@@ -1757,14 +1897,21 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp literal_exec_from(string, "", offset) when offset <= byte_size(string),
     do: {exec_result([""], offset, string), offset + 1}
 
-  defp literal_exec_from(string, "\\d", offset), do: literal_exec_from_regex(string, ~r/\d/, offset)
-  defp literal_exec_from(string, "\\w", offset), do: literal_exec_from_regex(string, ~r/\w/u, offset)
+  defp literal_exec_from(string, "\\d", offset),
+    do: literal_exec_from_regex(string, ~r/\d/, offset)
+
+  defp literal_exec_from(string, "\\w", offset),
+    do: literal_exec_from_regex(string, ~r/\w/u, offset)
 
   defp literal_exec_from(string, source, offset) do
     with true <- offset <= byte_size(string),
          {index, length} <-
            :binary.match(string, source, scope: {offset, byte_size(string) - offset}) do
-      {exec_result([binary_part(string, index, length)], byte_offset_to_utf16_index(string, index), string), index + max(length, 1)}
+      {exec_result(
+         [binary_part(string, index, length)],
+         byte_offset_to_utf16_index(string, index),
+         string
+       ), index + max(length, 1)}
     else
       _ -> nil
     end
@@ -1778,8 +1925,11 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
            ) do
       absolute = offset + index
 
-      {exec_result([binary_part(string, absolute, length)], byte_offset_to_utf16_index(string, absolute), string),
-       absolute + max(length, 1)}
+      {exec_result(
+         [binary_part(string, absolute, length)],
+         byte_offset_to_utf16_index(string, absolute),
+         string
+       ), absolute + max(length, 1)}
     else
       _ -> nil
     end
@@ -1815,12 +1965,19 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     end
   end
 
-  defp regexp_search_string({:symbol, _}), do: JSThrow.type_error!("Cannot convert a Symbol value to a string")
-  defp regexp_search_string({:symbol, _, _}), do: JSThrow.type_error!("Cannot convert a Symbol value to a string")
+  defp regexp_search_string({:symbol, _}),
+    do: JSThrow.type_error!("Cannot convert a Symbol value to a string")
+
+  defp regexp_search_string({:symbol, _, _}),
+    do: JSThrow.type_error!("Cannot convert a Symbol value to a string")
+
   defp regexp_search_string(value), do: Values.stringify(value)
 
   defp same_value_zero?(0), do: true
-  defp same_value_zero?(value) when is_float(value) and value == 0.0, do: not negative_zero?(value)
+
+  defp same_value_zero?(value) when is_float(value) and value == 0.0,
+    do: not negative_zero?(value)
+
   defp same_value_zero?(_), do: false
 
   defp same_value?(a, b) do
@@ -1863,7 +2020,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp set_search_last_index!(regexp, value), do: set_last_index!(regexp, value)
 
   defp regexp_match(regexp, args) do
-    unless regexp_match_receiver?(regexp), do: JSThrow.type_error!("RegExp match receiver is not an object")
+    unless regexp_match_receiver?(regexp),
+      do: JSThrow.type_error!("RegExp match receiver is not an object")
 
     string =
       case args do
@@ -1874,7 +2032,11 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     flags = regexp_match_flags(regexp)
 
     if String.contains?(flags, "g") do
-      regexp_match_global(regexp, string, String.contains?(flags, "u") or String.contains?(flags, "v"))
+      regexp_match_global(
+        regexp,
+        string,
+        String.contains?(flags, "u") or String.contains?(flags, "v")
+      )
     else
       regexp_exec_for_match(regexp, string)
     end
@@ -1917,9 +2079,16 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp regexp_to_string_hint(:undefined), do: "undefined"
-  defp regexp_to_string_hint({:symbol, _}), do: JSThrow.type_error!("Cannot convert a Symbol value to a string")
-  defp regexp_to_string_hint({:symbol, _, _}), do: JSThrow.type_error!("Cannot convert a Symbol value to a string")
-  defp regexp_to_string_hint({:obj, _} = obj), do: obj |> Coercion.to_primitive("string") |> Values.stringify()
+
+  defp regexp_to_string_hint({:symbol, _}),
+    do: JSThrow.type_error!("Cannot convert a Symbol value to a string")
+
+  defp regexp_to_string_hint({:symbol, _, _}),
+    do: JSThrow.type_error!("Cannot convert a Symbol value to a string")
+
+  defp regexp_to_string_hint({:obj, _} = obj),
+    do: obj |> Coercion.to_primitive("string") |> Values.stringify()
+
   defp regexp_to_string_hint(value), do: Values.stringify(value)
 
   defp regexp_exec_for_match(regexp, string) do
@@ -1983,9 +2152,9 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     end
   end
 
-
   defp regexp_to_string(this) do
-    unless regexp_match_receiver?(this), do: JSThrow.type_error!("RegExp.prototype.toString receiver is not an object")
+    unless regexp_match_receiver?(this),
+      do: JSThrow.type_error!("RegExp.prototype.toString receiver is not an object")
 
     source = regexp_to_string_hint(Get.get(this, "source"))
     flags = regexp_to_string_hint(Get.get(this, "flags"))
@@ -2033,12 +2202,16 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp decode_surrogate_unicode_escapes(source) do
-    Regex.replace(~r/\\u([dD][89aAbB][0-9A-Fa-f]{2})\\u([dD][c-fC-F][0-9A-Fa-f]{2})/, source, fn _, high, low ->
-      high = String.to_integer(high, 16)
-      low = String.to_integer(low, 16)
-      codepoint = 0x10000 + (high - 0xD800) * 0x400 + (low - 0xDC00)
-      <<codepoint::utf8>>
-    end)
+    Regex.replace(
+      ~r/\\u([dD][89aAbB][0-9A-Fa-f]{2})\\u([dD][c-fC-F][0-9A-Fa-f]{2})/,
+      source,
+      fn _, high, low ->
+        high = String.to_integer(high, 16)
+        low = String.to_integer(low, 16)
+        codepoint = 0x10000 + (high - 0xD800) * 0x400 + (low - 0xDC00)
+        <<codepoint::utf8>>
+      end
+    )
   end
 
   defp hex_to_codepoint(hex) do
