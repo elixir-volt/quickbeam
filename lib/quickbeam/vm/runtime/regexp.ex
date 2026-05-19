@@ -1425,12 +1425,12 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     string = QuickBEAM.VM.Interpreter.Values.stringify(string)
     flags = regexp_match_all_observable_flags(regexp)
     observe_match_all_is_regexp(regexp)
-    validate_match_all_species!(regexp)
+    matcher = match_all_species_matcher(regexp, flags)
     offset = regexp_last_index(regexp)
 
     regexp_string_iterator(
-      regexp_match_all_results({regexp, String.contains?(flags, "g")}, string, offset, []),
-      regexp,
+      regexp_match_all_results({matcher, String.contains?(flags, "g")}, string, offset, []),
+      matcher,
       string
     )
   end
@@ -1542,10 +1542,20 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp observe_match_all_is_regexp({:obj, _} = regexp), do: Get.get(regexp, {:symbol, "Symbol.match"})
   defp observe_match_all_is_regexp(_regexp), do: :undefined
 
-  defp validate_match_all_species!(regexp) do
+  defp match_all_species_matcher(regexp, flags) do
     case Get.get(regexp, "constructor") do
       :undefined ->
-        :ok
+        regexp
+
+      {:obj, _} = ctor ->
+        case Get.get(ctor, {:symbol, "Symbol.species"}) do
+          value when value in [nil, :undefined] ->
+            regexp
+
+          species ->
+            unless Builtin.callable?(species), do: JSThrow.type_error!("RegExp species is not a constructor")
+            Invocation.construct_runtime(species, species, [regexp, flags])
+        end
 
       ctor ->
         unless match_all_constructor_object?(ctor), do: JSThrow.type_error!("RegExp constructor is not an object")
@@ -1554,6 +1564,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
           value when value in [nil, :undefined] -> :ok
           species -> unless Builtin.callable?(species), do: JSThrow.type_error!("RegExp species is not a constructor")
         end
+
+        regexp
     end
   end
 
