@@ -132,10 +132,17 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_callable_symbol(value, sym_key) do
     if QuickBEAM.VM.Builtin.callable?(value) do
       case get_own(value, sym_key) do
-        :undefined -> fallback_to_function_proto(get_from_prototype(value, sym_key), value, sym_key)
-        {:accessor, getter, _} when getter != nil -> call_getter(getter, value)
-        {:accessor, nil, _} -> :undefined
-        val -> val
+        :undefined ->
+          fallback_to_function_proto(get_from_prototype(value, sym_key), value, sym_key)
+
+        {:accessor, getter, _} when getter != nil ->
+          call_getter(getter, value)
+
+        {:accessor, nil, _} ->
+          :undefined
+
+        val ->
+          val
       end
     else
       get_own(value, sym_key)
@@ -605,84 +612,25 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     end
   end
 
-  defp get_own({:builtin, "Symbol", _}, key) when is_binary(key) and key != "prototype",
-    do: QuickBEAM.VM.Runtime.Symbol.static_property(key)
-
-  defp get_own({:builtin, name, _} = builtin, key)
-       when name in ~w(Uint8Array Int8Array Uint8ClampedArray Uint16Array Int16Array Uint32Array Int32Array Float32Array Float64Array Float16Array BigInt64Array BigUint64Array) and
-              key in [{:symbol, "Symbol.species"}, "prototype", "BYTES_PER_ELEMENT", "from"] do
-    TypedArray.constructor_static_property(name, builtin, key)
-  end
-
-  defp get_own({:builtin, _, _} = builtin, "prototype") do
-    case QuickBEAM.VM.Runtime.Constructors.builtin_prototype(builtin) do
-      nil -> :undefined
-      value -> value
-    end
-  end
-
-  defp get_own({:builtin, name, _} = builtin, "name") do
-    case Heap.get_ctor_statics(builtin) do
-      %{"name" => :deleted} -> :undefined
-      %{"name" => value} -> value
-      _ -> name
-    end
-  end
-
   defp get_own({:builtin, _name, props}, key) when is_map(props) do
     Map.get(props, key, :undefined)
   end
 
-  defp get_own({:builtin, name, _} = builtin, "length") do
-    case Heap.get_ctor_statics(builtin) do
-      %{"length" => :deleted} ->
+  defp get_own({:builtin, _, _} = builtin, key) do
+    case QuickBEAM.VM.Runtime.Constructors.static_property(builtin, key) do
+      {:accessor, getter, _} when getter != nil ->
+        call_getter(getter, builtin)
+
+      {:accessor, nil, _} ->
         :undefined
 
-      %{"length" => length} ->
-        length
+      :undefined ->
+        if function_prototype_has_own?(key),
+          do: :undefined,
+          else: fallback_to_object_proto(Function.proto_property(builtin, key), builtin, key)
 
-      _ ->
-        case QuickBEAM.VM.Builtin.named_meta(name) do
-          %QuickBEAM.VM.Builtin.Meta{length: length} -> length
-          _ -> :undefined
-        end
-    end
-  end
-
-  defp get_own({:builtin, _, _} = b, key) do
-    b = QuickBEAM.VM.Runtime.Constructors.ensure_builtin_metadata(b)
-    statics = Heap.get_ctor_statics(b)
-
-    case Map.fetch(statics, key) do
-      {:ok, :deleted} ->
-        :undefined
-
-      {:ok, {:accessor, getter, _}} when getter != nil ->
-        call_getter(getter, b)
-
-      {:ok, {:accessor, nil, _}} ->
-        :undefined
-
-      {:ok, val} ->
-        val
-
-      :error ->
-        static_val =
-          case Map.get(statics, :__module__) do
-            mod when is_atom(mod) ->
-              if function_exported?(mod, :static_property, 1),
-                do: mod.static_property(key),
-                else: :undefined
-
-            _ ->
-              :undefined
-          end
-
-        cond do
-          static_val != :undefined -> static_val
-          function_prototype_has_own?(key) -> :undefined
-          true -> fallback_to_object_proto(Function.proto_property(b, key), b, key)
-        end
+      value ->
+        value
     end
   end
 
@@ -708,8 +656,10 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   end
 
   defp get_own({:regexp, _, _} = regexp, "flags"), do: regexp_instance_property(regexp, "flags")
+
   defp get_own({:regexp, _bytecode, source} = regexp, "source") when is_binary(source),
     do: regexp_instance_property(regexp, "source")
+
   defp get_own({:regexp, _, _}, "lastIndex"), do: 0
 
   defp get_own({:regexp, _, _, ref} = regexp, key) do
@@ -838,7 +788,18 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp symbol_to_string(desc), do: "Symbol(#{desc})"
 
   defp regexp_instance_property(_regexp, key)
-       when key in ["source", "flags", "hasIndices", "global", "ignoreCase", "multiline", "dotAll", "unicode", "unicodeSets", "sticky"] do
+       when key in [
+              "source",
+              "flags",
+              "hasIndices",
+              "global",
+              "ignoreCase",
+              "multiline",
+              "dotAll",
+              "unicode",
+              "unicodeSets",
+              "sticky"
+            ] do
     RegExp.proto_accessor(key)
   end
 
@@ -1074,14 +1035,24 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp explicit_undefined_own?({:obj, ref}, key) do
     case Heap.get_obj_raw(ref) do
-      {:qb_arr, _} -> Heap.get_prop_desc(ref, key) != nil
-      data when is_list(data) -> Heap.get_prop_desc(ref, key) != nil
-      raw when is_tuple(raw) -> Heap.shape?(raw) and match?({:ok, _}, Heap.raw_fetch(raw, key))
-      %{typed_array() => true} ->
-        match?({:ok, _}, PropertyKey.array_index(key)) or Map.has_key?(Heap.get_obj(ref, %{}), key)
+      {:qb_arr, _} ->
+        Heap.get_prop_desc(ref, key) != nil
 
-      map when is_map(map) -> not Map.has_key?(map, proxy_target()) and Map.has_key?(map, key)
-      _ -> false
+      data when is_list(data) ->
+        Heap.get_prop_desc(ref, key) != nil
+
+      raw when is_tuple(raw) ->
+        Heap.shape?(raw) and match?({:ok, _}, Heap.raw_fetch(raw, key))
+
+      %{typed_array() => true} ->
+        match?({:ok, _}, PropertyKey.array_index(key)) or
+          Map.has_key?(Heap.get_obj(ref, %{}), key)
+
+      map when is_map(map) ->
+        not Map.has_key?(map, proxy_target()) and Map.has_key?(map, key)
+
+      _ ->
+        false
     end
   end
 
@@ -1214,24 +1185,6 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp get_from_prototype({:builtin, "Error", _}, _key),
     do: :undefined
-
-  defp get_from_prototype({:builtin, "Array", _} = fun, key),
-    do: fallback_to_function_proto(Array.static_property(key), fun, key)
-
-  defp get_from_prototype({:builtin, "Object", _} = fun, key),
-    do: fallback_to_function_proto(Object.static_property(key), fun, key)
-
-  defp get_from_prototype({:builtin, "Map", _} = fun, key),
-    do: fallback_to_function_proto(:undefined, fun, key)
-
-  defp get_from_prototype({:builtin, "Set", _} = fun, key),
-    do: fallback_to_function_proto(:undefined, fun, key)
-
-  defp get_from_prototype({:builtin, "Number", _} = fun, key),
-    do: fallback_to_function_proto(Number.static_property(key), fun, key)
-
-  defp get_from_prototype({:builtin, "String", _} = fun, key),
-    do: fallback_to_function_proto(JSString.static_property(key), fun, key)
 
   defp get_from_prototype({:builtin, name, callback} = fun, key)
        when is_binary(name) and is_function(callback),
@@ -1369,10 +1322,18 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp get_parent_static_property(parent, key, receiver) do
     case Map.fetch(Heap.get_ctor_statics(parent), key) do
-      {:ok, {:accessor, getter, _}} when getter != nil -> call_getter(getter, receiver)
-      {:ok, {:accessor, nil, _}} -> :undefined
-      {:ok, :deleted} -> :undefined
-      {:ok, val} -> val
+      {:ok, {:accessor, getter, _}} when getter != nil ->
+        call_getter(getter, receiver)
+
+      {:ok, {:accessor, nil, _}} ->
+        :undefined
+
+      {:ok, :deleted} ->
+        :undefined
+
+      {:ok, val} ->
+        val
+
       :error ->
         case get_own(parent, key) do
           {:accessor, getter, _} when getter != nil -> call_getter(getter, receiver)

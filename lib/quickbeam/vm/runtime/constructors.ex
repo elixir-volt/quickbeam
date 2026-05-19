@@ -88,15 +88,22 @@ defmodule QuickBEAM.VM.Runtime.Constructors do
 
   def ensure_builtin_metadata(ctor), do: ctor
 
-  @doc "Returns a builtin constructor's prototype object, installing intrinsic metadata if needed."
-  def builtin_prototype({:builtin, _, _} = ctor) do
+  @doc "Returns a builtin constructor's own static property without invoking accessors."
+  def static_property({:builtin, name, _} = ctor, key) do
     ensure_builtin_metadata(ctor)
+    statics = Heap.get_ctor_statics(ctor)
 
-    case constructor_prototype(ctor) do
-      :deleted -> :undefined
-      value -> value
+    case Map.fetch(statics, key) do
+      {:ok, :deleted} -> :undefined
+      {:ok, value} -> value
+      :error -> fallback_static_property(ctor, name, key, statics)
     end
   end
+
+  def static_property(_, _), do: :undefined
+
+  @doc "Returns a builtin constructor's prototype object, installing intrinsic metadata if needed."
+  def builtin_prototype({:builtin, _, _} = ctor), do: static_property(ctor, "prototype")
 
   def builtin_prototype(_), do: nil
 
@@ -141,6 +148,42 @@ defmodule QuickBEAM.VM.Runtime.Constructors do
 
   defp put_proto_if_missing(map, nil), do: map
   defp put_proto_if_missing(map, proto), do: Map.put_new(map, "__proto__", proto)
+
+  defp fallback_static_property(ctor, _name, "prototype", _statics) do
+    case constructor_prototype(ctor) do
+      :deleted -> :undefined
+      nil -> :undefined
+      value -> value
+    end
+  end
+
+  defp fallback_static_property(_ctor, name, "name", _statics), do: name
+
+  defp fallback_static_property(_ctor, name, "length", _statics) do
+    case QuickBEAM.VM.Builtin.named_meta(name) do
+      %QuickBEAM.VM.Builtin.Meta{length: length} -> length
+      _ -> :undefined
+    end
+  end
+
+  defp fallback_static_property(ctor, name, key, statics) do
+    module_static_property(Map.get(statics, :__module__), name, ctor, key)
+  end
+
+  defp module_static_property(module, name, ctor, key) when is_atom(module) do
+    cond do
+      function_exported?(module, :constructor_static_property, 3) ->
+        module.constructor_static_property(name, ctor, key)
+
+      function_exported?(module, :static_property, 1) ->
+        module.static_property(key)
+
+      true ->
+        :undefined
+    end
+  end
+
+  defp module_static_property(_, _, _, _), do: :undefined
 
   defp constructor_prototype(ctor) do
     case Heap.get_ctor_statics(ctor) do

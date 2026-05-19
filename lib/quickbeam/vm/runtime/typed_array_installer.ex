@@ -18,9 +18,14 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayInstaller do
         ConstructorRegistry.register(
           name,
           TypedArray.constructor(type),
-          %{},
-          base_proto
+          module: TypedArray,
+          auto_proto: false
         )
+
+      ConstructorRegistry.put_prototype(
+        ctor,
+        Heap.wrap(%{"constructor" => ctor, "__proto__" => base_proto})
+      )
 
       Heap.put_ctor_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
       install_static_methods(ctor)
