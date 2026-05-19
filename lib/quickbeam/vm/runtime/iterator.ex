@@ -356,6 +356,24 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   def wrap_for_valid_iterator_prototype do
+    case Runtime.global_constructor("Iterator") do
+      nil ->
+        build_wrap_for_valid_iterator_prototype()
+
+      ctor ->
+        case Map.get(Heap.get_ctor_statics(ctor), :__wrap_for_valid_iterator_prototype__) do
+          {:obj, _} = proto ->
+            proto
+
+          _ ->
+            proto = build_wrap_for_valid_iterator_prototype()
+            Heap.put_ctor_static(ctor, :__wrap_for_valid_iterator_prototype__, proto)
+            proto
+        end
+    end
+  end
+
+  defp build_wrap_for_valid_iterator_prototype do
     Heap.wrap(%{
       "__proto__" => Runtime.global_class_proto("Iterator"),
       "next" => {:builtin, "next", fn _args, this -> wrapper_next(this) end},
