@@ -307,6 +307,9 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   defp lone_surrogate_wtf8?(_), do: false
 
+  defp exec({:regexp, _, _, _} = regexp, []), do: exec(regexp, ["undefined"])
+  defp exec({:regexp, _, _} = regexp, []), do: exec(regexp, ["undefined"])
+
   defp exec({:regexp, _, _, _} = regexp, [value | rest]) when not is_binary(value) do
     exec(regexp, [Runtime.stringify(value) | rest])
   end
@@ -355,6 +358,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     if stateful_regexp?(flags) do
       exec_stateful(regexp, s, flags)
     else
+      _ = regexp_last_index(regexp)
       exec({:regexp, bytecode, source}, [s])
     end
   end
@@ -366,6 +370,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     if stateful_regexp?(flags) do
       exec_stateful(regexp, s, flags)
     else
+      _ = regexp_last_index(regexp)
       literal_exec(s, source)
     end
   end
