@@ -74,7 +74,6 @@ defmodule QuickBEAM.VM.Host.Test262 do
     string_proto = Heap.wrap(%{"__proto__" => object_proto})
     string_ctor = realm_constructor("String", &Constructors.string/2, string_proto)
     Heap.put_obj_key(elem(string_proto, 1), "constructor", string_ctor)
-    install_realm_string_methods(string_proto)
 
     regexp_proto = Heap.wrap(%{"__proto__" => object_proto})
     regexp_ctor = realm_constructor("RegExp", &Constructors.regexp/2, regexp_proto)
@@ -156,6 +155,7 @@ defmodule QuickBEAM.VM.Host.Test262 do
 
     proxy_ctor = realm_proxy_constructor()
     error_bindings = realm_error_bindings(object_proto)
+    install_realm_string_methods(string_proto, error_bindings)
 
     error_protos =
       for name <-
@@ -344,6 +344,19 @@ defmodule QuickBEAM.VM.Host.Test262 do
     Heap.wrap(map)
   end
 
+  defp realm_error_object(type_error_ctor, message) do
+    proto = Heap.get_class_proto(type_error_ctor)
+
+    Heap.wrap(%{
+      "message" => message,
+      "name" => "TypeError",
+      "stack" => "",
+      "__error_name__" => "TypeError",
+      "__proto__" => proto,
+      {:symbol, "Symbol.toStringTag"} => "Error"
+    })
+  end
+
   defp realm_object_constructor(object_proto, boolean_proto, number_proto, bigint_proto) do
     callback = fn
       [value | _], _this ->
@@ -408,11 +421,29 @@ defmodule QuickBEAM.VM.Host.Test262 do
     ctor
   end
 
-  defp install_realm_string_methods({:obj, ref}) do
+  defp install_realm_string_methods({:obj, ref}, error_bindings) do
     for name <- ~w(toString valueOf) do
-      Heap.put_obj_key(ref, name, JSString.proto_property(name))
+      Heap.put_obj_key(ref, name, realm_string_method(name, Map.fetch!(error_bindings, "TypeError")))
       Heap.put_prop_desc(ref, name, %{writable: true, enumerable: false, configurable: true})
     end
+  end
+
+  defp realm_string_method(name, type_error_ctor) do
+    {:builtin, name,
+     fn args, this ->
+       {:builtin, _, callback} = JSString.proto_property(name)
+
+       try do
+         callback.(args, this)
+       catch
+         {:js_throw, {:obj, _} = error} ->
+           if Get.get(error, "name") == "TypeError" do
+             throw({:js_throw, realm_error_object(type_error_ctor, Get.get(error, "message"))})
+           else
+             throw({:js_throw, error})
+           end
+       end
+     end}
   end
 
   defp realm_proxy_constructor do
