@@ -140,8 +140,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Emit do
   end
 
   @doc "Drops the top operand-stack expression."
-  def drop_top(%{stack: [_ | rest], stack_types: [_ | type_rest]} = state),
-    do: {:ok, %{state | stack: rest, stack_types: type_rest}}
+  def drop_top(%{stack: [expr | rest], stack_types: [_ | type_rest]} = state) do
+    {_value, state} = bind(state, Builder.temp_name(state.temp), expr)
+    {:ok, %{state | stack: rest, stack_types: type_rest}}
+  end
 
   def drop_top(_state), do: {:error, :stack_underflow}
 
