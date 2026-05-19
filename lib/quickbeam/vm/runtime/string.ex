@@ -2970,12 +2970,12 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp match_all(_, _), do: wrap_match_all_results([])
 
   defp invoke_created_match_all(regexp, s) do
-    case get_method(regexp, {:symbol, "Symbol.matchAll"}) do
+    case regexp_prototype_match_all() do
       {:ok, matcher} ->
         Invocation.invoke_with_receiver(matcher, [s], Runtime.gas_budget(), regexp)
 
       :none ->
-        case regexp_prototype_match_all() do
+        case get_method(regexp, {:symbol, "Symbol.matchAll"}) do
           {:ok, matcher} ->
             Invocation.invoke_with_receiver(matcher, [s], Runtime.gas_budget(), regexp)
 
@@ -3018,14 +3018,16 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   defp regexp_prototype_match_all do
-    matcher = Get.get(current_regexp_prototype(), {:symbol, "Symbol.matchAll"})
+    matcher =
+      Process.get(:qb_regexp_prototype_match_all_override) ||
+        Get.get(current_regexp_prototype(), {:symbol, "Symbol.matchAll"})
 
     if Builtin.callable?(matcher), do: {:ok, matcher}, else: :none
   end
 
   defp current_regexp_prototype do
-    case Heap.get_ctx() do
-      %{globals: %{"RegExp" => ctor}} -> Get.get(ctor, "prototype")
+    case QuickBEAM.VM.GlobalEnvironment.current() do
+      %{"RegExp" => ctor} -> Get.get(ctor, "prototype")
       _ -> Runtime.global_class_proto("RegExp")
     end
   end
@@ -3049,6 +3051,7 @@ defmodule QuickBEAM.VM.Runtime.String do
 
     ref = make_ref()
     RegexpState.put_internal(ref, "flags", "g")
+    RegexpState.put(ref, "__proto__", current_regexp_prototype())
     RegexpState.put(ref, "lastIndex", 0)
     {:regexp, nil, source, ref}
   end

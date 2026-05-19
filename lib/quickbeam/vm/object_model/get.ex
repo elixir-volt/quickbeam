@@ -71,6 +71,16 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   def get({:obj, _} = value, {:symbol, _, _} = sym_key),
     do: get_symbol(value, PropertyKey.normalize(sym_key))
 
+  def get({:regexp, _, _, _} = value, {:symbol, _} = sym_key), do: get_symbol(value, sym_key)
+
+  def get({:regexp, _, _, _} = value, {:symbol, _, _} = sym_key),
+    do: get_symbol(value, PropertyKey.normalize(sym_key))
+
+  def get({:regexp, _, _} = value, {:symbol, _} = sym_key), do: get_symbol(value, sym_key)
+
+  def get({:regexp, _, _} = value, {:symbol, _, _} = sym_key),
+    do: get_symbol(value, PropertyKey.normalize(sym_key))
+
   def get(value, {:symbol, "Symbol.hasInstance"} = sym_key),
     do: get_callable_symbol(value, sym_key)
 
@@ -825,7 +835,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   end
 
   defp regexp_prototype_property(key) do
-    case Runtime.global_class_proto("RegExp") do
+    case active_regexp_prototype() do
       {:obj, ref} = proto ->
         if Heap.get_prop_desc(ref, key) == :deleted do
           :undefined
@@ -841,6 +851,13 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
           :undefined -> RegExp.proto_property(key)
           value -> value
         end
+    end
+  end
+
+  defp active_regexp_prototype do
+    case QuickBEAM.VM.GlobalEnvironment.current() do
+      %{"RegExp" => ctor} -> get(ctor, "prototype")
+      _ -> Runtime.global_class_proto("RegExp")
     end
   end
 

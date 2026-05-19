@@ -1280,6 +1280,11 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             _ -> Values.stringify(key)
           end
 
+        if Map.has_key?(map, "exec") and Map.has_key?(map, "test") and Map.has_key?(map, "source") and
+             str_key == {:symbol, "Symbol.matchAll"} do
+          Process.put(:qb_regexp_prototype_match_all_override, val)
+        end
+
         if set(obj, str_key, val, obj) == false, do: reject_failed_write!()
 
       nil ->

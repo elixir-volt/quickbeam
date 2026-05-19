@@ -86,6 +86,14 @@ defmodule QuickBEAM.VM.Runtime.StringTest do
     )
   end
 
+  test "matchAll nullish pattern invokes observable RegExp prototype matcher", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S<let arg; let calls = 0; let receiver = {[Symbol.toPrimitive]() { calls++; return "abc"; }}; RegExp.prototype[Symbol.matchAll] = function(string) { arg = string; }; String.prototype.matchAll.call(receiver, null); calls + "|" + arg>,
+      "1|abc"
+    )
+  end
+
   test "well-formed string methods coerce primitive receivers", %{rt: rt} do
     assert_modes(rt, ~S<String.prototype.isWellFormed.call(1)>, true)
     assert_modes(rt, ~S<String.prototype.toWellFormed.call(1n)>, "1")
