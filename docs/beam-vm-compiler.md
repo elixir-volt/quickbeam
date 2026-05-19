@@ -103,4 +103,4 @@ Unsupported bytecode patterns fall back to the interpreter when correctness requ
 
 ## Effects model
 
-`QuickBEAM.VM.Compiler.Effects` records semantic hazards for operations that can call user JavaScript, throw, mutate heap/global state, enqueue jobs, require iterator closing, or invalidate shape assumptions. Optimizations should consult and extend this metadata rather than assuming abstract operations are pure.
+`QuickBEAM.VM.Compiler.SemanticEffects` records semantic hazards for operations that can call user JavaScript, throw, mutate heap/global state, enqueue jobs, require iterator closing, or invalidate shape assumptions. Optimizations should consult and extend this metadata rather than assuming abstract operations are pure.

@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Effects do
   @moduledoc "Effect handling helpers for compiler lowering state."
 
-  alias QuickBEAM.VM.Compiler.Effects, as: CompilerEffects
+  alias QuickBEAM.VM.Compiler.SemanticEffects, as: CompilerEffects
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, Types}
 
   def effectful_push(state, expr),

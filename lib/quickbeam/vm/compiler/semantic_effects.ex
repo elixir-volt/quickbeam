@@ -1,4 +1,4 @@
-defmodule QuickBEAM.VM.Compiler.Effects do
+defmodule QuickBEAM.VM.Compiler.SemanticEffects do
   @moduledoc """
   Semantic effects for VM operations that can invalidate compiler assumptions.
 
