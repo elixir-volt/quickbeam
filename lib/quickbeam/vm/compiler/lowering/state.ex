@@ -537,7 +537,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   def in_call(state) do
     with {:ok, obj, _obj_type, state} <- Emit.pop_typed(state),
          {:ok, key, _key_type, state} <- Emit.pop_typed(state) do
-      {:ok, Emit.push(state, compiler_call(state, :in_operator, [key, obj]), :boolean)}
+      {:ok, Emit.push(state, abi_call(state, :in_operator, [key, obj]), :boolean)}
     end
   end
 
@@ -550,7 +550,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
        Emit.bind_pair(
          state,
          Builder.temp_name(state.temp),
-         compiler_call(state, :append_spread, [arr, idx, obj]),
+         abi_call(state, :append_spread, [arr, idx, obj]),
          [:number, :object]
        )}
     end
@@ -584,7 +584,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     with {:ok, key, _key_type, state} <- Emit.pop_typed(state),
          {:ok, obj, _obj_type, state} <- Emit.pop_typed(state) do
       state = Effects.invalidate_shaped_aliases(state, obj)
-      Effects.effectful_push(state, compiler_call(state, :delete_property, [obj, key]), :boolean)
+      Effects.effectful_push(state, abi_call(state, :delete_property, [obj, key]), :boolean)
     end
   end
 

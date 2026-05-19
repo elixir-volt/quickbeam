@@ -46,6 +46,22 @@ defmodule QuickBEAM.VM.Compiler.SemanticEffects do
       can_mutate_heap?: true,
       invalidates_shape_aliases?: true
     },
+    delete_property: %{
+      calls_js?: true,
+      can_throw?: true,
+      can_mutate_heap?: true,
+      invalidates_shape_aliases?: true
+    },
+    in_operator: %{
+      calls_js?: true,
+      can_throw?: true
+    },
+    append_spread: %{
+      calls_js?: true,
+      can_throw?: true,
+      can_mutate_heap?: true,
+      invalidates_shape_aliases?: true
+    },
     iterator_close: %{
       calls_js?: true,
       can_throw?: true,

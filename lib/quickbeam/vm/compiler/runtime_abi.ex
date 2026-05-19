@@ -50,6 +50,12 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
 
   def put_field(ctx, obj, key, value), do: RuntimeHelpers.put_field(ctx, obj, key, value)
 
+  def delete_property(ctx, obj, key), do: RuntimeHelpers.delete_property(ctx, obj, key)
+
+  def in_operator(ctx, key, obj), do: RuntimeHelpers.in_operator(ctx, key, obj)
+
+  def append_spread(ctx, arr, idx, obj), do: RuntimeHelpers.append_spread(ctx, arr, idx, obj)
+
   def assignment_with_iterator_close(ctx, fun, iterators, obj, key, value),
     do: RuntimeHelpers.assignment_with_iterator_close(ctx, fun, iterators, obj, key, value)
 
