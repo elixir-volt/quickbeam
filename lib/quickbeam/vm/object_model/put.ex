@@ -1485,8 +1485,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             not Semantics.same_value?(val, target_value) ->
           JSThrow.type_error!("proxy set trap violates invariant")
 
-        match?(%{configurable: false}, desc) and
-            match?({:ok, {:accessor, _, nil}}, Heap.raw_fetch(target_ref, key)) ->
+        match?(%{configurable: false}, desc) and getter_only_accessor?(target_ref, key) ->
           JSThrow.type_error!("proxy set trap violates invariant")
 
         true ->
@@ -1498,6 +1497,13 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   end
 
   defp validate_proxy_set_invariant(_target, _key, _val, trap_result), do: trap_result
+
+  defp getter_only_accessor?(target_ref, key) do
+    case Heap.raw_fetch(Heap.get_obj_raw(target_ref), key) do
+      {:ok, {:accessor, _, nil}} -> true
+      _ -> false
+    end
+  end
 
   defp sync_global_this?(obj, key, val) when is_binary(key) do
     case Heap.get_ctx() do

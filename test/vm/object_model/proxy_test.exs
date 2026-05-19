@@ -23,6 +23,12 @@ defmodule QuickBEAM.VM.ObjectModel.ProxyTest do
       ~S|let t = {}; Object.defineProperty(t, "x", {get(){return 1}, configurable: false}); let p = new Proxy(t, {set(){ return true; }}); try { p.x = 2; "ok"; } catch (e) { e.name; }|,
       "TypeError"
     )
+
+    assert_modes(
+      rt,
+      ~S|let t = {}; Object.defineProperty(t, "x", {get(){return 1}, configurable: false}); let p = new Proxy(t, {set(){ return true; }}); try { Reflect.set(p, "x", 2); "ok"; } catch (e) { e.name; }|,
+      "TypeError"
+    )
   end
 
   test "has trap enforces non-configurable and non-extensible target invariants", %{rt: rt} do
@@ -81,6 +87,11 @@ defmodule QuickBEAM.VM.ObjectModel.ProxyTest do
     )
   end
 
+  test "Proxy constructor requires object target and handler", %{rt: rt} do
+    assert_modes(rt, ~S|try { new Proxy(1, {}); "ok"; } catch (e) { e.name; }|, "TypeError")
+    assert_modes(rt, ~S|try { new Proxy({}, null); "ok"; } catch (e) { e.name; }|, "TypeError")
+  end
+
   test "revoked callable proxies cannot be called or constructed", %{rt: rt} do
     assert beam!(
              rt,
@@ -91,6 +102,19 @@ defmodule QuickBEAM.VM.ObjectModel.ProxyTest do
              QuickBEAM.eval(
                rt,
                ~S|let r = Proxy.revocable(function(){}, {}); r.revoke(); new r.proxy();|,
+               mode: :beam
+             )
+  end
+
+  test "revoked proxies reject has and delete", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|let r = Proxy.revocable({}, {}); r.revoke(); try { "x" in r.proxy; "ok"; } catch (e) { e.name; }|,
+      "TypeError"
+    )
+
+    assert {:error, %QuickBEAM.JS.Error{name: "TypeError"}} =
+             QuickBEAM.eval(rt, ~S|let r = Proxy.revocable({}, {}); r.revoke(); delete r.proxy.x;|,
                mode: :beam
              )
   end

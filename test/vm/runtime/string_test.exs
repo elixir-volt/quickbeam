@@ -48,6 +48,9 @@ defmodule QuickBEAM.VM.Runtime.StringTest do
   test "split handles constructor RegExp empty and class escape separators", %{rt: rt} do
     assert_modes(rt, ~S<"hello".split(new RegExp()).join("|")>, "h|e|l|l|o")
     assert_modes(rt, ~S<"hello".split(new RegExp(), 1).join("|")>, "h")
+    assert_modes(rt, ~S"""
+    "💩".split("").map(s => s.charCodeAt(0)).join("|")
+    """, "55357|56489")
     assert_modes(rt, ~S<"x".split(/\w/).join("|")>, "|")
     assert_modes(rt, ~S<"x".split(/\D/).join("|")>, "|")
     assert_modes(rt, ~S<"hello".split(/l/).join("|")>, "he||o")

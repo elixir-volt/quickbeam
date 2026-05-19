@@ -1,8 +1,9 @@
 defmodule QuickBEAM.VM.Host.Web.EventListeners do
   @moduledoc "Shared listener storage and dispatch helpers for EventTarget-like Web APIs."
 
+  alias QuickBEAM.VM.Host.Callback
   alias QuickBEAM.VM.ObjectModel.Get
-  alias QuickBEAM.VM.Host.Web.{Callback, StateRef}
+  alias QuickBEAM.VM.Host.Web.StateRef
 
   @doc "Creates a listener store reference."
   def new, do: StateRef.new(%{})

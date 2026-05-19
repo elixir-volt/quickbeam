@@ -535,10 +535,21 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
   @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def proxy([target, handler | _], _) do
+    unless proxy_object?(target), do: JSThrow.type_error!("Proxy target must be an object")
+    unless proxy_object?(handler), do: JSThrow.type_error!("Proxy handler must be an object")
+
     Heap.wrap(%{proxy_target() => target, proxy_handler() => handler})
   end
 
-  def proxy(_, _), do: Runtime.new_object()
+  def proxy(_, _), do: JSThrow.type_error!("Proxy target and handler are required")
+
+  defp proxy_object?({:obj, _}), do: true
+  defp proxy_object?({:closure, _, _}), do: true
+  defp proxy_object?({:builtin, _, _}), do: true
+  defp proxy_object?({:bound, _, _, _, _}), do: true
+  defp proxy_object?({:regexp, _, _}), do: true
+  defp proxy_object?({:regexp, _, _, _}), do: true
+  defp proxy_object?(_), do: false
 
   @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def finalization_registry([_callback | _], _), do: finalization_registry_object()

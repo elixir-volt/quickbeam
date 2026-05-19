@@ -1449,6 +1449,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   end
 
   defp to_reversed(ref) do
+    ensure_not_out_of_bounds(ref)
     l = len(ref)
     t = type(ref)
 
@@ -1463,6 +1464,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   end
 
   defp to_sorted(ref, args) do
+    ensure_not_out_of_bounds(ref)
     compare_fn = arg(args, 0, :undefined)
 
     if compare_fn != :undefined and not QuickBEAM.VM.Builtin.callable?(compare_fn) do
@@ -1481,6 +1483,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   end
 
   defp with_element(ref, args) do
+    ensure_not_out_of_bounds(ref)
     l = len(ref)
     t = type(ref)
     relative = to_integer_or_infinity(arg(args, 0, :undefined))

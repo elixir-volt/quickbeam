@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
   import QuickBEAM.VM.Heap.Keys
 
   alias QuickBEAM.VM.Execution.RegexpState
-  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.Semantics.Values
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.ObjectModel.{Get, PropertyKey, WrappedPrimitive}
@@ -63,6 +63,9 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
       true
     else
       case Heap.get_obj(ref, %{}) do
+        %{proxy_target() => _target, "__proxy_revoked__" => true} ->
+          JSThrow.type_error!("Cannot perform operation on a revoked proxy")
+
         %{proxy_target() => target, proxy_handler() => handler} ->
           delete_proxy_property(target, handler, key)
 

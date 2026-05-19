@@ -11,6 +11,9 @@ defmodule QuickBEAM.VM.ObjectModel.HasProperty do
 
   def has_property?({:obj, ref} = obj, key) do
     case Heap.get_obj(ref, %{}) do
+      %{proxy_target() => _target, "__proxy_revoked__" => true} ->
+        QuickBEAM.VM.JSThrow.type_error!("Cannot perform operation on a revoked proxy")
+
       %{proxy_target() => target, proxy_handler() => handler} ->
         has_trap = Get.get(handler, "has")
 

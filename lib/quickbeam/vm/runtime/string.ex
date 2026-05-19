@@ -1152,7 +1152,7 @@ defmodule QuickBEAM.VM.Runtime.String do
     if limit == 0 do
       []
     else
-      parts = if sep == "", do: String.codepoints(s), else: :binary.split(s, sep, [:global])
+      parts = if sep == "", do: utf16_code_units(s), else: :binary.split(s, sep, [:global])
       if limit == :infinity, do: parts, else: Enum.take(parts, limit)
     end
   end
@@ -2986,13 +2986,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   defp require_global_match_all_flags!(regexp) do
-    prototype_flags = Get.get(current_regexp_prototype(), "flags")
-
-    if prototype_flags in [nil, :undefined] do
-      JSThrow.type_error!("cannot convert to object")
-    end
-
-    flags = Get.get(regexp, "flags")
+    flags = match_all_flags(regexp)
 
     if flags in [nil, :undefined] do
       JSThrow.type_error!("cannot convert to object")
@@ -3000,6 +2994,26 @@ defmodule QuickBEAM.VM.Runtime.String do
 
     unless String.contains?(Runtime.stringify(flags), "g") do
       throw({:js_throw, Heap.make_error("matchAll requires a global RegExp", "TypeError")})
+    end
+  end
+
+  defp match_all_flags({:regexp, _, _, ref} = regexp) do
+    if RegexpState.has_property?(ref, "flags") do
+      Get.get(regexp, "flags")
+    else
+      prototype_flags_or_internal(regexp)
+    end
+  end
+
+  defp match_all_flags(regexp), do: Get.get(regexp, "flags")
+
+  defp prototype_flags_or_internal(regexp) do
+    prototype_flags = Get.get(current_regexp_prototype(), "flags")
+
+    if prototype_flags in [nil, :undefined] do
+      prototype_flags
+    else
+      Get.get(regexp, "flags")
     end
   end
 

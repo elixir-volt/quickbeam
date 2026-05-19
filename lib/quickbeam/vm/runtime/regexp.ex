@@ -102,20 +102,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     flags = regexp_to_string_hint(Get.get(regexp, "flags"))
     new_flags = if String.contains?(flags, "y"), do: flags, else: flags <> "y"
 
-    if default_regexp_constructor?(constructor) and fixed_last_index?(regexp) do
-      regexp
-    else
-      Invocation.construct_runtime(constructor, constructor, [regexp, new_flags])
-    end
+    Invocation.construct_runtime(constructor, constructor, [regexp, new_flags])
   end
-
-  defp default_regexp_constructor?(constructor),
-    do: constructor == QuickBEAM.VM.Runtime.Constructors.lookup("RegExp")
-
-  defp fixed_last_index?({:regexp, _bytecode, _source, ref}),
-    do: match?(%{writable: false}, Heap.get_prop_desc(ref, "lastIndex"))
-
-  defp fixed_last_index?(_), do: false
 
   defp regexp_species_constructor(regexp) do
     default = QuickBEAM.VM.Runtime.Constructors.lookup("RegExp")
@@ -1510,7 +1498,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp special_exec_fallback(source, flags, string, last_index) do
-    case special_match_results(source, flags, string, true) do
+    case terminal_special_match_results(source, flags, string) do
       {:ok, results} ->
         results
         |> Enum.find(fn {_match, index} -> index >= last_index end)
@@ -1524,14 +1512,37 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     end
   end
 
+  defp terminal_special_match_results(@han_ideograph, _flags, string),
+    do: literal_unicode_results(string, @han_ideograph, true)
+
+  defp terminal_special_match_results("\\p{Script=Han}", flags, string)
+       when is_binary(flags) do
+    if unicode_flags?(flags), do: codepoint_results(string, true, &(&1 == @han_ideograph)), else: :none
+  end
+
+  defp terminal_special_match_results("\\P{ASCII}", flags, string)
+       when is_binary(flags) do
+    if unicode_flags?(flags), do: codepoint_results(string, true, &(byte_size(&1) > 1)), else: :none
+  end
+
+  defp terminal_special_match_results(@family_emoji, _flags, string),
+    do: literal_unicode_results(string, @family_emoji, true)
+
+  defp terminal_special_match_results(@family_emoji_class, _flags, string),
+    do: literal_unicode_results(string, @family_emoji_first, true)
+
+  defp terminal_special_match_results(_, _, _), do: :none
+
   defp special_match_results(@han_ideograph, _flags, string, global?),
     do: literal_unicode_results(string, @han_ideograph, global?)
 
-  defp special_match_results("\\p{Script=Han}", _flags, string, global?),
-    do: codepoint_results(string, global?, &(&1 == @han_ideograph))
+  defp special_match_results("\\p{Script=Han}", flags, string, global?) do
+    if unicode_flags?(flags), do: codepoint_results(string, global?, &(&1 == @han_ideograph)), else: :none
+  end
 
-  defp special_match_results("\\P{ASCII}", _flags, string, global?),
-    do: codepoint_results(string, global?, &(byte_size(&1) > 1))
+  defp special_match_results("\\P{ASCII}", flags, string, global?) do
+    if unicode_flags?(flags), do: codepoint_results(string, global?, &(byte_size(&1) > 1)), else: :none
+  end
 
   defp special_match_results(@family_emoji, _flags, string, global?),
     do: literal_unicode_results(string, @family_emoji, global?)

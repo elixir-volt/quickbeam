@@ -72,7 +72,7 @@ defmodule QuickBEAM.VM.Runtime.RegExpTest do
     assert_modes(
       rt,
       ~S<let r = /a/; Object.defineProperty(r, "lastIndex", {writable: false}); try { RegExp.prototype[Symbol.split].call(r, "a"); "no" } catch (e) { e.name }>,
-      "TypeError"
+      "no"
     )
   end
 
