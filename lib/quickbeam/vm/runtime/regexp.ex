@@ -115,6 +115,20 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     ascii_identifier?(s)
   end
 
+  defp test({:regexp, nil, source, _ref}, [s | _]) when is_binary(source) and is_binary(s) do
+    case simple_named_literal_captures(source, s) do
+      {:ok, _captures} -> true
+      :none -> literal_exec(s, source) != nil
+    end
+  end
+
+  defp test({:regexp, nil, source}, [s | _]) when is_binary(source) and is_binary(s) do
+    case simple_named_literal_captures(source, s) do
+      {:ok, _captures} -> true
+      :none -> literal_exec(s, source) != nil
+    end
+  end
+
   defp test({:regexp, bytecode, source}, [s | _]) when is_binary(bytecode) and is_binary(s) do
     case class_escape_test(source, s) do
       {:ok, result} -> result
@@ -796,6 +810,12 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   defp simple_named_literal_captures(source, string) do
     case Regex.run(~r/^\(\?<([^>]+)>(.)\)$/u, source) do
+      [_all, _name, "."] ->
+        case string do
+          <<_::utf8, _::binary>> -> {:ok, [{0, 1}, {0, 1}]}
+          _ -> :none
+        end
+
       [_all, _name, literal] ->
         case :binary.match(string, literal) do
           {start, len} -> {:ok, [{start, len}, {start, len}]}
