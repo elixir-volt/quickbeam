@@ -1029,7 +1029,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp split(s, [{:regexp, _bytecode, "$"} | rest]) when is_binary(s),
     do: split_end_anchor(s, rest)
 
-  defp split(s, [{:regexp, bytecode, _source} | rest])
+  defp split(s, [{:regexp, bytecode, source} = regexp | rest])
        when is_binary(s) and is_binary(bytecode) do
     limit = split_limit(rest)
 
@@ -1039,6 +1039,12 @@ defmodule QuickBEAM.VM.Runtime.String do
 
       s == "" ->
         if RegExp.nif_exec(bytecode, s, 0) != nil, do: [], else: [""]
+
+      custom_split_exec?(regexp) ->
+        split_with_exec_loop(s, regexp, limit, 0, 0, [])
+
+      source == "." and unicode_regexp_bytecode?(bytecode) ->
+        split_unicode_codepoints(s, limit)
 
       true ->
         nif_regex_split(s, bytecode, 0, 0, limit, [])
@@ -1102,7 +1108,7 @@ defmodule QuickBEAM.VM.Runtime.String do
             split_with_exec_loop(s, splitter, limit, q + 1, p, acc)
 
           {:obj, _} = result ->
-            e = raw_to_length(Get.get(splitter, "lastIndex"))
+            e = min(raw_to_length(Get.get(splitter, "lastIndex")), size)
 
             if e == p do
               split_with_exec_loop(s, splitter, limit, q + 1, p, acc)
@@ -1122,6 +1128,21 @@ defmodule QuickBEAM.VM.Runtime.String do
     end
   end
 
+  defp split_unicode_codepoints(s, limit) do
+    parts = List.duplicate("", length(String.codepoints(s)) + 1)
+    if limit == :infinity, do: parts, else: Enum.take(parts, limit)
+  end
+
+  defp unicode_regexp_bytecode?(bytecode) do
+    flags = QuickBEAM.VM.ObjectModel.Get.regexp_flags(bytecode)
+    String.contains?(flags, "u") or String.contains?(flags, "v")
+  end
+
+  defp custom_split_exec?(splitter) do
+    exec = Get.get(splitter, "exec")
+    Builtin.callable?(exec) and not match?({:builtin, "exec", _}, exec)
+  end
+
   defp split_exec_result({:obj, _} = splitter, s) do
     exec = Get.get(splitter, "exec")
 
@@ -1129,7 +1150,15 @@ defmodule QuickBEAM.VM.Runtime.String do
     custom_exec_result(exec, s, splitter)
   end
 
-  defp split_exec_result(splitter, s), do: RegExp.exec_result(splitter, s)
+  defp split_exec_result(splitter, s) do
+    exec = Get.get(splitter, "exec")
+
+    if Builtin.callable?(exec) and not match?({:builtin, "exec", _}, exec) do
+      custom_exec_result(exec, s, splitter)
+    else
+      RegExp.exec_result(splitter, s)
+    end
+  end
 
   defp split_result_captures(result) do
     length = result |> Get.get("length") |> raw_to_length()
