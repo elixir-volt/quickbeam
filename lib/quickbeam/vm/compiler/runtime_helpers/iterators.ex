@@ -2,8 +2,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers.Iterators do
   @moduledoc "Iterator and argument-rest helpers used by BEAM-compiled JavaScript."
 
   alias QuickBEAM.VM.{Heap, Invocation, Runtime}
-  alias QuickBEAM.VM.Compiler.RuntimeHelpers
   alias QuickBEAM.VM.Compiler.RuntimeHelpers.Context, as: RuntimeContext
+  alias QuickBEAM.VM.Compiler.RuntimeHelpers.Properties
   alias QuickBEAM.VM.Interpreter.Context
   alias QuickBEAM.VM.ObjectModel.Get
   alias QuickBEAM.VM.Semantics.Iterators, as: IteratorSemantics
@@ -89,8 +89,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers.Iterators do
   def assignment_with_iterator_close(ctx, fun, iterators, obj, key, val) do
     try do
       case fun do
-        :put_field -> RuntimeHelpers.put_field(ctx, obj, key, val)
-        :put_array_el -> RuntimeHelpers.put_array_el(ctx, obj, key, val)
+        :put_field -> Properties.put_field(ctx, obj, key, val)
+        :put_array_el -> Properties.put_array_el(ctx, obj, key, val)
       end
     catch
       {:js_throw, error} ->

@@ -25,7 +25,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
   """
 
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
-  alias QuickBEAM.VM.Compiler.RuntimeHelpers.{Bindings, Captures, Iterators}
+  alias QuickBEAM.VM.Compiler.RuntimeHelpers.{Bindings, Captures, Iterators, Properties}
 
   def push_this(ctx), do: RuntimeHelpers.push_this(ctx)
 
@@ -92,38 +92,38 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
     do: RuntimeHelpers.to_property_key_for_access(ctx, receiver, key)
 
   def copy_data_properties(ctx, target, source, exclude),
-    do: RuntimeHelpers.copy_data_properties(ctx, target, source, exclude)
+    do: Properties.copy_data_properties(ctx, target, source, exclude)
 
   def special_object(ctx, type), do: RuntimeHelpers.special_object(ctx, type)
 
-  def get_array_el(ctx, obj, index), do: RuntimeHelpers.get_array_el(ctx, obj, index)
+  def get_array_el(ctx, obj, index), do: Properties.get_array_el(ctx, obj, index)
 
-  def get_array_el2(ctx, obj, index), do: RuntimeHelpers.get_array_el2(ctx, obj, index)
+  def get_array_el2(ctx, obj, index), do: Properties.get_array_el2(ctx, obj, index)
 
   def put_array_el(ctx, obj, index, value),
-    do: RuntimeHelpers.put_array_el(ctx, obj, index, value)
+    do: Properties.put_array_el(ctx, obj, index, value)
 
-  def get_field(ctx, obj, key), do: RuntimeHelpers.get_field(ctx, obj, key)
+  def get_field(ctx, obj, key), do: Properties.get_field(ctx, obj, key)
 
-  def put_field(ctx, obj, key, value), do: RuntimeHelpers.put_field(ctx, obj, key, value)
+  def put_field(ctx, obj, key, value), do: Properties.put_field(ctx, obj, key, value)
 
-  def delete_property(ctx, obj, key), do: RuntimeHelpers.delete_property(ctx, obj, key)
+  def delete_property(ctx, obj, key), do: Properties.delete_property(ctx, obj, key)
 
   def in_operator(ctx, key, obj), do: RuntimeHelpers.in_operator(ctx, key, obj)
 
   def append_spread(ctx, arr, idx, obj), do: RuntimeHelpers.append_spread(ctx, arr, idx, obj)
 
-  def new_object(ctx), do: RuntimeHelpers.new_object(ctx)
+  def new_object(ctx), do: Properties.new_object(ctx)
 
-  def set_proto(ctx, obj, proto), do: RuntimeHelpers.set_proto(ctx, obj, proto)
+  def set_proto(ctx, obj, proto), do: Properties.set_proto(ctx, obj, proto)
 
   def define_array_el(ctx, obj, index, value),
-    do: RuntimeHelpers.define_array_el(ctx, obj, index, value)
+    do: Properties.define_array_el(ctx, obj, index, value)
 
-  def define_field(ctx, obj, key, value), do: RuntimeHelpers.define_field(ctx, obj, key, value)
+  def define_field(ctx, obj, key, value), do: Properties.define_field(ctx, obj, key, value)
 
   def define_static_method(ctx, ctor, key, method),
-    do: RuntimeHelpers.define_static_method(ctx, ctor, key, method)
+    do: Properties.define_static_method(ctx, ctor, key, method)
 
   def define_method(ctx, target, method, name, flags),
     do: RuntimeHelpers.define_method(ctx, target, method, name, flags)
@@ -137,23 +137,23 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
   def define_class_computed(ctx, ctor, parent_ctor, computed_name),
     do: RuntimeHelpers.define_class_computed(ctx, ctor, parent_ctor, computed_name)
 
-  def get_private_field(ctx, obj, key), do: RuntimeHelpers.get_private_field(ctx, obj, key)
+  def get_private_field(ctx, obj, key), do: Properties.get_private_field(ctx, obj, key)
 
   def put_private_field(ctx, obj, key, value),
-    do: RuntimeHelpers.put_private_field(ctx, obj, key, value)
+    do: Properties.put_private_field(ctx, obj, key, value)
 
   def define_private_field(ctx, obj, key, value),
-    do: RuntimeHelpers.define_private_field(ctx, obj, key, value)
+    do: Properties.define_private_field(ctx, obj, key, value)
 
   def check_brand(ctx, obj, brand), do: RuntimeHelpers.check_brand(ctx, obj, brand)
 
-  def set_function_name(ctx, fun, name), do: RuntimeHelpers.set_function_name(ctx, fun, name)
+  def set_function_name(ctx, fun, name), do: Properties.set_function_name(ctx, fun, name)
 
   def set_function_name_computed(ctx, fun, name_value),
-    do: RuntimeHelpers.set_function_name_computed(ctx, fun, name_value)
+    do: Properties.set_function_name_computed(ctx, fun, name_value)
 
   def set_home_object(ctx, method, target),
-    do: RuntimeHelpers.set_home_object(ctx, method, target)
+    do: Properties.set_home_object(ctx, method, target)
 
   def add_brand(ctx, obj, brand), do: RuntimeHelpers.add_brand(ctx, obj, brand)
 
@@ -178,7 +178,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
 
   def throw_error(ctx, atom_idx, reason), do: RuntimeHelpers.throw_error(ctx, atom_idx, reason)
 
-  def array_from(ctx, list), do: RuntimeHelpers.array_from(ctx, list)
+  def array_from(ctx, list), do: Properties.array_from(ctx, list)
 
   def with_has_property(ctx, obj, key), do: RuntimeHelpers.with_has_property(ctx, obj, key)
 
