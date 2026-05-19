@@ -1403,11 +1403,24 @@ defmodule QuickBEAM.JS.Compiler.Expressions do
                :throw
              ], constants}
         else
-          compile_simple_eval_var_declarations(declarations, scope, instructions, constants, callbacks)
+          compile_simple_eval_var_declarations(
+            declarations,
+            scope,
+            instructions,
+            constants,
+            callbacks
+          )
         end
 
       _ ->
-        compile_eval_identifier_call(callee, [%AST.Literal{value: code}], scope, instructions, constants, callbacks)
+        compile_eval_identifier_call(
+          callee,
+          [%AST.Literal{value: code}],
+          scope,
+          instructions,
+          constants,
+          callbacks
+        )
     end
   end
 

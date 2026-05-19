@@ -1,4 +1,4 @@
-defmodule QuickBEAM.VM.GlobalEnv do
+defmodule QuickBEAM.VM.GlobalEnvironment do
   @moduledoc """
   Global binding support for the BEAM VM.
 

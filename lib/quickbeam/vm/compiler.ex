@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.Compiler do
   compile ECMA parse nodes directly: QuickJS-NG owns parsing, early bytecode
   generation, and most syntax-directed work. Observable ECMAScript semantics are
   preserved through `QuickBEAM.VM.Compiler.RuntimeABI`, shared semantic modules,
-  `ObjectModel`, `Invocation`, `GlobalEnv`, and interpreter fallback.
+  `ObjectModel`, `Invocation`, `GlobalEnvironment`, and interpreter fallback.
 
   Unsupported bytecode patterns fall back to the interpreter when correctness
   requires it; permanently unsupported compiler results are cached as unsupported.

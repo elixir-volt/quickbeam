@@ -5,7 +5,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
   alias QuickBEAM.VM.Compiler.FunctionInfo
   alias QuickBEAM.VM.Compiler.GeneratorIterator
   alias QuickBEAM.VM.Execution.Trace
-  alias QuickBEAM.VM.GlobalEnv
+  alias QuickBEAM.VM.GlobalEnvironment
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.Interpreter.Context
@@ -390,7 +390,7 @@ defmodule QuickBEAM.VM.Compiler.Runner do
 
   defp ensure_globals(%Context{} = ctx), do: ctx
 
-  defp base_globals, do: GlobalEnv.base_globals()
+  defp base_globals, do: GlobalEnvironment.base_globals()
 
   defp current_atoms(%Context{} = ctx), do: ctx.atoms
 

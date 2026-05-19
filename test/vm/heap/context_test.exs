@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Heap.ContextTest do
   use ExUnit.Case, async: true
 
-  alias QuickBEAM.VM.GlobalEnv
+  alias QuickBEAM.VM.GlobalEnvironment
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter.Context
   alias QuickBEAM.VM.Invocation.Context, as: InvokeContext
@@ -49,10 +49,10 @@ defmodule QuickBEAM.VM.Heap.ContextTest do
 
   test "persistent globals invalidate base globals cache" do
     Heap.put_global_cache(%{"builtin" => 1})
-    assert GlobalEnv.base_globals()["user"] == nil
+    assert GlobalEnvironment.base_globals()["user"] == nil
 
     Heap.put_persistent_globals(%{"user" => 2})
 
-    assert GlobalEnv.base_globals()["user"] == 2
+    assert GlobalEnvironment.base_globals()["user"] == 2
   end
 end

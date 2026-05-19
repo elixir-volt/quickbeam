@@ -4,7 +4,16 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   import QuickBEAM.VM.Heap.Keys, only: [date_ms: 0, proto: 0]
   import QuickBEAM.VM.Value, only: [is_object: 1]
 
-  alias QuickBEAM.VM.{Builtin, GlobalEnv, Heap, Invocation, JSThrow, Names, SourcePosition}
+  alias QuickBEAM.VM.{
+    Builtin,
+    GlobalEnvironment,
+    Heap,
+    Invocation,
+    JSThrow,
+    Names,
+    SourcePosition
+  }
+
   alias QuickBEAM.VM.Compiler.Runner
   alias QuickBEAM.VM.Environment.Captures
   alias QuickBEAM.VM.Execution.ConstructorStack
@@ -49,7 +58,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
         map |> context_struct() |> Context.mark_dirty()
 
       _ ->
-        %Context{atoms: Heap.get_atoms(), globals: GlobalEnv.base_globals()}
+        %Context{atoms: Heap.get_atoms(), globals: GlobalEnvironment.base_globals()}
         |> Context.mark_dirty()
     end
   end
@@ -144,7 +153,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def context_atoms(%{atoms: atoms}), do: atoms
   def context_atoms(_), do: {}
   def context_globals(%{globals: globals}), do: globals
-  def context_globals(_), do: GlobalEnv.base_globals()
+  def context_globals(_), do: GlobalEnvironment.base_globals()
   def context_current_func(%{current_func: current_func}), do: current_func
   def context_current_func(_), do: :undefined
   def context_arg_buf(%{arg_buf: arg_buf}), do: arg_buf
@@ -161,7 +170,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def ensure_context(map) when is_map(map), do: context_struct(map)
 
   def ensure_context(_),
-    do: %Context{atoms: Heap.get_atoms(), globals: GlobalEnv.base_globals()}
+    do: %Context{atoms: Heap.get_atoms(), globals: GlobalEnvironment.base_globals()}
 
   @doc "Returns the home object associated with the current function."
   def context_home_object(ctx, current_func) do
@@ -393,7 +402,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   def get_var(name) when is_binary(name) do
-    case GlobalEnv.fetch(name) do
+    case GlobalEnvironment.fetch(name) do
       {:found, val} -> val
       :not_found -> JSThrow.reference_error!("#{name} is not defined")
     end
@@ -410,7 +419,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def get_var_undef(ctx, atom_idx),
     do: get_var_undef(ctx, Names.resolve_atom(context_atoms(ctx), atom_idx))
 
-  def get_var_undef(name) when is_binary(name), do: GlobalEnv.get(name, :undefined)
+  def get_var_undef(name) when is_binary(name), do: GlobalEnvironment.get(name, :undefined)
 
   def get_var_undef(atom_idx),
     do: get_var_undef(Names.resolve_atom(InvokeContext.current_atoms(), atom_idx))
@@ -490,7 +499,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   end
 
   def put_ref_value(ctx, val, _key, {:global_ref, name}) do
-    GlobalEnv.put(ensure_context(ctx), name, val)
+    GlobalEnvironment.put(ensure_context(ctx), name, val)
   end
 
   def put_ref_value(ctx, val, key, obj) when is_binary(key) do
@@ -502,7 +511,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   @doc "Reads a variable from a compiled context or throws when absent."
   def fetch_ctx_var(ctx, name) do
-    case GlobalEnv.fetch(context_globals(ctx), name) do
+    case GlobalEnvironment.fetch(context_globals(ctx), name) do
       {:found, :__tdz__} -> JSThrow.reference_error!("#{name} is not initialized")
       {:found, val} -> val
       :not_found -> JSThrow.reference_error!("#{name} is not defined")
@@ -1590,7 +1599,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     case Heap.get_ctx() do
       %Context{} = ctx -> ctx
       map when is_map(map) -> context_struct(map)
-      _ -> %Context{atoms: Heap.get_atoms(), globals: GlobalEnv.base_globals()}
+      _ -> %Context{atoms: Heap.get_atoms(), globals: GlobalEnvironment.base_globals()}
     end
   end
 

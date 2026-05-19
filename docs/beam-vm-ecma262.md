@@ -38,7 +38,7 @@ Owned by the BEAM VM:
 | §7.2 Testing and comparison | `Semantics.Equality`, `Semantics.Comparison`, `ObjectModel.Semantics` |
 | §7.3 Operations on objects | `ObjectModel.*`, `Invocation` |
 | §7.4 Iterator operations | `Semantics.Iterators`, `Runtime.Iterator` |
-| §9 Execution contexts / environments | `Interpreter.Context`, `GlobalEnv`, `EvalEnv`, `Environment.Captures` |
+| §9 Execution contexts / environments | `Interpreter.Context`, `GlobalEnvironment`, `EvalEnv`, `Environment.Captures` |
 | §9.5 Jobs | `Promise`, heap async state |
 | §10 Object internal methods | `ObjectModel.Get`, `Put`, `Define`, `Delete`, `OwnProperty`, `HasProperty`, `ArrayExotic`, `Prototype` |
 | §18–28 Standard built-ins | `Runtime.Object`, `Function`, `Array`, `String`, `Number`, `Date`, `RegExp`, `Map`, `Set`, `TypedArray`, `Promise`, `Reflect`, etc. |

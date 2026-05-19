@@ -38,7 +38,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
               State.abi_call(state, :iterator_value_done, [result])
             )
 
-          {:ok, state |> Emit.push(Builder.tuple_element(pair, 1)) |> Emit.push(Builder.tuple_element(pair, 2))}
+          {:ok,
+           state
+           |> Emit.push(Builder.tuple_element(pair, 1))
+           |> Emit.push(Builder.tuple_element(pair, 2))}
         end
 
       {{:ok, :iterator_next}, []} ->

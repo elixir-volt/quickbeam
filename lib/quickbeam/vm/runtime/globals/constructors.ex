@@ -372,7 +372,10 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   end
 
   defp canonical_regexp_flags(flags),
-    do: Enum.reduce(~w(d g i m s u v y), "", fn flag, acc -> if String.contains?(flags, flag), do: acc <> flag, else: acc end)
+    do:
+      Enum.reduce(~w(d g i m s u v y), "", fn flag, acc ->
+        if String.contains?(flags, flag), do: acc <> flag, else: acc
+      end)
 
   defp compatible_regexp_clone_flags?(original_flags, requested_flags) do
     requested = canonical_regexp_flags(requested_flags)
@@ -387,7 +390,8 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   end
 
   defp invalid_regexp_source?(source) do
-    starts_with_quantifier?(source) or invalid_named_group_names?(source) or dangling_escape?(source) or
+    starts_with_quantifier?(source) or invalid_named_group_names?(source) or
+      dangling_escape?(source) or
       repeated_quantifier?(source) or adjacent_interval_quantifiers?(source) or
       invalid_class_range?(source) or
       descending_character_range?(source) or invalid_interval_quantifier?(source) or
@@ -405,8 +409,11 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
   defp valid_regexp_group_name?(name) do
     case String.graphemes(name) do
-      [first | rest] -> regexp_group_name_start?(first) and Enum.all?(rest, &regexp_group_name_continue?/1)
-      [] -> false
+      [first | rest] ->
+        regexp_group_name_start?(first) and Enum.all?(rest, &regexp_group_name_continue?/1)
+
+      [] ->
+        false
     end
   rescue
     _ -> false
@@ -416,15 +423,21 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
     do: char in ["$", "_"] or Regex.match?(~r/^\p{L}$/u, char)
 
   defp regexp_group_name_continue?(char),
-    do: regexp_group_name_start?(char) or char in ["\u200C", "\u200D"] or Regex.match?(~r/^\p{N}$/u, char)
+    do:
+      regexp_group_name_start?(char) or char in ["\u200C", "\u200D"] or
+        Regex.match?(~r/^\p{N}$/u, char)
 
   defp decode_regexp_group_name(name) do
     ~r/\\u\{([0-9A-Fa-f]+)\}/
     |> Regex.replace(name, fn _all, hex -> decode_regexp_group_codepoint(hex) end)
     |> then(fn decoded ->
-      Regex.replace(~r/\\u([D-d][89A-Ba-b][0-9A-Fa-f]{2})\\u([D-d][C-Fc-f][0-9A-Fa-f]{2})/, decoded, fn _all, high, low ->
-        decode_regexp_group_surrogate_pair(high, low)
-      end)
+      Regex.replace(
+        ~r/\\u([D-d][89A-Ba-b][0-9A-Fa-f]{2})\\u([D-d][C-Fc-f][0-9A-Fa-f]{2})/,
+        decoded,
+        fn _all, high, low ->
+          decode_regexp_group_surrogate_pair(high, low)
+        end
+      )
     end)
     |> then(fn decoded ->
       Regex.replace(~r/\\u([0-9A-Fa-f]{4})/, decoded, fn _all, hex ->

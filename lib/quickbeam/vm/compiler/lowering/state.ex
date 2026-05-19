@@ -14,7 +14,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   }
 
   alias QuickBEAM.VM.Compiler.{RuntimeABI, RuntimeHelpers}
-  alias QuickBEAM.VM.GlobalEnv
+  alias QuickBEAM.VM.GlobalEnvironment
   alias QuickBEAM.VM.ObjectModel.PropertyKey
   alias QuickBEAM.VM.Operands.CopyDataProperties
 
@@ -476,7 +476,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
           Builder.remote_call(PropertyKey, :to_property_key, [idx])
         )
 
-      state = update_ctx(state, Builder.remote_call(GlobalEnv, :refresh, [ctx_expr(state)]))
+      state =
+        update_ctx(state, Builder.remote_call(GlobalEnvironment, :refresh, [ctx_expr(state)]))
+
       val_expr = refresh_define_value_expr(state, val_expr)
       {val, state} = Emit.bind(state, Builder.temp_name(state.temp), val_expr)
 
@@ -682,7 +684,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
       state =
         update_ctx(
           state,
-          Builder.remote_call(QuickBEAM.VM.GlobalEnv, :refresh, [ctx_expr(state)])
+          Builder.remote_call(QuickBEAM.VM.GlobalEnvironment, :refresh, [ctx_expr(state)])
         )
 
       {:ok, Emit.push(state, result, function_return_type(fun_type, state.return_type))}
@@ -884,7 +886,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     state =
       update_ctx(
         state,
-        Builder.remote_call(QuickBEAM.VM.GlobalEnv, :refresh, [ctx_expr(state)])
+        Builder.remote_call(QuickBEAM.VM.GlobalEnvironment, :refresh, [ctx_expr(state)])
       )
 
     {:ok, Emit.push(state, result, function_return_type(fun_type, state.return_type))}

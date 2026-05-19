@@ -8,7 +8,7 @@ defmodule QuickBEAM.VM.Interpreter do
   alias QuickBEAM.VM.{
     Builtin,
     BytecodeParser,
-    GlobalEnv,
+    GlobalEnvironment,
     Heap,
     Invocation,
     Names,
@@ -720,7 +720,9 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
-  defp put_created_eval_arguments(globals, true, key, arguments), do: Map.put(globals, key, arguments)
+  defp put_created_eval_arguments(globals, true, key, arguments),
+    do: Map.put(globals, key, arguments)
+
   defp put_created_eval_arguments(globals, false, _key, _arguments), do: globals
 
   defp apply_eval_transients(current_func, var_objs, transient_globals, keep_declared?) do

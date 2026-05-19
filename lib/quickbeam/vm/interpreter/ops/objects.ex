@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
   @doc "Installs the Object creation, field access, array element access, and misc object stubs helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
-      alias QuickBEAM.VM.{Builtin, GlobalEnv, Heap, Invocation, Names, Runtime}
+      alias QuickBEAM.VM.{Builtin, GlobalEnvironment, Heap, Invocation, Names, Runtime}
       alias QuickBEAM.VM.Interpreter.{Context, Frame}
       alias QuickBEAM.VM.Semantics.Values
 
@@ -234,7 +234,14 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       defp run({@op_to_propkey, []}, pc, frame, [key | rest], gas, ctx) do
         try do
           prop_key = PropertyKey.to_property_key(key)
-          run(pc + 1, frame, [prop_key | rest], gas, GlobalEnv.refresh(Heap.get_ctx() || ctx))
+
+          run(
+            pc + 1,
+            frame,
+            [prop_key | rest],
+            gas,
+            GlobalEnvironment.refresh(Heap.get_ctx() || ctx)
+          )
         catch
           {:js_throw, error} -> throw_or_catch(frame, error, gas, Heap.get_ctx() || ctx)
         end
@@ -249,7 +256,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
             frame,
             [prop_key, obj | rest],
             gas,
-            GlobalEnv.refresh(Heap.get_ctx() || ctx)
+            GlobalEnvironment.refresh(Heap.get_ctx() || ctx)
           )
         catch
           {:js_throw, error} -> throw_or_catch(frame, error, gas, Heap.get_ctx() || ctx)

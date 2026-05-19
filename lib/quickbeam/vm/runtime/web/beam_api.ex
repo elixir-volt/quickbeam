@@ -103,9 +103,7 @@ defmodule QuickBEAM.VM.Runtime.Web.BeamAPI do
                       )
                   end
                 else
-                  Promise.rejected(
-                    Heap.make_error("Handler not found: #{handler_name}", "Error")
-                  )
+                  Promise.rejected(Heap.make_error("Handler not found: #{handler_name}", "Error"))
                 end
             end
 

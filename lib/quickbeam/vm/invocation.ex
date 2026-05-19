@@ -16,7 +16,7 @@ defmodule QuickBEAM.VM.Invocation do
 
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0, proxy_handler: 0, proxy_target: 0]
 
-  alias QuickBEAM.VM.{Builtin, Compiler, GlobalEnv, Heap, Runtime}
+  alias QuickBEAM.VM.{Builtin, Compiler, GlobalEnvironment, Heap, Runtime}
   alias QuickBEAM.VM.Compiler.FunctionInfo
   alias QuickBEAM.VM.Compiler.Runner
   alias QuickBEAM.VM.Interpreter
@@ -68,7 +68,7 @@ defmodule QuickBEAM.VM.Invocation do
         invoke_receiver_target(fun, args, gas, this_obj)
       after
         if prev do
-          refreshed = GlobalEnv.refresh(prev)
+          refreshed = GlobalEnvironment.refresh(prev)
           Heap.put_ctx(refreshed)
         else
           Heap.put_ctx(nil)
@@ -585,7 +585,7 @@ defmodule QuickBEAM.VM.Invocation do
   defp runtime_call_context(_fun, ctx), do: ctx
 
   defp active_ctx do
-    base_globals = GlobalEnv.base_globals()
+    base_globals = GlobalEnvironment.base_globals()
 
     case Heap.get_ctx() do
       %Context{} = ctx when ctx.globals == %{} ->

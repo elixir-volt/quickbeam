@@ -271,7 +271,9 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
             shape_virtual_string_keys(raw) ++
               (Heap.shape_keys(raw)
                |> Enum.filter(&enumerable_key_candidate?/1)
-               |> Enum.reject(fn key -> match?(%{enumerable: false}, Heap.get_prop_desc(ref, key)) end))
+               |> Enum.reject(fn key ->
+                 match?(%{enumerable: false}, Heap.get_prop_desc(ref, key))
+               end))
 
           proto_keys = enumerable_proto_keys(Heap.shape_proto(raw))
           Runtime.sort_numeric_keys(own_keys ++ Enum.reject(proto_keys, &(&1 in own_keys)))

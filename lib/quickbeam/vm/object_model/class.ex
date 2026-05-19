@@ -78,7 +78,10 @@ defmodule QuickBEAM.VM.ObjectModel.Class do
     raw = raw_function(ctor_closure)
     proto_ref = make_ref()
     proto_map = %{"constructor" => ctor_closure}
-    parent_proto = Heap.get_class_proto(parent_ctor) || inherited_constructor_prototype(parent_ctor)
+
+    parent_proto =
+      Heap.get_class_proto(parent_ctor) || inherited_constructor_prototype(parent_ctor)
+
     base_proto = parent_proto || Heap.get_object_prototype()
     proto_map = if base_proto, do: Map.put(proto_map, proto(), base_proto), else: proto_map
 

@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
   @doc "Installs the Global variable access, ref values, eval, and with-statement opcodes helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
-      alias QuickBEAM.VM.{GlobalEnv, Heap, Names, Runtime}
+      alias QuickBEAM.VM.{GlobalEnvironment, Heap, Names, Runtime}
       alias QuickBEAM.VM.Interpreter.{Closures, Context, Frame}
       alias QuickBEAM.VM.JSThrow
       alias QuickBEAM.VM.ObjectModel.{Delete, Get, Put}
@@ -18,7 +18,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
 
           run(pc + 1, frame, [arguments | stack], gas, ctx)
         else
-          val = GlobalEnv.get(ctx, atom_idx, :undefined)
+          val = GlobalEnvironment.get(ctx, atom_idx, :undefined)
 
           val =
             if val == :undefined do
@@ -65,7 +65,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
 
           run(pc + 1, frame, [arguments | stack], gas, ctx)
         else
-          case GlobalEnv.fetch(ctx, atom_idx) do
+          case GlobalEnvironment.fetch(ctx, atom_idx) do
             {:found, :__tdz__} ->
               name = Names.resolve_atom(ctx, atom_idx)
 
@@ -214,7 +214,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
       defp delay_object_define_value?(_pc, _frame, _stack), do: false
 
       defp resolve_delayed_define_value({:qb_delayed_get_var, atom_idx}, ctx) do
-        case GlobalEnv.fetch(ctx, atom_idx) do
+        case GlobalEnvironment.fetch(ctx, atom_idx) do
           {:found, :__tdz__} ->
             name = Names.resolve_atom(ctx, atom_idx)
             JSThrow.reference_error!("#{name} is not initialized")
@@ -244,14 +244,14 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
            when op in [@op_put_var, @op_put_var_init] do
         try do
           new_ctx =
-            GlobalEnv.put(ctx, atom_idx, val,
+            GlobalEnvironment.put(ctx, atom_idx, val,
               init: op == @op_put_var_init,
               strict: current_strict_mode?(ctx)
             )
 
           name = Names.resolve_atom(ctx, atom_idx)
 
-          unless GlobalEnv.lexical_global?(name) do
+          unless GlobalEnvironment.lexical_global?(name) do
             case Map.get(ctx.globals, "globalThis") do
               {:obj, _} = gt -> Put.put(gt, name, val)
               _ -> :ok
@@ -265,12 +265,12 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
       end
 
       defp run({@op_define_func, [atom_idx, _flags]}, pc, frame, [fun | rest], gas, ctx) do
-        next_ctx = GlobalEnv.put(ctx, atom_idx, fun)
+        next_ctx = GlobalEnvironment.put(ctx, atom_idx, fun)
         run(pc + 1, frame, rest, gas, next_ctx)
       end
 
       defp run({@op_define_var, [atom_idx, scope]}, pc, frame, stack, gas, ctx) do
-        ctx = GlobalEnv.define_var(ctx, atom_idx, scope)
+        ctx = GlobalEnvironment.define_var(ctx, atom_idx, scope)
 
         unless Bitwise.band(scope, 0x80) == 0x80 do
           case Map.get(ctx.globals, "globalThis") do
@@ -297,7 +297,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
       end
 
       defp run({@op_check_define_var, [atom_idx, _scope]}, pc, frame, stack, gas, ctx) do
-        GlobalEnv.check_define_var(ctx, atom_idx)
+        GlobalEnvironment.check_define_var(ctx, atom_idx)
         run(pc + 1, frame, stack, gas, ctx)
       end
 

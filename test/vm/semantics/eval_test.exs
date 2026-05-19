@@ -32,7 +32,11 @@ defmodule QuickBEAM.VM.Semantics.EvalTest do
   end
 
   test "shadowed eval is an ordinary call in the source compiler", %{rt: rt} do
-    assert_modes(rt, ~S|function f(eval, x) { return eval("x"); } f(function(s) { return s; }, 2)|, "x")
+    assert_modes(
+      rt,
+      ~S|function f(eval, x) { return eval("x"); } f(function(s) { return s; }, 2)|,
+      "x"
+    )
   end
 
   test "direct eval reuses the caller arguments object", %{rt: rt} do
