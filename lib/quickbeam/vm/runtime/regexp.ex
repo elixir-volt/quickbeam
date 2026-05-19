@@ -1968,11 +1968,11 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   defp regexp_to_string(_), do: "/(?:)/"
 
-  defp regexp_source({:regexp, _bytecode, source, _ref}) when is_binary(source),
-    do: escape_regexp_source(source)
+  defp regexp_source({:regexp, bytecode, source, ref}) when is_binary(source),
+    do: escape_regexp_source(source, regexp_flags(bytecode, ref))
 
-  defp regexp_source({:regexp, _bytecode, source}) when is_binary(source),
-    do: escape_regexp_source(source)
+  defp regexp_source({:regexp, bytecode, source}) when is_binary(source),
+    do: escape_regexp_source(source, Get.regexp_flags(bytecode))
 
   defp regexp_source(proto) do
     if proto == Runtime.global_class_proto("RegExp"),
@@ -1980,15 +1980,46 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
       else: JSThrow.type_error!("RegExp.prototype.source receiver is not a RegExp")
   end
 
-  defp escape_regexp_source(""), do: "(?:)"
+  defp escape_regexp_source("", _flags), do: "(?:)"
 
-  defp escape_regexp_source(source) do
+  defp escape_regexp_source(source, flags) do
     source
+    |> maybe_decode_unicode_source(flags)
     |> String.replace("/", "\\/")
     |> String.replace("\n", "\\n")
     |> String.replace("\r", "\\r")
     |> String.replace("\u2028", "\\u2028")
     |> String.replace("\u2029", "\\u2029")
+  end
+
+  defp maybe_decode_unicode_source(source, flags) do
+    if String.contains?(flags, "u") or String.contains?(flags, "v") do
+      source
+      |> decode_braced_unicode_escapes()
+      |> decode_surrogate_unicode_escapes()
+    else
+      source
+    end
+  end
+
+  defp decode_braced_unicode_escapes(source) do
+    Regex.replace(~r/\\u\{([0-9A-Fa-f]{1,6})\}/, source, fn _, hex ->
+      hex_to_codepoint(hex)
+    end)
+  end
+
+  defp decode_surrogate_unicode_escapes(source) do
+    Regex.replace(~r/\\u([dD][89aAbB][0-9A-Fa-f]{2})\\u([dD][c-fC-F][0-9A-Fa-f]{2})/, source, fn _, high, low ->
+      high = String.to_integer(high, 16)
+      low = String.to_integer(low, 16)
+      codepoint = 0x10000 + (high - 0xD800) * 0x400 + (low - 0xDC00)
+      <<codepoint::utf8>>
+    end)
+  end
+
+  defp hex_to_codepoint(hex) do
+    codepoint = String.to_integer(hex, 16)
+    if codepoint <= 0x10FFFF, do: <<codepoint::utf8>>, else: "\\u{#{hex}}"
   end
 
   defp regexp_flag_accessor(name, flag) do
