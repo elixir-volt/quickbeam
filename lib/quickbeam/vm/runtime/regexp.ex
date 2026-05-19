@@ -1583,6 +1583,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     case special_match_results(source, flags, string, global?) do
       {:ok, results} ->
         results
+        |> Enum.filter(fn {_match, index} -> index >= offset end)
         |> maybe_first_match_only(global?)
         |> Enum.map(fn {match, index} -> exec_result([match], index, string) end)
 
