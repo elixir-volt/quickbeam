@@ -89,6 +89,14 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     exec(regexp, [s]) != nil
   end
 
+  defp test({:regexp, _, _, _} = regexp, [{:obj, _} = value | rest]) do
+    test(regexp, [Runtime.stringify(value) | rest])
+  end
+
+  defp test({:regexp, _, _} = regexp, [{:obj, _} = value | rest]) do
+    test(regexp, [Runtime.stringify(value) | rest])
+  end
+
   defp test({:regexp, _bytecode, "^\\s+$", _ref}, [s | _]) when is_binary(s) do
     s != "" and all_ecma_whitespace?(s)
   end
@@ -298,6 +306,14 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     do: true
 
   defp lone_surrogate_wtf8?(_), do: false
+
+  defp exec({:regexp, _, _, _} = regexp, [{:obj, _} = value | rest]) do
+    exec(regexp, [Runtime.stringify(value) | rest])
+  end
+
+  defp exec({:regexp, _, _} = regexp, [{:obj, _} = value | rest]) do
+    exec(regexp, [Runtime.stringify(value) | rest])
+  end
 
   defp exec({:regexp, bytecode, "(?<=^(\\w+))def", ref} = regexp, [s | _])
        when is_binary(bytecode) and is_binary(s) do
