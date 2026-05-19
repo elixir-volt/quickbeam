@@ -433,8 +433,11 @@ defmodule QuickBEAM.VM.Builtin do
   def named_meta("replace"), do: meta("replace", [length: 2, constructable: false], :proto)
   def named_meta("replaceAll"), do: meta("replaceAll", [length: 2, constructable: false], :proto)
   def named_meta("match"), do: meta("match", [length: 1, constructable: false], :proto)
+  def named_meta("[Symbol.match]"), do: meta("[Symbol.match]", [length: 1, constructable: false], :proto)
   def named_meta("matchAll"), do: meta("matchAll", [length: 1, constructable: false], :proto)
+  def named_meta("[Symbol.matchAll]"), do: meta("[Symbol.matchAll]", [length: 1, constructable: false], :proto)
   def named_meta("search"), do: meta("search", [length: 1, constructable: false], :proto)
+  def named_meta("[Symbol.search]"), do: meta("[Symbol.search]", [length: 1, constructable: false], :proto)
   def named_meta("normalize"), do: meta("normalize", [length: 0, constructable: false], :proto)
   def named_meta("concat"), do: meta("concat", [length: 1, constructable: false], :proto)
 
