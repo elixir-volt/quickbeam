@@ -694,10 +694,19 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     end
   end
 
-  defp get_own({:regexp, _, _, _} = regexp, "flags"), do: regexp_instance_property(regexp, "flags")
+  defp get_own({:regexp, _, _, ref} = regexp, "flags") do
+    case RegexpState.fetch(ref, "flags") do
+      {:ok, value} -> regexp_state_value(value, regexp)
+      :error -> regexp_instance_property(regexp, "flags")
+    end
+  end
 
-  defp get_own({:regexp, _bytecode, source, _ref} = regexp, "source") when is_binary(source),
-    do: regexp_instance_property(regexp, "source")
+  defp get_own({:regexp, _bytecode, source, ref} = regexp, "source") when is_binary(source) do
+    case RegexpState.fetch(ref, "source") do
+      {:ok, value} -> regexp_state_value(value, regexp)
+      :error -> regexp_instance_property(regexp, "source")
+    end
+  end
 
   defp get_own({:regexp, _, _, ref} = regexp, "lastIndex") do
     case RegexpState.fetch(ref, "lastIndex") do
