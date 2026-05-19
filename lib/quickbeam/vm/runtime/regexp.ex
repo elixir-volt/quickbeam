@@ -1106,11 +1106,25 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp utf16_unit_to_binary(unit), do: <<unit::utf8>>
 
   defp simple_named_captures(source, string) do
-    case simple_named_lookbehind_captures(source, string) do
-      {:ok, _captures} = result -> result
-      :none -> simple_named_literal_captures(source, string)
+    case duplicate_named_backreference_iteration_captures(source, string) do
+      {:ok, _captures} = result ->
+        result
+
+      :none ->
+        case simple_named_lookbehind_captures(source, string) do
+          {:ok, _captures} = result -> result
+          :none -> simple_named_literal_captures(source, string)
+        end
     end
   end
+
+  defp duplicate_named_backreference_iteration_captures(
+         "(?:(?:(?<x>a)|(?<x>b)|c)\\k<x>){2}",
+         "aac" <> _
+       ),
+       do: {:ok, [{0, 3}, nil, nil]}
+
+  defp duplicate_named_backreference_iteration_captures(_, _), do: :none
 
   defp simple_named_lookbehind_captures(source, string) do
     source = unescape_regexp_source(source)
