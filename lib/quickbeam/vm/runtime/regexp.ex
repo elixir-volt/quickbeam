@@ -1774,6 +1774,8 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp regexp_to_string_hint(:undefined), do: "undefined"
+  defp regexp_to_string_hint({:symbol, _}), do: JSThrow.type_error!("Cannot convert a Symbol value to a string")
+  defp regexp_to_string_hint({:symbol, _, _}), do: JSThrow.type_error!("Cannot convert a Symbol value to a string")
   defp regexp_to_string_hint({:obj, _} = obj), do: obj |> Coercion.to_primitive("string") |> Values.stringify()
   defp regexp_to_string_hint(value), do: Values.stringify(value)
 
