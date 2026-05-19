@@ -3,7 +3,6 @@ defmodule QuickBEAM.VM.Runtime.GlobalRegistry do
 
   alias QuickBEAM.VM.Runtime.{
     Console,
-    FunctionInstaller,
     GlobalFunctionInstaller,
     JSON,
     Math,
@@ -14,7 +13,6 @@ defmodule QuickBEAM.VM.Runtime.GlobalRegistry do
   def bindings do
     %{
       "$262" => Test262Host.object(),
-      "Function" => FunctionInstaller.constructor(),
       "Math" => Math.object() |> Math.install_metadata(),
       "JSON" => JSON.object() |> JSON.install_metadata(),
       "Reflect" => Reflect.object() |> Reflect.install_metadata(),

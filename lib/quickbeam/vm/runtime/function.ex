@@ -1,9 +1,32 @@
 defmodule QuickBEAM.VM.Runtime.Function do
   @moduledoc "JS `Function` prototype: `call`, `apply`, `bind`, and property access for name/length/fileName."
+
+  use QuickBEAM.VM.Builtin
+
   alias QuickBEAM.VM.{Builtin, Heap, Invocation}
   alias QuickBEAM.VM.Execution.Trace
-  alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor, WrappedPrimitive}
+  alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor, Put, WrappedPrimitive}
+  alias QuickBEAM.VM.Runtime.Constructors, as: ConstructorRegistry
   alias QuickBEAM.VM.Runtime.Test262Host
+
+  builtin_definition("Function",
+    constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.function/2,
+    length: 1,
+    phase: :core,
+    prototype_parent: nil,
+    after_install: &__MODULE__.install_builtin/1
+  )
+
+  def install_builtin(ctor) do
+    ConstructorRegistry.put_prototype(ctor, prototype())
+
+    case Heap.get_ctor_statics(ctor)["prototype"] do
+      {:obj, _} = proto -> Put.put(proto, "constructor", ctor)
+      _ -> :ok
+    end
+
+    Heap.put_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
+  end
 
   @doc "Builds the JavaScript prototype object for this runtime builtin."
   def prototype do

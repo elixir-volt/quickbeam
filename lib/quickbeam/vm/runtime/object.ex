@@ -24,7 +24,37 @@ defmodule QuickBEAM.VM.Runtime.Object do
   }
 
   alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Runtime.Constructors, as: ConstructorRegistry
   alias QuickBEAM.VM.Runtime.String, as: JSString
+
+  builtin_definition("Object",
+    constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.object/2,
+    length: 1,
+    phase: :core,
+    prototype_parent: nil,
+    after_install: &__MODULE__.install_builtin/1
+  )
+
+  def install_builtin(ctor) do
+    obj_proto =
+      case Heap.get_object_prototype() do
+        nil -> build_prototype()
+        existing -> existing
+      end
+
+    ConstructorRegistry.put_prototype(ctor, obj_proto)
+
+    case obj_proto do
+      {:obj, proto_ref} ->
+        case Heap.get_obj(proto_ref, %{}) do
+          map when is_map(map) -> Heap.put_obj(proto_ref, Map.put(map, "constructor", ctor))
+          _ -> :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
 
   @doc "Builds prototype data for object static methods."
   def build_prototype do

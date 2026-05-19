@@ -7,15 +7,11 @@ defmodule QuickBEAM.VM.Runtime.GlobalInstaller do
   alias QuickBEAM.VM.Runtime.{
     Errors,
     GlobalRegistry,
-    GlobalThisInstaller,
-    ObjectInstaller
+    GlobalThisInstaller
   }
 
   def build do
-    {object_name, object_ctor} = ObjectInstaller.binding()
-
     GlobalRegistry.bindings()
-    |> Map.put(object_name, object_ctor)
     |> Map.merge(Errors.bindings())
     |> cache_globals()
     |> Map.merge(WebAPIs.bindings())
