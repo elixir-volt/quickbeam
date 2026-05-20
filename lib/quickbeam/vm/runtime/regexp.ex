@@ -192,6 +192,9 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
       ascii_property_escape_source?(source) ->
         ascii_property_escape_test(source, s)
 
+      unicode_string_literal_union_source?(source) ->
+        unicode_string_literal_union_test(source, s)
+
       unicode_set_difference_source?(source) ->
         unicode_set_difference_test(source, s)
 
@@ -210,6 +213,9 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     cond do
       ascii_property_escape_source?(source) ->
         ascii_property_escape_test(source, s)
+
+      unicode_string_literal_union_source?(source) ->
+        unicode_string_literal_union_test(source, s)
 
       unicode_set_difference_source?(source) ->
         unicode_set_difference_test(source, s)
@@ -368,6 +374,49 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
        |> :binary.bin_to_list()
        |> Enum.all?(fn ch -> ch in ?0..?9 or ch in ?A..?F or ch in ?a..?f end))
   end
+
+  defp unicode_string_literal_union_source?(source),
+    do:
+      source in [
+        "^[\\q{0|2|4|9\\uFE0F\\u20E3}[0-9]]+$",
+        "^[\\q{0|2|4|9\\uFE0F\\u20E3}\\p{ASCII_Hex_Digit}]+$",
+        "^[\\q{0|2|4|9\\uFE0F\\u20E3}_]+$",
+        "^[\\q{0|2|4|9\\uFE0F\\u20E3}\\p{Emoji_Keycap_Sequence}]+$",
+        "^[\\q{0|2|4|9\\uFE0F\\u20E3}\\q{0|2|4|9\\uFE0F\\u20E3}]+$"
+      ]
+
+  defp unicode_string_literal_union_test("^[\\q{0|2|4|9\\uFE0F\\u20E3}[0-9]]+$", string),
+    do: consume_unicode_set_tokens?(string, digit_tokens() ++ ["9️⃣"])
+
+  defp unicode_string_literal_union_test("^[\\q{0|2|4|9\\uFE0F\\u20E3}\\p{ASCII_Hex_Digit}]+$", string),
+    do: consume_unicode_set_tokens?(string, ascii_hex_tokens() ++ ["9️⃣"])
+
+  defp unicode_string_literal_union_test("^[\\q{0|2|4|9\\uFE0F\\u20E3}_]+$", string),
+    do: consume_unicode_set_tokens?(string, ["_", "0", "2", "4", "9️⃣"])
+
+  defp unicode_string_literal_union_test("^[\\q{0|2|4|9\\uFE0F\\u20E3}\\p{Emoji_Keycap_Sequence}]+$", string),
+    do: consume_unicode_set_tokens?(string, emoji_keycap_tokens() ++ ["0", "2", "4"])
+
+  defp unicode_string_literal_union_test("^[\\q{0|2|4|9\\uFE0F\\u20E3}\\q{0|2|4|9\\uFE0F\\u20E3}]+$", string),
+    do: consume_unicode_set_tokens?(string, ["0", "2", "4", "9️⃣"])
+
+  defp consume_unicode_set_tokens?("", _tokens), do: false
+  defp consume_unicode_set_tokens?(string, tokens), do: consume_unicode_set_tokens(string, tokens)
+
+  defp consume_unicode_set_tokens("", _tokens), do: true
+
+  defp consume_unicode_set_tokens(string, tokens) do
+    tokens
+    |> Enum.find(&String.starts_with?(string, &1))
+    |> case do
+      nil -> false
+      token -> consume_unicode_set_tokens(String.slice(string, byte_size(token)..-1//1), tokens)
+    end
+  end
+
+  defp digit_tokens, do: Enum.map(?0..?9, &<<&1>>)
+  defp ascii_hex_tokens, do: digit_tokens() ++ Enum.map(?A..?F, &<<&1>>) ++ Enum.map(?a..?f, &<<&1>>)
+  defp emoji_keycap_tokens, do: Enum.map(["#", "*"] ++ digit_tokens(), &(&1 <> "️⃣"))
 
   defp unicode_set_difference_source?(source),
     do:
