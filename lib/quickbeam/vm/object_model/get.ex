@@ -31,7 +31,14 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   alias QuickBEAM.VM.Runtime.Map, as: JSMap
   alias QuickBEAM.VM.Runtime.Set, as: JSSet
 
-  alias QuickBEAM.VM.ObjectModel.{PropertyKey, Semantics, WrappedPrimitive}
+  alias QuickBEAM.VM.ObjectModel.{
+    OwnProperty,
+    PropertyKey,
+    Prototype,
+    Semantics,
+    WrappedPrimitive
+  }
+
   alias QuickBEAM.VM.Runtime.ArrayBuffer
   alias QuickBEAM.VM.Runtime.Date, as: JSDate
   alias QuickBEAM.VM.Runtime.String, as: JSString
@@ -1194,10 +1201,10 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp get_from_prototype(_, _), do: :undefined
 
-  defp primitive_or_class_proto(default_value, key, class_name, _receiver) do
+  defp primitive_or_class_proto(default_value, key, class_name, receiver) do
     case active_class_proto(class_name) do
       {:obj, _} = proto ->
-        case get(proto, key) do
+        case prototype_property_with_receiver(proto, key, receiver) do
           :undefined ->
             if(default_value == :undefined,
               do: get_own(Heap.get_object_prototype(), key),
@@ -1212,6 +1219,27 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         if default_value == :undefined,
           do: get_own(Heap.get_object_prototype(), key),
           else: default_value
+    end
+  end
+
+  defp prototype_property_with_receiver(nil, _key, _receiver), do: :undefined
+
+  defp prototype_property_with_receiver(target, key, receiver) do
+    case OwnProperty.descriptor(target, key) do
+      {:obj, _} = desc ->
+        getter = get(desc, "get")
+
+        cond do
+          getter != :undefined and getter != nil -> call_getter(getter, receiver)
+          get(desc, "value") != :undefined -> get(desc, "value")
+          true -> :undefined
+        end
+
+      :undefined ->
+        prototype_property_with_receiver(Prototype.get(target), key, receiver)
+
+      _ ->
+        :undefined
     end
   end
 
