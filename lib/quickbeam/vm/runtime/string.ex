@@ -2550,7 +2550,13 @@ defmodule QuickBEAM.VM.Runtime.String do
     source
     |> named_capture_indices()
     |> Enum.reduce(%{}, fn {name, index}, acc ->
-      Map.put(acc, name, Enum.at(capture_strings, index - 1, :undefined))
+      value = Enum.at(capture_strings, index - 1, :undefined)
+
+      case Map.fetch(acc, name) do
+        {:ok, :undefined} when value != :undefined -> Map.put(acc, name, value)
+        :error -> Map.put(acc, name, value)
+        _ -> acc
+      end
     end)
   end
 
@@ -2751,6 +2757,8 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   defp capture_strings(s, captures) do
     Enum.map(captures, fn
+      {start, _len} when start < 0 -> :undefined
+      {_start, len} when len < 0 -> :undefined
       {start, len} -> binary_part(s, start, len)
       nil -> :undefined
     end)
