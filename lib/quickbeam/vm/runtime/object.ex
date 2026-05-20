@@ -273,6 +273,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
         end
 
       obj ->
+        if is_object_like?(obj), do: Heap.prevent_extensions(obj)
         obj
     end
   end
@@ -281,8 +282,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     case hd(args) do
       {:obj, ref} -> Heap.extensible?(ref)
       {:builtin, "ThrowTypeError", _} -> false
-      {:builtin, _, _} -> true
-      value -> QuickBEAM.VM.Builtin.callable?(value)
+      value -> if is_object_like?(value), do: Heap.extensible?(value), else: false
     end
   end
 
@@ -300,14 +300,14 @@ defmodule QuickBEAM.VM.Runtime.Object do
   static "isFrozen", length: 1 do
     case hd(args) do
       {:obj, _ref} = obj -> frozen_object?(obj)
-      _ -> true
+      value -> if is_object_like?(value), do: frozen_object_like?(value), else: true
     end
   end
 
   static "isSealed", length: 1 do
     case hd(args) do
       {:obj, _ref} = obj -> sealed_object?(obj)
-      _ -> true
+      value -> if is_object_like?(value), do: sealed_object_like?(value), else: true
     end
   end
 
@@ -455,6 +455,41 @@ defmodule QuickBEAM.VM.Runtime.Object do
         desc.configurable == false
       end)
   end
+
+  defp frozen_object_like?(target) do
+    not Heap.extensible?(target) and
+      Enum.all?(OwnProperty.descriptor_keys(target), &frozen_descriptor?(target, &1))
+  end
+
+  defp sealed_object_like?(target) do
+    not Heap.extensible?(target) and
+      Enum.all?(OwnProperty.descriptor_keys(target), &sealed_descriptor?(target, &1))
+  end
+
+  defp frozen_descriptor?(target, key) do
+    case OwnProperty.descriptor(target, key) do
+      {:obj, _} = desc ->
+        Get.get(desc, "configurable") == false and Get.get(desc, "writable") != true
+
+      _ ->
+        false
+    end
+  end
+
+  defp sealed_descriptor?(target, key) do
+    case OwnProperty.descriptor(target, key) do
+      {:obj, _} = desc -> Get.get(desc, "configurable") == false
+      _ -> false
+    end
+  end
+
+  defp is_object_like?(%QuickBEAM.VM.Function{}), do: true
+  defp is_object_like?({:closure, _, %QuickBEAM.VM.Function{}}), do: true
+  defp is_object_like?({:bound, _, _, _, _}), do: true
+  defp is_object_like?({:builtin, _, _}), do: true
+  defp is_object_like?({:regexp, _, _}), do: true
+  defp is_object_like?({:regexp, _, _, _}), do: true
+  defp is_object_like?(_), do: false
 
   defp property_value_for_descriptor(map, key) when is_map(map), do: Map.get(map, key)
   defp property_value_for_descriptor(_data, _key), do: :undefined
