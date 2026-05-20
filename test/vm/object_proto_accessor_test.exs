@@ -7,12 +7,18 @@ defmodule QuickBEAM.VM.ObjectProtoAccessorTest do
   var obj = {};
   descriptor.set.call(obj, proto);
 
+  var root = {};
+  var leaf = Object.create(root);
+  var cycleThrew = false;
+  try { descriptor.set.call(root, leaf); } catch (error) { cycleThrew = error.constructor === TypeError; }
+
   [
     descriptor.get.name,
     descriptor.get.length,
     descriptor.enumerable,
     descriptor.configurable,
-    descriptor.get.call(obj) === proto
+    descriptor.get.call(obj) === proto,
+    cycleThrew
   ];
   '''
 
@@ -22,7 +28,7 @@ defmodule QuickBEAM.VM.ObjectProtoAccessorTest do
     test "#{mode} Object.prototype.__proto__ is an accessor with named getter" do
       {:ok, runtime} = QuickBEAM.start(apis: false)
 
-      assert {:ok, ["get __proto__", 0, false, true, true]} =
+      assert {:ok, ["get __proto__", 0, false, true, true, true]} =
                QuickBEAM.eval(runtime, @source, mode: @mode)
 
       QuickBEAM.stop(runtime)

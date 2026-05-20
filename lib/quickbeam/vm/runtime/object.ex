@@ -146,6 +146,26 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp object_proto_set(_args, target) when target in [nil, :undefined], do: :undefined
 
+  defp object_proto_set([proto | _], {:obj, ref} = target) do
+    if proto == nil or match?({:obj, _}, proto) do
+      cond do
+        match?({:obj, _}, proto) and Prototype.chain_contains?(proto, ref) ->
+          throw({:js_throw, Heap.make_error("Cannot create prototype cycle", "TypeError")})
+
+        not Heap.extensible?(ref) and Prototype.get(target) != proto ->
+          throw(
+            {:js_throw,
+             Heap.make_error("Cannot set prototype of non-extensible object", "TypeError")}
+          )
+
+        true ->
+          Prototype.set(target, proto)
+      end
+    end
+
+    :undefined
+  end
+
   defp object_proto_set([proto | _], target) do
     if proto == nil or match?({:obj, _}, proto) do
       Prototype.set(target, proto)
