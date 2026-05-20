@@ -284,6 +284,9 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
     current = Prototype.get(obj)
 
     cond do
+      obj == Heap.get_object_prototype() and proto != current ->
+        false
+
       proto == obj ->
         false
 
@@ -293,20 +296,12 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       not Heap.extensible?(ref) ->
         false
 
-      prototype_chain_contains?(proto, ref) ->
+      Prototype.ordinary_chain_contains?(proto, ref) ->
         false
 
       true ->
         Prototype.set(obj, proto)
         true
-    end
-  end
-
-  defp prototype_chain_contains?(proto, ref) do
-    case proto do
-      {:obj, proto_ref} when proto_ref == ref -> true
-      {:obj, _} -> prototype_chain_contains?(Prototype.get(proto), ref)
-      _ -> false
     end
   end
 

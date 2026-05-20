@@ -950,10 +950,21 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp set_ordinary_prototype_or_throw!(obj, ref, new_proto) do
-    if not Heap.extensible?(ref) and new_proto != Prototype.get(obj) do
-      throw(
-        {:js_throw, Heap.make_error("Cannot set prototype of non-extensible object", "TypeError")}
-      )
+    cond do
+      obj == Heap.get_object_prototype() and new_proto != Prototype.get(obj) ->
+        throw({:js_throw, Heap.make_error("Cannot set immutable prototype", "TypeError")})
+
+      match?({:obj, _}, new_proto) and Prototype.ordinary_chain_contains?(new_proto, ref) ->
+        throw({:js_throw, Heap.make_error("Cannot create prototype cycle", "TypeError")})
+
+      not Heap.extensible?(ref) and new_proto != Prototype.get(obj) ->
+        throw(
+          {:js_throw,
+           Heap.make_error("Cannot set prototype of non-extensible object", "TypeError")}
+        )
+
+      true ->
+        :ok
     end
   end
 
