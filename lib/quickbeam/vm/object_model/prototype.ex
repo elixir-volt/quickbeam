@@ -3,13 +3,14 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
 
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
 
+  alias QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.Heap
 
   def get({:obj, ref}) do
     case Heap.get_obj(ref, %{}) do
-      {:qb_arr, _} -> Heap.get_array_proto(ref)
-      data when is_list(data) -> Heap.get_array_proto(ref)
+      {:qb_arr, _} -> array_like_prototype(ref)
+      data when is_list(data) -> array_like_prototype(ref)
       map when is_map(map) -> object_map_prototype(ref, map)
       _ -> nil
     end
@@ -68,6 +69,14 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
 
   defp chain_contains?(_, _target_ref, _seen), do: false
 
+  defp array_like_prototype(ref) do
+    if Heap.get_array_prop(ref, "__arguments__") == true do
+      Heap.get_object_prototype()
+    else
+      Heap.get_array_proto(ref)
+    end
+  end
+
   defp object_map_prototype(ref, map) do
     case object_map_prototype_value(ref, map) do
       :null_proto -> nil
@@ -80,7 +89,7 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
       Map.has_key?(map, :__internal_proto__) -> Map.get(map, :__internal_proto__)
       array_prototype_map?(map) -> Heap.get_object_prototype()
       Heap.get_prop_desc(ref, proto()) -> Heap.get_object_prototype()
-      true -> Map.get(map, proto(), nil)
+      true -> Map.get(map, proto(), Heap.get_object_prototype())
     end
   end
 
@@ -153,7 +162,17 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
 
   defp proto_ref({:obj, ref}), do: ref
 
-  defp callable_prototype(callable) do
+  defp callable_prototype({:builtin, _, _} = callable) do
+    if Builtin.callable?(callable) do
+      callable_static_prototype(callable)
+    else
+      Heap.get_object_prototype()
+    end
+  end
+
+  defp callable_prototype(callable), do: callable_static_prototype(callable)
+
+  defp callable_static_prototype(callable) do
     case Map.get(Heap.get_ctor_statics(callable), "__proto__") do
       nil -> Heap.get_func_proto()
       parent -> parent
