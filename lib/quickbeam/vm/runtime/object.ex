@@ -1531,6 +1531,12 @@ defmodule QuickBEAM.VM.Runtime.Object do
     |> Heap.wrap()
   end
 
+  defp values([string | _]) when is_binary(string) do
+    string
+    |> JSString.utf16_code_units()
+    |> Heap.wrap()
+  end
+
   defp values([map | _]) when is_map(map), do: Map.values(map)
   defp values(_), do: []
 
