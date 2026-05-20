@@ -75,6 +75,7 @@ defmodule QuickBEAM.Test262 do
 
   defp test262_error do
     ~s[function Test262Error(m){this.message=m||"";this.name="Test262Error"}] <>
-      ~s[Test262Error.prototype.toString=function(){return "Test262Error: "+this.message};]
+      ~s[Test262Error.prototype.toString=function(){return "Test262Error: "+this.message};] <>
+      ~s[function print(){}]
   end
 end
