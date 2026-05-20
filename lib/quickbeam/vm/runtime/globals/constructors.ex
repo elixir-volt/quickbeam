@@ -508,7 +508,10 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
   defp unicode_invalid_identity_escape?(source) do
     cond do
-      source in ["\\u", "\\x", "\\1", "\\c"] ->
+      Regex.match?(~r/\\(?:[1-9]|0[0-9])/, source) ->
+        true
+
+      source in ["\\u", "\\x", "\\c"] ->
         true
 
       Regex.match?(~r/(^|[^\\])\\[A-Za-z]/, source) ->
@@ -517,15 +520,33 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
       Regex.match?(~r/\[\\[A-Za-z]\]/, source) ->
         not Regex.match?(~r/^\[\\(?:[bfnrtvdDsSwW])\]$/, source)
 
+      invalid_unicode_single_identity_escape?(source) ->
+        true
+
       true ->
         false
     end
   end
 
+  defp invalid_unicode_single_identity_escape?(<<"\\", ch>>) do
+    not unicode_identity_escape_char?(ch, false)
+  end
+
+  defp invalid_unicode_single_identity_escape?(<<"[\\", ch, "]">>) do
+    not unicode_identity_escape_char?(ch, true)
+  end
+
+  defp invalid_unicode_single_identity_escape?(_), do: false
+
+  defp unicode_identity_escape_char?(ch, in_class?) do
+    ch in ~c"^$\\.*+?()[]{}|/" or (in_class? and ch == ?-)
+  end
+
   defp unicode_invalid_class_escape_range?(source),
     do: Regex.match?(~r/\[\\[dDsSwW]-[^\]]+\]/, source) or Regex.match?(~r/\[[^\]]+-\\[dDsSwW]\]/, source)
 
-  defp unicode_invalid_bare_interval?(source), do: source in ["a{", "{1}"]
+  defp unicode_invalid_bare_interval?(source),
+    do: Regex.match?(~r/^\{\d+(?:,\d*)?\}\??$/, source) or Regex.match?(~r/^.?\{\d*(?:,\d*)?$/, source)
 
   defp unicode_quantified_assertion?(source), do: Regex.match?(~r/\(\?[=!][^)]*\)[*+?{]/, source)
 
