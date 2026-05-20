@@ -963,7 +963,10 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         if Heap.shape?(raw) do
           case Heap.shape_proto(raw) do
             {:obj, _pref} = proto ->
-              prototype_property_with_receiver(proto, key, {:obj, ref})
+              case prototype_property_lookup_with_receiver(proto, key, {:obj, ref}) do
+                {:found, value} -> value
+                :not_found -> get_default_object_prototype({:obj, ref}, key)
+              end
 
             nil ->
               get_default_object_prototype({:obj, ref}, key)
@@ -983,13 +986,13 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
         proto_result =
           case proto do
-            {:obj, _} -> prototype_property_with_receiver(proto, key, {:obj, ref})
-            _ -> :undefined
+            {:obj, _} -> prototype_property_lookup_with_receiver(proto, key, {:obj, ref})
+            _ -> :not_found
           end
 
         type_result =
           cond do
-            proto_result != :undefined ->
+            match?({:found, _}, proto_result) ->
               proto_result
 
             Map.has_key?(map, map_data()) and Map.has_key?(map, :weak) ->
@@ -1014,19 +1017,24 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
               :undefined
           end
 
-        if type_result != :undefined do
-          type_result
-        else
-          case proto do
-            {:obj, _pref} = proto ->
-              prototype_property_with_receiver(proto, key, {:obj, ref})
+        case type_result do
+          {:found, value} ->
+            value
 
-            :null_proto ->
-              :undefined
+          value when value != :undefined ->
+            value
 
-            _ ->
-              get_from_prototype(proto, key)
-          end
+          _ ->
+            case proto do
+              {:obj, _pref} = proto ->
+                prototype_property_with_receiver(proto, key, {:obj, ref})
+
+              :null_proto ->
+                :undefined
+
+              _ ->
+                get_from_prototype(proto, key)
+            end
         end
 
       _ ->
@@ -1232,33 +1240,60 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     end
   end
 
-  defp prototype_property_with_receiver(nil, _key, _receiver), do: :undefined
-
-  defp prototype_property_with_receiver({:obj, ref} = target, key, receiver) do
-    case raw_own_property(Heap.get_obj_raw(ref), key) do
-      {:ok, {:accessor, getter, _}} when getter != nil -> call_getter(getter, receiver)
-      {:ok, {:accessor, nil, _}} -> :undefined
-      {:ok, value} -> value
-      :error -> prototype_property_with_receiver(Prototype.get(target), key, receiver)
+  defp prototype_property_with_receiver(target, key, receiver) do
+    case prototype_property_lookup_with_receiver(target, key, receiver) do
+      {:found, value} -> value
+      :not_found -> :undefined
     end
   end
 
-  defp prototype_property_with_receiver(target, key, receiver) do
+  defp prototype_property_lookup_with_receiver(nil, _key, _receiver), do: :not_found
+
+  defp prototype_property_lookup_with_receiver({:obj, ref} = target, key, receiver) do
+    case raw_own_property(Heap.get_obj_raw(ref), key) do
+      {:ok, {:accessor, getter, _}} when getter != nil ->
+        {:found, call_getter(getter, receiver)}
+
+      {:ok, {:accessor, nil, _}} ->
+        {:found, :undefined}
+
+      {:ok, value} ->
+        {:found, value}
+
+      :error ->
+        case descriptor_property_with_receiver(target, key, receiver) do
+          :not_found ->
+            prototype_property_lookup_with_receiver(Prototype.get(target), key, receiver)
+
+          found ->
+            found
+        end
+    end
+  end
+
+  defp prototype_property_lookup_with_receiver(target, key, receiver) do
+    case descriptor_property_with_receiver(target, key, receiver) do
+      :not_found -> prototype_property_lookup_with_receiver(Prototype.get(target), key, receiver)
+      found -> found
+    end
+  end
+
+  defp descriptor_property_with_receiver(target, key, receiver) do
     case OwnProperty.descriptor(target, key) do
       {:obj, _} = desc ->
         getter = get(desc, "get")
 
         cond do
-          getter != :undefined and getter != nil -> call_getter(getter, receiver)
-          get(desc, "value") != :undefined -> get(desc, "value")
-          true -> :undefined
+          getter != :undefined and getter != nil -> {:found, call_getter(getter, receiver)}
+          get(desc, "value") != :undefined -> {:found, get(desc, "value")}
+          true -> {:found, :undefined}
         end
 
       :undefined ->
-        prototype_property_with_receiver(Prototype.get(target), key, receiver)
+        :not_found
 
       _ ->
-        :undefined
+        :not_found
     end
   end
 
