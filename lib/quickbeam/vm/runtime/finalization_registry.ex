@@ -17,7 +17,7 @@ defmodule QuickBEAM.VM.Runtime.FinalizationRegistry do
     constructor: constructor(),
     length: 1,
     phase: :weak_refs,
-    realm_intrinsic: :finalization_registry,
+    intrinsic_key: :finalization_registry,
     prototype_properties: [
       %{key: "register", value: proto_property("register"), descriptor: @method_descriptor},
       %{key: "unregister", value: proto_property("unregister"), descriptor: @method_descriptor},

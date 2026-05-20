@@ -385,12 +385,12 @@ defmodule QuickBEAM.VM.Invocation do
       ctor_proto =
         if raw_new_target != nil and raw_new_target != raw_ctor do
           normalize_constructor_prototype(new_target_proto) ||
-            realm_default_prototype(raw_ctor, raw_new_target) ||
+            QuickBEAM.VM.Realm.default_prototype(raw_ctor, raw_new_target) ||
             Heap.get_class_proto(raw_new_target) ||
             Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
         else
           normalize_constructor_prototype(new_target_proto) ||
-            realm_default_prototype(raw_ctor, raw_new_target) ||
+            QuickBEAM.VM.Realm.default_prototype(raw_ctor, raw_new_target) ||
             Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
         end
 
@@ -832,79 +832,6 @@ defmodule QuickBEAM.VM.Invocation do
   end
 
   defp prevalidate_builtin_construct_args!(_ctor, _args), do: :ok
-
-  defp realm_default_prototype({:builtin, "Array", _}, new_target),
-    do: QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :array)
-
-  defp realm_default_prototype({:builtin, "Number", _}, new_target),
-    do: QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :number)
-
-  defp realm_default_prototype({:builtin, "String", _}, new_target),
-    do: QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :string)
-
-  defp realm_default_prototype({:builtin, "Date", _}, new_target),
-    do: QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :date)
-
-  defp realm_default_prototype({:builtin, "DataView", _}, new_target),
-    do:
-      QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :data_view) ||
-        Runtime.global_class_proto("DataView")
-
-  defp realm_default_prototype({:builtin, "Function", _}, new_target),
-    do: QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :function)
-
-  defp realm_default_prototype({:builtin, "Map", _}, new_target),
-    do: QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :map)
-
-  defp realm_default_prototype({:builtin, "Iterator", _}, new_target),
-    do: QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :iterator)
-
-  defp realm_default_prototype({:builtin, "Set", _}, new_target),
-    do: QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :set)
-
-  defp realm_default_prototype({:builtin, "Promise", _}, new_target),
-    do: QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :promise)
-
-  defp realm_default_prototype({:builtin, "RegExp", _}, new_target),
-    do: QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :regexp)
-
-  defp realm_default_prototype({:builtin, "WeakMap", _}, new_target),
-    do: QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :weak_map)
-
-  defp realm_default_prototype({:builtin, "WeakSet", _}, new_target),
-    do: QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :weak_set)
-
-  defp realm_default_prototype({:builtin, "WeakRef", _}, new_target),
-    do:
-      QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :weak_ref) ||
-        Runtime.global_class_proto("WeakRef")
-
-  defp realm_default_prototype({:builtin, "FinalizationRegistry", _}, new_target),
-    do:
-      QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :finalization_registry) ||
-        Runtime.global_class_proto("FinalizationRegistry")
-
-  defp realm_default_prototype({:builtin, name, _}, new_target)
-       when name in ~w(EvalError RangeError ReferenceError SyntaxError TypeError URIError) do
-    QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, {:native_error, name}) ||
-      Runtime.global_class_proto(name)
-  end
-
-  defp realm_default_prototype({:builtin, "AggregateError", _}, new_target),
-    do:
-      QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :aggregate_error) ||
-        Runtime.global_class_proto("AggregateError")
-
-  defp realm_default_prototype({:builtin, "SuppressedError", _}, new_target),
-    do:
-      QuickBEAM.VM.Host.Test262.realm_intrinsic(
-        new_target,
-        {:native_error, "SuppressedError"}
-      ) ||
-        Runtime.global_class_proto("SuppressedError")
-
-  defp realm_default_prototype(_ctor, new_target),
-    do: QuickBEAM.VM.Host.Test262.realm_intrinsic(new_target, :object)
 
   defp normalize_constructor_prototype({:obj, _} = object_proto), do: object_proto
   defp normalize_constructor_prototype(%QuickBEAM.VM.Function{} = fun), do: fun

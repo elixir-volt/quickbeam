@@ -18,7 +18,7 @@ defmodule QuickBEAM.VM.Runtime.WeakRef do
     constructor: constructor(),
     length: 1,
     phase: :weak_refs,
-    realm_intrinsic: :weak_ref,
+    intrinsic_key: :weak_ref,
     prototype_properties: [
       %{key: "deref", value: proto_property("deref"), descriptor: @method_descriptor},
       %{

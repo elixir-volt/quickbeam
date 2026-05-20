@@ -807,7 +807,7 @@ defmodule QuickBEAM.VM.Builtin do
     constructor_descriptor = Keyword.get(opts, :constructor_descriptor, %{})
     prototype_descriptor = Keyword.get(opts, :prototype_descriptor, %{})
     prototype_properties = Keyword.get(opts, :prototype_properties, [])
-    realm_intrinsic = Keyword.get(opts, :realm_intrinsic)
+    intrinsic_key = Keyword.get(opts, :intrinsic_key)
     after_install = Keyword.get(opts, :after_install)
     auto_install? = Keyword.get(opts, :auto_install?, true)
 
@@ -831,7 +831,7 @@ defmodule QuickBEAM.VM.Builtin do
               unquote(Macro.escape(prototype_descriptor))
             ),
           prototype_properties: unquote(prototype_properties),
-          realm_intrinsic: unquote(realm_intrinsic),
+          intrinsic_key: unquote(intrinsic_key),
           after_install: unquote(after_install),
           auto_install?: unquote(auto_install?)
         })

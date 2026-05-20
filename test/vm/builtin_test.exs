@@ -16,7 +16,7 @@ defmodule QuickBEAM.VM.BuiltinTest do
       constructor: fn _, _ -> :sample end,
       length: 1,
       phase: :runtime,
-      realm_intrinsic: :sample,
+      intrinsic_key: :sample,
       prototype_properties: [
         %{key: "hasOwnProperty", value: proto_property("hasOwnProperty"), descriptor: %{}}
       ]
@@ -42,7 +42,7 @@ defmodule QuickBEAM.VM.BuiltinTest do
              name: "Sample",
              length: 1,
              phase: :runtime,
-             realm_intrinsic: :sample,
+             intrinsic_key: :sample,
              prototype_properties: [%{key: "hasOwnProperty"}]
            } = Sample.builtin_definition()
   end

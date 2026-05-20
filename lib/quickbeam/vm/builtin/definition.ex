@@ -25,7 +25,7 @@ defmodule QuickBEAM.VM.Builtin.Definition do
           constructor_descriptor: descriptor(),
           prototype_descriptor: descriptor(),
           prototype_properties: [prototype_property()],
-          realm_intrinsic: atom() | nil,
+          intrinsic_key: atom() | nil,
           after_install: (term() -> term()) | nil,
           auto_install?: boolean()
         }
@@ -42,7 +42,7 @@ defmodule QuickBEAM.VM.Builtin.Definition do
             constructor_descriptor: @constructor_descriptor,
             prototype_descriptor: @prototype_descriptor,
             prototype_properties: [],
-            realm_intrinsic: nil,
+            intrinsic_key: nil,
             after_install: nil,
             auto_install?: true
 end
