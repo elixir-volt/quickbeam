@@ -64,10 +64,7 @@ defmodule QuickBEAM.VM.Semantics.Eval do
   end
 
   defp simple_assigned_names_from_statement(%AST.ExpressionStatement{
-         expression: %AST.AssignmentExpression{
-           operator: "=",
-           left: %AST.Identifier{name: name}
-         }
+         expression: %AST.AssignmentExpression{left: %AST.Identifier{name: name}}
        }),
        do: [name]
 
