@@ -164,7 +164,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
         target == Heap.get_object_prototype() ->
           :ok
 
-        match?({:obj, _}, proto) and Prototype.chain_contains?(proto, ref) ->
+        match?({:obj, _}, proto) and Prototype.ordinary_chain_contains?(proto, ref) ->
           throw({:js_throw, Heap.make_error("Cannot create prototype cycle", "TypeError")})
 
         not Heap.extensible?(ref) and Prototype.get(target) != proto ->

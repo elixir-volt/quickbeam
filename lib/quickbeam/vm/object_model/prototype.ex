@@ -60,6 +60,29 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
   def chain_contains?(value, target_ref),
     do: chain_contains?(get(value), target_ref, MapSet.new())
 
+  def ordinary_chain_contains?({:obj, ref}, target_ref),
+    do: ordinary_chain_contains?({:obj, ref}, target_ref, MapSet.new())
+
+  def ordinary_chain_contains?(_, _target_ref), do: false
+
+  defp ordinary_chain_contains?({:obj, ref}, target_ref, _seen) when ref == target_ref, do: true
+
+  defp ordinary_chain_contains?({:obj, ref}, target_ref, seen) do
+    if MapSet.member?(seen, ref) do
+      false
+    else
+      case Heap.get_obj(ref, %{}) do
+        map when is_map(map) and is_map_key(map, proxy_target()) ->
+          false
+
+        _ ->
+          ordinary_chain_contains?(get({:obj, ref}), target_ref, MapSet.put(seen, ref))
+      end
+    end
+  end
+
+  defp ordinary_chain_contains?(_, _target_ref, _seen), do: false
+
   defp chain_contains?({:obj, ref}, target_ref, _seen) when ref == target_ref, do: true
 
   defp chain_contains?({:obj, ref} = object, target_ref, seen) do
