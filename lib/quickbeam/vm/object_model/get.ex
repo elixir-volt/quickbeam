@@ -638,7 +638,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   end
 
   defp get_own({:builtin, _, _} = builtin, key) do
-    case QuickBEAM.VM.Runtime.Constructors.static_property(builtin, key) do
+    case builtin_static_property(builtin, key) do
       {:accessor, getter, _} when getter != nil ->
         call_getter(getter, builtin)
 
@@ -798,6 +798,27 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   end
 
   defp get_own(_, _), do: :undefined
+
+  defp builtin_static_property({:builtin, _name, _} = builtin, key) do
+    statics = Heap.get_ctor_statics(builtin)
+
+    if statics != %{} or Heap.get_class_proto(builtin) != nil do
+      QuickBEAM.VM.Runtime.Constructors.static_property(builtin, key)
+    else
+      builtin_function_property(builtin, key)
+    end
+  end
+
+  defp builtin_function_property({:builtin, name, _}, "name"), do: name
+
+  defp builtin_function_property({:builtin, name, _}, "length") do
+    case QuickBEAM.VM.Builtin.named_meta(name) do
+      %QuickBEAM.VM.Builtin.Meta{length: length} -> length
+      _ -> :undefined
+    end
+  end
+
+  defp builtin_function_property(_builtin, _key), do: :undefined
 
   defp regexp_state_value({:accessor, getter, _}, receiver) when getter != nil,
     do: call_getter(getter, receiver)
