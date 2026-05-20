@@ -871,6 +871,20 @@ static int re_parse_char_class(REParseState *s, const uint8_t **pp)
                 cr_free(cr1);
             goto invalid_class_range;
         }
+        if (*p == '-' && p[1] == '-' && s->unicode_sets) {
+            if (c1 >= CLASS_RANGE_BASE) {
+                int ret;
+                ret = cr_union1(cr, cr1->points, cr1->len);
+                cr_free(cr1);
+                if (ret)
+                    goto memory_error;
+            } else {
+                if (cr_union_interval(cr, c1, c1))
+                    goto memory_error;
+            }
+            p += 2;
+            continue;
+        }
         if (*p == '-' && p[1] != ']') {
             const uint8_t *p0 = p + 1;
             if (c1 >= CLASS_RANGE_BASE) {
