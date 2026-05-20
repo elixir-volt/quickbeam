@@ -267,7 +267,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
         end
 
       validate_regexp_flags!(flags)
-      validate_regexp_source!(source)
+      validate_regexp_source!(source, flags)
 
       ref = make_ref()
       RegexpState.put_internal(ref, "flags", canonical_regexp_flags(flags))
@@ -383,8 +383,8 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
     requested == original or requested == canonical_regexp_flags(original_flags <> "y")
   end
 
-  defp validate_regexp_source!(source) when is_binary(source) do
-    if invalid_regexp_source?(source) do
+  defp validate_regexp_source!(source, flags) when is_binary(source) do
+    if invalid_regexp_source?(source) or invalid_unicode_regexp_source?(source, flags) do
       JSThrow.syntax_error!("Invalid regular expression")
     end
   end
@@ -496,6 +496,38 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   defp invalid_class_range?(source) do
     String.contains?(source, "[{-")
   end
+
+  defp invalid_unicode_regexp_source?(source, flags) do
+    (String.contains?(flags, "u") or String.contains?(flags, "v")) and
+      (unicode_reserved_bracket?(source) or unicode_invalid_identity_escape?(source) or
+         unicode_invalid_class_escape_range?(source) or unicode_invalid_bare_interval?(source) or
+         unicode_quantified_assertion?(source))
+  end
+
+  defp unicode_reserved_bracket?(source), do: source in ["(", ")", "[", "]", "{", "}"]
+
+  defp unicode_invalid_identity_escape?(source) do
+    cond do
+      source in ["\\u", "\\x", "\\1", "\\c"] ->
+        true
+
+      Regex.match?(~r/(^|[^\\])\\[A-Za-z]/, source) ->
+        not Regex.match?(~r/^\\(?:[bBfnrtvdDsSwW])$/, source)
+
+      Regex.match?(~r/\[\\[A-Za-z]\]/, source) ->
+        not Regex.match?(~r/^\[\\(?:[bfnrtvdDsSwW])\]$/, source)
+
+      true ->
+        false
+    end
+  end
+
+  defp unicode_invalid_class_escape_range?(source),
+    do: Regex.match?(~r/\[\\[dDsSwW]-[^\]]+\]/, source) or Regex.match?(~r/\[[^\]]+-\\[dDsSwW]\]/, source)
+
+  defp unicode_invalid_bare_interval?(source), do: source in ["a{", "{1}"]
+
+  defp unicode_quantified_assertion?(source), do: Regex.match?(~r/\(\?[=!][^)]*\)[*+?{]/, source)
 
   defp invalid_modifiers?(source) do
     ~r/\(\?([^):]+):/u
