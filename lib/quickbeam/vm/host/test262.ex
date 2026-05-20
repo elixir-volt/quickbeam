@@ -596,14 +596,14 @@ defmodule QuickBEAM.VM.Host.Test262 do
       fun =
         {:builtin, "anonymous",
          fn args, call_this ->
-           case run_realm_function_body(realm_id, body, args) do
-             :return_this ->
-               if call_this in [nil, :undefined],
-                 do: Process.get({:qb_realm_global, realm_id}),
-                 else: call_this
+           effective_this =
+             if call_this in [nil, :undefined],
+               do: Process.get({:qb_realm_global, realm_id}),
+               else: call_this
 
-             value ->
-               value
+           case run_realm_function_body(realm_id, body, args, effective_this) do
+             :return_this -> effective_this
+             value -> value
            end
          end}
 
@@ -686,14 +686,22 @@ defmodule QuickBEAM.VM.Host.Test262 do
     end
   end
 
-  defp run_realm_function_body(_realm_id, "", _args), do: :return_this
+  defp run_realm_function_body(_realm_id, "", _args, _this_value), do: :return_this
 
-  defp run_realm_function_body(realm_id, body, args) do
-    if Regex.match?(~r/^\s*"use strict";\s*return\s+arguments\s*;?\s*$/, body) or
-         Regex.match?(~r/^\s*return\s+arguments\s*;?\s*$/, body) do
-      Heap.wrap_arguments(args, thrower: Heap.throw_type_error_intrinsic(realm_id))
-    else
-      run_realm_function_side_effect(realm_id, body)
+  defp run_realm_function_body(realm_id, body, args, this_value) do
+    cond do
+      Regex.match?(~r/^\s*"use strict";\s*return\s+arguments\s*;?\s*$/, body) or
+          Regex.match?(~r/^\s*return\s+arguments\s*;?\s*$/, body) ->
+        Heap.wrap_arguments(args, thrower: Heap.throw_type_error_intrinsic(realm_id))
+
+      match = Regex.run(~r/^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*this\s*;\s*return\s*\/(.*)\/([a-z]*)\s*;?\s*$/, body) ->
+        [_, name, source, flags] = match
+        global = Process.get({:qb_realm_global, realm_id})
+        Put.put(global, name, this_value)
+        Constructors.regexp([source, flags], :undefined)
+
+      true ->
+        run_realm_function_side_effect(realm_id, body)
     end
   end
 

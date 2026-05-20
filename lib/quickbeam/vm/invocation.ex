@@ -390,6 +390,7 @@ defmodule QuickBEAM.VM.Invocation do
             Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
         else
           normalize_constructor_prototype(new_target_proto) ||
+            realm_default_prototype(raw_ctor, raw_new_target) ||
             Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
         end
 
