@@ -1988,6 +1988,10 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp literal_exec_from(string, "\\w", offset),
     do: literal_exec_from_regex(string, ~r/\w/u, offset)
 
+  defp literal_exec_from(string, "\\" <> <<char::utf8>>, offset) do
+    literal_exec_from(string, <<char::utf8>>, offset)
+  end
+
   defp literal_exec_from(string, source, offset) do
     with true <- offset <= byte_size(string),
          {index, length} <-
