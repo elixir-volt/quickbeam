@@ -1037,6 +1037,11 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   static "setPrototypeOf", length: 2 do
     case args do
+      [obj | _] when obj in [nil, :undefined] ->
+        throw(
+          {:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")}
+        )
+
       [_obj, new_proto | _] ->
         unless prototype_value?(new_proto) do
           throw(
@@ -1046,6 +1051,11 @@ defmodule QuickBEAM.VM.Runtime.Object do
         end
 
         set_prototype_of(args)
+
+      _ ->
+        throw(
+          {:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")}
+        )
     end
   end
 
