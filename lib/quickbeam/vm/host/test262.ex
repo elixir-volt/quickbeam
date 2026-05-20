@@ -175,6 +175,7 @@ defmodule QuickBEAM.VM.Host.Test262 do
         boolean_proto,
         number_proto,
         string_proto,
+        regexp_proto,
         date_proto,
         data_view_proto,
         map_proto,
@@ -252,6 +253,9 @@ defmodule QuickBEAM.VM.Host.Test262 do
 
       %{string_proto: string_proto} when intrinsic == :string ->
         string_proto
+
+      %{regexp_proto: regexp_proto} when intrinsic == :regexp ->
+        regexp_proto
 
       %{date_proto: date_proto} when intrinsic == :date ->
         date_proto
@@ -424,7 +428,12 @@ defmodule QuickBEAM.VM.Host.Test262 do
 
   defp install_realm_string_methods({:obj, ref}, error_bindings) do
     for name <- ~w(toString valueOf) do
-      Heap.put_obj_key(ref, name, realm_string_method(name, Map.fetch!(error_bindings, "TypeError")))
+      Heap.put_obj_key(
+        ref,
+        name,
+        realm_string_method(name, Map.fetch!(error_bindings, "TypeError"))
+      )
+
       Heap.put_prop_desc(ref, name, %{writable: true, enumerable: false, configurable: true})
     end
   end
@@ -440,13 +449,21 @@ defmodule QuickBEAM.VM.Host.Test262 do
           {"unicodeSets", "v"},
           {"sticky", "y"}
         ] do
-      getter = {:builtin, "get #{name}", fn _, this -> realm_regexp_flag(this, proto, flag, type_error_ctor, name) end}
+      getter =
+        {:builtin, "get #{name}",
+         fn _, this -> realm_regexp_flag(this, proto, flag, type_error_ctor, name) end}
+
       Heap.put_obj_key(ref, name, {:accessor, getter, nil})
       Heap.put_prop_desc(ref, name, %{enumerable: false, configurable: true})
     end
 
-    for {name, getter_fun} <- [{"source", &realm_regexp_source/3}, {"flags", &realm_regexp_flags/3}] do
-      getter = {:builtin, "get #{name}", fn _, this -> getter_fun.(this, proto, type_error_ctor) end}
+    for {name, getter_fun} <- [
+          {"source", &realm_regexp_source/3},
+          {"flags", &realm_regexp_flags/3}
+        ] do
+      getter =
+        {:builtin, "get #{name}", fn _, this -> getter_fun.(this, proto, type_error_ctor) end}
+
       Heap.put_obj_key(ref, name, {:accessor, getter, nil})
       Heap.put_prop_desc(ref, name, %{enumerable: false, configurable: true})
     end
@@ -461,23 +478,45 @@ defmodule QuickBEAM.VM.Host.Test262 do
         this |> Get.get("flags") |> to_string() |> String.contains?(flag)
 
       true ->
-        throw({:js_throw, realm_error_object(type_error_ctor, "RegExp.prototype.#{name} receiver is not a RegExp")})
+        throw(
+          {:js_throw,
+           realm_error_object(
+             type_error_ctor,
+             "RegExp.prototype.#{name} receiver is not a RegExp"
+           )}
+        )
     end
   end
 
   defp realm_regexp_source(this, proto, type_error_ctor) do
     cond do
-      this == proto -> :undefined
-      regexp_tuple?(this) -> Get.get(this, "source")
-      true -> throw({:js_throw, realm_error_object(type_error_ctor, "RegExp.prototype.source receiver is not a RegExp")})
+      this == proto ->
+        :undefined
+
+      regexp_tuple?(this) ->
+        Get.get(this, "source")
+
+      true ->
+        throw(
+          {:js_throw,
+           realm_error_object(type_error_ctor, "RegExp.prototype.source receiver is not a RegExp")}
+        )
     end
   end
 
   defp realm_regexp_flags(this, proto, type_error_ctor) do
     cond do
-      this == proto -> :undefined
-      regexp_tuple?(this) -> Get.get(this, "flags")
-      true -> throw({:js_throw, realm_error_object(type_error_ctor, "RegExp.prototype.flags receiver is not a RegExp")})
+      this == proto ->
+        :undefined
+
+      regexp_tuple?(this) ->
+        Get.get(this, "flags")
+
+      true ->
+        throw(
+          {:js_throw,
+           realm_error_object(type_error_ctor, "RegExp.prototype.flags receiver is not a RegExp")}
+        )
     end
   end
 
@@ -537,6 +576,7 @@ defmodule QuickBEAM.VM.Host.Test262 do
          boolean_proto,
          number_proto,
          string_proto,
+         regexp_proto,
          date_proto,
          data_view_proto,
          map_proto,
@@ -586,6 +626,7 @@ defmodule QuickBEAM.VM.Host.Test262 do
           boolean_proto,
           number_proto,
           string_proto,
+          regexp_proto,
           date_proto,
           data_view_proto,
           map_proto,
@@ -617,6 +658,7 @@ defmodule QuickBEAM.VM.Host.Test262 do
         boolean_proto,
         number_proto,
         string_proto,
+        regexp_proto,
         date_proto,
         data_view_proto,
         map_proto,
@@ -678,6 +720,7 @@ defmodule QuickBEAM.VM.Host.Test262 do
          boolean_proto,
          number_proto,
          string_proto,
+         regexp_proto,
          date_proto,
          data_view_proto,
          map_proto,
@@ -699,6 +742,7 @@ defmodule QuickBEAM.VM.Host.Test262 do
       boolean_proto: boolean_proto,
       number_proto: number_proto,
       string_proto: string_proto,
+      regexp_proto: regexp_proto,
       date_proto: date_proto,
       data_view_proto: data_view_proto,
       map_proto: map_proto,

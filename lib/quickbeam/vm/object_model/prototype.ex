@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
 
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
 
+  alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.Heap
 
   def get({:obj, ref}) do
@@ -18,7 +19,14 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
   def get(value) when is_list(value), do: QuickBEAM.VM.Runtime.global_class_proto("Array")
   def get({:builtin, _, _} = callable), do: callable_prototype(callable)
   def get({:regexp, _, _}), do: QuickBEAM.VM.Runtime.global_class_proto("RegExp")
-  def get({:regexp, _, _, _}), do: QuickBEAM.VM.Runtime.global_class_proto("RegExp")
+
+  def get({:regexp, _, _, ref}) do
+    case RegexpState.fetch(ref, proto()) do
+      {:ok, :undefined} -> QuickBEAM.VM.Runtime.global_class_proto("RegExp")
+      {:ok, stored_proto} -> stored_proto
+      :error -> QuickBEAM.VM.Runtime.global_class_proto("RegExp")
+    end
+  end
 
   def get({:closure, _, %QuickBEAM.VM.Function{} = function} = callable),
     do: function_kind_prototype(function, callable)
