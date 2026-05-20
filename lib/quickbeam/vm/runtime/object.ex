@@ -251,12 +251,15 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
-  defp has_own_property([_key | _], target) when target in [nil, :undefined] do
-    throw({:js_throw, Heap.make_error("hasOwnProperty called on null or undefined", "TypeError")})
-  end
-
   defp has_own_property([key | _], target) do
-    prop_name = if is_binary(key) or is_symbol(key), do: key, else: Values.stringify(key)
+    prop_name = PropertyKey.to_property_key(key)
+
+    if target in [nil, :undefined] do
+      throw(
+        {:js_throw, Heap.make_error("hasOwnProperty called on null or undefined", "TypeError")}
+      )
+    end
+
     OwnProperty.present?(target, prop_name) or function_descriptor_present?(target, prop_name)
   end
 
