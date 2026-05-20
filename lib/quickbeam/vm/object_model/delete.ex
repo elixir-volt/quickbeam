@@ -143,7 +143,9 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
   defp mark_regexp_prototype_delete(ref, key) do
     if QuickBEAM.VM.Runtime.global_class_proto("RegExp") == {:obj, ref} and
          key in [{:symbol, "Symbol.match"}, {:symbol, "Symbol.matchAll"}] do
-      if key == {:symbol, "Symbol.matchAll"}, do: Process.delete(:qb_regexp_prototype_match_all_override)
+      if key == {:symbol, "Symbol.matchAll"},
+        do: Process.delete(:qb_regexp_prototype_match_all_override)
+
       Heap.put_prop_desc(ref, key, :deleted)
     end
   end
@@ -235,6 +237,7 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
             deleted = Heap.get_array_prop(ref, "__deleted_args__")
             deleted = if match?(%MapSet{}, deleted), do: deleted, else: MapSet.new()
             Heap.put_array_prop(ref, "__deleted_args__", MapSet.put(deleted, idx))
+            delete_mapped_argument(ref, idx)
           end
 
           unless idx >= visible_array_length(ref) do
@@ -254,6 +257,16 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
           Heap.delete_prop_desc(ref, key)
           true
         end
+    end
+  end
+
+  defp delete_mapped_argument(ref, idx) do
+    case Heap.get_array_prop(ref, "__mapped_arguments__") do
+      mapped when is_map(mapped) ->
+        Heap.put_array_prop(ref, "__mapped_arguments__", Map.delete(mapped, idx))
+
+      _ ->
+        :ok
     end
   end
 end

@@ -161,6 +161,10 @@ defmodule QuickBEAM.VM.ObjectModel.ArrayExotic do
               sync_arguments_index(ref, idx, value)
             end
 
+            if Map.get(desc, "writable") == false do
+              delete_mapped_argument(ref, idx)
+            end
+
             Heap.delete_array_prop(ref, prop_name)
             Heap.array_set(ref, idx, value)
 
@@ -257,6 +261,16 @@ defmodule QuickBEAM.VM.ObjectModel.ArrayExotic do
     case Heap.get_array_prop(ref, "__deleted_args__") do
       %MapSet{} = deleted -> MapSet.member?(deleted, idx)
       _ -> false
+    end
+  end
+
+  defp delete_mapped_argument(ref, idx) do
+    case Heap.get_array_prop(ref, "__mapped_arguments__") do
+      mapped when is_map(mapped) ->
+        Heap.put_array_prop(ref, "__mapped_arguments__", Map.delete(mapped, idx))
+
+      _ ->
+        :ok
     end
   end
 
