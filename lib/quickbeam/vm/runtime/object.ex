@@ -94,6 +94,14 @@ defmodule QuickBEAM.VM.Runtime.Object do
         method "__defineSetter__" do
           define_accessor_property(args, this, :set)
         end
+
+        method "__lookupGetter__" do
+          lookup_accessor_property(args, this, :get)
+        end
+
+        method "__lookupSetter__" do
+          lookup_accessor_property(args, this, :set)
+        end
       end
     )
 
@@ -108,6 +116,8 @@ defmodule QuickBEAM.VM.Runtime.Object do
           "propertyIsEnumerable",
           "__defineGetter__",
           "__defineSetter__",
+          "__lookupGetter__",
+          "__lookupSetter__",
           "constructor"
         ] do
       Heap.put_prop_desc(ref, key, %{enumerable: false, configurable: true, writable: true})
@@ -122,13 +132,13 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp define_accessor_property([key, callback | _], target, kind) do
-    prop_key = PropertyKey.to_property_key(key)
-
     unless QuickBEAM.VM.Builtin.callable?(callback) do
       throw(
         {:js_throw, Heap.make_error("Object.prototype accessor must be callable", "TypeError")}
       )
     end
+
+    prop_key = PropertyKey.to_property_key(key)
 
     desc =
       case kind do
@@ -143,6 +153,38 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp define_accessor_property(_args, _target, _kind) do
     throw({:js_throw, Heap.make_error("Object.prototype accessor must be callable", "TypeError")})
+  end
+
+  defp lookup_accessor_property(_args, target, _kind) when target in [nil, :undefined] do
+    throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
+  end
+
+  defp lookup_accessor_property([key | _], target, kind) do
+    lookup_accessor_in_chain(target, PropertyKey.to_property_key(key), kind)
+  end
+
+  defp lookup_accessor_property(_args, _target, _kind), do: :undefined
+
+  defp lookup_accessor_in_chain(nil, _key, _kind), do: :undefined
+
+  defp lookup_accessor_in_chain(obj, key, kind) do
+    case OwnProperty.descriptor(obj, key) do
+      {:obj, _} = desc ->
+        getter = Get.get(desc, "get")
+        setter = Get.get(desc, "set")
+
+        if getter != :undefined or setter != :undefined do
+          case kind do
+            :get -> if getter == :undefined, do: :undefined, else: getter
+            :set -> if setter == :undefined, do: :undefined, else: setter
+          end
+        else
+          :undefined
+        end
+
+      :undefined ->
+        lookup_accessor_in_chain(Prototype.get(obj), key, kind)
+    end
   end
 
   defp has_own_property([_key | _], target) when target in [nil, :undefined] do

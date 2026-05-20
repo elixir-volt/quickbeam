@@ -280,6 +280,12 @@ defmodule QuickBEAM.VM.Builtin do
   def named_meta("__defineSetter__"),
     do: meta("__defineSetter__", [length: 2, constructable: false], :proto)
 
+  def named_meta("__lookupGetter__"),
+    do: meta("__lookupGetter__", [length: 1, constructable: false], :proto)
+
+  def named_meta("__lookupSetter__"),
+    do: meta("__lookupSetter__", [length: 1, constructable: false], :proto)
+
   def named_meta("call"), do: meta("call", [length: 1, constructable: false], :proto)
   def named_meta("apply"), do: meta("apply", [length: 2, constructable: false], :proto)
   def named_meta("bind"), do: meta("bind", [length: 1, constructable: false], :proto)

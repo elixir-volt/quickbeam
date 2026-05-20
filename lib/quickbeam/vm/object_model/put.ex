@@ -269,7 +269,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   def put({:builtin, _, _} = b, key, val), do: put_callable_property(b, key, val)
   def put({:bound, _, _, _, _} = b, key, val), do: put_callable_property(b, key, val)
 
-  def put({:regexp, _, _, ref}, key, val) do
+  def put({:regexp, _, _, ref} = regexp, key, val) do
     key = normalize_key(key)
 
     desc = Heap.get_prop_desc(ref, key)
@@ -289,6 +289,9 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         "unicodeSets",
         "sticky"
       ] and desc == nil ->
+        reject_failed_write!()
+
+      not RegexpState.has_property?(ref, key) and not Heap.extensible?(regexp) ->
         reject_failed_write!()
 
       true ->
