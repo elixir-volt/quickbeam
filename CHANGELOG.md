@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Update optional `npm_ex` dependency to 0.7.4
+
 ## 0.10.13
 
 - Bump OXC to 0.13 (adds `module_types` bundler option)
