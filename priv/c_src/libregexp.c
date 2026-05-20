@@ -1325,59 +1325,6 @@ static int re_parse_term(REParseState *s, bool is_backward_dir)
                 p = s->buf_ptr;
                 if (re_parse_expect(s, &p, ')'))
                     return -1;
-            } else if (p[2] == 'i' || p[2] == 'm' || p[2] == 's' || p[2] == '-') {
-                const uint8_t *q = p + 2;
-                bool old_ignore_case = s->ignore_case;
-                bool old_dotall = s->dotall;
-                int old_re_flags = s->re_flags;
-                bool removing = false;
-
-                while (*q == 'i' || *q == 'm' || *q == 's' || *q == '-') {
-                    if (*q == '-') {
-                        if (removing)
-                            return re_parse_error(s, "invalid group");
-                        removing = true;
-                        q++;
-                        continue;
-                    }
-                    if (*q == 'i') {
-                        if (removing) {
-                            s->ignore_case = false;
-                            s->re_flags &= ~LRE_FLAG_IGNORECASE;
-                        } else {
-                            s->ignore_case = true;
-                            s->re_flags |= LRE_FLAG_IGNORECASE;
-                        }
-                    } else if (*q == 's') {
-                        if (removing) {
-                            s->dotall = false;
-                            s->re_flags &= ~LRE_FLAG_DOTALL;
-                        } else {
-                            s->dotall = true;
-                            s->re_flags |= LRE_FLAG_DOTALL;
-                        }
-                    } else if (*q == 'm') {
-                        if (removing)
-                            s->re_flags &= ~LRE_FLAG_MULTILINE;
-                        else
-                            s->re_flags |= LRE_FLAG_MULTILINE;
-                    }
-                    q++;
-                }
-                if (*q != ':')
-                    return re_parse_error(s, "invalid group");
-                p = q + 1;
-                last_atom_start = s->byte_code.size;
-                last_capture_count = s->capture_count;
-                s->buf_ptr = p;
-                if (re_parse_disjunction(s, is_backward_dir))
-                    return -1;
-                p = s->buf_ptr;
-                s->ignore_case = old_ignore_case;
-                s->dotall = old_dotall;
-                s->re_flags = old_re_flags;
-                if (re_parse_expect(s, &p, ')'))
-                    return -1;
             } else if ((p[2] == '=' || p[2] == '!')) {
                 is_neg = (p[2] == '!');
                 is_backward_lookahead = false;
@@ -1587,28 +1534,14 @@ static int re_parse_term(REParseState *s, bool is_backward_dir)
             if (ret)
                 return -1;
         } else {
-            if (s->ignore_case) {
-                int folded = lre_canonicalize(c, s->is_unicode);
-                if (folded != c) {
-                    cr_init(cr, s->opaque, lre_realloc);
-                    if (cr_union_interval(cr, c, c) ||
-                        cr_union_interval(cr, folded, folded) ||
-                        re_emit_range(s, cr)) {
-                        cr_free(cr);
-                        return -1;
-                    }
-                    cr_free(cr);
-                    goto normal_char_done;
-                }
-                c = folded;
-            }
+            if (s->ignore_case)
+                c = lre_canonicalize(c, s->is_unicode);
             if (c <= 0x7f)
                 re_emit_op_u8(s, REOP_char8, c);
             else if (c <= 0xffff)
                 re_emit_op_u16(s, REOP_char16, c);
             else
                 re_emit_op_u32(s, REOP_char32, c);
-        normal_char_done: ;
         }
         if (is_backward_dir)
             re_emit_op(s, REOP_prev);

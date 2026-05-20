@@ -1446,16 +1446,9 @@ int cr_regexp_canonicalize(CharRange *cr, bool is_unicode)
     /* the resulting ranges are not necessarily sorted and may overlap */
     cr_sort_and_remove_overlap(&cr_result);
 
-    /* or with the original characters so local ignoreCase modifiers do not depend on
-       the global regexp ignoreCase execution flag */
+    /* or with the character not affected by the case folding */
     cr->len = 0;
     if (cr_op(cr, cr_result.points, cr_result.len, cr_sub.points, cr_sub.len, CR_OP_UNION))
-        goto fail;
-    cr_sub.len = 0;
-    if (cr_op(&cr_sub, cr->points, cr->len, cr_inter.points, cr_inter.len, CR_OP_UNION))
-        goto fail;
-    cr->len = 0;
-    if (cr_op(cr, cr_sub.points, cr_sub.len, NULL, 0, CR_OP_UNION))
         goto fail;
 
     cr_free(&cr_inter);
