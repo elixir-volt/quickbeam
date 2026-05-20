@@ -148,11 +148,16 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp object_proto_get(target), do: Prototype.get(target)
 
-  defp object_proto_set(_args, target) when target in [nil, :undefined], do: :undefined
+  defp object_proto_set(_args, target) when target in [nil, :undefined] do
+    throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
+  end
 
   defp object_proto_set([proto | _], {:obj, ref} = target) do
     if proto == nil or match?({:obj, _}, proto) do
       cond do
+        Prototype.get(target) == proto ->
+          :ok
+
         target == Heap.get_object_prototype() and proto != nil ->
           throw({:js_throw, Heap.make_error("Cannot set immutable prototype", "TypeError")})
 
