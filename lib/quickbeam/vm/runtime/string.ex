@@ -1800,6 +1800,8 @@ defmodule QuickBEAM.VM.Runtime.String do
   def regexp_split(s, regexp, limit),
     do: split(stringify_search_string(s), [regexp, limit])
 
+  defp split_regexp_object(_s, _splitter, 0), do: []
+
   defp split_regexp_object(s, splitter, limit) do
     case s do
       "" -> split_empty_with_exec(s, splitter)
