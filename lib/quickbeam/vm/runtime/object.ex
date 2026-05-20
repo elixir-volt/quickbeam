@@ -327,126 +327,62 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp object_to_string(nil), do: "[object Null]"
   defp object_to_string(:undefined), do: "[object Undefined]"
-  defp object_to_string(value) when is_binary(value), do: object_tag(value, "String")
-  defp object_to_string(value) when is_number(value), do: object_tag(value, "Number")
-  defp object_to_string(value) when is_boolean(value), do: object_tag(value, "Boolean")
 
-  defp object_to_string({:bigint, _} = value), do: object_tag(value, "Object")
-
-  defp object_to_string({:symbol, _} = value), do: object_tag(value, "Object")
-  defp object_to_string({:symbol, _, _} = value), do: object_tag(value, "Object")
-  defp object_to_string({:regexp, _, _} = value), do: object_tag(value, "RegExp")
-  defp object_to_string({:regexp, _, _, _} = value), do: object_tag(value, "RegExp")
-
-  defp object_to_string(%QuickBEAM.VM.Function{} = value),
-    do: object_tag(value, function_tag(value))
-
-  defp object_to_string({tag, _, %QuickBEAM.VM.Function{} = fun} = value)
-       when tag in [:closure, :bound],
-       do: object_tag(value, function_tag(fun))
-
-  defp object_to_string({:bound, _, _, _, _} = value), do: object_tag(value, "Function")
-
-  defp object_to_string({:builtin, name, map} = obj) when is_map(map) do
-    custom_tag = Get.get(obj, {:symbol, "Symbol.toStringTag"})
-    "[object #{if is_binary(custom_tag), do: custom_tag, else: name}]"
+  defp object_to_string(value) do
+    object_tag(value, builtin_to_string_tag(value))
   end
-
-  defp object_to_string({:builtin, _, _}), do: "[object Function]"
-
-  defp object_to_string({:obj, ref} = obj) do
-    tag =
-      case Heap.get_obj(ref, %{}) do
-        list when is_list(list) ->
-          if Heap.get_array_prop(ref, "__arguments__") == true, do: "Arguments", else: "Array"
-
-        {:qb_arr, _} ->
-          if Heap.get_array_prop(ref, "__arguments__") == true, do: "Arguments", else: "Array"
-
-        map when is_map(map) ->
-          cond do
-            Map.has_key?(map, proxy_target()) -> proxy_builtin_tag(map)
-            obj == Heap.get_func_proto() -> "Function"
-            array_prototype_map?(map) -> "Array"
-            (tag = wrapped_primitive_builtin_tag(map)) != nil -> tag
-            Map.has_key?(map, map_data()) -> "Object"
-            Map.has_key?(map, set_data()) -> "Object"
-            Map.has_key?(map, date_ms()) -> "Date"
-            true -> "Object"
-          end
-
-        _ ->
-          "Object"
-      end
-
-    object_tag(obj, tag)
-  end
-
-  defp object_to_string(_value), do: "[object Object]"
 
   defp object_tag(value, fallback) do
-    custom_tag = Get.get(value, {:symbol, "Symbol.toStringTag"})
-    "[object #{if is_binary(custom_tag), do: custom_tag, else: fallback}]"
+    tag = Get.get(value, {:symbol, "Symbol.toStringTag"})
+    "[object #{if is_binary(tag), do: tag, else: fallback}]"
   end
 
-  defp function_tag(%QuickBEAM.VM.Function{func_kind: 1}), do: "GeneratorFunction"
-  defp function_tag(%QuickBEAM.VM.Function{func_kind: 2}), do: "AsyncFunction"
-  defp function_tag(%QuickBEAM.VM.Function{func_kind: 3}), do: "AsyncGeneratorFunction"
-  defp function_tag(_), do: "Function"
+  defp builtin_to_string_tag(value) when is_binary(value), do: "String"
+  defp builtin_to_string_tag(value) when is_number(value), do: "Number"
+  defp builtin_to_string_tag(value) when is_boolean(value), do: "Boolean"
+  defp builtin_to_string_tag({:regexp, _, _}), do: "RegExp"
+  defp builtin_to_string_tag({:regexp, _, _, _}), do: "RegExp"
 
-  defp wrapped_primitive_builtin_tag(map) do
-    case WrappedPrimitive.type(map) do
-      nil -> nil
-      :bigint -> "Object"
-      type when type in [:symbol] -> "Object"
-      _ -> WrappedPrimitive.tag(map)
+  defp builtin_to_string_tag(value) do
+    cond do
+      QuickBEAM.VM.Builtin.callable?(value) -> "Function"
+      true -> object_builtin_to_string_tag(value)
     end
   end
 
-  defp proxy_builtin_tag(%{proxy_target() => target}) do
-    case target do
-      {:obj, target_ref} ->
-        case Heap.get_obj(target_ref, %{}) do
-          list when is_list(list) ->
-            if Heap.get_array_prop(target_ref, "__arguments__") == true,
-              do: "Arguments",
-              else: "Array"
+  defp object_builtin_to_string_tag({:obj, ref}) do
+    ref
+    |> Heap.get_obj(%{})
+    |> object_storage_to_string_tag(ref)
+  end
 
-          {:qb_arr, _} ->
-            if Heap.get_array_prop(target_ref, "__arguments__") == true,
-              do: "Arguments",
-              else: "Array"
+  defp object_builtin_to_string_tag(_value), do: "Object"
 
-          map when is_map(map) and is_map_key(map, proxy_target()) ->
-            proxy_builtin_tag(map)
+  defp object_storage_to_string_tag(data, ref) when is_list(data), do: array_or_arguments_tag(ref)
+  defp object_storage_to_string_tag({:qb_arr, _}, ref), do: array_or_arguments_tag(ref)
 
-          map when is_map(map) ->
-            if (tag = wrapped_primitive_builtin_tag(map)) != nil, do: tag, else: "Object"
+  defp object_storage_to_string_tag(map, _ref) when is_map(map) do
+    cond do
+      Map.has_key?(map, proxy_target()) -> builtin_to_string_tag(Map.fetch!(map, proxy_target()))
+      array_prototype_map?(map) -> "Array"
+      Map.has_key?(map, date_ms()) -> "Date"
+      Map.has_key?(map, "__error_name__") -> "Error"
+      true -> wrapped_or_ordinary_object_tag(map)
+    end
+  end
 
-          _ ->
-            "Object"
-        end
+  defp object_storage_to_string_tag(_data, _ref), do: "Object"
 
-      %QuickBEAM.VM.Function{} ->
-        "Function"
+  defp array_or_arguments_tag(ref) do
+    if Heap.get_array_prop(ref, "__arguments__") == true, do: "Arguments", else: "Array"
+  end
 
-      {:closure, _, %QuickBEAM.VM.Function{}} ->
-        "Function"
-
-      {:bound, _, _, _, _} ->
-        "Function"
-
-      {:builtin, _, _} ->
-        "Function"
-
-      {:regexp, _, _, _} ->
-        "RegExp"
-
-      {:regexp, _, _} ->
-        "RegExp"
-
-      _ ->
-        "Object"
+  defp wrapped_or_ordinary_object_tag(map) do
+    case WrappedPrimitive.type(map) do
+      :string -> "String"
+      :number -> "Number"
+      :boolean -> "Boolean"
+      _ -> "Object"
     end
   end
 
