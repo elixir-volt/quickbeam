@@ -927,6 +927,8 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
        when key in [key_order(), proto(), proxy_target(), proxy_handler(), :__internal_proto__],
        do: true
 
+  defp descriptor_internal_key?({:internal, _}), do: true
+
   defp descriptor_internal_key?(key) when is_binary(key),
     do: String.starts_with?(key, "__") and String.ends_with?(key, "__")
 
