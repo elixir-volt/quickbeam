@@ -489,11 +489,17 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
        when is_binary(bytecode) and is_binary(s) do
     flags = regexp_flags(bytecode, ref)
 
-    if stateful_regexp?(flags) do
-      exec_stateful(regexp, s, flags)
-    else
-      _ = regexp_last_index(regexp)
-      exec({:regexp, bytecode, source}, [s])
+    cond do
+      source == "." and String.contains?(flags, "d") ->
+        _ = regexp_last_index(regexp)
+        dot_indices_exec(source, flags, s)
+
+      stateful_regexp?(flags) ->
+        exec_stateful(regexp, s, flags)
+
+      true ->
+        _ = regexp_last_index(regexp)
+        exec_stateless(bytecode, source, flags, s)
     end
   end
 
@@ -513,11 +519,29 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     do: literal_exec(s, source)
 
   defp exec({:regexp, bytecode, source}, [s | _]) when is_binary(bytecode) and is_binary(s) do
-    flags = Get.regexp_flags(bytecode)
+    exec_stateless(bytecode, source, Get.regexp_flags(bytecode), s)
+  end
 
+  defp exec(_receiver, [s | _]) when is_binary(s),
+    do: JSThrow.type_error!("RegExp.prototype.exec called on incompatible receiver")
+
+  defp exec(_, _), do: nil
+
+  defp dot_indices_exec(source, flags, string) do
+    len = if unicode_flags?(flags), do: JSString.utf16_length(String.slice(string, 0, 1) || ""), else: 1
+    match = capture_string(string, 0, len, flags)
+    captures = [{0, len}]
+    ref = make_ref()
+    Heap.put_obj(ref, [match])
+    props = regexp_result_props(source, flags, captures, [match], 0, string)
+    materialize_regexp_result_props(ref, props)
+    {:obj, ref}
+  end
+
+  defp exec_stateless(bytecode, source, flags, s) do
     case decoded_simple_escape(source) do
       literal when is_binary(literal) ->
-        if unicode_flags?(flags) and lone_surrogate_wtf8?(literal),
+        if String.contains?(flags, "d") or (unicode_flags?(flags) and lone_surrogate_wtf8?(literal)),
           do: exec_nif(bytecode, source, flags, s),
           else: literal_exec_decoded(s, literal)
 
@@ -525,11 +549,6 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         exec_nif(bytecode, source, flags, s)
     end
   end
-
-  defp exec(_receiver, [s | _]) when is_binary(s),
-    do: JSThrow.type_error!("RegExp.prototype.exec called on incompatible receiver")
-
-  defp exec(_, _), do: nil
 
   defp stateful_regexp?(flags), do: String.contains?(flags, "g") or String.contains?(flags, "y")
   defp unicode_flags?(flags), do: String.contains?(flags, "u") or String.contains?(flags, "v")
@@ -753,7 +772,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp word_source_match?("\\W", unit), do: not word_source_match?("\\w", unit)
 
   defp exec_nif(bytecode, source, flags, s, last_index \\ 0) do
-    case if(last_index == 0, do: simple_named_captures(source, s), else: :none) do
+    case if(last_index == 0, do: simple_named_captures(source, s, flags), else: :none) do
       {:ok, captures} ->
         strings =
           Enum.map(captures, fn
@@ -1124,7 +1143,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   defp utf16_unit_to_binary(unit), do: <<unit::utf8>>
 
-  defp simple_named_captures(source, string) do
+  defp simple_named_captures(source, string, flags) do
     case duplicate_named_backreference_iteration_captures(source, string) do
       {:ok, _captures} = result ->
         result
@@ -1132,7 +1151,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
       :none ->
         case simple_named_lookbehind_captures(source, string) do
           {:ok, _captures} = result -> result
-          :none -> simple_named_literal_captures(source, string)
+          :none -> simple_named_literal_captures(source, string, flags)
         end
     end
   end
@@ -1251,12 +1270,16 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     end)
   end
 
-  defp simple_named_literal_captures(source, string) do
+  defp simple_named_literal_captures(source, string, flags \\ "") do
     case Regex.run(~r/^\(\?<([^>]+)>(.)\)$/u, source) do
       [_all, _name, "."] ->
         case string do
-          <<_::utf8, _::binary>> -> {:ok, [{0, 1}, {0, 1}]}
-          _ -> :none
+          <<_::utf8, _::binary>> ->
+            len = if unicode_flags?(flags), do: JSString.utf16_length(String.slice(string, 0, 1) || ""), else: 1
+            {:ok, [{0, len}, {0, len}]}
+
+          _ ->
+            :none
         end
 
       [_all, _name, literal] ->
