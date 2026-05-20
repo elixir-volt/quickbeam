@@ -12,7 +12,16 @@ defmodule QuickBEAM.VM.ObjectKeysTest do
   arr.a = 1;
   Object.defineProperty(arr, "length", { value: 2 });
 
-  [threw, Object.keys(foo).join(','), Object.getOwnPropertyNames(arr).join(',')];
+  var fn = () => {};
+  fn.a = 1;
+  Object.defineProperty(fn, "length", { enumerable: true });
+
+  [
+    threw,
+    Object.keys(foo).join(','),
+    Object.getOwnPropertyNames(arr).join(','),
+    Object.keys(fn).join(',')
+  ];
   '''
 
   for mode <- [:beam, :beam_compiler] do
@@ -20,7 +29,10 @@ defmodule QuickBEAM.VM.ObjectKeysTest do
 
     test "#{mode} Object.keys handles nullish, callable objects, and sparse arrays" do
       {:ok, runtime} = QuickBEAM.start(apis: false)
-      assert {:ok, [true, "x", "length,a"]} = QuickBEAM.eval(runtime, @source, mode: @mode)
+
+      assert {:ok, [true, "x", "length,a", "length,a"]} =
+               QuickBEAM.eval(runtime, @source, mode: @mode)
+
       QuickBEAM.stop(runtime)
     end
   end

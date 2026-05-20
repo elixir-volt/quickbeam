@@ -198,7 +198,6 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
     do: not match?(%{enumerable: false}, Heap.get_prop_desc(ref, key))
 
   def enumerable?({:builtin, "Object", _}, "assign"), do: false
-  def enumerable?({:builtin, _, _}, key) when key in ["length", "name"], do: false
 
   def enumerable?({:builtin, _, _} = target, key) do
     case descriptor(target, key) do
@@ -208,8 +207,12 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   end
 
   def enumerable?(target, key)
-      when key in ["length", "name", "prototype"] and (is_tuple(target) or is_struct(target)),
-      do: false
+      when key in ["length", "name", "prototype"] and (is_tuple(target) or is_struct(target)) do
+    case descriptor(target, key) do
+      {:obj, desc_ref} -> QuickBEAM.VM.ObjectModel.Get.get({:obj, desc_ref}, "enumerable") == true
+      _ -> false
+    end
+  end
 
   def enumerable?(string, key) when is_binary(string), do: key != "length"
   def enumerable?(_target, _key), do: true
@@ -259,6 +262,11 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   end
 
   def own_keys({:bound, _, _, _, _} = bound), do: callable_descriptor_keys(bound)
+
+  def own_keys({:regexp, _, _, ref}) do
+    keys = RegexpState.get(ref) |> Map.keys() |> Enum.reject(&descriptor_internal_key?/1)
+    (["lastIndex"] ++ (Enum.reverse(keys) -- ["lastIndex"])) |> Enum.uniq()
+  end
 
   def own_keys(string) when is_binary(string),
     do: array_indices(Get.string_length(string)) ++ ["length"]
@@ -936,6 +944,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
     ref
     |> Heap.get_array_props()
     |> Map.keys()
+    |> Enum.reverse()
     |> Enum.reject(&(&1 == "length" or descriptor_internal_key?(&1)))
   end
 end
