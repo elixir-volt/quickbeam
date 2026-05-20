@@ -488,6 +488,10 @@ defmodule QuickBEAM.VM.Runtime.Object do
         freeze_object(obj)
         obj
 
+      {:regexp, _, _, ref} = regexp ->
+        freeze_regexp(regexp, ref)
+        regexp
+
       callable when is_tuple(callable) or is_struct(callable) ->
         freeze_callable(callable)
         callable
@@ -570,8 +574,11 @@ defmodule QuickBEAM.VM.Runtime.Object do
             end
 
           Heap.put_ctor_prop_desc(callable, key, attrs)
+          Heap.put_prop_desc(callable, key, attrs)
       end
     end
+
+    Heap.prevent_extensions(callable)
   end
 
   defp seal_callable(callable) do
@@ -590,6 +597,29 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp callable_descriptor_attrs(callable, key) do
     Heap.get_ctor_prop_desc(callable, key) ||
       %{writable: true, enumerable: true, configurable: true}
+  end
+
+  defp freeze_regexp(regexp, ref) do
+    for key <- OwnProperty.descriptor_keys(regexp) do
+      case OwnProperty.descriptor(regexp, key) do
+        :undefined ->
+          :ok
+
+        desc ->
+          attrs = descriptor_attrs_from_object(desc)
+
+          attrs =
+            if Get.get(desc, "writable") == :undefined do
+              Map.put(attrs, :configurable, false)
+            else
+              %{attrs | writable: false, configurable: false}
+            end
+
+          Heap.put_prop_desc(ref, key, attrs)
+      end
+    end
+
+    Heap.prevent_extensions(regexp)
   end
 
   defp freeze_object({:obj, ref} = obj) do
@@ -737,16 +767,17 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp descriptor_attrs(target, key) do
     case OwnProperty.descriptor(target, key) do
-      {:obj, _} = desc ->
-        %{
-          writable: Get.get(desc, "writable") == true,
-          enumerable: Get.get(desc, "enumerable") == true,
-          configurable: Get.get(desc, "configurable") == true
-        }
-
-      _ ->
-        %{writable: true, enumerable: true, configurable: true}
+      {:obj, _} = desc -> descriptor_attrs_from_object(desc)
+      _ -> %{writable: true, enumerable: true, configurable: true}
     end
+  end
+
+  defp descriptor_attrs_from_object(desc) do
+    %{
+      writable: Get.get(desc, "writable") == true,
+      enumerable: Get.get(desc, "enumerable") == true,
+      configurable: Get.get(desc, "configurable") == true
+    }
   end
 
   defp frozen_object_like?(target) do
