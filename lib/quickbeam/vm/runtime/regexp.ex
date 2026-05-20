@@ -189,7 +189,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   defp test({:regexp, bytecode, source, ref} = regexp, [s | _]) when is_binary(s) do
     cond do
-      source in ["^\\p{ASCII}+$", "^\\P{ASCII}+$"] ->
+      ascii_property_escape_source?(source) ->
         ascii_property_escape_test(source, s)
 
       source == "^.$" ->
@@ -205,7 +205,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   defp test({:regexp, bytecode, source} = regexp, [s | _]) when is_binary(s) do
     cond do
-      source in ["^\\p{ASCII}+$", "^\\P{ASCII}+$"] ->
+      ascii_property_escape_source?(source) ->
         ascii_property_escape_test(source, s)
 
       source == "^.$" ->
@@ -331,11 +331,37 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
   defp class_escape_test(_, _), do: :none
 
+  defp ascii_property_escape_source?(source),
+    do:
+      source in [
+        "^\\p{ASCII}+$",
+        "^\\P{ASCII}+$",
+        "^\\p{ASCII_Hex_Digit}+$",
+        "^\\P{ASCII_Hex_Digit}+$",
+        "^\\p{AHex}+$",
+        "^\\P{AHex}+$"
+      ]
+
   defp ascii_property_escape_test("^\\p{ASCII}+$", string), do: ascii_only_string?(string)
   defp ascii_property_escape_test("^\\P{ASCII}+$", string), do: string != "" and not ascii_only_string?(string)
 
+  defp ascii_property_escape_test(source, string)
+       when source in ["^\\p{ASCII_Hex_Digit}+$", "^\\p{AHex}+$"],
+       do: ascii_hex_digit_string?(string)
+
+  defp ascii_property_escape_test(source, string)
+       when source in ["^\\P{ASCII_Hex_Digit}+$", "^\\P{AHex}+$"],
+       do: string != "" and not ascii_hex_digit_string?(string)
+
   defp ascii_only_string?(string),
     do: string != "" and (string |> :binary.bin_to_list() |> Enum.all?(&(&1 <= 0x7F)))
+
+  defp ascii_hex_digit_string?(string) do
+    string != "" and
+      (string
+       |> :binary.bin_to_list()
+       |> Enum.all?(fn ch -> ch in ?0..?9 or ch in ?A..?F or ch in ?a..?f end))
+  end
 
   defp any_pattern?(string, class), do: :binary.match(string, class_pattern(class)) != :nomatch
 
