@@ -13,7 +13,10 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
   def delete_property(nil, key) do
     throw(
       {:js_throw,
-       Heap.make_error("Cannot delete properties of null (deleting '#{key}')", "TypeError")}
+       Heap.make_error(
+         "Cannot delete properties of null (deleting '#{key_label(key)}')",
+         "TypeError"
+       )}
     )
   end
 
@@ -21,7 +24,7 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
     throw(
       {:js_throw,
        Heap.make_error(
-         "Cannot delete properties of undefined (deleting '#{key}')",
+         "Cannot delete properties of undefined (deleting '#{key_label(key)}')",
          "TypeError"
        )}
     )
@@ -58,6 +61,8 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
   def delete_property(_obj, _key), do: true
 
   defp delete_object_property({:obj, ref}, key) do
+    key = PropertyKey.normalize(key)
+
     if key in ["caller", "arguments"] and Heap.get_func_proto() == {:obj, ref} do
       Heap.put_prop_desc(ref, key, :deleted)
       true
@@ -226,7 +231,7 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
   defp delete_array_property(_ref, "length"), do: false
 
   defp delete_array_property(ref, key) do
-    key = if is_binary(key), do: key, else: Values.stringify(key)
+    key = PropertyKey.normalize(key)
 
     case PropertyKey.array_index(key) do
       {:ok, idx} ->
@@ -259,6 +264,10 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
         end
     end
   end
+
+  defp key_label({:symbol, name}), do: name
+  defp key_label({:symbol, name, _}), do: name
+  defp key_label(key), do: Values.stringify(key)
 
   defp delete_mapped_argument(ref, idx) do
     case Heap.get_array_prop(ref, "__mapped_arguments__") do
