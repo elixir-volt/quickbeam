@@ -53,6 +53,18 @@ defmodule QuickBEAM.VM.Heap.GCTest do
     assert Heap.extensible?(ref)
     assert Heap.get_prop_desc(ref, "x") == nil
     assert Heap.get_array_props(ref) == %{}
+    assert Process.get({:qb_prop_desc_index, ref}) == nil
+  end
+
+  test "gc marks through indexed constructor descriptor values" do
+    ctor = {:builtin, "Ctor", fn _, _ -> :undefined end}
+    {:obj, child_ref} = child = Heap.wrap(%{"kept" => true})
+
+    Heap.put_ctor_prop_desc(ctor, "child", %{value: child})
+
+    Heap.gc([ctor])
+
+    assert Map.get(Heap.get_obj(child_ref), "kept") == true
   end
 
   test "gc resets allocation accounting flags" do

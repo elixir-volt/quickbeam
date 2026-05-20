@@ -289,13 +289,36 @@ defmodule QuickBEAM.VM.Heap.Store do
   end
 
   def get_prop_desc(ref, key), do: Process.get({:qb_prop_desc, ref, key})
-  def put_prop_desc(ref, key, desc), do: Process.put({:qb_prop_desc, ref, key}, desc)
-  def delete_prop_desc(ref, key), do: Process.delete({:qb_prop_desc, ref, key})
+
+  def put_prop_desc(ref, key, desc) do
+    Process.put({:qb_prop_desc, ref, key}, desc)
+    Process.put({:qb_prop_desc_index, ref}, Map.put(prop_desc_index(ref), key, desc))
+  end
+
+  def delete_prop_desc(ref, key) do
+    Process.delete({:qb_prop_desc, ref, key})
+    Process.put({:qb_prop_desc_index, ref}, Map.delete(prop_desc_index(ref), key))
+  end
+
+  def prop_desc_values(ref), do: Map.values(prop_desc_index(ref))
+
+  defp prop_desc_index(ref), do: Process.get({:qb_prop_desc_index, ref}, %{})
 
   def get_ctor_prop_desc(ctor, key), do: Process.get({:qb_ctor_prop_desc, ctor_key(ctor), key})
 
-  def put_ctor_prop_desc(ctor, key, desc),
-    do: Process.put({:qb_ctor_prop_desc, ctor_key(ctor), key}, desc)
+  def put_ctor_prop_desc(ctor, key, desc) do
+    owner = ctor_key(ctor)
+    Process.put({:qb_ctor_prop_desc, owner, key}, desc)
+
+    Process.put(
+      {:qb_ctor_prop_desc_index, owner},
+      Map.put(ctor_prop_desc_index(owner), key, desc)
+    )
+  end
+
+  def ctor_prop_desc_values(owner), do: Map.values(ctor_prop_desc_index(owner))
+
+  defp ctor_prop_desc_index(owner), do: Process.get({:qb_ctor_prop_desc_index, owner}, %{})
 
   def get_array_props(ref), do: Process.get({:qb_array_props, ref}, %{})
 

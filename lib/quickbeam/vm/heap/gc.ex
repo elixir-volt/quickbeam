@@ -20,7 +20,9 @@ defmodule QuickBEAM.VM.Heap.GC do
   def gc(extra_roots \\ []) do
     module_roots = Registry.all_module_exports()
     persistent_roots = Context.get_persistent_globals() |> Map.values()
-    all_roots = List.wrap(extra_roots) ++ module_roots ++ persistent_roots ++ process_cache_roots()
+
+    all_roots =
+      List.wrap(extra_roots) ++ module_roots ++ persistent_roots ++ process_cache_roots()
 
     marked = mark(all_roots, MapSet.new())
     sweep(marked)
@@ -140,16 +142,11 @@ defmodule QuickBEAM.VM.Heap.GC do
   end
 
   defp descriptor_values(ref) do
-    Process.get_keys()
+    ref
+    |> Store.prop_desc_values()
     |> Enum.flat_map(fn
-      {:qb_prop_desc, ^ref, _key} = desc_key ->
-        case Process.get(desc_key) do
-          desc when is_map(desc) -> Map.values(desc)
-          value -> [value]
-        end
-
-      _ ->
-        []
+      desc when is_map(desc) -> Map.values(desc)
+      value -> [value]
     end)
   end
 
@@ -172,18 +169,12 @@ defmodule QuickBEAM.VM.Heap.GC do
   defp quickbeam_cache_key?(_), do: false
 
   defp callable_side_children(callable) do
-    owner = ctor_key(callable)
-
-    Process.get_keys()
+    callable
+    |> ctor_key()
+    |> Store.ctor_prop_desc_values()
     |> Enum.flat_map(fn
-      {:qb_ctor_prop_desc, ^owner, _key} = desc_key ->
-        case Process.get(desc_key) do
-          desc when is_map(desc) -> Map.values(desc)
-          value -> [value]
-        end
-
-      _ ->
-        []
+      desc when is_map(desc) -> Map.values(desc)
+      value -> [value]
     end)
   end
 
@@ -218,17 +209,23 @@ defmodule QuickBEAM.VM.Heap.GC do
   defp regexp_state_key?(key), do: RegexpState.key?(key)
 
   defp owner_side_table_key?({:qb_prop_desc, _, _}), do: true
+  defp owner_side_table_key?({:qb_prop_desc_index, _}), do: true
   defp owner_side_table_key?({:qb_array_props, _}), do: true
   defp owner_side_table_key?({:qb_frozen, _}), do: true
   defp owner_side_table_key?({:qb_non_extensible, _}), do: true
   defp owner_side_table_key?({:qb_key_order, _}), do: true
   defp owner_side_table_key?({:qb_ctor_prop_desc, _, _}), do: true
+  defp owner_side_table_key?({:qb_ctor_prop_desc_index, _}), do: true
   defp owner_side_table_key?({:qb_ctor_statics, _}), do: true
   defp owner_side_table_key?({:qb_class_proto, _}), do: true
   defp owner_side_table_key?({:qb_parent_ctor, _}), do: true
   defp owner_side_table_key?(_), do: false
 
   defp side_table_owner_marked?({:qb_prop_desc, ref, _}, marked), do: MapSet.member?(marked, ref)
+
+  defp side_table_owner_marked?({:qb_prop_desc_index, ref}, marked),
+    do: MapSet.member?(marked, ref)
+
   defp side_table_owner_marked?({:qb_array_props, ref}, marked), do: MapSet.member?(marked, ref)
   defp side_table_owner_marked?({:qb_frozen, ref}, marked), do: MapSet.member?(marked, ref)
 
@@ -238,6 +235,9 @@ defmodule QuickBEAM.VM.Heap.GC do
   defp side_table_owner_marked?({:qb_key_order, ref}, marked), do: MapSet.member?(marked, ref)
 
   defp side_table_owner_marked?({:qb_ctor_prop_desc, owner, _}, marked),
+    do: MapSet.member?(marked, owner)
+
+  defp side_table_owner_marked?({:qb_ctor_prop_desc_index, owner}, marked),
     do: MapSet.member?(marked, owner)
 
   defp side_table_owner_marked?({:qb_ctor_statics, owner}, marked),

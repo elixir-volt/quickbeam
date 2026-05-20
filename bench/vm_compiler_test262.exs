@@ -123,7 +123,7 @@ compiler_error? = fn
 end
 
 case_timeout = String.to_integer(System.get_env("TEST262_CASE_TIMEOUT", "5000"))
-use_context_pool? = System.get_env("TEST262_CONTEXT_POOL") in ["1", "true", "TRUE"]
+use_context_pool? = System.get_env("TEST262_CONTEXT_POOL", "1") not in ["0", "false", "FALSE"]
 
 pooled_contexts =
   if use_context_pool? do
