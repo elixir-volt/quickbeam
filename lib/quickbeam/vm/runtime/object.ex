@@ -1515,9 +1515,20 @@ defmodule QuickBEAM.VM.Runtime.Object do
     throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
   end
 
-  defp values([{:obj, ref} = obj | _]) do
-    data = Heap.get_obj(ref, %{})
-    Heap.wrap(Enum.map(enumerable_keys(ref), fn key -> enumerable_value(obj, data, key) end))
+  defp values([{:obj, _ref} = obj | _]) do
+    obj
+    |> OwnProperty.descriptor_keys()
+    |> Enum.filter(&is_binary/1)
+    |> Enum.flat_map(fn key ->
+      case OwnProperty.descriptor(obj, key) do
+        {:obj, _} = desc ->
+          if Get.get(desc, "enumerable") == true, do: [Get.get(obj, key)], else: []
+
+        _ ->
+          []
+      end
+    end)
+    |> Heap.wrap()
   end
 
   defp values([map | _]) when is_map(map), do: Map.values(map)
