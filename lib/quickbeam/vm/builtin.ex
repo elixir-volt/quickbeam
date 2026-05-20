@@ -157,6 +157,19 @@ defmodule QuickBEAM.VM.Builtin do
   def named_meta("defineProperties"),
     do: meta("defineProperties", [length: 2, constructable: false], :static)
 
+  def named_meta(name)
+      when name in [
+             "getOwnPropertyDescriptor",
+             "getOwnPropertyDescriptors",
+             "getOwnPropertyNames",
+             "getOwnPropertySymbols",
+             "getPrototypeOf"
+           ],
+      do: meta(name, [length: 1, constructable: false], :static)
+
+  def named_meta("hasOwn"), do: meta("hasOwn", [length: 2, constructable: false], :static)
+  def named_meta("groupBy"), do: meta("groupBy", [length: 2, constructable: false], :static)
+
   def named_meta("parse"), do: meta("parse", [length: 2, constructable: false], :static)
   def named_meta("stringify"), do: meta("stringify", [length: 3, constructable: false], :static)
   def named_meta("rawJSON"), do: meta("rawJSON", [length: 1, constructable: false], :static)
