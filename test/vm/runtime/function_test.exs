@@ -16,4 +16,12 @@ defmodule QuickBEAM.VM.Runtime.FunctionTest do
       "TypeError"
     )
   end
+
+  test "calling saved builtin methods preserves mutated constructor prototypes", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S<const old = Number.prototype.toLocaleString; const proto = Number.prototype; proto.marker = 123; old.call(0); [Number.prototype === proto, Number.prototype.marker].join("|")>,
+      "true|123"
+    )
+  end
 end

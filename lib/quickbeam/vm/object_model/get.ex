@@ -802,11 +802,25 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp builtin_static_property({:builtin, _name, _} = builtin, key) do
     statics = Heap.get_ctor_statics(builtin)
 
-    if statics != %{} or Heap.get_class_proto(builtin) != nil do
-      QuickBEAM.VM.Runtime.Constructors.static_property(builtin, key)
-    else
-      builtin_function_property(builtin, key)
+    case Map.fetch(statics, key) do
+      {:ok, :deleted} ->
+        :undefined
+
+      {:ok, value} ->
+        value
+
+      :error ->
+        if constructor_metadata?(builtin, statics) do
+          QuickBEAM.VM.Runtime.Constructors.static_property(builtin, key)
+        else
+          builtin_function_property(builtin, key)
+        end
     end
+  end
+
+  defp constructor_metadata?(builtin, statics) do
+    Heap.get_class_proto(builtin) != nil or Map.has_key?(statics, "prototype") or
+      Map.has_key?(statics, :__module__)
   end
 
   defp builtin_function_property({:builtin, name, _}, "name"), do: name
