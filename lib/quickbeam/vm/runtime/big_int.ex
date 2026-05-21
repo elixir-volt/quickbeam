@@ -9,6 +9,7 @@ defmodule QuickBEAM.VM.Runtime.BigInt do
     constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.bigint/2,
     length: 1,
     phase: :fundamental,
+    constructable: false,
     after_install: &__MODULE__.install_builtin/1
   )
 

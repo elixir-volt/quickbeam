@@ -19,6 +19,7 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     target = Keyword.get(opts, :target, :global)
     ctor = make_constructor(definition, target)
 
+    install_constructor_metadata(ctor, definition)
     install_constructor_length(ctor, definition)
     Heap.put_ctor_prop_desc(ctor, "prototype", definition.prototype_descriptor)
     install_prototype(ctor, definition, target)
@@ -51,6 +52,17 @@ defmodule QuickBEAM.VM.Builtin.Installer do
 
     Constructors.put_prototype(ctor, proto)
     ctor
+  end
+
+  defp install_constructor_metadata(ctor, %Definition{} = definition) do
+    Heap.put_ctor_static(
+      ctor,
+      :__builtin_meta__,
+      QuickBEAM.VM.Builtin.meta(definition.name,
+        length: definition.length || 0,
+        constructable: definition.constructable?
+      )
+    )
   end
 
   defp install_constructor_length(_ctor, %Definition{length: nil}), do: :ok

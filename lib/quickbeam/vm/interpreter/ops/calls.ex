@@ -116,8 +116,12 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
             %QuickBEAM.VM.Function{} = f ->
               f
 
-            {:builtin, name, cb} when is_function(cb) ->
-              case QuickBEAM.VM.Builtin.named_meta(name) do
+            {:builtin, name, cb} = builtin when is_function(cb) ->
+              meta =
+                Map.get(Heap.get_ctor_statics(builtin), :__builtin_meta__) ||
+                  QuickBEAM.VM.Builtin.named_meta(name)
+
+              case meta do
                 %QuickBEAM.VM.Builtin.Meta{constructable?: false} ->
                   JSThrow.type_error!("#{name} is not a constructor")
 

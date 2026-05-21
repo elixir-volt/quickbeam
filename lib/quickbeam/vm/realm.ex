@@ -51,6 +51,13 @@ defmodule QuickBEAM.VM.Realm do
     string_ctor = make_constructor("String", &Constructors.string/2, string_proto)
     Heap.put_obj_key(elem(string_proto, 1), "constructor", string_ctor)
 
+    symbol_ctor =
+      QuickBEAM.VM.Builtin.Installer.install(QuickBEAM.VM.Runtime.Symbol.builtin_definition(),
+        target: {:realm, object_proto: object_proto}
+      )
+
+    symbol_proto = Heap.get_class_proto(symbol_ctor)
+
     regexp_proto = Heap.wrap(%{"__proto__" => object_proto})
     regexp_ctor = make_constructor("RegExp", &Constructors.regexp/2, regexp_proto)
     Heap.put_obj_key(elem(regexp_proto, 1), "constructor", regexp_ctor)
@@ -151,6 +158,7 @@ defmodule QuickBEAM.VM.Realm do
         boolean_proto,
         number_proto,
         string_proto,
+        symbol_proto,
         regexp_proto,
         date_proto,
         data_view_proto,
@@ -175,6 +183,7 @@ defmodule QuickBEAM.VM.Realm do
         boolean_proto,
         number_proto,
         string_proto,
+        symbol_proto,
         regexp_proto,
         date_proto,
         data_view_proto,
@@ -202,6 +211,7 @@ defmodule QuickBEAM.VM.Realm do
         "Boolean" => boolean_ctor,
         "Number" => number_ctor,
         "String" => string_ctor,
+        "Symbol" => symbol_ctor,
         "RegExp" => regexp_ctor,
         "BigInt" => bigint_ctor,
         "Date" => date_ctor,
@@ -262,6 +272,9 @@ defmodule QuickBEAM.VM.Realm do
       %{string_proto: string_proto} when intrinsic == :string ->
         string_proto
 
+      %{symbol_proto: symbol_proto} when intrinsic == :symbol ->
+        symbol_proto
+
       %{regexp_proto: regexp_proto} when intrinsic == :regexp ->
         regexp_proto
 
@@ -316,6 +329,7 @@ defmodule QuickBEAM.VM.Realm do
   def default_prototype({:builtin, "Boolean", _}, new_target), do: intrinsic(new_target, :boolean)
   def default_prototype({:builtin, "Number", _}, new_target), do: intrinsic(new_target, :number)
   def default_prototype({:builtin, "String", _}, new_target), do: intrinsic(new_target, :string)
+  def default_prototype({:builtin, "Symbol", _}, new_target), do: intrinsic(new_target, :symbol)
   def default_prototype({:builtin, "Date", _}, new_target), do: intrinsic(new_target, :date)
 
   def default_prototype({:builtin, "DataView", _}, new_target),
@@ -633,6 +647,7 @@ defmodule QuickBEAM.VM.Realm do
          boolean_proto,
          number_proto,
          string_proto,
+         symbol_proto,
          regexp_proto,
          date_proto,
          data_view_proto,
@@ -683,6 +698,7 @@ defmodule QuickBEAM.VM.Realm do
           boolean_proto,
           number_proto,
           string_proto,
+          symbol_proto,
           regexp_proto,
           date_proto,
           data_view_proto,
@@ -715,6 +731,7 @@ defmodule QuickBEAM.VM.Realm do
         boolean_proto,
         number_proto,
         string_proto,
+        symbol_proto,
         regexp_proto,
         date_proto,
         data_view_proto,
@@ -789,6 +806,7 @@ defmodule QuickBEAM.VM.Realm do
          boolean_proto,
          number_proto,
          string_proto,
+         symbol_proto,
          regexp_proto,
          date_proto,
          data_view_proto,
@@ -811,6 +829,7 @@ defmodule QuickBEAM.VM.Realm do
       boolean_proto: boolean_proto,
       number_proto: number_proto,
       string_proto: string_proto,
+      symbol_proto: symbol_proto,
       regexp_proto: regexp_proto,
       date_proto: date_proto,
       data_view_proto: data_view_proto,

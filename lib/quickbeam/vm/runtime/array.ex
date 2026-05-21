@@ -2533,7 +2533,11 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   defp constructable_from?({:builtin, name, _} = builtin) do
-    case QuickBEAM.VM.Builtin.named_meta(name) do
+    meta =
+      Map.get(Heap.get_ctor_statics(builtin), :__builtin_meta__) ||
+        QuickBEAM.VM.Builtin.named_meta(name)
+
+    case meta do
       %QuickBEAM.VM.Builtin.Meta{constructable?: true} -> true
       %QuickBEAM.VM.Builtin.Meta{constructable?: false} -> false
       _ -> Heap.get_class_proto(builtin) != nil
