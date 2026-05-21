@@ -134,24 +134,19 @@ defmodule QuickBEAM.VM.Realm do
 
     weak_set_proto = Heap.get_class_proto(weak_set_ctor)
 
-    weak_ref_proto = Heap.wrap(%{"__proto__" => object_proto})
-    weak_ref_ctor = make_constructor("WeakRef", JSWeakRef.constructor(), weak_ref_proto)
-    Heap.put_obj_key(elem(weak_ref_proto, 1), "constructor", weak_ref_ctor)
-
-    finalization_registry_proto = Heap.wrap(%{"__proto__" => object_proto})
-
-    finalization_registry_ctor =
-      make_constructor(
-        "FinalizationRegistry",
-        JSFinalizationRegistry.constructor(),
-        finalization_registry_proto
+    weak_ref_ctor =
+      QuickBEAM.VM.Builtin.Installer.install(JSWeakRef.builtin_definition(),
+        target: {:realm, object_proto: object_proto}
       )
 
-    Heap.put_obj_key(
-      elem(finalization_registry_proto, 1),
-      "constructor",
-      finalization_registry_ctor
-    )
+    weak_ref_proto = Heap.get_class_proto(weak_ref_ctor)
+
+    finalization_registry_ctor =
+      QuickBEAM.VM.Builtin.Installer.install(JSFinalizationRegistry.builtin_definition(),
+        target: {:realm, object_proto: object_proto}
+      )
+
+    finalization_registry_proto = Heap.get_class_proto(finalization_registry_ctor)
 
     function_proto = QuickBEAM.VM.Runtime.Function.prototype(cache: false)
     realm_id = make_ref()
