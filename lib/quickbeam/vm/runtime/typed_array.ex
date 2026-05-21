@@ -266,7 +266,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     end
   end
 
-  defp typed_array_builtin_constructor?({:builtin, name, _}), do: Map.has_key?(types(), name)
+  defp typed_array_builtin_constructor?({:builtin, name, _}), do: constructor_type(name) != nil
   defp typed_array_builtin_constructor?(_), do: false
 
   def static_of(args, constructor) do
@@ -386,7 +386,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp typed_array_instance_proto(_, type), do: class_proto_for(type)
 
   def constructor_static_property(name, _ctor, {:symbol, "Symbol.species"}) do
-    if Map.has_key?(types(), name) do
+    if constructor_type(name) != nil do
       {:accessor, {:builtin, "get [Symbol.species]", fn _args, this -> this end}, nil}
     else
       :undefined
@@ -394,7 +394,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   end
 
   def constructor_static_property(name, ctor, "prototype") do
-    if Map.has_key?(types(), name), do: constructor_prototype(name, ctor), else: :undefined
+    if constructor_type(name) != nil, do: constructor_prototype(name, ctor), else: :undefined
   end
 
   def constructor_static_property(name, _ctor, "BYTES_PER_ELEMENT") do
@@ -405,7 +405,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   end
 
   def constructor_static_property(name, ctor, "from") do
-    if Map.has_key?(types(), name),
+    if constructor_type(name) != nil,
       do: {:builtin, "from", fn args, this -> static_from(args, this || ctor) end},
       else: :undefined
   end
