@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.ObjectModel.Methods do
 
   import Bitwise, only: [band: 2]
 
+  alias QuickBEAM.VM.Execution.DefinitionState
   alias QuickBEAM.VM.{Heap, Names}
   alias QuickBEAM.VM.ObjectModel.{Functions, PropertyDescriptor, Put}
 
@@ -67,14 +68,9 @@ defmodule QuickBEAM.VM.ObjectModel.Methods do
   end
 
   defp put_method(target, key, method, enumerable) do
-    define_static_key = {:qb_define_static_method, target}
-    if match?({:obj, _}, target), do: :ok, else: Process.put(define_static_key, true)
-
-    try do
+    DefinitionState.with_static_method_definition(target, fn ->
       Put.put(target, key, method, enumerable)
-    after
-      Process.delete(define_static_key)
-    end
+    end)
 
     unless match?({:obj, _}, target) do
       Heap.put_ctor_prop_desc(

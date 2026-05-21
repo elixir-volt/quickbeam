@@ -3,7 +3,13 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Value, only: [is_symbol: 1]
 
-  alias QuickBEAM.VM.Execution.{PrimitivePrototypeState, RegexpState, SetterState}
+  alias QuickBEAM.VM.Execution.{
+    DefinitionState,
+    PrimitivePrototypeState,
+    RegexpState,
+    SetterState
+  }
+
   alias QuickBEAM.VM.{Heap, Runtime, RuntimeState, Value}
   alias QuickBEAM.VM.Interpreter.Closures
   alias QuickBEAM.VM.Semantics.Values
@@ -755,7 +761,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     do: Heap.get_prop_desc(callable, key) || Heap.get_ctor_prop_desc(callable, key)
 
   defp static_class_method_definition?(callable, _key),
-    do: Process.get({:qb_define_static_method, callable}) == true
+    do: DefinitionState.static_method_definition?(callable)
 
   defp inherited_object_property_readonly?(callable, key) do
     own? = Map.has_key?(Heap.get_ctor_statics(callable), key)
