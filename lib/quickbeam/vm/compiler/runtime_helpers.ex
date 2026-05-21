@@ -323,15 +323,12 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   defp callable_instanceof_target?({:obj, ref}), do: Get.get({:obj, ref}, "call") != :undefined
   defp callable_instanceof_target?(ctor), do: Builtin.callable?(ctor)
 
-  defp builtin_name({:builtin, name, _}), do: name
-  defp builtin_name(_), do: nil
-
   defp special_builtin_instance?(obj, ctor) when not is_object(obj) do
-    Builtin.callable?(obj) and builtin_name(ctor) in ["Function", "Object"]
+    Builtin.callable?(obj) and Builtin.name(ctor) in ["Function", "Object"]
   end
 
   defp special_builtin_instance?({:obj, ref}, ctor) do
-    case builtin_name(ctor) do
+    case Builtin.name(ctor) do
       "Array" ->
         match?({:qb_arr, _}, Heap.get_obj(ref)) or is_list(Heap.get_obj(ref))
 

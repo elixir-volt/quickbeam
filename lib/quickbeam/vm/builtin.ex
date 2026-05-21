@@ -1074,6 +1074,10 @@ defmodule QuickBEAM.VM.Builtin do
   def call(_, _, _),
     do: JSThrow.type_error!("not a function")
 
+  @doc "Returns a built-in function's JavaScript name, if present."
+  def name({:builtin, name, _}), do: name
+  def name(_), do: nil
+
   @doc "Returns whether a VM value can be called as a JavaScript function."
   def callable?(%QuickBEAM.VM.Function{}), do: true
 
