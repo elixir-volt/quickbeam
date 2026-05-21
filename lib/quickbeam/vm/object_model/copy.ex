@@ -11,7 +11,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
       proxy_target: 0
     ]
 
-  import QuickBEAM.VM.Value, only: [is_symbol: 1]
+  import QuickBEAM.VM.Value, only: [is_symbol: 1, is_nullish: 1]
 
   alias QuickBEAM.VM.{Heap, Runtime}
   alias QuickBEAM.VM.Execution.RegexpState
@@ -48,7 +48,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   @doc "Copies enumerable own string and symbol properties from a source object to a target object."
   def copy_data_properties(target, source, exclude \\ nil)
 
-  def copy_data_properties({:obj, _}, source, exclude) when source in [nil, :undefined] do
+  def copy_data_properties({:obj, _}, source, exclude) when is_nullish(source) do
     excluded_keys(exclude)
     :ok
   end

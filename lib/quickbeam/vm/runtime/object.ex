@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   use QuickBEAM.VM.Builtin
 
   import QuickBEAM.VM.Heap.Keys
-  import QuickBEAM.VM.Value, only: [is_symbol: 1]
+  import QuickBEAM.VM.Value, only: [is_symbol: 1, is_nullish: 1]
   alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.{Heap, Value}
   alias QuickBEAM.VM.Semantics.{Iterators, Values}
@@ -263,13 +263,13 @@ defmodule QuickBEAM.VM.Runtime.Object do
     proto
   end
 
-  defp object_proto_get(target) when target in [nil, :undefined] do
+  defp object_proto_get(target) when is_nullish(target) do
     throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
   end
 
   defp object_proto_get(target), do: Prototype.get(target)
 
-  defp object_proto_set(_args, target) when target in [nil, :undefined] do
+  defp object_proto_set(_args, target) when is_nullish(target) do
     throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
   end
 
@@ -312,7 +312,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp object_proto_set(_args, _target), do: :undefined
 
-  defp define_accessor_property(_args, target, _kind) when target in [nil, :undefined] do
+  defp define_accessor_property(_args, target, _kind) when is_nullish(target) do
     throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
   end
 
@@ -340,7 +340,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     throw({:js_throw, Heap.make_error("Object.prototype accessor must be callable", "TypeError")})
   end
 
-  defp lookup_accessor_property(_args, target, _kind) when target in [nil, :undefined] do
+  defp lookup_accessor_property(_args, target, _kind) when is_nullish(target) do
     throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
   end
 
@@ -409,7 +409,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp property_enumerable?(_, _), do: false
 
-  defp object_value_of(value) when value in [nil, :undefined] do
+  defp object_value_of(value) when is_nullish(value) do
     throw(
       {:js_throw,
        Heap.make_error("Object.prototype.valueOf called on null or undefined", "TypeError")}
@@ -1134,7 +1134,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   static "setPrototypeOf", length: 2 do
     case args do
-      [obj | _] when obj in [nil, :undefined] ->
+      [obj | _] when is_nullish(obj) ->
         throw(
           {:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")}
         )
@@ -1431,7 +1431,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
-  defp keys([target | _]) when target in [nil, :undefined] do
+  defp keys([target | _]) when is_nullish(target) do
     throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
   end
 
@@ -1472,7 +1472,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     Heap.wrap(enumerable_keys(ref))
   end
 
-  defp get_own_property_names([target | _]) when target in [nil, :undefined] do
+  defp get_own_property_names([target | _]) when is_nullish(target) do
     throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
   end
 
@@ -1491,7 +1491,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     Heap.wrap([])
   end
 
-  defp get_own_property_descriptors([target | _]) when target in [nil, :undefined] do
+  defp get_own_property_descriptors([target | _]) when is_nullish(target) do
     throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
   end
 
@@ -1608,7 +1608,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
-  defp values([target | _]) when target in [nil, :undefined] do
+  defp values([target | _]) when is_nullish(target) do
     throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
   end
 
@@ -1637,7 +1637,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp values([map | _]) when is_map(map), do: Map.values(map)
   defp values(_), do: []
 
-  defp entries([target | _]) when target in [nil, :undefined] do
+  defp entries([target | _]) when is_nullish(target) do
     throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
   end
 
@@ -1681,7 +1681,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     |> Enum.reverse()
   end
 
-  defp assign([target | _sources]) when target in [nil, :undefined] do
+  defp assign([target | _sources]) when is_nullish(target) do
     throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
   end
 
@@ -1689,7 +1689,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     target_obj = to_assign_target(target)
 
     Enum.reduce(sources, target_obj, fn
-      source, target_obj when source in [nil, :undefined] ->
+      source, target_obj when is_nullish(source) ->
         target_obj
 
       {:obj, ref}, {:obj, _} = target_obj ->
@@ -1979,7 +1979,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
-  defp define_properties([target, _props | _]) when target in [nil, :undefined] do
+  defp define_properties([target, _props | _]) when is_nullish(target) do
     throw(
       {:js_throw, Heap.make_error("Object.defineProperties called on non-object", "TypeError")}
     )
@@ -2012,7 +2012,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
-  defp define_properties([_obj, props | _]) when props in [nil, :undefined] do
+  defp define_properties([_obj, props | _]) when is_nullish(props) do
     throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
   end
 
@@ -2043,7 +2043,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
-  defp get_own_property_descriptor([target, _key | _]) when target in [nil, :undefined] do
+  defp get_own_property_descriptor([target, _key | _]) when is_nullish(target) do
     throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
   end
 

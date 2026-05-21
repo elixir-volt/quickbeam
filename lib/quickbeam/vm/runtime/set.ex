@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
   @moduledoc "JS `Set` and `WeakSet` built-ins: constructor, `add`/`has`/`delete`, `forEach`, and iteration."
 
   import QuickBEAM.VM.Heap.Keys
+  import QuickBEAM.VM.Value, only: [is_nullish: 1]
   use QuickBEAM.VM.Builtin
 
   alias QuickBEAM.VM.Builtin
@@ -96,7 +97,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
         [] ->
           set
 
-        [source | _] when source in [nil, :undefined] ->
+        [source | _] when is_nullish(source) ->
           set
 
         [source | _] ->
@@ -138,7 +139,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
         [] ->
           set
 
-        [source | _] when source in [nil, :undefined] ->
+        [source | _] when is_nullish(source) ->
           set
 
         [source | _] ->

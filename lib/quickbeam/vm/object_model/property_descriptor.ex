@@ -5,6 +5,8 @@ defmodule QuickBEAM.VM.ObjectModel.PropertyDescriptor do
 
   import QuickBEAM.VM.Heap.Keys, only: [key_order: 0]
 
+  import QuickBEAM.VM.Value, only: [is_nullish: 1]
+
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Semantics.Values
   alias QuickBEAM.VM.ObjectModel.{Get, HasProperty}
@@ -105,7 +107,7 @@ defmodule QuickBEAM.VM.ObjectModel.PropertyDescriptor do
   end
 
   def accessor_slot(false, _value, existing), do: existing
-  def accessor_slot(true, value, _existing) when value in [nil, :undefined], do: nil
+  def accessor_slot(true, value, _existing) when is_nullish(value), do: nil
   def accessor_slot(true, value, _existing), do: value
 
   defp get_value_or_default(source_obj, default) do

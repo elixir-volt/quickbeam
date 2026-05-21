@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
 
   import QuickBEAM.VM.Builtin, only: [arg: 3, object: 2]
   import QuickBEAM.VM.Heap.Keys, only: [key_order: 0]
+  import QuickBEAM.VM.Value, only: [is_nullish: 1]
 
   alias QuickBEAM.VM.{Heap, Invocation}
   alias QuickBEAM.VM.Builtin.Definition
@@ -356,7 +357,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
     Stacktrace.attach_stack(error)
   end
 
-  defp iterable_list(errors) when errors in [nil, :undefined],
+  defp iterable_list(errors) when is_nullish(errors),
     do: JSThrow.type_error!("object is not iterable")
 
   defp iterable_list({:obj, ref} = errors) do

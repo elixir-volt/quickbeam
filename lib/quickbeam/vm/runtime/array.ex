@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   use QuickBEAM.VM.Builtin
 
   import QuickBEAM.VM.Heap.Keys
+  import QuickBEAM.VM.Value, only: [is_nullish: 1]
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
 
@@ -1530,7 +1531,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     end
   end
 
-  defp array_element_to_locale_string(value) when value in [nil, :undefined], do: ""
+  defp array_element_to_locale_string(value) when is_nullish(value), do: ""
 
   defp array_element_to_locale_string(value) do
     locale_string_fn = Get.get(value, "toLocaleString")
@@ -2460,7 +2461,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp from_result(list, {:builtin, "Array", _}, _construct_args), do: wrap_array_result(list)
 
   defp from_result(list, constructor, _construct_args)
-       when constructor == nil or constructor == :undefined,
+       when is_nullish(constructor),
        do: wrap_array_result(list)
 
   defp from_result(list, constructor, construct_args) do

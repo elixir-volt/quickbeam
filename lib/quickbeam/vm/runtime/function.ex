@@ -3,6 +3,8 @@ defmodule QuickBEAM.VM.Runtime.Function do
 
   use QuickBEAM.VM.Builtin
 
+  import QuickBEAM.VM.Value, only: [is_nullish: 1]
+
   alias QuickBEAM.VM.{Builtin, Heap, Invocation, RuntimeState, Value}
   alias QuickBEAM.VM.Execution.Trace
   alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor, Put, WrappedPrimitive}
@@ -321,10 +323,10 @@ defmodule QuickBEAM.VM.Runtime.Function do
     end
   end
 
-  defp apply_args(value, _realm_source) when value in [nil, :undefined], do: []
+  defp apply_args(value, _realm_source) when is_nullish(value), do: []
   defp apply_args(value, realm_source), do: apply_args(value, realm_source, value)
 
-  defp apply_args(value) when value in [nil, :undefined], do: []
+  defp apply_args(value) when is_nullish(value), do: []
 
   defp apply_args({:obj, ref} = obj) do
     case Heap.get_obj(ref, []) do
@@ -457,7 +459,7 @@ defmodule QuickBEAM.VM.Runtime.Function do
       this_arg
     else
       case this_arg do
-        value when value in [nil, :undefined] ->
+        value when is_nullish(value) ->
           Realm.global(fun) || value
 
         value when is_binary(value) or is_number(value) or is_boolean(value) ->

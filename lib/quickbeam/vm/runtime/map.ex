@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
   @moduledoc "JS `Map` and `WeakMap` built-ins: constructor, `get`/`set`/`has`/`delete`, and iteration."
 
   import QuickBEAM.VM.Heap.Keys
+  import QuickBEAM.VM.Value, only: [is_nullish: 1]
 
   alias QuickBEAM.VM.Builtin.Definition
   alias QuickBEAM.VM.Heap
@@ -158,7 +159,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
         [] ->
           map
 
-        [iterable | _] when iterable in [nil, :undefined] ->
+        [iterable | _] when is_nullish(iterable) ->
           map
 
         [iterable | _] ->
@@ -201,7 +202,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
         [] ->
           map
 
-        [iterable | _] when iterable in [nil, :undefined] ->
+        [iterable | _] when is_nullish(iterable) ->
           map
 
         [iterable | _] ->
