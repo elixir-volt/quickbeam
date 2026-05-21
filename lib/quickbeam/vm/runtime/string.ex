@@ -1655,7 +1655,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp validate_replace_all_regexp!(regexp) do
     flags = Get.get(regexp, "flags")
 
-    if flags in [nil, :undefined] or not String.contains?(Runtime.stringify(flags), "g") do
+    if Value.nullish?(flags) or not String.contains?(Runtime.stringify(flags), "g") do
       throw({:js_throw, Heap.make_error("replaceAll requires a global RegExp", "TypeError")})
     end
   end
@@ -3016,7 +3016,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp require_global_match_all_flags!(regexp) do
     flags = match_all_flags(regexp)
 
-    if flags in [nil, :undefined] do
+    if Value.nullish?(flags) do
       JSThrow.type_error!("cannot convert to object")
     end
 
@@ -3038,7 +3038,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp prototype_flags_or_internal(regexp) do
     prototype_flags = Get.get(current_regexp_prototype(), "flags")
 
-    if prototype_flags in [nil, :undefined] do
+    if Value.nullish?(prototype_flags) do
       prototype_flags
     else
       Get.get(regexp, "flags")
@@ -3209,7 +3209,7 @@ defmodule QuickBEAM.VM.Runtime.String do
         _ -> strings
       end
 
-    if raw in [nil, :undefined] do
+    if Value.nullish?(raw) do
       throw({:js_throw, Heap.make_error("Cannot convert raw to object", "TypeError")})
     end
 

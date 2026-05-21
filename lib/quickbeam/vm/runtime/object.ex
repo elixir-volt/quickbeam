@@ -430,7 +430,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
       not is_object_like?(value) ->
         false
 
-      target in [nil, :undefined] ->
+      Value.nullish?(target) ->
         throw(
           {:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")}
         )
@@ -1099,7 +1099,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   static "getOwnPropertySymbols", length: 1 do
     case args do
-      [target | _] when target in [nil, :undefined] ->
+      [target | _] when target == nil or target == :undefined ->
         throw(
           {:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")}
         )
@@ -1119,7 +1119,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   static "hasOwn", length: 2 do
     case args do
-      [target, _key | _] when target in [nil, :undefined] ->
+      [target, _key | _] when target == nil or target == :undefined ->
         throw(
           {:js_throw, Heap.make_error("Object.hasOwn called on null or undefined", "TypeError")}
         )
@@ -1293,7 +1293,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp from_entries_property_key({:obj, _} = key) do
     case Get.get(key, {:symbol, "Symbol.toPrimitive"}) do
-      primitive_fn when primitive_fn not in [nil, :undefined] ->
+      primitive_fn when primitive_fn != nil and primitive_fn != :undefined ->
         primitive =
           Invocation.invoke_with_receiver(primitive_fn, ["string"], Runtime.gas_budget(), key)
 
@@ -1371,7 +1371,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp close_iterator(iterator) do
     case Get.get(iterator, "return") do
-      return_fn when return_fn not in [nil, :undefined] ->
+      return_fn when return_fn != nil and return_fn != :undefined ->
         invoke_with_this(return_fn, [], iterator)
 
       _ ->

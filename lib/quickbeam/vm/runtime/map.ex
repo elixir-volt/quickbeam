@@ -9,7 +9,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.{Collections, InstallerHelpers}
 
-  alias QuickBEAM.VM.{Builtin, Invocation, JSThrow}
+  alias QuickBEAM.VM.{Builtin, Invocation, JSThrow, Value}
 
   @map_methods ~w(get set has delete clear keys values entries forEach getOrInsert getOrInsertComputed)
   @map_iterator_methods ~w(keys values entries)
@@ -88,7 +88,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
     items = Builtin.arg(args, 0, :undefined)
     callback = Builtin.arg(args, 1, :undefined)
 
-    if items in [nil, :undefined] do
+    if Value.nullish?(items) do
       JSThrow.type_error!("Cannot convert undefined or null to object")
     end
 

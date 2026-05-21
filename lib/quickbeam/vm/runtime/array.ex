@@ -1240,7 +1240,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp slice_end(args, len) do
     case Enum.fetch(args, 1) do
-      {:ok, value} when value not in [nil, :undefined] ->
+      {:ok, value} when value != nil and value != :undefined ->
         value |> to_integer_or_infinity() |> slice_relative_index(len)
 
       _ ->
@@ -1621,7 +1621,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     species = Get.get(constructor, {:symbol, "Symbol.species"})
 
     cond do
-      species in [nil, :undefined] -> :array
+      Value.nullish?(species) -> :array
       constructable_from?(species) -> species
       true -> JSThrow.type_error!("object.constructor[Symbol.species] is not a constructor")
     end
@@ -2459,8 +2459,9 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp from_result(list, {:builtin, "Array", _}, _construct_args), do: wrap_array_result(list)
 
-  defp from_result(list, constructor, _construct_args) when constructor in [nil, :undefined],
-    do: wrap_array_result(list)
+  defp from_result(list, constructor, _construct_args)
+       when constructor == nil or constructor == :undefined,
+       do: wrap_array_result(list)
 
   defp from_result(list, constructor, construct_args) do
     if constructable_from?(constructor) do
@@ -2545,7 +2546,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         iterator = QuickBEAM.VM.Invocation.invoke_with_receiver(iterator_method, [], obj)
         iterator_to_list(iterator, [])
 
-      iterator_method not in [nil, :undefined] ->
+      not Value.nullish?(iterator_method) ->
         JSThrow.type_error!("object is not iterable")
 
       true ->
@@ -2577,7 +2578,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     cond do
       QuickBEAM.VM.Builtin.callable?(iterator_method) -> false
       iterator_like_source?(obj) -> false
-      iterator_method not in [nil, :undefined] -> false
+      not Value.nullish?(iterator_method) -> false
       true -> true
     end
   end
@@ -2636,7 +2637,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp iterator_like_source?({:obj, _} = obj),
     do:
       QuickBEAM.VM.Builtin.callable?(Get.get(obj, "next")) and
-        Get.get(obj, "length") in [nil, :undefined]
+        Value.nullish?(Get.get(obj, "length"))
 
   defp array_like_to_list(obj) do
     len = max(Runtime.to_int(Get.get(obj, "length")), 0)

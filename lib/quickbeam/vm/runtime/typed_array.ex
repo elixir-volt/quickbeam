@@ -325,7 +325,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       QuickBEAM.VM.Builtin.callable?(iterator) ->
         Iterators.iterable_to_list(source)
 
-      iterator not in [nil, :undefined] ->
+      not Value.nullish?(iterator) ->
         JSThrow.type_error!("@@iterator is not callable")
 
       true ->
@@ -1579,7 +1579,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
         end
 
         case Get.get(ctor, {:symbol, "Symbol.species"}) do
-          species when species in [nil, :undefined] -> nil
+          species when species == nil or species == :undefined -> nil
           species -> species
         end
     end
@@ -1806,7 +1806,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
             es = elem_size(type)
             off = to_index(Enum.at(rest, 0, :undefined))
             length_arg = Enum.at(rest, 1, :undefined)
-            auto_length? = length_arg in [nil, :undefined]
+            auto_length? = Value.nullish?(length_arg)
             length_tracking? = auto_length? and Map.has_key?(buf, "maxByteLength")
             available = byte_size(bin) - off
 
@@ -1859,7 +1859,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
         iterator = Invocation.invoke_with_receiver(iterator_method, [], obj)
         iterator_to_list(iterator, [])
 
-      iterator_method not in [nil, :undefined] ->
+      not Value.nullish?(iterator_method) ->
         JSThrow.type_error!("object is not iterable")
 
       true ->
