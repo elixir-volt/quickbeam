@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     Invocation,
     JSThrow,
     Names,
+    RuntimeState,
     Value
   }
 
@@ -45,7 +46,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   @doc "Returns a dirty interpreter context suitable for entry into compiled code."
   def entry_ctx do
-    case Heap.get_ctx() do
+    case RuntimeState.current() do
       %Context{} = ctx ->
         Context.mark_dirty(ctx)
 
@@ -84,16 +85,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
   defp with_runtime_ctx(nil, fun), do: fun.()
 
-  defp with_runtime_ctx(ctx, fun) do
-    previous_ctx = Heap.get_ctx()
-    Heap.put_ctx(ctx)
-
-    try do
-      fun.()
-    after
-      if previous_ctx, do: Heap.put_ctx(previous_ctx), else: Heap.put_ctx(nil)
-    end
-  end
+  defp with_runtime_ctx(ctx, fun), do: RuntimeState.with_context(ctx, fun)
 
   @doc "Returns whether a value is JavaScript `undefined`."
   def undefined?(_ctx \\ nil, val), do: val == :undefined
@@ -246,7 +238,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
   def update_this(ctx, this_val), do: Context.mark_dirty(%{ctx | this: this_val})
 
   def update_this(this_val) do
-    case Heap.get_ctx() do
+    case RuntimeState.current() do
       %Context{} = ctx -> Context.mark_dirty(%{ctx | this: this_val})
       map when is_map(map) -> Context.mark_dirty(%{context_struct(map) | this: this_val})
       _ -> ensure_context(nil) |> Map.put(:this, this_val) |> Context.mark_dirty()
