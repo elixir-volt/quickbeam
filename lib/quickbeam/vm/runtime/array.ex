@@ -2420,9 +2420,12 @@ defmodule QuickBEAM.VM.Runtime.Array do
         iterator_source?(source) and constructable_from?(constructor) and
             not match?({:builtin, "Array", _}, constructor) ->
           target = QuickBEAM.VM.Invocation.construct_runtime(constructor, constructor, [])
-          count = iterator_to_target(array_from_iterator(source), target, map_fn, this_arg, 0)
-          Put.put(target, "length", count)
-          {:target, target}
+
+          Heap.with_temp_roots(target, fn ->
+            count = iterator_to_target(array_from_iterator(source), target, map_fn, this_arg, 0)
+            Put.put(target, "length", count)
+            {:target, target}
+          end)
 
         iterator_source?(source) ->
           {:list, iterator_to_list(array_from_iterator(source), [], map_fn, this_arg, 0), []}
