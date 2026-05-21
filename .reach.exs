@@ -19,7 +19,6 @@ process_state_owners = [
   "QuickBEAM.VM.GlobalEnvironment",
   "QuickBEAM.VM.Host.*",
   "QuickBEAM.VM.Realm",
-  "QuickBEAM.VM.Promise",
   "QuickBEAM.VM.ObjectModel.ArrayExotic",
   "QuickBEAM.VM.ObjectModel.Get",
   "QuickBEAM.VM.ObjectModel.Methods",

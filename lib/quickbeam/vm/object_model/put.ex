@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Value, only: [is_symbol: 1]
 
-  alias QuickBEAM.VM.Execution.{RegexpState, SetterState}
+  alias QuickBEAM.VM.Execution.{PrimitivePrototypeState, RegexpState, SetterState}
   alias QuickBEAM.VM.{Heap, Runtime, RuntimeState, Value}
   alias QuickBEAM.VM.Interpreter.Closures
   alias QuickBEAM.VM.Semantics.Values
@@ -300,7 +300,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   defp cache_primitive_then_override(ref, "then", val) when is_reference(ref) do
     Enum.each(["Boolean", "Number", "String", "Symbol"], fn name ->
       case Runtime.global_class_proto(name) do
-        {:obj, ^ref} -> Process.put({:qb_primitive_prototype_then, name}, val)
+        {:obj, ^ref} -> PrimitivePrototypeState.put_then(name, val)
         _ -> :ok
       end
     end)
@@ -309,7 +309,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   defp cache_primitive_then_override(map, "then", val) when is_map(map) do
     case Map.get(map, "constructor") do
       {:builtin, name, _} when name in ["Boolean", "Number", "String", "Symbol"] ->
-        Process.put({:qb_primitive_prototype_then, name}, val)
+        PrimitivePrototypeState.put_then(name, val)
 
       _ ->
         :ok
@@ -318,7 +318,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
   defp cache_primitive_then_override(_ref, "then", val) do
     Enum.each(["Boolean", "Number", "String", "Symbol"], fn name ->
-      Process.put({:qb_primitive_prototype_then, name}, val)
+      PrimitivePrototypeState.put_then(name, val)
     end)
   end
 

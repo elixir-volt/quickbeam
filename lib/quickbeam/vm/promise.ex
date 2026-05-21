@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Promise do
   import QuickBEAM.VM.Builtin, only: [arg: 3]
 
   alias QuickBEAM.VM.{Builtin, Heap, JobQueue, Runtime}
+  alias QuickBEAM.VM.Execution.PrimitivePrototypeState
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.ObjectModel.{Class, Get, PropertyDescriptor}
   alias QuickBEAM.VM.Semantics.PropertyAccess
@@ -68,25 +69,19 @@ defmodule QuickBEAM.VM.Promise do
     Invocation.invoke_with_receiver(then, [:undefined, arg(args, 0, nil)], this)
   end
 
-  defp primitive_then_override(value) when is_boolean(value) do
-    Process.get({:qb_primitive_prototype_then, "Boolean"})
-  end
+  defp primitive_then_override(value) when is_boolean(value),
+    do: PrimitivePrototypeState.then_override("Boolean")
 
-  defp primitive_then_override(value) when is_number(value) do
-    Process.get({:qb_primitive_prototype_then, "Number"})
-  end
+  defp primitive_then_override(value) when is_number(value),
+    do: PrimitivePrototypeState.then_override("Number")
 
-  defp primitive_then_override(value) when is_binary(value) do
-    Process.get({:qb_primitive_prototype_then, "String"})
-  end
+  defp primitive_then_override(value) when is_binary(value),
+    do: PrimitivePrototypeState.then_override("String")
 
-  defp primitive_then_override({:symbol, _, _}) do
-    Process.get({:qb_primitive_prototype_then, "Symbol"})
-  end
+  defp primitive_then_override({:symbol, _, _}),
+    do: PrimitivePrototypeState.then_override("Symbol")
 
-  defp primitive_then_override({:symbol, _}) do
-    Process.get({:qb_primitive_prototype_then, "Symbol"})
-  end
+  defp primitive_then_override({:symbol, _}), do: PrimitivePrototypeState.then_override("Symbol")
 
   defp primitive_then_override(_value), do: nil
 
