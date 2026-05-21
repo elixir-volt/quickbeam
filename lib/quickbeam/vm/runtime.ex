@@ -56,9 +56,6 @@ defmodule QuickBEAM.VM.Runtime do
   @doc "Returns JavaScript truthiness for a VM value."
   defdelegate truthy?(val), to: Values
 
-  @doc "Returns strict BEAM equality for places that need identity-style comparison."
-  def strict_equal?(a, b), do: a === b
-
   @doc "Stringifies a VM value using JavaScript conversion rules."
   def stringify(val), do: Values.stringify(val)
 
