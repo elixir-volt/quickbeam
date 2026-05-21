@@ -8,7 +8,7 @@ defmodule QuickBEAM.VM.Host.Web.Buffer do
 
   alias QuickBEAM.VM.{Heap, JSThrow, Runtime}
   alias QuickBEAM.VM.ObjectModel.{Get, Put}
-  alias QuickBEAM.VM.Runtime.Constructors
+  alias QuickBEAM.VM.Runtime.ConstructorRegistry, as: Constructors
   alias QuickBEAM.VM.Host.Web.BinaryData
   alias QuickBEAM.VM.Host.Web.Buffer.{BinaryCodec, Encoding}
 

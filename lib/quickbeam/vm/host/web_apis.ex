@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.Host.WebAPIs do
 
   @behaviour QuickBEAM.VM.Runtime.BindingProvider
 
-  alias QuickBEAM.VM.Runtime.Constructors
+  alias QuickBEAM.VM.Runtime.ConstructorRegistry, as: Constructors
   alias QuickBEAM.VM.Host.BeamAPI
 
   alias QuickBEAM.VM.Host.Web.{

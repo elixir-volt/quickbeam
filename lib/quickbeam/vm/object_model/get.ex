@@ -873,7 +873,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
       :error ->
         if constructor_metadata?(builtin, statics) do
-          QuickBEAM.VM.Runtime.Constructors.static_property(builtin, key)
+          QuickBEAM.VM.Runtime.ConstructorRegistry.static_property(builtin, key)
         else
           builtin_function_property(builtin, key)
         end

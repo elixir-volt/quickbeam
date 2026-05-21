@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.ObjectModel.WrappedPrimitive do
   @moduledoc "Helpers for boxed primitive object slots."
 
   alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.Runtime.Constructors
+  alias QuickBEAM.VM.Runtime.ConstructorRegistry, as: Constructors
 
   @slots %{
     string: "__wrapped_string__",

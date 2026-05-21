@@ -1,4 +1,4 @@
-defmodule QuickBEAM.VM.Runtime.Constructors do
+defmodule QuickBEAM.VM.Runtime.ConstructorRegistry do
   @moduledoc "Helpers for looking up and invoking globally registered JS constructors."
 
   alias QuickBEAM.VM.{Heap, Runtime}

@@ -40,7 +40,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   def install_builtin(ctor, opts \\ []) do
     object_proto = Keyword.get(opts, :object_proto, Heap.get_object_prototype())
     proto = prototype(object_proto)
-    QuickBEAM.VM.Runtime.Constructors.put_prototype(ctor, proto)
+    QuickBEAM.VM.Runtime.ConstructorRegistry.put_prototype(ctor, proto)
 
     if Keyword.get(opts, :target, :global) == :global do
       Heap.put_array_proto(proto)

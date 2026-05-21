@@ -80,7 +80,7 @@ defmodule QuickBEAM.VM.Runtime.ConstructorCallbacks do
     ref = make_ref()
 
     data =
-      case QuickBEAM.VM.Runtime.Constructors.class_proto("Object") do
+      case QuickBEAM.VM.Runtime.ConstructorRegistry.class_proto("Object") do
         {:obj, _} = proto -> %{"__proto__" => proto}
         _ -> %{}
       end
@@ -349,7 +349,7 @@ defmodule QuickBEAM.VM.Runtime.ConstructorCallbacks do
 
   defp regexp_function_identity?(pattern, rest, this) do
     not regexp_constructing?(this) and regexp_flags_omitted?(rest) and regexp_value?(pattern) and
-      Get.get(pattern, "constructor") == QuickBEAM.VM.Runtime.Constructors.lookup("RegExp")
+      Get.get(pattern, "constructor") == QuickBEAM.VM.Runtime.ConstructorRegistry.lookup("RegExp")
   end
 
   defp regexp_value?({:regexp, _, _} = regexp), do: regexp_matcher_truthy_or_absent?(regexp)

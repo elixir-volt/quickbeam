@@ -14,7 +14,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
   alias QuickBEAM.VM.ObjectModel.{Get, HasProperty, PropertyDescriptor}
   alias QuickBEAM.VM.Semantics.Iterators
   alias QuickBEAM.VM.Runtime
-  alias QuickBEAM.VM.Runtime.Constructors
+  alias QuickBEAM.VM.Runtime.ConstructorRegistry, as: Constructors
   alias QuickBEAM.VM.Stacktrace
 
   @error_types ~w(Error TypeError RangeError SyntaxError ReferenceError URIError EvalError AggregateError SuppressedError)

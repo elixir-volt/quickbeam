@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.Runtime.Promise do
 
   alias QuickBEAM.VM.{Heap, Invocation, JSThrow}
   alias QuickBEAM.VM.ObjectModel.PropertyDescriptor
-  alias QuickBEAM.VM.Runtime.{Constructors, InstallerHelpers}
+  alias QuickBEAM.VM.Runtime.{ConstructorRegistry, InstallerHelpers}
   alias QuickBEAM.VM.Semantics.Iterators
   alias QuickBEAM.VM.Promise
 
@@ -21,7 +21,7 @@ defmodule QuickBEAM.VM.Runtime.Promise do
   def install_builtin(ctor, opts \\ []) do
     object_proto = Keyword.get(opts, :object_proto, Heap.get_object_prototype())
 
-    Constructors.put_prototype(ctor, prototype(object_proto))
+    ConstructorRegistry.put_prototype(ctor, prototype(object_proto))
     Heap.put_ctor_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
     InstallerHelpers.install_species(ctor)
 

@@ -108,7 +108,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   defp regexp_species_constructor(regexp) do
-    default = QuickBEAM.VM.Runtime.Constructors.lookup("RegExp")
+    default = QuickBEAM.VM.Runtime.ConstructorRegistry.lookup("RegExp")
 
     case Get.get(regexp, "constructor") do
       :undefined ->
@@ -2139,7 +2139,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   defp regexp_match_all_flags(regexp), do: regexp_match_all_observable_flags(regexp)
 
   defp match_all_species_constructor(regexp) do
-    default = QuickBEAM.VM.Runtime.Constructors.lookup("RegExp")
+    default = QuickBEAM.VM.Runtime.ConstructorRegistry.lookup("RegExp")
 
     case Get.get(regexp, "constructor") do
       :undefined ->

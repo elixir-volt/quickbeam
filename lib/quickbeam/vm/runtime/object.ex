@@ -24,7 +24,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   }
 
   alias QuickBEAM.VM.Runtime
-  alias QuickBEAM.VM.Runtime.Constructors, as: ConstructorRegistry
+  alias QuickBEAM.VM.Runtime.ConstructorRegistry, as: ConstructorRegistry
   alias QuickBEAM.VM.Runtime.String, as: JSString
 
   builtin_definition("Object",
@@ -1220,7 +1220,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     source_entries = entries_from_iterable(iterable)
 
     result =
-      case QuickBEAM.VM.Runtime.Constructors.class_proto("Object") do
+      case QuickBEAM.VM.Runtime.ConstructorRegistry.class_proto("Object") do
         {:obj, _} = proto ->
           ref = make_ref()
           Heap.put_obj(ref, %{proto() => proto, key_order() => []})

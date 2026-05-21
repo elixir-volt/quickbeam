@@ -16,18 +16,18 @@ defmodule QuickBEAM.VM.Runtime do
   end
 
   @doc "Looks up a globally registered constructor by JavaScript name."
-  defdelegate global_constructor(name), to: QuickBEAM.VM.Runtime.Constructors, as: :lookup
+  defdelegate global_constructor(name), to: QuickBEAM.VM.Runtime.ConstructorRegistry, as: :lookup
   @doc "Returns the class prototype associated with a globally registered constructor."
-  defdelegate global_class_proto(name), to: QuickBEAM.VM.Runtime.Constructors, as: :class_proto
+  defdelegate global_class_proto(name), to: QuickBEAM.VM.Runtime.ConstructorRegistry, as: :class_proto
 
   @doc "Invokes a global constructor and returns `fallback.()` when it is unavailable."
   defdelegate construct_global(name, args, fallback),
-    to: QuickBEAM.VM.Runtime.Constructors,
+    to: QuickBEAM.VM.Runtime.ConstructorRegistry,
     as: :construct
 
   @doc "Invokes a global constructor and updates the constructed object map before returning it."
   defdelegate construct_global(name, args, fallback, update_object),
-    to: QuickBEAM.VM.Runtime.Constructors,
+    to: QuickBEAM.VM.Runtime.ConstructorRegistry,
     as: :construct
 
   # ── Callback dispatch (used by higher-order array methods) ──

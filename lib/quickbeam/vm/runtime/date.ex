@@ -240,7 +240,7 @@ defmodule QuickBEAM.VM.Runtime.Date do
   defp new_date_object(ms) do
     Heap.wrap(%{
       date_ms() => ms,
-      proto() => QuickBEAM.VM.Runtime.Constructors.class_proto("Date")
+      proto() => QuickBEAM.VM.Runtime.ConstructorRegistry.class_proto("Date")
     })
   end
 

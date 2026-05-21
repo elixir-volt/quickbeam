@@ -928,7 +928,7 @@ defmodule QuickBEAM.VM.Builtin do
     proto_map_entries = Enum.map(proto_entries, &build_map_entry/1)
 
     quote do
-      QuickBEAM.VM.Runtime.Constructors.register(
+      QuickBEAM.VM.Runtime.ConstructorRegistry.register(
         unquote(name),
         unquote(callback),
         %{unquote_splicing(proto_map_entries)},

@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.Builtin.Installer do
 
   alias QuickBEAM.VM.Builtin.Definition
   alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.Runtime.Constructors
+  alias QuickBEAM.VM.Runtime.ConstructorRegistry, as: Constructors
 
   @doc "Installs all builtin definitions and returns a global binding map."
   def install_all(definitions, opts \\ []) do

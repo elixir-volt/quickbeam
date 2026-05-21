@@ -17,7 +17,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   alias QuickBEAM.VM.Value
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.Array
-  alias QuickBEAM.VM.Runtime.Constructors, as: ConstructorRegistry
+  alias QuickBEAM.VM.Runtime.ConstructorRegistry, as: ConstructorRegistry
   alias QuickBEAM.VM.Semantics.Iterators
 
   @types %{

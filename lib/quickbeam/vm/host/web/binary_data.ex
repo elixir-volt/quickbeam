@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.Host.Web.BinaryData do
   @moduledoc "Helpers for exposing BEAM binaries as Web binary JS objects."
 
   alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.Runtime.Constructors
+  alias QuickBEAM.VM.Runtime.ConstructorRegistry, as: Constructors
 
   @doc "Constructs a JavaScript `Uint8Array` from a binary."
   def uint8_array(bytes) when is_binary(bytes) do
