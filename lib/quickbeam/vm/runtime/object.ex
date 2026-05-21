@@ -1903,8 +1903,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     throw({:js_throw, Heap.make_error("Object.defineProperty called on non-object", "TypeError")})
   end
 
-  defp normalize_well_known_symbol({:symbol, "Symbol." <> _ = name, _ref}), do: {:symbol, name}
-  defp normalize_well_known_symbol(key), do: key
+  defp normalize_well_known_symbol(key), do: PropertyKey.normalize(key)
 
   defp descriptor_object?(value), do: Value.object_like?(value)
 
