@@ -3,6 +3,8 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   use QuickBEAM.VM.Builtin
 
+  import QuickBEAM.VM.Value, only: [is_nullish: 1]
+
   alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.{Builtin, Heap, Invocation, JSThrow, Value}
   alias QuickBEAM.VM.Semantics.Values
@@ -758,7 +760,7 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   defp regexp_to_string_value(regexp) do
     case Get.get(regexp, "toString") do
-      method when method in [nil, :undefined] ->
+      method when is_nullish(method) ->
         Runtime.stringify(regexp)
 
       method when is_tuple(method) ->
@@ -774,7 +776,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp get_method(value, key) do
     if Value.object_like?(value) do
       case Get.get(value, key) do
-        method when method in [nil, :undefined] ->
+        method when is_nullish(method) ->
           :none
 
         method ->

@@ -375,7 +375,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp has_own_property([key | _], target) do
     prop_name = PropertyKey.to_property_key(key)
 
-    if target in [nil, :undefined] do
+    if Value.nullish?(target) do
       throw(
         {:js_throw, Heap.make_error("hasOwnProperty called on null or undefined", "TypeError")}
       )
@@ -397,7 +397,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp property_enumerable?([key | _], target) do
     prop_name = PropertyKey.to_property_key(key)
 
-    if target in [nil, :undefined] do
+    if Value.nullish?(target) do
       throw(
         {:js_throw,
          Heap.make_error("propertyIsEnumerable called on null or undefined", "TypeError")}
@@ -1099,7 +1099,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   static "getOwnPropertySymbols", length: 1 do
     case args do
-      [target | _] when target == nil or target == :undefined ->
+      [target | _] when is_nullish(target) ->
         throw(
           {:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")}
         )
@@ -1119,7 +1119,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   static "hasOwn", length: 2 do
     case args do
-      [target, _key | _] when target == nil or target == :undefined ->
+      [target, _key | _] when is_nullish(target) ->
         throw(
           {:js_throw, Heap.make_error("Object.hasOwn called on null or undefined", "TypeError")}
         )

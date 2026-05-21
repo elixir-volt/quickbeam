@@ -328,7 +328,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
 
   defp close_iterator(iterator) do
     case Get.get(iterator, "return") do
-      return_fn when return_fn not in [nil, :undefined] ->
+      return_fn when not is_nullish(return_fn) ->
         if Builtin.callable?(return_fn),
           do: Invocation.invoke_with_receiver(return_fn, [], iterator)
 

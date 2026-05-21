@@ -410,7 +410,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
 
     cond do
       parent == target -> true
-      parent in [nil, :undefined] -> false
+      Value.nullish?(parent) -> false
       true -> prototype_chain_contains?(parent, target)
     end
   end

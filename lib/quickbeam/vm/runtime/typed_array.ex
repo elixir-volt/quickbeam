@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   @moduledoc "JS TypedArray built-ins: constructors and prototype methods for all numeric array types (Uint8Array through Float64Array)."
 
   import QuickBEAM.VM.Heap.Keys
+  import QuickBEAM.VM.Value, only: [is_nullish: 1]
 
   use QuickBEAM.VM.Builtin
 
@@ -1383,7 +1384,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     obj
   end
 
-  defp sort_values(values, compare_fn) when compare_fn in [nil, :undefined] do
+  defp sort_values(values, compare_fn) when is_nullish(compare_fn) do
     values
     |> Enum.with_index()
     |> Enum.sort(fn {left, left_index}, {right, right_index} ->
@@ -1579,7 +1580,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
         end
 
         case Get.get(ctor, {:symbol, "Symbol.species"}) do
-          species when species == nil or species == :undefined -> nil
+          species when is_nullish(species) -> nil
           species -> species
         end
     end
@@ -2183,7 +2184,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     end
   end
 
-  defp to_index(value) when value in [nil, :undefined], do: 0
+  defp to_index(value) when is_nullish(value), do: 0
 
   defp to_index(value) do
     case to_integer_or_infinity(value) do

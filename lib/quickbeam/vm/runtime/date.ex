@@ -2,6 +2,7 @@ defmodule QuickBEAM.VM.Runtime.Date do
   @moduledoc "JS `Date` built-in: constructor, parsing, formatting, and all get/set prototype methods."
 
   import QuickBEAM.VM.Heap.Keys
+  import QuickBEAM.VM.Value, only: [is_nullish: 1]
   use QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.ObjectModel.PropertyDescriptor
@@ -347,7 +348,7 @@ defmodule QuickBEAM.VM.Runtime.Date do
     do: throw({:js_throw, Heap.make_error("this is not a Date object", "TypeError")})
 
   defp get_ms(val)
-       when val in [nil, :undefined] or is_number(val) or is_binary(val) or
+       when is_nullish(val) or is_number(val) or is_binary(val) or
               is_boolean(val) or is_atom(val),
        do: throw({:js_throw, Heap.make_error("this is not a Date object", "TypeError")})
 
@@ -408,7 +409,7 @@ defmodule QuickBEAM.VM.Runtime.Date do
   defp iso_year(year),
     do: "+" <> String.pad_leading(Integer.to_string(year), 6, "0")
 
-  defp to_json(this, _args) when this in [nil, :undefined] do
+  defp to_json(this, _args) when is_nullish(this) do
     JSThrow.type_error!("Cannot convert undefined or null to object")
   end
 

@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Builtin, only: [arg: 3, object: 1]
-  import QuickBEAM.VM.Value, only: [is_builtin: 1, is_closure: 1]
+  import QuickBEAM.VM.Value, only: [is_builtin: 1, is_closure: 1, is_nullish: 1]
 
   alias QuickBEAM.VM.{BytecodeParser, Heap, RuntimeState, Value}
   alias QuickBEAM.VM.Execution.RegexpState
@@ -259,7 +259,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
   def bigint(args, this) do
     case RuntimeState.current() do
-      %{new_target: new_target} when new_target not in [nil, :undefined] ->
+      %{new_target: new_target} when not is_nullish(new_target) ->
         JSThrow.type_error!("BigInt is not a constructor")
 
       _ ->

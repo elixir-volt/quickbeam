@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   use QuickBEAM.VM.Builtin
   import Bitwise, only: [&&&: 2, |||: 2, >>>: 2]
   import QuickBEAM.VM.Heap.Keys, only: [key_order: 0]
+  import QuickBEAM.VM.Value, only: [is_nullish: 1]
 
   alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.{Builtin, Heap, Invocation, JSThrow, Runtime, Value}
@@ -120,7 +121,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
           do: JSThrow.type_error!("RegExp constructor is not an object")
 
         case Get.get(constructor, {:symbol, "Symbol.species"}) do
-          value when value == nil or value == :undefined -> default
+          value when is_nullish(value) -> default
           species -> species
         end
     end
@@ -2149,7 +2150,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
       {:obj, _} = ctor ->
         case Get.get(ctor, {:symbol, "Symbol.species"}) do
-          value when value == nil or value == :undefined -> default
+          value when is_nullish(value) -> default
           species -> species
         end
 
@@ -2158,7 +2159,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
           do: JSThrow.type_error!("RegExp constructor is not an object")
 
         case Get.get(ctor, {:symbol, "Symbol.species"}) do
-          value when value == nil or value == :undefined -> default
+          value when is_nullish(value) -> default
           species -> species
         end
     end

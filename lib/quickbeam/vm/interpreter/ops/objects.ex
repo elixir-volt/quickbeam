@@ -4,6 +4,8 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
   @doc "Installs the Object creation, field access, array element access, and misc object stubs helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
+      import QuickBEAM.VM.Value, only: [is_object: 1, is_closure: 1, is_nullish: 1]
+
       alias QuickBEAM.VM.{
         Builtin,
         GlobalEnvironment,
@@ -39,7 +41,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       end
 
       defp run({@op_get_field, [atom_idx]}, __pc, frame, [obj | _rest], gas, ctx)
-           when obj == nil or obj == :undefined do
+           when is_nullish(obj) do
         throw_null_property_error(frame, obj, atom_idx, gas, ctx)
       end
 
@@ -194,7 +196,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       end
 
       defp run({@op_get_field2, [atom_idx]}, __pc, frame, [obj | _rest], gas, ctx)
-           when obj == nil or obj == :undefined do
+           when is_nullish(obj) do
         throw_null_property_error(frame, obj, atom_idx, gas, ctx)
       end
 
@@ -577,7 +579,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       end
 
       defp run({@op_push_this, []}, pc, frame, stack, gas, %Context{this: this} = ctx)
-           when this == :undefined or this == nil do
+           when is_nullish(this) do
         global_this = Map.get(ctx.globals, "globalThis", :undefined)
         run(pc + 1, frame, [global_this | stack], gas, ctx)
       end
@@ -720,7 +722,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       # ── delete ──
 
       defp run({@op_delete, []}, __pc, frame, [key, obj | _rest], gas, ctx)
-           when obj == nil or obj == :undefined do
+           when is_nullish(obj) do
         nullish = if obj == nil, do: "null", else: "undefined"
 
         error =
