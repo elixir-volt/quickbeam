@@ -524,15 +524,17 @@ defmodule QuickBEAM.VM.ObjectModel.Define do
 
   defp incompatible_existing_descriptor?(_ref, _existing, _prop_name, _desc), do: false
 
-  defp static_descriptor(%QuickBEAM.VM.Function{has_prototype: true}, "prototype") do
-    PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: false)
-  end
-
-  defp static_descriptor({:closure, _, %QuickBEAM.VM.Function{has_prototype: true}}, "prototype") do
-    PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: false)
+  defp static_descriptor(callable, "prototype") do
+    if Value.has_function_prototype?(callable),
+      do: PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: false),
+      else: static_descriptor(callable, :not_function_prototype, "prototype")
   end
 
   defp static_descriptor(callable, prop_name) do
+    static_descriptor(callable, :static, prop_name)
+  end
+
+  defp static_descriptor(callable, _kind, prop_name) do
     Heap.get_prop_desc(callable, prop_name) || Heap.get_ctor_prop_desc(callable, prop_name)
   end
 

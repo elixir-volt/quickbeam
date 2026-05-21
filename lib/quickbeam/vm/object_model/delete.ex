@@ -201,20 +201,10 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
     end
   end
 
-  defp non_configurable_static_prototype?(
-         %QuickBEAM.VM.Function{has_prototype: true},
-         "prototype"
-       ),
-       do: true
-
-  defp non_configurable_static_prototype?(
-         {:closure, _, %QuickBEAM.VM.Function{has_prototype: true}},
-         "prototype"
-       ),
-       do: true
-
   defp non_configurable_static_prototype?(target, "prototype"),
-    do: Map.has_key?(Heap.get_ctor_statics(target), "prototype")
+    do:
+      Value.has_function_prototype?(target) or
+        Map.has_key?(Heap.get_ctor_statics(target), "prototype")
 
   defp non_configurable_static_prototype?(_target, _key), do: false
 
