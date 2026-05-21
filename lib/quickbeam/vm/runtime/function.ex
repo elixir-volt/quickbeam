@@ -14,11 +14,12 @@ defmodule QuickBEAM.VM.Runtime.Function do
     length: 1,
     phase: :core,
     prototype_parent: nil,
-    after_install: &__MODULE__.install_builtin/1
+    after_install: &__MODULE__.install_builtin/2
   )
 
-  def install_builtin(ctor) do
-    ConstructorRegistry.put_prototype(ctor, prototype())
+  def install_builtin(ctor, opts \\ []) do
+    function_proto = Keyword.get_lazy(opts, :prototype, fn -> prototype() end)
+    ConstructorRegistry.put_prototype(ctor, function_proto)
 
     case Heap.get_ctor_statics(ctor)["prototype"] do
       {:obj, _} = proto -> Put.put(proto, "constructor", ctor)

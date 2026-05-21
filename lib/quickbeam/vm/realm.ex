@@ -5,7 +5,6 @@ defmodule QuickBEAM.VM.Realm do
   alias QuickBEAM.VM.Runtime.Array
   alias QuickBEAM.VM.Runtime.BigInt, as: JSBigInt
   alias QuickBEAM.VM.Runtime.Boolean, as: JSBoolean
-  alias QuickBEAM.VM.Runtime.Constructors, as: ConstructorRegistry
   alias QuickBEAM.VM.Runtime.DataView
   alias QuickBEAM.VM.Runtime.Date, as: JSDate
   alias QuickBEAM.VM.Runtime.Errors
@@ -180,31 +179,6 @@ defmodule QuickBEAM.VM.Realm do
 
     aggregate_error_proto = Map.fetch!(error_protos, "AggregateError")
 
-    function_ctor =
-      function_constructor(
-        realm_id,
-        object_proto,
-        function_proto,
-        array_proto,
-        boolean_proto,
-        number_proto,
-        string_proto,
-        symbol_proto,
-        regexp_proto,
-        date_proto,
-        data_view_proto,
-        map_proto,
-        iterator_proto,
-        set_proto,
-        promise_proto,
-        weak_map_proto,
-        weak_set_proto,
-        weak_ref_proto,
-        finalization_registry_proto,
-        aggregate_error_proto,
-        error_protos
-      )
-
     function_intrinsics =
       intrinsics(
         realm_id,
@@ -229,6 +203,18 @@ defmodule QuickBEAM.VM.Realm do
         aggregate_error_proto,
         error_protos
       )
+
+    function_ctor =
+      QuickBEAM.VM.Runtime.Function.builtin_definition()
+      |> Map.put(
+        :constructor,
+        function_constructor_callback(realm_id, object_proto, function_proto, function_intrinsics)
+      )
+      |> QuickBEAM.VM.Builtin.Installer.install(
+        target: {:realm, object_proto: object_proto, prototype: function_proto}
+      )
+
+    Process.put({:qb_intrinsics, function_ctor}, function_intrinsics)
 
     QuickBEAM.VM.Runtime.Function.install_realm_methods(function_proto, function_intrinsics)
 
@@ -546,30 +532,8 @@ defmodule QuickBEAM.VM.Realm do
      end}
   end
 
-  defp function_constructor(
-         realm_id,
-         object_proto,
-         function_proto,
-         array_proto,
-         boolean_proto,
-         number_proto,
-         string_proto,
-         symbol_proto,
-         regexp_proto,
-         date_proto,
-         data_view_proto,
-         map_proto,
-         iterator_proto,
-         set_proto,
-         promise_proto,
-         weak_map_proto,
-         weak_set_proto,
-         weak_ref_proto,
-         finalization_registry_proto,
-         aggregate_error_proto,
-         error_protos
-       ) do
-    cb = fn args, this ->
+  defp function_constructor_callback(realm_id, object_proto, function_proto, function_intrinsics) do
+    fn args, this ->
       body = function_body(args)
 
       fun =
@@ -595,67 +559,10 @@ defmodule QuickBEAM.VM.Realm do
       Heap.put_ctor_static(fun, "prototype", function_prototype)
       Heap.put_class_proto(fun, function_prototype)
 
-      Process.put(
-        {:qb_intrinsics, fun},
-        intrinsics(
-          realm_id,
-          object_proto,
-          function_proto,
-          array_proto,
-          boolean_proto,
-          number_proto,
-          string_proto,
-          symbol_proto,
-          regexp_proto,
-          date_proto,
-          data_view_proto,
-          map_proto,
-          iterator_proto,
-          set_proto,
-          promise_proto,
-          weak_map_proto,
-          weak_set_proto,
-          weak_ref_proto,
-          finalization_registry_proto,
-          aggregate_error_proto,
-          error_protos
-        )
-      )
+      Process.put({:qb_intrinsics, fun}, function_intrinsics)
 
       fun
     end
-
-    ctor = {:builtin, "Function", cb}
-    ConstructorRegistry.put_prototype(ctor, function_proto)
-
-    Process.put(
-      {:qb_intrinsics, ctor},
-      intrinsics(
-        realm_id,
-        object_proto,
-        function_proto,
-        array_proto,
-        boolean_proto,
-        number_proto,
-        string_proto,
-        symbol_proto,
-        regexp_proto,
-        date_proto,
-        data_view_proto,
-        map_proto,
-        iterator_proto,
-        set_proto,
-        promise_proto,
-        weak_map_proto,
-        weak_set_proto,
-        weak_ref_proto,
-        finalization_registry_proto,
-        aggregate_error_proto,
-        error_protos
-      )
-    )
-
-    ctor
   end
 
   defp function_body(args) do
