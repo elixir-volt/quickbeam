@@ -58,6 +58,16 @@ defmodule QuickBEAM.VM.Value do
   def symbol_name({:symbol, name}), do: name
   def symbol_name({:symbol, name, _ref}), do: name
 
+  @doc "Returns true when a function value has a constructor prototype property."
+  def has_function_prototype?(%QuickBEAM.VM.Function{has_prototype: true}), do: true
+
+  def has_function_prototype?({:closure, _, %QuickBEAM.VM.Function{has_prototype: true}}),
+    do: true
+
+  def has_function_prototype?(%QuickBEAM.VM.Function{func_kind: 1}), do: true
+  def has_function_prototype?({:closure, _, %QuickBEAM.VM.Function{func_kind: 1}}), do: true
+  def has_function_prototype?(_), do: false
+
   @doc "Returns true when a VM function value executes in strict mode."
   def strict_function?({:closure, _, %QuickBEAM.VM.Function{is_strict_mode: strict}}), do: strict
   def strict_function?(%QuickBEAM.VM.Function{is_strict_mode: strict}), do: strict

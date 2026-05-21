@@ -105,11 +105,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   defp virtual_callable_property?(target, "name"), do: not deleted_static?(target, "name")
   defp virtual_callable_property?(_, _), do: false
 
-  defp has_prototype?(%QuickBEAM.VM.Function{has_prototype: true}), do: true
-  defp has_prototype?({:closure, _, %QuickBEAM.VM.Function{has_prototype: true}}), do: true
-  defp has_prototype?(%QuickBEAM.VM.Function{func_kind: 1}), do: true
-  defp has_prototype?({:closure, _, %QuickBEAM.VM.Function{func_kind: 1}}), do: true
-  defp has_prototype?(_), do: false
+  defp has_prototype?(target), do: Value.has_function_prototype?(target)
 
   defp deleted_static?(target, key), do: Static.deleted?(target, key)
 

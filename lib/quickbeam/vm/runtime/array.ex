@@ -2532,13 +2532,10 @@ defmodule QuickBEAM.VM.Runtime.Array do
     end
   end
 
-  defp constructable_from?(%QuickBEAM.VM.Function{has_prototype: true}), do: true
-  defp constructable_from?({:closure, _, %QuickBEAM.VM.Function{has_prototype: true}}), do: true
-
   defp constructable_from?({:bound, _, _inner, orig_fun, _bound_args}),
     do: constructable_from?(orig_fun)
 
-  defp constructable_from?(_), do: false
+  defp constructable_from?(fun), do: Value.has_function_prototype?(fun)
 
   defp coerce_to_list({:obj, ref} = obj) do
     iterator_method = Get.get(obj, {:symbol, "Symbol.iterator"})
