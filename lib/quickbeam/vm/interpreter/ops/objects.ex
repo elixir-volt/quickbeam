@@ -4,7 +4,16 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
   @doc "Installs the Object creation, field access, array element access, and misc object stubs helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
-      alias QuickBEAM.VM.{Builtin, GlobalEnvironment, Heap, Invocation, Names, Runtime}
+      alias QuickBEAM.VM.{
+        Builtin,
+        GlobalEnvironment,
+        Heap,
+        Invocation,
+        Names,
+        Runtime,
+        RuntimeState
+      }
+
       alias QuickBEAM.VM.Interpreter.{Context, Frame}
       alias QuickBEAM.VM.Semantics.Values
 
@@ -76,7 +85,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
           run(pc + 1, frame, [obj | rest], gas, ctx)
         catch
           {:js_throw, error} ->
-            ctx = Heap.get_ctx() || ctx
+            ctx = RuntimeState.current() || ctx
             throw_or_catch(frame, error, gas, ctx)
         end
       end
@@ -86,7 +95,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
           run(pc + 1, frame, [PropertyAccess.get_property(obj, idx) | rest], gas, ctx)
         catch
           {:js_throw, error} ->
-            ctx = Heap.get_ctx() || ctx
+            ctx = RuntimeState.current() || ctx
             throw_or_catch(frame, error, gas, ctx)
         end
       end
@@ -106,7 +115,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
           run(pc + 1, frame, rest, gas, ctx)
         catch
           {:js_throw, error} ->
-            ctx = Heap.get_ctx() || ctx
+            ctx = RuntimeState.current() || ctx
             throw_or_catch(frame, error, gas, close_active_iterators_on_abrupt(rest, ctx))
         end
       end
@@ -129,7 +138,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
           run(pc + 1, frame, rest, gas, ctx)
         catch
           {:js_throw, error} ->
-            ctx = Heap.get_ctx() || ctx
+            ctx = RuntimeState.current() || ctx
             throw_or_catch(frame, error, gas, ctx)
         end
       end
@@ -200,7 +209,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
           run(pc + 1, frame, [PropertyAccess.get_property(obj, idx), obj | rest], gas, ctx)
         catch
           {:js_throw, error} ->
-            ctx = Heap.get_ctx() || ctx
+            ctx = RuntimeState.current() || ctx
             throw_or_catch(frame, error, gas, ctx)
         end
       end
@@ -240,10 +249,10 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
             frame,
             [prop_key | rest],
             gas,
-            GlobalEnvironment.refresh(Heap.get_ctx() || ctx)
+            GlobalEnvironment.refresh(RuntimeState.current() || ctx)
           )
         catch
-          {:js_throw, error} -> throw_or_catch(frame, error, gas, Heap.get_ctx() || ctx)
+          {:js_throw, error} -> throw_or_catch(frame, error, gas, RuntimeState.current() || ctx)
         end
       end
 
@@ -256,10 +265,10 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
             frame,
             [prop_key, obj | rest],
             gas,
-            GlobalEnvironment.refresh(Heap.get_ctx() || ctx)
+            GlobalEnvironment.refresh(RuntimeState.current() || ctx)
           )
         catch
-          {:js_throw, error} -> throw_or_catch(frame, error, gas, Heap.get_ctx() || ctx)
+          {:js_throw, error} -> throw_or_catch(frame, error, gas, RuntimeState.current() || ctx)
         end
       end
 
@@ -858,7 +867,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
           run(pc + 1, frame, stack, gas, ctx)
         catch
           {:js_throw, error} ->
-            ctx = Heap.get_ctx() || ctx
+            ctx = RuntimeState.current() || ctx
             throw_or_catch(frame, error, gas, ctx)
         end
       end

@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
   @doc "Installs the Global variable access, ref values, eval, and with-statement opcodes helpers into the caller module."
   defmacro __using__(_opts) do
     quote location: :keep do
-      alias QuickBEAM.VM.{GlobalEnvironment, Heap, Names, Runtime}
+      alias QuickBEAM.VM.{GlobalEnvironment, Heap, Names, Runtime, RuntimeState}
       alias QuickBEAM.VM.Interpreter.{Closures, Context, Frame}
       alias QuickBEAM.VM.JSThrow
       alias QuickBEAM.VM.ObjectModel.{Delete, Get, Put}
@@ -440,7 +440,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
             run(pc + 1, frame, rest, gas, ctx)
           catch
             {:js_throw, error} ->
-              ctx = Heap.get_ctx() || ctx
+              ctx = RuntimeState.current() || ctx
               throw_or_catch(frame, error, gas, ctx)
           end
         end
