@@ -1,25 +1,16 @@
 defmodule QuickBEAM.VM.Runtime.Globals.Functions do
   @moduledoc "Implementations for global JavaScript functions such as `eval`, `require`, and `queueMicrotask`."
 
-  alias QuickBEAM.VM.{BytecodeParser, Heap, RuntimeState}
-  alias QuickBEAM.VM.Interpreter
+  alias QuickBEAM.VM.Execution.Eval
+  alias QuickBEAM.VM.{Heap, RuntimeState}
   alias QuickBEAM.VM.JSThrow
-  alias QuickBEAM.VM.Runtime
 
   @doc "Implements global `eval` for source strings by compiling and evaluating them in the current runtime."
   def js_eval([code | _], _) when is_binary(code) do
     ctx = RuntimeState.current()
 
     with %{runtime_pid: pid} when pid != nil <- ctx,
-         {:ok, bytecode} <- QuickBEAM.Runtime.compile(pid, code),
-         {:ok, parsed} <- BytecodeParser.decode(bytecode),
-         {:ok, value} <-
-           Interpreter.eval(
-             parsed.value,
-             [],
-             %{gas: Runtime.gas_budget(), runtime_pid: pid},
-             parsed.atoms
-           ) do
+         {:ok, value} <- Eval.compile_and_eval(pid, code) do
       value
     else
       %{runtime_pid: nil} -> eval_without_runtime(code)
@@ -39,15 +30,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
     pre_globals = Heap.get_persistent_globals()
 
     with %{runtime_pid: pid} when pid != nil <- ctx,
-         {:ok, bytecode} <- QuickBEAM.Runtime.compile(pid, code),
-         {:ok, parsed} <- BytecodeParser.decode(bytecode),
-         {:ok, value} <-
-           Interpreter.eval(
-             parsed.value,
-             [],
-             %{gas: Runtime.gas_budget(), runtime_pid: pid, globals: globals},
-             parsed.atoms
-           ) do
+         {:ok, value} <- Eval.compile_and_eval(pid, code, globals: globals) do
       realm_updates = Heap.get_persistent_globals() || %{}
       Heap.put_persistent_globals(pre_globals)
       Heap.put_obj(ref, Map.merge(globals, realm_updates))

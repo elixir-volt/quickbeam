@@ -20,10 +20,7 @@ process_state_owners = [
   "QuickBEAM.VM.Realm"
 ]
 
-interpreter_bridges = [
-  "QuickBEAM.VM.Runtime.Globals.Constructors",
-  "QuickBEAM.VM.Runtime.Globals.Functions"
-]
+interpreter_bridges = []
 
 global_constructor_bridges = [
   "QuickBEAM.VM.ObjectModel.Get",

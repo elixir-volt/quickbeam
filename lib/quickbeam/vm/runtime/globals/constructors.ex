@@ -5,9 +5,8 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
   import QuickBEAM.VM.Builtin, only: [arg: 3, object: 1]
   import QuickBEAM.VM.Value, only: [is_builtin: 1, is_closure: 1, is_nullish: 1]
 
-  alias QuickBEAM.VM.{BytecodeParser, Heap, RuntimeState, Value}
-  alias QuickBEAM.VM.Execution.RegexpState
-  alias QuickBEAM.VM.Interpreter
+  alias QuickBEAM.VM.{Heap, RuntimeState, Value}
+  alias QuickBEAM.VM.Execution.{Eval, RegexpState}
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.{Get, WrappedPrimitive}
   alias QuickBEAM.VM.Runtime
@@ -208,26 +207,9 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
 
       code = "(" <> prefix <> " anonymous(" <> params <> "\n) {\n" <> body <> "\n})"
 
-      case QuickBEAM.Runtime.compile(ctx.runtime_pid, code) do
-        {:ok, bytecode} ->
-          case BytecodeParser.decode(bytecode) do
-            {:ok, parsed} ->
-              case Interpreter.eval(
-                     parsed.value,
-                     [],
-                     %{gas: Runtime.gas_budget(), runtime_pid: ctx.runtime_pid},
-                     parsed.atoms
-                   ) do
-                {:ok, value} -> with_dynamic_function_prototype(value, ctx)
-                _ -> JSThrow.syntax_error!("Invalid function")
-              end
-
-            _ ->
-              JSThrow.syntax_error!("Invalid function")
-          end
-
-        _ ->
-          JSThrow.syntax_error!("Invalid function")
+      case Eval.compile_and_eval(ctx.runtime_pid, code) do
+        {:ok, value} -> with_dynamic_function_prototype(value, ctx)
+        _ -> JSThrow.syntax_error!("Invalid function")
       end
     else
       JSThrow.error!("Function constructor requires runtime")
