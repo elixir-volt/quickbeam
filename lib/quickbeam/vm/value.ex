@@ -49,6 +49,15 @@ defmodule QuickBEAM.VM.Value do
   defguard is_builtin(v) when is_tuple(v) and tuple_size(v) == 3 and elem(v, 0) == :builtin
   defguard is_nullish(v) when v == nil or v == :undefined
 
+  @doc "Returns true when the VM value is a Symbol primitive."
+  def symbol?({:symbol, _}), do: true
+  def symbol?({:symbol, _, _}), do: true
+  def symbol?(_), do: false
+
+  @doc "Returns the Symbol description/name payload."
+  def symbol_name({:symbol, name}), do: name
+  def symbol_name({:symbol, name, _ref}), do: name
+
   @doc "Returns true when a VM function value executes in strict mode."
   def strict_function?({:closure, _, %QuickBEAM.VM.Function{is_strict_mode: strict}}), do: strict
   def strict_function?(%QuickBEAM.VM.Function{is_strict_mode: strict}), do: strict

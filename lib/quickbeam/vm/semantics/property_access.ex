@@ -36,9 +36,7 @@ defmodule QuickBEAM.VM.Semantics.PropertyAccess do
     end
   end
 
-  defp symbol_primitive?({:symbol, _}), do: true
-  defp symbol_primitive?({:symbol, _, _}), do: true
-  defp symbol_primitive?(_), do: false
+  defp symbol_primitive?(value), do: Value.symbol?(value)
 
   defp strict_context?(ctx), do: Value.strict_context?(ctx)
 
@@ -52,8 +50,8 @@ defmodule QuickBEAM.VM.Semantics.PropertyAccess do
     )
   end
 
-  defp format_key({:symbol, name}), do: name
-  defp format_key({:symbol, name, _ref}), do: name
+  defp format_key({:symbol, _, _} = key), do: Value.symbol_name(key)
+  defp format_key({:symbol, _} = key), do: Value.symbol_name(key)
   defp format_key(key) when is_binary(key), do: key
   defp format_key(key), do: QuickBEAM.VM.Semantics.Values.stringify(key)
 end

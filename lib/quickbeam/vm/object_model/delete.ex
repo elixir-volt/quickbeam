@@ -293,8 +293,8 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
     end
   end
 
-  defp key_label({:symbol, name}), do: name
-  defp key_label({:symbol, name, _}), do: name
+  defp key_label({:symbol, _, _} = key), do: Value.symbol_name(key)
+  defp key_label({:symbol, _} = key), do: Value.symbol_name(key)
   defp key_label(key), do: Values.stringify(key)
 
   defp delete_mapped_argument(ref, idx) do

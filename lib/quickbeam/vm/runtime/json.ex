@@ -8,6 +8,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
+  alias QuickBEAM.VM.Value
 
   alias QuickBEAM.VM.ObjectModel.{
     Delete,
@@ -949,9 +950,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   defp json_array_like?(list) when is_list(list), do: true
   defp json_array_like?(_), do: false
 
-  defp symbol_key?({:symbol, _}), do: true
-  defp symbol_key?({:symbol, _, _}), do: true
-  defp symbol_key?(_), do: false
+  defp symbol_key?(value), do: Value.symbol?(value)
 
   defp apply_to_json_hook(value, key) when is_binary(key) do
     case value do
