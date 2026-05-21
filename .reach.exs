@@ -22,9 +22,7 @@ process_state_owners = [
   "QuickBEAM.VM.ObjectModel.ArrayExotic",
   "QuickBEAM.VM.Runtime.Function",
   "QuickBEAM.VM.Runtime.JSON",
-  "QuickBEAM.VM.Runtime.Map",
-  "QuickBEAM.VM.Runtime.RegExp",
-  "QuickBEAM.VM.Runtime.Set"
+  "QuickBEAM.VM.Runtime.RegExp"
 ]
 
 interpreter_bridges = [

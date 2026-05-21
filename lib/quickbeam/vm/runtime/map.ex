@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
   import QuickBEAM.VM.Value, only: [is_nullish: 1]
 
   alias QuickBEAM.VM.Builtin.Definition
+  alias QuickBEAM.VM.Execution.IteratorState
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor}
   alias QuickBEAM.VM.Runtime
@@ -623,8 +624,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
   end
 
   defp make_map_iterator(ref, mode) do
-    state_ref = make_ref()
-    Process.put(state_ref, {[], false})
+    state_ref = IteratorState.new({[], false})
     {:obj, iter_ref} = iter = Heap.wrap(%{})
 
     next_fn =
@@ -683,18 +683,18 @@ defmodule QuickBEAM.VM.Runtime.Map do
     do: JSThrow.type_error!("Map Iterator next called on incompatible receiver")
 
   defp next_map_iterator_value(ref, state_ref, mode) do
-    case Process.get(state_ref, {[], false}) do
+    case IteratorState.get(state_ref, {[], false}) do
       {_seen, true} ->
         Heap.wrap(%{"value" => :undefined, "done" => true})
 
       {seen, false} ->
         case next_present_key(ref, seen) do
           :done ->
-            Process.put(state_ref, {seen, true})
+            IteratorState.put(state_ref, {seen, true})
             Heap.wrap(%{"value" => :undefined, "done" => true})
 
           key ->
-            Process.put(state_ref, {[key | seen], false})
+            IteratorState.put(state_ref, {[key | seen], false})
             data = Heap.get_obj(ref, %{}) |> Map.get(map_data(), %{})
 
             Heap.wrap(%{

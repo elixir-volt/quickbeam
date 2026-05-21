@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
 
   alias QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Builtin.Definition
+  alias QuickBEAM.VM.Execution.IteratorState
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.Invocation
@@ -718,8 +719,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
   end
 
   defp make_set_iterator(ref, mode, tag) do
-    state_ref = make_ref()
-    Process.put(state_ref, {0, false})
+    state_ref = IteratorState.new({0, false})
     {:obj, iter_ref} = iter = Heap.wrap(%{})
 
     next_fn =
@@ -778,18 +778,18 @@ defmodule QuickBEAM.VM.Runtime.Set do
     do: JSThrow.type_error!("Set Iterator next called on incompatible receiver")
 
   defp next_set_iterator_value(ref, state_ref, mode) do
-    case Process.get(state_ref, {0, false}) do
+    case IteratorState.get(state_ref, {0, false}) do
       {_cursor, true} ->
         Heap.wrap(%{"value" => :undefined, "done" => true})
 
       {cursor, false} ->
         case next_set_iterator_entry(ref, cursor) do
           :done ->
-            Process.put(state_ref, {cursor, true})
+            IteratorState.put(state_ref, {cursor, true})
             Heap.wrap(%{"value" => :undefined, "done" => true})
 
           {entry_id, value} ->
-            Process.put(state_ref, {entry_id, false})
+            IteratorState.put(state_ref, {entry_id, false})
             Heap.wrap(%{"value" => set_iterator_result(mode, value), "done" => false})
         end
     end
