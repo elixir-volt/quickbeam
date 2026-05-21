@@ -451,7 +451,8 @@ defmodule QuickBEAM.VM.Invocation do
             construct_runtime(orig_fun, adjusted_new_target, bound_args ++ args)
 
           {:builtin, _name, cb} when is_function(cb, 2) ->
-            cb.(args, this_obj)
+            ctor_ctx = Context.mark_dirty(%{ctx | this: this_obj, new_target: new_target})
+            with_ctx(ctor_ctx, fn -> cb.(args, this_obj) end)
 
           _ ->
             this_obj

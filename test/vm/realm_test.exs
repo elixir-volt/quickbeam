@@ -39,5 +39,18 @@ defmodule QuickBEAM.VM.RealmTest do
              )
   end
 
+  test "dynamic functions use new target realm fallback prototype", %{runtime: runtime} do
+    assert {:ok, true} =
+             eval(
+               runtime,
+               ~S"""
+               let g = $262.createRealm().global;
+               let C = new g.Function();
+               C.prototype = null;
+               Object.getPrototypeOf(Reflect.construct(Function, [], C)) === g.Function.prototype
+               """
+             )
+  end
+
   defp eval(runtime, source), do: QuickBEAM.eval(runtime, source, mode: :beam)
 end

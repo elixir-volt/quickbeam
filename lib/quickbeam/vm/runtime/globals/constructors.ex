@@ -215,7 +215,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
                      %{gas: Runtime.gas_budget(), runtime_pid: ctx.runtime_pid},
                      parsed.atoms
                    ) do
-                {:ok, value} -> value
+                {:ok, value} -> with_dynamic_function_prototype(value, ctx)
                 _ -> JSThrow.syntax_error!("Invalid function")
               end
 
@@ -229,6 +229,26 @@ defmodule QuickBEAM.VM.Runtime.Globals.Constructors do
     else
       JSThrow.error!("Function constructor requires runtime")
     end
+  end
+
+  defp with_dynamic_function_prototype(value, ctx) do
+    new_target = Map.get(ctx, :new_target, :undefined)
+
+    proto =
+      case Get.get(new_target, "prototype") do
+        {:obj, _} = object ->
+          object
+
+        _ ->
+          QuickBEAM.VM.Realm.default_prototype({:builtin, "Function", &function/2}, new_target) ||
+            Runtime.global_class_proto("Function")
+      end
+
+    if proto != nil do
+      Heap.put_ctor_static(value, "__proto__", proto)
+    end
+
+    value
   end
 
   defp stringify_arg(val) when is_binary(val), do: val
