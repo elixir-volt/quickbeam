@@ -100,14 +100,30 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
   defp proxy_prototype(map) do
     target = Map.fetch!(map, proxy_target())
     handler = Map.fetch!(map, proxy_handler())
+
+    unless object_value?(handler) do
+      throw(
+        {:js_throw,
+         Heap.make_error("Cannot perform operation on a proxy with null handler", "TypeError")}
+      )
+    end
+
     trap = Get.get(handler, "getPrototypeOf")
 
     if trap == :undefined or trap == nil do
       get(target)
     else
-      Invocation.invoke_callback_or_throw(trap, [target])
+      Invocation.invoke_callback_or_throw(trap, [target], handler)
     end
   end
+
+  defp object_value?({:obj, _}), do: true
+  defp object_value?({:closure, _, _}), do: true
+  defp object_value?({:builtin, _, _}), do: true
+  defp object_value?({:bound, _, _, _, _}), do: true
+  defp object_value?({:regexp, _, _}), do: true
+  defp object_value?({:regexp, _, _, _}), do: true
+  defp object_value?(_), do: false
 
   defp array_like_prototype(ref) do
     if Heap.get_array_prop(ref, "__arguments__") == true do

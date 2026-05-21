@@ -1013,13 +1013,20 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp proxy_get_prototype_of(target, handler) do
+    unless object_value?(handler) do
+      throw(
+        {:js_throw,
+         Heap.make_error("Cannot perform operation on a proxy with null handler", "TypeError")}
+      )
+    end
+
     trap = Get.get(handler, "getPrototypeOf")
 
     result =
       if trap == :undefined or trap == nil do
         Prototype.get(target)
       else
-        Invocation.invoke_callback_or_throw(trap, [target])
+        Invocation.invoke_callback_or_throw(trap, [target], handler)
       end
 
     cond do
@@ -1035,6 +1042,13 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp proxy_set_prototype_of(target, handler, new_proto) do
+    unless object_value?(handler) do
+      throw(
+        {:js_throw,
+         Heap.make_error("Cannot perform operation on a proxy with null handler", "TypeError")}
+      )
+    end
+
     trap = Get.get(handler, "setPrototypeOf")
 
     success? =
@@ -1042,7 +1056,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
         set_own_prototype(target, new_proto)
         true
       else
-        Values.truthy?(Invocation.invoke_callback_or_throw(trap, [target, new_proto]))
+        Values.truthy?(Invocation.invoke_callback_or_throw(trap, [target, new_proto], handler))
       end
 
     if success? and not target_extensible_for_prototype?(target) and
@@ -1052,6 +1066,14 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
     success?
   end
+
+  defp object_value?({:obj, _}), do: true
+  defp object_value?({:closure, _, _}), do: true
+  defp object_value?({:builtin, _, _}), do: true
+  defp object_value?({:bound, _, _, _, _}), do: true
+  defp object_value?({:regexp, _, _}), do: true
+  defp object_value?({:regexp, _, _, _}), do: true
+  defp object_value?(_), do: false
 
   defp prototype_value?(nil), do: true
   defp prototype_value?({:obj, _}), do: true

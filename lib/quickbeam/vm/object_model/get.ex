@@ -500,6 +500,10 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
           JSThrow.type_error!("Cannot perform operation on a revoked proxy")
         end
 
+        unless object_value?(handler) do
+          JSThrow.type_error!("Cannot perform operation on a proxy with null handler")
+        end
+
         get_trap = get(handler, "get")
 
         cond do
@@ -843,6 +847,14 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   end
 
   defp builtin_function_property(_builtin, _key), do: :undefined
+
+  defp object_value?({:obj, _}), do: true
+  defp object_value?({:closure, _, _}), do: true
+  defp object_value?({:builtin, _, _}), do: true
+  defp object_value?({:bound, _, _, _, _}), do: true
+  defp object_value?({:regexp, _, _}), do: true
+  defp object_value?({:regexp, _, _, _}), do: true
+  defp object_value?(_), do: false
 
   defp regexp_state_value({:accessor, getter, _}, receiver) when getter != nil,
     do: call_getter(getter, receiver)

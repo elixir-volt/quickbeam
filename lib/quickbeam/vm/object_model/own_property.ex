@@ -869,15 +869,31 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   defp proxy_descriptor(proxy_map, prop_name) do
     target = Map.fetch!(proxy_map, proxy_target())
     handler = Map.fetch!(proxy_map, proxy_handler())
+
+    unless object_value?(handler) do
+      throw(
+        {:js_throw,
+         Heap.make_error("Cannot perform operation on a proxy with null handler", "TypeError")}
+      )
+    end
+
     trap = Get.get(handler, "getOwnPropertyDescriptor")
 
     if trap == :undefined or trap == nil do
       descriptor(target, prop_name)
     else
-      result = Invocation.invoke_callback_or_throw(trap, [target, prop_name])
+      result = Invocation.invoke_callback_or_throw(trap, [target, prop_name], handler)
       validate_proxy_descriptor_result(target, prop_name, result)
     end
   end
+
+  defp object_value?({:obj, _}), do: true
+  defp object_value?({:closure, _, _}), do: true
+  defp object_value?({:builtin, _, _}), do: true
+  defp object_value?({:bound, _, _, _, _}), do: true
+  defp object_value?({:regexp, _, _}), do: true
+  defp object_value?({:regexp, _, _, _}), do: true
+  defp object_value?(_), do: false
 
   defp validate_proxy_descriptor_result(target, prop_name, :undefined) do
     case target_descriptor_flags(target, prop_name) do
