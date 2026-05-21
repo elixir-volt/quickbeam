@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0, proxy_target: 0, proxy_handler: 0]
 
   alias QuickBEAM.VM.Builtin
+  alias QuickBEAM.VM.Execution.PrototypeState
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.ObjectModel.{Get, Semantics}
   alias QuickBEAM.VM.Execution.RegexpState
@@ -168,67 +169,46 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
   defp function_kind_prototype(_function, callable), do: callable_prototype(callable)
 
   defp cached_function_kind_prototype(key, name, constructor) do
-    case Process.get(key) do
-      {:obj, _} = proto ->
-        proto
-
-      _ ->
-        proto =
-          Heap.wrap(%{
-            "constructor" => {:builtin, name, constructor},
-            {:symbol, "Symbol.toStringTag"} => name,
-            proto() => Heap.get_func_proto()
-          })
-
-        Process.put(key, proto)
-        proto
-    end
+    PrototypeState.cached(key, fn ->
+      Heap.wrap(%{
+        "constructor" => {:builtin, name, constructor},
+        {:symbol, "Symbol.toStringTag"} => name,
+        proto() => Heap.get_func_proto()
+      })
+    end)
   end
 
   defp generator_prototype_object do
-    case Process.get(:qb_generator_prototype_object) do
-      {:obj, _} = proto ->
-        proto
-
-      _ ->
-        proto =
-          Heap.wrap(%{
-            proto() => QuickBEAM.VM.Runtime.global_class_proto("Iterator"),
-            {:symbol, "Symbol.toStringTag"} => "Generator"
-          })
-
-        Process.put(:qb_generator_prototype_object, proto)
-        proto
-    end
+    PrototypeState.cached(:qb_generator_prototype_object, fn ->
+      Heap.wrap(%{
+        proto() => QuickBEAM.VM.Runtime.global_class_proto("Iterator"),
+        {:symbol, "Symbol.toStringTag"} => "Generator"
+      })
+    end)
   end
 
   defp generator_function_prototype do
-    case Process.get(:qb_generator_function_prototype) do
-      {:obj, _} = proto ->
-        proto
+    PrototypeState.cached(:qb_generator_function_prototype, fn ->
+      generator_proto = generator_prototype_object()
 
-      _ ->
-        generator_proto = generator_prototype_object()
-
-        proto =
-          Heap.wrap(%{
-            "constructor" =>
-              {:builtin, "GeneratorFunction",
-               &QuickBEAM.VM.Runtime.Globals.Constructors.generator_function/2},
-            "prototype" => generator_proto,
-            {:symbol, "Symbol.toStringTag"} => "GeneratorFunction",
-            proto() => Heap.get_func_proto()
-          })
-
-        Heap.put_prop_desc(proto_ref(proto), "prototype", %{
-          writable: false,
-          enumerable: false,
-          configurable: false
+      proto =
+        Heap.wrap(%{
+          "constructor" =>
+            {:builtin, "GeneratorFunction",
+             &QuickBEAM.VM.Runtime.Globals.Constructors.generator_function/2},
+          "prototype" => generator_proto,
+          {:symbol, "Symbol.toStringTag"} => "GeneratorFunction",
+          proto() => Heap.get_func_proto()
         })
 
-        Process.put(:qb_generator_function_prototype, proto)
-        proto
-    end
+      Heap.put_prop_desc(proto_ref(proto), "prototype", %{
+        writable: false,
+        enumerable: false,
+        configurable: false
+      })
+
+      proto
+    end)
   end
 
   defp proto_ref({:obj, ref}), do: ref

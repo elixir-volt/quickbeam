@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   use QuickBEAM.VM.Builtin
 
   alias QuickBEAM.VM.Builtin.Definition
+  alias QuickBEAM.VM.Execution.PrototypeState
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.JSThrow
@@ -517,17 +518,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     end)
   end
 
-  defp cached_prototype(key, build) do
-    case Process.get(key) do
-      nil ->
-        proto = build.()
-        Process.put(key, proto)
-        proto
-
-      proto ->
-        proto
-    end
-  end
+  defp cached_prototype(key, build), do: PrototypeState.cached_any(key, build)
 
   defp class_proto_for(type) do
     Runtime.global_class_proto(typed_array_name(type)) ||

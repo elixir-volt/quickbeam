@@ -12,7 +12,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   import Bitwise, only: [band: 2]
   import QuickBEAM.VM.Heap.Keys
 
-  alias QuickBEAM.VM.Execution.RegexpState
+  alias QuickBEAM.VM.Execution.{PrototypeState, RegexpState}
   alias QuickBEAM.VM.{Heap, JSThrow, Value}
   alias QuickBEAM.VM.Interpreter.Closures
   alias QuickBEAM.VM.Invocation
@@ -1503,29 +1503,19 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   end
 
   defp function_kind_constructor_prototype(name, ctor, fun) do
-    key = {:qb_function_kind_constructor_prototype, name}
+    PrototypeState.cached({:qb_function_kind_constructor_prototype, name}, fn ->
+      case QuickBEAM.VM.ObjectModel.Prototype.get(fun) do
+        {:obj, _} = existing ->
+          existing
 
-    case Process.get(key) do
-      {:obj, _} = proto ->
-        proto
-
-      _ ->
-        proto =
-          case QuickBEAM.VM.ObjectModel.Prototype.get(fun) do
-            {:obj, _} = existing ->
-              existing
-
-            _ ->
-              Heap.wrap(%{
-                "constructor" => ctor,
-                {:symbol, "Symbol.toStringTag"} => name,
-                "__proto__" => Heap.get_func_proto()
-              })
-          end
-
-        Process.put(key, proto)
-        proto
-    end
+        _ ->
+          Heap.wrap(%{
+            "constructor" => ctor,
+            {:symbol, "Symbol.toStringTag"} => name,
+            "__proto__" => Heap.get_func_proto()
+          })
+      end
+    end)
   end
 
   defp function_kind_to_string_tag(callable, key) do
