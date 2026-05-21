@@ -1799,8 +1799,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
     keys
     |> Enum.filter(fn key ->
-      (is_binary(key) or is_symbol(key)) and
-        proxy_assign_enumerable?(target, descriptor_trap, key)
+      PropertyKey.property_key?(key) and proxy_assign_enumerable?(target, descriptor_trap, key)
     end)
     |> Enum.map(fn key -> {key, Get.get(source_obj, key)} end)
   end

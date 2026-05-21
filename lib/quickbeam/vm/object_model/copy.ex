@@ -456,10 +456,9 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   defp enumerable_key_candidate?(key) when is_binary(key),
     do: not internal?(key)
 
-  defp enumerable_key_candidate?(key) when is_symbol(key), do: true
-  defp enumerable_key_candidate?(_), do: false
+  defp enumerable_key_candidate?(key), do: QuickBEAM.VM.Value.symbol?(key)
 
-  defp property_key?(key), do: is_binary(key) or is_symbol(key)
+  defp property_key?(key), do: PropertyKey.property_key?(key)
 
   defp property_key(key), do: PropertyKey.normalize(key)
 

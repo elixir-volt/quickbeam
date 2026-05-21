@@ -30,6 +30,9 @@ defmodule QuickBEAM.VM.ObjectModel.PropertyKey do
   @doc "Check if a key is a symbol."
   defguard is_symbol_key(k) when is_symbol(k)
 
+  @doc "Returns true when a value is already a JavaScript property key."
+  def property_key?(key), do: is_binary(key) or QuickBEAM.VM.Value.symbol?(key)
+
   @max_array_index 4_294_967_294
 
   @doc "Try to parse a key as an ECMAScript array index."
