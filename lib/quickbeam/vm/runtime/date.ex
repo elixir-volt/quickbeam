@@ -19,11 +19,15 @@ defmodule QuickBEAM.VM.Runtime.Date do
     constructor: &__MODULE__.constructor/2,
     length: 7,
     phase: :fundamental,
-    after_install: &__MODULE__.install_builtin/1
+    after_install: &__MODULE__.install_builtin/2
   )
 
-  def install_builtin(ctor) do
+  def install_builtin(ctor, _opts \\ []) do
     Heap.put_ctor_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
+
+    for name <- static_property_names() do
+      install_static_property(ctor, name)
+    end
 
     InstallerHelpers.with_prototype(ctor, fn proto_ref ->
       InstallerHelpers.install_methods(proto_ref, __MODULE__, proto_property_names())
@@ -41,6 +45,31 @@ defmodule QuickBEAM.VM.Runtime.Date do
       Heap.put_obj_key(proto_ref, sym_key, to_prim)
       Heap.put_prop_desc(proto_ref, sym_key, PropertyDescriptor.hidden_readonly())
     end)
+  end
+
+  defp install_static_property(ctor, name) do
+    value = static_property(name)
+    meta = static_property_meta(name) || QuickBEAM.VM.Builtin.meta(name)
+
+    Heap.put_ctor_static(ctor, name, value)
+    Heap.put_ctor_prop_desc(ctor, name, descriptor_from_meta(meta))
+
+    case value do
+      {:builtin, _, _} ->
+        Heap.put_ctor_static(value, "length", QuickBEAM.VM.Builtin.length(meta))
+        Heap.put_ctor_prop_desc(value, "length", PropertyDescriptor.hidden_readonly())
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp descriptor_from_meta(%QuickBEAM.VM.Builtin.Meta{} = meta) do
+    %{
+      writable: meta.writable?,
+      enumerable: meta.enumerable?,
+      configurable: meta.configurable?
+    }
   end
 
   defp coerce_date_value(obj) do
@@ -216,9 +245,17 @@ defmodule QuickBEAM.VM.Runtime.Date do
 
   # ── Statics ──
 
-  static("now", do: System.system_time(:millisecond))
-  static("parse", do: parse_date_string(to_string(hd(args))))
-  static("UTC", do: utc_from_components(args))
+  static "now", length: 0 do
+    System.system_time(:millisecond)
+  end
+
+  static "parse", length: 1 do
+    parse_date_string(Values.stringify(arg(args, 0, :undefined)))
+  end
+
+  static "UTC", length: 7 do
+    utc_from_components(args)
+  end
 
   # ── Getters ──
 
