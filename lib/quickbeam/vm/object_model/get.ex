@@ -12,9 +12,8 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   import Bitwise, only: [band: 2]
   import QuickBEAM.VM.Heap.Keys
 
-  alias QuickBEAM.VM.Execution.{PrototypeState, RegexpState}
+  alias QuickBEAM.VM.Execution.{ClosureCells, PrototypeState, RegexpState}
   alias QuickBEAM.VM.{Heap, JSThrow, Value}
-  alias QuickBEAM.VM.Interpreter.Closures
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.Runtime
 
@@ -1036,7 +1035,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
          false <- deleted_argument?(ref, idx),
          mapped when is_map(mapped) <- Heap.get_array_prop(ref, "__mapped_arguments__"),
          {:cell, _} = cell <- Map.get(mapped, idx) do
-      {:mapped, Closures.read_cell(cell)}
+      {:mapped, ClosureCells.read(cell)}
     else
       _ -> :not_mapped
     end

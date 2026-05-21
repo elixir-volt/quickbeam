@@ -21,9 +21,6 @@ process_state_owners = [
 ]
 
 interpreter_bridges = [
-  "QuickBEAM.VM.ObjectModel.ArrayExotic",
-  "QuickBEAM.VM.ObjectModel.Get",
-  "QuickBEAM.VM.ObjectModel.Put",
   "QuickBEAM.VM.Runtime.Globals.Constructors",
   "QuickBEAM.VM.Runtime.Globals.Functions",
   "QuickBEAM.VM.Runtime.Reflect",

@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.ObjectModel.ArrayExotic do
   @moduledoc "Array exotic object semantics for length, integer-indexed properties, and descriptors."
 
   alias QuickBEAM.VM.{Heap, RuntimeState}
-  alias QuickBEAM.VM.Interpreter.Closures
+  alias QuickBEAM.VM.Execution.ClosureCells
   alias QuickBEAM.VM.Semantics.Values
   alias QuickBEAM.VM.ObjectModel.{PropertyDescriptor, PropertyKey, Put, Semantics}
 
@@ -264,7 +264,7 @@ defmodule QuickBEAM.VM.ObjectModel.ArrayExotic do
     case Heap.get_array_prop(ref, "__mapped_arguments__") do
       mapped when is_map(mapped) ->
         case Map.get(mapped, idx) do
-          {:cell, _} = cell -> Closures.write_cell(cell, value)
+          {:cell, _} = cell -> ClosureCells.write(cell, value)
           _ -> :ok
         end
 

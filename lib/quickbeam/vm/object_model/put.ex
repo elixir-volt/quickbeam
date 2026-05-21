@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   import QuickBEAM.VM.Value, only: [is_symbol: 1]
 
   alias QuickBEAM.VM.Execution.{
+    ClosureCells,
     DefinitionState,
     PrimitivePrototypeState,
     RegexpState,
@@ -11,7 +12,6 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   }
 
   alias QuickBEAM.VM.{Heap, Runtime, RuntimeState, Value}
-  alias QuickBEAM.VM.Interpreter.Closures
   alias QuickBEAM.VM.Semantics.Values
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.JSThrow
@@ -1391,7 +1391,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
       mapped when is_map(mapped) ->
         case Map.get(mapped, index) do
           {:cell, _} = cell ->
-            Closures.write_cell(cell, val)
+            ClosureCells.write(cell, val)
             true
 
           _ ->
