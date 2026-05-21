@@ -56,10 +56,23 @@ process_state_owners = [
       "QuickBEAM.VM.Runtime.Collections"
     ],
     internal: [
-      "QuickBEAM.VM.Host.Test262"
+      "QuickBEAM.VM.Host.Test262",
+      "QuickBEAM.VM.Execution.JSONState",
+      "QuickBEAM.VM.Execution.RealmState",
+      "QuickBEAM.VM.Execution.GlobalBindingState",
+      "QuickBEAM.VM.Execution.EventLoop",
+      "QuickBEAM.VM.Execution.Eval",
+      "QuickBEAM.VM.Execution.ClosureCells"
     ],
     internal_callers: [
-      {"QuickBEAM.VM.Host.Test262", ["QuickBEAM.VM.Host.*"]}
+      {"QuickBEAM.VM.Host.Test262", ["QuickBEAM.VM.Host.*"]},
+      {"QuickBEAM.VM.Execution.JSONState", ["QuickBEAM.VM.Runtime.JSON"]},
+      {"QuickBEAM.VM.Execution.RealmState", ["QuickBEAM.VM.Realm"]},
+      {"QuickBEAM.VM.Execution.GlobalBindingState", ["QuickBEAM.VM.GlobalEnvironment"]},
+      {"QuickBEAM.VM.Execution.EventLoop", ["QuickBEAM.VM.Interpreter"]},
+      {"QuickBEAM.VM.Execution.Eval",
+       ["QuickBEAM.VM.Runtime.Globals.Functions", "QuickBEAM.VM.Runtime.ConstructorCallbacks"]},
+      {"QuickBEAM.VM.Execution.ClosureCells", ["QuickBEAM.VM.ObjectModel.*"]}
     ]
   ],
   tests: [

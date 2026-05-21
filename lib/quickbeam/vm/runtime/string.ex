@@ -7,7 +7,6 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.{Builtin, Heap, Invocation, JSThrow, Value}
-  alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.Semantics.Values
   alias QuickBEAM.VM.Semantics.Coercion
   alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor, Put, WrappedPrimitive}
