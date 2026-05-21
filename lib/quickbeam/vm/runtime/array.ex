@@ -30,7 +30,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   @max_safe_integer 9_007_199_254_740_991
 
   builtin_definition("Array",
-    constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.array/2,
+    constructor: &QuickBEAM.VM.Runtime.ConstructorCallbacks.array/2,
     length: 1,
     phase: :fundamental,
     after_install: &__MODULE__.install_builtin/2
@@ -1572,7 +1572,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp concat_receiver({:obj, _} = obj), do: obj
   defp concat_receiver({:qb_arr, _} = arr), do: arr
   defp concat_receiver(list) when is_list(list), do: list
-  defp concat_receiver(value), do: QuickBEAM.VM.Runtime.Globals.Constructors.object([value], nil)
+  defp concat_receiver(value), do: QuickBEAM.VM.Runtime.ConstructorCallbacks.object([value], nil)
 
   defp concat_target(receiver) do
     case concat_species_constructor(receiver) do
@@ -2306,7 +2306,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   defp primitive_object(value),
-    do: QuickBEAM.VM.Runtime.Globals.Constructors.object([value], nil)
+    do: QuickBEAM.VM.Runtime.ConstructorCallbacks.object([value], nil)
 
   defp array_like_length({:obj, ref}) do
     if Heap.get_array_prop(ref, "__arguments__") == true do

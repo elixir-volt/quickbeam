@@ -10,7 +10,7 @@ defmodule QuickBEAM.VM.Runtime.BigInt do
   alias QuickBEAM.VM.Semantics.Coercion
 
   builtin_definition("BigInt",
-    constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.bigint/2,
+    constructor: &QuickBEAM.VM.Runtime.ConstructorCallbacks.bigint/2,
     length: 1,
     phase: :fundamental,
     after_install: &__MODULE__.install_builtin/2

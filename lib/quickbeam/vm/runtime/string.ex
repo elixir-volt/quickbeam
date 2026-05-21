@@ -18,7 +18,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   @prototype_methods ~w(charAt charCodeAt codePointAt indexOf lastIndexOf includes startsWith endsWith slice substring substr split trim trimStart trimEnd toUpperCase toLowerCase toLocaleUpperCase toLocaleLowerCase repeat padStart padEnd replace replaceAll match matchAll localeCompare search normalize concat toString valueOf at isWellFormed toWellFormed)
 
   builtin_definition("String",
-    constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.string/2,
+    constructor: &QuickBEAM.VM.Runtime.ConstructorCallbacks.string/2,
     length: 1,
     phase: :fundamental,
     after_install: &__MODULE__.install_builtin/2

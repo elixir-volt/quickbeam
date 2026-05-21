@@ -28,7 +28,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   alias QuickBEAM.VM.Runtime.String, as: JSString
 
   builtin_definition("Object",
-    constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.object/2,
+    constructor: &QuickBEAM.VM.Runtime.ConstructorCallbacks.object/2,
     length: 1,
     phase: :core,
     prototype_parent: nil,

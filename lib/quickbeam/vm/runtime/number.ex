@@ -12,7 +12,7 @@ defmodule QuickBEAM.VM.Runtime.Number do
   @constant_properties ~w(NaN POSITIVE_INFINITY NEGATIVE_INFINITY MAX_SAFE_INTEGER MIN_SAFE_INTEGER EPSILON MAX_VALUE MIN_VALUE)
 
   builtin_definition("Number",
-    constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.number/2,
+    constructor: &QuickBEAM.VM.Runtime.ConstructorCallbacks.number/2,
     length: 1,
     phase: :fundamental,
     after_install: &__MODULE__.install_builtin/2

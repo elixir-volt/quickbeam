@@ -32,7 +32,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   ]
 
   builtin_definition("RegExp",
-    constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.regexp/2,
+    constructor: &QuickBEAM.VM.Runtime.ConstructorCallbacks.regexp/2,
     length: 2,
     phase: :fundamental,
     after_install: &__MODULE__.install_builtin/2

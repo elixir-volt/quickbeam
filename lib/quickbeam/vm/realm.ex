@@ -10,7 +10,7 @@ defmodule QuickBEAM.VM.Realm do
   alias QuickBEAM.VM.Runtime.Date, as: JSDate
   alias QuickBEAM.VM.Runtime.Errors
   alias QuickBEAM.VM.Runtime.FinalizationRegistry, as: JSFinalizationRegistry
-  alias QuickBEAM.VM.Runtime.Globals.Constructors
+  alias QuickBEAM.VM.Runtime.ConstructorCallbacks
   alias QuickBEAM.VM.Runtime.Globals.Functions
   alias QuickBEAM.VM.Runtime.Iterator, as: JSIterator
   alias QuickBEAM.VM.Runtime.Map, as: JSMap
@@ -590,7 +590,7 @@ defmodule QuickBEAM.VM.Realm do
         [_, name, source, flags] = match
         global = RealmState.global(realm_id)
         Put.put(global, name, this_value)
-        Constructors.regexp([source, flags], :undefined)
+        ConstructorCallbacks.regexp([source, flags], :undefined)
 
       true ->
         run_function_side_effect(realm_id, body)

@@ -2,12 +2,12 @@ defmodule QuickBEAM.VM.Runtime.Proxy do
   @moduledoc "Installs the Proxy constructor and Proxy.revocable helper."
 
   alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.Runtime.Globals.Constructors
+  alias QuickBEAM.VM.Runtime.ConstructorCallbacks
 
   use QuickBEAM.VM.Builtin
 
   builtin_definition("Proxy",
-    constructor: &Constructors.proxy/2,
+    constructor: &ConstructorCallbacks.proxy/2,
     length: 2,
     phase: :fundamental,
     module: __MODULE__,
@@ -34,7 +34,7 @@ defmodule QuickBEAM.VM.Runtime.Proxy do
   end
 
   defp revocable([target, handler | _], _this) do
-    proxy = Constructors.proxy([target, handler], nil)
+    proxy = ConstructorCallbacks.proxy([target, handler], nil)
 
     revoke_fn =
       {:builtin, "revoke",

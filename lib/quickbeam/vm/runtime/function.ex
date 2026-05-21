@@ -13,7 +13,7 @@ defmodule QuickBEAM.VM.Runtime.Function do
   alias QuickBEAM.VM.Realm
 
   builtin_definition("Function",
-    constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.function/2,
+    constructor: &QuickBEAM.VM.Runtime.ConstructorCallbacks.function/2,
     length: 1,
     phase: :core,
     prototype_parent: nil,
