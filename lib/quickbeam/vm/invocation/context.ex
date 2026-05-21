@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Invocation.Context do
   @moduledoc "Fast-context snapshot and restoration for BEAM-compiled calls."
 
-  alias QuickBEAM.VM.{Heap, Runtime}
+  alias QuickBEAM.VM.{Heap, Runtime, RuntimeState}
   alias QuickBEAM.VM.Interpreter.Context
   alias QuickBEAM.VM.ObjectModel.{Class, Functions}
 
@@ -70,7 +70,7 @@ defmodule QuickBEAM.VM.Invocation.Context do
         atoms
 
       _ ->
-        case Heap.get_ctx() do
+        case RuntimeState.current() do
           %{atoms: atoms} -> atoms
           _ -> Heap.get_atoms()
         end
@@ -84,7 +84,7 @@ defmodule QuickBEAM.VM.Invocation.Context do
         globals
 
       _ ->
-        case Heap.get_ctx() do
+        case RuntimeState.current() do
           %{globals: globals} -> globals
           _ -> Runtime.global_bindings()
         end
@@ -98,7 +98,7 @@ defmodule QuickBEAM.VM.Invocation.Context do
         current_func
 
       _ ->
-        case Heap.get_ctx() do
+        case RuntimeState.current() do
           %{current_func: current_func} -> current_func
           _ -> :undefined
         end
@@ -112,7 +112,7 @@ defmodule QuickBEAM.VM.Invocation.Context do
         arg_buf
 
       _ ->
-        case Heap.get_ctx() do
+        case RuntimeState.current() do
           %{arg_buf: arg_buf} -> arg_buf
           _ -> {}
         end
@@ -126,7 +126,7 @@ defmodule QuickBEAM.VM.Invocation.Context do
         this
 
       _ ->
-        case Heap.get_ctx() do
+        case RuntimeState.current() do
           %{this: this} -> this
           _ -> :undefined
         end
@@ -140,7 +140,7 @@ defmodule QuickBEAM.VM.Invocation.Context do
         new_target
 
       _ ->
-        case Heap.get_ctx() do
+        case RuntimeState.current() do
           %{new_target: new_target} -> new_target
           _ -> :undefined
         end
