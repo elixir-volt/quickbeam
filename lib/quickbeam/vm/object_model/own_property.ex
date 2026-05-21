@@ -302,7 +302,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   end
 
   defp callable_descriptor_key?(key) when is_binary(key),
-    do: not (String.starts_with?(key, "__") and String.ends_with?(key, "__"))
+    do: not internal?(key)
 
   defp callable_descriptor_key?({:symbol, _}), do: true
   defp callable_descriptor_key?(_key), do: false
@@ -950,7 +950,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   defp descriptor_internal_key?({:internal, _}), do: true
 
   defp descriptor_internal_key?(key) when is_binary(key),
-    do: String.starts_with?(key, "__") and String.ends_with?(key, "__")
+    do: internal?(key)
 
   defp descriptor_internal_key?(_), do: false
 

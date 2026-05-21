@@ -447,7 +447,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
        do: true
 
   defp internal_key?(key) when is_binary(key),
-    do: String.starts_with?(key, "__") and String.ends_with?(key, "__")
+    do: internal?(key)
 
   defp internal_key?(_), do: false
 end

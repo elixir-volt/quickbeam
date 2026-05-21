@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   @moduledoc "Object spread and property copying: `append_spread`, `copy_data_properties`, and array/iterator flattening."
 
   import QuickBEAM.VM.Heap.Keys,
-    only: [key_order: 0, proto: 0, proxy_handler: 0, proxy_target: 0]
+    only: [internal?: 1, key_order: 0, proto: 0, proxy_handler: 0, proxy_target: 0]
 
   import QuickBEAM.VM.Value, only: [is_symbol: 1]
 
@@ -290,7 +290,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
     map
     |> Map.keys()
     |> Enum.filter(&is_binary/1)
-    |> Enum.reject(fn key -> String.starts_with?(key, "__") and String.ends_with?(key, "__") end)
+    |> Enum.reject(fn key -> internal?(key) end)
     |> Runtime.sort_numeric_keys()
   end
 
@@ -447,7 +447,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   defp enumerable_proto_keys(_), do: []
 
   defp enumerable_key_candidate?(key) when is_binary(key),
-    do: not (String.starts_with?(key, "__") and String.ends_with?(key, "__"))
+    do: not internal?(key)
 
   defp enumerable_key_candidate?(key) when is_symbol(key), do: true
   defp enumerable_key_candidate?(_), do: false
@@ -462,7 +462,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
       |> Map.keys()
       |> Enum.filter(&is_binary/1)
       |> Enum.reject(fn key ->
-        String.starts_with?(key, "__") and String.ends_with?(key, "__")
+        internal?(key)
       end)
 
     symbol_keys = Map.keys(map) |> Enum.filter(&is_symbol/1)

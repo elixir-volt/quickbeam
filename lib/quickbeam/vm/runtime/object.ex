@@ -1568,7 +1568,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     |> Heap.get_array_props()
     |> Map.keys()
     |> Enum.filter(fn key ->
-      is_binary(key) and not (String.starts_with?(key, "__") and String.ends_with?(key, "__")) and
+      is_binary(key) and not internal?(key) and
         not match?(%{enumerable: false}, Heap.get_prop_desc(ref, key))
     end)
   end
@@ -1841,7 +1841,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     do: true
 
   defp assign_internal_key?(key) when is_binary(key),
-    do: String.starts_with?(key, "__") and String.ends_with?(key, "__")
+    do: internal?(key)
 
   defp assign_internal_key?(_), do: false
 
@@ -1936,7 +1936,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     |> Map.keys()
     |> Enum.filter(&is_binary/1)
     |> Enum.reject(&(&1 in ["flags", "source", "lastIndex"]))
-    |> Enum.reject(fn key -> String.starts_with?(key, "__") and String.ends_with?(key, "__") end)
+    |> Enum.reject(fn key -> internal?(key) end)
   end
 
   defp callable_own_keys(callable) do
@@ -1944,7 +1944,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     |> Heap.get_ctor_statics()
     |> Map.keys()
     |> Enum.filter(&is_binary/1)
-    |> Enum.reject(fn key -> String.starts_with?(key, "__") and String.ends_with?(key, "__") end)
+    |> Enum.reject(fn key -> internal?(key) end)
   end
 
   defp define_static_property(target, key, desc_ref) do
