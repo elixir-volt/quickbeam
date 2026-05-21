@@ -127,8 +127,8 @@ defmodule QuickBEAM.VM.Builtin.Installer do
 
   defp put_target_parent(map, parent) when is_map(map), do: Map.put(map, "__proto__", parent)
 
-  defp after_install_opts(:global), do: []
-  defp after_install_opts({:realm, opts}), do: opts
+  defp after_install_opts(:global), do: [target: :global]
+  defp after_install_opts({:realm, opts}), do: Keyword.put(opts, :target, :realm)
 
   defp run_after_install(ctor, %Definition{after_install: after_install}, opts)
        when is_function(after_install, 2),

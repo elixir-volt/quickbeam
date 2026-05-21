@@ -25,9 +25,12 @@ defmodule QuickBEAM.VM.Realm do
   def create do
     object_proto = Heap.wrap(%{})
 
-    array_proto = Array.prototype()
-    array_ctor = make_constructor("Array", &Constructors.array/2, array_proto)
-    Heap.put_obj_key(elem(array_proto, 1), "constructor", array_ctor)
+    array_ctor =
+      QuickBEAM.VM.Builtin.Installer.install(Array.builtin_definition(),
+        target: {:realm, object_proto: object_proto}
+      )
+
+    array_proto = Heap.get_class_proto(array_ctor)
 
     boolean_ctor =
       QuickBEAM.VM.Builtin.Installer.install(JSBoolean.builtin_definition(),

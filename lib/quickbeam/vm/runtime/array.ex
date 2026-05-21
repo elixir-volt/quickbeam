@@ -30,14 +30,18 @@ defmodule QuickBEAM.VM.Runtime.Array do
     constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.array/2,
     length: 1,
     phase: :fundamental,
-    after_install: &__MODULE__.install_builtin/1
+    after_install: &__MODULE__.install_builtin/2
   )
 
   @doc "Installs Array-specific prototype and constructor metadata."
-  def install_builtin(ctor) do
-    proto = prototype()
+  def install_builtin(ctor, opts \\ []) do
+    object_proto = Keyword.get(opts, :object_proto, Heap.get_object_prototype())
+    proto = prototype(object_proto)
     QuickBEAM.VM.Runtime.Constructors.put_prototype(ctor, proto)
-    Heap.put_array_proto(proto)
+
+    if Keyword.get(opts, :target, :global) == :global do
+      Heap.put_array_proto(proto)
+    end
 
     {:obj, proto_ref} = proto
     InstallerHelpers.install_constructor_link(proto_ref, ctor)
@@ -48,7 +52,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   @doc "Builds the JavaScript prototype object for this runtime builtin."
-  def prototype do
+  def prototype(object_proto \\ Heap.get_object_prototype()) do
     mod = __MODULE__
     methods = ~w(push pop shift unshift map filter reduce reduceRight forEach indexOf
       lastIndexOf toString toLocaleString includes slice splice join concat reverse sort
@@ -78,6 +82,12 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
       Heap.put_ctor_prop_desc(method, "length", PropertyDescriptor.hidden_readonly())
     end
+
+    proto_map =
+      case object_proto do
+        {:obj, _} -> Map.put(proto_map, "__proto__", object_proto)
+        _ -> proto_map
+      end
 
     proto = Heap.wrap(proto_map)
     {:obj, ref} = proto
