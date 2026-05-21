@@ -25,13 +25,11 @@ process_state_owners = [
   "QuickBEAM.VM.ObjectModel.Methods",
   "QuickBEAM.VM.ObjectModel.Prototype",
   "QuickBEAM.VM.ObjectModel.Put",
-  "QuickBEAM.VM.ObjectModel.Delete",
   "QuickBEAM.VM.Runtime.Function",
   "QuickBEAM.VM.Runtime.JSON",
   "QuickBEAM.VM.Runtime.Map",
   "QuickBEAM.VM.Runtime.RegExp",
   "QuickBEAM.VM.Runtime.Set",
-  "QuickBEAM.VM.Runtime.String",
   "QuickBEAM.VM.Runtime.TypedArray"
 ]
 

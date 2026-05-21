@@ -24,6 +24,13 @@ defmodule QuickBEAM.VM.Execution.RegexpState do
 
   def has_property?(ref, property), do: Map.has_key?(get(ref), property)
 
+  def get_match_all_override, do: Process.get(:qb_regexp_prototype_match_all_override)
+
+  def put_match_all_override(value),
+    do: Process.put(:qb_regexp_prototype_match_all_override, value)
+
+  def delete_match_all_override, do: Process.delete(:qb_regexp_prototype_match_all_override)
+
   @doc "Returns the process dictionary key for a RegExp property side table."
   def key(ref), do: {:qb_regexp_props, ref}
 

@@ -1315,7 +1315,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
         if Map.has_key?(map, "exec") and Map.has_key?(map, "test") and Map.has_key?(map, "source") and
              str_key == {:symbol, "Symbol.matchAll"} do
-          Process.put(:qb_regexp_prototype_match_all_override, val)
+          RegexpState.put_match_all_override(val)
         end
 
         cache_primitive_then_override(ref, str_key, val)

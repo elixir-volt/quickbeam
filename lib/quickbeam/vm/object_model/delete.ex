@@ -134,7 +134,7 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
     if QuickBEAM.VM.Runtime.global_class_proto("RegExp") == {:obj, ref} and
          key in [{:symbol, "Symbol.match"}, {:symbol, "Symbol.matchAll"}] do
       if key == {:symbol, "Symbol.matchAll"},
-        do: Process.delete(:qb_regexp_prototype_match_all_override)
+        do: QuickBEAM.VM.Execution.RegexpState.delete_match_all_override()
 
       Heap.put_prop_desc(ref, key, :deleted)
     end

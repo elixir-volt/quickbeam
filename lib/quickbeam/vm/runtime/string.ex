@@ -7,6 +7,7 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.{Builtin, Heap, Invocation, JSThrow, Value}
+  alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.Semantics.Values
   alias QuickBEAM.VM.Semantics.Coercion
   alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor, Put, WrappedPrimitive}
@@ -3049,7 +3050,7 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   defp regexp_prototype_match_all do
     matcher =
-      Process.get(:qb_regexp_prototype_match_all_override) ||
+      RegexpState.get_match_all_override() ||
         Get.get(current_regexp_prototype(), {:symbol, "Symbol.matchAll"})
 
     if Builtin.callable?(matcher), do: {:ok, matcher}, else: :none
