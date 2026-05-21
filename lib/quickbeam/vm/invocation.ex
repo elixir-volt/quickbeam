@@ -16,7 +16,7 @@ defmodule QuickBEAM.VM.Invocation do
 
   import QuickBEAM.VM.Heap.Keys, only: [proto: 0, proxy_handler: 0, proxy_target: 0]
 
-  alias QuickBEAM.VM.{Builtin, Compiler, GlobalEnvironment, Heap, Runtime, RuntimeState}
+  alias QuickBEAM.VM.{Builtin, Compiler, GlobalEnvironment, Heap, Runtime, RuntimeState, Value}
   alias QuickBEAM.VM.Compiler.FunctionInfo
   alias QuickBEAM.VM.Compiler.Runner
   alias QuickBEAM.VM.Interpreter
@@ -477,7 +477,7 @@ defmodule QuickBEAM.VM.Invocation do
         validate_constructor!(target)
         construct_trap = Get.get(handler, "construct")
 
-        if construct_trap == :undefined or construct_trap == nil do
+        if Value.nullish?(construct_trap) do
           construct_runtime(ctx, target, new_target, args)
         else
           result =
@@ -524,7 +524,7 @@ defmodule QuickBEAM.VM.Invocation do
 
         apply_trap = Get.get(handler, "apply")
 
-        if apply_trap == :undefined or apply_trap == nil do
+        if Value.nullish?(apply_trap) do
           dispatch(target, args, ctx.gas, ctx, this)
         else
           dispatch(

@@ -314,7 +314,7 @@ defmodule QuickBEAM.VM.ObjectModel.Define do
     trap = Get.get(handler, "defineProperty")
 
     cond do
-      trap == :undefined or trap == nil ->
+      Value.nullish?(trap) ->
         property(target, key, desc_obj, descriptor_map(desc_obj))
         proxy
 

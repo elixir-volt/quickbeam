@@ -76,7 +76,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       [target, this_arg | rest] = args
       args_array = List.first(rest)
 
-      if args_array == :undefined or args_array == nil do
+      if Value.nullish?(args_array) do
         throw(
           {:js_throw,
            Heap.make_error("CreateListFromArrayLike called on non-object", "TypeError")}
@@ -349,7 +349,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
         trap = Get.get(handler, "preventExtensions")
 
         cond do
-          trap == :undefined or trap == nil ->
+          Value.nullish?(trap) ->
             prevent_extensions(target)
 
           not Values.truthy?(Invocation.invoke_callback_or_throw(trap, [target])) ->
@@ -373,7 +373,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       %{proxy_target() => target, proxy_handler() => handler} ->
         trap = Get.get(handler, "isExtensible")
 
-        if trap == :undefined or trap == nil do
+        if Value.nullish?(trap) do
           extensible?(target)
         else
           trap_result = Values.truthy?(Invocation.invoke_callback_or_throw(trap, [target]))
@@ -399,7 +399,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       %{proxy_target() => target, proxy_handler() => handler} ->
         own_keys_trap = Get.get(handler, "ownKeys")
 
-        if own_keys_trap == :undefined or own_keys_trap == nil do
+        if Value.nullish?(own_keys_trap) do
           own_keys_for(target)
         else
           own_keys_trap

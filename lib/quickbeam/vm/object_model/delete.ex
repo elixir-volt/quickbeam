@@ -184,7 +184,7 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
     trap = Get.get(handler, "deleteProperty")
 
     cond do
-      trap == :undefined or trap == nil ->
+      Value.nullish?(trap) ->
         delete_property(target, key)
 
       not Values.truthy?(Invocation.invoke_callback_or_throw(trap, [target, key], handler)) ->

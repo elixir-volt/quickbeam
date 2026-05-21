@@ -110,7 +110,7 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
 
     trap = Get.get(handler, "getPrototypeOf")
 
-    if trap == :undefined or trap == nil do
+    if Value.nullish?(trap) do
       get(target)
     else
       Invocation.invoke_callback_or_throw(trap, [target], handler)

@@ -221,7 +221,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
       %{proxy_target() => target, proxy_handler() => handler} ->
         trap = Get.get(handler, "ownKeys")
 
-        if trap == :undefined or trap == nil do
+        if Value.nullish?(trap) do
           own_keys(target)
         else
           trap
@@ -864,7 +864,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
 
     trap = Get.get(handler, "getOwnPropertyDescriptor")
 
-    if trap == :undefined or trap == nil do
+    if Value.nullish?(trap) do
       descriptor(target, prop_name)
     else
       result = Invocation.invoke_callback_or_throw(trap, [target, prop_name], handler)
