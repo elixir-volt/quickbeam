@@ -568,10 +568,10 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
   defp json_space_wrapped(map) do
     cond do
-      WrappedPrimitive.type(map) == :number ->
+      WrappedPrimitive.type?(map, :number) ->
         map |> Heap.wrap() |> Runtime.to_number() |> json_space_string()
 
-      WrappedPrimitive.type(map) == :string ->
+      WrappedPrimitive.type?(map, :string) ->
         map |> Heap.wrap() |> Runtime.stringify() |> json_space_string()
 
       true ->

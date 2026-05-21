@@ -286,7 +286,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   defp string_object_iterator_method({:obj, ref} = receiver) do
     case Heap.get_obj(ref, %{}) do
       map when is_map(map) ->
-        if WrappedPrimitive.type(map) == :string do
+        if WrappedPrimitive.type?(map, :string) do
           string_iterator_method(receiver)
         end
 
