@@ -18,18 +18,20 @@ defmodule QuickBEAM.VM.Runtime.String do
     constructor: &QuickBEAM.VM.Runtime.Globals.Constructors.string/2,
     length: 1,
     phase: :fundamental,
-    after_install: &__MODULE__.install_builtin/1
+    after_install: &__MODULE__.install_builtin/2
   )
 
   @doc "Installs String-specific prototype metadata."
-  def install_builtin(ctor) do
+  def install_builtin(ctor, opts \\ []) do
+    object_proto = Keyword.get(opts, :object_proto, Heap.get_object_prototype())
+
     InstallerHelpers.with_prototype(ctor, fn proto_ref ->
       InstallerHelpers.install_methods(proto_ref, __MODULE__, @prototype_methods)
 
       proto_ref
       |> Heap.get_obj(%{})
       |> Map.put_new(WrappedPrimitive.slot(:string), "")
-      |> maybe_put_object_prototype()
+      |> put_object_prototype(object_proto)
       |> then(&Heap.put_obj(proto_ref, &1))
 
       InstallerHelpers.install_constructor_link(proto_ref, ctor)
@@ -41,12 +43,10 @@ defmodule QuickBEAM.VM.Runtime.String do
     Heap.put_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
   end
 
-  defp maybe_put_object_prototype(map) do
-    case Heap.get_object_prototype() do
-      {:obj, _} = object_proto -> Map.put(map, "__proto__", object_proto)
-      _ -> map
-    end
-  end
+  defp put_object_prototype(map, {:obj, _} = object_proto),
+    do: Map.put(map, "__proto__", object_proto)
+
+  defp put_object_prototype(map, _object_proto), do: map
 
   defp install_iterator(proto_ref) do
     sym_iterator = {:symbol, "Symbol.iterator"}

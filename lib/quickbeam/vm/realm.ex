@@ -3,6 +3,7 @@ defmodule QuickBEAM.VM.Realm do
 
   alias QuickBEAM.VM.{Heap, Runtime}
   alias QuickBEAM.VM.Runtime.Array
+  alias QuickBEAM.VM.Runtime.BigInt, as: JSBigInt
   alias QuickBEAM.VM.Runtime.Boolean, as: JSBoolean
   alias QuickBEAM.VM.Runtime.Constructors, as: ConstructorRegistry
   alias QuickBEAM.VM.Runtime.DataView
@@ -16,6 +17,7 @@ defmodule QuickBEAM.VM.Realm do
   alias QuickBEAM.VM.Runtime.Promise
   alias QuickBEAM.VM.Runtime.RegExp, as: JSRegExp
   alias QuickBEAM.VM.Runtime.Set, as: JSSet
+  alias QuickBEAM.VM.Runtime.Number, as: JSNumber
   alias QuickBEAM.VM.Runtime.String, as: JSString
   alias QuickBEAM.VM.ObjectModel.{Get, Prototype, Put, WrappedPrimitive}
   alias QuickBEAM.VM.Runtime.WeakRef, as: JSWeakRef
@@ -34,17 +36,26 @@ defmodule QuickBEAM.VM.Realm do
 
     boolean_proto = Heap.get_class_proto(boolean_ctor)
 
-    number_proto = Heap.wrap(%{"__proto__" => object_proto})
-    number_ctor = make_constructor("Number", &Constructors.number/2, number_proto)
-    Heap.put_obj_key(elem(number_proto, 1), "constructor", number_ctor)
+    number_ctor =
+      QuickBEAM.VM.Builtin.Installer.install(JSNumber.builtin_definition(),
+        target: {:realm, object_proto: object_proto}
+      )
 
-    bigint_proto = Heap.wrap(%{"__proto__" => object_proto})
-    bigint_ctor = make_constructor("BigInt", &Constructors.bigint/2, bigint_proto)
-    Heap.put_obj_key(elem(bigint_proto, 1), "constructor", bigint_ctor)
+    number_proto = Heap.get_class_proto(number_ctor)
 
-    string_proto = Heap.wrap(%{"__proto__" => object_proto})
-    string_ctor = make_constructor("String", &Constructors.string/2, string_proto)
-    Heap.put_obj_key(elem(string_proto, 1), "constructor", string_ctor)
+    bigint_ctor =
+      QuickBEAM.VM.Builtin.Installer.install(JSBigInt.builtin_definition(),
+        target: {:realm, object_proto: object_proto}
+      )
+
+    bigint_proto = Heap.get_class_proto(bigint_ctor)
+
+    string_ctor =
+      QuickBEAM.VM.Builtin.Installer.install(JSString.builtin_definition(),
+        target: {:realm, object_proto: object_proto}
+      )
+
+    string_proto = Heap.get_class_proto(string_ctor)
 
     symbol_ctor =
       QuickBEAM.VM.Builtin.Installer.install(QuickBEAM.VM.Runtime.Symbol.builtin_definition(),
