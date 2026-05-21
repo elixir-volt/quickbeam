@@ -740,11 +740,7 @@ defmodule QuickBEAM.VM.Invocation do
   defp validate_constructor!({:bound, _, _inner, _orig_fun, _bound_args}), do: :ok
 
   defp validate_constructor!({:builtin, name, cb} = ctor) when is_function(cb, 2) do
-    meta =
-      Map.get(Heap.get_ctor_statics(ctor), :__builtin_meta__) ||
-        QuickBEAM.VM.Builtin.named_meta(name)
-
-    case meta do
+    case QuickBEAM.VM.Builtin.metadata_for(ctor) do
       %QuickBEAM.VM.Builtin.Meta{constructable?: false} ->
         throw({:js_throw, Heap.make_error("#{name} is not a constructor", "TypeError")})
 

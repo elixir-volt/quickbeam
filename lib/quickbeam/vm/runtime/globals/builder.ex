@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Builder do
   @moduledoc "Builds global bindings and post-build global metadata for a runtime realm."
 
   alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.Host.WebAPIs
+  alias QuickBEAM.VM.Host.Bindings, as: HostBindings
 
   alias QuickBEAM.VM.Runtime.Errors
   alias QuickBEAM.VM.Runtime.Globals.{GlobalThis, Registry}
@@ -11,7 +11,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Builder do
     Registry.bindings()
     |> Map.merge(Errors.bindings())
     |> cache_globals()
-    |> Map.merge(WebAPIs.bindings())
+    |> Map.merge(HostBindings.bindings())
     |> install_global_this()
     |> cache_globals()
   end

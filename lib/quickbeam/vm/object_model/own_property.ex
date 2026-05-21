@@ -792,23 +792,19 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
 
   defp builtin_descriptor_value(name, "name"), do: name
 
-  defp builtin_descriptor_value(name, "length") do
-    case QuickBEAM.VM.Builtin.named_meta(name) do
-      %QuickBEAM.VM.Builtin.Meta{length: length} -> length
-      _ -> nil
-    end
-  end
+  defp builtin_descriptor_value(name, "length"),
+    do: QuickBEAM.VM.Builtin.declared_length(name, nil)
 
   defp builtin_descriptor_value(_, _), do: nil
 
   defp builtin_function_length(fun, name) when is_function(fun) do
-    case QuickBEAM.VM.Builtin.named_meta(name) do
-      %QuickBEAM.VM.Builtin.Meta{length: length} ->
-        length
-
-      _ ->
+    case QuickBEAM.VM.Builtin.declared_length(name, nil) do
+      nil ->
         {:arity, arity} = Function.info(fun, :arity)
         max(arity - 2, 0)
+
+      length ->
+        length
     end
   end
 

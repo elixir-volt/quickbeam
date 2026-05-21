@@ -5,6 +5,11 @@ defmodule QuickBEAM.VM.Host.Test262 do
   alias QuickBEAM.VM.Realm
   import QuickBEAM.VM.Heap.Keys, only: [buffer: 0]
 
+  @behaviour QuickBEAM.VM.Runtime.BindingProvider
+
+  @impl true
+  def bindings, do: %{"$262" => object()}
+
   def object do
     Heap.wrap(%{
       "createRealm" => {:builtin, "createRealm", fn _, _ -> Realm.create() end},

@@ -356,14 +356,8 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
       {:bound, len, _, _, _} = bound ->
         callable_length_of(bound, len)
 
-      {:builtin, name, _} = builtin ->
-        default_length =
-          case QuickBEAM.VM.Builtin.named_meta(name) do
-            %QuickBEAM.VM.Builtin.Meta{length: length} -> length
-            _ -> :undefined
-          end
-
-        callable_length_of(builtin, default_length)
+      {:builtin, _, _} = builtin ->
+        callable_length_of(builtin, QuickBEAM.VM.Builtin.declared_length(builtin))
 
       _ ->
         :undefined
@@ -893,12 +887,8 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp builtin_function_property({:builtin, name, _}, "name"), do: name
 
-  defp builtin_function_property({:builtin, name, _}, "length") do
-    case QuickBEAM.VM.Builtin.named_meta(name) do
-      %QuickBEAM.VM.Builtin.Meta{length: length} -> length
-      _ -> :undefined
-    end
-  end
+  defp builtin_function_property({:builtin, _, _} = builtin, "length"),
+    do: QuickBEAM.VM.Builtin.declared_length(builtin)
 
   defp builtin_function_property(_builtin, _key), do: :undefined
 

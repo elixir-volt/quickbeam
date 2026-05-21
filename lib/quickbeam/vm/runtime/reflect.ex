@@ -208,11 +208,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
   defp validate_constructable!({:bound, _, _, _, _}), do: :ok
 
   defp validate_constructable!({:builtin, name, _} = builtin) do
-    meta =
-      Map.get(Heap.get_ctor_statics(builtin), :__builtin_meta__) ||
-        QuickBEAM.VM.Builtin.named_meta(name)
-
-    case meta do
+    case QuickBEAM.VM.Builtin.metadata_for(builtin) do
       %QuickBEAM.VM.Builtin.Meta{constructable?: true} ->
         :ok
 

@@ -159,12 +159,8 @@ defmodule QuickBEAM.VM.Runtime.Constructors do
 
   defp fallback_static_property(_ctor, name, "name", _statics), do: name
 
-  defp fallback_static_property(_ctor, name, "length", _statics) do
-    case QuickBEAM.VM.Builtin.named_meta(name) do
-      %QuickBEAM.VM.Builtin.Meta{length: length} -> length
-      _ -> :undefined
-    end
-  end
+  defp fallback_static_property(ctor, _name, "length", _statics),
+    do: QuickBEAM.VM.Builtin.declared_length(ctor)
 
   defp fallback_static_property(ctor, name, key, statics) do
     module_static_property(Map.get(statics, :__module__), name, ctor, key)
