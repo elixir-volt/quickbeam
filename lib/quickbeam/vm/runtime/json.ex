@@ -6,6 +6,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   import Bitwise
   import QuickBEAM.VM.Heap.Keys
 
+  alias QuickBEAM.VM.Execution.JSONState
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Value
@@ -22,10 +23,6 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   alias QuickBEAM.VM.Runtime
 
   @method_lengths %{"parse" => 2, "stringify" => 3, "rawJSON" => 1, "isRawJSON" => 1}
-  @property_list_key {__MODULE__, :property_list}
-  @seen_refs_key {__MODULE__, :seen_refs}
-  @replacer_function_key {__MODULE__, :replacer_function}
-
   def install_metadata({:builtin, _name, map} = json) when is_map(map) do
     Enum.each(@method_lengths, fn {name, length} ->
       method = Map.get(map, name)
@@ -360,12 +357,10 @@ defmodule QuickBEAM.VM.Runtime.JSON do
       replacer = Enum.at(rest, 0)
       space = Enum.at(rest, 1)
 
-      previous_property_list = Process.get(@property_list_key)
-      previous_seen_refs = Process.get(@seen_refs_key)
-      previous_replacer_function = Process.get(@replacer_function_key)
+      previous_state = JSONState.snapshot()
       install_replacer_function(replacer)
       install_replacer_property_list(replacer)
-      Process.put(@seen_refs_key, MapSet.new())
+      JSONState.reset_seen_refs()
 
       try do
         value = val |> apply_root_to_json() |> apply_root_replacer(replacer)
@@ -379,9 +374,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
       rescue
         _ -> :undefined
       after
-        restore_replacer_property_list(previous_property_list)
-        restore_seen_refs(previous_seen_refs)
-        restore_replacer_function(previous_replacer_function)
+        JSONState.restore(previous_state)
       end
     end
   end
@@ -515,27 +508,18 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
   defp install_replacer_function(replacer) do
     if QuickBEAM.VM.Builtin.callable?(replacer),
-      do: Process.put(@replacer_function_key, replacer),
-      else: Process.delete(@replacer_function_key)
+      do: JSONState.put_replacer_function(replacer),
+      else: JSONState.delete_replacer_function()
   end
-
-  defp restore_replacer_function(nil), do: Process.delete(@replacer_function_key)
-  defp restore_replacer_function(replacer), do: Process.put(@replacer_function_key, replacer)
 
   defp install_replacer_property_list({:obj, _} = replacer) do
     case replacer_property_list(replacer) do
-      {:ok, list} -> Process.put(@property_list_key, list)
-      :not_array -> Process.delete(@property_list_key)
+      {:ok, list} -> JSONState.put_property_list(list)
+      :not_array -> JSONState.delete_property_list()
     end
   end
 
-  defp install_replacer_property_list(_), do: Process.delete(@property_list_key)
-
-  defp restore_replacer_property_list(nil), do: Process.delete(@property_list_key)
-  defp restore_replacer_property_list(list), do: Process.put(@property_list_key, list)
-
-  defp restore_seen_refs(nil), do: Process.delete(@seen_refs_key)
-  defp restore_seen_refs(seen_refs), do: Process.put(@seen_refs_key, seen_refs)
+  defp install_replacer_property_list(_), do: JSONState.delete_property_list()
 
   defp encode(result, replacer, space) do
     result = apply_replacer(result, replacer)
@@ -681,7 +665,7 @@ defmodule QuickBEAM.VM.Runtime.JSON do
 
   defp apply_replacer({:ordered_map, pairs}, replacer)
        when not is_nil(replacer) and replacer != :undefined do
-    if QuickBEAM.VM.Builtin.callable?(replacer) and Process.get(@replacer_function_key) == nil do
+    if QuickBEAM.VM.Builtin.callable?(replacer) and JSONState.replacer_function() == nil do
       filtered =
         Enum.reduce(pairs, [], fn {k, v}, acc ->
           result = Runtime.call_callback(replacer, [k, v])
@@ -973,30 +957,30 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   end
 
   defp apply_property_replacer(value, key, holder) do
-    case Process.get(@replacer_function_key) do
+    case JSONState.replacer_function() do
       nil -> value
       replacer -> QuickBEAM.VM.Invocation.invoke_with_receiver(replacer, [key, value], holder)
     end
   end
 
   defp with_json_ref(ref, fun) do
-    seen_refs = Process.get(@seen_refs_key, MapSet.new())
+    seen_refs = JSONState.seen_refs()
 
     if MapSet.member?(seen_refs, ref) do
       JSThrow.type_error!("Converting circular structure to JSON")
     else
-      Process.put(@seen_refs_key, MapSet.put(seen_refs, ref))
+      JSONState.put_seen_refs(MapSet.put(seen_refs, ref))
 
       try do
         fun.()
       after
-        Process.put(@seen_refs_key, seen_refs)
+        JSONState.put_seen_refs(seen_refs)
       end
     end
   end
 
   defp order_json_entries(entries, order) do
-    case Process.get(@property_list_key) do
+    case JSONState.property_list() do
       list when is_list(list) ->
         for key <- list,
             {entry_key, value} <- entries,
