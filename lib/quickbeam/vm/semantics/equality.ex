@@ -133,14 +133,14 @@ defmodule QuickBEAM.VM.Semantics.Equality do
   def abstract_eq({:symbol, a}, {:symbol, b}), do: a === b
   def abstract_eq(_, _), do: false
 
-  defp nan_number?(:nan), do: true
+  def nan_number?(:nan), do: true
 
-  defp nan_number?(value) when is_float(value) do
+  def nan_number?(value) when is_float(value) do
     <<bits::64>> = <<value::float-64>>
     exponent = Bitwise.band(Bitwise.bsr(bits, 52), 0x7FF)
     mantissa = Bitwise.band(bits, 0xFFFFFFFFFFFFF)
     exponent == 0x7FF and mantissa != 0
   end
 
-  defp nan_number?(_), do: false
+  def nan_number?(_), do: false
 end

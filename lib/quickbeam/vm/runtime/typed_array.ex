@@ -1425,9 +1425,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     end
   end
 
-  defp sort_nan?(:nan), do: true
-  defp sort_nan?(value) when is_float(value), do: value != value
-  defp sort_nan?(_), do: false
+  defp sort_nan?(value), do: Values.nan_number?(value)
 
   defp numeric_less?(:neg_infinity, :neg_infinity), do: false
   defp numeric_less?(:neg_infinity, _), do: true
