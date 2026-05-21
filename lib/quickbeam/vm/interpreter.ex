@@ -171,7 +171,7 @@ defmodule QuickBEAM.VM.Interpreter do
     do: Invocation.invoke_constructor(fun, args, gas, this_obj, new_target)
 
   defp catch_and_dispatch(pc, frame, rest, gas, ctx, fun, refresh_globals?) do
-    Heap.put_ctx(ctx)
+    RuntimeState.install(ctx)
 
     call_result =
       try do
@@ -209,7 +209,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp sync_setter_globals_to_frame(frame, ctx) do
     if SetterState.consume_invoked?() do
-      sync_global_writes_to_frame(frame, Heap.get_ctx() || ctx)
+      sync_global_writes_to_frame(frame, RuntimeState.current() || ctx)
     else
       frame
     end
@@ -300,7 +300,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp current_var_ref_name(_, _), do: nil
 
   defp refresh_call_arg_buf(ctx) do
-    case Heap.get_ctx() do
+    case RuntimeState.current() do
       %{arg_buf: arg_buf} when is_tuple(arg_buf) -> Context.mark_dirty(%{ctx | arg_buf: arg_buf})
       _ -> ctx
     end
@@ -1043,7 +1043,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp check_prototype_chain(_, _), do: false
 
   defp array_proto_matches?(target) do
-    case Heap.get_ctx() do
+    case RuntimeState.current() do
       %{globals: globals} ->
         array_ctor = Map.get(globals, "Array")
 
@@ -1182,7 +1182,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp run(pc, frame, stack, gas, %Context{pd_synced: false} = ctx) do
-    Heap.put_ctx(ctx)
+    RuntimeState.install(ctx)
     ctx = Context.mark_synced(ctx)
 
     if ctx.trace_enabled, do: Trace.update_pc(pc)
@@ -1190,7 +1190,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp run(pc, frame, stack, gas, ctx) do
-    Heap.put_ctx(ctx)
+    RuntimeState.install(ctx)
     if Map.get(ctx, :trace_enabled, false), do: Trace.update_pc(pc)
     run(elem(elem(frame, Frame.insns()), pc), pc, frame, stack, gas, ctx)
   end
@@ -1449,7 +1449,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp function_instructions(fun), do: QuickBEAM.VM.Compiler.FunctionInfo.instructions(fun)
 
   defp do_invoke(%QuickBEAM.VM.Function{} = fun, self_ref, args, var_refs, gas, ctx) do
-    Heap.put_ctx(ctx)
+    RuntimeState.install(ctx)
 
     insns = fun.instructions
 
@@ -1489,8 +1489,8 @@ defmodule QuickBEAM.VM.Interpreter do
           }
           |> InvokeContext.attach_method_state()
 
-        prev_ctx = Heap.get_ctx()
-        Heap.put_ctx(inner_ctx)
+        prev_ctx = RuntimeState.current()
+        RuntimeState.install(inner_ctx)
         inner_ctx = Context.mark_synced(inner_ctx)
 
         if inner_ctx.trace_enabled, do: Trace.push(self_ref)
@@ -1513,7 +1513,7 @@ defmodule QuickBEAM.VM.Interpreter do
         after
           restore_eval_restores(restore_mark)
           if inner_ctx.trace_enabled, do: Trace.pop()
-          if prev_ctx, do: Heap.put_ctx(prev_ctx)
+          if prev_ctx, do: RuntimeState.install(prev_ctx)
         end
     end
   end
