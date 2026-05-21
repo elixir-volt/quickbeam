@@ -15,6 +15,7 @@ defmodule QuickBEAM.VM.Realm do
   alias QuickBEAM.VM.Runtime.Iterator, as: JSIterator
   alias QuickBEAM.VM.Runtime.Map, as: JSMap
   alias QuickBEAM.VM.Runtime.Promise
+  alias QuickBEAM.VM.Runtime.Proxy, as: JSProxy
   alias QuickBEAM.VM.Runtime.RegExp, as: JSRegExp
   alias QuickBEAM.VM.Runtime.Set, as: JSSet
   alias QuickBEAM.VM.Runtime.Number, as: JSNumber
@@ -164,7 +165,9 @@ defmodule QuickBEAM.VM.Realm do
     function_proto = QuickBEAM.VM.Runtime.Function.prototype(cache: false)
     realm_id = make_ref()
 
-    proxy_ctor = proxy_constructor()
+    proxy_ctor =
+      QuickBEAM.VM.Builtin.Installer.install(JSProxy.builtin_definition(), target: :global)
+
     error_bindings = error_bindings(object_proto)
     install_string_methods(string_proto, error_bindings)
     install_regexp_accessors(regexp_proto, Map.fetch!(error_bindings, "TypeError"))
@@ -427,20 +430,6 @@ defmodule QuickBEAM.VM.Realm do
   defp set_builtin_definition(name),
     do: Enum.find(JSSet.builtin_definitions(), &(&1.name == name))
 
-  defp make_constructor(name, callback, proto) do
-    make_constructor_token = make_ref()
-
-    cb = fn args, this ->
-      if is_reference(make_constructor_token),
-        do: callback.(args, this),
-        else: callback.(args, this)
-    end
-
-    ctor = {:builtin, name, cb}
-    ConstructorRegistry.put_prototype(ctor, proto)
-    ctor
-  end
-
   defp install_string_methods({:obj, ref}, error_bindings) do
     for name <- ~w(toString valueOf) do
       Heap.put_obj_key(
@@ -555,32 +544,6 @@ defmodule QuickBEAM.VM.Realm do
            end
        end
      end}
-  end
-
-  defp proxy_constructor do
-    ctor = make_constructor("Proxy", &Constructors.proxy/2, nil)
-
-    Heap.put_ctor_static(
-      ctor,
-      "revocable",
-      {:builtin, "revocable",
-       fn [target, handler | _], _ ->
-         proxy = Constructors.proxy([target, handler], nil)
-
-         revoke_fn =
-           {:builtin, "revoke",
-            fn _, _ ->
-              {:obj, proxy_ref} = proxy
-              Heap.put_obj_key(proxy_ref, "__proxy_revoked__", true)
-
-              :undefined
-            end}
-
-         Heap.wrap(%{"proxy" => proxy, "revoke" => revoke_fn})
-       end}
-    )
-
-    ctor
   end
 
   defp function_constructor(
