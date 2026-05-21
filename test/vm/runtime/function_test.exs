@@ -17,6 +17,14 @@ defmodule QuickBEAM.VM.Runtime.FunctionTest do
     )
   end
 
+  test "builtin constructors observe mutated Function prototype methods", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S<Function.prototype.toString = Object.prototype.toString; Array.toString()>,
+      "[object Function]"
+    )
+  end
+
   test "calling saved builtin methods preserves mutated constructor prototypes", %{rt: rt} do
     assert_modes(
       rt,

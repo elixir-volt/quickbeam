@@ -1247,7 +1247,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp get_from_prototype({:builtin, name, callback} = fun, key)
        when is_binary(name) and is_function(callback),
-       do: fallback_to_function_proto(Function.proto_property(fun, key), fun, key)
+       do: fallback_to_function_proto(:undefined, fun, key)
 
   defp get_from_prototype({:builtin, name, props}, key) when is_binary(name) and is_map(props),
     do: get_own(Heap.get_object_prototype(), key)
