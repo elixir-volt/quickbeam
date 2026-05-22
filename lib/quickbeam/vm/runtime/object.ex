@@ -14,6 +14,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   alias QuickBEAM.VM.ObjectModel.{
     Define,
     Get,
+    InternalMethods,
     OwnProperty,
     PropertyDescriptor,
     PropertyKey,
@@ -2063,10 +2064,10 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp get_own_property_descriptor([target, key | _]) do
-    OwnProperty.descriptor(target, key)
+    InternalMethods.own_property(target, key)
   end
 
-  defp get_own_property_descriptor([target]), do: OwnProperty.descriptor(target, :undefined)
+  defp get_own_property_descriptor([target]), do: InternalMethods.own_property(target, :undefined)
   defp get_own_property_descriptor(_), do: :undefined
 
   defp array_indices(list) do
