@@ -68,12 +68,15 @@ process_state_owners = [
       "QuickBEAM.VM.Host.Web.Worker.State"
     ],
     vm_interpreter_ops_helpers: [
+      "QuickBEAM.VM.Interpreter.Ops.ArrayElements",
       "QuickBEAM.VM.Interpreter.Ops.ConstructorChecks",
       "QuickBEAM.VM.Interpreter.Ops.CopyDataProperties",
       "QuickBEAM.VM.Interpreter.Ops.Delete",
+      "QuickBEAM.VM.Interpreter.Ops.FieldAccess",
       "QuickBEAM.VM.Interpreter.Ops.FunctionNaming",
       "QuickBEAM.VM.Interpreter.Ops.InOperator",
       "QuickBEAM.VM.Interpreter.Ops.InstanceOf",
+      "QuickBEAM.VM.Interpreter.Ops.ObjectConstruction",
       "QuickBEAM.VM.Interpreter.Ops.ObjectLiterals",
       "QuickBEAM.VM.Interpreter.Ops.PrivateFields",
       "QuickBEAM.VM.Interpreter.Ops.PrivateSymbols",
