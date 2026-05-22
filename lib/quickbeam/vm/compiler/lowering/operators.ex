@@ -1,10 +1,10 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Operators do
   @moduledoc "Unary, binary, and update operator lowering helpers."
 
+  alias QuickBEAM.VM.Compiler.{BeamForms, RuntimeABI}
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit}
-  alias QuickBEAM.VM.Compiler.RuntimeABI
 
-  @line 1
+  @line BeamForms.line()
 
   def post_update(state, fun) do
     with {:ok, expr, type, state} <- Emit.pop_typed(state) do
@@ -68,6 +68,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Operators do
     with {:ok, right, _right_type, state} <- Emit.pop_typed(state),
          {:ok, left, _left_type, state} <- Emit.pop_typed(state) do
       {:ok, Emit.push(state, Builder.remote_call(mod, fun, [left, right]))}
+    end
+  end
+
+  def binary_abi_call(state, fun) do
+    with {:ok, right, _right_type, state} <- Emit.pop_typed(state),
+         {:ok, left, _left_type, state} <- Emit.pop_typed(state) do
+      {:ok, Emit.push(state, abi_call(state, fun, [left, right]))}
     end
   end
 
@@ -136,7 +143,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Operators do
   defp abi_call(state, fun, args), do: Builder.remote_call(RuntimeABI, fun, [state.ctx | args])
 
   defp specialize_get_length(expr, _type),
-    do: {Builder.remote_call(QuickBEAM.VM.ObjectModel.Get, :length_of, [expr]), :integer}
+    do: {Builder.remote_call(RuntimeABI, :length_of, [Builder.ctx_var(), expr]), :integer}
 
   defp binary_operator(:op_sub), do: :-
   defp binary_operator(:op_mul), do: :*
@@ -144,11 +151,5 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Operators do
   defp binary_operator(:op_bor), do: :bor
   defp binary_operator(:op_bxor), do: :bxor
 
-  defp binary_concat(left, right) do
-    {:bin, @line,
-     [
-       {:bin_element, @line, left, :default, [:binary]},
-       {:bin_element, @line, right, :default, [:binary]}
-     ]}
-  end
+  defp binary_concat(left, right), do: BeamForms.binary_concat(left, right)
 end

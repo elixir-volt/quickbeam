@@ -4,10 +4,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
   alias QuickBEAM.VM.Compiler.Lowering.Operators
   alias QuickBEAM.VM.Compiler.Lowering.Effects, as: LoweringEffects
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, State}
-  alias QuickBEAM.VM.Compiler.RuntimeHelpers
-  alias QuickBEAM.VM.Compiler.RuntimeHelpers.Properties
-  alias QuickBEAM.VM.ObjectModel.{Class, Private}
-
   @doc "Lowers a VM instruction or function into compiler IR."
   def lower(state, name_args) do
     case name_args do
@@ -45,7 +41,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
         State.set_home_object(state)
 
       {{:ok, :get_super}, []} ->
-        Operators.unary_call(state, Properties, :get_super)
+        Operators.unary_abi_call(state, :get_super)
 
       {{:ok, :get_super_value}, []} ->
         lower_get_super_value(state)
@@ -108,7 +104,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
         Operators.get_length_call(state)
 
       {{:ok, :instanceof}, []} ->
-        Operators.binary_call(state, RuntimeHelpers, :instanceof)
+        Operators.binary_abi_call(state, :instanceof)
 
       {{:ok, :in}, []} ->
         State.in_call(state)
@@ -157,7 +153,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
          {:ok, this_obj, state} <- Emit.pop(state) do
       LoweringEffects.effectful_push(
         state,
-        Builder.remote_call(Class, :get_super_value, [proto, this_obj, key])
+        State.abi_call(state, :get_super_value, [proto, this_obj, key])
       )
     end
   end
@@ -171,7 +167,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
        %{
          state
          | body: [
-             Builder.remote_call(Class, :put_super_value, [proto_obj, this_obj, key, val])
+             State.abi_call(state, :put_super_value, [proto_obj, this_obj, key, val])
              | state.body
            ]
        }}
@@ -273,7 +269,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
       {:ok,
        Emit.push(
          state,
-         Builder.remote_call(Private, :has_private_or_brand?, [obj, key]),
+         State.abi_call(state, :private_in, [obj, key]),
          :boolean
        )}
     end

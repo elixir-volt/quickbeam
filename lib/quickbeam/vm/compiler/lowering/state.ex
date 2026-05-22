@@ -673,8 +673,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
          {:ok, fun, fun_type, state} <- Emit.pop_typed(state),
          {:ok, obj, _obj_type, state} <- Emit.pop_typed(state) do
       expr =
-        Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_method_runtime, [
-          ctx_expr(state),
+        abi_call(state, :invoke_method_runtime, [
           fun,
           obj,
           Builder.list_expr(Enum.reverse(args))
@@ -698,8 +697,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
          {:ok, fun, _fun_type, state} <- Emit.pop_typed(state),
          {:ok, obj, _obj_type, %{stack: [], stack_types: []} = state} <- Emit.pop_typed(state) do
       expr =
-        Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_method_runtime, [
-          ctx_expr(state),
+        abi_call(state, :invoke_method_runtime, [
           fun,
           obj,
           Builder.list_expr(Enum.reverse(args))

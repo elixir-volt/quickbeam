@@ -106,6 +106,19 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
 
   def get_array_el(ctx, obj, index), do: Properties.get_array_el(ctx, obj, index)
 
+  def length_of(_ctx, obj), do: QuickBEAM.VM.ObjectModel.Get.length_of(obj)
+
+  def get_super(ctx, func), do: Properties.get_super(ctx, func)
+
+  def get_super_value(_ctx, proto_obj, this_obj, key),
+    do: QuickBEAM.VM.ObjectModel.Class.get_super_value(proto_obj, this_obj, key)
+
+  def put_super_value(_ctx, proto_obj, this_obj, key, value),
+    do: QuickBEAM.VM.ObjectModel.Class.put_super_value(proto_obj, this_obj, key, value)
+
+  def private_in(_ctx, obj, key),
+    do: QuickBEAM.VM.ObjectModel.Private.has_private_or_brand?(obj, key)
+
   def get_array_el2(ctx, obj, index), do: Properties.get_array_el2(ctx, obj, index)
 
   def put_array_el(ctx, obj, index, value),
@@ -118,6 +131,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
   def delete_property(ctx, obj, key), do: Properties.delete_property(ctx, obj, key)
 
   def in_operator(ctx, key, obj), do: RuntimeHelpers.in_operator(ctx, key, obj)
+
+  def instanceof(_ctx, obj, ctor), do: RuntimeHelpers.instanceof(obj, ctor)
 
   def append_spread(ctx, arr, idx, obj), do: RuntimeHelpers.append_spread(ctx, arr, idx, obj)
 
