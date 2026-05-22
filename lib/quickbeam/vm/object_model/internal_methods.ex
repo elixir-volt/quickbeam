@@ -48,7 +48,7 @@ defmodule QuickBEAM.VM.ObjectModel.InternalMethods do
     do: define_own_property(obj, key, descriptor, descriptor)
 
   def define_own_property(obj, key, desc_obj, raw_desc),
-    do: Define.property(obj, key, desc_obj, raw_desc)
+    do: define_own_property_by_kind(kind(obj), obj, key, desc_obj, raw_desc)
 
   def delete(obj, key), do: delete_by_kind(kind(obj), obj, key)
 
@@ -68,6 +68,9 @@ defmodule QuickBEAM.VM.ObjectModel.InternalMethods do
     do: ProxyHas.dispatch(obj, key, &HasProperty.ordinary_has_property?/2)
 
   defp has_property_by_kind(_kind, obj, key), do: HasProperty.ordinary_has_property?(obj, key)
+
+  defp define_own_property_by_kind(_kind, obj, key, desc_obj, raw_desc),
+    do: Define.property(obj, key, desc_obj, raw_desc)
 
   defp delete_by_kind(:proxy, obj, key),
     do: ProxyDelete.dispatch(obj, key, &Delete.ordinary_delete_property/2)
