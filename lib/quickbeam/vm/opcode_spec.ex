@@ -418,6 +418,26 @@ defmodule QuickBEAM.VM.OpcodeSpec do
 
   def short_form_operands(opcode, arg_count), do: Opcodes.short_form_operands(opcode, arg_count)
 
+  def compact_slot_index(_name, [idx | _]), do: {:ok, idx}
+
+  def compact_slot_index(name, [])
+      when name in [:get_arg0, :put_arg0, :set_arg0, :get_loc0, :put_loc0, :set_loc0],
+      do: {:ok, 0}
+
+  def compact_slot_index(name, [])
+      when name in [:get_arg1, :put_arg1, :set_arg1, :get_loc1, :put_loc1, :set_loc1],
+      do: {:ok, 1}
+
+  def compact_slot_index(name, [])
+      when name in [:get_arg2, :put_arg2, :set_arg2, :get_loc2, :put_loc2, :set_loc2],
+      do: {:ok, 2}
+
+  def compact_slot_index(name, [])
+      when name in [:get_arg3, :put_arg3, :set_arg3, :get_loc3, :put_loc3, :set_loc3],
+      do: {:ok, 3}
+
+  def compact_slot_index(_name, _args), do: :error
+
   def family(name, family), do: name in Map.fetch!(@families, family)
   def family_members(family), do: Map.fetch!(@families, family)
 

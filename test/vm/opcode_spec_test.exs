@@ -39,6 +39,13 @@ defmodule QuickBEAM.VM.OpcodeSpecTest do
     assert OpcodeSpec.control_flow_family(:push_i32) == nil
   end
 
+  test "compact slot operand metadata is centralized" do
+    assert OpcodeSpec.compact_slot_index(:get_arg, [7]) == {:ok, 7}
+    assert OpcodeSpec.compact_slot_index(:get_arg2, []) == {:ok, 2}
+    assert OpcodeSpec.compact_slot_index(:put_loc3, []) == {:ok, 3}
+    assert OpcodeSpec.compact_slot_index(:set_loc8, []) == :error
+  end
+
   test "small integer push metadata is centralized" do
     assert OpcodeSpec.small_int_push(:push_0) == {:ok, 0}
     assert OpcodeSpec.small_int_push?(:push_0)

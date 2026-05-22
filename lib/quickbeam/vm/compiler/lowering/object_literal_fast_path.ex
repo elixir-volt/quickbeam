@@ -122,10 +122,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ObjectLiteralFastPath do
         {:ok, Builder.literal(""), true, state}
 
       {:ok, name} when name in [:get_arg, :get_arg0, :get_arg1, :get_arg2, :get_arg3] ->
-        {:ok, Slots.slot_expr(state, compact_slot_index(name, args)), false, state}
+        with {:ok, idx} <- OpcodeSpec.compact_slot_index(name, args) do
+          {:ok, Slots.slot_expr(state, idx), false, state}
+        end
 
       {:ok, name} when name in [:get_loc, :get_loc0, :get_loc1, :get_loc2, :get_loc3] ->
-        {:ok, Slots.slot_expr(state, compact_slot_index(name, args)), false, state}
+        with {:ok, idx} <- OpcodeSpec.compact_slot_index(name, args) do
+          {:ok, Slots.slot_expr(state, idx), false, state}
+        end
 
       {:ok, :push_atom_value} ->
         {:ok, State.constant_call(state, :push_atom_value, [Builder.literal(hd(args))]), false,
@@ -143,14 +147,4 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ObjectLiteralFastPath do
         :error
     end
   end
-
-  defp compact_slot_index(_op, [idx | _]), do: idx
-  defp compact_slot_index(:get_arg0, []), do: 0
-  defp compact_slot_index(:get_arg1, []), do: 1
-  defp compact_slot_index(:get_arg2, []), do: 2
-  defp compact_slot_index(:get_arg3, []), do: 3
-  defp compact_slot_index(:get_loc0, []), do: 0
-  defp compact_slot_index(:get_loc1, []), do: 1
-  defp compact_slot_index(:get_loc2, []), do: 2
-  defp compact_slot_index(:get_loc3, []), do: 3
 end
