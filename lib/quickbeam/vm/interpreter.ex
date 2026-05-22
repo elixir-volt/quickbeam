@@ -32,7 +32,7 @@ defmodule QuickBEAM.VM.Interpreter do
   }
 
   alias QuickBEAM.VM.Promise, as: Promise
-  alias QuickBEAM.VM.Semantics.{DirectEval, Eval}
+  alias QuickBEAM.VM.Semantics.DirectEval
 
   alias __MODULE__.{
     ClosureBuilder,
@@ -242,21 +242,6 @@ defmodule QuickBEAM.VM.Interpreter do
       end)
 
     put_elem(frame, Frame.locals(), updated)
-  end
-
-  defp clean_eval_globals(pre_eval_globals, preserved_globals) do
-    post = Heap.get_persistent_globals() || %{}
-    preserved_existing = Map.take(preserved_globals, Map.keys(pre_eval_globals))
-
-    cleaned =
-      Enum.reduce(post, post, fn {key, _val}, acc ->
-        case Map.fetch(pre_eval_globals, key) do
-          {:ok, old_val} -> Map.put(acc, key, Map.get(preserved_existing, key, old_val))
-          :error -> Map.delete(acc, key)
-        end
-      end)
-
-    Heap.put_persistent_globals(cleaned)
   end
 
   defp uninitialized_this_local?(ctx, idx), do: EvalEnv.current_local_name(ctx, idx) == "this"
@@ -475,125 +460,16 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp eval_code(code, caller_frame, gas, ctx, var_objs, keep_declared?) do
-    case DirectEval.compile(ctx.runtime_pid, DirectEval.strict_code(ctx, code)) do
-      {:ok, parsed} ->
-        declared_names =
-          DirectEval.declared_names(parsed.value, parsed.atoms, &function_instructions/1)
-
-        assigned_names = Eval.simple_assigned_names(code)
-        DirectEval.reject_lexical_conflicts!(ctx, declared_names)
-        eval_globals = DirectEval.collect_caller_locals(elem(caller_frame, Frame.locals()), ctx)
-        captured_globals = DirectEval.collect_captured_globals(ctx.current_func)
-
-        eval_scope_globals =
-          DirectEval.merge_var_object_globals(Map.merge(eval_globals, captured_globals), var_objs)
-
-        {base_globals, _scoped_globals, merged_globals} =
-          DirectEval.scoped_globals(
-            ctx.globals,
-            eval_scope_globals,
-            declared_names,
-            keep_declared?
-          )
-
-        {eval_ctx_globals, arguments_key, arguments_obj, created_arguments?} =
-          DirectEval.install_eval_arguments(merged_globals, ctx)
-
-        visible_declared_names =
-          DirectEval.visible_declared_names(
-            base_globals,
-            eval_scope_globals,
-            declared_names,
-            assigned_names
-          )
-
-        abrupt_visible_names = DirectEval.abrupt_visible_names(base_globals, eval_scope_globals)
-
-        eval_opts = %{
-          gas: gas,
-          runtime_pid: ctx.runtime_pid,
-          globals: eval_ctx_globals,
-          this: ctx.this,
-          arg_buf: ctx.arg_buf,
-          current_func: ctx.current_func,
-          new_target: ctx.new_target
-        }
-
-        pre_eval_globals = Heap.get_persistent_globals() || %{}
-
-        case eval_with_ctx(parsed.value, [], eval_opts, parsed.atoms) do
-          {:ok, val, final_ctx} ->
-            post_eval_globals = Heap.get_persistent_globals() || %{}
-
-            transient_globals =
-              post_eval_globals
-              |> Map.merge(Map.get(final_ctx || %{}, :globals, %{}))
-              |> Map.take(MapSet.to_list(visible_declared_names))
-              |> DirectEval.put_created_arguments(
-                created_arguments?,
-                arguments_key,
-                arguments_obj
-              )
-
-            returned_transients = DirectEval.filter_local_transients(ctx, transient_globals)
-
-            DirectEval.apply_transients(
-              ctx.current_func,
-              var_objs,
-              transient_globals,
-              keep_declared?
-            )
-
-            DirectEval.write_back_vars(
-              ctx,
-              pre_eval_globals,
-              var_objs,
-              declared_names,
-              elem(caller_frame, Frame.var_refs()),
-              elem(caller_frame, Frame.l2v())
-            )
-
-            clean_eval_globals(pre_eval_globals, returned_transients)
-            {val, returned_transients}
-
-          {:error, {:js_throw, val}} ->
-            transient_globals =
-              (Heap.get_persistent_globals() || %{})
-              |> Map.take(MapSet.to_list(abrupt_visible_names))
-              |> DirectEval.put_created_arguments(
-                created_arguments?,
-                arguments_key,
-                arguments_obj
-              )
-
-            returned_transients = DirectEval.filter_local_transients(ctx, transient_globals)
-
-            DirectEval.apply_transients(
-              ctx.current_func,
-              var_objs,
-              transient_globals,
-              keep_declared?
-            )
-
-            DirectEval.write_back_vars(
-              ctx,
-              pre_eval_globals,
-              var_objs,
-              declared_names,
-              elem(caller_frame, Frame.var_refs()),
-              elem(caller_frame, Frame.l2v())
-            )
-
-            clean_eval_globals(pre_eval_globals, returned_transients)
-            throw({:js_throw, val})
-
-          _ ->
-            {:undefined, %{}}
-        end
-
-      error ->
-        DirectEval.handle_compile_error(error)
-    end
+    DirectEval.eval(%DirectEval.Caller{
+      code: code,
+      ctx: ctx,
+      frame: caller_frame,
+      gas: gas,
+      var_objects: var_objs,
+      keep_declared?: keep_declared?,
+      eval_with_ctx: &eval_with_ctx/4,
+      function_instructions: &function_instructions/1
+    })
   end
 
   defp captured_var_objects({:closure, captured, _}) do

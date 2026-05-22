@@ -15,11 +15,59 @@ defmodule QuickBEAM.VM.Semantics.DirectEval do
     Value
   }
 
+  alias QuickBEAM.VM.Interpreter.Frame
+  require Frame
+
   alias QuickBEAM.VM.Semantics.Eval, as: EvalSemantics
 
   @op_define_var Opcodes.num(:define_var)
   @op_check_define_var Opcodes.num(:check_define_var)
   @op_define_func Opcodes.num(:define_func)
+
+  defmodule Caller do
+    @moduledoc false
+    defstruct [
+      :code,
+      :ctx,
+      :frame,
+      :gas,
+      :var_objects,
+      :keep_declared?,
+      :eval_with_ctx,
+      :function_instructions
+    ]
+  end
+
+  def eval(%Caller{} = caller) do
+    %Caller{
+      code: code,
+      ctx: ctx,
+      frame: frame,
+      gas: gas,
+      var_objects: var_objs,
+      keep_declared?: keep_declared?,
+      eval_with_ctx: eval_with_ctx,
+      function_instructions: function_instructions
+    } = caller
+
+    case compile(ctx.runtime_pid, strict_code(ctx, code)) do
+      {:ok, parsed} ->
+        run_compiled_eval(
+          parsed,
+          code,
+          ctx,
+          frame,
+          gas,
+          var_objs,
+          keep_declared?,
+          eval_with_ctx,
+          function_instructions
+        )
+
+      error ->
+        handle_compile_error(error)
+    end
+  end
 
   def strict_code(ctx, code) do
     if strict_mode?(ctx), do: "\"use strict\";\n" <> code, else: code
@@ -215,6 +263,154 @@ defmodule QuickBEAM.VM.Semantics.DirectEval do
     end)
 
     Heap.put_eval_restore_stack(keep)
+  end
+
+  defp run_compiled_eval(
+         parsed,
+         code,
+         ctx,
+         caller_frame,
+         gas,
+         var_objs,
+         keep_declared?,
+         eval_with_ctx,
+         function_instructions
+       ) do
+    declared_names = declared_names(parsed.value, parsed.atoms, function_instructions)
+    assigned_names = EvalSemantics.simple_assigned_names(code)
+    reject_lexical_conflicts!(ctx, declared_names)
+
+    eval_globals = collect_caller_locals(elem(caller_frame, Frame.locals()), ctx)
+    captured_globals = collect_captured_globals(ctx.current_func)
+
+    eval_scope_globals =
+      merge_var_object_globals(Map.merge(eval_globals, captured_globals), var_objs)
+
+    {base_globals, _scoped_globals, merged_globals} =
+      scoped_globals(ctx.globals, eval_scope_globals, declared_names, keep_declared?)
+
+    {eval_ctx_globals, arguments_key, arguments_obj, created_arguments?} =
+      install_eval_arguments(merged_globals, ctx)
+
+    visible_declared_names =
+      visible_declared_names(base_globals, eval_scope_globals, declared_names, assigned_names)
+
+    abrupt_visible_names = abrupt_visible_names(base_globals, eval_scope_globals)
+
+    eval_opts = %{
+      gas: gas,
+      runtime_pid: ctx.runtime_pid,
+      globals: eval_ctx_globals,
+      this: ctx.this,
+      arg_buf: ctx.arg_buf,
+      current_func: ctx.current_func,
+      new_target: ctx.new_target
+    }
+
+    pre_eval_globals = Heap.get_persistent_globals() || %{}
+
+    case eval_with_ctx.(parsed.value, [], eval_opts, parsed.atoms) do
+      {:ok, val, final_ctx} ->
+        returned_transients =
+          commit_eval_transients(
+            ctx,
+            var_objs,
+            keep_declared?,
+            pre_eval_globals,
+            declared_names,
+            caller_frame,
+            success_transients(
+              final_ctx,
+              visible_declared_names,
+              created_arguments?,
+              arguments_key,
+              arguments_obj
+            )
+          )
+
+        {val, returned_transients}
+
+      {:error, {:js_throw, val}} ->
+        commit_eval_transients(
+          ctx,
+          var_objs,
+          keep_declared?,
+          pre_eval_globals,
+          declared_names,
+          caller_frame,
+          abrupt_transients(
+            abrupt_visible_names,
+            created_arguments?,
+            arguments_key,
+            arguments_obj
+          )
+        )
+
+        throw({:js_throw, val})
+
+      _ ->
+        {:undefined, %{}}
+    end
+  end
+
+  defp success_transients(
+         final_ctx,
+         visible_declared_names,
+         created_arguments?,
+         arguments_key,
+         arguments_obj
+       ) do
+    (Heap.get_persistent_globals() || %{})
+    |> Map.merge(Map.get(final_ctx || %{}, :globals, %{}))
+    |> Map.take(MapSet.to_list(visible_declared_names))
+    |> put_created_arguments(created_arguments?, arguments_key, arguments_obj)
+  end
+
+  defp abrupt_transients(abrupt_visible_names, created_arguments?, arguments_key, arguments_obj) do
+    (Heap.get_persistent_globals() || %{})
+    |> Map.take(MapSet.to_list(abrupt_visible_names))
+    |> put_created_arguments(created_arguments?, arguments_key, arguments_obj)
+  end
+
+  defp commit_eval_transients(
+         ctx,
+         var_objs,
+         keep_declared?,
+         pre_eval_globals,
+         declared_names,
+         caller_frame,
+         transient_globals
+       ) do
+    returned_transients = filter_local_transients(ctx, transient_globals)
+
+    apply_transients(ctx.current_func, var_objs, transient_globals, keep_declared?)
+
+    write_back_vars(
+      ctx,
+      pre_eval_globals,
+      var_objs,
+      declared_names,
+      elem(caller_frame, Frame.var_refs()),
+      elem(caller_frame, Frame.l2v())
+    )
+
+    clean_eval_globals(pre_eval_globals, returned_transients)
+    returned_transients
+  end
+
+  defp clean_eval_globals(pre_eval_globals, preserved_globals) do
+    post = Heap.get_persistent_globals() || %{}
+    preserved_existing = Map.take(preserved_globals, Map.keys(pre_eval_globals))
+
+    cleaned =
+      Enum.reduce(post, post, fn {key, _val}, acc ->
+        case Map.fetch(pre_eval_globals, key) do
+          {:ok, old_val} -> Map.put(acc, key, Map.get(preserved_existing, key, old_val))
+          :error -> Map.delete(acc, key)
+        end
+      end)
+
+    Heap.put_persistent_globals(cleaned)
   end
 
   defp eval_arguments_object(merged_globals, ctx, arguments_key) do
