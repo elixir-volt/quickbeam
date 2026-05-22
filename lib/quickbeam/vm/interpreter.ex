@@ -7,19 +7,16 @@ defmodule QuickBEAM.VM.Interpreter do
 
   alias QuickBEAM.VM.{
     Builtin,
-    BytecodeParser,
     GlobalEnvironment,
     Heap,
     Invocation,
     Names,
-    PredefinedAtoms,
     Runtime,
     RuntimeState,
     Stacktrace,
     Value
   }
 
-  alias QuickBEAM.JS.Error, as: JSError
   alias QuickBEAM.VM.Invocation.Context, as: InvokeContext
   alias QuickBEAM.VM.JSThrow
 
@@ -36,7 +33,7 @@ defmodule QuickBEAM.VM.Interpreter do
   }
 
   alias QuickBEAM.VM.Promise, as: Promise
-  alias QuickBEAM.VM.Semantics.Eval, as: EvalSemantics
+  alias QuickBEAM.VM.Semantics.{DirectEval, Eval}
 
   alias __MODULE__.{
     ClosureBuilder,
@@ -480,11 +477,13 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp eval_code(code, caller_frame, gas, ctx, var_objs, keep_declared?) do
-    case compile_eval_code(ctx.runtime_pid, strict_eval_code(ctx, code)) do
+    case DirectEval.compile(ctx.runtime_pid, DirectEval.strict_code(ctx, code)) do
       {:ok, parsed} ->
-        declared_names = eval_declared_names(parsed.value, parsed.atoms)
-        assigned_names = EvalSemantics.simple_assigned_names(code)
-        reject_eval_lexical_conflicts!(ctx, declared_names)
+        declared_names =
+          DirectEval.declared_names(parsed.value, parsed.atoms, &function_instructions/1)
+
+        assigned_names = Eval.simple_assigned_names(code)
+        DirectEval.reject_lexical_conflicts!(ctx, declared_names)
         eval_globals = collect_caller_locals(caller_frame, ctx)
         captured_globals = collect_captured_globals(ctx.current_func)
 
@@ -602,17 +601,8 @@ defmodule QuickBEAM.VM.Interpreter do
             {:undefined, %{}}
         end
 
-      {:error, {:parse_error, errors}} ->
-        JSThrow.syntax_error!(parse_error_message(errors))
-
-      {:error, msg} when is_binary(msg) ->
-        JSThrow.syntax_error!(msg)
-
-      {:error, %JSError{name: name, message: msg}} ->
-        throw({:js_throw, Heap.make_error(msg, name)})
-
-      _ ->
-        {:undefined, %{}}
+      error ->
+        DirectEval.handle_compile_error(error)
     end
   end
 
@@ -639,22 +629,6 @@ defmodule QuickBEAM.VM.Interpreter do
     locals
     |> Enum.map(&Names.resolve_display_name(&1.name))
     |> Enum.filter(&is_binary/1)
-  end
-
-  defp parse_error_message([%{message: message} | _]), do: message
-  defp parse_error_message(_errors), do: "Syntax error"
-
-  defp strict_eval_code(ctx, code) do
-    if current_strict_mode?(ctx), do: "\"use strict\";\n" <> code, else: code
-  end
-
-  defp compile_eval_code(nil, code), do: QuickBEAM.JS.Compiler.compile(code)
-
-  defp compile_eval_code(runtime_pid, code) do
-    case QuickBEAM.Runtime.compile(runtime_pid, code) do
-      {:ok, bc} -> BytecodeParser.decode(bc)
-      error -> error
-    end
   end
 
   defp merge_var_object_globals(globals, []), do: globals
@@ -836,55 +810,6 @@ defmodule QuickBEAM.VM.Interpreter do
 
     Heap.put_eval_restore_stack(keep)
   end
-
-  defp eval_declared_names(%QuickBEAM.VM.Function{} = fun, atoms) do
-    local_names =
-      fun.locals
-      |> Enum.map(&Names.resolve_display_name(&1.name))
-      |> Enum.filter(&is_binary/1)
-
-    instruction_names =
-      case function_instructions(fun) do
-        {:ok, insns} ->
-          insns
-          |> Enum.reduce([], fn
-            {op, [atom_ref, _scope]}, acc when op in [@op_define_var, @op_check_define_var] ->
-              case resolve_declared_atom(atom_ref, atoms) do
-                name when is_binary(name) -> [name | acc]
-                _ -> acc
-              end
-
-            {op, [atom_ref, _flags]}, acc when op == @op_define_func ->
-              case resolve_declared_atom(atom_ref, atoms) do
-                name when is_binary(name) -> [name | acc]
-                _ -> acc
-              end
-
-            _, acc ->
-              acc
-          end)
-
-        _ ->
-          []
-      end
-
-    MapSet.new(local_names ++ instruction_names)
-  end
-
-  defp eval_declared_names(_, _), do: MapSet.new()
-
-  defp reject_eval_lexical_conflicts!(ctx, declared_names) do
-    EvalSemantics.reject_lexical_conflicts!(ctx, declared_names, current_strict_mode?(ctx))
-  end
-
-  defp resolve_declared_atom({:predefined, idx}, _atoms),
-    do: PredefinedAtoms.lookup(idx)
-
-  defp resolve_declared_atom(idx, atoms)
-       when is_integer(idx) and idx >= 0 and idx < tuple_size(atoms), do: elem(atoms, idx)
-
-  defp resolve_declared_atom(name, _atoms) when is_binary(name), do: name
-  defp resolve_declared_atom(_, _atoms), do: nil
 
   defp do_write_back(local_defs, vrefs, l2v, new_globals, ctx, original_globals, declared_names) do
     func_name = EvalEnv.current_func_name(ctx)

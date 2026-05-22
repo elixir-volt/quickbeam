@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
   @moduledoc "Stack-depth inference: computes operand-stack depth at every basic-block entry."
 
   alias QuickBEAM.VM.Compiler.Analysis.CFG
-  alias QuickBEAM.VM.Opcodes
+  alias QuickBEAM.VM.OpcodeSpec
 
   @doc "Helper for stack-depth inference: computes operand-stack depth at every basic-block entry."
   def infer_block_stack_depths(instructions, entries) do
@@ -29,9 +29,9 @@ defmodule QuickBEAM.VM.Compiler.Analysis.Stack do
         {:ok, argc + 1, 1}
 
       {{:ok, _name}, _} ->
-        case Opcodes.info(op) do
-          {_name, _size, pop_count, push_count, _fmt} -> {:ok, pop_count, push_count}
-          nil -> {:error, {:unknown_opcode, op}}
+        case OpcodeSpec.stack_effect(op) do
+          {:ok, {pop_count, push_count}} -> {:ok, pop_count, push_count}
+          {:error, _} = error -> error
         end
 
       {{:error, _} = error, _} ->

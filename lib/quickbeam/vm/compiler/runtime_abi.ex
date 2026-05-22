@@ -178,6 +178,11 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
   def apply_super(ctx, fun, new_target, args),
     do: Calls.apply_super(ctx, fun, new_target, args)
 
+  def invoke_method_runtime(ctx, fun, receiver, args),
+    do: QuickBEAM.VM.Invocation.invoke_method_runtime(ctx, fun, receiver, args)
+
+  def to_list(_ctx, value), do: QuickBEAM.VM.Heap.to_list(value)
+
   def update_this(ctx, this_value), do: RuntimeHelpers.update_this(ctx, this_value)
 
   def eval_or_call(ctx, fun, args), do: Calls.eval_or_call(ctx, fun, args)

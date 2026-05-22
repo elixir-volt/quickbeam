@@ -359,6 +359,15 @@ defmodule QuickBEAM.VM.Opcodes do
   @doc "Returns operand-format metadata for an opcode."
   def format_info(fmt), do: Map.get(@format_info, fmt)
 
+  @doc "Returns decoded operands for compact no-operand opcode encodings."
+  def short_form_operands(opcode, arg_count) when is_integer(opcode) do
+    with {name, _size, _pops, _pushes, _format} <- Map.get(@opcodes, opcode) do
+      short_form_operands_for_name(name, arg_count)
+    else
+      _ -> []
+    end
+  end
+
   # Short-form opcodes expand to their canonical form
   @short_forms %{
     push_minus1: {:push_i32, [-1]},
@@ -411,7 +420,7 @@ defmodule QuickBEAM.VM.Opcodes do
     call2: {:call, [2]},
     call3: {:call, [3]},
     push_empty_string: {:push_atom_value, [:empty_string]},
-    get_loc0_loc1: {:get_loc0_loc1, []}
+    get_loc0_loc1: {:get_loc0_loc1, [0, 1]}
   }
 
   @passthrough_aliases %{
@@ -432,12 +441,16 @@ defmodule QuickBEAM.VM.Opcodes do
         end
 
       {canonical, const_args} ->
-        if canonical in [:get_loc, :put_loc, :set_loc] do
-          [idx] = const_args
-          {canonical, [idx + arg_count]}
+        if canonical in [:get_loc, :put_loc, :set_loc, :get_loc0_loc1] do
+          {canonical, Enum.map(const_args, &(&1 + arg_count))}
         else
           {canonical, const_args}
         end
     end
+  end
+
+  defp short_form_operands_for_name(name, arg_count) do
+    {_canonical, operands} = expand_short_form(name, [], arg_count)
+    operands
   end
 end

@@ -1,13 +1,13 @@
 defmodule QuickBEAM.VM.Compiler.Forms do
   @moduledoc "Erlang abstract-format form builder: assembles the module, entry, and block function forms for compilation."
 
-  alias QuickBEAM.VM.Compiler.{RuntimeABI, RuntimeHelpers}
+  alias QuickBEAM.VM.Compiler.{BeamForms, RuntimeABI, RuntimeHelpers}
   alias QuickBEAM.VM.Compiler.RuntimeHelpers.Bindings
   alias QuickBEAM.VM.Semantics.Values
   alias QuickBEAM.VM.Invocation
 
   @large_frame_slot_threshold 200
-  @line 1
+  @line BeamForms.line()
 
   @doc "Compiles lowered Erlang forms into a loadable module."
   def compile_module(module, entry, ctx_entry, fun, arity, slot_count, block_forms) do
@@ -314,26 +314,16 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   defp float_guard(expr), do: {:call, @line, {:atom, @line, :is_float}, [expr]}
   defp binary_guard(expr), do: {:call, @line, {:atom, @line, :is_binary}, [expr]}
 
-  defp block_name(idx), do: String.to_atom("block_#{idx}")
+  defp block_name(idx), do: BeamForms.block_name(idx)
   defp slot_var(idx), do: var("Slot#{idx}")
   defp slot_vars(0), do: []
   defp slot_vars(count), do: Enum.map(0..(count - 1), &slot_var/1)
-  defp tuple_expr(values), do: {:tuple, @line, values}
+  defp tuple_expr(values), do: BeamForms.tuple(values)
   defp large_frame?(slot_count), do: slot_count > @large_frame_slot_threshold
-  defp var(name) when is_binary(name), do: {:var, @line, String.to_atom(name)}
-  defp atom(value), do: {:atom, @line, value}
-
-  defp remote_call(mod, fun, args) do
-    {:call, @line, {:remote, @line, {:atom, @line, mod}, {:atom, @line, fun}}, args}
-  end
-
-  defp binary_concat(left, right) do
-    {:bin, @line,
-     [
-       {:bin_element, @line, left, :default, [:binary]},
-       {:bin_element, @line, right, :default, [:binary]}
-     ]}
-  end
+  defp var(name), do: BeamForms.var(name)
+  defp atom(value), do: BeamForms.atom(value)
+  defp remote_call(mod, fun, args), do: BeamForms.remote_call(mod, fun, args)
+  defp binary_concat(left, right), do: BeamForms.binary_concat(left, right)
 
   defp get_field_inline_helper do
     _obj = var("Obj")
@@ -389,7 +379,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
      ]}
   end
 
-  defp local_call(fun, args), do: {:call, @line, {:atom, @line, fun}, args}
+  defp local_call(fun, args), do: BeamForms.local_call(fun, args)
 
   defp truthy_inline_helper do
     v = var("V")
@@ -431,6 +421,5 @@ defmodule QuickBEAM.VM.Compiler.Forms do
      ]}
   end
 
-  defp list_expr([]), do: {nil, @line}
-  defp list_expr([h | t]), do: {:cons, @line, h, list_expr(t)}
+  defp list_expr(values), do: BeamForms.list(values)
 end

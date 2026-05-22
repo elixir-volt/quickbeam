@@ -7,8 +7,7 @@ defmodule QuickBEAM.VM.InstructionDecoder do
             get_u32: 2,
             get_i32: 2,
             get_atom_u32: 2,
-            resolve_label: 2,
-            short_form_operands: 2}
+            resolve_label: 2}
   @moduledoc """
   Decodes a raw QuickJS function bytecode body into VM instruction tuples.
 
@@ -18,7 +17,7 @@ defmodule QuickBEAM.VM.InstructionDecoder do
   jump-table dispatch.
   """
 
-  alias QuickBEAM.VM.Opcodes
+  alias QuickBEAM.VM.{OpcodeSpec, Opcodes}
   import Bitwise
 
   @type instruction :: {non_neg_integer(), [term()]}
@@ -76,11 +75,11 @@ defmodule QuickBEAM.VM.InstructionDecoder do
         else
           operands =
             case fmt do
-              :none_loc -> short_form_operands(op, ac)
-              :none_arg -> short_form_operands(op, ac)
-              :none_var_ref -> short_form_operands(op, ac)
-              :none_int -> short_form_operands(op, ac)
-              :npopx -> short_form_operands(op, ac)
+              :none_loc -> OpcodeSpec.short_form_operands(op, ac)
+              :none_arg -> OpcodeSpec.short_form_operands(op, ac)
+              :none_var_ref -> OpcodeSpec.short_form_operands(op, ac)
+              :none_int -> OpcodeSpec.short_form_operands(op, ac)
+              :npopx -> OpcodeSpec.short_form_operands(op, ac)
               _ -> decode_operands(bc, pos + 1, fmt, offset_map, ac)
             end
 
@@ -98,76 +97,6 @@ defmodule QuickBEAM.VM.InstructionDecoder do
         end
     end
   end
-
-  # Short-form opcodes with implicit operands
-  # loc variants add arg_count offset; arg/var_ref/call/push don't
-
-  # get_loc0..3 (197-200)
-  defp short_form_operands(197, ac), do: [0 + ac]
-  defp short_form_operands(198, ac), do: [1 + ac]
-  defp short_form_operands(199, ac), do: [2 + ac]
-  defp short_form_operands(200, ac), do: [3 + ac]
-  # put_loc0..3 (201-204)
-  defp short_form_operands(201, ac), do: [0 + ac]
-  defp short_form_operands(202, ac), do: [1 + ac]
-  defp short_form_operands(203, ac), do: [2 + ac]
-  defp short_form_operands(204, ac), do: [3 + ac]
-  # set_loc0..3 (205-208)
-  defp short_form_operands(205, ac), do: [0 + ac]
-  defp short_form_operands(206, ac), do: [1 + ac]
-  defp short_form_operands(207, ac), do: [2 + ac]
-  defp short_form_operands(208, ac), do: [3 + ac]
-  # get_loc0_loc1 (196)
-  defp short_form_operands(196, ac), do: [0 + ac, 1 + ac]
-  # get_arg0..3 (209-212)
-  defp short_form_operands(209, _ac), do: [0]
-  defp short_form_operands(210, _ac), do: [1]
-  defp short_form_operands(211, _ac), do: [2]
-  defp short_form_operands(212, _ac), do: [3]
-  # put_arg0..3 (213-216)
-  defp short_form_operands(213, _ac), do: [0]
-  defp short_form_operands(214, _ac), do: [1]
-  defp short_form_operands(215, _ac), do: [2]
-  defp short_form_operands(216, _ac), do: [3]
-  # set_arg0..3 (217-220)
-  defp short_form_operands(217, _ac), do: [0]
-  defp short_form_operands(218, _ac), do: [1]
-  defp short_form_operands(219, _ac), do: [2]
-  defp short_form_operands(220, _ac), do: [3]
-  # get_var_ref0..3 (221-224)
-  defp short_form_operands(221, _ac), do: [0]
-  defp short_form_operands(222, _ac), do: [1]
-  defp short_form_operands(223, _ac), do: [2]
-  defp short_form_operands(224, _ac), do: [3]
-  # put_var_ref0..3 (225-228)
-  defp short_form_operands(225, _ac), do: [0]
-  defp short_form_operands(226, _ac), do: [1]
-  defp short_form_operands(227, _ac), do: [2]
-  defp short_form_operands(228, _ac), do: [3]
-  # set_var_ref0..3 (229-232)
-  defp short_form_operands(229, _ac), do: [0]
-  defp short_form_operands(230, _ac), do: [1]
-  defp short_form_operands(231, _ac), do: [2]
-  defp short_form_operands(232, _ac), do: [3]
-  # call0..3 (238-241)
-  defp short_form_operands(238, _ac), do: [0]
-  defp short_form_operands(239, _ac), do: [1]
-  defp short_form_operands(240, _ac), do: [2]
-  defp short_form_operands(241, _ac), do: [3]
-  # push_minus1 (179), push_0..7 (180-187)
-  defp short_form_operands(179, _ac), do: [-1]
-  defp short_form_operands(180, _ac), do: [0]
-  defp short_form_operands(181, _ac), do: [1]
-  defp short_form_operands(182, _ac), do: [2]
-  defp short_form_operands(183, _ac), do: [3]
-  defp short_form_operands(184, _ac), do: [4]
-  defp short_form_operands(185, _ac), do: [5]
-  defp short_form_operands(186, _ac), do: [6]
-  defp short_form_operands(187, _ac), do: [7]
-  # push_empty_string (192) — no operands
-  defp short_form_operands(192, _ac), do: []
-  # Fallback
-  defp short_form_operands(_op, _ac), do: []
 
   # ── Operand decoding ──
 

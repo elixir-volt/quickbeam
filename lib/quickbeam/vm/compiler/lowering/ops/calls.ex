@@ -35,7 +35,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Calls do
               State.abi_call(state, :apply_super, [
                 fun,
                 new_target,
-                Builder.remote_call(QuickBEAM.VM.Heap, :to_list, [arg_array])
+                State.abi_call(state, :to_list, [arg_array])
               ])
             )
 
@@ -54,11 +54,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Calls do
              {:ok, fun, state} <- Emit.pop(state) do
           LoweringEffects.effectful_push(
             state,
-            Builder.remote_call(QuickBEAM.VM.Invocation, :invoke_method_runtime, [
-              State.ctx_expr(state),
+            State.abi_call(state, :invoke_method_runtime, [
               fun,
               this_obj,
-              Builder.remote_call(QuickBEAM.VM.Heap, :to_list, [arg_array])
+              State.abi_call(state, :to_list, [arg_array])
             ])
           )
         end
@@ -71,7 +70,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Calls do
             state,
             State.abi_call(state, :eval_or_call_scope, [
               fun,
-              Builder.remote_call(QuickBEAM.VM.Heap, :to_list, [arg_array]),
+              State.abi_call(state, :to_list, [arg_array]),
               Builder.literal(state.locals),
               Builder.list_expr(Slots.current_capture_cells(state))
             ])

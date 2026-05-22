@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
   @moduledoc "Control-flow graph analysis: identifies basic-block boundaries and inlineable branch targets."
 
-  alias QuickBEAM.VM.Opcodes
+  alias QuickBEAM.VM.OpcodeSpec
 
   @doc "Returns block entries metadata for compiler analysis."
   def block_entries(instructions) do
@@ -111,10 +111,7 @@ defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
 
   @doc "Helper for control-flow graph analysis: identifies basic-block boundaries and inlineable branch targets."
   def opcode_name(op) do
-    case Opcodes.info(op) do
-      {name, _size, _pop, _push, _fmt} -> {:ok, name}
-      nil -> {:error, {:unknown_opcode, op}}
-    end
+    OpcodeSpec.name(op)
   end
 
   @doc "Helper for control-flow graph analysis: identifies basic-block boundaries and inlineable branch targets."
