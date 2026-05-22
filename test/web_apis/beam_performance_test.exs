@@ -1,4 +1,4 @@
-defmodule QuickBEAM.WebAPIs.BeamPerformanceTest do
+defmodule QuickBEAM.WebAPIs.BEAMPerformanceTest do
   @moduledoc "Merged from WPT: user-timing, performance-timeline + additional coverage"
   use ExUnit.Case, async: true
   @moduletag :beam_web_apis

@@ -1,4 +1,4 @@
-defmodule QuickBEAM.BeamModeTest do
+defmodule QuickBEAM.BEAMModeTest do
   use ExUnit.Case, async: true
 
   setup_all do

@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Arithmetic do
   @moduledoc "Arithmetic, bitwise, comparison, and unary opcodes."
 
-  alias QuickBEAM.VM.Compiler.BeamForms
+  alias QuickBEAM.VM.Compiler.BEAMForms
   alias QuickBEAM.VM.Compiler.Lowering.Operators
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, State}
 
@@ -121,7 +121,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Arithmetic do
     with {:ok, expr, type, state} <- Emit.pop_typed(state) do
       {result_expr, result_type} =
         if type == :integer do
-          {BeamForms.op(op, expr, Builder.integer(1)), :integer}
+          {BEAMForms.op(op, expr, Builder.integer(1)), :integer}
         else
           fun = if op == :+, do: :inc, else: :dec
           {State.abi_call(state, fun, [expr]), :unknown}

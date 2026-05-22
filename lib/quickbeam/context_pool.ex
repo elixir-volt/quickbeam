@@ -77,7 +77,7 @@ defmodule QuickBEAM.ContextPool do
     context_id = state.next_id
 
     if state.mode in [:beam, :beam_compiler] do
-      {:ok, resource} = QuickBEAM.ContextPool.BeamWorker.start_link(mode: state.mode)
+      {:ok, resource} = QuickBEAM.ContextPool.BEAMWorker.start_link(mode: state.mode)
       new_state = %{state | next_id: context_id + 1}
       {:reply, {{:beam_worker, resource, state.mode}, context_id}, new_state}
     else

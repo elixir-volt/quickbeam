@@ -1,4 +1,4 @@
-defmodule QuickBEAM.WebAPIs.BeamStorageTest do
+defmodule QuickBEAM.WebAPIs.BEAMStorageTest do
   use ExUnit.Case, async: false
 
   setup do

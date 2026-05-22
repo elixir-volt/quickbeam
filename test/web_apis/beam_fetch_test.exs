@@ -1,4 +1,4 @@
-defmodule QuickBEAM.WebAPIs.BeamFetchTest do
+defmodule QuickBEAM.WebAPIs.BEAMFetchTest do
   use ExUnit.Case, async: false
   use Plug.Router
 

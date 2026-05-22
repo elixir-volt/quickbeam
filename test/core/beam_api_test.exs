@@ -1,4 +1,4 @@
-defmodule QuickBEAM.Core.BeamAPITest do
+defmodule QuickBEAM.Core.BEAMAPITest do
   use ExUnit.Case, async: true
 
   setup do

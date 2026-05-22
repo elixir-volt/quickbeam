@@ -1,4 +1,4 @@
-defmodule QuickBEAM.WebAPIs.BeamWritableStreamTest do
+defmodule QuickBEAM.WebAPIs.BEAMWritableStreamTest do
   use ExUnit.Case, async: true
   @moduletag :beam_web_apis
 

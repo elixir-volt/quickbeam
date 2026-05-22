@@ -1,4 +1,4 @@
-defmodule QuickBEAM.VM.Compiler.BeamForms do
+defmodule QuickBEAM.VM.Compiler.BEAMForms do
   @moduledoc "Shared Erlang abstract-format form builders used by compiler assembly and lowering."
 
   @line 1

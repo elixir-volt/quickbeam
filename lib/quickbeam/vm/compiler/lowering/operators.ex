@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Operators do
   @moduledoc "Unary, binary, and update operator lowering helpers."
 
-  alias QuickBEAM.VM.Compiler.{BeamForms, RuntimeABI}
+  alias QuickBEAM.VM.Compiler.{BEAMForms, RuntimeABI}
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit}
 
   def post_update(state, fun) do
@@ -13,7 +13,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Operators do
           Emit.bind(
             state,
             Builder.temp_name(state.temp),
-            BeamForms.op(op, expr, Builder.integer(1))
+            BEAMForms.op(op, expr, Builder.integer(1))
           )
 
         {:ok,
@@ -87,12 +87,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Operators do
   def specialize_unary(:op_neg, expr, :integer),
     do: {Builder.local_call(:op_neg, [expr]), :number}
 
-  def specialize_unary(:op_neg, expr, :number), do: {BeamForms.op(:-, expr), :number}
+  def specialize_unary(:op_neg, expr, :number), do: {BEAMForms.op(:-, expr), :number}
   def specialize_unary(:op_plus, expr, type) when type in [:integer, :number], do: {expr, type}
   def specialize_unary(fun, expr, _type), do: {Builder.local_call(fun, [expr]), :unknown}
 
   def specialize_binary(:op_add, left, :integer, right, :integer),
-    do: {BeamForms.op(:+, left, right), :integer}
+    do: {BEAMForms.op(:+, left, right), :integer}
 
   def specialize_binary(:op_add, left, left_type, right, right_type)
       when left_type in [:integer, :number] and right_type in [:integer, :number],
@@ -103,11 +103,11 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Operators do
 
   def specialize_binary(:op_strict_eq, left, type, right, type)
       when type in [:integer, :boolean, :string, :null, :undefined],
-      do: {BeamForms.op(:"=:=", left, right), :boolean}
+      do: {BEAMForms.op(:"=:=", left, right), :boolean}
 
   def specialize_binary(:op_strict_neq, left, type, right, type)
       when type in [:integer, :boolean, :string, :null, :undefined],
-      do: {BeamForms.op(:"=/=", left, right), :boolean}
+      do: {BEAMForms.op(:"=/=", left, right), :boolean}
 
   def specialize_binary(:op_mod, left, :integer, right, :integer),
     do: {Builder.local_call(:op_mod, [left, right]), :number}
@@ -115,11 +115,11 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Operators do
   def specialize_binary(fun, left, left_type, right, right_type)
       when fun in [:op_band, :op_bor, :op_bxor] and
              left_type in [:integer, :number] and right_type in [:integer, :number],
-      do: {BeamForms.op(binary_operator(fun), left, right), :integer}
+      do: {BEAMForms.op(binary_operator(fun), left, right), :integer}
 
   def specialize_binary(fun, left, left_type, right, right_type)
       when fun in [:op_sub, :op_mul] and left_type == :integer and right_type == :integer,
-      do: {BeamForms.op(binary_operator(fun), left, right), :integer}
+      do: {BEAMForms.op(binary_operator(fun), left, right), :integer}
 
   def specialize_binary(fun, left, left_type, right, right_type)
       when fun in [:op_lt, :op_lte, :op_gt, :op_gte] and
@@ -132,7 +132,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Operators do
         :op_gte -> {:boolean, :>=}
       end
 
-    {BeamForms.op(op, left, right), type}
+    {BEAMForms.op(op, left, right), type}
   end
 
   def specialize_binary(fun, left, _left_type, right, _right_type),
@@ -149,5 +149,5 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Operators do
   defp binary_operator(:op_bor), do: :bor
   defp binary_operator(:op_bxor), do: :bxor
 
-  defp binary_concat(left, right), do: BeamForms.binary_concat(left, right)
+  defp binary_concat(left, right), do: BEAMForms.binary_concat(left, right)
 end

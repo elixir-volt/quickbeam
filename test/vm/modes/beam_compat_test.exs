@@ -1,4 +1,4 @@
-defmodule QuickBEAM.VM.BeamCompatTest do
+defmodule QuickBEAM.VM.BEAMCompatTest do
   @moduledoc """
   Mirrors existing QuickBEAM tests through beam mode.
 

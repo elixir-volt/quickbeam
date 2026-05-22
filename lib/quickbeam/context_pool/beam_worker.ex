@@ -1,4 +1,4 @@
-defmodule QuickBEAM.ContextPool.BeamWorker do
+defmodule QuickBEAM.ContextPool.BEAMWorker do
   @moduledoc false
 
   use GenServer

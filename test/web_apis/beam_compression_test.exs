@@ -1,4 +1,4 @@
-defmodule QuickBEAM.WebAPIs.BeamCompressionTest do
+defmodule QuickBEAM.WebAPIs.BEAMCompressionTest do
   use ExUnit.Case, async: true
   @moduletag :beam_web_apis
 

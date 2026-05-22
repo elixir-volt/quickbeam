@@ -1,4 +1,4 @@
-defmodule QuickBEAM.VM.Host.BeamAPI.State do
+defmodule QuickBEAM.VM.Host.BEAMAPI.State do
   @moduledoc "Process-local state for the Beam host API."
 
   @on_message_key :qb_beam_on_message

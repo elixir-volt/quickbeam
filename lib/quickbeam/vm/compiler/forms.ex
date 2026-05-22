@@ -1,13 +1,13 @@
 defmodule QuickBEAM.VM.Compiler.Forms do
   @moduledoc "Erlang abstract-format form builder: assembles the module, entry, and block function forms for compilation."
 
-  alias QuickBEAM.VM.Compiler.{BeamForms, RuntimeABI, RuntimeHelpers}
+  alias QuickBEAM.VM.Compiler.{BEAMForms, RuntimeABI, RuntimeHelpers}
   alias QuickBEAM.VM.Compiler.RuntimeHelpers.Bindings
   alias QuickBEAM.VM.Semantics.Values
   alias QuickBEAM.VM.Invocation
 
   @large_frame_slot_threshold 200
-  @line BeamForms.line()
+  @line BEAMForms.line()
 
   @doc "Compiles lowered Erlang forms into a loadable module."
   def compile_module(module, entry, ctx_entry, fun, arity, slot_count, block_forms) do
@@ -314,16 +314,16 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   defp float_guard(expr), do: {:call, @line, {:atom, @line, :is_float}, [expr]}
   defp binary_guard(expr), do: {:call, @line, {:atom, @line, :is_binary}, [expr]}
 
-  defp block_name(idx), do: BeamForms.block_name(idx)
+  defp block_name(idx), do: BEAMForms.block_name(idx)
   defp slot_var(idx), do: var("Slot#{idx}")
   defp slot_vars(0), do: []
   defp slot_vars(count), do: Enum.map(0..(count - 1), &slot_var/1)
-  defp tuple_expr(values), do: BeamForms.tuple(values)
+  defp tuple_expr(values), do: BEAMForms.tuple(values)
   defp large_frame?(slot_count), do: slot_count > @large_frame_slot_threshold
-  defp var(name), do: BeamForms.var(name)
-  defp atom(value), do: BeamForms.atom(value)
-  defp remote_call(mod, fun, args), do: BeamForms.remote_call(mod, fun, args)
-  defp binary_concat(left, right), do: BeamForms.binary_concat(left, right)
+  defp var(name), do: BEAMForms.var(name)
+  defp atom(value), do: BEAMForms.atom(value)
+  defp remote_call(mod, fun, args), do: BEAMForms.remote_call(mod, fun, args)
+  defp binary_concat(left, right), do: BEAMForms.binary_concat(left, right)
 
   defp get_field_inline_helper do
     _obj = var("Obj")
@@ -379,7 +379,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
      ]}
   end
 
-  defp local_call(fun, args), do: BeamForms.local_call(fun, args)
+  defp local_call(fun, args), do: BEAMForms.local_call(fun, args)
 
   defp truthy_inline_helper do
     v = var("V")
@@ -421,5 +421,5 @@ defmodule QuickBEAM.VM.Compiler.Forms do
      ]}
   end
 
-  defp list_expr(values), do: BeamForms.list(values)
+  defp list_expr(values), do: BEAMForms.list(values)
 end

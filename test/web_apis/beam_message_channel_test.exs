@@ -1,4 +1,4 @@
-defmodule QuickBEAM.WebAPIs.BeamMessageChannelTest do
+defmodule QuickBEAM.WebAPIs.BEAMMessageChannelTest do
   @moduledoc "Merged from WPT: webmessaging/message-channels + additional coverage"
   use ExUnit.Case, async: true
   @moduletag :beam_web_apis

@@ -1,4 +1,4 @@
-defmodule QuickBEAM.WebAPIs.BeamEventSourceTest do
+defmodule QuickBEAM.WebAPIs.BEAMEventSourceTest do
   use ExUnit.Case, async: false
   use Plug.Router
 

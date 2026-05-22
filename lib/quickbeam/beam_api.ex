@@ -1,4 +1,4 @@
-defmodule QuickBEAM.BeamAPI do
+defmodule QuickBEAM.BEAMAPI do
   @moduledoc false
   import Bitwise
   require Record

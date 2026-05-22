@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.Host.WebAPIs do
   @behaviour QuickBEAM.VM.Runtime.BindingProvider
 
   alias QuickBEAM.VM.Runtime.ConstructorRegistry, as: Constructors
-  alias QuickBEAM.VM.Host.BeamAPI
+  alias QuickBEAM.VM.Host.BEAMAPI
 
   alias QuickBEAM.VM.Host.Web.{
     Abort,
@@ -60,7 +60,7 @@ defmodule QuickBEAM.VM.Host.WebAPIs do
     ConsoleAPI,
     Worker,
     EventSourceAPI,
-    BeamAPI
+    BEAMAPI
   ]
 
   @doc "Returns the JavaScript global bindings provided by this module."

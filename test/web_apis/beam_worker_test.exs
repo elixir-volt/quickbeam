@@ -1,4 +1,4 @@
-defmodule QuickBEAM.WebAPIs.BeamWorkerTest do
+defmodule QuickBEAM.WebAPIs.BEAMWorkerTest do
   use ExUnit.Case, async: true
   @moduletag :beam_web_apis
 

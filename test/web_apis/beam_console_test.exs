@@ -1,4 +1,4 @@
-defmodule QuickBEAM.WebAPIs.BeamConsoleTest do
+defmodule QuickBEAM.WebAPIs.BEAMConsoleTest do
   use ExUnit.Case, async: true
   @moduletag :beam_web_apis
   import ExUnit.CaptureLog

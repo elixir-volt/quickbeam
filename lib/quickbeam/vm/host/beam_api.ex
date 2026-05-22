@@ -1,4 +1,4 @@
-defmodule QuickBEAM.VM.Host.BeamAPI do
+defmodule QuickBEAM.VM.Host.BEAMAPI do
   @moduledoc "Beam object builtin for BEAM mode — provides Beam.self, Beam.onMessage, Beam.send, Beam.call, Beam.monitor, Beam.demonitor."
 
   @behaviour QuickBEAM.VM.Runtime.BindingProvider
@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.Host.BeamAPI do
 
   import QuickBEAM.VM.Heap.Keys
   alias QuickBEAM.VM.{Heap, Invocation, JSThrow, Promise, RuntimeState}
-  alias QuickBEAM.VM.Host.BeamAPI.State
+  alias QuickBEAM.VM.Host.BEAMAPI.State
 
   @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do

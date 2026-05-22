@@ -1,4 +1,4 @@
-defmodule QuickBEAM.WebAPIs.BeamFormDataTest do
+defmodule QuickBEAM.WebAPIs.BEAMFormDataTest do
   @moduledoc "Merged from WPT: xhr/formdata + fetch integration tests"
   use ExUnit.Case, async: false
   use Plug.Router

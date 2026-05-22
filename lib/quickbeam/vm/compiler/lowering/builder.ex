@@ -1,12 +1,12 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
   @moduledoc "Erlang abstract-format helpers: variable, literal, call, and case-clause constructors for the lowering pass."
 
-  alias QuickBEAM.VM.Compiler.{BeamForms, Lowering.Atoms}
+  alias QuickBEAM.VM.Compiler.{BEAMForms, Lowering.Atoms}
 
-  @line BeamForms.line()
+  @line BEAMForms.line()
 
   @doc "Returns the generated Erlang function name for a bytecode block."
-  def block_name(idx), do: BeamForms.block_name(idx)
+  def block_name(idx), do: BEAMForms.block_name(idx)
   def slot_name(idx, n), do: "Slot#{idx}_#{n}"
   def capture_name(idx, n), do: "Capture#{idx}_#{n}"
   def temp_name(n), do: "Tmp#{n}"
@@ -22,26 +22,26 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
   def capture_vars(0), do: []
   def capture_vars(count), do: Enum.map(0..(count - 1), &capture_var/1)
 
-  def var(name), do: BeamForms.var(name)
+  def var(name), do: BEAMForms.var(name)
 
   @doc "Builds an Erlang abstract-format integer literal."
-  def integer(value), do: BeamForms.integer(value)
-  def atom(value), do: BeamForms.atom(value)
-  def literal(value), do: BeamForms.literal(value)
-  def match(left, right), do: BeamForms.match(left, right)
-  def tuple_expr(values), do: BeamForms.tuple(values)
+  def integer(value), do: BEAMForms.integer(value)
+  def atom(value), do: BEAMForms.atom(value)
+  def literal(value), do: BEAMForms.literal(value)
+  def match(left, right), do: BEAMForms.match(left, right)
+  def tuple_expr(values), do: BEAMForms.tuple(values)
 
-  def tuple_element(tuple, index), do: BeamForms.tuple_element(tuple, index)
+  def tuple_element(tuple, index), do: BEAMForms.tuple_element(tuple, index)
 
   @doc "Builds an Erlang abstract-format map expression."
-  def map_expr(entries), do: BeamForms.map(entries)
+  def map_expr(entries), do: BEAMForms.map(entries)
 
-  def list_expr(values), do: BeamForms.list(values)
+  def list_expr(values), do: BEAMForms.list(values)
 
-  def remote_call(mod, fun, args), do: BeamForms.remote_call(mod, fun, args)
+  def remote_call(mod, fun, args), do: BEAMForms.remote_call(mod, fun, args)
 
   @doc "Builds an Erlang abstract-format local call expression."
-  def local_call(fun, args), do: BeamForms.local_call(fun, args)
+  def local_call(fun, args), do: BEAMForms.local_call(fun, args)
 
   def throw_js(expr), do: remote_call(:erlang, :throw, [{:tuple, @line, [atom(:js_throw), expr]}])
 

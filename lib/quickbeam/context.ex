@@ -317,7 +317,7 @@ defmodule QuickBEAM.Context do
   end
 
   defp sync_eval_source(%{pool_resource: {:beam_worker, worker, _}}, code) do
-    QuickBEAM.ContextPool.BeamWorker.eval(worker, code, 0, "")
+    QuickBEAM.ContextPool.BEAMWorker.eval(worker, code, 0, "")
   end
 
   defp beam_context?(%{pool_resource: {:beam_worker, _, _}}), do: true
@@ -386,7 +386,7 @@ defmodule QuickBEAM.Context do
          filename
        ) do
     beam_worker_ref(fn ->
-      QuickBEAM.ContextPool.BeamWorker.eval(worker, code, timeout, filename)
+      QuickBEAM.ContextPool.BEAMWorker.eval(worker, code, timeout, filename)
     end)
   end
 
@@ -401,7 +401,7 @@ defmodule QuickBEAM.Context do
          filename
        ) do
     beam_worker_ref(fn ->
-      QuickBEAM.ContextPool.BeamWorker.eval_restore(worker, name, code, timeout, filename)
+      QuickBEAM.ContextPool.BEAMWorker.eval_restore(worker, name, code, timeout, filename)
     end)
   end
 
@@ -444,7 +444,7 @@ defmodule QuickBEAM.Context do
 
     Task.start(fn ->
       result =
-        case QuickBEAM.ContextPool.BeamWorker.reset(worker) do
+        case QuickBEAM.ContextPool.BEAMWorker.reset(worker) do
           :ok -> {:ok, :ok}
           other -> other
         end
@@ -459,13 +459,13 @@ defmodule QuickBEAM.Context do
     do: QuickBEAM.Native.pool_reset_context(state.pool_resource, state.context_id)
 
   defp context_snapshot(%{pool_resource: {:beam_worker, worker, _}}, name) do
-    QuickBEAM.ContextPool.BeamWorker.snapshot(worker, name)
+    QuickBEAM.ContextPool.BEAMWorker.snapshot(worker, name)
   end
 
   defp context_snapshot(_state, _name), do: {:error, :snapshots_not_supported}
 
   defp context_restore(%{pool_resource: {:beam_worker, worker, _}}, name) do
-    QuickBEAM.ContextPool.BeamWorker.restore(worker, name)
+    QuickBEAM.ContextPool.BEAMWorker.restore(worker, name)
   end
 
   defp context_restore(_state, _name), do: {:error, :snapshots_not_supported}

@@ -1,4 +1,4 @@
-defmodule QuickBEAM.WebAPIs.BeamLocksTest do
+defmodule QuickBEAM.WebAPIs.BEAMLocksTest do
   use ExUnit.Case, async: false
 
   setup_all do
