@@ -145,6 +145,13 @@ process_state_owners = [
          "QuickBEAM.VM.ObjectModel.*",
          "QuickBEAM.VM.Runtime.*"
        ]},
+      {"QuickBEAM.VM.Compiler.Lowering.Ops.Iterators",
+       [
+         "QuickBEAM.VM.Heap.*",
+         "QuickBEAM.VM.Invocation.*",
+         "QuickBEAM.VM.ObjectModel.*",
+         "QuickBEAM.VM.Runtime.*"
+       ]},
       {"QuickBEAM.VM.Interpreter.*", ["QuickBEAM.VM.Host.Test262.*"]},
       {"QuickBEAM.VM.Runtime.*", ["QuickBEAM.VM.Compiler.*"]},
       {"QuickBEAM.VM.Runtime.*", ["QuickBEAM.VM.Interpreter.*"]},

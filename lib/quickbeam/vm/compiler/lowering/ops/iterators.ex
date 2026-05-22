@@ -3,7 +3,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
 
   alias QuickBEAM.VM.Compiler.Lowering.Effects, as: LoweringEffects
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, State}
-  alias QuickBEAM.VM.ObjectModel.Get
 
   @doc "Lowers a VM instruction or function into compiler IR."
   def lower(state, name_args) do
@@ -140,18 +139,11 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
 
   defp lower_iterator_next(state) do
     with {:ok, iter, state} <- Emit.pop(state) do
-      next_fn =
-        Builder.remote_call(Get, :get, [
-          iter,
-          Builder.literal("next")
-        ])
+      next_fn = State.abi_call(state, :get_field, [iter, Builder.literal("next")])
 
       LoweringEffects.effectful_push(
         state,
-        Builder.remote_call(QuickBEAM.VM.Runtime, :call_callback, [
-          next_fn,
-          Builder.list_expr([])
-        ])
+        State.abi_call(state, :call_callback, [next_fn, Builder.list_expr([])])
       )
     end
   end
