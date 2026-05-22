@@ -24,6 +24,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     Static,
     InternalMethods,
     PropertyDescriptor,
+    ProxySet,
     PropertyKey,
     Semantics,
     WrappedPrimitive
@@ -213,11 +214,10 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
       {:qb_arr, _} ->
         put_array_key(ref, key, val)
 
-      %{
-        proxy_target() => target,
-        proxy_handler() => handler
-      } ->
-        invoke_proxy_set_trap_or_put(target, handler, key, val, obj)
+      %{proxy_target() => _target, proxy_handler() => _handler} ->
+        ProxySet.dispatch(obj, key, val, obj, fn target, key, value, _receiver ->
+          put(target, key, value)
+        end)
 
       list when is_list(list) ->
         put_array_key(ref, key, val)
@@ -492,26 +492,6 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   end
 
   def ordinary_set(target, key, val, _receiver), do: put(target, key, val)
-
-  defp invoke_proxy_set_trap_or_put(target, handler, key, val, receiver) do
-    set_trap = Get.get(handler, "set")
-
-    cond do
-      Value.nullish?(set_trap) ->
-        put(target, key, val)
-
-      not QuickBEAM.VM.Builtin.callable?(set_trap) ->
-        JSThrow.type_error!("proxy set trap is not callable")
-
-      true ->
-        QuickBEAM.VM.ObjectModel.ProxySet.validate_invariant(
-          target,
-          key,
-          val,
-          Invocation.invoke_callback_or_throw(set_trap, [target, key, val, receiver], handler)
-        )
-    end
-  end
 
   defp set_property(ref, raw, key, val, receiver) do
     case raw do
