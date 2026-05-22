@@ -18,6 +18,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     PropertyDescriptor,
     PropertyKey,
     Prototype,
+    ProxyTrap,
     Put,
     Semantics,
     WrappedPrimitive
@@ -1015,7 +1016,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
       if Value.nullish?(trap) do
         Prototype.get(target)
       else
-        Invocation.invoke_callback_or_throw(trap, [target], handler)
+        ProxyTrap.call(trap, [target], handler)
       end
 
     cond do

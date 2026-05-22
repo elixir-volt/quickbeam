@@ -15,6 +15,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   alias QuickBEAM.VM.Execution.{ClosureCells, PrototypeState, RegexpState}
   alias QuickBEAM.VM.{Heap, JSThrow, Value}
   alias QuickBEAM.VM.Invocation
+  alias QuickBEAM.VM.ObjectModel.ProxyTrap
   alias QuickBEAM.VM.Runtime
 
   alias QuickBEAM.VM.Runtime.{
@@ -160,7 +161,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         validate_proxy_get_invariant(
           target,
           key,
-          Invocation.invoke_callback_or_throw(get_trap, [target, key, receiver], handler)
+          ProxyTrap.call(get_trap, [target, key, receiver], handler)
         )
     end
   end
@@ -566,7 +567,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
             validate_proxy_get_invariant(
               target,
               key,
-              Invocation.invoke_callback_or_throw(get_trap, [target, key, {:obj, ref}], handler)
+              ProxyTrap.call(get_trap, [target, key, {:obj, ref}], handler)
             )
         end
 

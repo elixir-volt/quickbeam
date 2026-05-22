@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
 
   import QuickBEAM.VM.Heap.Keys
 
-  alias QuickBEAM.VM.{Builtin, Heap, Invocation, JSThrow, Runtime, Value}
+  alias QuickBEAM.VM.{Builtin, Heap, JSThrow, Runtime, Value}
   alias QuickBEAM.VM.Execution.RegexpState
 
   alias QuickBEAM.VM.ObjectModel.{
@@ -13,6 +13,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
     Static,
     PropertyDescriptor,
     PropertyKey,
+    ProxyTrap,
     WrappedPrimitive
   }
 
@@ -863,7 +864,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
     if Value.nullish?(trap) do
       descriptor(target, prop_name)
     else
-      result = Invocation.invoke_callback_or_throw(trap, [target, prop_name], handler)
+      result = ProxyTrap.call(trap, [target, prop_name], handler)
       validate_proxy_descriptor_result(target, prop_name, result)
     end
   end

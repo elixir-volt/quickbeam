@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.ObjectModel.Define do
 
   import QuickBEAM.VM.Heap.Keys
 
-  alias QuickBEAM.VM.{Heap, Invocation, JSThrow, Value}
+  alias QuickBEAM.VM.{Heap, JSThrow, Value}
   alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.Semantics.Values
 
@@ -12,6 +12,7 @@ defmodule QuickBEAM.VM.ObjectModel.Define do
     Get,
     PropertyDescriptor,
     PropertyKey,
+    ProxyTrap,
     Semantics,
     WrappedPrimitive
   }
@@ -318,9 +319,7 @@ defmodule QuickBEAM.VM.ObjectModel.Define do
         property(target, key, desc_obj, descriptor_map(desc_obj))
         proxy
 
-      not Values.truthy?(
-        Invocation.invoke_callback_or_throw(trap, [target, prop_name, desc_obj], handler)
-      ) ->
+      not Values.truthy?(ProxyTrap.call(trap, [target, prop_name, desc_obj], handler)) ->
         throw(
           {:js_throw, Heap.make_error("proxy defineProperty trap returned false", "TypeError")}
         )

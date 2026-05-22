@@ -5,8 +5,7 @@ defmodule QuickBEAM.VM.ObjectModel.HasProperty do
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Semantics.Values
-  alias QuickBEAM.VM.Invocation
-  alias QuickBEAM.VM.ObjectModel.{Get, OwnProperty, PropertyKey}
+  alias QuickBEAM.VM.ObjectModel.{Get, OwnProperty, PropertyKey, ProxyTrap}
   alias QuickBEAM.VM.Runtime.TypedArray
 
   def has_property?({:obj, ref} = obj, key) do
@@ -18,7 +17,7 @@ defmodule QuickBEAM.VM.ObjectModel.HasProperty do
         has_trap = Get.get(handler, "has")
 
         if has_trap != :undefined do
-          result = Values.truthy?(Invocation.invoke_callback_or_throw(has_trap, [target, key]))
+          result = Values.truthy?(ProxyTrap.call(has_trap, [target, key], handler))
           validate_proxy_has_invariant(target, key, result)
         else
           has_property?(target, key)

@@ -6,8 +6,7 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
   alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.{Heap, JSThrow, Value}
   alias QuickBEAM.VM.Semantics.Values
-  alias QuickBEAM.VM.Invocation
-  alias QuickBEAM.VM.ObjectModel.{Get, PropertyKey, Semantics, WrappedPrimitive}
+  alias QuickBEAM.VM.ObjectModel.{Get, PropertyKey, ProxyTrap, Semantics, WrappedPrimitive}
 
   @doc "Deletes a property according to JavaScript delete semantics."
   def delete_property(nil, key) do
@@ -187,7 +186,7 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
       Value.nullish?(trap) ->
         delete_property(target, key)
 
-      not Values.truthy?(Invocation.invoke_callback_or_throw(trap, [target, key], handler)) ->
+      not Values.truthy?(ProxyTrap.call(trap, [target, key], handler)) ->
         false
 
       proxy_delete_invariant_violation?(target, key) ->

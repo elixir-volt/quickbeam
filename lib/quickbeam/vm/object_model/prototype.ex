@@ -6,8 +6,7 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
   alias QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Execution.PrototypeState
   alias QuickBEAM.VM.Runtime.FunctionKinds
-  alias QuickBEAM.VM.Invocation
-  alias QuickBEAM.VM.ObjectModel.{Get, Semantics}
+  alias QuickBEAM.VM.ObjectModel.{Get, ProxyTrap, Semantics}
   alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.{Heap, Value}
 
@@ -115,7 +114,7 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
     if Value.nullish?(trap) do
       get(target)
     else
-      Invocation.invoke_callback_or_throw(trap, [target], handler)
+      ProxyTrap.call(trap, [target], handler)
     end
   end
 
