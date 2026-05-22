@@ -298,7 +298,10 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
 
       defp run({@op_get_ref_value, []}, pc, frame, [prop_name, obj | _] = stack, gas, ctx)
            when is_binary(prop_name) do
-        run(pc + 1, frame, [Get.get(obj, prop_name) | stack], gas, ctx)
+        case Completion.capture(ctx, fn -> Get.get(obj, prop_name) end) do
+          {:ok, value, ctx} -> run(pc + 1, frame, [value | stack], gas, ctx)
+          {:throw, error, ctx} -> throw_or_catch(frame, error, gas, ctx)
+        end
       end
 
       defp run(
@@ -309,46 +312,68 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
              gas,
              ctx
            ) do
-        Closures.write_cell(ref, val)
+        case put_ref_cell_global_write(ctx, prop_name, val) do
+          {:ok, ctx} ->
+            Closures.write_cell(ref, val)
+            run(pc + 1, frame, rest, gas, ctx)
 
-        ctx =
-          if is_binary(prop_name) do
-            new_globals = Map.put(ctx.globals, prop_name, val)
-            Heap.put_persistent_globals(new_globals)
-            Heap.put_base_globals(new_globals)
-
-            case Map.get(ctx.globals, "globalThis") do
-              {:obj, _} = gt -> InternalMethods.set(gt, prop_name, val)
-              _ -> :ok
-            end
-
-            Context.mark_dirty(%{ctx | globals: new_globals})
-          else
-            ctx
-          end
-
-        run(pc + 1, frame, rest, gas, ctx)
+          {:throw, error, ctx} ->
+            throw_or_catch(frame, error, gas, ctx)
+        end
       end
 
       defp run({@op_put_ref_value, []}, pc, frame, [val, key, obj | rest], gas, ctx)
            when is_binary(key) do
-        if current_strict_mode?(ctx) and is_object(obj) and
-             not InternalMethods.has_property(obj, key) do
-          throw_or_catch(
-            frame,
-            Heap.make_error("#{key} is not defined", "ReferenceError"),
-            gas,
-            ctx
-          )
-        else
-          try do
-            InternalMethods.set(obj, key, val)
+        case put_ref_object_write(ctx, obj, key, val) do
+          {:ok, ctx} ->
             frame = sync_setter_globals_to_frame(frame, ctx)
             run(pc + 1, frame, rest, gas, ctx)
-          catch
-            {:js_throw, error} ->
-              throw_or_catch(frame, error, gas, Completion.current_context(ctx))
-          end
+
+          {:throw, error, ctx} ->
+            throw_or_catch(frame, error, gas, ctx)
+        end
+      end
+
+      defp put_ref_cell_global_write(ctx, prop_name, val) when is_binary(prop_name) do
+        case Map.get(ctx.globals, "globalThis") do
+          {:obj, _} = global_this ->
+            case Completion.capture(ctx, fn ->
+                   InternalMethods.set(global_this, prop_name, val)
+                 end) do
+              {:ok, _set_result, ctx} -> {:ok, commit_ref_global(ctx, prop_name, val)}
+              {:throw, error, ctx} -> {:throw, error, ctx}
+            end
+
+          _ ->
+            {:ok, commit_ref_global(ctx, prop_name, val)}
+        end
+      end
+
+      defp put_ref_cell_global_write(ctx, _prop_name, _val), do: {:ok, ctx}
+
+      defp commit_ref_global(ctx, prop_name, val) do
+        new_globals = Map.put(ctx.globals, prop_name, val)
+        Heap.put_persistent_globals(new_globals)
+        Heap.put_base_globals(new_globals)
+        Context.mark_dirty(%{ctx | globals: new_globals})
+      end
+
+      defp put_ref_object_write(ctx, obj, key, val) do
+        result =
+          Completion.capture(ctx, fn ->
+            if current_strict_mode?(ctx) and is_object(obj) and
+                 not InternalMethods.has_property(obj, key) do
+              {:missing, Heap.make_error("#{key} is not defined", "ReferenceError")}
+            else
+              InternalMethods.set(obj, key, val)
+              :ok
+            end
+          end)
+
+        case result do
+          {:ok, {:missing, error}, ctx} -> {:throw, error, ctx}
+          {:ok, :ok, ctx} -> {:ok, ctx}
+          {:throw, error, ctx} -> {:throw, error, ctx}
         end
       end
 
@@ -403,24 +428,10 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
            ) do
         key = Names.resolve_atom(ctx, atom_idx)
 
-        result =
-          try do
-            {:ok, with_has_property?(obj, key)}
-          catch
-            {:js_throw, error} -> {:throw, error}
-          end
-
-        case result do
-          {:ok, true} ->
-            ctx = refresh_persistent_globals(ctx)
-            run(target, frame, [Get.get(obj, key) | rest], gas, ctx)
-
-          {:ok, false} ->
-            ctx = refresh_persistent_globals(ctx)
-            run(pc + 1, frame, rest, gas, ctx)
-
-          {:throw, error} ->
-            throw_or_catch(frame, error, gas, ctx)
+        case Completion.capture(ctx, fn -> with_get_var_result(obj, key) end) do
+          {:ok, {:found, value}, ctx} -> run(target, frame, [value | rest], gas, ctx)
+          {:ok, :missing, ctx} -> run(pc + 1, frame, rest, gas, ctx)
+          {:throw, error, ctx} -> throw_or_catch(frame, error, gas, ctx)
         end
       end
 
@@ -434,12 +445,38 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
            ) do
         key = Names.resolve_atom(ctx, atom_idx)
 
+        case Completion.capture(ctx, fn -> with_put_var_result(obj, key, val) end) do
+          {:ok, :written, ctx} ->
+            frame = sync_setter_globals_to_frame(frame, ctx)
+            run(target, frame, rest, gas, ctx)
+
+          {:ok, :missing, ctx} ->
+            run(pc + 1, frame, [val | rest], gas, ctx)
+
+          {:throw, error, ctx} ->
+            throw_or_catch(frame, error, gas, ctx)
+        end
+      end
+
+      defp with_get_var_result(obj, key) do
+        if with_has_property?(obj, key), do: {:found, Get.get(obj, key)}, else: :missing
+      end
+
+      defp with_put_var_result(obj, key, val) do
         if with_has_property?(obj, key) do
           InternalMethods.set(obj, key, val)
-          frame = sync_setter_globals_to_frame(frame, ctx)
-          run(target, frame, rest, gas, ctx)
+          :written
         else
-          run(pc + 1, frame, [val | rest], gas, ctx)
+          :missing
+        end
+      end
+
+      defp with_delete_var_result(obj, key) do
+        if with_has_property?(obj, key) do
+          InternalMethods.delete(obj, key)
+          :deleted
+        else
+          :missing
         end
       end
 
@@ -453,11 +490,10 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
            ) do
         key = Names.resolve_atom(ctx, atom_idx)
 
-        if with_has_property?(obj, key) do
-          InternalMethods.delete(obj, key)
-          run(target, frame, [true | rest], gas, ctx)
-        else
-          run(pc + 1, frame, rest, gas, ctx)
+        case Completion.capture(ctx, fn -> with_delete_var_result(obj, key) end) do
+          {:ok, :deleted, ctx} -> run(target, frame, [true | rest], gas, ctx)
+          {:ok, :missing, ctx} -> run(pc + 1, frame, rest, gas, ctx)
+          {:throw, error, ctx} -> throw_or_catch(frame, error, gas, ctx)
         end
       end
 
@@ -471,12 +507,10 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
            ) do
         key = Names.resolve_atom(ctx, atom_idx)
 
-        if with_has_property?(obj, key) do
-          ctx = refresh_persistent_globals(ctx)
-          run(target, frame, [key, obj | rest], gas, ctx)
-        else
-          ctx = refresh_persistent_globals(ctx)
-          run(pc + 1, frame, rest, gas, ctx)
+        case Completion.capture(ctx, fn -> with_has_property?(obj, key) end) do
+          {:ok, true, ctx} -> run(target, frame, [key, obj | rest], gas, ctx)
+          {:ok, false, ctx} -> run(pc + 1, frame, rest, gas, ctx)
+          {:throw, error, ctx} -> throw_or_catch(frame, error, gas, ctx)
         end
       end
 
@@ -490,12 +524,10 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
            ) do
         key = Names.resolve_atom(ctx, atom_idx)
 
-        if with_has_property?(obj, key) do
-          ctx = refresh_persistent_globals(ctx)
-          run(target, frame, [Get.get(obj, key), obj | rest], gas, ctx)
-        else
-          ctx = refresh_persistent_globals(ctx)
-          run(pc + 1, frame, rest, gas, ctx)
+        case Completion.capture(ctx, fn -> with_get_var_result(obj, key) end) do
+          {:ok, {:found, value}, ctx} -> run(target, frame, [value, obj | rest], gas, ctx)
+          {:ok, :missing, ctx} -> run(pc + 1, frame, rest, gas, ctx)
+          {:throw, error, ctx} -> throw_or_catch(frame, error, gas, ctx)
         end
       end
 
@@ -509,12 +541,10 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
            ) do
         key = Names.resolve_atom(ctx, atom_idx)
 
-        if with_has_property?(obj, key) do
-          ctx = refresh_persistent_globals(ctx)
-          run(target, frame, [Get.get(obj, key), :undefined | rest], gas, ctx)
-        else
-          ctx = refresh_persistent_globals(ctx)
-          run(pc + 1, frame, rest, gas, ctx)
+        case Completion.capture(ctx, fn -> with_get_var_result(obj, key) end) do
+          {:ok, {:found, value}, ctx} -> run(target, frame, [value, :undefined | rest], gas, ctx)
+          {:ok, :missing, ctx} -> run(pc + 1, frame, rest, gas, ctx)
+          {:throw, error, ctx} -> throw_or_catch(frame, error, gas, ctx)
         end
       end
     end

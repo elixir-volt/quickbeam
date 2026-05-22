@@ -17,7 +17,15 @@ defmodule QuickBEAM.VM.Interpreter.Ops.FieldAccess do
       end
 
       defp run({@op_get_field, [atom_idx]}, pc, frame, [obj | rest], gas, ctx) do
-        run(pc + 1, frame, [Get.get(obj, Names.resolve_atom(ctx, atom_idx)) | rest], gas, ctx)
+        key = Names.resolve_atom(ctx, atom_idx)
+
+        case Completion.capture(ctx, fn -> Get.get(obj, key) end) do
+          {:ok, value, ctx} ->
+            run(pc + 1, frame, [value | rest], gas, ctx)
+
+          {:throw, error, ctx} ->
+            throw_or_catch(frame, error, gas, close_active_iterators_on_abrupt(rest, ctx))
+        end
       end
 
       defp run({@op_put_field, [atom_idx]}, pc, frame, [val, obj | rest], gas, ctx) do
@@ -63,12 +71,25 @@ defmodule QuickBEAM.VM.Interpreter.Ops.FieldAccess do
       end
 
       defp run({@op_get_field2, [atom_idx]}, pc, frame, [obj | rest], gas, ctx) do
-        val = Get.get(obj, Names.resolve_atom(ctx, atom_idx))
-        run(pc + 1, frame, [val, obj | rest], gas, ctx)
+        key = Names.resolve_atom(ctx, atom_idx)
+
+        case Completion.capture(ctx, fn -> Get.get(obj, key) end) do
+          {:ok, value, ctx} ->
+            run(pc + 1, frame, [value, obj | rest], gas, ctx)
+
+          {:throw, error, ctx} ->
+            throw_or_catch(frame, error, gas, close_active_iterators_on_abrupt(rest, ctx))
+        end
       end
 
       defp run({@op_get_length, []}, pc, frame, [obj | rest], gas, ctx) do
-        run(pc + 1, frame, [Get.length_of(obj) | rest], gas, ctx)
+        case Completion.capture(ctx, fn -> Get.length_of(obj) end) do
+          {:ok, value, ctx} ->
+            run(pc + 1, frame, [value | rest], gas, ctx)
+
+          {:throw, error, ctx} ->
+            throw_or_catch(frame, error, gas, close_active_iterators_on_abrupt(rest, ctx))
+        end
       end
 
       defp run({@op_to_propkey, []}, pc, frame, [key | rest], gas, ctx) do

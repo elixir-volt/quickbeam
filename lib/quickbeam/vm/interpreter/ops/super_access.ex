@@ -8,13 +8,19 @@ defmodule QuickBEAM.VM.Interpreter.Ops.SuperAccess do
       alias QuickBEAM.VM.Interpreter.Ops.SuperProperties
 
       defp run({@op_get_super, []}, pc, frame, [func | rest], gas, %Context{} = ctx) do
-        val = SuperProperties.get(func, ctx.home_object, ctx.super)
-        run(pc + 1, frame, [val | rest], gas, ctx)
+        case Completion.capture(ctx, fn ->
+               SuperProperties.get(func, ctx.home_object, ctx.super)
+             end) do
+          {:ok, value, ctx} -> run(pc + 1, frame, [value | rest], gas, ctx)
+          {:throw, error, ctx} -> throw_or_catch(frame, error, gas, ctx)
+        end
       end
 
       defp run({@op_get_super_value, []}, pc, frame, [key, proto, this_obj | rest], gas, ctx) do
-        val = SuperProperties.get_value(proto, this_obj, key)
-        run(pc + 1, frame, [val | rest], gas, ctx)
+        case Completion.capture(ctx, fn -> SuperProperties.get_value(proto, this_obj, key) end) do
+          {:ok, value, ctx} -> run(pc + 1, frame, [value | rest], gas, ctx)
+          {:throw, error, ctx} -> throw_or_catch(frame, error, gas, ctx)
+        end
       end
 
       defp run(
