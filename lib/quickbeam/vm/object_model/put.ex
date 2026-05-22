@@ -504,7 +504,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         JSThrow.type_error!("proxy set trap is not callable")
 
       true ->
-        validate_proxy_set_invariant(
+        QuickBEAM.VM.ObjectModel.ProxySet.validate_invariant(
           target,
           key,
           val,
@@ -1509,36 +1509,6 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   defp reject_failed_write! do
     if Semantics.strict_mode?(), do: JSThrow.type_error!("Cannot assign to read only property")
     :ok
-  end
-
-  def validate_proxy_set_invariant({:obj, target_ref} = target, key, val, trap_result) do
-    if Values.truthy?(trap_result) do
-      desc = Heap.get_prop_desc(target_ref, key)
-      target_value = Get.get(target, key)
-
-      cond do
-        match?(%{configurable: false, writable: false}, desc) and
-            not Semantics.same_value?(val, target_value) ->
-          JSThrow.type_error!("proxy set trap violates invariant")
-
-        match?(%{configurable: false}, desc) and getter_only_accessor?(target_ref, key) ->
-          JSThrow.type_error!("proxy set trap violates invariant")
-
-        true ->
-          trap_result
-      end
-    else
-      trap_result
-    end
-  end
-
-  def validate_proxy_set_invariant(_target, _key, _val, trap_result), do: trap_result
-
-  defp getter_only_accessor?(target_ref, key) do
-    case Heap.raw_fetch(Heap.get_obj_raw(target_ref), key) do
-      {:ok, {:accessor, _, nil}} -> true
-      _ -> false
-    end
   end
 
   defp sync_global_this?(obj, key, val) when is_binary(key) do

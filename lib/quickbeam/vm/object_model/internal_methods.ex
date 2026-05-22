@@ -12,6 +12,7 @@ defmodule QuickBEAM.VM.ObjectModel.InternalMethods do
     HasProperty,
     OwnProperty,
     ProxyOwnKeys,
+    ProxySet,
     ProxyTrap,
     Put
   }
@@ -36,32 +37,8 @@ defmodule QuickBEAM.VM.ObjectModel.InternalMethods do
   def get(obj, key, receiver \\ nil), do: Get.get(obj, key, receiver || obj)
   def set(obj, key, value, receiver \\ nil)
 
-  def set({:obj, ref} = obj, key, value, receiver) do
-    case Heap.get_obj(ref, %{}) do
-      %{proxy_target() => _target, "__proxy_revoked__" => true} ->
-        JSThrow.type_error!("Cannot perform operation on a revoked proxy")
-
-      %{proxy_target() => _target, proxy_handler() => handler}
-      when not is_map(handler) and not is_tuple(handler) ->
-        JSThrow.type_error!("Cannot perform operation on a proxy with null handler")
-
-      %{proxy_target() => target, proxy_handler() => handler} ->
-        trap = Get.get(handler, "set")
-
-        if Value.nullish?(trap) do
-          set(target, key, value, receiver || obj)
-        else
-          trap
-          |> ProxyTrap.call([target, key, value, receiver || obj], handler)
-          |> then(&Put.validate_proxy_set_invariant(target, key, value, &1))
-        end
-
-      _ ->
-        Put.ordinary_set(obj, key, value, receiver || obj)
-    end
-  end
-
-  def set(obj, key, value, receiver), do: Put.ordinary_set(obj, key, value, receiver || obj)
+  def set(obj, key, value, receiver),
+    do: ProxySet.dispatch(obj, key, value, receiver, &Put.ordinary_set/4)
 
   def has_property({:obj, ref} = obj, key) do
     case Heap.get_obj(ref, %{}) do
