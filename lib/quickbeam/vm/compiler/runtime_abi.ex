@@ -69,6 +69,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
 
   def get_var_undef(ctx, name), do: RuntimeABI.Bindings.get_var_undef(ctx, name)
 
+  def get_global(ctx, name), do: RuntimeABI.Bindings.get_global(ctx, name)
+
+  def get_global_undef(ctx, name), do: RuntimeABI.Bindings.get_global_undef(ctx, name)
+
   def get_var_ref(ctx, idx), do: RuntimeABI.Bindings.get_var_ref(ctx, idx)
 
   def get_var_ref_check(ctx, idx), do: RuntimeABI.Bindings.get_var_ref_check(ctx, idx)

@@ -3,7 +3,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
 
   alias QuickBEAM.VM.Compiler.Lowering.Effects, as: LoweringEffects
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, Slots, State}
-  alias QuickBEAM.VM.Compiler.RuntimeHelpers.Bindings
   alias QuickBEAM.VM.OpcodeSpec
 
   @handlers %{
@@ -237,31 +236,15 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
     end
   end
 
-  defp inline_get_var(state, "arguments") do
-    Builder.remote_call(Bindings, :get_var, [
-      State.ctx_expr(state),
-      Builder.literal("arguments")
-    ])
-  end
+  defp inline_get_var(state, "arguments"),
+    do: State.abi_call(state, :get_var, [Builder.literal("arguments")])
 
-  defp inline_get_var(state, name) do
-    Builder.remote_call(Bindings, :get_global, [
-      Builder.map_get(State.ctx_expr(state), Builder.atom(:globals)),
-      Builder.literal(name)
-    ])
-  end
+  defp inline_get_var(state, name),
+    do: State.abi_call(state, :get_global, [Builder.literal(name)])
 
-  defp inline_get_var_undef(state, "arguments") do
-    Builder.remote_call(Bindings, :get_var_undef, [
-      State.ctx_expr(state),
-      Builder.literal("arguments")
-    ])
-  end
+  defp inline_get_var_undef(state, "arguments"),
+    do: State.abi_call(state, :get_var_undef, [Builder.literal("arguments")])
 
-  defp inline_get_var_undef(state, name) do
-    Builder.remote_call(Bindings, :get_global_undef, [
-      Builder.map_get(State.ctx_expr(state), Builder.atom(:globals)),
-      Builder.literal(name)
-    ])
-  end
+  defp inline_get_var_undef(state, name),
+    do: State.abi_call(state, :get_global_undef, [Builder.literal(name)])
 end
