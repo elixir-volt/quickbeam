@@ -7,9 +7,8 @@ defmodule QuickBEAM.VM.Host.Web.Worker do
 
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Host.Callback
+  alias QuickBEAM.VM.Host.Web.Worker.State
   alias QuickBEAM.VM.Host.WebAPIs
-
-  @workers_key :qb_beam_workers
 
   @doc "Returns the JavaScript global bindings provided by this module."
   def bindings do
@@ -30,16 +29,12 @@ defmodule QuickBEAM.VM.Host.Web.Worker do
     onerror_ref = make_ref()
     listeners_ref = make_ref()
 
-    # Use Process.put directly to avoid Heap.put_obj converting lists to {:qb_arr, ...}
-    Process.put(onmessage_ref, nil)
-    Process.put(onerror_ref, nil)
-    Process.put(listeners_ref, [])
+    State.init_callbacks(onmessage_ref, onerror_ref, listeners_ref)
 
     # Spawn the worker process
     worker_pid = spawn_worker(script_str, parent_pid, worker_ref)
 
-    workers = Process.get(@workers_key, %{})
-    Process.put(@workers_key, Map.put(workers, worker_ref, worker_pid))
+    State.register_worker(worker_ref, worker_pid)
 
     # Register as a "message source" to be polled during drain_pending
     register_worker_source(worker_ref, onmessage_ref, listeners_ref)
@@ -47,9 +42,8 @@ defmodule QuickBEAM.VM.Host.Web.Worker do
     object heap: true do
       method "postMessage" do
         data = arg(args, 0, :undefined)
-        workers = Process.get(@workers_key, %{})
 
-        case Map.get(workers, worker_ref) do
+        case State.worker_pid(worker_ref) do
           pid when is_pid(pid) -> send(pid, {:parent_post, data})
           _ -> :ok
         end
@@ -58,12 +52,10 @@ defmodule QuickBEAM.VM.Host.Web.Worker do
       end
 
       method "terminate" do
-        workers = Process.get(@workers_key, %{})
-
-        case Map.get(workers, worker_ref) do
+        case State.worker_pid(worker_ref) do
           pid when is_pid(pid) ->
             Process.exit(pid, :kill)
-            Process.put(@workers_key, Map.delete(workers, worker_ref))
+            State.delete_worker(worker_ref)
 
           _ ->
             :ok
@@ -77,8 +69,7 @@ defmodule QuickBEAM.VM.Host.Web.Worker do
         [type, callback] = argv(args, ["message", nil])
 
         if to_string(type) == "message" do
-          listeners = Process.get(listeners_ref, [])
-          Process.put(listeners_ref, listeners ++ [callback])
+          State.add_listener(listeners_ref, callback)
         end
 
         :undefined
@@ -86,29 +77,28 @@ defmodule QuickBEAM.VM.Host.Web.Worker do
 
       method "removeEventListener" do
         [_type, callback] = argv(args, ["message", nil])
-        listeners = Process.get(listeners_ref, [])
-        Process.put(listeners_ref, Enum.reject(listeners, &(&1 == callback)))
+        State.remove_listener(listeners_ref, callback)
         :undefined
       end
 
       accessor "onmessage" do
         get do
-          Process.get(onmessage_ref, nil)
+          State.listener_callback(onmessage_ref)
         end
 
         set do
-          Process.put(onmessage_ref, arg(args, 0, nil))
+          State.put_listener_callback(onmessage_ref, arg(args, 0, nil))
           :undefined
         end
       end
 
       accessor "onerror" do
         get do
-          Process.get(onerror_ref, nil)
+          State.error_callback(onerror_ref)
         end
 
         set do
-          Process.put(onerror_ref, arg(args, 0, nil))
+          State.put_error_callback(onerror_ref, arg(args, 0, nil))
           :undefined
         end
       end
@@ -117,23 +107,14 @@ defmodule QuickBEAM.VM.Host.Web.Worker do
 
   # ── Worker message sources (polled during drain_pending) ──
 
-  @sources_key :qb_worker_sources
+  defp register_worker_source(worker_ref, onmessage_ref, listeners_ref),
+    do: State.register_source(worker_ref, onmessage_ref, listeners_ref)
 
-  defp register_worker_source(worker_ref, onmessage_ref, listeners_ref) do
-    sources = Process.get(@sources_key, [])
-    Process.put(@sources_key, sources ++ [{worker_ref, onmessage_ref, listeners_ref}])
-  end
-
-  defp unregister_worker_source(worker_ref) do
-    sources = Process.get(@sources_key, [])
-    Process.put(@sources_key, Enum.reject(sources, fn {ref, _, _} -> ref == worker_ref end))
-  end
+  defp unregister_worker_source(worker_ref), do: State.unregister_source(worker_ref)
 
   @doc "Drain all pending worker messages. Called from drain_pending loop."
   def drain_all_worker_messages do
-    sources = Process.get(@sources_key, [])
-
-    Enum.each(sources, fn {worker_ref, onmessage_ref, listeners_ref} ->
+    Enum.each(State.sources(), fn {worker_ref, onmessage_ref, listeners_ref} ->
       drain_worker_source(worker_ref, onmessage_ref, listeners_ref)
     end)
   end
@@ -149,8 +130,8 @@ defmodule QuickBEAM.VM.Host.Web.Worker do
   end
 
   defp deliver_to_handlers(data, onmessage_ref, listeners_ref) do
-    handler = Process.get(onmessage_ref, nil)
-    listeners = Process.get(listeners_ref, [])
+    handler = State.listener_callback(onmessage_ref)
+    listeners = State.listeners(listeners_ref)
     event = Heap.wrap(%{"type" => "message", "data" => data})
 
     if handler != nil and handler != :undefined do
