@@ -43,6 +43,29 @@ process_state_owners = [
 [
   layers: [
     vm_compiler: ["QuickBEAM.VM.Compiler", "QuickBEAM.VM.Compiler.*"],
+    vm_execution_state: [
+      "QuickBEAM.VM.Execution.ConstructorStack",
+      "QuickBEAM.VM.Execution.DefinitionState",
+      "QuickBEAM.VM.Execution.GlobalBindingState",
+      "QuickBEAM.VM.Execution.IteratorState",
+      "QuickBEAM.VM.Execution.JSONState",
+      "QuickBEAM.VM.Execution.PrimitivePrototypeState",
+      "QuickBEAM.VM.Execution.PrototypeState",
+      "QuickBEAM.VM.Execution.RealmState",
+      "QuickBEAM.VM.Execution.RegexpState",
+      "QuickBEAM.VM.Execution.SetterState",
+      "QuickBEAM.VM.Execution.Trace"
+    ],
+    vm_host_state: [
+      "QuickBEAM.VM.Host.BeamAPI.State",
+      "QuickBEAM.VM.Host.Web.BroadcastChannel.State",
+      "QuickBEAM.VM.Host.Web.ConsoleAPI.State",
+      "QuickBEAM.VM.Host.Web.EventSourceAPI.State",
+      "QuickBEAM.VM.Host.Web.FormData.State",
+      "QuickBEAM.VM.Host.Web.MessageChannel.State",
+      "QuickBEAM.VM.Host.Web.Streams.State",
+      "QuickBEAM.VM.Host.Web.Worker.State"
+    ],
     vm_interpreter_ops_helpers: [
       "QuickBEAM.VM.Interpreter.Ops.CopyDataProperties",
       "QuickBEAM.VM.Interpreter.Ops.Delete",
@@ -55,9 +78,11 @@ process_state_owners = [
   deps: [
     mode: :allowlist,
     allowed: [
-      vm_compiler: [:vm_object_model],
+      vm_compiler: [:vm_object_model, :vm_execution_state],
+      vm_execution_state: [],
+      vm_host_state: [],
       vm_interpreter_ops_helpers: [:vm_object_model],
-      vm_object_model: [],
+      vm_object_model: [:vm_execution_state],
       vm_runtime_globals: [:vm_object_model]
     ]
   ],
