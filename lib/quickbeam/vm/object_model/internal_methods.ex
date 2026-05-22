@@ -4,7 +4,18 @@ defmodule QuickBEAM.VM.ObjectModel.InternalMethods do
   import QuickBEAM.VM.Heap.Keys, only: [proxy_handler: 0, proxy_target: 0, typed_array: 0]
 
   alias QuickBEAM.VM.{Heap, JSThrow, Value}
-  alias QuickBEAM.VM.ObjectModel.{Define, Delete, Get, HasProperty, OwnProperty, ProxyTrap, Put}
+
+  alias QuickBEAM.VM.ObjectModel.{
+    Define,
+    Delete,
+    Get,
+    HasProperty,
+    OwnProperty,
+    ProxyOwnKeys,
+    ProxyTrap,
+    Put
+  }
+
   alias QuickBEAM.VM.Semantics.Values
 
   def kind({:obj, ref}) do
@@ -125,8 +136,8 @@ defmodule QuickBEAM.VM.ObjectModel.InternalMethods do
         else
           trap
           |> ProxyTrap.call([target], handler)
-          |> OwnProperty.proxy_own_keys_list()
-          |> OwnProperty.validate_proxy_own_keys_invariant(target)
+          |> ProxyOwnKeys.result_list()
+          |> ProxyOwnKeys.validate_invariant(target)
         end
 
       _ ->
