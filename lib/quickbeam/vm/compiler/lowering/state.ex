@@ -511,10 +511,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   defp refresh_define_value_expr(_state, expr), do: expr
 
-  defp context_globals_expr(state) do
-    {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :map_get}},
-     [{:atom, 1, :globals}, ctx_expr(state)]}
-  end
+  defp context_globals_expr(state),
+    do: QuickBEAM.VM.Compiler.BEAMForms.map_get(ctx_expr(state), Builder.atom(:globals))
 
   @doc "Lowers conversion of an iterable or array-like value into an array object."
   def array_from_call(state, argc) do
