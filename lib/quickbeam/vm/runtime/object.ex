@@ -20,7 +20,6 @@ defmodule QuickBEAM.VM.Runtime.Object do
     PropertyKey,
     Prototype,
     ProxyTrap,
-    Put,
     Semantics,
     WrappedPrimitive
   }
@@ -1736,7 +1735,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp assign_put({:obj, ref} = target_obj, key, value) do
     cond do
       target_accessor_setter?(ref, key) ->
-        Put.put(target_obj, key, value)
+        InternalMethods.set(target_obj, key, value)
 
       target_readonly?(ref, key) or target_string_index?(ref, key) ->
         throw({:js_throw, Heap.make_error("Cannot assign to read only property", "TypeError")})
@@ -1745,7 +1744,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
         throw({:js_throw, Heap.make_error("Cannot add property", "TypeError")})
 
       true ->
-        Put.put(target_obj, key, value)
+        InternalMethods.set(target_obj, key, value)
     end
   end
 
