@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Interpreter do
   import QuickBEAM.VM.Builtin, only: [object: 1]
   import QuickBEAM.VM.Heap.Keys
-  import QuickBEAM.VM.Value, only: [is_object: 1, is_closure: 1]
+  import QuickBEAM.VM.Value, only: [is_object: 1]
 
   alias QuickBEAM.VM.Execution.{SetterState, Trace}
 
@@ -28,7 +28,6 @@ defmodule QuickBEAM.VM.Interpreter do
     Get,
     Methods,
     Private,
-    Put,
     Static
   }
 
@@ -538,8 +537,21 @@ defmodule QuickBEAM.VM.Interpreter do
 
             returned_transients = DirectEval.filter_local_transients(ctx, transient_globals)
 
-            apply_eval_transients(ctx.current_func, var_objs, transient_globals, keep_declared?)
-            write_back_eval_vars(caller_frame, ctx, pre_eval_globals, var_objs, declared_names)
+            DirectEval.apply_transients(
+              ctx.current_func,
+              var_objs,
+              transient_globals,
+              keep_declared?
+            )
+
+            DirectEval.write_back_vars(
+              ctx,
+              pre_eval_globals,
+              var_objs,
+              declared_names,
+              elem(caller_frame, Frame.var_refs()),
+              elem(caller_frame, Frame.l2v())
+            )
 
             clean_eval_globals(pre_eval_globals, returned_transients)
             {val, returned_transients}
@@ -556,8 +568,21 @@ defmodule QuickBEAM.VM.Interpreter do
 
             returned_transients = DirectEval.filter_local_transients(ctx, transient_globals)
 
-            apply_eval_transients(ctx.current_func, var_objs, transient_globals, keep_declared?)
-            write_back_eval_vars(caller_frame, ctx, pre_eval_globals, var_objs, declared_names)
+            DirectEval.apply_transients(
+              ctx.current_func,
+              var_objs,
+              transient_globals,
+              keep_declared?
+            )
+
+            DirectEval.write_back_vars(
+              ctx,
+              pre_eval_globals,
+              var_objs,
+              declared_names,
+              elem(caller_frame, Frame.var_refs()),
+              elem(caller_frame, Frame.l2v())
+            )
 
             clean_eval_globals(pre_eval_globals, returned_transients)
             throw({:js_throw, val})
@@ -587,156 +612,6 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp captured_var_objects(_), do: []
-
-  defp write_back_eval_vars(caller_frame, ctx, original_globals, var_objs, declared_names) do
-    new_globals = Heap.get_persistent_globals() || %{}
-
-    if current_strict_mode?(ctx) do
-      func_name = EvalEnv.current_func_name(ctx)
-
-      if func_name && Map.has_key?(new_globals, func_name) do
-        old_val =
-          case ctx.current_func do
-            {:closure, _, %QuickBEAM.VM.Function{} = f} -> Heap.get_parent_ctor(f)
-            _ -> nil
-          end
-
-        new_val = Map.get(new_globals, func_name)
-
-        if old_val == nil and new_val != ctx.current_func and new_val != :undefined do
-          JSThrow.type_error!("Assignment to constant variable.")
-        end
-      end
-    end
-
-    vrefs = elem(caller_frame, Frame.var_refs())
-    l2v = elem(caller_frame, Frame.l2v())
-
-    case ctx.current_func do
-      {:closure, _, %QuickBEAM.VM.Function{locals: local_defs}} ->
-        do_write_back(local_defs, vrefs, l2v, new_globals, ctx, original_globals, declared_names)
-
-      %QuickBEAM.VM.Function{locals: local_defs} ->
-        do_write_back(local_defs, vrefs, l2v, new_globals, ctx, original_globals, declared_names)
-
-      _ ->
-        :ok
-    end
-
-    if is_closure(ctx.current_func) do
-      write_back_captured_vars(ctx.current_func, new_globals, original_globals, declared_names)
-    end
-
-    if var_objs != [] do
-      for {name, val} <- new_globals,
-          is_binary(name),
-          Map.has_key?(original_globals, name),
-          Map.get(original_globals, name) != val do
-        for var_obj <- var_objs, do: Put.put(var_obj, name, val)
-      end
-    end
-  end
-
-  defp apply_eval_transients(current_func, var_objs, transient_globals, keep_declared?) do
-    if transient_globals != %{} do
-      if var_objs != [] do
-        for {name, val} <- transient_globals, var_obj <- var_objs do
-          Put.put(var_obj, name, val)
-        end
-      end
-
-      if keep_declared? do
-        apply_transient_captured_vars(
-          current_func,
-          transient_globals,
-          MapSet.new(Map.keys(transient_globals))
-        )
-      end
-    end
-  end
-
-  defp write_back_captured_vars(
-         {:closure, captured, %QuickBEAM.VM.Function{closure_vars: cvs}},
-         new_globals,
-         original_globals,
-         declared_names
-       ) do
-    for cv <- cvs,
-        name = Names.resolve_display_name(cv.name),
-        is_binary(name),
-        not MapSet.member?(declared_names, name),
-        Map.has_key?(new_globals, name),
-        Map.get(original_globals, name) != Map.get(new_globals, name) do
-      case Map.get(captured, ClosureBuilder.capture_key(cv)) do
-        {:cell, ref} -> Heap.put_cell(ref, Map.get(new_globals, name))
-        _ -> :ok
-      end
-    end
-  end
-
-  defp write_back_captured_vars(_, _, _, _), do: :ok
-
-  defp apply_transient_captured_vars(
-         {:closure, captured, %QuickBEAM.VM.Function{closure_vars: cvs}},
-         new_globals,
-         declared_names
-       ) do
-    for cv <- cvs,
-        name = Names.resolve_display_name(cv.name),
-        is_binary(name),
-        MapSet.member?(declared_names, name),
-        Map.has_key?(new_globals, name) do
-      case Map.get(captured, ClosureBuilder.capture_key(cv)) do
-        {:cell, ref} ->
-          old_val = Heap.get_cell(ref)
-          Heap.put_eval_restore_stack([{ref, old_val} | Heap.get_eval_restore_stack()])
-          Heap.put_cell(ref, Map.get(new_globals, name))
-
-        _ ->
-          :ok
-      end
-    end
-  end
-
-  defp apply_transient_captured_vars(_, _, _), do: :ok
-
-  defp restore_eval_restores(mark) do
-    restores = Heap.get_eval_restore_stack()
-    {to_restore, keep} = Enum.split(restores, length(restores) - mark)
-
-    Enum.each(to_restore, fn {ref, old_val} ->
-      Heap.put_cell(ref, old_val)
-    end)
-
-    Heap.put_eval_restore_stack(keep)
-  end
-
-  defp do_write_back(local_defs, vrefs, l2v, new_globals, ctx, original_globals, declared_names) do
-    func_name = EvalEnv.current_func_name(ctx)
-
-    for {vd, idx} <- Enum.with_index(local_defs),
-        name = Names.resolve_display_name(vd.name),
-        is_binary(name),
-        not MapSet.member?(declared_names, name),
-        name != func_name,
-        Map.has_key?(new_globals, name),
-        new_val = Map.get(new_globals, name),
-        Map.get(original_globals, name) != new_val do
-      case Map.get(l2v, idx) do
-        nil ->
-          :ok
-
-        vref_idx when vref_idx < tuple_size(vrefs) ->
-          case elem(vrefs, vref_idx) do
-            {:cell, ref} -> Closures.write_cell({:cell, ref}, new_val)
-            _ -> :ok
-          end
-
-        _ ->
-          :ok
-      end
-    end
-  end
 
   defp materialize_constant({:template_object, elems, raw}) when is_list(elems) do
     raw_list =
@@ -1225,7 +1100,7 @@ defmodule QuickBEAM.VM.Interpreter do
               run(0, frame, [], gas, inner_ctx)
           end
         after
-          restore_eval_restores(restore_mark)
+          DirectEval.restore_restores(restore_mark)
           if inner_ctx.trace_enabled, do: Trace.pop()
           if prev_ctx, do: RuntimeState.install(prev_ctx)
         end
