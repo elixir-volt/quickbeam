@@ -53,6 +53,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Arithmetic do
     raise "arithmetic lowering handlers registered for non-arithmetic opcodes: #{inspect(@invalid_handlers)}"
   end
 
+  def registered_opcodes, do: Map.keys(@handlers)
+
   @doc "Lowers a VM instruction or function into compiler IR."
   def lower(state, {{:ok, name}, []}) do
     case Map.get(@handlers, name) do

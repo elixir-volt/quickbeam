@@ -52,6 +52,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
     raise "object lowering handlers registered for non-object opcodes: #{inspect(@invalid_handlers)}"
   end
 
+  def registered_opcodes, do: @handler_opcodes
+
   @doc "Lowers a VM instruction or function into compiler IR."
   def lower(state, name_args) do
     case name_args do

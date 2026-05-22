@@ -55,6 +55,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
     raise "stack lowering handlers registered for non-stack opcodes: #{inspect(@invalid_handlers)}"
   end
 
+  def registered_opcodes, do: Map.keys(@handlers)
+
   @doc "Lowers a VM instruction or function into compiler IR."
   def lower(state, constants, arg_count, name_args) do
     case lower_registered(state, constants, arg_count, name_args) do

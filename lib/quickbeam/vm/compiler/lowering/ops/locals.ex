@@ -61,6 +61,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Locals do
     raise "locals lowering handlers registered for non-local opcodes: #{inspect(@invalid_handlers)}"
   end
 
+  def registered_opcodes, do: Map.keys(@handlers)
+
   @doc "Lowers a VM instruction or function into compiler IR."
   def lower(state, name_args) do
     case name_args do
