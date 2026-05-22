@@ -17,6 +17,7 @@ defmodule QuickBEAM.VM.Semantics.DirectEval do
 
   alias QuickBEAM.VM.ObjectModel.InternalMethods
   alias QuickBEAM.VM.Semantics.Eval, as: EvalSemantics
+  alias QuickBEAM.VM.Semantics.Values
 
   @op_define_var Opcodes.num(:define_var)
   @op_check_define_var Opcodes.num(:check_define_var)
@@ -638,12 +639,10 @@ defmodule QuickBEAM.VM.Semantics.DirectEval do
   defp strict_mode?(ctx), do: Value.strict_context?(ctx)
 
   defp write_var_object!(ctx, var_obj, name, val) do
-    case InternalMethods.set(var_obj, name, val) do
-      true ->
-        :ok
-
-      false ->
-        if strict_mode?(ctx), do: JSThrow.type_error!("Cannot assign to #{name}"), else: :ok
+    if Values.truthy?(InternalMethods.set(var_obj, name, val)) do
+      :ok
+    else
+      if strict_mode?(ctx), do: JSThrow.type_error!("Cannot assign to #{name}"), else: :ok
     end
   end
 
