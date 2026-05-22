@@ -12,6 +12,7 @@ defmodule QuickBEAM.VM.Host.Web.URL do
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.ObjectModel.Get
   alias QuickBEAM.VM.Host.Callback
+  alias QuickBEAM.VM.Host.Web.URL.SearchParamsState
   alias QuickBEAM.VM.Host.WebAPIs
 
   @doc "Returns the JavaScript global bindings provided by this module."
@@ -263,14 +264,7 @@ defmodule QuickBEAM.VM.Host.Web.URL do
             q -> q
           end
 
-        entries =
-          if query == "" do
-            []
-          else
-            QuickBEAM.URL.dissect_query([query])
-          end
-
-        Heap.put_obj(ref, %{"entries" => entries})
+        SearchParamsState.sync_from_search(ref, query)
 
       _ ->
         :ok
@@ -330,14 +324,13 @@ defmodule QuickBEAM.VM.Host.Web.URL do
           []
       end
 
-    entries_ref = make_ref()
-    Heap.put_obj(entries_ref, %{"entries" => entries})
+    entries_ref = SearchParamsState.new(entries)
 
     object heap: false do
       method "get" do
         name = args |> arg(0, nil) |> to_string()
 
-        case Enum.find(load_entries_ref(entries_ref), fn [key, _] -> key == name end) do
+        case Enum.find(SearchParamsState.entries(entries_ref), fn [key, _] -> key == name end) do
           [_, value] -> value
           nil -> nil
         end
@@ -347,7 +340,7 @@ defmodule QuickBEAM.VM.Host.Web.URL do
         name = args |> arg(0, nil) |> to_string()
 
         entries_ref
-        |> load_entries_ref()
+        |> SearchParamsState.entries()
         |> Enum.filter(fn [key, _] -> key == name end)
         |> Enum.map(fn [_, value] -> value end)
         |> Heap.wrap()
@@ -358,12 +351,7 @@ defmodule QuickBEAM.VM.Host.Web.URL do
         name = to_string(name)
         value = to_string(value)
 
-        entries =
-          entries_ref
-          |> load_entries_ref()
-          |> Enum.reject(fn [key, _] -> key == name end)
-
-        save_entries_ref(entries_ref, entries ++ [[name, value]])
+        SearchParamsState.set(entries_ref, name, value)
         sync_url_search(url_ref, entries_ref)
         :undefined
       end
@@ -371,7 +359,7 @@ defmodule QuickBEAM.VM.Host.Web.URL do
       method "append" do
         [name, value] = argv(args, [nil, nil])
         entry = [to_string(name), to_string(value)]
-        save_entries_ref(entries_ref, load_entries_ref(entries_ref) ++ [entry])
+        SearchParamsState.append(entries_ref, entry)
         sync_url_search(url_ref, entries_ref)
         :undefined
       end
@@ -380,58 +368,44 @@ defmodule QuickBEAM.VM.Host.Web.URL do
         [name, value] = argv(args, [nil, :undefined])
         name = to_string(name)
 
-        entries =
-          case value do
-            value when value != :undefined and value != nil ->
-              value = to_string(value)
-
-              entries_ref
-              |> load_entries_ref()
-              |> Enum.reject(fn [key, entry_value] -> key == name and entry_value == value end)
-
-            _ ->
-              entries_ref |> load_entries_ref() |> Enum.reject(fn [key, _] -> key == name end)
-          end
-
-        save_entries_ref(entries_ref, entries)
+        SearchParamsState.delete(entries_ref, name, value)
         sync_url_search(url_ref, entries_ref)
         :undefined
       end
 
       method "has" do
         name = args |> arg(0, nil) |> to_string()
-        Enum.any?(load_entries_ref(entries_ref), fn [key, _] -> key == name end)
+        Enum.any?(SearchParamsState.entries(entries_ref), fn [key, _] -> key == name end)
       end
 
       method "sort" do
-        entries = entries_ref |> load_entries_ref() |> Enum.sort_by(fn [key, _] -> key end)
-        save_entries_ref(entries_ref, entries)
+        SearchParamsState.sort(entries_ref)
         sync_url_search(url_ref, entries_ref)
         :undefined
       end
 
       method "toString" do
-        result = QuickBEAM.URL.compose_query([load_entries_ref(entries_ref)])
+        result = QuickBEAM.URL.compose_query([SearchParamsState.entries(entries_ref)])
         IO.iodata_to_binary(result)
       end
 
       method "entries" do
         entries_ref
-        |> load_entries_ref()
+        |> SearchParamsState.entries()
         |> search_param_pairs()
         |> iterator_from()
       end
 
       method "keys" do
         entries_ref
-        |> load_entries_ref()
+        |> SearchParamsState.entries()
         |> Enum.map(fn [key, _] -> key end)
         |> iterator_from()
       end
 
       method "values" do
         entries_ref
-        |> load_entries_ref()
+        |> SearchParamsState.entries()
         |> Enum.map(fn [_, value] -> value end)
         |> iterator_from()
       end
@@ -439,7 +413,7 @@ defmodule QuickBEAM.VM.Host.Web.URL do
       method "forEach" do
         callback = arg(args, 0, nil)
 
-        Enum.each(load_entries_ref(entries_ref), fn [key, value] ->
+        Enum.each(SearchParamsState.entries(entries_ref), fn [key, value] ->
           Callback.safe_invoke(callback, [value, key, this])
         end)
 
@@ -448,14 +422,14 @@ defmodule QuickBEAM.VM.Host.Web.URL do
 
       symbol_method "Symbol.iterator" do
         entries_ref
-        |> load_entries_ref()
+        |> SearchParamsState.entries()
         |> search_param_pairs()
         |> iterator_from()
       end
 
       accessor "size" do
         get do
-          length(load_entries_ref(entries_ref))
+          length(SearchParamsState.entries(entries_ref))
         end
       end
 
@@ -467,7 +441,7 @@ defmodule QuickBEAM.VM.Host.Web.URL do
   defp sync_url_search(nil, _entries_ref), do: :ok
 
   defp sync_url_search(url_ref, entries_ref) do
-    es = load_entries_ref(entries_ref)
+    es = SearchParamsState.entries(entries_ref)
     query_str = QuickBEAM.URL.compose_query([es]) |> IO.iodata_to_binary()
     new_search = if query_str == "", do: "", else: "?" <> query_str
 
@@ -475,17 +449,6 @@ defmodule QuickBEAM.VM.Host.Web.URL do
     updated = Map.put(c, "search", new_search)
     recomposed = recompose_url(updated)
     Heap.put_obj(url_ref, recomposed)
-  end
-
-  defp load_entries_ref(entries_ref) do
-    case Heap.get_obj(entries_ref, %{}) do
-      %{"entries" => list} when is_list(list) -> list
-      _ -> []
-    end
-  end
-
-  defp save_entries_ref(entries_ref, entries) do
-    Heap.put_obj(entries_ref, %{"entries" => entries})
   end
 
   defp search_param_pairs(entries) do

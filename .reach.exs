@@ -64,6 +64,7 @@ process_state_owners = [
       "QuickBEAM.VM.Host.Web.FormData.State",
       "QuickBEAM.VM.Host.Web.MessageChannel.State",
       "QuickBEAM.VM.Host.Web.Streams.State",
+      "QuickBEAM.VM.Host.Web.URL.SearchParamsState",
       "QuickBEAM.VM.Host.Web.Worker.State"
     ],
     vm_interpreter_ops_helpers: [
@@ -152,6 +153,7 @@ process_state_owners = [
       "QuickBEAM.VM.Host.Web.EventSourceAPI.State",
       "QuickBEAM.VM.Host.Web.Worker.State",
       "QuickBEAM.VM.Host.Web.Streams.State",
+      "QuickBEAM.VM.Host.Web.URL.SearchParamsState",
       "QuickBEAM.VM.Host.Web.FormData.State",
       "QuickBEAM.VM.Host.Web.MessageChannel.State"
     ],
@@ -184,6 +186,7 @@ process_state_owners = [
       {"QuickBEAM.VM.Host.Web.EventSourceAPI.State", ["QuickBEAM.VM.Host.Web.EventSourceAPI"]},
       {"QuickBEAM.VM.Host.Web.Worker.State", ["QuickBEAM.VM.Host.Web.Worker"]},
       {"QuickBEAM.VM.Host.Web.Streams.State", ["QuickBEAM.VM.Host.Web.Streams"]},
+      {"QuickBEAM.VM.Host.Web.URL.SearchParamsState", ["QuickBEAM.VM.Host.Web.URL"]},
       {"QuickBEAM.VM.Host.Web.FormData.State", ["QuickBEAM.VM.Host.Web.FormData"]},
       {"QuickBEAM.VM.Host.Web.MessageChannel.State", ["QuickBEAM.VM.Host.Web.MessageChannel"]}
     ]
