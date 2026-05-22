@@ -84,7 +84,7 @@ defmodule QuickBEAM.MixProject do
       {:benchee, "~> 1.3", only: :bench, runtime: false},
       {:quickjs_ex, "~> 0.3.1", only: :bench, runtime: false},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
-      {:reach, "~> 2.5", only: :dev, runtime: false},
+      {:reach, "~> 2.6", only: :dev, runtime: false},
       {:ex_ast, "~> 0.10", only: [:dev, :test]}
     ]
   end
