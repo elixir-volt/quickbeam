@@ -257,6 +257,7 @@ process_state_owners = [
       "QuickBEAM.VM.Interpreter.Ops.PrivateFields",
       "QuickBEAM.VM.Interpreter.Ops.SpecialObjects",
       "QuickBEAM.VM.Interpreter.Ops.SuperProperties",
+      "QuickBEAM.VM.ObjectModel.ProxyOwnKeys",
       "QuickBEAM.VM.ObjectModel.ProxyTrap",
       "QuickBEAM.VM.Interpreter.Ops.PropertyKeys",
       "QuickBEAM.VM.Host.BEAM.State",
@@ -287,6 +288,7 @@ process_state_owners = [
        ["QuickBEAM.VM.Interpreter.Ops.InOperatorAdapter"]},
       {"QuickBEAM.VM.Interpreter.Ops.InstanceOf",
        ["QuickBEAM.VM.Interpreter.Ops.InstanceOfAdapter"]},
+      {"QuickBEAM.VM.ObjectModel.ProxyOwnKeys", ["QuickBEAM.VM.ObjectModel.InternalMethods"]},
       {"QuickBEAM.VM.ObjectModel.ProxyTrap",
        [
          "QuickBEAM.VM.ObjectModel.*",
