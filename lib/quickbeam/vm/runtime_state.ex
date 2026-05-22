@@ -9,6 +9,9 @@ defmodule QuickBEAM.VM.RuntimeState do
   @doc "Returns the current process-local context, falling back to the supplied context."
   def current_or(ctx), do: current() || ctx
 
+  @doc "Refreshes globals on the current process-local context or supplied fallback context."
+  def refresh_globals(ctx), do: QuickBEAM.VM.GlobalEnvironment.refresh(current_or(ctx))
+
   @doc "Installs a process-local VM context."
   def install(ctx), do: Heap.put_ctx(ctx)
 

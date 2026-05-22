@@ -5,7 +5,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.FieldAccess do
     quote location: :keep do
       import QuickBEAM.VM.Value, only: [is_nullish: 1]
 
-      alias QuickBEAM.VM.{GlobalEnvironment, Heap, Names, RuntimeState}
+      alias QuickBEAM.VM.{Heap, Names, RuntimeState}
       alias QuickBEAM.VM.ObjectModel.{Get, Put}
       alias QuickBEAM.VM.Semantics.PropertyAccess
       alias QuickBEAM.VM.Interpreter.Ops.PropertyKeys
@@ -87,7 +87,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.FieldAccess do
             frame,
             [prop_key, obj | rest],
             gas,
-            GlobalEnvironment.refresh(RuntimeState.current_or(ctx))
+            RuntimeState.refresh_globals(ctx)
           )
         catch
           {:js_throw, error} -> throw_or_catch(frame, error, gas, RuntimeState.current_or(ctx))
