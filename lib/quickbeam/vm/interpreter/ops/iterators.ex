@@ -62,13 +62,13 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
       defp run({@op_define_array_el, []}, pc, frame, [val, idx, obj | rest], gas, ctx) do
         try do
           idx = QuickBEAM.VM.ObjectModel.PropertyKey.to_property_key(idx)
-          ctx = QuickBEAM.VM.GlobalEnvironment.refresh(RuntimeState.current() || ctx)
+          ctx = QuickBEAM.VM.GlobalEnvironment.refresh(RuntimeState.current_or(ctx))
           val = resolve_delayed_define_value(val, ctx)
           {_idx, obj2} = Put.define_array_el(obj, idx, val)
           run(pc + 1, frame, [idx, obj2 | rest], gas, ctx)
         catch
           {:js_throw, error} ->
-            ctx = RuntimeState.current() || ctx
+            ctx = RuntimeState.current_or(ctx)
             throw_or_catch(frame, error, gas, ctx)
         end
       end
@@ -195,7 +195,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Iterators do
         result =
           try do
             Iterators.iterator_close(ctx, iter_obj)
-            {:ok, RuntimeState.current() || ctx}
+            {:ok, RuntimeState.current_or(ctx)}
           catch
             {:js_throw, error} -> {:throw, error}
           end

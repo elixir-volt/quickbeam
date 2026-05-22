@@ -52,7 +52,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.FieldAccess do
           run(pc + 1, frame, [obj | rest], gas, ctx)
         catch
           {:js_throw, error} ->
-            ctx = RuntimeState.current() || ctx
+            ctx = RuntimeState.current_or(ctx)
             throw_or_catch(frame, error, gas, ctx)
         end
       end
@@ -87,10 +87,10 @@ defmodule QuickBEAM.VM.Interpreter.Ops.FieldAccess do
             frame,
             [prop_key, obj | rest],
             gas,
-            GlobalEnvironment.refresh(RuntimeState.current() || ctx)
+            GlobalEnvironment.refresh(RuntimeState.current_or(ctx))
           )
         catch
-          {:js_throw, error} -> throw_or_catch(frame, error, gas, RuntimeState.current() || ctx)
+          {:js_throw, error} -> throw_or_catch(frame, error, gas, RuntimeState.current_or(ctx))
         end
       end
     end

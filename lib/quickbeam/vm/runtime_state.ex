@@ -6,6 +6,9 @@ defmodule QuickBEAM.VM.RuntimeState do
   @doc "Returns the current process-local VM context."
   def current, do: Heap.get_ctx()
 
+  @doc "Returns the current process-local context, falling back to the supplied context."
+  def current_or(ctx), do: current() || ctx
+
   @doc "Installs a process-local VM context."
   def install(ctx), do: Heap.put_ctx(ctx)
 

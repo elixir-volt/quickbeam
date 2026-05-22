@@ -30,7 +30,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.SuperAccess do
           run(pc + 1, frame, rest, gas, ctx)
         catch
           {:js_throw, error} ->
-            ctx = RuntimeState.current() || ctx
+            ctx = RuntimeState.current_or(ctx)
             throw_or_catch(frame, error, gas, ctx)
         end
       end

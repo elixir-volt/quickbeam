@@ -28,7 +28,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.CopyDataProperties do
       Copy.copy_data_properties(target, source, exclude)
       {:ok, refresh_persistent_globals(ctx)}
     catch
-      {:js_throw, error} -> {:throw, error, RuntimeState.current() || ctx}
+      {:js_throw, error} -> {:throw, error, RuntimeState.current_or(ctx)}
     end
   end
 

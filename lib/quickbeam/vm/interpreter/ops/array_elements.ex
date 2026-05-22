@@ -19,7 +19,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.ArrayElements do
           run(pc + 1, frame, [PropertyAccess.get_property(obj, idx) | rest], gas, ctx)
         catch
           {:js_throw, error} ->
-            ctx = RuntimeState.current() || ctx
+            ctx = RuntimeState.current_or(ctx)
             throw_or_catch(frame, error, gas, ctx)
         end
       end
@@ -39,7 +39,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.ArrayElements do
           run(pc + 1, frame, rest, gas, ctx)
         catch
           {:js_throw, error} ->
-            ctx = RuntimeState.current() || ctx
+            ctx = RuntimeState.current_or(ctx)
             throw_or_catch(frame, error, gas, close_active_iterators_on_abrupt(rest, ctx))
         end
       end
@@ -49,7 +49,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.ArrayElements do
           run(pc + 1, frame, [PropertyAccess.get_property(obj, idx), obj | rest], gas, ctx)
         catch
           {:js_throw, error} ->
-            ctx = RuntimeState.current() || ctx
+            ctx = RuntimeState.current_or(ctx)
             throw_or_catch(frame, error, gas, ctx)
         end
       end
