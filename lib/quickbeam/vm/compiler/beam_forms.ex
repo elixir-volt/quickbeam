@@ -16,6 +16,7 @@ defmodule QuickBEAM.VM.Compiler.BEAMForms do
   def literal(value), do: :erl_parse.abstract(value)
   def match(left, right), do: {:match, @line, left, right}
   def tuple(values), do: {:tuple, @line, values}
+  def try_catch(try_body, catch_clauses), do: {:try, @line, try_body, [], catch_clauses, []}
   def op(operator, operand), do: {:op, @line, operator, operand}
   def op(operator, left, right), do: {:op, @line, operator, left, right}
   def equal(left, right), do: op(:==, left, right)
@@ -43,6 +44,8 @@ defmodule QuickBEAM.VM.Compiler.BEAMForms do
   def case_(expr, clauses), do: {:case, @line, expr, clauses}
 
   def clause(patterns, guards \\ [], body), do: {:clause, @line, patterns, guards, body}
+  def false_clause(body), do: clause([atom(false)], [], body)
+  def true_clause(body), do: clause([atom(true)], [], body)
 
   def function(name, arity, clauses), do: {:function, @line, name, arity, clauses}
 
