@@ -74,9 +74,8 @@ defmodule QuickBEAM.VM.Runtime.Symbol do
 
     case value do
       {:builtin, _, _} ->
-        Heap.put_ctor_static(
+        QuickBEAM.VM.Builtin.put_builtin_metadata(
           value,
-          :__builtin_meta__,
           QuickBEAM.VM.Builtin.meta(name,
             length: QuickBEAM.VM.Builtin.length(meta),
             constructable: false

@@ -35,8 +35,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Bindings do
 
   defp builtin(name, fun) do
     value = {:builtin, name, fun}
-    Heap.put_ctor_static(value, :__builtin_meta__, Builtin.meta(name, constructable: false))
-    value
+    Builtin.put_builtin_metadata(value, Builtin.meta(name, constructable: false))
   end
 
   defp structured_clone([val | _], _this), do: QuickBEAM.VM.Runtime.StructuredClone.clone(val)

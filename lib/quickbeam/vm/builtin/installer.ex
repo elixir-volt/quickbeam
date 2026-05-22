@@ -67,9 +67,8 @@ defmodule QuickBEAM.VM.Builtin.Installer do
   end
 
   defp install_constructor_metadata(ctor, %Definition{} = definition) do
-    Heap.put_ctor_static(
+    QuickBEAM.VM.Builtin.put_builtin_metadata(
       ctor,
-      :__builtin_meta__,
       QuickBEAM.VM.Builtin.meta(definition.name,
         length: definition.length || 0,
         constructable: definition.constructable?

@@ -32,7 +32,12 @@ defmodule QuickBEAM.VM.Runtime.BigInt do
 
   defp install_static_method(ctor, name, length, callback) do
     fun = {:builtin, name, callback}
-    Heap.put_ctor_static(fun, :__builtin_meta__, QuickBEAM.VM.Builtin.meta(name, length: length))
+
+    QuickBEAM.VM.Builtin.put_builtin_metadata(
+      fun,
+      QuickBEAM.VM.Builtin.meta(name, length: length)
+    )
+
     QuickBEAM.VM.Builtin.put_function_metadata(fun, name, length)
     Heap.put_ctor_prop_desc(fun, "length", PropertyDescriptor.hidden_readonly())
     Heap.put_ctor_prop_desc(fun, "name", PropertyDescriptor.hidden_readonly())
