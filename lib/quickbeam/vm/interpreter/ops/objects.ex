@@ -18,13 +18,13 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       }
 
       alias QuickBEAM.VM.Interpreter.{Context, Frame}
+      alias QuickBEAM.VM.Interpreter.Ops.CopyDataProperties, as: CopyOp
       alias QuickBEAM.VM.Interpreter.Ops.Delete, as: DeleteOp
       alias QuickBEAM.VM.Interpreter.Ops.{ObjectLiterals, PropertyKeys}
       alias QuickBEAM.VM.Semantics.Values
 
       alias QuickBEAM.VM.ObjectModel.{
         Class,
-        Copy,
         Delete,
         Functions,
         Get,
@@ -32,7 +32,6 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
         Put
       }
 
-      alias QuickBEAM.VM.Operands.CopyDataProperties
       alias QuickBEAM.VM.Semantics.{Construction, PropertyAccess}
 
       # ── Objects ──
@@ -488,20 +487,10 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       end
 
       defp run({@op_copy_data_properties, []}, pc, frame, [source, target | rest], gas, ctx) do
-        try do
-          QuickBEAM.VM.ObjectModel.Copy.copy_data_properties(target, source)
-        catch
-          {:js_throw, error} -> throw_or_catch(frame, error, gas, ctx)
+        case CopyOp.copy(target, source, ctx) do
+          {:ok, ctx} -> run(pc + 1, frame, [source, target | rest], gas, ctx)
+          {:throw, error, ctx} -> throw_or_catch(frame, error, gas, ctx)
         end
-
-        ctx =
-          case Heap.get_persistent_globals() do
-            nil -> ctx
-            p when map_size(p) == 0 -> ctx
-            p -> Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, p)})
-          end
-
-        run(pc + 1, frame, [source, target | rest], gas, ctx)
       end
 
       defp run(
@@ -786,28 +775,9 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       # ── Object spread (copy_data_properties with mask) ──
 
       defp run({@op_copy_data_properties, [mask]}, pc, frame, stack, gas, ctx) do
-        %{target_idx: target_idx, source_idx: source_idx, exclude_idx: exclude_idx} =
-          CopyDataProperties.decode(mask)
-
-        target = Enum.at(stack, target_idx)
-        source = Enum.at(stack, source_idx)
-        exclude = Enum.at(stack, exclude_idx)
-
-        try do
-          Copy.copy_data_properties(target, source, exclude)
-
-          ctx =
-            case Heap.get_persistent_globals() do
-              nil -> ctx
-              p when map_size(p) == 0 -> ctx
-              p -> Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, p)})
-            end
-
-          run(pc + 1, frame, stack, gas, ctx)
-        catch
-          {:js_throw, error} ->
-            ctx = RuntimeState.current() || ctx
-            throw_or_catch(frame, error, gas, ctx)
+        case CopyOp.copy_masked(stack, mask, ctx) do
+          {:ok, ctx} -> run(pc + 1, frame, stack, gas, ctx)
+          {:throw, error, ctx} -> throw_or_catch(frame, error, gas, ctx)
         end
       end
     end

@@ -17,6 +17,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
     PropertyDescriptor,
     PropertyKey,
     Prototype,
+    ProxyTrap,
     Put
   }
 
@@ -360,13 +361,20 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
 
   defp extensible?({:obj, ref}) do
     case Heap.get_obj(ref, %{}) do
+      %{proxy_target() => _target, "__proxy_revoked__" => true} ->
+        JSThrow.type_error!("Cannot perform operation on a revoked proxy")
+
+      %{proxy_target() => _target, proxy_handler() => handler}
+      when not is_map(handler) and not is_tuple(handler) ->
+        JSThrow.type_error!("Cannot perform operation on a proxy with null handler")
+
       %{proxy_target() => target, proxy_handler() => handler} ->
         trap = Get.get(handler, "isExtensible")
 
         if Value.nullish?(trap) do
           extensible?(target)
         else
-          trap_result = Values.truthy?(Invocation.invoke_callback_or_throw(trap, [target]))
+          trap_result = Values.truthy?(ProxyTrap.call(trap, [target], handler))
           target_result = extensible?(target)
 
           if trap_result == target_result do

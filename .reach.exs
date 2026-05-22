@@ -43,6 +43,12 @@ process_state_owners = [
 [
   layers: [
     vm_compiler: ["QuickBEAM.VM.Compiler", "QuickBEAM.VM.Compiler.*"],
+    vm_interpreter_ops_helpers: [
+      "QuickBEAM.VM.Interpreter.Ops.CopyDataProperties",
+      "QuickBEAM.VM.Interpreter.Ops.Delete",
+      "QuickBEAM.VM.Interpreter.Ops.ObjectLiterals",
+      "QuickBEAM.VM.Interpreter.Ops.PropertyKeys"
+    ],
     vm_object_model: ["QuickBEAM.VM.ObjectModel", "QuickBEAM.VM.ObjectModel.*"],
     vm_runtime_globals: ["QuickBEAM.VM.Runtime.Globals", "QuickBEAM.VM.Runtime.Globals.*"]
   ],
@@ -50,6 +56,7 @@ process_state_owners = [
     mode: :allowlist,
     allowed: [
       vm_compiler: [:vm_object_model],
+      vm_interpreter_ops_helpers: [:vm_object_model],
       vm_object_model: [],
       vm_runtime_globals: [:vm_object_model]
     ]
@@ -110,6 +117,7 @@ process_state_owners = [
       "QuickBEAM.VM.Runtime.Construction",
       "QuickBEAM.VM.Runtime.ConstructorProperties",
       "QuickBEAM.VM.Interpreter.Ops.ObjectLiterals",
+      "QuickBEAM.VM.Interpreter.Ops.CopyDataProperties",
       "QuickBEAM.VM.Interpreter.Ops.Delete",
       "QuickBEAM.VM.ObjectModel.ProxyTrap",
       "QuickBEAM.VM.Interpreter.Ops.PropertyKeys",
@@ -133,9 +141,15 @@ process_state_owners = [
       {"QuickBEAM.VM.Execution.ClosureCells", ["QuickBEAM.VM.ObjectModel.*"]},
       {"QuickBEAM.VM.Runtime.Construction", ["QuickBEAM.VM.Runtime"]},
       {"QuickBEAM.VM.Runtime.ConstructorProperties", ["QuickBEAM.VM.ObjectModel.Get"]},
+      {"QuickBEAM.VM.Interpreter.Ops.CopyDataProperties",
+       ["QuickBEAM.VM.Interpreter.Ops.Objects"]},
       {"QuickBEAM.VM.Interpreter.Ops.Delete", ["QuickBEAM.VM.Interpreter.Ops.Objects"]},
       {"QuickBEAM.VM.ObjectModel.ProxyTrap",
-       ["QuickBEAM.VM.ObjectModel.*", "QuickBEAM.VM.Runtime.Object"]},
+       [
+         "QuickBEAM.VM.ObjectModel.*",
+         "QuickBEAM.VM.Runtime.Object",
+         "QuickBEAM.VM.Runtime.Reflect"
+       ]},
       {"QuickBEAM.VM.Interpreter.Ops.ObjectLiterals", ["QuickBEAM.VM.Interpreter.Ops.Objects"]},
       {"QuickBEAM.VM.Interpreter.Ops.PropertyKeys", ["QuickBEAM.VM.Interpreter.Ops.Objects"]},
       {"QuickBEAM.VM.Host.BeamAPI.State", ["QuickBEAM.VM.Host.BeamAPI"]},
