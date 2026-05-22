@@ -9,7 +9,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   alias QuickBEAM.VM.{Builtin, Heap, Invocation, JSThrow, Value}
   alias QuickBEAM.VM.Semantics.Values
   alias QuickBEAM.VM.Semantics.Coercion
-  alias QuickBEAM.VM.ObjectModel.{Get, PropertyDescriptor, Put, WrappedPrimitive}
+  alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods, PropertyDescriptor, WrappedPrimitive}
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.InstallerHelpers
   alias QuickBEAM.VM.Runtime.RegExp
@@ -1327,11 +1327,12 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp split_put_last_index!({:regexp, _, _, ref} = regexp, value) do
     case Heap.get_prop_desc(ref, "lastIndex") do
       %{writable: false} -> JSThrow.type_error!("Cannot assign to read only property")
-      _ -> Put.put(regexp, "lastIndex", value)
+      _ -> InternalMethods.set(regexp, "lastIndex", value)
     end
   end
 
-  defp split_put_last_index!(splitter, value), do: Put.put(splitter, "lastIndex", value)
+  defp split_put_last_index!(splitter, value),
+    do: InternalMethods.set(splitter, "lastIndex", value)
 
   defp split_exec_result({:obj, _} = splitter, s) do
     exec = Get.get(splitter, "exec")
@@ -2033,11 +2034,11 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp put_regexp_last_index!({:regexp, _, _, ref} = regexp, value) do
     case Heap.get_prop_desc(ref, "lastIndex") do
       %{writable: false} -> JSThrow.type_error!("Cannot assign to read only property")
-      _ -> Put.put(regexp, "lastIndex", value)
+      _ -> InternalMethods.set(regexp, "lastIndex", value)
     end
   end
 
-  defp put_regexp_last_index!(regexp, value), do: Put.put(regexp, "lastIndex", value)
+  defp put_regexp_last_index!(regexp, value), do: InternalMethods.set(regexp, "lastIndex", value)
 
   defp regexp_unicode?(regexp), do: Runtime.truthy?(Get.get(regexp, "unicode"))
 
