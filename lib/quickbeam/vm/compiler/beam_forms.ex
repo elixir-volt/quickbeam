@@ -30,8 +30,12 @@ defmodule QuickBEAM.VM.Compiler.BEAMForms do
   def list([head | tail]), do: cons(head, list(tail))
 
   def map(entries) do
-    {:map, @line, Enum.map(entries, fn {key, value} -> {:map_field_assoc, @line, key, value} end)}
+    {:map, @line, Enum.map(entries, fn {key, value} -> map_field_assoc(key, value) end)}
   end
+
+  def map_field_assoc(key, value), do: {:map_field_assoc, @line, key, value}
+  def map_field_assoc?({:map_field_assoc, _, _key, _value}), do: true
+  def map_field_assoc?(_), do: false
 
   def remote_call(mod, fun, args) do
     {:call, @line, {:remote, @line, literal(mod), atom(fun)}, args}

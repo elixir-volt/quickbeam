@@ -16,6 +16,7 @@ defmodule QuickBEAM.VM.Compiler.BEAMFormsTest do
     assert BEAMForms.map_get(left, right) ==
              {:call, 1, {:remote, 1, {:atom, 0, :erlang}, {:atom, 1, :map_get}}, [right, left]}
 
+    assert BEAMForms.map_field_assoc?(BEAMForms.map_field_assoc(left, right))
     assert BEAMForms.map_get?(BEAMForms.map_get(left, BEAMForms.atom(:globals)), :globals)
 
     assert BEAMForms.map_put(left, right, BEAMForms.integer(1)) ==

@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Compiler.Lowering.Types do
   @moduledoc "Small type and purity predicates used while lowering compiler IR."
 
+  alias QuickBEAM.VM.Compiler.BEAMForms
+
   @doc "Infers a coarse VM type for an Erlang abstract expression."
   def infer_expr_type({:integer, _, _}), do: :integer
   def infer_expr_type({:float, _, _}), do: :number
@@ -30,8 +32,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Types do
   def pure_expr?({:map, _, fields}), do: Enum.all?(fields, &pure_map_field?/1)
   def pure_expr?(_), do: false
 
-  defp pure_map_field?({:map_field_assoc, _, key, value}),
-    do: pure_expr?(key) and pure_expr?(value)
+  defp pure_map_field?({:map_field_assoc, _, key, value} = field),
+    do: BEAMForms.map_field_assoc?(field) and pure_expr?(key) and pure_expr?(value)
 
   defp pure_map_field?(_), do: false
 end
