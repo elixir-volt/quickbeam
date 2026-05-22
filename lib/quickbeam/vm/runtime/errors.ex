@@ -11,7 +11,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
   alias QuickBEAM.VM.Builtin.Definition
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Semantics.Coercion
-  alias QuickBEAM.VM.ObjectModel.{Get, HasProperty, PropertyDescriptor}
+  alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods, PropertyDescriptor}
   alias QuickBEAM.VM.Semantics.Iterators
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.ConstructorRegistry, as: Constructors
@@ -313,7 +313,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
   end
 
   defp maybe_install_cause({:obj, error_ref}, {:obj, _} = options) do
-    if HasProperty.has_property?(options, "cause") do
+    if InternalMethods.has_property(options, "cause") do
       Heap.put_obj_key(error_ref, "cause", Get.get(options, "cause"))
       Heap.put_prop_desc(error_ref, "cause", PropertyDescriptor.method())
     end

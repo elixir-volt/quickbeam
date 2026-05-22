@@ -6,7 +6,7 @@ defmodule QuickBEAM.VM.Semantics.Iterators do
   alias QuickBEAM.VM.{Builtin, Heap, Invocation, Runtime, Value}
   alias QuickBEAM.VM.Interpreter.Context
   alias QuickBEAM.VM.Semantics.Values
-  alias QuickBEAM.VM.ObjectModel.{Copy, Get, HasProperty, OwnProperty}
+  alias QuickBEAM.VM.ObjectModel.{Copy, Get, InternalMethods, OwnProperty}
   alias QuickBEAM.VM.Runtime.Collections
 
   @doc "Creates iterator state for a JavaScript `for...of` loop."
@@ -109,7 +109,7 @@ defmodule QuickBEAM.VM.Semantics.Iterators do
   def for_in_next(ctx \\ nil, iter)
 
   def for_in_next(ctx, {:for_in_iterator, [key | rest_keys], obj}) do
-    if HasProperty.has_property?(obj, key) do
+    if InternalMethods.has_property(obj, key) do
       {false, key, {:for_in_iterator, rest_keys, obj}}
     else
       for_in_next(ctx, {:for_in_iterator, rest_keys, obj})
