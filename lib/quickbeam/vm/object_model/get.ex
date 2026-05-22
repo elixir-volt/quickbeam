@@ -18,7 +18,6 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   alias QuickBEAM.VM.Runtime
 
   alias QuickBEAM.VM.Runtime.{
-    Array,
     Boolean,
     Function,
     Number,
@@ -31,6 +30,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   alias QuickBEAM.VM.Runtime.FunctionKinds
 
   alias QuickBEAM.VM.ObjectModel.{
+    ArrayExoticGet,
     OwnProperty,
     PrimitiveWrapperGet,
     PropertyKey,
@@ -1269,46 +1269,9 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp arguments_proto_property(obj, key), do: get_default_object_prototype(obj, key)
 
-  defp array_proto_property({:obj, ref}, key) do
-    case Heap.get_array_proto(ref) do
-      {:obj, _} = proto ->
-        case get(proto, key) do
-          :undefined -> receiver_array_proto_fallback(proto, key)
-          val -> val
-        end
+  defp array_proto_property({:obj, _} = obj, key), do: ArrayExoticGet.proto_property(obj, key)
 
-      _ ->
-        Array.proto_property(key)
-    end
-  end
-
-  defp array_proto_property(key) do
-    case Heap.get_array_proto() do
-      {:obj, _} = proto ->
-        case get(proto, key) do
-          :undefined -> fallback_array_proto_property(proto, key)
-          val -> val
-        end
-
-      _ ->
-        Array.proto_property(key)
-    end
-  end
-
-  defp receiver_array_proto_fallback(proto, key) do
-    if proto == Heap.get_array_proto() do
-      fallback_array_proto_property(proto, key)
-    else
-      :undefined
-    end
-  end
-
-  defp fallback_array_proto_property(proto, key) do
-    case Array.proto_property(key) do
-      :undefined -> get_default_object_prototype(proto, key)
-      val -> val
-    end
-  end
+  defp array_proto_property(key), do: ArrayExoticGet.proto_property(key)
 
   defp get_default_object_prototype(obj, key) do
     proto = Heap.get_object_prototype() || Object.build_prototype()
