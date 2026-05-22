@@ -251,7 +251,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
     do: JSThrow.type_error!("Reflect.setPrototypeOf called on non-object")
 
   defp reflect_set_ordinary_prototype(obj, ref, proto) do
-    current = Prototype.get(obj)
+    current = InternalMethods.get_prototype_of(obj)
 
     cond do
       obj == Heap.get_object_prototype() and proto != current ->
@@ -270,7 +270,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
         false
 
       true ->
-        Prototype.set(obj, proto)
+        InternalMethods.set_prototype_of(obj, proto)
         true
     end
   end
