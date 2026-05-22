@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Compiler.LoweringRegistryTest do
     Arithmetic,
     Calls,
     Classes,
+    Control,
     Generators,
     Globals,
     Iterators,
@@ -69,6 +70,20 @@ defmodule QuickBEAM.VM.Compiler.LoweringRegistryTest do
 
     assert Enum.sort(Generators.registered_opcodes()) ==
              Enum.uniq(Enum.sort(Generators.registered_opcodes()))
+  end
+
+  test "control handlers match control lowering family" do
+    extras = MapSet.new([:throw_error])
+
+    unexpected =
+      Control.registered_opcodes()
+      |> Enum.reject(&(OpcodeSpec.lowering_family(&1) == :control or MapSet.member?(extras, &1)))
+      |> Enum.sort()
+
+    assert unexpected == []
+
+    assert Enum.sort(Control.registered_opcodes()) ==
+             Enum.uniq(Enum.sort(Control.registered_opcodes()))
   end
 
   test "with-scope handlers match with-scope lowering family" do
