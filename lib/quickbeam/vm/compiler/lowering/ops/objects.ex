@@ -52,132 +52,94 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
     raise "object lowering handlers registered for non-object opcodes: #{inspect(@invalid_handlers)}"
   end
 
-  def registered_opcodes, do: @handler_opcodes
+  @handlers Map.new(@handler_opcodes, &{&1, &1})
+
+  def registered_opcodes, do: Map.keys(@handlers)
 
   @doc "Lowers a VM instruction or function into compiler IR."
-  def lower(state, name_args) do
-    case name_args do
-      {{:ok, :object}, []} ->
-        {obj, state} =
-          Emit.bind(
-            state,
-            Builder.temp_name(state.temp),
-            State.abi_call(state, :new_object, [])
-          )
-
-        {:ok, Emit.push(state, obj, {:shaped_object, %{}})}
-
-      {{:ok, :array_from}, [argc]} ->
-        State.array_from_call(state, argc)
-
-      {{:ok, :regexp}, []} ->
-        State.regexp_literal(state)
-
-      {{:ok, :special_object}, [type]} ->
-        {:ok,
-         Emit.push(
-           state,
-           State.abi_call(state, :special_object, [Builder.literal(type)]),
-           special_object_type(type)
-         )}
-
-      {{:ok, :set_name}, [atom_idx]} ->
-        State.set_name_atom(state, Builder.atom_name(state, atom_idx))
-
-      {{:ok, :set_name_computed}, []} ->
-        State.set_name_computed(state)
-
-      {{:ok, :set_home_object}, []} ->
-        State.set_home_object(state)
-
-      {{:ok, :get_super}, []} ->
-        Operators.unary_abi_call(state, :get_super)
-
-      {{:ok, :get_super_value}, []} ->
-        lower_get_super_value(state)
-
-      {{:ok, :put_super_value}, []} ->
-        lower_put_super_value(state)
-
-      {{:ok, :get_field}, [atom_idx]} ->
-        State.get_field_call(state, Builder.literal(Builder.atom_name(state, atom_idx)))
-
-      {{:ok, :get_field2}, [atom_idx]} ->
-        State.get_field2(state, Builder.literal(Builder.atom_name(state, atom_idx)))
-
-      {{:ok, :put_field}, [atom_idx]} ->
-        State.put_field_call(state, Builder.literal(Builder.atom_name(state, atom_idx)))
-
-      {{:ok, :define_static_method}, [atom_idx]} ->
-        define_static_method_call(state, Builder.literal(Builder.atom_name(state, atom_idx)))
-
-      {{:ok, :define_field}, [atom_idx]} ->
-        State.define_field_name_call(state, Builder.literal(Builder.atom_name(state, atom_idx)))
-
-      {{:ok, :get_array_el}, []} ->
-        State.get_array_el(state)
-
-      {{:ok, :get_array_el2}, []} ->
-        State.get_array_el2(state)
-
-      {{:ok, :put_array_el}, []} ->
-        State.put_array_el_call(state)
-
-      {{:ok, :define_array_el}, []} ->
-        State.define_array_el_call(state)
-
-      {{:ok, :append}, []} ->
-        State.append_call(state)
-
-      {{:ok, :copy_data_properties}, [mask]} ->
-        State.copy_data_properties_call(state, mask)
-
-      {{:ok, :set_proto}, []} ->
-        lower_set_proto(state)
-
-      {{:ok, :check_ctor_return}, []} ->
-        lower_check_ctor_return(state)
-
-      {{:ok, :check_ctor}, []} ->
-        {:ok, state}
-
-      {{:ok, :to_object}, []} ->
-        lower_effectful_unary_abi_call(state, :to_object)
-
-      {{:ok, :to_propkey}, []} ->
-        Operators.unary_abi_call(state, :to_property_key)
-
-      {{:ok, :to_propkey2}, []} ->
-        lower_to_propkey2(state)
-
-      {{:ok, :get_length}, []} ->
-        Operators.get_length_call(state)
-
-      {{:ok, :instanceof}, []} ->
-        Operators.binary_abi_call(state, :instanceof)
-
-      {{:ok, :in}, []} ->
-        State.in_call(state)
-
-      {{:ok, :delete}, []} ->
-        State.delete_call(state)
-
-      {{:ok, :get_private_field}, []} ->
-        lower_get_private_field(state)
-
-      {{:ok, :put_private_field}, []} ->
-        lower_put_private_field(state)
-
-      {{:ok, :define_private_field}, []} ->
-        lower_define_private_field(state)
-
-      {{:ok, :private_in}, []} ->
-        lower_private_in(state)
-
-      _ ->
-        :not_handled
+  def lower(state, {{:ok, name}, args}) do
+    case Map.get(@handlers, name) do
+      nil -> :not_handled
+      handler -> lower_handler(handler, state, args)
     end
   end
+
+  def lower(_state, _name_args), do: :not_handled
+
+  defp lower_handler(:object, state, []) do
+    {obj, state} =
+      Emit.bind(
+        state,
+        Builder.temp_name(state.temp),
+        State.abi_call(state, :new_object, [])
+      )
+
+    {:ok, Emit.push(state, obj, {:shaped_object, %{}})}
+  end
+
+  defp lower_handler(:array_from, state, [argc]), do: State.array_from_call(state, argc)
+  defp lower_handler(:regexp, state, []), do: State.regexp_literal(state)
+
+  defp lower_handler(:special_object, state, [type]) do
+    {:ok,
+     Emit.push(
+       state,
+       State.abi_call(state, :special_object, [Builder.literal(type)]),
+       special_object_type(type)
+     )}
+  end
+
+  defp lower_handler(:set_name, state, [atom_idx]),
+    do: State.set_name_atom(state, Builder.atom_name(state, atom_idx))
+
+  defp lower_handler(:set_name_computed, state, []), do: State.set_name_computed(state)
+  defp lower_handler(:set_home_object, state, []), do: State.set_home_object(state)
+  defp lower_handler(:get_super, state, []), do: Operators.unary_abi_call(state, :get_super)
+  defp lower_handler(:get_super_value, state, []), do: lower_get_super_value(state)
+  defp lower_handler(:put_super_value, state, []), do: lower_put_super_value(state)
+
+  defp lower_handler(:get_field, state, [atom_idx]),
+    do: State.get_field_call(state, Builder.literal(Builder.atom_name(state, atom_idx)))
+
+  defp lower_handler(:get_field2, state, [atom_idx]),
+    do: State.get_field2(state, Builder.literal(Builder.atom_name(state, atom_idx)))
+
+  defp lower_handler(:put_field, state, [atom_idx]),
+    do: State.put_field_call(state, Builder.literal(Builder.atom_name(state, atom_idx)))
+
+  defp lower_handler(:define_static_method, state, [atom_idx]),
+    do: define_static_method_call(state, Builder.literal(Builder.atom_name(state, atom_idx)))
+
+  defp lower_handler(:define_field, state, [atom_idx]),
+    do: State.define_field_name_call(state, Builder.literal(Builder.atom_name(state, atom_idx)))
+
+  defp lower_handler(:get_array_el, state, []), do: State.get_array_el(state)
+  defp lower_handler(:get_array_el2, state, []), do: State.get_array_el2(state)
+  defp lower_handler(:put_array_el, state, []), do: State.put_array_el_call(state)
+  defp lower_handler(:define_array_el, state, []), do: State.define_array_el_call(state)
+  defp lower_handler(:append, state, []), do: State.append_call(state)
+
+  defp lower_handler(:copy_data_properties, state, [mask]),
+    do: State.copy_data_properties_call(state, mask)
+
+  defp lower_handler(:set_proto, state, []), do: lower_set_proto(state)
+  defp lower_handler(:check_ctor_return, state, []), do: lower_check_ctor_return(state)
+  defp lower_handler(:check_ctor, state, []), do: {:ok, state}
+  defp lower_handler(:to_object, state, []), do: lower_effectful_unary_abi_call(state, :to_object)
+
+  defp lower_handler(:to_propkey, state, []),
+    do: Operators.unary_abi_call(state, :to_property_key)
+
+  defp lower_handler(:to_propkey2, state, []), do: lower_to_propkey2(state)
+  defp lower_handler(:get_length, state, []), do: Operators.get_length_call(state)
+  defp lower_handler(:instanceof, state, []), do: Operators.binary_abi_call(state, :instanceof)
+  defp lower_handler(:in, state, []), do: State.in_call(state)
+  defp lower_handler(:delete, state, []), do: State.delete_call(state)
+  defp lower_handler(:get_private_field, state, []), do: lower_get_private_field(state)
+  defp lower_handler(:put_private_field, state, []), do: lower_put_private_field(state)
+  defp lower_handler(:define_private_field, state, []), do: lower_define_private_field(state)
+  defp lower_handler(:private_in, state, []), do: lower_private_in(state)
+  defp lower_handler(_handler, _state, _args), do: :not_handled
 
   defp special_object_type(2), do: :self_fun
   defp special_object_type(3), do: :function
