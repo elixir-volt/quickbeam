@@ -789,7 +789,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
   defp active_iterator_close_calls(state) do
     state.stack
     |> Enum.zip(state.stack_types)
-    |> active_iterator_close_calls([])
+    |> active_iterator_close_calls(state, [])
   end
 
   defp active_iterator_close_calls(
@@ -799,6 +799,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
            {_next_fn, next_type},
            {_iter_obj, iter_type} | _rest
          ],
+         _state,
          acc
        )
        when next_type in [:function, :unknown] and iter_type in [:object, :unknown] do
@@ -807,19 +808,19 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   defp active_iterator_close_calls(
          [{_counter, :integer}, {_next_fn, next_type}, {iter_obj, iter_type} | rest],
+         state,
          acc
        )
        when next_type in [:function, :unknown] and iter_type in [:object, :unknown] do
-    call =
-      Builder.remote_call(RuntimeABI, :iterator_close_for_throw, [Builder.ctx_var(), iter_obj])
+    call = abi_call(state, :iterator_close_for_throw, [iter_obj])
 
-    active_iterator_close_calls(rest, [call | acc])
+    active_iterator_close_calls(rest, state, [call | acc])
   end
 
-  defp active_iterator_close_calls([_entry | rest], acc),
-    do: active_iterator_close_calls(rest, acc)
+  defp active_iterator_close_calls([_entry | rest], state, acc),
+    do: active_iterator_close_calls(rest, state, acc)
 
-  defp active_iterator_close_calls([], acc), do: acc
+  defp active_iterator_close_calls([], _state, acc), do: acc
 
   # ── Private helpers ──
 
