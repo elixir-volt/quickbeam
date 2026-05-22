@@ -3,7 +3,6 @@ defmodule QuickBEAM.VM.Interpreter.Ops.ArrayElements do
 
   defmacro __using__(_opts) do
     quote location: :keep do
-      alias QuickBEAM.VM.RuntimeState
       alias QuickBEAM.VM.Interpreter.Completion
       alias QuickBEAM.VM.Interpreter.Ops.ObjectLiterals
       alias QuickBEAM.VM.Semantics.PropertyAccess
@@ -19,8 +18,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.ArrayElements do
           run(pc + 1, frame, [PropertyAccess.get_property(obj, idx) | rest], gas, ctx)
         catch
           {:js_throw, error} ->
-            ctx = RuntimeState.current_or(ctx)
-            throw_or_catch(frame, error, gas, ctx)
+            throw_or_catch(frame, error, gas, Completion.current_context(ctx))
         end
       end
 
@@ -34,8 +32,12 @@ defmodule QuickBEAM.VM.Interpreter.Ops.ArrayElements do
           run(pc + 1, frame, rest, gas, ctx)
         catch
           {:js_throw, error} ->
-            ctx = RuntimeState.current_or(ctx)
-            throw_or_catch(frame, error, gas, close_active_iterators_on_abrupt(rest, ctx))
+            throw_or_catch(
+              frame,
+              error,
+              gas,
+              rest |> close_active_iterators_on_abrupt(Completion.current_context(ctx))
+            )
         end
       end
 
@@ -44,8 +46,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.ArrayElements do
           run(pc + 1, frame, [PropertyAccess.get_property(obj, idx), obj | rest], gas, ctx)
         catch
           {:js_throw, error} ->
-            ctx = RuntimeState.current_or(ctx)
-            throw_or_catch(frame, error, gas, ctx)
+            throw_or_catch(frame, error, gas, Completion.current_context(ctx))
         end
       end
     end
