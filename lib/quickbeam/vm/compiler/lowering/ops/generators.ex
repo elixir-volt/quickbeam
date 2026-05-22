@@ -14,10 +14,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Generators do
     return_async: :return_async
   }
 
-  @extra_handler_opcodes [:return_async]
   @invalid_handlers for {name, _handler} <- @handlers,
-                        OpcodeSpec.lowering_family(name) != :generators and
-                          name not in @extra_handler_opcodes,
+                        OpcodeSpec.lowering_family(name) != :generators,
                         do: name
 
   if @invalid_handlers != [] do

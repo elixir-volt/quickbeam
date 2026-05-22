@@ -15,10 +15,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Classes do
     init_ctor: :init_ctor
   }
 
-  @extra_handler_opcodes [:init_ctor]
   @invalid_handlers for {name, _handler} <- @handlers,
-                        OpcodeSpec.lowering_family(name) != :classes and
-                          name not in @extra_handler_opcodes,
+                        OpcodeSpec.lowering_family(name) != :classes,
                         do: name
 
   if @invalid_handlers != [] do

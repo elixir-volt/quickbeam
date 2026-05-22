@@ -20,10 +20,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Control do
     catch: :catch
   }
 
-  @extra_handler_opcodes [:throw_error]
   @invalid_handlers for {name, _handler} <- @handlers,
-                        OpcodeSpec.lowering_family(name) != :control and
-                          name not in @extra_handler_opcodes,
+                        OpcodeSpec.lowering_family(name) != :control,
                         do: name
 
   if @invalid_handlers != [] do

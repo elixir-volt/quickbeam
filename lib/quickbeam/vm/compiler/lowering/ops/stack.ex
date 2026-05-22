@@ -7,44 +7,46 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Captures, Emit, State}
   alias QuickBEAM.VM.{OpcodeFamily, OpcodeSpec}
 
-  @handlers %{
-    push_i32: :push_integer,
-    push_i16: :push_integer,
-    push_i8: :push_integer,
-    push_true: :push_true,
-    push_false: :push_false,
-    null: :null,
-    undefined: :undefined,
-    push_empty_string: :push_empty_string,
-    push_bigint_i32: :push_bigint_i32,
-    push_atom_value: :push_atom_value,
-    push_this: :push_this,
-    push_const: :push_const,
-    push_const8: :push_const,
-    fclosure: :fclosure,
-    fclosure8: :fclosure,
-    private_symbol: :private_symbol,
-    dup: :dup,
-    dup1: :dup1,
-    dup2: :dup2,
-    dup3: :dup3,
-    insert2: :insert2,
-    insert3: :insert3,
-    insert4: :insert4,
-    drop: :drop,
-    nip: :nip,
-    nip1: :nip1,
-    swap: :swap,
-    swap2: :swap2,
-    rot3l: :rot3l,
-    rot3r: :rot3r,
-    rot4l: :rot4l,
-    rot5l: :rot5l,
-    perm3: :perm3,
-    perm4: :perm4,
-    perm5: :perm5,
-    nop: :nop
-  }
+  @small_int_handlers Map.new(OpcodeSpec.small_int_push_names(), &{&1, {:push_small_int, &1}})
+
+  @handlers Map.merge(@small_int_handlers, %{
+              push_i32: :push_integer,
+              push_i16: :push_integer,
+              push_i8: :push_integer,
+              push_true: :push_true,
+              push_false: :push_false,
+              null: :null,
+              undefined: :undefined,
+              push_empty_string: :push_empty_string,
+              push_bigint_i32: :push_bigint_i32,
+              push_atom_value: :push_atom_value,
+              push_this: :push_this,
+              push_const: :push_const,
+              push_const8: :push_const,
+              fclosure: :fclosure,
+              fclosure8: :fclosure,
+              private_symbol: :private_symbol,
+              dup: :dup,
+              dup1: :dup1,
+              dup2: :dup2,
+              dup3: :dup3,
+              insert2: :insert2,
+              insert3: :insert3,
+              insert4: :insert4,
+              drop: :drop,
+              nip: :nip,
+              nip1: :nip1,
+              swap: :swap,
+              swap2: :swap2,
+              rot3l: :rot3l,
+              rot3r: :rot3r,
+              rot4l: :rot4l,
+              rot5l: :rot5l,
+              perm3: :perm3,
+              perm4: :perm4,
+              perm5: :perm5,
+              nop: :nop
+            })
 
   @invalid_handlers for {name, _handler} <- @handlers,
                         OpcodeSpec.lowering_family(name) != :stack,
@@ -75,6 +77,11 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
 
   defp lower_handler(:push_integer, state, _constants, _arg_count, [value]),
     do: {:ok, Emit.push(state, Builder.integer(value))}
+
+  defp lower_handler({:push_small_int, name}, state, _constants, _arg_count, _args) do
+    {:ok, value} = OpcodeSpec.small_int_push(name)
+    {:ok, Emit.push(state, Builder.integer(value))}
+  end
 
   defp lower_handler(:push_true, state, _constants, _arg_count, []),
     do: {:ok, Emit.push(state, Builder.atom(true))}

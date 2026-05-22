@@ -26,8 +26,7 @@ defmodule QuickBEAM.VM.Compiler.LoweringRegistryTest do
   end
 
   test "arithmetic handlers match arithmetic lowering family" do
-    aliases = %{band: :and, bxor: :xor, bor: :or}
-    assert_registered_family(Arithmetic.registered_opcodes(), :arithmetic, aliases)
+    assert_registered_family(Arithmetic.registered_opcodes(), :arithmetic)
   end
 
   test "object handlers match object lowering family" do
@@ -43,47 +42,15 @@ defmodule QuickBEAM.VM.Compiler.LoweringRegistryTest do
   end
 
   test "class handlers match classes lowering family" do
-    extras = MapSet.new([:init_ctor])
-
-    unexpected =
-      Classes.registered_opcodes()
-      |> Enum.reject(&(OpcodeSpec.lowering_family(&1) == :classes or MapSet.member?(extras, &1)))
-      |> Enum.sort()
-
-    assert unexpected == []
-
-    assert Enum.sort(Classes.registered_opcodes()) ==
-             Enum.uniq(Enum.sort(Classes.registered_opcodes()))
+    assert_registered_family(Classes.registered_opcodes(), :classes)
   end
 
   test "generator handlers match generators lowering family" do
-    extras = MapSet.new([:return_async])
-
-    unexpected =
-      Generators.registered_opcodes()
-      |> Enum.reject(
-        &(OpcodeSpec.lowering_family(&1) == :generators or MapSet.member?(extras, &1))
-      )
-      |> Enum.sort()
-
-    assert unexpected == []
-
-    assert Enum.sort(Generators.registered_opcodes()) ==
-             Enum.uniq(Enum.sort(Generators.registered_opcodes()))
+    assert_registered_family(Generators.registered_opcodes(), :generators)
   end
 
   test "control handlers match control lowering family" do
-    extras = MapSet.new([:throw_error])
-
-    unexpected =
-      Control.registered_opcodes()
-      |> Enum.reject(&(OpcodeSpec.lowering_family(&1) == :control or MapSet.member?(extras, &1)))
-      |> Enum.sort()
-
-    assert unexpected == []
-
-    assert Enum.sort(Control.registered_opcodes()) ==
-             Enum.uniq(Enum.sort(Control.registered_opcodes()))
+    assert_registered_family(Control.registered_opcodes(), :control)
   end
 
   test "with-scope handlers match with-scope lowering family" do
@@ -91,48 +58,76 @@ defmodule QuickBEAM.VM.Compiler.LoweringRegistryTest do
   end
 
   test "global handlers match globals lowering family" do
-    var_ref_opcodes =
-      MapSet.new([
-        :get_var_ref,
-        :get_var_ref0,
-        :get_var_ref1,
-        :get_var_ref2,
-        :get_var_ref3,
-        :get_var_ref_check,
-        :put_var_ref,
-        :put_var_ref0,
-        :put_var_ref1,
-        :put_var_ref2,
-        :put_var_ref3,
-        :put_var_ref_check,
-        :put_var_ref_check_init,
-        :set_var_ref,
-        :set_var_ref0,
-        :set_var_ref1,
-        :set_var_ref2,
-        :set_var_ref3
-      ])
-
-    unexpected =
-      Globals.registered_opcodes()
-      |> Enum.reject(
-        &(OpcodeSpec.lowering_family(&1) == :globals or MapSet.member?(var_ref_opcodes, &1))
-      )
-      |> Enum.sort()
-
-    assert unexpected == []
-
-    assert Enum.sort(Globals.registered_opcodes()) ==
-             Enum.uniq(Enum.sort(Globals.registered_opcodes()))
+    assert_registered_family(Globals.registered_opcodes(), :globals)
   end
 
-  defp assert_registered_family(opcodes, family, aliases \\ %{}) do
+  test "every lowered opcode has one registered handler" do
+    registered = all_registered_opcodes()
+
+    missing =
+      for {name, _num} <- OpcodeSpec.all_opcodes(),
+          family = OpcodeSpec.lowering_family(name),
+          family != nil,
+          not MapSet.member?(registered, name),
+          do: {name, family}
+
+    assert missing == []
+  end
+
+  test "lowering handlers are unique across families" do
+    registered =
+      [
+        Stack,
+        Locals,
+        Globals,
+        Arithmetic,
+        Objects,
+        Calls,
+        Control,
+        Iterators,
+        Classes,
+        Generators,
+        WithScope
+      ]
+      |> Enum.flat_map(fn module ->
+        Enum.map(module.registered_opcodes(), &{&1, module})
+      end)
+
+    duplicates =
+      registered
+      |> Enum.frequencies_by(&elem(&1, 0))
+      |> Enum.filter(fn {_opcode, count} -> count > 1 end)
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.sort()
+
+    assert duplicates == []
+  end
+
+  defp assert_registered_family(opcodes, family) do
     unexpected =
       opcodes
-      |> Enum.reject(&(OpcodeSpec.lowering_family(Map.get(aliases, &1, &1)) == family))
+      |> Enum.reject(&(OpcodeSpec.lowering_family(&1) == family))
       |> Enum.sort()
 
     assert unexpected == []
     assert Enum.sort(opcodes) == Enum.uniq(Enum.sort(opcodes))
+  end
+
+  defp all_registered_opcodes do
+    [
+      Stack,
+      Locals,
+      Globals,
+      Arithmetic,
+      Objects,
+      Calls,
+      Control,
+      Iterators,
+      Classes,
+      Generators,
+      WithScope
+    ]
+    |> Enum.flat_map(& &1.registered_opcodes())
+    |> MapSet.new()
   end
 end

@@ -238,9 +238,9 @@ defmodule QuickBEAM.VM.OpcodeSpec do
       :neq,
       :strict_eq,
       :strict_neq,
-      :and,
-      :xor,
-      :or,
+      :band,
+      :bxor,
+      :bor,
       :pow
     ],
     control: [
@@ -252,6 +252,7 @@ defmodule QuickBEAM.VM.OpcodeSpec do
       :ret,
       :nip_catch,
       :throw,
+      :throw_error,
       :if_false8,
       :if_true8,
       :goto8,
@@ -271,6 +272,7 @@ defmodule QuickBEAM.VM.OpcodeSpec do
       :rest
     ],
     classes: [
+      :init_ctor,
       :define_method,
       :define_method_computed,
       :define_class,
@@ -278,7 +280,7 @@ defmodule QuickBEAM.VM.OpcodeSpec do
       :add_brand,
       :check_brand
     ],
-    generators: [:initial_yield, :yield, :yield_star, :async_yield_star, :await],
+    generators: [:initial_yield, :yield, :yield_star, :async_yield_star, :await, :return_async],
     with_scope: [
       :with_get_var,
       :with_put_var,
@@ -298,6 +300,24 @@ defmodule QuickBEAM.VM.OpcodeSpec do
       :check_define_var,
       :define_func,
       :delete_var,
+      :get_var_ref,
+      :get_var_ref0,
+      :get_var_ref1,
+      :get_var_ref2,
+      :get_var_ref3,
+      :get_var_ref_check,
+      :put_var_ref,
+      :put_var_ref0,
+      :put_var_ref1,
+      :put_var_ref2,
+      :put_var_ref3,
+      :put_var_ref_check,
+      :put_var_ref_check_init,
+      :set_var_ref,
+      :set_var_ref0,
+      :set_var_ref1,
+      :set_var_ref2,
+      :set_var_ref3,
       :make_loc_ref,
       :make_arg_ref,
       :make_var_ref_ref,
@@ -305,7 +325,7 @@ defmodule QuickBEAM.VM.OpcodeSpec do
     ]
   }
 
-  @symbolic_lowering_opcodes [:define_static_method, :and, :xor, :or]
+  @symbolic_lowering_opcodes [:define_static_method]
   @lowering_pairs for {family, names} <- @lowering_groups, name <- names, do: {name, family}
   @unknown_lowering_opcodes for {name, family} <- @lowering_pairs,
                                 Opcodes.num(name) == nil and

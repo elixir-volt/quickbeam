@@ -41,30 +41,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
     delete_var: :delete_var
   }
 
-  @var_ref_opcodes [
-    :get_var_ref,
-    :get_var_ref0,
-    :get_var_ref1,
-    :get_var_ref2,
-    :get_var_ref3,
-    :get_var_ref_check,
-    :put_var_ref,
-    :put_var_ref0,
-    :put_var_ref1,
-    :put_var_ref2,
-    :put_var_ref3,
-    :put_var_ref_check,
-    :put_var_ref_check_init,
-    :set_var_ref,
-    :set_var_ref0,
-    :set_var_ref1,
-    :set_var_ref2,
-    :set_var_ref3
-  ]
-
   @invalid_handlers for {name, _handler} <- @handlers,
-                        OpcodeSpec.lowering_family(name) != :globals and
-                          name not in @var_ref_opcodes,
+                        OpcodeSpec.lowering_family(name) != :globals,
                         do: name
 
   if @invalid_handlers != [] do

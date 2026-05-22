@@ -43,10 +43,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Arithmetic do
     strict_neq: {:binary_local, :op_strict_neq}
   }
 
-  @opcode_aliases %{band: :and, bxor: :xor, bor: :or}
   @invalid_handlers for {name, _handler} <- @handlers,
-                        OpcodeSpec.lowering_family(Map.get(@opcode_aliases, name, name)) !=
-                          :arithmetic,
+                        OpcodeSpec.lowering_family(name) != :arithmetic,
                         do: name
 
   if @invalid_handlers != [] do

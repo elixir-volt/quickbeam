@@ -44,17 +44,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
              constants,
              inline_targets,
              name_args
-           ),
-         :not_handled <-
-           lower_fallback(
-             state,
-             idx,
-             next_entry,
-             arg_count,
-             stack_depths,
-             constants,
-             inline_targets,
-             name_args
            ) do
       case name_args do
         {{:ok, :invalid}, _} ->
@@ -111,32 +100,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
          _name_args
        ),
        do: :not_handled
-
-  defp lower_fallback(
-         state,
-         idx,
-         next_entry,
-         arg_count,
-         stack_depths,
-         constants,
-         inline_targets,
-         name_args
-       ) do
-    with :not_handled <- Stack.lower(state, constants, arg_count, name_args),
-         :not_handled <- Locals.lower(state, name_args),
-         :not_handled <- Globals.lower(state, name_args),
-         :not_handled <- Arithmetic.lower(state, name_args),
-         :not_handled <- Objects.lower(state, name_args),
-         :not_handled <- Calls.lower(state, idx, name_args),
-         :not_handled <-
-           Control.lower(state, idx, next_entry, stack_depths, inline_targets, name_args),
-         :not_handled <- Iterators.lower(state, name_args),
-         :not_handled <- Classes.lower(state, name_args),
-         :not_handled <- Generators.lower(state, next_entry, stack_depths, name_args),
-         :not_handled <- WithScope.lower(state, next_entry, stack_depths, name_args) do
-      :not_handled
-    end
-  end
 
   defp lower_family(
          :stack,
