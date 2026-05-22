@@ -19,6 +19,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   alias QuickBEAM.VM.ObjectModel.{
     Define,
     Get,
+    InternalMethods,
     OwnProperty,
     PropertyKey,
     Semantics,
@@ -89,7 +90,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
 
   defp following_string_keys(source, source_key) do
     source
-    |> OwnProperty.own_keys()
+    |> InternalMethods.own_keys()
     |> Enum.drop_while(&(&1 != source_key))
     |> case do
       [_source_key | rest] -> Enum.take_while(rest, &is_binary/1)
@@ -109,7 +110,7 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
     end
   end
 
-  defp copy_source_keys({:obj, _} = source), do: OwnProperty.own_keys(source)
+  defp copy_source_keys({:obj, _} = source), do: InternalMethods.own_keys(source)
 
   defp copy_source_keys(source) when is_binary(source) do
     source
