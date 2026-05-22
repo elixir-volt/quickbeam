@@ -6,7 +6,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
     quote location: :keep do
       import QuickBEAM.VM.Value, only: [is_object: 1]
       alias QuickBEAM.VM.{GlobalEnvironment, Heap, Names, Runtime, RuntimeState}
-      alias QuickBEAM.VM.Interpreter.{Closures, Context, Frame}
+      alias QuickBEAM.VM.Interpreter.{ArgumentsObject, Closures, Context, Frame}
       alias QuickBEAM.VM.JSThrow
       alias QuickBEAM.VM.ObjectModel.{Delete, Get, Put}
       alias QuickBEAM.VM.Promise, as: Promise
@@ -56,15 +56,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
               :error ->
                 arguments = make_arguments_object(ctx, frame)
 
-                globals =
-                  ctx.globals
-                  |> Map.put("arguments", arguments)
-                  |> Map.put(
-                    RuntimeState.arguments_object_key(ctx.current_func, ctx.arg_buf),
-                    arguments
-                  )
-
-                {arguments, %{ctx | globals: globals}}
+                {arguments, ArgumentsObject.store_global(ctx, arguments)}
             end
 
           run(pc + 1, frame, [arguments | stack], gas, ctx)
@@ -114,99 +106,8 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
         end
       end
 
-      defp make_arguments_object(ctx, frame) do
-        case Map.fetch(
-               ctx.globals,
-               RuntimeState.arguments_object_key(ctx.current_func, ctx.arg_buf)
-             ) do
-          {:ok, arguments} ->
-            arguments
-
-          :error ->
-            key = RuntimeState.arguments_object_key(ctx.current_func, ctx.arg_buf)
-
-            case RuntimeState.get_arguments_object(key) do
-              nil ->
-                arguments =
-                  Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf),
-                    strict: current_strict_mode?(ctx),
-                    callee: ctx.current_func,
-                    mapped: mapped_argument_cells(ctx, frame)
-                  )
-
-                RuntimeState.put_arguments_object(key, arguments)
-
-              arguments ->
-                arguments
-            end
-        end
-      end
-
-      defp mapped_argument_cells(ctx, frame) do
-        if mapped_arguments_object?(ctx) do
-          locals = function_locals(ctx)
-          var_refs = elem(frame, Frame.var_refs())
-          count = min(tuple_size(ctx.arg_buf), length(locals))
-
-          if count == 0 do
-            %{}
-          else
-            last_parameter_index = last_parameter_index_by_var_ref(locals, count)
-
-            0..(count - 1)//1
-            |> Enum.reduce(%{}, fn index, acc ->
-              case Enum.at(locals, index) do
-                %{var_ref_idx: ref_idx}
-                when is_integer(ref_idx) and ref_idx < tuple_size(var_refs) ->
-                  if Map.get(last_parameter_index, ref_idx) == index do
-                    case elem(var_refs, ref_idx) do
-                      {:cell, _} = cell -> Map.put(acc, index, cell)
-                      _ -> acc
-                    end
-                  else
-                    acc
-                  end
-
-                _ ->
-                  acc
-              end
-            end)
-          end
-        else
-          %{}
-        end
-      end
-
-      defp last_parameter_index_by_var_ref(locals, count) do
-        0..(count - 1)//1
-        |> Enum.reduce(%{}, fn index, acc ->
-          case Enum.at(locals, index) do
-            %{var_ref_idx: ref_idx} when is_integer(ref_idx) -> Map.put(acc, ref_idx, index)
-            _ -> acc
-          end
-        end)
-      end
-
-      defp mapped_arguments_object?(ctx) do
-        case ctx.current_func do
-          {:closure, _, %QuickBEAM.VM.Function{} = fun} ->
-            not fun.is_strict_mode and fun.has_simple_parameter_list
-
-          %QuickBEAM.VM.Function{} = fun ->
-            not fun.is_strict_mode and fun.has_simple_parameter_list
-
-          _ ->
-            false
-        end
-      end
-
-      defp function_locals(ctx) do
-        case ctx.current_func do
-          {:closure, _, %QuickBEAM.VM.Function{locals: locals}} -> locals
-          %QuickBEAM.VM.Function{locals: locals} -> locals
-          _ -> []
-        end
-      end
+      defp make_arguments_object(ctx, frame),
+        do: ArgumentsObject.get(ctx, frame, var_ref_offset: :raw)
 
       defp delay_object_define_value?(pc, frame, [_key, {:obj, _} | _]) do
         instructions = elem(frame, Frame.insns())
