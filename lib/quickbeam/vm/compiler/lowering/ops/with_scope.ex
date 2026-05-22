@@ -2,7 +2,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
   @moduledoc "with-statement opcodes: with_get_var, with_put_var, with_delete_var, with_make_ref, with_get_ref, with_get_ref_undef."
 
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, State}
-  alias QuickBEAM.VM.ObjectModel.{Delete, Get, Put}
 
   @doc "Lowers a VM instruction or function into compiler IR."
   def lower(state, next_entry, stack_depths, name_args) do
@@ -33,7 +32,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
   defp lower_with_get_var(state, next_entry, stack_depths, atom_idx, target) do
     with {:ok, obj, _type, state} <- Emit.pop_typed(state) do
       key = State.constant_call(state, :push_atom_value, [Builder.literal(atom_idx)])
-      val = Builder.remote_call(Get, :get, [obj, key])
+      val = State.abi_call(state, :get_field, [obj, key])
       target_state = Emit.push(state, val)
 
       branch_with_has_property(state, target_state, next_entry, stack_depths, obj, key, target)
@@ -47,7 +46,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
          {:ok, target_call} <- State.block_jump_call(target_state, target, stack_depths),
          {:ok, next_call} <- State.block_jump_call(next_state, next_entry, stack_depths) do
       condition = State.abi_call(next_state, :with_has_property, [obj, key])
-      put = Builder.remote_call(Put, :put, [obj, key, val])
+      put = State.abi_call(next_state, :put_field, [obj, key, val])
       branch = Builder.branch_case(condition, [next_call], [put, target_call])
 
       {:done, Enum.reverse([branch | state.body])}
@@ -57,7 +56,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
   defp lower_with_get_ref(state, next_entry, stack_depths, atom_idx, target) do
     with {:ok, obj, _type, state} <- Emit.pop_typed(state) do
       key = State.constant_call(state, :push_atom_value, [Builder.literal(atom_idx)])
-      val = Builder.remote_call(Get, :get, [obj, key])
+      val = State.abi_call(state, :get_field, [obj, key])
       target_state = state |> Emit.push(obj) |> Emit.push(val)
 
       branch_with_has_property(state, target_state, next_entry, stack_depths, obj, key, target)
@@ -67,7 +66,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
   defp lower_with_get_ref_undef(state, next_entry, stack_depths, atom_idx, target) do
     with {:ok, obj, _type, state} <- Emit.pop_typed(state) do
       key = State.constant_call(state, :push_atom_value, [Builder.literal(atom_idx)])
-      val = Builder.remote_call(Get, :get, [obj, key])
+      val = State.abi_call(state, :get_field, [obj, key])
       target_state = state |> Emit.push(Builder.atom(:undefined), :undefined) |> Emit.push(val)
 
       branch_with_has_property(state, target_state, next_entry, stack_depths, obj, key, target)
@@ -78,7 +77,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.WithScope do
     with {:ok, obj, state} <- Emit.pop(state) do
       key = State.constant_call(state, :push_atom_value, [Builder.literal(atom_idx)])
       target_state = Emit.push(state, Builder.atom(true), :boolean)
-      delete = Builder.remote_call(Delete, :delete_property, [obj, key])
+      delete = State.abi_call(state, :delete_property, [obj, key])
       condition = State.abi_call(state, :with_has_property, [obj, key])
       {:ok, target_call} = State.block_jump_call(target_state, target, stack_depths)
       {:ok, next_call} = State.block_jump_call(state, next_entry, stack_depths)
