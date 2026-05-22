@@ -193,6 +193,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
   def apply_super(ctx, fun, new_target, args),
     do: Calls.apply_super(ctx, fun, new_target, args)
 
+  def invoke_runtime(ctx, fun, args), do: QuickBEAM.VM.Invocation.invoke_runtime(ctx, fun, args)
+
   def invoke_method_runtime(ctx, fun, receiver, args),
     do: QuickBEAM.VM.Invocation.invoke_method_runtime(ctx, fun, receiver, args)
 

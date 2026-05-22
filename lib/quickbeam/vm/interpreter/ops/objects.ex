@@ -18,14 +18,20 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       alias QuickBEAM.VM.Interpreter.{Context, Frame}
       alias QuickBEAM.VM.Interpreter.Ops.CopyDataProperties, as: CopyOp
       alias QuickBEAM.VM.Interpreter.Ops.Delete, as: DeleteOp
-      alias QuickBEAM.VM.Interpreter.Ops.{InOperator, InstanceOf, ObjectLiterals, PropertyKeys}
+
+      alias QuickBEAM.VM.Interpreter.Ops.{
+        InOperator,
+        InstanceOf,
+        ObjectLiterals,
+        PrivateFields,
+        PropertyKeys,
+        SuperProperties
+      }
 
       alias QuickBEAM.VM.ObjectModel.{
-        Class,
         Delete,
         Functions,
         Get,
-        Private,
         Put
       }
 
@@ -121,7 +127,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       end
 
       defp run({@op_get_super_value, []}, pc, frame, [key, proto, this_obj | rest], gas, ctx) do
-        val = Class.get_super_value(proto, this_obj, key)
+        val = SuperProperties.get_value(proto, this_obj, key)
         run(pc + 1, frame, [val | rest], gas, ctx)
       end
 
@@ -134,7 +140,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
              ctx
            ) do
         try do
-          Class.put_super_value(proto_obj, this_obj, key, val)
+          SuperProperties.put_value(proto_obj, this_obj, key, val)
           run(pc + 1, frame, rest, gas, ctx)
         catch
           {:js_throw, error} ->
@@ -144,29 +150,28 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       end
 
       defp run({@op_get_private_field, []}, pc, frame, [key, obj | rest], gas, ctx) do
-        case Private.get_field(obj, key) do
-          :missing -> throw_or_catch(frame, Private.brand_error(), gas, ctx)
-          val -> run(pc + 1, frame, [val | rest], gas, ctx)
+        case PrivateFields.get(obj, key) do
+          {:ok, val} -> run(pc + 1, frame, [val | rest], gas, ctx)
+          {:throw, error} -> throw_or_catch(frame, error, gas, ctx)
         end
       end
 
       defp run({@op_put_private_field, []}, pc, frame, [key, val, obj | rest], gas, ctx) do
-        case Private.put_field!(obj, key, val) do
+        case PrivateFields.put(obj, key, val) do
           :ok -> run(pc + 1, frame, rest, gas, ctx)
-          :error -> throw_or_catch(frame, Private.brand_error(), gas, ctx)
+          {:throw, error} -> throw_or_catch(frame, error, gas, ctx)
         end
       end
 
       defp run({@op_define_private_field, []}, pc, frame, [val, key, obj | rest], gas, ctx) do
-        case Private.define_field!(obj, key, val) do
+        case PrivateFields.define(obj, key, val) do
           :ok -> run(pc + 1, frame, rest, gas, ctx)
-          :error -> throw_or_catch(frame, Private.brand_error(), gas, ctx)
+          {:throw, error} -> throw_or_catch(frame, error, gas, ctx)
         end
       end
 
       defp run({@op_private_in, []}, pc, frame, [key, obj | rest], gas, ctx) do
-        result = Private.has_field?(obj, key) or Private.has_brand?(obj, key)
-        run(pc + 1, frame, [result | rest], gas, ctx)
+        run(pc + 1, frame, [PrivateFields.has?(obj, key) | rest], gas, ctx)
       end
 
       defp run({@op_get_length, []}, pc, frame, [obj | rest], gas, ctx) do
@@ -498,7 +503,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
              gas,
              %Context{home_object: home_object, super: super} = ctx
            ) do
-        val = if func == home_object, do: super, else: Class.get_super(func)
+        val = SuperProperties.get(func, home_object, super)
         run(pc + 1, frame, [val | rest], gas, ctx)
       end
 
@@ -555,7 +560,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
 
       defp run({@op_private_symbol, [atom_idx]}, pc, frame, stack, gas, ctx) do
         name = Names.resolve_atom(ctx, atom_idx)
-        run(pc + 1, frame, [Private.private_symbol(name) | stack], gas, ctx)
+        run(pc + 1, frame, [PrivateFields.symbol(name) | stack], gas, ctx)
       end
 
       # ── Argument mutation ──

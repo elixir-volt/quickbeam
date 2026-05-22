@@ -13,6 +13,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
     Delete,
     Get,
     HasProperty,
+    InternalMethods,
     OwnProperty,
     PropertyDescriptor,
     PropertyKey,
@@ -228,45 +229,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
 
   defp validate_constructable!(_), do: JSThrow.type_error!("newTarget is not a constructor")
 
-  defp reflect_get(obj, key, receiver) do
-    case obj do
-      {:obj, ref} -> reflect_get_object(obj, Heap.get_obj_raw(ref), key, receiver)
-      _ -> Get.get(obj, key)
-    end
-  end
-
-  defp reflect_get_object(obj, raw, key, receiver) when is_list(raw),
-    do: reflect_get_array_object(obj, key, receiver)
-
-  defp reflect_get_object(obj, {:qb_arr, _}, key, receiver),
-    do: reflect_get_array_object(obj, key, receiver)
-
-  defp reflect_get_object(obj, raw, key, receiver) do
-    case Heap.raw_fetch(raw, key) do
-      {:ok, value} -> reflect_get_value(value, receiver)
-      :error -> reflect_get_from_prototype(Prototype.get(obj), key, receiver)
-    end
-  end
-
-  defp reflect_get_array_object(obj, key, _receiver) do
-    case PropertyKey.normalize(key) do
-      "length" ->
-        Get.length_of(obj)
-
-      normalized_key ->
-        Get.get(obj, normalized_key)
-    end
-  end
-
-  defp reflect_get_value({:accessor, getter, _}, receiver) when getter != nil,
-    do: Get.call_getter(getter, receiver)
-
-  defp reflect_get_value({:accessor, nil, _}, _receiver), do: :undefined
-  defp reflect_get_value(value, _receiver), do: value
-
-  defp reflect_get_from_prototype(nil, _key, _receiver), do: :undefined
-  defp reflect_get_from_prototype(:undefined, _key, _receiver), do: :undefined
-  defp reflect_get_from_prototype(proto, key, receiver), do: reflect_get(proto, key, receiver)
+  defp reflect_get(obj, key, receiver), do: InternalMethods.get(obj, key, receiver)
 
   defp reflect_set_prototype_of({:obj, ref} = obj, proto) do
     unless proto == nil or Value.object_like?(proto) do

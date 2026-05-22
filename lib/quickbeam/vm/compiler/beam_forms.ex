@@ -16,9 +16,13 @@ defmodule QuickBEAM.VM.Compiler.BeamForms do
   def literal(value), do: :erl_parse.abstract(value)
   def match(left, right), do: {:match, @line, left, right}
   def tuple(values), do: {:tuple, @line, values}
+  def op(operator, operand), do: {:op, @line, operator, operand}
+  def op(operator, left, right), do: {:op, @line, operator, left, right}
 
-  def list([]), do: {nil, @line}
-  def list([head | tail]), do: {:cons, @line, head, list(tail)}
+  def nil_expr, do: {nil, @line}
+  def cons(head, tail), do: {:cons, @line, head, tail}
+  def list([]), do: nil_expr()
+  def list([head | tail]), do: cons(head, list(tail))
 
   def map(entries) do
     {:map, @line, Enum.map(entries, fn {key, value} -> {:map_field_assoc, @line, key, value} end)}
@@ -35,6 +39,10 @@ defmodule QuickBEAM.VM.Compiler.BeamForms do
   def case_(expr, clauses), do: {:case, @line, expr, clauses}
 
   def clause(patterns, guards \\ [], body), do: {:clause, @line, patterns, guards, body}
+
+  def function(name, arity, clauses), do: {:function, @line, name, arity, clauses}
+
+  def guard_call(fun, args), do: {:call, @line, atom(fun), args}
 
   def binary_concat(left, right) do
     {:bin, @line,
