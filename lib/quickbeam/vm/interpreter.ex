@@ -1062,8 +1062,6 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp with_has_property?(obj, key), do: Static.with_has_property?(obj, key)
 
-  defp delete_static(fun, key), do: Static.delete_static(fun, key)
-
   defp ensure_initialized_local!(ctx, idx, val) do
     if val == :__tdz__ or
          (val == :undefined and uninitialized_this_local?(ctx, idx) and

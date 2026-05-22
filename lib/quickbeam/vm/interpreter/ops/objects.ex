@@ -18,6 +18,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
       }
 
       alias QuickBEAM.VM.Interpreter.{Context, Frame}
+      alias QuickBEAM.VM.Interpreter.Ops.Delete, as: DeleteOp
       alias QuickBEAM.VM.Interpreter.Ops.{ObjectLiterals, PropertyKeys}
       alias QuickBEAM.VM.Semantics.Values
 
@@ -701,38 +702,11 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Objects do
 
       defp run({@op_delete, []}, __pc, frame, [key, obj | _rest], gas, ctx)
            when is_nullish(obj) do
-        nullish = if obj == nil, do: "null", else: "undefined"
-
-        error =
-          Heap.make_error(
-            "Cannot delete properties of #{nullish} (deleting '#{Values.stringify(key)}')",
-            "TypeError"
-          )
-
-        throw_or_catch(frame, error, gas, ctx)
+        throw_or_catch(frame, DeleteOp.nullish_error(obj, key), gas, ctx)
       end
 
       defp run({@op_delete, []}, pc, frame, [key, obj | rest], gas, ctx) do
-        result =
-          case obj do
-            {:obj, _} = obj ->
-              Delete.delete_property(obj, key)
-
-            {:closure, _, _} = fun ->
-              delete_static(fun, key)
-
-            %QuickBEAM.VM.Function{} = fun ->
-              delete_static(fun, key)
-
-            {:builtin, _, _} = fun ->
-              delete_static(fun, key)
-
-            {:bound, _, _, _, _} = fun ->
-              delete_static(fun, key)
-
-            _ ->
-              true
-          end
+        result = DeleteOp.property(obj, key)
 
         if result == false and current_strict_mode?(ctx) do
           throw_or_catch(frame, Heap.make_error("Cannot delete property", "TypeError"), gas, ctx)
