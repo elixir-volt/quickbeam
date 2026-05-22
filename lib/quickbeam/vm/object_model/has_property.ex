@@ -4,27 +4,13 @@ defmodule QuickBEAM.VM.ObjectModel.HasProperty do
   import QuickBEAM.VM.Heap.Keys
 
   alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.Semantics.Values
-  alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods, OwnProperty, PropertyKey, ProxyTrap}
+  alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods, OwnProperty, PropertyKey}
   alias QuickBEAM.VM.Runtime.TypedArray
 
   def has_property?(target, key), do: InternalMethods.has_property(target, key)
 
   def ordinary_has_property?({:obj, ref} = obj, key) do
     case Heap.get_obj(ref, %{}) do
-      %{proxy_target() => _target, "__proxy_revoked__" => true} ->
-        QuickBEAM.VM.JSThrow.type_error!("Cannot perform operation on a revoked proxy")
-
-      %{proxy_target() => target, proxy_handler() => handler} ->
-        has_trap = Get.get(handler, "has")
-
-        if has_trap != :undefined do
-          result = Values.truthy?(ProxyTrap.call(has_trap, [target, key], handler))
-          validate_proxy_has_invariant(target, key, result)
-        else
-          ordinary_has_property?(target, key)
-        end
-
       %{typed_array() => true} = map ->
         case PropertyKey.array_index(key) do
           {:ok, _idx} ->
@@ -114,23 +100,6 @@ defmodule QuickBEAM.VM.ObjectModel.HasProperty do
       _ -> false
     end
   end
-
-  defp validate_proxy_has_invariant({:obj, target_ref} = target, key, false) do
-    desc = Heap.get_prop_desc(target_ref, key)
-
-    cond do
-      match?(%{configurable: false}, desc) ->
-        throw({:js_throw, Heap.make_error("proxy has trap violates invariant", "TypeError")})
-
-      OwnProperty.present?(target, key) and not Heap.extensible?(target_ref) ->
-        throw({:js_throw, Heap.make_error("proxy has trap violates invariant", "TypeError")})
-
-      true ->
-        false
-    end
-  end
-
-  defp validate_proxy_has_invariant(_target, _key, result), do: result
 
   defp has_array_prototype_property?(ref, key) do
     ordinary_has_property?(Heap.get_array_proto(ref), key) or

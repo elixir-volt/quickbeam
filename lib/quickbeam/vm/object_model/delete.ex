@@ -4,14 +4,12 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
   import QuickBEAM.VM.Heap.Keys
 
   alias QuickBEAM.VM.Execution.RegexpState
-  alias QuickBEAM.VM.{Heap, JSThrow, Value}
+  alias QuickBEAM.VM.{Heap, Value}
   alias QuickBEAM.VM.Semantics.Values
 
   alias QuickBEAM.VM.ObjectModel.{
-    Get,
     InternalMethods,
     PropertyKey,
-    ProxyTrap,
     Semantics,
     WrappedPrimitive
   }
@@ -77,12 +75,6 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
       true
     else
       case Heap.get_obj(ref, %{}) do
-        %{proxy_target() => _target, "__proxy_revoked__" => true} ->
-          JSThrow.type_error!("Cannot perform operation on a revoked proxy")
-
-        %{proxy_target() => target, proxy_handler() => handler} ->
-          delete_proxy_property(target, handler, key)
-
         map when is_map(map) ->
           desc = Heap.get_prop_desc(ref, key)
 
@@ -182,64 +174,12 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
     end
   end
 
-  defp delete_proxy_property(target, handler, key) do
-    unless Value.object_like?(handler) do
-      throw(
-        {:js_throw,
-         Heap.make_error("Cannot perform operation on a proxy with null handler", "TypeError")}
-      )
-    end
-
-    trap = Get.get(handler, "deleteProperty")
-
-    cond do
-      Value.nullish?(trap) ->
-        delete_property(target, key)
-
-      not Values.truthy?(ProxyTrap.call(trap, [target, key], handler)) ->
-        false
-
-      proxy_delete_invariant_violation?(target, key) ->
-        throw(
-          {:js_throw,
-           Heap.make_error("proxy deleteProperty trap violates invariant", "TypeError")}
-        )
-
-      true ->
-        true
-    end
-  end
-
   defp non_configurable_static_prototype?(target, "prototype"),
     do:
       Value.has_function_prototype?(target) or
         Map.has_key?(Heap.get_ctor_statics(target), "prototype")
 
   defp non_configurable_static_prototype?(_target, _key), do: false
-
-  defp proxy_delete_invariant_violation?({:obj, ref}, key) do
-    raw = Heap.get_obj(ref, %{})
-
-    match?(%{configurable: false}, Heap.get_prop_desc(ref, key)) or
-      (property_present?(raw, key) and not Heap.extensible?(ref))
-  end
-
-  defp proxy_delete_invariant_violation?(_target, _key), do: false
-
-  defp property_present?(map, key) when is_map(map), do: Map.has_key?(map, key)
-
-  defp property_present?(list, key) when is_list(list),
-    do: array_index_present?(key, length(list))
-
-  defp property_present?({:qb_arr, arr}, key), do: array_index_present?(key, :array.size(arr))
-  defp property_present?(_raw, _key), do: false
-
-  defp array_index_present?(key, length) do
-    case PropertyKey.array_index(key) do
-      {:ok, index} -> index < length
-      :error -> false
-    end
-  end
 
   defp visible_array_length(ref) do
     case Heap.get_array_prop(ref, "length") do
