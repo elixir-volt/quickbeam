@@ -1,8 +1,7 @@
 defmodule QuickBEAM.VM.Compiler.Forms do
   @moduledoc "Erlang abstract-format form builder: assembles the module, entry, and block function forms for compilation."
 
-  alias QuickBEAM.VM.Compiler.{BEAMForms, RuntimeABI, RuntimeHelpers}
-  alias QuickBEAM.VM.Semantics.Values
+  alias QuickBEAM.VM.Compiler.{BEAMForms, RuntimeABI}
 
   @large_frame_slot_threshold 200
   @line BEAMForms.line()
@@ -26,7 +25,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
 
   defp entry_form(entry, ctx_entry, arity) do
     args = slot_vars(arity)
-    body = [local_call(ctx_entry, [remote_call(RuntimeHelpers, :entry_ctx, []) | args])]
+    body = [local_call(ctx_entry, [remote_call(RuntimeABI, :entry_ctx, []) | args])]
     BEAMForms.function(entry, arity, [BEAMForms.clause(args, [], body)])
   end
 
@@ -90,26 +89,26 @@ defmodule QuickBEAM.VM.Compiler.Forms do
   defp helper_forms(_fun) do
     [
       add_helper(),
-      guarded_binary_helper(:op_sub, :-, Values, :sub),
-      guarded_binary_helper(:op_mul, :*, Values, :mul),
+      guarded_binary_helper(:op_sub, :-, RuntimeABI, :sub),
+      guarded_binary_helper(:op_mul, :*, RuntimeABI, :mul),
       div_helper(),
-      number_guarded_binary_helper(:op_lt, :<, Values, :lt),
-      number_guarded_binary_helper(:op_lte, :"=<", Values, :lte),
-      number_guarded_binary_helper(:op_gt, :>, Values, :gt),
-      number_guarded_binary_helper(:op_gte, :>=, Values, :gte),
+      number_guarded_binary_helper(:op_lt, :<, RuntimeABI, :lt),
+      number_guarded_binary_helper(:op_lte, :"=<", RuntimeABI, :lte),
+      number_guarded_binary_helper(:op_gt, :>, RuntimeABI, :gt),
+      number_guarded_binary_helper(:op_gte, :>=, RuntimeABI, :gte),
       mod_helper(),
-      guarded_binary_helper(:op_band, :band, Values, :band),
-      guarded_binary_helper(:op_bor, :bor, Values, :bor),
-      guarded_binary_helper(:op_bxor, :bxor, Values, :bxor),
-      unary_fallback_helper2(:op_shl, Values, :shl),
-      unary_fallback_helper2(:op_sar, Values, :sar),
-      unary_fallback_helper2(:op_shr, Values, :shr),
+      guarded_binary_helper(:op_band, :band, RuntimeABI, :band),
+      guarded_binary_helper(:op_bor, :bor, RuntimeABI, :bor),
+      guarded_binary_helper(:op_bxor, :bxor, RuntimeABI, :bxor),
+      unary_fallback_helper2(:op_shl, RuntimeABI, :shl),
+      unary_fallback_helper2(:op_sar, RuntimeABI, :sar),
+      unary_fallback_helper2(:op_shr, RuntimeABI, :shr),
       eq_helper(),
       neq_helper(),
       strict_eq_helper(),
       strict_neq_helper(),
       neg_helper(),
-      unary_fallback_helper(:op_plus, Values, :to_number),
+      unary_fallback_helper(:op_plus, RuntimeABI, :to_number),
       get_field_inline_helper(),
       truthy_inline_helper(),
       typeof_inline_helper()
@@ -170,7 +169,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     function_form(:op_add, 2, [
       clause([a, b], [integer_guards(a, b)], [op(:+, a, b)]),
       clause([a, b], [binary_guards(a, b)], [binary_concat(a, b)]),
-      clause([a, b], [], [remote_call(Values, :add, [a, b])])
+      clause([a, b], [], [remote_call(RuntimeABI, :add, [a, b])])
     ])
   end
 
@@ -199,7 +198,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     b = var("B")
 
     function_form(:op_div, 2, [
-      clause([a, b], [], [remote_call(Values, :js_div, [a, b])])
+      clause([a, b], [], [remote_call(RuntimeABI, :js_div, [a, b])])
     ])
   end
 
@@ -208,7 +207,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     b = var("B")
 
     function_form(:op_mod, 2, [
-      clause([a, b], [], [remote_call(Values, :mod, [a, b])])
+      clause([a, b], [], [remote_call(RuntimeABI, :mod, [a, b])])
     ])
   end
 
@@ -219,7 +218,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
       clause([BEAMForms.integer(0)], [], [BEAMForms.literal(-0.0)]),
       clause([a], [[integer_guard(a)]], [op(:-, a)]),
       clause([a], [[float_guard(a)]], [op(:-, a)]),
-      clause([a], [], [remote_call(Values, :neg, [a])])
+      clause([a], [], [remote_call(RuntimeABI, :neg, [a])])
     ])
   end
 
@@ -260,7 +259,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
              {:call, @line, {:atom, @line, :is_binary}, [b]}}
           ]
         ], [{:op, @line, :==, a, b}]},
-       {:clause, @line, [a, b], [], [remote_call(Values, :eq, [a, b])]}
+       {:clause, @line, [a, b], [], [remote_call(RuntimeABI, :eq, [a, b])]}
      ]}
   end
 
@@ -281,7 +280,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
     {:function, @line, :op_strict_eq, 2,
      [
        {:clause, @line, [a, b], [number_guards(a, b)], [{:op, @line, :==, a, b}]},
-       {:clause, @line, [a, b], [], [remote_call(Values, :strict_eq, [a, b])]}
+       {:clause, @line, [a, b], [], [remote_call(RuntimeABI, :strict_eq, [a, b])]}
      ]}
   end
 
@@ -410,7 +409,7 @@ defmodule QuickBEAM.VM.Compiler.Forms do
         [:erl_parse.abstract("number")]},
        {:clause, @line, [v], [[{:call, @line, {:atom, @line, :is_binary}, [v]}]],
         [:erl_parse.abstract("string")]},
-       {:clause, @line, [v], [], [remote_call(Values, :typeof, [v])]}
+       {:clause, @line, [v], [], [remote_call(RuntimeABI, :typeof, [v])]}
      ]}
   end
 

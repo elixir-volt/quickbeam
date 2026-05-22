@@ -26,6 +26,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
 
   alias QuickBEAM.VM.Compiler.RuntimeABI
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
+  alias QuickBEAM.VM.Semantics.Values
 
   alias QuickBEAM.VM.Compiler.RuntimeHelpers.{
     Calls,
@@ -33,6 +34,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
     Iterators,
     Properties
   }
+
+  def entry_ctx, do: RuntimeHelpers.entry_ctx()
 
   def push_this(ctx), do: RuntimeHelpers.push_this(ctx)
 
@@ -118,7 +121,28 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
 
   def strict_neq(ctx, left, right), do: RuntimeHelpers.strict_neq(ctx, left, right)
 
-  def pow(_ctx, left, right), do: QuickBEAM.VM.Semantics.Values.pow(left, right)
+  def add(left, right), do: Values.add(left, right)
+  def sub(left, right), do: Values.sub(left, right)
+  def mul(left, right), do: Values.mul(left, right)
+  def js_div(left, right), do: Values.js_div(left, right)
+  def mod(left, right), do: Values.mod(left, right)
+  def neg(value), do: Values.neg(value)
+  def lt(left, right), do: Values.lt(left, right)
+  def lte(left, right), do: Values.lte(left, right)
+  def gt(left, right), do: Values.gt(left, right)
+  def gte(left, right), do: Values.gte(left, right)
+  def eq(left, right), do: Values.eq(left, right)
+  def strict_eq(left, right), do: Values.strict_eq(left, right)
+  def band(left, right), do: Values.band(left, right)
+  def bor(left, right), do: Values.bor(left, right)
+  def bxor(left, right), do: Values.bxor(left, right)
+  def shl(left, right), do: Values.shl(left, right)
+  def sar(left, right), do: Values.sar(left, right)
+  def shr(left, right), do: Values.shr(left, right)
+  def to_number(value), do: Values.to_number(value)
+  def typeof(value), do: Values.typeof(value)
+
+  def pow(_ctx, left, right), do: Values.pow(left, right)
 
   def bit_not(ctx, value), do: RuntimeHelpers.bit_not(ctx, value)
 
