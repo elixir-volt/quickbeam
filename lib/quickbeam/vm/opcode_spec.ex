@@ -353,24 +353,43 @@ defmodule QuickBEAM.VM.OpcodeSpec do
 
   def opcode(name) when is_atom(name) do
     with num when is_integer(num) <- num(name),
-         {^name, size, pops, pushes, format} <- info(num) do
-      {:ok,
-       %{
-         name: name,
-         opcode: num,
-         size: size,
-         format: format,
-         stack_effect: {pops, pushes},
-         lowering_family: lowering_family(name),
-         control_flow_family: control_flow_family(name),
-         small_int_push: Map.get(@small_int_push, name)
-       }}
+         {^name, _size, _pops, _pushes, _format} <- info(num) do
+      opcode_record(num, name)
     else
       _ -> :error
     end
   end
 
+  def opcode(num) when is_integer(num) do
+    case info(num) do
+      {name, _size, _pops, _pushes, _format} -> opcode_record(num, name)
+      nil -> :error
+    end
+  end
+
   def opcode(_name), do: :error
+
+  defp opcode_record(num, name) do
+    {^name, size, pops, pushes, format} = info(num)
+    {canonical, canonical_operands} = Opcodes.expand_short_form(name, [], 0)
+
+    {:ok,
+     %{
+       name: name,
+       opcode: num,
+       size: size,
+       format: format,
+       format_info: format_info(format),
+       stack_effect: {pops, pushes},
+       lowering_family: lowering_family(name),
+       control_flow_family: control_flow_family(name),
+       canonical: canonical,
+       canonical_operands: canonical_operands,
+       canonical_opcode: num(canonical),
+       short_form?: canonical != name,
+       small_int_push: Map.get(@small_int_push, name)
+     }}
+  end
 
   def info(opcode), do: Opcodes.info(opcode)
   def num(name), do: Opcodes.num(name)

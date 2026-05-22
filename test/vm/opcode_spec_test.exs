@@ -36,11 +36,16 @@ defmodule QuickBEAM.VM.OpcodeSpecTest do
     assert info.name == :if_false
     assert is_integer(info.opcode)
     assert info.stack_effect == {1, 0}
+    assert info.format_info == Opcodes.format_info(:label)
     assert info.lowering_family == :control
     assert info.control_flow_family == {:branch, false}
 
     assert {:ok, push} = OpcodeSpec.opcode(:push_0)
     assert push.small_int_push == 0
+    assert push.canonical == :push_i32
+    assert push.canonical_operands == [0]
+    assert push.short_form?
+    assert OpcodeSpec.opcode(push.opcode) == {:ok, push}
     assert OpcodeSpec.opcode(:not_an_opcode) == :error
   end
 
