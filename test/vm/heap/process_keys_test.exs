@@ -44,6 +44,22 @@ defmodule QuickBEAM.VM.Heap.ProcessKeysTest do
     refute Process.get({:qb_worker_listeners, listeners_ref})
   end
 
+  test "Heap.snapshot and restore include reference-backed VM state" do
+    iterator_ref = IteratorState.new({[:original], 0})
+    listeners_ref = make_ref()
+    WorkerState.init_callbacks(make_ref(), make_ref(), listeners_ref)
+    WorkerState.add_listener(listeners_ref, :original)
+
+    snapshot = Heap.snapshot()
+
+    IteratorState.put(iterator_ref, {[:changed], 1})
+    WorkerState.add_listener(listeners_ref, :changed)
+
+    assert Heap.restore(snapshot) == :ok
+    assert IteratorState.get(iterator_ref, nil) == {[:original], 0}
+    assert WorkerState.listeners(listeners_ref) == [:original]
+  end
+
   test "Heap.reset removes registered heap keys only" do
     heap_ref = make_ref()
     external_ref = make_ref()
