@@ -34,6 +34,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
   @doc "Builds an Erlang abstract-format map expression."
   def map_expr(entries), do: BEAMForms.map(entries)
 
+  def map_get(map, key), do: BEAMForms.map_get(map, key)
+
   def list_expr(values), do: BEAMForms.list(values)
 
   def anonymous_fun(args, guards, body), do: BEAMForms.anonymous_fun(args, guards, body)

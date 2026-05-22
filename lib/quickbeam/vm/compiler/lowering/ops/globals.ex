@@ -246,8 +246,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
 
   defp inline_get_var(state, name) do
     Builder.remote_call(Bindings, :get_global, [
-      {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :map_get}},
-       [{:atom, 1, :globals}, State.ctx_expr(state)]},
+      Builder.map_get(State.ctx_expr(state), Builder.atom(:globals)),
       Builder.literal(name)
     ])
   end
@@ -261,8 +260,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
 
   defp inline_get_var_undef(state, name) do
     Builder.remote_call(Bindings, :get_global_undef, [
-      {:call, 1, {:remote, 1, {:atom, 1, :erlang}, {:atom, 1, :map_get}},
-       [{:atom, 1, :globals}, State.ctx_expr(state)]},
+      Builder.map_get(State.ctx_expr(state), Builder.atom(:globals)),
       Builder.literal(name)
     ])
   end
