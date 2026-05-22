@@ -24,74 +24,79 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
   here when they become part of generated-code semantics.
   """
 
+  alias QuickBEAM.VM.Compiler.RuntimeABI
   alias QuickBEAM.VM.Compiler.RuntimeHelpers
-  alias QuickBEAM.VM.{GlobalEnvironment, ObjectModel}
 
   alias QuickBEAM.VM.Compiler.RuntimeHelpers.{
-    Bindings,
     Calls,
-    Captures,
     Classes,
-    Constants,
     Iterators,
     Properties
   }
 
   def push_this(ctx), do: RuntimeHelpers.push_this(ctx)
 
-  def push_atom_value(ctx, atom_idx), do: Constants.push_atom_value(ctx, atom_idx)
+  def push_atom_value(ctx, atom_idx), do: RuntimeABI.Constants.push_atom_value(ctx, atom_idx)
 
-  def private_symbol(ctx, name_or_atom_idx), do: Constants.private_symbol(ctx, name_or_atom_idx)
+  def private_symbol(ctx, name_or_atom_idx),
+    do: RuntimeABI.Constants.private_symbol(ctx, name_or_atom_idx)
 
-  def materialize_constant(ctx, value), do: Constants.materialize_constant(ctx, value)
+  def materialize_constant(ctx, value), do: RuntimeABI.Constants.materialize_constant(ctx, value)
 
-  def regexp_literal(ctx, pattern, flags), do: Constants.regexp_literal(ctx, pattern, flags)
+  def regexp_literal(ctx, pattern, flags),
+    do: RuntimeABI.Constants.regexp_literal(ctx, pattern, flags)
 
-  def to_property_key_raw(_ctx, value), do: ObjectModel.PropertyKey.to_property_key(value)
+  def to_property_key_raw(ctx, value), do: RuntimeABI.Constants.to_property_key_raw(ctx, value)
 
-  def read_capture_cell(ctx, cell, slot_value), do: Captures.read_cell(ctx, cell, slot_value)
+  def read_capture_cell(ctx, cell, slot_value),
+    do: RuntimeABI.Captures.read_capture_cell(ctx, cell, slot_value)
 
-  def ensure_capture_cell(ctx, cell, value), do: Captures.ensure_cell(ctx, cell, value)
+  def ensure_capture_cell(ctx, cell, value),
+    do: RuntimeABI.Captures.ensure_capture_cell(ctx, cell, value)
 
-  def close_capture_cell(ctx, cell, value), do: Captures.close_cell(ctx, cell, value)
+  def close_capture_cell(ctx, cell, value),
+    do: RuntimeABI.Captures.close_capture_cell(ctx, cell, value)
 
-  def sync_capture_cell(ctx, cell, value), do: Captures.sync_cell(ctx, cell, value)
+  def sync_capture_cell(ctx, cell, value),
+    do: RuntimeABI.Captures.sync_capture_cell(ctx, cell, value)
 
-  def get_capture(ctx, key), do: Captures.get(ctx, key)
+  def get_capture(ctx, key), do: RuntimeABI.Captures.get_capture(ctx, key)
 
-  def get_var(ctx, name), do: Bindings.get_var(ctx, name)
+  def get_var(ctx, name), do: RuntimeABI.Bindings.get_var(ctx, name)
 
-  def get_var_undef(ctx, name), do: Bindings.get_var_undef(ctx, name)
+  def get_var_undef(ctx, name), do: RuntimeABI.Bindings.get_var_undef(ctx, name)
 
-  def get_var_ref(ctx, idx), do: Bindings.get_var_ref(ctx, idx)
+  def get_var_ref(ctx, idx), do: RuntimeABI.Bindings.get_var_ref(ctx, idx)
 
-  def get_var_ref_check(ctx, idx), do: Bindings.get_var_ref_check(ctx, idx)
+  def get_var_ref_check(ctx, idx), do: RuntimeABI.Bindings.get_var_ref_check(ctx, idx)
 
-  def put_var(ctx, atom_idx, value, opts), do: GlobalEnvironment.put(ctx, atom_idx, value, opts)
+  def put_var(ctx, atom_idx, value, opts),
+    do: RuntimeABI.Bindings.put_var(ctx, atom_idx, value, opts)
 
-  def define_var(ctx, atom_idx, scope), do: GlobalEnvironment.define_var(ctx, atom_idx, scope)
+  def define_var(ctx, atom_idx, scope), do: RuntimeABI.Bindings.define_var(ctx, atom_idx, scope)
 
-  def check_define_var(ctx, atom_idx), do: GlobalEnvironment.check_define_var(ctx, atom_idx)
+  def check_define_var(ctx, atom_idx), do: RuntimeABI.Bindings.check_define_var(ctx, atom_idx)
 
-  def refresh_globals(ctx), do: GlobalEnvironment.refresh(ctx)
+  def refresh_globals(ctx), do: RuntimeABI.Bindings.refresh_globals(ctx)
 
-  def delete_var(ctx, atom_idx), do: Bindings.delete_var(ctx, atom_idx)
+  def delete_var(ctx, atom_idx), do: RuntimeABI.Bindings.delete_var(ctx, atom_idx)
 
-  def put_var_ref(ctx, idx, value), do: Bindings.put_var_ref(ctx, idx, value)
+  def put_var_ref(ctx, idx, value), do: RuntimeABI.Bindings.put_var_ref(ctx, idx, value)
 
-  def set_var_ref(ctx, idx, value), do: Bindings.set_var_ref(ctx, idx, value)
+  def set_var_ref(ctx, idx, value), do: RuntimeABI.Bindings.set_var_ref(ctx, idx, value)
 
-  def make_loc_ref(ctx, idx, value), do: Bindings.make_loc_ref(ctx, idx, value)
+  def make_loc_ref(ctx, idx, value), do: RuntimeABI.Bindings.make_loc_ref(ctx, idx, value)
 
-  def make_arg_ref(ctx, idx), do: Bindings.make_arg_ref(ctx, idx)
+  def make_arg_ref(ctx, idx), do: RuntimeABI.Bindings.make_arg_ref(ctx, idx)
 
-  def make_var_ref(ctx, atom_idx), do: Bindings.make_var_ref(ctx, atom_idx)
+  def make_var_ref(ctx, atom_idx), do: RuntimeABI.Bindings.make_var_ref(ctx, atom_idx)
 
-  def make_var_ref_ref(ctx, idx), do: Bindings.make_var_ref_ref(ctx, idx)
+  def make_var_ref_ref(ctx, idx), do: RuntimeABI.Bindings.make_var_ref_ref(ctx, idx)
 
-  def get_ref_value(ctx, key, ref), do: Bindings.get_ref_value(ctx, key, ref)
+  def get_ref_value(ctx, key, ref), do: RuntimeABI.Bindings.get_ref_value(ctx, key, ref)
 
-  def put_ref_value(ctx, value, key, ref), do: Bindings.put_ref_value(ctx, value, key, ref)
+  def put_ref_value(ctx, value, key, ref),
+    do: RuntimeABI.Bindings.put_ref_value(ctx, value, key, ref)
 
   def ensure_initialized_local!(ctx, value),
     do: RuntimeHelpers.ensure_initialized_local!(ctx, value)
