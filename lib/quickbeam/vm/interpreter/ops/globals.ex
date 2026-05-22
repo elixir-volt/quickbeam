@@ -10,6 +10,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
       alias QuickBEAM.VM.JSThrow
       alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods}
       alias QuickBEAM.VM.Promise, as: Promise
+      alias QuickBEAM.VM.Semantics.Values
 
       # ── Globals: get_var, put_var, define_var, eval ──
 
@@ -150,15 +151,19 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
           new_ctx =
             GlobalEnvironment.put(ctx, atom_idx, val,
               init: op == @op_put_var_init,
-              strict: current_strict_mode?(ctx)
+              strict: current_strict_mode?(ctx),
+              sync_global_this: false
             )
 
           name = Names.resolve_atom(ctx, atom_idx)
 
           unless GlobalEnvironment.lexical_global?(name) do
             case Map.get(ctx.globals, "globalThis") do
-              {:obj, _} = gt -> InternalMethods.set(gt, name, val)
-              _ -> :ok
+              {:obj, _} = gt ->
+                validate_global_set_result!(ctx, name, InternalMethods.set(gt, name, val))
+
+              _ ->
+                :ok
             end
           end
 
@@ -168,6 +173,14 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
             Heap.put_persistent_globals(persistent_before)
             Heap.put_base_globals(base_before)
             throw_or_catch(frame, error, gas, ctx)
+        end
+      end
+
+      defp validate_global_set_result!(ctx, name, result) do
+        if Values.truthy?(result) or not current_strict_mode?(ctx) do
+          :ok
+        else
+          JSThrow.type_error!("Cannot assign to #{name}")
         end
       end
 

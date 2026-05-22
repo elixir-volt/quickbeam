@@ -77,7 +77,7 @@ defmodule QuickBEAM.VM.GlobalEnvironment do
 
     globals = ctx.globals |> Map.merge(Heap.get_persistent_globals() || %{}) |> Map.put(name, val)
 
-    unless lexical_global?(name) do
+    if Keyword.get(opts, :sync_global_this, true) and not lexical_global?(name) do
       sync_global_this_property(globals, name, val)
     end
 
