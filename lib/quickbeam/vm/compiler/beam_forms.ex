@@ -47,6 +47,14 @@ defmodule QuickBEAM.VM.Compiler.BEAMForms do
     match?({:call, _, {:remote, _, {:atom, _, ^mod}, {:atom, _, ^fun}}, _args}, expr)
   end
 
+  def map_get?(expr, key) do
+    match?(
+      {:call, _, {:remote, _, {:atom, _, :erlang}, {:atom, _, :map_get}},
+       [{:atom, _, ^key}, _map]},
+      expr
+    )
+  end
+
   def local_call(fun, args), do: {:call, @line, atom(fun), args}
 
   def tuple_element(tuple, index), do: remote_call(:erlang, :element, [integer(index), tuple])

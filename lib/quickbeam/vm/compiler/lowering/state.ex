@@ -500,12 +500,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
 
   defp refresh_define_value_expr(state, {:call, line, remote, [globals_expr, name]}) do
     case globals_expr do
-      {:call, _, {:remote, _, {:atom, _, :erlang}, {:atom, _, :map_get}},
-       [{:atom, _, :globals}, _old_ctx]} ->
-        {:call, line, remote, [context_globals_expr(state), name]}
-
       _ ->
-        {:call, line, remote, [globals_expr, name]}
+        if QuickBEAM.VM.Compiler.BEAMForms.map_get?(globals_expr, :globals) do
+          {:call, line, remote, [context_globals_expr(state), name]}
+        else
+          {:call, line, remote, [globals_expr, name]}
+        end
     end
   end
 
