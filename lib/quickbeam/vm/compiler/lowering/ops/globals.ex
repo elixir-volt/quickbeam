@@ -112,8 +112,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
   end
 
   defp lower_handler(:get_var_ref_check, state, [idx]) do
-    {expr, state} = State.inline_get_var_ref(state, idx)
-    LoweringEffects.effectful_push(state, expr)
+    State.abi_call(state, :get_var_ref_check, [Builder.literal(idx)])
+    |> then(&LoweringEffects.effectful_push(state, &1))
   end
 
   defp lower_handler(:put_var_ref, state, [idx]), do: lower_put_var_ref(state, idx)
