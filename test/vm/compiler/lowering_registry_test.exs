@@ -4,6 +4,7 @@ defmodule QuickBEAM.VM.Compiler.LoweringRegistryTest do
   alias QuickBEAM.VM.Compiler.Lowering.Ops.{
     Arithmetic,
     Calls,
+    Classes,
     Generators,
     Globals,
     Iterators,
@@ -37,6 +38,20 @@ defmodule QuickBEAM.VM.Compiler.LoweringRegistryTest do
 
   test "iterator handlers match iterators lowering family" do
     assert_registered_family(Iterators.registered_opcodes(), :iterators)
+  end
+
+  test "class handlers match classes lowering family" do
+    extras = MapSet.new([:init_ctor])
+
+    unexpected =
+      Classes.registered_opcodes()
+      |> Enum.reject(&(OpcodeSpec.lowering_family(&1) == :classes or MapSet.member?(extras, &1)))
+      |> Enum.sort()
+
+    assert unexpected == []
+
+    assert Enum.sort(Classes.registered_opcodes()) ==
+             Enum.uniq(Enum.sort(Classes.registered_opcodes()))
   end
 
   test "generator handlers match generators lowering family" do
