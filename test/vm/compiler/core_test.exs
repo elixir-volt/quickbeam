@@ -1086,10 +1086,17 @@ defmodule QuickBEAM.VM.CompilerTest do
           ~S|let p=new Proxy({}, {has(){throw "has"}}); try{with(p){x}}catch(e){e}|
         ).value
 
+      with_set =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({}, {has(){return true}, set(){throw "set"}}); try{with(p){x=1}}catch(e){e}|
+        ).value
+
       assert {:ok, "field"} = Compiler.invoke(field_get, [])
       assert {:ok, "field2"} = Compiler.invoke(field_get2, [])
       assert {:ok, "length"} = Compiler.invoke(length_get, [])
       assert {:ok, "has"} = Compiler.invoke(with_has, [])
+      assert {:ok, "set"} = Compiler.invoke(with_set, [])
     end
 
     test "compiles runtime constructor and regexp feature calls", %{rt: rt} do
