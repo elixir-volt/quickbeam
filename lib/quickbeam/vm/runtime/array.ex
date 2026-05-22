@@ -10,9 +10,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   alias QuickBEAM.VM.ObjectModel.{
     InternalMethods,
-    Delete,
     Get,
-    HasProperty,
     OwnProperty,
     PropertyDescriptor,
     PropertyKey,
@@ -433,7 +431,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
       element = get_array_hole_aware(receiver, key)
 
-      unless Delete.delete_property(receiver, key) do
+      unless InternalMethods.delete(receiver, key) do
         JSThrow.type_error!("Cannot delete property")
       end
 
@@ -481,10 +479,10 @@ defmodule QuickBEAM.VM.Runtime.Array do
     object_proto = Heap.get_object_prototype()
 
     cond do
-      match?({:obj, _}, array_proto) and HasProperty.has_property?(array_proto, key) ->
+      match?({:obj, _}, array_proto) and InternalMethods.has_property(array_proto, key) ->
         Get.get(array_proto, key)
 
-      match?({:obj, _}, object_proto) and HasProperty.has_property?(object_proto, key) ->
+      match?({:obj, _}, object_proto) and InternalMethods.has_property(object_proto, key) ->
         Get.get(object_proto, key)
 
       true ->
@@ -558,7 +556,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
           from_key = Integer.to_string(from)
           to_key = Integer.to_string(from - 1)
 
-          if HasProperty.has_property?(receiver, from_key) do
+          if InternalMethods.has_property(receiver, from_key) do
             Put.put(receiver, to_key, Get.get(receiver, from_key))
           else
             delete_or_throw(receiver, to_key)
@@ -596,7 +594,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         from_key = Integer.to_string(from)
         to_key = Integer.to_string(from + arg_count)
 
-        if HasProperty.has_property?(receiver, from_key) do
+        if InternalMethods.has_property(receiver, from_key) do
           put_or_throw(receiver, to_key, Get.get(receiver, from_key))
         else
           delete_or_throw(receiver, to_key)
@@ -633,7 +631,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
       Enum.each(callback_iteration_indexes(this, len), fn idx ->
         key = Integer.to_string(idx)
 
-        if HasProperty.has_property?(this, key) do
+        if InternalMethods.has_property(this, key) do
           value = find_value_at(this, idx)
 
           mapped =
@@ -730,7 +728,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
       |> Enum.reduce([], fn idx, acc ->
         key = Integer.to_string(idx)
 
-        if HasProperty.has_property?(this, key) do
+        if InternalMethods.has_property(this, key) do
           value = Get.get(this, key)
 
           if Runtime.truthy?(
@@ -836,7 +834,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     Enum.reduce(remaining_indexes, acc, fn idx, current_acc ->
       key = Integer.to_string(idx)
 
-      if HasProperty.has_property?(this, key) do
+      if InternalMethods.has_property(this, key) do
         value = find_value_at(this, idx)
 
         QuickBEAM.VM.Invocation.invoke_with_receiver(
@@ -958,7 +956,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp find_initial_accumulator(this, indexes) do
     case Enum.split_while(indexes, fn idx ->
-           not HasProperty.has_property?(this, Integer.to_string(idx))
+           not InternalMethods.has_property(this, Integer.to_string(idx))
          end) do
       {_skipped, [idx | rest]} -> {find_value_at(this, idx), rest}
       {_skipped, []} -> JSThrow.type_error!("Reduce of empty array with no initial value")
@@ -985,7 +983,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     Enum.each(callback_iteration_indexes(this, len), fn idx ->
       key = Integer.to_string(idx)
 
-      if HasProperty.has_property?(this, key) do
+      if InternalMethods.has_property(this, key) do
         value = find_value_at(this, idx)
         QuickBEAM.VM.Invocation.invoke_with_receiver(fun, [value, idx, this], this_arg)
       end
@@ -1039,7 +1037,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         |> Enum.find_value(-1, fn idx ->
           key = Integer.to_string(idx)
 
-          if HasProperty.has_property?(this, key) and
+          if InternalMethods.has_property(this, key) and
                strict_equal_for_index?(find_value_at(this, idx), search_element) do
             idx
           end
@@ -1112,7 +1110,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         |> Enum.find_value(-1, fn idx ->
           key = Integer.to_string(idx)
 
-          if HasProperty.has_property?(this, key) and
+          if InternalMethods.has_property(this, key) and
                strict_equal_for_index?(find_value_at(this, idx), search_element) do
             idx
           end
@@ -1205,7 +1203,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         from = start_idx + offset
         key = Integer.to_string(from)
 
-        if HasProperty.has_property?(receiver, key) do
+        if InternalMethods.has_property(receiver, key) do
           create_data_property_or_throw(
             target,
             Integer.to_string(offset),
@@ -1340,7 +1338,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
       from = actual_start + index
       from_key = Integer.to_string(from)
 
-      if HasProperty.has_property?(receiver, from_key) do
+      if InternalMethods.has_property(receiver, from_key) do
         create_data_property_or_throw(
           removed,
           Integer.to_string(index),
@@ -1359,7 +1357,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         from_key = Integer.to_string(from + actual_delete_count)
         to_key = Integer.to_string(from + insert_count)
 
-        if HasProperty.has_property?(receiver, from_key) do
+        if InternalMethods.has_property(receiver, from_key) do
           Put.put(receiver, to_key, Get.get(receiver, from_key))
         else
           delete_or_throw(receiver, to_key)
@@ -1384,7 +1382,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         from_key = Integer.to_string(from + actual_delete_count)
         to_key = Integer.to_string(from + insert_count)
 
-        if HasProperty.has_property?(receiver, from_key) do
+        if InternalMethods.has_property(receiver, from_key) do
           Put.put(receiver, to_key, Get.get(receiver, from_key))
         else
           delete_or_throw(receiver, to_key)
@@ -1683,7 +1681,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
       for index <- 0..(len - 1) do
         key = Integer.to_string(index)
 
-        if HasProperty.has_property?(value, key) do
+        if InternalMethods.has_property(value, key) do
           {:present, Get.get(value, key)}
         else
           :hole
@@ -1736,9 +1734,9 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp reverse_pairs(receiver, lower, upper) do
     lower_key = Integer.to_string(lower)
     upper_key = Integer.to_string(upper)
-    lower_exists = HasProperty.has_property?(receiver, lower_key)
+    lower_exists = InternalMethods.has_property(receiver, lower_key)
     lower_value = if lower_exists, do: Get.get(receiver, lower_key), else: :undefined
-    upper_exists = HasProperty.has_property?(receiver, upper_key)
+    upper_exists = InternalMethods.has_property(receiver, upper_key)
     upper_value = if upper_exists, do: Get.get(receiver, upper_key), else: :undefined
 
     cond do
@@ -1777,7 +1775,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp reverse_put(receiver, _index, key, value), do: Put.put(receiver, key, value)
 
   defp delete_or_throw(receiver, key) do
-    unless Delete.delete_property(receiver, key) do
+    unless InternalMethods.delete(receiver, key) do
       JSThrow.type_error!("Cannot delete property")
     end
   end
@@ -1800,7 +1798,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         |> Enum.reduce([], fn index, acc ->
           key = Integer.to_string(index)
 
-          if index < array_like_length(receiver) and HasProperty.has_property?(receiver, key) do
+          if index < array_like_length(receiver) and InternalMethods.has_property(receiver, key) do
             [{find_value_at(receiver, index), index} | acc]
           else
             acc
@@ -1930,7 +1928,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
       |> Enum.flat_map(fn idx ->
         key = Integer.to_string(idx)
 
-        if HasProperty.has_property?(obj, key) do
+        if InternalMethods.has_property(obj, key) do
           obj |> Get.get(key) |> flat_item(depth)
         else
           []
@@ -2001,7 +1999,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
           |> Enum.flat_map(fn idx ->
             key = Integer.to_string(idx)
 
-            if HasProperty.has_property?(this, key) do
+            if InternalMethods.has_property(this, key) do
               value = find_value_at(this, idx)
 
               fun
@@ -2288,7 +2286,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     Enum.all?(callback_iteration_indexes(this, len), fn idx ->
       key = Integer.to_string(idx)
 
-      if HasProperty.has_property?(this, key) do
+      if InternalMethods.has_property(this, key) do
         value = Get.get(this, key)
 
         Runtime.truthy?(
@@ -2381,7 +2379,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     Enum.any?(callback_iteration_indexes(this, len), fn idx ->
       key = Integer.to_string(idx)
 
-      HasProperty.has_property?(this, key) and
+      InternalMethods.has_property(this, key) and
         Runtime.truthy?(
           QuickBEAM.VM.Invocation.invoke_with_receiver(
             fun,
@@ -2807,7 +2805,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
     count > 0 and
       Enum.any?(0..(count - 1)//1, fn offset ->
-        not HasProperty.has_property?(obj, Integer.to_string(start_idx + offset))
+        not InternalMethods.has_property(obj, Integer.to_string(start_idx + offset))
       end)
   end
 
@@ -2826,10 +2824,10 @@ defmodule QuickBEAM.VM.Runtime.Array do
         from_key = Integer.to_string(from_idx)
         to_key = Integer.to_string(to_idx)
 
-        if HasProperty.has_property?(obj, from_key) do
+        if InternalMethods.has_property(obj, from_key) do
           Put.put(obj, to_key, Get.get(obj, from_key))
         else
-          unless Delete.delete_property(obj, to_key) do
+          unless InternalMethods.delete(obj, to_key) do
             JSThrow.type_error!("Cannot delete property")
           end
         end
@@ -2848,7 +2846,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
       to = target + offset
       to_key = Integer.to_string(to)
 
-      if HasProperty.has_property?(obj, from_key) do
+      if InternalMethods.has_property(obj, from_key) do
         value =
           copy_within_sparse_source_value(obj, ref, start_idx + offset, current_len, from_key)
 
@@ -2860,7 +2858,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         end
       else
         if to < current_len do
-          unless Delete.delete_property(obj, to_key) do
+          unless InternalMethods.delete(obj, to_key) do
             JSThrow.type_error!("Cannot delete property")
           end
         end
@@ -2887,7 +2885,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     Enum.each(0..max(count - 1, -1), fn offset ->
       from_key = Integer.to_string(start_idx + offset)
 
-      if HasProperty.has_property?(obj, from_key) do
+      if InternalMethods.has_property(obj, from_key) do
         Heap.put_array_prop(ref, Integer.to_string(target + offset), Get.get(obj, from_key))
       end
     end)
@@ -2958,10 +2956,10 @@ defmodule QuickBEAM.VM.Runtime.Array do
         from_key = Integer.to_string(start_idx + offset)
         to_key = Integer.to_string(target + offset)
 
-        if HasProperty.has_property?(acc, from_key) do
+        if InternalMethods.has_property(acc, from_key) do
           Put.put(acc, to_key, Get.get(acc, from_key))
         else
-          unless Delete.delete_property(acc, to_key) do
+          unless InternalMethods.delete(acc, to_key) do
             JSThrow.type_error!("Cannot delete property")
           end
         end
