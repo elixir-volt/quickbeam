@@ -79,6 +79,21 @@ defmodule QuickBEAM.VM.OpcodeSpec do
     raise "missing opcode format metadata: #{inspect(missing_formats)}"
   end
 
+  @short_form_formats [:none_loc, :none_arg, :none_var_ref, :none_int, :npopx]
+  @short_form_opcodes for {num, {_name, _size, _pops, _pushes, format}} <- @opcode_rows,
+                          format in @short_form_formats,
+                          do: num
+
+  @invalid_short_forms for num <- @short_form_opcodes,
+                           {name, _size, _pops, _pushes, _format} = Map.fetch!(@opcode_rows, num),
+                           {canonical, _operands} = Opcodes.expand_short_form(name, [], 0),
+                           canonical != name and Opcodes.num(canonical) == nil,
+                           do: {num, name, canonical}
+
+  if @invalid_short_forms != [] do
+    raise "invalid opcode short-form expansions: #{inspect(@invalid_short_forms)}"
+  end
+
   @call Map.fetch!(@families, :call)
   @get_slot Map.fetch!(@families, :get_slot)
   @put_slot Map.fetch!(@families, :put_slot)
@@ -290,7 +305,16 @@ defmodule QuickBEAM.VM.OpcodeSpec do
     ]
   }
 
+  @symbolic_lowering_opcodes [:define_static_method, :and, :xor, :or]
   @lowering_pairs for {family, names} <- @lowering_groups, name <- names, do: {name, family}
+  @unknown_lowering_opcodes for {name, family} <- @lowering_pairs,
+                                Opcodes.num(name) == nil and
+                                  name not in @symbolic_lowering_opcodes,
+                                do: {name, family}
+
+  if @unknown_lowering_opcodes != [] do
+    raise "lowering families reference unknown opcodes: #{inspect(@unknown_lowering_opcodes)}"
+  end
 
   if length(@lowering_pairs) != length(Enum.uniq_by(@lowering_pairs, &elem(&1, 0))) do
     duplicates =
