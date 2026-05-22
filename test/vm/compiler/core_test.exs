@@ -1099,6 +1099,23 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "set"} = Compiler.invoke(with_set, [])
     end
 
+    test "routes observable instanceof and constructor prototype throws", %{rt: rt} do
+      has_instance =
+        compile_and_decode(
+          rt,
+          ~S|let c={ [Symbol.hasInstance](){ throw "hasInstance" } }; try{({}) instanceof c}catch(e){e}|
+        ).value
+
+      ctor_proto =
+        compile_and_decode(
+          rt,
+          ~S|function C(){}; function N(){}; Object.defineProperty(N,"prototype",{get(){throw "proto"}}); try{Reflect.construct(C, [], N)}catch(e){e}|
+        ).value
+
+      assert {:ok, "hasInstance"} = Compiler.invoke(has_instance, [])
+      assert {:ok, "proto"} = Compiler.invoke(ctor_proto, [])
+    end
+
     test "compiles runtime constructor and regexp feature calls", %{rt: rt} do
       url_can_parse = compile_and_decode(rt, "URL.canParse('https://x.test/')").value
       event_type = compile_and_decode(rt, "new Event('tick', {bubbles:true}).type").value
