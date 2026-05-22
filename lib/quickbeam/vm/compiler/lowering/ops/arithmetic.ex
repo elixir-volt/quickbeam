@@ -4,116 +4,76 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Arithmetic do
   alias QuickBEAM.VM.Compiler.BEAMForms
   alias QuickBEAM.VM.Compiler.Lowering.Operators
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, State}
+  alias QuickBEAM.VM.OpcodeSpec
+
+  @handlers %{
+    neg: {:unary_local, :op_neg},
+    plus: {:unary_local, :op_plus},
+    not: {:unary_abi, :bit_not},
+    lnot: {:unary_abi, :lnot},
+    is_undefined: {:unary_abi, :undefined?},
+    is_null: {:unary_abi, :null?},
+    is_undefined_or_null: :is_undefined_or_null,
+    typeof_is_undefined: {:unary_abi, :typeof_is_undefined},
+    typeof_is_function: {:unary_abi, :typeof_is_function},
+    typeof: :typeof,
+    inc: {:inc_dec, :+},
+    dec: {:inc_dec, :-},
+    post_inc: {:post_update, :post_inc},
+    post_dec: {:post_update, :post_dec},
+    add: {:binary_local, :op_add},
+    sub: {:binary_local, :op_sub},
+    mul: {:binary_local, :op_mul},
+    div: {:binary_local, :op_div},
+    mod: {:binary_local, :op_mod},
+    pow: {:binary_abi, :pow},
+    band: {:binary_local, :op_band},
+    bor: {:binary_local, :op_bor},
+    bxor: {:binary_local, :op_bxor},
+    shl: {:binary_local, :op_shl},
+    sar: {:binary_local, :op_sar},
+    shr: {:binary_local, :op_shr},
+    lt: {:binary_local, :op_lt},
+    lte: {:binary_local, :op_lte},
+    gt: {:binary_local, :op_gt},
+    gte: {:binary_local, :op_gte},
+    eq: {:binary_local, :op_eq},
+    neq: {:binary_local, :op_neq},
+    strict_eq: {:binary_local, :op_strict_eq},
+    strict_neq: {:binary_local, :op_strict_neq}
+  }
+
+  @opcode_aliases %{band: :and, bxor: :xor, bor: :or}
+  @invalid_handlers for {name, _handler} <- @handlers,
+                        OpcodeSpec.lowering_family(Map.get(@opcode_aliases, name, name)) !=
+                          :arithmetic,
+                        do: name
+
+  if @invalid_handlers != [] do
+    raise "arithmetic lowering handlers registered for non-arithmetic opcodes: #{inspect(@invalid_handlers)}"
+  end
 
   @doc "Lowers a VM instruction or function into compiler IR."
-  def lower(state, name_args) do
-    case name_args do
-      {{:ok, :neg}, []} ->
-        Operators.unary_local_call(state, :op_neg)
+  def lower(state, {{:ok, name}, []}) do
+    case Map.get(@handlers, name) do
+      nil -> :not_handled
+      handler -> lower_handler(handler, state)
+    end
+  end
 
-      {{:ok, :plus}, []} ->
-        Operators.unary_local_call(state, :op_plus)
+  def lower(_state, _name_args), do: :not_handled
 
-      {{:ok, :not}, []} ->
-        Operators.unary_abi_call(state, :bit_not)
+  defp lower_handler({:unary_local, fun}, state), do: Operators.unary_local_call(state, fun)
+  defp lower_handler({:unary_abi, fun}, state), do: Operators.unary_abi_call(state, fun)
+  defp lower_handler({:binary_local, fun}, state), do: Operators.binary_local_call(state, fun)
+  defp lower_handler({:binary_abi, fun}, state), do: Operators.binary_abi_call(state, fun)
+  defp lower_handler({:inc_dec, op}, state), do: lower_inc_dec(state, op)
+  defp lower_handler({:post_update, fun}, state), do: Operators.post_update(state, fun)
+  defp lower_handler(:is_undefined_or_null, state), do: lower_is_undefined_or_null(state)
 
-      {{:ok, :lnot}, []} ->
-        Operators.unary_abi_call(state, :lnot)
-
-      {{:ok, :is_undefined}, []} ->
-        Operators.unary_abi_call(state, :undefined?)
-
-      {{:ok, :is_null}, []} ->
-        Operators.unary_abi_call(state, :null?)
-
-      {{:ok, :is_undefined_or_null}, []} ->
-        lower_is_undefined_or_null(state)
-
-      {{:ok, :typeof_is_undefined}, []} ->
-        Operators.unary_abi_call(state, :typeof_is_undefined)
-
-      {{:ok, :typeof_is_function}, []} ->
-        Operators.unary_abi_call(state, :typeof_is_function)
-
-      {{:ok, :typeof}, []} ->
-        with {:ok, expr, _type, state} <- Emit.pop_typed(state) do
-          {:ok, Emit.push(state, Builder.local_call(:op_typeof, [expr]))}
-        end
-
-      {{:ok, :inc}, []} ->
-        lower_inc_dec(state, :+)
-
-      {{:ok, :dec}, []} ->
-        lower_inc_dec(state, :-)
-
-      {{:ok, :post_inc}, []} ->
-        Operators.post_update(state, :post_inc)
-
-      {{:ok, :post_dec}, []} ->
-        Operators.post_update(state, :post_dec)
-
-      {{:ok, :add}, []} ->
-        Operators.binary_local_call(state, :op_add)
-
-      {{:ok, :sub}, []} ->
-        Operators.binary_local_call(state, :op_sub)
-
-      {{:ok, :mul}, []} ->
-        Operators.binary_local_call(state, :op_mul)
-
-      {{:ok, :div}, []} ->
-        Operators.binary_local_call(state, :op_div)
-
-      {{:ok, :mod}, []} ->
-        Operators.binary_local_call(state, :op_mod)
-
-      {{:ok, :pow}, []} ->
-        Operators.binary_abi_call(state, :pow)
-
-      {{:ok, :band}, []} ->
-        Operators.binary_local_call(state, :op_band)
-
-      {{:ok, :bor}, []} ->
-        Operators.binary_local_call(state, :op_bor)
-
-      {{:ok, :bxor}, []} ->
-        Operators.binary_local_call(state, :op_bxor)
-
-      {{:ok, :shl}, []} ->
-        Operators.binary_local_call(state, :op_shl)
-
-      {{:ok, :sar}, []} ->
-        Operators.binary_local_call(state, :op_sar)
-
-      {{:ok, :shr}, []} ->
-        Operators.binary_local_call(state, :op_shr)
-
-      {{:ok, :lt}, []} ->
-        Operators.binary_local_call(state, :op_lt)
-
-      {{:ok, :lte}, []} ->
-        Operators.binary_local_call(state, :op_lte)
-
-      {{:ok, :gt}, []} ->
-        Operators.binary_local_call(state, :op_gt)
-
-      {{:ok, :gte}, []} ->
-        Operators.binary_local_call(state, :op_gte)
-
-      {{:ok, :eq}, []} ->
-        Operators.binary_local_call(state, :op_eq)
-
-      {{:ok, :neq}, []} ->
-        Operators.binary_local_call(state, :op_neq)
-
-      {{:ok, :strict_eq}, []} ->
-        Operators.binary_local_call(state, :op_strict_eq)
-
-      {{:ok, :strict_neq}, []} ->
-        Operators.binary_local_call(state, :op_strict_neq)
-
-      _ ->
-        :not_handled
+  defp lower_handler(:typeof, state) do
+    with {:ok, expr, _type, state} <- Emit.pop_typed(state) do
+      {:ok, Emit.push(state, Builder.local_call(:op_typeof, [expr]))}
     end
   end
 

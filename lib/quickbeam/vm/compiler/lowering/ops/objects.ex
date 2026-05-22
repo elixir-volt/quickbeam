@@ -4,6 +4,54 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Objects do
   alias QuickBEAM.VM.Compiler.Lowering.Operators
   alias QuickBEAM.VM.Compiler.Lowering.Effects, as: LoweringEffects
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, State}
+  alias QuickBEAM.VM.OpcodeSpec
+
+  @handler_opcodes [
+    :object,
+    :array_from,
+    :regexp,
+    :special_object,
+    :set_name,
+    :set_name_computed,
+    :set_home_object,
+    :get_super,
+    :get_super_value,
+    :put_super_value,
+    :get_field,
+    :get_field2,
+    :put_field,
+    :define_static_method,
+    :define_field,
+    :get_array_el,
+    :get_array_el2,
+    :put_array_el,
+    :define_array_el,
+    :append,
+    :copy_data_properties,
+    :set_proto,
+    :check_ctor_return,
+    :check_ctor,
+    :to_object,
+    :to_propkey,
+    :to_propkey2,
+    :get_length,
+    :instanceof,
+    :in,
+    :delete,
+    :get_private_field,
+    :put_private_field,
+    :define_private_field,
+    :private_in
+  ]
+
+  @invalid_handlers for name <- @handler_opcodes,
+                        OpcodeSpec.lowering_family(name) != :objects,
+                        do: name
+
+  if @invalid_handlers != [] do
+    raise "object lowering handlers registered for non-object opcodes: #{inspect(@invalid_handlers)}"
+  end
+
   @doc "Lowers a VM instruction or function into compiler IR."
   def lower(state, name_args) do
     case name_args do
