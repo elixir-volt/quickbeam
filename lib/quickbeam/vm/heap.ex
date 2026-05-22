@@ -16,6 +16,8 @@ defmodule QuickBEAM.VM.Heap do
     - `{:qb_var, name}` — global variable bindings
   """
 
+  alias QuickBEAM.VM.Execution.IteratorState
+
   alias QuickBEAM.VM.Heap.{
     Arrays,
     Async,
@@ -207,15 +209,14 @@ defmodule QuickBEAM.VM.Heap do
 
   @doc "Wraps a list as a JavaScript iterator object with a `next` method."
   def wrap_iterator(list) when is_list(list) do
-    pos_ref = make_ref()
-    Process.put(pos_ref, {list, 0})
+    pos_ref = IteratorState.new({list, 0})
 
     next_fn =
       {:builtin, "next",
        fn _, _ ->
-         case Process.get(pos_ref) do
+         case IteratorState.get(pos_ref, nil) do
            {items, idx} when idx < length(items) ->
-             Process.put(pos_ref, {items, idx + 1})
+             IteratorState.put(pos_ref, {items, idx + 1})
              wrap(%{"value" => Enum.at(items, idx), "done" => false})
 
            _ ->
