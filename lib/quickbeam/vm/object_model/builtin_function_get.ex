@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.ObjectModel.BuiltinFunctionGet do
 
   alias QuickBEAM.VM.{Builtin, Heap}
   alias QuickBEAM.VM.Runtime.{ConstructorProperties, Function}
-  alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.ObjectModel.PrototypeLookup
 
   def own_property({:builtin, _name, map} = builtin, key, call_getter) when is_map(map) do
     statics = Heap.get_ctor_statics(builtin)
@@ -57,10 +57,14 @@ defmodule QuickBEAM.VM.ObjectModel.BuiltinFunctionGet do
   defp builtin_function_property(_builtin, _key), do: :undefined
 
   defp function_proto_fallback(builtin, key) do
-    if Get.function_prototype_has_own?(key) do
+    if PrototypeLookup.function_prototype_has_own?(key) do
       :undefined
     else
-      Get.fallback_to_object_proto(Function.proto_property(builtin, key), builtin, key)
+      PrototypeLookup.fallback_to_object_proto(
+        Function.proto_property(builtin, key),
+        builtin,
+        key
+      )
     end
   end
 end

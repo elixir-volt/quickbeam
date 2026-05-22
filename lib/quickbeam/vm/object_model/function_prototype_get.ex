@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.ObjectModel.FunctionPrototypeGet do
 
   alias QuickBEAM.VM.{Heap}
   alias QuickBEAM.VM.Execution.PrototypeState
-  alias QuickBEAM.VM.ObjectModel.{Get, Prototype, Static}
+  alias QuickBEAM.VM.ObjectModel.{Get, Prototype, PrototypeLookup, Static}
   alias QuickBEAM.VM.Runtime.Function
   alias QuickBEAM.VM.Runtime.FunctionKinds
 
@@ -56,8 +56,8 @@ defmodule QuickBEAM.VM.ObjectModel.FunctionPrototypeGet do
 
   def fallback(:undefined, fun, key) do
     case Heap.get_func_proto() do
-      {:obj, _} = proto -> Get.fallback_to_object_proto(Get.own(proto, key), fun, key)
-      _ -> Get.fallback_to_object_proto(Function.proto_property(fun, key), fun, key)
+      {:obj, _} = proto -> PrototypeLookup.fallback_to_object_proto(Get.own(proto, key), fun, key)
+      _ -> PrototypeLookup.fallback_to_object_proto(Function.proto_property(fun, key), fun, key)
     end
   end
 

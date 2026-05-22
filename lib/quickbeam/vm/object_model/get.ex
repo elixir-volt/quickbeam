@@ -21,7 +21,6 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     Boolean,
     Function,
     Number,
-    Object,
     RegExp,
     TypedArray
   }
@@ -39,6 +38,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     PropertyKey,
     RegExpExoticGet,
     Prototype,
+    PrototypeLookup,
     ProxyGet,
     Semantics,
     SymbolExoticGet,
@@ -176,16 +176,6 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     case PropertyKey.array_index(key) do
       {:ok, index} -> index
       :error -> nil
-    end
-  end
-
-  def function_prototype_has_own?(key) do
-    case Heap.get_func_proto() do
-      {:obj, ref} ->
-        match?({:ok, _}, Heap.raw_fetch(Heap.get_obj_raw(ref), key))
-
-      _ ->
-        false
     end
   end
 
@@ -706,11 +696,11 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
             {:obj, _pref} = proto ->
               case prototype_property_lookup_with_receiver(proto, key, {:obj, ref}) do
                 {:found, value} -> value
-                :not_found -> get_default_object_prototype({:obj, ref}, key)
+                :not_found -> PrototypeLookup.object_prototype_property({:obj, ref}, key)
               end
 
             nil ->
-              get_default_object_prototype({:obj, ref}, key)
+              PrototypeLookup.object_prototype_property({:obj, ref}, key)
 
             :null_proto ->
               :undefined
@@ -834,7 +824,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
             prototype_property_with_receiver(Map.get(map, proto()), key, {:obj, ref})
 
           true ->
-            get_default_object_prototype({:obj, ref}, key)
+            PrototypeLookup.object_prototype_property({:obj, ref}, key)
         end
 
       _ ->
@@ -1004,26 +994,14 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp arguments_proto_property(obj, {:symbol, "Symbol.iterator"}) do
     case array_proto_property(obj, {:symbol, "Symbol.iterator"}) do
-      :undefined -> get_default_object_prototype(obj, {:symbol, "Symbol.iterator"})
+      :undefined -> PrototypeLookup.object_prototype_property(obj, {:symbol, "Symbol.iterator"})
       val -> val
     end
   end
 
-  defp arguments_proto_property(obj, key), do: get_default_object_prototype(obj, key)
+  defp arguments_proto_property(obj, key), do: PrototypeLookup.object_prototype_property(obj, key)
 
   defp array_proto_property({:obj, _} = obj, key), do: ArrayExoticGet.proto_property(obj, key)
 
   defp array_proto_property(key), do: ArrayExoticGet.proto_property(key)
-
-  defp get_default_object_prototype(obj, key) do
-    proto = Heap.get_object_prototype() || Object.build_prototype()
-
-    case proto do
-      {:obj, _} = proto when proto != obj -> get(proto, key)
-      _ -> :undefined
-    end
-  end
-
-  def fallback_to_object_proto(:undefined, fun, key), do: get_default_object_prototype(fun, key)
-  def fallback_to_object_proto(val, _fun, _key), do: val
 end

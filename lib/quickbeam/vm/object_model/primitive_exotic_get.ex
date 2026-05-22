@@ -1,8 +1,7 @@
 defmodule QuickBEAM.VM.ObjectModel.PrimitiveExoticGet do
   @moduledoc "Primitive wrapper prototype fallback helpers."
 
-  alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.ObjectModel.{Get, PrototypeLookup}
   alias QuickBEAM.VM.Runtime
 
   def prototype_property(default_value, key, class_name, receiver) do
@@ -25,6 +24,8 @@ defmodule QuickBEAM.VM.ObjectModel.PrimitiveExoticGet do
     end
   end
 
-  defp default_or_object_proto(:undefined, key), do: Get.own(Heap.get_object_prototype(), key)
+  defp default_or_object_proto(:undefined, key),
+    do: PrototypeLookup.object_prototype_property(:undefined, key)
+
   defp default_or_object_proto(default_value, _key), do: default_value
 end

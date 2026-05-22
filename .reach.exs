@@ -278,6 +278,7 @@ process_state_owners = [
       "QuickBEAM.VM.ObjectModel.ProxyOwnProperty",
       "QuickBEAM.VM.ObjectModel.ProxyPrototype",
       "QuickBEAM.VM.ObjectModel.ProxySet",
+      "QuickBEAM.VM.ObjectModel.PrototypeLookup",
       "QuickBEAM.VM.ObjectModel.ProxyTrap",
       "QuickBEAM.VM.ObjectModel.TypedArrayExoticGet",
       "QuickBEAM.VM.Interpreter.Ops.PropertyKeys",
@@ -353,6 +354,13 @@ process_state_owners = [
       {"QuickBEAM.VM.ObjectModel.ProxyPrototype", ["QuickBEAM.VM.ObjectModel.Prototype"]},
       {"QuickBEAM.VM.ObjectModel.ProxySet",
        ["QuickBEAM.VM.ObjectModel.InternalMethods", "QuickBEAM.VM.ObjectModel.Put"]},
+      {"QuickBEAM.VM.ObjectModel.PrototypeLookup",
+       [
+         "QuickBEAM.VM.ObjectModel.BuiltinFunctionGet",
+         "QuickBEAM.VM.ObjectModel.FunctionPrototypeGet",
+         "QuickBEAM.VM.ObjectModel.Get",
+         "QuickBEAM.VM.ObjectModel.PrimitiveExoticGet"
+       ]},
       {"QuickBEAM.VM.ObjectModel.ProxyTrap",
        [
          "QuickBEAM.VM.ObjectModel.*",
