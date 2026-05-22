@@ -975,9 +975,9 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     end
   end
 
-  defp validate_proxy_get_invariant({:obj, target_ref} = target, key, trap_result) do
+  defp validate_proxy_get_invariant({:obj, target_ref}, key, trap_result) do
     desc = Heap.get_prop_desc(target_ref, key)
-    target_value = get_own(target, key)
+    target_value = target_slot(target_ref, key)
 
     cond do
       match?(%{configurable: false, writable: false}, desc) and
@@ -995,6 +995,13 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   end
 
   defp validate_proxy_get_invariant(_target, _key, trap_result), do: trap_result
+
+  defp target_slot(target_ref, key) do
+    case Heap.get_obj(target_ref, %{}) do
+      map when is_map(map) -> Map.get(map, key, :undefined)
+      _ -> get_own({:obj, target_ref}, key)
+    end
+  end
 
   defp array_own_property(ref, array_data, "length") do
     case Heap.get_array_prop(ref, "length") do
