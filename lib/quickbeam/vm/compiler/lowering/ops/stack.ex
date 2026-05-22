@@ -6,10 +6,143 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
 
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Captures, Emit, State}
   alias QuickBEAM.VM.Compiler.RuntimeHelpers.Bindings
-  alias QuickBEAM.VM.OpcodeFamily
+  alias QuickBEAM.VM.{OpcodeFamily, OpcodeSpec}
+
+  @handlers %{
+    push_i32: :push_integer,
+    push_i16: :push_integer,
+    push_i8: :push_integer,
+    push_true: :push_true,
+    push_false: :push_false,
+    null: :null,
+    undefined: :undefined,
+    push_empty_string: :push_empty_string,
+    push_bigint_i32: :push_bigint_i32,
+    push_atom_value: :push_atom_value,
+    push_this: :push_this,
+    push_const: :push_const,
+    push_const8: :push_const,
+    fclosure: :fclosure,
+    fclosure8: :fclosure,
+    private_symbol: :private_symbol,
+    dup: :dup,
+    dup1: :dup1,
+    dup2: :dup2,
+    dup3: :dup3,
+    insert2: :insert2,
+    insert3: :insert3,
+    insert4: :insert4,
+    drop: :drop,
+    nip: :nip,
+    nip1: :nip1,
+    swap: :swap,
+    swap2: :swap2,
+    rot3l: :rot3l,
+    rot3r: :rot3r,
+    rot4l: :rot4l,
+    rot5l: :rot5l,
+    perm3: :perm3,
+    perm4: :perm4,
+    perm5: :perm5,
+    nop: :nop
+  }
+
+  @invalid_handlers for {name, _handler} <- @handlers,
+                        OpcodeSpec.lowering_family(name) != :stack,
+                        do: name
+
+  if @invalid_handlers != [] do
+    raise "stack lowering handlers registered for non-stack opcodes: #{inspect(@invalid_handlers)}"
+  end
 
   @doc "Lowers a VM instruction or function into compiler IR."
   def lower(state, constants, arg_count, name_args) do
+    case lower_registered(state, constants, arg_count, name_args) do
+      :not_handled -> lower_fallback(state, constants, arg_count, name_args)
+      result -> result
+    end
+  end
+
+  defp lower_registered(state, constants, arg_count, {{:ok, name}, args}) do
+    case Map.get(@handlers, name) do
+      nil -> :not_handled
+      handler -> lower_handler(handler, state, constants, arg_count, args)
+    end
+  end
+
+  defp lower_registered(_state, _constants, _arg_count, _name_args), do: :not_handled
+
+  defp lower_handler(:push_integer, state, _constants, _arg_count, [value]),
+    do: {:ok, Emit.push(state, Builder.integer(value))}
+
+  defp lower_handler(:push_true, state, _constants, _arg_count, []),
+    do: {:ok, Emit.push(state, Builder.atom(true))}
+
+  defp lower_handler(:push_false, state, _constants, _arg_count, []),
+    do: {:ok, Emit.push(state, Builder.atom(false))}
+
+  defp lower_handler(:null, state, _constants, _arg_count, []),
+    do: {:ok, Emit.push(state, Builder.atom(nil))}
+
+  defp lower_handler(:undefined, state, _constants, _arg_count, []),
+    do: {:ok, Emit.push(state, Builder.atom(:undefined))}
+
+  defp lower_handler(:push_empty_string, state, _constants, _arg_count, []),
+    do: {:ok, Emit.push(state, Builder.literal(""))}
+
+  defp lower_handler(:push_bigint_i32, state, _constants, _arg_count, [value]),
+    do:
+      {:ok, Emit.push(state, Builder.tuple_expr([Builder.atom(:bigint), Builder.integer(value)]))}
+
+  defp lower_handler(:push_atom_value, state, _constants, _arg_count, [atom_idx]),
+    do: {:ok, Emit.push(state, Builder.literal(Builder.atom_name(state, atom_idx)), :string)}
+
+  defp lower_handler(:push_this, state, _constants, _arg_count, []),
+    do: {:ok, Emit.push(state, State.abi_call(state, :push_this, []), :object)}
+
+  defp lower_handler(:push_const, state, constants, arg_count, [const_idx]),
+    do: push_const(state, constants, arg_count, const_idx)
+
+  defp lower_handler(:fclosure, state, constants, arg_count, [const_idx]),
+    do: lower_fclosure(state, constants, arg_count, const_idx)
+
+  defp lower_handler(:private_symbol, state, _constants, _arg_count, [atom_idx]) do
+    {:ok,
+     Emit.push(
+       state,
+       State.constant_call(state, :private_symbol, [
+         Builder.literal(Builder.atom_name(state, atom_idx))
+       ]),
+       :unknown
+     )}
+  end
+
+  defp lower_handler(:dup, state, _constants, _arg_count, []), do: Emit.duplicate_top(state)
+  defp lower_handler(:dup1, state, _constants, _arg_count, []), do: lower_dup1(state)
+  defp lower_handler(:dup2, state, _constants, _arg_count, []), do: Emit.duplicate_top_two(state)
+  defp lower_handler(:dup3, state, _constants, _arg_count, []), do: lower_dup3(state)
+  defp lower_handler(:insert2, state, _constants, _arg_count, []), do: Emit.insert_top_two(state)
+
+  defp lower_handler(:insert3, state, _constants, _arg_count, []),
+    do: Emit.insert_top_three(state)
+
+  defp lower_handler(:insert4, state, _constants, _arg_count, []), do: lower_insert4(state)
+  defp lower_handler(:drop, state, _constants, _arg_count, []), do: Emit.drop_top(state)
+  defp lower_handler(:nip, state, _constants, _arg_count, []), do: lower_nip(state)
+  defp lower_handler(:nip1, state, _constants, _arg_count, []), do: lower_nip1(state)
+  defp lower_handler(:swap, state, _constants, _arg_count, []), do: Emit.swap_top(state)
+  defp lower_handler(:swap2, state, _constants, _arg_count, []), do: lower_swap2(state)
+  defp lower_handler(:rot3l, state, _constants, _arg_count, []), do: lower_rot3l(state)
+  defp lower_handler(:rot3r, state, _constants, _arg_count, []), do: lower_rot3r(state)
+  defp lower_handler(:rot4l, state, _constants, _arg_count, []), do: lower_rot4l(state)
+  defp lower_handler(:rot5l, state, _constants, _arg_count, []), do: lower_rot5l(state)
+  defp lower_handler(:perm3, state, _constants, _arg_count, []), do: Emit.permute_top_three(state)
+  defp lower_handler(:perm4, state, _constants, _arg_count, []), do: lower_perm4(state)
+  defp lower_handler(:perm5, state, _constants, _arg_count, []), do: lower_perm5(state)
+  defp lower_handler(:nop, state, _constants, _arg_count, []), do: {:ok, state}
+  defp lower_handler(_handler, _state, _constants, _arg_count, _args), do: :not_handled
+
+  defp lower_fallback(state, constants, arg_count, name_args) do
     case name_args do
       {{:ok, :push_i32}, [value]} ->
         {:ok, Emit.push(state, Builder.integer(value))}
