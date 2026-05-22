@@ -1,7 +1,16 @@
 defmodule QuickBEAM.VM.Compiler.LoweringRegistryTest do
   use ExUnit.Case, async: true
 
-  alias QuickBEAM.VM.Compiler.Lowering.Ops.{Arithmetic, Calls, Globals, Locals, Objects, Stack}
+  alias QuickBEAM.VM.Compiler.Lowering.Ops.{
+    Arithmetic,
+    Calls,
+    Globals,
+    Iterators,
+    Locals,
+    Objects,
+    Stack
+  }
+
   alias QuickBEAM.VM.OpcodeSpec
 
   test "stack handlers match stack lowering family" do
@@ -23,6 +32,10 @@ defmodule QuickBEAM.VM.Compiler.LoweringRegistryTest do
 
   test "call handlers match calls lowering family" do
     assert_registered_family(Calls.registered_opcodes(), :calls)
+  end
+
+  test "iterator handlers match iterators lowering family" do
+    assert_registered_family(Iterators.registered_opcodes(), :iterators)
   end
 
   test "global handlers match globals lowering family" do

@@ -3,63 +3,78 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
 
   alias QuickBEAM.VM.Compiler.Lowering.Effects, as: LoweringEffects
   alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, State}
+  alias QuickBEAM.VM.OpcodeSpec
+
+  @handlers %{
+    for_in_start: :for_in_start,
+    for_in_next: :for_in_next,
+    for_of_start: :for_of_start,
+    for_of_next: :for_of_next,
+    for_await_of_start: :for_await_of_start,
+    iterator_close: :iterator_close,
+    iterator_check_object: :iterator_check_object,
+    iterator_get_value_done: :iterator_get_value_done,
+    iterator_next: :iterator_next,
+    iterator_call: :iterator_call,
+    rest: :rest
+  }
+
+  @invalid_handlers for {name, _handler} <- @handlers,
+                        OpcodeSpec.lowering_family(name) != :iterators,
+                        do: name
+
+  if @invalid_handlers != [] do
+    raise "iterator lowering handlers registered for non-iterator opcodes: #{inspect(@invalid_handlers)}"
+  end
+
+  def registered_opcodes, do: Map.keys(@handlers)
 
   @doc "Lowers a VM instruction or function into compiler IR."
-  def lower(state, name_args) do
-    case name_args do
-      {{:ok, :for_in_start}, []} ->
-        lower_for_in_start(state)
-
-      {{:ok, :for_in_next}, []} ->
-        lower_for_in_next(state)
-
-      {{:ok, :for_of_start}, []} ->
-        lower_for_of_start(state)
-
-      {{:ok, :for_of_next}, [iter_idx]} ->
-        lower_for_of_next(state, iter_idx)
-
-      {{:ok, :for_await_of_start}, []} ->
-        lower_for_await_of_start(state)
-
-      {{:ok, :iterator_close}, []} ->
-        lower_iterator_close(state)
-
-      {{:ok, :iterator_check_object}, []} ->
-        lower_iterator_check_object(state)
-
-      {{:ok, :iterator_get_value_done}, []} ->
-        with {:ok, result, state} <- Emit.pop(state) do
-          {pair, state} =
-            Emit.bind(
-              state,
-              Builder.temp_name(state.temp),
-              State.abi_call(state, :iterator_value_done, [result])
-            )
-
-          {:ok,
-           state
-           |> Emit.push(Builder.tuple_element(pair, 1))
-           |> Emit.push(Builder.tuple_element(pair, 2))}
-        end
-
-      {{:ok, :iterator_next}, []} ->
-        lower_iterator_next(state)
-
-      {{:ok, :iterator_call}, [flags]} ->
-        lower_iterator_call(state, flags)
-
-      {{:ok, :rest}, [start_idx]} ->
-        LoweringEffects.effectful_push(
-          state,
-          State.abi_call(state, :rest, [Builder.literal(start_idx)]),
-          :object
-        )
-
-      _ ->
-        :not_handled
+  def lower(state, {{:ok, name}, args}) do
+    case Map.get(@handlers, name) do
+      nil -> :not_handled
+      handler -> lower_handler(handler, state, args)
     end
   end
+
+  def lower(_state, _name_args), do: :not_handled
+
+  defp lower_handler(:for_in_start, state, []), do: lower_for_in_start(state)
+  defp lower_handler(:for_in_next, state, []), do: lower_for_in_next(state)
+  defp lower_handler(:for_of_start, state, []), do: lower_for_of_start(state)
+  defp lower_handler(:for_of_next, state, [iter_idx]), do: lower_for_of_next(state, iter_idx)
+  defp lower_handler(:for_await_of_start, state, []), do: lower_for_await_of_start(state)
+  defp lower_handler(:iterator_close, state, []), do: lower_iterator_close(state)
+  defp lower_handler(:iterator_check_object, state, []), do: lower_iterator_check_object(state)
+
+  defp lower_handler(:iterator_get_value_done, state, []) do
+    with {:ok, result, state} <- Emit.pop(state) do
+      {pair, state} =
+        Emit.bind(
+          state,
+          Builder.temp_name(state.temp),
+          State.abi_call(state, :iterator_value_done, [result])
+        )
+
+      {:ok,
+       state
+       |> Emit.push(Builder.tuple_element(pair, 1))
+       |> Emit.push(Builder.tuple_element(pair, 2))}
+    end
+  end
+
+  defp lower_handler(:iterator_next, state, []), do: lower_iterator_next(state)
+  defp lower_handler(:iterator_call, state, [flags]), do: lower_iterator_call(state, flags)
+
+  defp lower_handler(:rest, state, [start_idx]) do
+    LoweringEffects.effectful_push(
+      state,
+      State.abi_call(state, :rest, [Builder.literal(start_idx)]),
+      :object
+    )
+  end
+
+  defp lower_handler(_handler, _state, _args), do: :not_handled
 
   defp lower_iterator_call(
          %{
