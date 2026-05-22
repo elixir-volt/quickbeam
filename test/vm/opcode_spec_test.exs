@@ -39,6 +39,12 @@ defmodule QuickBEAM.VM.OpcodeSpecTest do
     assert OpcodeSpec.control_flow_family(:push_i32) == nil
   end
 
+  test "call arity metadata is centralized" do
+    assert OpcodeSpec.call_arity(:call, [4]) == {:ok, 4}
+    assert OpcodeSpec.call_arity(:call2, []) == {:ok, 2}
+    assert OpcodeSpec.call_arity(:call2, [2]) == :error
+  end
+
   test "compact slot operand metadata is centralized" do
     assert OpcodeSpec.compact_slot_index(:get_arg, [7]) == {:ok, 7}
     assert OpcodeSpec.compact_slot_index(:get_arg2, []) == {:ok, 2}

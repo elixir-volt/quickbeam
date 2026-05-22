@@ -438,6 +438,13 @@ defmodule QuickBEAM.VM.OpcodeSpec do
 
   def compact_slot_index(_name, _args), do: :error
 
+  def call_arity(:call0, []), do: {:ok, 0}
+  def call_arity(:call1, []), do: {:ok, 1}
+  def call_arity(:call2, []), do: {:ok, 2}
+  def call_arity(:call3, []), do: {:ok, 3}
+  def call_arity(:call, [argc]), do: {:ok, argc}
+  def call_arity(_name, _args), do: :error
+
   def family(name, family), do: name in Map.fetch!(@families, family)
   def family_members(family), do: Map.fetch!(@families, family)
 

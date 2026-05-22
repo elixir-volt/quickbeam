@@ -37,6 +37,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Calls do
   def lower(state, idx, {{:ok, name}, args}) do
     case Map.get(@handlers, name) do
       nil -> :not_handled
+      :call -> lower_call_handler(state, name, args)
       handler -> lower_handler(handler, state, idx, args)
     end
   end
@@ -46,7 +47,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Calls do
   defp lower_handler(:call_constructor, state, idx, [argc]),
     do: State.invoke_constructor_call(state, argc, idx)
 
-  defp lower_handler(:call, state, _idx, [argc]), do: State.invoke_call(state, argc)
   defp lower_handler(:tail_call, state, _idx, [argc]), do: State.invoke_tail_call(state, argc)
   defp lower_handler(:call_method, state, _idx, [argc]), do: State.invoke_method_call(state, argc)
 
@@ -135,6 +135,13 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Calls do
     do: {:done, Enum.reverse([Builder.atom(:undefined) | state.body])}
 
   defp lower_handler(_handler, _state, _idx, _args), do: :not_handled
+
+  defp lower_call_handler(state, name, args) do
+    case OpcodeSpec.call_arity(name, args) do
+      {:ok, argc} -> State.invoke_call(state, argc)
+      :error -> :not_handled
+    end
+  end
 
   defp ensure_eval_capture_cells(state) do
     state.locals
