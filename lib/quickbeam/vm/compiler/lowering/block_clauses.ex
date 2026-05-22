@@ -4,7 +4,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.BlockClauses do
   alias QuickBEAM.VM.Compiler.Lowering.Builder
 
   @guardable_types [:integer, :number, :boolean, :string, :undefined, :null]
-  @line 1
 
   @doc "Returns the Erlang forms used as block function arguments."
   def args(_slot_count, stack_depth, :tuple) do
@@ -50,10 +49,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.BlockClauses do
   end
 
   defp type_guard(_expr, type) when type not in @guardable_types, do: nil
-  defp type_guard(expr, :integer), do: {:call, @line, {:atom, @line, :is_integer}, [expr]}
-  defp type_guard(expr, :number), do: {:call, @line, {:atom, @line, :is_number}, [expr]}
-  defp type_guard(expr, :boolean), do: {:call, @line, {:atom, @line, :is_boolean}, [expr]}
-  defp type_guard(expr, :string), do: {:call, @line, {:atom, @line, :is_binary}, [expr]}
-  defp type_guard(expr, :undefined), do: {:op, @line, :==, expr, {:atom, @line, :undefined}}
-  defp type_guard(expr, :null), do: {:op, @line, :==, expr, {:atom, @line, nil}}
+  defp type_guard(expr, :integer), do: Builder.is_integer_guard(expr)
+  defp type_guard(expr, :number), do: Builder.is_number_guard(expr)
+  defp type_guard(expr, :boolean), do: Builder.is_boolean_guard(expr)
+  defp type_guard(expr, :string), do: Builder.is_binary_guard(expr)
+  defp type_guard(expr, :undefined), do: Builder.equal(expr, Builder.atom(:undefined))
+  defp type_guard(expr, :null), do: Builder.equal(expr, Builder.atom(nil))
 end

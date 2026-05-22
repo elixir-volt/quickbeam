@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Compiler.BEAMFormsTest do
     assert BEAMForms.not_equal(left, right) == {:op, 1, :"=/=", left, right}
     assert BEAMForms.or_else(left, right) == {:op, 1, :orelse, left, right}
     assert BEAMForms.is_number_guard(left) == {:call, 1, {:atom, 1, :is_number}, [left]}
+    assert BEAMForms.is_boolean_guard(left) == {:call, 1, {:atom, 1, :is_boolean}, [left]}
 
     assert BEAMForms.map_get(left, right) ==
              {:call, 1, {:remote, 1, {:atom, 0, :erlang}, {:atom, 1, :map_get}}, [right, left]}

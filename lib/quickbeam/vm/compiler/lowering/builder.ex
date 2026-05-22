@@ -52,6 +52,12 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Builder do
   end
 
   @doc "Builds a guard-style expression checking `undefined` or `null`."
+  def equal(left, right), do: BEAMForms.equal(left, right)
+  def is_integer_guard(expr), do: BEAMForms.is_integer_guard(expr)
+  def is_number_guard(expr), do: BEAMForms.is_number_guard(expr)
+  def is_boolean_guard(expr), do: BEAMForms.is_boolean_guard(expr)
+  def is_binary_guard(expr), do: BEAMForms.is_binary_guard(expr)
+
   def undefined_or_null_expr(expr) do
     BEAMForms.or_else(BEAMForms.equal(expr, atom(:undefined)), BEAMForms.equal(expr, atom(nil)))
   end

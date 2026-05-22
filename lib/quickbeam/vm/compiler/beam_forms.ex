@@ -70,6 +70,7 @@ defmodule QuickBEAM.VM.Compiler.BEAMForms do
   def is_number_guard(expr), do: guard_call(:is_number, [expr])
   def is_integer_guard(expr), do: guard_call(:is_integer, [expr])
   def is_float_guard(expr), do: guard_call(:is_float, [expr])
+  def is_boolean_guard(expr), do: guard_call(:is_boolean, [expr])
   def is_binary_guard(expr), do: guard_call(:is_binary, [expr])
 
   def binary(elements), do: {:bin, @line, elements}
