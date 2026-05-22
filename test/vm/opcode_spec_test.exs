@@ -31,6 +31,14 @@ defmodule QuickBEAM.VM.OpcodeSpecTest do
     assert names == Enum.uniq(names)
   end
 
+  test "control flow families are centralized" do
+    assert OpcodeSpec.control_flow_family(:if_false) == {:branch, false}
+    assert OpcodeSpec.control_flow_family(:if_true8) == {:branch, true}
+    assert OpcodeSpec.control_flow_family(:goto16) == :goto
+    assert OpcodeSpec.control_flow_family(:catch) == :finally_control
+    assert OpcodeSpec.control_flow_family(:push_i32) == nil
+  end
+
   test "symbolic instruction stack effects are centralized" do
     assert OpcodeSpec.symbolic_stack_effect({:call, 2}) == {:ok, {3, 1}}
     assert OpcodeSpec.symbolic_stack_effect({:define_method, "m", 0}) == {:ok, {2, 1}}

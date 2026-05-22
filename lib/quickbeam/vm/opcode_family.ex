@@ -27,10 +27,10 @@ defmodule QuickBEAM.VM.OpcodeFamily do
   def get_slot?(name), do: name in @get_slot
   def put_slot?(name), do: name in @put_slot
   def set_slot?(name), do: name in @set_slot
-  def false_branch?(name), do: name in @false_branch
-  def true_branch?(name), do: name in @true_branch
-  def goto?(name), do: name in @goto
-  def finally_control?(name), do: name in @finally_control
+  def false_branch?(name), do: OpcodeSpec.control_flow_family(name) == {:branch, false}
+  def true_branch?(name), do: OpcodeSpec.control_flow_family(name) == {:branch, true}
+  def goto?(name), do: OpcodeSpec.control_flow_family(name) == :goto
+  def finally_control?(name), do: OpcodeSpec.control_flow_family(name) == :finally_control
 
   def small_int_push(name), do: OpcodeSpec.small_int_push(name)
 end

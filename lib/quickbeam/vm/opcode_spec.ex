@@ -420,6 +420,17 @@ defmodule QuickBEAM.VM.OpcodeSpec do
 
   def family(name, family), do: name in Map.fetch!(@families, family)
   def family_members(family), do: Map.fetch!(@families, family)
+
+  def control_flow_family(name) do
+    cond do
+      family(name, :false_branch) -> {:branch, false}
+      family(name, :true_branch) -> {:branch, true}
+      family(name, :goto) -> :goto
+      family(name, :finally_control) -> :finally_control
+      true -> nil
+    end
+  end
+
   def small_int_push(name), do: Map.fetch(@small_int_push, name)
   def small_int_push_names, do: @small_int_push_names
   def lowering_family(name), do: Map.get(@lowering_families, name)
