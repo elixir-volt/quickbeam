@@ -8,7 +8,7 @@ defmodule QuickBEAM.VM.Runtime.ConstructorCallbacks do
   alias QuickBEAM.VM.{Heap, RuntimeState, Value}
   alias QuickBEAM.VM.Execution.{Eval, RegexpState}
   alias QuickBEAM.VM.JSThrow
-  alias QuickBEAM.VM.ObjectModel.{Get, WrappedPrimitive}
+  alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods, WrappedPrimitive}
   alias QuickBEAM.VM.Runtime
 
   @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
@@ -169,7 +169,7 @@ defmodule QuickBEAM.VM.Runtime.ConstructorCallbacks do
 
       value ->
         val = Runtime.stringify(value)
-        QuickBEAM.VM.ObjectModel.Put.put(this, WrappedPrimitive.slot(:string), val)
+        InternalMethods.set(this, WrappedPrimitive.slot(:string), val)
         this
     end
   end
@@ -179,7 +179,7 @@ defmodule QuickBEAM.VM.Runtime.ConstructorCallbacks do
   @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def number(args, {:obj, _} = this) do
     val = args |> arg(0, 0) |> Runtime.to_number()
-    QuickBEAM.VM.ObjectModel.Put.put(this, WrappedPrimitive.slot(:number), val)
+    InternalMethods.set(this, WrappedPrimitive.slot(:number), val)
     this
   end
 

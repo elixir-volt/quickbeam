@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.Runtime.InstallerHelpers do
   @moduledoc "Reusable helpers for installing constructor/prototype metadata."
 
   alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.ObjectModel.{PropertyDescriptor, Put}
+  alias QuickBEAM.VM.ObjectModel.{InternalMethods, PropertyDescriptor}
 
   @doc "Runs `fun` with a constructor's prototype object reference when present."
   def with_prototype(ctor, fun) when is_function(fun, 1) do
@@ -39,7 +39,7 @@ defmodule QuickBEAM.VM.Runtime.InstallerHelpers do
 
   @doc "Installs a non-enumerable constructor link on a prototype object."
   def install_constructor_link(proto_ref, ctor) do
-    Put.put({:obj, proto_ref}, "constructor", ctor)
+    InternalMethods.set({:obj, proto_ref}, "constructor", ctor)
     Heap.put_prop_desc(proto_ref, "constructor", PropertyDescriptor.method())
   end
 

@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.Runtime.Boolean do
 
   use QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.{Heap, JSThrow}
-  alias QuickBEAM.VM.ObjectModel.WrappedPrimitive
+  alias QuickBEAM.VM.ObjectModel.{InternalMethods, WrappedPrimitive}
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.InstallerHelpers
 
@@ -50,7 +50,7 @@ defmodule QuickBEAM.VM.Runtime.Boolean do
     fn
       args, {:obj, _} = this ->
         val = args |> arg(0, false) |> Runtime.truthy?()
-        QuickBEAM.VM.ObjectModel.Put.put(this, WrappedPrimitive.slot(:boolean), val)
+        InternalMethods.set(this, WrappedPrimitive.slot(:boolean), val)
         this
 
       args, _ ->
