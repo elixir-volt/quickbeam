@@ -223,30 +223,11 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   def enumerable_string_props(map) when is_map(map), do: map
   def enumerable_string_props(_), do: %{}
 
-  defp proxy_enumerable_string_props(source_obj, %{
-         proxy_target() => target,
-         proxy_handler() => handler
-       }) do
-    keys =
-      case Get.get(handler, "ownKeys") do
-        trap when not is_nullish(trap) ->
-          trap
-          |> Runtime.call_callback([target])
-          |> Heap.to_list()
-
-        _ ->
-          []
-      end
-
-    descriptor_trap = Get.get(handler, "getOwnPropertyDescriptor")
-
-    Enum.reduce(keys, %{}, fn key, acc ->
-      descriptor =
-        if not is_nullish(descriptor_trap) do
-          Runtime.call_callback(descriptor_trap, [target, key])
-        else
-          :undefined
-        end
+  defp proxy_enumerable_string_props(source_obj, _proxy_map) do
+    source_obj
+    |> InternalMethods.own_keys()
+    |> Enum.reduce(%{}, fn key, acc ->
+      descriptor = InternalMethods.own_property(source_obj, key)
 
       if property_key?(key) and descriptor != :undefined and
            Get.get(descriptor, "enumerable") == true do
@@ -315,15 +296,8 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
 
   defp enumerable_keys_from_raw(obj, ref, raw) do
     case raw || %{} do
-      %{proxy_target() => _target, proxy_handler() => handler} ->
-        own_keys_fn = Get.get(handler, "ownKeys")
-
-        if not is_nullish(own_keys_fn) do
-          result = Runtime.call_callback(own_keys_fn, [obj])
-          Heap.to_list(result) |> Enum.map(&to_string/1)
-        else
-          []
-        end
+      %{proxy_target() => _target, proxy_handler() => _handler} ->
+        obj |> InternalMethods.own_keys() |> Enum.map(&to_string/1)
 
       {:qb_arr, arr} ->
         Semantics.enumerable_array_keys(ref, arr, array_prop_keys(ref))
