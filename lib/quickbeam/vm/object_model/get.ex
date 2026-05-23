@@ -21,8 +21,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     ArrayObjectGet,
     BuiltinExoticGet,
     BuiltinObjectGet,
-    BuiltinFunctionGet,
-    FunctionExoticGet,
+    CallableOwnGet,
     FunctionPrototypeGet,
     IndexedExoticGet,
     MapPropertyGet,
@@ -423,8 +422,17 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_own(nil, _), do: :undefined
   defp get_own(:undefined, _), do: :undefined
 
-  defp get_own({:builtin, _, _} = builtin, key),
-    do: BuiltinFunctionGet.own_property(builtin, key, &call_getter/2)
+  defp get_own({:builtin, _, _} = callable, key),
+    do: CallableOwnGet.own_property(callable, key, &call_getter/2)
+
+  defp get_own(%QuickBEAM.VM.Function{} = callable, key),
+    do: CallableOwnGet.own_property(callable, key, &call_getter/2)
+
+  defp get_own({:closure, _, %QuickBEAM.VM.Function{}} = callable, key),
+    do: CallableOwnGet.own_property(callable, key, &call_getter/2)
+
+  defp get_own({:bound, _, _, _, _} = callable, key),
+    do: CallableOwnGet.own_property(callable, key, &call_getter/2)
 
   defp get_own({:regexp, _, _, _} = regexp, key),
     do: RegExpStateGet.own_property(regexp, key, &call_getter/2)
@@ -432,17 +440,8 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_own({:regexp, _, _} = regexp, key),
     do: RegExpStateGet.own_property(regexp, key, &call_getter/2)
 
-  defp get_own(%QuickBEAM.VM.Function{} = fun, key),
-    do: FunctionExoticGet.own_property(fun, key, &call_getter/2)
-
-  defp get_own({:closure, _, %QuickBEAM.VM.Function{}} = closure, key),
-    do: FunctionExoticGet.own_property(closure, key, &call_getter/2)
-
   defp get_own({:symbol, _} = symbol, key), do: SymbolExoticGet.own_property(symbol, key)
   defp get_own({:symbol, _, _} = symbol, key), do: SymbolExoticGet.own_property(symbol, key)
-
-  defp get_own({:bound, _, _, _, _} = bound, key),
-    do: FunctionExoticGet.own_property(bound, key, &call_getter/2)
 
   defp get_own(_, _), do: :undefined
 
