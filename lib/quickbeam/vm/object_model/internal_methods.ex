@@ -15,6 +15,7 @@ defmodule QuickBEAM.VM.ObjectModel.InternalMethods do
     ProxyExtensible,
     ProxyHas,
     ProxyOwnKeys,
+    ProxyPrototype,
     ProxySet,
     Put,
     Prototype
@@ -91,6 +92,13 @@ defmodule QuickBEAM.VM.ObjectModel.InternalMethods do
 
   defp extensible_by_kind(:proxy, obj), do: ProxyExtensible.dispatch(obj, &ordinary_extensible?/1)
   defp extensible_by_kind(_kind, obj), do: ordinary_extensible?(obj)
+
+  defp get_prototype_of_by_kind(:proxy, {:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      %{proxy_target() => _target} = proxy -> ProxyPrototype.get(proxy, &Prototype.get/1)
+      _ -> Prototype.get({:obj, ref})
+    end
+  end
 
   defp get_prototype_of_by_kind(_kind, obj), do: Prototype.get(obj)
   defp set_prototype_of_by_kind(_kind, obj, proto), do: Prototype.set(obj, proto)
