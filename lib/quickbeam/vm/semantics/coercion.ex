@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.Semantics.Coercion do
   import QuickBEAM.VM.Value, only: [is_object: 1]
 
   alias QuickBEAM.VM.{Heap, Invocation, Runtime, Value}
-  alias QuickBEAM.VM.ObjectModel.{Get, OwnProperty, Prototype, WrappedPrimitive}
+  alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods, WrappedPrimitive}
 
   @doc "Coerces a VM value using JavaScript ToNumber semantics."
   def to_number(val) when is_number(val), do: val
@@ -409,8 +409,8 @@ defmodule QuickBEAM.VM.Semantics.Coercion do
     data = Heap.get_obj(ref, %{})
 
     with true <- primitive_wrapper?(data),
-         {:obj, _} = proto <- Prototype.get(obj),
-         {:obj, _} = desc <- OwnProperty.descriptor(proto, method) do
+         {:obj, _} = proto <- InternalMethods.get_prototype_of(obj),
+         {:obj, _} = desc <- InternalMethods.own_property(proto, method) do
       getter = Get.get(desc, "get")
       value = Get.get(desc, "value")
 
