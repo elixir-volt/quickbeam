@@ -1112,6 +1112,23 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 7} = Compiler.invoke(fun, [])
     end
 
+    test "compiled global object delete parity", %{rt: rt} do
+      configurable =
+        compile_and_decode(
+          rt,
+          ~S[Object.defineProperty(globalThis,"deleteReview",{value:1,configurable:true}); (delete deleteReview) + "|" + String(globalThis.deleteReview)]
+        ).value
+
+      nonconfigurable =
+        compile_and_decode(
+          rt,
+          ~S[Object.defineProperty(globalThis,"fixedReview",{value:1,configurable:false}); delete fixedReview]
+        ).value
+
+      assert {:ok, "true|1"} = Compiler.invoke(configurable, [])
+      assert {:ok, true} = Compiler.invoke(nonconfigurable, [])
+    end
+
     test "compiled global accessor reads fall back to global object", %{rt: rt} do
       fun =
         compile_and_decode(
