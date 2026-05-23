@@ -29,6 +29,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     OwnProperty,
     PrimitiveWrapperGet,
     PropertyKey,
+    RawObjectGet,
     RegExpStateGet,
     Prototype,
     PrototypeGet,
@@ -418,22 +419,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         end
 
       raw when is_tuple(raw) ->
-        cond do
-          Heap.shape?(raw) and key == "__proto__" ->
-            Heap.shape_proto(raw) || :undefined
-
-          Heap.shape?(raw) and key == "length" and array_prototype_raw?(raw) ->
-            array_prototype_length(ref) || 0
-
-          Heap.shape?(raw) ->
-            case Heap.raw_fetch(raw, key) do
-              {:ok, value} -> value
-              :error -> wrapped_raw_proto_property(raw, key)
-            end
-
-          true ->
-            :undefined
-        end
+        RawObjectGet.own_property(raw, key, raw_object_callbacks(ref))
 
       %{date_ms() => _} = map ->
         case get_map_property(map, key, {:obj, ref}) do
@@ -513,6 +499,14 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   def own(value, key), do: get_own(value, key)
 
   defp typed_array_callbacks, do: %{get_map_property: &get_map_property/3}
+
+  defp raw_object_callbacks(ref) do
+    %{
+      array_prototype_raw?: &array_prototype_raw?/1,
+      array_prototype_length: fn -> array_prototype_length(ref) end,
+      wrapped_raw_proto_property: &wrapped_raw_proto_property/2
+    }
+  end
 
   defp target_slot(target, key),
     do: ArrayObjectGet.target_slot(target, key, array_object_callbacks())
