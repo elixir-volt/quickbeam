@@ -18,24 +18,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
     WithScope
   }
 
-  @family_modules %{
-    arithmetic: Arithmetic,
-    calls: Calls,
-    classes: Classes,
-    control: Control,
-    generators: Generators,
-    globals: Globals,
-    iterators: Iterators,
-    locals: Locals,
-    objects: Objects,
-    stack: Stack,
-    with_scope: WithScope
-  }
-
   @coverage_errors for {name, _num} <- OpcodeSpec.all_opcodes(),
                        family = OpcodeSpec.lowering_family(name),
                        family != nil,
-                       module = Map.fetch!(@family_modules, family),
+                       module = OpcodeSpec.lowering_module(name),
                        name not in module.registered_opcodes(),
                        do: {family, name, module}
 
@@ -98,9 +84,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
       nil ->
         :not_handled
 
-      family ->
-        lower_family(
-          family,
+      _family ->
+        lower_with_module(
+          OpcodeSpec.lowering_module(name),
           state,
           idx,
           next_entry,
@@ -126,8 +112,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        ),
        do: :not_handled
 
-  defp lower_family(
-         :stack,
+  defp lower_with_module(
+         Stack,
          state,
          _idx,
          _next_entry,
@@ -139,8 +125,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        ),
        do: Stack.lower(state, constants, arg_count, name_args)
 
-  defp lower_family(
-         :locals,
+  defp lower_with_module(
+         Locals,
          state,
          _idx,
          _next_entry,
@@ -152,8 +138,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        ),
        do: Locals.lower(state, name_args)
 
-  defp lower_family(
-         :globals,
+  defp lower_with_module(
+         Globals,
          state,
          _idx,
          _next_entry,
@@ -165,8 +151,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        ),
        do: Globals.lower(state, name_args)
 
-  defp lower_family(
-         :arithmetic,
+  defp lower_with_module(
+         Arithmetic,
          state,
          _idx,
          _next_entry,
@@ -178,8 +164,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        ),
        do: Arithmetic.lower(state, name_args)
 
-  defp lower_family(
-         :objects,
+  defp lower_with_module(
+         Objects,
          state,
          _idx,
          _next_entry,
@@ -191,8 +177,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        ),
        do: Objects.lower(state, name_args)
 
-  defp lower_family(
-         :calls,
+  defp lower_with_module(
+         Calls,
          state,
          idx,
          _next_entry,
@@ -204,8 +190,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        ),
        do: Calls.lower(state, idx, name_args)
 
-  defp lower_family(
-         :control,
+  defp lower_with_module(
+         Control,
          state,
          idx,
          next_entry,
@@ -217,8 +203,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        ),
        do: Control.lower(state, idx, next_entry, stack_depths, inline_targets, name_args)
 
-  defp lower_family(
-         :iterators,
+  defp lower_with_module(
+         Iterators,
          state,
          _idx,
          _next_entry,
@@ -230,8 +216,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        ),
        do: Iterators.lower(state, name_args)
 
-  defp lower_family(
-         :classes,
+  defp lower_with_module(
+         Classes,
          state,
          _idx,
          _next_entry,
@@ -243,8 +229,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        ),
        do: Classes.lower(state, name_args)
 
-  defp lower_family(
-         :generators,
+  defp lower_with_module(
+         Generators,
          state,
          _idx,
          next_entry,
@@ -256,8 +242,8 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops do
        ),
        do: Generators.lower(state, next_entry, stack_depths, name_args)
 
-  defp lower_family(
-         :with_scope,
+  defp lower_with_module(
+         WithScope,
          state,
          _idx,
          next_entry,
