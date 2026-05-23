@@ -1106,6 +1106,12 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "typeof-has"} = Compiler.invoke(with_typeof, [])
     end
 
+    test "compiled non-strict implicit globals stay writable", %{rt: rt} do
+      fun = compile_and_decode(rt, ~S|compiledImplicit = 7; compiledImplicit|).value
+
+      assert {:ok, 7} = Compiler.invoke(fun, [])
+    end
+
     test "compiled global accessor reads fall back to global object", %{rt: rt} do
       fun =
         compile_and_decode(
