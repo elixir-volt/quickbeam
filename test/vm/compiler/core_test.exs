@@ -1092,11 +1092,18 @@ defmodule QuickBEAM.VM.CompilerTest do
           ~S|let p=new Proxy({}, {has(){return true}, set(){throw "set"}}); try{with(p){x=1}}catch(e){e}|
         ).value
 
+      with_typeof =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({}, { has(){ throw "typeof-has" } }); try { with (p) { typeof missing } } catch (e) { e }|
+        ).value
+
       assert {:ok, "field"} = Compiler.invoke(field_get, [])
       assert {:ok, "field2"} = Compiler.invoke(field_get2, [])
       assert {:ok, "length"} = Compiler.invoke(length_get, [])
       assert {:ok, "has"} = Compiler.invoke(with_has, [])
       assert {:ok, "set"} = Compiler.invoke(with_set, [])
+      assert {:ok, "typeof-has"} = Compiler.invoke(with_typeof, [])
     end
 
     test "compiled global accessor reads fall back to global object", %{rt: rt} do
@@ -1132,8 +1139,15 @@ defmodule QuickBEAM.VM.CompilerTest do
           ~S|function C(){}; function N(){}; Object.defineProperty(N,"prototype",{get(){throw "proto"}}); try{Reflect.construct(C, [], N)}catch(e){e}|
         ).value
 
+      direct_new_proto =
+        compile_and_decode(
+          rt,
+          ~S|function C(){}; Object.defineProperty(C,"prototype",{get(){throw "direct-proto"}}); try{new C()}catch(e){e}|
+        ).value
+
       assert {:ok, "hasInstance"} = Compiler.invoke(has_instance, [])
       assert {:ok, "proto"} = Compiler.invoke(ctor_proto, [])
+      assert {:ok, "direct-proto"} = Compiler.invoke(direct_new_proto, [])
     end
 
     test "compiles runtime constructor and regexp feature calls", %{rt: rt} do

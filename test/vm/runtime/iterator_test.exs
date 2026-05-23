@@ -143,6 +143,20 @@ defmodule QuickBEAM.VM.Runtime.IteratorTest do
     )
   end
 
+  test "for-of catches throwing iterator result done and value getters", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|let it={ [Symbol.iterator](){return this}, next(){ return Object.defineProperty({}, "done", {get(){throw "done"}}); } }; try { for (let x of it) {} } catch(e) { e }|,
+      "done"
+    )
+
+    assert_modes(
+      rt,
+      ~S|let it={ [Symbol.iterator](){return this}, next(){ return Object.defineProperty({done:false}, "value", {get(){throw "value"}}); } }; try { for (let x of it) { break } } catch(e) { e }|,
+      "value"
+    )
+  end
+
   test "for-of validates iterator result objects and done truthiness", %{rt: rt} do
     assert_beam_error(
       rt,
