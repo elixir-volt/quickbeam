@@ -149,12 +149,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
 
         true
       catch
-        {:js_throw, reason} ->
-          if proxy_define_property_invariant_error?(reason) do
-            throw({:js_throw, reason})
-          else
-            false
-          end
+        {:js_throw, _reason} -> false
       end
     end
 
@@ -181,16 +176,6 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       obj = hd(args)
       require_object!(obj, "Reflect.ownKeys")
       Heap.wrap(InternalMethods.own_keys(obj))
-    end
-  end
-
-  defp proxy_define_property_invariant_error?(reason) do
-    case Get.get(reason, "message") do
-      message when is_binary(message) ->
-        String.contains?(message, "proxy defineProperty trap violates invariant")
-
-      _ ->
-        false
     end
   end
 
