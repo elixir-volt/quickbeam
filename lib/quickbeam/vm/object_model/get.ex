@@ -26,6 +26,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     FunctionPrototypeGet,
     IndexedExoticGet,
     MapPropertyGet,
+    ObjectMapGet,
     OwnProperty,
     PrimitiveWrapperGet,
     PropertyKey,
@@ -37,11 +38,9 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
     ProxyGet,
     Semantics,
     SymbolExoticGet,
-    TypedArrayObjectGet,
-    WrappedPrimitive
+    TypedArrayObjectGet
   }
 
-  alias QuickBEAM.VM.Runtime.Date, as: JSDate
   alias QuickBEAM.VM.Runtime.String, as: JSString
 
   @doc "Reads a JavaScript property, including own lookup, prototype lookup, and getter invocation."
@@ -351,14 +350,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp wrapped_raw_proto_property(raw, key), do: PrimitiveWrapperGet.raw_proto_property(raw, key)
 
-  defp prototype_object_property(%{"constructor" => {:builtin, "Date", _}}, key),
-    do: JSDate.proto_property(key)
-
-  defp prototype_object_property(_map, _key), do: :undefined
-
   defp string_proto_property(key), do: PrimitiveWrapperGet.string_proto_property(key)
-
-  defp wrapped_proto_property(map, key), do: PrimitiveWrapperGet.map_proto_property(map, key)
 
   defp inherited_or_wrapped_length(obj, fallback) do
     case get(obj, "length") do
@@ -372,17 +364,6 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp shape_value({:accessor, nil, _setter}, _receiver), do: :undefined
   defp shape_value(value, _receiver), do: value
-
-  defp get_wrapped_or_map_property(map, key, receiver) do
-    if WrappedPrimitive.type(map) in [:string, :number, :boolean] and Map.has_key?(map, key) do
-      get_map_property(map, key, receiver)
-    else
-      case wrapped_proto_property(map, key) do
-        :undefined -> get_map_property(map, key, receiver)
-        val -> val
-      end
-    end
-  end
 
   defp get_map_property(map, key, receiver),
     do: MapPropertyGet.property(map, key, receiver, &call_getter/2)
@@ -427,30 +408,8 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
       %{buffer() => _} = map ->
         BuiltinObjectGet.buffer_property(map, key)
 
-      map when is_map(map) and key == "length" ->
-        if Semantics.array_prototype_object?(map) do
-          array_prototype_length(ref) || 0
-        else
-          case prototype_object_property(map, key) do
-            :undefined -> get_wrapped_or_map_property(map, key, {:obj, ref})
-            val -> val
-          end
-        end
-
       map when is_map(map) ->
-        cond do
-          Heap.get_prop_desc(ref, key) == :deleted ->
-            :undefined
-
-          key == "__proto__" and Map.has_key?(map, :__internal_proto__) and Map.has_key?(map, key) ->
-            get_map_property(map, key, {:obj, ref})
-
-          true ->
-            case prototype_object_property(map, key) do
-              :undefined -> get_wrapped_or_map_property(map, key, {:obj, ref})
-              val -> val
-            end
-        end
+        ObjectMapGet.own_property(ref, map, key, object_map_callbacks(ref))
     end
   end
 
@@ -493,6 +452,13 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp builtin_object_callbacks(receiver) do
     %{get_map_property: fn map, key -> get_map_property(map, key, receiver) end}
+  end
+
+  defp object_map_callbacks(ref) do
+    %{
+      array_prototype_length: fn -> array_prototype_length(ref) end,
+      get_map_property: &get_map_property/3
+    }
   end
 
   defp raw_object_callbacks(ref) do
