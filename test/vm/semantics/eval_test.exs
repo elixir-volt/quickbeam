@@ -19,6 +19,22 @@ defmodule QuickBEAM.VM.Semantics.EvalTest do
     assert_modes(rt, ~S/var x = 1; var d = eval("delete x"); d + "|" + x/, "false|1")
   end
 
+  test "strict direct eval rejects falsy proxy set through caller binding", %{rt: rt} do
+    assert {:error, %QuickBEAM.JS.Error{name: "TypeError"}} =
+             QuickBEAM.eval(
+               rt,
+               ~S|var p=new Proxy({}, {set(){return false}}); eval('"use strict"; p.x=1')|,
+               mode: :beam
+             )
+
+    assert {:error, %QuickBEAM.JS.Error{name: "TypeError"}} =
+             QuickBEAM.eval(
+               rt,
+               ~S|var p=new Proxy({}, {set(){return false}}); eval('"use strict"; p.x=1')|,
+               mode: :beam_compiler
+             )
+  end
+
   test "direct eval assignments to global vars survive later calls", %{rt: rt} do
     assert_modes(
       rt,

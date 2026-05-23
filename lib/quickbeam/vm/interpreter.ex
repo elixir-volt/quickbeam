@@ -105,13 +105,12 @@ defmodule QuickBEAM.VM.Interpreter do
     Heap.put_atoms(atoms)
     Setup.store_function_atoms(fun, atoms)
     prev_ctx = RuntimeState.current()
+    ctx = Context.mark_synced(%{ctx | current_func: fun})
     RuntimeState.install(ctx)
 
     if Heap.get_builtin_names() == nil do
       Heap.put_builtin_names(MapSet.new(Map.keys(Runtime.global_bindings())))
     end
-
-    ctx = Context.mark_synced(%{ctx | current_func: fun})
 
     try do
       case function_instructions(fun) do
