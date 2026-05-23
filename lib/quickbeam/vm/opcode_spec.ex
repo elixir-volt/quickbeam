@@ -348,6 +348,20 @@ defmodule QuickBEAM.VM.OpcodeSpec do
 
   @lowering_families Map.new(@lowering_pairs)
 
+  @lowering_modules %{
+    arithmetic: QuickBEAM.VM.Compiler.Lowering.Ops.Arithmetic,
+    calls: QuickBEAM.VM.Compiler.Lowering.Ops.Calls,
+    classes: QuickBEAM.VM.Compiler.Lowering.Ops.Classes,
+    control: QuickBEAM.VM.Compiler.Lowering.Ops.Control,
+    generators: QuickBEAM.VM.Compiler.Lowering.Ops.Generators,
+    globals: QuickBEAM.VM.Compiler.Lowering.Ops.Globals,
+    iterators: QuickBEAM.VM.Compiler.Lowering.Ops.Iterators,
+    locals: QuickBEAM.VM.Compiler.Lowering.Ops.Locals,
+    objects: QuickBEAM.VM.Compiler.Lowering.Ops.Objects,
+    stack: QuickBEAM.VM.Compiler.Lowering.Ops.Stack,
+    with_scope: QuickBEAM.VM.Compiler.Lowering.Ops.WithScope
+  }
+
   def table, do: @opcode_rows
   def all_opcodes, do: Opcodes.all_opcodes()
 
@@ -382,6 +396,7 @@ defmodule QuickBEAM.VM.OpcodeSpec do
        format_info: format_info(format),
        stack_effect: {pops, pushes},
        lowering_family: lowering_family(name),
+       lowering_module: lowering_module(name),
        control_flow_family: control_flow_family(name),
        canonical: canonical,
        canonical_operands: canonical_operands,
@@ -513,4 +528,11 @@ defmodule QuickBEAM.VM.OpcodeSpec do
   def small_int_push?(name), do: Map.has_key?(@small_int_push, name)
   def small_int_push_names, do: @small_int_push_names
   def lowering_family(name), do: Map.get(@lowering_families, name)
+
+  def lowering_module(name) do
+    case lowering_family(name) do
+      nil -> nil
+      family -> Map.fetch!(@lowering_modules, family)
+    end
+  end
 end

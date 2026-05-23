@@ -38,6 +38,7 @@ defmodule QuickBEAM.VM.OpcodeSpecTest do
     assert info.stack_effect == {1, 0}
     assert info.format_info == Opcodes.format_info(:label)
     assert info.lowering_family == :control
+    assert info.lowering_module == QuickBEAM.VM.Compiler.Lowering.Ops.Control
     assert info.control_flow_family == {:branch, false}
 
     assert {:ok, push} = OpcodeSpec.opcode(:push_0)
