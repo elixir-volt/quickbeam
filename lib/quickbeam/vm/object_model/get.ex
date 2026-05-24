@@ -16,22 +16,15 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   alias QuickBEAM.VM.ObjectModel.{
     ArrayObjectGet,
-    BuiltinObjectGet,
-    CallableOwnGet,
     ExplicitOwnProperty,
-    IndexedExoticGet,
     LengthGet,
     MapPropertyGet,
-    ObjectMapGet,
+    OwnGet,
     PrimitiveWrapperGet,
-    RawObjectGet,
-    RegExpStateGet,
     PrototypeGet,
     PrototypeTraversalGet,
     ProxyGet,
-    SymbolExoticGet,
-    SymbolGet,
-    TypedArrayObjectGet
+    SymbolGet
   }
 
   @doc "Reads a JavaScript property, including own lookup, prototype lookup, and getter invocation."
@@ -161,85 +154,24 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_map_property(map, key, receiver),
     do: MapPropertyGet.property(map, key, receiver, &call_getter/2)
 
-  defp get_own({:obj, ref}, key) do
-    case Heap.get_obj_raw(ref) do
-      nil ->
-        :undefined
-
-      %{proxy_target() => target, proxy_handler() => handler} = proxy ->
-        ProxyGet.dispatch(
-          proxy,
-          target,
-          handler,
-          key,
-          {:obj, ref},
-          &ordinary_get/3,
-          &target_slot/2
-        )
-
-      {:qb_arr, _} = arr ->
-        case Heap.get_regexp_result(ref) do
-          %{^key => val} -> val
-          _ -> ArrayObjectGet.own_property(ref, arr, key, array_object_callbacks())
-        end
-
-      list when is_list(list) ->
-        case Heap.get_regexp_result(ref) do
-          %{^key => val} -> val
-          _ -> ArrayObjectGet.own_property(ref, list, key, array_object_callbacks())
-        end
-
-      raw when is_tuple(raw) ->
-        RawObjectGet.own_property(raw, key, raw_object_callbacks(ref))
-
-      %{date_ms() => _} = map ->
-        BuiltinObjectGet.date_property(map, key, builtin_object_callbacks({:obj, ref}))
-
-      %{typed_array() => true} = map ->
-        TypedArrayObjectGet.own_property({:obj, ref}, map, key, typed_array_callbacks())
-
-      %{buffer() => _} = map ->
-        BuiltinObjectGet.buffer_property(map, key)
-
-      map when is_map(map) ->
-        ObjectMapGet.own_property(ref, map, key, object_map_callbacks(ref))
-    end
-  end
-
-  defp get_own({:qb_arr, _} = array, key), do: IndexedExoticGet.own_property(array, key)
-  defp get_own(list, key) when is_list(list), do: IndexedExoticGet.own_property(list, key)
-  defp get_own(string, key) when is_binary(string), do: IndexedExoticGet.own_property(string, key)
-
-  defp get_own(n, _) when is_number(n), do: :undefined
-  defp get_own(true, _), do: :undefined
-  defp get_own(false, _), do: :undefined
-  defp get_own(nil, _), do: :undefined
-  defp get_own(:undefined, _), do: :undefined
-
-  defp get_own({:builtin, _, _} = callable, key),
-    do: CallableOwnGet.own_property(callable, key, &call_getter/2)
-
-  defp get_own(%QuickBEAM.VM.Function{} = callable, key),
-    do: CallableOwnGet.own_property(callable, key, &call_getter/2)
-
-  defp get_own({:closure, _, %QuickBEAM.VM.Function{}} = callable, key),
-    do: CallableOwnGet.own_property(callable, key, &call_getter/2)
-
-  defp get_own({:bound, _, _, _, _} = callable, key),
-    do: CallableOwnGet.own_property(callable, key, &call_getter/2)
-
-  defp get_own({:regexp, _, _, _} = regexp, key),
-    do: RegExpStateGet.own_property(regexp, key, &call_getter/2)
-
-  defp get_own({:regexp, _, _} = regexp, key),
-    do: RegExpStateGet.own_property(regexp, key, &call_getter/2)
-
-  defp get_own({:symbol, _} = symbol, key), do: SymbolExoticGet.own_property(symbol, key)
-  defp get_own({:symbol, _, _} = symbol, key), do: SymbolExoticGet.own_property(symbol, key)
-
-  defp get_own(_, _), do: :undefined
+  defp get_own(value, key), do: OwnGet.property(value, key, own_get_callbacks())
 
   def own(value, key), do: get_own(value, key)
+
+  defp own_get_callbacks do
+    %{
+      array_object: &array_object_callbacks/0,
+      builtin_object: &builtin_object_callbacks/1,
+      call_getter: &call_getter/2,
+      object_map: &object_map_callbacks/1,
+      proxy_get: &proxy_get/5,
+      raw_object: &raw_object_callbacks/1,
+      typed_array: &typed_array_callbacks/0
+    }
+  end
+
+  defp proxy_get(proxy, target, handler, key, receiver),
+    do: ProxyGet.dispatch(proxy, target, handler, key, receiver, &ordinary_get/3, &target_slot/2)
 
   defp typed_array_callbacks, do: %{get_map_property: &get_map_property/3}
 
