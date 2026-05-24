@@ -6,7 +6,16 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   import QuickBEAM.VM.Heap.Keys, only: [internal_namespace?: 1, key_order: 0]
 
   alias QuickBEAM.VM.{Builtin, Heap, Invocation, JSThrow, Value}
-  alias QuickBEAM.VM.ObjectModel.{Get, OwnProperty, PropertyDescriptor, Put, WrappedPrimitive}
+
+  alias QuickBEAM.VM.ObjectModel.{
+    Get,
+    InternalMethods,
+    OwnProperty,
+    PropertyDescriptor,
+    Put,
+    WrappedPrimitive
+  }
+
   alias QuickBEAM.VM.Semantics.Values
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.InstallerHelpers
@@ -752,7 +761,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
           else
             desc =
               try do
-                OwnProperty.descriptor(obj, key)
+                InternalMethods.own_property(obj, key)
               catch
                 kind, reason ->
                   close_iterators_ignoring_errors(Enum.reverse(iterators))

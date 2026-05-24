@@ -14,7 +14,6 @@ defmodule QuickBEAM.VM.Runtime.Array do
     OwnProperty,
     PropertyDescriptor,
     PropertyKey,
-    Prototype,
     Put
   }
 
@@ -504,7 +503,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   defp put_length_or_throw(receiver, length) do
-    case OwnProperty.descriptor(receiver, "length") do
+    case InternalMethods.own_property(receiver, "length") do
       {:obj, desc_ref} ->
         if Get.get({:obj, desc_ref}, "writable") == false do
           JSThrow.type_error!("Cannot assign to read only property")
@@ -885,7 +884,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
       []
     else
       own_sparse_indexes(obj, len) ++
-        sparse_present_indexes(Prototype.get(obj), len, MapSet.put(seen, ref))
+        sparse_present_indexes(InternalMethods.get_prototype_of(obj), len, MapSet.put(seen, ref))
     end
   end
 
@@ -2199,7 +2198,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     current = Get.get(value, key)
 
     if current == :undefined and not OwnProperty.present?(value, key) do
-      case Prototype.get(value) do
+      case InternalMethods.get_prototype_of(value) do
         {:obj, _} = proto -> Get.get(proto, key)
         _ -> current
       end
@@ -2334,7 +2333,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     length = to_length(Get.get(obj, "length"))
 
     if length == 0 and not OwnProperty.present?(obj, "length") do
-      case Prototype.get(obj) do
+      case InternalMethods.get_prototype_of(obj) do
         {:obj, _} = proto -> max(length, to_length(Get.get(proto, "length")))
         _ -> length
       end
@@ -2873,7 +2872,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp copy_within_sparse_source_value(obj, ref, idx, current_len, key) do
     if idx >= current_len do
-      case Prototype.get({:obj, ref}) do
+      case InternalMethods.get_prototype_of({:obj, ref}) do
         {:obj, _} = proto -> Get.get(proto, key)
         _ -> Get.get(obj, key)
       end
