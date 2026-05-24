@@ -120,5 +120,5 @@ defmodule QuickBEAM.VM.ObjectModel.InternalMethods do
   end
 
   defp ordinary_extensible?({:obj, ref}), do: Heap.extensible?(ref)
-  defp ordinary_extensible?(_), do: true
+  defp ordinary_extensible?(obj), do: Heap.extensible?(obj)
 end
