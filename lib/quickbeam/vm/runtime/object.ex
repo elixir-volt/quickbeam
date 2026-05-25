@@ -28,6 +28,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   alias QuickBEAM.VM.Runtime.ConstructorRegistry, as: ConstructorRegistry
   alias QuickBEAM.VM.Runtime.String, as: JSString
 
+  @ecma "20.1"
   builtin_definition("Object",
     constructor: &QuickBEAM.VM.Runtime.ConstructorCallbacks.object/2,
     length: 1,
@@ -186,46 +187,57 @@ defmodule QuickBEAM.VM.Runtime.Object do
       ref,
       Map.put(
         object heap: false do
+          @ecma "20.1.3.6"
           method "toString" do
             object_to_string(this)
           end
 
+          @ecma "20.1.3.3"
           method "toLocaleString" do
             object_to_locale_string(this)
           end
 
+          @ecma "20.1.3.7"
           method "valueOf" do
             object_value_of(this)
           end
 
+          @ecma "20.1.3.2"
           method "hasOwnProperty" do
             has_own_property(args, this)
           end
 
+          @ecma "20.1.3.4"
           method "isPrototypeOf" do
             prototype_of?(args, this)
           end
 
+          @ecma "20.1.3.5"
           method "propertyIsEnumerable" do
             property_enumerable?(args, this)
           end
 
+          @ecma "20.1.3.9.1"
           method "__defineGetter__" do
             define_accessor_property(args, this, :get)
           end
 
+          @ecma "20.1.3.9.2"
           method "__defineSetter__" do
             define_accessor_property(args, this, :set)
           end
 
+          @ecma "20.1.3.9.3"
           method "__lookupGetter__" do
             lookup_accessor_property(args, this, :get)
           end
 
+          @ecma "20.1.3.9.4"
           method "__lookupSetter__" do
             lookup_accessor_property(args, this, :set)
           end
 
+          @ecma "20.1.3.8"
           accessor "__proto__" do
             get do
               object_proto_get(this)
@@ -520,18 +532,22 @@ defmodule QuickBEAM.VM.Runtime.Object do
     |> Runtime.stringify()
   end
 
+  @ecma "20.1.2.19"
   static "keys", length: 1 do
     keys(args)
   end
 
+  @ecma "20.1.2.24"
   static "values", length: 1 do
     values(args)
   end
 
+  @ecma "20.1.2.5"
   static "entries", length: 1 do
     entries(args)
   end
 
+  @ecma "20.1.2.1"
   static "assign", length: 2, constructable: false do
     assign(args)
   end
@@ -897,6 +913,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp property_value_for_descriptor(map, key) when is_map(map), do: Map.get(map, key)
   defp property_value_for_descriptor(_data, _key), do: :undefined
 
+  @ecma "20.1.2.15"
   static "is", length: 2 do
     a = arg(args, 0, :undefined)
     b = arg(args, 1, :undefined)
@@ -916,6 +933,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
+  @ecma "20.1.2.2"
   static "create", length: 2, constructable: false do
     case args do
       [nil | rest] ->
@@ -946,6 +964,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
+  @ecma "20.1.2.12"
   static "getPrototypeOf", length: 1 do
     case args do
       [{:obj, ref} | _] ->
@@ -1009,34 +1028,42 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp prototype_value?({:obj, _}), do: true
   defp prototype_value?(_), do: false
 
+  @ecma "20.1.2.4"
   static "defineProperty", length: 3, constructable: false do
     define_property(args)
   end
 
+  @ecma "20.1.2.3"
   static "defineProperties", length: 2, constructable: false do
     define_properties(args)
   end
 
+  @ecma "20.1.2.10"
   static "getOwnPropertyNames", length: 1 do
     get_own_property_names(args)
   end
 
+  @ecma "20.1.2.8"
   static "getOwnPropertyDescriptor", length: 2 do
     get_own_property_descriptor(args)
   end
 
+  @ecma "20.1.2.9"
   static "getOwnPropertyDescriptors", length: 1 do
     get_own_property_descriptors(args)
   end
 
+  @ecma "20.1.2.7"
   static "fromEntries", length: 1 do
     from_entries(args)
   end
 
+  @ecma "20.1.2.13"
   static "groupBy", length: 2 do
     group_by(args)
   end
 
+  @ecma "20.1.2.11"
   static "getOwnPropertySymbols", length: 1 do
     case args do
       [target | _] when is_nullish(target) ->
@@ -1057,6 +1084,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
+  @ecma "20.1.2.14"
   static "hasOwn", length: 2 do
     case args do
       [target, _key | _] when is_nullish(target) ->
@@ -1072,6 +1100,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
+  @ecma "20.1.2.23"
   static "setPrototypeOf", length: 2 do
     case args do
       [obj | _] when is_nullish(obj) ->

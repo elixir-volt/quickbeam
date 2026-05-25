@@ -64,7 +64,8 @@ defmodule QuickBEAM.VM.Builtin do
               writable?: true,
               enumerable?: false,
               configurable?: true,
-              kind: :function
+              kind: :function,
+              ecma: nil
   end
 
   @doc "Builds builtin metadata from macro options."
@@ -76,7 +77,8 @@ defmodule QuickBEAM.VM.Builtin do
       writable?: Keyword.get(opts, :writable, true),
       enumerable?: Keyword.get(opts, :enumerable, false),
       configurable?: Keyword.get(opts, :configurable, true),
-      kind: kind
+      kind: kind,
+      ecma: Keyword.get(opts, :ecma)
     }
   end
 
@@ -733,6 +735,7 @@ defmodule QuickBEAM.VM.Builtin do
           arg: 3,
           argv: 2,
           builtin: 2,
+          builtin: 3,
           builtin_args: 2,
           builtin_receiver: 2,
           builtin_this: 2,
@@ -742,6 +745,7 @@ defmodule QuickBEAM.VM.Builtin do
       Module.register_attribute(__MODULE__, :__has_proto, accumulate: false)
       Module.register_attribute(__MODULE__, :__has_static, accumulate: false)
       Module.register_attribute(__MODULE__, :__static_names, accumulate: true)
+      Module.register_attribute(__MODULE__, :ecma, accumulate: false)
       @before_compile QuickBEAM.VM.Builtin
     end
   end
@@ -787,6 +791,9 @@ defmodule QuickBEAM.VM.Builtin do
 
   # ── Module-level dispatch macros ──
 
+  def opts_with_ecma(opts, nil), do: opts
+  def opts_with_ecma(opts, ecma), do: Keyword.put_new(opts, :ecma, ecma)
+
   @doc "Defines a prototype property as a JavaScript builtin function."
   defmacro proto(name, opts \\ [], do: body) do
     quote do
@@ -797,8 +804,14 @@ defmodule QuickBEAM.VM.Builtin do
       end
 
       def proto_property_meta(unquote(name)) do
-        QuickBEAM.VM.Builtin.meta(unquote(name), unquote(opts), :prototype)
+        QuickBEAM.VM.Builtin.meta(
+          unquote(name),
+          QuickBEAM.VM.Builtin.opts_with_ecma(unquote(Macro.escape(opts)), @ecma),
+          :prototype
+        )
       end
+
+      @ecma nil
     end
   end
 
@@ -813,8 +826,14 @@ defmodule QuickBEAM.VM.Builtin do
       end
 
       def static_property_meta(unquote(name)) do
-        QuickBEAM.VM.Builtin.meta(unquote(name), unquote(opts), :static)
+        QuickBEAM.VM.Builtin.meta(
+          unquote(name),
+          QuickBEAM.VM.Builtin.opts_with_ecma(unquote(Macro.escape(opts)), @ecma),
+          :static
+        )
       end
+
+      @ecma nil
     end
   end
 
@@ -864,10 +883,17 @@ defmodule QuickBEAM.VM.Builtin do
           prototype_properties: unquote(prototype_properties),
           constructable?: unquote(constructable?),
           intrinsic_key: unquote(intrinsic_key),
+          ecma:
+            Keyword.get(
+              QuickBEAM.VM.Builtin.opts_with_ecma(unquote(Macro.escape(opts)), @ecma),
+              :ecma
+            ),
           after_install: unquote(after_install),
           auto_install?: unquote(auto_install?)
         })
       end
+
+      @ecma nil
     end
   end
 
@@ -875,8 +901,7 @@ defmodule QuickBEAM.VM.Builtin do
 
   @doc "Defines a named builtin object exported by `object/0`."
   defmacro js_object(name, do: block) do
-    entries = normalize_block(block)
-    map_entries = Enum.map(entries, &build_map_entry/1)
+    map_entries = build_map_entries(normalize_block(block))
 
     quote do
       def object do
@@ -889,14 +914,12 @@ defmodule QuickBEAM.VM.Builtin do
 
   @doc "Builds a raw map of builtin method/property entries."
   defmacro build_methods(do: block) do
-    entries = normalize_block(block)
-    map_entries = Enum.map(entries, &build_map_entry/1)
+    map_entries = build_map_entries(normalize_block(block))
     quote do: %{unquote_splicing(map_entries)}
   end
 
   defmacro object(opts \\ [], do: block) do
-    entries = normalize_block(block)
-    map_entries = Enum.map(entries, &build_map_entry/1)
+    map_entries = build_map_entries(normalize_block(block))
     heap? = Keyword.get(opts, :heap, true)
 
     if heap? do
@@ -910,8 +933,7 @@ defmodule QuickBEAM.VM.Builtin do
 
   @doc "Builds a heap-wrapped object from builtin method/property entries."
   defmacro build_object(do: block) do
-    entries = normalize_block(block)
-    map_entries = Enum.map(entries, &build_map_entry/1)
+    map_entries = build_map_entries(normalize_block(block))
 
     quote do
       QuickBEAM.VM.Heap.wrap(%{unquote_splicing(map_entries)})
@@ -931,7 +953,7 @@ defmodule QuickBEAM.VM.Builtin do
   # ── Shared builders ──
 
   defp build_constructor(name, callback, proto_entries, parent) do
-    proto_map_entries = Enum.map(proto_entries, &build_map_entry/1)
+    proto_map_entries = build_map_entries(proto_entries)
 
     quote do
       QuickBEAM.VM.Runtime.ConstructorRegistry.register(
@@ -943,19 +965,38 @@ defmodule QuickBEAM.VM.Builtin do
     end
   end
 
-  defp build_builtin(name, body) do
+  defp build_builtin(name, body, opts \\ []) do
     quote do
-      {:builtin, unquote(name),
-       fn var!(args), var!(this) ->
-         _ = var!(args)
-         _ = var!(this)
-         unquote(body)
-       end}
+      QuickBEAM.VM.Builtin.builtin(
+        unquote(name),
+        fn var!(args), var!(this) ->
+          _ = var!(args)
+          _ = var!(this)
+          unquote(body)
+        end,
+        unquote(Macro.escape(opts))
+      )
     end
   end
 
   defp normalize_block({:__block__, _, entries}), do: entries
   defp normalize_block(single), do: [single]
+
+  defp build_map_entries(entries) do
+    {map_entries, _pending_opts} =
+      Enum.reduce(entries, {[], []}, fn
+        {:@, _, [{:ecma, _, [ecma]}]}, {built, pending_opts} ->
+          {built, Keyword.put(pending_opts, :ecma, ecma)}
+
+        {:@, _, [{:doc, _, [_doc]}]}, {built, pending_opts} ->
+          {built, pending_opts}
+
+        entry, {built, pending_opts} ->
+          {[build_map_entry(entry, pending_opts) | built], []}
+      end)
+
+    Enum.reverse(map_entries)
+  end
 
   defp parse_constructor_block(block) do
     block
@@ -980,53 +1021,58 @@ defmodule QuickBEAM.VM.Builtin do
     |> then(fn {entries, parent} -> {Enum.reverse(entries), parent} end)
   end
 
-  defp build_map_entry({:method, _, [name, [do: body]]}) do
-    {name, build_builtin(name, body)}
+  defp build_map_entry(entry, pending_opts)
+
+  defp build_map_entry({:method, _, [name, [do: body]]}, pending_opts) do
+    {name, build_builtin(name, body, pending_opts)}
   end
 
-  defp build_map_entry({:method, _, [name, opts, [do: body]]}) when is_list(opts) do
-    {name, build_builtin(name, body)}
+  defp build_map_entry({:method, _, [name, opts, [do: body]]}, pending_opts) when is_list(opts) do
+    {name, build_builtin(name, body, Keyword.merge(pending_opts, opts))}
   end
 
-  defp build_map_entry({:args_method, _, [name, callback]}) do
+  defp build_map_entry({:args_method, _, [name, callback]}, _pending_opts) do
     {name, quote(do: QuickBEAM.VM.Builtin.builtin_args(unquote(name), unquote(callback)))}
   end
 
-  defp build_map_entry({:receiver_method, _, [name, callback]}) do
+  defp build_map_entry({:receiver_method, _, [name, callback]}, _pending_opts) do
     {name, quote(do: QuickBEAM.VM.Builtin.builtin_receiver(unquote(name), unquote(callback)))}
   end
 
-  defp build_map_entry({:this_method, _, [name, callback]}) do
+  defp build_map_entry({:this_method, _, [name, callback]}, _pending_opts) do
     {name, quote(do: QuickBEAM.VM.Builtin.builtin_this(unquote(name), unquote(callback)))}
   end
 
-  defp build_map_entry({:symbol_method, _, [name, [do: body]]}) do
-    {{:symbol, name}, build_builtin("[#{name}]", body)}
+  defp build_map_entry({:symbol_method, _, [name, [do: body]]}, pending_opts) do
+    {{:symbol, name}, build_builtin("[#{name}]", body, pending_opts)}
   end
 
-  defp build_map_entry({:accessor, _, [name, [do: block]]}) do
-    {getter, setter} = build_accessor_parts(name, block)
+  defp build_map_entry({:accessor, _, [name, [do: block]]}, pending_opts) do
+    {getter, setter} = build_accessor_parts(name, block, pending_opts)
     {name, quote(do: {:accessor, unquote(getter), unquote(setter)})}
   end
 
-  defp build_map_entry({:getter, _, [name, [do: body]]}) do
-    {name, quote(do: {:accessor, unquote(build_builtin("get #{name}", body)), nil})}
+  defp build_map_entry({:getter, _, [name, [do: body]]}, pending_opts) do
+    {name, quote(do: {:accessor, unquote(build_builtin("get #{name}", body, pending_opts)), nil})}
   end
 
-  defp build_map_entry({:val, _, [name, value]}) do
+  defp build_map_entry({:val, _, [name, value]}, _pending_opts) do
     {name, value}
   end
 
-  defp build_map_entry({:prop, _, [name, value]}) do
+  defp build_map_entry({:prop, _, [name, value]}, _pending_opts) do
     {name, value}
   end
 
-  defp build_accessor_parts(name, block) do
+  defp build_accessor_parts(name, block, pending_opts) do
     block
     |> normalize_block()
     |> Enum.reduce({nil, nil}, fn
-      {:get, _, [[do: body]]}, {_getter, setter} -> {build_builtin("get #{name}", body), setter}
-      {:set, _, [[do: body]]}, {getter, _setter} -> {getter, build_builtin("set #{name}", body)}
+      {:get, _, [[do: body]]}, {_getter, setter} ->
+        {build_builtin("get #{name}", body, pending_opts), setter}
+
+      {:set, _, [[do: body]]}, {getter, _setter} ->
+        {getter, build_builtin("set #{name}", body, pending_opts)}
     end)
   end
 
@@ -1042,7 +1088,14 @@ defmodule QuickBEAM.VM.Builtin do
   end
 
   @doc "Wraps a two-arity callback in the VM builtin tuple representation."
-  def builtin(name, callback) when is_function(callback, 2), do: {:builtin, name, callback}
+  def builtin(name, callback, opts \\ []) when is_function(callback, 2) do
+    function = {:builtin, name, callback}
+
+    case opts do
+      [] -> function
+      _ -> put_builtin_metadata(function, meta(name, opts))
+    end
+  end
 
   def builtin_args(name, callback) when is_function(callback, 1) do
     {:builtin, name, fn args, _this -> callback.(args) end}
