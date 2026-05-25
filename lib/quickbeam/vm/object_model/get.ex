@@ -17,6 +17,7 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   alias QuickBEAM.VM.ObjectModel.{
     ArrayObjectGet,
     ExplicitOwnProperty,
+    GetCallbacks,
     LengthGet,
     MapPropertyGet,
     OrdinaryGet,
@@ -65,14 +66,14 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp ordinary_get(value, key, receiver),
     do: OrdinaryGet.property(value, key, receiver, ordinary_get_callbacks())
 
-  defp ordinary_get_callbacks do
-    %{
-      call_getter: &call_getter/2,
-      explicit_own?: &explicit_undefined_own?/2,
-      get_own: &get_own/2,
-      get_prototype_raw: &get_prototype_raw/2
-    }
-  end
+  defp ordinary_get_callbacks,
+    do:
+      GetCallbacks.ordinary(
+        &call_getter/2,
+        &explicit_undefined_own?/2,
+        &get_own/2,
+        &get_prototype_raw/2
+      )
 
   defp get_callable_symbol(value, sym_key),
     do: SymbolGet.callable_property(value, sym_key, symbol_get_callbacks())
@@ -80,14 +81,14 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_symbol(value, sym_key),
     do: SymbolGet.property(value, sym_key, symbol_get_callbacks())
 
-  defp symbol_get_callbacks do
-    %{
-      call_getter: &call_getter/2,
-      explicit_own?: &explicit_undefined_own?/2,
-      get_from_prototype: &get_from_prototype/2,
-      get_own: &get_own/2
-    }
-  end
+  defp symbol_get_callbacks,
+    do:
+      GetCallbacks.symbol(
+        &call_getter/2,
+        &explicit_undefined_own?/2,
+        &get_from_prototype/2,
+        &get_own/2
+      )
 
   @doc "Invokes a getter function with the provided receiver."
   def call_getter(fun, this_obj) do
@@ -108,13 +109,8 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   defp string_proto_property(key), do: PrimitiveWrapperGet.string_proto_property(key)
 
-  defp length_callbacks do
-    %{
-      get: &get/2,
-      get_map_property: &get_map_property/3,
-      shape_value: &shape_value/2
-    }
-  end
+  defp length_callbacks,
+    do: GetCallbacks.length(&get/2, &get_map_property/3, &shape_value/2)
 
   defp shape_value({:accessor, getter, _setter}, receiver) when getter != nil,
     do: call_getter(getter, receiver)
@@ -129,51 +125,46 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
 
   def own(value, key), do: get_own(value, key)
 
-  defp own_get_callbacks do
-    %{
-      array_object: &array_object_callbacks/0,
-      builtin_object: &builtin_object_callbacks/1,
-      call_getter: &call_getter/2,
-      object_map: &object_map_callbacks/1,
-      proxy_get: &proxy_get/5,
-      raw_object: &raw_object_callbacks/1,
-      typed_array: &typed_array_callbacks/0
-    }
-  end
+  defp own_get_callbacks,
+    do:
+      GetCallbacks.own(
+        &array_object_callbacks/0,
+        &builtin_object_callbacks/1,
+        &call_getter/2,
+        &object_map_callbacks/1,
+        &proxy_get/5,
+        &raw_object_callbacks/1,
+        &typed_array_callbacks/0
+      )
 
   defp proxy_get(proxy, target, handler, key, receiver),
     do: ProxyGet.dispatch(proxy, target, handler, key, receiver, &ordinary_get/3, &target_slot/2)
 
-  defp typed_array_callbacks, do: %{get_map_property: &get_map_property/3}
+  defp typed_array_callbacks, do: GetCallbacks.typed_array(&get_map_property/3)
 
-  defp builtin_object_callbacks(receiver) do
-    %{get_map_property: fn map, key -> get_map_property(map, key, receiver) end}
-  end
+  defp builtin_object_callbacks(receiver),
+    do: GetCallbacks.builtin_object(&get_map_property/3, receiver)
 
-  defp object_map_callbacks(ref) do
-    %{
-      array_prototype_length: fn -> LengthGet.array_prototype_length(ref) end,
-      get_map_property: &get_map_property/3
-    }
-  end
+  defp object_map_callbacks(ref),
+    do:
+      GetCallbacks.object_map(
+        fn -> LengthGet.array_prototype_length(ref) end,
+        &get_map_property/3
+      )
 
-  defp raw_object_callbacks(ref) do
-    %{
-      array_prototype_raw?: &LengthGet.array_prototype_raw?/1,
-      array_prototype_length: fn -> LengthGet.array_prototype_length(ref) end,
-      wrapped_raw_proto_property: &wrapped_raw_proto_property/2
-    }
-  end
+  defp raw_object_callbacks(ref),
+    do:
+      GetCallbacks.raw_object(
+        &LengthGet.array_prototype_raw?/1,
+        fn -> LengthGet.array_prototype_length(ref) end,
+        &wrapped_raw_proto_property/2
+      )
 
   defp target_slot(target, key),
     do: ArrayObjectGet.target_slot(target, key, array_object_callbacks())
 
-  defp array_object_callbacks do
-    %{
-      get_own: &get_own/2,
-      get_from_prototype: &get_from_prototype/2
-    }
-  end
+  defp array_object_callbacks,
+    do: GetCallbacks.array_object(&get_own/2, &get_from_prototype/2)
 
   # ── Prototype chain ──
 
@@ -185,14 +176,14 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
   defp get_from_prototype(value, key),
     do: PrototypeGet.property(value, key, prototype_get_callbacks())
 
-  defp prototype_get_callbacks do
-    %{
-      call_getter: &call_getter/2,
-      get_own: &get_own/2,
-      prototype_property_with_receiver: &prototype_property_with_receiver/3,
-      string_proto_property: &string_proto_property/1
-    }
-  end
+  defp prototype_get_callbacks,
+    do:
+      GetCallbacks.prototype(
+        &call_getter/2,
+        &get_own/2,
+        &prototype_property_with_receiver/3,
+        &string_proto_property/1
+      )
 
   def prototype_property_with_receiver(target, key, receiver),
     do:
@@ -203,12 +194,6 @@ defmodule QuickBEAM.VM.ObjectModel.Get do
         prototype_traversal_callbacks()
       )
 
-  defp prototype_traversal_callbacks do
-    %{
-      call_getter: &call_getter/2,
-      get: &get/3,
-      get_from_prototype: &get_from_prototype/2,
-      get_own_value: &get/2
-    }
-  end
+  defp prototype_traversal_callbacks,
+    do: GetCallbacks.traversal(&call_getter/2, &get/3, &get_from_prototype/2, &get/2)
 end

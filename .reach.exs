@@ -268,6 +268,7 @@ process_state_owners = [
       "QuickBEAM.VM.ObjectModel.ExplicitOwnProperty",
       "QuickBEAM.VM.ObjectModel.FunctionExoticGet",
       "QuickBEAM.VM.ObjectModel.FunctionPrototypeGet",
+      "QuickBEAM.VM.ObjectModel.GetCallbacks",
       "QuickBEAM.VM.ObjectModel.IndexedExoticGet",
       "QuickBEAM.VM.ObjectModel.LengthGet",
       "QuickBEAM.VM.ObjectModel.MapPropertyGet",
@@ -365,6 +366,7 @@ process_state_owners = [
          "QuickBEAM.VM.ObjectModel.PrototypeGet",
          "QuickBEAM.VM.ObjectModel.SymbolGet"
        ]},
+      {"QuickBEAM.VM.ObjectModel.GetCallbacks", ["QuickBEAM.VM.ObjectModel.Get"]},
       {"QuickBEAM.VM.ObjectModel.IndexedExoticGet",
        ["QuickBEAM.VM.ObjectModel.Get", "QuickBEAM.VM.ObjectModel.OwnGet"]},
       {"QuickBEAM.VM.ObjectModel.LengthGet", ["QuickBEAM.VM.ObjectModel.Get"]},
