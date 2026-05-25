@@ -572,6 +572,7 @@ defmodule QuickBEAM do
         else
           map
           |> Map.drop([key_order()])
+          |> Map.reject(fn {k, _} -> internal_slot?(k) or k == :__internal_proto__ end)
           |> Map.new(fn {k, v} -> {convert_beam_key(k), convert_beam_value(v)} end)
           |> Map.reject(fn {k, _} ->
             is_binary(k) and String.starts_with?(k, "__") and String.ends_with?(k, "__")
