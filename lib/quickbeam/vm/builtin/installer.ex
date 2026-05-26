@@ -42,6 +42,7 @@ defmodule QuickBEAM.VM.Builtin.Installer do
 
     install_constructor_metadata(ctor, definition)
     install_constructor_length(ctor, definition)
+    install_declared_statics(ctor, definition)
     Heap.put_ctor_prop_desc(ctor, "prototype", definition.prototype_descriptor)
     install_prototype(ctor, definition, target)
     run_after_install(ctor, definition, after_install_opts(target))
@@ -79,6 +80,12 @@ defmodule QuickBEAM.VM.Builtin.Installer do
   defp property_spec(%FunctionSpec{} = spec, key), do: Builtin.property_spec(key, spec)
   defp property_spec(%PropertySpec{} = spec, _key), do: spec
   defp property_spec(nil, _key), do: nil
+
+  defp install_declared_statics(ctor, %Definition{module: module}) when is_atom(module) do
+    install_static_specs(ctor, module)
+  end
+
+  defp install_declared_statics(_ctor, _definition), do: :ok
 
   defp install_property_spec(target, module, %PropertySpec{} = spec, namespace) do
     value = property_value(spec, module, namespace)
