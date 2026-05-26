@@ -14,9 +14,6 @@ defmodule QuickBEAM.VM.Runtime.Set do
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.{Collections, InstallerHelpers}
 
-  @set_methods ~w(has add delete clear values keys entries forEach difference intersection union symmetricDifference isSubsetOf isSupersetOf isDisjointFrom)
-  @set_iterator_methods ~w(keys values entries)
-
   defintrinsics do
     intrinsic("Set",
       constructor: constructor(),
@@ -47,11 +44,6 @@ defmodule QuickBEAM.VM.Runtime.Set do
     InstallerHelpers.with_prototype(ctor, fn proto_ref ->
       InstallerHelpers.install_object_parent(proto_ref, object_proto)
 
-      InstallerHelpers.install_methods(proto_ref, __MODULE__, @set_methods,
-        zero_length: @set_iterator_methods
-      )
-
-      InstallerHelpers.install_symbol_iterator(proto_ref, __MODULE__)
       Builtin.Installer.install_prototype_specs(proto_ref, __MODULE__)
       InstallerHelpers.install_to_string_tag(proto_ref, "Set")
       InstallerHelpers.install_constructor_link(proto_ref, ctor)
@@ -155,43 +147,85 @@ defmodule QuickBEAM.VM.Runtime.Set do
     end
   end
 
+  prototype_methods do
+    method "has", length: 1 do
+      has(args, this)
+    end
+
+    method "add", length: 1 do
+      add(args, this)
+    end
+
+    method "delete", length: 1 do
+      delete(args, this)
+    end
+
+    method "clear", length: 0 do
+      clear(args, this)
+    end
+
+    method "values", length: 0 do
+      values(args, this)
+    end
+
+    method "keys", length: 0 do
+      values(args, this)
+    end
+
+    method "entries", length: 0 do
+      entries(args, this)
+    end
+
+    symbol :iterator do
+      method length: 0 do
+        values(args, this)
+      end
+    end
+
+    method "forEach", length: 1 do
+      for_each(args, this)
+    end
+
+    method "difference", length: 1 do
+      difference(args, this)
+    end
+
+    method "intersection", length: 1 do
+      intersection(args, this)
+    end
+
+    method "union", length: 1 do
+      union(args, this)
+    end
+
+    method "symmetricDifference", length: 1 do
+      symmetric_difference(args, this)
+    end
+
+    method "isSubsetOf", length: 1 do
+      subset?(args, this)
+    end
+
+    method "isSupersetOf", length: 1 do
+      superset?(args, this)
+    end
+
+    method "isDisjointFrom", length: 1 do
+      disjoint?(args, this)
+    end
+
+    getter "size" do
+      size(this)
+    end
+  end
+
   @doc "Returns the SetData size for Set.prototype.size."
   def size(this), do: this |> require_strong_set_ref!() |> data() |> length()
-
-  @doc "Returns a prototype property value for the given JavaScript property key."
-  def proto_property("has"), do: {:builtin, "has", &has/2}
-  def proto_property("add"), do: {:builtin, "add", &add/2}
-  def proto_property("delete"), do: {:builtin, "delete", &delete/2}
-  def proto_property("clear"), do: {:builtin, "clear", &clear/2}
-  def proto_property("values"), do: {:builtin, "values", &values/2}
-  def proto_property("keys"), do: proto_property("values")
-  def proto_property("entries"), do: {:builtin, "entries", &entries/2}
-  def proto_property({:symbol, "Symbol.iterator"}), do: proto_property("values")
-  def proto_property("forEach"), do: {:builtin, "forEach", &for_each/2}
-  def proto_property("difference"), do: {:builtin, "difference", &difference/2}
-  def proto_property("intersection"), do: {:builtin, "intersection", &intersection/2}
-  def proto_property("union"), do: {:builtin, "union", &union/2}
-
-  def proto_property("symmetricDifference"),
-    do: {:builtin, "symmetricDifference", &symmetric_difference/2}
-
-  def proto_property("isSubsetOf"), do: {:builtin, "isSubsetOf", &subset?/2}
-  def proto_property("isSupersetOf"), do: {:builtin, "isSupersetOf", &superset?/2}
-  def proto_property("isDisjointFrom"), do: {:builtin, "isDisjointFrom", &disjoint?/2}
-  def proto_property("size"), do: set_size_accessor()
-  def proto_property(_), do: :undefined
-
-  def proto_property_names, do: ["size"]
-  def proto_property_spec("size"), do: Builtin.accessor_property_spec("size", size_getter())
-  def proto_property_spec(_), do: nil
 
   def weak_proto_property("has"), do: {:builtin, "has", &weak_has/2}
   def weak_proto_property("add"), do: {:builtin, "add", &weak_add/2}
   def weak_proto_property("delete"), do: {:builtin, "delete", &weak_delete/2}
   def weak_proto_property(_), do: :undefined
-
-  defp set_size_accessor, do: {:accessor, size_getter(), nil}
-  defp size_getter, do: {:builtin, "get size", fn _args, this -> size(this) end}
 
   defp set_object(_set_ref, items, instance_proto) do
     entries = Enum.with_index(items, 1) |> Enum.map(fn {value, id} -> {id, value, true} end)
