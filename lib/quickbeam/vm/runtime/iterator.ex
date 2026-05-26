@@ -78,15 +78,15 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
         find(args, this)
       end
 
-      method {:symbol, "Symbol.iterator"}, length: 0 do
+      symbol_method :iterator, length: 0 do
         this
       end
 
-      method {:symbol, "Symbol.dispose"}, length: 0 do
+      symbol_method :dispose, length: 0 do
         dispose(args, this)
       end
 
-      accessor {:symbol, "Symbol.toStringTag"} do
+      symbol_accessor :toStringTag do
         get do
           "Iterator"
         end

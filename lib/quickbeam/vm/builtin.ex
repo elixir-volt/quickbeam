@@ -903,6 +903,13 @@ defmodule QuickBEAM.VM.Builtin do
           proto_getter: 3,
           static_getter: 2,
           static_getter: 3,
+          symbol_method: 2,
+          symbol_method: 3,
+          symbol_accessor: 2,
+          symbol_accessor: 3,
+          symbol_getter: 2,
+          symbol_getter: 3,
+          species_accessor: 0,
           proto_data: 2,
           proto_data: 3,
           property: 2,
@@ -1611,10 +1618,30 @@ defmodule QuickBEAM.VM.Builtin do
 
   defp prototype_declaration?({:@, _, _}), do: true
   defp prototype_declaration?({:method, _, _}), do: true
+  defp prototype_declaration?({:symbol_method, _, _}), do: true
   defp prototype_declaration?({:accessor, _, _}), do: true
+  defp prototype_declaration?({:symbol_accessor, _, _}), do: true
   defp prototype_declaration?({:getter, _, _}), do: true
+  defp prototype_declaration?({:symbol_getter, _, _}), do: true
   defp prototype_declaration?({:property, _, _}), do: true
+  defp prototype_declaration?({:species_accessor, _, _}), do: true
   defp prototype_declaration?(_entry), do: false
+
+  defmacro symbol_method(_name, _opts \\ [], do: _body) do
+    raise ArgumentError, "symbol_method is only available inside builtin object/spec blocks"
+  end
+
+  defmacro symbol_accessor(_name, _opts \\ [], do: _block) do
+    raise ArgumentError, "symbol_accessor is only available inside builtin object/spec blocks"
+  end
+
+  defmacro symbol_getter(_name, _opts \\ [], do: _body) do
+    raise ArgumentError, "symbol_getter is only available inside builtin object/spec blocks"
+  end
+
+  defmacro species_accessor do
+    raise ArgumentError, "species_accessor is only available inside builtin spec blocks"
+  end
 
   defp contextual_methods(block, target) do
     block
@@ -1629,6 +1656,12 @@ defmodule QuickBEAM.VM.Builtin do
       {:method, meta, [name, opts, [do: body]]} ->
         {target, meta, [name, opts, [do: body]]}
 
+      {:symbol_method, meta, [name, [do: body]]} ->
+        {target, meta, [symbol_key(name), [do: body]]}
+
+      {:symbol_method, meta, [name, opts, [do: body]]} ->
+        {target, meta, [symbol_key(name), opts, [do: body]]}
+
       {:property, meta, [name, opts]} when is_list(opts) ->
         value = Keyword.fetch!(opts, :value)
         opts = Keyword.delete(opts, :value)
@@ -1639,14 +1672,30 @@ defmodule QuickBEAM.VM.Builtin do
         target_accessor = if target == :proto, do: :proto_accessor, else: :static_accessor
         {target_accessor, meta, [name, [do: block]]}
 
+      {:symbol_accessor, meta, [name, [do: block]]} ->
+        target_accessor = if target == :proto, do: :proto_accessor, else: :static_accessor
+        {target_accessor, meta, [symbol_key(name), [do: block]]}
+
       {:getter, meta, [name, [do: body]]} ->
         target_getter = if target == :proto, do: :proto_getter, else: :static_getter
         {target_getter, meta, [name, [do: body]]}
+
+      {:symbol_getter, meta, [name, [do: body]]} ->
+        target_getter = if target == :proto, do: :proto_getter, else: :static_getter
+        {target_getter, meta, [symbol_key(name), [do: body]]}
+
+      {:species_accessor, meta, []} ->
+        {:static_getter, meta, [{:symbol, "Symbol.species"}, [do: {:this, [], nil}]]}
 
       other ->
         other
     end)
   end
+
+  defp symbol_key({:symbol, _} = key), do: key
+  defp symbol_key(name) when is_atom(name), do: {:symbol, "Symbol.#{name}"}
+  defp symbol_key("Symbol." <> _ = name), do: {:symbol, name}
+  defp symbol_key(name) when is_binary(name), do: {:symbol, "Symbol.#{name}"}
 
   defp block_from_entries([]), do: :ok
   defp block_from_entries([entry]), do: entry
