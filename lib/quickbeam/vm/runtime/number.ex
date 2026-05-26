@@ -63,8 +63,13 @@ defmodule QuickBEAM.VM.Runtime.Number do
     is_integer(val) or (is_float(val) and val == Float.floor(val))
   end
 
-  static_val("parseInt", {:builtin, "parseInt", &Numeric.parse_int/2})
-  static_val("parseFloat", {:builtin, "parseFloat", &Numeric.parse_float/2})
+  static "parseInt", length: 2 do
+    Numeric.parse_int(args, this)
+  end
+
+  static "parseFloat", length: 1 do
+    Numeric.parse_float(args, this)
+  end
 
   constant("NaN", :nan)
   constant("POSITIVE_INFINITY", :infinity)
