@@ -21,7 +21,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Semantics.Values
   alias QuickBEAM.VM.Value
-  alias QuickBEAM.VM.Runtime.InstallerHelpers
+  alias QuickBEAM.VM.Runtime.{ArraySource, InstallerHelpers}
 
   @max_array_length 4_294_967_295
   @max_safe_integer 9_007_199_254_740_991
@@ -2308,9 +2308,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     JSThrow.type_error!("predicate must be callable")
   end
 
-  defp find_value_at(value, idx), do: value |> array_source() |> source_get(idx)
-
-  defp list_value_at(list, idx), do: list |> List.to_tuple() |> tuple_value_at(idx)
+  defp find_value_at(value, idx), do: ArraySource.get(value, idx)
 
   defp tuple_value_at(tuple, idx) when is_integer(idx) and idx >= 0 and idx < tuple_size(tuple),
     do: :erlang.element(idx + 1, tuple)
@@ -2422,78 +2420,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp primitive_object(value),
     do: QuickBEAM.VM.Runtime.ConstructorCallbacks.object([value], nil)
 
-  defp array_source({:obj, _} = obj), do: {:object, obj}
-  defp array_source({:qb_arr, arr}), do: {:qb_arr, arr}
-  defp array_source({:tuple, tuple}), do: {:tuple, tuple}
-  defp array_source(list) when is_list(list), do: {:list, list}
-  defp array_source(value), do: {:value, value}
-
-  defp source_length({:object, obj}), do: object_array_like_length(obj)
-  defp source_length({:qb_arr, arr}), do: :array.size(arr)
-  defp source_length({:tuple, tuple}), do: tuple_size(tuple)
-  defp source_length({:list, list}), do: length(list)
-  defp source_length({:value, value}), do: to_length(Get.get(value, "length"))
-
-  defp source_get({:object, value}, idx) do
-    key = Integer.to_string(idx)
-    current = Get.get(value, key)
-
-    if current == :undefined and not OwnProperty.present?(value, key) do
-      case InternalMethods.get_prototype_of(value) do
-        {:obj, _} = proto -> Get.get(proto, key)
-        _ -> current
-      end
-    else
-      current
-    end
-  end
-
-  defp source_get({:qb_arr, arr}, idx), do: array_value_at(arr, idx)
-  defp source_get({:tuple, tuple}, idx), do: tuple_value_at(tuple, idx)
-  defp source_get({:list, list}, idx), do: list_value_at(list, idx)
-  defp source_get({:value, value}, idx), do: Get.get(value, Integer.to_string(idx))
-
-  defp array_like_length(value), do: value |> array_source() |> source_length()
-
-  defp object_array_like_length({:obj, ref}) do
-    if Heap.get_array_prop(ref, "__arguments__") == true do
-      to_length(Get.get({:obj, ref}, "length"))
-    else
-      case Heap.get_obj(ref) do
-        {:qb_arr, _arr} ->
-          to_length(Get.length_of({:obj, ref}))
-
-        list when is_list(list) ->
-          to_length(Get.length_of({:obj, ref}))
-
-        _ ->
-          array_like_object_length({:obj, ref})
-      end
-    end
-  end
-
-  defp array_like_object_length(obj) do
-    length = to_length(Get.get(obj, "length"))
-
-    if length == 0 and not OwnProperty.present?(obj, "length") do
-      case InternalMethods.get_prototype_of(obj) do
-        {:obj, _} = proto -> max(length, to_length(Get.get(proto, "length")))
-        _ -> length
-      end
-    else
-      length
-    end
-  end
-
-  defp to_length(value) do
-    case Runtime.to_number(value) do
-      :infinity -> @max_safe_integer
-      :neg_infinity -> 0
-      :nan -> 0
-      number when is_number(number) -> min(max(trunc(number), 0), @max_safe_integer)
-      _ -> 0
-    end
-  end
+  defp array_like_length(value), do: ArraySource.length(value)
 
   defp to_integer_or_infinity(value) do
     case Runtime.to_number(value) do
@@ -3367,18 +3294,18 @@ defmodule QuickBEAM.VM.Runtime.Array do
         QuickBEAM.VM.Runtime.TypedArray.element_count(obj)
 
       _ ->
-        source_length(array_source(obj))
+        ArraySource.length(obj)
     end
   end
 
-  defp array_iterator_length(target), do: target |> array_source() |> source_length()
+  defp array_iterator_length(target), do: ArraySource.length(target)
 
   defp array_iterator_value({:obj, ref} = obj, index) do
     case Heap.get_obj(ref, %{}) do
       %{typed_array() => true} -> Get.get(obj, Integer.to_string(index))
-      _ -> source_get(array_source(obj), index)
+      _ -> ArraySource.get(obj, index)
     end
   end
 
-  defp array_iterator_value(target, index), do: target |> array_source() |> source_get(index)
+  defp array_iterator_value(target, index), do: ArraySource.get(target, index)
 end
