@@ -3251,7 +3251,12 @@ defmodule QuickBEAM.VM.Runtime.Array do
     state_ref = make_ref()
     iterator_ref = make_ref()
 
-    Heap.put_obj(state_ref, %{"target" => arr, "mode" => mode, "index" => 0, "done" => false})
+    Heap.put_obj(state_ref, %{
+      "target" => array_iterator_target(arr),
+      "mode" => mode,
+      "index" => 0,
+      "done" => false
+    })
 
     Heap.put_obj(iterator_ref, %{
       "__proto__" => array_iterator_prototype(),
@@ -3316,9 +3321,9 @@ defmodule QuickBEAM.VM.Runtime.Array do
         if Map.get(state, "done") == true do
           Heap.wrap(%{"value" => :undefined, "done" => true})
         else
-          list = array_iterator_list_fn(Map.get(state, "target")).()
+          target = Map.get(state, "target")
 
-          if i >= length(list) do
+          if i >= array_iterator_length(target) do
             Heap.put_obj(state_ref, Map.put(state, "done", true))
             Heap.wrap(%{"value" => :undefined, "done" => true})
           else
@@ -3326,9 +3331,9 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
             value =
               case Map.get(state, "mode") do
-                :values -> Enum.at(list, i, :undefined)
+                :values -> array_iterator_value(target, i)
                 :keys -> i
-                :entries -> Heap.wrap([i, Enum.at(list, i, :undefined)])
+                :entries -> Heap.wrap([i, array_iterator_value(target, i)])
               end
 
             Heap.wrap(%{"value" => value, "done" => false})
@@ -3343,33 +3348,33 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp array_iterator_next(_),
     do: JSThrow.type_error!("Array Iterator next called on incompatible receiver")
 
-  defp array_iterator_list_fn({:obj, ref} = obj) do
+  defp array_iterator_target(list) when is_list(list), do: {:tuple, List.to_tuple(list)}
+
+  defp array_iterator_target(string) when is_binary(string),
+    do: {:tuple, string |> String.codepoints() |> List.to_tuple()}
+
+  defp array_iterator_target(target), do: target
+
+  defp array_iterator_length({:obj, ref} = obj) do
     case Heap.get_obj(ref, %{}) do
       %{typed_array() => true} ->
-        fn ->
-          if QuickBEAM.VM.Runtime.TypedArray.out_of_bounds?(obj) do
-            JSThrow.type_error!("TypedArray is out of bounds")
-          end
-
-          count = QuickBEAM.VM.Runtime.TypedArray.element_count(obj)
-
-          if count > 0 do
-            for i <- 0..(count - 1), do: Get.get(obj, Integer.to_string(i))
-          else
-            []
-          end
+        if QuickBEAM.VM.Runtime.TypedArray.out_of_bounds?(obj) do
+          JSThrow.type_error!("TypedArray is out of bounds")
         end
 
+        QuickBEAM.VM.Runtime.TypedArray.element_count(obj)
+
       _ ->
-        fn -> Heap.obj_to_list(ref) end
+        array_like_length(obj)
     end
   end
 
-  defp array_iterator_list_fn({:qb_arr, arr}), do: fn -> :array.to_list(arr) end
-  defp array_iterator_list_fn(list) when is_list(list), do: fn -> list end
+  defp array_iterator_length({:qb_arr, arr}), do: :array.size(arr)
+  defp array_iterator_length({:tuple, tuple}), do: tuple_size(tuple)
+  defp array_iterator_length(_), do: 0
 
-  defp array_iterator_list_fn(string) when is_binary(string),
-    do: fn -> String.codepoints(string) end
-
-  defp array_iterator_list_fn(_), do: fn -> [] end
+  defp array_iterator_value({:obj, _} = obj, index), do: Get.get(obj, Integer.to_string(index))
+  defp array_iterator_value({:qb_arr, arr}, index), do: :array.get(index, arr)
+  defp array_iterator_value({:tuple, tuple}, index), do: :erlang.element(index + 1, tuple)
+  defp array_iterator_value(_target, _index), do: :undefined
 end

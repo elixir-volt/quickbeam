@@ -150,6 +150,35 @@ defmodule QuickBEAM.VM.Runtime.ArrayTest do
            ) == "true|true|true|[object Array Iterator]"
   end
 
+  test "array iterators read live array state without materializing full list", %{rt: rt} do
+    assert beam!(
+             rt,
+             ~S"""
+             var array = [1];
+             var values = array.values();
+             var first = values.next().value;
+             array.push(2);
+             array[2] = 3;
+             [first, values.next().value, values.next().value, values.next().done].join('|')
+             """
+           ) == "1|2|3|true"
+  end
+
+  test "array iterators read live element changes", %{rt: rt} do
+    assert beam!(
+             rt,
+             ~S"""
+             var array = [1, 2];
+             var entries = array.entries();
+             array[0] = 10;
+             var first = entries.next().value.join(':');
+             array[1] = 20;
+             var second = entries.next().value.join(':');
+             first + '|' + second
+             """
+           ) == "0:10|1:20"
+  end
+
   test "array flat observes proxy has/get order", %{rt: rt} do
     assert beam!(
              rt,

@@ -323,7 +323,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   defp list_iterator(items) do
     state_ref = make_ref()
-    Heap.put_obj(state_ref, %{"items" => items, "index" => 0})
+    Heap.put_obj(state_ref, %{"items" => List.to_tuple(items), "index" => 0})
 
     Heap.wrap(%{
       "__proto__" => wrap_for_valid_iterator_prototype(),
@@ -338,11 +338,11 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     index = state["index"]
     items = state["items"]
 
-    if index >= length(items) do
+    if index >= tuple_size(items) do
       iter_result(:undefined, true)
     else
       Heap.put_obj(state_ref, %{state | "index" => index + 1})
-      iter_result(Enum.at(items, index), false)
+      iter_result(:erlang.element(index + 1, items), false)
     end
   end
 
