@@ -6,27 +6,32 @@ defmodule QuickBEAM.VM.Runtime.BigInt do
   alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.ObjectModel.PropertyDescriptor
   alias QuickBEAM.VM.Runtime
-  alias QuickBEAM.VM.Runtime.InstallerHelpers
   alias QuickBEAM.VM.Semantics.Coercion
 
-  builtin_definition("BigInt",
-    constructor: &QuickBEAM.VM.Runtime.ConstructorCallbacks.bigint/2,
-    length: 1,
-    phase: :fundamental,
-    after_install: &__MODULE__.install_builtin/2
-  )
+  defintrinsic "BigInt" do
+    constructor(&QuickBEAM.VM.Runtime.ConstructorCallbacks.bigint/2,
+      length: 1,
+      phase: :fundamental
+    )
 
-  def install_builtin(ctor, opts \\ []) do
-    object_proto = Keyword.get(opts, :object_proto, Heap.get_object_prototype())
+    prototype extends: :object do
+      slot(:BigIntData, {:bigint, 0})
+      to_string_tag("BigInt")
 
-    InstallerHelpers.with_prototype(ctor, fn proto_ref ->
-      InstallerHelpers.install_object_parent(proto_ref, object_proto)
-      InstallerHelpers.install_constructor_link(proto_ref, ctor)
-      InstallerHelpers.install_methods(proto_ref, __MODULE__, ~w(toString valueOf))
-      InstallerHelpers.install_to_string_tag(proto_ref, "BigInt")
-      Heap.put_obj_key(proto_ref, slot_key(:BigIntData), {:bigint, 0})
-    end)
+      method "toString", length: 1, receiver: :bigint do
+        {:bigint, value} = this
+        bigint_to_string(value, args)
+      end
 
+      method "valueOf", receiver: :bigint do
+        this
+      end
+    end
+
+    install_with(&__MODULE__.install_builtin/2)
+  end
+
+  def install_builtin(ctor, _opts \\ []) do
     install_static_method(ctor, "asIntN", 2, &as_int_n/2)
     install_static_method(ctor, "asUintN", 2, &as_uint_n/2)
   end
@@ -44,15 +49,6 @@ defmodule QuickBEAM.VM.Runtime.BigInt do
     Heap.put_ctor_prop_desc(fun, "name", PropertyDescriptor.hidden_readonly())
     Heap.put_ctor_static(ctor, name, fun)
     Heap.put_ctor_prop_desc(ctor, name, PropertyDescriptor.method())
-  end
-
-  proto "toString", length: 1, receiver: :bigint do
-    {:bigint, value} = this
-    bigint_to_string(value, args)
-  end
-
-  proto "valueOf", receiver: :bigint do
-    this
   end
 
   def as_int_n(args, _this) do

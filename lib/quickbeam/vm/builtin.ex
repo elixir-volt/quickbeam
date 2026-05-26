@@ -887,6 +887,7 @@ defmodule QuickBEAM.VM.Builtin do
           object_parent: 1,
           internal_slot: 2,
           slot: 2,
+          to_string_tag: 1,
           properties: 0,
           prototype_specs: 0,
           constructor_link: 0,
@@ -1206,6 +1207,13 @@ defmodule QuickBEAM.VM.Builtin do
   defmacro slot(name, value) do
     quote do
       internal_slot(QuickBEAM.VM.Builtin.slot_key(unquote(name)), unquote(value))
+    end
+  end
+
+  @doc "Installs a non-enumerable Symbol.toStringTag on the current prototype object."
+  defmacro to_string_tag(label) do
+    quote do
+      QuickBEAM.VM.Runtime.InstallerHelpers.install_to_string_tag(var!(proto_ref), unquote(label))
     end
   end
 
