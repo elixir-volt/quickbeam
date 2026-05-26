@@ -661,7 +661,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp map(nil, _), do: JSThrow.type_error!("Cannot convert undefined or null to object")
   defp map(:undefined, _), do: JSThrow.type_error!("Cannot convert undefined or null to object")
-  defp map({:qb_arr, arr}, args), do: map(:array.to_list(arr), args)
+  defp map({:qb_arr, _} = value, args), do: map_array_like(value, args)
   defp map(value, args), do: map_array_like(find_receiver(value), args)
 
   defp map_array_like(this, [fun | rest]) do
@@ -731,7 +731,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp filter({:regexp, _, _, _} = obj, args), do: filter_array_like(obj, args)
   defp filter({:regexp, _, _} = obj, args), do: filter_array_like(obj, args)
 
-  defp filter({:qb_arr, arr}, args), do: filter(:array.to_list(arr), args)
+  defp filter({:qb_arr, _} = value, args), do: filter_array_like(value, args)
 
   defp filter(list, [fun | rest]) when is_list(list) do
     unless QuickBEAM.VM.Builtin.callable?(fun) do
@@ -1015,7 +1015,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp for_each(:undefined, _),
     do: JSThrow.type_error!("Cannot convert undefined or null to object")
 
-  defp for_each({:qb_arr, arr}, args), do: for_each(:array.to_list(arr), args)
+  defp for_each({:qb_arr, _} = value, args), do: for_each_array_like(value, args)
   defp for_each(value, args), do: for_each_array_like(find_receiver(value), args)
 
   defp for_each_array_like(this, [fun | rest]) do
