@@ -138,6 +138,21 @@ defmodule QuickBEAM.VM.Builtin do
     }
   end
 
+  @doc "Builds a declarative accessor property spec."
+  def accessor_property_spec(key, getter, setter \\ nil, opts \\ []) do
+    %PropertySpec{
+      key: key,
+      kind: :accessor,
+      value: {:accessor, getter, setter},
+      descriptor: %{
+        enumerable: Keyword.get(opts, :enumerable, false),
+        configurable: Keyword.get(opts, :configurable, true)
+      },
+      ecma: Keyword.get(opts, :ecma),
+      annex: Keyword.get(opts, :annex)
+    }
+  end
+
   @doc "Builds a declarative data property spec."
   def data_property_spec(key, value, opts \\ []) do
     %PropertySpec{
@@ -876,6 +891,14 @@ defmodule QuickBEAM.VM.Builtin do
           static: 3,
           static_val: 2,
           static_val: 3,
+          proto_accessor: 2,
+          proto_accessor: 3,
+          static_accessor: 2,
+          static_accessor: 3,
+          proto_getter: 2,
+          proto_getter: 3,
+          static_getter: 2,
+          static_getter: 3,
           proto_val: 2,
           proto_val: 3,
           property: 2,
@@ -1058,6 +1081,26 @@ defmodule QuickBEAM.VM.Builtin do
     raise ArgumentError, "property/3 is only available inside builtin object/spec blocks"
   end
 
+  @doc "Defines a prototype accessor property."
+  defmacro proto_accessor(name, opts \\ [], do: block) do
+    build_accessor_property(:proto, name, opts, block)
+  end
+
+  @doc "Defines a constructor/static accessor property."
+  defmacro static_accessor(name, opts \\ [], do: block) do
+    build_accessor_property(:static, name, opts, block)
+  end
+
+  @doc "Defines a prototype getter property."
+  defmacro proto_getter(name, opts \\ [], do: body) do
+    build_getter_property(:proto, name, opts, body)
+  end
+
+  @doc "Defines a constructor/static getter property."
+  defmacro static_getter(name, opts \\ [], do: body) do
+    build_getter_property(:static, name, opts, body)
+  end
+
   @doc "Defines a prototype property as a fixed value."
   defmacro proto_val(name, value, opts \\ []) do
     build_value_property(:proto, name, value, opts)
@@ -1099,6 +1142,57 @@ defmodule QuickBEAM.VM.Builtin do
         QuickBEAM.VM.Builtin.data_property_spec(
           unquote(name),
           unquote(value),
+          QuickBEAM.VM.Builtin.opts_with_builtin_attrs(unquote(Macro.escape(opts)), @ecma, @annex)
+        )
+      end
+
+      @ecma nil
+      @annex nil
+    end
+  end
+
+  defp build_accessor_property(target, name, opts, block) do
+    {getter, setter} = build_accessor_parts(name, block, opts)
+    build_accessor_property(target, name, getter, setter, opts)
+  end
+
+  defp build_getter_property(target, name, opts, body) do
+    build_accessor_property(target, name, build_builtin("get #{name}", body, opts), nil, opts)
+  end
+
+  defp build_accessor_property(:proto, name, getter, setter, opts) do
+    quote do
+      @__has_proto true
+      @__proto_names unquote(name)
+
+      def proto_property(unquote(name)), do: {:accessor, unquote(getter), unquote(setter)}
+
+      def proto_property_spec(unquote(name)) do
+        QuickBEAM.VM.Builtin.accessor_property_spec(
+          unquote(name),
+          unquote(getter),
+          unquote(setter),
+          QuickBEAM.VM.Builtin.opts_with_builtin_attrs(unquote(Macro.escape(opts)), @ecma, @annex)
+        )
+      end
+
+      @ecma nil
+      @annex nil
+    end
+  end
+
+  defp build_accessor_property(:static, name, getter, setter, opts) do
+    quote do
+      @__has_static true
+      @__static_names unquote(name)
+
+      def static_property(unquote(name)), do: {:accessor, unquote(getter), unquote(setter)}
+
+      def static_property_spec(unquote(name)) do
+        QuickBEAM.VM.Builtin.accessor_property_spec(
+          unquote(name),
+          unquote(getter),
+          unquote(setter),
           QuickBEAM.VM.Builtin.opts_with_builtin_attrs(unquote(Macro.escape(opts)), @ecma, @annex)
         )
       end
@@ -1442,6 +1536,8 @@ defmodule QuickBEAM.VM.Builtin do
 
   defp prototype_declaration?({:@, _, _}), do: true
   defp prototype_declaration?({:method, _, _}), do: true
+  defp prototype_declaration?({:accessor, _, _}), do: true
+  defp prototype_declaration?({:getter, _, _}), do: true
   defp prototype_declaration?({:property, _, _}), do: true
   defp prototype_declaration?(_entry), do: false
 
@@ -1463,6 +1559,14 @@ defmodule QuickBEAM.VM.Builtin do
         opts = Keyword.delete(opts, :value)
         target_val = if target == :proto, do: :proto_val, else: :static_val
         {target_val, meta, [name, value, opts]}
+
+      {:accessor, meta, [name, [do: block]]} ->
+        target_accessor = if target == :proto, do: :proto_accessor, else: :static_accessor
+        {target_accessor, meta, [name, [do: block]]}
+
+      {:getter, meta, [name, [do: body]]} ->
+        target_getter = if target == :proto, do: :proto_getter, else: :static_getter
+        {target_getter, meta, [name, [do: body]]}
 
       other ->
         other

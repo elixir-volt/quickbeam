@@ -52,6 +52,11 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
         method "flag", receiver: :boolean, length: 0 do
           this
         end
+
+        @ecma "99.2.3.2"
+        getter "label" do
+          "prototype"
+        end
       end
     end
   end
@@ -148,6 +153,9 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     assert %QuickBEAM.VM.Builtin.FunctionSpec{ecma: "99.2.3.1", kind: :prototype} =
              PrototypeBlockSample.proto_property_spec("flag")
 
+    assert %QuickBEAM.VM.Builtin.PropertySpec{ecma: "99.2.3.2", kind: :accessor} =
+             PrototypeBlockSample.proto_property_spec("label")
+
     ctor =
       QuickBEAM.VM.Builtin.Installer.install(definition,
         target: {:realm, object_proto: QuickBEAM.VM.Heap.get_object_prototype()}
@@ -159,6 +167,9 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     assert proto[QuickBEAM.VM.Builtin.slot_key(:BooleanData)] == false
     assert proto["constructor"] == ctor
     assert {:builtin, "flag", _} = proto["flag"]
+    assert {:accessor, {:builtin, "get label", _}, nil} = proto["label"]
+    refute Map.has_key?(QuickBEAM.VM.Heap.get_prop_desc(ref, "label"), :writable)
+    assert QuickBEAM.VM.Heap.get_prop_desc(ref, "label").configurable == true
 
     assert %QuickBEAM.VM.Builtin.Meta{ecma: "99.2.3.1"} =
              QuickBEAM.VM.Builtin.metadata_for(proto["flag"])

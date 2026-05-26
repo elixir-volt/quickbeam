@@ -7,7 +7,6 @@ defmodule QuickBEAM.VM.Runtime.DataView do
   import QuickBEAM.VM.Heap.Keys, only: [buffer: 0, typed_array: 0]
 
   alias QuickBEAM.VM.{Heap, JSThrow, Runtime}
-  alias QuickBEAM.VM.ObjectModel.PropertyDescriptor
   alias QuickBEAM.VM.Runtime.InstallerHelpers
   alias QuickBEAM.VM.Semantics.Values
   alias QuickBEAM.VM.Semantics.Coercion
@@ -20,6 +19,18 @@ defmodule QuickBEAM.VM.Runtime.DataView do
     )
 
     prototype extends: :object do
+      getter "buffer" do
+        view_field!(this, "buffer")
+      end
+
+      getter "byteLength" do
+        view_field!(this, "byteLength")
+      end
+
+      getter "byteOffset" do
+        view_field!(this, "byteOffset")
+      end
+
       to_string_tag("DataView")
     end
 
@@ -28,11 +39,6 @@ defmodule QuickBEAM.VM.Runtime.DataView do
 
   def install_builtin(ctor, _opts \\ []) do
     InstallerHelpers.with_prototype(ctor, fn proto_ref ->
-      for name <- ~w(buffer byteLength byteOffset) do
-        Heap.put_obj_key(proto_ref, name, accessor(name))
-        Heap.put_prop_desc(proto_ref, name, PropertyDescriptor.accessor())
-      end
-
       QuickBEAM.VM.Builtin.Installer.install_prototype_specs(proto_ref, __MODULE__)
     end)
   end
@@ -106,19 +112,6 @@ defmodule QuickBEAM.VM.Runtime.DataView do
 
     obj
   end
-
-  def accessor("buffer"),
-    do: {:accessor, {:builtin, "get buffer", fn _, this -> view_field!(this, "buffer") end}, nil}
-
-  def accessor("byteLength"),
-    do:
-      {:accessor, {:builtin, "get byteLength", fn _, this -> view_field!(this, "byteLength") end},
-       nil}
-
-  def accessor("byteOffset"),
-    do:
-      {:accessor, {:builtin, "get byteOffset", fn _, this -> view_field!(this, "byteOffset") end},
-       nil}
 
   proto "getInt8", length: 1 do
     read(this, args, :int8)
