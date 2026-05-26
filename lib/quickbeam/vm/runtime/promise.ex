@@ -7,15 +7,16 @@ defmodule QuickBEAM.VM.Runtime.Promise do
 
   alias QuickBEAM.VM.{Heap, Invocation, JSThrow}
   alias QuickBEAM.VM.ObjectModel.PropertyDescriptor
-  alias QuickBEAM.VM.Builtin.Installer
-  alias QuickBEAM.VM.Runtime.{ConstructorRegistry, InstallerHelpers}
   alias QuickBEAM.VM.Semantics.Iterators
   alias QuickBEAM.VM.Promise
 
   defintrinsic "Promise" do
     constructor(constructor(), length: 1, phase: :fundamental)
 
-    install_with(&__MODULE__.install_builtin/2)
+    prototype extends: :object do
+      properties()
+      to_string_tag("Promise")
+    end
   end
 
   static_methods do
@@ -24,21 +25,6 @@ defmodule QuickBEAM.VM.Runtime.Promise do
         this
       end
     end
-  end
-
-  def install_builtin(ctor, opts \\ []) do
-    object_proto = Keyword.get(opts, :object_proto, Heap.get_object_prototype())
-
-    ConstructorRegistry.put_prototype(ctor, prototype(object_proto))
-    Heap.put_ctor_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
-
-    InstallerHelpers.with_prototype(ctor, fn proto_ref ->
-      InstallerHelpers.install_object_parent(proto_ref, object_proto)
-
-      Installer.install_prototype_specs(proto_ref, __MODULE__)
-      InstallerHelpers.install_to_string_tag(proto_ref, "Promise")
-      InstallerHelpers.install_constructor_link(proto_ref, ctor)
-    end)
   end
 
   @doc "Builds the JavaScript constructor object for this runtime builtin."
@@ -126,21 +112,6 @@ defmodule QuickBEAM.VM.Runtime.Promise do
 
   proto "finally", length: 1 do
     Promise.promise_finally(args, this)
-  end
-
-  @doc "Builds the JavaScript prototype object for this runtime builtin."
-  def prototype(object_proto \\ Heap.get_object_prototype()) do
-    base =
-      proto_property_names()
-      |> Enum.into(%{}, fn name -> {name, proto_property(name)} end)
-
-    base =
-      case object_proto do
-        {:obj, _} -> Map.put(base, "__proto__", object_proto)
-        _ -> base
-      end
-
-    Heap.wrap(base)
   end
 
   static "resolve" do
