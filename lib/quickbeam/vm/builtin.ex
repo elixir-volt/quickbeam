@@ -24,7 +24,7 @@ defmodule QuickBEAM.VM.Builtin do
         args_method "from", &from_args/1
         receiver_method "slice", &slice/2
         this_method "toJSON", &to_json/1
-        symbol_method "Symbol.iterator" do ... end
+        symbol_method :iterator do ... end
         accessor "size" do
           get do ... end
         end
@@ -1627,20 +1627,26 @@ defmodule QuickBEAM.VM.Builtin do
   defp prototype_declaration?({:species_accessor, _, _}), do: true
   defp prototype_declaration?(_entry), do: false
 
-  defmacro symbol_method(_name, _opts \\ [], do: _body) do
-    raise ArgumentError, "symbol_method is only available inside builtin object/spec blocks"
+  defmacro symbol_method(name, opts \\ [], do: body) do
+    key = symbol_key(name)
+
+    quote do
+      static unquote(Macro.escape(key)), unquote(Macro.escape(opts)) do
+        unquote(body)
+      end
+    end
   end
 
-  defmacro symbol_accessor(_name, _opts \\ [], do: _block) do
-    raise ArgumentError, "symbol_accessor is only available inside builtin object/spec blocks"
+  defmacro symbol_accessor(name, opts \\ [], do: block) do
+    build_accessor_property(:static, symbol_key(name), opts, block)
   end
 
-  defmacro symbol_getter(_name, _opts \\ [], do: _body) do
-    raise ArgumentError, "symbol_getter is only available inside builtin object/spec blocks"
+  defmacro symbol_getter(name, opts \\ [], do: body) do
+    build_getter_property(:static, symbol_key(name), opts, body)
   end
 
   defmacro species_accessor do
-    raise ArgumentError, "species_accessor is only available inside builtin spec blocks"
+    build_getter_property(:static, symbol_key(:species), [], {:this, [], nil})
   end
 
   defp contextual_methods(block, target) do

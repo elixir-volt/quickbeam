@@ -36,7 +36,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     install_with(&__MODULE__.install_builtin/2)
   end
 
-  static_getter {:symbol, "Symbol.species"} do
+  symbol_getter :species do
     this
   end
 
@@ -3288,7 +3288,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
       object do
         prop("next", {:builtin, "next", fn _args, this -> array_iterator_next(this) end})
 
-        symbol_method "Symbol.iterator" do
+        symbol_method :iterator do
           this
         end
       end

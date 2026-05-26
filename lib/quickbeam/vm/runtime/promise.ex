@@ -17,7 +17,7 @@ defmodule QuickBEAM.VM.Runtime.Promise do
     install_with(&__MODULE__.install_builtin/2)
   end
 
-  static_getter {:symbol, "Symbol.species"} do
+  symbol_getter :species do
     this
   end
 

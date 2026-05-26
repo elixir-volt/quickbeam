@@ -32,7 +32,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
     )
   end
 
-  static_getter {:symbol, "Symbol.species"} do
+  symbol_getter :species do
     this
   end
 
