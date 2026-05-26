@@ -1780,7 +1780,7 @@ defmodule QuickBEAM.VM.Builtin do
 
     quote do
       QuickBEAM.VM.Builtin.builtin(
-        unquote(name),
+        unquote(builtin_property_name(name)),
         fn var!(args), var!(this) ->
           _ = var!(args)
           unquote(callback_body)

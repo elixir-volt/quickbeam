@@ -57,6 +57,16 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
         getter "label" do
           "prototype"
         end
+
+        symbol_method :iterator do
+          this
+        end
+
+        symbol_accessor :toStringTag do
+          get do
+            "PrototypeBlockSample"
+          end
+        end
       end
     end
   end
@@ -184,6 +194,12 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     assert %QuickBEAM.VM.Builtin.PropertySpec{ecma: "99.2.3.2", kind: :accessor} =
              PrototypeBlockSample.proto_property_spec("label")
 
+    assert %QuickBEAM.VM.Builtin.FunctionSpec{kind: :prototype} =
+             PrototypeBlockSample.proto_property_spec({:symbol, "Symbol.iterator"})
+
+    assert %QuickBEAM.VM.Builtin.PropertySpec{kind: :accessor} =
+             PrototypeBlockSample.proto_property_spec({:symbol, "Symbol.toStringTag"})
+
     ctor =
       QuickBEAM.VM.Builtin.Installer.install(definition,
         target: {:realm, object_proto: QuickBEAM.VM.Heap.get_object_prototype()}
@@ -196,6 +212,11 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     assert proto["constructor"] == ctor
     assert {:builtin, "flag", _} = proto["flag"]
     assert {:accessor, {:builtin, "get label", _}, nil} = proto["label"]
+    assert {:builtin, "[Symbol.iterator]", _} = proto[{:symbol, "Symbol.iterator"}]
+
+    assert {:accessor, {:builtin, "get [Symbol.toStringTag]", _}, nil} =
+             proto[{:symbol, "Symbol.toStringTag"}]
+
     refute Map.has_key?(QuickBEAM.VM.Heap.get_prop_desc(ref, "label"), :writable)
     assert QuickBEAM.VM.Heap.get_prop_desc(ref, "label").configurable == true
 
