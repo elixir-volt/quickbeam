@@ -891,6 +891,10 @@ defmodule QuickBEAM.VM.Builtin do
           static: 3,
           static_val: 2,
           static_val: 3,
+          static_constant: 2,
+          static_constant: 3,
+          constant: 2,
+          constant: 3,
           proto_accessor: 2,
           proto_accessor: 3,
           static_accessor: 2,
@@ -1111,6 +1115,18 @@ defmodule QuickBEAM.VM.Builtin do
 
   @doc "Defines a constructor/static property as a fixed value."
   defmacro static_val(name, value, opts \\ []) do
+    build_value_property(:static, name, value, opts)
+  end
+
+  @doc "Defines a non-writable, non-enumerable, non-configurable constructor constant."
+  defmacro static_constant(name, value, opts \\ []) do
+    opts = Keyword.merge([writable: false, enumerable: false, configurable: false], opts)
+    build_value_property(:static, name, value, opts)
+  end
+
+  @doc "Defines a non-writable, non-enumerable, non-configurable constructor constant."
+  defmacro constant(name, value, opts \\ []) do
+    opts = Keyword.merge([writable: false, enumerable: false, configurable: false], opts)
     build_value_property(:static, name, value, opts)
   end
 

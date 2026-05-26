@@ -3,11 +3,8 @@ defmodule QuickBEAM.VM.Runtime.Number do
 
   use QuickBEAM.VM.Builtin
 
-  alias QuickBEAM.VM.{Heap, JSThrow, Runtime, RuntimeState}
-  alias QuickBEAM.VM.ObjectModel.PropertyDescriptor
+  alias QuickBEAM.VM.{JSThrow, Runtime, RuntimeState}
   alias QuickBEAM.VM.Runtime.Globals.Numeric
-
-  @constant_properties ~w(NaN POSITIVE_INFINITY NEGATIVE_INFINITY MAX_SAFE_INTEGER MIN_SAFE_INTEGER EPSILON MAX_VALUE MIN_VALUE)
 
   defintrinsic "Number" do
     constructor(&QuickBEAM.VM.Runtime.ConstructorCallbacks.number/2,
@@ -42,16 +39,6 @@ defmodule QuickBEAM.VM.Runtime.Number do
         to_string_with_radix(this, [])
       end
     end
-
-    install_with(&__MODULE__.install_builtin/2)
-  end
-
-  @doc "Installs Number-specific numeric constant metadata."
-  def install_builtin(ctor, _opts \\ []) do
-    for name <- @constant_properties do
-      Heap.put_ctor_static(ctor, name, static_property(name))
-      Heap.put_ctor_prop_desc(ctor, name, PropertyDescriptor.prototype())
-    end
   end
 
   # ── Number statics ──
@@ -79,23 +66,15 @@ defmodule QuickBEAM.VM.Runtime.Number do
   static_val("parseInt", {:builtin, "parseInt", &Numeric.parse_int/2})
   static_val("parseFloat", {:builtin, "parseFloat", &Numeric.parse_float/2})
 
-  static_val("NaN", :nan)
-  static_val("POSITIVE_INFINITY", :infinity)
-  static_val("NEGATIVE_INFINITY", :neg_infinity)
-  static_val("MAX_SAFE_INTEGER", 9_007_199_254_740_991)
-  static_val("MIN_SAFE_INTEGER", -9_007_199_254_740_991)
-  static_val("EPSILON", 2.220446049250313e-16)
+  constant("NaN", :nan)
+  constant("POSITIVE_INFINITY", :infinity)
+  constant("NEGATIVE_INFINITY", :neg_infinity)
+  constant("MAX_SAFE_INTEGER", 9_007_199_254_740_991)
+  constant("MIN_SAFE_INTEGER", -9_007_199_254_740_991)
+  constant("EPSILON", 2.220446049250313e-16)
   # credo:disable-for-next-line Credo.Check.Readability.LargeNumbers
-  static_val("MAX_VALUE", 1.7976931348623157e+308)
-  static_val("MIN_VALUE", 5.0e-324)
-
-  def static_property_meta(name) when name in @constant_properties do
-    QuickBEAM.VM.Builtin.meta(name,
-      writable: false,
-      enumerable: false,
-      configurable: false
-    )
-  end
+  constant("MAX_VALUE", 1.7976931348623157e+308)
+  constant("MIN_VALUE", 5.0e-324)
 
   # ── toString(radix) ──
 
