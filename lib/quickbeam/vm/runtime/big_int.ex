@@ -3,8 +3,7 @@ defmodule QuickBEAM.VM.Runtime.BigInt do
 
   use QuickBEAM.VM.Builtin
 
-  alias QuickBEAM.VM.{Heap, JSThrow}
-  alias QuickBEAM.VM.ObjectModel.PropertyDescriptor
+  alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Semantics.Coercion
 
@@ -27,28 +26,14 @@ defmodule QuickBEAM.VM.Runtime.BigInt do
         this
       end
     end
-
-    install_with(&__MODULE__.install_builtin/2)
   end
 
-  def install_builtin(ctor, _opts \\ []) do
-    install_static_method(ctor, "asIntN", 2, &as_int_n/2)
-    install_static_method(ctor, "asUintN", 2, &as_uint_n/2)
+  static "asIntN", length: 2 do
+    as_int_n(args, this)
   end
 
-  defp install_static_method(ctor, name, length, callback) do
-    fun = {:builtin, name, callback}
-
-    QuickBEAM.VM.Builtin.put_builtin_metadata(
-      fun,
-      QuickBEAM.VM.Builtin.meta(name, length: length)
-    )
-
-    QuickBEAM.VM.Builtin.put_function_metadata(fun, name, length)
-    Heap.put_ctor_prop_desc(fun, "length", PropertyDescriptor.hidden_readonly())
-    Heap.put_ctor_prop_desc(fun, "name", PropertyDescriptor.hidden_readonly())
-    Heap.put_ctor_static(ctor, name, fun)
-    Heap.put_ctor_prop_desc(ctor, name, PropertyDescriptor.method())
+  static "asUintN", length: 2 do
+    as_uint_n(args, this)
   end
 
   def as_int_n(args, _this) do
