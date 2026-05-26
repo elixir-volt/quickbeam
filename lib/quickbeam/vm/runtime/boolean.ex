@@ -5,7 +5,6 @@ defmodule QuickBEAM.VM.Runtime.Boolean do
   alias QuickBEAM.VM.{Heap, JSThrow}
   alias QuickBEAM.VM.ObjectModel.{InternalMethods, WrappedPrimitive}
   alias QuickBEAM.VM.Runtime
-  alias QuickBEAM.VM.Runtime.InstallerHelpers
 
   @ecma "20.3"
   defintrinsic "Boolean" do
@@ -21,18 +20,16 @@ defmodule QuickBEAM.VM.Runtime.Boolean do
       end
     end
 
-    install_with(&__MODULE__.install_builtin/2)
-  end
+    install do
+      object_proto = Keyword.get(opts, :object_proto, Heap.get_object_prototype())
 
-  def install_builtin(ctor, opts \\ []) do
-    object_proto = Keyword.get(opts, :object_proto, Heap.get_object_prototype())
-
-    InstallerHelpers.with_prototype(ctor, fn proto_ref ->
-      InstallerHelpers.install_object_parent(proto_ref, object_proto)
-      Heap.put_obj_key(proto_ref, WrappedPrimitive.slot(:boolean), false)
-      QuickBEAM.VM.Builtin.Installer.install_prototype_specs(proto_ref, __MODULE__)
-      InstallerHelpers.install_constructor_link(proto_ref, ctor)
-    end)
+      prototype_object do
+        object_parent(object_proto)
+        internal_slot(WrappedPrimitive.slot(:boolean), false)
+        prototype_specs()
+        constructor_link()
+      end
+    end
   end
 
   @ecma "20.3.3.2"

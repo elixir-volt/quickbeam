@@ -9,6 +9,10 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
       constructor length: 1 do
         {args, this}
       end
+
+      install do
+        send(self(), {:structured_install, ctor, opts})
+      end
     end
 
     static_methods do
@@ -78,6 +82,9 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     definition = StructuredSample.builtin_definition()
     assert %QuickBEAM.VM.Builtin.Definition{ecma: "99.1", length: 1} = definition
     assert definition.constructor.([:value], :receiver) == {[:value], :receiver}
+
+    definition.after_install.(:ctor, target: :test)
+    assert_received {:structured_install, :ctor, [target: :test]}
 
     assert %QuickBEAM.VM.Builtin.FunctionSpec{ecma: "99.1.2.1", kind: :static} =
              StructuredSample.static_property_spec("from")

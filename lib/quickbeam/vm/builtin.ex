@@ -882,6 +882,11 @@ defmodule QuickBEAM.VM.Builtin do
           property: 3,
           defintrinsic: 2,
           defintrinsic: 3,
+          prototype_object: 1,
+          object_parent: 1,
+          internal_slot: 2,
+          prototype_specs: 0,
+          constructor_link: 0,
           prototype_methods: 1,
           static_methods: 1,
           js_object: 2,
@@ -1115,6 +1120,46 @@ defmodule QuickBEAM.VM.Builtin do
     build_builtin_definition(name, opts, __CALLER__)
   end
 
+  @doc "Runs an install block against the intrinsic prototype object."
+  defmacro prototype_object(do: block) do
+    quote do
+      QuickBEAM.VM.Runtime.InstallerHelpers.with_prototype(var!(ctor), fn var!(proto_ref) ->
+        unquote(block)
+      end)
+    end
+  end
+
+  @doc "Sets the current prototype object's parent."
+  defmacro object_parent(parent) do
+    quote do
+      QuickBEAM.VM.Runtime.InstallerHelpers.install_object_parent(
+        var!(proto_ref),
+        unquote(parent)
+      )
+    end
+  end
+
+  @doc "Sets an internal slot on the current prototype object."
+  defmacro internal_slot(key, value) do
+    quote do
+      QuickBEAM.VM.Heap.put_obj_key(var!(proto_ref), unquote(key), unquote(value))
+    end
+  end
+
+  @doc "Installs declared prototype property specs on the current prototype object."
+  defmacro prototype_specs do
+    quote do
+      QuickBEAM.VM.Builtin.Installer.install_prototype_specs(var!(proto_ref), __MODULE__)
+    end
+  end
+
+  @doc "Installs the constructor link on the current prototype object."
+  defmacro constructor_link do
+    quote do
+      QuickBEAM.VM.Runtime.InstallerHelpers.install_constructor_link(var!(proto_ref), var!(ctor))
+    end
+  end
+
   @doc "Defines prototype methods using contextual `method` entries."
   defmacro prototype(do: block) do
     build_contextual_methods(block, :proto)
@@ -1209,6 +1254,9 @@ defmodule QuickBEAM.VM.Builtin do
     block
     |> normalize_block()
     |> Enum.flat_map(fn
+      {:install, _, [[do: body]]} ->
+        [after_install: build_install_callback(body)]
+
       {:install_with, _, [callback]} ->
         [after_install: callback]
 
@@ -1237,6 +1285,16 @@ defmodule QuickBEAM.VM.Builtin do
       fn var!(args), var!(this) ->
         _ = var!(args)
         _ = var!(this)
+        unquote(body)
+      end
+    end
+  end
+
+  defp build_install_callback(body) do
+    quote do
+      fn var!(ctor), var!(opts) ->
+        _ = var!(ctor)
+        _ = var!(opts)
         unquote(body)
       end
     end
