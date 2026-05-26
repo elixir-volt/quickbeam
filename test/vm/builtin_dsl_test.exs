@@ -320,25 +320,15 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
              QuickBEAM.VM.Builtin.metadata_for(method)
   end
 
-  test "installer helpers preserve prototype ECMA metadata" do
-    ctor = {:builtin, "String", fn _args, this -> this end}
-    proto = QuickBEAM.VM.Heap.wrap(%{})
-    QuickBEAM.VM.Runtime.ConstructorRegistry.put_prototype(ctor, proto)
-
-    QuickBEAM.VM.Runtime.String.install_builtin(ctor)
-
-    {:obj, ref} = proto
-    method = QuickBEAM.VM.Heap.get_obj(ref)["charAt"]
-    iterator = QuickBEAM.VM.Heap.get_obj(ref)[{:symbol, "Symbol.iterator"}]
-
+  test "prototype specs preserve ECMA metadata" do
     assert %QuickBEAM.VM.Builtin.Definition{ecma: "22.1"} =
              QuickBEAM.VM.Runtime.String.builtin_definition()
 
-    assert %QuickBEAM.VM.Builtin.Meta{ecma: "22.1.3.2"} =
-             QuickBEAM.VM.Builtin.metadata_for(method)
+    assert %QuickBEAM.VM.Builtin.FunctionSpec{ecma: "22.1.3.2"} =
+             QuickBEAM.VM.Runtime.String.proto_property_spec("charAt")
 
-    assert %QuickBEAM.VM.Builtin.Meta{ecma: "22.1.3.36"} =
-             QuickBEAM.VM.Builtin.metadata_for(iterator)
+    assert %QuickBEAM.VM.Builtin.FunctionSpec{ecma: "22.1.3.36"} =
+             QuickBEAM.VM.Runtime.String.proto_property_spec({:symbol, "Symbol.iterator"})
 
     assert %QuickBEAM.VM.Builtin.Meta{ecma: "B.2.2.1", annex: :b} =
              QuickBEAM.VM.Runtime.String.proto_property_meta("substr")

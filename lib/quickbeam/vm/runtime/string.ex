@@ -11,7 +11,6 @@ defmodule QuickBEAM.VM.Runtime.String do
   alias QuickBEAM.VM.Semantics.Coercion
   alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods, PropertyDescriptor, WrappedPrimitive}
   alias QuickBEAM.VM.Runtime
-  alias QuickBEAM.VM.Runtime.InstallerHelpers
   alias QuickBEAM.VM.Runtime.RegExp
 
   @ecma "22.1"
@@ -24,39 +23,6 @@ defmodule QuickBEAM.VM.Runtime.String do
     prototype extends: :object do
       slot(:StringData, "")
     end
-
-    install_with(&__MODULE__.install_builtin/2)
-  end
-
-  @doc "Installs String-specific prototype metadata."
-  def install_builtin(ctor, _opts \\ []) do
-    InstallerHelpers.with_prototype(ctor, fn proto_ref ->
-      QuickBEAM.VM.Builtin.Installer.install_prototype_specs(proto_ref, __MODULE__)
-      install_iterator(proto_ref)
-    end)
-  end
-
-  defp install_iterator(proto_ref) do
-    sym_iterator = {:symbol, "Symbol.iterator"}
-
-    iterator =
-      case proto_property(sym_iterator) do
-        {:builtin, _name, callback} ->
-          Builtin.builtin(
-            "[Symbol.iterator]",
-            callback,
-            proto_property_meta(sym_iterator) || Builtin.meta("[Symbol.iterator]", length: 0)
-          )
-
-        other ->
-          other
-      end
-
-    Heap.put_obj_key(proto_ref, sym_iterator, iterator)
-    Heap.put_prop_desc(proto_ref, sym_iterator, PropertyDescriptor.method())
-    Builtin.put_function_metadata(iterator, "[Symbol.iterator]", 0)
-    Heap.put_ctor_prop_desc(iterator, "length", PropertyDescriptor.hidden_readonly())
-    Heap.put_ctor_prop_desc(iterator, "name", PropertyDescriptor.hidden_readonly())
   end
 
   @trim_leading_pattern ~r/^[\t\n\x{000B}\f\r \x{00A0}\x{1680}\x{2000}\x{2001}\x{2002}\x{2003}\x{2004}\x{2005}\x{2006}\x{2007}\x{2008}\x{2009}\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]+/u
@@ -260,7 +226,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   @ecma "22.1.3.36"
   prototype_methods do
     symbol :iterator do
-      method do
+      method length: 0 do
         this
         |> coerce_string_this()
         |> string_iterator_items()
