@@ -11,23 +11,17 @@ defmodule QuickBEAM.VM.Runtime.WeakRef do
 
   @target "__weak_ref_target__"
 
-  @method_descriptor %{writable: true, enumerable: false, configurable: true}
-  @tag_descriptor %{writable: false, enumerable: false, configurable: true}
+  defintrinsic "WeakRef", intrinsic_key: :weak_ref do
+    constructor(constructor(), length: 1, phase: :weak_refs)
 
-  builtin_definition("WeakRef",
-    constructor: constructor(),
-    length: 1,
-    phase: :weak_refs,
-    intrinsic_key: :weak_ref,
-    prototype_properties: [
-      %{key: "deref", value: proto_property("deref"), descriptor: @method_descriptor},
-      %{
-        key: {:symbol, "Symbol.toStringTag"},
-        value: "WeakRef",
-        descriptor: @tag_descriptor
-      }
-    ]
-  )
+    prototype extends: :object do
+      method "deref" do
+        deref(args, this)
+      end
+
+      to_string_tag("WeakRef")
+    end
+  end
 
   @doc "Builds the JavaScript constructor object for this runtime builtin."
   def constructor do
@@ -49,10 +43,6 @@ defmodule QuickBEAM.VM.Runtime.WeakRef do
       {:obj, ref}
     end
   end
-
-  @doc "Returns a WeakRef prototype property value for the given JavaScript property key."
-  def proto_property("deref"), do: {:builtin, "deref", &deref/2}
-  def proto_property(_), do: :undefined
 
   defp deref(_args, this) do
     this
