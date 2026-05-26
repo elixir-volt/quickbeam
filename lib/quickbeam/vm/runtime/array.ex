@@ -2677,14 +2677,14 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
       true ->
         case Heap.get_obj(ref) do
-          {:qb_arr, arr} -> :array.to_list(arr)
+          {:qb_arr, arr} -> qb_arr_to_list(arr)
           l when is_list(l) -> l
           _ -> array_like_to_list(obj)
         end
     end
   end
 
-  defp coerce_to_list({:qb_arr, arr}), do: :array.to_list(arr)
+  defp coerce_to_list({:qb_arr, arr}), do: qb_arr_to_list(arr)
   defp coerce_to_list(l) when is_list(l), do: l
   defp coerce_to_list(s) when is_binary(s), do: String.codepoints(s)
 
@@ -2697,6 +2697,16 @@ defmodule QuickBEAM.VM.Runtime.Array do
   defp coerce_to_list(n) when is_number(n), do: []
   defp coerce_to_list(b) when is_boolean(b), do: []
   defp coerce_to_list(_), do: []
+
+  defp qb_arr_to_list(arr) do
+    size = :array.size(arr)
+
+    if size == 0 do
+      []
+    else
+      for index <- 0..(size - 1), do: :array.get(index, arr)
+    end
+  end
 
   defp array_like_source?({:obj, _} = obj) do
     iterator_method = Get.get(obj, {:symbol, "Symbol.iterator"})
@@ -2889,50 +2899,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
         obj
 
       _ ->
-        list = Heap.obj_to_list(ref)
-        len = copy_within_length!(obj, ref, list)
-        target = normalize_copy_index(arg(args, 0, 0), len)
-        start_idx = normalize_copy_index(arg(args, 1, 0), len)
-
-        end_idx =
-          case Enum.drop(args, 2) do
-            [] -> len
-            [:undefined | _] -> len
-            [end_value | _] -> normalize_copy_index(end_value, len)
-          end
-
-        current_len = Runtime.to_int(Get.get(obj, "length"))
-
-        if current_len != len and start_idx >= current_len do
-          copy_within_from_sparse_source(obj, ref, len, current_len, target, start_idx)
-        else
-          if current_len != len and target >= current_len do
-            copy_within_sparse_tail(obj, ref, target, start_idx, current_len)
-          else
-            if copy_within_source_has_holes?(obj, start_idx, end_idx, len, target) do
-              copy_within_present_properties(obj, len, target, start_idx, end_idx)
-            else
-              slice =
-                list |> Enum.slice(start_idx, max(end_idx - start_idx, 0)) |> List.to_tuple()
-
-              slice_len = tuple_size(slice)
-
-              new_list =
-                list
-                |> Enum.with_index()
-                |> Enum.map(fn {item, i} ->
-                  offset = i - target
-
-                  if i >= target and offset < slice_len,
-                    do: tuple_value_at(slice, offset),
-                    else: item
-                end)
-
-              Heap.put_obj(ref, new_list)
-              {:obj, ref}
-            end
-          end
-        end
+        copy_within_ordinary_object(obj, args)
     end
   end
 
@@ -2967,100 +2934,6 @@ defmodule QuickBEAM.VM.Runtime.Array do
       [:undefined | _] -> len
       [end_value | _] -> normalize_copy_index(end_value, len)
     end
-  end
-
-  defp copy_within_source_has_holes?(obj, start_idx, end_idx, len, target) do
-    count = max(min(max(end_idx - start_idx, 0), len - target), 0)
-
-    count > 0 and
-      Enum.any?(0..(count - 1)//1, fn offset ->
-        not InternalMethods.has_property(obj, Integer.to_string(start_idx + offset))
-      end)
-  end
-
-  defp copy_within_present_properties(obj, len, target, start_idx, end_idx) do
-    count = max(min(max(end_idx - start_idx, 0), len - target), 0)
-
-    {from, to, step} =
-      if start_idx < target and target < start_idx + count do
-        {start_idx + count - 1, target + count - 1, -1}
-      else
-        {start_idx, target, 1}
-      end
-
-    _final_position =
-      Enum.reduce(0..max(count - 1, 0)//1, {from, to}, fn _offset, {from_idx, to_idx} ->
-        from_key = Integer.to_string(from_idx)
-        to_key = Integer.to_string(to_idx)
-
-        if InternalMethods.has_property(obj, from_key) do
-          InternalMethods.set(obj, to_key, Get.get(obj, from_key))
-        else
-          unless InternalMethods.delete(obj, to_key) do
-            JSThrow.type_error!("Cannot delete property")
-          end
-        end
-
-        {from_idx + step, to_idx + step}
-      end)
-
-    obj
-  end
-
-  defp copy_within_from_sparse_source(obj, ref, len, current_len, target, start_idx) do
-    count = max(min(len - start_idx, len - target), 0)
-
-    Enum.each(0..max(count - 1, -1), fn offset ->
-      from_key = Integer.to_string(start_idx + offset)
-      to = target + offset
-      to_key = Integer.to_string(to)
-
-      if InternalMethods.has_property(obj, from_key) do
-        value =
-          copy_within_sparse_source_value(obj, ref, start_idx + offset, current_len, from_key)
-
-        if to < current_len do
-          InternalMethods.set(obj, to_key, value)
-        else
-          Heap.put_array_prop(ref, to_key, value)
-          Heap.put_array_prop(ref, "length", to + 1)
-        end
-      else
-        if to < current_len do
-          unless InternalMethods.delete(obj, to_key) do
-            JSThrow.type_error!("Cannot delete property")
-          end
-        end
-      end
-    end)
-
-    obj
-  end
-
-  defp copy_within_sparse_source_value(obj, ref, idx, current_len, key) do
-    if idx >= current_len do
-      case InternalMethods.get_prototype_of({:obj, ref}) do
-        {:obj, _} = proto -> Get.get(proto, key)
-        _ -> Get.get(obj, key)
-      end
-    else
-      Get.get(obj, key)
-    end
-  end
-
-  defp copy_within_sparse_tail(obj, ref, target, start_idx, current_len) do
-    count = max(current_len - start_idx, 0)
-
-    Enum.each(0..max(count - 1, -1), fn offset ->
-      from_key = Integer.to_string(start_idx + offset)
-
-      if InternalMethods.has_property(obj, from_key) do
-        Heap.put_array_prop(ref, Integer.to_string(target + offset), Get.get(obj, from_key))
-      end
-    end)
-
-    if count > 0, do: Heap.put_array_prop(ref, "length", target + count)
-    obj
   end
 
   defp copy_within_object({:obj, ref} = obj, args) do
@@ -3145,20 +3018,6 @@ defmodule QuickBEAM.VM.Runtime.Array do
       {:symbol, _} -> JSThrow.type_error!("Cannot convert a Symbol value to a number")
       {:symbol, _, _} -> JSThrow.type_error!("Cannot convert a Symbol value to a number")
       length -> max(Runtime.to_int(length), 0)
-    end
-  end
-
-  defp copy_within_length!(obj, ref, list) do
-    case Heap.get_obj(ref) do
-      map when is_map(map) ->
-        case Get.get(obj, "length") do
-          {:symbol, _} -> JSThrow.type_error!("Cannot convert a Symbol value to a number")
-          {:symbol, _, _} -> JSThrow.type_error!("Cannot convert a Symbol value to a number")
-          length -> max(Runtime.to_int(length), 0)
-        end
-
-      _ ->
-        length(list)
     end
   end
 
