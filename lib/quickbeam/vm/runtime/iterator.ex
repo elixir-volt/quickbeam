@@ -212,7 +212,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   def concat(args, _this) do
-    iterables = Enum.map(args, &concat_iterable_record/1)
+    iterables = args |> Enum.map(&concat_iterable_record/1) |> List.to_tuple()
     helper_iterator(%{"kind" => :concat, "iterables" => iterables, "index" => 0, "active" => nil})
   end
 
@@ -592,7 +592,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
       "open_iterators" => iterators,
       "keys" => keys,
       "mode" => mode,
-      "padding" => padding
+      "padding" => List.to_tuple(padding)
     }
   end
 
@@ -895,7 +895,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
         |> Enum.with_index()
         |> Enum.map(fn
           {{:value, value}, _index} -> value
-          {:done, index} -> Enum.at(padding, index, :undefined)
+          {:done, index} -> tuple_value(padding, index, :undefined)
         end)
 
       zip_result(state["keys"], values)
@@ -998,8 +998,16 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     iter_result(Heap.wrap(object), false)
   end
 
+  defp tuple_value(tuple, index, default) when is_tuple(tuple) do
+    if index >= 0 and index < tuple_size(tuple),
+      do: :erlang.element(index + 1, tuple),
+      else: default
+  end
+
+  defp tuple_value(_tuple, _index, default), do: default
+
   defp concat_next(state_ref, %{"iterables" => iterables, "index" => index})
-       when index >= length(iterables) do
+       when index >= tuple_size(iterables) do
     mark_helper_done(state_ref)
     iter_result(:undefined, true)
   end
@@ -1008,7 +1016,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
          state_ref,
          %{"active" => nil, "iterables" => iterables, "index" => index} = state
        ) do
-    %{"iterable" => iterable, "method" => method} = Enum.at(iterables, index)
+    %{"iterable" => iterable, "method" => method} = :erlang.element(index + 1, iterables)
     iterator = Invocation.invoke_with_receiver(method, [], iterable)
 
     unless Value.object_like?(iterator),
