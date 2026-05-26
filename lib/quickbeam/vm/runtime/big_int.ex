@@ -4,7 +4,7 @@ defmodule QuickBEAM.VM.Runtime.BigInt do
   use QuickBEAM.VM.Builtin
 
   alias QuickBEAM.VM.{Heap, JSThrow}
-  alias QuickBEAM.VM.ObjectModel.{PropertyDescriptor, WrappedPrimitive}
+  alias QuickBEAM.VM.ObjectModel.PropertyDescriptor
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.InstallerHelpers
   alias QuickBEAM.VM.Semantics.Coercion
@@ -24,6 +24,7 @@ defmodule QuickBEAM.VM.Runtime.BigInt do
       InstallerHelpers.install_constructor_link(proto_ref, ctor)
       InstallerHelpers.install_methods(proto_ref, __MODULE__, ~w(toString valueOf))
       InstallerHelpers.install_to_string_tag(proto_ref, "BigInt")
+      Heap.put_obj_key(proto_ref, slot_key(:BigIntData), {:bigint, 0})
     end)
 
     install_static_method(ctor, "asIntN", 2, &as_int_n/2)
@@ -45,12 +46,13 @@ defmodule QuickBEAM.VM.Runtime.BigInt do
     Heap.put_ctor_prop_desc(ctor, name, PropertyDescriptor.method())
   end
 
-  proto "toString", length: 1 do
-    bigint_to_string(unwrap_bigint(this), args)
+  proto "toString", length: 1, receiver: :bigint do
+    {:bigint, value} = this
+    bigint_to_string(value, args)
   end
 
-  proto "valueOf" do
-    {:bigint, unwrap_bigint(this)}
+  proto "valueOf", receiver: :bigint do
+    this
   end
 
   def as_int_n(args, _this) do
@@ -108,18 +110,6 @@ defmodule QuickBEAM.VM.Runtime.BigInt do
       _ -> :error
     end
   end
-
-  defp unwrap_bigint({:bigint, value}), do: value
-
-  defp unwrap_bigint({:obj, ref}) do
-    case Heap.get_obj(ref, %{}) |> WrappedPrimitive.value(:bigint) do
-      {:ok, {:bigint, value}} -> value
-      {:ok, value} when is_integer(value) -> value
-      :error -> JSThrow.type_error!("BigInt method called on incompatible receiver")
-    end
-  end
-
-  defp unwrap_bigint(_), do: JSThrow.type_error!("BigInt method called on incompatible receiver")
 
   defp bigint_to_string(value, [:undefined | _]), do: Integer.to_string(value)
   defp bigint_to_string(value, []), do: Integer.to_string(value)
