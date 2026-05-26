@@ -29,10 +29,4 @@ defmodule QuickBEAM.VM.Runtime.InstallerHelpers do
     Heap.put_obj_key(proto_ref, sym_to_string_tag, label)
     Heap.put_prop_desc(proto_ref, sym_to_string_tag, PropertyDescriptor.hidden_readonly())
   end
-
-  @doc "Installs a hidden readonly constructor/function static."
-  def install_hidden_static(ctor, name, value) do
-    Heap.put_ctor_static(ctor, name, value)
-    Heap.put_ctor_prop_desc(ctor, name, PropertyDescriptor.hidden_readonly())
-  end
 end
