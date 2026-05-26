@@ -15,19 +15,21 @@ defmodule QuickBEAM.VM.Runtime.Set do
   alias QuickBEAM.VM.Runtime.{Collections, InstallerHelpers}
 
   defintrinsics do
-    intrinsic("Set",
-      constructor: constructor(),
-      length: 0,
-      phase: :collections,
-      after_install: &__MODULE__.install_set_builtin/2
-    )
+    intrinsic "Set" do
+      constructor(constructor(), length: 0, phase: :collections)
 
-    intrinsic("WeakSet",
-      constructor: weak_constructor(),
-      length: 0,
-      phase: :collections,
-      after_install: &__MODULE__.install_weak_set_builtin/2
-    )
+      install do
+        install_set_builtin(ctor, opts)
+      end
+    end
+
+    intrinsic "WeakSet" do
+      constructor(weak_constructor(), length: 0, phase: :collections)
+
+      install do
+        install_weak_set_builtin(ctor, opts)
+      end
+    end
   end
 
   static_methods do

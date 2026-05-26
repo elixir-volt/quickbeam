@@ -14,19 +14,21 @@ defmodule QuickBEAM.VM.Runtime.Map do
   alias QuickBEAM.VM.{Builtin, Invocation, JSThrow, Value}
 
   defintrinsics do
-    intrinsic("Map",
-      constructor: constructor(),
-      length: 0,
-      phase: :collections,
-      after_install: &__MODULE__.install_map_builtin/2
-    )
+    intrinsic "Map" do
+      constructor(constructor(), length: 0, phase: :collections)
 
-    intrinsic("WeakMap",
-      constructor: weak_constructor(),
-      length: 0,
-      phase: :collections,
-      after_install: &__MODULE__.install_weak_map_builtin/2
-    )
+      install do
+        install_map_builtin(ctor, opts)
+      end
+    end
+
+    intrinsic "WeakMap" do
+      constructor(weak_constructor(), length: 0, phase: :collections)
+
+      install do
+        install_weak_map_builtin(ctor, opts)
+      end
+    end
   end
 
   static_methods do
