@@ -7,23 +7,23 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
-  alias QuickBEAM.VM.Builtin.Installer
-  alias QuickBEAM.VM.Runtime.InstallerHelpers
 
   defintrinsics do
-    intrinsic("ArrayBuffer",
-      constructor: &__MODULE__.constructor/2,
-      length: 1,
-      phase: :fundamental,
-      after_install: &__MODULE__.install_builtin/1
-    )
+    intrinsic "ArrayBuffer", [] do
+      constructor(&__MODULE__.constructor/2, length: 1, phase: :fundamental)
 
-    intrinsic("SharedArrayBuffer",
-      constructor: &__MODULE__.constructor/2,
-      length: 1,
-      phase: :fundamental,
-      after_install: &__MODULE__.install_builtin/1
-    )
+      prototype extends: :object do
+        properties()
+      end
+    end
+
+    intrinsic "SharedArrayBuffer", [] do
+      constructor(&__MODULE__.constructor/2, length: 1, phase: :fundamental)
+
+      prototype extends: :object do
+        properties()
+      end
+    end
   end
 
   static_methods do
@@ -32,12 +32,6 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
         this
       end
     end
-  end
-
-  def install_builtin(ctor) do
-    InstallerHelpers.with_prototype(ctor, fn proto_ref ->
-      Installer.install_prototype_specs(proto_ref, __MODULE__)
-    end)
   end
 
   @doc "Returns prototype method names installed on ArrayBuffer.prototype."
