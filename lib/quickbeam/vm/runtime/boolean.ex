@@ -7,12 +7,22 @@ defmodule QuickBEAM.VM.Runtime.Boolean do
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.InstallerHelpers
 
-  builtin_definition("Boolean",
-    constructor: constructor(),
-    length: 1,
-    phase: :fundamental,
-    after_install: &__MODULE__.install_builtin/2
-  )
+  @ecma "20.3"
+  defintrinsic "Boolean" do
+    constructor length: 1, phase: :fundamental do
+      case {args, this} do
+        {args, {:obj, _} = this} ->
+          val = args |> arg(0, false) |> Runtime.truthy?()
+          InternalMethods.set(this, WrappedPrimitive.slot(:boolean), val)
+          this
+
+        {args, _} ->
+          args |> arg(0, false) |> Runtime.truthy?()
+      end
+    end
+
+    install_with(&__MODULE__.install_builtin/2)
+  end
 
   def install_builtin(ctor, opts \\ []) do
     object_proto = Keyword.get(opts, :object_proto, Heap.get_object_prototype())
@@ -20,15 +30,17 @@ defmodule QuickBEAM.VM.Runtime.Boolean do
     InstallerHelpers.with_prototype(ctor, fn proto_ref ->
       InstallerHelpers.install_object_parent(proto_ref, object_proto)
       Heap.put_obj_key(proto_ref, WrappedPrimitive.slot(:boolean), false)
-      InstallerHelpers.install_methods(proto_ref, __MODULE__, ~w(toString valueOf))
+      QuickBEAM.VM.Builtin.Installer.install_prototype_specs(proto_ref, __MODULE__)
       InstallerHelpers.install_constructor_link(proto_ref, ctor)
     end)
   end
 
+  @ecma "20.3.3.2"
   proto "toString" do
     Atom.to_string(unwrap_boolean(this))
   end
 
+  @ecma "20.3.3.3"
   proto "valueOf" do
     unwrap_boolean(this)
   end
@@ -44,17 +56,4 @@ defmodule QuickBEAM.VM.Runtime.Boolean do
 
   defp unwrap_boolean(_value),
     do: JSThrow.type_error!("Boolean method called on incompatible receiver")
-
-  @doc "Builds the JavaScript constructor object for this runtime builtin."
-  def constructor do
-    fn
-      args, {:obj, _} = this ->
-        val = args |> arg(0, false) |> Runtime.truthy?()
-        InternalMethods.set(this, WrappedPrimitive.slot(:boolean), val)
-        this
-
-      args, _ ->
-        args |> arg(0, false) |> Runtime.truthy?()
-    end
-  end
 end
