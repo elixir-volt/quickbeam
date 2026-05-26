@@ -27,12 +27,14 @@ defmodule QuickBEAM.VM.Runtime.Array do
   @max_safe_integer 9_007_199_254_740_991
 
   @ecma "23.1"
-  builtin_definition("Array",
-    constructor: &QuickBEAM.VM.Runtime.ConstructorCallbacks.array/2,
-    length: 1,
-    phase: :fundamental,
-    after_install: &__MODULE__.install_builtin/2
-  )
+  defintrinsic "Array" do
+    constructor(&QuickBEAM.VM.Runtime.ConstructorCallbacks.array/2,
+      length: 1,
+      phase: :fundamental
+    )
+
+    install_with(&__MODULE__.install_builtin/2)
+  end
 
   @doc "Installs Array-specific prototype and constructor metadata."
   def install_builtin(ctor, opts \\ []) do
