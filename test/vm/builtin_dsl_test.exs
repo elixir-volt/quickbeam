@@ -36,6 +36,26 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     end
   end
 
+  defmodule PrototypeBlockSample do
+    use QuickBEAM.VM.Builtin
+
+    @ecma "99.2"
+    defintrinsic "PrototypeBlockSample" do
+      constructor length: 0 do
+        this
+      end
+
+      prototype extends: :object do
+        slot(:BooleanData, false)
+
+        @ecma "99.2.3.1"
+        method "flag", receiver: :boolean, length: 0 do
+          this
+        end
+      end
+    end
+  end
+
   defmodule Sample do
     use QuickBEAM.VM.Builtin
 
@@ -118,6 +138,30 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
              %QuickBEAM.VM.Builtin.PropertySpec{key: "valueOf", ecma: "99.1.3.1"},
              %QuickBEAM.VM.Builtin.PropertySpec{key: "label", ecma: "99.1.3.2"}
            ] = spec.prototype.properties
+  end
+
+  test "defintrinsic prototype block declares and installs prototype shape" do
+    definition = PrototypeBlockSample.builtin_definition()
+    assert %QuickBEAM.VM.Builtin.Definition{ecma: "99.2"} = definition
+    assert is_function(definition.after_install, 2)
+
+    assert %QuickBEAM.VM.Builtin.FunctionSpec{ecma: "99.2.3.1", kind: :prototype} =
+             PrototypeBlockSample.proto_property_spec("flag")
+
+    ctor =
+      QuickBEAM.VM.Builtin.Installer.install(definition,
+        target: {:realm, object_proto: QuickBEAM.VM.Heap.get_object_prototype()}
+      )
+
+    {:obj, ref} = QuickBEAM.VM.Heap.get_ctor_statics(ctor)["prototype"]
+    proto = QuickBEAM.VM.Heap.get_obj(ref)
+
+    assert proto[QuickBEAM.VM.Builtin.slot_key(:BooleanData)] == false
+    assert proto["constructor"] == ctor
+    assert {:builtin, "flag", _} = proto["flag"]
+
+    assert %QuickBEAM.VM.Builtin.Meta{ecma: "99.2.3.1"} =
+             QuickBEAM.VM.Builtin.metadata_for(proto["flag"])
   end
 
   test "builtin installer can install declared property specs" do

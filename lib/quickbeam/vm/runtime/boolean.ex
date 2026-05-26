@@ -19,20 +19,18 @@ defmodule QuickBEAM.VM.Runtime.Boolean do
       end
     end
 
-    install do
-      prototype extends: :object do
-        slot(:BooleanData, false)
+    prototype extends: :object do
+      slot(:BooleanData, false)
+
+      @ecma "20.3.3.2"
+      method "toString", receiver: :boolean do
+        Atom.to_string(this)
+      end
+
+      @ecma "20.3.3.3"
+      method "valueOf", receiver: :boolean do
+        this
       end
     end
-  end
-
-  @ecma "20.3.3.2"
-  proto "toString", receiver: :boolean do
-    Atom.to_string(this)
-  end
-
-  @ecma "20.3.3.3"
-  proto "valueOf", receiver: :boolean do
-    this
   end
 end

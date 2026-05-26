@@ -1114,14 +1114,22 @@ defmodule QuickBEAM.VM.Builtin do
         build_builtin_definition(name, opts, __CALLER__)
 
       {block, opts} ->
-        opts = Keyword.merge(opts, parse_intrinsic_block(block))
-        build_builtin_definition(name, opts, __CALLER__)
+        build_intrinsic(name, opts, block, __CALLER__)
     end
   end
 
   defmacro defintrinsic(name, opts, do: block) do
-    opts = Keyword.merge(opts, parse_intrinsic_block(block))
-    build_builtin_definition(name, opts, __CALLER__)
+    build_intrinsic(name, opts, block, __CALLER__)
+  end
+
+  defp build_intrinsic(name, opts, block, caller) do
+    {block_opts, declarations} = parse_intrinsic_block(block)
+    definition = build_builtin_definition(name, Keyword.merge(opts, block_opts), caller)
+
+    quote do
+      unquote(definition)
+      unquote_splicing(declarations)
+    end
   end
 
   @doc "Configures the intrinsic prototype object inside an install block."
@@ -1315,30 +1323,47 @@ defmodule QuickBEAM.VM.Builtin do
   defp parse_intrinsic_block(block) do
     block
     |> normalize_block()
-    |> Enum.flat_map(fn
-      {:install, _, [[do: body]]} ->
-        [after_install: build_install_callback(body)]
+    |> Enum.reduce({[], []}, fn
+      {:install, _, [[do: body]]}, {opts, declarations} ->
+        {Keyword.put(opts, :after_install, build_install_callback(body)), declarations}
 
-      {:install_with, _, [callback]} ->
-        [after_install: callback]
+      {:prototype, _, [prototype_opts, [do: body]]}, {opts, declarations}
+      when is_list(prototype_opts) ->
+        opts =
+          Keyword.put(
+            opts,
+            :after_install,
+            build_prototype_install_callback(prototype_opts, body)
+          )
 
-      {:phase, _, [phase]} ->
-        [phase: phase]
+        declarations = declarations ++ prototype_method_declarations(body)
+        {opts, declarations}
 
-      {:constructor, _, [opts, [do: body]]} when is_list(opts) ->
-        Keyword.put(opts, :constructor, build_constructor_callback(body))
+      {:install_with, _, [callback]}, {opts, declarations} ->
+        {Keyword.put(opts, :after_install, callback), declarations}
 
-      {:constructor, _, [[do: body]]} ->
-        [constructor: build_constructor_callback(body)]
+      {:phase, _, [phase]}, {opts, declarations} ->
+        {Keyword.put(opts, :phase, phase), declarations}
 
-      {:constructor, _, [callback, opts]} when is_list(opts) ->
-        Keyword.put(opts, :constructor, callback)
+      {:constructor, _, [constructor_opts, [do: body]]}, {opts, declarations}
+      when is_list(constructor_opts) ->
+        {Keyword.merge(
+           opts,
+           Keyword.put(constructor_opts, :constructor, build_constructor_callback(body))
+         ), declarations}
 
-      {:constructor, _, [callback]} ->
-        [constructor: callback]
+      {:constructor, _, [[do: body]]}, {opts, declarations} ->
+        {Keyword.put(opts, :constructor, build_constructor_callback(body)), declarations}
 
-      _ ->
-        []
+      {:constructor, _, [callback, constructor_opts]}, {opts, declarations}
+      when is_list(constructor_opts) ->
+        {Keyword.merge(opts, Keyword.put(constructor_opts, :constructor, callback)), declarations}
+
+      {:constructor, _, [callback]}, {opts, declarations} ->
+        {Keyword.put(opts, :constructor, callback), declarations}
+
+      _, acc ->
+        acc
     end)
   end
 
@@ -1361,6 +1386,43 @@ defmodule QuickBEAM.VM.Builtin do
       end
     end
   end
+
+  defp build_prototype_install_callback(prototype_opts, body) do
+    install_body = prototype_install_body(body)
+
+    quote do
+      fn var!(ctor), var!(opts) ->
+        _ = var!(ctor)
+        _ = var!(opts)
+
+        prototype unquote(Macro.escape(prototype_opts)) do
+          unquote(install_body)
+        end
+      end
+    end
+  end
+
+  defp prototype_install_body(body) do
+    body
+    |> normalize_block()
+    |> Enum.reject(&prototype_declaration?/1)
+    |> block_from_entries()
+  end
+
+  defp prototype_method_declarations(body) do
+    entries = body |> normalize_block() |> Enum.filter(&prototype_declaration?/1)
+
+    if entries == [] do
+      []
+    else
+      [build_contextual_methods(block_from_entries(entries), :proto)]
+    end
+  end
+
+  defp prototype_declaration?({:@, _, _}), do: true
+  defp prototype_declaration?({:method, _, _}), do: true
+  defp prototype_declaration?({:property, _, _}), do: true
+  defp prototype_declaration?(_entry), do: false
 
   defp contextual_methods(block, target) do
     block
@@ -1386,6 +1448,7 @@ defmodule QuickBEAM.VM.Builtin do
     end)
   end
 
+  defp block_from_entries([]), do: :ok
   defp block_from_entries([entry]), do: entry
   defp block_from_entries(entries), do: {:__block__, [], entries}
 
