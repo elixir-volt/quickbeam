@@ -8,6 +8,7 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Builtin.Installer
   alias QuickBEAM.VM.Runtime.InstallerHelpers
 
   def builtin_definitions do
@@ -25,7 +26,12 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
 
   def install_builtin(ctor) do
     InstallerHelpers.with_prototype(ctor, fn proto_ref ->
-      InstallerHelpers.install_methods(proto_ref, __MODULE__, proto_property_names())
+      specs =
+        Enum.map(proto_property_names(), fn name ->
+          QuickBEAM.VM.Builtin.property_spec(name, proto_property_spec(name))
+        end)
+
+      Installer.install_property_specs({:object, proto_ref}, __MODULE__, specs, :prototype)
     end)
 
     Heap.put_ctor_static(
