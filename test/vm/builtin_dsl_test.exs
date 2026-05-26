@@ -113,6 +113,39 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
            ] = spec.prototype.properties
   end
 
+  test "builtin installer can install declared property specs" do
+    spec = StructuredSample.builtin_spec()
+    ctor = {:builtin, "StructuredSample", fn _args, this -> this end}
+    {:obj, proto_ref} = QuickBEAM.VM.Heap.wrap(%{})
+
+    QuickBEAM.VM.Builtin.Installer.install_property_specs(
+      {:constructor, ctor},
+      StructuredSample,
+      spec.statics,
+      :static
+    )
+
+    QuickBEAM.VM.Builtin.Installer.install_property_specs(
+      {:object, proto_ref},
+      StructuredSample,
+      spec.prototype.properties,
+      :prototype
+    )
+
+    statics = QuickBEAM.VM.Heap.get_ctor_statics(ctor)
+    proto = QuickBEAM.VM.Heap.get_obj(proto_ref)
+
+    assert statics["answer"] == 42
+    assert QuickBEAM.VM.Heap.get_ctor_prop_desc(ctor, "answer").writable == false
+    assert {:builtin, "from", _} = statics["from"]
+    assert QuickBEAM.VM.Builtin.metadata_for(statics["from"]).ecma == "99.1.2.1"
+
+    assert proto["label"] == "structured"
+    assert QuickBEAM.VM.Heap.get_prop_desc(proto_ref, "label").writable == false
+    assert {:builtin, "valueOf", _} = proto["valueOf"]
+    assert QuickBEAM.VM.Builtin.metadata_for(proto["valueOf"]).ecma == "99.1.3.1"
+  end
+
   test "@ecma annotates builtin definitions" do
     assert %QuickBEAM.VM.Builtin.Definition{ecma: "20.1"} = Sample.builtin_definition()
   end

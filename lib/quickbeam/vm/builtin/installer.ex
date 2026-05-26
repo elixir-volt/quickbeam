@@ -1,7 +1,8 @@
 defmodule QuickBEAM.VM.Builtin.Installer do
   @moduledoc "Installs declarative builtin definitions into the VM global heap."
 
-  alias QuickBEAM.VM.Builtin.Definition
+  alias QuickBEAM.VM.Builtin
+  alias QuickBEAM.VM.Builtin.{Definition, FunctionSpec, PropertySpec}
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Runtime.ConstructorRegistry, as: Constructors
 
@@ -12,6 +13,23 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     |> Enum.reduce(%{}, fn definition, bindings ->
       Map.put(bindings, definition.name, install(definition, opts))
     end)
+  end
+
+  @doc "Installs a builtin module's declared static specs on a constructor."
+  def install_static_specs(ctor, module) when is_atom(module) do
+    spec = module.builtin_spec()
+    install_property_specs({:constructor, ctor}, module, spec.statics, :static)
+  end
+
+  @doc "Installs a builtin module's declared prototype specs on an object reference."
+  def install_prototype_specs(proto_ref, module) when is_atom(module) do
+    spec = module.builtin_spec()
+    install_property_specs({:object, proto_ref}, module, spec.prototype.properties, :prototype)
+  end
+
+  @doc "Installs property specs on a constructor or object target."
+  def install_property_specs(target, module, specs, namespace) when is_list(specs) do
+    Enum.each(specs, &install_property_spec(target, module, &1, namespace))
   end
 
   @doc "Installs a single builtin definition and returns its constructor."
@@ -27,6 +45,47 @@ defmodule QuickBEAM.VM.Builtin.Installer do
 
     ctor
   end
+
+  defp install_property_spec(target, module, %PropertySpec{} = spec, namespace) do
+    value = property_value(spec, module, namespace)
+    put_property(target, spec.key, value)
+    put_property_descriptor(target, spec.key, spec.descriptor)
+  end
+
+  defp property_value(
+         %PropertySpec{value: %FunctionSpec{} = function_spec, key: key},
+         module,
+         :prototype
+       ) do
+    module.proto_property(key)
+    |> attach_function_spec(function_spec)
+  end
+
+  defp property_value(
+         %PropertySpec{value: %FunctionSpec{} = function_spec, key: key},
+         module,
+         :static
+       ) do
+    module.static_property(key)
+    |> attach_function_spec(function_spec)
+  end
+
+  defp property_value(%PropertySpec{value: value}, _module, _namespace), do: value
+
+  defp attach_function_spec({:builtin, name, callback}, %FunctionSpec{} = function_spec) do
+    Builtin.builtin(name, callback, Builtin.function_meta(function_spec))
+  end
+
+  defp attach_function_spec(value, _function_spec), do: value
+
+  defp put_property({:object, ref}, key, value), do: Heap.put_obj_key(ref, key, value)
+  defp put_property({:constructor, ctor}, key, value), do: Heap.put_ctor_static(ctor, key, value)
+
+  defp put_property_descriptor({:object, ref}, key, descriptor),
+    do: Heap.put_prop_desc(ref, key, descriptor)
+
+  defp put_property_descriptor({:constructor, ctor}, key, descriptor),
+    do: Heap.put_ctor_prop_desc(ctor, key, descriptor)
 
   defp make_constructor(definition, :global) do
     Constructors.register(definition.name, definition.constructor,
