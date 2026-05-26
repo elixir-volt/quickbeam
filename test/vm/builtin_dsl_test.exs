@@ -78,6 +78,14 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
 
     assert %QuickBEAM.VM.Builtin.FunctionSpec{ecma: "99.1.3.1", kind: :prototype} =
              StructuredSample.proto_property_spec("valueOf")
+
+    assert %QuickBEAM.VM.Builtin.IntrinsicSpec{} = spec = StructuredSample.builtin_spec()
+    assert spec.name == "StructuredSample"
+    assert spec.constructor.ecma == "99.1"
+    assert [%QuickBEAM.VM.Builtin.PropertySpec{key: "from", ecma: "99.1.2.1"}] = spec.statics
+
+    assert [%QuickBEAM.VM.Builtin.PropertySpec{key: "valueOf", ecma: "99.1.3.1"}] =
+             spec.prototype.properties
   end
 
   test "@ecma annotates builtin definitions" do

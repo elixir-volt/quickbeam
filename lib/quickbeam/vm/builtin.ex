@@ -98,6 +98,7 @@ defmodule QuickBEAM.VM.Builtin do
               constructor: nil,
               statics: [],
               prototype: nil,
+              definition: nil,
               ecma: nil,
               annex: nil
   end
@@ -137,6 +138,22 @@ defmodule QuickBEAM.VM.Builtin do
     }
   end
 
+  @doc "Builds a declarative property spec for a builtin function property."
+  def property_spec(key, %FunctionSpec{} = function_spec) do
+    %PropertySpec{
+      key: key,
+      kind: function_spec.kind,
+      value: function_spec,
+      descriptor: %{
+        writable: function_spec.writable?,
+        enumerable: function_spec.enumerable?,
+        configurable: function_spec.configurable?
+      },
+      ecma: function_spec.ecma,
+      annex: function_spec.annex
+    }
+  end
+
   @doc "Builds a first-class function spec from builtin macro options."
   def function_spec(name, opts \\ [], kind \\ :function) do
     %FunctionSpec{
@@ -151,6 +168,50 @@ defmodule QuickBEAM.VM.Builtin do
       annex: Keyword.get(opts, :annex)
     }
   end
+
+  @doc "Builds an intrinsic spec for a runtime module and builtin definition."
+  def intrinsic_spec(module, definition) when is_atom(module) do
+    proto_specs = module_property_specs(module, :proto)
+    static_specs = module_property_specs(module, :static)
+
+    %IntrinsicSpec{
+      name: definition.name,
+      definition: definition,
+      constructor:
+        function_spec(definition.name,
+          length: definition.length || 0,
+          constructable: definition.constructable?,
+          ecma: definition.ecma,
+          annex: definition.annex
+        ),
+      statics: static_specs,
+      prototype: %ObjectSpec{
+        name: definition.name <> ".prototype",
+        properties: proto_specs,
+        ecma: definition.ecma,
+        annex: definition.annex
+      },
+      ecma: definition.ecma,
+      annex: definition.annex
+    }
+  end
+
+  defp module_property_specs(module, kind) do
+    names_fun = if kind == :proto, do: :proto_property_names, else: :static_property_names
+    spec_fun = if kind == :proto, do: :proto_property_spec, else: :static_property_spec
+
+    if function_exported?(module, names_fun, 0) do
+      module
+      |> apply(names_fun, [])
+      |> Enum.map(fn name -> module |> apply(spec_fun, [name]) |> maybe_property_spec(name) end)
+      |> Enum.reject(&is_nil/1)
+    else
+      []
+    end
+  end
+
+  defp maybe_property_spec(nil, _key), do: nil
+  defp maybe_property_spec(%FunctionSpec{} = spec, key), do: property_spec(key, spec)
 
   @doc "Returns metadata for a module-level static builtin, when the module declares it."
   def static_meta(module, name) when is_atom(module) do
@@ -793,6 +854,8 @@ defmodule QuickBEAM.VM.Builtin do
           static: 2,
           static: 3,
           static_val: 2,
+          property: 2,
+          property: 3,
           defintrinsic: 2,
           defintrinsic: 3,
           prototype_methods: 1,
@@ -818,6 +881,7 @@ defmodule QuickBEAM.VM.Builtin do
 
       Module.register_attribute(__MODULE__, :__has_proto, accumulate: false)
       Module.register_attribute(__MODULE__, :__has_static, accumulate: false)
+      Module.register_attribute(__MODULE__, :__proto_names, accumulate: true)
       Module.register_attribute(__MODULE__, :__static_names, accumulate: true)
       Module.register_attribute(__MODULE__, :ecma, accumulate: false)
       Module.register_attribute(__MODULE__, :annex, accumulate: false)
@@ -832,6 +896,9 @@ defmodule QuickBEAM.VM.Builtin do
 
     static_names =
       Module.get_attribute(env.module, :__static_names) |> Enum.reverse() |> Enum.uniq()
+
+    proto_names =
+      Module.get_attribute(env.module, :__proto_names) |> Enum.reverse() |> Enum.uniq()
 
     proto_fallback =
       if has_proto do
@@ -851,6 +918,13 @@ defmodule QuickBEAM.VM.Builtin do
         end
       end
 
+    proto_names_fun =
+      if has_proto do
+        quote do
+          def proto_property_names, do: unquote(Macro.escape(proto_names))
+        end
+      end
+
     static_names_fun =
       if has_static do
         quote do
@@ -858,7 +932,7 @@ defmodule QuickBEAM.VM.Builtin do
         end
       end
 
-    [proto_fallback, static_fallback, static_names_fun]
+    [proto_fallback, static_fallback, proto_names_fun, static_names_fun]
     |> Enum.reject(&is_nil/1)
     |> case do
       [] -> nil
@@ -881,6 +955,7 @@ defmodule QuickBEAM.VM.Builtin do
   defmacro proto(name, opts \\ [], do: body) do
     quote do
       @__has_proto true
+      @__proto_names unquote(name)
 
       def proto_property(unquote(name)) do
         unquote(build_builtin(name, body))
@@ -938,6 +1013,15 @@ defmodule QuickBEAM.VM.Builtin do
       @ecma nil
       @annex nil
     end
+  end
+
+  @doc "Defines a declarative data property entry inside an object/spec block."
+  defmacro property(_name, _opts) do
+    raise ArgumentError, "property/2 is only available inside builtin object/spec blocks"
+  end
+
+  defmacro property(_name, _opts, do: _block) do
+    raise ArgumentError, "property/3 is only available inside builtin object/spec blocks"
   end
 
   @doc "Defines a constructor/static property as a fixed value."
@@ -1007,6 +1091,13 @@ defmodule QuickBEAM.VM.Builtin do
 
     quote do
       def builtin_definition do
+        builtin_attrs =
+          QuickBEAM.VM.Builtin.opts_with_builtin_attrs(
+            unquote(Macro.escape(opts)),
+            @ecma,
+            @annex
+          )
+
         struct!(QuickBEAM.VM.Builtin.Definition, %{
           name: unquote(name),
           constructor: unquote(constructor),
@@ -1027,27 +1118,15 @@ defmodule QuickBEAM.VM.Builtin do
           prototype_properties: unquote(prototype_properties),
           constructable?: unquote(constructable?),
           intrinsic_key: unquote(intrinsic_key),
-          ecma:
-            Keyword.get(
-              QuickBEAM.VM.Builtin.opts_with_builtin_attrs(
-                unquote(Macro.escape(opts)),
-                @ecma,
-                @annex
-              ),
-              :ecma
-            ),
-          annex:
-            Keyword.get(
-              QuickBEAM.VM.Builtin.opts_with_builtin_attrs(
-                unquote(Macro.escape(opts)),
-                @ecma,
-                @annex
-              ),
-              :annex
-            ),
+          ecma: Keyword.get(builtin_attrs, :ecma),
+          annex: Keyword.get(builtin_attrs, :annex),
           after_install: unquote(after_install),
           auto_install?: unquote(auto_install?)
         })
+      end
+
+      def builtin_spec do
+        QuickBEAM.VM.Builtin.intrinsic_spec(__MODULE__, builtin_definition())
       end
 
       @ecma nil
