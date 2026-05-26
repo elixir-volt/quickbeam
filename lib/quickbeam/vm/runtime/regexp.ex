@@ -12,7 +12,6 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   alias QuickBEAM.VM.Semantics.Values
   alias QuickBEAM.VM.Semantics.Coercion
   alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods, PropertyDescriptor}
-  alias QuickBEAM.VM.Runtime.InstallerHelpers
   alias QuickBEAM.VM.Runtime.String, as: JSString
 
   @han_ideograph <<0x20BB7::utf8>>
@@ -116,8 +115,6 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         end
       end
     end
-
-    install_with(&__MODULE__.install_builtin/2)
   end
 
   static_methods do
@@ -126,12 +123,6 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
         this
       end
     end
-  end
-
-  def install_builtin(ctor, _opts \\ []) do
-    InstallerHelpers.with_prototype(ctor, fn proto_ref ->
-      Builtin.Installer.install_prototype_specs(proto_ref, __MODULE__)
-    end)
   end
 
   static "escape", length: 1, constructable: false do
