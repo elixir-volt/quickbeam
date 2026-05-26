@@ -20,13 +20,11 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.InstallerHelpers
 
-  builtin_definition("Iterator",
-    constructor: constructor(),
-    length: 0,
-    phase: :fundamental,
-    prototype_parent: nil,
-    after_install: &__MODULE__.install_builtin/2
-  )
+  defintrinsic "Iterator", prototype_parent: nil do
+    constructor(constructor(), length: 0, phase: :fundamental)
+
+    install_with(&__MODULE__.install_builtin/2)
+  end
 
   def install_builtin(ctor, _opts \\ []) do
     for name <- ~w(concat from zip zipKeyed) do
