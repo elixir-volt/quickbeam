@@ -138,6 +138,18 @@ defmodule QuickBEAM.VM.Builtin do
     }
   end
 
+  @doc "Builds a declarative data property spec."
+  def data_property_spec(key, value, opts \\ []) do
+    %PropertySpec{
+      key: key,
+      kind: :data,
+      value: value,
+      descriptor: descriptor_from_opts(opts),
+      ecma: Keyword.get(opts, :ecma),
+      annex: Keyword.get(opts, :annex)
+    }
+  end
+
   @doc "Builds a declarative property spec for a builtin function property."
   def property_spec(key, %FunctionSpec{} = function_spec) do
     %PropertySpec{
@@ -151,6 +163,14 @@ defmodule QuickBEAM.VM.Builtin do
       },
       ecma: function_spec.ecma,
       annex: function_spec.annex
+    }
+  end
+
+  defp descriptor_from_opts(opts) do
+    %{
+      writable: Keyword.get(opts, :writable, true),
+      enumerable: Keyword.get(opts, :enumerable, false),
+      configurable: Keyword.get(opts, :configurable, true)
     }
   end
 
@@ -212,6 +232,7 @@ defmodule QuickBEAM.VM.Builtin do
 
   defp maybe_property_spec(nil, _key), do: nil
   defp maybe_property_spec(%FunctionSpec{} = spec, key), do: property_spec(key, spec)
+  defp maybe_property_spec(%PropertySpec{} = spec, _key), do: spec
 
   @doc "Returns metadata for a module-level static builtin, when the module declares it."
   def static_meta(module, name) when is_atom(module) do
@@ -854,6 +875,9 @@ defmodule QuickBEAM.VM.Builtin do
           static: 2,
           static: 3,
           static_val: 2,
+          static_val: 3,
+          proto_val: 2,
+          proto_val: 3,
           property: 2,
           property: 3,
           defintrinsic: 2,
@@ -1024,12 +1048,53 @@ defmodule QuickBEAM.VM.Builtin do
     raise ArgumentError, "property/3 is only available inside builtin object/spec blocks"
   end
 
+  @doc "Defines a prototype property as a fixed value."
+  defmacro proto_val(name, value, opts \\ []) do
+    build_value_property(:proto, name, value, opts)
+  end
+
   @doc "Defines a constructor/static property as a fixed value."
-  defmacro static_val(name, value) do
+  defmacro static_val(name, value, opts \\ []) do
+    build_value_property(:static, name, value, opts)
+  end
+
+  defp build_value_property(:proto, name, value, opts) do
+    quote do
+      @__has_proto true
+      @__proto_names unquote(name)
+
+      def proto_property(unquote(name)), do: unquote(value)
+
+      def proto_property_spec(unquote(name)) do
+        QuickBEAM.VM.Builtin.data_property_spec(
+          unquote(name),
+          unquote(value),
+          QuickBEAM.VM.Builtin.opts_with_builtin_attrs(unquote(Macro.escape(opts)), @ecma, @annex)
+        )
+      end
+
+      @ecma nil
+      @annex nil
+    end
+  end
+
+  defp build_value_property(:static, name, value, opts) do
     quote do
       @__has_static true
       @__static_names unquote(name)
+
       def static_property(unquote(name)), do: unquote(value)
+
+      def static_property_spec(unquote(name)) do
+        QuickBEAM.VM.Builtin.data_property_spec(
+          unquote(name),
+          unquote(value),
+          QuickBEAM.VM.Builtin.opts_with_builtin_attrs(unquote(Macro.escape(opts)), @ecma, @annex)
+        )
+      end
+
+      @ecma nil
+      @annex nil
     end
   end
 
@@ -1189,6 +1254,12 @@ defmodule QuickBEAM.VM.Builtin do
 
       {:method, meta, [name, opts, [do: body]]} ->
         {target, meta, [name, opts, [do: body]]}
+
+      {:property, meta, [name, opts]} when is_list(opts) ->
+        value = Keyword.fetch!(opts, :value)
+        opts = Keyword.delete(opts, :value)
+        target_val = if target == :proto, do: :proto_val, else: :static_val
+        {target_val, meta, [name, value, opts]}
 
       other ->
         other
@@ -1358,6 +1429,10 @@ defmodule QuickBEAM.VM.Builtin do
 
   defp build_map_entry({:getter, _, [name, [do: body]]}, pending_opts) do
     {name, quote(do: {:accessor, unquote(build_builtin("get #{name}", body, pending_opts)), nil})}
+  end
+
+  defp build_map_entry({:property, _, [name, opts]}, _pending_opts) when is_list(opts) do
+    {name, Keyword.fetch!(opts, :value)}
   end
 
   defp build_map_entry({:val, _, [name, value]}, _pending_opts) do

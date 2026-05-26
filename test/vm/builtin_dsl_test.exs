@@ -16,6 +16,9 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
       method "from", length: 1 do
         :from
       end
+
+      @ecma "99.1.2.2"
+      property("answer", value: 42, writable: false, configurable: false)
     end
 
     prototype_methods do
@@ -23,6 +26,9 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
       method "valueOf", length: 0 do
         this
       end
+
+      @ecma "99.1.3.2"
+      property("label", value: "structured", writable: false)
     end
   end
 
@@ -79,13 +85,32 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     assert %QuickBEAM.VM.Builtin.FunctionSpec{ecma: "99.1.3.1", kind: :prototype} =
              StructuredSample.proto_property_spec("valueOf")
 
+    assert %QuickBEAM.VM.Builtin.PropertySpec{
+             ecma: "99.1.2.2",
+             kind: :data,
+             value: 42,
+             descriptor: %{writable: false, enumerable: false, configurable: false}
+           } = StructuredSample.static_property_spec("answer")
+
+    assert %QuickBEAM.VM.Builtin.PropertySpec{
+             ecma: "99.1.3.2",
+             value: "structured",
+             descriptor: %{writable: false, enumerable: false, configurable: true}
+           } = StructuredSample.proto_property_spec("label")
+
     assert %QuickBEAM.VM.Builtin.IntrinsicSpec{} = spec = StructuredSample.builtin_spec()
     assert spec.name == "StructuredSample"
     assert spec.constructor.ecma == "99.1"
-    assert [%QuickBEAM.VM.Builtin.PropertySpec{key: "from", ecma: "99.1.2.1"}] = spec.statics
 
-    assert [%QuickBEAM.VM.Builtin.PropertySpec{key: "valueOf", ecma: "99.1.3.1"}] =
-             spec.prototype.properties
+    assert [
+             %QuickBEAM.VM.Builtin.PropertySpec{key: "from", ecma: "99.1.2.1"},
+             %QuickBEAM.VM.Builtin.PropertySpec{key: "answer", ecma: "99.1.2.2"}
+           ] = spec.statics
+
+    assert [
+             %QuickBEAM.VM.Builtin.PropertySpec{key: "valueOf", ecma: "99.1.3.1"},
+             %QuickBEAM.VM.Builtin.PropertySpec{key: "label", ecma: "99.1.3.2"}
+           ] = spec.prototype.properties
   end
 
   test "@ecma annotates builtin definitions" do
