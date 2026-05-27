@@ -31,6 +31,16 @@ defmodule QuickBEAM.VM.OpcodeSpecTest do
     assert names == Enum.uniq(names)
   end
 
+  test "opcode byte sizes agree with fixed-width operand metadata" do
+    mismatches =
+      for {_num, {name, byte_size, _pops, _pushes, format}} <- Opcodes.table(),
+          expected = 1 + format_byte_width(format),
+          byte_size != expected,
+          do: {name, byte_size, format, expected}
+
+    assert mismatches == []
+  end
+
   test "opcode records centralize metadata" do
     assert {:ok, info} = OpcodeSpec.opcode(:if_false)
     assert info.name == :if_false
@@ -120,6 +130,13 @@ defmodule QuickBEAM.VM.OpcodeSpecTest do
     assert OpcodeSpec.lowering_handler(:get_field) == :get_field
     assert OpcodeSpec.lowering_handler(:ret) == :ret
     assert OpcodeSpec.lowering_handler(:invalid) == nil
+  end
+
+  defp format_byte_width(format) do
+    case Opcodes.format_info(format) do
+      :zero -> 0
+      {:bytes, bytes} -> bytes
+    end
   end
 
   test "concrete opcode lowering families are stable atoms" do
