@@ -39,7 +39,7 @@ fn getWrappedPointerHolder(value: qjs.JSValue) ?*WrappedPointerHolder {
 }
 
 fn finalizeWrap(wrap: *WrapData) void {
-    if (!wrap.removed) {
+    if (!wrap.removed and !wrap.env.shutting_down) {
         if (wrap.finalize_cb) |cb| {
             cb(wrap.env, wrap.native_object, wrap.finalize_hint);
         }

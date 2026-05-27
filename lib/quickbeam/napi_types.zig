@@ -156,6 +156,7 @@ pub const NapiEnv = struct {
     persistent_slots: std.ArrayListUnmanaged(*qjs.JSValue) = .{},
     addon_globals: std.ArrayListUnmanaged(qjs.JSAtom) = .{},
     in_callback: bool = false,
+    shutting_down: bool = false,
     refs: std.ArrayListUnmanaged(*NapiReference) = .{},
     callback_data: std.ArrayListUnmanaged(*FunctionCallbackData) = .{},
 
@@ -216,6 +217,7 @@ pub const NapiEnv = struct {
 
     /// Release all JS value references. Must be called while the context is still alive.
     pub fn releaseValues(self: *NapiEnv) void {
+        self.shutting_down = true;
         self.clearPendingException();
         for (self.scope_stack.items) |scope| {
             scope.deinit(self.ctx);
@@ -232,12 +234,14 @@ pub const NapiEnv = struct {
         qjs.JS_FreeValue(self.ctx, global);
         self.addon_globals.deinit(gpa);
 
-        // 2. Release napi references (may hold class constructors)
+        // 2. Release JS values held by napi references. Keep the reference
+        // records alive until deinit because native finalizers may still call
+        // napi_delete_reference while QuickJS drains objects during shutdown.
         for (self.refs.items) |r| {
             if (r.ref_count > 0) qjs.JS_FreeValue(self.ctx, r.value);
-            gpa.destroy(r);
+            r.value = js.JS_UNDEFINED;
+            r.ref_count = 0;
         }
-        self.refs.deinit(gpa);
 
         // 3. Release persistent slots (values from addon init)
         for (self.persistent_slots.items) |slot| {
@@ -249,6 +253,11 @@ pub const NapiEnv = struct {
 
     /// Free non-JS resources. Call after JS_FreeContext.
     pub fn deinit(self: *NapiEnv) void {
+        for (self.refs.items) |r| {
+            gpa.destroy(r);
+        }
+        self.refs.deinit(gpa);
+
         for (self.callback_data.items) |cbd| {
             gpa.destroy(cbd);
         }
