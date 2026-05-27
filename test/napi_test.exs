@@ -1,5 +1,5 @@
 defmodule QuickBEAM.NapiTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   @test_addon Path.expand("support/test_addon.node", __DIR__)
   @node_modules Path.expand("../node_modules", __DIR__)
