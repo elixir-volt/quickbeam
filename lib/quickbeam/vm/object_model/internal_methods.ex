@@ -48,6 +48,8 @@ defmodule QuickBEAM.VM.ObjectModel.InternalMethods do
 
   def own_property(obj, key), do: own_property_by_kind(kind(obj), obj, key)
 
+  def own_property_present?(obj, key), do: own_property(obj, key) != nil
+
   def define_own_property(obj, key, descriptor),
     do: define_own_property(obj, key, descriptor, descriptor)
 

@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.Runtime.ArraySource do
   @moduledoc "Indexed array-like source access for Array and iterator helpers."
 
   alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods, OwnProperty}
+  alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods}
   alias QuickBEAM.VM.Runtime
 
   @max_safe_integer 9_007_199_254_740_991
@@ -32,15 +32,15 @@ defmodule QuickBEAM.VM.Runtime.ArraySource do
   defp source_length({:qb_arr, arr}), do: :array.size(arr)
   defp source_length({:tuple, tuple}), do: tuple_size(tuple)
   defp source_length({:list, list}), do: Kernel.length(list)
-  defp source_length({:value, value}), do: to_length(Get.get(value, "length"))
+  defp source_length({:value, value}), do: to_length(InternalMethods.get(value, "length"))
 
   defp source_get({:object, value}, index) do
     key = Integer.to_string(index)
-    current = Get.get(value, key)
+    current = InternalMethods.get(value, key)
 
-    if current == :undefined and not OwnProperty.present?(value, key) do
+    if current == :undefined and not InternalMethods.own_property_present?(value, key) do
       case InternalMethods.get_prototype_of(value) do
-        {:obj, _} = proto -> Get.get(proto, key)
+        {:obj, _} = proto -> InternalMethods.get(proto, key)
         _ -> current
       end
     else
@@ -51,11 +51,13 @@ defmodule QuickBEAM.VM.Runtime.ArraySource do
   defp source_get({:qb_arr, arr}, index), do: array_value_at(arr, index)
   defp source_get({:tuple, tuple}, index), do: tuple_value_at(tuple, index)
   defp source_get({:list, list}, index), do: list |> List.to_tuple() |> tuple_value_at(index)
-  defp source_get({:value, value}, index), do: Get.get(value, Integer.to_string(index))
+
+  defp source_get({:value, value}, index),
+    do: InternalMethods.get(value, Integer.to_string(index))
 
   defp object_length({:obj, ref}) do
     if Heap.get_array_prop(ref, "__arguments__") == true do
-      to_length(Get.get({:obj, ref}, "length"))
+      to_length(InternalMethods.get({:obj, ref}, "length"))
     else
       case Heap.get_obj(ref) do
         {:qb_arr, _arr} ->
@@ -71,11 +73,11 @@ defmodule QuickBEAM.VM.Runtime.ArraySource do
   end
 
   defp array_like_object_length(obj) do
-    length = to_length(Get.get(obj, "length"))
+    length = to_length(InternalMethods.get(obj, "length"))
 
-    if length == 0 and not OwnProperty.present?(obj, "length") do
+    if length == 0 and not InternalMethods.own_property_present?(obj, "length") do
       case InternalMethods.get_prototype_of(obj) do
-        {:obj, _} = proto -> max(length, to_length(Get.get(proto, "length")))
+        {:obj, _} = proto -> max(length, to_length(InternalMethods.get(proto, "length")))
         _ -> length
       end
     else
