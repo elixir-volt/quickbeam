@@ -197,21 +197,26 @@ defmodule QuickBEAM.WebAPIs.BEAMProcessTest do
     test "callback fires with exit reason", %{rt: rt} do
       pid =
         spawn(fn ->
-          Process.sleep(50)
-          exit(:kaboom)
+          receive do
+            :exit_now -> exit(:kaboom)
+          end
         end)
 
       QuickBEAM.eval(rt, """
         globalThis.downReason = null;
         Beam.onMessage((msg) => {
-          Beam.monitor(msg, (reason) => {
+          Beam.monitor(msg.pid, (reason) => {
             globalThis.downReason = reason;
           });
+          Beam.send(msg.ack, 'monitored');
         });
       """)
 
-      QuickBEAM.send_message(rt, pid)
-      Process.sleep(500)
+      QuickBEAM.send_message(rt, %{pid: pid, ack: self()})
+      assert_receive "monitored", 1000
+
+      send(pid, :exit_now)
+      Process.sleep(200)
 
       assert {:ok, "kaboom"} = QuickBEAM.eval(rt, "downReason")
     end
