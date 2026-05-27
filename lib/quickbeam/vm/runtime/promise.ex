@@ -20,6 +20,7 @@ defmodule QuickBEAM.VM.Runtime.Promise do
   end
 
   static_methods do
+    @ecma "27.2.4.10"
     symbol :species do
       get do
         this
@@ -102,26 +103,32 @@ defmodule QuickBEAM.VM.Runtime.Promise do
     end
   end
 
+  @ecma "27.2.5.4"
   proto "then", length: 2 do
     Promise.promise_then(args, this)
   end
 
+  @ecma "27.2.5.1"
   proto "catch", length: 1 do
     Promise.promise_catch(args, this)
   end
 
+  @ecma "27.2.5.3"
   proto "finally", length: 1 do
     Promise.promise_finally(args, this)
   end
 
+  @ecma "27.2.4.7"
   static "resolve" do
     promise_resolve(this, arg(args, 0, :undefined))
   end
 
+  @ecma "27.2.4.6"
   static "reject" do
     promise_reject(this, arg(args, 0, :undefined))
   end
 
+  @ecma "27.2.4.1"
   static "all" do
     if default_promise_constructor?(this) do
       case combinator_inputs(this, arg(args, 0, :undefined)) do
@@ -133,6 +140,7 @@ defmodule QuickBEAM.VM.Runtime.Promise do
     end
   end
 
+  @ecma "27.2.4.2"
   static "allSettled" do
     if default_promise_constructor?(this) do
       case combinator_inputs(this, arg(args, 0, :undefined)) do
@@ -144,14 +152,17 @@ defmodule QuickBEAM.VM.Runtime.Promise do
     end
   end
 
+  @ecma "27.2.4.1"
   static "allKeyed" do
     wrap_static_result(this, promise_all_keyed(arg(args, 0, :undefined)))
   end
 
+  @ecma "27.2.4.2"
   static "allSettledKeyed" do
     wrap_static_result(this, promise_all_settled_keyed(arg(args, 0, :undefined)))
   end
 
+  @ecma "27.2.4.3"
   static "any" do
     if default_promise_constructor?(this) do
       case combinator_inputs(this, arg(args, 0, :undefined)) do
@@ -163,6 +174,7 @@ defmodule QuickBEAM.VM.Runtime.Promise do
     end
   end
 
+  @ecma "27.2.4.5"
   static "race" do
     if default_promise_constructor?(this) do
       case combinator_inputs(this, arg(args, 0, :undefined)) do
@@ -174,10 +186,12 @@ defmodule QuickBEAM.VM.Runtime.Promise do
     end
   end
 
+  @ecma "27.2.4.8"
   static "try", length: 1 do
     promise_try(this, args)
   end
 
+  @ecma "27.2.4.9"
   static "withResolvers", length: 0 do
     with_resolvers(this)
   end

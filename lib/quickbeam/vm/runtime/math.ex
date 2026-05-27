@@ -61,6 +61,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
   end
 
   js_object "Math" do
+    @ecma "21.3.2.16"
     method "floor" do
       case Runtime.to_number(hd(args)) do
         :infinity -> :infinity
@@ -71,6 +72,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.10"
     method "ceil" do
       case Runtime.to_number(hd(args)) do
         :infinity -> :infinity
@@ -82,6 +84,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.29"
     method "round" do
       case Runtime.to_number(hd(args)) do
         :infinity -> :infinity
@@ -95,6 +98,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.1"
     method "abs" do
       case QuickBEAM.VM.Builtin.arg(args, 0, :undefined) do
         {:bigint, _} ->
@@ -111,14 +115,17 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.25"
     method "max" do
       extremum(args, :max)
     end
 
+    @ecma "21.3.2.26"
     method "min" do
       extremum(args, :min)
     end
 
+    @ecma "21.3.2.33"
     method "sqrt" do
       case Runtime.to_float(hd(args)) do
         :infinity -> :infinity
@@ -129,15 +136,18 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.27"
     method "pow" do
       [a, b | _] = args
       math_pow(Runtime.to_float(a), Runtime.to_float(b))
     end
 
+    @ecma "21.3.2.28"
     method "random" do
       :rand.uniform()
     end
 
+    @ecma "21.3.2.36"
     method "trunc" do
       case Runtime.to_number(hd(args)) do
         :infinity -> :infinity
@@ -149,6 +159,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.30"
     method "sign" do
       case Runtime.to_number(hd(args)) do
         :infinity -> 1
@@ -160,35 +171,43 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.21"
     method "log" do
       math_log(Runtime.to_number(hd(args)), &:math.log/1)
     end
 
+    @ecma "21.3.2.24"
     method "log2" do
       math_log(Runtime.to_number(hd(args)), &:math.log2/1)
     end
 
+    @ecma "21.3.2.23"
     method "log10" do
       math_log(Runtime.to_number(hd(args)), &:math.log10/1)
     end
 
+    @ecma "21.3.2.31"
     method "sin" do
       trig(Runtime.to_float(hd(args)), &:math.sin/1)
     end
 
+    @ecma "21.3.2.12"
     method "cos" do
       trig(Runtime.to_float(hd(args)), &:math.cos/1)
     end
 
+    @ecma "21.3.2.34"
     method "tan" do
       trig(Runtime.to_float(hd(args)), &:math.tan/1)
     end
 
+    @ecma "21.3.2.11"
     method "clz32" do
       n = Values.to_uint32(hd(args))
       if n == 0, do: 32, else: 31 - trunc(:math.log2(n))
     end
 
+    @ecma "21.3.2.18"
     method "f16round" do
       case Runtime.to_number(hd(args)) do
         :infinity -> :infinity
@@ -198,6 +217,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.17"
     method "fround" do
       case Runtime.to_float(hd(args)) do
         :infinity ->
@@ -215,6 +235,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.20"
     method "imul" do
       [a, b | _] = args
 
@@ -224,19 +245,23 @@ defmodule QuickBEAM.VM.Runtime.Math do
       )
     end
 
+    @ecma "21.3.2.8"
     method "atan2" do
       [a, b | _] = args
       math_atan2(Runtime.to_float(a), Runtime.to_float(b))
     end
 
+    @ecma "21.3.2.4"
     method "asin" do
       inverse_unit(Runtime.to_float(hd(args)), &:math.asin/1)
     end
 
+    @ecma "21.3.2.2"
     method "acos" do
       inverse_unit(Runtime.to_float(hd(args)), &:math.acos/1)
     end
 
+    @ecma "21.3.2.6"
     method "atan" do
       case Runtime.to_float(hd(args)) do
         :infinity -> :math.pi() / 2
@@ -246,6 +271,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.14"
     method "exp" do
       case Runtime.to_float(hd(args)) do
         :infinity -> :infinity
@@ -255,6 +281,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.9"
     method "cbrt" do
       case Runtime.to_number(hd(args)) do
         :infinity ->
@@ -275,6 +302,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.22"
     method "log1p" do
       case Runtime.to_number(hd(args)) do
         :infinity -> :infinity
@@ -285,6 +313,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.15"
     method "expm1" do
       case Runtime.to_number(hd(args)) do
         :infinity -> :infinity
@@ -295,14 +324,17 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.13"
     method "cosh" do
       hyperbolic(Runtime.to_float(hd(args)), &:math.cosh/1)
     end
 
+    @ecma "21.3.2.32"
     method "sinh" do
       signed_hyperbolic(Runtime.to_float(hd(args)), &:math.sinh/1)
     end
 
+    @ecma "21.3.2.35"
     method "tanh" do
       case Runtime.to_float(hd(args)) do
         :infinity -> 1
@@ -312,6 +344,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.3"
     method "acosh" do
       case Runtime.to_float(hd(args)) do
         :infinity -> :infinity
@@ -322,10 +355,12 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.5"
     method "asinh" do
       signed_hyperbolic(Runtime.to_float(hd(args)), &:math.asinh/1)
     end
 
+    @ecma "21.3.2.7"
     method "atanh" do
       case Runtime.to_float(hd(args)) do
         :nan -> :nan
@@ -336,6 +371,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.33"
     method "sumPrecise" do
       case args do
         [iterable | _] -> iterable |> sum_precise_values() |> shewchuk_sum()
@@ -343,6 +379,7 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
+    @ecma "21.3.2.19"
     method "hypot" do
       values = Enum.map(args, &Runtime.to_float/1)
 

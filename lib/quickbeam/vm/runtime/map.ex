@@ -32,6 +32,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
   end
 
   static_methods do
+    @ecma "24.1.2.2"
     symbol :species do
       get do
         this
@@ -211,56 +212,69 @@ defmodule QuickBEAM.VM.Runtime.Map do
   end
 
   prototype_methods do
+    @ecma "24.1.3.6"
     method "get", length: 1 do
       get(args, this)
     end
 
+    @ecma "24.1.3.9"
     method "set", length: 2 do
       set(args, this)
     end
 
+    @ecma "24.1.3.7"
     method "has", length: 1 do
       has(args, this)
     end
 
+    @ecma "24.1.3.3"
     method "delete", length: 1 do
       delete(args, this)
     end
 
+    @ecma "24.1.3.1"
     method "clear", length: 0 do
       clear(args, this)
     end
 
+    @ecma "24.1.3.8"
     method "keys", length: 0 do
       keys(args, this)
     end
 
+    @ecma "24.1.3.11"
     method "values", length: 0 do
       values(args, this)
     end
 
+    @ecma "24.1.3.4"
     method "entries", length: 0 do
       entries(args, this)
     end
 
+    @ecma "24.1.3.12"
     symbol :iterator do
       method length: 0 do
         entries(args, this)
       end
     end
 
+    @ecma "24.1.3.5"
     method "forEach", length: 1 do
       for_each(args, this)
     end
 
+    @ecma "24.1.3.3"
     method "getOrInsert", length: 2 do
       get_or_insert(args, this)
     end
 
+    @ecma "24.1.3.4"
     method "getOrInsertComputed", length: 2 do
       get_or_insert_computed(args, this)
     end
 
+    @ecma "24.1.3.10"
     getter "size" do
       size(this)
     end

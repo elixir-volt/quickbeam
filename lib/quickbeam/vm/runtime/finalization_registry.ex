@@ -14,10 +14,12 @@ defmodule QuickBEAM.VM.Runtime.FinalizationRegistry do
     constructor(constructor(), length: 1, phase: :weak_refs)
 
     prototype extends: :object do
+      @ecma "26.2.3.2"
       method "register" do
         register(args, this)
       end
 
+      @ecma "26.2.3.3"
       method "unregister" do
         unregister(args, this)
       end

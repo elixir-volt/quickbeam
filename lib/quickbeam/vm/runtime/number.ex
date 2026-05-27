@@ -15,26 +15,32 @@ defmodule QuickBEAM.VM.Runtime.Number do
     prototype extends: :object do
       slot(:NumberData, 0)
 
+      @ecma "21.1.3.6"
       method "toString", length: 1, receiver: :number do
         to_string_with_radix(this, args)
       end
 
+      @ecma "21.1.3.3"
       method "toFixed", length: 1, receiver: :number do
         to_fixed(this, args)
       end
 
+      @ecma "21.1.3.7"
       method "valueOf", receiver: :number do
         this
       end
 
+      @ecma "21.1.3.2"
       method "toExponential", length: 1, receiver: :number do
         to_exponential(this, args)
       end
 
+      @ecma "21.1.3.5"
       method "toPrecision", length: 1, receiver: :number do
         to_precision(this, args)
       end
 
+      @ecma "21.1.3.4"
       method "toLocaleString", receiver: :number do
         to_string_with_radix(this, [])
       end
@@ -43,6 +49,7 @@ defmodule QuickBEAM.VM.Runtime.Number do
 
   # ── Number statics ──
 
+  @ecma "21.1.2.5"
   static "isSafeInteger", length: 1 do
     val = arg(args, 0, :undefined)
     is_number(val) and val == trunc(val * 1.0) and abs(val) <= 9_007_199_254_740_991
@@ -50,35 +57,48 @@ defmodule QuickBEAM.VM.Runtime.Number do
 
   # ── Number static ──
 
+  @ecma "21.1.2.4"
   static "isNaN" do
     arg(args, 0, :undefined) == :nan
   end
 
+  @ecma "21.1.2.2"
   static "isFinite" do
     is_number(arg(args, 0, :undefined))
   end
 
+  @ecma "21.1.2.3"
   static "isInteger" do
     val = arg(args, 0, :undefined)
     is_integer(val) or (is_float(val) and val == Float.floor(val))
   end
 
+  @ecma "21.1.2.13"
   static "parseInt", length: 2 do
     Numeric.parse_int(args, this)
   end
 
+  @ecma "21.1.2.12"
   static "parseFloat", length: 1 do
     Numeric.parse_float(args, this)
   end
 
+  @ecma "21.1.2.10"
   constant("NaN", :nan)
+  @ecma "21.1.2.14"
   constant("POSITIVE_INFINITY", :infinity)
+  @ecma "21.1.2.11"
   constant("NEGATIVE_INFINITY", :neg_infinity)
+  @ecma "21.1.2.6"
   constant("MAX_SAFE_INTEGER", 9_007_199_254_740_991)
+  @ecma "21.1.2.8"
   constant("MIN_SAFE_INTEGER", -9_007_199_254_740_991)
+  @ecma "21.1.2.1"
   constant("EPSILON", 2.220446049250313e-16)
   # credo:disable-for-next-line Credo.Check.Readability.LargeNumbers
+  @ecma "21.1.2.7"
   constant("MAX_VALUE", 1.7976931348623157e+308)
+  @ecma "21.1.2.9"
   constant("MIN_VALUE", 5.0e-324)
 
   # ── toString(radix) ──

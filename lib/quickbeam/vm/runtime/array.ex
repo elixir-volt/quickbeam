@@ -37,6 +37,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   static_methods do
+    @ecma "23.1.2.5"
     symbol :species do
       get do
         this
@@ -381,6 +382,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     of(args, this)
   end
 
+  @ecma "23.1.2.2"
   static "fromAsync" do
     Promise.resolved(from(args, this))
   end

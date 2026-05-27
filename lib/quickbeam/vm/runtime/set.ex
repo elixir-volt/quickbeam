@@ -33,6 +33,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
   end
 
   static_methods do
+    @ecma "24.2.2.2"
     symbol :species do
       get do
         this
@@ -144,72 +145,89 @@ defmodule QuickBEAM.VM.Runtime.Set do
   end
 
   prototype_methods do
+    @ecma "24.2.4.8"
     method "has", length: 1 do
       has(args, this)
     end
 
+    @ecma "24.2.4.1"
     method "add", length: 1 do
       add(args, this)
     end
 
+    @ecma "24.2.4.4"
     method "delete", length: 1 do
       delete(args, this)
     end
 
+    @ecma "24.2.4.2"
     method "clear", length: 0 do
       clear(args, this)
     end
 
+    @ecma "24.2.4.17"
     method "values", length: 0 do
       values(args, this)
     end
 
+    @ecma "24.2.4.13"
     method "keys", length: 0 do
       values(args, this)
     end
 
+    @ecma "24.2.4.5"
     method "entries", length: 0 do
       entries(args, this)
     end
 
+    @ecma "24.2.4.18"
     symbol :iterator do
       method length: 0 do
         values(args, this)
       end
     end
 
+    @ecma "24.2.4.6"
     method "forEach", length: 1 do
       for_each(args, this)
     end
 
+    @ecma "24.2.4.3"
     method "difference", length: 1 do
       difference(args, this)
     end
 
+    @ecma "24.2.4.9"
     method "intersection", length: 1 do
       intersection(args, this)
     end
 
+    @ecma "24.2.4.16"
     method "union", length: 1 do
       union(args, this)
     end
 
+    @ecma "24.2.4.15"
     method "symmetricDifference", length: 1 do
       symmetric_difference(args, this)
     end
 
+    @ecma "24.2.4.10"
     method "isSubsetOf", length: 1 do
       subset?(args, this)
     end
 
+    @ecma "24.2.4.11"
     method "isSupersetOf", length: 1 do
       superset?(args, this)
     end
 
+    @ecma "24.2.4.9"
     method "isDisjointFrom", length: 1 do
       disjoint?(args, this)
     end
 
+    @ecma "24.2.4.14"
     getter "size" do
       size(this)
     end

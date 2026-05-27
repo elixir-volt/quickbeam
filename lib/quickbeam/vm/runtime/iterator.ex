@@ -35,62 +35,76 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
         end
       end
 
+      @ecma "27.1.4.2"
       method "drop", length: 1 do
         drop(args, this)
       end
 
+      @ecma "27.1.4.4"
       method "filter", length: 1 do
         filter(args, this)
       end
 
+      @ecma "27.1.4.6"
       method "flatMap", length: 1 do
         flat_map(args, this)
       end
 
+      @ecma "27.1.4.7"
       method "forEach", length: 1 do
         for_each(args, this)
       end
 
+      @ecma "27.1.4.8"
       method "map", length: 1 do
         map(args, this)
       end
 
+      @ecma "27.1.4.9"
       method "reduce", length: 1 do
         reduce(args, this)
       end
 
+      @ecma "27.1.4.10"
       method "some", length: 1 do
         some(args, this)
       end
 
+      @ecma "27.1.4.11"
       method "take", length: 1 do
         take(args, this)
       end
 
+      @ecma "27.1.4.12"
       method "toArray", length: 0 do
         to_array(args, this)
       end
 
+      @ecma "27.1.4.3"
       method "every", length: 1 do
         every(args, this)
       end
 
+      @ecma "27.1.4.5"
       method "find", length: 1 do
         find(args, this)
       end
 
+      @ecma "27.1.4.13"
       symbol :iterator do
         method length: 0 do
           this
         end
       end
 
+      @ecma "27.1.3.14"
       symbol :dispose do
         method length: 0 do
           dispose(args, this)
         end
       end
 
+      @ecma "27.1.4.14"
       symbol :toStringTag do
         get do
           "Iterator"
@@ -122,18 +136,22 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     end
   end
 
+  @ecma "27.1.3.2.1"
   static "from", length: 1 do
     from(args, this)
   end
 
+  @ecma "27.1.2.2"
   static "concat", length: 0 do
     concat(args, this)
   end
 
+  @ecma "27.1.2.3"
   static "zip", length: 1 do
     zip(args, this)
   end
 
+  @ecma "27.1.2.4"
   static "zipKeyed", length: 1 do
     zip_keyed(args, this)
   end

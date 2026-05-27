@@ -15,6 +15,7 @@ defmodule QuickBEAM.VM.Runtime.WeakRef do
     constructor(constructor(), length: 1, phase: :weak_refs)
 
     prototype extends: :object do
+      @ecma "26.1.3.2"
       method "deref" do
         deref(args, this)
       end

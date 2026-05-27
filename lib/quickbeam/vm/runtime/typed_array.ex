@@ -64,15 +64,18 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     Heap.put_ctor_static(ctor, "BYTES_PER_ELEMENT", elem_size(type))
   end
 
+  @ecma "23.2.2.1"
   static "from", length: 1 do
     static_from(args, this)
   end
 
+  @ecma "23.2.2.2"
   static "of", length: 0 do
     static_of(args, this)
   end
 
   static_methods do
+    @ecma "23.2.3.4"
     symbol :species do
       get do
         this
@@ -80,23 +83,28 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     end
   end
 
+  @ecma "23.2.3.2"
   proto_getter "buffer" do
     prototype_buffer(this)
   end
 
+  @ecma "23.2.3.3"
   proto_getter "byteLength" do
     prototype_byte_length(this)
   end
 
+  @ecma "23.2.3.4"
   proto_getter "byteOffset" do
     prototype_byte_offset(this)
   end
 
+  @ecma "23.2.3.21"
   proto_getter "length" do
     prototype_length(this)
   end
 
   prototype_methods do
+    @ecma "23.2.3.38"
     symbol :toStringTag do
       get do
         prototype_to_string_tag(this)
@@ -143,27 +151,33 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     |> Enum.into(%{}, fn key -> {key, proto_property(key)} end)
   end
 
+  @ecma "23.2.3.1"
   proto "at", length: 1 do
     at(this, args)
   end
 
+  @ecma "23.2.3.6"
   proto "copyWithin", length: 2 do
     typed_array_ref_method(this, args, &copy_within/3)
   end
 
+  @ecma "23.2.3.7"
   proto "entries", length: 0 do
     typed_array_iterator(this, :entries)
   end
 
+  @ecma "23.2.3.19"
   proto "keys", length: 0 do
     typed_array_iterator(this, :keys)
   end
 
+  @ecma "23.2.3.35"
   proto "values", length: 0 do
     typed_array_iterator(this, :values)
   end
 
   prototype_methods do
+    @ecma "23.2.3.37"
     symbol :iterator do
       method length: 0 do
         typed_array_iterator(this, :values)
@@ -171,108 +185,134 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     end
   end
 
+  @ecma "23.2.3.8"
   proto "every", length: 1 do
     typed_array_ref_method(this, args, &every/3)
   end
 
+  @ecma "23.2.3.9"
   proto "fill", length: 1 do
     typed_array_ref_method(this, args, fn ref, call_args, _this -> fill(ref, call_args) end)
   end
 
+  @ecma "23.2.3.10"
   proto "filter", length: 1 do
     typed_array_ref_method(this, args, &filter/3)
   end
 
+  @ecma "23.2.3.11"
   proto "find", length: 1 do
     typed_array_ref_method(this, args, &find/3)
   end
 
+  @ecma "23.2.3.12"
   proto "findIndex", length: 1 do
     typed_array_ref_method(this, args, &find_index/3)
   end
 
+  @ecma "23.2.3.13"
   proto "findLast", length: 1 do
     typed_array_ref_method(this, args, &find_last/3)
   end
 
+  @ecma "23.2.3.14"
   proto "findLastIndex", length: 1 do
     typed_array_ref_method(this, args, &find_last_index/3)
   end
 
+  @ecma "23.2.3.15"
   proto "forEach", length: 1 do
     typed_array_ref_method(this, args, &for_each/3)
   end
 
+  @ecma "23.2.3.16"
   proto "includes", length: 1 do
     typed_array_ref_method(this, args, fn ref, call_args, _this -> includes(ref, call_args) end)
   end
 
+  @ecma "23.2.3.17"
   proto "indexOf", length: 1 do
     typed_array_ref_method(this, args, fn ref, call_args, _this -> index_of(ref, call_args) end)
   end
 
+  @ecma "23.2.3.18"
   proto "join", length: 1 do
     typed_array_ref_method(this, args, fn ref, call_args, _this -> join(ref, call_args) end)
   end
 
+  @ecma "23.2.3.20"
   proto "lastIndexOf", length: 1 do
     typed_array_ref_method(this, args, fn ref, call_args, _this ->
       last_index_of(ref, call_args)
     end)
   end
 
+  @ecma "23.2.3.22"
   proto "map", length: 1 do
     typed_array_ref_method(this, args, &map/3)
   end
 
+  @ecma "23.2.3.23"
   proto "reduce", length: 1 do
     typed_array_ref_method(this, args, &reduce/3)
   end
 
+  @ecma "23.2.3.24"
   proto "reduceRight", length: 1 do
     typed_array_ref_method(this, args, &reduce_right/3)
   end
 
+  @ecma "23.2.3.25"
   proto "reverse", length: 0 do
     typed_array_ref_method(this, args, fn ref, _call_args, _this -> reverse(ref) end)
   end
 
+  @ecma "23.2.3.26"
   proto "set", length: 1 do
     typed_array_ref_method(this, args, fn ref, call_args, _this -> set(ref, call_args) end)
   end
 
+  @ecma "23.2.3.27"
   proto "slice", length: 2 do
     typed_array_ref_method(this, args, fn ref, call_args, _this -> slice(ref, call_args) end)
   end
 
+  @ecma "23.2.3.28"
   proto "some", length: 1 do
     typed_array_ref_method(this, args, &some/3)
   end
 
+  @ecma "23.2.3.29"
   proto "sort", length: 1 do
     typed_array_ref_method(this, args, fn ref, call_args, _this -> sort(ref, call_args) end)
   end
 
+  @ecma "23.2.3.30"
   proto "subarray", length: 2 do
     typed_array_ref_method(this, args, fn ref, call_args, _this -> subarray(ref, call_args) end)
   end
 
+  @ecma "23.2.3.31"
   proto "toLocaleString", length: 0 do
     typed_array_ref_method(this, args, fn ref, _call_args, _this -> to_locale_string(ref) end)
   end
 
+  @ecma "23.2.3.32"
   proto "toReversed", length: 0 do
     typed_array_ref_method(this, args, fn ref, _call_args, _this -> to_reversed(ref) end)
   end
 
+  @ecma "23.2.3.33"
   proto "toSorted", length: 1 do
     typed_array_ref_method(this, args, fn ref, call_args, _this -> to_sorted(ref, call_args) end)
   end
 
+  @ecma "23.2.3.34"
   proto "toString", length: 0 do
     typed_array_ref_method(this, args, fn ref, _call_args, _this -> join(ref, [","]) end)
   end
 
+  @ecma "23.2.3.36"
   proto "with", length: 2 do
     typed_array_ref_method(this, args, fn ref, call_args, _this ->
       with_element(ref, call_args)

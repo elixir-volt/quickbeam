@@ -28,18 +28,22 @@ defmodule QuickBEAM.VM.Runtime.JSON do
   end
 
   js_object "JSON" do
+    @ecma "25.5.1"
     method "parse" do
       parse(args)
     end
 
+    @ecma "25.5.2"
     method "stringify" do
       stringify(args)
     end
 
+    @ecma "25.5.1.3"
     method "rawJSON" do
       raw_json(args)
     end
 
+    @ecma "25.5.1.4"
     method "isRawJSON" do
       case args do
         [{:obj, ref} | _] ->

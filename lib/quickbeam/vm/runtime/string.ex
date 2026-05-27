@@ -83,6 +83,7 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   @ecma "B.2.2.1"
   @annex :b
+  @ecma "B.2.2.1"
   proto "substr" do
     substr(coerce_string_this(this), args)
   end
@@ -225,6 +226,7 @@ defmodule QuickBEAM.VM.Runtime.String do
 
   @ecma "22.1.3.36"
   prototype_methods do
+    @ecma "22.1.3.36"
     symbol :iterator do
       method length: 0 do
         this

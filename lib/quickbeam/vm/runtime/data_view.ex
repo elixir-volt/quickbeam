@@ -18,14 +18,17 @@ defmodule QuickBEAM.VM.Runtime.DataView do
     )
 
     prototype extends: :object do
+      @ecma "25.3.4.1"
       getter "buffer" do
         view_field!(this, "buffer")
       end
 
+      @ecma "25.3.4.2"
       getter "byteLength" do
         view_field!(this, "byteLength")
       end
 
+      @ecma "25.3.4.3"
       getter "byteOffset" do
         view_field!(this, "byteOffset")
       end
@@ -104,90 +107,112 @@ defmodule QuickBEAM.VM.Runtime.DataView do
     obj
   end
 
+  @ecma "25.3.4.10"
   proto "getInt8", length: 1 do
     read(this, args, :int8)
   end
 
+  @ecma "25.3.4.13"
   proto "getUint8", length: 1 do
     read(this, args, :uint8)
   end
 
+  @ecma "25.3.4.11"
   proto "getInt16", length: 1 do
     read(this, args, :int16)
   end
 
+  @ecma "25.3.4.14"
   proto "getUint16", length: 1 do
     read(this, args, :uint16)
   end
 
+  @ecma "25.3.4.12"
   proto "getInt32", length: 1 do
     read(this, args, :int32)
   end
 
+  @ecma "25.3.4.15"
   proto "getUint32", length: 1 do
     read(this, args, :uint32)
   end
 
+  @ecma "25.3.4.7"
   proto "getFloat16", length: 1 do
     read(this, args, :float16)
   end
 
+  @ecma "25.3.4.8"
   proto "getFloat32", length: 1 do
     read(this, args, :float32)
   end
 
+  @ecma "25.3.4.9"
   proto "getFloat64", length: 1 do
     read(this, args, :float64)
   end
 
+  @ecma "25.3.4.5"
   proto "getBigInt64", length: 1 do
     read(this, args, :bigint64)
   end
 
+  @ecma "25.3.4.6"
   proto "getBigUint64", length: 1 do
     read(this, args, :biguint64)
   end
 
+  @ecma "25.3.4.21"
   proto "setInt8", length: 2 do
     write(this, args, :int8)
   end
 
+  @ecma "25.3.4.24"
   proto "setUint8", length: 2 do
     write(this, args, :uint8)
   end
 
+  @ecma "25.3.4.22"
   proto "setInt16", length: 2 do
     write(this, args, :int16)
   end
 
+  @ecma "25.3.4.25"
   proto "setUint16", length: 2 do
     write(this, args, :uint16)
   end
 
+  @ecma "25.3.4.23"
   proto "setInt32", length: 2 do
     write(this, args, :int32)
   end
 
+  @ecma "25.3.4.26"
   proto "setUint32", length: 2 do
     write(this, args, :uint32)
   end
 
+  @ecma "25.3.4.18"
   proto "setFloat16", length: 2 do
     write(this, args, :float16)
   end
 
+  @ecma "25.3.4.19"
   proto "setFloat32", length: 2 do
     write(this, args, :float32)
   end
 
+  @ecma "25.3.4.20"
   proto "setFloat64", length: 2 do
     write(this, args, :float64)
   end
 
+  @ecma "25.3.4.16"
   proto "setBigInt64", length: 2 do
     write(this, args, :bigint64)
   end
 
+  @ecma "25.3.4.17"
   proto "setBigUint64", length: 2 do
     write(this, args, :biguint64)
   end

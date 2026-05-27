@@ -40,6 +40,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
   end
 
   js_object "Reflect" do
+    @ecma "28.1.1"
     method "apply" do
       [target, this_arg | rest] = args
       args_array = List.first(rest)
@@ -56,6 +57,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       Invocation.invoke_with_receiver(target, call_args, Runtime.gas_budget(), this_arg)
     end
 
+    @ecma "28.1.2"
     method "construct" do
       [target, args_array | rest] = args
       call_args = create_list_from_array_like(args_array)
@@ -64,6 +66,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       Invocation.construct_runtime(target, new_target, call_args)
     end
 
+    @ecma "28.1.5"
     method "get" do
       [obj, key | rest] = args
       require_object!(obj, "Reflect.get")
@@ -71,6 +74,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       reflect_get(obj, PropertyKey.to_property_key(key), receiver)
     end
 
+    @ecma "28.1.12"
     method "set" do
       [obj, key | rest] = args
       require_object!(obj, "Reflect.set")
@@ -80,12 +84,14 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       Values.truthy?(InternalMethods.set(obj, key, val, receiver))
     end
 
+    @ecma "28.1.4"
     method "deleteProperty" do
       [obj, key | _] = args
       require_object!(obj, "Reflect.deleteProperty")
       InternalMethods.delete(obj, PropertyKey.to_property_key(key))
     end
 
+    @ecma "28.1.6"
     method "getOwnPropertyDescriptor" do
       [obj, key | _] = args
       require_object!(obj, "Reflect.getOwnPropertyDescriptor")
@@ -94,17 +100,20 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       |> Invocation.invoke_callback_or_throw([obj, PropertyKey.to_property_key(key)])
     end
 
+    @ecma "28.1.7"
     method "getPrototypeOf" do
       [obj | _] = args
       require_object!(obj, "Reflect.getPrototypeOf")
       Object.static_property("getPrototypeOf") |> Invocation.invoke_callback_or_throw([obj])
     end
 
+    @ecma "28.1.13"
     method "setPrototypeOf" do
       [obj, proto | _] = args
       reflect_set_prototype_of(obj, proto)
     end
 
+    @ecma "28.1.3"
     method "defineProperty" do
       obj = List.first(args, :undefined)
       key = Enum.at(args, 1, :undefined)
@@ -125,6 +134,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       end
     end
 
+    @ecma "28.1.11"
     method "preventExtensions" do
       case hd(args) do
         {:obj, _} = obj -> prevent_extensions(obj)
@@ -132,18 +142,21 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       end
     end
 
+    @ecma "28.1.9"
     method "isExtensible" do
       obj = hd(args)
       require_object!(obj, "Reflect.isExtensible")
       InternalMethods.extensible?(obj)
     end
 
+    @ecma "28.1.8"
     method "has" do
       [obj, key | _] = args
       require_object!(obj, "Reflect.has")
       InternalMethods.has_property(obj, PropertyKey.to_property_key(key))
     end
 
+    @ecma "28.1.10"
     method "ownKeys" do
       obj = hd(args)
       require_object!(obj, "Reflect.ownKeys")

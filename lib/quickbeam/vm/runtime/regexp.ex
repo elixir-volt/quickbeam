@@ -27,82 +27,100 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     )
 
     prototype extends: :object do
+      @ecma "22.2.6.16"
       method "test" do
         test(this, args)
       end
 
+      @ecma "22.2.6.2"
       method "exec" do
         exec(this, args)
       end
 
+      @ecma "22.2.6.17"
       method "toString" do
         regexp_to_string(this)
       end
 
+      @ecma "22.2.6.13"
       getter "source" do
         regexp_source_getter(this)
       end
 
+      @ecma "22.2.6.4"
       getter "flags" do
         regexp_flags_getter(this)
       end
 
+      @ecma "22.2.6.6"
       getter "hasIndices" do
         regexp_flag_value(this, "hasIndices", "d")
       end
 
+      @ecma "22.2.6.5"
       getter "global" do
         regexp_flag_value(this, "global", "g")
       end
 
+      @ecma "22.2.6.7"
       getter "ignoreCase" do
         regexp_flag_value(this, "ignoreCase", "i")
       end
 
+      @ecma "22.2.6.10"
       getter "multiline" do
         regexp_flag_value(this, "multiline", "m")
       end
 
+      @ecma "22.2.6.3"
       getter "dotAll" do
         regexp_flag_value(this, "dotAll", "s")
       end
 
+      @ecma "22.2.6.18"
       getter "unicode" do
         regexp_flag_value(this, "unicode", "u")
       end
 
+      @ecma "22.2.6.19"
       getter "unicodeSets" do
         regexp_flag_value(this, "unicodeSets", "v")
       end
 
+      @ecma "22.2.6.15"
       getter "sticky" do
         regexp_flag_value(this, "sticky", "y")
       end
 
+      @ecma "22.2.6.8"
       symbol :match do
         method do
           regexp_match(this, args)
         end
       end
 
+      @ecma "22.2.6.9"
       symbol :matchAll do
         method do
           regexp_match_all(this, args)
         end
       end
 
+      @ecma "22.2.6.11"
       symbol :replace do
         method do
           regexp_replace(this, args)
         end
       end
 
+      @ecma "22.2.6.12"
       symbol :search do
         method do
           regexp_search(this, args)
         end
       end
 
+      @ecma "22.2.6.14"
       symbol :split do
         method do
           unless regexp_match_receiver?(this),
@@ -118,6 +136,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   static_methods do
+    @ecma "22.2.4.2"
     symbol :species do
       get do
         this
@@ -125,6 +144,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     end
   end
 
+  @ecma "22.2.5.1"
   static "escape", length: 1, constructable: false do
     case args do
       [value | _] when is_binary(value) -> regexp_escape(value)

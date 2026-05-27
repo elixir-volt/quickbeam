@@ -27,6 +27,7 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
   end
 
   static_methods do
+    @ecma "25.1.5.3"
     symbol :species do
       get do
         this
@@ -56,6 +57,7 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
     Heap.wrap(map)
   end
 
+  @ecma "25.1.6.8"
   proto "transfer" do
     case this do
       {:obj, ref} ->
@@ -79,6 +81,7 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
     end
   end
 
+  @ecma "25.1.6.6"
   proto "resize" do
     case this do
       {:obj, ref} ->
@@ -144,10 +147,12 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
 
   defp update_typed_array_views(_, _), do: :ok
 
+  @ecma "25.1.6.7"
   proto "slice" do
     do_slice(this, args)
   end
 
+  @ecma "25.1.6.9"
   proto "transferToImmutable" do
     immutable = do_slice_to_immutable(this, args)
 
@@ -167,6 +172,7 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
     immutable
   end
 
+  @ecma "25.1.6.7"
   proto "sliceToImmutable" do
     do_slice_to_immutable(this, args)
   end

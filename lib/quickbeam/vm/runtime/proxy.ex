@@ -13,6 +13,7 @@ defmodule QuickBEAM.VM.Runtime.Proxy do
     )
   end
 
+  @ecma "28.2.2.1"
   static "revocable", length: 2 do
     revocable(args, this)
   end

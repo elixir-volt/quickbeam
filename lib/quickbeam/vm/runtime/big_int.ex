@@ -17,21 +17,25 @@ defmodule QuickBEAM.VM.Runtime.BigInt do
       slot(:BigIntData, {:bigint, 0})
       to_string_tag("BigInt")
 
+      @ecma "21.2.3.3"
       method "toString", length: 1, receiver: :bigint do
         {:bigint, value} = this
         bigint_to_string(value, args)
       end
 
+      @ecma "21.2.3.4"
       method "valueOf", receiver: :bigint do
         this
       end
     end
   end
 
+  @ecma "21.2.2.1"
   static "asIntN", length: 2 do
     as_int_n(args, this)
   end
 
+  @ecma "21.2.2.2"
   static "asUintN", length: 2 do
     as_uint_n(args, this)
   end

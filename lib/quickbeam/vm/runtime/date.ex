@@ -20,6 +20,7 @@ defmodule QuickBEAM.VM.Runtime.Date do
     )
 
     prototype extends: :object do
+      @ecma "21.4.4.45"
       symbol :toPrimitive do
         method length: 1 do
           symbol_to_primitive(this, args)
@@ -195,14 +196,17 @@ defmodule QuickBEAM.VM.Runtime.Date do
 
   # ── Statics ──
 
+  @ecma "21.4.3.1"
   static "now", length: 0 do
     System.system_time(:millisecond)
   end
 
+  @ecma "21.4.3.2"
   static "parse", length: 1 do
     parse_date_string(Values.stringify(arg(args, 0, :undefined)))
   end
 
+  @ecma "21.4.3.4"
   static "UTC", length: 7 do
     utc_from_components(args)
   end
