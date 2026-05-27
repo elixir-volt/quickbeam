@@ -371,7 +371,6 @@ defmodule QuickBEAM.VM.Runtime.Math do
       end
     end
 
-    @ecma "21.3.2.33"
     method "sumPrecise" do
       case args do
         [iterable | _] -> iterable |> sum_precise_values() |> shewchuk_sum()

@@ -38,12 +38,10 @@ defmodule QuickBEAM.VM.Runtime.JSON do
       stringify(args)
     end
 
-    @ecma "25.5.1.3"
     method "rawJSON" do
       raw_json(args)
     end
 
-    @ecma "25.5.1.4"
     method "isRawJSON" do
       case args do
         [{:obj, ref} | _] ->

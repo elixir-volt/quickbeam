@@ -172,7 +172,6 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
     immutable
   end
 
-  @ecma "25.1.6.7"
   proto "sliceToImmutable" do
     do_slice_to_immutable(this, args)
   end

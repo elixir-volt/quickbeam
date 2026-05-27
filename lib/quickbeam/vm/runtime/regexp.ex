@@ -136,7 +136,7 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
   end
 
   static_methods do
-    @ecma "22.2.4.2"
+    @ecma "22.2.5.3"
     symbol :species do
       get do
         this

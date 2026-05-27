@@ -33,7 +33,7 @@ defmodule QuickBEAM.VM.Runtime.Set do
   end
 
   static_methods do
-    @ecma "24.2.2.2"
+    @ecma "24.2.3.2"
     symbol :species do
       get do
         this

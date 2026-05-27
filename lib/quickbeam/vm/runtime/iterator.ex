@@ -97,7 +97,6 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
         end
       end
 
-      @ecma "27.1.3.14"
       symbol :dispose do
         method length: 0 do
           dispose(args, this)
@@ -141,17 +140,14 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     from(args, this)
   end
 
-  @ecma "27.1.2.2"
   static "concat", length: 0 do
     concat(args, this)
   end
 
-  @ecma "27.1.2.3"
   static "zip", length: 1 do
     zip(args, this)
   end
 
-  @ecma "27.1.2.4"
   static "zipKeyed", length: 1 do
     zip_keyed(args, this)
   end

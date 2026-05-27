@@ -347,6 +347,38 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
              QuickBEAM.VM.Runtime.String.proto_property_meta("substr")
   end
 
+  test "runtime builtin declarations expose audited ECMA sections" do
+    assert %QuickBEAM.VM.Builtin.Meta{ecma: "24.1.3.6"} =
+             QuickBEAM.VM.Runtime.Map.proto_property_meta("get")
+
+    assert %QuickBEAM.VM.Builtin.PropertySpec{ecma: "24.2.3.2"} =
+             QuickBEAM.VM.Runtime.Set.static_property_spec({:symbol, "Symbol.species"})
+
+    assert %QuickBEAM.VM.Builtin.Meta{ecma: "24.2.4.16"} =
+             QuickBEAM.VM.Runtime.Set.proto_property_meta("union")
+
+    assert %QuickBEAM.VM.Builtin.Meta{ecma: "27.2.4.1"} =
+             QuickBEAM.VM.Runtime.Promise.static_property_meta("all")
+
+    assert %QuickBEAM.VM.Builtin.FunctionSpec{ecma: "22.2.6.8"} =
+             QuickBEAM.VM.Runtime.RegExp.proto_property_spec({:symbol, "Symbol.match"})
+
+    assert %QuickBEAM.VM.Builtin.FunctionSpec{ecma: "23.2.3.22"} =
+             QuickBEAM.VM.Runtime.TypedArray.proto_property_spec("map")
+
+    assert %QuickBEAM.VM.Builtin.FunctionSpec{ecma: "25.3.4.10"} =
+             QuickBEAM.VM.Runtime.DataView.proto_property_spec("getInt8")
+
+    assert %QuickBEAM.VM.Builtin.Meta{ecma: nil} =
+             QuickBEAM.VM.Runtime.Map.proto_property_meta("getOrInsert")
+
+    assert %QuickBEAM.VM.Builtin.Meta{ecma: nil} =
+             QuickBEAM.VM.Runtime.Iterator.static_property_meta("concat")
+
+    raw_json = QuickBEAM.VM.Runtime.JSON.object() |> elem(2) |> Map.fetch!("rawJSON")
+    assert %QuickBEAM.VM.Builtin.Meta{ecma: nil} = QuickBEAM.VM.Builtin.metadata_for(raw_json)
+  end
+
   test "builtin object metadata installs descriptors and tags" do
     object_proto = QuickBEAM.VM.Heap.wrap(%{})
     QuickBEAM.VM.Heap.put_object_prototype(object_proto)

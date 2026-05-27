@@ -32,7 +32,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
   end
 
   static_methods do
-    @ecma "24.1.2.2"
+    @ecma "24.1.2.3"
     symbol :species do
       get do
         this
@@ -264,12 +264,10 @@ defmodule QuickBEAM.VM.Runtime.Map do
       for_each(args, this)
     end
 
-    @ecma "24.1.3.3"
     method "getOrInsert", length: 2 do
       get_or_insert(args, this)
     end
 
-    @ecma "24.1.3.4"
     method "getOrInsertComputed", length: 2 do
       get_or_insert_computed(args, this)
     end
