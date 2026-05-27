@@ -42,26 +42,10 @@ defmodule QuickBEAM.VM.Opcodes do
   @js_atom_end QuickBEAM.VM.PredefinedAtoms.count() + 1
   def js_atom_end, do: @js_atom_end
 
-  # Opcode format types — determine how operand bytes are decoded
-  # :none / :none_int / :none_loc / :none_arg / :none_var_ref → 0 extra bytes
-  # :u8 / :i8 / :loc8 / :const8 / :label8 → 1 byte
-  # :u16 / :i16 / :label16 → 2 bytes
-  # :npop / :npopx → 1 byte (argc)
-  # :npop_u16 → 1 byte + 2 bytes
-  # :loc / :arg / :var_ref → LEB128
-  # :u32 → LEB128
-  # :u32x2 → LEB128 + LEB128
-  # :i32 → SLEB128
-  # :const → LEB128
-  # :label → LEB128
-  # :atom → LEB128 (atom table index)
-  # :atom_u8 → LEB128 + 1 byte
-  # :atom_u16 → LEB128 + 2 bytes
-  # :atom_label_u8 → LEB128 + LEB128 + 1 byte
-  # :atom_label_u16 → LEB128 + LEB128 + 2 bytes
-  # :label_u16 → LEB128 + 2 bytes
+  # Opcode format types — determine how operand bytes are decoded.
+  # Metadata must match InstructionDecoder's fixed-width little-endian decoder.
 
-  # Format → :zero | {:bytes, pos_integer} | :leb128 | :mixed
+  # Format → :zero | {:bytes, pos_integer}
   @format_info %{
     none: :zero,
     none_int: :zero,
@@ -76,23 +60,23 @@ defmodule QuickBEAM.VM.Opcodes do
     u16: {:bytes, 2},
     i16: {:bytes, 2},
     label16: {:bytes, 2},
-    npop: {:bytes, 1},
+    npop: {:bytes, 2},
     npopx: :zero,
-    npop_u16: :npop_u16,
-    loc: :leb128,
-    arg: :leb128,
-    var_ref: :leb128,
-    u32: :leb128,
-    u32x2: :leb128_leb128,
-    i32: :sleb128,
-    const: :leb128,
-    label: :leb128,
-    atom: :leb128,
-    atom_u8: :atom_u8,
-    atom_u16: :atom_u16,
-    atom_label_u8: :atom_label_u8,
-    atom_label_u16: :atom_label_u16,
-    label_u16: :label_u16
+    npop_u16: {:bytes, 4},
+    loc: {:bytes, 2},
+    arg: {:bytes, 2},
+    var_ref: {:bytes, 2},
+    u32: {:bytes, 4},
+    u32x2: {:bytes, 8},
+    i32: {:bytes, 4},
+    const: {:bytes, 4},
+    label: {:bytes, 4},
+    atom: {:bytes, 4},
+    atom_u8: {:bytes, 5},
+    atom_u16: {:bytes, 6},
+    atom_label_u8: {:bytes, 9},
+    atom_label_u16: {:bytes, 10},
+    label_u16: {:bytes, 6}
   }
 
   # Full opcode table: {opcode_number, name, byte_size, n_pop, n_push, format}

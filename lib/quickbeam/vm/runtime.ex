@@ -89,14 +89,12 @@ defmodule QuickBEAM.VM.Runtime do
   def to_float(:nan), do: :nan
   def to_float(_), do: 0.0
 
-  @doc "Coerces a VM value to a JavaScript number-like value."
-  def to_number({:bigint, n}), do: bigint_to_number(n)
+  @doc "Coerces a VM value using ordinary JavaScript ToNumber semantics."
   def to_number(val), do: Values.to_number(val)
-  def to_number({:bigint, n}, _hint), do: bigint_to_number(n)
   def to_number(val, hint), do: Coercion.to_number(val, hint)
 
-  defp bigint_to_number(n) when abs(n) <= 9_007_199_254_740_991, do: n
-  defp bigint_to_number(n), do: n * 1.0
+  @doc "Coerces a value using Number() constructor semantics, where BigInt is accepted."
+  def number_constructor_to_number(val), do: Coercion.number_constructor_to_number(val)
 
   @doc "Normalizes a possibly-negative index against a sequence length."
   def normalize_index(idx, len) when idx < 0, do: max(len + idx, 0)

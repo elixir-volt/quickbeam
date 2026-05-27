@@ -54,6 +54,13 @@ defmodule QuickBEAM.VM.Semantics.Coercion do
 
   def to_number(val, _hint), do: to_number(val)
 
+  @doc "Coerces using Number() constructor semantics, where BigInt is accepted."
+  def number_constructor_to_number({:bigint, n}), do: bigint_to_number(n)
+  def number_constructor_to_number(value), do: to_number(value)
+
+  defp bigint_to_number(n) when abs(n) <= 9_007_199_254_740_991, do: n
+  defp bigint_to_number(n), do: n * 1.0
+
   @doc "Parses a JavaScript numeric string literal into a VM number value."
   def parse_numeric(""), do: 0
   def parse_numeric("0x" <> rest), do: parse_int_or_nan(rest, 16)

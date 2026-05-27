@@ -73,102 +73,116 @@ defmodule QuickBEAM.VM.InstructionDecoder do
         if pos + size > len do
           {:error, {:truncated_instruction, op, pos}}
         else
-          operands =
-            case fmt do
-              :none_loc -> OpcodeSpec.short_form_operands(op, ac)
-              :none_arg -> OpcodeSpec.short_form_operands(op, ac)
-              :none_var_ref -> OpcodeSpec.short_form_operands(op, ac)
-              :none_int -> OpcodeSpec.short_form_operands(op, ac)
-              :npopx -> OpcodeSpec.short_form_operands(op, ac)
-              _ -> decode_operands(bc, pos + 1, fmt, offset_map, ac)
-            end
+          case operands_for(bc, pos + 1, op, fmt, offset_map, ac) do
+            {:ok, operands} ->
+              decode_pass2(
+                bc,
+                len,
+                pos + size,
+                idx + 1,
+                offset_map,
+                [
+                  {op, operands} | acc
+                ],
+                ac
+              )
 
-          decode_pass2(
-            bc,
-            len,
-            pos + size,
-            idx + 1,
-            offset_map,
-            [
-              {op, operands} | acc
-            ],
-            ac
-          )
+            {:error, _} = err ->
+              err
+          end
         end
     end
   end
 
   # ── Operand decoding ──
 
-  defp decode_operands(bc, pos, :u8, _om, _ac), do: [get_u8(bc, pos)]
-  defp decode_operands(bc, pos, :i8, _om, _ac), do: [get_i8(bc, pos)]
-  defp decode_operands(bc, pos, :u16, _om, _ac), do: [get_u16(bc, pos)]
-  defp decode_operands(bc, pos, :i16, _om, _ac), do: [get_i16(bc, pos)]
-  defp decode_operands(bc, pos, :i32, _om, _ac), do: [get_i32(bc, pos)]
-  defp decode_operands(bc, pos, :u32, _om, _ac), do: [get_u32(bc, pos)]
+  defp operands_for(_bc, _pos, op, fmt, _offset_map, ac)
+       when fmt in [:none_loc, :none_arg, :none_var_ref, :none_int, :npopx] do
+    {:ok, OpcodeSpec.short_form_operands(op, ac)}
+  end
+
+  defp operands_for(bc, pos, _op, fmt, offset_map, ac) do
+    decode_operands(bc, pos, fmt, offset_map, ac)
+  end
+
+  defp decode_operands(bc, pos, :u8, _om, _ac), do: {:ok, [get_u8(bc, pos)]}
+  defp decode_operands(bc, pos, :i8, _om, _ac), do: {:ok, [get_i8(bc, pos)]}
+  defp decode_operands(bc, pos, :u16, _om, _ac), do: {:ok, [get_u16(bc, pos)]}
+  defp decode_operands(bc, pos, :i16, _om, _ac), do: {:ok, [get_i16(bc, pos)]}
+  defp decode_operands(bc, pos, :i32, _om, _ac), do: {:ok, [get_i32(bc, pos)]}
+  defp decode_operands(bc, pos, :u32, _om, _ac), do: {:ok, [get_u32(bc, pos)]}
 
   defp decode_operands(bc, pos, :u32x2, _om, _ac) do
-    [get_u32(bc, pos), get_u32(bc, pos + 4)]
+    {:ok, [get_u32(bc, pos), get_u32(bc, pos + 4)]}
   end
 
-  defp decode_operands(_bc, _pos, :none, _om, _ac), do: []
-  defp decode_operands(bc, pos, :npop, _om, _ac), do: [get_u16(bc, pos)]
+  defp decode_operands(_bc, _pos, :none, _om, _ac), do: {:ok, []}
+  defp decode_operands(bc, pos, :npop, _om, _ac), do: {:ok, [get_u16(bc, pos)]}
 
   defp decode_operands(bc, pos, :npop_u16, _om, _ac) do
-    [get_u16(bc, pos), get_u16(bc, pos + 2)]
+    {:ok, [get_u16(bc, pos), get_u16(bc, pos + 2)]}
   end
 
-  defp decode_operands(bc, pos, :loc8, _om, ac), do: [get_u8(bc, pos) + ac]
-  defp decode_operands(bc, pos, :const8, _om, _ac), do: [get_u8(bc, pos)]
-  defp decode_operands(bc, pos, :loc, _om, ac), do: [get_u16(bc, pos) + ac]
-  defp decode_operands(bc, pos, :arg, _om, _ac), do: [get_u16(bc, pos)]
-  defp decode_operands(bc, pos, :var_ref, _om, _ac), do: [get_u16(bc, pos)]
-  defp decode_operands(bc, pos, :const, _om, _ac), do: [get_u32(bc, pos)]
+  defp decode_operands(bc, pos, :loc8, _om, ac), do: {:ok, [get_u8(bc, pos) + ac]}
+  defp decode_operands(bc, pos, :const8, _om, _ac), do: {:ok, [get_u8(bc, pos)]}
+  defp decode_operands(bc, pos, :loc, _om, ac), do: {:ok, [get_u16(bc, pos) + ac]}
+  defp decode_operands(bc, pos, :arg, _om, _ac), do: {:ok, [get_u16(bc, pos)]}
+  defp decode_operands(bc, pos, :var_ref, _om, _ac), do: {:ok, [get_u16(bc, pos)]}
+  defp decode_operands(bc, pos, :const, _om, _ac), do: {:ok, [get_u32(bc, pos)]}
 
   defp decode_operands(bc, pos, :label8, om, _ac) do
     target_byte = pos + get_i8(bc, pos)
-    [resolve_label(target_byte, om)]
+    with {:ok, label} <- resolve_label(target_byte, om), do: {:ok, [label]}
   end
 
   defp decode_operands(bc, pos, :label16, om, _ac) do
     target_byte = pos + get_i16(bc, pos)
-    [resolve_label(target_byte, om)]
+    with {:ok, label} <- resolve_label(target_byte, om), do: {:ok, [label]}
   end
 
   defp decode_operands(bc, pos, :label, om, _ac) do
     byte_off = pos + get_i32(bc, pos)
-    [resolve_label(byte_off, om)]
+    with {:ok, label} <- resolve_label(byte_off, om), do: {:ok, [label]}
   end
 
   defp decode_operands(bc, pos, :label_u16, om, _ac) do
     byte_off = pos + get_i32(bc, pos)
-    [resolve_label(byte_off, om), get_u16(bc, pos + 4)]
+    with {:ok, label} <- resolve_label(byte_off, om), do: {:ok, [label, get_u16(bc, pos + 4)]}
   end
 
   defp decode_operands(bc, pos, :atom, _om, _ac) do
-    [get_atom_u32(bc, pos)]
+    {:ok, [get_atom_u32(bc, pos)]}
   end
 
   defp decode_operands(bc, pos, :atom_u8, _om, _ac) do
-    [get_atom_u32(bc, pos), get_u8(bc, pos + 4)]
+    {:ok, [get_atom_u32(bc, pos), get_u8(bc, pos + 4)]}
   end
 
   defp decode_operands(bc, pos, :atom_u16, _om, _ac) do
-    [get_atom_u32(bc, pos), get_u16(bc, pos + 4)]
+    {:ok, [get_atom_u32(bc, pos), get_u16(bc, pos + 4)]}
   end
 
   defp decode_operands(bc, pos, :atom_label_u8, om, _ac) do
     byte_off = pos + 4 + get_i32(bc, pos + 4)
-    [get_atom_u32(bc, pos), resolve_label(byte_off, om), get_u8(bc, pos + 8)]
+
+    with {:ok, label} <- resolve_label(byte_off, om) do
+      {:ok, [get_atom_u32(bc, pos), label, get_u8(bc, pos + 8)]}
+    end
   end
 
   defp decode_operands(bc, pos, :atom_label_u16, om, _ac) do
     byte_off = pos + 4 + get_i32(bc, pos + 4)
-    [get_atom_u32(bc, pos), resolve_label(byte_off, om), get_u16(bc, pos + 8)]
+
+    with {:ok, label} <- resolve_label(byte_off, om) do
+      {:ok, [get_atom_u32(bc, pos), label, get_u16(bc, pos + 8)]}
+    end
   end
 
   defp resolve_label(byte_off, offset_map) do
-    Map.get(offset_map, byte_off, byte_off)
+    case Map.fetch(offset_map, byte_off) do
+      {:ok, label} -> {:ok, label}
+      :error -> {:error, {:invalid_label, byte_off}}
+    end
   end
 
   # ── Byte accessors (little-endian) ──

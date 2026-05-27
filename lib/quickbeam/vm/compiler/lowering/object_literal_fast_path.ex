@@ -2,7 +2,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ObjectLiteralFastPath do
   @moduledoc "Fast-path lowering for object literals with statically known data fields."
 
   alias QuickBEAM.VM.Compiler.Analysis.CFG
-  alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, Literals, Slots, State}
+  alias QuickBEAM.VM.Compiler.Lowering.{Builder, Emit, Literals, State}
   alias QuickBEAM.VM.OpcodeSpec
 
   @doc "Attempts to lower an object literal followed by define_field opcodes."
@@ -120,16 +120,6 @@ defmodule QuickBEAM.VM.Compiler.Lowering.ObjectLiteralFastPath do
 
       {:ok, :push_empty_string} ->
         {:ok, Builder.literal(""), true, state}
-
-      {:ok, name} when name in [:get_arg, :get_arg0, :get_arg1, :get_arg2, :get_arg3] ->
-        with {:ok, idx} <- OpcodeSpec.compact_slot_index(name, args) do
-          {:ok, Slots.slot_expr(state, idx), false, state}
-        end
-
-      {:ok, name} when name in [:get_loc, :get_loc0, :get_loc1, :get_loc2, :get_loc3] ->
-        with {:ok, idx} <- OpcodeSpec.compact_slot_index(name, args) do
-          {:ok, Slots.slot_expr(state, idx), false, state}
-        end
 
       {:ok, :push_atom_value} ->
         {:ok, State.constant_call(state, :push_atom_value, [Builder.literal(hd(args))]), false,

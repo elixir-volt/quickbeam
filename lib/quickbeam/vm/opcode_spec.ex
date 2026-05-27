@@ -421,6 +421,7 @@ defmodule QuickBEAM.VM.OpcodeSpec do
     case format_info(format) do
       nil -> :unknown
       decoder when decoder in [:none, :zero] -> {:fixed, []}
+      {:bytes, size} -> {:fixed, size}
       :leb128 -> {:encoded, [:leb128]}
       :sleb128 -> {:encoded, [:sleb128]}
       decoder when is_atom(decoder) -> {:encoded, [decoder]}

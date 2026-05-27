@@ -357,8 +357,8 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, 9} = Compiler.invoke(fun, [9])
     end
 
-    test "compiles object literals", %{rt: rt} do
-      fun = compile_and_decode(rt, "(function(v){ return {x:v} })") |> user_function()
+    test "compiles literal-only object literals through the fast path", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(){ return {x:5} })") |> user_function()
 
       assert {:ok, beam_file} = Compiler.disasm(fun)
       block = beam_function_instructions(beam_file, :block_0)
@@ -400,11 +400,11 @@ defmodule QuickBEAM.VM.CompilerTest do
                  false
              end)
 
-      assert {:ok, {:obj, ref}} = Compiler.invoke(fun, [5])
+      assert {:ok, {:obj, ref}} = Compiler.invoke(fun, [])
       assert %{"x" => 5} = Heap.get_obj(ref)
     end
 
-    test "object literal fast path snapshots slot values", %{rt: rt} do
+    test "object literal lowering snapshots slot values", %{rt: rt} do
       fun =
         compile_and_decode(rt, "(function(){ let x=1; let o={a:x}; x=2; return o.a })")
         |> user_function()

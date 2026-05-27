@@ -110,10 +110,13 @@ defmodule QuickBEAM.VM.BytecodeParser do
 
               if local_idx < tuple_size(atoms),
                 do: elem(atoms, local_idx),
-                else: {:unknown_atom, idx}
+                else: {:error, {:unknown_atom, idx}}
           end
 
-        {:ok, name, rest}
+        case name do
+          {:error, reason} -> {:error, reason}
+          name -> {:ok, name, rest}
+        end
       end
     end
   end
@@ -421,7 +424,8 @@ defmodule QuickBEAM.VM.BytecodeParser do
   #   bit 7: super_call_allowed
   #   bit 8: super_allowed
   #   bit 9: arguments_allowed
-  #   bit 10: has_debug_info (backtrace_barrier in writer, has_debug_info in reader)
+  #   bit 10: backtrace_barrier
+  #   bit 11: has_debug_info
   defp decode_func_flags(v16) do
     %{
       has_prototype: band(bsr(v16, 0), 1) == 1,

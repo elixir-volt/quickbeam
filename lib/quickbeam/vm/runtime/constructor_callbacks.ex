@@ -178,12 +178,12 @@ defmodule QuickBEAM.VM.Runtime.ConstructorCallbacks do
 
   @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def number(args, {:obj, _} = this) do
-    val = args |> arg(0, 0) |> Runtime.to_number()
+    val = args |> arg(0, 0) |> Runtime.number_constructor_to_number()
     InternalMethods.set(this, slot_key(:NumberData), val)
     this
   end
 
-  def number(args, _), do: args |> arg(0, 0) |> Runtime.to_number()
+  def number(args, _), do: args |> arg(0, 0) |> Runtime.number_constructor_to_number()
 
   @doc "Helper for global constructor built-ins: `object`, `array`, `string`, `boolean`, and other wrapper constructors."
   def function(args, _), do: dynamic_function(args, "function")

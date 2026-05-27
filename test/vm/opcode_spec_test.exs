@@ -37,7 +37,7 @@ defmodule QuickBEAM.VM.OpcodeSpecTest do
     assert is_integer(info.opcode)
     assert info.stack_effect == {1, 0}
     assert info.format_info == Opcodes.format_info(:label)
-    assert info.operand_decoder == {:encoded, [:leb128]}
+    assert info.operand_decoder == {:fixed, 4}
     assert info.symbolic_stack_effect == :error
     assert info.lowering_family == :control
     assert info.lowering_module == QuickBEAM.VM.Compiler.Lowering.Ops.Control
