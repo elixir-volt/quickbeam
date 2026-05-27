@@ -2182,6 +2182,7 @@ pub fn initRuntime(rt: *qjs.JSRuntime) void {
     if (wrap_mod.wrap_class_id == 0) {
         _ = qjs.JS_NewClassID(rt, &wrap_mod.wrap_class_id);
     }
+    types.reserve_class_ids_through(rt, @max(nt.external_class_id, wrap_mod.wrap_class_id));
     types.class_ids_mutex.unlock();
 
     _ = qjs.JS_NewClass(rt, nt.external_class_id, &external_class_def);

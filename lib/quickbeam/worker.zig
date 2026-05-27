@@ -57,6 +57,7 @@ pub const WorkerState = struct {
     drain_fn: ?DrainFn = null,
     napi_env: ?*napi_mod.NapiEnv = null,
     max_reductions: i64 = 0,
+    run_gc_on_context_release: bool = true,
 
     pub fn deinit(self: *WorkerState) void {
         var call_it = self.pending_calls.valueIterator();
@@ -88,8 +89,10 @@ pub const WorkerState = struct {
 
         wasm_js.destroy_context(self.ctx);
 
-        // Run GC before freeing context to collect cycles
-        qjs.JS_RunGC(self.rt);
+        // Standalone runtimes can eagerly collect cycles here. Context pools
+        // share one runtime across many live contexts, so defer runtime-wide GC
+        // until pool shutdown instead of collecting during context churn.
+        if (self.run_gc_on_context_release) qjs.JS_RunGC(self.rt);
         qjs.JS_FreeContext(self.ctx);
 
         if (self.napi_env) |nenv| {
@@ -609,7 +612,7 @@ pub const WorkerState = struct {
         }
         self.atoms.deinit(self.ctx);
         wasm_js.destroy_context(self.ctx);
-        qjs.JS_RunGC(self.rt);
+        if (self.run_gc_on_context_release) qjs.JS_RunGC(self.rt);
         qjs.JS_FreeContext(self.ctx);
         self.ctx = qjs.JS_NewContext(self.rt) orelse {
             result.ok = false;
@@ -932,6 +935,7 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
     _ = qjs.JS_NewClassID(rt, &beam_proxy.class_id);
     _ = qjs.JS_NewClassID(rt, &dom.document_class_id);
     _ = qjs.JS_NewClassID(rt, &dom.element_class_id);
+    types.reserve_class_ids_through(rt, @max(beam_proxy.class_id, @max(dom.document_class_id, dom.element_class_id)));
     types.class_ids_mutex.unlock();
 
     beam_proxy.initRuntime(rt);
