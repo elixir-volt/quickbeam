@@ -913,13 +913,15 @@ defmodule QuickBEAM.VM.Runtime.Promise do
     {promise, resolve, reject} = new_promise_capability(constructor)
     ref = make_ref()
 
-    Heap.put_obj(ref, %{
-      "__proto__" => Heap.get_object_prototype(),
-      "promise" => promise,
-      "resolve" => resolve,
-      "reject" => reject,
-      key_order() => ["reject", "resolve", "promise"]
-    })
+    Heap.put_obj(
+      ref,
+      object heap: false, extends: Heap.get_object_prototype() do
+        prop("promise", promise)
+        prop("resolve", resolve)
+        prop("reject", reject)
+        prop(key_order(), ["reject", "resolve", "promise"])
+      end
+    )
 
     for key <- ~w(promise resolve reject),
         do: Heap.put_prop_desc(ref, key, PropertyDescriptor.enumerable_data())

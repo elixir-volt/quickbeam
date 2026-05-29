@@ -126,6 +126,18 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
       :ok
     end
 
+    def object_with_parent(parent) do
+      object extends: parent do
+        method "next" do
+          :next
+        end
+
+        symbol :toStringTag do
+          data("Sample Iterator")
+        end
+      end
+    end
+
     def inline_methods do
       build_methods do
         @ecma "20.1.3.6"
@@ -377,6 +389,18 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
 
     raw_json = QuickBEAM.VM.Runtime.JSON.object() |> elem(2) |> Map.fetch!("rawJSON")
     assert %QuickBEAM.VM.Builtin.Meta{ecma: nil} = QuickBEAM.VM.Builtin.metadata_for(raw_json)
+  end
+
+  test "object DSL supports declarative parents and symbol data" do
+    parent = QuickBEAM.VM.Heap.wrap(%{"kind" => "parent"})
+
+    {:obj, ref} =
+      QuickBEAM.VM.BuiltinDSLTest.Sample.object_with_parent(parent)
+
+    obj = QuickBEAM.VM.Heap.get_obj(ref)
+    assert obj["__proto__"] == parent
+    assert obj[{:symbol, "Symbol.toStringTag"}] == "Sample Iterator"
+    assert {:builtin, "next", _} = obj["next"]
   end
 
   test "builtin object metadata installs descriptors and tags" do

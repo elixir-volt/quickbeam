@@ -2107,12 +2107,19 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
     next_fn = regexp_string_iterator_next(iter, raw_next, state_ref, regexp, string)
 
     proto =
-      Heap.wrap(%{
-        "__proto__" => QuickBEAM.VM.Runtime.global_class_proto("Iterator"),
-        "next" => next_fn,
-        {:symbol, "Symbol.iterator"} => {:builtin, "[Symbol.iterator]", fn _, this -> this end},
-        {:symbol, "Symbol.toStringTag"} => "RegExp String Iterator"
-      })
+      object extends: QuickBEAM.VM.Runtime.global_class_proto("Iterator") do
+        prop("next", next_fn)
+
+        symbol :iterator do
+          method do
+            this
+          end
+        end
+
+        symbol :toStringTag do
+          data("RegExp String Iterator")
+        end
+      end
 
     with {:obj, proto_ref} <- proto do
       Heap.put_prop_desc(proto_ref, "next", PropertyDescriptor.method())

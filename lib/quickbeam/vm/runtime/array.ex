@@ -66,8 +66,12 @@ defmodule QuickBEAM.VM.Runtime.Array do
   def prototype(object_proto \\ Heap.get_object_prototype()) do
     proto_map =
       case object_proto do
-        {:obj, _} -> %{"__proto__" => object_proto}
-        _ -> %{}
+        {:obj, _} ->
+          object heap: false, extends: object_proto do
+          end
+
+        _ ->
+          %{}
       end
 
     proto = Heap.wrap(proto_map)
@@ -75,25 +79,25 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
     QuickBEAM.VM.Builtin.Installer.install_prototype_specs(ref, __MODULE__)
 
-    unscopables_map = %{
-      "copyWithin" => true,
-      "entries" => true,
-      "fill" => true,
-      "find" => true,
-      "findIndex" => true,
-      "flat" => true,
-      "flatMap" => true,
-      "includes" => true,
-      "keys" => true,
-      "values" => true,
-      "at" => true,
-      "findLast" => true,
-      "findLastIndex" => true,
-      "toReversed" => true,
-      "toSorted" => true,
-      "toSpliced" => true,
-      "__proto__" => :null_proto
-    }
+    unscopables_map =
+      object heap: false, prototype: :null_proto do
+        prop("copyWithin", true)
+        prop("entries", true)
+        prop("fill", true)
+        prop("find", true)
+        prop("findIndex", true)
+        prop("flat", true)
+        prop("flatMap", true)
+        prop("includes", true)
+        prop("keys", true)
+        prop("values", true)
+        prop("at", true)
+        prop("findLast", true)
+        prop("findLastIndex", true)
+        prop("toReversed", true)
+        prop("toSorted", true)
+        prop("toSpliced", true)
+      end
 
     sym_unscopables = {:symbol, "Symbol.unscopables"}
     Heap.put_obj_key(ref, sym_unscopables, Heap.wrap(unscopables_map))
@@ -3150,10 +3154,12 @@ defmodule QuickBEAM.VM.Runtime.Array do
       "done" => false
     })
 
-    Heap.put_obj(iterator_ref, %{
-      "__proto__" => array_iterator_prototype(),
-      "__array_iterator_state__" => {:obj, state_ref}
-    })
+    Heap.put_obj(
+      iterator_ref,
+      object heap: false, extends: array_iterator_prototype() do
+        prop("__array_iterator_state__", {:obj, state_ref})
+      end
+    )
 
     {:obj, iterator_ref}
   end
@@ -3175,8 +3181,10 @@ defmodule QuickBEAM.VM.Runtime.Array do
 
   defp build_array_iterator_prototype do
     proto =
-      object do
-        prop("next", {:builtin, "next", fn _args, this -> array_iterator_next(this) end})
+      object extends: QuickBEAM.VM.Runtime.global_class_proto("Iterator") do
+        method "next" do
+          array_iterator_next(this)
+        end
 
         symbol :iterator do
           method do
@@ -3186,12 +3194,6 @@ defmodule QuickBEAM.VM.Runtime.Array do
       end
 
     with {:obj, proto_ref} <- proto do
-      Heap.put_obj_key(
-        proto_ref,
-        "__proto__",
-        QuickBEAM.VM.Runtime.global_class_proto("Iterator")
-      )
-
       Heap.put_prop_desc(proto_ref, "next", PropertyDescriptor.method())
       Heap.put_prop_desc(proto_ref, {:symbol, "Symbol.iterator"}, PropertyDescriptor.method())
       Heap.put_obj_key(proto_ref, {:symbol, "Symbol.toStringTag"}, "Array Iterator")

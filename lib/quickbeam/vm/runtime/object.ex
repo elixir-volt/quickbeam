@@ -85,7 +85,8 @@ defmodule QuickBEAM.VM.Runtime.Object do
         this
 
       [], _this ->
-        Heap.wrap(%{"__proto__" => object_proto})
+        object extends: object_proto do
+        end
     end
   end
 
@@ -109,8 +110,11 @@ defmodule QuickBEAM.VM.Runtime.Object do
          _string_proto,
          _symbol_proto
        )
-       when is_boolean(value),
-       do: Heap.wrap(%{slot_key(:BooleanData) => value, "__proto__" => boolean_proto})
+       when is_boolean(value) do
+    object extends: boolean_proto do
+      prop(slot_key(:BooleanData), value)
+    end
+  end
 
   defp object_value(
          value,
@@ -121,8 +125,11 @@ defmodule QuickBEAM.VM.Runtime.Object do
          _string_proto,
          _symbol_proto
        )
-       when is_number(value),
-       do: Heap.wrap(%{slot_key(:NumberData) => value, "__proto__" => number_proto})
+       when is_number(value) do
+    object extends: number_proto do
+      prop(slot_key(:NumberData), value)
+    end
+  end
 
   defp object_value(
          {:bigint, _} = value,
@@ -132,8 +139,11 @@ defmodule QuickBEAM.VM.Runtime.Object do
          bigint_proto,
          _string_proto,
          _symbol_proto
-       ),
-       do: Heap.wrap(%{slot_key(:BigIntData) => value, "__proto__" => bigint_proto})
+       ) do
+    object extends: bigint_proto do
+      prop(slot_key(:BigIntData), value)
+    end
+  end
 
   defp object_value(
          value,
@@ -144,8 +154,11 @@ defmodule QuickBEAM.VM.Runtime.Object do
          string_proto,
          _symbol_proto
        )
-       when is_binary(value),
-       do: Heap.wrap(%{slot_key(:StringData) => value, "__proto__" => string_proto})
+       when is_binary(value) do
+    object extends: string_proto do
+      prop(slot_key(:StringData), value)
+    end
+  end
 
   defp object_value(
          {:symbol, _} = value,
@@ -155,8 +168,11 @@ defmodule QuickBEAM.VM.Runtime.Object do
          _bigint_proto,
          _string_proto,
          symbol_proto
-       ),
-       do: Heap.wrap(%{slot_key(:SymbolData) => value, "__proto__" => symbol_proto})
+       ) do
+    object extends: symbol_proto do
+      prop(slot_key(:SymbolData), value)
+    end
+  end
 
   defp object_value(
          {:symbol, _, _} = value,
@@ -166,8 +182,11 @@ defmodule QuickBEAM.VM.Runtime.Object do
          _bigint_proto,
          _string_proto,
          symbol_proto
-       ),
-       do: Heap.wrap(%{slot_key(:SymbolData) => value, "__proto__" => symbol_proto})
+       ) do
+    object extends: symbol_proto do
+      prop(slot_key(:SymbolData), value)
+    end
+  end
 
   defp object_value(
          _value,
@@ -177,8 +196,10 @@ defmodule QuickBEAM.VM.Runtime.Object do
          _bigint_proto,
          _string_proto,
          _symbol_proto
-       ),
-       do: Heap.wrap(%{"__proto__" => object_proto})
+       ) do
+    object extends: object_proto do
+    end
+  end
 
   @doc "Builds prototype data for object static methods."
   def build_prototype do

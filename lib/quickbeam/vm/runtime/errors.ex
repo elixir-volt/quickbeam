@@ -194,8 +194,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
 
     Heap.put_obj(
       error_proto_ref,
-      object heap: false do
-        prop("__proto__", Heap.get_object_prototype())
+      object heap: false, extends: Heap.get_object_prototype() do
         prop("name", "Error")
         prop("message", "")
         prop("constructor", error_ctor)
@@ -259,8 +258,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
 
         Heap.put_obj(
           proto_ref,
-          object heap: false do
-            prop("__proto__", {:obj, error_proto_ref})
+          object heap: false, extends: {:obj, error_proto_ref} do
             prop("name", name)
             prop("message", "")
             prop("constructor", ctor)

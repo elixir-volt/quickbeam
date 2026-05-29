@@ -703,8 +703,7 @@ defmodule QuickBEAM.VM.Runtime.Map do
     iterator_fn = Map.fetch!(iterator_methods, {:symbol, "Symbol.iterator"})
 
     proto =
-      object do
-        prop("__proto__", QuickBEAM.VM.Runtime.global_class_proto("Iterator"))
+      object extends: QuickBEAM.VM.Runtime.global_class_proto("Iterator") do
         prop("next", next_fn)
         prop({:symbol, "Symbol.iterator"}, iterator_fn)
         prop({:symbol, "Symbol.toStringTag"}, "Map Iterator")
@@ -721,14 +720,16 @@ defmodule QuickBEAM.VM.Runtime.Map do
       )
     end
 
-    Heap.put_obj(iter_ref, %{
-      "__proto__" => proto,
-      "__map_iterator_ref__" => ref,
-      "__map_iterator_state__" => state_ref,
-      "__map_iterator_mode__" => mode,
-      "next" => next_fn,
-      {:symbol, "Symbol.iterator"} => iterator_fn
-    })
+    Heap.put_obj(
+      iter_ref,
+      object heap: false, extends: proto do
+        prop("__map_iterator_ref__", ref)
+        prop("__map_iterator_state__", state_ref)
+        prop("__map_iterator_mode__", mode)
+        prop("next", next_fn)
+        prop({:symbol, "Symbol.iterator"}, iterator_fn)
+      end
+    )
 
     iter
   end

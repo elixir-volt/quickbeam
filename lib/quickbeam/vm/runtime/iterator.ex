@@ -323,9 +323,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     state_ref = make_ref()
     Heap.put_obj(state_ref, %{"items" => List.to_tuple(items), "index" => 0})
 
-    object do
-      prop("__proto__", wrap_for_valid_iterator_prototype())
-
+    object extends: wrap_for_valid_iterator_prototype() do
       method "next" do
         list_iterator_next(state_ref)
       end
@@ -359,8 +357,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     proto = wrap_for_valid_iterator_prototype()
     next = Get.get(iterator, "next")
 
-    object do
-      prop("__proto__", proto)
+    object extends: proto do
       prop("__wrapped_iterator__", iterator)
       prop("__wrapped_next__", next)
 
@@ -399,9 +396,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   defp build_wrap_for_valid_iterator_prototype do
-    object do
-      prop("__proto__", Runtime.global_class_proto("Iterator"))
-
+    object extends: Runtime.global_class_proto("Iterator") do
       method "next" do
         wrapper_next(this)
       end
@@ -535,8 +530,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   defp helper_iterator(state) do
     state_ref = IteratorHelperState.new(state)
 
-    object do
-      prop("__proto__", wrap_for_valid_iterator_prototype())
+    object extends: wrap_for_valid_iterator_prototype() do
       prop("__iterator_helper_state__", state_ref)
 
       method "next" do
@@ -1032,9 +1026,13 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
     object =
       keys
       |> Enum.zip(values)
-      |> Enum.reduce(%{"__proto__" => :null_proto}, fn {key, value}, acc ->
-        Map.put(acc, key, value)
-      end)
+      |> Enum.reduce(
+        object(heap: false, prototype: :null_proto) do
+        end,
+        fn {key, value}, acc ->
+          Map.put(acc, key, value)
+        end
+      )
 
     iter_result(Heap.wrap(object), false)
   end
@@ -1497,12 +1495,11 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   end
 
   defp iter_result(value, done) do
-    Heap.wrap(%{
-      "value" => value,
-      "done" => done,
-      "__proto__" => Heap.get_object_prototype(),
-      key_order() => ["done", "value"]
-    })
+    object extends: Heap.get_object_prototype() do
+      prop("value", value)
+      prop("done", done)
+      prop(key_order(), ["done", "value"])
+    end
   end
 
   defp non_negative_integer_limit_or_close(this, value) do

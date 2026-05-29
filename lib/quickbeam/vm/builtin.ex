@@ -1771,7 +1771,11 @@ defmodule QuickBEAM.VM.Builtin do
   end
 
   defmacro object(opts \\ [], do: block) do
-    map_entries = build_map_entries(normalize_block(block))
+    map_entries =
+      opts
+      |> object_parent_entries()
+      |> Kernel.++(build_map_entries(normalize_block(block)))
+
     heap? = Keyword.get(opts, :heap, true)
 
     if heap? do
@@ -1782,6 +1786,32 @@ defmodule QuickBEAM.VM.Builtin do
       quote do: %{unquote_splicing(map_entries)}
     end
   end
+
+  defp object_parent_entries(opts) do
+    cond do
+      Keyword.has_key?(opts, :extends) ->
+        [{"__proto__", object_dsl_parent(Keyword.fetch!(opts, :extends))}]
+
+      Keyword.has_key?(opts, :prototype) ->
+        [{"__proto__", Keyword.fetch!(opts, :prototype)}]
+
+      true ->
+        []
+    end
+  end
+
+  defp object_dsl_parent(:object) do
+    quote do: QuickBEAM.VM.Heap.get_object_prototype()
+  end
+
+  defp object_dsl_parent(parent) when is_atom(parent) do
+    parent
+    |> Atom.to_string()
+    |> Macro.camelize()
+    |> then(fn name -> quote(do: QuickBEAM.VM.Runtime.global_class_proto(unquote(name))) end)
+  end
+
+  defp object_dsl_parent(parent), do: parent
 
   @doc "Builds a heap-wrapped object from builtin method/property entries."
   defmacro build_object(do: block) do
@@ -1923,12 +1953,18 @@ defmodule QuickBEAM.VM.Builtin do
       [{:method, _, [opts, [do: body]]}] when is_list(opts) ->
         {key, build_builtin(key, body, Keyword.merge(pending_opts, opts))}
 
+      [{:data, _, [value]}] ->
+        {key, value}
+
+      [{:data, _, [value, opts]}] when is_list(opts) ->
+        {key, value}
+
       entries when is_list(entries) ->
         if Enum.any?(entries, &match?({kind, _, _} when kind in [:get, :set], &1)) do
           {getter, setter} = build_accessor_parts(key, block, pending_opts)
           {key, quote(do: {:accessor, unquote(getter), unquote(setter)})}
         else
-          raise ArgumentError, "symbol #{inspect(name)} must declare method/get/set"
+          raise ArgumentError, "symbol #{inspect(name)} must declare method/get/set/data"
         end
     end
   end

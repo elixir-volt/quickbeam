@@ -56,7 +56,9 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
     ConstructorRegistry.put_prototype(
       ctor,
-      Heap.wrap(%{"constructor" => ctor, "__proto__" => base_proto})
+      object extends: base_proto do
+        prop("constructor", ctor)
+      end
     )
 
     Heap.put_ctor_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
@@ -491,21 +493,20 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       proto = typed_array_instance_proto(this, type)
 
       obj =
-        %{
-          typed_array() => true,
-          type_key() => type,
-          buffer() => buf,
-          offset() => offset,
-          "length" => len,
-          "byteLength" => len * elem_size(type),
-          "byteOffset" => offset,
-          "BYTES_PER_ELEMENT" => elem_size(type),
-          "__proto__" => proto,
-          "__length_tracking__" => length_tracking?,
-          "__fixed_length__" => len,
-          "__fixed_byte_length__" => len * elem_size(type),
-          "buffer" => orig_buf || make_buffer_ref(buf)
-        }
+        object heap: false, extends: proto do
+          prop(typed_array(), true)
+          prop(type_key(), type)
+          prop(buffer(), buf)
+          prop(offset(), offset)
+          prop("length", len)
+          prop("byteLength", len * elem_size(type))
+          prop("byteOffset", offset)
+          prop("BYTES_PER_ELEMENT", elem_size(type))
+          prop("__length_tracking__", length_tracking?)
+          prop("__fixed_length__", len)
+          prop("__fixed_byte_length__", len * elem_size(type))
+          prop("buffer", orig_buf || make_buffer_ref(buf))
+        end
 
       Heap.put_obj(ref, obj)
       register_buffer_view(orig_buf, ref)
@@ -553,7 +554,9 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   def constructor_prototype(name, ctor) do
     Runtime.global_class_proto(name) ||
       cached_prototype({:qb_typed_array_constructor_proto, name}, fn ->
-        Heap.wrap(%{"constructor" => ctor, "__proto__" => abstract_prototype()})
+        object extends: abstract_prototype() do
+          prop("constructor", ctor)
+        end
       end)
   end
 
@@ -572,10 +575,12 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       _ ->
         ta_base_ref = make_ref()
 
-        Heap.put_obj(ta_base_ref, %{
-          "constructor" => ta_base,
-          "__proto__" => Heap.get_object_prototype()
-        })
+        Heap.put_obj(
+          ta_base_ref,
+          object heap: false, extends: Heap.get_object_prototype() do
+            prop("constructor", ta_base)
+          end
+        )
 
         QuickBEAM.VM.Builtin.Installer.install_prototype_specs(ta_base_ref, __MODULE__)
 

@@ -378,14 +378,16 @@ defmodule QuickBEAM.VM.Runtime.Function do
   defp realm_type_error(realm_source, message) do
     case Realm.intrinsic(realm_source, {:native_error, "TypeError"}) do
       {:obj, _} = proto ->
-        Heap.wrap(%{
-          "message" => message,
-          "name" => "TypeError",
-          "stack" => "",
-          "__error_name__" => "TypeError",
-          "__proto__" => proto,
-          {:symbol, "Symbol.toStringTag"} => "Error"
-        })
+        object extends: proto do
+          prop("message", message)
+          prop("name", "TypeError")
+          prop("stack", "")
+          prop("__error_name__", "TypeError")
+
+          symbol :toStringTag do
+            data("Error")
+          end
+        end
 
       _ ->
         Heap.make_error(message, "TypeError")
@@ -494,8 +496,13 @@ defmodule QuickBEAM.VM.Runtime.Function do
     proto = Realm.intrinsic(fun, type)
 
     case proto do
-      {:obj, _} -> Heap.wrap(%{WrappedPrimitive.slot(type) => value, "__proto__" => proto})
-      _ -> WrappedPrimitive.wrap(value)
+      {:obj, _} ->
+        object extends: proto do
+          prop(WrappedPrimitive.slot(type), value)
+        end
+
+      _ ->
+        WrappedPrimitive.wrap(value)
     end
   end
 end
