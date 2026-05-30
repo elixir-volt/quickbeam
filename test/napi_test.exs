@@ -176,6 +176,61 @@ defmodule QuickBEAM.NapiTest do
         QuickBEAM.stop(rt)
       end
     end
+
+    test "env cleanup hooks and instance data finalizers run during reset" do
+      {:ok, rt} = QuickBEAM.start()
+      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+
+      assert {:ok, 1} = QuickBEAM.eval(rt, "addon.setInstanceDataValue()")
+      assert {:ok, 2468} = QuickBEAM.eval(rt, "addon.getInstanceDataValue()")
+      assert {:ok, 1} = QuickBEAM.eval(rt, "addon.registerCleanupHooks()")
+      assert :ok = QuickBEAM.reset(rt)
+
+      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+
+      assert {:ok,
+              %{
+                "instanceData" => instance_data,
+                "cleanupHooks" => cleanup_hooks,
+                "cleanupRemovedHooks" => removed_hooks,
+                "asyncCleanupHooks" => async_hooks,
+                "asyncCleanupRemovedHooks" => removed_async_hooks
+              }} = QuickBEAM.eval(rt, "addon.finalizedCounts()")
+
+      assert instance_data >= 1
+      assert cleanup_hooks >= 1
+      assert removed_hooks == 0
+      assert async_hooks >= 1
+      assert removed_async_hooks == 0
+
+      QuickBEAM.stop(rt)
+    end
+
+    test "external finalizers receive env and original nullable data" do
+      {:ok, rt} = QuickBEAM.start()
+      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+
+      assert {:ok, 1357} = QuickBEAM.eval(rt, "addon.createExternalWithFinalizer()")
+      assert {:ok, 1} = QuickBEAM.eval(rt, "addon.clearExternalKeepalive()")
+      assert {:ok, []} = QuickBEAM.eval(rt, "Array.from(addon.addNullExternalBufferFinalizer())")
+      assert {:ok, 1} = QuickBEAM.eval(rt, "addon.clearNullExternalBufferKeepalive()")
+      assert :ok = QuickBEAM.reset(rt)
+      QuickBEAM.stop(rt)
+
+      {:ok, rt} = QuickBEAM.start()
+      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+
+      assert {:ok,
+              %{
+                "externals" => externals,
+                "externalEnvs" => external_envs
+              }} = QuickBEAM.eval(rt, "addon.finalizedCounts()")
+
+      assert externals >= 1
+      assert external_envs >= 1
+
+      QuickBEAM.stop(rt)
+    end
   end
 
   describe "error handling" do

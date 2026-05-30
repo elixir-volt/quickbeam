@@ -91,6 +91,8 @@ pub const napi_finalize = ?*const fn (napi_env, ?*anyopaque, ?*anyopaque) callco
 pub const napi_async_execute_callback = *const fn (napi_env, ?*anyopaque) callconv(.c) void;
 pub const napi_async_complete_callback = *const fn (napi_env, napi_status, ?*anyopaque) callconv(.c) void;
 pub const napi_threadsafe_function_call_js = *const fn (napi_env, napi_value, ?*anyopaque, ?*anyopaque) callconv(.c) void;
+pub const napi_cleanup_hook = *const fn (?*anyopaque) callconv(.c) void;
+pub const napi_async_cleanup_hook = *const fn (?*anyopaque, ?*anyopaque) callconv(.c) void;
 pub const napi_addon_register_func = *const fn (napi_env, napi_value) callconv(.c) napi_value;
 
 pub const napi_property_descriptor = extern struct {
@@ -159,6 +161,9 @@ pub const NapiEnv = struct {
     shutting_down: bool = false,
     refs: std.ArrayListUnmanaged(*NapiReference) = .{},
     callback_data: std.ArrayListUnmanaged(*FunctionCallbackData) = .{},
+    cleanup_hooks: std.ArrayListUnmanaged(CleanupHook) = .{},
+    async_cleanup_hooks: std.ArrayListUnmanaged(*AsyncCleanupHook) = .{},
+    cleanup_started: bool = false,
 
     pub fn setLastError(self: *NapiEnv, status: Status) napi_status {
         self.last_error.error_code = @intFromEnum(status);
@@ -215,9 +220,37 @@ pub const NapiEnv = struct {
         return slot;
     }
 
+    pub fn runCleanup(self: *NapiEnv) void {
+        if (self.cleanup_started) return;
+        self.cleanup_started = true;
+
+        var async_i = self.async_cleanup_hooks.items.len;
+        while (async_i > 0) {
+            async_i -= 1;
+            const hook = self.async_cleanup_hooks.items[async_i];
+            if (!hook.removed) hook.cb(hook.arg, @ptrCast(hook));
+        }
+
+        var i = self.cleanup_hooks.items.len;
+        while (i > 0) {
+            i -= 1;
+            const hook = self.cleanup_hooks.items[i];
+            hook.cb(hook.arg);
+        }
+        self.cleanup_hooks.clearRetainingCapacity();
+
+        if (self.instance_data_finalize) |cb| {
+            cb(self, self.instance_data, self.instance_data_hint);
+            self.instance_data = null;
+            self.instance_data_finalize = null;
+            self.instance_data_hint = null;
+        }
+    }
+
     /// Release all JS value references. Must be called while the context is still alive.
     pub fn releaseValues(self: *NapiEnv) void {
         self.shutting_down = true;
+        self.runCleanup();
         self.clearPendingException();
         for (self.scope_stack.items) |scope| {
             scope.deinit(self.ctx);
@@ -262,6 +295,12 @@ pub const NapiEnv = struct {
             gpa.destroy(cbd);
         }
         self.callback_data.deinit(gpa);
+
+        self.cleanup_hooks.deinit(gpa);
+        for (self.async_cleanup_hooks.items) |hook| {
+            gpa.destroy(hook);
+        }
+        self.async_cleanup_hooks.deinit(gpa);
     }
 };
 
@@ -407,11 +446,25 @@ pub const ThreadSafeFunction = struct {
     }
 };
 
+// ──── Cleanup hooks ────
+
+pub const CleanupHook = struct {
+    cb: napi_cleanup_hook,
+    arg: ?*anyopaque,
+};
+
+pub const AsyncCleanupHook = struct {
+    cb: napi_async_cleanup_hook,
+    arg: ?*anyopaque,
+    removed: bool = false,
+};
+
 // ──── External data class ────
 
 pub var external_class_id: qjs.JSClassID = 0;
 
 pub const ExternalData = struct {
+    env: *NapiEnv,
     data: ?*anyopaque,
     finalize_cb: napi_finalize,
     finalize_hint: ?*anyopaque,

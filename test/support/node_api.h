@@ -31,6 +31,8 @@ enum {
 #define napi_ok 0
 typedef napi_value (*napi_callback)(napi_env env, napi_callback_info info);
 typedef void (*napi_finalize)(napi_env env, void* finalize_data, void* finalize_hint);
+typedef void (*napi_cleanup_hook)(void* arg);
+typedef void (*napi_async_cleanup_hook)(void* arg, void* remove_handle);
 #define NAPI_AUTO_LENGTH ((size_t)-1)
 
 napi_status napi_create_string_utf8(napi_env, const char*, size_t, napi_value*);
@@ -56,6 +58,14 @@ napi_status napi_wrap(napi_env, napi_value, void*, napi_finalize, void*, napi_re
 napi_status napi_unwrap(napi_env, napi_value, void**);
 napi_status napi_remove_wrap(napi_env, napi_value, void**);
 napi_status napi_create_external_buffer(napi_env, size_t, void*, napi_finalize, void*, napi_value*);
+napi_status napi_create_external(napi_env, void*, napi_finalize, void*, napi_value*);
+napi_status napi_get_value_external(napi_env, napi_value, void**);
+napi_status napi_set_instance_data(napi_env, void*, napi_finalize, void*);
+napi_status napi_get_instance_data(napi_env, void**);
+napi_status napi_add_env_cleanup_hook(napi_env, napi_cleanup_hook, void*);
+napi_status napi_remove_env_cleanup_hook(napi_env, napi_cleanup_hook, void*);
+napi_status napi_add_async_cleanup_hook(napi_env, napi_async_cleanup_hook, void*, void**);
+napi_status napi_remove_async_cleanup_hook(void*);
 
 #ifdef __cplusplus
 #define NAPI_MODULE_EXPORT extern "C" __attribute__((visibility("default")))
