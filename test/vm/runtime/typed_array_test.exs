@@ -49,6 +49,14 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayTest do
     )
   end
 
+  test "typed-array constructors share the abstract constructor and prototype", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|[Object.getPrototypeOf(Uint8Array) === Object.getPrototypeOf(Int8Array), Object.getPrototypeOf(Uint8Array.prototype) === Object.getPrototypeOf(Int8Array.prototype)].join(",")|,
+      "true,true"
+    )
+  end
+
   test "typed-array ArrayBuffer views validate offsets and lengths", %{rt: rt} do
     assert_modes(
       rt,

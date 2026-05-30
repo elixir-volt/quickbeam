@@ -91,7 +91,8 @@ defmodule QuickBEAM.VM.Runtime.Object.Enumeration do
   end
 
   def entries([callable | _]) when is_tuple(callable) or is_struct(callable) do
-    Heap.wrap(enumerable_descriptor_pairs(callable, InternalMethods.own_keys(callable)))
+    keys = callable |> InternalMethods.own_keys() |> Enum.filter(&is_binary/1)
+    Heap.wrap(enumerable_descriptor_pairs(callable, keys))
   end
 
   def entries([map | _]) when is_map(map) do

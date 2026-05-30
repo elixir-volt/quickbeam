@@ -172,13 +172,13 @@ defmodule QuickBEAM.VM.Runtime.Object.Entries do
 
   defp entry_pair([_, _ | _] = entry), do: entry
 
-  defp entry_pair({:obj, _} = entry) do
+  defp entry_pair({:obj, ref} = entry) do
     case Heap.to_list(entry) do
       [_, _ | _] = pair ->
         pair
 
       _ ->
-        case Heap.get_obj(entry, %{}) |> WrappedPrimitive.value(:string) do
+        case Heap.get_obj(ref, %{}) |> WrappedPrimitive.value(:string) do
           {:ok, <<key::utf8, value::utf8, _::binary>>} -> [<<key::utf8>>, <<value::utf8>>]
           _ -> entry_pair_from_properties(entry)
         end

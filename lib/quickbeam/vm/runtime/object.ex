@@ -571,32 +571,32 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   @ecma "20.1.2.6"
   static "freeze", length: 1 do
-    args |> hd() |> Integrity.freeze()
+    args |> arg(0, :undefined) |> Integrity.freeze()
   end
 
   @ecma "20.1.2.17"
   static "preventExtensions", length: 1 do
-    args |> hd() |> Integrity.prevent_extensions()
+    args |> arg(0, :undefined) |> Integrity.prevent_extensions()
   end
 
   @ecma "20.1.2.16"
   static "isExtensible", length: 1 do
-    args |> hd() |> Integrity.extensible?()
+    args |> arg(0, :undefined) |> Integrity.extensible?()
   end
 
   @ecma "20.1.2.22"
   static "seal", length: 1 do
-    args |> hd() |> Integrity.seal()
+    args |> arg(0, :undefined) |> Integrity.seal()
   end
 
   @ecma "20.1.2.17"
   static "isFrozen", length: 1 do
-    args |> hd() |> Integrity.frozen?()
+    args |> arg(0, :undefined) |> Integrity.frozen?()
   end
 
   @ecma "20.1.2.18"
   static "isSealed", length: 1 do
-    args |> hd() |> Integrity.sealed?()
+    args |> arg(0, :undefined) |> Integrity.sealed?()
   end
 
   defp is_object_like?(value), do: Value.object_like?(value)

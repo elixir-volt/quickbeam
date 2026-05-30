@@ -159,7 +159,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Iterators do
 
       LoweringEffects.effectful_push(
         state,
-        State.abi_call(state, :call_callback, [next_fn, Builder.list_expr([])])
+        State.abi_call(state, :invoke_method_runtime, [next_fn, iter, Builder.list_expr([])])
       )
     end
   end

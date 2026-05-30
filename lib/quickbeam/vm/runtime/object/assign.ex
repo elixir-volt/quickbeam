@@ -2,11 +2,11 @@ defmodule QuickBEAM.VM.Runtime.Object.Assign do
   @moduledoc "Implementation helpers for Object.assign."
 
   import QuickBEAM.VM.Heap.Keys
-  import QuickBEAM.VM.Value, only: [is_nullish: 1, is_symbol: 1]
+  import QuickBEAM.VM.Value, only: [is_nullish: 1]
 
-  alias QuickBEAM.VM.{Heap, Runtime, Value}
-  alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods, PropertyKey, WrappedPrimitive}
-  alias QuickBEAM.VM.Runtime.Object.{Descriptors, Enumeration}
+  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.ObjectModel.{InternalMethods, PropertyKey, WrappedPrimitive}
+  alias QuickBEAM.VM.Runtime.Object.Enumeration
 
   def assign([target | _sources]) when is_nullish(target) do
     throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
@@ -19,8 +19,8 @@ defmodule QuickBEAM.VM.Runtime.Object.Assign do
       source, target_obj when is_nullish(source) ->
         target_obj
 
-      {:obj, ref}, {:obj, _} = target_obj ->
-        ref
+      {:obj, _} = source_obj, {:obj, _} = target_obj ->
+        source_obj
         |> enumerable_assign_entries()
         |> Enum.each(fn {key, value} -> assign_put(target_obj, key, value) end)
 
@@ -47,52 +47,11 @@ defmodule QuickBEAM.VM.Runtime.Object.Assign do
 
   def assign(_), do: :undefined
 
-  defp assign_put({:obj, ref} = target_obj, key, value) do
-    cond do
-      target_accessor_setter?(ref, key) ->
-        InternalMethods.set(target_obj, key, value)
-
-      target_readonly?(ref, key) or target_string_index?(ref, key) ->
-        throw({:js_throw, Heap.make_error("Cannot assign to read only property", "TypeError")})
-
-      not target_has_own?(ref, key) and not Heap.extensible?(ref) ->
-        throw({:js_throw, Heap.make_error("Cannot add property", "TypeError")})
-
-      true ->
-        InternalMethods.set(target_obj, key, value)
-    end
-  end
-
-  defp target_accessor_setter?(ref, key) do
-    case target_own_value(ref, key) do
-      {:accessor, _, setter} when setter != nil -> true
-      _ -> false
-    end
-  end
-
-  defp target_readonly?(ref, key), do: match?(%{writable: false}, Heap.get_prop_desc(ref, key))
-
-  defp target_string_index?(ref, key) do
-    case Heap.get_obj_raw(ref) do
-      map when is_map(map) and is_binary(key) ->
-        with {:ok, string} when is_binary(string) <- WrappedPrimitive.value(map, :string),
-             {:ok, index} <- PropertyKey.array_index(key) do
-          index < Get.string_length(string)
-        else
-          _ -> false
-        end
-
-      _ ->
-        false
-    end
-  end
-
-  defp target_has_own?(ref, key), do: target_own_value(ref, key) != :missing
-
-  defp target_own_value(ref, key) do
-    case Heap.raw_fetch(Heap.get_obj_raw(ref), key) do
-      {:ok, value} -> value
-      :error -> :missing
+  defp assign_put(target_obj, key, value) do
+    if InternalMethods.set(target_obj, key, value) do
+      :ok
+    else
+      throw({:js_throw, Heap.make_error("Cannot assign to read only property", "TypeError")})
     end
   end
 
@@ -111,56 +70,14 @@ defmodule QuickBEAM.VM.Runtime.Object.Assign do
   defp object_value_of({:symbol, _} = value), do: WrappedPrimitive.wrap(value)
   defp object_value_of(value), do: value
 
-  defp enumerable_assign_entries(ref) do
+  defp enumerable_assign_entries({:obj, ref} = source_obj) do
     data = Heap.get_obj(ref, %{})
 
-    if is_map(data) and Map.has_key?(data, proxy_target()) do
-      proxy_assign_entries({:obj, ref}, data)
-    else
-      (Enumeration.enumerable_keys(ref) ++ enumerable_symbol_keys(ref, data))
-      |> Enum.map(fn key ->
-        {key, Enumeration.enumerable_value({:obj, ref}, data, key)}
-      end)
-    end
+    source_obj
+    |> InternalMethods.own_keys()
+    |> Enum.filter(
+      &(PropertyKey.property_key?(&1) and InternalMethods.enumerable_own_property?(source_obj, &1))
+    )
+    |> Enum.map(fn key -> {key, Enumeration.enumerable_value(source_obj, data, key)} end)
   end
-
-  defp proxy_assign_entries(source_obj, %{proxy_target() => target, proxy_handler() => handler}) do
-    keys =
-      case Get.get(handler, "ownKeys") do
-        trap when not is_nullish(trap) ->
-          trap |> Runtime.call_callback([target]) |> Heap.to_list()
-
-        _ ->
-          Enumeration.enumerable_keys(elem(target, 1))
-      end
-
-    descriptor_trap = Get.get(handler, "getOwnPropertyDescriptor")
-
-    keys
-    |> Enum.filter(fn key ->
-      PropertyKey.property_key?(key) and proxy_assign_enumerable?(target, descriptor_trap, key)
-    end)
-    |> Enum.map(fn key -> {key, Get.get(source_obj, key)} end)
-  end
-
-  defp proxy_assign_enumerable?(target, descriptor_trap, key) do
-    descriptor =
-      if not Value.nullish?(descriptor_trap) do
-        Runtime.call_callback(descriptor_trap, [target, key])
-      else
-        Descriptors.own_property_descriptor([target, key])
-      end
-
-    descriptor != :undefined and Get.get(descriptor, "enumerable") == true
-  end
-
-  defp enumerable_symbol_keys(ref, data) when is_map(data) do
-    data
-    |> Map.keys()
-    |> Enum.filter(fn key ->
-      is_symbol(key) and not match?(%{enumerable: false}, Heap.get_prop_desc(ref, key))
-    end)
-  end
-
-  defp enumerable_symbol_keys(_ref, _data), do: []
 end

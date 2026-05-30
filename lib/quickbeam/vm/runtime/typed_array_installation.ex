@@ -40,10 +40,11 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayInstallation do
   end
 
   def abstract_constructor do
-    {:builtin, "TypedArray",
-     fn _args, _this ->
-       JSThrow.type_error!("Abstract class TypedArray cannot be called")
-     end}
+    {:builtin, "TypedArray", &__MODULE__.abstract_constructor_callback/2}
+  end
+
+  def abstract_constructor_callback(_args, _this) do
+    JSThrow.type_error!("Abstract class TypedArray cannot be called")
   end
 
   def abstract_prototype do

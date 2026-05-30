@@ -12,10 +12,10 @@ defmodule QuickBEAM.VM.Runtime.Object.Descriptors do
     InternalMethods,
     OwnProperty,
     PropertyDescriptor,
-    PropertyKey
+    PropertyKey,
+    Semantics
   }
 
-  alias QuickBEAM.VM.Runtime.Object.Enumeration
   alias QuickBEAM.VM.Semantics.Values
 
   def own_property_descriptors([target | _]) when is_nullish(target) do
@@ -38,7 +38,9 @@ defmodule QuickBEAM.VM.Runtime.Object.Descriptors do
     {:obj, ref}
   end
 
-  def own_property_descriptors(_), do: Heap.wrap(%{})
+  def own_property_descriptors(_) do
+    throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
+  end
 
   def define_property([{:obj, _} = obj, key, {:obj, desc_ref} = desc_obj | _]) do
     desc = Heap.get_obj(desc_ref, %{})
@@ -89,21 +91,20 @@ defmodule QuickBEAM.VM.Runtime.Object.Descriptors do
     end
   end
 
-  def define_property([{:closure, _, %QuickBEAM.VM.Function{}} = fun, key, {:obj, desc_ref} | _]) do
-    define_callable_property(fun, key, desc_ref)
+  def define_property([{:closure, _, %QuickBEAM.VM.Function{}} = fun, key, desc | _]) do
+    define_callable_property(fun, key, desc)
   end
 
-  def define_property([{:bound, _, _, _, _} = fun, key, {:obj, desc_ref} | _]) do
-    define_callable_property(fun, key, desc_ref)
+  def define_property([{:bound, _, _, _, _} = fun, key, desc | _]) do
+    define_callable_property(fun, key, desc)
   end
 
-  def define_property([%QuickBEAM.VM.Function{} = fun, key, {:obj, desc_ref} | _]) do
-    define_callable_property(fun, key, desc_ref)
+  def define_property([%QuickBEAM.VM.Function{} = fun, key, desc | _]) do
+    define_callable_property(fun, key, desc)
   end
 
-  def define_property([{:builtin, _, _} = builtin, key, {:obj, desc_ref} | _]) do
-    define_static_property(builtin, key, desc_ref)
-    builtin
+  def define_property([{:builtin, _, _} = builtin, key, desc | _]) do
+    define_callable_property(builtin, key, desc)
   end
 
   def define_property(_args) do
@@ -124,19 +125,23 @@ defmodule QuickBEAM.VM.Runtime.Object.Descriptors do
   end
 
   def define_properties([obj, {:obj, props_ref} = props | _]) do
-    for key <- define_properties_keys(props, props_ref) do
-      define_property([obj, key, Get.get(props, key)])
-    end
+    descriptors =
+      props
+      |> define_properties_keys(props_ref)
+      |> Enum.map(fn key -> {key, property_descriptor_arg!(Get.get(props, key))} end)
 
+    Enum.each(descriptors, fn {key, desc} -> define_property([obj, key, desc]) end)
     obj
   end
 
   def define_properties([obj, props | _]) when is_tuple(props) or is_struct(props) do
     if descriptor_object?(props) do
-      for key <- callable_own_keys(props) do
-        define_property([obj, key, Get.get(props, key)])
-      end
+      descriptors =
+        props
+        |> callable_own_keys()
+        |> Enum.map(fn key -> {key, property_descriptor_arg!(Get.get(props, key))} end)
 
+      Enum.each(descriptors, fn {key, desc} -> define_property([obj, key, desc]) end)
       obj
     else
       obj
@@ -162,8 +167,10 @@ defmodule QuickBEAM.VM.Runtime.Object.Descriptors do
   end
 
   def own_property_descriptor([target, key | _]), do: InternalMethods.own_property(target, key)
-  def own_property_descriptor([target]), do: InternalMethods.own_property(target, :undefined)
-  def own_property_descriptor(_), do: :undefined
+
+  def own_property_descriptor(_) do
+    throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
+  end
 
   defp descriptor_result_key_order(keys) do
     if Enum.all?(keys, &QuickBEAM.VM.Value.is_symbol/1), do: keys, else: Enum.reverse(keys)
@@ -171,16 +178,30 @@ defmodule QuickBEAM.VM.Runtime.Object.Descriptors do
 
   defp descriptor_object?(value), do: Value.object_like?(value)
 
-  defp define_callable_property(fun, key, desc_ref) do
+  defp define_callable_property(fun, key, {:obj, desc_ref}) do
     define_static_property(fun, key, desc_ref)
     fun
+  end
+
+  defp define_callable_property(fun, key, desc) when is_map(desc) do
+    desc_ref = elem(Heap.wrap(desc), 1)
+    define_static_property(fun, key, desc_ref)
+    fun
+  end
+
+  defp define_callable_property(fun, key, desc_obj)
+       when is_tuple(desc_obj) or is_struct(desc_obj) do
+    if descriptor_object?(desc_obj) do
+      InternalMethods.define_own_property(fun, key, desc_obj, %{})
+    else
+      throw({:js_throw, Heap.make_error("Property description must be an object", "TypeError")})
+    end
   end
 
   defp callable_own_keys({:regexp, _, _, ref}) do
     ref
     |> RegexpState.get()
     |> Map.keys()
-    |> Enum.filter(&is_binary/1)
     |> Enum.reject(&(&1 in ["flags", "source", "lastIndex"]))
     |> Enum.reject(fn key -> internal?(key) end)
   end
@@ -189,14 +210,13 @@ defmodule QuickBEAM.VM.Runtime.Object.Descriptors do
     callable
     |> Heap.get_ctor_statics()
     |> Map.keys()
-    |> Enum.filter(&is_binary/1)
     |> Enum.reject(fn key -> internal?(key) end)
   end
 
   defp define_static_property(target, key, desc_ref) do
     desc_obj = {:obj, desc_ref}
     desc = Heap.get_obj(desc_ref, %{})
-    prop_key = if is_binary(key), do: key, else: key
+    prop_key = PropertyKey.normalize(key)
 
     reject_incompatible_static_descriptor!(target, prop_key, desc)
 
@@ -227,6 +247,8 @@ defmodule QuickBEAM.VM.Runtime.Object.Descriptors do
   end
 
   defp reject_incompatible_static_descriptor!(target, prop_key, desc) do
+    current_value = Get.get(target, prop_key)
+
     case Heap.get_prop_desc(target, prop_key) || Heap.get_ctor_prop_desc(target, prop_key) do
       %{configurable: false} = current ->
         cond do
@@ -239,6 +261,10 @@ defmodule QuickBEAM.VM.Runtime.Object.Descriptors do
           current.writable == false and Map.get(desc, "writable") == true ->
             throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
 
+          current.writable == false and Map.has_key?(desc, "value") and
+              not Semantics.same_value?(Map.get(desc, "value"), current_value) ->
+            throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
+
           true ->
             :ok
         end
@@ -248,20 +274,29 @@ defmodule QuickBEAM.VM.Runtime.Object.Descriptors do
     end
   end
 
-  defp define_properties_keys(props, props_ref) do
-    case Heap.get_obj(props_ref, %{}) do
-      map when is_map(map) and is_map_key(map, proxy_target()) ->
-        props
-        |> OwnProperty.descriptor_keys()
-        |> Enum.filter(fn key ->
-          case InternalMethods.own_property(props, key) do
-            {:obj, _} = desc -> Values.truthy?(Get.get(desc, "enumerable"))
-            _ -> false
-          end
-        end)
+  defp property_descriptor_arg!({:obj, _} = desc), do: desc
+  defp property_descriptor_arg!(desc) when is_map(desc), do: Heap.wrap(desc)
 
-      _ ->
-        Enumeration.enumerable_keys(props_ref)
+  defp property_descriptor_arg!(desc) when is_tuple(desc) or is_struct(desc) do
+    if descriptor_object?(desc) do
+      desc
+    else
+      throw({:js_throw, Heap.make_error("Property description must be an object", "TypeError")})
     end
+  end
+
+  defp property_descriptor_arg!(_) do
+    throw({:js_throw, Heap.make_error("Property description must be an object", "TypeError")})
+  end
+
+  defp define_properties_keys(props, _props_ref) do
+    props
+    |> InternalMethods.own_keys()
+    |> Enum.filter(fn key ->
+      case InternalMethods.own_property(props, key) do
+        {:obj, _} = desc -> Values.truthy?(Get.get(desc, "enumerable"))
+        _ -> false
+      end
+    end)
   end
 end

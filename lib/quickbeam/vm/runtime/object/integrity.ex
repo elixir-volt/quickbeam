@@ -92,10 +92,9 @@ defmodule QuickBEAM.VM.Runtime.Object.Integrity do
   defp seal_callable(callable) do
     for key <- OwnProperty.descriptor_keys(callable) do
       unless InternalMethods.own_property(callable, key) == :undefined do
-        callable
-        |> callable_descriptor_attrs(key)
-        |> Map.put(:configurable, false)
-        |> then(&Heap.put_ctor_prop_desc(callable, key, &1))
+        attrs = callable |> callable_descriptor_attrs(key) |> Map.put(:configurable, false)
+        Heap.put_ctor_prop_desc(callable, key, attrs)
+        Heap.put_prop_desc(callable, key, attrs)
       end
     end
 
