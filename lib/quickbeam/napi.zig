@@ -1073,7 +1073,7 @@ pub export fn napi_get_reference_value(env_: napi_env, ref_: napi_ref, result: ?
     const env = env_ orelse return @intFromEnum(Status.invalid_arg);
     const ref_obj: *NapiReference = ref_ orelse return env.invalidArg();
     const r = result orelse return env.invalidArg();
-    r.* = env.createNapiValue(ref_obj.value);
+    r.* = env.createNapiValue(qjs.JS_DupValue(env.ctx, ref_obj.value));
     return env.ok();
 }
 
@@ -1310,7 +1310,7 @@ pub export fn napi_remove_env_cleanup_hook(env_: napi_env, cb_: ?nt.napi_cleanup
 
     for (env.cleanup_hooks.items, 0..) |hook, i| {
         if (hook.cb == cb and hook.arg == arg) {
-            _ = env.cleanup_hooks.swapRemove(i);
+            _ = env.cleanup_hooks.orderedRemove(i);
             break;
         }
     }
@@ -1372,24 +1372,6 @@ pub fn getPendingModule() ?*nt.napi_module {
 
 pub fn clearPendingModule() void {
     pending_napi_module = null;
-}
-
-// ──────────────────── Async Work ────────────────────
-
-fn asyncWorkRunner(work: *AsyncWork) void {
-    work.status.store(.started, .release);
-    work.execute(work.env, work.data);
-
-    const final_status: AsyncWork.AsyncStatus = if (work.status.cmpxchgStrong(.started, .completed, .seq_cst, .seq_cst) == null)
-        .completed
-    else
-        .cancelled;
-    _ = final_status;
-
-    // Dispatch completion back to the worker thread
-    if (work.rd) |rd| {
-        types.enqueue(rd, .{ .napi_async_complete = .{ .work = work } });
-    }
 }
 
 // ──────────────────── ArrayBuffer ────────────────────
@@ -1744,7 +1726,7 @@ pub export fn napi_get_typedarray_info(
     defer qjs.JS_FreeValue(env.ctx, ab);
 
     if (maybe_arraybuffer) |mab| {
-        mab.* = env.createNapiValue(ab);
+        mab.* = env.createNapiValue(qjs.JS_DupValue(env.ctx, ab));
     }
     if (maybe_byte_offset) |bo| bo.* = poffset;
 
