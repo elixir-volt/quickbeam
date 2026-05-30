@@ -23,7 +23,11 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers.BindingsTest do
     Heap.put_cell(cell_ref, 1)
 
     function = %Function{closure_vars: [%{closure_type: 0, var_idx: 0, name: "x"}]}
-    ctx = %Context{atoms: {"x"}, current_func: {:closure, %{{0, 0} => {:cell, cell_ref}}, function}}
+
+    ctx = %Context{
+      atoms: {"x"},
+      current_func: {:closure, %{{0, 0} => {:cell, cell_ref}}, function}
+    }
 
     assert Bindings.get_var_ref(ctx, 0) == 1
     assert :ok = Bindings.put_var_ref(ctx, 0, 2)

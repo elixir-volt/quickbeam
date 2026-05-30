@@ -31,19 +31,43 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers.Classes do
     do: Methods.define_method(target, method, name, flags)
 
   def define_method(_ctx, target, method, {:tagged_int, _} = atom_idx, flags),
-    do: Methods.define_method(target, method, QuickBEAM.VM.ObjectModel.PropertyKey.normalize(atom_idx), flags)
+    do:
+      Methods.define_method(
+        target,
+        method,
+        QuickBEAM.VM.ObjectModel.PropertyKey.normalize(atom_idx),
+        flags
+      )
 
   def define_method(ctx, target, method, atom_idx, flags),
-    do: Methods.define_method(target, method, Names.resolve_atom(RuntimeContext.atoms(ctx), atom_idx), flags)
+    do:
+      Methods.define_method(
+        target,
+        method,
+        Names.resolve_atom(RuntimeContext.atoms(ctx), atom_idx),
+        flags
+      )
 
   def define_method(target, method, name, flags) when is_binary(name),
     do: Methods.define_method(target, method, name, flags)
 
   def define_method(target, method, {:tagged_int, _} = atom_idx, flags),
-    do: Methods.define_method(target, method, QuickBEAM.VM.ObjectModel.PropertyKey.normalize(atom_idx), flags)
+    do:
+      Methods.define_method(
+        target,
+        method,
+        QuickBEAM.VM.ObjectModel.PropertyKey.normalize(atom_idx),
+        flags
+      )
 
   def define_method(target, method, atom_idx, flags),
-    do: Methods.define_method(target, method, Names.resolve_atom(InvokeContext.current_atoms(), atom_idx), flags)
+    do:
+      Methods.define_method(
+        target,
+        method,
+        Names.resolve_atom(InvokeContext.current_atoms(), atom_idx),
+        flags
+      )
 
   @doc "Defines a computed-name method, getter, or setter from compiled code."
   def define_method_computed(_ctx \\ nil, target, method, field_name, flags),

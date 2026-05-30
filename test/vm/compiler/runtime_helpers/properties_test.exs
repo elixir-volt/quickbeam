@@ -25,7 +25,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers.PropertiesTest do
 
     ctx = %Context{
       this: global,
-      globals: %{"globalThis" => global, "Object" => {:builtin, "Object", fn _, _ -> :undefined end}}
+      globals: %{
+        "globalThis" => global,
+        "Object" => {:builtin, "Object", fn _, _ -> :undefined end}
+      }
     }
 
     assert Properties.delete_property(ctx, global, "Object")

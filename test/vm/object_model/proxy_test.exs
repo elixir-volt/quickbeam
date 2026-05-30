@@ -182,7 +182,9 @@ defmodule QuickBEAM.VM.ObjectModel.ProxyTest do
     assert {:error, %QuickBEAM.JS.Error{name: "TypeError"}} =
              QuickBEAM.eval(
                rt,
-               ~S|let r = Proxy.revocable({}, {}); r.revoke(); delete r.proxy.x;|, mode: :beam)
+               ~S|let r = Proxy.revocable({}, {}); r.revoke(); delete r.proxy.x;|,
+               mode: :beam
+             )
 
     assert_modes(
       rt,
