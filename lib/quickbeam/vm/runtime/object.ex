@@ -5,7 +5,6 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Value, only: [is_symbol: 1, is_nullish: 1]
-  alias QuickBEAM.VM.Execution.RegexpState
   alias QuickBEAM.VM.{Heap, Value}
   alias QuickBEAM.VM.Semantics.{Iterators, Values}
   alias QuickBEAM.VM.Invocation
@@ -16,7 +15,6 @@ defmodule QuickBEAM.VM.Runtime.Object do
     Get,
     InternalMethods,
     OwnProperty,
-    PropertyDescriptor,
     PropertyKey,
     Prototype,
     Semantics,
@@ -24,6 +22,8 @@ defmodule QuickBEAM.VM.Runtime.Object do
   }
 
   alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Runtime.ObjectAssign
+  alias QuickBEAM.VM.Runtime.ObjectDescriptors
   alias QuickBEAM.VM.Runtime.ObjectEnumeration
   alias QuickBEAM.VM.Runtime.ObjectIntegrity
   alias QuickBEAM.VM.Runtime.ConstructorRegistry, as: ConstructorRegistry
@@ -571,7 +571,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   @ecma "20.1.2.1"
   static "assign", length: 2, constructable: false do
-    assign(args)
+    ObjectAssign.assign(args)
   end
 
   @ecma "20.1.2.6"
@@ -653,7 +653,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     case rest do
       [] -> obj
       [:undefined | _] -> obj
-      [props | _] -> define_properties([obj, props])
+      [props | _] -> ObjectDescriptors.define_properties([obj, props])
     end
   end
 
@@ -723,12 +723,12 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   @ecma "20.1.2.4"
   static "defineProperty", length: 3, constructable: false do
-    define_property(args)
+    ObjectDescriptors.define_property(args)
   end
 
   @ecma "20.1.2.3"
   static "defineProperties", length: 2, constructable: false do
-    define_properties(args)
+    ObjectDescriptors.define_properties(args)
   end
 
   @ecma "20.1.2.10"
@@ -738,12 +738,12 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   @ecma "20.1.2.8"
   static "getOwnPropertyDescriptor", length: 2 do
-    get_own_property_descriptor(args)
+    ObjectDescriptors.own_property_descriptor(args)
   end
 
   @ecma "20.1.2.9"
   static "getOwnPropertyDescriptors", length: 1 do
-    get_own_property_descriptors(args)
+    ObjectDescriptors.own_property_descriptors(args)
   end
 
   @ecma "20.1.2.7"
@@ -1092,401 +1092,4 @@ defmodule QuickBEAM.VM.Runtime.Object do
         Runtime.call_callback(fun, args)
     end
   end
-
-  defp get_own_property_descriptors([target | _]) when is_nullish(target) do
-    throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
-  end
-
-  defp get_own_property_descriptors([obj | _]) do
-    ref = make_ref()
-    keys = OwnProperty.descriptor_keys(obj)
-
-    descriptors =
-      Enum.reduce(keys, %{key_order() => descriptor_result_key_order(keys)}, fn key, acc ->
-        case get_own_property_descriptor([obj, key]) do
-          :undefined -> acc
-          desc -> Map.put(acc, key, desc)
-        end
-      end)
-
-    Heap.put_obj(ref, descriptors)
-    {:obj, ref}
-  end
-
-  defp get_own_property_descriptors(_), do: Heap.wrap(%{})
-
-  defp descriptor_result_key_order(keys) do
-    if Enum.all?(keys, &is_symbol/1), do: keys, else: Enum.reverse(keys)
-  end
-
-  defp assign([target | _sources]) when is_nullish(target) do
-    throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
-  end
-
-  defp assign([target | sources]) do
-    target_obj = to_assign_target(target)
-
-    Enum.reduce(sources, target_obj, fn
-      source, target_obj when is_nullish(source) ->
-        target_obj
-
-      {:obj, ref}, {:obj, _} = target_obj ->
-        ref
-        |> enumerable_assign_entries()
-        |> Enum.each(fn {key, value} -> assign_put(target_obj, key, value) end)
-
-        target_obj
-
-      source, {:obj, _} = target_obj when is_binary(source) ->
-        source
-        |> string_assign_entries()
-        |> Enum.each(fn {key, value} -> assign_put(target_obj, key, value) end)
-
-        target_obj
-
-      map, {:obj, _} = target_obj when is_map(map) ->
-        map
-        |> Enum.reject(fn {key, _value} -> assign_internal_key?(key) end)
-        |> Enum.each(fn {key, value} -> assign_put(target_obj, key, value) end)
-
-        target_obj
-
-      _, acc ->
-        acc
-    end)
-  end
-
-  defp assign_put({:obj, ref} = target_obj, key, value) do
-    cond do
-      target_accessor_setter?(ref, key) ->
-        InternalMethods.set(target_obj, key, value)
-
-      target_readonly?(ref, key) or target_string_index?(ref, key) ->
-        throw({:js_throw, Heap.make_error("Cannot assign to read only property", "TypeError")})
-
-      not target_has_own?(ref, key) and not Heap.extensible?(ref) ->
-        throw({:js_throw, Heap.make_error("Cannot add property", "TypeError")})
-
-      true ->
-        InternalMethods.set(target_obj, key, value)
-    end
-  end
-
-  defp target_accessor_setter?(ref, key) do
-    case target_own_value(ref, key) do
-      {:accessor, _, setter} when setter != nil -> true
-      _ -> false
-    end
-  end
-
-  defp target_readonly?(ref, key), do: match?(%{writable: false}, Heap.get_prop_desc(ref, key))
-
-  defp target_string_index?(ref, key) do
-    case Heap.get_obj_raw(ref) do
-      map when is_map(map) and is_binary(key) ->
-        with {:ok, string} when is_binary(string) <- WrappedPrimitive.value(map, :string),
-             {:ok, index} <- PropertyKey.array_index(key) do
-          index < Get.string_length(string)
-        else
-          _ -> false
-        end
-
-      _ ->
-        false
-    end
-  end
-
-  defp target_has_own?(ref, key), do: target_own_value(ref, key) != :missing
-
-  defp target_own_value(ref, key) do
-    case Heap.raw_fetch(Heap.get_obj_raw(ref), key) do
-      {:ok, value} -> value
-      :error -> :missing
-    end
-  end
-
-  defp to_assign_target({:obj, _} = object), do: object
-  defp to_assign_target(target), do: object_value_of(target)
-
-  defp string_assign_entries(string), do: ObjectEnumeration.string_indexed_entries(string)
-
-  defp enumerable_assign_entries(ref) do
-    data = Heap.get_obj(ref, %{})
-
-    if is_map(data) and Map.has_key?(data, proxy_target()) do
-      proxy_assign_entries({:obj, ref}, data)
-    else
-      (ObjectEnumeration.enumerable_keys(ref) ++ enumerable_symbol_keys(ref, data))
-      |> Enum.map(fn key -> {key, ObjectEnumeration.enumerable_value({:obj, ref}, data, key)} end)
-    end
-  end
-
-  defp proxy_assign_entries(source_obj, %{proxy_target() => target, proxy_handler() => handler}) do
-    keys =
-      case Get.get(handler, "ownKeys") do
-        trap when not is_nullish(trap) ->
-          trap |> Runtime.call_callback([target]) |> Heap.to_list()
-
-        _ ->
-          ObjectEnumeration.enumerable_keys(elem(target, 1))
-      end
-
-    descriptor_trap = Get.get(handler, "getOwnPropertyDescriptor")
-
-    keys
-    |> Enum.filter(fn key ->
-      PropertyKey.property_key?(key) and proxy_assign_enumerable?(target, descriptor_trap, key)
-    end)
-    |> Enum.map(fn key -> {key, Get.get(source_obj, key)} end)
-  end
-
-  defp proxy_assign_enumerable?(target, descriptor_trap, key) do
-    descriptor =
-      if not Value.nullish?(descriptor_trap) do
-        Runtime.call_callback(descriptor_trap, [target, key])
-      else
-        get_own_property_descriptor([target, key])
-      end
-
-    descriptor != :undefined and Get.get(descriptor, "enumerable") == true
-  end
-
-  defp enumerable_symbol_keys(ref, data) when is_map(data) do
-    data
-    |> Map.keys()
-    |> Enum.filter(fn key ->
-      is_symbol(key) and not match?(%{enumerable: false}, Heap.get_prop_desc(ref, key))
-    end)
-  end
-
-  defp enumerable_symbol_keys(_ref, _data), do: []
-
-  defp assign_internal_key?(key), do: internal_slot?(key)
-
-  defp define_property([{:obj, _} = obj, key, {:obj, desc_ref} = desc_obj | _]) do
-    desc = Heap.get_obj(desc_ref, %{})
-    InternalMethods.define_own_property(obj, key, desc_obj, desc)
-  end
-
-  defp define_property([{:regexp, _, _, ref} = regexp, key, {:obj, desc_ref} = desc_obj | _]) do
-    key = normalize_well_known_symbol(key)
-    desc = Heap.get_obj(desc_ref, %{})
-    existing_flags = Heap.get_prop_desc(ref, key)
-
-    if match?(%{configurable: false}, existing_flags) and Map.get(desc, "configurable") == true do
-      throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
-    end
-
-    getter = Map.get(desc, "get")
-    setter = Map.get(desc, "set")
-
-    value =
-      if getter != nil or setter != nil,
-        do: {:accessor, getter, setter},
-        else: Map.get(desc, "value", Get.get(regexp, key))
-
-    attrs =
-      PropertyDescriptor.attrs(
-        writable: PropertyDescriptor.attribute(desc_obj, desc, "writable", existing_flags, false),
-        enumerable:
-          PropertyDescriptor.attribute(desc_obj, desc, "enumerable", existing_flags, false),
-        configurable:
-          PropertyDescriptor.attribute(desc_obj, desc, "configurable", existing_flags, false)
-      )
-
-    RegexpState.put(ref, key, value)
-    Heap.put_prop_desc(ref, key, attrs)
-    regexp
-  end
-
-  defp define_property([{:obj, _} = obj, key, desc | _]) when is_map(desc) do
-    InternalMethods.define_own_property(obj, key, Heap.wrap(desc), desc)
-  end
-
-  defp define_property([{:obj, _} = obj, key, desc_obj | _])
-       when is_tuple(desc_obj) or is_struct(desc_obj) do
-    if descriptor_object?(desc_obj) do
-      InternalMethods.define_own_property(obj, key, desc_obj, %{})
-    else
-      throw({:js_throw, Heap.make_error("Property description must be an object", "TypeError")})
-    end
-  end
-
-  defp define_property([{tag, _, %QuickBEAM.VM.Function{}} = fun, key, {:obj, desc_ref} | _])
-       when tag == :closure do
-    define_callable_property(fun, key, desc_ref)
-  end
-
-  defp define_property([{:bound, _, _, _, _} = fun, key, {:obj, desc_ref} | _]) do
-    define_callable_property(fun, key, desc_ref)
-  end
-
-  defp define_property([%QuickBEAM.VM.Function{} = fun, key, {:obj, desc_ref} | _]) do
-    define_callable_property(fun, key, desc_ref)
-  end
-
-  defp define_property([{:builtin, _, _} = b, key, {:obj, desc_ref} | _]) do
-    define_static_property(b, key, desc_ref)
-    b
-  end
-
-  defp define_property(_args) do
-    throw({:js_throw, Heap.make_error("Object.defineProperty called on non-object", "TypeError")})
-  end
-
-  defp normalize_well_known_symbol(key), do: PropertyKey.normalize(key)
-
-  defp descriptor_object?(value), do: Value.object_like?(value)
-
-  defp define_callable_property(fun, key, desc_ref) do
-    define_static_property(fun, key, desc_ref)
-    fun
-  end
-
-  defp callable_own_keys({:regexp, _, _, ref}) do
-    ref
-    |> RegexpState.get()
-    |> Map.keys()
-    |> Enum.filter(&is_binary/1)
-    |> Enum.reject(&(&1 in ["flags", "source", "lastIndex"]))
-    |> Enum.reject(fn key -> internal?(key) end)
-  end
-
-  defp callable_own_keys(callable) do
-    callable
-    |> Heap.get_ctor_statics()
-    |> Map.keys()
-    |> Enum.filter(&is_binary/1)
-    |> Enum.reject(fn key -> internal?(key) end)
-  end
-
-  defp define_static_property(target, key, desc_ref) do
-    desc_obj = {:obj, desc_ref}
-    desc = Heap.get_obj(desc_ref, %{})
-    prop_key = if is_binary(key), do: key, else: key
-
-    reject_incompatible_static_descriptor!(target, prop_key, desc)
-
-    getter = Map.get(desc, "get")
-    setter = Map.get(desc, "set")
-
-    if getter != nil or setter != nil do
-      Heap.put_ctor_static(target, prop_key, {:accessor, getter, setter})
-    else
-      val = Map.get(desc, "value", Get.get(target, prop_key))
-      Heap.put_ctor_static(target, prop_key, val)
-    end
-
-    existing_flags =
-      Heap.get_prop_desc(target, prop_key) || Heap.get_ctor_prop_desc(target, prop_key)
-
-    attrs =
-      PropertyDescriptor.attrs(
-        writable: PropertyDescriptor.attribute(desc_obj, desc, "writable", existing_flags, false),
-        enumerable:
-          PropertyDescriptor.attribute(desc_obj, desc, "enumerable", existing_flags, false),
-        configurable:
-          PropertyDescriptor.attribute(desc_obj, desc, "configurable", existing_flags, false)
-      )
-
-    Heap.put_prop_desc(target, prop_key, attrs)
-    Heap.put_ctor_prop_desc(target, prop_key, attrs)
-  end
-
-  defp reject_incompatible_static_descriptor!(target, prop_key, desc) do
-    case Heap.get_prop_desc(target, prop_key) || Heap.get_ctor_prop_desc(target, prop_key) do
-      %{configurable: false} = current ->
-        cond do
-          Map.get(desc, "configurable") == true ->
-            throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
-
-          Map.has_key?(desc, "enumerable") and Map.get(desc, "enumerable") != current.enumerable ->
-            throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
-
-          current.writable == false and Map.get(desc, "writable") == true ->
-            throw({:js_throw, Heap.make_error("Cannot define property", "TypeError")})
-
-          true ->
-            :ok
-        end
-
-      _ ->
-        :ok
-    end
-  end
-
-  defp define_properties([target, _props | _]) when is_nullish(target) do
-    throw(
-      {:js_throw, Heap.make_error("Object.defineProperties called on non-object", "TypeError")}
-    )
-  end
-
-  defp define_properties([target, _props | _])
-       when not is_tuple(target) and not is_struct(target) do
-    throw(
-      {:js_throw, Heap.make_error("Object.defineProperties called on non-object", "TypeError")}
-    )
-  end
-
-  defp define_properties([obj, {:obj, props_ref} = props | _]) do
-    for key <- define_properties_keys(props, props_ref) do
-      define_property([obj, key, Get.get(props, key)])
-    end
-
-    obj
-  end
-
-  defp define_properties([obj, props | _]) when is_tuple(props) or is_struct(props) do
-    if descriptor_object?(props) do
-      for key <- callable_own_keys(props) do
-        define_property([obj, key, Get.get(props, key)])
-      end
-
-      obj
-    else
-      obj
-    end
-  end
-
-  defp define_properties([_obj, props | _]) when is_nullish(props) do
-    throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
-  end
-
-  defp define_properties([obj, props | _]) when is_binary(props) do
-    if props == "" do
-      obj
-    else
-      throw({:js_throw, Heap.make_error("Property description must be an object", "TypeError")})
-    end
-  end
-
-  defp define_properties([obj | _]), do: obj
-
-  defp define_properties_keys(props, props_ref) do
-    case Heap.get_obj(props_ref, %{}) do
-      map when is_map(map) and is_map_key(map, proxy_target()) ->
-        props
-        |> OwnProperty.descriptor_keys()
-        |> Enum.filter(fn key ->
-          case InternalMethods.own_property(props, key) do
-            {:obj, _} = desc -> Values.truthy?(Get.get(desc, "enumerable"))
-            _ -> false
-          end
-        end)
-
-      _ ->
-        ObjectEnumeration.enumerable_keys(props_ref)
-    end
-  end
-
-  defp get_own_property_descriptor([target, _key | _]) when is_nullish(target) do
-    throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
-  end
-
-  defp get_own_property_descriptor([target, key | _]) do
-    InternalMethods.own_property(target, key)
-  end
-
-  defp get_own_property_descriptor([target]), do: InternalMethods.own_property(target, :undefined)
-  defp get_own_property_descriptor(_), do: :undefined
 end
