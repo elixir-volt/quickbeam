@@ -50,6 +50,16 @@ defmodule QuickBEAM.VM.ObjectModel.InternalMethods do
 
   def own_property_present?(obj, key), do: own_property(obj, key) != nil
 
+  def enumerable_own_property?(obj, key) do
+    case own_property(obj, key) do
+      {:obj, desc_ref} ->
+        QuickBEAM.VM.Semantics.Values.truthy?(Get.get({:obj, desc_ref}, "enumerable"))
+
+      _ ->
+        false
+    end
+  end
+
   def define_own_property(obj, key, descriptor),
     do: define_own_property(obj, key, descriptor, descriptor)
 

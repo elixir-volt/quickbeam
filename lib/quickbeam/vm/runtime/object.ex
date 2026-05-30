@@ -1515,13 +1515,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
     end
   end
 
-  defp proxy_enumerable_key?(obj, key) do
-    case InternalMethods.own_property(obj, key) do
-      :undefined -> false
-      {:obj, desc_ref} -> Values.truthy?(Get.get({:obj, desc_ref}, "enumerable"))
-      _ -> false
-    end
-  end
+  defp proxy_enumerable_key?(obj, key), do: InternalMethods.enumerable_own_property?(obj, key)
 
   defp array_prop_keys(ref) do
     ref
@@ -1585,17 +1579,9 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp values([{:obj, _ref} = obj | _]) do
     obj
-    |> OwnProperty.descriptor_keys()
-    |> Enum.filter(&is_binary/1)
-    |> Enum.flat_map(fn key ->
-      case InternalMethods.own_property(obj, key) do
-        {:obj, _} = desc ->
-          if Get.get(desc, "enumerable") == true, do: [Get.get(obj, key)], else: []
-
-        _ ->
-          []
-      end
-    end)
+    |> InternalMethods.own_keys()
+    |> Enum.filter(&(is_binary(&1) and InternalMethods.enumerable_own_property?(obj, &1)))
+    |> Enum.map(&Get.get(obj, &1))
     |> Heap.wrap()
   end
 
@@ -1613,12 +1599,12 @@ defmodule QuickBEAM.VM.Runtime.Object do
   end
 
   defp entries([{:obj, _ref} = obj | _]) do
-    keys = obj |> OwnProperty.descriptor_keys() |> Enum.filter(&is_binary/1)
+    keys = obj |> InternalMethods.own_keys() |> Enum.filter(&is_binary/1)
     Heap.wrap(enumerable_descriptor_pairs(obj, keys))
   end
 
   defp entries([callable | _]) when is_tuple(callable) or is_struct(callable) do
-    Heap.wrap(enumerable_descriptor_pairs(callable, OwnProperty.descriptor_keys(callable)))
+    Heap.wrap(enumerable_descriptor_pairs(callable, InternalMethods.own_keys(callable)))
   end
 
   defp entries([map | _]) when is_map(map) do
@@ -1636,20 +1622,8 @@ defmodule QuickBEAM.VM.Runtime.Object do
 
   defp enumerable_descriptor_pairs(target, keys) do
     keys
-    |> Enum.reduce([], fn key, acc ->
-      case InternalMethods.own_property(target, key) do
-        :undefined ->
-          acc
-
-        desc ->
-          if Get.get(desc, "enumerable") == true do
-            [Heap.wrap([key, Get.get(target, key)]) | acc]
-          else
-            acc
-          end
-      end
-    end)
-    |> Enum.reverse()
+    |> Enum.filter(&InternalMethods.enumerable_own_property?(target, &1))
+    |> Enum.map(&Heap.wrap([&1, Get.get(target, &1)]))
   end
 
   defp assign([target | _sources]) when is_nullish(target) do
