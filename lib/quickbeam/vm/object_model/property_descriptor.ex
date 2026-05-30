@@ -41,25 +41,23 @@ defmodule QuickBEAM.VM.ObjectModel.PropertyDescriptor do
   end
 
   def data_object(value, attrs) do
-    Heap.wrap(%{
-      "value" => value,
-      "writable" => attrs.writable,
-      "enumerable" => attrs.enumerable,
-      "configurable" => attrs.configurable,
-      "__proto__" => Heap.get_object_prototype(),
-      key_order() => ["configurable", "enumerable", "writable", "value"]
-    })
+    object extends: Heap.get_object_prototype() do
+      prop("value", value)
+      prop("writable", attrs.writable)
+      prop("enumerable", attrs.enumerable)
+      prop("configurable", attrs.configurable)
+      prop(key_order(), ["configurable", "enumerable", "writable", "value"])
+    end
   end
 
   def accessor_object(getter, setter, attrs) do
-    Heap.wrap(%{
-      "get" => getter || :undefined,
-      "set" => setter || :undefined,
-      "enumerable" => attrs.enumerable,
-      "configurable" => attrs.configurable,
-      "__proto__" => Heap.get_object_prototype(),
-      key_order() => ["configurable", "enumerable", "set", "get"]
-    })
+    object extends: Heap.get_object_prototype() do
+      prop("get", getter || :undefined)
+      prop("set", setter || :undefined)
+      prop("enumerable", attrs.enumerable)
+      prop("configurable", attrs.configurable)
+      prop(key_order(), ["configurable", "enumerable", "set", "get"])
+    end
   end
 
   def present?(source_obj, raw_desc, key) do
