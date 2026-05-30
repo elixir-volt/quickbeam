@@ -3,8 +3,8 @@ defmodule QuickBEAM.VM.Runtime.ObjectIntegrity do
 
   import QuickBEAM.VM.Heap.Keys, only: [proxy_handler: 0, proxy_target: 0, typed_array: 0]
 
-  alias QuickBEAM.VM.{Heap, JSThrow, Value}
-  alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods, OwnProperty, ProxyTrap}
+  alias QuickBEAM.VM.{Heap, Invocation, JSThrow, Value}
+  alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods, OwnProperty}
   alias QuickBEAM.VM.Semantics.Values
 
   def freeze({:obj, _ref} = obj) do
@@ -304,7 +304,7 @@ defmodule QuickBEAM.VM.Runtime.ObjectIntegrity do
         if Value.nullish?(trap) do
           object_extensible?(target)
         else
-          trap_result = Values.truthy?(ProxyTrap.call(trap, [target], handler))
+          trap_result = Values.truthy?(Invocation.invoke_with_receiver(trap, [target], handler))
           target_result = object_extensible?(target)
 
           if trap_result == target_result do
