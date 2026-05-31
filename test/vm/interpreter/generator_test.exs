@@ -19,6 +19,22 @@ defmodule QuickBEAM.VM.Interpreter.GeneratorTest do
     assert Heap.get_ctx() == nil
   end
 
+  test "caught throwing calls keep global object writes visible", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S<var first = 0; function f(){ first += 1; throw new Error("boom"); } try { f(); } catch (_) {} var actual = first; [actual, first, globalThis.first].join("|")>,
+      "1|1|1"
+    )
+  end
+
+  test "iterator abrupt completion updates globals before caller catch", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S<var first = 0; var second = 0; var iter = function*(){ first += 1; throw new Error("boom"); second += 1; }(); var obj = { method([...x]) {} }; try { obj.method(iter); } catch (_) {} iter.next(); [first, second, globalThis.first].join("|")>,
+      "1|0|1"
+    )
+  end
+
   test "compiled generators with cleanup fall back to interpreter semantics", %{rt: rt} do
     assert_modes(
       rt,

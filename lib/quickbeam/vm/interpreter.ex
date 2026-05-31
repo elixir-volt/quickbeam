@@ -177,7 +177,12 @@ defmodule QuickBEAM.VM.Interpreter do
 
     if refresh_globals? do
       persistent = Heap.get_persistent_globals() || %{}
-      refreshed_ctx = Context.mark_dirty(%{ctx | globals: Map.merge(ctx.globals, persistent)})
+
+      refreshed_ctx =
+        %{ctx | globals: Map.merge(ctx.globals, persistent)}
+        |> Context.mark_dirty()
+        |> refresh_global_object_writes()
+
       refreshed_ctx = refresh_call_arg_buf(refreshed_ctx)
 
       case call_result do
@@ -185,7 +190,14 @@ defmodule QuickBEAM.VM.Interpreter do
           run(pc + 1, frame, [result | rest], gas, refreshed_ctx)
 
         {:throw, val} ->
-          throw_or_catch(frame, val, gas, close_active_iterators_on_abrupt(rest, refreshed_ctx))
+          synced_frame = sync_global_writes_to_frame(frame, refreshed_ctx)
+
+          throw_or_catch(
+            synced_frame,
+            val,
+            gas,
+            close_active_iterators_on_abrupt(rest, refreshed_ctx)
+          )
       end
     else
       updated_ctx = refresh_call_arg_buf(ctx)
@@ -195,12 +207,43 @@ defmodule QuickBEAM.VM.Interpreter do
           run(pc + 1, frame, [result | rest], gas, updated_ctx)
 
         {:throw, val} ->
-          throw_or_catch(frame, val, gas, close_active_iterators_on_abrupt(rest, updated_ctx))
+          synced_frame = sync_global_writes_to_frame(frame, updated_ctx)
+
+          throw_or_catch(
+            synced_frame,
+            val,
+            gas,
+            close_active_iterators_on_abrupt(rest, updated_ctx)
+          )
       end
     end
   end
 
   # ── Helpers ──
+
+  defp refresh_global_object_writes(ctx) do
+    case Map.get(ctx.globals, "globalThis") do
+      {:obj, ref} ->
+        case Heap.get_obj(ref, %{}) do
+          map when is_map(map) ->
+            visible_globals =
+              map
+              |> Enum.reject(fn {key, _} -> QuickBEAM.VM.Heap.Keys.internal_slot?(key) end)
+              |> Map.new()
+
+            globals = Map.merge(ctx.globals, visible_globals)
+            Heap.put_persistent_globals(globals)
+            Heap.put_base_globals(globals)
+            Context.mark_dirty(%{ctx | globals: globals})
+
+          _ ->
+            ctx
+        end
+
+      _ ->
+        ctx
+    end
+  end
 
   defp sync_setter_globals_to_frame(frame, ctx) do
     if SetterState.consume_invoked?() do
@@ -232,15 +275,44 @@ defmodule QuickBEAM.VM.Interpreter do
       |> Enum.reduce(locals, fn {vd, idx}, acc ->
         name = Names.resolve_display_name(vd.name)
 
-        if idx >= arg_count and is_binary(name) and Map.has_key?(ctx.globals, name) and
-             idx < tuple_size(acc) do
-          put_elem(acc, idx, Map.fetch!(ctx.globals, name))
+        with true <- idx >= arg_count and is_binary(name) and idx < tuple_size(acc),
+             {:ok, value} <- synced_global_value(ctx, name) do
+          put_elem(acc, idx, value)
         else
-          acc
+          _ -> acc
         end
       end)
 
     put_elem(frame, Frame.locals(), updated)
+  end
+
+  defp synced_global_value(ctx, name) do
+    global_this_result =
+      if match?({:obj, _}, Map.get(ctx.globals, "globalThis")) do
+        global_this_value(ctx, name)
+      else
+        :error
+      end
+
+    case global_this_result do
+      {:ok, value} ->
+        {:ok, value}
+
+      :error ->
+        if Map.has_key?(ctx.globals, name), do: {:ok, Map.fetch!(ctx.globals, name)}, else: :error
+    end
+  end
+
+  defp global_this_value(ctx, name) do
+    {:obj, ref} = Map.fetch!(ctx.globals, "globalThis")
+
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        if Map.has_key?(map, name), do: {:ok, Map.fetch!(map, name)}, else: :error
+
+      _ ->
+        :error
+    end
   end
 
   defp uninitialized_this_local?(ctx, idx), do: EvalEnv.current_local_name(ctx, idx) == "this"
