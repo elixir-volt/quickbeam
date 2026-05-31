@@ -138,7 +138,7 @@ defmodule QuickBEAM.VM.Runtime.Object.Descriptors do
     if descriptor_object?(props) do
       descriptors =
         props
-        |> callable_own_keys()
+        |> define_properties_keys(nil)
         |> Enum.map(fn key -> {key, property_descriptor_arg!(Get.get(props, key))} end)
 
       Enum.each(descriptors, fn {key, desc} -> define_property([obj, key, desc]) end)
@@ -196,21 +196,6 @@ defmodule QuickBEAM.VM.Runtime.Object.Descriptors do
     else
       throw({:js_throw, Heap.make_error("Property description must be an object", "TypeError")})
     end
-  end
-
-  defp callable_own_keys({:regexp, _, _, ref}) do
-    ref
-    |> RegexpState.get()
-    |> Map.keys()
-    |> Enum.reject(&(&1 in ["flags", "source", "lastIndex"]))
-    |> Enum.reject(fn key -> internal?(key) end)
-  end
-
-  defp callable_own_keys(callable) do
-    callable
-    |> Heap.get_ctor_statics()
-    |> Map.keys()
-    |> Enum.reject(fn key -> internal?(key) end)
   end
 
   defp define_static_property(target, key, desc_ref) do
