@@ -325,6 +325,7 @@ defmodule QuickBEAM.VM.Semantics.DirectEval do
             keep_declared?,
             pre_eval_globals,
             declared_names,
+            assigned_names,
             var_refs,
             l2v,
             success_transients(
@@ -345,6 +346,7 @@ defmodule QuickBEAM.VM.Semantics.DirectEval do
           keep_declared?,
           pre_eval_globals,
           declared_names,
+          assigned_names,
           var_refs,
           l2v,
           abrupt_transients(
@@ -387,6 +389,7 @@ defmodule QuickBEAM.VM.Semantics.DirectEval do
          keep_declared?,
          pre_eval_globals,
          declared_names,
+         assigned_names,
          var_refs,
          l2v,
          transient_globals
@@ -404,11 +407,12 @@ defmodule QuickBEAM.VM.Semantics.DirectEval do
       l2v
     )
 
-    clean_eval_globals(pre_eval_globals, returned_transients)
+    cleanup_names = MapSet.union(declared_names, assigned_names)
+    clean_eval_globals(pre_eval_globals, returned_transients, cleanup_names)
     returned_transients
   end
 
-  defp clean_eval_globals(pre_eval_globals, preserved_globals) do
+  defp clean_eval_globals(pre_eval_globals, preserved_globals, cleanup_names) do
     post = Heap.get_persistent_globals() || %{}
     preserved_existing = Map.take(preserved_globals, Map.keys(pre_eval_globals))
 
@@ -421,10 +425,10 @@ defmodule QuickBEAM.VM.Semantics.DirectEval do
       end)
 
     Heap.put_persistent_globals(cleaned)
-    clean_eval_global_object(pre_eval_globals, preserved_globals)
+    clean_eval_global_object(pre_eval_globals, preserved_globals, cleanup_names)
   end
 
-  defp clean_eval_global_object(pre_eval_globals, preserved_globals) do
+  defp clean_eval_global_object(pre_eval_globals, preserved_globals, cleanup_names) do
     case Map.get(pre_eval_globals, "globalThis") do
       {:obj, ref} ->
         case Heap.get_obj(ref, %{}) do
@@ -439,7 +443,10 @@ defmodule QuickBEAM.VM.Semantics.DirectEval do
                       Map.put(acc, key, Map.get(preserved_existing, key, old_val))
 
                     :error ->
-                      if Map.has_key?(preserved_globals, key), do: acc, else: Map.delete(acc, key)
+                      if Map.has_key?(preserved_globals, key) or
+                           not MapSet.member?(cleanup_names, key),
+                         do: acc,
+                         else: Map.delete(acc, key)
                   end
 
                 _entry, acc ->
