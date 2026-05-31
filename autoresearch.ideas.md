@@ -102,6 +102,7 @@ Tried and reverted as ineffective:
 - avoiding stale `arguments` globals/fallback cached arguments objects did not improve `Object.keys(arguments)` or the active metric.
 - preserving symbol order for object/array assignment only improved the metric when paired with descriptor result key-order storage.
 - changing compiler catch handler context to `RuntimeState.current_or(ctx)` did not improve the `defineProperty(arguments)` cluster.
+- forcing compiler calls with arguments-object arguments through interpreter fallback did not improve the `defineProperty(arguments)` cluster; generated/runtime call paths still observe the stale/missing descriptor.
 - ignoring stale `arguments` entries in interpreter `ArgumentsObject.get/3` did not fix the remaining `Object.keys(arguments)` case.
 
 ### 2. Completed direct eval with spread
