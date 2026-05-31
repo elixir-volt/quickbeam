@@ -43,6 +43,9 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
   def get(value) when is_integer(value) or is_float(value),
     do: QuickBEAM.VM.Runtime.global_class_proto("Number")
 
+  def get(value) when value in [:nan, :infinity, :neg_infinity],
+    do: QuickBEAM.VM.Runtime.global_class_proto("Number")
+
   def get(value) when is_binary(value), do: QuickBEAM.VM.Runtime.global_class_proto("String")
   def get(value) when is_boolean(value), do: QuickBEAM.VM.Runtime.global_class_proto("Boolean")
   def get({:symbol, _}), do: QuickBEAM.VM.Runtime.global_class_proto("Symbol")
