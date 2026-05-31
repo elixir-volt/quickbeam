@@ -67,8 +67,8 @@ defmodule QuickBEAM.VM.Runtime.Object.Enumeration do
   def values([{:obj, _ref} = obj | _]) do
     obj
     |> InternalMethods.own_keys()
-    |> Enum.filter(&(is_binary(&1) and InternalMethods.enumerable_own_property?(obj, &1)))
-    |> Enum.map(&Get.get(obj, &1))
+    |> Enum.filter(&is_binary/1)
+    |> enumerable_values(obj)
     |> Heap.wrap()
   end
 
@@ -156,6 +156,18 @@ defmodule QuickBEAM.VM.Runtime.Object.Enumeration do
     |> Enum.reduce([], fn key, acc ->
       if InternalMethods.enumerable_own_property?(target, key) do
         [Heap.wrap([key, Get.get(target, key)]) | acc]
+      else
+        acc
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp enumerable_values(keys, target) do
+    keys
+    |> Enum.reduce([], fn key, acc ->
+      if InternalMethods.enumerable_own_property?(target, key) do
+        [Get.get(target, key) | acc]
       else
         acc
       end
