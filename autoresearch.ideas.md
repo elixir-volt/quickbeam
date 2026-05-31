@@ -9,7 +9,7 @@ Drive BEAM interpreter/compiler behavior toward QuickJS NIF parity on Test262, p
 Continue with adjacent QuickJS-accepted object-model slices. The next active candidate is `built-ins/TypedArray`:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/ArrayBuffer,built-ins/DataView TEST262_ERROR_LIMIT=80 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Map,built-ins/Set TEST262_ERROR_LIMIT=80 ./autoresearch.sh
 ```
 
 Latest completed result:
@@ -71,7 +71,7 @@ built-ins/Function: 495/495
 Current active candidate:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/ArrayBuffer,built-ins/DataView TEST262_ERROR_LIMIT=80 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Map,built-ins/Set TEST262_ERROR_LIMIT=80 ./autoresearch.sh
 ```
 
 Latest completed Array result:
@@ -123,7 +123,7 @@ Kept fixes in TypedArray follow-up:
 
 TypedArray `set` is clean at `100/100`; the timeout was dominated by repeated post-call global object refresh scans, now cached until persistent globals or raw `globalThis` storage changes. The broader `built-ins/TypedArray` QuickJS-accepted category is clean at `1302/1302`; final residuals were prototype method identity aliases for `Symbol.iterator`/`values` and `toString`/`Array.prototype.toString`. Next adjacent candidate is ArrayBuffer/DataView resizable-buffer parity.
 
-ArrayBuffer/DataView slice improved `135 → 2`; kept fixes cover `ArrayBuffer.isView`, prototype accessors and `@@toStringTag`, size validation, transfer/transferToFixedLength sizing and mutability order, slice receiver/index/default-end handling, species construction, and in-place initialization of constructed ArrayBuffers for `newTarget` prototype semantics. Remaining failures: `ArrayBuffer/options-maxbytelength-compared-before-object-creation.js` and `ArrayBuffer/prototype/slice/species-constructor-is-not-object.js`.
+ArrayBuffer/DataView slice is clean at `666/666`; kept fixes cover `ArrayBuffer.isView`, prototype accessors and `@@toStringTag`, size validation, transfer/transferToFixedLength sizing and mutability order, slice receiver/index/default-end handling, species construction, in-place initialization of constructed ArrayBuffers for `newTarget` prototype semantics, explicit null species constructors, and maxByteLength ordering before `newTarget.prototype` lookup.
 
 Tried and reverted as ineffective:
 

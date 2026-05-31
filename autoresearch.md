@@ -26,7 +26,7 @@ The previous `language/expressions/object` QuickJS-accepted slice is clean at `9
 Current active slice candidate:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/ArrayBuffer,built-ins/DataView TEST262_ERROR_LIMIT=80 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Map,built-ins/Set TEST262_ERROR_LIMIT=80 ./autoresearch.sh
 ```
 
 Latest completed local result:
@@ -34,8 +34,8 @@ Latest completed local result:
 ```text
 category=built-ins/ArrayBuffer,built-ins/DataView
 compatibility_cases=666
-compatibility_pass=664
-compatibility_failures=2
+compatibility_pass=666
+compatibility_failures=0
 compiler_errors=0
 compiler_crashes=0
 compiler_fails=0
