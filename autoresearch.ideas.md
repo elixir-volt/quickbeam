@@ -17,9 +17,9 @@ Latest result:
 ```text
 category=built-ins/Function
 compatibility_cases=495
-compatibility_pass=455
-compatibility_failures=40
-both_fail=32
+compatibility_pass=484
+compatibility_failures=11
+both_fail=3
 interpreter_fail_compiler_pass=8
 compiler_fails=0
 compiler_crashes=0
@@ -77,53 +77,32 @@ Latest result:
 
 ```text
 compatibility_cases=495
-compatibility_pass=455
-compatibility_failures=40
-both_fail=32
+compatibility_pass=484
+compatibility_failures=11
+both_fail=3
 interpreter_fail_compiler_pass=8
 compiler_fails=0
 ```
 
-Latest result:
+Recently completed object-model slices:
 
 ```text
-compatibility_cases=3408
-compatibility_pass=3408
-compatibility_failures=0
-both_fail=0
-compiler_fails=0
-interpreter_fail_compiler_pass=0
+built-ins/Object: 3408/3408
+built-ins/Reflect: 153/153
 ```
-
-Recent kept fixes reduced the slice from 52 to 0 failures:
-
-- `Object.defineProperties` now collects descriptor keys through ordinary internal own-key/enumerability semantics for builtin object-like values.
-- Error instance `Symbol.toStringTag` descriptors are hidden/non-enumerable.
-- Object own-key ordering keeps symbols in chronological order after string keys.
-- Date prototype virtual method deletes are remembered for property-helper configurability checks.
-- `Object.entries` re-checks enumerability immediately before each getter read.
-- RegExp assignment-created own properties use enumerable data descriptors.
-- `Object.fromEntries` does not call `return` when `next()` itself returns a non-object.
-- `Object.values` re-checks enumerability immediately before each getter read.
-- `Object.prototype` method arities are declared for `hasOwnProperty`, `isPrototypeOf`, and `propertyIsEnumerable`.
-- Error instance `Symbol.toStringTag` remains hidden/non-enumerable but is writable for assignment overrides.
-- Symbol writes on shape-backed objects and array named properties preserve chronological own-key order.
-- Interpreter global/lexical writes are no longer rolled back when a later continuation throws after a successful `put_var`.
-- Ordinary `in` checks no longer sync stale global writes into frame locals unless the check changed persistent globals.
-- Frame/global synchronization no longer overwrites a function-local `arguments` binding from globals.
 
 The `built-ins/Object` QuickJS-accepted slice is clean at `3408/3408`. The adjacent `built-ins/Reflect` slice is also clean at `153/153`; fixes covered abrupt `ToPropertyKey` ordering in `Reflect.defineProperty` and preserving `Reflect.get` receiver through prototype accessors.
 
 Function slice progress:
 
 - Set ECMA lengths for `Function.prototype.apply`, `bind`, `call`, and `Symbol.hasInstance`; failures dropped `45 → 40`.
+- Prevented dynamic `Function(...)` calls inside outer constructors from inheriting the caller construction target prototype; failures dropped `40 → 32`.
+- Treated non-strict function legacy `caller`/`arguments` reads that resolve to `undefined` as explicit own properties, avoiding fall-through to `Function.prototype` ThrowTypeError accessors; failures dropped `32 → 11`.
 
 Promising current clusters:
 
-- `Function.prototype.caller` / restricted `caller` residuals (`15.3.5.4_2-*gs`) throw `ThrowTypeError` where QuickJS accepts; likely tied to strict-function metadata or restricted own accessors, not just `strict_active_caller?/1`.
-- `Function.prototype.apply` / `call` FACTORY tests throw `not a function` around dynamic `Function("...").apply()` and method receiver plumbing.
-- Interpreter-only dynamic `Function` constructor/global-this cases pass in compiler and native but fail in interpreter.
-- Bound function instance `length` tests still fail around redefining function `length`; a naive virtual length descriptor fallback did not change the active metric.
+- Interpreter-only dynamic `Function` constructor/global-this cases pass in compiler and native but fail in interpreter. Focused repro: after `assert.sameValue(...)`, interpreter dynamic `Function('return this.planet')()` sees `this !== globalThis` and returns `undefined`, while compiler sees the real global object.
+- Bound function instance `length` tests still fail around redefining function `length` after non-number values (`undefined`, `null`, `true`, etc.). Need inspect why `Object.defineProperty(foo, "length", {value: undefined})` leaves the virtual length non-configurable in follow-up definitions.
 
 Tried and reverted as ineffective:
 
@@ -135,8 +114,9 @@ Tried and reverted as ineffective:
 - forcing functions whose source mentions `arguments` through interpreter fallback at invocation did not improve the `defineProperty(arguments)` cluster.
 - ignoring stale `arguments` entries in interpreter `ArgumentsObject.get/3` did not fix the former `Object.keys(arguments)` case; the actual fix was narrower `in`-operator frame sync.
 - broad compiler fallbacks for mapped arguments were unnecessary for the final Object slice fix; preserving local `arguments` during frame/global sync fixed the residual cluster.
-- removing `strict_active_caller?/1` from `Function.caller` did not improve the Function caller cluster; the thrown `ThrowTypeError` appears to come from restricted own accessor/function metadata instead.
-- adding a virtual `length`/`name` static descriptor fallback in `Define.property/4` did not improve the bound function length cluster.
+- removing `strict_active_caller?/1` from `Function.caller` did not improve the Function caller cluster by itself; the actual fix was explicit-own handling for non-strict legacy `caller`/`arguments` values.
+- adding a virtual `length`/`name` static descriptor fallback in `Define.property/4` did not improve the bound function length cluster because the first define still stored non-configurable attrs.
+- refreshing globals before dynamic `Function` compilation did not fix the interpreter-only global-this receiver issue.
 
 ### 2. Completed direct eval with spread
 

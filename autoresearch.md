@@ -34,12 +34,12 @@ Latest local result:
 ```text
 category=built-ins/Function
 compatibility_cases=495
-compatibility_pass=455
-compatibility_failures=40
+compatibility_pass=484
+compatibility_failures=11
 compiler_errors=0
 compiler_crashes=0
 compiler_fails=0
-both_fail=32
+both_fail=3
 interpreter_fail_compiler_pass=8
 ```
 
