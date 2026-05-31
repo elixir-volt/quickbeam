@@ -13,7 +13,7 @@ defmodule QuickBEAM.VM.ObjectModel.PrototypeGet do
     PrototypeLookup
   }
 
-  alias QuickBEAM.VM.Runtime.{Boolean, Function, Number}
+  alias QuickBEAM.VM.Runtime.{BigInt, Boolean, Function, Number}
 
   def property({:obj, ref}, key, callbacks) do
     case Heap.get_obj(ref) do
@@ -56,7 +56,7 @@ defmodule QuickBEAM.VM.ObjectModel.PrototypeGet do
     do: primitive_or_class_proto(:undefined, key, "Symbol", receiver)
 
   def property({:bigint, _} = receiver, key, _callbacks),
-    do: primitive_or_class_proto(:undefined, key, "BigInt", receiver)
+    do: primitive_or_class_proto(BigInt.proto_property(key), key, "BigInt", receiver)
 
   def property(%QuickBEAM.VM.Function{} = fun, "constructor", _callbacks),
     do: FunctionPrototypeGet.constructor(fun)

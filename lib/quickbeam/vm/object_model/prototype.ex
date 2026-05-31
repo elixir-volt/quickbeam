@@ -47,6 +47,7 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
   def get(value) when is_boolean(value), do: QuickBEAM.VM.Runtime.global_class_proto("Boolean")
   def get({:symbol, _}), do: QuickBEAM.VM.Runtime.global_class_proto("Symbol")
   def get({:symbol, _, _}), do: QuickBEAM.VM.Runtime.global_class_proto("Symbol")
+  def get({:bigint, _}), do: QuickBEAM.VM.Runtime.global_class_proto("BigInt")
   def get(_), do: nil
 
   def set({:obj, ref}, new_proto) do

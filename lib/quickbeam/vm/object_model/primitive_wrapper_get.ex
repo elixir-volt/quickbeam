@@ -5,7 +5,7 @@ defmodule QuickBEAM.VM.ObjectModel.PrimitiveWrapperGet do
 
   alias QuickBEAM.VM.{Heap, Runtime}
   alias QuickBEAM.VM.ObjectModel.{Get, PropertyKey, WrappedPrimitive}
-  alias QuickBEAM.VM.Runtime.{Boolean, Number}
+  alias QuickBEAM.VM.Runtime.{BigInt, Boolean, Number}
   alias QuickBEAM.VM.Runtime.Object
   alias QuickBEAM.VM.Runtime.String, as: JSString
 
@@ -57,8 +57,7 @@ defmodule QuickBEAM.VM.ObjectModel.PrimitiveWrapperGet do
         boolean_proto_property(map, key)
 
       :bigint ->
-        {:ok, value} = WrappedPrimitive.value(map, :bigint)
-        Get.get(value, key)
+        bigint_proto_property(key)
 
       _ ->
         :undefined
@@ -95,6 +94,18 @@ defmodule QuickBEAM.VM.ObjectModel.PrimitiveWrapperGet do
 
       _ ->
         JSString.proto_property(key)
+    end
+  end
+
+  def bigint_proto_property(key) do
+    case Runtime.global_class_proto("BigInt") do
+      {:obj, ref} = proto ->
+        if Heap.get_prop_desc(ref, key) == :deleted,
+          do: default_object_prototype(proto, key),
+          else: BigInt.proto_property(key)
+
+      _ ->
+        BigInt.proto_property(key)
     end
   end
 

@@ -23,6 +23,12 @@ defmodule QuickBEAM.VM.Runtime.BigInt do
         bigint_to_string(value, args)
       end
 
+      @ecma "21.2.3.2"
+      method "toLocaleString", receiver: :bigint do
+        {:bigint, value} = this
+        bigint_to_string(value, [])
+      end
+
       @ecma "21.2.3.4"
       method "valueOf", receiver: :bigint do
         this
