@@ -14,6 +14,7 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
 
       prototype extends: :object do
         properties()
+        to_string_tag("ArrayBuffer")
       end
     end
 
@@ -41,10 +42,39 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
   end
 
   @doc "Returns prototype method names installed on ArrayBuffer.prototype."
-  def proto_property_names, do: ~w(transfer resize slice sliceToImmutable transferToImmutable)
+  def proto_property_names,
+    do:
+      ~w(byteLength detached maxByteLength resizable transfer resize slice sliceToImmutable transferToImmutable)
+
+  @ecma "25.1.6.1"
+  proto_getter "byteLength" do
+    map = array_buffer_map!(this)
+    if Map.get(map, "__detached__"), do: 0, else: Map.get(map, "byteLength", 0)
+  end
+
+  @ecma "25.1.6.3"
+  proto_getter "detached" do
+    map = array_buffer_map!(this)
+    !!Map.get(map, "__detached__")
+  end
+
+  @ecma "25.1.6.4"
+  proto_getter "maxByteLength" do
+    map = array_buffer_map!(this)
+
+    if Map.get(map, "resizable"),
+      do: Map.get(map, "maxByteLength", 0),
+      else: Map.get(map, "byteLength", 0)
+  end
+
+  @ecma "25.1.6.5"
+  proto_getter "resizable" do
+    map = array_buffer_map!(this)
+    !!Map.get(map, "resizable")
+  end
 
   @doc "Builds the JavaScript constructor object for this runtime builtin."
-  def constructor(args, _this \\ nil) do
+  def constructor(args, this \\ nil) do
     {byte_length, max_byte_length} =
       case args do
         [n, opts | _] when is_integer(n) -> {n, max_byte_length_option(opts)}
@@ -55,7 +85,8 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
     map = %{
       buffer() => :binary.copy(<<0>>, byte_length),
       "byteLength" => byte_length,
-      "resizable" => max_byte_length != nil
+      "resizable" => max_byte_length != nil,
+      "__array_buffer_kind__" => array_buffer_kind(this)
     }
 
     map = if max_byte_length, do: Map.put(map, "maxByteLength", max_byte_length), else: map
@@ -151,6 +182,38 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
   end
 
   defp update_typed_array_views(_, _), do: :ok
+
+  defp array_buffer_map!({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) and is_map_key(map, buffer()) and not is_map_key(map, typed_array()) ->
+        if Map.get(map, "__array_buffer_kind__", :array_buffer) == :array_buffer do
+          map
+        else
+          JSThrow.type_error!("receiver is not an ArrayBuffer")
+        end
+
+      _ ->
+        JSThrow.type_error!("receiver is not an ArrayBuffer")
+    end
+  end
+
+  defp array_buffer_map!(_), do: JSThrow.type_error!("receiver is not an ArrayBuffer")
+
+  defp array_buffer_kind({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        if Map.get(map, proto()) == Runtime.global_class_proto("SharedArrayBuffer") do
+          :shared_array_buffer
+        else
+          :array_buffer
+        end
+
+      _ ->
+        :array_buffer
+    end
+  end
+
+  defp array_buffer_kind(_), do: :array_buffer
 
   defp is_view({:obj, ref}) do
     case Heap.get_obj(ref, %{}) do
