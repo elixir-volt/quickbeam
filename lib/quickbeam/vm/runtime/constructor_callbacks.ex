@@ -305,7 +305,10 @@ defmodule QuickBEAM.VM.Runtime.ConstructorCallbacks do
         end
 
       validate_regexp_flags!(flags)
-      validate_regexp_source!(source, flags)
+
+      unless trusted_regexp_clone_source?(pattern, source, flags) do
+        validate_regexp_source!(source, flags)
+      end
 
       ref = make_ref()
       RegexpState.put_internal(ref, "flags", canonical_regexp_flags(flags))
@@ -344,6 +347,14 @@ defmodule QuickBEAM.VM.Runtime.ConstructorCallbacks do
       end
     end
   end
+
+  defp trusted_regexp_clone_source?({:regexp, _bytecode, source} = pattern, source, flags),
+    do: compatible_regexp_clone_flags?(regexp_source_flags(pattern), flags)
+
+  defp trusted_regexp_clone_source?({:regexp, _bytecode, source, _ref} = pattern, source, flags),
+    do: compatible_regexp_clone_flags?(regexp_source_flags(pattern), flags)
+
+  defp trusted_regexp_clone_source?(_pattern, _source, _flags), do: false
 
   defp regexp_function_identity?(pattern, rest, this) do
     not regexp_constructing?(this) and regexp_flags_omitted?(rest) and regexp_value?(pattern) and

@@ -29,17 +29,17 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
     prototype extends: :object do
       @ecma "22.2.6.16"
-      method "test" do
+      method "test", length: 1 do
         test(this, args)
       end
 
       @ecma "22.2.6.2"
-      method "exec" do
+      method "exec", length: 1 do
         exec(this, args)
       end
 
       @ecma "22.2.6.17"
-      method "toString" do
+      method "toString", length: 0 do
         regexp_to_string(this)
       end
 
@@ -95,35 +95,35 @@ defmodule QuickBEAM.VM.Runtime.RegExp do
 
       @ecma "22.2.6.8"
       symbol :match do
-        method do
+        method length: 1 do
           regexp_match(this, args)
         end
       end
 
       @ecma "22.2.6.9"
       symbol :matchAll do
-        method do
+        method length: 1 do
           regexp_match_all(this, args)
         end
       end
 
       @ecma "22.2.6.11"
       symbol :replace do
-        method do
+        method length: 2 do
           regexp_replace(this, args)
         end
       end
 
       @ecma "22.2.6.12"
       symbol :search do
-        method do
+        method length: 1 do
           regexp_search(this, args)
         end
       end
 
       @ecma "22.2.6.14"
       symbol :split do
-        method do
+        method length: 2 do
           unless regexp_match_receiver?(this),
             do: JSThrow.type_error!("RegExp split receiver is not an object")
 
