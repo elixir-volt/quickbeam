@@ -9,7 +9,7 @@ Drive BEAM interpreter/compiler behavior toward QuickJS NIF parity on Test262, p
 Continue with adjacent QuickJS-accepted object-model slices. The next active candidate is `built-ins/TypedArray`:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Error,built-ins/TypeError,built-ins/RangeError,built-ins/SyntaxError,built-ins/ReferenceError,built-ins/URIError,built-ins/EvalError TEST262_ERROR_LIMIT=80 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/JSON TEST262_ERROR_LIMIT=80 ./autoresearch.sh
 ```
 
 Latest completed result:
@@ -71,7 +71,7 @@ built-ins/Function: 495/495
 Current active candidate:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Error,built-ins/TypeError,built-ins/RangeError,built-ins/SyntaxError,built-ins/ReferenceError,built-ins/URIError,built-ins/EvalError TEST262_ERROR_LIMIT=80 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/JSON TEST262_ERROR_LIMIT=80 ./autoresearch.sh
 ```
 
 Latest completed Array result:
@@ -125,7 +125,7 @@ TypedArray `set` is clean at `100/100`; the timeout was dominated by repeated po
 
 ArrayBuffer/DataView slice is clean at `666/666`; kept fixes cover `ArrayBuffer.isView`, prototype accessors and `@@toStringTag`, size validation, transfer/transferToFixedLength sizing and mutability order, slice receiver/index/default-end handling, species construction, in-place initialization of constructed ArrayBuffers for `newTarget` prototype semantics, explicit null species constructors, and maxByteLength ordering before `newTarget.prototype` lookup.
 
-Map/Set slice is clean at `585/585`; residuals were prototype function identity aliases for `Map.prototype[Symbol.iterator] === Map.prototype.entries` and `Set.prototype.keys === Set.prototype.values === Set.prototype[Symbol.iterator]`. Next adjacent candidate is WeakMap/WeakSet. WeakMap/WeakSet is also clean at `224/224`. Next active candidate is Promise. Promise is clean at `281/281`; residuals were static method arities for `resolve`, `reject`, `all`, `allSettled`, `any`, and `race`. Next active candidate is RegExp. Full RegExp category crashed with exit 139, so the stable `built-ins/RegExp/prototype` sub-slice was used and is clean at `474/474`; fixes covered prototype method arities and compatible RegExp clone source validation. Next active candidate is Date. Date is clean at `583/583`; fixes covered setter/toJSON arities and the non-writable `Date.prototype[Symbol.toPrimitive]` descriptor fallback. Next active candidate is Error constructors.
+Map/Set slice is clean at `585/585`; residuals were prototype function identity aliases for `Map.prototype[Symbol.iterator] === Map.prototype.entries` and `Set.prototype.keys === Set.prototype.values === Set.prototype[Symbol.iterator]`. Next adjacent candidate is WeakMap/WeakSet. WeakMap/WeakSet is also clean at `224/224`. Next active candidate is Promise. Promise is clean at `281/281`; residuals were static method arities for `resolve`, `reject`, `all`, `allSettled`, `any`, and `race`. Next active candidate is RegExp. Full RegExp category crashed with exit 139, so the stable `built-ins/RegExp/prototype` sub-slice was used and is clean at `474/474`; fixes covered prototype method arities and compatible RegExp clone source validation. Next active candidate is Date. Date is clean at `583/583`; fixes covered setter/toJSON arities and the non-writable `Date.prototype[Symbol.toPrimitive]` descriptor fallback. Error constructors are already clean at `55/55`. Next active candidate is JSON.
 
 Tried and reverted as ineffective:
 
