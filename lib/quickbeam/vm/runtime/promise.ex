@@ -119,17 +119,17 @@ defmodule QuickBEAM.VM.Runtime.Promise do
   end
 
   @ecma "27.2.4.7"
-  static "resolve" do
+  static "resolve", length: 1 do
     promise_resolve(this, arg(args, 0, :undefined))
   end
 
   @ecma "27.2.4.6"
-  static "reject" do
+  static "reject", length: 1 do
     promise_reject(this, arg(args, 0, :undefined))
   end
 
   @ecma "27.2.4.1"
-  static "all" do
+  static "all", length: 1 do
     if default_promise_constructor?(this) do
       case combinator_inputs(this, arg(args, 0, :undefined)) do
         {:ok, items} -> wrap_static_result(this, promise_all_items(items))
@@ -141,7 +141,7 @@ defmodule QuickBEAM.VM.Runtime.Promise do
   end
 
   @ecma "27.2.4.2"
-  static "allSettled" do
+  static "allSettled", length: 1 do
     if default_promise_constructor?(this) do
       case combinator_inputs(this, arg(args, 0, :undefined)) do
         {:ok, items} -> wrap_static_result(this, promise_all_settled_items(items))
@@ -163,7 +163,7 @@ defmodule QuickBEAM.VM.Runtime.Promise do
   end
 
   @ecma "27.2.4.3"
-  static "any" do
+  static "any", length: 1 do
     if default_promise_constructor?(this) do
       case combinator_inputs(this, arg(args, 0, :undefined)) do
         {:ok, items} -> wrap_static_result(this, promise_any_items(items))
@@ -175,7 +175,7 @@ defmodule QuickBEAM.VM.Runtime.Promise do
   end
 
   @ecma "27.2.4.5"
-  static "race" do
+  static "race", length: 1 do
     if default_promise_constructor?(this) do
       case combinator_inputs(this, arg(args, 0, :undefined)) do
         {:ok, items} -> wrap_static_result(this, promise_race_items(items))
