@@ -10,7 +10,8 @@ defmodule QuickBEAM.VM.Runtime.BigInt do
   defintrinsic "BigInt" do
     constructor(&QuickBEAM.VM.Runtime.ConstructorCallbacks.bigint/2,
       length: 1,
-      phase: :fundamental
+      phase: :fundamental,
+      constructable: false
     )
 
     prototype extends: :object do

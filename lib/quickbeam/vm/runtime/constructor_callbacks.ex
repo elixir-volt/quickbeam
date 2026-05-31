@@ -3,7 +3,7 @@ defmodule QuickBEAM.VM.Runtime.ConstructorCallbacks do
 
   import QuickBEAM.VM.Heap.Keys
   import QuickBEAM.VM.Builtin, only: [arg: 3, object: 1, slot_key: 1]
-  import QuickBEAM.VM.Value, only: [is_builtin: 1, is_closure: 1, is_nullish: 1]
+  import QuickBEAM.VM.Value, only: [is_builtin: 1, is_closure: 1]
 
   require QuickBEAM.VM.Builtin
 
@@ -245,15 +245,7 @@ defmodule QuickBEAM.VM.Runtime.ConstructorCallbacks do
   defp stringify_arg(val) when is_binary(val), do: val
   defp stringify_arg(val), do: QuickBEAM.VM.Semantics.Values.stringify(val)
 
-  def bigint(args, this) do
-    case RuntimeState.current() do
-      %{new_target: new_target} when not is_nullish(new_target) ->
-        JSThrow.type_error!("BigInt is not a constructor")
-
-      _ ->
-        bigint_call(args, this)
-    end
-  end
+  def bigint(args, this), do: bigint_call(args, this)
 
   defp bigint_call([:undefined | _], _), do: JSThrow.type_error!("Cannot convert to BigInt")
   defp bigint_call([:infinity | _], _), do: JSThrow.range_error!("Cannot convert to BigInt")
