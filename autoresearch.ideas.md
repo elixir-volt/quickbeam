@@ -6,10 +6,10 @@ Drive BEAM interpreter/compiler behavior toward QuickJS NIF parity on Test262, p
 
 ## Active workload
 
-Continue with adjacent QuickJS-accepted object-model slices. The next active candidate is `built-ins/Array`:
+Continue with adjacent QuickJS-accepted object-model slices. The next active candidate is `built-ins/TypedArray`:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Array TEST262_ERROR_LIMIT=20 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/TypedArray TEST262_ERROR_LIMIT=40 ./autoresearch.sh
 ```
 
 Latest completed result:
@@ -71,14 +71,14 @@ built-ins/Function: 495/495
 Current active candidate:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Array TEST262_ERROR_LIMIT=20 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/TypedArray TEST262_ERROR_LIMIT=40 ./autoresearch.sh
 ```
 
-Latest completed Function result:
+Latest completed Array result:
 
 ```text
-compatibility_cases=495
-compatibility_pass=495
+compatibility_cases=2970
+compatibility_pass=2970
 compatibility_failures=0
 both_fail=0
 interpreter_fail_compiler_pass=0
@@ -96,7 +96,7 @@ Function slice progress:
 - Direct eval cleanup preserves unrelated global object side effects from nested calls while still cleaning eval-created declared/assigned names; failures dropped `7 → 3`.
 - `Object.defineProperty` on callable virtual `length`/`name` metadata now uses those virtual descriptors as existing attributes; failures dropped `3 → 0`.
 
-The `built-ins/Function` QuickJS-accepted slice is clean at `495/495`. Next, rebaseline `built-ins/Array` and pick a current failure cluster.
+The `built-ins/Function` QuickJS-accepted slice is clean at `495/495`. The `built-ins/Array` QuickJS-accepted slice is clean at `2970/2970`; fixes covered Array method arities, iterator identity, generic typed-array length handling, copyWithin ordinary property semantics, and BigInt locale-string lookup. Next, rebaseline `built-ins/TypedArray` and pick a current failure cluster.
 
 Tried and reverted as ineffective:
 
