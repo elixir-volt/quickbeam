@@ -92,6 +92,14 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayTest do
     )
   end
 
+  test "typed-array metadata slots are not own properties until explicitly defined", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|let a = new Uint8Array(2); let before = [Object.hasOwn(a, "length"), Reflect.set(a, "length", 9), a.length, Object.getOwnPropertyDescriptor(a, "length")]; let defined = Reflect.defineProperty(a, "length", {value: 9}); let desc = Object.getOwnPropertyDescriptor(a, "length"); before.concat([defined, a.length, Object.hasOwn(a, "length"), desc.value]).join(",")|,
+      "false,false,2,,true,9,true,9"
+    )
+  end
+
   test "typed-array integer-indexed keys do not fall back to ordinary properties", %{rt: rt} do
     assert_modes(
       rt,

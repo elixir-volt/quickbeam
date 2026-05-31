@@ -15,6 +15,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
   alias QuickBEAM.VM.Semantics.Values
   alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.JSThrow
+  alias QuickBEAM.VM.Runtime.TypedArray
 
   alias QuickBEAM.VM.ObjectModel.{
     Define,
@@ -510,24 +511,28 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
         end
 
       map when is_map(map) ->
-        case Map.get(map, key) do
-          nil ->
-            if proto_has_property?(Map.get(map, proto()), key) do
-              set(Map.get(map, proto()), key, val, receiver)
-            else
-              write_receiver(receiver, key, val)
-            end
+        if typed_array_metadata_slot_without_own_property?(ref, map, key) do
+          false
+        else
+          case Map.get(map, key) do
+            nil ->
+              if proto_has_property?(Map.get(map, proto()), key) do
+                set(Map.get(map, proto()), key, val, receiver)
+              else
+                write_receiver(receiver, key, val)
+              end
 
-          {:accessor, _, setter} when setter != nil ->
-            invoke_setter(setter, val, receiver)
-            true
+            {:accessor, _, setter} when setter != nil ->
+              invoke_setter(setter, val, receiver)
+              true
 
-          _ ->
-            if match?(%{writable: false}, Heap.get_prop_desc(ref, key)) do
-              false
-            else
-              write_receiver(receiver, key, val)
-            end
+            _ ->
+              if match?(%{writable: false}, Heap.get_prop_desc(ref, key)) do
+                false
+              else
+                write_receiver(receiver, key, val)
+              end
+          end
         end
 
       _ ->
@@ -637,6 +642,11 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     else
       false
     end
+  end
+
+  defp typed_array_metadata_slot_without_own_property?(ref, map, key) do
+    Map.get(map, typed_array()) == true and TypedArray.metadata_key?(key) and
+      Heap.get_prop_desc(ref, key) == nil
   end
 
   defp receiver_write_descriptor(receiver, key, val) do

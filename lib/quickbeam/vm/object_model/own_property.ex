@@ -625,8 +625,8 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
     Heap.get_prop_desc(target, prop_key) || Heap.get_ctor_prop_desc(target, prop_key)
   end
 
-  defp typed_array_descriptor(obj, prop_name) do
-    case PropertyKey.array_index(prop_name) do
+  defp typed_array_descriptor({:obj, ref} = obj, prop_name) do
+    case TypedArray.integer_index_key(prop_name) do
       {:ok, idx} ->
         val = TypedArray.get_element(obj, idx)
 
@@ -645,8 +645,17 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
           )
         end
 
-      _ ->
+      :invalid ->
         :undefined
+
+      :not_integer_index ->
+        data = Heap.get_obj(ref, %{})
+
+        if Heap.get_prop_desc(ref, prop_name) do
+          map_descriptor(ref, data, prop_name)
+        else
+          :undefined
+        end
     end
   end
 

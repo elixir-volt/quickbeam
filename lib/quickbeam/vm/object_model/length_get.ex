@@ -71,8 +71,12 @@ defmodule QuickBEAM.VM.ObjectModel.LengthGet do
       raw when is_tuple(raw) ->
         raw_length(ref, raw, callbacks)
 
-      %{typed_array() => true} ->
-        typed_array_length({:obj, ref})
+      %{typed_array() => true} = map ->
+        if Heap.get_prop_desc(ref, "length") do
+          callbacks.get_map_property.(map, "length", {:obj, ref})
+        else
+          typed_array_length({:obj, ref})
+        end
 
       map when is_map(map) ->
         map_length(ref, map, callbacks)

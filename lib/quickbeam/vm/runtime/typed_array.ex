@@ -552,6 +552,8 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   # ── Element access (public, used by ObjectModel.Put) ──
 
   @doc "Returns whether a typed-array object is backed by immutable data."
+  def metadata_key?(key), do: key in ["buffer", "byteLength", "byteOffset", "length"]
+
   def immutable?({:obj, ref}) do
     is_immutable_buffer?(Heap.get_obj(ref, %{}))
   end
