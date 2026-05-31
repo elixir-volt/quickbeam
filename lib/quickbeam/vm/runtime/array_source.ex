@@ -1,6 +1,8 @@
 defmodule QuickBEAM.VM.Runtime.ArraySource do
   @moduledoc "Indexed array-like source access for Array and iterator helpers."
 
+  import QuickBEAM.VM.Heap.Keys, only: [typed_array: 0]
+
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods}
   alias QuickBEAM.VM.Runtime
@@ -62,6 +64,13 @@ defmodule QuickBEAM.VM.Runtime.ArraySource do
       case Heap.get_obj(ref) do
         {:qb_arr, _arr} ->
           to_length(Get.length_of({:obj, ref}))
+
+        %{typed_array() => true} ->
+          if QuickBEAM.VM.Runtime.TypedArray.out_of_bounds?({:obj, ref}) do
+            0
+          else
+            QuickBEAM.VM.Runtime.TypedArray.element_count({:obj, ref})
+          end
 
         list when is_list(list) ->
           to_length(Get.length_of({:obj, ref}))
