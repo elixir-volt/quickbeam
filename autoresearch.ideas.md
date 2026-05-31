@@ -6,21 +6,21 @@ Drive BEAM interpreter/compiler behavior toward QuickJS NIF parity on Test262, p
 
 ## Active workload
 
-Continue with adjacent QuickJS-accepted object-model slices. The next active candidate is `built-ins/Function`:
+Continue with adjacent QuickJS-accepted object-model slices. The next active candidate is `built-ins/Array`:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Function TEST262_ERROR_LIMIT=20 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Array TEST262_ERROR_LIMIT=20 ./autoresearch.sh
 ```
 
-Latest result:
+Latest completed result:
 
 ```text
 category=built-ins/Function
 compatibility_cases=495
-compatibility_pass=484
-compatibility_failures=11
-both_fail=3
-interpreter_fail_compiler_pass=8
+compatibility_pass=495
+compatibility_failures=0
+both_fail=0
+interpreter_fail_compiler_pass=0
 compiler_fails=0
 compiler_crashes=0
 compiler_errors=0
@@ -65,30 +65,24 @@ Recently completed slices:
 ```text
 built-ins/Object: 3408/3408
 built-ins/Reflect: 153/153
+built-ins/Function: 495/495
 ```
 
 Current active candidate:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Function TEST262_ERROR_LIMIT=20 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Array TEST262_ERROR_LIMIT=20 ./autoresearch.sh
 ```
 
-Latest result:
+Latest completed Function result:
 
 ```text
 compatibility_cases=495
-compatibility_pass=484
-compatibility_failures=11
-both_fail=3
-interpreter_fail_compiler_pass=8
+compatibility_pass=495
+compatibility_failures=0
+both_fail=0
+interpreter_fail_compiler_pass=0
 compiler_fails=0
-```
-
-Recently completed object-model slices:
-
-```text
-built-ins/Object: 3408/3408
-built-ins/Reflect: 153/153
 ```
 
 The `built-ins/Object` QuickJS-accepted slice is clean at `3408/3408`. The adjacent `built-ins/Reflect` slice is also clean at `153/153`; fixes covered abrupt `ToPropertyKey` ordering in `Reflect.defineProperty` and preserving `Reflect.get` receiver through prototype accessors.
@@ -98,11 +92,11 @@ Function slice progress:
 - Set ECMA lengths for `Function.prototype.apply`, `bind`, `call`, and `Symbol.hasInstance`; failures dropped `45 → 40`.
 - Prevented dynamic `Function(...)` calls inside outer constructors from inheriting the caller construction target prototype; failures dropped `40 → 32`.
 - Treated non-strict function legacy `caller`/`arguments` reads that resolve to `undefined` as explicit own properties, avoiding fall-through to `Function.prototype` ThrowTypeError accessors; failures dropped `32 → 11`.
+- Direct calls to non-strict bytecode functions now use the function realm/global object as `this`, not the caller's active receiver; failures dropped `11 → 7`.
+- Direct eval cleanup preserves unrelated global object side effects from nested calls while still cleaning eval-created declared/assigned names; failures dropped `7 → 3`.
+- `Object.defineProperty` on callable virtual `length`/`name` metadata now uses those virtual descriptors as existing attributes; failures dropped `3 → 0`.
 
-Promising current clusters:
-
-- Interpreter-only dynamic `Function` constructor/global-this cases pass in compiler and native but fail in interpreter. Focused repro: after `assert.sameValue(...)`, interpreter dynamic `Function('return this.planet')()` sees `this !== globalThis` and returns `undefined`, while compiler sees the real global object.
-- Bound function instance `length` tests still fail around redefining function `length` after non-number values (`undefined`, `null`, `true`, etc.). Need inspect why `Object.defineProperty(foo, "length", {value: undefined})` leaves the virtual length non-configurable in follow-up definitions.
+The `built-ins/Function` QuickJS-accepted slice is clean at `495/495`. Next, rebaseline `built-ins/Array` and pick a current failure cluster.
 
 Tried and reverted as ineffective:
 
@@ -116,7 +110,7 @@ Tried and reverted as ineffective:
 - broad compiler fallbacks for mapped arguments were unnecessary for the final Object slice fix; preserving local `arguments` during frame/global sync fixed the residual cluster.
 - removing `strict_active_caller?/1` from `Function.caller` did not improve the Function caller cluster by itself; the actual fix was explicit-own handling for non-strict legacy `caller`/`arguments` values.
 - adding a virtual `length`/`name` static descriptor fallback in `Define.property/4` did not improve the bound function length cluster because the first define still stored non-configurable attrs.
-- refreshing globals before dynamic `Function` compilation did not fix the interpreter-only global-this receiver issue.
+- refreshing globals before dynamic `Function` compilation did not fix the interpreter-only global-this receiver issue; the useful fixes were direct-call `this` selection plus eval global-object side-effect cleanup.
 
 ### 2. Completed direct eval with spread
 
