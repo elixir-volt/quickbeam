@@ -26,15 +26,15 @@ The previous `language/expressions/object` QuickJS-accepted slice is clean at `9
 Current active slice candidate:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Date TEST262_ERROR_LIMIT=80 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Error,built-ins/TypeError,built-ins/RangeError,built-ins/SyntaxError,built-ins/ReferenceError,built-ins/URIError,built-ins/EvalError TEST262_ERROR_LIMIT=80 ./autoresearch.sh
 ```
 
 Latest completed local result:
 
 ```text
-category=built-ins/RegExp/prototype
-compatibility_cases=474
-compatibility_pass=474
+category=built-ins/Date
+compatibility_cases=583
+compatibility_pass=583
 compatibility_failures=0
 compiler_errors=0
 compiler_crashes=0
