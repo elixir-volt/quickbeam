@@ -222,8 +222,8 @@ defmodule QuickBEAM.VM.Runtime.ConstructorCallbacks do
     end
   end
 
-  defp with_dynamic_function_prototype(value, ctx) do
-    new_target = Map.get(ctx, :new_target, :undefined)
+  defp with_dynamic_function_prototype(value, _ctx) do
+    new_target = :undefined
 
     proto =
       case Get.get(new_target, "prototype") do
