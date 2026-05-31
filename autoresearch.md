@@ -52,12 +52,12 @@ Latest local result:
 
 ```text
 compatibility_cases=3408
-compatibility_pass=3380
-compatibility_failures=28
+compatibility_pass=3381
+compatibility_failures=27
 compiler_errors=0
 compiler_crashes=0
 compiler_fails=16
-both_fail=12
+both_fail=11
 interpreter_fail_compiler_pass=0
 ```
 
