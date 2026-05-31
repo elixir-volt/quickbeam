@@ -27,26 +27,24 @@ Bounded Proxy slice:
 AUTORESEARCH_TEST262_CATEGORY=built-ins/Proxy TEST262_LIMIT=300 TEST262_ERROR_LIMIT=20 ./autoresearch.sh
 ```
 
-Current local baseline:
+Latest local result:
 
 ```text
 compatibility_cases=300
-compatibility_pass=295
-compatibility_failures=5
+compatibility_pass=300
+compatibility_failures=0
 compiler_errors=0
 compiler_crashes=0
 compiler_fails=0
-both_fail=3
-interpreter_fail_compiler_pass=2
+both_fail=0
+interpreter_fail_compiler_pass=0
 ```
 
-Known remaining residuals:
+The bounded Proxy slice is clean. The next phase should use QuickJS-accepted residual mode to avoid chasing tests that the native path rejects:
 
-- `built-ins/Proxy/get-fn-realm.js`
-- `built-ins/Proxy/get-fn-realm-recursive.js`
-- `built-ins/Proxy/revocable/tco-fn-realm.js`
-- interpreter-only `built-ins/Proxy/has/call-in-prototype-index.js`
-- interpreter-only `built-ins/Proxy/has/trap-is-undefined-target-is-proxy.js`
+```sh
+AUTORESEARCH_QUICKJS_PARITY=1 ./autoresearch.sh
+```
 
 ## How to run
 

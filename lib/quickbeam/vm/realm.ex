@@ -267,7 +267,8 @@ defmodule QuickBEAM.VM.Realm do
 
     Heap.wrap(%{
       "global" => global,
-      "evalScript" => {:builtin, "evalScript", fn args, _ -> Functions.js_eval_global(args, global) end}
+      "evalScript" =>
+        {:builtin, "evalScript", fn args, _ -> Functions.js_eval_global(args, global) end}
     })
   end
 

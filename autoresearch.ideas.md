@@ -12,26 +12,24 @@ Start with the bounded Proxy slice because recent work reduced it sharply and th
 AUTORESEARCH_TEST262_CATEGORY=built-ins/Proxy TEST262_LIMIT=300 TEST262_ERROR_LIMIT=20 ./autoresearch.sh
 ```
 
-Current baseline from the latest local slice:
+Latest result:
 
 ```text
 compatibility_cases=300
-compatibility_pass=295
-compatibility_failures=5
-both_fail=3
-interpreter_fail_compiler_pass=2
+compatibility_pass=300
+compatibility_failures=0
+both_fail=0
+interpreter_fail_compiler_pass=0
 compiler_fails=0
 compiler_crashes=0
 compiler_errors=0
 ```
 
-Remaining known Proxy residuals from the latest slice:
+Proxy slice is clean. Kept fixes:
 
-- `get-fn-realm.js`
-- `get-fn-realm-recursive.js`
-- `revocable/tco-fn-realm.js`
-- interpreter-only `has/call-in-prototype-index.js`
-- interpreter-only `has/trap-is-undefined-target-is-proxy.js`
+- interpreter `in` now uses ToPropertyKey and refreshes frame-visible global writes after proxy `has` traps;
+- proxy newTarget default-prototype lookup recurses to the target function realm;
+- Test262 realm objects expose `evalScript` that evaluates in the created realm.
 
 ## Efficient loop
 
@@ -65,19 +63,9 @@ checks_timeout_seconds: 900
 
 ## Near-term plan
 
-### 1. Finish Proxy slice
+### 1. Move to native-accepted QuickJS parity batches
 
-Focus on the five residuals above. Most recent wins came from routing proxy fallbacks through internal methods rather than ordinary helpers, so inspect remaining direct paths before adding new special cases.
-
-Likely areas:
-
-- GetFunctionRealm / realm identity for proxy get traps and revocable TCO realm cases.
-- Interpreter-only property key normalization for `has` on prototype array indexes (`1` vs `"1"`).
-- Interpreter/proxy fallback skew for `has` target-is-proxy; compiler already passes, so avoid compiler changes unless a focused compiler repro fails.
-
-### 2. Move to native-accepted QuickJS parity batches
-
-After Proxy reaches 0 or plateaus on realm-only residuals, switch from category slices to QuickJS-accepted residuals:
+Proxy is clean, so switch from category slices to QuickJS-accepted residuals:
 
 ```sh
 AUTORESEARCH_QUICKJS_PARITY=1 ./autoresearch.sh
@@ -85,7 +73,7 @@ AUTORESEARCH_QUICKJS_PARITY=1 ./autoresearch.sh
 
 Use this to avoid spending time on tests QuickJS itself rejects or does not support.
 
-### 3. Expand category slices only when useful
+### 2. Expand category slices only when useful
 
 Use bounded slices for focused subsystems, not broad unrelated sweeps:
 
