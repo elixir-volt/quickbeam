@@ -106,6 +106,26 @@ defmodule QuickBEAM.VM.ObjectModel.ProxyTest do
     assert_modes(rt, ~S|try { new Proxy({}, null); "ok"; } catch (e) { e.name; }|, "TypeError")
   end
 
+  test "Proxy.revocable function metadata matches built-in descriptors", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|let d = Object.getOwnPropertyDescriptor(Proxy.revocable, "length"); [Proxy.revocable.length, d.value, d.writable, d.enumerable, d.configurable].join(",")|,
+      "2,2,false,false,true"
+    )
+
+    assert_modes(
+      rt,
+      ~S|let revoke = Proxy.revocable({}, {}).revoke; let name = Object.getOwnPropertyDescriptor(revoke, "name"); let length = Object.getOwnPropertyDescriptor(revoke, "length"); [revoke.name, name.value, name.writable, name.enumerable, name.configurable, revoke.length, length.value, length.writable, length.enumerable, length.configurable].join(",")|,
+      ",,false,false,true,0,0,false,false,true"
+    )
+
+    assert_modes(
+      rt,
+      ~S|let revoke = Proxy.revocable({}, {}).revoke; try { new revoke(); "ok"; } catch (e) { e.name; }|,
+      "TypeError"
+    )
+  end
+
   test "revoked callable proxies cannot be called or constructed", %{rt: rt} do
     assert beam!(
              rt,

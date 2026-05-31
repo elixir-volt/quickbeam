@@ -22,7 +22,6 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     Get,
     HasProperty,
     OwnProperty,
-    Static,
     InternalMethods,
     PropertyDescriptor,
     ProxySet,
@@ -747,7 +746,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
 
     cond do
       QuickBEAM.VM.Builtin.callable?(callable) and key in ["length", "name"] and
-        (not own? or Static.deleted?(callable, key)) and
+        not match?(%{writable: true}, callable_prop_desc(callable, key)) and
           not static_class_method_definition?(callable, key) ->
         reject_failed_write!()
 

@@ -463,7 +463,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
           module_static_value(module, prop_key)
 
         prop_key == "length" and is_function(map) ->
-          builtin_function_length(map, name)
+          Builtin.declared_length(builtin, builtin_function_length(map, name))
 
         true ->
           builtin_descriptor_value(name, prop_key)
