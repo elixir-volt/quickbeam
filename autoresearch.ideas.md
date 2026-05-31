@@ -6,20 +6,20 @@ Drive BEAM interpreter/compiler behavior toward QuickJS NIF parity on Test262, p
 
 ## Active workload
 
-Use the full QuickJS-accepted parity sweep now that the bounded Proxy slice and residual mode are clean:
+Use a QuickJS-accepted call expression slice after cleaning `language/expressions/object`:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=language/expressions/call ./autoresearch.sh
 ```
 
 Latest result:
 
 ```text
-compatibility_cases=941
-compatibility_pass=935
-compatibility_failures=6
-both_fail=0
-interpreter_fail_compiler_pass=6
+compatibility_cases=85
+compatibility_pass=82
+compatibility_failures=3
+both_fail=3
+interpreter_fail_compiler_pass=0
 compiler_fails=0
 compiler_crashes=0
 compiler_errors=0
@@ -63,17 +63,25 @@ checks_timeout_seconds: 900
 
 ## Near-term plan
 
-### 1. Interpreter abrupt-completion side effects in destructuring calls
+### 1. Direct eval with spread
 
-Remaining current failures are interpreter-only `language/expressions/object/dstr/*iter-step-err.js` cases. A focused repro shows `first += 1` inside a throwing called function/generator is visible on normal return but not when the thrown call is caught by the caller. Explore call/throw context propagation rather than benchmark-specific destructuring shortcuts.
+Current `language/expressions/call` residuals are:
+
+- `eval-spread.js`
+- `eval-spread-empty-leading.js`
+- `eval-spread-empty-trailing.js`
+
+A focused repro shows `eval(...iter)` can update the local `x`, but the global `x` is also updated; both interpreter and compiler fail the same observable global assertion. Inspect direct-eval spread lowering and `DirectEval` transient/global write propagation. Do not special-case these filenames.
 
 Tried and reverted as ineffective:
 
-- syncing caller captured locals/global writes in `catch_and_dispatch` throw branches;
-- persisting `ctx.globals` in the `throw` opcode;
-- merging base globals into the throw refresh path.
+- treating `apply_eval` operand `0` as current scope instead of subtracting one; it did not improve the metric and left the global write wrong.
 
-### 2. Expand category slices only when useful
+### 2. Completed object-expression side effects
+
+The previous `language/expressions/object` QuickJS-accepted slice is clean at `941/941`. The kept fix refreshes global object writes after caught calls and updates the persistent global snapshot so later var declarations do not restore stale values.
+
+### 3. Expand category slices only when useful
 
 Use bounded slices for focused subsystems, not broad unrelated sweeps:
 

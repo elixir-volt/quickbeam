@@ -21,26 +21,32 @@ Secondary metrics:
 
 ## Current active workload
 
-Full QuickJS-accepted parity sweep:
+QuickJS-accepted call expression slice:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=language/expressions/call ./autoresearch.sh
 ```
 
 Latest local result:
 
 ```text
-compatibility_cases=941
-compatibility_pass=935
-compatibility_failures=6
+compatibility_cases=85
+compatibility_pass=82
+compatibility_failures=3
 compiler_errors=0
 compiler_crashes=0
 compiler_fails=0
-both_fail=0
-interpreter_fail_compiler_pass=6
+both_fail=3
+interpreter_fail_compiler_pass=0
 ```
 
-Current residuals are interpreter-only object destructuring method cases where iterator-step abrupt completion side effects are not visible after the thrown call is caught. Use focused repros before editing; avoid changing the compiler path unless a compiler repro appears.
+Current residuals are direct eval with spread argument lists:
+
+- `language/expressions/call/eval-spread.js`
+- `language/expressions/call/eval-spread-empty-leading.js`
+- `language/expressions/call/eval-spread-empty-trailing.js`
+
+The previous `language/expressions/object` QuickJS-accepted slice is clean at `941/941`.
 
 ## How to run
 
