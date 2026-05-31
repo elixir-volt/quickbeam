@@ -78,6 +78,7 @@ defmodule QuickBEAM.VM.Runtime.Array do
     {:obj, ref} = proto
 
     QuickBEAM.VM.Builtin.Installer.install_prototype_specs(ref, __MODULE__)
+    alias_iterator_to_values(ref)
 
     unscopables_map =
       object heap: false, prototype: :null_proto do
@@ -109,6 +110,16 @@ defmodule QuickBEAM.VM.Runtime.Array do
     })
 
     proto
+  end
+
+  defp alias_iterator_to_values(ref) do
+    case Heap.get_obj(ref, %{}) do
+      %{"values" => values} = map ->
+        Heap.put_obj(ref, Map.put(map, {:symbol, "Symbol.iterator"}, values))
+
+      _ ->
+        :ok
+    end
   end
 
   # ── Array.prototype dispatch ──
