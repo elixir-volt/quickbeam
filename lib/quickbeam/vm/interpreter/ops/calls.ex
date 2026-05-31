@@ -104,6 +104,12 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
         end
       end
 
+      defp prevalidate_builtin_construct_args!({:builtin, name, _}, args)
+           when name in ["ArrayBuffer", "SharedArrayBuffer"],
+           do: QuickBEAM.VM.Runtime.ArrayBuffer.prevalidate_construct_args!(args)
+
+      defp prevalidate_builtin_construct_args!(_ctor, _args), do: :ok
+
       defp construct_non_proxy(ctor, new_target, rev_args, gas, ctx) do
         raw_ctor =
           case ctor do
@@ -158,6 +164,8 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
           _ ->
             :ok
         end
+
+        prevalidate_builtin_construct_args!(raw_ctor, rev_args)
 
         this_ref = make_ref()
 

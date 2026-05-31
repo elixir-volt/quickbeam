@@ -8,7 +8,7 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.JSThrow
   alias QuickBEAM.VM.Invocation
-  alias QuickBEAM.VM.ObjectModel.Get
+  alias QuickBEAM.VM.ObjectModel.{Get, OwnProperty}
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.TypedArrayCoercion
   alias QuickBEAM.VM.Value
@@ -78,6 +78,17 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
   proto_getter "resizable" do
     map = array_buffer_map!(this)
     !!Map.get(map, "resizable")
+  end
+
+  def prevalidate_construct_args!(args) do
+    byte_length = args |> arg(0, :undefined) |> TypedArrayCoercion.index()
+    max_byte_length = args |> arg(1, :undefined) |> max_byte_length_option()
+
+    if max_byte_length != nil and max_byte_length < byte_length do
+      JSThrow.range_error!("maxByteLength is smaller than byteLength")
+    end
+
+    :ok
   end
 
   @doc "Builds the JavaScript constructor object for this runtime builtin."
@@ -446,7 +457,9 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
   defp array_buffer_species_constructor(obj) do
     case Get.get(obj, "constructor") do
       :undefined ->
-        nil
+        if explicit_null_constructor?(obj),
+          do: JSThrow.type_error!("ArrayBuffer constructor is not an object"),
+          else: nil
 
       :null ->
         JSThrow.type_error!("ArrayBuffer constructor is not an object")
@@ -463,6 +476,16 @@ defmodule QuickBEAM.VM.Runtime.ArrayBuffer do
           species when is_nullish(species) -> nil
           species -> species
         end
+    end
+  end
+
+  defp explicit_null_constructor?(obj) do
+    case OwnProperty.descriptor(obj, "constructor") do
+      {:obj, desc_ref} ->
+        match?(%{"value" => nil}, Heap.get_obj(desc_ref, %{}))
+
+      _ ->
+        false
     end
   end
 

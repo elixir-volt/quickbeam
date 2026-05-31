@@ -844,6 +844,10 @@ defmodule QuickBEAM.VM.Invocation do
 
   defp reject_revoked_proxy_new_target!(_new_target, _proto), do: :ok
 
+  defp prevalidate_builtin_construct_args!({:builtin, name, _}, args)
+       when name in ["ArrayBuffer", "SharedArrayBuffer"],
+       do: QuickBEAM.VM.Runtime.ArrayBuffer.prevalidate_construct_args!(args)
+
   defp prevalidate_builtin_construct_args!({:builtin, "DataView", _}, args),
     do: QuickBEAM.VM.Runtime.DataView.prevalidate_construct_args!(args)
 
