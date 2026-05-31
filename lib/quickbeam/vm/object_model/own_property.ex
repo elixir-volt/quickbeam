@@ -737,10 +737,12 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
         :undefined
 
       val ->
-        PropertyDescriptor.data_object(
-          val,
-          PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: true)
-        )
+        attrs =
+          if prop_name == {:symbol, "Symbol.toPrimitive"},
+            do: PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: true),
+            else: PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: true)
+
+        PropertyDescriptor.data_object(val, attrs)
     end
   end
 

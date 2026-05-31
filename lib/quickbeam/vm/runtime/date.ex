@@ -5,6 +5,7 @@ defmodule QuickBEAM.VM.Runtime.Date do
   import QuickBEAM.VM.Value, only: [is_nullish: 1]
   use QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.ObjectModel.PropertyDescriptor
   alias QuickBEAM.VM.Semantics.Values
   alias QuickBEAM.VM.{Invocation, JSThrow}
 
@@ -19,10 +20,24 @@ defmodule QuickBEAM.VM.Runtime.Date do
       phase: :fundamental
     )
 
+    install do
+      case Heap.get_class_proto(ctor) do
+        {:obj, proto_ref} ->
+          Heap.put_prop_desc(
+            proto_ref,
+            {:symbol, "Symbol.toPrimitive"},
+            PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: true)
+          )
+
+        _ ->
+          :ok
+      end
+    end
+
     prototype extends: :object do
       @ecma "21.4.4.45"
       symbol :toPrimitive do
-        method length: 1 do
+        method length: 1, writable: false, enumerable: false, configurable: true do
           symbol_to_primitive(this, args)
         end
       end
@@ -242,33 +257,74 @@ defmodule QuickBEAM.VM.Runtime.Date do
 
   # ── Setters ──
 
-  proto("setTime",
-    do:
-      (
-        get_ms(this)
-        put_ms(this, QuickBEAM.VM.Runtime.to_number(arg(args, 0, :undefined)))
-      )
-  )
+  proto "setTime", length: 1 do
+    get_ms(this)
+    put_ms(this, QuickBEAM.VM.Runtime.to_number(arg(args, 0, :undefined)))
+  end
 
-  proto("setFullYear", do: set_full_year(this, args))
-  proto("setMonth", do: set_month(this, args))
-  proto("setDate", do: set_date_field(this, args))
-  proto("setHours", do: set_time_fields(this, [:hour, :minute, :second, :ms], args))
-  proto("setMinutes", do: set_time_fields(this, [:minute, :second, :ms], args))
-  proto("setSeconds", do: set_time_fields(this, [:second, :ms], args))
-  proto("setMilliseconds", do: set_time_fields(this, [:ms], args))
-  proto("setUTCHours", do: set_time_fields(this, [:hour, :minute, :second, :ms], args))
-  proto("setUTCMinutes", do: set_time_fields(this, [:minute, :second, :ms], args))
-  proto("setUTCSeconds", do: set_time_fields(this, [:second, :ms], args))
-  proto("setUTCMilliseconds", do: set_time_fields(this, [:ms], args))
-  proto("setUTCFullYear", do: set_full_year(this, args))
-  proto("setUTCMonth", do: set_month(this, args))
-  proto("setUTCDate", do: set_date_field(this, args))
+  proto "setFullYear", length: 3 do
+    set_full_year(this, args)
+  end
+
+  proto "setMonth", length: 2 do
+    set_month(this, args)
+  end
+
+  proto "setDate", length: 1 do
+    set_date_field(this, args)
+  end
+
+  proto "setHours", length: 4 do
+    set_time_fields(this, [:hour, :minute, :second, :ms], args)
+  end
+
+  proto "setMinutes", length: 3 do
+    set_time_fields(this, [:minute, :second, :ms], args)
+  end
+
+  proto "setSeconds", length: 2 do
+    set_time_fields(this, [:second, :ms], args)
+  end
+
+  proto "setMilliseconds", length: 1 do
+    set_time_fields(this, [:ms], args)
+  end
+
+  proto "setUTCHours", length: 4 do
+    set_time_fields(this, [:hour, :minute, :second, :ms], args)
+  end
+
+  proto "setUTCMinutes", length: 3 do
+    set_time_fields(this, [:minute, :second, :ms], args)
+  end
+
+  proto "setUTCSeconds", length: 2 do
+    set_time_fields(this, [:second, :ms], args)
+  end
+
+  proto "setUTCMilliseconds", length: 1 do
+    set_time_fields(this, [:ms], args)
+  end
+
+  proto "setUTCFullYear", length: 3 do
+    set_full_year(this, args)
+  end
+
+  proto "setUTCMonth", length: 2 do
+    set_month(this, args)
+  end
+
+  proto "setUTCDate", length: 1 do
+    set_date_field(this, args)
+  end
 
   # ── Formatting ──
 
   proto("toISOString", do: to_iso_string(this))
-  proto("toJSON", do: to_json(this, args))
+
+  proto "toJSON", length: 1 do
+    to_json(this, args)
+  end
 
   proto("toString",
     do: fmt_dt(this, &Calendar.strftime(&1, "%a %b %d %Y %H:%M:%S GMT+0000 (UTC)"))
