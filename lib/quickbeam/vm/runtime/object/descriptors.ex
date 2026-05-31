@@ -213,8 +213,7 @@ defmodule QuickBEAM.VM.Runtime.Object.Descriptors do
       Heap.put_ctor_static(target, prop_key, val)
     end
 
-    existing_flags =
-      Heap.get_prop_desc(target, prop_key) || Heap.get_ctor_prop_desc(target, prop_key)
+    existing_flags = static_existing_flags(target, prop_key)
 
     attrs =
       PropertyDescriptor.attrs(
@@ -232,7 +231,7 @@ defmodule QuickBEAM.VM.Runtime.Object.Descriptors do
   defp reject_incompatible_static_descriptor!(target, prop_key, desc) do
     current_value = Get.get(target, prop_key)
 
-    case Heap.get_prop_desc(target, prop_key) || Heap.get_ctor_prop_desc(target, prop_key) do
+    case static_existing_flags(target, prop_key) do
       %{configurable: false} = current ->
         cond do
           Map.get(desc, "configurable") == true ->
@@ -255,6 +254,15 @@ defmodule QuickBEAM.VM.Runtime.Object.Descriptors do
       _ ->
         :ok
     end
+  end
+
+  defp static_existing_flags(target, prop_key) when prop_key in ["length", "name"] do
+    Heap.get_prop_desc(target, prop_key) || Heap.get_ctor_prop_desc(target, prop_key) ||
+      PropertyDescriptor.hidden_readonly()
+  end
+
+  defp static_existing_flags(target, prop_key) do
+    Heap.get_prop_desc(target, prop_key) || Heap.get_ctor_prop_desc(target, prop_key)
   end
 
   defp property_descriptor_arg!({:obj, _} = desc), do: desc
