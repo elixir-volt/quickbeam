@@ -9,7 +9,7 @@ Drive BEAM interpreter/compiler behavior toward QuickJS NIF parity on Test262, p
 Continue with adjacent QuickJS-accepted object-model slices. The next active candidate is `built-ins/TypedArray`:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/TypedArray/prototype/filter,built-ins/TypedArray/prototype/map,built-ins/TypedArray/prototype/slice TEST262_ERROR_LIMIT=80 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/TypedArray/prototype/set TEST262_ERROR_LIMIT=40 ./autoresearch.sh
 ```
 
 Latest completed result:
@@ -71,7 +71,7 @@ built-ins/Function: 495/495
 Current active candidate:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/TypedArray/prototype/filter,built-ins/TypedArray/prototype/map,built-ins/TypedArray/prototype/slice TEST262_ERROR_LIMIT=80 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/TypedArray/prototype/set TEST262_ERROR_LIMIT=40 ./autoresearch.sh
 ```
 
 Latest completed Array result:
@@ -110,21 +110,19 @@ Current focused TypedArray species slice:
 ```text
 category=built-ins/TypedArray/prototype/filter,built-ins/TypedArray/prototype/map,built-ins/TypedArray/prototype/slice
 compatibility_cases=236
-compatibility_pass=233
-compatibility_failures=3
+compatibility_pass=236
+compatibility_failures=0
 both_fail=0
-interpreter_fail_compiler_pass=3
+interpreter_fail_compiler_pass=0
 ```
 
 Kept fixes in TypedArray follow-up:
 
 - `reduce`/`reduceRight` clean at `92/92`; closure-aware mapped arguments offsets.
 - `join`/`toString` clean at `29/29`; Number prototype lookup for `NaN`/`±Infinity`.
-- Species `filter`/`map`/`slice` improved `15 → 3`; length-tracking typed arrays over resizable ArrayBuffers now allow unaligned current byte lengths and floor element count instead of throwing `RangeError`.
+- Species `filter`/`map`/`slice` is clean at `236/236`; fixes covered length-tracking views over unaligned resizable ArrayBuffers and preventing outer constructor `new.target` from making ordinary `BigInt()` calls throw.
 
-Remaining species failures are interpreter-only `BigInt is not a constructor` in `map`/`slice` resizable-buffer species tests. Focus on interpreter class/loop lexical state or BigInt constructor lookup after `class MyArray extends ctor` loops; compiler and native pass.
-
-TypedArray `set` has one broad interpreter timeout in `typedarray-arg-src-backed-by-resizable-buffer.js`. A naive bulk-write optimization was tried locally and regressed abrupt-completion/ordering semantics, so do not retry that unchanged.
+Current remaining focused candidate is TypedArray `set`: one broad interpreter/compiler timeout in `typedarray-arg-src-backed-by-resizable-buffer.js`. A naive bulk-write optimization was tried locally and regressed abrupt-completion/ordering semantics, so do not retry that unchanged. Prefer preserving per-element observable order while reducing per-write buffer/view churn.
 
 Tried and reverted as ineffective:
 

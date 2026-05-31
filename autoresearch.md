@@ -26,7 +26,7 @@ The previous `language/expressions/object` QuickJS-accepted slice is clean at `9
 Current active slice candidate:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/TypedArray/prototype/filter,built-ins/TypedArray/prototype/map,built-ins/TypedArray/prototype/slice TEST262_ERROR_LIMIT=80 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/TypedArray/prototype/set TEST262_ERROR_LIMIT=40 ./autoresearch.sh
 ```
 
 Latest completed local result:
