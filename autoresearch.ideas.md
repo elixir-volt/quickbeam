@@ -6,26 +6,26 @@ Drive BEAM interpreter/compiler behavior toward QuickJS NIF parity on Test262, p
 
 ## Active workload
 
-Start with the bounded Proxy slice because recent work reduced it sharply and the remaining failures are clustered in object-model semantics:
+Use the full QuickJS-accepted parity sweep now that the bounded Proxy slice and residual mode are clean:
 
 ```sh
-AUTORESEARCH_TEST262_CATEGORY=built-ins/Proxy TEST262_LIMIT=300 TEST262_ERROR_LIMIT=20 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 ./autoresearch.sh
 ```
 
 Latest result:
 
 ```text
-compatibility_cases=300
-compatibility_pass=300
-compatibility_failures=0
+compatibility_cases=941
+compatibility_pass=935
+compatibility_failures=6
 both_fail=0
-interpreter_fail_compiler_pass=0
+interpreter_fail_compiler_pass=6
 compiler_fails=0
 compiler_crashes=0
 compiler_errors=0
 ```
 
-Proxy slice is clean. Kept fixes:
+Recent kept fixes:
 
 - interpreter `in` now uses ToPropertyKey and refreshes frame-visible global writes after proxy `has` traps;
 - proxy newTarget default-prototype lookup recurses to the target function realm;
@@ -63,15 +63,15 @@ checks_timeout_seconds: 900
 
 ## Near-term plan
 
-### 1. Move to native-accepted QuickJS parity batches
+### 1. Interpreter abrupt-completion side effects in destructuring calls
 
-Proxy is clean, so switch from category slices to QuickJS-accepted residuals:
+Remaining current failures are interpreter-only `language/expressions/object/dstr/*iter-step-err.js` cases. A focused repro shows `first += 1` inside a throwing called function/generator is visible on normal return but not when the thrown call is caught by the caller. Explore call/throw context propagation rather than benchmark-specific destructuring shortcuts.
 
-```sh
-AUTORESEARCH_QUICKJS_PARITY=1 ./autoresearch.sh
-```
+Tried and reverted as ineffective:
 
-Use this to avoid spending time on tests QuickJS itself rejects or does not support.
+- syncing caller captured locals/global writes in `catch_and_dispatch` throw branches;
+- persisting `ctx.globals` in the `throw` opcode;
+- merging base globals into the throw refresh path.
 
 ### 2. Expand category slices only when useful
 

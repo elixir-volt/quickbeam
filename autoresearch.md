@@ -21,30 +21,26 @@ Secondary metrics:
 
 ## Current active workload
 
-Bounded Proxy slice:
+Full QuickJS-accepted parity sweep:
 
 ```sh
-AUTORESEARCH_TEST262_CATEGORY=built-ins/Proxy TEST262_LIMIT=300 TEST262_ERROR_LIMIT=20 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 ./autoresearch.sh
 ```
 
 Latest local result:
 
 ```text
-compatibility_cases=300
-compatibility_pass=300
-compatibility_failures=0
+compatibility_cases=941
+compatibility_pass=935
+compatibility_failures=6
 compiler_errors=0
 compiler_crashes=0
 compiler_fails=0
 both_fail=0
-interpreter_fail_compiler_pass=0
+interpreter_fail_compiler_pass=6
 ```
 
-The bounded Proxy slice is clean. The next phase should use QuickJS-accepted residual mode to avoid chasing tests that the native path rejects:
-
-```sh
-AUTORESEARCH_QUICKJS_PARITY=1 ./autoresearch.sh
-```
+Current residuals are interpreter-only object destructuring method cases where iterator-step abrupt completion side effects are not visible after the thrown call is caught. Use focused repros before editing; avoid changing the compiler path unless a compiler repro appears.
 
 ## How to run
 
