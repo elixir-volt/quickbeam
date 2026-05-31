@@ -6,7 +6,6 @@ defmodule QuickBEAM.VM.Runtime.Function do
   import QuickBEAM.VM.Value, only: [is_nullish: 1]
 
   alias QuickBEAM.VM.{Builtin, Heap, Invocation, RuntimeState, Value}
-  alias QuickBEAM.VM.Execution.Trace
   alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods, PropertyDescriptor, WrappedPrimitive}
   alias QuickBEAM.VM.Runtime.ConstructorRegistry, as: ConstructorRegistry
   alias QuickBEAM.VM.Runtime.TypedArray
@@ -247,7 +246,7 @@ defmodule QuickBEAM.VM.Runtime.Function do
   end
 
   def proto_property(fun, "caller") do
-    if strict_function?(fun) or bound_function?(fun) or strict_active_caller?(fun) do
+    if strict_function?(fun) or bound_function?(fun) do
       throw(
         {:js_throw,
          Heap.make_error(
@@ -284,33 +283,6 @@ defmodule QuickBEAM.VM.Runtime.Function do
   def proto_property(_fun, _), do: :undefined
 
   defp strict_function?(fun), do: Value.strict_function?(fun)
-
-  defp strict_active_caller?(fun) do
-    fun = raw_function(fun)
-
-    Trace.get_frames()
-    |> Enum.map(& &1.fun)
-    |> caller_after(fun)
-    |> strict_function?()
-  end
-
-  defp caller_after([current, caller | rest], fun) do
-    cond do
-      raw_function(current) != fun -> caller_after([caller | rest], fun)
-      predefined_frame?(caller) -> caller_after([caller | rest], fun)
-      true -> caller
-    end
-  end
-
-  defp caller_after([_], _fun), do: nil
-  defp caller_after([], _fun), do: nil
-
-  defp predefined_frame?(%QuickBEAM.VM.Function{name: {:predefined, _}}), do: true
-  defp predefined_frame?({:closure, _, %QuickBEAM.VM.Function{name: {:predefined, _}}}), do: true
-  defp predefined_frame?(_), do: false
-
-  defp raw_function({:closure, _, %QuickBEAM.VM.Function{} = fun}), do: fun
-  defp raw_function(fun), do: fun
 
   defp bound_function?({:bound, _, _, _, _}), do: true
   defp bound_function?(_), do: false

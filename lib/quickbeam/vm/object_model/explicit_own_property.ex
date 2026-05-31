@@ -20,6 +20,14 @@ defmodule QuickBEAM.VM.ObjectModel.ExplicitOwnProperty do
     end
   end
 
+  def present?(%QuickBEAM.VM.Function{is_strict_mode: false}, key)
+      when key in ["caller", "arguments"],
+      do: true
+
+  def present?({:closure, _, %QuickBEAM.VM.Function{is_strict_mode: false}}, key)
+      when key in ["caller", "arguments"],
+      do: true
+
   def present?(value, key) when is_tuple(value) or is_struct(value),
     do: Heap.get_ctor_prop_desc(value, key) != nil
 
