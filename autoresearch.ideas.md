@@ -6,10 +6,10 @@ Drive BEAM interpreter/compiler behavior toward QuickJS NIF parity on Test262, p
 
 ## Active workload
 
-Continue the QuickJS-accepted `built-ins/Object` slice:
+Continue with adjacent QuickJS-accepted object-model slices. The next active candidate is `built-ins/Function`:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Object TEST262_ERROR_LIMIT=20 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Function TEST262_ERROR_LIMIT=20 ./autoresearch.sh
 ```
 
 Latest result:
@@ -57,12 +57,19 @@ checks_timeout_seconds: 900
 
 ## Near-term plan
 
-### 1. Continue built-ins/Object parity
+### 1. Continue adjacent object-model parity
 
-Current active slice:
+Recently completed slices:
+
+```text
+built-ins/Object: 3408/3408
+built-ins/Reflect: 153/153
+```
+
+Current active candidate:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Object TEST262_ERROR_LIMIT=20 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Function TEST262_ERROR_LIMIT=20 ./autoresearch.sh
 ```
 
 Latest result:
@@ -93,7 +100,7 @@ Recent kept fixes reduced the slice from 52 to 0 failures:
 - Ordinary `in` checks no longer sync stale global writes into frame locals unless the check changed persistent globals.
 - Frame/global synchronization no longer overwrites a function-local `arguments` binding from globals.
 
-The `built-ins/Object` QuickJS-accepted slice is clean at `3408/3408`. Next, rebaseline a broader QuickJS-accepted workload and pick the next failing category from current failures.
+The `built-ins/Object` QuickJS-accepted slice is clean at `3408/3408`. The adjacent `built-ins/Reflect` slice is also clean at `153/153`; fixes covered abrupt `ToPropertyKey` ordering in `Reflect.defineProperty` and preserving `Reflect.get` receiver through prototype accessors.
 
 Tried and reverted as ineffective:
 

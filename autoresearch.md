@@ -21,19 +21,20 @@ Secondary metrics:
 
 ## Current active workload
 
-The previous `language/expressions/object` QuickJS-accepted slice is clean at `941/941`, and `language/expressions/call` is clean at `85/85`.
+The previous `language/expressions/object` QuickJS-accepted slice is clean at `941/941`, `language/expressions/call` is clean at `85/85`, `built-ins/Object` is clean at `3408/3408`, and `built-ins/Reflect` is clean at `153/153`.
 
-Current active slice is clean:
+Current active slice:
 
 ```sh
-AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Object TEST262_ERROR_LIMIT=20 ./autoresearch.sh
+AUTORESEARCH_QUICKJS_PARITY_ALL=1 AUTORESEARCH_TEST262_CATEGORY=built-ins/Function TEST262_ERROR_LIMIT=20 ./autoresearch.sh
 ```
 
-Latest local result:
+Latest completed local result:
 
 ```text
-compatibility_cases=3408
-compatibility_pass=3408
+category=built-ins/Reflect
+compatibility_cases=153
+compatibility_pass=153
 compatibility_failures=0
 compiler_errors=0
 compiler_crashes=0
