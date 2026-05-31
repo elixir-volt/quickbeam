@@ -120,6 +120,10 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       descriptor = Enum.at(args, 2, :undefined)
       require_object!(obj, "Reflect.defineProperty")
 
+      unless Value.object_like?(descriptor) do
+        JSThrow.type_error!("Property description must be an object")
+      end
+
       try do
         Object.static_property("defineProperty")
         |> Invocation.invoke_callback_or_throw([
@@ -130,7 +134,8 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
 
         true
       catch
-        {:js_throw, _reason} -> false
+        {:js_throw, reason} ->
+          if define_property_false_result?(reason), do: false, else: throw({:js_throw, reason})
       end
     end
 
@@ -255,6 +260,22 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
       Get.get(value, Integer.to_string(index))
     end
   end
+
+  defp define_property_false_result?(reason) do
+    error_message(reason) in [
+      "Cannot define property",
+      "proxy defineProperty trap returned false"
+    ]
+  end
+
+  defp error_message({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      %{"message" => message} -> message
+      _ -> nil
+    end
+  end
+
+  defp error_message(_), do: nil
 
   defp require_object!(value, name) do
     unless Value.object_like?(value) do

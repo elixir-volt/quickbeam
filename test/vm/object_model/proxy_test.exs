@@ -112,6 +112,26 @@ defmodule QuickBEAM.VM.ObjectModel.ProxyTest do
       ~S|let target = {}; Object.defineProperty(target, "x", {value: 1, configurable: true}); let p = new Proxy(target, {defineProperty(){ return true; }}); try { Object.defineProperty(p, "x", {value: 1, configurable: false}); "ok"; } catch (e) { e.name; }|,
       "TypeError"
     )
+
+    assert_modes(
+      rt,
+      ~S|let target = {}; Object.preventExtensions(target); let p = new Proxy(target, {defineProperty(){ return true; }}); try { Reflect.defineProperty(p, "x", {value: 1}); "ok"; } catch (e) { e.name; }|,
+      "TypeError"
+    )
+  end
+
+  test "Reflect.defineProperty returns false only for internal define failure", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|[Reflect.defineProperty(new Proxy({}, {defineProperty(){ return false; }}), "x", {value: 1}), Reflect.defineProperty(Object.preventExtensions({}), "x", {value: 1})].join(",")|,
+      "false,false"
+    )
+
+    assert_modes(
+      rt,
+      ~S|try { Reflect.defineProperty({}, "x", 1); "ok"; } catch (e) { e.name; }|,
+      "TypeError"
+    )
   end
 
   test "ownKeys validates array-like trap results and property keys", %{rt: rt} do

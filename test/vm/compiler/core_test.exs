@@ -772,7 +772,7 @@ defmodule QuickBEAM.VM.CompilerTest do
       proxy_define_nonextensible =
         compile_and_decode(
           rt,
-          ~S|let t={}; Object.preventExtensions(t); let p=new Proxy(t,{defineProperty(){return true}}); Reflect.defineProperty(p,"x",{value:1})|
+          ~S|let t={}; Object.preventExtensions(t); let p=new Proxy(t,{defineProperty(){return true}}); try{Reflect.defineProperty(p,"x",{value:1});"ok"}catch(e){e.name}|
         ).value
 
       proxy_delete_trap =
@@ -970,7 +970,7 @@ defmodule QuickBEAM.VM.CompilerTest do
       assert {:ok, "1:1"} = Compiler.invoke(proxy_define_trap, [])
       assert {:ok, false} = Compiler.invoke(proxy_define_false, [])
       assert {:ok, "TypeError"} = Compiler.invoke(proxy_define_object_false, [])
-      assert {:ok, false} = Compiler.invoke(proxy_define_nonextensible, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(proxy_define_nonextensible, [])
       assert {:ok, "1:true"} = Compiler.invoke(proxy_delete_trap, [])
       assert {:ok, false} = Compiler.invoke(proxy_delete_false, [])
       assert {:ok, "TypeError"} = Compiler.invoke(proxy_delete_invariant, [])
