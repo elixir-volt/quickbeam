@@ -2813,9 +2813,8 @@ defmodule QuickBEAM.VM.Runtime.Array do
       map when is_map(map) ->
         copy_within_object(obj, args)
 
-      {:qb_arr, arr} ->
-        Heap.put_obj(ref, {:qb_arr, copy_within_qb_arr(arr, args)})
-        obj
+      {:qb_arr, _arr} ->
+        copy_within_ordinary_object(obj, args)
 
       _ ->
         copy_within_ordinary_object(obj, args)
@@ -2823,37 +2822,6 @@ defmodule QuickBEAM.VM.Runtime.Array do
   end
 
   defp copy_within(_, _), do: :undefined
-
-  defp copy_within_qb_arr(arr, args) do
-    len = :array.size(arr)
-    target = normalize_copy_index(arg(args, 0, 0), len)
-    start_idx = normalize_copy_index(arg(args, 1, 0), len)
-    end_idx = copy_within_end(args, len)
-    count = max(min(end_idx - start_idx, len - target), 0)
-
-    if count <= 0 do
-      arr
-    else
-      {from, to, step} =
-        if start_idx < target and target < start_idx + count,
-          do: {start_idx + count - 1, target + count - 1, -1},
-          else: {start_idx, target, 1}
-
-      Enum.reduce(0..(count - 1)//1, {arr, from, to}, fn _offset, {acc, from_idx, to_idx} ->
-        value = array_value_at(acc, from_idx)
-        {:array.set(to_idx, value, acc), from_idx + step, to_idx + step}
-      end)
-      |> elem(0)
-    end
-  end
-
-  defp copy_within_end(args, len) do
-    case Enum.drop(args, 2) do
-      [] -> len
-      [:undefined | _] -> len
-      [end_value | _] -> normalize_copy_index(end_value, len)
-    end
-  end
 
   defp copy_within_object({:obj, ref} = obj, args) do
     case Heap.get_obj(ref, %{}) do
@@ -2910,22 +2878,27 @@ defmodule QuickBEAM.VM.Runtime.Array do
         [end_value | _] -> normalize_copy_index(end_value, len)
       end
 
-    count = max(end_idx - start_idx, 0)
+    count = max(min(end_idx - start_idx, len - target), 0)
 
     if count > 0 do
-      Enum.reduce(0..(count - 1)//1, obj, fn offset, acc ->
-        from_key = Integer.to_string(start_idx + offset)
-        to_key = Integer.to_string(target + offset)
+      {from, to, step} =
+        if start_idx < target and target < start_idx + count,
+          do: {start_idx + count - 1, target + count - 1, -1},
+          else: {start_idx, target, 1}
 
-        if InternalMethods.has_property(acc, from_key) do
-          InternalMethods.set(acc, to_key, Get.get(acc, from_key))
+      Enum.reduce(0..(count - 1)//1, {from, to}, fn _offset, {from_idx, to_idx} ->
+        from_key = Integer.to_string(from_idx)
+        to_key = Integer.to_string(to_idx)
+
+        if InternalMethods.has_property(obj, from_key) do
+          InternalMethods.set(obj, to_key, Get.get(obj, from_key))
         else
-          unless InternalMethods.delete(acc, to_key) do
+          unless InternalMethods.delete(obj, to_key) do
             JSThrow.type_error!("Cannot delete property")
           end
         end
 
-        acc
+        {from_idx + step, to_idx + step}
       end)
     end
 
