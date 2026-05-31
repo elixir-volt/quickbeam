@@ -424,7 +424,7 @@ defmodule QuickBEAM.VM.Runtime.Errors do
       Heap.put_prop_desc(ref, key, PropertyDescriptor.method())
     end
 
-    Heap.put_prop_desc(ref, {:symbol, "Symbol.toStringTag"}, PropertyDescriptor.hidden_readonly())
+    Heap.put_prop_desc(ref, {:symbol, "Symbol.toStringTag"}, PropertyDescriptor.method())
 
     this_obj
   end

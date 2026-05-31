@@ -326,7 +326,7 @@ defmodule QuickBEAM.VM.Heap do
       end
 
       put_prop_desc(ref, {:symbol, "Symbol.toStringTag"}, %{
-        writable: false,
+        writable: true,
         enumerable: false,
         configurable: true
       })
