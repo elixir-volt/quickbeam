@@ -4,13 +4,15 @@ defmodule QuickBEAM.VM.ObjectModel.ProxyHas do
   import QuickBEAM.VM.Heap.Keys, only: [proxy_target: 0]
 
   alias QuickBEAM.VM.{Heap, JSThrow}
-  alias QuickBEAM.VM.ObjectModel.{OwnProperty, ProxyDispatch, ProxyTrap}
+  alias QuickBEAM.VM.ObjectModel.{InternalMethods, ProxyDispatch, ProxyTrap}
   alias QuickBEAM.VM.Semantics.Values
 
   def dispatch({:obj, ref} = proxy, key, fallback) when is_function(fallback, 2) do
     case Heap.get_obj(ref, %{}) do
       %{proxy_target() => _target} = proxy_map ->
-        ProxyDispatch.with_trap(proxy_map, "has", &fallback.(&1, key), fn target, handler, trap ->
+        proxy_fallback = fn target -> dispatch(target, key, fallback) end
+
+        ProxyDispatch.with_trap(proxy_map, "has", proxy_fallback, fn target, handler, trap ->
           trap_result = trap |> ProxyTrap.call([target, key], handler) |> Values.truthy?()
           validate_invariant(target, key, trap_result)
         end)
@@ -30,7 +32,8 @@ defmodule QuickBEAM.VM.ObjectModel.ProxyHas do
       match?(%{configurable: false}, desc) ->
         JSThrow.type_error!("proxy has trap violates invariant")
 
-      OwnProperty.present?(target, key) and not Heap.extensible?(target_ref) ->
+      InternalMethods.own_property_present?(target, key) and
+          not InternalMethods.extensible?(target) ->
         JSThrow.type_error!("proxy has trap violates invariant")
 
       true ->

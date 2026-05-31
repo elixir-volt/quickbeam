@@ -236,6 +236,56 @@ defmodule QuickBEAM.VM.ObjectModel.ProxyTest do
     )
   end
 
+  test "nullish structural traps forward through proxy targets", %{rt: rt} do
+    assert_modes(
+      rt,
+      ~S|let target = { a: 1 }; let proxy = new Proxy(new Proxy(target, {}), { ownKeys: null }); Reflect.ownKeys(proxy).join(",")|,
+      "a"
+    )
+
+    assert_modes(
+      rt,
+      ~S|let target = {}; let proxy = new Proxy(new Proxy(target, {}), { preventExtensions: null }); Object.preventExtensions(proxy); Object.isExtensible(target)|,
+      false
+    )
+
+    assert_modes(
+      rt,
+      ~S|let target = {}; let proxy = new Proxy(new Proxy(target, {}), { isExtensible: undefined }); Reflect.isExtensible(proxy)|,
+      true
+    )
+
+    assert_modes(
+      rt,
+      ~S|let target = { attr: 1 }; let proxy = new Proxy(new Proxy(target, {}), { getOwnPropertyDescriptor: undefined }); [Object.prototype.hasOwnProperty.call(proxy, "attr"), Object.prototype.propertyIsEnumerable.call(proxy, "attr"), Object.getOwnPropertyDescriptor(proxy, "attr").value].join(",")|,
+      "true,true,1"
+    )
+
+    assert_modes(
+      rt,
+      ~S|let re = /(?:)/; let proxy = new Proxy(new Proxy(re, {}), { getOwnPropertyDescriptor: undefined }); let desc = Object.getOwnPropertyDescriptor(proxy, "lastIndex"); [desc.value, desc.writable, desc.enumerable, desc.configurable].join(",")|,
+      "0,true,false,false"
+    )
+
+    assert_modes(
+      rt,
+      ~S|let re = /(?:)/m; let proxy = new Proxy(new Proxy(re, {}), { has: null }); [Reflect.has(proxy, "ignoreCase"), Symbol.replace in proxy, "lastIndex" in Object.create(proxy)].join(",")|,
+      "true,true,true"
+    )
+
+    assert_modes(
+      rt,
+      ~S|let calls = []; let proto = {}; let target = new Proxy(Object.create(proto), { isExtensible(){ calls.push("isExtensible"); return false; }, getPrototypeOf(){ calls.push("getPrototypeOf"); return proto; } }); Object.preventExtensions(target); let proxy = new Proxy(target, { setPrototypeOf(){ calls.push("setPrototypeOf"); return true; } }); [Reflect.setPrototypeOf(proxy, proto), calls.join("/")].join(",")|,
+      "true,setPrototypeOf/isExtensible/getPrototypeOf"
+    )
+
+    assert_modes(
+      rt,
+      ~S|let target = {}; Object.preventExtensions(target); let proxy = new Proxy(target, { setPrototypeOf(){ return true; } }); try { Reflect.setPrototypeOf(proxy, {}); "ok"; } catch (e) { e.name; }|,
+      "TypeError"
+    )
+  end
+
   test "preventExtensions traps use handler receiver and revoked checks", %{rt: rt} do
     assert_modes(
       rt,

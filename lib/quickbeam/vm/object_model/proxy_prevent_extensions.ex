@@ -10,9 +10,11 @@ defmodule QuickBEAM.VM.ObjectModel.ProxyPreventExtensions do
   def dispatch({:obj, ref} = proxy, fallback) when is_function(fallback, 1) do
     case Heap.get_obj(ref, %{}) do
       %{proxy_target() => _target} = proxy_map ->
-        ProxyDispatch.with_trap(proxy_map, "preventExtensions", fallback, fn target,
-                                                                             handler,
-                                                                             trap ->
+        proxy_fallback = fn target -> dispatch(target, fallback) end
+
+        ProxyDispatch.with_trap(proxy_map, "preventExtensions", proxy_fallback, fn target,
+                                                                                   handler,
+                                                                                   trap ->
           trap_result = ProxyTrap.call(trap, [target], handler) |> Values.truthy?()
 
           cond do

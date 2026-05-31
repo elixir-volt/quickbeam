@@ -411,7 +411,8 @@ defmodule QuickBEAM.VM.Runtime.Object do
       )
     end
 
-    OwnProperty.present?(target, prop_name) or function_descriptor_present?(target, prop_name)
+    InternalMethods.own_property_present?(target, prop_name) or
+      function_descriptor_present?(target, prop_name)
   end
 
   defp has_own_property(_, _), do: false
@@ -434,7 +435,7 @@ defmodule QuickBEAM.VM.Runtime.Object do
       )
     end
 
-    OwnProperty.present?(target, prop_name) and OwnProperty.enumerable?(target, prop_name)
+    InternalMethods.enumerable_own_property?(target, prop_name)
   end
 
   defp property_enumerable?(_, _), do: false

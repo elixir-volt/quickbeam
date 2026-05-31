@@ -9,7 +9,9 @@ defmodule QuickBEAM.VM.ObjectModel.ProxyOwnKeys do
   def dispatch({:obj, ref} = proxy, fallback) when is_function(fallback, 1) do
     case Heap.get_obj(ref, %{}) do
       %{proxy_target() => _target} = proxy_map ->
-        ProxyDispatch.with_trap(proxy_map, "ownKeys", fallback, fn target, handler, trap ->
+        proxy_fallback = fn target -> dispatch(target, fallback) end
+
+        ProxyDispatch.with_trap(proxy_map, "ownKeys", proxy_fallback, fn target, handler, trap ->
           trap
           |> ProxyTrap.call([target], handler)
           |> result_list()

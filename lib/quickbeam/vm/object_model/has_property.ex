@@ -81,10 +81,10 @@ defmodule QuickBEAM.VM.ObjectModel.HasProperty do
   defp prototype_has_property?({:obj, ref}, map, key) do
     cond do
       Map.has_key?(map, :__internal_proto__) ->
-        ordinary_has_property?(Map.get(map, :__internal_proto__), key)
+        InternalMethods.has_property(Map.get(map, :__internal_proto__), key)
 
       Map.has_key?(map, proto()) ->
-        ordinary_has_property?(Map.get(map, proto()), key)
+        InternalMethods.has_property(Map.get(map, proto()), key)
 
       object_prototype_ref?(ref) ->
         false
@@ -102,7 +102,7 @@ defmodule QuickBEAM.VM.ObjectModel.HasProperty do
   end
 
   defp has_array_prototype_property?(ref, key) do
-    ordinary_has_property?(Heap.get_array_proto(ref), key) or
-      ordinary_has_property?(Heap.get_object_prototype(), key)
+    InternalMethods.has_property(Heap.get_array_proto(ref), key) or
+      InternalMethods.has_property(Heap.get_object_prototype(), key)
   end
 end

@@ -208,14 +208,7 @@ defmodule QuickBEAM.VM.Runtime.Reflect do
 
     case Heap.get_obj(ref, %{}) do
       %{proxy_target() => _target, proxy_handler() => _handler} ->
-        try do
-          Object.static_property("setPrototypeOf")
-          |> Invocation.invoke_callback_or_throw([obj, proto])
-
-          true
-        catch
-          {:js_throw, _reason} -> false
-        end
+        InternalMethods.set_prototype_of(obj, proto)
 
       _ ->
         reflect_set_ordinary_prototype(obj, ref, proto)

@@ -2,14 +2,14 @@ defmodule QuickBEAM.VM.ObjectModel.ProxyOwnProperty do
   @moduledoc "Proxy [[GetOwnProperty]] dispatch and invariant validation."
 
   alias QuickBEAM.VM.{Heap, JSThrow}
-  alias QuickBEAM.VM.ObjectModel.{OwnProperty, ProxyDispatch, ProxyTrap, Semantics}
+  alias QuickBEAM.VM.ObjectModel.{InternalMethods, ProxyDispatch, ProxyTrap, Semantics}
 
   def dispatch(proxy_map, prop_name, fallback, target_flags)
       when is_function(fallback, 2) and is_function(target_flags, 2) do
     ProxyDispatch.with_trap(
       proxy_map,
       "getOwnPropertyDescriptor",
-      &fallback.(&1, prop_name),
+      fn target -> dispatch_fallback(target, prop_name, fallback) end,
       fn target, handler, trap ->
         validate_result(
           target,
@@ -116,8 +116,14 @@ defmodule QuickBEAM.VM.ObjectModel.ProxyOwnProperty do
     end
   end
 
+  defp dispatch_fallback({:obj, _} = target, prop_name, _fallback) do
+    InternalMethods.own_property(target, prop_name)
+  end
+
+  defp dispatch_fallback(target, prop_name, fallback), do: fallback.(target, prop_name)
+
   defp target_descriptor(target, prop_name) do
-    case OwnProperty.descriptor(target, prop_name) do
+    case InternalMethods.own_property(target, prop_name) do
       {:obj, ref} -> Heap.get_obj(ref, %{})
       :undefined -> :undefined
       other -> other
@@ -126,8 +132,7 @@ defmodule QuickBEAM.VM.ObjectModel.ProxyOwnProperty do
 
   defp descriptor_field(desc, key, default), do: Map.get(desc, key, default)
 
-  defp target_extensible?({:obj, ref}), do: Heap.extensible?(ref)
-  defp target_extensible?(_target), do: true
+  defp target_extensible?(target), do: InternalMethods.extensible?(target)
 
   defp invariant_error,
     do: JSThrow.type_error!("proxy getOwnPropertyDescriptor trap violates invariant")
