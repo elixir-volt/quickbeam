@@ -66,6 +66,7 @@ defmodule QuickBEAM.VM.Heap.Context do
 
   def put_persistent_globals(globals) do
     Process.delete(:qb_base_globals_cache)
+    Process.delete(:qb_global_object_refresh_cache)
     Process.put(:qb_persistent_globals, globals)
   end
 

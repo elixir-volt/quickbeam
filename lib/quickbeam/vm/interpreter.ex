@@ -226,21 +226,34 @@ defmodule QuickBEAM.VM.Interpreter do
   defp refresh_global_object_writes(ctx) do
     case Map.get(ctx.globals, "globalThis") do
       {:obj, ref} ->
-        case Heap.get_obj(ref, %{}) do
-          map when is_map(map) ->
-            visible_globals =
-              map
-              |> Enum.reject(fn {key, _} -> QuickBEAM.VM.Heap.Keys.internal_slot?(key) end)
-              |> Map.new()
+        raw = Heap.get_obj_raw(ref)
 
-            globals = Map.merge(ctx.globals, visible_globals)
-            Heap.put_persistent_globals(globals)
-            Heap.put_base_globals(globals)
-            Context.mark_dirty(%{ctx | globals: globals})
+        case Process.get(:qb_global_object_refresh_cache) do
+          {^ref, cached_raw, cached_globals} when cached_raw == raw ->
+            Context.mark_dirty(%{ctx | globals: cached_globals})
 
           _ ->
-            ctx
+            refresh_global_object_writes(ctx, ref, raw)
         end
+
+      _ ->
+        ctx
+    end
+  end
+
+  defp refresh_global_object_writes(ctx, ref, raw) do
+    case QuickBEAM.VM.Heap.Store.shape_to_map(raw) do
+      map when is_map(map) ->
+        visible_globals =
+          map
+          |> Enum.reject(fn {key, _} -> QuickBEAM.VM.Heap.Keys.internal_slot?(key) end)
+          |> Map.new()
+
+        globals = Map.merge(ctx.globals, visible_globals)
+        Heap.put_persistent_globals(globals)
+        Heap.put_base_globals(globals)
+        Process.put(:qb_global_object_refresh_cache, {ref, raw, globals})
+        Context.mark_dirty(%{ctx | globals: globals})
 
       _ ->
         ctx
