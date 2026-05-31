@@ -16,11 +16,11 @@ Latest result:
 
 ```text
 compatibility_cases=3408
-compatibility_pass=3392
-compatibility_failures=16
+compatibility_pass=3408
+compatibility_failures=0
 both_fail=0
 interpreter_fail_compiler_pass=0
-compiler_fails=16
+compiler_fails=0
 compiler_crashes=0
 compiler_errors=0
 ```
@@ -69,14 +69,14 @@ Latest result:
 
 ```text
 compatibility_cases=3408
-compatibility_pass=3392
-compatibility_failures=16
+compatibility_pass=3408
+compatibility_failures=0
 both_fail=0
-compiler_fails=16
+compiler_fails=0
 interpreter_fail_compiler_pass=0
 ```
 
-Recent kept fixes reduced the slice from 52 to 16 failures:
+Recent kept fixes reduced the slice from 52 to 0 failures:
 
 - `Object.defineProperties` now collects descriptor keys through ordinary internal own-key/enumerability semantics for builtin object-like values.
 - Error instance `Symbol.toStringTag` descriptors are hidden/non-enumerable.
@@ -91,10 +91,9 @@ Recent kept fixes reduced the slice from 52 to 16 failures:
 - Symbol writes on shape-backed objects and array named properties preserve chronological own-key order.
 - Interpreter global/lexical writes are no longer rolled back when a later continuation throws after a successful `put_var`.
 - Ordinary `in` checks no longer sync stale global writes into frame locals unless the check changed persistent globals.
+- Frame/global synchronization no longer overwrites a function-local `arguments` binding from globals.
 
-Promising current clusters:
-
-- compiler-only `Object.defineProperty` failures on `arguments` objects and generic/index properties (`15.2.3.6-4-293` through `-324`); focused probes point at compiler catch/call boundaries around caught `Object.defineProperty` TypeErrors and later `verifyProperty(arguments, ...)` calls.
+The `built-ins/Object` QuickJS-accepted slice is clean at `3408/3408`. Next, rebaseline a broader QuickJS-accepted workload and pick the next failing category from current failures.
 
 Tried and reverted as ineffective:
 
@@ -105,6 +104,7 @@ Tried and reverted as ineffective:
 - forcing compiler calls with arguments-object arguments through interpreter fallback did not improve the `defineProperty(arguments)` cluster; generated/runtime call paths still observe the stale/missing descriptor.
 - forcing functions whose source mentions `arguments` through interpreter fallback at invocation did not improve the `defineProperty(arguments)` cluster.
 - ignoring stale `arguments` entries in interpreter `ArgumentsObject.get/3` did not fix the former `Object.keys(arguments)` case; the actual fix was narrower `in`-operator frame sync.
+- broad compiler fallbacks for mapped arguments were unnecessary for the final Object slice fix; preserving local `arguments` during frame/global sync fixed the residual cluster.
 
 ### 2. Completed direct eval with spread
 
