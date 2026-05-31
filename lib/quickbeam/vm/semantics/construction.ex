@@ -46,7 +46,7 @@ defmodule QuickBEAM.VM.Semantics.Construction do
         Heap.wrap(%{})
 
       7 ->
-        Heap.wrap(%{"__proto__" => nil})
+        Heap.wrap(%{proto() => :null_proto})
 
       _ ->
         :undefined
