@@ -111,7 +111,6 @@ defmodule QuickBEAM.VM.Runtime.Object.Entries do
     result = invoke_with_this(next_fn, [], iterator)
 
     unless match?({:obj, _}, result) or is_map(result) do
-      close_iterator(iterator)
       throw({:js_throw, Heap.make_error("Iterator result is not an object", "TypeError")})
     end
 
