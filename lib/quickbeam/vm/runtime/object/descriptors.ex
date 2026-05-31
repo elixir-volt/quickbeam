@@ -172,9 +172,7 @@ defmodule QuickBEAM.VM.Runtime.Object.Descriptors do
     throw({:js_throw, Heap.make_error("Cannot convert undefined or null to object", "TypeError")})
   end
 
-  defp descriptor_result_key_order(keys) do
-    if Enum.all?(keys, &QuickBEAM.VM.Value.is_symbol/1), do: keys, else: Enum.reverse(keys)
-  end
+  defp descriptor_result_key_order(keys), do: Enum.reverse(keys)
 
   defp descriptor_object?(value), do: Value.object_like?(value)
 

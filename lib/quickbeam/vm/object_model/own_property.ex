@@ -846,10 +846,16 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   end
 
   defp array_property_keys(ref) do
+    props = Heap.get_array_props(ref)
+
+    insertion_order =
+      case Map.get(props, key_order()) do
+        order when is_list(order) -> Enum.reverse(order)
+        _ -> []
+      end
+
     keys =
-      ref
-      |> Heap.get_array_props()
-      |> Map.keys()
+      (insertion_order ++ (Map.keys(props) -- insertion_order))
       |> Enum.reject(&(&1 == "length" or descriptor_internal_key?(&1)))
 
     {strings, symbols} = Enum.split_with(keys, &is_binary/1)

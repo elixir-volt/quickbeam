@@ -367,10 +367,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             :ok
 
           is_symbol(key) ->
-            raw
-            |> Heap.shape_to_map()
-            |> Map.put(key, val)
-            |> then(&Heap.put_obj(ref, &1))
+            Heap.put_obj_key(ref, Heap.shape_to_map(raw), key, val)
 
           true ->
             shape_put(ref, key, val)

@@ -114,16 +114,20 @@ defmodule QuickBEAM.VM.Heap.Store do
     end
   end
 
-  def put_obj_key(ref, {:shape, shape_id, offsets, vals, proto}, key, val) do
-    case Map.fetch(offsets, key) do
-      {:ok, offset} ->
-        new_vals = Shapes.put_val(vals, offset, val)
-        Process.put(ref, {:shape, shape_id, offsets, new_vals, proto})
+  def put_obj_key(ref, {:shape, shape_id, offsets, vals, proto} = raw, key, val) do
+    if is_binary(key) do
+      case Map.fetch(offsets, key) do
+        {:ok, offset} ->
+          new_vals = Shapes.put_val(vals, offset, val)
+          Process.put(ref, {:shape, shape_id, offsets, new_vals, proto})
 
-      :error ->
-        {new_shape_id, new_offsets, offset} = Shapes.transition(shape_id, key)
-        new_vals = Shapes.put_val(vals, offset, val)
-        Process.put(ref, {:shape, new_shape_id, new_offsets, new_vals, proto})
+        :error ->
+          {new_shape_id, new_offsets, offset} = Shapes.transition(shape_id, key)
+          new_vals = Shapes.put_val(vals, offset, val)
+          Process.put(ref, {:shape, new_shape_id, new_offsets, new_vals, proto})
+      end
+    else
+      Process.put(ref, put_property_preserving_order(shape_to_map(raw), key, val))
     end
   end
 
@@ -332,7 +336,10 @@ defmodule QuickBEAM.VM.Heap.Store do
   def get_array_prop(ref, key), do: Map.get(get_array_props(ref), key, :undefined)
 
   def put_array_prop(ref, key, val) do
-    Process.put({:qb_array_props, ref}, Map.put(get_array_props(ref), key, val))
+    Process.put(
+      {:qb_array_props, ref},
+      put_property_preserving_order(get_array_props(ref), key, val)
+    )
   end
 
   def delete_array_prop(ref, key) do
