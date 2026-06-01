@@ -144,11 +144,17 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
 
   defp cached_function_kind_prototype(key, name, constructor) do
     PrototypeState.cached(key, fn ->
-      Heap.wrap(%{
-        "constructor" => {:builtin, name, constructor},
-        {:symbol, "Symbol.toStringTag"} => name,
-        proto() => Heap.get_func_proto()
-      })
+      ctor = QuickBEAM.VM.Builtin.builtin(name, constructor, length: 1, constructable: true)
+
+      proto_obj =
+        Heap.wrap(%{
+          "constructor" => ctor,
+          {:symbol, "Symbol.toStringTag"} => name,
+          proto() => Heap.get_func_proto()
+        })
+
+      Heap.put_ctor_static(ctor, "prototype", proto_obj)
+      proto_obj
     end)
   end
 
@@ -165,13 +171,23 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
     PrototypeState.cached(:qb_generator_function_prototype, fn ->
       generator_proto = generator_prototype_object()
 
+      constructor = elem(FunctionKinds.constructor(1), 1)
+
+      ctor =
+        QuickBEAM.VM.Builtin.builtin("GeneratorFunction", constructor,
+          length: 1,
+          constructable: true
+        )
+
       proto =
         Heap.wrap(%{
-          "constructor" => {:builtin, "GeneratorFunction", elem(FunctionKinds.constructor(1), 1)},
+          "constructor" => ctor,
           "prototype" => generator_proto,
           {:symbol, "Symbol.toStringTag"} => "GeneratorFunction",
           proto() => Heap.get_func_proto()
         })
+
+      Heap.put_ctor_static(ctor, "prototype", proto)
 
       Heap.put_prop_desc(proto_ref(proto), "prototype", %{
         writable: false,

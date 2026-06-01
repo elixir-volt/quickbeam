@@ -66,7 +66,7 @@ defmodule QuickBEAM.VM.ObjectModel.FunctionPrototypeGet do
   def fallback(val, _fun, _key), do: val
 
   defp constructor(name, callback, fun) do
-    ctor = {:builtin, name, callback}
+    ctor = QuickBEAM.VM.Builtin.builtin(name, callback, length: 1, constructable: true)
     Heap.put_ctor_static(ctor, "prototype", constructor_prototype(name, ctor, fun))
     ctor
   end

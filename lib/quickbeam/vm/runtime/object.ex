@@ -481,13 +481,67 @@ defmodule QuickBEAM.VM.Runtime.Object do
   defp object_to_string(:undefined), do: "[object Undefined]"
 
   defp object_to_string(value) do
-    object_tag(value, builtin_to_string_tag(value))
+    proxy_was_live = live_proxy?(value)
+
+    fallback =
+      try do
+        builtin_to_string_tag(value)
+      catch
+        {:js_throw, error} ->
+          if proxy_was_live and revoked_proxy_error?(error) do
+            "Object"
+          else
+            throw({:js_throw, error})
+          end
+      end
+
+    object_tag(value, fallback)
   end
 
   defp object_tag(value, fallback) do
-    tag = Get.get(value, {:symbol, "Symbol.toStringTag"})
+    proxy_was_live = live_proxy?(value)
+
+    tag =
+      try do
+        Get.get(value, {:symbol, "Symbol.toStringTag"})
+      catch
+        {:js_throw, error} ->
+          if proxy_was_live and revoked_proxy_error?(error) do
+            :undefined
+          else
+            throw({:js_throw, error})
+          end
+      end
+
     "[object #{if is_binary(tag), do: tag, else: fallback}]"
   end
+
+  defp live_proxy?({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      %{proxy_target() => _, proxy_handler() => _} = proxy ->
+        Map.get(proxy, "__proxy_revoked__") != true
+
+      _ ->
+        false
+    end
+  end
+
+  defp live_proxy?(_), do: false
+
+  defp revoked_proxy_error?(%{name: "TypeError", message: message}) when is_binary(message),
+    do: String.contains?(message, "revoked proxy")
+
+  defp revoked_proxy_error?({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      %{"name" => "TypeError", "message" => message} when is_binary(message) ->
+        String.contains?(message, "revoked proxy")
+
+      _ ->
+        false
+    end
+  end
+
+  defp revoked_proxy_error?(_), do: false
 
   defp builtin_to_string_tag(value) when is_binary(value), do: "String"
   defp builtin_to_string_tag(value) when is_number(value), do: "Number"

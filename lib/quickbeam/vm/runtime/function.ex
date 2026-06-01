@@ -273,10 +273,16 @@ defmodule QuickBEAM.VM.Runtime.Function do
     end
   end
 
-  def proto_property(_fun, "constructor") do
-    case RuntimeState.current() do
-      %{globals: globals} -> Map.get(globals, "Function", :undefined)
-      _ -> :undefined
+  def proto_property(fun, "constructor") do
+    case QuickBEAM.VM.Runtime.FunctionKinds.constructor(fun) do
+      {_name, _callback} ->
+        QuickBEAM.VM.ObjectModel.FunctionPrototypeGet.constructor(fun)
+
+      nil ->
+        case RuntimeState.current() do
+          %{globals: globals} -> Map.get(globals, "Function", :undefined)
+          _ -> :undefined
+        end
     end
   end
 
