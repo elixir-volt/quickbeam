@@ -11,11 +11,10 @@ defmodule QuickBEAM.VM.Runtime.BigInt do
     constructor(&QuickBEAM.VM.Runtime.ConstructorCallbacks.bigint/2,
       length: 1,
       phase: :fundamental,
-      constructable: false
+      constructable: true
     )
 
     prototype extends: :object do
-      slot(:BigIntData, {:bigint, 0})
       to_string_tag("BigInt")
 
       @ecma "21.2.3.3"
