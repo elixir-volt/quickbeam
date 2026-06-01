@@ -28,7 +28,7 @@ defmodule QuickBEAM.VM.Runtime.Symbol do
 
       @ecma "20.4.3.5"
       symbol :toPrimitive do
-        method length: 1, writable: false, configurable: false do
+        method length: 1, writable: false, configurable: true do
           symbol_value(this)
         end
       end

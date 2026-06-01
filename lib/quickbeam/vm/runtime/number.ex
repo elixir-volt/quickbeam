@@ -58,17 +58,17 @@ defmodule QuickBEAM.VM.Runtime.Number do
   # ── Number static ──
 
   @ecma "21.1.2.4"
-  static "isNaN" do
+  static "isNaN", length: 1 do
     arg(args, 0, :undefined) == :nan
   end
 
   @ecma "21.1.2.2"
-  static "isFinite" do
+  static "isFinite", length: 1 do
     is_number(arg(args, 0, :undefined))
   end
 
   @ecma "21.1.2.3"
-  static "isInteger" do
+  static "isInteger", length: 1 do
     val = arg(args, 0, :undefined)
     is_integer(val) or (is_float(val) and val == Float.floor(val))
   end

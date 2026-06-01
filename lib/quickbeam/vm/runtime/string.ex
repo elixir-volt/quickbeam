@@ -32,64 +32,64 @@ defmodule QuickBEAM.VM.Runtime.String do
   # ── Dispatch ──
 
   @ecma "22.1.3.2"
-  proto "charAt" do
+  proto "charAt", length: 1 do
     char_at(coerce_string_this(this), args)
   end
 
   @ecma "22.1.3.3"
-  proto "charCodeAt" do
+  proto "charCodeAt", length: 1 do
     char_code_at(coerce_string_this(this), args)
   end
 
   @ecma "22.1.3.4"
-  proto "codePointAt" do
+  proto "codePointAt", length: 1 do
     code_point_at(coerce_string_this(this), args)
   end
 
   @ecma "22.1.3.9"
-  proto "indexOf" do
+  proto "indexOf", length: 1 do
     index_of(coerce_string_this(this), args)
   end
 
   @ecma "22.1.3.11"
-  proto "lastIndexOf" do
+  proto "lastIndexOf", length: 1 do
     last_index_of(coerce_string_this(this), args)
   end
 
   @ecma "22.1.3.8"
-  proto "includes" do
+  proto "includes", length: 1 do
     includes(coerce_string_this(this), args)
   end
 
   @ecma "22.1.3.24"
-  proto "startsWith" do
+  proto "startsWith", length: 1 do
     starts_with(coerce_string_this(this), args)
   end
 
   @ecma "22.1.3.7"
-  proto "endsWith" do
+  proto "endsWith", length: 1 do
     ends_with(coerce_string_this(this), args)
   end
 
   @ecma "22.1.3.22"
-  proto "slice" do
+  proto "slice", length: 2 do
     slice(coerce_string_this(this), args)
   end
 
   @ecma "22.1.3.25"
-  proto "substring" do
+  proto "substring", length: 2 do
     substring(coerce_string_this(this), args)
   end
 
   @ecma "B.2.2.1"
   @annex :b
   @ecma "B.2.2.1"
-  proto "substr" do
+  proto "substr", length: 2 do
     substr(coerce_string_this(this), args)
   end
 
   @ecma "22.1.3.23"
-  proto "split" do
+  proto "split", length: 2 do
     split_dispatch(this, args)
   end
 
@@ -133,42 +133,42 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   @ecma "22.1.3.18"
-  proto "repeat" do
+  proto "repeat", length: 1 do
     repeat(coerce_string_this(this), args)
   end
 
   @ecma "22.1.3.17"
-  proto "padStart" do
+  proto "padStart", length: 1 do
     pad(coerce_string_this(this), args, :start)
   end
 
   @ecma "22.1.3.16"
-  proto "padEnd" do
+  proto "padEnd", length: 1 do
     pad(coerce_string_this(this), args, :end)
   end
 
   @ecma "22.1.3.19"
-  proto "replace" do
+  proto "replace", length: 2 do
     replace(this, args)
   end
 
   @ecma "22.1.3.20"
-  proto "replaceAll" do
+  proto "replaceAll", length: 2 do
     replace_all(this, args)
   end
 
   @ecma "22.1.3.13"
-  proto "match" do
+  proto "match", length: 1 do
     match(coerce_string_this(this), args)
   end
 
   @ecma "22.1.3.14"
-  proto "matchAll" do
+  proto "matchAll", length: 1 do
     match_all(coerce_string_this(this), args)
   end
 
   @ecma "22.1.3.12"
-  proto "localeCompare" do
+  proto "localeCompare", length: 1 do
     s = coerce_string_this(this)
     other = arg(args, 0, :undefined)
     other_str = if is_binary(other), do: other, else: Runtime.stringify(other)
@@ -183,7 +183,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   @ecma "22.1.3.21"
-  proto "search" do
+  proto "search", length: 1 do
     search(coerce_string_this(this), args)
   end
 
@@ -193,7 +193,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   @ecma "22.1.3.5"
-  proto "concat" do
+  proto "concat", length: 1 do
     coerce_string_this(this) <> Enum.map_join(args, &Coercion.to_string_val/1)
   end
 
@@ -208,7 +208,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   @ecma "22.1.3.1"
-  proto "at" do
+  proto "at", length: 1 do
     string_at(coerce_string_this(this), args)
   end
 
@@ -3093,7 +3093,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   # ── String static methods ──
 
   @ecma "22.1.2.2"
-  static "fromCodePoint" do
+  static "fromCodePoint", length: 1 do
     Enum.map_join(args, &from_code_point/1)
   end
 
@@ -3168,7 +3168,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   defp encode_code_point(cp), do: <<cp::utf8>>
 
   @ecma "22.1.2.1"
-  static "fromCharCode" do
+  static "fromCharCode", length: 1 do
     Enum.map_join(args, fn n ->
       cp = Bitwise.band(Runtime.to_int(n), 0xFFFF)
 
@@ -3182,7 +3182,7 @@ defmodule QuickBEAM.VM.Runtime.String do
   end
 
   @ecma "22.1.2.4"
-  static "raw" do
+  static "raw", length: 1 do
     [strings | subs] = args
 
     raw =

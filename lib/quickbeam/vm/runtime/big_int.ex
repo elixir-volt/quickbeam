@@ -19,7 +19,7 @@ defmodule QuickBEAM.VM.Runtime.BigInt do
       to_string_tag("BigInt")
 
       @ecma "21.2.3.3"
-      method "toString", length: 1, receiver: :bigint do
+      method "toString", length: 0, receiver: :bigint do
         {:bigint, value} = this
         bigint_to_string(value, args)
       end
