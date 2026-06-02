@@ -5,7 +5,10 @@ defmodule QuickBEAM.VM.Runtime.SharedArrayBuffer do
   use QuickBEAM.VM.Builtin
 
   alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.Invocation
   alias QuickBEAM.VM.JSThrow
+  alias QuickBEAM.VM.Value
+  alias QuickBEAM.VM.ObjectModel.{Get, OwnProperty}
   alias QuickBEAM.VM.Runtime
   alias QuickBEAM.VM.Runtime.ArrayBuffer
   alias QuickBEAM.VM.Runtime.TypedArrayCoercion
@@ -46,13 +49,7 @@ defmodule QuickBEAM.VM.Runtime.SharedArrayBuffer do
     result = ArrayBuffer.constructor(args, this)
     object = Heap.get_obj(ref, %{})
 
-    Heap.put_obj(
-      ref,
-      Map.merge(object, %{
-        "__array_buffer_kind__" => :shared_array_buffer,
-        :__internal_proto__ => Runtime.global_class_proto("SharedArrayBuffer")
-      })
-    )
+    Heap.put_obj(ref, Map.put(object, "__array_buffer_kind__", :shared_array_buffer))
 
     result
   end
@@ -142,18 +139,89 @@ defmodule QuickBEAM.VM.Runtime.SharedArrayBuffer do
       end
 
     new_len = max(0, finish - start)
+    result = species_create(this, new_len)
     copy = if new_len > 0, do: binary_part(buf, start, new_len), else: <<>>
 
-    Heap.wrap(%{
-      buffer() => copy,
-      "byteLength" => new_len,
-      "resizable" => false,
-      "__array_buffer_kind__" => :shared_array_buffer,
-      proto() => Runtime.global_class_proto("SharedArrayBuffer")
-    })
+    write_slice_result!(result, copy, new_len)
+    result
   end
 
   def slice(_this, _args), do: JSThrow.type_error!("receiver is not a SharedArrayBuffer")
+
+  defp species_create(obj, new_len) do
+    case species_constructor(obj) do
+      nil ->
+        Heap.wrap(%{
+          buffer() => :binary.copy(<<0>>, new_len),
+          "byteLength" => new_len,
+          "resizable" => false,
+          "__array_buffer_kind__" => :shared_array_buffer,
+          proto() => Runtime.global_class_proto("SharedArrayBuffer")
+        })
+
+      ctor ->
+        unless QuickBEAM.VM.Builtin.callable?(ctor) do
+          JSThrow.type_error!("SharedArrayBuffer species constructor is not a constructor")
+        end
+
+        result = Invocation.construct_runtime(ctor, ctor, [new_len])
+        result_map = shared_array_buffer_map!(result)
+
+        cond do
+          result == obj ->
+            JSThrow.type_error!("SharedArrayBuffer species returned same buffer")
+
+          Map.get(result_map, "byteLength", 0) < new_len ->
+            JSThrow.type_error!("SharedArrayBuffer species result is too small")
+
+          true ->
+            result
+        end
+    end
+  end
+
+  defp species_constructor(obj) do
+    case Get.get(obj, "constructor") do
+      :undefined ->
+        if explicit_null_constructor?(obj),
+          do: JSThrow.type_error!("SharedArrayBuffer constructor is not an object"),
+          else: nil
+
+      :null ->
+        JSThrow.type_error!("SharedArrayBuffer constructor is not an object")
+
+      ctor when is_nil(ctor) ->
+        JSThrow.type_error!("SharedArrayBuffer constructor is not an object")
+
+      ctor ->
+        unless Value.object_like?(ctor) do
+          JSThrow.type_error!("SharedArrayBuffer constructor is not an object")
+        end
+
+        case Get.get(ctor, {:symbol, "Symbol.species"}) do
+          species when is_nil(species) or species == :undefined -> nil
+          species -> species
+        end
+    end
+  end
+
+  defp explicit_null_constructor?(obj) do
+    case OwnProperty.descriptor(obj, "constructor") do
+      {:obj, desc_ref} ->
+        match?(%{"value" => nil}, Heap.get_obj(desc_ref, %{}))
+
+      _ ->
+        false
+    end
+  end
+
+  defp write_slice_result!({:obj, ref}, copy, new_len) do
+    map = Heap.get_obj(ref, %{})
+    buf = Map.get(map, buffer(), <<>>)
+    suffix_len = max(byte_size(buf) - new_len, 0)
+    suffix = if suffix_len > 0, do: binary_part(buf, new_len, suffix_len), else: <<>>
+    Heap.put_obj(ref, Map.put(map, buffer(), copy <> suffix))
+  end
 
   defp shared_array_buffer_map!({:obj, ref}) do
     case Heap.get_obj(ref, %{}) do
