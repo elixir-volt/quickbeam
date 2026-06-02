@@ -23,20 +23,20 @@ defmodule QuickBEAM.VM.Compiler.GeneratorIterator do
     QuickBEAM.VM.Builtin.object extends: generator_object_prototype(generator_fun) do
       prop(@generator_ref_key, gen_ref)
 
-      method "next" do
+      method "next", constructable: false do
         do_next(gen_ref, argument_or_undefined(args))
       end
 
-      method "return" do
+      method "return", constructable: false do
         do_return(gen_ref, argument_or_undefined(args))
       end
 
-      method "throw" do
+      method "throw", constructable: false do
         do_throw(gen_ref, argument_or_undefined(args))
       end
 
       symbol :iterator do
-        method do
+        method constructable: false do
           this
         end
       end
@@ -46,16 +46,16 @@ defmodule QuickBEAM.VM.Compiler.GeneratorIterator do
   @doc "Builds async data for iterator protocol for compiled generator functions."
   def build_async(gen_ref, generator_fun \\ nil) do
     QuickBEAM.VM.Builtin.object extends: generator_object_prototype(generator_fun) do
-      method "next" do
+      method "next", constructable: false do
         Promise.resolved(do_next(gen_ref, argument_or_undefined(args)))
       end
 
-      method "return" do
+      method "return", constructable: false do
         Promise.resolved(do_return(gen_ref, argument_or_undefined(args)))
       end
 
       symbol :iterator do
-        method do
+        method constructable: false do
           this
         end
       end

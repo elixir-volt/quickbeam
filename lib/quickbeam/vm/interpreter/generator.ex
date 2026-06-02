@@ -219,16 +219,16 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
     object extends: generator_object_prototype(generator_fun) do
       prop(@generator_ref_key, gen_ref)
 
-      method "next" do
+      method "next", constructable: false do
         next_impl.(gen_ref, argument_or_undefined(args))
       end
 
-      method "return" do
+      method "return", constructable: false do
         return_impl.(gen_ref, argument_or_undefined(args))
       end
 
       symbol :iterator do
-        method do
+        method constructable: false do
           this
         end
       end
