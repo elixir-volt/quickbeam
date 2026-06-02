@@ -72,7 +72,7 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
   defp decode_uri_bytes(<<>>, _mode, acc), do: Enum.reverse(acc)
 
   defp decode_uri_bytes(<<"%", rest::binary>>, mode, acc) do
-    {encoded, bytes, rest} = collect_percent_bytes(<<"%", rest::binary>>, [], [])
+    {encoded, bytes, rest} = collect_percent_sequence(<<"%", rest::binary>>)
     decoded = decode_percent_bytes!(bytes)
 
     output =
@@ -88,19 +88,42 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
   defp decode_uri_bytes(<<byte, rest::binary>>, mode, acc),
     do: decode_uri_bytes(rest, mode, [<<byte>> | acc])
 
-  defp collect_percent_bytes(<<"%", high, low, rest::binary>>, encoded, bytes) do
+  defp collect_percent_sequence(input) do
+    {encoded, first, rest} = percent_triplet!(input)
+    remaining = utf8_continuation_count!(first)
+    collect_continuations(rest, remaining, [encoded], [first])
+  end
+
+  defp collect_continuations(rest, 0, encoded, bytes),
+    do: {IO.iodata_to_binary(Enum.reverse(encoded)), Enum.reverse(bytes), rest}
+
+  defp collect_continuations(rest, remaining, encoded, bytes) do
+    {triplet, byte, rest} = percent_triplet!(rest)
+
+    if byte < 0x80 or byte > 0xBF do
+      uri_error!()
+    end
+
+    collect_continuations(rest, remaining - 1, [triplet | encoded], [byte | bytes])
+  end
+
+  defp percent_triplet!(<<"%", high, low, rest::binary>>) do
     with {:ok, hi} <- hex_value(high),
          {:ok, lo} <- hex_value(low) do
-      collect_percent_bytes(rest, [<<"%", high, low>> | encoded], [hi * 16 + lo | bytes])
+      {<<"%", high, low>>, hi * 16 + lo, rest}
     else
       :error -> uri_error!()
     end
   end
 
-  defp collect_percent_bytes(<<"%", _rest::binary>>, _encoded, _bytes), do: uri_error!()
+  defp percent_triplet!(<<"%", _rest::binary>>), do: uri_error!()
+  defp percent_triplet!(_), do: uri_error!()
 
-  defp collect_percent_bytes(rest, encoded, bytes),
-    do: {IO.iodata_to_binary(Enum.reverse(encoded)), Enum.reverse(bytes), rest}
+  defp utf8_continuation_count!(byte) when byte < 0x80, do: 0
+  defp utf8_continuation_count!(byte) when byte in 0xC2..0xDF, do: 1
+  defp utf8_continuation_count!(byte) when byte in 0xE0..0xEF, do: 2
+  defp utf8_continuation_count!(byte) when byte in 0xF0..0xF4, do: 3
+  defp utf8_continuation_count!(_), do: uri_error!()
 
   defp hex_value(byte) when byte in ?0..?9, do: {:ok, byte - ?0}
   defp hex_value(byte) when byte in ?a..?f, do: {:ok, byte - ?a + 10}
