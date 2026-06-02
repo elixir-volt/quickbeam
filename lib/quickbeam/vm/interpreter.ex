@@ -244,10 +244,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp refresh_global_object_writes(ctx, ref, raw) do
     case QuickBEAM.VM.Heap.Store.shape_to_map(raw) do
       map when is_map(map) ->
-        visible_globals =
-          map
-          |> Enum.reject(fn {key, _} -> QuickBEAM.VM.Heap.Keys.internal_slot?(key) end)
-          |> Map.new()
+        visible_globals = visible_global_properties(map)
 
         globals = Map.merge(ctx.globals, visible_globals)
         Heap.put_persistent_globals(globals)
@@ -258,6 +255,25 @@ defmodule QuickBEAM.VM.Interpreter do
       _ ->
         ctx
     end
+  end
+
+  defp visible_global_properties(map) do
+    Map.drop(map, [
+      "__proto__",
+      "__promise_state__",
+      "__promise_value__",
+      "__map_data__",
+      "__set_data__",
+      "__typed_array__",
+      "__date_ms__",
+      "__proxy_target__",
+      "__proxy_handler__",
+      "__buffer__",
+      :__key_order__,
+      "__primitive_value__",
+      "__type__",
+      "__offset__"
+    ])
   end
 
   defp sync_setter_globals_to_frame(frame, ctx) do
