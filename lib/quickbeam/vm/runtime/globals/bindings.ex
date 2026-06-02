@@ -48,22 +48,22 @@ defmodule QuickBEAM.VM.Runtime.Globals.Bindings do
       end
 
       @ecma "19.2.6.1"
-      method "decodeURI", constructable: false do
+      method "decodeURI", length: 1, constructable: false do
         Functions.decode_uri(args, this)
       end
 
       @ecma "19.2.6.2"
-      method "decodeURIComponent", constructable: false do
+      method "decodeURIComponent", length: 1, constructable: false do
         Functions.decode_uri_component(args, this)
       end
 
       @ecma "19.2.6.3"
-      method "encodeURI", constructable: false do
+      method "encodeURI", length: 1, constructable: false do
         Functions.encode_uri(args, this)
       end
 
       @ecma "19.2.6.4"
-      method "encodeURIComponent", constructable: false do
+      method "encodeURIComponent", length: 1, constructable: false do
         Functions.encode_uri_component(args, this)
       end
 

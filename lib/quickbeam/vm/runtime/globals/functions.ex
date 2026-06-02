@@ -45,10 +45,12 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
 
   def js_eval_global(_, _), do: :undefined
 
-  def decode_uri([value | _], _), do: URI.decode(to_string_value(value))
+  def decode_uri([value | _], _), do: decode_uri_string(to_string_value(value), :uri)
   def decode_uri(_, _), do: :undefined
 
-  def decode_uri_component([value | _], _), do: URI.decode_www_form(to_string_value(value))
+  def decode_uri_component([value | _], _),
+    do: decode_uri_string(to_string_value(value), :component)
+
   def decode_uri_component(_, _), do: :undefined
 
   def encode_uri([value | _], _), do: URI.encode(to_string_value(value), &URI.char_unreserved?/1)
@@ -58,6 +60,71 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
   def encode_uri_component(_, _), do: :undefined
 
   defp to_string_value(value), do: QuickBEAM.VM.Semantics.Values.stringify(value)
+
+  @decode_uri_reserved MapSet.new(~c";,/?:@&=+$#")
+
+  defp decode_uri_string(string, mode) do
+    string
+    |> decode_uri_bytes(mode, [])
+    |> IO.iodata_to_binary()
+  end
+
+  defp decode_uri_bytes(<<>>, _mode, acc), do: Enum.reverse(acc)
+
+  defp decode_uri_bytes(<<"%", rest::binary>>, mode, acc) do
+    {encoded, bytes, rest} = collect_percent_bytes(<<"%", rest::binary>>, [], [])
+    decoded = decode_percent_bytes!(bytes)
+
+    output =
+      if mode == :uri and reserved_decoded?(decoded) do
+        encoded
+      else
+        decoded
+      end
+
+    decode_uri_bytes(rest, mode, [output | acc])
+  end
+
+  defp decode_uri_bytes(<<byte, rest::binary>>, mode, acc),
+    do: decode_uri_bytes(rest, mode, [<<byte>> | acc])
+
+  defp collect_percent_bytes(<<"%", high, low, rest::binary>>, encoded, bytes) do
+    with {:ok, hi} <- hex_value(high),
+         {:ok, lo} <- hex_value(low) do
+      collect_percent_bytes(rest, [<<"%", high, low>> | encoded], [hi * 16 + lo | bytes])
+    else
+      :error -> uri_error!()
+    end
+  end
+
+  defp collect_percent_bytes(<<"%", _rest::binary>>, _encoded, _bytes), do: uri_error!()
+
+  defp collect_percent_bytes(rest, encoded, bytes),
+    do: {IO.iodata_to_binary(Enum.reverse(encoded)), Enum.reverse(bytes), rest}
+
+  defp hex_value(byte) when byte in ?0..?9, do: {:ok, byte - ?0}
+  defp hex_value(byte) when byte in ?a..?f, do: {:ok, byte - ?a + 10}
+  defp hex_value(byte) when byte in ?A..?F, do: {:ok, byte - ?A + 10}
+  defp hex_value(_), do: :error
+
+  defp decode_percent_bytes!(bytes) do
+    bytes
+    |> :binary.list_to_bin()
+    |> :unicode.characters_to_binary(:utf8, :utf8)
+    |> case do
+      binary when is_binary(binary) -> binary
+      _ -> uri_error!()
+    end
+  end
+
+  defp reserved_decoded?(decoded) do
+    case String.to_charlist(decoded) do
+      [char] -> MapSet.member?(@decode_uri_reserved, char)
+      _ -> false
+    end
+  end
+
+  defp uri_error!, do: throw({:js_throw, Heap.make_error("URI malformed", "URIError")})
 
   defp eval_without_runtime(code) do
     task =
