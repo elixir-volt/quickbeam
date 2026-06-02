@@ -435,8 +435,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   def filter(args, this) do
     predicate = Builtin.arg(args, 0, :undefined)
 
-    unless Builtin.callable?(predicate),
-      do: JSThrow.type_error!("predicate must be callable")
+    require_callable_or_close!(this, predicate, "predicate must be callable")
 
     helper_iterator(%{
       "kind" => :filter,
@@ -448,7 +447,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   def map(args, this) do
     mapper = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(mapper), do: JSThrow.type_error!("mapper must be callable")
+    require_callable_or_close!(this, mapper, "mapper must be callable")
 
     helper_iterator(%{
       "kind" => :map,
@@ -460,7 +459,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
 
   def flat_map(args, this) do
     mapper = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(mapper), do: JSThrow.type_error!("mapper must be callable")
+    require_callable_or_close!(this, mapper, "mapper must be callable")
 
     helper_iterator(%{
       "kind" => :flat_map,
@@ -474,15 +473,14 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   def some(args, this) do
     predicate = Builtin.arg(args, 0, :undefined)
 
-    unless Builtin.callable?(predicate),
-      do: JSThrow.type_error!("predicate must be callable")
+    require_callable_or_close!(this, predicate, "predicate must be callable")
 
     some_loop(iterator_direct_record(this), predicate, 0)
   end
 
   def reduce(args, this) do
     reducer = Builtin.arg(args, 0, :undefined)
-    unless Builtin.callable?(reducer), do: JSThrow.type_error!("reducer must be callable")
+    require_callable_or_close!(this, reducer, "reducer must be callable")
 
     iterator = iterator_direct_record(this)
 
@@ -503,8 +501,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   def for_each(args, this) do
     callback = Builtin.arg(args, 0, :undefined)
 
-    unless Builtin.callable?(callback),
-      do: JSThrow.type_error!("callback must be callable")
+    require_callable_or_close!(this, callback, "callback must be callable")
 
     for_each_loop(iterator_direct_record(this), callback, 0)
     :undefined
@@ -513,8 +510,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   def every(args, this) do
     predicate = Builtin.arg(args, 0, :undefined)
 
-    unless Builtin.callable?(predicate),
-      do: JSThrow.type_error!("predicate must be callable")
+    require_callable_or_close!(this, predicate, "predicate must be callable")
 
     every_loop(iterator_direct_record(this), predicate, 0)
   end
@@ -522,8 +518,7 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
   def find(args, this) do
     predicate = Builtin.arg(args, 0, :undefined)
 
-    unless Builtin.callable?(predicate),
-      do: JSThrow.type_error!("predicate must be callable")
+    require_callable_or_close!(this, predicate, "predicate must be callable")
 
     find_loop(iterator_direct_record(this), predicate, 0)
   end
@@ -1408,6 +1403,13 @@ defmodule QuickBEAM.VM.Runtime.Iterator do
       iterator_return(iterator)
     catch
       {:js_throw, _} -> :ok
+    end
+  end
+
+  defp require_callable_or_close!(iterator, callback, message) do
+    unless Builtin.callable?(callback) do
+      close_iterator_like(iterator)
+      JSThrow.type_error!(message)
     end
   end
 
