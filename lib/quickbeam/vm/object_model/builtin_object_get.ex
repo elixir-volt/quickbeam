@@ -21,8 +21,13 @@ defmodule QuickBEAM.VM.ObjectModel.BuiltinObjectGet do
 
   def buffer_property(map, key) do
     case Map.get(map, key) do
-      nil -> ArrayBuffer.proto_property(key)
-      value -> value
+      nil ->
+        if Map.get(map, "__array_buffer_kind__") == :shared_array_buffer,
+          do: :undefined,
+          else: ArrayBuffer.proto_property(key)
+
+      value ->
+        value
     end
   end
 end
