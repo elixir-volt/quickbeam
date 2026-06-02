@@ -38,12 +38,12 @@ defmodule QuickBEAM.VM.Runtime.Globals.Bindings do
       end
 
       @ecma "19.2.4"
-      method "parseFloat", constructable: false do
+      method "parseFloat", length: 1, constructable: false do
         Numeric.parse_float(args, this)
       end
 
       @ecma "19.2.5"
-      method "parseInt", constructable: false do
+      method "parseInt", length: 2, constructable: false do
         Numeric.parse_int(args, this)
       end
 
