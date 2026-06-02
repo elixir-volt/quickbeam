@@ -191,20 +191,20 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
   def prototype_object do
     object extends:
              QuickBEAM.VM.Runtime.global_class_proto("Iterator") || Heap.get_object_prototype() do
-      method "next", length: 1 do
+      method "next", length: 1, constructable: false do
         next(generator_ref!(this), argument_or_undefined(args))
       end
 
-      method "return", length: 1 do
+      method "return", length: 1, constructable: false do
         return_value(generator_ref!(this), argument_or_undefined(args))
       end
 
-      method "throw", length: 1 do
+      method "throw", length: 1, constructable: false do
         throw_value(generator_ref!(this), argument_or_undefined(args))
       end
 
       symbol :iterator do
-        method length: 0 do
+        method length: 0, constructable: false do
           this
         end
       end

@@ -176,16 +176,6 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
           constructable: true
         )
 
-      with {:obj, generator_ref} <- generator_proto do
-        Heap.put_obj_key(generator_ref, Heap.get_obj(generator_ref, %{}), "constructor", ctor)
-
-        Heap.put_prop_desc(generator_ref, "constructor", %{
-          writable: false,
-          enumerable: false,
-          configurable: true
-        })
-      end
-
       proto =
         Heap.wrap(%{
           "constructor" => ctor,
@@ -210,6 +200,16 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
         })
 
         Heap.put_prop_desc(ref, {:symbol, "Symbol.toStringTag"}, %{
+          writable: false,
+          enumerable: false,
+          configurable: true
+        })
+      end
+
+      with {:obj, generator_ref} <- generator_proto do
+        Heap.put_obj_key(generator_ref, Heap.get_obj(generator_ref, %{}), "constructor", proto)
+
+        Heap.put_prop_desc(generator_ref, "constructor", %{
           writable: false,
           enumerable: false,
           configurable: true
