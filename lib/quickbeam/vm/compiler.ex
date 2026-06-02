@@ -24,6 +24,7 @@ defmodule QuickBEAM.VM.Compiler do
   @type beam_file :: {:beam_file, module(), list(), list(), list(), list()}
 
   @compiler_cache_version "v6"
+  @exception_fallback_min_instruction_count 100
   @max_instruction_count 20_000
   @max_atom_count 10_000
   @max_constant_count 10_000
@@ -86,6 +87,16 @@ defmodule QuickBEAM.VM.Compiler do
 
   @doc "Compiles a VM function for optimized execution."
   def compile(%QuickBEAM.VM.Function{} = fun) do
+    if interpreter_exception_region_fallback?(fun) do
+      {:error, :compiler_resource_limit}
+    else
+      compile_supported(fun)
+    end
+  end
+
+  def compile(_), do: {:error, :var_refs_not_supported}
+
+  defp compile_supported(%QuickBEAM.VM.Function{} = fun) do
     atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
     module = module_name(fun, atoms)
     entry = ctx_entry_name()
@@ -105,7 +116,25 @@ defmodule QuickBEAM.VM.Compiler do
     end
   end
 
-  def compile(_), do: {:error, :var_refs_not_supported}
+  defp interpreter_exception_region_fallback?(%QuickBEAM.VM.Function{instructions: instructions}) do
+    instruction_list = tuple_to_list(instructions)
+
+    length(instruction_list) >= @exception_fallback_min_instruction_count and
+      Enum.any?(instruction_list, &catch_opcode?/1)
+  end
+
+  defp tuple_to_list(instructions) when is_tuple(instructions), do: Tuple.to_list(instructions)
+  defp tuple_to_list(instructions) when is_list(instructions), do: instructions
+  defp tuple_to_list(_), do: []
+
+  defp catch_opcode?({opcode, _operands}) do
+    case QuickBEAM.VM.OpcodeSpec.name(opcode) do
+      {:ok, :catch} -> true
+      _ -> false
+    end
+  end
+
+  defp catch_opcode?(_), do: false
 
   @doc "Returns the compiler cache directory when disk caching is enabled."
   def cache_dir, do: compiler_cache_dir()
