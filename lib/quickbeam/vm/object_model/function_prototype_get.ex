@@ -75,19 +75,80 @@ defmodule QuickBEAM.VM.ObjectModel.FunctionPrototypeGet do
     PrototypeState.cached({:qb_function_kind_constructor_prototype, name}, fn ->
       case Prototype.get(fun) do
         {:obj, _} = existing ->
-          existing
+          ensure_function_kind_constructor_prototype(existing, name, ctor)
 
         _ ->
-          QuickBEAM.VM.Builtin.object extends: Heap.get_func_proto() do
-            prop("constructor", ctor)
+          proto =
+            QuickBEAM.VM.Builtin.object extends: Heap.get_func_proto() do
+              prop("constructor", ctor)
+              prop("prototype", generator_prototype_value(name))
 
-            symbol :toStringTag do
-              data(name, writable: false, enumerable: false, configurable: true)
+              symbol :toStringTag do
+                data(name, writable: false, enumerable: false, configurable: true)
+              end
             end
+
+          with {:obj, ref} <- proto do
+            Heap.put_prop_desc(ref, "constructor", %{
+              writable: false,
+              enumerable: false,
+              configurable: true
+            })
+
+            Heap.put_prop_desc(ref, "prototype", %{
+              writable: false,
+              enumerable: false,
+              configurable: true
+            })
+
+            Heap.put_prop_desc(ref, {:symbol, "Symbol.toStringTag"}, %{
+              writable: false,
+              enumerable: false,
+              configurable: true
+            })
           end
+
+          proto
       end
     end)
   end
+
+  defp ensure_function_kind_constructor_prototype({:obj, ref} = proto, name, ctor) do
+    current = Heap.get_obj(ref, %{})
+
+    updated =
+      current
+      |> Map.put("constructor", ctor)
+      |> Map.put("prototype", generator_prototype_value(name))
+      |> Map.put({:symbol, "Symbol.toStringTag"}, name)
+
+    Heap.put_obj(ref, updated)
+
+    Heap.put_prop_desc(ref, "constructor", %{
+      writable: false,
+      enumerable: false,
+      configurable: true
+    })
+
+    Heap.put_prop_desc(ref, "prototype", %{
+      writable: false,
+      enumerable: false,
+      configurable: true
+    })
+
+    Heap.put_prop_desc(ref, {:symbol, "Symbol.toStringTag"}, %{
+      writable: false,
+      enumerable: false,
+      configurable: true
+    })
+
+    proto
+  end
+
+  defp generator_prototype_value("GeneratorFunction"),
+    do: Heap.get_or_create_generator_prototype_object()
+
+  defp generator_prototype_value(_), do: :undefined
 
   defp parent_static_property(nil, _key, _receiver, _call_getter), do: :undefined
   defp parent_static_property(:undefined, _key, _receiver, _call_getter), do: :undefined

@@ -3,9 +3,11 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
 
   import QuickBEAM.VM.Builtin, only: [object: 2]
 
-  alias QuickBEAM.VM.{Heap, RuntimeState}
+  alias QuickBEAM.VM.{Heap, JSThrow, RuntimeState}
   alias QuickBEAM.VM.Interpreter
   alias QuickBEAM.VM.Promise, as: Promise
+
+  @generator_ref_key "__generator_ref__"
 
   @doc "Invokes the runtime object represented by this module."
   def invoke(frame, gas, ctx, generator_fun \\ nil) do
@@ -104,6 +106,20 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
 
   # ── Shared helpers ──
 
+  def throw_value(gen_ref, val) do
+    case Heap.get_obj(gen_ref) do
+      %{state: :suspended, mode: :initial} ->
+        complete(gen_ref)
+        throw({:js_throw, val})
+
+      %{state: :suspended} = s ->
+        RuntimeState.with_context(s.ctx, fn -> resume_throw(gen_ref, s, val) end)
+
+      _ ->
+        throw({:js_throw, val})
+    end
+  end
+
   defp return_value(gen_ref, val) do
     case Heap.get_obj(gen_ref) do
       %{state: :suspended, mode: :initial} ->
@@ -116,6 +132,11 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
       _ ->
         done_result(val)
     end
+  end
+
+  defp resume_throw(gen_ref, _s, val) do
+    complete(gen_ref)
+    throw({:js_throw, val})
   end
 
   defp resume_return(gen_ref, s, val) do
@@ -167,8 +188,37 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
   defp yield_result(val), do: Heap.wrap(%{"value" => val, "done" => false})
   defp done_result(val), do: Heap.wrap(%{"value" => val, "done" => true})
 
+  def prototype_object do
+    object extends:
+             QuickBEAM.VM.Runtime.global_class_proto("Iterator") || Heap.get_object_prototype() do
+      method "next", length: 1 do
+        next(generator_ref!(this), argument_or_undefined(args))
+      end
+
+      method "return", length: 1 do
+        return_value(generator_ref!(this), argument_or_undefined(args))
+      end
+
+      method "throw", length: 1 do
+        throw_value(generator_ref!(this), argument_or_undefined(args))
+      end
+
+      symbol :iterator do
+        method length: 0 do
+          this
+        end
+      end
+
+      symbol :toStringTag do
+        data("Generator", writable: false, enumerable: false, configurable: true)
+      end
+    end
+  end
+
   defp build_iterator(gen_ref, next_impl, return_impl, generator_fun) do
     object extends: generator_object_prototype(generator_fun) do
+      prop(@generator_ref_key, gen_ref)
+
       method "next" do
         next_impl.(gen_ref, argument_or_undefined(args))
       end
@@ -184,6 +234,16 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
       end
     end
   end
+
+  defp generator_ref!({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      %{@generator_ref_key => gen_ref} -> gen_ref
+      _ -> JSThrow.type_error!("Generator method called on incompatible receiver")
+    end
+  end
+
+  defp generator_ref!(_),
+    do: JSThrow.type_error!("Generator method called on incompatible receiver")
 
   defp argument_or_undefined([value | _]), do: value
   defp argument_or_undefined([]), do: :undefined

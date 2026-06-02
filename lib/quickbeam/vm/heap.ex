@@ -396,18 +396,15 @@ defmodule QuickBEAM.VM.Heap do
 
   defp function_prototype_parent(_ctor), do: get_object_prototype()
 
+  def get_or_create_generator_prototype_object, do: generator_prototype_object()
+
   defp generator_prototype_object do
     case Process.get(:qb_generator_prototype_object) do
       {:obj, _} = proto ->
         proto
 
       _ ->
-        proto =
-          wrap(%{
-            "__proto__" =>
-              QuickBEAM.VM.Runtime.global_class_proto("Iterator") || get_object_prototype(),
-            {:symbol, "Symbol.toStringTag"} => "Generator"
-          })
+        proto = QuickBEAM.VM.Interpreter.Generator.prototype_object()
 
         Process.put(:qb_generator_prototype_object, proto)
         proto
