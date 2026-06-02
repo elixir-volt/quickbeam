@@ -22,12 +22,10 @@ defmodule QuickBEAM.VM.Builtin.Installer do
 
   @doc "Installs a builtin module's declared prototype specs on an object reference."
   def install_prototype_specs(proto_ref, module) when is_atom(module) do
-    install_property_specs(
-      {:object, proto_ref},
-      module,
-      module_specs(module, :prototype),
-      :prototype
-    )
+    target = {:object, proto_ref}
+
+    install_property_specs(target, module, module_specs(module, :prototype), :prototype)
+    install_property_aliases(target, module_aliases(module, :prototype))
   end
 
   @doc "Installs property specs on a constructor or object target."
@@ -64,6 +62,12 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     else
       declared_specs(module, :static_property_names, :static_property_spec)
     end
+  end
+
+  defp module_aliases(module, :prototype) do
+    if function_exported?(module, :proto_property_aliases, 0),
+      do: module.proto_property_aliases(),
+      else: []
   end
 
   defp declared_specs(module, names_fun, spec_fun) do
@@ -127,6 +131,33 @@ defmodule QuickBEAM.VM.Builtin.Installer do
 
   defp put_property_descriptor({:constructor, ctor}, key, descriptor),
     do: Heap.put_ctor_prop_desc(ctor, key, descriptor)
+
+  defp install_property_aliases(target, aliases) when is_list(aliases) do
+    Enum.each(aliases, fn {alias_key, source_key} ->
+      install_property_alias(target, alias_key, source_key)
+    end)
+  end
+
+  defp install_property_alias({:object, ref}, alias_key, source_key) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        case Map.fetch(map, source_key) do
+          {:ok, value} ->
+            Heap.put_obj_key(ref, alias_key, value)
+
+            case Heap.get_prop_desc(ref, source_key) do
+              nil -> :ok
+              descriptor -> Heap.put_prop_desc(ref, alias_key, descriptor)
+            end
+
+          :error ->
+            :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
 
   defp make_constructor(definition, :global) do
     Constructors.register(definition.name, definition.constructor,

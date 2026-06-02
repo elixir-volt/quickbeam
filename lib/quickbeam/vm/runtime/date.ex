@@ -5,7 +5,6 @@ defmodule QuickBEAM.VM.Runtime.Date do
   import QuickBEAM.VM.Value, only: [is_nullish: 1]
   use QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Heap
-  alias QuickBEAM.VM.ObjectModel.PropertyDescriptor
   alias QuickBEAM.VM.Semantics.Values
   alias QuickBEAM.VM.{Invocation, JSThrow}
 
@@ -19,20 +18,6 @@ defmodule QuickBEAM.VM.Runtime.Date do
       length: 7,
       phase: :fundamental
     )
-
-    install do
-      case Heap.get_class_proto(ctor) do
-        {:obj, proto_ref} ->
-          Heap.put_prop_desc(
-            proto_ref,
-            {:symbol, "Symbol.toPrimitive"},
-            PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: true)
-          )
-
-        _ ->
-          :ok
-      end
-    end
 
     prototype extends: :object do
       @ecma "21.4.4.45"

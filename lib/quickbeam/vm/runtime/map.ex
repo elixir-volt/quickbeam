@@ -50,20 +50,13 @@ defmodule QuickBEAM.VM.Runtime.Map do
       InstallerHelpers.install_object_parent(proto_ref, object_proto)
 
       Builtin.Installer.install_prototype_specs(proto_ref, __MODULE__)
-      alias_iterator_to_entries(proto_ref)
       InstallerHelpers.install_to_string_tag(proto_ref, "Map")
       InstallerHelpers.install_constructor_link(proto_ref, ctor)
     end)
   end
 
-  defp alias_iterator_to_entries(ref) do
-    case Heap.get_obj(ref, %{}) do
-      %{"entries" => entries} = map ->
-        Heap.put_obj(ref, Map.put(map, {:symbol, "Symbol.iterator"}, entries))
-
-      _ ->
-        :ok
-    end
+  def proto_property_aliases do
+    [{{:symbol, "Symbol.iterator"}, "entries"}]
   end
 
   def install_weak_map_builtin(ctor, opts \\ []) do

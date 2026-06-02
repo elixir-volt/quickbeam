@@ -48,25 +48,16 @@ defmodule QuickBEAM.VM.Runtime.Set do
       InstallerHelpers.install_object_parent(proto_ref, object_proto)
 
       Builtin.Installer.install_prototype_specs(proto_ref, __MODULE__)
-      alias_keys_and_iterator_to_values(proto_ref)
       InstallerHelpers.install_to_string_tag(proto_ref, "Set")
       InstallerHelpers.install_constructor_link(proto_ref, ctor)
     end)
   end
 
-  defp alias_keys_and_iterator_to_values(ref) do
-    case Heap.get_obj(ref, %{}) do
-      %{"values" => values} = map ->
-        aliased =
-          map
-          |> Map.put("keys", values)
-          |> Map.put({:symbol, "Symbol.iterator"}, values)
-
-        Heap.put_obj(ref, aliased)
-
-      _ ->
-        :ok
-    end
+  def proto_property_aliases do
+    [
+      {"keys", "values"},
+      {{:symbol, "Symbol.iterator"}, "values"}
+    ]
   end
 
   def install_weak_set_builtin(ctor, opts \\ []) do
