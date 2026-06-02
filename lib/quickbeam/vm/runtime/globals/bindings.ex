@@ -28,12 +28,12 @@ defmodule QuickBEAM.VM.Runtime.Globals.Bindings do
       end
 
       @ecma "19.2.2"
-      method "isFinite", constructable: false do
+      method "isFinite", length: 1, constructable: false do
         Numeric.finite?(args, this)
       end
 
       @ecma "19.2.3"
-      method "isNaN", constructable: false do
+      method "isNaN", length: 1, constructable: false do
         Numeric.nan?(args, this)
       end
 

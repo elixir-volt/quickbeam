@@ -121,17 +121,11 @@ defmodule QuickBEAM.VM.Runtime.Globals.Numeric do
   end
 
   @doc "Returns whether a VM number is JavaScript NaN."
-  def nan?([:nan | _], _), do: true
   def nan?([:infinity | _], _), do: false
   def nan?([:neg_infinity | _], _), do: false
-  def nan?([n | _], _) when is_number(n), do: false
 
-  def nan?([string | _], _) when is_binary(string) do
-    case Float.parse(String.trim_leading(string)) do
-      {_, _} -> false
-      :error -> true
-    end
-  end
+  def nan?([value | _], _)
+      when is_binary(value) and value in ["Infinity", "+Infinity", "-Infinity"], do: false
 
   def nan?([val | _], _) do
     case Values.to_number(val) do
