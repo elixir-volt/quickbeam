@@ -154,6 +154,28 @@ defmodule QuickBEAM.VM.ObjectModel.Prototype do
         })
 
       Heap.put_ctor_static(ctor, "prototype", proto_obj)
+      Heap.put_ctor_static(ctor, "__proto__", QuickBEAM.VM.Runtime.global_constructor("Function"))
+
+      Heap.put_prop_desc(ctor, "prototype", %{
+        writable: false,
+        enumerable: false,
+        configurable: false
+      })
+
+      with {:obj, ref} <- proto_obj do
+        Heap.put_prop_desc(ref, "constructor", %{
+          writable: false,
+          enumerable: false,
+          configurable: true
+        })
+
+        Heap.put_prop_desc(ref, {:symbol, "Symbol.toStringTag"}, %{
+          writable: false,
+          enumerable: false,
+          configurable: true
+        })
+      end
+
       proto_obj
     end)
   end
