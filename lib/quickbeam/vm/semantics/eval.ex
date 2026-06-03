@@ -71,11 +71,27 @@ defmodule QuickBEAM.VM.Semantics.Eval do
 
   def reject_class_field_initializer_eval!(_ctx, _code), do: :ok
 
+  def normalize_class_field_initializer_eval_code(ctx, code) when is_binary(code) do
+    if class_field_initializer_context?(ctx) do
+      String.replace(code, ~r/\bnew\s*\.\s*target\b/, "undefined")
+    else
+      code
+    end
+  end
+
+  def normalize_class_field_initializer_eval_code(_ctx, code), do: code
+
   defp class_field_initializer_context?(%{current_func: current_func}) do
     case current_func do
-      {:closure, _, %QuickBEAM.VM.Function{} = fun} -> synthetic_field_initializer?(fun)
-      %QuickBEAM.VM.Function{} = fun -> synthetic_field_initializer?(fun)
-      _ -> false
+      {:closure, captured, %QuickBEAM.VM.Function{} = fun} ->
+        Map.get(captured, :__class_field_initializer__, false) or
+          synthetic_field_initializer?(fun)
+
+      %QuickBEAM.VM.Function{} = fun ->
+        synthetic_field_initializer?(fun)
+
+      _ ->
+        false
     end
   end
 
@@ -98,12 +114,6 @@ defmodule QuickBEAM.VM.Semantics.Eval do
 
   defp forbidden_initializer_node?(%AST.Identifier{name: name})
        when name in ["arguments", "super"],
-       do: true
-
-  defp forbidden_initializer_node?(%AST.MetaProperty{
-         meta: %AST.Identifier{name: "new"},
-         property: %AST.Identifier{name: "target"}
-       }),
        do: true
 
   defp forbidden_initializer_node?(%_{} = node) do

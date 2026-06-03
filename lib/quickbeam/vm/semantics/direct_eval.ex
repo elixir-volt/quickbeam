@@ -54,8 +54,9 @@ defmodule QuickBEAM.VM.Semantics.DirectEval do
     } = caller
 
     EvalSemantics.reject_class_field_initializer_eval!(ctx, code)
+    eval_code = EvalSemantics.normalize_class_field_initializer_eval_code(ctx, code)
 
-    case compile(ctx.runtime_pid, strict_code(ctx, code)) do
+    case compile(ctx.runtime_pid, strict_code(ctx, eval_code)) do
       {:ok, parsed} ->
         run_compiled_eval(
           parsed,

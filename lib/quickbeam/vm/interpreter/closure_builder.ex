@@ -12,6 +12,7 @@ defmodule QuickBEAM.VM.Interpreter.ClosureBuilder do
       for cv <- fun.closure_vars, into: %{} do
         {capture_key(cv), capture_var(cv, locals, vrefs, l2v, parent_arg_count)}
       end
+      |> maybe_mark_class_field_initializer(ctx)
 
     {:closure, captured, fun}
   end
@@ -97,6 +98,32 @@ defmodule QuickBEAM.VM.Interpreter.ClosureBuilder do
         end
     end
   end
+
+  defp maybe_mark_class_field_initializer(captured, %Context{current_func: current_func}) do
+    if class_field_initializer_context?(current_func) do
+      Map.put(captured, :__class_field_initializer__, true)
+    else
+      captured
+    end
+  end
+
+  defp maybe_mark_class_field_initializer(captured, _ctx), do: captured
+
+  defp class_field_initializer_context?({:closure, captured, %QuickBEAM.VM.Function{} = fun}),
+    do:
+      Map.get(captured, :__class_field_initializer__, false) or synthetic_field_initializer?(fun)
+
+  defp class_field_initializer_context?(%QuickBEAM.VM.Function{} = fun),
+    do: synthetic_field_initializer?(fun)
+
+  defp class_field_initializer_context?(_), do: false
+
+  defp synthetic_field_initializer?(%QuickBEAM.VM.Function{source: "", locals: locals}) do
+    names = MapSet.new(Enum.map(locals, &QuickBEAM.VM.Names.resolve_display_name(&1.name)))
+    MapSet.subset?(MapSet.new(["this", "new.target", "<home_object>"]), names)
+  end
+
+  defp synthetic_field_initializer?(_), do: false
 
   defp current_function_arg_count(%Context{
          current_func: {:closure, _, %QuickBEAM.VM.Function{arg_count: n}}

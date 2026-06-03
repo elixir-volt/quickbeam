@@ -159,8 +159,9 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers.Calls do
 
   defp compile_eval_source(ctx, code) do
     Eval.reject_class_field_initializer_eval!(ctx, code)
+    eval_code = Eval.normalize_class_field_initializer_eval_code(ctx, code)
 
-    case compile_eval_program(ctx, strict_eval_code(ctx, code)) do
+    case compile_eval_program(ctx, strict_eval_code(ctx, eval_code)) do
       {:ok, program} ->
         run_eval_program(ctx, program)
 

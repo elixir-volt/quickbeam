@@ -191,7 +191,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
         closure =
           Builder.tuple_expr([
             Builder.atom(:closure),
-            Builder.map_expr([]),
+            Builder.map_expr(class_field_initializer_marker_entries(state, [])),
             Builder.literal(fun)
           ])
 
@@ -203,7 +203,9 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
           closure =
             Builder.tuple_expr([
               Builder.atom(:closure),
-              Builder.map_expr(Enum.reverse(entries)),
+              Builder.map_expr(
+                class_field_initializer_marker_entries(state, Enum.reverse(entries))
+              ),
               Builder.literal(fun)
             ])
 
@@ -217,6 +219,23 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Stack do
         {:error, {:unsupported_fclosure_const, const_idx, other}}
     end
   end
+
+  defp class_field_initializer_marker_entries(state, entries) do
+    if class_field_initializer_state?(state) do
+      [{Builder.literal(:__class_field_initializer__), Builder.literal(true)} | entries]
+    else
+      entries
+    end
+  end
+
+  defp class_field_initializer_state?(%{locals: locals}) when is_list(locals) do
+    names = MapSet.new(Enum.map(locals, &QuickBEAM.VM.Names.resolve_display_name(&1.name)))
+
+    MapSet.subset?(MapSet.new(["this", "new.target", "<home_object>"]), names) and
+      not MapSet.member?(names, "arguments")
+  end
+
+  defp class_field_initializer_state?(_), do: false
 
   defp lower_closure_entries(state, _arg_count, [], acc), do: {:ok, state, acc}
 
