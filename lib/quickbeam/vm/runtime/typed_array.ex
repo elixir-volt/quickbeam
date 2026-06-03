@@ -132,6 +132,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     options = Builtin.arg(args, 1, :undefined)
     alphabet = base64_option(options, "alphabet", "base64")
     last_chunk_handling = base64_option(options, "lastChunkHandling", "loose")
+    normalized_source = String.replace(source, ~r/[\t\n\f\r ]/, "")
     bytes = decode_base64_bytes(source, alphabet, last_chunk_handling)
     capacity = element_count(target)
 
@@ -143,9 +144,16 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       end
 
     read =
-      if length(bytes) <= capacity,
-        do: String.length(String.replace(source, ~r/[\t\n\f\r ]/, "")),
-        else: div(capacity, 3) * 4
+      cond do
+        length(bytes) > capacity ->
+          div(capacity, 3) * 4
+
+        last_chunk_handling == "stop-before-partial" ->
+          String.length(trim_base64_partial(normalized_source, last_chunk_handling))
+
+        true ->
+          String.length(source)
+      end
 
     result_object(%{"read" => read, "written" => written})
   end
