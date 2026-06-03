@@ -6,7 +6,7 @@ Drive BEAM interpreter/compiler behavior toward QuickJS NIF parity on Test262, p
 
 ## Recently cleaned / do not re-baseline as active work unless a shard regresses
 
-- Object / Reflect / Function / Array / TypedArray / TypedArrayConstructors / Uint8Array / ArrayBuffer / DataView / collections / Promise / RegExp prototype / Date / Error / JSON / Math / primitive wrappers / WeakRef / FinalizationRegistry / SharedArrayBuffer / Atomics / Iterator / global numeric / small global value and URI semantic slices are already cleaned or checkpointed.
+- Object / Reflect / Function / Array / TypedArray / TypedArrayConstructors / Uint8Array / ArrayBuffer / DataView / collections / Promise / RegExp prototype / Date / Error / JSON / Math / primitive wrappers / WeakRef / FinalizationRegistry / SharedArrayBuffer / Atomics / Iterator / Proxy / global numeric / small global value and URI semantic slices are already cleaned or checkpointed.
 - AsyncFunction, AsyncGeneratorPrototype, AsyncGeneratorFunction, GeneratorFunction, and GeneratorPrototype are clean in combination.
 - Array/Map/Set/String iterator prototypes are clean.
 - AsyncIteratorPrototype / AsyncFromSyncIteratorPrototype / RegExpStringIteratorPrototype are clean.
@@ -17,7 +17,6 @@ Drive BEAM interpreter/compiler behavior toward QuickJS NIF parity on Test262, p
 
 - Run cumulative shards periodically instead of all-in-one broad checkpoint; all-in-one can exhaust BEAM literal memory.
 - Revisit URI timeout-only cases only with a structural loop/global synchronization optimization. Current URI baseline is 167/173, with six interpreter-timeout-only failures in decodeURI/decodeURIComponent/encodeURI/encodeURIComponent generated range tests; compiler passes all accepted URI cases. Do not retry isolated URI/fromCharCode micro-optimizations; they reduced elapsed time but not the primary timeout metric.
-- Proxy currently has 12 compiler-only failures around trap call context/global mutation visibility. Local probes show the trap receives an object with aliased handler properties, but strict equality between trap `this` and the original compiled handler binding fails. Investigate compiled object identity for object literals passed as Proxy handlers before changing proxy trap dispatch again.
 
 ## Do not retry unchanged
 
@@ -30,4 +29,4 @@ Drive BEAM interpreter/compiler behavior toward QuickJS NIF parity on Test262, p
 - Isolated URI non-BMP decode/fromCharCode fast paths without broader dispatch/global-sync work.
 - Broad regex-based typed-array non-integer CanonicalNumericIndexString classification. The exact ToNumber/ToString-style helper worked; avoid reverting to the older regex shape that misclassified non-canonical strings such as `1.0`.
 - Typed-array Reflect.set/receiver result refactor without descriptor-based receiver writes. The final fix needed `[[DefineOwnProperty]]`-style receiver writes to avoid prototype recursion; do not retry the result-only refactor.
-- Generic compiler RuntimeState/fast-context installation or proxy-trap interpreter fallback for Proxy trap context. Tried after Proxy baseline and the primary metric stayed at 12; focus next on compiled object identity/handler binding representation instead.
+- Generic compiler RuntimeState/fast-context installation or proxy-trap interpreter fallback for Proxy trap context. Tried after Proxy baseline and the primary metric stayed at 12. The actual fix was making RuntimeABI global reads prefer persistent globals, matching RuntimeHelpers, so do not retry trap dispatch or handler identity work unchanged.
