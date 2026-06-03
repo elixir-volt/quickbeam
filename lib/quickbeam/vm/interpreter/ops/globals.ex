@@ -293,17 +293,21 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
                 do: "this is not initialized",
                 else: "Cannot access variable before initialization"
 
-            JSThrow.reference_error!(message)
+            throw_or_catch(frame, Heap.make_error(message, "ReferenceError"), gas, ctx)
 
           {:cell, _} = cell ->
             val = Closures.read_cell(cell)
 
-            if val == :__tdz__ and current_var_ref_name(ctx, idx) == "this" and
-                 derived_this_uninitialized?(ctx) do
-              JSThrow.reference_error!("this is not initialized")
-            end
+            if val == :__tdz__ do
+              message =
+                if current_var_ref_name(ctx, idx) == "this",
+                  do: "this is not initialized",
+                  else: "Cannot access variable before initialization"
 
-            run(pc + 1, frame, [val | stack], gas, ctx)
+              throw_or_catch(frame, Heap.make_error(message, "ReferenceError"), gas, ctx)
+            else
+              run(pc + 1, frame, [val | stack], gas, ctx)
+            end
 
           val ->
             run(pc + 1, frame, [val | stack], gas, ctx)

@@ -10,7 +10,7 @@ defmodule QuickBEAM.VM.Interpreter.ClosureBuilder do
 
     captured =
       for cv <- fun.closure_vars, into: %{} do
-        {capture_key(cv), capture_var(cv, locals, vrefs, l2v, parent_arg_count)}
+        {capture_key(cv), capture_var(cv, locals, vrefs, l2v, parent_arg_count, ctx)}
       end
       |> maybe_mark_class_field_initializer(ctx)
 
@@ -41,7 +41,7 @@ defmodule QuickBEAM.VM.Interpreter.ClosureBuilder do
   @doc "Helper for closure construction: captures parent locals and var-refs into a `{:closure, captured, fun}` tuple."
   def ctor_var_refs(%QuickBEAM.VM.Function{} = fun, captured \\ %{}) do
     cell_ref = make_ref()
-    Heap.put_cell(cell_ref, false)
+    Heap.put_cell(cell_ref, :__tdz__)
 
     case fun.closure_vars do
       [] ->
@@ -56,7 +56,7 @@ defmodule QuickBEAM.VM.Interpreter.ClosureBuilder do
   def capture_key(%{closure_type: type, var_idx: idx}), do: capture_key(type, idx)
   def capture_key(type, idx), do: {type, idx}
 
-  defp capture_var(%{closure_type: 2, var_idx: idx}, _locals, vrefs, _l2v, _arg_count)
+  defp capture_var(%{closure_type: 2, var_idx: idx}, _locals, vrefs, _l2v, _arg_count, _ctx)
        when idx < tuple_size(vrefs) do
     case elem(vrefs, idx) do
       {:cell, _} = existing ->
@@ -69,18 +69,18 @@ defmodule QuickBEAM.VM.Interpreter.ClosureBuilder do
     end
   end
 
-  defp capture_var(%{closure_type: 0, var_idx: idx}, locals, vrefs, l2v, arg_count) do
-    capture_local_var(idx + arg_count, locals, vrefs, l2v)
+  defp capture_var(%{closure_type: 0, var_idx: idx} = cv, locals, vrefs, l2v, arg_count, ctx) do
+    capture_local_var(idx + arg_count, locals, vrefs, l2v, cv, ctx)
   end
 
-  defp capture_var(%{var_idx: idx}, locals, vrefs, l2v, _arg_count) do
-    capture_local_var(idx, locals, vrefs, l2v)
+  defp capture_var(%{var_idx: idx} = cv, locals, vrefs, l2v, _arg_count, ctx) do
+    capture_local_var(idx, locals, vrefs, l2v, cv, ctx)
   end
 
-  defp capture_local_var(idx, locals, vrefs, l2v) do
+  defp capture_local_var(idx, locals, vrefs, l2v, cv, ctx) do
     case Map.get(l2v, idx) do
       nil ->
-        val = if idx < tuple_size(locals), do: elem(locals, idx), else: :undefined
+        val = captured_local_value(idx, locals, cv, ctx)
         ref = make_ref()
         Heap.put_cell(ref, val)
         {:cell, ref}
@@ -98,6 +98,19 @@ defmodule QuickBEAM.VM.Interpreter.ClosureBuilder do
         end
     end
   end
+
+  defp captured_local_value(idx, locals, cv, %Context{this: {:uninitialized, _}}) do
+    if QuickBEAM.VM.Names.resolve_display_name(cv.name) == "this" do
+      :__tdz__
+    else
+      local_value(idx, locals)
+    end
+  end
+
+  defp captured_local_value(idx, locals, _cv, _ctx), do: local_value(idx, locals)
+
+  defp local_value(idx, locals),
+    do: if(idx < tuple_size(locals), do: elem(locals, idx), else: :undefined)
 
   defp maybe_mark_class_field_initializer(captured, %Context{current_func: current_func}) do
     if class_field_initializer_context?(current_func) do

@@ -285,9 +285,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers.Bindings do
       {:cell, _} = cell ->
         value = Closures.read_cell(cell)
 
-        if value == :__tdz__ and var_ref_name(ctx, idx) == "this" and
-             derived_this_uninitialized?(ctx) do
-          JSThrow.reference_error!("this is not initialized")
+        if value == :__tdz__ do
+          JSThrow.reference_error!(var_ref_error_message(ctx, idx))
         end
 
         value
@@ -301,7 +300,7 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers.Bindings do
   defp write_var_ref(_, _), do: :ok
 
   defp var_ref_error_message(ctx, idx) do
-    if var_ref_name(ctx, idx) == "this" and derived_this_uninitialized?(ctx) do
+    if var_ref_name(ctx, idx) == "this" do
       "this is not initialized"
     else
       "Cannot access variable before initialization"
@@ -323,18 +322,6 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers.Bindings do
   end
 
   defp closure_capture_key(%{closure_type: type, var_idx: idx}), do: {type, idx}
-
-  defp derived_this_uninitialized?(ctx) do
-    case RuntimeContext.this(ctx) do
-      this
-      when this == :uninitialized or
-             (is_tuple(this) and tuple_size(this) == 2 and elem(this, 0) == :uninitialized) ->
-        true
-
-      _ ->
-        false
-    end
-  end
 
   defp current_context do
     case RuntimeState.current() do

@@ -132,6 +132,14 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Locals do
             ctx
           )
         else
+          Closures.write_captured_local(
+            elem(frame, Frame.l2v()),
+            idx,
+            val,
+            elem(frame, Frame.locals()),
+            elem(frame, Frame.var_refs())
+          )
+
           run(pc + 1, put_local(frame, idx, val), rest, gas, ctx)
         end
       end
