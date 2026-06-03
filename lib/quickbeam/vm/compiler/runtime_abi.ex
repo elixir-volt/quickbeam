@@ -93,6 +93,9 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
 
   def put_var_ref(ctx, idx, value), do: RuntimeABI.Bindings.put_var_ref(ctx, idx, value)
 
+  def put_var_ref_check_init(ctx, idx, value),
+    do: RuntimeABI.Bindings.put_var_ref_check_init(ctx, idx, value)
+
   def set_var_ref(ctx, idx, value), do: RuntimeABI.Bindings.set_var_ref(ctx, idx, value)
 
   def make_loc_ref(ctx, idx, value), do: RuntimeABI.Bindings.make_loc_ref(ctx, idx, value)

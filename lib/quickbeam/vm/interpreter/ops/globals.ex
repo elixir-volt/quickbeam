@@ -317,11 +317,23 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Globals do
       defp run({op, [idx]}, pc, frame, [val | rest], gas, ctx)
            when op in [@op_put_var_ref_check, @op_put_var_ref_check_init] do
         case elem(elem(frame, Frame.var_refs()), idx) do
-          {:cell, ref} -> Closures.write_cell({:cell, ref}, val)
-          _ -> :ok
-        end
+          {:cell, ref} = cell ->
+            if op == @op_put_var_ref_check_init and current_var_ref_name(ctx, idx) == "this" and
+                 match?({:obj, _}, Closures.read_cell(cell)) do
+              throw_or_catch(
+                frame,
+                Heap.make_error("this is already initialized", "ReferenceError"),
+                gas,
+                ctx
+              )
+            else
+              Closures.write_cell({:cell, ref}, val)
+              run(pc + 1, frame, rest, gas, ctx)
+            end
 
-        run(pc + 1, frame, rest, gas, ctx)
+          _ ->
+            run(pc + 1, frame, rest, gas, ctx)
+        end
       end
 
       defp run(

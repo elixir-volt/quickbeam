@@ -17,6 +17,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI.Bindings do
   def refresh_globals(ctx), do: GlobalEnvironment.refresh(ctx)
   def delete_var(ctx, atom_idx), do: RuntimeBindings.delete_var(ctx, atom_idx)
   def put_var_ref(ctx, idx, value), do: RuntimeBindings.put_var_ref(ctx, idx, value)
+
+  def put_var_ref_check_init(ctx, idx, value),
+    do: RuntimeBindings.put_var_ref_check_init(ctx, idx, value)
+
   def set_var_ref(ctx, idx, value), do: RuntimeBindings.set_var_ref(ctx, idx, value)
   def make_loc_ref(ctx, idx, value), do: RuntimeBindings.make_loc_ref(ctx, idx, value)
   def make_arg_ref(ctx, idx), do: RuntimeBindings.make_arg_ref(ctx, idx)

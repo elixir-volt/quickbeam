@@ -130,6 +130,17 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers.Bindings do
     :ok
   end
 
+  def put_var_ref_check_init(ctx, idx, value) do
+    ref = current_var_ref(ctx, idx)
+
+    if var_ref_name(ctx, idx) == "this" and match?({:obj, _}, read_var_ref(ref)) do
+      JSThrow.reference_error!("this is already initialized")
+    end
+
+    write_var_ref(ref, value)
+    :ok
+  end
+
   @doc "Writes a value through a compiled variable reference and returns the value."
   def set_var_ref(ctx, idx, value) do
     put_var_ref(ctx, idx, value)

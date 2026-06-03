@@ -25,7 +25,7 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
     put_var_ref2: :put_var_ref,
     put_var_ref3: :put_var_ref,
     put_var_ref_check: :put_var_ref,
-    put_var_ref_check_init: :put_var_ref,
+    put_var_ref_check_init: :put_var_ref_check_init,
     set_var_ref: :set_var_ref,
     set_var_ref0: :set_var_ref,
     set_var_ref1: :set_var_ref,
@@ -117,6 +117,10 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
   end
 
   defp lower_handler(:put_var_ref, state, [idx]), do: lower_put_var_ref(state, idx)
+
+  defp lower_handler(:put_var_ref_check_init, state, [idx]),
+    do: lower_put_var_ref_check_init(state, idx)
+
   defp lower_handler(:set_var_ref, state, [idx]), do: lower_set_var_ref(state, idx)
 
   defp lower_handler(:make_loc_ref, state, [atom_idx, var_idx]),
@@ -168,6 +172,19 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Globals do
          state
          | body: [
              State.abi_call(state, :put_var_ref, [Builder.literal(idx), val]) | state.body
+           ]
+       }}
+    end
+  end
+
+  defp lower_put_var_ref_check_init(state, idx) do
+    with {:ok, val, _type, state} <- Emit.pop_typed(state) do
+      {:ok,
+       %{
+         state
+         | body: [
+             State.abi_call(state, :put_var_ref_check_init, [Builder.literal(idx), val])
+             | state.body
            ]
        }}
     end
