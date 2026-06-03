@@ -859,6 +859,12 @@ defmodule QuickBEAM.VM.Invocation do
     end
   end
 
+  defp prevalidate_builtin_construct_args!({:builtin, name, _}, args) do
+    if QuickBEAM.VM.Runtime.TypedArray.constructor_type(name) != nil do
+      QuickBEAM.VM.Runtime.TypedArray.prevalidate_construct_args!(args)
+    end
+  end
+
   defp prevalidate_builtin_construct_args!(_ctor, _args), do: :ok
 
   defp normalize_constructor_prototype({:obj, _} = object_proto), do: object_proto

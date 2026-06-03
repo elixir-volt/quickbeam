@@ -485,6 +485,14 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   @doc "Returns the byte width for a typed-array element type."
   defdelegate elem_size(type), to: Metadata
 
+  def prevalidate_construct_args!([first | _]) do
+    if QuickBEAM.VM.Value.symbol?(first) do
+      JSThrow.type_error!("Cannot convert Symbol to index")
+    end
+  end
+
+  def prevalidate_construct_args!(_args), do: :ok
+
   @doc "Returns generic properties for typed-array constructor prototype objects."
   def prototype_properties do
     proto_property_names()
