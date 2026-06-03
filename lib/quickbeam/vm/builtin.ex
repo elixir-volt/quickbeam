@@ -2275,7 +2275,7 @@ defmodule QuickBEAM.VM.Builtin do
 
   @doc "Dispatches a VM callable value to its underlying Elixir callback."
   def call({:builtin, name, _cb}, _args, _this)
-      when name in ~w(Map Set WeakMap WeakSet WeakRef FinalizationRegistry DataView Promise Proxy) do
+      when name in ~w(Map Set WeakMap WeakSet WeakRef FinalizationRegistry DataView Promise Proxy Int8Array Uint8Array Uint8ClampedArray Int16Array Uint16Array Int32Array Uint32Array Float32Array Float64Array BigInt64Array BigUint64Array) do
     JSThrow.type_error!("Constructor #{name} requires 'new'")
   end
 
