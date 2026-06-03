@@ -31,6 +31,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayInstallation do
 
     Heap.put_ctor_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
     Heap.put_ctor_static(ctor, "__proto__", typed_array_base)
+    delete_inherited_concrete_statics(ctor)
     Heap.put_ctor_static(ctor, "BYTES_PER_ELEMENT", Metadata.elem_size(type))
     Heap.put_ctor_prop_desc(ctor, "BYTES_PER_ELEMENT", bytes_per_element_descriptor())
   end
@@ -110,6 +111,13 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayInstallation do
 
       _ ->
         :ok
+    end
+  end
+
+  defp delete_inherited_concrete_statics(ctor) do
+    for key <- ["from", "of", {:symbol, "Symbol.species"}] do
+      Heap.delete_ctor_static(ctor, key)
+      Heap.delete_ctor_prop_desc(ctor, key)
     end
   end
 

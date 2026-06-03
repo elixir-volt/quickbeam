@@ -88,7 +88,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
       statics = Heap.get_ctor_statics(builtin)
 
       (is_map(map) and Map.has_key?(map, key)) or Map.has_key?(statics, key) or
-        module_static_present?(Map.get(statics, :__module__), key)
+        module_static_present?(Map.get(statics, :__module__), builtin, key)
     end
   end
 
@@ -111,11 +111,18 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
 
   defp deleted_static?(target, key), do: Static.deleted?(target, key)
 
-  defp module_static_present?(module, key) when is_atom(module) do
-    module_static_value(module, key) != :undefined
+  defp module_static_present?(module, builtin, key) when is_atom(module) do
+    module_static_own?(module, builtin, key) and module_static_value(module, key) != :undefined
   end
 
-  defp module_static_present?(_module, _key), do: false
+  defp module_static_present?(_module, _builtin, _key), do: false
+
+  defp module_static_own?(QuickBEAM.VM.Runtime.TypedArray, {:builtin, name, _}, key)
+       when key in ["from", "of", {:symbol, "Symbol.species"}] do
+    QuickBEAM.VM.Runtime.TypedArray.Metadata.constructor_type(name) == nil
+  end
+
+  defp module_static_own?(_module, _builtin, _key), do: true
 
   defp module_static_value(module, key) when is_atom(module) do
     if function_exported?(module, :static_property, 1),
@@ -465,7 +472,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
         is_map(map) and Map.has_key?(map, prop_key) ->
           Map.get(map, prop_key)
 
-        module_static_value(module, prop_key) != :undefined ->
+        module_static_present?(module, builtin, prop_key) ->
           module_static_value(module, prop_key)
 
         prop_key == "length" and is_function(map) ->

@@ -516,12 +516,6 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     end
   end
 
-  def constructor_static_property(name, ctor, "from") do
-    if constructor_type(name) != nil,
-      do: {:builtin, "from", fn args, this -> static_from(args, this || ctor) end},
-      else: :undefined
-  end
-
   def constructor_static_property(_name, _ctor, _key), do: :undefined
 
   def constructor_prototype(name, ctor),

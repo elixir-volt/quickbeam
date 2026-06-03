@@ -266,6 +266,11 @@ defmodule QuickBEAM.VM.Heap.Store do
     put_ctor_statics(ctor, Map.put(statics, key, val))
   end
 
+  def delete_ctor_static(ctor, key) do
+    statics = get_ctor_statics(ctor)
+    put_ctor_statics(ctor, Map.delete(statics, key))
+  end
+
   defp ctor_key({:closure, _captured, %QuickBEAM.VM.Function{} = fun}), do: ctor_key(fun)
 
   defp ctor_key(%QuickBEAM.VM.Function{id: id}) when is_integer(id), do: {:function, id}
@@ -324,6 +329,16 @@ defmodule QuickBEAM.VM.Heap.Store do
     Process.put(
       {:qb_ctor_prop_desc_index, owner},
       Map.put(ctor_prop_desc_index(owner), key, desc)
+    )
+  end
+
+  def delete_ctor_prop_desc(ctor, key) do
+    owner = ctor_key(ctor)
+    Process.delete({:qb_ctor_prop_desc, owner, key})
+
+    Process.put(
+      {:qb_ctor_prop_desc_index, owner},
+      Map.delete(ctor_prop_desc_index(owner), key)
     )
   end
 

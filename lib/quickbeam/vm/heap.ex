@@ -496,8 +496,10 @@ defmodule QuickBEAM.VM.Heap do
   defdelegate get_ctor_statics(ctor), to: Store
   defdelegate put_ctor_statics(ctor, statics), to: Store
   defdelegate put_ctor_static(ctor, key, value), to: Store
+  defdelegate delete_ctor_static(ctor, key), to: Store
   defdelegate get_ctor_prop_desc(ctor, key), to: Store
   defdelegate put_ctor_prop_desc(ctor, key, desc), to: Store
+  defdelegate delete_ctor_prop_desc(ctor, key), to: Store
   defdelegate put_var(name, value), to: Store
   defdelegate delete_var(name), to: Store
 
