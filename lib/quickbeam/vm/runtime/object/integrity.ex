@@ -60,6 +60,7 @@ defmodule QuickBEAM.VM.Runtime.Object.Integrity do
   def seal(value), do: value
 
   def frozen?({:obj, _ref} = obj), do: frozen_object?(obj)
+  def frozen?({:builtin, "ThrowTypeError", _}), do: true
   def frozen?(value), do: if(object_like?(value), do: frozen_object_like?(value), else: true)
 
   def sealed?({:obj, _ref} = obj), do: sealed_object?(obj)

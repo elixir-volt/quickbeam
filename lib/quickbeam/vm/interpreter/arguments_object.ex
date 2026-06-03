@@ -32,7 +32,7 @@ defmodule QuickBEAM.VM.Interpreter.ArgumentsObject do
       nil ->
         arguments =
           Heap.wrap_arguments(Tuple.to_list(ctx.arg_buf),
-            strict: Value.strict_context?(ctx),
+            strict: restricted_callee?(ctx),
             callee: ctx.current_func,
             mapped: mapped_argument_cells(ctx, frame, opts)
           )
@@ -94,6 +94,8 @@ defmodule QuickBEAM.VM.Interpreter.ArgumentsObject do
     end)
   end
 
+  defp restricted_callee?(ctx), do: Value.strict_context?(ctx) or not simple_parameter_list?(ctx)
+
   defp mapped_arguments?(ctx) do
     case ctx.current_func do
       {:closure, _, %QuickBEAM.VM.Function{} = fun} ->
@@ -104,6 +106,14 @@ defmodule QuickBEAM.VM.Interpreter.ArgumentsObject do
 
       _ ->
         false
+    end
+  end
+
+  defp simple_parameter_list?(ctx) do
+    case ctx.current_func do
+      {:closure, _, %QuickBEAM.VM.Function{} = fun} -> fun.has_simple_parameter_list
+      %QuickBEAM.VM.Function{} = fun -> fun.has_simple_parameter_list
+      _ -> true
     end
   end
 
