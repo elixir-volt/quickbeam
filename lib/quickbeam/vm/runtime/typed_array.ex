@@ -2153,6 +2153,10 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
           is_list(buf) ->
             {list_to_buffer(buf, type), 0, length(buf), nil, false}
 
+          is_map(buf) and Map.get(buf, typed_array()) == true ->
+            list = typed_array_source_to_list(buf_obj)
+            {list_to_buffer(list, type), 0, length(list), nil, false}
+
           is_map(buf) and Map.has_key?(buf, buffer()) ->
             if Map.get(buf, "__detached__") do
               JSThrow.type_error!("ArrayBuffer is detached")
@@ -2207,6 +2211,14 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
       _ ->
         {<<>>, 0, 0, nil, false}
+    end
+  end
+
+  defp typed_array_source_to_list(obj) do
+    if out_of_bounds?(obj) do
+      []
+    else
+      for index <- 0..(element_count(obj) - 1)//1, do: get_element(obj, index)
     end
   end
 
@@ -2479,6 +2491,12 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   end
 
   defp make_buffer_ref(buffer_data) do
-    Heap.wrap(%{buffer() => buffer_data, "byteLength" => byte_size(buffer_data)})
+    Heap.wrap(%{
+      buffer() => buffer_data,
+      "byteLength" => byte_size(buffer_data),
+      "resizable" => false,
+      "__array_buffer_kind__" => :array_buffer,
+      proto() => Runtime.global_class_proto("ArrayBuffer") || Heap.get_object_prototype()
+    })
   end
 end
