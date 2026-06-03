@@ -232,6 +232,9 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
       list when is_list(list) ->
         array_present_indices(ref, length(list)) ++ ["length"] ++ array_property_keys(ref)
 
+      %{typed_array() => true} = map ->
+        typed_array_own_keys({:obj, ref}, map)
+
       map when is_map(map) ->
         ordered_map_keys(map)
 
@@ -304,6 +307,33 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   end
 
   defp module_static_keys(_module), do: []
+
+  defp typed_array_own_keys(obj, map) do
+    indexes = array_indices(TypedArray.element_count(obj))
+
+    ordinary_keys =
+      map
+      |> ordered_map_keys()
+      |> Enum.reject(&typed_array_storage_key?/1)
+      |> Enum.reject(&array_index_key?/1)
+
+    indexes ++ ordinary_keys
+  end
+
+  defp typed_array_storage_key?(key)
+       when key in [
+              "length",
+              "byteLength",
+              "byteOffset",
+              "BYTES_PER_ELEMENT",
+              "buffer",
+              "__length_tracking__",
+              "__fixed_length__",
+              "__fixed_byte_length__"
+            ],
+       do: true
+
+  defp typed_array_storage_key?(_key), do: false
 
   defp ordered_map_keys(map) do
     insertion_order =
