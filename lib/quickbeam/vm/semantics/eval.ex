@@ -29,9 +29,9 @@ defmodule QuickBEAM.VM.Semantics.Eval do
 
   def simple_assigned_names(code) do
     case Parser.parse(code) do
-      {:ok, %AST.Program{body: body}} ->
-        body
-        |> Enum.flat_map(&simple_assigned_names_from_statement/1)
+      {:ok, %AST.Program{} = program} ->
+        program
+        |> assigned_names_from_node([])
         |> MapSet.new()
 
       _ ->
@@ -73,7 +73,9 @@ defmodule QuickBEAM.VM.Semantics.Eval do
 
   def normalize_class_field_initializer_eval_code(ctx, code) when is_binary(code) do
     if class_field_initializer_context?(ctx) do
-      String.replace(code, ~r/\bnew\s*\.\s*target\b/, "undefined")
+      code
+      |> String.replace(~r/\bnew\s*\.\s*target\b/, "undefined")
+      |> String.replace(~r/\bsuper\s*(\[[^\]]+\]|\.[A-Za-z_$][\w$]*)/, "undefined")
     else
       code
     end
@@ -112,9 +114,10 @@ defmodule QuickBEAM.VM.Semantics.Eval do
     end
   end
 
-  defp forbidden_initializer_node?(%AST.Identifier{name: name})
-       when name in ["arguments", "super"],
-       do: true
+  defp forbidden_initializer_node?(%AST.Identifier{name: "arguments"}), do: true
+
+  defp forbidden_initializer_node?(%AST.CallExpression{callee: %AST.Identifier{name: "super"}}),
+    do: true
 
   defp forbidden_initializer_node?(%_{} = node) do
     node
@@ -128,10 +131,24 @@ defmodule QuickBEAM.VM.Semantics.Eval do
 
   defp forbidden_initializer_node?(_), do: false
 
-  defp simple_assigned_names_from_statement(%AST.ExpressionStatement{
-         expression: %AST.AssignmentExpression{left: %AST.Identifier{name: name}}
-       }),
-       do: [name]
+  defp assigned_names_from_node(
+         %AST.AssignmentExpression{left: %AST.Identifier{name: name}} = node,
+         acc
+       ) do
+    node
+    |> Map.from_struct()
+    |> Map.delete(:left)
+    |> assigned_names_from_map([name | acc])
+  end
 
-  defp simple_assigned_names_from_statement(_), do: []
+  defp assigned_names_from_node(%_{} = node, acc),
+    do: node |> Map.from_struct() |> assigned_names_from_map(acc)
+
+  defp assigned_names_from_node(list, acc) when is_list(list),
+    do: Enum.reduce(list, acc, &assigned_names_from_node/2)
+
+  defp assigned_names_from_node(_, acc), do: acc
+
+  defp assigned_names_from_map(map, acc),
+    do: map |> Map.values() |> Enum.reduce(acc, &assigned_names_from_node/2)
 end

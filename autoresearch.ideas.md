@@ -17,7 +17,7 @@ Drive BEAM interpreter/compiler behavior toward QuickJS NIF parity on Test262, p
 
 - Run cumulative shards periodically instead of all-in-one broad checkpoint; all-in-one can exhaust BEAM literal memory.
 - Revisit URI timeout-only cases only with a structural loop/global synchronization optimization. Current URI baseline is 167/173, with six interpreter-timeout-only failures in decodeURI/decodeURIComponent/encodeURI/encodeURIComponent generated range tests; compiler passes all accepted URI cases. Do not retry isolated URI/fromCharCode micro-optimizations; they reduced elapsed time but not the primary timeout metric.
-- Class statement/expression combined slice is active and improved from 368 to 264 failures. Done fixes: constructor static accessor get/set merging, callable static setters, descriptor-based callable static fields, and non-writable/non-configurable class constructor `prototype` descriptors. Remaining visible clusters are mostly eval-inside-class-field early-error/indirect-eval cases, derived `this` TDZ during field initialization, and compiler-only indirect eval `arguments` cases.
+- Class statement/expression combined slice is active and improved from 368 to 248 failures. Done fixes: constructor static accessor get/set merging, callable static setters, descriptor-based callable static fields, non-writable/non-configurable class constructor `prototype` descriptors, class-field direct-eval context propagation, repeated derived `this` initialization rejection, and interpreter-side derived `this` TDZ capture propagation. Remaining visible clusters are mostly eval-inside-class-field super/new.target cases, compiler-only indirect eval `arguments`, and compiler-side captured derived `this` initialization.
 
 ## Do not retry unchanged
 

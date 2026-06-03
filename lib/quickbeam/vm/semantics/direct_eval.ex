@@ -60,7 +60,7 @@ defmodule QuickBEAM.VM.Semantics.DirectEval do
       {:ok, parsed} ->
         run_compiled_eval(
           parsed,
-          code,
+          eval_code,
           ctx,
           locals,
           var_refs,
