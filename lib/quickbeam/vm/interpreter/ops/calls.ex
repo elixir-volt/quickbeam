@@ -299,6 +299,8 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
         parent = Heap.get_parent_ctor(raw)
         args = Tuple.to_list(arg_buf)
 
+        already_bound_this? = match?({:obj, _}, ctx.this)
+
         pending_this =
           case ctx.this do
             {:uninitialized, {:obj, _} = obj} -> obj
@@ -345,6 +347,10 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
             {:obj, _} = obj -> obj
             _ -> pending_this
           end
+
+        if already_bound_this? and parent != nil do
+          JSThrow.reference_error!("this is already initialized")
+        end
 
         run(pc + 1, frame, [result | stack], gas, Context.mark_dirty(%{ctx | this: result}))
       end

@@ -72,6 +72,14 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers do
     val
   end
 
+  def ensure_uninitialized_this!(_ctx \\ nil, current, val) do
+    if match?({:obj, _}, current) do
+      throw({:js_throw, Heap.make_error("this is already initialized", "ReferenceError")})
+    end
+
+    val
+  end
+
   def to_property_key(value), do: PropertyAccess.to_property_key(value)
 
   def to_property_key(ctx, value),

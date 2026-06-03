@@ -99,8 +99,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Locals do
   defp lower_handler(:put_slot, state, [slot_idx]), do: State.assign_slot(state, slot_idx, false)
   defp lower_handler(:put_loc_check, state, [slot_idx]), do: lower_put_loc_check(state, slot_idx)
 
-  defp lower_handler(:put_loc_check_init, state, [slot_idx]),
-    do: State.assign_slot(state, slot_idx, false)
+  defp lower_handler(:put_loc_check_init, state, [slot_idx]) do
+    wrapper =
+      if local_name(state, slot_idx) == "this" do
+        {:ensure_uninitialized_this!, Slots.slot_expr(state, slot_idx)}
+      end
+
+    State.assign_slot(state, slot_idx, false, wrapper)
+  end
 
   defp lower_handler(:set_slot, state, [slot_idx]), do: State.assign_slot(state, slot_idx, true)
 
@@ -146,6 +152,11 @@ defmodule QuickBEAM.VM.Compiler.Lowering.Ops.Locals do
 
     LoweringEffects.effectful_push(state, value, slot_type)
   end
+
+  defp local_name(%{locals: locals}, slot_idx) when is_list(locals) and slot_idx < length(locals),
+    do: locals |> Enum.at(slot_idx) |> Map.get(:name) |> QuickBEAM.VM.Names.resolve_display_name()
+
+  defp local_name(_, _), do: nil
 
   defp lower_put_loc_check(state, slot_idx) do
     wrapper =

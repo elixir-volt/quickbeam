@@ -111,6 +111,9 @@ defmodule QuickBEAM.VM.Compiler.RuntimeABI do
   def ensure_initialized_local!(ctx, value),
     do: RuntimeHelpers.ensure_initialized_local!(ctx, value)
 
+  def ensure_uninitialized_this!(ctx, current, value),
+    do: RuntimeHelpers.ensure_uninitialized_this!(ctx, current, value)
+
   def undefined?(ctx, value), do: RuntimeHelpers.undefined?(ctx, value)
 
   def null?(ctx, value), do: RuntimeHelpers.null?(ctx, value)

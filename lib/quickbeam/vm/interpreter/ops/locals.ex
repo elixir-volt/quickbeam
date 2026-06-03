@@ -5,7 +5,7 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Locals do
   defmacro __using__(_opts) do
     quote location: :keep do
       alias QuickBEAM.VM.{Heap, Names}
-      alias QuickBEAM.VM.Interpreter.{Closures, Frame}
+      alias QuickBEAM.VM.Interpreter.{Closures, EvalEnv, Frame}
 
       # ── Args ──
 
@@ -123,7 +123,17 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Locals do
       end
 
       defp run({@op_put_loc_check_init, [idx]}, pc, frame, [val | rest], gas, ctx) do
-        run(pc + 1, put_local(frame, idx, val), rest, gas, ctx)
+        if EvalEnv.current_local_name(ctx, idx) == "this" and
+             match?({:obj, _}, elem(elem(frame, Frame.locals()), idx)) do
+          throw_or_catch(
+            frame,
+            Heap.make_error("this is already initialized", "ReferenceError"),
+            gas,
+            ctx
+          )
+        else
+          run(pc + 1, put_local(frame, idx, val), rest, gas, ctx)
+        end
       end
 
       defp run({@op_get_loc0_loc1, [idx0, idx1]}, pc, frame, stack, gas, ctx) do

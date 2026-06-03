@@ -48,6 +48,8 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers.Calls do
     parent = Heap.get_parent_ctor(raw)
     args = Tuple.to_list(Context.arg_buf(ctx))
 
+    already_bound_this? = match?({:obj, _}, Context.this(ctx))
+
     pending_this =
       case Context.this(ctx) do
         {:uninitialized, {:obj, _} = object} -> object
@@ -94,6 +96,10 @@ defmodule QuickBEAM.VM.Compiler.RuntimeHelpers.Calls do
         {:obj, _} = object -> object
         _ -> pending_this
       end
+
+    if already_bound_this? and parent != nil do
+      throw({:js_throw, Heap.make_error("this is already initialized", "ReferenceError")})
+    end
 
     RuntimeState.install(InterpreterContext.mark_dirty(%{parent_ctx | this: result}))
     result

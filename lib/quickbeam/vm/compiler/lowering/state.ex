@@ -587,8 +587,14 @@ defmodule QuickBEAM.VM.Compiler.Lowering.State do
     with {:ok, expr, type, state} <- Emit.pop_typed(state) do
       expr =
         case wrapper do
-          nil -> expr
-          :ensure_initialized_local! -> abi_call(state, :ensure_initialized_local!, [expr])
+          nil ->
+            expr
+
+          :ensure_initialized_local! ->
+            abi_call(state, :ensure_initialized_local!, [expr])
+
+          {:ensure_uninitialized_this!, current} ->
+            abi_call(state, :ensure_uninitialized_this!, [current, expr])
         end
 
       {slot_expr, state} = Emit.bind(state, Builder.slot_name(idx, state.temp), expr)
