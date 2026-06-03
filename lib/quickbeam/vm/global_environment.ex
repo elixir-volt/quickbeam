@@ -84,6 +84,11 @@ defmodule QuickBEAM.VM.GlobalEnvironment do
       JSThrow.type_error!("Assignment to constant variable")
     end
 
+    if readonly_global_value?(name) and not init? do
+      if strict?, do: JSThrow.type_error!("Assignment to constant variable")
+      throw({:global_readonly_noop, ctx})
+    end
+
     if current == :not_found and not init? and observable_global_property?(ctx, name) do
       validate_global_set_result!(
         strict?,
@@ -107,6 +112,8 @@ defmodule QuickBEAM.VM.GlobalEnvironment do
 
       %{ctx | globals: globals} |> Context.mark_dirty()
     end
+  catch
+    {:global_readonly_noop, ctx} -> ctx
   end
 
   @doc "Defines a hoisted `var` binding in the active global environment."
@@ -150,6 +157,8 @@ defmodule QuickBEAM.VM.GlobalEnvironment do
   defp const_global_flags?(_flags), do: false
 
   def lexical_global?(name), do: GlobalBindingState.lexical?(name)
+
+  defp readonly_global_value?(name), do: name in ["NaN", "Infinity", "undefined"]
 
   defp observable_global_property?(ctx, name) do
     case Map.get(ctx.globals, "globalThis") do
