@@ -6,6 +6,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   use QuickBEAM.VM.Builtin
 
+  alias QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Builtin.Definition
   alias QuickBEAM.VM.Heap
   alias QuickBEAM.VM.Invocation
@@ -33,8 +34,42 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     end
   end
 
-  def install_builtin({:builtin, _name, _} = ctor) do
+  def install_builtin({:builtin, name, _} = ctor) do
     TypedArrayInstallation.install_builtin(ctor, __MODULE__)
+
+    if name == "Uint8Array" do
+      install_uint8array_encoding_static(ctor, "fromHex", 1, &from_hex/2)
+      install_uint8array_encoding_static(ctor, "fromBase64", 1, &from_base64/2)
+    end
+  end
+
+  defp install_uint8array_encoding_static(ctor, name, length, callback) do
+    method =
+      {:builtin, name, fn args, this -> callback.(args, this) end}
+      |> Builtin.put_builtin_metadata(Builtin.meta(name, length: length, constructable: false))
+      |> Builtin.put_function_metadata(name, length)
+
+    Heap.put_ctor_static(ctor, name, method)
+    Heap.put_ctor_prop_desc(ctor, name, QuickBEAM.VM.ObjectModel.PropertyDescriptor.method())
+  end
+
+  def from_hex(args, _this) do
+    args
+    |> Builtin.arg(0, :undefined)
+    |> Values.stringify()
+    |> decode_hex_bytes()
+    |> uint8array_from_bytes()
+  end
+
+  def from_base64(args, _this) do
+    source = args |> Builtin.arg(0, :undefined) |> Values.stringify()
+    options = Builtin.arg(args, 1, :undefined)
+    alphabet = base64_option(options, "alphabet", "base64")
+    last_chunk_handling = base64_option(options, "lastChunkHandling", "loose")
+
+    source
+    |> decode_base64_bytes(alphabet, last_chunk_handling)
+    |> uint8array_from_bytes()
   end
 
   @ecma "23.2.2.1"
@@ -45,6 +80,119 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   @ecma "23.2.2.2"
   static "of", length: 0 do
     static_of(args, this)
+  end
+
+  defp decode_hex_bytes(source) do
+    if rem(String.length(source), 2) != 0 do
+      JSThrow.syntax_error!("Invalid hex string")
+    end
+
+    source
+    |> String.graphemes()
+    |> Enum.chunk_every(2)
+    |> Enum.map(fn pair ->
+      digits = Enum.join(pair)
+
+      case Integer.parse(digits, 16) do
+        {byte, ""} -> byte
+        _ -> JSThrow.syntax_error!("Invalid hex string")
+      end
+    end)
+  end
+
+  defp decode_base64_bytes(source, alphabet, last_chunk_handling) do
+    normalized = String.replace(source, ~r/[\t\n\f\r ]/, "")
+    validate_base64_options!(alphabet, last_chunk_handling)
+
+    normalized =
+      case alphabet do
+        "base64" -> normalized
+        "base64url" -> normalized |> String.replace("-", "+") |> String.replace("_", "/")
+      end
+
+    normalized = trim_base64_partial(normalized, last_chunk_handling)
+    validate_base64_source!(normalized)
+    padded = pad_base64(normalized)
+
+    case Base.decode64(padded) do
+      {:ok, binary} ->
+        if last_chunk_handling == "strict" and Base.encode64(binary) != padded do
+          JSThrow.syntax_error!("Invalid base64 string")
+        end
+
+        :binary.bin_to_list(binary)
+
+      :error ->
+        JSThrow.syntax_error!("Invalid base64 string")
+    end
+  end
+
+  defp validate_base64_options!(alphabet, last_chunk_handling) do
+    unless alphabet in ["base64", "base64url"] do
+      JSThrow.type_error!("Invalid base64 alphabet")
+    end
+
+    unless last_chunk_handling in ["loose", "strict", "stop-before-partial"] do
+      JSThrow.type_error!("Invalid base64 lastChunkHandling")
+    end
+  end
+
+  defp trim_base64_partial(source, "stop-before-partial") do
+    case rem(String.length(source), 4) do
+      0 -> source
+      remainder -> binary_part(source, 0, String.length(source) - remainder)
+    end
+  end
+
+  defp trim_base64_partial(source, "strict") do
+    if rem(String.length(source), 4) != 0 do
+      JSThrow.syntax_error!("Invalid base64 string")
+    end
+
+    source
+  end
+
+  defp trim_base64_partial(source, _), do: source
+
+  defp validate_base64_source!(source) do
+    cond do
+      Regex.match?(~r/[^A-Za-z0-9+\/=]/, source) ->
+        JSThrow.syntax_error!("Invalid base64 string")
+
+      String.contains?(source, "=") and not Regex.match?(~r/^[A-Za-z0-9+\/]*={0,2}$/, source) ->
+        JSThrow.syntax_error!("Invalid base64 string")
+
+      String.ends_with?(source, "===") ->
+        JSThrow.syntax_error!("Invalid base64 string")
+
+      true ->
+        :ok
+    end
+  end
+
+  defp pad_base64(source) do
+    case rem(String.length(source), 4) do
+      0 -> source
+      1 -> JSThrow.syntax_error!("Invalid base64 string")
+      remainder -> source <> String.duplicate("=", 4 - remainder)
+    end
+  end
+
+  defp base64_option(:undefined, _key, default), do: default
+  defp base64_option(nil, _key, default), do: default
+
+  defp base64_option(options, key, default) do
+    case Get.get(options, key) do
+      value when value in [:undefined, nil] -> default
+      value -> Values.stringify(value)
+    end
+  end
+
+  defp uint8array_from_bytes(bytes) do
+    ctor =
+      Runtime.global_constructor("Uint8Array") || {:builtin, "Uint8Array", constructor(:uint8)}
+
+    Invocation.construct_runtime(ctor, ctor, [bytes])
   end
 
   static_methods do
