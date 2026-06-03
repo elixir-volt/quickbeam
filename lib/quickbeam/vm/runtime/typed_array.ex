@@ -133,8 +133,21 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     alphabet = base64_option(options, "alphabet", "base64")
     last_chunk_handling = base64_option(options, "lastChunkHandling", "loose")
     normalized_source = String.replace(source, ~r/[\t\n\f\r ]/, "")
-    bytes = decode_base64_bytes(source, alphabet, last_chunk_handling)
     capacity = element_count(target)
+
+    bytes =
+      try do
+        decode_base64_bytes(source, alphabet, last_chunk_handling)
+      catch
+        {:js_throw, reason} ->
+          write_prefix_bytes(
+            target,
+            decode_base64_prefix_before_error(source, alphabet),
+            capacity
+          )
+
+          throw({:js_throw, reason})
+      end
 
     written =
       if length(bytes) <= capacity do
@@ -267,6 +280,33 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp maybe_omit_base64_padding(encoded, true), do: String.trim_trailing(encoded, "=")
   defp maybe_omit_base64_padding(encoded, _), do: encoded
+
+  defp decode_base64_prefix_before_error(source, alphabet) do
+    normalized = String.replace(source, ~r/[\t\n\f\r ]/, "")
+
+    normalized =
+      case alphabet do
+        "base64url" -> normalized |> String.replace("-", "+") |> String.replace("_", "/")
+        _ -> normalized
+      end
+
+    prefix =
+      normalized
+      |> String.graphemes()
+      |> Enum.take_while(&Regex.match?(~r/[A-Za-z0-9+\/]/, &1))
+      |> Enum.join()
+
+    full_len = div(String.length(prefix), 4) * 4
+
+    if full_len == 0 do
+      []
+    else
+      case Base.decode64(binary_part(prefix, 0, full_len)) do
+        {:ok, binary} -> :binary.bin_to_list(binary)
+        :error -> []
+      end
+    end
+  end
 
   defp validate_base64_alphabet_source!(source, "base64") do
     if Regex.match?(~r/[-_]/, source), do: JSThrow.syntax_error!("Invalid base64 string")
