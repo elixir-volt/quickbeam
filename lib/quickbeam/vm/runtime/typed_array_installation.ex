@@ -19,24 +19,36 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayInstallation do
     install_base_prototype(typed_array_base, spec_module)
     base_proto = Heap.get_class_proto(typed_array_base)
 
-    ConstructorRegistry.put_prototype(
-      ctor,
+    {:obj, proto_ref} =
+      proto =
       object extends: base_proto do
         prop("constructor", ctor)
+        prop("BYTES_PER_ELEMENT", Metadata.elem_size(type))
       end
-    )
+
+    Heap.put_prop_desc(proto_ref, "BYTES_PER_ELEMENT", bytes_per_element_descriptor())
+    ConstructorRegistry.put_prototype(ctor, proto)
 
     Heap.put_ctor_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
     Heap.put_ctor_static(ctor, "__proto__", typed_array_base)
     Heap.put_ctor_static(ctor, "BYTES_PER_ELEMENT", Metadata.elem_size(type))
+    Heap.put_ctor_prop_desc(ctor, "BYTES_PER_ELEMENT", bytes_per_element_descriptor())
   end
 
   def constructor_prototype(name, ctor, spec_module) do
     Runtime.global_class_proto(name) ||
       cached_prototype({:qb_typed_array_constructor_proto, name}, fn ->
-        object extends: abstract_prototype(spec_module) do
-          prop("constructor", ctor)
-        end
+        type = Map.fetch!(Metadata.types(), name)
+
+        {:obj, ref} =
+          proto =
+          object extends: abstract_prototype(spec_module) do
+            prop("constructor", ctor)
+            prop("BYTES_PER_ELEMENT", Metadata.elem_size(type))
+          end
+
+        Heap.put_prop_desc(ref, "BYTES_PER_ELEMENT", bytes_per_element_descriptor())
+        proto
       end)
   end
 
@@ -99,6 +111,10 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayInstallation do
       _ ->
         :ok
     end
+  end
+
+  defp bytes_per_element_descriptor do
+    PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: false)
   end
 
   defp cached_prototype(key, build), do: PrototypeState.cached_any(key, build)
