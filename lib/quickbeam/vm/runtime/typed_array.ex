@@ -701,6 +701,7 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       {values, map_fn, this_arg} = typed_array_from_values_for_target(source, map_fn, this_arg)
       target = Invocation.construct_runtime(constructor, constructor, [length(values)])
       typed_target = typed_array_object!(target)
+      require_typed_array_capacity!(typed_target, length(values))
 
       values
       |> Enum.with_index()
@@ -722,9 +723,16 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp typed_array_builtin_constructor?({:builtin, name, _}), do: constructor_type(name) != nil
   defp typed_array_builtin_constructor?(_), do: false
 
+  defp require_typed_array_capacity!(target, required_length) do
+    if element_count(target) < required_length do
+      JSThrow.type_error!("TypedArray target is too small")
+    end
+  end
+
   def static_of(args, constructor) do
     target = Invocation.construct_runtime(constructor, constructor, [length(args)])
     typed_target = typed_array_object!(target)
+    require_typed_array_capacity!(typed_target, length(args))
 
     args
     |> Enum.with_index()
