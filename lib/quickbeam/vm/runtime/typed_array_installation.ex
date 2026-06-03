@@ -116,7 +116,12 @@ defmodule QuickBEAM.VM.Runtime.TypedArrayInstallation do
   end
 
   defp install_uint8array_encoding_prototype("Uint8Array", proto_ref, spec_module) do
-    for {name, length} <- [{"setFromHex", 1}, {"setFromBase64", 1}] do
+    for {name, length} <- [
+          {"setFromHex", 1},
+          {"setFromBase64", 1},
+          {"toHex", 0},
+          {"toBase64", 0}
+        ] do
       method =
         {:builtin, name,
          fn args, this -> apply(spec_module, String.to_atom(name), [args, this]) end}

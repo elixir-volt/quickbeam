@@ -84,6 +84,30 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     static_of(args, this)
   end
 
+  def toHex(_args, this) do
+    this
+    |> require_uint8array_receiver!("Uint8Array.prototype.toHex")
+    |> uint8array_bytes()
+    |> Enum.map_join(fn byte ->
+      byte |> trunc() |> Integer.to_string(16) |> String.downcase() |> String.pad_leading(2, "0")
+    end)
+  end
+
+  def toBase64(args, this) do
+    target = require_uint8array_receiver!(this, "Uint8Array.prototype.toBase64")
+    options = Builtin.arg(args, 0, :undefined)
+    alphabet = base64_option(options, "alphabet", "base64")
+    omit_padding = Values.truthy?(Get.get(options, "omitPadding"))
+    validate_base64_options!(alphabet, "loose")
+
+    target
+    |> uint8array_bytes()
+    |> :binary.list_to_bin()
+    |> Base.encode64()
+    |> maybe_base64url(alphabet)
+    |> maybe_omit_base64_padding(omit_padding)
+  end
+
   def setFromHex(args, this) do
     target = require_uint8array_receiver!(this, "Uint8Array.prototype.setFromHex")
 
@@ -227,6 +251,15 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     end
   end
 
+  defp maybe_base64url(encoded, "base64url") do
+    encoded |> String.replace("+", "-") |> String.replace("/", "_")
+  end
+
+  defp maybe_base64url(encoded, _alphabet), do: encoded
+
+  defp maybe_omit_base64_padding(encoded, true), do: String.trim_trailing(encoded, "=")
+  defp maybe_omit_base64_padding(encoded, _), do: encoded
+
   defp validate_base64_alphabet_source!(source, "base64") do
     if Regex.match?(~r/[-_]/, source), do: JSThrow.syntax_error!("Invalid base64 string")
   end
@@ -268,6 +301,10 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
 
   defp require_uint8array_receiver!(_this, name) do
     JSThrow.type_error!("#{name} called on incompatible receiver")
+  end
+
+  defp uint8array_bytes(target) do
+    for index <- 0..(element_count(target) - 1)//1, do: get_element(target, index)
   end
 
   defp write_prefix_bytes(target, bytes, capacity) do
