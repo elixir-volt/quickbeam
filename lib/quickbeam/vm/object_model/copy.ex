@@ -288,6 +288,12 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   def enumerable_keys(string) when is_binary(string),
     do: numeric_index_keys(Get.string_length(string))
 
+  def enumerable_keys(%QuickBEAM.VM.Function{} = fun), do: enumerable_callable_keys(fun)
+
+  def enumerable_keys({:closure, _, %QuickBEAM.VM.Function{}} = fun),
+    do: enumerable_callable_keys(fun)
+
+  def enumerable_keys({:builtin, _, _} = fun), do: enumerable_callable_keys(fun)
   def enumerable_keys({:bound, _, _, _, _} = fun), do: enumerable_callable_keys(fun)
   def enumerable_keys({:regexp, _, _, ref}), do: enumerable_regexp_keys(ref)
   def enumerable_keys({:regexp, _, _}), do: enumerable_regexp_keys(nil)
