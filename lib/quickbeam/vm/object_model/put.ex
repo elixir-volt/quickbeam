@@ -886,6 +886,11 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
       match?({:accessor, _, nil}, Map.get(statics, key)) ->
         reject_failed_write!()
 
+      match?({:accessor, _, setter} when not is_nil(setter), Map.get(statics, key)) ->
+        {:accessor, _, setter} = Map.fetch!(statics, key)
+        Invocation.invoke_with_receiver(setter, [val], callable)
+        :ok
+
       match?(%{writable: false}, callable_prop_desc(callable, key)) or
         inherited_object_property_readonly?(callable, key) or
           inherited_object_getter_only?(callable, key) ->
@@ -1048,7 +1053,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     update_getter(ref, key, fun)
   end
 
-  def put_getter(target, key, fun), do: Heap.put_ctor_static(target, key, {:accessor, fun, nil})
+  def put_getter(target, key, fun), do: put_ctor_getter(target, key, fun)
 
   def put_getter(target, key, fun, true), do: put_getter(target, key, fun)
 
@@ -1057,15 +1062,14 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     Heap.put_prop_desc(ref, key, %{enumerable: false, configurable: true})
   end
 
-  def put_getter(target, key, fun, _enumerable),
-    do: Heap.put_ctor_static(target, key, {:accessor, fun, nil})
+  def put_getter(target, key, fun, _enumerable), do: put_ctor_getter(target, key, fun)
 
   @doc "Defines or replaces a JavaScript setter property."
   def put_setter({:obj, ref}, key, fun) do
     update_setter(ref, key, fun)
   end
 
-  def put_setter(target, key, fun), do: Heap.put_ctor_static(target, key, {:accessor, nil, fun})
+  def put_setter(target, key, fun), do: put_ctor_setter(target, key, fun)
 
   def put_setter(target, key, fun, true), do: put_setter(target, key, fun)
 
@@ -1074,8 +1078,27 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
     Heap.put_prop_desc(ref, key, %{enumerable: false, configurable: true})
   end
 
-  def put_setter(target, key, fun, _enumerable),
-    do: Heap.put_ctor_static(target, key, {:accessor, nil, fun})
+  def put_setter(target, key, fun, _enumerable), do: put_ctor_setter(target, key, fun)
+
+  defp put_ctor_getter(target, key, fun) do
+    setter =
+      case Map.get(Heap.get_ctor_statics(target), key) do
+        {:accessor, _getter, setter} -> setter
+        _ -> nil
+      end
+
+    Heap.put_ctor_static(target, key, {:accessor, fun, setter})
+  end
+
+  defp put_ctor_setter(target, key, fun) do
+    getter =
+      case Map.get(Heap.get_ctor_statics(target), key) do
+        {:accessor, getter, _setter} -> getter
+        _ -> nil
+      end
+
+    Heap.put_ctor_static(target, key, {:accessor, getter, fun})
+  end
 
   defp update_getter(ref, key, fun) do
     Heap.update_obj(ref, %{}, fn map ->

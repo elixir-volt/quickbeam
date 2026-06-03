@@ -189,7 +189,8 @@ defmodule QuickBEAM.VM.Interpreter do
 
       case call_result do
         {:ok, result} ->
-          run(pc + 1, frame, [result | rest], gas, refreshed_ctx)
+          synced_frame = sync_global_writes_to_frame(frame, refreshed_ctx)
+          run(pc + 1, synced_frame, [result | rest], gas, refreshed_ctx)
 
         {:throw, val} ->
           synced_frame = sync_global_writes_to_frame(frame, refreshed_ctx)
@@ -206,7 +207,8 @@ defmodule QuickBEAM.VM.Interpreter do
 
       case call_result do
         {:ok, result} ->
-          run(pc + 1, frame, [result | rest], gas, updated_ctx)
+          synced_frame = sync_global_writes_to_frame(frame, updated_ctx)
+          run(pc + 1, synced_frame, [result | rest], gas, updated_ctx)
 
         {:throw, val} ->
           synced_frame = sync_global_writes_to_frame(frame, updated_ctx)
