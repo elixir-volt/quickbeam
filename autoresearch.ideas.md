@@ -16,7 +16,8 @@ Drive BEAM interpreter/compiler behavior toward QuickJS NIF parity on Test262, p
 ## Promising next paths
 
 - Finish the remaining GeneratorPrototype semantic tail (`7` shared failures): reentrancy and `.throw(...)` through nested `try/catch/finally`. Previous naive executing-state marking did not help because the focused probe resolved the outer `iter` binding as `undefined`; investigate generator-frame global/captured binding synchronization before retrying.
-- Probe small unclean builtin families that may have metadata/prototype gaps: `TypedArrayConstructors`, individual typed array constructors such as `Uint8Array`, `Infinity`, `NaN`, `undefined`, `ShadowRealm`, `AbstractModuleSource`.
+- Continue the active `TypedArrayConstructors,Uint8Array` slice. It improved from 192 to 106 failures after BYTES_PER_ELEMENT descriptors, constructor call rejection, inherited static-method ownership, integer-indexed key semantics, and Uint8Array `fromHex`/`fromBase64` statics. Remaining clusters are constructor/newTarget/species behavior, typed-array `from`/`of` result validation, residual integer-indexed Set/OwnPropertyKeys semantics, BigInt typed-array conversions, and two excessive-length timeouts.
+- Probe other small unclean builtin families after the typed-array constructor slice slows down: `Infinity`, `NaN`, `undefined`, `ShadowRealm`, `AbstractModuleSource`.
 - Run cumulative shards periodically instead of all-in-one broad checkpoint; all-in-one can exhaust BEAM literal memory.
 - Revisit URI A2.5 timeout-only cases only with a structural loop/global synchronization optimization. Do not retry isolated URI/fromCharCode micro-optimizations; they reduced elapsed time but not the primary timeout metric.
 

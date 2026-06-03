@@ -56,13 +56,15 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   def from_hex(args, _this) do
     args
     |> Builtin.arg(0, :undefined)
-    |> Values.stringify()
+    |> require_string_argument!("Uint8Array.fromHex")
     |> decode_hex_bytes()
     |> uint8array_from_bytes()
   end
 
   def from_base64(args, _this) do
-    source = args |> Builtin.arg(0, :undefined) |> Values.stringify()
+    source =
+      args |> Builtin.arg(0, :undefined) |> require_string_argument!("Uint8Array.fromBase64")
+
     options = Builtin.arg(args, 1, :undefined)
     alphabet = base64_option(options, "alphabet", "base64")
     last_chunk_handling = base64_option(options, "lastChunkHandling", "loose")
@@ -103,6 +105,8 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
   defp decode_base64_bytes(source, alphabet, last_chunk_handling) do
     normalized = String.replace(source, ~r/[\t\n\f\r ]/, "")
     validate_base64_options!(alphabet, last_chunk_handling)
+
+    validate_base64_alphabet_source!(normalized, alphabet)
 
     normalized =
       case alphabet do
@@ -159,6 +163,9 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
       Regex.match?(~r/[^A-Za-z0-9+\/=]/, source) ->
         JSThrow.syntax_error!("Invalid base64 string")
 
+      String.contains?(source, "=") and rem(String.length(source), 4) != 0 ->
+        JSThrow.syntax_error!("Invalid base64 string")
+
       String.contains?(source, "=") and not Regex.match?(~r/^[A-Za-z0-9+\/]*={0,2}$/, source) ->
         JSThrow.syntax_error!("Invalid base64 string")
 
@@ -178,14 +185,29 @@ defmodule QuickBEAM.VM.Runtime.TypedArray do
     end
   end
 
+  defp validate_base64_alphabet_source!(source, "base64") do
+    if Regex.match?(~r/[-_]/, source), do: JSThrow.syntax_error!("Invalid base64 string")
+  end
+
+  defp validate_base64_alphabet_source!(source, "base64url") do
+    if Regex.match?(~r/[+\/]/, source), do: JSThrow.syntax_error!("Invalid base64 string")
+  end
+
   defp base64_option(:undefined, _key, default), do: default
   defp base64_option(nil, _key, default), do: default
 
   defp base64_option(options, key, default) do
     case Get.get(options, key) do
       value when value in [:undefined, nil] -> default
-      value -> Values.stringify(value)
+      value when is_binary(value) -> value
+      _ -> JSThrow.type_error!("Invalid base64 option")
     end
+  end
+
+  defp require_string_argument!(value, _name) when is_binary(value), do: value
+
+  defp require_string_argument!(_value, name) do
+    JSThrow.type_error!("#{name} requires a string")
   end
 
   defp uint8array_from_bytes(bytes) do
