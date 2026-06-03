@@ -53,6 +53,8 @@ defmodule QuickBEAM.VM.Semantics.DirectEval do
       function_instructions: function_instructions
     } = caller
 
+    EvalSemantics.reject_class_field_initializer_eval!(ctx, code)
+
     case compile(ctx.runtime_pid, strict_code(ctx, code)) do
       {:ok, parsed} ->
         run_compiled_eval(

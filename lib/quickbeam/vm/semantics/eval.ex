@@ -63,6 +63,61 @@ defmodule QuickBEAM.VM.Semantics.Eval do
     end
   end
 
+  def reject_class_field_initializer_eval!(ctx, code) when is_binary(code) do
+    if class_field_initializer_context?(ctx) and initializer_eval_forbidden_syntax?(code) do
+      JSThrow.syntax_error!("Invalid direct eval in class field initializer")
+    end
+  end
+
+  def reject_class_field_initializer_eval!(_ctx, _code), do: :ok
+
+  defp class_field_initializer_context?(%{current_func: current_func}) do
+    case current_func do
+      {:closure, _, %QuickBEAM.VM.Function{} = fun} -> synthetic_field_initializer?(fun)
+      %QuickBEAM.VM.Function{} = fun -> synthetic_field_initializer?(fun)
+      _ -> false
+    end
+  end
+
+  defp class_field_initializer_context?(_), do: false
+
+  defp synthetic_field_initializer?(%QuickBEAM.VM.Function{source: "", locals: locals}) do
+    local_names = MapSet.new(Enum.map(locals, &Names.resolve_display_name(&1.name)))
+    MapSet.subset?(MapSet.new(["this", "new.target", "<home_object>"]), local_names)
+  end
+
+  defp synthetic_field_initializer?(_), do: false
+
+  defp initializer_eval_forbidden_syntax?(code) do
+    case Parser.parse(code) do
+      {:ok, program} -> forbidden_initializer_node?(program)
+      {:error, program, _errors} -> forbidden_initializer_node?(program)
+      _ -> false
+    end
+  end
+
+  defp forbidden_initializer_node?(%AST.Identifier{name: name})
+       when name in ["arguments", "super"],
+       do: true
+
+  defp forbidden_initializer_node?(%AST.MetaProperty{
+         meta: %AST.Identifier{name: "new"},
+         property: %AST.Identifier{name: "target"}
+       }),
+       do: true
+
+  defp forbidden_initializer_node?(%_{} = node) do
+    node
+    |> Map.from_struct()
+    |> Map.values()
+    |> Enum.any?(&forbidden_initializer_node?/1)
+  end
+
+  defp forbidden_initializer_node?(list) when is_list(list),
+    do: Enum.any?(list, &forbidden_initializer_node?/1)
+
+  defp forbidden_initializer_node?(_), do: false
+
   defp simple_assigned_names_from_statement(%AST.ExpressionStatement{
          expression: %AST.AssignmentExpression{left: %AST.Identifier{name: name}}
        }),
