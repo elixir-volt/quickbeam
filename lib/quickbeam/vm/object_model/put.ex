@@ -698,12 +698,10 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
             false
 
           Heap.raw_has_key?(raw, key) ->
-            put(receiver, key, val)
-            true
+            define_receiver_property(receiver, key, val)
 
           Heap.extensible?(ref) ->
-            put(receiver, key, val)
-            true
+            define_receiver_property(receiver, key, val)
 
           true ->
             false
@@ -716,8 +714,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
           case Map.get(map, key) do
             nil ->
               if Heap.extensible?(ref) do
-                put(receiver, key, val)
-                true
+                define_receiver_property(receiver, key, val)
               else
                 false
               end
@@ -729,8 +726,7 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
               if match?(%{writable: false}, Heap.get_prop_desc(ref, key)) do
                 false
               else
-                put(receiver, key, val)
-                true
+                define_receiver_property(receiver, key, val)
               end
           end
         end
@@ -747,6 +743,18 @@ defmodule QuickBEAM.VM.ObjectModel.Put do
       true
     else
       false
+    end
+  end
+
+  defp define_receiver_property(receiver, key, val) do
+    desc = receiver_write_descriptor(receiver, key, val)
+
+    try do
+      Define.property(receiver, key, Heap.wrap(desc), desc)
+      true
+    catch
+      {:js_throw, reason} ->
+        if define_property_failure?(reason), do: false, else: throw({:js_throw, reason})
     end
   end
 
