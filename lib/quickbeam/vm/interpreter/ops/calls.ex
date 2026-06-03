@@ -182,17 +182,28 @@ defmodule QuickBEAM.VM.Interpreter.Ops.Calls do
               Heap.get_or_create_prototype(ctor)
           end
 
+        derived_constructor? =
+          match?(%QuickBEAM.VM.Function{is_derived_class_constructor: true}, raw_ctor)
+
+        pending_private_brand? =
+          derived_constructor? or
+            match?(%QuickBEAM.VM.Function{is_derived_class_constructor: true}, raw_new_target)
+
         init = if proto, do: %{proto() => proto}, else: %{}
+
+        init =
+          if pending_private_brand?,
+            do: Map.put(init, :__private_brand_pending__, true),
+            else: init
+
         Heap.put_obj(this_ref, init)
         fresh_this = {:obj, this_ref}
 
         this_obj =
-          case raw_ctor do
-            %QuickBEAM.VM.Function{is_derived_class_constructor: true} ->
-              {:uninitialized, fresh_this}
-
-            _ ->
-              fresh_this
+          if derived_constructor? do
+            {:uninitialized, fresh_this}
+          else
+            fresh_this
           end
 
         ctor_ctx =

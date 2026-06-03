@@ -407,7 +407,18 @@ defmodule QuickBEAM.VM.Invocation do
             Heap.get_class_proto(raw_ctor) || Heap.get_or_create_prototype(ctor)
         end
 
+      derived_constructor? =
+        match?(%QuickBEAM.VM.Function{is_derived_class_constructor: true}, raw_ctor)
+
+      pending_private_brand? =
+        derived_constructor? or
+          match?(%QuickBEAM.VM.Function{is_derived_class_constructor: true}, raw_new_target)
+
       init = if ctor_proto, do: %{proto() => ctor_proto}, else: %{}
+
+      init =
+        if pending_private_brand?, do: Map.put(init, :__private_brand_pending__, true), else: init
+
       this_obj = Heap.wrap(init)
 
       result =
