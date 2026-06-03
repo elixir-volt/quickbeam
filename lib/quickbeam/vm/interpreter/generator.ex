@@ -47,12 +47,16 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
       %{state: :suspended} = s ->
         RuntimeState.with_context(s.ctx, fn -> resume_sync(gen_ref, s, arg) end)
 
+      %{state: :executing} ->
+        JSThrow.type_error!("Generator is already executing")
+
       _ ->
         done_result(:undefined)
     end
   end
 
   defp resume_sync(gen_ref, s, arg) do
+    mark_executing(gen_ref, s)
     result = Interpreter.run_frame(s.pc, s.frame, [false, arg | s.stack], s.gas, s.ctx)
     complete(gen_ref)
     done_result(result)
@@ -81,12 +85,16 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
       %{state: :suspended} = s ->
         RuntimeState.with_context(s.ctx, fn -> resume_async(gen_ref, s, arg) end)
 
+      %{state: :executing} ->
+        JSThrow.type_error!("Generator is already executing")
+
       _ ->
         Promise.resolved(done_result(:undefined))
     end
   end
 
   defp resume_async(gen_ref, s, arg) do
+    mark_executing(gen_ref, s)
     result = Interpreter.run_frame(s.pc, s.frame, [false, arg | s.stack], s.gas, s.ctx)
     complete(gen_ref)
     Promise.resolved(done_result(result))
@@ -115,6 +123,9 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
       %{state: :suspended} = s ->
         RuntimeState.with_context(s.ctx, fn -> resume_throw(gen_ref, s, val) end)
 
+      %{state: :executing} ->
+        JSThrow.type_error!("Generator is already executing")
+
       _ ->
         throw({:js_throw, val})
     end
@@ -129,17 +140,39 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
       %{state: :suspended} = s ->
         RuntimeState.with_context(s.ctx, fn -> resume_return(gen_ref, s, val) end)
 
+      %{state: :executing} ->
+        JSThrow.type_error!("Generator is already executing")
+
       _ ->
         done_result(val)
     end
   end
 
-  defp resume_throw(gen_ref, _s, val) do
+  defp resume_throw(gen_ref, s, val) do
+    mark_executing(gen_ref, s)
+    result = Interpreter.resume_throw(s.frame, val, s.gas, s.ctx)
     complete(gen_ref)
-    throw({:js_throw, val})
+    done_result(result)
+  catch
+    {:generator_yield, yielded, sp, sf, ss, sg, sc} ->
+      save_suspended(gen_ref, sp, sf, ss, sg, sc)
+      yield_result(yielded)
+
+    {:generator_yield_star, yielded, sp, sf, ss, sg, sc} ->
+      save_suspended(gen_ref, sp, sf, ss, sg, sc, :yield_star)
+      yielded
+
+    {:generator_return, returned} ->
+      complete(gen_ref)
+      done_result(returned)
+
+    {:js_throw, _} = thrown ->
+      complete(gen_ref)
+      throw(thrown)
   end
 
   defp resume_return(gen_ref, s, val) do
+    mark_executing(gen_ref, s)
     result = Interpreter.run_frame(s.pc, s.frame, [true, val | s.stack], s.gas, s.ctx)
     complete(gen_ref)
     done_result(result)
@@ -170,6 +203,8 @@ defmodule QuickBEAM.VM.Interpreter.Generator do
     {:generator_yield_star, _val, sp, sf, ss, sg, sc} ->
       save_suspended(gen_ref, sp, sf, ss, sg, sc, :yield_star)
   end
+
+  defp mark_executing(ref, s), do: Heap.put_obj(ref, Map.put(s, :state, :executing))
 
   defp save_suspended(ref, pc, frame, stack, gas, ctx, mode \\ :yield) do
     Heap.put_obj(ref, %{

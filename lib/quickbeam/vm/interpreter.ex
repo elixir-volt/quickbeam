@@ -402,6 +402,8 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
+  def resume_throw(frame, error, gas, ctx), do: throw_or_catch(frame, error, gas, ctx)
+
   defp throw_or_catch(frame, error, gas, ctx) do
     error = maybe_refresh_error_stack(error)
 
