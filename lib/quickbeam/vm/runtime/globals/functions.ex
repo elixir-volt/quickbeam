@@ -2,7 +2,6 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
   @moduledoc "Implementations for global JavaScript functions such as `eval`, `require`, and `queueMicrotask`."
 
   alias QuickBEAM.VM.Execution.Eval, as: ExecutionEval
-  alias QuickBEAM.VM.Semantics.Eval, as: EvalSemantics
   alias QuickBEAM.VM.{Heap, RuntimeState}
   alias QuickBEAM.VM.JSThrow
 
@@ -10,26 +9,16 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
   def js_eval([code | _], _) when is_binary(code) do
     ctx = RuntimeState.current()
 
-    case EvalSemantics.class_field_initializer_eval_ast(ctx, code) do
-      {:ok, {value, globals}} ->
-        EvalSemantics.commit_class_field_initializer_eval_globals(%{}, globals)
-        value
-
-      {:ok, :unsupported} ->
-        JSThrow.syntax_error!("Unsupported class field initializer eval")
-
-      :continue ->
-        with %{runtime_pid: pid} when pid != nil <- ctx,
-             {:ok, value} <- ExecutionEval.compile_and_eval(pid, code) do
-          value
-        else
-          %{runtime_pid: nil} -> eval_without_runtime(code)
-          nil -> eval_without_runtime(code)
-          {:error, {:js_throw, value}} -> throw({:js_throw, value})
-          {:error, %{message: msg}} -> JSThrow.syntax_error!(msg)
-          {:error, msg} when is_binary(msg) -> JSThrow.syntax_error!(msg)
-          _ -> :undefined
-        end
+    with %{runtime_pid: pid} when pid != nil <- ctx,
+         {:ok, value} <- ExecutionEval.compile_and_eval(pid, code) do
+      value
+    else
+      %{runtime_pid: nil} -> eval_without_runtime(code)
+      nil -> eval_without_runtime(code)
+      {:error, {:js_throw, value}} -> throw({:js_throw, value})
+      {:error, %{message: msg}} -> JSThrow.syntax_error!(msg)
+      {:error, msg} when is_binary(msg) -> JSThrow.syntax_error!(msg)
+      _ -> :undefined
     end
   end
 
@@ -40,27 +29,17 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
     globals = Heap.get_obj(ref, %{})
     pre_globals = Heap.get_persistent_globals()
 
-    case EvalSemantics.class_field_initializer_eval_ast(ctx, code) do
-      {:ok, {value, eval_globals}} ->
-        EvalSemantics.commit_class_field_initializer_eval_globals(globals, eval_globals)
-        value
-
-      {:ok, :unsupported} ->
-        JSThrow.syntax_error!("Unsupported class field initializer eval")
-
-      :continue ->
-        with %{runtime_pid: pid} when pid != nil <- ctx,
-             {:ok, value} <- ExecutionEval.compile_and_eval(pid, code, globals: globals) do
-          realm_updates = Heap.get_persistent_globals() || %{}
-          Heap.put_persistent_globals(pre_globals)
-          Heap.put_obj(ref, Map.merge(globals, realm_updates))
-          value
-        else
-          {:error, {:js_throw, value}} -> throw({:js_throw, value})
-          {:error, %{message: msg}} -> JSThrow.syntax_error!(msg)
-          {:error, msg} when is_binary(msg) -> JSThrow.syntax_error!(msg)
-          _ -> :undefined
-        end
+    with %{runtime_pid: pid} when pid != nil <- ctx,
+         {:ok, value} <- ExecutionEval.compile_and_eval(pid, code, globals: globals) do
+      realm_updates = Heap.get_persistent_globals() || %{}
+      Heap.put_persistent_globals(pre_globals)
+      Heap.put_obj(ref, Map.merge(globals, realm_updates))
+      value
+    else
+      {:error, {:js_throw, value}} -> throw({:js_throw, value})
+      {:error, %{message: msg}} -> JSThrow.syntax_error!(msg)
+      {:error, msg} when is_binary(msg) -> JSThrow.syntax_error!(msg)
+      _ -> :undefined
     end
   end
 
