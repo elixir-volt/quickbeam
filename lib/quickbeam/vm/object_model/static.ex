@@ -28,6 +28,11 @@ defmodule QuickBEAM.VM.ObjectModel.Static do
 
       Map.has_key?(statics, prop_key) ->
         Heap.put_ctor_statics(fun, Map.delete(statics, prop_key))
+        Heap.delete_ctor_prop_desc(fun, prop_key)
+        true
+
+      Map.has_key?(Heap.get_ctor_prop_descs(fun), prop_key) ->
+        Heap.delete_ctor_prop_desc(fun, prop_key)
         true
 
       true ->

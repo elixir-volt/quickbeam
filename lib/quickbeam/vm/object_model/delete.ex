@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
     InternalMethods,
     PropertyKey,
     Semantics,
+    Static,
     WrappedPrimitive
   }
 
@@ -195,8 +196,7 @@ defmodule QuickBEAM.VM.ObjectModel.Delete do
          ) do
       false
     else
-      Heap.put_ctor_static(target, key, :deleted)
-      true
+      Static.delete_static(target, key)
     end
   end
 

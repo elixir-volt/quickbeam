@@ -98,8 +98,12 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   def present?(_target, _key), do: false
 
   defp callable_present?(target, key) do
-    not Static.deleted?(target, key) and
-      (Map.has_key?(Heap.get_ctor_statics(target), key) or virtual_callable_property?(target, key))
+    prop_key = PropertyKey.normalize(key)
+
+    not Static.deleted?(target, prop_key) and
+      (Map.has_key?(Heap.get_ctor_statics(target), prop_key) or
+         Map.has_key?(Heap.get_ctor_prop_descs(target), prop_key) or
+         virtual_callable_property?(target, prop_key))
   end
 
   defp virtual_callable_property?(target, "prototype"), do: has_prototype?(target)
@@ -548,7 +552,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   end
 
   def descriptor(target, key) when is_tuple(target) or is_struct(target) do
-    prop_key = if is_binary(key), do: key, else: key
+    prop_key = PropertyKey.normalize(key)
 
     case Map.fetch(Heap.get_ctor_statics(target), prop_key) do
       {:ok, {:accessor, getter, setter}} ->
@@ -567,7 +571,11 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
         )
 
       _ ->
-        :undefined
+        if Map.has_key?(Heap.get_ctor_prop_descs(target), prop_key) do
+          PropertyDescriptor.data_object(:undefined, callable_prop_desc(target, prop_key))
+        else
+          :undefined
+        end
     end
   end
 
@@ -605,7 +613,7 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
   end
 
   defp callable_descriptor(target, key) do
-    prop_key = if is_binary(key), do: key, else: key
+    prop_key = PropertyKey.normalize(key)
 
     case Map.fetch(Heap.get_ctor_statics(target), prop_key) do
       {:ok, {:accessor, getter, setter}} ->
@@ -650,7 +658,11 @@ defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
         end
 
       _ ->
-        :undefined
+        if Map.has_key?(Heap.get_ctor_prop_descs(target), prop_key) do
+          PropertyDescriptor.data_object(:undefined, callable_prop_desc(target, prop_key))
+        else
+          :undefined
+        end
     end
   end
 

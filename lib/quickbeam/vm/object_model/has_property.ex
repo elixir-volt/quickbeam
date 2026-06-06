@@ -38,16 +38,16 @@ defmodule QuickBEAM.VM.ObjectModel.HasProperty do
   end
 
   def ordinary_has_property?(%QuickBEAM.VM.Function{} = fun, key),
-    do: Get.get(fun, key) != :undefined
+    do: OwnProperty.present?(fun, key) or Get.get(fun, key) != :undefined
 
   def ordinary_has_property?({:closure, _, %QuickBEAM.VM.Function{}} = closure, key),
-    do: Get.get(closure, key) != :undefined
+    do: OwnProperty.present?(closure, key) or Get.get(closure, key) != :undefined
 
   def ordinary_has_property?({:builtin, _, _} = builtin, key),
-    do: Get.get(builtin, key) != :undefined
+    do: OwnProperty.present?(builtin, key) or Get.get(builtin, key) != :undefined
 
   def ordinary_has_property?({:bound, _, _, _, _} = bound, key),
-    do: Get.get(bound, key) != :undefined
+    do: OwnProperty.present?(bound, key) or Get.get(bound, key) != :undefined
 
   def ordinary_has_property?({:regexp, _, _, _} = regexp, key),
     do: Get.get(regexp, key) != :undefined

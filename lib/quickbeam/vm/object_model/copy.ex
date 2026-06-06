@@ -405,13 +405,13 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
   end
 
   defp enumerable_callable_keys(fun) do
+    statics = Heap.get_ctor_statics(fun)
+    descriptors = Heap.get_ctor_prop_descs(fun)
+
     own_keys =
-      fun
-      |> Heap.get_ctor_statics()
-      |> Map.keys()
-      |> Enum.filter(fn key ->
-        is_binary(key) and not match?(%{enumerable: false}, Heap.get_prop_desc(fun, key))
-      end)
+      (Map.keys(statics) ++ Map.keys(descriptors))
+      |> Enum.uniq()
+      |> Enum.filter(&callable_enumerable_key?(fun, statics, descriptors, &1))
 
     proto_keys =
       case Heap.get_func_proto() do
@@ -421,6 +421,16 @@ defmodule QuickBEAM.VM.ObjectModel.Copy do
 
     Runtime.sort_numeric_keys(own_keys ++ Enum.reject(proto_keys, &(&1 in own_keys)))
   end
+
+  defp callable_enumerable_key?(_fun, _statics, descriptors, key) when is_binary(key) do
+    case Map.fetch(descriptors, key) do
+      {:ok, %{enumerable: enumerable?}} -> enumerable? == true
+      :error -> key not in ["length", "name", "prototype", "constructor"]
+      _ -> false
+    end
+  end
+
+  defp callable_enumerable_key?(_fun, _statics, _descriptors, _key), do: false
 
   defp enumerable_proto_keys({:obj, ref}) do
     case Heap.get_obj(ref, %{}) do

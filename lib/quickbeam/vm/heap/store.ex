@@ -322,6 +322,8 @@ defmodule QuickBEAM.VM.Heap.Store do
 
   def get_ctor_prop_desc(ctor, key), do: Process.get({:qb_ctor_prop_desc, ctor_key(ctor), key})
 
+  def get_ctor_prop_descs(ctor), do: ctor_prop_desc_index(ctor_key(ctor))
+
   def put_ctor_prop_desc(ctor, key, desc) do
     owner = ctor_key(ctor)
     Process.put({:qb_ctor_prop_desc, owner, key}, desc)
