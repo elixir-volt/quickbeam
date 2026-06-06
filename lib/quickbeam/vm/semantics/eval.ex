@@ -3,9 +3,10 @@ defmodule QuickBEAM.VM.Semantics.Eval do
 
   alias QuickBEAM.JS.Parser
   alias QuickBEAM.JS.Parser.AST
-  alias QuickBEAM.VM.{EvalLexical, Names}
+  alias QuickBEAM.VM.{EvalLexical, Heap, Names}
   alias QuickBEAM.VM.Interpreter.Context
   alias QuickBEAM.VM.JSThrow
+  alias QuickBEAM.VM.ObjectModel.InternalMethods
 
   def simple_delete_identifier(code, globals) when is_map(globals) do
     case Parser.parse(code) do
@@ -90,6 +91,106 @@ defmodule QuickBEAM.VM.Semantics.Eval do
   end
 
   def class_field_initializer_context?(_), do: false
+
+  def class_field_initializer_eval_ast(ctx, code) when is_binary(code) do
+    if class_field_initializer_context?(ctx) do
+      case Parser.parse(code) do
+        {:error, %AST.Program{} = program, errors} ->
+          if class_initializer_recoverable_errors?(errors) do
+            {:ok, eval_initializer_program(program)}
+          else
+            :continue
+          end
+
+        _ ->
+          :continue
+      end
+    else
+      :continue
+    end
+  end
+
+  def class_field_initializer_eval_ast(_ctx, _code), do: :continue
+
+  def commit_class_field_initializer_eval_globals(ctx_globals, globals) when is_map(globals) do
+    merged = Map.merge(Heap.get_persistent_globals() || %{}, globals)
+    Heap.put_persistent_globals(merged)
+    Heap.put_base_globals(merged)
+
+    case Map.get(ctx_globals || %{}, "globalThis") || Map.get(merged, "globalThis") do
+      {:obj, _} = global_this ->
+        Enum.each(globals, fn {name, value} -> InternalMethods.set(global_this, name, value) end)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp class_initializer_recoverable_errors?(errors) do
+    Enum.all?(errors, fn %{message: message} ->
+      message in [
+        "new.target not allowed outside function",
+        "super not allowed outside class method"
+      ]
+    end)
+  end
+
+  defp eval_initializer_program(%AST.Program{body: body}) do
+    Enum.reduce(body, {:undefined, %{}}, &eval_initializer_statement/2)
+  catch
+    :unsupported_initializer_eval -> :unsupported
+  end
+
+  defp eval_initializer_statement(
+         %AST.ExpressionStatement{expression: expression},
+         {_value, globals}
+       ) do
+    eval_initializer_expression(expression, globals)
+  end
+
+  defp eval_initializer_statement(_statement, _acc), do: throw(:unsupported_initializer_eval)
+
+  defp eval_initializer_expression(
+         %AST.AssignmentExpression{
+           operator: "=",
+           left: %AST.Identifier{name: name},
+           right: right
+         },
+         globals
+       ) do
+    {value, globals} = eval_initializer_expression(right, globals)
+    {value, Map.put(globals, name, value)}
+  end
+
+  defp eval_initializer_expression(%AST.Literal{value: value}, globals), do: {value, globals}
+
+  defp eval_initializer_expression(%AST.Identifier{name: name}, globals),
+    do: {Map.get(globals, name, :undefined), globals}
+
+  defp eval_initializer_expression(
+         %AST.MetaProperty{
+           meta: %AST.Identifier{name: "new"},
+           property: %AST.Identifier{name: "target"}
+         },
+         globals
+       ),
+       do: {:undefined, globals}
+
+  defp eval_initializer_expression(
+         %AST.MemberExpression{object: %AST.Identifier{name: "super"}},
+         globals
+       ),
+       do: {:undefined, globals}
+
+  defp eval_initializer_expression(%AST.ArrowFunctionExpression{body: body}, globals) do
+    fun =
+      {:builtin, "", fn _args, _this -> elem(eval_initializer_expression(body, globals), 0) end}
+
+    {fun, globals}
+  end
+
+  defp eval_initializer_expression(_expression, _globals),
+    do: throw(:unsupported_initializer_eval)
 
   defp synthetic_field_initializer?(%QuickBEAM.VM.Function{source: "", locals: locals}) do
     local_names = MapSet.new(Enum.map(locals, &Names.resolve_display_name(&1.name)))

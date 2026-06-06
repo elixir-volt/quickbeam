@@ -1,10 +1,7 @@
 defmodule QuickBEAM.VM.Runtime.Globals.Functions do
   @moduledoc "Implementations for global JavaScript functions such as `eval`, `require`, and `queueMicrotask`."
 
-  alias QuickBEAM.JS.Parser
-  alias QuickBEAM.JS.Parser.AST
   alias QuickBEAM.VM.Execution.Eval, as: ExecutionEval
-  alias QuickBEAM.VM.ObjectModel.InternalMethods
   alias QuickBEAM.VM.Semantics.Eval, as: EvalSemantics
   alias QuickBEAM.VM.{Heap, RuntimeState}
   alias QuickBEAM.VM.JSThrow
@@ -13,9 +10,13 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
   def js_eval([code | _], _) when is_binary(code) do
     ctx = RuntimeState.current()
 
-    case eval_class_field_initializer_ast(ctx, code) do
-      {:ok, value} ->
+    case EvalSemantics.class_field_initializer_eval_ast(ctx, code) do
+      {:ok, {value, globals}} ->
+        EvalSemantics.commit_class_field_initializer_eval_globals(%{}, globals)
         value
+
+      {:ok, :unsupported} ->
+        JSThrow.syntax_error!("Unsupported class field initializer eval")
 
       :continue ->
         with %{runtime_pid: pid} when pid != nil <- ctx,
@@ -39,9 +40,13 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
     globals = Heap.get_obj(ref, %{})
     pre_globals = Heap.get_persistent_globals()
 
-    case eval_class_field_initializer_ast(ctx, code) do
-      {:ok, value} ->
+    case EvalSemantics.class_field_initializer_eval_ast(ctx, code) do
+      {:ok, {value, eval_globals}} ->
+        EvalSemantics.commit_class_field_initializer_eval_globals(globals, eval_globals)
         value
+
+      {:ok, :unsupported} ->
+        JSThrow.syntax_error!("Unsupported class field initializer eval")
 
       :continue ->
         with %{runtime_pid: pid} when pid != nil <- ctx,
@@ -60,114 +65,6 @@ defmodule QuickBEAM.VM.Runtime.Globals.Functions do
   end
 
   def js_eval_global(_, _), do: :undefined
-
-  defp eval_class_field_initializer_ast(ctx, code) do
-    if EvalSemantics.class_field_initializer_context?(ctx) do
-      case Parser.parse(code) do
-        {:error, %AST.Program{} = program, errors} ->
-          if class_initializer_recoverable_errors?(errors) do
-            {:ok, eval_initializer_program(ctx, program)}
-          else
-            :continue
-          end
-
-        _ ->
-          :continue
-      end
-    else
-      :continue
-    end
-  end
-
-  defp class_initializer_recoverable_errors?(errors) do
-    Enum.all?(errors, fn %{message: message} ->
-      message in [
-        "new.target not allowed outside function",
-        "super not allowed outside class method"
-      ]
-    end)
-  end
-
-  defp eval_initializer_program(ctx, %AST.Program{body: body}) do
-    {value, globals} =
-      Enum.reduce(body, {:undefined, %{}}, &eval_initializer_statement(ctx, &1, &2))
-
-    merge_initializer_globals(ctx, globals)
-    value
-  catch
-    :unsupported_initializer_eval ->
-      JSThrow.syntax_error!("Unsupported class field initializer eval")
-  end
-
-  defp eval_initializer_statement(
-         ctx,
-         %AST.ExpressionStatement{expression: expression},
-         {_value, globals}
-       ) do
-    eval_initializer_expression(ctx, expression, globals)
-  end
-
-  defp eval_initializer_statement(_ctx, _statement, _acc),
-    do: throw(:unsupported_initializer_eval)
-
-  defp eval_initializer_expression(
-         ctx,
-         %AST.AssignmentExpression{
-           operator: "=",
-           left: %AST.Identifier{name: name},
-           right: right
-         },
-         globals
-       ) do
-    {value, globals} = eval_initializer_expression(ctx, right, globals)
-    globals = Map.put(globals, name, value)
-    write_initializer_global_property(ctx, name, value)
-    {value, globals}
-  end
-
-  defp eval_initializer_expression(_ctx, %AST.Literal{value: value}, globals),
-    do: {value, globals}
-
-  defp eval_initializer_expression(_ctx, %AST.Identifier{name: name}, globals),
-    do: {Map.get(globals, name, :undefined), globals}
-
-  defp eval_initializer_expression(
-         _ctx,
-         %AST.MetaProperty{
-           meta: %AST.Identifier{name: "new"},
-           property: %AST.Identifier{name: "target"}
-         },
-         globals
-       ),
-       do: {:undefined, globals}
-
-  defp eval_initializer_expression(
-         _ctx,
-         %AST.MemberExpression{object: %AST.Identifier{name: "super"}},
-         globals
-       ),
-       do: {:undefined, globals}
-
-  defp eval_initializer_expression(ctx, %AST.ArrowFunctionExpression{body: body}, globals) do
-    {{:builtin, "",
-      fn _args, _this -> elem(eval_initializer_expression(ctx, body, globals), 0) end}, globals}
-  end
-
-  defp eval_initializer_expression(_ctx, _expression, _globals),
-    do: throw(:unsupported_initializer_eval)
-
-  defp merge_initializer_globals(_ctx, globals) do
-    merged = Map.merge(Heap.get_persistent_globals() || %{}, globals)
-    Heap.put_persistent_globals(merged)
-    Heap.put_base_globals(merged)
-  end
-
-  defp write_initializer_global_property(_ctx, name, value) do
-    case Map.get(Heap.get_persistent_globals() || %{}, "globalThis") do
-      {:obj, _} = global_this -> InternalMethods.set(global_this, name, value)
-      _ -> :ok
-    end
-  end
 
   def decode_uri([value | _], _), do: decode_uri_string(to_string_value(value), :uri)
   def decode_uri(_, _), do: :undefined

@@ -2,8 +2,6 @@ defmodule QuickBEAM.VM.Semantics.DirectEval do
   @moduledoc "Direct-eval preparation helpers kept outside the interpreter dispatch loop."
 
   alias QuickBEAM.JS.Error, as: JSError
-  alias QuickBEAM.JS.Parser
-  alias QuickBEAM.JS.Parser.AST
 
   alias QuickBEAM.VM.{
     BytecodeParser,
@@ -58,9 +56,24 @@ defmodule QuickBEAM.VM.Semantics.DirectEval do
     EvalSemantics.reject_class_field_initializer_eval!(ctx, code)
     eval_code = EvalSemantics.normalize_class_field_initializer_eval_code(ctx, code)
 
-    case eval_class_field_initializer_ast(ctx, eval_code) do
-      {:ok, result} ->
-        result
+    case EvalSemantics.class_field_initializer_eval_ast(ctx, eval_code) do
+      {:ok, {value, globals}} ->
+        EvalSemantics.commit_class_field_initializer_eval_globals(ctx.globals, globals)
+        {value, globals}
+
+      {:ok, :unsupported} ->
+        run_compiled_eval_source(
+          ctx,
+          eval_code,
+          locals,
+          var_refs,
+          l2v,
+          gas,
+          var_objs,
+          keep_declared?,
+          eval_with_ctx,
+          function_instructions
+        )
 
       :continue ->
         run_compiled_eval_source(
@@ -108,121 +121,6 @@ defmodule QuickBEAM.VM.Semantics.DirectEval do
 
       error ->
         handle_compile_error(error)
-    end
-  end
-
-  defp eval_class_field_initializer_ast(ctx, code) do
-    if EvalSemantics.class_field_initializer_context?(ctx) do
-      case Parser.parse(code) do
-        {:error, %AST.Program{} = program, errors} ->
-          if class_initializer_recoverable_errors?(errors) do
-            eval_initializer_program(ctx, program)
-          else
-            :continue
-          end
-
-        _ ->
-          :continue
-      end
-    else
-      :continue
-    end
-  end
-
-  defp class_initializer_recoverable_errors?(errors) do
-    Enum.all?(errors, fn %{message: message} ->
-      message in [
-        "new.target not allowed outside function",
-        "super not allowed outside class method"
-      ]
-    end)
-  end
-
-  defp eval_initializer_program(ctx, %AST.Program{body: body}) do
-    try do
-      {value, globals} =
-        Enum.reduce(body, {:undefined, %{}}, &eval_initializer_statement(ctx, &1, &2))
-
-      merged_globals = Map.merge(Heap.get_persistent_globals() || %{}, globals)
-      Heap.put_persistent_globals(merged_globals)
-      Heap.put_base_globals(merged_globals)
-      {:ok, {value, globals}}
-    catch
-      :unsupported_initializer_eval -> :continue
-    end
-  end
-
-  defp eval_initializer_statement(
-         ctx,
-         %AST.ExpressionStatement{expression: expression},
-         {_value, globals}
-       ) do
-    eval_initializer_expression(ctx, expression, globals)
-  end
-
-  defp eval_initializer_statement(_ctx, _statement, _acc),
-    do: throw(:unsupported_initializer_eval)
-
-  defp eval_initializer_expression(
-         ctx,
-         %AST.AssignmentExpression{
-           operator: "=",
-           left: %AST.Identifier{name: name},
-           right: right
-         },
-         globals
-       ) do
-    {value, globals} = eval_initializer_expression(ctx, right, globals)
-    globals = Map.put(globals, name, value)
-    write_initializer_global_property(ctx, name, value)
-    {value, globals}
-  end
-
-  defp eval_initializer_expression(_ctx, %AST.Literal{value: value}, globals),
-    do: {value, globals}
-
-  defp eval_initializer_expression(_ctx, %AST.Identifier{name: name}, globals),
-    do: {Map.get(globals, name, :undefined), globals}
-
-  defp eval_initializer_expression(
-         _ctx,
-         %AST.MetaProperty{
-           meta: %AST.Identifier{name: "new"},
-           property: %AST.Identifier{name: "target"}
-         },
-         globals
-       ),
-       do: {:undefined, globals}
-
-  defp eval_initializer_expression(
-         _ctx,
-         %AST.MemberExpression{object: %AST.Identifier{name: "super"}},
-         globals
-       ),
-       do: {:undefined, globals}
-
-  defp eval_initializer_expression(ctx, %AST.ArrowFunctionExpression{body: body}, globals) do
-    {fun, globals} = initializer_arrow_function(ctx, body, globals)
-    {fun, globals}
-  end
-
-  defp eval_initializer_expression(_ctx, _expression, _globals),
-    do: throw(:unsupported_initializer_eval)
-
-  defp initializer_arrow_function(ctx, body, globals) do
-    fun =
-      {:builtin, "",
-       fn _args, _this -> elem(eval_initializer_expression(ctx, body, globals), 0) end}
-
-    {fun, globals}
-  end
-
-  defp write_initializer_global_property(ctx, name, value) do
-    persistent_globals = Heap.get_persistent_globals() || %{}
-
-    case Map.get(ctx.globals, "globalThis") || Map.get(persistent_globals, "globalThis") do
-      {:obj, _} = global_this -> InternalMethods.set(global_this, name, value)
-      _ -> :ok
     end
   end
 
