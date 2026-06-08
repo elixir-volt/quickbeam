@@ -5,16 +5,22 @@ defmodule QuickBEAM.API do
       defmodule MyApp.Tools do
         use QuickBEAM.API, scope: "tools"
 
-        defjs double(n), do: n * 2
+        js double(n), do: n * 2
+
+        js remember(value), runtime do
+          QuickBEAM.set_global(runtime, "lastValue", value)
+          value
+        end
       end
 
       {:ok, rt} = QuickBEAM.start()
       :ok = QuickBEAM.load_api(rt, MyApp.Tools)
       {:ok, 10} = QuickBEAM.eval(rt, "tools.double(5)")
 
-  `defjs/2` defines a normal Elixir function and marks it for export. `defjs/3`
-  appends the current runtime as the final argument, which is useful for APIs that
-  need to read or mutate runtime state.
+  `js/2` and `defjs/2` define normal Elixir functions and mark them for export.
+  The three-argument form appends the current runtime as the final Elixir
+  argument. Set `@variadic true` immediately before a definition to receive all
+  JavaScript arguments as one list.
   """
 
   defmacro __using__(opts) do
@@ -24,9 +30,18 @@ defmodule QuickBEAM.API do
       @behaviour QuickBEAM.API
 
       import QuickBEAM.API,
-        only: [defjs: 2, defjs: 3, validate_func!: 3, is_js_object: 1, is_js_function: 1]
+        only: [
+          defjs: 2,
+          defjs: 3,
+          js: 2,
+          js: 3,
+          raise_js!: 2,
+          is_js_object: 1,
+          is_js_function: 1
+        ]
 
       Module.register_attribute(__MODULE__, :quickbeam_function, accumulate: true)
+      Module.register_attribute(__MODULE__, :variadic, persist: false)
       @before_compile QuickBEAM.API
 
       @impl QuickBEAM.API
@@ -34,11 +49,20 @@ defmodule QuickBEAM.API do
     end
   end
 
+  @type function_export :: %{
+          name: atom(),
+          arity: non_neg_integer(),
+          inject_runtime?: boolean(),
+          variadic?: boolean()
+        }
   @type scope_def :: [String.t()]
+
   @callback scope() :: scope_def()
+  @callback install(QuickBEAM.API.Context.t()) ::
+              :ok | {:ok, term()} | String.t() | QuickBEAM.Chunk.t()
   @callback install(QuickBEAM.runtime(), scope_def(), term()) ::
               :ok | {:ok, term()} | String.t() | QuickBEAM.Chunk.t()
-  @optional_callbacks install: 3
+  @optional_callbacks install: 1, install: 3
 
   defguard is_js_object(value)
            when is_tuple(value) and tuple_size(value) == 2 and elem(value, 0) == :obj
@@ -48,40 +72,17 @@ defmodule QuickBEAM.API do
                    elem(value, 0) in [:builtin, :closure, :bound]) or
                   is_struct(value, QuickBEAM.VM.Function)
 
-  defmacro defjs(fa, do: body) do
-    {name, arity} = function_name_arity!(fa)
-
-    quote do
-      @quickbeam_function validate_func!(
-                            {unquote(name), unquote(arity), false},
-                            __MODULE__,
-                            @quickbeam_function
-                          )
-      def unquote(fa), do: unquote(body)
-    end
-  end
-
-  defmacro defjs(fa, state, do: body) do
-    {name, arity} = function_name_arity!(fa)
-
-    {fa, _acc} =
-      Macro.prewalk(fa, :ok, fn
-        {^name, context, args}, acc -> {{name, context, List.wrap(args) ++ [state]}, acc}
-        ast, acc -> {ast, acc}
-      end)
-
-    quote do
-      @quickbeam_function validate_func!(
-                            {unquote(name), unquote(arity), true},
-                            __MODULE__,
-                            @quickbeam_function
-                          )
-      def unquote(fa), do: unquote(body)
-    end
-  end
+  defmacro js(fa, do: body), do: define_js(fa, false, nil, body)
+  defmacro js(fa, runtime, do: body), do: define_js(fa, true, runtime, body)
+  defmacro defjs(fa, do: body), do: define_js(fa, false, nil, body)
+  defmacro defjs(fa, runtime, do: body), do: define_js(fa, true, runtime, body)
 
   defmacro __before_compile__(env) do
-    functions = Module.get_attribute(env.module, :quickbeam_function) |> Enum.reverse()
+    functions =
+      env.module
+      |> Module.get_attribute(:quickbeam_function)
+      |> Enum.reverse()
+      |> dedupe_functions!()
 
     quote do
       def __quickbeam_api__ do
@@ -90,15 +91,91 @@ defmodule QuickBEAM.API do
     end
   end
 
-  def validate_func!({name, arity, with_runtime?}, module, existing)
-      when is_atom(name) and is_integer(arity) and arity >= 0 and is_boolean(with_runtime?) do
-    exported_arity = if with_runtime?, do: arity + 1, else: arity
+  @doc "Raises a JavaScript-shaped error from a host API function."
+  @spec raise_js!(String.t(), String.t()) :: no_return()
+  def raise_js!(name, message) when is_binary(name) and is_binary(message) do
+    raise QuickBEAM.JS.Error, name: name, message: message
+  end
 
-    if Enum.any?(existing, fn {existing_name, _, _} -> existing_name == name end) do
-      raise ArgumentError, "duplicate defjs #{inspect(module)}.#{name}/#{arity}"
+  @doc false
+  def register_function!(function, module, existing) do
+    validate_function!(function, module, existing)
+  end
+
+  defp define_js(fa, inject_runtime?, runtime_var, body) do
+    {name, arity} = function_name_arity!(fa)
+    definition = if inject_runtime?, do: append_runtime_arg(fa, name, runtime_var), else: fa
+
+    quote do
+      variadic? = Module.delete_attribute(__MODULE__, :variadic) == true
+
+      @quickbeam_function QuickBEAM.API.register_function!(
+                            %{
+                              name: unquote(name),
+                              arity: unquote(arity),
+                              inject_runtime?: unquote(inject_runtime?),
+                              variadic?: variadic?
+                            },
+                            __MODULE__,
+                            @quickbeam_function
+                          )
+
+      def unquote(definition), do: unquote(body)
+    end
+  end
+
+  defp append_runtime_arg(fa, name, runtime_var) do
+    {fa, _acc} =
+      Macro.prewalk(fa, :ok, fn
+        {^name, context, args}, acc ->
+          {{name, context, List.wrap(args) ++ [runtime_var]}, acc}
+
+        ast, acc ->
+          {ast, acc}
+      end)
+
+    fa
+  end
+
+  defp validate_function!(
+         %{name: name, arity: arity, inject_runtime?: inject_runtime?, variadic?: variadic?} =
+           function,
+         module,
+         existing
+       )
+       when is_atom(name) and is_integer(arity) and arity >= 0 and is_boolean(inject_runtime?) and
+              is_boolean(variadic?) do
+    if variadic? and arity != 1 do
+      raise ArgumentError,
+            "variadic js #{inspect(module)}.#{name}/#{arity} must accept exactly one argument list"
     end
 
-    {name, arity, with_runtime? || exported_arity != arity}
+    conflicting_runtime? =
+      Enum.any?(existing, fn
+        %{name: ^name, inject_runtime?: other} -> other != inject_runtime?
+        {^name, _, other} -> other != inject_runtime?
+        _ -> false
+      end)
+
+    if conflicting_runtime? do
+      raise ArgumentError,
+            "all js clauses for #{inspect(module)}.#{name} must use the same runtime injection mode"
+    end
+
+    function
+  end
+
+  defp dedupe_functions!(functions) do
+    functions
+    |> Enum.reduce([], fn function, acc ->
+      if Enum.any?(acc, &same_export?(&1, function)), do: acc, else: [function | acc]
+    end)
+    |> Enum.reverse()
+  end
+
+  defp same_export?(left, right) do
+    left.name == right.name and left.arity == right.arity and
+      left.inject_runtime? == right.inject_runtime? and left.variadic? == right.variadic?
   end
 
   defp function_name_arity!({:when, _, [call | _guards]}), do: function_name_arity!(call)
@@ -107,7 +184,7 @@ defmodule QuickBEAM.API do
     do: {name, length(List.wrap(args))}
 
   defp function_name_arity!(other) do
-    raise ArgumentError, "defjs expects a function head, got: #{Macro.to_string(other)}"
+    raise ArgumentError, "js expects a function head, got: #{Macro.to_string(other)}"
   end
 
   defp normalize_scope(scope) when is_binary(scope), do: String.split(scope, ".", trim: true)

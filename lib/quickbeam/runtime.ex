@@ -13,7 +13,8 @@ defmodule QuickBEAM.Runtime do
     workers: %{},
     websockets: %{},
     pending: %{},
-    beam_pending_msgs: []
+    beam_pending_msgs: [],
+    beam_bridge_installed?: false
   ]
 
   @type t :: %__MODULE__{
@@ -22,7 +23,8 @@ defmodule QuickBEAM.Runtime do
           monitors: map(),
           workers: map(),
           websockets: map(),
-          pending: map()
+          pending: map(),
+          beam_bridge_installed?: boolean()
         }
 
   def child_spec(opts) do
@@ -75,6 +77,22 @@ defmodule QuickBEAM.Runtime do
   end
 
   @spec eval(GenServer.server(), String.t(), keyword()) :: QuickBEAM.js_result()
+  @doc false
+  def handlers(server), do: GenServer.call(server, :get_handlers)
+
+  @doc false
+  def merge_handlers(server, handlers) when is_map(handlers) do
+    GenServer.call(server, {:merge_handlers, handlers})
+  end
+
+  @doc false
+  def replace_handlers(server, handlers) when is_map(handlers) do
+    GenServer.call(server, {:replace_handlers, handlers})
+  end
+
+  @doc false
+  def install_beam_bridge(server), do: GenServer.call(server, :install_beam_bridge, :infinity)
+
   def eval(server, code, opts \\ []) when is_binary(code) do
     timeout_ms = Keyword.get(opts, :timeout, 0)
     filename = Keyword.get(opts, :filename, "")
@@ -315,7 +333,14 @@ defmodule QuickBEAM.Runtime do
       |> Map.new()
 
     resource = QuickBEAM.Native.start_runtime(self(), nif_opts)
-    state = %__MODULE__{resource: resource, mode: mode, handlers: merged_handlers}
+
+    state = %__MODULE__{
+      resource: resource,
+      mode: mode,
+      handlers: merged_handlers,
+      beam_bridge_installed?: apis != []
+    }
+
     if QuickBEAM.Cover.enabled?(), do: sync_enable_coverage(resource)
     install_builtins(state, apis)
     install_defines(state, Keyword.get(opts, :define, %{}))
@@ -462,6 +487,21 @@ defmodule QuickBEAM.Runtime do
 
   def handle_call({:merge_handlers, handlers}, _from, state) when is_map(handlers) do
     {:reply, :ok, %{state | handlers: Map.merge(state.handlers, handlers)}}
+  end
+
+  def handle_call({:replace_handlers, handlers}, _from, state) when is_map(handlers) do
+    {:reply, :ok, %{state | handlers: handlers}}
+  end
+
+  def handle_call(:install_beam_bridge, _from, %{beam_bridge_installed?: true} = state) do
+    {:reply, :ok, %{state | handlers: Map.merge(@beam_handlers, state.handlers)}}
+  end
+
+  def handle_call(:install_beam_bridge, _from, state) do
+    for js <- @beam_js, do: sync_eval(state.resource, js)
+
+    {:reply, :ok,
+     %{state | handlers: Map.merge(@beam_handlers, state.handlers), beam_bridge_installed?: true}}
   end
 
   def handle_call(:info, _from, state) do
