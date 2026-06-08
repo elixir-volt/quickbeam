@@ -2,6 +2,7 @@ defmodule QuickBEAM do
   import QuickBEAM.VM.Heap.Keys
 
   alias QuickBEAM.Bytecode
+  alias QuickBEAM.Chunk
   alias QuickBEAM.JS.Error, as: JSError
   alias QuickBEAM.Native
   alias QuickBEAM.Runtime
@@ -74,6 +75,47 @@ defmodule QuickBEAM do
     Runtime.child_spec(opts)
   end
 
+  @doc """
+  Write JavaScript that is parsed at compile time.
+
+      import QuickBEAM
+
+      ~JS"1 + 2"
+      ~JS"1 + 2"c
+
+  Without modifiers, returns the source string. With the `c` modifier, returns a
+  `%QuickBEAM.Chunk{}` that can be passed to `QuickBEAM.eval/3`.
+  """
+  defmacro sigil_JS(code, opts) do
+    code =
+      case code do
+        {:<<>>, _, [literal]} when is_binary(literal) -> literal
+        _ -> raise "~JS only accepts string literals, received:\n\n#{Macro.to_string(code)}"
+      end
+
+    case QuickBEAM.JS.Parser.parse(code) do
+      {:ok, _ast} ->
+        :ok
+
+      {:error, _ast, [error | _]} ->
+        raise QuickBEAM.JS.Error, name: "SyntaxError", message: error.message
+
+      _ ->
+        raise QuickBEAM.JS.Error, name: "SyntaxError", message: "failed to parse JavaScript"
+    end
+
+    case opts do
+      [?c] ->
+        Macro.escape(%QuickBEAM.Chunk{source: code})
+
+      [] ->
+        code
+
+      other ->
+        raise ArgumentError, "unsupported ~JS modifier(s): #{inspect(List.to_string(other))}"
+    end
+  end
+
   @doc "Deletes cached BEAM compiler artifacts when `QUICKBEAM_COMPILER_CACHE` is enabled."
   def clear_compiler_cache, do: BEAMCompiler.clear_cache()
 
@@ -123,6 +165,104 @@ defmodule QuickBEAM do
   end
 
   @doc """
+  Loads a `QuickBEAM.API` module into a runtime.
+
+  Exported `defjs` functions are installed under the module's scope and are
+  callable from JavaScript.
+
+      defmodule Tools do
+        use QuickBEAM.API, scope: "tools"
+        defjs double(n), do: n * 2
+      end
+
+      :ok = QuickBEAM.load_api(rt, Tools)
+      {:ok, 10} = QuickBEAM.eval(rt, "tools.double(5)")
+  """
+  @spec load_api(runtime(), module(), term(), keyword()) :: :ok | {:error, term()}
+  def load_api(runtime, module, data \\ nil, opts \\ []) when is_atom(module) do
+    Code.ensure_loaded!(module)
+
+    unless function_exported?(module, :__quickbeam_api__, 0) do
+      raise ArgumentError, "#{inspect(module)} does not use QuickBEAM.API"
+    end
+
+    %{scope: scope, functions: functions} = module.__quickbeam_api__()
+
+    handlers =
+      Map.new(functions, fn {name, _arity, with_runtime?} ->
+        handler_name = api_handler_name(module, name)
+        {handler_name, api_handler(runtime, module, name, with_runtime?)}
+      end)
+
+    :ok = GenServer.call(runtime, {:merge_handlers, handlers})
+    Heap.put_handler_globals(nil)
+
+    with {:ok, _} <- eval(runtime, api_scope_init_source(scope), opts),
+         :ok <- install_api_callback(runtime, module, scope, data),
+         {:ok, _} <- eval(runtime, api_exports_source(scope, module, functions), opts) do
+      :ok
+    end
+  end
+
+  defp api_handler(runtime, module, name, true) do
+    fn args -> normalize_api_result(apply(module, name, args ++ [runtime])) end
+  end
+
+  defp api_handler(_runtime, module, name, false) do
+    fn args -> normalize_api_result(apply(module, name, args)) end
+  end
+
+  defp normalize_api_result({result, _runtime}), do: result
+  defp normalize_api_result(result), do: result
+
+  defp install_api_callback(runtime, module, scope, data) do
+    if function_exported?(module, :install, 3) do
+      case module.install(runtime, scope, data) do
+        :ok -> :ok
+        {:ok, _} -> :ok
+        %Chunk{} = chunk -> eval(runtime, chunk) |> ok_result()
+        source when is_binary(source) -> eval(runtime, source) |> ok_result()
+        other -> {:error, {:invalid_api_install_return, other}}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp ok_result({:ok, _}), do: :ok
+  defp ok_result({:error, _} = error), do: error
+
+  defp api_scope_init_source(scope) do
+    {init_lines, _target} = api_scope_target(scope)
+    Enum.join(init_lines, "\n")
+  end
+
+  defp api_exports_source(scope, module, functions) do
+    {_init_lines, target} = api_scope_target(scope)
+
+    Enum.map_join(functions, "\n", fn {name, _arity, _with_runtime?} ->
+      js_name = Jason.encode!(Atom.to_string(name))
+      handler = Jason.encode!(api_handler_name(module, name))
+      target <> "[" <> js_name <> "] = (...args) => Beam.callSync(" <> handler <> ", ...args);"
+    end)
+  end
+
+  defp api_scope_target([]), do: {[], "globalThis"}
+
+  defp api_scope_target(scope) do
+    {_path, lines, target} =
+      Enum.reduce(scope, {"globalThis", [], "globalThis"}, fn segment, {path, lines, _target} ->
+        key = Jason.encode!(segment)
+        next = path <> "[" <> key <> "]"
+        {next, lines ++ [next <> " = " <> next <> " || {};"], next}
+      end)
+
+    {lines, target}
+  end
+
+  defp api_handler_name(module, name), do: "__quickbeam_api__:#{inspect(module)}:#{name}"
+
+  @doc """
   Evaluate JavaScript code and return the result.
 
   Top-level `await` is supported.
@@ -156,8 +296,20 @@ defmodule QuickBEAM do
             vars: %{"items" => [%{"price" => 10, "qty" => 3}, %{"price" => 5, "qty" => 2}]})
           # => {:ok, 40}
   """
-  @spec eval(runtime(), String.t(), keyword()) :: js_result()
-  def eval(runtime, code, opts \\ []) do
+  @spec eval(runtime(), String.t() | Chunk.t(), keyword()) :: js_result()
+  def eval(runtime, code_or_chunk, opts \\ [])
+
+  def eval(runtime, %Chunk{bytecode: bytecode} = chunk, opts) when is_binary(bytecode) do
+    if resolve_mode(runtime, opts) in [:beam, :auto, :beam_compiler] do
+      eval(runtime, chunk.source, opts)
+    else
+      load_bytecode(runtime, bytecode)
+    end
+  end
+
+  def eval(runtime, %Chunk{source: source}, opts), do: eval(runtime, source, opts)
+
+  def eval(runtime, code, opts) when is_binary(code) do
     case resolve_mode(runtime, opts) do
       mode when mode in [:beam, :auto, :beam_compiler] -> eval_beam(runtime, code, opts, mode)
       _ -> Runtime.eval(runtime, code, opts)
@@ -827,6 +979,31 @@ defmodule QuickBEAM do
     with {:ok, bytecode} <- Runtime.compile(runtime, code, Keyword.get(opts, :filename, "")),
          {:ok, parsed} <- BEAMBytecodeParser.decode(bytecode) do
       BEAMCompiler.disasm(parsed.value)
+    end
+  end
+
+  @doc """
+  Compile JavaScript source into a first-class `%QuickBEAM.Chunk{}`.
+
+  The source is validated with the Elixir parser. In NIF mode, native QuickJS
+  bytecode is also stored in the chunk so it can be loaded later with
+  `QuickBEAM.eval/3`.
+  """
+  @spec compile_chunk(runtime(), String.t(), keyword()) :: {:ok, Chunk.t()} | {:error, term()}
+  def compile_chunk(runtime, code, opts \\ []) when is_binary(code) do
+    with {:ok, _ast} <- QuickBEAM.JS.Parser.parse(code) do
+      filename = Keyword.get(opts, :filename, "")
+
+      case Runtime.compile(runtime, code, filename) do
+        {:ok, bytecode} -> {:ok, %Chunk{source: code, bytecode: bytecode, filename: filename}}
+        {:error, _} = error -> error
+      end
+    else
+      {:error, _ast, [error | _]} ->
+        {:error, %JSError{name: "SyntaxError", message: error.message}}
+
+      error ->
+        error
     end
   end
 

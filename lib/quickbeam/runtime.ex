@@ -460,6 +460,10 @@ defmodule QuickBEAM.Runtime do
     {:reply, state.handlers, state}
   end
 
+  def handle_call({:merge_handlers, handlers}, _from, state) when is_map(handlers) do
+    {:reply, :ok, %{state | handlers: Map.merge(state.handlers, handlers)}}
+  end
+
   def handle_call(:info, _from, state) do
     handlers =
       state.handlers
