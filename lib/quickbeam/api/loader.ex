@@ -54,7 +54,13 @@ defmodule QuickBEAM.API.Loader do
   end
 
   defp handler(runtime, module, name, exports) do
-    fn args -> dispatch(runtime, module, name, exports, List.wrap(args)) end
+    fn args ->
+      try do
+        dispatch(runtime, module, name, exports, List.wrap(args))
+      rescue
+        error in QuickBEAM.JS.Error -> api_error(error)
+      end
+    end
   end
 
   defp dispatch(runtime, module, name, exports, args) do
@@ -140,7 +146,13 @@ defmodule QuickBEAM.API.Loader do
     |> Enum.map_join("\n", fn name ->
       js_name = Jason.encode!(Atom.to_string(name))
       handler = Jason.encode!(handler_name(module, name))
-      target <> "[" <> js_name <> "] = (...args) => Beam.callSync(" <> handler <> ", ...args);"
+
+      target <>
+        "[" <>
+        js_name <>
+        "] = (...args) => { const value = Beam.callSync(" <>
+        handler <>
+        ", ...args); if (value && typeof value === 'object' && value.__quickbeam_api_error__ === true) { const Ctor = globalThis[value.name]; const error = typeof Ctor === 'function' ? new Ctor(value.message) : new Error(value.message); error.name = value.name || error.name; if (value.stack) error.stack = value.stack; throw error; } return value; };"
     end)
   end
 
@@ -164,6 +176,15 @@ defmodule QuickBEAM.API.Loader do
   end
 
   defp handler_name(module, name), do: "__quickbeam_api__:#{inspect(module)}:#{name}"
+
+  defp api_error(%QuickBEAM.JS.Error{} = error) do
+    %{
+      "__quickbeam_api_error__" => true,
+      "name" => error.name || "Error",
+      "message" => error.message || "",
+      "stack" => error.stack
+    }
+  end
 
   defp normalize_scope(scope) when is_binary(scope),
     do: scope |> String.split(".", trim: true) |> reject_unsafe_scope!()

@@ -97,6 +97,22 @@ defmodule QuickBEAM do
   def compiler_cache_dir, do: BEAMCompiler.cache_dir()
 
   @doc """
+  Builds runtime options from a named sandbox preset.
+
+      QuickBEAM.sandbox(:strict)
+      QuickBEAM.sandbox(:browser, memory_limit: 8 * 1024 * 1024)
+  """
+  @spec sandbox(:strict | :browser | :node | :bare | boolean() | nil, keyword()) :: keyword()
+  def sandbox(preset \\ :strict, opts \\ []), do: QuickBEAM.Sandbox.options(preset, opts)
+
+  @doc "Alias for `start/1` with optional `:sandbox` preset expansion."
+  @spec new(keyword()) :: GenServer.on_start()
+  def new(opts \\ []) do
+    {sandbox_preset, opts} = Keyword.pop(opts, :sandbox)
+    start(QuickBEAM.Sandbox.options(sandbox_preset, opts))
+  end
+
+  @doc """
   Start a new JavaScript runtime.
 
   Returns `{:ok, pid}` on success.

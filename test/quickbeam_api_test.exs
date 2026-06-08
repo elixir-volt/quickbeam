@@ -48,6 +48,11 @@ defmodule QuickBEAM.APITest do
     def install(%QuickBEAM.API.Context{data: data}), do: "globalThis.loadedData = #{length(data)}"
   end
 
+  defmodule ErrorTools do
+    use QuickBEAM.API, scope: "errors"
+    js(bad(), do: raise_js!("TypeError", "bad input"))
+  end
+
   test "~JS validates source and c modifier returns a chunk" do
     assert ~JS"1 + 2" == "1 + 2"
     assert %QuickBEAM.Chunk{source: "1 + 2"} = ~JS"1 + 2"c
@@ -133,6 +138,17 @@ defmodule QuickBEAM.APITest do
 
     assert message =~ "Unknown handler"
     assert {:ok, 42} = QuickBEAM.get_global(rt, "beforeApi", user_only: true)
+
+    QuickBEAM.stop(rt)
+  end
+
+  test "QuickBEAM.API.raise_js! propagates structured JavaScript errors" do
+    {:ok, rt} = QuickBEAM.start()
+
+    assert :ok = QuickBEAM.load_api(rt, ErrorTools)
+
+    assert {:error, %QuickBEAM.JS.Error{name: "TypeError", message: "bad input"}} =
+             QuickBEAM.eval(rt, "errors.bad()")
 
     QuickBEAM.stop(rt)
   end

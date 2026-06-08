@@ -110,11 +110,12 @@ defmodule QuickBEAM.MixProject do
       extras: [
         "README.md",
         "docs/javascript-api.md",
+        "docs/elixir-api.md",
         "docs/architecture.md",
         "CHANGELOG.md"
       ],
       groups_for_extras: [
-        Guides: ["docs/javascript-api.md", "docs/architecture.md"]
+        Guides: ["docs/javascript-api.md", "docs/elixir-api.md", "docs/architecture.md"]
       ],
       source_ref: "v#{@version}"
     ]
