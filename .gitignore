@@ -38,3 +38,7 @@ bun.lock
 .worktrees/
 test/support/test_addon.node
 fprof.trace
+
+# Local autoresearch scratch
+autoresearch.*
+context.md
