@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- Update `oxc` to 0.15.1
+## 0.10.16
+
+- Update `oxc` to 0.16.0
 
 ## 0.10.15
 

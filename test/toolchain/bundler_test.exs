@@ -4,10 +4,10 @@ defmodule QuickBEAM.Toolchain.BundlerTest do
   describe "bundle_file" do
     @tag :tmp_dir
     test "bundles a single file with no imports", %{tmp_dir: dir} do
-      write!(dir, "main.js", "const x = 1 + 2;")
+      write!(dir, "main.js", "const x = 1 + 2; console.log(x);")
 
       assert {:ok, js} = QuickBEAM.JS.bundle_file(Path.join(dir, "main.js"))
-      assert js =~ "const x = 1 + 2"
+      assert js =~ "console.log(3)"
     end
 
     @tag :tmp_dir
@@ -116,8 +116,8 @@ defmodule QuickBEAM.Toolchain.BundlerTest do
       """)
 
       assert {:ok, js} = QuickBEAM.JS.bundle_file(Path.join(dir, "main.js"))
-      assert js =~ ~s(const A = "a")
-      assert js =~ ~s(A + "b")
+      assert js =~ ~S|console.log("ab")|
+      refute js =~ ~r/\bimport\s/
     end
 
     @tag :tmp_dir
@@ -139,9 +139,8 @@ defmodule QuickBEAM.Toolchain.BundlerTest do
       """)
 
       assert {:ok, js} = QuickBEAM.JS.bundle_file(Path.join(dir, "main.js"))
-      assert js =~ "const A = \"a\""
-      assert js =~ "const B = \"b\""
-      assert js =~ "console.log(A, B)"
+      assert js =~ ~S|console.log("a", "b")|
+      refute js =~ ~r/\bimport\s/
     end
 
     @tag :tmp_dir

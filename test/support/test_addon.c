@@ -126,7 +126,7 @@ static napi_value buffer_kind(napi_env env, napi_callback_info info) {
 
     void* data;
     napi_value buf;
-    napi_create_buffer(env, 4, (char**)&data, &buf);
+    napi_create_buffer(env, 4, &data, &buf);
     ((unsigned char*)data)[0] = 1;
     ((unsigned char*)data)[1] = 2;
     ((unsigned char*)data)[2] = 3;
@@ -145,7 +145,7 @@ static napi_value buffer_info(napi_env env, napi_callback_info info) {
 
     void* data;
     napi_value buf;
-    napi_create_buffer(env, 4, (char**)&data, &buf);
+    napi_create_buffer(env, 4, &data, &buf);
     ((unsigned char*)data)[0] = 10;
     ((unsigned char*)data)[1] = 20;
     ((unsigned char*)data)[2] = 30;
@@ -171,7 +171,7 @@ static napi_value typedarray_checks(napi_env env, napi_callback_info info) {
 
     void* data;
     napi_value buf;
-    napi_create_buffer(env, 1, (char**)&data, &buf);
+    napi_create_buffer(env, 1, &data, &buf);
 
     bool is_buffer = false;
     bool is_typedarray = false;
