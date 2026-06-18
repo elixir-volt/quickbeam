@@ -68,7 +68,12 @@ defmodule QuickBEAM.Native do
     "-I#{@c_src_dir}/wamr/shared/mem-alloc",
     "-I#{@c_src_dir}/wamr/shared/platform/#{if(:os.type() == {:unix, :darwin}, do: "darwin", else: "linux")}"
   ]
-  @wamr_cflags @wamr_base_cflags ++ @hidden_cflags
+  @wamr_cflags @wamr_base_cflags ++
+                 @hidden_cflags ++
+                 if(System.get_env("QUICKBEAM_WAMR_NOSAN") == "1",
+                   do: ["-fno-sanitize=undefined", "-fno-sanitize-trap=undefined"],
+                   else: []
+                 )
 
   @wamr_src (Path.wildcard("priv/c_src/wamr/interpreter/wasm_loader.c") ++
                Path.wildcard("priv/c_src/wamr/interpreter/wasm_interp_classic.c") ++
