@@ -476,6 +476,34 @@ defmodule QuickBEAM.WASMTest do
   @custom_section_wasm <<0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x04, 0x6D,
                          0x65, 0x74, 0x61, 0x61, 0x62, 0x63>>
 
+  # Bulk-memory regression fixture. Exercises every opcode gated by the WAMR
+  # config flags WASM_ENABLE_BULK_MEMORY / _OPT (priv/c_src/wamr/config.h):
+  #   memory.fill (fc 0b), memory.copy (fc 0a)   <- _OPT  (fc 0a is the blocker)
+  #   memory.init (fc 08), data.drop  (fc 09)    <- BULK_MEMORY
+  # Toolchains like Go's GOOS=js GOARCH=wasm, TinyGo, and Rust wasm-bindgen emit
+  # these unconditionally; with the gates off WAMR rejects them at compile time
+  # with "unsupported opcode fc 0a".
+  #
+  # WAT (assembled with wat2wasm, byte-exact-verified against a reference runtime):
+  #   (module
+  #     (memory (export "mem") 1)
+  #     (data $seg "\de\ad\be\ef")
+  #     (func (export "run") (result i32)
+  #       (memory.fill (i32.const 0)   (i32.const 0xAB) (i32.const 16))
+  #       (memory.copy (i32.const 100) (i32.const 0)    (i32.const 16))
+  #       (memory.init $seg (i32.const 200) (i32.const 0) (i32.const 4))
+  #       (data.drop $seg)
+  #       (i32.add
+  #         (i32.mul (i32.load8_u (i32.const 100)) (i32.const 256))
+  #         (i32.load8_u (i32.const 200)))))
+  # run() = load8_u(100)*256 + load8_u(200) = 0xAB*256 + 0xDE = 171*256 + 222 = 43998.
+  @bulk_memory_wasm <<0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 127, 3, 2, 1, 0, 5, 3, 1, 0,
+                      1, 7, 13, 2, 3, 109, 101, 109, 2, 0, 3, 114, 117, 110, 0, 0, 12, 1, 1, 10,
+                      56, 1, 54, 0, 65, 0, 65, 171, 1, 65, 16, 252, 11, 0, 65, 228, 0, 65, 0, 65,
+                      16, 252, 10, 0, 0, 65, 200, 1, 65, 0, 65, 4, 252, 8, 0, 0, 252, 9, 0, 65,
+                      228, 0, 45, 0, 0, 65, 128, 2, 108, 65, 200, 1, 45, 0, 0, 106, 11, 11, 7, 1,
+                      1, 4, 222, 173, 190, 239>>
+
   describe "disasm/1" do
     test "parses a minimal add module" do
       assert {:ok, %Module{} = mod} = WASM.disasm(@add_wasm)
@@ -650,6 +678,17 @@ defmodule QuickBEAM.WASMTest do
     test "read out of bounds returns error" do
       {:ok, pid} = WASM.start(module: @memory_func_wasm)
       {:error, _} = WASM.read_memory(pid, 65_530, 100)
+      WASM.stop(pid)
+    end
+  end
+
+  describe "bulk memory opcodes (WASM_ENABLE_BULK_MEMORY_OPT)" do
+    test "runs memory.fill/copy/init + data.drop (fc 08–0b)" do
+      # run() = load8_u(100)*256 + load8_u(200) after fill→copy→init→data.drop.
+      # Without WASM_ENABLE_BULK_MEMORY_OPT this module fails to compile with
+      # "unsupported opcode fc 0a".
+      {:ok, pid} = WASM.start(module: @bulk_memory_wasm)
+      assert {:ok, 43_998} = WASM.call(pid, "run", [])
       WASM.stop(pid)
     end
   end
@@ -921,6 +960,15 @@ defmodule QuickBEAM.WASMTest do
         """)
 
       assert result == ["abc"]
+    end
+
+    test "WebAssembly.instantiate compiles bulk-memory opcodes (memory.copy, fc 0a)", %{rt: rt} do
+      assert {:ok, 43_998} =
+               QuickBEAM.eval(rt, """
+                 const bytes = new Uint8Array([#{Enum.join(:binary.bin_to_list(@bulk_memory_wasm), ", ")}]);
+                 const {instance} = await WebAssembly.instantiate(bytes);
+                 instance.exports.run();
+               """)
     end
 
     test "WebAssembly.compileStreaming", %{rt: rt} do
