@@ -90,6 +90,7 @@ pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue, max_reductions: i64) vo
     _ = qjs.JS_SetPropertyStr(ctx, global, "__qb_wasm_memory_size", qjs.JS_NewCFunction(ctx, &wasm_memory_size_impl, "__qb_wasm_memory_size", 1));
     _ = qjs.JS_SetPropertyStr(ctx, global, "__qb_wasm_memory_grow", qjs.JS_NewCFunction(ctx, &wasm_memory_grow_impl, "__qb_wasm_memory_grow", 2));
     _ = qjs.JS_SetPropertyStr(ctx, global, "__qb_wasm_read_memory", qjs.JS_NewCFunction(ctx, &wasm_read_memory_impl, "__qb_wasm_read_memory", 3));
+    _ = qjs.JS_SetPropertyStr(ctx, global, "__qb_wasm_memory_buffer", qjs.JS_NewCFunction(ctx, &wasm_memory_buffer_impl, "__qb_wasm_memory_buffer", 1));
     _ = qjs.JS_SetPropertyStr(ctx, global, "__qb_wasm_read_global", qjs.JS_NewCFunction(ctx, &wasm_read_global_impl, "__qb_wasm_read_global", 2));
     _ = qjs.JS_SetPropertyStr(ctx, global, "__qb_wasm_write_global", qjs.JS_NewCFunction(ctx, &wasm_write_global_impl, "__qb_wasm_write_global", 3));
 }
@@ -470,6 +471,36 @@ fn wasm_read_memory_impl(
     }
 
     return make_uint8array(ctx, bytes.ptr, bytes.len);
+}
+
+// The ArrayBuffer returned by wasm_memory_buffer_impl aliases WAMR's linear
+// memory directly; WAMR owns that storage, so the JS GC must not free it.
+fn wasm_buffer_noop_free(
+    _: ?*qjs.JSRuntime,
+    _: ?*anyopaque,
+    _: ?*anyopaque,
+) callconv(.c) void {}
+
+fn wasm_memory_buffer_impl(
+    ctx_opt: ?*qjs.JSContext,
+    _: qjs.JSValue,
+    argc: c_int,
+    argv: [*c]qjs.JSValue,
+) callconv(.c) qjs.JSValue {
+    const ctx = ctx_opt orelse return js.js_exception();
+    if (argc < 1) return throw_error(ctx, "instance id required");
+    const state = get_context_state(ctx) orelse return throw_error(ctx, "missing wasm context state");
+    var instance_id_i64: i64 = 0;
+    if (qjs.JS_ToInt64(ctx, &instance_id_i64, argv[0]) != 0 or instance_id_i64 < 0) return throw_error(ctx, "invalid instance handle");
+    const entry = get_instance_entry(state, @intCast(instance_id_i64)) orelse return throw_error(ctx, "instance not found");
+
+    var size: u32 = 0;
+    const base = wamr.wamr_bridge_memory_data(entry.managed.inst, &size);
+    if (base == null or size == 0) return throw_error(ctx, "memory not available");
+
+    // Live alias: DataView/TypedArray writes on this buffer land directly in
+    // WAMR linear memory, and reads observe live guest state. No copy.
+    return qjs.JS_NewArrayBuffer(ctx, base, size, &wasm_buffer_noop_free, null, false);
 }
 
 fn wasm_read_global_impl(
