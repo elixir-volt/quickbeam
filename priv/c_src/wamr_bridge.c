@@ -475,6 +475,27 @@ wamr_bridge_write_memory(WamrInstance *inst, uint32_t offset,
     return true;
 }
 
+uint8_t *
+wamr_bridge_memory_data(WamrInstance *inst, uint32_t *out_size)
+{
+    if (out_size)
+        *out_size = 0;
+    if (!inst || !inst->inst)
+        return NULL;
+
+    uint32_t mem_size = wamr_bridge_memory_size(inst);
+    if (mem_size == 0)
+        return NULL;
+
+    void *native = wasm_runtime_addr_app_to_native(inst->inst, 0);
+    if (!native)
+        return NULL;
+
+    if (out_size)
+        *out_size = mem_size;
+    return (uint8_t *)native;
+}
+
 static bool
 read_global_value(const wasm_global_inst_t *global, wasm_val_t *value,
                   char *err_buf, uint32_t err_buf_size)

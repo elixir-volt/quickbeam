@@ -74,6 +74,8 @@ declare function __qb_wasm_read_memory(
   length: number
 ): BufferSource
 
+declare function __qb_wasm_memory_buffer(instanceHandle: number): ArrayBuffer
+
 declare function __qb_wasm_read_global(instanceHandle: number, name: string): unknown
 
 declare function __qb_wasm_write_global(
@@ -179,12 +181,11 @@ class WasmMemory {
     }
 
     const handle = this._handle
-    const size = qbWasmCall(() => __qb_wasm_memory_size(handle), 'memory size failed') as number
-    const bytes = qbWasmCall(
-      () => __qb_wasm_read_memory(handle, 0, size),
-      'memory read failed'
-    ) as BufferSource
-    return wasmToUint8Array(bytes).slice().buffer
+    // Live alias of WAMR linear memory: host writes via DataView/TypedArray
+    // propagate into the guest, and reads observe live guest state. A grow
+    // may move the backing store, so callers must re-read `.buffer` afterward
+    // (matching browser detach-on-grow semantics).
+    return qbWasmCall(() => __qb_wasm_memory_buffer(handle), 'memory buffer failed') as ArrayBuffer
   }
 
   grow(delta: number): number {
