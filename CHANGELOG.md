@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Enable WASM bulk-memory `memory.copy`/`memory.fill` opcodes (`WASM_ENABLE_BULK_MEMORY_OPT`), so modules from standard toolchains (Go `GOOS=js GOARCH=wasm`, TinyGo, Rust `wasm-bindgen`) that emit them no longer fail to instantiate with `unsupported opcode fc 0a`
 - Update `oxc` to 0.15.1
 
 ## 0.10.15

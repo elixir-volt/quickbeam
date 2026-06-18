@@ -6,6 +6,7 @@ pub const wamr = @cImport({
     @cDefine("WASM_ENABLE_LIBC_WASI", "0");
     @cDefine("WASM_ENABLE_MULTI_MODULE", "0");
     @cDefine("WASM_ENABLE_BULK_MEMORY", "1");
+    @cDefine("WASM_ENABLE_BULK_MEMORY_OPT", "1");
     @cDefine("WASM_ENABLE_REF_TYPES", "1");
     @cDefine("WASM_ENABLE_SIMD", "0");
     @cDefine("WASM_ENABLE_TAIL_CALL", "1");
