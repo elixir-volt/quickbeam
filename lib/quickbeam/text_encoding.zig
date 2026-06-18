@@ -299,10 +299,13 @@ fn text_decoder_decode(
         // (Go's wasm_exec.js loadString passes a DataView here.)
         const buffer_val = qjs.JS_GetPropertyStr(ctx, input, "buffer");
         defer qjs.JS_FreeValue(ctx, buffer_val);
+        if (js.js_is_exception(buffer_val)) return js.js_exception();
         const offset_val = qjs.JS_GetPropertyStr(ctx, input, "byteOffset");
         defer qjs.JS_FreeValue(ctx, offset_val);
+        if (js.js_is_exception(offset_val)) return js.js_exception();
         const length_val = qjs.JS_GetPropertyStr(ctx, input, "byteLength");
         defer qjs.JS_FreeValue(ctx, length_val);
+        if (js.js_is_exception(length_val)) return js.js_exception();
 
         var byte_offset_i64: i64 = 0;
         var byte_len_i64: i64 = 0;
@@ -312,10 +315,19 @@ fn text_decoder_decode(
             return qjs.JS_ThrowTypeError(ctx, "argument must be a BufferSource");
         }
 
+        if (byte_len_i64 == 0) return qjs.JS_NewString(ctx, "");
+
         var ab_size: usize = 0;
+        // A null return with a pending exception (e.g. detached buffer) must
+        // propagate, not silently decode as "".
         const buf_ptr = qjs.JS_GetArrayBuffer(ctx, &ab_size, buffer_val) orelse
-            return qjs.JS_NewString(ctx, "");
-        data = @as([*]const u8, @ptrCast(buf_ptr + @as(usize, @intCast(byte_offset_i64))))[0..@intCast(byte_len_i64)];
+            return js.js_exception();
+        const off: usize = @intCast(byte_offset_i64);
+        const blen: usize = @intCast(byte_len_i64);
+        if (off > ab_size or blen > ab_size - off) {
+            return qjs.JS_ThrowTypeError(ctx, "DataView out of bounds of its ArrayBuffer");
+        }
+        data = @as([*]const u8, @ptrCast(buf_ptr + off))[0..blen];
     } else {
         var byte_offset: usize = 0;
         var byte_len: usize = 0;

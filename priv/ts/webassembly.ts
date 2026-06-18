@@ -182,9 +182,10 @@ class WasmMemory {
 
     const handle = this._handle
     // Live alias of WAMR linear memory: host writes via DataView/TypedArray
-    // propagate into the guest, and reads observe live guest state. A grow
-    // may move the backing store, so callers must re-read `.buffer` afterward
-    // (matching browser detach-on-grow semantics).
+    // propagate into the guest, and reads observe live guest state. The same
+    // ArrayBuffer object is returned on repeated access until a memory.grow
+    // moves the backing store, at which point the native side detaches the old
+    // buffer (browser detach-on-grow) and this returns a fresh alias.
     return qbWasmCall(() => __qb_wasm_memory_buffer(handle), 'memory buffer failed') as ArrayBuffer
   }
 

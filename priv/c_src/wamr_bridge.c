@@ -432,7 +432,9 @@ wamr_bridge_memory_grow(WamrInstance *inst, uint32_t delta_pages)
     if (!inst || !inst->inst)
         return -1;
     uint32_t cur = wamr_bridge_memory_size(inst) / 65536;
-    if (!wasm_runtime_enlarge_memory(inst->inst, (cur + delta_pages) * 65536))
+    /* wasm_runtime_enlarge_memory takes inc_page_count (pages to ADD), not a
+     * byte count or an absolute page count. */
+    if (!wasm_runtime_enlarge_memory(inst->inst, (uint64_t)delta_pages))
         return -1;
     return (int32_t)cur;
 }

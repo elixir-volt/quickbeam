@@ -12,7 +12,30 @@ const wamr = @import("wamr.zig").wamr;
 const InstanceEntry = struct {
     mod: *wamr.WamrModule,
     managed: *wasm_common.ManagedInstance,
+    // Cached live-aliased ArrayBuffer over WAMR linear memory (see
+    // wasm_memory_buffer_impl). `buffer_base`/`buffer_size` record the WAMR
+    // base+size the cached buffer aliases; when memory grows (base may move,
+    // size changes) the cached buffer is detached so stale JS views fault
+    // instead of reading freed/moved memory — matching browser detach-on-grow.
+    buffer_val: ?qjs.JSValue = null,
+    buffer_base: [*c]u8 = null,
+    buffer_size: u32 = 0,
 };
+
+// Detach + drop the cached aliasing ArrayBuffer if WAMR's linear memory has
+// moved or resized since it was created (e.g. after a guest or host
+// memory.grow). The next `.buffer` access then mints a fresh alias.
+fn invalidate_buffer_if_moved(ctx: *qjs.JSContext, entry: *InstanceEntry) void {
+    const bv = entry.buffer_val orelse return;
+    var size: u32 = 0;
+    const base = wamr.wamr_bridge_memory_data(entry.managed.inst, &size);
+    if (base == entry.buffer_base and size == entry.buffer_size) return;
+    qjs.JS_DetachArrayBuffer(ctx, bv);
+    qjs.JS_FreeValue(ctx, bv);
+    entry.buffer_val = null;
+    entry.buffer_base = null;
+    entry.buffer_size = 0;
+}
 
 const ContextState = struct {
     next_instance_id: u64 = 1,
@@ -77,6 +100,18 @@ pub fn destroy_context(ctx: *qjs.JSContext) void {
     states_mutex.unlock();
 
     if (removed) |entry| {
+        // Detach any live aliasing ArrayBuffers BEFORE the WAMR instances (and
+        // their linear memory) are freed in deinit(), so no QuickJS object is
+        // left carrying a dangling native pointer. ctx is still valid here
+        // (destroy_context runs before JS_FreeContext).
+        var it = entry.value.instances.iterator();
+        while (it.next()) |e| {
+            if (e.value_ptr.buffer_val) |bv| {
+                qjs.JS_DetachArrayBuffer(ctx, bv);
+                qjs.JS_FreeValue(ctx, bv);
+                e.value_ptr.buffer_val = null;
+            }
+        }
         entry.value.deinit();
         gpa.destroy(entry.value);
     }
@@ -402,6 +437,10 @@ fn wasm_call_impl(
         return throw_error(ctx, std.mem.sliceTo(&err_buf, 0));
     }
 
+    // The call may have executed a guest `memory.grow`, moving the linear
+    // memory; detach any cached alias so stale JS views don't read freed memory.
+    invalidate_buffer_if_moved(ctx, entry);
+
     if (result_count == 0) return js.js_undefined();
     if (result_count == 1) return wasm_to_js_value(ctx, results[0]);
 
@@ -443,6 +482,8 @@ fn wasm_memory_grow_impl(
     const entry = get_instance_entry(state, @intCast(instance_id_i64)) orelse return throw_error(ctx, "instance not found");
     const grown = wamr.wamr_bridge_memory_grow(entry.managed.inst, @intCast(delta));
     if (grown < 0) return throw_error(ctx, "memory grow failed");
+    // Detach the cached alias: the backing store may have moved/resized.
+    invalidate_buffer_if_moved(ctx, entry);
     return qjs.JS_NewInt64(ctx, grown);
 }
 
@@ -498,9 +539,29 @@ fn wasm_memory_buffer_impl(
     const base = wamr.wamr_bridge_memory_data(entry.managed.inst, &size);
     if (base == null or size == 0) return throw_error(ctx, "memory not available");
 
+    // Return the SAME ArrayBuffer object on repeated access (stable identity,
+    // browser-faithful) as long as the backing store hasn't moved/resized.
+    if (entry.buffer_val) |bv| {
+        if (base == entry.buffer_base and size == entry.buffer_size) {
+            return qjs.JS_DupValue(ctx, bv);
+        }
+        // Memory grew since the cached buffer was minted: detach it (any JS
+        // views over it fault) before exposing a fresh alias.
+        qjs.JS_DetachArrayBuffer(ctx, bv);
+        qjs.JS_FreeValue(ctx, bv);
+        entry.buffer_val = null;
+    }
+
     // Live alias: DataView/TypedArray writes on this buffer land directly in
-    // WAMR linear memory, and reads observe live guest state. No copy.
-    return qjs.JS_NewArrayBuffer(ctx, base, size, &wasm_buffer_noop_free, null, false);
+    // WAMR linear memory, and reads observe live guest state. No copy. WAMR
+    // owns the storage, so the free-func is a no-op.
+    const buf = qjs.JS_NewArrayBuffer(ctx, base, size, &wasm_buffer_noop_free, null, false);
+    if (js.js_is_exception(buf)) return buf;
+    // Keep our own ref so we can detach it on the next grow / on teardown.
+    entry.buffer_val = qjs.JS_DupValue(ctx, buf);
+    entry.buffer_base = base;
+    entry.buffer_size = size;
+    return buf;
 }
 
 fn wasm_read_global_impl(

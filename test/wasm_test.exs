@@ -994,6 +994,60 @@ defmodule QuickBEAM.WASMTest do
     end
   end
 
+  describe "live Memory.buffer + TextDecoder DataView (Go-wasm host memory)" do
+    setup do
+      {:ok, rt} = QuickBEAM.start()
+      %{rt: rt}
+    end
+
+    # (module
+    #   (import "env" "fill" (func $fill (param i32)))
+    #   (memory (export "mem") 1)
+    #   (func (export "test") (result i32)
+    #     (call $fill (i32.const 16))   ;; host writes at mem[16] via mem.buffer
+    #     (i32.load (i32.const 16))))   ;; guest reads it back
+    @memwrite_bytes """
+    new Uint8Array([
+      0,97,115,109,1,0,0,0,1,9,2,96,1,127,0,96,0,1,127,2,12,1,3,101,110,118,
+      4,102,105,108,108,0,0,3,2,1,1,5,3,1,0,1,7,14,2,3,109,101,109,2,0,4,116,
+      101,115,116,0,1,10,13,1,11,0,65,16,16,0,65,16,40,2,0,11
+    ])
+    """
+
+    test "host writes through Memory.buffer DataView are visible to the guest", %{rt: rt} do
+      # The import callback writes 123456 at mem[16] via new DataView(mem.buffer);
+      # the guest then i32.load's mem[16]. A copy-based buffer would read 0.
+      assert {:ok, 123_456} =
+               QuickBEAM.eval(rt, """
+                 const bytes = #{@memwrite_bytes};
+                 const holder = {};
+                 const imp = { env: { fill: (ptr) => {
+                   new DataView(holder.inst.exports.mem.buffer).setInt32(ptr, 123456, true);
+                 }}};
+                 const { instance } = await WebAssembly.instantiate(bytes, imp);
+                 holder.inst = instance;
+                 instance.exports.test();
+               """)
+    end
+
+    test "Memory.buffer has stable identity until grow", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+                 const bytes = #{@memwrite_bytes};
+                 const { instance } = await WebAssembly.instantiate(bytes, {env: {fill() {}}});
+                 instance.exports.mem.buffer === instance.exports.mem.buffer;
+               """)
+    end
+
+    test "TextDecoder.decode accepts a DataView, including a non-zero byteOffset", %{rt: rt} do
+      assert {:ok, "ello"} =
+               QuickBEAM.eval(rt, """
+                 const buf = new Uint8Array([72, 101, 108, 108, 111]).buffer;
+                 new TextDecoder().decode(new DataView(buf, 1, 4));
+               """)
+    end
+  end
+
   describe "edge cases" do
     test "empty module" do
       wasm = <<0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00>>
