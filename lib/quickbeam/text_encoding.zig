@@ -293,6 +293,29 @@ fn text_decoder_decode(
         const ptr = qjs.JS_GetArrayBuffer(ctx, &len, input) orelse
             return qjs.JS_NewString(ctx, "");
         data = @as([*]const u8, @ptrCast(ptr))[0..len];
+    } else if (qjs.JS_IsDataView(input)) {
+        // A DataView is a BufferSource but not a TypedArray, so
+        // JS_GetTypedArrayBuffer rejects it; read its view window directly.
+        // (Go's wasm_exec.js loadString passes a DataView here.)
+        const buffer_val = qjs.JS_GetPropertyStr(ctx, input, "buffer");
+        defer qjs.JS_FreeValue(ctx, buffer_val);
+        const offset_val = qjs.JS_GetPropertyStr(ctx, input, "byteOffset");
+        defer qjs.JS_FreeValue(ctx, offset_val);
+        const length_val = qjs.JS_GetPropertyStr(ctx, input, "byteLength");
+        defer qjs.JS_FreeValue(ctx, length_val);
+
+        var byte_offset_i64: i64 = 0;
+        var byte_len_i64: i64 = 0;
+        if (qjs.JS_ToInt64(ctx, &byte_offset_i64, offset_val) != 0 or byte_offset_i64 < 0 or
+            qjs.JS_ToInt64(ctx, &byte_len_i64, length_val) != 0 or byte_len_i64 < 0)
+        {
+            return qjs.JS_ThrowTypeError(ctx, "argument must be a BufferSource");
+        }
+
+        var ab_size: usize = 0;
+        const buf_ptr = qjs.JS_GetArrayBuffer(ctx, &ab_size, buffer_val) orelse
+            return qjs.JS_NewString(ctx, "");
+        data = @as([*]const u8, @ptrCast(buf_ptr + @as(usize, @intCast(byte_offset_i64))))[0..@intCast(byte_len_i64)];
     } else {
         var byte_offset: usize = 0;
         var byte_len: usize = 0;
