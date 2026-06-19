@@ -498,6 +498,12 @@ wamr_bridge_memory_data(WamrInstance *inst, uint32_t *out_size)
     return (uint8_t *)native;
 }
 
+void *
+wamr_bridge_module_inst(WamrInstance *inst)
+{
+    return inst ? inst->inst : NULL;
+}
+
 static bool
 read_global_value(const wasm_global_inst_t *global, wasm_val_t *value,
                   char *err_buf, uint32_t err_buf_size)

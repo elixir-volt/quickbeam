@@ -104,6 +104,12 @@ bool wamr_bridge_write_memory(WamrInstance *inst, uint32_t offset,
  * the instance is destroyed; callers must not free it. */
 uint8_t *wamr_bridge_memory_data(WamrInstance *inst, uint32_t *out_size);
 
+/* The underlying WAMR module instance backing this WamrInstance, as an opaque
+ * pointer. Lets code that cannot see the opaque struct internals reverse-map a
+ * host-import exec_env's module instance (wasm_runtime_get_module_inst) back to
+ * the owning WamrInstance. Returns NULL for a NULL input. */
+void *wamr_bridge_module_inst(WamrInstance *inst);
+
 bool wamr_bridge_read_global(WamrInstance *inst, const char *name,
                               wasm_val_t *value,
                               char *err_buf, uint32_t err_buf_size);

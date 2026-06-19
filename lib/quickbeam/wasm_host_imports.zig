@@ -20,6 +20,18 @@ extern fn quickbeam_wasm_host_invoke_js(
     err_buf_size: u32,
 ) bool;
 
+// C-ABI seam exported from the root module (quickbeam.zig), delegating to the
+// impl in wasm_js.zig. Reached via `extern` rather than an import (wasm_js
+// imports THIS module, so a back-import would cycle). Detaches the cached
+// aliasing ArrayBuffer for the instance owning `module_inst` if its linear
+// memory has moved — called at the JS host-import boundary so a guest that grew
+// memory mid-call hands the host a detached (browser-faithful) stale buffer,
+// not a dangling alias.
+extern fn quickbeam_wasm_invalidate_alias_for_inst(
+    runtime_data: ?*anyopaque,
+    module_inst: ?*anyopaque,
+) void;
+
 pub const ImportSpec = struct {
     module_name: []const u8,
     symbol: []const u8,
@@ -94,6 +106,14 @@ fn invoke_host_import(comptime mode: CallbackMode, exec_env: wamr.wasm_exec_env_
 
     const attachment: *Attachment = @ptrCast(@alignCast(attachment_ptr));
     var err_buf = std.mem.zeroes([256]u8);
+
+    // Before re-entering a JS callback that may read `mem.buffer`, detach the
+    // cached alias if a prior guest memory.grow in THIS call moved the backing
+    // store. runtime_data is the JSContext; module_inst maps back to the owning
+    // instance. (The BEAM path copies memory, so it needs no invalidation.)
+    if (mode == .js) {
+        quickbeam_wasm_invalidate_alias_for_inst(attachment.runtime_data, @ptrCast(module_inst));
+    }
 
     const ok = switch (mode) {
         .beam => quickbeam_wasm_host_invoke(
