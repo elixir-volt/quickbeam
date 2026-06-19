@@ -33,7 +33,7 @@ defmodule QuickBEAM.JS do
 
     def bundle(ts_dir, barrel) do
       barrel_source = File.read!(Path.join(ts_dir, barrel))
-      {:ok, specifiers} = OXC.imports(barrel_source, barrel)
+      {:ok, specifiers} = OXC.select(barrel_source, barrel, :import_specifiers)
 
       import_names =
         specifiers
@@ -311,11 +311,16 @@ defmodule QuickBEAM.JS do
       # => {:ok, ["vue"]}
   """
   @spec imports(String.t(), String.t()) :: {:ok, [String.t()]} | {:error, [String.t()]}
-  defdelegate imports(source, filename), to: OXC
+  def imports(source, filename), do: OXC.select(source, filename, :import_specifiers)
 
   @doc "Like `imports/2` but raises on errors."
   @spec imports!(String.t(), String.t()) :: [String.t()]
-  defdelegate imports!(source, filename), to: OXC
+  def imports!(source, filename) do
+    case imports(source, filename) do
+      {:ok, imports} -> imports
+      {:error, errors} -> raise OXC.Error, errors: errors
+    end
+  end
 
   @doc """
   Bundle multiple TS/JS modules into a single self-executing script.

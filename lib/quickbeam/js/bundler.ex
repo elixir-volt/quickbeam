@@ -25,20 +25,22 @@ defmodule QuickBEAM.JS.Bundler do
   end
 
   defp collect_modules(entry_path, project_root) do
-    case do_collect(entry_path, project_root, [], MapSet.new()) do
+    case do_collect(entry_path, project_root, [], %{}) do
       {:ok, files, _seen} -> {:ok, Enum.reverse(files)}
       {:error, _} = error -> error
     end
   end
 
+  @spec do_collect(String.t(), String.t(), [{String.t(), String.t()}], %{String.t() => true}) ::
+          {:ok, [{String.t(), String.t()}], %{String.t() => true}} | {:error, term()}
   defp do_collect(abs_path, project_root, files, seen) do
-    if MapSet.member?(seen, abs_path) do
+    if Map.has_key?(seen, abs_path) do
       {:ok, files, seen}
     else
       with {:ok, source} <- File.read(abs_path),
            {:ok, rewritten, resolved_paths} <- rewrite_and_resolve(source, abs_path, project_root) do
         label = relative_label(abs_path, project_root)
-        seen = MapSet.put(seen, abs_path)
+        seen = Map.put(seen, abs_path, true)
         files = [{label, rewritten} | files]
         collect_deps(resolved_paths, project_root, files, seen)
       else
@@ -48,6 +50,8 @@ defmodule QuickBEAM.JS.Bundler do
     end
   end
 
+  @spec collect_deps([String.t()], String.t(), [{String.t(), String.t()}], %{String.t() => true}) ::
+          {:ok, [{String.t(), String.t()}], %{String.t() => true}} | {:error, term()}
   defp collect_deps([], _project_root, files, seen), do: {:ok, files, seen}
 
   defp collect_deps([path | rest], project_root, files, seen) do

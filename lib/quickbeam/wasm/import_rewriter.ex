@@ -248,7 +248,7 @@ defmodule QuickBEAM.WASM.ImportRewriter do
   defp parse_sections(<<id, rest::binary>>, acc) do
     with {size, rest} <- decode_u32(rest),
          true <- byte_size(rest) >= size,
-         <<payload::binary-size(size), tail::binary>> <- rest do
+         <<payload::binary-size(^size), tail::binary>> <- rest do
       parse_sections(tail, [{id, payload} | acc])
     else
       _ -> {:error, "truncated WASM section"}
@@ -314,7 +314,7 @@ defmodule QuickBEAM.WASM.ImportRewriter do
   defp take_limits_raw(<<0x00, rest::binary>> = data) do
     {_min, rest} = decode_u32(rest)
     consumed = byte_size(data) - byte_size(rest)
-    <<raw::binary-size(consumed), tail::binary>> = data
+    <<raw::binary-size(^consumed), tail::binary>> = data
     {raw, tail}
   end
 
@@ -322,7 +322,7 @@ defmodule QuickBEAM.WASM.ImportRewriter do
     {_min, rest} = decode_u32(rest)
     {_max, rest} = decode_u32(rest)
     consumed = byte_size(data) - byte_size(rest)
-    <<raw::binary-size(consumed), tail::binary>> = data
+    <<raw::binary-size(^consumed), tail::binary>> = data
     {raw, tail}
   end
 
@@ -330,7 +330,7 @@ defmodule QuickBEAM.WASM.ImportRewriter do
     case :binary.match(rest, <<0x0B>>) do
       {expr_size, 1} ->
         raw_size = 2 + expr_size + 1
-        <<raw::binary-size(raw_size), tail::binary>> = data
+        <<raw::binary-size(^raw_size), tail::binary>> = data
         {raw, tail}
 
       :nomatch ->

@@ -25,7 +25,7 @@ defmodule QuickBEAM.Script do
   defp typescript?(path), do: String.ends_with?(path, ".ts") or String.ends_with?(path, ".tsx")
 
   defp has_imports?(source, path) do
-    case OXC.imports(source, Path.basename(path)) do
+    case OXC.select(source, Path.basename(path), :import_specifiers) do
       {:ok, [_ | _]} -> true
       _ -> false
     end

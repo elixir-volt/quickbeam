@@ -48,7 +48,7 @@ defmodule QuickBEAM.WASM.Parser do
 
   defp parse_sections(<<id, rest::binary>>, mod) do
     {size, rest} = decode_u32(rest)
-    <<section_data::binary-size(size), rest::binary>> = rest
+    <<section_data::binary-size(^size), rest::binary>> = rest
 
     mod = parse_section(id, section_data, mod)
     parse_sections(rest, mod)
@@ -181,7 +181,7 @@ defmodule QuickBEAM.WASM.Parser do
 
   defp parse_name_subsections(<<id, rest::binary>>, names) do
     {size, rest} = decode_u32(rest)
-    <<subsection::binary-size(size), rest::binary>> = rest
+    <<subsection::binary-size(^size), rest::binary>> = rest
 
     names =
       case id do
@@ -382,13 +382,13 @@ defmodule QuickBEAM.WASM.Parser do
   defp decode_data_segment(<<0x00, rest::binary>>) do
     {offset, rest} = decode_expr(rest)
     {size, rest} = decode_u32(rest)
-    <<bytes::binary-size(size), rest::binary>> = rest
+    <<bytes::binary-size(^size), rest::binary>> = rest
     {%{memory_idx: 0, offset: offset, bytes: bytes}, rest}
   end
 
   defp decode_data_segment(<<0x01, rest::binary>>) do
     {size, rest} = decode_u32(rest)
-    <<bytes::binary-size(size), rest::binary>> = rest
+    <<bytes::binary-size(^size), rest::binary>> = rest
     {%{memory_idx: nil, offset: nil, bytes: bytes}, rest}
   end
 
@@ -396,7 +396,7 @@ defmodule QuickBEAM.WASM.Parser do
     {mem_idx, rest} = decode_u32(rest)
     {offset, rest} = decode_expr(rest)
     {size, rest} = decode_u32(rest)
-    <<bytes::binary-size(size), rest::binary>> = rest
+    <<bytes::binary-size(^size), rest::binary>> = rest
     {%{memory_idx: mem_idx, offset: offset, bytes: bytes}, rest}
   end
 
@@ -404,7 +404,7 @@ defmodule QuickBEAM.WASM.Parser do
 
   defp decode_code_body(data) do
     {body_size, data} = decode_u32(data)
-    <<body::binary-size(body_size), rest::binary>> = data
+    <<body::binary-size(^body_size), rest::binary>> = data
     {locals, body} = decode_locals(body)
     opcodes = decode_instructions(body)
     {{locals, opcodes}, rest}
@@ -928,7 +928,7 @@ defmodule QuickBEAM.WASM.Parser do
 
   defp decode_name(data) do
     {len, data} = decode_u32(data)
-    <<name::binary-size(len), data::binary>> = data
+    <<name::binary-size(^len), data::binary>> = data
     {name, data}
   end
 end

@@ -147,7 +147,7 @@ defmodule QuickBEAM.SubtleCrypto do
         aad = to_binary(Map.get(algo, "additionalData", []))
         tag_length = div(Map.get(algo, "tagLength", 128), 8)
         ct_len = byte_size(bytes) - tag_length
-        <<ct::binary-size(ct_len), tag::binary-size(tag_length)>> = bytes
+        <<ct::binary-size(^ct_len), tag::binary-size(^tag_length)>> = bytes
 
         case :crypto.crypto_one_time_aead(aes_gcm_algo(key), key, iv, ct, aad, tag, false) do
           :error -> raise "Decryption failed"

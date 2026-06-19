@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.10.17
+
+- Update `oxc` to 0.17.0 and use the selector API for import discovery.
+
 ## 0.10.16
 
 - Update `oxc` to 0.16.0

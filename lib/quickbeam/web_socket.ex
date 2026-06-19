@@ -281,8 +281,6 @@ defmodule QuickBEAM.WebSocket do
 
   # -- Close / send --
 
-  defp do_close(%{websocket: nil} = state, _code, _reason), do: {:ok, state}
-
   defp do_close(state, code, reason) do
     frame = if code == 1000 and reason == "", do: :close, else: {:close, code, reason}
 
