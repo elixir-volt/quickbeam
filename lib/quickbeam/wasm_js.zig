@@ -572,17 +572,15 @@ fn wasm_memory_buffer_impl(
 
     var size: u32 = 0;
     const base = wamr.wamr_bridge_memory_data(entry.managed.inst, &size);
-    if (base == null or size == 0) {
-        // Zero-page linear memory: the browser returns a 0-length ArrayBuffer,
-        // not an error (`new WebAssembly.Memory({initial: 0}).buffer`). There is
-        // nothing to alias, and wasm memory cannot shrink, so no cached buffer
-        // exists to reuse — mint a fresh empty owned (detachable) buffer.
-        var empty: [1]u8 = .{0};
-        return qjs.JS_NewArrayBufferCopy(ctx, &empty, 0);
-    }
 
     // Return the SAME ArrayBuffer object on repeated access (stable identity,
-    // browser-faithful) as long as the backing store hasn't moved/resized.
+    // browser-faithful) as long as the backing store hasn't moved/resized. This
+    // covers BOTH the live-alias and the zero-page 0-length case below: the
+    // zero-page buffer is cached with base=null/size=0, so a repeat access
+    // matches here and dups the same empty object, and a later grow (0 -> N)
+    // changes base/size and detaches it (here, or via the host-boundary
+    // invalidate_buffer_if_moved). First access has buffer_val == null and
+    // skips this — the null/0 struct defaults never false-match an alias.
     if (entry.buffer_val) |bv| {
         if (base == entry.buffer_base and size == entry.buffer_size) {
             return qjs.JS_DupValue(ctx, bv);
@@ -592,6 +590,21 @@ fn wasm_memory_buffer_impl(
         qjs.JS_DetachArrayBuffer(ctx, bv);
         qjs.JS_FreeValue(ctx, bv);
         entry.buffer_val = null;
+    }
+
+    if (base == null or size == 0) {
+        // Zero-page linear memory: the browser returns a 0-length ArrayBuffer,
+        // not an error (`new WebAssembly.Memory({initial: 0}).buffer`). There is
+        // nothing to alias, so mint a fresh empty owned (detachable) buffer —
+        // and cache it (base=null/size=0) so repeated access returns the SAME
+        // object and a later grow detaches it, matching the live-alias contract.
+        var empty: [1]u8 = .{0};
+        const buf = qjs.JS_NewArrayBufferCopy(ctx, &empty, 0);
+        if (js.js_is_exception(buf)) return buf;
+        entry.buffer_val = qjs.JS_DupValue(ctx, buf);
+        entry.buffer_base = null;
+        entry.buffer_size = 0;
+        return buf;
     }
 
     // Live alias: DataView/TypedArray writes on this buffer land directly in

@@ -1114,12 +1114,37 @@ defmodule QuickBEAM.WASMTest do
                """)
     end
 
-    test "zero-page memory exposes a 0-length buffer instead of throwing", %{rt: rt} do
-      assert {:ok, 0} =
+    test "zero-page memory exposes a stable 0-length buffer instead of throwing", %{rt: rt} do
+      # The 0-length buffer must also honor the stable-identity contract:
+      # repeated `.buffer` access returns the SAME object (browser-faithful),
+      # so the empty buffer is cached like a live alias, not re-minted per call.
+      assert {:ok, [true, 0]} =
                QuickBEAM.eval(rt, """
                  const bytes = #{@zeropage_bytes};
                  const { instance } = await WebAssembly.instantiate(bytes);
-                 instance.exports.mem.buffer.byteLength;
+                 const a = instance.exports.mem.buffer;
+                 const b = instance.exports.mem.buffer;
+                 [a === b, a.byteLength];
+               """)
+    end
+
+    test "growing zero-page memory replaces the cached empty buffer with a live alias", %{rt: rt} do
+      # The cached 0-length buffer must be invalidated on a 0 -> N grow: the
+      # pre-grow object is no longer returned, and a fresh stably-cached alias
+      # of the grown size takes its place. Exercises the zero-page cache's
+      # detach-on-grow path (the live-alias detach itself is covered above for
+      # non-zero memory; here byteLength-0 is degenerate, so we assert via
+      # object identity + the grown size).
+      assert {:ok, [true, true, 65_536, true]} =
+               QuickBEAM.eval(rt, """
+                 const bytes = #{@zeropage_bytes};
+                 const { instance } = await WebAssembly.instantiate(bytes);
+                 const mem = instance.exports.mem;
+                 const buf0 = mem.buffer;
+                 const stableBefore = buf0 === mem.buffer;
+                 mem.grow(1);
+                 const buf1 = mem.buffer;
+                 [stableBefore, buf0 !== buf1, buf1.byteLength, buf1 === mem.buffer];
                """)
     end
 
