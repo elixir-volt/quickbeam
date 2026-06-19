@@ -22,6 +22,10 @@ defmodule QuickBEAM.ContextPool do
     * `:size` — number of runtime threads (default: `System.schedulers_online()`)
     * `:memory_limit` — maximum JS heap per thread in bytes (default: 256 MB)
     * `:max_stack_size` — maximum JS call stack in bytes (default: 8 MB)
+    * `:wasm_stack_size` — WASM operand stack in bytes for guests started via the JS
+      `WebAssembly.instantiate` path (default: 65536). Distinct from `:max_stack_size`
+      (the JS call stack); raise it for guests whose deep init overflows the 64 KB default.
+    * `:wasm_heap_size` — WASM auxiliary heap in bytes for the same path (default: 65536)
     * `:max_convert_depth` — maximum nesting depth for JS→BEAM value conversion (default: 32)
     * `:max_convert_nodes` — maximum total nodes for JS→BEAM value conversion (default: 10,000)
   """
@@ -46,7 +50,14 @@ defmodule QuickBEAM.ContextPool do
 
     nif_opts =
       opts
-      |> Keyword.take([:memory_limit, :max_stack_size, :max_convert_depth, :max_convert_nodes])
+      |> Keyword.take([
+        :memory_limit,
+        :max_stack_size,
+        :wasm_stack_size,
+        :wasm_heap_size,
+        :max_convert_depth,
+        :max_convert_nodes
+      ])
       |> Map.new()
 
     threads =

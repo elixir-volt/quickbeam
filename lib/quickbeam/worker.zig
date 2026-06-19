@@ -899,7 +899,7 @@ pub const WorkerState = struct {
 
         const global = qjs.JS_GetGlobalObject(self.ctx);
         defer qjs.JS_FreeValue(self.ctx, global);
-        wasm_js.install(self.ctx, global, self.max_reductions);
+        wasm_js.install(self.ctx, global, self.max_reductions, self.rd.wasm_stack_size, self.rd.wasm_heap_size);
     }
 };
 

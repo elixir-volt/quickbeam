@@ -209,6 +209,8 @@ fn handle_create_context(
         .thread = null,
         .max_convert_depth = pd.max_convert_depth,
         .max_convert_nodes = pd.max_convert_nodes,
+        .wasm_stack_size = pd.wasm_stack_size,
+        .wasm_heap_size = pd.wasm_heap_size,
     };
     entry.owner_pid = p.owner_pid;
     entry.id = p.context_id;

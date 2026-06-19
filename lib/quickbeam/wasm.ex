@@ -33,6 +33,15 @@ defmodule QuickBEAM.WASM do
     * `:name` — GenServer name registration
     * `:stack_size` — execution stack in bytes (default: 65536)
     * `:heap_size` — auxiliary heap in bytes (default: 65536)
+
+  > #### JS `WebAssembly` path {: .info}
+  >
+  > These `:stack_size`/`:heap_size` options apply to this native NIF path. Guests
+  > started from JavaScript via `WebAssembly.instantiate` instead take their WASM
+  > operand stack / heap from the owning runtime's `:wasm_stack_size` /
+  > `:wasm_heap_size` options (see `QuickBEAM.Runtime` / `QuickBEAM.ContextPool`),
+  > which also default to 65536. Raise those for guests (e.g. Go `GOOS=js`) whose
+  > deep initialization overflows the 64 KB default.
   """
 
   @type instance :: GenServer.server()
