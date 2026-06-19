@@ -1,0 +1,92 @@
+defmodule QuickBEAM.VM.Names do
+  @moduledoc "Atom-pool resolution: maps bytecode constant indices to JS atom strings and resolves display names."
+
+  alias QuickBEAM.VM.{Heap, PredefinedAtoms}
+  alias QuickBEAM.VM.Interpreter.Context
+  alias QuickBEAM.VM.Semantics.Values
+
+  @js_atom_end QuickBEAM.VM.Opcodes.js_atom_end()
+
+  @doc "Resolves a bytecode constant-pool entry into a VM value."
+  def resolve_const(cpool, idx) when is_tuple(cpool) and idx < tuple_size(cpool) do
+    case elem(cpool, idx) do
+      {:array, list} when is_list(list) ->
+        ref = make_ref()
+        Heap.put_obj(ref, list)
+        {:obj, ref}
+
+      other ->
+        other
+    end
+  end
+
+  def resolve_const(_cpool, idx), do: {:const_ref, idx}
+
+  @doc "Resolves an atom-table index or tagged atom reference into a JavaScript property name."
+  def resolve_atom(%Context{atoms: atoms}, idx), do: resolve_atom(atoms, idx)
+
+  def resolve_atom(_atoms, :empty_string), do: ""
+
+  def resolve_atom(_atoms, {:predefined, idx}) when idx < @js_atom_end do
+    PredefinedAtoms.lookup(idx) || "atom_#{idx}"
+  end
+
+  def resolve_atom(_atoms, {:tagged_int, val}), do: Integer.to_string(val)
+
+  def resolve_atom(atoms, idx) when is_integer(idx) and idx >= 0 and is_tuple(atoms) do
+    if idx < tuple_size(atoms), do: elem(atoms, idx), else: {:atom, idx}
+  end
+
+  def resolve_atom(_atoms, other) when is_binary(other), do: other
+  def resolve_atom(_atoms, other) when is_integer(other), do: Integer.to_string(other)
+  def resolve_atom(_atoms, {:atom, n}), do: "atom_#{n}"
+  def resolve_atom(_atoms, other), do: inspect(other)
+
+  @doc "Resolves an optional display name for functions and diagnostics."
+  def resolve_display_name(name, atoms \\ Heap.get_atoms())
+
+  def resolve_display_name(name, _atoms) when is_binary(name), do: name
+  def resolve_display_name({:predefined, idx}, _atoms), do: PredefinedAtoms.lookup(idx)
+  def resolve_display_name(idx, atoms) when is_integer(idx), do: resolve_atom(atoms, idx)
+  def resolve_display_name(_name, _atoms), do: nil
+
+  def function_name(name_val) do
+    case name_val do
+      s when is_binary(s) -> s
+      n when is_number(n) -> Values.stringify(n)
+      {:symbol, :undefined, _} -> ""
+      {:symbol, desc, _} -> "[" <> desc <> "]"
+      {:symbol, :undefined} -> ""
+      {:symbol, desc} -> "[" <> desc <> "]"
+      {:private_symbol, "#" <> _ = name, _} -> name
+      {:private_symbol, name, _} when is_binary(name) -> "#" <> name
+      _ -> ""
+    end
+  end
+
+  @doc "Returns a function-like value with updated name metadata."
+  def rename_function({:closure, captured, %QuickBEAM.VM.Function{} = fun}, name),
+    do: {:closure, captured, %{fun | name: name}}
+
+  def rename_function(%QuickBEAM.VM.Function{} = fun, name), do: %{fun | name: name}
+
+  def rename_function({:builtin, _, cb}, name), do: {:builtin, name, cb}
+
+  def rename_function({:obj, ref} = obj, name) do
+    QuickBEAM.VM.Heap.update_obj(ref, %{}, &Map.put(&1, "name", name))
+    obj
+  end
+
+  def rename_function(other, _name), do: other
+
+  def normalize_property_key(idx) do
+    case idx do
+      i when is_integer(i) -> Integer.to_string(i)
+      {:symbol, _} = sym -> sym
+      {:symbol, _, _} = sym -> sym
+      s when is_binary(s) -> s
+      other when is_number(other) -> Kernel.to_string(other)
+      other -> QuickBEAM.VM.Semantics.Values.stringify(other)
+    end
+  end
+end

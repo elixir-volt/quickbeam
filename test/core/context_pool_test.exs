@@ -55,6 +55,40 @@ defmodule QuickBEAM.Core.ContextPoolTest do
     QuickBEAM.Context.stop(ctx)
   end
 
+  test "beam mode contexts persist and reset state" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 1, mode: :beam)
+    {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool, apis: false)
+
+    assert {:ok, 3} = QuickBEAM.Context.eval(ctx, "var x = 1; x + 2")
+    assert {:ok, 1} = QuickBEAM.Context.eval(ctx, "x")
+    assert :ok = QuickBEAM.Context.reset(ctx)
+    assert {:ok, "undefined"} = QuickBEAM.Context.eval(ctx, "typeof x")
+
+    QuickBEAM.Context.stop(ctx)
+  end
+
+  test "beam mode contexts are isolated" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 1, mode: :beam)
+    {:ok, ctx1} = QuickBEAM.Context.start_link(pool: pool, apis: false)
+    {:ok, ctx2} = QuickBEAM.Context.start_link(pool: pool, apis: false)
+
+    assert {:ok, 42} = QuickBEAM.Context.eval(ctx1, "globalThis.x = 42")
+    assert {:ok, 42} = QuickBEAM.Context.eval(ctx1, "x")
+    assert {:ok, "undefined"} = QuickBEAM.Context.eval(ctx2, "typeof x")
+
+    QuickBEAM.Context.stop(ctx1)
+    QuickBEAM.Context.stop(ctx2)
+  end
+
+  test "beam compiler mode contexts evaluate code" do
+    {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 1, mode: :beam_compiler)
+    {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool, apis: false)
+
+    assert {:ok, 3} = QuickBEAM.Context.eval(ctx, "1 + 2")
+
+    QuickBEAM.Context.stop(ctx)
+  end
+
   test "Beam.call handler" do
     {:ok, pool} = QuickBEAM.ContextPool.start_link()
 
@@ -171,7 +205,7 @@ defmodule QuickBEAM.Core.ContextPoolTest do
 
     # performance.now (native Zig)
     {:ok, ms} = QuickBEAM.Context.eval(ctx, "performance.now()")
-    assert is_float(ms) and ms >= 0
+    assert is_number(ms) and ms >= 0
 
     # console (logs to Logger)
     assert {:ok, nil} = QuickBEAM.Context.eval(ctx, "console.log('from context')")
@@ -337,7 +371,7 @@ defmodule QuickBEAM.Core.ContextPoolTest do
     {:ok, ctx} =
       QuickBEAM.Context.start_link(pool: pool, apis: false, max_reductions: 1_000)
 
-    assert {:error, %QuickBEAM.JSError{message: "interrupted"}} =
+    assert {:error, %QuickBEAM.JS.Error{message: "interrupted"}} =
              QuickBEAM.Context.eval(
                ctx,
                "(() => { let s = 0; for(let i = 0; i < 10000000; i++) s += i; return s })()"

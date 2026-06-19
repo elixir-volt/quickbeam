@@ -5,7 +5,17 @@ defmodule QuickBEAM.Runtime do
   require Logger
 
   @enforce_keys [:resource]
-  defstruct [:resource, handlers: %{}, monitors: %{}, workers: %{}, websockets: %{}, pending: %{}]
+  defstruct [
+    :resource,
+    mode: :nif,
+    handlers: %{},
+    monitors: %{},
+    workers: %{},
+    websockets: %{},
+    pending: %{},
+    beam_pending_msgs: [],
+    beam_bridge_installed?: false
+  ]
 
   @type t :: %__MODULE__{
           resource: reference(),
@@ -13,7 +23,8 @@ defmodule QuickBEAM.Runtime do
           monitors: map(),
           workers: map(),
           websockets: map(),
-          pending: map()
+          pending: map(),
+          beam_bridge_installed?: boolean()
         }
 
   def child_spec(opts) do
@@ -66,20 +77,38 @@ defmodule QuickBEAM.Runtime do
   end
 
   @spec eval(GenServer.server(), String.t(), keyword()) :: QuickBEAM.js_result()
+  @doc false
+  def handlers(server), do: GenServer.call(server, :get_handlers)
+
+  @doc false
+  def merge_handlers(server, handlers) when is_map(handlers) do
+    GenServer.call(server, {:merge_handlers, handlers})
+  end
+
+  @doc false
+  def replace_handlers(server, handlers) when is_map(handlers) do
+    GenServer.call(server, {:replace_handlers, handlers})
+  end
+
+  @doc false
+  def install_beam_bridge(server), do: GenServer.call(server, :install_beam_bridge, :infinity)
+
   def eval(server, code, opts \\ []) when is_binary(code) do
     timeout_ms = Keyword.get(opts, :timeout, 0)
+    filename = Keyword.get(opts, :filename, "")
     vars = Keyword.get(opts, :vars)
 
     if vars && vars != %{} do
-      GenServer.call(server, {:eval_with_vars, code, timeout_ms, vars}, :infinity)
+      GenServer.call(server, {:eval_with_vars, code, timeout_ms, vars, filename}, :infinity)
     else
-      GenServer.call(server, {:eval, code, timeout_ms}, :infinity)
+      GenServer.call(server, {:eval, code, timeout_ms, filename}, :infinity)
     end
   end
 
-  @spec compile(GenServer.server(), String.t()) :: {:ok, binary()} | {:error, String.t()}
-  def compile(server, code) when is_binary(code) do
-    GenServer.call(server, {:compile, code}, :infinity)
+  @spec compile(GenServer.server(), String.t(), String.t()) ::
+          {:ok, binary()} | {:error, QuickBEAM.JS.Error.t() | String.t()}
+  def compile(server, code, filename \\ "") when is_binary(code) and is_binary(filename) do
+    GenServer.call(server, {:compile, code, filename}, :infinity)
   end
 
   @spec load_bytecode(GenServer.server(), binary()) ::
@@ -201,30 +230,30 @@ defmodule QuickBEAM.Runtime do
   }
 
   @beam_handlers %{
-    "__beam_version" => &QuickBEAM.BeamAPI.version/1,
-    "__beam_sleep_sync" => &QuickBEAM.BeamAPI.sleep_sync/1,
-    "__beam_hash" => &QuickBEAM.BeamAPI.hash/1,
-    "__beam_escape_html" => &QuickBEAM.BeamAPI.escape_html/1,
-    "__beam_which" => &QuickBEAM.BeamAPI.which/1,
-    "__beam_random_uuid_v7" => &QuickBEAM.BeamAPI.random_uuid_v7/1,
-    "__beam_semver_satisfies" => &QuickBEAM.BeamAPI.semver_satisfies/1,
-    "__beam_semver_order" => &QuickBEAM.BeamAPI.semver_order/1,
-    "__beam_nodes" => &QuickBEAM.BeamAPI.nodes/1,
-    "__beam_rpc" => {:with_caller, &QuickBEAM.BeamAPI.rpc/2},
-    "__beam_spawn" => {:with_caller, &QuickBEAM.BeamAPI.spawn_runtime/2},
-    "__beam_register" => {:with_caller, &QuickBEAM.BeamAPI.register_name/2},
-    "__beam_whereis" => &QuickBEAM.BeamAPI.whereis/1,
-    "__beam_link" => {:with_caller, &QuickBEAM.BeamAPI.link_process/2},
-    "__beam_unlink" => {:with_caller, &QuickBEAM.BeamAPI.unlink_process/2},
-    "__beam_system_info" => &QuickBEAM.BeamAPI.system_info/1,
-    "__beam_process_info" => {:with_caller, &QuickBEAM.BeamAPI.process_info/2},
-    "__beam_password_hash" => &QuickBEAM.BeamAPI.password_hash/1,
-    "__beam_password_verify" => &QuickBEAM.BeamAPI.password_verify/1,
-    "__beam_nanoseconds" => &QuickBEAM.BeamAPI.nanoseconds/1,
-    "__beam_unique_integer" => &QuickBEAM.BeamAPI.unique_integer/1,
-    "__beam_make_ref" => &QuickBEAM.BeamAPI.make_ref/1,
-    "__beam_inspect" => &QuickBEAM.BeamAPI.inspect_value/1,
-    "__beam_xml_parse" => &QuickBEAM.BeamAPI.xml_parse/1
+    "__beam_version" => &QuickBEAM.HostAPI.version/1,
+    "__beam_sleep_sync" => &QuickBEAM.HostAPI.sleep_sync/1,
+    "__beam_hash" => &QuickBEAM.HostAPI.hash/1,
+    "__beam_escape_html" => &QuickBEAM.HostAPI.escape_html/1,
+    "__beam_which" => &QuickBEAM.HostAPI.which/1,
+    "__beam_random_uuid_v7" => &QuickBEAM.HostAPI.random_uuid_v7/1,
+    "__beam_semver_satisfies" => &QuickBEAM.HostAPI.semver_satisfies/1,
+    "__beam_semver_order" => &QuickBEAM.HostAPI.semver_order/1,
+    "__beam_nodes" => &QuickBEAM.HostAPI.nodes/1,
+    "__beam_rpc" => {:with_caller, &QuickBEAM.HostAPI.rpc/2},
+    "__beam_spawn" => {:with_caller, &QuickBEAM.HostAPI.spawn_runtime/2},
+    "__beam_register" => {:with_caller, &QuickBEAM.HostAPI.register_name/2},
+    "__beam_whereis" => &QuickBEAM.HostAPI.whereis/1,
+    "__beam_link" => {:with_caller, &QuickBEAM.HostAPI.link_process/2},
+    "__beam_unlink" => {:with_caller, &QuickBEAM.HostAPI.unlink_process/2},
+    "__beam_system_info" => &QuickBEAM.HostAPI.system_info/1,
+    "__beam_process_info" => {:with_caller, &QuickBEAM.HostAPI.process_info/2},
+    "__beam_password_hash" => &QuickBEAM.HostAPI.password_hash/1,
+    "__beam_password_verify" => &QuickBEAM.HostAPI.password_verify/1,
+    "__beam_nanoseconds" => &QuickBEAM.HostAPI.nanoseconds/1,
+    "__beam_unique_integer" => &QuickBEAM.HostAPI.unique_integer/1,
+    "__beam_make_ref" => &QuickBEAM.HostAPI.make_ref/1,
+    "__beam_inspect" => &QuickBEAM.HostAPI.inspect_value/1,
+    "__beam_xml_parse" => &QuickBEAM.HostAPI.xml_parse/1
   }
 
   @node_handlers %{
@@ -295,6 +324,7 @@ defmodule QuickBEAM.Runtime do
         do: Map.merge(builtin_handlers, @browser_handlers),
         else: builtin_handlers
 
+    mode = Keyword.get(opts, :mode, :nif)
     merged_handlers = builtin_handlers |> Map.merge(user_handlers)
 
     nif_opts =
@@ -303,7 +333,14 @@ defmodule QuickBEAM.Runtime do
       |> Map.new()
 
     resource = QuickBEAM.Native.start_runtime(self(), nif_opts)
-    state = %__MODULE__{resource: resource, handlers: merged_handlers}
+
+    state = %__MODULE__{
+      resource: resource,
+      mode: mode,
+      handlers: merged_handlers,
+      beam_bridge_installed?: apis != []
+    }
+
     if QuickBEAM.Cover.enabled?(), do: sync_enable_coverage(resource)
     install_builtins(state, apis)
     install_defines(state, Keyword.get(opts, :define, %{}))
@@ -362,7 +399,7 @@ defmodule QuickBEAM.Runtime do
         {:ok, state}
 
       {^ref, {:error, value}} when is_map(value) ->
-        {:error, {:script_error, path, QuickBEAM.JSError.from_js_value(value)}, state}
+        {:error, {:script_error, path, QuickBEAM.JS.Error.from_js_value(value)}, state}
 
       {^ref, {:error, reason}} ->
         {:error, {:script_error, path, reason}, state}
@@ -440,6 +477,33 @@ defmodule QuickBEAM.Runtime do
   end
 
   @impl true
+  def handle_call(:get_mode, _from, state) do
+    {:reply, state.mode, state}
+  end
+
+  def handle_call(:get_handlers, _from, state) do
+    {:reply, state.handlers, state}
+  end
+
+  def handle_call({:merge_handlers, handlers}, _from, state) when is_map(handlers) do
+    {:reply, :ok, %{state | handlers: Map.merge(state.handlers, handlers)}}
+  end
+
+  def handle_call({:replace_handlers, handlers}, _from, state) when is_map(handlers) do
+    {:reply, :ok, %{state | handlers: handlers}}
+  end
+
+  def handle_call(:install_beam_bridge, _from, %{beam_bridge_installed?: true} = state) do
+    {:reply, :ok, %{state | handlers: Map.merge(@beam_handlers, state.handlers)}}
+  end
+
+  def handle_call(:install_beam_bridge, _from, state) do
+    for js <- @beam_js, do: sync_eval(state.resource, js)
+
+    {:reply, :ok,
+     %{state | handlers: Map.merge(@beam_handlers, state.handlers), beam_bridge_installed?: true}}
+  end
+
   def handle_call(:info, _from, state) do
     handlers =
       state.handlers
@@ -451,21 +515,21 @@ defmodule QuickBEAM.Runtime do
   end
 
   @impl true
-  def handle_call({:eval_with_vars, code, timeout_ms, vars}, from, state) do
+  def handle_call({:eval_with_vars, code, timeout_ms, vars, filename}, from, state) do
     names = Map.keys(vars)
 
     Enum.each(vars, fn {name, value} ->
       QuickBEAM.Native.define_global(state.resource, name, value)
     end)
 
-    ref = QuickBEAM.Native.eval(state.resource, code, timeout_ms, "")
+    ref = QuickBEAM.Native.eval(state.resource, code, timeout_ms, filename)
 
     transform = fn result ->
       QuickBEAM.Native.delete_globals(state.resource, names)
 
       case result do
         {:ok, value} -> {:ok, value}
-        {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
+        {:error, value} -> {:error, QuickBEAM.JS.Error.from_js_value(value)}
       end
     end
 
@@ -483,13 +547,13 @@ defmodule QuickBEAM.Runtime do
     {:noreply, %{state | pending: Map.put(state.pending, ref, {from, transform})}}
   end
 
-  def handle_call({:compile, code}, from, state) do
-    ref = QuickBEAM.Native.compile(state.resource, code)
+  def handle_call({:compile, code, filename}, from, state) do
+    ref = QuickBEAM.Native.compile(state.resource, code, filename)
 
     transform = fn
       {:ok, {:bytes, bytecode}} -> {:ok, bytecode}
       {:ok, bytecode} -> {:ok, bytecode}
-      {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
+      {:error, value} -> {:error, QuickBEAM.JS.Error.from_js_value(value)}
     end
 
     {:noreply, put_pending(state, ref, from, transform)}
@@ -500,7 +564,7 @@ defmodule QuickBEAM.Runtime do
 
     transform = fn
       {:ok, value} -> {:ok, value}
-      {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
+      {:error, value} -> {:error, QuickBEAM.JS.Error.from_js_value(value)}
     end
 
     {:noreply, put_pending(state, ref, from, transform)}
@@ -516,7 +580,7 @@ defmodule QuickBEAM.Runtime do
 
     transform = fn
       {:ok, _} -> :ok
-      {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
+      {:error, value} -> {:error, QuickBEAM.JS.Error.from_js_value(value)}
     end
 
     {:noreply, put_pending(state, ref, from, transform)}
@@ -537,10 +601,14 @@ defmodule QuickBEAM.Runtime do
      end)}
   end
 
+  def handle_call(:take_pending_messages, _from, state) do
+    {:reply, state.beam_pending_msgs, %{state | beam_pending_msgs: []}}
+  end
+
   # ── NIF dispatch callbacks ──
 
-  defp nif_eval(state, code, timeout),
-    do: QuickBEAM.Native.eval(state.resource, code, timeout, "")
+  defp nif_eval(state, code, timeout, filename \\ ""),
+    do: QuickBEAM.Native.eval(state.resource, code, timeout, filename)
 
   defp nif_call(state, fn_name, args, timeout),
     do: QuickBEAM.Native.call_function(state.resource, fn_name, args, timeout)
@@ -655,14 +723,6 @@ defmodule QuickBEAM.Runtime do
 
   def handle_info({:websocket_started, socket_id, pid}, state) do
     handle_websocket_started(socket_id, pid, state)
-  end
-
-  def handle_info({:ws_send, socket_id, kind, payload}, state) do
-    QuickBEAM.Server.send_websocket(state, socket_id, kind, payload)
-  end
-
-  def handle_info({:ws_close, socket_id, code, reason}, state) do
-    QuickBEAM.Server.close_websocket(state, socket_id, code, reason)
   end
 
   def handle_info({:websocket_event, message}, state) do

@@ -1,3 +1,5 @@
+Code.require_file("support/common.exs", __DIR__)
+
 # Benchmark 6: Shared context — preloaded function calls
 #
 # The typical usage pattern: load JS once, call functions many times.
@@ -43,13 +45,14 @@ Benchee.run(
     "QuickJSEx — call (no args)" => fn -> {:ok, _} = QuickJSEx.call(qjs, "get_state", []) end,
     "QuickBEAM — call (scalar)" => fn -> {:ok, _} = QuickBEAM.call(qb, "increment", [1]) end,
     "QuickJSEx — call (scalar)" => fn -> {:ok, _} = QuickJSEx.call(qjs, "increment", [1]) end,
-    "QuickBEAM — call (50 objects)" => fn -> {:ok, _} = QuickBEAM.call(qb, "process_batch", [users]) end,
-    "QuickJSEx — call (50 objects)" => fn -> {:ok, _} = QuickJSEx.call(qjs, "process_batch", [users]) end
+    "QuickBEAM — call (50 objects)" => fn ->
+      {:ok, _} = QuickBEAM.call(qb, "process_batch", [users])
+    end,
+    "QuickJSEx — call (50 objects)" => fn ->
+      {:ok, _} = QuickJSEx.call(qjs, "process_batch", [users])
+    end
   },
-  warmup: 2,
-  time: 5,
-  memory_time: 2,
-  print: [configuration: false]
+  Bench.Support.benchee_options()
 )
 
 QuickBEAM.stop(qb)

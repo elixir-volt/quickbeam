@@ -1,4 +1,18 @@
 defmodule QuickBEAM do
+  import QuickBEAM.VM.Heap.Keys
+
+  alias QuickBEAM.Bytecode
+  alias QuickBEAM.Chunk
+  alias QuickBEAM.JS.Error, as: JSError
+  alias QuickBEAM.Native
+  alias QuickBEAM.Runtime
+  alias QuickBEAM.VM.BytecodeParser, as: BEAMBytecodeParser
+  alias QuickBEAM.VM.Compiler, as: BEAMCompiler
+  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.Interpreter
+  alias QuickBEAM.VM.Promise, as: Promise
+  alias QuickBEAM.VM.Runtime, as: BEAMRuntime
+
   @moduledoc """
   QuickJS-NG JavaScript engine embedded in the BEAM.
 
@@ -54,11 +68,48 @@ defmodule QuickBEAM do
   """
 
   @type runtime :: GenServer.server()
-  @type js_result :: {:ok, term()} | {:error, QuickBEAM.JSError.t()}
+  @type js_result :: {:ok, term()} | {:error, QuickBEAM.JS.Error.t()}
 
   @doc false
   def child_spec(opts) do
-    QuickBEAM.Runtime.child_spec(opts)
+    Runtime.child_spec(opts)
+  end
+
+  @doc """
+  Write JavaScript that is parsed at compile time.
+
+      import QuickBEAM
+
+      ~JS"1 + 2"
+      ~JS"1 + 2"c
+
+  Without modifiers, returns the source string. With the `c` modifier, returns a
+  `%QuickBEAM.Chunk{}` that can be passed to `QuickBEAM.eval/3`.
+  """
+  defmacro sigil_JS(code, opts) do
+    QuickBEAM.Sigil.expand(code, opts)
+  end
+
+  @doc "Deletes cached BEAM compiler artifacts when `QUICKBEAM_COMPILER_CACHE` is enabled."
+  def clear_compiler_cache, do: BEAMCompiler.clear_cache()
+
+  @doc "Returns the BEAM compiler cache directory when disk caching is enabled."
+  def compiler_cache_dir, do: BEAMCompiler.cache_dir()
+
+  @doc """
+  Builds runtime options from a named sandbox preset.
+
+      QuickBEAM.sandbox(:strict)
+      QuickBEAM.sandbox(:browser, memory_limit: 8 * 1024 * 1024)
+  """
+  @spec sandbox(:strict | :browser | :node | :bare | boolean() | nil, keyword()) :: keyword()
+  def sandbox(preset \\ :strict, opts \\ []), do: QuickBEAM.Sandbox.options(preset, opts)
+
+  @doc "Alias for `start/1` with optional `:sandbox` preset expansion."
+  @spec new(keyword()) :: GenServer.on_start()
+  def new(opts \\ []) do
+    {sandbox_preset, opts} = Keyword.pop(opts, :sandbox)
+    start(QuickBEAM.Sandbox.options(sandbox_preset, opts))
   end
 
   @doc """
@@ -88,7 +139,56 @@ defmodule QuickBEAM do
   """
   @spec start(keyword()) :: GenServer.on_start()
   def start(opts \\ []) do
-    QuickBEAM.Runtime.start_link(opts)
+    opts =
+      if Keyword.has_key?(opts, :mode) do
+        opts
+      else
+        case System.get_env("QUICKBEAM_MODE") do
+          "beam" -> Keyword.put(opts, :mode, :beam)
+          "auto" -> Keyword.put(opts, :mode, :auto)
+          "beam_compiler" -> Keyword.put(opts, :mode, :beam_compiler)
+          _ -> opts
+        end
+      end
+
+    Runtime.start_link(opts)
+  end
+
+  @doc """
+  Loads a `QuickBEAM.API` module into a runtime.
+
+  Exported `defjs` functions are installed under the module's scope and are
+  callable from JavaScript.
+
+      defmodule Tools do
+        use QuickBEAM.API, scope: "tools"
+        defjs double(n), do: n * 2
+      end
+
+      :ok = QuickBEAM.load_api(rt, Tools)
+      {:ok, 10} = QuickBEAM.eval(rt, "tools.double(5)")
+  """
+  @spec load_api(runtime(), module()) :: :ok | {:error, term()}
+  @spec load_api(runtime(), module(), keyword() | term()) :: :ok | {:error, term()}
+  @spec load_api(runtime(), module(), term(), keyword()) :: :ok | {:error, term()}
+  def load_api(runtime, module), do: QuickBEAM.API.Loader.load(runtime, module)
+
+  def load_api(runtime, module, opts) when is_atom(module) and is_list(opts) do
+    if Keyword.keyword?(opts) do
+      data = Keyword.get(opts, :data)
+      opts = Keyword.delete(opts, :data)
+      QuickBEAM.API.Loader.load(runtime, module, data, opts)
+    else
+      QuickBEAM.API.Loader.load(runtime, module, opts, [])
+    end
+  end
+
+  def load_api(runtime, module, data) when is_atom(module) do
+    QuickBEAM.API.Loader.load(runtime, module, data, [])
+  end
+
+  def load_api(runtime, module, data, opts) when is_atom(module) and is_list(opts) do
+    QuickBEAM.API.Loader.load(runtime, module, data, opts)
   end
 
   @doc """
@@ -111,7 +211,7 @@ defmodule QuickBEAM do
       The runtime remains usable after a timeout.
 
           QuickBEAM.eval(rt, "while(true) {}", timeout: 1000)
-          # => {:error, %QuickBEAM.JSError{message: "interrupted", ...}}
+          # => {:error, %QuickBEAM.JS.Error{message: "interrupted", ...}}
 
     * `:vars` — a map of variable names to values, available in the code as
       globals. Values are converted using the standard BEAM→JS conversion.
@@ -125,9 +225,591 @@ defmodule QuickBEAM do
             vars: %{"items" => [%{"price" => 10, "qty" => 3}, %{"price" => 5, "qty" => 2}]})
           # => {:ok, 40}
   """
-  @spec eval(runtime(), String.t(), keyword()) :: js_result()
-  def eval(runtime, code, opts \\ []) do
-    QuickBEAM.Runtime.eval(runtime, code, opts)
+  @spec eval(runtime(), String.t() | Chunk.t(), keyword()) :: js_result()
+  def eval(runtime, code_or_chunk, opts \\ [])
+
+  def eval(runtime, %Chunk{bytecode: bytecode} = chunk, opts) when is_binary(bytecode) do
+    if opts != [] or resolve_mode(runtime, opts) in [:beam, :auto, :beam_compiler] do
+      eval(runtime, chunk.source, opts)
+    else
+      load_bytecode(runtime, bytecode)
+    end
+  end
+
+  def eval(runtime, %Chunk{source: source}, opts), do: eval(runtime, source, opts)
+
+  def eval(runtime, code, opts) when is_binary(code) do
+    case resolve_mode(runtime, opts) do
+      mode when mode in [:beam, :auto, :beam_compiler] -> eval_beam(runtime, code, opts, mode)
+      _ -> Runtime.eval(runtime, code, opts)
+    end
+  end
+
+  @doc "Like `eval/3`, but returns the JavaScript result or raises on error."
+  @spec eval!(runtime(), String.t() | Chunk.t(), keyword()) :: term()
+  def eval!(runtime, code_or_chunk, opts \\ []) do
+    unwrap!(eval(runtime, code_or_chunk, opts))
+  end
+
+  defp resolve_mode(runtime, opts) do
+    case Keyword.get(opts, :mode) do
+      nil ->
+        case Heap.get_runtime_mode(runtime) do
+          nil ->
+            mode =
+              try do
+                GenServer.call(runtime, :get_mode, 1000)
+              catch
+                :exit, _ -> :nif
+              end
+
+            Heap.put_runtime_mode(runtime, mode)
+            mode
+
+          cached ->
+            cached
+        end
+
+      mode ->
+        mode
+    end
+  end
+
+  defp eval_beam(runtime, code, opts, mode) do
+    # Deliver any pending BEAM messages before running JS
+    deliver_pending_beam_messages(runtime)
+
+    handler_globals =
+      case Heap.get_handler_globals() do
+        nil ->
+          handlers =
+            try do
+              GenServer.call(runtime, :get_handlers, 1000)
+            catch
+              :exit, _ -> %{}
+            end
+
+          globals =
+            for {name, handler} <- handlers, into: %{} do
+              {name,
+               {:builtin, name,
+                fn args ->
+                  case handler do
+                    {:with_caller, fun} -> fun.(args, self())
+                    fun when is_function(fun, 1) -> fun.(args)
+                    _ -> :undefined
+                  end
+                end}}
+            end
+
+          Heap.put_handler_globals(globals)
+          globals
+
+        cached ->
+          cached
+      end
+
+    compile_code = maybe_wrap_async(code)
+
+    case Runtime.compile(runtime, compile_code, Keyword.get(opts, :filename, "")) do
+      {:ok, bc} ->
+        case BEAMBytecodeParser.decode(bc) do
+          {:ok, parsed} ->
+            result = eval_beam_bytecode(parsed, runtime, handler_globals, mode)
+
+            Promise.drain_microtasks()
+            converted = convert_beam_result(result)
+            Heap.gc(beam_gc_roots(result) ++ global_gc_roots())
+            converted
+
+          {:error, _} = err ->
+            err
+        end
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp eval_beam_bytecode(parsed, runtime, handler_globals, mode)
+       when mode in [:auto, :beam_compiler] do
+    opts = %{gas: 1_000_000_000, runtime_pid: runtime, globals: handler_globals}
+    ctx = QuickBEAM.VM.Interpreter.Setup.build_eval_context(opts, parsed.atoms, opts.gas)
+
+    Heap.put_atoms(parsed.atoms)
+    QuickBEAM.VM.Interpreter.Setup.store_function_atoms(parsed.value, parsed.atoms)
+    Heap.put_ctx(QuickBEAM.VM.Interpreter.Context.mark_synced(ctx))
+
+    case BEAMCompiler.invoke(parsed.value, [], ctx) do
+      {:ok, _} = ok -> ok
+      :error when mode == :auto -> Interpreter.eval(parsed.value, [], opts, parsed.atoms)
+      :error -> {:error, {:beam_compiler_unsupported, :top_level}}
+      {:error, {:js_throw, _}} = error -> error
+    end
+  end
+
+  defp eval_beam_bytecode(parsed, runtime, handler_globals, _mode) do
+    Interpreter.eval(
+      parsed.value,
+      [],
+      %{gas: 1_000_000_000, runtime_pid: runtime, globals: handler_globals},
+      parsed.atoms
+    )
+  end
+
+  defp maybe_wrap_async(code) do
+    if String.contains?(code, "await") do
+      wrap_as_async(String.trim(code))
+    else
+      code
+    end
+  end
+
+  # Wraps top-level code containing `await` in an async IIFE.
+  # Finds the last top-level statement and prepends `return`.
+  defp wrap_as_async(code) do
+    stmts = split_top_level_statements(code)
+
+    case stmts do
+      [] ->
+        code
+
+      _ ->
+        last = List.last(stmts)
+        rest = Enum.drop(stmts, -1)
+
+        {rest2, last2} = maybe_split_block_tail(rest, last)
+
+        last_with_return =
+          if needs_return?(last2) do
+            stripped = last2 |> String.trim() |> String.trim_trailing(";")
+            "return #{stripped}"
+          else
+            maybe_wrap_block_return(last2)
+          end
+
+        body = (rest2 ++ [last_with_return]) |> Enum.join("\n")
+        "(async () => {\n#{body}\n})()"
+    end
+  end
+
+  # Heuristic: returns true if this statement should be prefixed with `return`.
+  # We return if it's an expression statement (not a declaration/control-flow).
+  @no_return_prefixes ~w[const let var function class return if for while do switch try throw import export async]
+
+  defp maybe_wrap_block_return(stmt) do
+    trimmed = String.trim(stmt)
+
+    if String.starts_with?(trimmed, "try ") or String.starts_with?(trimmed, "try{") do
+      inject_try_catch_returns(trimmed)
+    else
+      stmt
+    end
+  end
+
+  defp inject_try_catch_returns(try_stmt) do
+    # Find catch block and inject return before its last expression
+    case Regex.run(~r/^(try\s*\{.*\})\s*(catch\s*\([^)]*\)\s*\{)(.*)\}\s*$/s, try_stmt) do
+      [_, try_part, catch_header, catch_body] ->
+        last_catch_expr = catch_body |> String.trim() |> String.trim_trailing(";")
+
+        if last_catch_expr != "" and not String.starts_with?(last_catch_expr, "return ") do
+          "#{try_part} #{catch_header} return #{last_catch_expr}; }"
+        else
+          try_stmt
+        end
+
+      _ ->
+        try_stmt
+    end
+  end
+
+  defp maybe_split_block_tail(rest, last) do
+    trimmed = String.trim_leading(last)
+
+    starts_with_block =
+      Enum.any?(
+        ~w[while for if switch do try],
+        &(String.starts_with?(trimmed, &1 <> " ") or String.starts_with?(trimmed, &1 <> "("))
+      )
+
+    if starts_with_block do
+      case split_block_and_tail(last) do
+        {block, tail} when tail != "" ->
+          {rest ++ [block], tail}
+
+        _ ->
+          {rest, last}
+      end
+    else
+      {rest, last}
+    end
+  end
+
+  defp split_block_and_tail(stmt) do
+    chars = String.to_charlist(stmt)
+    find_last_block_end(chars, 0, 0, 0, 0, [], 0, -1)
+  end
+
+  defp find_last_block_end([], _p, _b, _br, _s, acc, _pos, last_depth0_close) do
+    if last_depth0_close > 0 do
+      all = IO.iodata_to_binary(Enum.reverse(acc))
+      block = String.slice(all, 0, last_depth0_close)
+      tail = all |> String.slice(last_depth0_close, String.length(all)) |> String.trim()
+      {block, tail}
+    else
+      {"", ""}
+    end
+  end
+
+  defp find_last_block_end([c | rest], p, b, br, in_str, acc, pos, last_depth0_close) do
+    {p2, b2, br2, is2, new_last} =
+      case {c, in_str} do
+        {?', 0} ->
+          {p, b, br, 1, last_depth0_close}
+
+        {?', 1} ->
+          {p, b, br, 0, last_depth0_close}
+
+        {?", 0} ->
+          {p, b, br, 2, last_depth0_close}
+
+        {?", 2} ->
+          {p, b, br, 0, last_depth0_close}
+
+        {?`, 0} ->
+          {p, b, br, 3, last_depth0_close}
+
+        {?`, 3} ->
+          {p, b, br, 0, last_depth0_close}
+
+        {?(, 0} ->
+          {p + 1, b, br, 0, last_depth0_close}
+
+        {?), 0} ->
+          {max(p - 1, 0), b, br, 0, last_depth0_close}
+
+        {?[, 0} ->
+          {p, b + 1, br, 0, last_depth0_close}
+
+        {?], 0} ->
+          {p, max(b - 1, 0), br, 0, last_depth0_close}
+
+        {?{, 0} ->
+          {p, b, br + 1, 0, last_depth0_close}
+
+        {?}, 0} ->
+          new_br = max(br - 1, 0)
+          new_last = if new_br == 0 and p == 0 and b == 0, do: pos + 1, else: last_depth0_close
+          {p, b, new_br, 0, new_last}
+
+        _ ->
+          {p, b, br, in_str, last_depth0_close}
+      end
+
+    find_last_block_end(rest, p2, b2, br2, is2, [c | acc], pos + 1, new_last)
+  end
+
+  defp needs_return?(stmt) do
+    trimmed = String.trim_leading(stmt)
+
+    not Enum.any?(@no_return_prefixes, &String.starts_with?(trimmed, &1 <> " ")) and
+      not String.starts_with?(trimmed, "//") and
+      not String.starts_with?(trimmed, "/*") and
+      trimmed != ""
+  end
+
+  # Splits code into top-level statements by tracking brace/paren/bracket depth.
+  # Each statement is separated by `;` at depth 0, or by newlines in some cases.
+  defp split_top_level_statements(code) do
+    code
+    |> String.trim()
+    |> find_top_level_statement_ends()
+    |> Enum.filter(&(String.trim(&1) != ""))
+  end
+
+  defp find_top_level_statement_ends(code) do
+    find_stmts(code, 0, 0, 0, 0, [], [])
+  end
+
+  defp find_stmts(<<>>, _parens, _brackets, _braces, _in_str, current, acc) do
+    stmt = IO.iodata_to_binary(Enum.reverse(current))
+    if String.trim(stmt) != "", do: Enum.reverse([stmt | acc]), else: Enum.reverse(acc)
+  end
+
+  defp find_stmts(<<?;, rest::binary>>, 0, 0, 0, 0, current, acc) do
+    stmt = IO.iodata_to_binary(Enum.reverse([?; | current]))
+    find_stmts(rest, 0, 0, 0, 0, [], [stmt | acc])
+  end
+
+  defp find_stmts(<<c, rest::binary>>, parens, brackets, braces, in_str, current, acc) do
+    {p2, b2, br2, is2} =
+      case {c, in_str} do
+        {?', 0} -> {parens, brackets, braces, 1}
+        {?', 1} -> {parens, brackets, braces, 0}
+        {?", 0} -> {parens, brackets, braces, 2}
+        {?", 2} -> {parens, brackets, braces, 0}
+        {?`, 0} -> {parens, brackets, braces, 3}
+        {?`, 3} -> {parens, brackets, braces, 0}
+        {?(, 0} -> {parens + 1, brackets, braces, 0}
+        {?), 0} -> {max(parens - 1, 0), brackets, braces, 0}
+        {?[, 0} -> {parens, brackets + 1, braces, 0}
+        {?], 0} -> {parens, max(brackets - 1, 0), braces, 0}
+        {?{, 0} -> {parens, brackets, braces + 1, 0}
+        {?}, 0} -> {parens, brackets, max(braces - 1, 0), 0}
+        _ -> {parens, brackets, braces, in_str}
+      end
+
+    find_stmts(rest, p2, b2, br2, is2, [c | current], acc)
+  end
+
+  defp convert_beam_result({:error, {:js_throw, {:obj, _ref} = obj}}) do
+    val = convert_beam_value(obj)
+    {:error, wrap_js_error(val)}
+  end
+
+  defp convert_beam_result({:error, {:js_throw, val}}) do
+    {:error, wrap_js_error(convert_beam_value(val))}
+  end
+
+  defp convert_beam_result({:ok, {:obj, ref}}) do
+    case Heap.get_obj(ref) do
+      %{"__promise_state__" => :rejected, "__promise_value__" => val} ->
+        {:error, wrap_js_error(convert_beam_value(val))}
+
+      %{"__promise_state__" => :resolved, "__promise_value__" => val} ->
+        {:ok, convert_beam_value(val)}
+
+      _ ->
+        {:ok, convert_beam_value({:obj, ref})}
+    end
+  end
+
+  defp convert_beam_result({:ok, val}), do: {:ok, convert_beam_value(val)}
+  defp convert_beam_result({:error, _} = err), do: err
+
+  defp wrap_js_error(val), do: JSError.from_js_value(val)
+
+  defp beam_gc_roots({:ok, value}), do: [value]
+  defp beam_gc_roots({:error, {:js_throw, value}}), do: [value]
+  defp beam_gc_roots(_), do: []
+
+  defp global_gc_roots do
+    cache = Heap.get_global_cache() || %{}
+    channel_roots = broadcast_channel_gc_roots()
+    Map.values(cache) ++ channel_roots
+  end
+
+  defp broadcast_channel_gc_roots do
+    case Process.get(:qb_broadcast_channels) do
+      nil ->
+        []
+
+      channels when is_map(channels) ->
+        channels
+        |> Map.values()
+        |> List.flatten()
+        |> Enum.flat_map(fn
+          {_id, ref} when is_reference(ref) ->
+            case Process.get(ref) do
+              nil -> []
+              v -> [v]
+            end
+
+          _ ->
+            []
+        end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp elixir_to_js(val) when is_map(val) do
+    ref = make_ref()
+    obj = Map.new(val, fn {k, v} -> {to_string(k), elixir_to_js(v)} end)
+    Heap.put_obj(ref, obj)
+    {:obj, ref}
+  end
+
+  defp elixir_to_js(val) when is_list(val) do
+    ref = make_ref()
+    Heap.put_obj(ref, Enum.map(val, &elixir_to_js/1))
+    {:obj, ref}
+  end
+
+  defp elixir_to_js(val), do: val
+
+  defp convert_beam_value(:undefined), do: nil
+
+  defp convert_beam_value({:obj, ref}) do
+    case Heap.get_obj(ref) do
+      nil ->
+        nil
+
+      {:qb_arr, arr} ->
+        :array.to_list(arr) |> Enum.map(&convert_beam_value/1)
+
+      list when is_list(list) ->
+        Enum.map(list, &convert_beam_value/1)
+
+      map when is_map(map) ->
+        if Map.get(map, "__is_buffer__") == true do
+          extract_buffer_bytes(map)
+        else
+          map
+          |> Map.drop([key_order()])
+          |> Map.reject(fn {k, _} -> internal_slot?(k) or k == :__internal_proto__ end)
+          |> Map.new(fn {k, v} -> {convert_beam_key(k), convert_beam_value(v)} end)
+          |> Map.reject(fn {k, _} ->
+            is_binary(k) and String.starts_with?(k, "__") and String.ends_with?(k, "__")
+          end)
+        end
+    end
+  end
+
+  defp convert_beam_value(list) when is_list(list), do: Enum.map(list, &convert_beam_value/1)
+  defp convert_beam_value(v), do: v
+
+  defp deliver_pending_beam_messages(runtime) do
+    # First, deliver messages queued via send_message (which may register monitors)
+    try do
+      msgs = GenServer.call(runtime, :take_pending_messages, 1000)
+
+      if msgs != [] do
+        alias QuickBEAM.VM.Host.BEAM
+
+        Enum.each(msgs, fn msg ->
+          elixir_msg = convert_msg_to_js(msg)
+          BEAM.deliver_beam_message(elixir_msg)
+        end)
+      end
+    catch
+      :exit, _ -> :ok
+    end
+
+    # Then, drain DOWN messages (after monitors may have been registered)
+    drain_down_messages()
+  end
+
+  defp drain_down_messages do
+    alias QuickBEAM.VM.Host.BEAM
+    monitors_key = :qb_beam_monitors
+
+    receive do
+      {:DOWN, ref, :process, _pid, reason} ->
+        monitors = Process.get(monitors_key, %{})
+
+        case Map.get(monitors, ref) do
+          nil ->
+            :ok
+
+          callback ->
+            reason_str =
+              case reason do
+                :normal -> "normal"
+                :killed -> "killed"
+                a when is_atom(a) -> Atom.to_string(a)
+                _ -> inspect(reason)
+              end
+
+            try do
+              QuickBEAM.VM.Invocation.invoke_with_receiver(callback, [reason_str], :undefined)
+            rescue
+              _ -> :ok
+            catch
+              _, _ -> :ok
+            end
+
+            Process.put(monitors_key, Map.delete(monitors, ref))
+        end
+
+        drain_down_messages()
+    after
+      0 -> :ok
+    end
+  end
+
+  defp convert_msg_to_js(msg) when is_map(msg) do
+    Heap.wrap(Map.new(msg, fn {k, v} -> {to_string(k), convert_msg_to_js(v)} end))
+  end
+
+  defp convert_msg_to_js(msg) when is_list(msg) do
+    Heap.wrap(Enum.map(msg, &convert_msg_to_js/1))
+  end
+
+  defp convert_msg_to_js(nil), do: nil
+  defp convert_msg_to_js(true), do: true
+  defp convert_msg_to_js(false), do: false
+  defp convert_msg_to_js(n) when is_number(n), do: n
+  defp convert_msg_to_js(s) when is_binary(s), do: s
+  defp convert_msg_to_js(a) when is_atom(a), do: Atom.to_string(a)
+  defp convert_msg_to_js(pid) when is_pid(pid), do: pid
+  defp convert_msg_to_js(ref) when is_reference(ref), do: ref
+  defp convert_msg_to_js(_), do: nil
+
+  defp extract_buffer_bytes(map) do
+    case Map.get(map, "buffer") do
+      {:obj, buf_ref} ->
+        case Heap.get_obj(buf_ref) do
+          bm when is_map(bm) ->
+            ab = Map.get(bm, "__buffer__", <<>>)
+            offset = Map.get(map, "byteOffset", 0)
+            byte_len = Map.get(map, "byteLength", byte_size(ab))
+
+            if byte_size(ab) >= offset + byte_len and byte_len > 0 do
+              binary_part(ab, offset, byte_len)
+            else
+              ab
+            end
+
+          _ ->
+            <<>>
+        end
+
+      _ ->
+        # Fallback: try reading from the typed array's direct buffer
+        Map.get(map, "__buffer__", <<>>)
+    end
+  end
+
+  defp convert_beam_key(k) when is_binary(k), do: k
+  defp convert_beam_key(k) when is_integer(k), do: Integer.to_string(k)
+  defp convert_beam_key(k), do: inspect(k)
+
+  defp load_module_beam(runtime, name, code) do
+    wrapper =
+      "(function() { var module = {exports: {}}; var exports = module.exports; " <>
+        code <> "; return module.exports })()"
+
+    case Runtime.compile(runtime, wrapper) do
+      {:ok, bc} ->
+        case BEAMBytecodeParser.decode(bc) do
+          {:ok, parsed} ->
+            case Interpreter.eval(
+                   parsed.value,
+                   [],
+                   %{gas: 1_000_000_000, runtime_pid: runtime},
+                   parsed.atoms
+                 ) do
+              {:ok, mod_exports} ->
+                Heap.register_module(name, mod_exports)
+                :ok
+
+              {:error, {:js_throw, _}} = error ->
+                convert_beam_result(error)
+
+              error ->
+                error
+            end
+
+          error ->
+            error
+        end
+
+      error ->
+        error
+    end
   end
 
   @doc """
@@ -149,7 +831,37 @@ defmodule QuickBEAM do
   """
   @spec call(runtime(), String.t(), list(), keyword()) :: js_result()
   def call(runtime, fn_name, args \\ [], opts \\ []) do
-    QuickBEAM.Runtime.call(runtime, fn_name, args, opts)
+    if resolve_mode(runtime, opts) == :beam do
+      call_beam(runtime, fn_name, args)
+    else
+      Runtime.call(runtime, fn_name, args, opts)
+    end
+  end
+
+  defp call_beam(_runtime, fn_name, args) do
+    handler_globals = Heap.get_handler_globals() || %{}
+
+    globals =
+      BEAMRuntime.global_bindings()
+      |> Map.merge(handler_globals)
+      |> Map.merge(Heap.get_persistent_globals())
+
+    case Map.get(globals, fn_name) do
+      nil ->
+        {:error,
+         JSError.from_js_value(%{
+           "message" => "#{fn_name} is not defined",
+           "name" => "ReferenceError"
+         })}
+
+      fun ->
+        try do
+          result = Interpreter.invoke(fun, args, 1_000_000_000)
+          convert_beam_result({:ok, result})
+        catch
+          {:js_throw, val} -> convert_beam_result({:error, {:js_throw, val}})
+        end
+    end
   end
 
   @doc """
@@ -167,23 +879,75 @@ defmodule QuickBEAM do
   """
   @spec disasm(binary()) :: {:ok, QuickBEAM.Bytecode.t()} | {:error, String.t()}
   def disasm(bytecode) when is_binary(bytecode) do
-    case QuickBEAM.Native.disasm_bytecode(bytecode) do
-      {:ok, map} -> {:ok, QuickBEAM.Bytecode.from_map(map)}
+    case Native.disasm_bytecode(bytecode) do
+      {:ok, map} -> {:ok, Bytecode.from_map(map)}
       {:error, _} = error -> error
     end
   end
 
   @doc """
-  Compile JavaScript source and disassemble the resulting bytecode.
+  Compile JavaScript source and disassemble it.
+
+  In the default NIF mode this returns `%QuickBEAM.Bytecode{}`. In `:beam`
+  mode it returns the raw `:beam_disasm.file/1` result.
 
       {:ok, %QuickBEAM.Bytecode{cpool: [%QuickBEAM.Bytecode{name: "add"}]}} =
         QuickBEAM.disasm(rt, "function add(a, b) { return a + b }")
+
+      {:ok, rt} = QuickBEAM.start(mode: :beam, apis: false)
+      {:ok, {:beam_file, _, _, _, _, _}} =
+        QuickBEAM.disasm(rt, "function fib(n) { if (n <= 1) return n; return fib(n - 1) + fib(n - 2) }")
   """
-  @spec disasm(runtime(), String.t()) :: {:ok, QuickBEAM.Bytecode.t()} | {:error, term()}
-  def disasm(runtime, code) when is_binary(code) do
-    with {:ok, bytecode} <- compile(runtime, code) do
-      disasm(bytecode)
+  @spec disasm(runtime(), String.t(), keyword()) ::
+          {:ok, QuickBEAM.Bytecode.t() | tuple()} | {:error, term()}
+  def disasm(runtime, code, opts \\ []) when is_binary(code) do
+    if resolve_mode(runtime, opts) == :beam do
+      disasm_beam(runtime, code, opts)
+    else
+      with {:ok, bytecode} <- Runtime.compile(runtime, code, Keyword.get(opts, :filename, "")) do
+        disasm(bytecode)
+      end
     end
+  end
+
+  defp disasm_beam(runtime, code, opts) do
+    with {:ok, bytecode} <- Runtime.compile(runtime, code, Keyword.get(opts, :filename, "")),
+         {:ok, parsed} <- BEAMBytecodeParser.decode(bytecode) do
+      BEAMCompiler.disasm(parsed.value)
+    end
+  end
+
+  @doc """
+  Parse JavaScript source into a source-only `%QuickBEAM.Chunk{}` without a runtime.
+  """
+  @spec parse_chunk(String.t(), keyword()) :: {:ok, Chunk.t()} | {:error, JSError.t()}
+  def parse_chunk(code, opts \\ []) when is_binary(code), do: Chunk.validate(code, opts)
+
+  @doc "Like `parse_chunk/2`, but returns the chunk or raises on syntax errors."
+  @spec parse_chunk!(String.t(), keyword()) :: Chunk.t()
+  def parse_chunk!(code, opts \\ []) when is_binary(code), do: Chunk.new!(code, opts)
+
+  @doc """
+  Compile JavaScript source into a first-class `%QuickBEAM.Chunk{}`.
+
+  The source is validated with the Elixir parser. In NIF mode, native QuickJS
+  bytecode is also stored in the chunk so it can be loaded later with
+  `QuickBEAM.eval/3`.
+  """
+  @spec compile_chunk(runtime(), String.t(), keyword()) :: {:ok, Chunk.t()} | {:error, term()}
+  def compile_chunk(runtime, code, opts \\ []) when is_binary(code) do
+    with {:ok, chunk} <- parse_chunk(code, opts) do
+      case Runtime.compile(runtime, code, chunk.filename) do
+        {:ok, bytecode} -> {:ok, Chunk.with_bytecode(chunk, bytecode)}
+        {:error, _} = error -> error
+      end
+    end
+  end
+
+  @doc "Like `compile_chunk/3`, but returns the chunk or raises on error."
+  @spec compile_chunk!(runtime(), String.t(), keyword()) :: Chunk.t()
+  def compile_chunk!(runtime, code, opts \\ []) when is_binary(code) do
+    unwrap!(compile_chunk(runtime, code, opts))
   end
 
   @doc """
@@ -193,10 +957,14 @@ defmodule QuickBEAM do
   into any runtime with `load_bytecode/2`. Useful for precompilation, caching,
   and transferring compiled code between runtimes or nodes.
   """
-  @spec compile(runtime(), String.t()) :: {:ok, binary()} | {:error, QuickBEAM.JSError.t()}
+  @spec compile(runtime(), String.t()) :: {:ok, binary()} | {:error, QuickBEAM.JS.Error.t()}
   def compile(runtime, code) do
-    QuickBEAM.Runtime.compile(runtime, code)
+    Runtime.compile(runtime, code)
   end
+
+  @doc "Like `compile/2`, but returns bytecode or raises on error."
+  @spec compile!(runtime(), String.t()) :: binary()
+  def compile!(runtime, code), do: unwrap!(compile(runtime, code))
 
   @doc """
   Execute precompiled bytecode from `compile/2`.
@@ -206,7 +974,7 @@ defmodule QuickBEAM do
   """
   @spec load_bytecode(runtime(), binary()) :: js_result()
   def load_bytecode(runtime, bytecode) do
-    QuickBEAM.Runtime.load_bytecode(runtime, bytecode)
+    Runtime.load_bytecode(runtime, bytecode)
   end
 
   @doc """
@@ -219,9 +987,13 @@ defmodule QuickBEAM do
       iex> QuickBEAM.stop(rt)
       :ok
   """
-  @spec load_module(runtime(), String.t(), String.t()) :: :ok | {:error, String.t()}
-  def load_module(runtime, name, code) do
-    QuickBEAM.Runtime.load_module(runtime, name, code)
+  @spec load_module(runtime(), String.t(), String.t(), keyword()) :: :ok | {:error, String.t()}
+  def load_module(runtime, name, code, opts \\ []) do
+    if resolve_mode(runtime, opts) == :beam do
+      load_module_beam(runtime, name, code)
+    else
+      Runtime.load_module(runtime, name, code)
+    end
   end
 
   @doc """
@@ -244,7 +1016,7 @@ defmodule QuickBEAM do
   """
   @spec load_addon(runtime(), String.t(), keyword()) :: {:ok, term()} | {:error, term()}
   def load_addon(runtime, path, opts \\ []) do
-    QuickBEAM.Runtime.load_addon(runtime, path, opts)
+    Runtime.load_addon(runtime, path, opts)
   end
 
   @doc """
@@ -261,13 +1033,13 @@ defmodule QuickBEAM do
   """
   @spec reset(runtime()) :: :ok | {:error, String.t()}
   def reset(runtime) do
-    QuickBEAM.Runtime.reset(runtime)
+    Runtime.reset(runtime)
   end
 
   @doc "Stop a runtime and free its resources."
   @spec stop(runtime()) :: :ok
   def stop(runtime) do
-    QuickBEAM.Runtime.stop(runtime)
+    Runtime.stop(runtime)
   end
 
   @doc """
@@ -305,7 +1077,7 @@ defmodule QuickBEAM do
   @doc "Return QuickJS memory usage statistics."
   @spec memory_usage(runtime()) :: map()
   def memory_usage(runtime) do
-    QuickBEAM.Runtime.memory_usage(runtime)
+    Runtime.memory_usage(runtime)
   end
 
   @doc """
@@ -316,7 +1088,21 @@ defmodule QuickBEAM do
   """
   @spec send_message(runtime(), term()) :: :ok
   def send_message(runtime, message) do
-    QuickBEAM.Runtime.send_message(runtime, message)
+    # In BEAM mode, try to deliver the message synchronously to the current process's JS state
+    # (if it has BEAM mode active). Fall back to GenServer cast if not.
+    case Heap.get_global_cache() do
+      nil ->
+        # No BEAM state in this process - use GenServer
+        Runtime.send_message(runtime, message)
+
+      _globals ->
+        # This process has BEAM state - deliver directly
+        js_msg = convert_msg_to_js(message)
+        alias QuickBEAM.VM.Host.BEAM
+        BEAM.deliver_beam_message(js_msg)
+        # Also drain any pending DOWN messages that may have been registered
+        drain_down_messages()
+    end
   end
 
   @doc """
@@ -334,7 +1120,7 @@ defmodule QuickBEAM do
       {:ok, mine} = QuickBEAM.globals(rt, user_only: true)
       # ["myVar", "myFunc"]
   """
-  @spec globals(runtime(), keyword()) :: {:ok, [String.t()]} | {:error, QuickBEAM.JSError.t()}
+  @spec globals(runtime(), keyword()) :: {:ok, [String.t()]} | {:error, QuickBEAM.JS.Error.t()}
   def globals(runtime, opts \\ []) do
     user_only = Keyword.get(opts, :user_only, false)
 
@@ -362,8 +1148,14 @@ defmodule QuickBEAM do
       {:ok, nil}
   """
   @spec get_global(runtime(), String.t()) :: js_result()
-  def get_global(runtime, name) when is_binary(name) do
-    GenServer.call(runtime, {:get_global, name}, :infinity)
+  def get_global(runtime, name, opts \\ []) when is_binary(name) do
+    if resolve_mode(runtime, opts) == :beam do
+      persistent = Heap.get_persistent_globals()
+      raw = Map.get(persistent, name, :undefined)
+      {:ok, convert_beam_value(raw)}
+    else
+      GenServer.call(runtime, {:get_global, name}, :infinity)
+    end
   end
 
   @doc """
@@ -380,8 +1172,15 @@ defmodule QuickBEAM do
       {:ok, 3} = QuickBEAM.eval(rt, "items.length")
   """
   @spec set_global(runtime(), String.t(), term()) :: :ok
-  def set_global(runtime, name, value) when is_binary(name) do
-    GenServer.call(runtime, {:set_global, name, value}, :infinity)
+  def set_global(runtime, name, value, opts \\ []) when is_binary(name) do
+    if resolve_mode(runtime, opts) == :beam do
+      persistent = Heap.get_persistent_globals()
+      js_val = elixir_to_js(value)
+      Heap.put_persistent_globals(Map.put(persistent, name, js_val))
+      :ok
+    else
+      GenServer.call(runtime, {:set_global, name, value}, :infinity)
+    end
   end
 
   @doc """
@@ -413,7 +1212,7 @@ defmodule QuickBEAM do
   """
   @spec dom_find(runtime(), String.t()) :: {:ok, tuple() | nil}
   def dom_find(runtime, selector) do
-    QuickBEAM.Runtime.dom_find(runtime, selector)
+    Runtime.dom_find(runtime, selector)
   end
 
   @doc """
@@ -428,7 +1227,7 @@ defmodule QuickBEAM do
   """
   @spec dom_find_all(runtime(), String.t()) :: {:ok, list()}
   def dom_find_all(runtime, selector) do
-    QuickBEAM.Runtime.dom_find_all(runtime, selector)
+    Runtime.dom_find_all(runtime, selector)
   end
 
   @doc """
@@ -440,7 +1239,7 @@ defmodule QuickBEAM do
   """
   @spec dom_text(runtime(), String.t()) :: {:ok, String.t()}
   def dom_text(runtime, selector) do
-    QuickBEAM.Runtime.dom_text(runtime, selector)
+    Runtime.dom_text(runtime, selector)
   end
 
   @doc """
@@ -454,7 +1253,7 @@ defmodule QuickBEAM do
   """
   @spec dom_attr(runtime(), String.t(), String.t()) :: {:ok, String.t() | nil}
   def dom_attr(runtime, selector, attr_name) do
-    QuickBEAM.Runtime.dom_attr(runtime, selector, attr_name)
+    Runtime.dom_attr(runtime, selector, attr_name)
   end
 
   @doc """
@@ -466,6 +1265,10 @@ defmodule QuickBEAM do
   """
   @spec dom_html(runtime()) :: {:ok, String.t()}
   def dom_html(runtime) do
-    QuickBEAM.Runtime.dom_html(runtime)
+    Runtime.dom_html(runtime)
   end
+
+  defp unwrap!({:ok, value}), do: value
+  defp unwrap!({:error, %JSError{} = error}), do: raise(error)
+  defp unwrap!({:error, error}), do: raise(RuntimeError, inspect(error))
 end

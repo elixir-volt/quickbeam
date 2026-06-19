@@ -1,0 +1,1574 @@
+defmodule QuickBEAM.VM.Runtime.Iterator do
+  @moduledoc "JavaScript Iterator constructor and basic wrapping support."
+
+  use QuickBEAM.VM.Builtin
+
+  import QuickBEAM.VM.Heap.Keys, only: [internal_namespace?: 1]
+
+  alias QuickBEAM.VM.{Builtin, Heap, Invocation, JSThrow, Value}
+
+  alias QuickBEAM.VM.ObjectModel.{
+    Get,
+    InternalMethods,
+    OwnProperty,
+    PropertyDescriptor,
+    Put,
+    WrappedPrimitive
+  }
+
+  alias QuickBEAM.VM.Execution.IteratorHelperState
+  alias QuickBEAM.VM.Semantics.Values
+  alias QuickBEAM.VM.Runtime
+  alias QuickBEAM.VM.Runtime.IteratorResult
+
+  defintrinsic "Iterator", prototype_parent: nil do
+    constructor(constructor(), length: 0, phase: :fundamental)
+
+    prototype extends: nil, constructor_link: false do
+      accessor "constructor" do
+        get do
+          Runtime.global_constructor("Iterator")
+        end
+
+        set do
+          [value | _] = args
+          set_iterator_proto_slot(this, "constructor", value)
+        end
+      end
+
+      @ecma "27.1.4.2"
+      method "drop", length: 1 do
+        drop(args, this)
+      end
+
+      @ecma "27.1.4.4"
+      method "filter", length: 1 do
+        filter(args, this)
+      end
+
+      @ecma "27.1.4.6"
+      method "flatMap", length: 1 do
+        flat_map(args, this)
+      end
+
+      @ecma "27.1.4.7"
+      method "forEach", length: 1 do
+        for_each(args, this)
+      end
+
+      @ecma "27.1.4.8"
+      method "map", length: 1 do
+        map(args, this)
+      end
+
+      @ecma "27.1.4.9"
+      method "reduce", length: 1 do
+        reduce(args, this)
+      end
+
+      @ecma "27.1.4.10"
+      method "some", length: 1 do
+        some(args, this)
+      end
+
+      @ecma "27.1.4.11"
+      method "take", length: 1 do
+        take(args, this)
+      end
+
+      @ecma "27.1.4.12"
+      method "toArray", length: 0 do
+        to_array(args, this)
+      end
+
+      @ecma "27.1.4.3"
+      method "every", length: 1 do
+        every(args, this)
+      end
+
+      @ecma "27.1.4.5"
+      method "find", length: 1 do
+        find(args, this)
+      end
+
+      @ecma "27.1.4.13"
+      symbol :iterator do
+        method length: 0 do
+          this
+        end
+      end
+
+      symbol :dispose do
+        method length: 0 do
+          dispose(args, this)
+        end
+      end
+
+      @ecma "27.1.4.14"
+      symbol :toStringTag do
+        get do
+          "Iterator"
+        end
+
+        set do
+          [value | _] = args
+          set_iterator_proto_slot(this, {:symbol, "Symbol.toStringTag"}, value)
+        end
+      end
+    end
+  end
+
+  def constructor do
+    fn _args, this ->
+      iterator_proto = Runtime.global_class_proto("Iterator")
+
+      case this do
+        {:obj, ref} = obj ->
+          if Map.get(Heap.get_obj(ref, %{}), "__proto__") == iterator_proto do
+            JSThrow.type_error!("Iterator is not constructible")
+          else
+            obj
+          end
+
+        _ ->
+          JSThrow.type_error!("Iterator is not callable")
+      end
+    end
+  end
+
+  @ecma "27.1.3.2.1"
+  static "from", length: 1 do
+    from(args, this)
+  end
+
+  static "concat", length: 0 do
+    concat(args, this)
+  end
+
+  static "zip", length: 1 do
+    zip(args, this)
+  end
+
+  static "zipKeyed", length: 1 do
+    zip_keyed(args, this)
+  end
+
+  def from([value | _], _this), do: from_value(value)
+  def from(_, _this), do: JSThrow.type_error!("Iterator.from requires an object")
+
+  defp set_iterator_proto_slot({:obj, ref} = this, key, value) do
+    if this == Runtime.global_class_proto("Iterator") or iterator_proto_home_slot?(ref, key) do
+      JSThrow.type_error!("Cannot set Iterator prototype intrinsic property")
+    end
+
+    if Heap.get_prop_desc(ref, key) == nil do
+      Heap.put_obj_key(ref, key, value)
+      Heap.put_prop_desc(ref, key, PropertyDescriptor.enumerable_data())
+    else
+      Put.set(this, key, value, this)
+    end
+
+    :undefined
+  end
+
+  defp set_iterator_proto_slot(_, _key, _value),
+    do: JSThrow.type_error!("Iterator prototype setter receiver must be an object")
+
+  defp iterator_proto_home_slot?(ref, key) do
+    case Heap.raw_fetch(Heap.get_obj_raw(ref), key) do
+      {:ok, {:accessor, getter, setter}} ->
+        iterator_proto_home_accessor?(key, getter, setter)
+
+      _ ->
+        false
+    end
+  end
+
+  defp iterator_proto_home_accessor?(
+         "constructor",
+         {:builtin, "get constructor", _},
+         {:builtin, "set constructor", _}
+       ),
+       do: true
+
+  defp iterator_proto_home_accessor?(
+         {:symbol, "Symbol.toStringTag"},
+         {:builtin, "get [Symbol.toStringTag]", _},
+         {:builtin, "set [Symbol.toStringTag]", _}
+       ),
+       do: true
+
+  defp iterator_proto_home_accessor?(_, _, _), do: false
+
+  def dispose(_args, this) do
+    return_method = Get.get(this, "return")
+
+    if Builtin.callable?(return_method) do
+      Invocation.invoke_with_receiver(return_method, [], this)
+    end
+
+    :undefined
+  end
+
+  def concat(args, _this) do
+    iterables = args |> Enum.map(&concat_iterable_record/1) |> List.to_tuple()
+    helper_iterator(%{"kind" => :concat, "iterables" => iterables, "index" => 0, "active" => nil})
+  end
+
+  def zip(args, _this) do
+    source = Builtin.arg(args, 0, :undefined)
+    validate_zip_source!(source, "Iterator.zip iterables must be an object")
+    options = Builtin.arg(args, 1, :undefined)
+    helper_iterator(zip_state_from_source(source, nil, options))
+  end
+
+  def zip_keyed(args, _this) do
+    source = Builtin.arg(args, 0, :undefined)
+    validate_zip_source!(source, "Iterator.zipKeyed iterables must be an object")
+    options = Builtin.arg(args, 1, :undefined)
+    options = zip_options_object(options)
+    mode = zip_mode(options)
+    padding_option = zip_padding_option(options, mode)
+    {keys, iterators} = keyed_iterator_records(source)
+    helper_iterator(zip_state_from_iterators(iterators, keys, mode, padding_option))
+  end
+
+  defp validate_zip_source!(source, message) do
+    unless Value.object_like?(source) or is_list(source), do: JSThrow.type_error!(message)
+  end
+
+  defp from_value(value) when is_binary(value) do
+    case string_iterator_method(value) do
+      method when method != :undefined ->
+        iterator = Invocation.invoke_with_receiver(method, [], value)
+
+        unless Value.object_like?(iterator),
+          do: JSThrow.type_error!("iterator method returned non-object")
+
+        wrap_iterator(iterator)
+
+      :undefined ->
+        value
+        |> String.graphemes()
+        |> list_iterator()
+    end
+  end
+
+  defp from_value(value) when is_list(value), do: list_iterator(value)
+
+  defp from_value(value) do
+    unless Value.object_like?(value), do: JSThrow.type_error!("Iterator.from requires an object")
+
+    iterator_method =
+      string_object_iterator_method(value) || Get.get(value, {:symbol, "Symbol.iterator"})
+
+    iterator =
+      cond do
+        Builtin.callable?(iterator_method) ->
+          result = Invocation.invoke_with_receiver(iterator_method, [], value)
+
+          unless Value.object_like?(result),
+            do: JSThrow.type_error!("iterator method returned non-object")
+
+          result
+
+        iterator_method in [:undefined, nil] ->
+          value
+
+        true ->
+          JSThrow.type_error!("iterator method is not callable")
+      end
+
+    if not Value.nullish?(iterator_method) and iterator == value and
+         iterator_instance?(iterator) do
+      iterator
+    else
+      wrap_iterator(iterator)
+    end
+  end
+
+  defp string_object_iterator_method({:obj, ref} = receiver) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) ->
+        if WrappedPrimitive.type?(map, :string) do
+          string_iterator_method(receiver)
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp string_object_iterator_method(_), do: nil
+
+  defp string_iterator_method(receiver) do
+    case Runtime.global_class_proto("String") do
+      {:obj, proto_ref} ->
+        case Heap.get_obj(proto_ref, %{}) do
+          %{{:symbol, "Symbol.iterator"} => {:accessor, getter, _setter}} when getter != nil ->
+            Get.call_getter(getter, receiver)
+
+          %{{:symbol, "Symbol.iterator"} => value} ->
+            value
+
+          _ ->
+            :undefined
+        end
+
+      _ ->
+        :undefined
+    end
+  end
+
+  defp list_iterator(items) do
+    state_ref = make_ref()
+    Heap.put_obj(state_ref, %{"items" => List.to_tuple(items), "index" => 0})
+
+    object extends: wrap_for_valid_iterator_prototype() do
+      method "next" do
+        list_iterator_next(state_ref)
+      end
+
+      method "return" do
+        iter_result(:undefined, true)
+      end
+
+      symbol :iterator do
+        method do
+          this
+        end
+      end
+    end
+  end
+
+  defp list_iterator_next(state_ref) do
+    state = Heap.get_obj(state_ref, %{})
+    index = state["index"]
+    items = state["items"]
+
+    if index >= tuple_size(items) do
+      iter_result(:undefined, true)
+    else
+      IteratorHelperState.put(state_ref, state, "index", index + 1)
+      iter_result(:erlang.element(index + 1, items), false)
+    end
+  end
+
+  defp wrap_iterator(iterator) do
+    proto = wrap_for_valid_iterator_prototype()
+    next = Get.get(iterator, "next")
+
+    object extends: proto do
+      prop("__wrapped_iterator__", iterator)
+      prop("__wrapped_next__", next)
+
+      method "next" do
+        wrapper_next(this)
+      end
+
+      method "return" do
+        wrapper_return(this)
+      end
+
+      symbol :iterator do
+        method do
+          this
+        end
+      end
+    end
+  end
+
+  def wrap_for_valid_iterator_prototype do
+    case Runtime.global_constructor("Iterator") do
+      nil ->
+        build_wrap_for_valid_iterator_prototype()
+
+      ctor ->
+        case Map.get(Heap.get_ctor_statics(ctor), :__wrap_for_valid_iterator_prototype__) do
+          {:obj, _} = proto ->
+            proto
+
+          _ ->
+            proto = build_wrap_for_valid_iterator_prototype()
+            Heap.put_ctor_static(ctor, :__wrap_for_valid_iterator_prototype__, proto)
+            proto
+        end
+    end
+  end
+
+  defp build_wrap_for_valid_iterator_prototype do
+    object extends: Runtime.global_class_proto("Iterator") do
+      method "next" do
+        wrapper_next(this)
+      end
+
+      method "return" do
+        wrapper_return(this)
+      end
+
+      symbol :iterator do
+        method do
+          this
+        end
+      end
+    end
+  end
+
+  def drop(args, this) do
+    unless Value.object_like?(this),
+      do: JSThrow.type_error!("Iterator receiver must be an object")
+
+    remaining = non_negative_integer_limit_or_close(this, Builtin.arg(args, 0, :undefined))
+    iterator = iterator_direct_record(this)
+    helper_iterator(%{"kind" => :drop, "iterator" => iterator, "remaining" => remaining})
+  end
+
+  def take(args, this) do
+    unless Value.object_like?(this),
+      do: JSThrow.type_error!("Iterator receiver must be an object")
+
+    remaining = non_negative_integer_limit_or_close(this, Builtin.arg(args, 0, :undefined))
+    iterator = iterator_direct_record(this)
+    helper_iterator(%{"kind" => :take, "iterator" => iterator, "remaining" => remaining})
+  end
+
+  def filter(args, this) do
+    predicate = Builtin.arg(args, 0, :undefined)
+
+    require_callable_or_close!(this, predicate, "predicate must be callable")
+
+    helper_iterator(%{
+      "kind" => :filter,
+      "iterator" => iterator_direct_record(this),
+      "predicate" => predicate,
+      "index" => 0
+    })
+  end
+
+  def map(args, this) do
+    mapper = Builtin.arg(args, 0, :undefined)
+    require_callable_or_close!(this, mapper, "mapper must be callable")
+
+    helper_iterator(%{
+      "kind" => :map,
+      "iterator" => iterator_direct_record(this),
+      "mapper" => mapper,
+      "index" => 0
+    })
+  end
+
+  def flat_map(args, this) do
+    mapper = Builtin.arg(args, 0, :undefined)
+    require_callable_or_close!(this, mapper, "mapper must be callable")
+
+    helper_iterator(%{
+      "kind" => :flat_map,
+      "iterator" => iterator_direct_record(this),
+      "mapper" => mapper,
+      "index" => 0,
+      "inner" => nil
+    })
+  end
+
+  def some(args, this) do
+    predicate = Builtin.arg(args, 0, :undefined)
+
+    require_callable_or_close!(this, predicate, "predicate must be callable")
+
+    some_loop(iterator_direct_record(this), predicate, 0)
+  end
+
+  def reduce(args, this) do
+    reducer = Builtin.arg(args, 0, :undefined)
+    require_callable_or_close!(this, reducer, "reducer must be callable")
+
+    iterator = iterator_direct_record(this)
+
+    case args do
+      [_reducer, initial | _] -> reduce_loop(iterator, reducer, initial, 0)
+      _ -> reduce_without_initial(iterator, reducer)
+    end
+  end
+
+  def to_array(_args, this) do
+    this
+    |> iterator_record()
+    |> collect_values([])
+    |> Enum.reverse()
+    |> Heap.wrap()
+  end
+
+  def for_each(args, this) do
+    callback = Builtin.arg(args, 0, :undefined)
+
+    require_callable_or_close!(this, callback, "callback must be callable")
+
+    for_each_loop(iterator_direct_record(this), callback, 0)
+    :undefined
+  end
+
+  def every(args, this) do
+    predicate = Builtin.arg(args, 0, :undefined)
+
+    require_callable_or_close!(this, predicate, "predicate must be callable")
+
+    every_loop(iterator_direct_record(this), predicate, 0)
+  end
+
+  def find(args, this) do
+    predicate = Builtin.arg(args, 0, :undefined)
+
+    require_callable_or_close!(this, predicate, "predicate must be callable")
+
+    find_loop(iterator_direct_record(this), predicate, 0)
+  end
+
+  defp helper_iterator(state) do
+    state_ref = IteratorHelperState.new(state)
+
+    object extends: wrap_for_valid_iterator_prototype() do
+      prop("__iterator_helper_state__", state_ref)
+
+      method "next" do
+        helper_next(this)
+      end
+
+      method "return" do
+        helper_return(this)
+      end
+
+      symbol :iterator do
+        method do
+          this
+        end
+      end
+    end
+  end
+
+  defp helper_next({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      %{"__iterator_helper_state__" => state_ref} -> helper_next_state(state_ref)
+      _ -> JSThrow.type_error!("Iterator helper expected")
+    end
+  end
+
+  defp helper_next(_), do: JSThrow.type_error!("Iterator helper expected")
+
+  defp helper_next_state(state_ref) do
+    state = Heap.get_obj(state_ref, %{})
+
+    if state["kind"] == :done do
+      iter_result(:undefined, true)
+    else
+      if state["executing"] == true do
+        JSThrow.type_error!("Iterator helper is already running")
+      end
+
+      IteratorHelperState.put(state_ref, state, "executing", true)
+
+      try do
+        result = helper_next_kind(state_ref, Heap.get_obj(state_ref, %{}))
+        finish_helper_execution(state_ref)
+        result
+      catch
+        kind, reason ->
+          finish_helper_execution(state_ref)
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
+    end
+  end
+
+  defp helper_next_kind(state_ref, state) do
+    case state["kind"] do
+      :concat -> concat_next(state_ref, state)
+      :zip -> zip_next(state_ref, state)
+      :drop -> drop_next(state_ref, state)
+      :take -> take_next(state_ref, state)
+      :filter -> filter_next(state_ref, state)
+      :map -> map_next(state_ref, state)
+      :flat_map -> flat_map_next(state_ref, state)
+      _ -> iter_result(:undefined, true)
+    end
+  end
+
+  defp finish_helper_execution(state_ref) do
+    state = Heap.get_obj(state_ref, %{})
+
+    if state["kind"] != :done do
+      IteratorHelperState.put(state_ref, state, "executing", false)
+    end
+  end
+
+  defp zip_state_from_source(source, keys, options) do
+    options = zip_options_object(options)
+    mode = zip_mode(options)
+    padding_option = zip_padding_option(options, mode)
+    iterators = zip_iterator_records(source)
+    zip_state_from_iterators(iterators, keys, mode, padding_option)
+  end
+
+  defp zip_state_from_iterators(iterators, keys, mode, padding_option) do
+    padding =
+      try do
+        zip_padding_values(padding_option, mode, keys, length(iterators))
+      catch
+        kind, reason ->
+          close_iterators_ignoring_errors(iterators)
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
+
+    %{
+      "kind" => :zip,
+      "iterators" => iterators,
+      "open_iterators" => iterators,
+      "keys" => keys,
+      "mode" => mode,
+      "padding" => List.to_tuple(padding)
+    }
+  end
+
+  defp zip_options_object(:undefined), do: :undefined
+
+  defp zip_options_object(options) when is_nil(options),
+    do: JSThrow.type_error!("Iterator.zip options must be an object")
+
+  defp zip_options_object(options) do
+    if Value.object_like?(options) do
+      options
+    else
+      JSThrow.type_error!("Iterator.zip options must be an object")
+    end
+  end
+
+  defp zip_mode(:undefined), do: :shortest
+
+  defp zip_mode(options) do
+    case Get.get(options, "mode") do
+      :undefined -> :shortest
+      "shortest" -> :shortest
+      "longest" -> :longest
+      "strict" -> :strict
+      _ -> JSThrow.type_error!("invalid Iterator.zip mode")
+    end
+  end
+
+  defp zip_padding_option(_options, mode) when mode in [:shortest, :strict], do: :undefined
+  defp zip_padding_option(:undefined, :longest), do: :undefined
+
+  defp zip_padding_option(options, :longest) do
+    case Get.get(options, "padding") do
+      nil -> JSThrow.type_error!("Iterator.zip padding must be an object")
+      value -> value
+    end
+  end
+
+  defp zip_padding_values(_padding_option, mode, _keys, _count) when mode in [:shortest, :strict],
+    do: []
+
+  defp zip_padding_values(:undefined, :longest, _keys, _count), do: []
+
+  defp zip_padding_values(padding_option, :longest, keys, count),
+    do: validate_padding(padding_option, keys, count)
+
+  defp validate_padding(value, nil, count), do: validate_padding_iterable(value, count)
+
+  defp validate_padding(value, keys, _count) do
+    unless Value.object_like?(value),
+      do: JSThrow.type_error!("Iterator.zip padding must be an object")
+
+    Enum.map(keys, &Get.get(value, &1))
+  end
+
+  defp validate_padding_iterable(value, count) do
+    unless Value.object_like?(value),
+      do: JSThrow.type_error!("Iterator.zip padding must be an object")
+
+    collect_padding_values(zip_outer_iterator(value), count, [])
+  end
+
+  defp collect_padding_values(iterator, 0, acc) do
+    iterator_return(iterator)
+    Enum.reverse(acc)
+  end
+
+  defp collect_padding_values(iterator, count, acc) do
+    result = iterator_next(iterator)
+
+    if Get.get(result, "done") == true do
+      Enum.reverse(acc)
+    else
+      collect_padding_values(iterator, count - 1, [Get.get(result, "value") | acc])
+    end
+  end
+
+  defp zip_iterator_records(value) do
+    outer = zip_outer_iterator(value)
+    collect_zip_iterator_records(outer, [])
+  end
+
+  defp collect_zip_iterator_records(outer, acc) do
+    result =
+      try do
+        iterator_next(outer)
+      catch
+        kind, reason ->
+          close_iterators_ignoring_errors(Enum.reverse(acc))
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
+
+    if Get.get(result, "done") == true do
+      Enum.reverse(acc)
+    else
+      record =
+        try do
+          zip_flattenable_record(Get.get(result, "value"))
+        catch
+          kind, reason ->
+            close_iterators_ignoring_errors(Enum.reverse(acc))
+            close_iterators_ignoring_errors([outer])
+            :erlang.raise(kind, reason, __STACKTRACE__)
+        end
+
+      collect_zip_iterator_records(outer, [record | acc])
+    end
+  end
+
+  defp zip_flattenable_record(value) when is_list(value),
+    do: value |> from_value() |> iterator_direct_record()
+
+  defp zip_flattenable_record(value) do
+    unless Value.object_like?(value),
+      do: JSThrow.type_error!("Iterator.zip item must be an object")
+
+    iterator_method = Get.get(value, {:symbol, "Symbol.iterator"})
+
+    iterator =
+      cond do
+        Builtin.callable?(iterator_method) ->
+          result = Invocation.invoke_with_receiver(iterator_method, [], value)
+
+          unless Value.object_like?(result),
+            do: JSThrow.type_error!("iterator method returned non-object")
+
+          result
+
+        iterator_method in [:undefined, nil] ->
+          value
+
+        true ->
+          JSThrow.type_error!("iterator method is not callable")
+      end
+
+    iterator_direct_record(iterator)
+  end
+
+  defp zip_outer_iterator(value) do
+    unless Value.object_like?(value),
+      do: JSThrow.type_error!("Iterator.zip iterables must be an object")
+
+    method = Get.get(value, {:symbol, "Symbol.iterator"})
+
+    unless Builtin.callable?(method),
+      do: JSThrow.type_error!("Iterator.zip iterables must be iterable")
+
+    iterator = Invocation.invoke_with_receiver(method, [], value)
+
+    unless Value.object_like?(iterator),
+      do: JSThrow.type_error!("iterator method returned non-object")
+
+    iterator_record(iterator)
+  end
+
+  defp keyed_iterator_records(value) do
+    case value do
+      {:obj, _} = obj ->
+        obj
+        |> OwnProperty.descriptor_keys()
+        |> Enum.reduce({[], []}, fn key, {keys, iterators} = acc ->
+          if internal_key?(key) do
+            acc
+          else
+            desc =
+              try do
+                InternalMethods.own_property(obj, key)
+              catch
+                kind, reason ->
+                  close_iterators_ignoring_errors(Enum.reverse(iterators))
+                  :erlang.raise(kind, reason, __STACKTRACE__)
+              end
+
+            if desc != :undefined and Get.get(desc, "enumerable") == true do
+              value =
+                try do
+                  Get.get(obj, key)
+                catch
+                  kind, reason ->
+                    close_iterators_ignoring_errors(Enum.reverse(iterators))
+                    :erlang.raise(kind, reason, __STACKTRACE__)
+                end
+
+              if value == :undefined do
+                acc
+              else
+                record =
+                  try do
+                    zip_keyed_value_record(value)
+                  catch
+                    kind, reason ->
+                      close_iterators_ignoring_errors(Enum.reverse(iterators))
+                      :erlang.raise(kind, reason, __STACKTRACE__)
+                  end
+
+                {[key | keys], [record | iterators]}
+              end
+            else
+              acc
+            end
+          end
+        end)
+        |> then(fn {keys, iterators} -> {Enum.reverse(keys), Enum.reverse(iterators)} end)
+
+      _ ->
+        values = Heap.to_list(value)
+
+        keys =
+          values
+          |> Enum.with_index()
+          |> Enum.map(fn {_item, index} -> Integer.to_string(index) end)
+
+        iterators = Enum.map(values, &zip_keyed_value_record/1)
+        {keys, iterators}
+    end
+  end
+
+  defp zip_keyed_value_record(value) when is_list(value),
+    do: value |> from_value() |> iterator_direct_record()
+
+  defp zip_keyed_value_record(value) do
+    unless Value.object_like?(value),
+      do: JSThrow.type_error!("Iterator.zipKeyed item must be an object")
+
+    value |> from_value() |> iterator_direct_record()
+  end
+
+  defp internal_key?(key), do: internal_namespace?(key)
+
+  defp concat_iterable_record(item) do
+    unless Value.object_like?(item),
+      do: JSThrow.type_error!("Iterator.concat item must be an object")
+
+    method = Get.get(item, {:symbol, "Symbol.iterator"})
+
+    unless Builtin.callable?(method),
+      do: JSThrow.type_error!("Iterator.concat item is not iterable")
+
+    %{"iterable" => item, "method" => method}
+  end
+
+  defp zip_next(_state_ref, %{"iterators" => []}), do: iter_result(:undefined, true)
+
+  defp zip_next(state_ref, %{"iterators" => iterators, "mode" => :shortest} = state) do
+    case zip_step_shortest(iterators, [], []) do
+      :done ->
+        IteratorHelperState.put(state_ref, state, "open_iterators", [])
+        iter_result(:undefined, true)
+
+      values ->
+        IteratorHelperState.merge(state_ref, state, %{
+          "open_iterators" => iterators,
+          "started" => true
+        })
+
+        zip_result(state["keys"], values)
+    end
+  end
+
+  defp zip_next(state_ref, %{"iterators" => iterators, "mode" => :strict} = state) do
+    case zip_step_strict(iterators, [], [], nil) do
+      :done ->
+        IteratorHelperState.put(state_ref, state, "open_iterators", [])
+        iter_result(:undefined, true)
+
+      values ->
+        IteratorHelperState.merge(state_ref, state, %{
+          "open_iterators" => iterators,
+          "started" => true
+        })
+
+        zip_result(state["keys"], values)
+    end
+  end
+
+  defp zip_next(
+         state_ref,
+         %{"iterators" => iterators, "mode" => :longest, "padding" => padding} = state
+       ) do
+    results = zip_step_all(iterators)
+
+    open_iterators =
+      iterators
+      |> Enum.zip(results)
+      |> Enum.flat_map(fn
+        {iterator, {:value, _value}} -> [iterator]
+        {_iterator, :done} -> []
+      end)
+
+    IteratorHelperState.merge(state_ref, state, %{
+      "open_iterators" => open_iterators,
+      "started" => true
+    })
+
+    if Enum.all?(results, &(&1 == :done)) do
+      iter_result(:undefined, true)
+    else
+      values =
+        results
+        |> Enum.with_index()
+        |> Enum.map(fn
+          {{:value, value}, _index} -> value
+          {:done, index} -> tuple_value(padding, index, :undefined)
+        end)
+
+      zip_result(state["keys"], values)
+    end
+  end
+
+  defp zip_step_strict([], _previous_open, acc, nil), do: Enum.reverse(acc)
+  defp zip_step_strict([], _previous_open, acc, :open), do: Enum.reverse(acc)
+  defp zip_step_strict([], _previous_open, _acc, :done), do: :done
+
+  defp zip_step_strict([iterator | rest], previous_open, acc, seen) do
+    result =
+      try do
+        iterator_next(iterator)
+      catch
+        kind, reason ->
+          close_iterators_ignoring_errors(rest)
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
+
+    done? = Get.get(result, "done") == true
+
+    cond do
+      seen == nil and done? ->
+        zip_step_strict(rest, previous_open, acc, :done)
+
+      seen == nil ->
+        zip_step_strict(rest, [iterator | previous_open], [Get.get(result, "value") | acc], :open)
+
+      seen == :open and done? ->
+        close_iterators_ignoring_errors(Enum.reverse(previous_open) ++ rest)
+        JSThrow.type_error!("Iterator.zip strict mode length mismatch")
+
+      seen == :open ->
+        zip_step_strict(rest, [iterator | previous_open], [Get.get(result, "value") | acc], :open)
+
+      seen == :done and done? ->
+        zip_step_strict(rest, previous_open, acc, :done)
+
+      seen == :done ->
+        close_iterators_ignoring_errors([iterator | rest])
+        JSThrow.type_error!("Iterator.zip strict mode length mismatch")
+    end
+  end
+
+  defp zip_step_shortest([], _previous, acc), do: Enum.reverse(acc)
+
+  defp zip_step_shortest([iterator | rest], previous, acc) do
+    result =
+      try do
+        iterator_next(iterator)
+      catch
+        kind, reason ->
+          close_iterators_ignoring_errors(rest)
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
+
+    if Get.get(result, "done") == true do
+      close_iterators_for_completion(previous ++ rest)
+      :done
+    else
+      zip_step_shortest(rest, [iterator | previous], [Get.get(result, "value") | acc])
+    end
+  end
+
+  defp zip_step_all(iterators), do: zip_step_all(iterators, iterators, [])
+
+  defp zip_step_all([], _all, acc), do: Enum.reverse(acc)
+
+  defp zip_step_all([iterator | rest], all, acc) do
+    result =
+      try do
+        iterator_next(iterator)
+      catch
+        kind, reason ->
+          close_iterators_ignoring_errors(rest)
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
+
+    item =
+      if Get.get(result, "done") == true do
+        :done
+      else
+        {:value, Get.get(result, "value")}
+      end
+
+    zip_step_all(rest, all, [item | acc])
+  end
+
+  defp zip_result(nil, values), do: iter_result(Heap.wrap(values), false)
+
+  defp zip_result(keys, values) do
+    object =
+      keys
+      |> Enum.zip(values)
+      |> Enum.reduce(
+        object(heap: false, prototype: :null_proto) do
+        end,
+        fn {key, value}, acc ->
+          Map.put(acc, key, value)
+        end
+      )
+
+    iter_result(Heap.wrap(object), false)
+  end
+
+  defp tuple_value(tuple, index, default) when is_tuple(tuple) do
+    if index >= 0 and index < tuple_size(tuple),
+      do: :erlang.element(index + 1, tuple),
+      else: default
+  end
+
+  defp tuple_value(_tuple, _index, default), do: default
+
+  defp concat_next(state_ref, %{"iterables" => iterables, "index" => index})
+       when index >= tuple_size(iterables) do
+    mark_helper_done(state_ref)
+    iter_result(:undefined, true)
+  end
+
+  defp concat_next(
+         state_ref,
+         %{"active" => nil, "iterables" => iterables, "index" => index} = state
+       ) do
+    %{"iterable" => iterable, "method" => method} = :erlang.element(index + 1, iterables)
+    iterator = Invocation.invoke_with_receiver(method, [], iterable)
+
+    unless Value.object_like?(iterator),
+      do: JSThrow.type_error!("iterator method returned non-object")
+
+    record = iterator_record(iterator)
+    IteratorHelperState.put(state_ref, state, "active", record)
+    concat_next(state_ref, Heap.get_obj(state_ref, %{}))
+  end
+
+  defp concat_next(state_ref, %{"active" => iterator, "index" => index} = state) do
+    result = iterator_next(iterator)
+
+    if Get.get(result, "done") == true do
+      IteratorHelperState.merge(state_ref, state, %{"index" => index + 1, "active" => nil})
+      concat_next(state_ref, Heap.get_obj(state_ref, %{}))
+    else
+      IteratorHelperState.put(state_ref, state, "started", true)
+      iter_result(Get.get(result, "value"), false)
+    end
+  end
+
+  defp take_next(state_ref, %{"iterator" => iterator, "remaining" => remaining})
+       when is_number(remaining) and remaining <= 0 do
+    mark_helper_done(state_ref)
+    iterator_return(iterator)
+    iter_result(:undefined, true)
+  end
+
+  defp take_next(state_ref, %{"iterator" => iterator, "remaining" => remaining} = state) do
+    result = iterator_next(iterator)
+
+    if Get.get(result, "done") == true do
+      mark_helper_done(state_ref)
+      result
+    else
+      next_remaining = if remaining == :infinity, do: :infinity, else: remaining - 1
+      IteratorHelperState.put(state_ref, state, "remaining", next_remaining)
+      iter_result(Get.get(result, "value"), false)
+    end
+  end
+
+  defp drop_next(state_ref, %{"iterator" => iterator, "remaining" => remaining} = state) do
+    if skip_dropped(iterator, remaining) == :done do
+      mark_helper_done(state_ref)
+      iter_result(:undefined, true)
+    else
+      IteratorHelperState.put(state_ref, state, "remaining", 0)
+      result = iterator_next(iterator)
+
+      if Get.get(result, "done") == true do
+        mark_helper_done(state_ref)
+      end
+
+      result
+    end
+  end
+
+  defp skip_dropped(_iterator, remaining) when is_number(remaining) and remaining <= 0, do: :ok
+
+  defp skip_dropped(iterator, remaining) do
+    result = iterator_next(iterator)
+
+    if Get.get(result, "done") == true do
+      :done
+    else
+      next_remaining = if remaining == :infinity, do: :infinity, else: remaining - 1
+      skip_dropped(iterator, next_remaining)
+    end
+  end
+
+  defp filter_next(
+         state_ref,
+         %{"iterator" => iterator, "predicate" => predicate, "index" => index} = state
+       ) do
+    result = iterator_next(iterator)
+
+    if Get.get(result, "done") == true do
+      mark_helper_done(state_ref)
+      result
+    else
+      value = Get.get(result, "value")
+      keep = invoke_or_close(iterator, predicate, [value, index])
+      IteratorHelperState.put(state_ref, state, "index", index + 1)
+
+      if Values.truthy?(keep) do
+        iter_result(value, false)
+      else
+        filter_next(state_ref, Heap.get_obj(state_ref, %{}))
+      end
+    end
+  end
+
+  defp map_next(
+         state_ref,
+         %{"iterator" => iterator, "mapper" => mapper, "index" => index} = state
+       ) do
+    result = iterator_next(iterator)
+
+    if Get.get(result, "done") == true do
+      mark_helper_done(state_ref)
+      result
+    else
+      value = Get.get(result, "value")
+      mapped = invoke_or_close(iterator, mapper, [value, index])
+      IteratorHelperState.put(state_ref, state, "index", index + 1)
+      iter_result(mapped, false)
+    end
+  end
+
+  defp flat_map_next(state_ref, state) do
+    case next_inner_value(state["inner"]) do
+      {:ok, value} ->
+        iter_result(value, false)
+
+      :done ->
+        outer = iterator_next(state["iterator"])
+
+        if Get.get(outer, "done") == true do
+          mark_helper_done(state_ref)
+          outer
+        else
+          value = Get.get(outer, "value")
+          index = state["index"]
+          mapped = invoke_or_close(state["iterator"], state["mapper"], [value, index])
+          inner = flattenable_iterator_record_or_close(state["iterator"], mapped)
+          IteratorHelperState.merge(state_ref, state, %{"index" => index + 1, "inner" => inner})
+          flat_map_next(state_ref, Heap.get_obj(state_ref, %{}))
+        end
+    end
+  end
+
+  defp next_inner_value(nil), do: :done
+
+  defp next_inner_value(iterator) do
+    result = iterator_next(iterator)
+
+    if Get.get(result, "done") == true do
+      :done
+    else
+      {:ok, Get.get(result, "value")}
+    end
+  end
+
+  defp flattenable_iterator_record_or_close(iterator, value) do
+    flattenable_iterator_record(value)
+  catch
+    {:js_throw, _} = reason ->
+      close_record_preserving_reason(iterator)
+      throw(reason)
+  end
+
+  defp flattenable_iterator_record(value) do
+    unless Value.object_like?(value),
+      do: JSThrow.type_error!("Iterator mapper result must be an object")
+
+    iterator_method = Get.get(value, {:symbol, "Symbol.iterator"})
+
+    cond do
+      Builtin.callable?(iterator_method) ->
+        result = Invocation.invoke_with_receiver(iterator_method, [], value)
+
+        unless Value.object_like?(result),
+          do: JSThrow.type_error!("iterator method returned non-object")
+
+        iterator_record(result)
+
+      iterator_method in [:undefined, nil] ->
+        iterator_record(value)
+
+      true ->
+        JSThrow.type_error!("iterator method is not callable")
+    end
+  end
+
+  defp for_each_loop(iterator, callback, index) do
+    result = iterator_next(iterator)
+
+    if Get.get(result, "done") == true do
+      :ok
+    else
+      value = Get.get(result, "value")
+      invoke_or_close(iterator, callback, [value, index])
+      for_each_loop(iterator, callback, index + 1)
+    end
+  end
+
+  defp some_loop(iterator, predicate, index) do
+    result = iterator_next(iterator)
+
+    if Get.get(result, "done") == true do
+      false
+    else
+      value = Get.get(result, "value")
+      keep = invoke_or_close(iterator, predicate, [value, index])
+
+      if Values.truthy?(keep) do
+        iterator_return(iterator)
+        true
+      else
+        some_loop(iterator, predicate, index + 1)
+      end
+    end
+  end
+
+  defp reduce_without_initial(iterator, reducer) do
+    result = iterator_next(iterator)
+
+    if Get.get(result, "done") == true do
+      JSThrow.type_error!("Reduce of empty iterator with no initial value")
+    else
+      reduce_loop(iterator, reducer, Get.get(result, "value"), 1)
+    end
+  end
+
+  defp reduce_loop(iterator, reducer, accumulator, index) do
+    result = iterator_next(iterator)
+
+    if Get.get(result, "done") == true do
+      accumulator
+    else
+      value = Get.get(result, "value")
+      next_acc = invoke_or_close(iterator, reducer, [accumulator, value, index])
+      reduce_loop(iterator, reducer, next_acc, index + 1)
+    end
+  end
+
+  defp collect_values(iterator, acc) do
+    result = iterator_next(iterator)
+
+    if Get.get(result, "done") == true do
+      acc
+    else
+      collect_values(iterator, [Get.get(result, "value") | acc])
+    end
+  end
+
+  defp every_loop(iterator, predicate, index) do
+    result = iterator_next(iterator)
+
+    if Get.get(result, "done") == true do
+      true
+    else
+      value = Get.get(result, "value")
+      keep = invoke_or_close(iterator, predicate, [value, index])
+
+      if Values.truthy?(keep) do
+        every_loop(iterator, predicate, index + 1)
+      else
+        iterator_return(iterator)
+        false
+      end
+    end
+  end
+
+  defp find_loop(iterator, predicate, index) do
+    result = iterator_next(iterator)
+
+    if Get.get(result, "done") == true do
+      :undefined
+    else
+      value = Get.get(result, "value")
+      keep = invoke_or_close(iterator, predicate, [value, index])
+
+      if Values.truthy?(keep) do
+        iterator_return(iterator)
+        value
+      else
+        find_loop(iterator, predicate, index + 1)
+      end
+    end
+  end
+
+  defp helper_return({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      %{"__iterator_helper_state__" => state_ref} ->
+        state = Heap.get_obj(state_ref, %{})
+
+        cond do
+          state["kind"] == :done ->
+            :ok
+
+          state["started"] == true ->
+            close_started_helper(state_ref, state)
+
+          true ->
+            mark_helper_done(state_ref)
+            close_helper_state(state)
+        end
+
+        iter_result(:undefined, true)
+
+      _ ->
+        JSThrow.type_error!("Iterator helper expected")
+    end
+  end
+
+  defp helper_return(_), do: JSThrow.type_error!("Iterator helper expected")
+
+  defp close_started_helper(state_ref, state) do
+    if state["executing"] == true do
+      JSThrow.type_error!("Iterator helper is already running")
+    else
+      IteratorHelperState.put(state_ref, state, "executing", true)
+
+      try do
+        close_helper_state(state)
+        mark_helper_done(state_ref)
+      catch
+        kind, reason ->
+          finish_helper_execution(state_ref)
+          :erlang.raise(kind, reason, __STACKTRACE__)
+      end
+    end
+  end
+
+  defp close_helper_state(state) do
+    cond do
+      state["kind"] == :flat_map and state["inner"] != nil ->
+        iterator_return(state["inner"])
+        iterator_return(state["iterator"])
+
+      state["open_iterators"] != nil ->
+        close_iterators_for_completion(state["open_iterators"])
+
+      state["iterator"] != nil ->
+        iterator_return(state["iterator"])
+
+      state["active"] != nil ->
+        iterator_return(state["active"])
+
+      true ->
+        :ok
+    end
+  end
+
+  defp mark_helper_done(state_ref), do: IteratorHelperState.mark_done(state_ref)
+
+  defp invoke_or_close(iterator, callback, args) do
+    Invocation.invoke_with_receiver(callback, args, :undefined)
+  catch
+    {:js_throw, _} = reason ->
+      close_record_preserving_reason(iterator)
+      throw(reason)
+  end
+
+  defp close_record_preserving_reason(iterator) do
+    try do
+      iterator_return(iterator)
+    catch
+      {:js_throw, _} -> :ok
+    end
+  end
+
+  defp require_callable_or_close!(iterator, callback, message) do
+    unless Builtin.callable?(callback) do
+      close_iterator_like(iterator)
+      JSThrow.type_error!(message)
+    end
+  end
+
+  defp close_iterator_like(this) do
+    if Value.object_like?(this) do
+      return_method = Get.get(this, "return")
+
+      if Builtin.callable?(return_method) do
+        Invocation.invoke_with_receiver(return_method, [], this)
+      end
+    end
+  end
+
+  defp iterator_record(this) do
+    record = iterator_direct_record(this)
+
+    unless Builtin.callable?(record["next"]),
+      do: JSThrow.type_error!("Iterator next is not callable")
+
+    record
+  end
+
+  defp iterator_direct_record(this) do
+    unless Value.object_like?(this),
+      do: JSThrow.type_error!("Iterator receiver must be an object")
+
+    next = Get.get(this, "next")
+
+    if Builtin.callable?(next) do
+      %{"iterator" => this, "next" => next}
+    else
+      nested_next = if Value.object_like?(next), do: Get.get(next, "next"), else: :undefined
+
+      if Builtin.callable?(nested_next) do
+        %{"iterator" => next, "next" => nested_next}
+      else
+        %{"iterator" => this, "next" => next}
+      end
+    end
+  end
+
+  defp iterator_next(%{"iterator" => iterator, "next" => next}) do
+    unless Builtin.callable?(next), do: JSThrow.type_error!("Iterator next is not callable")
+    result = Invocation.invoke_with_receiver(next, [], iterator)
+    unless Value.object_like?(result), do: JSThrow.type_error!("Iterator result is not an object")
+    result
+  end
+
+  defp iterator_return(%{"iterator" => iterator}) do
+    return_method = Get.get(iterator, "return")
+
+    if Builtin.callable?(return_method) do
+      Invocation.invoke_with_receiver(return_method, [], iterator)
+    else
+      iter_result(:undefined, true)
+    end
+  end
+
+  defp close_iterators_ignoring_errors(iterators) do
+    iterators
+    |> Enum.reverse()
+    |> Enum.each(fn iterator ->
+      try do
+        iterator_return(iterator)
+      catch
+        _kind, _reason -> :ok
+      end
+    end)
+  end
+
+  defp close_iterators_for_completion(iterators) do
+    iterators
+    |> Enum.reverse()
+    |> Enum.reduce(nil, fn iterator, first_error ->
+      try do
+        iterator_return(iterator)
+        first_error
+      catch
+        kind, reason -> first_error || {kind, reason, __STACKTRACE__}
+      end
+    end)
+    |> case do
+      nil -> :ok
+      {kind, reason, stacktrace} -> :erlang.raise(kind, reason, stacktrace)
+    end
+  end
+
+  defp iter_result(value, done), do: IteratorResult.new(value, done)
+
+  defp non_negative_integer_limit_or_close(this, value) do
+    non_negative_integer_limit(value)
+  catch
+    {:js_throw, _} = reason ->
+      close_iterator_like(this)
+      throw(reason)
+  end
+
+  defp non_negative_integer_limit(:undefined), do: JSThrow.range_error!("invalid limit")
+
+  defp non_negative_integer_limit(value) do
+    number = Runtime.to_number(value)
+
+    cond do
+      number == :infinity -> :infinity
+      number in [:nan, :neg_infinity] -> JSThrow.range_error!("invalid limit")
+      not is_number(number) -> JSThrow.range_error!("invalid limit")
+      trunc(number) < 0 -> JSThrow.range_error!("invalid limit")
+      true -> trunc(number)
+    end
+  end
+
+  defp wrapper_next(this) do
+    {iterator, next} = wrapped_iterator_and_next!(this)
+    unless Builtin.callable?(next), do: JSThrow.type_error!("Iterator next is not callable")
+    result = Invocation.invoke_with_receiver(next, [], iterator)
+    unless Value.object_like?(result), do: JSThrow.type_error!("Iterator result is not an object")
+    result
+  end
+
+  defp wrapper_return(this) do
+    iterator = wrapped_iterator!(this)
+    return_method = Get.get(iterator, "return")
+
+    if Builtin.callable?(return_method) do
+      Invocation.invoke_with_receiver(return_method, [], iterator)
+    else
+      Heap.wrap(%{"value" => :undefined, "done" => true})
+    end
+  end
+
+  defp wrapped_iterator!({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      %{"__wrapped_iterator__" => iterator} -> iterator
+      _ -> JSThrow.type_error!("Iterator wrapper expected")
+    end
+  end
+
+  defp wrapped_iterator!(_), do: JSThrow.type_error!("Iterator wrapper expected")
+
+  defp wrapped_iterator_and_next!({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      %{"__wrapped_iterator__" => iterator, "__wrapped_next__" => next} -> {iterator, next}
+      _ -> JSThrow.type_error!("Iterator wrapper expected")
+    end
+  end
+
+  defp wrapped_iterator_and_next!(_), do: JSThrow.type_error!("Iterator wrapper expected")
+
+  defp iterator_instance?(value),
+    do: prototype_chain_includes?(value, Runtime.global_class_proto("Iterator"))
+
+  defp prototype_chain_includes?(target, target), do: true
+
+  defp prototype_chain_includes?({:obj, ref}, target) do
+    case Heap.get_obj(ref, %{}) do
+      map when is_map(map) -> prototype_chain_includes?(Map.get(map, "__proto__"), target)
+      _ -> false
+    end
+  end
+
+  defp prototype_chain_includes?(_, _), do: false
+end

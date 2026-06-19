@@ -1,0 +1,486 @@
+defmodule QuickBEAM.VM.Runtime.Function do
+  @moduledoc "JS `Function` prototype: `call`, `apply`, `bind`, and property access for name/length/fileName."
+
+  use QuickBEAM.VM.Builtin
+
+  import QuickBEAM.VM.Value, only: [is_nullish: 1]
+
+  alias QuickBEAM.VM.{Builtin, Heap, Invocation, RuntimeState, Value}
+  alias QuickBEAM.VM.ObjectModel.{Get, InternalMethods, PropertyDescriptor, WrappedPrimitive}
+  alias QuickBEAM.VM.Runtime.ConstructorRegistry, as: ConstructorRegistry
+  alias QuickBEAM.VM.Runtime.TypedArray
+  alias QuickBEAM.VM.Realm
+
+  defintrinsic "Function", prototype_parent: nil do
+    constructor(&QuickBEAM.VM.Runtime.ConstructorCallbacks.function/2,
+      length: 1,
+      phase: :core
+    )
+
+    install_with(&__MODULE__.install_builtin/2)
+  end
+
+  def install_builtin(ctor, opts \\ []) do
+    function_proto = Keyword.get_lazy(opts, :prototype, fn -> prototype() end)
+    ConstructorRegistry.put_prototype(ctor, function_proto)
+
+    case Heap.get_ctor_statics(ctor)["prototype"] do
+      {:obj, _} = proto -> InternalMethods.set(proto, "constructor", ctor)
+      _ -> :ok
+    end
+
+    Heap.put_prop_desc(ctor, "prototype", PropertyDescriptor.prototype())
+  end
+
+  @doc "Builds the JavaScript prototype object for this runtime builtin."
+  def prototype(opts \\ []) do
+    proto =
+      object heap: true do
+        prop("length", 0)
+        prop("name", "")
+
+        @ecma "20.2.3.1"
+        method "apply", length: 2 do
+          fn_apply(this, args, this)
+        end
+
+        @ecma "20.2.3.2"
+        method "bind", length: 1 do
+          unless Builtin.callable?(this),
+            do:
+              throw(
+                {:js_throw, Heap.make_error("Bind must be called on a function", "TypeError")}
+              )
+
+          fn_bind(this, args, this)
+        end
+
+        @ecma "20.2.3.3"
+        method "call", length: 1 do
+          fn_call(this, args, this)
+        end
+
+        @ecma "20.2.3.5"
+        method "toString" do
+          unless Builtin.callable?(this),
+            do: throw({:js_throw, Heap.make_error("not a function", "TypeError")})
+
+          case this do
+            {:obj, _} -> "function () { [native code] }"
+            _ -> elem(proto_property(this, "toString"), 2).([], this)
+          end
+        end
+
+        @ecma "20.2.3.6"
+        symbol :hasInstance do
+          method length: 1 do
+            obj = Builtin.arg(args, 0, :undefined)
+            ordinary_has_instance(this, obj)
+          end
+        end
+      end
+
+    {:obj, ref} = proto
+
+    for name <- ~w(call apply bind toString) do
+      Heap.put_prop_desc(ref, name, PropertyDescriptor.method())
+    end
+
+    for name <- ~w(length name) do
+      Heap.put_prop_desc(ref, name, PropertyDescriptor.hidden_readonly())
+    end
+
+    Heap.put_prop_desc(ref, {:symbol, "Symbol.hasInstance"}, PropertyDescriptor.prototype())
+
+    case Heap.get_object_prototype() do
+      {:obj, _} = obj_proto ->
+        map = Heap.get_obj(ref, %{})
+        Heap.put_obj(ref, Map.put(map, "__proto__", obj_proto))
+
+      _ ->
+        :ok
+    end
+
+    if Keyword.get(opts, :cache, true), do: Heap.put_func_proto(proto)
+    proto
+  end
+
+  defp ordinary_has_instance({:bound, _, _, target, _}, obj),
+    do: ordinary_has_instance(target, obj)
+
+  defp ordinary_has_instance(callable, obj) do
+    cond do
+      not Builtin.callable?(callable) ->
+        false
+
+      not Value.object_like?(obj) ->
+        false
+
+      typed_array_builtin_instance?(obj, callable) ->
+        true
+
+      true ->
+        prototype = Get.get(callable, "prototype")
+
+        unless Value.object_like?(prototype),
+          do: QuickBEAM.VM.JSThrow.type_error!("Function has non-object prototype")
+
+        prototype_chain_contains?(obj, prototype, MapSet.new())
+    end
+  end
+
+  defp prototype_chain_contains?(obj, prototype, seen) do
+    case object_get_prototype_of(obj) do
+      nil ->
+        false
+
+      ^prototype ->
+        true
+
+      {:obj, ref} = next ->
+        if MapSet.member?(seen, ref),
+          do: false,
+          else: prototype_chain_contains?(next, prototype, MapSet.put(seen, ref))
+
+      next when is_tuple(next) or is_struct(next) ->
+        prototype_chain_contains?(next, prototype, seen)
+
+      _ ->
+        false
+    end
+  end
+
+  defp object_get_prototype_of(obj) do
+    QuickBEAM.VM.Runtime.Object.static_property("getPrototypeOf")
+    |> Invocation.invoke_callback_or_throw([obj])
+  end
+
+  defp typed_array_builtin_instance?({:obj, ref}, {:builtin, constructor_name, _}) do
+    ref |> Heap.get_obj(%{}) |> TypedArray.instance_for_constructor?(constructor_name)
+  end
+
+  defp typed_array_builtin_instance?(_, _), do: false
+
+  def install_realm_methods({:obj, ref} = proto, intrinsics) do
+    call_source = {:builtin, "call", fn _, _ -> :undefined end}
+    apply_source = {:builtin, "apply", fn _, _ -> :undefined end}
+
+    call = {:builtin, "call", fn args, this -> fn_call(this, args, call_source) end}
+    apply = {:builtin, "apply", fn args, this -> fn_apply(this, args, apply_source) end}
+
+    for method <- [call_source, apply_source, call, apply] do
+      Heap.put_ctor_static(method, "__proto__", proto)
+      Realm.associate_intrinsics(method, intrinsics)
+    end
+
+    for {name, method} <- [{"call", call}, {"apply", apply}] do
+      Heap.put_obj_key(ref, name, method)
+      Heap.put_prop_desc(ref, name, PropertyDescriptor.method())
+    end
+  end
+
+  def install_realm_methods(_, _), do: :ok
+
+  # ── Function prototype ──
+
+  @doc "Returns a prototype property value for the given JavaScript property key."
+  def proto_property(fun, "call") do
+    {:builtin, "call", fn args, this -> fn_call(fun, args, this) end}
+  end
+
+  def proto_property(fun, "apply") do
+    {:builtin, "apply", fn args, this -> fn_apply(fun, args, this) end}
+  end
+
+  def proto_property(fun, "bind") do
+    {:builtin, "bind", fn args, this -> fn_bind(fun, args, this) end}
+  end
+
+  def proto_property(%QuickBEAM.VM.Function{} = f, "name"), do: f.name || ""
+  def proto_property(%QuickBEAM.VM.Function{} = f, "length"), do: f.defined_arg_count
+  def proto_property(%QuickBEAM.VM.Function{} = f, "fileName"), do: f.filename || ""
+  def proto_property(%QuickBEAM.VM.Function{} = f, "lineNumber"), do: f.line_num
+  def proto_property(%QuickBEAM.VM.Function{} = f, "columnNumber"), do: f.col_num
+
+  def proto_property({:closure, _, %QuickBEAM.VM.Function{} = f}, "name"),
+    do: f.name || ""
+
+  def proto_property({:closure, _, %QuickBEAM.VM.Function{} = f}, "length"),
+    do: f.defined_arg_count
+
+  def proto_property({:closure, _, %QuickBEAM.VM.Function{} = f}, "fileName"),
+    do: f.filename || ""
+
+  def proto_property({:closure, _, %QuickBEAM.VM.Function{} = f}, "lineNumber"), do: f.line_num
+  def proto_property({:closure, _, %QuickBEAM.VM.Function{} = f}, "columnNumber"), do: f.col_num
+
+  def proto_property({:bound, _, inner, _, _}, key)
+      when key not in ["length", "name", "caller", "arguments"],
+      do: proto_property(inner, key)
+
+  def proto_property({:bound, len, _, _, _}, "length"), do: len
+  def proto_property(_fun, "length"), do: 0
+  def proto_property({:bound, _, {:builtin, name, _}, _, _}, "name"), do: name
+  def proto_property(_fun, "name"), do: ""
+
+  def proto_property(fun, "toString") do
+    {:builtin, "toString",
+     fn _, _ ->
+       case fun do
+         {:closure, _, %QuickBEAM.VM.Function{source: src}} when is_binary(src) and src != "" ->
+           src
+
+         %QuickBEAM.VM.Function{source: src} when is_binary(src) and src != "" ->
+           src
+
+         {:builtin, name, _} ->
+           "function #{name}() { [native code] }"
+
+         {:bound, _, _, _, _} ->
+           "function () { [native code] }"
+
+         _ ->
+           "function () { [native code] }"
+       end
+     end}
+  end
+
+  def proto_property(fun, "caller") do
+    if strict_function?(fun) or bound_function?(fun) do
+      throw(
+        {:js_throw,
+         Heap.make_error(
+           "'caller' and 'arguments' are restricted function properties and cannot be accessed in this context.",
+           "TypeError"
+         )}
+      )
+    else
+      :undefined
+    end
+  end
+
+  def proto_property(fun, "arguments") do
+    if strict_function?(fun) or bound_function?(fun) do
+      throw(
+        {:js_throw,
+         Heap.make_error(
+           "'caller' and 'arguments' are restricted function properties and cannot be accessed in this context.",
+           "TypeError"
+         )}
+      )
+    else
+      :undefined
+    end
+  end
+
+  def proto_property(fun, "constructor") do
+    case QuickBEAM.VM.Runtime.FunctionKinds.constructor(fun) do
+      {_name, _callback} ->
+        QuickBEAM.VM.ObjectModel.FunctionPrototypeGet.constructor(fun)
+
+      nil ->
+        case RuntimeState.current() do
+          %{globals: globals} -> Map.get(globals, "Function", :undefined)
+          _ -> :undefined
+        end
+    end
+  end
+
+  def proto_property(_fun, _), do: :undefined
+
+  defp strict_function?(fun), do: Value.strict_function?(fun)
+
+  defp bound_function?({:bound, _, _, _, _}), do: true
+  defp bound_function?(_), do: false
+
+  defp fn_call(fun, [this_arg | args], this), do: invoke_callable_fun(fun, args, this_arg, this)
+  defp fn_call(fun, [], this), do: invoke_callable_fun(fun, [], :undefined, this)
+
+  defp fn_apply(fun, [this_arg | rest], this) do
+    invoke_callable_fun(fun, apply_args(List.first(rest), this), this_arg, this)
+  end
+
+  defp fn_apply(fun, [], this), do: invoke_callable_fun(fun, [], :undefined, this)
+
+  defp invoke_callable_fun(fun, args, this_arg, realm_source) do
+    if Builtin.callable?(fun) do
+      invoke_fun(fun, args, this_arg)
+    else
+      throw({:js_throw, realm_type_error(realm_source, "not a function")})
+    end
+  end
+
+  defp apply_args(value, _realm_source) when is_nullish(value), do: []
+  defp apply_args(value, realm_source), do: apply_args(value, realm_source, value)
+
+  defp apply_args(value) when is_nullish(value), do: []
+
+  defp apply_args({:obj, ref} = obj) do
+    case Heap.get_obj(ref, []) do
+      {:qb_arr, arr} -> :array.to_list(arr)
+      list when is_list(list) -> list
+      _ -> array_like_args(obj)
+    end
+  end
+
+  defp apply_args({:qb_arr, arr}), do: :array.to_list(arr)
+  defp apply_args(list) when is_list(list), do: list
+  defp apply_args(%QuickBEAM.VM.Function{} = value), do: array_like_args(value)
+  defp apply_args({:closure, _, %QuickBEAM.VM.Function{}} = value), do: array_like_args(value)
+  defp apply_args({:bound, _, _, _, _} = value), do: array_like_args(value)
+  defp apply_args({:builtin, _, _} = value), do: array_like_args(value)
+
+  defp apply_args(_value),
+    do: QuickBEAM.VM.JSThrow.type_error!("CreateListFromArrayLike called on non-object")
+
+  defp apply_args({:obj, _} = value, _realm_source, _original), do: apply_args(value)
+  defp apply_args({:qb_arr, _} = value, _realm_source, _original), do: apply_args(value)
+  defp apply_args(value, _realm_source, _original) when is_list(value), do: apply_args(value)
+
+  defp apply_args(%QuickBEAM.VM.Function{} = value, _realm_source, _original),
+    do: apply_args(value)
+
+  defp apply_args({:closure, _, %QuickBEAM.VM.Function{}} = value, _realm_source, _original),
+    do: apply_args(value)
+
+  defp apply_args({:bound, _, _, _, _} = value, _realm_source, _original), do: apply_args(value)
+  defp apply_args({:builtin, _, _} = value, _realm_source, _original), do: apply_args(value)
+
+  defp apply_args(_value, realm_source, _original),
+    do:
+      throw(
+        {:js_throw,
+         realm_type_error(realm_source, "CreateListFromArrayLike called on non-object")}
+      )
+
+  defp realm_type_error(realm_source, message) do
+    case Realm.intrinsic(realm_source, {:native_error, "TypeError"}) do
+      {:obj, _} = proto ->
+        object extends: proto do
+          prop("message", message)
+          prop("name", "TypeError")
+          prop("stack", "")
+          prop("__error_name__", "TypeError")
+
+          symbol :toStringTag do
+            data("Error")
+          end
+        end
+
+      _ ->
+        Heap.make_error(message, "TypeError")
+    end
+  end
+
+  defp array_like_args(value) do
+    length = value |> Get.get("length") |> QuickBEAM.VM.Runtime.to_number()
+    length = if is_number(length) and length > 0, do: trunc(length), else: 0
+
+    for index <- 0..(length - 1)//1 do
+      Get.get(value, Integer.to_string(index))
+    end
+  end
+
+  defp fn_bind(fun, [this_arg | bound_args], _this) do
+    orig_len = bind_target_length(fun)
+    orig_name = bind_target_name(fun)
+
+    bound_len = bound_length(orig_len, length(bound_args))
+    bound_fn = fn args, _this2 -> invoke_fun(fun, bound_args ++ args, this_arg) end
+    {:bound, bound_len, {:builtin, "bound " <> orig_name, bound_fn}, fun, bound_args}
+  end
+
+  defp fn_bind(fun, [], _this) do
+    orig_len = bind_target_length(fun)
+    orig_name = bind_target_name(fun)
+
+    bound_fn = fn args, _this2 -> invoke_fun(fun, args, :undefined) end
+    {:bound, orig_len, {:builtin, "bound " <> orig_name, bound_fn}, fun, []}
+  end
+
+  defp bind_target_length(fun) do
+    case Get.get(fun, "length") do
+      n when is_number(n) -> integer_or_infinity(n)
+      :infinity -> :infinity
+      :neg_infinity -> 0
+      _ -> 0
+    end
+  end
+
+  defp bind_target_name(fun) do
+    case Get.get(fun, "name") do
+      name when is_binary(name) -> name
+      _ -> ""
+    end
+  end
+
+  defp integer_or_infinity(n) when is_integer(n), do: n
+  defp integer_or_infinity(n) when is_float(n), do: trunc(n)
+
+  defp bound_length(:infinity, _argc), do: :infinity
+  defp bound_length(n, argc) when is_number(n), do: max(0, n - argc)
+
+  defp invoke_fun(fun, args, this_arg) do
+    case fun do
+      %QuickBEAM.VM.Function{} ->
+        Invocation.invoke_with_receiver(fun, args, coerce_function_this(fun, this_arg))
+
+      {:closure, _, %QuickBEAM.VM.Function{}} ->
+        Invocation.invoke_with_receiver(fun, args, coerce_function_this(fun, this_arg))
+
+      {:builtin, _, _} = builtin ->
+        if Realm.global(builtin) do
+          Builtin.call(builtin, args, coerce_function_this(builtin, this_arg))
+        else
+          Builtin.call(builtin, args, this_arg)
+        end
+
+      {:obj, _} = object ->
+        Invocation.invoke_with_receiver(object, args, this_arg)
+
+      other ->
+        Builtin.call(other, args, this_arg)
+    end
+  end
+
+  defp coerce_function_this(fun, this_arg) do
+    if strict_function?(fun) do
+      this_arg
+    else
+      case this_arg do
+        value when is_nullish(value) ->
+          Realm.global(fun) || value
+
+        value when is_binary(value) or is_number(value) or is_boolean(value) ->
+          wrap_function_this(fun, value)
+
+        {:bigint, _} = value ->
+          wrap_function_this(fun, value)
+
+        {:symbol, _} = value ->
+          wrap_function_this(fun, value)
+
+        {:symbol, _, _} = value ->
+          wrap_function_this(fun, value)
+
+        _ ->
+          this_arg
+      end
+    end
+  end
+
+  defp wrap_function_this(fun, value) do
+    type = WrappedPrimitive.type_for_value(value)
+    proto = Realm.intrinsic(fun, type)
+
+    case proto do
+      {:obj, _} ->
+        object extends: proto do
+          prop(WrappedPrimitive.slot(type), value)
+        end
+
+      _ ->
+        WrappedPrimitive.wrap(value)
+    end
+  end
+end

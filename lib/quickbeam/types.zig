@@ -7,6 +7,15 @@ pub const gpa = std.heap.c_allocator;
 
 pub var class_ids_mutex: std.Thread.Mutex = .{};
 
+pub fn reserve_class_ids_through(rt: *qjs.JSRuntime, max_class_id: qjs.JSClassID) void {
+    var scratch: qjs.JSClassID = 0;
+    while (true) {
+        scratch = 0;
+        const allocated = qjs.JS_NewClassID(rt, &scratch);
+        if (allocated > max_class_id) break;
+    }
+}
+
 pub const SyncCallSlot = struct {
     result_json: []const u8 = "",
     result_env: ?*e.ErlNifEnv = null,

@@ -18,7 +18,7 @@ defmodule QuickBEAM.JS do
     @external_resource ts
   end
 
-  defmodule Compiler do
+  defmodule PolyfillCompiler do
     @moduledoc false
 
     def standalone(ts_dir, names) do
@@ -70,7 +70,7 @@ defmodule QuickBEAM.JS do
   # Each group's barrel assigns its exports to globalThis.
 
   @core_js [
-    Compiler.bundle_modules(
+    PolyfillCompiler.bundle_modules(
       @ts_dir,
       ~w[event dom-exception event-target abort],
       """
@@ -86,7 +86,7 @@ defmodule QuickBEAM.JS do
     )
   ]
 
-  @process_js Compiler.standalone(@ts_dir, ~w[process])
+  @process_js PolyfillCompiler.standalone(@ts_dir, ~w[process])
 
   # Groups that need core events — loaded automatically
   @needs_core ~w[fetch websocket worker channel eventsource console locks dom]a
@@ -95,7 +95,7 @@ defmodule QuickBEAM.JS do
 
   @api_groups %{
     fetch: [
-      Compiler.bundle_modules(
+      PolyfillCompiler.bundle_modules(
         @ts_dir,
         ~w[event dom-exception event-target abort headers blob streams form-data fetch text-streams],
         """
@@ -115,7 +115,7 @@ defmodule QuickBEAM.JS do
       )
     ],
     websocket: [
-      Compiler.bundle_modules(
+      PolyfillCompiler.bundle_modules(
         @ts_dir,
         ~w[event dom-exception event-target abort blob streams websocket],
         """
@@ -125,7 +125,7 @@ defmodule QuickBEAM.JS do
       )
     ],
     worker: [
-      Compiler.bundle_modules(
+      PolyfillCompiler.bundle_modules(
         @ts_dir,
         ~w[event dom-exception event-target worker],
         """
@@ -135,7 +135,7 @@ defmodule QuickBEAM.JS do
       )
     ],
     channel: [
-      Compiler.bundle_modules(
+      PolyfillCompiler.bundle_modules(
         @ts_dir,
         ~w[event dom-exception event-target broadcast-channel message-channel],
         """
@@ -146,7 +146,7 @@ defmodule QuickBEAM.JS do
       )
     ],
     eventsource: [
-      Compiler.bundle_modules(
+      PolyfillCompiler.bundle_modules(
         @ts_dir,
         ~w[event dom-exception event-target event-source],
         """
@@ -155,28 +155,31 @@ defmodule QuickBEAM.JS do
         """
       )
     ],
-    url: Compiler.standalone(@ts_dir, ~w[url]),
-    crypto: Compiler.standalone(@ts_dir, ~w[crypto-subtle]),
-    compression: Compiler.standalone(@ts_dir, ~w[compression]),
-    buffer: Compiler.standalone(@ts_dir, ~w[buffer]),
+    url: PolyfillCompiler.standalone(@ts_dir, ~w[url]),
+    crypto: PolyfillCompiler.standalone(@ts_dir, ~w[crypto-subtle]),
+    compression: PolyfillCompiler.standalone(@ts_dir, ~w[compression]),
+    buffer: PolyfillCompiler.standalone(@ts_dir, ~w[buffer]),
     dom:
-      Compiler.standalone(@ts_dir, ~w[class-list style dom-events performance mutation-observer]),
+      PolyfillCompiler.standalone(
+        @ts_dir,
+        ~w[class-list style dom-events performance mutation-observer]
+      ),
     console: [
-      Compiler.bundle_modules(
+      PolyfillCompiler.bundle_modules(
         @ts_dir,
         ~w[console-ext],
         "import './console-ext'"
       )
     ],
     storage: [
-      Compiler.bundle_modules(
+      PolyfillCompiler.bundle_modules(
         @ts_dir,
         ~w[storage],
         "import './storage'"
       )
     ],
     locks: [
-      Compiler.bundle_modules(
+      PolyfillCompiler.bundle_modules(
         @ts_dir,
         ~w[event dom-exception event-target locks],
         "import './locks'"
@@ -186,16 +189,16 @@ defmodule QuickBEAM.JS do
 
   @browser_groups ~w[fetch websocket worker channel eventsource url crypto compression buffer dom console storage locks]a
 
-  @browser_js Compiler.standalone(
+  @browser_js PolyfillCompiler.standalone(
                 @ts_dir,
                 ~w[url crypto-subtle compression buffer process class-list style]
               ) ++
-                [Compiler.bundle(@ts_dir, "web-apis.ts")] ++
-                Compiler.standalone(@ts_dir, ~w[dom-events performance mutation-observer])
+                [PolyfillCompiler.bundle(@ts_dir, "web-apis.ts")] ++
+                PolyfillCompiler.standalone(@ts_dir, ~w[dom-events performance mutation-observer])
 
-  @beam_js Compiler.standalone(@ts_dir, ~w[beam-api])
+  @beam_js PolyfillCompiler.standalone(@ts_dir, ~w[beam-api])
 
-  @node_js Compiler.standalone(
+  @node_js PolyfillCompiler.standalone(
              @ts_dir,
              ~w[buffer node-process node-path node-fs node-os node-child-process]
            )

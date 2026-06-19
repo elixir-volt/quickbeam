@@ -91,6 +91,8 @@ pub const napi_finalize = ?*const fn (napi_env, ?*anyopaque, ?*anyopaque) callco
 pub const napi_async_execute_callback = *const fn (napi_env, ?*anyopaque) callconv(.c) void;
 pub const napi_async_complete_callback = *const fn (napi_env, napi_status, ?*anyopaque) callconv(.c) void;
 pub const napi_threadsafe_function_call_js = *const fn (napi_env, napi_value, ?*anyopaque, ?*anyopaque) callconv(.c) void;
+pub const napi_cleanup_hook = *const fn (?*anyopaque) callconv(.c) void;
+pub const napi_async_cleanup_hook = *const fn (?*anyopaque, ?*anyopaque) callconv(.c) void;
 pub const napi_addon_register_func = *const fn (napi_env, napi_value) callconv(.c) napi_value;
 
 pub const napi_property_descriptor = extern struct {
@@ -156,8 +158,12 @@ pub const NapiEnv = struct {
     persistent_slots: std.ArrayListUnmanaged(*qjs.JSValue) = .{},
     addon_globals: std.ArrayListUnmanaged(qjs.JSAtom) = .{},
     in_callback: bool = false,
+    shutting_down: bool = false,
     refs: std.ArrayListUnmanaged(*NapiReference) = .{},
     callback_data: std.ArrayListUnmanaged(*FunctionCallbackData) = .{},
+    cleanup_hooks: std.ArrayListUnmanaged(CleanupHook) = .{},
+    async_cleanup_hooks: std.ArrayListUnmanaged(*AsyncCleanupHook) = .{},
+    cleanup_started: bool = false,
 
     pub fn setLastError(self: *NapiEnv, status: Status) napi_status {
         self.last_error.error_code = @intFromEnum(status);
@@ -197,8 +203,7 @@ pub const NapiEnv = struct {
     pub fn createNapiValue(self: *NapiEnv, val: qjs.JSValue) napi_value {
         if (self.scope_stack.items.len > 0) {
             const scope = self.scope_stack.items[self.scope_stack.items.len - 1];
-            scope.values.append(gpa, val) catch return null;
-            return &scope.values.items[scope.values.items.len - 1];
+            return scope.track(self.ctx, val);
         }
         const slot = gpa.create(qjs.JSValue) catch return null;
         slot.* = val;
@@ -214,8 +219,37 @@ pub const NapiEnv = struct {
         return slot;
     }
 
+    pub fn runCleanup(self: *NapiEnv) void {
+        if (self.cleanup_started) return;
+        self.cleanup_started = true;
+
+        var async_i = self.async_cleanup_hooks.items.len;
+        while (async_i > 0) {
+            async_i -= 1;
+            const hook = self.async_cleanup_hooks.items[async_i];
+            if (!hook.removed) hook.cb(hook.arg, @ptrCast(hook));
+        }
+
+        var i = self.cleanup_hooks.items.len;
+        while (i > 0) {
+            i -= 1;
+            const hook = self.cleanup_hooks.items[i];
+            hook.cb(hook.arg);
+        }
+        self.cleanup_hooks.clearRetainingCapacity();
+
+        if (self.instance_data_finalize) |cb| {
+            cb(self, self.instance_data, self.instance_data_hint);
+            self.instance_data = null;
+            self.instance_data_finalize = null;
+            self.instance_data_hint = null;
+        }
+    }
+
     /// Release all JS value references. Must be called while the context is still alive.
     pub fn releaseValues(self: *NapiEnv) void {
+        self.shutting_down = true;
+        self.runCleanup();
         self.clearPendingException();
         for (self.scope_stack.items) |scope| {
             scope.deinit(self.ctx);
@@ -232,12 +266,12 @@ pub const NapiEnv = struct {
         qjs.JS_FreeValue(self.ctx, global);
         self.addon_globals.deinit(gpa);
 
-        // 2. Release napi references (may hold class constructors)
+        // 2. Release JS values held by napi references. Keep the reference
+        // records alive until deinit because native finalizers may still call
+        // napi_delete_reference while QuickJS drains objects during shutdown.
         for (self.refs.items) |r| {
-            if (r.ref_count > 0) qjs.JS_FreeValue(self.ctx, r.value);
-            gpa.destroy(r);
+            r.releaseValue();
         }
-        self.refs.deinit(gpa);
 
         // 3. Release persistent slots (values from addon init)
         for (self.persistent_slots.items) |slot| {
@@ -249,17 +283,28 @@ pub const NapiEnv = struct {
 
     /// Free non-JS resources. Call after JS_FreeContext.
     pub fn deinit(self: *NapiEnv) void {
+        for (self.refs.items) |r| {
+            gpa.destroy(r);
+        }
+        self.refs.deinit(gpa);
+
         for (self.callback_data.items) |cbd| {
             gpa.destroy(cbd);
         }
         self.callback_data.deinit(gpa);
+
+        self.cleanup_hooks.deinit(gpa);
+        for (self.async_cleanup_hooks.items) |hook| {
+            gpa.destroy(hook);
+        }
+        self.async_cleanup_hooks.deinit(gpa);
     }
 };
 
 // ──── Handle Scope ────
 
 pub const HandleScope = struct {
-    values: std.ArrayListUnmanaged(qjs.JSValue) = .{},
+    values: std.ArrayListUnmanaged(*qjs.JSValue) = .{},
     escapable: bool,
     escaped: bool = false,
 
@@ -274,13 +319,16 @@ pub const HandleScope = struct {
     /// Store a JS value in this scope. Takes ownership of the refcount.
     pub fn track(self: *HandleScope, ctx: *qjs.JSContext, val: qjs.JSValue) *qjs.JSValue {
         _ = ctx;
-        self.values.append(gpa, val) catch @panic("OOM");
-        return &self.values.items[self.values.items.len - 1];
+        const slot = gpa.create(qjs.JSValue) catch @panic("OOM");
+        slot.* = val;
+        self.values.append(gpa, slot) catch @panic("OOM");
+        return slot;
     }
 
     pub fn deinit(self: *HandleScope, ctx: *qjs.JSContext) void {
-        for (self.values.items) |v| {
-            qjs.JS_FreeValue(ctx, v);
+        for (self.values.items) |slot| {
+            qjs.JS_FreeValue(ctx, slot.*);
+            gpa.destroy(slot);
         }
         self.values.deinit(gpa);
     }
@@ -298,25 +346,25 @@ pub const NapiReference = struct {
     finalize_hint: ?*anyopaque = null,
 
     pub fn ref(self: *NapiReference) void {
-        if (self.ref_count == 0 and !self.weak) {
-            _ = qjs.JS_DupValue(self.ctx, self.value);
-        }
         self.ref_count += 1;
     }
 
     pub fn unref(self: *NapiReference) void {
         if (self.ref_count > 0) {
             self.ref_count -= 1;
-            if (self.ref_count == 0 and !self.weak) {
-                qjs.JS_FreeValue(self.ctx, self.value);
-            }
         }
     }
 
-    pub fn deinit(self: *NapiReference) void {
-        if (self.ref_count > 0) {
+    pub fn releaseValue(self: *NapiReference) void {
+        if (!js.is_undefined(self.value)) {
             qjs.JS_FreeValue(self.ctx, self.value);
+            self.value = js.JS_UNDEFINED;
         }
+        self.ref_count = 0;
+    }
+
+    pub fn deinit(self: *NapiReference) void {
+        self.releaseValue();
         gpa.destroy(self);
     }
 };
@@ -398,11 +446,25 @@ pub const ThreadSafeFunction = struct {
     }
 };
 
+// ──── Cleanup hooks ────
+
+pub const CleanupHook = struct {
+    cb: napi_cleanup_hook,
+    arg: ?*anyopaque,
+};
+
+pub const AsyncCleanupHook = struct {
+    cb: napi_async_cleanup_hook,
+    arg: ?*anyopaque,
+    removed: bool = false,
+};
+
 // ──── External data class ────
 
 pub var external_class_id: qjs.JSClassID = 0;
 
 pub const ExternalData = struct {
+    env: *NapiEnv,
     data: ?*anyopaque,
     finalize_cb: napi_finalize,
     finalize_hint: ?*anyopaque,

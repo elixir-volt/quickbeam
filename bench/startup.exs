@@ -1,3 +1,5 @@
+Code.require_file("support/common.exs", __DIR__)
+
 # Benchmark 4: Runtime startup cost
 #
 # How fast can we spin up a new JS runtime?
@@ -24,8 +26,5 @@ Benchee.run(
       QuickJSEx.stop(rt)
     end
   },
-  warmup: 2,
-  time: 5,
-  memory_time: 2,
-  print: [configuration: false]
+  Bench.Support.benchee_options()
 )

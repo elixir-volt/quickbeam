@@ -92,6 +92,16 @@ pub export fn napi_release_threadsafe_function(func_: napi_threadsafe_function, 
     if (mode == .abort or prev == 1) {
         func.closing.store(true, .seq_cst);
         func.condvar.broadcast();
+
+        func.lock.lock();
+        const queue_empty = func.queue.items.len == 0;
+        func.lock.unlock();
+
+        if (queue_empty) {
+            if (func.env.runtime_data) |rd| {
+                types.enqueue(rd, .{ .napi_tsfn_call = .{ .tsfn = func, .data = null } });
+            }
+        }
     }
     return @intFromEnum(Status.ok);
 }

@@ -21,7 +21,7 @@ The bridge between JavaScript and the BEAM.
 | `Beam.onMessage(callback)` | Register a callback for incoming BEAM messages. |
 | `Beam.monitor(pid, callback)` | Monitor a process. Callback fires with exit reason. |
 | `Beam.demonitor(ref)` | Cancel a monitor. |
-| `Beam.peek(promise)` | Read a promise's value synchronously. Returns the promise itself if pending. Native implementation via QuickJS `JS_PromiseState`. |
+| `Beam.peek(promise)` | Read a promise's value synchronously. Returns the promise itself if pending. Native implementation via QuickJS `JS_Promise`. |
 | `Beam.peek.status(promise)` | Returns `'fulfilled'`, `'rejected'`, or `'pending'`. |
 | `Beam.version` | QuickBEAM version string (lazy getter). |
 | `Beam.sleep(ms)` | Async sleep. Returns a Promise. |

@@ -5,8 +5,18 @@
 
 static int finalized_wraps = 0;
 static int finalized_external_buffers = 0;
+static int finalized_instance_data = 0;
+static int finalized_externals = 0;
+static int finalized_external_envs = 0;
+static int finalized_null_external_buffers = 0;
+static int cleanup_hooks = 0;
+static int cleanup_removed_hooks = 0;
+static int async_cleanup_hooks = 0;
+static int async_cleanup_removed_hooks = 0;
 static napi_value wrapped_keepalive = NULL;
 static napi_value external_buffer_keepalive = NULL;
+static napi_value external_keepalive = NULL;
+static napi_value null_external_buffer_keepalive = NULL;
 
 static void int_finalizer(napi_env env, void* data, void* hint) {
     (void)env;
@@ -24,6 +34,56 @@ static void external_buffer_finalizer(napi_env env, void* data, void* hint) {
         free(data);
     }
     finalized_external_buffers += 1;
+}
+
+static void null_external_buffer_finalizer(napi_env env, void* data, void* hint) {
+    (void)env;
+    (void)hint;
+    if (data == NULL) {
+        finalized_null_external_buffers += 1;
+    }
+}
+
+static void instance_data_finalizer(napi_env env, void* data, void* hint) {
+    (void)env;
+    (void)hint;
+    if (data != NULL) {
+        free(data);
+    }
+    finalized_instance_data += 1;
+}
+
+static void external_finalizer(napi_env env, void* data, void* hint) {
+    (void)hint;
+    if (env != NULL) {
+        finalized_external_envs += 1;
+    }
+    if (data != NULL) {
+        free(data);
+    }
+    finalized_externals += 1;
+}
+
+static void cleanup_hook(void* arg) {
+    (void)arg;
+    cleanup_hooks += 1;
+}
+
+static void removed_cleanup_hook(void* arg) {
+    (void)arg;
+    cleanup_removed_hooks += 1;
+}
+
+static void async_cleanup_hook(void* arg, void* remove_handle) {
+    (void)arg;
+    (void)remove_handle;
+    async_cleanup_hooks += 1;
+}
+
+static void removed_async_cleanup_hook(void* arg, void* remove_handle) {
+    (void)arg;
+    (void)remove_handle;
+    async_cleanup_removed_hooks += 1;
 }
 
 static napi_value hello(napi_env env, napi_callback_info info) {
@@ -259,6 +319,94 @@ static napi_value add_external_buffer_finalizer(napi_env env, napi_callback_info
     return buf;
 }
 
+static napi_value set_instance_data_value(napi_env env, napi_callback_info info) {
+    size_t argc = 0;
+    napi_get_cb_info(env, info, &argc, NULL, NULL, NULL);
+
+    int* ptr = malloc(sizeof(int));
+    *ptr = 2468;
+    napi_set_instance_data(env, ptr, instance_data_finalizer, NULL);
+
+    napi_value result;
+    napi_create_int32(env, 1, &result);
+    return result;
+}
+
+static napi_value get_instance_data_value(napi_env env, napi_callback_info info) {
+    size_t argc = 0;
+    napi_get_cb_info(env, info, &argc, NULL, NULL, NULL);
+
+    void* data = NULL;
+    napi_get_instance_data(env, &data);
+
+    napi_value result;
+    napi_create_int32(env, data == NULL ? 0 : *((int*)data), &result);
+    return result;
+}
+
+static napi_value register_cleanup_hooks(napi_env env, napi_callback_info info) {
+    size_t argc = 0;
+    napi_get_cb_info(env, info, &argc, NULL, NULL, NULL);
+
+    void* async_handle = NULL;
+    napi_add_env_cleanup_hook(env, cleanup_hook, NULL);
+    napi_add_env_cleanup_hook(env, removed_cleanup_hook, NULL);
+    napi_remove_env_cleanup_hook(env, removed_cleanup_hook, NULL);
+    napi_add_async_cleanup_hook(env, async_cleanup_hook, NULL, NULL);
+    napi_add_async_cleanup_hook(env, removed_async_cleanup_hook, NULL, &async_handle);
+    napi_remove_async_cleanup_hook(async_handle);
+
+    napi_value result;
+    napi_create_int32(env, 1, &result);
+    return result;
+}
+
+static napi_value create_external_with_finalizer(napi_env env, napi_callback_info info) {
+    size_t argc = 0;
+    napi_get_cb_info(env, info, &argc, NULL, NULL, NULL);
+
+    int* ptr = malloc(sizeof(int));
+    *ptr = 1357;
+    napi_value ext;
+    napi_create_external(env, ptr, external_finalizer, NULL, &ext);
+    external_keepalive = ext;
+
+    void* out = NULL;
+    napi_get_value_external(env, ext, &out);
+
+    napi_value result;
+    napi_create_int32(env, out == NULL ? 0 : *((int*)out), &result);
+    return result;
+}
+
+static napi_value clear_external_keepalive(napi_env env, napi_callback_info info) {
+    size_t argc = 0;
+    napi_get_cb_info(env, info, &argc, NULL, NULL, NULL);
+    external_keepalive = NULL;
+    napi_value result;
+    napi_create_int32(env, 1, &result);
+    return result;
+}
+
+static napi_value add_null_external_buffer_finalizer(napi_env env, napi_callback_info info) {
+    size_t argc = 0;
+    napi_get_cb_info(env, info, &argc, NULL, NULL, NULL);
+
+    napi_value buf;
+    napi_create_external_buffer(env, 0, NULL, null_external_buffer_finalizer, NULL, &buf);
+    null_external_buffer_keepalive = buf;
+    return buf;
+}
+
+static napi_value clear_null_external_buffer_keepalive(napi_env env, napi_callback_info info) {
+    size_t argc = 0;
+    napi_get_cb_info(env, info, &argc, NULL, NULL, NULL);
+    null_external_buffer_keepalive = NULL;
+    napi_value result;
+    napi_create_int32(env, 1, &result);
+    return result;
+}
+
 static napi_value finalized_counts(napi_env env, napi_callback_info info) {
     size_t argc = 0;
     napi_get_cb_info(env, info, &argc, NULL, NULL, NULL);
@@ -272,6 +420,30 @@ static napi_value finalized_counts(napi_env env, napi_callback_info info) {
 
     napi_create_int32(env, finalized_external_buffers, &n);
     napi_set_named_property(env, obj, "externalBuffers", n);
+
+    napi_create_int32(env, finalized_instance_data, &n);
+    napi_set_named_property(env, obj, "instanceData", n);
+
+    napi_create_int32(env, finalized_externals, &n);
+    napi_set_named_property(env, obj, "externals", n);
+
+    napi_create_int32(env, finalized_external_envs, &n);
+    napi_set_named_property(env, obj, "externalEnvs", n);
+
+    napi_create_int32(env, finalized_null_external_buffers, &n);
+    napi_set_named_property(env, obj, "nullExternalBuffers", n);
+
+    napi_create_int32(env, cleanup_hooks, &n);
+    napi_set_named_property(env, obj, "cleanupHooks", n);
+
+    napi_create_int32(env, cleanup_removed_hooks, &n);
+    napi_set_named_property(env, obj, "cleanupRemovedHooks", n);
+
+    napi_create_int32(env, async_cleanup_hooks, &n);
+    napi_set_named_property(env, obj, "asyncCleanupHooks", n);
+
+    napi_create_int32(env, async_cleanup_removed_hooks, &n);
+    napi_set_named_property(env, obj, "asyncCleanupRemovedHooks", n);
 
     return obj;
 }
@@ -336,6 +508,27 @@ static napi_value init(napi_env env, napi_value exports) {
     napi_create_function(env, "addExternalBufferFinalizer", NAPI_AUTO_LENGTH, add_external_buffer_finalizer, NULL, &fn);
     napi_set_named_property(env, exports, "addExternalBufferFinalizer", fn);
 
+    napi_create_function(env, "setInstanceDataValue", NAPI_AUTO_LENGTH, set_instance_data_value, NULL, &fn);
+    napi_set_named_property(env, exports, "setInstanceDataValue", fn);
+
+    napi_create_function(env, "getInstanceDataValue", NAPI_AUTO_LENGTH, get_instance_data_value, NULL, &fn);
+    napi_set_named_property(env, exports, "getInstanceDataValue", fn);
+
+    napi_create_function(env, "registerCleanupHooks", NAPI_AUTO_LENGTH, register_cleanup_hooks, NULL, &fn);
+    napi_set_named_property(env, exports, "registerCleanupHooks", fn);
+
+    napi_create_function(env, "createExternalWithFinalizer", NAPI_AUTO_LENGTH, create_external_with_finalizer, NULL, &fn);
+    napi_set_named_property(env, exports, "createExternalWithFinalizer", fn);
+
+    napi_create_function(env, "clearExternalKeepalive", NAPI_AUTO_LENGTH, clear_external_keepalive, NULL, &fn);
+    napi_set_named_property(env, exports, "clearExternalKeepalive", fn);
+
+    napi_create_function(env, "addNullExternalBufferFinalizer", NAPI_AUTO_LENGTH, add_null_external_buffer_finalizer, NULL, &fn);
+    napi_set_named_property(env, exports, "addNullExternalBufferFinalizer", fn);
+
+    napi_create_function(env, "clearNullExternalBufferKeepalive", NAPI_AUTO_LENGTH, clear_null_external_buffer_keepalive, NULL, &fn);
+    napi_set_named_property(env, exports, "clearNullExternalBufferKeepalive", fn);
+
     napi_create_function(env, "finalizedCounts", NAPI_AUTO_LENGTH, finalized_counts, NULL, &fn);
     napi_set_named_property(env, exports, "finalizedCounts", fn);
 
@@ -344,6 +537,16 @@ static napi_value init(napi_env env, napi_value exports) {
 
     napi_create_function(env, "clearExternalBufferKeepalive", NAPI_AUTO_LENGTH, clear_external_buffer_keepalive, NULL, &fn);
     napi_set_named_property(env, exports, "clearExternalBufferKeepalive", fn);
+
+    int* initial_external_ptr = malloc(sizeof(int));
+    *initial_external_ptr = 9753;
+    napi_value initial_external;
+    napi_create_external(env, initial_external_ptr, external_finalizer, NULL, &initial_external);
+    napi_set_named_property(env, exports, "initialExternal", initial_external);
+
+    napi_value initial_null_external_buffer;
+    napi_create_external_buffer(env, 0, NULL, null_external_buffer_finalizer, NULL, &initial_null_external_buffer);
+    napi_set_named_property(env, exports, "initialNullExternalBuffer", initial_null_external_buffer);
 
     napi_value version;
     napi_create_int32(env, 42, &version);

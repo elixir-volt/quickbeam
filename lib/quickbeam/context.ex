@@ -50,7 +50,7 @@ defmodule QuickBEAM.Context do
   ]
 
   @type t :: %__MODULE__{
-          pool_resource: reference(),
+          pool_resource: QuickBEAM.ContextPool.pool_resource(),
           context_id: pos_integer(),
           pool: GenServer.server() | nil,
           handlers: map(),
@@ -79,12 +79,30 @@ defmodule QuickBEAM.Context do
   @spec eval(GenServer.server(), String.t(), keyword()) :: {:ok, term()} | {:error, String.t()}
   def eval(server, code, opts \\ []) when is_binary(code) do
     timeout_ms = Keyword.get(opts, :timeout, 0)
-    GenServer.call(server, {:eval, code, timeout_ms}, :infinity)
+    filename = Keyword.get(opts, :filename, "")
+
+    case Keyword.get(opts, :restore) do
+      nil ->
+        GenServer.call(server, {:eval, code, timeout_ms, filename}, :infinity)
+
+      name when is_atom(name) ->
+        GenServer.call(server, {:eval_restore, name, code, timeout_ms, filename}, :infinity)
+    end
   end
 
   @spec reset(GenServer.server()) :: :ok | {:error, String.t()}
   def reset(server) do
     GenServer.call(server, :reset, :infinity)
+  end
+
+  @spec snapshot(GenServer.server(), atom()) :: :ok | {:error, term()}
+  def snapshot(server, name \\ :default) when is_atom(name) do
+    GenServer.call(server, {:snapshot, name}, :infinity)
+  end
+
+  @spec restore(GenServer.server(), atom()) :: :ok | {:error, term()}
+  def restore(server, name \\ :default) when is_atom(name) do
+    GenServer.call(server, {:restore, name}, :infinity)
   end
 
   @spec stop(GenServer.server()) :: :ok
@@ -214,6 +232,20 @@ defmodule QuickBEAM.Context do
     end
   end
 
+  defp install_builtins(%{pool_resource: {:beam_worker, _, _}} = state, apis) do
+    js_sources = QuickBEAM.JS.polyfills_for(apis)
+
+    for js <- js_sources, do: sync_eval_source(state, js)
+
+    if :node in apis do
+      sync_eval_source(state, @node_js)
+    end
+
+    if apis != [] do
+      sync_eval_source(state, @beam_js)
+    end
+  end
+
   defp install_builtins(state, apis) do
     js_sources = QuickBEAM.JS.polyfills_for(apis)
 
@@ -284,11 +316,25 @@ defmodule QuickBEAM.Context do
     end
   end
 
+  defp sync_eval_source(%{pool_resource: {:beam_worker, worker, _}}, code) do
+    QuickBEAM.ContextPool.BEAMWorker.eval(worker, code, 0, "")
+  end
+
+  defp beam_context?(%{pool_resource: {:beam_worker, _, _}}), do: true
+  defp beam_context?(_), do: false
+
   defp load_script(state, path) do
     case QuickBEAM.Script.read(path) do
       {:ok, code} ->
-        ref = QuickBEAM.Native.pool_eval(state.pool_resource, state.context_id, code, 0)
-        await_eval_ref(ref, state)
+        if beam_context?(state) do
+          case sync_eval_source(state, code) do
+            {:ok, _} -> {:ok, state}
+            {:error, reason} -> {:error, {:script_error, reason}}
+          end
+        else
+          ref = QuickBEAM.Native.pool_eval(state.pool_resource, state.context_id, code, 0)
+          await_eval_ref(ref, state)
+        end
 
       {:error, reason} ->
         {:error, {:script_not_found, path, reason}}
@@ -316,10 +362,59 @@ defmodule QuickBEAM.Context do
     {:noreply, put_pending(state, ref, from)}
   end
 
+  def handle_call({:eval_restore, name, code, timeout_ms, filename}, from, state) do
+    ref = nif_eval_restore(state, name, code, timeout_ms, filename)
+    {:noreply, put_pending(state, ref, from, context_eval_transform())}
+  end
+
+  def handle_call({:snapshot, name}, _from, state) do
+    {:reply, context_snapshot(state, name), state}
+  end
+
+  def handle_call({:restore, name}, _from, state) do
+    {:reply, context_restore(state, name), state}
+  end
+
   # ── NIF dispatch callbacks ──
 
-  defp nif_eval(state, code, timeout),
+  defp nif_eval(state, code, timeout, filename \\ "")
+
+  defp nif_eval(
+         %{pool_resource: {:beam_worker, worker, _}} = _state,
+         code,
+         timeout,
+         filename
+       ) do
+    beam_worker_ref(fn ->
+      QuickBEAM.ContextPool.BEAMWorker.eval(worker, code, timeout, filename)
+    end)
+  end
+
+  defp nif_eval(state, code, timeout, _filename),
     do: QuickBEAM.Native.pool_eval(state.pool_resource, state.context_id, code, timeout)
+
+  defp nif_eval_restore(
+         %{pool_resource: {:beam_worker, worker, _}},
+         name,
+         code,
+         timeout,
+         filename
+       ) do
+    beam_worker_ref(fn ->
+      QuickBEAM.ContextPool.BEAMWorker.eval_restore(worker, name, code, timeout, filename)
+    end)
+  end
+
+  defp nif_eval_restore(_state, _name, _code, _timeout, _filename) do
+    beam_worker_ref(fn -> {:error, :snapshots_not_supported} end)
+  end
+
+  defp beam_worker_ref(fun) do
+    ref = make_ref()
+    caller = self()
+    Task.start(fn -> send(caller, {ref, fun.()}) end)
+    ref
+  end
 
   defp nif_call(state, fn_name, args, timeout),
     do:
@@ -343,8 +438,47 @@ defmodule QuickBEAM.Context do
   defp nif_dom_html(state),
     do: QuickBEAM.Native.pool_dom_html(state.pool_resource, state.context_id)
 
+  defp nif_reset(%{pool_resource: {:beam_worker, worker, _}}) do
+    ref = make_ref()
+    caller = self()
+
+    Task.start(fn ->
+      result =
+        case QuickBEAM.ContextPool.BEAMWorker.reset(worker) do
+          :ok -> {:ok, :ok}
+          other -> other
+        end
+
+      send(caller, {ref, result})
+    end)
+
+    ref
+  end
+
   defp nif_reset(state),
     do: QuickBEAM.Native.pool_reset_context(state.pool_resource, state.context_id)
+
+  defp context_snapshot(%{pool_resource: {:beam_worker, worker, _}}, name) do
+    QuickBEAM.ContextPool.BEAMWorker.snapshot(worker, name)
+  end
+
+  defp context_snapshot(_state, _name), do: {:error, :snapshots_not_supported}
+
+  defp context_restore(%{pool_resource: {:beam_worker, worker, _}}, name) do
+    QuickBEAM.ContextPool.BEAMWorker.restore(worker, name)
+  end
+
+  defp context_restore(_state, _name), do: {:error, :snapshots_not_supported}
+
+  defp context_eval_transform do
+    fn
+      {:error, reason} when reason in [:snapshots_not_supported, :snapshot_not_found] ->
+        {:error, reason}
+
+      other ->
+        js_error_transform().(other)
+    end
+  end
 
   defp nif_get_global(state, name),
     do: QuickBEAM.Native.pool_get_global(state.pool_resource, state.context_id, name)
@@ -452,14 +586,6 @@ defmodule QuickBEAM.Context do
     handle_websocket_started(socket_id, pid, state)
   end
 
-  def handle_info({:ws_send, socket_id, kind, payload}, state) do
-    QuickBEAM.Server.send_websocket(state, socket_id, kind, payload)
-  end
-
-  def handle_info({:ws_close, socket_id, code, reason}, state) do
-    QuickBEAM.Server.close_websocket(state, socket_id, code, reason)
-  end
-
   def handle_info({:websocket_event, message}, state) do
     QuickBEAM.Native.pool_send_message(state.pool_resource, state.context_id, message)
     {:noreply, state}
@@ -492,7 +618,13 @@ defmodule QuickBEAM.Context do
 
     shutdown_websockets(state)
 
-    QuickBEAM.Native.pool_destroy_context(state.pool_resource, state.context_id)
+    if beam_context?(state) do
+      {:beam_worker, worker, _} = state.pool_resource
+      GenServer.stop(worker)
+    else
+      QuickBEAM.Native.pool_destroy_context(state.pool_resource, state.context_id)
+    end
+
     :ok
   end
 

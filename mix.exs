@@ -12,6 +12,7 @@ defmodule QuickBEAM.MixProject do
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      elixirc_paths: elixirc_paths(Mix.env()),
       aliases: aliases(),
       dialyzer: [plt_add_apps: [:crypto, :inets, :ssl, :public_key]],
       name: "QuickBEAM",
@@ -27,7 +28,7 @@ defmodule QuickBEAM.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :inets, :ssl, :public_key, :xmerl],
+      extra_applications: [:logger, :inets, :ssl, :public_key, :xmerl, :tools, :runtime_tools],
       mod: {QuickBEAM.Application, []}
     ]
   end
@@ -41,34 +42,38 @@ defmodule QuickBEAM.MixProject do
       lint: [
         "format --check-formatted",
         "credo --strict",
-        "ex_dna",
+        "ex_dna --max-clones 0",
         "cmd zlint lib/quickbeam/*.zig lib/quickbeam/napi/*.zig",
         "cmd npx oxlint -c oxlint.json --type-aware --type-check priv/ts/",
-        "cmd sh -c \"npx jscpd priv/ts/*.ts --min-tokens 50 --threshold 0\""
+        "cmd sh -c \"npx jscpd lib/quickbeam/*.zig priv/ts/*.ts --min-tokens 50 --threshold 0\""
       ],
       ci: [
         "compile --warnings-as-errors",
         "format --check-formatted",
         "credo --strict",
         "dialyzer",
-        "ex_dna",
+        "ex_dna --max-clones 0",
         "cmd zlint lib/quickbeam/*.zig lib/quickbeam/napi/*.zig",
         "cmd npx oxlint -c oxlint.json --type-aware --type-check priv/ts/",
-        "cmd sh -c \"npx jscpd priv/ts/*.ts --min-tokens 50 --threshold 0\"",
+        "cmd sh -c \"npx jscpd lib/quickbeam/*.zig priv/ts/*.ts --min-tokens 50 --threshold 0\"",
         "test --no-start --exclude napi_addon --exclude napi_sqlite"
       ],
       "fuzz.sanity": "cmd --cd fuzz zig build test"
     ]
   end
 
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
   defp deps do
     [
       {:zigler_precompiled, "~> 0.1.4"},
+      {:yaml_elixir, "~> 2.11", only: [:dev, :test], runtime: false},
       {:zigler, "~> 0.15.2", runtime: false, optional: true},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:ex_dna, "~> 1.1", only: [:dev, :test], runtime: false},
-      {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false},
+      {:ex_dna, "~> 1.5", only: [:dev, :test], runtime: false},
+      {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:jason, "~> 1.4"},
       {:oxc, "~> 0.16.0"},
       {:npm, "~> 0.7.4", optional: true},
@@ -78,7 +83,9 @@ defmodule QuickBEAM.MixProject do
       {:websock_adapter, "~> 0.5", only: :test},
       {:benchee, "~> 1.3", only: :bench, runtime: false},
       {:quickjs_ex, "~> 0.3.1", only: :bench, runtime: false},
-      {:ex_doc, "~> 0.35", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.35", only: :dev, runtime: false},
+      {:reach, "~> 2.6", only: :dev, runtime: false},
+      {:ex_ast, "~> 0.10", only: [:dev, :test]}
     ]
   end
 
@@ -103,11 +110,12 @@ defmodule QuickBEAM.MixProject do
       extras: [
         "README.md",
         "docs/javascript-api.md",
+        "docs/elixir-api.md",
         "docs/architecture.md",
         "CHANGELOG.md"
       ],
       groups_for_extras: [
-        Guides: ["docs/javascript-api.md", "docs/architecture.md"]
+        Guides: ["docs/javascript-api.md", "docs/elixir-api.md", "docs/architecture.md"]
       ],
       source_ref: "v#{@version}"
     ]

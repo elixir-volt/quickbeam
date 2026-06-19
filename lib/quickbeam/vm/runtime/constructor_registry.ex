@@ -1,0 +1,76 @@
+defmodule QuickBEAM.VM.Runtime.ConstructorRegistry do
+  @moduledoc "Helpers for looking up and invoking globally registered JS constructors."
+
+  alias QuickBEAM.VM.{Heap, Runtime}
+
+  @doc "Registers a constructor without creating a prototype."
+  def register(name, constructor), do: register(name, constructor, [])
+
+  @doc "Associates a constructor with its class prototype and static `prototype` property."
+  def put_prototype(ctor, proto) do
+    Heap.put_class_proto(ctor, proto)
+    Heap.put_ctor_static(ctor, "prototype", proto)
+    ctor
+  end
+
+  @doc "Registers a constructor using options such as `:module`, `:prototype`, and `:auto_proto`."
+  def register(name, constructor, opts) when is_list(opts) do
+    ctor = {:builtin, name, constructor}
+
+    opts
+    |> Keyword.get(:module)
+    |> put_module_static(ctor)
+
+    case Keyword.get(opts, :prototype) do
+      nil ->
+        if Keyword.get(opts, :auto_proto, false) do
+          register_proto(
+            ctor,
+            %{},
+            Keyword.get(opts, :prototype_parent, Heap.get_object_prototype())
+          )
+        end
+
+      proto ->
+        put_prototype(ctor, proto)
+    end
+
+    ctor
+  end
+
+  @doc "Registers a constructor with a freshly wrapped prototype map and optional parent prototype."
+  def register(name, constructor, proto_properties, parent) when is_map(proto_properties) do
+    ctor = {:builtin, name, constructor}
+    register_proto(ctor, proto_properties, parent)
+    ctor
+  end
+
+  defp register_proto(ctor, proto_properties, parent) do
+    proto =
+      proto_properties
+      |> Map.put("constructor", ctor)
+      |> QuickBEAM.VM.Builtin.put_if_present("__proto__", parent)
+      |> Heap.wrap()
+
+    put_prototype(ctor, proto)
+  end
+
+  defp put_module_static(nil, _ctor), do: :ok
+  defp put_module_static(module, ctor), do: Heap.put_ctor_static(ctor, :__module__, module)
+
+  @doc "Looks up a constructor by JavaScript global name."
+  def lookup(name) do
+    case Map.get(Runtime.global_bindings(), name) do
+      {:builtin, _, _} = ctor -> ctor
+      _ -> nil
+    end
+  end
+
+  @doc "Returns the class prototype for the globally registered constructor `name`."
+  def class_proto(name) do
+    case lookup(name) do
+      nil -> nil
+      ctor -> Heap.get_class_proto(ctor)
+    end
+  end
+end

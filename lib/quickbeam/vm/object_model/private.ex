@@ -1,0 +1,140 @@
+defmodule QuickBEAM.VM.ObjectModel.Private do
+  @moduledoc "Private class fields and brand checks: get, put, and `in` operator support for `#field` syntax."
+
+  import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
+
+  alias QuickBEAM.VM.Heap
+  alias QuickBEAM.VM.ObjectModel.Functions
+  alias QuickBEAM.VM.Value
+
+  @doc "Creates an internal symbol for a JavaScript private name."
+  def private_symbol(name) when is_binary(name), do: {:private_symbol, name, make_ref()}
+
+  def get_field({:obj, ref}, key) do
+    Map.get(Heap.get_obj(ref, %{}), {:private, key}, :missing)
+  end
+
+  def get_field({:closure, _, %QuickBEAM.VM.Function{}} = ctor, key),
+    do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :missing)
+
+  def get_field(%QuickBEAM.VM.Function{} = ctor, key),
+    do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :missing)
+
+  def get_field({:builtin, _, _} = ctor, key),
+    do: Map.get(Heap.get_ctor_statics(ctor), {:private, key}, :missing)
+
+  def get_field(_, _key), do: :missing
+
+  @doc "Returns whether a target has a private field."
+  def has_field?(target, key), do: get_field(target, key) != :missing
+
+  def has_private_or_brand?(target, key), do: has_field?(target, key) or has_brand?(target, key)
+
+  def has_brand?(target, brand), do: brand_match?(target, brand)
+
+  def put_field!(target, key, val) do
+    if has_field?(target, key) do
+      define_field!(target, key, val)
+    else
+      :error
+    end
+  end
+
+  @doc "Defines or overwrites a private field on an object or constructor."
+  def define_field!({:obj, ref}, key, val) do
+    Heap.update_obj(ref, %{}, &Map.put(&1, {:private, key}, val))
+    :ok
+  end
+
+  def define_field!({:closure, _, %QuickBEAM.VM.Function{}} = ctor, key, val) do
+    Heap.put_ctor_static(ctor, {:private, key}, val)
+    :ok
+  end
+
+  def define_field!(%QuickBEAM.VM.Function{} = ctor, key, val) do
+    Heap.put_ctor_static(ctor, {:private, key}, val)
+    :ok
+  end
+
+  def define_field!({:builtin, _, _} = ctor, key, val) do
+    Heap.put_ctor_static(ctor, {:private, key}, val)
+    :ok
+  end
+
+  def define_field!(_, _key, _val), do: :error
+
+  @doc "Returns the private brands attached to a target."
+  def brands({:obj, ref}), do: Map.get(Heap.get_obj(ref, %{}), :__brands__, [])
+
+  def brands({:closure, _, %QuickBEAM.VM.Function{}} = ctor),
+    do: Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
+
+  def brands(%QuickBEAM.VM.Function{} = ctor),
+    do: Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
+
+  def brands({:builtin, _, _} = ctor), do: Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
+  def brands(_), do: []
+
+  @doc "Attaches a private brand to an object or constructor."
+  def add_brand({:obj, ref}, brand) do
+    Heap.update_obj(ref, %{}, fn map ->
+      existing = Map.get(map, :__brands__, [])
+      Map.put(map, :__brands__, [brand | existing])
+    end)
+
+    :ok
+  end
+
+  def add_brand({:closure, _, %QuickBEAM.VM.Function{}} = ctor, brand) do
+    add_ctor_brand(ctor, brand)
+    :ok
+  end
+
+  def add_brand(%QuickBEAM.VM.Function{} = ctor, brand) do
+    add_ctor_brand(ctor, brand)
+    :ok
+  end
+
+  def add_brand({:builtin, _, _} = ctor, brand) do
+    add_ctor_brand(ctor, brand)
+    :ok
+  end
+
+  def add_brand(_obj, _brand), do: :ok
+
+  @doc "Checks that a target carries a private brand."
+  def ensure_brand(target, brand) do
+    if brand_match?(target, brand), do: :ok, else: :error
+  end
+
+  def brand_error, do: Heap.make_error("invalid brand on object", "TypeError")
+
+  defp brand_match?(target, brand) do
+    target_brands = brands(target)
+    home_object = Functions.current_home_object(brand)
+
+    brand in target_brands or
+      (not Value.nullish?(home_object) and
+         (home_object in target_brands or brand_home_match?(target, home_object)))
+  end
+
+  defp brand_home_match?({:obj, ref}, home_object) do
+    object = Heap.get_obj(ref, %{})
+
+    if Heap.pending_private_brand?({:obj, ref}) do
+      false
+    else
+      parent = if is_map(object), do: Map.get(object, proto(), :undefined), else: :undefined
+      parent == home_object or brand_home_match?(parent, home_object)
+    end
+  end
+
+  defp brand_home_match?(:undefined, _home_object), do: false
+  defp brand_home_match?(nil, _home_object), do: false
+  defp brand_home_match?(_, _home_object), do: false
+
+  defp add_ctor_brand(ctor, brand) do
+    existing = Map.get(Heap.get_ctor_statics(ctor), :__brands__, [])
+    Heap.put_ctor_static(ctor, :__brands__, [brand | existing])
+  end
+end

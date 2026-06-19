@@ -110,7 +110,7 @@ defmodule QuickBEAM.Core.ConcurrencyTest do
         result = QuickBEAM.eval(rt, "await Beam.call('maybe_fail', #{i})")
 
         if rem(i, 3) == 0 do
-          assert {:error, %QuickBEAM.JSError{}} = result
+          assert {:error, %QuickBEAM.JS.Error{}} = result
         else
           assert {:ok, val} = result
           assert val == i * 2
@@ -606,7 +606,7 @@ defmodule QuickBEAM.Core.ConcurrencyTest do
     test "eval with timeout returns error on infinite loop" do
       {:ok, rt} = QuickBEAM.start()
       result = QuickBEAM.eval(rt, "while(true) {}", timeout: 200)
-      assert {:error, %QuickBEAM.JSError{}} = result
+      assert {:error, %QuickBEAM.JS.Error{}} = result
 
       {:ok, 42} = QuickBEAM.eval(rt, "42")
       QuickBEAM.stop(rt)
@@ -620,7 +620,7 @@ defmodule QuickBEAM.Core.ConcurrencyTest do
       """)
 
       result = QuickBEAM.call(rt, "slow", [], timeout: 200)
-      assert {:error, %QuickBEAM.JSError{}} = result
+      assert {:error, %QuickBEAM.JS.Error{}} = result
 
       {:ok, 42} = QuickBEAM.eval(rt, "42")
       QuickBEAM.stop(rt)
@@ -657,7 +657,7 @@ defmodule QuickBEAM.Core.ConcurrencyTest do
     test "stack overflow doesn't crash runtime" do
       {:ok, rt} = QuickBEAM.start()
 
-      {:error, %QuickBEAM.JSError{name: "RangeError"}} =
+      {:error, %QuickBEAM.JS.Error{name: "RangeError"}} =
         QuickBEAM.eval(rt, "function f() { f() }; f()")
 
       {:ok, 42} = QuickBEAM.eval(rt, "42")

@@ -1,0 +1,915 @@
+defmodule QuickBEAM.VM.ObjectModel.OwnProperty do
+  @moduledoc "Own-property predicates, key enumeration, and descriptor construction."
+
+  import QuickBEAM.VM.Heap.Keys
+
+  alias QuickBEAM.VM.{Builtin, Heap, JSThrow, Runtime, Value}
+  alias QuickBEAM.VM.Execution.RegexpState
+
+  alias QuickBEAM.VM.ObjectModel.{
+    ArrayExotic,
+    Get,
+    InternalMethods,
+    Semantics,
+    Static,
+    PropertyDescriptor,
+    PropertyKey,
+    ProxyOwnProperty,
+    WrappedPrimitive
+  }
+
+  alias QuickBEAM.VM.Runtime.Date, as: JSDate
+  alias QuickBEAM.VM.Runtime.TypedArray
+
+  def present?({:obj, ref}, key) do
+    cond do
+      key in ["caller", "arguments"] and Heap.get_func_proto() == {:obj, ref} ->
+        Heap.get_prop_desc(ref, key) != :deleted
+
+      key == "length" and array_prototype_object?(Heap.get_obj_raw(ref)) ->
+        true
+
+      match?(%{^key => _}, Heap.get_regexp_result(ref) || %{}) ->
+        true
+
+      key == proto() and Heap.get_prop_desc(ref, key) == nil ->
+        false
+
+      true ->
+        present?(ref, Heap.get_obj(ref, %{}), key)
+    end
+  end
+
+  def present?(%QuickBEAM.VM.Function{} = target, key), do: callable_present?(target, key)
+
+  def present?(map, key) when is_map(map) do
+    raw_key = integer_property_key(key)
+
+    Map.has_key?(map, key) or (raw_key != :error and Map.has_key?(map, raw_key)) or
+      wrapped_string_length_present?(map, key) or wrapped_string_index_present?(map, key)
+  end
+
+  def present?(list, key) when is_list(list) do
+    case PropertyKey.array_index(key) do
+      {:ok, idx} -> idx < length(list)
+      :error -> key == "length"
+    end
+  end
+
+  def present?({:qb_arr, arr}, key) do
+    case PropertyKey.array_index(key) do
+      {:ok, idx} -> idx < :array.size(arr)
+      :error -> key == "length"
+    end
+  end
+
+  def present?(string, key) when is_binary(string) do
+    case PropertyKey.array_index(key) do
+      {:ok, idx} -> idx < Get.string_length(string)
+      :error -> key == "length"
+    end
+  end
+
+  def present?({:builtin, "Object", _}, "prototype"), do: true
+
+  def present?({:regexp, _, _, ref}, key), do: RegexpState.has_property?(ref, key)
+
+  def present?({:builtin, "Object", _} = builtin, "assign"),
+    do: not Static.deleted?(builtin, "assign")
+
+  def present?({:builtin, _, _} = builtin, key) when key in ["name", "length"] do
+    Builtin.callable?(builtin) and not Static.deleted?(builtin, key)
+  end
+
+  def present?({:builtin, _, map} = builtin, key) do
+    if Static.deleted?(builtin, key) do
+      false
+    else
+      statics = Heap.get_ctor_statics(builtin)
+
+      (is_map(map) and Map.has_key?(map, key)) or Map.has_key?(statics, key) or
+        module_static_present?(Map.get(statics, :__module__), builtin, key)
+    end
+  end
+
+  def present?(target, key) when is_tuple(target) or is_struct(target),
+    do: callable_present?(target, key)
+
+  def present?(_target, _key), do: false
+
+  defp callable_present?(target, key) do
+    prop_key = PropertyKey.normalize(key)
+
+    not Static.deleted?(target, prop_key) and
+      (Map.has_key?(Heap.get_ctor_statics(target), prop_key) or
+         Map.has_key?(Heap.get_ctor_prop_descs(target), prop_key) or
+         virtual_callable_property?(target, prop_key))
+  end
+
+  defp virtual_callable_property?(target, "prototype"), do: has_prototype?(target)
+  defp virtual_callable_property?(target, "length"), do: not deleted_static?(target, "length")
+  defp virtual_callable_property?(target, "name"), do: not deleted_static?(target, "name")
+  defp virtual_callable_property?(_, _), do: false
+
+  defp has_prototype?(target), do: Value.has_function_prototype?(target)
+
+  defp deleted_static?(target, key), do: Static.deleted?(target, key)
+
+  defp module_static_present?(module, builtin, key) when is_atom(module) do
+    module_static_own?(module, builtin, key) and module_static_value(module, key) != :undefined
+  end
+
+  defp module_static_present?(_module, _builtin, _key), do: false
+
+  defp module_static_own?(QuickBEAM.VM.Runtime.TypedArray, {:builtin, name, _}, key)
+       when key in ["from", "of", {:symbol, "Symbol.species"}] do
+    QuickBEAM.VM.Runtime.TypedArray.Metadata.constructor_type(name) == nil
+  end
+
+  defp module_static_own?(_module, _builtin, _key), do: true
+
+  defp module_static_value(module, key) when is_atom(module) do
+    if function_exported?(module, :static_property, 1),
+      do: module.static_property(key),
+      else: :undefined
+  end
+
+  defp module_static_value(_module, _key), do: :undefined
+
+  defp present?(ref, data, key) when is_list(data) do
+    present_array_property?(ref, key)
+  end
+
+  defp present?(ref, {:qb_arr, _}, key) do
+    present_array_property?(ref, key)
+  end
+
+  defp present?(ref, %{typed_array() => true}, key) do
+    case typed_array_index_key(key) do
+      idx when is_integer(idx) ->
+        not TypedArray.out_of_bounds?({:obj, ref}) and idx < typed_array_index_count(ref)
+
+      nil ->
+        present?(Heap.get_obj(ref, %{}), key)
+    end
+  end
+
+  defp present?(_ref, data, key), do: present?(data, key)
+
+  defp typed_array_index_count(ref) do
+    state = Heap.get_obj(ref, %{})
+
+    if Map.get(state, "__length_tracking__") do
+      case Map.get(state, "buffer") do
+        {:obj, buffer_ref} ->
+          buffer = Heap.get_obj(buffer_ref, %{})
+          byte_length = byte_size(Map.get(buffer, buffer(), Map.get(state, buffer(), <<>>)))
+          byte_offset = Map.get(state, "byteOffset", 0)
+          element_size = TypedArray.elem_size(Map.get(state, type_key(), :uint8))
+          div(max(byte_length - byte_offset, 0), element_size)
+
+        _ ->
+          TypedArray.element_count({:obj, ref})
+      end
+    else
+      Map.get(state, "__fixed_length__", TypedArray.element_count({:obj, ref}))
+    end
+  end
+
+  defp typed_array_index_key(key) do
+    case PropertyKey.array_index(key) do
+      {:ok, idx} -> idx
+      :error -> nil
+    end
+  end
+
+  defp present_array_property?(ref, key) when is_binary(key) or is_integer(key) do
+    prop_key = to_string(key)
+
+    case PropertyKey.array_index(prop_key) do
+      {:ok, idx} ->
+        Heap.array_get(ref, idx) != :undefined or Heap.get_array_prop(ref, prop_key) != :undefined or
+          Heap.get_prop_desc(ref, prop_key) != nil
+
+      :error ->
+        key == "length" or Heap.get_array_prop(ref, prop_key) != :undefined or
+          Heap.get_prop_desc(ref, prop_key) != nil
+    end
+  end
+
+  defp present_array_property?(ref, key) do
+    Heap.get_array_prop(ref, key) != :undefined or Heap.get_prop_desc(ref, key) != nil
+  end
+
+  def enumerable?({:obj, ref}, key),
+    do: not match?(%{enumerable: false}, Heap.get_prop_desc(ref, key))
+
+  def enumerable?({:builtin, "Object", _}, "assign"), do: false
+
+  def enumerable?({:builtin, _, _} = target, key) do
+    case descriptor(target, key) do
+      {:obj, desc_ref} -> QuickBEAM.VM.ObjectModel.Get.get({:obj, desc_ref}, "enumerable") == true
+      _ -> false
+    end
+  end
+
+  def enumerable?(target, key)
+      when key in ["length", "name", "prototype"] and (is_tuple(target) or is_struct(target)) do
+    case descriptor(target, key) do
+      {:obj, desc_ref} -> QuickBEAM.VM.ObjectModel.Get.get({:obj, desc_ref}, "enumerable") == true
+      _ -> false
+    end
+  end
+
+  def enumerable?(string, key) when is_binary(string), do: key != "length"
+  def enumerable?(_target, _key), do: true
+
+  def descriptor_keys(target), do: own_keys(target)
+
+  def own_keys(target), do: InternalMethods.own_keys(target)
+
+  def ordinary_own_keys({:obj, ref}) do
+    case Heap.get_obj(ref, %{}) do
+      {:qb_arr, arr} ->
+        array_present_indices(ref, :array.size(arr)) ++ ["length"] ++ array_property_keys(ref)
+
+      list when is_list(list) ->
+        array_present_indices(ref, length(list)) ++ ["length"] ++ array_property_keys(ref)
+
+      %{typed_array() => true} = map ->
+        typed_array_own_keys({:obj, ref}, map)
+
+      map when is_map(map) ->
+        ordered_map_keys(map)
+
+      _ ->
+        []
+    end
+  end
+
+  def ordinary_own_keys(%QuickBEAM.VM.Function{} = fun), do: callable_descriptor_keys(fun)
+
+  def ordinary_own_keys({:closure, _, %QuickBEAM.VM.Function{}} = fun),
+    do: callable_descriptor_keys(fun)
+
+  def ordinary_own_keys({:builtin, _, map} = builtin) do
+    if Builtin.callable?(builtin),
+      do: callable_descriptor_keys(builtin, map),
+      else: builtin_namespace_descriptor_keys(builtin, map)
+  end
+
+  def ordinary_own_keys({:bound, _, _, _, _} = bound), do: callable_descriptor_keys(bound)
+
+  def ordinary_own_keys({:regexp, _, _, ref}) do
+    keys = RegexpState.get(ref) |> Map.keys() |> Enum.reject(&descriptor_internal_key?/1)
+    (["lastIndex"] ++ (Enum.reverse(keys) -- ["lastIndex"])) |> Enum.uniq()
+  end
+
+  def ordinary_own_keys(string) when is_binary(string),
+    do: array_indices(Get.string_length(string)) ++ ["length"]
+
+  def ordinary_own_keys(_), do: []
+
+  defp builtin_namespace_descriptor_keys(builtin, inline_map) do
+    statics = Heap.get_ctor_statics(builtin)
+    static_keys = statics |> Map.keys() |> Enum.filter(&callable_descriptor_key?/1)
+    inline_keys = if is_map(inline_map), do: Map.keys(inline_map), else: []
+    module_keys = module_static_keys(Map.get(statics, :__module__))
+
+    (static_keys ++ inline_keys ++ module_keys)
+    |> Enum.uniq()
+    |> Enum.filter(&(callable_descriptor_key?(&1) and present?(builtin, &1)))
+  end
+
+  defp callable_descriptor_keys(callable, inline_map \\ nil) do
+    statics = Heap.get_ctor_statics(callable)
+
+    static_keys = statics |> Map.keys() |> Enum.filter(&callable_descriptor_key?/1)
+    inline_keys = if is_map(inline_map), do: Map.keys(inline_map), else: []
+    module_keys = module_static_keys(Map.get(statics, :__module__))
+
+    explicit_keys =
+      Enum.filter(static_keys ++ inline_keys ++ module_keys, &callable_descriptor_key?/1)
+
+    builtin_order = ["length", "name", "prototype"]
+
+    (builtin_order ++ (explicit_keys -- builtin_order))
+    |> Enum.uniq()
+    |> Enum.filter(&present?(callable, &1))
+  end
+
+  defp callable_descriptor_key?(key) when is_binary(key),
+    do: not internal?(key)
+
+  defp callable_descriptor_key?({:symbol, _}), do: true
+  defp callable_descriptor_key?(_key), do: false
+
+  defp module_static_keys(module) when is_atom(module) do
+    if function_exported?(module, :static_property_names, 0),
+      do: module.static_property_names(),
+      else: []
+  end
+
+  defp module_static_keys(_module), do: []
+
+  defp typed_array_own_keys(obj, map) do
+    indexes = array_indices(TypedArray.element_count(obj))
+
+    ordinary_keys =
+      map
+      |> ordered_map_keys()
+      |> Enum.reject(&typed_array_storage_key?/1)
+      |> Enum.reject(&array_index_key?/1)
+
+    indexes ++ ordinary_keys
+  end
+
+  defp typed_array_storage_key?(key)
+       when key in [
+              "length",
+              "byteLength",
+              "byteOffset",
+              "BYTES_PER_ELEMENT",
+              "buffer",
+              "__length_tracking__",
+              "__fixed_length__",
+              "__fixed_byte_length__"
+            ],
+       do: true
+
+  defp typed_array_storage_key?(_key), do: false
+
+  defp ordered_map_keys(map) do
+    insertion_order =
+      case Map.get(map, key_order()) do
+        order when is_list(order) -> Enum.reverse(order)
+        _ -> []
+      end
+
+    virtual_keys = wrapped_string_index_keys(map)
+    keys = virtual_keys ++ insertion_order ++ (Map.keys(map) -- (insertion_order -- virtual_keys))
+    keys = Enum.reject(keys, &descriptor_internal_key?/1)
+
+    {indexes, rest} = Enum.split_with(keys, &array_index_key?/1)
+    {strings, symbols} = Enum.split_with(rest, &is_binary/1)
+
+    Enum.sort_by(indexes, &array_index_value/1) ++ strings ++ symbols
+  end
+
+  defp wrapped_string_length_present?(map, "length") when is_map(map) do
+    match?({:ok, string} when is_binary(string), WrappedPrimitive.value(map, :string))
+  end
+
+  defp wrapped_string_length_present?(_map, _key), do: false
+
+  defp wrapped_string_index_present?(map, key) when is_map(map) do
+    with {:ok, string} when is_binary(string) <- WrappedPrimitive.value(map, :string),
+         {:ok, idx} <- PropertyKey.array_index(key) do
+      idx < Get.string_length(string)
+    else
+      _ -> false
+    end
+  end
+
+  defp wrapped_string_index_keys(map) when is_map(map) do
+    case WrappedPrimitive.value(map, :string) do
+      {:ok, string} when is_binary(string) ->
+        array_indices(Get.string_length(string)) ++ ["length"]
+
+      _ ->
+        []
+    end
+  end
+
+  defp integer_property_key(key) do
+    case PropertyKey.array_index(key) do
+      {:ok, index} -> index
+      :error -> :error
+    end
+  end
+
+  defp array_index_key?(key), do: match?({:ok, _}, PropertyKey.array_index(key))
+
+  defp array_index_value(key) do
+    {:ok, idx} = PropertyKey.array_index(key)
+    idx
+  end
+
+  def descriptor({:obj, ref}, key) do
+    prop_name = PropertyKey.normalize(key)
+    data = Heap.get_obj(ref, %{})
+
+    cond do
+      match?(%{^prop_name => _}, Heap.get_regexp_result(ref) || %{}) ->
+        %{^prop_name => value} = Heap.get_regexp_result(ref)
+
+        PropertyDescriptor.data_object(
+          value,
+          PropertyDescriptor.attrs(writable: true, enumerable: true, configurable: true)
+        )
+
+      prop_name in ["caller", "arguments"] and Heap.get_func_proto() == {:obj, ref} and
+          Heap.get_prop_desc(ref, prop_name) != :deleted ->
+        thrower = Heap.throw_type_error_intrinsic()
+
+        PropertyDescriptor.accessor_object(
+          thrower,
+          thrower,
+          PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: true)
+        )
+
+      array_prototype_object?(data) and prop_name == "length" ->
+        array_prototype_length_descriptor(ref, data)
+
+      is_map(data) and Map.get(data, "__proxy_revoked__") == true and
+          Map.has_key?(data, proxy_target()) ->
+        JSThrow.type_error!("Cannot perform operation on a revoked proxy")
+
+      is_map(data) and Map.has_key?(data, proxy_target()) ->
+        ProxyOwnProperty.dispatch(data, prop_name, &descriptor/2, &target_descriptor_flags/2)
+
+      is_list(data) or match?({:qb_arr, _}, data) ->
+        ArrayExotic.descriptor(ref, data, prop_name)
+
+      is_map(data) and Map.get(data, typed_array()) ->
+        typed_array_descriptor({:obj, ref}, prop_name)
+
+      is_map(data) ->
+        map_descriptor(ref, data, prop_name)
+
+      true ->
+        :undefined
+    end
+  end
+
+  def descriptor(string, key) when is_binary(string) do
+    prop_name = PropertyKey.normalize(key)
+
+    cond do
+      prop_name == "length" ->
+        PropertyDescriptor.data_object(
+          Get.string_length(string),
+          PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: false)
+        )
+
+      true ->
+        with {:ok, idx} <- PropertyKey.array_index(prop_name),
+             true <- idx < Get.string_length(string) do
+          PropertyDescriptor.data_object(
+            QuickBEAM.VM.Runtime.String.utf16_code_unit_at(string, idx),
+            PropertyDescriptor.attrs(writable: false, enumerable: true, configurable: false)
+          )
+        else
+          _ -> :undefined
+        end
+    end
+  end
+
+  def descriptor({:regexp, _, _, ref}, key) do
+    case RegexpState.fetch(ref, key) do
+      {:ok, {:accessor, getter, setter}} ->
+        PropertyDescriptor.accessor_object(
+          getter,
+          setter,
+          Heap.get_prop_desc(ref, key) ||
+            PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: false)
+        )
+
+      {:ok, value} ->
+        default_attrs =
+          if key == "lastIndex" do
+            PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: false)
+          else
+            PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: true)
+          end
+
+        PropertyDescriptor.data_object(value, Heap.get_prop_desc(ref, key) || default_attrs)
+
+      :error when key == "lastIndex" ->
+        PropertyDescriptor.data_object(
+          0,
+          PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: false)
+        )
+
+      :error ->
+        :undefined
+    end
+  end
+
+  def descriptor({:builtin, name, map} = builtin, key) do
+    prop_key = if is_binary(key), do: key, else: key
+    statics = Heap.get_ctor_statics(builtin)
+    module = Map.get(statics, :__module__)
+
+    fallback =
+      cond do
+        is_map(map) and Map.has_key?(map, prop_key) ->
+          Map.get(map, prop_key)
+
+        module_static_present?(module, builtin, prop_key) ->
+          module_static_value(module, prop_key)
+
+        prop_key == "length" and is_function(map) ->
+          Builtin.declared_length(builtin, builtin_function_length(map, name))
+
+        true ->
+          builtin_descriptor_value(name, prop_key)
+      end
+
+    case Map.get(statics, prop_key, fallback) do
+      :deleted ->
+        :undefined
+
+      {:accessor, getter, setter} ->
+        attrs =
+          Heap.get_prop_desc(builtin, prop_key) || Heap.get_ctor_prop_desc(builtin, prop_key) ||
+            PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: true)
+
+        PropertyDescriptor.accessor_object(getter, setter, attrs)
+
+      nil ->
+        :undefined
+
+      val ->
+        PropertyDescriptor.data_object(
+          val,
+          Heap.get_prop_desc(builtin, prop_key) || Heap.get_ctor_prop_desc(builtin, prop_key) ||
+            builtin_descriptor_attrs(module, prop_key, val)
+        )
+    end
+  end
+
+  def descriptor(%QuickBEAM.VM.Function{} = target, key) do
+    callable_descriptor(target, key)
+  end
+
+  def descriptor({:closure, _, %QuickBEAM.VM.Function{}} = target, key) do
+    callable_descriptor(target, key)
+  end
+
+  def descriptor({:bound, _, _, _, _} = target, key) do
+    callable_descriptor(target, key)
+  end
+
+  def descriptor(target, key) when is_tuple(target) or is_struct(target) do
+    prop_key = PropertyKey.normalize(key)
+
+    case Map.fetch(Heap.get_ctor_statics(target), prop_key) do
+      {:ok, {:accessor, getter, setter}} ->
+        PropertyDescriptor.accessor_object(
+          getter,
+          setter,
+          callable_prop_desc(target, prop_key) ||
+            PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: false)
+        )
+
+      {:ok, value} when value != :deleted ->
+        PropertyDescriptor.data_object(
+          value,
+          callable_prop_desc(target, prop_key) ||
+            PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: true)
+        )
+
+      _ ->
+        if Map.has_key?(Heap.get_ctor_prop_descs(target), prop_key) do
+          PropertyDescriptor.data_object(:undefined, callable_prop_desc(target, prop_key))
+        else
+          :undefined
+        end
+    end
+  end
+
+  def descriptor(_target, _key), do: :undefined
+
+  defp array_prototype_object?(raw), do: Semantics.array_prototype_object?(raw)
+
+  defp array_prototype_length_descriptor(ref, data) do
+    value =
+      case Heap.get_array_prop(ref, "length") do
+        len when is_integer(len) -> len
+        _ -> array_prototype_index_length(data)
+      end
+
+    desc =
+      Heap.get_prop_desc(ref, "length") ||
+        PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: false)
+
+    PropertyDescriptor.data_object(value, desc)
+  end
+
+  defp array_prototype_index_length(raw) when is_tuple(raw),
+    do: array_prototype_index_length(Map.keys(Heap.shape_offsets(raw)))
+
+  defp array_prototype_index_length(map) when is_map(map),
+    do: array_prototype_index_length(Map.keys(map))
+
+  defp array_prototype_index_length(keys) do
+    Enum.reduce(keys, 0, fn key, length ->
+      case PropertyKey.array_index(key) do
+        {:ok, index} -> max(length, index + 1)
+        :error -> length
+      end
+    end)
+  end
+
+  defp callable_descriptor(target, key) do
+    prop_key = PropertyKey.normalize(key)
+
+    case Map.fetch(Heap.get_ctor_statics(target), prop_key) do
+      {:ok, {:accessor, getter, setter}} ->
+        PropertyDescriptor.accessor_object(
+          getter,
+          setter,
+          callable_prop_desc(target, prop_key) || builtin_descriptor_attrs(prop_key)
+        )
+
+      {:ok, value} when value != :deleted ->
+        PropertyDescriptor.data_object(
+          value,
+          callable_prop_desc(target, prop_key) || builtin_descriptor_attrs(prop_key)
+        )
+
+      {:ok, :deleted} ->
+        :undefined
+
+      _ when prop_key == "length" ->
+        PropertyDescriptor.data_object(
+          callable_length(target),
+          callable_prop_desc(target, prop_key) ||
+            PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: true)
+        )
+
+      _ when prop_key == "name" ->
+        PropertyDescriptor.data_object(
+          callable_name(target),
+          callable_prop_desc(target, prop_key) ||
+            PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: true)
+        )
+
+      _ when prop_key == "prototype" ->
+        if has_prototype?(target) do
+          PropertyDescriptor.data_object(
+            Heap.get_or_create_prototype(target),
+            callable_prop_desc(target, prop_key) ||
+              PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: false)
+          )
+        else
+          :undefined
+        end
+
+      _ ->
+        if Map.has_key?(Heap.get_ctor_prop_descs(target), prop_key) do
+          PropertyDescriptor.data_object(:undefined, callable_prop_desc(target, prop_key))
+        else
+          :undefined
+        end
+    end
+  end
+
+  defp callable_length(%QuickBEAM.VM.Function{defined_arg_count: n}), do: n
+  defp callable_length({:closure, _, %QuickBEAM.VM.Function{defined_arg_count: n}}), do: n
+  defp callable_length({:bound, len, _, _, _}), do: len
+  defp callable_length(_), do: 0
+
+  defp callable_name(%QuickBEAM.VM.Function{name: n}) when is_binary(n), do: n
+  defp callable_name({:closure, _, %QuickBEAM.VM.Function{name: n}}) when is_binary(n), do: n
+  defp callable_name({:bound, _, {:builtin, n, _}, _, _}), do: n
+  defp callable_name(_), do: ""
+
+  defp callable_prop_desc(target, prop_key) do
+    Heap.get_prop_desc(target, prop_key) || Heap.get_ctor_prop_desc(target, prop_key)
+  end
+
+  defp typed_array_descriptor({:obj, ref} = obj, prop_name) do
+    case TypedArray.integer_index_key(prop_name) do
+      {:ok, idx} ->
+        val = TypedArray.get_element(obj, idx)
+
+        if val == :undefined do
+          :undefined
+        else
+          immutable = TypedArray.immutable?(obj)
+
+          PropertyDescriptor.data_object(
+            val,
+            PropertyDescriptor.attrs(
+              writable: not immutable,
+              enumerable: true,
+              configurable: not immutable
+            )
+          )
+        end
+
+      :invalid ->
+        :undefined
+
+      :not_integer_index ->
+        data = Heap.get_obj(ref, %{})
+
+        if Heap.get_prop_desc(ref, prop_name) do
+          map_descriptor(ref, data, prop_name)
+        else
+          :undefined
+        end
+    end
+  end
+
+  defp map_descriptor(ref, data, prop_name) do
+    prop_desc = Heap.get_prop_desc(ref, prop_name)
+    wrapped_string_length = wrapped_string_length_descriptor(data, prop_name)
+
+    if prop_desc == :deleted do
+      :undefined
+    else
+      map_descriptor(ref, data, prop_name, prop_desc, wrapped_string_length)
+    end
+  end
+
+  defp map_descriptor(ref, data, prop_name, prop_desc, wrapped_string_length) do
+    case Map.fetch(data, prop_name) do
+      _ when prop_name == proto() and prop_desc == nil ->
+        :undefined
+
+      _ when wrapped_string_length != nil ->
+        wrapped_string_length
+
+      :error ->
+        wrapped_string_index_descriptor(data, prop_name) ||
+          prototype_method_descriptor(data, prop_name)
+
+      {:ok, {:accessor, getter, setter}} ->
+        desc =
+          Heap.get_prop_desc(ref, prop_name) ||
+            PropertyDescriptor.attrs(writable: false, enumerable: true, configurable: true)
+
+        PropertyDescriptor.accessor_object(getter, setter, desc)
+
+      {:ok, val} ->
+        data_desc =
+          Heap.get_prop_desc(ref, prop_name) || default_map_descriptor_attrs(data, prop_name, val)
+
+        PropertyDescriptor.data_object(val, data_desc)
+    end
+  end
+
+  defp wrapped_string_length_descriptor(data, "length") when is_map(data) do
+    case WrappedPrimitive.value(data, :string) do
+      {:ok, string} when is_binary(string) ->
+        PropertyDescriptor.data_object(
+          QuickBEAM.VM.ObjectModel.Get.string_length(string),
+          PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: false)
+        )
+
+      _ ->
+        nil
+    end
+  end
+
+  defp wrapped_string_length_descriptor(_data, _prop_name), do: nil
+
+  defp wrapped_string_index_descriptor(data, prop_name) when is_map(data) do
+    with {:ok, string} when is_binary(string) <- WrappedPrimitive.value(data, :string),
+         {:ok, idx} <- PropertyKey.array_index(prop_name),
+         true <- idx < Get.string_length(string) do
+      PropertyDescriptor.data_object(
+        QuickBEAM.VM.Runtime.String.utf16_code_unit_at(string, idx),
+        PropertyDescriptor.attrs(writable: false, enumerable: true, configurable: false)
+      )
+    else
+      _ -> nil
+    end
+  end
+
+  defp prototype_method_descriptor(%{"constructor" => {:builtin, "Date", _}}, prop_name) do
+    case JSDate.proto_property(prop_name) do
+      :undefined ->
+        :undefined
+
+      val ->
+        attrs =
+          if prop_name == {:symbol, "Symbol.toPrimitive"},
+            do: PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: true),
+            else: PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: true)
+
+        PropertyDescriptor.data_object(val, attrs)
+    end
+  end
+
+  defp prototype_method_descriptor(_data, _prop_name), do: :undefined
+
+  defp default_map_descriptor_attrs(
+         %{"constructor" => {:builtin, _name, _}},
+         "constructor",
+         _val
+       ),
+       do: PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: true)
+
+  defp default_map_descriptor_attrs(_data, _prop_name, _val),
+    do: PropertyDescriptor.attrs(writable: true, enumerable: true, configurable: true)
+
+  defp builtin_descriptor_value("Object", "prototype"), do: Runtime.global_class_proto("Object")
+
+  defp builtin_descriptor_value("Object", "assign"),
+    do: QuickBEAM.VM.Runtime.Object.static_property("assign")
+
+  defp builtin_descriptor_value(name, "name"), do: name
+
+  defp builtin_descriptor_value(name, "length"),
+    do: QuickBEAM.VM.Builtin.declared_length(name, nil)
+
+  defp builtin_descriptor_value(_, _), do: nil
+
+  defp builtin_function_length(fun, name) when is_function(fun) do
+    case QuickBEAM.VM.Builtin.declared_length(name, nil) do
+      nil ->
+        {:arity, arity} = Function.info(fun, :arity)
+        max(arity - 2, 0)
+
+      length ->
+        length
+    end
+  end
+
+  defp builtin_function_length(_, _), do: nil
+
+  defp builtin_descriptor_attrs("prototype"),
+    do: PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: false)
+
+  defp builtin_descriptor_attrs("assign"),
+    do: PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: true)
+
+  defp builtin_descriptor_attrs(key) when key in ["name", "length"],
+    do: PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: true)
+
+  defp builtin_descriptor_attrs(_),
+    do: PropertyDescriptor.attrs(writable: true, enumerable: true, configurable: true)
+
+  defp builtin_descriptor_attrs(module, key, value) do
+    cond do
+      key in ["prototype", "assign", "name", "length"] ->
+        builtin_descriptor_attrs(key)
+
+      QuickBEAM.VM.Builtin.callable?(value) ->
+        PropertyDescriptor.attrs(writable: true, enumerable: false, configurable: true)
+
+      module != nil or constant_property_name?(key) ->
+        PropertyDescriptor.attrs(writable: false, enumerable: false, configurable: false)
+
+      true ->
+        PropertyDescriptor.attrs(writable: true, enumerable: true, configurable: true)
+    end
+  end
+
+  defp constant_property_name?(key) when is_binary(key), do: String.upcase(key) == key
+  defp constant_property_name?(_key), do: false
+
+  def target_descriptor_flags({:obj, ref} = target, prop_name) do
+    Heap.get_prop_desc(ref, prop_name) ||
+      if present?(target, prop_name) do
+        PropertyDescriptor.attrs(writable: true, enumerable: true, configurable: true)
+      end
+  end
+
+  def target_descriptor_flags(_target, _prop_name), do: nil
+
+  defp descriptor_internal_key?(:__internal_proto__), do: true
+  defp descriptor_internal_key?(key), do: internal_slot?(key)
+
+  defp array_indices(size) when is_integer(size) do
+    if size <= 0, do: [], else: Enum.map(0..(size - 1), &Integer.to_string/1)
+  end
+
+  defp array_indices(list) do
+    list |> Enum.with_index() |> Enum.map(fn {_, i} -> Integer.to_string(i) end)
+  end
+
+  defp array_present_indices(_ref, size) when size <= 0, do: []
+
+  defp array_present_indices(ref, size) do
+    0..(size - 1)
+    |> Enum.filter(fn idx ->
+      key = Integer.to_string(idx)
+
+      Heap.array_get(ref, idx) != :undefined or Heap.get_array_prop(ref, key) != :undefined or
+        Heap.get_prop_desc(ref, key) != nil
+    end)
+    |> Enum.map(&Integer.to_string/1)
+  end
+
+  defp array_property_keys(ref) do
+    props = Heap.get_array_props(ref)
+
+    insertion_order =
+      case Map.get(props, key_order()) do
+        order when is_list(order) -> Enum.reverse(order)
+        _ -> []
+      end
+
+    keys =
+      (insertion_order ++ (Map.keys(props) -- insertion_order))
+      |> Enum.reject(&(&1 == "length" or descriptor_internal_key?(&1)))
+
+    {strings, symbols} = Enum.split_with(keys, &is_binary/1)
+    strings ++ symbols
+  end
+end

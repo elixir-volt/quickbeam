@@ -1,4 +1,4 @@
-defmodule QuickBEAM.Core.BeamAPITest do
+defmodule QuickBEAM.Core.BEAMTest do
   use ExUnit.Case, async: true
 
   setup do
@@ -568,7 +568,7 @@ defmodule QuickBEAM.Core.BeamAPITest do
     end
 
     test "rejects malformed XML", %{rt: rt} do
-      assert {:error, %QuickBEAM.JSError{message: message}} =
+      assert {:error, %QuickBEAM.JS.Error{message: message}} =
                QuickBEAM.eval(rt, ~s[Beam.XML.parse("<root><broken></root>")])
 
       assert message =~ "invalid XML"

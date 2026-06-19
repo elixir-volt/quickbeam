@@ -147,7 +147,7 @@ defmodule QuickBEAM.Core.SupervisionTest do
       File.write!(script_path, "this is not valid javascript }{}{")
 
       result = QuickBEAM.start(script: script_path)
-      assert {:error, {:script_error, ^script_path, %QuickBEAM.JSError{}}} = result
+      assert {:error, {:script_error, ^script_path, %QuickBEAM.JS.Error{}}} = result
 
       File.rm!(script_path)
     end

@@ -28,7 +28,7 @@ defmodule QuickBEAM.WebAPIs.URLTest do
     end
 
     test "throws TypeError on invalid URL", %{rt: rt} do
-      assert {:error, %QuickBEAM.JSError{name: "TypeError"}} =
+      assert {:error, %QuickBEAM.JS.Error{name: "TypeError"}} =
                QuickBEAM.eval(rt, "new URL('not-a-url')")
     end
 
@@ -48,7 +48,7 @@ defmodule QuickBEAM.WebAPIs.URLTest do
     end
 
     test "throws on invalid base", %{rt: rt} do
-      assert {:error, %QuickBEAM.JSError{}} =
+      assert {:error, %QuickBEAM.JS.Error{}} =
                QuickBEAM.eval(rt, "new URL('/path', 'not-a-url')")
     end
   end

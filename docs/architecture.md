@@ -34,7 +34,7 @@ overhead on the hot path.
 │  Native globals (Zig)          │  TS polyfills        │
 │  ──────────────────────────    │  ────────────────    │
 │  Beam.call/callSync/send/self  │  fetch, WebSocket    │
-│  Beam.peek (JS_PromiseState)   │  Blob, File, Streams │
+│  Beam.peek (JS_Promise)   │  Blob, File, Streams │
 │  TextEncoder/Decoder           │  URL, Headers        │
 │  atob/btoa                     │  EventTarget, Events │
 │  console                       │  Worker              │
@@ -216,6 +216,53 @@ When `innerHTML` or `textContent` replaces children, `evict_subtree`
 recursively removes affected entries and frees the owned refs. The
 `document_finalizer` frees all remaining entries before destroying the
 lexbor document.
+
+## BEAM VM mode
+
+QuickBEAM can also execute QuickJS bytecode on the BEAM. Native QuickJS-NG still
+parses and compiles JavaScript source, but decoded bytecode is executed by
+Elixir/BEAM modules.
+
+Pipeline:
+
+1. QuickJS-NG compiles source to bytecode.
+2. `QuickBEAM.VM.BytecodeParser` decodes functions, atoms, constants, and opcodes.
+3. `QuickBEAM.VM.Interpreter` executes decoded bytecode directly, or
+   `QuickBEAM.VM.Compiler` lowers bytecode to BEAM modules.
+4. Shared semantic modules implement ECMAScript values, object model, calls,
+   constructors, promises, standard built-ins, and host API glue.
+
+The BEAM VM layers are intentionally split by responsibility:
+
+| Layer | Modules |
+|---|---|
+| QuickJS bytecode | `BytecodeParser`, `InstructionDecoder`, `Opcodes`, `Interpreter.Ops.*`, `Compiler.Lowering.Ops.*` |
+| ECMA semantics | `Semantics.*`, `ObjectModel.*`, `Invocation`, `GlobalEnvironment`, `Promise`, `JobQueue` |
+| Standard built-ins | `Runtime.Object`, `Runtime.Array`, `Runtime.Promise`, `Runtime.TypedArray`, etc. |
+| Global realm bindings | `Runtime.Globals.*` |
+| Host APIs | `Host.Web.*`, `Host.BeamAPI`, `Host.Test262`, BEAM/native bridge helpers |
+| Compiler boundary | `Compiler.RuntimeABI`, `Compiler.RuntimeHelpers.*`, `Compiler.SemanticEffects` |
+
+Generated BEAM code calls spec-sensitive runtime behavior through
+`Compiler.RuntimeABI`. The ABI delegates to focused compiler support owners:
+
+- `Compiler.RuntimeHelpers.Bindings` — global/lexical binding lookup, variable references, and reference writes
+- `Compiler.RuntimeHelpers.Properties` — object fields, array elements, object literals, private fields, and property deletion
+- `Compiler.RuntimeHelpers.Classes` — class definition, method installation, and private brands
+- `Compiler.RuntimeHelpers.Calls` — calls, construction, `super(...)`, and direct eval
+- `Compiler.RuntimeHelpers.Captures` — capture cells and closure capture maps
+- `Compiler.RuntimeHelpers.Constants` — atom-table constants, private symbols, template objects, and RegExp literals
+- `Compiler.RuntimeHelpers.Iterators` — compiler-specific iterator close/rest/destructuring behavior
+- `Compiler.RuntimeHelpers.Errors` — compiled stack formatting and error construction
+- `Compiler.RuntimeHelpers.Context` — context-shape normalization and accessors
+
+`Compiler.RuntimeHelpers` remains for small shared primitive/runtime support that
+has not been split into a stronger owner. New generated-code semantics should go
+through `RuntimeABI`; compiler-private materialization should call the owning
+helper module directly.
+
+See `docs/beam-vm-ecma262.md` and `docs/beam-vm-compiler.md` for the detailed
+spec and compiler maps.
 
 ## TypeScript toolchain
 

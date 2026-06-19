@@ -88,7 +88,7 @@ defmodule QuickBEAM.Core.EvalVarsTest do
     end
 
     test "timeout still fires with vars", %{rt: rt} do
-      assert {:error, %QuickBEAM.JSError{message: "interrupted"}} =
+      assert {:error, %QuickBEAM.JS.Error{message: "interrupted"}} =
                QuickBEAM.eval(rt, "while(x) {}", vars: %{"x" => true}, timeout: 200)
     end
 

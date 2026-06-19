@@ -1,0 +1,85 @@
+defmodule QuickBEAM.VM.Interpreter.EvalEnv do
+  @moduledoc "Eval-time environment utilities: local name resolution, class binding seeding, and `this` context helpers."
+
+  alias QuickBEAM.VM.Interpreter.{Closures, Context, Frame}
+  alias QuickBEAM.VM.Names
+
+  require Frame
+
+  @doc "Helper for eval-time environment utilities: local name resolution, class binding seeding, and `this` context helpers."
+  def resolve_local_name(name), do: Names.resolve_display_name(name)
+
+  @doc "Helper for eval-time environment utilities: local name resolution, class binding seeding, and `this` context helpers."
+  def seed_class_binding(frame, ctx, atom_idx, ctor_closure) do
+    case class_binding_local_index(ctx, atom_idx) do
+      nil ->
+        frame
+
+      idx ->
+        Closures.write_captured_local(
+          elem(frame, Frame.l2v()),
+          idx,
+          ctor_closure,
+          elem(frame, Frame.locals()),
+          elem(frame, Frame.var_refs())
+        )
+
+        put_local(frame, idx, ctor_closure)
+    end
+  end
+
+  @doc "Returns the active func name for eval-time environment utilities: local name resolution, class binding seeding, and `this` context helpers."
+  def current_func_name(%Context{current_func: func}) do
+    case func do
+      {:closure, _, %QuickBEAM.VM.Function{name: name}} -> name
+      %QuickBEAM.VM.Function{name: name} -> name
+      _ -> nil
+    end
+  end
+
+  @doc "Returns the active local name for eval-time environment utilities: local name resolution, class binding seeding, and `this` context helpers."
+  def current_local_name(
+        %Context{current_func: {:closure, _, %QuickBEAM.VM.Function{locals: locals}}},
+        idx
+      )
+      when idx >= 0 and idx < length(locals),
+      do: locals |> Enum.at(idx) |> Map.get(:name) |> resolve_local_name()
+
+  def current_local_name(%Context{current_func: %QuickBEAM.VM.Function{locals: locals}}, idx)
+      when idx >= 0 and idx < length(locals),
+      do: locals |> Enum.at(idx) |> Map.get(:name) |> resolve_local_name()
+
+  def current_local_name(_, _), do: nil
+
+  defp class_binding_local_index(%Context{current_func: current_func}, atom_idx) do
+    class_name = resolve_local_name(atom_idx)
+
+    current_func
+    |> current_bytecode_function()
+    |> case do
+      %QuickBEAM.VM.Function{locals: locals} ->
+        locals
+        |> Enum.with_index()
+        |> Enum.filter(fn {%{name: name, scope_level: scope_level, is_lexical: is_lexical}, _idx} ->
+          is_lexical and scope_level > 1 and resolve_local_name(name) == class_name
+        end)
+        |> Enum.max_by(fn {%{scope_level: scope_level}, _idx} -> scope_level end, fn -> nil end)
+        |> case do
+          nil -> nil
+          {_local, idx} -> idx
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp class_binding_local_index(_, _), do: nil
+
+  defp current_bytecode_function({:closure, _, %QuickBEAM.VM.Function{} = fun}), do: fun
+  defp current_bytecode_function(%QuickBEAM.VM.Function{} = fun), do: fun
+  defp current_bytecode_function(_), do: nil
+
+  defp put_local(frame, idx, val),
+    do: put_elem(frame, Frame.locals(), put_elem(elem(frame, Frame.locals()), idx, val))
+end

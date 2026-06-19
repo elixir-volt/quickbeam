@@ -115,6 +115,7 @@ pub fn pool_worker_main(pd: *ct.PoolData) void {
     _ = qjs.JS_NewClassID(rt, &beam_proxy.class_id);
     _ = qjs.JS_NewClassID(rt, &dom.document_class_id);
     _ = qjs.JS_NewClassID(rt, &dom.element_class_id);
+    types.reserve_class_ids_through(rt, @max(beam_proxy.class_id, @max(dom.document_class_id, dom.element_class_id)));
     types.class_ids_mutex.unlock();
 
     beam_proxy.initRuntime(rt);
@@ -221,6 +222,7 @@ fn handle_create_context(
         .timers = std.AutoHashMap(u64, worker.TimerEntry).init(gpa),
         .start_time = std.time.nanoTimestamp(),
         .max_reductions = p.max_reductions,
+        .run_gc_on_context_release = false,
     };
 
     entry.state.install_globals();

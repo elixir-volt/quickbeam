@@ -53,7 +53,7 @@ defmodule QuickBEAM.Server do
       defp js_error_transform do
         fn
           {:ok, value} -> {:ok, value}
-          {:error, value} -> {:error, QuickBEAM.JSError.from_js_value(value)}
+          {:error, value} -> {:error, QuickBEAM.JS.Error.from_js_value(value)}
         end
       end
 
@@ -62,6 +62,12 @@ defmodule QuickBEAM.Server do
       @impl true
       def handle_call({:eval, code, timeout_ms}, from, state) do
         ref = nif_eval(state, code, timeout_ms)
+        {:noreply, put_pending(state, ref, from, js_error_transform())}
+      end
+
+      @impl true
+      def handle_call({:eval, code, timeout_ms, filename}, from, state) do
+        ref = nif_eval(state, code, timeout_ms, filename)
         {:noreply, put_pending(state, ref, from, js_error_transform())}
       end
 
@@ -124,7 +130,31 @@ defmodule QuickBEAM.Server do
 
       @impl true
       def handle_cast({:send_message, message}, state) do
-        nif_send_message(state, message)
+        if Map.get(state, :mode) == :beam do
+          {:noreply, %{state | beam_pending_msgs: state.beam_pending_msgs ++ [message]}}
+        else
+          nif_send_message(state, message)
+          {:noreply, state}
+        end
+      end
+
+      @impl true
+      def handle_info({:ws_send, socket_id, kind, payload}, state) do
+        case Map.get(state.websockets, socket_id) do
+          {pid, _ref} -> GenServer.cast(pid, {:send, kind, payload})
+          nil -> :ok
+        end
+
+        {:noreply, state}
+      end
+
+      @impl true
+      def handle_info({:ws_close, socket_id, code, reason}, state) do
+        case Map.get(state.websockets, socket_id) do
+          {pid, _ref} -> GenServer.cast(pid, {:close, code, reason})
+          nil -> :ok
+        end
+
         {:noreply, state}
       end
 

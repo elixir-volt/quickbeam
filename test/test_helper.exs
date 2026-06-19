@@ -22,7 +22,22 @@ unless File.exists?(test_addon_out) and
   {_, 0} = System.cmd("cc", args, stderr_to_stdout: true)
 end
 
-ExUnit.start()
+# Load shared test modules
+
+beam_mode? = System.get_env("QUICKBEAM_MODE") == "beam"
+
+exclude =
+  [
+    :pending_beam,
+    :pending_class,
+    :js_engine,
+    :test262,
+    :quickjs_acceptance_audit,
+    :compiler_acceptance_audit
+  ] ++
+    if(beam_mode?, do: [:nif_only], else: [])
+
+ExUnit.start(exclude: exclude)
 
 # Force garbage collection before BEAM exits to prevent NIF finalizer crashes.
 # On OTP 27.0.x, the BEAM shutdown races with QuickJS worker thread cleanup.

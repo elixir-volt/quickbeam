@@ -1292,20 +1292,10 @@ fn document_finalizer(rt: ?*qjs.JSRuntime, val: qjs.JSValue) callconv(.c) void {
 const document_class_def = qjs.JSClassDef{
     .class_name = "Document",
     .finalizer = &document_finalizer,
-    .gc_mark = &document_gc_mark,
+    .gc_mark = null,
     .call = null,
     .exotic = null,
 };
-
-fn document_gc_mark(rt: ?*qjs.JSRuntime, val: qjs.JSValue, mark_func: ?*const qjs.JS_MarkFunc) callconv(.c) void {
-    const ptr = qjs.JS_GetOpaque(val, document_class_id);
-    if (ptr == null) return;
-    const dd: *DocumentData = @ptrCast(@alignCast(ptr));
-    var it = dd.node_map.iterator();
-    while (it.next()) |entry| {
-        qjs.JS_MarkValue(rt, entry.value_ptr.*, mark_func);
-    }
-}
 
 const element_class_def = qjs.JSClassDef{
     .class_name = "Element",

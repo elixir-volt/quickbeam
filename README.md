@@ -245,6 +245,28 @@ QuickBEAM.eval(rt, """
 
 `process.env` is a live Proxy — reads and writes go to `System.get_env` / `System.put_env`.
 
+## Elixir-native API DSL
+
+QuickBEAM-ng includes an Elixir-facing DSL for embedded JavaScript and host APIs.
+See [`docs/elixir-api.md`](docs/elixir-api.md) for the full guide.
+
+```elixir
+import QuickBEAM
+
+defmodule Tools do
+  use QuickBEAM.API, scope: "tools"
+
+  js double(n), do: n * 2
+
+  @variadic true
+  js join(args), do: Enum.join(args, ":")
+end
+
+{:ok, rt} = QuickBEAM.new(sandbox: :strict)
+:ok = QuickBEAM.load_api(rt, Tools)
+{:ok, 10} = QuickBEAM.eval(rt, ~JS"tools.double(5)")
+```
+
 ## Resource limits
 
 ```elixir

@@ -46,8 +46,7 @@ defmodule QuickBEAM.WasmAPI do
   @spec validate([binary()]) :: boolean()
   def validate([bytes]) when is_binary(bytes) do
     case QuickBEAM.Native.wasm_compile(bytes) do
-      {:ok, mod_ref} ->
-        _ = mod_ref
+      {:ok, _mod_ref} ->
         true
 
       {:error, _} ->

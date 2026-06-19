@@ -757,9 +757,9 @@ pub export fn napi_escape_handle(env_: napi_env, scope_: napi_escapable_handle_s
     // Move the value to the parent scope
     if (env.scope_stack.items.len >= 2) {
         const parent = env.scope_stack.items[env.scope_stack.items.len - 2];
-        r.* = parent.track(env.ctx, val);
+        r.* = parent.track(env.ctx, qjs.JS_DupValue(env.ctx, val));
     } else {
-        r.* = env.createNapiValue(val);
+        r.* = env.createNapiValue(qjs.JS_DupValue(env.ctx, val));
     }
     return env.ok();
 }
@@ -828,7 +828,7 @@ pub export fn napi_get_and_clear_last_exception(env_: napi_env, result: ?*napi_v
     const env = env_ orelse return @intFromEnum(Status.invalid_arg);
     const r = result orelse return env.invalidArg();
     if (env.has_pending_exception) {
-        r.* = env.createNapiValue(env.pending_exception);
+        r.* = env.createNapiValue(qjs.JS_DupValue(env.ctx, env.pending_exception));
         env.clearPendingException();
     } else {
         r.* = env.createNapiValue(js.js_undefined());
@@ -919,9 +919,9 @@ fn napiCallbackTrampoline(
             // Addon returned a value — for constructors this is typically undefined
             // in N-API; the instance is the `this` object
         }
-        return effective_this;
+        return qjs.JS_DupValue(ctx, effective_this);
     }
-    return toVal(napi_result);
+    return qjs.JS_DupValue(ctx, toVal(napi_result));
 }
 
 pub export fn napi_call_function(
@@ -955,8 +955,9 @@ pub export fn napi_call_function(
 
     if (result) |r| {
         r.* = env.createNapiValue(ret);
+    } else {
+        qjs.JS_FreeValue(env.ctx, ret);
     }
-    qjs.JS_FreeValue(env.ctx, ret);
     return env.ok();
 }
 
@@ -978,18 +979,18 @@ pub export fn napi_get_cb_info(
 
         if (argv) |av| {
             for (0..copy_count) |i| {
-                av[i] = env.createNapiValue(info.args[i]);
+                av[i] = env.createNapiValue(qjs.JS_DupValue(env.ctx, info.args[i]));
             }
             // Fill remaining with undefined
             for (copy_count..requested) |i| {
-                av[i] = env.createNapiValue(js.js_undefined());
+                av[i] = env.createNapiValue(qjs.JS_DupValue(env.ctx, js.js_undefined()));
             }
         }
         ac.* = available;
     }
 
     if (this_arg) |t| {
-        t.* = env.createNapiValue(info.this);
+        t.* = env.createNapiValue(qjs.JS_DupValue(env.ctx, info.this));
     }
 
     if (data) |d| {
@@ -1003,7 +1004,7 @@ pub export fn napi_get_new_target(env_: napi_env, cbinfo_: napi_callback_info, r
     const env = env_ orelse return @intFromEnum(Status.invalid_arg);
     const info: *CallbackInfo = cbinfo_ orelse return env.invalidArg();
     const r = result orelse return env.invalidArg();
-    r.* = env.createNapiValue(info.new_target);
+    r.* = env.createNapiValue(qjs.JS_DupValue(env.ctx, info.new_target));
     return env.ok();
 }
 
@@ -1073,7 +1074,7 @@ pub export fn napi_get_reference_value(env_: napi_env, ref_: napi_ref, result: ?
     const env = env_ orelse return @intFromEnum(Status.invalid_arg);
     const ref_obj: *NapiReference = ref_ orelse return env.invalidArg();
     const r = result orelse return env.invalidArg();
-    r.* = env.createNapiValue(ref_obj.value);
+    r.* = env.createNapiValue(qjs.JS_DupValue(env.ctx, ref_obj.value));
     return env.ok();
 }
 
@@ -1207,13 +1208,17 @@ pub export fn napi_create_external(
 
     const ext_data: *ExternalData = @ptrCast(@alignCast(qjs.js_mallocz(env.ctx, @sizeOf(ExternalData)) orelse return env.genericFailure()));
     ext_data.* = .{
+        .env = env,
         .data = data,
         .finalize_cb = finalize_cb,
         .finalize_hint = finalize_hint,
     };
 
     const obj = qjs.JS_NewObjectClass(env.ctx, @intCast(nt.external_class_id));
-    if (js.js_is_exception(obj)) return env.genericFailure();
+    if (js.js_is_exception(obj)) {
+        qjs.js_free(env.ctx, ext_data);
+        return env.genericFailure();
+    }
     _ = qjs.JS_SetOpaque(obj, ext_data);
 
     r.* = env.createNapiValue(obj);
@@ -1293,19 +1298,44 @@ pub export fn napi_adjust_external_memory(_: napi_env, _: i64, _: ?*i64) callcon
     return @intFromEnum(Status.ok);
 }
 
-pub export fn napi_add_env_cleanup_hook(_: napi_env, _: ?*const fn (?*anyopaque) callconv(.c) void, _: ?*anyopaque) callconv(.c) napi_status {
-    return @intFromEnum(Status.ok);
+pub export fn napi_add_env_cleanup_hook(env_: napi_env, cb_: ?nt.napi_cleanup_hook, arg: ?*anyopaque) callconv(.c) napi_status {
+    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
+    const cb = cb_ orelse return env.invalidArg();
+    env.cleanup_hooks.append(gpa, .{ .cb = cb, .arg = arg }) catch return env.genericFailure();
+    return env.ok();
 }
 
-pub export fn napi_remove_env_cleanup_hook(_: napi_env, _: ?*const fn (?*anyopaque) callconv(.c) void, _: ?*anyopaque) callconv(.c) napi_status {
-    return @intFromEnum(Status.ok);
+pub export fn napi_remove_env_cleanup_hook(env_: napi_env, cb_: ?nt.napi_cleanup_hook, arg: ?*anyopaque) callconv(.c) napi_status {
+    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
+    const cb = cb_ orelse return env.invalidArg();
+
+    for (env.cleanup_hooks.items, 0..) |hook, i| {
+        if (hook.cb == cb and hook.arg == arg) {
+            _ = env.cleanup_hooks.orderedRemove(i);
+            break;
+        }
+    }
+
+    return env.ok();
 }
 
-pub export fn napi_add_async_cleanup_hook(_: napi_env, _: ?*const fn (?*anyopaque, ?*anyopaque) callconv(.c) void, _: ?*anyopaque, _: ?*?*anyopaque) callconv(.c) napi_status {
-    return @intFromEnum(Status.ok);
+pub export fn napi_add_async_cleanup_hook(env_: napi_env, cb_: ?nt.napi_async_cleanup_hook, arg: ?*anyopaque, result: ?*?*anyopaque) callconv(.c) napi_status {
+    const env = env_ orelse return @intFromEnum(Status.invalid_arg);
+    const cb = cb_ orelse return env.invalidArg();
+
+    const hook = gpa.create(nt.AsyncCleanupHook) catch return env.genericFailure();
+    hook.* = .{ .cb = cb, .arg = arg };
+    env.async_cleanup_hooks.append(gpa, hook) catch {
+        gpa.destroy(hook);
+        return env.genericFailure();
+    };
+    if (result) |r| r.* = @ptrCast(hook);
+    return env.ok();
 }
 
-pub export fn napi_remove_async_cleanup_hook(_: ?*anyopaque) callconv(.c) napi_status {
+pub export fn napi_remove_async_cleanup_hook(handle: ?*anyopaque) callconv(.c) napi_status {
+    const hook: *nt.AsyncCleanupHook = @ptrCast(@alignCast(handle orelse return @intFromEnum(Status.invalid_arg)));
+    hook.removed = true;
     return @intFromEnum(Status.ok);
 }
 
@@ -1343,24 +1373,6 @@ pub fn getPendingModule() ?*nt.napi_module {
 
 pub fn clearPendingModule() void {
     pending_napi_module = null;
-}
-
-// ──────────────────── Async Work ────────────────────
-
-fn asyncWorkRunner(work: *AsyncWork) void {
-    work.status.store(.started, .release);
-    work.execute(work.env, work.data);
-
-    const final_status: AsyncWork.AsyncStatus = if (work.status.cmpxchgStrong(.started, .completed, .seq_cst, .seq_cst) == null)
-        .completed
-    else
-        .cancelled;
-    _ = final_status;
-
-    // Dispatch completion back to the worker thread
-    if (work.rd) |rd| {
-        types.enqueue(rd, .{ .napi_async_complete = .{ .work = work } });
-    }
 }
 
 // ──────────────────── ArrayBuffer ────────────────────
@@ -1715,7 +1727,7 @@ pub export fn napi_get_typedarray_info(
     defer qjs.JS_FreeValue(env.ctx, ab);
 
     if (maybe_arraybuffer) |mab| {
-        mab.* = env.createNapiValue(ab);
+        mab.* = env.createNapiValue(qjs.JS_DupValue(env.ctx, ab));
     }
     if (maybe_byte_offset) |bo| bo.* = poffset;
 
@@ -1770,7 +1782,7 @@ pub export fn napi_create_external_arraybuffer(
     const r = result orelse return env.invalidArg();
 
     const ext_wrap = gpa.create(ExternalAbData) catch return env.genericFailure();
-    ext_wrap.* = .{ .env = env, .finalize_cb = finalize_cb, .finalize_hint = finalize_hint };
+    ext_wrap.* = .{ .env = env, .data = external_data, .finalize_cb = finalize_cb, .finalize_hint = finalize_hint };
 
     const ptr: [*]u8 = if (external_data) |ed| @ptrCast(ed) else @ptrFromInt(1);
     const ab = qjs.JS_NewArrayBuffer(env.ctx, ptr, byte_length, &externalAbFree, @ptrCast(ext_wrap), false);
@@ -1785,14 +1797,15 @@ pub export fn napi_create_external_arraybuffer(
 
 const ExternalAbData = struct {
     env: *NapiEnv,
+    data: ?*anyopaque,
     finalize_cb: napi_finalize,
     finalize_hint: ?*anyopaque,
 };
 
-fn externalAbFree(_: ?*qjs.JSRuntime, user_data: ?*anyopaque, ptr: ?*anyopaque) callconv(.c) void {
+fn externalAbFree(_: ?*qjs.JSRuntime, user_data: ?*anyopaque, _: ?*anyopaque) callconv(.c) void {
     const ext_wrap: *ExternalAbData = @ptrCast(@alignCast(user_data orelse return));
     if (ext_wrap.finalize_cb) |cb| {
-        cb(ext_wrap.env, ptr, ext_wrap.finalize_hint);
+        cb(ext_wrap.env, ext_wrap.data, ext_wrap.finalize_hint);
     }
     gpa.destroy(ext_wrap);
 }
@@ -1893,7 +1906,7 @@ pub export fn napi_create_external_buffer(
     const r = result orelse return env.invalidArg();
 
     const ext_wrap = gpa.create(ExternalAbData) catch return env.genericFailure();
-    ext_wrap.* = .{ .env = env, .finalize_cb = finalize_cb, .finalize_hint = finalize_hint };
+    ext_wrap.* = .{ .env = env, .data = data, .finalize_cb = finalize_cb, .finalize_hint = finalize_hint };
 
     const ptr: [*]u8 = if (data) |ed| @ptrCast(ed) else @ptrFromInt(1);
     const ta = buffers.createUint8ArrayFromBuffer(env, ptr, length, &externalAbFree, @ptrCast(ext_wrap)) catch {
@@ -2013,12 +2026,13 @@ var external_class_def = qjs.JSClassDef{
     .exotic = null,
 };
 
-fn externalFinalizer(_: ?*qjs.JSRuntime, val: qjs.JSValue) callconv(.c) void {
+fn externalFinalizer(rt: ?*qjs.JSRuntime, val: qjs.JSValue) callconv(.c) void {
     const ext_data: ?*ExternalData = @ptrCast(@alignCast(qjs.JS_GetOpaque(val, nt.external_class_id)));
     if (ext_data) |e| {
         if (e.finalize_cb) |cb| {
-            cb(null, e.data, e.finalize_hint);
+            cb(e.env, e.data, e.finalize_hint);
         }
+        if (rt) |runtime| qjs.js_free_rt(runtime, e);
     }
 }
 
@@ -2175,14 +2189,18 @@ pub const napi_symbol_table = [_]*const anyopaque{
 };
 
 pub fn initRuntime(rt: *qjs.JSRuntime) void {
+    types.class_ids_mutex.lock();
     if (nt.external_class_id == 0) {
         _ = qjs.JS_NewClassID(rt, &nt.external_class_id);
-        _ = qjs.JS_NewClass(rt, nt.external_class_id, &external_class_def);
     }
     if (wrap_mod.wrap_class_id == 0) {
         _ = qjs.JS_NewClassID(rt, &wrap_mod.wrap_class_id);
-        _ = qjs.JS_NewClass(rt, wrap_mod.wrap_class_id, &wrap_mod.wrap_class_def);
     }
+    types.reserve_class_ids_through(rt, @max(nt.external_class_id, wrap_mod.wrap_class_id));
+    types.class_ids_mutex.unlock();
+
+    _ = qjs.JS_NewClass(rt, nt.external_class_id, &external_class_def);
+    _ = qjs.JS_NewClass(rt, wrap_mod.wrap_class_id, &wrap_mod.wrap_class_def);
     std.mem.doNotOptimizeAway(&napi_symbol_table);
 }
 

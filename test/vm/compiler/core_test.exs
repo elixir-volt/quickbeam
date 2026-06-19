@@ -1,0 +1,3008 @@
+defmodule QuickBEAM.VM.CompilerTest do
+  use ExUnit.Case, async: true
+
+  import QuickBEAM.VM.Heap.Keys, only: [proto: 0]
+
+  alias QuickBEAM.VM.{BytecodeParser, Compiler, Heap, Interpreter, Opcodes}
+  alias QuickBEAM.VM.Compiler.RuntimeHelpers
+  alias QuickBEAM.VM.Compiler.RuntimeHelpers.Calls
+  alias QuickBEAM.VM.ObjectModel.Get
+
+  setup do
+    Heap.reset()
+    {:ok, rt} = QuickBEAM.start()
+
+    on_exit(fn ->
+      try do
+        QuickBEAM.stop(rt)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+
+    %{rt: rt}
+  end
+
+  defp compile_and_decode(rt, code) do
+    {:ok, bc} = QuickBEAM.compile(rt, code)
+    {:ok, parsed} = BytecodeParser.decode(bc)
+    cache_function_atoms(parsed.value, parsed.atoms)
+    parsed
+  end
+
+  defp cache_function_atoms(%QuickBEAM.VM.Function{} = fun, atoms) do
+    Heap.put_fn_atoms(fun, atoms)
+
+    Enum.each(fun.constants, fn
+      %QuickBEAM.VM.Function{} = inner -> cache_function_atoms(inner, atoms)
+      _ -> :ok
+    end)
+  end
+
+  defp user_function(parsed) do
+    case for %QuickBEAM.VM.Function{} = fun <- parsed.value.constants, do: fun do
+      [fun | _] -> fun
+      [] -> parsed.value
+    end
+  end
+
+  defp compiled_key(%QuickBEAM.VM.Function{} = fun) do
+    atoms = Heap.get_fn_atoms(fun, Heap.get_atoms())
+
+    code_key = {:function, fun.id}
+
+    {code_key, fun.arg_count, :erlang.phash2(fun), :erlang.phash2(atoms)}
+  end
+
+  defp beam_extfuncs({:beam_file, _module, _exports, _attributes, _compile_info, code}) do
+    for {:function, _name, _arity, _label, instructions} <- code,
+        {op, _argc, {:extfunc, mod, fun, arity}} <- instructions,
+        op in [:call_ext, :call_ext_last, :call_ext_only] do
+      {mod, fun, arity}
+    end
+  end
+
+  defp beam_function_instructions(
+         {:beam_file, _module, _exports, _attributes, _compile_info, code},
+         name
+       ) do
+    Enum.find_value(code, fn
+      {:function, ^name, _arity, _label, instructions} -> instructions
+      _ -> nil
+    end)
+  end
+
+  defp synthetic_function(byte_code, atoms \\ {"<synthetic>"}) do
+    {:ok, instructions} = QuickBEAM.VM.InstructionDecoder.decode(byte_code, 0)
+
+    %QuickBEAM.VM.Function{
+      id: :erlang.unique_integer([:positive, :monotonic]),
+      name: "synthetic",
+      filename: "<synthetic>",
+      line_num: 1,
+      col_num: 1,
+      arg_count: 0,
+      var_count: 0,
+      defined_arg_count: 0,
+      stack_size: 8,
+      atoms: atoms,
+      instructions: List.to_tuple(instructions)
+    }
+  end
+
+  describe "compile/1" do
+    test "lowers QuickJS reference stack opcodes" do
+      nip1 =
+        synthetic_function(
+          <<181, 182, 183, Opcodes.num(:nip1), Opcodes.num(:add), Opcodes.num(:return)>>
+        )
+
+      nop = synthetic_function(<<Opcodes.num(:nop), 184, Opcodes.num(:return)>>)
+
+      assert {:ok, 5} = Compiler.invoke(nip1, [])
+      assert {:ok, 4} = Compiler.invoke(nop, [])
+    end
+
+    test "keeps native dup1 stack shape for computed object assignment", %{rt: rt} do
+      source = ~S"""
+      var x, c = 0;
+      for ({ ["x" + "y"]: x } of [{ xy: 1 }, { xy: 2 }]) {
+        c += x;
+      }
+      c
+      """
+
+      assert {:ok, 3} = QuickBEAM.eval(rt, source, mode: :beam)
+      assert {:ok, 3} = QuickBEAM.eval(rt, source, mode: :beam_compiler)
+    end
+
+    test "keeps native dup1 stack shape for computed object rest", %{rt: rt} do
+      source = ~S"""
+      var a = "foo", b, rest;
+      for ({ [a]: b, ...rest } of [{ foo: 1, bar: 2, baz: 3 }]) {}
+      b + rest.bar + rest.baz
+      """
+
+      assert {:ok, 6} = QuickBEAM.eval(rt, source, mode: :beam)
+      assert {:ok, 6} = QuickBEAM.eval(rt, source, mode: :beam_compiler)
+    end
+
+    test "direct eval in compiled code preserves native for-of completions", %{rt: rt} do
+      assert {:ok, 6} =
+               QuickBEAM.eval(
+                 rt,
+                 ~S|eval('5; outer: do { for (var b of [0]) { 6; continue outer; } } while (false)')|,
+                 mode: :beam_compiler
+               )
+    end
+
+    test "falls back for generators that yield from finally", %{rt: rt} do
+      source = ~S"""
+      function* values() { yield 1; yield 1; }
+      var dataIterator = values();
+      var controlIterator = (function*() {
+        for (var x of dataIterator) {
+          try {} finally { i++; yield; j++; }
+          k++;
+        }
+        l++;
+      })();
+      var i = 0, j = 0, k = 0, l = 0;
+      controlIterator.next();
+      var a = [i, j, k, l].join(',');
+      controlIterator.next();
+      var b = [i, j, k, l].join(',');
+      controlIterator.next();
+      var c = [i, j, k, l].join(',');
+      a + '|' + b + '|' + c
+      """
+
+      assert {:ok, "1,0,0,0|2,1,1,0|2,2,2,1"} =
+               QuickBEAM.eval(rt, source, mode: :beam_compiler)
+    end
+
+    test "lowers QuickJS with_get_ref_undef branch semantics" do
+      atoms = {"<synthetic>", "f"}
+
+      byte_code = <<
+        Opcodes.num(:object),
+        185,
+        Opcodes.num(:define_field),
+        1::little-32,
+        Opcodes.num(:with_get_ref_undef),
+        1::little-32,
+        7::signed-little-32,
+        1,
+        181,
+        Opcodes.num(:return),
+        Opcodes.num(:return)
+      >>
+
+      fun = synthetic_function(byte_code, atoms)
+      Heap.put_fn_atoms(fun, atoms)
+
+      assert {:ok, 5} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles a straight-line arithmetic function", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(a,b){return a+b})") |> user_function()
+
+      assert {:ok, {_mod, :run_ctx}} = Compiler.compile(fun)
+      assert {:ok, 7} = Compiler.invoke(fun, [3, 4])
+    end
+
+    test "compiles locals and reassignment in straight-line code", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(a){let x=1; x=x+a; return x})") |> user_function()
+
+      assert {:ok, 6} = Compiler.invoke(fun, [5])
+    end
+
+    test "compiles top-level var declarations and writes", %{rt: rt} do
+      root = compile_and_decode(rt, "var x = 1; x = x + 2; x").value
+
+      assert {:ok, {_mod, :run_ctx}} = Compiler.compile(root)
+      assert {:ok, 3} = Compiler.invoke(root, [])
+    end
+
+    test "compiles top-level function declarations", %{rt: rt} do
+      root = compile_and_decode(rt, "function inc(x){ return x + 1 } inc(2)").value
+
+      assert {:ok, {_mod, :run_ctx}} = Compiler.compile(root)
+      assert {:ok, 3} = Compiler.invoke(root, [])
+    end
+
+    test "compiled disasm skips TDZ helper after initialized unknown locals", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(f){ const value = f(); return value + value })")
+        |> user_function()
+
+      assert {:ok, beam_file} = Compiler.disasm(fun)
+      refute {RuntimeHelpers, :ensure_initialized_local!, 1} in beam_extfuncs(beam_file)
+
+      callback = {:builtin, "one", fn [], _ -> 1 end}
+      assert {:ok, 2} = Compiler.invoke(fun, [callback])
+    end
+
+    test "compiles conditional branches", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(x){if(x>0)return 1;else return 2})") |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [3])
+      assert {:ok, 2} = Compiler.invoke(fun, [-1])
+    end
+
+    test "compiles simple while loops", %{rt: rt} do
+      code = "(function(n){let s=0; let i=0; while(i<n){ s=s+i; i=i+1;} return s})"
+      fun = compile_and_decode(rt, code) |> user_function()
+
+      assert {:ok, beam_file} = Compiler.disasm(fun)
+      refute {QuickBEAM.VM.Semantics.Values, :truthy?, 1} in beam_extfuncs(beam_file)
+
+      block = beam_function_instructions(beam_file, :block_6)
+
+      assert Enum.any?(block, fn
+               {:test, :is_number, _, _} -> true
+               _ -> false
+             end)
+
+      assert Enum.any?(block, fn
+               {:bif, :<, _, _, _} -> true
+               _ -> false
+             end)
+
+      assert {:ok, 10} = Compiler.invoke(fun, [5])
+    end
+
+    test "compiles loops over array length and array indexing", %{rt: rt} do
+      code =
+        "(function(arr){let s=0; let i=0; while(i<arr.length){ s=s+arr[i]; i=i+1;} return s})"
+
+      fun = compile_and_decode(rt, code) |> user_function()
+
+      assert {:ok, 10} = Compiler.invoke(fun, [Heap.wrap([1, 2, 3, 4])])
+    end
+
+    test "compiles object destructuring", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(obj){ const {x} = obj; return x })") |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [Heap.wrap(%{"x" => 7})])
+    end
+
+    test "compiles regexp literals", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(){ return /a+/.test('aa') })") |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles object field access", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(obj){return obj.x})") |> user_function()
+
+      assert {:ok, beam_file} = Compiler.disasm(fun)
+      block = beam_function_instructions(beam_file, :block_0)
+
+      assert Enum.any?(block, fn
+               {:call, 2, {_, :op_get_field, 2}} -> true
+               {:call_only, 2, {_, :op_get_field, 2}} -> true
+               {:call_last, 2, {_, :op_get_field, 2}, _} -> true
+               _ -> false
+             end)
+
+      assert {:ok, 7} = Compiler.invoke(fun, [Heap.wrap(%{"x" => 7})])
+    end
+
+    test "compiles catch handlers in tuple frame mode", %{rt: rt} do
+      declarations = Enum.map_join(0..210, ";", &"let v#{&1}=#{&1}")
+
+      root =
+        compile_and_decode(rt, declarations <> "; try { throw 7 } catch (e) { e + v210 }").value
+
+      assert {:ok, 217} = Compiler.invoke(root, [])
+    end
+
+    test "installs global and core prototype metadata", %{rt: rt} do
+      global_this = compile_and_decode(rt, "globalThis.globalThis === globalThis").value
+
+      boolean_methods =
+        compile_and_decode(
+          rt,
+          "typeof Boolean.prototype.toString + ':' + typeof Boolean.prototype.valueOf"
+        ).value
+
+      boolean_parent =
+        compile_and_decode(rt, "Object.getPrototypeOf(Boolean.prototype) === Object.prototype").value
+
+      math_keys =
+        compile_and_decode(
+          rt,
+          "Object.hasOwn(Math, 'floor') && Object.getOwnPropertyNames(Math).includes('floor')"
+        ).value
+
+      object_static_keys =
+        compile_and_decode(
+          rt,
+          "Object.getOwnPropertyNames(Object).includes('assign') && Reflect.ownKeys(Object).includes('assign')"
+        ).value
+
+      array_proto =
+        compile_and_decode(rt, "Object.getPrototypeOf({a:1}) === Object.prototype").value
+
+      date_proto =
+        compile_and_decode(rt, "Object.getPrototypeOf(Date.prototype) === Object.prototype").value
+
+      reflect_callable =
+        compile_and_decode(rt, "Reflect.ownKeys(Array).includes('prototype')").value
+
+      desc_presence =
+        compile_and_decode(
+          rt,
+          "let obj={}; let proto={get:undefined}; let desc=Object.create(proto); Object.defineProperty(obj,'x',desc); Object.getOwnPropertyDescriptor(obj,'x').hasOwnProperty('get')"
+        ).value
+
+      assert {:ok, true} = Compiler.invoke(global_this, [])
+      assert {:ok, "function:function"} = Compiler.invoke(boolean_methods, [])
+      assert {:ok, true} = Compiler.invoke(boolean_parent, [])
+      assert {:ok, true} = Compiler.invoke(math_keys, [])
+      assert {:ok, true} = Compiler.invoke(object_static_keys, [])
+      assert {:ok, true} = Compiler.invoke(array_proto, [])
+      assert {:ok, true} = Compiler.invoke(date_proto, [])
+      assert {:ok, true} = Compiler.invoke(reflect_callable, [])
+      assert {:ok, true} = Compiler.invoke(desc_presence, [])
+    end
+
+    test "compiles object creation plus field writes", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(v){ let o={}; o.x=v; return o.x })") |> user_function()
+
+      assert {:ok, 9} = Compiler.invoke(fun, [9])
+    end
+
+    test "compiles literal-only object literals through the fast path", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(){ return {x:5} })") |> user_function()
+
+      assert {:ok, beam_file} = Compiler.disasm(fun)
+      block = beam_function_instructions(beam_file, :block_0)
+
+      assert Enum.any?(block, fn
+               {:call_ext, 1, {:extfunc, QuickBEAM.VM.Heap, :wrap, 1}} ->
+                 true
+
+               {:call_ext_last, 1, {:extfunc, QuickBEAM.VM.Heap, :wrap, 1}, _} ->
+                 true
+
+               {:call_ext_only, 1, {:extfunc, QuickBEAM.VM.Heap, :wrap, 1}} ->
+                 true
+
+               {:call_ext, 2, {:extfunc, QuickBEAM.VM.Heap, :wrap_keyed, 2}} ->
+                 true
+
+               {:call_ext_last, 2, {:extfunc, QuickBEAM.VM.Heap, :wrap_keyed, 2}, _} ->
+                 true
+
+               {:call_ext_only, 2, {:extfunc, QuickBEAM.VM.Heap, :wrap_keyed, 2}} ->
+                 true
+
+               {:call_ext, 2, {:extfunc, QuickBEAM.VM.Heap, :wrap_keyed_object_literal, 2}} ->
+                 true
+
+               {:call_ext_last, 2, {:extfunc, QuickBEAM.VM.Heap, :wrap_keyed_object_literal, 2},
+                _} ->
+                 true
+
+               {:call_ext_only, 2, {:extfunc, QuickBEAM.VM.Heap, :wrap_keyed_object_literal, 2}} ->
+                 true
+
+               {:call_ext_only, 3,
+                {:extfunc, QuickBEAM.VM.Compiler.RuntimeABI, :wrap_keyed_object_literal, 3}} ->
+                 true
+
+               _ ->
+                 false
+             end)
+
+      assert {:ok, {:obj, ref}} = Compiler.invoke(fun, [])
+      assert %{"x" => 5} = Heap.get_obj(ref)
+    end
+
+    test "object literal lowering snapshots slot values", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(){ let x=1; let o={a:x}; x=2; return o.a })")
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "object literal fast path deopts special and duplicate keys", %{rt: rt} do
+      proto_fun =
+        compile_and_decode(
+          rt,
+          "(function(){ let __proto__=1; let o={__proto__}; return o.__proto__ })"
+        )
+        |> user_function()
+
+      duplicate_fun =
+        compile_and_decode(
+          rt,
+          "(function(){ let o={a:1,a:2}; return Object.keys(o).join(',')+':'+o.a })"
+        )
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(proto_fun, [])
+      assert {:ok, "a:2"} = Compiler.invoke(duplicate_fun, [])
+    end
+
+    test "enumerates numeric object literal keys", %{rt: rt} do
+      keys = compile_and_decode(rt, "Object.keys({2:1,1:1,a:1}).join(',')").value
+      values = compile_and_decode(rt, "Object.values({2:'b',1:'a',z:'c'}).join(',')").value
+
+      entries =
+        compile_and_decode(
+          rt,
+          "Object.entries({2:'b',1:'a',z:'c'}).map(e=>e[0]+e[1]).join(',')"
+        ).value
+
+      assert {:ok, "1,2,a"} = Compiler.invoke(keys, [])
+      assert {:ok, "a,b,c"} = Compiler.invoke(values, [])
+      assert {:ok, "1a,2b,zc"} = Compiler.invoke(entries, [])
+    end
+
+    test "supports Object extensibility helpers", %{rt: rt} do
+      prevent_identity =
+        compile_and_decode(rt, "let o={x:1}; Object.preventExtensions(o)===o").value
+
+      extensible = compile_and_decode(rt, "Object.isExtensible({})").value
+
+      prevented =
+        compile_and_decode(rt, "let o={}; Object.preventExtensions(o); Object.isExtensible(o)").value
+
+      existing_write =
+        compile_and_decode(rt, "let o={x:1}; Object.preventExtensions(o); o.x=2; o.x").value
+
+      new_write =
+        compile_and_decode(rt, "let o={x:1}; Object.preventExtensions(o); o.y=2; o.y===undefined").value
+
+      sealed = compile_and_decode(rt, "let o={}; Object.seal(o); Object.isSealed(o)").value
+      frozen = compile_and_decode(rt, "let o=Object.freeze({}); Object.isFrozen(o)").value
+
+      assign_new =
+        compile_and_decode(
+          rt,
+          "let o={x:1}; try { Object.preventExtensions(o); Object.assign(o,{y:2}); 'no' } catch(e) { e.name }"
+        ).value
+
+      assign_existing =
+        compile_and_decode(
+          rt,
+          "let o={x:1}; Object.preventExtensions(o); Object.assign(o,{x:2}); o.x"
+        ).value
+
+      assign_frozen =
+        compile_and_decode(
+          rt,
+          "let o=Object.freeze({x:1}); try { Object.assign(o,{x:2}); 'no' } catch(e) { e.name }"
+        ).value
+
+      assert {:ok, true} = Compiler.invoke(prevent_identity, [])
+      assert {:ok, true} = Compiler.invoke(extensible, [])
+      assert {:ok, false} = Compiler.invoke(prevented, [])
+      assert {:ok, 2} = Compiler.invoke(existing_write, [])
+      assert {:ok, true} = Compiler.invoke(new_write, [])
+      assert {:ok, true} = Compiler.invoke(sealed, [])
+      assert {:ok, true} = Compiler.invoke(frozen, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(assign_new, [])
+      assert {:ok, 2} = Compiler.invoke(assign_existing, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(assign_frozen, [])
+    end
+
+    test "reads default Object prototype methods", %{rt: rt} do
+      has_own = compile_and_decode(rt, "({x:1}).hasOwnProperty('x')").value
+      has_own_false = compile_and_decode(rt, "({}).hasOwnProperty('x')").value
+      to_string = compile_and_decode(rt, "({}).toString()").value
+      value_of = compile_and_decode(rt, "let o={x:1}; o.valueOf()===o").value
+      enumerable = compile_and_decode(rt, "({x:1}).propertyIsEnumerable('x')").value
+      is_prototype = compile_and_decode(rt, "({}).isPrototypeOf({})").value
+
+      assert {:ok, true} = Compiler.invoke(has_own, [])
+      assert {:ok, false} = Compiler.invoke(has_own_false, [])
+      assert {:ok, "[object Object]"} = Compiler.invoke(to_string, [])
+      assert {:ok, true} = Compiler.invoke(value_of, [])
+      assert {:ok, true} = Compiler.invoke(enumerable, [])
+      assert {:ok, false} = Compiler.invoke(is_prototype, [])
+    end
+
+    test "compiles typed array includes", %{rt: rt} do
+      hit = compile_and_decode(rt, "new Uint8Array([1,2,3]).includes(2)").value
+      miss = compile_and_decode(rt, "new Uint8Array([1,2,3]).includes(4)").value
+
+      assert {:ok, true} = Compiler.invoke(hit, [])
+      assert {:ok, false} = Compiler.invoke(miss, [])
+    end
+
+    test "compiles Reflect.construct helpers", %{rt: rt} do
+      simple = compile_and_decode(rt, "function C(x){this.x=x}; Reflect.construct(C,[3]).x").value
+
+      new_target =
+        compile_and_decode(
+          rt,
+          "function C(){this.v=new.target===D}; function D(){}; Reflect.construct(C,[],D).v"
+        ).value
+
+      prototype =
+        compile_and_decode(
+          rt,
+          "function C(){}; function D(){}; D.prototype={y:4}; Reflect.construct(C,[],D).y"
+        ).value
+
+      assert {:ok, 3} = Compiler.invoke(simple, [])
+      assert {:ok, true} = Compiler.invoke(new_target, [])
+      assert {:ok, 4} = Compiler.invoke(prototype, [])
+    end
+
+    test "compiles Proxy ownKeys traps", %{rt: rt} do
+      trap_length =
+        compile_and_decode(
+          rt,
+          "let p=new Proxy({a:1},{ownKeys(){return ['x','y']}}); Reflect.ownKeys(p).length"
+        ).value
+
+      default_keys =
+        compile_and_decode(rt, "let p=new Proxy({a:1,b:2},{}); Reflect.ownKeys(p).length").value
+
+      symbol_key =
+        compile_and_decode(
+          rt,
+          "let s=Symbol('s'); let p=new Proxy({},{ownKeys(){return [s]}}); Reflect.ownKeys(p)[0]===s"
+        ).value
+
+      assert {:ok, 2} = Compiler.invoke(trap_length, [])
+      assert {:ok, 2} = Compiler.invoke(default_keys, [])
+      assert {:ok, true} = Compiler.invoke(symbol_key, [])
+    end
+
+    test "compiles Reflect.ownKeys without internal object metadata", %{rt: rt} do
+      plain = compile_and_decode(rt, "let o={a:1,b:2}; Reflect.ownKeys(o).length").value
+
+      symbol =
+        compile_and_decode(
+          rt,
+          "let s=Symbol('s'); let o={a:1}; o[s]=2; Reflect.ownKeys(o).length"
+        ).value
+
+      numeric =
+        compile_and_decode(rt, "let o={}; o[2]='b'; o[1]='a'; o.x='x'; Reflect.ownKeys(o).length").value
+
+      assert {:ok, 2} = Compiler.invoke(plain, [])
+      assert {:ok, 2} = Compiler.invoke(symbol, [])
+      assert {:ok, 3} = Compiler.invoke(numeric, [])
+    end
+
+    test "compiles Reflect read and apply helpers", %{rt: rt} do
+      reflect_apply =
+        compile_and_decode(rt, "Reflect.apply(function(x){return x+1}, null, [2])").value
+
+      reflect_get = compile_and_decode(rt, "Reflect.get({x:1}, 'x')").value
+      reflect_set = compile_and_decode(rt, "let o={}; Reflect.set(o,'x',2); o.x").value
+      reflect_has = compile_and_decode(rt, "Reflect.has({x:1}, 'x')").value
+
+      assert {:ok, 3} = Compiler.invoke(reflect_apply, [])
+      assert {:ok, 1} = Compiler.invoke(reflect_get, [])
+      assert {:ok, 2} = Compiler.invoke(reflect_set, [])
+      assert {:ok, true} = Compiler.invoke(reflect_has, [])
+    end
+
+    test "compiles Reflect property mutation helpers", %{rt: rt} do
+      delete_property =
+        compile_and_decode(rt, "let o={x:1}; Reflect.deleteProperty(o,'x'); o.x===undefined").value
+
+      define_property =
+        compile_and_decode(
+          rt,
+          "let o={}; Reflect.defineProperty(o,'x',{value:2, enumerable:true}); o.x"
+        ).value
+
+      non_enumerable =
+        compile_and_decode(
+          rt,
+          "let o={}; Reflect.defineProperty(o,'x',{value:2, enumerable:false}); Object.keys(o).length"
+        ).value
+
+      prevent_extensions =
+        compile_and_decode(
+          rt,
+          "let o={}; Reflect.preventExtensions(o) && !Reflect.isExtensible(o)"
+        ).value
+
+      object_create_props =
+        compile_and_decode(
+          rt,
+          ~S|let o=Object.create({}, {x:{value:2, enumerable:true}}); o.x+":"+Object.keys(o).length|
+        ).value
+
+      object_create_bad_proto =
+        compile_and_decode(rt, ~S|try{Object.create(1)}catch(e){e.name}|).value
+
+      from_entries_map =
+        compile_and_decode(rt, ~S|let m=new Map([["x",1]]); Object.fromEntries(m).x|).value
+
+      from_entries_bad_entry =
+        compile_and_decode(rt, ~S|try{Object.fromEntries([1])}catch(e){e.name}|).value
+
+      object_has_own_string = compile_and_decode(rt, ~S|Object.hasOwn("ab","1")|).value
+
+      object_has_own_null =
+        compile_and_decode(rt, ~S|try{Object.hasOwn(null,"x")}catch(e){e.name}|).value
+
+      has_own_property_string =
+        compile_and_decode(rt, ~S|Object.prototype.hasOwnProperty.call("ab","1")|).value
+
+      property_is_enumerable_missing =
+        compile_and_decode(rt, ~S|({}).propertyIsEnumerable("x")|).value
+
+      property_is_enumerable_string =
+        compile_and_decode(rt, ~S|Object.prototype.propertyIsEnumerable.call("ab","1")|).value
+
+      object_to_string_array =
+        compile_and_decode(rt, ~S|Object.prototype.toString.call([])|).value
+
+      object_to_string_null =
+        compile_and_decode(rt, ~S|Object.prototype.toString.call(null)|).value
+
+      object_to_string_string =
+        compile_and_decode(rt, ~S|Object.prototype.toString.call("x")|).value
+
+      object_to_string_map =
+        compile_and_decode(rt, ~S|Object.prototype.toString.call(new Map())|).value
+
+      object_to_string_set =
+        compile_and_decode(rt, ~S|Object.prototype.toString.call(new Set())|).value
+
+      object_to_string_date =
+        compile_and_decode(rt, ~S|Object.prototype.toString.call(new Date(0))|).value
+
+      object_to_string_regexp =
+        compile_and_decode(rt, ~S|Object.prototype.toString.call(/a/)|).value
+
+      object_to_string_custom_tag =
+        compile_and_decode(
+          rt,
+          ~S|Object.prototype.toString.call({[Symbol.toStringTag]:"Custom"})|
+        ).value
+
+      array_named_property = compile_and_decode(rt, ~S|let a=[]; a.foo=3; a.foo|).value
+
+      object_value_of_null =
+        compile_and_decode(rt, ~S|try{Object.prototype.valueOf.call(null)}catch(e){e.name}|).value
+
+      object_value_of_string =
+        compile_and_decode(rt, ~S|typeof Object.prototype.valueOf.call("x")|).value
+
+      object_is_prototype_of_direct =
+        compile_and_decode(rt, ~S|let p={}; let o=Object.create(p); p.isPrototypeOf(o)|).value
+
+      object_is_prototype_of_chain =
+        compile_and_decode(
+          rt,
+          ~S|let a={}; let b=Object.create(a); let c=Object.create(b); a.isPrototypeOf(c)|
+        ).value
+
+      prevent_primitive =
+        compile_and_decode(rt, ~S|try{Reflect.preventExtensions(1)}catch(e){e.name}|).value
+
+      extensible_primitive =
+        compile_and_decode(rt, ~S|try{Reflect.isExtensible(1)}catch(e){e.name}|).value
+
+      reflect_define_primitive =
+        compile_and_decode(rt, ~S|try{Reflect.defineProperty(1,"x",{value:1})}catch(e){e.name}|).value
+
+      object_define_primitive =
+        compile_and_decode(rt, ~S|try{Object.defineProperty(1,"x",{value:1})}catch(e){e.name}|).value
+
+      reflect_define_blocked =
+        compile_and_decode(
+          rt,
+          ~S|let o={}; Object.preventExtensions(o); Reflect.defineProperty(o,"x",{value:1})|
+        ).value
+
+      reflect_define_existing =
+        compile_and_decode(
+          rt,
+          ~S|let o={x:1}; Object.preventExtensions(o); Reflect.defineProperty(o,"x",{value:2}) && o.x|
+        ).value
+
+      proxy_prevent_default =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; let p=new Proxy(t,{}); Reflect.preventExtensions(p) && !Reflect.isExtensible(t)|
+        ).value
+
+      proxy_prevent_invariant =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; let p=new Proxy(t,{preventExtensions(){return true}}); try{Reflect.preventExtensions(p)}catch(e){e.name}|
+        ).value
+
+      proxy_prevent_trap =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; let p=new Proxy(t,{preventExtensions(){Object.preventExtensions(t); return true}}); Reflect.preventExtensions(p) && !Reflect.isExtensible(t)|
+        ).value
+
+      proxy_prevent_false =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; let p=new Proxy(t,{preventExtensions(){return false}}); Reflect.preventExtensions(p)|
+        ).value
+
+      proxy_extensible_false_mismatch =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; let p=new Proxy(t,{isExtensible(){return false}}); try{Reflect.isExtensible(p)}catch(e){e.name}|
+        ).value
+
+      proxy_extensible_true_mismatch =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.preventExtensions(t); let p=new Proxy(t,{isExtensible(){return true}}); try{Reflect.isExtensible(p)}catch(e){e.name}|
+        ).value
+
+      proxy_extensible_match =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.preventExtensions(t); let p=new Proxy(t,{isExtensible(){return false}}); Reflect.isExtensible(p)|
+        ).value
+
+      proxy_define_trap =
+        compile_and_decode(
+          rt,
+          ~S|let called=0; let p=new Proxy({},{defineProperty(t,k,d){called=1; return Reflect.defineProperty(t,k,d)}}); Reflect.defineProperty(p,"x",{value:1}); called+":"+p.x|
+        ).value
+
+      proxy_define_false =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({},{defineProperty(){return false}}); Reflect.defineProperty(p,"x",{value:1})|
+        ).value
+
+      proxy_define_object_false =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({},{defineProperty(){return false}}); try{Object.defineProperty(p,"x",{value:1});0}catch(e){e.name}|
+        ).value
+
+      proxy_define_nonextensible =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.preventExtensions(t); let p=new Proxy(t,{defineProperty(){return true}}); try{Reflect.defineProperty(p,"x",{value:1});"ok"}catch(e){e.name}|
+        ).value
+
+      proxy_delete_trap =
+        compile_and_decode(
+          rt,
+          ~S|let called=0; let p=new Proxy({x:1},{deleteProperty(t,k){called=1; return delete t[k]}}); delete p.x; called+":"+(p.x===undefined)|
+        ).value
+
+      proxy_delete_false =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({x:1},{deleteProperty(){return false}}); delete p.x|
+        ).value
+
+      proxy_delete_invariant =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:false}); let p=new Proxy(t,{deleteProperty(){return true}}); try{delete p.x}catch(e){e.name}|
+        ).value
+
+      proxy_get_descriptor =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({x:1},{getOwnPropertyDescriptor(){return {value:2, configurable:true}}}); Object.getOwnPropertyDescriptor(p,"x").value|
+        ).value
+
+      proxy_get_descriptor_invariant =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:false}); let p=new Proxy(t,{getOwnPropertyDescriptor(){return undefined}}); try{Object.getOwnPropertyDescriptor(p,"x")}catch(e){e.name}|
+        ).value
+
+      static_lexical_write =
+        compile_and_decode(rt, ~S|let x=0; class A{ static { x=1 } }; x|).value
+
+      static_var_write =
+        compile_and_decode(rt, ~S|var x=0; class A{ static { x=1 } }; x|).value
+
+      reflect_set_receiver =
+        compile_and_decode(
+          rt,
+          ~S|let o={set x(v){this.y=v}}; let r={}; Reflect.set(o,"x",5,r); r.y|
+        ).value
+
+      reflect_set_data_receiver =
+        compile_and_decode(rt, ~S|let o={x:1}; let r={}; Reflect.set(o,"x",5,r); r.x+":"+o.x|).value
+
+      reflect_set_proto_setter_receiver =
+        compile_and_decode(
+          rt,
+          ~S|let p={set x(v){this.y=v}}; let o=Object.create(p); let r={}; Reflect.set(o,"x",5,r); r.y|
+        ).value
+
+      reflect_set_receiver_nonextensible =
+        compile_and_decode(
+          rt,
+          ~S|let o={x:1}; let r={}; Object.preventExtensions(r); Reflect.set(o,"x",5,r)|
+        ).value
+
+      reflect_get_descriptor =
+        compile_and_decode(rt, ~S|let o={x:1}; Reflect.getOwnPropertyDescriptor(o,"x").value|).value
+
+      reflect_get_descriptor_proxy =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({x:1},{getOwnPropertyDescriptor(){return {value:2, configurable:true}}}); Reflect.getOwnPropertyDescriptor(p,"x").value|
+        ).value
+
+      object_get_descriptors =
+        compile_and_decode(rt, ~S|let o={x:1}; Object.getOwnPropertyDescriptors(o).x.value|).value
+
+      object_get_descriptors_proxy =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({x:1},{getOwnPropertyDescriptor(){return {value:2, configurable:true}}}); Object.getOwnPropertyDescriptors(p).x.value|
+        ).value
+
+      freeze_descriptor =
+        compile_and_decode(
+          rt,
+          ~S|let o={x:1}; Object.freeze(o); Object.getOwnPropertyDescriptor(o,"x").writable|
+        ).value
+
+      freeze_define_blocked =
+        compile_and_decode(
+          rt,
+          ~S|let o={x:1}; Object.freeze(o); try{Object.defineProperty(o,"x",{value:2})}catch(e){e.name}|
+        ).value
+
+      nonconfig_accessor_change =
+        compile_and_decode(
+          rt,
+          ~S|let o={}; Object.defineProperty(o,"x",{get(){return 1},configurable:false}); try{Object.defineProperty(o,"x",{get(){return 2}})}catch(e){e.name}|
+        ).value
+
+      nonconfig_data_to_accessor =
+        compile_and_decode(
+          rt,
+          ~S|let o={}; Object.defineProperty(o,"x",{value:1,configurable:false}); try{Object.defineProperty(o,"x",{get(){return 1}})}catch(e){e.name}|
+        ).value
+
+      manual_frozen =
+        compile_and_decode(
+          rt,
+          ~S|let o={}; Object.defineProperty(o,"x",{value:1,writable:false,configurable:false}); Object.preventExtensions(o); Object.isFrozen(o)|
+        ).value
+
+      prevent_extensions_not_sealed =
+        compile_and_decode(rt, ~S|let o={x:1}; Object.preventExtensions(o); Object.isSealed(o)|).value
+
+      reflect_get_prototype =
+        compile_and_decode(
+          rt,
+          ~S|let p={x:1}; let o=Object.create(p); Reflect.getPrototypeOf(o)===p|
+        ).value
+
+      reflect_set_prototype =
+        compile_and_decode(rt, ~S|let p={x:1}; let o={}; Reflect.setPrototypeOf(o,p)+":"+o.x|).value
+
+      reflect_get_prototype_primitive =
+        compile_and_decode(rt, ~S|try{Reflect.getPrototypeOf(1)}catch(e){e.name}|).value
+
+      object_set_prototype_bad_proto =
+        compile_and_decode(rt, ~S|try{Object.setPrototypeOf({},1)}catch(e){e.name}|).value
+
+      proxy_get_prototype =
+        compile_and_decode(
+          rt,
+          ~S|let p={x:1}; let q=new Proxy({}, {getPrototypeOf(){return p}}); Object.getPrototypeOf(q)===p|
+        ).value
+
+      proxy_set_prototype =
+        compile_and_decode(
+          rt,
+          ~S|let p={x:1}; let q=new Proxy({}, {setPrototypeOf(t,v){Object.setPrototypeOf(t,v); return true}}); Object.setPrototypeOf(q,p); Object.getPrototypeOf(q)===p|
+        ).value
+
+      proxy_get_prototype_primitive =
+        compile_and_decode(
+          rt,
+          ~S|let q=new Proxy({}, {getPrototypeOf(){return 1}}); try{Object.getPrototypeOf(q)}catch(e){e.name}|
+        ).value
+
+      proxy_set_prototype_false =
+        compile_and_decode(
+          rt,
+          ~S|let q=new Proxy({}, {setPrototypeOf(){return false}}); Reflect.setPrototypeOf(q,{})|
+        ).value
+
+      object_define_blocked =
+        compile_and_decode(
+          rt,
+          ~S|let o={}; Object.preventExtensions(o); try{Object.defineProperty(o,"x",{value:1}); 0}catch(e){e.name}|
+        ).value
+
+      assert {:ok, true} = Compiler.invoke(delete_property, [])
+      assert {:ok, 2} = Compiler.invoke(define_property, [])
+      assert {:ok, 0} = Compiler.invoke(non_enumerable, [])
+      assert {:ok, true} = Compiler.invoke(prevent_extensions, [])
+      assert {:ok, "2:1"} = Compiler.invoke(object_create_props, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(object_create_bad_proto, [])
+      assert {:ok, 1} = Compiler.invoke(from_entries_map, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(from_entries_bad_entry, [])
+      assert {:ok, true} = Compiler.invoke(object_has_own_string, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(object_has_own_null, [])
+      assert {:ok, true} = Compiler.invoke(has_own_property_string, [])
+      assert {:ok, false} = Compiler.invoke(property_is_enumerable_missing, [])
+      assert {:ok, true} = Compiler.invoke(property_is_enumerable_string, [])
+      assert {:ok, "[object Array]"} = Compiler.invoke(object_to_string_array, [])
+      assert {:ok, "[object Null]"} = Compiler.invoke(object_to_string_null, [])
+      assert {:ok, "[object String]"} = Compiler.invoke(object_to_string_string, [])
+      assert {:ok, "[object Map]"} = Compiler.invoke(object_to_string_map, [])
+      assert {:ok, "[object Set]"} = Compiler.invoke(object_to_string_set, [])
+      assert {:ok, "[object Date]"} = Compiler.invoke(object_to_string_date, [])
+      assert {:ok, "[object RegExp]"} = Compiler.invoke(object_to_string_regexp, [])
+      assert {:ok, "[object Custom]"} = Compiler.invoke(object_to_string_custom_tag, [])
+      assert {:ok, 3} = Compiler.invoke(array_named_property, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(object_value_of_null, [])
+      assert {:ok, "object"} = Compiler.invoke(object_value_of_string, [])
+      assert {:ok, true} = Compiler.invoke(object_is_prototype_of_direct, [])
+      assert {:ok, true} = Compiler.invoke(object_is_prototype_of_chain, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(prevent_primitive, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(extensible_primitive, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(reflect_define_primitive, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(object_define_primitive, [])
+      assert {:ok, false} = Compiler.invoke(reflect_define_blocked, [])
+      assert {:ok, 2} = Compiler.invoke(reflect_define_existing, [])
+      assert {:ok, true} = Compiler.invoke(proxy_prevent_default, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(proxy_prevent_invariant, [])
+      assert {:ok, true} = Compiler.invoke(proxy_prevent_trap, [])
+      assert {:ok, false} = Compiler.invoke(proxy_prevent_false, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(proxy_extensible_false_mismatch, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(proxy_extensible_true_mismatch, [])
+      assert {:ok, false} = Compiler.invoke(proxy_extensible_match, [])
+      assert {:ok, "1:1"} = Compiler.invoke(proxy_define_trap, [])
+      assert {:ok, false} = Compiler.invoke(proxy_define_false, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(proxy_define_object_false, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(proxy_define_nonextensible, [])
+      assert {:ok, "1:true"} = Compiler.invoke(proxy_delete_trap, [])
+      assert {:ok, false} = Compiler.invoke(proxy_delete_false, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(proxy_delete_invariant, [])
+      assert {:ok, 2} = Compiler.invoke(proxy_get_descriptor, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(proxy_get_descriptor_invariant, [])
+      assert {:ok, 1} = Compiler.invoke(static_lexical_write, [])
+      assert {:ok, 1} = Compiler.invoke(static_var_write, [])
+      assert {:ok, 5} = Compiler.invoke(reflect_set_receiver, [])
+      assert {:ok, "5:1"} = Compiler.invoke(reflect_set_data_receiver, [])
+      assert {:ok, 5} = Compiler.invoke(reflect_set_proto_setter_receiver, [])
+      assert {:ok, false} = Compiler.invoke(reflect_set_receiver_nonextensible, [])
+      assert {:ok, 1} = Compiler.invoke(reflect_get_descriptor, [])
+      assert {:ok, 2} = Compiler.invoke(reflect_get_descriptor_proxy, [])
+      assert {:ok, 1} = Compiler.invoke(object_get_descriptors, [])
+      assert {:ok, 2} = Compiler.invoke(object_get_descriptors_proxy, [])
+      assert {:ok, false} = Compiler.invoke(freeze_descriptor, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(freeze_define_blocked, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(nonconfig_accessor_change, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(nonconfig_data_to_accessor, [])
+      assert {:ok, true} = Compiler.invoke(manual_frozen, [])
+      assert {:ok, false} = Compiler.invoke(prevent_extensions_not_sealed, [])
+      assert {:ok, true} = Compiler.invoke(reflect_get_prototype, [])
+      assert {:ok, "true:1"} = Compiler.invoke(reflect_set_prototype, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(reflect_get_prototype_primitive, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(object_set_prototype_bad_proto, [])
+      assert {:ok, true} = Compiler.invoke(proxy_get_prototype, [])
+      assert {:ok, true} = Compiler.invoke(proxy_set_prototype, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(proxy_get_prototype_primitive, [])
+      assert {:ok, false} = Compiler.invoke(proxy_set_prototype_false, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(object_define_blocked, [])
+    end
+
+    test "compiles Proxy construct traps", %{rt: rt} do
+      construct_trap =
+        compile_and_decode(
+          rt,
+          "let F=new Proxy(function(x){this.x=x},{construct(t,args){return {x:7}}}); new F(1).x"
+        ).value
+
+      default_construct =
+        compile_and_decode(rt, "let F=new Proxy(function(x){this.x=x},{}); new F(3).x").value
+
+      reflect_construct =
+        compile_and_decode(
+          rt,
+          "let F=new Proxy(function(x){this.x=x},{construct(t,args){return {x:8}}}); Reflect.construct(F,[1]).x"
+        ).value
+
+      assert {:ok, 7} = Compiler.invoke(construct_trap, [])
+      assert {:ok, 3} = Compiler.invoke(default_construct, [])
+      assert {:ok, 8} = Compiler.invoke(reflect_construct, [])
+    end
+
+    test "compiles callable Proxy apply traps", %{rt: rt} do
+      apply_trap =
+        compile_and_decode(
+          rt,
+          "let f=new Proxy(function(x){return x+1},{apply(t,thisArg,args){return 5}}); f(1)"
+        ).value
+
+      default_apply =
+        compile_and_decode(rt, "let f=new Proxy(function(x){return x+1},{}); f(1)").value
+
+      args_apply =
+        compile_and_decode(
+          rt,
+          "let f=new Proxy(function(x){return x+1},{apply(t,thisArg,args){return args[0]+2}}); f(3)"
+        ).value
+
+      assert {:ok, 5} = Compiler.invoke(apply_trap, [])
+      assert {:ok, 2} = Compiler.invoke(default_apply, [])
+      assert {:ok, 5} = Compiler.invoke(args_apply, [])
+    end
+
+    test "compiles for-of object binding patterns", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          ~S<(function(){ let out = 0; for (let {a} of [{a: 1}]) { out = a } return out })>
+        )
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "unsupported generator stubs preserve generator kind", %{rt: rt} do
+      assert {:ok, "function"} =
+               QuickBEAM.eval(rt, "function* g(){ yield 1; } typeof g().next",
+                 mode: :beam_compiler
+               )
+    end
+
+    test "compiles basic Proxy get and has traps", %{rt: rt} do
+      proxy_get =
+        compile_and_decode(rt, "let p=new Proxy({},{get(t,k){return k==='x'?3:undefined}}); p.x").value
+
+      proxy_has =
+        compile_and_decode(rt, "let p=new Proxy({}, {has(){return false}}); 'x' in p").value
+
+      assert {:ok, 3} = Compiler.invoke(proxy_get, [])
+      assert {:ok, false} = Compiler.invoke(proxy_has, [])
+    end
+
+    test "routes observable property read throws through catch handlers", %{rt: rt} do
+      field_get =
+        compile_and_decode(rt, ~S|let o={get x(){throw "field"}}; try{o.x}catch(e){e}|).value
+
+      field_get2 =
+        compile_and_decode(rt, ~S|let o={get x(){throw "field2"}}; try{o.x()}catch(e){e}|).value
+
+      length_get =
+        compile_and_decode(rt, ~S|let o={get length(){throw "length"}}; try{o.length}catch(e){e}|).value
+
+      with_has =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({}, {has(){throw "has"}}); try{with(p){x}}catch(e){e}|
+        ).value
+
+      with_set =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({}, {has(){return true}, set(){throw "set"}}); try{with(p){x=1}}catch(e){e}|
+        ).value
+
+      with_typeof =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({}, { has(){ throw "typeof-has" } }); try { with (p) { typeof missing } } catch (e) { e }|
+        ).value
+
+      assert {:ok, "field"} = Compiler.invoke(field_get, [])
+      assert {:ok, "field2"} = Compiler.invoke(field_get2, [])
+      assert {:ok, "length"} = Compiler.invoke(length_get, [])
+      assert {:ok, "has"} = Compiler.invoke(with_has, [])
+      assert {:ok, "set"} = Compiler.invoke(with_set, [])
+      assert {:ok, "typeof-has"} = Compiler.invoke(with_typeof, [])
+    end
+
+    test "compiled non-strict implicit globals stay writable", %{rt: rt} do
+      fun = compile_and_decode(rt, ~S|compiledImplicit = 7; compiledImplicit|).value
+
+      assert {:ok, 7} = Compiler.invoke(fun, [])
+    end
+
+    test "compiled global object delete parity", %{rt: rt} do
+      configurable =
+        compile_and_decode(
+          rt,
+          ~S[Object.defineProperty(globalThis,"deleteReview",{value:1,configurable:true}); (delete deleteReview) + "|" + String(globalThis.deleteReview)]
+        ).value
+
+      nonconfigurable =
+        compile_and_decode(
+          rt,
+          ~S[Object.defineProperty(globalThis,"fixedReview",{value:1,configurable:false}); delete fixedReview]
+        ).value
+
+      assert {:ok, "true|1"} = Compiler.invoke(configurable, [])
+      assert {:ok, true} = Compiler.invoke(nonconfigurable, [])
+    end
+
+    test "compiled global accessor returning undefined is still a binding", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          ~S[Object.defineProperty(globalThis,"undefinedReview",{get(){return undefined},configurable:true}); String(undefinedReview)]
+        ).value
+
+      assert {:ok, "undefined"} = Compiler.invoke(fun, [])
+    end
+
+    test "compiled global accessor reads fall back to global object", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          ~S[Object.defineProperty(globalThis,"reviewRead",{get(){return "ok"},configurable:true}); reviewRead]
+        ).value
+
+      assert {:ok, "ok"} = Compiler.invoke(fun, [])
+    end
+
+    test "compiled global setter throw can be caught", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          ~S[Object.defineProperty(globalThis,"reviewSet",{get(){return 0},set(v){throw "boom"},configurable:true}); let caught; try{reviewSet=1}catch(e){caught=e}; caught + "|" + reviewSet]
+        ).value
+
+      assert {:ok, "boom|0"} = Compiler.invoke(fun, [])
+    end
+
+    test "routes observable instanceof and constructor prototype throws", %{rt: rt} do
+      has_instance =
+        compile_and_decode(
+          rt,
+          ~S|let c={ [Symbol.hasInstance](){ throw "hasInstance" } }; try{({}) instanceof c}catch(e){e}|
+        ).value
+
+      ctor_proto =
+        compile_and_decode(
+          rt,
+          ~S|function C(){}; function N(){}; Object.defineProperty(N,"prototype",{get(){throw "proto"}}); try{Reflect.construct(C, [], N)}catch(e){e}|
+        ).value
+
+      direct_new_proto =
+        compile_and_decode(
+          rt,
+          ~S|function C(){}; Object.defineProperty(C,"prototype",{get(){throw "direct-proto"}}); try{new C()}catch(e){e}|
+        ).value
+
+      assert {:ok, "hasInstance"} = Compiler.invoke(has_instance, [])
+      assert {:ok, "proto"} = Compiler.invoke(ctor_proto, [])
+      assert {:ok, "direct-proto"} = Compiler.invoke(direct_new_proto, [])
+    end
+
+    test "compiles runtime constructor and regexp feature calls", %{rt: rt} do
+      url_can_parse = compile_and_decode(rt, "URL.canParse('https://x.test/')").value
+      event_type = compile_and_decode(rt, "new Event('tick', {bubbles:true}).type").value
+      event_bubbles = compile_and_decode(rt, "new Event('tick', {bubbles:true}).bubbles").value
+      dot_all = compile_and_decode(rt, "/a.b/s.test('a\\nb')").value
+      regexp_flags = compile_and_decode(rt, "/./su.flags").value
+
+      assert {:ok, true} = Compiler.invoke(url_can_parse, [])
+      assert {:ok, "tick"} = Compiler.invoke(event_type, [])
+      assert {:ok, true} = Compiler.invoke(event_bubbles, [])
+      assert {:ok, true} = Compiler.invoke(dot_all, [])
+      assert {:ok, "su"} = Compiler.invoke(regexp_flags, [])
+    end
+
+    test "compiles function calls through arguments", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(f,x){return f(x)})") |> user_function()
+      callback = {:builtin, "double", fn [x], _ -> x * 2 end}
+
+      assert {:ok, 8} = Compiler.invoke(fun, [callback, 4])
+    end
+
+    test "uses strict this for direct function calls", %{rt: rt} do
+      sloppy = compile_and_decode(rt, "function f(){ return this===globalThis}; f()").value
+
+      strict =
+        compile_and_decode(rt, "function f(){'use strict'; return this===undefined}; f()").value
+
+      assert {:ok, true} = Compiler.invoke(sloppy, [])
+      assert {:ok, true} = Compiler.invoke(strict, [])
+    end
+
+    test "compiles Map and Set mutation helpers", %{rt: rt} do
+      map_set_get = compile_and_decode(rt, "let m=new Map(); m.set(1,2).set(3,4); m.get(3)").value
+      map_delete = compile_and_decode(rt, "let m=new Map([[1,2]]); m.delete(1); m.has(1)").value
+      map_size = compile_and_decode(rt, "let m=new Map([[1,2],[3,4]]); m.size").value
+      set_size = compile_and_decode(rt, "let s=new Set([1,2,2]); s.size").value
+      set_delete = compile_and_decode(rt, "let s=new Set([1]); s.delete(1); s.has(1)").value
+
+      weakmap_delete =
+        compile_and_decode(rt, "let k={}; let m=new WeakMap([[k,1]]); m.delete(k); m.has(k)").value
+
+      weakset_delete =
+        compile_and_decode(rt, "let k={}; let s=new WeakSet([k]); s.delete(k); s.has(k)").value
+
+      assert {:ok, 4} = Compiler.invoke(map_set_get, [])
+      assert {:ok, false} = Compiler.invoke(map_delete, [])
+      assert {:ok, 2} = Compiler.invoke(map_size, [])
+      assert {:ok, 2} = Compiler.invoke(set_size, [])
+      assert {:ok, false} = Compiler.invoke(set_delete, [])
+      assert {:ok, false} = Compiler.invoke(weakmap_delete, [])
+      assert {:ok, false} = Compiler.invoke(weakset_delete, [])
+    end
+
+    test "compiles tagged template call semantics", %{rt: rt} do
+      tag_this = compile_and_decode(rt, "function tag(){return this===globalThis}; tag`x`").value
+
+      tag_length =
+        compile_and_decode(rt, "function tag(strings){return strings.length}; tag`a${1}b`").value
+
+      tag_expr =
+        compile_and_decode(
+          rt,
+          "function tag(strings, v){return strings[0]+v+strings[1]}; tag`a${2}b`"
+        ).value
+
+      tag_receiver =
+        compile_and_decode(
+          rt,
+          "let receiver; function tag(){receiver=this; return 1}; tag`x`; receiver===globalThis"
+        ).value
+
+      tag_raw =
+        compile_and_decode(
+          rt,
+          "function tag(strings){return strings.raw[0]}; tag`a\\\\nb`"
+        ).value
+
+      string_raw = compile_and_decode(rt, "String.raw`a\\\\nb`").value
+
+      assert {:ok, true} = Compiler.invoke(tag_this, [])
+      assert {:ok, 2} = Compiler.invoke(tag_length, [])
+      assert {:ok, "a2b"} = Compiler.invoke(tag_expr, [])
+      assert {:ok, true} = Compiler.invoke(tag_receiver, [])
+      assert {:ok, "a\\\\nb"} = Compiler.invoke(tag_raw, [])
+      assert {:ok, "a\\\\nb"} = Compiler.invoke(string_raw, [])
+    end
+
+    test "compiles static block object and constructor side effects", %{rt: rt} do
+      object_state =
+        compile_and_decode(rt, "let state={x:0}; class A{ static { state.x=1 } }; state.x").value
+
+      receiver_prop = compile_and_decode(rt, "class A{ static { this.x=2 } }; A.x").value
+
+      field_order =
+        compile_and_decode(rt, "class A{ static x=1; static { this.x+=2 } }; A.x").value
+
+      assert {:ok, 1} = Compiler.invoke(object_state, [])
+      assert {:ok, 2} = Compiler.invoke(receiver_prop, [])
+      assert {:ok, 3} = Compiler.invoke(field_order, [])
+    end
+
+    test "compiles boxed primitive prototype methods", %{rt: rt} do
+      assert_compiled = fn source, expected ->
+        fun = compile_and_decode(rt, source).value
+        assert {:ok, expected} == Compiler.invoke(fun, [])
+      end
+
+      assert_compiled.("new Number(3).valueOf()", 3)
+      assert_compiled.("new Number(10).toString(16)", "a")
+      assert_compiled.("new String('x').valueOf()", "x")
+      assert_compiled.("new String('x').concat('y')", "xy")
+      assert_compiled.("new String('abc').length", 3)
+      assert_compiled.("Object('abc').length", 3)
+      assert_compiled.("new String('😀').length", 2)
+      assert_compiled.("new Boolean(false).valueOf()", false)
+      assert_compiled.("new Boolean(false).toString()", "false")
+      assert_compiled.("new Number(1.25).toFixed(1)", "1.3")
+      assert_compiled.("new Number(1.25).toPrecision(2)", "1.3")
+      assert_compiled.("new Boolean(true).toString()", "true")
+      assert_compiled.("Object(4).valueOf()", 4)
+      assert_compiled.("Object('x').valueOf()", "x")
+    end
+
+    test "compiles Symbol.hasInstance overrides", %{rt: rt} do
+      class_override =
+        compile_and_decode(
+          rt,
+          "class C{}; Object.defineProperty(C, Symbol.hasInstance, {value(){return true}}); ({} instanceof C)"
+        ).value
+
+      function_override =
+        compile_and_decode(
+          rt,
+          "function C(){}; Object.defineProperty(C, Symbol.hasInstance, {value(){return true}}); ({} instanceof C)"
+        ).value
+
+      false_override =
+        compile_and_decode(
+          rt,
+          "function C(){}; Object.defineProperty(C, Symbol.hasInstance, {value(){return false}}); new C() instanceof C"
+        ).value
+
+      assert {:ok, true} = Compiler.invoke(class_override, [])
+      assert {:ok, true} = Compiler.invoke(function_override, [])
+      assert {:ok, false} = Compiler.invoke(false_override, [])
+    end
+
+    test "compiles Symbol and BigInt runtime edges", %{rt: rt} do
+      symbol_for = compile_and_decode(rt, "Symbol.for('x')===Symbol.for('x')").value
+      symbol_key = compile_and_decode(rt, "Symbol.keyFor(Symbol.for('x'))").value
+      symbol_description = compile_and_decode(rt, "Symbol('x').description").value
+      bigint_to_string = compile_and_decode(rt, "(10n).toString()").value
+      bigint_add = compile_and_decode(rt, "1n + 2n").value
+
+      assert {:ok, true} = Compiler.invoke(symbol_for, [])
+      assert {:ok, "x"} = Compiler.invoke(symbol_key, [])
+      assert {:ok, "x"} = Compiler.invoke(symbol_description, [])
+      assert {:ok, "10"} = Compiler.invoke(bigint_to_string, [])
+      assert {:ok, {:bigint, 3}} = Compiler.invoke(bigint_add, [])
+    end
+
+    test "compiles TDZ and nested private-brand edges", %{rt: rt} do
+      typeof_tdz = compile_and_decode(rt, "try { typeof x } catch(e) { e.name } let x=1").value
+      assert {:ok, "ReferenceError"} = Compiler.invoke(typeof_tdz, [])
+
+      private_in =
+        compile_and_decode(rt, "class A{ #x; static has(o){return #x in o} } A.has(new A())").value
+
+      assert {:ok, true} = Compiler.invoke(private_in, [])
+
+      nested_private =
+        compile_and_decode(
+          rt,
+          "class A{ #x=1; m(){ class B{ n(o){ return o.#x } } return new B().n(this) } } new A().m()"
+        ).value
+
+      assert {:ok, 1} = Compiler.invoke(nested_private, [])
+    end
+
+    test "fuses captured var-ref calls into one runtime helper", %{rt: rt} do
+      outer =
+        compile_and_decode(rt, "(function(f){ return function(x){ return f(x) } })")
+        |> user_function()
+
+      inner =
+        Enum.find(outer.constants, &match?(%QuickBEAM.VM.Function{closure_vars: [_ | _]}, &1))
+
+      assert %QuickBEAM.VM.Function{} = inner
+
+      assert {:ok, beam_file} = Compiler.disasm(inner)
+      block = beam_function_instructions(beam_file, :block_0)
+
+      assert Enum.any?(block, fn
+               {:call_ext, 2, {:extfunc, QuickBEAM.VM.Compiler.RuntimeABI, :get_capture, 2}} ->
+                 true
+
+               {:call_ext_last, 2, {:extfunc, QuickBEAM.VM.Compiler.RuntimeABI, :get_capture, 2},
+                _} ->
+                 true
+
+               _ ->
+                 false
+             end)
+
+      callback = {:builtin, "double", fn [x], _ -> x * 2 end}
+      assert {:ok, {:closure, _, _} = closure} = Compiler.invoke(outer, [callback])
+      assert {:ok, 8} = Compiler.invoke(closure, [4])
+    end
+
+    test "compiles captured var-ref calls with more than three arguments", %{rt: rt} do
+      outer =
+        compile_and_decode(rt, "(function(f){ return function(a,b,c,d){ return f(a,b,c,d) } })")
+        |> user_function()
+
+      callback = {:builtin, "sum4", fn [a, b, c, d], _ -> a + b + c + d end}
+      assert {:ok, {:closure, _, _} = closure} = Compiler.invoke(outer, [callback])
+      assert {:ok, 10} = Compiler.invoke(closure, [1, 2, 3, 4])
+    end
+
+    test "compiles transitive captured closures", %{rt: rt} do
+      outer =
+        compile_and_decode(
+          rt,
+          "(function(f){ return function(){ return function(x){ return f(x) } } })"
+        )
+        |> user_function()
+
+      callback = {:builtin, "double", fn [x], _ -> x * 2 end}
+      assert {:ok, {:closure, _, _} = mid} = Compiler.invoke(outer, [callback])
+      assert {:ok, {:closure, _, _} = inner} = Compiler.invoke(mid, [])
+      assert {:ok, 8} = Compiler.invoke(inner, [4])
+    end
+
+    test "reads fresh values from captured local cells", %{rt: rt} do
+      direct =
+        compile_and_decode(rt, "function f(){let x=0; function r(){x=1}; r(); return x}; f()").value
+
+      increment =
+        compile_and_decode(rt, "function f(){let x=1; function r(){x++}; r(); return x}; f()").value
+
+      compound =
+        compile_and_decode(rt, "function f(){let x=1; function r(){x+=2}; r(); return x}; f()").value
+
+      nested =
+        compile_and_decode(
+          rt,
+          "function f(){let x=0; function r(){x=1}; function s(){r()}; s(); return x}; f()"
+        ).value
+
+      assert {:ok, 1} = Compiler.invoke(direct, [])
+      assert {:ok, 2} = Compiler.invoke(increment, [])
+      assert {:ok, 3} = Compiler.invoke(compound, [])
+      assert {:ok, 1} = Compiler.invoke(nested, [])
+    end
+
+    test "keeps capture keys distinct for same bytecode closures", %{rt: rt} do
+      inline =
+        compile_and_decode(
+          rt,
+          "function f(){let a=1,b=2; let g=()=>a; let h=()=>b; return g()+h()} f()"
+        ).value
+
+      returned =
+        compile_and_decode(
+          rt,
+          "function f(){let a=1,b=2; return [()=>a,()=>b]} let p=f(); p[0]()+p[1]()"
+        ).value
+
+      assert {:ok, 3} = Compiler.invoke(inline, [])
+      assert {:ok, 3} = Compiler.invoke(returned, [])
+    end
+
+    test "compiles method calls with receiver", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(o,x){return o.inc(x)})") |> user_function()
+
+      assert {:ok, beam_file} = Compiler.disasm(fun)
+      refute {Calls, :invoke_method_runtime, 4} in beam_extfuncs(beam_file)
+
+      obj =
+        Heap.wrap(%{
+          "base" => 10,
+          "inc" => {:builtin, "inc", fn [x], this -> Get.get(this, "base") + x end}
+        })
+
+      assert {:ok, 13} = Compiler.invoke(fun, [obj, 3])
+    end
+
+    test "compiles global lookup plus method call", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(x){return Math.abs(x)})") |> user_function()
+
+      assert {:ok, 12} = Compiler.invoke(fun, [-12])
+    end
+
+    test "keeps atom tables distinct for identical top-level bytecode", %{rt: rt} do
+      abc = compile_and_decode(rt, "new String('abc').length").value
+      emoji = compile_and_decode(rt, "new String('😀').length").value
+
+      assert {:ok, 3} = Compiler.invoke(abc, [])
+      assert {:ok, 2} = Compiler.invoke(emoji, [])
+    end
+
+    test "keeps atom tables distinct for same bytecode callbacks", %{rt: rt} do
+      find = compile_and_decode(rt, "[1,2,3].find(x=>x>1)").value
+      some = compile_and_decode(rt, "[1,2,3].some(x=>x>2)").value
+      every = compile_and_decode(rt, "[1,2,3].every(x=>x>0)").value
+      reduce = compile_and_decode(rt, "[1,2,3].reduce((a,b)=>a+b,0)").value
+
+      assert {:ok, 2} = Compiler.invoke(find, [])
+      assert {:ok, true} = Compiler.invoke(some, [])
+      assert {:ok, true} = Compiler.invoke(every, [])
+      assert {:ok, 6} = Compiler.invoke(reduce, [])
+    end
+
+    test "compiles array writes with indexed reads", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(v){ let a=[]; a[0]=v; return a[0] })")
+        |> user_function()
+
+      assert {:ok, 11} = Compiler.invoke(fun, [11])
+    end
+
+    test "compiles compound array updates", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(a,v){ a[0] += v; return a[0] })") |> user_function()
+
+      assert {:ok, 8} = Compiler.invoke(fun, [Heap.wrap([3]), 5])
+    end
+
+    test "compiles loose-null checks before indexed writes", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(i,v){ if (i == null) i = 0; let a=[]; a[i]=v; return a[i] })"
+        )
+        |> user_function()
+
+      assert {:ok, 12} = Compiler.invoke(fun, [nil, 12])
+      assert {:ok, 13} = Compiler.invoke(fun, [1, 13])
+    end
+
+    test "compiles local increments", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(x){ x++; return x })") |> user_function()
+
+      assert {:ok, 6} = Compiler.invoke(fun, [5])
+    end
+
+    test "compiles post-increment expression results", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(x){ return x++ })") |> user_function()
+
+      assert {:ok, 5} = Compiler.invoke(fun, [5])
+    end
+
+    test "compiles exponentiation", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(a,b){ return a ** b })") |> user_function()
+
+      assert {:ok, 8.0} = Compiler.invoke(fun, [2, 3])
+    end
+
+    test "compiles bitwise operators", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(a,b){ return ((a & b) ^ 1) << 2 })") |> user_function()
+
+      assert {:ok, 0} = Compiler.invoke(fun, [3, 1])
+    end
+
+    test "compiles modulo", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(a,b){ return a % b })") |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [10, 3])
+    end
+
+    test "compiles logical not", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(x){ return !x })") |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [0])
+      assert {:ok, false} = Compiler.invoke(fun, [1])
+    end
+
+    test "compiles bitwise not", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(x){ return ~x })") |> user_function()
+
+      assert {:ok, -6} = Compiler.invoke(fun, [5])
+    end
+
+    test "compiles typeof", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(x){ return typeof x })") |> user_function()
+
+      assert {:ok, "number"} = Compiler.invoke(fun, [5])
+      assert {:ok, "undefined"} = Compiler.invoke(fun, [:undefined])
+    end
+
+    test "compiles specialized typeof comparisons", %{rt: rt} do
+      function_fun =
+        compile_and_decode(rt, "(function(x){ return typeof x === 'function' })")
+        |> user_function()
+
+      undefined_fun =
+        compile_and_decode(rt, "(function(x){ return typeof x === 'undefined' })")
+        |> user_function()
+
+      assert {:ok, true} =
+               Compiler.invoke(function_fun, [{:builtin, "noop", fn _, _ -> :undefined end}])
+
+      assert {:ok, false} = Compiler.invoke(function_fun, [5])
+      assert {:ok, true} = Compiler.invoke(undefined_fun, [:undefined])
+      assert {:ok, true} = Compiler.invoke(undefined_fun, [nil])
+      assert {:ok, false} = Compiler.invoke(undefined_fun, [0])
+    end
+
+    test "compiles null checks", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(x){ return x === null })") |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [nil])
+      assert {:ok, false} = Compiler.invoke(fun, [:undefined])
+    end
+
+    test "compiles in operator", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(k,o){ return k in o })") |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, ["x", Heap.wrap(%{"x" => 1})])
+      assert {:ok, false} = Compiler.invoke(fun, ["y", Heap.wrap(%{"x" => 1})])
+    end
+
+    test "compiles delete with atom property names", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(o){ delete o.x; return o.x })") |> user_function()
+
+      assert {:ok, :undefined} = Compiler.invoke(fun, [Heap.wrap(%{"x" => 7})])
+    end
+
+    test "compiles array element delete as a hole", %{rt: rt} do
+      missing = compile_and_decode(rt, "let a=[1]; delete a[0]; 0 in a").value
+      read = compile_and_decode(rt, "let a=[1]; delete a[0]; a[0] === undefined").value
+      length = compile_and_decode(rt, "let a=[1,2]; delete a[0]; a.length").value
+
+      assert {:ok, false} = Compiler.invoke(missing, [])
+      assert {:ok, true} = Compiler.invoke(read, [])
+      assert {:ok, 2} = Compiler.invoke(length, [])
+    end
+
+    test "compiles instanceof", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(obj, ctor){ return obj instanceof ctor })")
+        |> user_function()
+
+      parent_proto = Heap.wrap(%{})
+      child = Heap.wrap(%{proto() => parent_proto})
+      ctor = Heap.wrap(%{"call" => true, "prototype" => parent_proto})
+
+      assert {:ok, true} = Compiler.invoke(fun, [child, ctor])
+      assert {:ok, false} = Compiler.invoke(fun, [5, ctor])
+    end
+
+    test "compiles instanceof through prototype chains", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(obj, ctor){ return obj instanceof ctor })")
+        |> user_function()
+
+      parent_proto = Heap.wrap(%{})
+      mid_proto = Heap.wrap(%{proto() => parent_proto})
+      child = Heap.wrap(%{proto() => mid_proto})
+      ctor = Heap.wrap(%{"call" => true, "prototype" => parent_proto})
+
+      assert {:ok, true} = Compiler.invoke(fun, [child, ctor])
+    end
+
+    test "compiles constructor calls", %{rt: rt} do
+      ctor = compile_and_decode(rt, "(function A(x){ this.x = x })") |> user_function()
+      fun = compile_and_decode(rt, "(function(C,x){ return new C(x).x })") |> user_function()
+
+      assert {:ok, 9} = Compiler.invoke(fun, [ctor, 9])
+    end
+
+    test "compiles constructor calls without arguments", %{rt: rt} do
+      ctor = compile_and_decode(rt, "(function A(){ this.x = 1 })") |> user_function()
+      fun = compile_and_decode(rt, "(function(C){ return new C().x })") |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [ctor])
+    end
+
+    test "compiles constructor calls used in later control flow", %{rt: rt} do
+      ctor = compile_and_decode(rt, "(function A(x){ this.x = x })") |> user_function()
+
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(C,x){ const o = {}; o.value = new C(x); let i = 0; if (i < x) return o.value.x; return 0 })"
+        )
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [ctor, 7])
+    end
+
+    test "compiles wrapped non-capturing closures", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(x){ return x + 1 })") |> user_function()
+
+      assert {:ok, 6} = Compiler.invoke({:closure, %{}, fun}, [5])
+
+      assert match?(
+               {:compiled, _, _},
+               Heap.get_compiled(compiled_key(fun))
+             )
+    end
+
+    test "compiles class constructor closures without var ref reads", %{rt: rt} do
+      outer =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { constructor(x){ this.x = x } } return A })"
+        )
+        |> user_function()
+
+      ctor =
+        Enum.find(outer.constants, fn
+          %QuickBEAM.VM.Function{source: source} when is_binary(source) ->
+            String.contains?(source, "constructor")
+
+          _ ->
+            false
+        end)
+
+      assert %QuickBEAM.VM.Function{var_ref_count: 0} = ctor
+
+      closure = {:closure, %{}, ctor}
+
+      assert {:obj, ref} = Calls.construct_runtime(closure, closure, [9])
+      assert 9 == Heap.get_obj(ref)["x"]
+
+      assert match?(
+               {:compiled, _, _},
+               Heap.get_compiled(compiled_key(ctor))
+             )
+    end
+
+    test "compiles array spread", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(a){ return [...a].length })") |> user_function()
+
+      assert {:ok, 3} = Compiler.invoke(fun, [Heap.wrap([1, 2, 3])])
+    end
+
+    test "compiles string array spread", %{rt: rt} do
+      ascii = compile_and_decode(rt, "[...'ab'].join('')").value
+      astral = compile_and_decode(rt, "[...'😀'].length").value
+
+      assert {:ok, "ab"} = Compiler.invoke(ascii, [])
+      assert {:ok, 1} = Compiler.invoke(astral, [])
+    end
+
+    test "compiled cache keys include atom tables", %{rt: rt} do
+      pad_start = compile_and_decode(rt, "'x'.padStart(3,'a')").value
+      assert {:ok, "aax"} = Compiler.invoke(pad_start, [])
+
+      pad_end = compile_and_decode(rt, "'x'.padEnd(3,'a')").value
+      assert {:ok, "xaa"} = Compiler.invoke(pad_end, [])
+    end
+
+    test "compiles object spread", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(o){ return {...o}.x })") |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [Heap.wrap(%{"x" => 7})])
+    end
+
+    test "compiles object spread followed by field definition", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(o){ return {...o, y:1}.y })") |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [Heap.wrap(%{"x" => 7})])
+    end
+
+    test "preserves object spread keys after literal fields", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          ~S|let o={c:3,d:4}; let r; new function(obj){ r=Object.keys(obj).length+":"+JSON.stringify(obj); }({a:1,b:2,...o}); r|
+        ).value
+
+      assert {:ok, ~S|4:{"a":1,"b":2,"c":3,"d":4}|} = Compiler.invoke(fun, [])
+    end
+
+    test "normalizes numeric object literal keys", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, ~S|var object = {1 : true}; object[1] + ":" + object["1"]|).value
+
+      assert {:ok, "true:true"} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles object method super property lookup", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          ~S|var obj = { method() { return super.toString; } }; obj.toString = null; obj.method() === Object.prototype.toString|
+        ).value
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles for-of loops over arrays", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(a){ let s=0; for (const x of a) s += x; return s })")
+        |> user_function()
+
+      assert {:ok, 10} = Compiler.invoke(fun, [Heap.wrap([1, 2, 3, 4])])
+    end
+
+    test "compiles for-of loops over strings", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(s){ let out=''; for (const ch of s) out += ch; return out })"
+        )
+        |> user_function()
+
+      assert {:ok, "abc"} = Compiler.invoke(fun, ["abc"])
+    end
+
+    test "calls custom iterator methods with the iterator receiver", %{rt: rt} do
+      source =
+        "let state={closed:0}; let it={ [Symbol.iterator](){return this}, next(){return {value:1,done:false}}, return(){state.closed=1; return {done:true}}}; for (let x of it) { break; } state.closed"
+
+      lexical_source =
+        "let closed=0; let it={ [Symbol.iterator](){return this}, next(){return {value:1,done:false}}, return(){closed=1; return {done:true}}}; for (let x of it) { break; } closed"
+
+      fun = compile_and_decode(rt, source).value
+      lexical = compile_and_decode(rt, lexical_source).value
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+      assert {:ok, 1} = Compiler.invoke(lexical, [])
+    end
+
+    test "closes custom iterators during destructuring", %{rt: rt} do
+      source =
+        "let state={closed:0}; let it={ [Symbol.iterator](){return this}, next(){return {value:1,done:false}}, return(){state.closed=1; return {done:true}}}; let [x] = it; state.closed"
+
+      fun = compile_and_decode(rt, source).value
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "iterates astral strings by codepoint", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "let out=[]; for (let ch of '😀a') out.push(ch); out.length").value
+
+      assert {:ok, 2} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles try catch around explicit throws", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(e){ try { throw e } catch(err) { return err } })")
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [7])
+    end
+
+    test "compiles try catch around throwing calls", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(f){ try { return f() } catch(err) { return err } })")
+        |> user_function()
+
+      throwing_fun = {:builtin, "boom", fn [], _ -> throw({:js_throw, 11}) end}
+
+      assert {:ok, 11} = Compiler.invoke(fun, [throwing_fun])
+    end
+
+    test "compiles nested try catch rethrows", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(f){ try { try { return f() } catch(err) { throw err } } catch(err) { return err } })"
+        )
+        |> user_function()
+
+      throwing_fun = {:builtin, "boom", fn [], _ -> throw({:js_throw, 13}) end}
+
+      assert {:ok, 13} = Compiler.invoke(fun, [throwing_fun])
+    end
+
+    test "compiles for-in loops over object keys", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(o){ let s=''; for (const k in o) s += k; return s })")
+        |> user_function()
+
+      assert {:ok, "ab"} = Compiler.invoke(fun, [Heap.wrap(%{"a" => 1, "b" => 2})])
+    end
+
+    test "compiles for-in loops over array indexes", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(a){ let s=''; for (const k in a) s += k; return s })")
+        |> user_function()
+
+      assert {:ok, "012"} = Compiler.invoke(fun, [Heap.wrap([10, 20, 30])])
+    end
+
+    test "compiles empty for-in fallthrough", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(o){ for (const k in o) return k; return 'none' })")
+        |> user_function()
+
+      assert {:ok, "none"} = Compiler.invoke(fun, [Heap.wrap(%{})])
+    end
+
+    test "compiles try finally with side effects", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(){ var x=0; try { x=1 } finally { x=2 } return x })")
+        |> user_function()
+
+      assert {:ok, 2} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles try catch finally", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ var x=0; try { throw 'err' } catch(e) { x=1 } finally { x+=1 } return x })"
+        )
+        |> user_function()
+
+      nested_throw =
+        compile_and_decode(
+          rt,
+          "let x=0; try { try { throw 1 } finally { x=2 } } catch(e) { x += e } x"
+        ).value
+
+      assert {:ok, 2} = Compiler.invoke(fun, [])
+      assert {:ok, 3} = Compiler.invoke(nested_throw, [])
+    end
+
+    test "compiles try finally around returns", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(f){ try { return f() } finally { 1 } })")
+        |> user_function()
+
+      assert {:ok, 5} = Compiler.invoke(fun, [{:builtin, "five", fn [], _ -> 5 end}])
+    end
+
+    test "compiles nested plain functions", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(){ function f(a,b){ return a+b } return f(1,2) })")
+        |> user_function()
+
+      assert {:ok, 3} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles nested rest-parameter functions", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ function f(...args){ return args.length } return f(1,2,3) })"
+        )
+        |> user_function()
+
+      assert {:ok, 3} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles nested default-parameter functions", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(){ function f(a,b=10){ return a+b } return f(5) })")
+        |> user_function()
+
+      assert {:ok, 15} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles nested captured-argument functions", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(x){ function f(y){ return x+y } return f(2) })")
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [5])
+    end
+
+    test "compiles nested captured-local updates", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(x){ let y=x; function f(z){ return y+z } y=5; return f(2) })"
+        )
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [1])
+    end
+
+    test "compiles nested closures that mutate captured locals", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ let x=1; function f(){ x+=1; return x } return f()+f() })"
+        )
+        |> user_function()
+
+      assert {:ok, 5} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles arrow closures with inferred names", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(x){ const f = (y) => x + y; return f(2) })")
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [5])
+    end
+
+    test "compiles object literal methods", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(){ return { m(){ return 1 } }.m() })")
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles object literal methods with captures", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(x){ return { m(y){ return x+y } }.m(2) })")
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [5])
+    end
+
+    test "compiles computed object literal methods", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, ~s|(function(){ return ({ ["m"](){ return 1 } })["m"]() })|)
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles computed-name function expressions", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          ~s|(function(){ const n = "x"; return ({ [n]: function(){ return 1 } })[n]() })|
+        )
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles simple classes", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "(function(){ class A { m(){ return 1 } } return new A().m() })")
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "computed instance class method keys use ToPropertyKey", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          ~S<(function(){ let log=[]; let key={toString(){log.push("key"); return "m"}}; class A { [key](){ return 3 } } return new A().m() + "|" + log.join(",") })>
+        )
+        |> user_function()
+
+      assert {:ok, "3|key"} = Compiler.invoke(fun, [])
+    end
+
+    test "keeps class prototype methods non-enumerable", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { m(){ return 1 } } return [Object.keys(A.prototype).length, A.prototype.propertyIsEnumerable(\"constructor\"), A.prototype.propertyIsEnumerable(\"m\")] })"
+        )
+        |> user_function()
+
+      assert {:ok, {:obj, ref}} = Compiler.invoke(fun, [])
+      assert [0, false, false] = Heap.to_list({:obj, ref})
+    end
+
+    test "keeps class prototype accessors non-enumerable", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { get x(){ return 1 } set x(v){} } return [Object.keys(A.prototype).length, A.prototype.propertyIsEnumerable(\"x\")] })"
+        )
+        |> user_function()
+
+      assert {:ok, {:obj, ref}} = Compiler.invoke(fun, [])
+      assert [0, false] = Heap.to_list({:obj, ref})
+    end
+
+    test "compiles classes with constructors", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { constructor(x){ this.x=x } } return new A(3).x })"
+        )
+        |> user_function()
+
+      assert {:ok, 3} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles class inheritance with super methods", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { m(){ return 1 } } class B extends A { m(){ return super.m()+1 } } return new B().m() })"
+        )
+        |> user_function()
+
+      assert {:ok, 2} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private field classes", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #x = 42; get() { return this.#x } } return new A().get() })"
+        )
+        |> user_function()
+
+      assert {:ok, 42} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private field setters", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #x = 0; set(v) { this.#x = v } get() { return this.#x } } var a = new A(); a.set(99); return a.get() })"
+        )
+        |> user_function()
+
+      assert {:ok, 99} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private methods", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #m() { return 3 } get() { return this.#m() } } return new A().get() })"
+        )
+        |> user_function()
+
+      assert {:ok, 3} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private accessors", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { get #x() { return 7 } read() { return this.#x } } return new A().read() })"
+        )
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private static fields", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static #x = 42; static get() { return A.#x } } return A.get() })"
+        )
+        |> user_function()
+
+      assert {:ok, 42} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private static writes", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static #x = 1; static set(v){ A.#x = v } static get(){ return A.#x } } A.set(9); return A.get() })"
+        )
+        |> user_function()
+
+      assert {:ok, 9} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private static methods", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static #m(){ return 5 } static get(){ return A.#m() } } return A.get() })"
+        )
+        |> user_function()
+
+      assert {:ok, 5} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private static accessors", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static get #x(){ return 7 } static read(){ return A.#x } } return A.read() })"
+        )
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private static in checks", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static #x = 1; static has(){ return #x in A } } return A.has() })"
+        )
+        |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
+    test "rejects invalid private field receivers", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #x = 1; get(){ return this.#x } } const g = (new A()).get; try { return g.call({}) } catch (e) { return e instanceof TypeError } })"
+        )
+        |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
+    test "rejects invalid private method receivers", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #m(){ return 1 } get(){ return this.#m() } } const g = (new A()).get; try { return g.call({}) } catch (e) { return e instanceof TypeError } })"
+        )
+        |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
+    test "rejects invalid private receivers across classes", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #x = 1; get(o){ try { return o.#x } catch (e) { return e instanceof TypeError } } } class B {} return new A().get(new B()) })"
+        )
+        |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
+    test "rejects invalid private static receivers across classes", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static #x = 1; static get(o){ try { return o.#x } catch (e) { return e instanceof TypeError } } } class B {} return A.get(B) })"
+        )
+        |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
+    test "rejects invalid private setters", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #x = 1; set(v){ this.#x = v } } const s = (new A()).set; try { s.call({}, 2); return false } catch (e) { return e instanceof TypeError } })"
+        )
+        |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
+    test "supports private members on subclass instances", %{rt: rt} do
+      field_fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #x = 1; get(){ return this.#x } } class B extends A {} return new B().get() })"
+        )
+        |> user_function()
+
+      method_fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #m(){ return 1 } call(){ return this.#m() } } class B extends A {} return new B().call() })"
+        )
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(field_fun, [])
+      assert {:ok, 1} = Compiler.invoke(method_fun, [])
+    end
+
+    test "rejects inherited private static access", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static #x = 1; static get(){ return this.#x } } class B extends A {} try { return B.get() } catch (e) { return e instanceof TypeError } })"
+        )
+        |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
+    test "inherits static methods named call", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static call(){ return 1 } } class B extends A {} return B.call() })"
+        )
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "rejects inherited private static methods", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static #m(){ return 1 } static call(){ return this.#m() } } class B extends A {} try { return B.call() } catch (e) { return e instanceof TypeError } })"
+        )
+        |> user_function()
+
+      assert {:ok, true} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private static blocks", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static #x = 1; static { this.#x += 2 } static get(){ return this.#x } } return A.get() })"
+        )
+        |> user_function()
+
+      assert {:ok, 3} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles private super calls", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { #m(){ return 1 } call(){ return this.#m() } } class B extends A { call2(){ return super.call() } } return new B().call2() })"
+        )
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles static super setters", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static set x(v){ this.y = v + 1 } } class B extends A { static g(){ super.x = 2; return this.y } } return B.g() })"
+        )
+        |> user_function()
+
+      assert {:ok, 3} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles static super getters", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static get x(){ return this.y } } class B extends A { static y = 7; static g(){ return super.x } } return B.g() })"
+        )
+        |> user_function()
+
+      assert {:ok, 7} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles computed static methods", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { static [\"m\"](){ return 1 } } return A.m() })"
+        )
+        |> user_function()
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "propagates new.target through derived super calls", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { constructor(){ this.v = new.target.name } } class B extends A { constructor(...args){ super(...args) } } return new B().v })"
+        )
+        |> user_function()
+
+      assert {:ok, "B"} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles with-scope property assignment references", %{rt: rt} do
+      assignment = compile_and_decode(rt, "let o={x:1}; with(o){ x=2; } o.x").value
+      update = compile_and_decode(rt, "let o={x:1}; with(o){ x++; } o.x").value
+
+      global_fallback = compile_and_decode(rt, "var x=1; let o={}; with(o){ x=2; } x").value
+
+      unscopables_fallback =
+        compile_and_decode(
+          rt,
+          "var x=1; let o={x:2, [Symbol.unscopables]: {x:true}}; with(o){ x=3; } [x,o.x]"
+        ).value
+
+      assert {:ok, 2} = Compiler.invoke(assignment, [])
+      assert {:ok, 2} = Compiler.invoke(update, [])
+      assert {:ok, 2} = Compiler.invoke(global_fallback, [])
+      assert {:ok, {:obj, array_ref}} = Compiler.invoke(unscopables_fallback, [])
+      assert [3, 2] = array_ref |> Heap.get_obj() |> QuickBEAM.VM.Heap.Arrays.to_list()
+    end
+
+    test "compiles with-scope property reads with fallback branches", %{rt: rt} do
+      direct_read = compile_and_decode(rt, "let o={x:2}; with(o){ x }").value
+      base_read = compile_and_decode(rt, "let o={a:{m(){return 7}}}; with(o){ a.m() }").value
+      fallback_read = compile_and_decode(rt, "let o={}; let x=1; with(o){ x }").value
+
+      assert {:ok, 2} = Compiler.invoke(direct_read, [])
+      assert {:ok, 7} = Compiler.invoke(base_read, [])
+      assert {:ok, 1} = Compiler.invoke(fallback_read, [])
+    end
+
+    test "keeps eval-scope with assignments compilable", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "function f(){ var x=1; function g(){ eval(''); x=2; return x }; return g() } f()"
+        ).value
+
+      assert {:ok, 2} = Compiler.invoke(fun, [])
+    end
+
+    test "direct eval delete preserves var binding", %{rt: rt} do
+      fun = compile_and_decode(rt, ~S/var x = 1; var d = eval("delete x"); d + "|" + x/).value
+
+      assert {:ok, "false|1"} = Compiler.invoke(fun, [])
+    end
+
+    test "resumes compiled generators at first yield", %{rt: rt} do
+      fun =
+        compile_and_decode(rt, "function* g(){ yield 1; return 2 } let it=g(); it.next().value").value
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "delegates compiled generator yield star", %{rt: rt} do
+      first =
+        compile_and_decode(
+          rt,
+          "function* g(){ yield* [1,2]; return 3 } let it=g(); it.next().value"
+        ).value
+
+      second =
+        compile_and_decode(
+          rt,
+          "function* g(){ yield* [1,2]; return 3 } let it=g(); it.next(); it.next().value"
+        ).value
+
+      returned =
+        compile_and_decode(
+          rt,
+          "function* g(){ yield* [1,2]; return 3 } let it=g(); it.next(); it.next(); it.next().value"
+        ).value
+
+      astral =
+        compile_and_decode(
+          rt,
+          ~S|function* g(){ yield* "😀a" } let it=g(); it.next().value.length|
+        ).value
+
+      sent =
+        compile_and_decode(
+          rt,
+          "function* g(){ yield* [1,2]; return 3 } let it=g(); it.next(); it.next(8).value"
+        ).value
+
+      returned_early =
+        compile_and_decode(
+          rt,
+          "function* g(){ yield* [1,2]; return 3 } let it=g(); it.next(); it.return(9).value"
+        ).value
+
+      custom_return =
+        compile_and_decode(
+          rt,
+          "let state={closed:0}; let iter={ [Symbol.iterator](){return this}, next(){return {value:1,done:false}}, return(v){state.closed=v; return {value:9,done:true}}}; function* g(){ yield* iter; return state.closed } let it=g(); it.next(); it.return(7).value"
+        ).value
+
+      simple_return =
+        compile_and_decode(
+          rt,
+          "function* g(){ yield 1; throw 'unreachable' } let it=g(); it.next(); it.return(7).value"
+        ).value
+
+      assert {:ok, 1} = Compiler.invoke(first, [])
+      assert {:ok, 2} = Compiler.invoke(second, [])
+      assert {:ok, 3} = Compiler.invoke(returned, [])
+      assert {:ok, 2} = Compiler.invoke(astral, [])
+      assert {:ok, 2} = Compiler.invoke(sent, [])
+      assert {:ok, 9} = Compiler.invoke(returned_early, [])
+      assert {:ok, 9} = Compiler.invoke(custom_return, [])
+      assert {:ok, 7} = Compiler.invoke(simple_return, [])
+    end
+
+    test "returns resolved values from compiled async functions", %{rt: rt} do
+      fun = compile_and_decode(rt, "async function f(){ return 1 } f()").value
+
+      assert {:ok, 1} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles promise combinator rejection flows", %{rt: rt} do
+      all_settled =
+        compile_and_decode(
+          rt,
+          ~S|Promise.allSettled([Promise.resolve(1), Promise.reject(2)]).then(r=>r[0].status + ":" + r[1].reason)|
+        ).value
+
+      any =
+        compile_and_decode(
+          rt,
+          ~S|Promise.any([Promise.reject(1), Promise.resolve(2)]).then(x=>x+1)|
+        ).value
+
+      race_reject =
+        compile_and_decode(
+          rt,
+          ~S|Promise.race([Promise.reject(1), Promise.resolve(2)]).catch(e=>e+1)|
+        ).value
+
+      race_resolve =
+        compile_and_decode(
+          rt,
+          ~S|Promise.race([Promise.resolve(2), Promise.reject(1)]).then(x=>x+1)|
+        ).value
+
+      all_reject =
+        compile_and_decode(
+          rt,
+          ~S|Promise.all([Promise.resolve(1), Promise.reject(2)]).catch(e=>e+1)|
+        ).value
+
+      assert {:ok, "fulfilled:2"} = Compiler.invoke(all_settled, [])
+      assert {:ok, 3} = Compiler.invoke(any, [])
+      assert {:ok, 2} = Compiler.invoke(race_reject, [])
+      assert {:ok, 3} = Compiler.invoke(race_resolve, [])
+
+      any_all_reject =
+        compile_and_decode(
+          rt,
+          ~S|Promise.any([Promise.reject(1), Promise.reject(2)]).catch(e=>e.errors[0]+e.errors[1])|
+        ).value
+
+      any_empty = compile_and_decode(rt, ~S|Promise.any([]).catch(e=>e.name)|).value
+
+      race_empty = compile_and_decode(rt, ~S|Promise.race([])|).value
+
+      all_pending = compile_and_decode(rt, ~S|Promise.all([Promise.race([])])|).value
+
+      all_settled_pending =
+        compile_and_decode(rt, ~S|Promise.allSettled([Promise.race([])])|).value
+
+      any_pending =
+        compile_and_decode(rt, ~S|Promise.any([Promise.race([]), Promise.reject(1)])|).value
+
+      finally_throw =
+        compile_and_decode(
+          rt,
+          ~S|Promise.resolve(1).finally(function(){throw 2}).catch(function(e){return e})|
+        ).value
+
+      finally_rejected_promise =
+        compile_and_decode(
+          rt,
+          ~S|Promise.resolve(1).finally(function(){return Promise.reject(2)}).catch(function(e){return e})|
+        ).value
+
+      finally_rejected_callback =
+        compile_and_decode(
+          rt,
+          ~S|Promise.reject(1).finally(function(){throw 2}).catch(function(e){return e})|
+        ).value
+
+      resolve_rejection =
+        compile_and_decode(rt, ~S|Promise.resolve(Promise.reject(1)).catch(e=>e+1)|).value
+
+      constructor_resolve_rejection =
+        compile_and_decode(rt, ~S|new Promise(resolve=>resolve(Promise.reject(1))).catch(e=>e+1)|).value
+
+      constructor_resolve_pending =
+        compile_and_decode(rt, ~S|new Promise(resolve=>resolve(Promise.race([])))|).value
+
+      resolve_thenable =
+        compile_and_decode(rt, ~S|Promise.resolve({then(r){r(5)}}).then(x=>x+1)|).value
+
+      resolve_throwing_thenable =
+        compile_and_decode(rt, ~S|Promise.resolve({then(){throw 5}}).catch(e=>e+1)|).value
+
+      constructor_resolve_thenable =
+        compile_and_decode(rt, ~S|new Promise(resolve=>resolve({then(r){r(5)}})).then(x=>x+1)|).value
+
+      all_thenable =
+        compile_and_decode(rt, ~S|Promise.all([{then(r){r(5)}}]).then(a=>a[0]+1)|).value
+
+      race_thenable =
+        compile_and_decode(rt, ~S|Promise.race([{then(r){r(5)}}]).then(x=>x+1)|).value
+
+      any_thenable =
+        compile_and_decode(rt, ~S|Promise.any([{then(r){r(5)}}]).then(x=>x+1)|).value
+
+      all_settled_thenable =
+        compile_and_decode(rt, ~S|Promise.allSettled([{then(r){r(5)}}]).then(r=>r[0].value+1)|).value
+
+      throwing_then_getter =
+        compile_and_decode(
+          rt,
+          ~S|let o={}; Object.defineProperty(o,"then",{get(){throw 5}}); Promise.resolve(o).catch(e=>e+1)|
+        ).value
+
+      noncallable_then =
+        compile_and_decode(rt, ~S|Promise.resolve({then:5}).then(x=>x.then)|).value
+
+      assert {:ok, 3} = Compiler.invoke(all_reject, [])
+      assert {:ok, 3} = Compiler.invoke(any_all_reject, [])
+      assert {:ok, "AggregateError"} = Compiler.invoke(any_empty, [])
+      assert {:ok, {:obj, ref}} = Compiler.invoke(race_empty, [])
+      assert %{"__promise_state__" => :pending} = Heap.get_obj(ref)
+      assert {:ok, {:obj, ref}} = Compiler.invoke(all_pending, [])
+      assert %{"__promise_state__" => :pending} = Heap.get_obj(ref)
+      assert {:ok, {:obj, ref}} = Compiler.invoke(all_settled_pending, [])
+      assert %{"__promise_state__" => :pending} = Heap.get_obj(ref)
+      assert {:ok, {:obj, ref}} = Compiler.invoke(any_pending, [])
+      assert %{"__promise_state__" => :pending} = Heap.get_obj(ref)
+      assert {:ok, 2} = Compiler.invoke(finally_throw, [])
+      assert {:ok, 2} = Compiler.invoke(finally_rejected_promise, [])
+      assert {:ok, 2} = Compiler.invoke(finally_rejected_callback, [])
+      assert {:ok, 2} = Compiler.invoke(resolve_rejection, [])
+      assert {:ok, 2} = Compiler.invoke(constructor_resolve_rejection, [])
+      assert {:ok, {:obj, ref}} = Compiler.invoke(constructor_resolve_pending, [])
+      assert %{"__promise_state__" => :pending} = Heap.get_obj(ref)
+      assert {:ok, 6} = Compiler.invoke(resolve_thenable, [])
+      assert {:ok, 6} = Compiler.invoke(resolve_throwing_thenable, [])
+      assert {:ok, 6} = Compiler.invoke(constructor_resolve_thenable, [])
+      assert {:ok, 6} = Compiler.invoke(all_thenable, [])
+      assert {:ok, 6} = Compiler.invoke(race_thenable, [])
+      assert {:ok, 6} = Compiler.invoke(any_thenable, [])
+      assert {:ok, 6} = Compiler.invoke(all_settled_thenable, [])
+      assert {:ok, 6} = Compiler.invoke(throwing_then_getter, [])
+      assert {:ok, 5} = Compiler.invoke(noncallable_then, [])
+    end
+
+    test "normalizes compiled async rejections for promise chains", %{rt: rt} do
+      thrown = compile_and_decode(rt, "async function f(){throw 1} f().catch(e=>e+1)").value
+
+      rejected_await =
+        compile_and_decode(
+          rt,
+          "async function f(){return await Promise.reject(1)} f().catch(e=>e+1)"
+        ).value
+
+      fulfilled_then =
+        compile_and_decode(rt, "async function f(){return 1} f().then(x=>x+1)").value
+
+      returned_rejection =
+        compile_and_decode(rt, "async function f(){return Promise.reject(1)} f().catch(e=>e+1)").value
+
+      returned_resolution =
+        compile_and_decode(rt, "async function f(){return Promise.resolve(3)} f()").value
+
+      caught_rejected_await =
+        compile_and_decode(
+          rt,
+          "async function f(){try{return await Promise.reject(1)}catch(e){return e+1}} f()"
+        ).value
+
+      assert {:ok, 2} = Compiler.invoke(thrown, [])
+      assert {:ok, 2} = Compiler.invoke(rejected_await, [])
+      assert {:ok, 2} = Compiler.invoke(fulfilled_then, [])
+      assert {:ok, 2} = Compiler.invoke(returned_rejection, [])
+      assert {:ok, 3} = Compiler.invoke(returned_resolution, [])
+      assert {:ok, 2} = Compiler.invoke(caught_rejected_await, [])
+    end
+
+    test "enforces frozen target proxy ownKeys invariants", %{rt: rt} do
+      missing =
+        compile_and_decode(
+          rt,
+          ~S|let t=Object.freeze({x:1}); let p=new Proxy(t,{ownKeys(){return []}}); try{Reflect.ownKeys(p)}catch(e){e.name}|
+        ).value
+
+      extra =
+        compile_and_decode(
+          rt,
+          ~S|let t=Object.freeze({x:1}); let p=new Proxy(t,{ownKeys(){return ["x","y"]}}); try{Reflect.ownKeys(p)}catch(e){e.name}|
+        ).value
+
+      exact =
+        compile_and_decode(
+          rt,
+          ~S|let t=Object.freeze({x:1}); let p=new Proxy(t,{ownKeys(){return ["x"]}}); Reflect.ownKeys(p).length|
+        ).value
+
+      prevented_missing =
+        compile_and_decode(
+          rt,
+          ~S|let t={x:1}; Object.preventExtensions(t); let p=new Proxy(t,{ownKeys(){return []}}); try{Reflect.ownKeys(p)}catch(e){e.name}|
+        ).value
+
+      prevented_extra =
+        compile_and_decode(
+          rt,
+          ~S|let t={x:1}; Object.preventExtensions(t); let p=new Proxy(t,{ownKeys(){return ["x","y"]}}); try{Reflect.ownKeys(p)}catch(e){e.name}|
+        ).value
+
+      prevented_exact =
+        compile_and_decode(
+          rt,
+          ~S|let t={x:1}; Object.preventExtensions(t); let p=new Proxy(t,{ownKeys(){return ["x"]}}); Reflect.ownKeys(p).length|
+        ).value
+
+      assert {:ok, "TypeError"} = Compiler.invoke(missing, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(extra, [])
+      assert {:ok, 1} = Compiler.invoke(exact, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(prevented_missing, [])
+      assert {:ok, "TypeError"} = Compiler.invoke(prevented_extra, [])
+      assert {:ok, 1} = Compiler.invoke(prevented_exact, [])
+    end
+
+    test "rejects duplicate proxy ownKeys trap results", %{rt: rt} do
+      duplicate =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({}, {ownKeys(){return ["x", "x"]}}); try{Reflect.ownKeys(p)}catch(e){e.name}|
+        ).value
+
+      distinct =
+        compile_and_decode(
+          rt,
+          ~S|let p=new Proxy({}, {ownKeys(){return ["x", "y"]}}); Reflect.ownKeys(p).length|
+        ).value
+
+      assert {:ok, "TypeError"} = Compiler.invoke(duplicate, [])
+      assert {:ok, 2} = Compiler.invoke(distinct, [])
+    end
+
+    test "enforces proxy ownKeys invariants", %{rt: rt} do
+      missing =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:false}); let p=new Proxy(t,{ownKeys(){return []}}); try{Reflect.ownKeys(p)}catch(e){e.name}|
+        ).value
+
+      included =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:false}); let p=new Proxy(t,{ownKeys(){return ["x"]}}); Reflect.ownKeys(p).length|
+        ).value
+
+      configurable =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:true}); let p=new Proxy(t,{ownKeys(){return []}}); Reflect.ownKeys(p).length|
+        ).value
+
+      assert {:ok, "TypeError"} = Compiler.invoke(missing, [])
+      assert {:ok, 1} = Compiler.invoke(included, [])
+      assert {:ok, 0} = Compiler.invoke(configurable, [])
+    end
+
+    test "enforces proxy set invariants", %{rt: rt} do
+      mismatch =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:false, writable:false}); let p=new Proxy(t,{set(){return true}}); try{p.x=2; 0}catch(e){e.name}|
+        ).value
+
+      same =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:false, writable:false}); let p=new Proxy(t,{set(){return true}}); p.x=1; p.x|
+        ).value
+
+      false_trap =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:false, writable:false}); let p=new Proxy(t,{set(){return false}}); p.x=2; p.x|
+        ).value
+
+      assert {:ok, "TypeError"} = Compiler.invoke(mismatch, [])
+      assert {:ok, 1} = Compiler.invoke(same, [])
+      assert {:ok, 1} = Compiler.invoke(false_trap, [])
+    end
+
+    test "enforces proxy get invariants", %{rt: rt} do
+      mismatch =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:false, writable:false}); let p=new Proxy(t,{get(){return 2}}); try{p.x}catch(e){e.name}|
+        ).value
+
+      same =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:false, writable:false}); let p=new Proxy(t,{get(){return 1}}); p.x|
+        ).value
+
+      configurable =
+        compile_and_decode(
+          rt,
+          ~S|let t={}; Object.defineProperty(t,"x",{value:1, configurable:true, writable:false}); let p=new Proxy(t,{get(){return 2}}); p.x|
+        ).value
+
+      assert {:ok, "TypeError"} = Compiler.invoke(mismatch, [])
+      assert {:ok, 1} = Compiler.invoke(same, [])
+      assert {:ok, 2} = Compiler.invoke(configurable, [])
+    end
+
+    test "supports Map and Set iterators", %{rt: rt} do
+      map_symbol =
+        compile_and_decode(
+          rt,
+          ~S|let m=new Map(); m.set("a",1); let it=m[Symbol.iterator](); let e=it.next().value; e[0]+e[1]|
+        ).value
+
+      map_entries =
+        compile_and_decode(
+          rt,
+          ~S|let m=new Map(); m.set("a",1); let it=m.entries(); let e=it.next().value; e[0]+e[1]|
+        ).value
+
+      map_ctor =
+        compile_and_decode(
+          rt,
+          ~S|let it=new Map([["a",1]])[Symbol.iterator](); let e=it.next().value; e[0]+e[1]|
+        ).value
+
+      map_order =
+        compile_and_decode(
+          rt,
+          ~S|let it=new Map([["a",1],["b",2]]).keys(); it.next().value + it.next().value|
+        ).value
+
+      map_for_each =
+        compile_and_decode(
+          rt,
+          ~S|let m=new Map([[1,2],[3,4]]); let s=0; m.forEach((v,k)=>s+=v+k); s|
+        ).value
+
+      array_global_callback =
+        compile_and_decode(rt, ~S|let s=0; [1,2].forEach(x=>s+=x); s|).value
+
+      map_identity =
+        compile_and_decode(rt, ~S|let it=new Map().entries(); it[Symbol.iterator]()===it|).value
+
+      set_identity =
+        compile_and_decode(rt, ~S|let it=new Set([2]).values(); it[Symbol.iterator]()===it|).value
+
+      set_entries =
+        compile_and_decode(
+          rt,
+          ~S|let it=new Set([2]).entries(); let e=it.next().value; e[0]+e[1]|
+        ).value
+
+      assert {:ok, "a1"} = Compiler.invoke(map_symbol, [])
+      assert {:ok, "a1"} = Compiler.invoke(map_entries, [])
+      assert {:ok, "a1"} = Compiler.invoke(map_ctor, [])
+      assert {:ok, "ab"} = Compiler.invoke(map_order, [])
+      assert {:ok, 10} = Compiler.invoke(map_for_each, [])
+      assert {:ok, 3} = Compiler.invoke(array_global_callback, [])
+      assert {:ok, true} = Compiler.invoke(map_identity, [])
+      assert {:ok, true} = Compiler.invoke(set_identity, [])
+      assert {:ok, 4} = Compiler.invoke(set_entries, [])
+    end
+
+    test "supports array Symbol.iterator", %{rt: rt} do
+      sum =
+        compile_and_decode(
+          rt,
+          ~S|let it=[1,2][Symbol.iterator](); it.next().value + it.next().value|
+        ).value
+
+      symbol_identity =
+        compile_and_decode(rt, ~S|let it=[1][Symbol.iterator](); it[Symbol.iterator]() === it|).value
+
+      values_identity =
+        compile_and_decode(rt, ~S|let it=[1].values(); it[Symbol.iterator]() === it|).value
+
+      assert {:ok, 3} = Compiler.invoke(sum, [])
+      assert {:ok, true} = Compiler.invoke(symbol_identity, [])
+      assert {:ok, true} = Compiler.invoke(values_identity, [])
+    end
+
+    test "supports boxed string iterators", %{rt: rt} do
+      object_box =
+        compile_and_decode(
+          rt,
+          ~S|let it=Object("ab")[Symbol.iterator](); it.next().value + it.next().value|
+        ).value
+
+      constructor_box =
+        compile_and_decode(
+          rt,
+          ~S|let it=new String("😀a"); let iter=it[Symbol.iterator](); iter.next().value + iter.next().value|
+        ).value
+
+      assert {:ok, "ab"} = Compiler.invoke(object_box, [])
+      assert {:ok, "😀a"} = Compiler.invoke(constructor_box, [])
+    end
+
+    test "supports direct primitive string iterators", %{rt: rt} do
+      astral =
+        compile_and_decode(
+          rt,
+          ~S|let it="😀a"[Symbol.iterator](); it.next().value + it.next().value|
+        ).value
+
+      self_iter =
+        compile_and_decode(rt, ~S|let it="ab"[Symbol.iterator](); it[Symbol.iterator]() === it|).value
+
+      done =
+        compile_and_decode(rt, ~S|let it="a"[Symbol.iterator](); it.next(); it.next().done|).value
+
+      assert {:ok, "😀a"} = Compiler.invoke(astral, [])
+      assert {:ok, true} = Compiler.invoke(self_iter, [])
+      assert {:ok, true} = Compiler.invoke(done, [])
+    end
+
+    test "compiles queueMicrotask interactions", %{rt: rt} do
+      deferred_state =
+        compile_and_decode(rt, "let state={x:0}; queueMicrotask(()=>{state.x=1}); state.x").value
+
+      promise_observer =
+        compile_and_decode(
+          rt,
+          "let state={x:0}; queueMicrotask(()=>{state.x=1}); Promise.resolve().then(()=>state.x)"
+        ).value
+
+      thrown_task =
+        compile_and_decode(rt, "let state={x:0}; queueMicrotask(()=>{throw 1}); state.x").value
+
+      assert {:ok, 0} = Compiler.invoke(deferred_state, [])
+      assert {:ok, 1} = Compiler.invoke(promise_observer, [])
+      assert {:ok, 0} = Compiler.invoke(thrown_task, [])
+    end
+
+    test "drains top-level promise continuations", %{rt: rt} do
+      rejected_catch = compile_and_decode(rt, "Promise.reject(1).catch(e=>e+1)").value
+
+      thrown_catch =
+        compile_and_decode(rt, "Promise.resolve(1).then(()=>{throw 2}).catch(e=>e+1)").value
+
+      awaited_chain =
+        compile_and_decode(
+          rt,
+          "async function f(){ return await Promise.reject(1).catch(e=>e+1)} f()"
+        ).value
+
+      assert {:ok, 2} = Compiler.invoke(rejected_catch, [])
+      assert {:ok, [1]} = Compiler.invoke(thrown_catch, [])
+      assert {:ok, 2} = Compiler.invoke(awaited_chain, [])
+    end
+
+    test "returns resolved values from compiled async methods", %{rt: rt} do
+      object_method = compile_and_decode(rt, "let o={async m(){return await 11}}; o.m()").value
+
+      class_method =
+        compile_and_decode(rt, "class A { async m(){return await 12} } new A().m()").value
+
+      assert {:ok, 11} = Compiler.invoke(object_method, [])
+      assert {:ok, 12} = Compiler.invoke(class_method, [])
+    end
+
+    test "compiles derived constructors returning objects", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ class A { constructor(){ this.a = 1 } } class B extends A { constructor(){ super(); return {b:2} } } return new B().b })"
+        )
+        |> user_function()
+
+      assert {:ok, 2} = Compiler.invoke(fun, [])
+    end
+
+    test "preserves inner class expression names", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ const C = class D { static n(){ return D.name } }; return C.n() })"
+        )
+        |> user_function()
+
+      assert {:ok, "D"} = Compiler.invoke(fun, [])
+    end
+
+    test "compiles computed static fields", %{rt: rt} do
+      fun =
+        compile_and_decode(
+          rt,
+          "(function(){ const k = \"x\"; class A { static [k] = 4 } return A.x })"
+        )
+        |> user_function()
+
+      assert {:ok, 4} = Compiler.invoke(fun, [])
+    end
+
+    test "preserves side-effectful dropped method calls", %{rt: rt} do
+      fun = compile_and_decode(rt, "(function(o){ o.bump(); return o.n })") |> user_function()
+
+      obj =
+        Heap.wrap(%{
+          "n" => 0,
+          "bump" =>
+            {:builtin, "bump",
+             fn [], {:obj, ref} ->
+               Heap.put_obj(ref, Map.put(Heap.get_obj(ref, %{}), "n", 1))
+               :undefined
+             end}
+        })
+
+      assert {:ok, 1} = Compiler.invoke(fun, [obj])
+    end
+  end
+
+  describe "Interpreter integration" do
+    test "eligible functions use the compiled cache", %{rt: rt} do
+      parsed = compile_and_decode(rt, "(function(a,b){return a+b})")
+      fun = user_function(parsed)
+
+      assert 9 == Interpreter.invoke(fun, [4, 5], 1_000)
+
+      assert {:compiled, {_mod, :run_ctx}, _atoms} =
+               Heap.get_compiled(compiled_key(fun))
+    end
+
+    test "branchy functions also use the compiled cache", %{rt: rt} do
+      parsed = compile_and_decode(rt, "(function(x){if(x>0)return 1;else return 2})")
+      fun = user_function(parsed)
+
+      assert 1 == Interpreter.invoke(fun, [5], 1_000)
+
+      assert {:compiled, {_mod, :run_ctx}, _atoms} =
+               Heap.get_compiled(compiled_key(fun))
+    end
+  end
+end

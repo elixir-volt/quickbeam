@@ -69,7 +69,7 @@ pub fn createUint8ArrayFromBuffer(
 ) !qjs.JSValue {
     const ab = qjs.JS_NewArrayBuffer(env.ctx, ptr, length, free_fn, user_data, false);
     if (js.js_is_exception(ab)) return error.ArrayBufferCreateFailed;
-    errdefer qjs.JS_FreeValue(env.ctx, ab);
+    defer qjs.JS_FreeValue(env.ctx, ab);
     return createUint8ArrayFromArrayBuffer(env, ab);
 }
 

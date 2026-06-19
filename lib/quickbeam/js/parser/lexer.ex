@@ -1,0 +1,1204 @@
+defmodule QuickBEAM.JS.Parser.Lexer do
+  @moduledoc "Hand-written JavaScript lexer used by the experimental QuickBEAM parser."
+
+  alias QuickBEAM.JS.Parser.{Error, Token}
+  alias QuickBEAM.JS.Parser.Lexer.Regexp
+
+  defstruct source: "",
+            offset: 0,
+            line: 1,
+            column: 0,
+            length: 0,
+            token_start_line: 1,
+            token_start_column: 0,
+            pending_line_terminator?: false,
+            last_token: nil,
+            errors: []
+
+  @type t :: %__MODULE__{}
+
+  @keywords MapSet.new(~w[
+    break case catch class const continue debugger default delete do else export extends
+    finally for function if import in instanceof let new return super switch this throw try
+    typeof var void while with yield async await of static get set implements interface package private protected public
+  ])
+
+  @identifier_like_keywords MapSet.new(~w[
+    async get set of implements interface package private protected public
+  ])
+
+  @doc "Creates a lexer state for a source string."
+  def new(source) when is_binary(source) do
+    %__MODULE__{source: source, length: byte_size(source)}
+  end
+
+  @doc "Tokenizes a source string."
+  def tokenize(source) when is_binary(source) do
+    source
+    |> new()
+    |> collect([])
+  end
+
+  @doc "Returns the next token and updated lexer state."
+  def next(%__MODULE__{} = lexer) do
+    lexer = skip_trivia(lexer)
+
+    lexer = %{lexer | token_start_line: lexer.line, token_start_column: lexer.column}
+
+    if eof?(lexer) do
+      token(lexer, :eof, :eof, "", lexer.offset)
+    else
+      scan_token(lexer)
+    end
+  end
+
+  defp collect(lexer, acc) do
+    lexer = skip_trivia(lexer)
+    lexer = %{lexer | token_start_line: lexer.line, token_start_column: lexer.column}
+
+    if eof?(lexer) do
+      {eof_token, lexer} = token(lexer, :eof, :eof, "", lexer.offset)
+      tokens = Enum.reverse([eof_token | acc])
+
+      case lexer.errors do
+        [] -> {:ok, tokens}
+        errors -> {:error, tokens, Enum.reverse(errors)}
+      end
+    else
+      {token, lexer} = scan_token(lexer)
+      collect(lexer, [token | acc])
+    end
+  end
+
+  defp scan_token(lexer) do
+    ch = current(lexer)
+
+    cond do
+      ch in [?", ?'] -> scan_string(lexer, ch)
+      ch == ?` -> scan_template(lexer)
+      ch in ?0..?9 -> scan_number(lexer)
+      ch == ?. -> scan_dot_or_number(lexer)
+      ch == ?/ and regexp_allowed?(lexer) -> scan_regexp(lexer)
+      ch == ?\\ and peek(lexer, 1) == ?u -> scan_identifier(lexer)
+      identifier_start?(ch) -> scan_identifier(lexer)
+      true -> scan_punctuator(lexer)
+    end
+  end
+
+  defp scan_dot_or_number(lexer) do
+    case peek(lexer, 1) do
+      ch when ch in ?0..?9 -> scan_number(lexer)
+      _ -> scan_punctuator(lexer)
+    end
+  end
+
+  defp scan_identifier(lexer) do
+    start = lexer.offset
+
+    {lexer, value} =
+      if current(lexer) == ?\\ do
+        {lexer, parts} = scan_identifier_parts(lexer, [])
+        {lexer, parts |> Enum.reverse() |> IO.iodata_to_binary()}
+      else
+        {lexer, escaped?} = advance_identifier_raw(lexer)
+        raw = slice(lexer.source, start, lexer.offset)
+
+        if escaped? do
+          {lexer, parts} = scan_identifier_parts(lexer, [raw])
+          {lexer, parts |> Enum.reverse() |> IO.iodata_to_binary()}
+        else
+          {lexer, raw}
+        end
+      end
+
+    raw = slice(lexer.source, start, lexer.offset)
+
+    lexer =
+      if raw != value and value in ["true", "false", "null"] do
+        add_error(lexer, "escaped reserved word")
+      else
+        lexer
+      end
+
+    cond do
+      value == "true" -> token_at(lexer, :boolean, true, raw, start)
+      value == "false" -> token_at(lexer, :boolean, false, raw, start)
+      value == "null" -> token_at(lexer, :null, nil, raw, start)
+      MapSet.member?(@keywords, value) -> token_at(lexer, :keyword, value, raw, start)
+      true -> token_at(lexer, :identifier, value, raw, start)
+    end
+  end
+
+  defp advance_identifier_raw(%{offset: offset, length: length} = lexer) when offset >= length,
+    do: {lexer, false}
+
+  defp advance_identifier_raw(%{source: source, offset: start, length: length} = lexer) do
+    {offset, reason} = advance_identifier_raw_offset(source, start, length)
+    lexer = %{lexer | offset: offset, column: lexer.column + offset - start}
+
+    case reason do
+      :escape ->
+        {lexer, true}
+
+      :non_ascii ->
+        if identifier_part?(codepoint_at(source, offset, length)) do
+          advance_identifier_raw(advance(lexer))
+        else
+          {lexer, false}
+        end
+
+      :stop ->
+        {lexer, false}
+    end
+  end
+
+  defp advance_identifier_raw_offset(source, offset, length) when offset < length do
+    byte = :binary.at(source, offset)
+
+    cond do
+      ascii_identifier_part?(byte) ->
+        advance_identifier_raw_offset(source, offset + 1, length)
+
+      byte == ?\\ and byte_at(source, offset + 1, length) == ?u ->
+        {offset, :escape}
+
+      byte < 0x80 ->
+        {offset, :stop}
+
+      true ->
+        {offset, :non_ascii}
+    end
+  end
+
+  defp advance_identifier_raw_offset(_source, offset, _length), do: {offset, :stop}
+
+  defp scan_identifier_parts(lexer, acc) do
+    ch = current(lexer)
+
+    cond do
+      ch == ?\\ and peek(lexer, 1) == ?u ->
+        scan_identifier_escape(lexer, acc)
+
+      identifier_part?(ch) ->
+        scan_identifier_parts(advance(lexer), [<<ch::utf8>> | acc])
+
+      true ->
+        {lexer, acc}
+    end
+  end
+
+  defp scan_identifier_escape(lexer, acc) do
+    if unicode_brace_escape?(lexer) do
+      scan_braced_identifier_escape(lexer, acc)
+    else
+      case binary_part(lexer.source, lexer.offset, min(6, lexer.length - lexer.offset)) do
+        <<"\\u", hex::binary-size(4)>> ->
+          case Integer.parse(hex, 16) do
+            {codepoint, ""} when codepoint in 0..0xD7FF or codepoint in 0xE000..0x10FFFF ->
+              if valid_identifier_escape?(codepoint, acc) do
+                scan_identifier_parts(advance_ascii(lexer, 6), [<<codepoint::utf8>> | acc])
+              else
+                {add_error(lexer, "invalid unicode escape in identifier") |> advance_ascii(2),
+                 acc}
+              end
+
+            _ ->
+              {add_error(lexer, "invalid unicode escape in identifier") |> advance_ascii(2), acc}
+          end
+
+        _ ->
+          {add_error(lexer, "invalid unicode escape in identifier") |> advance_ascii(2), acc}
+      end
+    end
+  end
+
+  defp valid_identifier_escape?(codepoint, []), do: identifier_start?(codepoint)
+  defp valid_identifier_escape?(codepoint, _acc), do: identifier_part?(codepoint)
+
+  defp unicode_brace_escape?(lexer) do
+    byte_at(lexer.source, lexer.offset, lexer.length) == ?\\ and
+      byte_at(lexer.source, lexer.offset + 1, lexer.length) == ?u and
+      byte_at(lexer.source, lexer.offset + 2, lexer.length) == ?{
+  end
+
+  defp scan_braced_identifier_escape(lexer, acc) do
+    rest = binary_part(lexer.source, lexer.offset + 3, lexer.length - lexer.offset - 3)
+
+    case :binary.match(rest, "}") do
+      {finish, 1} ->
+        hex = binary_part(rest, 0, finish)
+
+        case Integer.parse(hex, 16) do
+          {codepoint, ""} when codepoint in 0..0xD7FF or codepoint in 0xE000..0x10FFFF ->
+            if valid_identifier_escape?(codepoint, acc) do
+              scan_identifier_parts(advance_ascii(lexer, finish + 4), [<<codepoint::utf8>> | acc])
+            else
+              {add_error(lexer, "invalid unicode escape in identifier") |> advance_ascii(3), acc}
+            end
+
+          _ ->
+            {add_error(lexer, "invalid unicode escape in identifier") |> advance_ascii(3), acc}
+        end
+
+      :nomatch ->
+        {add_error(lexer, "invalid unicode escape in identifier") |> advance_ascii(3), acc}
+    end
+  end
+
+  defp scan_number(lexer) do
+    start = lexer.offset
+
+    lexer =
+      cond do
+        number_prefix?(lexer, ?x, ?X) ->
+          lexer |> advance_ascii(2) |> advance_hex_digits()
+
+        number_prefix?(lexer, ?b, ?B) ->
+          lexer |> advance_ascii(2) |> advance_binary_digits()
+
+        number_prefix?(lexer, ?o, ?O) ->
+          lexer |> advance_ascii(2) |> advance_octal_digits()
+
+        true ->
+          scan_decimal(lexer)
+      end
+
+    lexer = if current(lexer) == ?n, do: advance(lexer), else: lexer
+    raw = slice(lexer.source, start, lexer.offset)
+    lexer = validate_number_literal(lexer, raw)
+    value = parse_number(raw)
+    token_at(lexer, :number, value, raw, start)
+  end
+
+  defp scan_decimal(lexer) do
+    start = lexer.offset
+    lexer = advance_decimal_digits(lexer)
+
+    lexer =
+      if decimal_fraction_start?(lexer, start) do
+        lexer |> advance() |> advance_decimal_digits()
+      else
+        lexer
+      end
+
+    if current(lexer) in [?e, ?E] do
+      exponent = advance(lexer)
+      exponent = if current(exponent) in [?+, ?-], do: advance(exponent), else: exponent
+      advance_decimal_digits(exponent)
+    else
+      lexer
+    end
+  end
+
+  defp advance_decimal_digits(%{source: source, offset: start, length: length} = lexer) do
+    offset = decimal_digits_end(source, start, length)
+    %{lexer | offset: offset, column: lexer.column + offset - start}
+  end
+
+  defp decimal_digits_end(source, offset, length) when offset < length do
+    case :binary.at(source, offset) do
+      byte when byte in ?0..?9 or byte == ?_ -> decimal_digits_end(source, offset + 1, length)
+      _byte -> offset
+    end
+  end
+
+  defp decimal_digits_end(_source, offset, _length), do: offset
+
+  defp advance_hex_digits(%{source: source, offset: start, length: length} = lexer) do
+    offset = hex_digits_end(source, start, length)
+    %{lexer | offset: offset, column: lexer.column + offset - start}
+  end
+
+  defp hex_digits_end(source, offset, length) when offset < length do
+    case :binary.at(source, offset) do
+      byte when byte in ?0..?9 or byte in ?a..?f or byte in ?A..?F or byte == ?_ ->
+        hex_digits_end(source, offset + 1, length)
+
+      _byte ->
+        offset
+    end
+  end
+
+  defp hex_digits_end(_source, offset, _length), do: offset
+
+  defp advance_binary_digits(%{source: source, offset: start, length: length} = lexer) do
+    offset = binary_digits_end(source, start, length)
+    %{lexer | offset: offset, column: lexer.column + offset - start}
+  end
+
+  defp binary_digits_end(source, offset, length) when offset < length do
+    case :binary.at(source, offset) do
+      byte when byte in [?0, ?1, ?_] -> binary_digits_end(source, offset + 1, length)
+      _byte -> offset
+    end
+  end
+
+  defp binary_digits_end(_source, offset, _length), do: offset
+
+  defp advance_octal_digits(%{source: source, offset: start, length: length} = lexer) do
+    offset = octal_digits_end(source, start, length)
+    %{lexer | offset: offset, column: lexer.column + offset - start}
+  end
+
+  defp octal_digits_end(source, offset, length) when offset < length do
+    case :binary.at(source, offset) do
+      byte when byte in ?0..?7 or byte == ?_ -> octal_digits_end(source, offset + 1, length)
+      _byte -> offset
+    end
+  end
+
+  defp octal_digits_end(_source, offset, _length), do: offset
+
+  defp decimal_fraction_start?(lexer, start) do
+    current(lexer) == ?. and not leading_zero_member_access?(lexer, start)
+  end
+
+  defp leading_zero_member_access?(lexer, start) do
+    raw = slice(lexer.source, start, lexer.offset)
+    byte_size(raw) > 1 and String.starts_with?(raw, "0") and identifier_start?(peek(lexer, 1))
+  end
+
+  defp parse_number(raw) do
+    raw
+    |> String.trim_trailing("n")
+    |> parse_normalized_number()
+  rescue
+    _ -> :nan
+  end
+
+  defp parse_normalized_number(<<"0", prefix, _rest::binary>> = normalized)
+       when prefix in [?x, ?X],
+       do: parse_prefixed_int(normalized, 2, 16)
+
+  defp parse_normalized_number(<<"0", prefix, _rest::binary>> = normalized)
+       when prefix in [?b, ?B],
+       do: parse_prefixed_int(normalized, 2, 2)
+
+  defp parse_normalized_number(<<"0", prefix, _rest::binary>> = normalized)
+       when prefix in [?o, ?O],
+       do: parse_prefixed_int(normalized, 2, 8)
+
+  defp parse_normalized_number(normalized) do
+    if String.contains?(normalized, [".", "e", "E"]) do
+      normalized
+      |> String.replace("_", "")
+      |> normalize_float_literal()
+      |> Float.parse()
+      |> elem(0)
+    else
+      normalized |> String.replace("_", "") |> Integer.parse() |> elem(0)
+    end
+  end
+
+  defp normalize_float_literal(<<".", _::binary>> = raw), do: "0" <> raw
+  defp normalize_float_literal(raw), do: raw
+
+  defp parse_prefixed_int(raw, trim, base) do
+    raw
+    |> binary_part(trim, byte_size(raw) - trim)
+    |> String.replace("_", "")
+    |> Integer.parse(base)
+    |> elem(0)
+  end
+
+  defp number_prefix?(lexer, lower, upper) do
+    byte_at(lexer.source, lexer.offset, lexer.length) == ?0 and
+      byte_at(lexer.source, lexer.offset + 1, lexer.length) in [lower, upper]
+  end
+
+  defp validate_number_literal(lexer, raw) do
+    normalized = String.trim_trailing(raw, "n")
+    prefixed? = prefixed_number?(raw)
+
+    cond do
+      String.ends_with?(raw, "n") and not prefixed? and String.contains?(raw, [".", "e", "E"]) ->
+        add_error(lexer, "invalid bigint literal")
+
+      legacy_octal_bigint?(raw) ->
+        add_error(lexer, "invalid number literal")
+
+      String.ends_with?(raw, ".") and identifier_start?(current(lexer)) ->
+        add_error(lexer, "invalid number literal")
+
+      not prefixed? and identifier_start?(current(lexer)) ->
+        add_error(lexer, "invalid number literal")
+
+      not prefixed? and invalid_decimal_separator_position?(normalized) ->
+        add_error(lexer, "invalid number literal")
+
+      bare_number_prefix?(normalized) ->
+        add_error(lexer, "invalid number literal")
+
+      prefixed? and identifier_part?(current(lexer)) ->
+        add_error(lexer, "invalid number literal")
+
+      not prefixed? and String.match?(normalized, ~r/[eE][+-]?(_|$)/) ->
+        add_error(lexer, "invalid number literal")
+
+      not prefixed? and String.match?(raw, ~r/^0[0-9]*_/) ->
+        add_error(lexer, "invalid numeric separator")
+
+      prefixed_numeric_separator_after_prefix?(raw) ->
+        add_error(lexer, "invalid numeric separator")
+
+      String.starts_with?(normalized, "_") or String.ends_with?(normalized, "_") ->
+        add_error(lexer, "invalid numeric separator")
+
+      String.contains?(raw, "__") ->
+        add_error(lexer, "invalid numeric separator")
+
+      true ->
+        lexer
+    end
+  end
+
+  defp legacy_octal_bigint?(<<"0", digit, _rest::binary>> = raw)
+       when digit in ?0..?9,
+       do: String.ends_with?(raw, "n")
+
+  defp legacy_octal_bigint?(_raw), do: false
+
+  defp invalid_decimal_separator_position?(raw) do
+    String.contains?(raw, ["._", "_.", "_e", "_E", "e_", "E_", "e+_", "e-_", "E+_", "E-_"])
+  end
+
+  defp prefixed_number?(<<"0", prefix, _rest::binary>>) when prefix in [?x, ?X, ?b, ?B, ?o, ?O],
+    do: true
+
+  defp prefixed_number?(_raw), do: false
+
+  defp bare_number_prefix?(prefix) when prefix in ["0x", "0X", "0b", "0B", "0o", "0O"], do: true
+  defp bare_number_prefix?(_raw), do: false
+
+  defp prefixed_numeric_separator_after_prefix?(<<"0", prefix, "_", _rest::binary>>)
+       when prefix in [?x, ?X, ?b, ?B, ?o, ?O],
+       do: true
+
+  defp prefixed_numeric_separator_after_prefix?(_raw), do: false
+
+  defp scan_template(lexer) do
+    start = lexer.offset
+    lexer = lexer |> advance() |> scan_template_body(start)
+    raw = slice(lexer.source, start, lexer.offset)
+    token_at(lexer, :template, raw, raw, start)
+  end
+
+  defp scan_template_body(lexer, start) do
+    cond do
+      eof?(lexer) ->
+        add_error(lexer, "unterminated template literal")
+
+      current(lexer) == ?\\ ->
+        lexer |> advance() |> advance() |> scan_template_body(start)
+
+      current(lexer) == ?` ->
+        advance(lexer)
+
+      current(lexer) == ?$ and peek(lexer, 1) == ?{ ->
+        lexer |> advance_ascii(2) |> scan_template_expr(start, 1) |> scan_template_body(start)
+
+      true ->
+        lexer |> advance() |> scan_template_body(start)
+    end
+  end
+
+  defp scan_template_expr(lexer, _start, 0), do: lexer
+
+  defp scan_template_expr(lexer, start, depth) do
+    cond do
+      eof?(lexer) ->
+        add_error(lexer, "unterminated template expression")
+
+      current(lexer) in [?", ?'] ->
+        {_token, lexer} = scan_string(lexer, current(lexer))
+        lexer |> Map.put(:last_token, nil) |> scan_template_expr(start, depth)
+
+      current(lexer) == ?` ->
+        lexer |> advance() |> scan_template_body(start) |> scan_template_expr(start, depth)
+
+      current(lexer) == ?{ ->
+        lexer |> advance() |> scan_template_expr(start, depth + 1)
+
+      current(lexer) == ?} ->
+        lexer = advance(lexer)
+        if depth == 1, do: lexer, else: scan_template_expr(lexer, start, depth - 1)
+
+      true ->
+        lexer |> advance() |> scan_template_expr(start, depth)
+    end
+  end
+
+  defp scan_regexp(lexer) do
+    start = lexer.offset
+    lexer = advance(lexer)
+    scan_regexp_body(lexer, start, false)
+  end
+
+  defp scan_regexp_body(lexer, start, in_class?) do
+    cond do
+      eof?(lexer) ->
+        raw = slice(lexer.source, start, lexer.offset)
+        lexer = add_error(lexer, "unterminated regular expression literal")
+        token_at(lexer, :regexp, %{pattern: raw, flags: ""}, raw, start)
+
+      line_terminator?(current(lexer)) ->
+        raw = slice(lexer.source, start, lexer.offset)
+        lexer = add_error(lexer, "unterminated regular expression literal")
+        token_at(lexer, :regexp, %{pattern: raw, flags: ""}, raw, start)
+
+      current(lexer) == ?\\ and line_terminator?(peek(lexer, 1)) ->
+        raw = slice(lexer.source, start, lexer.offset)
+        lexer = add_error(lexer, "unterminated regular expression literal")
+        token_at(lexer, :regexp, %{pattern: raw, flags: ""}, raw, start)
+
+      current(lexer) == ?\\ ->
+        lexer |> advance() |> advance() |> scan_regexp_body(start, in_class?)
+
+      current(lexer) == ?[ ->
+        lexer |> advance() |> scan_regexp_body(start, true)
+
+      current(lexer) == ?] and in_class? ->
+        lexer |> advance() |> scan_regexp_body(start, false)
+
+      current(lexer) == ?/ and not in_class? ->
+        lexer = advance(lexer)
+        lexer = advance_while(lexer, &regexp_flag_part?/1)
+        raw = slice(lexer.source, start, lexer.offset)
+        {pattern, flags} = split_regexp(raw)
+
+        lexer =
+          cond do
+            error = Regexp.regexp_flags_error(flags) ->
+              add_error(lexer, error)
+
+            error = Regexp.regexp_modifier_group_error(pattern) ->
+              add_error(lexer, error)
+
+            error = Regexp.regexp_quantifier_error(pattern, flags) ->
+              add_error(lexer, error)
+
+            error = Regexp.regexp_named_group_error(pattern, flags) ->
+              add_error(lexer, error)
+
+            error = Regexp.regexp_unicode_escape_error(pattern, flags) ->
+              add_error(lexer, error)
+
+            error = Regexp.regexp_class_range_error(pattern, flags) ->
+              add_error(lexer, error)
+
+            error = Regexp.regexp_property_escape_error(pattern, flags) ->
+              add_error(lexer, error)
+
+            true ->
+              lexer
+          end
+
+        token_at(lexer, :regexp, %{pattern: pattern, flags: flags}, raw, start)
+
+      true ->
+        lexer |> advance() |> scan_regexp_body(start, in_class?)
+    end
+  end
+
+  defp split_regexp(raw) do
+    body = binary_part(raw, 1, byte_size(raw) - 1)
+    idx = closing_regexp_slash(body, 0, false)
+    pattern = binary_part(body, 0, idx)
+    flags = binary_part(body, idx + 1, byte_size(body) - idx - 1)
+    {pattern, flags}
+  end
+
+  defp closing_regexp_slash(<<>>, idx, _in_class?), do: idx
+
+  defp closing_regexp_slash(<<?\\, _escaped, rest::binary>>, idx, in_class?),
+    do: closing_regexp_slash(rest, idx + 2, in_class?)
+
+  defp closing_regexp_slash(<<?[, rest::binary>>, idx, _in_class?),
+    do: closing_regexp_slash(rest, idx + 1, true)
+
+  defp closing_regexp_slash(<<?], rest::binary>>, idx, true),
+    do: closing_regexp_slash(rest, idx + 1, false)
+
+  defp closing_regexp_slash(<<?/, _rest::binary>>, idx, false), do: idx
+
+  defp closing_regexp_slash(<<ch::utf8, rest::binary>>, idx, in_class?),
+    do: closing_regexp_slash(rest, idx + utf8_size(ch), in_class?)
+
+  defp regexp_flag_part?(ch), do: identifier_part?(ch) and not unicode_trivia?(ch)
+
+  defp scan_string(lexer, quote) do
+    start = lexer.offset
+    lexer = advance(lexer)
+    scan_string_body(lexer, quote, start, lexer.offset, [])
+  end
+
+  defp scan_string_body(
+         %{source: source, offset: offset, length: length} = lexer,
+         quote,
+         start,
+         span_start,
+         acc
+       ) do
+    if offset >= length do
+      raw = slice(source, start, offset)
+      lexer = add_error(lexer, "unterminated string literal")
+      token_at(lexer, :string, finish_string(acc, source, span_start, offset), raw, start)
+    else
+      byte = :binary.at(source, offset)
+
+      cond do
+        byte == quote ->
+          lexer = advance(lexer)
+          raw = slice(source, start, lexer.offset)
+          token_at(lexer, :string, finish_string(acc, source, span_start, offset), raw, start)
+
+        byte in [?\n, ?\r] ->
+          raw = slice(source, start, offset)
+          lexer = add_error(lexer, "unterminated string literal")
+          token_at(lexer, :string, finish_string(acc, source, span_start, offset), raw, start)
+
+        byte == ?\\ ->
+          acc = prepend_string_span(acc, source, span_start, offset)
+          {escaped, lexer} = scan_escape(advance(lexer))
+          scan_string_body(lexer, quote, start, lexer.offset, [escaped | acc])
+
+        byte >= 0x80 ->
+          ch = codepoint_at(source, offset, length)
+
+          if ch in [0x2028, 0x2029] do
+            acc = prepend_string_span(acc, source, span_start, offset)
+
+            scan_string_body(advance(lexer), quote, start, advance(lexer).offset, [
+              <<ch::utf8>> | acc
+            ])
+          else
+            scan_string_body(advance(lexer), quote, start, span_start, acc)
+          end
+
+        true ->
+          scan_string_body(
+            %{lexer | offset: offset + 1, column: lexer.column + 1},
+            quote,
+            start,
+            span_start,
+            acc
+          )
+      end
+    end
+  end
+
+  defp prepend_string_span(acc, _source, same, same), do: acc
+
+  defp prepend_string_span(acc, source, span_start, span_end),
+    do: [binary_part(source, span_start, span_end - span_start) | acc]
+
+  defp finish_string(acc, source, span_start, span_end) do
+    acc
+    |> prepend_string_span(source, span_start, span_end)
+    |> Enum.reverse()
+    |> IO.iodata_to_binary()
+  end
+
+  defp scan_escape(lexer) do
+    case current(lexer) do
+      ?n -> {"\n", advance_ascii(lexer, 1)}
+      ?r -> {"\r", advance_ascii(lexer, 1)}
+      ?t -> {"\t", advance_ascii(lexer, 1)}
+      ?b -> {"\b", advance_ascii(lexer, 1)}
+      ?f -> {"\f", advance_ascii(lexer, 1)}
+      ?v -> {<<11>>, advance_ascii(lexer, 1)}
+      ?0 -> {<<0>>, advance_ascii(lexer, 1)}
+      ?x -> scan_fixed_string_escape(advance_ascii(lexer, 1), 2)
+      ?u -> scan_unicode_string_escape(advance_ascii(lexer, 1))
+      ch when ch in [?\n, ?\r, 0x2028, 0x2029] -> {"", consume_line_terminator(lexer)}
+      ch when is_integer(ch) -> {<<ch::utf8>>, advance(lexer)}
+      nil -> {"", lexer}
+    end
+  end
+
+  defp scan_fixed_string_escape(lexer, digits) do
+    case take_hex_escape(lexer, digits) do
+      {:ok, codepoint, lexer} -> {string_escape_value(codepoint), lexer}
+      :error -> {"", add_error(lexer, "invalid string escape")}
+    end
+  end
+
+  defp scan_unicode_string_escape(lexer) do
+    if current(lexer) == ?{ do
+      scan_braced_string_escape(advance(lexer))
+    else
+      scan_fixed_string_escape(lexer, 4)
+    end
+  end
+
+  defp scan_braced_string_escape(lexer) do
+    rest = binary_part(lexer.source, lexer.offset, lexer.length - lexer.offset)
+
+    case :binary.match(rest, "}") do
+      {finish, 1} ->
+        hex = binary_part(rest, 0, finish)
+
+        case Integer.parse(hex, 16) do
+          {codepoint, ""} when codepoint in 0..0x10FFFF ->
+            {string_escape_value(codepoint), advance_ascii(lexer, finish + 1)}
+
+          _ ->
+            {"", add_error(lexer, "invalid string escape")}
+        end
+
+      :nomatch ->
+        {"", add_error(lexer, "invalid string escape")}
+    end
+  end
+
+  defp take_hex_escape(lexer, digits) do
+    if lexer.offset + digits <= lexer.length do
+      hex = binary_part(lexer.source, lexer.offset, digits)
+
+      case Integer.parse(hex, 16) do
+        {codepoint, ""} when codepoint in 0..0xFFFF ->
+          {:ok, codepoint, advance_ascii(lexer, digits)}
+
+        _ ->
+          :error
+      end
+    else
+      :error
+    end
+  end
+
+  defp string_escape_value(codepoint) when codepoint in 0xD800..0xDFFF, do: <<codepoint::16>>
+  defp string_escape_value(codepoint), do: <<codepoint::utf8>>
+
+  defp scan_punctuator(lexer) do
+    case punctuator_at(lexer) do
+      nil ->
+        raw = slice(lexer.source, lexer.offset, lexer.offset + 1)
+        lexer = lexer |> add_error("unexpected character #{inspect(raw)}") |> advance()
+        token_at(lexer, :punctuator, raw, raw, lexer.offset - 1)
+
+      punctuator ->
+        start = lexer.offset
+        size = byte_size(punctuator)
+        lexer = %{lexer | offset: start + size, column: lexer.column + size}
+        token_at(lexer, :punctuator, punctuator, punctuator, start)
+    end
+  end
+
+  defp punctuator_at(%{source: source, offset: offset, length: length}) do
+    b0 = :binary.at(source, offset)
+    b1 = byte_at(source, offset + 1, length)
+    b2 = byte_at(source, offset + 2, length)
+    b3 = byte_at(source, offset + 3, length)
+
+    case {b0, b1, b2, b3} do
+      {?>, ?>, ?>, ?=} -> ">>>="
+      {?=, ?=, ?=, _} -> "==="
+      {?!, ?=, ?=, _} -> "!=="
+      {?>, ?>, ?>, _} -> ">>>"
+      {?<, ?<, ?=, _} -> "<<="
+      {?>, ?>, ?=, _} -> ">>="
+      {?*, ?*, ?=, _} -> "**="
+      {?&, ?&, ?=, _} -> "&&="
+      {?|, ?|, ?=, _} -> "||="
+      {??, ??, ?=, _} -> "??="
+      {?., ?., ?., _} -> "..."
+      {?=, ?>, _, _} -> "=>"
+      {?+, ?+, _, _} -> "++"
+      {?-, ?-, _, _} -> "--"
+      {?=, ?=, _, _} -> "=="
+      {?!, ?=, _, _} -> "!="
+      {?<, ?=, _, _} -> "<="
+      {?>, ?=, _, _} -> ">="
+      {?&, ?&, _, _} -> "&&"
+      {?|, ?|, _, _} -> "||"
+      {??, ??, _, _} -> "??"
+      {??, ?., next, _} when next not in ?0..?9 and next != nil -> "?."
+      {?*, ?*, _, _} -> "**"
+      {?<, ?<, _, _} -> "<<"
+      {?>, ?>, _, _} -> ">>"
+      {?+, ?=, _, _} -> "+="
+      {?-, ?=, _, _} -> "-="
+      {?*, ?=, _, _} -> "*="
+      {?/, ?=, _, _} -> "/="
+      {?%, ?=, _, _} -> "%="
+      {?&, ?=, _, _} -> "&="
+      {?|, ?=, _, _} -> "|="
+      {?^, ?=, _, _} -> "^="
+      {ch, _, _, _} when ch in ~c"{}()[].;,<>+-*/%&|^!~?:#=@" -> <<ch>>
+      _ -> nil
+    end
+  end
+
+  defp skip_trivia(%{offset: offset, length: length} = lexer) when offset >= length, do: lexer
+
+  defp skip_trivia(%{source: source, offset: offset} = lexer) do
+    byte = :binary.at(source, offset)
+
+    cond do
+      byte == ?\s or byte == ?\t ->
+        lexer |> skip_horizontal_space() |> skip_trivia()
+
+      byte == ?\n or byte == ?\r ->
+        lexer |> consume_line_terminator() |> skip_trivia()
+
+      byte == ?/ ->
+        case byte_at(source, offset + 1, lexer.length) do
+          ?/ -> lexer |> skip_line_comment() |> skip_trivia()
+          ?* -> lexer |> skip_block_comment() |> skip_trivia()
+          _ -> lexer
+        end
+
+      html_open_comment?(source, offset, lexer.length) ->
+        lexer |> skip_html_open_comment() |> skip_trivia()
+
+      html_close_comment?(lexer, source, offset) ->
+        lexer |> skip_html_close_comment() |> skip_trivia()
+
+      byte == ?\v or byte == ?\f ->
+        lexer |> skip_horizontal_space() |> skip_trivia()
+
+      byte >= 0x80 and unicode_trivia?(current(lexer)) ->
+        lexer |> advance() |> skip_trivia()
+
+      offset == 0 and byte == ?# and byte_at(source, offset + 1, lexer.length) == ?! ->
+        lexer |> skip_hashbang_comment() |> skip_trivia()
+
+      true ->
+        lexer
+    end
+  end
+
+  defp skip_horizontal_space(%{source: source, offset: offset, length: length} = lexer) do
+    finish = horizontal_space_end(source, offset, length)
+    %{lexer | offset: finish, column: lexer.column + finish - offset}
+  end
+
+  defp horizontal_space_end(source, offset, length) when offset < length do
+    case :binary.at(source, offset) do
+      byte when byte in [?\s, ?\t, ?\v, ?\f] -> horizontal_space_end(source, offset + 1, length)
+      _byte -> offset
+    end
+  end
+
+  defp horizontal_space_end(_source, offset, _length), do: offset
+
+  defp skip_hashbang_comment(%{source: source, offset: offset, length: length} = lexer) do
+    skip_to_line_end(lexer, source, offset + 2, length)
+  end
+
+  defp skip_line_comment(%{source: source, offset: offset, length: length} = lexer) do
+    skip_to_line_end(lexer, source, offset + 2, length)
+  end
+
+  defp skip_html_open_comment(%{source: source, offset: offset, length: length} = lexer) do
+    skip_to_line_end(lexer, source, offset + 4, length)
+  end
+
+  defp skip_html_close_comment(%{source: source, offset: offset, length: length} = lexer) do
+    skip_to_line_end(lexer, source, offset + 3, length)
+  end
+
+  defp html_open_comment?(source, offset, length) do
+    byte_at(source, offset, length) == ?< and byte_at(source, offset + 1, length) == ?! and
+      byte_at(source, offset + 2, length) == ?- and byte_at(source, offset + 3, length) == ?-
+  end
+
+  defp html_close_comment?(%{offset: offset} = lexer, source, offset) do
+    html_close_comment_start?(lexer) and byte_at(source, offset, lexer.length) == ?- and
+      byte_at(source, offset + 1, lexer.length) == ?- and
+      byte_at(source, offset + 2, lexer.length) == ?>
+  end
+
+  defp html_close_comment_start?(lexer),
+    do:
+      lexer.offset == 0 or lexer.pending_line_terminator? or lexer.column == 0 or
+        (lexer.line == 1 and is_nil(lexer.last_token))
+
+  defp skip_to_line_end(lexer, source, offset, length) when offset < length do
+    byte = :binary.at(source, offset)
+
+    cond do
+      byte == ?\n or byte == ?\r ->
+        %{lexer | offset: offset, column: lexer.column + offset - lexer.offset}
+
+      byte < 0x80 ->
+        skip_to_line_end(lexer, source, offset + 1, length)
+
+      true ->
+        ch = codepoint_at(source, offset, length)
+
+        if line_terminator?(ch) do
+          %{lexer | offset: offset, column: lexer.column + offset - lexer.offset}
+        else
+          skip_to_line_end(lexer, source, offset + utf8_size(ch), length)
+        end
+    end
+  end
+
+  defp skip_to_line_end(lexer, _source, offset, _length) do
+    %{lexer | offset: offset, column: lexer.column + offset - lexer.offset}
+  end
+
+  defp skip_block_comment(%{source: source, offset: offset, length: length} = lexer) do
+    start = offset + 2
+    rest = binary_part(source, start, length - start)
+
+    case :binary.match(rest, "*/") do
+      :nomatch ->
+        lexer
+        |> advance_ascii(2)
+        |> add_error("unterminated block comment")
+
+      {finish, 2} ->
+        skipped = binary_part(source, offset, finish + 4)
+        {line_delta, column} = comment_position(skipped, lexer.column)
+
+        %{
+          lexer
+          | offset: offset + byte_size(skipped),
+            line: lexer.line + line_delta,
+            column: column,
+            pending_line_terminator?: lexer.pending_line_terminator? or line_delta > 0
+        }
+    end
+  end
+
+  defp comment_position(skipped, initial_column) do
+    if :binary.match(skipped, ["\n", "\r", <<0x2028::utf8>>, <<0x2029::utf8>>]) == :nomatch do
+      {0, initial_column + byte_size(skipped)}
+    else
+      comment_position(skipped, 0, initial_column)
+    end
+  end
+
+  defp comment_position(<<>>, lines, column), do: {lines, column}
+
+  defp comment_position(<<byte, rest::binary>>, lines, _column) when byte in [?\n, ?\r],
+    do: comment_position(rest, lines + 1, 0)
+
+  defp comment_position(<<ch::utf8, rest::binary>>, lines, _column)
+       when ch in [0x2028, 0x2029],
+       do: comment_position(rest, lines + 1, 0)
+
+  defp comment_position(<<ch::utf8, rest::binary>>, lines, column),
+    do: comment_position(rest, lines, column + utf8_size(ch))
+
+  defp token_at(lexer, type, value, raw, start) do
+    token = %Token{
+      type: type,
+      value: value,
+      raw: raw,
+      start: start,
+      finish: lexer.offset,
+      line: lexer.token_start_line,
+      column: lexer.token_start_column,
+      before_line_terminator?: lexer.pending_line_terminator?
+    }
+
+    {token, %{lexer | pending_line_terminator?: false, last_token: token}}
+  end
+
+  defp token(lexer, type, value, raw, start), do: token_at(lexer, type, value, raw, start)
+
+  defp add_error(lexer, message) do
+    error = %Error{message: message, line: lexer.line, column: lexer.column, offset: lexer.offset}
+    %{lexer | errors: [error | lexer.errors]}
+  end
+
+  defp advance_while(lexer, pred) do
+    if pred.(current(lexer)), do: lexer |> advance() |> advance_while(pred), else: lexer
+  end
+
+  defp advance_bytes(lexer, 0), do: lexer
+  defp advance_bytes(lexer, count), do: lexer |> advance() |> advance_bytes(count - 1)
+
+  defp advance_ascii(lexer, count),
+    do: %{lexer | offset: lexer.offset + count, column: lexer.column + count}
+
+  defp advance(%{offset: offset, length: length} = lexer) when offset >= length, do: lexer
+
+  defp advance(%{source: source, offset: offset} = lexer) do
+    byte = :binary.at(source, offset)
+
+    cond do
+      byte == ?\n or byte == ?\r ->
+        %{
+          lexer
+          | offset: offset + 1,
+            line: lexer.line + 1,
+            column: 0,
+            pending_line_terminator?: true
+        }
+
+      byte < 0x80 ->
+        %{lexer | offset: offset + 1, column: lexer.column + 1}
+
+      true ->
+        ch = codepoint_at(source, offset, lexer.length)
+        size = utf8_size(ch)
+
+        if line_terminator?(ch) do
+          %{
+            lexer
+            | offset: offset + size,
+              line: lexer.line + 1,
+              column: 0,
+              pending_line_terminator?: true
+          }
+        else
+          %{lexer | offset: offset + size, column: lexer.column + 1}
+        end
+    end
+  end
+
+  defp consume_line_terminator(lexer) do
+    if byte_at(lexer.source, lexer.offset, lexer.length) == ?\r and
+         byte_at(lexer.source, lexer.offset + 1, lexer.length) == ?\n,
+       do: advance_bytes(lexer, 2),
+       else: advance(lexer)
+  end
+
+  defp current(%{source: source, offset: offset, length: length}) do
+    codepoint_at(source, offset, length)
+  end
+
+  defp peek(%{source: source, offset: offset, length: length}, relative) do
+    codepoint_at(source, offset + relative, length)
+  end
+
+  defp codepoint_at(_source, offset, length) when offset >= length, do: nil
+
+  defp codepoint_at(source, offset, length) do
+    byte = :binary.at(source, offset)
+
+    if byte < 0x80 do
+      byte
+    else
+      case binary_part(source, offset, length - offset) do
+        <<ch::utf8, _::binary>> -> ch
+        <<byte, _::binary>> -> byte
+      end
+    end
+  end
+
+  defp byte_at(_source, offset, length) when offset >= length, do: nil
+  defp byte_at(source, offset, _length), do: :binary.at(source, offset)
+
+  defp eof?(lexer), do: lexer.offset >= lexer.length
+
+  defp slice(source, start, finish), do: binary_part(source, start, finish - start)
+
+  defp ascii_identifier_part?(byte)
+       when (byte >= ?a and byte <= ?z) or (byte >= ?A and byte <= ?Z) or
+              (byte >= ?0 and byte <= ?9) or byte == ?_ or byte == ?$,
+       do: true
+
+  defp ascii_identifier_part?(_byte), do: false
+
+  defp identifier_start?(nil), do: false
+  defp identifier_start?(?_), do: true
+  defp identifier_start?(?$), do: true
+
+  defp identifier_start?(ch) when ch in [0x180E, 0x200C, 0x200D, 0x2028, 0x2029, 0x2E2F],
+    do: false
+
+  defp identifier_start?(ch),
+    do: ch in ?a..?z or ch in ?A..?Z or (ch > 0x7F and not unicode_trivia?(ch))
+
+  defp identifier_part?(nil), do: false
+  defp identifier_part?(ch) when ch in [0x200C, 0x200D], do: true
+  defp identifier_part?(ch), do: identifier_start?(ch) or ch in ?0..?9
+
+  defp regexp_allowed?(%{last_token: nil}), do: true
+
+  defp regexp_allowed?(%{last_token: %Token{type: type}})
+       when type in [:identifier, :number, :string, :regexp, :boolean, :null],
+       do: false
+
+  defp regexp_allowed?(%{last_token: %Token{type: :keyword, value: "yield"}} = lexer),
+    do: regexp_literal_ahead?(lexer)
+
+  defp regexp_allowed?(%{last_token: %Token{type: :keyword, value: value}}),
+    do: not MapSet.member?(@identifier_like_keywords, value)
+
+  defp regexp_allowed?(%{last_token: %Token{value: value}}) when value in [")", "]", "++", "--"],
+    do: false
+
+  defp regexp_allowed?(%{last_token: %Token{value: "}"}} = lexer),
+    do: not division_rhs_after_slash?(lexer)
+
+  defp regexp_allowed?(_lexer), do: true
+
+  defp regexp_literal_ahead?(lexer), do: regexp_literal_ahead?(lexer, lexer.offset + 1, false)
+
+  defp regexp_literal_ahead?(%{length: length}, offset, _in_class?) when offset >= length,
+    do: false
+
+  defp regexp_literal_ahead?(lexer, offset, in_class?) do
+    case :binary.at(lexer.source, offset) do
+      ?; -> false
+      ?\n -> false
+      ?\r -> false
+      ?/ when not in_class? -> true
+      ?\\ -> regexp_literal_ahead?(lexer, offset + 2, in_class?)
+      ?[ when not in_class? -> regexp_literal_ahead?(lexer, offset + 1, true)
+      ?] when in_class? -> regexp_literal_ahead?(lexer, offset + 1, false)
+      _ch -> regexp_literal_ahead?(lexer, offset + 1, in_class?)
+    end
+  end
+
+  defp division_rhs_after_slash?(lexer) do
+    rhs_offset = skip_horizontal_space_after_slash(lexer, lexer.offset + 1)
+    rhs_offset > lexer.offset + 1 and division_rhs_start?(rhs_offset, lexer)
+  end
+
+  defp skip_horizontal_space_after_slash(lexer, offset) when offset < lexer.length do
+    case byte_at(lexer.source, offset, lexer.length) do
+      byte when byte in [?\s, ?\t, ?\v, ?\f] ->
+        skip_horizontal_space_after_slash(lexer, offset + 1)
+
+      _ ->
+        offset
+    end
+  end
+
+  defp skip_horizontal_space_after_slash(_lexer, offset), do: offset
+
+  defp division_rhs_start?(offset, lexer) when offset < lexer.length do
+    ch = codepoint_at(lexer.source, offset, lexer.length)
+    ch in [?{, ?(, ?[, ?", ?', ?+, ?-, ?!, ?~, ?/] or ch in ?0..?9 or identifier_start?(ch)
+  end
+
+  defp division_rhs_start?(_offset, _lexer), do: false
+
+  defp line_terminator?(ch), do: ch in [?\n, ?\r, 0x2028, 0x2029]
+
+  defp unicode_trivia?(ch),
+    do:
+      line_terminator?(ch) or
+        ch in [
+          0x00A0,
+          0x1680,
+          0x2000,
+          0x2001,
+          0x2002,
+          0x2003,
+          0x2004,
+          0x2005,
+          0x2006,
+          0x2007,
+          0x2008,
+          0x2009,
+          0x200A,
+          0x202F,
+          0x205F,
+          0x3000,
+          0xFEFF
+        ]
+
+  defp utf8_size(ch) when ch < 0x80, do: 1
+  defp utf8_size(ch) when ch < 0x800, do: 2
+  defp utf8_size(ch) when ch < 0x10000, do: 3
+  defp utf8_size(_ch), do: 4
+end

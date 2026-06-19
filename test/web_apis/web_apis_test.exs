@@ -215,7 +215,7 @@ defmodule QuickBEAM.WebAPIs.WebAPIsTest do
       ]
 
       for bytes <- cases do
-        assert {:error, %QuickBEAM.JSError{name: "TypeError"}} =
+        assert {:error, %QuickBEAM.JS.Error{name: "TypeError"}} =
                  QuickBEAM.eval(
                    rt,
                    "new TextDecoder('utf-8', {fatal: true}).decode(new Uint8Array(#{bytes}))"
@@ -231,7 +231,7 @@ defmodule QuickBEAM.WebAPIs.WebAPIsTest do
       ]
 
       for bytes <- overlong_cases do
-        assert {:error, %QuickBEAM.JSError{name: "TypeError"}} =
+        assert {:error, %QuickBEAM.JS.Error{name: "TypeError"}} =
                  QuickBEAM.eval(
                    rt,
                    "new TextDecoder('utf-8', {fatal: true}).decode(new Uint8Array(#{bytes}))"
@@ -240,7 +240,7 @@ defmodule QuickBEAM.WebAPIs.WebAPIsTest do
     end
 
     test "fatal: true — UTF-8 encoded surrogates throw", %{rt: rt} do
-      assert {:error, %QuickBEAM.JSError{name: "TypeError"}} =
+      assert {:error, %QuickBEAM.JS.Error{name: "TypeError"}} =
                QuickBEAM.eval(
                  rt,
                  "new TextDecoder('utf-8', {fatal: true}).decode(new Uint8Array([0xED, 0xA0, 0x80]))"
@@ -541,7 +541,7 @@ defmodule QuickBEAM.WebAPIs.WebAPIsTest do
     end
 
     test "requires function argument", %{rt: rt} do
-      assert {:error, %QuickBEAM.JSError{name: "TypeError"}} =
+      assert {:error, %QuickBEAM.JS.Error{name: "TypeError"}} =
                QuickBEAM.eval(rt, "queueMicrotask(42)")
     end
 

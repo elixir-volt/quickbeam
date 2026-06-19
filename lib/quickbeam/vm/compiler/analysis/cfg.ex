@@ -1,0 +1,326 @@
+defmodule QuickBEAM.VM.Compiler.Analysis.CFG do
+  @moduledoc "Control-flow graph analysis: identifies basic-block boundaries and inlineable branch targets."
+
+  alias QuickBEAM.VM.OpcodeSpec
+
+  @doc "Returns block entries metadata for compiler analysis."
+  def block_entries(instructions) do
+    entries =
+      instructions
+      |> Enum.with_index()
+      |> Enum.reduce(MapSet.new([0]), fn {{op, args}, idx}, acc ->
+        case opcode_name(op) do
+          {:ok, name} when name in [:if_false, :if_false8, :if_true, :if_true8] ->
+            [target] = args
+            acc |> MapSet.put(target) |> MapSet.put(idx + 1)
+
+          {:ok, name} when name in [:goto, :goto8, :goto16, :catch] ->
+            [target] = args
+            MapSet.put(acc, target)
+
+          {:ok, name}
+          when name in [
+                 :with_get_var,
+                 :with_put_var,
+                 :with_delete_var,
+                 :with_make_ref,
+                 :with_get_ref,
+                 :with_get_ref_undef
+               ] ->
+            [_atom_idx, target, _is_with] = args
+            acc |> MapSet.put(target) |> MapSet.put(idx + 1)
+
+          {:ok, name}
+          when name in [
+                 :initial_yield,
+                 :yield,
+                 :yield_star,
+                 :async_yield_star,
+                 :gosub
+               ] ->
+            MapSet.put(acc, idx + 1)
+
+          _ ->
+            acc
+        end
+      end)
+
+    entries
+    |> MapSet.to_list()
+    |> Enum.sort()
+  end
+
+  @doc "Helper for control-flow graph analysis: identifies basic-block boundaries and inlineable branch targets."
+  def next_entry(entries, start), do: Enum.find(entries, &(&1 > start))
+
+  @doc "Returns predecessor counts for compiler control-flow analysis."
+  def predecessor_counts(instructions, entries) do
+    predecessor_sources(instructions, entries)
+    |> Enum.into(%{}, fn {target, preds} -> {target, length(preds)} end)
+  end
+
+  @doc "Returns predecessor sources for compiler control-flow analysis."
+  def predecessor_sources(instructions, entries) do
+    t = List.to_tuple(instructions)
+    size = tuple_size(t)
+
+    Enum.reduce(entries, %{}, fn start, preds ->
+      next = next_entry(entries, start)
+
+      case do_block_terminal(t, size, start, next) do
+        {:branch, target, term_idx} when is_integer(next) ->
+          preds
+          |> add_predecessor(target, term_idx)
+          |> add_predecessor(next, term_idx)
+
+        {:catch, target, term_idx} when is_integer(next) ->
+          preds
+          |> add_predecessor(target, term_idx)
+          |> add_predecessor(next, term_idx)
+
+        {:goto, target, term_idx} ->
+          add_predecessor(preds, target, term_idx)
+
+        {:fallthrough, target_idx} ->
+          add_predecessor(preds, target_idx, target_idx - 1)
+
+        _ ->
+          preds
+      end
+    end)
+  end
+
+  @doc "Helper for control-flow graph analysis: identifies basic-block boundaries and inlineable branch targets."
+  def inlineable_entries(instructions, entries) do
+    instructions
+    |> predecessor_sources(entries)
+    |> Enum.reduce(MapSet.new(), fn {target, preds}, acc ->
+      case preds do
+        [pred_end] ->
+          if pred_end < target and not protected_target?(instructions, target) do
+            MapSet.put(acc, target)
+          else
+            acc
+          end
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  @doc "Helper for control-flow graph analysis: identifies basic-block boundaries and inlineable branch targets."
+  def opcode_name(op) do
+    OpcodeSpec.name(op)
+  end
+
+  @doc "Helper for control-flow graph analysis: identifies basic-block boundaries and inlineable branch targets."
+  def matching_nip_catch(instructions, catch_idx) do
+    t = List.to_tuple(instructions)
+    find_nip_catch(t, catch_idx + 1, tuple_size(t))
+  end
+
+  @doc "Returns block terminal metadata for compiler analysis."
+  def block_terminal(instructions, start, next_entry) do
+    t = List.to_tuple(instructions)
+    do_block_terminal(t, tuple_size(t), start, next_entry)
+  end
+
+  @doc "Returns block successors metadata for compiler analysis."
+  def block_successors(instructions, entries, start) do
+    next = next_entry(entries, start)
+    t = List.to_tuple(instructions)
+
+    case do_block_terminal(t, tuple_size(t), start, next) do
+      {:branch, target, _idx} when is_integer(next) -> [target, next]
+      {:catch, target, _idx} when is_integer(next) -> [target, next]
+      {:goto, target, _idx} -> [target]
+      {:fallthrough, target_idx} -> [target_idx]
+      _ -> []
+    end
+  end
+
+  defp do_block_terminal(_instructions, size, idx, _next_entry) when idx >= size,
+    do: {:done, idx}
+
+  defp do_block_terminal(_instructions, _size, idx, idx), do: {:fallthrough, idx}
+
+  defp do_block_terminal(instructions, size, idx, next_entry) do
+    {op, args} = elem(instructions, idx)
+
+    case {opcode_name(op), args} do
+      {{:ok, name}, [target]} when name in [:if_false, :if_false8, :if_true, :if_true8] ->
+        {:branch, target, idx}
+
+      {{:ok, :catch}, [target]} ->
+        {:catch, target, idx}
+
+      {{:ok, name}, [_atom_idx, target, _is_with]}
+      when name in [
+             :with_make_ref,
+             :with_get_ref,
+             :with_get_ref_undef,
+             :with_get_var,
+             :with_put_var
+           ] ->
+        {:branch, target, idx}
+
+      {{:ok, name}, [target]} when name in [:goto, :goto8, :goto16] ->
+        {:goto, target, idx}
+
+      {{:ok, name}, [_argc]} when name in [:tail_call, :tail_call_method] ->
+        {:done, idx}
+
+      {{:ok, name}, _args} when name in [:return, :return_undef, :throw, :throw_error] ->
+        {:done, idx}
+
+      _ ->
+        do_block_terminal(instructions, size, idx + 1, next_entry)
+    end
+  end
+
+  defp add_predecessor(preds, target, pred_end),
+    do: Map.update(preds, target, [pred_end], &[pred_end | &1])
+
+  defp protected_target?(instructions, target) do
+    instructions
+    |> Enum.with_index()
+    |> Enum.any?(fn {{op, args}, idx} ->
+      case {opcode_name(op), args} do
+        {{:ok, name}, [^target]} when name in [:catch, :gosub] ->
+          true
+
+        {{:ok, name}, [^target]}
+        when name in [:if_false, :if_false8, :if_true, :if_true8, :goto, :goto8, :goto16] ->
+          finally_control_target?(instructions, target)
+
+        {{:ok, name}, [_branch_target]}
+        when name in [:if_false, :if_false8, :if_true, :if_true8] ->
+          target == idx + 1 and finally_region_index?(instructions, idx)
+
+        {{:ok, name}, [_atom_idx, ^target, _is_with]}
+        when name in [
+               :with_make_ref,
+               :with_get_ref,
+               :with_get_ref_undef,
+               :with_get_var,
+               :with_put_var
+             ] ->
+          true
+
+        {{:ok, name}, [_atom_idx, _branch_target, _is_with]}
+        when name in [
+               :with_make_ref,
+               :with_get_ref,
+               :with_get_ref_undef,
+               :with_get_var,
+               :with_put_var
+             ] ->
+          target == idx + 1
+
+        {{:ok, name}, []} when name in [:initial_yield, :yield] ->
+          target == idx + 1
+
+        _ ->
+          false
+      end
+    end)
+  end
+
+  defp finally_control_target?(instructions, target) do
+    t = List.to_tuple(instructions)
+    size = tuple_size(t)
+
+    instructions
+    |> Enum.with_index()
+    |> Enum.any?(fn
+      {{op, [finally_entry]}, _idx} ->
+        case opcode_name(op) do
+          {:ok, :gosub} -> finally_region_control_target?(t, size, finally_entry, target)
+          _ -> false
+        end
+
+      _ ->
+        false
+    end)
+  end
+
+  defp finally_region_index?(instructions, idx) do
+    t = List.to_tuple(instructions)
+    size = tuple_size(t)
+
+    instructions
+    |> Enum.with_index()
+    |> Enum.any?(fn
+      {{op, [finally_entry]}, _idx} ->
+        case opcode_name(op) do
+          {:ok, :gosub} -> finally_region_contains_index?(t, size, finally_entry, idx)
+          _ -> false
+        end
+
+      _ ->
+        false
+    end)
+  end
+
+  defp finally_region_contains_index?(_instructions, _size, idx, target_idx)
+       when idx > target_idx,
+       do: false
+
+  defp finally_region_contains_index?(instructions, size, idx, target_idx) when idx < size do
+    {op, _args} = elem(instructions, idx)
+
+    case opcode_name(op) do
+      {:ok, :ret} ->
+        idx == target_idx
+
+      _ ->
+        idx == target_idx or
+          finally_region_contains_index?(instructions, size, idx + 1, target_idx)
+    end
+  end
+
+  defp finally_region_contains_index?(_instructions, _size, _idx, _target_idx), do: false
+
+  defp finally_region_control_target?(instructions, size, idx, target) when idx < size do
+    {op, args} = elem(instructions, idx)
+
+    case {opcode_name(op), args} do
+      {{:ok, :ret}, []} ->
+        false
+
+      {{:ok, name}, [^target]}
+      when name in [:if_false, :if_false8, :if_true, :if_true8, :goto, :goto8, :goto16] ->
+        true
+
+      _ ->
+        finally_region_control_target?(instructions, size, idx + 1, target)
+    end
+  end
+
+  defp finally_region_control_target?(_instructions, _size, _idx, _target), do: false
+
+  defp find_nip_catch(instructions, idx, size) when is_tuple(instructions) do
+    find_nip_catch_t(instructions, idx, size, 0)
+  end
+
+  defp find_nip_catch_t(_instructions, idx, size, _depth) when idx >= size, do: :error
+
+  defp find_nip_catch_t(instructions, idx, size, depth) do
+    {op, _args} = elem(instructions, idx)
+
+    case opcode_name(op) do
+      {:ok, :catch} ->
+        find_nip_catch_t(instructions, idx + 1, size, depth + 1)
+
+      {:ok, :nip_catch} when depth == 0 ->
+        {:ok, idx}
+
+      {:ok, :nip_catch} ->
+        find_nip_catch_t(instructions, idx + 1, size, depth - 1)
+
+      _ ->
+        find_nip_catch_t(instructions, idx + 1, size, depth)
+    end
+  end
+end

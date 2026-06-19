@@ -1,3 +1,5 @@
+Code.require_file("support/common.exs", __DIR__)
+
 # Benchmark 5: Concurrent throughput
 #
 # N runtimes each doing work in parallel. Does QuickBEAM scale with
@@ -13,17 +15,19 @@ function fib(n) {
 """
 
 for n <- concurrency_levels |> Enum.uniq() do
-  qb_runtimes = for _ <- 1..n do
-    {:ok, rt} = QuickBEAM.start()
-    {:ok, _} = QuickBEAM.eval(rt, js_code)
-    rt
-  end
+  qb_runtimes =
+    for _ <- 1..n do
+      {:ok, rt} = QuickBEAM.start()
+      {:ok, _} = QuickBEAM.eval(rt, js_code)
+      rt
+    end
 
-  qjs_runtimes = for _ <- 1..n do
-    {:ok, rt} = QuickJSEx.start()
-    {:ok, _} = QuickJSEx.eval(rt, js_code)
-    rt
-  end
+  qjs_runtimes =
+    for _ <- 1..n do
+      {:ok, rt} = QuickJSEx.start()
+      {:ok, _} = QuickJSEx.eval(rt, js_code)
+      rt
+    end
 
   IO.puts("\n=== #{n} concurrent runtimes ===\n")
 
@@ -40,10 +44,7 @@ for n <- concurrency_levels |> Enum.uniq() do
         |> Task.await_many(10_000)
       end
     },
-    warmup: 1,
-    time: 5,
-    memory_time: 0,
-    print: [configuration: false]
+    Bench.Support.benchee_options(warmup: 1, memory_time: 0)
   )
 
   for rt <- qb_runtimes, do: QuickBEAM.stop(rt)
