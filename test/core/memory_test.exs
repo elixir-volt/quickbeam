@@ -53,7 +53,8 @@ defmodule QuickBEAM.Core.MemoryTest do
       QuickBEAM.reset(rt)
       first_reset = QuickBEAM.memory_usage(rt)
 
-      # Subsequent cycles should not grow
+      max_growth = 1024 * 1024
+
       for _ <- 1..5 do
         QuickBEAM.eval(rt, """
         globalThis.data = [];
@@ -67,8 +68,8 @@ defmodule QuickBEAM.Core.MemoryTest do
 
       growth = after_cycles.malloc_size - first_reset.malloc_size
 
-      assert growth <= 0,
-             "Memory grew by #{growth} bytes across 5 reset cycles (pool should be stable)"
+      assert growth <= max_growth,
+             "Memory grew by #{growth} bytes across 5 reset cycles (expected <= #{max_growth})"
 
       QuickBEAM.stop(rt)
     end

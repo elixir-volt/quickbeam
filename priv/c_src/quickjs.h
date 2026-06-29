@@ -224,12 +224,6 @@ static inline JSValue __JS_NewFloat64(double d)
     return JS_MKVAL(JS_TAG_FLOAT64, (int)d);
 }
 
-static inline JSValue __JS_NewShortBigInt(JSContext *ctx, int32_t d)
-{
-    (void)&ctx;
-    return JS_MKVAL(JS_TAG_SHORT_BIG_INT, d);
-}
-
 static inline bool JS_VALUE_IS_NAN(JSValue v)
 {
     (void)&v;
@@ -278,12 +272,6 @@ static inline JSValue __JS_NewFloat64(double d)
     else
         v = u.u64 - ((uint64_t)JS_FLOAT64_TAG_ADDEND << 32);
     return v;
-}
-
-static inline JSValue __JS_NewShortBigInt(JSContext *ctx, int32_t d)
-{
-    (void)&ctx;
-    return JS_MKVAL(JS_TAG_SHORT_BIG_INT, d);
 }
 
 #define JS_TAG_IS_FLOAT64(tag) ((unsigned)((tag) - JS_TAG_FIRST) >= (JS_TAG_FLOAT64 - JS_TAG_FIRST))
@@ -369,15 +357,6 @@ static inline JSValue __JS_NewFloat64(double d)
     JSValue v;
     v.tag = JS_TAG_FLOAT64;
     v.u.float64 = d;
-    return v;
-}
-
-static inline JSValue __JS_NewShortBigInt(JSContext *ctx, int64_t d)
-{
-    (void)&ctx;
-    JSValue v;
-    v.tag = JS_TAG_SHORT_BIG_INT;
-    v.u.short_big_int = d;
     return v;
 }
 
@@ -499,6 +478,7 @@ typedef struct JSMallocFunctions {
 #define JS_DUMP_OBJECTS       0x20000  /* dump objects in JS_FreeRuntime */
 #define JS_DUMP_ATOMS         0x40000  /* dump atoms in JS_FreeRuntime */
 #define JS_DUMP_SHAPES        0x80000  /* dump shapes in JS_FreeRuntime */
+#define JS_ABORT_ON_LEAKS    0x10C000  /* abort on atom/object/string leaks; for testing */
 
 // Finalizers run in LIFO order at the very end of JS_FreeRuntime.
 // Intended for cleanup of associated resources; the runtime itself
@@ -627,7 +607,7 @@ JS_EXTERN void JS_FreeAtomRT(JSRuntime *rt, JSAtom v);
 JS_EXTERN JSValue JS_AtomToValue(JSContext *ctx, JSAtom atom);
 JS_EXTERN JSValue JS_AtomToString(JSContext *ctx, JSAtom atom);
 JS_EXTERN const char *JS_AtomToCStringLen(JSContext *ctx, size_t *plen, JSAtom atom);
-static inline const char *JS_AtomToCString(JSContext *ctx, JSAtom atom) 
+static inline const char *JS_AtomToCString(JSContext *ctx, JSAtom atom)
 {
     return JS_AtomToCStringLen(ctx, NULL, atom);
 }
@@ -756,6 +736,17 @@ static inline JSValue JS_NewInt64(JSContext *ctx, int64_t val)
 }
 
 static inline JSValue JS_NewUint32(JSContext *ctx, uint32_t val)
+{
+    JSValue v;
+    if (val <= INT32_MAX) {
+        v = JS_NewInt32(ctx, (int32_t)val);
+    } else {
+        v = JS_NewFloat64(ctx, (double)val);
+    }
+    return v;
+}
+
+static inline JSValue JS_NewUint64(JSContext *ctx, uint64_t val)
 {
     JSValue v;
     if (val <= INT32_MAX) {
@@ -1238,8 +1229,14 @@ JS_EXTERN uint8_t *JS_WriteObject(JSContext *ctx, size_t *psize, JSValueConst ob
 JS_EXTERN uint8_t *JS_WriteObject2(JSContext *ctx, size_t *psize, JSValueConst obj,
                                    int flags, JSSABTab *psab_tab);
 
+/* WARNING: only enable JS_READ_OBJ_BYTECODE on input from a trusted
+   writer. The bytecode format is not designed to resist a hostile
+   producer; loading adversarial bytecode can lead to memory corruption. */
 #define JS_READ_OBJ_BYTECODE  (1 << 0) /* allow function/module */
 #define JS_READ_OBJ_ROM_DATA  (0)      /* avoid duplicating 'buf' data (obsolete, broken by ICs) */
+/* WARNING: serialized SharedArrayBuffers carry a literal host pointer in
+   the blob; only enable JS_READ_OBJ_SAB on input produced by a trusted
+   writer in the same process (e.g. another Worker on the same runtime). */
 #define JS_READ_OBJ_SAB       (1 << 2) /* allow SharedArrayBuffer */
 #define JS_READ_OBJ_REFERENCE (1 << 3) /* allow object references */
 JS_EXTERN JSValue JS_ReadObject(JSContext *ctx, const uint8_t *buf, size_t buf_len, int flags);
@@ -1420,8 +1417,8 @@ JS_EXTERN int JS_SetModuleExportList(JSContext *ctx, JSModuleDef *m,
 /* Version */
 
 #define QJS_VERSION_MAJOR 0
-#define QJS_VERSION_MINOR 14
-#define QJS_VERSION_PATCH 0
+#define QJS_VERSION_MINOR 15
+#define QJS_VERSION_PATCH 1
 #define QJS_VERSION_SUFFIX ""
 
 JS_EXTERN const char* JS_GetVersion(void);
