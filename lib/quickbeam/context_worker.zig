@@ -112,9 +112,9 @@ pub fn pool_worker_main(pd: *ct.PoolData) void {
     qjs.JS_SetInterruptHandler(rt, &interrupt_handler, @ptrCast(pd));
 
     types.class_ids_mutex.lock();
-    _ = qjs.JS_NewClassID(rt, &beam_proxy.class_id);
-    _ = qjs.JS_NewClassID(rt, &dom.document_class_id);
-    _ = qjs.JS_NewClassID(rt, &dom.element_class_id);
+    types.reserveClassID(rt, &beam_proxy.class_id);
+    types.reserveClassID(rt, &dom.document_class_id);
+    types.reserveClassID(rt, &dom.element_class_id);
     types.class_ids_mutex.unlock();
 
     beam_proxy.initRuntime(rt);

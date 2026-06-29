@@ -2175,14 +2175,13 @@ pub const napi_symbol_table = [_]*const anyopaque{
 };
 
 pub fn initRuntime(rt: *qjs.JSRuntime) void {
-    if (nt.external_class_id == 0) {
-        _ = qjs.JS_NewClassID(rt, &nt.external_class_id);
-        _ = qjs.JS_NewClass(rt, nt.external_class_id, &external_class_def);
-    }
-    if (wrap_mod.wrap_class_id == 0) {
-        _ = qjs.JS_NewClassID(rt, &wrap_mod.wrap_class_id);
-        _ = qjs.JS_NewClass(rt, wrap_mod.wrap_class_id, &wrap_mod.wrap_class_def);
-    }
+    types.class_ids_mutex.lock();
+    types.reserveClassID(rt, &nt.external_class_id);
+    types.reserveClassID(rt, &wrap_mod.wrap_class_id);
+    types.class_ids_mutex.unlock();
+
+    _ = qjs.JS_NewClass(rt, nt.external_class_id, &external_class_def);
+    _ = qjs.JS_NewClass(rt, wrap_mod.wrap_class_id, &wrap_mod.wrap_class_def);
     std.mem.doNotOptimizeAway(&napi_symbol_table);
 }
 

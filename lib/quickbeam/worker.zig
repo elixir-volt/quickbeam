@@ -88,9 +88,9 @@ pub const WorkerState = struct {
 
         wasm_js.destroy_context(self.ctx);
 
-        // Run GC before freeing context to collect cycles
-        qjs.JS_RunGC(self.rt);
         qjs.JS_FreeContext(self.ctx);
+        // Collect cycles after context-owned globals and host objects have run finalizers.
+        qjs.JS_RunGC(self.rt);
 
         if (self.napi_env) |nenv| {
             nenv.deinit();
@@ -601,8 +601,8 @@ pub const WorkerState = struct {
         }
         self.atoms.deinit(self.ctx);
         wasm_js.destroy_context(self.ctx);
-        qjs.JS_RunGC(self.rt);
         qjs.JS_FreeContext(self.ctx);
+        qjs.JS_RunGC(self.rt);
         self.ctx = qjs.JS_NewContext(self.rt) orelse {
             result.ok = false;
             result.json = "Failed to create new context";
@@ -921,9 +921,9 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
     qjs.JS_SetInterruptHandler(rt, &interrupt_handler, @ptrCast(rd));
 
     types.class_ids_mutex.lock();
-    _ = qjs.JS_NewClassID(rt, &beam_proxy.class_id);
-    _ = qjs.JS_NewClassID(rt, &dom.document_class_id);
-    _ = qjs.JS_NewClassID(rt, &dom.element_class_id);
+    types.reserveClassID(rt, &beam_proxy.class_id);
+    types.reserveClassID(rt, &dom.document_class_id);
+    types.reserveClassID(rt, &dom.element_class_id);
     types.class_ids_mutex.unlock();
 
     beam_proxy.initRuntime(rt);

@@ -1277,6 +1277,7 @@ fn install_element_proto(ctx: *qjs.JSContext, obj: qjs.JSValue) void {
 fn document_finalizer(rt: ?*qjs.JSRuntime, val: qjs.JSValue) callconv(.c) void {
     const ptr = qjs.JS_GetOpaque(val, document_class_id);
     if (ptr == null) return;
+    _ = qjs.JS_SetOpaque(val, null);
     const dd: *DocumentData = @ptrCast(@alignCast(ptr));
     var it = dd.node_map.iterator();
     while (it.next()) |entry| {

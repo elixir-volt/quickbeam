@@ -7,6 +7,17 @@ pub const gpa = std.heap.c_allocator;
 
 pub var class_ids_mutex: std.Thread.Mutex = .{};
 
+pub fn reserveClassID(rt: *qjs.JSRuntime, class_id: *qjs.JSClassID) void {
+    if (class_id.* == 0) {
+        _ = qjs.JS_NewClassID(rt, class_id);
+        return;
+    }
+
+    var reserved: qjs.JSClassID = 0;
+    _ = qjs.JS_NewClassID(rt, &reserved);
+    if (reserved != class_id.*) @panic("QuickJS class ID allocation order mismatch");
+}
+
 pub const SyncCallSlot = struct {
     result_json: []const u8 = "",
     result_env: ?*e.ErlNifEnv = null,
