@@ -88,9 +88,9 @@ pub const WorkerState = struct {
 
         wasm_js.destroy_context(self.ctx);
 
-        // Run GC before freeing context to collect cycles
-        qjs.JS_RunGC(self.rt);
         qjs.JS_FreeContext(self.ctx);
+        // Collect cycles after context-owned globals and host objects have run finalizers.
+        qjs.JS_RunGC(self.rt);
 
         if (self.napi_env) |nenv| {
             nenv.deinit();
@@ -601,8 +601,8 @@ pub const WorkerState = struct {
         }
         self.atoms.deinit(self.ctx);
         wasm_js.destroy_context(self.ctx);
-        qjs.JS_RunGC(self.rt);
         qjs.JS_FreeContext(self.ctx);
+        qjs.JS_RunGC(self.rt);
         self.ctx = qjs.JS_NewContext(self.rt) orelse {
             result.ok = false;
             result.json = "Failed to create new context";
