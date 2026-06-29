@@ -476,6 +476,34 @@ defmodule QuickBEAM.WASMTest do
   @custom_section_wasm <<0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x04, 0x6D,
                          0x65, 0x74, 0x61, 0x61, 0x62, 0x63>>
 
+  # Bulk-memory regression fixture. Exercises every opcode gated by the WAMR
+  # config flags WASM_ENABLE_BULK_MEMORY / _OPT (priv/c_src/wamr/config.h):
+  #   memory.fill (fc 0b), memory.copy (fc 0a)   <- _OPT  (fc 0a is the blocker)
+  #   memory.init (fc 08), data.drop  (fc 09)    <- BULK_MEMORY
+  # Toolchains like Go's GOOS=js GOARCH=wasm, TinyGo, and Rust wasm-bindgen emit
+  # these unconditionally; with the gates off WAMR rejects them at compile time
+  # with "unsupported opcode fc 0a".
+  #
+  # WAT (assembled with wat2wasm, byte-exact-verified against a reference runtime):
+  #   (module
+  #     (memory (export "mem") 1)
+  #     (data $seg "\de\ad\be\ef")
+  #     (func (export "run") (result i32)
+  #       (memory.fill (i32.const 0)   (i32.const 0xAB) (i32.const 16))
+  #       (memory.copy (i32.const 100) (i32.const 0)    (i32.const 16))
+  #       (memory.init $seg (i32.const 200) (i32.const 0) (i32.const 4))
+  #       (data.drop $seg)
+  #       (i32.add
+  #         (i32.mul (i32.load8_u (i32.const 100)) (i32.const 256))
+  #         (i32.load8_u (i32.const 200)))))
+  # run() = load8_u(100)*256 + load8_u(200) = 0xAB*256 + 0xDE = 171*256 + 222 = 43998.
+  @bulk_memory_wasm <<0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 127, 3, 2, 1, 0, 5, 3, 1, 0,
+                      1, 7, 13, 2, 3, 109, 101, 109, 2, 0, 3, 114, 117, 110, 0, 0, 12, 1, 1, 10,
+                      56, 1, 54, 0, 65, 0, 65, 171, 1, 65, 16, 252, 11, 0, 65, 228, 0, 65, 0, 65,
+                      16, 252, 10, 0, 0, 65, 200, 1, 65, 0, 65, 4, 252, 8, 0, 0, 252, 9, 0, 65,
+                      228, 0, 45, 0, 0, 65, 128, 2, 108, 65, 200, 1, 45, 0, 0, 106, 11, 11, 7, 1,
+                      1, 4, 222, 173, 190, 239>>
+
   describe "disasm/1" do
     test "parses a minimal add module" do
       assert {:ok, %Module{} = mod} = WASM.disasm(@add_wasm)
@@ -650,6 +678,17 @@ defmodule QuickBEAM.WASMTest do
     test "read out of bounds returns error" do
       {:ok, pid} = WASM.start(module: @memory_func_wasm)
       {:error, _} = WASM.read_memory(pid, 65_530, 100)
+      WASM.stop(pid)
+    end
+  end
+
+  describe "bulk memory opcodes (WASM_ENABLE_BULK_MEMORY_OPT)" do
+    test "runs memory.fill/copy/init + data.drop (fc 08–0b)" do
+      # run() = load8_u(100)*256 + load8_u(200) after fill→copy→init→data.drop.
+      # Without WASM_ENABLE_BULK_MEMORY_OPT this module fails to compile with
+      # "unsupported opcode fc 0a".
+      {:ok, pid} = WASM.start(module: @bulk_memory_wasm)
+      assert {:ok, 43_998} = WASM.call(pid, "run", [])
       WASM.stop(pid)
     end
   end
@@ -923,6 +962,15 @@ defmodule QuickBEAM.WASMTest do
       assert result == ["abc"]
     end
 
+    test "WebAssembly.instantiate compiles bulk-memory opcodes (memory.copy, fc 0a)", %{rt: rt} do
+      {:ok, 43_998} =
+        QuickBEAM.eval(rt, """
+          const bytes = new Uint8Array([#{Enum.join(:binary.bin_to_list(@bulk_memory_wasm), ", ")}]);
+          const {instance} = await WebAssembly.instantiate(bytes);
+          instance.exports.run();
+        """)
+    end
+
     test "WebAssembly.compileStreaming", %{rt: rt} do
       {:ok, result} =
         QuickBEAM.eval(rt, """
@@ -943,6 +991,169 @@ defmodule QuickBEAM.WASMTest do
         """)
 
       assert result == 11
+    end
+  end
+
+  describe "live Memory.buffer + TextDecoder DataView (Go-wasm host memory)" do
+    setup do
+      {:ok, rt} = QuickBEAM.start()
+      %{rt: rt}
+    end
+
+    # (module
+    #   (import "env" "fill" (func $fill (param i32)))
+    #   (memory (export "mem") 1)
+    #   (func (export "test") (result i32)
+    #     (call $fill (i32.const 16))   ;; host writes at mem[16] via mem.buffer
+    #     (i32.load (i32.const 16))))   ;; guest reads it back
+    @memwrite_bytes """
+    new Uint8Array([
+      0,97,115,109,1,0,0,0,1,9,2,96,1,127,0,96,0,1,127,2,12,1,3,101,110,118,
+      4,102,105,108,108,0,0,3,2,1,1,5,3,1,0,1,7,14,2,3,109,101,109,2,0,4,116,
+      101,115,116,0,1,10,13,1,11,0,65,16,16,0,65,16,40,2,0,11
+    ])
+    """
+
+    # (module
+    #   (import "env" "capture" (func $capture))   ;; host grabs mem.buffer
+    #   (import "env" "check"   (func $check))      ;; host re-entry after grow
+    #   (memory (export "mem") 1)
+    #   (func (export "test")
+    #     (call $capture)                  ;; capture mem.buffer (pre-grow)
+    #     (drop (memory.grow (i32.const 1)));; grow → backing store moves
+    #     (call $check)))                  ;; host re-entry; alias must be detached
+    @reentry_bytes """
+    new Uint8Array([
+      0,97,115,109,1,0,0,0,1,4,1,96,0,0,2,27,2,3,101,110,118,7,99,97,112,116,
+      117,114,101,0,0,3,101,110,118,5,99,104,101,99,107,0,0,3,2,1,0,5,3,1,0,1,
+      7,14,2,3,109,101,109,2,0,4,116,101,115,116,0,2,10,13,1,11,0,16,0,65,1,64,
+      0,26,16,1,11
+    ])
+    """
+
+    # (module (memory (export "mem") 0))  ;; zero-page memory
+    @zeropage_bytes """
+    new Uint8Array([0,97,115,109,1,0,0,0,5,3,1,0,0,7,7,1,3,109,101,109,2,0])
+    """
+
+    test "host writes through Memory.buffer DataView are visible to the guest", %{rt: rt} do
+      # The import callback writes 123456 at mem[16] via new DataView(mem.buffer);
+      # the guest then i32.load's mem[16]. A copy-based buffer would read 0.
+      assert {:ok, 123_456} =
+               QuickBEAM.eval(rt, """
+                 const bytes = #{@memwrite_bytes};
+                 const holder = {};
+                 const imp = { env: { fill: (ptr) => {
+                   new DataView(holder.inst.exports.mem.buffer).setInt32(ptr, 123456, true);
+                 }}};
+                 const { instance } = await WebAssembly.instantiate(bytes, imp);
+                 holder.inst = instance;
+                 instance.exports.test();
+               """)
+    end
+
+    test "Memory.buffer has stable identity until grow", %{rt: rt} do
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+                 const bytes = #{@memwrite_bytes};
+                 const { instance } = await WebAssembly.instantiate(bytes, {env: {fill() {}}});
+                 instance.exports.mem.buffer === instance.exports.mem.buffer;
+               """)
+    end
+
+    test "memory.grow detaches the old buffer; a fresh buffer reflects the new size", %{rt: rt} do
+      # Browser detach-on-grow: after grow the previously handed-out buffer is
+      # detached (byteLength 0) and a fresh alias reflects the grown memory.
+      assert {:ok, [65_536, 0, 131_072, true]} =
+               QuickBEAM.eval(rt, """
+                 const bytes = #{@memwrite_bytes};
+                 const { instance } = await WebAssembly.instantiate(bytes, {env: {fill() {}}});
+                 const mem = instance.exports.mem;
+                 const buf0 = mem.buffer;
+                 const before = buf0.byteLength;
+                 mem.grow(1);
+                 const detached = buf0.byteLength;
+                 const buf1 = mem.buffer;
+                 [before, detached, buf1.byteLength, buf0 !== buf1];
+               """)
+    end
+
+    test "memory.grow(0) still detaches the buffer (browser-faithful)", %{rt: rt} do
+      # Browsers detach on EVERY grow call, including a no-op grow(0) where the
+      # backing store neither moves nor resizes.
+      assert {:ok, [0, 65_536, true]} =
+               QuickBEAM.eval(rt, """
+                 const bytes = #{@memwrite_bytes};
+                 const { instance } = await WebAssembly.instantiate(bytes, {env: {fill() {}}});
+                 const mem = instance.exports.mem;
+                 const buf0 = mem.buffer;
+                 mem.grow(0);
+                 const buf1 = mem.buffer;
+                 [buf0.byteLength, buf1.byteLength, buf0 !== buf1];
+               """)
+    end
+
+    test "a buffer captured before an in-call grow is detached at the next host re-entry", %{rt: rt} do
+      # test() calls capture (host grabs mem.buffer), then grows memory, then
+      # calls check (a second host re-entry) — all within one guest call. The
+      # fix detaches the moved alias at the host-import boundary, so the captured
+      # buffer reads byteLength 0 by the time check runs (instead of aliasing
+      # freed/moved memory, as Go's wasm_exec.js cached DataView would).
+      assert {:ok, [65_536, 0]} =
+               QuickBEAM.eval(rt, """
+                 const bytes = #{@reentry_bytes};
+                 const holder = {};
+                 const imp = { env: {
+                   capture: () => { holder.buf = holder.inst.exports.mem.buffer; holder.before = holder.buf.byteLength; },
+                   check:   () => { holder.after = holder.buf.byteLength; },
+                 }};
+                 const { instance } = await WebAssembly.instantiate(bytes, imp);
+                 holder.inst = instance;
+                 instance.exports.test();
+                 [holder.before, holder.after];
+               """)
+    end
+
+    test "zero-page memory exposes a stable 0-length buffer instead of throwing", %{rt: rt} do
+      # The 0-length buffer must also honor the stable-identity contract:
+      # repeated `.buffer` access returns the SAME object (browser-faithful),
+      # so the empty buffer is cached like a live alias, not re-minted per call.
+      assert {:ok, [true, 0]} =
+               QuickBEAM.eval(rt, """
+                 const bytes = #{@zeropage_bytes};
+                 const { instance } = await WebAssembly.instantiate(bytes);
+                 const a = instance.exports.mem.buffer;
+                 const b = instance.exports.mem.buffer;
+                 [a === b, a.byteLength];
+               """)
+    end
+
+    test "growing zero-page memory replaces the cached empty buffer with a live alias", %{rt: rt} do
+      # The cached 0-length buffer must be invalidated on a 0 -> N grow: the
+      # pre-grow object is no longer returned, and a fresh stably-cached alias
+      # of the grown size takes its place. Exercises the zero-page cache's
+      # detach-on-grow path (the live-alias detach itself is covered above for
+      # non-zero memory; here byteLength-0 is degenerate, so we assert via
+      # object identity + the grown size).
+      assert {:ok, [true, true, 65_536, true]} =
+               QuickBEAM.eval(rt, """
+                 const bytes = #{@zeropage_bytes};
+                 const { instance } = await WebAssembly.instantiate(bytes);
+                 const mem = instance.exports.mem;
+                 const buf0 = mem.buffer;
+                 const stableBefore = buf0 === mem.buffer;
+                 mem.grow(1);
+                 const buf1 = mem.buffer;
+                 [stableBefore, buf0 !== buf1, buf1.byteLength, buf1 === mem.buffer];
+               """)
+    end
+
+    test "TextDecoder.decode accepts a DataView, including a non-zero byteOffset", %{rt: rt} do
+      assert {:ok, "ello"} =
+               QuickBEAM.eval(rt, """
+                 const buf = new Uint8Array([72, 101, 108, 108, 111]).buffer;
+                 new TextDecoder().decode(new DataView(buf, 1, 4));
+               """)
     end
   end
 

@@ -24,6 +24,14 @@ export fn quickbeam_wasm_host_invoke_js(runtime_data: ?*anyopaque, callback_name
     return worker.quickbeam_wasm_host_invoke_js_impl(runtime_data, callback_name_z, signature_z, raw_args, err_buf, err_buf_size);
 }
 
+// C-ABI seam for the WAMR memory-alias detach (impl in wasm_js.zig). Lives in
+// the root module so the symbol is reliably emitted into the linked NIF; the
+// JS host-import boundary (wasm_host_imports.zig) reaches it via an `extern`.
+const wasm_js = @import("wasm_js.zig");
+export fn quickbeam_wasm_invalidate_alias_for_inst(runtime_data: ?*anyopaque, module_inst: ?*anyopaque) callconv(.c) void {
+    wasm_js.quickbeam_wasm_invalidate_alias_for_inst_impl(runtime_data, module_inst);
+}
+
 const std = types.std;
 const beam = @import("beam");
 const e = types.e;
