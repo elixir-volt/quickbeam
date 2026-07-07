@@ -19,9 +19,8 @@ const ContextState = struct {
     max_reductions: i64 = 0,
     // WASM operand stack / auxiliary heap for instances started via the JS
     // `WebAssembly.instantiate` path. Distinct from the JS call stack
-    // (`max_stack_size`). Default mirrors the WASM NIF path; a consumer raises
-    // it (via the runtime/pool `:wasm_stack_size` opt) for guests whose deep
-    // init would otherwise overflow the 64 KB default.
+    // (`max_stack_size`). Defaults mirror the WASM NIF path; consumers can tune
+    // them via the runtime/pool `:wasm_stack_size` / `:wasm_heap_size` opts.
     wasm_stack_size: u32 = 65_536,
     wasm_heap_size: u32 = 65_536,
     instances: std.AutoHashMapUnmanaged(u64, InstanceEntry) = .{},

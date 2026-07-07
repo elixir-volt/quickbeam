@@ -36,8 +36,8 @@ pub const RuntimeData = struct {
     memory_limit: usize = 256 * 1024 * 1024,
     max_stack_size: usize = 8 * 1024 * 1024,
     // WASM operand stack / heap for the JS `WebAssembly.instantiate` path
-    // (distinct from `max_stack_size`, the JS call stack). Default mirrors the
-    // WASM NIF path; raised via the runtime `:wasm_stack_size` opt.
+    // (distinct from `max_stack_size`, the JS call stack). Defaults mirror the
+    // WASM NIF path; raised via the runtime `:wasm_stack_size` / `:wasm_heap_size` opts.
     wasm_stack_size: u32 = 65_536,
     wasm_heap_size: u32 = 65_536,
     max_convert_depth: u32 = 32,

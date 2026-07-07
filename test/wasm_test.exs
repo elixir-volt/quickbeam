@@ -746,7 +746,9 @@ defmodule QuickBEAM.WASMTest do
       # context_worker), which the standalone QuickBEAM.start/1 test above does
       # not cover. The tiny-stack pool below proves the pooled context applies the
       # value rather than silently keeping the 64 KB default.
-      {:ok, big_pool} = QuickBEAM.ContextPool.start_link(size: 1, wasm_stack_size: 8 * 1024 * 1024)
+      {:ok, big_pool} =
+        QuickBEAM.ContextPool.start_link(size: 1, wasm_stack_size: 8 * 1024 * 1024)
+
       {:ok, big_ctx} = QuickBEAM.Context.start_link(pool: big_pool)
 
       assert {:ok, 42} =
@@ -758,7 +760,9 @@ defmodule QuickBEAM.WASMTest do
 
       QuickBEAM.Context.stop(big_ctx)
 
-      {:ok, tiny_pool} = QuickBEAM.ContextPool.start_link(size: 1, wasm_stack_size: @tiny_wasm_stack)
+      {:ok, tiny_pool} =
+        QuickBEAM.ContextPool.start_link(size: 1, wasm_stack_size: @tiny_wasm_stack)
+
       {:ok, tiny_ctx} = QuickBEAM.Context.start_link(pool: tiny_pool)
 
       {:error, err} =
@@ -773,10 +777,37 @@ defmodule QuickBEAM.WASMTest do
       QuickBEAM.Context.stop(tiny_ctx)
     end
 
-    # No behavioral test for the sibling `:wasm_heap_size` option (it is plumbed
-    # through the same start/pool paths exercised above): it has no effect that the
-    # JS `WebAssembly.instantiate` path can observe, so any test would pass whether
-    # or not the value is honored (a false green). The value sizes WAMR's host
+    test "JS instantiate path accepts a custom :wasm_heap_size" do
+      {:ok, rt} = QuickBEAM.start(wasm_heap_size: 128 * 1024)
+
+      assert {:ok, 42} =
+               QuickBEAM.eval(rt, """
+                 const bytes = #{@wasm_js_bytes};
+                 const {instance} = await WebAssembly.instantiate(bytes);
+                 instance.exports.add(40, 2);
+               """)
+
+      QuickBEAM.stop(rt)
+    end
+
+    test "ContextPool propagates :wasm_heap_size to pooled JS instantiate contexts" do
+      {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 1, wasm_heap_size: 128 * 1024)
+      {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool)
+
+      assert {:ok, 42} =
+               QuickBEAM.Context.eval(ctx, """
+                 const bytes = #{@wasm_js_bytes};
+                 const {instance} = await WebAssembly.instantiate(bytes);
+                 instance.exports.add(40, 2);
+               """)
+
+      QuickBEAM.Context.stop(ctx)
+    end
+
+    # No behavioral test for the sibling `:wasm_heap_size` option beyond accepting
+    # a custom value in both start paths above: it has no effect that the JS
+    # `WebAssembly.instantiate` path can observe, so any stronger test would pass
+    # whether or not the value is honored (a false green). The value sizes WAMR's host
     # *app heap*, and on this path nothing reaches it:
     #   * The app heap only backs `wasm_runtime_module_malloc` / a guest-exported
     #     malloc. A plain instantiated module called from JS never allocates from it.
