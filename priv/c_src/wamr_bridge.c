@@ -432,7 +432,9 @@ wamr_bridge_memory_grow(WamrInstance *inst, uint32_t delta_pages)
     if (!inst || !inst->inst)
         return -1;
     uint32_t cur = wamr_bridge_memory_size(inst) / 65536;
-    if (!wasm_runtime_enlarge_memory(inst->inst, (cur + delta_pages) * 65536))
+    /* wasm_runtime_enlarge_memory takes inc_page_count (pages to ADD), not a
+     * byte count or an absolute page count. */
+    if (!wasm_runtime_enlarge_memory(inst->inst, (uint64_t)delta_pages))
         return -1;
     return (int32_t)cur;
 }
@@ -473,6 +475,33 @@ wamr_bridge_write_memory(WamrInstance *inst, uint32_t offset,
 
     memcpy(native, buf, len);
     return true;
+}
+
+uint8_t *
+wamr_bridge_memory_data(WamrInstance *inst, uint32_t *out_size)
+{
+    if (out_size)
+        *out_size = 0;
+    if (!inst || !inst->inst)
+        return NULL;
+
+    uint32_t mem_size = wamr_bridge_memory_size(inst);
+    if (mem_size == 0)
+        return NULL;
+
+    void *native = wasm_runtime_addr_app_to_native(inst->inst, 0);
+    if (!native)
+        return NULL;
+
+    if (out_size)
+        *out_size = mem_size;
+    return (uint8_t *)native;
+}
+
+void *
+wamr_bridge_module_inst(WamrInstance *inst)
+{
+    return inst ? inst->inst : NULL;
 }
 
 static bool
