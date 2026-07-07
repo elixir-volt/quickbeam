@@ -17,6 +17,12 @@ const InstanceEntry = struct {
 const ContextState = struct {
     next_instance_id: u64 = 1,
     max_reductions: i64 = 0,
+    // WASM operand stack / auxiliary heap for instances started via the JS
+    // `WebAssembly.instantiate` path. Distinct from the JS call stack
+    // (`max_stack_size`). Defaults mirror the WASM NIF path; consumers can tune
+    // them via the runtime/pool `:wasm_stack_size` / `:wasm_heap_size` opts.
+    wasm_stack_size: u32 = 65_536,
+    wasm_heap_size: u32 = 65_536,
     instances: std.AutoHashMapUnmanaged(u64, InstanceEntry) = .{},
 
     fn deinit(self: *ContextState) void {
@@ -46,18 +52,20 @@ fn context_key(ctx: *qjs.JSContext) usize {
     return @intFromPtr(ctx);
 }
 
-fn ensure_context_state(ctx: *qjs.JSContext, max_reductions: i64) ?*ContextState {
+fn ensure_context_state(ctx: *qjs.JSContext, max_reductions: i64, wasm_stack_size: u32, wasm_heap_size: u32) ?*ContextState {
     states_mutex.lock();
     defer states_mutex.unlock();
 
     const key = context_key(ctx);
     if (states.get(key)) |state| {
         state.max_reductions = max_reductions;
+        state.wasm_stack_size = wasm_stack_size;
+        state.wasm_heap_size = wasm_heap_size;
         return state;
     }
 
     const state = gpa.create(ContextState) catch return null;
-    state.* = .{ .max_reductions = max_reductions };
+    state.* = .{ .max_reductions = max_reductions, .wasm_stack_size = wasm_stack_size, .wasm_heap_size = wasm_heap_size };
     states.put(gpa, key, state) catch {
         gpa.destroy(state);
         return null;
@@ -82,8 +90,8 @@ pub fn destroy_context(ctx: *qjs.JSContext) void {
     }
 }
 
-pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue, max_reductions: i64) void {
-    _ = ensure_context_state(ctx, max_reductions) orelse return;
+pub fn install(ctx: *qjs.JSContext, global: qjs.JSValue, max_reductions: i64, wasm_stack_size: u32, wasm_heap_size: u32) void {
+    _ = ensure_context_state(ctx, max_reductions, wasm_stack_size, wasm_heap_size) orelse return;
 
     _ = qjs.JS_SetPropertyStr(ctx, global, "__qb_wasm_start", qjs.JS_NewCFunction(ctx, &wasm_start_impl, "__qb_wasm_start", 3));
     _ = qjs.JS_SetPropertyStr(ctx, global, "__qb_wasm_call", qjs.JS_NewCFunction(ctx, &wasm_call_impl, "__qb_wasm_call", 3));
@@ -327,7 +335,7 @@ fn wasm_start_impl(
         wasm_host_imports.PreparedImports.empty();
     errdefer prepared_imports.deinit();
 
-    const managed = wasm_common.start_managed_instance(mod orelse return throw_error(ctx, "null module"), 65_536, 65_536, if (prepared_imports.registrations.len > 0) &prepared_imports else null, &err_buf) orelse return throw_error(ctx, std.mem.sliceTo(&err_buf, 0));
+    const managed = wasm_common.start_managed_instance(mod orelse return throw_error(ctx, "null module"), state.wasm_stack_size, state.wasm_heap_size, if (prepared_imports.registrations.len > 0) &prepared_imports else null, &err_buf) orelse return throw_error(ctx, std.mem.sliceTo(&err_buf, 0));
     const mod_nn = mod orelse return throw_error(ctx, "null module");
     errdefer managed.destroy();
 

@@ -696,6 +696,131 @@ defmodule QuickBEAM.WASMTest do
         """)
     end
 
+    # The tests below prove the JS `WebAssembly.instantiate` path honors the
+    # runtime/pool `:wasm_stack_size` by reusing the `add` guest above
+    # (`@wasm_js_bytes`): a tiny operand stack makes its very first call overflow,
+    # a generous one lets it run. The probe is the *contrast* between stack sizes,
+    # not a deep guest.
+    #
+    # Why a too-small stack rather than a deep-recursion guest: under the Debug
+    # build (MIX_ENV=test => Zig UBSan on the vendored WAMR C), executing a guest
+    # whose call frame lands a `WASMBranchBlock` on WAMR's 4-byte-aligned
+    # `csp_bottom` trips a UBSan alignment trap and aborts the BEAM instead of
+    # raising a catchable error — a pre-existing WAMR/UBSan interaction unrelated
+    # to this feature. A too-small stack instead overflows at frame *allocation*
+    # (`wasm_exec_env_alloc_wasm_frame` returns NULL => "wasm operand stack
+    # overflow") before any branch block is touched, so it fails safely, and the
+    # generous-stack path reuses a guest the existing suite already runs cleanly.
+    @tiny_wasm_stack 32
+
+    test "JS instantiate path overflows a too-small :wasm_stack_size" do
+      {:ok, rt} = QuickBEAM.start(wasm_stack_size: @tiny_wasm_stack)
+
+      {:error, err} =
+        QuickBEAM.eval(rt, """
+          const bytes = #{@wasm_js_bytes};
+          const {instance} = await WebAssembly.instantiate(bytes);
+          instance.exports.add(40, 2);
+        """)
+
+      assert err.message =~ "stack"
+
+      QuickBEAM.stop(rt)
+    end
+
+    test "JS instantiate path honors a raised :wasm_stack_size" do
+      {:ok, rt} = QuickBEAM.start(wasm_stack_size: 8 * 1024 * 1024)
+
+      assert {:ok, 42} =
+               QuickBEAM.eval(rt, """
+                 const bytes = #{@wasm_js_bytes};
+                 const {instance} = await WebAssembly.instantiate(bytes);
+                 instance.exports.add(40, 2);
+               """)
+
+      QuickBEAM.stop(rt)
+    end
+
+    test "ContextPool propagates :wasm_stack_size to the pooled JS instantiate path" do
+      # Exercises the pool threading path (PoolData -> RuntimeData copy in
+      # context_worker), which the standalone QuickBEAM.start/1 test above does
+      # not cover. The tiny-stack pool below proves the pooled context applies the
+      # value rather than silently keeping the 64 KB default.
+      {:ok, big_pool} =
+        QuickBEAM.ContextPool.start_link(size: 1, wasm_stack_size: 8 * 1024 * 1024)
+
+      {:ok, big_ctx} = QuickBEAM.Context.start_link(pool: big_pool)
+
+      assert {:ok, 42} =
+               QuickBEAM.Context.eval(big_ctx, """
+                 const bytes = #{@wasm_js_bytes};
+                 const {instance} = await WebAssembly.instantiate(bytes);
+                 instance.exports.add(40, 2);
+               """)
+
+      QuickBEAM.Context.stop(big_ctx)
+
+      {:ok, tiny_pool} =
+        QuickBEAM.ContextPool.start_link(size: 1, wasm_stack_size: @tiny_wasm_stack)
+
+      {:ok, tiny_ctx} = QuickBEAM.Context.start_link(pool: tiny_pool)
+
+      {:error, err} =
+        QuickBEAM.Context.eval(tiny_ctx, """
+          const bytes = #{@wasm_js_bytes};
+          const {instance} = await WebAssembly.instantiate(bytes);
+          instance.exports.add(40, 2);
+        """)
+
+      assert err.message =~ "stack"
+
+      QuickBEAM.Context.stop(tiny_ctx)
+    end
+
+    test "JS instantiate path accepts a custom :wasm_heap_size" do
+      {:ok, rt} = QuickBEAM.start(wasm_heap_size: 128 * 1024)
+
+      assert {:ok, 42} =
+               QuickBEAM.eval(rt, """
+                 const bytes = #{@wasm_js_bytes};
+                 const {instance} = await WebAssembly.instantiate(bytes);
+                 instance.exports.add(40, 2);
+               """)
+
+      QuickBEAM.stop(rt)
+    end
+
+    test "ContextPool propagates :wasm_heap_size to pooled JS instantiate contexts" do
+      {:ok, pool} = QuickBEAM.ContextPool.start_link(size: 1, wasm_heap_size: 128 * 1024)
+      {:ok, ctx} = QuickBEAM.Context.start_link(pool: pool)
+
+      assert {:ok, 42} =
+               QuickBEAM.Context.eval(ctx, """
+                 const bytes = #{@wasm_js_bytes};
+                 const {instance} = await WebAssembly.instantiate(bytes);
+                 instance.exports.add(40, 2);
+               """)
+
+      QuickBEAM.Context.stop(ctx)
+    end
+
+    # No behavioral test for the sibling `:wasm_heap_size` option beyond accepting
+    # a custom value in both start paths above: it has no effect that the JS
+    # `WebAssembly.instantiate` path can observe, so any stronger test would pass
+    # whether or not the value is honored (a false green). The value sizes WAMR's host
+    # *app heap*, and on this path nothing reaches it:
+    #   * The app heap only backs `wasm_runtime_module_malloc` / a guest-exported
+    #     malloc. A plain instantiated module called from JS never allocates from it.
+    #   * It cannot fail instantiation: WAMR clamps it to APP_HEAP_SIZE_MAX (1 GiB,
+    #     wasm_runtime.c ~2451) and the insertion guards only trip near UINT32_MAX
+    #     or >DEFAULT_MAX_PAGES, unreachable after the clamp.
+    #   * It is not visible as memory size: `memory.buffer.byteLength` reports the
+    #     app-visible page count (`cur_page_count * 65536`), which excludes the
+    #     appended app heap — see "WebAssembly exposes exported memory" below, where
+    #     the default 64 KiB heap still yields byteLength 65536, not 131072.
+    # `:wasm_stack_size` is observable (tiny stack => first call overflows), hence
+    # tested above; `:wasm_heap_size` is covered only at the plumbing level.
+
     test "WebAssembly.compile + instantiate", %{rt: rt} do
       {:ok, 300} =
         QuickBEAM.eval(rt, """

@@ -141,6 +141,12 @@ pub const PoolData = struct {
     thread: ?std.Thread,
     memory_limit: usize = 256 * 1024 * 1024,
     max_stack_size: usize = 8 * 1024 * 1024,
+    // WASM operand stack / heap for the JS `WebAssembly.instantiate` path
+    // (distinct from `max_stack_size`, the JS call stack). Defaults mirror the
+    // WASM NIF path; raised via the pool `:wasm_stack_size` / `:wasm_heap_size` opts.
+    // Copied into each context's RuntimeData at create time.
+    wasm_stack_size: u32 = 65_536,
+    wasm_heap_size: u32 = 65_536,
     max_convert_depth: u32 = 32,
     max_convert_nodes: u32 = 10_000,
     shutting_down: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
