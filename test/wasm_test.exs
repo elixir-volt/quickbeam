@@ -476,6 +476,152 @@ defmodule QuickBEAM.WASMTest do
   @custom_section_wasm <<0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x04, 0x6D,
                          0x65, 0x74, 0x61, 0x61, 0x62, 0x63>>
 
+  # Bulk-memory regression fixture. Exercises every opcode gated by the WAMR
+  # config flags WASM_ENABLE_BULK_MEMORY / _OPT (priv/c_src/wamr/config.h):
+  #   memory.fill (fc 0b), memory.copy (fc 0a)   <- _OPT  (fc 0a is the blocker)
+  #   memory.init (fc 08), data.drop  (fc 09)    <- BULK_MEMORY
+  # Toolchains like Go's GOOS=js GOARCH=wasm, TinyGo, and Rust wasm-bindgen emit
+  # these unconditionally; with the gates off WAMR rejects them at compile time
+  # with "unsupported opcode fc 0a".
+  #
+  # WAT (assembled with wat2wasm, byte-exact-verified against a reference runtime):
+  #   (module
+  #     (memory (export "mem") 1)
+  #     (data $seg "\de\ad\be\ef")
+  #     (func (export "run") (result i32)
+  #       (memory.fill (i32.const 0)   (i32.const 0xAB) (i32.const 16))
+  #       (memory.copy (i32.const 100) (i32.const 0)    (i32.const 16))
+  #       (memory.init $seg (i32.const 200) (i32.const 0) (i32.const 4))
+  #       (data.drop $seg)
+  #       (i32.add
+  #         (i32.mul (i32.load8_u (i32.const 100)) (i32.const 256))
+  #         (i32.load8_u (i32.const 200)))))
+  # run() = load8_u(100)*256 + load8_u(200) = 0xAB*256 + 0xDE = 171*256 + 222 = 43998.
+  @bulk_memory_wasm <<
+    # Magic + version
+    0x00,
+    0x61,
+    0x73,
+    0x6D,
+    0x01,
+    0x00,
+    0x00,
+    0x00,
+    # Type section: 1 type, () -> i32
+    0x01,
+    0x05,
+    0x01,
+    0x60,
+    0x00,
+    0x01,
+    0x7F,
+    # Function section: 1 function, type 0
+    0x03,
+    0x02,
+    0x01,
+    0x00,
+    # Memory section: 1 memory, min=1
+    0x05,
+    0x03,
+    0x01,
+    0x00,
+    0x01,
+    # Export section: "mem" (memory 0), "run" (func 0)
+    0x07,
+    0x0D,
+    0x02,
+    0x03,
+    0x6D,
+    0x65,
+    0x6D,
+    0x02,
+    0x00,
+    0x03,
+    0x72,
+    0x75,
+    0x6E,
+    0x00,
+    0x00,
+    # DataCount section: 1 data segment
+    0x0C,
+    0x01,
+    0x01,
+    # Code section: 1 function body (54 bytes)
+    0x0A,
+    0x38,
+    0x01,
+    0x36,
+    0x00,
+    # memory.fill(dst=0, val=0xAB, len=16)
+    0x41,
+    0x00,
+    0x41,
+    0xAB,
+    0x01,
+    0x41,
+    0x10,
+    0xFC,
+    0x0B,
+    0x00,
+    # memory.copy(dst=100, src=0, len=16)
+    0x41,
+    0xE4,
+    0x00,
+    0x41,
+    0x00,
+    0x41,
+    0x10,
+    0xFC,
+    0x0A,
+    0x00,
+    0x00,
+    # memory.init(dst=200, offset=0, len=4) from segment 0
+    0x41,
+    0xC8,
+    0x01,
+    0x41,
+    0x00,
+    0x41,
+    0x04,
+    0xFC,
+    0x08,
+    0x00,
+    0x00,
+    # data.drop 0
+    0xFC,
+    0x09,
+    0x00,
+    # load8_u(100) * 256 + load8_u(200)  =>  0xAB*256 + 0xDE = 43998
+    0x41,
+    0xE4,
+    0x00,
+    0x2D,
+    0x00,
+    0x00,
+    0x41,
+    0x80,
+    0x02,
+    0x6C,
+    0x41,
+    0xC8,
+    0x01,
+    0x2D,
+    0x00,
+    0x00,
+    0x6A,
+    0x0B,
+    # Data section: 1 passive segment, "DE AD BE EF"
+    0x0B,
+    0x07,
+    0x01,
+    0x01,
+    0x04,
+    0xDE,
+    0xAD,
+    0xBE,
+    0xEF
+  >>
+
   describe "disasm/1" do
     test "parses a minimal add module" do
       assert {:ok, %Module{} = mod} = WASM.disasm(@add_wasm)
@@ -650,6 +796,17 @@ defmodule QuickBEAM.WASMTest do
     test "read out of bounds returns error" do
       {:ok, pid} = WASM.start(module: @memory_func_wasm)
       {:error, _} = WASM.read_memory(pid, 65_530, 100)
+      WASM.stop(pid)
+    end
+  end
+
+  describe "bulk memory opcodes (WASM_ENABLE_BULK_MEMORY_OPT)" do
+    test "native WASM API compiles memory.fill/copy/init + data.drop (fc 08–0b)" do
+      # Without WASM_ENABLE_BULK_MEMORY_OPT this module fails to compile with
+      # "unsupported opcode fc 0a". Starting the module is enough to exercise the
+      # regression; executing this fixture trips a pre-existing WAMR Debug/UBSan
+      # alignment trap on some builds.
+      {:ok, pid} = WASM.start(module: @bulk_memory_wasm)
       WASM.stop(pid)
     end
   end
@@ -1046,6 +1203,18 @@ defmodule QuickBEAM.WASMTest do
         """)
 
       assert result == ["abc"]
+    end
+
+    test "WebAssembly.instantiate compiles bulk-memory opcodes (memory.copy, fc 0a)", %{rt: rt} do
+      # This JS-path regression only needs to prove that WAMR accepts the bulk-memory
+      # opcodes during instantiate. Executing this particular fixture trips a
+      # pre-existing WAMR Debug/UBSan alignment trap on some builds.
+      assert {:ok, true} =
+               QuickBEAM.eval(rt, """
+                 const bytes = new Uint8Array([#{Enum.join(:binary.bin_to_list(@bulk_memory_wasm), ", ")}]);
+                 const {instance} = await WebAssembly.instantiate(bytes);
+                 typeof instance.exports.run === "function";
+               """)
     end
 
     test "WebAssembly.compileStreaming", %{rt: rt} do
