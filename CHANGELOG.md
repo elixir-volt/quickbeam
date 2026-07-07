@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-- Enable WASM bulk-memory `memory.copy`/`memory.fill` opcodes (`WASM_ENABLE_BULK_MEMORY_OPT`), so modules from standard toolchains (Go `GOOS=js GOARCH=wasm`, TinyGo, Rust `wasm-bindgen`) that emit them no longer fail to instantiate with `unsupported opcode fc 0a`
+## 0.10.19
+
+- Make the JS `WebAssembly.instantiate` WASM operand stack and auxiliary heap configurable with `:wasm_stack_size` / `:wasm_heap_size`.
+- Enable WASM bulk-memory `memory.copy`/`memory.fill` opcodes (`WASM_ENABLE_BULK_MEMORY_OPT`), so modules from standard toolchains (Go `GOOS=js GOARCH=wasm`, TinyGo, Rust `wasm-bindgen`) that emit them no longer fail to instantiate with `unsupported opcode fc 0a`.
+- Update dependencies, including `npm_ex` to 0.7.5 and `oxc_ex` to 0.17.2.
 
 ## 0.10.18
 
