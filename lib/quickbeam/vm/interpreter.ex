@@ -34,7 +34,9 @@ defmodule QuickBEAM.VM.Interpreter do
       step_limit: max_steps
     }
 
-    case invoke(program.root, [], :undefined, execution) do
+    frame = new_frame(program.root, program.root, [], :undefined, {})
+
+    case run(frame, execution) do
       {:ok, value, _execution} -> {:ok, value}
       {:error, reason, _execution} -> {:error, reason}
       {:suspended, continuation} -> {:suspended, continuation}
@@ -54,48 +56,43 @@ defmodule QuickBEAM.VM.Interpreter do
 
   def resume(%Continuation{}, {:error, reason}), do: {:error, {:js_throw, reason}}
 
-  defp invoke(%Function{} = function, args, this, %Execution{} = execution) do
-    if execution.depth >= execution.max_stack_depth do
-      {:error, {:limit_exceeded, :stack_depth, execution.depth + 1}, execution}
-    else
-      previous_function = execution.current_function
+  defp enter_call(callable, args, this, caller, execution, tail?) do
+    with {:ok, function, closure_refs} <- callable_parts(callable) do
+      depth = if tail?, do: execution.depth, else: execution.depth + 1
 
-      execution = %{
-        execution
-        | current_function: function,
-          depth: execution.depth + 1
-      }
+      if depth > execution.max_stack_depth do
+        {:error, {:limit_exceeded, :stack_depth, depth}, execution}
+      else
+        execution =
+          if tail?,
+            do: execution,
+            else: %{execution | callers: [caller | execution.callers], depth: depth}
 
-      local_count = max(function.arg_count + function.var_count, 1)
-
-      frame = %Frame{
-        function: function,
-        locals: :erlang.make_tuple(local_count, :undefined),
-        args: List.to_tuple(args),
-        this: this
-      }
-
-      case run(frame, execution) do
-        {:ok, value, execution} ->
-          {:ok, value, restore_call(execution, previous_function)}
-
-        {:error, reason, execution} ->
-          {:error, reason, restore_call(execution, previous_function)}
-
-        {:suspended, continuation} ->
-          {:suspended, continuation}
+        run(new_frame(function, callable, args, this, closure_refs), execution)
       end
+    else
+      {:error, reason} -> {:error, reason, execution}
     end
   end
 
-  defp invoke({:closure, %Function{} = function, _captures}, args, this, execution),
-    do: invoke(function, args, this, execution)
+  defp callable_parts(%Function{} = function), do: {:ok, function, {}}
 
-  defp invoke(value, _args, _this, execution),
-    do: {:error, {:not_callable, value}, execution}
+  defp callable_parts({:closure, %Function{} = function, closure_refs}),
+    do: {:ok, function, closure_refs}
 
-  defp restore_call(execution, previous_function) do
-    %{execution | current_function: previous_function, depth: execution.depth - 1}
+  defp callable_parts(value), do: {:error, {:not_callable, value}}
+
+  defp new_frame(function, callable, args, this, closure_refs) do
+    local_count = max(function.arg_count + function.var_count, 1)
+
+    %Frame{
+      function: function,
+      callable: callable,
+      closure_refs: closure_refs,
+      locals: :erlang.make_tuple(local_count, :undefined),
+      args: List.to_tuple(args),
+      this: this
+    }
   end
 
   defp run(_frame, %Execution{remaining_steps: 0} = execution),
@@ -136,7 +133,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(:push_this, [], frame, execution), do: push(frame, execution, frame.this)
 
   defp execute(:special_object, [2], frame, execution),
-    do: push(frame, execution, execution.current_function)
+    do: push(frame, execution, frame.callable)
 
   defp execute(:special_object, [_type], frame, execution),
     do: push(frame, execution, :undefined)
@@ -169,33 +166,44 @@ defmodule QuickBEAM.VM.Interpreter do
     do: continue(%{frame | stack: [a, b, c, a | stack]}, execution)
 
   defp execute(:get_arg, [index], frame, execution),
-    do: push(frame, execution, tuple_get(frame.args, index))
+    do: push(frame, execution, read_slot(tuple_get(frame.args, index), execution))
+
+  defp execute(:put_arg, [index], %{stack: [value | stack]} = frame, execution) do
+    {args, execution} = write_tuple_slot(frame.args, index, value, execution)
+    continue(%{frame | args: args, stack: stack}, execution)
+  end
+
+  defp execute(:set_arg, [index], %{stack: [value | _]} = frame, execution) do
+    {args, execution} = write_tuple_slot(frame.args, index, value, execution)
+    continue(%{frame | args: args}, execution)
+  end
 
   defp execute(:get_loc, [index], frame, execution),
-    do: push(frame, execution, elem(frame.locals, index))
+    do: push(frame, execution, read_slot(elem(frame.locals, index), execution))
 
   defp execute(:get_loc0_loc1, [first, second], frame, execution) do
-    stack = [elem(frame.locals, first), elem(frame.locals, second) | frame.stack]
-    continue(%{frame | stack: stack}, execution)
+    first = read_slot(elem(frame.locals, first), execution)
+    second = read_slot(elem(frame.locals, second), execution)
+    continue(%{frame | stack: [first, second | frame.stack]}, execution)
   end
 
   defp execute(:put_loc, [index], %{stack: [value | stack]} = frame, execution) do
-    frame = %{frame | locals: put_elem(frame.locals, index, value), stack: stack}
-    continue(frame, execution)
+    {locals, execution} = write_tuple_slot(frame.locals, index, value, execution)
+    continue(%{frame | locals: locals, stack: stack}, execution)
   end
 
   defp execute(:set_loc, [index], %{stack: [value | _]} = frame, execution) do
-    frame = %{frame | locals: put_elem(frame.locals, index, value)}
-    continue(frame, execution)
+    {locals, execution} = write_tuple_slot(frame.locals, index, value, execution)
+    continue(%{frame | locals: locals}, execution)
   end
 
   defp execute(:set_loc_uninitialized, [index], frame, execution) do
-    frame = %{frame | locals: put_elem(frame.locals, index, :uninitialized)}
-    continue(frame, execution)
+    {locals, execution} = write_tuple_slot(frame.locals, index, :uninitialized, execution)
+    continue(%{frame | locals: locals}, execution)
   end
 
   defp execute(:get_loc_check, [index], frame, execution) do
-    case elem(frame.locals, index) do
+    case read_slot(elem(frame.locals, index), execution) do
       :uninitialized -> {:error, {:js_throw, {:reference_error, index}}, execution}
       value -> push(frame, execution, value)
     end
@@ -216,7 +224,11 @@ defmodule QuickBEAM.VM.Interpreter do
     do: update_local(frame, execution, index, &Value.subtract(&1, 1))
 
   defp execute(:add_loc, [index], %{stack: [value | stack]} = frame, execution) do
-    locals = put_elem(frame.locals, index, Value.add(elem(frame.locals, index), value))
+    current = read_slot(elem(frame.locals, index), execution)
+
+    {locals, execution} =
+      write_tuple_slot(frame.locals, index, Value.add(current, value), execution)
+
     continue(%{frame | locals: locals, stack: stack}, execution)
   end
 
@@ -242,11 +254,14 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(:goto16, [target], frame, execution),
     do: execute(:goto, [target], frame, execution)
 
-  defp execute(:return, [], %{stack: [value | _stack]}, execution), do: {:ok, value, execution}
-  defp execute(:return_undef, [], _frame, execution), do: {:ok, :undefined, execution}
+  defp execute(:return, [], %{stack: [value | _stack]}, execution),
+    do: return_value(value, execution)
+
+  defp execute(:return_undef, [], _frame, execution),
+    do: return_value(:undefined, execution)
 
   defp execute(:return_async, [], %{stack: [value | _stack]}, execution),
-    do: {:ok, value, execution}
+    do: return_value(value, execution)
 
   defp execute(:add, [], frame, execution), do: binary(frame, execution, &Value.add/2)
   defp execute(:sub, [], frame, execution), do: binary(frame, execution, &Value.subtract/2)
@@ -296,7 +311,8 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp execute(:fclosure, [index], frame, execution) do
     function = Enum.at(frame.function.constants, index)
-    push(frame, execution, function)
+    {callable, frame, execution} = capture_closure(function, frame, execution)
+    push(frame, execution, callable)
   end
 
   defp execute(:fclosure8, [index], frame, execution),
@@ -307,6 +323,41 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp execute(:tail_call, [argument_count], frame, execution),
     do: call(frame, execution, argument_count, true)
+
+  defp execute(name, [index], frame, execution)
+       when name in [
+              :get_var_ref,
+              :get_var_ref0,
+              :get_var_ref1,
+              :get_var_ref2,
+              :get_var_ref3,
+              :get_var_ref_check
+            ] do
+    value = read_reference(elem(frame.closure_refs, index), execution)
+
+    if name == :get_var_ref_check and value == :uninitialized,
+      do: {:error, {:js_throw, {:reference_error, index}}, execution},
+      else: push(frame, execution, value)
+  end
+
+  defp execute(name, [index], %{stack: [value | stack]} = frame, execution)
+       when name in [
+              :put_var_ref,
+              :put_var_ref0,
+              :put_var_ref1,
+              :put_var_ref2,
+              :put_var_ref3,
+              :put_var_ref_check,
+              :put_var_ref_check_init
+            ] do
+    execution = write_reference(elem(frame.closure_refs, index), value, execution)
+    continue(%{frame | stack: stack}, execution)
+  end
+
+  defp execute(:set_var_ref, [index], %{stack: [value | _]} = frame, execution) do
+    execution = write_reference(elem(frame.closure_refs, index), value, execution)
+    continue(frame, execution)
+  end
 
   defp execute(:get_var, [atom], frame, execution) do
     name = resolve_atom(atom, execution)
@@ -361,19 +412,8 @@ defmodule QuickBEAM.VM.Interpreter do
 
     case callable_and_rest do
       [callable | rest] ->
-        case invoke(callable, Enum.reverse(arguments), :undefined, execution) do
-          {:ok, value, execution} when tail? ->
-            {:ok, value, execution}
-
-          {:ok, value, execution} ->
-            continue(%{frame | stack: [value | rest]}, execution)
-
-          {:error, reason, execution} ->
-            {:error, reason, execution}
-
-          {:suspended, _continuation} ->
-            {:error, {:unsupported, :nested_suspension}, execution}
-        end
+        caller = %{next_frame(frame) | stack: rest}
+        enter_call(callable, Enum.reverse(arguments), :undefined, caller, execution, tail?)
 
       _ ->
         {:error, {:invalid_stack, :call}, execution}
@@ -398,9 +438,95 @@ defmodule QuickBEAM.VM.Interpreter do
   defp bitwise(frame, execution, operation),
     do: binary(frame, execution, &Value.bitwise(&1, &2, operation))
 
+  defp return_value(value, %Execution{callers: []} = execution),
+    do: {:ok, value, execution}
+
+  defp return_value(value, %Execution{callers: [caller | callers]} = execution) do
+    execution = %{execution | callers: callers, depth: execution.depth - 1}
+    run(%{caller | stack: [value | caller.stack]}, execution)
+  end
+
   defp update_local(frame, execution, index, operation) do
-    locals = put_elem(frame.locals, index, operation.(elem(frame.locals, index)))
+    value = read_slot(elem(frame.locals, index), execution)
+    {locals, execution} = write_tuple_slot(frame.locals, index, operation.(value), execution)
     continue(%{frame | locals: locals}, execution)
+  end
+
+  defp capture_closure(%Function{closure_vars: []} = function, frame, execution),
+    do: {function, frame, execution}
+
+  defp capture_closure(%Function{} = function, frame, execution) do
+    {references, frame, execution} =
+      Enum.reduce(function.closure_vars, {[], frame, execution}, fn closure_var,
+                                                                    {references, frame, execution} ->
+        {reference, frame, execution} = capture_reference(closure_var, frame, execution)
+        {[reference | references], frame, execution}
+      end)
+
+    {{:closure, function, references |> Enum.reverse() |> List.to_tuple()}, frame, execution}
+  end
+
+  defp capture_reference(%{closure_type: 0, var_idx: index}, frame, execution) do
+    index = frame.function.arg_count + index
+    {reference, locals, execution} = promote_tuple_slot(frame.locals, index, execution)
+    {reference, %{frame | locals: locals}, execution}
+  end
+
+  defp capture_reference(%{closure_type: 1, var_idx: index}, frame, execution) do
+    {reference, args, execution} = promote_tuple_slot(frame.args, index, execution)
+    {reference, %{frame | args: args}, execution}
+  end
+
+  defp capture_reference(%{closure_type: 2, var_idx: index}, frame, execution),
+    do: {elem(frame.closure_refs, index), frame, execution}
+
+  defp capture_reference(%{name: name}, frame, execution),
+    do: {{:global, name}, frame, execution}
+
+  defp promote_tuple_slot(tuple, index, execution) do
+    case elem(tuple, index) do
+      {:cell, _id} = reference ->
+        {reference, tuple, execution}
+
+      value ->
+        id = execution.next_cell_id
+        reference = {:cell, id}
+
+        execution = %{
+          execution
+          | cells: Map.put(execution.cells, id, value),
+            next_cell_id: id + 1
+        }
+
+        {reference, put_elem(tuple, index, reference), execution}
+    end
+  end
+
+  defp read_slot({:cell, _id} = reference, execution),
+    do: read_reference(reference, execution)
+
+  defp read_slot({:global, _name} = reference, execution),
+    do: read_reference(reference, execution)
+
+  defp read_slot(value, _execution), do: value
+
+  defp read_reference({:cell, id}, execution), do: Map.fetch!(execution.cells, id)
+
+  defp read_reference({:global, name}, execution),
+    do: Map.get(execution.globals, name, :undefined)
+
+  defp write_reference({:cell, id}, value, execution),
+    do: %{execution | cells: Map.put(execution.cells, id, value)}
+
+  defp write_reference({:global, name}, value, execution),
+    do: %{execution | globals: Map.put(execution.globals, name, value)}
+
+  defp write_tuple_slot(tuple, index, value, execution) do
+    case elem(tuple, index) do
+      {:cell, _id} = reference -> {tuple, write_reference(reference, value, execution)}
+      {:global, _name} = reference -> {tuple, write_reference(reference, value, execution)}
+      _value -> {put_elem(tuple, index, value), execution}
+    end
   end
 
   defp tuple_get(tuple, index) when index < tuple_size(tuple), do: elem(tuple, index)

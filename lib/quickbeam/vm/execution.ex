@@ -4,20 +4,24 @@ defmodule QuickBEAM.VM.Execution do
   @enforce_keys [:atoms, :max_stack_depth, :remaining_steps, :step_limit]
   defstruct [
     :atoms,
-    :current_function,
     :step_limit,
+    callers: [],
+    cells: %{},
+    depth: 1,
     globals: %{},
-    depth: 0,
     max_stack_depth: 1_000,
+    next_cell_id: 0,
     remaining_steps: 0
   ]
 
   @type t :: %__MODULE__{
           atoms: tuple(),
-          current_function: QuickBEAM.VM.Function.t() | nil,
+          callers: [QuickBEAM.VM.Frame.t()],
+          cells: %{optional(non_neg_integer()) => term()},
+          depth: pos_integer(),
           globals: map(),
-          depth: non_neg_integer(),
           max_stack_depth: pos_integer(),
+          next_cell_id: non_neg_integer(),
           remaining_steps: non_neg_integer(),
           step_limit: pos_integer()
         }
