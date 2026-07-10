@@ -86,6 +86,41 @@ defmodule QuickBEAM.VM.InterpreterTest do
     assert {:ok, 42} = QuickBEAM.VM.eval(finite)
   end
 
+  test "unwinds JavaScript throws to same-frame and caller-frame catch handlers" do
+    sources = [
+      "try { throw 41 } catch (error) { error + 1 }",
+      "(function(){try{return (function(){throw 41})()}catch(error){return error+1}})()"
+    ]
+
+    for source <- sources do
+      assert {:ok, program} = QuickBEAM.VM.compile(source)
+      assert {:ok, 42} = QuickBEAM.VM.eval(program)
+    end
+  end
+
+  test "executes finally subroutines while preserving return and throw completion" do
+    assert {:ok, returning} = QuickBEAM.VM.compile("(function(){try{return 42}finally{1}})()")
+    assert {:ok, 42} = QuickBEAM.VM.eval(returning)
+
+    assert {:ok, throwing} = QuickBEAM.VM.compile("try { throw 42 } finally { 1 }")
+    assert {:error, {:js_throw, 42}} = QuickBEAM.VM.eval(throwing)
+  end
+
+  test "catches reference and call errors as JavaScript exceptions" do
+    assert {:ok, reference_error} = QuickBEAM.VM.compile("try { missing } catch (error) { 42 }")
+    assert {:ok, 42} = QuickBEAM.VM.eval(reference_error)
+
+    assert {:ok, type_error} = QuickBEAM.VM.compile("try { (1)() } catch (error) { 42 }")
+    assert {:ok, 42} = QuickBEAM.VM.eval(type_error)
+  end
+
+  test "does not expose VM resource limits to JavaScript catch handlers" do
+    assert {:ok, program} = QuickBEAM.VM.compile("try { while(true) {} } catch (error) { 42 }")
+
+    assert {:error, {:limit_exceeded, :steps, 100}} =
+             QuickBEAM.VM.eval(program, max_steps: 100)
+  end
+
   test "captures and resumes the full caller stack across a nested await" do
     source = "(async function(){ return await marker })()"
     assert {:ok, %Program{} = program} = QuickBEAM.VM.compile(source)
@@ -96,6 +131,25 @@ defmodule QuickBEAM.VM.InterpreterTest do
 
     assert [_caller] = continuation.execution.callers
     assert {:ok, "resumed"} = Interpreter.resume(continuation, {:ok, "resumed"})
+  end
+
+  test "unwinds a rejected nested await into an outer catch handler" do
+    source = """
+    (async function() {
+      try {
+        return await (async function() { return await marker })()
+      } catch (error) {
+        return error + 1
+      }
+    })()
+    """
+
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+
+    assert {:suspended, continuation} =
+             Interpreter.eval(program, vars: %{"marker" => {:pending, make_ref()}})
+
+    assert {:ok, 42} = Interpreter.resume(continuation, {:error, 41})
   end
 
   test "reports unsupported opcodes without crashing the caller" do

@@ -36,25 +36,23 @@ defmodule QuickBEAM.VM.Interpreter do
 
     frame = new_frame(program.root, program.root, [], :undefined, {})
 
-    case run(frame, execution) do
-      {:ok, value, _execution} -> {:ok, value}
-      {:error, reason, _execution} -> {:error, reason}
-      {:suspended, continuation} -> {:suspended, continuation}
-    end
+    normalize_result(run(frame, execution))
   end
 
   @spec resume(Continuation.t(), {:ok, term()} | {:error, term()}) :: result()
   def resume(%Continuation{} = continuation, {:ok, value}) do
     frame = %{continuation.frame | stack: [value | continuation.frame.stack]}
 
-    case run(frame, continuation.execution) do
-      {:ok, result, _execution} -> {:ok, result}
-      {:error, reason, _execution} -> {:error, reason}
-      {:suspended, continuation} -> {:suspended, continuation}
-    end
+    normalize_result(run(frame, continuation.execution))
   end
 
-  def resume(%Continuation{}, {:error, reason}), do: {:error, {:js_throw, reason}}
+  def resume(%Continuation{} = continuation, {:error, reason}) do
+    normalize_result(raise_js(reason, continuation.frame, continuation.execution))
+  end
+
+  defp normalize_result({:ok, value, _execution}), do: {:ok, value}
+  defp normalize_result({:error, reason, _execution}), do: {:error, reason}
+  defp normalize_result({:suspended, continuation}), do: {:suspended, continuation}
 
   defp enter_call(callable, args, this, caller, execution, tail?) do
     with {:ok, function, closure_refs} <- callable_parts(callable) do
@@ -71,7 +69,7 @@ defmodule QuickBEAM.VM.Interpreter do
         run(new_frame(function, callable, args, this, closure_refs), execution)
       end
     else
-      {:error, reason} -> {:error, reason, execution}
+      {:error, reason} -> raise_js(reason, caller, execution)
     end
   end
 
@@ -153,6 +151,9 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(:nip, [], %{stack: [a, _b | stack]} = frame, execution),
     do: continue(%{frame | stack: [a | stack]}, execution)
 
+  defp execute(:nip_catch, [], frame, execution),
+    do: execute(:nip, [], frame, execution)
+
   defp execute(:nip1, [], %{stack: [a, b, _c | stack]} = frame, execution),
     do: continue(%{frame | stack: [a, b | stack]}, execution)
 
@@ -204,7 +205,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp execute(:get_loc_check, [index], frame, execution) do
     case read_slot(elem(frame.locals, index), execution) do
-      :uninitialized -> {:error, {:js_throw, {:reference_error, index}}, execution}
+      :uninitialized -> raise_js({:reference_error, index}, frame, execution)
       value -> push(frame, execution, value)
     end
   end
@@ -231,6 +232,18 @@ defmodule QuickBEAM.VM.Interpreter do
 
     continue(%{frame | locals: locals, stack: stack}, execution)
   end
+
+  defp execute(:catch, [target], frame, execution) do
+    continue(%{frame | stack: [{:catch, target} | frame.stack]}, execution)
+  end
+
+  defp execute(:gosub, [target], frame, execution) do
+    return_address = {:return_address, frame.pc + 1}
+    run(%{frame | pc: target, stack: [return_address | frame.stack]}, execution)
+  end
+
+  defp execute(:ret, [], %{stack: [{:return_address, target} | stack]} = frame, execution),
+    do: run(%{frame | pc: target, stack: stack}, execution)
 
   defp execute(:if_false, [target], %{stack: [value | stack]} = frame, execution) do
     pc = if Value.truthy?(value), do: frame.pc + 1, else: target
@@ -336,7 +349,7 @@ defmodule QuickBEAM.VM.Interpreter do
     value = read_reference(elem(frame.closure_refs, index), execution)
 
     if name == :get_var_ref_check and value == :uninitialized,
-      do: {:error, {:js_throw, {:reference_error, index}}, execution},
+      do: raise_js({:reference_error, index}, frame, execution),
       else: push(frame, execution, value)
   end
 
@@ -364,7 +377,7 @@ defmodule QuickBEAM.VM.Interpreter do
 
     case Map.fetch(execution.globals, name) do
       {:ok, value} -> push(frame, execution, value)
-      :error -> {:error, {:js_throw, {:reference_error, name}}, execution}
+      :error -> raise_js({:reference_error, name}, frame, execution)
     end
   end
 
@@ -384,8 +397,8 @@ defmodule QuickBEAM.VM.Interpreter do
        when name in [:define_var, :check_define_var],
        do: continue(frame, execution)
 
-  defp execute(:throw, [], %{stack: [value | _stack]}, execution),
-    do: {:error, {:js_throw, value}, execution}
+  defp execute(:throw, [], %{stack: [value | stack]} = frame, execution),
+    do: raise_js(value, %{frame | stack: stack}, execution)
 
   defp execute(:await, [], %{stack: [{:pending, _reference} | stack]} = frame, execution) do
     continuation = %Continuation{frame: next_frame(%{frame | stack: stack}), execution: execution}
@@ -395,8 +408,8 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(:await, [], %{stack: [{:resolved, value} | stack]} = frame, execution),
     do: continue(%{frame | stack: [value | stack]}, execution)
 
-  defp execute(:await, [], %{stack: [{:rejected, reason} | _stack]}, execution),
-    do: {:error, {:js_throw, reason}, execution}
+  defp execute(:await, [], %{stack: [{:rejected, reason} | stack]} = frame, execution),
+    do: raise_js(reason, %{frame | stack: stack}, execution)
 
   defp execute(:await, [], frame, execution), do: continue(frame, execution)
 
@@ -437,6 +450,31 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp bitwise(frame, execution, operation),
     do: binary(frame, execution, &Value.bitwise(&1, &2, operation))
+
+  defp raise_js(reason, frame, execution) do
+    case split_at_catch(frame.stack) do
+      {:caught, target, stack_below_catch} ->
+        run(%{frame | pc: target, stack: [reason | stack_below_catch]}, execution)
+
+      :uncaught ->
+        unwind_caller(reason, execution)
+    end
+  end
+
+  defp unwind_caller(reason, %Execution{callers: []} = execution),
+    do: {:error, {:js_throw, reason}, execution}
+
+  defp unwind_caller(reason, %Execution{callers: [caller | callers]} = execution) do
+    execution = %{execution | callers: callers, depth: execution.depth - 1}
+    raise_js(reason, caller, execution)
+  end
+
+  defp split_at_catch(stack) do
+    case Enum.split_while(stack, &(!match?({:catch, _target}, &1))) do
+      {_discarded, [{:catch, target} | stack]} -> {:caught, target, stack}
+      {_discarded, []} -> :uncaught
+    end
+  end
 
   defp return_value(value, %Execution{callers: []} = execution),
     do: {:ok, value, execution}
