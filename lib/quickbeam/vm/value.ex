@@ -1,5 +1,7 @@
 defmodule QuickBEAM.VM.Value do
-  @moduledoc false
+  @moduledoc """
+  Implements JavaScript primitive coercion, equality, and numeric operations.
+  """
 
   import Bitwise
 

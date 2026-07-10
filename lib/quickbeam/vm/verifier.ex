@@ -1,5 +1,10 @@
 defmodule QuickBEAM.VM.Verifier do
-  @moduledoc false
+  @moduledoc """
+  Structurally verifies decoded programs before interpreter execution.
+
+  Verification rejects malformed control flow, operands, references, and stack
+  behavior before untrusted bytecode reaches mutable evaluation state.
+  """
 
   alias QuickBEAM.VM.{ABI, Function, Opcodes, Program}
 

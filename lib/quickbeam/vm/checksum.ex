@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Checksum do
-  @moduledoc false
+  @moduledoc "Computes stable checksums for decoded VM program artifacts."
 
   import Bitwise
 

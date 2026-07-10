@@ -1,5 +1,10 @@
 defmodule QuickBEAM.VM.Coroutine do
-  @moduledoc false
+  @moduledoc """
+  Captures a detached async frame and its explicit JavaScript caller stack.
+
+  Coroutines remain local to one evaluation process and are resumed by that
+  process's FIFO microtask queue.
+  """
 
   @enforce_keys [:frame, :callers, :boundary]
   defstruct [:frame, :callers, :boundary]

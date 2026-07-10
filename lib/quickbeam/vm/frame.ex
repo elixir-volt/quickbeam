@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Frame do
-  @moduledoc false
+  @moduledoc "Defines an explicit JavaScript bytecode call frame."
 
   @enforce_keys [:function, :callable, :locals, :args]
   defstruct [:function, :callable, :locals, :args, :this, closure_refs: {}, pc: 0, stack: []]

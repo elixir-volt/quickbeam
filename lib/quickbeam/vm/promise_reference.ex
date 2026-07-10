@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.PromiseReference do
-  @moduledoc false
+  @moduledoc "Identifies a Promise in one evaluation's Promise store."
 
   @enforce_keys [:id]
   defstruct [:id]

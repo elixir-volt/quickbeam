@@ -1,5 +1,7 @@
 defmodule QuickBEAM.VM.Builtins do
-  @moduledoc false
+  @moduledoc """
+  Installs and dispatches the JavaScript built-ins supported by the VM profile.
+  """
 
   alias QuickBEAM.VM.{Execution, Heap, Object, Property, Reference, RegExp, Value}
 

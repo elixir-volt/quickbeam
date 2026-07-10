@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.NativeFrame do
-  @moduledoc false
+  @moduledoc "Defines resumable state for a VM-implemented native callback."
 
   @enforce_keys [:operation, :values, :callback, :receiver, :caller]
   defstruct [

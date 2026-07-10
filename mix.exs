@@ -110,7 +110,21 @@ defmodule QuickBEAM.MixProject do
       groups_for_extras: [
         Guides: ["docs/javascript-api.md", "docs/architecture.md"]
       ],
+      filter_modules: &documented_module?/2,
       source_ref: "v#{@version}"
     ]
+  end
+
+  defp documented_module?(module, _metadata) do
+    public_vm_modules = [
+      QuickBEAM.VM.ABI,
+      QuickBEAM.VM.ClosureVariable,
+      QuickBEAM.VM.Function,
+      QuickBEAM.VM.Program,
+      QuickBEAM.VM.SourcePosition,
+      QuickBEAM.VM.Variable
+    ]
+
+    not String.starts_with?(inspect(module), "QuickBEAM.VM.") or module in public_vm_modules
   end
 end

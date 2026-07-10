@@ -1,5 +1,10 @@
 defmodule QuickBEAM.VM.Memory do
-  @moduledoc false
+  @moduledoc """
+  Performs conservative logical memory accounting for VM allocations.
+
+  Accounting is monotonic until garbage collection is implemented and provides
+  controlled limit failures before the worker's process heap ceiling.
+  """
 
   alias QuickBEAM.VM.Execution
 

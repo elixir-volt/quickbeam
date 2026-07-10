@@ -1,5 +1,7 @@
 defmodule QuickBEAM.VM.ThenableBoundary do
-  @moduledoc false
+  @moduledoc """
+  Tracks invocation of a foreign thenable's `then` method during assimilation.
+  """
 
   @enforce_keys [:promise, :depth]
   defstruct [:promise, :depth]

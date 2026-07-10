@@ -1,4 +1,11 @@
 defmodule QuickBEAM.JSError do
+  @moduledoc """
+  Represents an uncaught JavaScript exception at a QuickBEAM API boundary.
+
+  Errors include stable JavaScript source locations and structured JavaScript
+  frames without exposing Elixir handler stack traces.
+  """
+
   defexception [:message, :name, :stack, :filename, :line, :column, frames: []]
 
   @type frame :: %{
@@ -23,7 +30,7 @@ defmodule QuickBEAM.JSError do
     "#{name}: #{msg}"
   end
 
-  @doc false
+  @doc "Converts a JavaScript error value returned by the native runtime."
   def from_js_value(value) when is_map(value) do
     %__MODULE__{
       message: to_string(value[:message] || value["message"] || inspect(value)),
@@ -44,7 +51,7 @@ defmodule QuickBEAM.JSError do
     %__MODULE__{message: inspect(value), name: "Error", stack: nil}
   end
 
-  @doc false
+  @doc "Converts a VM-generated exception reason into a catchable JavaScript value."
   def vm_exception_value(reason)
       when is_tuple(reason) and
              elem(reason, 0) in [
@@ -60,7 +67,7 @@ defmodule QuickBEAM.JSError do
 
   def vm_exception_value(reason), do: reason
 
-  @doc false
+  @doc "Builds an exception from an uncaught VM value and JavaScript stack frames."
   @spec from_vm(term(), [frame()]) :: t()
   def from_vm(%QuickBEAM.VM.Thrown{value: value, frames: async_frames}, frames),
     do: from_vm(value, async_frames ++ frames)

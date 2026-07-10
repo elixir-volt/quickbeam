@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Reference do
-  @moduledoc false
+  @moduledoc "Identifies an object in one evaluation-owned VM heap."
 
   @enforce_keys [:id]
   defstruct [:id]

@@ -199,7 +199,7 @@ defmodule QuickBEAM.VM do
     kind, reason -> {:error, {:interpreter_crash, {kind, reason}, __STACKTRACE__}}
   end
 
-  @doc false
+  @doc "Returns the monitored worker spawn options for an evaluation memory limit."
   def worker_spawn_options(:infinity), do: [:monitor]
 
   def worker_spawn_options(memory_limit) do

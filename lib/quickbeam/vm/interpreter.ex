@@ -1,5 +1,11 @@
 defmodule QuickBEAM.VM.Interpreter do
-  @moduledoc false
+  @moduledoc """
+  Executes verified QuickJS bytecode with explicit JavaScript machine state.
+
+  Frames, callers, exception unwinding, async boundaries, and native callback
+  frames are represented as data so execution can suspend without retaining an
+  Elixir or native call stack.
+  """
 
   import Bitwise
 
@@ -41,7 +47,7 @@ defmodule QuickBEAM.VM.Interpreter do
   @spec eval(Program.t(), keyword()) :: result()
   def eval(%Program{} = program, opts \\ []), do: program |> start(opts) |> finish()
 
-  @doc false
+  @doc "Starts interpreting a program and returns its raw machine result."
   def start(%Program{} = program, opts \\ []) do
     max_steps = Keyword.get(opts, :max_steps, @default_max_steps)
 
@@ -67,7 +73,7 @@ defmodule QuickBEAM.VM.Interpreter do
   def resume(%Continuation{} = continuation, result),
     do: continuation |> resume_raw(result) |> finish()
 
-  @doc false
+  @doc "Resumes a legacy continuation without exporting the resulting value."
   def resume_raw(%Continuation{} = continuation, {:ok, value}) do
     frame = %{continuation.frame | stack: [value | continuation.frame.stack]}
     run(frame, continuation.execution)
@@ -77,7 +83,7 @@ defmodule QuickBEAM.VM.Interpreter do
     raise_js_from_caller(reason, continuation.frame, continuation.execution)
   end
 
-  @doc false
+  @doc "Resumes a detached async coroutine with a Promise settlement."
   def resume_coroutine(%Coroutine{} = coroutine, result, %Execution{} = execution) do
     callers = coroutine.callers ++ [coroutine.boundary]
     frame_depth = Enum.count(coroutine.callers, &match?(%Frame{}, &1))
@@ -89,7 +95,7 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
-  @doc false
+  @doc "Invokes a thenable and connects its resolver functions to a Promise."
   def assimilate_thenable(promise, thenable, callable, %Execution{} = execution) do
     boundary = %ThenableBoundary{promise: promise, depth: execution.depth}
     resolve = {:promise_resolver, promise, :resolve_assimilated}
@@ -97,7 +103,7 @@ defmodule QuickBEAM.VM.Interpreter do
     dispatch_call(callable, [resolve, reject], thenable, boundary, execution, false)
   end
 
-  @doc false
+  @doc "Runs one queued Promise reaction against a source settlement."
   def run_reaction(%Reaction{} = reaction, result, %Execution{} = execution) do
     callback =
       case result do
@@ -125,7 +131,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp reaction_argument({:error, %Thrown{value: value}}), do: value
   defp reaction_argument({:error, reason}), do: reason
 
-  @doc false
+  @doc "Converts a raw machine result into the interpreter's public result."
   def finish({:ok, value, execution}), do: Export.value(value, execution)
   def finish({:error, reason, _execution}), do: {:error, reason}
   def finish({:suspended, continuation}), do: {:suspended, continuation}

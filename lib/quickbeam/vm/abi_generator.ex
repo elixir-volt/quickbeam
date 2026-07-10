@@ -1,5 +1,10 @@
 defmodule QuickBEAM.VM.ABIGenerator do
-  @moduledoc false
+  @moduledoc """
+  Extracts bytecode ABI metadata from the vendored QuickJS C sources.
+
+  The generated version, tags, opcodes, atoms, and fingerprint keep decoding
+  coupled to the exact engine build that produced serialized bytecode.
+  """
 
   @opcode_pattern ~r/^\s*DEF\(\s*([A-Za-z0-9_]+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([A-Za-z0-9_]+)\s*\)/m
   @atom_pattern ~r/^\s*DEF\(\s*([A-Za-z0-9_]+)\s*,\s*"([^"]*)"\s*\)/m

@@ -1,5 +1,10 @@
 defmodule QuickBEAM.VM.Execution do
-  @moduledoc false
+  @moduledoc """
+  Defines all mutable state owned by one isolated VM evaluation.
+
+  Programs are immutable and shareable; execution heaps, globals, frames,
+  Promises, jobs, handlers, and resource counters are process-local.
+  """
 
   @enforce_keys [:atoms, :max_stack_depth, :remaining_steps, :step_limit]
   defstruct [

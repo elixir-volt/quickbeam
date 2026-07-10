@@ -54,7 +54,7 @@ defmodule QuickBEAM.VM.Opcodes do
   end
 
   for {name, value} <- @tags do
-    @doc false
+    @doc "Returns a generated serialized-bytecode tag value."
     def unquote(:"bc_tag_#{name}")(), do: unquote(value)
   end
 
@@ -159,7 +159,7 @@ defmodule QuickBEAM.VM.Opcodes do
     end
   end
 
-  @doc false
+  @doc "Returns implicit operands encoded by a compact opcode form."
   def short_form_operands(opcode, arg_count) when is_integer(opcode) do
     case Map.get(@opcodes, opcode) do
       {name, _size, _pops, _pushes, _format} ->

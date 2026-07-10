@@ -1,5 +1,7 @@
 defmodule QuickBEAM.VM.Reaction do
-  @moduledoc false
+  @moduledoc """
+  Defines a queued Promise reaction and the Promise produced by that reaction.
+  """
 
   @enforce_keys [:result_promise]
   defstruct [:result_promise, kind: :then, on_fulfilled: :undefined, on_rejected: :undefined]

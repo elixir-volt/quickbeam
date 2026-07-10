@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Property do
-  @moduledoc false
+  @moduledoc "Defines a JavaScript property value and its descriptor flags."
 
   defstruct value: :undefined, writable: true, enumerable: true, configurable: true
 

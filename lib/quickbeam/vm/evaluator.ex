@@ -1,5 +1,10 @@
 defmodule QuickBEAM.VM.Evaluator do
-  @moduledoc false
+  @moduledoc """
+  Drives an interpreter evaluation and its owner-local event loop.
+
+  The evaluator drains microtasks, correlates asynchronous host replies, resumes
+  coroutines, and waits for the final Promise without polling.
+  """
 
   alias QuickBEAM.VM.{
     Continuation,

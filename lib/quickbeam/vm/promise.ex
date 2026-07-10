@@ -1,5 +1,10 @@
 defmodule QuickBEAM.VM.Promise do
-  @moduledoc false
+  @moduledoc """
+  Implements owner-local Promise state, reactions, adoption, and combinators.
+
+  Promise state and jobs live in `QuickBEAM.VM.Execution`; this module only
+  transforms that explicit state and never starts independent processes.
+  """
 
   alias QuickBEAM.VM.{
     Builtins,
@@ -213,7 +218,12 @@ defmodule QuickBEAM.VM.Promise do
   def settle(%Execution{} = execution, %PromiseReference{} = promise, result),
     do: settle_result(execution, promise, result)
 
-  @doc false
+  @doc """
+  Settles a Promise whose resolution was locked while adopting a thenable.
+
+  Settlements are ignored unless the Promise is currently in the internal
+  resolving state, which preserves resolver idempotence.
+  """
   @spec settle_assimilated(Execution.t(), PromiseReference.t(), {:ok, term()} | {:error, term()}) ::
           Execution.t()
   def settle_assimilated(execution, %PromiseReference{id: id} = promise, result) do

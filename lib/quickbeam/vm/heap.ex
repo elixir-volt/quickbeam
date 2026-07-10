@@ -1,5 +1,10 @@
 defmodule QuickBEAM.VM.Heap do
-  @moduledoc false
+  @moduledoc """
+  Manages objects and properties in an evaluation's process-owned heap.
+
+  Live references are valid only with the `QuickBEAM.VM.Execution` that owns
+  them and are exported to ordinary BEAM values at the evaluation boundary.
+  """
 
   alias QuickBEAM.VM.{Execution, Memory, Object, Property, Reference}
 

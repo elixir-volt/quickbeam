@@ -1,5 +1,10 @@
 defmodule QuickBEAM.VM.PromiseExecutorBoundary do
-  @moduledoc false
+  @moduledoc """
+  Records the caller waiting for synchronous Promise executor completion.
+
+  Executor return values are ignored; this boundary returns the constructed
+  Promise and converts a synchronous executor throw into rejection.
+  """
 
   @enforce_keys [:promise, :caller, :depth]
   defstruct [:promise, :caller, :depth, tail?: false]

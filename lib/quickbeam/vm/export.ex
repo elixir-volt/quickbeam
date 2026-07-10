@@ -1,5 +1,10 @@
 defmodule QuickBEAM.VM.Export do
-  @moduledoc false
+  @moduledoc """
+  Converts owner-local JavaScript values into safe ordinary BEAM values.
+
+  Functions and cyclic object graphs are rejected instead of leaking live VM
+  references outside their evaluation process.
+  """
 
   alias QuickBEAM.VM.{Execution, Heap, Object, Promise, PromiseReference, Property, Reference}
 

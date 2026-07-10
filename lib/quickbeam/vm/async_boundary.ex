@@ -1,5 +1,10 @@
 defmodule QuickBEAM.VM.AsyncBoundary do
-  @moduledoc false
+  @moduledoc """
+  Describes the Promise and caller boundary owned by an async invocation.
+
+  The interpreter uses this boundary to settle the async function's result and
+  resume, return to, or detach from its caller without using the BEAM stack.
+  """
 
   @enforce_keys [:promise, :depth]
   defstruct [:promise, :caller, :depth, mode: :push]

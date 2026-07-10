@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Object do
-  @moduledoc false
+  @moduledoc "Defines an object stored in an evaluation-owned VM heap."
 
   defstruct kind: :ordinary,
             prototype: nil,

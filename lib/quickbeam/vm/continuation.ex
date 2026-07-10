@@ -1,5 +1,5 @@
 defmodule QuickBEAM.VM.Continuation do
-  @moduledoc false
+  @moduledoc "Captures a legacy suspended frame and its owning execution state."
 
   @enforce_keys [:frame, :execution]
   defstruct [:frame, :execution, :awaiting]

@@ -42,12 +42,12 @@ defmodule QuickBEAM.VM.ABI do
   @doc "Returns a fingerprint for the exact vendored QuickJS bytecode ABI."
   def fingerprint, do: @fingerprint
 
-  @doc false
+  @doc "Returns serialized-value tags generated from the vendored QuickJS source."
   def tags, do: @tags
 
-  @doc false
+  @doc "Returns opcode metadata generated from the vendored QuickJS header."
   def opcodes, do: @opcodes
 
-  @doc false
+  @doc "Returns predefined atom metadata generated from the vendored QuickJS header."
   def predefined_atoms, do: @atoms
 end
