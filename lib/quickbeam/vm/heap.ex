@@ -14,9 +14,15 @@ defmodule QuickBEAM.VM.Heap do
   def allocate(%Execution{} = execution, kind \\ :ordinary, opts \\ []) do
     id = execution.next_object_id
 
+    prototype =
+      case Keyword.fetch(opts, :prototype) do
+        {:ok, prototype} -> prototype
+        :error -> Map.get(execution.default_prototypes, kind)
+      end
+
     object = %Object{
       kind: kind,
-      prototype: Keyword.get(opts, :prototype),
+      prototype: prototype,
       length: Keyword.get(opts, :length, 0),
       callable: Keyword.get(opts, :callable),
       internal: Keyword.get(opts, :internal)

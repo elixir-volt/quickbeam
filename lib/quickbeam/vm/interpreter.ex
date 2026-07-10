@@ -881,7 +881,12 @@ defmodule QuickBEAM.VM.Interpreter do
         if constructable?(constructor, execution) do
           caller = %{next_frame(frame) | stack: rest}
           prototype = constructor_prototype(constructor, execution)
-          {instance, execution} = Heap.allocate(execution, :ordinary, prototype: prototype)
+
+          {instance, execution} =
+            Heap.allocate(execution, :ordinary,
+              prototype: prototype,
+              internal: :constructor_instance
+            )
 
           boundary = %ConstructorBoundary{
             instance: instance,
@@ -922,7 +927,7 @@ defmodule QuickBEAM.VM.Interpreter do
     do: constructable?(target, execution)
 
   defp constructable?({:builtin, name}, _execution),
-    do: name in ["Array", "Error", "Object", "Promise", "Set", "String"]
+    do: name in ["Array", "Boolean", "Error", "Number", "Object", "Promise", "Set", "String"]
 
   defp constructable?(_constructor, _execution), do: false
 
@@ -1557,6 +1562,9 @@ defmodule QuickBEAM.VM.Interpreter do
 
     globals =
       execution.globals
+      |> Map.put_new("Infinity", :infinity)
+      |> Map.put_new("NaN", :nan)
+      |> Map.put_new("undefined", :undefined)
       |> Map.put("Beam", beam)
       |> Map.put("globalThis", global_this)
 
@@ -2117,7 +2125,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp allocate_function(callable, function, execution) do
-    {reference, execution} = Heap.allocate(execution, :ordinary, callable: callable)
+    {reference, execution} = Heap.allocate(execution, :function, callable: callable)
 
     if function.has_prototype do
       {prototype, execution} = Heap.allocate(execution)

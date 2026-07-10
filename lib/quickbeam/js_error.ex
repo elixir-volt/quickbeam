@@ -89,7 +89,7 @@ defmodule QuickBEAM.JSError do
 
   defp vm_name_and_message(%__MODULE__{} = error), do: {error.name, error.message}
 
-  defp vm_name_and_message(%{} = value) do
+  defp vm_name_and_message(%{} = value) when not is_struct(value) do
     {
       to_string(value[:name] || value["name"] || "Error"),
       to_string(value[:message] || value["message"] || inspect(value))

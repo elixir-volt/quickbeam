@@ -117,6 +117,8 @@ defmodule QuickBEAM.VM.Value do
   def to_number(nil), do: 0
   def to_number(:undefined), do: :nan
   def to_number(:nan), do: :nan
+  def to_number(:infinity), do: :infinity
+  def to_number(:neg_infinity), do: :neg_infinity
   def to_number(""), do: 0
 
   def to_number(value) when is_binary(value) do

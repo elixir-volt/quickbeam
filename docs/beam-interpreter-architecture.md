@@ -532,6 +532,9 @@ Correctness is measured against the exact vendored QuickJS build.
 
 Skipped tests need categorized reasons: unsupported profile, unsupported
 language feature, native QuickJS mismatch, harness limitation, or known defect.
+The initial pinned baseline selects 22 tests, explicitly excludes four async
+harness tests, and passes 16 of 18 supported cases (88.9%); see
+[`test262-conformance.md`](test262-conformance.md) for the exact gate.
 
 ## Performance and scheduler acceptance
 

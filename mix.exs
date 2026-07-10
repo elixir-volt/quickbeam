@@ -105,10 +105,15 @@ defmodule QuickBEAM.MixProject do
         "README.md",
         "docs/javascript-api.md",
         "docs/architecture.md",
+        "docs/test262-conformance.md",
         "CHANGELOG.md"
       ],
       groups_for_extras: [
-        Guides: ["docs/javascript-api.md", "docs/architecture.md"]
+        Guides: [
+          "docs/javascript-api.md",
+          "docs/architecture.md",
+          "docs/test262-conformance.md"
+        ]
       ],
       filter_modules: &documented_module?/2,
       source_ref: "v#{@version}"

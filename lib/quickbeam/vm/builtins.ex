@@ -9,6 +9,7 @@ defmodule QuickBEAM.VM.Builtins do
 
   @constructors %{
     "Array" => ["isArray"],
+    "Boolean" => [],
     "Object" => [
       "assign",
       "create",
@@ -18,7 +19,9 @@ defmodule QuickBEAM.VM.Builtins do
       "keys",
       "setPrototypeOf"
     ],
+    "Function" => [],
     "Math" => ["floor", "max", "min", "random", "round"],
+    "Number" => [],
     "String" => ["fromCharCode"],
     "Error" => [],
     "Promise" => ["all", "allSettled", "any", "race", "reject", "resolve"],
@@ -27,8 +30,12 @@ defmodule QuickBEAM.VM.Builtins do
 
   @spec install(Execution.t()) :: Execution.t()
   def install(execution) do
-    Enum.reduce(@constructors, execution, fn {name, methods}, execution ->
-      {object, execution} = Heap.allocate(execution, :ordinary, callable: {:builtin, name})
+    @constructors
+    |> Enum.sort_by(fn {name, _methods} ->
+      if name == "Object", do: {0, name}, else: {1, name}
+    end)
+    |> Enum.reduce(execution, fn {name, methods}, execution ->
+      {object, execution} = Heap.allocate(execution, :function, callable: {:builtin, name})
 
       execution =
         Enum.reduce(methods, execution, fn method, execution ->
@@ -43,6 +50,7 @@ defmodule QuickBEAM.VM.Builtins do
       execution = maybe_install_prototype(name, object, execution)
       %{execution | globals: Map.put_new(execution.globals, name, object)}
     end)
+    |> link_constructor_prototypes()
   end
 
   @spec callable(Execution.t(), Reference.t()) :: term() | nil
@@ -60,6 +68,7 @@ defmodule QuickBEAM.VM.Builtins do
 
   def call({:builtin_method, "Object", "keys"}, _this, [value], execution) do
     with {:ok, keys} <- own_keys(value, execution) do
+      keys = Enum.map(keys, &Value.to_string_value/1)
       {array, execution} = array_from(keys, execution)
       {:ok, array, execution}
     else
@@ -213,6 +222,34 @@ defmodule QuickBEAM.VM.Builtins do
     {:ok, promise, execution}
   end
 
+  def call(
+        {:primitive_method, :object, "hasOwnProperty"},
+        %Reference{} = object,
+        [key | _],
+        execution
+      ) do
+    case Heap.own_property(execution, object, key) do
+      {:ok, property} -> {:ok, not is_nil(property), execution}
+      {:error, reason} -> {:error, reason, execution}
+    end
+  end
+
+  def call(
+        {:primitive_method, :object, "propertyIsEnumerable"},
+        %Reference{} = object,
+        [key | _],
+        execution
+      ) do
+    case Heap.own_property(execution, object, key) do
+      {:ok, %Property{enumerable: enumerable}} -> {:ok, enumerable, execution}
+      {:ok, nil} -> {:ok, false, execution}
+      {:error, reason} -> {:error, reason, execution}
+    end
+  end
+
+  def call({:primitive_method, :object, "toString"}, _object, _arguments, execution),
+    do: {:ok, "[object Object]", execution}
+
   def call({:primitive_method, :number, "toString"}, value, arguments, execution) do
     radix =
       case arguments do
@@ -231,6 +268,13 @@ defmodule QuickBEAM.VM.Builtins do
       end
 
     {:ok, :erlang.float_to_binary(value / 1, decimals: digits), execution}
+  end
+
+  def call({:primitive_method, :string, method}, %Reference{} = receiver, arguments, execution) do
+    case primitive_value(receiver, :string, execution) do
+      {:ok, value} -> call({:primitive_method, :string, method}, value, arguments, execution)
+      :error -> {:error, :incompatible_string_receiver, execution}
+    end
   end
 
   def call({:primitive_method, :string, "toString"}, value, _arguments, execution),
@@ -311,6 +355,39 @@ defmodule QuickBEAM.VM.Builtins do
     end
   end
 
+  def call({:builtin, "Boolean"}, %Reference{} = receiver, values, execution) do
+    value = values |> List.first() |> Value.truthy?()
+    maybe_box_primitive(receiver, :boolean, value, execution)
+  end
+
+  def call({:builtin, "Boolean"}, _this, values, execution),
+    do: {:ok, values |> List.first() |> Value.truthy?(), execution}
+
+  def call({:builtin, "Number"}, %Reference{} = receiver, values, execution) do
+    value =
+      case values do
+        [value | _] -> Value.to_number(value)
+        [] -> 0
+      end
+
+    maybe_box_primitive(receiver, :number, value, execution)
+  end
+
+  def call({:builtin, "Number"}, _this, [value], execution),
+    do: {:ok, Value.to_number(value), execution}
+
+  def call({:builtin, "Number"}, _this, [], execution), do: {:ok, 0, execution}
+
+  def call({:builtin, "String"}, %Reference{} = receiver, values, execution) do
+    value =
+      case values do
+        [value | _] -> Value.to_string_value(value)
+        [] -> ""
+      end
+
+    maybe_box_primitive(receiver, :string, value, execution)
+  end
+
   def call({:builtin, "String"}, _this, [value], execution),
     do: {:ok, Value.to_string_value(value), execution}
 
@@ -352,6 +429,12 @@ defmodule QuickBEAM.VM.Builtins do
     end
   end
 
+  def call({:builtin, "FunctionPrototype"}, _this, _arguments, execution),
+    do: {:ok, :undefined, execution}
+
+  def call({:builtin, "Function"}, _this, _arguments, execution),
+    do: {:error, :dynamic_function_unsupported, execution}
+
   def call({:builtin, "Array"}, _this, [length], execution)
       when is_integer(length) and length >= 0 do
     {array, execution} = Heap.allocate(execution, :array, length: length)
@@ -378,6 +461,89 @@ defmodule QuickBEAM.VM.Builtins do
   def call(callable, _this, _arguments, execution),
     do: {:error, {:unsupported_builtin, callable}, execution}
 
+  defp link_constructor_prototypes(execution) do
+    case execution.default_prototypes do
+      %{function: function_prototype} ->
+        Enum.reduce(Map.keys(@constructors), execution, fn name, execution ->
+          constructor = Map.fetch!(execution.globals, name)
+          {:ok, execution} = Heap.set_prototype(execution, constructor, function_prototype)
+          execution
+        end)
+
+      _no_function_prototype ->
+        execution
+    end
+  end
+
+  defp maybe_install_prototype("Object", constructor, execution) do
+    {prototype, execution} = Heap.allocate(execution, :ordinary, prototype: nil)
+
+    execution =
+      Enum.reduce(["hasOwnProperty", "propertyIsEnumerable", "toString"], execution, fn method,
+                                                                                        execution ->
+        {:ok, execution} =
+          Heap.define(execution, prototype, method, {:primitive_method, :object, method},
+            enumerable: false
+          )
+
+        execution
+      end)
+
+    {:ok, execution} =
+      Heap.define(execution, prototype, "constructor", constructor, enumerable: false)
+
+    {:ok, execution} =
+      Heap.define(execution, constructor, "prototype", prototype, enumerable: false)
+
+    %{
+      execution
+      | default_prototypes: Map.put(execution.default_prototypes, :ordinary, prototype)
+    }
+  end
+
+  defp maybe_install_prototype("Function", constructor, execution) do
+    {prototype, execution} =
+      Heap.allocate(execution, :function,
+        callable: {:builtin, "FunctionPrototype"},
+        prototype: Map.get(execution.default_prototypes, :ordinary)
+      )
+
+    {:ok, execution} =
+      Heap.define(execution, constructor, "prototype", prototype, enumerable: false)
+
+    %{
+      execution
+      | default_prototypes: Map.put(execution.default_prototypes, :function, prototype)
+    }
+  end
+
+  defp maybe_install_prototype("Array", constructor, execution) do
+    install_primitive_prototype(
+      constructor,
+      :array,
+      ["concat", "filter", "forEach", "join", "map", "reduce", "slice", "some"],
+      execution
+    )
+  end
+
+  defp maybe_install_prototype("String", constructor, execution) do
+    install_primitive_prototype(
+      constructor,
+      :string,
+      [
+        "charCodeAt",
+        "includes",
+        "replace",
+        "slice",
+        "split",
+        "startsWith",
+        "toLowerCase",
+        "toString"
+      ],
+      execution
+    )
+  end
+
   defp maybe_install_prototype("Promise", constructor, execution) do
     {prototype, execution} = Heap.allocate(execution)
 
@@ -391,6 +557,32 @@ defmodule QuickBEAM.VM.Builtins do
   end
 
   defp maybe_install_prototype(_name, _constructor, execution), do: execution
+
+  defp install_primitive_prototype(constructor, kind, methods, execution) do
+    {prototype, execution} = Heap.allocate(execution)
+
+    execution =
+      Enum.reduce(methods, execution, fn method, execution ->
+        {:ok, execution} =
+          Heap.define(execution, prototype, method, {:primitive_method, kind, method},
+            enumerable: false
+          )
+
+        execution
+      end)
+
+    {:ok, execution} =
+      Heap.define(execution, constructor, "prototype", prototype, enumerable: false)
+
+    if kind == :array do
+      %{
+        execution
+        | default_prototypes: Map.put(execution.default_prototypes, :array, prototype)
+      }
+    else
+      execution
+    end
+  end
 
   defp descriptor_definition(descriptor, current, execution) do
     with {:ok, getter, getter?} <- descriptor_field(descriptor, "get", execution),
@@ -526,6 +718,26 @@ defmodule QuickBEAM.VM.Builtins do
     {descriptor, execution}
   end
 
+  defp maybe_box_primitive(receiver, kind, value, execution) do
+    case Heap.fetch_object(execution, receiver) do
+      {:ok, %Object{internal: :constructor_instance}} ->
+        {:ok, execution} =
+          Heap.update_object(execution, receiver, &%{&1 | internal: {:primitive, kind, value}})
+
+        {:ok, receiver, execution}
+
+      _not_constructor ->
+        {:ok, value, execution}
+    end
+  end
+
+  defp primitive_value(reference, kind, execution) do
+    case Heap.fetch_object(execution, reference) do
+      {:ok, %Object{internal: {:primitive, ^kind, value}}} -> {:ok, value}
+      _other -> :error
+    end
+  end
+
   defp array?(%Reference{} = reference, execution) do
     match?({:ok, %Object{kind: :array}}, Heap.fetch_object(execution, reference))
   end
@@ -619,17 +831,27 @@ defmodule QuickBEAM.VM.Builtins do
   defp slice_range(size, arguments) do
     start =
       case arguments do
-        [start | _] -> normalize_index(Value.to_int32(start), size)
+        [start | _] -> normalize_slice_index(start, size)
         [] -> 0
       end
 
     finish =
       case arguments do
-        [_start, finish | _] -> normalize_index(Value.to_int32(finish), size)
+        [_start, finish | _] -> normalize_slice_index(finish, size)
         _ -> size
       end
 
     {start, max(finish - start, 0)}
+  end
+
+  defp normalize_slice_index(value, size) do
+    case Value.to_number(value) do
+      :infinity -> size
+      :neg_infinity -> 0
+      :nan -> 0
+      index when is_number(index) -> normalize_index(trunc(index), size)
+      _value -> 0
+    end
   end
 
   defp normalize_index(index, size) when index < 0, do: max(size + index, 0)
