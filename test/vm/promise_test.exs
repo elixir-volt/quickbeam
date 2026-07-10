@@ -75,6 +75,22 @@ defmodule QuickBEAM.VM.PromiseTest do
     end
   end
 
+  test "reads thenable accessors synchronously and invokes returned then functions as jobs", %{
+    runtime: runtime
+  } do
+    sources = [
+      "(()=>{let order='';Promise.resolve({get then(){order+='a';return resolve=>{order+='c';resolve()}}});order+='b';return order})()",
+      "(async()=>{let order='';Promise.resolve({get then(){order+='a';return resolve=>{order+='c';resolve()}}});order+='b';await 0;return order})()",
+      "Promise.resolve({get then(){return resolve=>resolve(42)}})",
+      "Promise.resolve({get then(){throw 42}}).catch(value=>value)",
+      "Promise.resolve({get then(){return 42}}).then(value=>value.then)"
+    ]
+
+    for source <- sources do
+      assert_vm_matches_native(runtime, source)
+    end
+  end
+
   test "runs reactions as FIFO microtasks after synchronous code", %{runtime: runtime} do
     source = """
     (async()=>{

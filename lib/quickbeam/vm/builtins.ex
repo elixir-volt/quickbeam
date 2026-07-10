@@ -84,16 +84,7 @@ defmodule QuickBEAM.VM.Builtins do
       ) do
     with {:ok, current} <- Heap.own_property(execution, target, key),
          {:ok, definition} <- descriptor_definition(descriptor, current, execution),
-         {:ok, execution} <-
-           Heap.define(
-             execution,
-             target,
-             key,
-             definition.value,
-             writable: definition.writable,
-             enumerable: definition.enumerable,
-             configurable: definition.configurable
-           ) do
+         {:ok, execution} <- define_property(execution, target, key, definition) do
       {:ok, target, execution}
     else
       {:error, reason} -> {:error, reason, execution}
@@ -404,32 +395,91 @@ defmodule QuickBEAM.VM.Builtins do
   defp descriptor_definition(descriptor, current, execution) do
     with {:ok, getter, getter?} <- descriptor_field(descriptor, "get", execution),
          {:ok, setter, setter?} <- descriptor_field(descriptor, "set", execution),
-         true <- not getter? or getter == :undefined,
-         true <- not setter? or setter == :undefined,
          {:ok, value, value?} <- descriptor_field(descriptor, "value", execution),
          {:ok, writable, writable?} <- descriptor_field(descriptor, "writable", execution),
          {:ok, enumerable, enumerable?} <- descriptor_field(descriptor, "enumerable", execution),
          {:ok, configurable, configurable?} <-
-           descriptor_field(descriptor, "configurable", execution) do
+           descriptor_field(descriptor, "configurable", execution),
+         :ok <- compatible_descriptor_kinds(getter? or setter?, value? or writable?),
+         {:ok, getter} <- accessor_function(getter, getter?, execution),
+         {:ok, setter} <- accessor_function(setter, setter?, execution) do
       current = current || %Property{writable: false, enumerable: false, configurable: false}
+      accessor? = getter? or setter? or (not value? and not writable? and accessor?(current))
 
       {:ok,
-       %Property{
-         value: if(value?, do: value, else: current.value),
-         writable: if(writable?, do: Value.truthy?(writable), else: current.writable),
-         enumerable: if(enumerable?, do: Value.truthy?(enumerable), else: current.enumerable),
-         configurable:
-           if(configurable?, do: Value.truthy?(configurable), else: current.configurable)
-       }}
+       if accessor? do
+         %Property{
+           kind: :accessor,
+           value: :undefined,
+           writable: false,
+           enumerable: if(enumerable?, do: Value.truthy?(enumerable), else: current.enumerable),
+           configurable:
+             if(configurable?, do: Value.truthy?(configurable), else: current.configurable),
+           getter: if(getter?, do: getter, else: current.getter),
+           setter: if(setter?, do: setter, else: current.setter)
+         }
+       else
+         %Property{
+           value: if(value?, do: value, else: current.value),
+           writable: if(writable?, do: Value.truthy?(writable), else: current.writable),
+           enumerable: if(enumerable?, do: Value.truthy?(enumerable), else: current.enumerable),
+           configurable:
+             if(configurable?, do: Value.truthy?(configurable), else: current.configurable)
+         }
+       end}
     else
-      false -> {:error, :accessor_descriptors_unsupported}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp compatible_descriptor_kinds(true, true), do: {:error, :invalid_property_descriptor}
+  defp compatible_descriptor_kinds(_accessor?, _data?), do: :ok
+
+  defp accessor_function(_value, false, _execution), do: {:ok, nil}
+  defp accessor_function(:undefined, true, _execution), do: {:ok, nil}
+
+  defp accessor_function(value, true, execution) do
+    if callable_value?(value, execution),
+      do: {:ok, value},
+      else: {:error, :accessor_not_callable}
+  end
+
+  defp callable_value?(%Reference{} = reference, execution),
+    do: not is_nil(callable(execution, reference))
+
+  defp callable_value?(value, _execution) when is_tuple(value),
+    do:
+      elem(value, 0) in [
+        :bound_function,
+        :builtin,
+        :builtin_method,
+        :host_function,
+        :primitive_method,
+        :promise_method,
+        :promise_resolver
+      ]
+
+  defp callable_value?(_value, _execution), do: false
+
+  defp accessor?(%Property{kind: :accessor}), do: true
+  defp accessor?(_property), do: false
+
+  defp define_property(execution, target, key, %Property{} = property) do
+    if accessor?(property) do
+      Heap.define_descriptor(execution, target, key, property)
+    else
+      Heap.define(execution, target, key, property.value,
+        writable: property.writable,
+        enumerable: property.enumerable,
+        configurable: property.configurable
+      )
     end
   end
 
   defp descriptor_field(%Reference{} = descriptor, key, execution) do
     if Heap.has_property?(execution, descriptor, key) do
       case Heap.get(execution, descriptor, key) do
+        {:ok, {:accessor, _getter, _receiver}} -> {:error, :accessor_descriptor_field}
         {:ok, value} -> {:ok, value, true}
         {:error, reason} -> {:error, reason}
       end
@@ -449,13 +499,25 @@ defmodule QuickBEAM.VM.Builtins do
   defp descriptor_object(property, execution) do
     {descriptor, execution} = Heap.allocate(execution)
 
+    fields =
+      if accessor?(property) do
+        [
+          {"get", property.getter || :undefined},
+          {"set", property.setter || :undefined},
+          {"enumerable", property.enumerable},
+          {"configurable", property.configurable}
+        ]
+      else
+        [
+          {"value", property.value},
+          {"writable", property.writable},
+          {"enumerable", property.enumerable},
+          {"configurable", property.configurable}
+        ]
+      end
+
     execution =
-      [
-        {"value", property.value},
-        {"writable", property.writable},
-        {"enumerable", property.enumerable},
-        {"configurable", property.configurable}
-      ]
+      fields
       |> Enum.reduce(execution, fn {key, value}, execution ->
         {:ok, execution} = Heap.define(execution, descriptor, key, value)
         execution
@@ -508,7 +570,12 @@ defmodule QuickBEAM.VM.Builtins do
 
   defp assign(_target, _source, _execution), do: {:error, :not_an_object}
 
-  defp property(%Reference{} = reference, key, execution), do: Heap.get(execution, reference, key)
+  defp property(%Reference{} = reference, key, execution) do
+    case Heap.get(execution, reference, key) do
+      {:ok, {:accessor, _getter, _receiver}} -> {:error, :accessor_in_object_assign}
+      result -> result
+    end
+  end
 
   defp property(value, key, _execution) when is_map(value),
     do: {:ok, Map.get(value, key, :undefined)}

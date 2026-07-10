@@ -197,7 +197,7 @@ defmodule QuickBEAM.VM.InterpreterTest do
   end
 
   test "reports unsupported opcodes without crashing the caller" do
-    assert {:ok, program} = QuickBEAM.VM.compile("({get answer(){return 42}})")
+    assert {:ok, program} = QuickBEAM.VM.compile("class UnsupportedClass {}")
     assert {:error, {:unsupported_opcode, _opcode, _operands}} = QuickBEAM.VM.eval(program)
     assert Process.alive?(self())
   end

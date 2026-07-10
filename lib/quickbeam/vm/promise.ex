@@ -168,6 +168,12 @@ defmodule QuickBEAM.VM.Promise do
     end
   end
 
+  @doc "Enqueues invocation of a callable `then` result as a Promise microtask."
+  @spec enqueue_assimilation(Execution.t(), PromiseReference.t(), Reference.t(), term()) ::
+          Execution.t()
+  def enqueue_assimilation(execution, promise, thenable, callable),
+    do: enqueue(execution, {:assimilate_thenable, promise, thenable, callable})
+
   @spec enqueue_coroutine(Execution.t(), Coroutine.t(), {:ok, term()} | {:error, term()}) ::
           Execution.t()
   def enqueue_coroutine(execution, %Coroutine{} = coroutine, result),
@@ -206,6 +212,10 @@ defmodule QuickBEAM.VM.Promise do
             execution = %{execution | promises: Map.put(execution.promises, id, :resolving)}
             enqueue(execution, {:assimilate_thenable, promise, value, callable})
 
+          {:getter, getter, receiver} ->
+            execution = %{execution | promises: Map.put(execution.promises, id, :resolving)}
+            enqueue_sync(execution, {:read_thenable, promise, receiver, getter})
+
           :none ->
             settle_result(execution, promise, result)
         end
@@ -219,10 +229,10 @@ defmodule QuickBEAM.VM.Promise do
     do: settle_result(execution, promise, result)
 
   @doc """
-  Settles a Promise whose resolution was locked while adopting a thenable.
+  Settles a Promise whose resolution was locked while adopting another value.
 
-  Settlements are ignored unless the Promise is currently in the internal
-  resolving state, which preserves resolver idempotence.
+  The adopted value is recursively resolved according to the Promise resolution
+  procedure, including Promise and thenable assimilation.
   """
   @spec settle_assimilated(Execution.t(), PromiseReference.t(), {:ok, term()} | {:error, term()}) ::
           Execution.t()
@@ -231,6 +241,19 @@ defmodule QuickBEAM.VM.Promise do
       :resolving ->
         execution = %{execution | promises: Map.put(execution.promises, id, :pending)}
         settle(execution, promise, result)
+
+      _settled ->
+        execution
+    end
+  end
+
+  @doc "Fulfills a resolving Promise after a non-callable `then` getter result."
+  @spec fulfill_assimilated(Execution.t(), PromiseReference.t(), term()) :: Execution.t()
+  def fulfill_assimilated(execution, %PromiseReference{id: id} = promise, value) do
+    case Map.fetch!(execution.promises, id) do
+      :resolving ->
+        execution = %{execution | promises: Map.put(execution.promises, id, :pending)}
+        settle_result(execution, promise, {:ok, value})
 
       _settled ->
         execution
@@ -260,6 +283,9 @@ defmodule QuickBEAM.VM.Promise do
 
   defp then_callable(execution, reference) do
     case Heap.get(execution, reference, "then") do
+      {:ok, {:accessor, getter, receiver}} ->
+        {:getter, getter, receiver}
+
       {:ok, %Reference{} = callable} ->
         if Builtins.callable(execution, callable), do: {:ok, callable}, else: :none
 
@@ -402,4 +428,7 @@ defmodule QuickBEAM.VM.Promise do
     do: enqueue(execution, {:aggregate_settle, id, index, result})
 
   defp enqueue(execution, job), do: %{execution | jobs: :queue.in(job, execution.jobs)}
+
+  defp enqueue_sync(execution, job),
+    do: %{execution | sync_jobs: :queue.in(job, execution.sync_jobs)}
 end

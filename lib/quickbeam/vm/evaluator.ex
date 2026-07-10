@@ -56,6 +56,16 @@ defmodule QuickBEAM.VM.Evaluator do
   end
 
   defp await_final_promise(%PromiseReference{} = promise, execution) do
+    if :queue.is_empty(execution.sync_jobs) do
+      await_settled_promise(promise, execution)
+    else
+      execution
+      |> Interpreter.run_synchronous_job()
+      |> continue_final(promise)
+    end
+  end
+
+  defp await_settled_promise(promise, execution) do
     case Promise.state(execution, promise) do
       {:fulfilled, value} ->
         finish_final({:ok, value, execution})
@@ -88,6 +98,12 @@ defmodule QuickBEAM.VM.Evaluator do
   defp run_job({:resume_coroutine, %Coroutine{} = coroutine, result}, final_promise, execution) do
     coroutine
     |> Interpreter.resume_coroutine(result, execution)
+    |> continue_final(final_promise)
+  end
+
+  defp run_job({:read_thenable, promise, thenable, getter}, final_promise, execution) do
+    promise
+    |> Interpreter.read_thenable(thenable, getter, execution)
     |> continue_final(final_promise)
   end
 

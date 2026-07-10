@@ -10,6 +10,7 @@ defmodule QuickBEAM.VM.Interpreter do
   import Bitwise
 
   alias QuickBEAM.VM.{
+    AccessorBoundary,
     AsyncBoundary,
     Builtins,
     Continuation,
@@ -22,6 +23,7 @@ defmodule QuickBEAM.VM.Interpreter do
     Heap,
     Memory,
     NativeFrame,
+    ObjectAssignBoundary,
     Opcodes,
     PredefinedAtoms,
     Program,
@@ -33,6 +35,7 @@ defmodule QuickBEAM.VM.Interpreter do
     Reference,
     RegExp,
     ThenableBoundary,
+    ThenGetterBoundary,
     Thrown,
     UTF16,
     Value
@@ -95,6 +98,33 @@ defmodule QuickBEAM.VM.Interpreter do
       {:ok, value} -> run(%{coroutine.frame | stack: [value | coroutine.frame.stack]}, execution)
       {:error, reason} -> raise_js_from_caller(reason, coroutine.frame, execution)
     end
+  end
+
+  @doc "Reads a thenable's accessor-backed `then` property during Promise resolution."
+  def read_thenable(promise, thenable, getter, %Execution{} = execution),
+    do: start_then_getter(promise, thenable, getter, nil, execution)
+
+  @doc "Runs one pending synchronous Promise-resolution job, when present."
+  def run_synchronous_job(%Execution{} = execution) do
+    case :queue.out(execution.sync_jobs) do
+      {{:value, {:read_thenable, promise, thenable, getter}}, sync_jobs} ->
+        execution = %{execution | sync_jobs: sync_jobs}
+        start_then_getter(promise, thenable, getter, nil, execution)
+
+      {:empty, _sync_jobs} ->
+        {:none, execution}
+    end
+  end
+
+  defp start_then_getter(promise, thenable, getter, continuation, execution) do
+    boundary = %ThenGetterBoundary{
+      promise: promise,
+      thenable: thenable,
+      depth: execution.depth,
+      continuation: continuation
+    }
+
+    dispatch_call(getter, [], thenable, boundary, execution, false)
   end
 
   @doc "Invokes a thenable and connects its resolver functions to a Promise."
@@ -235,6 +265,17 @@ defmodule QuickBEAM.VM.Interpreter do
     }
   end
 
+  defp run(frame, %Execution{} = execution) when execution.sync_jobs != {[], []} do
+    case :queue.out(execution.sync_jobs) do
+      {{:value, {:read_thenable, promise, thenable, getter}}, sync_jobs} ->
+        execution = %{execution | sync_jobs: sync_jobs}
+        start_then_getter(promise, thenable, getter, frame, execution)
+
+      {:empty, _sync_jobs} ->
+        run(frame, %{execution | sync_jobs: {[], []}})
+    end
+  end
+
   defp run(_frame, %Execution{memory_exceeded: true} = execution),
     do: {:error, {:limit_exceeded, :memory_bytes, execution.memory_limit}, execution}
 
@@ -319,6 +360,28 @@ defmodule QuickBEAM.VM.Interpreter do
       end)
 
     push(%{frame | stack: stack}, execution, reference)
+  end
+
+  defp execute(
+         :define_method,
+         [atom, kind],
+         %{stack: [callable, %Reference{} = object | stack]} = frame,
+         execution
+       ) do
+    key = resolve_atom(atom, execution)
+
+    result =
+      case kind do
+        4 -> Heap.define(execution, object, key, callable)
+        5 -> Heap.define_accessor(execution, object, key, :getter, callable)
+        6 -> Heap.define_accessor(execution, object, key, :setter, callable)
+        _kind -> {:error, {:unsupported_method_kind, kind}}
+      end
+
+    case result do
+      {:ok, execution} -> continue(%{frame | stack: [object | stack]}, execution)
+      {:error, reason} -> raise_js({:type_error, reason}, frame, execution)
+    end
   end
 
   defp execute(
@@ -1040,6 +1103,31 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp dispatch_call(
+         {:builtin_method, "Object", "assign"},
+         arguments,
+         _this,
+         caller,
+         execution,
+         tail?
+       ) do
+    case arguments do
+      [%Reference{} = target | sources] ->
+        boundary = %ObjectAssignBoundary{
+          target: target,
+          sources: sources,
+          caller: caller,
+          depth: execution.depth,
+          tail?: tail?
+        }
+
+        continue_object_assign(boundary, execution)
+
+      _arguments ->
+        raise_js_from_caller({:type_error, :not_an_object}, caller, execution)
+    end
+  end
+
+  defp dispatch_call(
          {:primitive_method, :array, method},
          arguments,
          receiver,
@@ -1068,6 +1156,28 @@ defmodule QuickBEAM.VM.Interpreter do
   defp complete_call_result(value, %ReactionBoundary{} = boundary, execution, _tail?),
     do: complete_reaction(boundary, value, execution)
 
+  defp complete_call_result(
+         value,
+         %ObjectAssignBoundary{phase: :get} = boundary,
+         execution,
+         _tail?
+       ),
+       do: assign_object_value(boundary, boundary.key, value, execution)
+
+  defp complete_call_result(
+         _value,
+         %ObjectAssignBoundary{phase: :set} = boundary,
+         execution,
+         _tail?
+       ),
+       do: continue_object_assign(%{boundary | phase: nil, key: nil}, execution)
+
+  defp complete_call_result(value, %ThenGetterBoundary{} = boundary, execution, _tail?),
+    do: complete_then_getter(value, boundary, execution)
+
+  defp complete_call_result(value, %AccessorBoundary{} = boundary, execution, _tail?),
+    do: complete_accessor(value, boundary, execution)
+
   defp complete_call_result(value, %ConstructorBoundary{} = boundary, execution, _tail?),
     do: complete_constructor(value, boundary, execution)
 
@@ -1085,6 +1195,29 @@ defmodule QuickBEAM.VM.Interpreter do
       do: return_value(value, execution),
       else: run(%{caller | stack: [value | caller.stack]}, execution)
   end
+
+  defp complete_then_getter(value, boundary, execution) do
+    execution =
+      if type_of(value, execution) == "function" do
+        Promise.enqueue_assimilation(execution, boundary.promise, boundary.thenable, value)
+      else
+        Promise.fulfill_assimilated(execution, boundary.promise, boundary.thenable)
+      end
+
+    continue_after_then_getter(boundary, execution)
+  end
+
+  defp continue_after_then_getter(%ThenGetterBoundary{continuation: %Frame{} = frame}, execution),
+    do: run(frame, execution)
+
+  defp continue_after_then_getter(%ThenGetterBoundary{continuation: nil}, execution),
+    do: {:idle, execution}
+
+  defp complete_accessor(value, %AccessorBoundary{mode: :get} = boundary, execution),
+    do: run(%{boundary.caller | stack: [value | boundary.caller.stack]}, execution)
+
+  defp complete_accessor(_value, %AccessorBoundary{mode: :set} = boundary, execution),
+    do: run(boundary.caller, execution)
 
   defp complete_constructor(value, boundary, execution) do
     result =
@@ -1129,6 +1262,53 @@ defmodule QuickBEAM.VM.Interpreter do
       )
 
     {:idle, execution}
+  end
+
+  defp continue_object_assign(%ObjectAssignBoundary{keys: [key | keys]} = boundary, execution) do
+    case get_property(boundary.source, key, execution) do
+      {:ok, {:accessor, getter, receiver}} ->
+        boundary = %{boundary | phase: :get, key: key, keys: keys}
+        dispatch_call(getter, [], receiver, boundary, execution, false)
+
+      {:ok, value} ->
+        assign_object_value(%{boundary | keys: keys}, key, value, execution)
+
+      {:error, reason} ->
+        raise_js_from_caller({:type_error, reason}, boundary, execution)
+    end
+  end
+
+  defp continue_object_assign(
+         %ObjectAssignBoundary{keys: [], sources: [source | sources]} = boundary,
+         execution
+       ) do
+    case enumerable_keys(source, execution) do
+      {:ok, keys} ->
+        continue_object_assign(
+          %{boundary | source: source, sources: sources, keys: keys, phase: nil, key: nil},
+          execution
+        )
+
+      {:error, reason} ->
+        raise_js_from_caller({:type_error, reason}, boundary, execution)
+    end
+  end
+
+  defp continue_object_assign(%ObjectAssignBoundary{keys: [], sources: []} = boundary, execution),
+    do: complete_call_result(boundary.target, boundary.caller, execution, boundary.tail?)
+
+  defp assign_object_value(boundary, key, value, execution) do
+    case Heap.put(execution, boundary.target, key, value) do
+      {:ok, execution} ->
+        continue_object_assign(%{boundary | phase: nil, key: nil}, execution)
+
+      {:error, {:invoke_setter, setter}} ->
+        boundary = %{boundary | phase: :set, key: key}
+        dispatch_call(setter, [value], boundary.target, boundary, execution, false)
+
+      {:error, reason} ->
+        raise_js_from_caller({:type_error, reason}, boundary, execution)
+    end
   end
 
   defp start_array_iteration(method, receiver, arguments, caller, execution, tail?) do
@@ -1447,6 +1627,15 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp get_property_and_continue(object, key, stack, frame, execution) do
     case get_property(object, key, execution) do
+      {:ok, {:accessor, getter, receiver}} ->
+        boundary = %AccessorBoundary{
+          mode: :get,
+          caller: %{next_frame(frame) | stack: stack},
+          depth: execution.depth
+        }
+
+        dispatch_call(getter, [], receiver, boundary, execution, false)
+
       {:ok, value} ->
         continue(%{frame | stack: [value | stack]}, execution)
 
@@ -1459,6 +1648,15 @@ defmodule QuickBEAM.VM.Interpreter do
     case put_property(object, key, value, execution) do
       {:ok, execution} ->
         continue(%{frame | stack: stack}, execution)
+
+      {:error, {:invoke_setter, setter}} ->
+        boundary = %AccessorBoundary{
+          mode: :set,
+          caller: %{next_frame(frame) | stack: stack},
+          depth: execution.depth
+        }
+
+        dispatch_call(setter, [value], object, boundary, execution, false)
 
       {:error, reason} ->
         raise_js({:type_error, reason}, %{frame | stack: stack}, execution)
@@ -1595,6 +1793,23 @@ defmodule QuickBEAM.VM.Interpreter do
     do_raise_js(reason, frame, execution, trace, false)
   end
 
+  defp raise_js_from_caller(reason, %ObjectAssignBoundary{} = boundary, execution) do
+    {reason, trace} = throw_state(reason)
+    do_raise_js(reason, boundary.caller, execution, trace, true)
+  end
+
+  defp raise_js_from_caller(reason, %ThenGetterBoundary{} = boundary, execution) do
+    {reason, trace} = throw_state(reason)
+    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
+    execution = Promise.settle_assimilated(execution, boundary.promise, {:error, thrown})
+    continue_after_then_getter(boundary, execution)
+  end
+
+  defp raise_js_from_caller(reason, %AccessorBoundary{} = boundary, execution) do
+    {reason, trace} = throw_state(reason)
+    do_raise_js(reason, boundary.caller, execution, trace, true)
+  end
+
   defp raise_js_from_caller(reason, %ConstructorBoundary{} = boundary, execution) do
     {reason, trace} = throw_state(reason)
     do_raise_js(reason, boundary.caller, execution, trace, true)
@@ -1650,6 +1865,35 @@ defmodule QuickBEAM.VM.Interpreter do
   defp unwind_caller(reason, %Execution{callers: []} = execution, trace) do
     error = QuickBEAM.JSError.from_vm(reason, Enum.reverse(trace))
     {:error, error, execution}
+  end
+
+  defp unwind_caller(
+         reason,
+         %Execution{callers: [%ObjectAssignBoundary{} = boundary | callers]} = execution,
+         trace
+       ) do
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    do_raise_js(reason, boundary.caller, execution, trace, true)
+  end
+
+  defp unwind_caller(
+         reason,
+         %Execution{callers: [%ThenGetterBoundary{} = boundary | callers]} = execution,
+         trace
+       ) do
+    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    execution = Promise.settle_assimilated(execution, boundary.promise, {:error, thrown})
+    continue_after_then_getter(boundary, execution)
+  end
+
+  defp unwind_caller(
+         reason,
+         %Execution{callers: [%AccessorBoundary{} = boundary | callers]} = execution,
+         trace
+       ) do
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    do_raise_js(reason, boundary.caller, execution, trace, true)
   end
 
   defp unwind_caller(
@@ -1774,7 +2018,7 @@ defmodule QuickBEAM.VM.Interpreter do
          %AsyncBoundary{mode: :push, caller: caller, promise: promise},
          execution
        ),
-       do: run(%{caller | stack: [promise | caller.stack]}, execution)
+       do: complete_call_result(promise, caller, execution, false)
 
   defp deliver_async_promise(%AsyncBoundary{mode: :return, promise: promise}, execution),
     do: return_value(promise, execution)
@@ -1800,6 +2044,30 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp return_value(value, %Execution{callers: [%AsyncBoundary{} | _]} = execution),
     do: complete_async(value, execution)
+
+  defp return_value(
+         value,
+         %Execution{callers: [%ObjectAssignBoundary{} = boundary | callers]} = execution
+       ) do
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    complete_call_result(value, boundary, execution, false)
+  end
+
+  defp return_value(
+         value,
+         %Execution{callers: [%ThenGetterBoundary{} = boundary | callers]} = execution
+       ) do
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    complete_then_getter(value, boundary, execution)
+  end
+
+  defp return_value(
+         value,
+         %Execution{callers: [%AccessorBoundary{} = boundary | callers]} = execution
+       ) do
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    complete_accessor(value, boundary, execution)
+  end
 
   defp return_value(
          value,

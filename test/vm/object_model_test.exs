@@ -43,6 +43,45 @@ defmodule QuickBEAM.VM.ObjectModelTest do
     end
   end
 
+  test "matches native own and inherited accessor invocation", %{runtime: runtime} do
+    sources = [
+      "(()=>{let value={get answer(){return 42}};return value.answer})()",
+      "(()=>{let prototype={get answer(){return this.value}};let value=Object.create(prototype);value.value=42;return value.answer})()",
+      "(()=>{let seen=0;let prototype={set answer(value){seen=value}};let object=Object.create(prototype);object.answer=42;return seen})()",
+      "(()=>{let value={get answer(){throw 42}};try{return value.answer}catch(error){return error}})()",
+      "(()=>{let value={set answer(next){throw next}};try{value.answer=42}catch(error){return error}})()"
+    ]
+
+    for source <- sources do
+      assert_vm_matches_native(runtime, source)
+    end
+  end
+
+  test "matches native accessor descriptors and descriptor reflection", %{runtime: runtime} do
+    sources = [
+      "(()=>{let value={};let getter=function(){return 42};Object.defineProperty(value,'answer',{get:getter,enumerable:true});let descriptor=Object.getOwnPropertyDescriptor(value,'answer');return [value.answer,descriptor.get===getter,descriptor.set===void 0,descriptor.enumerable,('value' in descriptor)]})()",
+      "(()=>{let stored=0;let value={};Object.defineProperty(value,'answer',{get:function(){return stored},set:function(next){stored=next}});value.answer=42;return value.answer})()",
+      "(()=>{let value={};Object.defineProperty(value,'answer',{get:void 0});let descriptor=Object.getOwnPropertyDescriptor(value,'answer');return [value.answer===void 0,('get' in descriptor),('value' in descriptor)]})()",
+      "(async()=>{let value={};Object.defineProperty(value,'answer',{get:async function(){await 0;return 42}});return await value.answer})()"
+    ]
+
+    for source <- sources do
+      assert_vm_matches_native(runtime, source)
+    end
+  end
+
+  test "resumes Object.assign through source getters and target setters", %{runtime: runtime} do
+    sources = [
+      "(()=>{let source={get answer(){return 42}};return Object.assign({},source).answer})()",
+      "(()=>{let seen=0;let target={set answer(value){seen=value}};Object.assign(target,{answer:42});return seen})()",
+      "(()=>{let source={get answer(){throw 42}};try{Object.assign({},source)}catch(error){return error}})()"
+    ]
+
+    for source <- sources do
+      assert_vm_matches_native(runtime, source)
+    end
+  end
+
   test "matches native prototype mutation and cycle rejection", %{runtime: runtime} do
     sources = [
       "(()=>{let prototype={answer:42};let value={};Object.setPrototypeOf(value,prototype);return [value.answer,Object.getPrototypeOf(value)===prototype]})()",
@@ -93,7 +132,7 @@ defmodule QuickBEAM.VM.ObjectModelTest do
 
   defp assert_vm_matches_native(runtime, source) do
     assert {:ok, program} = QuickBEAM.VM.compile(source)
-    assert {:ok, expected} = QuickBEAM.eval(runtime, source)
+    assert {:ok, expected} = QuickBEAM.eval(runtime, "await (#{source})")
     assert {:ok, ^expected} = QuickBEAM.VM.eval(program)
   end
 end

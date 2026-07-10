@@ -12,11 +12,14 @@ defmodule QuickBEAM.VM.AsyncBoundary do
   @type t :: %__MODULE__{
           promise: QuickBEAM.VM.PromiseReference.t(),
           caller:
-            QuickBEAM.VM.Frame.t()
+            QuickBEAM.VM.AccessorBoundary.t()
+            | QuickBEAM.VM.Frame.t()
+            | QuickBEAM.VM.ObjectAssignBoundary.t()
             | QuickBEAM.VM.NativeFrame.t()
             | QuickBEAM.VM.ReactionBoundary.t()
             | QuickBEAM.VM.PromiseExecutorBoundary.t()
             | QuickBEAM.VM.ThenableBoundary.t()
+            | QuickBEAM.VM.ThenGetterBoundary.t()
             | nil,
           depth: pos_integer(),
           mode: :push | :return | :reaction | :executor | :thenable | :detached

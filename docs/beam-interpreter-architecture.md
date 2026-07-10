@@ -375,11 +375,13 @@ JavaScript UTF-16 semantics even though Elixir binaries are UTF-8. The VM now
 uses explicit UTF-16 code-unit operations and preserves lone surrogates as
 WTF-8 binaries at the BEAM boundary, matching native QuickJS conversion.
 
-The owner-local heap enforces data descriptors across prototype chains, array
-length truncation and write restrictions, sparse deletion, ECMAScript own-key
-ordering, prototype-cycle rejection, constructor return rules, and
-`instanceof`. Accessor descriptors remain explicitly unsupported until getter
-and setter invocation is integrated with resumable interpreter boundaries.
+The owner-local heap enforces data and accessor descriptors across prototype
+chains, array length truncation and write restrictions, sparse deletion,
+ECMAScript own-key ordering, prototype-cycle rejection, constructor return
+rules, and `instanceof`. Getter, setter, and `Object.assign` calls use resumable
+boundaries so arbitrary JavaScript and exceptions do not escape the explicit
+machine state. Promise resolution reads accessor-backed `then` properties
+synchronously and queues invocation of returned then functions as microtasks.
 
 ## ECMAScript and host profiles
 

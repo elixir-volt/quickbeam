@@ -34,7 +34,7 @@ defmodule QuickBEAM.VM.Heap do
 
   @spec get(Execution.t(), Reference.t(), term()) :: {:ok, term()} | {:error, term()}
   def get(%Execution{} = execution, %Reference{} = reference, key) do
-    get_with_depth(execution, reference, normalize_key(key), 0)
+    get_with_depth(execution, reference, normalize_key(key), reference, 0)
   end
 
   @spec has_property?(Execution.t(), Reference.t(), term()) :: boolean()
@@ -148,6 +148,54 @@ defmodule QuickBEAM.VM.Heap do
     end
   end
 
+  @doc "Defines or updates an accessor property on an owner-local object."
+  @spec define_accessor(
+          Execution.t(),
+          Reference.t(),
+          term(),
+          :getter | :setter,
+          term(),
+          keyword()
+        ) :: {:ok, Execution.t()} | {:error, term()}
+  def define_accessor(execution, %Reference{id: id} = reference, key, kind, callable, opts \\ [])
+      when kind in [:getter, :setter] do
+    key = normalize_key(key)
+
+    with {:ok, object} <- fetch_object(execution, reference) do
+      current = Map.get(object.properties, key)
+
+      property = %Property{
+        kind: :accessor,
+        value: :undefined,
+        writable: false,
+        enumerable: Keyword.get(opts, :enumerable, current_flag(current, :enumerable, true)),
+        configurable:
+          Keyword.get(opts, :configurable, current_flag(current, :configurable, true)),
+        getter: if(kind == :getter, do: callable, else: current_accessor(current, :getter)),
+        setter: if(kind == :setter, do: callable, else: current_accessor(current, :setter))
+      }
+
+      store_descriptor(execution, id, object, key, property)
+    else
+      :error -> {:error, {:invalid_reference, id}}
+    end
+  end
+
+  @doc "Defines a complete data or accessor descriptor on an owner-local object."
+  @spec define_descriptor(Execution.t(), Reference.t(), term(), Property.t()) ::
+          {:ok, Execution.t()} | {:error, term()}
+  def define_descriptor(execution, %Reference{id: id} = reference, key, %Property{} = property) do
+    key = normalize_key(key)
+
+    with {:ok, object} <- fetch_object(execution, reference) do
+      if object.kind == :array and key == "length",
+        do: {:error, {:property_not_configurable, "length"}},
+        else: store_descriptor(execution, id, object, key, property)
+    else
+      :error -> {:error, {:invalid_reference, id}}
+    end
+  end
+
   @spec delete(Execution.t(), Reference.t(), term()) ::
           {:ok, boolean(), Execution.t()} | {:error, term()}
   def delete(%Execution{} = execution, %Reference{id: id} = reference, key) do
@@ -231,21 +279,28 @@ defmodule QuickBEAM.VM.Heap do
     end
   end
 
-  defp get_with_depth(_execution, _reference, _key, depth) when depth > @max_prototype_depth,
-    do: {:error, :prototype_chain_too_deep}
+  defp get_with_depth(_execution, _reference, _key, _receiver, depth)
+       when depth > @max_prototype_depth,
+       do: {:error, :prototype_chain_too_deep}
 
-  defp get_with_depth(execution, %Reference{id: id} = reference, key, depth) do
+  defp get_with_depth(execution, %Reference{id: id} = reference, key, receiver, depth) do
     case fetch_object(execution, reference) do
       {:ok, %Object{kind: :array, length: length}} when key == "length" ->
         {:ok, length}
 
       {:ok, object} ->
         case Map.fetch(object.properties, key) do
+          {:ok, %Property{getter: getter}} when not is_nil(getter) ->
+            {:ok, {:accessor, getter, receiver}}
+
+          {:ok, %Property{setter: setter}} when not is_nil(setter) ->
+            {:ok, :undefined}
+
           {:ok, %Property{value: value}} ->
             {:ok, value}
 
           :error when is_struct(object.prototype, Reference) ->
-            get_with_depth(execution, object.prototype, key, depth + 1)
+            get_with_depth(execution, object.prototype, key, receiver, depth + 1)
 
           :error ->
             {:ok, :undefined}
@@ -271,8 +326,17 @@ defmodule QuickBEAM.VM.Heap do
   end
 
   defp put_value(execution, object, key, _value) do
+    descriptor =
+      Map.get(object.properties, key) || inherited_property(execution, object.prototype, key, 0)
+
     cond do
-      match?(%Property{writable: false}, object.properties[key]) ->
+      match?(%Property{setter: setter} when not is_nil(setter), descriptor) ->
+        {:error, {:invoke_setter, descriptor.setter}}
+
+      accessor?(descriptor) ->
+        {:error, {:property_not_writable, key}}
+
+      match?(%Property{writable: false}, descriptor) ->
         {:error, {:property_not_writable, key}}
 
       Map.has_key?(object.properties, key) ->
@@ -281,9 +345,6 @@ defmodule QuickBEAM.VM.Heap do
       object.kind == :array and is_integer(key) and key >= object.length and
           not object.length_writable ->
         {:error, {:property_not_writable, "length"}}
-
-      inherited_non_writable?(execution, object.prototype, key, 0) ->
-        {:error, {:property_not_writable, key}}
 
       object.extensible ->
         {:ok, object}
@@ -311,9 +372,10 @@ defmodule QuickBEAM.VM.Heap do
     end
   end
 
-  defp define_property(object, key, value, opts) do
-    candidate = property(value, opts)
+  defp define_property(object, key, value, opts),
+    do: validate_definition(object, key, property(value, opts))
 
+  defp validate_definition(object, key, candidate) do
     case Map.get(object.properties, key) do
       %Property{configurable: false} = current ->
         cond do
@@ -323,10 +385,17 @@ defmodule QuickBEAM.VM.Heap do
           candidate.enumerable != current.enumerable ->
             {:error, {:property_not_configurable, key}}
 
-          not current.writable and candidate.writable ->
+          accessor?(candidate) != accessor?(current) ->
+            {:error, {:property_not_configurable, key}}
+
+          accessor?(current) and
+              (candidate.getter != current.getter or candidate.setter != current.setter) ->
+            {:error, {:property_not_configurable, key}}
+
+          not accessor?(current) and not current.writable and candidate.writable ->
             {:error, {:property_not_writable, key}}
 
-          not current.writable and candidate.value != current.value ->
+          not accessor?(current) and not current.writable and candidate.value != current.value ->
             {:error, {:property_not_writable, key}}
 
           true ->
@@ -343,6 +412,17 @@ defmodule QuickBEAM.VM.Heap do
            else: {:ok, object}
     end
   end
+
+  defp store_descriptor(execution, id, object, key, property) do
+    with {:ok, object} <- validate_definition(object, key, property) do
+      execution = maybe_charge_property(execution, object, key, property.value)
+      object = put_property_struct(object, key, property)
+      {:ok, %{execution | heap: Map.put(execution.heap, id, object)}}
+    end
+  end
+
+  defp accessor?(%Property{kind: :accessor}), do: true
+  defp accessor?(_property), do: false
 
   defp property(value, opts) do
     %Property{
@@ -387,24 +467,28 @@ defmodule QuickBEAM.VM.Heap do
       else: %{object | property_order: object.property_order ++ [key]}
   end
 
-  defp inherited_non_writable?(_execution, nil, _key, _depth), do: false
+  defp inherited_property(_execution, nil, _key, _depth), do: nil
 
-  defp inherited_non_writable?(_execution, _prototype, _key, depth)
+  defp inherited_property(_execution, _prototype, _key, depth)
        when depth > @max_prototype_depth,
-       do: true
+       do: %Property{writable: false}
 
-  defp inherited_non_writable?(execution, %Reference{} = prototype, key, depth) do
+  defp inherited_property(execution, %Reference{} = prototype, key, depth) do
     case fetch_object(execution, prototype) do
       {:ok, object} ->
-        case Map.get(object.properties, key) do
-          %Property{writable: writable} -> not writable
-          nil -> inherited_non_writable?(execution, object.prototype, key, depth + 1)
-        end
+        Map.get(object.properties, key) ||
+          inherited_property(execution, object.prototype, key, depth + 1)
 
       :error ->
-        false
+        nil
     end
   end
+
+  defp current_accessor(%Property{} = property, field), do: Map.fetch!(property, field)
+  defp current_accessor(nil, _field), do: nil
+
+  defp current_flag(%Property{} = property, field, _default), do: Map.fetch!(property, field)
+  defp current_flag(nil, _field, default), do: default
 
   defp array_length_writable(%Object{length_writable: true}), do: :ok
   defp array_length_writable(_object), do: {:error, {:property_not_writable, "length"}}

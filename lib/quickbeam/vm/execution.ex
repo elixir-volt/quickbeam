@@ -17,6 +17,7 @@ defmodule QuickBEAM.VM.Execution do
     handlers: %{},
     heap: %{},
     jobs: {[], []},
+    sync_jobs: {[], []},
     max_stack_depth: 1_000,
     memory_exceeded: false,
     memory_limit: :infinity,
@@ -36,11 +37,14 @@ defmodule QuickBEAM.VM.Execution do
           callers: [
             QuickBEAM.VM.Frame.t()
             | QuickBEAM.VM.NativeFrame.t()
+            | QuickBEAM.VM.ObjectAssignBoundary.t()
+            | QuickBEAM.VM.AccessorBoundary.t()
             | QuickBEAM.VM.AsyncBoundary.t()
             | QuickBEAM.VM.ReactionBoundary.t()
             | QuickBEAM.VM.ConstructorBoundary.t()
             | QuickBEAM.VM.PromiseExecutorBoundary.t()
             | QuickBEAM.VM.ThenableBoundary.t()
+            | QuickBEAM.VM.ThenGetterBoundary.t()
           ],
           cells: %{optional(non_neg_integer()) => term()},
           depth: non_neg_integer(),
@@ -48,6 +52,7 @@ defmodule QuickBEAM.VM.Execution do
           handlers: %{optional(String.t()) => function()},
           heap: %{optional(non_neg_integer()) => QuickBEAM.VM.Object.t()},
           jobs: :queue.queue(term()),
+          sync_jobs: :queue.queue(term()),
           max_stack_depth: pos_integer(),
           memory_exceeded: boolean(),
           memory_limit: pos_integer() | :infinity,
