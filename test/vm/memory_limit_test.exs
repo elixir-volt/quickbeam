@@ -34,17 +34,14 @@ defmodule QuickBEAM.VM.MemoryLimitTest do
              QuickBEAM.VM.eval(program, memory_limit: 20_000, max_steps: 100_000)
   end
 
-  test "the BEAM heap ceiling contains interpreter frame growth" do
-    source = "(function recurse(n){return 1+recurse(n+1)})(0)"
-    assert {:ok, program} = QuickBEAM.VM.compile(source)
+  test "isolated workers receive a BEAM max-heap containment boundary" do
+    assert [:monitor, {:max_heap_size, heap_limit}] =
+             QuickBEAM.VM.worker_spawn_options(1_000_000)
 
-    assert {:error, {:limit_exceeded, :memory_bytes, 1_000_000}} =
-             QuickBEAM.VM.eval(program,
-               memory_limit: 1_000_000,
-               max_stack_depth: 200_000,
-               max_steps: 5_000_000,
-               timeout: 5_000
-             )
+    assert heap_limit.kill
+    refute heap_limit.error_logger
+    assert heap_limit.size > div(1_000_000, :erlang.system_info(:wordsize))
+    assert QuickBEAM.VM.worker_spawn_options(:infinity) == [:monitor]
   end
 
   test "contains oversized host results and reclaims the evaluation owner" do

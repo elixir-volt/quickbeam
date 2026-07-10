@@ -199,9 +199,10 @@ defmodule QuickBEAM.VM do
     kind, reason -> {:error, {:interpreter_crash, {kind, reason}, __STACKTRACE__}}
   end
 
-  defp worker_spawn_options(:infinity), do: [:monitor]
+  @doc false
+  def worker_spawn_options(:infinity), do: [:monitor]
 
-  defp worker_spawn_options(memory_limit) do
+  def worker_spawn_options(memory_limit) do
     word_size = :erlang.system_info(:wordsize)
     max_heap_words = div(memory_limit + @worker_heap_overhead + word_size - 1, word_size)
 
