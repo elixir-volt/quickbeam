@@ -55,13 +55,13 @@ defmodule QuickBEAM.VM.MemoryLimitTest do
     handler = fn [] ->
       {:links, links} = Process.info(self(), :links)
       send(test_process, {:handler_process, self(), links})
-      Enum.to_list(1..500_000)
+      Enum.to_list(1..5_000)
     end
 
-    assert {:error, {:limit_exceeded, :memory_bytes, 1_000_000}} =
+    assert {:error, {:limit_exceeded, :memory_bytes, 20_000}} =
              QuickBEAM.VM.eval(program,
                handlers: %{"large_result" => handler},
-               memory_limit: 1_000_000,
+               memory_limit: 20_000,
                timeout: 5_000
              )
 

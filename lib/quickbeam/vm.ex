@@ -13,7 +13,7 @@ defmodule QuickBEAM.VM do
   @max_bytecode_bytes 16 * 1024 * 1024
   @default_timeout 5_000
   @default_memory_limit 64 * 1024 * 1024
-  @worker_heap_overhead 16 * 1024 * 1024
+  @worker_heap_overhead 4 * 1024 * 1024
 
   @doc """
   Compiles JavaScript with the vendored QuickJS compiler and returns a verified
