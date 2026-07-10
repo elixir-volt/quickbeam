@@ -94,8 +94,8 @@ defmodule QuickBEAM.JS.PackageResolver do
   end
 
   @spec relative_import_path(String.t(), String.t(), String.t()) :: String.t()
-  def relative_import_path(importer, target, project_root) do
-    importer_dir = importer |> Path.relative_to(project_root) |> Path.dirname()
+  def relative_import_path(importer_dir, target, project_root) do
+    importer_dir = Path.relative_to(importer_dir, project_root)
     target_label = Path.relative_to(target, project_root)
 
     target_label

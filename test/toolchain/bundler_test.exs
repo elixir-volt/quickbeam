@@ -70,6 +70,26 @@ defmodule QuickBEAM.Toolchain.BundlerTest do
     end
 
     @tag :tmp_dir
+    test "resolves bare imports between packages", %{tmp_dir: dir} do
+      setup_fake_package(dir, "outer-package", %{
+        "package.json" => ~s({"name":"outer-package","module":"dist/index.js"}),
+        "dist/index.js" =>
+          "import { value } from 'inner-package'; export const result = value + 1;"
+      })
+
+      setup_fake_package(dir, "inner-package", %{
+        "package.json" => ~s({"name":"inner-package","module":"index.js"}),
+        "index.js" => "export const value = 41;"
+      })
+
+      write!(dir, "main.js", "import { result } from 'outer-package'; console.log(result);")
+
+      assert {:ok, js} = QuickBEAM.JS.bundle_file(Path.join(dir, "main.js"))
+      assert js =~ "42"
+      refute js =~ ~r/\bimport\s/
+    end
+
+    @tag :tmp_dir
     test "resolves scoped packages", %{tmp_dir: dir} do
       setup_fake_package(dir, "@myorg/utils", %{
         "package.json" => ~s({"name":"@myorg/utils","module":"dist/index.js"}),
