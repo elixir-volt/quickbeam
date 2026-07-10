@@ -331,11 +331,11 @@ High-value test groups to adapt next:
 
 ## Ordered long-term plan
 
-### Phase A — close the current bounded baseline
+### Phase A — close the current bounded baseline (complete)
 
-- Adapt Error hierarchy concepts and tests.
-- Adapt `Object.getOwnPropertyNames` semantics and only required harness helpers.
-- Raise the selected Test262 baseline from 88.9% to 100%.
+- Adapted Error hierarchy concepts and tests.
+- Adapted `Object.getOwnPropertyNames` semantics and required harness helpers.
+- Raised the selected Test262 baseline from 88.9% to 100%.
 
 ### Phase B — establish canonical semantic modules
 
@@ -367,7 +367,6 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-Do not copy another prototype runtime module. Adapt the prototype Error hierarchy
-and constructor-identity tests into the current owner-local heap, then implement
-the small own-property-name surface required to bring the pinned Test262 subset
-to 100%.
+Proceed to Phase B. Split canonical invocation, property, async, exception, and
+value semantics from the current interpreter without copying the prototype's
+runtime modules or changing observable behavior.

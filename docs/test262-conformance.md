@@ -9,23 +9,18 @@ gate for `QuickBEAM.VM`. Full Test262 compliance is not claimed.
 - Selected tests: 22
 - Explicitly unsupported by flags: 4 asynchronous tests
 - Supported tests: 18
-- Passing: 16
-- Known failures: 2
-- Supported-test pass rate: **88.9%**
-- Required pass rate: **85%**
+- Passing: 18
+- Known failures: 0
+- Supported-test pass rate: **100%**
+- Required pass rate: **100%**
 
 The exact paths and classified known failures live in
 `test/test262/manifest.exs`. A newly passing known failure and an unclassified
 new failure both fail the gate, so the manifest cannot silently hide changes.
 
-Current known failures are:
-
-1. `language/expressions/object/setter-prop-desc.js` — harness incompatibility;
-   the official `propertyHelper.js` requires `Object.getOwnPropertyNames` and a
-   broader `Function` method surface.
-2. `language/expressions/instanceof/S11.8.6_A2.1_T2.js` — interpreter bug;
-   generated `ReferenceError` values do not yet carry JavaScript constructor
-   identity.
+The selected supported set currently has no known failures. The previous
+`propertyHelper.js` dependency gap and generated `ReferenceError` constructor
+identity failure are covered by the passing manifest.
 
 ## Running the gate
 

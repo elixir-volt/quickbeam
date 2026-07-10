@@ -17,6 +17,7 @@ defmodule QuickBEAM.VM.Interpreter do
     ConstructorBoundary,
     Coroutine,
     Execution,
+    Exceptions,
     Export,
     Frame,
     Function,
@@ -927,7 +928,23 @@ defmodule QuickBEAM.VM.Interpreter do
     do: constructable?(target, execution)
 
   defp constructable?({:builtin, name}, _execution),
-    do: name in ["Array", "Boolean", "Error", "Number", "Object", "Promise", "Set", "String"]
+    do:
+      name in [
+        "Array",
+        "Boolean",
+        "Error",
+        "EvalError",
+        "Number",
+        "Object",
+        "Promise",
+        "RangeError",
+        "ReferenceError",
+        "Set",
+        "String",
+        "SyntaxError",
+        "TypeError",
+        "URIError"
+      ]
 
   defp constructable?(_constructor, _execution), do: false
 
@@ -1703,6 +1720,7 @@ defmodule QuickBEAM.VM.Interpreter do
                 :builtin,
                 :builtin_method,
                 :bound_function,
+                :function_method,
                 :host_function,
                 :primitive_method,
                 :promise_method,
@@ -1792,72 +1810,77 @@ defmodule QuickBEAM.VM.Interpreter do
   defp map_string_key(_map, _key), do: :undefined
 
   defp raise_js(reason, %NativeFrame{caller: caller}, execution) do
-    {reason, trace} = throw_state(reason)
+    {reason, trace, execution} = throw_state(reason, execution)
     do_raise_js(reason, caller, execution, trace, true)
   end
 
   defp raise_js(reason, frame, execution) do
-    {reason, trace} = throw_state(reason)
+    {reason, trace, execution} = throw_state(reason, execution)
     do_raise_js(reason, frame, execution, trace, false)
   end
 
   defp raise_js_from_caller(reason, %ObjectAssignBoundary{} = boundary, execution) do
-    {reason, trace} = throw_state(reason)
+    {reason, trace, execution} = throw_state(reason, execution)
     do_raise_js(reason, boundary.caller, execution, trace, true)
   end
 
   defp raise_js_from_caller(reason, %ThenGetterBoundary{} = boundary, execution) do
-    {reason, trace} = throw_state(reason)
+    {reason, trace, execution} = throw_state(reason, execution)
     thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
     execution = Promise.settle_assimilated(execution, boundary.promise, {:error, thrown})
     continue_after_then_getter(boundary, execution)
   end
 
   defp raise_js_from_caller(reason, %AccessorBoundary{} = boundary, execution) do
-    {reason, trace} = throw_state(reason)
+    {reason, trace, execution} = throw_state(reason, execution)
     do_raise_js(reason, boundary.caller, execution, trace, true)
   end
 
   defp raise_js_from_caller(reason, %ConstructorBoundary{} = boundary, execution) do
-    {reason, trace} = throw_state(reason)
+    {reason, trace, execution} = throw_state(reason, execution)
     do_raise_js(reason, boundary.caller, execution, trace, true)
   end
 
   defp raise_js_from_caller(reason, %ThenableBoundary{} = boundary, execution) do
-    {reason, trace} = throw_state(reason)
+    {reason, trace, execution} = throw_state(reason, execution)
     thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
     execution = Promise.settle_assimilated(execution, boundary.promise, {:error, thrown})
     {:idle, execution}
   end
 
   defp raise_js_from_caller(reason, %PromiseExecutorBoundary{} = boundary, execution) do
-    {reason, trace} = throw_state(reason)
+    {reason, trace, execution} = throw_state(reason, execution)
     thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
     execution = Promise.settle(execution, boundary.promise, {:error, thrown})
     complete_executor(boundary, execution)
   end
 
   defp raise_js_from_caller(reason, %ReactionBoundary{} = boundary, execution) do
-    {reason, trace} = throw_state(reason)
+    {reason, trace, execution} = throw_state(reason, execution)
     thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
     execution = Promise.settle(execution, boundary.promise, {:error, thrown})
     {:idle, execution}
   end
 
   defp raise_js_from_caller(reason, %NativeFrame{caller: caller}, execution) do
-    {reason, trace} = throw_state(reason)
+    {reason, trace, execution} = throw_state(reason, execution)
     do_raise_js(reason, caller, execution, trace, true)
   end
 
   defp raise_js_from_caller(reason, frame, execution) do
-    {reason, trace} = throw_state(reason)
+    {reason, trace, execution} = throw_state(reason, execution)
     do_raise_js(reason, frame, execution, trace, true)
   end
 
-  defp throw_state(%Thrown{value: value, frames: frames}),
-    do: {QuickBEAM.JSError.vm_exception_value(value), Enum.reverse(frames)}
+  defp throw_state(%Thrown{value: value, frames: frames}, execution) do
+    {value, execution} = Exceptions.materialize(value, execution)
+    {value, Enum.reverse(frames), execution}
+  end
 
-  defp throw_state(reason), do: {QuickBEAM.JSError.vm_exception_value(reason), []}
+  defp throw_state(reason, execution) do
+    {value, execution} = Exceptions.materialize(reason, execution)
+    {value, [], execution}
+  end
 
   defp do_raise_js(reason, frame, execution, trace, caller?) do
     case split_at_catch(frame.stack) do
@@ -1871,7 +1894,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp unwind_caller(reason, %Execution{callers: []} = execution, trace) do
-    error = QuickBEAM.JSError.from_vm(reason, Enum.reverse(trace))
+    error = Exceptions.to_js_error(reason, execution, Enum.reverse(trace))
     {:error, error, execution}
   end
 

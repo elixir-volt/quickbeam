@@ -14,6 +14,7 @@ defmodule QuickBEAM.VM.Execution do
     cells: %{},
     depth: 1,
     default_prototypes: %{},
+    error_prototypes: %{},
     globals: %{},
     handlers: %{},
     heap: %{},
@@ -52,6 +53,7 @@ defmodule QuickBEAM.VM.Execution do
           default_prototypes: %{
             optional(QuickBEAM.VM.Object.kind()) => QuickBEAM.VM.Reference.t()
           },
+          error_prototypes: %{optional(String.t()) => QuickBEAM.VM.Reference.t()},
           globals: map(),
           handlers: %{optional(String.t()) => function()},
           heap: %{optional(non_neg_integer()) => QuickBEAM.VM.Object.t()},

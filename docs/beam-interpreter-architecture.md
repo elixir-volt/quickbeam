@@ -493,10 +493,11 @@ cancellation mechanisms.
 
 JavaScript throws become `%QuickBEAM.JSError{}` with JavaScript name, message,
 filename, line, column, and structured JavaScript stack frames when debug
-metadata is present. Generated `TypeError` and `ReferenceError` values remain
-ordinary error-like JavaScript values while a `catch` block handles them; they
-are converted only when they escape the evaluation. Elixir handler stack traces
-must never appear in the public JavaScript stack.
+metadata is present. Generated errors are owner-local JavaScript objects with
+`Error`, `TypeError`, `ReferenceError`, `RangeError`, `SyntaxError`, `EvalError`,
+and `URIError` prototype identity while JavaScript can catch them. They become
+`%QuickBEAM.JSError{}` only when they escape the evaluation. Elixir handler
+stack traces must never appear in the public JavaScript stack.
 
 Limit and infrastructure failures should remain distinguishable:
 
@@ -533,7 +534,7 @@ Correctness is measured against the exact vendored QuickJS build.
 Skipped tests need categorized reasons: unsupported profile, unsupported
 language feature, native QuickJS mismatch, harness limitation, or known defect.
 The initial pinned baseline selects 22 tests, explicitly excludes four async
-harness tests, and passes 16 of 18 supported cases (88.9%); see
+harness tests, and passes all 18 supported cases (100%); see
 [`test262-conformance.md`](test262-conformance.md) for the exact gate.
 
 ## Performance and scheduler acceptance

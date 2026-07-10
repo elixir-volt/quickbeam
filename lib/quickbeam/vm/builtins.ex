@@ -7,6 +7,8 @@ defmodule QuickBEAM.VM.Builtins do
 
   alias QuickBEAM.VM.{Execution, Heap, Object, Property, Reference, RegExp, UTF16, Value}
 
+  @error_types ~w(Error EvalError RangeError ReferenceError SyntaxError TypeError URIError)
+
   @constructors %{
     "Array" => ["isArray"],
     "Boolean" => [],
@@ -15,14 +17,21 @@ defmodule QuickBEAM.VM.Builtins do
       "create",
       "defineProperty",
       "getOwnPropertyDescriptor",
+      "getOwnPropertyNames",
       "getPrototypeOf",
       "keys",
       "setPrototypeOf"
     ],
+    "EvalError" => [],
     "Function" => [],
-    "Math" => ["floor", "max", "min", "random", "round"],
+    "Math" => ["floor", "max", "min", "pow", "random", "round"],
     "Number" => [],
+    "RangeError" => [],
+    "ReferenceError" => [],
     "String" => ["fromCharCode"],
+    "SyntaxError" => [],
+    "TypeError" => [],
+    "URIError" => [],
     "Error" => [],
     "Promise" => ["all", "allSettled", "any", "race", "reject", "resolve"],
     "Set" => []
@@ -59,6 +68,25 @@ defmodule QuickBEAM.VM.Builtins do
       {:ok, %Object{callable: callable}} -> callable
       :error -> nil
     end
+  end
+
+  @doc "Allocates a catchable JavaScript error object in the current evaluation heap."
+  @spec new_error(Execution.t(), String.t(), String.t()) :: {Reference.t(), Execution.t()}
+  def new_error(execution, name, message) do
+    prototype =
+      Map.get(execution.error_prototypes, name) || Map.get(execution.error_prototypes, "Error")
+
+    {error, execution} =
+      Heap.allocate(execution, :ordinary, prototype: prototype, internal: {:error, name})
+
+    {:ok, execution} =
+      Heap.define(execution, error, "message", message,
+        enumerable: false,
+        configurable: true,
+        writable: true
+      )
+
+    {error, execution}
   end
 
   @spec call(term(), term(), [term()], Execution.t()) ::
@@ -120,6 +148,22 @@ defmodule QuickBEAM.VM.Builtins do
   end
 
   def call(
+        {:builtin_method, "Object", "getOwnPropertyNames"},
+        _this,
+        [%Reference{} = target | _],
+        execution
+      ) do
+    case Heap.own_property_names(execution, target) do
+      {:ok, keys} ->
+        {array, execution} = array_from(keys, execution)
+        {:ok, array, execution}
+
+      {:error, reason} ->
+        {:error, reason, execution}
+    end
+  end
+
+  def call(
         {:builtin_method, "Object", "getPrototypeOf"},
         _this,
         [%Reference{} = target | _],
@@ -167,6 +211,9 @@ defmodule QuickBEAM.VM.Builtins do
 
   def call({:builtin_method, "Math", "max"}, _this, values, execution),
     do: {:ok, numeric_extreme(values, &max/2, :neg_infinity), execution}
+
+  def call({:builtin_method, "Math", "pow"}, _this, [base, exponent | _], execution),
+    do: {:ok, Value.power(base, exponent), execution}
 
   def call({:builtin_method, "String", "fromCharCode"}, _this, values, execution) do
     string = values |> Enum.map(&(Value.to_int32(&1) &&& 0xFFFF)) |> UTF16.from_units()
@@ -250,6 +297,25 @@ defmodule QuickBEAM.VM.Builtins do
   def call({:primitive_method, :object, "toString"}, _object, _arguments, execution),
     do: {:ok, "[object Object]", execution}
 
+  def call({:primitive_method, :error, "toString"}, %Reference{} = error, _arguments, execution) do
+    with {:ok, name} <- Heap.get(execution, error, "name"),
+         {:ok, message} <- Heap.get(execution, error, "message") do
+      name = if name in [:undefined, nil], do: "Error", else: Value.to_string_value(name)
+      message = if message in [:undefined, nil], do: "", else: Value.to_string_value(message)
+
+      result =
+        cond do
+          name == "" -> message
+          message == "" -> name
+          true -> name <> ": " <> message
+        end
+
+      {:ok, result, execution}
+    else
+      {:error, reason} -> {:error, reason, execution}
+    end
+  end
+
   def call({:primitive_method, :number, "toString"}, value, arguments, execution) do
     radix =
       case arguments do
@@ -316,6 +382,24 @@ defmodule QuickBEAM.VM.Builtins do
 
   def call({:primitive_method, :regexp, "test"}, %RegExp{} = regexp, [value | _], execution),
     do: {:ok, regex_match?(regexp, Value.to_string_value(value)), execution}
+
+  def call({:primitive_method, :array, "push"}, %Reference{} = array, values, execution) do
+    case Heap.fetch_object(execution, array) do
+      {:ok, %Object{kind: :array, length: length}} ->
+        execution =
+          values
+          |> Enum.with_index(length)
+          |> Enum.reduce(execution, fn {value, index}, execution ->
+            {:ok, execution} = Heap.put(execution, array, index, value)
+            execution
+          end)
+
+        {:ok, length + Kernel.length(values), execution}
+
+      _not_array ->
+        {:error, :not_an_array, execution}
+    end
+  end
 
   def call({:primitive_method, :array, "join"}, value, arguments, execution) do
     separator =
@@ -454,9 +538,37 @@ defmodule QuickBEAM.VM.Builtins do
     {:ok, object, execution}
   end
 
-  def call({:builtin, "Error"}, _this, values, execution),
-    do:
-      {:ok, %{name: "Error", message: Value.to_string_value(List.first(values) || "")}, execution}
+  def call({:builtin, name}, this, values, execution)
+      when name in @error_types do
+    message =
+      case values do
+        [value | _] -> Value.to_string_value(value)
+        [] -> ""
+      end
+
+    case constructor_instance?(this, execution) do
+      true ->
+        prototype = Map.get(execution.error_prototypes, name)
+
+        {:ok, execution} =
+          Heap.update_object(execution, this, fn object ->
+            %{object | prototype: prototype, internal: {:error, name}}
+          end)
+
+        {:ok, execution} =
+          Heap.define(execution, this, "message", message,
+            enumerable: false,
+            configurable: true,
+            writable: true
+          )
+
+        {:ok, this, execution}
+
+      false ->
+        {error, execution} = new_error(execution, name, message)
+        {:ok, error, execution}
+    end
+  end
 
   def call(callable, _this, _arguments, execution),
     do: {:error, {:unsupported_builtin, callable}, execution}
@@ -501,6 +613,46 @@ defmodule QuickBEAM.VM.Builtins do
     }
   end
 
+  defp maybe_install_prototype("Error", constructor, execution) do
+    object_prototype = Map.get(execution.default_prototypes, :ordinary)
+    {prototype, execution} = Heap.allocate(execution, :ordinary, prototype: object_prototype)
+
+    execution =
+      [
+        {"name", "Error"},
+        {"message", ""},
+        {"constructor", constructor},
+        {"toString", {:primitive_method, :error, "toString"}}
+      ]
+      |> Enum.reduce(execution, fn {key, value}, execution ->
+        {:ok, execution} = Heap.define(execution, prototype, key, value, enumerable: false)
+        execution
+      end)
+
+    {:ok, execution} =
+      Heap.define(execution, constructor, "prototype", prototype, enumerable: false)
+
+    %{execution | error_prototypes: Map.put(execution.error_prototypes, "Error", prototype)}
+  end
+
+  defp maybe_install_prototype(name, constructor, execution)
+       when name in @error_types do
+    error_prototype = Map.fetch!(execution.error_prototypes, "Error")
+    {prototype, execution} = Heap.allocate(execution, :ordinary, prototype: error_prototype)
+
+    execution =
+      [{"name", name}, {"message", ""}, {"constructor", constructor}]
+      |> Enum.reduce(execution, fn {key, value}, execution ->
+        {:ok, execution} = Heap.define(execution, prototype, key, value, enumerable: false)
+        execution
+      end)
+
+    {:ok, execution} =
+      Heap.define(execution, constructor, "prototype", prototype, enumerable: false)
+
+    %{execution | error_prototypes: Map.put(execution.error_prototypes, name, prototype)}
+  end
+
   defp maybe_install_prototype("Function", constructor, execution) do
     {prototype, execution} =
       Heap.allocate(execution, :function,
@@ -521,7 +673,7 @@ defmodule QuickBEAM.VM.Builtins do
     install_primitive_prototype(
       constructor,
       :array,
-      ["concat", "filter", "forEach", "join", "map", "reduce", "slice", "some"],
+      ["concat", "filter", "forEach", "join", "map", "push", "reduce", "slice", "some"],
       execution
     )
   end
@@ -717,6 +869,15 @@ defmodule QuickBEAM.VM.Builtins do
 
     {descriptor, execution}
   end
+
+  defp constructor_instance?(%Reference{} = receiver, execution) do
+    match?(
+      {:ok, %Object{internal: :constructor_instance}},
+      Heap.fetch_object(execution, receiver)
+    )
+  end
+
+  defp constructor_instance?(_receiver, _execution), do: false
 
   defp maybe_box_primitive(receiver, kind, value, execution) do
     case Heap.fetch_object(execution, receiver) do

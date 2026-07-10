@@ -6,7 +6,16 @@ defmodule QuickBEAM.VM.Export do
   references outside their evaluation process.
   """
 
-  alias QuickBEAM.VM.{Execution, Heap, Object, Promise, PromiseReference, Property, Reference}
+  alias QuickBEAM.VM.{
+    Exceptions,
+    Execution,
+    Heap,
+    Object,
+    Promise,
+    PromiseReference,
+    Property,
+    Reference
+  }
 
   @spec value(term(), Execution.t()) :: {:ok, term()} | {:error, term()}
   def value(value, %Execution{} = execution), do: convert(value, execution, MapSet.new())
@@ -14,7 +23,7 @@ defmodule QuickBEAM.VM.Export do
   defp convert(%PromiseReference{} = promise, execution, seen) do
     case Promise.state(execution, promise) do
       {:fulfilled, value} -> convert(value, execution, seen)
-      {:rejected, reason} -> {:error, QuickBEAM.JSError.from_vm(reason, [])}
+      {:rejected, reason} -> {:error, Exceptions.to_js_error(reason, execution, [])}
       :pending -> {:error, :pending_promise_result}
     end
   end

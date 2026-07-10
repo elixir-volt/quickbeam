@@ -32,6 +32,48 @@ defmodule QuickBEAM.VM.ErrorTest do
     assert {:ok, "ReferenceError: missingValue is not defined"} = QuickBEAM.VM.eval(program)
   end
 
+  test "gives generated errors JavaScript constructor identity" do
+    source = """
+    try {
+      missingValue
+    } catch (error) {
+      [
+        error instanceof ReferenceError,
+        error instanceof Error,
+        error.name,
+        error.message,
+        error.toString()
+      ]
+    }
+    """
+
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+
+    assert {:ok,
+            [
+              true,
+              true,
+              "ReferenceError",
+              "missingValue is not defined",
+              "ReferenceError: missingValue is not defined"
+            ]} = QuickBEAM.VM.eval(program)
+  end
+
+  test "supports constructed derived errors and stable uncaught conversion" do
+    source = """
+    const error = new RangeError("outside range")
+    if (!(error instanceof RangeError) || !(error instanceof Error)) throw 1
+    throw error
+    """
+
+    assert {:ok, program} = QuickBEAM.VM.compile(source, filename: "range.js")
+    assert {:error, %QuickBEAM.JSError{} = error} = QuickBEAM.VM.eval(program)
+    assert error.name == "RangeError"
+    assert error.message == "outside range"
+    assert error.filename == "range.js"
+    assert error.stack =~ "RangeError: outside range"
+  end
+
   test "normalizes uncaught type errors" do
     assert {:ok, program} = QuickBEAM.VM.compile("const value = 1; value()", filename: "type.js")
 

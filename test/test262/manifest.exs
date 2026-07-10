@@ -1,16 +1,7 @@
 [
   revision: "d1d583db95a521218f3eb8341a887fd63eda8ff1",
-  minimum_pass_rate: 0.85,
-  known_failures: %{
-    "language/expressions/object/setter-prop-desc.js" => %{
-      category: :harness_incompatibility,
-      reason: "propertyHelper.js requires Object.getOwnPropertyNames and broader Function methods"
-    },
-    "language/expressions/instanceof/S11.8.6_A2.1_T2.js" => %{
-      category: :interpreter_bug,
-      reason: "generated ReferenceError values do not yet carry constructor identity"
-    }
-  },
+  minimum_pass_rate: 1.0,
+  known_failures: %{},
   tests: [
     "built-ins/Array/isArray/15.4.3.2-1-1.js",
     "built-ins/Array/isArray/15.4.3.2-1-2.js",

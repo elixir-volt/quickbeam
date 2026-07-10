@@ -10,6 +10,7 @@ defmodule QuickBEAM.VM.Evaluator do
     Continuation,
     Coroutine,
     Execution,
+    Exceptions,
     Interpreter,
     Memory,
     Promise,
@@ -74,7 +75,8 @@ defmodule QuickBEAM.VM.Evaluator do
         finish_final({:error, error, execution})
 
       {:rejected, reason} ->
-        finish_final({:error, QuickBEAM.JSError.from_vm(reason, []), execution})
+        error = Exceptions.to_js_error(reason, execution, [])
+        finish_final({:error, error, execution})
 
       :pending ->
         drive_event_loop(promise, execution)

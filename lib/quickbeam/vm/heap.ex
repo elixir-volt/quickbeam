@@ -237,6 +237,28 @@ defmodule QuickBEAM.VM.Heap do
     end
   end
 
+  @doc "Returns all own string property names in ECMAScript key order."
+  @spec own_property_names(Execution.t(), Reference.t()) ::
+          {:ok, [String.t()]} | {:error, term()}
+  def own_property_names(execution, %Reference{id: id} = reference) do
+    case fetch_object(execution, reference) do
+      {:ok, object} ->
+        integer_keys =
+          object.properties
+          |> Map.keys()
+          |> Enum.filter(&is_integer/1)
+          |> Enum.sort()
+          |> Enum.map(&Integer.to_string/1)
+
+        string_keys = Enum.filter(object.property_order, &is_binary/1)
+        builtins = if object.kind == :array, do: ["length"], else: []
+        {:ok, integer_keys ++ builtins ++ string_keys}
+
+      :error ->
+        {:error, {:invalid_reference, id}}
+    end
+  end
+
   @spec own_keys(Execution.t(), Reference.t()) :: {:ok, [term()]} | {:error, term()}
   def own_keys(execution, %Reference{id: id} = reference) do
     case fetch_object(execution, reference) do

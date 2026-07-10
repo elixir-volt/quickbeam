@@ -119,6 +119,17 @@ defmodule QuickBEAM.VM.ObjectModelTest do
     end
   end
 
+  test "returns enumerable keys separately from all own property names", %{runtime: runtime} do
+    sources = [
+      "(()=>{let value={visible:1};Object.defineProperty(value,'hidden',{value:2});return [Object.keys(value).join(','),Object.getOwnPropertyNames(value).join(',')]})()",
+      "(()=>{let value=[];value[2]=2;Object.defineProperty(value,'hidden',{value:1});return Object.getOwnPropertyNames(value).join(',')})()"
+    ]
+
+    for source <- sources do
+      assert_vm_matches_native(runtime, source)
+    end
+  end
+
   test "orders integer properties before string insertion order", %{runtime: runtime} do
     sources = [
       "(()=>{let value={second:2};value[4]=4;value.first=1;value[1]=1;return Object.keys(value).join(',')})()",
