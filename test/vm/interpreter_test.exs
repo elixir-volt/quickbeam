@@ -185,7 +185,7 @@ defmodule QuickBEAM.VM.InterpreterTest do
     source = """
     (async function() {
       try {
-        return await (async function() { return await marker })()
+        return await (async function() { await 0; throw 41 })()
       } catch (error) {
         return error + 1
       }
@@ -193,11 +193,7 @@ defmodule QuickBEAM.VM.InterpreterTest do
     """
 
     assert {:ok, program} = QuickBEAM.VM.compile(source)
-
-    assert {:suspended, continuation} =
-             Interpreter.eval(program, vars: %{"marker" => {:pending, make_ref()}})
-
-    assert {:ok, 42} = Interpreter.resume(continuation, {:error, 41})
+    assert {:ok, 42} = QuickBEAM.VM.eval(program)
   end
 
   test "reports unsupported opcodes without crashing the caller" do

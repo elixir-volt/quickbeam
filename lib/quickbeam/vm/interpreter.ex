@@ -4,8 +4,10 @@ defmodule QuickBEAM.VM.Interpreter do
   import Bitwise
 
   alias QuickBEAM.VM.{
+    AsyncBoundary,
     Builtins,
     Continuation,
+    Coroutine,
     Execution,
     Export,
     Frame,
@@ -17,9 +19,14 @@ defmodule QuickBEAM.VM.Interpreter do
     PredefinedAtoms,
     Program,
     Promise,
+    PromiseExecutorBoundary,
     PromiseReference,
+    Reaction,
+    ReactionBoundary,
     Reference,
     RegExp,
+    ThenableBoundary,
+    Thrown,
     Value
   }
 
@@ -71,27 +78,132 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   @doc false
+  def resume_coroutine(%Coroutine{} = coroutine, result, %Execution{} = execution) do
+    callers = coroutine.callers ++ [coroutine.boundary]
+    frame_depth = Enum.count(coroutine.callers, &match?(%Frame{}, &1))
+    execution = %{execution | callers: callers, depth: coroutine.boundary.depth + frame_depth + 1}
+
+    case result do
+      {:ok, value} -> run(%{coroutine.frame | stack: [value | coroutine.frame.stack]}, execution)
+      {:error, reason} -> raise_js_from_caller(reason, coroutine.frame, execution)
+    end
+  end
+
+  @doc false
+  def assimilate_thenable(promise, thenable, callable, %Execution{} = execution) do
+    boundary = %ThenableBoundary{promise: promise, depth: execution.depth}
+    resolve = {:promise_resolver, promise, :resolve_assimilated}
+    reject = {:promise_resolver, promise, :reject_assimilated}
+    dispatch_call(callable, [resolve, reject], thenable, boundary, execution, false)
+  end
+
+  @doc false
+  def run_reaction(%Reaction{} = reaction, result, %Execution{} = execution) do
+    callback =
+      case result do
+        {:ok, _value} -> reaction.on_fulfilled
+        {:error, _reason} -> reaction.on_rejected
+      end
+
+    if type_of(callback, execution) == "function" do
+      boundary = %ReactionBoundary{
+        promise: reaction.result_promise,
+        depth: execution.depth,
+        mode: reaction.kind,
+        original_result: result
+      }
+
+      arguments = if reaction.kind == :finally, do: [], else: [reaction_argument(result)]
+      dispatch_call(callback, arguments, :undefined, boundary, execution, false)
+    else
+      execution = Promise.settle(execution, reaction.result_promise, result)
+      {:idle, execution}
+    end
+  end
+
+  defp reaction_argument({:ok, value}), do: value
+  defp reaction_argument({:error, %Thrown{value: value}}), do: value
+  defp reaction_argument({:error, reason}), do: reason
+
+  @doc false
   def finish({:ok, value, execution}), do: Export.value(value, execution)
   def finish({:error, reason, _execution}), do: {:error, reason}
   def finish({:suspended, continuation}), do: {:suspended, continuation}
+  def finish({:idle, _execution}), do: {:error, :idle_evaluation}
 
   defp enter_call(callable, args, this, caller, execution, tail?, frame_callable \\ nil) do
     with {:ok, function, closure_refs} <- callable_parts(callable) do
-      depth = if tail?, do: execution.depth, else: execution.depth + 1
+      frame_callable = frame_callable || callable
 
-      if depth > execution.max_stack_depth do
-        {:error, {:limit_exceeded, :stack_depth, depth}, execution}
+      if function.func_kind == 2 do
+        enter_async_call(
+          function,
+          frame_callable,
+          closure_refs,
+          args,
+          this,
+          caller,
+          execution,
+          tail?
+        )
       else
-        execution =
-          if tail?,
-            do: execution,
-            else: %{execution | callers: [caller | execution.callers], depth: depth}
-
-        frame_callable = frame_callable || callable
-        run(new_frame(function, frame_callable, args, this, closure_refs), execution)
+        enter_sync_call(
+          function,
+          frame_callable,
+          closure_refs,
+          args,
+          this,
+          caller,
+          execution,
+          tail?
+        )
       end
     else
       {:error, reason} -> raise_js_from_caller(reason, caller, execution)
+    end
+  end
+
+  defp enter_sync_call(function, callable, closure_refs, args, this, caller, execution, tail?) do
+    depth = if tail?, do: execution.depth, else: execution.depth + 1
+
+    if depth > execution.max_stack_depth do
+      {:error, {:limit_exceeded, :stack_depth, depth}, execution}
+    else
+      execution =
+        if tail?,
+          do: execution,
+          else: %{execution | callers: [caller | execution.callers], depth: depth}
+
+      run(new_frame(function, callable, args, this, closure_refs), execution)
+    end
+  end
+
+  defp enter_async_call(function, callable, closure_refs, args, this, caller, execution, tail?) do
+    depth = if tail?, do: execution.depth, else: execution.depth + 1
+
+    if depth > execution.max_stack_depth do
+      {:error, {:limit_exceeded, :stack_depth, depth}, execution}
+    else
+      {promise, execution} = Promise.new(execution)
+
+      mode =
+        cond do
+          match?(%ReactionBoundary{}, caller) -> :reaction
+          match?(%PromiseExecutorBoundary{}, caller) -> :executor
+          match?(%ThenableBoundary{}, caller) -> :thenable
+          tail? -> :return
+          true -> :push
+        end
+
+      boundary = %AsyncBoundary{
+        promise: promise,
+        caller: if(tail?, do: nil, else: caller),
+        depth: execution.depth,
+        mode: mode
+      }
+
+      execution = %{execution | callers: [boundary | execution.callers], depth: depth}
+      run(new_frame(function, callable, args, this, closure_refs), execution)
     end
   end
 
@@ -460,7 +572,7 @@ defmodule QuickBEAM.VM.Interpreter do
     do: return_value(:undefined, execution)
 
   defp execute(:return_async, [], %{stack: [value | _stack]}, execution),
-    do: return_value(value, execution)
+    do: complete_async(value, execution)
 
   defp execute(:add, [], frame, execution), do: binary(frame, execution, &Value.add/2)
   defp execute(:sub, [], frame, execution), do: binary(frame, execution, &Value.subtract/2)
@@ -612,21 +724,11 @@ defmodule QuickBEAM.VM.Interpreter do
     do: raise_js(value, %{frame | stack: stack}, execution)
 
   defp execute(:await, [], %{stack: [%PromiseReference{} = promise | stack]} = frame, execution) do
-    case Promise.state(execution, promise) do
-      :pending ->
-        continuation = %Continuation{
-          frame: next_frame(%{frame | stack: stack}),
-          execution: execution,
-          awaiting: promise
-        }
+    frame = %{frame | stack: stack}
 
-        {:suspended, continuation}
-
-      {:fulfilled, value} ->
-        suspend_microtask({:ok, value}, %{frame | stack: stack}, execution)
-
-      {:rejected, reason} ->
-        suspend_microtask({:error, reason}, %{frame | stack: stack}, execution)
+    case detach_async(frame, execution, promise) do
+      {:ok, result} -> result
+      :no_async_boundary -> suspend_promise_legacy(frame, execution, promise)
     end
   end
 
@@ -641,13 +743,13 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp execute(:await, [], %{stack: [{:resolved, value} | stack]} = frame, execution),
-    do: suspend_microtask({:ok, value}, %{frame | stack: stack}, execution)
+    do: await_immediate({:ok, value}, %{frame | stack: stack}, execution)
 
   defp execute(:await, [], %{stack: [{:rejected, reason} | stack]} = frame, execution),
-    do: suspend_microtask({:error, reason}, %{frame | stack: stack}, execution)
+    do: await_immediate({:error, reason}, %{frame | stack: stack}, execution)
 
   defp execute(:await, [], %{stack: [value | stack]} = frame, execution),
-    do: suspend_microtask({:ok, value}, %{frame | stack: stack}, execution)
+    do: await_immediate({:ok, value}, %{frame | stack: stack}, execution)
 
   defp execute(name, _operands, frame, execution)
        when name in [:nop, :set_name, :set_name_computed, :check_ctor, :close_loc],
@@ -698,6 +800,65 @@ defmodule QuickBEAM.VM.Interpreter do
   defp dispatch_call({:host_function, :beam_call}, arguments, _this, caller, execution, tail?),
     do: start_host_call(arguments, caller, execution, tail?)
 
+  defp dispatch_call({:builtin, "Promise"}, [executor | _], _this, caller, execution, tail?) do
+    {promise, execution} = Promise.new(execution)
+
+    boundary = %PromiseExecutorBoundary{
+      promise: promise,
+      caller: caller,
+      depth: execution.depth,
+      tail?: tail?
+    }
+
+    resolve = {:promise_resolver, promise, :resolve}
+    reject = {:promise_resolver, promise, :reject}
+
+    if type_of(executor, execution) == "function" do
+      dispatch_call(executor, [resolve, reject], :undefined, boundary, execution, false)
+    else
+      execution =
+        Promise.settle(
+          execution,
+          promise,
+          {:error, {:type_error, :promise_executor_not_callable}}
+        )
+
+      complete_executor(boundary, execution)
+    end
+  end
+
+  defp dispatch_call({:builtin, "Promise"}, _arguments, _this, caller, execution, tail?) do
+    {promise, execution} = Promise.new(execution)
+
+    execution =
+      Promise.settle(execution, promise, {:error, {:type_error, :missing_promise_executor}})
+
+    complete_call_result(promise, caller, execution, tail?)
+  end
+
+  defp dispatch_call(
+         {:promise_resolver, promise, kind},
+         arguments,
+         _this,
+         caller,
+         execution,
+         tail?
+       ) do
+    value = Enum.at(arguments, 0, :undefined)
+
+    result =
+      if kind in [:resolve, :resolve_assimilated], do: {:ok, value}, else: {:error, value}
+
+    execution =
+      if kind in [:resolve_assimilated, :reject_assimilated] do
+        Promise.settle_assimilated(execution, promise, result)
+      else
+        Promise.settle(execution, promise, result)
+      end
+
+    complete_call_result(:undefined, caller, execution, tail?)
+  end
+
   defp dispatch_call(
          {:bound_function, target, bound_this, bound_arguments},
          arguments,
@@ -741,18 +902,36 @@ defmodule QuickBEAM.VM.Interpreter do
          execution,
          tail?
        ) do
-    case {Promise.state(execution, promise), arguments} do
-      {{:fulfilled, value}, [callback | _]} ->
-        dispatch_call(callback, [value], :undefined, caller, execution, tail?)
+    on_fulfilled = Enum.at(arguments, 0, :undefined)
+    on_rejected = Enum.at(arguments, 1, :undefined)
+    {result_promise, execution} = Promise.react(execution, promise, on_fulfilled, on_rejected)
+    complete_call_result(result_promise, caller, execution, tail?)
+  end
 
-      {{:rejected, reason}, [_fulfilled, rejected | _]} ->
-        dispatch_call(rejected, [reason], :undefined, caller, execution, tail?)
+  defp dispatch_call(
+         {:promise_method, "catch"},
+         arguments,
+         %PromiseReference{} = promise,
+         caller,
+         execution,
+         tail?
+       ) do
+    on_rejected = Enum.at(arguments, 0, :undefined)
+    {result_promise, execution} = Promise.react(execution, promise, :undefined, on_rejected)
+    complete_call_result(result_promise, caller, execution, tail?)
+  end
 
-      _ ->
-        if tail?,
-          do: return_value(promise, execution),
-          else: run(%{caller | stack: [promise | caller.stack]}, execution)
-    end
+  defp dispatch_call(
+         {:promise_method, "finally"},
+         arguments,
+         %PromiseReference{} = promise,
+         caller,
+         execution,
+         tail?
+       ) do
+    callback = Enum.at(arguments, 0, :undefined)
+    {result_promise, execution} = Promise.finally(execution, promise, callback)
+    complete_call_result(result_promise, caller, execution, tail?)
   end
 
   defp dispatch_call(%Reference{} = reference, arguments, this, caller, execution, tail?) do
@@ -784,9 +963,7 @@ defmodule QuickBEAM.VM.Interpreter do
        when elem(callable, 0) in [:builtin, :builtin_method, :primitive_method] do
     case Builtins.call(callable, this, arguments, execution) do
       {:ok, value, execution} ->
-        if tail?,
-          do: return_value(value, execution),
-          else: run(%{caller | stack: [value | caller.stack]}, execution)
+        complete_call_result(value, caller, execution, tail?)
 
       {:error, reason, execution} ->
         raise_js_from_caller({:type_error, reason}, caller, execution)
@@ -795,6 +972,55 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp dispatch_call(callable, arguments, this, caller, execution, tail?),
     do: enter_call(callable, arguments, this, caller, execution, tail?)
+
+  defp complete_call_result(value, %ReactionBoundary{} = boundary, execution, _tail?),
+    do: complete_reaction(boundary, value, execution)
+
+  defp complete_call_result(_value, %PromiseExecutorBoundary{} = boundary, execution, _tail?),
+    do: complete_executor(boundary, execution)
+
+  defp complete_call_result(_value, %ThenableBoundary{}, execution, _tail?),
+    do: {:idle, execution}
+
+  defp complete_call_result(value, %NativeFrame{} = native, execution, _tail?),
+    do: resume_native(value, native, execution)
+
+  defp complete_call_result(value, caller, execution, tail?) do
+    if tail?,
+      do: return_value(value, execution),
+      else: run(%{caller | stack: [value | caller.stack]}, execution)
+  end
+
+  defp complete_executor(boundary, execution) do
+    complete_call_result(boundary.promise, boundary.caller, execution, boundary.tail?)
+  end
+
+  defp complete_reaction(%ReactionBoundary{mode: :then} = boundary, value, execution) do
+    execution = Promise.settle(execution, boundary.promise, {:ok, value})
+    {:idle, execution}
+  end
+
+  defp complete_reaction(%ReactionBoundary{mode: :finally} = boundary, value, execution) do
+    {completion, execution} =
+      case value do
+        %PromiseReference{} = promise ->
+          {promise, execution}
+
+        value ->
+          {promise, execution} = Promise.new(execution)
+          {promise, Promise.settle(execution, promise, {:ok, value})}
+      end
+
+    execution =
+      Promise.settle_after_finally(
+        execution,
+        completion,
+        boundary.promise,
+        boundary.original_result
+      )
+
+    {:idle, execution}
+  end
 
   defp start_array_iteration(method, receiver, arguments, caller, execution, tail?) do
     with {:ok, value_list} <- interpreter_array_values(receiver, execution),
@@ -965,6 +1191,63 @@ defmodule QuickBEAM.VM.Interpreter do
   defp bitwise(frame, execution, operation),
     do: binary(frame, execution, &Value.bitwise(&1, &2, operation))
 
+  defp detach_async(frame, execution, awaited_promise) do
+    case Enum.split_while(execution.callers, &(!match?(%AsyncBoundary{}, &1))) do
+      {inner_callers, [%AsyncBoundary{} = boundary | outer_callers]} ->
+        coroutine = %Coroutine{
+          frame: next_frame(frame),
+          callers: inner_callers,
+          boundary: %{boundary | caller: nil, depth: 0, mode: :detached}
+        }
+
+        execution = %{execution | callers: outer_callers, depth: boundary.depth}
+        execution = Promise.await(execution, awaited_promise, coroutine)
+        {:ok, deliver_async_promise(boundary, execution)}
+
+      {_callers, []} ->
+        :no_async_boundary
+    end
+  end
+
+  defp await_immediate(result, frame, execution) do
+    case detach_async_immediate(frame, execution, result) do
+      {:ok, detached} -> detached
+      :no_async_boundary -> suspend_microtask(result, frame, execution)
+    end
+  end
+
+  defp detach_async_immediate(frame, execution, result) do
+    case Enum.split_while(execution.callers, &(!match?(%AsyncBoundary{}, &1))) do
+      {inner_callers, [%AsyncBoundary{} = boundary | outer_callers]} ->
+        coroutine = %Coroutine{
+          frame: next_frame(frame),
+          callers: inner_callers,
+          boundary: %{boundary | caller: nil, depth: 0, mode: :detached}
+        }
+
+        execution = %{execution | callers: outer_callers, depth: boundary.depth}
+        execution = Promise.enqueue_coroutine(execution, coroutine, result)
+        {:ok, deliver_async_promise(boundary, execution)}
+
+      {_callers, []} ->
+        :no_async_boundary
+    end
+  end
+
+  defp suspend_promise_legacy(frame, execution, promise) do
+    case Promise.state(execution, promise) do
+      :pending ->
+        {:suspended,
+         %Continuation{frame: next_frame(frame), execution: execution, awaiting: promise}}
+
+      {:fulfilled, value} ->
+        suspend_microtask({:ok, value}, frame, execution)
+
+      {:rejected, reason} ->
+        suspend_microtask({:error, reason}, frame, execution)
+    end
+  end
+
   defp suspend_microtask(result, frame, execution) do
     execution = %{execution | jobs: :queue.in(result, execution.jobs)}
 
@@ -1046,7 +1329,8 @@ defmodule QuickBEAM.VM.Interpreter do
                 :function_method,
                 :host_function,
                 :primitive_method,
-                :promise_method
+                :promise_method,
+                :promise_resolver
               ],
        do: "function"
 
@@ -1091,7 +1375,9 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
-  defp get_property(%PromiseReference{}, "then", _execution), do: {:ok, {:promise_method, "then"}}
+  defp get_property(%PromiseReference{}, method, _execution)
+       when method in ["catch", "finally", "then"],
+       do: {:ok, {:promise_method, method}}
 
   defp get_property(%RegExp{}, key, _execution) when is_binary(key),
     do: {:ok, {:primitive_method, :regexp, key}}
@@ -1104,7 +1390,8 @@ defmodule QuickBEAM.VM.Interpreter do
                 :bound_function,
                 :host_function,
                 :primitive_method,
-                :promise_method
+                :promise_method,
+                :promise_resolver
               ],
        do: {:ok, {:function_method, key}}
 
@@ -1197,17 +1484,51 @@ defmodule QuickBEAM.VM.Interpreter do
     |> div(2)
   end
 
-  defp raise_js(reason, %NativeFrame{caller: caller}, execution),
-    do: do_raise_js(QuickBEAM.JSError.vm_exception_value(reason), caller, execution, [], true)
+  defp raise_js(reason, %NativeFrame{caller: caller}, execution) do
+    {reason, trace} = throw_state(reason)
+    do_raise_js(reason, caller, execution, trace, true)
+  end
 
-  defp raise_js(reason, frame, execution),
-    do: do_raise_js(QuickBEAM.JSError.vm_exception_value(reason), frame, execution, [], false)
+  defp raise_js(reason, frame, execution) do
+    {reason, trace} = throw_state(reason)
+    do_raise_js(reason, frame, execution, trace, false)
+  end
 
-  defp raise_js_from_caller(reason, %NativeFrame{caller: caller}, execution),
-    do: do_raise_js(QuickBEAM.JSError.vm_exception_value(reason), caller, execution, [], true)
+  defp raise_js_from_caller(reason, %ThenableBoundary{} = boundary, execution) do
+    {reason, trace} = throw_state(reason)
+    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
+    execution = Promise.settle_assimilated(execution, boundary.promise, {:error, thrown})
+    {:idle, execution}
+  end
 
-  defp raise_js_from_caller(reason, frame, execution),
-    do: do_raise_js(QuickBEAM.JSError.vm_exception_value(reason), frame, execution, [], true)
+  defp raise_js_from_caller(reason, %PromiseExecutorBoundary{} = boundary, execution) do
+    {reason, trace} = throw_state(reason)
+    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
+    execution = Promise.settle(execution, boundary.promise, {:error, thrown})
+    complete_executor(boundary, execution)
+  end
+
+  defp raise_js_from_caller(reason, %ReactionBoundary{} = boundary, execution) do
+    {reason, trace} = throw_state(reason)
+    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
+    execution = Promise.settle(execution, boundary.promise, {:error, thrown})
+    {:idle, execution}
+  end
+
+  defp raise_js_from_caller(reason, %NativeFrame{caller: caller}, execution) do
+    {reason, trace} = throw_state(reason)
+    do_raise_js(reason, caller, execution, trace, true)
+  end
+
+  defp raise_js_from_caller(reason, frame, execution) do
+    {reason, trace} = throw_state(reason)
+    do_raise_js(reason, frame, execution, trace, true)
+  end
+
+  defp throw_state(%Thrown{value: value, frames: frames}),
+    do: {QuickBEAM.JSError.vm_exception_value(value), Enum.reverse(frames)}
+
+  defp throw_state(reason), do: {QuickBEAM.JSError.vm_exception_value(reason), []}
 
   defp do_raise_js(reason, frame, execution, trace, caller?) do
     case split_at_catch(frame.stack) do
@@ -1223,6 +1544,50 @@ defmodule QuickBEAM.VM.Interpreter do
   defp unwind_caller(reason, %Execution{callers: []} = execution, trace) do
     error = QuickBEAM.JSError.from_vm(reason, Enum.reverse(trace))
     {:error, error, execution}
+  end
+
+  defp unwind_caller(
+         reason,
+         %Execution{callers: [%ThenableBoundary{} = boundary | callers]} = execution,
+         trace
+       ) do
+    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    execution = Promise.settle_assimilated(execution, boundary.promise, {:error, thrown})
+    {:idle, execution}
+  end
+
+  defp unwind_caller(
+         reason,
+         %Execution{callers: [%PromiseExecutorBoundary{} = boundary | callers]} = execution,
+         trace
+       ) do
+    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    execution = Promise.settle(execution, boundary.promise, {:error, thrown})
+    complete_executor(boundary, execution)
+  end
+
+  defp unwind_caller(
+         reason,
+         %Execution{callers: [%ReactionBoundary{} = boundary | callers]} = execution,
+         trace
+       ) do
+    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    execution = Promise.settle(execution, boundary.promise, {:error, thrown})
+    {:idle, execution}
+  end
+
+  defp unwind_caller(
+         reason,
+         %Execution{callers: [%AsyncBoundary{} = boundary | callers]} = execution,
+         trace
+       ) do
+    thrown = %Thrown{value: reason, frames: Enum.reverse(trace)}
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    execution = Promise.settle(execution, boundary.promise, {:error, thrown})
+    deliver_async_promise(boundary, execution)
   end
 
   defp unwind_caller(
@@ -1279,8 +1644,70 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
+  defp complete_async(
+         value,
+         %Execution{callers: [%AsyncBoundary{} = boundary | callers]} = execution
+       ) do
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    execution = Promise.settle(execution, boundary.promise, {:ok, value})
+    deliver_async_promise(boundary, execution)
+  end
+
+  defp complete_async(value, execution), do: return_value(value, execution)
+
+  defp deliver_async_promise(
+         %AsyncBoundary{mode: :push, caller: caller, promise: promise},
+         execution
+       ),
+       do: run(%{caller | stack: [promise | caller.stack]}, execution)
+
+  defp deliver_async_promise(%AsyncBoundary{mode: :return, promise: promise}, execution),
+    do: return_value(promise, execution)
+
+  defp deliver_async_promise(
+         %AsyncBoundary{mode: :reaction, caller: boundary, promise: promise},
+         execution
+       ) do
+    complete_reaction(boundary, promise, execution)
+  end
+
+  defp deliver_async_promise(%AsyncBoundary{mode: :executor, caller: boundary}, execution),
+    do: complete_executor(boundary, execution)
+
+  defp deliver_async_promise(%AsyncBoundary{mode: :thenable}, execution),
+    do: {:idle, execution}
+
+  defp deliver_async_promise(%AsyncBoundary{mode: :detached}, execution),
+    do: {:idle, execution}
+
   defp return_value(value, %Execution{callers: []} = execution),
-    do: {:ok, value, execution}
+    do: {:ok, value, %{execution | depth: 0}}
+
+  defp return_value(value, %Execution{callers: [%AsyncBoundary{} | _]} = execution),
+    do: complete_async(value, execution)
+
+  defp return_value(
+         value,
+         %Execution{callers: [%ReactionBoundary{} = boundary | callers]} = execution
+       ) do
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    complete_reaction(boundary, value, execution)
+  end
+
+  defp return_value(
+         _value,
+         %Execution{callers: [%PromiseExecutorBoundary{} = boundary | callers]} = execution
+       ) do
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    complete_executor(boundary, execution)
+  end
+
+  defp return_value(
+         _value,
+         %Execution{callers: [%ThenableBoundary{} = boundary | callers]} = execution
+       ) do
+    {:idle, %{execution | callers: callers, depth: boundary.depth}}
+  end
 
   defp return_value(value, %Execution{callers: [%NativeFrame{} = native | callers]} = execution) do
     execution = %{execution | callers: callers, depth: execution.depth - 1}

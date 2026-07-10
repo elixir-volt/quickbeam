@@ -20,19 +20,28 @@ defmodule QuickBEAM.VM.Execution do
     next_object_id: 0,
     next_promise_id: 0,
     operations: %{},
+    promise_waiters: %{},
+    promise_aggregates: %{},
     promises: %{},
     remaining_steps: 0
   ]
 
   @type t :: %__MODULE__{
           atoms: tuple(),
-          callers: [QuickBEAM.VM.Frame.t() | QuickBEAM.VM.NativeFrame.t()],
+          callers: [
+            QuickBEAM.VM.Frame.t()
+            | QuickBEAM.VM.NativeFrame.t()
+            | QuickBEAM.VM.AsyncBoundary.t()
+            | QuickBEAM.VM.ReactionBoundary.t()
+            | QuickBEAM.VM.PromiseExecutorBoundary.t()
+            | QuickBEAM.VM.ThenableBoundary.t()
+          ],
           cells: %{optional(non_neg_integer()) => term()},
-          depth: pos_integer(),
+          depth: non_neg_integer(),
           globals: map(),
           handlers: %{optional(String.t()) => function()},
           heap: %{optional(non_neg_integer()) => QuickBEAM.VM.Object.t()},
-          jobs: :queue.queue({:ok, term()} | {:error, term()}),
+          jobs: :queue.queue(term()),
           max_stack_depth: pos_integer(),
           memory_exceeded: boolean(),
           memory_limit: pos_integer() | :infinity,
@@ -43,7 +52,11 @@ defmodule QuickBEAM.VM.Execution do
           operations: %{
             optional(reference()) => {QuickBEAM.VM.PromiseReference.t(), pid()}
           },
-          promises: %{optional(non_neg_integer()) => QuickBEAM.VM.Promise.state()},
+          promise_waiters: %{optional(non_neg_integer()) => [term()]},
+          promise_aggregates: %{optional(reference()) => map()},
+          promises: %{
+            optional(non_neg_integer()) => QuickBEAM.VM.Promise.state() | :resolving
+          },
           remaining_steps: non_neg_integer(),
           step_limit: pos_integer()
         }

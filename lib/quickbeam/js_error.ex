@@ -62,6 +62,9 @@ defmodule QuickBEAM.JSError do
 
   @doc false
   @spec from_vm(term(), [frame()]) :: t()
+  def from_vm(%QuickBEAM.VM.Thrown{value: value, frames: async_frames}, frames),
+    do: from_vm(value, async_frames ++ frames)
+
   def from_vm(reason, frames) do
     {name, message} = vm_name_and_message(reason)
     first = List.first(frames) || %{}

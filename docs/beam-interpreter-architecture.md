@@ -3,10 +3,12 @@
 Status: implementation in progress for the next major QuickBEAM release.
 
 Implemented on the development branch: version-locked decoding and verification,
-process-isolated evaluation, explicit frames and continuations, closures,
-exceptions, owner-local objects, Promise scheduling, asynchronous `Beam.call`,
-and a pinned Preact SSR acceptance fixture. The broader ECMAScript object model,
-built-ins, conformance target, memory limit, and hardening work remain in progress.
+process-isolated evaluation, explicit frames and detached async continuations,
+closures, exceptions, owner-local objects, Promise reactions and combinators,
+asynchronous `Beam.call`, logical and process memory containment, stable
+JavaScript errors, and a pinned Preact SSR acceptance fixture. Broader ECMAScript
+conformance, object-model hardening, garbage collection, and release hardening
+remain in progress.
 
 ## Summary
 
@@ -441,6 +443,18 @@ Multiple in-flight handlers are allowed. Replies are correlated by operation
 reference and may arrive in any order; JavaScript microtask ordering remains
 deterministic after each settlement. Stale replies after cancellation are
 ignored.
+
+Async invocation returns its Promise immediately. An async frame that reaches
+`await` detaches from its caller and is scheduled as an owner-local coroutine,
+so several suspended async functions and host operations can coexist. Awaiting
+an already-settled Promise still enqueues resumption as a microtask rather than
+resuming inline.
+
+The Promise runtime provides FIFO `.then`, `.catch`, and `.finally` reactions,
+resolution and rejection propagation, Promise and thenable assimilation,
+self-resolution protection, idempotent resolver functions, and `all`,
+`allSettled`, `any`, and `race`. Callback results are assimilated before their
+reaction Promise settles, including thenables returned from `.finally`.
 
 ```text
 Evaluation owner                       Host Task Supervisor

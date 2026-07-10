@@ -32,6 +32,27 @@ defmodule QuickBEAM.VM.AsyncTest do
     assert {:ok, 42} = QuickBEAM.VM.eval(program, handlers: %{"delay" => handler})
   end
 
+  test "aggregates concurrently running Beam.call Promises" do
+    source = """
+    (async function() {
+      const values = await Promise.all([
+        Beam.call("delay", 15, 40),
+        Beam.call("delay", 0, 2)
+      ])
+      return values[0] + values[1]
+    })()
+    """
+
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+
+    handler = fn [delay, value] ->
+      Process.sleep(delay)
+      value
+    end
+
+    assert {:ok, 42} = QuickBEAM.VM.eval(program, handlers: %{"delay" => handler})
+  end
+
   test "resumes handler failures through JavaScript exception unwinding" do
     source = """
     (async function() {

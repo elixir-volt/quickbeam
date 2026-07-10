@@ -9,7 +9,7 @@ defmodule QuickBEAM.VM.Builtins do
     "Math" => ["floor", "max", "min", "random", "round"],
     "String" => ["fromCharCode"],
     "Error" => [],
-    "Promise" => ["resolve"],
+    "Promise" => ["all", "allSettled", "any", "race", "reject", "resolve"],
     "Set" => []
   }
 
@@ -90,6 +90,29 @@ defmodule QuickBEAM.VM.Builtins do
     {:ok, string, execution}
   end
 
+  def call({:builtin_method, "Promise", method}, _this, [iterable | _], execution)
+      when method in ["all", "allSettled", "any", "race"] do
+    case array_values(iterable, execution) do
+      {:ok, values} ->
+        kind =
+          %{"all" => :all, "allSettled" => :all_settled, "any" => :any, "race" => :race}[method]
+
+        {promise, execution} = QuickBEAM.VM.Promise.aggregate(execution, kind, values)
+        {:ok, promise, execution}
+
+      {:error, reason} ->
+        {:error, reason, execution}
+    end
+  end
+
+  def call(
+        {:builtin_method, "Promise", "resolve"},
+        _this,
+        [%QuickBEAM.VM.PromiseReference{} = promise | _],
+        execution
+      ),
+      do: {:ok, promise, execution}
+
   def call({:builtin_method, "Promise", "resolve"}, _this, values, execution) do
     {promise, execution} = QuickBEAM.VM.Promise.new(execution)
 
@@ -100,6 +123,19 @@ defmodule QuickBEAM.VM.Builtins do
       end
 
     execution = QuickBEAM.VM.Promise.settle(execution, promise, {:ok, value})
+    {:ok, promise, execution}
+  end
+
+  def call({:builtin_method, "Promise", "reject"}, _this, values, execution) do
+    {promise, execution} = QuickBEAM.VM.Promise.new(execution)
+
+    reason =
+      case values do
+        [reason | _] -> reason
+        [] -> :undefined
+      end
+
+    execution = QuickBEAM.VM.Promise.settle(execution, promise, {:error, reason})
     {:ok, promise, execution}
   end
 
