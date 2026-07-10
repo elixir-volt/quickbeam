@@ -649,6 +649,11 @@ Only after interpreter correctness is stable:
 
 ## Prototype branch extraction map
 
+The focused subsystem audit and ordered extraction plan are published in
+[`prototype-delta-audit.md`](prototype-delta-audit.md). The prototype is a source
+of algorithms and tests, not a branch to merge or a runtime to layer underneath
+the clean interpreter.
+
 Potentially salvage after focused review and adaptation:
 
 - bytecode LEB128 and serialization tests;

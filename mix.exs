@@ -107,6 +107,7 @@ defmodule QuickBEAM.MixProject do
         "README.md",
         "docs/javascript-api.md",
         "docs/architecture.md",
+        "docs/prototype-delta-audit.md",
         "docs/test262-conformance.md",
         "CHANGELOG.md"
       ],
@@ -114,6 +115,7 @@ defmodule QuickBEAM.MixProject do
         Guides: [
           "docs/javascript-api.md",
           "docs/architecture.md",
+          "docs/prototype-delta-audit.md",
           "docs/test262-conformance.md"
         ]
       ],
