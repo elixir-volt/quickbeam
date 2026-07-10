@@ -12,7 +12,9 @@ defmodule QuickBEAM.VM.Heap do
     object = %Object{
       kind: kind,
       prototype: Keyword.get(opts, :prototype),
-      length: Keyword.get(opts, :length, 0)
+      length: Keyword.get(opts, :length, 0),
+      callable: Keyword.get(opts, :callable),
+      internal: Keyword.get(opts, :internal)
     }
 
     reference = %Reference{id: id}
@@ -27,6 +29,24 @@ defmodule QuickBEAM.VM.Heap do
   @spec get(Execution.t(), Reference.t(), term()) :: {:ok, term()} | {:error, term()}
   def get(%Execution{} = execution, %Reference{} = reference, key) do
     get_with_depth(execution, reference, normalize_key(key), 0)
+  end
+
+  @spec has_property?(Execution.t(), Reference.t(), term()) :: boolean()
+  def has_property?(execution, %Reference{} = reference, key) do
+    key = normalize_key(key)
+
+    case fetch_object(execution, reference) do
+      {:ok, %Object{kind: :array}} when key == "length" ->
+        true
+
+      {:ok, object} ->
+        Map.has_key?(object.properties, key) or
+          (is_struct(object.prototype, Reference) and
+             has_property?(execution, object.prototype, key))
+
+      :error ->
+        false
+    end
   end
 
   @spec put(Execution.t(), Reference.t(), term(), term()) ::
@@ -85,11 +105,24 @@ defmodule QuickBEAM.VM.Heap do
     end
   end
 
+  @spec update_object(Execution.t(), Reference.t(), (Object.t() -> Object.t())) ::
+          {:ok, Execution.t()} | {:error, term()}
+  def update_object(%Execution{} = execution, %Reference{id: id} = reference, update) do
+    case fetch_object(execution, reference) do
+      {:ok, object} -> {:ok, %{execution | heap: Map.put(execution.heap, id, update.(object))}}
+      :error -> {:error, {:invalid_reference, id}}
+    end
+  end
+
   @spec own_keys(Execution.t(), Reference.t()) :: {:ok, [term()]} | {:error, term()}
   def own_keys(execution, %Reference{id: id} = reference) do
     case fetch_object(execution, reference) do
-      {:ok, object} -> {:ok, Map.keys(object.properties)}
-      :error -> {:error, {:invalid_reference, id}}
+      {:ok, object} ->
+        keys = for {key, property} <- object.properties, property.enumerable, do: key
+        {:ok, keys}
+
+      :error ->
+        {:error, {:invalid_reference, id}}
     end
   end
 

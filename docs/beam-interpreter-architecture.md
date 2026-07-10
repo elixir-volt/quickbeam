@@ -1,6 +1,12 @@
 # BEAM Interpreter Architecture
 
-Status: proposed architecture for the next major QuickBEAM release.
+Status: implementation in progress for the next major QuickBEAM release.
+
+Implemented on the development branch: version-locked decoding and verification,
+process-isolated evaluation, explicit frames and continuations, closures,
+exceptions, owner-local objects, Promise scheduling, asynchronous `Beam.call`,
+and a pinned Preact SSR acceptance fixture. The broader ECMAScript object model,
+built-ins, conformance target, memory limit, and hardening work remain in progress.
 
 ## Summary
 

@@ -23,7 +23,7 @@ defmodule QuickBEAM.VM.Execution do
 
   @type t :: %__MODULE__{
           atoms: tuple(),
-          callers: [QuickBEAM.VM.Frame.t()],
+          callers: [QuickBEAM.VM.Frame.t() | QuickBEAM.VM.NativeFrame.t()],
           cells: %{optional(non_neg_integer()) => term()},
           depth: pos_integer(),
           globals: map(),

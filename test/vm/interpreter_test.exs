@@ -44,6 +44,34 @@ defmodule QuickBEAM.VM.InterpreterTest do
     assert Task.await_many(tasks) == List.duplicate({:ok, 1}, 40)
   end
 
+  test "executes array callback methods with resumable native frames" do
+    source = "[1,2,3,4].map(x=>x*2).filter(x=>x>4).reduce((sum,x)=>sum+x,0)"
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+    assert {:ok, 14} = QuickBEAM.VM.eval(program)
+
+    assert {:ok, some} = QuickBEAM.VM.compile("[1,2,3].some(x=>x===2)")
+    assert {:ok, true} = QuickBEAM.VM.eval(some)
+  end
+
+  test "supports arguments slicing, sets, regular expressions, and function prototypes" do
+    source = "(function(){return [].slice.call(arguments,1).join('-')})('a','b','c')"
+    assert {:ok, arguments} = QuickBEAM.VM.compile(source)
+    assert {:ok, "b-c"} = QuickBEAM.VM.eval(arguments)
+
+    assert {:ok, set} = QuickBEAM.VM.compile("new Set(['present']).has('present')")
+    assert {:ok, true} = QuickBEAM.VM.eval(set)
+
+    assert {:ok, regexp} = QuickBEAM.VM.compile("/beam/.test('quickbeam')")
+    assert {:ok, true} = QuickBEAM.VM.eval(regexp)
+
+    assert {:ok, prototype} =
+             QuickBEAM.VM.compile(
+               "{function Example(){}; Example.prototype.answer=42; Example.prototype.answer}"
+             )
+
+    assert {:ok, 42} = QuickBEAM.VM.eval(prototype)
+  end
+
   test "evaluates and exports object and array values" do
     source = "{let object={answer: 41}; object.answer++; [object.answer, [1,2,3].length]}"
     assert {:ok, program} = QuickBEAM.VM.compile(source)

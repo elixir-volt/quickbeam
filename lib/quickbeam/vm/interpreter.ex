@@ -4,18 +4,21 @@ defmodule QuickBEAM.VM.Interpreter do
   import Bitwise
 
   alias QuickBEAM.VM.{
+    Builtins,
     Continuation,
     Execution,
     Export,
     Frame,
     Function,
     Heap,
+    NativeFrame,
     Opcodes,
     PredefinedAtoms,
     Program,
     Promise,
     PromiseReference,
     Reference,
+    RegExp,
     Value
   }
 
@@ -67,7 +70,7 @@ defmodule QuickBEAM.VM.Interpreter do
   def finish({:error, reason, _execution}), do: {:error, reason}
   def finish({:suspended, continuation}), do: {:suspended, continuation}
 
-  defp enter_call(callable, args, this, caller, execution, tail?) do
+  defp enter_call(callable, args, this, caller, execution, tail?, frame_callable \\ nil) do
     with {:ok, function, closure_refs} <- callable_parts(callable) do
       depth = if tail?, do: execution.depth, else: execution.depth + 1
 
@@ -79,10 +82,11 @@ defmodule QuickBEAM.VM.Interpreter do
             do: execution,
             else: %{execution | callers: [caller | execution.callers], depth: depth}
 
-        run(new_frame(function, callable, args, this, closure_refs), execution)
+        frame_callable = frame_callable || callable
+        run(new_frame(function, frame_callable, args, this, closure_refs), execution)
       end
     else
-      {:error, reason} -> raise_js(reason, caller, execution)
+      {:error, reason} -> raise_js(call_error(reason, caller), caller, execution)
     end
   end
 
@@ -142,6 +146,25 @@ defmodule QuickBEAM.VM.Interpreter do
     do: push(frame, execution, resolve_atom(atom, execution))
 
   defp execute(:push_this, [], frame, execution), do: push(frame, execution, frame.this)
+
+  defp execute(:regexp, [], %{stack: [bytecode, source | stack]} = frame, execution) do
+    push(%{frame | stack: stack}, execution, %RegExp{source: source, bytecode: bytecode})
+  end
+
+  defp execute(:special_object, [type], frame, execution) when type in [0, 1] do
+    values = Tuple.to_list(frame.args)
+    {arguments, execution} = Heap.allocate(execution, :array)
+
+    execution =
+      values
+      |> Enum.with_index()
+      |> Enum.reduce(execution, fn {value, index}, execution ->
+        {:ok, execution} = Heap.define(execution, arguments, index, read_slot(value, execution))
+        execution
+      end)
+
+    push(frame, execution, arguments)
+  end
 
   defp execute(:special_object, [2], frame, execution),
     do: push(frame, execution, frame.callable)
@@ -230,8 +253,23 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp execute(:to_propkey, [], frame, execution), do: continue(frame, execution)
 
+  defp execute(:to_object, [], %{stack: [value | _]} = frame, execution)
+       when value in [nil, :undefined],
+       do: raise_js({:type_error, :cannot_convert_to_object}, frame, execution)
+
+  defp execute(:to_object, [], frame, execution), do: continue(frame, execution)
+
   defp execute(:is_undefined_or_null, [], frame, execution),
     do: unary(frame, execution, &(&1 in [:undefined, nil]))
+
+  defp execute(:is_undefined, [], frame, execution),
+    do: unary(frame, execution, &(&1 == :undefined))
+
+  defp execute(:is_null, [], frame, execution),
+    do: unary(frame, execution, &is_nil/1)
+
+  defp execute(:is_function, [], %{stack: [value | stack]} = frame, execution),
+    do: continue(%{frame | stack: [type_of(value, execution) == "function" | stack]}, execution)
 
   defp execute(:drop, [], %{stack: [_value | stack]} = frame, execution),
     do: continue(%{frame | stack: stack}, execution)
@@ -357,6 +395,22 @@ defmodule QuickBEAM.VM.Interpreter do
     continue(%{frame | locals: locals, stack: stack}, execution)
   end
 
+  defp execute(:for_in_start, [], %{stack: [object | stack]} = frame, execution) do
+    case enumerable_keys(object, execution) do
+      {:ok, keys} -> continue(%{frame | stack: [{:for_in, keys, 0} | stack]}, execution)
+      {:error, reason} -> raise_js({:type_error, reason}, %{frame | stack: stack}, execution)
+    end
+  end
+
+  defp execute(:for_in_next, [], %{stack: [{:for_in, keys, index} | stack]} = frame, execution) do
+    if index < length(keys) do
+      iterator = {:for_in, keys, index + 1}
+      continue(%{frame | stack: [false, Enum.at(keys, index), iterator | stack]}, execution)
+    else
+      continue(%{frame | stack: [true, :undefined, {:for_in, keys, index} | stack]}, execution)
+    end
+  end
+
   defp execute(:catch, [target], frame, execution) do
     continue(%{frame | stack: [{:catch, target} | frame.stack]}, execution)
   end
@@ -421,6 +475,10 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(:strict_neq, [], frame, execution),
     do: binary(frame, execution, &(not Value.strict_equal?(&1, &2)))
 
+  defp execute(:in, [], %{stack: [object, key | stack]} = frame, execution) do
+    continue(%{frame | stack: [has_property?(object, key, execution) | stack]}, execution)
+  end
+
   defp execute(:and, [], frame, execution), do: bitwise(frame, execution, &band/2)
   defp execute(:or, [], frame, execution), do: bitwise(frame, execution, &bor/2)
   defp execute(:xor, [], frame, execution), do: bitwise(frame, execution, &bxor/2)
@@ -434,7 +492,18 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(:plus, [], frame, execution), do: unary(frame, execution, &Value.to_number/1)
   defp execute(:not, [], frame, execution), do: unary(frame, execution, &Value.bitwise_not/1)
   defp execute(:lnot, [], frame, execution), do: unary(frame, execution, &(not Value.truthy?(&1)))
-  defp execute(:typeof, [], frame, execution), do: unary(frame, execution, &Value.typeof/1)
+
+  defp execute(:typeof, [], %{stack: [value | stack]} = frame, execution) do
+    continue(%{frame | stack: [type_of(value, execution) | stack]}, execution)
+  end
+
+  defp execute(:typeof_is_function, [], %{stack: [value | stack]} = frame, execution) do
+    continue(%{frame | stack: [type_of(value, execution) == "function" | stack]}, execution)
+  end
+
+  defp execute(:typeof_is_undefined, [], frame, execution),
+    do: unary(frame, execution, &(&1 == :undefined))
+
   defp execute(:inc, [], frame, execution), do: unary(frame, execution, &Value.add(&1, 1))
   defp execute(:dec, [], frame, execution), do: unary(frame, execution, &Value.subtract(&1, 1))
 
@@ -449,7 +518,8 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(:fclosure, [index], frame, execution) do
     function = Enum.at(frame.function.constants, index)
     {callable, frame, execution} = capture_closure(function, frame, execution)
-    push(frame, execution, callable)
+    {reference, execution} = allocate_function(callable, function, execution)
+    push(frame, execution, reference)
   end
 
   defp execute(:fclosure8, [index], frame, execution),
@@ -462,7 +532,13 @@ defmodule QuickBEAM.VM.Interpreter do
     do: call(frame, execution, argument_count, true)
 
   defp execute(:call_method, [argument_count], frame, execution),
-    do: call_method(frame, execution, argument_count)
+    do: call_method(frame, execution, argument_count, false)
+
+  defp execute(:tail_call_method, [argument_count], frame, execution),
+    do: call_method(frame, execution, argument_count, true)
+
+  defp execute(:call_constructor, [argument_count], frame, execution),
+    do: call_constructor(frame, execution, argument_count)
 
   defp execute(name, [index], frame, execution)
        when name in [
@@ -585,24 +661,283 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
-  defp call_method(%Frame{stack: stack} = frame, execution, argument_count) do
+  defp call_method(%Frame{stack: stack} = frame, execution, argument_count, tail?) do
     {arguments, callable_and_this} = Enum.split(stack, argument_count)
 
     case callable_and_this do
       [callable, this | rest] ->
         caller = %{next_frame(frame) | stack: rest}
-        dispatch_call(callable, Enum.reverse(arguments), this, caller, execution, false)
+        dispatch_call(callable, Enum.reverse(arguments), this, caller, execution, tail?)
 
       _ ->
         {:error, {:invalid_stack, :call_method}, execution}
     end
   end
 
+  defp call_constructor(%Frame{stack: stack} = frame, execution, argument_count) do
+    {arguments, constructor_and_new_target} = Enum.split(stack, argument_count)
+
+    case constructor_and_new_target do
+      [_new_target, constructor | rest] ->
+        caller = %{next_frame(frame) | stack: rest}
+        dispatch_call(constructor, Enum.reverse(arguments), :undefined, caller, execution, false)
+
+      _ ->
+        {:error, {:invalid_stack, :call_constructor}, execution}
+    end
+  end
+
   defp dispatch_call({:host_function, :beam_call}, arguments, _this, caller, execution, tail?),
     do: start_host_call(arguments, caller, execution, tail?)
 
+  defp dispatch_call(
+         {:bound_function, target, bound_this, bound_arguments},
+         arguments,
+         _this,
+         caller,
+         execution,
+         tail?
+       ),
+       do:
+         dispatch_call(target, bound_arguments ++ arguments, bound_this, caller, execution, tail?)
+
+  defp dispatch_call(
+         {:function_method, "bind"},
+         [bound_this | bound_arguments],
+         target,
+         caller,
+         execution,
+         false
+       ) do
+    run(
+      %{caller | stack: [{:bound_function, target, bound_this, bound_arguments} | caller.stack]},
+      execution
+    )
+  end
+
+  defp dispatch_call({:function_method, "call"}, arguments, target, caller, execution, tail?) do
+    {this, arguments} =
+      case arguments do
+        [this | rest] -> {this, rest}
+        [] -> {:undefined, []}
+      end
+
+    dispatch_call(target, arguments, this, caller, execution, tail?)
+  end
+
+  defp dispatch_call(
+         {:promise_method, "then"},
+         arguments,
+         %PromiseReference{} = promise,
+         caller,
+         execution,
+         tail?
+       ) do
+    case {Promise.state(execution, promise), arguments} do
+      {{:fulfilled, value}, [callback | _]} ->
+        dispatch_call(callback, [value], :undefined, caller, execution, tail?)
+
+      {{:rejected, reason}, [_fulfilled, rejected | _]} ->
+        dispatch_call(rejected, [reason], :undefined, caller, execution, tail?)
+
+      _ ->
+        if tail?,
+          do: return_value(promise, execution),
+          else: run(%{caller | stack: [promise | caller.stack]}, execution)
+    end
+  end
+
+  defp dispatch_call(%Reference{} = reference, arguments, this, caller, execution, tail?) do
+    case Builtins.callable(execution, reference) do
+      nil ->
+        raise_js(call_error({:not_callable, reference}, caller), caller, execution)
+
+      callable when elem(callable, 0) in [:builtin, :builtin_method, :primitive_method] ->
+        dispatch_call(callable, arguments, this, caller, execution, tail?)
+
+      callable ->
+        enter_call(callable, arguments, this, caller, execution, tail?, reference)
+    end
+  end
+
+  defp dispatch_call(
+         {:primitive_method, :array, method},
+         arguments,
+         receiver,
+         caller,
+         execution,
+         tail?
+       )
+       when method in ["filter", "forEach", "map", "reduce", "some"] do
+    start_array_iteration(method, receiver, arguments, caller, execution, tail?)
+  end
+
+  defp dispatch_call(callable, arguments, this, caller, execution, tail?)
+       when elem(callable, 0) in [:builtin, :builtin_method, :primitive_method] do
+    case Builtins.call(callable, this, arguments, execution) do
+      {:ok, value, execution} ->
+        if tail?,
+          do: return_value(value, execution),
+          else: run(%{caller | stack: [value | caller.stack]}, execution)
+
+      {:error, reason, execution} ->
+        raise_js({:type_error, reason}, caller, execution)
+    end
+  end
+
   defp dispatch_call(callable, arguments, this, caller, execution, tail?),
     do: enter_call(callable, arguments, this, caller, execution, tail?)
+
+  defp start_array_iteration(method, receiver, arguments, caller, execution, tail?) do
+    with {:ok, value_list} <- interpreter_array_values(receiver, execution),
+         [callback | rest] <- arguments do
+      values = List.to_tuple(value_list)
+
+      operation =
+        case method do
+          "map" -> :map
+          "filter" -> :filter
+          "forEach" -> :for_each
+          "some" -> :some
+          "reduce" -> :reduce
+        end
+
+      native = %NativeFrame{
+        operation: operation,
+        values: values,
+        callback: callback,
+        receiver: receiver,
+        caller: caller,
+        tail?: tail?
+      }
+
+      native =
+        if operation == :reduce do
+          case rest do
+            [initial | _] -> %{native | accumulator: initial}
+            [] when tuple_size(values) > 0 -> %{native | accumulator: elem(values, 0), index: 1}
+            [] -> native
+          end
+        else
+          native
+        end
+
+      if operation == :reduce and tuple_size(values) == 0 and rest == [] do
+        raise_js({:type_error, :reduce_of_empty_array}, caller, execution)
+      else
+        invoke_native_next(native, execution)
+      end
+    else
+      {:error, reason} -> raise_js({:type_error, reason}, caller, execution)
+      [] -> raise_js({:type_error, :missing_callback}, caller, execution)
+    end
+  end
+
+  defp invoke_native_next(%NativeFrame{} = native, execution)
+       when native.index >= tuple_size(native.values) do
+    finish_native(native, native_result(native, execution), execution)
+  end
+
+  defp invoke_native_next(%NativeFrame{} = native, execution) do
+    value = elem(native.values, native.index)
+
+    arguments =
+      if native.operation == :reduce,
+        do: [native.accumulator, value, native.index, native.receiver],
+        else: [value, native.index, native.receiver]
+
+    dispatch_call(native.callback, arguments, :undefined, native, execution, false)
+  end
+
+  defp resume_native(value, %NativeFrame{} = native, execution) do
+    current = elem(native.values, native.index)
+
+    native =
+      case native.operation do
+        :map ->
+          %{native | index: native.index + 1, results: [value | native.results]}
+
+        :filter ->
+          %{
+            native
+            | index: native.index + 1,
+              results:
+                if(Value.truthy?(value), do: [current | native.results], else: native.results)
+          }
+
+        :for_each ->
+          %{native | index: native.index + 1}
+
+        :some ->
+          %{native | index: native.index + 1, accumulator: Value.truthy?(value)}
+
+        :reduce ->
+          %{native | index: native.index + 1, accumulator: value}
+      end
+
+    if native.operation == :some and native.accumulator,
+      do: finish_native(native, {:value, true, execution}, execution),
+      else: invoke_native_next(native, execution)
+  end
+
+  defp native_result(%NativeFrame{operation: operation, results: results}, execution)
+       when operation in [:map, :filter] do
+    allocate_array(Enum.reverse(results), execution)
+  end
+
+  defp native_result(%NativeFrame{operation: :for_each}, execution),
+    do: {:value, :undefined, execution}
+
+  defp native_result(%NativeFrame{operation: :some}, execution), do: {:value, false, execution}
+
+  defp native_result(%NativeFrame{operation: :reduce, accumulator: value}, execution),
+    do: {:value, value, execution}
+
+  defp finish_native(native, {:value, value, execution}, _old_execution) do
+    if native.tail?,
+      do: return_value(value, execution),
+      else: run(%{native.caller | stack: [value | native.caller.stack]}, execution)
+  end
+
+  defp allocate_array(values, execution) do
+    {array, execution} = Heap.allocate(execution, :array)
+
+    execution =
+      values
+      |> Enum.with_index()
+      |> Enum.reduce(execution, fn {value, index}, execution ->
+        {:ok, execution} = Heap.define(execution, array, index, value)
+        execution
+      end)
+
+    {:value, array, execution}
+  end
+
+  defp interpreter_array_values(value, _execution) when is_list(value), do: {:ok, value}
+
+  defp interpreter_array_values(%Reference{} = reference, execution) do
+    case Heap.fetch_object(execution, reference) do
+      {:ok, %QuickBEAM.VM.Object{kind: :array, length: length, properties: properties}} ->
+        values =
+          if length == 0 do
+            []
+          else
+            for index <- 0..(length - 1) do
+              case Map.get(properties, index) do
+                %QuickBEAM.VM.Property{value: value} -> value
+                nil -> :undefined
+              end
+            end
+          end
+
+        {:ok, values}
+
+      _ ->
+        {:error, :not_an_array}
+    end
+  end
+
+  defp interpreter_array_values(_value, _execution), do: {:error, :not_an_array}
 
   defp push(frame, execution, value),
     do: continue(%{frame | stack: [value | frame.stack]}, execution)
@@ -635,9 +970,17 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp install_host_globals(execution) do
+    execution = Builtins.install(execution)
     {beam, execution} = Heap.allocate(execution)
     {:ok, execution} = Heap.define(execution, beam, "call", {:host_function, :beam_call})
-    %{execution | globals: Map.put(execution.globals, "Beam", beam)}
+    {global_this, execution} = Heap.allocate(execution)
+
+    globals =
+      execution.globals
+      |> Map.put("Beam", beam)
+      |> Map.put("globalThis", global_this)
+
+    %{execution | globals: globals}
   end
 
   defp start_host_call([name | arguments], caller, execution, tail?) when is_binary(name) do
@@ -682,23 +1025,95 @@ defmodule QuickBEAM.VM.Interpreter do
     kind, reason -> {:error, {:handler_exception, {kind, reason}, __STACKTRACE__}}
   end
 
+  defp call_error(reason, %NativeFrame{caller: caller}), do: call_error(reason, caller)
+
+  defp call_error(reason, caller) do
+    pc = max(caller.pc - 1, 0)
+    {reason, {caller.function.name, pc, elem(caller.function.source_positions, pc)}}
+  end
+
+  defp type_of(%Reference{} = reference, execution) do
+    if Builtins.callable(execution, reference), do: "function", else: "object"
+  end
+
+  defp type_of(value, _execution)
+       when is_tuple(value) and
+              elem(value, 0) in [
+                :builtin,
+                :builtin_method,
+                :bound_function,
+                :function_method,
+                :host_function,
+                :primitive_method,
+                :promise_method
+              ],
+       do: "function"
+
+  defp type_of(value, _execution), do: Value.typeof(value)
+
   defp get_property_and_continue(object, key, stack, frame, execution) do
     case get_property(object, key, execution) do
-      {:ok, value} -> continue(%{frame | stack: [value | stack]}, execution)
-      {:error, reason} -> raise_js({:type_error, reason}, %{frame | stack: stack}, execution)
+      {:ok, value} ->
+        continue(%{frame | stack: [value | stack]}, execution)
+
+      {:error, reason} ->
+        location =
+          {frame.function.name, frame.pc, elem(frame.function.source_positions, frame.pc), key}
+
+        raise_js({:type_error, {reason, location}}, %{frame | stack: stack}, execution)
     end
   end
 
   defp put_property_and_continue(object, key, value, stack, frame, execution) do
     case put_property(object, key, value, execution) do
-      {:ok, execution} -> continue(%{frame | stack: stack}, execution)
-      {:error, reason} -> raise_js({:type_error, reason}, %{frame | stack: stack}, execution)
+      {:ok, execution} ->
+        continue(%{frame | stack: stack}, execution)
+
+      {:error, reason} ->
+        location =
+          {frame.function.name, frame.pc, elem(frame.function.source_positions, frame.pc)}
+
+        raise_js({:type_error, {reason, location}}, %{frame | stack: stack}, execution)
     end
   end
 
-  defp get_property(%Reference{} = object, key, execution), do: Heap.get(execution, object, key)
+  defp get_property(%Reference{} = object, key, execution) do
+    case Heap.get(execution, object, key) do
+      {:ok, :undefined} = missing ->
+        cond do
+          key in ["bind", "call"] and not is_nil(Builtins.callable(execution, object)) ->
+            {:ok, {:function_method, key}}
 
-  defp get_property(object, key, _execution) when is_map(object) do
+          reference_kind(object, execution) in [:array, :set] and is_binary(key) ->
+            {:ok, {:primitive_method, reference_kind(object, execution), key}}
+
+          true ->
+            missing
+        end
+
+      result ->
+        result
+    end
+  end
+
+  defp get_property(%PromiseReference{}, "then", _execution), do: {:ok, {:promise_method, "then"}}
+
+  defp get_property(%RegExp{}, key, _execution) when is_binary(key),
+    do: {:ok, {:primitive_method, :regexp, key}}
+
+  defp get_property(object, key, _execution)
+       when is_tuple(object) and key in ["bind", "call"] and
+              elem(object, 0) in [
+                :builtin,
+                :builtin_method,
+                :bound_function,
+                :host_function,
+                :primitive_method,
+                :promise_method
+              ],
+       do: {:ok, {:function_method, key}}
+
+  defp get_property(object, key, _execution) when is_map(object) and not is_struct(object) do
     case Map.fetch(object, key) do
       {:ok, value} -> {:ok, value}
       :error -> {:ok, map_string_key(object, key)}
@@ -712,10 +1127,19 @@ defmodule QuickBEAM.VM.Interpreter do
     {:ok, String.at(object, key) || :undefined}
   end
 
+  defp get_property(object, key, _execution) when is_binary(object) and is_binary(key),
+    do: {:ok, {:primitive_method, :string, key}}
+
   defp get_property(object, "length", _execution) when is_list(object), do: {:ok, length(object)}
 
   defp get_property(object, key, _execution) when is_list(object) and is_integer(key),
     do: {:ok, Enum.at(object, key, :undefined)}
+
+  defp get_property(object, key, _execution) when is_list(object) and is_binary(key),
+    do: {:ok, {:primitive_method, :array, key}}
+
+  defp get_property(object, key, _execution) when is_number(object) and is_binary(key),
+    do: {:ok, {:primitive_method, :number, key}}
 
   defp get_property(object, _key, _execution) when object in [nil, :undefined],
     do: {:error, :null_or_undefined_property_access}
@@ -725,7 +1149,39 @@ defmodule QuickBEAM.VM.Interpreter do
   defp put_property(%Reference{} = object, key, value, execution),
     do: Heap.put(execution, object, key, value)
 
-  defp put_property(_object, _key, _value, _execution), do: {:error, :not_an_object}
+  defp put_property(object, _key, _value, _execution), do: {:error, {:not_an_object, object}}
+
+  defp enumerable_keys(%Reference{} = reference, execution),
+    do: Heap.own_keys(execution, reference)
+
+  defp enumerable_keys(value, _execution) when is_map(value), do: {:ok, Map.keys(value)}
+  defp enumerable_keys([], _execution), do: {:ok, []}
+
+  defp enumerable_keys(value, _execution) when is_list(value),
+    do: {:ok, Enum.to_list(0..(length(value) - 1))}
+
+  defp enumerable_keys(value, _execution) when value in [nil, :undefined], do: {:ok, []}
+  defp enumerable_keys(_value, _execution), do: {:ok, []}
+
+  defp has_property?(%Reference{} = reference, key, execution),
+    do: Heap.has_property?(execution, reference, key)
+
+  defp has_property?(value, key, _execution) when is_map(value), do: Map.has_key?(value, key)
+
+  defp has_property?(value, key, _execution) when is_list(value) and is_integer(key),
+    do: key >= 0 and key < length(value)
+
+  defp has_property?(value, "length", _execution) when is_list(value) or is_binary(value),
+    do: true
+
+  defp has_property?(_value, _key, _execution), do: false
+
+  defp reference_kind(reference, execution) do
+    case Heap.fetch_object(execution, reference) do
+      {:ok, %QuickBEAM.VM.Object{kind: kind}} -> kind
+      :error -> nil
+    end
+  end
 
   defp map_string_key(map, key) when is_binary(key) do
     case Enum.find(map, fn
@@ -746,6 +1202,9 @@ defmodule QuickBEAM.VM.Interpreter do
     |> div(2)
   end
 
+  defp raise_js(reason, %NativeFrame{caller: caller}, execution),
+    do: raise_js(reason, caller, execution)
+
   defp raise_js(reason, frame, execution) do
     case split_at_catch(frame.stack) do
       {:caught, target, stack_below_catch} ->
@@ -759,7 +1218,12 @@ defmodule QuickBEAM.VM.Interpreter do
   defp unwind_caller(reason, %Execution{callers: []} = execution),
     do: {:error, {:js_throw, reason}, execution}
 
-  defp unwind_caller(reason, %Execution{callers: [caller | callers]} = execution) do
+  defp unwind_caller(reason, %Execution{callers: [%NativeFrame{} = native | callers]} = execution) do
+    execution = %{execution | callers: callers, depth: execution.depth - 1}
+    raise_js(reason, native.caller, execution)
+  end
+
+  defp unwind_caller(reason, %Execution{callers: [%Frame{} = caller | callers]} = execution) do
     execution = %{execution | callers: callers, depth: execution.depth - 1}
     raise_js(reason, caller, execution)
   end
@@ -774,7 +1238,12 @@ defmodule QuickBEAM.VM.Interpreter do
   defp return_value(value, %Execution{callers: []} = execution),
     do: {:ok, value, execution}
 
-  defp return_value(value, %Execution{callers: [caller | callers]} = execution) do
+  defp return_value(value, %Execution{callers: [%NativeFrame{} = native | callers]} = execution) do
+    execution = %{execution | callers: callers, depth: execution.depth - 1}
+    resume_native(value, native, execution)
+  end
+
+  defp return_value(value, %Execution{callers: [%Frame{} = caller | callers]} = execution) do
     execution = %{execution | callers: callers, depth: execution.depth - 1}
     run(%{caller | stack: [value | caller.stack]}, execution)
   end
@@ -783,6 +1252,30 @@ defmodule QuickBEAM.VM.Interpreter do
     value = read_slot(elem(frame.locals, index), execution)
     {locals, execution} = write_tuple_slot(frame.locals, index, operation.(value), execution)
     continue(%{frame | locals: locals}, execution)
+  end
+
+  defp allocate_function(callable, function, execution) do
+    {reference, execution} = Heap.allocate(execution, :ordinary, callable: callable)
+
+    if function.has_prototype do
+      {prototype, execution} = Heap.allocate(execution)
+
+      {:ok, execution} =
+        Heap.define(execution, prototype, "constructor", reference,
+          enumerable: false,
+          configurable: true
+        )
+
+      {:ok, execution} =
+        Heap.define(execution, reference, "prototype", prototype,
+          enumerable: false,
+          configurable: false
+        )
+
+      {reference, execution}
+    else
+      {reference, execution}
+    end
   end
 
   defp capture_closure(%Function{closure_vars: []} = function, frame, execution),

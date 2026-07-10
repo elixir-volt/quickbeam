@@ -45,6 +45,9 @@ defmodule QuickBEAM.VM.Export do
 
   defp convert(value, _execution, _seen), do: {:ok, value}
 
+  defp convert_object(%Object{callable: callable}, _execution, _seen) when not is_nil(callable),
+    do: {:error, :function_result}
+
   defp convert_object(
          %Object{kind: :array, length: length, properties: properties},
          execution,
