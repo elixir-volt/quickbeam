@@ -11,6 +11,7 @@ defmodule QuickBEAM.VM.Interpreter do
     Frame,
     Function,
     Heap,
+    Memory,
     NativeFrame,
     Opcodes,
     PredefinedAtoms,
@@ -37,15 +38,19 @@ defmodule QuickBEAM.VM.Interpreter do
   def start(%Program{} = program, opts \\ []) do
     max_steps = Keyword.get(opts, :max_steps, @default_max_steps)
 
+    vars = Map.new(Keyword.get(opts, :vars, %{}))
+
     execution = %Execution{
       atoms: program.atoms,
-      globals: Map.new(Keyword.get(opts, :vars, %{})),
+      globals: vars,
       handlers: Map.new(Keyword.get(opts, :handlers, %{})),
       max_stack_depth: Keyword.get(opts, :max_stack_depth, @default_max_stack_depth),
+      memory_limit: Keyword.get(opts, :memory_limit, :infinity),
       remaining_steps: max_steps,
       step_limit: max_steps
     }
 
+    execution = Memory.charge(execution, Memory.estimate(vars))
     execution = install_host_globals(execution)
     frame = new_frame(program.root, program.root, [], :undefined, {})
     run(frame, execution)
@@ -109,6 +114,9 @@ defmodule QuickBEAM.VM.Interpreter do
       this: this
     }
   end
+
+  defp run(_frame, %Execution{memory_exceeded: true} = execution),
+    do: {:error, {:limit_exceeded, :memory_bytes, execution.memory_limit}, execution}
 
   defp run(_frame, %Execution{remaining_steps: 0} = execution),
     do: {:error, {:limit_exceeded, :steps, execution.step_limit}, execution}
@@ -1317,6 +1325,8 @@ defmodule QuickBEAM.VM.Interpreter do
       value ->
         id = execution.next_cell_id
         reference = {:cell, id}
+
+        execution = Memory.charge_cell(execution, value)
 
         execution = %{
           execution

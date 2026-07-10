@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Heap do
   @moduledoc false
 
-  alias QuickBEAM.VM.{Execution, Object, Property, Reference}
+  alias QuickBEAM.VM.{Execution, Memory, Object, Property, Reference}
 
   @max_prototype_depth 1_000
 
@@ -18,6 +18,7 @@ defmodule QuickBEAM.VM.Heap do
     }
 
     reference = %Reference{id: id}
+    execution = Memory.charge_object(execution, object)
     execution = %{execution | heap: Map.put(execution.heap, id, object), next_object_id: id + 1}
     {reference, execution}
   end
@@ -56,6 +57,7 @@ defmodule QuickBEAM.VM.Heap do
 
     with {:ok, object} <- fetch_object(execution, reference),
          :ok <- writable?(object, key) do
+      execution = maybe_charge_property(execution, object, key, value)
       object = put_property(object, key, value)
       {:ok, %{execution | heap: Map.put(execution.heap, id, object)}}
     else
@@ -77,6 +79,7 @@ defmodule QuickBEAM.VM.Heap do
         configurable: Keyword.get(opts, :configurable, true)
       }
 
+      execution = maybe_charge_property(execution, object, key, value)
       object = put_property_struct(object, key, property)
       {:ok, %{execution | heap: Map.put(execution.heap, id, object)}}
     else
@@ -149,6 +152,12 @@ defmodule QuickBEAM.VM.Heap do
       :error ->
         {:error, {:invalid_reference, id}}
     end
+  end
+
+  defp maybe_charge_property(execution, object, key, value) do
+    if Map.has_key?(object.properties, key),
+      do: execution,
+      else: Memory.charge_property(execution, key, value)
   end
 
   defp writable?(%Object{properties: properties, extensible: extensible}, key) do

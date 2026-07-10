@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Promise do
   @moduledoc false
 
-  alias QuickBEAM.VM.{Execution, PromiseReference}
+  alias QuickBEAM.VM.{Execution, Memory, PromiseReference}
 
   @type state :: :pending | {:fulfilled, term()} | {:rejected, term()}
 
@@ -9,6 +9,8 @@ defmodule QuickBEAM.VM.Promise do
   def new(%Execution{} = execution) do
     id = execution.next_promise_id
     reference = %PromiseReference{id: id}
+
+    execution = Memory.charge_promise(execution)
 
     execution = %{
       execution

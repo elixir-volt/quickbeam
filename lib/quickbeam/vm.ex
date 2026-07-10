@@ -12,6 +12,8 @@ defmodule QuickBEAM.VM do
 
   @max_bytecode_bytes 16 * 1024 * 1024
   @default_timeout 5_000
+  @default_memory_limit 64 * 1024 * 1024
+  @worker_heap_overhead 16 * 1024 * 1024
 
   @doc """
   Compiles JavaScript with the vendored QuickJS compiler and returns a verified
@@ -88,7 +90,9 @@ defmodule QuickBEAM.VM do
   Evaluates a verified program in an isolated BEAM process.
 
   Supported options include `:vars`, asynchronous `:handlers`, `:timeout`,
-  `:max_steps`, and `:max_stack_depth`. `isolation: :caller` is available for
+  `:max_steps`, `:max_stack_depth`, and the JavaScript allocation budget
+  `:memory_limit`. Isolated workers also receive a BEAM process heap ceiling.
+  `isolation: :caller` is available for
   trusted diagnostics.
   """
   @spec eval(Program.t(), keyword()) :: {:ok, term()} | {:error, term()}
@@ -103,7 +107,15 @@ defmodule QuickBEAM.VM do
   end
 
   defp evaluation_options(opts) do
-    allowed = [:handlers, :isolation, :max_stack_depth, :max_steps, :timeout, :vars]
+    allowed = [
+      :handlers,
+      :isolation,
+      :max_stack_depth,
+      :max_steps,
+      :memory_limit,
+      :timeout,
+      :vars
+    ]
 
     case Keyword.keys(opts) -- allowed do
       [] -> validate_evaluation_options(opts)
@@ -116,6 +128,7 @@ defmodule QuickBEAM.VM do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     max_steps = Keyword.get(opts, :max_steps, 5_000_000)
     max_stack_depth = Keyword.get(opts, :max_stack_depth, 1_000)
+    memory_limit = Keyword.get(opts, :memory_limit, @default_memory_limit)
     vars = Keyword.get(opts, :vars, %{})
     handlers = Keyword.get(opts, :handlers, %{})
 
@@ -132,6 +145,9 @@ defmodule QuickBEAM.VM do
       not is_integer(max_stack_depth) or max_stack_depth <= 0 ->
         {:error, {:invalid_option, :max_stack_depth, max_stack_depth}}
 
+      memory_limit != :infinity and (not is_integer(memory_limit) or memory_limit <= 0) ->
+        {:error, {:invalid_option, :memory_limit, memory_limit}}
+
       not is_map(vars) ->
         {:error, {:invalid_option, :vars, vars}}
 
@@ -145,11 +161,13 @@ defmodule QuickBEAM.VM do
         {:ok,
          %{
            isolation: isolation,
+           memory_limit: memory_limit,
            timeout: timeout,
            interpreter: %{
              handlers: handlers,
              max_steps: max_steps,
              max_stack_depth: max_stack_depth,
+             memory_limit: memory_limit,
              vars: vars
            }
          }}
@@ -160,13 +178,14 @@ defmodule QuickBEAM.VM do
     caller = self()
     reply_ref = make_ref()
 
-    {pid, monitor_ref} =
-      spawn_monitor(fn ->
-        result = safe_interpret(program, options.interpreter)
-        send(caller, {reply_ref, result})
-      end)
+    worker = fn ->
+      result = safe_interpret(program, options.interpreter)
+      send(caller, {reply_ref, result})
+    end
 
-    await_evaluation(pid, monitor_ref, reply_ref, options.timeout)
+    {pid, monitor_ref} = :erlang.spawn_opt(worker, worker_spawn_options(options.memory_limit))
+
+    await_evaluation(pid, monitor_ref, reply_ref, options.timeout, options.memory_limit)
   end
 
   defp safe_interpret(program, options) do
@@ -180,25 +199,37 @@ defmodule QuickBEAM.VM do
     kind, reason -> {:error, {:interpreter_crash, {kind, reason}, __STACKTRACE__}}
   end
 
-  defp await_evaluation(pid, monitor_ref, reply_ref, :infinity) do
+  defp worker_spawn_options(:infinity), do: [:monitor]
+
+  defp worker_spawn_options(memory_limit) do
+    word_size = :erlang.system_info(:wordsize)
+    max_heap_words = div(memory_limit + @worker_heap_overhead + word_size - 1, word_size)
+
+    [
+      :monitor,
+      {:max_heap_size, %{size: max_heap_words, kill: true, error_logger: false}}
+    ]
+  end
+
+  defp await_evaluation(pid, monitor_ref, reply_ref, :infinity, memory_limit) do
     receive do
       {^reply_ref, result} ->
         Process.demonitor(monitor_ref, [:flush])
         result
 
       {:DOWN, ^monitor_ref, :process, ^pid, reason} ->
-        {:error, {:evaluation_process_exit, reason}}
+        evaluation_exit(reason, memory_limit)
     end
   end
 
-  defp await_evaluation(pid, monitor_ref, reply_ref, timeout) do
+  defp await_evaluation(pid, monitor_ref, reply_ref, timeout, memory_limit) do
     receive do
       {^reply_ref, result} ->
         Process.demonitor(monitor_ref, [:flush])
         result
 
       {:DOWN, ^monitor_ref, :process, ^pid, reason} ->
-        {:error, {:evaluation_process_exit, reason}}
+        evaluation_exit(reason, memory_limit)
     after
       timeout ->
         Process.exit(pid, :kill)
@@ -206,6 +237,12 @@ defmodule QuickBEAM.VM do
         {:error, {:limit_exceeded, :timeout, timeout}}
     end
   end
+
+  defp evaluation_exit(:killed, memory_limit) when is_integer(memory_limit),
+    do: {:error, {:limit_exceeded, :memory_bytes, memory_limit}}
+
+  defp evaluation_exit(reason, _memory_limit),
+    do: {:error, {:evaluation_process_exit, reason}}
 
   defp await_down(monitor_ref, pid) do
     receive do

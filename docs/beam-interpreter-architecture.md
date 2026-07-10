@@ -326,12 +326,21 @@ error reporting but are not the authoritative timeout mechanism.
 Use both:
 
 1. a process-level heap limit as a final containment boundary; and
-2. periodic explicit memory checks at interpreter safepoints for a controlled
-   JavaScript error or QuickBEAM limit error.
+2. explicit owner-local allocation accounting checked at every interpreter
+   safepoint for a controlled QuickBEAM limit error.
 
-The JavaScript object-store mark-and-sweep collector may reclaim unreachable
-entries retained in the process dictionary. Regardless of collector behavior,
-process termination must reclaim the entire evaluation.
+`memory_limit` is the JavaScript allocation budget. Objects, properties,
+closure cells, Promises, injected variables, and host results are charged to it.
+The accounting is intentionally conservative and monotonic until garbage
+collection is introduced. Isolated workers additionally use BEAM's
+`max_heap_size`, with fixed runtime overhead above the JavaScript budget so the
+realm can report controlled allocation failures before the final process
+boundary is reached. `memory_limit: :infinity` disables both limits for trusted
+diagnostics.
+
+Regardless of controlled accounting, process termination reclaims the entire
+evaluation heap. The process ceiling contains interpreter frames and other BEAM
+state that is not represented in the JavaScript object-store counters.
 
 ### Stack limit
 

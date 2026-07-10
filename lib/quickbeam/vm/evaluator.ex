@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Evaluator do
   @moduledoc false
 
-  alias QuickBEAM.VM.{Continuation, Interpreter, Promise, PromiseReference, Program}
+  alias QuickBEAM.VM.{Continuation, Interpreter, Memory, Promise, PromiseReference, Program}
 
   @spec eval(Program.t(), keyword()) :: Interpreter.result()
   def eval(%Program{} = program, opts \\ []) do
@@ -41,6 +41,7 @@ defmodule QuickBEAM.VM.Evaluator do
 
           {{promise, _pid}, operations} ->
             execution = %{continuation.execution | operations: operations}
+            execution = charge_host_result(execution, result)
             execution = Promise.settle(execution, promise, result)
             continuation = %{continuation | execution: execution}
 
@@ -54,6 +55,12 @@ defmodule QuickBEAM.VM.Evaluator do
         end
     end
   end
+
+  defp charge_host_result(execution, {:ok, value}),
+    do: Memory.charge(execution, Memory.estimate(value))
+
+  defp charge_host_result(execution, {:error, reason}),
+    do: Memory.charge(execution, Memory.estimate(reason))
 
   defp settled_result(promise, execution) do
     case Promise.state(execution, promise) do
