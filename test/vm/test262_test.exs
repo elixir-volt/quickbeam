@@ -19,12 +19,24 @@ defmodule QuickBEAM.VM.Test262Test do
     ---*/
     """
 
-    assert %{
+    assert %QuickBEAM.Test262.Metadata{
              flags: ["onlyStrict"],
              includes: ["compareArray.js"],
              features: ["async-functions"],
-             negative: %{phase: :runtime, type: "TypeError"}
+             negative: %QuickBEAM.Test262.Negative{phase: :runtime, type: "TypeError"}
            } = QuickBEAM.Test262.parse_metadata(source)
+  end
+
+  test "rejects unknown negative phases through the typed codec" do
+    source = """
+    /*---
+    negative:
+      phase: invented
+      type: TypeError
+    ---*/
+    """
+
+    assert_raise JSONCodec.Error, fn -> QuickBEAM.Test262.parse_metadata(source) end
   end
 
   test "summarizes supported results without counting explicit skips" do

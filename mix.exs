@@ -70,6 +70,8 @@ defmodule QuickBEAM.MixProject do
       {:ex_dna, "~> 1.1", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.2", only: [:dev, :test], runtime: false},
       {:jason, "~> 1.4"},
+      {:json_codec, "~> 0.2.2", only: :test},
+      {:yaml_elixir, "~> 2.12", only: :test},
       {:varint, "~> 1.6"},
       {:oxc, "~> 0.17.2"},
       {:npm, "~> 0.7.5", optional: true},

@@ -59,6 +59,11 @@ BEAM VM evaluation. Results are classified as:
 There is no automatic native fallback during BEAM evaluation. The native result
 is used only as a differential oracle.
 
+Test262 YAML front matter is parsed by `YamlElixir` and decoded into strict,
+typed metadata structs by `JSONCodec`. Flags, includes, features, negative-test
+shape, and the finite phase enum therefore have one explicit boundary contract;
+unknown phases produce structured codec errors rather than fallback atoms.
+
 The runner supplies a small assertion harness for `assert`, `sameValue`,
 `notSameValue`, and `compareArray`. Additional official harness includes are
 loaded only when requested by a selected test. Tests that depend on unsupported

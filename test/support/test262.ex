@@ -1,3 +1,34 @@
+defmodule QuickBEAM.Test262.Negative do
+  @moduledoc "Defines the typed Test262 negative-test metadata contract."
+
+  use JSONCodec, strict: true, fast_path: :json
+
+  defstruct [:phase, :type]
+
+  @type phase :: :parse | :early | :resolution | :runtime
+  @type t :: %__MODULE__{
+          phase: :parse | :early | :resolution | :runtime,
+          type: String.t()
+        }
+
+  codec(:phase, atom: {:enum, [:parse, :early, :resolution, :runtime]})
+end
+
+defmodule QuickBEAM.Test262.Metadata do
+  @moduledoc "Defines the typed subset of Test262 YAML front matter used by the runner."
+
+  use JSONCodec, strict: true, fast_path: :json
+
+  defstruct flags: [], includes: [], features: [], negative: nil
+
+  @type t :: %__MODULE__{
+          flags: [String.t()],
+          includes: [String.t()],
+          features: [String.t()],
+          negative: QuickBEAM.Test262.Negative.t() | nil
+        }
+end
+
 defmodule QuickBEAM.Test262 do
   @moduledoc """
   Runs a pinned, bounded Test262 manifest against native QuickJS and the BEAM VM.
@@ -59,19 +90,16 @@ defmodule QuickBEAM.Test262 do
   def configured_root, do: System.get_env("TEST262_PATH")
 
   @doc "Parses the metadata fields needed by the bounded runner."
-  @spec parse_metadata(binary()) :: map()
+  @spec parse_metadata(binary()) :: QuickBEAM.Test262.Metadata.t()
   def parse_metadata(source) do
     case Regex.run(~r/\/\*---\s*(.*?)\s*---\*\//s, source, capture: :all_but_first) do
       [yaml] ->
-        %{
-          flags: parse_list(yaml, "flags"),
-          includes: parse_list(yaml, "includes"),
-          features: parse_list(yaml, "features"),
-          negative: parse_negative(yaml)
-        }
+        yaml
+        |> YamlElixir.read_from_string!()
+        |> QuickBEAM.Test262.Metadata.from_map!()
 
       _no_metadata ->
-        %{flags: [], includes: [], features: [], negative: nil}
+        %QuickBEAM.Test262.Metadata{}
     end
   end
 
@@ -161,14 +189,21 @@ defmodule QuickBEAM.Test262 do
 
   defp classify_execution({:ok, _value}, nil, _phase), do: :pass
 
-  defp classify_execution({:error, error}, %{phase: phase, type: type}, actual_phase) do
-    if phase == actual_phase and error_name(error) == type,
+  defp classify_execution(
+         {:error, error},
+         %QuickBEAM.Test262.Negative{phase: phase, type: type},
+         actual_phase
+       ) do
+    if normalize_phase(phase) == actual_phase and error_name(error) == type,
       do: :pass,
       else: {:wrong_negative, actual_phase, error_name(error), error}
   end
 
   defp classify_execution({:error, error}, nil, phase), do: {:unexpected_error, phase, error}
   defp classify_execution({:ok, _value}, negative, _phase), do: {:missing_negative, negative}
+
+  defp normalize_phase(:early), do: :parse
+  defp normalize_phase(phase) when phase in [:parse, :resolution, :runtime], do: phase
 
   defp error_name(%QuickBEAM.JSError{name: name}), do: name
   defp error_name(error) when is_map(error), do: error[:name] || error["name"]
@@ -179,50 +214,6 @@ defmodule QuickBEAM.Test262 do
   end
 
   defp strict_prefix(flags), do: if("onlyStrict" in flags, do: "\"use strict\";\n", else: "")
-
-  defp parse_list(yaml, key) do
-    inline = Regex.run(~r/^#{Regex.escape(key)}:\s*\[([^\]]*)\]/m, yaml, capture: :all_but_first)
-
-    case inline do
-      [values] ->
-        values
-        |> String.split(",", trim: true)
-        |> Enum.map(&(&1 |> String.trim() |> String.trim("\"") |> String.trim("'")))
-
-      _ ->
-        case Regex.run(~r/^#{Regex.escape(key)}:\s*\n((?:\s+-\s+[^\n]+\n?)*)/m, yaml,
-               capture: :all_but_first
-             ) do
-          [items] ->
-            Regex.scan(~r/^\s+-\s+([^\n]+)/m, items, capture: :all_but_first)
-            |> List.flatten()
-            |> Enum.map(&String.trim/1)
-
-          _ ->
-            []
-        end
-    end
-  end
-
-  defp parse_negative(yaml) do
-    case Regex.run(
-           ~r/^negative:\s*\n\s+phase:\s*([^\n]+)\n\s+type:\s*([^\n]+)/m,
-           yaml,
-           capture: :all_but_first
-         ) do
-      [phase, type] ->
-        %{phase: parse_phase(String.trim(phase)), type: String.trim(type)}
-
-      _ ->
-        nil
-    end
-  end
-
-  defp parse_phase("parse"), do: :parse
-  defp parse_phase("early"), do: :parse
-  defp parse_phase("resolution"), do: :resolution
-  defp parse_phase("runtime"), do: :runtime
-  defp parse_phase(_phase), do: :unknown
 
   defp result(path, classification, vm, native, metadata),
     do: %{path: path, classification: classification, vm: vm, native: native, metadata: metadata}
