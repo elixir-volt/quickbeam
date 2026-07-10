@@ -371,7 +371,15 @@ Recommended initial representation:
 - object/function — owner-local heap references.
 
 String indexing, lengths, regular expressions, and source positions must follow
-JavaScript UTF-16 semantics even though Elixir binaries are UTF-8.
+JavaScript UTF-16 semantics even though Elixir binaries are UTF-8. The VM now
+uses explicit UTF-16 code-unit operations and preserves lone surrogates as
+WTF-8 binaries at the BEAM boundary, matching native QuickJS conversion.
+
+The owner-local heap enforces data descriptors across prototype chains, array
+length truncation and write restrictions, sparse deletion, ECMAScript own-key
+ordering, prototype-cycle rejection, constructor return rules, and
+`instanceof`. Accessor descriptors remain explicitly unsupported until getter
+and setter invocation is integrated with resumable interpreter boundaries.
 
 ## ECMAScript and host profiles
 

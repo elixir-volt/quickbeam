@@ -24,6 +24,41 @@ defmodule QuickBEAM.VM.HeapTest do
     assert {:ok, [:undefined, :undefined, "third"]} = Export.value(array, execution)
   end
 
+  test "shrinks array length without materializing an enumerable length property" do
+    execution = execution()
+    {array, execution} = Heap.allocate(execution, :array)
+    {:ok, execution} = Heap.put(execution, array, 0, "first")
+    {:ok, execution} = Heap.put(execution, array, 2, "third")
+    {:ok, execution} = Heap.put(execution, array, "length", 1)
+
+    assert {:ok, 1} = Heap.get(execution, array, "length")
+    assert {:ok, :undefined} = Heap.get(execution, array, 2)
+    assert {:ok, [0]} = Heap.own_keys(execution, array)
+  end
+
+  test "rejects writes shadowing an inherited non-writable property" do
+    execution = execution()
+    {prototype, execution} = Heap.allocate(execution)
+    {:ok, execution} = Heap.define(execution, prototype, "fixed", 1, writable: false)
+    {object, execution} = Heap.allocate(execution, :ordinary, prototype: prototype)
+
+    assert {:error, {:property_not_writable, "fixed"}} =
+             Heap.put(execution, object, "fixed", 2)
+
+    assert {:ok, 1} = Heap.get(execution, object, "fixed")
+  end
+
+  test "orders integer keys before string keys and preserves string insertion order" do
+    execution = execution()
+    {object, execution} = Heap.allocate(execution)
+    {:ok, execution} = Heap.put(execution, object, "second", 2)
+    {:ok, execution} = Heap.put(execution, object, 4, 4)
+    {:ok, execution} = Heap.put(execution, object, "first", 1)
+    {:ok, execution} = Heap.put(execution, object, 1, 1)
+
+    assert {:ok, [1, 4, "second", "first"]} = Heap.own_keys(execution, object)
+  end
+
   test "honors writable and configurable descriptor flags" do
     execution = execution()
     {object, execution} = Heap.allocate(execution)

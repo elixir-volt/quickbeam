@@ -13,6 +13,7 @@ defmodule QuickBEAM.VM.Interpreter do
     AsyncBoundary,
     Builtins,
     Continuation,
+    ConstructorBoundary,
     Coroutine,
     Execution,
     Export,
@@ -33,6 +34,7 @@ defmodule QuickBEAM.VM.Interpreter do
     RegExp,
     ThenableBoundary,
     Thrown,
+    UTF16,
     Value
   }
 
@@ -605,6 +607,24 @@ defmodule QuickBEAM.VM.Interpreter do
     continue(%{frame | stack: [has_property?(object, key, execution) | stack]}, execution)
   end
 
+  defp execute(
+         :instanceof,
+         [],
+         %{stack: [constructor, object | stack]} = frame,
+         execution
+       ) do
+    with "function" <- type_of(constructor, execution),
+         {:ok, %Reference{} = prototype} <- instanceof_prototype(constructor, execution) do
+      result =
+        is_struct(object, Reference) and
+          Heap.prototype_chain_contains?(execution, object, prototype)
+
+      continue(%{frame | stack: [result | stack]}, execution)
+    else
+      _invalid -> raise_js({:type_error, :invalid_instanceof_target}, frame, execution)
+    end
+  end
+
   defp execute(:and, [], frame, execution), do: bitwise(frame, execution, &band/2)
   defp execute(:or, [], frame, execution), do: bitwise(frame, execution, &bor/2)
   defp execute(:xor, [], frame, execution), do: bitwise(frame, execution, &bxor/2)
@@ -795,13 +815,69 @@ defmodule QuickBEAM.VM.Interpreter do
 
     case constructor_and_new_target do
       [_new_target, constructor | rest] ->
-        caller = %{next_frame(frame) | stack: rest}
-        dispatch_call(constructor, Enum.reverse(arguments), :undefined, caller, execution, false)
+        if constructable?(constructor, execution) do
+          caller = %{next_frame(frame) | stack: rest}
+          prototype = constructor_prototype(constructor, execution)
+          {instance, execution} = Heap.allocate(execution, :ordinary, prototype: prototype)
+
+          boundary = %ConstructorBoundary{
+            instance: instance,
+            caller: caller,
+            depth: execution.depth
+          }
+
+          dispatch_call(
+            constructor,
+            Enum.reverse(arguments),
+            instance,
+            boundary,
+            execution,
+            false
+          )
+        else
+          raise_js({:type_error, :not_a_constructor}, frame, execution)
+        end
 
       _ ->
         {:error, {:invalid_stack, :call_constructor}, execution}
     end
   end
+
+  defp constructable?(%Reference{} = constructor, execution) do
+    case Builtins.callable(execution, constructor) do
+      nil -> false
+      callable -> constructable?(callable, execution)
+    end
+  end
+
+  defp constructable?(%Function{has_prototype: has_prototype}, _execution), do: has_prototype
+
+  defp constructable?({:closure, %Function{has_prototype: has_prototype}, _refs}, _execution),
+    do: has_prototype
+
+  defp constructable?({:bound_function, target, _this, _arguments}, execution),
+    do: constructable?(target, execution)
+
+  defp constructable?({:builtin, name}, _execution),
+    do: name in ["Array", "Error", "Object", "Promise", "Set", "String"]
+
+  defp constructable?(_constructor, _execution), do: false
+
+  defp constructor_prototype({:bound_function, target, _this, _arguments}, execution),
+    do: constructor_prototype(target, execution)
+
+  defp constructor_prototype(constructor, execution) do
+    case get_property(constructor, "prototype", execution) do
+      {:ok, %Reference{} = prototype} -> prototype
+      _other -> nil
+    end
+  end
+
+  defp instanceof_prototype({:bound_function, target, _this, _arguments}, execution),
+    do: instanceof_prototype(target, execution)
+
+  defp instanceof_prototype(constructor, execution),
+    do: get_property(constructor, "prototype", execution)
 
   defp dispatch_call({:host_function, :beam_call}, arguments, _this, caller, execution, tail?),
     do: start_host_call(arguments, caller, execution, tail?)
@@ -864,6 +940,16 @@ defmodule QuickBEAM.VM.Interpreter do
 
     complete_call_result(:undefined, caller, execution, tail?)
   end
+
+  defp dispatch_call(
+         {:bound_function, target, _bound_this, bound_arguments},
+         arguments,
+         this,
+         %ConstructorBoundary{} = caller,
+         execution,
+         tail?
+       ),
+       do: dispatch_call(target, bound_arguments ++ arguments, this, caller, execution, tail?)
 
   defp dispatch_call(
          {:bound_function, target, bound_this, bound_arguments},
@@ -982,6 +1068,9 @@ defmodule QuickBEAM.VM.Interpreter do
   defp complete_call_result(value, %ReactionBoundary{} = boundary, execution, _tail?),
     do: complete_reaction(boundary, value, execution)
 
+  defp complete_call_result(value, %ConstructorBoundary{} = boundary, execution, _tail?),
+    do: complete_constructor(value, boundary, execution)
+
   defp complete_call_result(_value, %PromiseExecutorBoundary{} = boundary, execution, _tail?),
     do: complete_executor(boundary, execution)
 
@@ -996,6 +1085,20 @@ defmodule QuickBEAM.VM.Interpreter do
       do: return_value(value, execution),
       else: run(%{caller | stack: [value | caller.stack]}, execution)
   end
+
+  defp complete_constructor(value, boundary, execution) do
+    result =
+      if constructor_object?(value),
+        do: value,
+        else: boundary.instance
+
+    complete_call_result(result, boundary.caller, execution, false)
+  end
+
+  defp constructor_object?(value),
+    do:
+      is_struct(value, Reference) or is_struct(value, PromiseReference) or
+        is_struct(value, RegExp) or is_map(value) or is_list(value)
 
   defp complete_executor(boundary, execution) do
     complete_call_result(boundary.promise, boundary.caller, execution, boundary.tail?)
@@ -1409,11 +1512,10 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp get_property(object, "length", _execution) when is_binary(object),
-    do: {:ok, utf16_length(object)}
+    do: {:ok, UTF16.length(object)}
 
-  defp get_property(object, key, _execution) when is_binary(object) and is_integer(key) do
-    {:ok, String.at(object, key) || :undefined}
-  end
+  defp get_property(object, key, _execution) when is_binary(object) and is_integer(key),
+    do: {:ok, UTF16.at(object, key)}
 
   defp get_property(object, key, _execution) when is_binary(object) and is_binary(key),
     do: {:ok, {:primitive_method, :string, key}}
@@ -1483,13 +1585,6 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp map_string_key(_map, _key), do: :undefined
 
-  defp utf16_length(value) do
-    value
-    |> :unicode.characters_to_binary(:utf8, {:utf16, :little})
-    |> byte_size()
-    |> div(2)
-  end
-
   defp raise_js(reason, %NativeFrame{caller: caller}, execution) do
     {reason, trace} = throw_state(reason)
     do_raise_js(reason, caller, execution, trace, true)
@@ -1498,6 +1593,11 @@ defmodule QuickBEAM.VM.Interpreter do
   defp raise_js(reason, frame, execution) do
     {reason, trace} = throw_state(reason)
     do_raise_js(reason, frame, execution, trace, false)
+  end
+
+  defp raise_js_from_caller(reason, %ConstructorBoundary{} = boundary, execution) do
+    {reason, trace} = throw_state(reason)
+    do_raise_js(reason, boundary.caller, execution, trace, true)
   end
 
   defp raise_js_from_caller(reason, %ThenableBoundary{} = boundary, execution) do
@@ -1550,6 +1650,15 @@ defmodule QuickBEAM.VM.Interpreter do
   defp unwind_caller(reason, %Execution{callers: []} = execution, trace) do
     error = QuickBEAM.JSError.from_vm(reason, Enum.reverse(trace))
     {:error, error, execution}
+  end
+
+  defp unwind_caller(
+         reason,
+         %Execution{callers: [%ConstructorBoundary{} = boundary | callers]} = execution,
+         trace
+       ) do
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    do_raise_js(reason, boundary.caller, execution, trace, true)
   end
 
   defp unwind_caller(
@@ -1691,6 +1800,14 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp return_value(value, %Execution{callers: [%AsyncBoundary{} | _]} = execution),
     do: complete_async(value, execution)
+
+  defp return_value(
+         value,
+         %Execution{callers: [%ConstructorBoundary{} = boundary | callers]} = execution
+       ) do
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    complete_constructor(value, boundary, execution)
+  end
 
   defp return_value(
          value,

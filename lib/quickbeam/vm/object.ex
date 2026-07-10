@@ -4,8 +4,10 @@ defmodule QuickBEAM.VM.Object do
   defstruct kind: :ordinary,
             prototype: nil,
             properties: %{},
+            property_order: [],
             extensible: true,
             length: 0,
+            length_writable: true,
             callable: nil,
             internal: nil
 
@@ -14,8 +16,10 @@ defmodule QuickBEAM.VM.Object do
           kind: kind(),
           prototype: QuickBEAM.VM.Reference.t() | nil,
           properties: %{optional(term()) => QuickBEAM.VM.Property.t()},
+          property_order: [term()],
           extensible: boolean(),
           length: non_neg_integer(),
+          length_writable: boolean(),
           callable: term() | nil,
           internal: term()
         }

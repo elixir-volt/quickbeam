@@ -61,13 +61,14 @@ defmodule QuickBEAM.VM.Heap do
     key = normalize_key(key)
 
     with {:ok, object} <- fetch_object(execution, reference),
-         :ok <- writable?(object, key) do
+         {:ok, object} <- put_value(execution, object, key, value) do
       execution = maybe_charge_property(execution, object, key, value)
-      object = put_property(object, key, value)
-      {:ok, %{execution | heap: Map.put(execution.heap, id, object)}}
+      updated = put_property(object, key, value)
+      {:ok, %{execution | heap: Map.put(execution.heap, id, updated)}}
     else
       :error -> {:error, {:invalid_reference, id}}
       {:error, reason} -> {:error, reason}
+      {:array_length, object} -> {:ok, %{execution | heap: Map.put(execution.heap, id, object)}}
     end
   end
 
@@ -76,18 +77,73 @@ defmodule QuickBEAM.VM.Heap do
   def define(%Execution{} = execution, %Reference{id: id} = reference, key, value, opts \\ []) do
     key = normalize_key(key)
 
-    with {:ok, object} <- fetch_object(execution, reference) do
-      property = %Property{
-        value: value,
-        writable: Keyword.get(opts, :writable, true),
-        enumerable: Keyword.get(opts, :enumerable, true),
-        configurable: Keyword.get(opts, :configurable, true)
-      }
-
+    with {:ok, object} <- fetch_object(execution, reference),
+         {:ok, object} <- define_property(object, key, value, opts) do
       execution = maybe_charge_property(execution, object, key, value)
+      property = property(value, opts)
       object = put_property_struct(object, key, property)
       {:ok, %{execution | heap: Map.put(execution.heap, id, object)}}
     else
+      :error -> {:error, {:invalid_reference, id}}
+      {:error, reason} -> {:error, reason}
+      {:array_length, object} -> {:ok, %{execution | heap: Map.put(execution.heap, id, object)}}
+    end
+  end
+
+  @doc "Returns an object's own property descriptor without traversing its prototype."
+  @spec own_property(Execution.t(), Reference.t(), term()) ::
+          {:ok, Property.t() | nil} | {:error, term()}
+  def own_property(execution, %Reference{id: id} = reference, key) do
+    key = normalize_key(key)
+
+    case fetch_object(execution, reference) do
+      {:ok, %Object{kind: :array} = object} when key == "length" ->
+        {:ok,
+         %Property{
+           value: object.length,
+           writable: object.length_writable,
+           enumerable: false,
+           configurable: false
+         }}
+
+      {:ok, object} ->
+        {:ok, Map.get(object.properties, key)}
+
+      :error ->
+        {:error, {:invalid_reference, id}}
+    end
+  end
+
+  @doc "Replaces an object's prototype after validating the owner-local chain."
+  @spec set_prototype(Execution.t(), Reference.t(), Reference.t() | nil) ::
+          {:ok, Execution.t()} | {:error, term()}
+  def set_prototype(execution, %Reference{id: id} = reference, prototype)
+      when is_nil(prototype) or is_struct(prototype, Reference) do
+    with {:ok, object} <- fetch_object(execution, reference),
+         :ok <- valid_prototype?(execution, reference, prototype) do
+      object = %{object | prototype: prototype}
+      {:ok, %{execution | heap: Map.put(execution.heap, id, object)}}
+    else
+      :error -> {:error, {:invalid_reference, id}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Tests whether a reference appears in an object's prototype chain."
+  @spec prototype_chain_contains?(Execution.t(), Reference.t(), Reference.t()) :: boolean()
+  def prototype_chain_contains?(execution, %Reference{} = object, %Reference{} = prototype) do
+    case fetch_object(execution, object) do
+      {:ok, object} -> prototype_contains?(execution, object.prototype, prototype, 0)
+      :error -> false
+    end
+  end
+
+  @doc "Returns an object's direct prototype."
+  @spec prototype(Execution.t(), Reference.t()) ::
+          {:ok, Reference.t() | nil} | {:error, term()}
+  def prototype(execution, %Reference{id: id} = reference) do
+    case fetch_object(execution, reference) do
+      {:ok, object} -> {:ok, object.prototype}
       :error -> {:error, {:invalid_reference, id}}
     end
   end
@@ -104,7 +160,12 @@ defmodule QuickBEAM.VM.Heap do
             {:ok, false, execution}
 
           _property ->
-            object = %{object | properties: Map.delete(object.properties, key)}
+            object = %{
+              object
+              | properties: Map.delete(object.properties, key),
+                property_order: List.delete(object.property_order, key)
+            }
+
             {:ok, true, %{execution | heap: Map.put(execution.heap, id, object)}}
         end
 
@@ -126,11 +187,47 @@ defmodule QuickBEAM.VM.Heap do
   def own_keys(execution, %Reference{id: id} = reference) do
     case fetch_object(execution, reference) do
       {:ok, object} ->
-        keys = for {key, property} <- object.properties, property.enumerable, do: key
-        {:ok, keys}
+        integer_keys =
+          object.properties
+          |> Enum.filter(fn {key, property} -> is_integer(key) and property.enumerable end)
+          |> Enum.map(&elem(&1, 0))
+          |> Enum.sort()
+
+        string_keys =
+          Enum.filter(object.property_order, fn key ->
+            not is_integer(key) and match?(%Property{enumerable: true}, object.properties[key])
+          end)
+
+        {:ok, integer_keys ++ string_keys}
 
       :error ->
         {:error, {:invalid_reference, id}}
+    end
+  end
+
+  defp valid_prototype?(_execution, _reference, nil), do: :ok
+
+  defp valid_prototype?(execution, reference, prototype) do
+    case prototype_contains?(execution, prototype, reference, 0) do
+      true -> {:error, :cyclic_prototype}
+      false -> :ok
+    end
+  end
+
+  defp prototype_contains?(_execution, nil, _reference, _depth), do: false
+
+  defp prototype_contains?(_execution, _prototype, _reference, depth)
+       when depth > @max_prototype_depth,
+       do: true
+
+  defp prototype_contains?(_execution, prototype, reference, _depth)
+       when prototype.id == reference.id,
+       do: true
+
+  defp prototype_contains?(execution, prototype, reference, depth) do
+    case fetch_object(execution, prototype) do
+      {:ok, object} -> prototype_contains?(execution, object.prototype, reference, depth + 1)
+      :error -> false
     end
   end
 
@@ -165,13 +262,95 @@ defmodule QuickBEAM.VM.Heap do
       else: Memory.charge_property(execution, key, value)
   end
 
-  defp writable?(%Object{properties: properties, extensible: extensible}, key) do
-    case Map.fetch(properties, key) do
-      {:ok, %Property{writable: true}} -> :ok
-      {:ok, %Property{writable: false}} -> {:error, {:property_not_writable, key}}
-      :error when extensible -> :ok
-      :error -> {:error, {:object_not_extensible, key}}
+  defp put_value(_execution, %Object{kind: :array} = object, "length", value) do
+    with :ok <- array_length_writable(object),
+         {:ok, length} <- array_length(value),
+         {:ok, object} <- resize_array(object, length) do
+      {:array_length, object}
     end
+  end
+
+  defp put_value(execution, object, key, _value) do
+    cond do
+      match?(%Property{writable: false}, object.properties[key]) ->
+        {:error, {:property_not_writable, key}}
+
+      Map.has_key?(object.properties, key) ->
+        {:ok, object}
+
+      object.kind == :array and is_integer(key) and key >= object.length and
+          not object.length_writable ->
+        {:error, {:property_not_writable, "length"}}
+
+      inherited_non_writable?(execution, object.prototype, key, 0) ->
+        {:error, {:property_not_writable, key}}
+
+      object.extensible ->
+        {:ok, object}
+
+      true ->
+        {:error, {:object_not_extensible, key}}
+    end
+  end
+
+  defp define_property(%Object{kind: :array} = object, "length", value, opts) do
+    cond do
+      Keyword.get(opts, :configurable, false) ->
+        {:error, {:property_not_configurable, "length"}}
+
+      Keyword.get(opts, :enumerable, false) ->
+        {:error, {:property_not_configurable, "length"}}
+
+      true ->
+        with :ok <- array_length_writable(object),
+             {:ok, length} <- array_length(value),
+             {:ok, object} <- resize_array(object, length) do
+          writable = Keyword.get(opts, :writable, object.length_writable)
+          {:array_length, %{object | length_writable: writable}}
+        end
+    end
+  end
+
+  defp define_property(object, key, value, opts) do
+    candidate = property(value, opts)
+
+    case Map.get(object.properties, key) do
+      %Property{configurable: false} = current ->
+        cond do
+          candidate.configurable ->
+            {:error, {:property_not_configurable, key}}
+
+          candidate.enumerable != current.enumerable ->
+            {:error, {:property_not_configurable, key}}
+
+          not current.writable and candidate.writable ->
+            {:error, {:property_not_writable, key}}
+
+          not current.writable and candidate.value != current.value ->
+            {:error, {:property_not_writable, key}}
+
+          true ->
+            {:ok, object}
+        end
+
+      nil when not object.extensible ->
+        {:error, {:object_not_extensible, key}}
+
+      _current ->
+        if object.kind == :array and is_integer(key) and key >= object.length and
+             not object.length_writable,
+           do: {:error, {:property_not_writable, "length"}},
+           else: {:ok, object}
+    end
+  end
+
+  defp property(value, opts) do
+    %Property{
+      value: value,
+      writable: Keyword.get(opts, :writable, true),
+      enumerable: Keyword.get(opts, :enumerable, true),
+      configurable: Keyword.get(opts, :configurable, true)
+    }
   end
 
   defp put_property(object, key, value) do
@@ -186,25 +365,99 @@ defmodule QuickBEAM.VM.Heap do
 
   defp put_property_struct(%Object{kind: :array} = object, key, property)
        when is_integer(key) and key >= 0 do
-    %{
-      object
-      | properties: Map.put(object.properties, key, property),
-        length: max(object.length, key + 1)
-    }
+    object
+    |> remember_property(key)
+    |> then(fn object ->
+      %{
+        object
+        | properties: Map.put(object.properties, key, property),
+          length: max(object.length, key + 1)
+      }
+    end)
   end
 
-  defp put_property_struct(object, key, property),
-    do: %{object | properties: Map.put(object.properties, key, property)}
+  defp put_property_struct(object, key, property) do
+    object = remember_property(object, key)
+    %{object | properties: Map.put(object.properties, key, property)}
+  end
 
-  defp normalize_key(key) when is_integer(key) and key >= 0, do: key
+  defp remember_property(object, key) do
+    if Map.has_key?(object.properties, key),
+      do: object,
+      else: %{object | property_order: object.property_order ++ [key]}
+  end
 
-  defp normalize_key(key) when is_float(key) and key >= 0 and trunc(key) == key,
-    do: trunc(key)
+  defp inherited_non_writable?(_execution, nil, _key, _depth), do: false
+
+  defp inherited_non_writable?(_execution, _prototype, _key, depth)
+       when depth > @max_prototype_depth,
+       do: true
+
+  defp inherited_non_writable?(execution, %Reference{} = prototype, key, depth) do
+    case fetch_object(execution, prototype) do
+      {:ok, object} ->
+        case Map.get(object.properties, key) do
+          %Property{writable: writable} -> not writable
+          nil -> inherited_non_writable?(execution, object.prototype, key, depth + 1)
+        end
+
+      :error ->
+        false
+    end
+  end
+
+  defp array_length_writable(%Object{length_writable: true}), do: :ok
+  defp array_length_writable(_object), do: {:error, {:property_not_writable, "length"}}
+
+  defp array_length(value)
+       when is_integer(value) and value >= 0 and value <= 4_294_967_295,
+       do: {:ok, value}
+
+  defp array_length(value)
+       when is_float(value) and value >= 0 and value <= 4_294_967_295 and trunc(value) == value,
+       do: {:ok, trunc(value)}
+
+  defp array_length(_value), do: {:error, :invalid_array_length}
+
+  defp resize_array(object, length) when length >= object.length,
+    do: {:ok, %{object | length: length}}
+
+  defp resize_array(object, length) do
+    removed =
+      object.properties
+      |> Map.keys()
+      |> Enum.filter(&(is_integer(&1) and &1 >= length))
+
+    if Enum.any?(removed, &match?(%Property{configurable: false}, object.properties[&1])) do
+      {:error, :nonconfigurable_array_element}
+    else
+      {:ok,
+       %{
+         object
+         | length: length,
+           properties: Map.drop(object.properties, removed),
+           property_order: object.property_order -- removed
+       }}
+    end
+  end
+
+  defp normalize_key(key) when is_integer(key) and key in 0..4_294_967_294, do: key
+  defp normalize_key(key) when is_integer(key), do: Integer.to_string(key)
+
+  defp normalize_key(key)
+       when is_float(key) and key >= 0 and key <= 4_294_967_294 and trunc(key) == key,
+       do: trunc(key)
+
+  defp normalize_key(key) when is_float(key) and trunc(key) == key,
+    do: Integer.to_string(trunc(key))
 
   defp normalize_key(key) when is_binary(key) do
     case Integer.parse(key) do
-      {index, ""} when index >= 0 -> if Integer.to_string(index) == key, do: index, else: key
-      _ -> key
+      {index, ""} when index in 0..4_294_967_294 ->
+        if Integer.to_string(index) == key, do: index, else: key
+
+      _ ->
+        key
     end
   end
 

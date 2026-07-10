@@ -38,6 +38,7 @@ defmodule QuickBEAM.VM.Execution do
             | QuickBEAM.VM.NativeFrame.t()
             | QuickBEAM.VM.AsyncBoundary.t()
             | QuickBEAM.VM.ReactionBoundary.t()
+            | QuickBEAM.VM.ConstructorBoundary.t()
             | QuickBEAM.VM.PromiseExecutorBoundary.t()
             | QuickBEAM.VM.ThenableBoundary.t()
           ],

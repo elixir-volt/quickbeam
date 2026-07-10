@@ -3,11 +3,21 @@ defmodule QuickBEAM.VM.Builtins do
   Installs and dispatches the JavaScript built-ins supported by the VM profile.
   """
 
-  alias QuickBEAM.VM.{Execution, Heap, Object, Property, Reference, RegExp, Value}
+  import Bitwise
+
+  alias QuickBEAM.VM.{Execution, Heap, Object, Property, Reference, RegExp, UTF16, Value}
 
   @constructors %{
     "Array" => ["isArray"],
-    "Object" => ["assign", "create", "keys"],
+    "Object" => [
+      "assign",
+      "create",
+      "defineProperty",
+      "getOwnPropertyDescriptor",
+      "getPrototypeOf",
+      "keys",
+      "setPrototypeOf"
+    ],
     "Math" => ["floor", "max", "min", "random", "round"],
     "String" => ["fromCharCode"],
     "Error" => [],
@@ -57,10 +67,81 @@ defmodule QuickBEAM.VM.Builtins do
     end
   end
 
-  def call({:builtin_method, "Object", "create"}, _this, [prototype], execution) do
-    prototype = if match?(%Reference{}, prototype), do: prototype, else: nil
+  def call({:builtin_method, "Object", "create"}, _this, [prototype], execution)
+      when is_nil(prototype) or is_struct(prototype, Reference) do
     {object, execution} = Heap.allocate(execution, :ordinary, prototype: prototype)
     {:ok, object, execution}
+  end
+
+  def call({:builtin_method, "Object", "create"}, _this, [_prototype], execution),
+    do: {:error, :invalid_prototype, execution}
+
+  def call(
+        {:builtin_method, "Object", "defineProperty"},
+        _this,
+        [%Reference{} = target, key, descriptor | _],
+        execution
+      ) do
+    with {:ok, current} <- Heap.own_property(execution, target, key),
+         {:ok, definition} <- descriptor_definition(descriptor, current, execution),
+         {:ok, execution} <-
+           Heap.define(
+             execution,
+             target,
+             key,
+             definition.value,
+             writable: definition.writable,
+             enumerable: definition.enumerable,
+             configurable: definition.configurable
+           ) do
+      {:ok, target, execution}
+    else
+      {:error, reason} -> {:error, reason, execution}
+    end
+  end
+
+  def call(
+        {:builtin_method, "Object", "getOwnPropertyDescriptor"},
+        _this,
+        [%Reference{} = target, key | _],
+        execution
+      ) do
+    case Heap.own_property(execution, target, key) do
+      {:ok, nil} ->
+        {:ok, :undefined, execution}
+
+      {:ok, property} ->
+        {descriptor, execution} = descriptor_object(property, execution)
+        {:ok, descriptor, execution}
+
+      {:error, reason} ->
+        {:error, reason, execution}
+    end
+  end
+
+  def call(
+        {:builtin_method, "Object", "getPrototypeOf"},
+        _this,
+        [%Reference{} = target | _],
+        execution
+      ) do
+    case Heap.prototype(execution, target) do
+      {:ok, prototype} -> {:ok, prototype, execution}
+      {:error, reason} -> {:error, reason, execution}
+    end
+  end
+
+  def call(
+        {:builtin_method, "Object", "setPrototypeOf"},
+        _this,
+        [%Reference{} = target, prototype | _],
+        execution
+      )
+      when is_nil(prototype) or is_struct(prototype, Reference) do
+    case Heap.set_prototype(execution, target, prototype) do
+      {:ok, execution} -> {:ok, target, execution}
+      {:error, reason} -> {:error, reason, execution}
+    end
   end
 
   def call({:builtin_method, "Object", "assign"}, _this, [target | sources], execution) do
@@ -88,7 +169,7 @@ defmodule QuickBEAM.VM.Builtins do
     do: {:ok, numeric_extreme(values, &max/2, :neg_infinity), execution}
 
   def call({:builtin_method, "String", "fromCharCode"}, _this, values, execution) do
-    string = values |> Enum.map(&Value.to_int32/1) |> List.to_string()
+    string = values |> Enum.map(&(Value.to_int32(&1) &&& 0xFFFF)) |> UTF16.from_units()
     {:ok, string, execution}
   end
 
@@ -174,13 +255,13 @@ defmodule QuickBEAM.VM.Builtins do
     do: {:ok, String.contains?(value, Value.to_string_value(part)), execution}
 
   def call({:primitive_method, :string, "charCodeAt"}, value, [index | _], execution) do
-    result = value |> String.at(Value.to_int32(index)) |> char_code()
+    result = UTF16.char_code_at(value, Value.to_int32(index))
     {:ok, result, execution}
   end
 
   def call({:primitive_method, :string, "slice"}, value, arguments, execution) do
-    {start, length} = slice_range(String.length(value), arguments)
-    {:ok, String.slice(value, start, length), execution}
+    {start, length} = slice_range(UTF16.length(value), arguments)
+    {:ok, UTF16.slice(value, start, length), execution}
   end
 
   def call({:primitive_method, :string, "replace"}, value, [pattern, replacement | _], execution) do
@@ -280,6 +361,12 @@ defmodule QuickBEAM.VM.Builtins do
     end
   end
 
+  def call({:builtin, "Array"}, _this, [length], execution)
+      when is_integer(length) and length >= 0 do
+    {array, execution} = Heap.allocate(execution, :array, length: length)
+    {:ok, array, execution}
+  end
+
   def call({:builtin, "Array"}, _this, values, execution) do
     {array, execution} = array_from(values, execution)
     {:ok, array, execution}
@@ -313,6 +400,69 @@ defmodule QuickBEAM.VM.Builtins do
   end
 
   defp maybe_install_prototype(_name, _constructor, execution), do: execution
+
+  defp descriptor_definition(descriptor, current, execution) do
+    with {:ok, getter, getter?} <- descriptor_field(descriptor, "get", execution),
+         {:ok, setter, setter?} <- descriptor_field(descriptor, "set", execution),
+         true <- not getter? or getter == :undefined,
+         true <- not setter? or setter == :undefined,
+         {:ok, value, value?} <- descriptor_field(descriptor, "value", execution),
+         {:ok, writable, writable?} <- descriptor_field(descriptor, "writable", execution),
+         {:ok, enumerable, enumerable?} <- descriptor_field(descriptor, "enumerable", execution),
+         {:ok, configurable, configurable?} <-
+           descriptor_field(descriptor, "configurable", execution) do
+      current = current || %Property{writable: false, enumerable: false, configurable: false}
+
+      {:ok,
+       %Property{
+         value: if(value?, do: value, else: current.value),
+         writable: if(writable?, do: Value.truthy?(writable), else: current.writable),
+         enumerable: if(enumerable?, do: Value.truthy?(enumerable), else: current.enumerable),
+         configurable:
+           if(configurable?, do: Value.truthy?(configurable), else: current.configurable)
+       }}
+    else
+      false -> {:error, :accessor_descriptors_unsupported}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp descriptor_field(%Reference{} = descriptor, key, execution) do
+    if Heap.has_property?(execution, descriptor, key) do
+      case Heap.get(execution, descriptor, key) do
+        {:ok, value} -> {:ok, value, true}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:ok, :undefined, false}
+    end
+  end
+
+  defp descriptor_field(descriptor, key, _execution) when is_map(descriptor) do
+    if Map.has_key?(descriptor, key),
+      do: {:ok, Map.fetch!(descriptor, key), true},
+      else: {:ok, :undefined, false}
+  end
+
+  defp descriptor_field(_descriptor, _key, _execution), do: {:error, :invalid_descriptor}
+
+  defp descriptor_object(property, execution) do
+    {descriptor, execution} = Heap.allocate(execution)
+
+    execution =
+      [
+        {"value", property.value},
+        {"writable", property.writable},
+        {"enumerable", property.enumerable},
+        {"configurable", property.configurable}
+      ]
+      |> Enum.reduce(execution, fn {key, value}, execution ->
+        {:ok, execution} = Heap.define(execution, descriptor, key, value)
+        execution
+      end)
+
+    {descriptor, execution}
+  end
 
   defp array?(%Reference{} = reference, execution) do
     match?({:ok, %Object{kind: :array}}, Heap.fetch_object(execution, reference))
@@ -424,9 +574,6 @@ defmodule QuickBEAM.VM.Builtins do
     do: Integer.to_string(value, radix)
 
   defp number_to_string(value, _radix), do: Value.to_string_value(value)
-
-  defp char_code(nil), do: :nan
-  defp char_code(character), do: character |> String.to_charlist() |> hd()
 
   defp regex_match?(%RegExp{source: source}, value) do
     case Regex.compile(source) do

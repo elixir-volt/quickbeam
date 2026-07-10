@@ -1,0 +1,99 @@
+defmodule QuickBEAM.VM.ObjectModelTest do
+  use ExUnit.Case, async: false
+
+  setup do
+    assert {:ok, runtime} = QuickBEAM.start(apis: false)
+
+    on_exit(fn ->
+      if Process.alive?(runtime) do
+        try do
+          QuickBEAM.stop(runtime)
+        catch
+          :exit, _reason -> :ok
+        end
+      end
+    end)
+
+    %{runtime: runtime}
+  end
+
+  test "matches native array length and sparse deletion semantics", %{runtime: runtime} do
+    sources = [
+      "(()=>{let value=[1,2,3];value.length=1;return [value.length,value[1]===void 0,Object.keys(value).join(',')]})()",
+      "(()=>{let value=[];value[3]=4;delete value[3];return [value.length,Object.keys(value).length]})()",
+      "(()=>{let value=Array(3);value[1]=2;return [value.length,Object.keys(value).join(',')]})()",
+      "(()=>{let value=[1];Object.defineProperty(value,'length',{writable:false});try{value[1]=2}catch(error){}return [value.length,value[1]===void 0]})()",
+      "(()=>{let value=[0,1,2];Object.defineProperty(value,'2',{configurable:false});try{value.length=1}catch(error){}return [value.length,value[2]]})()"
+    ]
+
+    for source <- sources do
+      assert_vm_matches_native(runtime, source)
+    end
+  end
+
+  test "matches native data descriptors and inherited write restrictions", %{runtime: runtime} do
+    sources = [
+      "(()=>{let value={};Object.defineProperty(value,'hidden',{value:42});let descriptor=Object.getOwnPropertyDescriptor(value,'hidden');return [value.hidden,Object.keys(value).length,descriptor.writable,descriptor.enumerable,descriptor.configurable]})()",
+      "(()=>{let prototype={};Object.defineProperty(prototype,'fixed',{value:1,writable:false});let value=Object.create(prototype);try{value.fixed=2}catch(error){}return [value.fixed,Object.keys(value).length]})()",
+      "(()=>{let value={};Object.defineProperty(value,'fixed',{value:1,writable:false,configurable:false});try{Object.defineProperty(value,'fixed',{value:2})}catch(error){return error.name}})()"
+    ]
+
+    for source <- sources do
+      assert_vm_matches_native(runtime, source)
+    end
+  end
+
+  test "matches native prototype mutation and cycle rejection", %{runtime: runtime} do
+    sources = [
+      "(()=>{let prototype={answer:42};let value={};Object.setPrototypeOf(value,prototype);return [value.answer,Object.getPrototypeOf(value)===prototype]})()",
+      "(()=>{let first={},second={};Object.setPrototypeOf(first,second);try{Object.setPrototypeOf(second,first)}catch(error){return error.name}})()"
+    ]
+
+    for source <- sources do
+      assert_vm_matches_native(runtime, source)
+    end
+  end
+
+  test "matches native constructor returns and instanceof", %{runtime: runtime} do
+    sources = [
+      "(()=>{function Value(){this.answer=42}let value=new Value();return [value.answer,value instanceof Value]})()",
+      "(()=>{function Value(){this.answer=1;return {answer:42}}return new Value().answer})()",
+      "(()=>{function Value(){this.answer=42;return 1}return new Value().answer})()",
+      "(()=>{function Value(){}let Bound=Value.bind(null);let value=new Bound();return [value instanceof Value,value instanceof Bound]})()",
+      "(()=>{try{new (async function(){})()}catch(error){return error.name}})()"
+    ]
+
+    for source <- sources do
+      assert_vm_matches_native(runtime, source)
+    end
+  end
+
+  test "indexes and slices strings as UTF-16 code units", %{runtime: runtime} do
+    sources = [
+      ~S|["😀".length,"😀".charCodeAt(0),"😀".charCodeAt(1)]|,
+      ~S|["😀x".slice(0,2),"😀x".slice(1,2),"😀x"[0]]|,
+      ~S|String.fromCharCode(55357,56832)|
+    ]
+
+    for source <- sources do
+      assert_vm_matches_native(runtime, source)
+    end
+  end
+
+  test "orders integer properties before string insertion order", %{runtime: runtime} do
+    sources = [
+      "(()=>{let value={second:2};value[4]=4;value.first=1;value[1]=1;return Object.keys(value).join(',')})()",
+      "(()=>{let value=[];value[4294967295]=1;return [value.length,Object.keys(value).join(',')]})()"
+    ]
+
+    for source <- sources do
+      assert_vm_matches_native(runtime, source)
+    end
+  end
+
+  defp assert_vm_matches_native(runtime, source) do
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+    assert {:ok, expected} = QuickBEAM.eval(runtime, source)
+    assert {:ok, ^expected} = QuickBEAM.VM.eval(program)
+  end
+end
