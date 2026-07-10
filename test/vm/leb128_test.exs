@@ -8,8 +8,8 @@ defmodule QuickBEAM.VM.VarintTest do
     assert {:ok, 300, <<1, 2>>} = VMVarint.read_unsigned(encoded <> <<1, 2>>)
   end
 
-  test "delegates signed decoding to Varint.SLEB128 and preserves the remainder" do
-    encoded = Varint.SLEB128.encode(-624_485)
+  test "decodes QuickJS ZigZag signed values through Varint.LEB128" do
+    encoded = Varint.LEB128.encode(1_248_969)
     assert {:ok, -624_485, <<3>>} = VMVarint.read_signed(encoded <> <<3>>)
   end
 
@@ -26,6 +26,6 @@ defmodule QuickBEAM.VM.VarintTest do
              VMVarint.read_unsigned(Varint.LEB128.encode(0x1_0000_0000))
 
     assert {:error, :integer_overflow} =
-             VMVarint.read_signed(Varint.SLEB128.encode(0x8000_0000))
+             VMVarint.read_signed(Varint.LEB128.encode(0x1_0000_0000))
   end
 end

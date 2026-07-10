@@ -149,7 +149,9 @@ defmodule QuickBEAM.VM.InterpreterTest do
     assert {:ok, 42} = QuickBEAM.VM.eval(returning)
 
     assert {:ok, throwing} = QuickBEAM.VM.compile("try { throw 42 } finally { 1 }")
-    assert {:error, {:js_throw, 42}} = QuickBEAM.VM.eval(throwing)
+
+    assert {:error, %QuickBEAM.JSError{name: "Error", message: "42"}} =
+             QuickBEAM.VM.eval(throwing)
   end
 
   test "catches reference and call errors as JavaScript exceptions" do

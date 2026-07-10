@@ -67,7 +67,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   def resume_raw(%Continuation{} = continuation, {:error, reason}) do
-    raise_js(reason, continuation.frame, continuation.execution)
+    raise_js_from_caller(reason, continuation.frame, continuation.execution)
   end
 
   @doc false
@@ -91,7 +91,7 @@ defmodule QuickBEAM.VM.Interpreter do
         run(new_frame(function, frame_callable, args, this, closure_refs), execution)
       end
     else
-      {:error, reason} -> raise_js(call_error(reason, caller), caller, execution)
+      {:error, reason} -> raise_js_from_caller(reason, caller, execution)
     end
   end
 
@@ -758,7 +758,7 @@ defmodule QuickBEAM.VM.Interpreter do
   defp dispatch_call(%Reference{} = reference, arguments, this, caller, execution, tail?) do
     case Builtins.callable(execution, reference) do
       nil ->
-        raise_js(call_error({:not_callable, reference}, caller), caller, execution)
+        raise_js_from_caller({:not_callable, reference}, caller, execution)
 
       callable when elem(callable, 0) in [:builtin, :builtin_method, :primitive_method] ->
         dispatch_call(callable, arguments, this, caller, execution, tail?)
@@ -789,7 +789,7 @@ defmodule QuickBEAM.VM.Interpreter do
           else: run(%{caller | stack: [value | caller.stack]}, execution)
 
       {:error, reason, execution} ->
-        raise_js({:type_error, reason}, caller, execution)
+        raise_js_from_caller({:type_error, reason}, caller, execution)
     end
   end
 
@@ -831,13 +831,13 @@ defmodule QuickBEAM.VM.Interpreter do
         end
 
       if operation == :reduce and tuple_size(values) == 0 and rest == [] do
-        raise_js({:type_error, :reduce_of_empty_array}, caller, execution)
+        raise_js_from_caller({:type_error, :reduce_of_empty_array}, caller, execution)
       else
         invoke_native_next(native, execution)
       end
     else
-      {:error, reason} -> raise_js({:type_error, reason}, caller, execution)
-      [] -> raise_js({:type_error, :missing_callback}, caller, execution)
+      {:error, reason} -> raise_js_from_caller({:type_error, reason}, caller, execution)
+      [] -> raise_js_from_caller({:type_error, :missing_callback}, caller, execution)
     end
   end
 
@@ -1006,7 +1006,7 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp start_host_call(_arguments, caller, execution, _tail?),
-    do: raise_js({:type_error, :invalid_beam_call}, caller, execution)
+    do: raise_js_from_caller({:type_error, :invalid_beam_call}, caller, execution)
 
   defp start_handler_task(handler, arguments, promise, execution) do
     operation = make_ref()
@@ -1031,13 +1031,6 @@ defmodule QuickBEAM.VM.Interpreter do
     exception -> {:error, {:handler_exception, exception, __STACKTRACE__}}
   catch
     kind, reason -> {:error, {:handler_exception, {kind, reason}, __STACKTRACE__}}
-  end
-
-  defp call_error(reason, %NativeFrame{caller: caller}), do: call_error(reason, caller)
-
-  defp call_error(reason, caller) do
-    pc = max(caller.pc - 1, 0)
-    {reason, {caller.function.name, pc, elem(caller.function.source_positions, pc)}}
   end
 
   defp type_of(%Reference{} = reference, execution) do
@@ -1065,10 +1058,7 @@ defmodule QuickBEAM.VM.Interpreter do
         continue(%{frame | stack: [value | stack]}, execution)
 
       {:error, reason} ->
-        location =
-          {frame.function.name, frame.pc, elem(frame.function.source_positions, frame.pc), key}
-
-        raise_js({:type_error, {reason, location}}, %{frame | stack: stack}, execution)
+        raise_js({:type_error, reason}, %{frame | stack: stack}, execution)
     end
   end
 
@@ -1078,10 +1068,7 @@ defmodule QuickBEAM.VM.Interpreter do
         continue(%{frame | stack: stack}, execution)
 
       {:error, reason} ->
-        location =
-          {frame.function.name, frame.pc, elem(frame.function.source_positions, frame.pc)}
-
-        raise_js({:type_error, {reason, location}}, %{frame | stack: stack}, execution)
+        raise_js({:type_error, reason}, %{frame | stack: stack}, execution)
     end
   end
 
@@ -1211,30 +1198,79 @@ defmodule QuickBEAM.VM.Interpreter do
   end
 
   defp raise_js(reason, %NativeFrame{caller: caller}, execution),
-    do: raise_js(reason, caller, execution)
+    do: do_raise_js(QuickBEAM.JSError.vm_exception_value(reason), caller, execution, [], true)
 
-  defp raise_js(reason, frame, execution) do
+  defp raise_js(reason, frame, execution),
+    do: do_raise_js(QuickBEAM.JSError.vm_exception_value(reason), frame, execution, [], false)
+
+  defp raise_js_from_caller(reason, %NativeFrame{caller: caller}, execution),
+    do: do_raise_js(QuickBEAM.JSError.vm_exception_value(reason), caller, execution, [], true)
+
+  defp raise_js_from_caller(reason, frame, execution),
+    do: do_raise_js(QuickBEAM.JSError.vm_exception_value(reason), frame, execution, [], true)
+
+  defp do_raise_js(reason, frame, execution, trace, caller?) do
     case split_at_catch(frame.stack) do
       {:caught, target, stack_below_catch} ->
         run(%{frame | pc: target, stack: [reason | stack_below_catch]}, execution)
 
       :uncaught ->
-        unwind_caller(reason, execution)
+        trace = [vm_stack_frame(frame, caller?) | trace]
+        unwind_caller(reason, execution, trace)
     end
   end
 
-  defp unwind_caller(reason, %Execution{callers: []} = execution),
-    do: {:error, {:js_throw, reason}, execution}
-
-  defp unwind_caller(reason, %Execution{callers: [%NativeFrame{} = native | callers]} = execution) do
-    execution = %{execution | callers: callers, depth: execution.depth - 1}
-    raise_js(reason, native.caller, execution)
+  defp unwind_caller(reason, %Execution{callers: []} = execution, trace) do
+    error = QuickBEAM.JSError.from_vm(reason, Enum.reverse(trace))
+    {:error, error, execution}
   end
 
-  defp unwind_caller(reason, %Execution{callers: [%Frame{} = caller | callers]} = execution) do
+  defp unwind_caller(
+         reason,
+         %Execution{callers: [%NativeFrame{} = native | callers]} = execution,
+         trace
+       ) do
     execution = %{execution | callers: callers, depth: execution.depth - 1}
-    raise_js(reason, caller, execution)
+    do_raise_js(reason, native.caller, execution, trace, true)
   end
+
+  defp unwind_caller(
+         reason,
+         %Execution{callers: [%Frame{} = caller | callers]} = execution,
+         trace
+       ) do
+    execution = %{execution | callers: callers, depth: execution.depth - 1}
+    do_raise_js(reason, caller, execution, trace, true)
+  end
+
+  defp vm_stack_frame(frame, caller?) do
+    instruction_count = tuple_size(frame.function.instructions)
+    pc = if caller?, do: frame.pc - 1, else: frame.pc
+    pc = pc |> max(0) |> min(max(instruction_count - 1, 0))
+    {line, column} = source_position(frame.function, pc)
+
+    %{
+      function: normalize_function_name(frame.function.name),
+      filename: frame.function.filename,
+      line: line,
+      column: column
+    }
+  end
+
+  defp source_position(%Function{source_positions: positions}, pc)
+       when is_tuple(positions) and pc < tuple_size(positions),
+       do: elem(positions, pc)
+
+  defp source_position(%Function{line_num: line, col_num: column}, _pc),
+    do: {line, column}
+
+  defp normalize_function_name(name) when name in [nil, ""], do: "<anonymous>"
+
+  defp normalize_function_name({:predefined, index}),
+    do: PredefinedAtoms.lookup(index) || "<anonymous>"
+
+  defp normalize_function_name(name) when is_binary(name), do: name
+  defp normalize_function_name(name), do: inspect(name)
 
   defp split_at_catch(stack) do
     case Enum.split_while(stack, &(!match?({:catch, _target}, &1))) do

@@ -9,7 +9,7 @@ defmodule QuickBEAM.VM.Export do
   defp convert(%PromiseReference{} = promise, execution, seen) do
     case Promise.state(execution, promise) do
       {:fulfilled, value} -> convert(value, execution, seen)
-      {:rejected, reason} -> {:error, {:js_throw, reason}}
+      {:rejected, reason} -> {:error, QuickBEAM.JSError.from_vm(reason, [])}
       :pending -> {:error, :pending_promise_result}
     end
   end

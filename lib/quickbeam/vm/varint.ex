@@ -1,7 +1,9 @@
 defmodule QuickBEAM.VM.Varint do
   @moduledoc """
-  Bounded QuickJS integer decoding backed by `Varint.LEB128` and
-  `Varint.SLEB128`.
+  Bounded QuickJS integer decoding backed by `Varint.LEB128`.
+
+  QuickJS encodes signed values by ZigZag-transforming a 32-bit integer and
+  then writing ordinary unsigned LEB128; it does not use standard SLEB128.
 
   QuickJS serializes these fields as 32-bit values, so accepting an unbounded
   varint would make malformed bytecode unnecessarily expensive to decode.
@@ -31,11 +33,14 @@ defmodule QuickBEAM.VM.Varint do
           {:ok, integer(), binary()} | {:error, :bad_sleb128 | :integer_overflow}
   def read_signed(binary) when is_binary(binary) do
     with :ok <- terminated_within_limit(binary, @max_encoded_bytes, :bad_sleb128),
-         {:ok, value, rest} <- decode_signed(binary),
+         {:ok, encoded, rest} <- decode_unsigned(binary),
+         true <- encoded <= @max_u32,
+         value = bxor(bsr(encoded, 1), -band(encoded, 1)),
          true <- value >= @min_i32 and value <= @max_i32 do
       {:ok, value, rest}
     else
       false -> {:error, :integer_overflow}
+      {:error, :bad_leb128} -> {:error, :bad_sleb128}
       {:error, _} = error -> error
     end
   end
@@ -55,15 +60,6 @@ defmodule QuickBEAM.VM.Varint do
       {:ok, value, rest}
     rescue
       ArgumentError -> {:error, :bad_leb128}
-    end
-  end
-
-  defp decode_signed(binary) do
-    try do
-      {value, rest} = Varint.SLEB128.decode(binary)
-      {:ok, value, rest}
-    rescue
-      ArgumentError -> {:error, :bad_sleb128}
     end
   end
 

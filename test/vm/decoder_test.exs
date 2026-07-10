@@ -106,7 +106,7 @@ defmodule QuickBEAM.VM.DecoderTest do
         Varint.LEB128.encode(1),
         Varint.LEB128.encode(atom_index * 2),
         <<Opcodes.bc_tag_int32()>>,
-        Varint.SLEB128.encode(42)
+        Varint.LEB128.encode(84)
       ])
 
     assert {:ok, %Program{root: {:object, %{^key => 42}}}} =

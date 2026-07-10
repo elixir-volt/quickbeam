@@ -467,8 +467,12 @@ cancellation mechanisms.
 
 ## Errors, tracing, and observability
 
-JavaScript throws should become `%QuickBEAM.JS.Error{}` with JavaScript name,
-message, filename, line, column, and stack frames when debug metadata is present.
+JavaScript throws become `%QuickBEAM.JSError{}` with JavaScript name, message,
+filename, line, column, and structured JavaScript stack frames when debug
+metadata is present. Generated `TypeError` and `ReferenceError` values remain
+ordinary error-like JavaScript values while a `catch` block handles them; they
+are converted only when they escape the evaluation. Elixir handler stack traces
+must never appear in the public JavaScript stack.
 
 Limit and infrastructure failures should remain distinguishable:
 
