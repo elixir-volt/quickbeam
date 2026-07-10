@@ -44,6 +44,24 @@ defmodule QuickBEAM.VM.InterpreterTest do
     assert Task.await_many(tasks) == List.duplicate({:ok, 1}, 40)
   end
 
+  test "evaluates and exports object and array values" do
+    source = "{let object={answer: 41}; object.answer++; [object.answer, [1,2,3].length]}"
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+    assert {:ok, [42, 3]} = QuickBEAM.VM.eval(program)
+  end
+
+  test "isolates object heaps across concurrent evaluations" do
+    source = "{let object={count: input}; object.count++; object.count}"
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+
+    tasks =
+      for input <- 1..40 do
+        Task.async(fn -> QuickBEAM.VM.eval(program, vars: %{"input" => input}) end)
+      end
+
+    assert Task.await_many(tasks) == Enum.map(1..40, &{:ok, &1 + 1})
+  end
+
   test "injects independent globals for each evaluation" do
     assert {:ok, program} = QuickBEAM.VM.compile("input + 1")
 
@@ -153,7 +171,7 @@ defmodule QuickBEAM.VM.InterpreterTest do
   end
 
   test "reports unsupported opcodes without crashing the caller" do
-    assert {:ok, program} = QuickBEAM.VM.compile("({answer: 42})")
+    assert {:ok, program} = QuickBEAM.VM.compile("({get answer(){return 42}})")
     assert {:error, {:unsupported_opcode, _opcode, _operands}} = QuickBEAM.VM.eval(program)
     assert Process.alive?(self())
   end

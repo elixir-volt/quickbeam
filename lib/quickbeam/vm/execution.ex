@@ -9,8 +9,10 @@ defmodule QuickBEAM.VM.Execution do
     cells: %{},
     depth: 1,
     globals: %{},
+    heap: %{},
     max_stack_depth: 1_000,
     next_cell_id: 0,
+    next_object_id: 0,
     remaining_steps: 0
   ]
 
@@ -20,8 +22,10 @@ defmodule QuickBEAM.VM.Execution do
           cells: %{optional(non_neg_integer()) => term()},
           depth: pos_integer(),
           globals: map(),
+          heap: %{optional(non_neg_integer()) => QuickBEAM.VM.Object.t()},
           max_stack_depth: pos_integer(),
           next_cell_id: non_neg_integer(),
+          next_object_id: non_neg_integer(),
           remaining_steps: non_neg_integer(),
           step_limit: pos_integer()
         }

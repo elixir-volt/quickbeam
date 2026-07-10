@@ -103,6 +103,7 @@ defmodule QuickBEAM.VM.Value do
 
   def typeof(value) when is_binary(value), do: "string"
   def typeof(%QuickBEAM.VM.Function{}), do: "function"
+  def typeof(%QuickBEAM.VM.Reference{}), do: "object"
   def typeof({:closure, %QuickBEAM.VM.Function{}, _captures}), do: "function"
   def typeof(_value), do: "object"
 

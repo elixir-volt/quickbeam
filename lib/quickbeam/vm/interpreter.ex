@@ -6,11 +6,14 @@ defmodule QuickBEAM.VM.Interpreter do
   alias QuickBEAM.VM.{
     Continuation,
     Execution,
+    Export,
     Frame,
     Function,
+    Heap,
     Opcodes,
     PredefinedAtoms,
     Program,
+    Reference,
     Value
   }
 
@@ -50,7 +53,7 @@ defmodule QuickBEAM.VM.Interpreter do
     normalize_result(raise_js(reason, continuation.frame, continuation.execution))
   end
 
-  defp normalize_result({:ok, value, _execution}), do: {:ok, value}
+  defp normalize_result({:ok, value, execution}), do: Export.value(value, execution)
   defp normalize_result({:error, reason, _execution}), do: {:error, reason}
   defp normalize_result({:suspended, continuation}), do: {:suspended, continuation}
 
@@ -136,6 +139,90 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(:special_object, [_type], frame, execution),
     do: push(frame, execution, :undefined)
 
+  defp execute(:object, [], frame, execution) do
+    {reference, execution} = Heap.allocate(execution)
+    push(frame, execution, reference)
+  end
+
+  defp execute(:array_from, [count], frame, execution) do
+    {elements, stack} = Enum.split(frame.stack, count)
+    {reference, execution} = Heap.allocate(execution, :array)
+
+    execution =
+      elements
+      |> Enum.reverse()
+      |> Enum.with_index()
+      |> Enum.reduce(execution, fn {value, index}, execution ->
+        {:ok, execution} = Heap.define(execution, reference, index, value)
+        execution
+      end)
+
+    push(%{frame | stack: stack}, execution, reference)
+  end
+
+  defp execute(
+         :define_field,
+         [atom],
+         %{stack: [value, %Reference{} = object | stack]} = frame,
+         execution
+       ) do
+    key = resolve_atom(atom, execution)
+
+    case Heap.define(execution, object, key, value) do
+      {:ok, execution} -> continue(%{frame | stack: [object | stack]}, execution)
+      {:error, reason} -> raise_js({:type_error, reason}, frame, execution)
+    end
+  end
+
+  defp execute(:get_field, [atom], %{stack: [object | stack]} = frame, execution) do
+    get_property_and_continue(object, resolve_atom(atom, execution), stack, frame, execution)
+  end
+
+  defp execute(:get_field2, [atom], %{stack: [object | stack]} = frame, execution) do
+    get_property_and_continue(
+      object,
+      resolve_atom(atom, execution),
+      [object | stack],
+      frame,
+      execution
+    )
+  end
+
+  defp execute(:get_array_el, [], %{stack: [key, object | stack]} = frame, execution) do
+    get_property_and_continue(object, key, stack, frame, execution)
+  end
+
+  defp execute(:get_length, [], %{stack: [object | stack]} = frame, execution) do
+    get_property_and_continue(object, "length", stack, frame, execution)
+  end
+
+  defp execute(:put_field, [atom], %{stack: [value, object | stack]} = frame, execution) do
+    put_property_and_continue(
+      object,
+      resolve_atom(atom, execution),
+      value,
+      stack,
+      frame,
+      execution
+    )
+  end
+
+  defp execute(:put_array_el, [], %{stack: [value, key, object | stack]} = frame, execution) do
+    put_property_and_continue(object, key, value, stack, frame, execution)
+  end
+
+  defp execute(:delete, [], %{stack: [key, %Reference{} = object | stack]} = frame, execution) do
+    case Heap.delete(execution, object, key) do
+      {:ok, deleted?, execution} -> continue(%{frame | stack: [deleted? | stack]}, execution)
+      {:error, reason} -> raise_js({:type_error, reason}, frame, execution)
+    end
+  end
+
+  defp execute(:to_propkey, [], frame, execution), do: continue(frame, execution)
+
+  defp execute(:is_undefined_or_null, [], frame, execution),
+    do: unary(frame, execution, &(&1 in [:undefined, nil]))
+
   defp execute(:drop, [], %{stack: [_value | stack]} = frame, execution),
     do: continue(%{frame | stack: stack}, execution)
 
@@ -143,10 +230,13 @@ defmodule QuickBEAM.VM.Interpreter do
     do: continue(%{frame | stack: [value | frame.stack]}, execution)
 
   defp execute(:dup1, [], %{stack: [a, b | stack]} = frame, execution),
-    do: continue(%{frame | stack: [a, b, a, b | stack]}, execution)
+    do: continue(%{frame | stack: [a, b, b | stack]}, execution)
 
   defp execute(:dup2, [], %{stack: [a, b | stack]} = frame, execution),
     do: continue(%{frame | stack: [a, b, a, b | stack]}, execution)
+
+  defp execute(:dup3, [], %{stack: [a, b, c | stack]} = frame, execution),
+    do: continue(%{frame | stack: [a, b, c, a, b, c | stack]}, execution)
 
   defp execute(:nip, [], %{stack: [a, _b | stack]} = frame, execution),
     do: continue(%{frame | stack: [a | stack]}, execution)
@@ -159,6 +249,30 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp execute(:swap, [], %{stack: [a, b | stack]} = frame, execution),
     do: continue(%{frame | stack: [b, a | stack]}, execution)
+
+  defp execute(:swap2, [], %{stack: [a, b, c, d | stack]} = frame, execution),
+    do: continue(%{frame | stack: [c, d, a, b | stack]}, execution)
+
+  defp execute(:perm3, [], %{stack: [a, b, c | stack]} = frame, execution),
+    do: continue(%{frame | stack: [a, c, b | stack]}, execution)
+
+  defp execute(:perm4, [], %{stack: [a, b, c, d | stack]} = frame, execution),
+    do: continue(%{frame | stack: [a, c, d, b | stack]}, execution)
+
+  defp execute(:perm5, [], %{stack: [a, b, c, d, e | stack]} = frame, execution),
+    do: continue(%{frame | stack: [a, c, d, e, b | stack]}, execution)
+
+  defp execute(:rot3l, [], %{stack: [a, b, c | stack]} = frame, execution),
+    do: continue(%{frame | stack: [c, a, b | stack]}, execution)
+
+  defp execute(:rot3r, [], %{stack: [a, b, c | stack]} = frame, execution),
+    do: continue(%{frame | stack: [b, c, a | stack]}, execution)
+
+  defp execute(:rot4l, [], %{stack: [a, b, c, d | stack]} = frame, execution),
+    do: continue(%{frame | stack: [d, a, b, c | stack]}, execution)
+
+  defp execute(:rot5l, [], %{stack: [a, b, c, d, e | stack]} = frame, execution),
+    do: continue(%{frame | stack: [e, a, b, c, d | stack]}, execution)
 
   defp execute(:insert2, [], %{stack: [a, b | stack]} = frame, execution),
     do: continue(%{frame | stack: [a, b, a | stack]}, execution)
@@ -450,6 +564,70 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp bitwise(frame, execution, operation),
     do: binary(frame, execution, &Value.bitwise(&1, &2, operation))
+
+  defp get_property_and_continue(object, key, stack, frame, execution) do
+    case get_property(object, key, execution) do
+      {:ok, value} -> continue(%{frame | stack: [value | stack]}, execution)
+      {:error, reason} -> raise_js({:type_error, reason}, %{frame | stack: stack}, execution)
+    end
+  end
+
+  defp put_property_and_continue(object, key, value, stack, frame, execution) do
+    case put_property(object, key, value, execution) do
+      {:ok, execution} -> continue(%{frame | stack: stack}, execution)
+      {:error, reason} -> raise_js({:type_error, reason}, %{frame | stack: stack}, execution)
+    end
+  end
+
+  defp get_property(%Reference{} = object, key, execution), do: Heap.get(execution, object, key)
+
+  defp get_property(object, key, _execution) when is_map(object) do
+    case Map.fetch(object, key) do
+      {:ok, value} -> {:ok, value}
+      :error -> {:ok, map_string_key(object, key)}
+    end
+  end
+
+  defp get_property(object, "length", _execution) when is_binary(object),
+    do: {:ok, utf16_length(object)}
+
+  defp get_property(object, key, _execution) when is_binary(object) and is_integer(key) do
+    {:ok, String.at(object, key) || :undefined}
+  end
+
+  defp get_property(object, "length", _execution) when is_list(object), do: {:ok, length(object)}
+
+  defp get_property(object, key, _execution) when is_list(object) and is_integer(key),
+    do: {:ok, Enum.at(object, key, :undefined)}
+
+  defp get_property(object, _key, _execution) when object in [nil, :undefined],
+    do: {:error, :null_or_undefined_property_access}
+
+  defp get_property(_object, _key, _execution), do: {:ok, :undefined}
+
+  defp put_property(%Reference{} = object, key, value, execution),
+    do: Heap.put(execution, object, key, value)
+
+  defp put_property(_object, _key, _value, _execution), do: {:error, :not_an_object}
+
+  defp map_string_key(map, key) when is_binary(key) do
+    case Enum.find(map, fn
+           {map_key, _value} when is_atom(map_key) -> Atom.to_string(map_key) == key
+           _entry -> false
+         end) do
+      {_map_key, value} -> value
+      nil -> :undefined
+    end
+  end
+
+  defp map_string_key(_map, _key), do: :undefined
+
+  defp utf16_length(value) do
+    value
+    |> :unicode.characters_to_binary(:utf8, {:utf16, :little})
+    |> byte_size()
+    |> div(2)
+  end
 
   defp raise_js(reason, frame, execution) do
     case split_at_catch(frame.stack) do
