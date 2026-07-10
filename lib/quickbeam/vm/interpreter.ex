@@ -13,6 +13,8 @@ defmodule QuickBEAM.VM.Interpreter do
     Opcodes,
     PredefinedAtoms,
     Program,
+    Promise,
+    PromiseReference,
     Reference,
     Value
   }
@@ -26,36 +28,44 @@ defmodule QuickBEAM.VM.Interpreter do
           | {:suspended, Continuation.t()}
 
   @spec eval(Program.t(), keyword()) :: result()
-  def eval(%Program{} = program, opts \\ []) do
+  def eval(%Program{} = program, opts \\ []), do: program |> start(opts) |> finish()
+
+  @doc false
+  def start(%Program{} = program, opts \\ []) do
     max_steps = Keyword.get(opts, :max_steps, @default_max_steps)
 
     execution = %Execution{
       atoms: program.atoms,
       globals: Map.new(Keyword.get(opts, :vars, %{})),
+      handlers: Map.new(Keyword.get(opts, :handlers, %{})),
       max_stack_depth: Keyword.get(opts, :max_stack_depth, @default_max_stack_depth),
       remaining_steps: max_steps,
       step_limit: max_steps
     }
 
+    execution = install_host_globals(execution)
     frame = new_frame(program.root, program.root, [], :undefined, {})
-
-    normalize_result(run(frame, execution))
+    run(frame, execution)
   end
 
   @spec resume(Continuation.t(), {:ok, term()} | {:error, term()}) :: result()
-  def resume(%Continuation{} = continuation, {:ok, value}) do
+  def resume(%Continuation{} = continuation, result),
+    do: continuation |> resume_raw(result) |> finish()
+
+  @doc false
+  def resume_raw(%Continuation{} = continuation, {:ok, value}) do
     frame = %{continuation.frame | stack: [value | continuation.frame.stack]}
-
-    normalize_result(run(frame, continuation.execution))
+    run(frame, continuation.execution)
   end
 
-  def resume(%Continuation{} = continuation, {:error, reason}) do
-    normalize_result(raise_js(reason, continuation.frame, continuation.execution))
+  def resume_raw(%Continuation{} = continuation, {:error, reason}) do
+    raise_js(reason, continuation.frame, continuation.execution)
   end
 
-  defp normalize_result({:ok, value, execution}), do: Export.value(value, execution)
-  defp normalize_result({:error, reason, _execution}), do: {:error, reason}
-  defp normalize_result({:suspended, continuation}), do: {:suspended, continuation}
+  @doc false
+  def finish({:ok, value, execution}), do: Export.value(value, execution)
+  def finish({:error, reason, _execution}), do: {:error, reason}
+  def finish({:suspended, continuation}), do: {:suspended, continuation}
 
   defp enter_call(callable, args, this, caller, execution, tail?) do
     with {:ok, function, closure_refs} <- callable_parts(callable) do
@@ -451,6 +461,9 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(:tail_call, [argument_count], frame, execution),
     do: call(frame, execution, argument_count, true)
 
+  defp execute(:call_method, [argument_count], frame, execution),
+    do: call_method(frame, execution, argument_count)
+
   defp execute(name, [index], frame, execution)
        when name in [
               :get_var_ref,
@@ -514,18 +527,43 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(:throw, [], %{stack: [value | stack]} = frame, execution),
     do: raise_js(value, %{frame | stack: stack}, execution)
 
-  defp execute(:await, [], %{stack: [{:pending, _reference} | stack]} = frame, execution) do
-    continuation = %Continuation{frame: next_frame(%{frame | stack: stack}), execution: execution}
+  defp execute(:await, [], %{stack: [%PromiseReference{} = promise | stack]} = frame, execution) do
+    case Promise.state(execution, promise) do
+      :pending ->
+        continuation = %Continuation{
+          frame: next_frame(%{frame | stack: stack}),
+          execution: execution,
+          awaiting: promise
+        }
+
+        {:suspended, continuation}
+
+      {:fulfilled, value} ->
+        suspend_microtask({:ok, value}, %{frame | stack: stack}, execution)
+
+      {:rejected, reason} ->
+        suspend_microtask({:error, reason}, %{frame | stack: stack}, execution)
+    end
+  end
+
+  defp execute(:await, [], %{stack: [{:pending, reference} | stack]} = frame, execution) do
+    continuation = %Continuation{
+      frame: next_frame(%{frame | stack: stack}),
+      execution: execution,
+      awaiting: reference
+    }
+
     {:suspended, continuation}
   end
 
   defp execute(:await, [], %{stack: [{:resolved, value} | stack]} = frame, execution),
-    do: continue(%{frame | stack: [value | stack]}, execution)
+    do: suspend_microtask({:ok, value}, %{frame | stack: stack}, execution)
 
   defp execute(:await, [], %{stack: [{:rejected, reason} | stack]} = frame, execution),
-    do: raise_js(reason, %{frame | stack: stack}, execution)
+    do: suspend_microtask({:error, reason}, %{frame | stack: stack}, execution)
 
-  defp execute(:await, [], frame, execution), do: continue(frame, execution)
+  defp execute(:await, [], %{stack: [value | stack]} = frame, execution),
+    do: suspend_microtask({:ok, value}, %{frame | stack: stack}, execution)
 
   defp execute(name, _operands, frame, execution)
        when name in [:nop, :set_name, :set_name_computed, :check_ctor, :close_loc],
@@ -540,12 +578,31 @@ defmodule QuickBEAM.VM.Interpreter do
     case callable_and_rest do
       [callable | rest] ->
         caller = %{next_frame(frame) | stack: rest}
-        enter_call(callable, Enum.reverse(arguments), :undefined, caller, execution, tail?)
+        dispatch_call(callable, Enum.reverse(arguments), :undefined, caller, execution, tail?)
 
       _ ->
         {:error, {:invalid_stack, :call}, execution}
     end
   end
+
+  defp call_method(%Frame{stack: stack} = frame, execution, argument_count) do
+    {arguments, callable_and_this} = Enum.split(stack, argument_count)
+
+    case callable_and_this do
+      [callable, this | rest] ->
+        caller = %{next_frame(frame) | stack: rest}
+        dispatch_call(callable, Enum.reverse(arguments), this, caller, execution, false)
+
+      _ ->
+        {:error, {:invalid_stack, :call_method}, execution}
+    end
+  end
+
+  defp dispatch_call({:host_function, :beam_call}, arguments, _this, caller, execution, tail?),
+    do: start_host_call(arguments, caller, execution, tail?)
+
+  defp dispatch_call(callable, arguments, this, caller, execution, tail?),
+    do: enter_call(callable, arguments, this, caller, execution, tail?)
 
   defp push(frame, execution, value),
     do: continue(%{frame | stack: [value | frame.stack]}, execution)
@@ -564,6 +621,66 @@ defmodule QuickBEAM.VM.Interpreter do
 
   defp bitwise(frame, execution, operation),
     do: binary(frame, execution, &Value.bitwise(&1, &2, operation))
+
+  defp suspend_microtask(result, frame, execution) do
+    execution = %{execution | jobs: :queue.in(result, execution.jobs)}
+
+    continuation = %Continuation{
+      frame: next_frame(frame),
+      execution: execution,
+      awaiting: :microtask
+    }
+
+    {:suspended, continuation}
+  end
+
+  defp install_host_globals(execution) do
+    {beam, execution} = Heap.allocate(execution)
+    {:ok, execution} = Heap.define(execution, beam, "call", {:host_function, :beam_call})
+    %{execution | globals: Map.put(execution.globals, "Beam", beam)}
+  end
+
+  defp start_host_call([name | arguments], caller, execution, tail?) when is_binary(name) do
+    {promise, execution} = Promise.new(execution)
+
+    execution =
+      case Map.fetch(execution.handlers, name) do
+        {:ok, handler} -> start_handler_task(handler, arguments, promise, execution)
+        :error -> Promise.settle(execution, promise, {:error, {:unknown_handler, name}})
+      end
+
+    if tail?,
+      do: return_value(promise, execution),
+      else: run(%{caller | stack: [promise | caller.stack]}, execution)
+  end
+
+  defp start_host_call(_arguments, caller, execution, _tail?),
+    do: raise_js({:type_error, :invalid_beam_call}, caller, execution)
+
+  defp start_handler_task(handler, arguments, promise, execution) do
+    operation = make_ref()
+    owner = self()
+
+    case Task.Supervisor.start_child(QuickBEAM.VM.TaskSupervisor, fn ->
+           Process.link(owner)
+           result = invoke_handler(handler, arguments)
+           send(owner, {:quickbeam_vm_host_reply, operation, result})
+         end) do
+      {:ok, pid} ->
+        %{execution | operations: Map.put(execution.operations, operation, {promise, pid})}
+
+      {:error, reason} ->
+        Promise.settle(execution, promise, {:error, {:handler_start_failed, reason}})
+    end
+  end
+
+  defp invoke_handler(handler, arguments) do
+    {:ok, handler.(arguments)}
+  rescue
+    exception -> {:error, {:handler_exception, exception, __STACKTRACE__}}
+  catch
+    kind, reason -> {:error, {:handler_exception, {kind, reason}, __STACKTRACE__}}
+  end
 
   defp get_property_and_continue(object, key, stack, frame, execution) do
     case get_property(object, key, execution) do

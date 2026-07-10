@@ -1,10 +1,18 @@
 defmodule QuickBEAM.VM.Export do
   @moduledoc false
 
-  alias QuickBEAM.VM.{Execution, Heap, Object, Property, Reference}
+  alias QuickBEAM.VM.{Execution, Heap, Object, Promise, PromiseReference, Property, Reference}
 
   @spec value(term(), Execution.t()) :: {:ok, term()} | {:error, term()}
   def value(value, %Execution{} = execution), do: convert(value, execution, MapSet.new())
+
+  defp convert(%PromiseReference{} = promise, execution, seen) do
+    case Promise.state(execution, promise) do
+      {:fulfilled, value} -> convert(value, execution, seen)
+      {:rejected, reason} -> {:error, {:js_throw, reason}}
+      :pending -> {:error, :pending_promise_result}
+    end
+  end
 
   defp convert(%Reference{id: id} = reference, execution, seen) do
     if MapSet.member?(seen, id) do

@@ -2,11 +2,11 @@ defmodule QuickBEAM.VM do
   @moduledoc """
   Compile and validate QuickJS bytecode for execution by the BEAM engine.
 
-  This milestone exposes the immutable, version-locked program pipeline. The
-  interpreter itself is intentionally not part of this module yet.
+  Programs are immutable and version-locked; each evaluation owns its frames,
+  heap, Promise state, host operations, and resource limits.
   """
 
-  alias QuickBEAM.VM.{ABI, Decoder, Function, Interpreter, Program, Verifier}
+  alias QuickBEAM.VM.{ABI, Decoder, Evaluator, Function, Program, Verifier}
 
   @type program :: QuickBEAM.VM.Program.t()
 
@@ -87,22 +87,23 @@ defmodule QuickBEAM.VM do
   @doc """
   Evaluates a verified program in an isolated BEAM process.
 
-  Supported kernel options are `:vars`, `:timeout`, `:max_steps`, and
-  `:max_stack_depth`. `isolation: :caller` is available for trusted diagnostics.
+  Supported options include `:vars`, asynchronous `:handlers`, `:timeout`,
+  `:max_steps`, and `:max_stack_depth`. `isolation: :caller` is available for
+  trusted diagnostics.
   """
   @spec eval(Program.t(), keyword()) :: {:ok, term()} | {:error, term()}
   def eval(%Program{} = program, opts \\ []) when is_list(opts) do
     with :ok <- Verifier.verify(program),
          {:ok, options} <- evaluation_options(opts) do
       case options.isolation do
-        :caller -> Interpreter.eval(program, Map.to_list(options.interpreter))
+        :caller -> Evaluator.eval(program, Map.to_list(options.interpreter))
         :process -> eval_isolated(program, options)
       end
     end
   end
 
   defp evaluation_options(opts) do
-    allowed = [:isolation, :max_stack_depth, :max_steps, :timeout, :vars]
+    allowed = [:handlers, :isolation, :max_stack_depth, :max_steps, :timeout, :vars]
 
     case Keyword.keys(opts) -- allowed do
       [] -> validate_evaluation_options(opts)
@@ -116,6 +117,7 @@ defmodule QuickBEAM.VM do
     max_steps = Keyword.get(opts, :max_steps, 5_000_000)
     max_stack_depth = Keyword.get(opts, :max_stack_depth, 1_000)
     vars = Keyword.get(opts, :vars, %{})
+    handlers = Keyword.get(opts, :handlers, %{})
 
     cond do
       isolation not in [:caller, :process] ->
@@ -133,12 +135,19 @@ defmodule QuickBEAM.VM do
       not is_map(vars) ->
         {:error, {:invalid_option, :vars, vars}}
 
+      not is_map(handlers) or
+          not Enum.all?(handlers, fn {name, handler} ->
+            is_binary(name) and is_function(handler, 1)
+          end) ->
+        {:error, {:invalid_option, :handlers, handlers}}
+
       true ->
         {:ok,
          %{
            isolation: isolation,
            timeout: timeout,
            interpreter: %{
+             handlers: handlers,
              max_steps: max_steps,
              max_stack_depth: max_stack_depth,
              vars: vars
@@ -161,7 +170,7 @@ defmodule QuickBEAM.VM do
   end
 
   defp safe_interpret(program, options) do
-    case Interpreter.eval(program, Map.to_list(options)) do
+    case Evaluator.eval(program, Map.to_list(options)) do
       {:suspended, _continuation} -> {:error, {:unsupported, :async_wait}}
       result -> result
     end

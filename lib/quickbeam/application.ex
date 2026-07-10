@@ -11,7 +11,8 @@ defmodule QuickBEAM.Application do
         start: {:pg, :start_link, [QuickBEAM.BroadcastChannel]}
       },
       QuickBEAM.LockManager,
-      QuickBEAM.WasmAPI
+      QuickBEAM.WasmAPI,
+      {Task.Supervisor, name: QuickBEAM.VM.TaskSupervisor}
     ]
 
     QuickBEAM.Storage.init()
