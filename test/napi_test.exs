@@ -1,5 +1,7 @@
 defmodule QuickBEAM.NapiTest do
-  use ExUnit.Case, async: true
+  # Third-party addons may own process-global native state and cannot be loaded
+  # concurrently into independent runtimes unless the addon documents that as safe.
+  use ExUnit.Case, async: false
 
   @test_addon Path.expand("support/test_addon.node", __DIR__)
   @node_modules Path.expand("../node_modules", __DIR__)
@@ -310,7 +312,7 @@ defmodule QuickBEAM.NapiTest do
   describe "sqlite-napi" do
     @describetag :napi_sqlite
 
-    test "create database and execute SQL" do
+    test "executes SQL and parameterized statements within one addon lifecycle" do
       path = sqlite_path()
       if !File.exists?(path), do: flunk("addon not found at #{path} — run mix npm.install")
 
@@ -319,29 +321,15 @@ defmodule QuickBEAM.NapiTest do
 
       assert {:ok, "ok"} =
                QuickBEAM.eval(rt, """
-                 const db = new sqlite.Database(":memory:");
-                 db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)");
-                 db.exec("INSERT INTO t VALUES (1, 'hello')");
-                 db.exec("INSERT INTO t VALUES (2, 'world')");
-                 "ok"
-               """)
+                 const first = new sqlite.Database(":memory:");
+                 first.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)");
+                 first.exec("INSERT INTO t VALUES (1, 'hello')");
+                 first.exec("INSERT INTO t VALUES (2, 'world')");
 
-      QuickBEAM.stop(rt)
-    end
-
-    test "parameterized insert with db.run" do
-      path = sqlite_path()
-      if !File.exists?(path), do: flunk("addon not found at #{path} — run mix npm.install")
-
-      {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, path, as: "sqlite")
-
-      assert {:ok, "ok"} =
-               QuickBEAM.eval(rt, """
-                 const db = new sqlite.Database(":memory:");
-                 db.exec("CREATE TABLE kv (key TEXT, val TEXT)");
-                 db.run("INSERT INTO kv VALUES (?, ?)", "greeting", "hello");
-                 db.run("INSERT INTO kv VALUES (?, ?)", "target", "world");
+                 const second = new sqlite.Database(":memory:");
+                 second.exec("CREATE TABLE kv (key TEXT, val TEXT)");
+                 second.run("INSERT INTO kv VALUES (?, ?)", "greeting", "hello");
+                 second.run("INSERT INTO kv VALUES (?, ?)", "target", "world");
                  "ok"
                """)
 
