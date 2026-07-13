@@ -22,6 +22,7 @@ defmodule QuickBEAM.VM.Properties do
   @function_tags [
     :builtin,
     :builtin_method,
+    :declared_builtin,
     :bound_function,
     :function_method,
     :host_function,

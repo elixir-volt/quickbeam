@@ -295,6 +295,7 @@ defmodule QuickBEAM.VM.Promise do
                :bound_function,
                :builtin,
                :builtin_method,
+               :declared_builtin,
                :host_function,
                :primitive_method,
                :promise_method,

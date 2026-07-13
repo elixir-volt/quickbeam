@@ -9,6 +9,7 @@ defmodule QuickBEAM.VM.Invocation do
   """
 
   alias QuickBEAM.VM.{
+    Builtin,
     Builtins,
     ConstructorBoundary,
     Execution,
@@ -22,7 +23,9 @@ defmodule QuickBEAM.VM.Invocation do
     Value
   }
 
-  @builtin_tags [:builtin, :builtin_method, :primitive_method]
+  alias QuickBEAM.VM.Builtin.Call
+
+  @builtin_tags [:builtin, :builtin_method, :declared_builtin, :primitive_method]
   @error_constructors ~w(Error EvalError RangeError ReferenceError SyntaxError TypeError URIError)
 
   @type action ::
@@ -41,6 +44,29 @@ defmodule QuickBEAM.VM.Invocation do
 
   def plan({:host_function, :beam_call}, arguments, _this, caller, execution, tail?),
     do: {:host_call, arguments, caller, execution, tail?}
+
+  def plan(
+        {:declared_builtin, _module, _handler} = callable,
+        arguments,
+        this,
+        caller,
+        execution,
+        tail?
+      ) do
+    call = %Call{
+      arguments: arguments,
+      this: this,
+      caller: caller,
+      tail?: tail?,
+      execution: execution
+    }
+
+    case Builtin.invoke(callable, call) do
+      {:ok, value, execution} -> {:complete, value, caller, execution, tail?}
+      {:error, reason, execution} -> {:error, {:type_error, reason}, caller, execution}
+      {:action, action} -> action
+    end
+  end
 
   def plan({:builtin, "Promise"}, [executor | _], _this, caller, execution, tail?) do
     {promise, execution} = Promise.new(execution)
@@ -236,6 +262,9 @@ defmodule QuickBEAM.VM.Invocation do
   def constructable?({:bound_function, target, _this, _arguments}, execution),
     do: constructable?(target, execution)
 
+  def constructable?({:declared_builtin, _module, _handler} = callable, _execution),
+    do: Builtin.constructable?(callable)
+
   def constructable?({:builtin, name}, _execution),
     do:
       name in (["Array", "Boolean", "Number", "Object", "Promise", "Set", "String"] ++
@@ -278,6 +307,7 @@ defmodule QuickBEAM.VM.Invocation do
              elem(value, 0) in [
                :builtin,
                :builtin_method,
+               :declared_builtin,
                :bound_function,
                :function_method,
                :host_function,

@@ -411,6 +411,23 @@ boundaries so arbitrary JavaScript and exceptions do not escape the explicit
 machine state. Promise resolution reads accessor-backed `then` properties
 synchronously and queues invocation of returned then functions as microtasks.
 
+## Declarative builtins
+
+Builtin modules use `QuickBEAM.VM.Builtin` to compile constructor, object,
+extension, static, prototype, function-metadata, and descriptor declarations
+into immutable specs. An explicit profile registry installs those specs in
+dependency order into each owner-local execution through the canonical heap and
+property layers. Runtime application-module discovery is forbidden.
+
+Installed functions are real owner-local function objects carrying stable
+module/handler tokens, not captured closures. Calls receive an explicit
+`QuickBEAM.VM.Builtin.Call` containing arguments, receiver, caller, tail mode,
+and execution state, and are dispatched through the canonical invocation
+planner. Compile-time checks reject missing handlers, invalid lengths, unknown
+builtin kinds, and duplicate keys. `Math` and `Array.isArray` are the initial
+migrated vertical slice; the legacy dispatcher remains only for builtins not yet
+migrated.
+
 ## ECMAScript and host profiles
 
 The first production profile should be explicit rather than implying browser

@@ -14,10 +14,12 @@ defmodule QuickBEAM.VM.Builtins do
     Value
   }
 
+  alias QuickBEAM.VM.Builtin.{Installer, Registry}
+
   @error_types ~w(Error EvalError RangeError ReferenceError SyntaxError TypeError URIError)
 
   @constructors %{
-    "Array" => ["isArray"],
+    "Array" => [],
     "Boolean" => [],
     "Object" => [
       "assign",
@@ -31,7 +33,6 @@ defmodule QuickBEAM.VM.Builtins do
     ],
     "EvalError" => [],
     "Function" => [],
-    "Math" => ["floor", "max", "min", "pow", "random", "round"],
     "Number" => [],
     "RangeError" => [],
     "ReferenceError" => [],
@@ -46,27 +47,30 @@ defmodule QuickBEAM.VM.Builtins do
 
   @spec install(Execution.t()) :: Execution.t()
   def install(execution) do
-    @constructors
-    |> Enum.sort_by(fn {name, _methods} ->
-      if name == "Object", do: {0, name}, else: {1, name}
-    end)
-    |> Enum.reduce(execution, fn {name, methods}, execution ->
-      {object, execution} = Heap.allocate(execution, :function, callable: {:builtin, name})
+    execution =
+      @constructors
+      |> Enum.sort_by(fn {name, _methods} ->
+        if name == "Object", do: {0, name}, else: {1, name}
+      end)
+      |> Enum.reduce(execution, fn {name, methods}, execution ->
+        {object, execution} = Heap.allocate(execution, :function, callable: {:builtin, name})
 
-      execution =
-        Enum.reduce(methods, execution, fn method, execution ->
-          {:ok, execution} =
-            Properties.define(object, method, {:builtin_method, name, method}, execution,
-              enumerable: false
-            )
+        execution =
+          Enum.reduce(methods, execution, fn method, execution ->
+            {:ok, execution} =
+              Properties.define(object, method, {:builtin_method, name, method}, execution,
+                enumerable: false
+              )
 
-          execution
-        end)
+            execution
+          end)
 
-      execution = maybe_install_prototype(name, object, execution)
-      %{execution | globals: Map.put_new(execution.globals, name, object)}
-    end)
-    |> link_constructor_prototypes()
+        execution = maybe_install_prototype(name, object, execution)
+        %{execution | globals: Map.put_new(execution.globals, name, object)}
+      end)
+      |> link_constructor_prototypes()
+
+    Installer.install_all(execution, Registry.modules(:core))
   end
 
   @spec callable(Execution.t(), Reference.t()) :: term() | nil
@@ -98,9 +102,6 @@ defmodule QuickBEAM.VM.Builtins do
 
   @spec call(term(), term(), [term()], Execution.t()) ::
           {:ok, term(), Execution.t()} | {:error, term(), Execution.t()}
-  def call({:builtin_method, "Array", "isArray"}, _this, [value], execution),
-    do: {:ok, array?(value, execution), execution}
-
   def call({:builtin_method, "Object", "keys"}, _this, [value], execution) do
     with {:ok, keys} <- own_keys(value, execution) do
       keys = Enum.map(keys, &Value.to_string_value/1)
@@ -203,24 +204,6 @@ defmodule QuickBEAM.VM.Builtins do
       end
     end)
   end
-
-  def call({:builtin_method, "Math", "floor"}, _this, [value], execution),
-    do: {:ok, value |> Value.to_number() |> floor_number(), execution}
-
-  def call({:builtin_method, "Math", "round"}, _this, [value], execution),
-    do: {:ok, value |> Value.to_number() |> round_number(), execution}
-
-  def call({:builtin_method, "Math", "random"}, _this, [], execution),
-    do: {:ok, 0.5, execution}
-
-  def call({:builtin_method, "Math", "min"}, _this, values, execution),
-    do: {:ok, numeric_extreme(values, &min/2, :infinity), execution}
-
-  def call({:builtin_method, "Math", "max"}, _this, values, execution),
-    do: {:ok, numeric_extreme(values, &max/2, :neg_infinity), execution}
-
-  def call({:builtin_method, "Math", "pow"}, _this, [base, exponent | _], execution),
-    do: {:ok, Value.power(base, exponent), execution}
 
   def call({:builtin_method, "String", "fromCharCode"}, _this, values, execution) do
     string = Value.string_from_char_codes(values)
@@ -915,12 +898,6 @@ defmodule QuickBEAM.VM.Builtins do
     end
   end
 
-  defp array?(%Reference{} = reference, execution) do
-    match?({:ok, %Object{kind: :array}}, Heap.fetch_object(execution, reference))
-  end
-
-  defp array?(value, _execution), do: is_list(value)
-
   defp array_from(values, execution) do
     {array, execution} = Heap.allocate(execution, :array)
 
@@ -1059,15 +1036,4 @@ defmodule QuickBEAM.VM.Builtins do
 
   defp replace_string(value, pattern, replacement),
     do: String.replace(value, Value.to_string_value(pattern), replacement, global: false)
-
-  defp floor_number(value) when is_number(value), do: floor(value)
-  defp floor_number(value), do: value
-  defp round_number(value) when is_number(value), do: round(value)
-  defp round_number(value), do: value
-
-  defp numeric_extreme(values, operation, initial) do
-    Enum.reduce(values, initial, fn value, result ->
-      operation.(Value.to_number(value), result)
-    end)
-  end
 end

@@ -373,6 +373,20 @@ High-value test groups to adapt next:
 - The interpreter now owns only routing, stepping, resource checks, action
   execution, native callback frames, and boundary completion.
 
+### Declarative builtin migration (in progress)
+
+- Adapted the prototype's useful spec/installer idea without its process-local
+  heap, loaded-module discovery, giant multi-form macro surface, or generated
+  fallback dispatch.
+- Builtin declarations now compile to immutable validated specs and install from
+  an explicit deterministic profile registry.
+- Handlers use stable module/function tokens and explicit call contexts through
+  canonical invocation semantics.
+- Migrated `Math` and `Array.isArray` as the first vertical slice, including real
+  function objects with descriptor, `name`, and `length` metadata.
+- Continue migrating low-risk primitive builtins before resumable Object,
+  Promise, and Array callback methods.
+
 ### Phase C — expand conformance by profile demand
 
 - Added differential sparse-array tests and hole-aware native callback frames;
@@ -398,6 +412,6 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-Proceed to Phase C with sparse-array hole behavior and hole-aware native
-callback frames, then establish resumable iterator semantics for iterable
-Promise combinators.
+Continue the declarative builtin migration with low-risk String and Object
+statics, then exercise the DSL action contract on resumable Object and Array
+methods before adding general iterator semantics.
