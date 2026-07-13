@@ -6,7 +6,7 @@ defmodule QuickBEAM.VM.Verifier do
   behavior before untrusted bytecode reaches mutable evaluation state.
   """
 
-  alias QuickBEAM.VM.{ABI, Function, Opcodes, Program}
+  alias QuickBEAM.VM.{ABI, Function, Opcodes, Program, StackVerifier}
 
   @js_atom_end Opcodes.js_atom_end()
 
@@ -63,13 +63,9 @@ defmodule QuickBEAM.VM.Verifier do
          :ok <- within(function.stack_size, limits.max_stack_size, :stack_size),
          :ok <- verify_function_shape(function),
          :ok <- verify_instructions(function, atoms),
+         :ok <- verify_stack(function),
          {:ok, counts} <- add_counts(function, limits, counts) do
-      Enum.reduce_while(function.constants, {:ok, counts}, fn constant, {:ok, counts} ->
-        case verify_value(constant, atoms, limits, depth + 1, counts) do
-          {:ok, counts} -> {:cont, {:ok, counts}}
-          {:error, _} = error -> {:halt, error}
-        end
-      end)
+      verify_values(function.constants, atoms, limits, depth + 1, counts)
     end
   end
 
@@ -169,7 +165,8 @@ defmodule QuickBEAM.VM.Verifier do
         {:error, {:unknown_opcode, opcode}}
 
       {name, _size, _pops, _pushes, format} ->
-        with :ok <- verify_operand_count(format, operands) do
+        with :ok <- verify_operand_count(format, operands),
+             :ok <- verify_operand_types(format, operands) do
           verify_operands(name, format, operands, function, atoms)
         end
     end
@@ -177,6 +174,13 @@ defmodule QuickBEAM.VM.Verifier do
 
   defp verify_instruction(instruction, _function, _atoms),
     do: {:error, {:invalid_shape, instruction}}
+
+  defp verify_stack(function) do
+    case StackVerifier.verify(function) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:invalid_stack, function.id, reason}}
+    end
+  end
 
   defp verify_operand_count(format, operands) do
     expected =
@@ -192,6 +196,16 @@ defmodule QuickBEAM.VM.Verifier do
     if length(operands) == expected,
       do: :ok,
       else: {:error, {:operand_count, expected, length(operands)}}
+  end
+
+  defp verify_operand_types(format, [_atom | operands])
+       when format in [:atom, :atom_u8, :atom_u16, :atom_label_u8, :atom_label_u16],
+       do: verify_integer_operands(operands)
+
+  defp verify_operand_types(_format, operands), do: verify_integer_operands(operands)
+
+  defp verify_integer_operands(operands) do
+    if Enum.all?(operands, &is_integer/1), do: :ok, else: {:error, :invalid_operand_type}
   end
 
   defp verify_operands(_name, format, [index], function, _atoms)
@@ -210,10 +224,15 @@ defmodule QuickBEAM.VM.Verifier do
 
   defp verify_operands(name, format, operands, function, atoms)
        when format in [:atom, :atom_u8, :atom_u16, :atom_label_u8, :atom_label_u16] do
-    with :ok <- verify_atom_operand(List.first(operands), atoms) do
-      verify_secondary_operand(name, operands, function)
+    with :ok <- verify_atom_operand(List.first(operands), atoms),
+         :ok <- verify_secondary_operand(name, operands, function) do
+      verify_embedded_label(format, operands, function)
     end
   end
+
+  defp verify_operands(_name, format, operands, function, _atoms)
+       when format in [:label8, :label16, :label, :label_u16],
+       do: verify_label(List.first(operands), function)
 
   defp verify_operands(_name, _format, _operands, _function, _atoms), do: :ok
 
@@ -240,6 +259,15 @@ defmodule QuickBEAM.VM.Verifier do
     do: index_within(index, length(function.closure_vars), :closure_variable)
 
   defp verify_secondary_operand(_name, _operands, _function), do: :ok
+
+  defp verify_embedded_label(format, [_atom, label | _rest], function)
+       when format in [:atom_label_u8, :atom_label_u16],
+       do: verify_label(label, function)
+
+  defp verify_embedded_label(_format, _operands, _function), do: :ok
+
+  defp verify_label(label, function),
+    do: index_within(label, tuple_size(function.instructions), :label)
 
   defp index_within(index, count, _kind)
        when is_integer(index) and index >= 0 and index < count,

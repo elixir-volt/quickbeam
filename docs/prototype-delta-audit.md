@@ -421,7 +421,10 @@ High-value test groups to adapt next:
   compatibility profile.
 - Expanded the pinned Test262 manifest to 69 selected tests with 65/65
   supported cases passing and four explicit asynchronous skips.
-- Add decoder mutation fuzzing.
+- Added deterministic checksum-aware decoder mutation fuzzing and deliberately
+  invalid verifier mutations. Normal CI runs 3,000 heap- and timeout-bounded
+  cases; the scheduled/local harness runs a larger reproducible corpus and
+  persists minimized regressions.
 
 ### Phase D — production hardening
 
@@ -446,6 +449,6 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-Add bounded mutation fuzzing for bytecode decoding and verification, then
-publish scheduler, timeout, memory, and Preact SSR measurements for the frozen
-SSR compatibility profile.
+Define and enforce safe repeated native-addon loading behavior, then publish
+scheduler, timeout, memory, and SSR measurements for the frozen compatibility
+profile before beginning compiler extraction.

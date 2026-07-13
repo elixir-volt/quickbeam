@@ -6,8 +6,9 @@ Implemented on the development branch: version-locked decoding and verification,
 process-isolated evaluation, explicit frames and detached async continuations,
 closures, exceptions, owner-local objects, Promise reactions and combinators,
 asynchronous `Beam.call`, logical and process memory containment, stable
-JavaScript errors, and pinned Preact, Vue, and Svelte SSR acceptance fixtures.
-Broader ECMAScript conformance, object-model hardening, garbage collection, and release hardening
+JavaScript errors, pinned Preact, Vue, and Svelte SSR acceptance fixtures, and
+bounded deterministic decoder/verifier mutation fuzzing. Broader ECMAScript
+conformance, object-model hardening, garbage collection, and release hardening
 remain in progress.
 
 ## Summary
@@ -260,10 +261,33 @@ Required checks include:
 - no trailing serialized data;
 - total decoded instruction limit.
 
-Decoder failures must return errors rather than raising or partially installing
+Decoder failures return errors rather than raising or partially installing
 state. Unsigned and signed LEB128 fields use the `varint` package, wrapped with
-QuickJS's 32-bit width and encoded-length limits. The decoder should have
-mutation fuzzing and corpus tests for each supported QuickJS release.
+QuickJS's 32-bit width and encoded-length limits.
+
+`QuickBEAM.VM.Fuzz` runs deterministic checksum-aware mutations over
+representative compiled artifacts. Each case executes twice in a monitored
+process with a strict wall-clock timeout and BEAM maximum-heap limit. The normal
+test suite runs 2,000 decoder mutations and 1,000 deliberately invalid verifier
+mutations. The local and scheduled corpus uses:
+
+```sh
+mix quickbeam.vm.fuzz --iterations 10000 --seed 5325389
+```
+
+The corpus covers truncation, insertion, deletion, duplication, bit flips,
+malformed and overflowing LEB128 fields, oversized counts, unknown bytes,
+trailing data, checksum/version corruption, invalid references and opcodes,
+branch and exception targets, captures, stack underflow and declared stack
+sizes, and structural metadata. Outcomes use
+stable coarse classifications while retaining the exact typed rejection.
+Crashes, timeouts, nondeterminism, and accepted invalid verifier programs are
+findings. The first 10,000-case run found and fixed an untyped truncation path
+in variable-definition decoding; its 23-byte input is retained as a regression
+fixture. Findings can be deletion-minimized with `QuickBEAM.VM.Fuzz.minimize/2`
+and persisted as `.bin` plus replay metadata with
+`QuickBEAM.VM.Fuzz.persist/2`; regression fixtures are replayed under the same
+bounds.
 
 ## Evaluation process and ownership
 
@@ -784,7 +808,7 @@ operationally observable.
 
 ### Milestone 4 — hardening and release
 
-- Fuzz decoder and verifier.
+- Keep deterministic bounded decoder/verifier mutation corpora and minimized regressions green.
 - Audit process-dictionary ownership and cleanup.
 - Test malformed programs, handler failures, cancellation, and supervisor exits.
 - Document unsupported features and migration guidance.

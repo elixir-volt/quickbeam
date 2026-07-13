@@ -525,7 +525,7 @@ defmodule QuickBEAM.VM.Decoder do
     with {:ok, name, rest} <- read_atom_ref(data, atoms),
          {:ok, scope_level, rest} <- LEB128.read_unsigned(rest),
          {:ok, scope_next_raw, rest} <- LEB128.read_unsigned(rest),
-         <<flags, rest::binary>> <- rest do
+         {:ok, flags, rest} <- LEB128.read_u8(rest) do
       scope_next = scope_next_raw - 1
       var_kind = band(flags, 0xF)
       is_const = band(bsr(flags, 4), 1) == 1

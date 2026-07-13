@@ -132,6 +132,11 @@ defmodule QuickBEAM.VM.DecoderTest do
     assert count > 1
   end
 
+  test "rejects a truncated variable definition with a typed error" do
+    fixture = Path.expand("../fixtures/vm/fuzz/regressions/truncated-vardef-flags.bin", __DIR__)
+    assert {:error, :unexpected_end} = fixture |> File.read!() |> QuickBEAM.VM.decode()
+  end
+
   test "verifier rejects an invalid constant index", %{runtime: runtime} do
     {:ok, bytecode} = QuickBEAM.compile(runtime, "42")
     {:ok, program} = QuickBEAM.VM.decode(bytecode)
@@ -147,6 +152,45 @@ defmodule QuickBEAM.VM.DecoderTest do
 
     assert {:error, {:invalid_instruction, 0, 0, {:invalid_index, :constant, 999}}} =
              Verifier.verify(bad_program)
+  end
+
+  test "verifier rejects invalid control-flow and stack metadata", %{runtime: runtime} do
+    {:ok, bytecode} = QuickBEAM.compile(runtime, "42")
+    {:ok, program} = QuickBEAM.VM.decode(bytecode)
+    instruction_count = tuple_size(program.root.instructions)
+
+    bad_jump = %{
+      program.root
+      | instructions:
+          put_elem(program.root.instructions, 0, {Opcodes.num(:goto), [instruction_count]})
+    }
+
+    assert {:error, {:invalid_instruction, 0, 0, {:invalid_index, :label, ^instruction_count}}} =
+             Verifier.verify(%{program | root: bad_jump})
+
+    underflow = %{
+      program.root
+      | instructions: {{Opcodes.num(:drop), []}, {Opcodes.num(:return_undef), []}},
+        source_positions: {{1, 1}, {1, 1}},
+        stack_size: 0
+    }
+
+    assert {:error, {:invalid_stack, 0, {:stack_underflow, 0, 0, 1}}} =
+             Verifier.verify(%{program | root: underflow})
+
+    declared = %{program.root | stack_size: program.root.stack_size + 1}
+
+    assert {:error, {:invalid_stack, 0, {:stack_size_mismatch, _declared}}} =
+             Verifier.verify(%{program | root: declared})
+
+    invalid_operand = %{
+      program.root
+      | instructions:
+          put_elem(program.root.instructions, 0, {Opcodes.num(:push_i32), [:not_an_integer]})
+    }
+
+    assert {:error, {:invalid_instruction, 0, 0, :invalid_operand_type}} =
+             Verifier.verify(%{program | root: invalid_operand})
   end
 
   test "instruction decoder rejects labels inside an instruction" do
