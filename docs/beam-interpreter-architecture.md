@@ -390,6 +390,15 @@ contexts. Stress coverage includes concurrent explicit stops, owner exit without
 stop, callSync shutdown, pool shutdown, UBSan builds, and ordinary parallel test
 execution.
 
+Native addon initialization is also serialized process-wide. A canonical addon
+path is initialized once per BEAM instance; additional aliases in the same
+runtime reuse owner-local cached exports without invoking native registration
+again. Another runtime, or a runtime reset that creates a new JavaScript
+context, receives `{:addon_already_initialized, canonical_path}`. The explicit
+`allow_reinitialization: true` escape hatch exists only for addons that document
+multi-environment initialization support. Registry growth is capped at 256
+canonical native libraries.
+
 ## JavaScript values and heap
 
 Keep `null` and `undefined` distinct. Common scalar values may use native BEAM

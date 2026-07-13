@@ -19,6 +19,17 @@ const e = types.e;
 const qjs = types.qjs;
 const gpa = types.gpa;
 
+const AddonClaim = struct {
+    library: ?*std.DynLib = null,
+};
+
+// Native addon code and static state live for the OS process lifetime. Keep one
+// bounded, serialized handle per canonical path rather than unloading code that
+// may still own process-global callbacks or data.
+const max_addon_claims = 256;
+var addon_load_mutex: std.Thread.Mutex = .{};
+var addon_claims: std.StringHashMapUnmanaged(AddonClaim) = .{};
+
 pub const Result = struct {
     ok: bool = false,
     json: []const u8 = "",
@@ -56,6 +67,7 @@ pub const WorkerState = struct {
     buf: [4096]u8 = @splat(0),
     drain_fn: ?DrainFn = null,
     napi_env: ?*napi_mod.NapiEnv = null,
+    addon_exports: std.StringHashMap(qjs.JSValue),
     max_reductions: i64 = 0,
 
     pub fn deinit(self: *WorkerState) void {
@@ -82,7 +94,9 @@ pub const WorkerState = struct {
             snap.deinit();
         }
 
-        // Release napi JS refs, then free context, then free napi Zig memory
+        // Release cached addon exports and napi JS refs before freeing the context.
+        self.clearAddonExports();
+        self.addon_exports.deinit();
         if (self.napi_env) |nenv| nenv.releaseValues();
         self.atoms.deinit(self.ctx);
 
@@ -97,6 +111,15 @@ pub const WorkerState = struct {
             gpa.destroy(nenv);
             self.napi_env = null;
         }
+    }
+
+    fn clearAddonExports(self: *WorkerState) void {
+        var iterator = self.addon_exports.iterator();
+        while (iterator.next()) |entry| {
+            qjs.JS_FreeValue(self.ctx, entry.value_ptr.*);
+            gpa.free(entry.key_ptr.*);
+        }
+        self.addon_exports.clearRetainingCapacity();
     }
 
     pub fn drain_jobs(self: *WorkerState) void {
@@ -593,6 +616,7 @@ pub const WorkerState = struct {
             self.message_handler = js.JS_UNDEFINED;
         }
 
+        self.clearAddonExports();
         if (self.napi_env) |nenv| {
             nenv.releaseValues();
             nenv.deinit();
@@ -781,7 +805,61 @@ pub const WorkerState = struct {
         }
     }
 
-    pub fn do_load_addon(self: *WorkerState, path: [:0]const u8, global_name: ?[:0]const u8, result: *Result) void {
+    fn setAddonError(result: *Result, reason: [:0]const u8, path: []const u8) void {
+        const env = beam.alloc_env();
+        result.ok = false;
+        result.env = env;
+        result.term = e.enif_make_tuple2(
+            env,
+            beam.make_into_atom(reason, .{ .env = env }).v,
+            beam.make(path, .{ .env = env }).v,
+        );
+    }
+
+    fn claimAddon(path: []const u8) enum { claimed, already_claimed, limit, oom } {
+        if (addon_claims.contains(path)) return .already_claimed;
+        if (addon_claims.count() >= max_addon_claims) return .limit;
+
+        const key = gpa.dupe(u8, path) catch return .oom;
+        addon_claims.put(gpa, key, .{}) catch {
+            gpa.free(key);
+            return .oom;
+        };
+        return .claimed;
+    }
+
+    fn releaseAddonClaim(path: []const u8) void {
+        if (addon_claims.fetchRemove(path)) |entry| gpa.free(entry.key);
+    }
+
+    fn publishAddonExports(self: *WorkerState, env: *napi_mod.NapiEnv, exports: qjs.JSValue, global_name: ?[:0]const u8, result: *Result) void {
+        if (global_name) |name| {
+            const global = qjs.JS_GetGlobalObject(self.ctx);
+            defer qjs.JS_FreeValue(self.ctx, global);
+            _ = qjs.JS_SetPropertyStr(self.ctx, global, name.ptr, qjs.JS_DupValue(self.ctx, exports));
+
+            const atom = qjs.JS_NewAtom(self.ctx, name.ptr);
+            env.addon_globals.append(gpa, atom) catch {
+                qjs.JS_FreeAtom(self.ctx, atom);
+            };
+        }
+
+        const result_env = beam.alloc_env();
+        result.ok = true;
+        result.term = js_to_beam.convert_with_limits(self.ctx, exports, result_env, self.convert_limits());
+        result.env = result_env;
+    }
+
+    pub fn do_load_addon(self: *WorkerState, path: [:0]const u8, global_name: ?[:0]const u8, allow_reinitialization: bool, result: *Result) void {
+        const canonical_path = std.fs.cwd().realpathAlloc(gpa, path) catch {
+            setAddonError(result, "addon_not_found", path);
+            return;
+        };
+        defer gpa.free(canonical_path);
+
+        addon_load_mutex.lock();
+        defer addon_load_mutex.unlock();
+
         ensureNapiSymbolsGlobal();
 
         if (self.napi_env == null) {
@@ -789,19 +867,54 @@ pub const WorkerState = struct {
         }
         const env = self.napi_env.?;
 
-        napi_mod.clearPendingModule();
+        if (self.addon_exports.get(canonical_path)) |exports| {
+            self.publishAddonExports(env, exports, global_name, result);
+            return;
+        }
 
-        const lib = gpa.create(std.DynLib) catch {
+        const claim = claimAddon(canonical_path);
+        if (claim == .already_claimed and !allow_reinitialization) {
+            setAddonError(result, "addon_already_initialized", canonical_path);
+            return;
+        }
+        if (claim == .limit) {
+            setAddonError(result, "addon_load_limit", canonical_path);
+            return;
+        }
+        if (claim == .oom) {
+            result.ok = false;
+            result.json = "OOM";
+            return;
+        }
+        const new_claim = claim == .claimed;
+
+        const path_z = gpa.dupeZ(u8, canonical_path) catch {
+            if (new_claim) releaseAddonClaim(canonical_path);
             result.ok = false;
             result.json = "OOM";
             return;
         };
-        lib.* = std.DynLib.openZ(path) catch {
-            gpa.destroy(lib);
-            result.ok = false;
-            result.json = "Failed to dlopen addon";
-            return;
-        };
+        defer gpa.free(path_z);
+
+        napi_mod.clearPendingModule();
+
+        const lib = if (new_claim) blk: {
+            const opened = gpa.create(std.DynLib) catch {
+                releaseAddonClaim(canonical_path);
+                result.ok = false;
+                result.json = "OOM";
+                return;
+            };
+            opened.* = std.DynLib.openZ(path_z) catch {
+                releaseAddonClaim(canonical_path);
+                gpa.destroy(opened);
+                result.ok = false;
+                result.json = "Failed to dlopen addon";
+                return;
+            };
+            addon_claims.getPtr(canonical_path).?.library = opened;
+            break :blk opened;
+        } else addon_claims.get(canonical_path).?.library.?;
 
         const exports = qjs.JS_NewObject(self.ctx);
         const exports_slot = gpa.create(qjs.JSValue) catch {
@@ -837,29 +950,21 @@ pub const WorkerState = struct {
             }
         }
 
-        // Set exports as a global JS variable if a name was provided
-        if (global_name) |gn| {
-            const g = qjs.JS_GetGlobalObject(self.ctx);
-            defer qjs.JS_FreeValue(self.ctx, g);
-            _ = qjs.JS_SetPropertyStr(self.ctx, g, gn.ptr, qjs.JS_DupValue(self.ctx, final_exports));
-            // Track the atom so we can delete it during cleanup
-            const atom = qjs.JS_NewAtom(self.ctx, gn.ptr);
-            env.addon_globals.append(gpa, atom) catch {
-                qjs.JS_FreeAtom(self.ctx, atom);
+        const cache_key = gpa.dupe(u8, canonical_path) catch null;
+        if (cache_key) |key| {
+            const cached_exports = qjs.JS_DupValue(self.ctx, final_exports);
+            self.addon_exports.put(key, cached_exports) catch {
+                qjs.JS_FreeValue(self.ctx, cached_exports);
+                gpa.free(key);
             };
         }
 
-        const result_env = beam.alloc_env();
-        result.ok = true;
-        result.term = js_to_beam.convert_with_limits(self.ctx, final_exports, result_env, self.convert_limits());
-        result.env = result_env;
+        self.publishAddonExports(env, final_exports, global_name, result);
 
-        // Free our reference to exports
         qjs.JS_FreeValue(self.ctx, exports);
         if (final_exports.tag != exports.tag or qjs.JS_VALUE_GET_PTR(final_exports) != qjs.JS_VALUE_GET_PTR(exports)) {
             qjs.JS_FreeValue(self.ctx, final_exports);
         }
-        // These are standalone DupValue'd slots that need cleanup
         env.clearPendingException();
     }
 
@@ -939,6 +1044,7 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
         .rd = rd,
         .pending_calls = std.AutoHashMap(u64, PendingCall).init(gpa),
         .timers = std.AutoHashMap(u64, TimerEntry).init(gpa),
+        .addon_exports = std.StringHashMap(qjs.JSValue).init(gpa),
         .start_time = std.time.nanoTimestamp(),
         .max_reductions = 0,
     };
@@ -1107,7 +1213,7 @@ pub fn worker_main(rd: *types.RuntimeData, owner_pid: beam.pid) void {
                 },
                 .load_addon => |p| {
                     var result = Result{};
-                    state.do_load_addon(p.path, p.global_name, &result);
+                    state.do_load_addon(p.path, p.global_name, p.allow_reinitialization, &result);
                     gpa.free(p.path);
                     if (p.global_name) |gn| gpa.free(gn);
                     types.send_reply(p.caller_pid, p.ref_env, p.ref_term, result.ok, result.env, result.term, result.json);

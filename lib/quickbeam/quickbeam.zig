@@ -278,7 +278,7 @@ pub fn reset_runtime(resource: RuntimeResource) beam.term {
     return beam.term{ .v = e.enif_make_copy(env, ref_term) };
 }
 
-pub fn load_addon(resource: RuntimeResource, path: []const u8, global_name: []const u8) beam.term {
+pub fn load_addon(resource: RuntimeResource, path: []const u8, global_name: []const u8, allow_reinitialization: bool) beam.term {
     const data = resource.unpack();
     const env = beam.context.env orelse return beam.make(.{ .@"error", "no env" }, .{});
 
@@ -298,6 +298,7 @@ pub fn load_addon(resource: RuntimeResource, path: []const u8, global_name: []co
     enqueue(data, .{ .load_addon = .{
         .path = path_copy,
         .global_name = name_copy,
+        .allow_reinitialization = allow_reinitialization,
         .caller_pid = caller_pid,
         .ref_env = ref_env,
         .ref_term = ref_term,

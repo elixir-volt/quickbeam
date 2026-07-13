@@ -232,6 +232,7 @@ fn handle_create_context(
         .rd = &entry.rd,
         .pending_calls = std.AutoHashMap(u64, worker.PendingCall).init(gpa),
         .timers = std.AutoHashMap(u64, worker.TimerEntry).init(gpa),
+        .addon_exports = std.StringHashMap(qjs.JSValue).init(gpa),
         .start_time = std.time.nanoTimestamp(),
         .max_reductions = p.max_reductions,
     };

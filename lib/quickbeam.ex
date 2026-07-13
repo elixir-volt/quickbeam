@@ -239,10 +239,20 @@ defmodule QuickBEAM do
   `napi_module_register`) entry point is called. Returns the addon's exports
   as an Elixir term.
 
+  Addon initialization is process-global native state. QuickBEAM initializes a
+  canonical addon path once per BEAM instance. Loading that path again in the
+  same runtime reuses its cached exports, so multiple global aliases are safe.
+  Loading it in another runtime, or after `reset/1`, returns
+  `{:error, {:addon_already_initialized, canonical_path}}` by default.
+
   ## Options
 
     * `:as` - set the addon's exports as a global JS variable with this name,
       making the functions callable from `eval/3` and `call/3`
+    * `:allow_reinitialization` - opt into calling the native initializer again
+      in a different JavaScript context. Defaults to `false`. Only enable this
+      when the addon explicitly documents multi-environment initialization as
+      safe; incompatible addons can terminate the BEAM VM.
 
   ## Examples
 

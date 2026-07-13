@@ -34,11 +34,16 @@ defmodule QuickBEAM.NapiTest do
     Path.join(@node_modules, "sqlite-napi/sqlite-napi.#{platform}-#{arch}#{suffix}.node")
   end
 
+  defp reinitialize_addon(runtime, path, opts) do
+    QuickBEAM.load_addon(runtime, path, Keyword.put(opts, :allow_reinitialization, true))
+  end
+
   describe "test addon" do
     @describetag :napi_addon
+    @describetag :napi_test_addon
     test "load and inspect exports" do
       {:ok, rt} = QuickBEAM.start()
-      {:ok, exports} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      {:ok, exports} = reinitialize_addon(rt, @test_addon, as: "addon")
       assert Map.has_key?(exports, "hello")
       assert Map.has_key?(exports, "add")
       assert Map.has_key?(exports, "concat")
@@ -51,14 +56,14 @@ defmodule QuickBEAM.NapiTest do
 
     test "call string function" do
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      {:ok, _} = reinitialize_addon(rt, @test_addon, as: "addon")
       assert {:ok, "hello from napi"} = QuickBEAM.eval(rt, "addon.hello()")
       QuickBEAM.stop(rt)
     end
 
     test "call numeric function" do
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      {:ok, _} = reinitialize_addon(rt, @test_addon, as: "addon")
       assert {:ok, 7} = QuickBEAM.eval(rt, "addon.add(3, 4)")
       assert {:ok, 0} = QuickBEAM.eval(rt, "addon.add(-5, 5)")
       assert {:ok, result} = QuickBEAM.eval(rt, "addon.add(1.5, 2.5)")
@@ -68,7 +73,7 @@ defmodule QuickBEAM.NapiTest do
 
     test "call string concatenation" do
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      {:ok, _} = reinitialize_addon(rt, @test_addon, as: "addon")
       assert {:ok, "foobar"} = QuickBEAM.eval(rt, ~s[addon.concat("foo", "bar")])
       assert {:ok, ""} = QuickBEAM.eval(rt, ~s[addon.concat("", "")])
       QuickBEAM.stop(rt)
@@ -76,7 +81,7 @@ defmodule QuickBEAM.NapiTest do
 
     test "call typeof checker" do
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      {:ok, _} = reinitialize_addon(rt, @test_addon, as: "addon")
       assert {:ok, "number"} = QuickBEAM.eval(rt, "addon.getType(42)")
       assert {:ok, "string"} = QuickBEAM.eval(rt, ~s[addon.getType("hi")])
       assert {:ok, "boolean"} = QuickBEAM.eval(rt, "addon.getType(true)")
@@ -89,7 +94,7 @@ defmodule QuickBEAM.NapiTest do
 
     test "call object creator" do
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      {:ok, _} = reinitialize_addon(rt, @test_addon, as: "addon")
 
       assert {:ok, %{"key" => "name", "value" => "QuickBEAM"}} =
                QuickBEAM.eval(rt, ~s[addon.createObject("name", "QuickBEAM")])
@@ -99,21 +104,21 @@ defmodule QuickBEAM.NapiTest do
 
     test "call array creator" do
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      {:ok, _} = reinitialize_addon(rt, @test_addon, as: "addon")
       assert {:ok, [10, 20, 30]} = QuickBEAM.eval(rt, "addon.makeArray(10, 20, 30)")
       QuickBEAM.stop(rt)
     end
 
     test "access scalar export" do
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      {:ok, _} = reinitialize_addon(rt, @test_addon, as: "addon")
       assert {:ok, 42} = QuickBEAM.eval(rt, "addon.version")
       QuickBEAM.stop(rt)
     end
 
     test "buffers are exposed as Uint8Array and buffer info reads bytes" do
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      {:ok, _} = reinitialize_addon(rt, @test_addon, as: "addon")
       assert {:ok, "Uint8Array"} = QuickBEAM.eval(rt, "addon.bufferKind()")
       assert {:ok, [10, 20, 30, 40]} = QuickBEAM.eval(rt, "addon.bufferInfo()")
 
@@ -125,7 +130,7 @@ defmodule QuickBEAM.NapiTest do
 
     test "coerce to object preserves JS wrapper semantics" do
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      {:ok, _} = reinitialize_addon(rt, @test_addon, as: "addon")
       assert {:ok, "String"} = QuickBEAM.eval(rt, ~s[addon.coerceObjectType("hello")])
       assert {:ok, "Number"} = QuickBEAM.eval(rt, "addon.coerceObjectType(123)")
       QuickBEAM.stop(rt)
@@ -133,7 +138,7 @@ defmodule QuickBEAM.NapiTest do
 
     test "wrap and unwrap round-trip native pointer" do
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      {:ok, _} = reinitialize_addon(rt, @test_addon, as: "addon")
       assert {:ok, 1234} = QuickBEAM.eval(rt, "addon.wrapAndUnwrap()")
       assert {:ok, 5678} = QuickBEAM.eval(rt, "addon.removeWrapValue()")
       QuickBEAM.stop(rt)
@@ -141,7 +146,7 @@ defmodule QuickBEAM.NapiTest do
 
     test "reset remains stable after wrapped objects and external buffers" do
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      {:ok, _} = reinitialize_addon(rt, @test_addon, as: "addon")
 
       assert {:ok, %{"wraps" => _wraps_before, "externalBuffers" => _buffers_before}} =
                QuickBEAM.eval(rt, "addon.finalizedCounts()")
@@ -155,7 +160,7 @@ defmodule QuickBEAM.NapiTest do
       assert {:ok, 1} = QuickBEAM.eval(rt, "addon.clearExternalBufferKeepalive()")
 
       assert :ok = QuickBEAM.reset(rt)
-      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "addon")
+      {:ok, _} = reinitialize_addon(rt, @test_addon, as: "addon")
 
       assert {:ok, %{"wraps" => _wraps_after, "externalBuffers" => _buffers_after}} =
                QuickBEAM.eval(rt, "addon.finalizedCounts()")
@@ -165,26 +170,106 @@ defmodule QuickBEAM.NapiTest do
   end
 
   describe "error handling" do
+    @describetag :napi_test_addon
     test "invalid path" do
       {:ok, rt} = QuickBEAM.start()
-      assert {:error, _} = QuickBEAM.load_addon(rt, "/nonexistent/addon.node")
+
+      assert {:error, {:addon_not_found, "/nonexistent/addon.node"}} =
+               QuickBEAM.load_addon(rt, "/nonexistent/addon.node")
+
       QuickBEAM.stop(rt)
     end
 
     test "runtime remains functional after failed load" do
       {:ok, rt} = QuickBEAM.start()
-      {:error, _} = QuickBEAM.load_addon(rt, "/nonexistent/addon.node")
+
+      assert {:error, {:addon_not_found, "/nonexistent/addon.node"}} =
+               QuickBEAM.load_addon(rt, "/nonexistent/addon.node")
+
       assert {:ok, 42} = QuickBEAM.eval(rt, "42")
       QuickBEAM.stop(rt)
     end
 
-    test "multiple addon loads" do
+    test "validates addon lifecycle options" do
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "a")
+
+      assert {:error, {:invalid_option, :as, :addon}} =
+               QuickBEAM.load_addon(rt, @test_addon, as: :addon)
+
+      assert {:error, {:invalid_option, :allow_reinitialization, :sometimes}} =
+               QuickBEAM.load_addon(rt, @test_addon, allow_reinitialization: :sometimes)
+
+      assert {:error, {:unknown_option, :unknown}} =
+               QuickBEAM.load_addon(rt, @test_addon, unknown: true)
+
+      assert {:ok, 42} = QuickBEAM.eval(rt, "42")
+      QuickBEAM.stop(rt)
+    end
+
+    test "serializes concurrent first initialization" do
+      copy =
+        Path.join(
+          System.tmp_dir!(),
+          "quickbeam-addon-#{System.unique_integer([:positive])}.node"
+        )
+
+      File.cp!(@test_addon, copy)
+      runtimes = Enum.map(1..8, fn _index -> elem(QuickBEAM.start(), 1) end)
+
+      on_exit(fn ->
+        Enum.each(runtimes, fn runtime ->
+          if Process.alive?(runtime), do: QuickBEAM.stop(runtime)
+        end)
+
+        File.rm(copy)
+      end)
+
+      results =
+        runtimes
+        |> Task.async_stream(
+          &QuickBEAM.load_addon(&1, copy, as: "addon"),
+          max_concurrency: 8,
+          ordered: false,
+          timeout: 5_000
+        )
+        |> Enum.map(fn {:ok, result} -> result end)
+
+      assert Enum.count(results, &match?({:ok, _exports}, &1)) == 1
+
+      rejected_paths =
+        for {:error, {:addon_already_initialized, rejected_path}} <- results,
+            do: rejected_path
+
+      assert length(rejected_paths) == 7
+      assert rejected_paths |> Enum.uniq() |> length() == 1
+      assert rejected_paths |> hd() |> Path.basename() == Path.basename(copy)
+      assert Enum.all?(runtimes, fn runtime -> QuickBEAM.eval(runtime, "42") == {:ok, 42} end)
+    end
+
+    test "caches aliases locally and rejects implicit native reinitialization" do
+      {:ok, rt} = QuickBEAM.start()
+      {:ok, _} = reinitialize_addon(rt, @test_addon, as: "a")
       {:ok, _} = QuickBEAM.load_addon(rt, @test_addon, as: "b")
       assert {:ok, "hello from napi"} = QuickBEAM.eval(rt, "a.hello()")
       assert {:ok, "hello from napi"} = QuickBEAM.eval(rt, "b.hello()")
+
+      assert :ok = QuickBEAM.reset(rt)
+
+      assert {:error, {:addon_already_initialized, rejected_path}} =
+               QuickBEAM.load_addon(rt, @test_addon, as: "afterReset")
+
+      assert Path.basename(rejected_path) == Path.basename(@test_addon)
+
+      assert {:ok, 42} = QuickBEAM.eval(rt, "42")
       QuickBEAM.stop(rt)
+
+      {:ok, other_rt} = QuickBEAM.start()
+
+      assert {:error, {:addon_already_initialized, ^rejected_path}} =
+               QuickBEAM.load_addon(other_rt, @test_addon, as: "other")
+
+      assert {:ok, 42} = QuickBEAM.eval(other_rt, "42")
+      QuickBEAM.stop(other_rt)
     end
   end
 
@@ -196,7 +281,7 @@ defmodule QuickBEAM.NapiTest do
       if !File.exists?(path), do: flunk("addon not found at #{path} — run mix npm.install")
 
       {:ok, rt} = QuickBEAM.start()
-      {:ok, exports} = QuickBEAM.load_addon(rt, path, as: "crc32mod")
+      {:ok, exports} = reinitialize_addon(rt, path, as: "crc32mod")
       assert Map.has_key?(exports, "crc32")
       assert Map.has_key?(exports, "crc32c")
       QuickBEAM.stop(rt)
@@ -207,7 +292,7 @@ defmodule QuickBEAM.NapiTest do
       if !File.exists?(path), do: flunk("addon not found at #{path} — run mix npm.install")
 
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, path, as: "crc32mod")
+      {:ok, _} = reinitialize_addon(rt, path, as: "crc32mod")
       assert {:ok, 907_060_870} = QuickBEAM.eval(rt, ~s[crc32mod.crc32("hello")])
       QuickBEAM.stop(rt)
     end
@@ -217,7 +302,7 @@ defmodule QuickBEAM.NapiTest do
       if !File.exists?(path), do: flunk("addon not found at #{path} — run mix npm.install")
 
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, path, as: "crc32mod")
+      {:ok, _} = reinitialize_addon(rt, path, as: "crc32mod")
       assert {:ok, result} = QuickBEAM.eval(rt, ~s[crc32mod.crc32c("hello")])
       assert is_integer(result) and result > 0
       QuickBEAM.stop(rt)
@@ -228,7 +313,7 @@ defmodule QuickBEAM.NapiTest do
       if !File.exists?(path), do: flunk("addon not found at #{path} — run mix npm.install")
 
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, path, as: "crc32mod")
+      {:ok, _} = reinitialize_addon(rt, path, as: "crc32mod")
       assert {:ok, 0} = QuickBEAM.eval(rt, ~s[crc32mod.crc32("")])
       QuickBEAM.stop(rt)
     end
@@ -242,7 +327,7 @@ defmodule QuickBEAM.NapiTest do
       if !File.exists?(path), do: flunk("addon not found at #{path} — run mix npm.install")
 
       {:ok, rt} = QuickBEAM.start()
-      {:ok, exports} = QuickBEAM.load_addon(rt, path, as: "argon2")
+      {:ok, exports} = reinitialize_addon(rt, path, as: "argon2")
       assert Map.has_key?(exports, "hashSync")
       assert Map.has_key?(exports, "verifySync")
       assert exports["Algorithm"] == %{"Argon2d" => 0, "Argon2i" => 1, "Argon2id" => 2}
@@ -254,7 +339,7 @@ defmodule QuickBEAM.NapiTest do
       if !File.exists?(path), do: flunk("addon not found at #{path} — run mix npm.install")
 
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, path, as: "argon2")
+      {:ok, _} = reinitialize_addon(rt, path, as: "argon2")
 
       {:ok, hash} = QuickBEAM.eval(rt, ~s[argon2.hashSync("password123")])
       assert String.starts_with?(hash, "$argon2")
@@ -274,7 +359,7 @@ defmodule QuickBEAM.NapiTest do
       if !File.exists?(path), do: flunk("addon not found at #{path} — run mix npm.install")
 
       {:ok, rt} = QuickBEAM.start()
-      {:ok, exports} = QuickBEAM.load_addon(rt, path, as: "bcrypt")
+      {:ok, exports} = reinitialize_addon(rt, path, as: "bcrypt")
       assert Map.has_key?(exports, "hashSync")
       assert Map.has_key?(exports, "verifySync")
       assert exports["DEFAULT_COST"] == 12
@@ -286,7 +371,7 @@ defmodule QuickBEAM.NapiTest do
       if !File.exists?(path), do: flunk("addon not found at #{path} — run mix npm.install")
 
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, path, as: "bcrypt")
+      {:ok, _} = reinitialize_addon(rt, path, as: "bcrypt")
 
       {:ok, hash} = QuickBEAM.eval(rt, ~s[bcrypt.hashSync("password123", 4)])
       assert String.starts_with?(hash, "$2")
@@ -302,7 +387,7 @@ defmodule QuickBEAM.NapiTest do
       if !File.exists?(path), do: flunk("addon not found at #{path} — run mix npm.install")
 
       {:ok, rt} = QuickBEAM.start()
-      {:ok, _} = QuickBEAM.load_addon(rt, path, as: "bcrypt")
+      {:ok, _} = reinitialize_addon(rt, path, as: "bcrypt")
       {:ok, salt} = QuickBEAM.eval(rt, "bcrypt.genSaltSync(4)")
       assert String.starts_with?(salt, "$2b$04$")
       QuickBEAM.stop(rt)
@@ -333,7 +418,19 @@ defmodule QuickBEAM.NapiTest do
                  "ok"
                """)
 
+      assert {:ok, _exports} = QuickBEAM.load_addon(rt, path, as: "sqliteAlias")
+      assert {:ok, "function"} = QuickBEAM.eval(rt, "typeof sqliteAlias.Database")
       QuickBEAM.stop(rt)
+
+      {:ok, other_rt} = QuickBEAM.start()
+
+      assert {:error, {:addon_already_initialized, rejected_path}} =
+               QuickBEAM.load_addon(other_rt, path, as: "sqlite")
+
+      assert Path.basename(rejected_path) == Path.basename(path)
+
+      assert {:ok, 42} = QuickBEAM.eval(other_rt, "42")
+      QuickBEAM.stop(other_rt)
     end
   end
 end

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Serialize native addon initialization, reuse cached exports for aliases in one runtime, and reject implicit cross-runtime or post-reset reinitialization with a typed error. Add `allow_reinitialization: true` as an explicit compatibility escape hatch for addons that support multiple environments.
+
 ## 0.10.19
 
 - Update QuickJS-NG to 0.15.1.

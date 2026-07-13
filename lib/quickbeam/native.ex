@@ -204,7 +204,7 @@ defmodule QuickBEAM.Native do
       pool_dom_text: 3,
       pool_dom_html: 2,
       disasm_bytecode: 1,
-      load_addon: 3,
+      load_addon: 4,
       wasm_compile: 1,
       wasm_start: 3,
       wasm_start_with_imports: 5,

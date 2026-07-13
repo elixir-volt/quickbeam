@@ -435,6 +435,10 @@ High-value test groups to adapt next:
   pool RuntimeData pointers are removed under the registry mutex before context
   destruction. Repeated concurrent lifecycle and callSync shutdown stress tests
   pass without crashes.
+- Native addon initialization is now serialized and canonical-path keyed.
+  Same-runtime aliases reuse cached exports; cross-runtime and post-reset loads
+  return a typed rejection unless the caller explicitly opts into documented
+  multi-environment addon support. The registry is bounded to 256 libraries.
 - Continue auditing cancellation, queued-payload cleanup, and owner-local
   shutdown.
 - Publish scheduler, memory, timeout, and performance results.
@@ -449,6 +453,5 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-Define and enforce safe repeated native-addon loading behavior, then publish
-scheduler, timeout, memory, and SSR measurements for the frozen compatibility
-profile before beginning compiler extraction.
+Publish scheduler, timeout, memory, and SSR measurements for the frozen
+compatibility profile before beginning compiler extraction.

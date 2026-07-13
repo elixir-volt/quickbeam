@@ -95,10 +95,42 @@ defmodule QuickBEAM.Runtime do
   end
 
   @spec load_addon(GenServer.server(), String.t(), keyword()) :: {:ok, term()} | {:error, term()}
-  def load_addon(server, path, opts \\ []) when is_binary(path) do
-    global_name = Keyword.get(opts, :as, "")
-    GenServer.call(server, {:load_addon, path, global_name}, :infinity)
+  def load_addon(server, path, opts \\ [])
+
+  def load_addon(server, path, opts) when is_binary(path) and is_list(opts) do
+    with true <- Keyword.keyword?(opts),
+         :ok <- validate_addon_options(opts),
+         global_name = Keyword.get(opts, :as, ""),
+         :ok <- validate_addon_global_name(global_name),
+         allow_reinitialization = Keyword.get(opts, :allow_reinitialization, false),
+         :ok <- validate_addon_reinitialization(allow_reinitialization) do
+      GenServer.call(
+        server,
+        {:load_addon, path, global_name, allow_reinitialization},
+        :infinity
+      )
+    else
+      false -> {:error, {:invalid_option, :options, opts}}
+      {:error, _reason} = error -> error
+    end
   end
+
+  def load_addon(_server, path, opts), do: {:error, {:invalid_addon_arguments, path, opts}}
+
+  defp validate_addon_options(opts) do
+    case Keyword.keys(opts) -- [:allow_reinitialization, :as] do
+      [] -> :ok
+      [key | _rest] -> {:error, {:unknown_option, key}}
+    end
+  end
+
+  defp validate_addon_global_name(name) when is_binary(name), do: :ok
+  defp validate_addon_global_name(name), do: {:error, {:invalid_option, :as, name}}
+
+  defp validate_addon_reinitialization(value) when is_boolean(value), do: :ok
+
+  defp validate_addon_reinitialization(value),
+    do: {:error, {:invalid_option, :allow_reinitialization, value}}
 
   @spec reset(GenServer.server()) :: :ok | {:error, String.t()}
   def reset(server) do
@@ -513,8 +545,15 @@ defmodule QuickBEAM.Runtime do
     {:noreply, put_pending(state, ref, from, transform)}
   end
 
-  def handle_call({:load_addon, path, global_name}, from, state) do
-    ref = QuickBEAM.Native.load_addon(state.resource, path, global_name)
+  def handle_call({:load_addon, path, global_name, allow_reinitialization}, from, state) do
+    ref =
+      QuickBEAM.Native.load_addon(
+        state.resource,
+        path,
+        global_name,
+        allow_reinitialization
+      )
+
     {:noreply, put_pending(state, ref, from)}
   end
 
