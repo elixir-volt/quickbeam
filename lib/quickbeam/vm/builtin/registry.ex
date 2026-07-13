@@ -7,12 +7,13 @@ defmodule QuickBEAM.VM.Builtin.Registry do
   """
 
   @core [
+    QuickBEAM.VM.Builtins.Object,
+    QuickBEAM.VM.Builtins.Function,
     QuickBEAM.VM.Builtins.Math,
     QuickBEAM.VM.Builtins.Array,
     QuickBEAM.VM.Builtins.String,
     QuickBEAM.VM.Builtins.Number,
-    QuickBEAM.VM.Builtins.Object,
-    QuickBEAM.VM.Builtins.Function,
+    QuickBEAM.VM.Builtins.Boolean,
     QuickBEAM.VM.Builtins.Error,
     QuickBEAM.VM.Builtins.EvalError,
     QuickBEAM.VM.Builtins.RangeError,

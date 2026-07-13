@@ -4,13 +4,39 @@ defmodule QuickBEAM.VM.Builtins.Number do
   use QuickBEAM.VM.Builtin
 
   alias QuickBEAM.VM.Builtin.Call
-  alias QuickBEAM.VM.{Heap, Object, Reference, Value}
+  alias QuickBEAM.VM.{ConstructorBoundary, Heap, Object, Reference, Value}
 
-  builtin "Number", kind: :intrinsic do
-    prototype do
+  builtin "Number",
+    kind: :constructor,
+    constructor: :construct,
+    length: 1,
+    depends_on: ["Object", "Function"] do
+    prototype extends: "Object", primitive: {:number, 0} do
       method :to_fixed, js: "toFixed", length: 1
       method :to_string_method, js: "toString", length: 1
     end
+  end
+
+  @doc "Implements Number call and boxed-construction semantics."
+  def construct(%Call{
+        this: %Reference{} = receiver,
+        caller: %ConstructorBoundary{},
+        arguments: arguments,
+        execution: execution
+      }) do
+    value = arguments |> List.first(0) |> Value.to_number()
+
+    {:ok, execution} =
+      Heap.update_object(execution, receiver, fn object ->
+        %{object | internal: {:primitive, :number, value}}
+      end)
+
+    {:ok, receiver, execution}
+  end
+
+  def construct(%Call{arguments: arguments, execution: execution}) do
+    value = arguments |> List.first(0) |> Value.to_number()
+    {:ok, value, execution}
   end
 
   @doc "Implements `Number.prototype.toFixed`."

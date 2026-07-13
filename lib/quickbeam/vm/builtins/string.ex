@@ -4,12 +4,16 @@ defmodule QuickBEAM.VM.Builtins.String do
   use QuickBEAM.VM.Builtin
 
   alias QuickBEAM.VM.Builtin.Call
-  alias QuickBEAM.VM.{Heap, Object, Properties, Reference, RegExp, Value}
+  alias QuickBEAM.VM.{ConstructorBoundary, Heap, Object, Properties, Reference, RegExp, Value}
 
-  builtin "String", kind: :intrinsic do
+  builtin "String",
+    kind: :constructor,
+    constructor: :construct,
+    length: 1,
+    depends_on: ["Object", "Function"] do
     static :from_char_code, js: "fromCharCode", length: 1
 
-    prototype do
+    prototype extends: "Object", primitive: {:string, ""} do
       method :char_code_at, js: "charCodeAt", length: 1
       method :includes, length: 1
       method :replace, length: 2
@@ -19,6 +23,28 @@ defmodule QuickBEAM.VM.Builtins.String do
       method :to_lower_case, js: "toLowerCase", length: 0
       method :to_string_method, js: "toString", length: 0
     end
+  end
+
+  @doc "Implements String call and boxed-construction semantics."
+  def construct(%Call{
+        this: %Reference{} = receiver,
+        caller: %ConstructorBoundary{},
+        arguments: arguments,
+        execution: execution
+      }) do
+    value = arguments |> List.first("") |> Value.to_string_value()
+
+    {:ok, execution} =
+      Heap.update_object(execution, receiver, fn object ->
+        %{object | internal: {:primitive, :string, value}}
+      end)
+
+    {:ok, receiver, execution}
+  end
+
+  def construct(%Call{arguments: arguments, execution: execution}) do
+    value = arguments |> List.first("") |> Value.to_string_value()
+    {:ok, value, execution}
   end
 
   @doc "Implements `String.fromCharCode`."

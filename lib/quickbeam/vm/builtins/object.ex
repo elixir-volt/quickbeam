@@ -5,9 +5,18 @@ defmodule QuickBEAM.VM.Builtins.Object do
 
   alias QuickBEAM.VM.Builtin
   alias QuickBEAM.VM.Builtin.Call
-  alias QuickBEAM.VM.{Heap, Invocation, Properties, Property, Reference, Value}
 
-  builtin "Object", kind: :intrinsic do
+  alias QuickBEAM.VM.{
+    ConstructorBoundary,
+    Heap,
+    Invocation,
+    Properties,
+    Property,
+    Reference,
+    Value
+  }
+
+  builtin "Object", kind: :constructor, constructor: :construct, length: 1 do
     static :assign, length: 2
     static :create, length: 2
     static :define_property, js: "defineProperty", length: 3
@@ -17,11 +26,52 @@ defmodule QuickBEAM.VM.Builtins.Object do
     static :keys, length: 1
     static :set_prototype_of, js: "setPrototypeOf", length: 2
 
-    prototype do
+    prototype extends: nil, default_for: :ordinary do
       method :has_own_property, js: "hasOwnProperty", length: 1
       method :property_is_enumerable, js: "propertyIsEnumerable", length: 1
       method :to_string_method, js: "toString", length: 0
     end
+  end
+
+  @doc "Implements Object call and construction semantics."
+  def construct(%Call{arguments: [%Reference{} = value | _], execution: execution}),
+    do: {:ok, value, execution}
+
+  def construct(%Call{arguments: [value | _], execution: execution})
+      when is_map(value) or is_list(value),
+      do: {:ok, value, execution}
+
+  def construct(%Call{arguments: [value | _], execution: execution})
+      when is_boolean(value) or is_number(value) or is_binary(value) do
+    {kind, constructor_name} =
+      cond do
+        is_boolean(value) -> {:boolean, "Boolean"}
+        is_number(value) -> {:number, "Number"}
+        true -> {:string, "String"}
+      end
+
+    constructor = Map.fetch!(execution.globals, constructor_name)
+    {:ok, prototype} = Properties.get(constructor, "prototype", execution)
+
+    {boxed, execution} =
+      Heap.allocate(execution, :ordinary,
+        prototype: prototype,
+        internal: {:primitive, kind, value}
+      )
+
+    {:ok, boxed, execution}
+  end
+
+  def construct(%Call{
+        this: %Reference{} = receiver,
+        caller: %ConstructorBoundary{},
+        execution: execution
+      }),
+      do: {:ok, receiver, execution}
+
+  def construct(%Call{execution: execution}) do
+    {object, execution} = Heap.allocate(execution)
+    {:ok, object, execution}
   end
 
   @doc "Implements `Object.prototype.hasOwnProperty`."

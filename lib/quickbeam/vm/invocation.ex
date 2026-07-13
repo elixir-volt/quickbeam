@@ -23,8 +23,7 @@ defmodule QuickBEAM.VM.Invocation do
 
   alias QuickBEAM.VM.Builtin.{Action, Call}
 
-  @builtin_tags [:builtin, :builtin_method, :declared_builtin, :primitive_method]
-  @error_constructors ~w(Error EvalError RangeError ReferenceError SyntaxError TypeError URIError)
+  @builtin_tags [:builtin, :declared_builtin, :primitive_method]
 
   @type action ::
           {:dispatch, term(), [term()], term(), term(), Execution.t(), boolean()}
@@ -156,11 +155,6 @@ defmodule QuickBEAM.VM.Invocation do
   def constructable?({:declared_builtin, _module, _handler} = callable, _execution),
     do: Builtin.constructable?(callable)
 
-  def constructable?({:builtin, name}, _execution),
-    do:
-      name in (["Array", "Boolean", "Number", "Object", "Promise", "Set", "String"] ++
-                 @error_constructors)
-
   def constructable?(_constructor, _execution), do: false
 
   @doc "Returns the object prototype used for a constructor allocation."
@@ -197,7 +191,6 @@ defmodule QuickBEAM.VM.Invocation do
       when is_tuple(value) and
              elem(value, 0) in [
                :builtin,
-               :builtin_method,
                :declared_builtin,
                :bound_function,
                :host_function,

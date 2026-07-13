@@ -8,6 +8,8 @@
     static: 2,
     method: 1,
     method: 2,
+    prototype: 1,
+    prototype: 2,
     static_value: 2,
     static_value: 3,
     prototype_value: 2,

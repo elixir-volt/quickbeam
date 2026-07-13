@@ -419,10 +419,13 @@ property-alias declarations into immutable specs. Handler atoms are primary and 
 names are inferred unless an explicit camelCase `js:` name is required:
 
 ```elixir
-builtin "Array", kind: :intrinsic do
+builtin "Array",
+  kind: :constructor,
+  constructor: :construct,
+  depends_on: ["Object", "Function"] do
   static :is_array, js: "isArray", length: 1
 
-  prototype do
+  prototype kind: :array, extends: "Object", default_for: :array do
     method :map, length: 1
     method :for_each, js: "forEach", length: 1
   end
@@ -433,9 +436,13 @@ The formatter preserves this parenthesis-free syntax. Macro compilation,
 validation, installation, and runtime dispatch are separate modules. Constants
 are evaluated in the declaring module, descriptors and accessors have typed
 specs, and each builtin declares one or more profiles plus explicit intrinsic
-dependencies. Constructor specs can declare prototype parents and semantic roles
-for default or Error prototypes. An explicit profile registry installs specs in
-validated dependency order into each owner-local execution. Runtime
+dependencies. A typed prototype spec is compiled from the nested semantic
+`prototype` declaration: `extends`, `kind`, `default_for`, `callable`,
+`primitive`, and `error_type` describe JavaScript topology without exposing
+installer field names. This models the null-rooted Object prototype, callable
+Function prototype, constructor cycles, boxed primitives, and Array defaults
+without a bootstrap constructor table. An explicit profile registry installs
+specs in validated dependency order into each owner-local execution. Runtime
 application-module discovery is forbidden.
 
 Installed functions are real owner-local function objects carrying stable
@@ -455,8 +462,10 @@ descriptor validation, Symbol aliases, and intrinsic prototype topology all use
 the same installation and invocation paths. Primitive strings, numbers,
 internal BEAM lists, functions, and owner-local Set values resolve methods from
 installed intrinsic prototypes, eliminating their parallel pseudo-method
-implementations. The bootstrap dispatcher remains only for constructors and
-builtins not yet migrated. Real function metadata increases the intrinsic heap
+implementations. Object, Function, Array, Boolean, Number, and String call and
+construction semantics are declarative, and no hard-coded constructor table
+remains. The small legacy dispatcher is limited to genuinely unmigrated helpers
+such as RegExp methods. Real function metadata increases the intrinsic heap
 baseline, which remains included in logical memory accounting.
 
 ## ECMAScript and host profiles

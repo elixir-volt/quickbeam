@@ -7,10 +7,14 @@ defmodule QuickBEAM.VM.Builtins.Array do
   alias QuickBEAM.VM.Builtin.Call
   alias QuickBEAM.VM.{Heap, Object, Properties, Property, Reference, Value}
 
-  builtin "Array", kind: :intrinsic do
+  builtin "Array",
+    kind: :constructor,
+    constructor: :construct,
+    length: 1,
+    depends_on: ["Object", "Function"] do
     static :is_array, js: "isArray", length: 1
 
-    prototype do
+    prototype kind: :array, extends: "Object", default_for: :array do
       method :concat, length: 1
       method :filter, length: 1
       method :for_each, js: "forEach", length: 1
@@ -21,6 +25,19 @@ defmodule QuickBEAM.VM.Builtins.Array do
       method :slice, length: 2
       method :some, length: 1
     end
+  end
+
+  @doc "Constructs an Array from a length or argument list."
+  def construct(%Call{arguments: [length], execution: execution})
+      when is_integer(length) and length >= 0 do
+    {array, execution} = Heap.allocate(execution, :array, length: length)
+    {:ok, array, execution}
+  end
+
+  def construct(%Call{arguments: arguments, execution: execution}) do
+    entries = Enum.map(arguments, &{:present, &1})
+    {array, execution} = array_from_entries(entries, execution)
+    {:ok, array, execution}
   end
 
   @doc "Implements `Array.isArray`."

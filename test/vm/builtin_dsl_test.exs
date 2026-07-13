@@ -101,19 +101,22 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
            )
 
     assert array.name == "Array"
-    assert array.kind == :intrinsic
+    assert array.kind == :constructor
+    assert array.prototype_spec.kind == :array
+    assert array.prototype_spec.default_for == :array
     assert [%FunctionSpec{key: "isArray", handler: :is_array, length: 1}] = array.statics
 
     assert Enum.map(array.prototype, & &1.key) ==
              ~w(concat filter forEach join map push reduce slice some)
 
     assert Registry.modules(:core) == [
+             QuickBEAM.VM.Builtins.Object,
+             QuickBEAM.VM.Builtins.Function,
              QuickBEAM.VM.Builtins.Math,
              QuickBEAM.VM.Builtins.Array,
              QuickBEAM.VM.Builtins.String,
              QuickBEAM.VM.Builtins.Number,
-             QuickBEAM.VM.Builtins.Object,
-             QuickBEAM.VM.Builtins.Function,
+             QuickBEAM.VM.Builtins.Boolean,
              QuickBEAM.VM.Builtins.Error,
              QuickBEAM.VM.Builtins.EvalError,
              QuickBEAM.VM.Builtins.RangeError,
@@ -126,7 +129,17 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
              QuickBEAM.VM.Builtins.Promise
            ]
 
-    assert QuickBEAM.VM.Builtins.String.builtin_spec().kind == :intrinsic
+    assert QuickBEAM.VM.Builtins.String.builtin_spec().kind == :constructor
+
+    object = QuickBEAM.VM.Builtins.Object.builtin_spec()
+    assert object.prototype_spec.extends == nil
+    assert object.prototype_spec.default_for == :ordinary
+
+    function = QuickBEAM.VM.Builtins.Function.builtin_spec()
+    assert function.prototype_spec.extends == "Object"
+    assert function.prototype_spec.kind == :function
+    assert function.prototype_spec.callable == :prototype_call
+    assert function.prototype_spec.default_for == :function
 
     promise = QuickBEAM.VM.Builtins.Promise.builtin_spec()
     assert promise.kind == :constructor
@@ -134,8 +147,8 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     assert promise.depends_on == ["Object", "Function", "Symbol"]
 
     error = QuickBEAM.VM.Builtins.TypeError.builtin_spec()
-    assert error.prototype_parent == "Error"
-    assert error.prototype_role == {:error, "TypeError"}
+    assert error.prototype_spec.extends == "Error"
+    assert error.prototype_spec.error_type == "TypeError"
 
     set = QuickBEAM.VM.Builtins.Set.builtin_spec()
     assert set.kind == :constructor

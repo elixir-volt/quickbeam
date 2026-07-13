@@ -7,7 +7,15 @@ defmodule QuickBEAM.VM.Builtin.Installer do
   stable module/handler tokens rather than captured closures.
   """
 
-  alias QuickBEAM.VM.Builtin.{AccessorSpec, AliasSpec, FunctionSpec, PropertySpec, Spec}
+  alias QuickBEAM.VM.Builtin.{
+    AccessorSpec,
+    AliasSpec,
+    FunctionSpec,
+    PropertySpec,
+    PrototypeSpec,
+    Spec
+  }
+
   alias QuickBEAM.VM.{Execution, Heap, Properties, Reference}
 
   @doc "Installs registered builtin modules for the selected profile."
@@ -39,8 +47,26 @@ defmodule QuickBEAM.VM.Builtin.Installer do
   def install(execution, %Spec{kind: :constructor} = spec) do
     token = {:declared_builtin, spec.module, spec.constructor}
     {constructor, execution} = allocate_function(execution, spec.name, spec.length, token)
-    parent = resolve_prototype_parent(execution, spec.prototype_parent)
-    {prototype, execution} = Heap.allocate(execution, :ordinary, prototype: parent)
+    topology = spec.prototype_spec
+    parent = resolve_prototype_parent(execution, topology.extends)
+
+    prototype_callable =
+      if topology.callable,
+        do: {:declared_builtin, spec.module, topology.callable},
+        else: nil
+
+    prototype_internal =
+      case topology.primitive do
+        {kind, value} -> {:primitive, kind, value}
+        nil -> nil
+      end
+
+    {prototype, execution} =
+      Heap.allocate(execution, topology.kind,
+        prototype: parent,
+        callable: prototype_callable,
+        internal: prototype_internal
+      )
 
     {:ok, execution} =
       Properties.define(prototype, "constructor", constructor, execution,
@@ -58,8 +84,8 @@ defmodule QuickBEAM.VM.Builtin.Installer do
 
     execution = install_entries(execution, constructor, spec.module, spec.statics)
     execution = install_entries(execution, prototype, spec.module, spec.prototype)
-    execution = register_prototype_role(execution, prototype, spec.prototype_role)
-    put_global(execution, spec.name, constructor)
+    execution = put_global(execution, spec.name, constructor)
+    register_prototype(execution, prototype, topology)
   end
 
   defp install_prototype_entries(execution, _target, %Spec{prototype: []}), do: execution
@@ -170,10 +196,10 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     allocate_function(execution, to_string(key), 0, token)
   end
 
-  defp resolve_prototype_parent(execution, nil),
+  defp resolve_prototype_parent(execution, :default),
     do: Map.get(execution.default_prototypes, :ordinary)
 
-  defp resolve_prototype_parent(_execution, :null), do: nil
+  defp resolve_prototype_parent(_execution, nil), do: nil
 
   defp resolve_prototype_parent(execution, parent_name) do
     constructor = Map.fetch!(execution.globals, parent_name)
@@ -181,22 +207,39 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     prototype
   end
 
-  defp register_prototype_role(execution, _prototype, nil), do: execution
+  defp register_prototype(execution, prototype, %PrototypeSpec{} = topology) do
+    execution = register_default_prototype(execution, prototype, topology.default_for)
 
-  defp register_prototype_role(execution, prototype, :ordinary),
-    do: %{
-      execution
-      | default_prototypes: Map.put(execution.default_prototypes, :ordinary, prototype)
-    }
+    if topology.error_type,
+      do: %{
+        execution
+        | error_prototypes: Map.put(execution.error_prototypes, topology.error_type, prototype)
+      },
+      else: execution
+  end
 
-  defp register_prototype_role(execution, prototype, :function),
-    do: %{
+  defp register_default_prototype(execution, _prototype, nil), do: execution
+
+  defp register_default_prototype(execution, prototype, :function) do
+    execution = %{
       execution
       | default_prototypes: Map.put(execution.default_prototypes, :function, prototype)
     }
 
-  defp register_prototype_role(execution, prototype, {:error, name}),
-    do: %{execution | error_prototypes: Map.put(execution.error_prototypes, name, prototype)}
+    Enum.reduce(execution.heap, execution, fn
+      {id, %{kind: :function, prototype: nil}}, execution ->
+        {:ok, execution} =
+          Properties.set_prototype(%Reference{id: id}, prototype, execution)
+
+        execution
+
+      {_id, _object}, execution ->
+        execution
+    end)
+  end
+
+  defp register_default_prototype(execution, prototype, kind),
+    do: %{execution | default_prototypes: Map.put(execution.default_prototypes, kind, prototype)}
 
   defp put_global(execution, name, value),
     do: %{execution | globals: Map.put(execution.globals, name, value)}

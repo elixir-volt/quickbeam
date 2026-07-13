@@ -86,10 +86,8 @@ defmodule QuickBEAM.VM.Builtins.Error do
     kind: :constructor,
     constructor: :construct,
     length: 1,
-    depends_on: ["Object", "Function"],
-    prototype_parent: "Object",
-    prototype_role: {:error, "Error"} do
-    prototype do
+    depends_on: ["Object", "Function"] do
+    prototype extends: "Object", error_type: "Error" do
       prototype_value "name", "Error", writable: true, configurable: true
       prototype_value "message", "", writable: true, configurable: true
       method :to_string_method, js: "toString", length: 0
@@ -121,10 +119,8 @@ defmodule QuickBEAM.VM.Builtins.ErrorSubclass do
         kind: :constructor,
         constructor: :construct,
         length: 1,
-        depends_on: ["Error", "Function"],
-        prototype_parent: "Error",
-        prototype_role: {:error, unquote(name)} do
-        prototype do
+        depends_on: ["Error", "Function"] do
+        prototype extends: "Error", error_type: unquote(name) do
           prototype_value "name", unquote(name), writable: true, configurable: true
           prototype_value "message", "", writable: true, configurable: true
         end

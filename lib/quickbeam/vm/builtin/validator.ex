@@ -1,7 +1,14 @@
 defmodule QuickBEAM.VM.Builtin.Validator do
   @moduledoc "Validates builtin declarations and handler contracts at compile time."
 
-  alias QuickBEAM.VM.Builtin.{AccessorSpec, AliasSpec, FunctionSpec, PropertySpec, Spec}
+  alias QuickBEAM.VM.Builtin.{
+    AccessorSpec,
+    AliasSpec,
+    FunctionSpec,
+    PropertySpec,
+    PrototypeSpec,
+    Spec
+  }
 
   @doc "Validates a compiled builtin spec against its declaring module."
   @spec validate!(Spec.t(), Macro.Env.t()) :: :ok
@@ -30,14 +37,32 @@ defmodule QuickBEAM.VM.Builtin.Validator do
       compile_error!(env, "constructor builtins require a :constructor handler")
     end
 
-    unless is_nil(spec.prototype_parent) or spec.prototype_parent == :null or
-             (is_binary(spec.prototype_parent) and spec.prototype_parent in spec.depends_on) do
-      compile_error!(env, "prototype parent must be :null or a declared dependency")
+    %PrototypeSpec{} = prototype = spec.prototype_spec
+
+    unless prototype.extends in [:default, nil] or
+             (is_binary(prototype.extends) and prototype.extends in spec.depends_on) do
+      compile_error!(env, "prototype :extends must name a declared dependency or be nil")
     end
 
-    unless is_nil(spec.prototype_role) or spec.prototype_role in [:ordinary, :function] or
-             match?({:error, name} when is_binary(name), spec.prototype_role) do
-      compile_error!(env, "unsupported prototype role: #{inspect(spec.prototype_role)}")
+    unless prototype.kind in [:ordinary, :array, :function] do
+      compile_error!(env, "unsupported prototype kind: #{inspect(prototype.kind)}")
+    end
+
+    unless is_nil(prototype.default_for) or is_atom(prototype.default_for) do
+      compile_error!(env, "prototype :default_for must be an atom")
+    end
+
+    unless is_nil(prototype.error_type) or is_binary(prototype.error_type) do
+      compile_error!(env, "prototype :error_type must be a string")
+    end
+
+    unless is_nil(prototype.primitive) or
+             match?({kind, _value} when is_atom(kind), prototype.primitive) do
+      compile_error!(env, "prototype :primitive must be a {kind, value} pair")
+    end
+
+    if prototype.kind == :function and not is_atom(prototype.callable) do
+      compile_error!(env, "function prototypes require a :callable handler")
     end
 
     entries = spec.statics ++ spec.prototype
@@ -48,7 +73,8 @@ defmodule QuickBEAM.VM.Builtin.Validator do
       entries
       |> Enum.flat_map(&entry_handlers/1)
       |> then(fn handlers ->
-        if spec.constructor, do: [spec.constructor | handlers], else: handlers
+        handlers = if spec.constructor, do: [spec.constructor | handlers], else: handlers
+        if prototype.callable, do: [prototype.callable | handlers], else: handlers
       end)
       |> Enum.uniq()
 

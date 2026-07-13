@@ -7,12 +7,28 @@ defmodule QuickBEAM.VM.Builtins.Function do
   alias QuickBEAM.VM.Builtin.Call
   alias QuickBEAM.VM.Invocation
 
-  builtin "Function", kind: :intrinsic, depends_on: ["Object"] do
-    prototype do
+  builtin "Function",
+    kind: :constructor,
+    constructor: :construct,
+    length: 1,
+    depends_on: ["Object"] do
+    prototype kind: :function,
+              extends: "Object",
+              default_for: :function,
+              callable: :prototype_call do
+      prototype_value "name", "", writable: false, configurable: true
+      prototype_value "length", 0, writable: false, configurable: true
       method :bind, length: 1
       method :call, length: 1
     end
   end
+
+  @doc "Rejects unsupported dynamic Function construction explicitly."
+  def construct(%Call{execution: execution}),
+    do: {:error, :dynamic_function_unsupported, execution}
+
+  @doc "Implements the callable empty Function prototype object."
+  def prototype_call(%Call{execution: execution}), do: {:ok, :undefined, execution}
 
   @doc "Creates a represented bound function."
   def bind(%Call{this: target, arguments: arguments, execution: execution}) do

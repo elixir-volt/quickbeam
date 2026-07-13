@@ -1,3 +1,23 @@
+defmodule QuickBEAM.VM.Builtin.PrototypeSpec do
+  @moduledoc "Defines semantic topology for one JavaScript intrinsic prototype."
+
+  defstruct kind: :ordinary,
+            extends: :default,
+            default_for: nil,
+            callable: nil,
+            primitive: nil,
+            error_type: nil
+
+  @type t :: %__MODULE__{
+          kind: :ordinary | :array | :function,
+          extends: :default | nil | String.t(),
+          default_for: atom() | nil,
+          callable: atom() | nil,
+          primitive: {atom(), term()} | nil,
+          error_type: String.t() | nil
+        }
+end
+
 defmodule QuickBEAM.VM.Builtin.Spec do
   @moduledoc """
   Defines immutable, compile-time-validated metadata for one JavaScript builtin.
@@ -6,15 +26,20 @@ defmodule QuickBEAM.VM.Builtin.Spec do
   not contain heap references or captured functions.
   """
 
-  alias QuickBEAM.VM.Builtin.{AccessorSpec, AliasSpec, FunctionSpec, PropertySpec}
+  alias QuickBEAM.VM.Builtin.{
+    AccessorSpec,
+    AliasSpec,
+    FunctionSpec,
+    PropertySpec,
+    PrototypeSpec
+  }
 
   @enforce_keys [:name, :module, :kind]
   defstruct [
     :name,
     :module,
     :constructor,
-    :prototype_parent,
-    :prototype_role,
+    prototype_spec: %PrototypeSpec{},
     profiles: [:core],
     depends_on: [],
     kind: :namespace,
@@ -29,8 +54,7 @@ defmodule QuickBEAM.VM.Builtin.Spec do
           module: module(),
           kind: kind(),
           constructor: atom() | nil,
-          prototype_parent: String.t() | :null | nil,
-          prototype_role: :ordinary | :function | {:error, String.t()} | nil,
+          prototype_spec: PrototypeSpec.t(),
           profiles: [atom()],
           depends_on: [String.t()],
           length: non_neg_integer(),

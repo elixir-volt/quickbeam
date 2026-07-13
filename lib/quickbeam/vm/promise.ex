@@ -308,7 +308,6 @@ defmodule QuickBEAM.VM.Promise do
              elem(callable, 0) in [
                :bound_function,
                :builtin,
-               :builtin_method,
                :declared_builtin,
                :host_function,
                :primitive_method,

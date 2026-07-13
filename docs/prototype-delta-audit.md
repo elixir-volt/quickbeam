@@ -405,10 +405,11 @@ High-value test groups to adapt next:
 - Custom iterator getters, factories, cached `next` methods, and accessor-backed
   `done`/`value` reads resume through explicit boundaries; computed Symbol
   methods and fields are supported without recursive JavaScript execution.
-- Constructor prototype parents, Error prototype registration, and Symbol-keyed
-  aliases are explicit installer topology. Legacy object/error/set/function
-  pseudo-method tokens have been removed; the remaining dispatcher is limited
-  to bootstrap constructors and unmigrated builtins.
+- Constructor prototype parents, prototype kind/callability, default and Error
+  prototype registration, and Symbol-keyed aliases are explicit installer
+  topology. Object/Function bootstrap cycles and primitive constructors are
+  declarative; the hard-coded constructor table and legacy object/error/set/
+  function pseudo-method tokens have been removed.
 
 ### Phase C — expand conformance by profile demand
 

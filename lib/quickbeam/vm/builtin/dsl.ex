@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Builtin.DSL do
   @moduledoc "Compiles the declarative builtin syntax into immutable validated specs."
 
-  alias QuickBEAM.VM.Builtin.{AccessorSpec, FunctionSpec, Spec, Validator}
+  alias QuickBEAM.VM.Builtin.{AccessorSpec, FunctionSpec, PrototypeSpec, Spec, Validator}
 
   @doc "Installs builtin declaration attributes and macros."
   defmacro __using__(_opts) do
@@ -13,7 +13,9 @@ defmodule QuickBEAM.VM.Builtin.DSL do
       Module.register_attribute(__MODULE__, :quickbeam_builtin_count, persist: false)
       Module.register_attribute(__MODULE__, :quickbeam_builtin_statics, accumulate: true)
       Module.register_attribute(__MODULE__, :quickbeam_builtin_prototype, accumulate: true)
+      Module.register_attribute(__MODULE__, :quickbeam_builtin_prototype_options, persist: false)
       @quickbeam_builtin_count 0
+      @quickbeam_builtin_prototype_options []
       @before_compile QuickBEAM.VM.Builtin.DSL
     end
   end
@@ -28,8 +30,22 @@ defmodule QuickBEAM.VM.Builtin.DSL do
     end
   end
 
-  @doc "Groups prototype declarations."
+  @doc "Declares prototype topology and optionally groups its properties."
   defmacro prototype(do: block), do: block
+
+  defmacro prototype(opts) do
+    quote do
+      @quickbeam_builtin_prototype_options unquote(opts)
+    end
+  end
+
+  @doc "Declares semantic prototype topology and groups its properties."
+  defmacro prototype(opts, do: block) do
+    quote do
+      @quickbeam_builtin_prototype_options unquote(opts)
+      unquote(block)
+    end
+  end
 
   @doc "Declares a static function using its handler as the default JavaScript name."
   defmacro static(handler, opts \\ []) do
@@ -156,14 +172,27 @@ defmodule QuickBEAM.VM.Builtin.DSL do
     opts = Module.get_attribute(env.module, :quickbeam_builtin_options) || []
     statics = env.module |> Module.get_attribute(:quickbeam_builtin_statics) |> Enum.reverse()
     prototype = env.module |> Module.get_attribute(:quickbeam_builtin_prototype) |> Enum.reverse()
+    prototype_opts = Module.get_attribute(env.module, :quickbeam_builtin_prototype_options) || []
+
+    prototype_spec = %PrototypeSpec{
+      kind: Keyword.get(prototype_opts, :kind, :ordinary),
+      extends:
+        if(Keyword.has_key?(prototype_opts, :extends),
+          do: Keyword.get(prototype_opts, :extends),
+          else: :default
+        ),
+      default_for: Keyword.get(prototype_opts, :default_for),
+      callable: Keyword.get(prototype_opts, :callable),
+      primitive: Keyword.get(prototype_opts, :primitive),
+      error_type: Keyword.get(prototype_opts, :error_type)
+    }
 
     spec = %Spec{
       name: name,
       module: env.module,
       kind: Keyword.get(opts, :kind, :namespace),
       constructor: Keyword.get(opts, :constructor),
-      prototype_parent: Keyword.get(opts, :prototype_parent),
-      prototype_role: Keyword.get(opts, :prototype_role),
+      prototype_spec: prototype_spec,
       profiles: Keyword.get(opts, :profiles, [:core]),
       depends_on: Keyword.get(opts, :depends_on, []),
       length: Keyword.get(opts, :length, 0),

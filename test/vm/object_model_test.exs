@@ -99,6 +99,33 @@ defmodule QuickBEAM.VM.ObjectModelTest do
     end
   end
 
+  test "matches declarative constructor calls, boxing, and bootstrap topology", %{
+    runtime: runtime
+  } do
+    sources = [
+      "(()=>{let sparse=Array(3);let values=new Array(1,2);return [sparse.length,Object.keys(sparse).length,values.join(',')]})()",
+      "(()=>{let boxed=new Number(42);return [Number('2'),typeof boxed,boxed.toString()]})()",
+      "(()=>{let boxed=new String('ok');return [String(42),typeof boxed,boxed.toString()]})()",
+      "(()=>{let boxed=new Boolean(false);return [Boolean(0),Boolean(1),typeof boxed,boxed?1:0]})()",
+      "(()=>{let number=Object(42);let string=Object('ok');return [typeof number,number instanceof Number,number.toString(),string instanceof String,string.toString()]})()",
+      "(()=>[Object.getPrototypeOf(Object)===Function.prototype,Object.getPrototypeOf(Function)===Function.prototype,Object.getPrototypeOf(Function.prototype)===Object.prototype,Object.getPrototypeOf(Object.prototype)===null,typeof Function.prototype])()",
+      "(()=>[Array.isArray(Array.prototype),Number.prototype.toString(),String.prototype.toString(),Function.prototype.name,Function.prototype.length])()"
+    ]
+
+    for source <- sources do
+      assert_vm_matches_native(runtime, source)
+    end
+  end
+
+  test "rejects dynamic Function construction explicitly" do
+    assert {:ok, program} =
+             QuickBEAM.VM.compile(
+               "(()=>{try{Function('return 1')}catch(error){return error.name}})()"
+             )
+
+    assert {:ok, "TypeError"} = QuickBEAM.VM.eval(program)
+  end
+
   test "matches declarative Function prototype call and bind", %{runtime: runtime} do
     sources = [
       "(()=>{function add(a,b){return this.base+a+b}return add.call({base:1},2,3)})()",
