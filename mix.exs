@@ -108,6 +108,7 @@ defmodule QuickBEAM.MixProject do
         "docs/javascript-api.md",
         "docs/architecture.md",
         "docs/beam-interpreter-architecture.md",
+        "docs/beam-compiler-contract.md",
         "docs/beam-scheduler-measurements.md",
         "docs/beam-ssr-measurements.md",
         "docs/prototype-delta-audit.md",
@@ -119,6 +120,7 @@ defmodule QuickBEAM.MixProject do
           "docs/javascript-api.md",
           "docs/architecture.md",
           "docs/beam-interpreter-architecture.md",
+          "docs/beam-compiler-contract.md",
           "docs/beam-scheduler-measurements.md",
           "docs/beam-ssr-measurements.md",
           "docs/prototype-delta-audit.md",
@@ -136,6 +138,7 @@ defmodule QuickBEAM.MixProject do
     internal_vm_modules = [
       "QuickBEAM.VM.Async",
       "QuickBEAM.VM.Builtin",
+      "QuickBEAM.VM.Compiler",
       "QuickBEAM.VM.Exceptions",
       "QuickBEAM.VM.Fuzz",
       "QuickBEAM.VM.Invocation",

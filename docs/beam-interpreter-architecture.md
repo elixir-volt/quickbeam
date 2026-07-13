@@ -7,9 +7,10 @@ process-isolated evaluation, explicit frames and detached async continuations,
 closures, exceptions, owner-local objects, Promise reactions and combinators,
 asynchronous `Beam.call`, logical and process memory containment, stable
 JavaScript errors, pinned Preact, Vue, and Svelte SSR acceptance fixtures, and
-bounded deterministic decoder/verifier mutation fuzzing. Broader ECMAScript
-conformance, object-model hardening, garbage collection, and release hardening
-remain in progress.
+bounded deterministic decoder/verifier mutation fuzzing, and the bounded
+optional-compiler contract. Broader ECMAScript conformance, object-model
+hardening, garbage collection, compiler extraction, and release hardening remain
+in progress.
 
 ## Summary
 
@@ -843,10 +844,14 @@ limits are enforced, and the compatibility matrix is published.
 
 Only after interpreter correctness is stable:
 
-- compile verified basic blocks to Erlang abstract forms;
-- reuse the same runtime ABI and semantics;
-- use a bounded module-name pool to avoid atom leaks;
-- deopt explicitly to verified interpreter states;
+- implement the static module pool and lifecycle specified in
+  [`beam-compiler-contract.md`](beam-compiler-contract.md);
+- compile verified pure basic blocks to Erlang abstract forms;
+- call the versioned ABI over the same canonical runtime semantics;
+- deopt before unsupported instructions into validated owner-local interpreter
+  state;
+- pass differential, resource, atom-bound, purge, and scheduler acceptance
+  gates;
 - add stateful owner-process sessions if demanded by real workloads.
 
 ## Prototype branch extraction map

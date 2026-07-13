@@ -63,6 +63,7 @@ defmodule QuickBEAM.VM.Decoder do
        %Program{
          version: version,
          fingerprint: ABI.fingerprint(),
+         bytecode_digest: :crypto.hash(:sha256, data),
          atoms: atoms,
          root: attach_atoms(value, atoms)
        }}

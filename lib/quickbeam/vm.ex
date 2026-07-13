@@ -33,7 +33,12 @@ defmodule QuickBEAM.VM do
       try do
         with {:ok, bytecode} <- QuickBEAM.compile(runtime, source),
              {:ok, program} <- decode(bytecode, decode_options) do
-          {:ok, maybe_put_filename(program, filename)}
+          program =
+            program
+            |> maybe_put_filename(filename)
+            |> Map.put(:source_digest, :crypto.hash(:sha256, source))
+
+          {:ok, program}
         end
       after
         QuickBEAM.stop(runtime)

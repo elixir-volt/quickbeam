@@ -306,7 +306,13 @@ Compiler extraction gate:
 6. Unsupported compiled regions deopt explicitly to verified interpreter state;
    they never fall back to native execution.
 
-Until those gates hold, the compiler remains quarantined.
+The module-name, cache-lifecycle, runtime-ABI, prototype-analysis, and
+deoptimization design is now specified in
+[`beam-compiler-contract.md`](beam-compiler-contract.md). Static slot identities
+and owner-local deoptimization validation are executable contracts. The compiler
+remains quarantined until the supervised pool, minimal runtime ABI, and their
+acceptance tests are implemented; no prototype compiler runtime is approved for
+copying.
 
 ## Test extraction policy
 

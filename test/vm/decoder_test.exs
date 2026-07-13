@@ -18,11 +18,11 @@ defmodule QuickBEAM.VM.DecoderTest do
   end
 
   test "public compile API returns a verified program with the requested filename" do
-    assert {:ok, %Program{} = program} =
-             QuickBEAM.VM.compile("function render(){ return 'ok' } render()",
-               filename: "server.js"
-             )
+    source = "function render(){ return 'ok' } render()"
+    assert {:ok, %Program{} = program} = QuickBEAM.VM.compile(source, filename: "server.js")
 
+    assert program.source_digest == :crypto.hash(:sha256, source)
+    assert byte_size(program.bytecode_digest) == 32
     assert program.root.filename == "server.js"
     assert Enum.all?(nested_functions(program.root), &(&1.filename == "server.js"))
   end
@@ -34,6 +34,8 @@ defmodule QuickBEAM.VM.DecoderTest do
     assert {:ok, %Program{} = program} = QuickBEAM.VM.decode(bytecode)
     assert program.version == ABI.bytecode_version()
     assert program.fingerprint == ABI.fingerprint()
+    assert program.bytecode_digest == :crypto.hash(:sha256, bytecode)
+    assert program.source_digest == nil
     assert %Function{id: 0} = program.root
     assert tuple_size(program.root.instructions) > 0
   end
