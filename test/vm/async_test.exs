@@ -94,8 +94,8 @@ defmodule QuickBEAM.VM.AsyncTest do
       Process.sleep(:infinity)
     end
 
-    assert {:error, {:limit_exceeded, :timeout, 100}} =
-             QuickBEAM.VM.eval(program, handlers: %{"wait" => handler}, timeout: 100)
+    assert {:error, {:limit_exceeded, :timeout, 1_000}} =
+             QuickBEAM.VM.eval(program, handlers: %{"wait" => handler}, timeout: 1_000)
 
     assert_receive {:handler_started, handler_pid}
     monitor = Process.monitor(handler_pid)

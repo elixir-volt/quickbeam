@@ -139,6 +139,9 @@ pub const PoolData = struct {
     queue_tail: ?*PoolMessageNode,
     stopped: bool,
     thread: ?std.Thread,
+    lifecycle_mutex: std.Thread.Mutex = .{},
+    lifecycle_cond: std.Thread.Condition = .{},
+    lifecycle: types.LifecycleState = .running,
     memory_limit: usize = 256 * 1024 * 1024,
     max_stack_size: usize = 8 * 1024 * 1024,
     // WASM operand stack / heap for the JS `WebAssembly.instantiate` path

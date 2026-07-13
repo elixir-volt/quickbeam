@@ -418,13 +418,21 @@ High-value test groups to adapt next:
   present element when no initial value is supplied.
 - Expand Symbol APIs and iterator consumers only when required by the selected
   compatibility profile.
-- Expand the pinned Test262 manifest with exact classified thresholds.
+- Expanded the pinned Test262 manifest to 69 selected tests with 65/65
+  supported cases passing and four explicit asynchronous skips.
 - Add decoder mutation fuzzing.
 
 ### Phase D — production hardening
 
-- Resolve the parallel native-NIF finalizer race.
-- Audit cancellation, worker shutdown, and owner-local cleanup.
+- Runtime and context-pool shutdown now use serialized running → stopping →
+  joined lifecycle states, and resource creation cannot leave a destructor
+  pointing at freed startup data.
+- Sync-call result publication remains under its slot mutex through wakeup;
+  pool RuntimeData pointers are removed under the registry mutex before context
+  destruction. Repeated concurrent lifecycle and callSync shutdown stress tests
+  pass without crashes.
+- Continue auditing cancellation, queued-payload cleanup, and owner-local
+  shutdown.
 - Publish scheduler, memory, timeout, and performance results.
 - Freeze the supported SSR compatibility matrix.
 
@@ -437,6 +445,6 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-Migrate Promise construction, static combinators, and prototype reactions to
-DSL specs while replacing array-only combinator inputs with general resumable
-iterator semantics.
+Add bounded mutation fuzzing for bytecode decoding and verification, then
+publish scheduler, timeout, memory, and Preact SSR measurements for the frozen
+SSR compatibility profile.

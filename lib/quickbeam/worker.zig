@@ -720,14 +720,15 @@ pub const WorkerState = struct {
 
     fn complete_sync_call(self: *WorkerState, id: u64, result: *Result) void {
         self.rd.sync_slots_mutex.lock();
-        const slot = self.rd.sync_slots.get(id);
-        self.rd.sync_slots_mutex.unlock();
+        defer self.rd.sync_slots_mutex.unlock();
 
-        if (slot) |sync_slot| {
+        if (self.rd.sync_slots.get(id)) |sync_slot| {
             sync_slot.ok = result.ok;
             sync_slot.result_json = result.json;
             sync_slot.result_env = result.env;
             sync_slot.result_term = if (result.env != null) result.term else null;
+            // Keep the slot mutex held through publication. The waiter removes
+            // this stack-owned slot only after observing the event.
             sync_slot.done.set();
         } else if (result.env) |term_env| {
             beam.free_env(term_env);

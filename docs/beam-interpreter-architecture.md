@@ -349,6 +349,23 @@ state that is not represented in the JavaScript object-store counters.
 JavaScript call depth is tracked explicitly. It must not rely on exhausting the
 BEAM process stack or native C stack.
 
+### Native resource lifecycle
+
+The native QuickJS engine remains a separate supported execution engine and its
+NIF resources must be safe under concurrent scheduler shutdown. Runtime and
+context-pool resources use a serialized `running → stopping → joined` lifecycle;
+only the transition owner takes and joins the worker thread, while destructors
+perform idempotent shutdown before freeing resource data.
+
+Synchronous host-call slots are stack-owned by worker calls. Result publishers
+hold the slot mutex through writing the result and signaling completion, so the
+waiter cannot remove the slot while another scheduler still writes through its
+pointer. Context pools likewise hold their RuntimeData registry mutex through
+slot publication and remove all externally visible pointers before destroying
+contexts. Stress coverage includes concurrent explicit stops, owner exit without
+stop, callSync shutdown, pool shutdown, UBSan builds, and ordinary parallel test
+execution.
+
 ## JavaScript values and heap
 
 Keep `null` and `undefined` distinct. Common scalar values may use native BEAM
