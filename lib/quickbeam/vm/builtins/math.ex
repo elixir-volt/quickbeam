@@ -6,7 +6,7 @@ defmodule QuickBEAM.VM.Builtins.Math do
   alias QuickBEAM.VM.Builtin.Call
   alias QuickBEAM.VM.Value
 
-  builtin "Math", kind: :namespace do
+  builtin "Math", kind: :namespace, depends_on: ["Object", "Function"] do
     constant "E", :math.exp(1)
     constant "PI", :math.pi()
 

@@ -112,26 +112,30 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     assert Registry.modules(:core) == [
              QuickBEAM.VM.Builtins.Object,
              QuickBEAM.VM.Builtins.Function,
-             QuickBEAM.VM.Builtins.Math,
              QuickBEAM.VM.Builtins.Array,
-             QuickBEAM.VM.Builtins.String,
-             QuickBEAM.VM.Builtins.Number,
              QuickBEAM.VM.Builtins.Boolean,
              QuickBEAM.VM.Builtins.Error,
+             QuickBEAM.VM.Builtins.Math,
+             QuickBEAM.VM.Builtins.Number,
+             QuickBEAM.VM.Builtins.String,
+             QuickBEAM.VM.Builtins.Symbol,
+             QuickBEAM.VM.Builtins.Uint8Array,
+             QuickBEAM.VM.Builtins.WeakMap,
              QuickBEAM.VM.Builtins.EvalError,
+             QuickBEAM.VM.Builtins.Map,
+             QuickBEAM.VM.Builtins.Promise,
              QuickBEAM.VM.Builtins.RangeError,
              QuickBEAM.VM.Builtins.ReferenceError,
+             QuickBEAM.VM.Builtins.Set,
              QuickBEAM.VM.Builtins.SyntaxError,
              QuickBEAM.VM.Builtins.TypeError,
              QuickBEAM.VM.Builtins.URIError,
-             QuickBEAM.VM.Builtins.Symbol,
-             QuickBEAM.VM.Builtins.Uint8Array,
-             QuickBEAM.VM.Builtins.Map,
-             QuickBEAM.VM.Builtins.WeakMap,
-             QuickBEAM.VM.Builtins.Set,
-             QuickBEAM.VM.Builtins.WeakSet,
-             QuickBEAM.VM.Builtins.Promise
+             QuickBEAM.VM.Builtins.WeakSet
            ]
+
+    refute QuickBEAM.VM.Builtins.Console in Registry.modules(:core)
+    assert QuickBEAM.VM.Builtins.Console in Registry.modules(:ssr)
+    assert Registry.modules(:core) == Enum.map(Registry.refresh()[:core], & &1.module)
 
     assert QuickBEAM.VM.Builtins.String.builtin_spec().kind == :constructor
 

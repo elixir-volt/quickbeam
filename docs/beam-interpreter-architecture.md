@@ -458,9 +458,12 @@ dependencies. A typed prototype spec is compiled from the nested semantic
 `primitive`, and `error_type` describe JavaScript topology without exposing
 installer field names. This models the null-rooted Object prototype, callable
 Function prototype, constructor cycles, boxed primitives, and Array defaults
-without a bootstrap constructor table. An explicit profile registry installs
-specs in validated dependency order into each owner-local execution. Runtime
-application-module discovery is forbidden.
+without a bootstrap constructor table. Mix records the complete QuickBEAM
+module inventory in the compiled application manifest. The profile registry
+filters that inventory for immutable builtin specs, orders them by declared
+JavaScript dependencies, caches the result, and installs it into each owner-local
+execution. This avoids both a manually duplicated module list and
+code-loading-order-dependent runtime discovery.
 
 Installed functions are real owner-local function objects carrying stable
 module/handler tokens, not captured closures. Calls receive an explicit

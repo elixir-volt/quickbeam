@@ -17,7 +17,7 @@ defmodule QuickBEAM.VM.Builtins do
 
   @spec install(Execution.t(), :core | :ssr) :: Execution.t()
   def install(execution, profile \\ :core),
-    do: Installer.install_all(execution, Registry.modules(profile))
+    do: Installer.install_all(execution, Registry.modules(profile), profile)
 
   @spec callable(Execution.t(), Reference.t()) :: term() | nil
   def callable(execution, %Reference{} = reference) do

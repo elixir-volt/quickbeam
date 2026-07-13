@@ -376,10 +376,11 @@ High-value test groups to adapt next:
 ### Declarative builtin migration (in progress)
 
 - Adapted the prototype's useful spec/installer idea without its process-local
-  heap, loaded-module discovery, giant multi-form macro surface, or generated
+  heap, code-loading-order discovery, giant multi-form macro surface, or generated
   fallback dispatch.
-- Builtin declarations now compile to immutable validated specs and install from
-  an explicit deterministic profile registry.
+- Builtin declarations compile to immutable validated specs. The deterministic
+  profile registry discovers them from Mix's compiled application module
+  manifest and topologically orders their declared dependencies.
 - DSL v2 uses parenthesis-free handler-first declarations with inferred JS
   names, typed constants/data/accessors, profile and dependency metadata, and
   separate compiler, validator, installer, and runtime-contract modules.

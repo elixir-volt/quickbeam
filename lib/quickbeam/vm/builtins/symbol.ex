@@ -6,7 +6,7 @@ defmodule QuickBEAM.VM.Builtins.Symbol do
   alias QuickBEAM.VM.Builtin.Call
   alias QuickBEAM.VM.{Symbol, Value}
 
-  builtin "Symbol", kind: :function, length: 0 do
+  builtin "Symbol", kind: :function, length: 0, depends_on: ["Object", "Function"] do
     static :for_symbol, js: "for", length: 1
     constant "iterator", Symbol.iterator()
   end

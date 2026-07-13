@@ -24,7 +24,7 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     specs =
       modules
       |> Enum.map(& &1.builtin_spec())
-      |> Enum.filter(&(profile in &1.profiles))
+      |> Enum.filter(&(:core in &1.profiles or profile in &1.profiles))
 
     validate_registry!(specs, execution)
     Enum.reduce(specs, execution, &install(&2, &1))

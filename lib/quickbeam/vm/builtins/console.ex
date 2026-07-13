@@ -5,7 +5,10 @@ defmodule QuickBEAM.VM.Builtins.Console do
 
   alias QuickBEAM.VM.Builtin.Call
 
-  builtin "console", kind: :namespace do
+  builtin "console",
+    kind: :namespace,
+    profiles: [:ssr],
+    depends_on: ["Object", "Function"] do
     static :error, length: 1
     static :info, length: 1
     static :log, length: 1
