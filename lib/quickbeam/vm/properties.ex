@@ -82,19 +82,19 @@ defmodule QuickBEAM.VM.Properties do
   def get(object, key, _execution) when is_binary(object) and is_integer(key),
     do: {:ok, Value.string_at(object, key)}
 
-  def get(object, key, _execution) when is_binary(object) and is_binary(key),
-    do: {:ok, {:primitive_method, :string, key}}
+  def get(object, key, execution) when is_binary(object) and is_binary(key),
+    do: intrinsic_property(execution, "String", key)
 
   def get(object, "length", _execution) when is_list(object), do: {:ok, length(object)}
 
   def get(object, key, _execution) when is_list(object) and is_integer(key),
     do: {:ok, Enum.at(object, key, :undefined)}
 
-  def get(object, key, _execution) when is_list(object) and is_binary(key),
-    do: {:ok, {:primitive_method, :array, key}}
+  def get(object, key, execution) when is_list(object) and is_binary(key),
+    do: intrinsic_property(execution, "Array", key)
 
-  def get(object, key, _execution) when is_number(object) and is_binary(key),
-    do: {:ok, {:primitive_method, :number, key}}
+  def get(object, key, execution) when is_number(object) and is_binary(key),
+    do: intrinsic_property(execution, "Number", key)
 
   def get(object, _key, _execution) when object in [nil, :undefined],
     do: {:error, :null_or_undefined_property_access}
@@ -202,6 +202,15 @@ defmodule QuickBEAM.VM.Properties do
     case Heap.fetch_object(execution, reference) do
       {:ok, object} -> object.kind
       :error -> nil
+    end
+  end
+
+  defp intrinsic_property(execution, constructor_name, key) do
+    with %Reference{} = constructor <- Map.get(execution.globals, constructor_name),
+         {:ok, %Reference{} = prototype} <- Heap.get(execution, constructor, "prototype") do
+      Heap.get(execution, prototype, key)
+    else
+      _missing -> {:ok, :undefined}
     end
   end
 

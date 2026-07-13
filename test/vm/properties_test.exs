@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.PropertiesTest do
   use ExUnit.Case, async: true
 
-  alias QuickBEAM.VM.{Execution, Heap, Properties}
+  alias QuickBEAM.VM.{Builtins, Execution, Heap, Invocation, Properties, Reference}
 
   test "returns explicit getter and setter actions with the original receiver" do
     execution = execution()
@@ -21,15 +21,16 @@ defmodule QuickBEAM.VM.PropertiesTest do
   end
 
   test "provides primitive, Promise, and callable pseudo-properties" do
-    execution = execution()
+    execution = Builtins.install(execution())
     {callable, execution} = Heap.allocate(execution, :function, callable: {:builtin, "callable"})
 
     assert {:ok, {:function_method, "bind"}} = Properties.get(callable, "bind", execution)
     assert {:ok, 2} = Properties.get("😀", "length", execution)
     assert {:ok, <<0xED, 0xA0, 0xBD>>} = Properties.get("😀", 0, execution)
 
-    assert {:ok, {:primitive_method, :number, "toString"}} =
-             Properties.get(42, "toString", execution)
+    assert {:ok, %Reference{} = to_string} = Properties.get(42, "toString", execution)
+    assert Invocation.callable?(to_string, execution)
+    assert {:ok, "toString"} = Properties.get(to_string, "name", execution)
   end
 
   test "centralizes descriptors, enumeration, and prototype operations" do

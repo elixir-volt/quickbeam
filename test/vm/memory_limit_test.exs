@@ -55,10 +55,10 @@ defmodule QuickBEAM.VM.MemoryLimitTest do
       Enum.to_list(1..5_000)
     end
 
-    assert {:error, {:limit_exceeded, :memory_bytes, 60_000}} =
+    assert {:error, {:limit_exceeded, :memory_bytes, 80_000}} =
              QuickBEAM.VM.eval(program,
                handlers: %{"large_result" => handler},
-               memory_limit: 60_000,
+               memory_limit: 80_000,
                timeout: 5_000
              )
 

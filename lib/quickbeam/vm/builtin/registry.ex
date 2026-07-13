@@ -10,6 +10,7 @@ defmodule QuickBEAM.VM.Builtin.Registry do
     QuickBEAM.VM.Builtins.Math,
     QuickBEAM.VM.Builtins.Array,
     QuickBEAM.VM.Builtins.String,
+    QuickBEAM.VM.Builtins.Number,
     QuickBEAM.VM.Builtins.Object
   ]
 

@@ -14,7 +14,7 @@ defmodule QuickBEAM.VM.Builtins do
     Value
   }
 
-  alias QuickBEAM.VM.Builtin.{Call, Installer, Registry}
+  alias QuickBEAM.VM.Builtin.{Installer, Registry}
 
   @error_types ~w(Error EvalError RangeError ReferenceError SyntaxError TypeError URIError)
 
@@ -187,85 +187,6 @@ defmodule QuickBEAM.VM.Builtins do
     else
       {:error, reason} -> {:error, reason, execution}
     end
-  end
-
-  def call({:primitive_method, :number, "toString"}, value, arguments, execution) do
-    radix =
-      case arguments do
-        [radix | _] -> Value.to_int32(radix)
-        [] -> 10
-      end
-
-    {:ok, number_to_string(value, radix), execution}
-  end
-
-  def call({:primitive_method, :number, "toFixed"}, value, arguments, execution) do
-    digits =
-      case arguments do
-        [digits | _] -> Value.to_int32(digits)
-        [] -> 0
-      end
-
-    {:ok, :erlang.float_to_binary(value / 1, decimals: digits), execution}
-  end
-
-  def call({:primitive_method, :string, method}, %Reference{} = receiver, arguments, execution) do
-    case primitive_value(receiver, :string, execution) do
-      {:ok, value} -> call({:primitive_method, :string, method}, value, arguments, execution)
-      :error -> {:error, :incompatible_string_receiver, execution}
-    end
-  end
-
-  def call({:primitive_method, :string, "toString"}, value, _arguments, execution),
-    do: {:ok, value, execution}
-
-  def call({:primitive_method, :string, "toLowerCase"}, value, _arguments, execution),
-    do: {:ok, String.downcase(value), execution}
-
-  def call({:primitive_method, :string, "startsWith"}, value, [prefix | _], execution),
-    do: {:ok, String.starts_with?(value, Value.to_string_value(prefix)), execution}
-
-  def call({:primitive_method, :string, "includes"}, value, [part | _], execution),
-    do: {:ok, String.contains?(value, Value.to_string_value(part)), execution}
-
-  def call({:primitive_method, :string, "charCodeAt"}, value, [index | _], execution) do
-    result = Value.string_char_code_at(value, Value.to_int32(index))
-    {:ok, result, execution}
-  end
-
-  def call({:primitive_method, :string, "slice"}, value, arguments, execution) do
-    {start, length} = slice_range(Value.string_length(value), arguments)
-    {:ok, Value.string_slice(value, start, length), execution}
-  end
-
-  def call({:primitive_method, :string, "replace"}, value, [pattern, replacement | _], execution) do
-    {:ok, replace_string(value, pattern, Value.to_string_value(replacement)), execution}
-  end
-
-  def call({:primitive_method, :string, "split"}, value, arguments, execution) do
-    parts =
-      case arguments do
-        [] -> [value]
-        [separator | _] -> String.split(value, Value.to_string_value(separator))
-      end
-
-    {array, execution} = array_from(parts, execution)
-    {:ok, array, execution}
-  end
-
-  def call({:primitive_method, :array, method}, receiver, arguments, execution)
-      when method in ["concat", "join", "push", "slice"] do
-    handler = %{"concat" => :concat, "join" => :join, "push" => :push, "slice" => :slice}[method]
-
-    call = %Call{
-      arguments: arguments,
-      this: receiver,
-      caller: nil,
-      tail?: false,
-      execution: execution
-    }
-
-    apply(QuickBEAM.VM.Builtins.Array, handler, [call])
   end
 
   def call({:primitive_method, :regexp, "test"}, %RegExp{} = regexp, [value | _], execution),
@@ -517,23 +438,11 @@ defmodule QuickBEAM.VM.Builtins do
     )
   end
 
-  defp maybe_install_prototype("String", constructor, execution) do
-    install_primitive_prototype(
-      constructor,
-      :string,
-      [
-        "charCodeAt",
-        "includes",
-        "replace",
-        "slice",
-        "split",
-        "startsWith",
-        "toLowerCase",
-        "toString"
-      ],
-      execution
-    )
-  end
+  defp maybe_install_prototype("String", constructor, execution),
+    do: install_primitive_prototype(constructor, :string, [], execution)
+
+  defp maybe_install_prototype("Number", constructor, execution),
+    do: install_primitive_prototype(constructor, :number, [], execution)
 
   defp maybe_install_prototype("Promise", constructor, execution) do
     {prototype, execution} = Heap.allocate(execution)
@@ -599,13 +508,6 @@ defmodule QuickBEAM.VM.Builtins do
     end
   end
 
-  defp primitive_value(reference, kind, execution) do
-    case Heap.fetch_object(execution, reference) do
-      {:ok, %Object{internal: {:primitive, ^kind, value}}} -> {:ok, value}
-      _other -> :error
-    end
-  end
-
   defp array_from(values, execution) do
     {array, execution} = Heap.allocate(execution, :array)
 
@@ -646,56 +548,10 @@ defmodule QuickBEAM.VM.Builtins do
     end
   end
 
-  defp slice_range(size, arguments) do
-    start =
-      case arguments do
-        [start | _] -> normalize_slice_index(start, size)
-        [] -> 0
-      end
-
-    finish =
-      case arguments do
-        [_start, finish | _] -> normalize_slice_index(finish, size)
-        _ -> size
-      end
-
-    {start, max(finish - start, 0)}
-  end
-
-  defp normalize_slice_index(value, size) do
-    case Value.to_number(value) do
-      :infinity -> size
-      :neg_infinity -> 0
-      :nan -> 0
-      index when is_number(index) -> normalize_index(trunc(index), size)
-      _value -> 0
-    end
-  end
-
-  defp normalize_index(index, size) when index < 0, do: max(size + index, 0)
-  defp normalize_index(index, size), do: min(index, size)
-
-  defp number_to_string(value, 10), do: Value.to_string_value(value)
-
-  defp number_to_string(value, radix) when is_integer(value) and radix in 2..36,
-    do: Integer.to_string(value, radix)
-
-  defp number_to_string(value, _radix), do: Value.to_string_value(value)
-
   defp regex_match?(%RegExp{source: source}, value) do
     case Regex.compile(source) do
       {:ok, regex} -> Regex.match?(regex, value)
       {:error, _} -> false
     end
   end
-
-  defp replace_string(value, %RegExp{source: source}, replacement) do
-    case Regex.compile(source) do
-      {:ok, regex} -> Regex.replace(regex, value, replacement)
-      {:error, _} -> value
-    end
-  end
-
-  defp replace_string(value, pattern, replacement),
-    do: String.replace(value, Value.to_string_value(pattern), replacement, global: false)
 end

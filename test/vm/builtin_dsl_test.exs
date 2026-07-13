@@ -24,6 +24,7 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
              QuickBEAM.VM.Builtins.Math,
              QuickBEAM.VM.Builtins.Array,
              QuickBEAM.VM.Builtins.String,
+             QuickBEAM.VM.Builtins.Number,
              QuickBEAM.VM.Builtins.Object
            ]
 
@@ -49,7 +50,11 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
       Object.assign.name,
       Object.assign.length,
       Array.prototype.map.name,
-      Array.prototype.map.length
+      Array.prototype.map.length,
+      String.prototype.slice.name,
+      String.prototype.slice.length,
+      Number.prototype.toString.name,
+      Number.prototype.toString.length
     ]
     """
 
@@ -70,6 +75,10 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
               "assign",
               2,
               "map",
+              1,
+              "slice",
+              2,
+              "toString",
               1
             ]} = QuickBEAM.VM.eval(program)
   end
@@ -87,6 +96,25 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
 
     assert {:ok, program} = QuickBEAM.VM.compile(source)
     assert {:ok, [42, true, "AB"]} = QuickBEAM.VM.eval(program)
+  end
+
+  test "dispatches declarative String and Number prototype methods" do
+    source = """
+    [
+      "Alpha".toLowerCase(),
+      "alpha".startsWith("al"),
+      "alpha".includes("ph"),
+      "a,b".split(",").join("-"),
+      (255).toString(16),
+      new Number(12).toFixed(2),
+      new String("value").toString()
+    ]
+    """
+
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+
+    assert {:ok, ["alpha", true, true, "a-b", "ff", "12.00", "value"]} =
+             QuickBEAM.VM.eval(program)
   end
 
   test "dispatches declarative handlers through the canonical invocation planner" do

@@ -389,8 +389,11 @@ High-value test groups to adapt next:
   canonical resumable actions without recursively invoking JavaScript.
 - Descriptor-heavy Object methods now share canonical descriptor validation;
   sparse `slice`/`concat` preserve holes and `join` handles holes/nullish values.
-- Continue with low-risk String and Number primitive methods before Promise
-  constructors and combinators.
+- String and Number primitive methods now resolve through their installed DSL
+  prototype objects for both primitives and boxed values; numeric radix output
+  is normalized to JavaScript lowercase form.
+- Continue with Promise constructors and combinators, then object/error
+  prototype methods that remain in the legacy dispatcher.
 
 ### Phase C — expand conformance by profile demand
 
@@ -417,6 +420,6 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-Continue the declarative builtin migration with String and Number primitive
-methods, then migrate Promise construction and combinators onto general
-resumable iterator semantics.
+Migrate Promise construction, static combinators, and prototype reactions to
+DSL specs while replacing array-only combinator inputs with general resumable
+iterator semantics.
