@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.Builtin.Validator do
   @moduledoc "Validates builtin declarations and handler contracts at compile time."
 
-  alias QuickBEAM.VM.Builtin.{AccessorSpec, FunctionSpec, PropertySpec, Spec}
+  alias QuickBEAM.VM.Builtin.{AccessorSpec, AliasSpec, FunctionSpec, PropertySpec, Spec}
 
   @doc "Validates a compiled builtin spec against its declaring module."
   @spec validate!(Spec.t(), Macro.Env.t()) :: :ok
@@ -28,6 +28,16 @@ defmodule QuickBEAM.VM.Builtin.Validator do
 
     if spec.kind == :constructor and not is_atom(spec.constructor) do
       compile_error!(env, "constructor builtins require a :constructor handler")
+    end
+
+    unless is_nil(spec.prototype_parent) or spec.prototype_parent == :null or
+             (is_binary(spec.prototype_parent) and spec.prototype_parent in spec.depends_on) do
+      compile_error!(env, "prototype parent must be :null or a declared dependency")
+    end
+
+    unless is_nil(spec.prototype_role) or spec.prototype_role in [:ordinary, :function] or
+             match?({:error, name} when is_binary(name), spec.prototype_role) do
+      compile_error!(env, "unsupported prototype role: #{inspect(spec.prototype_role)}")
     end
 
     entries = spec.statics ++ spec.prototype
@@ -57,6 +67,7 @@ defmodule QuickBEAM.VM.Builtin.Validator do
     do: Enum.reject([getter, setter], &is_nil/1)
 
   defp entry_handlers(%PropertySpec{}), do: []
+  defp entry_handlers(%AliasSpec{}), do: []
 
   defp validate_entry!(%FunctionSpec{key: key, length: length} = spec, env) do
     unless is_integer(length) and length >= 0 do
@@ -71,6 +82,7 @@ defmodule QuickBEAM.VM.Builtin.Validator do
 
   defp validate_entry!(%AccessorSpec{} = spec, env), do: validate_flags!(spec, env)
   defp validate_entry!(%PropertySpec{} = spec, env), do: validate_flags!(spec, env)
+  defp validate_entry!(%AliasSpec{} = spec, env), do: validate_flags!(spec, env)
 
   defp validate_flags!(spec, env) do
     flags =

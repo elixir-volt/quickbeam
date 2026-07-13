@@ -6,13 +6,15 @@ defmodule QuickBEAM.VM.Builtin.Spec do
   not contain heap references or captured functions.
   """
 
-  alias QuickBEAM.VM.Builtin.{AccessorSpec, FunctionSpec, PropertySpec}
+  alias QuickBEAM.VM.Builtin.{AccessorSpec, AliasSpec, FunctionSpec, PropertySpec}
 
   @enforce_keys [:name, :module, :kind]
   defstruct [
     :name,
     :module,
     :constructor,
+    :prototype_parent,
+    :prototype_role,
     profiles: [:core],
     depends_on: [],
     kind: :namespace,
@@ -27,11 +29,13 @@ defmodule QuickBEAM.VM.Builtin.Spec do
           module: module(),
           kind: kind(),
           constructor: atom() | nil,
+          prototype_parent: String.t() | :null | nil,
+          prototype_role: :ordinary | :function | {:error, String.t()} | nil,
           profiles: [atom()],
           depends_on: [String.t()],
           length: non_neg_integer(),
-          statics: [FunctionSpec.t() | PropertySpec.t() | AccessorSpec.t()],
-          prototype: [FunctionSpec.t() | PropertySpec.t() | AccessorSpec.t()]
+          statics: [FunctionSpec.t() | PropertySpec.t() | AccessorSpec.t() | AliasSpec.t()],
+          prototype: [FunctionSpec.t() | PropertySpec.t() | AccessorSpec.t() | AliasSpec.t()]
         }
 end
 
@@ -61,6 +65,21 @@ defmodule QuickBEAM.VM.Builtin.AccessorSpec do
           key: term(),
           getter: atom() | nil,
           setter: atom() | nil,
+          enumerable: boolean(),
+          configurable: boolean()
+        }
+end
+
+defmodule QuickBEAM.VM.Builtin.AliasSpec do
+  @moduledoc "Defines a builtin property that aliases another property on the same object."
+
+  @enforce_keys [:key, :target]
+  defstruct [:key, :target, writable: true, enumerable: false, configurable: true]
+
+  @type t :: %__MODULE__{
+          key: term(),
+          target: term(),
+          writable: boolean(),
           enumerable: boolean(),
           configurable: boolean()
         }

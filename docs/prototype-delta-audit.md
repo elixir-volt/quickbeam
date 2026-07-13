@@ -386,9 +386,11 @@ High-value test groups to adapt next:
 - Handlers use stable module/function tokens and explicit call contexts through
   canonical invocation semantics; resumable actions are typed and malformed
   results fail as infrastructure contract errors.
-- Migrated `Math`, `String.fromCharCode`, `Array.isArray`, all currently
-  supported Array prototype methods, and all currently supported Object statics
-  with real function objects and descriptor, `name`, and `length` metadata.
+- Migrated `Math`, Promise, Symbol, Set, the Error hierarchy, shared Function
+  methods, `String.fromCharCode`, `Array.isArray`, all currently supported Array
+  prototype methods, and all currently supported Object statics and prototype
+  methods with real function objects and descriptor, `name`, and `length`
+  metadata.
 - `Object.assign` and Array callback methods prove that DSL handlers can return
   canonical resumable actions without recursively invoking JavaScript.
 - Descriptor-heavy Object methods now share canonical descriptor validation;
@@ -403,15 +405,18 @@ High-value test groups to adapt next:
 - Custom iterator getters, factories, cached `next` methods, and accessor-backed
   `done`/`value` reads resume through explicit boundaries; computed Symbol
   methods and fields are supported without recursive JavaScript execution.
-- Continue with object/error prototype methods that remain in the legacy
-  dispatcher.
+- Constructor prototype parents, Error prototype registration, and Symbol-keyed
+  aliases are explicit installer topology. Legacy object/error/set/function
+  pseudo-method tokens have been removed; the remaining dispatcher is limited
+  to bootstrap constructors and unmigrated builtins.
 
 ### Phase C — expand conformance by profile demand
 
 - Added differential sparse-array tests and hole-aware native callback frames;
   callbacks skip holes, `map` preserves them, and `reduce` finds the first
   present element when no initial value is supplied.
-- Add Symbol/iterator foundations and iterable Promise combinators.
+- Expand Symbol APIs and iterator consumers only when required by the selected
+  compatibility profile.
 - Expand the pinned Test262 manifest with exact classified thresholds.
 - Add decoder mutation fuzzing.
 

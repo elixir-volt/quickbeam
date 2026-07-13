@@ -1,0 +1,52 @@
+defmodule QuickBEAM.VM.Builtins.Function do
+  @moduledoc "Defines declarative methods shared by JavaScript function objects."
+
+  use QuickBEAM.VM.Builtin
+
+  alias QuickBEAM.VM.Builtin
+  alias QuickBEAM.VM.Builtin.Call
+  alias QuickBEAM.VM.Invocation
+
+  builtin "Function", kind: :intrinsic, depends_on: ["Object"] do
+    prototype do
+      method :bind, length: 1
+      method :call, length: 1
+    end
+  end
+
+  @doc "Creates a represented bound function."
+  def bind(%Call{this: target, arguments: arguments, execution: execution}) do
+    if Invocation.callable?(target, execution) do
+      {bound_this, bound_arguments} =
+        case arguments do
+          [bound_this | rest] -> {bound_this, rest}
+          [] -> {:undefined, []}
+        end
+
+      {:ok, {:bound_function, target, bound_this, bound_arguments}, execution}
+    else
+      {:error, :incompatible_function_receiver, execution}
+    end
+  end
+
+  @doc "Invokes a function with an explicit receiver."
+  def call(%Call{
+        this: target,
+        arguments: arguments,
+        caller: caller,
+        tail?: tail?,
+        execution: execution
+      }) do
+    if Invocation.callable?(target, execution) do
+      {this, arguments} =
+        case arguments do
+          [this | rest] -> {this, rest}
+          [] -> {:undefined, []}
+        end
+
+      Builtin.action({:dispatch, target, arguments, this, caller, execution, tail?})
+    else
+      {:error, :incompatible_function_receiver, execution}
+    end
+  end
+end

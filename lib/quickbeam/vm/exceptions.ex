@@ -149,8 +149,21 @@ defmodule QuickBEAM.VM.Exceptions do
     {:complete, boundary.promise, boundary.caller, execution, boundary.tail?}
   end
 
-  defp throw_from_boundary(reason, %IteratorBoundary{} = boundary, execution, trace),
-    do: Iterator.fail(boundary, thrown(reason, trace), execution)
+  defp throw_from_boundary(
+         reason,
+         %IteratorBoundary{consumer: :promise} = boundary,
+         execution,
+         trace
+       ),
+       do: Iterator.fail(boundary, thrown(reason, trace), execution)
+
+  defp throw_from_boundary(
+         reason,
+         %IteratorBoundary{consumer: :set, caller: %ConstructorBoundary{} = constructor},
+         execution,
+         trace
+       ),
+       do: do_throw(reason, constructor.caller, execution, trace, true)
 
   defp throw_from_boundary(reason, %ReactionBoundary{} = boundary, execution, trace) do
     execution = Promise.settle(execution, boundary.promise, {:error, thrown(reason, trace)})

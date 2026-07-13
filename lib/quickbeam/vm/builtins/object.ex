@@ -16,7 +16,52 @@ defmodule QuickBEAM.VM.Builtins.Object do
     static :get_prototype_of, js: "getPrototypeOf", length: 1
     static :keys, length: 1
     static :set_prototype_of, js: "setPrototypeOf", length: 2
+
+    prototype do
+      method :has_own_property, js: "hasOwnProperty", length: 1
+      method :property_is_enumerable, js: "propertyIsEnumerable", length: 1
+      method :to_string_method, js: "toString", length: 0
+    end
   end
+
+  @doc "Implements `Object.prototype.hasOwnProperty`."
+  def has_own_property(%Call{
+        this: %Reference{} = object,
+        arguments: arguments,
+        execution: execution
+      }) do
+    key = List.first(arguments, :undefined)
+
+    case Properties.own_property(object, key, execution) do
+      {:ok, property} -> {:ok, not is_nil(property), execution}
+      {:error, reason} -> {:error, reason, execution}
+    end
+  end
+
+  def has_own_property(%Call{execution: execution}),
+    do: {:error, :incompatible_object_receiver, execution}
+
+  @doc "Implements `Object.prototype.propertyIsEnumerable`."
+  def property_is_enumerable(%Call{
+        this: %Reference{} = object,
+        arguments: arguments,
+        execution: execution
+      }) do
+    key = List.first(arguments, :undefined)
+
+    case Properties.own_property(object, key, execution) do
+      {:ok, %Property{enumerable: enumerable}} -> {:ok, enumerable, execution}
+      {:ok, nil} -> {:ok, false, execution}
+      {:error, reason} -> {:error, reason, execution}
+    end
+  end
+
+  def property_is_enumerable(%Call{execution: execution}),
+    do: {:error, :incompatible_object_receiver, execution}
+
+  @doc "Implements the core `Object.prototype.toString` result."
+  def to_string_method(%Call{execution: execution}),
+    do: {:ok, "[object Object]", execution}
 
   @doc "Plans resumable `Object.assign` property reads and writes."
   def assign(%Call{

@@ -74,6 +74,16 @@ defmodule QuickBEAM.VM.ErrorTest do
     assert error.stack =~ "RangeError: outside range"
   end
 
+  test "matches Error hierarchy construction and prototype descriptors" do
+    source =
+      "(()=>{let empty=new Error();let plain=Error();let typed=TypeError('wrong');return [empty.toString(),Object.prototype.hasOwnProperty.call(empty,'message'),Object.prototype.hasOwnProperty.call(plain,'message'),typed.toString(),typed instanceof TypeError,typed instanceof Error,TypeError.prototype.constructor===TypeError]})()"
+
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+
+    assert {:ok, ["Error", false, false, "TypeError: wrong", true, true, true]} =
+             QuickBEAM.VM.eval(program)
+  end
+
   test "normalizes uncaught type errors" do
     assert {:ok, program} = QuickBEAM.VM.compile("const value = 1; value()", filename: "type.js")
 

@@ -60,8 +60,24 @@ defmodule QuickBEAM.VM.Iterator do
     {promise, execution} = Promise.new(execution)
 
     boundary = %IteratorBoundary{
+      consumer: :promise,
       kind: kind,
       promise: promise,
+      iterable: iterable,
+      caller: caller,
+      depth: execution.depth,
+      tail?: tail?
+    }
+
+    read_iterator_method(boundary, execution)
+  end
+
+  @doc "Starts resumable consumption for a Set constructor."
+  @spec start_set(Reference.t(), term(), term(), Execution.t(), boolean()) :: action()
+  def start_set(target, iterable, caller, execution, tail?) do
+    boundary = %IteratorBoundary{
+      consumer: :set,
+      target: target,
       iterable: iterable,
       caller: caller,
       depth: execution.depth,
@@ -108,13 +124,16 @@ defmodule QuickBEAM.VM.Iterator do
 
   @doc "Rejects the combinator Promise and returns it to the original caller."
   @spec reject(IteratorBoundary.t(), term(), Execution.t()) :: action()
-  def reject(%IteratorBoundary{} = boundary, reason, execution),
-    do: reject_now(boundary, reason, execution)
+  def reject(%IteratorBoundary{consumer: :promise} = boundary, reason, execution),
+    do: reject_promise(boundary, reason, execution)
+
+  def reject(%IteratorBoundary{consumer: :set} = boundary, reason, execution),
+    do: {:error, reason, boundary.caller, execution}
 
   @doc "Handles a JavaScript throw raised while an iterator boundary is active."
   @spec fail(IteratorBoundary.t(), term(), Execution.t()) :: action()
   def fail(%IteratorBoundary{} = boundary, reason, execution),
-    do: reject_now(boundary, reason, execution)
+    do: reject(boundary, reason, execution)
 
   defp read_iterator_method(boundary, execution) do
     case QuickBEAM.VM.Properties.get(boundary.iterable, Symbol.iterator(), execution) do
@@ -176,11 +195,27 @@ defmodule QuickBEAM.VM.Iterator do
 
   defp after_done(boundary, done, execution) do
     if Value.truthy?(done) do
-      values = Enum.reverse(boundary.values)
-      execution = Promise.aggregate_into(execution, boundary.promise, boundary.kind, values)
-      complete(boundary, execution)
+      finish(boundary, execution)
     else
       read_value(boundary, execution)
+    end
+  end
+
+  defp finish(%IteratorBoundary{consumer: :promise} = boundary, execution) do
+    values = Enum.reverse(boundary.values)
+    execution = Promise.aggregate_into(execution, boundary.promise, boundary.kind, values)
+    complete(boundary, execution)
+  end
+
+  defp finish(%IteratorBoundary{consumer: :set} = boundary, execution) do
+    values = Enum.reverse(boundary.values)
+
+    case QuickBEAM.VM.Builtins.Set.initialize(boundary.target, values, execution) do
+      {:ok, execution} ->
+        {:complete, boundary.target, boundary.caller, execution, boundary.tail?}
+
+      {:error, reason} ->
+        {:error, reason, boundary.caller, execution}
     end
   end
 
@@ -197,7 +232,7 @@ defmodule QuickBEAM.VM.Iterator do
     end
   end
 
-  defp reject_now(boundary, reason, execution) do
+  defp reject_promise(boundary, reason, execution) do
     {reason, execution} = Exceptions.materialize(reason, execution)
     execution = Promise.settle(execution, boundary.promise, {:error, reason})
     complete(boundary, execution)

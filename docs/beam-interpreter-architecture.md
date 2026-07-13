@@ -414,8 +414,8 @@ synchronously and queues invocation of returned then functions as microtasks.
 ## Declarative builtins
 
 Builtin modules use `QuickBEAM.VM.Builtin` to compile constructor, namespace,
-intrinsic, static, prototype, function, data-property, constant, and accessor
-declarations into immutable specs. Handler atoms are primary and JavaScript
+intrinsic, static, prototype, function, data-property, constant, accessor, and
+property-alias declarations into immutable specs. Handler atoms are primary and JavaScript
 names are inferred unless an explicit camelCase `js:` name is required:
 
 ```elixir
@@ -433,9 +433,10 @@ The formatter preserves this parenthesis-free syntax. Macro compilation,
 validation, installation, and runtime dispatch are separate modules. Constants
 are evaluated in the declaring module, descriptors and accessors have typed
 specs, and each builtin declares one or more profiles plus explicit intrinsic
-dependencies. An explicit profile registry installs specs in validated dependency
-order into each owner-local execution. Runtime application-module discovery is
-forbidden.
+dependencies. Constructor specs can declare prototype parents and semantic roles
+for default or Error prototypes. An explicit profile registry installs specs in
+validated dependency order into each owner-local execution. Runtime
+application-module discovery is forbidden.
 
 Installed functions are real owner-local function objects carrying stable
 module/handler tokens, not captured closures. Calls receive an explicit
@@ -445,16 +446,18 @@ planner. Resumable results use a typed `QuickBEAM.VM.Builtin.Action`; malformed
 handler results raise an infrastructure contract error. Compile-time checks
 reject missing handlers, invalid lengths and descriptors, unknown builtin kinds,
 empty profiles, malformed dependencies, duplicate declarations, and duplicate
-keys. The migrated slice now includes `Math`,
-`String.fromCharCode`, every currently supported Array prototype method,
-`Array.isArray`, and all currently supported Object statics, including
-resumable callbacks, `Object.assign`, descriptor validation, and all currently
-supported String and Number prototype methods. Primitive strings, numbers, and
-internal BEAM lists resolve methods from the same installed intrinsic prototype
-objects, eliminating parallel pseudo-method implementations. The legacy
-dispatcher remains only for builtins not yet migrated. Real function metadata
-increases the intrinsic heap baseline, which remains included in logical memory
-accounting.
+keys. The migrated slice includes `Math`, Promise, Symbol, Set, the complete
+Error hierarchy, `Function.prototype.call`/`bind`, all currently supported
+Object statics and prototype methods, every currently supported Array prototype
+method, `Array.isArray`, `String.fromCharCode`, and all currently supported
+String and Number prototype methods. Resumable callbacks, `Object.assign`,
+descriptor validation, Symbol aliases, and intrinsic prototype topology all use
+the same installation and invocation paths. Primitive strings, numbers,
+internal BEAM lists, functions, and owner-local Set values resolve methods from
+installed intrinsic prototypes, eliminating their parallel pseudo-method
+implementations. The bootstrap dispatcher remains only for constructors and
+builtins not yet migrated. Real function metadata increases the intrinsic heap
+baseline, which remains included in logical memory accounting.
 
 ## ECMAScript and host profiles
 
@@ -552,12 +555,13 @@ insertion-ordered sets, strings, internal BEAM lists, and custom
 `Symbol.iterator` is an immutable well-known Symbol value and computed Symbol
 property keys remain distinct from strings and enumeration names.
 
-Custom iterators run as an explicit resumable state machine. Iterator getters,
-the iterator factory, the cached `next` method, and accessor-backed `done` and
-`value` reads all dispatch through canonical invocation without recursive
-JavaScript execution. Throws become rejected combinator Promises with async
-stack information preserved. Each resumed JavaScript call remains subject to
-the evaluation's shared step, stack, memory, and timeout limits.
+Custom iterators run as an explicit resumable state machine shared by Promise
+combinators and the Set constructor. Iterator getters, the iterator factory, the
+cached `next` method, and accessor-backed `done` and `value` reads all dispatch
+through canonical invocation without recursive JavaScript execution. Throws
+become rejected combinator Promises or synchronous Set-construction exceptions
+as required. Each resumed JavaScript call remains subject to the evaluation's
+shared step, stack, memory, and timeout limits.
 
 ```text
 Evaluation owner                       Host Task Supervisor

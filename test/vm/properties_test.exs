@@ -20,11 +20,13 @@ defmodule QuickBEAM.VM.PropertiesTest do
     assert {:error, {:invoke_setter, ^setter}} = Properties.put(object, "value", 42, execution)
   end
 
-  test "provides primitive, Promise, and callable pseudo-properties" do
+  test "resolves primitive and callable properties through intrinsic prototypes" do
     execution = Builtins.install(execution())
     {callable, execution} = Heap.allocate(execution, :function, callable: {:builtin, "callable"})
 
-    assert {:ok, {:function_method, "bind"}} = Properties.get(callable, "bind", execution)
+    assert {:ok, %Reference{} = bind} = Properties.get(callable, "bind", execution)
+    assert Invocation.callable?(bind, execution)
+    assert {:ok, "bind"} = Properties.get(bind, "name", execution)
     assert {:ok, 2} = Properties.get("😀", "length", execution)
     assert {:ok, <<0xED, 0xA0, 0xBD>>} = Properties.get("😀", 0, execution)
 

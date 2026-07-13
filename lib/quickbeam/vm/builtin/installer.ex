@@ -7,7 +7,7 @@ defmodule QuickBEAM.VM.Builtin.Installer do
   stable module/handler tokens rather than captured closures.
   """
 
-  alias QuickBEAM.VM.Builtin.{AccessorSpec, FunctionSpec, PropertySpec, Spec}
+  alias QuickBEAM.VM.Builtin.{AccessorSpec, AliasSpec, FunctionSpec, PropertySpec, Spec}
   alias QuickBEAM.VM.{Execution, Heap, Properties, Reference}
 
   @doc "Installs registered builtin modules for the selected profile."
@@ -39,7 +39,8 @@ defmodule QuickBEAM.VM.Builtin.Installer do
   def install(execution, %Spec{kind: :constructor} = spec) do
     token = {:declared_builtin, spec.module, spec.constructor}
     {constructor, execution} = allocate_function(execution, spec.name, spec.length, token)
-    {prototype, execution} = Heap.allocate(execution)
+    parent = resolve_prototype_parent(execution, spec.prototype_parent)
+    {prototype, execution} = Heap.allocate(execution, :ordinary, prototype: parent)
 
     {:ok, execution} =
       Properties.define(prototype, "constructor", constructor, execution,
@@ -57,6 +58,7 @@ defmodule QuickBEAM.VM.Builtin.Installer do
 
     execution = install_entries(execution, constructor, spec.module, spec.statics)
     execution = install_entries(execution, prototype, spec.module, spec.prototype)
+    execution = register_prototype_role(execution, prototype, spec.prototype_role)
     put_global(execution, spec.name, constructor)
   end
 
@@ -111,6 +113,24 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     execution
   end
 
+  defp install_entry(execution, target, _module, %AliasSpec{} = spec) do
+    {:ok, value} = Properties.get(target, spec.target, execution)
+
+    if value == :undefined do
+      raise ArgumentError,
+            "builtin alias #{inspect(spec.key)} has missing target #{inspect(spec.target)}"
+    end
+
+    {:ok, execution} =
+      Properties.define(target, spec.key, value, execution,
+        writable: spec.writable,
+        enumerable: spec.enumerable,
+        configurable: spec.configurable
+      )
+
+    execution
+  end
+
   defp install_entry(execution, target, _module, %PropertySpec{} = spec) do
     {:ok, execution} =
       Properties.define(target, spec.key, spec.value, execution,
@@ -149,6 +169,34 @@ defmodule QuickBEAM.VM.Builtin.Installer do
     token = {:declared_builtin, module, handler}
     allocate_function(execution, to_string(key), 0, token)
   end
+
+  defp resolve_prototype_parent(execution, nil),
+    do: Map.get(execution.default_prototypes, :ordinary)
+
+  defp resolve_prototype_parent(_execution, :null), do: nil
+
+  defp resolve_prototype_parent(execution, parent_name) do
+    constructor = Map.fetch!(execution.globals, parent_name)
+    {:ok, %Reference{} = prototype} = Properties.get(constructor, "prototype", execution)
+    prototype
+  end
+
+  defp register_prototype_role(execution, _prototype, nil), do: execution
+
+  defp register_prototype_role(execution, prototype, :ordinary),
+    do: %{
+      execution
+      | default_prototypes: Map.put(execution.default_prototypes, :ordinary, prototype)
+    }
+
+  defp register_prototype_role(execution, prototype, :function),
+    do: %{
+      execution
+      | default_prototypes: Map.put(execution.default_prototypes, :function, prototype)
+    }
+
+  defp register_prototype_role(execution, prototype, {:error, name}),
+    do: %{execution | error_prototypes: Map.put(execution.error_prototypes, name, prototype)}
 
   defp put_global(execution, name, value),
     do: %{execution | globals: Map.put(execution.globals, name, value)}

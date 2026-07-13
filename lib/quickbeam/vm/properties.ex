@@ -9,7 +9,6 @@ defmodule QuickBEAM.VM.Properties do
   """
 
   alias QuickBEAM.VM.{
-    Builtins,
     Execution,
     Heap,
     PromiseReference,
@@ -24,7 +23,6 @@ defmodule QuickBEAM.VM.Properties do
     :builtin_method,
     :declared_builtin,
     :bound_function,
-    :function_method,
     :host_function,
     :primitive_method,
     :promise_resolver
@@ -39,18 +37,7 @@ defmodule QuickBEAM.VM.Properties do
   def get(%Reference{} = object, key, execution) do
     case Heap.get(execution, object, key) do
       {:ok, :undefined} = missing ->
-        kind = kind(object, execution)
-
-        cond do
-          key in ["bind", "call"] and not is_nil(Builtins.callable(execution, object)) ->
-            {:ok, {:function_method, key}}
-
-          kind == :set and is_binary(key) ->
-            {:ok, {:primitive_method, kind, key}}
-
-          true ->
-            missing
-        end
+        missing
 
       result ->
         result
@@ -63,9 +50,9 @@ defmodule QuickBEAM.VM.Properties do
   def get(%RegExp{}, key, _execution) when is_binary(key),
     do: {:ok, {:primitive_method, :regexp, key}}
 
-  def get(object, key, _execution)
-      when is_tuple(object) and key in ["bind", "call"] and elem(object, 0) in @function_tags,
-      do: {:ok, {:function_method, key}}
+  def get(object, key, execution)
+      when is_tuple(object) and is_binary(key) and elem(object, 0) in @function_tags,
+      do: intrinsic_property(execution, "Function", key)
 
   def get(object, key, _execution) when is_map(object) and not is_struct(object) do
     case Map.fetch(object, key) do

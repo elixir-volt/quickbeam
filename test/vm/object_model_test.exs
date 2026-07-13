@@ -99,6 +99,34 @@ defmodule QuickBEAM.VM.ObjectModelTest do
     end
   end
 
+  test "matches declarative Function prototype call and bind", %{runtime: runtime} do
+    sources = [
+      "(()=>{function add(a,b){return this.base+a+b}return add.call({base:1},2,3)})()",
+      "(()=>{function add(a,b){return this.base+a+b}let bound=add.bind({base:1},2);return bound(3)})()",
+      "(()=>{let call=Function.prototype.call;return call.call((value)=>value+1,void 0,41)})()"
+    ]
+
+    for source <- sources do
+      assert_vm_matches_native(runtime, source)
+    end
+  end
+
+  test "matches native Set construction, aliases, and insertion order", %{runtime: runtime} do
+    sources = [
+      "(()=>{let value=new Set([2,1,2]);return [value.size,value.has(1),value.has(3)]})()",
+      "(()=>{let value=new Set([2,1,2]);let iterator=value.values();return [iterator.next().value,iterator.next().value,iterator.next().done]})()",
+      "(()=>{let value=new Set();return value[Symbol.iterator]===value.values})()",
+      "(()=>{let value=new Set();return value.add(2).add(1).add(2).size})()",
+      "(()=>{let iterable={[Symbol.iterator](){let i=0;return {next(){i++;return i<=2?{value:i,done:false}:{done:true}}}}};return new Set(iterable).size})()",
+      "(()=>{let iterable={[Symbol.iterator](){return {next(){throw 42}}}};try{new Set(iterable)}catch(error){return error}})()",
+      "(()=>{try{Set()}catch(error){return error.name}})()"
+    ]
+
+    for source <- sources do
+      assert_vm_matches_native(runtime, source)
+    end
+  end
+
   test "matches native prototype mutation and cycle rejection", %{runtime: runtime} do
     sources = [
       "(()=>{let prototype={answer:42};let value={};Object.setPrototypeOf(value,prototype);return [value.answer,Object.getPrototypeOf(value)===prototype]})()",

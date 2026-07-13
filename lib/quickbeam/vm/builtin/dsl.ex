@@ -88,6 +88,32 @@ defmodule QuickBEAM.VM.Builtin.DSL do
     end
   end
 
+  @doc "Declares a prototype property alias with an evaluated property key."
+  defmacro prototype_alias(key, opts) do
+    quote bind_quoted: [key: key, opts: opts] do
+      @quickbeam_builtin_prototype %QuickBEAM.VM.Builtin.AliasSpec{
+        key: key,
+        target: Keyword.fetch!(opts, :to),
+        writable: Keyword.get(opts, :writable, true),
+        enumerable: Keyword.get(opts, :enumerable, false),
+        configurable: Keyword.get(opts, :configurable, true)
+      }
+    end
+  end
+
+  @doc "Declares a static property alias with an evaluated property key."
+  defmacro static_alias(key, opts) do
+    quote bind_quoted: [key: key, opts: opts] do
+      @quickbeam_builtin_statics %QuickBEAM.VM.Builtin.AliasSpec{
+        key: key,
+        target: Keyword.fetch!(opts, :to),
+        writable: Keyword.get(opts, :writable, true),
+        enumerable: Keyword.get(opts, :enumerable, false),
+        configurable: Keyword.get(opts, :configurable, true)
+      }
+    end
+  end
+
   @doc "Declares a prototype getter."
   defmacro getter(handler, opts \\ []) do
     spec = accessor_spec(handler, Keyword.put(opts, :get, handler))
@@ -136,6 +162,8 @@ defmodule QuickBEAM.VM.Builtin.DSL do
       module: env.module,
       kind: Keyword.get(opts, :kind, :namespace),
       constructor: Keyword.get(opts, :constructor),
+      prototype_parent: Keyword.get(opts, :prototype_parent),
+      prototype_role: Keyword.get(opts, :prototype_role),
       profiles: Keyword.get(opts, :profiles, [:core]),
       depends_on: Keyword.get(opts, :depends_on, []),
       length: Keyword.get(opts, :length, 0),

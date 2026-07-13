@@ -319,10 +319,22 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute_invocation({:promise_iterate, kind, iterable, caller, execution, tail?}),
     do: kind |> Iterator.start(iterable, caller, execution, tail?) |> execute_invocation()
 
-  defp execute_invocation({:iterator_value, value, boundary, execution}) do
+  defp execute_invocation({:set_iterate, target, iterable, caller, execution, tail?}),
+    do: target |> Iterator.start_set(iterable, caller, execution, tail?) |> execute_invocation()
+
+  defp execute_invocation(
+         {:iterator_value, value, %IteratorBoundary{consumer: :promise} = boundary, execution}
+       ) do
     {source, execution} = Promise.from_value(execution, value)
     boundary = %{boundary | values: [source | boundary.values]}
     continue_iterator_sync(boundary, execution)
+  end
+
+  defp execute_invocation(
+         {:iterator_value, value, %IteratorBoundary{consumer: :set} = boundary, execution}
+       ) do
+    boundary = %{boundary | values: [value | boundary.values]}
+    boundary |> Iterator.continue(execution) |> execute_invocation()
   end
 
   defp complete_call_result(value, %IteratorBoundary{} = boundary, execution, _tail?),

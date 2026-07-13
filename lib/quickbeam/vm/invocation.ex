@@ -36,6 +36,7 @@ defmodule QuickBEAM.VM.Invocation do
           | {:object_assign, Reference.t(), [term()], term(), Execution.t(), boolean()}
           | {:array_iteration, String.t(), term(), [term()], term(), Execution.t(), boolean()}
           | {:promise_iterate, atom(), term(), term(), Execution.t(), boolean()}
+          | {:set_iterate, Reference.t(), term(), term(), Execution.t(), boolean()}
           | {:iterator_value, term(), QuickBEAM.VM.IteratorBoundary.t(), Execution.t()}
 
   @doc "Plans one invocation without executing interpreter frames."
@@ -99,28 +100,6 @@ defmodule QuickBEAM.VM.Invocation do
         tail?
       ),
       do: {:dispatch, target, bound_arguments ++ arguments, bound_this, caller, execution, tail?}
-
-  def plan(
-        {:function_method, "bind"},
-        [bound_this | bound_arguments],
-        target,
-        caller,
-        execution,
-        false
-      ),
-      do:
-        {:complete, {:bound_function, target, bound_this, bound_arguments}, caller, execution,
-         false}
-
-  def plan({:function_method, "call"}, arguments, target, caller, execution, tail?) do
-    {this, arguments} =
-      case arguments do
-        [this | rest] -> {this, rest}
-        [] -> {:undefined, []}
-      end
-
-    {:dispatch, target, arguments, this, caller, execution, tail?}
-  end
 
   def plan(%Reference{} = reference, arguments, this, caller, execution, tail?) do
     case Builtins.callable(execution, reference) do
@@ -221,7 +200,6 @@ defmodule QuickBEAM.VM.Invocation do
                :builtin_method,
                :declared_builtin,
                :bound_function,
-               :function_method,
                :host_function,
                :primitive_method,
                :promise_resolver

@@ -1,10 +1,12 @@
 defmodule QuickBEAM.VM.IteratorBoundary do
   @moduledoc "Defines resumable state while a Promise combinator consumes an iterator."
 
-  @enforce_keys [:kind, :promise, :iterable, :caller, :depth]
+  @enforce_keys [:consumer, :iterable, :caller, :depth]
   defstruct [
+    :consumer,
     :kind,
     :promise,
+    :target,
     :iterable,
     :iterator,
     :next,
@@ -25,8 +27,10 @@ defmodule QuickBEAM.VM.IteratorBoundary do
           | :value_getter
 
   @type t :: %__MODULE__{
-          kind: :all | :all_settled | :any | :race,
-          promise: QuickBEAM.VM.PromiseReference.t(),
+          consumer: :promise | :set,
+          kind: :all | :all_settled | :any | :race | nil,
+          promise: QuickBEAM.VM.PromiseReference.t() | nil,
+          target: QuickBEAM.VM.Reference.t() | nil,
           iterable: term(),
           iterator: term() | nil,
           next: term() | nil,

@@ -12,7 +12,16 @@ defmodule QuickBEAM.VM.Builtin.Registry do
     QuickBEAM.VM.Builtins.String,
     QuickBEAM.VM.Builtins.Number,
     QuickBEAM.VM.Builtins.Object,
+    QuickBEAM.VM.Builtins.Function,
+    QuickBEAM.VM.Builtins.Error,
+    QuickBEAM.VM.Builtins.EvalError,
+    QuickBEAM.VM.Builtins.RangeError,
+    QuickBEAM.VM.Builtins.ReferenceError,
+    QuickBEAM.VM.Builtins.SyntaxError,
+    QuickBEAM.VM.Builtins.TypeError,
+    QuickBEAM.VM.Builtins.URIError,
     QuickBEAM.VM.Builtins.Symbol,
+    QuickBEAM.VM.Builtins.Set,
     QuickBEAM.VM.Builtins.Promise
   ]
 

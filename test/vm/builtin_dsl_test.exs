@@ -113,7 +113,16 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
              QuickBEAM.VM.Builtins.String,
              QuickBEAM.VM.Builtins.Number,
              QuickBEAM.VM.Builtins.Object,
+             QuickBEAM.VM.Builtins.Function,
+             QuickBEAM.VM.Builtins.Error,
+             QuickBEAM.VM.Builtins.EvalError,
+             QuickBEAM.VM.Builtins.RangeError,
+             QuickBEAM.VM.Builtins.ReferenceError,
+             QuickBEAM.VM.Builtins.SyntaxError,
+             QuickBEAM.VM.Builtins.TypeError,
+             QuickBEAM.VM.Builtins.URIError,
              QuickBEAM.VM.Builtins.Symbol,
+             QuickBEAM.VM.Builtins.Set,
              QuickBEAM.VM.Builtins.Promise
            ]
 
@@ -123,6 +132,14 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     assert promise.kind == :constructor
     assert promise.constructor == :construct
     assert promise.depends_on == ["Object", "Function", "Symbol"]
+
+    error = QuickBEAM.VM.Builtins.TypeError.builtin_spec()
+    assert error.prototype_parent == "Error"
+    assert error.prototype_role == {:error, "TypeError"}
+
+    set = QuickBEAM.VM.Builtins.Set.builtin_spec()
+    assert set.kind == :constructor
+    assert Enum.any?(set.prototype, &match?(%QuickBEAM.VM.Builtin.AliasSpec{}, &1))
 
     symbol = QuickBEAM.VM.Builtins.Symbol.builtin_spec()
     assert symbol.kind == :namespace

@@ -1,6 +1,7 @@
 defmodule QuickBEAM.VM.InvocationTest do
   use ExUnit.Case, async: true
 
+  alias QuickBEAM.VM.Builtin.{Action, Call}
   alias QuickBEAM.VM.{ConstructorBoundary, Execution, Frame, Function, Heap, Invocation}
 
   test "plans ordinary and closure calls as explicit frame entries" do
@@ -49,28 +50,25 @@ defmodule QuickBEAM.VM.InvocationTest do
     assert Invocation.constructable?(reference, execution)
   end
 
-  test "plans Function bind and call without entering interpreter frames" do
+  test "plans declarative Function bind and call without entering interpreter frames" do
     execution = execution()
     caller = frame()
+    target = {:host_function, :beam_call}
 
-    assert {:complete, {:bound_function, :target, :receiver, [1, 2]}, ^caller, ^execution, false} =
-             Invocation.plan(
-               {:function_method, "bind"},
-               [:receiver, 1, 2],
-               :target,
-               caller,
-               execution
-             )
+    call = %Call{
+      arguments: [:receiver, 1, 2],
+      this: target,
+      caller: caller,
+      tail?: false,
+      execution: execution
+    }
 
-    assert {:dispatch, :target, [1, 2], :receiver, ^caller, ^execution, true} =
-             Invocation.plan(
-               {:function_method, "call"},
-               [:receiver, 1, 2],
-               :target,
-               caller,
-               execution,
-               true
-             )
+    assert {:ok, {:bound_function, ^target, :receiver, [1, 2]}, ^execution} =
+             QuickBEAM.VM.Builtins.Function.bind(call)
+
+    assert %Action{
+             value: {:dispatch, ^target, [1, 2], :receiver, ^caller, ^execution, true}
+           } = QuickBEAM.VM.Builtins.Function.call(%{call | tail?: true})
   end
 
   defp execution do
