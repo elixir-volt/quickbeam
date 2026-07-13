@@ -73,7 +73,19 @@ defmodule QuickBEAM.VM.PromiseTest do
       "Promise.all('ab').then(values=>values.join(''))",
       "Promise.all(new Set([2,1,2])).then(values=>values.join(','))",
       "Promise.all(Array(2)).then(values=>[values.length,values[0]===void 0,values[1]===void 0])",
-      "Promise.all(1).catch(error=>error.name)"
+      "Promise.all(1).catch(error=>error.name)",
+      "Promise.all({[Symbol.iterator](){let i=0;return {next(){i++;return i<=3?{value:i,done:false}:{done:true}}}}}).then(values=>values.join(','))",
+      "Promise.all({[Symbol.iterator]:function(){let done=false;return {next(){if(done)return {done:true};done=true;return {value:42,done:false}}}}}).then(values=>values[0])",
+      "(()=>{let reads=0;let iterable={get [Symbol.iterator](){reads++;return function(){let done=false;return {next(){if(done)return {done:true};done=true;return {value:42,done:false}}}}}};return Promise.all(iterable).then(values=>[values[0],reads])})()",
+      "Promise.all({get [Symbol.iterator](){throw 41}}).catch(value=>value+1)",
+      "Promise.all({[Symbol.iterator](){throw 42}}).catch(value=>value)",
+      "Promise.all({[Symbol.iterator](){let iterator={done:false,get next(){return function(){if(this.done)return {done:true};this.done=true;return {value:42,done:false}}}};return iterator}}).then(values=>values[0])",
+      "Promise.all({[Symbol.iterator](){return {next(){throw 42}}}}).catch(value=>value)",
+      "Promise.all({[Symbol.iterator](){return {next(){return {get done(){throw 42}}}}}}).catch(value=>value)",
+      "Promise.all({[Symbol.iterator](){let done=false;return {next(){if(done)return {done:true};done=true;return {done:false,get value(){throw 42}}}}}}).catch(value=>value)",
+      "(()=>{let closed=false;let iterable={[Symbol.iterator](){return {next(){throw 1},return(){closed=true;return {done:true}}}}};return Promise.all(iterable).catch(()=>closed)})()",
+      "(()=>{let closed=false;let iterable={[Symbol.iterator](){return {next(){return 1},return(){closed=true;return {done:true}}}}};return Promise.all(iterable).catch(()=>closed)})()",
+      "(()=>{let log='';let iterable={[Symbol.iterator](){let index=0;return {next(){index++;if(index===1)return {value:{get then(){log+='t';return resolve=>resolve(1)}},done:false};log+='n';return {done:true}}}}};return Promise.all(iterable).then(()=>log)})()"
     ]
 
     for source <- sources do
@@ -179,6 +191,16 @@ defmodule QuickBEAM.VM.PromiseTest do
 
     assert {:error, {:limit_exceeded, :steps, 100}} =
              QuickBEAM.VM.eval(program, max_steps: 100)
+  end
+
+  test "bounds custom iterators with the shared step limit" do
+    source =
+      "Promise.all({[Symbol.iterator](){return {next(){return {value:1,done:false}}}}})"
+
+    assert {:ok, program} = QuickBEAM.VM.compile(source)
+
+    assert {:error, {:limit_exceeded, :steps, 200}} =
+             QuickBEAM.VM.eval(program, max_steps: 200)
   end
 
   defp assert_vm_matches_native(runtime, source) do

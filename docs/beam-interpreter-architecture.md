@@ -546,11 +546,18 @@ assimilation, self-resolution protection, idempotent resolver functions, and
 their reaction Promise settles, including thenables returned from `.finally`.
 
 Combinators consume `QuickBEAM.VM.Iterator`, the canonical iterable-value
-boundary. The core profile currently supports sparse arrays (holes yield
-`undefined`), sets, strings, and internal BEAM lists; non-iterables produce a
-rejected TypeError Promise. Custom `Symbol.iterator` objects remain an explicit
-next extension and must use resumable invocation actions rather than a separate
-recursive execution path.
+boundary. The core profile supports sparse arrays (holes yield `undefined`),
+insertion-ordered sets, strings, internal BEAM lists, and custom
+`Symbol.iterator` objects; non-iterables produce a rejected TypeError Promise.
+`Symbol.iterator` is an immutable well-known Symbol value and computed Symbol
+property keys remain distinct from strings and enumeration names.
+
+Custom iterators run as an explicit resumable state machine. Iterator getters,
+the iterator factory, the cached `next` method, and accessor-backed `done` and
+`value` reads all dispatch through canonical invocation without recursive
+JavaScript execution. Throws become rejected combinator Promises with async
+stack information preserved. Each resumed JavaScript call remains subject to
+the evaluation's shared step, stack, memory, and timeout limits.
 
 ```text
 Evaluation owner                       Host Task Supervisor

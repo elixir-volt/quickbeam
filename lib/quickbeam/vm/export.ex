@@ -14,7 +14,8 @@ defmodule QuickBEAM.VM.Export do
     Promise,
     PromiseReference,
     Property,
-    Reference
+    Reference,
+    Symbol
   }
 
   @spec value(term(), Execution.t()) :: {:ok, term()} | {:error, term()}
@@ -43,6 +44,7 @@ defmodule QuickBEAM.VM.Export do
     do: {:error, :function_result}
 
   defp convert(%QuickBEAM.VM.Function{}, _execution, _seen), do: {:error, :function_result}
+  defp convert(%Symbol{}, _execution, _seen), do: {:error, :symbol_result}
 
   defp convert(value, execution, seen) when is_list(value) do
     convert_list(value, execution, seen, [])
@@ -79,7 +81,7 @@ defmodule QuickBEAM.VM.Export do
 
   defp convert_object(%Object{properties: properties}, execution, seen) do
     properties
-    |> Enum.filter(fn {_key, property} -> property.enumerable end)
+    |> Enum.filter(fn {key, property} -> property.enumerable and not is_struct(key, Symbol) end)
     |> Enum.reduce_while({:ok, %{}}, fn {key, %Property{value: value}}, {:ok, result} ->
       case convert(value, execution, seen) do
         {:ok, value} -> {:cont, {:ok, Map.put(result, key, value)}}

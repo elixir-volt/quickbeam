@@ -398,8 +398,11 @@ High-value test groups to adapt next:
   is normalized to JavaScript lowercase form.
 - Promise construction, static combinators, and reaction methods now use full
   constructor DSL topology. Combinators share a canonical iterable boundary
-  for sparse arrays, sets, strings, and internal lists; custom Symbol iterators
-  remain the next resumable extension.
+  for sparse arrays, insertion-ordered sets, strings, internal lists, and custom
+  `Symbol.iterator` objects.
+- Custom iterator getters, factories, cached `next` methods, and accessor-backed
+  `done`/`value` reads resume through explicit boundaries; computed Symbol
+  methods and fields are supported without recursive JavaScript execution.
 - Continue with object/error prototype methods that remain in the legacy
   dispatcher.
 

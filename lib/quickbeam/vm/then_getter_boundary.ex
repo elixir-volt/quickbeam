@@ -13,6 +13,6 @@ defmodule QuickBEAM.VM.ThenGetterBoundary do
           promise: QuickBEAM.VM.PromiseReference.t(),
           thenable: QuickBEAM.VM.Reference.t(),
           depth: non_neg_integer(),
-          continuation: QuickBEAM.VM.Frame.t() | nil
+          continuation: QuickBEAM.VM.Frame.t() | QuickBEAM.VM.IteratorBoundary.t() | nil
         }
 end

@@ -185,6 +185,7 @@ defmodule QuickBEAM.VM.Value do
     do: "number"
 
   def typeof(value) when is_binary(value), do: "string"
+  def typeof(%QuickBEAM.VM.Symbol{}), do: "symbol"
   def typeof(%QuickBEAM.VM.Function{}), do: "function"
   def typeof(%QuickBEAM.VM.Reference{}), do: "object"
   def typeof(%QuickBEAM.VM.PromiseReference{}), do: "object"

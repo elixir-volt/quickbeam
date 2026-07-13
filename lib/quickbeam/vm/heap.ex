@@ -34,6 +34,29 @@ defmodule QuickBEAM.VM.Heap do
     {reference, execution}
   end
 
+  @doc "Returns enumerable own string and Symbol keys in ECMAScript order."
+  @spec assignable_keys(Execution.t(), Reference.t()) :: {:ok, [term()]} | {:error, term()}
+  def assignable_keys(execution, %Reference{id: id} = reference) do
+    case fetch_object(execution, reference) do
+      {:ok, object} ->
+        integer_keys =
+          object.properties
+          |> Enum.filter(fn {key, property} -> is_integer(key) and property.enumerable end)
+          |> Enum.map(&elem(&1, 0))
+          |> Enum.sort()
+
+        other_keys =
+          Enum.filter(object.property_order, fn key ->
+            not is_integer(key) and match?(%Property{enumerable: true}, object.properties[key])
+          end)
+
+        {:ok, integer_keys ++ other_keys}
+
+      :error ->
+        {:error, {:invalid_reference, id}}
+    end
+  end
+
   @spec fetch_object(Execution.t(), Reference.t()) :: {:ok, Object.t()} | :error
   def fetch_object(%Execution{} = execution, %Reference{id: id}),
     do: Map.fetch(execution.heap, id)
@@ -271,7 +294,7 @@ defmodule QuickBEAM.VM.Heap do
 
         string_keys =
           Enum.filter(object.property_order, fn key ->
-            not is_integer(key) and match?(%Property{enumerable: true}, object.properties[key])
+            is_binary(key) and match?(%Property{enumerable: true}, object.properties[key])
           end)
 
         {:ok, integer_keys ++ string_keys}

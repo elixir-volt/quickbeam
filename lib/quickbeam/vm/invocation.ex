@@ -35,6 +35,8 @@ defmodule QuickBEAM.VM.Invocation do
           | {:host_call, [term()], term(), Execution.t(), boolean()}
           | {:object_assign, Reference.t(), [term()], term(), Execution.t(), boolean()}
           | {:array_iteration, String.t(), term(), [term()], term(), Execution.t(), boolean()}
+          | {:promise_iterate, atom(), term(), term(), Execution.t(), boolean()}
+          | {:iterator_value, term(), QuickBEAM.VM.IteratorBoundary.t(), Execution.t()}
 
   @doc "Plans one invocation without executing interpreter frames."
   @spec plan(term(), [term()], term(), term(), Execution.t(), boolean()) :: action()

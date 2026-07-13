@@ -89,7 +89,9 @@ defmodule QuickBEAM.VM.ObjectModelTest do
     sources = [
       "(()=>{let source={get answer(){return 42}};return Object.assign({},source).answer})()",
       "(()=>{let seen=0;let target={set answer(value){seen=value}};Object.assign(target,{answer:42});return seen})()",
-      "(()=>{let source={get answer(){throw 42}};try{Object.assign({},source)}catch(error){return error}})()"
+      "(()=>{let source={get answer(){throw 42}};try{Object.assign({},source)}catch(error){return error}})()",
+      "(()=>{let symbol=Symbol.iterator;let source={[symbol]:42,answer:1};let target=Object.assign({},source);return [Object.keys(source).join(','),target[symbol]]})()",
+      "(()=>({[Symbol.iterator]:42,answer:1}))()"
     ]
 
     for source <- sources do

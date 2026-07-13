@@ -20,7 +20,7 @@ defmodule QuickBEAM.VM.Builtins.Promise do
     kind: :constructor,
     constructor: :construct,
     length: 1,
-    depends_on: ["Object", "Function"] do
+    depends_on: ["Object", "Function", "Symbol"] do
     static :all, length: 1
     static :all_settled, js: "allSettled", length: 1
     static :any, length: 1
@@ -135,13 +135,16 @@ defmodule QuickBEAM.VM.Builtins.Promise do
   def finally_method(%Call{execution: execution}),
     do: {:error, :incompatible_promise_receiver, execution}
 
-  defp aggregate(kind, %Call{arguments: arguments, execution: execution}) do
+  defp aggregate(kind, %Call{arguments: arguments, execution: execution} = call) do
     iterable = List.first(arguments, :undefined)
 
     case Iterator.values(iterable, execution) do
       {:ok, values} ->
         {promise, execution} = Promise.aggregate(execution, kind, values)
         {:ok, promise, execution}
+
+      {:resumable} ->
+        Builtin.action({:promise_iterate, kind, iterable, call.caller, execution, call.tail?})
 
       {:error, :not_iterable} ->
         {reason, execution} = Exceptions.materialize({:type_error, :not_iterable}, execution)

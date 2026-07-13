@@ -1,7 +1,7 @@
 defmodule QuickBEAM.VM.ValueTest do
   use ExUnit.Case, async: true
 
-  alias QuickBEAM.VM.Value
+  alias QuickBEAM.VM.{Symbol, Value}
 
   test "centralizes JavaScript truthiness and primitive equality" do
     for value <- [nil, :undefined, :nan, false, 0, 0.0, ""] do
@@ -18,6 +18,8 @@ defmodule QuickBEAM.VM.ValueTest do
     assert Value.abstract_equal?(true, 1)
     assert Value.abstract_equal?(42, "42")
     refute Value.abstract_equal?(0, nil)
+    assert Value.typeof(Symbol.iterator()) == "symbol"
+    assert Value.strict_equal?(Symbol.iterator(), Symbol.iterator())
   end
 
   test "dispatches canonical unary and binary arithmetic operations" do

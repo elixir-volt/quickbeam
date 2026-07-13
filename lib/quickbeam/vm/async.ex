@@ -15,6 +15,7 @@ defmodule QuickBEAM.VM.Async do
     Execution,
     Frame,
     Invocation,
+    IteratorBoundary,
     Memory,
     Promise,
     PromiseExecutorBoundary,
@@ -32,6 +33,7 @@ defmodule QuickBEAM.VM.Async do
           | {:invoke, term(), [term()], term(), term(), Execution.t(), boolean()}
           | {:complete, term(), term(), Execution.t(), boolean()}
           | {:return, term(), Execution.t()}
+          | {:continue_iterator, IteratorBoundary.t(), Execution.t()}
           | {:idle, Execution.t()}
           | {:suspended, Continuation.t()}
           | {:error, term(), Execution.t()}
@@ -136,8 +138,13 @@ defmodule QuickBEAM.VM.Async do
   end
 
   @doc "Plans invocation of an accessor-backed thenable property."
-  @spec read_thenable(PromiseReference.t(), term(), term(), Frame.t() | nil, Execution.t()) ::
-          result()
+  @spec read_thenable(
+          PromiseReference.t(),
+          term(),
+          term(),
+          Frame.t() | IteratorBoundary.t() | nil,
+          Execution.t()
+        ) :: result()
   def read_thenable(promise, thenable, getter, continuation, execution) do
     boundary = %ThenGetterBoundary{
       promise: promise,
@@ -194,6 +201,7 @@ defmodule QuickBEAM.VM.Async do
 
     case boundary.continuation do
       %Frame{} = frame -> {:run, frame, execution}
+      %IteratorBoundary{} = iterator -> {:continue_iterator, iterator, execution}
       nil -> {:idle, execution}
     end
   end

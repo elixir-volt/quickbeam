@@ -72,11 +72,26 @@ defmodule QuickBEAM.VM.Promise do
     {result_promise, execution}
   end
 
+  @doc "Creates or reuses the Promise produced by resolving one value."
+  @spec from_value(Execution.t(), term()) :: {PromiseReference.t(), Execution.t()}
+  def from_value(execution, value), do: promise_from_value(execution, value)
+
   @spec aggregate(Execution.t(), :all | :all_settled | :any | :race, [term()]) ::
           {PromiseReference.t(), Execution.t()}
   def aggregate(execution, kind, values) do
     {result_promise, execution} = new(execution)
+    execution = aggregate_into(execution, result_promise, kind, values)
+    {result_promise, execution}
+  end
 
+  @doc "Aggregates iterable values into an existing owner-local Promise."
+  @spec aggregate_into(
+          Execution.t(),
+          PromiseReference.t(),
+          :all | :all_settled | :any | :race,
+          [term()]
+        ) :: Execution.t()
+  def aggregate_into(execution, result_promise, kind, values) do
     if values == [] do
       result =
         case kind do
@@ -86,8 +101,7 @@ defmodule QuickBEAM.VM.Promise do
           :race -> nil
         end
 
-      execution = if result, do: settle(execution, result_promise, result), else: execution
-      {result_promise, execution}
+      if result, do: settle(execution, result_promise, result), else: execution
     else
       id = make_ref()
 
@@ -111,7 +125,7 @@ defmodule QuickBEAM.VM.Promise do
           add_aggregate_waiter(execution, source, id, index)
         end)
 
-      {result_promise, execution}
+      execution
     end
   end
 

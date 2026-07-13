@@ -21,12 +21,15 @@ defmodule QuickBEAM.VM.Interpreter do
     Frame,
     Heap,
     Invocation,
+    Iterator,
+    IteratorBoundary,
     Memory,
     NativeFrame,
     ObjectAssignBoundary,
     Opcodes,
     Program,
     Properties,
+    Promise,
     PromiseExecutorBoundary,
     PromiseReference,
     Reaction,
@@ -201,6 +204,10 @@ defmodule QuickBEAM.VM.Interpreter do
     do: complete_call_result(value, caller, execution, tail?)
 
   defp execute_async({:return, value, execution}), do: return_value(value, execution)
+
+  defp execute_async({:continue_iterator, boundary, execution}),
+    do: continue_iterator_sync(boundary, execution)
+
   defp execute_async({:idle, execution}), do: {:idle, execution}
   defp execute_async({:suspended, continuation}), do: {:suspended, continuation}
   defp execute_async({:error, reason, execution}), do: {:error, reason, execution}
@@ -309,6 +316,18 @@ defmodule QuickBEAM.VM.Interpreter do
        ),
        do: start_array_iteration(method, receiver, arguments, caller, execution, tail?)
 
+  defp execute_invocation({:promise_iterate, kind, iterable, caller, execution, tail?}),
+    do: kind |> Iterator.start(iterable, caller, execution, tail?) |> execute_invocation()
+
+  defp execute_invocation({:iterator_value, value, boundary, execution}) do
+    {source, execution} = Promise.from_value(execution, value)
+    boundary = %{boundary | values: [source | boundary.values]}
+    continue_iterator_sync(boundary, execution)
+  end
+
+  defp complete_call_result(value, %IteratorBoundary{} = boundary, execution, _tail?),
+    do: value |> Iterator.resume(boundary, execution) |> execute_invocation()
+
   defp complete_call_result(value, %ReactionBoundary{} = boundary, execution, _tail?),
     do: complete_reaction(boundary, value, execution)
 
@@ -358,8 +377,28 @@ defmodule QuickBEAM.VM.Interpreter do
   defp continue_after_then_getter(%ThenGetterBoundary{continuation: %Frame{} = frame}, execution),
     do: run(frame, execution)
 
+  defp continue_after_then_getter(
+         %ThenGetterBoundary{continuation: %IteratorBoundary{} = boundary},
+         execution
+       ),
+       do: continue_iterator_sync(boundary, execution)
+
   defp continue_after_then_getter(%ThenGetterBoundary{continuation: nil}, execution),
     do: {:idle, execution}
+
+  defp continue_iterator_sync(boundary, execution) do
+    case :queue.out(execution.sync_jobs) do
+      {{:value, {:read_thenable, promise, thenable, getter}}, sync_jobs} ->
+        execution = %{execution | sync_jobs: sync_jobs}
+
+        promise
+        |> Async.read_thenable(thenable, getter, boundary, execution)
+        |> execute_async()
+
+      {:empty, _sync_jobs} ->
+        boundary |> Iterator.continue(%{execution | sync_jobs: {[], []}}) |> execute_invocation()
+    end
+  end
 
   defp complete_accessor(value, %AccessorBoundary{mode: :get} = boundary, execution),
     do: run(%{boundary.caller | stack: [value | boundary.caller.stack]}, execution)
@@ -406,7 +445,7 @@ defmodule QuickBEAM.VM.Interpreter do
          %ObjectAssignBoundary{keys: [], sources: [source | sources]} = boundary,
          execution
        ) do
-    case Properties.enumerable_keys(source, execution) do
+    case Properties.assignable_keys(source, execution) do
       {:ok, keys} ->
         continue_object_assign(
           %{boundary | source: source, sources: sources, keys: keys, phase: nil, key: nil},
@@ -797,6 +836,14 @@ defmodule QuickBEAM.VM.Interpreter do
        ) do
     execution = %{execution | callers: callers, depth: boundary.depth}
     complete_constructor(value, boundary, execution)
+  end
+
+  defp return_value(
+         value,
+         %Execution{callers: [%IteratorBoundary{} = boundary | callers]} = execution
+       ) do
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    value |> Iterator.resume(boundary, execution) |> execute_invocation()
   end
 
   defp return_value(

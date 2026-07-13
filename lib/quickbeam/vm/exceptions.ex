@@ -16,6 +16,8 @@ defmodule QuickBEAM.VM.Exceptions do
     Frame,
     Function,
     Heap,
+    Iterator,
+    IteratorBoundary,
     NativeFrame,
     Object,
     ObjectAssignBoundary,
@@ -147,6 +149,9 @@ defmodule QuickBEAM.VM.Exceptions do
     {:complete, boundary.promise, boundary.caller, execution, boundary.tail?}
   end
 
+  defp throw_from_boundary(reason, %IteratorBoundary{} = boundary, execution, trace),
+    do: Iterator.fail(boundary, thrown(reason, trace), execution)
+
   defp throw_from_boundary(reason, %ReactionBoundary{} = boundary, execution, trace) do
     execution = Promise.settle(execution, boundary.promise, {:error, thrown(reason, trace)})
     {:idle, execution}
@@ -222,6 +227,15 @@ defmodule QuickBEAM.VM.Exceptions do
   defp unwind_caller(
          reason,
          %Execution{callers: [%PromiseExecutorBoundary{} = boundary | callers]} = execution,
+         trace
+       ) do
+    execution = %{execution | callers: callers, depth: boundary.depth}
+    throw_from_boundary(reason, boundary, execution, trace)
+  end
+
+  defp unwind_caller(
+         reason,
+         %Execution{callers: [%IteratorBoundary{} = boundary | callers]} = execution,
          trace
        ) do
     execution = %{execution | callers: callers, depth: boundary.depth}

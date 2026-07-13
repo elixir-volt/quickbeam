@@ -151,6 +151,13 @@ defmodule QuickBEAM.VM.Properties do
   def enumerable_keys(value, _execution) when value in [nil, :undefined], do: {:ok, []}
   def enumerable_keys(_value, _execution), do: {:ok, []}
 
+  @doc "Returns enumerable own string and Symbol keys copied by `Object.assign`."
+  @spec assignable_keys(term(), Execution.t()) :: {:ok, [term()]} | {:error, term()}
+  def assignable_keys(%Reference{} = reference, execution),
+    do: Heap.assignable_keys(execution, reference)
+
+  def assignable_keys(value, execution), do: enumerable_keys(value, execution)
+
   @doc "Tests JavaScript property presence across an object's prototype chain."
   @spec has_property?(term(), term(), Execution.t()) :: boolean()
   def has_property?(%Reference{} = reference, key, execution),

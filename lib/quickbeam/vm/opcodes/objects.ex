@@ -16,7 +16,9 @@ defmodule QuickBEAM.VM.Opcodes.Objects do
     :object,
     :array_from,
     :define_method,
+    :define_method_computed,
     :define_field,
+    :define_array_el,
     :get_field,
     :get_field2,
     :get_array_el,
@@ -110,6 +112,26 @@ defmodule QuickBEAM.VM.Opcodes.Objects do
   end
 
   def execute(
+        :define_method_computed,
+        [kind],
+        %{stack: [callable, key, %Reference{} = object | stack]} = frame,
+        execution
+      ) do
+    result =
+      case kind do
+        4 -> Properties.define(object, key, callable, execution)
+        5 -> Properties.define_accessor(object, key, :getter, callable, execution)
+        6 -> Properties.define_accessor(object, key, :setter, callable, execution)
+        _kind -> {:error, {:unsupported_method_kind, kind}}
+      end
+
+    case result do
+      {:ok, execution} -> next(%{frame | stack: [object | stack]}, execution)
+      {:error, reason} -> {:throw, {:type_error, reason}, frame, execution}
+    end
+  end
+
+  def execute(
         :define_field,
         [atom],
         %{stack: [value, %Reference{} = object | stack]} = frame,
@@ -119,6 +141,18 @@ defmodule QuickBEAM.VM.Opcodes.Objects do
 
     case Properties.define(object, key, value, execution) do
       {:ok, execution} -> next(%{frame | stack: [object | stack]}, execution)
+      {:error, reason} -> {:throw, {:type_error, reason}, frame, execution}
+    end
+  end
+
+  def execute(
+        :define_array_el,
+        [],
+        %{stack: [value, key, %Reference{} = object | stack]} = frame,
+        execution
+      ) do
+    case Properties.define(object, key, value, execution) do
+      {:ok, execution} -> next(%{frame | stack: [key, object | stack]}, execution)
       {:error, reason} -> {:throw, {:type_error, reason}, frame, execution}
     end
   end

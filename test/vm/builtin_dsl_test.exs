@@ -113,6 +113,7 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
              QuickBEAM.VM.Builtins.String,
              QuickBEAM.VM.Builtins.Number,
              QuickBEAM.VM.Builtins.Object,
+             QuickBEAM.VM.Builtins.Symbol,
              QuickBEAM.VM.Builtins.Promise
            ]
 
@@ -121,7 +122,11 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     promise = QuickBEAM.VM.Builtins.Promise.builtin_spec()
     assert promise.kind == :constructor
     assert promise.constructor == :construct
-    assert promise.depends_on == ["Object", "Function"]
+    assert promise.depends_on == ["Object", "Function", "Symbol"]
+
+    symbol = QuickBEAM.VM.Builtins.Symbol.builtin_spec()
+    assert symbol.kind == :namespace
+    assert [%{key: "iterator", value: %QuickBEAM.VM.Symbol{id: :iterator}}] = symbol.statics
 
     assert Enum.map(QuickBEAM.VM.Builtins.Object.builtin_spec().statics, & &1.key) ==
              ~w(assign create defineProperty getOwnPropertyDescriptor getOwnPropertyNames getPrototypeOf keys setPrototypeOf)
