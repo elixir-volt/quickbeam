@@ -361,9 +361,13 @@ High-value test groups to adapt next:
 - Literal and operand-stack opcodes now live in one stack family module.
 - Coercion, arithmetic, comparison, bitwise, value-test, `in`, and `instanceof`
   opcodes now live in one value family module.
+- Control-flow opcodes now classify branches, catches, returns, throws, and
+  awaits as explicit interpreter actions.
+- Local and closure opcodes now own argument/local slots, closure cells,
+  globals, atom resolution, and function-closure allocation.
 - Family-owned opcode lists are the interpreter's compile-time routing source.
-- Continue with control flow, locals/closures, properties/objects, invocation,
-  and async opcode families without moving the run loop out of the interpreter.
+- Continue with properties/objects, invocation, and async opcode families
+  without moving the run loop out of the interpreter.
 
 ### Phase C — expand conformance by profile demand
 
@@ -388,6 +392,6 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-Continue opcode-family decomposition with control flow and locals/closures,
-keeping frame stepping, resource accounting, and action execution centralized
-in the interpreter.
+Continue opcode-family decomposition with properties and object construction,
+keeping accessor invocation, exception unwinding, frame stepping, and resource
+accounting centralized through explicit actions.

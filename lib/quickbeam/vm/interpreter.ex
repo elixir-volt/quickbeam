@@ -19,14 +19,12 @@ defmodule QuickBEAM.VM.Interpreter do
     Exceptions,
     Export,
     Frame,
-    Function,
     Heap,
     Invocation,
     Memory,
     NativeFrame,
     ObjectAssignBoundary,
     Opcodes,
-    PredefinedAtoms,
     Program,
     Properties,
     PromiseExecutorBoundary,
@@ -40,12 +38,16 @@ defmodule QuickBEAM.VM.Interpreter do
     Value
   }
 
+  alias QuickBEAM.VM.Opcodes.Control, as: ControlOpcodes
+  alias QuickBEAM.VM.Opcodes.Locals, as: LocalOpcodes
   alias QuickBEAM.VM.Opcodes.Stack, as: StackOpcodes
   alias QuickBEAM.VM.Opcodes.Values, as: ValueOpcodes
 
   @default_max_steps 5_000_000
   @default_max_stack_depth 1_000
 
+  @control_opcodes ControlOpcodes.opcodes()
+  @local_opcodes LocalOpcodes.opcodes()
   @stack_opcodes StackOpcodes.opcodes()
   @value_opcodes ValueOpcodes.opcodes()
 
@@ -228,6 +230,12 @@ defmodule QuickBEAM.VM.Interpreter do
     execute(name, operands, frame, execution)
   end
 
+  defp execute(name, operands, frame, execution) when name in @control_opcodes,
+    do: name |> ControlOpcodes.execute(operands, frame, execution) |> execute_opcode()
+
+  defp execute(name, operands, frame, execution) when name in @local_opcodes,
+    do: name |> LocalOpcodes.execute(operands, frame, execution) |> execute_opcode()
+
   defp execute(name, operands, frame, execution) when name in @stack_opcodes,
     do: name |> StackOpcodes.execute(operands, frame, execution) |> execute_opcode()
 
@@ -365,73 +373,6 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
-  defp execute(:get_arg, [index], frame, execution),
-    do: push(frame, execution, read_slot(tuple_get(frame.args, index), execution))
-
-  defp execute(:put_arg, [index], %{stack: [value | stack]} = frame, execution) do
-    {args, execution} = write_tuple_slot(frame.args, index, value, execution)
-    continue(%{frame | args: args, stack: stack}, execution)
-  end
-
-  defp execute(:set_arg, [index], %{stack: [value | _]} = frame, execution) do
-    {args, execution} = write_tuple_slot(frame.args, index, value, execution)
-    continue(%{frame | args: args}, execution)
-  end
-
-  defp execute(:get_loc, [index], frame, execution),
-    do: push(frame, execution, read_slot(elem(frame.locals, index), execution))
-
-  defp execute(:get_loc0_loc1, [first, second], frame, execution) do
-    first = read_slot(elem(frame.locals, first), execution)
-    second = read_slot(elem(frame.locals, second), execution)
-    continue(%{frame | stack: [first, second | frame.stack]}, execution)
-  end
-
-  defp execute(:put_loc, [index], %{stack: [value | stack]} = frame, execution) do
-    {locals, execution} = write_tuple_slot(frame.locals, index, value, execution)
-    continue(%{frame | locals: locals, stack: stack}, execution)
-  end
-
-  defp execute(:set_loc, [index], %{stack: [value | _]} = frame, execution) do
-    {locals, execution} = write_tuple_slot(frame.locals, index, value, execution)
-    continue(%{frame | locals: locals}, execution)
-  end
-
-  defp execute(:set_loc_uninitialized, [index], frame, execution) do
-    {locals, execution} = write_tuple_slot(frame.locals, index, :uninitialized, execution)
-    continue(%{frame | locals: locals}, execution)
-  end
-
-  defp execute(:get_loc_check, [index], frame, execution) do
-    case read_slot(elem(frame.locals, index), execution) do
-      :uninitialized -> raise_js({:reference_error, index}, frame, execution)
-      value -> push(frame, execution, value)
-    end
-  end
-
-  defp execute(:put_loc_check_init, [index], frame, execution),
-    do: execute(:put_loc, [index], frame, execution)
-
-  defp execute(:put_loc_check, [index], frame, execution),
-    do: execute(:put_loc, [index], frame, execution)
-
-  defp execute(:close_loc, [_index], frame, execution), do: continue(frame, execution)
-
-  defp execute(:inc_loc, [index], frame, execution),
-    do: update_local(frame, execution, index, &Value.unary(:inc, &1))
-
-  defp execute(:dec_loc, [index], frame, execution),
-    do: update_local(frame, execution, index, &Value.unary(:dec, &1))
-
-  defp execute(:add_loc, [index], %{stack: [value | stack]} = frame, execution) do
-    current = read_slot(elem(frame.locals, index), execution)
-
-    {locals, execution} =
-      write_tuple_slot(frame.locals, index, Value.binary(:add, current, value), execution)
-
-    continue(%{frame | locals: locals, stack: stack}, execution)
-  end
-
   defp execute(:for_in_start, [], %{stack: [object | stack]} = frame, execution) do
     case Properties.enumerable_keys(object, execution) do
       {:ok, keys} -> continue(%{frame | stack: [{:for_in, keys, 0} | stack]}, execution)
@@ -448,59 +389,6 @@ defmodule QuickBEAM.VM.Interpreter do
     end
   end
 
-  defp execute(:catch, [target], frame, execution) do
-    continue(%{frame | stack: [{:catch, target} | frame.stack]}, execution)
-  end
-
-  defp execute(:gosub, [target], frame, execution) do
-    return_address = {:return_address, frame.pc + 1}
-    run(%{frame | pc: target, stack: [return_address | frame.stack]}, execution)
-  end
-
-  defp execute(:ret, [], %{stack: [{:return_address, target} | stack]} = frame, execution),
-    do: run(%{frame | pc: target, stack: stack}, execution)
-
-  defp execute(:if_false, [target], %{stack: [value | stack]} = frame, execution) do
-    pc = if Value.truthy?(value), do: frame.pc + 1, else: target
-    run(%{frame | pc: pc, stack: stack}, execution)
-  end
-
-  defp execute(:if_false8, [target], frame, execution),
-    do: execute(:if_false, [target], frame, execution)
-
-  defp execute(:if_true, [target], %{stack: [value | stack]} = frame, execution) do
-    pc = if Value.truthy?(value), do: target, else: frame.pc + 1
-    run(%{frame | pc: pc, stack: stack}, execution)
-  end
-
-  defp execute(:if_true8, [target], frame, execution),
-    do: execute(:if_true, [target], frame, execution)
-
-  defp execute(:goto, [target], frame, execution), do: run(%{frame | pc: target}, execution)
-  defp execute(:goto8, [target], frame, execution), do: execute(:goto, [target], frame, execution)
-
-  defp execute(:goto16, [target], frame, execution),
-    do: execute(:goto, [target], frame, execution)
-
-  defp execute(:return, [], %{stack: [value | _stack]}, execution),
-    do: return_value(value, execution)
-
-  defp execute(:return_undef, [], _frame, execution),
-    do: return_value(:undefined, execution)
-
-  defp execute(:return_async, [], %{stack: [value | _stack]}, execution),
-    do: complete_async(value, execution)
-
-  defp execute(:fclosure, [index], frame, execution) do
-    function = Enum.at(frame.function.constants, index)
-    {callable, frame, execution} = capture_closure(function, frame, execution)
-    {reference, execution} = allocate_function(callable, function, execution)
-    push(frame, execution, reference)
-  end
-
-  defp execute(:fclosure8, [index], frame, execution),
-    do: execute(:fclosure, [index], frame, execution)
-
   defp execute(:call, [argument_count], frame, execution),
     do: call(frame, execution, argument_count, false)
 
@@ -516,99 +404,8 @@ defmodule QuickBEAM.VM.Interpreter do
   defp execute(:call_constructor, [argument_count], frame, execution),
     do: call_constructor(frame, execution, argument_count)
 
-  defp execute(name, [index], frame, execution)
-       when name in [
-              :get_var_ref,
-              :get_var_ref0,
-              :get_var_ref1,
-              :get_var_ref2,
-              :get_var_ref3,
-              :get_var_ref_check
-            ] do
-    value = read_reference(elem(frame.closure_refs, index), execution)
-
-    if name == :get_var_ref_check and value == :uninitialized,
-      do: raise_js({:reference_error, index}, frame, execution),
-      else: push(frame, execution, value)
-  end
-
-  defp execute(name, [index], %{stack: [value | stack]} = frame, execution)
-       when name in [
-              :put_var_ref,
-              :put_var_ref0,
-              :put_var_ref1,
-              :put_var_ref2,
-              :put_var_ref3,
-              :put_var_ref_check,
-              :put_var_ref_check_init
-            ] do
-    execution = write_reference(elem(frame.closure_refs, index), value, execution)
-    continue(%{frame | stack: stack}, execution)
-  end
-
-  defp execute(:set_var_ref, [index], %{stack: [value | _]} = frame, execution) do
-    execution = write_reference(elem(frame.closure_refs, index), value, execution)
-    continue(frame, execution)
-  end
-
-  defp execute(:get_var, [atom], frame, execution) do
-    name = resolve_atom(atom, execution)
-
-    case Map.fetch(execution.globals, name) do
-      {:ok, value} -> push(frame, execution, value)
-      :error -> raise_js({:reference_error, name}, frame, execution)
-    end
-  end
-
-  defp execute(:get_var_undef, [atom], frame, execution) do
-    name = resolve_atom(atom, execution)
-    push(frame, execution, Map.get(execution.globals, name, :undefined))
-  end
-
-  defp execute(name, [atom | _flags], %{stack: [value | stack]} = frame, execution)
-       when name in [:put_var, :put_var_init, :define_func] do
-    name = resolve_atom(atom, execution)
-    execution = %{execution | globals: Map.put(execution.globals, name, value)}
-    continue(%{frame | stack: stack}, execution)
-  end
-
-  defp execute(name, [_atom | _flags], frame, execution)
-       when name in [:define_var, :check_define_var],
-       do: continue(frame, execution)
-
-  defp execute(:throw, [], %{stack: [value | stack]} = frame, execution),
-    do: raise_js(value, %{frame | stack: stack}, execution)
-
-  defp execute(:await, [], %{stack: [%PromiseReference{} = promise | stack]} = frame, execution) do
-    frame = %{frame | stack: stack}
-
-    case detach_async(frame, execution, promise) do
-      {:ok, result} -> result
-      :no_async_boundary -> suspend_promise_legacy(frame, execution, promise)
-    end
-  end
-
-  defp execute(:await, [], %{stack: [{:pending, reference} | stack]} = frame, execution) do
-    continuation = %Continuation{
-      frame: next_frame(%{frame | stack: stack}),
-      execution: execution,
-      awaiting: reference
-    }
-
-    {:suspended, continuation}
-  end
-
-  defp execute(:await, [], %{stack: [{:resolved, value} | stack]} = frame, execution),
-    do: await_immediate({:ok, value}, %{frame | stack: stack}, execution)
-
-  defp execute(:await, [], %{stack: [{:rejected, reason} | stack]} = frame, execution),
-    do: await_immediate({:error, reason}, %{frame | stack: stack}, execution)
-
-  defp execute(:await, [], %{stack: [value | stack]} = frame, execution),
-    do: await_immediate({:ok, value}, %{frame | stack: stack}, execution)
-
   defp execute(name, _operands, frame, execution)
-       when name in [:nop, :set_name, :set_name_computed, :check_ctor, :close_loc],
+       when name in [:nop, :set_name, :set_name_computed, :check_ctor],
        do: continue(frame, execution)
 
   defp execute(name, operands, _frame, execution),
@@ -1012,9 +809,32 @@ defmodule QuickBEAM.VM.Interpreter do
   defp next_frame(frame), do: %{frame | pc: frame.pc + 1}
 
   defp execute_opcode({:next, frame, execution}), do: continue(frame, execution)
+  defp execute_opcode({:run, frame, execution}), do: run(frame, execution)
+  defp execute_opcode({:return, value, execution}), do: return_value(value, execution)
+  defp execute_opcode({:return_async, value, execution}), do: complete_async(value, execution)
 
   defp execute_opcode({:throw, reason, frame, execution}),
     do: raise_js(reason, frame, execution)
+
+  defp execute_opcode({:await_promise, promise, frame, execution}) do
+    case detach_async(frame, execution, promise) do
+      {:ok, result} -> result
+      :no_async_boundary -> suspend_promise_legacy(frame, execution, promise)
+    end
+  end
+
+  defp execute_opcode({:await_legacy, reference, frame, execution}) do
+    continuation = %Continuation{
+      frame: next_frame(frame),
+      execution: execution,
+      awaiting: reference
+    }
+
+    {:suspended, continuation}
+  end
+
+  defp execute_opcode({:await_immediate, result, frame, execution}),
+    do: await_immediate(result, frame, execution)
 
   defp detach_async(frame, execution, awaited_promise) do
     case Async.detach_await(next_frame(frame), execution, awaited_promise) do
@@ -1207,129 +1027,6 @@ defmodule QuickBEAM.VM.Interpreter do
     run(%{caller | stack: [value | caller.stack]}, execution)
   end
 
-  defp update_local(frame, execution, index, operation) do
-    value = read_slot(elem(frame.locals, index), execution)
-    {locals, execution} = write_tuple_slot(frame.locals, index, operation.(value), execution)
-    continue(%{frame | locals: locals}, execution)
-  end
-
-  defp allocate_function(callable, function, execution) do
-    {reference, execution} = Heap.allocate(execution, :function, callable: callable)
-
-    if function.has_prototype do
-      {prototype, execution} = Heap.allocate(execution)
-
-      {:ok, execution} =
-        Properties.define(prototype, "constructor", reference, execution,
-          enumerable: false,
-          configurable: true
-        )
-
-      {:ok, execution} =
-        Properties.define(reference, "prototype", prototype, execution,
-          enumerable: false,
-          configurable: false
-        )
-
-      {reference, execution}
-    else
-      {reference, execution}
-    end
-  end
-
-  defp capture_closure(%Function{closure_vars: []} = function, frame, execution),
-    do: {function, frame, execution}
-
-  defp capture_closure(%Function{} = function, frame, execution) do
-    {references, frame, execution} =
-      Enum.reduce(function.closure_vars, {[], frame, execution}, fn closure_var,
-                                                                    {references, frame, execution} ->
-        {reference, frame, execution} = capture_reference(closure_var, frame, execution)
-        {[reference | references], frame, execution}
-      end)
-
-    {{:closure, function, references |> Enum.reverse() |> List.to_tuple()}, frame, execution}
-  end
-
-  defp capture_reference(%{closure_type: 0, var_idx: index}, frame, execution) do
-    index = frame.function.arg_count + index
-    {reference, locals, execution} = promote_tuple_slot(frame.locals, index, execution)
-    {reference, %{frame | locals: locals}, execution}
-  end
-
-  defp capture_reference(%{closure_type: 1, var_idx: index}, frame, execution) do
-    {reference, args, execution} = promote_tuple_slot(frame.args, index, execution)
-    {reference, %{frame | args: args}, execution}
-  end
-
-  defp capture_reference(%{closure_type: 2, var_idx: index}, frame, execution),
-    do: {elem(frame.closure_refs, index), frame, execution}
-
-  defp capture_reference(%{name: name}, frame, execution),
-    do: {{:global, name}, frame, execution}
-
-  defp promote_tuple_slot(tuple, index, execution) do
-    case elem(tuple, index) do
-      {:cell, _id} = reference ->
-        {reference, tuple, execution}
-
-      value ->
-        id = execution.next_cell_id
-        reference = {:cell, id}
-
-        execution = Memory.charge_cell(execution, value)
-
-        execution = %{
-          execution
-          | cells: Map.put(execution.cells, id, value),
-            next_cell_id: id + 1
-        }
-
-        {reference, put_elem(tuple, index, reference), execution}
-    end
-  end
-
-  defp read_slot({:cell, _id} = reference, execution),
-    do: read_reference(reference, execution)
-
-  defp read_slot({:global, _name} = reference, execution),
-    do: read_reference(reference, execution)
-
-  defp read_slot(value, _execution), do: value
-
-  defp read_reference({:cell, id}, execution), do: Map.fetch!(execution.cells, id)
-
-  defp read_reference({:global, name}, execution),
-    do: Map.get(execution.globals, name, :undefined)
-
-  defp write_reference({:cell, id}, value, execution),
-    do: %{execution | cells: Map.put(execution.cells, id, value)}
-
-  defp write_reference({:global, name}, value, execution),
-    do: %{execution | globals: Map.put(execution.globals, name, value)}
-
-  defp write_tuple_slot(tuple, index, value, execution) do
-    case elem(tuple, index) do
-      {:cell, _id} = reference -> {tuple, write_reference(reference, value, execution)}
-      {:global, _name} = reference -> {tuple, write_reference(reference, value, execution)}
-      _value -> {put_elem(tuple, index, value), execution}
-    end
-  end
-
-  defp tuple_get(tuple, index) when index < tuple_size(tuple), do: elem(tuple, index)
-  defp tuple_get(_tuple, _index), do: :undefined
-
-  defp resolve_atom(:empty_string, _execution), do: ""
-  defp resolve_atom({:tagged_int, value}, _execution), do: value
-
-  defp resolve_atom({:predefined, index}, _execution),
-    do: PredefinedAtoms.lookup(index) || {:predefined, index}
-
-  defp resolve_atom(index, execution) when is_integer(index) and index >= 0 do
-    if index < tuple_size(execution.atoms),
-      do: elem(execution.atoms, index),
-      else: {:atom, index}
-  end
-
-  defp resolve_atom(value, _execution), do: value
+  defp read_slot(value, execution), do: LocalOpcodes.read_slot(value, execution)
+  defp resolve_atom(atom, execution), do: LocalOpcodes.resolve_atom(atom, execution)
 end

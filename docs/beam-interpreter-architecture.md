@@ -373,8 +373,12 @@ Opcode-family modules transform explicit frames and return actions to the
 interpreter rather than owning its run loop. `QuickBEAM.VM.Opcodes.Stack` now
 handles literal and operand-stack operations, while
 `QuickBEAM.VM.Opcodes.Values` handles coercion, arithmetic, comparisons,
-bitwise operations, value tests, `in`, and `instanceof`. Their published opcode
-lists are also the interpreter's routing source, preventing dispatch drift.
+bitwise operations, value tests, `in`, and `instanceof`.
+`QuickBEAM.VM.Opcodes.Control` handles branches, catch markers, returns, throws,
+and await classification. `QuickBEAM.VM.Opcodes.Locals` owns argument/local
+slots, closure-cell promotion, globals, atom resolution, and function-closure
+allocation. Their published opcode lists are also the interpreter's routing
+source, preventing dispatch drift.
 
 Recommended initial representation:
 
