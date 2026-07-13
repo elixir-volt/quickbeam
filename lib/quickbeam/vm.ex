@@ -6,7 +6,7 @@ defmodule QuickBEAM.VM do
   heap, Promise state, host operations, and resource limits.
   """
 
-  alias QuickBEAM.VM.{ABI, Decoder, Evaluator, Function, Program, Verifier}
+  alias QuickBEAM.VM.{ABI, Decoder, Evaluator, Function, Measurement, Program, Verifier}
 
   @type program :: QuickBEAM.VM.Program.t()
 
@@ -103,6 +103,33 @@ defmodule QuickBEAM.VM do
         :caller -> Evaluator.eval(program, Map.to_list(options.interpreter))
         :process -> eval_isolated(program, options)
       end
+    end
+  end
+
+  @doc """
+  Evaluates a program with the same isolation and limits as `eval/2`, returning
+  its result together with deterministic step/logical-memory counters and
+  endpoint process observations.
+
+  Evaluation failures, including resource limits, are stored in
+  `measurement.result`. Invalid programs or options are returned directly as
+  `{:error, reason}` because no evaluation was started.
+  """
+  @spec measure(Program.t(), keyword()) :: {:ok, Measurement.t()} | {:error, term()}
+  def measure(%Program{} = program, opts \\ []) when is_list(opts) do
+    with :ok <- Verifier.verify(program),
+         {:ok, options} <- evaluation_options(opts) do
+      started = System.monotonic_time()
+
+      payload =
+        case options.isolation do
+          :caller -> safe_measure(program, options.interpreter)
+          :process -> measure_isolated(program, options)
+        end
+
+      elapsed = System.monotonic_time() - started
+      wall_time_us = System.convert_time_unit(elapsed, :native, :microsecond)
+      {:ok, measurement(payload, wall_time_us)}
     end
   end
 
@@ -203,6 +230,52 @@ defmodule QuickBEAM.VM do
     exception -> {:error, {:interpreter_crash, exception, __STACKTRACE__}}
   catch
     kind, reason -> {:error, {:interpreter_crash, {kind, reason}, __STACKTRACE__}}
+  end
+
+  defp measure_isolated(program, options) do
+    caller = self()
+    reply_ref = make_ref()
+
+    worker = fn ->
+      payload = safe_measure(program, options.interpreter)
+      send(caller, {reply_ref, payload})
+    end
+
+    {pid, monitor_ref} = :erlang.spawn_opt(worker, worker_spawn_options(options.memory_limit))
+
+    case await_evaluation(pid, monitor_ref, reply_ref, options.timeout, options.memory_limit) do
+      {:measured, _result, _metrics} = measured -> measured
+      {:error, _reason} = error -> {:measured, error, nil}
+    end
+  end
+
+  defp safe_measure(program, options) do
+    {result, metrics} = Evaluator.eval_with_metrics(program, Map.to_list(options))
+
+    result =
+      if match?({:suspended, _continuation}, result),
+        do: {:error, {:unsupported, :async_wait}},
+        else: result
+
+    {:measured, result, metrics}
+  rescue
+    exception -> {:measured, {:error, {:interpreter_crash, exception, __STACKTRACE__}}, nil}
+  catch
+    kind, reason ->
+      {:measured, {:error, {:interpreter_crash, {kind, reason}, __STACKTRACE__}}, nil}
+  end
+
+  defp measurement({:measured, result, metrics}, wall_time_us) do
+    metrics = metrics || %{}
+
+    %Measurement{
+      result: result,
+      wall_time_us: wall_time_us,
+      steps: Map.get(metrics, :steps),
+      logical_memory_bytes: Map.get(metrics, :logical_memory_bytes),
+      process_memory_bytes: Map.get(metrics, :process_memory_bytes),
+      reductions: Map.get(metrics, :reductions)
+    }
   end
 
   @doc "Returns the monitored worker spawn options for an evaluation memory limit."

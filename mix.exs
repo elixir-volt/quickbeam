@@ -107,6 +107,9 @@ defmodule QuickBEAM.MixProject do
         "README.md",
         "docs/javascript-api.md",
         "docs/architecture.md",
+        "docs/beam-interpreter-architecture.md",
+        "docs/beam-scheduler-measurements.md",
+        "docs/beam-ssr-measurements.md",
         "docs/prototype-delta-audit.md",
         "docs/test262-conformance.md",
         "CHANGELOG.md"
@@ -115,13 +118,36 @@ defmodule QuickBEAM.MixProject do
         Guides: [
           "docs/javascript-api.md",
           "docs/architecture.md",
+          "docs/beam-interpreter-architecture.md",
+          "docs/beam-scheduler-measurements.md",
+          "docs/beam-ssr-measurements.md",
           "docs/prototype-delta-audit.md",
           "docs/test262-conformance.md"
         ]
       ],
       filter_modules: &documented_module?/2,
+      skip_code_autolink_to: &skip_doc_warning?/1,
+      skip_undefined_reference_warnings_on: &skip_doc_warning?/1,
       source_ref: "v#{@version}"
     ]
+  end
+
+  defp skip_doc_warning?(reference) do
+    internal_vm_modules = [
+      "QuickBEAM.VM.Async",
+      "QuickBEAM.VM.Builtin",
+      "QuickBEAM.VM.Exceptions",
+      "QuickBEAM.VM.Fuzz",
+      "QuickBEAM.VM.Invocation",
+      "QuickBEAM.VM.Iterator",
+      "QuickBEAM.VM.Opcodes",
+      "QuickBEAM.VM.Properties",
+      "QuickBEAM.VM.Value"
+    ]
+
+    String.starts_with?(reference, "QuickBEAM.Runtime") or
+      Enum.any?(internal_vm_modules, &String.starts_with?(reference, &1)) or
+      String.ends_with?(reference, "beam-interpreter-architecture.md")
   end
 
   defp documented_module?(module, _metadata) do
@@ -129,6 +155,7 @@ defmodule QuickBEAM.MixProject do
       QuickBEAM.VM.ABI,
       QuickBEAM.VM.ClosureVariable,
       QuickBEAM.VM.Function,
+      QuickBEAM.VM.Measurement,
       QuickBEAM.VM.Program,
       QuickBEAM.VM.SourcePosition,
       QuickBEAM.VM.Variable

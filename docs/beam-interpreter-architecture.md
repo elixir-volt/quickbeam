@@ -101,6 +101,9 @@ would still be scheduled independently.
 
 @spec QuickBEAM.VM.decode(binary(), keyword()) ::
         {:ok, QuickBEAM.VM.Program.t()} | {:error, term()}
+
+@spec QuickBEAM.VM.measure(QuickBEAM.VM.Program.t(), keyword()) ::
+        {:ok, QuickBEAM.VM.Measurement.t()} | {:error, term()}
 ```
 
 Suggested compile options:
@@ -116,7 +119,9 @@ it, verifies it, and returns an immutable program. Compilation may use a native
 compiler pool, but evaluation must not require a QuickJS execution context.
 
 `decode/2` is an advanced API. It accepts only bytecode matching the running
-QuickBEAM build fingerprint.
+QuickBEAM build fingerprint. `measure/2` runs the same isolated evaluation as
+`eval/2` while retaining deterministic step/logical-memory counters, endpoint
+process observations, and end-to-end wall time.
 
 ### Evaluate
 
@@ -747,9 +752,16 @@ Minimum scheduler acceptance scenarios:
 - evaluation process memory is reclaimed after completion;
 - a compiled program can be shared without copying mutable runtime state.
 
-A reasonable first performance gate is an agreed maximum slowdown on the pinned
-SSR workload, measured end to end. It should be set from reproducible benchmark
-data rather than early arithmetic microbenchmarks.
+The reproducible fixture measurements are published in
+[`beam-ssr-measurements.md`](beam-ssr-measurements.md), with the `+S 1:1`
+fairness and timeout gate in
+[`beam-scheduler-measurements.md`](beam-scheduler-measurements.md). The reports
+separate deterministic VM steps/logical allocation from endpoint BEAM process
+observations, wall latency, concurrent throughput, and cancellation. Current
+single-scheduler acceptance bounds are a maximum 75 ms ticker gap during the
+pinned Vue render and timeout p95 no greater than 60 ms for a 50 ms limit.
+Future performance gates should continue to use pinned end-to-end SSR fixtures,
+not arithmetic microbenchmarks.
 
 ## Rollout
 
@@ -810,7 +822,8 @@ for fulfillment, rejection, ordering, and nested awaits.
   real HTML after the handler Promise settles.
 - Render concurrently with independent request state.
 - Compare output, Promise ordering, and errors with native QuickJS.
-- Publish scheduler, memory, cancellation, and performance benchmark results.
+- Publish scheduler, memory, cancellation, and performance benchmark results
+  (complete; see the pinned measurement reports).
 
 Exit gate: the async SSR fixture is correct, isolated, bounded, cancellable, and
 operationally observable.

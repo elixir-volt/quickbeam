@@ -441,7 +441,9 @@ High-value test groups to adapt next:
   multi-environment addon support. The registry is bounded to 256 libraries.
 - Continue auditing cancellation, queued-payload cleanup, and owner-local
   shutdown.
-- Publish scheduler, memory, timeout, and performance results.
+- Published reproducible pinned SSR step, logical-memory, endpoint process,
+  latency, concurrency, timeout, cancellation, and single-scheduler fairness
+  measurements.
 - Freeze the supported SSR compatibility matrix.
 
 ### Phase E — optional compiler extraction
@@ -453,5 +455,6 @@ High-value test groups to adapt next:
 
 ## Immediate next action
 
-Publish scheduler, timeout, memory, and SSR measurements for the frozen
-compatibility profile before beginning compiler extraction.
+Specify the bounded module pool, explicit deoptimization states, and compiler
+cache lifecycle against the canonical runtime contract before extracting any
+prototype compiler code.

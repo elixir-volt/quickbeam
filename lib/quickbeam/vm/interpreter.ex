@@ -78,6 +78,7 @@ defmodule QuickBEAM.VM.Interpreter do
       handlers: Map.new(Keyword.get(opts, :handlers, %{})),
       max_stack_depth: Keyword.get(opts, :max_stack_depth, @default_max_stack_depth),
       memory_limit: Keyword.get(opts, :memory_limit, :infinity),
+      measurement_target: Keyword.get(opts, :measurement_target),
       remaining_steps: max_steps,
       step_limit: max_steps
     }

@@ -10,12 +10,12 @@ defmodule QuickBEAM.VM.Evaluator do
     Async,
     Continuation,
     Coroutine,
-    Execution,
     Exceptions,
+    Execution,
     Interpreter,
+    Program,
     Promise,
     PromiseReference,
-    Program,
     Reaction
   }
 
@@ -24,6 +24,19 @@ defmodule QuickBEAM.VM.Evaluator do
     program
     |> Interpreter.start(opts)
     |> drive()
+  end
+
+  @doc "Evaluates a program and returns deterministic counters plus endpoint process observations."
+  @spec eval_with_metrics(Program.t(), keyword()) :: {Interpreter.result(), map() | nil}
+  def eval_with_metrics(%Program{} = program, opts \\ []) do
+    ref = make_ref()
+    result = eval(program, Keyword.put(opts, :measurement_target, {self(), ref}))
+
+    receive do
+      {:quickbeam_vm_measurement, ^ref, metrics} -> {result, metrics}
+    after
+      0 -> {result, nil}
+    end
   end
 
   defp drive({:ok, %PromiseReference{} = promise, execution}),
@@ -36,7 +49,7 @@ defmodule QuickBEAM.VM.Evaluator do
         then_resume(result, continuation)
 
       {:empty, _jobs} ->
-        {:error, :missing_microtask}
+        finish_final({:error, :missing_microtask, continuation.execution})
     end
   end
 
@@ -44,17 +57,14 @@ defmodule QuickBEAM.VM.Evaluator do
     await_legacy_promise(continuation)
   end
 
-  defp drive({:suspended, _continuation} = suspended), do: Interpreter.finish(suspended)
+  defp drive({:suspended, %Continuation{} = continuation} = suspended),
+    do: finish_suspended(suspended, continuation.execution)
 
-  defp drive({status, _value, execution} = result) when status in [:ok, :error] do
-    Async.cancel_operations(execution)
-    Interpreter.finish(result)
-  end
+  defp drive({status, _value, _execution} = result) when status in [:ok, :error],
+    do: finish_final(result)
 
-  defp drive({:idle, execution}) do
-    Async.cancel_operations(execution)
-    {:error, :idle_evaluation}
-  end
+  defp drive({:idle, execution}),
+    do: finish_final({:error, :idle_evaluation, execution})
 
   defp await_final_promise(%PromiseReference{} = promise, execution) do
     if :queue.is_empty(execution.sync_jobs) do
@@ -199,6 +209,41 @@ defmodule QuickBEAM.VM.Evaluator do
   defp finish_final({status, _value, %Execution{} = execution} = result)
        when status in [:ok, :error] do
     Async.cancel_operations(execution)
-    Interpreter.finish(result)
+    finished = Interpreter.finish(result)
+    report_measurement(execution)
+    finished
+  end
+
+  defp finish_suspended(result, execution) do
+    finished = Interpreter.finish(result)
+    report_measurement(execution)
+    finished
+  end
+
+  defp report_measurement(%Execution{measurement_target: nil}), do: :ok
+
+  defp report_measurement(%Execution{measurement_target: {pid, ref}} = execution) do
+    process_memory = process_stat(:memory)
+    reductions = process_stat(:reductions)
+
+    send(
+      pid,
+      {:quickbeam_vm_measurement, ref,
+       %{
+         steps: execution.step_limit - execution.remaining_steps,
+         logical_memory_bytes: execution.memory_used,
+         process_memory_bytes: process_memory,
+         reductions: reductions
+       }}
+    )
+
+    :ok
+  end
+
+  defp process_stat(key) do
+    case Process.info(self(), key) do
+      {^key, value} -> value
+      nil -> nil
+    end
   end
 end
