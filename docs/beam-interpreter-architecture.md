@@ -425,9 +425,13 @@ module/handler tokens, not captured closures. Calls receive an explicit
 and execution state, and are dispatched through the canonical invocation
 planner. Compile-time checks reject missing handlers, invalid lengths, unknown
 builtin kinds, and duplicate keys. The migrated slice now includes `Math`,
-`String.fromCharCode`, `Array.isArray`, resumable Array callback methods, and
-low-risk plus resumable Object statics. The legacy dispatcher remains only for
-builtins not yet migrated. Real function metadata increases the intrinsic heap
+`String.fromCharCode`, every currently supported Array prototype method,
+`Array.isArray`, and all currently supported Object statics, including
+resumable callbacks, `Object.assign`, and descriptor validation. A narrow
+primitive-array compatibility adapter remains for internal BEAM lists until all
+JavaScript-visible aggregate results use heap arrays. The legacy dispatcher
+otherwise remains only for builtins not yet migrated. Real function metadata
+increases the intrinsic heap
 baseline, which remains included in logical memory accounting.
 
 ## ECMAScript and host profiles

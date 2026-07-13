@@ -16,7 +16,9 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     assert array.name == "Array"
     assert array.kind == :extension
     assert [%FunctionSpec{key: "isArray", handler: :is_array, length: 1}] = array.statics
-    assert Enum.map(array.prototype, & &1.key) == ~w(filter forEach map reduce some)
+
+    assert Enum.map(array.prototype, & &1.key) ==
+             ~w(concat filter forEach join map push reduce slice some)
 
     assert Registry.modules(:core) == [
              QuickBEAM.VM.Builtins.Math,
@@ -28,7 +30,7 @@ defmodule QuickBEAM.VM.BuiltinDSLTest do
     assert QuickBEAM.VM.Builtins.String.builtin_spec().kind == :extension
 
     assert Enum.map(QuickBEAM.VM.Builtins.Object.builtin_spec().statics, & &1.key) ==
-             ~w(assign create getOwnPropertyNames getPrototypeOf keys setPrototypeOf)
+             ~w(assign create defineProperty getOwnPropertyDescriptor getOwnPropertyNames getPrototypeOf keys setPrototypeOf)
   end
 
   test "installs real function objects with stable names, lengths, and descriptors" do

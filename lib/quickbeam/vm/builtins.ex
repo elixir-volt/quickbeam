@@ -14,14 +14,14 @@ defmodule QuickBEAM.VM.Builtins do
     Value
   }
 
-  alias QuickBEAM.VM.Builtin.{Installer, Registry}
+  alias QuickBEAM.VM.Builtin.{Call, Installer, Registry}
 
   @error_types ~w(Error EvalError RangeError ReferenceError SyntaxError TypeError URIError)
 
   @constructors %{
     "Array" => [],
     "Boolean" => [],
-    "Object" => ["defineProperty", "getOwnPropertyDescriptor"],
+    "Object" => [],
     "EvalError" => [],
     "Function" => [],
     "Number" => [],
@@ -93,40 +93,6 @@ defmodule QuickBEAM.VM.Builtins do
 
   @spec call(term(), term(), [term()], Execution.t()) ::
           {:ok, term(), Execution.t()} | {:error, term(), Execution.t()}
-  def call(
-        {:builtin_method, "Object", "defineProperty"},
-        _this,
-        [%Reference{} = target, key, descriptor | _],
-        execution
-      ) do
-    with {:ok, current} <- Properties.own_property(target, key, execution),
-         {:ok, definition} <- descriptor_definition(descriptor, current, execution),
-         {:ok, execution} <- define_property(execution, target, key, definition) do
-      {:ok, target, execution}
-    else
-      {:error, reason} -> {:error, reason, execution}
-    end
-  end
-
-  def call(
-        {:builtin_method, "Object", "getOwnPropertyDescriptor"},
-        _this,
-        [%Reference{} = target, key | _],
-        execution
-      ) do
-    case Properties.own_property(target, key, execution) do
-      {:ok, nil} ->
-        {:ok, :undefined, execution}
-
-      {:ok, property} ->
-        {descriptor, execution} = descriptor_object(property, execution)
-        {:ok, descriptor, execution}
-
-      {:error, reason} ->
-        {:error, reason, execution}
-    end
-  end
-
   def call({:builtin_method, "Promise", method}, _this, [iterable | _], execution)
       when method in ["all", "allSettled", "any", "race"] do
     case array_values(iterable, execution) do
@@ -287,64 +253,23 @@ defmodule QuickBEAM.VM.Builtins do
     {:ok, array, execution}
   end
 
+  def call({:primitive_method, :array, method}, receiver, arguments, execution)
+      when method in ["concat", "join", "push", "slice"] do
+    handler = %{"concat" => :concat, "join" => :join, "push" => :push, "slice" => :slice}[method]
+
+    call = %Call{
+      arguments: arguments,
+      this: receiver,
+      caller: nil,
+      tail?: false,
+      execution: execution
+    }
+
+    apply(QuickBEAM.VM.Builtins.Array, handler, [call])
+  end
+
   def call({:primitive_method, :regexp, "test"}, %RegExp{} = regexp, [value | _], execution),
     do: {:ok, regex_match?(regexp, Value.to_string_value(value)), execution}
-
-  def call({:primitive_method, :array, "push"}, %Reference{} = array, values, execution) do
-    case Heap.fetch_object(execution, array) do
-      {:ok, %Object{kind: :array, length: length}} ->
-        execution =
-          values
-          |> Enum.with_index(length)
-          |> Enum.reduce(execution, fn {value, index}, execution ->
-            {:ok, execution} = Properties.put(array, index, value, execution)
-            execution
-          end)
-
-        {:ok, length + Kernel.length(values), execution}
-
-      _not_array ->
-        {:error, :not_an_array, execution}
-    end
-  end
-
-  def call({:primitive_method, :array, "join"}, value, arguments, execution) do
-    separator =
-      case arguments do
-        [separator | _] -> Value.to_string_value(separator)
-        [] -> ","
-      end
-
-    with {:ok, values} <- array_values(value, execution) do
-      {:ok, Enum.map_join(values, separator, &Value.to_string_value/1), execution}
-    else
-      {:error, reason} -> {:error, reason, execution}
-    end
-  end
-
-  def call({:primitive_method, :array, "slice"}, value, arguments, execution) do
-    with {:ok, values} <- array_values(value, execution) do
-      {start, length} = slice_range(length(values), arguments)
-      {array, execution} = array_from(Enum.slice(values, start, length), execution)
-      {:ok, array, execution}
-    else
-      {:error, reason} -> {:error, reason, execution}
-    end
-  end
-
-  def call({:primitive_method, :array, "concat"}, value, arguments, execution) do
-    with {:ok, values} <- array_values(value, execution) do
-      values =
-        Enum.reduce(arguments, values, fn item, values ->
-          values ++ concat_values(item, execution)
-        end)
-
-      {array, execution} = array_from(values, execution)
-      {:ok, array, execution}
-    else
-      {:error, reason} -> {:error, reason, execution}
-    end
-  end
 
   def call({:builtin, "Boolean"}, %Reference{} = receiver, values, execution) do
     value = values |> List.first() |> Value.truthy?()
@@ -587,7 +512,7 @@ defmodule QuickBEAM.VM.Builtins do
     install_primitive_prototype(
       constructor,
       :array,
-      ["concat", "join", "push", "slice"],
+      [],
       execution
     )
   end
@@ -652,140 +577,6 @@ defmodule QuickBEAM.VM.Builtins do
     end
   end
 
-  defp descriptor_definition(descriptor, current, execution) do
-    with {:ok, getter, getter?} <- descriptor_field(descriptor, "get", execution),
-         {:ok, setter, setter?} <- descriptor_field(descriptor, "set", execution),
-         {:ok, value, value?} <- descriptor_field(descriptor, "value", execution),
-         {:ok, writable, writable?} <- descriptor_field(descriptor, "writable", execution),
-         {:ok, enumerable, enumerable?} <- descriptor_field(descriptor, "enumerable", execution),
-         {:ok, configurable, configurable?} <-
-           descriptor_field(descriptor, "configurable", execution),
-         :ok <- compatible_descriptor_kinds(getter? or setter?, value? or writable?),
-         {:ok, getter} <- accessor_function(getter, getter?, execution),
-         {:ok, setter} <- accessor_function(setter, setter?, execution) do
-      current = current || %Property{writable: false, enumerable: false, configurable: false}
-      accessor? = getter? or setter? or (not value? and not writable? and accessor?(current))
-
-      {:ok,
-       if accessor? do
-         %Property{
-           kind: :accessor,
-           value: :undefined,
-           writable: false,
-           enumerable: if(enumerable?, do: Value.truthy?(enumerable), else: current.enumerable),
-           configurable:
-             if(configurable?, do: Value.truthy?(configurable), else: current.configurable),
-           getter: if(getter?, do: getter, else: current.getter),
-           setter: if(setter?, do: setter, else: current.setter)
-         }
-       else
-         %Property{
-           value: if(value?, do: value, else: current.value),
-           writable: if(writable?, do: Value.truthy?(writable), else: current.writable),
-           enumerable: if(enumerable?, do: Value.truthy?(enumerable), else: current.enumerable),
-           configurable:
-             if(configurable?, do: Value.truthy?(configurable), else: current.configurable)
-         }
-       end}
-    else
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp compatible_descriptor_kinds(true, true), do: {:error, :invalid_property_descriptor}
-  defp compatible_descriptor_kinds(_accessor?, _data?), do: :ok
-
-  defp accessor_function(_value, false, _execution), do: {:ok, nil}
-  defp accessor_function(:undefined, true, _execution), do: {:ok, nil}
-
-  defp accessor_function(value, true, execution) do
-    if callable_value?(value, execution),
-      do: {:ok, value},
-      else: {:error, :accessor_not_callable}
-  end
-
-  defp callable_value?(%Reference{} = reference, execution),
-    do: not is_nil(callable(execution, reference))
-
-  defp callable_value?(value, _execution) when is_tuple(value),
-    do:
-      elem(value, 0) in [
-        :bound_function,
-        :builtin,
-        :builtin_method,
-        :host_function,
-        :primitive_method,
-        :promise_method,
-        :promise_resolver
-      ]
-
-  defp callable_value?(_value, _execution), do: false
-
-  defp accessor?(%Property{kind: :accessor}), do: true
-  defp accessor?(_property), do: false
-
-  defp define_property(execution, target, key, %Property{} = property) do
-    if accessor?(property) do
-      Properties.define_descriptor(target, key, property, execution)
-    else
-      Properties.define(target, key, property.value, execution,
-        writable: property.writable,
-        enumerable: property.enumerable,
-        configurable: property.configurable
-      )
-    end
-  end
-
-  defp descriptor_field(%Reference{} = descriptor, key, execution) do
-    if Properties.has_property?(descriptor, key, execution) do
-      case Properties.get(descriptor, key, execution) do
-        {:ok, {:accessor, _getter, _receiver}} -> {:error, :accessor_descriptor_field}
-        {:ok, value} -> {:ok, value, true}
-        {:error, reason} -> {:error, reason}
-      end
-    else
-      {:ok, :undefined, false}
-    end
-  end
-
-  defp descriptor_field(descriptor, key, _execution) when is_map(descriptor) do
-    if Map.has_key?(descriptor, key),
-      do: {:ok, Map.fetch!(descriptor, key), true},
-      else: {:ok, :undefined, false}
-  end
-
-  defp descriptor_field(_descriptor, _key, _execution), do: {:error, :invalid_descriptor}
-
-  defp descriptor_object(property, execution) do
-    {descriptor, execution} = Heap.allocate(execution)
-
-    fields =
-      if accessor?(property) do
-        [
-          {"get", property.getter || :undefined},
-          {"set", property.setter || :undefined},
-          {"enumerable", property.enumerable},
-          {"configurable", property.configurable}
-        ]
-      else
-        [
-          {"value", property.value},
-          {"writable", property.writable},
-          {"enumerable", property.enumerable},
-          {"configurable", property.configurable}
-        ]
-      end
-
-    execution =
-      fields
-      |> Enum.reduce(execution, fn {key, value}, execution ->
-        {:ok, execution} = Properties.define(descriptor, key, value, execution)
-        execution
-      end)
-
-    {descriptor, execution}
-  end
-
   defp constructor_instance?(%Reference{} = receiver, execution) do
     match?(
       {:ok, %Object{internal: :constructor_instance}},
@@ -847,13 +638,6 @@ defmodule QuickBEAM.VM.Builtins do
   end
 
   defp array_values(_value, _execution), do: {:error, :not_an_array}
-
-  defp concat_values(value, execution) do
-    case array_values(value, execution) do
-      {:ok, values} -> values
-      {:error, _} -> [value]
-    end
-  end
 
   defp property_value(properties, index) do
     case Map.get(properties, index) do

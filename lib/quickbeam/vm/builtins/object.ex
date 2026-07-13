@@ -4,11 +4,13 @@ defmodule QuickBEAM.VM.Builtins.Object do
   use QuickBEAM.VM.Builtin
 
   alias QuickBEAM.VM.Builtin.Call
-  alias QuickBEAM.VM.{Heap, Properties, Reference, Value}
+  alias QuickBEAM.VM.{Heap, Invocation, Properties, Property, Reference, Value}
 
   builtin "Object", kind: :extension do
     static("assign", :assign, length: 2)
     static("create", :create, length: 2)
+    static("defineProperty", :define_property, length: 3)
+    static("getOwnPropertyDescriptor", :get_own_property_descriptor, length: 2)
     static("getOwnPropertyNames", :get_own_property_names, length: 1)
     static("getPrototypeOf", :get_prototype_of, length: 1)
     static("keys", :keys, length: 1)
@@ -34,6 +36,44 @@ defmodule QuickBEAM.VM.Builtins.Object do
   end
 
   def create(%Call{execution: execution}), do: {:error, :invalid_prototype, execution}
+
+  @doc "Implements `Object.defineProperty` with canonical descriptor validation."
+  def define_property(%Call{
+        arguments: [%Reference{} = target, key, descriptor | _],
+        execution: execution
+      }) do
+    with {:ok, current} <- Properties.own_property(target, key, execution),
+         {:ok, definition} <- descriptor_definition(descriptor, current, execution),
+         {:ok, execution} <- apply_property_definition(execution, target, key, definition) do
+      {:ok, target, execution}
+    else
+      {:error, reason} -> {:error, reason, execution}
+    end
+  end
+
+  def define_property(%Call{execution: execution}),
+    do: {:error, :invalid_property_target, execution}
+
+  @doc "Implements `Object.getOwnPropertyDescriptor`."
+  def get_own_property_descriptor(%Call{
+        arguments: [%Reference{} = target, key | _],
+        execution: execution
+      }) do
+    case Properties.own_property(target, key, execution) do
+      {:ok, nil} ->
+        {:ok, :undefined, execution}
+
+      {:ok, property} ->
+        {descriptor, execution} = descriptor_object(property, execution)
+        {:ok, descriptor, execution}
+
+      {:error, reason} ->
+        {:error, reason, execution}
+    end
+  end
+
+  def get_own_property_descriptor(%Call{execution: execution}),
+    do: {:error, :invalid_property_target, execution}
 
   @doc "Implements `Object.getOwnPropertyNames`."
   def get_own_property_names(%Call{
@@ -90,6 +130,122 @@ defmodule QuickBEAM.VM.Builtins.Object do
 
   def set_prototype_of(%Call{execution: execution}),
     do: {:error, :invalid_prototype, execution}
+
+  defp descriptor_definition(descriptor, current, execution) do
+    with {:ok, getter, getter?} <- descriptor_field(descriptor, "get", execution),
+         {:ok, setter, setter?} <- descriptor_field(descriptor, "set", execution),
+         {:ok, value, value?} <- descriptor_field(descriptor, "value", execution),
+         {:ok, writable, writable?} <- descriptor_field(descriptor, "writable", execution),
+         {:ok, enumerable, enumerable?} <- descriptor_field(descriptor, "enumerable", execution),
+         {:ok, configurable, configurable?} <-
+           descriptor_field(descriptor, "configurable", execution),
+         :ok <- compatible_descriptor_kinds(getter? or setter?, value? or writable?),
+         {:ok, getter} <- accessor_function(getter, getter?, execution),
+         {:ok, setter} <- accessor_function(setter, setter?, execution) do
+      current = current || %Property{writable: false, enumerable: false, configurable: false}
+      accessor? = getter? or setter? or (not value? and not writable? and accessor?(current))
+
+      {:ok,
+       if accessor? do
+         %Property{
+           kind: :accessor,
+           value: :undefined,
+           writable: false,
+           enumerable: if(enumerable?, do: Value.truthy?(enumerable), else: current.enumerable),
+           configurable:
+             if(configurable?, do: Value.truthy?(configurable), else: current.configurable),
+           getter: if(getter?, do: getter, else: current.getter),
+           setter: if(setter?, do: setter, else: current.setter)
+         }
+       else
+         %Property{
+           value: if(value?, do: value, else: current.value),
+           writable: if(writable?, do: Value.truthy?(writable), else: current.writable),
+           enumerable: if(enumerable?, do: Value.truthy?(enumerable), else: current.enumerable),
+           configurable:
+             if(configurable?, do: Value.truthy?(configurable), else: current.configurable)
+         }
+       end}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp compatible_descriptor_kinds(true, true), do: {:error, :invalid_property_descriptor}
+  defp compatible_descriptor_kinds(_accessor?, _data?), do: :ok
+
+  defp accessor_function(_value, false, _execution), do: {:ok, nil}
+  defp accessor_function(:undefined, true, _execution), do: {:ok, nil}
+
+  defp accessor_function(value, true, execution) do
+    if Invocation.callable?(value, execution),
+      do: {:ok, value},
+      else: {:error, :accessor_not_callable}
+  end
+
+  defp accessor?(%Property{kind: :accessor}), do: true
+  defp accessor?(_property), do: false
+
+  defp apply_property_definition(execution, target, key, %Property{} = property) do
+    if accessor?(property) do
+      Properties.define_descriptor(target, key, property, execution)
+    else
+      Properties.define(target, key, property.value, execution,
+        writable: property.writable,
+        enumerable: property.enumerable,
+        configurable: property.configurable
+      )
+    end
+  end
+
+  defp descriptor_field(%Reference{} = descriptor, key, execution) do
+    if Properties.has_property?(descriptor, key, execution) do
+      case Properties.get(descriptor, key, execution) do
+        {:ok, {:accessor, _getter, _receiver}} -> {:error, :accessor_descriptor_field}
+        {:ok, value} -> {:ok, value, true}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:ok, :undefined, false}
+    end
+  end
+
+  defp descriptor_field(descriptor, key, _execution) when is_map(descriptor) do
+    if Map.has_key?(descriptor, key),
+      do: {:ok, Map.fetch!(descriptor, key), true},
+      else: {:ok, :undefined, false}
+  end
+
+  defp descriptor_field(_descriptor, _key, _execution), do: {:error, :invalid_descriptor}
+
+  defp descriptor_object(property, execution) do
+    {descriptor, execution} = Heap.allocate(execution)
+
+    fields =
+      if accessor?(property) do
+        [
+          {"get", property.getter || :undefined},
+          {"set", property.setter || :undefined},
+          {"enumerable", property.enumerable},
+          {"configurable", property.configurable}
+        ]
+      else
+        [
+          {"value", property.value},
+          {"writable", property.writable},
+          {"enumerable", property.enumerable},
+          {"configurable", property.configurable}
+        ]
+      end
+
+    execution =
+      Enum.reduce(fields, execution, fn {key, value}, execution ->
+        {:ok, execution} = Properties.define(descriptor, key, value, execution)
+        execution
+      end)
+
+    {descriptor, execution}
+  end
 
   defp own_keys(%Reference{} = reference, execution),
     do: Properties.enumerable_keys(reference, execution)

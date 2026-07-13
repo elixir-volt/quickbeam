@@ -36,7 +36,9 @@ defmodule QuickBEAM.VM.ObjectModelTest do
       "(()=>{let value=Array(4);value[1]=2;let calls=[];let mapped=value.map((item,index)=>{calls.push(index);return item*2});return [calls.join(','),mapped.length,Object.keys(mapped).join(','),mapped[1]]})()",
       "(()=>{let value=Array(5);value[1]=1;value[3]=3;let each=[];value.forEach((item,index)=>each.push(index));let filtered=value.filter(item=>item>1);let some=value.some((item,index)=>index===2);return [each.join(','),filtered.length,filtered[0],some]})()",
       "(()=>{let value=Array(5);value[2]=4;value[4]=6;let calls=[];let result=value.reduce((sum,item,index)=>{calls.push(index);return sum+item});return [result,calls.join(',')]})()",
-      "(()=>{let value=Array(3);let calls=0;let initial=value.reduce(()=>{calls++;return 0},42);let error='';try{value.reduce(()=>0)}catch(reason){error=reason.name}return [initial,calls,error]})()"
+      "(()=>{let value=Array(3);let calls=0;let initial=value.reduce(()=>{calls++;return 0},42);let error='';try{value.reduce(()=>0)}catch(reason){error=reason.name}return [initial,calls,error]})()",
+      "(()=>{let value=Array(4);value[1]=2;let sliced=value.slice(0);let joined=value.join('-');let extra=Array(2);extra[1]=3;let combined=value.concat(extra);return [sliced.length,Object.keys(sliced).join(','),joined,combined.length,Object.keys(combined).join(',')]})()",
+      "(()=>{let value=Array(3);value[0]=void 0;value[1]=null;return value.join(',')})()"
     ]
 
     for source <- sources do
